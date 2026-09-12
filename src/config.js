@@ -1980,7 +1980,7 @@ export const WEAPONS = {
     //            shared with the beam weapons and the build sheet labels it 'Burns for', which is a
     //            lie about a rope. Same reasoning as barnacles' `crustDur` above.
     //   offset   how far ahead of the player the line is set.
-    // The catch (LONGLINE_SNAG) fires ONCE PER BODY PER LINE — see the `snagged` set in
+    // The catch (LONGLINE_SNAG) fires ONCE PER BODY PER LINE — see the `contact` map in
     // stepLonglines. A stun refreshed every tick would be a permanent lock, and at tick 0.40s
     // against a 0.5s stun that is exactly what a per-tick application would produce.
     // PINNED AGAINST BREAKER, the book's other normal-rarity starter, measured in ONE census
@@ -2005,6 +2005,13 @@ export const WEAPONS = {
     // 1.3 at L1 to 2.1 at L5. Reach for the coverage stat, not the damage stat, on anything that
     // ticks. The snag is untouched throughout — the catch is what the card IS, the damage is what
     // it costs.
+    // ⚠ EVERY ROW ABOVE PREDATES THE PER-BODY CONTACT FIX and is history, not the current weapon:
+    // they were measured while the rope sampled bodies at 1/tick Hz and let 23% of them through
+    // (see stepLonglines). Re-pinned on the same rig after it, with Breaker's rows byte-identical
+    // across both invocations as the control: Longline L1 eff 98 -> 106 against Breaker's 105, L5
+    // 126 -> 130 against 126. Parity, which is where this block says the ceiling is — so nothing
+    // here was retuned to pay for the fix. Read the L1 row: the L5 rig saturates (kills/min agree
+    // at 179-183 across both cards).
     // ⚠ Do NOT read these against the numbers the same census prints for --chapter trawl (Longline
     // 318/411 on the first cut there). `eff dps` is a global enemy-HP diff, so in the Trawl it
     // credits every weapon with the chapter's own net — roughly two thirds of the figure. Surf is
@@ -4722,7 +4729,7 @@ export const BARNACLE_JUMP_R = 190
 // got fatter would slide toward being a rectangle. Read it against the smallest enemy radius
 // (~14px): a body has to genuinely cross the rope, not merely pass near it.
 export const LONGLINE_HALF_W = 22
-// LONGLINE_SNAG: the catch, in seconds. ONCE PER BODY PER LINE (the `snagged` set in
+// LONGLINE_SNAG: the catch, in seconds. ONCE PER BODY PER LINE (the `contact` map in
 // stepLonglines) — never per tick. At tick 0.40s a per-tick 0.5s stun is a permanent lock, which
 // turns a fence into an invulnerability field; the once-per-line rule is what makes `twinSet` and
 // laying a second line the way you buy MORE control, rather than the line itself being infinite.
@@ -4730,10 +4737,39 @@ export const LONGLINE_SNAG = 0.5
 // Twin Set lays parallel lines this far apart. Wider than LONGLINE_HALF_W * 2 so the two ropes are
 // visibly separate and a body is caught by each in turn; much wider and the pack walks between them.
 export const LONGLINE_TWIN_GAP = 54
-// Live-line cap. A readability guard first (the water fills with rope at high fire rate) and a
-// balance one second. Drops the OLDEST, like ZONE_MAX_LIVE — cutting the newest would eat the cast
-// the player just made.
-export const LONGLINE_MAX_LIVE = 8
+// Live-gear cap, counted in CASTS and not in ropes. A readability guard first (the water fills
+// with rope at high fire rate) and a balance one second. Retires the OLDEST set, like
+// ZONE_MAX_LIVE — cutting the newest would eat the cast the player just made.
+//
+// ⚠ IT COUNTS SETS BECAUSE ROPES-PER-CAST IS SOMETHING THE PLAYER BUYS, and a cap counted in ropes
+// charges Twin Set for its own purchase. Measured at the old cap of 8 ropes (3 seeds x 300s, L5,
+// trawl d3): a Twin Set +2 build sat at the cap 98% of the run, and `twinSet +4` and
+// `twinSet +4 & deepSet +75%` returned BYTE-IDENTICAL live-rope counts — i.e. Deep Set, a card the
+// pause sheet dutifully prints as 'Line lasts 7.35s', bought exactly nothing, and every further
+// Twin Set pick deleted a rope the player had already paid for. Ropes cast past the cap never
+// appeared for a single frame. Against SETS, Twin Set widens a set and Deep Set keeps more sets in
+// the water, which is what both cards say they do.
+//
+// ⚠ AND IT INVERTED FIRE RATE, which is how a player finds it (owner, from play: "machine gun +
+// hook lines and that makes lines deal no damage since they depop before the first tick"). A rope
+// cap divided by ropes-per-cast is a rope LIFESPAN of cap/lines casts, so the faster you fired the
+// sooner your own next cast deleted the last one. Measured over 60s with a ring of bodies round
+// the player, Twin Set +4, fire rate x1 -> x6: median rope life 4.00s -> 0.67s, 361 of 895 ropes
+// gone before their first tick had even come due, and damage dealt 49672 -> 18368. SIX TIMES the
+// fire rate dealt A THIRD the damage, and the weapon's best build was to stop buying fire rate.
+// Counted in sets, the same ladder runs 72136 -> 295464 and rope life holds at 4.20s -> 2.68s.
+export const LONGLINE_MAX_SETS = 6
+// A retired set is EXPIRED EARLY, never deleted: it keeps its last LONGLINE_RETIRE_T of life so it
+// fades out like any other rope. Matched to GEAR_VIS.fade in render.js, whose alpha ramp is
+// life / fade — a rope that blinks out mid-water reads as the weapon losing its own gear.
+export const LONGLINE_RETIRE_T = 0.7
+// How close to the player the NEAREST rope of a set may be laid. Twin Set's fan is centred on
+// `offset` and grows both ways, so without a floor the rearmost rope walks backwards past the
+// player: at 5 lines it lands at -8px (i.e. behind you, over your own body) and at 7 it lands at
+// -62. Measured at twinSet +6, one rope of EVERY cast was set behind the player, and at +15 it was
+// 894 of 2384. A rope behind you is not a fence. PLAYER.radius + LONGLINE_HALF_W is the first
+// distance at which the rope's own hit band clears the player's body.
+export const LONGLINE_MIN_OFFSET = PLAYER.radius + LONGLINE_HALF_W
 
 // ---- The Deep's three natives ---------------------------------------------------------------
 // How long a Sunspear column hangs before it lands. It is a TELEGRAPH, so it has to be long enough

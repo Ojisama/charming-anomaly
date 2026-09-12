@@ -200,7 +200,7 @@ import {
   BREAKER_BACKWASH_DMG_FRAC,
   SHELL_RETARGET_R, SHELL_SPLASH_LIFE, SHELL_R,
   BARNACLE_JUMP_R, BARNACLE_FAN, BARNACLE_LARVA_R,
-  LONGLINE_HALF_W, LONGLINE_SNAG, LONGLINE_TWIN_GAP, LONGLINE_MAX_LIVE,
+  LONGLINE_HALF_W, LONGLINE_SNAG, LONGLINE_TWIN_GAP, LONGLINE_MAX_SETS, LONGLINE_RETIRE_T, LONGLINE_MIN_OFFSET,
   MAW_GAPE_T, MAW_CLOSE_MUL, MAW_DEVOUR_FRAC, MAW_SHUT_T,
   SCENT_R, SCENT_DUR_MIN, SCENT_DUR_AT_FULL, SCENT_DMG_MUL, SCENT_SPEED_MUL,
   // v5.24 The Blank (scripted boss chapter — see stepBossScript)
@@ -12231,19 +12231,29 @@ function fireLongline(run, stats) {
   // twice with different values, the extra ropes stack on the first one — and three ropes sharing a
   // position render identically to one rope, i.e. to no change at all (see the Ipecac orbit bug).
   const lines = ipecacN(run, 1 + (run.weaponMods.longline?.twinSet ?? 0))
+  // The fan is centred on `offset`, then SHOVED FORWARD as a whole if that would put its rearmost
+  // rope on top of the player (see LONGLINE_MIN_OFFSET). Consecutive ropes stay exactly
+  // LONGLINE_TWIN_GAP apart either way — the shove moves the set, never its spacing.
+  const first = Math.max(LONGLINE_MIN_OFFSET, stats.offset - (lines - 1) / 2 * LONGLINE_TWIN_GAP)
   for (let i = 0; i < lines; i++) {
-    const d = stats.offset + (i - (lines - 1) / 2) * LONGLINE_TWIN_GAP
+    const d = first + i * LONGLINE_TWIN_GAP
     run.longlines.push({
       x: p.x + nx * d, y: p.y + ny * d, nx, ny,
       half: LONGLINE_HALF_W, len: stats.length,
-      dmg: stats.dmg, tick: stats.tick, acc: 0,
+      dmg: stats.dmg, tick: stats.tick,
       life: stats.setDur, duration: stats.setDur,
-      snagged: new Set(),
+      contact: new Map(),
     })
   }
   run.events.push({ type: 'longline', x: p.x, y: p.y, angle: aim, count: lines })
-  // Drops the OLDEST, like ZONE_MAX_LIVE: cutting the newest would eat the cast just made.
-  if (run.longlines.length > LONGLINE_MAX_LIVE) run.longlines = run.longlines.slice(-LONGLINE_MAX_LIVE)
+  // Retires the OLDEST SET, like ZONE_MAX_LIVE: cutting the newest would eat the cast just made.
+  // Counted in casts, not ropes (see LONGLINE_MAX_SETS) — every live rope came from a cast of
+  // `lines`, so trimming the front of the array by whole multiples of `lines` drops whole sets.
+  // EXPIRED, not spliced: a retired rope keeps LONGLINE_RETIRE_T of life and fades out.
+  const cap = LONGLINE_MAX_SETS * lines
+  for (let i = 0; i < run.longlines.length - cap; i++) {
+    run.longlines[i].life = Math.min(run.longlines[i].life, LONGLINE_RETIRE_T)
+  }
 }
 
 // Ages every set line and grinds whatever is lying across it.
@@ -12252,14 +12262,19 @@ function fireLongline(run, stats) {
 // first (the cheap reject), then distance ALONG it against half the length. Getting the second test
 // wrong is the silent failure here — drop it and the line is infinite, which looks exactly like a
 // correct line as long as the crowd happens to be in front of you.
+//
+// ⚠ CONTACT IS ACCUMULATED PER BODY, AND THE FIRST TOUCH PAYS AT ONCE. The line used to hold ONE
+// accumulator and sample every body on it at 2.5Hz, which meant a body only bled if it happened to
+// be inside the rope on a tick frame — so anything crossing the 60-76px band in under `tick`
+// simply WENT THROUGH THE ROPE, with no tell that anything had been skipped. Measured at L5 in
+// trawl d3 (3 seeds x 180s, net suppressed so every point of damage is the rope's): of 1675 bodies
+// that lay on a rope, 414 (24.7%) never bled at all — 13% of mackerel, 39% of tuna, 50% of remora.
+// A per-body accumulator is also what makes the card's own promise true ("everything that touches
+// it is hooked and bleeds"): the entry hit and the entry catch are now the same instant.
 function stepLonglines(run, dt) {
   if (run.longlines.length === 0) return
   for (const l of run.longlines) {
     l.life -= dt
-    l.acc += dt
-    const ticks = Math.floor(l.acc / l.tick)
-    if (ticks <= 0) continue
-    l.acc -= ticks * l.tick
     const halfLen = l.len / 2
     for (const e of run.enemies) {
       if (e._dead || isAlly(e)) continue
@@ -12268,15 +12283,23 @@ function stepLonglines(run, dt) {
       if (Math.abs(across) > l.half + e.radius) continue
       const along = dx * -l.ny + dy * l.nx
       if (Math.abs(along) > halfLen) continue
-      applyDamage(run, e, l.dmg * ticks)
-      // THE CATCH — once per body per THIS line, never per tick. LONGLINE_SNAG (0.5s) against a
-      // 0.40s tick is longer than the interval between applications, so a per-tick refresh is a
-      // permanent lock: the fence would stop being a fence and become an invulnerability field.
-      // Buying more catches is what Twin Set is for.
-      if (!e._dead && !l.snagged.has(e.id) && !resistsCC(e)) {
-        l.snagged.add(e.id)
-        e.stunT = Math.max(e.stunT || 0, LONGLINE_SNAG * ccScale(run, e))
-        spendCC(run, e)
+      const held = l.contact.get(e.id)
+      if (held === undefined) {
+        // FIRST TOUCH. Its presence in the map is also what makes the catch once-per-line.
+        l.contact.set(e.id, 0)
+        applyDamage(run, e, l.dmg)
+        // THE CATCH — once per body per THIS line, never per tick. LONGLINE_SNAG (0.5s) against a
+        // 0.40s tick is longer than the interval between applications, so a per-tick refresh is a
+        // permanent lock: the fence would stop being a fence and become an invulnerability field.
+        // Buying more catches is what Twin Set is for.
+        if (!e._dead && !resistsCC(e)) {
+          e.stunT = Math.max(e.stunT || 0, LONGLINE_SNAG * ccScale(run, e))
+          spendCC(run, e)
+        }
+      } else {
+        let acc = held + dt
+        while (acc >= l.tick) { acc -= l.tick; applyDamage(run, e, l.dmg) }
+        l.contact.set(e.id, acc)
       }
     }
   }
@@ -12725,7 +12748,18 @@ function stepPickups(run, dt) {
     }
     // v6.4.2: clamp at COIN_CAP_PER_RUN (config.js) — pickups past the cap still sparkle
     // (the event still fires below), they just stop paying out.
-    run.coinsEarned = Math.min(COIN_CAP_PER_RUN, run.coinsEarned + Math.round(c.value * p.coinGainMul * run.mods.coinMul))
+    //
+    // ⚠ THE REMAINDER IS CARRIED, AND WITHOUT IT EVERY COIN MULTIPLIER IS QUANTISED TO AN INTEGER.
+    // Rounding here is per PICKUP, and essentially every coin in the game is value 1 (the Reef's
+    // ram is the one exception) — so Math.round turned the whole multiplier into a step function:
+    // Coin Nose levels 1-4 (x1.1 to x1.4) paid exactly nothing at difficulty 1, and level 5 (x1.5)
+    // paid +100% instead of +50%. The bonus a player reads on the shop row was never what they got.
+    // Carrying the fraction makes the run TOTAL exact to within one coin while coinsEarned stays a
+    // whole number, which the HUD prints, rerolls spend down and ANOMALIES.bloodMoney gates on.
+    const exact = c.value * p.coinGainMul * run.mods.coinMul + (run._coinCarry ?? 0)
+    const whole = Math.floor(exact)
+    run._coinCarry = exact - whole
+    run.coinsEarned = Math.min(COIN_CAP_PER_RUN, run.coinsEarned + whole)
     run.events.push({ type: 'coin', x: c.x, y: c.y, value: c.value })
   })
 }
