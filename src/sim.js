@@ -7738,8 +7738,14 @@ function dealDamage(run, enemy, dmg, crit, dot = false, hazard = false) {
     //   ON SCREEN OR NOTHING (owner 2026-09-03: "loot and xp only if they're visible"). A jackpot
     // body that dies out of view — hauled by the net a pass away, eaten by a whirlpool that drifted
     // off — drops neither its xp gem nor its jackpot. The kill still counts.
+    //   YOUR KILL OR NOTHING (owner 2026-09-11: "trawl net gives too much money"). A hazard kill —
+    // the pass-end haul, Tight Weave's grind — pays no jackpot either, on screen or not. The net
+    // sweeps the turtle up like everything else, and with maxAlive 1 refilling after every haul a
+    // player who rides the mesh was paid a level and twenty coins per pass for standing still:
+    // measured 4-8 jackpots in 300s against 0-1 hunting, and the wallet doubled against The Surf.
+    // The roster's own line is "the thing you hunt", and a haul is not a hunt.
     const jackpot = enemy.rosterId ? CHAPTERS[run.chapter].roster?.find((r) => r.id === enemy.rosterId)?.jackpot : null
-    const paid = !jackpot || onScreen(run, enemy.x, enemy.y)
+    const paid = !jackpot || (!hazard && onScreen(run, enemy.x, enemy.y))
     const xp = enemy.xp * (enemy.elite ? ELITE.xpMul : 1)
     if (paid) run.gems.push({ x: enemy.x, y: enemy.y, xp })
     if (jackpot && paid) {

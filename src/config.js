@@ -8081,7 +8081,10 @@ CHAPTERS.trawl = {
     // turtle alive"). The kill pays ONLY IF THE BODY DIES ON SCREEN (same ruling): a turtle the
     // net hauled two screens away, or a whirlpool ate out of view, drops neither its gem nor
     // its jackpot — the sim's death path reads run.viewW/viewH for it. The net carries a cruiser
-    // like everything else (stepTrawl), and hauls it at the pass end like everything else.
+    // like everything else (stepTrawl), and hauls it at the pass end like everything else — AND
+    // THAT HAUL PAYS NOTHING, on screen or not (owner 2026-09-11: "trawl net gives too much
+    // money"). With the slot refilling after every haul, a player riding the mesh was paid a level
+    // and twenty coins per pass; the death path gates the jackpot on a non-hazard kill for it.
     { id: 'turtle',   archetype: 'normal', name: 'Sea Turtle', hpMul: 3, speedMul: 0.5, weight: 1, xpMul: 0.6, radiusMul: 1.5, maxAlive: 1, flags: ['cruise'], jackpot: { levels: 1, coins: 20 } },
     { id: 'sealion',  archetype: 'tank',   name: 'Sea Lion', hpMul: 2.4,  speedMul: 0.85, flags: ['pounce', 'unshakeable'] },
     { id: 'tuna',     archetype: 'fast',   name: 'Tuna',     hpMul: 0.95, speedMul: 1.25, weight: 2, flags: ['dashBurst'] },

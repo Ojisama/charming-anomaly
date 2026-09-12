@@ -8002,6 +8002,34 @@ function runTurtleJackpot() {
     assert.strictEqual(r.gems.length, gems0, 'an off-screen turtle kill must drop no xp gem')
     console.log('PASS run TJ.c (off screen, nothing): the turtle died two screens away and paid no level, no coins, no gem')
   }
+  // (d) HAULED BY THE NET, NOTHING — even on screen. The turtle sits in the mesh band beside the
+  // player with the pass one frame from clearing, so stepTrawl's haul kills it in full view. A haul
+  // is the boat's kill, not yours: no jackpot, no level, no coins, no gem (owner 2026-09-11: riding
+  // the net paid the jackpot every pass). No weapons, so nothing but the haul can kill it.
+  {
+    Math.random = mulberry32(20260903)
+    const m = makeMeta(); m.dev = true; ensureChapterMeta(m)
+    const r = createRun(m, { chapter: 'trawl', difficulty: 1 })
+    r.weapons = []
+    r.player.maxHP = r.player.hp = 1e9
+    r.mods.spawnMul = 0
+    r.enemies.length = 0
+    const e = makeStatusEnemy(r, { x: r.player.x + 100, y: r.player.y, hp: 1, speed: 0 })
+    e.rosterId = 'turtle'; e._netted = true
+    r.enemies.push(e)
+    r.net = { nx: 1, ny: 0, pos: r.player.x + 100, end: r.player.x + 100, holes: [], _acc: 0, dragT: 0, dragTicks: 0, freeT: 0 }
+    const level0 = r.player.level, gems0 = r.gems.length, coins0 = r.coins.length
+    r.events.length = 0
+    stepSim(r, { x: 0, y: 0 }, dt)
+    assert.strictEqual(r.events.filter((ev) => ev.type === 'netHaul').length, 1, 'precondition: the pass cleared and hauled the turtle')
+    assert.strictEqual(r.kills, 1, 'precondition: the haul killed the turtle')
+    assert.strictEqual(r.events.filter((ev) => ev.type === 'jackpot').length, 0, 'a net-hauled turtle must not fire a jackpot')
+    stepSim(r, { x: 0, y: 0 }, dt)
+    assert(!(r.phase === 'levelup' || r.player.level > level0), 'a net-hauled turtle must not pay a level')
+    assert.strictEqual(r.coins.length, coins0, `a net-hauled turtle must drop no coin, found ${r.coins.length - coins0}`)
+    assert.strictEqual(r.gems.length, gems0, 'a net-hauled turtle must drop no xp gem')
+    console.log('PASS run TJ.d (hauled, nothing): the net hauled the turtle in full view and paid no level, no coins, no gem')
+  }
   assert.strictEqual(CHAPTERS.trawl.roster.find((x) => x.id === 'turtle').maxAlive, 1, 'owner 2026-09-03: max 1 turtle alive')
   assert(turtle.levelled, 'a sea turtle kill must pay a whole level on the spot')
   assert(turtle.coinsAtBody >= 20, `a sea turtle kill must scatter twenty coins where it died, found ${turtle.coinsAtBody}`)
