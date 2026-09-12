@@ -2019,11 +2019,13 @@ export const WEAPONS = {
     levels: [
       // balance_decision : +20% dmg, every Trawl weapon, owner ruling 2026-09-02
       //  - x1.2 rounded to whole numbers, unmeasured (owner: "don't test, just ship")
-      { dmg: 6,  interval: 2.60, length: 260, setDur: 3.4, tick: 0.40, offset: 90 },
-      { dmg: 7,  interval: 2.45, length: 285, setDur: 3.6, tick: 0.40, offset: 95 },
-      { dmg: 10, interval: 2.30, length: 315, setDur: 3.8, tick: 0.40, offset: 100 },
-      { dmg: 12, interval: 2.15, length: 345, setDur: 4.0, tick: 0.40, offset: 105 },
-      { dmg: 16, interval: 2.00, length: 380, setDur: 4.2, tick: 0.40, offset: 110 },
+      // balance_decision : rope count is a level reward, +1 at L3 only, owner ruling [2026-09-12]
+      //  - `lines` is read at the fire site as BOTH the loop bound and the fan's spacing divisor
+      { dmg: 6,  interval: 2.60, length: 260, setDur: 3.4, tick: 0.40, offset: 90,  lines: 1 },
+      { dmg: 7,  interval: 2.45, length: 285, setDur: 3.6, tick: 0.40, offset: 95,  lines: 1 },
+      { dmg: 10, interval: 2.30, length: 315, setDur: 3.8, tick: 0.40, offset: 100, lines: 2 },
+      { dmg: 12, interval: 2.15, length: 345, setDur: 4.0, tick: 0.40, offset: 105, lines: 2 },
+      { dmg: 16, interval: 2.00, length: 380, setDur: 4.2, tick: 0.40, offset: 110, lines: 2 },
     ],
   },
   netToss: {
@@ -3891,12 +3893,24 @@ export const WEAPON_MODS = {
     //  - the five values are base x RARITIES.mult, NOT a literal table; owner asked for
     //    "15/25/40/60/100 for normal to mythic" and 0.15 lands on it within rounding
     barbed:   { name: 'Barbed Hooks', desc: 'hook damage per tick', icon: '🪝', base: 0.15, kind: 'pct' },
-    longSet:  { name: 'Long Set',     desc: 'line length', icon: '📏', base: 0.25, kind: 'pct' },
+    // balance_decision : Long Set 25% -> 15%, owner ruling from play [2026-09-12]
+    longSet:  { name: 'Long Set',     desc: 'line length', icon: '📏', base: 0.15, kind: 'pct' },
     deepSet:  { name: 'Deep Set',     desc: 'how long a set line lasts', icon: '⌛', base: 0.25, kind: 'pct' },
     // A flat count, not a percentage: +30% of one line is one line. The second rope also doubles
     // the CATCHES available, since the snag is once per body per line — so this is the control mod
     // as much as the damage one, which is why it is the tier pick.
-    twinSet:  { name: 'Twin Set',     desc: 'extra line(s) per cast', icon: '🔷', kind: 'tier' },
+    //
+    // ⚠ `values` RATHER THAN THE SHARED LADDER, and that is the whole reason it is written this way:
+    // WEAPON_MOD_TIER_BONUS is one table read by all 15 kind:'tier' mods in the game, so editing it
+    // to make THIS card rarer would quietly re-tune Double Haul, Double Rig, Twin Whirl, Second Sun
+    // and eleven others. `values` is per-mod and already shipped (makeWeaponModCard reads it exactly
+    // as makePassiveCard does): the card rolls ONLY the rarities listed, at the amounts listed, and
+    // returns null everywhere else — which the caller already treats as "no candidate at this tier".
+    // So there is no normal or rare Twin Set at all. Against the ladder it used to ride
+    // (1/1/2/2/3), this is epic 2 -> 1 and the two cheap tiers deleted.
+    // balance_decision : Twin Set epic+ only, +1/+2/+3, owner ruling [2026-09-12]
+    twinSet:  { name: 'Twin Set',     desc: 'extra line(s) per cast', icon: '🔷', kind: 'tier',
+                values: { epic: 1, legendary: 2, mythic: 3 } },
   },
   netToss: {
     wideNet:   { name: 'Wide Net',   desc: 'net radius', icon: '⭕', base: 0.25, kind: 'pct' },
@@ -4013,12 +4027,12 @@ export const WEAPON_RATE_MODS = {
 // via WEAPON_STAT_MODS only works for keys effectiveWeaponStats already carries.
 // glint's secondGlint is the same shape as star's multishot: read at fireGlint's own site, not
 // folded through WEAPON_STAT_MODS, so it needs the same by-hand add-back here.
-export const WEAPON_COUNT_MODS = { star: 'multishot', tailLash: 'doubleHook', atomicBreath: 'forked', screw: 'twinScrew', glint: 'secondGlint' }
+export const WEAPON_COUNT_MODS = { star: 'multishot', tailLash: 'doubleHook', atomicBreath: 'forked', screw: 'twinScrew', glint: 'secondGlint', longline: 'twinSet' }
 // ...and WHICH levels[] key that mod adds to. The star's is literally `count`, which is why this
 // map did not exist before; the two v7.23 weapons count different things. Missing entry = 'count'.
 // The Screw counts SCREWS ON THE CHAIN, and there is no such key in its levels[] (one is the
 // base case and the mod is the only thing that adds a second), so it is read at the fire site.
-export const WEAPON_COUNT_KEYS = { tailLash: 'hooks', atomicBreath: 'jumps', screw: 'screws' }
+export const WEAPON_COUNT_KEYS = { tailLash: 'hooks', atomicBreath: 'jumps', screw: 'screws', longline: 'lines' }
 
 // ---- The pause build sheet's stat rows -------------------------------------------------------
 // ONE ordered table, because this was two: an ordered whitelist array inside buildReadout (sim.js)
@@ -4048,6 +4062,10 @@ export const STAT_KEYS = [
   { key: 'dmg', label: 'Damage' },
   { key: 'count', label: 'Projectiles' },
   { key: 'hooks', label: 'Aircraft hooked' },
+  // The Longline's rope count. Not the shared `count` key, which reads 'Projectiles' — a set line
+  // is not thrown at anything. Unique to this weapon's levels[], so no other sheet gains a row:
+  // the Longline then emits dmg, lines, setDur, length + every = 5, exactly at STAT_MAX_ROWS.
+  { key: 'lines', label: 'Lines' },
   { key: 'jumps', label: 'Forks' },
   { key: 'orbs', label: 'Orbs' },
   { key: 'chunks', label: 'Tornadoes' },

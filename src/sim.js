@@ -12230,7 +12230,10 @@ function fireLongline(run, stats) {
   // ONE local for the count, used as both the loop bound AND the spacing divisor below. Written
   // twice with different values, the extra ropes stack on the first one — and three ropes sharing a
   // position render identically to one rope, i.e. to no change at all (see the Ipecac orbit bug).
-  const lines = ipecacN(run, 1 + (run.weaponMods.longline?.twinSet ?? 0))
+  // ONE local, used as the loop bound AND as the fan's spacing divisor below. The base count is a
+  // LEVEL reward now (levels[].lines: 1 at L1-2, 2 at L3-4, 3 at L5), so this is no longer `1 + mod`
+  // — a hardcoded 1 here would silently cap every Longline in the game at one rope plus its mods.
+  const lines = ipecacN(run, stats.lines + (run.weaponMods.longline?.twinSet ?? 0))
   // The fan is centred on `offset`, then SHOVED FORWARD as a whole if that would put its rearmost
   // rope on top of the player (see LONGLINE_MIN_OFFSET). Consecutive ropes stay exactly
   // LONGLINE_TWIN_GAP apart either way — the shove moves the set, never its spacing.

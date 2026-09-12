@@ -56,6 +56,12 @@ const UI = {
   'Fork range': 'Portée des bonds',
   'Runs for': 'Durée',
   'Line lasts': 'Ligne',
+  // ⚠ NOT 'Lignes', which is the one-letter neighbour of the row directly above it. The
+  // Longline emits both keys, so the French sheet would carry 'Lignes 3' over 'Ligne 4.2 s' —
+  // a count and a duration told apart by a plural s. This one is a COUNT, so the single-word
+  // noun rule the duration rows follow does not apply to it, and 'posées' is the card's own
+  // verb ('Pose une ligne appâtée...'), so it costs the reader no new vocabulary.
+  'Lines': 'Lignes posées',
   'Glow lasts': 'Lueur',
   'Holds for': 'Maintien',
   // 'Durée' is already this file's word for a duration row ('Runs for'), and no weapon carries

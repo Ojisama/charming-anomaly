@@ -31039,6 +31039,13 @@ function testTrawlNatives() {
     if (weaponId) run.weapons.push({ id: weaponId, level })
     return run
   }
+  // THE BASE ROPE COUNT IS A LEVEL REWARD (WEAPONS.longline.levels[].lines), so nothing here may
+  // assume 1. Read off the shipped ladder rather than a literal, so a retune moves the tests with
+  // the config — the rule run LG.i already states for the pool and the mod budget. The cases that
+  // need exactly ONE rope to measure against ask for a level that lays one, and say so.
+  const baseLines = (lvl) => WEAPONS.longline.levels[lvl - 1].lines
+  const ONE_ROPE_LVL = WEAPONS.longline.levels.findIndex((l) => l.lines === 1) + 1
+  assert.ok(ONE_ROPE_LVL > 0, 'run LG: no Longline level lays a single rope — the single-rope cases below cannot be set up')
   const step = (run, n) => {
     for (let i = 0; i < n; i++) {
       run.net = null
@@ -31094,8 +31101,8 @@ function testTrawlNatives() {
   // infinite line is indistinguishable from a correct one for as long as the crowd happens to sit
   // in front of the player — which, in a chapter where the crowd chases you, is essentially always.
   {
-    const run = rig('longline', 5)
-    const [l] = setLines(run)
+    const run = rig('longline', ONE_ROPE_LVL)
+    const [l] = setLines(run, 1)
     const at = (along, across) => { const p = onLine(l, along, across); return dummy(run, p.x, p.y) }
     const on = at(l.len * 0.3, 0)                // on the rope, well inside its half-length
     const beside = at(0, LONGLINE_HALF_W + 90)   // same centre, 90px clear across it
@@ -31117,8 +31124,8 @@ function testTrawlNatives() {
   // snag lands as 0.125s against a 0.40s tick and the body IS free in between. The lock the guard
   // prevents is real but the DR hides its symptom — so count the thing the rule is actually about.
   {
-    const run = rig('longline', 5)
-    const [l] = setLines(run)
+    const run = rig('longline', ONE_ROPE_LVL)
+    const [l] = setLines(run, 1)
     const p = onLine(l, 0, 0)
     const held = dummy(run, p.x, p.y)
     let applications = 0, prev = 0, peak = 0
@@ -31142,11 +31149,11 @@ function testTrawlNatives() {
   // which is the "same hit, bigger" shape that reads on screen as no change at all (CLAUDE.md).
   {
     const solo = rig('longline', 5)
-    setLines(solo, 1)
+    setLines(solo, baseLines(5))
 
     const twin = rig('longline', 5)
     twin.weaponMods.longline = { twinSet: 2 }
-    const lines = setLines(twin, 3)
+    const lines = setLines(twin, baseLines(5) + 2)
     const spots = new Set(lines.map((x) => `${Math.round(x.x)},${Math.round(x.y)}`))
     assert.strictEqual(spots.size, lines.length,
       `run LG.c: ${lines.length} lines occupy only ${spots.size} distinct positions — the count moved but the spacing divisor did not, so the extra rope is stacked on the first and draws as one`)
@@ -31155,15 +31162,15 @@ function testTrawlNatives() {
     const gap = offs[1] - offs[0]
     assert.ok(Math.abs(gap - LONGLINE_TWIN_GAP) < 1,
       `run LG.c: consecutive ropes sit ${gap.toFixed(0)}px apart against a declared gap of ${LONGLINE_TWIN_GAP}px`)
-    console.log(`PASS run LG.c (Twin Set spreads): ${lines.length} lines at ${spots.size} distinct positions, ${gap.toFixed(0)}px apart, against 1 unmodded`)
+    console.log(`PASS run LG.c (Twin Set spreads): ${lines.length} lines at ${spots.size} distinct positions, ${gap.toFixed(0)}px apart, against ${solo.longlines.length} unmodded`)
   }
 
   // (d) THE LINE IS SET AND LEFT. It is gear, not an aura: walking away must not bring it along.
   // The mutation this exists for is anchoring the rope to the player, which is what every other
   // player-centred weapon in this file does and would look entirely reasonable in review.
   {
-    const run = rig('longline', 5)
-    const [l] = setLines(run)
+    const run = rig('longline', ONE_ROPE_LVL)
+    const [l] = setLines(run, 1)
     const at = { x: l.x, y: l.y }
     const from = { x: run.player.x, y: run.player.y }
     for (let i = 0; i < 90; i++) { run.net = null; run._netAcc = 1e9; stepSim(run, { x: 1, y: 0 }, dt); run.events.length = 0 }
@@ -31328,8 +31335,8 @@ function testTrawlNatives() {
     let crossings = 0
     for (const speed of speeds) {
       for (let phase = 0; phase < 8; phase++) {
-        const run = rig('longline', 5)
-        const [l] = setLines(run)
+        const run = rig('longline', ONE_ROPE_LVL)
+        const [l] = setLines(run, 1)
         for (let i = 0; i < phase * 3; i++) step(run, 1)   // start at a different point in the tick
         if (run.longlines.length === 0) continue
         const band = LONGLINE_HALF_W + 14
@@ -31391,7 +31398,7 @@ function testTrawlNatives() {
     // loadout that overruns it, k3 below asserts nothing at all: no rope is ever retired, so
     // "no rope left alive" is true of code that splices and of code that expires alike.
     const over = ropeSeconds({ deepSet: 3 })
-    const ceiling = (LONGLINE_MAX_SETS + 1) * 1              // +1 set: the retiring one is still fading
+    const ceiling = (LONGLINE_MAX_SETS + 1) * baseLines(5)   // +1 set: the retiring one is still fading
     assert.ok(over.live > LONGLINE_MAX_SETS - 1,
       `run LG.k: a setDur x4 build peaked at ${over.live} live ropes — it never reached the cap, so the retire path below is never exercised and this case is asserting nothing`)
     assert.ok(over.live <= ceiling,
@@ -31438,7 +31445,8 @@ function testTrawlNatives() {
       const p0 = castAt(run)
       assert.ok(p0, `run LG.l: no cast landed at twinSet ${twin} — the rig never fired`)
       const lines = run.longlines
-      assert.strictEqual(lines.length, 1 + twin, `run LG.l: expected ${1 + twin} ropes from one cast, got ${lines.length}`)
+      assert.strictEqual(lines.length, baseLines(5) + twin,
+        `run LG.l: expected ${baseLines(5) + twin} ropes from one cast (${baseLines(5)} at L5 plus ${twin} bought), got ${lines.length}`)
       const ds = lines.map((l) => (l.x - p0.x) * l.nx + (l.y - p0.y) * l.ny).sort((a, b) => a - b)
       worst.push({ twin, nearest: ds[0], count: lines.length })
       assert.ok(ds[0] >= LONGLINE_MIN_OFFSET - 1e-6,
