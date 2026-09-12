@@ -31452,6 +31452,54 @@ function testTrawlNatives() {
     console.log(`PASS run LG.l (the fan never backs into the player): nearest rope at ${worst.map((w) => `${w.count}->${w.nearest.toFixed(0)}px`).join(', ')}, all >= ${LONGLINE_MIN_OFFSET}`)
   }
 
+  // (m) THE PER-ROPE DRAW COST MUST NOT SCALE WITH THE ROPE. A source-text lint on render.js (the
+  // run UG.k idiom — render.js is not importable here, and this contract has no other guard).
+  //
+  // `longlineG` is cleared and rebuilt from scratch every frame, so every stroke()/fill() in that
+  // block is re-tessellated 60 times a second. Issued per SNOOD it was 42 instructions to draw one
+  // rope at L5, which only ever stayed playable because a rope cap of 8 happened to bound it —
+  // when the cap was corrected to count casts (LONGLINE_MAX_SETS) a Twin Set +4 build at x6 fire
+  // rate holds 45 ropes, 45 x 42 = 1890 path instructions a frame, and the game visibly lagged.
+  // The fix is the idiom the baked creature textures already use: beginPath, a loop of subpaths,
+  // ONE stroke. A COUNT alone cannot see the regression — moving a stroke back inside the loop
+  // leaves the same six textual occurrences — so this walks each `for` body and asserts it issues
+  // none, which is what "does not scale" actually means.
+  {
+    const renderSrc = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
+    const start = renderSrc.indexOf('for (const l of run.longlines || []) {')
+    assert.ok(start > 0, 'run LG.m: the Longline draw block is gone from render.js — this lint is pointed at nothing')
+    // Brace-match the block rather than slicing to a second literal, which drifts when the code moves.
+    const spanFrom = (src, from) => {
+      let depth = 0
+      for (let i = src.indexOf('{', from); i < src.length; i++) {
+        if (src[i] === '{') depth++
+        else if (src[i] === '}' && --depth === 0) return src.slice(from, i + 1)
+      }
+      return null
+    }
+    // Comments are stripped first, on run MB.a's rule: the prose beside this code discusses the very
+    // calls being counted, so a raw search is satisfied by a sentence about them.
+    const strip = (t) => t.split('\n').map((l) => l.replace(/\s*\/\/.*$/, '')).join('\n')
+    const draw = strip(spanFrom(renderSrc, start))
+    assert.ok(draw && draw.includes('GEAR_VIS.snood'), 'run LG.m: the extracted block is not the Longline draw — the anchor moved')
+    const issued = (draw.match(/\.(stroke|fill)\(/g) ?? []).length
+    assert.ok(issued <= 8,
+      `run LG.m: the Longline draw block issues ${issued} stroke/fill calls per rope — batched it is 6 (2 main passes, the snoods, the beads, the float discs, the float rims), and every extra one is re-tessellated 60 times a second on every live rope`)
+    // The real assertion: none of them sits inside a loop, so the cost is flat in snood count.
+    // From index 1, so the PER-ROPE loop itself is skipped: it is allowed to issue the six, and the
+    // claim being linted is that the loops INSIDE it — one per snood, one per float — issue none.
+    const loops = []
+    for (let i = draw.indexOf('for (', 1); i >= 0; i = draw.indexOf('for (', i + 1)) {
+      const body = spanFrom(draw, i)
+      if (body) loops.push(body)
+    }
+    assert.ok(loops.length >= 3, `run LG.m: found ${loops.length} nested loops in the draw block — the snood and float loops are the subject of this lint and it cannot see them`)
+    const offenders = loops.filter((b) => /\.(stroke|fill)\(/.test(b))
+    assert.strictEqual(offenders.length, 0,
+      `run LG.m: ${offenders.length} of ${loops.length} loops in the Longline draw block issue a stroke/fill of their own — the per-rope cost is back to scaling with snood count, which is the shape that lagged the game at 45 live ropes`)
+    console.log(`PASS run LG.m (the draw cost is flat): ${issued} stroke/fill calls per rope, 0 of ${loops.length} loops issuing one`)
+  }
+
   console.log("PASS run LG (The Trawl's natives): the line is a finite segment that is set and left and catches once per body, and the net holds a group on the CC budget without borrowing another weapon's shrapnel")
 }
 
