@@ -1983,15 +1983,19 @@ function generateWells(sig) {
  *   Silt Veil's whole card, drawn Silt Veil's way, given away free on a rare.
  *   ⚠ run.lobs has THREE render consumers (syncLobs, redrawHazards' amber landing ring, and
  *   drawColumns) and nothing about the array says so -- `look` is what each one filters on.
- * longlines[i]: { x, y, nx, ny, half, len, dmg, tick, acc, life, duration, snagged } — Longline's
+ * longlines[i]: { x, y, nx, ny, half, len, dmg, tick, life, duration, contact } — Longline's
  *   set lines (trawl weapon). A SEGMENT, not a disc: (x,y) is the centre, (nx,ny) the unit NORMAL,
  *   `len` the full length and `half` the hit thickness either side. A body is on the line when its
  *   perpendicular distance is <= half AND its distance along the line is <= len/2 — the same two
  *   tests, in that order, as the net wall's netDist/netAlong pair.
  *   The line does not move and is not anchored to the player: it is gear that was SET and is left.
- *   `snagged` is a Set of enemy ids that have already been caught by THIS line — the catch is once
- *   per body per line, never per tick, or a 0.5s stun on a 0.40s tick is a permanent lock (see
- *   LONGLINE_SNAG). `acc` accumulates dt and spends it in whole `tick`s, the run.holes idiom.
+ *   `contact` is a Map of enemy id -> seconds that body has lain on THIS rope since its last paid
+ *   tick. NOT the run.holes idiom of one accumulator per entity, deliberately: a single per-line
+ *   accumulator samples every body at 1/tick Hz, so anything crossing the band faster than that
+ *   passes through untouched (24.7% of bodies on a rope, measured — see stepLonglines). Being
+ *   PRESENT in the map is the first touch, which pays a tick and fires the catch at once; the
+ *   catch is then once per body per line, never per tick, or a 0.5s stun on a 0.40s tick is a
+ *   permanent lock (see LONGLINE_SNAG).
  * drags[i]: { id, t, dur, dmg, hitIds } — an aircraft the Tail Lash has hooked and is reeling in
  *   (v7.23 skies). `id` is the enemy's id; t counts UP to dur (LASH_PULL_T). stepDrags moves the
  *   body toward the player and CLEARS its e.kb, so the reel owns that body's motion outright. It
@@ -2774,8 +2778,8 @@ export function createRun(meta, opts = {}) {
     debris: [],
     zones: [],
     lobs: [],
-    // v7.97 trawl. longlines: set lines of hooks — { x, y, nx, ny, half, dmg, tick, acc, life,
-    // duration, snagged }. A lob carrying `snare` is a Net Toss in flight and lands as a hold
+    // v7.97 trawl. longlines: set lines of hooks — { x, y, nx, ny, half, dmg, tick, life,
+    // duration, contact }. A lob carrying `snare` is a Net Toss in flight and lands as a hold
     // rather than a burst (stepLobs), so Net Toss adds no array of its own.
     longlines: [],
     // Bring It In's lines (The Trawl's epic). Each entry owns an ENEMY ID and not a position — the
@@ -2791,6 +2795,10 @@ export function createRun(meta, opts = {}) {
     arcs: [],
     kills: 0,
     coinsEarned: 0, // clamped to COIN_CAP_PER_RUN (config.js, v6.4.2) by stepPickups on every coin collect
+    // The sub-coin remainder of coinsEarned. Coin multipliers (p.coinGainMul x run.mods.coinMul)
+    // land on pickups that are almost always worth 1, so rounding each one on its own quantised
+    // every bonus in the game to an integer — see stepPickups, which carries this instead.
+    _coinCarry: 0,
     levelUpChoices: null,
     viewRadius: 600,       // half screen diagonal, updated by main each frame; spawn enemies at viewRadius + SPAWN_RING from player
     // v6.6.24: the half-EXTENTS of the same viewport, updated by main alongside viewRadius. The

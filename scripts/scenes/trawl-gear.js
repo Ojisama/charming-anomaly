@@ -92,7 +92,7 @@ if (l0) {
 
 H.note(l0
   ? `${run.chapter} gear: ${run.longlines.length} line(s) len=${Math.round(l0.len)} ` +
-    `n=(${l0.nx.toFixed(2)},${l0.ny.toFixed(2)}) snagged=${l0.snagged.size} ` +
+    `n=(${l0.nx.toFixed(2)},${l0.ny.toFixed(2)}) onRope=${l0.contact.size} ` +
     `wall=${run.net ? 'yes' : 'NO'} viewR=${Math.round(run.viewRadius)}`
   : `NO LONGLINE AFTER ${ticks} TICKS — the weapon never fired, so this frame proves nothing`)
 

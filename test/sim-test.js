@@ -45,7 +45,7 @@ import {
   WEAPON_RATE_MODS, WEAPON_COUNT_MODS,
   xpForLevel, REVIVE_HP_FRAC, REVIVE_INVULN, rerollCost,
   MAX_DIFFICULTY, PLAYER, BARNACLE_JUMP_R, SHELL_R,
-  LONGLINE_SNAG, LONGLINE_HALF_W, LONGLINE_TWIN_GAP, CC_DR_FLOOR,
+  LONGLINE_SNAG, LONGLINE_HALF_W, LONGLINE_TWIN_GAP, LONGLINE_MAX_SETS, LONGLINE_MIN_OFFSET, CC_DR_FLOOR,
   MAW_GAPE_T, MAW_DEVOUR_FRAC, MAW_VIS, MAW_REVEAL, LURE_GLOW, SCENT_R, SCENT_DMG_MUL, SCENT_SPEED_MUL, spendSecs,
   BOOKS, BOOK_ORDER, BOOK_SHOP, shopLines, BOOK_UNLOCKS, playableChapterId, isWipChapter, chapterAvailable, titleBookshelf, CHAPTER_SPINE, isBookFinale, nextBook, bookOf, chapterNumber,
   DMG_SRC_NAME, dmgSrcName, DMG_SRC_ART, dmgSrcArt, DMG_SRC_NO_ART,
@@ -17668,6 +17668,45 @@ function testCoinCap() {
     console.log('PASS run PP.c (end-of-run bonus): floor(sqrt(kills) + level), and main.js forwards the level')
   }
 
+  // (d) A COIN MULTIPLIER IS NOT QUANTISED TO A WHOLE COIN.
+  //
+  // Every drop in the game is worth 1 (the Reef's ram is the single exception), and the payout
+  // used to be Math.round(value x coinGainMul x coinMul) PER PICKUP — so the multiplier collapsed
+  // into a step function on the way in. Coin Nose is +10% a level over ten levels; at difficulty 1
+  // its first FOUR levels (x1.1 to x1.4) rounded to 1 and paid the player exactly nothing, then
+  // level 5 (x1.5) rounded to 2 and paid +100%. The number on the shop row was never the number
+  // the run banked, in either direction.
+  //
+  // ⚠ THE MULTIPLIERS HERE ARE THE SHIPPED LADDER, not round figures: x1.1/x1.3 are Coin Nose at
+  // 1 and 3 levels and both used to pay zero, x1.5 is level 5 and used to pay double, and x1.75 is
+  // a mid-shop line under a difficulty-2 purse. A case written at x2.0 alone passes against the
+  // bug, because that is the one value rounding happens to get right.
+  {
+    const earn = (mul, drops) => {
+      const run = createRun(makeMeta(), { chapter: 'body' })
+      run.weapons = []
+      run.mods.spawnMul = 0
+      run.player.x = 0; run.player.y = 0
+      run.player.coinGainMul = mul
+      run.coinsEarned = 0
+      for (let i = 0; i < drops; i++) run.coins.push({ x: 0, y: 0, value: 1 })
+      for (let i = 0; i < 10; i++) stepSim(run, { x: 0, y: 0 }, dt)
+      assert.strictEqual(run.coins.length, 0, `run PP.d: ${run.coins.length} of ${drops} coins were never collected — the rig is not measuring a payout`)
+      return run.coinsEarned
+    }
+    const DROPS = 200
+    for (const mul of [1.1, 1.3, 1.5, 1.75]) {
+      const got = earn(mul, DROPS), want = DROPS * mul
+      assert.ok(Math.abs(got - want) <= 1,
+        `run PP.d: ${DROPS} coins at x${mul} banked ${got}, not ${want} — the multiplier is being rounded on every single pickup, so what the player reads on the shop row is not what the run pays (x1.1-x1.4 pay nothing at all, x1.5 pays double)`)
+    }
+    // And it still comes out a WHOLE number, which the HUD prints, rerolls spend down and
+    // ANOMALIES.bloodMoney gates on.
+    const whole = earn(1.3, 7)
+    assert.strictEqual(whole, Math.round(whole), `run PP.d: coinsEarned came out ${whole} — the carry is leaking into the counter itself instead of staying beside it`)
+    console.log(`PASS run PP.d (the coin bonus is not quantised): ${DROPS} value-1 coins pay ${earn(1.1, DROPS)}/${earn(1.3, DROPS)}/${earn(1.5, DROPS)}/${earn(1.75, DROPS)} at x1.1/x1.3/x1.5/x1.75, and coinsEarned stays whole`)
+  }
+
   console.log('PASS run PP (v6.4.2 coin cap): run.coinsEarned clamps to COIN_CAP_PER_RUN on pickup and re-earns back up to it (never past) after a mid-run spend')
 }
 
@@ -31268,6 +31307,149 @@ function testTrawlNatives() {
       assert.ok(n > 0 && n <= 4, `run LG.i: '${id}' carries ${n} mods against the spec's ceiling of 4 — the pool dilutes one invented mod at a time`)
     }
     console.log(`PASS run LG.i (the chapter fields them): pool [${pool}], starter '${CHAPTERS.trawl.starter}', ${Object.keys(WEAPON_MODS.longline).length}+${Object.keys(WEAPON_MODS.netToss).length} mods inside the budget`)
+  }
+
+  // (j) NOTHING CROSSES A ROPE UNTOUCHED, AT ANY SPEED THE ROSTER CAN REACH.
+  //
+  // The line used to hold ONE accumulator and sample every body on it at 1/tick Hz, so a body only
+  // bled if it happened to be inside the rope on a tick frame — anything crossing the 72px band in
+  // under 0.40s went straight through, which is what players reported as "enemies go through the
+  // lines". Measured at L5 in trawl d3 before the fix: 23.2% of the bodies that crossed a rope's
+  // middle never bled, 35.5% of tuna and 57.8% of remora.
+  //
+  // ⚠ EVERY SPEED HERE IS A REAL ONE and the fast rows are the whole case: 206 is the tuna
+  // (ENEMIES.wisp x its speedMul), 454 is that tuna mid-dashBurst, and 95 is the mackerel, the
+  // chapter's flagless baseline. The PHASES matter as much — a body launched on the frame the
+  // rope happens to tick passes even under the broken code, so a single-phase case reads green
+  // against the bug it exists to catch.
+  {
+    const speeds = [95, 206, 454, 900]
+    const misses = []
+    let crossings = 0
+    for (const speed of speeds) {
+      for (let phase = 0; phase < 8; phase++) {
+        const run = rig('longline', 5)
+        const [l] = setLines(run)
+        for (let i = 0; i < phase * 3; i++) step(run, 1)   // start at a different point in the tick
+        if (run.longlines.length === 0) continue
+        const band = LONGLINE_HALF_W + 14
+        const e = dummy(run, l.x - l.nx * band * 2, l.y - l.ny * band * 2)
+        const hp0 = e.hp
+        for (let i = 0; i < 600; i++) {
+          const across = (e.x - l.x) * l.nx + (e.y - l.y) * l.ny
+          if (across > band * 2) break
+          e.x += l.nx * speed * dt; e.y += l.ny * speed * dt
+          step(run, 1)
+          e.stunT = 0                                     // we are measuring the GRIND, not the catch
+          if (run.longlines.length === 0) break
+        }
+        crossings++
+        if (e.hp >= hp0) misses.push(`${speed}px/s@phase${phase}`)
+        run.enemies.length = 0
+      }
+    }
+    assert.ok(crossings >= speeds.length * 6, `run LG.j: only ${crossings} crossings were driven — the rig is not measuring what it claims`)
+    assert.strictEqual(misses.length, 0,
+      `run LG.j: ${misses.length} of ${crossings} bodies crossed the rope and were never touched [${misses.slice(0, 6)}] — contact is being sampled per LINE at 1/tick Hz instead of per BODY, so anything faster than band/tick goes through`)
+    console.log(`PASS run LG.j (nothing crosses untouched): ${crossings} crossings at ${speeds.join('/')} px/s x 8 tick phases, 0 passed through`)
+  }
+
+  // (k) THE LIVE CAP COUNTS CASTS, NOT ROPES — and a capped rope is EXPIRED, never deleted.
+  //
+  // Both halves are the same bug report ("the bonus is not applied", "lines appear and disappear
+  // wrong"). A cap counted in ropes charges Twin Set for its own purchase: measured at the old cap
+  // of 8, a Twin Set +2 build sat at the cap 98% of the run, and `twinSet +4` and
+  // `twinSet +4 & deepSet +75%` returned BYTE-IDENTICAL live-rope counts — Deep Set, printed on
+  // the pause sheet as 'Line lasts 7.35s', bought exactly nothing. Ropes cast past the cap never
+  // drew a single frame, and ropes already in the water blinked out mid-life.
+  {
+    // l1: Deep Set still buys rope-time on a build that already has Twin Set. Same seed, same
+    // weapon, and setDur draws no randoms, so the two streams stay in phase — the only difference
+    // is the card. Rope-SECONDS, not a rope count: that is what the card claims to buy.
+    const ropeSeconds = (mods) => {
+      const run = rig('longline', 5)
+      run.weaponMods.longline = { ...mods }
+      dummy(run, 600, 0)                               // a bait, so the aim is stable and it keeps casting
+      let sum = 0, live = 0, aliveGone = 0
+      let prev = new Map()
+      for (let i = 0; i < 3600; i++) {
+        step(run, 1)
+        for (const [l, life] of prev) if (!run.longlines.includes(l) && life > dt + 1e-9) aliveGone++
+        prev = new Map(run.longlines.map((l) => [l, l.life]))
+        sum += run.longlines.length * dt
+        live = Math.max(live, run.longlines.length)
+      }
+      return { sum, live, aliveGone }
+    }
+    const plain = ropeSeconds({ twinSet: 4 })
+    const deep = ropeSeconds({ twinSet: 4, deepSet: 0.75 })
+    assert.ok(deep.sum > plain.sum * 1.2,
+      `run LG.k: Deep Set +75% on a Twin Set build bought ${deep.sum.toFixed(0)} rope-seconds against ${plain.sum.toFixed(0)} without it — the live cap is counted in ROPES, so the card the player picked and banked is doing nothing`)
+
+    // k2: THE CAP STILL BINDS, and this loadout is chosen so that it does — setDur x4 against a
+    // 2.0s cadence asks for 8.4 live sets against a ceiling of LONGLINE_MAX_SETS. Without a
+    // loadout that overruns it, k3 below asserts nothing at all: no rope is ever retired, so
+    // "no rope left alive" is true of code that splices and of code that expires alike.
+    const over = ropeSeconds({ deepSet: 3 })
+    const ceiling = (LONGLINE_MAX_SETS + 1) * 1              // +1 set: the retiring one is still fading
+    assert.ok(over.live > LONGLINE_MAX_SETS - 1,
+      `run LG.k: a setDur x4 build peaked at ${over.live} live ropes — it never reached the cap, so the retire path below is never exercised and this case is asserting nothing`)
+    assert.ok(over.live <= ceiling,
+      `run LG.k: a setDur x4 build peaked at ${over.live} live ropes against a ceiling of ${ceiling} — the cap is not bounding anything`)
+
+    // k3: nothing is ever spliced out of the water alive. A rope leaves run.longlines by running
+    // out of life and by nothing else — the cap retires the oldest SET by expiring it, so it fades
+    // like any other rope instead of blinking out of a frame the player is looking at.
+    for (const [name, r] of [['twinSet 4', plain], ['twinSet 4 + Deep Set', deep], ['setDur x4, over the cap', over]]) {
+      assert.strictEqual(r.aliveGone, 0,
+        `run LG.k: ${r.aliveGone} rope(s) vanished from the water with life still on them (${name}) — the cap is splicing the array instead of expiring the set, which on screen is gear blinking out mid-life`)
+    }
+    console.log(`PASS run LG.k (the cap counts casts): Deep Set buys ${plain.sum.toFixed(0)} -> ${deep.sum.toFixed(0)} rope-seconds on a Twin Set build, a setDur x4 build is held to ${over.live} ropes by the ${LONGLINE_MAX_SETS}-set cap, and 0 ropes left the water alive`)
+  }
+
+  // (l) A ROPE IS NEVER LAID ON OR BEHIND THE PLAYER. Twin Set's fan is centred on `offset` and
+  // grows BOTH ways, so without a floor the rearmost rope walks backwards: at 5 lines it lands at
+  // -8px and at 7 lines at -62px, i.e. over the player's own body and then past it, pointing away
+  // from the pack it is supposed to fence off. Measured before the fix at twinSet +6: one rope of
+  // EVERY cast was set behind the player.
+  //
+  // Asserted over the whole ladder rather than at one count, because the failure only appears once
+  // the fan is wide enough — a case written at twinSet 2 passes against the bug.
+  {
+    // ⚠ THE PLAYER IS READ OFF THE CAST EVENT, NOT OFF THE RIG. The Trawl carries a tide, so the
+    // player has drifted ~20px by the time the first cast lands — measuring the offset from where
+    // the run STARTED reports a rope 20px nearer than the fire site ever put it, and the first cut
+    // of this case failed against correct code for exactly that reason.
+    const castAt = (run) => {
+      for (let i = 0; i < 600; i++) {
+        run.net = null; run._netAcc = 1e9
+        stepSim(run, { x: 0, y: 0 }, dt)
+        const ev = run.events.find((e) => e.type === 'longline')
+        run.events.length = 0
+        if (ev) return { x: ev.x, y: ev.y }
+      }
+      return null
+    }
+    const worst = []
+    for (const twin of [0, 1, 2, 4, 6, 10]) {
+      const run = rig('longline', 5)
+      run.weaponMods.longline = { twinSet: twin }
+      dummy(run, 600, 0)                               // the bait that decides the bearing
+      const p0 = castAt(run)
+      assert.ok(p0, `run LG.l: no cast landed at twinSet ${twin} — the rig never fired`)
+      const lines = run.longlines
+      assert.strictEqual(lines.length, 1 + twin, `run LG.l: expected ${1 + twin} ropes from one cast, got ${lines.length}`)
+      const ds = lines.map((l) => (l.x - p0.x) * l.nx + (l.y - p0.y) * l.ny).sort((a, b) => a - b)
+      worst.push({ twin, nearest: ds[0], count: lines.length })
+      assert.ok(ds[0] >= LONGLINE_MIN_OFFSET - 1e-6,
+        `run LG.l: at ${lines.length} lines the nearest rope sits ${ds[0].toFixed(0)}px along the aim, inside LONGLINE_MIN_OFFSET (${LONGLINE_MIN_OFFSET}) — a rope on or behind the player is not a fence, and at this count the fan is laying gear into the water the pack is not coming from`)
+      // The shove moves the SET, never its spacing: consecutive ropes stay one gap apart.
+      for (let i = 1; i < ds.length; i++) {
+        assert.ok(Math.abs((ds[i] - ds[i - 1]) - LONGLINE_TWIN_GAP) < 1e-6,
+          `run LG.l: ropes ${i - 1} and ${i} sit ${(ds[i] - ds[i - 1]).toFixed(1)}px apart against a declared gap of ${LONGLINE_TWIN_GAP}px — the forward shove is scaling the fan instead of translating it`)
+      }
+    }
+    console.log(`PASS run LG.l (the fan never backs into the player): nearest rope at ${worst.map((w) => `${w.count}->${w.nearest.toFixed(0)}px`).join(', ')}, all >= ${LONGLINE_MIN_OFFSET}`)
   }
 
   console.log("PASS run LG (The Trawl's natives): the line is a finite segment that is set and left and catches once per body, and the net holds a group on the CC budget without borrowing another weapon's shrapnel")
