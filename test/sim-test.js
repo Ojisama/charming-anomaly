@@ -31886,13 +31886,28 @@ function testTheDeep() {
     // water while every other assertion here stayed green (owner from play: "the teeth shouldnt be
     // visible at first"). Both the needles and the rim have to ride it — the rim alone is still a
     // circle drawn around the bait.
-    assert.ok(/\* reveal\b/.test(shafts) && (shafts.match(/\* reveal\b/g) || []).length >= 2,
-      'run DP.k: fewer than two of updateShafts\' maw strokes fade with MAW_REVEAL — the needles and the rim are the two bright parts, and either one alone still draws the mouth in the dark')
+    // BOTH BRIGHT PARTS STILL FADE — ON TWO BANDS OFF THE ONE DISTANCE (owner from play,
+    // 2026-09-12: "the teeth should be faint in the beginning and go out only when the player is
+    // in"). The rim keeps the band that is full AT the rim, because it is the escape boundary and
+    // the countdown, and it has to be readable the instant you are inside. The needles ride a
+    // second, deeper band: reaching full strength at the same moment made the end of every
+    // approach a ring of teeth resolving out of the water a body-length before the player had
+    // crossed anything, which is the animal announcing itself. Either part left un-faded still
+    // draws the mouth in the dark, so both are pinned BY NAME below rather than counted — a count
+    // of two passes just as well with both of them back on one band.
+    assert.ok(/M\.toothA \* A \* toothReveal/.test(shafts),
+      "run DP.k: the maw needles do not fade with the tooth band — MAW_VIS.tooth is bone white and does not multiply away, so un-faded it is a ring of spikes you can count from across the water")
+    assert.ok(/\* A \* reveal/.test(shafts),
+      "run DP.k: the maw rim does not fade with MAW_REVEAL — the rim alone is still a circle drawn around the bait, i.e. the animal given away by the very pass that exists to hide it")
     assert.ok(/MAW_REVEAL/.test(shafts),
       'run DP.k: updateShafts no longer reads MAW_REVEAL — the reveal distance has drifted out of config.js')
     assert.ok(MAW_REVEAL.far > MAW_REVEAL.near && MAW_REVEAL.near >= 1,
       `run DP.k: MAW_REVEAL near ${MAW_REVEAL.near} / far ${MAW_REVEAL.far} — near must reach the rim (>= 1 x r) so the gape is at full contrast for anyone standing in the mouth, and far must be outside it`)
-    console.log(`PASS run DP.k (huge, hidden, and drawn): r ${spec.r} against a ${PLAYER.radius}px player in a ${spec.cell}px cell, the lure punched at ${LURE_GLOW.lit}/${LURE_GLOW.core} while the mouth stays dark, teeth ${MAW_VIS.toothShut}->${MAW_VIS.toothFull} of r resolving only inside ${MAW_REVEAL.far}x r, and the rim pinned at r`)
+    assert.ok(MAW_REVEAL.toothIn > 0 && MAW_REVEAL.toothIn < 1,
+      `run DP.k: MAW_REVEAL.toothIn ${MAW_REVEAL.toothIn} — the needles must reach full strength INSIDE the rim (0 < toothIn < 1). At >= 1 they are back on the band the rim uses, and "faint until you are in the mouth" is not drawn anywhere`)
+    assert.ok(MAW_REVEAL.toothFaint > 0 && MAW_REVEAL.toothFaint < 0.5,
+      `run DP.k: MAW_REVEAL.toothFaint ${MAW_REVEAL.toothFaint} — on approach the needles must be a HINT: above 0 so the mouth resolves rather than popping into existence at the rim, and well under half strength so it is not a countable ring while the player is still outside it`)
+    console.log(`PASS run DP.k (huge, hidden, and drawn): r ${spec.r} against a ${PLAYER.radius}px player in a ${spec.cell}px cell, the lure punched at ${LURE_GLOW.lit}/${LURE_GLOW.core} while the mouth stays dark, teeth ${MAW_VIS.toothShut}->${MAW_VIS.toothFull} of r held at ${MAW_REVEAL.toothFaint} strength out to ${MAW_REVEAL.far}x r and full only ${MAW_REVEAL.toothIn}x r in, and the rim pinned at r and full as you cross it`)
   }
 
   // (l) NOTHING STANDS IN A MOUTH. Owner from play, 2026-09-09: "there shouldnt be obstacles in the

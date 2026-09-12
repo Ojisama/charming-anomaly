@@ -4961,7 +4961,15 @@ export const BALLAST_RING = { line: 0xb2c065, fill: 0x8d9c4a }
 // no inner kill zone — the escape is TIME, not distance, because "if you stay too close too long" is
 // a clock, and drawing it as two radii would turn it into a map-reading problem instead. You are in
 // the mouth or you are out of it; the mouth opens while you feed and shuts on whatever is inside.
-export const MAW_GAPE_T = 3.2           // s inside a maw to go from shut to full — i.e. to the swallow
+export const MAW_GAPE_T = 2.56          // s inside a maw to go from shut to full — i.e. to the swallow
+// balance_decision : maw snap 20% faster, 3.2s -> 2.56s, owner play note [2026-09-12]
+//  - MAW_CLOSE_MUL is a MULTIPLE of this rate, not a second clock, so backing off still resets the
+//    gamble 1.9x faster than it built and the retreat stays the same fraction of the approach.
+//  - The one number this eats into is the margin under CHAPTERS.deep's `no drawdownSecs` note: a
+//    third of the bar still arrives at 2.4s, which used to clear the swallow by 0.8s and now clears
+//    it by 0.16s. Still the right side of the line, and the reason that field stays absent — but it
+//    is now the binding constraint on this constant, so anything under ~2.4s starts handing the
+//    player a mouth that closes before it has paid.
 // Closes faster than it opens, so backing off genuinely resets the gamble rather than pausing it.
 // Equal rates would make the chapter one long approach to a single unavoidable swallow.
 export const MAW_CLOSE_MUL = 1.9
@@ -5041,7 +5049,27 @@ export const MAW_VIS = {
 // a linear ramp is still plainly legible at 0.3: shot at far 1.7 with the player 292px out, the
 // needles were dimmer and still the loudest thing on screen. The square collapses the far half of
 // the band to a hint and keeps the near half, which is the shape the sentence above describes.
-export const MAW_REVEAL = { far: 1.35, near: 1.0 }
+export const MAW_REVEAL = {
+  far: 1.35,        // where the mouth begins to resolve at all
+  near: 1.0,        // ...and where it is fully resolved: the rim itself
+  // THE NEEDLES RIDE A SECOND, DEEPER BAND. Owner from play, 2026-09-12: "the teeth should be faint
+  // in the beginning and go out only when the player is in."
+  //   The band above was authored for the RIM and it still is. The rim is both the escape boundary
+  // and the gape countdown, so it has to be at full contrast the moment you are standing in the
+  // mouth — run DP.k pins near >= 1 x r for exactly that reason, and nothing here moves it.
+  //   But it was doing double duty. The bone needles reached full strength at the same instant,
+  // which meant the last stretch of every approach was a ring of teeth resolving out of the water
+  // a body-length before you had crossed anything: the animal announcing itself, at the one moment
+  // the chapter is built on NOT announcing itself. far/near were already tuned as tight as they go
+  // without the mouth popping into existence, so the fix is not a smaller band, it is a second one.
+  //   The teeth now hold at `toothFaint` of their alpha for the whole approach — present, a hint
+  // that something is there rather than a countable ring — and open to full only once the player is
+  // INSIDE, reaching it at `toothIn` of r from the centre. Sipping light from the lip keeps them
+  // faint; walking in is what puts the mouth around you. The rim carries the countdown either way,
+  // so nothing a player has to read under pressure got dimmer.
+  toothFaint: 0.18, // the most the needles ever show while the player is still outside the rim
+  toothIn: 0.72,    // ...and how far in, as a fraction of r, they reach full strength
+}
 
 // ---- The Deep's Scent -------------------------------------------------------------------------
 // The button. Owner's framing: "you use the light to see the weak points, or to see the enemies
@@ -5923,7 +5951,7 @@ export const HUMIDITY_DMG_FLOOR = 0.7
 //   render fade its divisor and Big Gulp its per-circle value; not worth it until it is felt.
 // balance_decision : a refill circle is spent after a third of the bar 2026-08-18
 //  - The Deep is the one Book 2 field with none: a third of its bar arrives at 2.4s and its maw
-//    needs MAW_GAPE_T (3.2s) to swallow, so a drawdown would delete the trap the chapter is built on.
+//    needs MAW_GAPE_T (2.56s) to swallow, so a drawdown would delete the trap the chapter is built on.
 // FOUL SPRING's fouling animation (The Shelf's Silt Veil mod). The patch stops feeding you the
 // INSTANT it is fouled -- that is the card's cost and it is not on a timer -- but the picture of it
 // needs a beat, and without one the clean water simply blinks out of existence. Owner, 2026-08-19:
@@ -8355,7 +8383,7 @@ CHAPTERS.deep = {
   // not survive play: the walk IS the cost here, and a lure that only reads from ~230px turned it
   // into a wander rather than a choice.
   // ⚠ NO `drawdownSecs` (the one Book 2 field with none — see REFILL_ZONE_SPEND). A third of this
-  // bar arrives at 2.4s inside a maw (16/s against a 2.0/s drain) where MAW_GAPE_T needs 3.2s, so a
+  // bar arrives at 2.4s inside a maw (16/s against a 2.0/s drain) where MAW_GAPE_T needs 2.56s, so a
   // drawdown would fade every mouth in the chapter out a second before it could close. Run DP.c went
   // red the day it was tried. The maw already takes itself away: it shuts for MAW_SHUT_T on a
   // swallow, which is this chapter's own version of a circle you can only use once.

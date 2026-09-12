@@ -13759,10 +13759,22 @@ const spurG = new Graphics()
         // — because they are the only ones the multiply scrim cannot flatten, and they were handing
         // the animal away from across the water. Distance to the PLAYER and not to the camera: on
         // a lane chapter those differ, and this is a fact about how close you are to the mouth.
+        //   TWO BANDS OFF THE ONE DISTANCE, not one: `reveal` brings the rim up by the time you
+        // reach it (the countdown has to be readable the instant you are in), and `toothReveal`
+        // holds the needles at a hint until you are actually inside. See MAW_REVEAL for why the
+        // teeth could not stay on the rim's band.
         const dp = Math.hypot(run.player.x - sh.x, run.player.y - sh.y)
         const band = Math.max(1, (MAW_REVEAL.far - MAW_REVEAL.near) * sh.r)
         const rv = Math.max(0, Math.min(1, (MAW_REVEAL.far * sh.r - dp) / band))
         const reveal = rv * rv   // see MAW_REVEAL: linear still reads at 0.3 against a black floor
+        // How far INSIDE the mouth the player is: 0 at the rim, 1 at toothIn x r from the centre.
+        // Squared for the same reason `reveal` is — against a floor multiplied to black the low end
+        // of a linear ramp is still plainly legible, and the whole point of this band is that its
+        // low end reads as almost nothing. Multiplied by `reveal` rather than added to it so the
+        // needles can never out-resolve the approach they are inside of.
+        const inset = Math.max(1, (1 - MAW_REVEAL.toothIn) * sh.r)
+        const ins = Math.max(0, Math.min(1, (sh.r - dp) / inset))
+        const toothReveal = reveal * (MAW_REVEAL.toothFaint + (1 - MAW_REVEAL.toothFaint) * ins * ins)
         sv.glow.visible = false     // the lure is punched into the LIGHTMAP (updateDark), not stacked here
         sv.ring.clear()
         const g = sv.body
@@ -13798,7 +13810,7 @@ const spurG = new Graphics()
             (sh.r + halfW * 0.4) * ca - halfW * sa, (sh.r + halfW * 0.4) * sa + halfW * ca,
             (sh.r + halfW * 0.4) * ca + halfW * sa, (sh.r + halfW * 0.4) * sa - halfW * ca,
             (sh.r - len) * ca, (sh.r - len) * sa,
-          ]).fill({ color: M.tooth, alpha: M.toothA * A * reveal })
+          ]).fill({ color: M.tooth, alpha: M.toothA * A * toothReveal })
         }
         // The rim goes cold -> HOT as the swallow approaches. Colour and not only width, because the
         // player is reading this at the edge of their own light: a size change alone is a
