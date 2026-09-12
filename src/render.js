@@ -14639,26 +14639,57 @@ const spurG = new Graphics()
       // Snoods: the short branch lines that carry the hooks, alternating sides down the rope. This
       // is what makes it a LONGLINE from overhead rather than a piece of string — a bare segment
       // reads as a laser, which is the one thing this weapon must not look like.
+      //
+      // ⚠ ONE STROKE FOR EVERY SNOOD, NOT ONE PER SNOOD, and the same for the beads — this is a
+      // BUDGET, not a tidy-up. longlineG is cleared and rebuilt from scratch every frame, so each
+      // stroke()/fill() here is re-tessellated 60 times a second, and the per-snood form cost 42 of
+      // them to draw ONE rope at L5 (2 + 15 snoods x 2 + 5 floats x 2). That was survivable only
+      // while a rope cap of 8 happened to bound it; once the cap was corrected to count casts
+      // (LONGLINE_MAX_SETS) a Twin Set +4 build at x6 fire rate holds 45 ropes, and 45 x 42 = 1890
+      // path instructions a frame made the game visibly lag. Batched it is 6 per rope, so the same
+      // 45 ropes cost 270 — less than the 8-rope cap ever did. The idiom is the one the baked
+      // creature textures already use (beginPath, a loop of subpaths, ONE stroke); the only thing
+      // that changes on screen is that the beads land above all the snoods rather than each above
+      // its own, and no two of them overlap.
       const n = Math.max(2, Math.floor(l.len / GEAR_VIS.snood))
+      // The point maths is written out in each loop rather than pulled into a helper: a helper here
+      // would be a closure built per rope per frame returning a fresh [x, y] per call, which is
+      // ~40 allocations a rope — the one cost this block is trying not to pay 45 times over. Six
+      // multiplies, twice, allocate nothing.
+      longlineG.beginPath()
       for (let i = 0; i <= n; i++) {
         const t = i / n
         const px = x0 + (x1 - x0) * t, py = y0 + (y1 - y0) * t
-        const s = (i & 1) ? 1 : -1
+        const sgn = (i & 1) ? 1 : -1
         const len = 7 + (i % 3) * 2
-        const hx = px + l.nx * s * len, hy = py + l.ny * s * len
-        longlineG.moveTo(px, py).lineTo(hx, hy)
-          .stroke({ width: 1.2, color: GEAR_VIS.rope, alpha: 0.7 * fade, cap: 'round' })
-        longlineG.circle(hx, hy, 2.1).fill({ color: GEAR_VIS.hook, alpha: 0.95 * fade })
+        longlineG.moveTo(px, py).lineTo(px + l.nx * sgn * len, py + l.ny * sgn * len)
       }
+      longlineG.stroke({ width: 1.2, color: GEAR_VIS.rope, alpha: 0.7 * fade, cap: 'round' })
+      longlineG.beginPath()
+      for (let i = 0; i <= n; i++) {
+        const t = i / n
+        const px = x0 + (x1 - x0) * t, py = y0 + (y1 - y0) * t
+        const sgn = (i & 1) ? 1 : -1
+        const len = 7 + (i % 3) * 2
+        longlineG.circle(px + l.nx * sgn * len, py + l.ny * sgn * len, 2.1)
+      }
+      longlineG.fill({ color: GEAR_VIS.hook, alpha: 0.95 * fade })
       // Floats, spaced in WORLD px rather than per line, so a long line gets more of them and the
-      // spacing is a property of the gear instead of a property of the level.
+      // spacing is a property of the gear instead of a property of the level. Same budget rule as
+      // the snoods above: all the discs, then all the rims.
       const fn = Math.max(1, Math.round(l.len / GEAR_VIS.floatGap))
+      longlineG.beginPath()
       for (let i = 0; i <= fn; i++) {
         const t = fn === 0 ? 0.5 : i / fn
-        const px = x0 + (x1 - x0) * t, py = y0 + (y1 - y0) * t
-        longlineG.circle(px, py, 3.4).fill({ color: GEAR_VIS.float, alpha: 0.9 * fade })
-        longlineG.circle(px, py, 3.4).stroke({ width: 1, color: 0x3a1a08, alpha: 0.5 * fade })
+        longlineG.circle(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, 3.4)
       }
+      longlineG.fill({ color: GEAR_VIS.float, alpha: 0.9 * fade })
+      longlineG.beginPath()
+      for (let i = 0; i <= fn; i++) {
+        const t = fn === 0 ? 0.5 : i / fn
+        longlineG.circle(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, 3.4)
+      }
+      longlineG.stroke({ width: 1, color: 0x3a1a08, alpha: 0.5 * fade })
     }
 
     for (const s of snares) {
