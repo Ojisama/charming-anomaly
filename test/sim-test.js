@@ -169,7 +169,7 @@ import {
   lateSpawnMulAt, SPAWN_LATE_BLEND, SPAWN_LATE_START,
   // The Kraken (run KR): the rung table and the ring's numbers
   krakenRung, KRAKEN_RUNGS, KRAKEN_PARRY_DMG, KRAKEN_ARM_REACH, KRAKEN_WAVE_TIMEOUT,
-  KRAKEN_RISE_T, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, hiddenChapters,
+  KRAKEN_RISE_T, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, hiddenChapters, KRAKEN_CAGE_R, KRAKEN_PARRY_CD,
 } from '../src/config.js'
 import { stepSim, applyChoice, buildLevelUpChoices, eligibleWeaponModCandidates, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, inRefillCircle, stepCharge, newElWindow, spurAt } from '../src/sim.js'
 
@@ -34653,8 +34653,9 @@ function runKraken() {
   // be good if you apply dot during opening, it still damages when not opened anymore"). This is
   // what gives damage-over-time a role of its OWN in this fight instead of a strictly worse burst:
   // the window buys a fuse, not a swing. The other half of the contract — that you cannot LIGHT the
-  // head through a shut sector — is (b) above, because lighting it means landing a hit first and a
-  // shut sector eats those before they ever reach the element window.
+  // head through a shut sector — is (o) below, and it needs its own case: this one HAND-SETS
+  // `ignite`, so it never goes near the path a burn really arrives by and cannot see that path
+  // break. It did break, on the day the exemption shipped.
   {
     const run = inBlock(1)
     const h = headOf(run)
@@ -34672,11 +34673,139 @@ function runKraken() {
       'a burn planted through the window stopped dead the moment the ring shut — damage-over-time is worthless in this chapter')
   }
 
+  // (o) ...AND THE LIGHTING OF IT IS STILL GATED, THROUGH THE PATH A BURN REALLY ARRIVES BY.
+  // applyDamage runs `dealDamage(...)` — which the ring refuses — and then `applyElements(...)`
+  // guarded only on `_dead`. So a refused hit planted a FULL-STRENGTH burn, and (n)'s exemption
+  // then ticked the head down from inside a completely shut ring, with no parry pressed in the
+  // whole fight. Measured on the shipped tree: 312-360 hp off the head in 30s, burning for 1600 of
+  // 1800 frames. Every plant site now asks krakenShutTo — the hit, applyElements, applyIgnite,
+  // applyBleed, the lightning arc's forward, and wildfire's jump.
+  {
+    const run = inBlock(1)
+    const h = headOf(run)
+    h.maxHP = h.hp = 1e9 // the question is whether ANY damage arrives, not whether it dies
+    run.elements = { ...(run.elements || {}), fire: 8 }
+    const arm = run.krakenArms[0]
+    const hp0 = h.hp
+    let lit = 0
+    for (let i = 0; i < 60 * 8; i++) {
+      for (const a of run.krakenArms) { a.dead = false; a.open = false; a.tele = 99; a.gripT = 0 }
+      standAt(run, arm.ang) // dead in front of a standing, shut arm, every frame
+      run.player.hp = run.player.maxHP
+      stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+      if ((h.ignite ?? 0) > 0) lit++
+    }
+    assert.strictEqual(lit, 0,
+      'a hit the ring REFUSED still lit the head — a fire build fights this boss without ever parrying')
+    assert.strictEqual(h.hp, hp0,
+      'the head burned down from inside a fully shut ring')
+  }
+
+  // (p) THE RING IS A CAGE, AND ONLY WHILE IT IS UP (owner, 2026-09-13: "i can get out of the arms
+  // circle and wander off on the map"). The wall is KRAKEN_CAGE_R, which config DERIVES from the
+  // membrane render draws, so the two cannot end up in different places.
+  {
+    const run = inBlock(1)
+    const h = headOf(run)
+    // Swim flat out, away from the head, for ten seconds.
+    const away = Math.atan2(run.player.y - h.y, run.player.x - h.x) || 0
+    let far = 0
+    for (let i = 0; i < 60 * 10; i++) {
+      run.player.hp = run.player.maxHP
+      stepSim(run, { x: Math.cos(away), y: Math.sin(away), skill: false }, 1 / 60)
+      if (run.script.phase !== 'boss') break
+      far = Math.max(far, Math.hypot(run.player.x - h.x, run.player.y - h.y))
+    }
+    assert.ok(far <= KRAKEN_CAGE_R + 1,
+      `the player swam to ${Math.round(far)}px, past the ring's wall at ${Math.round(KRAKEN_CAGE_R)}px — the arena has no edge`)
+    // ...and the breather is open water: the arms ARE the wall, so with them gone there is none.
+    const run2 = createRun(makeMeta(), { chapter: 'kraken', difficulty: 1 })
+    let far2 = 0
+    for (let i = 0; i < 60 * 8; i++) {
+      run2.player.hp = run2.player.maxHP
+      stepSim(run2, { x: 1, y: 0, skill: false }, 1 / 60)
+      if (run2.script.phase !== 'wave') break
+      far2 = Math.max(far2, Math.abs(run2.player.x - 0))
+    }
+    assert.ok(far2 > KRAKEN_CAGE_R,
+      `the breather held the player inside ${Math.round(far2)}px — it is meant to be open water, the head has left the field`)
+  }
+
+  // (q) A PRESS THAT FINDS NOTHING SAYS SO. It used to be a bare `return`: the cooldown was spent
+  // and the game drew and said nothing at all, so a whiff and a press the game never registered
+  // were the same picture. run EV only demands a consumer for an event that EXISTS, so no guard in
+  // the suite could have noticed the absence of one.
+  {
+    const run = inBlock(1)
+    for (const a of run.krakenArms) { a.tele = 99; a.gripT = 0 } // nothing is parryable
+    run.repulseCd = 0
+    run.events.length = 0
+    run.player.hp = run.player.maxHP
+    stepSim(run, { x: 0, y: 0, skill: true }, 1 / 60)
+    const whiff = run.events.filter((e) => e.type === 'parryWhiff')
+    assert.strictEqual(whiff.length, 1, 'a parry that hit nothing produced no event — the miss is invisible')
+    assert.ok(run.repulseCd > 0, 'a whiff cost nothing: the commit IS the cooldown, and it has to be spent')
+    // ...and a press that DOES connect is not a whiff.
+    const run3 = inBlock(1)
+    const arm = run3.krakenArms[0]
+    run3.events.length = 0
+    parryAt(run3, arm, krakenRung(1).window * 0.5)
+    assert.strictEqual(run3.events.filter((e) => e.type === 'parryWhiff').length, 0,
+      'a parry that landed also reported a whiff')
+    const hit = run3.events.find((e) => e.type === 'parry' || e.type === 'parryPerfect')
+    assert.ok(hit && typeof hit.frac === 'number' && hit.frac < 1,
+      'the parry event carries no arm-health fraction — the snap cannot grow as the arm nears breaking')
+  }
+
+  // (r) THE RING IS NOT A CLOCK HAND (owner, 2026-09-13: "the arms all attack too simultaneously,
+  // the pattern should be more random less going around the circle"). Arm i's opening phase was
+  // `lashT * (0.35 + i/n * 0.65)` and every re-arm was exactly `lashT`, so the arms lashed in slot
+  // order on a fixed period forever: measured over 2130 lashes on D3, the turn between one lash and
+  // the next took exactly ONE value, 1/8 of a circle, every single time.
+  {
+    const run = inBlock(3)
+    const arms = run.krakenArms
+    const steps = new Set()
+    let last = null
+    const was = new Map()
+    for (let i = 0; i < 60 * 60; i++) {
+      for (const a of arms) was.set(a, a.tele)
+      run.player.hp = run.player.maxHP
+      stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+      if (run.script.phase !== 'boss') break
+      for (const a of arms) {
+        a.dead = false; a.hp = a.maxHP // the pattern is the subject here, not attrition
+        if ((was.get(a) ?? 0) > 0 && (was.get(a) ?? 0) <= 1 / 60 && a.tele > 0.5) {
+          if (last !== null) {
+            let d = a.ang - last
+            while (d < 0) d += Math.PI * 2
+            steps.add(Math.round((d / (Math.PI * 2)) * 1000))
+          }
+          last = a.ang
+        }
+      }
+    }
+    assert.ok(steps.size > 1,
+      `every lash turned the same ${[...steps][0] / 1000} of a circle from the last one — the ring is a hand going round a clock`)
+  }
+
+  // (s) ...AND THE ARM SHOWS WHAT A PARRY DID TO IT. `hitT` is written by krakenParry and read by
+  // render.js's rope tint; it was written on the LASH instead and read NOWHERE, which is why five
+  // parries into a 320hp arm looked exactly like one. render.js is not in this suite's import
+  // graph, so the only guard available is its source text — the run UG.k trick.
+  {
+    const src = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
+    assert.ok(/a\.hitT/.test(src),
+      'render.js never reads an arm\'s hitT — a parry landing on an arm has no tell on the arm')
+    assert.ok(/KRAKEN_CAGE_R/.test(src),
+      'render.js draws the ring wall from its own number instead of KRAKEN_CAGE_R — the wall and the picture of it can drift')
+  }
+
   // (j) No timer victory, and no ordinary spawner — the shared `scripted` contract, which the
   // Kraken leans on exactly as The Blank does.
   assert.strictEqual(CHAPTERS.kraken.scripted, true, 'the Kraken lost `scripted`: the 300s clock and the ordinary spawner are both back on')
   assert.strictEqual(CHAPTERS.kraken.parry, true, 'the Kraken lost `parry`: the dash button is a shove again and the fight has no key')
   assert.strictEqual(CHAPTERS.kraken.resource.noSpend, true, 'the Light bar can be SPENT again — a parry press would drain the bar it is supposed to fill')
 
-  console.log(`PASS run KR (The Kraken): only a parry touches an arm (0 HP off one in 12s of weapons), the head takes 0 through a shut ring and real damage through an open sector, a parry opens its arm’s sector and the next wind-up shuts it, a broken arm’s hole is permanent, blocks end on 2 arms not 1, the head LEAVES the field for the breather and returns on the same pool, perfect chunks more and stalls longer, a full bar blazes off a latch, and all 3 rungs read window/fuse/arms/headHp/drain; the head RISES for the chase still and harmless but killable, the Coil closes the ring on D3 alone with its gap the only safe place and no parry for it, both hidden chapters resolve through HIDDEN_UNLOCKS with no id hardcoded in main/ui/state, and a burn planted through an open sector keeps ticking after it shuts`)
+  console.log(`PASS run KR (The Kraken): only a parry touches an arm (0 HP off one in 12s of weapons), the head takes 0 through a shut ring and real damage through an open sector, a parry opens its arm’s sector and the next wind-up shuts it, a broken arm’s hole is permanent, blocks end on 2 arms not 1, the head LEAVES the field for the breather and returns on the same pool, perfect chunks more and stalls longer, a full bar blazes off a latch, and all 3 rungs read window/fuse/arms/headHp/drain; the head RISES for the chase still and harmless but killable, the Coil closes the ring on D3 alone with its gap the only safe place and no parry for it, both hidden chapters resolve through HIDDEN_UNLOCKS with no id hardcoded in main/ui/state, and a burn planted through an open sector keeps ticking after it shuts while one the ring REFUSED is never lit at all; the ring is a CAGE while it is up and open water when it is not, a press that finds nothing reports a whiff and still pays the cooldown, a parry carries the arm's health so the snap can grow, the lash order is no longer one fixed turn around the clock, and render.js reads both the arm's hitT and KRAKEN_CAGE_R`)
 }
