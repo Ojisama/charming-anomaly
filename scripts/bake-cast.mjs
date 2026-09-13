@@ -30,14 +30,27 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 // chrome-headless-shell, wherever puppeteer put it. Plain Chrome's new headless mode reports a
 // zero-size viewport here and never finishes the Pixi boot, so this specifically wants the shell.
+// EVERY PLATFORM puppeteer INSTALLS FOR, not just linux64 — the same fix fx-probe.mjs needed, in
+// the second script that had its own copy of this lookup. On Windows the cache holds
+// `win64-<v>/chrome-headless-shell-win64/chrome-headless-shell.exe` and `HOME` is unset, so this
+// aborted with "No chrome-headless-shell found" and the cast thumbnails silently went stale: the
+// summary screen's "Killed by The Kraken" picture was still the boss's pre-rewrite bake, which is
+// the designing-an-enemy silent-failure table's own second row ("nothing warns you if they go
+// stale"). A bake tool nobody on this machine can run is a bake tool that never runs.
 function findChrome() {
   const envPath = process.env.CHROME_HEADLESS_SHELL
   if (envPath) return envPath
-  const base = join(process.env.HOME ?? '', '.cache/puppeteer/chrome-headless-shell')
+  const home = process.env.HOME ?? process.env.USERPROFILE ?? ''
+  const base = join(home, '.cache/puppeteer/chrome-headless-shell')
   if (!existsSync(base)) return null
+  const arches = ['linux64', 'win64', 'win32', 'mac-x64', 'mac-arm64']
   for (const v of readdirSync(base).sort().reverse()) {
-    const p = join(base, v, 'chrome-headless-shell-linux64', 'chrome-headless-shell')
-    if (existsSync(p)) return p
+    for (const arch of arches) {
+      for (const exe of ['chrome-headless-shell', 'chrome-headless-shell.exe']) {
+        const p = join(base, v, `chrome-headless-shell-${arch}`, exe)
+        if (existsSync(p)) return p
+      }
+    }
   }
   return null
 }
@@ -75,7 +88,9 @@ if (!chrome) {
 }
 
 // ---- vite dev server ----
-const vite = spawn('npx', ['vite', '--port', '5199', '--strictPort'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] })
+// shell: true because on Windows `npx` is npx.cmd and a bare spawn fails with ENOENT — the
+// second thing in this file that stopped it running on this machine at all, after findChrome.
+const vite = spawn('npx', ['vite', '--port', '5199', '--strictPort'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'], shell: process.platform === 'win32' })
 const dead = (code) => { console.error('vite exited', code); process.exit(1) }
 vite.on('exit', dead)
 await new Promise((res, rej) => {

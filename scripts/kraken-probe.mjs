@@ -12,7 +12,11 @@
 // here twice before.
 //
 // THE RIG, stated so a number is never quoted without it:
-//   - IMMORTAL. Survival is not what this measures; a weapon that gets the player killed would
+//   - IMMORTAL, AND IT TAKES NO LEVEL-UP CARDS. Every number off this rig is therefore a CEILING,
+//     never a difficulty statement: two adversarial reviews in a row had to point that out before it
+//     was written down. A mortal rig that also takes cards is the other end of the bracket, and the
+//     truth is between them. Quote both or neither.
+//   - Survival is not what this measures; a weapon that gets the player killed would
 //     otherwise score its own short run as low output for entirely the wrong reason.
 //   - It parries EVERY window it is offered, so it is a CEILING on player skill, not a model of
 //     one. Fight lengths off this rig are the fastest a human could manage, never the median.
@@ -61,7 +65,7 @@ function fight(seed) {
   const rung = C.krakenRung(DIFF)
 
   let parries = 0, whiffs = 0, limpWindows = 0, staggers = 0, levels = 0
-  let ringT = 0, limpT = 0, chaseT = 0, won = false, maxRearing = 0
+  let ringT = 0, limpT = 0, chaseT = 0, won = false, maxRearing = 0, enraged = -1, coilWind = 0, coilClose = 0
   const steps = Math.round(SECS / DT)
   for (let i = 0; i < steps; i++) {
     if (run.phase === 'levelup') { levels++; run.phase = 'playing'; continue }
@@ -72,11 +76,23 @@ function fight(seed) {
 
     // --- the bot: stand on the nearest LIMP arm if there is one (that is where the damage goes),
     // otherwise hold station near the head. This is the loop the design is asking for.
+    // THE LOOP, IN PRIORITY ORDER — and the middle rung is the one that matters. The parry has a
+    // RANGE now, so a bot that holds station while an arm winds up on the far side of the ring
+    // simply never presses: measured at 8 parries in 300 SECONDS, which reads as the fight stalling
+    // and is really the rig refusing to walk. A player goes to the thing they intend to answer.
+    //   1. a limb you already opened — that is where your damage goes
+    //   2. the arm winding up — you have to be next to it to parry it
+    //   3. otherwise hold near the head
     let tx = p.x, ty = p.y
     const limp = run.krakenArms.filter((a) => !a.dead && a.limpT > 0)
+    const winding = run.krakenArms.filter((a) => !a.dead && a.limpT <= 0 && (a.tele > 0 || a.gripT > 0))
     if (limp.length) {
       let best = limp[0], bd = Infinity
       for (const a of limp) { const d = (a.x - p.x) ** 2 + (a.y - p.y) ** 2; if (d < bd) { bd = d; best = a } }
+      tx = best.x; ty = best.y
+    } else if (winding.length) {
+      let best = winding[0], bt = Infinity
+      for (const a of winding) { const t = a.gripT > 0 ? -1 : a.tele; if (t < bt) { bt = t; best = a } }
       tx = best.x; ty = best.y
     } else if (head) {
       const ang = Math.atan2(p.y - head.y, p.x - head.x)
@@ -87,14 +103,20 @@ function fight(seed) {
     const inX = dl > 6 ? dx / dl : 0, inY = dl > 6 ? dy / dl : 0
 
     // --- the press: any arm in its window or gripping, or the head's lunge in its window
+    // THE BOT ONLY PRESSES AT SOMETHING IT COULD ACTUALLY ANSWER. The parry has a range gate — you
+    // cannot deflect a swing that was never going to reach you — so a bot that ignores range spends
+    // its cooldown on whiffs and reports the fight as harder than it is. Mirrors krakenParry.
+    const reach2 = (C.KRAKEN_LASH_R * 1.6) ** 2
     let press = false
     if ((run.repulseCd ?? 0) <= 0) {
       for (const a of run.krakenArms) {
         if (a.dead || a.limpT > 0) continue
+        if ((a.x - p.x) ** 2 + (a.y - p.y) ** 2 > reach2) continue
         if (a.gripT > 0 || (a.tele > 0 && a.tele <= rung.window)) { press = true; break }
       }
       if (!press && head && s.phase === 'chase' && !(s.staggerT > 0)) {
-        if (head.lungeT > 0 && head.lungeT <= rung.window) press = true
+        const near = (head.x - p.x) ** 2 + (head.y - p.y) ** 2 <= (C.KRAKEN_HEAD_R * 2.4) ** 2
+        if (near && head.lungeT > 0 && head.lungeT <= rung.window) press = true
       }
     }
     let rearing = 0
@@ -111,11 +133,14 @@ function fight(seed) {
       else if (e.type === 'parryWhiff') whiffs++
       else if (e.type === 'armRear') limpWindows += 0
       else if (e.type === 'headStagger') staggers++
+      else if (e.type === 'krakenEnrage') enraged = e.n
+      else if (e.type === 'coilWind') coilWind++
+      else if (e.type === 'coilClose') coilClose++
     }
     run.events.length = 0
   }
   return {
-    won, t: run.time, parries, whiffs, staggers, levels, maxRearing,
+    won, t: run.time, parries, whiffs, staggers, levels, maxRearing, enraged, coilWind, coilClose,
     broken: run.krakenArms.filter((a) => a.dead).length, arms: run.krakenArms.length,
     ringT, limpT, chaseT, headLeft: Math.round(run.script?.headHp ?? 0),
   }
@@ -136,3 +161,7 @@ console.log(`max rearing    ${f('maxRearing')}  (rung cap ${rung.rearing})`)
 console.log(`ring / chase s ${f('ringT', 0)} / ${f('chaseT', 0)}`)
 console.log(`s with a limb exposed ${f('limpT', 0)}`)
 console.log(`level-ups      ${f('levels')}`)
+console.log(`arms hauled back at the enrage ${f('enraged')}   (-1 = the enrage never fired)`)
+// A COIL THAT WINDS AND NEVER CLOSES is the shape of this chapter's worst bug class: the siren
+// fires, the gap wedge goes up, and nothing ever resolves it. Counted so it cannot hide again.
+console.log(`coils wound / closed  ${f('coilWind')} / ${f('coilClose')}`)
