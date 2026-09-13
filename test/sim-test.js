@@ -34649,11 +34649,34 @@ function runKraken() {
     }
   }
 
+  // (n) A DOT PLANTED THROUGH THE WINDOW KEEPS BURNING AFTER IT SHUTS (owner, 2026-09-13: "dot can
+  // be good if you apply dot during opening, it still damages when not opened anymore"). This is
+  // what gives damage-over-time a role of its OWN in this fight instead of a strictly worse burst:
+  // the window buys a fuse, not a swing. The other half of the contract — that you cannot LIGHT the
+  // head through a shut sector — is (b) above, because lighting it means landing a hit first and a
+  // shut sector eats those before they ever reach the element window.
+  {
+    const run = inBlock(1)
+    const h = headOf(run)
+    const arm = run.krakenArms[0]
+    standAt(run, arm.ang) // dead in front of a standing, shut arm
+    for (const a of run.krakenArms) { a.open = false }
+    const hp0 = h.hp
+    quiet(run, 3)
+    assert.strictEqual(h.hp, hp0, 'the shut-sector gate is leaking ordinary damage — (b) should have caught this')
+    // ...now light it, as a hit landed through an open sector would have
+    h.ignite = 4
+    h.igniteDps = 40
+    quiet(run, 3)
+    assert.ok(h.hp < hp0,
+      'a burn planted through the window stopped dead the moment the ring shut — damage-over-time is worthless in this chapter')
+  }
+
   // (j) No timer victory, and no ordinary spawner — the shared `scripted` contract, which the
   // Kraken leans on exactly as The Blank does.
   assert.strictEqual(CHAPTERS.kraken.scripted, true, 'the Kraken lost `scripted`: the 300s clock and the ordinary spawner are both back on')
   assert.strictEqual(CHAPTERS.kraken.parry, true, 'the Kraken lost `parry`: the dash button is a shove again and the fight has no key')
   assert.strictEqual(CHAPTERS.kraken.resource.noSpend, true, 'the Light bar can be SPENT again — a parry press would drain the bar it is supposed to fill')
 
-  console.log(`PASS run KR (The Kraken): only a parry touches an arm (0 HP off one in 12s of weapons), the head takes 0 through a shut ring and real damage through an open sector, a parry opens its arm’s sector and the next wind-up shuts it, a broken arm’s hole is permanent, blocks end on 2 arms not 1, the head LEAVES the field for the breather and returns on the same pool, perfect chunks more and stalls longer, a full bar blazes off a latch, and all 3 rungs read window/fuse/arms/headHp/drain; the head RISES for the chase still and harmless but killable, the Coil closes the ring on D3 alone with its gap the only safe place and no parry for it, both hidden chapters resolve through HIDDEN_UNLOCKS with no id hardcoded in main/ui/state`)
+  console.log(`PASS run KR (The Kraken): only a parry touches an arm (0 HP off one in 12s of weapons), the head takes 0 through a shut ring and real damage through an open sector, a parry opens its arm’s sector and the next wind-up shuts it, a broken arm’s hole is permanent, blocks end on 2 arms not 1, the head LEAVES the field for the breather and returns on the same pool, perfect chunks more and stalls longer, a full bar blazes off a latch, and all 3 rungs read window/fuse/arms/headHp/drain; the head RISES for the chase still and harmless but killable, the Coil closes the ring on D3 alone with its gap the only safe place and no parry for it, both hidden chapters resolve through HIDDEN_UNLOCKS with no id hardcoded in main/ui/state, and a burn planted through an open sector keeps ticking after it shuts`)
 }
