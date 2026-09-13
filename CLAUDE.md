@@ -37,6 +37,7 @@ hidden layers). `probing-the-game` holds all of them; load it before you measure
 | `node scripts/fx-probe.mjs --scene scripts/scenes/beam-prism.js --out /tmp/pr --frames 14` | reproducible in-game frames of ONE effect, for A/B-ing a look |
 | `node scripts/weapon-census.mjs --chapter city --level 5 --weapons sewerGeyser --mods launch=1` | what a weapon actually DOES over real runs: raw vs effective dps, overkill, kills/min |
 | `node scripts/charge-probe.mjs` | what a chapter RESOURCE bar (The Deep's Light) does over real 300s runs |
+| `node scripts/kraken-probe.mjs --diff 3 --level 3` | THE KRAKEN, the one chapter weapon-census cannot measure (its bot does not parry, so everything scores zero) — wins, fight length, arms broken, parries, staggers, and the ring/chase split |
 | `node scripts/wreck-threat.mjs` | WHAT KILLS YOU, by source, per seed — 8 seeds x hunt/ignore x mortal/immortal, FIXED loadout. Read the MORTAL arm for lethality: the immortal one cannot die, so its rows are a damage-taken profile and not a cause of death |
 | `node scripts/obstacle-contrast.mjs` | WCAG contrast audit of obstacle footprints per biome |
 | `node scripts/prop-scale.mjs` | PROP_SCALE ladder audit + render.js bare-`scale:` regression grep |
@@ -305,6 +306,33 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
 - `.gitignore` covers `node_modules/`, `dist/`, `.claude/worktrees/`, `.wrangler/` and `/*.png` — **and no other scratch artifact**. The last one is the trap: only a `.png` at the repo ROOT is ignored. A PNG in a subdirectory is not; neither is a `.json` dump, nor a screenshot in any other format. A 464 KB `_p4.jpg` sat tracked at the repo root for eleven versions for exactly that reason. Delete every scratch file explicitly before committing, and check `git status --short` rather than trusting the ignore rule.
 - **`public/` is tracked PWA assets, not scratch** (`sw.js` is registered by `main.js`). Do not "clean up" anything in it. If you need the dev server to serve a probe artifact, put it somewhere you will delete and verify with `git status --short`.
 - Deploy is automatic: pushing to `main` triggers `.github/workflows/deploy.yml` (build → GitHub Pages).
+- **A MULTI-ANCHOR REWRITE OF A BIG FILE SILENTLY SWALLOWS ITS NEIGHBOURS. DIFF THE FUNCTION SET
+  AFTERWARDS.** Rewriting a subsystem by bracketing regions with `indexOf(from)`/`indexOf(to)` and
+  splicing is the right technique for a 6k-line file — and each cut is one wrong anchor away from
+  taking the function next door with it. The Kraken's rev-3 rewrite removed `krakenArmsToBlock`,
+  `krakenPayBanked`, `krakenRaiseHead` and `krakenHide` without a single error: the scripts all
+  reported success, the file still parsed, and `import()` was clean. Only running it surfaced the
+  first one, as a `ReferenceError` at a random depth; the rest would each have cost their own round.
+  The check is one line and it finds all of them at once:
+
+  ```bash
+  git show HEAD:src/sim.js | grep -oE "^function [A-Za-z]+" | sort > /tmp/old.txt
+  grep -oE "^function [A-Za-z]+" src/sim.js | sort > /tmp/new.txt
+  comm -23 /tmp/old.txt /tmp/new.txt   # removed — is every one of these deliberate?
+  ```
+
+  Run it after any surgery with more than one cut, before running anything else. `run UR`
+  (unresolved refs) catches the *call* side of this in the suite, which is how it would eventually
+  have been found — but only for a function something still calls, and only after a full run.
+- **A BACKTICK BREAKS A NODE TEMPLATE LITERAL EXACTLY LIKE IT BREAKS A ZSH STRING, AND IT LOOKS
+  NOTHING LIKE THE BASH TRAP BELOW.** `scripts/fx-probe.mjs` builds its page bootstrap as one giant
+  \`…\` template literal; a comment added inside it containing `run.charge` terminated the literal
+  and the file died with `SyntaxError: Unexpected identifier 'run'` — pointing at a line 200 above
+  the edit. Before adding a comment to a file, check whether the region is inside a template
+  literal, and if it is, write identifiers bare rather than in backticks. Same defect from the other
+  end: a heredoc `<<'EOF'` is literal and safe, but the moment the patch script itself is a
+  `node -e "…"` the backticks inside it are command substitution again — which is why every patch
+  in that session ended up in a `.cjs` file run from disk, and why that is the standing advice.
 - **NEVER put a backtick inside ANY double-quoted zsh argument** — `node -e "…"`, and `git commit -m
   "…"` just as much. The shell is zsh: backticks inside a double-quoted
   argument are command substitution, so `` `swept` `` runs `swept` as a command and substitutes its

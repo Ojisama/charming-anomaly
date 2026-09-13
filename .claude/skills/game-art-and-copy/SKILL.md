@@ -50,6 +50,20 @@ the player has never seen — with a green suite either way.
   is the tool when a turn IS justified: `Graphics.ellipse` is axis-aligned, and every foreshortened
   circle is an ellipse that has been TURNED.
 
+- **A CONTRAST NUMBER IS MEASURED PER ELEMENT AND THE FAILURE IS USUALLY IN THE WHOLE PICTURE.**
+  WCAG tells you whether one shape is visible against one background. It cannot tell you that the
+  shape covers three quarters of the screen. The Kraken's shut-sector membrane was measured
+  in-engine at **1.002:1** — an equiluminant chroma edge in near-black, about the least visible
+  edge it is possible to draw, because the colour raised red and blue while LOWERING green and
+  green carries 0.7152 of luminance. Fixing it to a correct 3.4:1 then painted every shut sector,
+  which is six of eight for most of a fight, and the owner's verdict on the shipped result was
+  *"why is everything purple"*. Both measurements were right and both designs were wrong.
+    Two rules follow. **Ask what fraction of the frame the thing will cover at its worst**, not just
+  how it scores against the floor — six of eight sectors is a wash, not a highlight. And when a read
+  needs to survive a dark scene, **prefer points of light to a field**: local contrast on small
+  bright marks buys legibility at a fraction of the ink (a dim 1.6:1 wash carrying the area, with
+  photophores at 4.7-12:1 carrying the read). Best of all, **invert the ink** — light the one thing
+  the player is hunting for instead of painting the many things they are not.
 - **A BORROWED WEAPON BRINGS ITS OLD CHAPTER'S ART WITH IT.** A new chapter's arsenal is normally
   picked for what the weapons DO — the Reef's placeholder set says so explicitly, "picked for the
   LANE rather than for the theme" — and that reasoning is sound and still lands you a maple leaf in

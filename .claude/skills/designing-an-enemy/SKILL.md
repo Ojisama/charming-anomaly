@@ -93,7 +93,37 @@ spawns unless you set it. `minT` gates earliest spawn.
 | French for `roster.name` | run XX goes red — **but only for Book 1**: its walk is `CHAPTER_ORDER.concat(['blank'])`, so a Shelf or Surf creature escapes it entirely |
 | new stat read in sim.js | a field in config that nothing reads — assert the spawned ENTITY, never the table |
 
-## The adversarial pass — before shipping, without being asked
+## Bosses: what a vulnerability has to BE
+
+Researched properly after The Kraken shipped three times unreadable, so nobody has to re-derive it.
+A boss is not a big enemy with a gate on it; these four rules are what the genre has settled on.
+
+- **VULNERABILITY IS TEMPORAL, ON THE BODY, AND ANNOUNCED BY A POSE.** The post-attack recovery
+  window is the oldest rule there is, and the reason is blunt: *a mechanic the player cannot see is
+  not in the game*, so the boss must ANNOUNCE the moment it cannot act. A vulnerability that is a
+  region of space, a timer, or a state with no animation attached to it cannot be read at all — and
+  no amount of drawing rescues it, because there is nothing on the creature to draw. The Kraken
+  gated its head by an invisible angular sector for four releases; the owner's question afterwards
+  was literally *"what is a boss attack"*, and it had no answer because the attacks and the
+  vulnerability were unrelated systems that never referred to one another.
+- **LAYER IT: a first hit EXPOSES the weak point, a second kind of damage destroys it.** Shadow of
+  the Colossus's vital-point-then-sigil. It gives the fight two verbs instead of one, and in a
+  survivors-like it is what lets the player's own build matter — the skill shot opens the limb, the
+  arsenal tears it off. This also solves "my weapons trivialise the boss" WITHOUT making them inert:
+  keep the lock (nothing touches it unopened) and hand over the killing.
+- **PAY THE SKILL MOVE WITH A STATE CHANGE ON THE BOSS, NEVER A FRACTION OFF A POOL.** Sekiro's
+  posture. A parry that removes 50 from a hidden 320 looks identical five times in a row; a parry
+  that visibly staggers the thing is legible the first time. If the reward must be numeric, make the
+  *number* the window: a perfect parry buying a LONGER exposure reads, where a bigger chunk does not.
+- **DIFFICULTY COMES FROM SHORTER WINDOWS AND COMBINED PATTERNS, NEVER FROM A LESS LEGIBLE ATTACK.**
+  Every readability writeup agrees. Corollary worth its own line: **how many telegraphs run at once
+  is a DESIGN NUMBER, not an emergent one.** Give each of n attackers its own clock and concurrency
+  becomes a mean you did not choose (`attackers x windup / cycle`) which no amount of shuffling can
+  move — The Kraken sat at 2.2 of 8 rearing simultaneously and the owner's report was "the arms all
+  attack too simultaneously". A ring-level scheduler that hands out turns puts the cap in the rung
+  table where it belongs.
+
+## The adversarial pass — before shipping, without being asked## The adversarial pass — before shipping, without being asked
 
 He asks for this by hand constantly (*"spawn an adversarial fable agent to challenge your
 findings"*). Make it automatic. Dispatch **one** `general-purpose` subagent to REFUTE the work, and

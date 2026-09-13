@@ -120,6 +120,31 @@ src path as argv). That also keeps the mutation rule intact — the working tree
   the line.
 - Screenshotting short-lived FX: `app.ticker.stop()` first, drive frames manually, render, then
   shoot — the live rAF loop otherwise expires the effect between evaluate and screenshot.
+- **A SCENE THAT ASSIGNS STATE BY HAND CANNOT ANSWER "IS THIS SCREEN READABLE". IT IS FOR
+  COMPARING TWO BAKES, AND NOTHING ELSE.** This is the most expensive lesson in this file: it cost
+  four shipped releases of The Kraken. A scene that writes an entity's fields directly to stage
+  five cases side by side produces a frame that **never occurs in play**, at a moment the fight
+  never reaches, with none of the weapons, adds, status crusts or damage numbers that are actually
+  on screen. Every one of those absences is ink competing for the same pixels, and readability is a
+  property of the WHOLE PICTURE, not of the element you are staging.
+    v7.327-v7.330 shipped four separately-verified "fixed" reads that way. The owner's first phone
+  capture of the real fight was unreadable — a purple wash under a flower of giant barnacles, with
+  none of the four tells visible in it, and the barnacles (a weapon's status art, sized as a
+  fraction of its host's radius and therefore enormous on a boss) had never appeared in any staged
+  frame because no staged frame had a weapon equipped.
+    **So: write a scene that PLAYS the thing.** A bot that moves, presses the button, takes the
+  hits, with frames captured at natural moments and nothing hand-set —
+  `scripts/scenes/kraken-live.js` is the worked example. It found the barnacles in four minutes
+  after an hour of theorising about the renderer. Keep a staged scene only for what it is good at
+  (bake A vs bake B on one identical frame) and say in its header that it is not evidence about the
+  screen.
+- **`H.light(frac)`, never `run.charge = …`.** render.js's dark reads `run.sightCharge`, which
+  sim.js publishes from `run.charge` every step — so a scene that sets `charge` without stepping
+  leaves the dark frozen at whatever the warm-up ended on. `kraken-ring.js` did exactly that and
+  its three "empty bar -> full bar" frames were **byte-identical for the whole life of the file**,
+  while its own header explained why sweeping the bar was the point. Nobody could have seen it
+  without md5-ing the output, which this file tells you not to do. Generalise it: **any probe that
+  sets a sim field by hand is skipping whatever publishes the field render actually reads.**
 - **Judging a LOOK (an effect, a weapon animation, a telegraph): use `scripts/fx-probe.mjs`.** It
   boots once, seeds a save, pins the RNG, composes a scene from `scripts/scenes/<name>.js`, and
   captures a frame sequence — `node scripts/fx-probe.mjs --scene scripts/scenes/beam-prism.js
