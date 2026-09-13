@@ -1,6 +1,6 @@
 # The Kraken — hidden final boss chapter (design)
 
-Status: **revision 2, 2026-09-13 — the arm model is rebuilt.** Book 2's hidden chapter, unlocked by
+Status: **revision 3, 2026-09-14 — the limb is the weak point.** Book 2's hidden chapter, unlocked by
 winning The Deep at difficulty 5 (mirroring The Blank at Beyond d5). Not a survival run: a
 **scripted parry boss** — a ring of tentacles (4, 6 or 8 — the difficulty dial) shielding a head, a
 wave and a new pattern as the arms break, victory on the head's death.
@@ -10,6 +10,61 @@ the rubbish"; The Kraken is that thing, and the wreck field you swam *between* i
 body.
 
 ## Revision history
+
+**Rev 3 — 2026-09-14. THE SECTOR GATE IS GONE.** Rev 2 shipped (v7.327-v7.330) and the owner could
+read none of it in play: *"what is a boss attack, why is everything purple, what are the discs,
+there is no feedback when a parry is active or has succeeded. Nothing I've asked you."*
+
+That was not a drawing problem, and three rounds of redrawing it proved so. The fight had three
+systems that never referred to one another: arms attacked on their own clocks, a parry chipped an
+arm's HP pool, and damage to the head was gated by an **invisible angular sector of water** that
+nothing on screen could honestly depict. Every attempt to draw the sector either vanished (measured
+at 1.002:1 against the floor) or painted three quarters of the screen.
+
+Rev 3 was built from what boss design actually does, read rather than invented:
+
+- **Vulnerability is temporal, on the body, and announced by a pose.** The post-attack recovery
+  window is the oldest rule there is — an enemy must *announce* the moment it cannot act, because a
+  mechanic the player cannot see is not in the game.
+- **Shadow of the Colossus layers it**: you strike a vital point to *expose* the real weak point.
+- **Sekiro pays a deflect with a state change on the boss** (posture), never a fraction off a pool,
+  and breaking that state opens one loud, unmissable window.
+- **Difficulty comes from shorter windows and combined patterns, never from a less legible attack.**
+
+So the loop is now:
+
+> an arm **rears** (at most `rung.rearing` of them, and the ground it will hit fills up as its fuse
+> runs down) → you **parry on the strike** → the arm goes **LIMP**: slack, lit, and it puts a *real
+> enemy* at its tip → **your own build kills that** → the arm **breaks**, for good → break them all
+> and the head rises → **parry its lunges to fill a stagger** → a full stagger is the only window in
+> which the head can be damaged at all.
+
+**What this preserves.** "No floor anywhere" survives intact — a standing arm is untouchable by
+every weapon at every rung, and a parry is still the only key. What changed is who turns the lock
+and who opens the door; handing the killing to the player's own arsenal is what finally makes a
+build matter in the one fight that had been ignoring it. The DoT ruling survives too: you can only
+*light* the head inside its stagger, and the burn outlives the window.
+
+**The ring takes turns.** Concurrency was an emergent mean under rev 2 (arms x fuse / cycle: 2.2 of
+8, peaking at 4) and no amount of shuffling moves a mean — which is why rev 2's rhythm fix could
+not answer *"the arms all attack too simultaneously"*. The ring has ONE clock now and hands out
+turns, so how many arms wind up at once is `rearing` in the rung table, where a readability
+decision belongs. Measured after: never more than the cap, at all three rungs.
+
+**Measured, 6 seeds, d3, Skipping Shell L3:** 6/6 wins in 120-151s; all 6 arms broken; 34-41
+parries; 3-5 staggers; 9-10 level-ups; ring phase 30-37s against a chase of 42-69s.
+
+**Known gap, not fixed here:** the exposed limb's node uses the `krakenArm` roster art, which reads
+as debris rather than as a swollen, bared section of the tentacle it is attached to. The lit ground
+under it carries the read for now.
+
+**Three bugs the rev-3 smoke test caught before anyone played it**, all of which would have been
+invisible from a green suite: the node was looked up with a `!_dead` filter, so the one frame that
+mattered — the frame the player's build finished it — was the frame it became invisible (arms stuck
+at ~11hp, the fight never reaching the chase, and 55 level-ups a run off the respawn churn); the
+node was *killed* to remove it when a window closed, which paid a full kill's xp for an arm you
+failed to finish; and the Coil's exit re-armed the whole ring on one frame, blowing through the
+concurrency cap that is the entire point of the rebuild.
 
 **Rev 1 — 2026-09-09.** Shipped as v7.320.0, deliberately as a placeholder spine (one pattern,
 borrowed weapons, dev gate only). Its arm model was *"the tentacles are tanky and they sit between
