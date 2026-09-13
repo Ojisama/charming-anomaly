@@ -706,6 +706,10 @@ const SFX_FOR_EVENT = {
   // SILENT: it fires once per unfinished limb, it is the absence of a thing rather than a thing,
   // and it carries a render case instead — the same decision 'lash' carries and for the same reason.
   armRear: 'shoot', headStagger: 'bossRise', headRecover: 'hole',
+  // krakenEnrage fires exactly ONCE a fight and it is the loudest thing that happens: the Kraken
+  // hauls every broken arm back up. 'siren' is shared with coilWind on purpose — both are "something
+  // ring-wide is coming", which is the one association worth having in this chapter.
+  krakenEnrage: 'siren',
   // tentacleBreak is the fight's real progress, headHide is the kraken dropping below the field,
   // gripLatch is a grab taking hold — all three are rare enough to bear a voice (4-8 a fight).
   // `lash` DELIBERATELY HAS NONE: the ring throws one about once a second, which is the rate

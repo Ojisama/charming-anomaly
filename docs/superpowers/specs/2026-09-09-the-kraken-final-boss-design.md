@@ -11,6 +11,39 @@ body.
 
 ## Revision history
 
+**Rev 3b — 2026-09-14, same day. ONE ESCALATING FIGHT, and the crowd stops being the threat.**
+Rev 3.0 was two thin acts — 19s of ring, then a head-only chase, 21 parries in the whole thing, and
+the halves shared nothing. Three changes make it one fight:
+
+- **The head rises at HALF the ring** (`KRAKEN_RISE_AT`) and the survivors keep swinging under it,
+  so the verb the chapter teaches is the verb it ends on. The parry chooses between an arm and the
+  head by TIME TO IMPACT — one rule a player can hold: answer whatever is about to land.
+- **The enrage** (`KRAKEN_ENRAGE_AT`, 38% of the head): it hauls every broken arm back out of the
+  murk at `KRAKEN_ENRAGE_ARM_HP`, speeds the ring's cadence, and lets the Coil in at d2+. The one
+  moment a player who thought they had finished the ring has to fight it again under a woken head.
+- **A stagger takes a fixed bite** (`KRAKEN_STAGGER_BITE`) and a parry TEARS the limb it exposes
+  (`KRAKEN_EXPOSE_BITE`). With damage confined to windows, fight length scaled inversely with dps:
+  a level-5 weapon finished in 5 staggers, a level-2 one needed 13-17 and ran past 300s. Both bites
+  are floors, so a thin build still visibly takes the thing apart and a real build still shows.
+
+**HITSTOP.** 3 frames on a parry, 5 on an arm coming off, 9 on the posture breaking. `stepSim`
+returns early while main.js keeps driving the renderer with real dt, so the flash and the particles
+play through the hold. It returns *before* `run.time` advances, so it cannot inflate the clock or
+move `hpScale`. The press that caused it is HELD and handed to the first live frame — input.js
+latches a skill press and clears it on read, so a naive freeze ate every press made during it.
+
+**THE CROWD IS A SPICE, NOT THE MEAL.** The owner's ruling was "breathers BETWEEN blocks", and only
+half of it was enforced: a wave's ten dead were still alive when the ring came up, so every block
+was fought inside the previous breather's crowd. Measured with a MORTAL rig taking level-up cards:
+dead at 24-77s in 12 of 12 runs, never reaching one stagger, `killedBy` naming a wave tank in
+eleven of them. `krakenSweepAdds` clears the floor when the head arrives — for a block and for the
+chase — `KRAKEN_ADD_CAP` gates the trickle, and `enemyDmgMul` drops 1.2 → 0.95. After: the killer
+is the Kraken.
+
+**Honest bracket on the numbers.** `scripts/kraken-probe.mjs` is IMMORTAL and takes no level-up
+cards — a ceiling. The mortal rig above never evades — a floor. Neither is a player, and the truth
+is between them; quote both or neither.
+
 **Rev 3 — 2026-09-14. THE SECTOR GATE IS GONE.** Rev 2 shipped (v7.327-v7.330) and the owner could
 read none of it in play: *"what is a boss attack, why is everything purple, what are the discs,
 there is no feedback when a parry is active or has succeeded. Nothing I've asked you."*
