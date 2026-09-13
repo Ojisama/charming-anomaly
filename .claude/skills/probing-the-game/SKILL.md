@@ -275,6 +275,15 @@ extension connected. Both can be unavailable at once. Fallbacks, in order:
     pair, never `kite` alone.
   - Generalise it: **before believing a probe's damning number, ask whether the RIG's own geometry
     moved when the knob did.**
+  - **AND THE SHARPEST VERSION: A RIG THAT DERIVES A POSITION FROM A CONSTANT BREAKS SILENTLY WHEN
+    THAT CONSTANT MOVES.** Not the rig's emergent geometry — its literal arithmetic. On 2026-09-13
+    The Kraken's arena was rebuilt and `KRAKEN_RING_R` went 100 → 620; a probe bot *and* a sim-test
+    helper both parked the player at `RING_R * 1.3`, which was now 800px from the boss, outside
+    every weapon's range. Both reported **zero damage through an open sector** — which reads exactly
+    like "the damage gate is stuck shut", is indistinguishable from a real bug, and cost a debugging
+    round in each. A rig should measure off the quantity it actually means (here the arm's reach,
+    not the ring the arms rise from), and any probe that reads a balance constant to place something
+    should say so in its own output, so a number that moved for the rig's reasons is visible.
 
 - **`scripts/weapon-census.mjs` — COMPARE WITHIN ONE INVOCATION, NEVER ACROSS RUNS.** Every weapon in
   `--weapons` is measured off ONE seeded RNG stream, so changing weapon A re-phases B's draws. v7.25

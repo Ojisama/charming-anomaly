@@ -131,6 +131,24 @@ fresh
 sed -i "s/weapons: \['star', 'orbit', 'wave', 'homing'\], starter: 'star',/weapons: ['orbit', 'wave', 'homing'], starter: 'star',/" "$T/src/config.js"
 echo "M10 body's starter falls out of its pool body wiring=$(pick "$(axes body)" wiring) (want: FAIL)"
 
+# A HIDDEN CHAPTER IS ONLY AS REACHABLE AS THE WIN THAT REVEALS IT, and `live` is what auto-passes
+# the three gates that are the owner's. `hidden` used to mean live UNCONDITIONALLY — wipFrom indexes
+# book.chapters and a hidden id is never in that array, so nothing else could ever gate one. That
+# reported The Kraken (dev-gated, never played, three borrowed weapons) as live with art, fr and
+# playtest all signed off. Proven in BOTH directions, or it is a constant wearing a condition.
+fresh
+echo "    control: kraken behind a WIP Deep       kraken reachable=$(pick "$(axes kraken)" reachable)   (want: wip, or M15 proves nothing)"
+echo "    control: and so its owner gates hold    kraken played=$(pick "$(axes kraken)" played)   (want: YOU — nobody can have played what nobody can reach)"
+
+fresh
+sed -i "s/hidden: \['kraken'\], wipFrom: 5,/hidden: ['kraken'],/" "$T/src/config.js"
+echo "M15a The Deep ships, its hidden boss earnable  kraken reachable=$(pick "$(axes kraken)" reachable)  (want: live)"
+
+fresh
+sed -i "s/hidden: \['blank'\],/hidden: ['blank'], wipFrom: 0,/" "$T/src/config.js"
+echo "M15b The Beyond goes WIP, Blank unearnable     blank reachable=$(pick "$(axes blank)" reachable)   (want: wip)"
+echo "M15c ...and its owner gates reopen             blank art=$(pick "$(axes blank)" art)   (want: YOU)"
+
 # The art axis used to be `TESTS.includes('run RA (roster art)')` — a string in a file, identical
 # for all 15 chapters, which no edit to any chapter's art could ever move. These two are the
 # mutations that check could not have failed.

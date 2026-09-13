@@ -5,7 +5,7 @@
 // see the AXES comment below for why one was removed, and
 // .claude/skills/verifying-chapter-stage/SKILL.md for the judgment calls this script cannot make.
 import { readFileSync, existsSync } from 'node:fs'
-import { CHAPTERS, BOOKS, BOOK_ORDER, WEAPONS, WEAPON_MODS, ANOMALIES, MUTATORS } from '../src/config.js'
+import { CHAPTERS, BOOKS, BOOK_ORDER, WEAPONS, WEAPON_MODS, ANOMALIES, MUTATORS, HIDDEN_UNLOCKS } from '../src/config.js'
 import { FR } from '../src/fr.js'
 import { createRun } from '../src/state.js'
 import { stepSim } from '../src/sim.js'
@@ -171,16 +171,38 @@ function smoke (id) {
 // The bill is the artefact. The word was noise on top of the bill.
 const AXES = ['ideation', 'wiring', 'played', 'art', 'fr', 'numbers', 'reachable']
 
+// CAN A PLAYER ACTUALLY REACH THIS CHAPTER.
+//
+// `hidden` means OUTSIDE its book's ladder, not unreleased: The Blank is Book 1's boss chapter and is
+// very much shipped. Only wipFrom hides a chapter from players — BUT WIPFROM INDEXES `book.chapters`,
+// AND A HIDDEN ID IS NEVER IN THAT ARRAY, so wipFrom structurally cannot gate one. Reading that as
+// "hidden, therefore live" was an unconditional yes, and `live` is what auto-passes the three gates
+// that are the owner's (played / art / fr).
+//
+// It reported The Kraken — dev-gated, never played, three borrowed weapons — as live with art, fr
+// and playtest all signed off, on 2026-09-13. That is the worst shape an audit can fail in: not an
+// error, but a confident answer to a question it never asked.
+//
+// A HIDDEN CHAPTER IS ONLY AS REACHABLE AS THE WIN THAT REVEALS IT. HIDDEN_UNLOCKS names that win,
+// so this asks about the chapter it is gated behind instead of guessing.
+function chapterLive (id, seen = new Set()) {
+  const bk = bookOf(id)
+  if (!bk) return false
+  if (!bk.hidden) return bk.b.wipFrom === undefined || bk.idx < bk.b.wipFrom
+  const gate = HIDDEN_UNLOCKS[id]
+  if (!gate || seen.has(id)) return false // hidden with no unlock, or a cycle: nobody can get there
+  seen.add(id)
+  return chapterLive(gate.from, seen)
+}
+
 function audit (id) {
   const c = CHAPTERS[id]
   const rows = []
   const add = (axis, ok, msg, owner = false, debt = false) => rows.push({ axis, ok, msg, owner, debt })
   if (!c) return { rows: [{ axis: 'ideation', ok: false, msg: `no CHAPTERS.${id} — idea only` }], debt: [], live: false }
 
-  // `hidden` means OUTSIDE its book's ladder, not unreleased: The Blank is Book 1's boss chapter
-  // and is very much shipped. Only wipFrom hides a chapter from players.
   const bk = bookOf(id)
-  const live = !!bk && (bk.hidden || bk.b.wipFrom === undefined || bk.idx < bk.b.wipFrom)
+  const live = chapterLive(id)
   const roster = c.roster || []
   const weapons = c.weapons || []
 
@@ -336,7 +358,11 @@ function audit (id) {
     !bk
       ? 'in no book — unreachable'
       : gated ? `hidden by BOOKS.${bk.bid}.wipFrom=${bk.b.wipFrom} (this is #${bk.idx})`
-        : bk.hidden ? `live: ${bk.bid}'s off-ladder chapter` : `live: ${bk.bid} chapter #${bk.idx + 1}`)
+        : bk.hidden
+          ? (live
+            ? `live: ${bk.bid}'s off-ladder chapter, behind a ${HIDDEN_UNLOCKS[id]?.from ?? '???'} win`
+            : `gated behind ${HIDDEN_UNLOCKS[id]?.from ?? 'nothing'}, which is itself not reachable`)
+          : `live: ${bk.bid} chapter #${bk.idx + 1}`)
 
   return { rows, debt, live }
 }
