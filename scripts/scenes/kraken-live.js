@@ -56,14 +56,15 @@ function beat() {
   const reach2 = (window.__cfg.KRAKEN_LASH_R * 1.6) ** 2
   let press = false
   if ((run.repulseCd ?? 0) <= 0) {
-    for (const a of run.krakenArms) {
+    // head first, mirroring krakenParry
+    if (h && run.script.phase === 'chase' && !(run.script.staggerT > 0)) {
+      const nr = (h.x - p.x) ** 2 + (h.y - p.y) ** 2 <= window.__cfg.KRAKEN_CAGE_R ** 2
+      if (nr && h.lungeT > 0 && h.lungeT <= rung.window) press = true
+    }
+    if (!press) for (const a of run.krakenArms) {
       if (a.dead || a.limpT > 0) continue
       if ((a.x - p.x) ** 2 + (a.y - p.y) ** 2 > reach2) continue
       if (a.gripT > 0 || (a.tele > 0 && a.tele <= rung.window)) { press = true; break }
-    }
-    if (!press && h && run.script.phase === 'chase' && !(run.script.staggerT > 0)) {
-      const near = (h.x - p.x) ** 2 + (h.y - p.y) ** 2 <= (window.__cfg.KRAKEN_HEAD_R * 2.4) ** 2
-      if (near && h.lungeT > 0 && h.lungeT <= rung.window) press = true
     }
   }
   run.player.hp = run.player.maxHP        // the question is the picture, not survival

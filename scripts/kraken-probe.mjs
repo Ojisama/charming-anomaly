@@ -109,14 +109,19 @@ function fight(seed) {
     const reach2 = (C.KRAKEN_LASH_R * 1.6) ** 2
     let press = false
     if ((run.repulseCd ?? 0) <= 0) {
-      for (const a of run.krakenArms) {
-        if (a.dead || a.limpT > 0) continue
-        if ((a.x - p.x) ** 2 + (a.y - p.y) ** 2 > reach2) continue
-        if (a.gripT > 0 || (a.tele > 0 && a.tele <= rung.window)) { press = true; break }
-      }
-      if (!press && head && s.phase === 'chase' && !(s.staggerT > 0)) {
-        const near = (head.x - p.x) ** 2 + (head.y - p.y) ** 2 <= (C.KRAKEN_HEAD_R * 2.4) ** 2
+      // THE HEAD FIRST, mirroring krakenParry. A lunge is rare and is the only route to a stagger,
+      // which is the only way the head takes damage at all; an arm is always available and comes
+      // round again. A bot that checked arms first never pressed at the head once in a whole fight.
+      if (head && s.phase === 'chase' && !(s.staggerT > 0)) {
+        const near = (head.x - p.x) ** 2 + (head.y - p.y) ** 2 <= C.KRAKEN_CAGE_R ** 2
         if (near && head.lungeT > 0 && head.lungeT <= rung.window) press = true
+      }
+      if (!press) {
+        for (const a of run.krakenArms) {
+          if (a.dead || a.limpT > 0) continue
+          if ((a.x - p.x) ** 2 + (a.y - p.y) ** 2 > reach2) continue
+          if (a.gripT > 0 || (a.tele > 0 && a.tele <= rung.window)) { press = true; break }
+        }
       }
     }
     let rearing = 0
