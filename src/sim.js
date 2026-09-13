@@ -225,11 +225,13 @@ import {
   krakenRung, KRAKEN_HEAD_HP, KRAKEN_HEAD_R, KRAKEN_HEAD_SPEED,
   KRAKEN_ARM_HP, KRAKEN_ARM_R, KRAKEN_RING_R, KRAKEN_ARM_REACH, KRAKEN_ARM_LEVELS,
   KRAKEN_LIMP_PERFECT_MUL, KRAKEN_STAGGER_T, KRAKEN_STAGGER_DECAY, KRAKEN_LIMP_FLASH,
+  KRAKEN_RISE_AT, KRAKEN_ENRAGE_AT, KRAKEN_ENRAGE_CADENCE, KRAKEN_ENRAGE_ARM_HP, KRAKEN_STAGGER_BITE,
+  KRAKEN_EXPOSE_BITE, KRAKEN_HITSTOP_PARRY, KRAKEN_HITSTOP_BREAK, KRAKEN_HITSTOP_STAGGER,
   KRAKEN_CAGE_R,
   KRAKEN_LASH_R, KRAKEN_LASH_DMG, KRAKEN_LIGHT_START,
   KRAKEN_PERFECT_MUL, KRAKEN_PARRY_CD, KRAKEN_PARRY_REFILL, KRAKEN_BLAZE_R,
   KRAKEN_GRIP_EVERY, KRAKEN_GRIP_PULL, KRAKEN_GRIP_DUR, KRAKEN_GRIP_DMG,
-  KRAKEN_TRICKLE_FROM_END, KRAKEN_TRICKLE_T, KRAKEN_TRICKLE_N,
+  KRAKEN_TRICKLE_FROM_END, KRAKEN_TRICKLE_T, KRAKEN_TRICKLE_N, KRAKEN_ADD_CAP,
   KRAKEN_LUNGE_T, KRAKEN_LUNGE_DMG, KRAKEN_RISE_T,
   KRAKEN_COIL_EVERY, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, KRAKEN_COIL_IN, KRAKEN_COIL_DMG,
   KRAKEN_WAVE, KRAKEN_WAVE_GAP, KRAKEN_WAVE_TIMEOUT, KRAKEN_WAVE_XP_MUL,
@@ -255,6 +257,28 @@ const HOMING_HIT_R = 10       // px, hit radius added to enemy radius
 
 /** Advance the simulation by dt seconds. input = {x, y} normalized move vector. */
 export function stepSim(run, input, dt) {
+  // HITSTOP: the world holds, the picture does not. main.js keeps handing the renderer real dt, so
+  // animT, the flash and every particle play through the freeze — only the simulation waits.
+  //   It returns BEFORE run.time advances, so a hitstop cannot inflate the clock, cannot move
+  // hpScale/dmgScale, and cannot shorten a run's recorded survival time. Everything downstream
+  // derives from run.time, which is exactly why the early return goes here and not lower down.
+  if (run.hitStop > 0) {
+    run.hitStop = Math.max(0, run.hitStop - dt)
+    // THE PRESS SURVIVES THE FREEZE. input.js latches a skill press and CLEARS IT ON READ, and
+    // main.js evaluates getInput() unconditionally — so every press made during a hitstop was read,
+    // cleared and thrown away. 0.15s is nine frames on the fight's biggest beat and the parry
+    // hitstop fires 40-150 times a run: measured, a press on the first frozen frame produced zero
+    // parries against one in the control. Hold it and hand it to the first live frame.
+    if (input?.skill) run._skillHeld = true
+    // ...and the parry's own cooldown keeps running. Freezing it made every hitstop silently
+    // lengthen the 0.8s cooldown by its own duration, which is a difficulty change nobody chose.
+    run.repulseCd = Math.max(0, (run.repulseCd ?? 0) - dt)
+    return
+  }
+  if (run._skillHeld) {
+    run._skillHeld = false
+    if (input && !input.skill) input = { ...input, skill: true }
+  }
   // TIME DEBT (v7.2) is one line because every consumer already derives from run.time — hpScale,
   // dmgScale, spawnRate, eliteEvery and the victory check below all read it, so inflating the
   // advance compresses the WHOLE run rather than speeding one system up. CHAOS_PACT's cycle reads
@@ -1535,6 +1559,20 @@ function stepBossScript(run, dt) {
 // A DAMAGE-OVER-TIME TICK IS EXEMPT (owner, 2026-09-13: "dot can be good if you apply dot during
 // opening, it still damages when not opened anymore"): you can only LIGHT the head while it is
 // open, and every site that plants a status asks this too, but once it burns it burns.
+// SPEND THE CHAPTER'S RESOURCE BAR — unless the chapter says its bar is not spendable.
+//
+// `noSpend: true` sat on CHAPTERS.kraken and was read by NOTHING: two references in the whole repo,
+// both inside the object that declares it. An inert config field is the silent-failure table's own
+// "a field in config that nothing reads" row, and here it had teeth — the new starter is the Glint,
+// which buys its light with the bar, so it added +1.22 Light/s on top of a 2.4/s passive drain and
+// put the player in the dark 72-74% of the fight with the bar at ZERO for 10-23% of it. The
+// chapter's own comment says why that is fatal: "an empty bar that blacks out the near field takes
+// the parry window with it, and a window you cannot see is not a difficulty, it is a broken button."
+function spendCharge(run, amount) {
+  if (CHAPTERS[run.chapter].resource?.noSpend) return
+  run.charge = Math.max(0, run.charge - amount)
+}
+
 function krakenHeadSealed(run, enemy) {
   if (!enemy || enemy.rosterId !== 'krakenHead' || !CHAPTERS[run.chapter].parry) return false
   return !(run.script?.staggerT > 0)
@@ -1591,7 +1629,12 @@ function stepKrakenWave(run, dt) {
     // The gap door, on spawnBlankEnemy's own {gapDir, gapArc} support — the same opening The Blank's
     // waves leave. Rev 1 exported KRAKEN_WAVE_GAP and never passed it, so the ring spawned shut.
     const gapDir = Math.random() * Math.PI * 2
-    for (let i = 0; i < KRAKEN_WAVE.n; i++) {
+    // THE WAVE RESPECTS THE CAP TOO. It did not, which made KRAKEN_ADD_CAP a sentence rather than
+    // a rule: the cap gated only the trickle while the ten-strong wave walked past it, and the field
+    // was measured at 17-19 adds against a cap of 14.
+    const alive0 = run.enemies.filter((e) => !e._dead && e.rosterId !== 'krakenHead' && e.rosterId !== 'krakenArm').length
+    const room = Math.max(0, KRAKEN_ADD_CAP - alive0)
+    for (let i = 0; i < Math.min(KRAKEN_WAVE.n, room); i++) {
       const e = spawnBlankEnemy(run, KRAKEN_WAVE.ids[i % KRAKEN_WAVE.ids.length], false, { gapDir, gapArc: KRAKEN_WAVE_GAP })
       if (!e) break // BLANK_MAX_ALIVE — the field is already saturated
       e._wave = true
@@ -1610,8 +1653,10 @@ function stepKrakenWave(run, dt) {
   krakenPayBanked(run)
   // Standing arms decide what comes next: the opening wave and every block with survivors go back
   // to the ring; a ring with nothing left standing opens the chase.
-  const standing = run.krakenArms.filter((a) => !a.dead).length
-  if (s.armsSpawned && standing === 0) {
+  // THE MIDPOINT. Half the ring down brings the head up, and the survivors come with it — the
+  // fight does not change game, it gets a second thing to read on top of the first.
+  const broken = run.krakenArms.filter((a) => a.dead).length
+  if (s.armsSpawned && broken >= Math.ceil(s.armsTotal * KRAKEN_RISE_AT)) {
     s.phase = 'chase'
   } else {
     s.phase = 'boss'
@@ -1667,7 +1712,22 @@ function krakenHide(run, head) {
   s.phase = 'wave'
   s.spawned = false
   s.waveT = 0
-  for (const a of run.krakenArms) { a.open = false; a.gripT = 0 }
+  // THE HEAD LEAVING TAKES THE RING'S LIVE STATE WITH IT. It did not, and `a.open` here was a rev-2
+  // field nothing has read since: a limp arm and the enemy at its tip survived into the breather,
+  // so an 80s capture of a wave phase had a detached grey limb floating in open water with a node
+  // still shootable on it. An arm is only ever a part of a thing that is present.
+  for (const a of run.krakenArms) {
+    a.gripT = 0
+    a.tele = 0
+    a.fuse = 0
+    if (a.limpT > 0) run.events.push({ type: 'armRecover', x: a.x, y: a.y })
+    a.limpT = 0
+    if (a.nodeId != null) {
+      const n = run.enemies.findIndex((e) => e.id === a.nodeId)
+      if (n >= 0) run.enemies.splice(n, 1)
+      a.nodeId = null
+    }
+  }
   run.events.push({ type: 'headHide', x: head.x, y: head.y })
 }
 
@@ -1705,7 +1765,7 @@ function krakenArmsToBlock(run, rung, head) {
         x: head.x + Math.cos(ang) * KRAKEN_ARM_REACH,
         y: head.y + Math.sin(ang) * KRAKEN_ARM_REACH,
         hp: KRAKEN_ARM_HP, maxHP: KRAKEN_ARM_HP,
-        tele: 0, fuse: 0, limpT: 0, nodeId: null, dead: false, gripT: 0, hitT: 0, breakT: 0,
+        tele: 0, fuse: 0, limpT: 0, nodeId: null, dead: false, paid: false, gripT: 0, hitT: 0, breakT: 0,
       })
     }
     s.armsSpawned = true
@@ -1721,7 +1781,13 @@ function krakenArmsToBlock(run, rung, head) {
     a.gripT = 0
     a.nodeId = null
   }
-  s.turnT = rung.cadence * 0.5 // the first turn comes early, so a block opens ON an attack
+  s.turnT = krakenCadence(s, rung) * 0.5 // the first turn comes early, so a block opens ON an attack
+}
+
+// The ring's cadence right now. One author, so the enrage speed-up cannot be applied at one site
+// and forgotten at another.
+function krakenCadence(s, rung) {
+  return rung.cadence * (s.enraged ? KRAKEN_ENRAGE_CADENCE : 1)
 }
 
 function krakenCoilMul(s) {
@@ -1731,31 +1797,59 @@ function krakenCoilMul(s) {
   return KRAKEN_COIL_IN
 }
 
-function stepKrakenBlock(run, dt, rung, head) {
+// THE RING'S OWN STEP, called from BOTH phases. Rev 3.0 ran the arms only during the ring blocks
+// and then handed over to a head-only chase, which made the fight two thin acts that shared nothing:
+// 19s of ring and 28s of head at a real build level, 21 parries in the whole thing. The arms keep
+// fighting after the head rises now, so the verb the chapter teaches is the verb it ends on.
+// THE COIL, STEPPED FROM WHEREVER IT WAS SCHEDULED. It is set in stepKrakenArms, which loop 1
+// started calling from the chase as well — but the code that COUNTS IT DOWN lived only in the ring
+// block, so a coil scheduled during the chase never resolved. Measured: coilT frozen at its initial
+// 2.50 for up to 87 seconds, the wind-up siren fired, and render's gap wedge — "the loudest thing
+// the chapter ever draws" — stayed on screen for the rest of the fight for a move that never closed.
+// Returns true if the player died to it; while it runs, no arm takes a turn.
+// THE CAGE HOLDS WHENEVER THE HEAD IS ON THE FIELD. Its own function because the chase returns
+// early from three different branches — the rise, the stagger and the coil — and a wall that is
+// only there on some frames is worse than no wall: the player drifts out and is snapped back.
+//   Position, not velocity: they are stopped at the membrane rather than shoved, so holding the
+// stick into it reads as leaning on something solid instead of being flung.
+// THE KRAKEN'S ARRIVAL CRUSHES WHAT THE BREATHER LEFT STANDING — and the player is paid for it.
+//
+// The owner's ruling is "breathers BETWEEN blocks": waves in the gaps, the ring when the head is up.
+// Only half of it was ever enforced, so a wave's survivors were still alive when the ring came up
+// and every block was fought inside the previous breather's crowd. A mortal rig that evades still
+// died at 38-78s to a wave tank, having never seen one stagger.
+//
+// THROUGH dealDamage, NOT a direct hp write. The first version of this wrote the field directly, which skips
+// the death branch entirely: no kill, no xp gem, no coin, and no {type:'kill'} event — so ~40% of
+// every add simply blinked out in silence, and this chapter is scored on kills and time.
+// The boss's own script was deleting the player's score. They earned these by surviving
+// the breather; the Kraken just finishes them.
+function krakenSweepAdds(run) {
+  let swept = 0
+  for (const e of run.enemies) {
+    if (e._dead || e.rosterId === 'krakenHead' || e.rosterId === 'krakenArm' || isAlly(e)) continue
+    dealDamage(run, e, e.hp, false, false, false)
+    swept++
+  }
+  return swept
+}
+
+function krakenCage(run, head, dt = 0) {
   const p = run.player
   const s = run.script
-  if (!head) {
-    const h = krakenRaiseHead(run, rung, false)
-    if (h) krakenArmsToBlock(run, rung, h)
-    return false
-  }
-
-  // THE CAGE HOLDS ONLY WHILE THE RING IS UP. The arms are the wall, so when they are gone the wall
-  // is gone: a breather really is open water (the head has left the field) and the chase is a bare
-  // hunt across it. Clamping in those phases would be a wall with nothing drawing it.
-  //   Position, not velocity: the player is stopped at the membrane rather than shoved, so holding
-  // the stick into it reads as leaning on something solid instead of being flung.
   const ox = p.x - head.x, oy = p.y - head.y
   const od = Math.hypot(ox, oy)
   if (od > KRAKEN_CAGE_R) {
     p.x = head.x + (ox / od) * KRAKEN_CAGE_R
     p.y = head.y + (oy / od) * KRAKEN_CAGE_R
-    run.script.cageT = 0.18 // render lights the membrane where it is being leaned on
+    s.cageT = 0.18 // render lights the membrane where it is being leaned on
   } else if (s.cageT > 0) s.cageT = Math.max(0, s.cageT - dt)
+}
 
-  // THE COIL (P3, D3 only) — a RING-WIDE move, so it is stepped here rather than on one arm's
-  // turn. While it runs, no arm takes its own: the ring is busy being the attack.
-  if (s.coilT > 0) {
+function krakenCoilStep(run, dt, rung, head) {
+  const p = run.player
+  const s = run.script
+  if (!(s.coilT > 0)) return false
     const wasTele = s.coilT > KRAKEN_COIL_DUR
     s.coilT -= dt
     // THE MOMENT IT SHUTS. Everything outside the gap sector is swept; the gap is the whole answer,
@@ -1774,17 +1868,28 @@ function stepKrakenBlock(run, dt, rung, head) {
     // standing arm rearing on the same frame and blows straight through rung.rearing: measured at
     // 4 of 6 against a cap of 2, i.e. the exact all-at-once the cap exists to prevent. The ring
     // resumes handing out turns like any other beat.
-    if (s.coilT <= 0) { s.coilT = 0; s.turnT = rung.cadence; for (const a of run.krakenArms) if (!a.dead) { a.tele = 0; a.fuse = 0 } }
+    if (s.coilT <= 0) { s.coilT = 0; s.turnT = krakenCadence(s, rung); for (const a of run.krakenArms) if (!a.dead) { a.tele = 0; a.fuse = 0 } }
     for (const a of run.krakenArms) {
       if (a.dead) continue
       const r = KRAKEN_ARM_REACH * krakenCoilMul(s)
-      a.x = head.x + Math.cos(a.ang) * r
-      a.y = head.y + Math.sin(a.ang) * r
-    }
-    return false
+    a.x = head.x + Math.cos(a.ang) * r
+    a.y = head.y + Math.sin(a.ang) * r
   }
+  return false
+}
 
-  // ---- THE RING TAKES TURNS. ONE CLOCK, NOT N. ------------------------------------------------
+function stepKrakenArms(run, dt, rung, head) {
+  const p = run.player
+  const s = run.script
+
+  // THE CAGE FIRST, AND UNCONDITIONALLY — including through a coil. It used to sit after the coil's
+  // early return, so for the whole 2.5s of the one move whose entire counterplay is "run to the
+  // gap", there was no wall: measured at 1170px against a 620px cage, 1.9x the arena, then a snap
+  // back when it closed.
+  krakenCage(run, head, dt)
+  if (krakenCoilStep(run, dt, rung, head)) return true
+  if (s.coilT > 0) return false
+
   // Rev 2 gave every arm its own period, so how many were winding up at once was an emergent
   // property nobody chose: 2.2 of 8 on average, 4 at the peak. "The arms all attack too
   // simultaneously" is what that looks like from the seat, and it is unfixable by shuffling
@@ -1869,7 +1974,11 @@ function stepKrakenBlock(run, dt, rung, head) {
         node.speed = 0; node.dmg = 0
         a.hp = node.hp
       } else if (a.nodeId != null) {
-        // it died on the node — either still in the array or already culled from it
+        // It died on the node — still in the array, or already culled from it. Take the corpse off
+        // explicitly rather than trusting the cull: a node that reached 0 without the death branch
+        // marking it _dead would otherwise sit on the field attached to an arm that no longer exists.
+        const c = run.enemies.findIndex((e) => e.id === a.nodeId)
+        if (c >= 0) run.enemies.splice(c, 1)
         a.hp = 0
         a.nodeId = null
         krakenBreakArm(run, a)
@@ -1901,7 +2010,7 @@ function stepKrakenBlock(run, dt, rung, head) {
   // ...and the ring hands out the next turn.
   s.turnT -= dt
   if (s.turnT <= 0) {
-    s.turnT = rung.cadence
+    s.turnT = krakenCadence(s, rung)
     let rearing = 0
     const idle = []
     for (const a of run.krakenArms) {
@@ -1913,7 +2022,9 @@ function stepKrakenBlock(run, dt, rung, head) {
       const a = idle[Math.floor(Math.random() * idle.length)]
       // The Coil is checked BEFORE the Grip so the two can never stack on one turn: a grab you
       // cannot escape because the ring is closing is not a pattern, it is a bug with a name.
-      if (rung.coil && s.bossIdx >= 2 && s.gripN > 0 && s.gripN % KRAKEN_COIL_EVERY === 0) {
+      // `bossIdx >= 2` is deliberate and was dropped by accident when the enrage clause went in:
+      // the Coil is unparryable and ring-wide, so it must never be the first thing a rung teaches.
+      if ((rung.coil || s.enraged) && run.difficulty >= 2 && (s.phase === 'chase' || s.bossIdx >= 2) && s.gripN > 0 && s.gripN % KRAKEN_COIL_EVERY === 0) {
         s.gripN++
         s.coilT = KRAKEN_COIL_TELE + KRAKEN_COIL_DUR
         s.coilGap = Math.random() * Math.PI * 2
@@ -1933,17 +2044,40 @@ function stepKrakenBlock(run, dt, rung, head) {
     }
   }
 
+  return false
+}
+
+function stepKrakenBlock(run, dt, rung, head) {
+  const p = run.player
+  const s = run.script
+  if (!head) {
+    const h = krakenRaiseHead(run, rung, false)
+    if (h) {
+      krakenArmsToBlock(run, rung, h)
+      krakenSweepAdds(run)
+    }
+    return false
+  }
+
+  if (stepKrakenArms(run, dt, rung, head)) return true
+
   // THE LATE TRICKLE (owner ruling, 2026-09-13). From KRAKEN_TRICKLE_FROM_END blocks before the
   // chase, graveyard dead arrive DURING the block, so the last stretch is a choice between the arm
   // winding up in front of you and the thing on your back. Clamped so D1 — which has only two ring
   // blocks — does not trickle through its own teach.
-  const ringBlocks = Math.max(1, Math.floor(s.armsTotal / 2))
+  // HOW MANY RING BLOCKS THIS FIGHT ACTUALLY HAS. It used to assume the ring had to be broken in
+  // FULL before the head came up; since the head rises at KRAKEN_RISE_AT the count is smaller, and
+  // on d1 the stale derivation left exactly one ring block that also trickled — so the chapter's
+  // whole teach happened under a crowd, against the clamp's own stated intent.
+  const ringBlocks = Math.max(1, Math.ceil((s.armsTotal * KRAKEN_RISE_AT) / 2))
   const trickleFrom = ringBlocks - Math.min(KRAKEN_TRICKLE_FROM_END, ringBlocks - 1)
-  if (s.bossIdx >= trickleFrom) {
+  if (ringBlocks > 1 && s.bossIdx >= trickleFrom) {
     s.trickleT -= dt
     if (s.trickleT <= 0) {
       s.trickleT = KRAKEN_TRICKLE_T
-      for (let i = 0; i < KRAKEN_TRICKLE_N; i++) {
+      // never past the cap: the trickle is meant to make a late block busier, not to bury the ring
+      const live = run.enemies.filter((e) => !e._dead && e.rosterId !== 'krakenHead' && e.rosterId !== 'krakenArm').length
+      for (let i = 0; i < (live >= KRAKEN_ADD_CAP ? 0 : KRAKEN_TRICKLE_N); i++) {
         const e = spawnBlankEnemy(run, KRAKEN_WAVE.ids[i % KRAKEN_WAVE.ids.length], false, {})
         if (e) e.xp = Math.round(e.xp * KRAKEN_WAVE_XP_MUL)
       }
@@ -1964,6 +2098,7 @@ function stepKrakenChase(run, dt, rung, head) {
     const h = krakenRaiseHead(run, rung, true)
     if (h) {
       s.riseT = KRAKEN_RISE_T
+      krakenSweepAdds(run)
       run.events.push({ type: 'headRise', x: h.x, y: h.y })
     }
     return false
@@ -1974,6 +2109,8 @@ function stepKrakenChase(run, dt, rung, head) {
     s.riseT = Math.max(0, s.riseT - dt)
     head.speed = 0
     head.dmg = 0
+    // the cage still holds through the rise — 2.6s of unclamped swimming reached 1501px
+    krakenCage(run, head)
     return false
   }
   // A STAGGERED HEAD IS STILL AND OPEN. This is the fight's only damage window on the head, and it
@@ -1982,7 +2119,20 @@ function stepKrakenChase(run, dt, rung, head) {
     s.staggerT = Math.max(0, s.staggerT - dt)
     head.speed = 0
     head.dmg = 0
-    if (s.staggerT === 0) run.events.push({ type: 'headRecover', x: head.x, y: head.y })
+    // THE RING DOES NOT STOP BECAUSE THE HEAD DID. Returning here skipped stepKrakenArms for the
+    // whole 4.5s window, which froze every arm's telegraph mid-wind-up AND took the cage with it —
+    // the player could hold the stick out and drift to 929px, then be snapped back to 419 on the
+    // frame the window closed. It also made the fight's payoff window completely free, which is the
+    // one window it should not be: you are standing still on a boss with its arms still up.
+    if (stepKrakenArms(run, dt, rung, head)) return true
+    if (s.staggerT === 0) {
+      run.events.push({ type: 'headRecover', x: head.x, y: head.y })
+      // THE CHASE'S ONLY LULL, and therefore where its banked levels are paid. There are no
+      // breathers left to bank into, but paying per-frame put 9-10 level-up modals in the middle of
+      // the fight — the exact interruption krakenPayBanked's own comment exists to avoid. The head
+      // has just let go and the player is repositioning; that is the moment a modal costs least.
+      krakenPayBanked(run)
+    }
     return false
   }
   // A part-filled stagger drains if you stop answering, so it cannot be banked across a whole fight.
@@ -1990,6 +2140,25 @@ function stepKrakenChase(run, dt, rung, head) {
     s.staggerDecay -= dt
     if (s.staggerDecay <= 0) { s.stagger = 0; s.staggerDecay = KRAKEN_STAGGER_DECAY }
   }
+  // IT COMES APART AND GETS WORSE. Below KRAKEN_ENRAGE_AT the Kraken hauls its broken arms back out
+  // of the murk — torn, so they come back at a fraction of their health — the ring speeds up, and
+  // the Coil enters for anyone who has met it. This is the fight's "it's ON" beat: the one moment a
+  // player who thought they had won the ring has to fight it again, under a head that is now awake.
+  if (!s.enraged && head.hp <= head.maxHP * KRAKEN_ENRAGE_AT) {
+    s.enraged = true
+    let back = 0
+    for (const a of run.krakenArms) {
+      if (!a.dead) continue
+      a.dead = false
+      a.breakT = 0
+      a.hp = Math.max(1, Math.round(a.maxHP * KRAKEN_ENRAGE_ARM_HP))
+      a.tele = 0; a.fuse = 0; a.limpT = 0; a.gripT = 0; a.nodeId = null
+      back++
+    }
+    run.events.push({ type: 'krakenEnrage', x: head.x, y: head.y, r: KRAKEN_ARM_REACH, n: back })
+  }
+  if (stepKrakenArms(run, dt, rung, head)) return true
+
   head.dmg = KRAKEN_LUNGE_DMG
   if (head.lungeT == null) head.lungeT = KRAKEN_LUNGE_T
   // `lungeT` counts DOWN to the strike, so the parry window is its last `rung.window` seconds —
@@ -2015,7 +2184,10 @@ function krakenBreakArm(run, a) {
   a.gripT = 0
   a.breakT = 0.9 // render staging: bare, then peels and sinks
   s.blockKills++
-  s.bankedLevels += KRAKEN_ARM_LEVELS
+  // PAID ONCE PER ARM, EVER. The enrage hauls broken arms back up, so without this every arm is
+  // broken — and paid — twice: measured at 12 breaks across 6 distinct arms, two levels each.
+  if (!a.paid) { a.paid = true; s.bankedLevels += KRAKEN_ARM_LEVELS }
+  run.hitStop = Math.max(run.hitStop, KRAKEN_HITSTOP_BREAK)
   run.events.push({ type: 'tentacleBreak', x: a.x, y: a.y })
 }
 
@@ -2032,58 +2204,74 @@ function krakenParry(run) {
   const p = run.player
   const rung = krakenRung(run.difficulty)
   const s = run.script
-
-  // THE HEAD'S OWN PARRY (P5). Deflecting the bare head's lunge fills a STAGGER, and a full stagger
-  // is the only time the head can be hurt at all — Sekiro's posture, which pays a deflect with a
-  // loud state change on the boss rather than a fraction off a pool nobody can see.
   const head = run.enemies.find((e) => e.rosterId === 'krakenHead' && !e._dead)
-  if (s.phase === 'chase' && head) {
-    if (s.staggerT > 0) { run.events.push({ type: 'parryWhiff', x: p.x, y: p.y, cd: KRAKEN_PARRY_CD }); return }
-    const perfect = head.lungeT > 0 && head.lungeT <= rung.perfect
-    if (!(head.lungeT > 0 && head.lungeT <= rung.window)) {
-      run.events.push({ type: 'parryWhiff', x: p.x, y: p.y, cd: KRAKEN_PARRY_CD })
-      return
-    }
-    head.lungeT = KRAKEN_LUNGE_T
-    s.staggerDecay = KRAKEN_STAGGER_DECAY
-    s.stagger += perfect ? 2 : 1
-    run.charge = Math.min(run.chargeMax, run.charge + KRAKEN_PARRY_REFILL * (perfect ? KRAKEN_PERFECT_MUL : 1))
-    run.events.push({ type: perfect ? 'parryPerfect' : 'parry', x: head.x, y: head.y, frac: 1 - s.stagger / rung.staggerNeed })
-    if (s.stagger >= rung.staggerNeed) {
-      s.stagger = 0
-      s.staggerT = KRAKEN_STAGGER_T
-      run.events.push({ type: 'headStagger', x: head.x, y: head.y, r: KRAKEN_HEAD_R })
-    }
-    return
-  }
 
-  // THE RING'S PARRY. Nearest arm that is either mid-wind-up inside its window or holding you.
-  let best = null
-  let bestD = Infinity
+  // ONE BUTTON, TWO BODIES, AND THE MOST IMMINENT THREAT WINS. Once the ring keeps fighting under a
+  // risen head, a press has two possible answers, and the first cut of this handled the head FIRST
+  // and returned — so every arm in the chase was unparryable and the bot whiffed 265 times a fight
+  // while the head took zero damage. Picking by time-to-impact is the rule a player can hold in
+  // their head: you parry whatever is about to land on you.
+  // A PARRY IS AN ANSWER TO A THREAT, so it only reaches a threat that could actually land. Without
+  // this, 21-26 of every 36-42 arm parries in the chase were spent on arms further away than their
+  // own strike radius — negating swings that were never going to touch you, from safety.
+  const reach2 = (KRAKEN_LASH_R * 1.6) ** 2
+  let best = null          // an arm
+  let bestT = Infinity
   for (const a of run.krakenArms) {
     if (a.dead || a.limpT > 0) continue
-    const inWindow = a.gripT > 0 || (a.tele > 0 && a.tele <= rung.window)
-    if (!inWindow) continue
-    const d = (a.x - p.x) ** 2 + (a.y - p.y) ** 2
-    if (d < bestD) { bestD = d; best = a }
+    if ((a.x - p.x) ** 2 + (a.y - p.y) ** 2 > reach2) continue
+    // A gripping arm is parryable for the whole hold: it is the one attack whose answer must not
+    // also be a timing test, because the player is being dragged while they look for it.
+    if (a.gripT > 0) { best = a; bestT = -1; break }
+    if (a.tele > 0 && a.tele <= rung.window && a.tele < bestT) { bestT = a.tele; best = a }
   }
-  // THE WHIFF IS AN EVENT. It used to be a bare return: the cooldown was spent and the game said
-  // nothing, so a miss and a press the game never registered were the same picture.
-  if (!best) {
+  // The head's lunge reads on exactly the same clock, deliberately: one verb, one timing.
+  // ...and the same rule for the head: a lunge you are nowhere near is not yours to deflect.
+  const headNear = !!head && (head.x - p.x) ** 2 + (head.y - p.y) ** 2 <= (KRAKEN_HEAD_R * 2.4) ** 2
+  const headReady = headNear && s.phase === 'chase' && !(s.staggerT > 0) && head.lungeT > 0 && head.lungeT <= rung.window
+  const headT = headReady ? head.lungeT : Infinity
+
+  if (!best && !headReady) {
+    // THE WHIFF IS AN EVENT. It used to be a bare return: the cooldown was spent and the game said
+    // nothing at all, so a miss and a press the game never registered were the same picture.
     run.events.push({ type: 'parryWhiff', x: p.x, y: p.y, cd: KRAKEN_PARRY_CD })
     return
   }
 
-  // A grip break always scores as a good parry: see above.
+  if (headReady && headT <= bestT) {
+    // ---- THE HEAD'S POSTURE. Sekiro's rule: pay a deflect with a state change on the BOSS, and
+    // make breaking it the one loud window the fight has.
+    const perfect = head.lungeT <= rung.perfect
+    head.lungeT = KRAKEN_LUNGE_T
+    s.staggerDecay = KRAKEN_STAGGER_DECAY
+    s.stagger += perfect ? 2 : 1
+    run.charge = Math.min(run.chargeMax, run.charge + KRAKEN_PARRY_REFILL * (perfect ? KRAKEN_PERFECT_MUL : 1))
+    run.events.push({ type: perfect ? 'parryPerfect' : 'parry', x: head.x, y: head.y, frac: Math.max(0, 1 - s.stagger / rung.staggerNeed) })
+    if (s.stagger >= rung.staggerNeed) {
+      s.stagger = 0
+      s.staggerT = KRAKEN_STAGGER_T
+      run.hitStop = Math.max(run.hitStop, KRAKEN_HITSTOP_STAGGER)
+      run.events.push({ type: 'headStagger', x: head.x, y: head.y, r: KRAKEN_HEAD_R })
+      // THE DEATHBLOW ITSELF. Through dealDamage rather than by writing hp, so it takes the one
+      // damage path — including the death branch, the boss bar and the kill credit. staggerT is set
+      // FIRST on purpose: the seal reads it, so this is the same window the player's weapons get.
+      dealDamage(run, head, Math.round(head.maxHP * KRAKEN_STAGGER_BITE), false)
+    }
+    return
+  }
+
+  // ---- THE RING'S PARRY: negate the strike and EXPOSE the limb.
   const perfect = best.gripT <= 0 && best.tele <= rung.perfect
   const mul = perfect ? KRAKEN_PERFECT_MUL : 1
-  // THE PARRY NEGATES THE STRIKE AND EXPOSES THE LIMB. It does not chip a pool — the reward is the
-  // state change, and a PERFECT parry buys a longer window rather than a bigger number, because
-  // more exposure is more of the thing the player actually wants.
+  // The reward is the state change, and a PERFECT parry buys a longer window rather than a bigger
+  // number, because more exposure is more of the thing the player actually wants.
   best.tele = 0
   best.gripT = 0
   best.limpT = rung.limp * (perfect ? KRAKEN_LIMP_PERFECT_MUL : 1)
   best.hitT = KRAKEN_LIMP_FLASH
+  // The tear. Applied to the LIMB, not through dealDamage: the arm is not an enemy until its node
+  // exists, and the node reads a.hp when it spawns — so this is simply the limb being hurt.
+  best.hp = Math.max(0, best.hp - best.maxHP * KRAKEN_EXPOSE_BITE)
 
   // AT FULL, THE NEXT PARRY BLAZES — off a LATCH (s.charged), not a sample of the bar. Testing
   // `charge >= chargeMax` at press time measures the passive drain, not the player: the bar leaves
@@ -2096,6 +2284,7 @@ function krakenParry(run) {
     return
   }
   run.charge = Math.min(run.chargeMax, run.charge + KRAKEN_PARRY_REFILL * mul)
+  run.hitStop = Math.max(run.hitStop, KRAKEN_HITSTOP_PARRY)
   run.events.push({
     type: perfect ? 'parryPerfect' : 'parry',
     x: best.x, y: best.y, frac: Math.max(0, best.hp) / best.maxHP,
@@ -8067,7 +8256,15 @@ function roundHP(v) { return Math.max(1, Math.round(v)) }
 // denominator cancels and one car pass would hand every enemy in the chapter half a freeze meter,
 // elites included, for free. Measured before the flag existed: 23.7% of city's damage events remove
 // >=25% of an enemy's maxHP in a single step, against 6.3% in undergrowth.
-function dealDamage(run, enemy, dmg, crit, dot = false, hazard = false) {
+// `carried` — THE TICK OF A STATUS THE ENEMY IS ITSELF CARRYING (its own ignite, its own bleed),
+// as opposed to any other damage-over-time. Only stepStatuses passes it, and it exists because the
+// Kraken's seal needs the distinction that `dot` cannot make: `dot` means "do not re-roll crit or
+// elements", which is equally true of a ground cloud ticking whatever stands in it. A foxfire bloom
+// took 58-62% of the head's pool through a shut door on that technicality — the same hole v7.330
+// shipped to close, re-opened by a loadout change three commits later. What the owner's ruling
+// actually says is: you may only LIGHT the head through a window, and a fire already burning on it
+// keeps burning. A cloud on the floor was never lit on anything.
+function dealDamage(run, enemy, dmg, crit, dot = false, hazard = false, carried = false) {
   // Untouchable windows (v5.4): an owl overhead / a ghosted flicker eats nothing at all — no
   // number, no flash, no status, no death. Checked before everything else, including DoT ticks.
   if (damageImmune(enemy)) return
@@ -8085,7 +8282,7 @@ function dealDamage(run, enemy, dmg, crit, dot = false, hazard = false) {
   // burst: the window buys you a fuse rather than a swing, and the fuse outlives the window.
   //   The LIGHTING of it is gated here and in the four other places a status can be planted — see
   // krakenHeadSealed, which is the one author of that rule.
-  if (!dot && krakenHeadSealed(run, enemy)) return
+  if (!carried && krakenHeadSealed(run, enemy)) return
   // Shielded (elite affix): while above SHIELD_HP_FRAC of maxHP, the shield absorbs part
   // of every hit. Checked before venom amp per spec (shield softens the raw hit first).
   if (enemy.elite && enemy.affixes && enemy.affixes.includes('shielded') && enemy.hp > enemy.maxHP * SHIELD_HP_FRAC) {
@@ -8467,7 +8664,7 @@ function stepStatuses(run, dt) {
       e._igniteAcc = (e._igniteAcc || 0) + dt
       while (!e._dead && e._igniteAcc >= EL_BURN_TICK) {
         e._igniteAcc -= EL_BURN_TICK
-        dealDamage(run, e, Math.max(EL_BURN_MIN, e.igniteDps * EL_BURN_TICK), false, true)
+        dealDamage(run, e, Math.max(EL_BURN_MIN, e.igniteDps * EL_BURN_TICK), false, true, false, true)
       }
       if (e.ignite <= 0) { e.igniteDps = 0; e._igniteAcc = 0 }
     }
@@ -8479,7 +8676,7 @@ function stepStatuses(run, dt) {
       e._bleedAcc = (e._bleedAcc || 0) + dt
       while (!e._dead && e._bleedAcc >= STATUS_TICK) {
         e._bleedAcc -= STATUS_TICK
-        dealDamage(run, e, e.bleedDps * STATUS_TICK, false, true)
+        dealDamage(run, e, e.bleedDps * STATUS_TICK, false, true, false, true)
       }
       if (e.bleed <= 0) { e.bleedDps = 0; e._bleedAcc = 0 }
     }
@@ -13098,7 +13295,7 @@ function stepGlintWeapon(run, w, stats, fireRateMul, dt) {
 
 function fireGlint(run, stats) {
   const p = run.player
-  run.charge = Math.max(0, run.charge - GLINT_LIGHT_COST * run.chargeDrainMul)
+  spendCharge(run, GLINT_LIGHT_COST * run.chargeDrainMul)
   const target = nearestEnemy(run)
   const baseAngle = target ? Math.atan2(target.y - p.y, target.x - p.x) : (p.facing >= 0 ? 0 : Math.PI)
   // ONE local for the count, used as the loop bound AND the fan divisor (the per-cast-count trap).

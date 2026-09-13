@@ -8596,7 +8596,7 @@ CHAPTERS.kraken = {
   tide: null,
   signature: null,
   roster: [
-    { id: 'krakenWall',  archetype: 'tank',   name: 'The Bulkhead',  hpMul: 2.6, speedMul: 0.25, flags: [] },
+    { id: 'krakenWall',  archetype: 'tank',   name: 'The Bulkhead',  hpMul: 1.7, speedMul: 0.25, flags: [] },
     { id: 'krakenDart',  archetype: 'fast',   name: 'The Gaff',      hpMul: 0.8, speedMul: 1.1,  flags: ['dashBurst'] },
     { id: 'krakenSnare', archetype: 'normal', name: 'The Tentacle',  hpMul: 1.3, speedMul: 0.85, flags: ['latch'] },
     { id: 'krakenHead',  archetype: 'tank',   name: 'The Kraken',    hpMul: 1,   speedMul: 1,    flags: [], formationOnly: true },
@@ -8612,8 +8612,25 @@ CHAPTERS.kraken = {
   // balance_decision : breather dead die fast but sting [2026-09-13]
   //  - spawnMul/maxAliveMul are inert under `scripted` (no ordinary spawner runs); they read 1
   //    rather than carrying The Deep's numbers, which is what rev 1 cloned this block from.
-  balance: { spawnMul: 1, enemyHpMul: 0.85, enemyDmgMul: 1.2, maxAliveMul: 1 },
-  weapons: ['breaker', 'skippingShell', 'barnacles'], starter: 'breaker',
+  // balance_decision : the crowd stings less; the boss is the threat [2026-09-14]
+  //  - enemyDmgMul was 1.2 and the adds were killing the player before the boss ever got a turn.
+  balance: { spawnMul: 1, enemyHpMul: 0.85, enemyDmgMul: 0.95, maxAliveMul: 1 },
+  // THE DEEP'S OWN ARSENAL, not The Surf's. This chapter shipped with breaker/skippingShell/
+  // barnacles -- character-identical to CHAPTERS.surf's line -- which is a shore kit two kilometres
+  // down: a breaking wave, a shell that 'skips off the sand', and intertidal crust. Measured here at
+  // weapon level 1, head damage per second of the window: Skipping Shell 32.2, Breaker 9.1,
+  // BARNACLES 0.5 -- it propagates when a body DIES and this fight is one enemy that dies once.
+  //   The Deep's four are the chapter you had to beat to be here, they are already abyssal, and two
+  // of them key off mechanics this fight owns: Foxfire is a burn, and a burn lit inside a stagger
+  // outlives it; the Sunlance's reach reads the Light bar that parrying refills. Measured at L5:
+    // NO GLINT HERE, AND THAT IS A COPY DECISION AS MUCH AS A MECHANICAL ONE. Its card says "Each
+  // cast costs 1 Light" in both languages, and this chapter's bar is `noSpend` — parrying is the
+  // only thing that fills it, so nothing may drain it. A Glint here is strictly better than its own
+  // card describes, which is the failure game-art-and-copy names: a card must mean what it says on
+  // the screen the player is looking at. Cheaper to leave it out than to make the sentence
+  // chapter-aware, and its absence costs this pool nothing — the other three already span
+  // 142s/184s/245s at level 5, which is a real spread of answers.
+  weapons: ['sunspear', 'foxfire', 'sunlance'], starter: 'sunspear',
   // ---- render-only (ZERO sim effect) ----
   // The graveyard: The Deep's near-black carried one more step toward the void.
   render: {
@@ -8654,7 +8671,7 @@ export const KRAKEN_RUNGS = [
   //  - difficulty is bought with SHORTER WINDOWS and MORE PATTERNS, never with a less legible
   //    attack. That is the one rule every readability writeup agrees on.
   { arms: 4, rearing: 1, window: 0.34, perfect: 0.150, fuse: 1.10, limp: 4.0, cadence: 1.9, staggerNeed: 2, drainMul: 1.00, headHpMul: 1.00, grip: false, coil: false },
-  { arms: 5, rearing: 2, window: 0.28, perfect: 0.125, fuse: 0.90, limp: 3.2, cadence: 1.0, staggerNeed: 3, drainMul: 1.30, headHpMul: 1.15, grip: true,  coil: false },
+  { arms: 5, rearing: 2, window: 0.28, perfect: 0.125, fuse: 0.90, limp: 3.2, cadence: 0.9, staggerNeed: 3, drainMul: 1.30, headHpMul: 1.02, grip: true,  coil: false },
   { arms: 6, rearing: 2, window: 0.24, perfect: 0.110, fuse: 0.75, limp: 2.6, cadence: 0.7, staggerNeed: 3, drainMul: 1.60, headHpMul: 1.30, grip: true,  coil: true  },
 ]
 // The one accessor, so no site has to remember the difficulty-1 offset or the clamp. The cap is
@@ -8690,12 +8707,55 @@ export function krakenRung(difficulty) {
 // arsenal matter in the one fight that had been ignoring it.
 export const KRAKEN_LIMP_PERFECT_MUL = 1.6 // x the limp window on a perfect parry. The reward for
                                            // timing is MORE EXPOSURE — more of the thing you want.
+// THE FIGHT IS ONE ESCALATION, NOT TWO ACTS. Rev 3.0 ran the ring until every arm was broken and
+// then handed over to a head-only chase: 19s of ring and 28s of head at a real build level, 21
+// parries in the whole fight, and the two halves shared nothing. The head comes up at HALF the ring
+// now and the survivors keep swinging under it, so the verb the chapter teaches is the verb it ends
+// on — and then the thing hauls its broken arms back out of the murk when it starts to die.
+export const KRAKEN_RISE_AT = 0.5        // fraction of the ring broken that brings the head up
+export const KRAKEN_ENRAGE_AT = 0.38     // head hp fraction that starts the last phase
+export const KRAKEN_ENRAGE_CADENCE = 0.72 // x the ring's cadence once enraged
+export const KRAKEN_ENRAGE_ARM_HP = 0.55 // regrown arms come back this tough (they are torn already)
 export const KRAKEN_STAGGER_T = 4.5        // s the head stays open once its stagger fills
-export const KRAKEN_STAGGER_DECAY = 7.0    // s without a parry before a part-filled stagger drains
+// Long enough to survive a trip to a limb. At 7s the posture drained while the player was doing the
+// other thing the fight asks of them — chasing an arm they had just opened — which punishes the loop
+// for being played as designed. It is still a use-it-or-lose-it, just not a leash.
+export const KRAKEN_STAGGER_DECAY = 12.0   // s without a parry before a part-filled stagger drains
 export const KRAKEN_LIMP_FLASH = 0.35      // s of hard white on the arm as the parry lands
+// HITSTOP — the world holds still for a few frames on the beats that matter, which is how an
+// impact stops being an event and starts being a hit. Frames, not seconds, is the honest unit: at
+// 60fps these are 3, 5 and 9 frames. Kept SHORT on the parry because it happens 40 times a fight
+// and anything longer reads as lag rather than as weight; the stagger is the one beat allowed to
+// stop the game, because it is the fight's payoff.
+//   The sim freezes, the RENDERER DOES NOT — animT keeps advancing, so the flash, the rings and the
+// particles all play through the pause. A freeze that froze the picture too would just be a stutter.
+export const KRAKEN_HITSTOP_PARRY = 0.05    // a parry lands on an arm
+export const KRAKEN_HITSTOP_BREAK = 0.085   // an arm comes off
+export const KRAKEN_HITSTOP_STAGGER = 0.15  // the head's posture breaks
 
-export const KRAKEN_HEAD_HP = 900 // damageable ONLY while staggered, so this is spent in bursts
-export const KRAKEN_HEAD_R = 190 // world px — the HIT radius. The drawn shadow is far larger.
+// Damageable ONLY while staggered, so this is not a pool that gets chipped — it is spent in
+// BURSTS, and the number that matters is how many staggers it buys. 900 bought TWO, which is not a
+// climax, it is a formality. This buys five or six, so the enrage lands in the middle of them.
+// A STAGGER TAKES A FIXED BITE, AND THAT IS WHAT KEEPS THE FIGHT THE SAME LENGTH FOR EVERYONE.
+// With damage confined to windows, fight length scales INVERSELY with the player's dps: a level-5
+// weapon finished in 5 staggers and a level-2 one needed 13-17 and ran to 240s, which is the same
+// fight told twice as slowly and half as well. The deathblow is the boss's own number, so a thin
+// build still visibly takes the thing apart, and the window on top is where a real build shows.
+//   Solved as a pair: bite x staggers must bracket both ends. At 10% of the pool the range is
+// 4.9 staggers for a strong build and 7.5 for a weak one — one fight, told at one pace.
+export const KRAKEN_STAGGER_BITE = 0.13 // of maxHP, dealt the instant the posture breaks
+// THE PARRY TEARS AS WELL AS EXPOSES, for exactly the reason the stagger bites: without a floor,
+// progress is pure dps and a thin build does not have one. Measured at d3 with a level-1 weapon:
+// 156 parries broke TWO of six arms in 300s and the fight timed out. A parry is a skill move landing
+// on a limb — it should visibly cost that limb something even if you never fire a shot.
+export const KRAKEN_EXPOSE_BITE = 0.18 // of the arm's max, on the parry that exposes it
+export const KRAKEN_HEAD_HP = 4400
+// THE HEAD HAS TO FIT THE CAGE IT IS IN. At 190 the bare head drew ~464px wide inside an 837px
+// arena — 60% of a phone screen, half of it off-frame — and, worse, its drawn half-extent (232px)
+// was LARGER than KRAKEN_ARM_REACH, so every exposed limb (the thing the design tells you to go and
+// stand on) sat buried inside the head sprite. The two numbers are a pair and have to be read
+// together: the arms must reach out past the head, or the fight's target is inside its own boss.
+export const KRAKEN_HEAD_R = 130 // world px — the HIT radius. The drawn shadow is far larger.
 export const KRAKEN_HEAD_SPEED = 165 // px/s the bared head hunts at in the chase
 // A TENTACLE IS LONG AND THIN. At 360 the arm was 225px of reach under 85px of width — a blade,
 // not a limb. The shoulder now starts far enough out that the visible arm is ~7:1.
@@ -8713,14 +8773,14 @@ export const KRAKEN_ARM_R = 34 // world px — the tentacle's thickness at the s
 // How far in from the ring an arm's TIP reaches. This is the arm's threat point (a.x/a.y) and
 // what KRAKEN_LASH_R is measured around, so it is what puts the danger in the middle where the
 // player is, rather than out on the perimeter where nobody stands.
-export const KRAKEN_ARM_REACH = 135
+export const KRAKEN_ARM_REACH = 200
 
 // AN ARM'S SECTOR WIDTH IS 2pi/arms AND THE ARMS NEVER RE-SPACE. That is the whole "fewer arms =
 // less blocking" read: each arm owns a fixed slice decided by the rung's STARTING count, and a
 // broken arm leaves a permanent hole in the ring. Re-spacing the survivors evenly — which rev 1
 // did — would have two arms covering half the circle each and a ring that is still shut with six
 // of eight arms dead.
-export const KRAKEN_ARM_HP = 430 // per tentacle. Removed by WEAPONS, and only while the arm is limp.
+export const KRAKEN_ARM_HP = 380 // per tentacle. Removed by WEAPONS (+ KRAKEN_EXPOSE_BITE a parry), while limp.
 // (KRAKEN_PARRY_DMG retired in rev 3: a parry EXPOSES an arm, it does not chip it. Weapons kill.)
 export const KRAKEN_PERFECT_MUL = 2.0 // damage + refill multiplier inside the perfect window
 // A PERFECT PARRY ALSO STALLS THE ARM'S NEXT WIND-UP, and without this perfect timing is a NET LOSS.
@@ -8766,6 +8826,18 @@ export const KRAKEN_GRIP_DMG = 14 // damage a grip that runs its full duration d
 export const KRAKEN_TRICKLE_FROM_END = 2 // blocks before the chase that start trickling
 export const KRAKEN_TRICKLE_T = 5.5 // s between trickle arrivals
 export const KRAKEN_TRICKLE_N = 2 // dead per arrival
+// THE CROWD IS A SPICE, NOT THE MEAL. Waves and the trickle put dead on the field and nothing took
+// them off, so they accumulated across every breather: 30 adds on screen at 145s, covering the boss,
+// and a mortal rig dying to a wave tank before the Kraken ever got a turn.
+//   THE FIRST FIX WAS WORSE THAN THE PROBLEM. Sweeping the floor whenever the head arrived deleted
+// 37-42% of every add spawned — with no kill, no gem, no coin and no death event, because it wrote
+// `hp = 0` instead of going through dealDamage. This chapter's leaderboard is `boards: ['kills',
+// 'time']`, so the boss's own script was erasing nearly half the player's score; measured, kills
+// 49 -> 12 and level-ups 8 -> 5. It also emptied the arena (the chase became one squid and one fish
+// on a black plain) and fired the fight's ONE reveal — full shake, siren and all — once per block.
+//   A CAP is the honest tool: it stops the floor filling up without taking anything the player
+// earned. It gates the wave AND the trickle, which is what its name says.
+export const KRAKEN_ADD_CAP = 16 // most graveyard dead on the field at once, waves included
 
 // THE RISE (P5's opening beat). The whole fight has shown the head as a silhouette below; the
 // chase is where it comes up, and that beat is the payoff for never having shown it. It is
@@ -8781,7 +8853,7 @@ export const KRAKEN_COIL_TELE = 1.6 // s of wind-up before the ring closes — l
 export const KRAKEN_COIL_DUR = 0.9 // s the ring spends hauled in
 export const KRAKEN_COIL_IN = 0.34 // the fraction of KRAKEN_ARM_REACH the arms close to
 export const KRAKEN_COIL_DMG = 30 // caught outside the gap when it shuts
-export const KRAKEN_WAVE = { n: 10, ids: ['krakenWall', 'krakenDart', 'krakenSnare'] }
+export const KRAKEN_WAVE = { n: 6, ids: ['krakenDart', 'krakenSnare', 'krakenWall'] }
 export const KRAKEN_WAVE_GAP = Math.PI / 2 // the gap door: a quarter-turn of the ring spawns empty
 export const KRAKEN_WAVE_TIMEOUT = 12 // s, then the wave advances regardless — a breather, not a fight
 export const KRAKEN_WAVE_XP_MUL = 1.5

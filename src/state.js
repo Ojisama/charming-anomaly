@@ -2296,6 +2296,9 @@ function generateWells(sig) {
   *     riseT — the chase's opening beat: seconds left of the head ASCENDING out of the abyss. It
   *       is still and harmless while this runs (but not invulnerable), and render scales it up out
   *       of the dark against it.
+  *     enraged — latched the first time the head drops below KRAKEN_ENRAGE_AT. It hauls every
+  *       broken arm back up (at KRAKEN_ENRAGE_ARM_HP of full, because they are already torn),
+  *       speeds the ring's cadence and lets the Coil in. One-way: a fight never de-escalates.
   *     turnT — countdown to the ring handing out its next attack turn. THE RING HAS ONE CLOCK,
   *       not one per arm: that is what makes "how many arms are winding up at once" a number in
   *       the rung table (`rearing`) rather than an emergent property nobody chose.
@@ -2328,7 +2331,10 @@ function generateWells(sig) {
   *   and nothing throws. Out here, all of those exclusions are structural instead of remembered.
   *   The HEAD is the opposite call and stays an ordinary enemy: it is a real creature you kill, so
   *   it takes weapon damage, drives the boss bar and pays out on death.
-  *   Each arm: { i, ang, x, y, hp, maxHP, tele, fuse, limpT, nodeId, dead, gripT, hitT, breakT }.
+  *   Each arm: { i, ang, x, y, hp, maxHP, tele, fuse, limpT, nodeId, dead, paid, gripT, hitT, breakT }.
+  *     paid — has this arm ever paid its level. The enrage hauls broken arms back up, so an arm can
+  *            be broken more than once and `dead` is no longer monotonic; without this each one
+  *            paid twice.
   *     i    — slot index; ang — its FIXED slot angle around the head. Arms never re-space.
   *     tele — seconds until this arm's slam, 0 when idle. Counting down IS the telegraph, and the
   *            parry window is its last `rung.window` seconds (`rung.perfect` the tail of that).
@@ -2799,10 +2805,20 @@ export function createRun(meta, opts = {}) {
           // never reads stage/waveIdx/waveT/bossId, so the two ladders share one shape.
           phase: 'wave', bossIdx: 0, blockKills: 0, armsSpawned: false, headId: null,
           headHp: 0, armsTotal: 0, bankedLevels: 0, gripN: 0, trickleT: 0, charged: false, opened: false,
-          riseT: 0, coilT: 0, coilGap: 0, cageT: 0, turnT: 0, stagger: 0, staggerT: 0, staggerDecay: 0 }
+          riseT: 0, coilT: 0, coilGap: 0, cageT: 0, turnT: 0, stagger: 0, staggerT: 0, staggerDecay: 0,
+          enraged: false }
       : null,
     // The tentacle ring — see the doc block above for why an arm is NOT an enemy. Empty and inert
     // for every chapter but The Kraken, the same rampage pattern as `script` itself.
+    // HITSTOP, in seconds. >0 freezes stepSim entirely (see its early return) while main.js keeps
+    // driving the renderer with real dt — so the impact's flash and particles play through the hold.
+    // Written only by the Kraken's beats today; nothing else in the game reads or sets it.
+    hitStop: 0,
+    // The skill press HELD across a hitstop. input.js latches a press and clears it on read, and
+    // main.js reads it every frame, so without this a press made during a freeze was read, cleared
+    // and discarded — the press that caused the freeze being the likeliest victim. Declared here
+    // rather than sprung on the run object ad hoc, which is what state.js's doc block is for.
+    _skillHeld: false,
     krakenArms: [],
     trail: [],
     bossBar: null,

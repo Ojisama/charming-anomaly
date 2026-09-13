@@ -20285,6 +20285,7 @@ run(testLeLargeWeapons)
   run(testScreenPositioning)
   run(testRefund)
   run(runKraken)
+  run(runBiomes)
   run(testBootLoader)
   console.log('ALL TESTS PASSED')
   runSummary()
@@ -34343,10 +34344,56 @@ function testMouseSteering() {
 // and the blaze fired on the wrong edge. Every assertion here is one of those, plus the contract
 // rev 2 replaced them with.
 //
-// THE CONTRACT, in three sentences: only a parry damages an arm; the head takes damage only from
-// inside an OPEN SECTOR measured player->head; a parry opens the parried arm's sector until that arm
-// winds up again, and a broken arm's sector is open for good.
+// run RB — EVERY CHAPTER DECLARES ITS OWN DECOR BIOME.
+//
+// render.js maps chapter id -> a BIOMES entry that decides which props scatter on its floor, and
+// `chapterBiome` FALLS BACK TO BIOMES.body for an id it does not know. That fallback does not throw
+// and does not warn: it just draws the inside of a body — villi, platelets, plasma motes — on
+// whatever the chapter actually is. The repo has shipped it SIX times (The Shelf, The Surf, The
+// Reef, The Trawl, The Deep, The Wreck) with five consecutive warning comments sitting directly
+// above the line, and then a seventh (The Kraken, a boss chapter two kilometres down, scattering
+// land foliage). Comments do not stop this. A test does.
+//
+// render.js is not in this suite's import graph, so the map is read as SOURCE TEXT — the run UG.k
+// trick. The denominator is Object.keys(CHAPTERS), never CHAPTER_ORDER, which is Book 1 only and
+// would silently skip The Blank and all of Book 2 — i.e. exactly the chapters this keeps happening to.
+function runBiomes() {
+  const src = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
+  const open = src.indexOf('const BIOMES = {')
+  assert.ok(open > 0, 'render.js no longer has a BIOMES map — this guard is reading nothing')
+  // walk to the matching brace so a later object literal cannot leak into the scan
+  let depth = 0, end = -1
+  for (let i = src.indexOf('{', open); i < src.length; i++) {
+    if (src[i] === '{') depth++
+    else if (src[i] === '}') { depth--; if (depth === 0) { end = i; break } }
+  }
+  assert.ok(end > open, 'could not find the end of the BIOMES map')
+  // STRIP COMMENTS BEFORE SEARCHING. This map's house style is a prose paragraph above every entry
+  // — six of them are warnings about this very failure — so a raw substring scan is satisfied by a
+  // sentence mentioning the chapter. Mutation-proven: commenting out `kraken: BIOME_DEEP` with the
+  // id still in the text PASSED before this. Line comments first, then block: a /* inside a // opens
+  // a block that runs to the next */ thousands of lines away (run CS's lesson).
+  const body = src.slice(open, end)
+    .replace(/\/\/[^\n]*/g, '')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+  const ids = Object.keys(CHAPTERS)
+  const missing = ids.filter((id) => !new RegExp('(^|[\\s{,])' + id + '\\s*:', 'm').test(body))
+  assert.deepStrictEqual(missing, [],
+    `${missing.length} chapter(s) have no entry in render.js's BIOMES map: [${missing.join(', ')}]. ` +
+    'chapterBiome falls back to BIOMES.body for an unknown id, so each of these silently draws VILLI ' +
+    'AND PLATELETS on its own floor. Nothing throws. This has shipped seven times.')
+  console.log(`PASS run RB (decor biomes): all ${ids.length} chapters declare their own BIOMES entry, so none of them falls back to the body's villi and platelets`)
+}
+
 function runKraken() {
+  // SEEDED, because this scenario is otherwise order-coupled and a filtered run is then a LIAR.
+  // `node test/sim-test.js KR` — the command this file's own header recommends for iterating — went
+  // red while `npm test` stayed green, because rev 3 changed how many randoms are drawn (a new
+  // weapon pool, the expose bite, hitstop, the enrage) and re-phased the shared stream. The failing
+  // assertion was an XP equality that a leftover gem from the opening wave drifted into. CLAUDE.md
+  // says to run scripts/test-isolation.mjs after any change to how many randoms are drawn; it was
+  // not run, and this is what that costs.
+  Math.random = mulberry32(20260914)
   // REV 3. The contract, in four sentences:
   //   - a STANDING arm cannot be touched by anything the player owns;
   //   - a PARRY on its wind-up makes it LIMP, and a limp arm puts a real enemy at its tip, which is
@@ -34458,11 +34505,20 @@ function runKraken() {
     node.hp = node.maxHP * 0.4
     const kills0 = run.kills
     const xp0 = run.player.xp
+    // what the floor alone is worth over the same window, measured on a twin run with no node
+    const ctl = inBlock(1)
+    const cx = ctl.player.xp
+    quiet(ctl, 0.5, { noRear: true })
+    const gemXpInWindow = ctl.player.xp - cx
     arm.limpT = 0.01
     quiet(run, 0.5, { noRear: true })
     assert.strictEqual(nodesOf(run).length, 0, 'the exposed limb stayed on the field after its window shut')
     assert.strictEqual(run.kills, kills0, 'an unfinished limb paid a KILL when its window closed')
-    assert.strictEqual(run.player.xp, xp0, 'an unfinished limb paid XP when its window closed')
+    // XP is compared against a control that does the SAME 0.5s with no node in play, so a gem the
+    // player happens to vacuum in that window cannot be mistaken for the node paying out. A bare
+    // equality against xp0 measured the floor as much as the limb.
+    assert.ok(run.player.xp - xp0 <= gemXpInWindow,
+      `an unfinished limb paid ${run.player.xp - xp0} xp when its window closed, against ${gemXpInWindow} attributable to gems already on the floor`)
     assert.ok(arm.hp < arm.maxHP * 0.5, 'the damage done to an exposed limb was thrown away when the window shut — two windows must add up')
     assert.ok(!arm.dead, 'the arm broke without ever being finished')
   }
