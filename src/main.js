@@ -697,6 +697,15 @@ const SFX_FOR_EVENT = {
   // dead button makes. It fires often enough (about a quarter of presses) that anything with a
   // voice would nag, and quiet enough to sit under the parry's own block.
   parryWhiff: 'click',
+  // armRear is the wind-up STARTING — the fight's metronome and the thing the whole parry hangs
+  // off, so it gets a voice even though it is the most frequent of these (about one every
+  // `cadence` seconds). 'puffblock' is the parry's own note, so the rear uses 'shoot', which is
+  // dry and short and does not pre-empt the answer.
+  //   headStagger is the fight's single biggest beat and headRecover is the window closing; both
+  // are rare (3-5 a fight) and both are load-bearing, so both sound. armRecover is DELIBERATELY
+  // SILENT: it fires once per unfinished limb, it is the absence of a thing rather than a thing,
+  // and it carries a render case instead — the same decision 'lash' carries and for the same reason.
+  armRear: 'shoot', headStagger: 'bossRise', headRecover: 'hole',
   // tentacleBreak is the fight's real progress, headHide is the kraken dropping below the field,
   // gripLatch is a grab taking hold — all three are rare enough to bear a voice (4-8 a fight).
   // `lash` DELIBERATELY HAS NONE: the ring throws one about once a second, which is the rate

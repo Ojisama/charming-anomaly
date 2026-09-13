@@ -2296,6 +2296,13 @@ function generateWells(sig) {
   *     riseT — the chase's opening beat: seconds left of the head ASCENDING out of the abyss. It
   *       is still and harmless while this runs (but not invulnerable), and render scales it up out
   *       of the dark against it.
+  *     turnT — countdown to the ring handing out its next attack turn. THE RING HAS ONE CLOCK,
+  *       not one per arm: that is what makes "how many arms are winding up at once" a number in
+  *       the rung table (`rearing`) rather than an emergent property nobody chose.
+  *     stagger / staggerT / staggerDecay — the head's posture, in the chase. Each parried lunge
+  *       adds one (a perfect adds two); at `rung.staggerNeed` the head STAGGERS, staggerT runs the
+  *       open window, and that window is the only time the head can be damaged at all. A
+  *       part-filled stagger drains after staggerDecay seconds of no parry, so it cannot be banked.
   *     cageT — >0 for a moment after the player pressed against the ring's wall. Render lights the
   *       membrane off it. The wall itself is KRAKEN_CAGE_R, which is read off the drawn membrane's
   *       outer radius rather than chosen, and it holds ONLY during a ring block — a breather and
@@ -2321,20 +2328,24 @@ function generateWells(sig) {
   *   and nothing throws. Out here, all of those exclusions are structural instead of remembered.
   *   The HEAD is the opposite call and stays an ordinary enemy: it is a real creature you kill, so
   *   it takes weapon damage, drives the boss bar and pays out on death.
-  *   Each arm: { i, ang, x, y, hp, maxHP, tele, open, dead, gripT, hitT, breakT, drift }.
+  *   Each arm: { i, ang, x, y, hp, maxHP, tele, fuse, limpT, nodeId, dead, gripT, hitT, breakT }.
   *     i    — slot index; ang — its FIXED slot angle around the head. Arms never re-space.
-  *     tele — seconds until this arm's slam. Counting down IS the telegraph; it re-arms to the
-  *            rung's lash cadence after a slam or a parry. The parry window is the last
-  *            `rung.window` seconds of it, and `rung.perfect` is the tail of that.
-  *     open — is this arm's SECTOR open. A parry opens it; the arm's next wind-up shuts it.
-  *     dead — broken. Its sector is open for the rest of the fight and it is never re-armed.
+  *     tele — seconds until this arm's slam, 0 when idle. Counting down IS the telegraph, and the
+  *            parry window is its last `rung.window` seconds (`rung.perfect` the tail of that).
+  *            An arm does NOT re-arm itself: the RING hands out turns, at most `rung.rearing` at a
+  *            time, which is what stops the ring attacking as one piece. `fuse` is the full length
+  *            this wind-up started at, so render can fill a danger ground against it.
+  *     limpT — >0 while this arm is LIMP: parried, slack, and the only state in which any weapon in
+  *            the game can hurt it. While it lasts the arm puts a real enemy at its tip and
+  *            `nodeId` is that enemy's id — see the materialise block in stepKrakenBlock. That is
+  *            how the player's own build does the killing without any of the ~25 damage sites
+  *            having to remember an exception.
+  *     dead — broken. It never takes another turn, and the ring is one arm smaller for good.
   *     gripT — >0 while this arm has the player in a Grip (P2); breakT is render staging.
-  *     hitT — >0 for KRAKEN_ARM_HIT_T after A PARRY LANDS ON IT, and render tints the tentacle off
+  *     hitT — >0 for KRAKEN_LIMP_FLASH after A PARRY LANDS ON IT, and render tints the tentacle off
   *            it. NOT set by the arm's own slam: that is the `lash` event's picture. It was, and had
   *            no reader at all, which is why five parries into a 320hp arm looked like one.
-  *     drift — the jitter this arm's LAST re-arm carried, subtracted from the next one so the
-  *            offsets cannot compound. See krakenRearm: without it the even deal decays into a
-  *            random walk within a few cycles and the arms clump.
+  *
  * The chapter reuses two existing generic entities rather than adding new run arrays: run.bombs
  *   (telegraph->blast) carries `src:'trail'` for every trail detonation (P1's own read, and at
  *   d2+ P2's borrowed spread read / P3's borrowed echo — all through sim.js's shared
@@ -2788,7 +2799,7 @@ export function createRun(meta, opts = {}) {
           // never reads stage/waveIdx/waveT/bossId, so the two ladders share one shape.
           phase: 'wave', bossIdx: 0, blockKills: 0, armsSpawned: false, headId: null,
           headHp: 0, armsTotal: 0, bankedLevels: 0, gripN: 0, trickleT: 0, charged: false, opened: false,
-          riseT: 0, coilT: 0, coilGap: 0, cageT: 0 }
+          riseT: 0, coilT: 0, coilGap: 0, cageT: 0, turnT: 0, stagger: 0, staggerT: 0, staggerDecay: 0 }
       : null,
     // The tentacle ring — see the doc block above for why an arm is NOT an enemy. Empty and inert
     // for every chapter but The Kraken, the same rampage pattern as `script` itself.

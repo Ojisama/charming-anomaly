@@ -27,7 +27,7 @@ import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC
   SLICK_SLOW_T, INK_STAIN_T, inLobe,  // The Wreck: the oil and the ink on you, on the glass and the skin
   // The Kraken: the ring's geometry and the per-rung parry windows the telegraph is drawn against
   krakenRung, KRAKEN_RING_R, KRAKEN_ARM_R, KRAKEN_ARM_REACH, KRAKEN_LASH_R, KRAKEN_HEAD_R,
-  KRAKEN_RISE_T, KRAKEN_COIL_DUR, KRAKEN_COIL_TELE, KRAKEN_PARRY_CD, KRAKEN_CAGE_R, KRAKEN_ARM_HIT_T,
+  KRAKEN_RISE_T, KRAKEN_COIL_DUR, KRAKEN_COIL_TELE, KRAKEN_PARRY_CD, KRAKEN_CAGE_R, KRAKEN_LIMP_FLASH,
 } from './config.js'
 import { currentForce, tideForce } from './sim.js'
 
@@ -14844,14 +14844,21 @@ const spurG = new Graphics()
       const k = Math.max(0, Math.min(1, (c.t || 0) / (c.dur || 1)))
       const grow = Math.min(1, (1 - k) * 6 + 0.35)     // young crusts are still small
       const rad = (e.radius || 16)
-      const n = 5
+      // A BARNACLE IS A REAL SIZE, NOT A FRACTION OF ITS HOST. This was `rad * (0.14..0.21)` with no
+      // ceiling, which is right for the 12-26px bodies it was drawn against and absurd anywhere
+      // else: on the Kraken's head (radius 190) it painted five near-opaque cream discs of 27-53px
+      // scattered 140px out, and the owner's phone capture of the fight is a flower of them sitting
+      // over the player. Barnacles on a whale are the same size as barnacles on a rock — there are
+      // simply MORE of them, which is what the count now says instead.
+      const rr0 = Math.max(2.0, Math.min(7.5, rad * 0.16))
+      const n = Math.max(4, Math.min(16, Math.round(rad / 5)))
       for (let i = 0; i < n; i++) {
         // Golden-angle scatter keyed on the body's id, so no two enemies wear the same pattern and
         // none of them shifts between frames.
         const a = e.id * 1.37 + i * 2.399
         const d = rad * (0.28 + 0.46 * ((i * 7 + e.id) % 5) / 4)
         const x = e.x + Math.cos(a) * d, y = e.y + Math.sin(a) * d
-        const rr = rad * (0.14 + 0.07 * ((i * 3 + e.id) % 3)) * grow
+        const rr = rr0 * (0.78 + 0.33 * ((i * 3 + e.id) % 3)) * grow
         crustG.circle(x, y, rr)
         crustG.fill({ color: 0xf2ead8, alpha: 0.92 * k })
         crustG.circle(x, y, rr)
@@ -18369,25 +18376,15 @@ const spurG = new Graphics()
   // Each arm is a MeshRope: a baked tentacle strip bent along a spline that moves every frame. That
   // is how a 2D engine draws a real tentacle. The first cut rebuilt a polygon per frame and read as
   // three straight segments with knobs on it — blocky, and nothing like an animal.
-  // A SHUT SECTOR IS THE MOST IMPORTANT READ IN THIS CHAPTER AND IT WAS INVISIBLE. 0x140f24 over
-  // this chapter's 0x02101a raises red and blue while LOWERING green — and green carries 0.7152 of
-  // luminance — so shut and open composited to the same brightness: an equiluminant chroma edge in
-  // near-black, about the least visible edge it is possible to draw. Measured in-engine at
-  // 1.002:1 against the 3:1 this repo already audits obstacles to (scripts/obstacle-contrast.mjs).
-  // The owner's report was "there's almost no player feedback when a parry is active".
-  //   0x8d7cb8 at K_WEB_A composites to rgb(106,97,145), 3.42:1. It is K_SKIN2's own purple carried
-  // lighter, so the membrane still reads as the same animal's skin catching your lamp rather than
-  // as a HUD overlay — the separation is in LUMINANCE, which is the axis that was missing.
-  const K_WEB = 0x8d7cb8
-  const K_WEB_A = 0.34
-  // ...AND THE LEGIBILITY RIDES ON THE PHOTOPHORES, NOT ON THE WASH. A fill bright enough to carry
-  // 3:1 on its own turns the whole lit disc lavender at a full bar, which is a real loss for a
-  // chapter whose brief is a frightening thing in the abyss. Points of light on near-black have
-  // enormous LOCAL contrast at a fraction of the ink: the wash now only has to suggest an area
-  // (1.6:1), and these carry the read at 8.9:1 each. It is also the better fiction — the curtain is
-  // the animal's own skin, lit the way its arms already are.
-  const K_WEB_LIT = 0xa9f4ff
-  const K_WEB_N = 16 // photophores per shut sector
+  // WHICH WAY IS OPEN is the most important read in this chapter, and two shipped attempts at it
+  // both failed in opposite directions. The first painted every SHUT sector 0x140f24 over a 0x02101a
+  // floor, which raises red and blue while LOWERING green — and green carries 0.7152 of luminance —
+  // so shut and open composited to the same brightness: measured in-engine at 1.002:1, about the
+  // least visible edge it is possible to draw. The second made that wedge visible (3.4:1) and so
+  // painted three quarters of the screen, because six of eight sectors are shut for most of a fight.
+  // The owner's verdicts, in order: "almost no player feedback when a parry is active", then
+  // "why is everything purple". A per-wedge contrast number cannot see the second failure.
+  //   Nothing is drawn for a shut sector now — see "THE DOOR, NOT THE WALL" in drawKrakenRing.
   const K_DEEP = 0x0d1b2a
   let krakenHead = null // resolved by drawKrakenRing, consumed by syncKrakenArms in the same frame
 
@@ -18510,53 +18507,18 @@ const spurG = new Graphics()
       krakenDeepG.circle(ex, ey, R0 * 0.042).fill({ color: 0xeafdff, alpha: 0.55 + eye * 0.40 })
     }
 
-    // ---- the web: a shut sector, drawn between the two arms that hold it -------------------------
-    for (const a of run.krakenArms) {
-      if (a.dead || a.open) continue
-      const a0 = a.ang - half, a1 = a.ang + half
-      // rOut IS THE CAGE. The sim clamps the player to KRAKEN_CAGE_R, and that constant is defined
-      // as this membrane's outer edge — one fact, one author, so the wall can never end up
-      // somewhere other than where it is painted.
-      const rIn = KRAKEN_ARM_REACH * 0.80, rOut = KRAKEN_CAGE_R
-      // beginPath() BEFORE EVERY ARC: circle() and poly() open their own path in Pixi v8, arc() does
-      // NOT — it continues from the current point, so without this the sectors chain together and
-      // the ring renders as one fan of wedges. Caught by shooting the frame; nothing throws.
-      teleG.beginPath()
-      teleG.moveTo(head.x + Math.cos(a0) * rIn, head.y + Math.sin(a0) * rIn)
-      teleG.arc(head.x, head.y, rOut, a0, a1)
-      teleG.lineTo(head.x + Math.cos(a1) * rIn, head.y + Math.sin(a1) * rIn)
-      teleG.arc(head.x, head.y, rIn, a1, a0, true)
-      teleG.closePath()
-      teleG.fill({ color: K_WEB, alpha: K_WEB_A })
-      // The skin's own lights, scattered across the curtain. Positions are a HASH of the arm's slot
-      // and the point's index, not Math.random — a random scatter re-rolled every frame is a field
-      // of static, and this has to sit still enough to read as a surface. They breathe on a slow
-      // per-point phase instead, which is what keeps it alive without moving.
-      for (let k = 0; k < K_WEB_N; k++) {
-        const hsh = Math.sin((a.i + 1) * 12.9898 + k * 78.233) * 43758.5453
-        const u = hsh - Math.floor(hsh)
-        const hs2 = Math.sin((a.i + 1) * 39.3468 + k * 11.135) * 24634.6345
-        const v = hs2 - Math.floor(hs2)
-        // sqrt on the radial pick so the points spread evenly over AREA rather than bunching at rIn
-        const rr = rIn + (rOut - rIn) * Math.sqrt(u)
-        const aa = a0 + (a1 - a0) * v
-        const pulse = 0.55 + 0.45 * Math.sin(animT * 1.3 + k * 1.7 + a.i)
-        teleG.circle(head.x + Math.cos(aa) * rr, head.y + Math.sin(aa) * rr, 2.1 + pulse * 1.4)
-        teleG.fill({ color: K_WEB_LIT, alpha: 0.40 + pulse * 0.45 })
-      }
-      // NO rim arc. A lit edge along rIn drew a perfect circle across the arena and read as a HUD
-      // element; the membrane has to be legible as a FILLED AREA, which is what carries at a low bar.
-      // THE WALL, LIT WHERE IT IS BEING LEANED ON. Only while the player is actually against it —
-      // a permanently drawn boundary is the HUD circle the line above refuses.
-      if (s.cageT > 0) {
-        let d = Math.atan2(p.y - head.y, p.x - head.x) - a.ang
-        while (d > Math.PI) d -= Math.PI * 2
-        while (d < -Math.PI) d += Math.PI * 2
-        if (Math.abs(d) <= half) {
-          teleG.beginPath()
-          teleG.arc(head.x, head.y, rOut, a0, a1)
-          teleG.stroke({ width: 6, color: 0xdff8ff, alpha: 0.30 + (s.cageT / 0.18) * 0.45 })
-        }
+    // ---- THE WALL, LIT ONLY WHERE IT IS BEING LEANED ON -----------------------------------------
+    // KRAKEN_CAGE_R is where the sim stops the player. An invisible wall is worse than no wall, and
+    // a permanently drawn one is the HUD circle this chapter keeps refusing — so it shows up only
+    // in the moment of contact, as a short arc of taut skin under the player's own bearing.
+    if (s.cageT > 0) {
+      const k = Math.min(1, s.cageT / 0.18)
+      const ang = Math.atan2(p.y - head.y, p.x - head.x)
+      const spanA = 0.42
+      for (let b = 0; b < 3; b++) {
+        teleG.beginPath()
+        teleG.arc(head.x, head.y, KRAKEN_CAGE_R - b * 9, ang - spanA * (1 - b * 0.22), ang + spanA * (1 - b * 0.22))
+        teleG.stroke({ width: 5 - b * 1.2, color: 0xdff8ff, alpha: (0.34 - b * 0.09) * k })
       }
     }
 
@@ -18581,9 +18543,30 @@ const spurG = new Graphics()
       }
     }
 
-    // ---- the wind-up and the parry window, on the arm's TIP --------------------------------------
+    // ---- WHAT IS THE BOSS DOING RIGHT NOW ------------------------------------------------------
+    // Three states, three completely different pictures, because the owner's question after rev 2
+    // was literally "what is a boss attack". Rev 2's answer was a 150px disc at alpha 0.07 around
+    // an arm tip — a rumour, not an attack.
     for (const a of run.krakenArms) {
       if (a.dead) continue
+
+      // A LIMP ARM: parried, slack, and the only thing in this fight you are meant to be shooting.
+      // It is drawn as a TARGET and nothing else on screen looks like it — a bright ground under
+      // the limb with a countdown ring closing on it, so the window's end is visible too. The limb
+      // itself also carries a real enemy at its tip (the node), which draws itself like any other.
+      if (a.limpT > 0) {
+        const k = Math.min(1, a.limpT / 2.0)
+        teleG.beginPath()
+        teleG.circle(a.x, a.y, KRAKEN_LASH_R * 0.66)
+        teleG.fill({ color: 0x9fe8ff, alpha: 0.10 + 0.10 * k })
+        // the closing ring IS the clock: it shrinks as the window runs out
+        teleG.beginPath()
+        teleG.arc(a.x, a.y, KRAKEN_LASH_R * (0.30 + 0.36 * k), 0, Math.PI * 2)
+        teleG.stroke({ width: 3, color: 0xdff8ff, alpha: 0.45 + 0.35 * k })
+        continue
+      }
+
+      // A GRIP: the taut line to the player, and a ring on the player that says "press, anywhere".
       if (a.gripT > 0) {
         teleG.beginPath()
         teleG.moveTo(a.x, a.y)
@@ -18594,31 +18577,58 @@ const spurG = new Graphics()
         teleG.stroke({ width: 3, color: 0xffffff, alpha: 0.6 })
         continue
       }
-      if (a.tele > rung.fuse) continue
-      const urgency = 1 - Math.max(0, a.tele - rung.window) / Math.max(0.001, rung.fuse - rung.window)
-      teleG.beginPath()
+
+      // AN ARM WINDING UP: THE ATTACK, ANNOUNCED. The ground it is about to hit is drawn from the
+      // first frame of the wind-up and FILLS UP as the fuse runs down, so the strike has a visible
+      // clock instead of arriving out of a uniform glow. This is the single read rev 2 did not have.
+      if (a.tele <= 0 || !a.fuse) continue
+      const urg = 1 - Math.max(0, a.tele) / a.fuse      // 0 at the rear, 1 at the strike
       teleG.beginPath()
       teleG.circle(a.x, a.y, KRAKEN_LASH_R)
-      teleG.fill({ color: K_GLOW, alpha: 0.016 + urgency * 0.055 })
-      if (urgency > 0.55) {
-        teleG.beginPath()
-        teleG.circle(a.x, a.y, KRAKEN_LASH_R)
-        teleG.stroke({ width: 1.5, color: K_GLOW, alpha: (urgency - 0.55) * 0.5 })
-      }
+      teleG.fill({ color: 0xff7a6a, alpha: 0.05 + urg * 0.16 })
+      // the rim closes inward onto the strike radius — an aperture, never a growing circle, because
+      // a circle that GREW would read as the blast that has not happened yet
+      teleG.beginPath()
+      teleG.circle(a.x, a.y, KRAKEN_LASH_R * (1.7 - 0.7 * urg))
+      teleG.stroke({ width: 2 + urg * 3, color: 0xffb3a6, alpha: 0.25 + urg * 0.55 })
+
+      // ...and the last `window` seconds of it are the PARRY, which has to be unmistakably its own
+      // colour. Red is the danger, white-hot is the answer.
       if (a.tele <= rung.window) {
-        // THE WINDOW, DRAWN FOR ITS WHOLE DURATION rather than as a 1-2 frame pop. The doc asked for
-        // a "now" tick; a window you can see the entire time it is open carries the same information
-        // and is playable on a phone, where two frames at D3's cadence is not. It stays a different
-        // vocabulary from the blaze (doc, M2): a hard ring snapping shut on ONE arm, against a slow
-        // bloom from the player at full sight radius.
         const perfect = a.tele <= rung.perfect
-        const k = perfect ? 1 : 0.6
         teleG.beginPath()
-        teleG.circle(a.x, a.y, KRAKEN_ARM_R * (perfect ? 0.85 : 1.25))
-        teleG.stroke({ width: 3 + k * 3, color: 0xffffff, alpha: 0.6 + k * 0.35 })
+        teleG.circle(a.x, a.y, KRAKEN_ARM_R * (perfect ? 1.5 : 2.1))
+        teleG.stroke({ width: perfect ? 7 : 4, color: 0xffffff, alpha: perfect ? 0.98 : 0.8 })
+      }
+    }
+
+    // ---- THE HEAD'S POSTURE, in the chase -------------------------------------------------------
+    // Sekiro's lesson: pay a deflect with a state change on the BOSS, and make that state loud.
+    // Pips, not a bar — you can count three at a glance and you cannot read a bar in the dark.
+    if (s.phase === 'chase') {
+      const need = rung.staggerNeed
+      for (let k = 0; k < need; k++) {
+        const ang = -Math.PI / 2 + (k - (need - 1) / 2) * 0.26
+        const px = head.x + Math.cos(ang) * KRAKEN_HEAD_R * 1.25
+        const py = head.y + Math.sin(ang) * KRAKEN_HEAD_R * 1.25
         teleG.beginPath()
-        teleG.circle(a.x, a.y, KRAKEN_ARM_R * 1.9)
-        teleG.stroke({ width: 2, color: K_GLOW, alpha: 0.30 * k })
+        teleG.circle(px, py, 7)
+        teleG.fill({ color: k < s.stagger ? 0xffffff : 0x2b3f4e, alpha: k < s.stagger ? 0.95 : 0.55 })
+      }
+      if (s.staggerT > 0) {
+        // STAGGERED: the one window on the head, and it gets the loudest ground in the chapter.
+        const k = Math.min(1, s.staggerT / 1.5)
+        teleG.beginPath()
+        teleG.circle(head.x, head.y, KRAKEN_HEAD_R * 1.5)
+        teleG.fill({ color: 0xffffff, alpha: 0.06 + 0.10 * k })
+        teleG.beginPath()
+        teleG.circle(head.x, head.y, KRAKEN_HEAD_R * (1.0 + 0.5 * k))
+        teleG.stroke({ width: 5, color: 0xffffff, alpha: 0.35 + 0.45 * k })
+      } else if (head.lungeT > 0 && head.lungeT <= rung.window) {
+        // its lunge is parryable on exactly the same read as an arm's
+        teleG.beginPath()
+        teleG.circle(head.x, head.y, KRAKEN_HEAD_R * 1.1)
+        teleG.stroke({ width: 6, color: 0xffffff, alpha: 0.9 })
       }
     }
 
@@ -18663,9 +18673,11 @@ const spurG = new Graphics()
       const phase = animT * 1.25 + a.i * 1.9
       // A LIVE ARM WRITHES AND A WINDING-UP ONE REARS: amplitude rises as its fuse runs out, so the
       // body itself is part of the telegraph rather than a static prop with a ring drawn on it.
-      const windup = a.tele > 0 && rung && a.tele <= rung.fuse
-        ? 1 - Math.max(0, a.tele) / rung.fuse : 0
-      const amp = 26 + windup * 34
+      // A REARING ARM RISES AND A LIMP ONE HANGS. The body is half the telegraph: an arm about to
+      // strike coils harder every frame, and a parried one goes slack — which is what tells you it
+      // is safe to swim onto, without reading a colour at all.
+      const windup = a.tele > 0 && a.fuse ? 1 - Math.max(0, a.tele) / a.fuse : 0
+      const amp = a.limpT > 0 ? 9 : 26 + windup * 40
       const curl = Math.sin(a.i * 2.3) * 0.6
       for (let k = 0; k < K_ROPE_N; k++) {
         const t = k / (K_ROPE_N - 1)
@@ -18700,8 +18712,18 @@ const spurG = new Graphics()
         //     window— press NOW: WHITE-HOT, and only ever while the window is actually open.
         //     wear  — how close this arm is to breaking: a WARM BRUISE, away from white entirely.
         //             It is this fight's only progress bar and it lives on the thing it measures.
-        if (a.hitT > 0) rig.rope.tint = mix(0xffffff, 0xffe8f0, 1 - a.hitT / KRAKEN_ARM_HIT_T)
-        else if (rung && a.tele > 0 && a.tele <= rung.window) rig.rope.tint = a.tele <= rung.perfect ? 0xffffff : 0xbfe4ff
+        // FIVE STATES, FIVE COLOURS, AND NO TWO OF THEM SHARE ONE. Rev 2 tinted a worn arm toward
+        // 0xffffff and the parry window toward 0xffffff as well, so by mid-fight every damaged arm
+        // looked permanently parryable and the window meant nothing.
+        //   flash  — a parry just landed: hard white, brief, the loudest thing here
+        //   LIMP   — parried and exposed: cold and LIT, the one arm you are meant to be shooting
+        //   window — press NOW: white-hot, and only ever while the window is open
+        //   rear   — winding up to hit you: warm, brightening as the fuse runs out
+        //   wear   — how close to breaking: a bruise, deliberately away from white entirely
+        if (a.hitT > 0) rig.rope.tint = mix(0xffffff, 0xdff8ff, 1 - a.hitT / KRAKEN_LIMP_FLASH)
+        else if (a.limpT > 0) rig.rope.tint = mix(0x7fd7ee, 0xbfe9f7, 0.5 + 0.5 * Math.sin(animT * 4))
+        else if (rung && a.tele > 0 && a.tele <= rung.window) rig.rope.tint = a.tele <= rung.perfect ? 0xffffff : 0xeaf6ff
+        else if (rung && a.tele > 0 && a.fuse) rig.rope.tint = mix(0x8b83a6, 0xff8a76, 1 - a.tele / a.fuse)
         else rig.rope.tint = mix(0x8b83a6, 0xb05a72, 1 - fur)
       }
     }
@@ -21026,6 +21048,39 @@ const spurG = new Graphics()
           const wear = 1 - (e.frac ?? 1)
           spawnRing(e.x, e.y, 52 + wear * 40, 0.24 + wear * 0.12, T.novaRing, 0xdff4ff)
           addShake(3 + wear * 3, 0.12 + wear * 0.06)
+          break
+        }
+        case 'armRear': {
+          // AN ARM IS COMING. The one thing rev 2 never said out loud — its wind-up was a 150px disc
+          // at alpha 0.07 and the owner's question afterwards was "what is a boss attack". This is
+          // the moment the attack STARTS, so it fires once and it is allowed to be loud: a warm ring
+          // snapping OUT of the arm, the opposite motion to the aperture that then closes on it.
+          spawnRing(e.x, e.y, e.r * 0.55, 0.3, T.novaRing, 0xff9a7a)
+          break
+        }
+        case 'armRecover': {
+          // The limb pulls itself back together and the window is gone. Cold and small: a loss, not
+          // an event — and it has to be a different shape from the parry that opened it.
+          spawnRing(e.x, e.y, 44, 0.24, T.novaRing, 0x4a6a7c)
+          break
+        }
+        case 'headStagger': {
+          // THE FIGHT'S BIGGEST MOMENT. The head's posture breaks and it is open — the only time it
+          // can be hurt at all. Everything about this is scaled to say so.
+          spawnRing(e.x, e.y, e.r * 2.2, 0.7, T.novaRing, 0xffffff)
+          spawnRing(e.x, e.y, e.r * 1.4, 0.5, T.novaWarm, 0xdff4ff)
+          for (let i = 0; i < 18; i++) {
+            const a = (i / 18) * Math.PI * 2
+            spawnParticle(T.fx.star_08, e.x, e.y, Math.cos(a) * 260, Math.sin(a) * 260, 0.5, 0.09, 0xffffff, -0.1, 0)
+          }
+          addShake(12, 0.4)
+          break
+        }
+        case 'headRecover': {
+          // It gets its guard back. A hard inward snap, so the end of the window is as legible as
+          // its start — a window you cannot see close is a window you get punished for trusting.
+          spawnRing(e.x, e.y, 150, 0.34, T.novaRing, 0x6f8fa3)
+          addShake(5, 0.18)
           break
         }
         case 'parryWhiff': {

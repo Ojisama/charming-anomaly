@@ -8646,15 +8646,16 @@ CHAPTERS.kraken = {
 // prose in the spec and flat scalars here, so D1 and D3 differed only in how many arms stood up.
 // Index = difficulty - 1; `maxDifficultyCap: 3` on the chapter is what bounds it.
 export const KRAKEN_RUNGS = [
-  // balance_decision : rung table — arms, windows, fuse, drain, head hp [2026-09-13]
-  //  - `perfect` on D3 is 0.115 and NOT below D2's 0.11: 90ms sat at phone-tap latency and read as
-  //    luck rather than skill. D3 is made harder by `window` (0.21) and `fuse` (0.55), both of
-  //    which stay above the ~150-200ms reaction floor.
-  //  - `coil` is D3 ALONE and is the one pattern you cannot parry, which is the point: a verb that
-  //    answers everything stops being a decision. It is the rung's third pattern, not a fourth.
-  { arms: 4, window: 0.32, perfect: 0.140, fuse: 0.90, drainMul: 1.00, headHpMul: 1.00, cadenceMul: 1.00, grip: false, coil: false },
-  { arms: 6, window: 0.25, perfect: 0.110, fuse: 0.70, drainMul: 1.30, headHpMul: 1.15, cadenceMul: 1.15, grip: true,  coil: false },
-  { arms: 8, window: 0.21, perfect: 0.115, fuse: 0.55, drainMul: 1.60, headHpMul: 1.30, cadenceMul: 1.30, grip: true,  coil: true },
+  // balance_decision : rung table — arms, concurrency, windows, exposure, head [2026-09-14]
+  //  - `rearing` IS THE READABILITY KNOB and the most important number in this table. It caps how
+  //    many arms may be winding up AT ONCE. Rev 2 had no such cap — every arm ran its own clock, so
+  //    2.2 of 8 were rearing on average and 4 at the peak, and the owner's verdict was "the arms all
+  //    attack too simultaneously". You cannot read four telegraphs; you can read one.
+  //  - difficulty is bought with SHORTER WINDOWS and MORE PATTERNS, never with a less legible
+  //    attack. That is the one rule every readability writeup agrees on.
+  { arms: 4, rearing: 1, window: 0.34, perfect: 0.150, fuse: 1.10, limp: 4.0, cadence: 1.9, staggerNeed: 2, drainMul: 1.00, headHpMul: 1.00, grip: false, coil: false },
+  { arms: 5, rearing: 2, window: 0.28, perfect: 0.125, fuse: 0.90, limp: 3.2, cadence: 1.0, staggerNeed: 3, drainMul: 1.30, headHpMul: 1.15, grip: true,  coil: false },
+  { arms: 6, rearing: 2, window: 0.24, perfect: 0.110, fuse: 0.75, limp: 2.6, cadence: 0.7, staggerNeed: 3, drainMul: 1.60, headHpMul: 1.30, grip: true,  coil: true  },
 ]
 // The one accessor, so no site has to remember the difficulty-1 offset or the clamp. The cap is
 // enforced by the chapter, but a probe or a migrated save can hand this anything.
@@ -8662,7 +8663,38 @@ export function krakenRung(difficulty) {
   return KRAKEN_RUNGS[Math.min(KRAKEN_RUNGS.length, Math.max(1, difficulty | 0)) - 1]
 }
 
-export const KRAKEN_HEAD_HP = 1800 // one persistent pool across every block (x the rung's headHpMul)
+// ---- REVISION 3: THE LIMB IS THE WEAK POINT, AND THE PARRY IS WHAT EXPOSES IT ------------------
+// Rev 2 gated the head by an ANGULAR SECTOR measured player->head. It shipped, and the owner could
+// read none of it: "what is a boss attack, why is everything purple, what are the discs, there is
+// no feedback when a parry is active or has succeeded". The failure was structural, and no amount
+// of drawing fixed it — the fight had three systems that never referred to one another: arms
+// attacked, a parry chipped an arm's hp, and damage was gated by an invisible region of water.
+//
+// Every boss worth copying makes vulnerability TEMPORAL, ON THE BODY, and announced by a pose:
+//   - the post-attack recovery window is the oldest rule there is: an enemy must ANNOUNCE the
+//     moment it cannot act, because a mechanic the player cannot see is not in the game;
+//   - Shadow of the Colossus layers it — you strike a vital point to EXPOSE the real weak point;
+//   - Sekiro pays a deflect with a state change on the BOSS (posture), never a fraction off a pool,
+//     and breaking that state opens one loud, unmissable window.
+//
+// So: an arm REARS (you can see which, and there are at most `rearing` of them) -> you parry on the
+// strike -> THE ARM GOES LIMP for `limp` seconds, slack and lit, and that is the only time any
+// weapon in the game can hurt it -> you swim onto it and your build does the work -> it breaks.
+// Break them all and the head comes up; parrying the head fills a STAGGER, and a full stagger is
+// the only time the head takes damage. No sector, no invisible geometry, nothing to paint.
+//
+// THE OWNER'S "NO FLOOR ANYWHERE" RULING SURVIVES THIS. It was never about weapons being useless —
+// it was that a build must not be able to delete the ring without ever parrying. A parry is still
+// the only key: a standing arm is untouchable at every rung. What changed is who turns the lock and
+// who opens the door, and handing the killing to the player's own build is what finally makes an
+// arsenal matter in the one fight that had been ignoring it.
+export const KRAKEN_LIMP_PERFECT_MUL = 1.6 // x the limp window on a perfect parry. The reward for
+                                           // timing is MORE EXPOSURE — more of the thing you want.
+export const KRAKEN_STAGGER_T = 4.5        // s the head stays open once its stagger fills
+export const KRAKEN_STAGGER_DECAY = 7.0    // s without a parry before a part-filled stagger drains
+export const KRAKEN_LIMP_FLASH = 0.35      // s of hard white on the arm as the parry lands
+
+export const KRAKEN_HEAD_HP = 900 // damageable ONLY while staggered, so this is spent in bursts
 export const KRAKEN_HEAD_R = 190 // world px — the HIT radius. The drawn shadow is far larger.
 export const KRAKEN_HEAD_SPEED = 165 // px/s the bared head hunts at in the chase
 // A TENTACLE IS LONG AND THIN. At 360 the arm was 225px of reach under 85px of width — a blade,
@@ -8688,8 +8720,8 @@ export const KRAKEN_ARM_REACH = 135
 // broken arm leaves a permanent hole in the ring. Re-spacing the survivors evenly — which rev 1
 // did — would have two arms covering half the circle each and a ring that is still shut with six
 // of eight arms dead.
-export const KRAKEN_ARM_HP = 320 // per tentacle; only parries remove any of it
-export const KRAKEN_PARRY_DMG = 50 // a good parry, i.e. 4 of them to break an arm
+export const KRAKEN_ARM_HP = 430 // per tentacle. Removed by WEAPONS, and only while the arm is limp.
+// (KRAKEN_PARRY_DMG retired in rev 3: a parry EXPOSES an arm, it does not chip it. Weapons kill.)
 export const KRAKEN_PERFECT_MUL = 2.0 // damage + refill multiplier inside the perfect window
 // A PERFECT PARRY ALSO STALLS THE ARM'S NEXT WIND-UP, and without this perfect timing is a NET LOSS.
 // Measured on D3: perfect-only play broke the same 8 arms in 14 parries instead of 26 — and since
@@ -8697,28 +8729,16 @@ export const KRAKEN_PERFECT_MUL = 2.0 // damage + refill multiplier inside the p
 // (255s vs 167s). Damage and refill alone cannot fix that; the reward has to be more DOOR, not more
 // chunk. Stalling the re-arm is also the fiction: an arm you caught properly is the one that takes
 // longest to come back.
-export const KRAKEN_PERFECT_STALL = 1.5 // x the re-arm delay after a perfect parry
-export const KRAKEN_ARM_LASH_T = 2.6 // s between one arm's slams (staggered around the ring, / cadenceMul)
-// THE RING MUST NOT READ AS A CLOCK HAND, and until 2026-09-13 it was one. Every arm's opening
-// phase was `lashT * (0.35 + i/n * 0.65)` — an index-ordered ramp, and arms are laid out in index
-// order around the circle — and every re-arm was exactly `lashT`, so the phases were rigid forever.
-// That is a wave sweeping the ring on a fixed period, which is what the owner saw: "the arms all
-// attack too simultaneously, the pattern should be more random less going around the circle".
-// It also crammed all 8 arms into 65% of the cycle: 0.16s apart on D3, SHORTER than that rung's
-// 0.21s parry window, so the windows overlapped and something was in window almost always.
-//   Two constants fix both halves. The opening phases are dealt uniformly across the WHOLE cycle in
-// a shuffled order (so temporal order stops tracking angular order), and every re-arm carries
-// +/- JITTER of the period so the phases keep drifting apart instead of holding formation.
-//   The jitter is a fraction of the SLOT SPACING (cycle / standing arms), not of the cycle. At 0.30
-// of the CYCLE it was 2.4x the spacing on D3, so arms swapped slots freely and piled up — 5 of 8
-// parryable in one frame and 7 of 8 rearing, against the shipped ring's 2 and 4. At half a slot two
-// neighbours can just cross, which keeps the order changing without ever letting the ring clump.
-//   NOTE WHAT THIS CANNOT FIX: the MEAN number of arms rearing at once is arms x fuse / cycle — 2.2
-// of 8 on D3 — and no amount of shuffling moves a mean. If the ring still reads as too busy, the
-// levers are the fuse, the cadence or the arm count, not the pattern.
-export const KRAKEN_ARM_PHASE_JITTER = 0.5 // +/- fraction of ONE SLOT, re-rolled on every re-arm
+// (KRAKEN_PERFECT_STALL and KRAKEN_ARM_LASH_T retired in rev 3: an arm has no cadence of its own
+// any more, and the perfect-parry reward is a longer LIMP window — see KRAKEN_LIMP_PERFECT_MUL.)
+// THE RING HAS ONE CLOCK — see `cadence` and `rearing` in KRAKEN_RUNGS. Rev 2 gave every arm its
+// own period and a shuffled opening phase, which fixed the ring reading as a clock hand but could
+// not fix it attacking as one piece: with n independent clocks the number of arms rearing at once
+// is arms x fuse / cycle, an emergent mean no shuffle can move. Rev 3 hands out turns instead.
+
 export const KRAKEN_LASH_R = 150 // px the arm's slam reaches around its tip
-export const KRAKEN_ARM_HIT_T = 0.22 // s the tentacle flashes after a parry lands on it
+// (KRAKEN_ARM_HIT_T retired in rev 3 — the flash is KRAKEN_LIMP_FLASH, and it marks a parry that
+// EXPOSED the limb rather than one that chipped it.)
 // THE CAGE. The arms are the arena wall and the sim never said so: you could walk out of the ring
 // and off across the map, with the sector gate still solemnly measuring an angle at a boss two
 // screens away (owner, 2026-09-13: "i can get out of the arms circle and wander off on the map").
