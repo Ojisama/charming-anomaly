@@ -5021,9 +5021,30 @@ export const LURE_GLOW = {
 export const MAW_VIS = {
   head: 0x140e1c, headA: 0.62, headFrac: 1.26,  // the body behind the mouth — a rim of animal around the hole
   throat: 0x05070b, throatA: 0.72,              // inside the mouth: darker than any floor this chapter has
-  tooth: 0xe8e2d4, toothA: 0.9,
+  // THE NEEDLES ARE LIT BY THE LURE, AND NOTHING ELSE IS DOWN HERE TO LIGHT THEM. Owner, 2026-09-12:
+  // "teeth shouldn't be plain white but in the shadow... more realistic more frightening." The first
+  // cut was one flat bone-white triangle per needle, which is a DIAGRAM of a tooth — no volume, no
+  // direction, and the brightest thing in a chapter built on not being able to see the animal.
+  //   The esca hangs at the centre of the mouth, so a fang is lit on the POINT and falls into shadow
+  // toward the jaw it grows out of. Three stops down the length say that: `toothShade` over the whole
+  // tooth, `toothMid` over the inner half, `tooth` on the point alone — the same stacked-stop idiom
+  // the esca itself is drawn with, and for the same reason (one flat mid tone reads as a grey spike;
+  // the ramp is what makes it a tooth). `tooth` is BONE, not white: it is the brightest thing in the
+  // mouth, and MAW_REVEAL exists because the old value gave the animal away from across the water.
+  tooth: 0xc9bda4, toothA: 0.9,                 // the lure's catch, on the point only
+  toothMid: 0x544c3e,                           // ...the shank, half in shadow
+  toothShade: 0x181611,                         // ...and the jaw end, nearly as dark as the throat
+  toothMidF: 0.54, toothLitF: 0.26,             // how much of the fang, back from the point, each covers
   teeth: 22,                                    // needles around the ring
-  toothW: 0.05,                                 // each needle's base width, as a fraction of r
+  toothW: 0.065,                                // each needle's base width, as a fraction of r. Wider
+                                                // than the flat cut needed: at 0.05 the tip stop is
+                                                // ~2.6px across and the three stops cannot resolve.
+  // NO TWO NEEDLES ALIKE. 22 identical spikes is a machined ring — a gear, not a jaw — and it was the
+  // other half of why the flat version read as a diagram. Length, width and curve are varied per
+  // tooth off a hash of its own index and the maw's `phase`, so every mouth is uneven in its own way.
+  toothJag: 0.22,                               // ± this fraction on each needle's length and width
+  toothHook: 0.16,                              // how far its point is dragged round the ring, as a
+                                                // fraction of its length — a fang curves, a nail does not
   toothShut: 0.09, toothFull: 0.40,             // needle length at gape 0 and gape 1, as fractions of r
   rimCold: 0x7d6a58, rimHot: 0xff5a3c,          // the rim as the swallow approaches — colour, not just size
   rimW: 3, rimWGape: 5,                         // stroke width at gape 0, and how much it grows by
@@ -5067,8 +5088,8 @@ export const MAW_REVEAL = {
   // INSIDE, reaching it at `toothIn` of r from the centre. Sipping light from the lip keeps them
   // faint; walking in is what puts the mouth around you. The rim carries the countdown either way,
   // so nothing a player has to read under pressure got dimmer.
-  toothFaint: 0.18, // the most the needles ever show while the player is still outside the rim
-  toothIn: 0.72,    // ...and how far in, as a fraction of r, they reach full strength
+  toothFaint: 0.07, // the most the needles ever show while the player is still outside the rim
+  toothIn: 0.55,    // ...and how far in, as a fraction of r, they reach full strength
 }
 
 // ---- The Deep's Scent -------------------------------------------------------------------------

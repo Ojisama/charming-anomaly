@@ -13800,17 +13800,46 @@ const spurG = new Graphics()
         g.circle(0, 0, sh.r * M.headFrac).fill({ color: M.head, alpha: M.headA * A })
         g.circle(0, 0, sh.r).fill({ color: M.throat, alpha: M.throatA * A })
         // The needles: fixed at the rim, reaching further in as the mouth closes. See MAW_VIS for
-        // why they grow instead of the ring contracting — the edge you must cross never moves.
+        // why they grow instead of the ring contracting — the edge you must cross never moves — and
+        // for the lighting and the per-tooth variation the three stops below are drawing.
+        //
+        // HASHED, NEVER Math.random. This runs inside the render loop, so a random drawn per tooth
+        // per frame would make the whole ring shimmer as it was redrawn — and CLAUDE.md's re-phasing
+        // trap means anything that changes how many randoms the process draws re-rolls every sampled
+        // statistic in the suite. A sin-hash off (index, phase) is stable across frames, different
+        // per tooth and different per maw, and draws nothing at all.
         const len = sh.r * (M.toothShut + (M.toothFull - M.toothShut) * (shut ? 1 : gp))
         const halfW = sh.r * M.toothW * 0.5
+        const toothHash = (n) => {
+          const s = Math.sin(n * 12.9898 + (sh.phase ?? 0) * 78.233) * 43758.5453
+          return s - Math.floor(s)
+        }
         for (let t = 0; t < M.teeth; t++) {
           const a = (t / M.teeth) * Math.PI * 2
           const ca = Math.cos(a), sa = Math.sin(a)
-          g.poly([
-            (sh.r + halfW * 0.4) * ca - halfW * sa, (sh.r + halfW * 0.4) * sa + halfW * ca,
-            (sh.r + halfW * 0.4) * ca + halfW * sa, (sh.r + halfW * 0.4) * sa - halfW * ca,
-            (sh.r - len) * ca, (sh.r - len) * sa,
-          ]).fill({ color: M.tooth, alpha: M.toothA * A * toothReveal })
+          const px = -sa, py = ca                   // across the tooth, i.e. round the ring
+          const lenT = len * (1 - M.toothJag + 2 * M.toothJag * toothHash(t + 1))
+          const wT = halfW * (1 - M.toothJag + 2 * M.toothJag * toothHash(t + 71))
+          // The base sits just OUTSIDE the rim and the point reaches in, which is the contract run
+          // DP.k pins: what closes is the needle's length, never the circle the sim tests against.
+          const bcx = (sh.r + wT * 0.4) * ca, bcy = (sh.r + wT * 0.4) * sa
+          const hook = lenT * M.toothHook * (0.35 + toothHash(t + 149))
+          const tipX = (sh.r - lenT) * ca + px * hook, tipY = (sh.r - lenT) * sa + py * hook
+          // Each stop is this same fang truncated to `f` of its length, measured BACK FROM THE POINT:
+          // its centre is that fraction along the line from point to base and its half-width tapers
+          // with it, so the three NEST exactly rather than being three triangles that overlap.
+          for (const [f, color] of [[1, M.toothShade], [M.toothMidF, M.toothMid], [M.toothLitF, M.tooth]]) {
+            const cx = tipX + (bcx - tipX) * f, cy = tipY + (bcy - tipY) * f
+            const wf = wT * f
+            const b0x = cx + px * wf, b0y = cy + py * wf
+            const b1x = cx - px * wf, b1y = cy - py * wf
+            const c = hook * 0.4   // bows both flanks the way the point is dragged: a curve, not a wedge
+            g.moveTo(b0x, b0y)
+              .quadraticCurveTo((b0x + tipX) / 2 + px * c, (b0y + tipY) / 2 + py * c, tipX, tipY)
+              .quadraticCurveTo((b1x + tipX) / 2 + px * c, (b1y + tipY) / 2 + py * c, b1x, b1y)
+              .closePath()
+              .fill({ color, alpha: M.toothA * A * toothReveal })
+          }
         }
         // The rim goes cold -> HOT as the swallow approaches. Colour and not only width, because the
         // player is reading this at the edge of their own light: a size change alone is a
