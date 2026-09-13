@@ -8568,23 +8568,26 @@ CHAPTERS.deep = {
   },
 }
 
-// THE KRAKEN (the graveyard, the Undertow book's last chapter). A FOUNDATION SHELL: the roster, the
-// dark Light bar and the art land now; the scripted boss (parry + blaze) is a LATER increment, so
-// this is NOT `scripted: true` and `signature` is null — the dark is a resource.dark rig, not a
-// signature. `refill: 0` on Light is deliberate (the dark is the cost, there is no pool left to
-// spend down), which is why kraken stays out of the DRAWDOWN loop below, exactly as wreck does. A
-// full literal, like The Deep — never a spread, so it cannot inherit a sibling's shape.
+// THE KRAKEN (the graveyard, the Undertow book's last chapter). The book's hidden SCRIPTED PARRY
+// BOSS: a ring of tentacles shields one head, and the dash button is a parry. `refill: 0` on Light
+// is deliberate — a parry is the bar's only refill, which is why kraken stays out of the DRAWDOWN
+// loop below, exactly as wreck does. A full literal, like The Deep — never a spread, so it cannot
+// inherit a sibling's shape.
 CHAPTERS.kraken = {
   playerBody: 'fish',
   name: 'The Kraken',
   tagline: 'the graveyard is its domain',
   icon: '🐙',
-  resource: { name: 'Light', drain: 1.5, refill: 0, max: 100, noSpend: true, dark: { from: 0.5, speedFloor: 1, dim: 1.0, radiusFull: 0.50, radiusEmpty: 0.06 } },
+  // `radiusEmpty` IS A SIGHT FLOOR, NOT THE DEEP'S 0.06. The bar is also the telegraph's
+  // legibility here: an empty bar that blacks out the near field takes the parry window with it,
+  // and a window you cannot see is not a difficulty, it is a broken button. 0.28 of the screen
+  // half-diagonal still covers KRAKEN_LASH_R at a phone viewport. Rev 1 copied The Deep's value.
+  resource: { name: 'Light', drain: 1.5, refill: 0, max: 100, noSpend: true, dark: { from: 0.5, speedFloor: 1, dim: 1.0, radiusFull: 0.50, radiusEmpty: 0.28 } },
   // The scripted parry boss (see sim.js's stepKrakenScript). `scripted` opts out of the ordinary
   // run clock (the fight ends on the head dying, not the timer); `parry` routes the dash button to
   // the parry in stepRepulse; `noSpend` keeps the Light bar from being spent (it is the parry fuel,
-  // refilled by parries). `maxDifficultyCap: 3` bounds the arm-ring size. Placeholder spine:
-  // borrowed weapons/mobs, one pattern (Lash) + the chase. See the 2026-09-09 design doc.
+  // refilled by parries). `maxDifficultyCap: 3` bounds the arm-ring size. See the design doc at
+  // docs/superpowers/specs/2026-09-09-the-kraken-final-boss-design.md (revision 2).
   scripted: true,
   parry: true,
   boards: ['kills', 'time'],
@@ -8597,11 +8600,19 @@ CHAPTERS.kraken = {
     { id: 'krakenDart',  archetype: 'fast',   name: 'The Gaff',      hpMul: 0.8, speedMul: 1.1,  flags: ['dashBurst'] },
     { id: 'krakenSnare', archetype: 'normal', name: 'The Tentacle',  hpMul: 1.3, speedMul: 0.85, flags: ['latch'] },
     { id: 'krakenHead',  archetype: 'tank',   name: 'The Kraken',    hpMul: 1,   speedMul: 1,    flags: [], formationOnly: true },
+    // `krakenArm` IS AN IDENTITY, NOT A SPAWNABLE. Since rev 2 an arm is not an enemy and never
+    // enters run.enemies (see run.krakenArms in state.js) — but it still needs a NAME for the
+    // summary's "Killed by …" line, a French key behind that name, and a ROSTER_LOOKS entry to
+    // bake its texture from. All three hang off a roster entry, so the entry stays and simply
+    // never spawns. Deleting it would silently turn a death by tentacle into an "Unknown".
     { id: 'krakenArm',   archetype: 'tank',   name: 'The Arm',       hpMul: 1,   speedMul: 1,    flags: [], formationOnly: true },
   ],
   eliteFlags: [],
   obstacles: { count: 9, cell: 585, minR: 62, maxR: 138, minDist: 400 },
-  balance: { spawnMul: 0.75, enemyHpMul: 1.15, enemyDmgMul: 1.1, maxAliveMul: 0.8 },
+  // balance_decision : breather dead die fast but sting [2026-09-13]
+  //  - spawnMul/maxAliveMul are inert under `scripted` (no ordinary spawner runs); they read 1
+  //    rather than carrying The Deep's numbers, which is what rev 1 cloned this block from.
+  balance: { spawnMul: 1, enemyHpMul: 0.85, enemyDmgMul: 1.2, maxAliveMul: 1 },
   weapons: ['breaker', 'skippingShell', 'barnacles'], starter: 'breaker',
   // ---- render-only (ZERO sim effect) ----
   // The graveyard: The Deep's near-black carried one more step toward the void.
@@ -8619,38 +8630,100 @@ CHAPTERS.kraken = {
   },
 }
 
-// ---- The Kraken (v7.x hidden boss — the tuning block, sim.js's stepKrakenScript owns the flow) --
-// A RING of tentacles shields one head. The ring is the difficulty dial and the block ladder: kill
-// two arms and the block ends (head hides, breather wave, ring re-forms with the survivors). At 0
-// arms the chase opens and the head hunts. Parrying an arm's slam negates it, chunks the arm, and
-// refills Light; a parry that tops the bar BLAZES the arm. Placeholder spine: one pattern (Lash)
-// + the chase; Grip/Coil are deferred. See the 2026-09-09 design doc.
-export const KRAKEN_ARMS_BY_DIFFICULTY = [4, 6, 8] // D1/D2/D3 arm counts (index = difficulty-1)
-export const KRAKEN_HEAD_HP = 2400 // one persistent HP pool across all blocks
-export const KRAKEN_HEAD_R = 78 // world px
-export const KRAKEN_HEAD_SPEED = 165 // px/s the chase lunges at the player
-export const KRAKEN_ARM_HP = 200 // per tentacle
-export const KRAKEN_ARM_R = 26 // world px
-export const KRAKEN_ARM_SPEED = 80 // px/s the arms creep toward you between slams
-export const KRAKEN_RING_R = 150 // px the arm ring sits from the head
-export const KRAKEN_ARM_LASH_T = 2.6 // s between an arm's slams (staggered across the ring)
-export const KRAKEN_LASH_TELE_T = 1.0 // s wind-up before the slam (the telegraph)
-export const KRAKEN_LASH_R = 120 // px the arm's slam reaches (touches the player)
-export const KRAKEN_LASH_DMG = 22 // an un-parried slam's damage (the floor shove)
-export const KRAKEN_PARRY_WINDOW = 0.35 // s of the telegraph that is the parry window
-export const KRAKEN_PERFECT_WINDOW = 0.14 // s of the window that is "perfect"
-export const KRAKEN_PERFECT_MUL = 1.8 // damage + refill multiplier inside the perfect window
+// ---- The Kraken (hidden boss — the tuning block, sim.js's stepKrakenScript owns the flow) -------
+// REVISION 2 (2026-09-13). An arm is a LOCK AND A DOOR, not an enemy:
+//   - only a PARRY damages it (no weapon can, at any rung — the owner's "no floor anywhere" ruling);
+//   - a parry holds that arm's SECTOR open until it winds up again, and a BROKEN arm's sector is
+//     open for good. The head takes damage only from inside an open sector, measured player->head.
+// Rev 1 made an arm an ordinary roster enemy with a big HP pool and softened head damage by a live
+// COUNT of standing arms. It failed structurally, not numerically: the player's thirty-eight
+// weapons deleted the ring (6.7 of 8 arms died inside the breather waves on D3, measured), so the
+// parry was decoration. Arm HP is a slider between "shoot them off" and "bullet sponge" with no
+// value in between that makes parrying correct. See the design doc's post-mortem:
+// docs/superpowers/specs/2026-09-09-the-kraken-final-boss-design.md
+//
+// THE RUNG TABLE IS THE DIFFICULTY, and it is read (`krakenRung`). Rev 1 shipped this same table as
+// prose in the spec and flat scalars here, so D1 and D3 differed only in how many arms stood up.
+// Index = difficulty - 1; `maxDifficultyCap: 3` on the chapter is what bounds it.
+export const KRAKEN_RUNGS = [
+  // balance_decision : rung table — arms, windows, fuse, drain, head hp [2026-09-13]
+  //  - `perfect` on D3 is 0.115 and NOT below D2's 0.11: 90ms sat at phone-tap latency and read as
+  //    luck rather than skill. D3 is made harder by `window` (0.21) and `fuse` (0.55), both of
+  //    which stay above the ~150-200ms reaction floor.
+  { arms: 4, window: 0.32, perfect: 0.140, fuse: 0.90, drainMul: 1.00, headHpMul: 1.00, cadenceMul: 1.00, grip: false },
+  { arms: 6, window: 0.25, perfect: 0.110, fuse: 0.70, drainMul: 1.30, headHpMul: 1.15, cadenceMul: 1.15, grip: true },
+  { arms: 8, window: 0.21, perfect: 0.115, fuse: 0.55, drainMul: 1.60, headHpMul: 1.30, cadenceMul: 1.30, grip: true },
+]
+// The one accessor, so no site has to remember the difficulty-1 offset or the clamp. The cap is
+// enforced by the chapter, but a probe or a migrated save can hand this anything.
+export function krakenRung(difficulty) {
+  return KRAKEN_RUNGS[Math.min(KRAKEN_RUNGS.length, Math.max(1, difficulty | 0)) - 1]
+}
+
+export const KRAKEN_HEAD_HP = 1800 // one persistent pool across every block (x the rung's headHpMul)
+export const KRAKEN_HEAD_R = 190 // world px — the HIT radius. The drawn shadow is far larger.
+export const KRAKEN_HEAD_SPEED = 165 // px/s the bared head hunts at in the chase
+// A TENTACLE IS LONG AND THIN. At 360 the arm was 225px of reach under 85px of width — a blade,
+// not a limb. The shoulder now starts far enough out that the visible arm is ~7:1.
+export const KRAKEN_RING_R = 620 // px out where the arms rise from the murk (well off-screen)
+// THE KRAKEN IS TOO BIG TO SEE, AND THAT IS THE DESIGN (owner, 2026-09-13: "you don't have to
+// always show the whole kraken, maybe the head is a parallax shadow underwater and you only see
+// some arms"). The first cut tried to SHRINK the animal until a 390px phone could hold the whole
+// ring; a final boss that fits on a phone is a small final boss. So instead:
+//   - the head is a vast SHADOW far below the middle of the arena, on its own parallax layer;
+//   - the arms rise from a ring at KRAKEN_RING_R, well outside the viewport, and arch INWARD;
+//   - you fight INSIDE the cage, near the centre, and shoot DOWN through the gaps.
+// The sim contract is untouched by any of it: "which sector is open" is still atan2(player-head),
+// and it now reads off the two or three arms actually on screen instead of a whole ring.
+export const KRAKEN_ARM_R = 34 // world px — the tentacle's thickness at the shoulder
+// How far in from the ring an arm's TIP reaches. This is the arm's threat point (a.x/a.y) and
+// what KRAKEN_LASH_R is measured around, so it is what puts the danger in the middle where the
+// player is, rather than out on the perimeter where nobody stands.
+export const KRAKEN_ARM_REACH = 135
+
+// AN ARM'S SECTOR WIDTH IS 2pi/arms AND THE ARMS NEVER RE-SPACE. That is the whole "fewer arms =
+// less blocking" read: each arm owns a fixed slice decided by the rung's STARTING count, and a
+// broken arm leaves a permanent hole in the ring. Re-spacing the survivors evenly — which rev 1
+// did — would have two arms covering half the circle each and a ring that is still shut with six
+// of eight arms dead.
+export const KRAKEN_ARM_HP = 320 // per tentacle; only parries remove any of it
+export const KRAKEN_PARRY_DMG = 50 // a good parry, i.e. 4 of them to break an arm
+export const KRAKEN_PERFECT_MUL = 2.0 // damage + refill multiplier inside the perfect window
+// A PERFECT PARRY ALSO STALLS THE ARM'S NEXT WIND-UP, and without this perfect timing is a NET LOSS.
+// Measured on D3: perfect-only play broke the same 8 arms in 14 parries instead of 26 — and since
+// one parry opens one door, halving the parries halved the firing windows and the fight got SLOWER
+// (255s vs 167s). Damage and refill alone cannot fix that; the reward has to be more DOOR, not more
+// chunk. Stalling the re-arm is also the fiction: an arm you caught properly is the one that takes
+// longest to come back.
+export const KRAKEN_PERFECT_STALL = 1.5 // x the re-arm delay after a perfect parry
+export const KRAKEN_ARM_LASH_T = 2.6 // s between one arm's slams (staggered around the ring, / cadenceMul)
+export const KRAKEN_LASH_R = 150 // px the arm's slam reaches around its tip
+export const KRAKEN_LASH_DMG = 22 // an un-parried slam's damage
 export const KRAKEN_PARRY_CD = 0.8 // s the parry button's cooldown (vs REPULSE_CD 6.0)
-export const KRAKEN_PARRY_DMG = 130 // chunk an arm takes on a clean parry
-export const KRAKEN_PARRY_REFILL = 26 // Light regained per parry
+export const KRAKEN_PARRY_REFILL = 9 // Light regained per good parry (x KRAKEN_PERFECT_MUL on a perfect)
+export const KRAKEN_LIGHT_START = 60 // Light the fight opens on — readable, but not a full bar to spend
 export const KRAKEN_BLAZE_R = KRAKEN_RING_R // the blaze flash's radius
-export const KRAKEN_ARM_BLOCK = 0.28 // head-damage reduction per up-arm, capped below
-export const KRAKEN_MAX_HEAD_SHIELD = 0.8 // most any ring can absorb (head always takes >=20%)
+export const KRAKEN_ARM_LEVELS = 1 // levels a broken arm is worth — BANKED, paid out on the hide
+
+// THE GRIP (P2, D2+). An arm latches and drags you off the lane you earned; parrying frees you and
+// opens the sector of the arm that grabbed you — wherever you have just been dragged to.
+export const KRAKEN_GRIP_EVERY = 3 // every Nth arm attack in a Grip block is a grab, not a slam
+export const KRAKEN_GRIP_PULL = 105 // px/s the grip drags the player toward the head
+export const KRAKEN_GRIP_DUR = 2.2 // s a grip holds before it lets go on its own
+export const KRAKEN_GRIP_DMG = 14 // damage a grip that runs its full duration deals
+
+// THE LATE TRICKLE (owner ruling, 2026-09-13): from this many blocks before the chase, graveyard
+// dead arrive DURING the block, so the last stretch is a choice between the arm winding up in
+// front of you and the thing on your back.
+export const KRAKEN_TRICKLE_FROM_END = 2 // blocks before the chase that start trickling
+export const KRAKEN_TRICKLE_T = 5.5 // s between trickle arrivals
+export const KRAKEN_TRICKLE_N = 2 // dead per arrival
+
 export const KRAKEN_LUNGE_T = 3.2 // s between chase lunges (final block)
 export const KRAKEN_LUNGE_DMG = 26
-export const KRAKEN_WAVE = { n: 10, ids: ['krakenWall', 'krakenDart', 'krakenSnare'] } // placeholder breather
-export const KRAKEN_WAVE_GAP = Math.PI / 2
-export const KRAKEN_WAVE_TIMEOUT = 18
+export const KRAKEN_WAVE = { n: 10, ids: ['krakenWall', 'krakenDart', 'krakenSnare'] }
+export const KRAKEN_WAVE_GAP = Math.PI / 2 // the gap door: a quarter-turn of the ring spawns empty
+export const KRAKEN_WAVE_TIMEOUT = 12 // s, then the wave advances regardless — a breather, not a fight
 export const KRAKEN_WAVE_XP_MUL = 1.5
 
 // THE DRAWDOWN, APPLIED TO THE WHOLE BOOK (owner, 2026-08-18 — see REFILL_ZONE_SPEND above). Written

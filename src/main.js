@@ -681,6 +681,12 @@ const SFX_FOR_EVENT = {
   // is the bar topping and the arm breaking outright. headLunge is the bare head's wind-up in the
   // chase — orcaAim, the one note in the bank that is a countdown rather than a report.
   parry: 'puffblock', parryPerfect: 'crush', blaze: 'explode', headLunge: 'orcaAim',
+  // tentacleBreak is the fight's real progress, headHide is the kraken dropping below the field,
+  // gripLatch is a grab taking hold — all three are rare enough to bear a voice (4-8 a fight).
+  // `lash` DELIBERATELY HAS NONE: the ring throws one about once a second, which is the rate
+  // CLAUDE.md forbids a chime at, and the slams that actually connect already sound through `hurt`.
+  // It carries a render case instead, so run EV is satisfied by a picture rather than by silence.
+  tentacleBreak: 'bossFall', headHide: 'hole', gripLatch: 'zap',
 }
 
 function endRun(victory) {

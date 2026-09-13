@@ -6,7 +6,7 @@
 //   r.reset(run|null)          new run started (build world) or back to title (clear)
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
-import { Assets, Container, FillGradient, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
+import { Assets, BlurFilter, Container, FillGradient, Graphics, Mesh, MeshGeometry, MeshRope, Point, Rectangle, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
 import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, BEAM_ENVELOPE, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, CIRCUIT_CAM_LEAD, CIRCUIT_CAM_EASE, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, drawdownSecsFor, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPUR_VIS, LANE_HALF_W, UPWELLING_VIS, FOUL_SPRING_VIS, FOUL_SPRING_FOUL_T, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, BRING_SNAP_T, SHOREBREAK_RADIUS, BURST_WAKE, burstWakeAt, DUST, dustVel, laneScrollFor, BALLAST_THROW_R, BALLAST_RING, ORCA_LEN, ORCA_CIRCLE_DUR, ORCA_RING_BAND, ORCA_FEAR_TELL, ORCA_HERD_GAP, CHUM_VIS, BILGE_TRAIL_VIS, OIL_STAIN_MAX, SLICK_FIRE_SPREAD_T, caveAt, laneHalfWidth, laneDrawSpan, CIRCUIT_GATE_VIS, ringXY, ringFU, ringRot, ringHeading, gateAnchorF, caveSpecOf, ORCA_RISE_DUR, ORCA_SPLASH_R, ORCA_AIM_W, ORCA_AIM_TELL, ORCA_WAKE_R, ORCA_OVERSHOOT,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
@@ -25,6 +25,8 @@ import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC
   FOXFIRE_GLOW,       // The Deep: a foxfire punched through the same scrim — a fire is a light
   GLINT_GLOW,         // ...and a Glint's spark, which is the card that BUYS its light with the bar
   SLICK_SLOW_T, INK_STAIN_T, inLobe,  // The Wreck: the oil and the ink on you, on the glass and the skin
+  // The Kraken: the ring's geometry and the per-rung parry windows the telegraph is drawn against
+  krakenRung, KRAKEN_RING_R, KRAKEN_ARM_R, KRAKEN_ARM_REACH, KRAKEN_LASH_R, KRAKEN_HEAD_R,
 } from './config.js'
 import { currentForce, tideForce } from './sim.js'
 
@@ -5174,6 +5176,10 @@ export function createRenderer(app) {
       // never draws one.
       if (ROSTER_LOOKS[id].childDraw) T.roster[id + '_child'] = makeRosterLook(id, false, true)
     }
+
+    // The Kraken's tentacle strip, for the MeshRope arms. Baked long (560px) because the rope
+    // stretches it over ~230 world px of arm and a short texture would visibly smear.
+    T.krakenTentacle = makeTentacleTex()
 
     // The gull STRIKE's three poses (The Surf). Baked at GULL_DIVE_R rather than reusing the 12px
     // roster gull: the strike is drawn ~140px across, and that texture would be a 6x magnification —
@@ -10493,6 +10499,14 @@ export function createRenderer(app) {
   // layer addChild'd before its own const is a TDZ crash that only ever shows in the minified bundle.
   const enemyShadowLayer = new Container()
   const enemyLayer = new Container()
+  // The Kraken's arm ring. Its OWN layer, above the enemies, because the arms shield the head and
+  // have to read as being in front of it; flat (one baked Sprite per arm, no independently
+  // transformed parts), so it is a syncPool pool and belongs in clearWorld's FLAT list — run CP.
+  const krakenArmLayer = new Container()
+  // The abyss the head sits in. Its own Graphics so the blur that sells the depth applies to it
+  // ALONE — teleG carries every other chapter's telegraphs and must stay sharp.
+  const krakenDeepG = new Graphics()
+  krakenDeepG.filters = [new BlurFilter({ strength: 18, quality: 3 })]
   const enemyCrownLayer = new Container()
   // shield bubble overlay: drawn on top of the elite body it protects
   const shieldG = new Graphics()
@@ -10631,10 +10645,10 @@ const spurG = new Graphics()
   entitiesLayer.addChild(
     mownG, sandLayer, netWakeG, wellG, bindG, poolLayer, slickG, trailLayer, webLayer, gateFloorG, spurG, coralLayer, gateG, burstWakeG, obstacleLayer, trapLayer,
     gemLayer, coinLayer, holeLayer, eddyLayer, shaftLayer, novaLayer, mineLayer,
-    scarLayer, bombG, shellLayer, skyLayer, voltLayer, stripG, laneG, hazardG, jetLayer, teleG, strafePoolLayer, rampG, pacerG,
+    krakenDeepG, scarLayer, bombG, shellLayer, skyLayer, voltLayer, stripG, laneG, hazardG, jetLayer, teleG, strafePoolLayer, rampG, pacerG,
     rockLayer,
     orcaShadowSp, orcaG,
-    enemyShadowLayer, enemyLayer, enemyCrownLayer, orcaSp, netG, longlineG, snareG,
+    enemyShadowLayer, enemyLayer, krakenArmLayer, enemyCrownLayer, orcaSp, netG, longlineG, snareG,
     bloomLayer, lureLayer, shieldG, affixLayer, crustG, deepG, lockLayer, playerC, netHoldG, gateFrontG, breakerG, puffG, splashG, columnG, shorebreakG,
     bulletLayer, boomerangLayer, orbLayer, debrisLayer, homingLayer, shotLayer, beamLayer, whipLayer, arcG, breathG,
     lobLayer, carLayer, smokeLayer, particleLayer,
@@ -18342,21 +18356,254 @@ const spurG = new Graphics()
       0.34 + Math.random() * 0.18, 0.08, tint, -0.02, 3.6)
   }
 
-  // ---- v5.4 roster attack telegraphs -------------------------------------------------------
-  // The chapter-4-7 predators all commit to an attack they cannot steer out of, and every one of
-  // them snapshots its heading/target at the START of a telegraph phase — so what render draws
-  // here is not a hint, it's the literal path. Sidestepping it always works; that's the contract.
-  // Read off the phase state each sim step keeps on the enemy (_pounceState/_airState/
-  // _chargeState/_beamState/_coneAngle), all of which MUST be guarded: the roster flags are
-  // per-chapter, and title/archetype-fallback enemies carry none of them.
+  // ---- THE KRAKEN ------------------------------------------------------------------------------
+  // THE ANIMAL IS TOO BIG TO SEE (owner, 2026-09-13). What is on screen is never the whole boss:
+  //   - the HEAD is a vast silhouette far below, on its own blurred parallax layer (krakenDeepG).
+  //     It drifts toward the player as they move, which is what reads as depth rather than distance.
+  //   - the ARMS rise out of that murk at KRAKEN_RING_R — well outside the viewport — and arch
+  //     INWARD over the arena. You fight inside the cage and shoot DOWN through the gaps.
+  //   - the WEB between two standing arms is the shut/open read, and because only two or three arms
+  //     are ever on screen it is a LOCAL read, not a whole-ring one.
   //
-  // The colour IS the safety cue, the same rule redrawHazards' green zones follow. Four of these
-  // five end in the player taking damage, so they speak the established amber hazard language of
-  // the traffic lanes and spray strips (0xffd24a fill / 0xffe37a rim), tightening and quickening
-  // as the fuse burns down. The flashlight cone is the deliberate exception — see its block.
+  // Each arm is a MeshRope: a baked tentacle strip bent along a spline that moves every frame. That
+  // is how a 2D engine draws a real tentacle. The first cut rebuilt a polygon per frame and read as
+  // three straight segments with knobs on it — blocky, and nothing like an animal.
+  const K_WEB = 0x140f24
+  const K_DEEP = 0x0d1b2a
+  let krakenHead = null // resolved by drawKrakenRing, consumed by syncKrakenArms in the same frame
+
+  // A TENTACLE, BAKED AS A STRIP. MeshRope maps the texture's WIDTH along the rope and its HEIGHT
+  // across the thickness, so the taper has to live in the ART: the opaque body runs from a
+  // full-height shoulder at x=0 to a point at the far end. Suckers, dorsal highlight and the dark
+  // ventral margin all bake in once and then come along for free wherever the spline puts them.
+  function makeTentacleTex() {
+    const L = 560, HH = 78, N = 56
+    const g = new Graphics()
+    const prof = (t) => Math.pow(1 - t, 0.80) * (1 - t * 0.04)
+    const pts = []
+    for (let i = 0; i <= N; i++) { const t = i / N; pts.push({ x: t * L, w: Math.max(0.8, HH * prof(t)) }) }
+    const ring = (k, f) => {
+      const o = []
+      for (const p of pts) o.push(p.x, -p.w * k + f(p))
+      for (let i = pts.length - 1; i >= 0; i--) o.push(pts[i].x, pts[i].w * k + f(pts[i]))
+      return o
+    }
+    const zero = () => 0
+    // body, with the near-black outline every creature in this game carries
+    g.poly(ring(1, zero)).fill(K_SKIN).stroke({ width: 6, color: K_LINE, join: 'round' })
+    // dorsal highlight — the lit top of a round limb, which is what stops it reading as a flat band
+    g.poly(ring(0.52, (p) => -p.w * 0.36)).fill({ color: mix(K_SKIN2, 0xffffff, 0.30), alpha: 0.40 })
+    g.poly(ring(0.22, (p) => -p.w * 0.52)).fill({ color: mix(K_SKIN2, 0xffffff, 0.55), alpha: 0.30 })
+    // ventral margin — the shadowed underside
+    g.poly(ring(0.34, (p) => p.w * 0.60)).fill({ color: K_LINE, alpha: 0.34 })
+    // two rows of suckers, shrinking with the limb
+    for (let i = 3; i < N - 5; i += 2) {
+      const p = pts[i]
+      const r = Math.max(1.2, p.w * 0.155)
+      for (const s of [-1, 1]) {
+        g.circle(p.x, s * p.w * 0.40, r).fill({ color: 0xbfe8f2, alpha: 0.9 })
+        g.circle(p.x, s * p.w * 0.40, r * 0.46).fill({ color: K_LINE, alpha: 0.55 })
+      }
+    }
+    // photophores: the animal's own light, sparse and irregular so it does not read as a pattern
+    for (let i = 5; i < N - 3; i += 5) {
+      const p = pts[i]
+      g.circle(p.x, -p.w * 0.12, Math.max(1, p.w * 0.09)).fill({ color: K_GLOW, alpha: 0.75 })
+    }
+    return bake(g, 5, 2).tex
+  }
+
+  // One rope per arm, plus a second rope beneath it as its shadow on the murk — that offset pair is
+  // most of what sells the arm as hanging ABOVE a drop rather than lying on a floor.
+  const krakenRopes = []
+  const K_ROPE_N = 24
+  function acquireRope() {
+    const pts = []
+    const shadowPts = []
+    for (let i = 0; i < K_ROPE_N; i++) { pts.push(new Point(0, 0)); shadowPts.push(new Point(0, 0)) }
+    const shadow = new MeshRope({ texture: T.krakenTentacle, points: shadowPts, width: KRAKEN_ARM_R * 1.45 })
+    shadow.tint = 0x000205
+    shadow.alpha = 0.5
+    const rope = new MeshRope({ texture: T.krakenTentacle, points: pts, width: KRAKEN_ARM_R * 1.45 })
+    krakenArmLayer.addChild(shadow)
+    krakenArmLayer.addChild(rope)
+    const rig = { rope, shadow, pts, shadowPts }
+    krakenRopes.push(rig)
+    return rig
+  }
+
+  function drawKrakenRing(run) {
+    krakenHead = null
+    krakenDeepG.clear()
+    const s = run.script
+    if (!s || !run.krakenArms.length) return
+    const head = s.headId != null ? run.enemies.find((en) => en.id === s.headId && !en._dead) : null
+    if (!head || s.phase !== 'boss') return
+    krakenHead = head
+    const p = run.player
+    const rung = krakenRung(run.difficulty)
+    const total = s.armsTotal || run.krakenArms.length
+    const half = Math.PI / total
+    const breathe = 0.5 + 0.5 * Math.sin(animT * 1.1)
+
+    // ---- the abyss: the head, far below ---------------------------------------------------------
+    // PARALLAX AS A LERP TOWARD THE PLAYER. The shadow sits between the head's real position and the
+    // player's, so walking moves it LESS than it moves the world — which is exactly the cue that
+    // says "this thing is a long way down" rather than "this thing is a long way away".
+    const dx = p.x - head.x, dy = p.y - head.y
+    const hx = head.x + dx * 0.34, hy = head.y + dy * 0.34
+    const R0 = KRAKEN_HEAD_R * 2.9
+    // the water above it, lifted — this is what the silhouette is read AGAINST
+    krakenDeepG.ellipse(hx, hy, R0 * 1.5, R0 * 1.28).fill({ color: 0x14304a, alpha: 0.5 })
+    krakenDeepG.ellipse(hx, hy, R0 * 1.18, R0 * 1.0).fill({ color: 0x1b3f5e, alpha: 0.45 })
+    // ...and the mass itself, back down into near-black
+    krakenDeepG.ellipse(hx, hy, R0 * 0.98, R0 * 0.84).fill({ color: 0x02080f, alpha: 0.92 })
+    // eight vast arms fanning away under the water, in the same near-black
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2 + animT * 0.05
+      const c = Math.cos(a), sn = Math.sin(a)
+      const nx = -sn, ny = c
+      const w = R0 * 0.30
+      krakenDeepG.poly([
+        hx - nx * w, hy - ny * w,
+        hx + c * R0 * 1.9 - nx * w * 0.14, hy + sn * R0 * 1.9 - ny * w * 0.14,
+        hx + c * R0 * 1.9 + nx * w * 0.14, hy + sn * R0 * 1.9 + ny * w * 0.14,
+        hx + nx * w, hy + ny * w,
+      ]).fill({ color: 0x02080f, alpha: 0.8 })
+    }
+    // and the eyes — the only part of it that is ever lit, pulsing on its own slow clock
+    const eye = 0.5 + 0.5 * Math.sin(animT * 0.7)
+    for (const sgn of [-1, 1]) {
+      const ex = hx + R0 * 0.20, ey = hy + sgn * R0 * 0.30
+      krakenDeepG.circle(ex, ey, R0 * 0.105).fill({ color: K_GLOW, alpha: 0.30 + eye * 0.30 })
+      krakenDeepG.circle(ex, ey, R0 * 0.042).fill({ color: 0xeafdff, alpha: 0.55 + eye * 0.40 })
+    }
+
+    // ---- the web: a shut sector, drawn between the two arms that hold it -------------------------
+    for (const a of run.krakenArms) {
+      if (a.dead || a.open) continue
+      const a0 = a.ang - half, a1 = a.ang + half
+      const rIn = KRAKEN_ARM_REACH * 0.80, rOut = KRAKEN_ARM_REACH * 3.1
+      // beginPath() BEFORE EVERY ARC: circle() and poly() open their own path in Pixi v8, arc() does
+      // NOT — it continues from the current point, so without this the sectors chain together and
+      // the ring renders as one fan of wedges. Caught by shooting the frame; nothing throws.
+      teleG.beginPath()
+      teleG.moveTo(head.x + Math.cos(a0) * rIn, head.y + Math.sin(a0) * rIn)
+      teleG.arc(head.x, head.y, rOut, a0, a1)
+      teleG.lineTo(head.x + Math.cos(a1) * rIn, head.y + Math.sin(a1) * rIn)
+      teleG.arc(head.x, head.y, rIn, a1, a0, true)
+      teleG.closePath()
+      teleG.fill({ color: K_WEB, alpha: 0.55 })
+      // NO rim arc. A lit edge along rIn drew a perfect circle across the arena and read as a HUD
+      // element; the membrane has to be legible as a FILLED AREA, which is what carries at a low bar.
+    }
+
+    // ---- the wind-up and the parry window, on the arm's TIP --------------------------------------
+    for (const a of run.krakenArms) {
+      if (a.dead) continue
+      if (a.gripT > 0) {
+        teleG.beginPath()
+        teleG.moveTo(a.x, a.y)
+        teleG.lineTo(p.x, p.y)
+        teleG.stroke({ width: 5 + breathe * 2, color: K_GLOW, alpha: 0.7 })
+        teleG.beginPath()
+        teleG.circle(p.x, p.y, 26 + breathe * 8)
+        teleG.stroke({ width: 3, color: 0xffffff, alpha: 0.6 })
+        continue
+      }
+      if (a.tele > rung.fuse) continue
+      const urgency = 1 - Math.max(0, a.tele - rung.window) / Math.max(0.001, rung.fuse - rung.window)
+      teleG.beginPath()
+      teleG.beginPath()
+      teleG.circle(a.x, a.y, KRAKEN_LASH_R)
+      teleG.fill({ color: K_GLOW, alpha: 0.016 + urgency * 0.055 })
+      if (urgency > 0.55) {
+        teleG.beginPath()
+        teleG.circle(a.x, a.y, KRAKEN_LASH_R)
+        teleG.stroke({ width: 1.5, color: K_GLOW, alpha: (urgency - 0.55) * 0.5 })
+      }
+      if (a.tele <= rung.window) {
+        // THE WINDOW, DRAWN FOR ITS WHOLE DURATION rather than as a 1-2 frame pop. The doc asked for
+        // a "now" tick; a window you can see the entire time it is open carries the same information
+        // and is playable on a phone, where two frames at D3's cadence is not. It stays a different
+        // vocabulary from the blaze (doc, M2): a hard ring snapping shut on ONE arm, against a slow
+        // bloom from the player at full sight radius.
+        const perfect = a.tele <= rung.perfect
+        const k = perfect ? 1 : 0.6
+        teleG.beginPath()
+        teleG.circle(a.x, a.y, KRAKEN_ARM_R * (perfect ? 0.85 : 1.25))
+        teleG.stroke({ width: 3 + k * 3, color: 0xffffff, alpha: 0.6 + k * 0.35 })
+        teleG.beginPath()
+        teleG.circle(a.x, a.y, KRAKEN_ARM_R * 1.9)
+        teleG.stroke({ width: 2, color: K_GLOW, alpha: 0.30 * k })
+      }
+    }
+  }
+
+  // The arms themselves: a spline per arm, from the shoulder out in the murk to the tip reaching in
+  // over the arena, undulating on its own phase so the ring never moves as one piece.
+  function syncKrakenArms(run) {
+    const head = krakenHead
+    const arms = head ? run.krakenArms.filter((a) => !a.dead || a.breakT > 0) : []
+    const rung = head ? krakenRung(run.difficulty) : null
+    for (let i = 0; i < arms.length; i++) {
+      const a = arms[i]
+      const rig = krakenRopes[i] || acquireRope()
+      const phase = animT * 1.25 + a.i * 1.9
+      // A LIVE ARM WRITHES AND A WINDING-UP ONE REARS: amplitude rises as its fuse runs out, so the
+      // body itself is part of the telegraph rather than a static prop with a ring drawn on it.
+      const windup = a.tele > 0 && rung && a.tele <= rung.fuse
+        ? 1 - Math.max(0, a.tele) / rung.fuse : 0
+      const amp = 26 + windup * 34
+      const curl = Math.sin(a.i * 2.3) * 0.6
+      for (let k = 0; k < K_ROPE_N; k++) {
+        const t = k / (K_ROPE_N - 1)
+        const r = KRAKEN_RING_R + (KRAKEN_ARM_REACH - KRAKEN_RING_R) * t
+        const lat = Math.sin(phase + t * 3.4) * amp * t + curl * t * t * 70
+        const bx = head.x + Math.cos(a.ang) * r
+        const by = head.y + Math.sin(a.ang) * r
+        const nx = -Math.sin(a.ang), ny = Math.cos(a.ang)
+        rig.pts[k].set(bx + nx * lat, by + ny * lat)
+        // the shadow is the same arm, dropped down-right onto the murk it is hanging over
+        rig.shadowPts[k].set(bx + nx * lat + 20 + t * 10, by + ny * lat + 28 + t * 14)
+      }
+      rig.rope.visible = true
+      rig.shadow.visible = true
+      if (a.dead) {
+        // A BROKEN ARM SINKS: it fades back into the murk it came out of over breakT, and after that
+        // its slice of the cage is simply open for the rest of the fight.
+        const f = Math.max(0, a.breakT / 0.9)
+        rig.rope.alpha = f
+        rig.shadow.alpha = 0.5 * f
+        rig.rope.tint = 0x6f6880
+      } else {
+        rig.rope.alpha = 1
+        rig.shadow.alpha = 0.5
+        const fur = Math.max(0, Math.min(1, a.hp / a.maxHP))
+        // THE PARRY WINDOW LIGHTS THE ARM ITSELF — the same language the game already uses for a
+        // struck enemy, so it needs no learning, and it puts "press now" on the object rather than
+        // beside it.
+        if (rung && a.tele > 0 && a.tele <= rung.window) rig.rope.tint = a.tele <= rung.perfect ? 0xffffff : 0xbfe4ff
+        else rig.rope.tint = mix(0x8b83a6, 0xffffff, (1 - fur) * 0.7)
+      }
+    }
+    for (let i = arms.length; i < krakenRopes.length; i++) {
+      krakenRopes[i].rope.visible = false
+      krakenRopes[i].shadow.visible = false
+    }
+    // THE HEAD IS A SHADOW, NOT A SPRITE, while the cage is up: hide the entity's own sprite so the
+    // only thing on screen is the silhouette below. It comes back for the chase, which is the whole
+    // payoff of never having shown it.
+    if (head && run.script.phase === 'boss') {
+      const hs = enemySprites.get(head.id)
+      if (hs) hs.visible = false
+    }
+  }
+
   function redrawTelegraphs(run) {
     teleG.clear()
     const p = run.player
+    drawKrakenRing(run)
     for (const e of run.enemies) {
       // pounce 'aim' (undergrowth's cat): it has stopped dead and its heading is already locked, so
       // the leap is knowable before it happens — draw it and stepping aside beats it. The lane ends
@@ -20627,6 +20874,82 @@ const spurG = new Graphics()
           addShake(5, 0.25)
           break
         }
+
+        // ---- THE KRAKEN (the Undertow's hidden parry boss) --------------------------------------
+        // Rev 1 shipped these with an SFX entry and NO render case, and run EV passed them because
+        // its rule is "a picture OR a sound OR a written reason". A parry with a sound and no
+        // picture is a mechanic the player cannot see, which is indistinguishable from a broken one.
+        case 'parry': {
+          // The block landing, ON THE ARM: a tight pale snap. Small on purpose — a good parry is the
+          // baseline verb of this fight and happens 15-30 times a run; it must not shout.
+          spawnRing(e.x, e.y, 58, 0.26, T.novaRing, 0xdff4ff)
+          addShake(3, 0.12)
+          break
+        }
+        case 'parryPerfect': {
+          // Bigger, whiter, with sparks — the read has to be unmistakably DIFFERENT from a good
+          // parry at a glance, because telling them apart is how the player learns the tail window.
+          spawnRing(e.x, e.y, 84, 0.34, T.novaRing, 0xffffff)
+          spawnRing(e.x, e.y, 44, 0.22, T.novaWarm, 0xdff4ff)
+          for (let i = 0; i < 10; i++) {
+            const a = (i / 10) * Math.PI * 2
+            spawnParticle(T.fx.star_08, e.x, e.y, Math.cos(a) * 190, Math.sin(a) * 190, 0.36, 0.07, 0xffffff, -0.1, 0)
+          }
+          addShake(6, 0.2)
+          break
+        }
+        case 'blaze': {
+          // THE BAR EMPTYING INTO THE ARENA: a slow radial bloom from the PLAYER out to full sight
+          // radius — the one frame of this fight that is not dark. Deliberately a different
+          // vocabulary from the window tick and the parry snap (design doc, M2): slow and huge
+          // against sharp and small, so D3's cadence never leaves two flashes reading as one thing.
+          spawnRing(e.x, e.y, e.r, 0.8, T.novaRing, 0xffffff)
+          spawnRing(e.x, e.y, e.r * 0.62, 0.62, T.novaWarm, 0xdff4ff)
+          spawnRing(e.x, e.y, e.r * 0.3, 0.44, T.novaWarm, 0xffffff)
+          addShake(10, 0.38)
+          break
+        }
+        case 'tentacleBreak': {
+          // An arm comes off. Rare (4-8 a fight) and it is the fight's real progress bar, so it gets
+          // the loudest tell in the ring — the fence band it was drawing is gone from here on.
+          spawnRing(e.x, e.y, 120, 0.5, T.novaRing, 0xb9c6c9)
+          for (let i = 0; i < 14; i++) {
+            const a = Math.random() * Math.PI * 2
+            const sp = 90 + Math.random() * 170
+            spawnParticle(T.fx.star_08, e.x, e.y, Math.cos(a) * sp, Math.sin(a) * sp, 0.7, 0.08, 0xb9c6c9, 0.35, 0)
+          }
+          addShake(8, 0.3)
+          break
+        }
+        case 'gripLatch': {
+          // The grab starting. The taut line to the player is drawn live in drawKrakenRing for as
+          // long as the hold lasts; this is only the moment it takes, so it stays a single snap.
+          spawnRing(e.x, e.y, 70, 0.3, T.novaRing, 0xffffff)
+          addShake(5, 0.18)
+          break
+        }
+        case 'lash': {
+          // The slam. Fires about once a second across the whole ring, so it is the QUIETEST thing
+          // here: one thin ring at the reach it actually covered, and no shake at all — the 'hurt'
+          // event already shakes on the ones that land, which is the only distinction that matters.
+          spawnRing(e.x, e.y, e.r, 0.3, T.novaRing, 0xb9c6c9)
+          break
+        }
+        case 'headHide': {
+          // It drops back below the wreck field. The head really leaves — this is the tell that it
+          // is gone rather than merely dark, which is the whole reason the breather is safe.
+          spawnRing(e.x, e.y, 200, 0.7, T.novaRing, 0x8fb4c4)
+          spawnRing(e.x, e.y, 120, 0.5, T.novaRing, 0x5a7c8c)
+          addShake(6, 0.35)
+          break
+        }
+        case 'headLunge': {
+          // P5's one move of its own: the wind-up before it comes at you between the hulls, and the
+          // only thing that keeps the finale from reading as The Blank's P3 with props.
+          spawnRing(e.x, e.y, 170, 0.4, T.novaRing, 0xdff4ff)
+          addShake(7, 0.22)
+          break
+        }
       }
     }
   }
@@ -20661,6 +20984,11 @@ const spurG = new Graphics()
     spurRev = -1
     hazardG.clear()
     teleG.clear()
+    // The Kraken: the abyss, and the arm ropes. Meshes rather than a syncPool pool, so they are
+    // hidden here by hand — a cage left up would greet the next run as furniture, which is the
+    // exact failure run CP exists for.
+    krakenDeepG.clear()
+    for (const rig of krakenRopes) { rig.rope.visible = false; rig.shadow.visible = false }
     wellG.clear()
     bindG.clear()
     breathG.clear() // v7.23: a Graphics, not a pool — clearing it IS the reset (see redrawBreath)
@@ -22227,6 +22555,7 @@ const spurG = new Graphics()
     // nothing is drawn for them at all.
     syncJets((run.zones || []).filter((g) => g.jetDur > 0 && !(g.delay > 0)))
     redrawTelegraphs(run)
+    syncKrakenArms(run) // AFTER redrawTelegraphs: that is what resolves the head this frame
     updateStrafeLocks(dt) // draws INTO teleG, on top of what redrawTelegraphs just drew — see its own comment
     if (chapterHasStorm) {
       drawMissileLocks(run)          // also draws into teleG

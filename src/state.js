@@ -2271,11 +2271,53 @@ function generateWells(sig) {
   *   ...same shape, extended for The Kraken (stepKrakenScript): phase ('wave'|'boss'|'chase') is the
   *   block state machine; bossIdx counts finished arm blocks; blockKills is arms down THIS block (the
   *   block ends at 2); armsSpawned marks the ring's first go-out; headId is the head's run.enemies id
-  *   (persistent across blocks; its HP is the whole fight). Blank never reads these five, The Kraken
-  *   never reads stage/waveIdx/waveT/bossId, so the two ladders share one object.
+  *   while it is ON the field, and null between blocks. Blank never reads these, The Kraken never
+  *   reads stage/waveIdx/waveT/bossId, so the two ladders share one object. Four more are the
+  *   Kraken's alone:
+  *     headHp — THE HEAD'S ONE PERSISTENT POOL. Rev 1 kept the head entity alive between blocks and
+  *       flagged it `_hidden`; NOTHING IN src/ EVER READ THAT FLAG, so the "hidden" head stayed on
+  *       screen and took real weapon damage through every breather. Rev 2 deletes the concept: the
+  *       head DESPAWNS on the hide and respawns from this number. The head being safe during a
+  *       breather is then true because the head is not there, which nothing can get wrong.
+  *     armsTotal — the rung's STARTING arm count, frozen for the fight. It is the denominator of
+  *       every arm's sector width (2pi/armsTotal), so it must not follow the survivor count down.
+  *     bankedLevels — levels owed to the player for arms broken, paid out in one go on the hide.
+  *       Eight level-up modals landing mid-parry is the interruption; the total is unchanged.
+  *     gripN — arm attacks so far this block. P2 (the Grip) rides the RING'S OWN RHYTHM rather than
+  *       a wall clock: every KRAKEN_GRIP_EVERY-th attack is a grab instead of a slam. A seconds
+  *       timer made the Grip a cameo (1 per fight, measured), because once the ring is worn down a
+  *       late block lasts 2-6s and the timer never came round.
+  *     trickleT — countdown to the next arrival of the late-block trickle of graveyard dead.
+  *     opened — has the fight set its opening Light level yet. createRun hands every resource
+  *       chapter a FULL bar, and the Kraken opens readable-but-not-full instead; this runs BEFORE
+  *       `charged` is latched each frame, because a full bar on frame 1 would otherwise arm the
+  *       blaze before the player has met an arm and make the first parry of every run a free kill.
+  *     charged — THE BLAZE LATCH. Set the moment Light reaches its ceiling, consumed by the next
+  *       parry (which breaks its arm outright). A latch rather than a test of the bar at press
+  *       time, because the passive drain leaves the ceiling within a frame of touching it: sampling
+  *       `charge >= chargeMax` there measures the drain, not the player, and blazed ~0 times a
+  *       fight while peak Light read 100/100 on every run.
   * bossBar: null whenever no scripted boss is alive; while one is, { hp, max, stage } mirrors the
   *   current phase entity so ui.js can render a boss HP bar without reaching into run.enemies
   *   (rampage pattern: the field always exists, stays inert for every non-scripted chapter).
+  * krakenArms: [] for every chapter but The Kraken. The tentacle ring, and THE ONE ENTITY FAMILY IN
+  *   THE GAME THAT IS DELIBERATELY NOT IN run.enemies. Under rev 2 an arm is not a creature: it is
+  *   a door with a health bar that exactly one verb (the parry) can turn. Keeping it in run.enemies
+  *   would mean the ~25 dealDamage sites, nearestEnemy, every projectile-collision scan, the
+  *   elements system, the loot path, knockback, separation, the straggler teleport and the alive
+  *   cap each have to remember an exception — and every one of those fails SILENTLY. A projectile
+  *   consumed by an invulnerable arm eats your damage exactly as thoroughly as one that hurts it,
+  *   and nothing throws. Out here, all of those exclusions are structural instead of remembered.
+  *   The HEAD is the opposite call and stays an ordinary enemy: it is a real creature you kill, so
+  *   it takes weapon damage, drives the boss bar and pays out on death.
+  *   Each arm: { i, ang, x, y, hp, maxHP, tele, open, dead, gripT, hitT, breakT }.
+  *     i    — slot index; ang — its FIXED slot angle around the head. Arms never re-space.
+  *     tele — seconds until this arm's slam. Counting down IS the telegraph; it re-arms to the
+  *            rung's lash cadence after a slam or a parry. The parry window is the last
+  *            `rung.window` seconds of it, and `rung.perfect` is the tail of that.
+  *     open — is this arm's SECTOR open. A parry opens it; the arm's next wind-up shuts it.
+  *     dead — broken. Its sector is open for the rest of the fight and it is never re-armed.
+  *     gripT — >0 while this arm has the player in a Grip (P2); hitT/breakT are render staging.
  * The chapter reuses two existing generic entities rather than adding new run arrays: run.bombs
  *   (telegraph->blast) carries `src:'trail'` for every trail detonation (P1's own read, and at
  *   d2+ P2's borrowed spread read / P3's borrowed echo — all through sim.js's shared
@@ -2727,8 +2769,12 @@ export function createRun(meta, opts = {}) {
       ? { stage: 0, waveIdx: 0, waveT: 0, spawned: false, bossId: null,
           // The Kraken (see sim.js's stepKrakenScript). Blank never reads these and The Kraken
           // never reads stage/waveIdx/waveT/bossId, so the two ladders share one shape.
-          phase: 'wave', bossIdx: 0, blockKills: 0, blockStartArms: 0, armsSpawned: false, headId: null }
+          phase: 'wave', bossIdx: 0, blockKills: 0, armsSpawned: false, headId: null,
+          headHp: 0, armsTotal: 0, bankedLevels: 0, gripN: 0, trickleT: 0, charged: false, opened: false }
       : null,
+    // The tentacle ring — see the doc block above for why an arm is NOT an enemy. Empty and inert
+    // for every chapter but The Kraken, the same rampage pattern as `script` itself.
+    krakenArms: [],
     trail: [],
     bossBar: null,
     // v5.9.1 bugfix: PROMOTED from render-only to a real, READ-ONLY sim contract — see the full

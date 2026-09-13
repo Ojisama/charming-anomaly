@@ -167,6 +167,8 @@ import {
   CHUM_FEED_HOLD, CHUM_FEED_R, OIL_STAIN_MAX, CHAPTER_BOARDS_DEFAULT,
   // The Trawl's late-game cut (run TJ)
   lateSpawnMulAt, SPAWN_LATE_BLEND, SPAWN_LATE_START,
+  // The Kraken (run KR): the rung table and the ring's numbers
+  krakenRung, KRAKEN_RUNGS, KRAKEN_PARRY_DMG, KRAKEN_ARM_REACH, KRAKEN_WAVE_TIMEOUT,
 } from '../src/config.js'
 import { stepSim, applyChoice, buildLevelUpChoices, eligibleWeaponModCandidates, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, inRefillCircle, stepCharge, newElWindow, spurAt } from '../src/sim.js'
 
@@ -20214,6 +20216,7 @@ run(testLeLargeWeapons)
   run(testUnresolvedRefs)
   run(testScreenPositioning)
   run(testRefund)
+  run(runKraken)
   run(testBootLoader)
   console.log('ALL TESTS PASSED')
   runSummary()
@@ -34262,4 +34265,240 @@ function testMouseSteering() {
     'the mousedown handler does not skip UI targets — clicking a card now also lurches the player toward it')
 
   console.log(`PASS run MS (mouse steering): ramp monotonic over 300px with ${partial.size} partial-speed steps, unit diagonal, ${calls.length} getInput call sites all anchored to renderer.playerScreen, held button cleared on mouseup/blur/mouseleave`)
+}
+
+// ---- Run KR: The Kraken, the parry boss (rev 2) -------------------------------------------------
+// Rev 1 shipped this chapter with FOUR references to it in this file, all of them about the dev
+// gate, and not one that played the fight. What it shipped instead was measurable from the outside:
+// the block ladder never ran (6.7 of 8 arms died inside the breather waves on D3), the head took
+// weapon damage through every breather because its `_hidden` flag had no reader anywhere in src/,
+// and the blaze fired on the wrong edge. Every assertion here is one of those, plus the contract
+// rev 2 replaced them with.
+//
+// THE CONTRACT, in three sentences: only a parry damages an arm; the head takes damage only from
+// inside an OPEN SECTOR measured player->head; a parry opens the parried arm's sector until that arm
+// winds up again, and a broken arm's sector is open for good.
+function runKraken() {
+  const R1 = krakenRung(1)
+
+  // Drive a fresh run to the first ring block: the fight opens on a breather, which clears on a
+  // timeout, and the head + ring go out on the frame after that.
+  function inBlock(difficulty = 1) {
+    const run = createRun(makeMeta(), { chapter: 'kraken', difficulty })
+    // CLAUDE.md's probe rule, as an assertion: createRun takes an OPTIONS OBJECT, and getting that
+    // wrong hands you a Body run at difficulty 1 without throwing or warning.
+    assert.strictEqual(run.chapter, 'kraken', 'createRun did not make a Kraken run — every assertion below would be measuring another chapter')
+    let guard = 0
+    while (run.script.phase !== 'boss' && guard++ < 60 * (KRAKEN_WAVE_TIMEOUT + 5)) {
+      run.player.hp = run.player.maxHP
+      stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+    }
+    assert.strictEqual(run.script.phase, 'boss', `the opening breather never handed over to a ring block in ${KRAKEN_WAVE_TIMEOUT + 5}s`)
+    for (let i = 0; i < 3; i++) { run.player.hp = run.player.maxHP; stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60) }
+    return run
+  }
+  const headOf = (run) => run.enemies.find((e) => e.rosterId === 'krakenHead' && !e._dead) || null
+  // Park the player at a world angle measured from the head, INSIDE the cage. The distance is off
+  // KRAKEN_ARM_REACH, not KRAKEN_RING_R: the ring is where the arms rise from, far outside the
+  // arena, and standing out there put the player 800px from the head where no weapon reaches —
+  // which reads exactly like "the damage gate is stuck shut" and is really the rig being wrong.
+  function standAt(run, ang) {
+    const h = headOf(run)
+    run.player.x = h.x + Math.cos(ang) * KRAKEN_ARM_REACH * 0.5
+    run.player.y = h.y + Math.sin(ang) * KRAKEN_ARM_REACH * 0.5
+  }
+  // Press the button with exactly one arm in its window, standing on it so it is the nearest.
+  function parryAt(run, arm, tele) {
+    for (const a of run.krakenArms) if (a !== arm) a.tele = 99 // nobody else is in a window
+    arm.tele = tele
+    run.repulseCd = 0
+    run.player.x = arm.x
+    run.player.y = arm.y
+    run.player.hp = run.player.maxHP
+    stepSim(run, { x: 0, y: 0, skill: true }, 1 / 60)
+  }
+  function quiet(run, seconds) {
+    for (let i = 0; i < Math.round(seconds * 60); i++) {
+      for (const a of run.krakenArms) if (!a.dead && a.tele < 90) a.tele = 99
+      run.player.hp = run.player.maxHP
+      stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+    }
+  }
+
+  // (a) THE LOCK. An arm is not an enemy, so no weapon in the game can reach it — and that is
+  // STRUCTURAL, not a rule any of the ~25 damage sites has to remember. The first assertion is the
+  // one that matters: a projectile CONSUMED by an invulnerable arm would eat the player's damage
+  // just as thoroughly as one that hurt it, and nothing would throw.
+  {
+    const run = inBlock(1)
+    assert.strictEqual(run.krakenArms.length, R1.arms, `D1 raised ${run.krakenArms.length} arms, not the rung's ${R1.arms}`)
+    for (const a of run.krakenArms) {
+      assert.ok(!run.enemies.includes(a), 'an arm is in run.enemies — every weapon, status, knockback and loot path in the game can now see the ring')
+    }
+    assert.ok(!run.enemies.some((e) => e.rosterId === 'krakenArm'),
+      'something spawned krakenArm as an enemy: the roster entry is an IDENTITY (name, French, baked look), never a spawnable')
+    const arm = run.krakenArms[0]
+    const hp0 = arm.hp
+    quiet(run, 12) // a dozen seconds of a real run, weapons firing, never pressing the button
+    assert.strictEqual(arm.hp, hp0, `weapons removed ${hp0 - arm.hp} HP from an arm over 12s — the lock leaks, and rev 1's failure is back`)
+    assert.strictEqual(run.krakenArms.filter((a) => a.dead).length, 0, 'an arm broke without a single parry being pressed')
+  }
+
+  // (b) THE DOOR. The head is hurt only from inside an open sector, and CLOSED MEANS CLOSED — zero,
+  // not rev 1's "the ring absorbs at most 80%". A shut door that still passes damage is a
+  // multiplier, and a multiplier is exactly what let rev 1's ring be ignored.
+  {
+    const run = inBlock(1)
+    const h = headOf(run)
+    const arm = run.krakenArms[0]
+    standAt(run, arm.ang) // dead ahead of a standing, shut arm
+    const hp0 = h.hp
+    quiet(run, 8)
+    assert.strictEqual(h.hp, hp0, `the head lost ${hp0 - h.hp} HP through a SHUT sector — closed does not mean closed`)
+    arm.open = true // the door this parry would have bought
+    quiet(run, 8)
+    assert.ok(h.hp < hp0, 'the head took nothing through an OPEN sector either — the gate is stuck shut and the fight is unwinnable')
+  }
+
+  // (c) A PARRY OPENS THE SECTOR IT JUST WOUNDED, and the arm's next wind-up shuts it again. This is
+  // the sentence the design doc calls the whole fight, and rev 1 had no implementation of it at all.
+  {
+    const run = inBlock(1)
+    const arm = run.krakenArms[0]
+    const hp0 = arm.hp
+    parryAt(run, arm, R1.window * 0.9) // inside the good window, outside the perfect tail
+    assert.ok(arm.hp < hp0, 'a parry inside the window took nothing off the arm')
+    assert.strictEqual(arm.open, true, 'a parry did not open the parried arm’s sector')
+    // ...and it shuts again once that arm is winding up. tele re-armed to the lash cadence, so walk
+    // it down to the fuse and check the door closes on its own.
+    arm.tele = R1.fuse + 0.02
+    run.player.hp = run.player.maxHP
+    stepSim(run, { x: 0, y: 0, skill: false }, 1 / 30)
+    assert.strictEqual(arm.open, false, 'the sector stayed open into the arm’s next wind-up — the punish window never closes')
+  }
+
+  // (d) A BROKEN ARM'S SECTOR IS OPEN FOR GOOD, and the arms never re-space. Re-spacing survivors
+  // evenly — which rev 1 did on every block — leaves two arms covering half the circle each and a
+  // ring still shut with six of eight arms dead.
+  {
+    const run = inBlock(1)
+    const arm = run.krakenArms[0]
+    const ang0 = arm.ang
+    arm.hp = KRAKEN_PARRY_DMG * 0.5 // one good parry from breaking
+    parryAt(run, arm, R1.window * 0.9)
+    assert.strictEqual(arm.dead, true, 'the arm survived a parry that should have broken it')
+    assert.strictEqual(arm.open, true, 'a broken arm’s sector is not open')
+    quiet(run, 10)
+    assert.strictEqual(arm.open, true, 'a broken arm’s sector shut again — the hole in the ring is supposed to be permanent')
+    assert.strictEqual(arm.ang, ang0, 'a surviving arm re-spaced: the ring closes itself back up as it loses arms')
+    assert.strictEqual(run.script.armsTotal, R1.arms,
+      'armsTotal followed the survivor count down — it is the DENOMINATOR of every sector width and must stay the rung’s starting count')
+  }
+
+  // (e) A BLOCK ENDS ON TWO ARMS DOWN, NOT ONE.
+  {
+    const run = inBlock(1)
+    const [a0, a1] = run.krakenArms
+    a0.hp = KRAKEN_PARRY_DMG * 0.5
+    parryAt(run, a0, R1.window * 0.9)
+    assert.strictEqual(run.script.phase, 'boss', 'one arm down ended the block — the threshold is two')
+    a1.hp = KRAKEN_PARRY_DMG * 0.5
+    parryAt(run, a1, R1.window * 0.9)
+    assert.strictEqual(run.script.phase, 'wave', 'two arms down did not end the block')
+  }
+
+  // (f) THE HEAD HIDES BY LEAVING, and its HP is ONE pool across the whole fight. Rev 1 kept the
+  // head on the field behind a `_hidden` flag that nothing in src/ read, so it stayed shootable
+  // through every breather (46-190 HP a fight, measured).
+  {
+    const run = inBlock(1)
+    const h = headOf(run)
+    h.hp = Math.round(h.maxHP * 0.5)
+    const [a0, a1] = run.krakenArms
+    a0.hp = a1.hp = KRAKEN_PARRY_DMG * 0.5
+    parryAt(run, a0, R1.window * 0.9)
+    parryAt(run, a1, R1.window * 0.9)
+    assert.strictEqual(run.script.phase, 'wave', 'the block did not hand over to a breather')
+    assert.strictEqual(headOf(run), null, 'the head is STILL ON THE FIELD during the breather — this is rev 1’s bug exactly')
+    assert.strictEqual(run.script.headId, null,
+      'headId survived the hide: "the id is set and the entity is gone" is how the win is detected, so a hide would read as a victory')
+    assert.strictEqual(run.script.headHp, h.hp, 'the head’s pool was not carried onto the script state')
+    assert.notStrictEqual(run.phase, 'victory', 'hiding the head was mistaken for killing it')
+    // ...and it comes back with exactly that pool.
+    let guard = 0
+    while (run.script.phase === 'wave' && guard++ < 60 * (KRAKEN_WAVE_TIMEOUT + 5)) {
+      run.player.hp = run.player.maxHP
+      stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+    }
+    for (let i = 0; i < 3; i++) { run.player.hp = run.player.maxHP; stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60) }
+    const h2 = headOf(run)
+    assert.ok(h2, 'the head never came back after the breather')
+    assert.strictEqual(h2.hp, h.hp, `the head came back at ${h2.hp}, not the ${h.hp} it hid with — the pool does not persist`)
+  }
+
+  // (g) A PERFECT PARRY CHUNKS MORE, AND STALLS THE RE-ARM. The stall is not decoration: one parry
+  // opens one door, so without it perfect play halves your firing windows and the fight gets SLOWER
+  // (measured on D3: 14 parries and 255s against 26 parries and 167s).
+  {
+    const run = inBlock(1)
+    const [a0, a1] = run.krakenArms
+    const hp0 = a0.hp
+    parryAt(run, a0, R1.window * 0.9)
+    const good = hp0 - a0.hp
+    const goodTele = a0.tele
+    parryAt(run, a1, R1.perfect * 0.5)
+    const perfect = hp0 - a1.hp
+    assert.ok(perfect > good, `a perfect parry took ${perfect} and a good one ${good} — perfect timing pays nothing extra`)
+    assert.ok(a1.tele > goodTele + 0.1,
+      `a perfect parry re-armed the arm in ${a1.tele.toFixed(2)}s against a good parry’s ${goodTele.toFixed(2)}s — the stall is gone, so perfect play is a net LOSS of firing windows`)
+  }
+
+  // (h) AT FULL, THE NEXT PARRY BLAZES — off a latch, and this assertion is the bug twice over.
+  // Rev 1 tested the CROSSING ("did this parry fill the bar"), so a bar already at maximum could
+  // never blaze. Testing `charge >= chargeMax` at press time instead has the same disease from the
+  // other side: the passive drain leaves the ceiling within a frame of touching it, so the test is
+  // false almost every press and the blaze fires ~0 times a fight while peak Light reads 100/100.
+  {
+    const run = inBlock(1)
+    const arm = run.krakenArms[0]
+    arm.hp = arm.maxHP // a full-health arm: only a blaze can break it in one press
+    run.charge = run.chargeMax
+    for (const a of run.krakenArms) a.tele = 99
+    run.player.hp = run.player.maxHP
+    stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60) // the latch sets on the frame the bar is full
+    assert.strictEqual(run.script.charged, true, 'a full Light bar did not arm the blaze latch')
+    // ...and the drain has already taken the bar off the ceiling by now, which is the whole point.
+    assert.ok(run.charge < run.chargeMax, 'the bar is still exactly at max — this assertion can no longer tell a latch from a sample')
+    parryAt(run, arm, R1.window * 0.9)
+    assert.strictEqual(arm.dead, true, 'a parry at a full bar did not BLAZE the arm — it should break outright regardless of HP')
+    assert.strictEqual(run.script.charged, false, 'the blaze latch was not consumed — every parry after this one blazes')
+    assert.strictEqual(run.charge, 0, 'the blaze did not dump the bar')
+  }
+
+  // (i) THE RUNG TABLE IS READ. Rev 1 shipped this table as prose in the design doc and flat scalars
+  // in config, so D1 and D3 differed only in how many arms stood up.
+  {
+    assert.strictEqual(KRAKEN_RUNGS.length, 3, 'the ladder is not 3 rungs')
+    assert.strictEqual(CHAPTERS.kraken.maxDifficultyCap, 3, 'the Kraken’s difficulty cap is not 3 — there is no D4 by design')
+    const r3 = krakenRung(3)
+    assert.ok(r3.window < R1.window && r3.fuse < R1.fuse && r3.arms > R1.arms,
+      'the rung table does not tighten from D1 to D3')
+    const d1 = inBlock(1), d3 = inBlock(3)
+    assert.strictEqual(d1.krakenArms.length, R1.arms)
+    assert.strictEqual(d3.krakenArms.length, r3.arms)
+    assert.ok(headOf(d3).maxHP > headOf(d1).maxHP,
+      `headHpMul is not read: D3's head is ${headOf(d3).maxHP} against D1's ${headOf(d1).maxHP}`)
+    // the drain multiplier, read through stepCharge rather than asserted off the table
+    const bar = (run) => { const c0 = run.charge; quiet(run, 2); return c0 - run.charge }
+    const drop1 = bar(d1), drop3 = bar(d3)
+    assert.ok(drop3 > drop1 * 1.2, `the rung's drainMul is not read: D3 lost ${drop3.toFixed(1)} Light in 2s against D1's ${drop1.toFixed(1)}`)
+  }
+
+  // (j) No timer victory, and no ordinary spawner — the shared `scripted` contract, which the
+  // Kraken leans on exactly as The Blank does.
+  assert.strictEqual(CHAPTERS.kraken.scripted, true, 'the Kraken lost `scripted`: the 300s clock and the ordinary spawner are both back on')
+  assert.strictEqual(CHAPTERS.kraken.parry, true, 'the Kraken lost `parry`: the dash button is a shove again and the fight has no key')
+  assert.strictEqual(CHAPTERS.kraken.resource.noSpend, true, 'the Light bar can be SPENT again — a parry press would drain the bar it is supposed to fill')
+
+  console.log(`PASS run KR (The Kraken): only a parry touches an arm (0 HP off one in 12s of weapons), the head takes 0 through a shut ring and real damage through an open sector, a parry opens its arm’s sector and the next wind-up shuts it, a broken arm’s hole is permanent, blocks end on 2 arms not 1, the head LEAVES the field for the breather and returns on the same pool, perfect chunks more and stalls longer, a full bar blazes off a latch, and all 3 rungs read window/fuse/arms/headHp/drain`)
 }
