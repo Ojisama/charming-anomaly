@@ -17,6 +17,11 @@ your weapons and the head"* — an arm was an ordinary roster enemy with a large
 head's damage was softened by a live count of standing arms. **Superseded in full by rev 2.** Read
 it for the fiction, the difficulty table and the wave shape, all of which survive.
 
+**Rev 2b — 2026-09-13, same day.** The rest of rev 2's deferred list, built: **the Coil** (P3, D3
+alone), **the rise** (the chase's opening beat), and the **hidden-chapter generalization** with The
+Kraken's unlock wired. Wiring that unlock does not expose the chapter — it can only fire off a win in
+The Deep, which is itself behind `wipFrom`. Rev 2's sections below are amended in place.
+
 **Rev 2 — 2026-09-13.** The arm stops being a creature and becomes **a lock and a door**. Four owner
 rulings (below) and a measured post-mortem of rev 1 drive it. Everything in *The model* onward is
 new; *Identity*, *Difficulty*, *Unlock* and the wave fiction carry forward.
@@ -183,12 +188,18 @@ does not — 3 waves on D1, 4 on D2, 5 on D3. The full D3 ladder:
   of the arm that grabbed you — which is wherever you have just been dragged. It is the pattern that
   proves the sector model, which is why it is the one built alongside the spine. Reuse the Blank's
   P2 binding-node shape and its existing `yank` event rather than inventing a movement machine.
-- **P5 — the chase** (all rungs, the finale). 0 arms, the head is bared and it hunts, weaving the
-  wreck field. Every few seconds it does a telegraphed **lunge** between the hulls — the one move of
+- **P5 — the chase** (all rungs, the finale), opening on **the rise**: every block has shown the
+  head as a silhouette far below, and this is where it comes up. For `KRAKEN_RISE_T` it is still and
+  harmless — but **not invulnerable**, so a player who was ready gets to open on it, which is a reward
+  for having read the fight rather than a free hit for everyone. Then the head is bared and it hunts,
+  weaving the wreck field. Every few seconds it does a telegraphed **lunge** between the hulls — the one move of
   its own that keeps the finale from reading as The Blank's P3 with props.
-- **P3 — the Coil** — **deferred** (ruling 4). A constricting ring closing the arena from the edges,
-  survivable through a gap and deliberately *not* parryable, so the verb keeps meaning by not being
-  the only answer. It is the right third pattern; it is not in this pass.
+- **P3 — the Coil** (D3 alone, **built**). Every `KRAKEN_COIL_EVERY`-th arm attack the whole ring
+  rears back and then hauls inward at once, and the only place it does not sweep is **one sector** —
+  the gap, re-rolled each time. Deliberately **not parryable**: a verb that answers every pattern
+  stops being a decision. It is checked *before* the Grip on the attack clock so the two can never
+  stack, because a grab you cannot escape while the ring closes is not a pattern, it is a bug with a
+  name. The gap is the loudest thing the chapter draws — a lit wedge that brightens as the ring shuts.
 
 ## Difficulty — 3 rungs, named modifiers
 
@@ -287,10 +298,20 @@ for this chapter's tells has to assert the render case specifically.
 ## Unlock, save, UI
 
 - `kraken` lives outside the book's chapter ladder: never in the daily rotation, never in the unlock
-  chain. Winning The Deep at difficulty 5 sets its unlocked flag — the shape of the Blank's Beyond-d5
-  unlock. **Rev 1 never wired this**; the dev gate was the only way in.
-- The Blank's hardcoded sites plus the per-book `hidden` array become a small shared
-  `hiddenChapters()` list. The second hidden chapter is where that generalization pays for itself.
+  chain. **Built (rev 2b):** `HIDDEN_UNLOCKS` is one table naming every hidden chapter and the win
+  that reveals it — The Blank behind Beyond-d5, The Kraken behind Deep-d5 — and `endRun` walks it
+  instead of hardcoding an id. **This does not expose the chapter**: it can only fire off a win in The
+  Deep, and The Deep is itself behind `wipFrom`, so the gate opens naturally when that chapter ships.
+- The Blank's seven hardcoded `'blank'` sites are gone. Two different questions were being conflated:
+  *is this chapter hidden* (now `hiddenChapters()`, derived from the books) and *is this a scripted
+  fight with a fixed ladder* (now `CHAPTERS[id].scripted` / `.modsByDifficulty`). Keying off the
+  chapter's own flags means a third scripted boss needs no edit at any of them. Run KR asserts no
+  `'blank'` id comparison survives in main.js, ui.js or state.js.
+- `HIDDEN_UNLOCKS[].hint` carries the line a locked hidden chapter shows in place of its name. It
+  lived as a branch in ui.js, where **no coverage walk could reach it** — copy in a function is exempt
+  from run XX by construction, the exemption that has shipped untranslated strings four times. Moving
+  it to a table was half the fix; adding that table to run XX's walk was the other half, and it went
+  red for The Kraken's hint the moment it was written.
 - Chapter select: a `???` mystery card once The Deep's difficulty 5 is unlocked, hint *"win The Deep
   at level 5"*; the full card only once unlocked. The Deep's star row shows its 5th gold star.
 - **A stage-audit bug this chapter exposed:** the WIP check indexes a book's `chapters` array, which a

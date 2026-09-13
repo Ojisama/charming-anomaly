@@ -8650,9 +8650,11 @@ export const KRAKEN_RUNGS = [
   //  - `perfect` on D3 is 0.115 and NOT below D2's 0.11: 90ms sat at phone-tap latency and read as
   //    luck rather than skill. D3 is made harder by `window` (0.21) and `fuse` (0.55), both of
   //    which stay above the ~150-200ms reaction floor.
-  { arms: 4, window: 0.32, perfect: 0.140, fuse: 0.90, drainMul: 1.00, headHpMul: 1.00, cadenceMul: 1.00, grip: false },
-  { arms: 6, window: 0.25, perfect: 0.110, fuse: 0.70, drainMul: 1.30, headHpMul: 1.15, cadenceMul: 1.15, grip: true },
-  { arms: 8, window: 0.21, perfect: 0.115, fuse: 0.55, drainMul: 1.60, headHpMul: 1.30, cadenceMul: 1.30, grip: true },
+  //  - `coil` is D3 ALONE and is the one pattern you cannot parry, which is the point: a verb that
+  //    answers everything stops being a decision. It is the rung's third pattern, not a fourth.
+  { arms: 4, window: 0.32, perfect: 0.140, fuse: 0.90, drainMul: 1.00, headHpMul: 1.00, cadenceMul: 1.00, grip: false, coil: false },
+  { arms: 6, window: 0.25, perfect: 0.110, fuse: 0.70, drainMul: 1.30, headHpMul: 1.15, cadenceMul: 1.15, grip: true,  coil: false },
+  { arms: 8, window: 0.21, perfect: 0.115, fuse: 0.55, drainMul: 1.60, headHpMul: 1.30, cadenceMul: 1.30, grip: true,  coil: true },
 ]
 // The one accessor, so no site has to remember the difficulty-1 offset or the clamp. The cap is
 // enforced by the chapter, but a probe or a migrated save can hand this anything.
@@ -8719,8 +8721,20 @@ export const KRAKEN_TRICKLE_FROM_END = 2 // blocks before the chase that start t
 export const KRAKEN_TRICKLE_T = 5.5 // s between trickle arrivals
 export const KRAKEN_TRICKLE_N = 2 // dead per arrival
 
+// THE RISE (P5's opening beat). The whole fight has shown the head as a silhouette below; the
+// chase is where it comes up, and that beat is the payoff for never having shown it. It is
+// harmless and motionless while it ascends — the drama is the drama, not a free hit.
+export const KRAKEN_RISE_T = 2.6 // s the head takes to come up out of the abyss
 export const KRAKEN_LUNGE_T = 3.2 // s between chase lunges (final block)
 export const KRAKEN_LUNGE_DMG = 26
+// THE COIL (P3, D3 only). Every Nth arm attack the whole ring hauls inward at once, and the only
+// place that is not swept is ONE sector — the gap. NOT PARRYABLE by design: the parry must not be
+// the answer to everything, or it stops being a choice. You read the gap and you move.
+export const KRAKEN_COIL_EVERY = 11 // arm attacks between coils
+export const KRAKEN_COIL_TELE = 1.6 // s of wind-up before the ring closes — long, it is a move test
+export const KRAKEN_COIL_DUR = 0.9 // s the ring spends hauled in
+export const KRAKEN_COIL_IN = 0.34 // the fraction of KRAKEN_ARM_REACH the arms close to
+export const KRAKEN_COIL_DMG = 30 // caught outside the gap when it shuts
 export const KRAKEN_WAVE = { n: 10, ids: ['krakenWall', 'krakenDart', 'krakenSnare'] }
 export const KRAKEN_WAVE_GAP = Math.PI / 2 // the gap door: a quarter-turn of the ring spawns empty
 export const KRAKEN_WAVE_TIMEOUT = 12 // s, then the wave advances regardless — a breather, not a fight
@@ -9774,6 +9788,26 @@ export const ROAD_JUNCTION = {
 // Body at a level they never unlocked there, and endRun credits that win to body's ledger.
 // Object.hasOwn, not a truthiness test: '__proto__'/'constructor'/'toString' are all truthy on any
 // object literal and would otherwise pass as chapter ids. Membership is tested against CHAPTERS and
+// EVERY HIDDEN CHAPTER AND THE WIN THAT REVEALS IT. One table, because there are two of them now
+// and the second is what makes the generalization pay: The Blank had its id hardcoded at seven
+// sites, and a second hidden chapter would have meant a second copy of all seven.
+//   `hint` is PLAYER-VISIBLE COPY and therefore lives in a config TABLE, which is the only shape
+// run XX can walk — a string in a ui.js branch is exempt from the coverage sweep by construction,
+// and that exemption has shipped untranslated copy four separate times.
+export const HIDDEN_UNLOCKS = {
+  blank:  { from: 'beyond', difficulty: 5, hint: 'win The Beyond at level 5 — something has been counting' },
+  kraken: { from: 'deep',   difficulty: 5, hint: 'win The Deep at level 5 — the graveyard has been waiting' },
+}
+// Every chapter that sits OUTSIDE its book's ladder, derived from the books rather than listed
+// again. `hidden` does not mean unreleased — it means off the ladder; only wipFrom hides a chapter
+// from players, which is also why wiring a hidden chapter's unlock cannot expose it while the
+// chapter it is gated behind is itself WIP.
+export function hiddenChapters() {
+  const out = []
+  for (const b of Object.values(BOOKS)) for (const id of b.hidden ?? []) out.push(id)
+  return out
+}
+
 // NOT against CHAPTER_ORDER — 'blank' is a real chapter that lives outside the order by design, and
 // an order check would silently turn every Blank run into a body run.
 export const resolveChapterId = (id) => (Object.hasOwn(CHAPTERS, id) ? id : CHAPTER_ORDER[0])

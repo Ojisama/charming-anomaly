@@ -97,6 +97,7 @@ const UI = {
   // 'te compte', not 'compte': objectless `compter` reads as "matters", not "is counting" — the
   // pronoun forces the intended, creepier sense while keeping "counting what?" withheld.
   'win The Beyond at level 5 — something has been counting': "gagne L'Au-delà au niveau 5 — quelque chose te compte",
+  'win The Deep at level 5 — the graveyard has been waiting': 'gagne Les Abysses au niveau 5 — le cimetière attend',
   'best': 'record',
   'Boosters': 'Boosters',
   'this run only': 'cette partie seulement',

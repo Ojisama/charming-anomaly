@@ -97,7 +97,7 @@ import {
   BLANK_PHASE_LEVELS, BLANK_BOSS_SPEED_P3, BLANK_READ3_T, BLANK_BAND_LEN, BLANK_FAN_N,
   BLANK_BAND_W, BLANK_BAND_DPS, BLANK_BAND_GROW, STATUS_TICK,
   BLANK_RECRUIT_T, BLANK_WAVE_XP_MUL, BLANK_WAVE_GAP,
-  SPAWN_RING, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES,
+  SPAWN_RING, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES, HIDDEN_UNLOCKS,
   CIRCUIT_CAM_LEAD, CIRCUIT_CAM_EASE,
   // v6.3.1 difficulty pass (Run LL)
   BLANK_BOSS_SPEED, BLANK_BOSS_SPEED_P1, BLANK_BOSS_HP, BLANK_MAX_ALIVE, BLANK_CATCHUP_MAX,
@@ -169,6 +169,7 @@ import {
   lateSpawnMulAt, SPAWN_LATE_BLEND, SPAWN_LATE_START,
   // The Kraken (run KR): the rung table and the ring's numbers
   krakenRung, KRAKEN_RUNGS, KRAKEN_PARRY_DMG, KRAKEN_ARM_REACH, KRAKEN_WAVE_TIMEOUT,
+  KRAKEN_RISE_T, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, hiddenChapters,
 } from '../src/config.js'
 import { stepSim, applyChoice, buildLevelUpChoices, eligibleWeaponModCandidates, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, inRefillCircle, stepCharge, newElWindow, spurAt } from '../src/sim.js'
 
@@ -18585,6 +18586,13 @@ function testFrenchDictionary() {
     Object.keys(MUTATOR_EFFECT_LABELS).filter((k) => !MUTATOR_MOD_KEYS.includes(k)), [],
     'MUTATOR_EFFECT_LABELS rows for a key no mutator effect can produce — dead copy')
   for (const v of Object.values(CHAPTER_ENDINGS ?? {})) { need(v?.victory); need(v?.death) }
+
+  // HIDDEN_UNLOCKS[].hint — the line a LOCKED hidden chapter shows in place of its name. It lived
+  // as a branch in ui.js until 2026-09-13, where no walk could reach it: copy in a function is
+  // exempt from this sweep BY CONSTRUCTION, which is the exemption that has shipped untranslated
+  // strings four separate times. Moving it into a table is only half the fix; this line is the
+  // other half, and it went red for The Kraken's hint the moment it was written.
+  for (const v of Object.values(HIDDEN_UNLOCKS ?? {})) need(v?.hint)
   for (const v of Object.values(CHAPTER_UNLOCK_LINES ?? {})) need(v)
   // Same flat id -> string shape, one book down. Joined here the day the table landed rather than
   // the day someone noticed the badge was English — the whole point of this walk.
@@ -34494,11 +34502,98 @@ function runKraken() {
     assert.ok(drop3 > drop1 * 1.2, `the rung's drainMul is not read: D3 lost ${drop3.toFixed(1)} Light in 2s against D1's ${drop1.toFixed(1)}`)
   }
 
+  // (k) THE RISE. The chase is the one beat the whole fight withholds, so it has to actually run:
+  // the head goes up, and it is still and harmless while it does — but NOT invulnerable, which is
+  // the reward for a player who was ready rather than a free hit for everyone.
+  {
+    const run = inBlock(1)
+    // break the whole ring, then time out the breather: that is the chase's door.
+    for (const a of run.krakenArms) { a.hp = KRAKEN_PARRY_DMG * 0.5; parryAt(run, a, R1.window * 0.9) }
+    let guard = 0
+    while (run.script.phase !== 'chase' && guard++ < 60 * (KRAKEN_WAVE_TIMEOUT + 8) * 3) {
+      run.player.hp = run.player.maxHP
+      stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+    }
+    assert.strictEqual(run.script.phase, 'chase', 'breaking every arm never opened the chase')
+    for (let i = 0; i < 3; i++) { run.player.hp = run.player.maxHP; stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60) }
+    const h = headOf(run)
+    assert.ok(h, 'the head never rose for the chase')
+    assert.ok(run.script.riseT > 0, 'the chase started with no rise — the payoff beat does not exist')
+    assert.strictEqual(h.speed, 0, 'the head is moving while it is still coming up')
+    assert.strictEqual(h.dmg, 0, 'the head hurts the player while it is still coming up')
+    const hp0 = h.hp
+    quiet(run, KRAKEN_RISE_T + 0.4)
+    assert.strictEqual(run.script.riseT, 0, 'the rise never finished')
+    assert.ok(h.hp < hp0, 'the head took nothing during the rise — it is meant to be vulnerable, just harmless')
+    assert.ok(headOf(run).speed > 0, 'the head never started hunting after the rise')
+  }
+
+  // (l) THE COIL (P3). D3 alone, ring-wide, and NOT PARRYABLE — a verb that answers every pattern
+  // stops being a decision. The gap is the whole counterplay, so both halves are asserted.
+  {
+    assert.strictEqual(krakenRung(1).coil, false, 'D1 runs the Coil — it is D3 alone')
+    assert.strictEqual(krakenRung(3).coil, true, 'D3 does not run the Coil')
+    const run = inBlock(3)
+    const s3 = run.script
+    const h = headOf(run)
+    s3.coilT = KRAKEN_COIL_TELE + KRAKEN_COIL_DUR
+    s3.coilGap = 0 // due +x of the head
+    // the ring hauls in: an arm's threat point is nearer the head than its resting reach
+    const arm = run.krakenArms.find((a) => !a.dead)
+    quiet(run, KRAKEN_COIL_TELE + 0.25)
+    const r = Math.hypot(arm.x - h.x, arm.y - h.y)
+    assert.ok(r < KRAKEN_ARM_REACH * 0.9,
+      `the ring did not close: an arm sits at ${r.toFixed(0)}px against a resting ${KRAKEN_ARM_REACH}`)
+    // ...and being caught outside the gap costs health, while the gap itself is safe.
+    const hurtFrom = (ang) => {
+      const r2 = inBlock(3)
+      const h2 = headOf(r2)
+      r2.player.x = h2.x + Math.cos(ang) * KRAKEN_ARM_REACH * 0.6
+      r2.player.y = h2.y + Math.sin(ang) * KRAKEN_ARM_REACH * 0.6
+      r2.script.coilT = KRAKEN_COIL_TELE + KRAKEN_COIL_DUR
+      r2.script.coilGap = 0
+      for (const a of r2.krakenArms) a.tele = 99
+      const before = r2.player.hp
+      for (let i = 0; i < Math.round((KRAKEN_COIL_TELE + 0.2) * 60); i++) stepSim(r2, { x: 0, y: 0, skill: false }, 1 / 60)
+      return before - r2.player.hp
+    }
+    assert.strictEqual(hurtFrom(0), 0, 'standing IN the coil gap still cost health — the gap is the only answer there is')
+    assert.ok(hurtFrom(Math.PI) > 0, 'standing opposite the gap cost nothing — the Coil does not threaten anything')
+  }
+
+  // (m) THE HIDDEN-CHAPTER TABLE. Two of them now, which is what makes the generalization pay: The
+  // Blank had its id hardcoded at seven sites and a second would have meant a second copy of all
+  // seven. Asserted as SOURCE TEXT for main.js, which is not importable — run UG.k's idiom.
+  {
+    assert.deepStrictEqual(hiddenChapters().sort(), ['blank', 'kraken'],
+      'hiddenChapters() no longer names both hidden chapters')
+    assert.strictEqual(HIDDEN_UNLOCKS.kraken.from, 'deep')
+    assert.strictEqual(HIDDEN_UNLOCKS.kraken.difficulty, 5)
+    for (const [id, gate] of Object.entries(HIDDEN_UNLOCKS)) {
+      assert.ok(CHAPTERS[id], `HIDDEN_UNLOCKS names '${id}', which is not a chapter`)
+      assert.ok(CHAPTERS[gate.from], `HIDDEN_UNLOCKS.${id} is gated behind '${gate.from}', which is not a chapter`)
+      assert.ok(hiddenChapters().includes(id), `HIDDEN_UNLOCKS names '${id}' but no book lists it as hidden`)
+    }
+    const mainSrc = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
+      // LINE COMMENTS FIRST, THEN BLOCKS. The other order lets a /* inside a // comment open a block
+      // that runs to the next */ thousands of lines away, silently eating the code this assertion is
+      // looking for — which is exactly how it failed the first time it was run.
+      .replace(/\/\/[^\n]*/g, ' ').replace(/\/\*[\s\S]*?\*\//g, ' ')
+    assert.ok(/for \(const \[id, gate\] of Object\.entries\(HIDDEN_UNLOCKS\)\)/.test(mainSrc),
+      'main.js no longer WALKS HIDDEN_UNLOCKS — the table exists and the unlock is hardcoded again')
+    for (const f of ['main.js', 'ui.js', 'state.js']) {
+      const src = readFileSync(new URL('../src/' + f, import.meta.url), 'utf8')
+        .replace(/\/\/[^\n]*/g, ' ').replace(/\/\*[\s\S]*?\*\//g, ' ')
+      assert.ok(!/=== 'blank'/.test(src) && !/!== 'blank'/.test(src),
+        `${f} still compares a chapter id against 'blank' — that is the hardcoding hiddenChapters() replaced`)
+    }
+  }
+
   // (j) No timer victory, and no ordinary spawner — the shared `scripted` contract, which the
   // Kraken leans on exactly as The Blank does.
   assert.strictEqual(CHAPTERS.kraken.scripted, true, 'the Kraken lost `scripted`: the 300s clock and the ordinary spawner are both back on')
   assert.strictEqual(CHAPTERS.kraken.parry, true, 'the Kraken lost `parry`: the dash button is a shove again and the fight has no key')
   assert.strictEqual(CHAPTERS.kraken.resource.noSpend, true, 'the Light bar can be SPENT again — a parry press would drain the bar it is supposed to fill')
 
-  console.log(`PASS run KR (The Kraken): only a parry touches an arm (0 HP off one in 12s of weapons), the head takes 0 through a shut ring and real damage through an open sector, a parry opens its arm’s sector and the next wind-up shuts it, a broken arm’s hole is permanent, blocks end on 2 arms not 1, the head LEAVES the field for the breather and returns on the same pool, perfect chunks more and stalls longer, a full bar blazes off a latch, and all 3 rungs read window/fuse/arms/headHp/drain`)
+  console.log(`PASS run KR (The Kraken): only a parry touches an arm (0 HP off one in 12s of weapons), the head takes 0 through a shut ring and real damage through an open sector, a parry opens its arm’s sector and the next wind-up shuts it, a broken arm’s hole is permanent, blocks end on 2 arms not 1, the head LEAVES the field for the breather and returns on the same pool, perfect chunks more and stalls longer, a full bar blazes off a latch, and all 3 rungs read window/fuse/arms/headHp/drain; the head RISES for the chase still and harmless but killable, the Coil closes the ring on D3 alone with its gap the only safe place and no parry for it, and both hidden chapters resolve through HIDDEN_UNLOCKS with no id hardcoded in main/ui/state`)
 }
