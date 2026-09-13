@@ -223,7 +223,8 @@ import {
   BLANK_BAND_ANGLES, BLANK_BAND_ANGLES_MATURE, BLANK_READ3_DESPERATE_MUL,
   // The Kraken (scripted parry boss — see stepKrakenScript / krakenParry)
   krakenRung, KRAKEN_HEAD_HP, KRAKEN_HEAD_R, KRAKEN_HEAD_SPEED,
-  KRAKEN_ARM_HP, KRAKEN_ARM_R, KRAKEN_RING_R, KRAKEN_ARM_REACH, KRAKEN_ARM_LEVELS,
+  KRAKEN_ARM_HP, KRAKEN_ARM_R, KRAKEN_RING_R, KRAKEN_ARM_REACH, KRAKEN_ARM_LEVELS, KRAKEN_ARM_PHASE_JITTER,
+  KRAKEN_ARM_HIT_T, KRAKEN_CAGE_R,
   KRAKEN_ARM_LASH_T, KRAKEN_LASH_R, KRAKEN_LASH_DMG, KRAKEN_LIGHT_START,
   KRAKEN_PERFECT_MUL, KRAKEN_PERFECT_STALL, KRAKEN_PARRY_CD, KRAKEN_PARRY_DMG, KRAKEN_PARRY_REFILL, KRAKEN_BLAZE_R,
   KRAKEN_GRIP_EVERY, KRAKEN_GRIP_PULL, KRAKEN_GRIP_DUR, KRAKEN_GRIP_DMG,
@@ -1542,6 +1543,22 @@ function krakenSectorShut(run, ang) {
   return false
 }
 
+// IS THIS ENEMY BEHIND A SHUT SECTOR RIGHT NOW? The chapter's whole contract as ONE predicate, so
+// that "the head can only be reached through an open door" is authored once and every site that
+// reaches the head asks the same question: a hit, a burn being LIT, an arc forwarding one, a
+// wildfire jump landing one.
+//   It was authored once, inside dealDamage, and that was not enough. applyDamage runs
+// `dealDamage(...)` and then `applyElements(...)` guarded only on `_dead` — so a hit the ring
+// REFUSED still planted a burn at the full pre-gate damage, and since the tick is exempt by design
+// the burn then ticked the head down from inside a fully shut ring. Measured before this existed:
+// 24-35% of a fire build's damage landed with the door shut and no parry in the fight at all. The
+// comment three lines into dealDamage claimed the opposite ("a blocked hit never reaches the
+// element window either") and had been wrong since the exemption shipped.
+function krakenShutTo(run, enemy) {
+  if (!enemy || enemy.rosterId !== 'krakenHead' || !CHAPTERS[run.chapter].parry) return false
+  return krakenSectorShut(run, Math.atan2(run.player.y - enemy.y, run.player.x - enemy.x))
+}
+
 function stepKrakenScript(run, dt) {
   const p = run.player
   const s = run.script
@@ -1688,18 +1705,47 @@ function krakenArmsToBlock(run, rung, head) {
         x: head.x + Math.cos(ang) * KRAKEN_ARM_REACH,
         y: head.y + Math.sin(ang) * KRAKEN_ARM_REACH,
         hp: KRAKEN_ARM_HP, maxHP: KRAKEN_ARM_HP,
-        tele: 0, open: false, dead: false, gripT: 0, hitT: 0, breakT: 0,
+        tele: 0, open: false, dead: false, gripT: 0, hitT: 0, breakT: 0, drift: 0,
       })
     }
     s.armsSpawned = true
   }
   const standing = run.krakenArms.filter((a) => !a.dead)
+  // DEAL THE OPENING PHASES ACROSS THE WHOLE CYCLE, IN A SHUFFLED ORDER. Slot k of n is still one
+  // even spread — the ring should breathe, not clump — but which ARM gets which slot is random, so
+  // the order the arms come round in stops tracking the order they sit in around the circle. See
+  // KRAKEN_ARM_PHASE_JITTER for the whole of why.
+  const slots = standing.map((_, i) => (i + 0.5) / Math.max(1, standing.length))
+  for (let i = slots.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    const t = slots[i]; slots[i] = slots[j]; slots[j] = t
+  }
   for (let i = 0; i < standing.length; i++) {
     const a = standing[i]
     a.open = false
     a.gripT = 0
-    a.tele = lashT * (0.35 + (i / Math.max(1, standing.length)) * 0.65)
+    a.drift = 0
+    a.tele = lashT * slots[i]
   }
+}
+
+// The period one arm waits before its next wind-up. NEVER the bare cycle: a fixed period holds
+// every arm's phase relative to every other's for the whole fight, which is the clock hand.
+//
+// JITTER AROUND THE ARM'S OWN SLOT, NOT AROUND ITS LAST LASH. `lashT * (1 +/- J)` is the obvious
+// form and it is wrong: the offsets COMPOUND, the even deal decays into a random walk within a few
+// cycles, and arms clump. Measured on D3 with the compounding form, the worst frame had 5 of 8 arms
+// parryable at once against the shipped ring's 2 — i.e. it fixed "going around the circle" by making
+// "too simultaneously" worse. Subtracting the previous offset puts each lash back on the grid it was
+// dealt, so every individual wind-up is unpredictable inside +/-J and the ring as a whole keeps
+// breathing evenly.
+function krakenRearm(run, a, lashT) {
+  let n = 0
+  for (const o of run.krakenArms) if (!o.dead) n++
+  const off = (Math.random() * 2 - 1) * KRAKEN_ARM_PHASE_JITTER * (lashT / Math.max(1, n))
+  const t = lashT + off - (a.drift || 0)
+  a.drift = off
+  return Math.max(lashT * 0.3, t)
 }
 
 // A ring block. Two arms down ends it.
@@ -1721,6 +1767,19 @@ function stepKrakenBlock(run, dt, rung, head) {
     if (h) krakenArmsToBlock(run, rung, h)
     return false
   }
+
+  // THE CAGE HOLDS ONLY WHILE THE RING IS UP. The arms are the wall, so when they are gone the wall
+  // is gone: a breather really is open water (the head has left the field) and the chase is a bare
+  // hunt across it. Clamping in those phases would be a wall with nothing drawing it.
+  //   Position, not velocity: the player is stopped at the membrane rather than shoved, so holding
+  // the stick into it reads as leaning on something solid instead of being flung.
+  const ox = p.x - head.x, oy = p.y - head.y
+  const od = Math.hypot(ox, oy)
+  if (od > KRAKEN_CAGE_R) {
+    p.x = head.x + (ox / od) * KRAKEN_CAGE_R
+    p.y = head.y + (oy / od) * KRAKEN_CAGE_R
+    run.script.cageT = 0.18 // render lights the membrane where it is being leaned on
+  } else if (s.cageT > 0) s.cageT = Math.max(0, s.cageT - dt)
 
   // THE COIL (P3, D3 only) — a RING-WIDE move, so it is stepped here rather than on one arm's
   // turn. While it runs, no arm takes its own: the ring is busy being the attack.
@@ -1770,7 +1829,7 @@ function stepKrakenBlock(run, dt, rung, head) {
       p.y += (dy / d) * KRAKEN_GRIP_PULL * dt
       if (a.gripT <= 0) {
         a.gripT = 0
-        a.tele = lashT
+        a.tele = krakenRearm(run, a, lashT)
         if (hurtPlayer(run, KRAKEN_GRIP_DMG, false, 'krakenArm')) return true
       }
       continue
@@ -1794,7 +1853,7 @@ function stepKrakenBlock(run, dt, rung, head) {
     if (rung.coil && s.bossIdx >= 3 && s.gripN % KRAKEN_COIL_EVERY === 0) {
       s.coilT = KRAKEN_COIL_TELE + KRAKEN_COIL_DUR
       s.coilGap = Math.random() * Math.PI * 2
-      a.tele = lashT
+      a.tele = krakenRearm(run, a, lashT)
       run.events.push({ type: 'coilWind', x: head.x, y: head.y, ang: s.coilGap })
       continue
     }
@@ -1803,8 +1862,8 @@ function stepKrakenBlock(run, dt, rung, head) {
       run.events.push({ type: 'gripLatch', x: a.x, y: a.y })
       continue
     }
-    a.tele = lashT
-    a.hitT = 0.18
+    a.tele = krakenRearm(run, a, lashT)
+    // (the arm swinging is the `lash` event's picture; `hitT` is what a parry does to it)
     run.events.push({ type: 'lash', x: a.x, y: a.y, r: KRAKEN_LASH_R })
     const dx = p.x - a.x
     const dy = p.y - a.y
@@ -1903,7 +1962,15 @@ function krakenParry(run) {
     const d = (a.x - p.x) ** 2 + (a.y - p.y) ** 2
     if (d < bestD) { bestD = d; best = a }
   }
-  if (!best) return
+  // THE WHIFF IS AN EVENT. It used to be a bare `return`: the button went on cooldown and the game
+  // said nothing at all, so a press that found nothing and a press the game had not registered were
+  // the same picture (owner, 2026-09-13: "there's almost no player feedback when a parry is active,
+  // when a parry misses, when a parry does dmg"). The cooldown was always the cost; it was simply
+  // invisible. Carries the cooldown so the tell can be drawn for exactly as long as it lasts.
+  if (!best) {
+    run.events.push({ type: 'parryWhiff', x: p.x, y: p.y, cd: KRAKEN_PARRY_CD })
+    return
+  }
 
   // A grip break always scores as a good parry — see above.
   const perfect = best.gripT <= 0 && best.tele <= rung.perfect
@@ -1931,7 +1998,16 @@ function krakenParry(run) {
   }
   run.charge = Math.min(run.chargeMax, run.charge + KRAKEN_PARRY_REFILL * mul)
   best.hp -= KRAKEN_PARRY_DMG * mul
-  run.events.push({ type: perfect ? 'parryPerfect' : 'parry', x: best.x, y: best.y })
+  // THE ARM HAS TO SHOW IT TOOK THAT. `hitT` counts the flash down and render tints the tentacle
+  // itself off it — before this it was written on the LASH instead (an arm swinging, not an arm
+  // being hurt) and had no reader anywhere in render.js, so five parries into a 320hp arm looked
+  // exactly like one. `frac` rides along so the snap can grow as the arm nears breaking: that is
+  // the only progress bar this fight has, and it belongs on the thing it measures.
+  best.hitT = KRAKEN_ARM_HIT_T
+  run.events.push({
+    type: perfect ? 'parryPerfect' : 'parry',
+    x: best.x, y: best.y, frac: Math.max(0, best.hp) / best.maxHP,
+  })
   if (best.hp <= 0) krakenBreakArm(run, best)
 }
 
@@ -7916,9 +7992,9 @@ function dealDamage(run, enemy, dmg, crit, dot = false, hazard = false) {
   // hit never reaches the element window either — but once it is burning it burns whatever the ring
   // does. That is what gives damage-over-time a role of its OWN here instead of a strictly worse
   // burst: the window buys you a fuse rather than a swing, and the fuse outlives the window.
-  if (enemy.rosterId === 'krakenHead' && CHAPTERS[run.chapter].parry && !dot) {
-    if (krakenSectorShut(run, Math.atan2(run.player.y - enemy.y, run.player.x - enemy.x))) return
-  }
+  //   The LIGHTING of it is gated here and in the four other places a status can be planted — see
+  // krakenShutTo, which is the one author of that rule.
+  if (!dot && krakenShutTo(run, enemy)) return
   // Shielded (elite affix): while above SHIELD_HP_FRAC of maxHP, the shield absorbs part
   // of every hit. Checked before venom amp per spec (shield softens the raw hit first).
   if (enemy.elite && enemy.affixes && enemy.affixes.includes('shielded') && enemy.hp > enemy.maxHP * SHIELD_HP_FRAC) {
@@ -8043,6 +8119,7 @@ function dealDamage(run, enemy, dmg, crit, dot = false, hazard = false) {
         let best = null, bestSq = WILDFIRE_JUMP_R * WILDFIRE_JUMP_R
         for (const e of run.enemies) {
           if (e._dead || isAlly(e) || e === enemy || e.ignite > 0) continue   // already lit (or yours): spend the jump on new ground
+          if (krakenShutTo(run, e)) continue                                  // a shut door is not new ground either
           const dx = e.x - enemy.x, dy = e.y - enemy.y
           const dSq = dx * dx + dy * dy
           if (dSq < bestSq) { bestSq = dSq; best = e }
@@ -8184,7 +8261,11 @@ function applyDamage(run, enemy, baseDmg, critBonus = 0) {
 // the basis. DoT ticks and arc damage deal their damage via dealDamage directly (not
 // applyDamage) so they don't re-roll crit/player multipliers or recursively re-apply elements.
 
-function applyIgnite(enemy, potency, dmgDealt) {
+// `run` is here ONLY for the Kraken's door. Lighting a fire is an application, and an application
+// the ring refused must not happen — see krakenShutTo. Taking it as a parameter rather than guarding
+// at the call sites is deliberate: a future caller cannot forget a rule that lives in the callee.
+function applyIgnite(run, enemy, potency, dmgDealt) {
+  if (krakenShutTo(run, enemy)) return
   enemy.ignite = IGNITE_DURATION
   enemy.igniteDps = (IGNITE_DOT_FRAC * potency * dmgDealt) / IGNITE_DURATION
   // WILDFIRE's jump budget is re-armed by a real weapon hit, and only here. That is the whole
@@ -8200,6 +8281,9 @@ function applyIgnite(enemy, potency, dmgDealt) {
 // dealDamage already filled — so they need no application step at all, and they respond to every
 // damage source rather than only to weapon hits.
 function applyElements(run, enemy, dmgDealt) {
+  // The hit that carried these elements may have been refused by the ring — applyDamage calls us
+  // regardless, guarded only on `_dead`. Lighting the head is an application, not a tick.
+  if (krakenShutTo(run, enemy)) return
   const am = alignmentMul(run)
   const fire = elP(run, 'fire')
   if (fire > 0) {
@@ -8241,7 +8325,7 @@ function elArc(run, source, P, dmgDealt) {
     if (arcDmg > 0) dealDamage(run, t, arcDmg, false)
     // Forward the DAMAGE-shaped afflictions only. Both are absolute dps, so they carry across
     // without needing to be re-derived against the target's health.
-    if (Math.random() < fwd) {
+    if (Math.random() < fwd && !krakenShutTo(run, t)) {
       if ((source.igniteDps ?? 0) > (t.igniteDps ?? 0)) { t.igniteDps = source.igniteDps; t.ignite = EL_WINDOW }
       if ((source.bleedDps ?? 0) > (t.bleedDps ?? 0)) { t.bleedDps = source.bleedDps; t.bleed = source.bleed }
     }
@@ -8874,7 +8958,7 @@ function stepBullets(run, dt) {
         // Necrotic Tips (stinger switch mod, snapshotted as b._necrotic at fire time): the needle
         // leaves flagella's bleed behind. Reuses applyBleed verbatim rather than growing a second
         // DoT — which also means lightning can forward it, since elArc carries bleed.
-        if (b._necrotic && !e._dead) applyBleed(e, b.dmg, NECROTIC_BLEED_FRAC)
+        if (b._necrotic && !e._dead) applyBleed(run, e, b.dmg, NECROTIC_BLEED_FRAC)
         b.hitIds.add(e.id)
         b.pierce--
         justHit = e
@@ -10087,7 +10171,7 @@ function fireFlagella(run, stats) {
       if (!inSector(p.x, p.y, swing, stats.range, arc, e, fullCircle)) continue
       struck.add(e)
       const dealt = applyDamage(run, e, stats.dmg)
-      if (barbedBonus > 0 && !e._dead) applyBleed(e, dealt, barbedBonus)
+      if (barbedBonus > 0 && !e._dead) applyBleed(run, e, dealt, barbedBonus)
       if (stats.knockback) shoveFromPlayer(run, e, stats.knockback) // v6.2 melee parity — roar's idiom
     }
     run.events.push({ type: 'whip', x: p.x, y: p.y, angle: swing, range: stats.range, arc })
@@ -10097,9 +10181,10 @@ function fireFlagella(run, stats) {
 // barbed: refresh (replace, like ignite) a bleed whose total = dmgDealt × BARBED_DMG_MUL × bonus
 // over BARBED_DURATION seconds. dmgDealt is already the fully-rolled hit (player mult + crit), so
 // the bleed ticks it straight through dealDamage (dot-flagged) without re-scaling — see stepStatuses.
-function applyBleed(enemy, dmgDealt, bonus) {
+// `run` is here only for the Kraken's door, exactly as applyIgnite's is.
+function applyBleed(run, enemy, dmgDealt, bonus) {
   const total = dmgDealt * BARBED_DMG_MUL * bonus
-  if (total <= 0) return
+  if (total <= 0 || krakenShutTo(run, enemy)) return
   enemy.bleed = BARBED_DURATION
   enemy.bleedDps = total / BARBED_DURATION
 }
@@ -10871,7 +10956,7 @@ function slashClaws(run, o) {
       // build carries. The doubleSlash follow-up re-enters slashClaws, so it inherits this too.
       const dealt = applyDamage(run, e, o.dmg * ambushMul, CLAW_BASE_CRIT)
       // bleedClaws: flagella's barbed bleed, verbatim (same DoT, re-themed as claw wounds).
-      if (bleedBonus > 0 && !e._dead) applyBleed(e, dealt, bleedBonus)
+      if (bleedBonus > 0 && !e._dead) applyBleed(run, e, dealt, bleedBonus)
       if (o.knockback) shoveFromPlayer(run, e, o.knockback) // v6.2 melee parity — roar's idiom
     }
     run.events.push({ type: 'clawRake', x: p.x, y: p.y, angle: swing, range: o.range, arc: o.arc })
@@ -11729,7 +11814,7 @@ function stepArcs(run, dt) {
       let dmg = a.dmg
       for (const e of chain) {
         const dealt = applyDamage(run, e, dmg)
-        if (a.falloutBonus > 0 && dealt > 0 && !e._dead) applyIgnite(e, a.falloutBonus, dealt)
+        if (a.falloutBonus > 0 && dealt > 0 && !e._dead) applyIgnite(run, e, a.falloutBonus, dealt)
         dmg *= BREATH_JUMP_DMG_MUL
       }
       if (chain.length > 0) run.events.push({ type: 'arc', nodes: a.nodes })

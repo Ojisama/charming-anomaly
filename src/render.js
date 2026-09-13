@@ -27,7 +27,7 @@ import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC
   SLICK_SLOW_T, INK_STAIN_T, inLobe,  // The Wreck: the oil and the ink on you, on the glass and the skin
   // The Kraken: the ring's geometry and the per-rung parry windows the telegraph is drawn against
   krakenRung, KRAKEN_RING_R, KRAKEN_ARM_R, KRAKEN_ARM_REACH, KRAKEN_LASH_R, KRAKEN_HEAD_R,
-  KRAKEN_RISE_T, KRAKEN_COIL_DUR, KRAKEN_COIL_TELE,
+  KRAKEN_RISE_T, KRAKEN_COIL_DUR, KRAKEN_COIL_TELE, KRAKEN_PARRY_CD, KRAKEN_CAGE_R, KRAKEN_ARM_HIT_T,
 } from './config.js'
 import { currentForce, tideForce } from './sim.js'
 
@@ -18369,7 +18369,25 @@ const spurG = new Graphics()
   // Each arm is a MeshRope: a baked tentacle strip bent along a spline that moves every frame. That
   // is how a 2D engine draws a real tentacle. The first cut rebuilt a polygon per frame and read as
   // three straight segments with knobs on it — blocky, and nothing like an animal.
-  const K_WEB = 0x140f24
+  // A SHUT SECTOR IS THE MOST IMPORTANT READ IN THIS CHAPTER AND IT WAS INVISIBLE. 0x140f24 over
+  // this chapter's 0x02101a raises red and blue while LOWERING green — and green carries 0.7152 of
+  // luminance — so shut and open composited to the same brightness: an equiluminant chroma edge in
+  // near-black, about the least visible edge it is possible to draw. Measured in-engine at
+  // 1.002:1 against the 3:1 this repo already audits obstacles to (scripts/obstacle-contrast.mjs).
+  // The owner's report was "there's almost no player feedback when a parry is active".
+  //   0x8d7cb8 at K_WEB_A composites to rgb(106,97,145), 3.42:1. It is K_SKIN2's own purple carried
+  // lighter, so the membrane still reads as the same animal's skin catching your lamp rather than
+  // as a HUD overlay — the separation is in LUMINANCE, which is the axis that was missing.
+  const K_WEB = 0x8d7cb8
+  const K_WEB_A = 0.34
+  // ...AND THE LEGIBILITY RIDES ON THE PHOTOPHORES, NOT ON THE WASH. A fill bright enough to carry
+  // 3:1 on its own turns the whole lit disc lavender at a full bar, which is a real loss for a
+  // chapter whose brief is a frightening thing in the abyss. Points of light on near-black have
+  // enormous LOCAL contrast at a fraction of the ink: the wash now only has to suggest an area
+  // (1.6:1), and these carry the read at 8.9:1 each. It is also the better fiction — the curtain is
+  // the animal's own skin, lit the way its arms already are.
+  const K_WEB_LIT = 0xa9f4ff
+  const K_WEB_N = 16 // photophores per shut sector
   const K_DEEP = 0x0d1b2a
   let krakenHead = null // resolved by drawKrakenRing, consumed by syncKrakenArms in the same frame
 
@@ -18496,7 +18514,10 @@ const spurG = new Graphics()
     for (const a of run.krakenArms) {
       if (a.dead || a.open) continue
       const a0 = a.ang - half, a1 = a.ang + half
-      const rIn = KRAKEN_ARM_REACH * 0.80, rOut = KRAKEN_ARM_REACH * 3.1
+      // rOut IS THE CAGE. The sim clamps the player to KRAKEN_CAGE_R, and that constant is defined
+      // as this membrane's outer edge — one fact, one author, so the wall can never end up
+      // somewhere other than where it is painted.
+      const rIn = KRAKEN_ARM_REACH * 0.80, rOut = KRAKEN_CAGE_R
       // beginPath() BEFORE EVERY ARC: circle() and poly() open their own path in Pixi v8, arc() does
       // NOT — it continues from the current point, so without this the sectors chain together and
       // the ring renders as one fan of wedges. Caught by shooting the frame; nothing throws.
@@ -18506,9 +18527,37 @@ const spurG = new Graphics()
       teleG.lineTo(head.x + Math.cos(a1) * rIn, head.y + Math.sin(a1) * rIn)
       teleG.arc(head.x, head.y, rIn, a1, a0, true)
       teleG.closePath()
-      teleG.fill({ color: K_WEB, alpha: 0.55 })
+      teleG.fill({ color: K_WEB, alpha: K_WEB_A })
+      // The skin's own lights, scattered across the curtain. Positions are a HASH of the arm's slot
+      // and the point's index, not Math.random — a random scatter re-rolled every frame is a field
+      // of static, and this has to sit still enough to read as a surface. They breathe on a slow
+      // per-point phase instead, which is what keeps it alive without moving.
+      for (let k = 0; k < K_WEB_N; k++) {
+        const hsh = Math.sin((a.i + 1) * 12.9898 + k * 78.233) * 43758.5453
+        const u = hsh - Math.floor(hsh)
+        const hs2 = Math.sin((a.i + 1) * 39.3468 + k * 11.135) * 24634.6345
+        const v = hs2 - Math.floor(hs2)
+        // sqrt on the radial pick so the points spread evenly over AREA rather than bunching at rIn
+        const rr = rIn + (rOut - rIn) * Math.sqrt(u)
+        const aa = a0 + (a1 - a0) * v
+        const pulse = 0.55 + 0.45 * Math.sin(animT * 1.3 + k * 1.7 + a.i)
+        teleG.circle(head.x + Math.cos(aa) * rr, head.y + Math.sin(aa) * rr, 2.1 + pulse * 1.4)
+        teleG.fill({ color: K_WEB_LIT, alpha: 0.40 + pulse * 0.45 })
+      }
       // NO rim arc. A lit edge along rIn drew a perfect circle across the arena and read as a HUD
       // element; the membrane has to be legible as a FILLED AREA, which is what carries at a low bar.
+      // THE WALL, LIT WHERE IT IS BEING LEANED ON. Only while the player is actually against it —
+      // a permanently drawn boundary is the HUD circle the line above refuses.
+      if (s.cageT > 0) {
+        let d = Math.atan2(p.y - head.y, p.x - head.x) - a.ang
+        while (d > Math.PI) d -= Math.PI * 2
+        while (d < -Math.PI) d += Math.PI * 2
+        if (Math.abs(d) <= half) {
+          teleG.beginPath()
+          teleG.arc(head.x, head.y, rOut, a0, a1)
+          teleG.stroke({ width: 6, color: 0xdff8ff, alpha: 0.30 + (s.cageT / 0.18) * 0.45 })
+        }
+      }
     }
 
     // ---- THE COIL'S GAP: the one sector the ring will not sweep -------------------------------
@@ -18572,6 +18621,34 @@ const spurG = new Graphics()
         teleG.stroke({ width: 2, color: K_GLOW, alpha: 0.30 * k })
       }
     }
+
+    // ---- CAN I PRESS, AND IS THERE ANYTHING TO PRESS ON? ---------------------------------------
+    // Both halves of the button's state, drawn ON THE PLAYER — that is where the eyes are, and it
+    // is the one part of this arena that is always inside the light. The rings above say WHICH arm;
+    // these say whether pressing will do anything, which is the question the owner could not answer
+    // off the screen ("almost no player feedback when a parry is active, when a parry misses").
+    let winK = 0
+    for (const a of run.krakenArms) {
+      if (a.dead) continue
+      if (a.gripT > 0) { winK = 1; break }                       // a grip is parryable for its whole hold
+      if (a.tele > 0 && a.tele <= rung.window) winK = Math.max(winK, a.tele <= rung.perfect ? 1 : 0.6)
+    }
+    const cd = run.repulseCd ?? 0
+    if (winK > 0 && cd <= 0) {
+      teleG.beginPath()
+      teleG.circle(p.x, p.y, 21 + breathe * 4)
+      teleG.stroke({ width: 2.5 + winK * 2.5, color: 0xffffff, alpha: 0.5 + winK * 0.45 })
+    }
+    if (cd > 0) {
+      // THE COMMIT, SPENDING. Every press costs the cooldown whether it connected or not — that was
+      // always the rule and it was never drawn, so a whiff and a press the game had not registered
+      // were the same picture. Warm while something is parryable and you cannot answer it; cold
+      // otherwise, so the arc reads as "too early" rather than as decoration.
+      const f = 1 - Math.min(1, cd / KRAKEN_PARRY_CD)
+      teleG.beginPath()
+      teleG.arc(p.x, p.y, 27, -Math.PI / 2, -Math.PI / 2 + f * Math.PI * 2)
+      teleG.stroke({ width: 3, color: winK > 0 ? 0xffb08a : K_GLOW, alpha: 0.30 + 0.35 * (1 - f) })
+    }
   }
 
   // The arms themselves: a spline per arm, from the shoulder out in the murk to the tip reaching in
@@ -18614,11 +18691,18 @@ const spurG = new Graphics()
         rig.rope.alpha = 1
         rig.shadow.alpha = 0.5
         const fur = Math.max(0, Math.min(1, a.hp / a.maxHP))
-        // THE PARRY WINDOW LIGHTS THE ARM ITSELF — the same language the game already uses for a
-        // struck enemy, so it needs no learning, and it puts "press now" on the object rather than
-        // beside it.
-        if (rung && a.tele > 0 && a.tele <= rung.window) rig.rope.tint = a.tele <= rung.perfect ? 0xffffff : 0xbfe4ff
-        else rig.rope.tint = mix(0x8b83a6, 0xffffff, (1 - fur) * 0.7)
+        // THREE READS ON ONE TENTACLE, AND THEY MUST NOT USE THE SAME COLOUR. They did: wear
+        // mixed toward 0xffffff and the parry window ALSO tinted 0xffffff, so by mid-fight every
+        // worn arm looked permanently in-window and the window itself stopped meaning anything.
+        // That is most of "there's almost no player feedback when a parry is active".
+        //   Now they are three separate axes, in priority order:
+        //     hitT  — a parry just landed: a hard white flash, brief, the loudest of the three.
+        //     window— press NOW: WHITE-HOT, and only ever while the window is actually open.
+        //     wear  — how close this arm is to breaking: a WARM BRUISE, away from white entirely.
+        //             It is this fight's only progress bar and it lives on the thing it measures.
+        if (a.hitT > 0) rig.rope.tint = mix(0xffffff, 0xffe8f0, 1 - a.hitT / KRAKEN_ARM_HIT_T)
+        else if (rung && a.tele > 0 && a.tele <= rung.window) rig.rope.tint = a.tele <= rung.perfect ? 0xffffff : 0xbfe4ff
+        else rig.rope.tint = mix(0x8b83a6, 0xb05a72, 1 - fur)
       }
     }
     for (let i = arms.length; i < krakenRopes.length; i++) {
@@ -20935,14 +21019,28 @@ const spurG = new Graphics()
         case 'parry': {
           // The block landing, ON THE ARM: a tight pale snap. Small on purpose — a good parry is the
           // baseline verb of this fight and happens 15-30 times a run; it must not shout.
-          spawnRing(e.x, e.y, 58, 0.26, T.novaRing, 0xdff4ff)
-          addShake(3, 0.12)
+          //   IT GROWS AS THE ARM NEARS BREAKING. `frac` is the arm's health after this parry, so
+          // the snap gets bigger and harder every time you hit the same arm: the player can feel
+          // an arm coming apart across five presses instead of seeing the same ring five times and
+          // one unexplained break. Same information the bruise tint carries, on the other channel.
+          const wear = 1 - (e.frac ?? 1)
+          spawnRing(e.x, e.y, 52 + wear * 40, 0.24 + wear * 0.12, T.novaRing, 0xdff4ff)
+          addShake(3 + wear * 3, 0.12 + wear * 0.06)
+          break
+        }
+        case 'parryWhiff': {
+          // NOTHING WAS THERE. It has to be a picture of ABSENCE, or it reads as a parry that
+          // failed to work: a small ring that collapses INWARD on the player instead of blooming
+          // out of an arm, cold and dim, and no shake at all. The cooldown arc in drawKrakenRing
+          // is the other half — it says how long the mistake costs, for as long as it costs it.
+          spawnRing(e.x, e.y, 30, 0.18, T.novaRing, 0x5f7f92)
           break
         }
         case 'parryPerfect': {
           // Bigger, whiter, with sparks — the read has to be unmistakably DIFFERENT from a good
           // parry at a glance, because telling them apart is how the player learns the tail window.
-          spawnRing(e.x, e.y, 84, 0.34, T.novaRing, 0xffffff)
+          const pwear = 1 - (e.frac ?? 1)
+          spawnRing(e.x, e.y, 78 + pwear * 46, 0.32 + pwear * 0.12, T.novaRing, 0xffffff)
           spawnRing(e.x, e.y, 44, 0.22, T.novaWarm, 0xdff4ff)
           for (let i = 0; i < 10; i++) {
             const a = (i / 10) * Math.PI * 2

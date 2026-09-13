@@ -692,6 +692,11 @@ const SFX_FOR_EVENT = {
   // is the bar topping and the arm breaking outright. headLunge is the bare head's wind-up in the
   // chase — orcaAim, the one note in the bank that is a countdown rather than a report.
   parry: 'puffblock', parryPerfect: 'crush', blaze: 'explode', headLunge: 'orcaAim',
+  // parryWhiff is a press that found nothing. `click` and not a miss-swoosh on purpose: it is the
+  // bank's one DRY, dead note, and a whiff is exactly "the button did nothing" — the same sound a
+  // dead button makes. It fires often enough (about a quarter of presses) that anything with a
+  // voice would nag, and quiet enough to sit under the parry's own block.
+  parryWhiff: 'click',
   // tentacleBreak is the fight's real progress, headHide is the kraken dropping below the field,
   // gripLatch is a grab taking hold — all three are rare enough to bear a voice (4-8 a fight).
   // `lash` DELIBERATELY HAS NONE: the ring throws one about once a second, which is the rate

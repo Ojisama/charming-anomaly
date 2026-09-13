@@ -8699,7 +8699,33 @@ export const KRAKEN_PERFECT_MUL = 2.0 // damage + refill multiplier inside the p
 // longest to come back.
 export const KRAKEN_PERFECT_STALL = 1.5 // x the re-arm delay after a perfect parry
 export const KRAKEN_ARM_LASH_T = 2.6 // s between one arm's slams (staggered around the ring, / cadenceMul)
+// THE RING MUST NOT READ AS A CLOCK HAND, and until 2026-09-13 it was one. Every arm's opening
+// phase was `lashT * (0.35 + i/n * 0.65)` — an index-ordered ramp, and arms are laid out in index
+// order around the circle — and every re-arm was exactly `lashT`, so the phases were rigid forever.
+// That is a wave sweeping the ring on a fixed period, which is what the owner saw: "the arms all
+// attack too simultaneously, the pattern should be more random less going around the circle".
+// It also crammed all 8 arms into 65% of the cycle: 0.16s apart on D3, SHORTER than that rung's
+// 0.21s parry window, so the windows overlapped and something was in window almost always.
+//   Two constants fix both halves. The opening phases are dealt uniformly across the WHOLE cycle in
+// a shuffled order (so temporal order stops tracking angular order), and every re-arm carries
+// +/- JITTER of the period so the phases keep drifting apart instead of holding formation.
+//   The jitter is a fraction of the SLOT SPACING (cycle / standing arms), not of the cycle. At 0.30
+// of the CYCLE it was 2.4x the spacing on D3, so arms swapped slots freely and piled up — 5 of 8
+// parryable in one frame and 7 of 8 rearing, against the shipped ring's 2 and 4. At half a slot two
+// neighbours can just cross, which keeps the order changing without ever letting the ring clump.
+//   NOTE WHAT THIS CANNOT FIX: the MEAN number of arms rearing at once is arms x fuse / cycle — 2.2
+// of 8 on D3 — and no amount of shuffling moves a mean. If the ring still reads as too busy, the
+// levers are the fuse, the cadence or the arm count, not the pattern.
+export const KRAKEN_ARM_PHASE_JITTER = 0.5 // +/- fraction of ONE SLOT, re-rolled on every re-arm
 export const KRAKEN_LASH_R = 150 // px the arm's slam reaches around its tip
+export const KRAKEN_ARM_HIT_T = 0.22 // s the tentacle flashes after a parry lands on it
+// THE CAGE. The arms are the arena wall and the sim never said so: you could walk out of the ring
+// and off across the map, with the sector gate still solemnly measuring an angle at a boss two
+// screens away (owner, 2026-09-13: "i can get out of the arms circle and wander off on the map").
+//   The number is not chosen, it is READ OFF THE PICTURE: render draws the shut-sector membrane from
+// ARM_REACH x 0.8 out to ARM_REACH x 3.1, so 3.1 is where the wall visibly is. Exported so the two
+// sides cannot drift — a wall somewhere other than the drawn one is worse than no wall.
+export const KRAKEN_CAGE_R = KRAKEN_ARM_REACH * 3.1
 export const KRAKEN_LASH_DMG = 22 // an un-parried slam's damage
 export const KRAKEN_PARRY_CD = 0.8 // s the parry button's cooldown (vs REPULSE_CD 6.0)
 export const KRAKEN_PARRY_REFILL = 9 // Light regained per good parry (x KRAKEN_PERFECT_MUL on a perfect)
