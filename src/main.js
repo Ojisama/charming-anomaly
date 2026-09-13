@@ -1,7 +1,8 @@
 // Glue: boots Pixi, owns the tick loop and phase transitions. Keep logic in sim/ui/render.
 import { Application } from 'pixi.js'
 import { loadMeta, saveMeta, resetSave, deleteSlot, createRun, ensureChapterMeta, ensureBookMeta, unlockBook, setActiveSlot, activeSlot, setSlotName, cleanName, exportSlot, importSlot, freezeSaves, setSaveHook, SAVE_SLOTS } from './state.js'
-import { shopCost, refundValue, shopLines, shopLineUnlocked, lineMax, runBonusCoins, randomMutators, rerollMutator, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, difficultyCoinMul, CONSUMABLES, ANOMALY_REROLL_COST, sacrificeCost, BOOK_UNLOCKS, CHAPTERS, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, isWipChapter, HIDDEN_UNLOCKS, COIN_CAP_PER_RUN, BOOK_ORDER, bookOf, isBookFinale, nextBook, unlockCost, unlockLevel, DEATH_OUTRO, caveAt, ringXY, ringFU, ringCentre, ringRot, swimthroughsFor } from './config.js'
+import * as CFG from './config.js'
+import { shopCost, refundValue, shopLines, shopLineUnlocked, lineMax, runBonusCoins, randomMutators, rerollMutator, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, difficultyCoinMul, CONSUMABLES, ANOMALY_REROLL_COST, sacrificeCost, BOOK_UNLOCKS, CHAPTERS, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, isWipChapter, HIDDEN_UNLOCKS, COIN_CAP_PER_RUN, BOOK_ORDER, bookOf, isBookFinale, nextBook, unlockCost, unlockLevel, DEATH_OUTRO } from './config.js'
 import { stepSim, applyChoice, rerollLevelUpChoices, rerollPrice, buildReadout, devCards, devTake } from './sim.js'
 import { createRenderer } from './render.js'
 import { initUI } from './ui.js'
@@ -125,7 +126,13 @@ if (new URLSearchParams(location.search).has('debug')) {
   // camera is a second copy of the level, and it goes stale the day the spec moves — which is the
   // one-fact-two-places defect this repo's own CLAUDE.md calls its largest class. Debug-gated with
   // __run above, so it costs a shipped build nothing.
-  window.__cfg = { CHAPTERS, caveAt, ringXY, ringFU, ringCentre, ringRot, swimthroughsFor }
+  //   THE WHOLE MODULE, not a hand-picked subset. The subset version is the same defect one level
+  // up: a scene that needs something not on the list writes its own copy of the number instead, and
+  // that is exactly what happened — scripts/scenes/kraken-ring.js asked for `window.__config`, which
+  // has never existed anywhere in this repo, so it silently took its hardcoded fallback rung on
+  // EVERY shot while its own comment explained why a hardcoded copy would be wrong. config.js is
+  // pure data and pure functions, so exposing all of it behind ?debug costs nothing.
+  window.__cfg = CFG
 }
 initInput(document.body)
 

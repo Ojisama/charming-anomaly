@@ -86,13 +86,26 @@ const H = +arg('h', '844')
 // again below, against window.__run.chapter, once the page actually boots.
 console.log(`fx-probe: scene=${scenePath} chapter=${chapter} d${difficulty} book=${bookOf(chapter) ?? 'book1'} frames=${frames} ${W}x${H}`)
 
+// EVERY PLATFORM puppeteer INSTALLS FOR, not just linux64. It looked only for
+// `chrome-headless-shell-linux64/chrome-headless-shell`, so on Windows — where the same cache holds
+// `win64-<v>/chrome-headless-shell-win64/chrome-headless-shell.exe` — this aborted with "No
+// chrome-headless-shell in ~/.cache/puppeteer" and every look at the game had to be argued for by
+// hand. A probe nobody can run is the reason renderer bugs ship off a green suite: render.js is not
+// in the test import graph, so SHOOTING IT is the only check there is.
+//   HOME is also not set on Windows; USERPROFILE is.
 function findChrome() {
   if (process.env.CHROME_HEADLESS_SHELL) return process.env.CHROME_HEADLESS_SHELL
-  const base = join(process.env.HOME ?? '', '.cache/puppeteer/chrome-headless-shell')
+  const home = process.env.HOME ?? process.env.USERPROFILE ?? ''
+  const base = join(home, '.cache/puppeteer/chrome-headless-shell')
   if (!existsSync(base)) return null
+  const arches = ['linux64', 'win64', 'win32', 'mac-x64', 'mac-arm64']
   for (const v of readdirSync(base).sort().reverse()) {
-    const p = join(base, v, 'chrome-headless-shell-linux64', 'chrome-headless-shell')
-    if (existsSync(p)) return p
+    for (const arch of arches) {
+      for (const exe of ['chrome-headless-shell', 'chrome-headless-shell.exe']) {
+        const p = join(base, v, `chrome-headless-shell-${arch}`, exe)
+        if (existsSync(p)) return p
+      }
+    }
   }
   return null
 }
@@ -247,6 +260,17 @@ const bootstrap = `(() => {
         window.__renderer.sync(run, Math.min(pendingDt, 0.05), [])
         pendingDt = 0
         app.renderer.render(app.stage)
+      },
+      // SET THE CHAPTER RESOURCE BAR, BOTH HALVES. render.js's dark reads run.sightCharge, not
+      // run.charge — sim.js's stepCharge publishes the first from the second every frame, so they
+      // are the same number in play and a scene that sets only run.charge without stepping leaves
+      // the dark frozen at whatever the warm-up ended on. kraken-ring.js did exactly that, and its
+      // three "empty bar -> full bar" frames came out BYTE-IDENTICAL for the whole life of the file
+      // while its header explained why sweeping the bar was the point. Here so no scene can repeat
+      // it: pass a 0..1 fraction, get the bar you asked for.
+      light(frac) {
+        run.charge = run.chargeMax * Math.max(0, Math.min(1, frac))
+        run.sightCharge = run.charge
       },
       // Remember a decaying list's lives so the same cast can be re-rendered at any point of its
       // fade. Returns the scrub function a scene should hand back.

@@ -31,15 +31,26 @@ if (arms.length < 5) throw new Error(`only ${arms.length} arms; this scene stage
 //   rest            — shut, the default state of the ring
 // Read the rung off config rather than copying its numbers: a hardcoded copy here would stage the
 // wrong states the moment the table is retuned, and the frame would look fine while lying.
-const rung = window.__config ? window.__config.krakenRung(3) : { window: 0.21, perfect: 0.115, fuse: 0.55 }
+// `window.__cfg` is the whole config module behind ?debug. It was `window.__config` here, which has
+// never existed anywhere in this repo, so this file took its hardcoded fallback on EVERY shot it has
+// ever been used for — the exact failure the comment above warns about, three lines below the
+// comment. There is no fallback now on purpose: a scene that cannot read the real table must fail
+// loudly, not quietly stage the wrong states.
+if (!window.__cfg) throw new Error('no window.__cfg — probe the page with ?debug, or this scene stages invented numbers')
+const rung = window.__cfg.krakenRung(3)
 arms[0].dead = true; arms[0].open = true; arms[0].hp = 0; arms[0].breakT = 0
 arms[1].dead = false; arms[1].open = true; arms[1].tele = 2.0
 arms[2].dead = false; arms[2].open = false; arms[2].tele = rung.fuse * 0.7
 arms[3].dead = false; arms[3].open = false; arms[3].tele = rung.window * 0.8
 arms[4].dead = false; arms[4].open = false; arms[4].tele = rung.perfect * 0.5
 for (let i = 5; i < arms.length; i++) { arms[i].dead = false; arms[i].open = false; arms[i].tele = 2.0 }
-// A partly-worn arm, so the "still furred with the Trawl's gear" health read is in the frame too.
+// A partly-worn arm, so the WEAR read is in the frame too: an arm's health is this fight's only
+// progress bar and it is drawn as a warm bruise on the tentacle itself.
 arms[2].hp = arms[2].maxHP * 0.35
+// ...and one caught mid-flash, the frame just after a parry landed on it. Wear and flash are
+// deliberately different channels — they used to share white with the parry WINDOW, which made a
+// worn arm read as permanently parryable.
+if (arms[5]) { arms[5].hp = arms[5].maxHP * 0.6; arms[5].hitT = window.__cfg.KRAKEN_ARM_HIT_T * 0.8 }
 
 // Stand in the open door at weapon range — the position the fight actually asks the player to find.
 // INSIDE the cage, in the open sector: that is where the fight is fought now.
@@ -53,9 +64,15 @@ H.note(JSON.stringify({
   broken: arms.filter((a) => a.dead).length,
   strays: run.enemies.filter((e) => e.rosterId !== 'krakenHead' && !e._dead).length,
   chargeMax: run.chargeMax,
-  // THE FRAMING NUMBER: how much WORLD fits across a phone screen. The ring has to live inside it.
+  // THE FRAMING NUMBERS: how much WORLD fits across a phone screen, against what the arena
+  // actually measures. READ OFF CONFIG, never restated — these were literals (`150 * 2`, `78`) and
+  // they were rev 1's, so this note went on reporting a head 2.4x too small and a ring 4.1x too
+  // small from the very commit that moved them.
   worldPxAcross: Math.round(app.renderer.width / (app.stage.scale.x || 1)),
-  ringDiameter: 150 * 2, headR: 78, playerToHead: Math.round(Math.hypot(run.player.x - head.x, run.player.y - head.y)),
+  cageDiameter: Math.round(window.__cfg.KRAKEN_CAGE_R * 2),
+  headR: window.__cfg.KRAKEN_HEAD_R,
+  armReach: window.__cfg.KRAKEN_ARM_REACH,
+  playerToHead: Math.round(Math.hypot(run.player.x - head.x, run.player.y - head.y)),
   stageScale: app.stage.scale.x,
 }))
 
@@ -63,6 +80,8 @@ H.note(JSON.stringify({
 // chapter can put a player in: an empty bar, where `radiusEmpty` decides whether the telegraph is
 // legible at all. Rev 1 shipped The Deep's 0.06 here and the near field went black.
 return (age) => {
-  run.charge = run.chargeMax * age
+  // H.light, not `run.charge =`. The dark reads run.sightCharge; setting charge alone froze it, and
+  // these frames were byte-identical for the whole life of this file.
+  H.light(age)
   H.render()
 }
