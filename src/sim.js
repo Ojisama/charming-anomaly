@@ -7910,7 +7910,13 @@ function dealDamage(run, enemy, dmg, crit, dot = false, hazard = false) {
   // this function's 25 call sites.
   //   CLOSED MEANS CLOSED: zero, not rev 1's "the ring absorbs at most 80%". A shut door that still
   // lets damage through is a multiplier, and a multiplier is what let rev 1's ring be ignored.
-  if (enemy.rosterId === 'krakenHead' && CHAPTERS[run.chapter].parry) {
+  // ...AND A DAMAGE-OVER-TIME TICK IS EXEMPT (owner, 2026-09-13: "dot can be good if you apply dot
+  // during opening, it still damages when not opened anymore"). You can only LIGHT the head through
+  // an open sector — the application is an ordinary hit and this same gate stops it, and a blocked
+  // hit never reaches the element window either — but once it is burning it burns whatever the ring
+  // does. That is what gives damage-over-time a role of its OWN here instead of a strictly worse
+  // burst: the window buys you a fuse rather than a swing, and the fuse outlives the window.
+  if (enemy.rosterId === 'krakenHead' && CHAPTERS[run.chapter].parry && !dot) {
     if (krakenSectorShut(run, Math.atan2(run.player.y - enemy.y, run.player.x - enemy.x))) return
   }
   // Shielded (elite affix): while above SHIELD_HP_FRAC of maxHP, the shield absorbs part

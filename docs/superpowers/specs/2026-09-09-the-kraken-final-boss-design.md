@@ -265,14 +265,51 @@ of this pass.
 
 ## The loadout — an open problem worth naming
 
-A parry boss pays damage in short windows, which makes **burst weapons excellent and sustained or
-damage-over-time weapons close to worthless** — and the player has no way to know which they were
-just offered. Rev 1 borrowed three weapons from other chapters and did not consider this.
+A parry boss pays damage in short windows, so the first reading was that **burst is excellent and
+damage-over-time is close to worthless**. That reading was wrong, and the owner's correction
+(2026-09-13) is now the design:
 
-Two shapes, undecided: hold sectors open long enough that sustained weapons still land (a tuning
-answer to a design problem), or give the chapter a small dedicated set built for punish windows (its
-own job, via design-a-weapon). **Not resolved in this pass** — flagged so the first playtest can
-judge it with the question already asked.
+> *"Dot can be good if you apply dot during opening, it still damages when not opened anymore."*
+
+**A damage-over-time tick is exempt from the sector gate.** You can only *light* the head through an
+open sector — the application is an ordinary hit, the gate eats it while shut, and a blocked hit
+never reaches the element window either — but once it is burning it burns whatever the ring does.
+That gives damage-over-time a role of its **own** here rather than a strictly worse burst: **the
+window buys you a fuse, not a swing**, and the fuse outlives the window. Burst spends the whole
+window at once; a burn converts a short window into damage you collect while the door is shut. Two
+genuinely different answers to the same opening, which is what an interesting arsenal needs.
+
+Run KR asserts both halves, and the exemption is mutation-proven — removing it makes the assertion
+fail with "damage-over-time is worthless in this chapter".
+
+### ...and the premise underneath it was wrong
+
+Measured after the exemption landed — share of RING-BLOCK time the player's own sector is open, 6
+seeds:
+
+| rung | mobile (walks to an open sector) | stationary |
+|---|---|---|
+| D1 | **89%** | 46% |
+| D3 | **96%** | 95% |
+
+**The window is not short for a player who repositions.** A parry re-arms the arm over 2.0–2.6 s and
+only the last 0.55–0.9 s of that shuts the door, so one parry buys most of a cycle — and broken arms
+leave permanent holes, so by the late blocks a mobile player almost always has a lane. The
+"damage lands in short windows, so burst dominates" framing was a guess, and it does not survive
+contact with the numbers.
+
+Two things follow, and neither is resolved here:
+
+1. **The DoT exemption is still right, for a better reason.** It is not compensation for scarce
+   windows; it is a second, differently-shaped answer to an opening. That stands on its own.
+2. **The sector gate may be barely binding for a mobile player** (96% open on D3), which is a balance
+   question, not a loadout one. The bot repositions perfectly and a human on a phone will not — so
+   this is exactly the number a playtest should overturn or confirm before anything is tuned for it.
+
+Still open: whether the pool stays a snapshot of the book's chapters or becomes a small dedicated set
+(its own job, via design-a-weapon), and whether sustained-but-not-DoT weapons — which get neither the
+burst payoff nor the fuse — need anything. **A weapon census in this chapter would answer both**, and
+has not been run.
 
 ## Render contract — what must exist for the fight to be playable
 

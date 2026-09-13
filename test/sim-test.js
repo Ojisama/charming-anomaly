@@ -5289,6 +5289,12 @@ function runBookProgression() {
     }
     // ...plus anything it declares itself, at any scope (SCREEN_NAMES, CAST_ART, DEV_TAPS_TO_OPEN…).
     for (const m of uiSrc.matchAll(/(?:const|let|var|function)\s+([A-Z][A-Z0-9_]{2,})\b/g)) imported.add(m[1])
+    // ...INCLUDING THE SECOND AND LATER DECLARATORS of a comma list: `const VOL_H_MIN = 94,
+    // VOL_H_SPAN = 6` declares two names and the pattern above only sees the one that opens the
+    // statement. VOL_H_SPAN was reported as an unresolved reference the day the comment stripper in
+    // this file was fixed — the declaration and its use sat in the same region the broken stripper
+    // had been eating, so BOTH were invisible and the lint balanced by accident.
+    for (const m of uiSrc.matchAll(/(?:const|let|var)\s+[^;\n]*?,\s*([A-Z][A-Z0-9_]{2,})\s*=/g)) imported.add(m[1])
     // ...and destructured locals, which is how a few config tables are unpacked.
     for (const m of uiSrc.matchAll(/(?:const|let)\s*\{([^}]+)\}\s*=/g)) {
       for (const name of m[1].split(',')) imported.add(name.trim().split(':').pop().trim())
@@ -5297,8 +5303,8 @@ function runBookProgression() {
     // false positives from properties and locals. Strip strings and comments first — a CONSTANT_CASE
     // word inside a comment or a translated string is not a reference.
     const code = uiSrc
-      .replace(/\/\*[\s\S]*?\*\//g, ' ')
       .replace(/\/\/[^\n]*/g, ' ')
+      .replace(/\/\*[\s\S]*?\*\//g, ' ')
       .replace(/'(?:[^'\\\n]|\\.)*'/g, "''")
       .replace(/"(?:[^"\\\n]|\\.)*"/g, '""')
       .replace(/`(?:[^`\\]|\\.)*`/g, '``')
@@ -7103,7 +7109,7 @@ function runModBudget() {
     // and the card goes inert while this block stays green. That exact edit is mutation 7 in the
     // proof run, and it passed until this line existed.
     const simSrc = readFileSync(new URL('../src/sim.js', import.meta.url), 'utf8')
-      .replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, ' ')
+      .replace(/\/\/[^\n]*/g, ' ').replace(/\/\*[\s\S]*?\*\//g, ' ')
     const dead = []
     let checked = 0
     for (const [wid, mods] of Object.entries(WEAPON_MODS)) {
@@ -11372,6 +11378,60 @@ function runRosterArt() {
   console.log(`PASS run RA (roster art): ${looks.size} baked looks cover all ${rosters} roster entries across ${ALL_IDS.length} chapters, all ${thumbs} title-card thumbnails exist on disk, and the side-on jelly is lean 90 with its apex forward`)
 }
 run(runRosterArt)
+
+
+// ---- Run CS: the comment strippers keep the CODE ---------------------------------------------
+// A dozen source lints in this file read comment-stripped source, because this repo names its fields
+// in prose and a lint over raw source is a lint over prose (run MB.a's whole lesson). But A STRIPPER
+// IS A SECOND PARSER, and getting one wrong deletes CODE rather than comments — after which the lint
+// downstream passes over a hole and reports success. That is not hypothetical here:
+//
+//   - The ORDER matters. A `/*` inside a `//` comment opens a block that runs to the next `*/`
+//     thousands of lines away. On 2026-09-13 this file had TWELVE block-first strippers; they kept
+//     21% of render.js (47% is correct) and 9% of main.js (28%), and could not see `drawJelly` or
+//     `drawKrakenArm` at all.
+//   - Fixing them immediately surfaced a real blind spot in run UR: `VOL_H_SPAN` is declared as the
+//     SECOND declarator of a comma list, which its declaration scan did not recognise. The reference
+//     and the declaration sat in the same eaten region, so the lint had been balancing by accident.
+//
+// So: every stripper in this file must keep the anchors below, and must not eat most of a file. The
+// anchors are ordinary declarations that no comment in those files defines, so prose cannot fake one.
+function runStripper() {
+  const strip = (src) => src
+    .replace(/\/\/[^\n]*/g, ' ')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+
+  const CASES = [
+    ['render.js', ['function drawJelly', 'const ROSTER_LOOKS', 'function clearWorld', 'function syncPool']],
+    ['main.js', ['const SFX_FOR_EVENT']],
+    ['sim.js', ['export function stepSim', 'function dealDamage']],
+    ['ui.js', ['function detailHeadHtml']],
+  ]
+  const kept = []
+  for (const [file, anchors] of CASES) {
+    const raw = readFileSync(new URL('../src/' + file, import.meta.url), 'utf8')
+    const code = strip(raw)
+    for (const a of anchors) {
+      assert.ok(code.includes(a),
+        `the comment stripper ate '${a}' out of ${file} — every source lint reading it is asserting over a hole, and passing`)
+    }
+    const pct = (code.length / raw.length) * 100
+    assert.ok(pct > 25,
+      `the stripper kept only ${pct.toFixed(0)}% of ${file}; one that eats three quarters of a file is deleting code, not comments`)
+    kept.push(`${file} ${pct.toFixed(0)}%`)
+  }
+
+  // ...and no stripper in THIS file may go back to block-before-line. Counted rather than merely
+  // absent, so the check cannot silently pass because the call shape was reworded.
+  const self = readFileSync(new URL('./sim-test.js', import.meta.url), 'utf8')
+  const blockFirst = [...self.matchAll(/replace\(\/\\\/\\\*\[\\s\\S\]\*\?\\\*\\\/\/g,[^)]*\)\s*\n?\s*\.replace\(\/\\\/\\\//g)]
+  assert.strictEqual(blockFirst.length, 0,
+    `${blockFirst.length} comment stripper(s) in sim-test.js still run BLOCK comments before LINE comments — ` +
+    `a /* inside a // comment then eats everything to the next */, and the lint using it passes over the hole`)
+
+  console.log(`PASS run CS (comment strippers): code anchors intact and no block-first stripper left; kept ${kept.join(', ')}`)
+}
+run(runStripper)
 
 // ---- Run SC: the sacrifice seam (v7.x) ---------------------------------------------------------
 // SCAVENGER WAS REMOVED, AND ITS MACHINERY STAYED. It was the only BOOK_UNLOCKS entry the game ever
@@ -25095,7 +25155,7 @@ function testReefSpurScrape() {
     // names `hash(drawF ...)` as the thing that used to be wrong, and the check fired on its own
     // explanation the first time it ran. Run MB.a in this file learned the same lesson from the
     // other direction -- a positive grep satisfied by a comment while the code was gone.
-    const gcode = gsrc.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, ' ')
+    const gcode = gsrc.replace(/\/\/[^\n]*/g, ' ').replace(/\/\*[\s\S]*?\*\//g, ' ')
     assert.ok(!/hash\(drawF/.test(gcode),
       'run RS.a: something in the coral placement is hashed off the PLAYER position (drawF) — that is exactly what made the layout change every 2.3 seconds')
     assert.ok(/const edge = cav\.c \+ sign \* cav\.hw/.test(gsrc),
@@ -25460,7 +25520,7 @@ function testCircuitHud() {
     // wiring was deleted; here the comment explaining what this branch replaced names RUN_DURATION,
     // so an unstripped search finds it in the arm that exists to not use it. Same rule either way:
     // search the code, never the prose about it.
-    const bare = uiSrc.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1')
+    const bare = uiSrc.replace(/(^|[^:])\/\/[^\n]*/g, '$1').replace(/\/\*[\s\S]*?\*\//g, '')
     const arm = /\} else if \(circuitChapter\) \{([\s\S]*?)\n    \} else \{/.exec(bare)?.[1]
     assert.ok(arm, 'run HD.a: updateHUD has no circuit arm on the timer slot — a race renders the 300s survival countdown, which is a number about nothing')
     assert.ok(/run\.raceClock/.test(arm),
@@ -26711,7 +26771,7 @@ function testReefCircuit() {
     assert.ok(worst > V.footSpan / 2,
       `run CT.h: the wall face moves only ${worst.toFixed(0)}px across a ${V.footSpan}px stand — if the passage has been straightened this much, the per-rod wall sample below is dead weight and should go`)
     const rsrc = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
-      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
+      .replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '')
     const stand = rsrc.slice(rsrc.indexOf('const stand = ('), rsrc.indexOf('const mat = ('))
     assert.ok(stand.length > 400, 'run CT.h: the stand() slice markers moved — this whole block is asserting nothing')
     assert.ok(/const wn = wall\(fn\)/.test(stand),
@@ -26961,7 +27021,7 @@ function testReefCircuit() {
     // ...and render.js still CALLS it. The geometry above proves the function is right; only the
     // source can say the drawer uses it, and render.js is not importable.
     const rsrc = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
-      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
+      .replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '')
     assert.ok(/gateAnchorF\(cspec/.test(rsrc),
       `run CT.j: render.js no longer calls gateAnchorF to place a gate post — both posts are back on one radius, which is ${worstOld.toFixed(0)} degrees off square at the worst checkpoint`)
     const st = rsrc.slice(rsrc.indexOf('const stand = ('), rsrc.indexOf('const mat = ('))
@@ -27034,7 +27094,7 @@ function testReefCircuit() {
     // actually looking at. Geometry-side there is nothing new to check (CT.j already measures the
     // anchors); only the source can say the mat is built from them, and render.js is not importable.
     const rs = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
-      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
+      .replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '')
     const mt = rs.slice(rs.indexOf('const mat = ('), rs.indexOf('const cav = caveAt(0, cspec, seed)'))
     assert.ok(mt.length > 400, 'run CT.n: the mat() slice markers moved — this half is asserting nothing')
     assert.ok(/gateAnchorF\(cspec, 0, cav/.test(mt),
@@ -27204,7 +27264,7 @@ function testReefCircuit() {
     // so the only guard is the source.
     for (const [name, file] of [['sim.js', '../src/sim.js'], ['render.js', '../src/render.js']]) {
       const src = readFileSync(new URL(file, import.meta.url), 'utf8')
-        .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
+        .replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '')
       assert.ok(/caveSpecOf\(run\)/.test(src), `run CT.l: ${name} never calls caveSpecOf(run) — it cannot be reading the run's own track`)
       const bare = src.match(/[A-Za-z0-9_\]]\??\.cave\b/g) ?? []
       assert.strictEqual(bare.length, 0,
@@ -28802,7 +28862,7 @@ function testReefAirBurst() {
     // below is discussed in prose right beside its wiring, so a raw substring search over render.js
     // is satisfied by the sentence alone. Both of the mutations that deleted a READ and left the
     // paragraph explaining it passed until this existed.
-    const bare = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
+    const bare = src.replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '')
     assert.ok(/_burstT/.test(bare),
       "render.js never reads run._burstT — the Burst has no cast for its DURATION, so an empty-bar 0.30s dash and a full-bar 0.75s one are the same picture and the bar buys nothing you can see")
     const wake = bare.slice(bare.indexOf('function drawBurstWake('), bare.indexOf('function updateCoralGrit('))
@@ -29019,7 +29079,7 @@ function testReefAirBurst() {
     // byte-for-byte the frozen-enemies scar: the mechanic is invisible, and invisible is
     // indistinguishable from broken. Comments stripped — this repo names its fields in prose.
     const rsrc = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
-      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
+      .replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '')
     assert.ok(/case 'airgulp'/.test(rsrc),
       "run RF.f: render.js has no 'airgulp' case — taking a vent has no picture at all, and with the stream gone that is the entire tell")
     const shafts = rsrc.slice(rsrc.indexOf('function updateShafts('), rsrc.indexOf('function updateAirVents('))
@@ -29548,7 +29608,7 @@ function testDeathAttribution() {
   // importable (DOM), so this is a source lint, the same trick run UG.k uses on render.js.
   {
     const uiSrc = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
-      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+      .replace(/^\s*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '')
     assert.ok(/let dmgOpen = false/.test(uiSrc),
       'run DA.f: the damage recap does not default to FOLDED — it would take over the summary modal again')
     assert.ok(/case 'dmg-toggle'/.test(uiSrc) && /renderSummary\(lastSummaryData/.test(uiSrc),
@@ -29748,7 +29808,7 @@ function testDeathOutro() {
   // (c) asserted `/run\.deathT/.test(renderSrc)` over the whole file; mutating render.js's only real
   // read to a constant left the feature dead and the check GREEN, because this repo comments heavily
   // and several of those comments name the field. A lint over raw source is a lint over prose.
-  const codeOnly = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '').replace(/\/\/.*$/gm, '')
+  const codeOnly = (s) => s.replace(/^\s*\/\/.*$/gm, '').replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '')
 
   // (b) main.js OWNS THE CLOCK AND GATES IT ON THE BOOK. A `run.deathT` that is never set is a
   // feature that does not exist, and the gate is what keeps Book 1's instant-modal path untouched.
@@ -34589,11 +34649,34 @@ function runKraken() {
     }
   }
 
+  // (n) A DOT PLANTED THROUGH THE WINDOW KEEPS BURNING AFTER IT SHUTS (owner, 2026-09-13: "dot can
+  // be good if you apply dot during opening, it still damages when not opened anymore"). This is
+  // what gives damage-over-time a role of its OWN in this fight instead of a strictly worse burst:
+  // the window buys a fuse, not a swing. The other half of the contract — that you cannot LIGHT the
+  // head through a shut sector — is (b) above, because lighting it means landing a hit first and a
+  // shut sector eats those before they ever reach the element window.
+  {
+    const run = inBlock(1)
+    const h = headOf(run)
+    const arm = run.krakenArms[0]
+    standAt(run, arm.ang) // dead in front of a standing, shut arm
+    for (const a of run.krakenArms) { a.open = false }
+    const hp0 = h.hp
+    quiet(run, 3)
+    assert.strictEqual(h.hp, hp0, 'the shut-sector gate is leaking ordinary damage — (b) should have caught this')
+    // ...now light it, as a hit landed through an open sector would have
+    h.ignite = 4
+    h.igniteDps = 40
+    quiet(run, 3)
+    assert.ok(h.hp < hp0,
+      'a burn planted through the window stopped dead the moment the ring shut — damage-over-time is worthless in this chapter')
+  }
+
   // (j) No timer victory, and no ordinary spawner — the shared `scripted` contract, which the
   // Kraken leans on exactly as The Blank does.
   assert.strictEqual(CHAPTERS.kraken.scripted, true, 'the Kraken lost `scripted`: the 300s clock and the ordinary spawner are both back on')
   assert.strictEqual(CHAPTERS.kraken.parry, true, 'the Kraken lost `parry`: the dash button is a shove again and the fight has no key')
   assert.strictEqual(CHAPTERS.kraken.resource.noSpend, true, 'the Light bar can be SPENT again — a parry press would drain the bar it is supposed to fill')
 
-  console.log(`PASS run KR (The Kraken): only a parry touches an arm (0 HP off one in 12s of weapons), the head takes 0 through a shut ring and real damage through an open sector, a parry opens its arm’s sector and the next wind-up shuts it, a broken arm’s hole is permanent, blocks end on 2 arms not 1, the head LEAVES the field for the breather and returns on the same pool, perfect chunks more and stalls longer, a full bar blazes off a latch, and all 3 rungs read window/fuse/arms/headHp/drain; the head RISES for the chase still and harmless but killable, the Coil closes the ring on D3 alone with its gap the only safe place and no parry for it, and both hidden chapters resolve through HIDDEN_UNLOCKS with no id hardcoded in main/ui/state`)
+  console.log(`PASS run KR (The Kraken): only a parry touches an arm (0 HP off one in 12s of weapons), the head takes 0 through a shut ring and real damage through an open sector, a parry opens its arm’s sector and the next wind-up shuts it, a broken arm’s hole is permanent, blocks end on 2 arms not 1, the head LEAVES the field for the breather and returns on the same pool, perfect chunks more and stalls longer, a full bar blazes off a latch, and all 3 rungs read window/fuse/arms/headHp/drain; the head RISES for the chase still and harmless but killable, the Coil closes the ring on D3 alone with its gap the only safe place and no parry for it, both hidden chapters resolve through HIDDEN_UNLOCKS with no id hardcoded in main/ui/state, and a burn planted through an open sector keeps ticking after it shuts`)
 }

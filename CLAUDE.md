@@ -87,6 +87,16 @@ screenful of reassuring IDENTICALs.
 
 Corollary worth stating, because it is easy to run `npm test` as a ritual: **`scripts/` and `docs/` are not in that import graph.** A harness-only or spec-only diff gets zero coverage from the suite — it will pass whatever you did. The real check for a `scripts/*.mjs` change is running the script; `git status --short` is what tells you whether you strayed into `src/`.
 
+**AND NEITHER IS `render.js`.** It is not importable (Pixi + DOM), so a render-only diff gets the same
+zero — `ALL TESTS PASSED` on a renderer change means the SIM still works, and says nothing whatever
+about what is on screen. The only coverage it has is the handful of source-text lints that grep it,
+and those are spelling checks, not pictures. **A render change is verified by SHOOTING A FRAME**
+(`probing-the-game`; `scripts/fx-probe.mjs` for an effect, `scripts/shot.mjs` for a page) and by
+nothing else. v7.327 shipped a whole boss renderer off a green suite; the first frame ever taken of
+it showed a Pixi path bug that turned the entire ring into a fan of pale wedges, and two frames later
+that the boss did not fit the viewport at all. Neither could have failed a test, and both were
+obvious in one screenshot.
+
 ## The hidden dev menu (v7.12) — how to test one specific card
 
 **Seven quick taps on the TITLE WORDMARK** turn DEV on (the pill appears); then **one tap on the
@@ -240,6 +250,12 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
   arithmetic in them was already restating what the diff shows. Do not reinstate a deleted one.
   Note the interaction with `npm run ship`: it amends HEAD with `-m` and destroys the body, so push
   the branch (or write the reasoning on the commit BELOW the release) before shipping.
+- **A SKILL IS LOADED FROM A COPY, AND THE TRACKED ORIGINAL IS `.claude/skills/` IN THIS REPO.** The
+  path a skill announces when it loads is a per-session workspace copy; editing THAT path changes
+  nothing here and is thrown away with the session. Improve a skill by editing the repo path and
+  committing it. On 2026-09-13 three documentation fixes were written to the loaded path and only
+  caught because `git status` showed the one file that had been edited relatively — the other two
+  were invisible, which is exactly how a harness improvement gets written twice and lands never.
 - **SEVEN RULE SETS LIVE IN SKILLS, NOT HERE — load the skill BEFORE the work, not after.** They
   were moved out because they only apply to one kind of task and this file is read on every call;
   moving them does not make them optional. If you are about to do the thing in the left column and

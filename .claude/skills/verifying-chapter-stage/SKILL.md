@@ -44,7 +44,7 @@ Each is independent. Each has its own column and its own rows.
 | **art** | can its creatures actually be drawn | a `ROSTER_LOOKS` entry for every roster and cast id, a `src/cast/<id>.png` per cast id, a `bgColor` not borrowed; **then his verification of every asset and animation** |
 | **fr** | does it have its own copy, in French | every chapter-native string resolves in `fr.js`; **then his review of every translation** |
 | **numbers** | are the numbers this chapter's own | a `balance` block that is not a byte-identical clone; ≥5 sim-test references to the id, comments excluded |
-| **reachable** | can a player get to it at all | in a book, past `wipFrom` |
+| **reachable** | can a player get to it at all | in a book, past `wipFrom` — and for a HIDDEN chapter, the reachability of the chapter it is gated behind (`HIDDEN_UNLOCKS`) |
 
 Cell vocabulary, the same in the table, the bill and the `axes:` line: `ok`, `FAIL` (the repo can
 prove it), `YOU` (waiting on an owner gate), `owesN` / `debtN` (ideation), `live` / `wip`.
@@ -150,10 +150,18 @@ Every one of these produced a WRONG answer on a real chapter while the script wa
   caught by grepping for `'skies'` by hand. Line comments first, then blocks. And a `/*` inside a
   STRING (`import.meta.glob('./props/*.png')`) survives any ordering, so quoted strings are masked
   before either pass — M13 proves it, by hiding The Shelf's whole signature behind one glob.
-  **The same trap is live in five places in `test/sim-test.js`** (lines 5136, 6977, 21618, 21818,
-  24712), all block-first. `codeOnly` over `render.js` keeps 22% of the file and cannot see
-  `ROSTER_LOOKS` or `drawJelly` at all. Those lints are in the ship gate and are asserting over a
-  hole; fixing them is its own job.
+  **FIXED 2026-09-13, and there were TWELVE of them in `test/sim-test.js`, not five.** Measured
+  before: block-first kept **21%** of `render.js` (47% is correct) and **9%** of `main.js` (28%),
+  and could not see `drawJelly` or `drawKrakenArm` at all — so a dozen lints in the ship gate were
+  asserting over a hole and reporting success. All now run line-before-block, and **`run CS` holds
+  the line**: known code anchors must survive every stripper (a comment cannot fake
+  `function drawJelly`), no file may be eaten below 25%, and no block-first stripper may come back.
+  Mutation-proven — putting one site back fails it by name.
+  Repairing them immediately surfaced a second bug hiding behind the first: run UR's declaration
+  scan missed the second declarator of a comma list (`const VOL_H_MIN = 94, VOL_H_SPAN = 6`), and
+  had been balancing by accident because the declaration and its use both sat inside the eaten
+  region. **That is the shape to expect when you repair a blind lint — it does not come back green,
+  it comes back holding the thing it could never see.**
 - **A gate can be blind to its own subject.** The `art` axis used to be
   `TESTS.includes('run RA (roster art)')` — a string existing in a file, byte-identical for all 15
   chapters, which never looked at the chapter being audited and never ran the assertion it was
@@ -175,7 +183,12 @@ Every one of these produced a WRONG answer on a real chapter while the script wa
   to another chapter's*, i.e. copy-pasted and never touched.
 - **`hidden` does not mean unreleased.** It means *outside the ladder of its book*. The Blank is
   Book 1's off-ladder boss chapter and is fully shipped. Only `wipFrom` hides a chapter from
-  players.
+  players — **but `wipFrom` indexes `book.chapters`, and a hidden id is never in that array, so it
+  structurally cannot gate one.** Reading that as "hidden, therefore live" was an unconditional yes,
+  and `live` is what auto-passes the three gates that are the owner's. On 2026-09-13 it reported The
+  Kraken — dev-gated, never played, three borrowed weapons — as live with art, fr and playtest all
+  signed off. Fixed: a hidden chapter is now only as reachable as the win that reveals it
+  (`HIDDEN_UNLOCKS`), proven in both directions by M15.
 - **`balance_decision` comments are advisory, never a gate.** Half the shipped chapters have none;
   gating on them measures the comment convention's age, not the chapter's state.
 - **`CHAPTER_ORDER` is Book 1 only.** Any sweep over "every chapter" must use
