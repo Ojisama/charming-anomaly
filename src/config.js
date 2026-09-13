@@ -8614,7 +8614,10 @@ CHAPTERS.kraken = {
   //    rather than carrying The Deep's numbers, which is what rev 1 cloned this block from.
   // balance_decision : the crowd stings less; the boss is the threat [2026-09-14]
   //  - enemyDmgMul was 1.2 and the adds were killing the player before the boss ever got a turn.
-  balance: { spawnMul: 1, enemyHpMul: 0.85, enemyDmgMul: 0.95, maxAliveMul: 1 },
+  // balance_decision : the ring is the threat, not the graveyard [2026-09-14]
+  //  - measured at d3: krakenDart was 60-75% of ALL damage taken, and the arms landed nothing at d1.
+  //    The difficulty was coming from the wrong creature, so the adds sting less and the ring more.
+  balance: { spawnMul: 1, enemyHpMul: 0.85, enemyDmgMul: 0.62, maxAliveMul: 1 },
   // THE DEEP'S OWN ARSENAL, not The Surf's. This chapter shipped with breaker/skippingShell/
   // barnacles -- character-identical to CHAPTERS.surf's line -- which is a shore kit two kilometres
   // down: a breaking wave, a shell that 'skips off the sand', and intertidal crust. Measured here at
@@ -8672,7 +8675,7 @@ export const KRAKEN_RUNGS = [
   //    attack. That is the one rule every readability writeup agrees on.
   { arms: 4, rearing: 1, window: 0.34, perfect: 0.150, fuse: 1.10, limp: 4.0, cadence: 1.9, staggerNeed: 2, drainMul: 1.00, headHpMul: 1.00, grip: false, coil: false },
   { arms: 5, rearing: 2, window: 0.28, perfect: 0.125, fuse: 0.90, limp: 3.2, cadence: 0.9, staggerNeed: 3, drainMul: 1.30, headHpMul: 1.02, grip: true,  coil: false },
-  { arms: 6, rearing: 2, window: 0.24, perfect: 0.110, fuse: 0.75, limp: 2.6, cadence: 0.7, staggerNeed: 3, drainMul: 1.60, headHpMul: 1.30, grip: true,  coil: true  },
+  { arms: 6, rearing: 2, window: 0.24, perfect: 0.110, fuse: 0.75, limp: 2.6, cadence: 0.9, staggerNeed: 3, drainMul: 1.60, headHpMul: 1.30, grip: true,  coil: true  },
 ]
 // The one accessor, so no site has to remember the difficulty-1 offset or the clamp. The cap is
 // enforced by the chapter, but a probe or a migrated save can hand this anything.
@@ -8805,8 +8808,29 @@ export const KRAKEN_LASH_R = 150 // px the arm's slam reaches around its tip
 //   The number is not chosen, it is READ OFF THE PICTURE: render draws the shut-sector membrane from
 // ARM_REACH x 0.8 out to ARM_REACH x 3.1, so 3.1 is where the wall visibly is. Exported so the two
 // sides cannot drift — a wall somewhere other than the drawn one is worse than no wall.
-export const KRAKEN_CAGE_R = KRAKEN_ARM_REACH * 3.1
-export const KRAKEN_LASH_DMG = 22 // an un-parried slam's damage
+//   AND IT MUST SIT INSIDE THE RING'S REACH. At 3.1x the arms' reach the wall was 620px out while
+// the arms strike at 200 +/- 150 — so a player pinned against the membrane was 420px from every
+// tentacle and simply could not be hit. Measured: kite the wall at d1 for FIFTEEN MINUTES and take
+// literally zero damage, with the block never advancing because nothing can break an arm, and
+// `scripted: true` exempting the chapter from the survival clock. Unloseable and unwinnable at once.
+// The wall now stands exactly at the edge of the threat envelope: nowhere inside it is safe.
+export const KRAKEN_CAGE_R = KRAKEN_ARM_REACH + KRAKEN_LASH_R
+// Same reasoning as the lunge: the ring throws one of these every rung.cadence, and the player is
+// meant to be learning which one to answer.
+export const KRAKEN_LASH_DMG = 19 // an un-parried slam's damage
+// THE BUTTON HAS TO BE ABLE TO ANSWER THE RING. At 0.8 against d3's 0.7s cadence, attacks arrived
+// FASTER THAN THE PARRY COULD BE PRESSED — the verb the whole chapter is built on physically could
+// not keep up, so the only way through was to stop parrying and dodge, which is a different game.
+// A mortal rig died at 41-54s on d3 to arm lashes, every run, without ever reaching a stagger.
+//   Difficulty belongs in the WINDOW (how precisely you must time it), never in the RATE (whether
+// you are allowed to try) — every readability writeup says the same thing, and Sekiro's deflect,
+// which this fight borrows its posture from, has no cooldown at all.
+// AND IT GOES BACK TO 0.8, because the cadence was the whole fix and this was not. Single-variable
+// A/B, same seeds: at 0.42 a rig that reads NO telegraph and mashes every frame wins d1 5/6; at 0.8
+// it wins 0/6 and dies in the ring. A rig that READS is completely unaffected by the knob — 6/6 and
+// 1/6 at d1/d3 either way, same parry counts. The arithmetic is plain: window 0.34 / cd 0.42 means
+// 81% of blind presses land, against 43% at 0.8. Difficulty belongs in the window, and a cooldown
+// this short deletes the window's meaning for anyone willing to hold the button down.
 export const KRAKEN_PARRY_CD = 0.8 // s the parry button's cooldown (vs REPULSE_CD 6.0)
 export const KRAKEN_PARRY_REFILL = 9 // Light regained per good parry (x KRAKEN_PERFECT_MUL on a perfect)
 export const KRAKEN_LIGHT_START = 60 // Light the fight opens on — readable, but not a full bar to spend
@@ -8844,7 +8868,17 @@ export const KRAKEN_ADD_CAP = 16 // most graveyard dead on the field at once, wa
 // harmless and motionless while it ascends — the drama is the drama, not a free hit.
 export const KRAKEN_RISE_T = 2.6 // s the head takes to come up out of the abyss
 export const KRAKEN_LUNGE_T = 3.2 // s between chase lunges (final block)
-export const KRAKEN_LUNGE_DMG = 26
+// A MISS HAS TO BE A MISTAKE, NOT A DEATH. The player reaches the chase on ~100 max HP; at 26 a
+// lunge took a quarter of it every KRAKEN_LUNGE_T, so four connected lunges killed — while a stagger
+// needs staggerNeed of them PARRIED in a row. The arithmetic left no room to learn the timing at
+// all: measured, mortal runs reached the chase and died there with ZERO staggers, every seed.
+// Difficulty in this fight is the window, not the punish.
+export const KRAKEN_LUNGE_DMG = 13
+// A BOSS YOU CAN LIVE INSIDE IS AS WRONG AS ONE THAT BODY-CHECKS YOU. Zeroing contact damage outside
+// the lunge fixed the body-check and went too far: measured, a player glued to the head for 100% of
+// a 62-73s chase took ONE hit. This is the small constant tax for standing in its mouth — enough
+// that the head owns its own space, nowhere near enough to kill you while you fight its arms.
+export const KRAKEN_HEAD_TOUCH_DMG = 4
 // THE COIL (P3, D3 only). Every Nth arm attack the whole ring hauls inward at once, and the only
 // place that is not swept is ONE sector — the gap. NOT PARRYABLE by design: the parry must not be
 // the answer to everything, or it stops being a choice. You read the gap and you move.

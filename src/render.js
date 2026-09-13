@@ -4744,12 +4744,13 @@ export function createRenderer(app) {
     groundShadow(r * 0.95, r * 0.62)
 
     // ---- the fins, at the tail. Two soft paddles, drawn first so the mantle overlaps their roots.
+    // CURVED, NOT DARTS. Four straight edges and two sharp points read as folded card stock; a fin
+    // is a membrane and its trailing edge is the softest line on the animal.
     for (const sgn of [-1, 1]) {
       g.beginPath()
-      g.moveTo(-r * 0.52, sgn * r * 0.16)
-      g.lineTo(-r * 1.02, sgn * r * 0.74)
-      g.lineTo(-r * 1.22, sgn * r * 0.34)
-      g.lineTo(-r * 0.96, sgn * r * 0.10)
+      g.moveTo(-r * 0.50, sgn * r * 0.15)
+      g.bezierCurveTo(-r * 0.80, sgn * r * 0.70, -r * 1.10, sgn * r * 0.66, -r * 1.20, sgn * r * 0.30)
+      g.bezierCurveTo(-r * 1.14, sgn * r * 0.14, -r * 0.86, sgn * r * 0.06, -r * 0.50, sgn * r * 0.15)
       g.closePath()
       g.fill(skin).stroke({ width: lw * 0.8, color: line })
     }
@@ -4783,40 +4784,66 @@ export function createRenderer(app) {
     }
 
     // ---- the arm crown: eight thick bases fanning FORWARD, the beak sitting in the middle of them
-    // TWO SEGMENTS AND A CURL PER ARM. One straight tapered quad each read as a fan of planks —
-    // the single most "programmer art" shape this file warns about, in limb form. A tentacle bends.
+    // ONE TAPERED POLYGON PER ARM, built from a curved centreline. Chaining short quads and
+    // stroking each of them outlines every joint, so an eight-arm crown showed forty seams and read
+    // as a wireframe insect — worse than the folded-paper version it replaced. A limb is one shape
+    // with one outline; the curve lives in the centreline, not in the seams.
+    const armPoly = (pts, w0, w1) => {
+      const L = [], Rr = []
+      for (let m = 0; m < pts.length; m++) {
+        const t = m / (pts.length - 1)
+        const w = w0 + (w1 - w0) * t
+        const a = pts[Math.max(0, m - 1)], b = pts[Math.min(pts.length - 1, m + 1)]
+        const dx = b[0] - a[0], dy = b[1] - a[1]
+        const dl = Math.hypot(dx, dy) || 1
+        const nx = -dy / dl, ny = dx / dl
+        L.push([pts[m][0] + nx * w, pts[m][1] + ny * w])
+        Rr.push([pts[m][0] - nx * w, pts[m][1] - ny * w])
+      }
+      g.beginPath()
+      g.moveTo(L[0][0], L[0][1])
+      for (let m = 1; m < L.length; m++) g.lineTo(L[m][0], L[m][1])
+      for (let m = Rr.length - 1; m >= 0; m--) g.lineTo(Rr[m][0], Rr[m][1])
+      g.closePath()
+      g.fill(skin).stroke({ width: lw * 0.55, color: line, join: 'round' })
+    }
     for (let k = 0; k < 8; k++) {
-      const a = (-1 + (k / 7) * 2) * 1.5    // -86deg .. +86deg, all ahead
-      const curl = (k % 2 ? 1 : -1) * 0.34 + Math.sin(k * 2.1) * 0.22
-      const bx = r * 0.24 + Math.cos(a) * r * 0.10
-      const by = Math.sin(a) * r * 0.16
-      const mx = bx + Math.cos(a) * r * 0.42, my = by + Math.sin(a) * r * 0.42
-      const tx = mx + Math.cos(a + curl) * r * 0.46, ty = my + Math.sin(a + curl) * r * 0.46
-      krakenLimb(g, bx, by, mx, my, r * 0.105, r * 0.072).fill(skin).stroke({ width: lw * 0.6, color: line })
-      krakenLimb(g, mx, my, tx, ty, r * 0.072, r * 0.022).fill(skin).stroke({ width: lw * 0.6, color: line })
+      const a0 = (-1 + (k / 7) * 2) * 1.5    // -86deg .. +86deg, all ahead
+      const bend = ((k % 2 ? 1 : -1) * 0.17 + Math.sin(k * 2.1) * 0.10)
+      let x = r * 0.24 + Math.cos(a0) * r * 0.10
+      let y = Math.sin(a0) * r * 0.16
+      let ang = a0
+      const pts = [[x, y]]
+      for (let seg = 0; seg < 7; seg++) {
+        const t = seg / 7
+        ang += bend * (0.45 + t)           // curls harder toward the tip
+        x += Math.cos(ang) * r * 0.145 * (1 - t * 0.3)
+        y += Math.sin(ang) * r * 0.145 * (1 - t * 0.3)
+        pts.push([x, y])
+      }
+      armPoly(pts, r * 0.10, r * 0.016)
     }
 
     // ---- THE BEAK. Two hooked mandibles, hard and black, the only rigid thing on the animal.
-    g.beginPath()
-    g.moveTo(r * 0.62, 0)
-    g.lineTo(r * 0.26, -r * 0.20)
-    g.lineTo(r * 0.34, 0)
-    g.closePath()
-    g.fill(white ? 0xffffff : 0x0a0710)
-    g.beginPath()
-    g.moveTo(r * 0.62, 0)
-    g.lineTo(r * 0.26, r * 0.20)
-    g.lineTo(r * 0.34, 0)
-    g.closePath()
-    g.fill(white ? 0xffffff : 0x0a0710)
+    // TWO HOOKED MANDIBLES WITH A GAP BETWEEN THEM. Two triangles meeting at a shared point make
+    // ONE triangle with a notch — a play button, which is what the reviewer saw. A beak is two
+    // curved hooks that do not quite close, and the dark slot between them is the read.
+    for (const sgn of [-1, 1]) {
+      g.beginPath()
+      g.moveTo(r * 0.30, sgn * r * 0.055)
+      g.quadraticCurveTo(r * 0.56, sgn * r * 0.16, r * 0.66, sgn * r * 0.02)
+      g.quadraticCurveTo(r * 0.50, sgn * r * 0.04, r * 0.32, sgn * r * 0.19)
+      g.closePath()
+      g.fill(white ? 0xffffff : 0x0a0710)
+    }
     if (!white) {
       // a lit edge down each mandible: black on near-black is not a shape, and the beak is the one
       // part of this animal that has to read instantly.
       for (const sgn of [-1, 1]) {
         g.beginPath()
-        g.moveTo(r * 0.61, sgn * r * 0.01)
-        g.lineTo(r * 0.30, sgn * r * 0.17)
-        g.stroke({ width: lw * 0.55, color: 0xbfa9a2, alpha: 0.55, cap: 'round' })
+        g.moveTo(r * 0.64, sgn * r * 0.025)
+        g.quadraticCurveTo(r * 0.52, sgn * r * 0.09, r * 0.33, sgn * r * 0.17)
+        g.stroke({ width: lw * 0.5, color: 0xbfa9a2, alpha: 0.6, cap: 'round' })
       }
     }
 
@@ -4862,58 +4889,61 @@ export function createRenderer(app) {
   // Warm against a cold chapter, deliberately. Everything else in The Kraken is blue-purple
   // near-black; the one thing the player is meant to shoot is the one warm thing on screen, and
   // that separation is in HUE and LUMINANCE at once so it survives a low Light bar.
+  // THE ARM, as the summary screen's "Killed by ..." thumbnail. The in-game wound is drawn on the
+  // tentacle itself (see syncKrakenArms); this is the only place this bake is still seen, so it uses
+  // the same language rather than a second design: a section of limb, torn open, with a ragged lip
+  // and the light coming out of it. The version before this was a clean pink ellipse with a bar
+  // through it, which the owner correctly read as a no-entry sign.
   function drawKrakenArm(g, elite, white) {
     const r = BLANK_BOSS_R
     const f = (c) => white ? 0xffffff : c
     const line = f(K_LINE), skin = f(K_SKIN), skin2 = f(K_SKIN2)
-    const meat = f(0xd8a2a8), meatLit = f(0xf2d2cf), core = f(0xfff1e8)
     const lw = Math.max(4, r * 0.045)
-    groundShadow(r * 0.82, r * 0.58)
-
-    // the torn sheath: two ragged cuffs of the arm's own skin, peeled back off the swelling
-    for (const sgn of [-1, 1]) {
-      g.beginPath()
-      g.moveTo(sgn * r * 0.86, -r * 0.30)
-      g.lineTo(sgn * r * 0.46, -r * 0.44)
-      g.lineTo(sgn * r * 0.34, -r * 0.12)
-      g.lineTo(sgn * r * 0.44, r * 0.20)
-      g.lineTo(sgn * r * 0.62, r * 0.46)
-      g.lineTo(sgn * r * 0.88, r * 0.34)
-      g.closePath()
-      g.fill(skin2).stroke({ width: lw, color: line })
-      // a couple of suckers on the cuff, so it is unmistakably the SAME animal's skin
-      if (!white) {
-        for (let k = 0; k < 3; k++) {
-          g.circle(sgn * r * (0.52 + k * 0.13), -r * 0.20 + k * r * 0.22, r * 0.052)
-          g.fill(skin).stroke({ width: lw * 0.5, color: line })
-        }
+    groundShadow(r * 0.8, r * 0.5)
+    const jit = (k) => { const h = Math.sin(k * 91.7 + 3.1) * 43758.5453; return h - Math.floor(h) }
+    const ring = (n, rx, ry, lo, hi, seed) => {
+      const pts = []
+      for (let k = 0; k < n; k++) {
+        const t = (k / n) * Math.PI * 2
+        const q = lo + jit(k + seed) * hi
+        pts.push([Math.cos(t) * rx * q, Math.sin(t) * ry * q])
       }
+      return pts
+    }
+    const poly = (pts, style) => {
+      g.beginPath()
+      g.moveTo(pts[0][0], pts[0][1])
+      for (let m = 1; m < pts.length; m++) g.lineTo(pts[m][0], pts[m][1])
+      g.closePath()
+      g.fill(style)
     }
 
-    // the swelling itself — a soft mass bulging out between the cuffs
-    g.ellipse(0, 0, r * 0.52, r * 0.62).fill(meat).stroke({ width: lw, color: line })
+    // the section of limb it is part of, running across the frame
+    krakenLimb(g, -r * 0.95, r * 0.10, r * 0.95, -r * 0.10, r * 0.34, r * 0.28)
+      .fill(skin2).stroke({ width: lw, color: line })
     if (!white) {
-      // wet highlight, up-left, so it reads as soft and rounded rather than as a flat disc
-      g.ellipse(-r * 0.14, -r * 0.18, r * 0.26, r * 0.30).fill({ color: meatLit, alpha: 0.55 })
-      // THE SPLIT. One dark seam down the middle with the light bleeding out of it: this is the
-      // "shoot here", and it is the only part that is allowed to be bright.
+      krakenSuckers(g, -r * 0.95, r * 0.10, -r * 0.30, r * 0.02, 3, r * 0.05)
+      krakenSuckers(g, r * 0.34, -r * 0.02, r * 0.92, -r * 0.10, 3, r * 0.05)
+    }
+
+    // the tear
+    poly(ring(13, r * 0.52, r * 0.34, 0.55, 0.55, 0), white ? 0xffffff : 0x2c1018)
+    if (!white) {
+      poly(ring(13, r * 0.38, r * 0.25, 0.55, 0.55, 0), { color: 0x6d2c38, alpha: 0.9 })
+      const rim = ring(13, r * 0.58, r * 0.38, 0.7, 0.6, 70)
       g.beginPath()
-      g.moveTo(0, -r * 0.56)
-      g.lineTo(r * 0.13, -r * 0.16)
-      g.lineTo(-r * 0.09, r * 0.16)
-      g.lineTo(r * 0.05, r * 0.56)
-      g.stroke({ width: lw * 2.2, color: line, cap: 'round', join: 'round' })
-      g.beginPath()
-      g.moveTo(0, -r * 0.50)
-      g.lineTo(r * 0.11, -r * 0.14)
-      g.lineTo(-r * 0.07, r * 0.14)
-      g.lineTo(r * 0.04, r * 0.50)
-      g.stroke({ width: lw * 0.9, color: core, cap: 'round', join: 'round' })
-      g.circle(r * 0.02, 0, r * 0.13).fill({ color: core, alpha: 0.9 })
-      g.circle(r * 0.02, 0, r * 0.24).fill({ color: meatLit, alpha: 0.3 })
+      g.moveTo(rim[0][0], rim[0][1])
+      for (let m = 1; m < rim.length; m++) g.lineTo(rim[m][0], rim[m][1])
+      g.closePath()
+      g.stroke({ width: lw * 0.9, color: 0xd7a2ab, alpha: 0.8, join: 'round' })
+      for (let k = 0; k < 6; k++) {
+        g.circle((jit(k + 40) - 0.5) * r * 0.7, (jit(k + 50) - 0.5) * r * 0.4, r * (0.03 + jit(k + 60) * 0.035))
+        g.fill({ color: 0xffe6d8, alpha: 0.85 })
+      }
     }
     if (elite) eliteCrown(-r * 0.6, r * 0.7)
   }
+
 
 
   // `lean` = MAX LEAN IN DEGREES, 0..90: how far off horizontal this creature may aim its +x nose
@@ -18819,6 +18849,13 @@ const spurG = new Graphics()
       if (a.gripT > 0) { winK = 1; break }                       // a grip is parryable for its whole hold
       if (a.tele > 0 && a.tele <= rung.window) winK = Math.max(winK, a.tele <= rung.perfect ? 1 : 0.6)
     }
+    // ...AND THE HEAD'S LUNGE, which this walked right past. It counted arms only, so during the
+    // chase the affordance stayed dark for the single press that produces a stagger — and a stagger
+    // is the only way the head can be damaged at all. The head got a ring around ITSELF and the
+    // player got nothing, which is the half of the read that was never done.
+    if (s.phase === 'chase' && !(s.staggerT > 0) && head.lungeT > 0 && head.lungeT <= rung.window) {
+      winK = Math.max(winK, head.lungeT <= rung.perfect ? 1 : 0.6)
+    }
     const cd = run.repulseCd ?? 0
     if (winK > 0 && cd <= 0) {
       teleG.beginPath()
@@ -18874,41 +18911,87 @@ const spurG = new Graphics()
       }
       rig.rope.visible = true
       rig.shadow.visible = true
-      // THE WOUND, ON THE LIMB. Drawn in the arm layer at the rope's tip and rotated to the arm's
-      // own axis, so it reads as a torn-open section of THIS tentacle rather than as a thing lying
-      // next to it. The node enemy's sprite is hidden in syncEnemies — same trick the head already
-      // uses during a ring block — because an enemy that must exist for weapons to hit is not
-      // obliged to draw itself.
+      // THE WOUND, ON THE LIMB — and it has to read as TORN, not as a badge. The first version was
+      // a clean pink ellipse with a straight dark bar and a white line down it, which is a no-entry
+      // sign: the owner's words were "the fuck is this pink oval with a slash on it". Flesh has no
+      // clean edges. Every shape below is irregular, jittered off a hash of the arm's own slot so it
+      // is stable frame to frame, and the light leaves as scattered points rather than as a stripe.
       if (a.limpT > 0) {
         const wr = KRAKEN_ARM_R * 0.95
         const ca = Math.cos(a.ang), sa = Math.sin(a.ang)
         const nx2 = -sa, ny2 = ca
-        const px2 = (u, v) => [a.x + ca * u + nx2 * v, a.y + sa * u + ny2 * v]
-        // the sheath, torn back along the limb's axis
-        for (const sgn of [-1, 1]) {
-          const q = [px2(-wr * 0.95, sgn * wr * 0.55), px2(-wr * 0.15, sgn * wr * 0.95),
-                     px2(wr * 0.55, sgn * wr * 0.80), px2(wr * 0.35, sgn * wr * 0.30)]
+        const P = (u, v) => [a.x + ca * u + nx2 * v, a.y + sa * u + ny2 * v]
+        // stable per-arm jitter: a wound that reshuffled every frame would boil
+        const jit = (k) => { const h = Math.sin((a.i + 1) * 17.13 + k * 91.7) * 43758.5453; return h - Math.floor(h) }
+        const poly = (pts, style) => {
           krakenWoundG.beginPath()
-          krakenWoundG.moveTo(q[0][0], q[0][1])
-          for (let m = 1; m < q.length; m++) krakenWoundG.lineTo(q[m][0], q[m][1])
+          krakenWoundG.moveTo(pts[0][0], pts[0][1])
+          for (let m = 1; m < pts.length; m++) krakenWoundG.lineTo(pts[m][0], pts[m][1])
           krakenWoundG.closePath()
-          krakenWoundG.fill({ color: 0x50416b })
+          krakenWoundG.fill(style)
         }
-        // the swelling
+
+        // 1. THE CAVITY: a ragged hole torn along the limb, wider than it is deep. TWENTY-TWO sides,
+        // not thirteen — at 13 the straight chords between vertices are long enough to read as a
+        // drawn polygon, which is the whole failure this shape keeps falling back into.
+        const cav = []
+        for (let k = 0; k < 22; k++) {
+          const t = (k / 22) * Math.PI * 2
+          const rr = 0.60 + jit(k) * 0.42
+          // the cross-limb extent is capped BELOW the tentacle's own half-width, so the tear can
+          // never spill outside the thing it is a tear in
+          cav.push(P(Math.cos(t) * wr * 1.25 * rr, Math.sin(t) * wr * 0.62 * rr))
+        }
+        poly(cav, { color: 0x2c1018 })
+        // a hint of lifted flesh just inside the lip, so the hole has depth rather than being a hole
+        const inner = cav.map(([px, py]) => [a.x + (px - a.x) * 0.72, a.y + (py - a.y) * 0.72])
+        poly(inner, { color: 0x6d2c38, alpha: 0.85 })
+
+        // 2. THE TORN RIM. NOT a pair of slabs laid over the limb — the tentacle underneath already
+        // IS the skin, and drawing two solid parallelograms on top of it just put geometry back into
+        // a shape whose whole job is to have none. What a tear actually shows is a bright ragged
+        // edge where the skin has split and the flesh under it is lifted: one outline, following the
+        // cavity, a little wider than it.
+        // INSIDE the cavity, not around it. The rim used to be drawn LARGER than the hole it was
+        // the lip of (1.45 vs 1.35 along the limb, 0.92 vs 0.80 across it), so it floated free of
+        // the cavity and stuck out past the tentacle's silhouette — a pink lasso around a dark
+        // shard, which is exactly how the reviewer read it.
+        const rim = []
+        for (let k = 0; k < 22; k++) {
+          const t = (k / 22) * Math.PI * 2
+          const rr = 0.60 + jit(k) * 0.42          // the SAME jitter as the cavity: it is its lip
+          rim.push(P(Math.cos(t) * wr * 1.16 * rr, Math.sin(t) * wr * 0.57 * rr))
+        }
         krakenWoundG.beginPath()
-        krakenWoundG.ellipse(a.x, a.y, wr * 1.05, wr * 0.78)
-        krakenWoundG.fill({ color: 0xc98d97 })
-        // the split, ALONG the limb, with the light bleeding out of it
-        const pulse = 0.55 + 0.45 * Math.sin(animT * 5 + a.i)
-        const s0 = px2(-wr * 0.85, 0), s1 = px2(wr * 0.85, 0)
-        krakenWoundG.beginPath()
-        krakenWoundG.moveTo(s0[0], s0[1])
-        krakenWoundG.lineTo(s1[0], s1[1])
-        krakenWoundG.stroke({ width: wr * 0.42, color: 0x2a1524, cap: 'round' })
-        krakenWoundG.beginPath()
-        krakenWoundG.moveTo(s0[0], s0[1])
-        krakenWoundG.lineTo(s1[0], s1[1])
-        krakenWoundG.stroke({ width: wr * (0.10 + pulse * 0.10), color: 0xfff1e8, alpha: 0.7 + pulse * 0.3, cap: 'round' })
+        krakenWoundG.moveTo(rim[0][0], rim[0][1])
+        for (let m = 1; m < rim.length; m++) krakenWoundG.lineTo(rim[m][0], rim[m][1])
+        krakenWoundG.closePath()
+        krakenWoundG.stroke({ width: 3, color: 0xd7a2ab, alpha: 0.75, join: 'round' })
+
+        // 3. TORN FIBRES across the gap. Bowed, not ruled: three straight strokes at even spacing
+        // read as sutures — a thing someone put there — which is the opposite of what they mean.
+        for (let k = 0; k < 3; k++) {
+          const u = -wr * 0.6 + k * wr * 0.62 + (jit(k + 80) - 0.5) * wr * 0.3
+          const bow = (jit(k + 60) - 0.5) * wr * 0.55
+          const p1 = P(u, -wr * 0.42)
+          const pm = P(u + bow, 0)
+          const p2 = P(u + bow * 0.3, wr * 0.42)
+          krakenWoundG.beginPath()
+          krakenWoundG.moveTo(p1[0], p1[1])
+          krakenWoundG.quadraticCurveTo(pm[0], pm[1], p2[0], p2[1])
+          krakenWoundG.stroke({ width: 1.4 + jit(k + 90) * 1.1, color: 0xc79aa4, alpha: 0.45 })
+        }
+
+        // 4. THE LIGHT COMING OUT OF IT, as points. The animal is bioluminescent everywhere else in
+        // this chapter; a wound leaks the same light, and scattered points can never read as a bar.
+        for (let k = 0; k < 7; k++) {
+          const u = (jit(k + 40) - 0.5) * wr * 1.9
+          const v = (jit(k + 50) - 0.5) * wr * 0.85
+          const pt = P(u, v)
+          const pu = 0.5 + 0.5 * Math.sin(animT * 5.5 + k * 1.3 + a.i)
+          krakenWoundG.circle(pt[0], pt[1], wr * (0.06 + pu * 0.07))
+          krakenWoundG.fill({ color: 0xffe6d8, alpha: 0.45 + pu * 0.45 })
+        }
       }
       if (a.dead) {
         // A BROKEN ARM SINKS: it fades back into the murk it came out of over breakT, and after that

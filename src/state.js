@@ -2307,9 +2307,10 @@ function generateWells(sig) {
   *       open window, and that window is the only time the head can be damaged at all. A
   *       part-filled stagger drains after staggerDecay seconds of no parry, so it cannot be banked.
   *     cageT — >0 for a moment after the player pressed against the ring's wall. Render lights the
-  *       membrane off it. The wall itself is KRAKEN_CAGE_R, which is read off the drawn membrane's
-  *       outer radius rather than chosen, and it holds ONLY during a ring block — a breather and
-  *       the chase are open water because the arms that are the wall are not there.
+  *       membrane off it. The wall is KRAKEN_CAGE_R — ARM_REACH + LASH_R, i.e. the far edge of what
+  *       the ring can actually hit, so no point inside the arena is out of reach of it. It holds
+  *       WHENEVER THE HEAD IS ON THE FIELD, which since the mid-fight rise includes the chase; only
+  *       a breather is open water, because that is the one phase the head really leaves.
   *     coilT / coilGap — P3, D3 only. coilT counts the wind-up and then the closure; coilGap is the
   *       world angle of the ONE sector the ring does not sweep. Deliberately not parryable: a verb
   *       that answers every pattern stops being a decision.

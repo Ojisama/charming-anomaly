@@ -227,6 +227,7 @@ import {
   KRAKEN_LIMP_PERFECT_MUL, KRAKEN_STAGGER_T, KRAKEN_STAGGER_DECAY, KRAKEN_LIMP_FLASH,
   KRAKEN_RISE_AT, KRAKEN_ENRAGE_AT, KRAKEN_ENRAGE_CADENCE, KRAKEN_ENRAGE_ARM_HP, KRAKEN_STAGGER_BITE,
   KRAKEN_EXPOSE_BITE, KRAKEN_HITSTOP_PARRY, KRAKEN_HITSTOP_BREAK, KRAKEN_HITSTOP_STAGGER,
+  KRAKEN_HEAD_TOUCH_DMG,
   KRAKEN_CAGE_R,
   KRAKEN_LASH_R, KRAKEN_LASH_DMG, KRAKEN_LIGHT_START,
   KRAKEN_PERFECT_MUL, KRAKEN_PARRY_CD, KRAKEN_PARRY_REFILL, KRAKEN_BLAZE_R,
@@ -1687,6 +1688,11 @@ function krakenRaiseHead(run, rung, bared) {
   // UNDER the player, not across the arena from them: the head is the floor of this fight and
   // the ring closes around wherever they are standing when it rises.
   const h = spawnBlankEnemy(run, 'krakenHead', true, { x: p.x + KRAKEN_ARM_REACH * 0.5, y: p.y })
+  // ...and it spawns HARMLESS. stepContactDamage runs later in this same stepSim than the script
+  // does, and the head spawns already overlapping the player (100px out, radius 130) — so a head
+  // raised with dmg already set billed a full hit on its ARRIVAL FRAME, before riseT could zero it
+  // on the next one. Measured 6/6 seeds, against the rise's own comment: "still and harmless".
+  if (h) h.dmg = 0
   if (!h) return null
   h.maxHP = roundHP(KRAKEN_HEAD_HP * rung.headHpMul)
   h.hp = s.headHp > 0 ? s.headHp : h.maxHP // ONE persistent pool across every block
@@ -1959,7 +1965,8 @@ function stepKrakenArms(run, dt, rung, head) {
   // entry that has been sitting there unspawnable since rev 2, keeping a name, a French string and
   // a baked texture alive for the death screen. Weapons, elements, crits, knockback, XP and kill
   // credit all work on it for free, and when the window closes the node leaves again. The lock is
-  // untouched: no node exists unless a parry made one.
+  // untouched: no node exists unless a parry made one. Its SPRITE is hidden by syncEnemies — the
+  // wound is drawn on the tentacle itself, at the tip, on the arm's own axis.
   for (const a of run.krakenArms) {
     if (a.dead) continue
     // LOOK THE NODE UP WITHOUT FILTERING OUT THE DEAD ONE. Finding it with `&& !e._dead` meant the
@@ -2159,7 +2166,13 @@ function stepKrakenChase(run, dt, rung, head) {
   }
   if (stepKrakenArms(run, dt, rung, head)) return true
 
-  head.dmg = KRAKEN_LUNGE_DMG
+  // THE LUNGE IS THE ATTACK — brushing against the thing is not. head.dmg is CONTACT damage and it
+  // was set for the whole chase, so a head that hunts at 165px/s simply body-checked the player to
+  // death while they were doing the limb loop the fight asks for: measured on d3, dead within ~3s of
+  // the rise having seen ZERO lunges, which is also zero chances at the stagger that is the only way
+  // to hurt it. A telegraphed strike that you can answer means nothing if the untelegraphed touch
+  // kills you first.
+  head.dmg = (head._lungeBurst ?? 0) > 0 ? KRAKEN_LUNGE_DMG : KRAKEN_HEAD_TOUCH_DMG
   if (head.lungeT == null) head.lungeT = KRAKEN_LUNGE_T
   // `lungeT` counts DOWN to the strike, so the parry window is its last `rung.window` seconds —
   // the same read as an arm's, deliberately: one verb, one timing, two bodies.
@@ -2226,10 +2239,15 @@ function krakenParry(run) {
     if (a.tele > 0 && a.tele <= rung.window && a.tele < bestT) { bestT = a.tele; best = a }
   }
   // The head's lunge reads on exactly the same clock, deliberately: one verb, one timing.
-  // ...and the same rule for the head: a lunge you are nowhere near is not yours to deflect.
-  const headNear = !!head && (head.x - p.x) ** 2 + (head.y - p.y) ** 2 <= (KRAKEN_HEAD_R * 2.4) ** 2
+  // A LUNGE IS A CHARGE THAT COMES TO YOU, so it is parryable anywhere inside the cage — unlike an
+  // arm's swipe, which reaches a fixed radius around a fixed tip and genuinely cannot touch you from
+  // across the arena. At HEAD_R * 2.4 (312px) the player had to already be beside the head to answer
+  // it, while the fight's own loop was pulling them out to the limb they had just opened: measured,
+  // ZERO staggers in every mortal d3 run that reached the chase, on a fight where a stagger is the
+  // only way the head can be hurt at all. The old reason for a tight gate here — parrying from 3995
+  // px away — is closed by the cage, which now holds in the chase too.
+  const headNear = !!head && (head.x - p.x) ** 2 + (head.y - p.y) ** 2 <= KRAKEN_CAGE_R ** 2
   const headReady = headNear && s.phase === 'chase' && !(s.staggerT > 0) && head.lungeT > 0 && head.lungeT <= rung.window
-  const headT = headReady ? head.lungeT : Infinity
 
   if (!best && !headReady) {
     // THE WHIFF IS AN EVENT. It used to be a bare return: the cooldown was spent and the game said
@@ -2238,7 +2256,19 @@ function krakenParry(run) {
     return
   }
 
-  if (headReady && headT <= bestT) {
+  // THE HEAD WINS EVERY TIE, AND EVERY NON-TIE. Choosing by time-to-impact sounded like the rule a
+  // player can hold — answer whatever is about to land — and it quietly made the fight unwinnable:
+  // six arms swinging every 0.9s means an arm is almost always the more imminent thing, so the
+  // head's lunge was never the pick, the posture never filled, and a stagger is the ONLY way the
+  // head can be damaged at all. Measured: 0 staggers in every mortal d3 run that reached the chase.
+  //   A lunge is rare (one per KRAKEN_LUNGE_T), it is the boss's own attack, and it is the player's
+  // only route to damage. It takes precedence; the arms are always there and will come round again.
+  // A GRIP OUTRANKS EVERYTHING, INCLUDING THE HEAD. Giving the head absolute precedence quietly
+  // voided the one rule this fight had written down about the grip — "the one attack whose answer
+  // must not also be a timing test, because the player is being dragged while they look for it" —
+  // and left `bestT = -1` as a write-only sentinel under a comment that still claimed to enforce it.
+  const gripped = !!best && best.gripT > 0
+  if (headReady && !gripped) {
     // ---- THE HEAD'S POSTURE. Sekiro's rule: pay a deflect with a state change on the BOSS, and
     // make breaking it the one loud window the fight has.
     const perfect = head.lungeT <= rung.perfect
