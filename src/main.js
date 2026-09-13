@@ -1,7 +1,7 @@
 // Glue: boots Pixi, owns the tick loop and phase transitions. Keep logic in sim/ui/render.
 import { Application } from 'pixi.js'
 import { loadMeta, saveMeta, resetSave, deleteSlot, createRun, ensureChapterMeta, ensureBookMeta, unlockBook, setActiveSlot, activeSlot, setSlotName, cleanName, exportSlot, importSlot, freezeSaves, setSaveHook, SAVE_SLOTS } from './state.js'
-import { shopCost, refundValue, shopLines, shopLineUnlocked, lineMax, runBonusCoins, randomMutators, rerollMutator, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, difficultyCoinMul, CONSUMABLES, ANOMALY_REROLL_COST, sacrificeCost, BOOK_UNLOCKS, CHAPTERS, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, isWipChapter, COIN_CAP_PER_RUN, BOOK_ORDER, bookOf, isBookFinale, nextBook, unlockCost, unlockLevel, DEATH_OUTRO, caveAt, ringXY, ringFU, ringCentre, ringRot, swimthroughsFor } from './config.js'
+import { shopCost, refundValue, shopLines, shopLineUnlocked, lineMax, runBonusCoins, randomMutators, rerollMutator, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, difficultyCoinMul, CONSUMABLES, ANOMALY_REROLL_COST, sacrificeCost, BOOK_UNLOCKS, CHAPTERS, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, isWipChapter, HIDDEN_UNLOCKS, COIN_CAP_PER_RUN, BOOK_ORDER, bookOf, isBookFinale, nextBook, unlockCost, unlockLevel, DEATH_OUTRO, caveAt, ringXY, ringFU, ringCentre, ringRot, swimthroughsFor } from './config.js'
 import { stepSim, applyChoice, rerollLevelUpChoices, rerollPrice, buildReadout, devCards, devTake } from './sim.js'
 import { createRenderer } from './render.js'
 import { initUI } from './ui.js'
@@ -167,9 +167,13 @@ const ui = initUI({
     // CHAPTERS.blank.modsByDifficulty) rather than random picks — its whole point is a
     // scripted, repeatable fight. The Kraken is the same kind of scripted boss (stepKrakenScript
     // owns its rhythm), so it too gets no random anomalies and no reroll.
-    const mutators = chapterId === 'blank'
-      ? (CHAPTERS.blank.modsByDifficulty[chMeta.difficulty] ?? [])
-      : chapterId === 'kraken'
+    // A SCRIPTED chapter never takes random anomalies: its whole point is a repeatable fight. Some
+    // declare a fixed named ladder instead (modsByDifficulty); the rest simply get none. Keyed off
+    // the chapter's own flags rather than off its id, so a third scripted boss needs no edit here.
+    const mods = CHAPTERS[chapterId].modsByDifficulty
+    const mutators = mods
+      ? (mods[chMeta.difficulty] ?? [])
+      : CHAPTERS[chapterId].scripted
         ? []
         : randomMutators(chMeta.difficulty - 1, chapterId)
     // v6.7: EVERY classic run stops here first, even a difficulty-1 roll with no anomalies at all —
@@ -177,7 +181,7 @@ const ui = initUI({
     // is empty would make boosters unreachable at difficulty 1. The booster picks arrive one hook
     // later, on onBriefStart (see the ui.js contract).
     pendingPlay = { chapter: chapterId, difficulty: chMeta.difficulty, mutators }
-    ui.showScreen('brief', { chapterId, difficulty: chMeta.difficulty, mutators, reroll: chapterId !== 'blank' && chapterId !== 'kraken' })
+    ui.showScreen('brief', { chapterId, difficulty: chMeta.difficulty, mutators, reroll: !CHAPTERS[chapterId].scripted })
   },
   onBriefStart(consumableIds = []) {
     if (!pendingPlay) return
@@ -190,7 +194,7 @@ const ui = initUI({
   // never gets here (its brief passes reroll: false and the guard below is belt-and-braces — its
   // ladder is fixed by design). Charge only once the swap is known to be possible.
   onBriefReroll(i) {
-    if (!pendingPlay || pendingPlay.chapter === 'blank') return
+    if (!pendingPlay || CHAPTERS[pendingPlay.chapter].scripted) return
     // Same purse as startClassic's boosters — pendingPlay.chapter is the run about to launch.
     const bm = ensureBookMeta(meta, bookOf(pendingPlay.chapter) ?? BOOK_ORDER[0])
     if (bm.coins < ANOMALY_REROLL_COST) return
@@ -687,6 +691,10 @@ const SFX_FOR_EVENT = {
   // CLAUDE.md forbids a chime at, and the slams that actually connect already sound through `hurt`.
   // It carries a render case instead, so run EV is satisfied by a picture rather than by silence.
   tentacleBreak: 'bossFall', headHide: 'hole', gripLatch: 'zap',
+  // headRise is the fight's one reveal (once a run); coilWind/coilClose are D3's unparryable
+  // ring, rare enough to bear a voice and important enough to need one — it is the only pattern
+  // with no button answer, so it must be audible before it is visible.
+  headRise: 'bossRise', coilWind: 'siren', coilClose: 'crush',
 }
 
 function endRun(victory) {
@@ -771,15 +779,20 @@ function endRun(victory) {
     }
   }
 
-  // Hidden chapter unlock (v5.24): winning The Beyond at its top difficulty (5) reveals The
-  // Blank — no entry in CHAPTER_ORDER, no per-difficulty ladder tie-in, just this one gate.
-  // Guarded on "not already unlocked" so replaying the win doesn't keep announcing it.
+  // HIDDEN CHAPTER UNLOCKS, walked from HIDDEN_UNLOCKS rather than written per chapter. The Blank
+  // (win The Beyond at 5) was hardcoded here; The Kraken (win The Deep at 5) is the second, and the
+  // second is what makes a table worth having. Guarded on "not already unlocked" so replaying the
+  // win doesn't keep announcing it.
+  //   Wiring a hidden chapter's unlock does NOT expose it: it can only fire off a win in the
+  // chapter it is gated behind, and a WIP chapter cannot be played at all.
   let unlockedHiddenChapter = null
-  if (victory && run.chapter === 'beyond' && (run.difficulty ?? 1) >= 5) {
-    const blankMeta = ensureChapterMeta(meta, 'blank')
-    if (!blankMeta.unlocked) {
-      blankMeta.unlocked = true
-      unlockedHiddenChapter = CHAPTERS.blank.name
+  if (victory) {
+    for (const [id, gate] of Object.entries(HIDDEN_UNLOCKS)) {
+      if (run.chapter !== gate.from || (run.difficulty ?? 1) < gate.difficulty) continue
+      const hidMeta = ensureChapterMeta(meta, id)
+      if (hidMeta.unlocked) continue
+      hidMeta.unlocked = true
+      unlockedHiddenChapter = CHAPTERS[id].name
     }
   }
 

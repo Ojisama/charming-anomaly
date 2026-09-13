@@ -228,7 +228,8 @@ import {
   KRAKEN_PERFECT_MUL, KRAKEN_PERFECT_STALL, KRAKEN_PARRY_CD, KRAKEN_PARRY_DMG, KRAKEN_PARRY_REFILL, KRAKEN_BLAZE_R,
   KRAKEN_GRIP_EVERY, KRAKEN_GRIP_PULL, KRAKEN_GRIP_DUR, KRAKEN_GRIP_DMG,
   KRAKEN_TRICKLE_FROM_END, KRAKEN_TRICKLE_T, KRAKEN_TRICKLE_N,
-  KRAKEN_LUNGE_T, KRAKEN_LUNGE_DMG,
+  KRAKEN_LUNGE_T, KRAKEN_LUNGE_DMG, KRAKEN_RISE_T,
+  KRAKEN_COIL_EVERY, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, KRAKEN_COIL_IN, KRAKEN_COIL_DMG,
   KRAKEN_WAVE, KRAKEN_WAVE_GAP, KRAKEN_WAVE_TIMEOUT, KRAKEN_WAVE_XP_MUL,
   // v6.4.2 (owner directive): per-run coin cap
   COIN_CAP_PER_RUN,
@@ -1702,6 +1703,16 @@ function krakenArmsToBlock(run, rung, head) {
 }
 
 // A ring block. Two arms down ends it.
+// THE COIL'S REACH. One expression, exported through the script state so render draws the ring in
+// exactly the place the sim is hitting from — an arm drawn where it is not would make an
+// unparryable pattern read as unfair rather than as a move test.
+function krakenCoilMul(s) {
+  if (!(s.coilT > 0)) return 1
+  // winding up: the ring REARS BACK, which is the tell that this one is ring-wide
+  if (s.coilT > KRAKEN_COIL_DUR) return 1 + (1 - (s.coilT - KRAKEN_COIL_DUR) / KRAKEN_COIL_TELE) * 0.24
+  return KRAKEN_COIL_IN
+}
+
 function stepKrakenBlock(run, dt, rung, head) {
   const p = run.player
   const s = run.script
@@ -1711,14 +1722,41 @@ function stepKrakenBlock(run, dt, rung, head) {
     return false
   }
 
+  // THE COIL (P3, D3 only) — a RING-WIDE move, so it is stepped here rather than on one arm's
+  // turn. While it runs, no arm takes its own: the ring is busy being the attack.
+  if (s.coilT > 0) {
+    const wasTele = s.coilT > KRAKEN_COIL_DUR
+    s.coilT -= dt
+    // THE MOMENT IT SHUTS. Everything outside the gap sector is swept; the gap is the whole answer,
+    // and there is no parry for it on purpose.
+    if (wasTele && s.coilT <= KRAKEN_COIL_DUR) {
+      run.events.push({ type: 'coilClose', x: head.x, y: head.y, r: KRAKEN_ARM_REACH })
+      let d = Math.atan2(p.y - head.y, p.x - head.x) - s.coilGap
+      while (d > Math.PI) d -= Math.PI * 2
+      while (d < -Math.PI) d += Math.PI * 2
+      // the gap is a little wider than one arm's sector — it has to be findable under pressure
+      const gapHalf = (Math.PI / Math.max(1, s.armsTotal)) * 1.45
+      if (Math.abs(d) > gapHalf && hurtPlayer(run, KRAKEN_COIL_DMG, false, 'krakenArm')) return true
+    }
+    if (s.coilT <= 0) { s.coilT = 0; for (const a of run.krakenArms) if (!a.dead) a.tele = Math.max(a.tele, 0.5) }
+    for (const a of run.krakenArms) {
+      if (a.dead) continue
+      const r = KRAKEN_ARM_REACH * krakenCoilMul(s)
+      a.x = head.x + Math.cos(a.ang) * r
+      a.y = head.y + Math.sin(a.ang) * r
+    }
+    return false
+  }
+
   const lashT = KRAKEN_ARM_LASH_T / rung.cadenceMul
   for (const a of run.krakenArms) {
     if (a.breakT > 0) a.breakT = Math.max(0, a.breakT - dt)
     if (a.dead) continue
     // Arms hold their slot. They are architecture, not creatures: nothing pushes them, nothing
     // pulls them, and they never walk at the player.
-    a.x = head.x + Math.cos(a.ang) * KRAKEN_ARM_REACH
-    a.y = head.y + Math.sin(a.ang) * KRAKEN_ARM_REACH
+    const reach = KRAKEN_ARM_REACH * krakenCoilMul(s)
+    a.x = head.x + Math.cos(a.ang) * reach
+    a.y = head.y + Math.sin(a.ang) * reach
     if (a.hitT > 0) a.hitT = Math.max(0, a.hitT - dt)
 
     // THE GRIP (P2, D2+). It drags the player off the lane they earned; the parry that frees you
@@ -1751,6 +1789,15 @@ function stepKrakenBlock(run, dt, rung, head) {
     // so the timer simply never came round. Counting attacks makes the pattern's density a property
     // of the fight instead of a property of how long the block happened to last.
     s.gripN++
+    // The Coil is checked BEFORE the Grip so the two can never stack on one attack: a grab you
+    // cannot escape because the ring is closing is not a pattern, it is a bug with a name.
+    if (rung.coil && s.bossIdx >= 3 && s.gripN % KRAKEN_COIL_EVERY === 0) {
+      s.coilT = KRAKEN_COIL_TELE + KRAKEN_COIL_DUR
+      s.coilGap = Math.random() * Math.PI * 2
+      a.tele = lashT
+      run.events.push({ type: 'coilWind', x: head.x, y: head.y, ang: s.coilGap })
+      continue
+    }
     if (rung.grip && s.bossIdx >= 2 && s.gripN % KRAKEN_GRIP_EVERY === 0) {
       a.gripT = KRAKEN_GRIP_DUR
       run.events.push({ type: 'gripLatch', x: a.x, y: a.y })
@@ -1789,7 +1836,26 @@ function stepKrakenBlock(run, dt, rung, head) {
 
 // P5, the finale. Nothing between the head and you.
 function stepKrakenChase(run, dt, rung, head) {
-  if (!head) { krakenRaiseHead(run, rung, true); return false }
+  const s = run.script
+  if (!head) {
+    // THE RISE. Every block of this fight has shown the head as a silhouette a long way down; the
+    // chase is where it comes up, and that beat is the entire payoff for never having shown it.
+    const h = krakenRaiseHead(run, rung, true)
+    if (h) {
+      s.riseT = KRAKEN_RISE_T
+      run.events.push({ type: 'headRise', x: h.x, y: h.y })
+    }
+    return false
+  }
+  // While it ascends it is STILL AND HARMLESS — but not invulnerable. A player who is ready gets to
+  // open on it, which is the reward for having read the fight rather than a free hit for everyone.
+  if (s.riseT > 0) {
+    s.riseT = Math.max(0, s.riseT - dt)
+    head.speed = 0
+    head.dmg = 0
+    return false
+  }
+  head.dmg = KRAKEN_LUNGE_DMG
   head._lungeT = (head._lungeT ?? KRAKEN_LUNGE_T) - dt
   if (head._lungeT <= 0) {
     head._lungeT = KRAKEN_LUNGE_T

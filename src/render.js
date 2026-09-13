@@ -27,6 +27,7 @@ import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC
   SLICK_SLOW_T, INK_STAIN_T, inLobe,  // The Wreck: the oil and the ink on you, on the glass and the skin
   // The Kraken: the ring's geometry and the per-rung parry windows the telegraph is drawn against
   krakenRung, KRAKEN_RING_R, KRAKEN_ARM_R, KRAKEN_ARM_REACH, KRAKEN_LASH_R, KRAKEN_HEAD_R,
+  KRAKEN_RISE_T, KRAKEN_COIL_DUR, KRAKEN_COIL_TELE,
 } from './config.js'
 import { currentForce, tideForce } from './sim.js'
 
@@ -18438,7 +18439,19 @@ const spurG = new Graphics()
     const s = run.script
     if (!s || !run.krakenArms.length) return
     const head = s.headId != null ? run.enemies.find((en) => en.id === s.headId && !en._dead) : null
-    if (!head || s.phase !== 'boss') return
+    if (!head) return
+    // THE CHASE: the abyss COLLAPSES as the head comes up out of it, and after the rise there is
+    // nothing down there any more — because it is up here.
+    if (s.phase === 'chase') {
+      const rise = KRAKEN_RISE_T > 0 ? Math.max(0, s.riseT) / KRAKEN_RISE_T : 0
+      if (rise > 0) {
+        const RR = KRAKEN_HEAD_R * (1.1 + rise * 2.2)
+        krakenDeepG.ellipse(head.x, head.y, RR * 1.35, RR * 1.15).fill({ color: 0x14304a, alpha: 0.5 * rise })
+        krakenDeepG.ellipse(head.x, head.y, RR, RR * 0.86).fill({ color: 0x02080f, alpha: 0.5 + 0.42 * rise })
+      }
+      return
+    }
+    if (s.phase !== 'boss') return
     krakenHead = head
     const p = run.player
     const rung = krakenRung(run.difficulty)
@@ -18496,6 +18509,27 @@ const spurG = new Graphics()
       teleG.fill({ color: K_WEB, alpha: 0.55 })
       // NO rim arc. A lit edge along rIn drew a perfect circle across the arena and read as a HUD
       // element; the membrane has to be legible as a FILLED AREA, which is what carries at a low bar.
+    }
+
+    // ---- THE COIL'S GAP: the one sector the ring will not sweep -------------------------------
+    // This is the whole counterplay to the one pattern that has no parry, so it is the loudest
+    // thing the chapter ever draws: a lit wedge you run into, brightening as the ring closes.
+    if (s.coilT > 0) {
+      const closing = s.coilT <= KRAKEN_COIL_DUR
+      const gapHalf = half * 1.45
+      const urg = closing ? 1 : 1 - (s.coilT - KRAKEN_COIL_DUR) / Math.max(0.001, KRAKEN_COIL_TELE)
+      const g0 = s.coilGap - gapHalf, g1 = s.coilGap + gapHalf
+      teleG.beginPath()
+      teleG.moveTo(head.x, head.y)
+      teleG.arc(head.x, head.y, KRAKEN_ARM_REACH * 1.5, g0, g1)
+      teleG.closePath()
+      teleG.fill({ color: 0x9fe8ff, alpha: 0.05 + urg * 0.10 })
+      for (const e of [g0, g1]) {
+        teleG.beginPath()
+        teleG.moveTo(head.x, head.y)
+        teleG.lineTo(head.x + Math.cos(e) * KRAKEN_ARM_REACH * 1.5, head.y + Math.sin(e) * KRAKEN_ARM_REACH * 1.5)
+        teleG.stroke({ width: 2 + urg * 2, color: 0xdff8ff, alpha: 0.35 + urg * 0.5 })
+      }
     }
 
     // ---- the wind-up and the parry window, on the arm's TIP --------------------------------------
@@ -18594,9 +18628,28 @@ const spurG = new Graphics()
     // THE HEAD IS A SHADOW, NOT A SPRITE, while the cage is up: hide the entity's own sprite so the
     // only thing on screen is the silhouette below. It comes back for the chase, which is the whole
     // payoff of never having shown it.
-    if (head && run.script.phase === 'boss') {
-      const hs = enemySprites.get(head.id)
-      if (hs) hs.visible = false
+    if (!head) return
+    const hs = enemySprites.get(head.id)
+    if (!hs) return
+    if (run.script.phase === 'boss') {
+      // THE HEAD IS A SHADOW, NOT A SPRITE, while the cage is up: hide the entity's own sprite so
+      // the only thing on screen is the silhouette below. It comes back for the chase, which is the
+      // whole payoff of never having shown it.
+      hs.visible = false
+      return
+    }
+    // THE RISE. syncEnemies has already placed and scaled this sprite THIS FRAME (it runs earlier
+    // in sync), so overriding here sticks for the frame and is re-derived cleanly on the next one.
+    hs.visible = true
+    const rise = KRAKEN_RISE_T > 0 ? Math.max(0, run.script.riseT) / KRAKEN_RISE_T : 0
+    if (rise > 0) {
+      const k = 0.34 + (1 - rise) * 0.66
+      hs.scale.set(hs.scale.x * k, hs.scale.y * k)
+      hs.tint = mix(0x0a1420, 0xffffff, 1 - rise)
+      hs.alpha = 0.45 + (1 - rise) * 0.55
+    } else {
+      hs.tint = 0xffffff
+      hs.alpha = 1
     }
   }
 
@@ -20941,6 +20994,35 @@ const spurG = new Graphics()
           spawnRing(e.x, e.y, 200, 0.7, T.novaRing, 0x8fb4c4)
           spawnRing(e.x, e.y, 120, 0.5, T.novaRing, 0x5a7c8c)
           addShake(6, 0.35)
+          break
+        }
+        case 'headRise': {
+          // IT COMES UP. The one beat the whole fight has been withholding, so it gets the biggest
+          // tell in the chapter: the water it displaces, thrown outward and upward.
+          spawnRing(e.x, e.y, 340, 1.1, T.novaRing, 0xdff4ff)
+          spawnRing(e.x, e.y, 210, 0.9, T.novaRing, 0x8fb4c4)
+          spawnRing(e.x, e.y, 110, 0.7, T.novaWarm, 0xffffff)
+          for (let i = 0; i < 26; i++) {
+            const a = Math.random() * Math.PI * 2
+            const sp = 150 + Math.random() * 320
+            spawnParticle(T.fx.star_08, e.x, e.y, Math.cos(a) * sp, Math.sin(a) * sp, 1.0, 0.10, 0xbfe8f2, 0.2, 0)
+          }
+          addShake(16, 0.9)
+          break
+        }
+        case 'coilWind': {
+          // the ring rearing back. The GAP itself is drawn live in drawKrakenRing for the whole
+          // wind-up, because it is the answer and it has to be readable the entire time.
+          spawnRing(e.x, e.y, KRAKEN_ARM_REACH * 1.6, 0.5, T.novaRing, 0x9fe8ff)
+          addShake(4, 0.25)
+          break
+        }
+        case 'coilClose': {
+          // the ring shutting. A hard inward snap, and no parry exists for it — the picture has to
+          // say "that already happened" rather than "you could have blocked that".
+          spawnRing(e.x, e.y, e.r * 1.4, 0.34, T.novaRing, 0xffffff)
+          spawnRing(e.x, e.y, e.r * 0.5, 0.26, T.novaWarm, 0xdff4ff)
+          addShake(12, 0.4)
           break
         }
         case 'headLunge': {

@@ -8,7 +8,7 @@ import {
   GRAVITY_WELL_R, GRAVITY_FORCE, GRAVITY_MIN_DIST, GRAVITY_MIN_GAP,
   pickWorldSeed, usesObstacleSeed, TRAWL_FIRST_PASS, ORCA_SHADOW_FIRST, ORCA_SHADOW_PASSES,
   BOOKS, BOOK_ORDER, shopLines, bookOf, isWipChapter, SLOW_BURN_FLOOR, CURRENT_RESIST_FLOOR, unlockLevel, unlockMax,
-  lineMax, SACRIFICE_COSTS, BOOK_UNLOCKS, unlockCost, SPUR_TICK } from './config.js'
+  lineMax, SACRIFICE_COSTS, BOOK_UNLOCKS, unlockCost, SPUR_TICK, hiddenChapters } from './config.js'
 
 const SAVE_KEY = 'charming-anomaly-save-v1'
 
@@ -104,7 +104,8 @@ export function saveSummary(meta) {
   // ★ row reads it, so the card and the prompt can never state two different numbers.
   let chapterId = CHAPTER_ORDER[0]
   for (const id of CHAPTER_ORDER) if (chapters[id]?.unlocked) chapterId = id
-  if (chapters.blank?.unlocked) chapterId = 'blank'
+  // ...and an unlocked HIDDEN chapter outranks the ladder, since it is the furthest thing earned.
+  for (const id of hiddenChapters()) if (chapters[id]?.unlocked) chapterId = id
   const entry = (chapters[chapterId] && typeof chapters[chapterId] === 'object') ? chapters[chapterId] : {}
   const shop = (m.shop && typeof m.shop === 'object' && !Array.isArray(m.shop)) ? m.shop : {}
   return {
@@ -2292,6 +2293,12 @@ function generateWells(sig) {
   *       chapter a FULL bar, and the Kraken opens readable-but-not-full instead; this runs BEFORE
   *       `charged` is latched each frame, because a full bar on frame 1 would otherwise arm the
   *       blaze before the player has met an arm and make the first parry of every run a free kill.
+  *     riseT — the chase's opening beat: seconds left of the head ASCENDING out of the abyss. It
+  *       is still and harmless while this runs (but not invulnerable), and render scales it up out
+  *       of the dark against it.
+  *     coilT / coilGap — P3, D3 only. coilT counts the wind-up and then the closure; coilGap is the
+  *       world angle of the ONE sector the ring does not sweep. Deliberately not parryable: a verb
+  *       that answers every pattern stops being a decision.
   *     charged — THE BLAZE LATCH. Set the moment Light reaches its ceiling, consumed by the next
   *       parry (which breaks its arm outright). A latch rather than a test of the bar at press
   *       time, because the passive drain leaves the ceiling within a frame of touching it: sampling
@@ -2770,7 +2777,8 @@ export function createRun(meta, opts = {}) {
           // The Kraken (see sim.js's stepKrakenScript). Blank never reads these and The Kraken
           // never reads stage/waveIdx/waveT/bossId, so the two ladders share one shape.
           phase: 'wave', bossIdx: 0, blockKills: 0, armsSpawned: false, headId: null,
-          headHp: 0, armsTotal: 0, bankedLevels: 0, gripN: 0, trickleT: 0, charged: false, opened: false }
+          headHp: 0, armsTotal: 0, bankedLevels: 0, gripN: 0, trickleT: 0, charged: false, opened: false,
+          riseT: 0, coilT: 0, coilGap: 0 }
       : null,
     // The tentacle ring — see the doc block above for why an arm is NOT an enemy. Empty and inert
     // for every chapter but The Kraken, the same rampage pattern as `script` itself.
