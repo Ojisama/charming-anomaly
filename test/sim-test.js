@@ -170,6 +170,7 @@ import {
   // The Kraken (run KR): the rung table and the ring's numbers
   krakenRung, KRAKEN_RUNGS, KRAKEN_ARM_REACH, KRAKEN_WAVE_TIMEOUT,
   KRAKEN_RISE_T, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, hiddenChapters, KRAKEN_CAGE_R, KRAKEN_PARRY_CD,
+  KRAKEN_OPEN_WAVES, KRAKEN_ARRIVE_T, KRAKEN_RING_R, KRAKEN_LASH_R, KRAKEN_SLAM_T, KRAKEN_DEFLECT_CD,
 } from '../src/config.js'
 import { stepSim, applyChoice, buildLevelUpChoices, eligibleWeaponModCandidates, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, inRefillCircle, stepCharge, newElWindow, spurAt } from '../src/sim.js'
 
@@ -34410,12 +34411,17 @@ function runKraken() {
     // CLAUDE.md's probe rule as an assertion: createRun takes an OPTIONS OBJECT, and getting that
     // wrong hands you a Body run at difficulty 1 without throwing or warning.
     assert.strictEqual(run.chapter, 'kraken', 'createRun did not make a Kraken run — every assertion below would be measuring another chapter')
+    // THE APPROACH IS THREE WAVES AND AN ARRIVAL, so the budget is per-wave and stated rather than
+    // a single wave's timeout with five seconds of slack on it. A guard that is too small does not
+    // fail here — it falls out of the loop in the wrong phase and every assertion below then
+    // measures a breather.
+    const budget = KRAKEN_OPEN_WAVES * (KRAKEN_WAVE_TIMEOUT + 2) + KRAKEN_ARRIVE_T + 5
     let guard = 0
-    while (run.script.phase !== 'boss' && guard++ < 60 * (KRAKEN_WAVE_TIMEOUT + 5)) {
+    while (run.script.phase !== 'boss' && guard++ < 60 * budget) {
       run.player.hp = run.player.maxHP
       stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
     }
-    assert.strictEqual(run.script.phase, 'boss', `the opening breather never handed over to a ring block in ${KRAKEN_WAVE_TIMEOUT + 5}s`)
+    assert.strictEqual(run.script.phase, 'boss', `the approach never handed over to a ring block in ${budget}s`)
     for (let i = 0; i < 3; i++) { run.player.hp = run.player.maxHP; stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60) }
     return run
   }
@@ -34608,12 +34614,51 @@ function runKraken() {
     h.maxHP = h.hp = 1e9
     run.weapons = [{ id: 'skippingShell', level: 5 }]
     const sealedHp = h.hp
+    // FOUR WEAPONS, NOT ONE. With a single skippingShell the rig lands ~1.75 refused hits a second,
+    // which is already under the cooloff — so the throttle is never the binding constraint and any
+    // assertion about it is vacuous. An adversarial review proved that: deleting the throttle
+    // outright moved the count 4 -> 7 against a cap of 17, and the test stayed green. The cooloff
+    // exists for "a full build lands dozens of hits a second", so the rig has to be one.
+    run.weapons = [{ id: 'skippingShell', level: 5 }, { id: 'sunspear', level: 5 },
+                   { id: 'foxfire', level: 5 }, { id: 'sunlance', level: 5 }]
+    let deflects = 0, maxPerFrame = 0
     for (let i = 0; i < 60 * 4; i++) {
       run.player.x = h.x + 30; run.player.y = h.y
       run.player.hp = run.player.maxHP
       stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+      const n = run.events.filter((e) => e.type === 'krakenDeflect').length
+      maxPerFrame = Math.max(maxPerFrame, n)
+      deflects += n
+      run.events.length = 0   // DRAIN. Nothing here plays main.js's role, so an undrained array is
+                              // re-counted every frame and 14 sparks read as 531.
     }
     assert.strictEqual(h.hp, sealedHp, 'the head took weapon damage in the chase without ever being staggered')
+    // ...AND IT SAYS SO. A refused hit used to return in silence, which from the seat is exactly what
+    // an invincible boss looks like and exactly what a broken weapon looks like (owner, 2026-09-14:
+    // "the kraken head is invincible ? or it's not clear enough that you can hit it?").
+    assert.ok(deflects > 0, 'four seconds of weapons into a SEALED head produced no krakenDeflect — the refusal is silent, and silence is indistinguishable from invincible')
+    assert.strictEqual(maxPerFrame, 1, `${maxPerFrame} deflect sparks on ONE frame — every projectile in the volley is firing its own`)
+    // AND IT IS THROTTLED — asserted as an A/B ON THE GATE, not as a count. A count cannot test this
+    // rig: even with four weapons at level 5 it lands about 1.5 refused hits a second against a
+    // cooloff that allows 3.57, so the throttle is never the binding constraint and any cap is
+    // satisfied by a fire rate that was never going to reach it. (An adversarial review proved
+    // exactly that: deleting the throttle outright moved 4 to 7 against a cap of 17, green both
+    // ways.) Arm A is the loop above — `deflects` sparks over 4s, so hits ARE landing at better than
+    // 2 per 2s. Arm B replays the same fixture for 2s with the cooloff held open, and nothing at all
+    // may come out of it. Remove the `!(sc.deflT > 0)` gate and arm B goes straight to arm A's rate.
+    const perTwo = deflects / 2
+    assert.ok(perTwo >= 2, `the fixture only lands ${perTwo.toFixed(1)} refused hits per 2s — arm B's zero would not mean anything`)
+    let duringCooloff = 0
+    for (let i = 0; i < 60 * 2; i++) {
+      run.script.deflT = KRAKEN_DEFLECT_CD     // held open: stepKrakenScript ticks it down each frame
+      run.player.x = h.x + 30; run.player.y = h.y
+      run.player.hp = run.player.maxHP
+      stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+      duringCooloff += run.events.filter((e) => e.type === 'krakenDeflect').length
+      run.events.length = 0
+    }
+    assert.strictEqual(duringCooloff, 0,
+      `${duringCooloff} deflect sparks fired across 2s with the cooloff never expiring, against ${perTwo.toFixed(1)} expected unthrottled — the gate is not being read, and the answer to "can I hurt it" is a strobe`)
     // fill the posture by parrying its lunges
     for (let k = 0; k < rung.staggerNeed; k++) {
       h.lungeT = rung.window * 0.5
@@ -34708,18 +34753,121 @@ function runKraken() {
   // these was a field the sim set and the renderer never read, which is indistinguishable on screen
   // from the mechanic not existing.
   {
+    // STRIP THE COMMENTS FIRST, and the strip is load-bearing: every one of these fields is
+    // discussed in prose right beside its wiring, so a bare substring search is satisfied by the
+    // SENTENCE about the code. An adversarial review mutation-proved exactly that on two of the
+    // needles below — `const grow = s.phase === 'arrive' && …` → `const grow = 1` (the head
+    // silhouette pops to full size on frame 1, i.e. the arena is cut to again) and deleting both
+    // real uses of krakenTips — and the suite stayed green off the comments alone. Same reason
+    // run MB.a strips sim.js. LINE comments before BLOCK comments, or a `/*` inside a `//` eats
+    // everything to the next `*/` (run CS lints that ordering across this file).
     const src = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
+      .replace(/\/\/[^\n]*/g, ' ')
+      .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    // ...and each needle names a USE, not an identifier: a declaration, an import and a clear in
+    // reset() are all occurrences of a name that nothing draws with.
     for (const [needle, why] of [
-      ['a.limpT', 'an EXPOSED limb has no tell — the whole reward for a parry is invisible'],
+      ['a.limpT > 0', 'an EXPOSED limb has no tell — the whole reward for a parry is invisible'],
       ['a.fuse', 'the wind-up has no clock on screen, so an attack arrives out of a uniform glow'],
-      ['a.hitT', 'a parry landing on an arm has no tell on the arm'],
-      ['staggerT', "the head's one damage window is not drawn"],
-      ['stagger', "the head's posture is not drawn, so filling it is invisible"],
-      ['KRAKEN_CAGE_R', 'the ring wall is drawn from its own number instead of the one the sim clamps to'],
+      ['a.hitT > 0', 'a parry landing on an arm has no tell on the arm'],
+      ['s.staggerT > 0', "the head's one damage window is not drawn"],
+      ['k < s.stagger', "the head's posture pips are not filled, so filling the stagger is invisible"],
+      ['s.cageR > 0 ? s.cageR', 'the ring wall is drawn from its own constant instead of the radius the sim actually clamped to — which is wider for the whole arrival'],
+      ['a.slamT > 0', 'a slam that landed has no pose: the limb snaps back to idle the frame it hits'],
+      ['1 - s.arriveT / s.arriveMax', 'the arrival is not drawn, so the ring appears standing and the player is cut to a boss arena'],
+      ['krakenTips[a.i] = ', 'render never records where it is drawing an arm'],
+      ['krakenTips[a.i] ||', "the press-here ring is drawn at the arm's TARGET, which is up to 110px from where the reared limb actually is"],
     ]) {
       assert.ok(src.includes(needle), `render.js never reads ${needle}: ${why}`)
     }
   }
 
-  console.log('PASS run KR (The Kraken, rev 3): a standing arm is untouchable by all three weapons and puts nothing on the field, a parry makes it LIMP and materialises a real enemy at its tip that weapons do kill, a window closing takes that node away without paying a kill or xp and keeps the damage, finishing it breaks the arm for good, the ring never winds up more arms at once than its rung allows (d1/d2/d3), the head is sealed against hits AND burns until its posture breaks, staggerNeed parried lunges open the only window on it and a burn lit inside outlives it, a whiff reports itself and still pays the cooldown, the cage holds while the ring is up, all 3 rungs read arms/rearing/window/perfect/fuse/limp/cadence/staggerNeed with the windows nested, both hidden chapters resolve through HIDDEN_UNLOCKS with no id hardcoded in main/ui/state, and render.js reads limpT, fuse, hitT, the stagger and KRAKEN_CAGE_R')
+  // (m) THE ARENA IS BUILT, NOT CUT TO. Owner, 2026-09-14: "there should be more 'basic enemies'
+  // before the boss, like the blank : 2 or 3 waves, then the boss comes from under you" and
+  // "currently you are 'teleported' to the boss, thats weird and confusing".
+  {
+    const run = createRun(makeMeta(), { chapter: 'kraken', difficulty: 2 })
+    const budget = KRAKEN_OPEN_WAVES * (KRAKEN_WAVE_TIMEOUT + 2) + KRAKEN_ARRIVE_T + 5
+    let guard = 0, sawArrive = false, maxOpen = 0, bossIdxInWaves = 0
+    let minReach = Infinity, maxReach = 0, maxLeash = 0, midReach = 0, killsInArrive = 0
+    let killsAtArriveStart = -1
+    while (run.script.phase !== 'boss' && guard++ < 60 * budget) {
+      run.player.hp = run.player.maxHP
+      stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+      const sc = run.script
+      if (sc.phase === 'wave') { maxOpen = Math.max(maxOpen, sc.openW); bossIdxInWaves = Math.max(bossIdxInWaves, sc.bossIdx) }
+      if (sc.phase === 'arrive') {
+        if (!sawArrive) killsAtArriveStart = run.kills
+        sawArrive = true
+        killsInArrive = run.kills - killsAtArriveStart
+        const h = headOf(run)
+        if (h && run.krakenArms.length) {
+          const r = Math.hypot(run.krakenArms[0].x - h.x, run.krakenArms[0].y - h.y)
+          minReach = Math.min(minReach, r)
+          maxReach = Math.max(maxReach, r)
+          // ...AND IT WAS SEEN IN TRANSIT. The two extremes are both satisfied by code that never
+          // ramps at all: KRAKEN_RING_R is written once on the raise frame and KRAKEN_ARM_REACH is
+          // where krakenArmsToBlock parks a new arm, so a review mutation deleting the whole ramp
+          // passed both of them. This one cannot be: it demands a frame in between.
+          if (r > KRAKEN_ARM_REACH * 1.4 && r < KRAKEN_RING_R * 0.92) midReach = r
+          // THE CAGE COMES IN WITH THE RING. Shove the player far out and see where they are put
+          // back: while the arms are still in the murk the arena has to be big enough to hold them.
+          run.player.x = h.x + 4000
+          run.player.y = h.y
+          stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+          maxLeash = Math.max(maxLeash, Math.hypot(run.player.x - h.x, run.player.y - h.y))
+        }
+      }
+    }
+    assert.strictEqual(run.script.phase, 'boss', `the approach never reached a ring block in ${budget}s`)
+    // THE REQUIREMENT, NOT THE ARITHMETIC. maxOpen === KRAKEN_OPEN_WAVES - 1 holds just as happily
+    // at KRAKEN_OPEN_WAVES = 1, which is the state the owner asked to be changed.
+    assert.ok(KRAKEN_OPEN_WAVES >= 2 && KRAKEN_OPEN_WAVES <= 4,
+      `KRAKEN_OPEN_WAVES is ${KRAKEN_OPEN_WAVES}: the owner asked for "2 or 3 waves, then the boss comes from under you"`)
+    assert.strictEqual(maxOpen, KRAKEN_OPEN_WAVES - 1, `the approach ran ${maxOpen + 1} waves, want ${KRAKEN_OPEN_WAVES}`)
+    assert.strictEqual(bossIdxInWaves, 0, 'an approach wave counted into bossIdx — the Grip gates on bossIdx >= 1 and the Coil on >= 2, so D2 would open the block that teaches the parry with a grab')
+    assert.ok(sawArrive, 'the ring stood up with no arrival phase at all: the player is cut straight to a boss arena')
+    assert.ok(maxReach > KRAKEN_RING_R * 0.9,
+      `the arms never came in from the murk — the widest the ring ever was during the arrival is ${Math.round(maxReach)}px, want about ${KRAKEN_RING_R}`)
+    assert.ok(minReach < KRAKEN_ARM_REACH * 1.35,
+      `the ring never finished closing — the tightest it reached is ${Math.round(minReach)}px against a fighting radius of ${KRAKEN_ARM_REACH}`)
+    assert.ok(midReach > 0,
+      `the ring was never caught between ${Math.round(KRAKEN_ARM_REACH * 1.4)}px and ${Math.round(KRAKEN_RING_R * 0.92)}px — it did not WALK in, it jumped`)
+    // THE CLOSING RING CRUSHES WHAT IT PASSES, and that is paid: it is credited as a kill (this
+    // chapter is scored on kills) and its drops are hauled inside the cage the player is about to
+    // be shut into. Deleting the sweep, and deleting the haul, both used to pass the whole suite.
+    assert.ok(killsInArrive > 0,
+      'the ring closed straight through the graveyard\'s dead without killing any of them — the sweep is what the arrival is a picture OF')
+    {
+      const h = headOf(run)
+      const outside = run.gems.filter((g) => Math.hypot(g.x - h.x, g.y - h.y) > KRAKEN_CAGE_R).length
+      assert.strictEqual(outside, 0,
+        `${outside} of ${run.gems.length} gems were left outside the cage the player is locked into — the arrival kills from KRAKEN_RING_R out and gems do not move, so that xp is simply gone`)
+    }
+    assert.ok(maxLeash > KRAKEN_CAGE_R + 50,
+      `the cage clamped to ${Math.round(maxLeash)}px through the whole arrival — it must ride the ring in (reach + lash) or the player is snapped into a wall that is not there yet`)
+  }
+
+  // (n) AN UNPARRIED SLAM STAYS WHERE IT LANDED. Without the hold the strike had a sound and a ring
+  // and no MOVEMENT — the arm was back at idle on the frame it hit, which is most of why the whole
+  // attack read as a disc on the floor rather than as a tentacle coming down on someone.
+  {
+    const run = inBlock(1)
+    const arm = run.krakenArms[0]
+    for (const a of run.krakenArms) { a.tele = 0; a.gripT = 0 }
+    arm.tele = 1 / 120
+    arm.fuse = R1.fuse
+    run.player.x = arm.x + KRAKEN_LASH_R * 3   // out of reach: this is about the pose, not the damage
+    run.player.y = arm.y
+    run.player.hp = run.player.maxHP
+    run.events.length = 0
+    stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+    assert.strictEqual(run.events.filter((e) => e.type === 'lash').length, 1, 'the wind-up ran out without striking')
+    assert.ok(arm.slamT > 0, 'an arm that slammed went straight back to idle — there is no follow-through for render to hold the limb against')
+    assert.ok(arm.slamT <= KRAKEN_SLAM_T, 'slamT opened longer than KRAKEN_SLAM_T')
+    quiet(run, KRAKEN_SLAM_T + 0.2, { noRear: true })
+    assert.strictEqual(arm.slamT, 0, 'the slam hold never expired — the limb would stay planted for the rest of the fight')
+  }
+
+  console.log('PASS run KR (The Kraken, rev 3): a standing arm is untouchable by all three weapons and puts nothing on the field, a parry makes it LIMP and materialises a real enemy at its tip that weapons do kill, a window closing takes that node away without paying a kill or xp and keeps the damage, finishing it breaks the arm for good, the ring never winds up more arms at once than its rung allows (d1/d2/d3), the head is sealed against hits AND burns until its posture breaks, staggerNeed parried lunges open the only window on it and a burn lit inside outlives it, a whiff reports itself and still pays the cooldown, the cage holds while the ring is up, all 3 rungs read arms/rearing/window/perfect/fuse/limp/cadence/staggerNeed with the windows nested, both hidden chapters resolve through HIDDEN_UNLOCKS with no id hardcoded in main/ui/state, the approach is 3 waves that never touch bossIdx and the ring closes in from the murk with the cage riding it, a sealed head answers every refused hit with a throttled deflect, an unparried slam holds its pose for KRAKEN_SLAM_T, and render.js (comments stripped) reads limpT, fuse, hitT, slamT, the arrival ramp, the recorded arm tips, the stagger pips and the cage radius the sim published')
 }

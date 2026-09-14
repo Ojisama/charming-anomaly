@@ -236,6 +236,8 @@ import {
   KRAKEN_LUNGE_T, KRAKEN_LUNGE_DMG, KRAKEN_RISE_T,
   KRAKEN_COIL_EVERY, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, KRAKEN_COIL_IN, KRAKEN_COIL_DMG,
   KRAKEN_WAVE, KRAKEN_WAVE_GAP, KRAKEN_WAVE_TIMEOUT, KRAKEN_WAVE_XP_MUL,
+  KRAKEN_OPEN_WAVES, KRAKEN_WAVE_GROWTH, KRAKEN_ARRIVE_T, KRAKEN_ARRIVE_T2, KRAKEN_SLAM_T,
+  KRAKEN_DEFLECT_CD,
   // v6.4.2 (owner directive): per-run coin cap
   COIN_CAP_PER_RUN,
   // v6.4.3 (owner directive): opening spawn credit
@@ -1618,7 +1620,12 @@ function stepKrakenScript(run, dt) {
     run.bossBar = null
   }
 
+  // the deflect cooloff — see the krakenDeflect push in dealDamage. Ticked once a frame, in one
+  // place, so a build with six weapons firing cannot spend it six times over.
+  if (s.deflT > 0) s.deflT = Math.max(0, s.deflT - dt)
+
   if (s.phase === 'wave') return stepKrakenWave(run, dt)
+  if (s.phase === 'arrive') return stepKrakenArrive(run, dt, rung, head)
   if (s.phase === 'boss') return stepKrakenBlock(run, dt, rung, head)
   return stepKrakenChase(run, dt, rung, head)
 }
@@ -1635,7 +1642,11 @@ function stepKrakenWave(run, dt) {
     // was measured at 17-19 adds against a cap of 14.
     const alive0 = run.enemies.filter((e) => !e._dead && e.rosterId !== 'krakenHead' && e.rosterId !== 'krakenArm').length
     const room = Math.max(0, KRAKEN_ADD_CAP - alive0)
-    for (let i = 0; i < Math.min(KRAKEN_WAVE.n, room); i++) {
+    // THE APPROACH GETS HEAVIER. The opening is three waves, not one, and each is KRAKEN_WAVE_GROWTH
+    // bigger than the last — the chapter you are in before the boss exists, the way The Blank's is.
+    // One wave meant the Kraken was standing on top of the player eleven seconds into the run.
+    const want = KRAKEN_WAVE.n + (s.armsSpawned ? 0 : s.openW * KRAKEN_WAVE_GROWTH)
+    for (let i = 0; i < Math.min(want, room); i++) {
       const e = spawnBlankEnemy(run, KRAKEN_WAVE.ids[i % KRAKEN_WAVE.ids.length], false, { gapDir, gapArc: KRAKEN_WAVE_GAP })
       if (!e) break // BLANK_MAX_ALIVE — the field is already saturated
       e._wave = true
@@ -1650,6 +1661,13 @@ function stepKrakenWave(run, dt) {
 
   s.spawned = false
   s.waveT = 0
+  // THE APPROACH RUNS ON ITS OWN COUNTER. It must not touch bossIdx: the Grip gates on bossIdx >= 1
+  // and the Coil on >= 2, so counting the opening waves there would hand D2 a grab and D3 a ring
+  // closure inside the block that exists to teach the parry.
+  if (!s.armsSpawned && s.openW < KRAKEN_OPEN_WAVES - 1) {
+    s.openW++
+    return false
+  }
   s.bossIdx++
   krakenPayBanked(run)
   // Standing arms decide what comes next: the opening wave and every block with survivors go back
@@ -1660,9 +1678,106 @@ function stepKrakenWave(run, dt) {
   if (s.armsSpawned && broken >= Math.ceil(s.armsTotal * KRAKEN_RISE_AT)) {
     s.phase = 'chase'
   } else {
+    // ...through the ARRIVAL, never straight into a standing ring. The first one is the reveal and
+    // takes its time; every one after it is the ring coming back, not a cutscene played twice.
+    krakenBeginArrive(run, s.armsSpawned ? KRAKEN_ARRIVE_T2 : KRAKEN_ARRIVE_T)
+  }
+  return false
+}
+
+// THE ARENA IS BUILT IN FRONT OF YOU. Owner, 2026-09-14: "currently you are 'teleported' to the
+// boss, thats weird and confusing. it should be more 'natural', like the boss appearing from under,
+// or tentacles closing in on you from very far away to 'build the boss arena'". Both, in order: the
+// head surfaces UNDER wherever the player is standing, and its arms come in from KRAKEN_RING_R —
+// off the edge of the screen — sweeping the graveyard's dead ahead of them and drawing the cage in
+// behind them. There is no frame on which the ring simply exists.
+function krakenBeginArrive(run, t) {
+  const s = run.script
+  s.phase = 'arrive'
+  s.arriveT = t
+  s.arriveMax = t
+  s.blockKills = 0
+  s.trickleT = KRAKEN_TRICKLE_T
+}
+
+// THE RING'S RADIUS RIGHT NOW, AND THE ONE AUTHOR OF IT. Three things move the arms in and out — the
+// arrival, the chase's rise and the Coil — and rev 3 had each of them writing a.x/a.y at its own
+// call site while render drew the rope between two hardcoded constants. That is how the Coil, "the
+// loudest thing the chapter ever draws", hauled the ring to a third of its reach in the sim and left
+// every tentacle sitting exactly where it was on screen.
+function krakenReach(s) {
+  let k = 1
+  if (s.phase === 'arrive') k = s.arriveMax > 0 ? 1 - s.arriveT / s.arriveMax : 1
+  else if (s.riseT > 0 && KRAKEN_RISE_T > 0) k = 1 - s.riseT / KRAKEN_RISE_T
+  if (k < 1) {
+    const e = 1 - Math.pow(1 - Math.max(0, k), 3) // fast out of the dark, slow as it closes on you
+    return KRAKEN_RING_R + (KRAKEN_ARM_REACH - KRAKEN_RING_R) * e
+  }
+  return KRAKEN_ARM_REACH * krakenCoilMul(s)
+}
+
+// Arms hold their slot angle and ride the ring's radius. Nothing pushes them, nothing pulls them.
+function krakenPlaceArms(run, head, reach) {
+  for (const a of run.krakenArms) {
+    a.x = head.x + Math.cos(a.ang) * reach
+    a.y = head.y + Math.sin(a.ang) * reach
+  }
+}
+
+// Everything the closing ring has already swept over is crushed by it. Progressive, not a frame-1
+// deletion: the sweep IS the arrival's picture, and it is the difference between watching the crowd
+// you were fighting be taken off you and simply finding it gone.
+function krakenSweepOutside(run, head, reach) {
+  let swept = 0
+  for (const e of run.enemies) {
+    if (e._dead || e.rosterId === 'krakenHead' || e.rosterId === 'krakenArm' || isAlly(e)) continue
+    const dx = e.x - head.x, dy = e.y - head.y
+    if (dx * dx + dy * dy >= reach * reach) { dealDamage(run, e, e.hp, false, false, false); swept++ }
+  }
+  if (swept) krakenHaulLoot(run, head)
+  return swept
+}
+
+// ...AND WHAT IT KILLS, IT HAULS IN. The ring starts its sweep at KRAKEN_RING_R and the cage then
+// shuts to KRAKEN_CAGE_R, so a gem dropped by the crush lands up to a thousand pixels outside the
+// arena the player is about to be locked into. Gems only home inside p.magnet and are otherwise
+// static, so that xp is simply gone: measured at the first frame of the first ring block, 20-38 of
+// the arrival's 38-56 xp was stranded on 6 seeds at d3. The kill was already credited — the comment
+// above krakenSweepAdds says "the player is paid for it" and only half of that was true.
+//   The fiction is the same one the sweep already tells: the arms close, and everything on the
+// seabed comes in with them.
+function krakenHaulLoot(run, head) {
+  const inner = KRAKEN_CAGE_R * 0.8
+  for (const list of [run.gems, run.coins]) {
+    for (const g of list) {
+      const dx = g.x - head.x, dy = g.y - head.y
+      const d = Math.hypot(dx, dy)
+      if (d <= inner) continue
+      g.x = head.x + (dx / d) * inner
+      g.y = head.y + (dy / d) * inner
+    }
+  }
+}
+
+function stepKrakenArrive(run, dt, rung, head) {
+  const s = run.script
+  if (!head) {
+    const h = krakenRaiseHead(run, rung, false)
+    if (!h) return false
+    krakenArmsToBlock(run, rung, h)
+    krakenPlaceArms(run, h, KRAKEN_RING_R)
+    run.events.push({ type: 'krakenArrive', x: h.x, y: h.y, t: s.arriveMax })
+    return false
+  }
+  s.arriveT = Math.max(0, s.arriveT - dt)
+  const reach = krakenReach(s)
+  krakenPlaceArms(run, head, reach)
+  krakenCage(run, head, dt)
+  krakenSweepOutside(run, head, reach)
+  if (s.arriveT <= 0) {
     s.phase = 'boss'
-    s.blockKills = 0
-    s.trickleT = KRAKEN_TRICKLE_T
+    krakenSweepAdds(run)                       // whatever slipped inside the ring as it shut
+    s.turnT = krakenCadence(s, rung) * 0.5     // the block opens ON an attack, as it always did
   }
   return false
 }
@@ -1771,7 +1886,7 @@ function krakenArmsToBlock(run, rung, head) {
         x: head.x + Math.cos(ang) * KRAKEN_ARM_REACH,
         y: head.y + Math.sin(ang) * KRAKEN_ARM_REACH,
         hp: KRAKEN_ARM_HP, maxHP: KRAKEN_ARM_HP,
-        tele: 0, fuse: 0, limpT: 0, nodeId: null, dead: false, paid: false, gripT: 0, hitT: 0, breakT: 0,
+        tele: 0, fuse: 0, limpT: 0, nodeId: null, dead: false, paid: false, gripT: 0, hitT: 0, breakT: 0, slamT: 0,
       })
     }
     s.armsSpawned = true
@@ -1843,11 +1958,22 @@ function krakenSweepAdds(run) {
 function krakenCage(run, head, dt = 0) {
   const p = run.player
   const s = run.script
+  // THE WALL IS THE RING'S OWN FAR EDGE, so while the arms are still out in the murk the arena is
+  // huge and it closes around the player rather than snapping shut on them. It never shrinks BELOW
+  // KRAKEN_CAGE_R: the Coil hauls the arms inward, and a cage that followed them in would shove the
+  // player toward the centre in the middle of the one move whose answer is "run to the gap".
+  const cageR = Math.max(KRAKEN_CAGE_R, krakenReach(s) + KRAKEN_LASH_R)
+  // ...AND IT IS PUBLISHED, because it is no longer a constant and render cannot recompute it.
+  // Measured on the suite's own arrival fixture: the sim stopped the player at 764px while render
+  // drew the taut skin at KRAKEN_CAGE_R, 350 — 414px behind them, off the edge of a phone. For the
+  // 3.4s of the first arrival, 1.5s of every later one and the 2.6s of the chase's rise, this was
+  // exactly the invisible wall this block's own comment calls worse than no wall.
+  s.cageR = cageR
   const ox = p.x - head.x, oy = p.y - head.y
   const od = Math.hypot(ox, oy)
-  if (od > KRAKEN_CAGE_R) {
-    p.x = head.x + (ox / od) * KRAKEN_CAGE_R
-    p.y = head.y + (oy / od) * KRAKEN_CAGE_R
+  if (od > cageR) {
+    p.x = head.x + (ox / od) * cageR
+    p.y = head.y + (oy / od) * cageR
     s.cageT = 0.18 // render lights the membrane where it is being leaned on
   } else if (s.cageT > 0) s.cageT = Math.max(0, s.cageT - dt)
 }
@@ -1875,12 +2001,7 @@ function krakenCoilStep(run, dt, rung, head) {
     // 4 of 6 against a cap of 2, i.e. the exact all-at-once the cap exists to prevent. The ring
     // resumes handing out turns like any other beat.
     if (s.coilT <= 0) { s.coilT = 0; s.turnT = krakenCadence(s, rung); for (const a of run.krakenArms) if (!a.dead) { a.tele = 0; a.fuse = 0 } }
-    for (const a of run.krakenArms) {
-      if (a.dead) continue
-      const r = KRAKEN_ARM_REACH * krakenCoilMul(s)
-    a.x = head.x + Math.cos(a.ang) * r
-    a.y = head.y + Math.sin(a.ang) * r
-  }
+  krakenPlaceArms(run, head, krakenReach(s))
   return false
 }
 
@@ -1903,15 +2024,18 @@ function stepKrakenArms(run, dt, rung, head) {
   // `rung.rearing` arms may be rearing, and a new turn is handed out every `rung.cadence` seconds
   // to a random arm that is standing, idle and not already busy. Concurrency is now a number in
   // the rung table, which is where a readability decision belongs.
+  // Arms hold their slot. They are architecture, not creatures: nothing pushes them, nothing pulls
+  // them, and they never walk at the player. Through krakenPlaceArms, which is the one author —
+  // this loop carried its own copy of the same three lines, and the two copies had already drifted
+  // over whether a DEAD arm is placed.
+  krakenPlaceArms(run, head, krakenReach(s))
   for (const a of run.krakenArms) {
     if (a.breakT > 0) a.breakT = Math.max(0, a.breakT - dt)
     if (a.hitT > 0) a.hitT = Math.max(0, a.hitT - dt)
+    // the follow-through of a slam that connected with the seabed. Render holds the limb planted
+    // against it — a strike that snapped back to idle on the same frame it landed had no impact.
+    if (a.slamT > 0) a.slamT = Math.max(0, a.slamT - dt)
     if (a.dead) continue
-    // Arms hold their slot. They are architecture, not creatures: nothing pushes them, nothing
-    // pulls them, and they never walk at the player.
-    const reach = KRAKEN_ARM_REACH * krakenCoilMul(s)
-    a.x = head.x + Math.cos(a.ang) * reach
-    a.y = head.y + Math.sin(a.ang) * reach
 
     // THE LIMP WINDOW — the whole point of the rebuild. A parried arm hangs slack and EXPOSED, and
     // this is the only state in which any weapon in the game can hurt it (see dealDamage). It ends
@@ -1947,6 +2071,7 @@ function stepKrakenArms(run, dt, rung, head) {
     // THE STRIKE LANDS, unparried. The arm goes straight back to idle — it does not re-arm itself,
     // because the ring owns the cadence now.
     a.tele = 0
+    a.slamT = KRAKEN_SLAM_T
     s.gripN++
     run.events.push({ type: 'lash', x: a.x, y: a.y, r: KRAKEN_LASH_R })
     const dx = p.x - a.x
@@ -2057,12 +2182,11 @@ function stepKrakenArms(run, dt, rung, head) {
 function stepKrakenBlock(run, dt, rung, head) {
   const p = run.player
   const s = run.script
+  // THE RING ONLY EVER ENTERS THROUGH THE ARRIVAL. There is no path left that stands it up on a
+  // single frame; anything that lands here without a head (a probe forcing the phase, a block whose
+  // head was taken off between steps) goes back through the short one rather than popping.
   if (!head) {
-    const h = krakenRaiseHead(run, rung, false)
-    if (h) {
-      krakenArmsToBlock(run, rung, h)
-      krakenSweepAdds(run)
-    }
+    krakenBeginArrive(run, KRAKEN_ARRIVE_T2)
     return false
   }
 
@@ -2116,8 +2240,15 @@ function stepKrakenChase(run, dt, rung, head) {
     s.riseT = Math.max(0, s.riseT - dt)
     head.speed = 0
     head.dmg = 0
+    // THE ARMS COME UP WITH IT. The chase is entered out of a breather, so the ring is back in the
+    // murk and has to be brought in — the same closing sweep the arrival uses, around a head that is
+    // surfacing under the player. Rev 3 left every arm parked around the PREVIOUS head's position
+    // for the whole 2.6s rise, so the tips, the telegraphs and the wound were all in open water.
+    // NO SWEEP HERE. krakenSweepAdds already emptied the field on the raise frame and nothing
+    // spawns during the chase, so a second sweep is a loop over a list that cannot match.
+    krakenPlaceArms(run, head, krakenReach(s))
     // the cage still holds through the rise — 2.6s of unclamped swimming reached 1501px
-    krakenCage(run, head)
+    krakenCage(run, head, dt)
     return false
   }
   // A STAGGERED HEAD IS STILL AND OPEN. This is the fight's only damage window on the head, and it
@@ -8312,7 +8443,25 @@ function dealDamage(run, enemy, dmg, crit, dot = false, hazard = false, carried 
   // burst: the window buys you a fuse rather than a swing, and the fuse outlives the window.
   //   The LIGHTING of it is gated here and in the four other places a status can be planted — see
   // krakenHeadSealed, which is the one author of that rule.
-  if (!carried && krakenHeadSealed(run, enemy)) return
+  if (!carried && krakenHeadSealed(run, enemy)) {
+    // ...AND IT HAS TO SAY SO. A refused hit returned in silence — no number, no flash, no sound —
+    // which from the seat is indistinguishable from a weapon that does not work and from a boss that
+    // cannot be hurt at all. Owner, 2026-09-14: "the kraken head is invincible ? or it's not clear
+    // enough that you can hit it? when it chases you". Throttled on the script's own cooloff.
+    // ONLY IN THE CHASE. During a ring block the head is not a sprite at all — render hides it and
+    // draws the silhouette far below, parallax-lerped a third of the way toward the player — so a
+    // spark and a clang fired there come out of open water 43px (median, 117 max) from anything
+    // visible. Measured 12-19 of those per fight before this gate, against 30-43 honest ones. The
+    // owner's question was about the chase, and the ring blocks' whole conceit is that the head is
+    // a long way down.
+    const sc = run.script
+    if (sc && sc.phase === 'chase' && !(sc.deflT > 0)) {
+      sc.deflT = KRAKEN_DEFLECT_CD
+      const ang = Math.atan2(run.player.y - enemy.y, run.player.x - enemy.x)
+      run.events.push({ type: 'krakenDeflect', ang, x: enemy.x + Math.cos(ang) * enemy.radius, y: enemy.y + Math.sin(ang) * enemy.radius })
+    }
+    return
+  }
   // Shielded (elite affix): while above SHIELD_HP_FRAC of maxHP, the shield absorbs part
   // of every hit. Checked before venom amp per spec (shield softens the raw hit first).
   if (enemy.elite && enemy.affixes && enemy.affixes.includes('shielded') && enemy.hp > enemy.maxHP * SHIELD_HP_FRAC) {

@@ -1,4 +1,4 @@
-// Procedural WebAudio SFX, no assets. Names: shoot, hit, kill, gem, coin,
+// Procedural WebAudio SFX, no assets. Names: shoot, hit, kill, gem, coin, clang, surge,
 // levelup, hurt, death, victory, click, buy, explode, zap, hole, beam, crush,
 // bossRise, bossFall, siren.
 
@@ -138,6 +138,22 @@ const SFX = {
     tone(48, { type: 'sine', dur: 0.85, gain: 0.20, slide: 96 })
     tone(72, { type: 'triangle', dur: 0.75, gain: 0.07, slide: 130 })
     noise({ dur: 0.30, gain: 0.035 })
+  },
+  // THE SEALED HEAD REFUSING A HIT (2026-09-14). Short, hard, falling — and deliberately nothing
+  // like hit(), because the entire job of this note is to NOT be mistaken for damage landing. At
+  // KRAKEN_DEFLECT_CD it ticks about three times a second while a build pours into a shut boss,
+  // which is a geiger counter rather than a weapon, and that is the read: nothing is going in.
+  clang() {
+    tone(1500, { type: 'square', dur: 0.05, gain: 0.045, slide: 820 })
+    noise({ dur: 0.035, gain: 0.04 })
+  },
+  // THE ARENA ARRIVING (2026-09-14): the floor opening under the player as the Kraken comes up and
+  // its ring starts its walk in from off-screen. Long and rising, so it reads as something on its
+  // way rather than as an impact — bossRise is kept back for the head's own reveal in the chase.
+  surge() {
+    tone(38, { type: 'sine', dur: 1.2, gain: 0.22, slide: 150 })
+    tone(57, { type: 'triangle', dur: 1.0, gain: 0.06, slide: 190 })
+    noise({ dur: 0.5, gain: 0.05 })
   },
   crush() {
     tone(70, { type: 'sine', dur: 0.09, gain: 0.26, slide: 32 })

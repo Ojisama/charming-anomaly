@@ -2269,7 +2269,7 @@ function generateWells(sig) {
  *   borrowed) reads detonate it, and every `pastSeek` creature aims at a sample behind its newest
  *   end. The pastSeek read is guarded, so an empty buffer degrades that flag to a plain seek in
  *   silence — which is exactly what it did everywhere but The Blank for the whole life of the flag.
-  *   ...same shape, extended for The Kraken (stepKrakenScript): phase ('wave'|'boss'|'chase') is the
+  *   ...same shape, extended for The Kraken (stepKrakenScript): phase ('wave'|'arrive'|'boss'|'chase') is the
   *   block state machine; bossIdx counts finished arm blocks; blockKills is arms down THIS block (the
   *   block ends at 2); armsSpawned marks the ring's first go-out; headId is the head's run.enemies id
   *   while it is ON the field, and null between blocks. Blank never reads these, The Kraken never
@@ -2289,6 +2289,14 @@ function generateWells(sig) {
   *       timer made the Grip a cameo (1 per fight, measured), because once the ring is worn down a
   *       late block lasts 2-6s and the timer never came round.
   *     trickleT — countdown to the next arrival of the late-block trickle of graveyard dead.
+  *     openW — which APPROACH wave the fight is on, 0..KRAKEN_OPEN_WAVES-1. Its own counter and not
+  *       bossIdx, because the Grip gates on bossIdx >= 1 and the Coil on >= 2: counting the opening
+  *       waves there would put a grab in the block that exists to teach the parry.
+  *     arriveT / arriveMax — the 'arrive' phase's clock. The ring closes from KRAKEN_RING_R (off
+  *       screen) to KRAKEN_ARM_REACH across it, sweeping the field ahead of it and drawing the cage
+  *       in behind it, so the arena is BUILT rather than cut to. krakenReach() is the one reader.
+  *     deflT — cooloff between deflect sparks off a SEALED head. A full build lands dozens of
+  *       refused hits a second; without this the answer to "can I hurt it" would be a strobe.
   *     opened — has the fight set its opening Light level yet. createRun hands every resource
   *       chapter a FULL bar, and the Kraken opens readable-but-not-full instead; this runs BEFORE
   *       `charged` is latched each frame, because a full bar on frame 1 would otherwise arm the
@@ -2307,10 +2315,16 @@ function generateWells(sig) {
   *       open window, and that window is the only time the head can be damaged at all. A
   *       part-filled stagger drains after staggerDecay seconds of no parry, so it cannot be banked.
   *     cageT — >0 for a moment after the player pressed against the ring's wall. Render lights the
-  *       membrane off it. The wall is KRAKEN_CAGE_R — ARM_REACH + LASH_R, i.e. the far edge of what
-  *       the ring can actually hit, so no point inside the arena is out of reach of it. It holds
-  *       WHENEVER THE HEAD IS ON THE FIELD, which since the mid-fight rise includes the chase; only
-  *       a breather is open water, because that is the one phase the head really leaves.
+  *       membrane off it. It holds WHENEVER THE HEAD IS ON THE FIELD, which since the mid-fight
+  *       rise includes the chase; only a breather is open water, because that is the one phase the
+  *       head really leaves.
+  *     cageR — WHERE that wall is, this frame, published for render. Its floor is KRAKEN_CAGE_R
+  *       (ARM_REACH + LASH_R, the far edge of what the ring can actually hit, so no point inside
+  *       the arena is out of its reach) but while the arms are still closing in it is wider, so the
+  *       arena shuts around the player instead of snapping onto them. render.js CANNOT recompute
+  *       this — krakenReach is sim-side — and drawing the membrane at the bare constant put the lit
+  *       skin 414px behind a player leaning on the real wall, which is an invisible wall with a
+  *       decoration somewhere else.
   *     coilT / coilGap — P3, D3 only. coilT counts the wind-up and then the closure; coilGap is the
   *       world angle of the ONE sector the ring does not sweep. Deliberately not parryable: a verb
   *       that answers every pattern stops being a decision.
@@ -2332,7 +2346,11 @@ function generateWells(sig) {
   *   and nothing throws. Out here, all of those exclusions are structural instead of remembered.
   *   The HEAD is the opposite call and stays an ordinary enemy: it is a real creature you kill, so
   *   it takes weapon damage, drives the boss bar and pays out on death.
-  *   Each arm: { i, ang, x, y, hp, maxHP, tele, fuse, limpT, nodeId, dead, paid, gripT, hitT, breakT }.
+  *   Each arm: { i, ang, x, y, hp, maxHP, tele, fuse, limpT, nodeId, dead, paid, gripT, hitT, breakT, slamT }.
+  *     slamT — the follow-through of an unparried slam: >0 while the limb is still planted where it
+  *             landed. Render holds the pose against it. A strike that went back to idle on the
+  *             frame it landed had a sound and a ring and no MOVEMENT, which is most of why the
+  *             wind-up read as a disc on the floor rather than as a tentacle coming down on you.
   *     paid — has this arm ever paid its level. The enrage hauls broken arms back up, so an arm can
   *            be broken more than once and `dead` is no longer monotonic; without this each one
   *            paid twice.
@@ -2807,6 +2825,7 @@ export function createRun(meta, opts = {}) {
           phase: 'wave', bossIdx: 0, blockKills: 0, armsSpawned: false, headId: null,
           headHp: 0, armsTotal: 0, bankedLevels: 0, gripN: 0, trickleT: 0, charged: false, opened: false,
           riseT: 0, coilT: 0, coilGap: 0, cageT: 0, turnT: 0, stagger: 0, staggerT: 0, staggerDecay: 0,
+          openW: 0, arriveT: 0, arriveMax: 0, deflT: 0, cageR: 0,
           enraged: false }
       : null,
     // The tentacle ring — see the doc block above for why an arm is NOT an enemy. Empty and inert

@@ -8597,7 +8597,7 @@ CHAPTERS.kraken = {
   signature: null,
   roster: [
     { id: 'krakenWall',  archetype: 'tank',   name: 'The Bulkhead',  hpMul: 1.7, speedMul: 0.25, flags: [] },
-    { id: 'krakenDart',  archetype: 'fast',   name: 'The Gaff',      hpMul: 0.8, speedMul: 1.1,  flags: ['dashBurst'] },
+    { id: 'krakenDart',  archetype: 'fast',   name: 'The Gaff',      hpMul: 0.8, speedMul: 1.1,  flags: ['weave'] },
     { id: 'krakenSnare', archetype: 'normal', name: 'The Tentacle',  hpMul: 1.3, speedMul: 0.85, flags: ['latch'] },
     { id: 'krakenHead',  archetype: 'tank',   name: 'The Kraken',    hpMul: 1,   speedMul: 1,    flags: [], formationOnly: true },
     // `krakenArm` IS AN IDENTITY, NOT A SPAWNABLE. Since rev 2 an arm is not an enemy and never
@@ -8888,6 +8888,26 @@ export const KRAKEN_COIL_DUR = 0.9 // s the ring spends hauled in
 export const KRAKEN_COIL_IN = 0.34 // the fraction of KRAKEN_ARM_REACH the arms close to
 export const KRAKEN_COIL_DMG = 30 // caught outside the gap when it shuts
 export const KRAKEN_WAVE = { n: 6, ids: ['krakenDart', 'krakenSnare', 'krakenWall'] }
+// balance_decision : three graveyard waves before the Kraken surfaces [2026-09-14]
+//  - the opening waves chain on their own counter (script.openW), NOT on bossIdx: the Grip and the
+//    Coil gate off bossIdx, so counting them there would hand D2 a grab in its first ring block.
+export const KRAKEN_OPEN_WAVES = 3
+export const KRAKEN_WAVE_GROWTH = 2 // extra dead per opening wave — 6, then 8, then 10
+// THE ARENA IS BUILT, NOT CUT TO. Rev 3 raised the head under the player and stood the whole ring
+// up on one frame, which reads as being teleported into a boss room (owner, 2026-09-14: "currently
+// you are 'teleported' to the boss, thats weird and confusing"). The arms now come from
+// KRAKEN_RING_R — off-screen — and close to KRAKEN_ARM_REACH over these seconds, sweeping the field
+// as they pass and drawing the cage in behind them.
+// KRAKEN_RING_R is off the edge of a PHONE (620 against a 465px half-diagonal) and only just past
+// the edge of a 1280-wide desktop (half-width 640), so on a big screen the walk-in starts at the
+// rim rather than out of the dark. Stated rather than fixed: RING_R is also KRAKEN_BLAZE_R, and
+// moving it to suit one viewport would resize the bar's flash on both.
+export const KRAKEN_ARRIVE_T = 3.4  // the first time: the reveal
+export const KRAKEN_ARRIVE_T2 = 1.5 // every block after it: the ring coming back, not a cutscene
+export const KRAKEN_SLAM_T = 0.30   // s an unparried arm stays planted where it landed
+// A SEALED HEAD HAS TO SAY NO. Seconds between deflect sparks while weapons pound a head that is
+// not staggered — a full build lands dozens of hits a second and a spark per bullet is a strobe.
+export const KRAKEN_DEFLECT_CD = 0.28
 export const KRAKEN_WAVE_GAP = Math.PI / 2 // the gap door: a quarter-turn of the ring spawns empty
 export const KRAKEN_WAVE_TIMEOUT = 12 // s, then the wave advances regardless — a breather, not a fight
 export const KRAKEN_WAVE_XP_MUL = 1.5

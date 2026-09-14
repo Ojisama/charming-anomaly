@@ -720,6 +720,11 @@ const SFX_FOR_EVENT = {
   // ring, rare enough to bear a voice and important enough to need one — it is the only pattern
   // with no button answer, so it must be audible before it is visible.
   headRise: 'bossRise', coilWind: 'siren', coilClose: 'crush',
+  // krakenArrive is the arena being built — twice a fight at most, so it comfortably clears the
+  // rarity bar. krakenDeflect is a hit the SEALED head refused: it is throttled in sim on
+  // KRAKEN_DEFLECT_CD precisely so it can carry a voice, and the voice is the answer to the
+  // question that produced it ("the kraken head is invincible ?"). Nothing is going in.
+  krakenArrive: 'surge', krakenDeflect: 'clang',
 }
 
 function endRun(victory) {
