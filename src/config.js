@@ -8815,6 +8815,9 @@ export const KRAKEN_LASH_R = 150 // px the arm's slam reaches around its tip
 // `scripted: true` exempting the chapter from the survival clock. Unloseable and unwinnable at once.
 // The wall now stands exactly at the edge of the threat envelope: nowhere inside it is safe.
 export const KRAKEN_CAGE_R = KRAKEN_ARM_REACH + KRAKEN_LASH_R
+// Where the closing ring puts the loot it is shutting the player away from — comfortably inside
+// the wall, so a gem is walkable-to rather than pinned against it.
+export const KRAKEN_HAUL_R = KRAKEN_CAGE_R * 0.8
 // Same reasoning as the lunge: the ring throws one of these every rung.cadence, and the player is
 // meant to be learning which one to answer.
 export const KRAKEN_LASH_DMG = 19 // an un-parried slam's damage
@@ -8889,8 +8892,8 @@ export const KRAKEN_COIL_IN = 0.34 // the fraction of KRAKEN_ARM_REACH the arms 
 export const KRAKEN_COIL_DMG = 30 // caught outside the gap when it shuts
 export const KRAKEN_WAVE = { n: 6, ids: ['krakenDart', 'krakenSnare', 'krakenWall'] }
 // balance_decision : three graveyard waves before the Kraken surfaces [2026-09-14]
-//  - the opening waves chain on their own counter (script.openW), NOT on bossIdx: the Grip and the
-//    Coil gate off bossIdx, so counting them there would hand D2 a grab in its first ring block.
+//  - the opening waves chain on their own counter (script.openW), NOT on bossIdx: the Coil gates on
+//    bossIdx >= 2, so counting them there would pull D3's ring closure a whole block earlier.
 export const KRAKEN_OPEN_WAVES = 3
 export const KRAKEN_WAVE_GROWTH = 2 // extra dead per opening wave — 6, then 8, then 10
 // THE ARENA IS BUILT, NOT CUT TO. Rev 3 raised the head under the player and stood the whole ring

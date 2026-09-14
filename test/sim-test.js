@@ -34510,21 +34510,26 @@ function runKraken() {
     const node = nodesOf(run)[0]
     node.hp = node.maxHP * 0.4
     const kills0 = run.kills
+    // CLEAR THE FLOOR, rather than trying to subtract it. The control this replaces was a twin run
+    // drawn from a LATER point in the RNG stream, and it measured 0 on all 14 seeds tried — so the
+    // assertion was really `paid <= 0` with a reassuring number printed next to it. Meanwhile the
+    // real run had started standing in a heap: the approach pays three waves now and krakenHaulLoot
+    // drops everything at KRAKEN_HAUL_R, 280px from the head, while parryAt parks the player at 200.
+    // Ambient pickup made this go red on 3 of 14 seeds — a FALSE RED waiting for any future edit
+    // that re-phases the stream, which is the worst shape a ship gate can be in.
+    run.gems.length = 0
     const xp0 = run.player.xp
-    // what the floor alone is worth over the same window, measured on a twin run with no node
-    const ctl = inBlock(1)
-    const cx = ctl.player.xp
-    quiet(ctl, 0.5, { noRear: true })
-    const gemXpInWindow = ctl.player.xp - cx
     arm.limpT = 0.01
     quiet(run, 0.5, { noRear: true })
     assert.strictEqual(nodesOf(run).length, 0, 'the exposed limb stayed on the field after its window shut')
     assert.strictEqual(run.kills, kills0, 'an unfinished limb paid a KILL when its window closed')
-    // XP is compared against a control that does the SAME 0.5s with no node in play, so a gem the
-    // player happens to vacuum in that window cannot be mistaken for the node paying out. A bare
-    // equality against xp0 measured the floor as much as the limb.
-    assert.ok(run.player.xp - xp0 <= gemXpInWindow,
-      `an unfinished limb paid ${run.player.xp - xp0} xp when its window closed, against ${gemXpInWindow} attributable to gems already on the floor`)
+    // BOTH HALVES, because xp alone can hide the payout: dealDamage's death branch drops a GEM, and
+    // a gem that has not been vacuumed yet has paid no xp. On a floor cleared to zero, a single gem
+    // appearing is the node having died.
+    assert.strictEqual(run.player.xp, xp0,
+      `an unfinished limb paid ${run.player.xp - xp0} xp when its window closed, on a floor with no gems on it at all`)
+    assert.strictEqual(run.gems.length, 0,
+      `${run.gems.length} gems appeared when an unfinished limb's window closed — the node ran the death branch and dropped loot`)
     assert.ok(arm.hp < arm.maxHP * 0.5, 'the damage done to an exposed limb was thrown away when the window shut — two windows must add up')
     assert.ok(!arm.dead, 'the arm broke without ever being finished')
   }
@@ -34612,7 +34617,6 @@ function runKraken() {
     }
     assert.ok(h, 'the head never rose for the chase')
     h.maxHP = h.hp = 1e9
-    run.weapons = [{ id: 'skippingShell', level: 5 }]
     const sealedHp = h.hp
     // FOUR WEAPONS, NOT ONE. With a single skippingShell the rig lands ~1.75 refused hits a second,
     // which is already under the cooloff — so the throttle is never the binding constraint and any
@@ -34764,21 +34768,33 @@ function runKraken() {
     const src = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
       .replace(/\/\/[^\n]*/g, ' ')
       .replace(/\/\*[\s\S]*?\*\//g, ' ')
-    // ...and each needle names a USE, not an identifier: a declaration, an import and a clear in
-    // reset() are all occurrences of a name that nothing draws with.
+    // ...AND EVERY NEEDLE IS THE DRAW ITSELF, MATCHED EXACTLY ONCE. Naming the FIELD was the second
+    // version of this lint and it was theatre: a reviewer's mutation table neutered each feature at
+    // its own draw site — the press ring put back on the arm's target, the membrane drawn at the
+    // bare constant again, the tear deleted, the stagger window deleted, the pips drawn dark either
+    // way — and 8 of the 10 needles stayed green, because `a.fuse` occurs 8 times in this file,
+    // `a.limpT > 0` 4, `s.staggerT > 0` 3 and `a.slamT > 0` 3. A needle that matches a field
+    // matches whichever of its uses survives.
+    //   The === 1 is the load-bearing half and it defends itself: a needle that starts matching
+    // somewhere else fails AS A NEEDLE, here, instead of quietly guarding the wrong line. If one of
+    // these trips on an innocent edit, re-aim it at the new draw — do not relax it to includes().
     for (const [needle, why] of [
-      ['a.limpT > 0', 'an EXPOSED limb has no tell — the whole reward for a parry is invisible'],
-      ['a.fuse', 'the wind-up has no clock on screen, so an attack arrives out of a uniform glow'],
-      ['a.hitT > 0', 'a parry landing on an arm has no tell on the arm'],
-      ['s.staggerT > 0', "the head's one damage window is not drawn"],
-      ['k < s.stagger', "the head's posture pips are not filled, so filling the stagger is invisible"],
-      ['s.cageR > 0 ? s.cageR', 'the ring wall is drawn from its own constant instead of the radius the sim actually clamped to — which is wider for the whole arrival'],
-      ['a.slamT > 0', 'a slam that landed has no pose: the limb snaps back to idle the frame it hits'],
-      ['1 - s.arriveT / s.arriveMax', 'the arrival is not drawn, so the ring appears standing and the player is cut to a boss arena'],
-      ['krakenTips[a.i] = ', 'render never records where it is drawing an arm'],
-      ['krakenTips[a.i] ||', "the press-here ring is drawn at the arm's TARGET, which is up to 110px from where the reared limb actually is"],
+      ['const HW = KRAKEN_ARM_R * 1.45 * 0.5', 'the TEAR is gone — the whole reward for a parry is invisible on the limb it was won on'],
+      ['mix(0x7fd7ee, 0xbfe9f7, 0.5 + 0.5 * Math.sin(animT * 4))', 'an EXPOSED limb is not tinted, so the one state any weapon can hurt looks like every other state'],
+      ['const urg = 1 - Math.max(0, a.tele) / a.fuse', 'the wind-up has no clock on the ground, so an attack arrives out of a uniform glow'],
+      ['mix(0xffffff, 0xdff8ff, 1 - a.hitT / KRAKEN_LIMP_FLASH)', 'a parry landing on an arm has no flash on the arm'],
+      ['alpha: 0.06 + 0.10 * k', "the head's one damage window is not drawn"],
+      ['color: k < s.stagger ? 0xffffff : 0x2b3f4e', "the posture pips are drawn dark whether they are filled or not, so filling the stagger is invisible"],
+      ['teleG.arc(head.x, head.y, wallR - b * 9', 'the ring wall is DRAWN at its own constant instead of the radius the sim clamped to — 414px behind the player for the whole arrival'],
+      ['if (a.slamT > 0) return 0', 'a slam that landed has no pose: the limb snaps back to idle on the frame it hits'],
+      ['const bounce = a.slamT > 0 ?', 'a slam that landed does not settle — the follow-through is computed and never drawn'],
+      ['const ga = 0.2 + 0.8 * grow', 'the arrival is not FADED in: the mass is at full opacity on frame 1'],
+      ['const R0 = KRAKEN_HEAD_R * 2.9 * (0.4 + 0.6 * grow)', 'the arrival is not GROWN: the silhouette pops to full size on frame 1 and the player is cut to a boss arena'],
+      ['krakenTips[a.i] = { x: rig.pts[K_ROPE_N - 1].x', "render records something other than the tip it actually drew — record a.x and the press ring is back on the arm's target"],
+      ['teleG.circle(tip.x, tip.y, KRAKEN_ARM_R *', "the press-here ring is drawn somewhere other than the recorded tip, i.e. up to 110px from where the reared limb is"],
     ]) {
-      assert.ok(src.includes(needle), `render.js never reads ${needle}: ${why}`)
+      const n = src.split(needle).length - 1
+      assert.strictEqual(n, 1, `render.js has ${n} matches for \`${needle}\` (want exactly 1): ${why}`)
     }
   }
 
@@ -34790,7 +34806,7 @@ function runKraken() {
     const budget = KRAKEN_OPEN_WAVES * (KRAKEN_WAVE_TIMEOUT + 2) + KRAKEN_ARRIVE_T + 5
     let guard = 0, sawArrive = false, maxOpen = 0, bossIdxInWaves = 0
     let minReach = Infinity, maxReach = 0, maxLeash = 0, midReach = 0, killsInArrive = 0
-    let killsAtArriveStart = -1
+    let killsAtArriveStart = -1, maxCageR = 0
     while (run.script.phase !== 'boss' && guard++ < 60 * budget) {
       run.player.hp = run.player.maxHP
       stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
@@ -34816,6 +34832,7 @@ function runKraken() {
           run.player.y = h.y
           stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
           maxLeash = Math.max(maxLeash, Math.hypot(run.player.x - h.x, run.player.y - h.y))
+          maxCageR = Math.max(maxCageR, sc.cageR || 0)
         }
       }
     }
@@ -34825,7 +34842,7 @@ function runKraken() {
     assert.ok(KRAKEN_OPEN_WAVES >= 2 && KRAKEN_OPEN_WAVES <= 4,
       `KRAKEN_OPEN_WAVES is ${KRAKEN_OPEN_WAVES}: the owner asked for "2 or 3 waves, then the boss comes from under you"`)
     assert.strictEqual(maxOpen, KRAKEN_OPEN_WAVES - 1, `the approach ran ${maxOpen + 1} waves, want ${KRAKEN_OPEN_WAVES}`)
-    assert.strictEqual(bossIdxInWaves, 0, 'an approach wave counted into bossIdx — the Grip gates on bossIdx >= 1 and the Coil on >= 2, so D2 would open the block that teaches the parry with a grab')
+    assert.strictEqual(bossIdxInWaves, 0, 'an approach wave counted into bossIdx — the Coil gates on bossIdx >= 2, so three opening waves would pull D3 ring closure a whole block earlier')
     assert.ok(sawArrive, 'the ring stood up with no arrival phase at all: the player is cut straight to a boss arena')
     assert.ok(maxReach > KRAKEN_RING_R * 0.9,
       `the arms never came in from the murk — the widest the ring ever was during the arrival is ${Math.round(maxReach)}px, want about ${KRAKEN_RING_R}`)
@@ -34838,14 +34855,49 @@ function runKraken() {
     // be shut into. Deleting the sweep, and deleting the haul, both used to pass the whole suite.
     assert.ok(killsInArrive > 0,
       'the ring closed straight through the graveyard\'s dead without killing any of them — the sweep is what the arrival is a picture OF')
-    {
-      const h = headOf(run)
-      const outside = run.gems.filter((g) => Math.hypot(g.x - h.x, g.y - h.y) > KRAKEN_CAGE_R).length
-      assert.strictEqual(outside, 0,
-        `${outside} of ${run.gems.length} gems were left outside the cage the player is locked into — the arrival kills from KRAKEN_RING_R out and gems do not move, so that xp is simply gone`)
-    }
     assert.ok(maxLeash > KRAKEN_CAGE_R + 50,
       `the cage clamped to ${Math.round(maxLeash)}px through the whole arrival — it must ride the ring in (reach + lash) or the player is snapped into a wall that is not there yet`)
+    // ...AND IT IS BOUNDED, which the clause above cannot tell from the cage being absent entirely:
+    // a review mutation deleted krakenCage from the arrival, the player swam to 4000px, and
+    // 4000 > 400 passed.
+    assert.ok(maxLeash <= KRAKEN_RING_R + KRAKEN_LASH_R + 2,
+      `the player reached ${Math.round(maxLeash)}px during the arrival, past the widest the ring ever is (${KRAKEN_RING_R + KRAKEN_LASH_R}) — there is no wall there at all`)
+    // ...AND THE SIM PUBLISHES IT. render reads s.cageR (linted above); nothing asserted anyone
+    // writes it. Delete the publish and the membrane silently returns to the constant.
+    assert.ok(maxCageR > KRAKEN_CAGE_R,
+      `script.cageR never rose above KRAKEN_CAGE_R during the arrival (peak ${Math.round(maxCageR)}) — render has nothing to draw the moving wall from`)
+    assert.ok(Math.abs(maxCageR - maxLeash) < 2,
+      `the sim clamped the player at ${Math.round(maxLeash)}px while publishing ${Math.round(maxCageR)} — the wall render draws is not the wall the sim holds`)
+  }
+
+  // (m2) ...AND THE ARMS BRING THE FLOOR IN WITH THEM. A SEPARATE RIG, because this question and
+  // the sweep above cannot be asked of the same player. (m) is stationary with the starter, so its
+  // waves time out with enemies still alive and the closing ring has a crowd to crush — which is
+  // what makes its killsInArrive assertion reachable, and also exactly why it could never see this
+  // bug: the haul used to hang off that sweep's kill count, so a rig that always swept always
+  // hauled. A player who KILLS their waves leaves nothing outside the ring and three waves of gems
+  // on the seabed where they died, and the head then surfaces under them and shuts a 350px cage
+  // around it. Measured on this fixture with the haul removed: 16 of 22 gems stranded.
+  //   (An earlier draft asked both questions of this one rig. On 1 seed in 14 the build emptied the
+  // field before the ring closed, so the sweep had nothing to crush and killsInArrive went red —
+  // a false red about the sweep, produced by a rig built for the haul.)
+  {
+    const run = createRun(makeMeta(), { chapter: 'kraken', difficulty: 2 })
+    run.weapons = [{ id: 'sunspear', level: 5 }, { id: 'skippingShell', level: 5 }]
+    const budget = KRAKEN_OPEN_WAVES * (KRAKEN_WAVE_TIMEOUT + 2) + KRAKEN_ARRIVE_T + 5
+    let guard = 0
+    while (run.script.phase !== 'boss' && guard++ < 60 * budget) {
+      run.player.hp = run.player.maxHP
+      stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+    }
+    assert.strictEqual(run.script.phase, 'boss', `the approach never reached a ring block in ${budget}s`)
+    const h = headOf(run)
+    assert.ok(h, 'no head at the end of the arrival')
+    assert.ok(run.gems.length > 0,
+      'the approach paid no gems at all on a wave-clearing build — this fixture cannot see the haul either way')
+    const outside = run.gems.filter((g) => Math.hypot(g.x - h.x, g.y - h.y) > KRAKEN_CAGE_R).length
+    assert.strictEqual(outside, 0,
+      `${outside} of ${run.gems.length} gems were left outside the ${KRAKEN_CAGE_R}px cage the player is locked into — gems do not move, so that xp is simply gone`)
   }
 
   // (n) AN UNPARRIED SLAM STAYS WHERE IT LANDED. Without the hold the strike had a sound and a ring
