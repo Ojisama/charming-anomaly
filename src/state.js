@@ -2290,8 +2290,9 @@ function generateWells(sig) {
   *       late block lasts 2-6s and the timer never came round.
   *     trickleT — countdown to the next arrival of the late-block trickle of graveyard dead.
   *     openW — which APPROACH wave the fight is on, 0..KRAKEN_OPEN_WAVES-1. Its own counter and not
-  *       bossIdx, because the Grip gates on bossIdx >= 1 and the Coil on >= 2: counting the opening
-  *       waves there would put a grab in the block that exists to teach the parry.
+  *       bossIdx, because the Coil gates on bossIdx >= 2: counting the opening waves there would
+  *       pull D3's ring closure a whole block earlier. (The Grip's >= 1 is already satisfied in the
+  *       first block either way — bossIdx++ runs before it is entered.)
   *     arriveT / arriveMax — the 'arrive' phase's clock. The ring closes from KRAKEN_RING_R (off
   *       screen) to KRAKEN_ARM_REACH across it, sweeping the field ahead of it and drawing the cage
   *       in behind it, so the arena is BUILT rather than cut to. krakenReach() is the one reader.

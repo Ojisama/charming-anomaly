@@ -229,7 +229,7 @@ import {
   KRAKEN_EXPOSE_BITE, KRAKEN_HITSTOP_PARRY, KRAKEN_HITSTOP_BREAK, KRAKEN_HITSTOP_STAGGER,
   KRAKEN_HEAD_TOUCH_DMG,
   KRAKEN_CAGE_R,
-  KRAKEN_LASH_R, KRAKEN_LASH_DMG, KRAKEN_LIGHT_START,
+  KRAKEN_LASH_R, KRAKEN_LASH_DMG, KRAKEN_LIGHT_START, KRAKEN_HAUL_R,
   KRAKEN_PERFECT_MUL, KRAKEN_PARRY_CD, KRAKEN_PARRY_REFILL, KRAKEN_BLAZE_R,
   KRAKEN_GRIP_EVERY, KRAKEN_GRIP_PULL, KRAKEN_GRIP_DUR, KRAKEN_GRIP_DMG,
   KRAKEN_TRICKLE_FROM_END, KRAKEN_TRICKLE_T, KRAKEN_TRICKLE_N, KRAKEN_ADD_CAP,
@@ -1661,9 +1661,10 @@ function stepKrakenWave(run, dt) {
 
   s.spawned = false
   s.waveT = 0
-  // THE APPROACH RUNS ON ITS OWN COUNTER. It must not touch bossIdx: the Grip gates on bossIdx >= 1
-  // and the Coil on >= 2, so counting the opening waves there would hand D2 a grab and D3 a ring
-  // closure inside the block that exists to teach the parry.
+  // THE APPROACH RUNS ON ITS OWN COUNTER. It must not touch bossIdx: the Coil gates on bossIdx >= 2,
+  // so counting three opening waves there would pull the ring closure a whole block earlier at D3.
+  // (Not the Grip — bossIdx++ runs before the first block is entered and the Grip gate is >= 1, so
+  // the Grip is live in that first block either way. Measured: 133 grabs inside it at d2 and d3.)
   if (!s.armsSpawned && s.openW < KRAKEN_OPEN_WAVES - 1) {
     s.openW++
     return false
@@ -1708,7 +1709,7 @@ function krakenBeginArrive(run, t) {
 function krakenReach(s) {
   let k = 1
   if (s.phase === 'arrive') k = s.arriveMax > 0 ? 1 - s.arriveT / s.arriveMax : 1
-  else if (s.riseT > 0 && KRAKEN_RISE_T > 0) k = 1 - s.riseT / KRAKEN_RISE_T
+  else if (s.riseT > 0) k = 1 - s.riseT / KRAKEN_RISE_T
   if (k < 1) {
     const e = 1 - Math.pow(1 - Math.max(0, k), 3) // fast out of the dark, slow as it closes on you
     return KRAKEN_RING_R + (KRAKEN_ARM_REACH - KRAKEN_RING_R) * e
@@ -1734,20 +1735,23 @@ function krakenSweepOutside(run, head, reach) {
     const dx = e.x - head.x, dy = e.y - head.y
     if (dx * dx + dy * dy >= reach * reach) { dealDamage(run, e, e.hp, false, false, false); swept++ }
   }
-  if (swept) krakenHaulLoot(run, head)
   return swept
 }
 
-// ...AND WHAT IT KILLS, IT HAULS IN. The ring starts its sweep at KRAKEN_RING_R and the cage then
-// shuts to KRAKEN_CAGE_R, so a gem dropped by the crush lands up to a thousand pixels outside the
-// arena the player is about to be locked into. Gems only home inside p.magnet and are otherwise
-// static, so that xp is simply gone: measured at the first frame of the first ring block, 20-38 of
-// the arrival's 38-56 xp was stranded on 6 seeds at d3. The kill was already credited — the comment
-// above krakenSweepAdds says "the player is paid for it" and only half of that was true.
-//   The fiction is the same one the sweep already tells: the arms close, and everything on the
-// seabed comes in with them.
+// ...AND THE ARMS BRING THE FLOOR IN WITH THEM. The cage shuts to KRAKEN_CAGE_R around a head that
+// surfaced wherever the player happened to be standing, and gems only home inside p.magnet and are
+// otherwise static — so everything the approach paid for, plus everything the closing ring crushed,
+// is left in water the player is then locked out of. Measured at victory before this: 122-140 xp on
+// the ground, about three levels at that point in the fight.
+//   ONE SHOT, ON THE FRAME THE CAGE SHUTS — not per-frame while it closes. A per-frame re-projection
+// fights the magnet: a gem being vacuumed from just outside is pinned back onto the circle every
+// frame and can only slide around it, never in. Called from the two frames that put a wall up.
+//   The gate this replaces was the bug: it hung off krakenSweepOutside's kill count, and that sweep
+// only reaches what is OUTSIDE the closing ring. The graveyard's dead spawn around the PLAYER and
+// the head surfaces UNDER the player, so the whole crowd starts deep inside KRAKEN_RING_R — 197-387px
+// against a ring that opens at 620. Measured over a whole fight: 0 or 1 sweeps, 0 or 1 hauls.
 function krakenHaulLoot(run, head) {
-  const inner = KRAKEN_CAGE_R * 0.8
+  const inner = KRAKEN_HAUL_R
   for (const list of [run.gems, run.coins]) {
     for (const g of list) {
       const dx = g.x - head.x, dy = g.y - head.y
@@ -1777,7 +1781,7 @@ function stepKrakenArrive(run, dt, rung, head) {
   if (s.arriveT <= 0) {
     s.phase = 'boss'
     krakenSweepAdds(run)                       // whatever slipped inside the ring as it shut
-    s.turnT = krakenCadence(s, rung) * 0.5     // the block opens ON an attack, as it always did
+    krakenHaulLoot(run, head)                  // ...and everything either of them dropped, hauled in
   }
   return false
 }
@@ -1962,7 +1966,12 @@ function krakenCage(run, head, dt = 0) {
   // huge and it closes around the player rather than snapping shut on them. It never shrinks BELOW
   // KRAKEN_CAGE_R: the Coil hauls the arms inward, and a cage that followed them in would shove the
   // player toward the centre in the middle of the one move whose answer is "run to the gap".
-  const cageR = Math.max(KRAKEN_CAGE_R, krakenReach(s) + KRAKEN_LASH_R)
+  // The COIL is deliberately not in this. krakenReach multiplies by krakenCoilMul, which rises to
+  // 1.24 through a wind-up, so a cage taking it raw grew to 398 and snapped back to 350 on the frame
+  // the ring shut — hauling a player who had run out to the wall 48px inward during the one move
+  // whose answer is "run to the gap". Measured 350 -> 398 -> 350, 6/6 seeds at d3.
+  const closing = s.phase === 'arrive' || s.riseT > 0
+  const cageR = Math.max(KRAKEN_CAGE_R, (closing ? krakenReach(s) : KRAKEN_ARM_REACH) + KRAKEN_LASH_R)
   // ...AND IT IS PUBLISHED, because it is no longer a constant and render cannot recompute it.
   // Measured on the suite's own arrival fixture: the sim stopped the player at 764px while render
   // drew the taut skin at KRAKEN_CAGE_R, 350 — 414px behind them, off the edge of a phone. For the
@@ -2230,6 +2239,7 @@ function stepKrakenChase(run, dt, rung, head) {
     if (h) {
       s.riseT = KRAKEN_RISE_T
       krakenSweepAdds(run)
+      krakenHaulLoot(run, h)   // h, not head: head is null on the frame the rise starts
       run.events.push({ type: 'headRise', x: h.x, y: h.y })
     }
     return false
@@ -2377,7 +2387,15 @@ function krakenParry(run) {
   // ZERO staggers in every mortal d3 run that reached the chase, on a fight where a stagger is the
   // only way the head can be hurt at all. The old reason for a tight gate here — parrying from 3995
   // px away — is closed by the cage, which now holds in the chase too.
-  const headNear = !!head && (head.x - p.x) ** 2 + (head.y - p.y) ** 2 <= KRAKEN_CAGE_R ** 2
+  // THE CAGE THE SIM IS ACTUALLY HOLDING, not the constant, so these can never be two authors of
+  // one radius again. They agree today BY CONSTRUCTION and this branch is defence, not a live fix:
+  // krakenCage stopped letting a coil push the wall past KRAKEN_CAGE_R, and the phases where it
+  // does still ride the ring in (arrival, the chase rise) are exactly the ones where no lunge is
+  // parryable. Before that pair of changes the wall stood at 398 through every coil telegraph while
+  // this site still read 350, so a player legally at 351-398px could not reach the lunge they were
+  // being asked to answer.
+  const cageR = s.cageR > 0 ? s.cageR : KRAKEN_CAGE_R
+  const headNear = !!head && (head.x - p.x) ** 2 + (head.y - p.y) ** 2 <= cageR ** 2
   const headReady = headNear && s.phase === 'chase' && !(s.staggerT > 0) && head.lungeT > 0 && head.lungeT <= rung.window
 
   if (!best && !headReady) {
