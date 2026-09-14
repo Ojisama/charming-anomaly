@@ -18,7 +18,7 @@
 // That is fine here — the question is what the screen looks like, not whether the fight is hard.
 const SHOTS = [12, 34, 62, 92, 120, 148]   // seconds; fx-probe has no way to pass these in   // seconds into the fight to capture at
 
-H.until(() => run.script.phase === 'boss' && run.krakenArms.length > 0, 4000)
+H.until(() => run.script.phase === "boss" && run.krakenArms.length > 0, 8000)
 
 const rung = window.__cfg.krakenRung(run.difficulty)
 const head = () => run.enemies.find((e) => e.rosterId === 'krakenHead' && !e._dead) || null

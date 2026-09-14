@@ -161,7 +161,13 @@ console.log(`won            ${rs.filter((r) => r.won).length}/${rs.length}`)
 console.log(`fight (s)      ${f('t', 0)}`)
 console.log(`arms broken    ${f('broken')} of ${rs[0].arms}`)
 console.log(`parries        ${f('parries')}   whiffs ${f('whiffs')}`)
-console.log(`staggers       ${f('staggers')}   head hp left ${f('headLeft')}`)
+// A SEED THAT WON HAS NO HEAD LEFT, so it prints a dash rather than a number. s.headHp is only
+// written while the head EXISTS, so a victory leaves the last live reading standing and the row
+// reads `head hp left [700 34 34 ...]` under `won 6/6` — a confident wrong number beside a correct
+// one, which is worse than printing nothing. (v7.333.0's chore commit says it fixed this and its
+// diff never touched the line.)
+const headCol = `[${rs.map((r) => (r.won ? '-' : Math.round(r.headLeft))).join(' ')}]`
+console.log(`staggers       ${f('staggers')}   head hp left ${headCol}`)
 console.log(`max rearing    ${f('maxRearing')}  (rung cap ${rung.rearing})`)
 console.log(`ring / chase s ${f('ringT', 0)} / ${f('chaseT', 0)}`)
 console.log(`s with a limb exposed ${f('limpT', 0)}`)
