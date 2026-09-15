@@ -1952,6 +1952,16 @@ function krakenArmsToBlock(run, rung, head) {
       const ang = (i / s.armsTotal) * Math.PI * 2
       run.krakenArms.push({
         i, ang,
+        // THE ROLE IS FIXED FOR THE FIGHT AND IT IS WHAT THE ARM IS DRAWN AS. Owner, 2026-09-15:
+        // "can arms have several designs, and depending on the design, they do different things?
+        // like one does the grab, one does the slam?" Every arm used to be identical, so which one
+        // was about to grab you was unknowable until it did — you could read the RING but never
+        // pre-position against a specific limb. A grabber looks like a different animal, so the
+        // fight can be played around it.
+        //   Spread evenly around the circle rather than taken off the front: consecutive grabbers
+        // would put every grab on one bearing, which collapses the arena's geometry to a single
+        // side. At 6 arms and 2 grabbers this puts them opposite each other.
+        role: rung.grabbers > 0 && (i * rung.grabbers) % s.armsTotal < rung.grabbers ? 'grab' : 'slam',
         x: head.x + Math.cos(ang) * KRAKEN_ARM_REACH,
         y: head.y + Math.sin(ang) * KRAKEN_ARM_REACH,
         hp: KRAKEN_ARM_HP, maxHP: KRAKEN_ARM_HP,
@@ -2224,17 +2234,31 @@ function stepKrakenArms(run, dt, rung, head) {
       else if (a.limpT <= 0) idle.push(a)
     }
     if (rearing < rung.rearing && idle.length) {
-      const a = idle[Math.floor(Math.random() * idle.length)]
+      // THE ACTION IS CHOSEN BEFORE THE ARM, which is the whole point of roles. It used to be the
+      // other way round — pick an idle arm at random, then decide what it does — and with roles that
+      // is exactly wrong: it would hand a grab to whichever limb came up and the design would be a
+      // lie. Decide grab-or-slam, then draw from the arms that wear that design.
+      //   ⚠ THE FALLBACK IS NOT OPTIONAL. Grabbers are 2 of 6 and an arm is out of the pool while it
+      // is limp, broken or already busy, so a grip turn can arrive with no grabber free. Skipping
+      // the turn there would silently drop attacks and make the ring stutter; it falls back to the
+      // whole idle pool instead, which is the old behaviour and costs only the design's promise on
+      // a rare turn.
+      const wantCoil = (rung.coil || s.enraged) && run.difficulty >= 2 && (s.phase === 'chase' || s.bossIdx >= 2) && s.gripN > 0 && s.gripN % KRAKEN_COIL_EVERY === 0
+      const wantGrip = !wantCoil && rung.grip && s.bossIdx >= 1 && s.gripN > 0 && s.gripN % KRAKEN_GRIP_EVERY === 0
+      const want = wantGrip ? 'grab' : 'slam'
+      const pool = rung.grabbers > 0 ? idle.filter((c) => c.role === want) : idle
+      const use = pool.length ? pool : idle
+      const a = use[Math.floor(Math.random() * use.length)]
       // The Coil is checked BEFORE the Grip so the two can never stack on one turn: a grab you
       // cannot escape because the ring is closing is not a pattern, it is a bug with a name.
       // `bossIdx >= 2` is deliberate and was dropped by accident when the enrage clause went in:
       // the Coil is unparryable and ring-wide, so it must never be the first thing a rung teaches.
-      if ((rung.coil || s.enraged) && run.difficulty >= 2 && (s.phase === 'chase' || s.bossIdx >= 2) && s.gripN > 0 && s.gripN % KRAKEN_COIL_EVERY === 0) {
+      if (wantCoil) {
         s.gripN++
         s.coilT = KRAKEN_COIL_TELE + KRAKEN_COIL_DUR
         s.coilGap = Math.random() * Math.PI * 2
         run.events.push({ type: 'coilWind', x: head.x, y: head.y, ang: s.coilGap })
-      } else if (rung.grip && s.bossIdx >= 1 && s.gripN > 0 && s.gripN % KRAKEN_GRIP_EVERY === 0) {
+      } else if (wantGrip) {
         s.gripN++
         // THE NEAREST ARM IS THE ONE THAT CAN REACH YOU, so it is the one that grabs. A grip draws a
         // taut line from the arm's tip to the player, and picking at random put that line a median
@@ -2246,7 +2270,7 @@ function stepKrakenArms(run, dt, rung, head) {
         //    watch the whole ring for, and picking the nearest there would collapse the fight to a
         //    single arm. This is the opposite case: a grab is a thing that reached you.
         let g = a, gd = Infinity
-        for (const c of idle) {
+        for (const c of use) {
           const d = (c.x - p.x) ** 2 + (c.y - p.y) ** 2
           if (d < gd) { gd = d; g = c }
         }

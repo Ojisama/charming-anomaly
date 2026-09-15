@@ -99,8 +99,14 @@ const ENEMY_LOOKS = {
 //   5 = D, GELATINOUS — lit from within, bright edges, the axial muscle showing through.
 //   6 = E, WARTY — matte and knobbled, papillae on the skin and on the outline.
 // DELETE with the pick, and grep the param name to prove it is gone.
+// ⚠ NULL WHEN ABSENT, not a design number. The default has to be "every arm wears its ROLE's skin";
+// defaulting this to a design silently overrides both roles with one look, which is the feature
+// turned off while every test and every frame still passes.
 const skinArt = (() => {
-  try { return Number(new URLSearchParams(location.search).get('tv') ?? 2) } catch { return 2 }
+  try {
+    const v = new URLSearchParams(location.search).get('tv')
+    return v === null ? null : Number(v)
+  } catch { return null }
 })()
 
 function mix(a, b, t) {
@@ -4848,12 +4854,21 @@ export function createRenderer(app) {
       dark: 0x221a33, pale: 0xefe9f7, lip: 0.30, bowl: 0.12, pore: 0.22, bump: 0.26,
       rimU: [-1.0, -0.86], rimCol: 0xffffff, rimA: 0 },
   }
-  const K_ARM = {
-    glow: 0, vein: 0, glowCol: 0x7af2ff, cordCol: 0, cordA: 0.55,
-    ringCol: 0, ringA: 0, rim2U: null, rim2Col: 0xffffff, rim2A: 0,
-    ...(K_SKINS[skinArt] || K_SKINS[2]),
+  const K_DEFAULTS = { glow: 0, vein: 0, glowCol: 0x7af2ff, cordCol: 0, cordA: 0.55, ringCol: 0, ringA: 0, rim2U: null, rim2Col: 0xffffff, rim2A: 0 }
+  // AN ARM'S ROLE IS WHAT IT IS DRAWN AS. Owner, 2026-09-15: "can arms have several designs, and
+  // depending on the design, they do different things? like one does the grab, one does the slam?"
+  // sim.js fixes `role` on every arm for the fight; this is the other half of that contract, and the
+  // two must never drift — an arm drawn as a grabber that slams is worse than no design at all,
+  // because the player will have learned to trust it.
+  //   ⚠ THE PAIR HAS TO BE TELLABLE APART IN THE MURK AT PLAY SIZE, not at 3.4x. K (a black limb
+  // with lit suckers) against M (a black limb with a cold razor on one edge and a warm bounce on the
+  // other) differ in WHERE the light is rather than in how bright it is, which survives the
+  // chapter's tint and the minification both.
+  const K_ROLE_SKIN = {
+    slam: { ...K_DEFAULTS, ...(K_SKINS[skinArt] || K_SKINS[14]) },
+    grab: { ...K_DEFAULTS, ...(K_SKINS[skinArt] || K_SKINS[12]) },
   }
-  const K_LIMB_DARK = K_ARM.dark // shadows carry colour; a black shadow reads as a HOLE in the limb
+  const K_ARM = K_ROLE_SKIN.slam // the ring, the wound and the head read the slam skin as the animal's base
   // ...AND HOW IT CHANGES ALONG THE LIMB, which is the other half of "photo-like" and the half a
   // cross-section alone cannot reach. t is 0 at the shoulder and 1 at the tip.
   //  - ROLL. The lit ridge does NOT run dead straight down a real arm. A limb that writhes rolls
@@ -4870,21 +4885,21 @@ export function createRenderer(app) {
   //   ⚠ t HAS NO DEFAULT, deliberately. A caller that forgets it gets NaN through mix() and draws
   // nothing, which is loud; a default would silently pin a whole limb to one station and quietly
   // delete all three of the effects above.
-  function limbLit(u, t) {
+  function limbLit(u, t, S) {
     // the roll turns the SURFACE NORMAL, not the coordinate: occ has to stay tied to the true
     // silhouette at |u| = 1 or the limb's edge slides off its own outline
     const phi = Math.asin(Math.max(-1, Math.min(1, u))) + limbRoll(t)
     const nl = Math.max(0, Math.sin(phi) * K_LIT_LY + Math.cos(phi) * K_LIT_LZ)
     const round = Math.max(0, 1 - u * u)
-    const occ = Math.pow(round, K_ARM.occ)
+    const occ = Math.pow(round, S.occ)
     // light coming THROUGH the limb: strongest where it is thinnest, i.e. at the silhouette, which
     // is the exact opposite of where occ puts it
-    const glow = K_ARM.sss * (1 - Math.sqrt(round))
-    const lit = ((K_ARM.amb + (1 - K_ARM.amb) * nl) * occ + 0.06) * limbDeep(t)
+    const glow = S.sss * (1 - Math.sqrt(round))
+    const lit = ((S.amb + (1 - S.amb) * nl) * occ + 0.06) * limbDeep(t)
       + limbThin(t) * 0.34 * occ + glow
-    const col = mix(K_LIMB_DARK, K_ARM.pale, Math.min(1, lit))
-    return K_ARM.spA <= 0 ? col
-      : mix(col, 0xffffff, Math.pow(nl, K_ARM.sp) * K_ARM.spA * Math.min(1, 0.3 + t * 1.8))
+    const col = mix(S.dark, S.pale, Math.min(1, lit))
+    return S.spA <= 0 ? col
+      : mix(col, 0xffffff, Math.pow(nl, S.sp) * S.spA * Math.min(1, 0.3 + t * 1.8))
   }
   // WHERE THE RIM LIGHT AND THE AXIAL CORD SIT, as u ranges — shared, so the bake and the ribbon put
   // them in the same place on a limb one draws flat and the other draws bent.
@@ -4995,7 +5010,23 @@ export function createRenderer(app) {
   function drawKrakenHead(g, elite, white) {
     const r = BLANK_BOSS_R
     const f = (c) => white ? 0xffffff : c
-    const line = f(K_LINE), skin = f(K_SKIN), skin2 = f(K_SKIN2), glow = f(K_GLOW)
+    // ...AND IT IS THE SAME ANIMAL AS ITS ARMS, BUILT OUT OF BOTH OF THEM. Owner, 2026-09-15: "the
+    // head should also be redesigned with a mix of the several designs of the arms." It used to
+    // carry its own palette (K_SKIN / K_SKIN2 / K_GLOW), chosen before the limbs had a design at
+    // all, so the ring and the thing the ring is attached to were two different creatures meeting
+    // in the middle. Now the BODY takes the slammer's value range and its two rims — cold razor
+    // along the dorsal edge, dim warm bounce along the ventral one — and every LIGHT on it takes
+    // the grabber's lamp colour. Which is what the ring actually is: six arms of two kinds standing
+    // on one face.
+    const SS = K_ROLE_SKIN.slam, GS = K_ROLE_SKIN.grab
+    const line = f(K_LINE)
+    // ⚠ LIGHTER THAN THE ARMS' OWN RANGE. An arm is 40px wide and can afford to be a near-black
+    // shape with one lit edge; the head is the thing that HUNTS you through the chase, it is the
+    // biggest object in the fight, and at the slammer's own values it sank into the murk. The lamps
+    // carry it, the body has to be trackable without them.
+    const skin = f(mix(SS.dark, SS.pale, 0.55)), skin2 = f(mix(SS.dark, SS.pale, 0.78))
+    const glow = f(GS.glowCol)
+    const rimTop = f(SS.rimCol), rimBot = f(SS.rim2Col ? SS.rim2Col : SS.rimCol)
     const lw = Math.max(4, r * 0.05)
     groundShadow(r * 0.95, r * 0.62)
 
@@ -5030,13 +5061,26 @@ export function createRenderer(app) {
         const bx = -r * 1.0 + u * r * 1.2
         const by = (v - 0.5) * r * 0.78 * (1 - Math.abs(bx) / (r * 1.5))
         g.circle(bx, by, r * (0.035 + u * 0.045))
-        g.fill({ color: mix(K_SKIN, 0x120a1c, 0.45), alpha: 0.5 })
+        g.fill({ color: mix(SS.dark, 0x000000, 0.35), alpha: 0.5 })
       }
       // the dorsal ridge catching what light there is
       g.beginPath()
       g.moveTo(-r * 1.0, 0)
       g.lineTo(r * 0.18, 0)
-      g.stroke({ width: lw * 1.6, color: mix(K_SKIN2, 0xffffff, 0.18), alpha: 0.35, cap: 'round' })
+      g.stroke({ width: lw * 1.6, color: mix(SS.pale, 0xffffff, 0.18), alpha: 0.35, cap: 'round' })
+      // THE SLAMMER'S TWO RIMS, on the mantle. One bright edge makes a cut-out; the second, dimmer
+      // and warmer, is the floor bouncing back onto the underside, and it is what turns the
+      // silhouette into a body with a near side.
+      g.beginPath()
+      g.moveTo(r * 0.30, 0)
+      g.bezierCurveTo(r * 0.28, -r * 0.52, -r * 0.30, -r * 0.56, -r * 0.72, -r * 0.24)
+      g.lineTo(-r * 1.20, 0)
+      g.stroke({ width: lw * 0.95, color: rimTop, alpha: 0.85, cap: 'round' })
+      g.beginPath()
+      g.moveTo(r * 0.30, 0)
+      g.bezierCurveTo(r * 0.28, r * 0.52, -r * 0.30, r * 0.56, -r * 0.72, r * 0.24)
+      g.lineTo(-r * 1.20, 0)
+      g.stroke({ width: lw * 0.75, color: rimBot, alpha: 0.42, cap: 'round' })
     }
 
     // ---- the arm crown: eight thick bases fanning FORWARD, the beak sitting in the middle of them
@@ -5121,13 +5165,18 @@ export function createRenderer(app) {
     }
 
     if (!white) {
-      // photophores down the mantle's edges — the same lights its arms carry
+      // photophores down the mantle's edges — literally the same lights its GRABBER arms carry,
+      // halo and all, so the two read as one animal rather than as a body with lights on it
       for (let k = 0; k < 5; k++) {
         const t = k / 4
         const px = -r * 0.10 - t * r * 0.85
         const py = r * (0.44 - t * 0.30)
-        photophore(g, px, -py, r * 0.045, K_GLOW)
-        photophore(g, px, py, r * 0.045, K_GLOW)
+        for (const sgn of [-1, 1]) {
+          g.circle(px, sgn * py, r * 0.15).fill({ color: glow, alpha: 0.05 })
+          g.circle(px, sgn * py, r * 0.09).fill({ color: glow, alpha: 0.09 })
+        }
+        photophore(g, px, -py, r * 0.045, glow)
+        photophore(g, px, py, r * 0.045, glow)
       }
     }
     if (elite) eliteCrown(-r * 0.9, r)
@@ -5618,7 +5667,9 @@ export function createRenderer(app) {
 
     // The Kraken's tentacle strip, for the MeshRope arms. Baked long (560px) because the rope
     // stretches it over ~230 world px of arm and a short texture would visibly smear.
-    T.krakenTentacle = makeTentacleTex()
+    // one strip per ROLE, baked once each — a MeshRope's texture can be swapped per frame, so the
+    // arms share the pool and differ only in which of these they point at
+    T.krakenLimb = { slam: makeTentacleTex(K_ROLE_SKIN.slam), grab: makeTentacleTex(K_ROLE_SKIN.grab) }
 
     // The gull STRIKE's three poses (The Surf). Baked at GULL_DIVE_R rather than reusing the 12px
     // roster gull: the strike is drawn ~140px across, and that texture would be a 6x magnification —
@@ -18900,7 +18951,7 @@ const spurG = new Graphics()
   // strip is ~230 texels — which is why this is 2000 x 108 DRAWN at resolution 2 rather than twice
   // the size at resolution 1. That lands ~5 texels per world px in both axes: sharp at play size,
   // and still only mildly soft under the 3.4x the grab probe magnifies by.
-  function makeTentacleTex() {
+  function makeTentacleTex(S) {
     const L = 2000, HH = 54, N = 120
     const g = new Graphics()
     const wAt = (x) => Math.max(0.8, HH * K_LIMB_PROF(Math.min(1, Math.max(0, x / L))))
@@ -18936,40 +18987,40 @@ const spurG = new Graphics()
       // that merely touch leave a hairline of whatever is behind them at every single join, and
       // there are two thousand joins here.
       const M = 48, G = 3
-      g.poly(band(-1, 1)).fill({ color: K_LIMB_DARK })
+      g.poly(band(-1, 1)).fill({ color: S.dark })
       if (skinArt === 1) g.poly(band(-1, 1)).stroke({ width: 10, color: K_LINE, join: 'round' })
       for (let j = 0; j < M; j++) {
         const u0 = -1 + 2 * j / M
         for (let i = 0; i < N; i += G) {
           const i1 = Math.min(N, i + G + 1)
-          g.poly(band(u0, u0 + 3.2 / M, i, i1)).fill({ color: limbLit(u0 + 1 / M, (i + G * 0.5) / N) })
+          g.poly(band(u0, u0 + 3.2 / M, i, i1)).fill({ color: limbLit(u0 + 1 / M, (i + G * 0.5) / N, S) })
         }
       }
       // C's RIM: one bright edge where the light from above catches the limb, which is the whole
       // read of an animal that is otherwise nearly black.
-      if (K_ARM.rim > 0) {
+      if (S.rim > 0) {
         for (let i = 0; i < N; i += G) {
           const i1 = Math.min(N, i + G + 1)
           const dp = limbDeep((i + G * 0.5) / N)
-          g.poly(band(K_ARM.rimU[0], K_ARM.rimU[1], i, i1)).fill({ color: K_ARM.rimCol, alpha: K_ARM.rimA * dp })
+          g.poly(band(S.rimU[0], S.rimU[1], i, i1)).fill({ color: S.rimCol, alpha: S.rimA * dp })
           // the SECOND rim: a dim bounce off the floor on the shadow edge. One rim is a cut-out,
           // two is an object — the near edge has to be lit by SOMETHING or the limb has no back.
-          if (K_ARM.rim2U) g.poly(band(K_ARM.rim2U[0], K_ARM.rim2U[1], i, i1)).fill({ color: K_ARM.rim2Col, alpha: K_ARM.rim2A * dp })
+          if (S.rim2U) g.poly(band(S.rim2U[0], S.rim2U[1], i, i1)).fill({ color: S.rim2Col, alpha: S.rim2A * dp })
         }
       }
       // D's CORD: the axial muscle, seen THROUGH the limb. Only a translucent animal has one, and it
       // is the single detail that says light is passing through rather than bouncing off.
-      if (K_ARM.cord > 0) {
+      if (S.cord > 0) {
         for (let i = 0; i < N; i += G) {
           const i1 = Math.min(N, i + G + 1)
           g.poly(band(K_CORD_U[0], K_CORD_U[1], i, i1))
-            .fill({ color: K_ARM.cordCol || K_LIMB_DARK, alpha: K_ARM.cordA * K_ARM.cord })
+            .fill({ color: S.cordCol || S.dark, alpha: S.cordA * S.cord })
         }
       }
       // F's RINGS: transverse bands across the whole width, spaced off the local thickness so they
       // crowd toward the tip. Each is a dark crease with a lit edge on the shoulder side of it,
       // which is what makes a ring read as a raised segment rather than a painted stripe.
-      if (K_ARM.ring > 0) {
+      if (S.ring > 0) {
         // ⚠ WALK STATIONS, NOT X. Spacing this by world distance looks right and is not: where the
         // limb is thin the step falls below ONE station, so the same band is drawn dozens of times
         // and its alpha stacks to opaque — the whole arm became a solid wash of whatever colour the
@@ -18980,22 +19031,22 @@ const spurG = new Graphics()
         for (let ri = 4; ri < N - 3;) {
           const w = wAt(ri * PX)
           const adv = Math.max(4, Math.round(w * 1.25 / PX))
-          const hard = K_ARM.ring > 1
+          const hard = S.ring > 1
           g.poly(band(-1, 1, ri, ri + 1)).fill({
-            color: K_ARM.ringCol || K_LIMB_DARK,
-            alpha: K_ARM.ringA || (hard ? 0.85 : 0.42),
+            color: S.ringCol || S.dark,
+            alpha: S.ringA || (hard ? 0.85 : 0.42),
           })
           // the plate BEHIND the crease catches the light on its leading edge, which is what makes a
           // segment read as a shell rather than a painted stripe
           if (hard) {
-            g.poly(band(-0.95, 0.75, ri + 1, ri + 2)).fill({ color: mix(K_ARM.pale, 0xffffff, 0.4), alpha: 0.45 })
+            g.poly(band(-0.95, 0.75, ri + 1, ri + 2)).fill({ color: mix(S.pale, 0xffffff, 0.4), alpha: 0.45 })
           }
           ri += adv
         }
       }
       // J's VEINS: a branching network under translucent flesh. Each is a short run of segments that
       // wanders and thins, so it reads as anatomy rather than as scratches.
-      if (K_ARM.vein > 0) {
+      if (S.vein > 0) {
         for (let k = 0; k < 90; k++) {
           let vx = rnd() * L, vu = (rnd() * 2 - 1) * 0.8
           let ang = (rnd() - 0.5) * 1.4
@@ -19007,22 +19058,22 @@ const spurG = new Graphics()
             const nx2 = vx + Math.cos(ang) * step
             const nu = Math.max(-0.92, Math.min(0.92, vu + Math.sin(ang) * step / Math.max(6, w0)))
             g.poly([vx, w0 * vu, nx2, wAt(nx2) * nu, nx2, wAt(nx2) * nu + vw * 0.5, vx, w0 * vu + vw])
-              .fill({ color: K_LIMB_DARK, alpha: 0.26 })
+              .fill({ color: S.dark, alpha: 0.26 })
             vx = nx2; vu = nu; vw *= 0.74
             ang += (rnd() - 0.5) * 1.1
           }
         }
       }
       // E's PAPILLAE: bumps, on the skin AND past the silhouette, so the outline itself is knobbled.
-      if (K_ARM.wart > 0) {
+      if (S.wart > 0) {
         for (let k = 0; k < 460; k++) {
           const x = rnd() * L, w = wAt(x)
           if (w < 3) continue
           const u = rnd() * 2 - 1
           const rr = w * (0.11 + rnd() * 0.19)
-          const bc = limbLit(u * 0.80, x / L)
+          const bc = limbLit(u * 0.80, x / L, S)
           g.ellipse(x, w * u, rr, rr * 0.82).fill({ color: mix(bc, 0xffffff, 0.18) })
-          g.ellipse(x, w * u + rr * 0.34, rr * 0.88, rr * 0.58).fill({ color: mix(bc, K_LIMB_DARK, 0.26) })
+          g.ellipse(x, w * u + rr * 0.34, rr * 0.88, rr * 0.58).fill({ color: mix(bc, S.dark, 0.26) })
         }
       }
     }
@@ -19049,7 +19100,7 @@ const spurG = new Graphics()
       const ry = r * Math.sqrt(1 - u * u)
       // the lighting is read INBOARD of where the sucker sits: a knob standing proud of the limb
       // catches the light the limb's own surface at that angle has already lost
-      const base = limbLit(u * 0.55, x / L)
+      const base = limbLit(u * 0.55, x / L, S)
       if (skinArt === 0) {
         g.circle(x, y, r * 0.5).stroke({ width: Math.max(0.8, r * 0.17), color: 0xbfe8f2, alpha: 0.42 })
         g.circle(x, y, r * 0.2).fill({ color: K_LINE, alpha: 0.30 })
@@ -19078,14 +19129,14 @@ const spurG = new Graphics()
       // between one and the next.
       // H's HALO: light leaking out of the lamp into the water around it. Two discs rather than a
       // blur, because a blur filter on a 4000px strip costs more than the whole bake.
-      if (K_ARM.glow > 0) {
-        g.ellipse(x, y, r * 3.4, ry * 3.4).fill({ color: K_ARM.glowCol, alpha: 0.05 * K_ARM.glow })
-        g.ellipse(x, y, r * 2.0, ry * 2.0).fill({ color: K_ARM.glowCol, alpha: 0.09 * K_ARM.glow })
+      if (S.glow > 0) {
+        g.ellipse(x, y, r * 3.4, ry * 3.4).fill({ color: S.glowCol, alpha: 0.05 * S.glow })
+        g.ellipse(x, y, r * 2.0, ry * 2.0).fill({ color: S.glowCol, alpha: 0.09 * S.glow })
       }
-      g.ellipse(x, y + ry * 0.13, r * K_SUCK_BUMP, ry * K_SUCK_BUMP).fill({ color: mix(base, K_LIMB_DARK, K_ARM.bump) })
-      g.ellipse(x, y, r, ry).fill({ color: K_ARM.glow > 0 ? mix(K_ARM.glowCol, 0xffffff, 0.35 * limbThin(x / L) + 0.15) : mix(base, 0xffffff, K_ARM.lip) })
-      g.ellipse(x, y + ry * 0.08, r * 0.86, ry * 0.84).fill({ color: mix(base, 0xffffff, K_ARM.bowl) })
-      g.ellipse(x, y - ry * 0.02, r * 0.42, ry * 0.40).fill({ color: mix(base, K_LIMB_DARK, K_ARM.pore) })
+      g.ellipse(x, y + ry * 0.13, r * K_SUCK_BUMP, ry * K_SUCK_BUMP).fill({ color: mix(base, S.dark, S.bump) })
+      g.ellipse(x, y, r, ry).fill({ color: S.glow > 0 ? mix(S.glowCol, 0xffffff, 0.35 * limbThin(x / L) + 0.15) : mix(base, 0xffffff, S.lip) })
+      g.ellipse(x, y + ry * 0.08, r * 0.86, ry * 0.84).fill({ color: mix(base, 0xffffff, S.bowl) })
+      g.ellipse(x, y - ry * 0.02, r * 0.42, ry * 0.40).fill({ color: mix(base, S.dark, S.pore) })
     }
     for (let x = L * 0.05; x < L * 0.97;) {
       const step = Math.max(5, wAt(x) * K_SUCK_R * 2.30)
@@ -19104,7 +19155,7 @@ const spurG = new Graphics()
       // u=1.32 — outside the limb — and because the ellipse is squashed across the width and not
       // along it, each one hung off the edge as a flat rectangular TAB. Six of them down an arm read
       // as a torn silhouette, which is the opposite of what mottling is for.
-      const PIG = 0x6a5570, PA = K_ARM.mot
+      const PIG = 0x6a5570, PA = S.mot
       for (let k = 0; k < 420; k++) {
         const x = rnd() * L, w = wAt(x)
         if (w < 3) continue
@@ -19115,11 +19166,11 @@ const spurG = new Graphics()
       }
       // SKIN GRAIN — papillae at the size they really are: hundreds of dots that never resolve
       // individually and only ever read as "this surface is not moulded plastic".
-      for (let k = 0; k < Math.round(1400 * K_ARM.grain); k++) {
+      for (let k = 0; k < Math.round(1400 * S.grain); k++) {
         const x = rnd() * L, w = wAt(x)
         if (w < 3) continue
         const u = (rnd() * 2 - 1) * 0.94
-        g.circle(x, w * u, 1.2 + rnd() * 2.3).fill({ color: rnd() < 0.5 ? 0xffffff : K_LIMB_DARK, alpha: 0.05 + rnd() * 0.08 })
+        g.circle(x, w * u, 1.2 + rnd() * 2.3).fill({ color: rnd() < 0.5 ? 0xffffff : S.dark, alpha: 0.05 + rnd() * 0.08 })
       }
       // THE SHEEN, BROKEN. limbLit already carries a specular, but a specular that runs unbroken
       // from shoulder to tip is a plastic tube. A wet animal catches the light in PATCHES, where the
@@ -19228,7 +19279,7 @@ const spurG = new Graphics()
   // ...and the size wobble the bake gives its suckers, so a gripping arm is as irregular as the
   // five writhing beside it. A short cycle is enough: what has to go is the PERFECT repeat.
   const K_SUCK_JIT = [0.93, 1.07, 0.88, 1.01, 0.97, 1.11, 0.90, 1.04, 0.95, 1.08, 0.87, 1.00]
-  function limbRibbon(g, pts, n, hw, tint, alpha = 1, flat = 0) {
+  function limbRibbon(g, pts, n, hw, tint, S, alpha = 1, flat = 0) {
     // ⚠ NOT ONE CLOSED POLYGON. A coil that wraps crosses ITSELF, and handing a self-intersecting
     // 126-vertex path to Pixi's triangulator produces garbage: stray floating triangles, a spike
     // where the two edges meet, and an outline that traces every internal crossing as a hard slab.
@@ -19296,7 +19347,7 @@ const spurG = new Graphics()
     }
     if (flat) { slab(-1, 1, flat, alpha); joints(flat, alpha); return }
 
-    const dark = tintMul(K_LIMB_DARK, tint)
+    const dark = tintMul(S.dark, tint)
     if (skinArt === 0) {
       const fill = tintMul(K_LIMB, tint), line = tintMul(K_LINE, tint)
       slab(-1, 1, line, 0.95 * alpha, 3); joints(line, 0.95 * alpha, 3)
@@ -19315,16 +19366,16 @@ const spurG = new Graphics()
       const M = 32
       for (let j = 0; j < M; j++) {
         const u0 = -1 + 2 * j / M
-        slab(u0, u0 + 3.2 / M, (t) => tintMul(limbLit(u0 + 1 / M, t), tint), alpha)
+        slab(u0, u0 + 3.2 / M, (t) => tintMul(limbLit(u0 + 1 / M, t, S), tint), alpha)
       }
-      if (K_ARM.rim > 0) {
-        slab(K_ARM.rimU[0], K_ARM.rimU[1], tintMul(K_ARM.rimCol, tint), K_ARM.rimA * alpha)
-        if (K_ARM.rim2U) slab(K_ARM.rim2U[0], K_ARM.rim2U[1], tintMul(K_ARM.rim2Col, tint), K_ARM.rim2A * alpha)
+      if (S.rim > 0) {
+        slab(S.rimU[0], S.rimU[1], tintMul(S.rimCol, tint), S.rimA * alpha)
+        if (S.rim2U) slab(S.rim2U[0], S.rim2U[1], tintMul(S.rim2Col, tint), S.rim2A * alpha)
       }
-      if (K_ARM.cord > 0) {
-        slab(K_CORD_U[0], K_CORD_U[1], K_ARM.cordCol ? tintMul(K_ARM.cordCol, tint) : dark, K_ARM.cordA * K_ARM.cord * alpha)
+      if (S.cord > 0) {
+        slab(K_CORD_U[0], K_CORD_U[1], S.cordCol ? tintMul(S.cordCol, tint) : dark, S.cordA * S.cord * alpha)
       }
-      if (K_ARM.vein > 0) {
+      if (S.vein > 0) {
         for (const m of K_RIB_MOTTLE) {
           const i = Math.min(n - 3, Math.round(m.t * (n - 4)))
           const w = hw(i / (n - 1))
@@ -19340,7 +19391,7 @@ const spurG = new Graphics()
           ]).fill({ color: dark, alpha: 0.26 * alpha })
         }
       }
-      if (K_ARM.ring > 0) {
+      if (S.ring > 0) {
         let racc = 0, rdue = Math.max(5, hw(0.06) * 1.25)
         for (let i = 0; i < n - 2; i++) {
           racc += Math.hypot(pts[i + 1].x - pts[i].x, pts[i + 1].y - pts[i].y)
@@ -19353,12 +19404,12 @@ const spurG = new Graphics()
             pts[i].x - nx * h0, pts[i].y - ny * h0, pts[i + 1].x - mx * h1, pts[i + 1].y - my * h1,
             pts[i + 1].x + mx * h1, pts[i + 1].y + my * h1, pts[i].x + nx * h0, pts[i].y + ny * h0,
           ]).fill({
-            color: K_ARM.ringCol ? tintMul(K_ARM.ringCol, tint) : dark,
-            alpha: (K_ARM.ringA || (K_ARM.ring > 1 ? 0.85 : 0.42)) * alpha,
+            color: S.ringCol ? tintMul(S.ringCol, tint) : dark,
+            alpha: (S.ringA || (S.ring > 1 ? 0.85 : 0.42)) * alpha,
           })
         }
       }
-      if (K_ARM.wart > 0) {
+      if (S.wart > 0) {
         for (const m of K_RIB_MOTTLE) {
           const i = Math.min(n - 1, Math.round(m.t * (n - 1)))
           const w = hw(i / (n - 1))
@@ -19366,7 +19417,7 @@ const spurG = new Graphics()
           const [nx, ny] = norm(i)
           const o = w * (m.u < 0 ? -1 : 1) * (0.2 + Math.abs(m.u) * 0.9)
           const rr = w * (0.07 + m.r * 0.32)
-          const bc = tintMul(limbLit(m.u * 0.80, i / (n - 1)), tint)
+          const bc = tintMul(limbLit(m.u * 0.80, i / (n - 1), S), tint)
           g.circle(pts[i].x + nx * o, pts[i].y + ny * o, rr).fill({ color: mix(bc, 0xffffff, 0.18), alpha })
           g.circle(pts[i].x + nx * (o + rr * 0.34), pts[i].y + ny * (o + rr * 0.34), rr * 0.7)
             .fill({ color: mix(bc, dark, 0.26), alpha })
@@ -19376,7 +19427,7 @@ const spurG = new Graphics()
         // the bake's chromatophores, at the only scale worth paying for per frame. Its skin grain —
         // 1400 sub-pixel dots — is not here: free once, unaffordable every frame, and at 0.3 world
         // px each it is texture rather than shape.
-        const PIG = tintMul(0x6a5570, tint), PA = K_ARM.mot
+        const PIG = tintMul(0x6a5570, tint), PA = S.mot
         for (const m of K_RIB_MOTTLE) {
           const i = Math.min(n - 1, Math.round(m.t * (n - 1)))
           const w = hw(i / (n - 1))
@@ -19414,18 +19465,18 @@ const spurG = new Graphics()
           continue
         }
         // the bake's three-disc cup — lip, bowl offset across it, overhang shadow. Never a ring.
-        const base = tintMul(limbLit((K_SUCK_FACE + side * K_SUCK_ROW) * 0.55, t), tint)
-        if (K_ARM.glow > 0) {
-          g.circle(cx, cy, r * 3.4).fill({ color: K_ARM.glowCol, alpha: 0.05 * K_ARM.glow * alpha })
-          g.circle(cx, cy, r * 2.0).fill({ color: K_ARM.glowCol, alpha: 0.09 * K_ARM.glow * alpha })
+        const base = tintMul(limbLit((K_SUCK_FACE + side * K_SUCK_ROW) * 0.55, t, S), tint)
+        if (S.glow > 0) {
+          g.circle(cx, cy, r * 3.4).fill({ color: S.glowCol, alpha: 0.05 * S.glow * alpha })
+          g.circle(cx, cy, r * 2.0).fill({ color: S.glowCol, alpha: 0.09 * S.glow * alpha })
         }
-        g.circle(cx + nx * r * 0.13, cy + ny * r * 0.13, r * K_SUCK_BUMP).fill({ color: mix(base, dark, K_ARM.bump), alpha })
+        g.circle(cx + nx * r * 0.13, cy + ny * r * 0.13, r * K_SUCK_BUMP).fill({ color: mix(base, dark, S.bump), alpha })
         g.circle(cx, cy, r).fill({
-          color: K_ARM.glow > 0 ? tintMul(mix(K_ARM.glowCol, 0xffffff, 0.35 * limbThin(t) + 0.15), tint) : mix(base, 0xffffff, K_ARM.lip),
+          color: S.glow > 0 ? tintMul(mix(S.glowCol, 0xffffff, 0.35 * limbThin(t) + 0.15), tint) : mix(base, 0xffffff, S.lip),
           alpha,
         })
-        g.circle(cx + nx * r * 0.08, cy + ny * r * 0.08, r * 0.86).fill({ color: mix(base, 0xffffff, K_ARM.bowl), alpha })
-        g.circle(cx - nx * r * 0.02, cy - ny * r * 0.02, r * 0.42).fill({ color: mix(base, dark, K_ARM.pore), alpha })
+        g.circle(cx + nx * r * 0.08, cy + ny * r * 0.08, r * 0.86).fill({ color: mix(base, 0xffffff, S.bowl), alpha })
+        g.circle(cx - nx * r * 0.02, cy - ny * r * 0.02, r * 0.42).fill({ color: mix(base, dark, S.pore), alpha })
       }
     }
   }
@@ -19434,10 +19485,10 @@ const spurG = new Graphics()
     const pts = []
     const shadowPts = []
     for (let i = 0; i < K_ROPE_N; i++) { pts.push(new Point(0, 0)); shadowPts.push(new Point(0, 0)) }
-    const shadow = new MeshRope({ texture: T.krakenTentacle, points: shadowPts, width: KRAKEN_ARM_R * 1.45 })
+    const shadow = new MeshRope({ texture: T.krakenLimb.slam, points: shadowPts, width: KRAKEN_ARM_R * 1.45 })
     shadow.tint = 0x000205
     shadow.alpha = 0.16
-    const rope = new MeshRope({ texture: T.krakenTentacle, points: pts, width: KRAKEN_ARM_R * 1.45 })
+    const rope = new MeshRope({ texture: T.krakenLimb.slam, points: pts, width: KRAKEN_ARM_R * 1.45 })
     krakenArmLayer.addChild(shadow)
     krakenArmLayer.addChild(rope)
     krakenArmLayer.addChild(krakenGripG)  // above the ropes, below the wound
@@ -19828,6 +19879,16 @@ const spurG = new Graphics()
     for (let i = 0; i < arms.length; i++) {
       const a = arms[i]
       const rig = krakenRopes[i] || acquireRope()
+      // WHAT THIS ARM IS, resolved from the role sim fixed on it at spawn. A MeshRope's texture can
+      // be swapped per frame, so the six arms share one pool and differ only in which strip they
+      // point at — and the gripping ribbon reads the same entry, so a grabber that has hold of you
+      // is the same animal drawn by hand that it was drawn by rope a frame earlier.
+      //   ⚠ declared HERE, at the top of the loop, and not next to the tint where it is also used:
+      // the grip branch runs earlier in this same body, and a const below it is a TDZ throw the
+      // moment anything grabs you.
+      const skin = K_ROLE_SKIN[a.role] || K_ROLE_SKIN.slam
+      const limbTex = T.krakenLimb[a.role] || T.krakenLimb.slam
+      if (rig.rope.texture !== limbTex) { rig.rope.texture = limbTex; rig.shadow.texture = limbTex }
       const phase = animT * 1.25 + a.i * 1.9
       // A LIVE ARM WRITHES AND A WINDING-UP ONE REARS: amplitude rises as its fuse runs out, so the
       // body itself is part of the telegraph rather than a static prop with a ring drawn on it.
@@ -20076,8 +20137,8 @@ const spurG = new Graphics()
           shp.push({ x: ribbon[k].x + 16 + t * 10, y: ribbon[k].y + 22 + t * 14 })
         }
         // 0.16 is the rope shadow rig's own alpha; at 1 it was a black mass the size of the arm
-        limbRibbon(krakenGripG, shp, K_ROPE_N, hwAt, 0xffffff, 0.16, 0x000205)
-        limbRibbon(krakenGripG, ribbon, K_ROPE_N, hwAt, tn)
+        limbRibbon(krakenGripG, shp, K_ROPE_N, hwAt, 0xffffff, skin, 0.16, 0x000205)
+        limbRibbon(krakenGripG, ribbon, K_ROPE_N, hwAt, tn, skin)
         // ...AND THE STRETCH THAT PASSES OVER THE PLAYER. Top-down, every pixel of a limb drawn
         // behind the fish reads as a hoop the fish is standing in; one piece over the body is the
         // only depth cue there is. It is picked as the stretch NEAREST the player -- the piece that
@@ -20106,8 +20167,8 @@ const spurG = new Graphics()
             // smudge across the whole fish rather than a shadow under a limb. A cast shadow at this
             // distance is barely wider than the thing casting it.
             const shd = slice.map((q) => ({ x: q.x + 5, y: q.y + 8 }))
-            limbRibbon(krakenGripFrontG, shd, shd.length, hwSlice, 0xffffff, 0.16, 0x05070d)
-            limbRibbon(krakenGripFrontG, slice, slice.length, hwSlice, tn)
+            limbRibbon(krakenGripFrontG, shd, shd.length, hwSlice, 0xffffff, skin, 0.16, 0x05070d)
+            limbRibbon(krakenGripFrontG, slice, slice.length, hwSlice, tn, skin)
           }
         }
       }

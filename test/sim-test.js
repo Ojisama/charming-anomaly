@@ -35003,10 +35003,33 @@ function runKraken() {
         return fn
       }
       const bakeFn = body('makeTentacleTex'), ribbonFn = body('limbRibbon')
+      assert.ok(/function makeTentacleTex\(S\)/.test(src) && /function limbRibbon\([^)]*\bS\b/.test(src),
+        'both makeTentacleTex and limbRibbon must TAKE the skin as a parameter — an arm\'s ROLE picks which skin it wears, and a function closing over one module-level skin can only ever draw one animal')
+      // EVERY ROLE SIM CAN PUT ON AN ARM MUST RESOLVE TO A LOOK AND TO A BAKED STRIP. This is a
+      // cross-file contract with no import to break: sim fixes `role` on an arm at spawn, render
+      // draws the arm as that role. A role with no skin falls through to the default, which is the
+      // worst failure this feature has — the arm still draws, nothing looks broken, and the player
+      // learns to trust a silhouette that does not predict the attack. A design that lies is worse
+      // than no design.
+      {
+        const armSrc = readFileSync(new URL('../src/sim.js', import.meta.url), 'utf8')
+        const roles = new Set()
+        for (const line of armSrc.split('\n')) {
+          if (!/\brole\b/.test(line) || /^\s*\/\//.test(line)) continue
+          for (const m of line.matchAll(/'([a-z]+)'/g)) roles.add(m[1])
+        }
+        assert.ok(roles.size >= 2, `sim.js must assign at least two arm roles (found ${[...roles].join(', ') || 'none'})`)
+        for (const role of roles) {
+          assert.ok(new RegExp('K_ROLE_SKIN = \\{[\\s\\S]{0,400}?\\b' + role + ':').test(src),
+            `render.js K_ROLE_SKIN has no entry for the '${role}' arm role — that arm draws as the default and its design stops predicting its attack`)
+          assert.ok(new RegExp('T.krakenLimb = \\{[\\s\\S]{0,400}?\\b' + role + ':').test(src),
+            `render.js bakes no strip for the '${role}' arm role`)
+        }
+      }
       for (const [sym, why] of [
         ['limbLit(', 'the lit cylinder, the cross-section ramp that replaced five flat bands'],
         ['K_SUCK_R', 'a sucker\'s radius as a fraction of the local half-width'],
-        ['K_LIMB_DARK', 'the limb\'s shadow colour'],
+        ['S.dark', 'the skin\'s shadow colour — and, read off the S PARAMETER, proof that both take the skin rather than closing over one palette'],
       ]) {
         assert.ok(bakeFn.includes(sym), `makeTentacleTex no longer reads ${sym} — ${why}`)
         assert.ok(ribbonFn.includes(sym), `limbRibbon no longer reads ${sym} — ${why}. A gripping arm then stops being the same animal as the five writhing beside it, which is exactly the demarcation the owner reported.`)
