@@ -4848,6 +4848,19 @@ export function createRenderer(app) {
     16: { amb: 0.03, occ: 0.70, sss: 0, sp: 60, spA: 0.55, rim: 0, cord: 0, wart: 0, ring: 2, glow: 0, vein: 0,
       grain: 0.8, mot: 0.06, dark: 0x0b0710, pale: 0x8c7f8f, lip: 0.28, bowl: 0.08, pore: 0.40, bump: 0.42,
       rimU: [-1.0, -0.86], rimCol: 0xffffff, rimA: 0, ringCol: 0xff7a2a, ringA: 0.70 },
+    // COIL — what every arm wears while the ring is closing. Not a role: no arm IS this, the whole
+    // ring becomes it for the length of one move and goes back afterwards. The Coil is d3's
+    // escalation and its only tell today is an arc drawn from the head, which says a thing is
+    // happening but not that the RING is the thing — so the arms stop being six attackers and
+    // become one closing object, which is what it actually is.
+    //   ⚠ WARM, AND NEVER WHITE. White-hot is this fight's word for "press now": it is the parry
+    // answer, on the limb and on the head both. The Coil is UNPARRYABLE — you move out through the
+    // gap or you take 30 — so painting it in the parry colour would teach exactly the wrong reflex
+    // at the one moment the button cannot help. Warm red is the chapter's danger, the same family
+    // as the slam corridor on the seabed.
+    17: { amb: 0.0, occ: 0.06, sss: 0, sp: 0, spA: 0, rim: 1, cord: 0, wart: 0, ring: 0, glow: 0.8, vein: 0,
+      grain: 0, mot: 0, dark: 0x0b0407, pale: 0x2a0f12, lip: 0.95, bowl: 0.0, pore: 0.0, bump: 0.55,
+      rimU: [-1.0, -0.91], rimCol: 0xffb3a6, rimA: 1.0, glowCol: 0xff8a6a },
     // F — SEGMENTED. The one structural departure: the limb is built of overlapping rings, so its
     // rhythm across the length is the read instead of the sucker rows. Less octopus, more annelid.
     7: { amb: 0.10, occ: 0.40, sss: 0, sp: 26, spA: 0.45, rim: 0, cord: 0, wart: 0, ring: 1, grain: 0.6, mot: 0.08,
@@ -4867,6 +4880,7 @@ export function createRenderer(app) {
   const K_ROLE_SKIN = {
     slam: { ...K_DEFAULTS, ...(K_SKINS[skinArt] || K_SKINS[14]) },
     grab: { ...K_DEFAULTS, ...(K_SKINS[skinArt] || K_SKINS[12]) },
+    coil: { ...K_DEFAULTS, ...(K_SKINS[skinArt] || K_SKINS[17]) },
   }
   const K_ARM = K_ROLE_SKIN.slam // the ring, the wound and the head read the slam skin as the animal's base
   // ...AND HOW IT CHANGES ALONG THE LIMB, which is the other half of "photo-like" and the half a
@@ -5669,7 +5683,11 @@ export function createRenderer(app) {
     // stretches it over ~230 world px of arm and a short texture would visibly smear.
     // one strip per ROLE, baked once each — a MeshRope's texture can be swapped per frame, so the
     // arms share the pool and differ only in which of these they point at
-    T.krakenLimb = { slam: makeTentacleTex(K_ROLE_SKIN.slam), grab: makeTentacleTex(K_ROLE_SKIN.grab) }
+    T.krakenLimb = {
+      slam: makeTentacleTex(K_ROLE_SKIN.slam),
+      grab: makeTentacleTex(K_ROLE_SKIN.grab),
+      coil: makeTentacleTex(K_ROLE_SKIN.coil),
+    }
 
     // The gull STRIKE's three poses (The Surf). Baked at GULL_DIVE_R rather than reusing the 12px
     // roster gull: the strike is drawn ~140px across, and that texture would be a 6x magnification —
@@ -19886,8 +19904,13 @@ const spurG = new Graphics()
       //   ⚠ declared HERE, at the top of the loop, and not next to the tint where it is also used:
       // the grip branch runs earlier in this same body, and a const below it is a TDZ throw the
       // moment anything grabs you.
-      const skin = K_ROLE_SKIN[a.role] || K_ROLE_SKIN.slam
-      const limbTex = T.krakenLimb[a.role] || T.krakenLimb.slam
+      //   ...AND THE COIL OVERRIDES BOTH. While the ring is closing every arm wears the coil skin,
+      // so six attackers read as one object — except an arm that already HAS you, which stays a
+      // grabber: a coil can start while a grip is running, and the limb wrapped round the player is
+      // still doing the grabber's job and must still look like it.
+      const armRole = run.script.coilT > 0 && !(a.gripT > 0) ? 'coil' : a.role
+      const skin = K_ROLE_SKIN[armRole] || K_ROLE_SKIN.slam
+      const limbTex = T.krakenLimb[armRole] || T.krakenLimb.slam
       if (rig.rope.texture !== limbTex) { rig.rope.texture = limbTex; rig.shadow.texture = limbTex }
       const phase = animT * 1.25 + a.i * 1.9
       // A LIVE ARM WRITHES AND A WINDING-UP ONE REARS: amplitude rises as its fuse runs out, so the

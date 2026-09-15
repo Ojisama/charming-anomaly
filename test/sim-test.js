@@ -34980,6 +34980,10 @@ function runKraken() {
       ['const wave = front >= 0 ? Math.exp(-(d * d)) * waveA : 0', 'the strike has no bend TRAVELLING down the limb, so an attack is a rod pivoting on its shoulder instead of a whip'],
       ['krakenTips[a.i] = { x: rig.pts[K_ROPE_N - 1].x', "render records something other than the tip it actually drew — record a.x and the press ring is back on the arm's target"],
       ['teleG.circle(tip.x, tip.y, KRAKEN_ARM_R *', "the press-here ring is drawn somewhere other than the recorded tip, i.e. up to 110px from where the reared limb is"],
+      // THE COIL WEARS ITS OWN LOOK. The ring closing is d3's escalation and it is UNPARRYABLE, so
+      // it is the one attack the press cannot answer: the whole ring changing into one object is
+      // what says so. Lose this and the Coil is six ordinary arms that happen to be moving inward.
+      ['run.script.coilT > 0 && !(a.gripT > 0)', "the ring stops becoming one object while it closes — the Coil's only remaining tell is an arc drawn from the head, which says something is happening but not that the RING is the thing"],
     ]) {
       const n = src.split(needle).length - 1
       assert.strictEqual(n, 1,
