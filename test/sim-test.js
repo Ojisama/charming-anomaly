@@ -171,6 +171,7 @@ import {
   krakenRung, KRAKEN_RUNGS, KRAKEN_ARM_REACH, KRAKEN_WAVE_TIMEOUT,
   KRAKEN_RISE_T, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, hiddenChapters, KRAKEN_CAGE_R, KRAKEN_PARRY_CD,
   KRAKEN_OPEN_WAVES, KRAKEN_ARRIVE_T, KRAKEN_RING_R, KRAKEN_LASH_R, KRAKEN_SLAM_T, KRAKEN_DEFLECT_CD,
+  KRAKEN_LASH_W, KRAKEN_LASH_OVER, KRAKEN_LASH_DMG,
 } from '../src/config.js'
 import { stepSim, applyChoice, buildLevelUpChoices, eligibleWeaponModCandidates, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, inRefillCircle, stepCharge, newElWindow, spurAt } from '../src/sim.js'
 
@@ -34921,5 +34922,55 @@ function runKraken() {
     assert.strictEqual(arm.slamT, 0, 'the slam hold never expired — the limb would stay planted for the rest of the fight')
   }
 
-  console.log('PASS run KR (The Kraken, rev 3): a standing arm is untouchable by all three weapons and puts nothing on the field, a parry makes it LIMP and materialises a real enemy at its tip that weapons do kill, a window closing takes that node away without paying a kill or xp and keeps the damage, finishing it breaks the arm for good, the ring never winds up more arms at once than its rung allows (d1/d2/d3), the head is sealed against hits AND burns until its posture breaks, staggerNeed parried lunges open the only window on it and a burn lit inside outlives it, a whiff reports itself and still pays the cooldown, the cage holds while the ring is up, all 3 rungs read arms/rearing/window/perfect/fuse/limp/cadence/staggerNeed with the windows nested, both hidden chapters resolve through HIDDEN_UNLOCKS with no id hardcoded in main/ui/state, the approach is 3 waves that never touch bossIdx and the ring closes in from the murk with the cage riding it, a sealed head answers every refused hit with a throttled deflect, an unparried slam holds its pose for KRAKEN_SLAM_T, and render.js (comments stripped) reads limpT, fuse, hitT, slamT, the arrival ramp, the recorded arm tips, the stagger pips and the cage radius the sim published')
+  // (o) THE MIDDLE OF THE ARENA IS NOT SAFE ANY MORE. Owner, 2026-09-14: "make the slam the whole
+  // tentacle clacking like a whip." A disc of KRAKEN_LASH_R around a tip parked at KRAKEN_ARM_REACH
+  // leaves a hole in the centre — and the sealed head sits in that hole, still and harmless, through
+  // every ring block, while every arm is still inside parry range of it. A bot that never left that
+  // one pixel beat a mobile one on every axis: 8-16 damage taken across the whole ring against
+  // 30-54, ZERO on all six d1 seeds, 282-408px travelled in three minutes against a walk of 220.
+  {
+    const run = inBlock(1)
+    const arm = run.krakenArms[0]
+    const h = headOf(run)
+    // THE RIG HAS TO BE ABLE TO TELL THE TWO SHAPES APART, or neither assertion below means
+    // anything. The old tip disc genuinely did not reach the head: state that as arithmetic rather
+    // than trusting it, because if a later tune closes the gap this whole case goes vacuous.
+    assert.ok(KRAKEN_ARM_REACH - KRAKEN_LASH_R > 20,
+      `the old tip disc reached to within ${KRAKEN_ARM_REACH - KRAKEN_LASH_R}px of the head, so "the middle was safe" is no longer the thing this case is testing`)
+    function strike(x, y) {
+      for (const a of run.krakenArms) { a.tele = 0; a.gripT = 0 }
+      arm.tele = 1 / 120
+      arm.fuse = R1.fuse
+      run.player.x = x; run.player.y = y
+      run.player.hp = run.player.maxHP
+      run.player.invuln = 0            // a previous strike's i-frames would read as "it missed"
+      run.events.length = 0
+      stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+      const lash = run.events.filter((e) => e.type === 'lash')
+      assert.strictEqual(lash.length, 1, 'the wind-up ran out without striking — this fixture measured nothing')
+      return { hurt: run.player.maxHP - run.player.hp, e: lash[0] }
+    }
+    // THE GAP BETWEEN THE ARMS IS THE SAFE GROUND, and it is checked FIRST: it lands no damage, so
+    // it cannot leave i-frames that would make the next line pass for the wrong reason.
+    const off = arm.ang + Math.PI / 2
+    const aside = strike(h.x + Math.cos(off) * KRAKEN_ARM_REACH * 0.9, h.y + Math.sin(off) * KRAKEN_ARM_REACH * 0.9)
+    assert.strictEqual(aside.hurt, 0,
+      `the slam took ${aside.hurt} off a player a quarter turn away from the limb that threw it — it is not a line down the arm, it is still an area, and there is no gap to stand in`)
+    // ...AND STANDING ON THE HEAD IS NOW THE LINE EVERY ATTACKING ARM CROSSES.
+    const mid = strike(h.x, h.y)
+    assert.strictEqual(mid.hurt, KRAKEN_LASH_DMG,
+      `an unparried slam took ${mid.hurt} off a player standing ON the head — the centre of the arena is still the safest square in the fight, and standing still still beats playing`)
+    // THE STRUCK LINE IS PUBLISHED, so render draws the shape the sim hit with rather than a second
+    // guess at it. A picture the player dodges that is not the shape that hits them is worse than
+    // no picture at all.
+    for (const k of ['x0', 'y0', 'x1', 'y1', 'w']) {
+      assert.ok(Number.isFinite(mid.e[k]), `the lash event carries no ${k}: render cannot draw the capsule the sim struck with`)
+    }
+    assert.ok(Math.hypot(mid.e.x1 - h.x, mid.e.y1 - h.y) >= KRAKEN_LASH_OVER - 1,
+      'the struck line stops at the head instead of cracking past it')
+    assert.ok(Math.hypot(mid.e.x0 - h.x, mid.e.y0 - h.y) >= KRAKEN_RING_R - 1,
+      'the struck line starts at the tip instead of at the shoulder — it is not the whole tentacle')
+  }
+
+  console.log('PASS run KR (The Kraken, rev 3): a standing arm is untouchable by all three weapons and puts nothing on the field, a parry makes it LIMP and materialises a real enemy at its tip that weapons do kill, a window closing takes that node away without paying a kill or xp and keeps the damage, finishing it breaks the arm for good, the ring never winds up more arms at once than its rung allows (d1/d2/d3), the head is sealed against hits AND burns until its posture breaks, staggerNeed parried lunges open the only window on it and a burn lit inside outlives it, a whiff reports itself and still pays the cooldown, the cage holds while the ring is up, all 3 rungs read arms/rearing/window/perfect/fuse/limp/cadence/staggerNeed with the windows nested, both hidden chapters resolve through HIDDEN_UNLOCKS with no id hardcoded in main/ui/state, the approach is 3 waves that never touch bossIdx and the ring closes in from the murk with the cage riding it, a sealed head answers every refused hit with a throttled deflect, an unparried slam holds its pose for KRAKEN_SLAM_T and lands down the WHOLE limb so the middle of the arena is not safe while a gap between two arms is, and render.js (comments stripped) reads limpT, fuse, hitT, slamT, the arrival ramp, the recorded arm tips, the stagger pips and the cage radius the sim published')
 }

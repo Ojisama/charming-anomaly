@@ -712,10 +712,12 @@ const SFX_FOR_EVENT = {
   krakenEnrage: 'siren',
   // tentacleBreak is the fight's real progress, headHide is the kraken dropping below the field,
   // gripLatch is a grab taking hold — all three are rare enough to bear a voice (4-8 a fight).
-  // `lash` DELIBERATELY HAS NONE: the ring throws one about once a second, which is the rate
-  // CLAUDE.md forbids a chime at, and the slams that actually connect already sound through `hurt`.
-  // It carries a render case instead, so run EV is satisfied by a picture rather than by silence.
-  tentacleBreak: 'bossFall', headHide: 'hole', gripLatch: 'zap',
+  // `lash` HAD none until 2026-09-14, on the ground that the ring throws one about once a second.
+  // The owner overruled it asking for the slam to "clack like a whip", and the rate argument is
+  // weaker than it looked: a crack once a second is the fight's PULSE, the thing a parry is timed
+  // against, and it is 28ms of noise rather than a chime. Throttled at 110ms in audio.js so two arms
+  // landing on one frame read as one crack.
+  tentacleBreak: 'bossFall', headHide: 'hole', gripLatch: 'zap', lash: 'whip',
   // headRise is the fight's one reveal (once a run); coilWind/coilClose are D3's unparryable
   // ring, rare enough to bear a voice and important enough to need one — it is the only pattern
   // with no button answer, so it must be audible before it is visible.

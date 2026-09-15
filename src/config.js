@@ -8799,7 +8799,20 @@ export const KRAKEN_PERFECT_MUL = 2.0 // damage + refill multiplier inside the p
 // not fix it attacking as one piece: with n independent clocks the number of arms rearing at once
 // is arms x fuse / cycle, an emergent mean no shuffle can move. Rev 3 hands out turns instead.
 
-export const KRAKEN_LASH_R = 150 // px the arm's slam reaches around its tip
+export const KRAKEN_LASH_R = 150 // px the arm's slam reaches around its tip — the PARRY's reach
+// THE SLAM IS THE WHOLE LIMB, NOT A DISC AT THE TIP (owner 2026-09-14: "make the slam the whole
+// tentacle clacking like a whip"). A disc at the tip left a hole in the middle of the arena: the
+// tips sit at KRAKEN_ARM_REACH and the disc covers KRAKEN_LASH_R around them, so everything inside
+// 50px of the head was unreachable by every arm at once while still being inside every arm's parry
+// range — and the head parks there sealed, still and harmless through every ring block. Measured, a
+// bot that never left that pixel beat a mobile one on every axis: faster fight, 8-16 damage taken
+// across the whole ring against 30-54, ZERO on all six d1 seeds, and 282-408px travelled in three
+// minutes against a walk speed of 220.
+//   So the strike is a capsule down the limb's own bearing, from the shoulder out in the murk,
+// through the tip, and cracking OVER the head. The centre is now on every attacking arm's line and
+// the safe ground is the gap between them, which is the positioning decision the ring did not have.
+export const KRAKEN_LASH_W = 70    // px, half-width of the struck line
+export const KRAKEN_LASH_OVER = 96 // px the tip cracks PAST the head, so the middle is never safe
 // (KRAKEN_ARM_HIT_T retired in rev 3 — the flash is KRAKEN_LIMP_FLASH, and it marks a parry that
 // EXPOSED the limb rather than one that chipped it.)
 // THE CAGE. The arms are the arena wall and the sim never said so: you could walk out of the ring
