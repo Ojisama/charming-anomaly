@@ -34985,6 +34985,33 @@ function runKraken() {
       assert.strictEqual(n, 1,
         `render.js has ${n} matches for \`${needle}\` (want exactly 1). That expression is what draws ${why} — if you moved or renamed it, re-aim this needle; if you DELETED it, the tell is gone. This check cannot tell those apart, so go and shoot the frame.`)
     }
+
+    // ...AND ONE AUTHOR FOR THE LIMB'S SKIN. The strip is baked ONCE and a gripping arm is drawn as
+    // vector EVERY FRAME, which makes them a textbook case of this repo's largest defect class: one
+    // fact in two places, no import between them, nothing thrown when they drift. It has already
+    // shipped as a defect — the owner could see "the demarcation between the tentacle and the tip
+    // that holds you" the moment only the curled part was redrawn.
+    //   ⚠ THIS ASSERTS SHARING, NOT CORRECTNESS. It cannot see whether the limb looks right, only
+    // that the bake and the ribbon still read the same lighting, the same sucker size and the same
+    // shadow colour. Anything about the picture is a frame, never an assert.
+    {
+      const body = (name) => {
+        const i = src.indexOf(`\n  function ${name}(`)
+        assert.ok(i > 0, `render.js must declare ${name} in the renderer closure`)
+        const fn = src.slice(i, src.indexOf('\n  }\n', i))
+        assert.ok(fn.length > 400 && fn.length < 12000, `${name} sliced to ${fn.length} chars — the slice is wrong, not the contents`)
+        return fn
+      }
+      const bakeFn = body('makeTentacleTex'), ribbonFn = body('limbRibbon')
+      for (const [sym, why] of [
+        ['limbLit(', 'the lit cylinder, the cross-section ramp that replaced five flat bands'],
+        ['K_SUCK_R', 'a sucker\'s radius as a fraction of the local half-width'],
+        ['K_LIMB_DARK', 'the limb\'s shadow colour'],
+      ]) {
+        assert.ok(bakeFn.includes(sym), `makeTentacleTex no longer reads ${sym} — ${why}`)
+        assert.ok(ribbonFn.includes(sym), `limbRibbon no longer reads ${sym} — ${why}. A gripping arm then stops being the same animal as the five writhing beside it, which is exactly the demarcation the owner reported.`)
+      }
+    }
   }
 
   // (m) THE ARENA IS BUILT, NOT CUT TO. Owner, 2026-09-14: "there should be more 'basic enemies'

@@ -21,7 +21,7 @@ const WIGGLE_FROM = 46                              // ...and when the bot start
 // is clamped to 1 and sized off the arena), so this scales the STAGE about the screen centre, which
 // is where the renderer has already put the player. Everything the canvas draws grows with it, so
 // what comes back is the real geometry at a size defects cannot hide at.
-const ZOOM = 3.4
+const ZOOM = Number(new URLSearchParams(location.search).get('kz') ?? 3.4)
 
 H.until(() => run.script.phase === "boss" && run.krakenArms.length > 0, 8000)
 
@@ -52,7 +52,12 @@ function beat() {
   const events = run.events.splice(0)
   if (since < 0 && events.some((e) => e.type === 'gripLatch')) since = 0
   else if (since >= 0) since++
+  const _t0 = performance.now()
   window.__renderer.sync(run, 1 / 60, events)
+  const _ms = performance.now() - _t0
+  const k = since >= 0 ? 'H' : 'F'
+  window.__sy = window.__sy || { Hn: 0, Hs: 0, Fn: 0, Fs: 0 }
+  window.__sy[k + 'n']++; window.__sy[k + 's'] += _ms
   if (run.phase === 'levelup') run.phase = 'playing'
 }
 
@@ -62,7 +67,8 @@ return (age) => {
   let guard = 0
   while (guard++ < 60 * 240 && (since < 0 || since < want)) beat()
   const g = gripping()
-  H.note(JSON.stringify({
+  const _sy = window.__sy || { Hn: 1, Hs: 0, Fn: 1, Fs: 0 }
+  H.note('sync held ' + (_sy.Hs / Math.max(1, _sy.Hn)).toFixed(2) + 'ms/' + _sy.Hn + ' free ' + (_sy.Fs / Math.max(1, _sy.Fn)).toFixed(2) + 'ms/' + _sy.Fn + ' | ' + JSON.stringify({
     sinceLatch: since, want,
     gripT: g ? +g.gripT.toFixed(2) : 0,
     state: g ? 'HELD' : (since >= 0 ? 'let go' : 'no grab yet'),
