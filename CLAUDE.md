@@ -12,20 +12,26 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 npm run dev        # vite dev server (host:true — reachable from phone on the LAN for touch testing)
 npm run build      # vite build -> dist/
 npm run preview    # serve the built dist/
-npm test           # node test/sim-test.js — headless sim self-check, no framework. 77s, the ship gate.
-node test/sim-test.js <name>   # ONLY scenarios whose FUNCTION name matches, case-insensitive.
-                   # This is the one to use while iterating: `surf` is 0.09s, `element` 2.4s.
-                   # 397 of the suite's 430 assertion blocks finish in 4.4s TOTAL — the whole cost
-                   # is 14 functions running full 300s sims for balance curves. A partial run
-                   # always prints what it skipped on the last line.
-npm run test:fast  # everything except those 14 — 8.6s for 385 of 430 blocks.
-node scripts/test-isolation.mjs   # does every scenario still pass ALONE? (a couple of minutes)
-                   # Run after adding a scenario, and after any change to how many randoms are
-                   # drawn. An order-coupled scenario makes a filtered run a liar: run V.f never
-                   # seeded, its measured drift ranges 18-159px across phases, and its threshold
-                   # sat at 20 — so it passed only because the full-suite ORDER lands on a passing
-                   # phase, and had a ~12% chance of a mystery red on any unrelated edit.
+npm test           # THE SHIP GATE — scripts/test-isolation.mjs: all 172 scenarios, ONE PROCESS EACH,
+                   # 8 at a time. 16s. It costs its LONGEST SINGLE SCENARIO, not the sum, so the
+                   # number to watch is the "Floor is..." line it prints (today
+                   # testChapterDensityCap, which IS the whole 16s — splitting its four chapters
+                   # into four scenarios would take the gate to ~8s).
+npm test <name>    # only scenarios whose FUNCTION name matches, case-insensitive, still parallel.
+                   # `surf` is 0.4s, `element` 1.0s. A filter matching NOTHING is a failure, not
+                   # a pass — that used to print ALL TESTS PASSED having run no scenario at all.
+npm run test:serial   # the old single-process run of test/sim-test.js, source order, ~76s. For a
+                   # debugger, a print, or a stack you want uninterleaved. NOT the gate.
 ```
+
+**Running each scenario alone is no longer a thing you remember to do — it is the only way the gate
+runs.** That closes the order-coupling hole for good (run V.f never seeded itself, its measured
+drift ranges 18–159px across phases and its threshold sat at 20, so it passed only because the
+full-suite ORDER lands on a passing phase). **And the gate proves COVERAGE, not dispatch:** 13 of
+the 172 `run()` sites sit inside `testCrazyMods`' body, so a child asked for one of those alone
+reaches nothing and exits 0 — the old serial isolation runner counted call sites and had been
+calling that "ALL 172 SCENARIOS PASS IN ISOLATION" for its whole life. Every child now prints
+`#RAN <names>` and the gate unions them against the full list before it says anything.
 
 **The probes and dev views — one line each. Every one has a trap that has produced a WRONG answer
 in this repo (the kiting rig's own geometry, census numbers compared across invocations, map mode's
@@ -46,6 +52,8 @@ hidden layers). `probing-the-game` holds all of them; load it before you measure
 | MAP MODE (`?debug`, then `__renderer.setMapMode(true,1)`) | the REAL renderer, wide-area — **judge any layout question here**, a gameplay shot shows one city block |
 
 There is no single-test runner and no test framework: `test/sim-test.js` is one plain-node file of `assert`-based scenarios that seeds `Math.random` (mulberry32) for determinism and prints `PASS …` / `ALL TESTS PASSED`. To run a subset, pass a name (above) — do not reach for jest/vitest. To add a check, append a scenario in the same style. **Anything free of Pixi and DOM is testable this way** — the suite already imports `sim.js`, `config.js`, `state.js`, `sync.js` and `fr.js`. (`sync.js` deliberately keeps browser globals out of its module scope precisely so it can be imported here.) `render.js` and `main.js` are not importable, but the suite still asserts against them as **source text** — see run UG.k, which greps `render.js` to prove a declared hook is actually forwarded and read. Reach for that trick when a render-side contract has no other guard.
+
+**THOSE SOURCE-TEXT SCENARIOS READ FILES OUTSIDE `src/` AND `test/`** — `styles.css`, `index.html`, `public/sw.js`, `vite.config.js`. So a scratch copy made for mutation-proofing with `cp -r src test <tmp>` is not a runnable suite: it dies partway with a missing-file throw, which the top-level `try` turns into one `FAIL:` line and `process.exit(1)`. A harness looping over mutations reads that as "caught" and a timing harness prints a total for a run that stopped at scenario 99 of 172 — this cost a whole round of wrong numbers on 2026-09-15. Extract with `git archive HEAD | tar -x -C <tmp>` (the WHOLE tree, not `HEAD src`), and make the harness require a `ALL TESTS PASSED` line on its baseline before it believes anything after it.
 
 **Six scenarios lint CROSS-FILE CONTRACTS as source text, and they are the cheapest guards here.**
 An architecture audit over 273 releases found the single largest root-cause class — 28% of every
@@ -86,7 +94,7 @@ runs, rather than inferring it from a green suite. Make the harness assert the o
 contains the old code: pointed at the wrong ref it compares HEAD against itself and prints a
 screenful of reassuring IDENTICALs.
 
-Corollary worth stating, because it is easy to run `npm test` as a ritual: **`scripts/` and `docs/` are not in that import graph.** A harness-only or spec-only diff gets zero coverage from the suite — it will pass whatever you did. The real check for a `scripts/*.mjs` change is running the script; `git status --short` is what tells you whether you strayed into `src/`.
+Corollary worth stating, because it is easy to run `npm test` as a ritual: **`scripts/` and `docs/` are not in that import graph.** A harness-only or spec-only diff gets zero coverage from the suite — it will pass whatever you did. **That now includes the gate itself** (`scripts/test-isolation.mjs`): nothing tests the thing that runs the tests, and its failure mode is to pass. Its two self-checks are the only guard — it aborts unless every dispatched child reports back, and unless the union of what the children say they RAN covers the whole scenario list. If you touch it, break one assertion on purpose and confirm the exit code is 1 before believing a green run. The real check for a `scripts/*.mjs` change is running the script; `git status --short` is what tells you whether you strayed into `src/`.
 
 **AND NEITHER IS `render.js`.** It is not importable (Pixi + DOM), so a render-only diff gets the same
 zero — `ALL TESTS PASSED` on a renderer change means the SIM still works, and says nothing whatever

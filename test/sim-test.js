@@ -176,40 +176,67 @@ import {
 } from '../src/config.js'
 import { stepSim, applyChoice, buildLevelUpChoices, eligibleWeaponModCandidates, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, inRefillCircle, stepCharge, newElWindow, spurAt } from '../src/sim.js'
 
-// ---- Scenario runner: a filter, and a --fast mode ---------------------------------------------
-// The suite is 71s, and 397 of its 430 assertion blocks finish in 4.4s TOTAL — the whole cost sits
-// in 14 functions that run full 300s sims to measure balance curves. Paying 71s to re-check the
-// difficulty ramp after editing a weapon's arc is what makes the edit-test loop feel slow, and a
-// slow loop is why defects arrive in batches instead of one at a time.
+// ---- Scenario runner: one filter, and the gate's own dispatch flag ----------------------------
+// THIS FILE IS NO LONGER WHAT `npm test` RUNS. scripts/test-isolation.mjs hands one scenario to
+// each of 8 child processes, so the gate costs its LONGEST SINGLE SCENARIO rather than the sum of
+// all 172 — 76s became 16s, and every scenario now runs alone, which is the order-independence the
+// suite always wanted and used to check once in a while by hand.
 //
-//   node test/sim-test.js              every scenario (what npm test and CI do — unchanged)
-//   node test/sim-test.js element      only scenarios whose function name matches, case-insensitive
-//   node test/sim-test.js --fast       everything except the 14 heavy balance sims
+//   npm test                           the gate: every scenario, one per process, 8 at a time
+//   npm test element                   only scenarios whose function name matches, in parallel
+//   npm run test:serial                THIS file, one process, every scenario in source order —
+//                                      for a debugger, a print, or a stack you want uninterleaved
+//   node test/sim-test.js element      the same single process, filtered by substring
 //
 // The filter matches the FUNCTION name, which is the unit this file is already organised in.
-// A partial run always says so on the last line: a green suite that quietly checked a third of
-// itself would be worse than a slow one.
+// A partial run always says so on the last line, and a filter that matches NOTHING is a failure
+// rather than a pass: a green suite that quietly checked a third of itself would be worse than a
+// slow one, and one that checked none of itself looks exactly the same from the outside.
+//
+// --fast is GONE, with the SLOW_SCENARIOS list it read. It skipped 14 named heavy scenarios to buy
+// a quicker loop; the list had rotted (testEliteSurge at 7.2s, testCircuitCards 3.5s, testTheDeep
+// 3.5s and runSpawnTilt 3.4s were never in it), and at 31s it had ended up TWICE the cost of the
+// full parallel gate while covering less. Nothing that is slower and weaker is worth keeping.
 const ONLY = process.argv.slice(2).find((a) => !a.startsWith('-')) || ''
-const FAST = process.argv.includes('--fast')
-// MEASURED, not guessed — the per-block timing is in the commit that added this. Together these
-// are 85% of the wall clock. One list rather than a per-function flag, so there is a single place
-// to look when the suite gets slow again; the count is printed so it cannot rot unnoticed.
-const SLOW_SCENARIOS = new Set([
-  'testVictory', 'testChapterLateRate', 'testAnomalySlate', 'testPoolBuckets', 'testRerollRarity',
-  'testEscalation', 'testMutators', 'testTheBlank', 'testChapterBalance', 'testChapterDensityCap',
-  'testCommitVisibility', 'testIntegerHP', 'testLaneGolden', 'testElementsRedesign',
-])
+// EXACT names, comma-separated — what scripts/test-isolation.mjs dispatches with, and the reason it
+// is a second flag rather than a reuse of ONLY: ONLY is a SUBSTRING match, which is what you want
+// when typing by hand and wrong for a dispatcher. 'testUndertow' also selects testUndertowTide and
+// testUndertowLadder, so a pool handing out one name per process would run three scenarios twice
+// over and report a denominator it had not actually met.
+const EXACT = (process.argv.find((a) => a.startsWith('--only=')) || '').slice(7)
+const EXACT_SET = EXACT ? new Set(EXACT.split(',')) : null
 let _ran = 0
 let _skipped = 0
+// WHAT ACTUALLY RAN, by name. A dispatcher cannot work this out from the source: 13 of the 172
+// run() sites sit inside testCrazyMods' body, so `--only=testSupernova` selects a call site that
+// is never reached and the child prints ALL TESTS PASSED having run NOTHING. That is the silent
+// pass CLAUDE.md's print-the-denominator rule exists for, and it was live in the old serial
+// scripts/test-isolation.mjs too — its "ALL 172 SCENARIOS PASS IN ISOLATION" counted call sites,
+// not scenarios. The gate unions this line across every child and compares it to the 172 names.
+const _names = []
+// EVERY FILTER APPLIES AT THE TOP LEVEL ONLY. testCrazyMods runs 13 scenarios from inside its own
+// body, and they are part of it: selecting the parent has to bring them, or selecting it runs a
+// fourteenth of what its name says. (Before this, --only=testCrazyMods reported one scenario and
+// silently dropped the other 13 — the same silent pass from the other direction.)
+let _depth = 0
 function run(fn) {
-  if (ONLY && !fn.name.toLowerCase().includes(ONLY.toLowerCase())) { _skipped++; return }
-  if (FAST && SLOW_SCENARIOS.has(fn.name)) { _skipped++; return }
+  if (_depth === 0) {
+    if (EXACT_SET && !EXACT_SET.has(fn.name)) { _skipped++; return }
+    if (ONLY && !fn.name.toLowerCase().includes(ONLY.toLowerCase())) { _skipped++; return }
+  }
   _ran++
-  fn()
+  _names.push(fn.name)
+  _depth++
+  try { fn() } finally { _depth-- }
 }
 function runSummary() {
   if (_skipped === 0) return
-  const why = ONLY ? " (filter '" + ONLY + "')" : (FAST ? ' (--fast: heavy balance sims omitted)' : '')
+  // one scenario per process is what the gate DOES, so no PARTIAL warning — but it must say what
+  // it reached: a child dispatched a name that is nested inside another scenario reaches nothing,
+  // and the gate's coverage union is what turns that from a silent pass into an accounted one.
+  if (EXACT_SET) { console.log('#RAN ' + _names.join(',')); return }
+
+  const why = ONLY ? " (filter '" + ONLY + "')" : ''
   console.log('\n>>> PARTIAL RUN: ' + _ran + ' scenarios ran, ' + _skipped + ' SKIPPED' + why +
     '. Run `npm test` with no arguments before shipping.')
 }
@@ -20290,6 +20317,13 @@ run(testLeLargeWeapons)
   run(runKraken)
   run(runBiomes)
   run(testBootLoader)
+  // A hand-typed filter that matched nothing is the silent pass without a parent watching:
+  // `node test/sim-test.js supernova` printed ALL TESTS PASSED having run no scenario at all.
+  if (_ran === 0 && !EXACT_SET) {
+    console.error("FAIL: no scenario name contains '" + ONLY + "'. Nothing ran, so this is not a pass." +
+      ' Names: node scripts/test-isolation.mjs --list')
+    process.exit(1)
+  }
   console.log('ALL TESTS PASSED')
   runSummary()
 } catch (err) {
