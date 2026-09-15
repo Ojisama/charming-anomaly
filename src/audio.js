@@ -10,7 +10,11 @@ const lastPlay = {}
 // dozens of structures a second, and each one drops both a `crush` event AND a gem (structure XP,
 // same run.gems.push path a kill uses — see sim.js's stepCrush/CRUSH_XP) — without a throttle both
 // sounds machine-gun the audio graph in lockstep with the crush rate (design doc §2).
-const THROTTLE_MS = { shoot: 40, hit: 40, zap: 40, crush: 70, gem: 50, whip: 110 }
+// No entry for `whip`: it looked like it needed one, and it does not. Measured across 2154 lashes
+// at all three rungs, the smallest gap between two is 648ms — the ring hands out one turn per
+// cadence and every arm on a rung shares one fuse, so a doubled crack cannot happen. A throttle that
+// can never fire is a written claim that is wrong.
+const THROTTLE_MS = { shoot: 40, hit: 40, zap: 40, crush: 70, gem: 50 }
 // The ⚙ settings row's sound switch (persisted as meta.sfx). A flag rather than master.gain = 0,
 // because it has to hold before initAudio has ever run — the switch is thrown on the title screen,
 // where there is no AudioContext yet.
@@ -155,14 +159,18 @@ const SFX = {
     tone(57, { type: 'triangle', dur: 1.0, gain: 0.06, slide: 190 })
     noise({ dur: 0.5, gain: 0.05 })
   },
-  // THE KRAKEN'S SLAM LANDING (owner 2026-09-14: "clacking like a whip"). Three parts in 110ms:
-  // the crack (a very short bright noise transient), the snap above it falling fast, and the weight
-  // of the limb arriving on the seabed under both. It is throttled because two arms can strike on
-  // one frame at d2 and d3 and a doubled crack reads as a stutter, not as two attacks.
+  // THE KRAKEN'S SLAM LANDING (owner 2026-09-14: "clacking like a whip"). Three parts in 110ms: the
+  // crack (a very short bright noise transient), the snap above it falling fast, and the weight of
+  // the limb arriving on the seabed under both.
+  //   LEVELS AGAINST clang, NOT AGAINST explode. These two are the chapter's per-second pair, and
+  // the first cut summed to 0.29 against clang's 0.085 — 3.4x the deflect, for a crack thrown by
+  // arms that are mostly off the edge of a phone (the ring sits at KRAKEN_RING_R = 620). The 2.6kHz
+  // square also has harmonics at 7.8k/13k/18k, which on a phone speaker is a chirp rather than a
+  // clack, so it is down an octave.
   whip() {
-    noise({ dur: 0.028, gain: 0.13 })
-    tone(2600, { type: 'square', dur: 0.045, gain: 0.05, slide: 380 })
-    tone(210, { type: 'sine', dur: 0.11, gain: 0.11, slide: 66 })
+    noise({ dur: 0.028, gain: 0.075 })
+    tone(1300, { type: 'square', dur: 0.045, gain: 0.03, slide: 300 })
+    tone(210, { type: 'sine', dur: 0.11, gain: 0.05, slide: 66 })
   },
   crush() {
     tone(70, { type: 'sine', dur: 0.09, gain: 0.26, slide: 32 })

@@ -171,7 +171,7 @@ import {
   krakenRung, KRAKEN_RUNGS, KRAKEN_ARM_REACH, KRAKEN_WAVE_TIMEOUT,
   KRAKEN_RISE_T, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, hiddenChapters, KRAKEN_CAGE_R, KRAKEN_PARRY_CD,
   KRAKEN_OPEN_WAVES, KRAKEN_ARRIVE_T, KRAKEN_RING_R, KRAKEN_LASH_R, KRAKEN_SLAM_T, KRAKEN_DEFLECT_CD,
-  KRAKEN_LASH_W, KRAKEN_LASH_OVER, KRAKEN_LASH_DMG,
+  KRAKEN_LASH_W, KRAKEN_LASH_OVER, KRAKEN_LASH_DMG, KRAKEN_ARRIVE_T2, KRAKEN_WAVE_GROWTH,
 } from '../src/config.js'
 import { stepSim, applyChoice, buildLevelUpChoices, eligibleWeaponModCandidates, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, inRefillCircle, stepCharge, newElWindow, spurAt } from '../src/sim.js'
 
@@ -34769,16 +34769,23 @@ function runKraken() {
     const src = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
       .replace(/\/\/[^\n]*/g, ' ')
       .replace(/\/\*[\s\S]*?\*\//g, ' ')
-    // ...AND EVERY NEEDLE IS THE DRAW ITSELF, MATCHED EXACTLY ONCE. Naming the FIELD was the second
-    // version of this lint and it was theatre: a reviewer's mutation table neutered each feature at
-    // its own draw site — the press ring put back on the arm's target, the membrane drawn at the
-    // bare constant again, the tear deleted, the stagger window deleted, the pips drawn dark either
-    // way — and 8 of the 10 needles stayed green, because `a.fuse` occurs 8 times in this file,
-    // `a.limpT > 0` 4, `s.staggerT > 0` 3 and `a.slamT > 0` 3. A needle that matches a field
-    // matches whichever of its uses survives.
-    //   The === 1 is the load-bearing half and it defends itself: a needle that starts matching
-    // somewhere else fails AS A NEEDLE, here, instead of quietly guarding the wrong line. If one of
-    // these trips on an innocent edit, re-aim it at the new draw — do not relax it to includes().
+    // THIS IS A SPELLING CHECK. IT IS NOT COVERAGE, AND IT CANNOT BE.
+    //   Three rounds of adversarial review have now found this list toothless, each time because it
+    // was sold as something it structurally cannot be. v1 matched the COMMENT about the code. v2
+    // matched the field name, so it found whichever of that field's 3-8 uses survived. v3 (this
+    // shape, minus this comment) demanded an exact draw expression exactly once — and a reviewer
+    // turned the ENTIRE Kraken renderer off with two statements:
+    //     function drawKrakenRing(run) { if (1) { krakenHead = null; krakenDeepG.clear(); return }
+    //     function syncKrakenArms(run) { if (1) return
+    //   ...and all thirteen needles still matched, exactly once, because they are still THERE. The
+    // property being asserted — "this draw runs" — is a RUNTIME property, and no search over source
+    // text can see it. Nine of the thirteen below are not even draw calls; they are const
+    // declarations and sub-expressions that a downstream edit can orphan without touching.
+    //   So: what this buys is that a named expression cannot be silently RENAMED or deleted
+    // wholesale, which is worth ~200ms and has caught real deletions. What it does not buy is any
+    // statement about what appears on screen. CLAUDE.md already says the only thing that does:
+    // a render change is verified by SHOOTING A FRAME. Do not quote this block as proof a tell
+    // works, and do not add a needle here instead of shooting the frame.
     for (const [needle, why] of [
       ['const HW = KRAKEN_ARM_R * 1.45 * 0.5', 'the TEAR is gone — the whole reward for a parry is invisible on the limb it was won on'],
       ['mix(0x7fd7ee, 0xbfe9f7, 0.5 + 0.5 * Math.sin(animT * 4))', 'an EXPOSED limb is not tinted, so the one state any weapon can hurt looks like every other state'],
@@ -34795,7 +34802,8 @@ function runKraken() {
       ['teleG.circle(tip.x, tip.y, KRAKEN_ARM_R *', "the press-here ring is drawn somewhere other than the recorded tip, i.e. up to 110px from where the reared limb is"],
     ]) {
       const n = src.split(needle).length - 1
-      assert.strictEqual(n, 1, `render.js has ${n} matches for \`${needle}\` (want exactly 1): ${why}`)
+      assert.strictEqual(n, 1,
+        `render.js has ${n} matches for \`${needle}\` (want exactly 1). That expression is what draws ${why} — if you moved or renamed it, re-aim this needle; if you DELETED it, the tell is gone. This check cannot tell those apart, so go and shoot the frame.`)
     }
   }
 
@@ -34966,10 +34974,92 @@ function runKraken() {
     for (const k of ['x0', 'y0', 'x1', 'y1', 'w']) {
       assert.ok(Number.isFinite(mid.e[k]), `the lash event carries no ${k}: render cannot draw the capsule the sim struck with`)
     }
-    assert.ok(Math.hypot(mid.e.x1 - h.x, mid.e.y1 - h.y) >= KRAKEN_LASH_OVER - 1,
-      'the struck line stops at the head instead of cracking past it')
     assert.ok(Math.hypot(mid.e.x0 - h.x, mid.e.y0 - h.y) >= KRAKEN_RING_R - 1,
       'the struck line starts at the tip instead of at the shoulder — it is not the whole tentacle')
+    // THE BAND HAS A REAL WIDTH, AND A FINITE ONE. Both assertions above are satisfied by a
+    // ZERO-width line: mid stands exactly on the axis, so segDist2 returns 0 and 0 <= W*W holds at
+    // W = 0, and the published w was only checked with Number.isFinite, which 0 is. A zero-width whip hits
+    // nobody in the real game. So: step off the axis and check both sides of the edge.
+    assert.ok(KRAKEN_LASH_W >= 40 && KRAKEN_LASH_W <= 130,
+      `KRAKEN_LASH_W is ${KRAKEN_LASH_W}: below ~40 the whip is a hairline nothing can stand off, above ~130 two arms leave no gap in a ${KRAKEN_CAGE_R}px cage`)
+    const perp = arm.ang + Math.PI / 2
+    const onLine = (f) => ({
+      x: h.x + Math.cos(arm.ang) * KRAKEN_ARM_REACH * 0.6 + Math.cos(perp) * KRAKEN_LASH_W * f,
+      y: h.y + Math.sin(arm.ang) * KRAKEN_ARM_REACH * 0.6 + Math.sin(perp) * KRAKEN_LASH_W * f,
+    })
+    const inside = onLine(0.5)
+    assert.strictEqual(strike(inside.x, inside.y).hurt, KRAKEN_LASH_DMG,
+      `a player half a width off the limb's centreline was missed — the struck band is thinner than KRAKEN_LASH_W says (${KRAKEN_LASH_W}), or it has no width at all`)
+    const outside = onLine(1.6)
+    assert.strictEqual(strike(outside.x, outside.y).hurt, 0,
+      `a player ${(KRAKEN_LASH_W * 1.6).toFixed(0)}px off the centreline was hit against a half-width of ${KRAKEN_LASH_W} — the band is wider than it publishes, so there is no gap to step into`)
+    // AND THE TELEGRAPH IS THE SAME LINE, BY CONSTRUCTION. The wind-up drew a disc at the tip for a
+    // release after the strike became this, leaving the arena's whole middle struck with nothing on
+    // it. Both now read the arm's own published lx0/ly0/lx1/ly1, so they cannot drift.
+    for (const [k, v] of [['lx0', mid.e.x0], ['ly0', mid.e.y0], ['lx1', mid.e.x1], ['ly1', mid.e.y1]]) {
+      assert.strictEqual(arm[k], v,
+        `the arm publishes ${k}=${arm[k]} while the strike used ${v} — the telegraph render draws and the line the sim hits with are two different facts again`)
+    }
+  }
+
+  // (o2) ...AND THE BUTTON REACHES ALL OF IT. The parry gate was a disc of KRAKEN_LASH_R * 1.6
+  // around the arm's TIP — a deliberate superset while the strike was a disc of KRAKEN_LASH_R at
+  // that same tip, and not one at all once the strike became the whole limb. 22.9% of the struck
+  // area, the band behind the head that this rework ADDED, could take 19 off a player whose button
+  // was inert. Two mutation rounds put the disc back with nothing going red.
+  {
+    const run = inBlock(1)
+    const h = headOf(run)
+    const arm = run.krakenArms[0]
+    for (const x of run.krakenArms) { x.tele = 0; x.gripT = 0 }
+    arm.tele = R1.window * 0.5
+    arm.fuse = R1.fuse
+    run.repulseCd = 0
+    // 60px behind the head, on this arm's bearing: ON the struck line, and further from the tip
+    // than the old disc ever reached.
+    run.player.x = h.x - Math.cos(arm.ang) * 60
+    run.player.y = h.y - Math.sin(arm.ang) * 60
+    run.player.hp = run.player.maxHP
+    const tipD = Math.hypot(run.player.x - arm.x, run.player.y - arm.y)
+    assert.ok(tipD > KRAKEN_LASH_R * 1.6,
+      `this fixture stands ${Math.round(tipD)}px from the arm's tip, still inside the old ${KRAKEN_LASH_R * 1.6}px disc — it cannot tell the two gates apart and proves nothing`)
+    stepSim(run, { x: 0, y: 0, skill: true }, 1 / 60)
+    assert.ok(arm.limpT > 0,
+      `the button did not answer an arm whose strike covers the ground the player is standing on, ${Math.round(tipD)}px from its tip — the parry is reaching a disc around the tip again while the strike reaches the whole limb`)
+  }
+
+  // (p) THREE KNOBS THAT WERE NOT WIRED TO ANY ASSERTION. Each of these was set to a value that
+  // reproduces a shipped complaint, and the whole suite stayed green.
+  {
+    // ARRIVE_T2 = 0: every ring block AFTER the first snaps the ring up on one frame — the
+    // "you are teleported to the boss" complaint this whole arc exists to fix. Case (m) cannot see
+    // it: its loop exits the moment the phase becomes 'boss', so it only ever watches arrival #1.
+    assert.ok(KRAKEN_ARRIVE_T2 >= 0.6,
+      `KRAKEN_ARRIVE_T2 is ${KRAKEN_ARRIVE_T2}: the ring re-forms in under a beat, so every block after the first cuts to a standing arena`)
+    assert.ok(KRAKEN_ARRIVE_T2 <= KRAKEN_ARRIVE_T,
+      'a later arrival takes longer than the first reveal, which inverts the one beat the fight only gets once')
+    // WAVE_GROWTH = 0: the approach stops escalating and is three identical waves.
+    assert.ok(KRAKEN_WAVE_GROWTH >= 1,
+      `KRAKEN_WAVE_GROWTH is ${KRAKEN_WAVE_GROWTH}: the approach's waves are all the same size, so it is a wait rather than a build`)
+    // ...and the deflect's CHASE gate. Dropping it puts 12-19 sparks a fight in empty water, because
+    // during a ring block the head is not a sprite at all. The (g) fixture proves the spark fires in
+    // the chase; nothing proved it stays quiet outside it.
+    const run = inBlock(1)
+    const head = headOf(run)
+    assert.ok(head, 'no head during a ring block')
+    assert.strictEqual(run.script.phase, 'boss', 'this fixture is not in a ring block')
+    head.maxHP = head.hp = 1e9
+    run.weapons = [{ id: 'sunspear', level: 5 }, { id: 'skippingShell', level: 5 }]
+    let sparks = 0
+    for (let i = 0; i < 60 * 3; i++) {
+      run.player.x = head.x + 30; run.player.y = head.y
+      run.player.hp = run.player.maxHP
+      run.events.length = 0
+      stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+      sparks += run.events.filter((e) => e.type === 'krakenDeflect').length
+    }
+    assert.strictEqual(sparks, 0,
+      `${sparks} deflect sparks fired during a RING BLOCK — the head is not drawn at all in this phase, so every one of them is a clang out of empty water`)
   }
 
   console.log('PASS run KR (The Kraken, rev 3): a standing arm is untouchable by all three weapons and puts nothing on the field, a parry makes it LIMP and materialises a real enemy at its tip that weapons do kill, a window closing takes that node away without paying a kill or xp and keeps the damage, finishing it breaks the arm for good, the ring never winds up more arms at once than its rung allows (d1/d2/d3), the head is sealed against hits AND burns until its posture breaks, staggerNeed parried lunges open the only window on it and a burn lit inside outlives it, a whiff reports itself and still pays the cooldown, the cage holds while the ring is up, all 3 rungs read arms/rearing/window/perfect/fuse/limp/cadence/staggerNeed with the windows nested, both hidden chapters resolve through HIDDEN_UNLOCKS with no id hardcoded in main/ui/state, the approach is 3 waves that never touch bossIdx and the ring closes in from the murk with the cage riding it, a sealed head answers every refused hit with a throttled deflect, an unparried slam holds its pose for KRAKEN_SLAM_T and lands down the WHOLE limb so the middle of the arena is not safe while a gap between two arms is, and render.js (comments stripped) reads limpT, fuse, hitT, slamT, the arrival ramp, the recorded arm tips, the stagger pips and the cage radius the sim published')

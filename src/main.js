@@ -715,8 +715,8 @@ const SFX_FOR_EVENT = {
   // `lash` HAD none until 2026-09-14, on the ground that the ring throws one about once a second.
   // The owner overruled it asking for the slam to "clack like a whip", and the rate argument is
   // weaker than it looked: a crack once a second is the fight's PULSE, the thing a parry is timed
-  // against, and it is 28ms of noise rather than a chime. Throttled at 110ms in audio.js so two arms
-  // landing on one frame read as one crack.
+  // against, and it is 28ms of noise rather than a chime. Measured at 0.52/s at d1 and 0.74/s
+  // at d2-d3, with no two closer than 648ms — a doubled crack cannot happen, so there is no throttle.
   tentacleBreak: 'bossFall', headHide: 'hole', gripLatch: 'zap', lash: 'whip',
   // headRise is the fight's one reveal (once a run); coilWind/coilClose are D3's unparryable
   // ring, rare enough to bear a voice and important enough to need one — it is the only pattern
