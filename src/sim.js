@@ -7534,9 +7534,13 @@ function streamTraps(run) {
 // origin before two distinct cells could collide. A 300s run at the player's 220px/s tops out
 // around 66k px, so this has ~500x headroom; SEP_KEY_SPAN is asserted against SEP_KEY_OFFSET
 // below so the two can never drift apart.
-const _sepBuckets = new Map()  // packed cell key -> array of run.enemies INDICES, rebuilt every call
+// A bucket holds INDEX, BODY, INDEX, BODY... The index is still the coincident-pair angle's seed
+// (see resolveSeparationPair) and cannot be dropped; carrying the body beside it is what stops the
+// inner loop doing two random reads into a 400-entry array for every pair it tests, which is the
+// single hottest line in the suite.
+const _sepBuckets = new Map()  // packed cell key -> flat [i, enemy, ...] array, rebuilt every call
 const _sepCells = []           // parallel [ci, cj, bucket] triples, so pass 2 needs no key parsing
-const SEP_NEIGHBOR_OFFSETS = [[1, 0], [-1, 1], [0, 1], [1, 1]]
+const SEP_NEIGHBOR_OFFSETS = [1, 0, -1, 1, 0, 1, 1, 1]  // flat di,dj pairs — no inner array per lookup
 const SEP_KEY_OFFSET = 1 << 19
 const SEP_KEY_SPAN = 1 << 20
 const sepKey = (ci, cj) => (ci + SEP_KEY_OFFSET) * SEP_KEY_SPAN + (cj + SEP_KEY_OFFSET)
@@ -7557,7 +7561,7 @@ function stepEnemySeparation(run) {
     const key = sepKey(ci, cj)
     let bucket = buckets.get(key)
     if (!bucket) { bucket = []; buckets.set(key, bucket); _sepCells.push(ci, cj, bucket) }
-    bucket.push(i)
+    bucket.push(i, e)
   }
   if (buckets.size === 0) return
 
@@ -7570,27 +7574,27 @@ function stepEnemySeparation(run) {
     const cj = _sepCells[c + 1]
     const bucket = _sepCells[c + 2]
 
-    for (let a = 0; a < bucket.length; a++) {
-      for (let b = a + 1; b < bucket.length; b++) {
-        resolveSeparationPair(run, bucket[a], bucket[b])
+    for (let a = 0; a < bucket.length; a += 2) {
+      for (let b = a + 2; b < bucket.length; b += 2) {
+        resolveSeparationPair(bucket[a + 1], bucket[b + 1], bucket[a], bucket[b])
       }
     }
-    for (let n = 0; n < SEP_NEIGHBOR_OFFSETS.length; n++) {
-      const nBucket = buckets.get(sepKey(ci + SEP_NEIGHBOR_OFFSETS[n][0], cj + SEP_NEIGHBOR_OFFSETS[n][1]))
+    for (let n = 0; n < SEP_NEIGHBOR_OFFSETS.length; n += 2) {
+      const nBucket = buckets.get(sepKey(ci + SEP_NEIGHBOR_OFFSETS[n], cj + SEP_NEIGHBOR_OFFSETS[n + 1]))
       if (!nBucket) continue
-      for (let a = 0; a < bucket.length; a++) {
-        for (let b = 0; b < nBucket.length; b++) {
-          resolveSeparationPair(run, bucket[a], nBucket[b])
+      for (let a = 0; a < bucket.length; a += 2) {
+        for (let b = 0; b < nBucket.length; b += 2) {
+          resolveSeparationPair(bucket[a + 1], nBucket[b + 1], bucket[a], nBucket[b])
         }
       }
     }
   }
 }
 
-// Push one pair of enemy INDICES (into run.enemies) apart if they're stacked past ENEMY_SEP_FRAC
-// of their combined radii. i, j are run.enemies indices, i < j (see the two call sites above).
-function resolveSeparationPair(run, i, j) {
-  const a = run.enemies[i], b = run.enemies[j]
+// Push one pair of enemies apart if they're stacked past ENEMY_SEP_FRAC of their combined radii.
+// a, b are the bodies; i, j are their run.enemies indices with i < j (see the two call sites above)
+// and are read ONLY by the coincident branch below, which needs a deterministic per-pair angle.
+function resolveSeparationPair(a, b, i, j) {
   const dx = b.x - a.x, dy = b.y - a.y
   const minSep = ENEMY_SEP_FRAC * (a.radius + b.radius)
   const distSq = dx * dx + dy * dy
@@ -13707,8 +13711,11 @@ function stepPickups(run, dt) {
 function arsenalInvestment(run) {
   let n = 0
   for (const w of run.weapons) n += w.level - 1
-  for (const mods of Object.values(run.weaponModPicks)) {
-    for (const picks of Object.values(mods)) n += picks
+  // for-in rather than Object.values: rollCard asks this per CARD, and the two arrays it used to
+  // allocate each time to add up a handful of integers were 5% of the whole test suite's CPU.
+  for (const id in run.weaponModPicks) {
+    const mods = run.weaponModPicks[id]
+    for (const k in mods) n += mods[k]
   }
   return n
 }

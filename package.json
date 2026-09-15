@@ -7,8 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node test/sim-test.js",
-    "test:fast": "node test/sim-test.js --fast",
+    "test": "node scripts/test-isolation.mjs",
+    "test:serial": "node test/sim-test.js",
     "smoke": "node scripts/smoke.mjs",
     "ship": "node scripts/ship.mjs"
   },
