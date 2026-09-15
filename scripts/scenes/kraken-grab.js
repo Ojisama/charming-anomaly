@@ -15,6 +15,13 @@
 //   then the stick goes in and the limb unwinds and straightens back out.
 const AT = [2, 8, 14, 20, 30, 46, 54, 62, 72, 84]  // sim frames after the latch
 const WIGGLE_FROM = 46                              // ...and when the bot starts fighting it
+// MAGNIFY THE CANVAS BEFORE CAPTURING. Owner, 2026-09-15: "zoom further you would see that's just
+// plain wrong" -- and he was right, because a grip is ~130 world px on a 390px phone and judging it
+// from a whole-screen frame is judging a thumbnail. The fight's own camera cannot be pushed in (it
+// is clamped to 1 and sized off the arena), so this scales the STAGE about the screen centre, which
+// is where the renderer has already put the player. Everything the canvas draws grows with it, so
+// what comes back is the real geometry at a size defects cannot hide at.
+const ZOOM = 3.4
 
 H.until(() => run.script.phase === "boss" && run.krakenArms.length > 0, 8000)
 
@@ -61,5 +68,9 @@ return (age) => {
     state: g ? 'HELD' : (since >= 0 ? 'let go' : 'no grab yet'),
     at: Math.round(run.time) + 's',
   }))
+  if (ZOOM !== 1) {
+    app.stage.scale.set(ZOOM)
+    app.stage.position.set(app.screen.width / 2 * (1 - ZOOM), app.screen.height / 2 * (1 - ZOOM))
+  }
   app.renderer.render(app.stage)
 }
