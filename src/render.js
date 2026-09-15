@@ -19908,7 +19908,11 @@ const spurG = new Graphics()
       // so six attackers read as one object — except an arm that already HAS you, which stays a
       // grabber: a coil can start while a grip is running, and the limb wrapped round the player is
       // still doing the grabber's job and must still look like it.
-      const armRole = run.script.coilT > 0 && !(a.gripT > 0) ? 'coil' : a.role
+      // ⚠ THE SKIN FOLLOWS a.coilArm, NOT THE CLOCK. The spared arm is the answer to the move — it
+      // is the lane that stays dark — so it must keep its own design while the other five turn
+      // warning-red. Reading s.coilT here painted the whole ring, gap included, which deletes the
+      // only thing the player is supposed to find.
+      const armRole = a.coilArm ? 'coil' : a.role
       const skin = K_ROLE_SKIN[armRole] || K_ROLE_SKIN.slam
       const limbTex = T.krakenLimb[armRole] || T.krakenLimb.slam
       if (rig.rope.texture !== limbTex) { rig.rope.texture = limbTex; rig.shadow.texture = limbTex }
