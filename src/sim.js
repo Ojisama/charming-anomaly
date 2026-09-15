@@ -230,7 +230,7 @@ import {
   KRAKEN_HEAD_TOUCH_DMG,
   KRAKEN_CAGE_R,
   KRAKEN_LASH_R, KRAKEN_LASH_DMG, KRAKEN_LIGHT_START, KRAKEN_HAUL_R, KRAKEN_LASH_W, KRAKEN_LASH_OVER,
-  KRAKEN_PARRY_MARGIN,
+  KRAKEN_PARRY_MARGIN, KRAKEN_PARRY_SPIN_T,
   KRAKEN_PERFECT_MUL, KRAKEN_PARRY_CD, KRAKEN_PARRY_REFILL, KRAKEN_BLAZE_R,
   KRAKEN_GRIP_EVERY, KRAKEN_GRIP_PULL, KRAKEN_GRIP_DUR, KRAKEN_GRIP_DMG,
   KRAKEN_TRICKLE_FROM_END, KRAKEN_TRICKLE_T, KRAKEN_TRICKLE_N, KRAKEN_ADD_CAP,
@@ -277,6 +277,7 @@ export function stepSim(run, input, dt) {
     // ...and the parry's own cooldown keeps running. Freezing it made every hitstop silently
     // lengthen the 0.8s cooldown by its own duration, which is a difficulty change nobody chose.
     run.repulseCd = Math.max(0, (run.repulseCd ?? 0) - dt)
+    if (run.player.parryT > 0) run.player.parryT = Math.max(0, run.player.parryT - dt)
     return
   }
   if (run._skillHeld) {
@@ -2356,7 +2357,15 @@ function stepKrakenChase(run, dt, rung, head) {
     head._lungeBurst = 0.5
     run.events.push({ type: 'headLunge', x: head.x, y: head.y })
   }
-  head.speed = (head._lungeBurst ?? 0) > 0 ? KRAKEN_HEAD_SPEED * 2 : KRAKEN_HEAD_SPEED
+  // IT NOSES UP TO YOU, IT DOES NOT SWALLOW YOU. Owner, 2026-09-15: "the head just stays on top of
+  // you". A 130px-radius body seeking the player's exact point puts a 260px sprite centred on a
+  // 44px fish — the player cannot see themselves, and cannot read which side the next arm is on.
+  // Held off at its own radius it is still touching (stepContactDamage wants radius + radius, which
+  // is 152), so the pressure is unchanged and the picture is legible. The seek's own clamp above is
+  // what makes this a rest rather than a boundary to bounce on.
+  const hd = Math.hypot(head.x - run.player.x, head.y - run.player.y)
+  const closing = (head._lungeBurst ?? 0) > 0
+  head.speed = hd < KRAKEN_HEAD_R && !closing ? 0 : (closing ? KRAKEN_HEAD_SPEED * 2 : KRAKEN_HEAD_SPEED)
   if ((head._lungeBurst ?? 0) > 0) head._lungeBurst -= dt
   return false
 }
@@ -2445,6 +2454,7 @@ function krakenParry(run) {
   if (!best && !headReady) {
     // THE WHIFF IS AN EVENT. It used to be a bare return: the cooldown was spent and the game said
     // nothing at all, so a miss and a press the game never registered were the same picture.
+    p.parryT = KRAKEN_PARRY_SPIN_T
     run.events.push({ type: 'parryWhiff', x: p.x, y: p.y, cd: KRAKEN_PARRY_CD })
     return
   }
@@ -2469,7 +2479,8 @@ function krakenParry(run) {
     s.staggerDecay = KRAKEN_STAGGER_DECAY
     s.stagger += perfect ? 2 : 1
     run.charge = Math.min(run.chargeMax, run.charge + KRAKEN_PARRY_REFILL * (perfect ? KRAKEN_PERFECT_MUL : 1))
-    run.events.push({ type: perfect ? 'parryPerfect' : 'parry', x: head.x, y: head.y, frac: Math.max(0, 1 - s.stagger / rung.staggerNeed) })
+    p.parryT = KRAKEN_PARRY_SPIN_T
+    run.events.push({ type: perfect ? 'parryPerfect' : 'parry', x: head.x, y: head.y, frac: Math.max(0, 1 - s.stagger / rung.staggerNeed), px: p.x, py: p.y })
     if (s.stagger >= rung.staggerNeed) {
       s.stagger = 0
       s.staggerT = KRAKEN_STAGGER_T
@@ -2508,9 +2519,11 @@ function krakenParry(run) {
   }
   run.charge = Math.min(run.chargeMax, run.charge + KRAKEN_PARRY_REFILL * mul)
   run.hitStop = Math.max(run.hitStop, KRAKEN_HITSTOP_PARRY)
+  p.parryT = KRAKEN_PARRY_SPIN_T
   run.events.push({
     type: perfect ? 'parryPerfect' : 'parry',
     x: best.x, y: best.y, frac: Math.max(0, best.hp) / best.maxHP,
+    px: p.x, py: p.y,   // the SLAM is thrown from the fish; the snap above is on the arm
   })
 }
 
@@ -2582,6 +2595,10 @@ function stepRepulse(run, input, dt) {
   // without the cast, or the cast without the button (ui.js unhides on exactly this pair).
   if (!ch.lane && !ch.resource) return
   run.repulseCd = Math.max(0, (run.repulseCd ?? 0) - dt)
+  // ...and the parry GESTURE, beside the cooldown it belongs to. Both are per-frame player timers
+  // and splitting them across two steps is how one of them ends up frozen by a modal and the other
+  // does not.
+  if (run.player.parryT > 0) run.player.parryT = Math.max(0, run.player.parryT - dt)
   if (!input.skill || run.repulseCd > 0) return
   // The Kraken's button is a PARRY, not a shove: the same dash press negates the nearest arm's
   // pending slam and chunks it, and a fast KRAKEN_PARRY_CD is the whole skill. It returns before
@@ -3872,7 +3889,10 @@ function stepEnemyMovement(run, dt) {
       // pullBeam (v5.4 beyond's UFO elites): the UFO holds still while its beam is open. The beam
       // itself (drag + DoT) is stepPullBeams' business — this branch is only its movement.
     } else if (d > 1e-6 && slowMul > 0) {
-      const step = e.speed * affixSpeedMul * flagSpeedMul * slowMul * dt
+      // NEVER STEP PAST THE TARGET. Clamping to d is what stops a body that has arrived from
+      // oscillating across the player every frame (owner, 2026-09-15, of the Kraken's head: "it goes
+      // 1px left 1px right in a fast loop"). It changes nothing for anything still approaching.
+      const step = Math.min(d, e.speed * affixSpeedMul * flagSpeedMul * slowMul * dt)
       let ux = dx / d
       let uy = dy / d
       // weave (v6.6.29, undergrowth's centipede): a serpentine lateral drift ON the seek heading.
@@ -4870,6 +4890,7 @@ function nearestHostile(run, from) {
   let best = null, bestSq = Infinity
   for (const e of run.enemies) {
     if (e._dead || isAlly(e) || e === from) continue
+    if (krakenHeadSealed(run, e)) continue   // an ally pouring into a sealed head is the same bug
     const dx = e.x - from.x, dy = e.y - from.y
     const dSq = dx * dx + dy * dy
     if (dSq < bestSq) { bestSq = dSq; best = e }
@@ -8936,6 +8957,15 @@ function nearestEnemy(run, pad = 100) {
     // sites plus aimAngle come through here, so the alternative is seven edits that each fail
     // silently ("my weapons stopped shooting the swarm", no error).
     if (isAlly(e)) continue
+    // ...AND NEVER AIM AT A TARGET THAT REFUSES DAMAGE. Owner, 2026-09-15: "the weapons aim for the
+    // head even if it's invincible so you can't finish the level." The Kraken's head is sealed for
+    // all but its stagger windows, and in the chase it is the closest body on the field by a wide
+    // margin — so the whole arsenal emptied into it and the arm nodes, which are the only thing
+    // that can actually be killed, were never shot at. dealDamage already refused the damage; this
+    // is the other half, and it belongs at the same choke point for the same reason.
+    // krakenHeadSealed goes false the instant the stagger opens, so the one window the head CAN be
+    // hurt in is also the one window it is aimed at.
+    if (krakenHeadSealed(run, e)) continue
     const dx = e.x - p.x, dy = e.y - p.y
     const dSq = dx * dx + dy * dy
     if (dSq <= rangeSq && dSq < bestSq) { bestSq = dSq; target = e }
@@ -13407,6 +13437,14 @@ function sunspearSpots(run, count, castRange) {
   const near = run.enemies
     .filter((e) => {
       if (e._dead || isAlly(e)) return false   // SUBMISSION: never call the sun down on your own ally
+      // ...OR ON SOMETHING THAT REFUSES IT. nearestEnemy's header calls itself "THE CHOKE POINT" for
+      // aim, and this function is the counter-example: it builds its own target list, so the guard
+      // there never reached the chapter's own STARTER. The Kraken's head is sealed for all but its
+      // stagger windows and is the nearest body on the field through the whole chase — and this
+      // picks the nearest COUNT of them, which at level 1-2 is the head and nothing else. Owner,
+      // 2026-09-15: "the weapons aim for the head even if it's invincible so you can't finish the
+      // level." One fact, two selection sites; this is the second.
+      if (krakenHeadSealed(run, e)) return false
       const dx = e.x - p.x, dy = e.y - p.y
       return dx * dx + dy * dy <= rangeSq
     })

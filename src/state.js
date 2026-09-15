@@ -2543,6 +2543,12 @@ export function createRun(meta, opts = {}) {
         ? ringCentre(caveSpec, 0, obstacleSeed)
         : { x: 0, y: 0 }),
       hp: maxHP, maxHP,
+      // THE PARRY GESTURE, a contract field. sim sets it on every committed press (the Kraken's
+      // parry, hit OR whiff) and render poses the fish off it — a spin and a slam ring. Owner,
+      // 2026-09-15: "activating the parry is not enough player feedback. the fish could do a
+      // 'circle slam' or something to show the parry gesture." Every tell the fight had was drawn
+      // on the ARM, so from the seat a press and a press the game never registered looked the same.
+      parryT: 0,
       speed: PLAYER.baseSpeed * (1 + shopBonus(bm, bookId, 'moveSpeed')),
       magnet: PLAYER.baseMagnet * (1 + shopBonus(bm, bookId, 'magnet')),
       critChance: PLAYER.baseCritChance + shopBonus(bm, bookId, 'critChance'),

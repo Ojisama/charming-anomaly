@@ -8855,6 +8855,10 @@ export const KRAKEN_LASH_DMG = 19 // an un-parried slam's damage
 // 81% of blind presses land, against 43% at 0.8. Difficulty belongs in the window, and a cooldown
 // this short deletes the window's meaning for anyone willing to hold the button down.
 export const KRAKEN_PARRY_CD = 0.8 // s the parry button's cooldown (vs REPULSE_CD 6.0)
+// The player's own parry gesture: a spin and a slam ring, on the PRESS rather than on the outcome.
+// Shorter than the cooldown on purpose — the fish has finished the move and is visibly waiting,
+// which is what makes the 0.8s readable as a cost rather than as the button being broken.
+export const KRAKEN_PARRY_SPIN_T = 0.3
 export const KRAKEN_PARRY_REFILL = 9 // Light regained per good parry (x KRAKEN_PERFECT_MUL on a perfect)
 export const KRAKEN_LIGHT_START = 60 // Light the fight opens on — readable, but not a full bar to spend
 export const KRAKEN_BLAZE_R = KRAKEN_RING_R // the blaze flash's radius

@@ -172,6 +172,7 @@ import {
   KRAKEN_RISE_T, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, hiddenChapters, KRAKEN_CAGE_R, KRAKEN_PARRY_CD,
   KRAKEN_OPEN_WAVES, KRAKEN_ARRIVE_T, KRAKEN_RING_R, KRAKEN_LASH_R, KRAKEN_SLAM_T, KRAKEN_DEFLECT_CD,
   KRAKEN_LASH_W, KRAKEN_LASH_OVER, KRAKEN_LASH_DMG, KRAKEN_ARRIVE_T2, KRAKEN_WAVE_GROWTH,
+  KRAKEN_HEAD_SPEED, KRAKEN_PARRY_SPIN_T,
 } from '../src/config.js'
 import { stepSim, applyChoice, buildLevelUpChoices, eligibleWeaponModCandidates, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, inRefillCircle, stepCharge, newElWindow, spurAt } from '../src/sim.js'
 
@@ -24427,10 +24428,24 @@ function testLaneGolden() {
   // one thing this chapter guarantees and the only number a ladder change has no business moving.
   // The kill counts rising ~40% (269/281/279 -> 408/387/377) is the count tax landing, and is the
   // corroboration that the re-capture is a real change rather than noise.
+  // RE-CAPTURED 2026-09-15 for the seek's overshoot clamp (sim.js: step = Math.min(d, ...)). The
+  // generic seek had only `d > 1e-6` as its guard, so any body whose per-frame step exceeded its
+  // distance crossed the player and came back the next frame, forever — the owner saw it as the
+  // Kraken's head "1px left 1px right in a fast loop", and it was every enemy in the game.
+  //   The same honesty test as the two re-captures above, and it passes: `py` is EXACTLY -12600 on
+  // all three seeds, which is 180s x LANE_SCROLL_SPEED and the one number a movement change has no
+  // business touching. The corroboration that this is a real change rather than noise is that the
+  // live enemy count fell on all three (118/125/131 -> 112/115/118) while kills rose on two — which
+  // is exactly what "a body that has arrived stops oscillating past you and gets killed instead"
+  // predicts, and is the opposite of what a re-phased RNG stream would do.
+  //   MEASURED before re-pinning, because a golden master is also how you erase a real regression:
+  // the clamp binds on 0.142% of enemy-frames in the beyond against 4.012% in the Kraken (3 seeds x
+  // 120s each). It is near-inert outside the chapter it was written for, which is why a 9px drift
+  // over 180 seconds of a chaotic system is the whole of its blast radius here.
   const BEYOND_GOLDEN = [
-    { seed: 11, px: -113.230, py: -12600, enemies: 118, rocks: 1, kills: 408 },
-    { seed: 22, px: -430.000, py: -12600, enemies: 125, rocks: 1, kills: 387 },
-    { seed: 33, px: -189.777, py: -12600, enemies: 131, rocks: 1, kills: 377 },
+    { seed: 11, px: -104.050, py: -12600, enemies: 112, rocks: 1, kills: 415 },
+    { seed: 22, px: -189.777, py: -12600, enemies: 115, rocks: 1, kills: 386 },
+    { seed: 33, px: 34.794, py: -12600, enemies: 118, rocks: 1, kills: 395 },
   ]
   const meta = makeMeta()
   for (const id of ['body', 'pond', 'garden', 'undergrowth', 'city', 'skies', 'beyond']) {
@@ -35060,6 +35075,84 @@ function runKraken() {
     }
     assert.strictEqual(sparks, 0,
       `${sparks} deflect sparks fired during a RING BLOCK — the head is not drawn at all in this phase, so every one of them is a clang out of empty water`)
+  }
+
+  // (q) THREE THINGS THE OWNER SAW IN A REAL PLAY SESSION, 2026-09-15.
+  {
+    // "the weapons aim for the head even if it's invincible so you can't finish the level"
+    //   The sealed head is the biggest, nearest body on the field, so every auto-aimed weapon in the
+    // game locked onto the one target in the chapter that refuses damage — while the arm nodes, the
+    // only thing that CAN be killed, were never shot at. Case (b) could not see it: it stands the
+    // player ON the arm, so the node is already the nearest body. This one stands them on the HEAD,
+    // which is where the bug lives.
+    const run = inBlock(1)
+    const h = headOf(run)
+    const arm = run.krakenArms[0]
+    parryAt(run, arm, R1.window * 0.5)
+    const node = nodesOf(run)[0]
+    assert.ok(node, 'the parry did not materialise a node, so this fixture cannot measure targeting')
+    // LEVEL 1, WHICH IS WHERE THE BUG LIVES. sunspearSpots takes the nearest COUNT bodies, so at
+    // level 5 enough suns fall that one lands on the node whatever the head is doing and the fixture
+    // reads green either way. At level 1 there is ONE sun and it goes to the nearest body — measured,
+    // 0 damage to the node before the fix against 34 after.
+    run.weapons = [{ id: 'sunspear', level: 1 }]
+    run.player.x = h.x; run.player.y = h.y
+    const dHead = Math.hypot(h.x - run.player.x, h.y - run.player.y)
+    const dNode = Math.hypot(node.x - run.player.x, node.y - run.player.y)
+    assert.ok(dHead < dNode,
+      `this fixture stands ${Math.round(dHead)}px from the head and ${Math.round(dNode)}px from the node — the head is not the nearest body, so it cannot tell a fixed aim from a broken one`)
+    const nhp = node.hp
+    for (let i = 0; i < 60 * 2; i++) {
+      run.player.x = h.x; run.player.y = h.y
+      run.player.hp = run.player.maxHP
+      for (const x of run.krakenArms) if (x !== arm) { x.tele = 0; x.gripT = 0 }
+      arm.limpT = Math.max(arm.limpT, 1)      // hold the window open; this is about aim, not timing
+      stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+      run.events.length = 0
+    }
+    const live = run.enemies.find((e) => e.id === node.id)
+    assert.ok(!live || live._dead || live.hp < nhp,
+      'two seconds of the chapter STARTER did nothing to the one killable thing on the field — every shot went into the sealed head, which refuses all of it, and the fight cannot be finished that way')
+  }
+  {
+    // "it goes 1px left 1px right in a fast loop"
+    //   The generic seek's only guard was d > 1e-6, so a body whose per-frame step is longer than
+    // its distance crosses the player and comes back, forever. Asserted on the RESTING position: a
+    // body that has arrived must stay put, not vibrate across it.
+    const run = inBlock(1)
+    const h = headOf(run)
+    h.speed = KRAKEN_HEAD_SPEED
+    h.x = run.player.x + 1; h.y = run.player.y
+    let maxStep = 0
+    let px = h.x, py = h.y
+    for (let i = 0; i < 40; i++) {
+      run.player.hp = run.player.maxHP
+      stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+      if (i > 4) maxStep = Math.max(maxStep, Math.hypot(h.x - px, h.y - py))
+      px = h.x; py = h.y
+    }
+    // one frame of travel at its own speed is 2.75px; a body oscillating moves that every frame
+    assert.ok(maxStep < KRAKEN_HEAD_SPEED / 60 * 0.5,
+      `a head that had already arrived kept moving ${maxStep.toFixed(2)}px a frame against a ${(KRAKEN_HEAD_SPEED / 60).toFixed(2)}px step — it is stepping past the player and coming back, which on screen is a boss vibrating on top of you`)
+  }
+  {
+    // "activating the parry is not enough player feedback"
+    //   The gesture is on the PRESS, not the outcome: a whiff has to move the fish too, or "I
+    // pressed and nothing happened" stays indistinguishable from a press the game never took.
+    const run = inBlock(1)
+    const arm = run.krakenArms[0]
+    parryAt(run, arm, R1.window * 0.5)
+    assert.ok(run.player.parryT > 0,
+      'a landed parry left the player with no gesture at all — every tell this fight has is drawn on the ARM, so the button reads as dead')
+    quiet(run, KRAKEN_PARRY_SPIN_T + 0.2, { noRear: true })
+    assert.strictEqual(run.player.parryT, 0, 'the parry gesture never ended — the fish would spin for the rest of the run')
+    // ...and on a whiff, which is the press that most needs to say it registered
+    for (const x of run.krakenArms) { x.tele = 0; x.gripT = 0 }
+    run.repulseCd = 0
+    run.player.x = run.player.y = 1e5      // nothing anywhere near
+    stepSim(run, { x: 0, y: 0, skill: true }, 1 / 60)
+    assert.ok(run.player.parryT > 0,
+      'a WHIFF left the player with no gesture — a press that found nothing and a press the game never registered are the same picture, which is the complaint')
   }
 
   console.log('PASS run KR (The Kraken, rev 3): a standing arm is untouchable by all three weapons and puts nothing on the field, a parry makes it LIMP and materialises a real enemy at its tip that weapons do kill, a window closing takes that node away without paying a kill or xp and keeps the damage, finishing it breaks the arm for good, the ring never winds up more arms at once than its rung allows (d1/d2/d3), the head is sealed against hits AND burns until its posture breaks, staggerNeed parried lunges open the only window on it and a burn lit inside outlives it, a whiff reports itself and still pays the cooldown, the cage holds while the ring is up, all 3 rungs read arms/rearing/window/perfect/fuse/limp/cadence/staggerNeed with the windows nested, both hidden chapters resolve through HIDDEN_UNLOCKS with no id hardcoded in main/ui/state, the approach is 3 waves that never touch bossIdx and the ring closes in from the murk with the cage riding it, a sealed head answers every refused hit with a throttled deflect, an unparried slam holds its pose for KRAKEN_SLAM_T and lands down the WHOLE limb so the middle of the arena is not safe while a gap between two arms is, and render.js (comments stripped) reads limpT, fuse, hitT, slamT, the arrival ramp, the recorded arm tips, the stagger pips and the cage radius the sim published')
