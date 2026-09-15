@@ -34976,7 +34976,7 @@ function runKraken() {
       // deleted: the LIMB is the whole picture now. So losing this warp does not degrade the grab's
       // read, it removes it — a grip would draw literally nothing, and a player would be slowed by
       // an invisible cause. That is the one shape of failure this list is actually good at.
-      ['const turns = K_GRIP_TURNS * (0.34 + 0.66 * held)', 'a GRIP does not wrap the limb around the player, or the coil does not slip as the hold runs down — the grab and its escape bar are both gone at once'],
+      ['* (0.34 + 0.66 * held)', 'the GRIP\'s coil does not slip as the hold runs down — the grab still draws, but its escape bar is gone and nothing tells the player they are winning'],
       ['const wave = front >= 0 ? Math.exp(-(d * d)) * waveA : 0', 'the strike has no bend TRAVELLING down the limb, so an attack is a rod pivoting on its shoulder instead of a whip'],
       ['krakenTips[a.i] = { x: rig.pts[K_ROPE_N - 1].x', "render records something other than the tip it actually drew — record a.x and the press ring is back on the arm's target"],
       ['teleG.circle(tip.x, tip.y, KRAKEN_ARM_R *', "the press-here ring is drawn somewhere other than the recorded tip, i.e. up to 110px from where the reared limb is"],
