@@ -229,7 +229,7 @@ import {
   KRAKEN_EXPOSE_BITE, KRAKEN_HITSTOP_PARRY, KRAKEN_HITSTOP_BREAK, KRAKEN_HITSTOP_STAGGER,
   KRAKEN_HEAD_TOUCH_DMG,
   KRAKEN_CAGE_R,
-  KRAKEN_LASH_R, KRAKEN_LASH_DMG, KRAKEN_LIGHT_START, KRAKEN_HAUL_R,
+  KRAKEN_LASH_R, KRAKEN_LASH_DMG, KRAKEN_LIGHT_START, KRAKEN_HAUL_R, KRAKEN_LASH_W, KRAKEN_LASH_OVER,
   KRAKEN_PERFECT_MUL, KRAKEN_PARRY_CD, KRAKEN_PARRY_REFILL, KRAKEN_BLAZE_R,
   KRAKEN_GRIP_EVERY, KRAKEN_GRIP_PULL, KRAKEN_GRIP_DUR, KRAKEN_GRIP_DMG,
   KRAKEN_TRICKLE_FROM_END, KRAKEN_TRICKLE_T, KRAKEN_TRICKLE_N, KRAKEN_ADD_CAP,
@@ -1718,6 +1718,16 @@ function krakenReach(s) {
 }
 
 // Arms hold their slot angle and ride the ring's radius. Nothing pushes them, nothing pulls them.
+// Squared distance from a point to a SEGMENT (not a line): t clamped to [0,1] so the ends are
+// round caps rather than the capsule running on forever past the shoulder.
+function segDist2(px, py, x0, y0, x1, y1) {
+  const dx = x1 - x0, dy = y1 - y0
+  const len2 = dx * dx + dy * dy
+  const t = len2 > 0 ? Math.max(0, Math.min(1, ((px - x0) * dx + (py - y0) * dy) / len2)) : 0
+  const cx = x0 + dx * t, cy = y0 + dy * t
+  return (px - cx) ** 2 + (py - cy) ** 2
+}
+
 function krakenPlaceArms(run, head, reach) {
   for (const a of run.krakenArms) {
     a.x = head.x + Math.cos(a.ang) * reach
@@ -2082,10 +2092,16 @@ function stepKrakenArms(run, dt, rung, head) {
     a.tele = 0
     a.slamT = KRAKEN_SLAM_T
     s.gripN++
-    run.events.push({ type: 'lash', x: a.x, y: a.y, r: KRAKEN_LASH_R })
-    const dx = p.x - a.x
-    const dy = p.y - a.y
-    if (dx * dx + dy * dy <= KRAKEN_LASH_R * KRAKEN_LASH_R) {
+    // THE WHOLE LIMB COMES DOWN, AND THE TIP CRACKS PAST THE HEAD. The struck shape is a capsule on
+    // the arm's own bearing rather than a disc at its tip — see KRAKEN_LASH_W. The far end is out at
+    // KRAKEN_RING_R where the rope's shoulder is drawn, so what is dangerous is exactly the limb the
+    // player watched rear; the near end is KRAKEN_LASH_OVER PAST the head, which is what closes the
+    // dead spot in the middle of the arena.
+    const ca = Math.cos(a.ang), sa = Math.sin(a.ang)
+    const x0 = head.x + ca * KRAKEN_RING_R, y0 = head.y + sa * KRAKEN_RING_R
+    const x1 = head.x - ca * KRAKEN_LASH_OVER, y1 = head.y - sa * KRAKEN_LASH_OVER
+    run.events.push({ type: 'lash', x: a.x, y: a.y, r: KRAKEN_LASH_R, x0, y0, x1, y1, w: KRAKEN_LASH_W })
+    if (segDist2(p.x, p.y, x0, y0, x1, y1) <= KRAKEN_LASH_W * KRAKEN_LASH_W) {
       if (hurtPlayer(run, KRAKEN_LASH_DMG, false, 'krakenArm')) return true
     }
   }

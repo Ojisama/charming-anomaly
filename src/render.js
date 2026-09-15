@@ -26,7 +26,7 @@ import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC
   GLINT_GLOW,         // ...and a Glint's spark, which is the card that BUYS its light with the bar
   SLICK_SLOW_T, INK_STAIN_T, inLobe,  // The Wreck: the oil and the ink on you, on the glass and the skin
   // The Kraken: the ring's geometry and the per-rung parry windows the telegraph is drawn against
-  krakenRung, KRAKEN_RING_R, KRAKEN_ARM_R, KRAKEN_ARM_REACH, KRAKEN_LASH_R, KRAKEN_HEAD_R,
+  krakenRung, KRAKEN_RING_R, KRAKEN_ARM_R, KRAKEN_ARM_REACH, KRAKEN_LASH_R, KRAKEN_HEAD_R, KRAKEN_LASH_OVER, KRAKEN_LASH_W,
   KRAKEN_RISE_T, KRAKEN_COIL_DUR, KRAKEN_COIL_TELE, KRAKEN_PARRY_CD, KRAKEN_CAGE_R, KRAKEN_LIMP_FLASH,
   KRAKEN_SLAM_T,
 } from './config.js'
@@ -19048,6 +19048,7 @@ const spurG = new Graphics()
       // the frame the strike lands, and the bounce on a landed slam punches a little past it.
       const swing = Math.sin(a.i * 2.7) >= 0 ? 1 : -1
       const bounce = a.slamT > 0 ? -Math.sin((1 - a.slamT / KRAKEN_SLAM_T) * Math.PI) * 24 : 0
+      const crack = a.slamT > 0 ? Math.pow(a.slamT / KRAKEN_SLAM_T, 1.6) : 0
       for (let k = 0; k < K_ROPE_N; k++) {
         const t = k / (K_ROPE_N - 1)
         // IT REARS UP THE SCREEN, IT DOES NOT BACK OFF IT. The first cut hauled the tip 150px further
@@ -19057,7 +19058,14 @@ const spurG = new Graphics()
         // action inside the light: what the player sees is the limb climbing off the floor, with its
         // shadow left behind on the seabed underneath, which is the only way this camera can say
         // "above the ground".
-        const r = shoulderR + (tipR + lift * 55 + bounce - shoulderR) * t
+        // THE CRACK. On the frame the strike lands the tip is thrown clean over the head to the far
+        // end of the capsule the sim just struck with (-KRAKEN_LASH_OVER, i.e. past the middle), and
+        // it snaps back over KRAKEN_SLAM_T on a t^1.6 so almost all of the travel is in the first few
+        // frames — which is what a whip does and what "clacking" sounds like. Before this the limb
+        // stopped at its own tip and the dangerous ground was a disc the player could not see it
+        // reach; now the drawn limb IS the hitbox, all the way across.
+        const tipNow = tipR + lift * 55 + bounce
+        const r = shoulderR + ((tipNow * (1 - crack) - KRAKEN_LASH_OVER * crack) - shoulderR) * t
         // 4t(1-t) peaks at the middle and is ZERO at both ends: the shoulder stays in the murk
         // where it belongs and the TIP lands on the arm's actual threat point. It used to scale
         // with t, i.e. maximum at the tip, which is why the drawn arm and everything drawn at its
@@ -21624,18 +21632,30 @@ const spurG = new Graphics()
           break
         }
         case 'lash': {
-          // The slam LANDING, and since the arm now visibly comes down onto it this is the impact
-          // rather than a note in the margin: the shockwave at the reach it covered, and the silt it
-          // throws. Still no shake — it fires about once a second across the whole ring, and the
-          // 'hurt' event already shakes on the ones that connect, which is the only distinction that
-          // matters. A soft-edged sprite, deliberately: the Graphics stroke this replaced could only
-          // draw a hoop lying on the floor.
-          spawnRing(e.x, e.y, e.r, 0.3, T.novaRing, 0xb9c6c9)
-          spawnRing(e.x, e.y, e.r * 0.45, 0.2, T.novaWarm, 0xffd0c0)
-          for (let i = 0; i < 9; i++) {
+          // The slam LANDING, DOWN THE WHOLE LIMB. It was a hoop at the tip because the struck
+          // shape was a disc there; the sim strikes a capsule on the arm's bearing now, so the
+          // impact is drawn along that same line — a picture the player is dodging that is not the
+          // shape that hits them is worse than no picture. Still no shake: it fires about once a
+          // second across the ring, and 'hurt' already shakes the ones that connect, which is the
+          // only distinction that matters.
+          const lx0 = e.x0 ?? e.x, ly0 = e.y0 ?? e.y
+          const lx1 = e.x1 ?? e.x, ly1 = e.y1 ?? e.y
+          const lw = e.w || KRAKEN_LASH_W
+          const N = 9
+          for (let i = 0; i < N; i++) {
+            const t = i / (N - 1)
+            // the shoulder end is out at KRAKEN_RING_R and mostly off-screen; the ring grows and
+            // lasts longer toward the CRACKING end, because that is the part a whip lands with
+            spawnRing(lx0 + (lx1 - lx0) * t, ly0 + (ly1 - ly0) * t,
+              lw * (0.5 + 0.7 * t), 0.16 + 0.16 * t, T.novaRing, 0xb9c6c9)
+          }
+          spawnRing(lx1, ly1, lw * 0.78, 0.24, T.novaWarm, 0xffd0c0)   // the crack itself
+          for (let i = 0; i < 12; i++) {
             const a = Math.random() * Math.PI * 2
-            const sp = 120 + Math.random() * 220
-            spawnParticle(T.fx.circle_05, e.x, e.y, Math.cos(a) * sp, Math.sin(a) * sp, 0.42, 0.07, 0x9fb0bd, 0.4, 2.6)
+            const sp = 120 + Math.random() * 240
+            const t = 0.45 + Math.random() * 0.55       // silt off the half of the limb that is on screen
+            spawnParticle(T.fx.circle_05, lx0 + (lx1 - lx0) * t, ly0 + (ly1 - ly0) * t,
+              Math.cos(a) * sp, Math.sin(a) * sp, 0.42, 0.07, 0x9fb0bd, 0.4, 2.6)
           }
           break
         }
