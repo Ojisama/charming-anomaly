@@ -171,6 +171,7 @@ import {
   krakenRung, KRAKEN_RUNGS, KRAKEN_ARM_REACH, KRAKEN_WAVE_TIMEOUT,
   KRAKEN_RISE_T, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, hiddenChapters, KRAKEN_CAGE_R, KRAKEN_PARRY_CD,
   KRAKEN_OPEN_WAVES, KRAKEN_ARRIVE_T, KRAKEN_RING_R, KRAKEN_LASH_R, KRAKEN_SLAM_T, KRAKEN_DEFLECT_CD,
+  KRAKEN_LUNGE_T, KRAKEN_GRIP_DUR, KRAKEN_GRIP_DMG, KRAKEN_GRIP_FLICKS, KRAKEN_GRIP_STICK_MUL, TRAWL_WIGGLE_ARC,
   KRAKEN_LASH_W, KRAKEN_LASH_OVER, KRAKEN_LASH_DMG, KRAKEN_ARRIVE_T2, KRAKEN_WAVE_GROWTH,
   KRAKEN_HEAD_SPEED, KRAKEN_PARRY_SPIN_T,
 } from '../src/config.js'
@@ -34753,6 +34754,114 @@ function runKraken() {
     assert.ok(run.repulseCd > 0, 'a whiff cost nothing: the commit IS the cooldown, and it has to be spent')
   }
 
+  // (h2) THE GRIP IS A SLOW YOU STRUGGLE OUT OF, NOT AN ATTACK THE BUTTON ANSWERS. Owner,
+  // 2026-09-15: "grip is just a slow down, you can struggle out but not parry it" — after
+  // "parrying a tether prevents you from parrying the other attacks", which it structurally did: a
+  // gripping arm used to win krakenParry's loop outright, from anywhere, over every other arm AND
+  // over the head's own lunge, for the whole 2.2s hold. Measured on the shipped tree at d3, 6
+  // seeds: grips took 10-18 of ~40 presses a fight and 'ran out' was 0 on almost every seed, not
+  // because players answered them but because the one button had no other answer.
+  //   Four facts, each of which fails silently and none of which any other scenario can see.
+  {
+    const run = inBlock(2)                     // the Grip is D2+
+    const rung = krakenRung(2)
+    const arm = run.krakenArms.find((a) => !a.dead)
+    // one gripping arm, nothing else winding up, player standing on it — the most favourable case
+    // the old code had for treating it as the parry's target.
+    const only = (grip) => {
+      for (const a of run.krakenArms) { a.tele = 0; a.gripT = a === arm ? grip : 0 }
+      run.player.x = arm.x; run.player.y = arm.y
+    }
+
+    // 1. THE BUTTON DOES NOT ANSWER IT. A press with a grip on and nothing else is a WHIFF, and the
+    //    arm is still holding afterwards — it is not exposed, not flashed, not released.
+    only(KRAKEN_GRIP_DUR)
+    run.repulseCd = 0
+    run.events.length = 0
+    run.player.hp = run.player.maxHP
+    stepSim(run, { x: 0, y: 0, skill: true }, 1 / 60)
+    assert.strictEqual(run.events.filter((e) => e.type === 'parryWhiff').length, 1,
+      'pressing at a GRIP was answered by the parry — the button is being spent on a thing that is not parryable, which is the whole complaint')
+    assert.strictEqual(arm.limpT, 0, 'a grip parry exposed the arm: the grip is still an attack the button converts')
+    assert.ok(arm.gripT > 0, 'a press released the grip — freeing yourself is the stick\'s job now, not the button\'s')
+
+    // 2. SWINGING THE STICK TEARS YOU LOOSE, and it costs no health. KRAKEN_GRIP_FLICKS flicks of
+    //    TRAWL_WIGGLE_ARC each, so the arithmetic — not a frame count — is what is pinned.
+    only(KRAKEN_GRIP_DUR)
+    run.events.length = 0
+    run.player.hp = run.player.maxHP
+    const hpBefore = run.player.hp
+    let ang = 0
+    for (let i = 0; i < 60 && arm.gripT > 0; i++) {
+      ang += TRAWL_WIGGLE_ARC * 0.25            // a quarter of a flick per frame: ~1s for a full turn
+      for (const a of run.krakenArms) if (a !== arm) a.tele = 0
+      stepSim(run, { x: Math.cos(ang), y: Math.sin(ang), skill: false }, 1 / 60)
+    }
+    assert.strictEqual(arm.gripT, 0, 'swinging the stick did not tear the player loose — the grip has no escape at all, so it is a 2.2s sentence')
+    assert.strictEqual(run.events.filter((e) => e.type === 'gripBreak').length, 1,
+      'tearing loose emitted no gripBreak — the one thing in this fight the player\'s own stick produces is silent and invisible')
+    assert.strictEqual(run.player.hp, hpBefore,
+      `tearing loose still cost ${hpBefore - run.player.hp} health — then struggling buys nothing and the wiggle is decoration`)
+
+    // 3. STANDING STILL DOES NOT FREE YOU: the clock runs out and it bites. Without this, assertion
+    //    2 would pass just as well against a grip that simply expires on its own.
+    only(KRAKEN_GRIP_DUR)
+    run.player.hp = run.player.maxHP
+    const hp0 = run.player.hp
+    for (let i = 0; i < Math.round((KRAKEN_GRIP_DUR + 0.2) * 60); i++) {
+      for (const a of run.krakenArms) if (a !== arm) a.tele = 0
+      stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+    }
+    assert.strictEqual(arm.gripT, 0, 'the grip never let go on its own')
+    assert.ok(run.player.hp <= hp0 - KRAKEN_GRIP_DMG,
+      `a grip that ran its full ${KRAKEN_GRIP_DUR}s took ${hp0 - run.player.hp} of ${KRAKEN_GRIP_DMG} — never struggling is free, so there is nothing to struggle for`)
+
+    // 4. AND IT IS ACTUALLY A SLOW. Held against free, same stick held STRAIGHT so it makes no
+    //    flicks and the hold survives the measurement. The ratio is the config number, not a
+    //    distance in px: a speed card or a chapter tune would otherwise rewrite this assertion.
+    const walk = (gripped) => {
+      only(gripped ? KRAKEN_GRIP_DUR : 0)
+      const x0 = run.player.x, y0 = run.player.y
+      for (let i = 0; i < 30; i++) {
+        for (const a of run.krakenArms) if (a !== arm) a.tele = 0
+        if (gripped) arm.gripT = KRAKEN_GRIP_DUR        // held open, so 30 frames of it are measured
+        run.player.hp = run.player.maxHP
+        stepSim(run, { x: 1, y: 0, skill: false }, 1 / 60)
+      }
+      return Math.hypot(run.player.x - x0, run.player.y - y0)
+    }
+    const free = walk(false)
+    const held = walk(true)
+    assert.ok(free > 1, 'the fixture did not move at all free — the comparison below would be 0 against 0')
+    const ratio = held / free
+    assert.ok(Math.abs(ratio - KRAKEN_GRIP_STICK_MUL) < 0.08,
+      `held by a grip the player moved at ${ratio.toFixed(2)}x their free speed, not KRAKEN_GRIP_STICK_MUL ${KRAKEN_GRIP_STICK_MUL} — the grip is not joining the slow MIN, so being caught costs nothing`)
+  }
+
+  // (h3) THE HEAD'S LUNGE HAS ITS OWN, WIDER WINDOW. Pinned as an EFFECT — a press in the band that
+  // ONLY rung.lungeWindow covers has to fill the posture — because the whole failure it fixes was
+  // invisible: on the arm's window a stagger is the only damage the head takes, and the posture
+  // decays faster than a human fills it. Mutation: point headReady back at rung.window and the
+  // press below lands in a shut window, s.stagger never moves, and this fails.
+  {
+    const run = inBlock(3)
+    const rung = krakenRung(3)
+    const h = headOf(run)
+    run.script.phase = 'chase'
+    run.script.staggerT = 0
+    run.script.stagger = 0
+    for (const a of run.krakenArms) { a.tele = 0; a.gripT = 0 }
+    run.player.x = h.x + 30; run.player.y = h.y
+    // squarely between the two windows: shut for an arm, open for the head
+    h.lungeT = (rung.window + rung.lungeWindow) / 2
+    assert.ok(h.lungeT > rung.window && h.lungeT <= rung.lungeWindow, 'the fixture did not land between the two windows')
+    run.repulseCd = 0
+    run.player.hp = run.player.maxHP
+    stepSim(run, { x: 0, y: 0, skill: true }, 1 / 60)
+    assert.ok(run.script.stagger > 0,
+      `a lunge ${h.lungeT.toFixed(3)}s out — inside the head's own ${rung.lungeWindow}s window — was not answerable, so the head is still being read on the arms' ${rung.window}s`)
+  }
+
   // (i) THE RING IS A CAGE, AND ONLY WHILE IT IS UP (owner: "i can get out of the arms circle and
   // wander off on the map"). KRAKEN_CAGE_R is derived from the membrane render draws, so the wall
   // and the picture of it cannot end up in different places.
@@ -34777,11 +34886,20 @@ function runKraken() {
     assert.strictEqual(KRAKEN_RUNGS.length, 3, 'the rung table is not three rungs')
     for (let d = 1; d <= 3; d++) {
       const r = krakenRung(d)
-      for (const k of ['arms', 'rearing', 'window', 'perfect', 'fuse', 'limp', 'cadence', 'staggerNeed']) {
+      for (const k of ['arms', 'rearing', 'window', 'lungeWindow', 'perfect', 'fuse', 'limp', 'cadence', 'staggerNeed']) {
         assert.ok(typeof r[k] === 'number' && r[k] > 0, `rung ${d} has no ${k}`)
       }
       assert.ok(r.perfect < r.window, `rung ${d}: the perfect window is not inside the parry window`)
       assert.ok(r.window < r.fuse, `rung ${d}: the parry window is not inside the wind-up`)
+      // THE HEAD'S WINDOW IS WIDER THAN AN ARM'S, and that ordering is the whole point of the field
+      // rather than a taste call: a stagger is the only damage the head ever takes, and on the arm's
+      // window the arithmetic inverted — a bot missing more of its presses landed MORE head parries
+      // than a perfect one for FEWER staggers, because KRAKEN_STAGGER_DECAY ate them faster than
+      // they filled. Measured at sigma 0.22s of thumb jitter, 6 seeds: 1/6 wins became 6/6 and
+      // postures wiped by the decay went 14 -> 3. Equal windows put that back.
+      assert.ok(r.lungeWindow > r.window,
+        `rung ${d}: the head's lunge window (${r.lungeWindow}) is not wider than an arm's (${r.window}) — the one route to damaging the boss is as tight as the attack that comes round every ${r.cadence}s`)
+      assert.ok(r.lungeWindow < KRAKEN_LUNGE_T, `rung ${d}: the lunge window covers the whole gap between lunges, so it is never shut`)
     }
     assert.ok(krakenRung(3).window < krakenRung(1).window, 'D3 does not ask for a tighter parry than D1')
     assert.ok(krakenRung(3).arms > krakenRung(1).arms, 'D3 does not stand more arms up than D1')

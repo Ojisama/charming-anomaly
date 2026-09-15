@@ -8673,9 +8673,16 @@ export const KRAKEN_RUNGS = [
   //    attack too simultaneously". You cannot read four telegraphs; you can read one.
   //  - difficulty is bought with SHORTER WINDOWS and MORE PATTERNS, never with a less legible
   //    attack. That is the one rule every readability writeup agrees on.
-  { arms: 4, rearing: 1, window: 0.34, perfect: 0.150, fuse: 1.10, limp: 4.0, cadence: 1.9, staggerNeed: 2, drainMul: 1.00, headHpMul: 1.00, grip: false, coil: false },
-  { arms: 5, rearing: 2, window: 0.28, perfect: 0.125, fuse: 0.90, limp: 3.2, cadence: 0.9, staggerNeed: 3, drainMul: 1.30, headHpMul: 1.02, grip: true,  coil: false },
-  { arms: 6, rearing: 2, window: 0.24, perfect: 0.110, fuse: 0.75, limp: 2.6, cadence: 0.9, staggerNeed: 3, drainMul: 1.60, headHpMul: 1.30, grip: true,  coil: true  },
+  //  - `lungeWindow` is the HEAD's own, and it is deliberately wider than `window`. A stagger is the
+  //    only way the head can be damaged at all, a lunge comes once every KRAKEN_LUNGE_T against a
+  //    ring swinging every `cadence`, and a part-filled posture is WIPED after KRAKEN_STAGGER_DECAY.
+  //    So the head's window is the one that decides whether the boss is killable, and on the arm's
+  //    0.24s it was not: sweeping bot accuracy over 6 seeds, 60% answered 6/6 staggers and won 6/6,
+  //    while 40% landed MORE head parries (15-24 against the perfect bot's 17) for FEWER staggers
+  //    (27 against 36) and won 2/6 — the decay eating them faster than they filled.
+  { arms: 4, rearing: 1, window: 0.34, lungeWindow: 0.52, perfect: 0.150, fuse: 1.10, limp: 4.0, cadence: 1.9, staggerNeed: 2, drainMul: 1.00, headHpMul: 1.00, grip: false, coil: false },
+  { arms: 5, rearing: 2, window: 0.28, lungeWindow: 0.46, perfect: 0.125, fuse: 0.90, limp: 3.2, cadence: 0.9, staggerNeed: 3, drainMul: 1.30, headHpMul: 1.02, grip: true,  coil: false },
+  { arms: 6, rearing: 2, window: 0.24, lungeWindow: 0.42, perfect: 0.110, fuse: 0.75, limp: 2.6, cadence: 0.9, staggerNeed: 3, drainMul: 1.60, headHpMul: 1.30, grip: true,  coil: true  },
 ]
 // The one accessor, so no site has to remember the difficulty-1 offset or the clamp. The cap is
 // enforced by the chapter, but a probe or a migrated save can hand this anything.
@@ -8870,12 +8877,16 @@ export const KRAKEN_LIGHT_START = 60 // Light the fight opens on — readable, b
 export const KRAKEN_BLAZE_R = KRAKEN_RING_R // the blaze flash's radius
 export const KRAKEN_ARM_LEVELS = 1 // levels a broken arm is worth — BANKED, paid out on the hide
 
-// THE GRIP (P2, D2+). An arm latches and drags you off the lane you earned; parrying frees you and
-// opens the sector of the arm that grabbed you — wherever you have just been dragged to.
+// THE GRIP (P2, D2+). An arm latches on and you are SLOWED, not attacked: you wiggle out of it the
+// way the Trawl's net taught you, and the parry button is never involved.
+// balance_decision : the grip is a slow you struggle out of, never a parry [2026-09-15]
+//  - ⚠ NOT parryable, and krakenParry skips a gripping arm entirely. A grip used to outrank every
+//    other threat including the head's lunge, so for its whole hold the one button had one answer.
 export const KRAKEN_GRIP_EVERY = 3 // every Nth arm attack in a Grip block is a grab, not a slam
-export const KRAKEN_GRIP_PULL = 105 // px/s the grip drags the player toward the head
 export const KRAKEN_GRIP_DUR = 2.2 // s a grip holds before it lets go on its own
 export const KRAKEN_GRIP_DMG = 14 // damage a grip that runs its full duration deals
+export const KRAKEN_GRIP_STICK_MUL = 0.45 // player move speed while held — joins the slow MIN
+export const KRAKEN_GRIP_FLICKS = 4 // stick swings of TRAWL_WIGGLE_ARC that tear you loose
 
 // THE LATE TRICKLE (owner ruling, 2026-09-13): from this many blocks before the chase, graveyard
 // dead arrive DURING the block, so the last stretch is a choice between the arm winding up in

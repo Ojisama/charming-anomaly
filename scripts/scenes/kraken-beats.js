@@ -73,13 +73,20 @@ function beat() {
   if (!holding && (run.repulseCd ?? 0) <= 0) {
     if (h && run.script.phase === 'chase' && !(run.script.staggerT > 0)) {
       const nr = (h.x - p.x) ** 2 + (h.y - p.y) ** 2 <= window.__cfg.KRAKEN_CAGE_R ** 2
-      if (nr && h.lungeT > 0 && h.lungeT <= rung.window) press = true
+      if (nr && h.lungeT > 0 && h.lungeT <= rung.lungeWindow) press = true
     }
     if (!press) for (const a of run.krakenArms) {
       if (a.dead || a.limpT > 0) continue
       if ((a.x - p.x) ** 2 + (a.y - p.y) ** 2 > reach2) continue
-      if (a.gripT > 0 || (a.tele > 0 && a.tele <= rung.window)) { press = true; break }
+      if (a.tele > 0 && a.tele <= rung.window) { press = true; break }
     }
+  }
+  // HELD BY A GRIP: it is not parryable, it is WIGGLED out of, so the bot swings the stick — which
+  // is the only thing stickFlicks can see. One full turn a second is ~4 flicks/s, a rate a thumb can
+  // hold, and it clears a KRAKEN_GRIP_FLICKS grip in about a second of its 2.2s.
+  {
+    const g = run.krakenArms.find((a) => !a.dead && a.gripT > 0)
+    if (g) { g._botA = (g._botA ?? 0) + Math.PI * 2 / 60; ix = Math.cos(g._botA); iy = Math.sin(g._botA) }
   }
   run.player.hp = run.player.maxHP        // the question is the picture, not survival
   step(run, { x: ix, y: iy, skill: press }, 1 / 60)

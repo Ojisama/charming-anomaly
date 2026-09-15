@@ -100,7 +100,13 @@ function fight(seed) {
       ty = head.y + Math.sin(ang) * C.KRAKEN_ARM_REACH * 1.2
     }
     const dx = tx - p.x, dy = ty - p.y, dl = Math.hypot(dx, dy)
-    const inX = dl > 6 ? dx / dl : 0, inY = dl > 6 ? dy / dl : 0
+    let inX = dl > 6 ? dx / dl : 0, inY = dl > 6 ? dy / dl : 0
+    // HELD BY A GRIP: it is not parryable, it is WIGGLED out of, so the bot swings the stick — the
+    // only thing stickFlicks can see. A bot walking a straight line at a target never swings, so
+    // without this every grip runs its clock out and bites, and the fight measures harder than it
+    // is. One full turn a second is ~4 flicks/s, a rate a thumb can hold.
+    const held = run.krakenArms.find((a) => !a.dead && a.gripT > 0)
+    if (held) { held._botA = (held._botA ?? 0) + Math.PI * 2 * DT; inX = Math.cos(held._botA); inY = Math.sin(held._botA) }
 
     // --- the press: any arm in its window or gripping, or the head's lunge in its window
     // THE BOT ONLY PRESSES AT SOMETHING IT COULD ACTUALLY ANSWER. The parry has a range gate — you
@@ -114,13 +120,13 @@ function fight(seed) {
       // round again. A bot that checked arms first never pressed at the head once in a whole fight.
       if (head && s.phase === 'chase' && !(s.staggerT > 0)) {
         const near = (head.x - p.x) ** 2 + (head.y - p.y) ** 2 <= C.KRAKEN_CAGE_R ** 2
-        if (near && head.lungeT > 0 && head.lungeT <= rung.window) press = true
+        if (near && head.lungeT > 0 && head.lungeT <= rung.lungeWindow) press = true
       }
       if (!press) {
         for (const a of run.krakenArms) {
           if (a.dead || a.limpT > 0) continue
           if ((a.x - p.x) ** 2 + (a.y - p.y) ** 2 > reach2) continue
-          if (a.gripT > 0 || (a.tele > 0 && a.tele <= rung.window)) { press = true; break }
+          if (a.tele > 0 && a.tele <= rung.window) { press = true; break }
         }
       }
     }
