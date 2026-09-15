@@ -18713,6 +18713,18 @@ const spurG = new Graphics()
   // most of what sells the arm as hanging ABOVE a drop rather than lying on a floor.
   const krakenRopes = []
   const K_ROPE_N = 24
+  // THE GRIP IS SHAPED OUT OF THE LIMB, so its numbers live here with the rope's rather than in
+  // config.js — they are the geometry of a drawing, not balance, and nothing in sim.js reads them.
+  //  - the strip is ~36px wide where the coil starts, so the wrap RADIUS has a floor it cannot go
+  //    under: a rope winding a circle tighter than its own thickness turns the quad strip inside
+  //    out, and the first cut of this (wrapR = ARM_R * 0.85, i.e. 29px, over 1.35 turns) came back
+  //    as a knot of black folded slabs sitting on the player. Under a turn, and wide enough to
+  //    clear the flesh, is the whole constraint.
+  //  - and there are only ~13 rope points past K_GRIP_FROM to spend. 1.35 turns across them put a
+  //    vertex every 70 degrees, which is a heptagon that also overlaps itself.
+  const K_GRIP_FROM = 0.44   // fraction along the arm where it abandons its own radius and comes for you
+  const K_GRIP_REACH = 0.34  // of that remaining run spent travelling; the rest is winding on
+  const K_GRIP_TURNS = 0.85  // turns around the player at a fresh latch, unwinding as the hold runs down
   function acquireRope() {
     const pts = []
     const shadowPts = []
@@ -18907,32 +18919,15 @@ const spurG = new Graphics()
         continue
       }
 
-      // A GRIP: the taut line to the player, AND THE LINE IS THE ESCAPE BAR. It used to put a ring
-      // on the player meaning "press, anywhere" — the same affordance an arm in its parry window
-      // wears — which was the whole confusion: a grip is not answered by the button any more, it is
-      // a slow you swing the stick out of. So the tether frays instead. It thins and goes ragged as
-      // the hold runs down, which is a bar nobody has to look away from the fight to read, and the
-      // one thing on screen that is drawn player-ward rather than at an arm.
-      if (a.gripT > 0) {
-        const held = Math.max(0, Math.min(1, a.gripT / KRAKEN_GRIP_DUR))
-        teleG.beginPath()
-        teleG.moveTo(a.x, a.y)
-        teleG.lineTo(p.x, p.y)
-        teleG.stroke({ width: 1.5 + (3.5 + breathe * 2) * held, color: K_GLOW, alpha: 0.25 + 0.45 * held })
-        // the strands that have already parted, shed sideways off the line as it gives way
-        const gdx = p.x - a.x, gdy = p.y - a.y
-        const gl = Math.hypot(gdx, gdy) || 1
-        const nx = -gdy / gl, ny = gdx / gl
-        for (let k = 1; k <= 3; k++) {
-          const t = k / 4
-          const off = (1 - held) * 13 * (k % 2 ? 1 : -1) * (0.6 + 0.4 * breathe)
-          teleG.beginPath()
-          teleG.moveTo(a.x + gdx * (t - 0.09), a.y + gdy * (t - 0.09))
-          teleG.lineTo(a.x + gdx * t + nx * off, a.y + gdy * t + ny * off)
-          teleG.stroke({ width: 2, color: K_GLOW, alpha: 0.5 * (1 - held) })
-        }
-        continue
-      }
+      // A GRIP DRAWS NOTHING HERE, AND THAT IS THE POINT. Two shipped attempts put an ABSTRACT
+      // object between the arm and the player — first a ring on the player meaning "press,
+      // anywhere" (the same affordance an arm in its parry window wears, on a thing the button does
+      // not answer), then a taut line that frayed as the hold ran down. Both failed the same way:
+      // the tentacle that supposedly had you went on writhing out in the ring, untouched, while a
+      // glowing stroke did the acting. Owner: "visuals for grip are bad. The tentacles should do
+      // everything: wrap around you for grip (they could morph) or whip/swing for attacks."
+      // syncKrakenArms bends the LIMB around the player now, and the coil slipping is the bar.
+      if (a.gripT > 0) continue
 
       // A SLAM THAT LANDED DRAWS NOTHING HERE. The first cut stroked a fat ring at the reach it had
       // covered, and on screen that is a hoop lying on the seabed — the same object the wind-up's own
@@ -19130,6 +19125,20 @@ const spurG = new Graphics()
       const swing = Math.sin(a.i * 2.7) >= 0 ? 1 : -1
       const bounce = a.slamT > 0 ? -Math.sin((1 - a.slamT / KRAKEN_SLAM_T) * Math.PI) * 24 : 0
       const crack = a.slamT > 0 ? Math.pow(a.slamT / KRAKEN_SLAM_T, 1.6) : 0
+      // AND THE CRACK TRAVELS DOWN THE LIMB — owner, 2026-09-15: "whip/swing for attacks". Every
+      // term above moves the WHOLE arm at once, which is a rod pivoting on its shoulder: shot on the
+      // live fight, the frame a slam lands is a fat column standing in its own print, and the only
+      // reason you know it struck is the red screen. A whip is the opposite — the base goes first,
+      // the tip is still travelling the other way, and one bend RUNS out to the end where it flicks.
+      // So a single travelling bend, `front` being where along the limb it currently sits:
+      //   winding up — it loads near the shoulder and creeps outward with the fuse, throwing the
+      //                limb one way (the cock), and it stays in the inner half so it never disturbs
+      //                the tip, where the parry ring and the wound are read;
+      //   striking   — it REVERSES and runs clean off the end across KRAKEN_SLAM_T, which is what
+      //                puts the speed at the tip instead of at the shoulder.
+      const strike = a.slamT > 0 ? 1 - a.slamT / KRAKEN_SLAM_T : -1
+      const front = strike >= 0 ? 0.45 + 0.75 * strike : (a.tele > 0 ? windup * 0.45 : -1)
+      const waveA = strike >= 0 ? -swing * 96 : swing * 54
       for (let k = 0; k < K_ROPE_N; k++) {
         const t = k / (K_ROPE_N - 1)
         // IT REARS UP THE SCREEN, IT DOES NOT BACK OFF IT. The first cut hauled the tip 150px further
@@ -19160,7 +19169,11 @@ const spurG = new Graphics()
         // with t, i.e. maximum at the tip, which is why the drawn arm and everything drawn at its
         // x/y — the danger disc, the parry ring, the wound — could be 60px apart.
         const taper = 4 * t * (1 - t)
-        const lat = Math.sin(phase + t * 3.4) * amp * taper + curl * taper * 110 + swing * lift * 90 * t * t
+        // the travelling bend: a narrow gaussian centred on `front`, so exactly one stretch of the
+        // limb is thrown at a time and the rest of it is still catching up
+        const d = (t - front) * 3.0
+        const wave = front >= 0 ? Math.exp(-(d * d)) * waveA : 0
+        const lat = Math.sin(phase + t * 3.4) * amp * taper + curl * taper * 110 + swing * lift * 90 * t * t + wave
         const bx = head.x + Math.cos(a.ang) * r
         const by = head.y + Math.sin(a.ang) * r
         const nx = -Math.sin(a.ang), ny = Math.cos(a.ang)
@@ -19171,6 +19184,52 @@ const spurG = new Graphics()
         // limb and its shadow IS the height — it opens as the arm goes up and shuts as it comes down,
         // which is what makes the wind-up and the strike read as one action rather than two drawings.
         rig.shadowPts[k].set(bx + nx * lat + 16 + t * 10, by + ny * lat + 22 + t * 14)
+      }
+      // THE LIMB IS THE GRIP. Owner, 2026-09-15: "the tentacles should do everything: wrap around
+      // you for grip (they could morph) or whip/swing for attacks." A grab used to be a glowing
+      // LINE struck between the arm's tip and the player while the tentacle itself carried on
+      // writhing out in the ring as though nothing had happened — two objects for one event, and
+      // the abstract one doing all the talking. The far half of the arm now leaves its own radius,
+      // reaches across and WINDS ROUND the player.
+      //   A second pass over rig.pts rather than a branch inside the loop above, because the warp
+      // needs the free path's own point at K_GRIP_FROM as its elbow — computing that inline would
+      // mean a second copy of the whole radial/lateral/rise expression, which is this file's most
+      // expensive kind of duplication.
+      if (a.gripT > 0) {
+        const p = run.player
+        const kG = Math.round((K_ROPE_N - 1) * K_GRIP_FROM)
+        const ex = rig.pts[kG].x, ey = rig.pts[kG].y
+        // A FRESH LATCH IS WOUND TIGHT; A NEARLY-BROKEN ONE HAS ALMOST UNWOUND. Turns and radius
+        // both ride the hold, so the coil SLIPPING is the escape bar — the thing the player is
+        // fighting is the thing that shows them how they are doing, and it needs no gauge beside it.
+        const held = Math.max(0, Math.min(1, a.gripT / KRAKEN_GRIP_DUR))
+        const turns = K_GRIP_TURNS * (0.34 + 0.66 * held)
+        const wrapR = KRAKEN_ARM_R * (1.55 + 0.55 * (1 - held))
+        const a0 = Math.atan2(ey - p.y, ex - p.x)
+        for (let k = kG; k < K_ROPE_N; k++) {
+          const u = (k - kG) / (K_ROPE_N - 1 - kG)
+          const t = k / (K_ROPE_N - 1)
+          let x, y
+          if (u <= K_GRIP_REACH) {
+            // the travel: elbow to the near side of the coil, bowed so it reads as a reach and not
+            // a rod. At u = 0 this IS the elbow, so the splice into the free path is continuous.
+            const v = u / K_GRIP_REACH
+            const sx = p.x + Math.cos(a0) * wrapR, sy = p.y + Math.sin(a0) * wrapR
+            const bow = Math.sin(v * Math.PI) * 26 * swing
+            x = ex + (sx - ex) * v - Math.sin(a0) * bow
+            y = ey + (sy - ey) * v + Math.cos(a0) * bow
+          } else {
+            // the coil: winding on around the player and tightening inward as it goes
+            const w = (u - K_GRIP_REACH) / (1 - K_GRIP_REACH)
+            const ang = a0 + swing * w * turns * Math.PI * 2
+            const rr = wrapR * (1 - 0.12 * w)
+            x = p.x + Math.cos(ang) * rr
+            y = p.y + Math.sin(ang) * rr
+          }
+          rig.pts[k].set(x, y)
+          // the wrapped run is DOWN on the player, not lifted, so its shadow sits tight under it
+          rig.shadowPts[k].set(x + 16 + t * 10, y + 22 + t * 14)
+        }
       }
       rig.rope.visible = true
       rig.shadow.visible = true
