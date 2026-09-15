@@ -5422,10 +5422,6 @@ export function createRenderer(app) {
     // The Kraken's tentacle strip, for the MeshRope arms. Baked long (560px) because the rope
     // stretches it over ~230 world px of arm and a short texture would visibly smear.
     T.krakenTentacle = makeTentacleTex()
-    // ...and the TIP ALONE, for the arc of a grip drawn in front of the player (gripArt 1). A
-    // MeshRope maps its texture across its own points, so feeding the full strip to a short front
-    // arc would draw the whole limb -- shoulder included -- squeezed into the last quarter turn.
-    T.krakenTentacleTip = makeTentacleTex(0.72)
 
     // The gull STRIKE's three poses (The Surf). Baked at GULL_DIVE_R rather than reusing the 12px
     // roster gull: the strike is drawn ~140px across, and that texture would be a 6x magnification —
@@ -10750,6 +10746,11 @@ export function createRenderer(app) {
   // transformed parts), so it is a syncPool pool and belongs in clearWorld's FLAT list — run CP.
   // The wound sits ABOVE the ropes in the same layer, so it is never hidden by the limb it is on.
   const krakenWoundG = new Graphics()
+  // The curled part of a GRIP, drawn as a filled ribbon rather than left to the rope (a quad strip
+  // tears on a tight curve). Two of them: one under the player, one over, which is the only depth
+  // cue a top-down camera has for "this limb is holding you" rather than "this limb is near you".
+  const krakenGripG = new Graphics()
+  const krakenGripFrontG = new Graphics()
   const krakenArmLayer = new Container()
   // ...and the half of a GRIP that passes in FRONT of the player (gripArt 1). Drawn top-down in one
   // plane, a limb curled round a fish is indistinguishable from a hoop lying on the seabed: every
@@ -18688,12 +18689,10 @@ const spurG = new Graphics()
   // across the thickness, so the taper has to live in the ART: the opaque body runs from a
   // full-height shoulder at x=0 to a point at the far end. Suckers, dorsal highlight and the dark
   // ventral margin all bake in once and then come along for free wherever the spline puts them.
-  function makeTentacleTex(from = 0) {
-    const L = 560 * (1 - from), HH = 78, N = 56
+  function makeTentacleTex() {
+    const L = 560, HH = 78, N = 56
     const g = new Graphics()
-    // `from` bakes a SUB-STRIP starting that far along the limb, at the widths it would have had
-    // there -- so a rope given the tip texture is the same tentacle, not a scaled copy of it.
-    const prof = (t) => K_LIMB_PROF(from + t * (1 - from))
+    const prof = K_LIMB_PROF
     const pts = []
     for (let i = 0; i <= N; i++) { const t = i / N; pts.push({ x: t * L, w: Math.max(0.8, HH * prof(t)) }) }
     const ring = (k, f) => {
@@ -18769,11 +18768,21 @@ const spurG = new Graphics()
   //    inside it. At ARM_R * 1.30 the inner edge sat 29px out against a ~22px fish — no air at all.
   const K_GRIP_FROM = 0.70   // fraction along the arm where it abandons its own radius and comes for you
   const K_GRIP_REACH = 0.35  // of that remaining run spent travelling; the rest is winding on
-  const K_GRIP_TURNS = 0.95  // turns around the player at a fresh latch, unwinding as the hold runs down
-  const K_GRIP_OFF = 0.62    // the coil's centre, offset toward the arm as a fraction of its radius
+  // A FILLED PATH MAY OVERLAP ITSELF, so the coil can finally take more than a turn. Every earlier
+  // number here was chosen to dodge the quad strip's tearing, not because it looked right: under a
+  // turn to avoid the overlap, offset off the player to avoid the tight inner radius. Owner: "it
+  // should wrap around the player." It can now.
+  // ⚠ UNDER ONE TURN, AND THE RADIUS BARELY CLEARS THE PLAYER. More than a turn of a 30px-wide limb
+  // at a radius of 63 is not a wrap, it is a CINNAMON ROLL: two concentric bands with the fish in
+  // the hole. Seen from above, something wrapping prey smaller than itself shows ONE loop and the
+  // tip going under -- the rest of the coil is hidden behind the body, which is what the front/back
+  // split draws.
+  const K_GRIP_TURNS = 0.85  // turns around the player at a fresh latch, unwinding as the hold runs down
+  const K_GRIP_OFF = 0.10    // the coil's centre, offset toward the arm as a fraction of its radius
   const K_GRIP_SQUASH = 0.62 // the loop foreshortened along the arm's line of approach
-  const K_GRIP_FRONT_N = 10  // rope points in the arc redrawn over the player
   const K_GRIP_SMOOTH = 5    // Laplacian passes over the warped run; a MeshRope tears at corners
+  const K_GRIP_W = 0.62      // the ribbon's half-width at the elbow, x KRAKEN_ARM_R -- the coil is a
+                             //   tentacle TIP closing on you, not the middle of a limb laid over you
   // A GRAB IS AN ACTION, NOT A POSE. Owner, 2026-09-15: "there should be an animation of the
   // tentacle extending to grab you and retracting when you free yourself." Until now the warp was
   // applied at full strength on the frame gripT went positive and dropped on the frame it hit zero,
@@ -18792,6 +18801,68 @@ const spurG = new Graphics()
   // frame at the top of syncKrakenArms, which runs unconditionally, so it cannot go stale when the
   // chapter changes or the boss leaves the field.
   let krakenHold = 0
+  // THE BAKED STRIP, AS VECTOR. A gripping arm is drawn by this instead of by its rope, and the
+  // whole point is that the two must be indistinguishable: the owner could see "the demarcation
+  // between the tentacle and the tip that holds you" the moment only the curled part was swapped.
+  // So every ratio here is read off makeTentacleTex -- same profile, same highlight and margin
+  // offsets, same sucker size and stagger -- rather than invented to look approximately right.
+  //   pts is the limb's spline, from shoulder to tip. hw(t) is half the drawn width there.
+  function limbRibbon(g, pts, n, hw, fill, outline, alpha = 1) {
+    // ⚠ NOT ONE CLOSED POLYGON. A coil that wraps crosses ITSELF, and handing a self-intersecting
+    // 126-vertex path to Pixi's triangulator produces garbage: stray floating triangles, a spike
+    // where the two edges meet, and an outline that traces every internal crossing as a hard slab.
+    // That is what the first two cuts of this looked like.
+    //   So the limb is drawn as a strip of QUADS, one per segment, each of them convex and none of
+    // them self-intersecting, with a disc at every joint to round the corners. Overlap then resolves
+    // by paint order instead of by triangulation, which is both correct and free.
+    //   Two passes, not one per segment: all of the dark first at a slightly greater width, then all
+    // of the flesh on top. Per-segment outline-then-flesh would draw a seam at every joint.
+    const norm = (i) => {
+      const p1 = pts[Math.min(n - 1, i + 1)], p2 = pts[Math.max(0, i - 1)]
+      const dx = p1.x - p2.x, dy = p1.y - p2.y
+      const l = Math.hypot(dx, dy) || 1
+      return [-dy / l, dx / l]
+    }
+    const strip = (k, grow, color, a) => {
+      if (a <= 0) return
+      for (let i = 0; i < n - 1; i++) {
+        const [nx, ny] = norm(i), [mx, my] = norm(i + 1)
+        const w0 = hw(i / (n - 1)) * k + grow
+        const w1 = hw((i + 1) / (n - 1)) * k + grow
+        if (w0 <= 0.2 && w1 <= 0.2) continue
+        g.poly([
+          pts[i].x + nx * w0, pts[i].y + ny * w0,
+          pts[i + 1].x + mx * w1, pts[i + 1].y + my * w1,
+          pts[i + 1].x - mx * w1, pts[i + 1].y - my * w1,
+          pts[i].x - nx * w0, pts[i].y - ny * w0,
+        ]).fill({ color, alpha: a })
+        // the joint disc: without it every bend shows a notch where two quads meet at an angle
+        if (w1 > 0.6) g.circle(pts[i + 1].x, pts[i + 1].y, w1).fill({ color, alpha: a })
+      }
+    }
+    if (outline) strip(1, 3, K_LINE, 0.95 * alpha)
+    strip(1, 0, fill, alpha)
+    if (!outline) return
+    // dorsal highlight and ventral margin, makeTentacleTex's own offsets: the two things that stop a
+    // limb reading as a flat band. Drawn as narrower strips down the same spline.
+    strip(0.52, 0, mix(fill, 0xffffff, 0.30), 0.34 * alpha)
+    strip(0.20, 0, mix(fill, 0xffffff, 0.55), 0.28 * alpha)
+    // TWO ROWS OF SUCKERS, STAGGERED, and the stagger is load-bearing for the reason the bake gives:
+    // two pale discs level with each other above two more is a FACE.
+    for (let i = 3; i < n - 3; i += 2) {
+      for (const sgn of [-1, 1]) {
+        const j = sgn > 0 ? i : Math.min(n - 3, i + 1)
+        const [nx, ny] = norm(j)
+        const w = hw(j / (n - 1))
+        if (w < 2.4) continue
+        const r = Math.max(1.1, w * 0.125)
+        const cx = pts[j].x + nx * sgn * w * 0.40, cy = pts[j].y + ny * sgn * w * 0.40
+        g.circle(cx, cy, r).stroke({ width: Math.max(0.8, r * 0.34), color: 0xbfe8f2, alpha: 0.42 * alpha })
+        g.circle(cx, cy, r * 0.40).fill({ color: K_LINE, alpha: 0.30 * alpha })
+      }
+    }
+  }
+
   function acquireRope() {
     const pts = []
     const shadowPts = []
@@ -18802,15 +18873,10 @@ const spurG = new Graphics()
     const rope = new MeshRope({ texture: T.krakenTentacle, points: pts, width: KRAKEN_ARM_R * 1.45 })
     krakenArmLayer.addChild(shadow)
     krakenArmLayer.addChild(rope)
+    krakenArmLayer.addChild(krakenGripG)  // above the ropes, below the wound
     krakenArmLayer.addChild(krakenWoundG) // re-parented to the top on every acquire
-    // the near arc of a grip, drawn OVER the player. Its own points, because it is a different
-    // stretch of the same curve, and the TIP texture, because it is the tip of the limb.
-    const frontPts = []
-    for (let i = 0; i < K_GRIP_FRONT_N; i++) frontPts.push(new Point(0, 0))
-    const front = new MeshRope({ texture: T.krakenTentacleTip, points: frontPts, width: KRAKEN_ARM_R * 1.45 })
-    front.visible = false
-    krakenGripFrontLayer.addChild(front)
-    const rig = { rope, shadow, pts, shadowPts, front, frontPts }
+    if (krakenGripFrontG.parent !== krakenGripFrontLayer) krakenGripFrontLayer.addChild(krakenGripFrontG)
+    const rig = { rope, shadow, pts, shadowPts }
     krakenRopes.push(rig)
     return rig
   }
@@ -19164,6 +19230,8 @@ const spurG = new Graphics()
   // over the arena, undulating on its own phase so the ring never moves as one piece.
   function syncKrakenArms(run, dt) {
     krakenWoundG.clear()
+    krakenGripG.clear()
+    krakenGripFrontG.clear()
     krakenHold = 0
     const head = krakenHead
     const arms = head ? run.krakenArms.filter((a) => !a.dead || a.breakT > 0) : []
@@ -19302,7 +19370,7 @@ const spurG = new Graphics()
         // close on anything.
         const wound = Math.max(0, Math.min(1, (grab - K_GRIP_COIL_AT) / (1 - K_GRIP_COIL_AT)))
         const turns = (hook ? 0.42 : K_GRIP_TURNS) * (0.34 + 0.66 * held) * wound
-        const wrapR = KRAKEN_ARM_R * ((hook ? 1.30 : 1.85) + 0.45 * (1 - held))
+        const wrapR = KRAKEN_ARM_R * ((hook ? 1.30 : 1.15) + 0.40 * (1 - held))
         const a0 = Math.atan2(ey - p.y, ex - p.x)
         // THE COIL IS NOT CENTRED ON THE PLAYER, and this is the fix four rounds of retuning the
         // radius and the turn count could not reach. A loop with the fish exactly in the middle of
@@ -19382,35 +19450,72 @@ const spurG = new Graphics()
           const t = k / (K_ROPE_N - 1)
           rig.shadowPts[k].set(rig.pts[k].x + 16 + t * 10, rig.pts[k].y + 22 + t * 14)
         }
-        // THE ARC THAT PASSES IN FRONT (gripArt 1). The last stretch of the same curve, resampled
-        // onto the front rope's own points and drawn over the player. It is a DUPLICATE, not a
-        // split: the main rope still draws the whole coil underneath, so there is no seam to line
-        // up and no degenerate quad where a tail would have been collapsed. The two agree because
-        // they are the same arithmetic, and the tip texture makes the widths agree too.
-        // ...AND PART OF IT PASSES IN FRONT OF YOU. Owner, same capture: "I am floating above with
-        // my shadow above, it doesn't look like I'm stuck." Every pixel of the limb was behind the
-        // player, so a fish drawn on top of a tentacle with its own shadow under it reads as flying
-        // over one. Top-down, one arc drawn over the body is the whole of the available depth cue.
-        if (rig.front && wound > 0.5) {
-          // WHICH stretch passes in front is not "the last points" -- the coil can finish anywhere
-          // on the loop, and the first cut took the tail and drew it on the FAR side, where it is
-          // hidden behind the fish and the variant was pixel-identical to the flat one. In this
-          // camera nearer is LOWER, so the arc in front is the run around the coil's bottom.
-          let kMax = kG + 1
-          for (let k = kG + 1; k < K_ROPE_N; k++) if (rig.pts[k].y > rig.pts[kMax].y) kMax = k
-          const half = (K_GRIP_FRONT_N - 1) / 2
-          for (let i = 0; i < K_GRIP_FRONT_N; i++) {
-            const k = Math.max(kG, Math.min(K_ROPE_N - 1, Math.round(kMax - half + i)))
-            rig.frontPts[i].set(rig.pts[k].x, rig.pts[k].y)
+        // ---- A GRIPPING ARM IS NOT DRAWN BY ITS ROPE AT ALL -------------------------------------
+        // Two reasons, and the second is the one that forced this.
+        //   1. A MeshRope is a textured quad strip and a quad strip cannot take a tight curve: the
+        //      quads inside the turn overlap and the ones outside gap, and since the creature
+        //      outline is baked into the texture's EDGES an overlap paints black wedges rather than
+        //      extra flesh. Shot at 3.4x the coil was a staircase of them ("zoom further you would
+        //      see that's just plain wrong"). A filled path has no such failure: it MERGES where it
+        //      crosses itself, which is also what finally allows more than a turn of wrap.
+        //   2. Swapping only the CURLED part left a join between two different renderings of one
+        //      limb, and the owner saw it immediately -- "you can clearly see the demarcation
+        //      between the tentacle and the tip that holds you". There is no join now: from the
+        //      shoulder in the murk to the tip on the player it is one ribbon, and limbRibbon
+        //      reproduces makeTentacleTex's own profile, highlights, margins and sucker stagger so
+        //      it is the same animal as the five arms writhing around it.
+        rig.rope.visible = false
+        rig.shadow.visible = false
+        const ribbon = rig.pts
+        // the flesh colour, COMPOSITED the way the GPU composites the rope's tint over the strip --
+        // otherwise every state the tint carries (reared, spent, flashed) would be lost on a grab
+        const tn = rig.rope.tint
+        const fl = ((K_LIMB >> 16 & 255) * (tn >> 16 & 255) / 255 & 255) << 16
+          | ((K_LIMB >> 8 & 255) * (tn >> 8 & 255) / 255 & 255) << 8
+          | ((K_LIMB & 255) * (tn & 255) / 255 & 255)
+        // ...and the SAME width the rope would have drawn: KRAKEN_ARM_R * 1.45 is the rope's width,
+        // so half of it times the strip's own profile is exactly the silhouette of its neighbours.
+        // A gripping limb that is thinner than an idle one is a second demarcation, just a slower
+        // one to notice.
+        const HWFULL = KRAKEN_ARM_R * 1.45 * 0.5
+        // ...with an EXTRA taper over the last quarter, so the stretch that actually touches the
+        // player is a slender tip and not the middle of a limb. The baked profile alone leaves
+        // ~30 world px of flesh against a 22px fish, which is "too fat" measured rather than felt.
+        const hwAt = (t) => HWFULL * K_LIMB_PROF(t) * (t < 0.75 ? 1 : 1 - 0.45 * ((t - 0.75) / 0.25))
+        // the shadow first, on the murk, the same offset pair the rope's shadow rig uses
+        const shp = []
+        for (let k = 0; k < K_ROPE_N; k++) {
+          const t = k / (K_ROPE_N - 1)
+          shp.push({ x: ribbon[k].x + 16 + t * 10, y: ribbon[k].y + 22 + t * 14 })
+        }
+        // 0.16 is the rope shadow rig's own alpha; at 1 it was a black mass the size of the arm
+        limbRibbon(krakenGripG, shp, K_ROPE_N, hwAt, 0x000205, false, 0.16)
+        limbRibbon(krakenGripG, ribbon, K_ROPE_N, hwAt, fl, true)
+        // ...AND THE STRETCH THAT PASSES OVER THE PLAYER. Top-down, every pixel of a limb drawn
+        // behind the fish reads as a hoop the fish is standing in; one piece over the body is the
+        // only depth cue there is. It is picked as the stretch NEAREST the player -- the piece that
+        // says "this is over you" is the piece that overlaps you, not the lowest one on screen --
+        // and it carries no outline, because it is the same limb continuing across them rather than
+        // a second object lying on them.
+        if (wound > 0.5) {
+          let kN = 0, best = Infinity
+          for (let k = 1; k < K_ROPE_N; k++) {
+            const d = (ribbon[k].x - p.x) ** 2 + (ribbon[k].y - p.y) ** 2
+            if (d < best) { best = d; kN = k }
           }
-          rig.front.visible = true
+          const lo = Math.max(0, kN - 4), hi = Math.min(K_ROPE_N - 1, kN + 4)
+          const slice = []
+          for (let k = lo; k <= hi; k++) slice.push(ribbon[k])
+          if (slice.length > 2) {
+            // the slice keeps the PARENT's t so its width matches where it was cut from
+            const hwSlice = (u) => hwAt((lo + u * (slice.length - 1)) / (K_ROPE_N - 1))
+            limbRibbon(krakenGripFrontG, slice, slice.length, hwSlice, fl, false)
+            krakenGripFrontG.poly([0, 0, 0, 0, 0, 0]).fill({ color: fl, alpha: 0 })
+          }
         }
       }
       rig.rope.visible = true
       rig.shadow.visible = true
-      // hidden unless this frame's grip turns it on below; a rope left visible from last frame
-      // paints a tentacle arc across a player nothing is holding
-      if (rig.front) rig.front.visible = false
       krakenTips[a.i] = { x: rig.pts[K_ROPE_N - 1].x, y: rig.pts[K_ROPE_N - 1].y }
       // THE TEAR RUNS ALONG THE LIMB, AND IT IS BUILT OUT OF THE LIMB'S OWN POINTS. Two shipped
       // attempts drew a SHAPE at the arm's tip — first a pink ellipse with a bar through it ("the
