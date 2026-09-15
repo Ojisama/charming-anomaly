@@ -34837,7 +34837,13 @@ function runKraken() {
     // works, and do not add a needle here instead of shooting the frame.
     for (const [needle, why] of [
       ['const HW = KRAKEN_ARM_R * 1.45 * 0.5', 'the TEAR is gone — the whole reward for a parry is invisible on the limb it was won on'],
-      ['mix(0x7fd7ee, 0xbfe9f7, 0.5 + 0.5 * Math.sin(animT * 4))', 'an EXPOSED limb is not tinted, so the one state any weapon can hurt looks like every other state'],
+      ['mix(0x4576a0, 0x5691c0, 0.5 + 0.5 * Math.sin(animT * 4))', 'an EXPOSED limb is not tinted, so the one state any weapon can hurt looks like every other state'],
+      // ...and the arm winding up at you. Pinned for the same reason and with a sharper edge: this
+      // needle's FIRST colour is the one that was wrong. Rear used to start its mix at 0xb6acd0,
+      // which is exactly where the idle mix starts, so frame one of a wind-up composited to the
+      // same pixel as an arm doing nothing (distance 0 of 441). A ramp that begins at the idle
+      // colour announces nothing, and no assertion in this suite could see it.
+      ['mix(0x9e92cf, 0xeee8fe, 1 - a.tele / a.fuse)', 'a REARING arm does not brighten, so nothing on screen says which limb is about to hit you'],
       ['const urg = 1 - Math.max(0, a.tele) / a.fuse', 'the wind-up has no clock on the ground, so an attack arrives out of a uniform glow'],
       ['mix(0xffffff, 0xdff8ff, 1 - a.hitT / KRAKEN_LIMP_FLASH)', 'a parry landing on an arm has no flash on the arm'],
       ['alpha: 0.06 + 0.10 * k', "the head's one damage window is not drawn"],
