@@ -2368,6 +2368,12 @@ function generateWells(sig) {
   *            having to remember an exception.
   *     dead — broken. It never takes another turn, and the ring is one arm smaller for good.
   *     gripT — >0 while this arm has the player in a Grip (P2); breakT is render staging.
+  *       A GRIP IS A SLOW, NOT AN ATTACK THE PARRY ANSWERS. krakenParry skips a gripping arm
+  *       outright; the hold takes the player's SPEED (KRAKEN_GRIP_STICK_MUL, joining the slow MIN
+  *       in stepPlayerMovement) and they swing the stick out of it exactly as they do the Trawl's
+  *       net — one shared author, stickFlicks(). The arm also carries that struggle's scratch state
+  *       (_stkX/_stkY/_stkA), same as run.net does. Tearing loose emits 'gripBreak' and costs
+  *       nothing; letting the clock run out pays KRAKEN_GRIP_DMG.
   *     hitT — >0 for KRAKEN_LIMP_FLASH after A PARRY LANDS ON IT, and render tints the tentacle off
   *            it. NOT set by the arm's own slam: that is the `lash` event's picture. It was, and had
   *            no reader at all, which is why five parries into a 320hp arm looked like one.

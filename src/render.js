@@ -29,7 +29,7 @@ import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC
   krakenRung, KRAKEN_RING_R, KRAKEN_ARM_R, KRAKEN_ARM_REACH, KRAKEN_LASH_R, KRAKEN_HEAD_R, KRAKEN_LASH_OVER, KRAKEN_LASH_W,
   KRAKEN_PARRY_SPIN_T,
   KRAKEN_RISE_T, KRAKEN_COIL_DUR, KRAKEN_COIL_TELE, KRAKEN_PARRY_CD, KRAKEN_CAGE_R, KRAKEN_LIMP_FLASH,
-  KRAKEN_RING_VIEW_MARGIN, KRAKEN_RING_ZOOM_MIN, KRAKEN_RING_ZOOM_EASE,
+  KRAKEN_RING_VIEW_MARGIN, KRAKEN_RING_ZOOM_MIN, KRAKEN_RING_ZOOM_EASE, KRAKEN_GRIP_DUR,
   KRAKEN_SLAM_T,
 } from './config.js'
 import { currentForce, tideForce } from './sim.js'
@@ -18907,15 +18907,30 @@ const spurG = new Graphics()
         continue
       }
 
-      // A GRIP: the taut line to the player, and a ring on the player that says "press, anywhere".
+      // A GRIP: the taut line to the player, AND THE LINE IS THE ESCAPE BAR. It used to put a ring
+      // on the player meaning "press, anywhere" — the same affordance an arm in its parry window
+      // wears — which was the whole confusion: a grip is not answered by the button any more, it is
+      // a slow you swing the stick out of. So the tether frays instead. It thins and goes ragged as
+      // the hold runs down, which is a bar nobody has to look away from the fight to read, and the
+      // one thing on screen that is drawn player-ward rather than at an arm.
       if (a.gripT > 0) {
+        const held = Math.max(0, Math.min(1, a.gripT / KRAKEN_GRIP_DUR))
         teleG.beginPath()
         teleG.moveTo(a.x, a.y)
         teleG.lineTo(p.x, p.y)
-        teleG.stroke({ width: 5 + breathe * 2, color: K_GLOW, alpha: 0.7 })
-        teleG.beginPath()
-        teleG.circle(p.x, p.y, 26 + breathe * 8)
-        teleG.stroke({ width: 3, color: 0xffffff, alpha: 0.6 })
+        teleG.stroke({ width: 1.5 + (3.5 + breathe * 2) * held, color: K_GLOW, alpha: 0.25 + 0.45 * held })
+        // the strands that have already parted, shed sideways off the line as it gives way
+        const gdx = p.x - a.x, gdy = p.y - a.y
+        const gl = Math.hypot(gdx, gdy) || 1
+        const nx = -gdy / gl, ny = gdx / gl
+        for (let k = 1; k <= 3; k++) {
+          const t = k / 4
+          const off = (1 - held) * 13 * (k % 2 ? 1 : -1) * (0.6 + 0.4 * breathe)
+          teleG.beginPath()
+          teleG.moveTo(a.x + gdx * (t - 0.09), a.y + gdy * (t - 0.09))
+          teleG.lineTo(a.x + gdx * t + nx * off, a.y + gdy * t + ny * off)
+          teleG.stroke({ width: 2, color: K_GLOW, alpha: 0.5 * (1 - held) })
+        }
         continue
       }
 
@@ -19028,8 +19043,8 @@ const spurG = new Graphics()
         teleG.beginPath()
         teleG.circle(head.x, head.y, KRAKEN_HEAD_R * (1.0 + 0.5 * k))
         teleG.stroke({ width: 5, color: 0xffffff, alpha: 0.35 + 0.45 * k })
-      } else if (head.lungeT > 0 && head.lungeT <= rung.window) {
-        // its lunge is parryable on exactly the same read as an arm's
+      } else if (head.lungeT > 0 && head.lungeT <= rung.lungeWindow) {
+        // its lunge is parryable on the same READ as an arm, on its own wider clock (rung.lungeWindow)
         teleG.beginPath()
         teleG.circle(head.x, head.y, KRAKEN_HEAD_R * 1.1)
         teleG.stroke({ width: 6, color: 0xffffff, alpha: 0.9 })
@@ -19044,14 +19059,18 @@ const spurG = new Graphics()
     let winK = 0
     for (const a of run.krakenArms) {
       if (a.dead) continue
-      if (a.gripT > 0) { winK = 1; break }                       // a grip is parryable for its whole hold
+      // A GRIP NO LONGER LIGHTS THIS. It used to force winK to 1 for its whole hold, so the button
+      // read "live" for ~13 stretches a fight over a thing the button does not answer — you wiggle
+      // out of a grip. Lighting the affordance at something unpressable is worse than leaving it
+      // dark: it spends the press, and the cooldown, on the arm that was actually about to land.
+      if (a.gripT > 0) continue
       if (a.tele > 0 && a.tele <= rung.window) winK = Math.max(winK, a.tele <= rung.perfect ? 1 : 0.6)
     }
     // ...AND THE HEAD'S LUNGE, which this walked right past. It counted arms only, so during the
     // chase the affordance stayed dark for the single press that produces a stagger — and a stagger
     // is the only way the head can be damaged at all. The head got a ring around ITSELF and the
     // player got nothing, which is the half of the read that was never done.
-    if (s.phase === 'chase' && !(s.staggerT > 0) && head.lungeT > 0 && head.lungeT <= rung.window) {
+    if (s.phase === 'chase' && !(s.staggerT > 0) && head.lungeT > 0 && head.lungeT <= rung.lungeWindow) {
       winK = Math.max(winK, head.lungeT <= rung.perfect ? 1 : 0.6)
     }
     const cd = run.repulseCd ?? 0
@@ -21701,6 +21720,19 @@ const spurG = new Graphics()
             spawnParticle(T.fx.star_08, e.x, e.y, Math.cos(a) * sp, Math.sin(a) * sp, 0.7, 0.08, 0xb9c6c9, 0.35, 0)
           }
           addShake(8, 0.3)
+          break
+        }
+        case 'gripBreak': {
+          // YOU TORE LOOSE. The snap has to read as YOURS — it fires at the player, not at the arm,
+          // because the thing that produced it was the stick in their hand. The tether's own strands
+          // have been visibly parting up to this frame (drawKrakenRing); this is the last one going.
+          spawnRing(e.px ?? e.x, e.py ?? e.y, 46, 0.26, T.novaRing, 0xdff8ff)
+          for (let i = 0; i < 7; i++) {
+            const a = Math.random() * Math.PI * 2
+            const sp = 120 + Math.random() * 150
+            spawnParticle(T.fx.star_08, e.px ?? e.x, e.py ?? e.y, Math.cos(a) * sp, Math.sin(a) * sp, 0.45, 0.06, 0xdff8ff, 0.4, 0)
+          }
+          addShake(4, 0.14)
           break
         }
         case 'gripLatch': {

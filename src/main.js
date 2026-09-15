@@ -717,7 +717,10 @@ const SFX_FOR_EVENT = {
   // weaker than it looked: a crack once a second is the fight's PULSE, the thing a parry is timed
   // against, and it is 28ms of noise rather than a chime. Measured at 0.52/s at d1 and 0.74/s
   // at d2-d3, with no two closer than 648ms — a doubled crack cannot happen, so there is no throttle.
-  tentacleBreak: 'bossFall', headHide: 'hole', gripLatch: 'zap', lash: 'whip',
+  // gripBreak is the player TEARING LOOSE — it needs its own voice because it is the only sound in
+  // the fight the player's own stick produces, and it is the confirmation that the wiggle worked.
+  // 'surge' rather than a snap: what you feel is the lurch as the drag comes off.
+  tentacleBreak: 'bossFall', headHide: 'hole', gripLatch: 'zap', gripBreak: 'surge', lash: 'whip',
   // headRise is the fight's one reveal (once a run); coilWind/coilClose are D3's unparryable
   // ring, rare enough to bear a voice and important enough to need one — it is the only pattern
   // with no button answer, so it must be audible before it is visible.

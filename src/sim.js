@@ -232,7 +232,7 @@ import {
   KRAKEN_LASH_R, KRAKEN_LASH_DMG, KRAKEN_LIGHT_START, KRAKEN_HAUL_R, KRAKEN_LASH_W, KRAKEN_LASH_OVER,
   KRAKEN_PARRY_MARGIN, KRAKEN_PARRY_SPIN_T,
   KRAKEN_PERFECT_MUL, KRAKEN_PARRY_CD, KRAKEN_PARRY_REFILL, KRAKEN_BLAZE_R,
-  KRAKEN_GRIP_EVERY, KRAKEN_GRIP_PULL, KRAKEN_GRIP_DUR, KRAKEN_GRIP_DMG,
+  KRAKEN_GRIP_EVERY, KRAKEN_GRIP_DUR, KRAKEN_GRIP_DMG, KRAKEN_GRIP_STICK_MUL, KRAKEN_GRIP_FLICKS,
   KRAKEN_TRICKLE_FROM_END, KRAKEN_TRICKLE_T, KRAKEN_TRICKLE_N, KRAKEN_ADD_CAP,
   KRAKEN_LUNGE_T, KRAKEN_LUNGE_DMG, KRAKEN_RISE_T,
   KRAKEN_COIL_EVERY, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, KRAKEN_COIL_IN, KRAKEN_COIL_DMG,
@@ -721,6 +721,26 @@ function healPlayer(run, amount) {
 
 // ---- Player -------------------------------------------------------------------
 
+// ONE AUTHOR OF "STRUGGLE OUT OF IT". Two things in the game hold the player — the Trawl's net and
+// the Kraken's Grip — and both are escaped by SWINGING the stick, which is one fact and therefore
+// belongs in one place. `hold` is whatever has you; it needs somewhere to keep the last stick and
+// the running arc, and the caller decides what a flick is worth.
+//  - ⚠ the arc is summed UNSIGNED, so a swirl round the rim counts exactly like a sweep back and
+//    forth, and it is NOT a sign change against the previous frame: at 60fps a real thumb turns
+//    ~20° per frame and would never trip that. See the ⚠ on TRAWL_WIGGLE_ARC in config.js.
+//  - `input.shakes` is the phone being shaken (input.js, devicemotion); one shake = one flick.
+function stickFlicks(hold, input, ix, iy, len) {
+  let flicks = input?.shakes || 0
+  if (len >= 0.5) {
+    if (hold._stkX !== undefined) {
+      hold._stkA = (hold._stkA ?? 0) + Math.abs(Math.atan2(ix * hold._stkY - iy * hold._stkX, ix * hold._stkX + iy * hold._stkY))
+      while (hold._stkA >= TRAWL_WIGGLE_ARC) { hold._stkA -= TRAWL_WIGGLE_ARC; flicks++ }
+    }
+    hold._stkX = ix; hold._stkY = iy
+  }
+  return flicks
+}
+
 function stepPlayerMovement(run, input, dt) {
   const p = run.player
   let ix = input?.x || 0
@@ -760,16 +780,31 @@ function stepPlayerMovement(run, input, dt) {
   //    and never trips it. See the ⚠ on TRAWL_WIGGLE_ARC in config.js.
   // `input.shakes` is the phone shaken (input.js, devicemotion), one shake = one flick.
   if (dragMul !== 1) {
-    const net = run.net
-    let flicks = input?.shakes || 0
-    if (len >= 0.5) {
-      if (net._stkX !== undefined) {
-        net._stkA = (net._stkA ?? 0) + Math.abs(Math.atan2(ix * net._stkY - iy * net._stkX, ix * net._stkX + iy * net._stkY))
-        while (net._stkA >= TRAWL_WIGGLE_ARC) { net._stkA -= TRAWL_WIGGLE_ARC; flicks++ }
+    const flicks = stickFlicks(run.net, input, ix, iy, len)
+    if (flicks > 0) run.net.wiggle = Math.min(1, (run.net.wiggle ?? 0) + flicks / TRAWL_WIGGLE_FLICKS)
+  }
+  // HELD BY A TENTACLE (the Kraken's Grip): the same verb, on purpose. A grip used to be an ATTACK
+  // you parried, and it outranked every other threat including the head's own lunge — so for its
+  // whole 2.2s hold the one button in the fight had exactly one answer, ~13 times a fight (measured:
+  // grip took a third of every press, and 'ran out' was 0 on almost every seed because the button
+  // had no choice). Owner, 2026-09-15: "grip is just a slow down, you can struggle out but not
+  // parry it". It is a slow now, it joins the MIN below like every other slow, and the parry is left
+  // free for the thing that is actually about to land on you.
+  const gripArm = run.krakenArms?.find((a) => a.gripT > 0) ?? null
+  const gripMul = gripArm ? KRAKEN_GRIP_STICK_MUL : 1
+  if (gripArm) {
+    const flicks = stickFlicks(gripArm, input, ix, iy, len)
+    // TEARING LOOSE IS NOT THE SAME AS THE CLOCK RUNNING OUT: this site releases the arm outright,
+    // so stepKrakenArms' `gripT > 0` branch never reaches its bite. That is the whole reward for
+    // struggling, and it is why the escape lives here rather than by shortening the timer.
+    if (flicks > 0) {
+      gripArm.gripT -= flicks * (KRAKEN_GRIP_DUR / KRAKEN_GRIP_FLICKS)
+      if (gripArm.gripT <= 0) {
+        gripArm.gripT = 0
+        gripArm.tele = 0
+        run.events.push({ type: 'gripBreak', x: gripArm.x, y: gripArm.y, px: p.x, py: p.y })
       }
-      net._stkX = ix; net._stkY = iy
     }
-    if (flicks > 0) net.wiggle = Math.min(1, (net.wiggle ?? 0) + flicks / TRAWL_WIGGLE_FLICKS)
   }
   let webMul = 1
   if (run.webs && run.webs.length > 0) {
@@ -830,7 +865,7 @@ function stepPlayerMovement(run, input, dt) {
   // neighbours and for the same reason; it sits ABOVE LATCH_SLOW_MUL on purpose, so a latched moray
   // in coral is still the worst case in the chapter rather than the coral swallowing the moray.
   const scrapeMul = run._scraping ? SPUR_SLOW_MUL : 1
-  const composedSlowMul = Math.min(latchMul, dragMul, webMul, run._bindSlow ?? 1, darkMul, sandMul, tireMul, foulMul, inkMul, scrapeMul)
+  const composedSlowMul = Math.min(latchMul, dragMul, gripMul, webMul, run._bindSlow ?? 1, darkMul, sandMul, tireMul, foulMul, inkMul, scrapeMul)
   // SLEEK (v7.x, The Wreck): lifts the composed floor toward 1 (no slow) by the passive's resist
   // fraction, run through resistFrac's diminishing returns (never reaches 1, so the toll never
   // reaches zero), and the `1 - (1-x)(1-y)` shape means it can never drop below the raw composed
@@ -2086,16 +2121,11 @@ function stepKrakenArms(run, dt, rung, head) {
       continue
     }
 
-    // THE GRIP (P2, D2+). It drags you off whatever ground you had earned. Parryable for its whole
-    // hold — the one attack whose answer must not also be a timing test, because you are being
-    // moved while you look for it.
+    // THE GRIP (P2, D2+). It takes your SPEED, not your button: the slow itself and the wiggle that
+    // tears you loose both live in stepPlayerMovement, which is the only place the raw stick is
+    // known. All that is left here is the clock and the bite it pays if you never struggle.
     if (a.gripT > 0) {
       a.gripT -= dt
-      const dx = head.x - p.x
-      const dy = head.y - p.y
-      const d = Math.hypot(dx, dy) || 1
-      p.x += (dx / d) * KRAKEN_GRIP_PULL * dt
-      p.y += (dy / d) * KRAKEN_GRIP_PULL * dt
       if (a.gripT <= 0) {
         a.gripT = 0
         a.tele = 0
@@ -2206,8 +2236,22 @@ function stepKrakenArms(run, dt, rung, head) {
         run.events.push({ type: 'coilWind', x: head.x, y: head.y, ang: s.coilGap })
       } else if (rung.grip && s.bossIdx >= 1 && s.gripN > 0 && s.gripN % KRAKEN_GRIP_EVERY === 0) {
         s.gripN++
-        a.gripT = KRAKEN_GRIP_DUR
-        run.events.push({ type: 'gripLatch', x: a.x, y: a.y })
+        // THE NEAREST ARM IS THE ONE THAT CAN REACH YOU, so it is the one that grabs. A grip draws a
+        // taut line from the arm's tip to the player, and picking at random put that line a median
+        // 197-319px long with a max of 431 — 8 to 14 of every ~22 grips a fight latching from beyond
+        // KRAKEN_ARM_REACH, which at this fight's zoom is a stroke across most of a phone with its
+        // far end off the edge. It never showed while the Grip HAULED the player toward the head;
+        // taking the pull out is what left the line standing there explaining nothing.
+        //  - ⚠ the REAR stays random. Which limb swings next is the one thing the player has to
+        //    watch the whole ring for, and picking the nearest there would collapse the fight to a
+        //    single arm. This is the opposite case: a grab is a thing that reached you.
+        let g = a, gd = Infinity
+        for (const c of idle) {
+          const d = (c.x - p.x) ** 2 + (c.y - p.y) ** 2
+          if (d < gd) { gd = d; g = c }
+        }
+        g.gripT = KRAKEN_GRIP_DUR
+        run.events.push({ type: 'gripLatch', x: g.x, y: g.y })
       } else {
         // THE WIND-UP IS THE TELEGRAPH AND IT IS ANNOUNCED. `rear` carries the arm's full fuse so
         // render can draw the danger ground filling up against it, and the event fires ONCE at the
@@ -2422,12 +2466,11 @@ function krakenParry(run) {
   let best = null          // an arm
   let bestT = Infinity
   for (const a of run.krakenArms) {
-    if (a.dead || a.limpT > 0) continue
-    // A gripping arm is parryable for the whole hold AND FROM ANYWHERE, checked before the reach:
-    // it is the one attack whose answer must not also be a positioning test, because the player is
-    // being dragged while they look for it — and the drag moves them off the line of the very arm
-    // holding them.
-    if (a.gripT > 0) { best = a; bestT = -1; break }
+    // A GRIPPING ARM IS NOT A THREAT THIS BUTTON ANSWERS. It used to be parryable for its whole hold
+    // AND from anywhere, checked before the reach — which made it outrank every other arm and the
+    // head's lunge too, so while one was on, the fight's single button had exactly one answer. It is
+    // a slow you wiggle out of now (stepPlayerMovement); here it simply is not a candidate.
+    if (a.dead || a.limpT > 0 || a.gripT > 0) continue
     if (!head) continue
     if (segDist2(p.x, p.y, a.lx0, a.ly0, a.lx1, a.ly1) > parryW2) continue
     if (a.tele > 0 && a.tele <= rung.window && a.tele < bestT) { bestT = a.tele; best = a }
@@ -2449,7 +2492,14 @@ function krakenParry(run) {
   // being asked to answer.
   const cageR = s.cageR > 0 ? s.cageR : KRAKEN_CAGE_R
   const headNear = !!head && (head.x - p.x) ** 2 + (head.y - p.y) ** 2 <= cageR ** 2
-  const headReady = headNear && s.phase === 'chase' && !(s.staggerT > 0) && head.lungeT > 0 && head.lungeT <= rung.window
+  // THE LUNGE HAS ITS OWN, WIDER WINDOW (rung.lungeWindow). One verb, two timings — and the second
+  // timing is what makes the boss killable at all: a stagger is the only damage the head ever takes,
+  // a lunge comes once per KRAKEN_LUNGE_T against a ring swinging every `cadence`, and a part-filled
+  // posture is wiped after KRAKEN_STAGGER_DECAY. On the arm's window that arithmetic inverted — a
+  // bot answering 40% of its windows landed MORE head parries than a perfect one and got FEWER
+  // staggers, because the decay ate them faster than they filled. `perfect` is NOT widened with it:
+  // the reward for a tight press stays exactly as tight.
+  const headReady = headNear && s.phase === 'chase' && !(s.staggerT > 0) && head.lungeT > 0 && head.lungeT <= rung.lungeWindow
 
   if (!best && !headReady) {
     // THE WHIFF IS AN EVENT. It used to be a bare return: the cooldown was spent and the game said
@@ -2466,12 +2516,7 @@ function krakenParry(run) {
   // head can be damaged at all. Measured: 0 staggers in every mortal d3 run that reached the chase.
   //   A lunge is rare (one per KRAKEN_LUNGE_T), it is the boss's own attack, and it is the player's
   // only route to damage. It takes precedence; the arms are always there and will come round again.
-  // A GRIP OUTRANKS EVERYTHING, INCLUDING THE HEAD. Giving the head absolute precedence quietly
-  // voided the one rule this fight had written down about the grip — "the one attack whose answer
-  // must not also be a timing test, because the player is being dragged while they look for it" —
-  // and left `bestT = -1` as a write-only sentinel under a comment that still claimed to enforce it.
-  const gripped = !!best && best.gripT > 0
-  if (headReady && !gripped) {
+  if (headReady) {
     // ---- THE HEAD'S POSTURE. Sekiro's rule: pay a deflect with a state change on the BOSS, and
     // make breaking it the one loud window the fight has.
     const perfect = head.lungeT <= rung.perfect
@@ -2495,12 +2540,11 @@ function krakenParry(run) {
   }
 
   // ---- THE RING'S PARRY: negate the strike and EXPOSE the limb.
-  const perfect = best.gripT <= 0 && best.tele <= rung.perfect
+  const perfect = best.tele <= rung.perfect
   const mul = perfect ? KRAKEN_PERFECT_MUL : 1
   // The reward is the state change, and a PERFECT parry buys a longer window rather than a bigger
   // number, because more exposure is more of the thing the player actually wants.
   best.tele = 0
-  best.gripT = 0
   best.limpT = rung.limp * (perfect ? KRAKEN_LIMP_PERFECT_MUL : 1)
   best.hitT = KRAKEN_LIMP_FLASH
   // The tear. Applied to the LIMB, not through dealDamage: the arm is not an enemy until its node
