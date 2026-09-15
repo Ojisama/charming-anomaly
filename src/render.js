@@ -85,15 +85,19 @@ const ENEMY_LOOKS = {
   tank: { fill: 0x7fa8d9, line: 0x4a6fa5 },
 }
 
-// A/B SWITCH FOR THE TENTACLE'S SKIN, throwaway. Owner, 2026-09-15: "the design is ugly, the
-// tentacle is too simple not realistic enough. more realistic, photo-like."
-//   0 = the shipped five flat bands, kept only as the thing to judge the others against.
-//   1 = LIT — the bands replaced by a lit cylinder, and suckers that are cups with a rim and a wet
-//       catchlight rather than dots, but keeping the near-black outline every creature here carries.
-//   2 = PHOTO — the outline goes (a lit edge stops the limb on its own), plus chromatophore
-//       mottling, skin grain and a broken sheen.
-//   3 = PHOTO, PIGMENTED — the same with the mottling pushed to a real rust-and-violet cast, which
-//       is what a pale cephalopod actually photographs like and is a long way from this palette.
+// FIVE COMPLETE TENTACLE DESIGNS, throwaway switch. Owner, 2026-09-15: "the design is ugly, the
+// tentacle is too simple not realistic enough. more realistic, photo-like", then, after four rounds
+// of iterating on one of them, "try several complete redesigns and show me screenshots".
+//   They share the GEOMETRY — silhouette, taper, oral face, sucker placement, roll — because that is
+// the part already settled. What differs is the lighting model, the value range, the sheen and what
+// extra structure the creature has. See K_SKINS for the axis each one moves.
+//   0 = the shipped flat bands, the baseline to judge against.
+//   1 = lit cylinder with the game's near-black outline kept.
+//   2 = A, PHOTO — a lit cylinder with a wet back.
+//   3 = B, PAINTED — hard terminator, near-black shadow flank, hot specular, bold pale pads.
+//   4 = C, ABYSSAL — almost black, one bright edge, sucker rims catching it.
+//   5 = D, GELATINOUS — lit from within, bright edges, the axial muscle showing through.
+//   6 = E, WARTY — matte and knobbled, papillae on the skin and on the outline.
 // DELETE with the pick, and grep the param name to prove it is gone.
 const skinArt = (() => {
   try { return Number(new URLSearchParams(location.search).get('tv') ?? 2) } catch { return 2 }
@@ -4721,20 +4725,170 @@ export function createRenderer(app) {
   // That is what lets the 4px outline go, and losing the outline is most of what "photo-like" means
   // for a creature in this game — every other one carries it, and it is the single strongest tell
   // that a thing was drawn rather than photographed.
-  // A SUCKER'S RADIUS AS A FRACTION OF THE LIMB'S HALF-WIDTH, shared by the bake and the ribbon.
-  //  - ⚠ it is a PLAY-SIZE number, not a zoom-in one: two rows of these run the whole length of six
-  //    arms, so ~35 are on a 390px phone at once and any contrast they carry becomes a corn-cob
-  //    stripe long before it becomes detail. Judge it unzoomed.
-  const K_SUCK_R = 0.235
+  // A SUCKER'S SIZE AND ITS DISTANCE OFF THE MIDLINE, both as fractions of the limb's half-width
+  // and both shared by the bake and the ribbon.
+  //   THEY SUM TO ~0.97, WHICH IS THE WHOLE POINT. The owner's reference plate (red octopus arms,
+  // 2026-09-15: "i like this design, you can keep the current color") differs from what was here in
+  // one way that matters: its suckers are BIG and they sit right out at the silhouette, so the row
+  // scallops the limb's own outline. Small discs parked near the midline read as dots printed on a
+  // tube; discs that reach the edge read as an animal's oral surface, because the outline stops
+  // being a smooth sweep and starts being made of them.
+  //  - ⚠ STILL A PLAY-SIZE NUMBER. Two rows run the whole length of six arms, so ~35 are on a 390px
+  //    phone at once and any contrast they carry becomes a corn-cob stripe long before it becomes
+  //    detail. The SIZE came up from the reference; the contrast did not. Judge it unzoomed.
+  //   ⚠ AND THEY ARE ALL ON ONE FLANK. This was the structural error, not a tuning one: two
+  // symmetric rows at ±0.66 is a worm with dots down both sides, and the owner said so — "no it
+  // doesn't look anything like the design i sent you". An arm has an ORAL FACE. Every sucker is on
+  // it, in a tight staggered double row, and the other flank is smooth glossy back with the sheen
+  // running down it. That contrast — studded face against bare back — is most of what reads as a
+  // tentacle in the reference plate, and no amount of work on the suckers themselves can supply it.
+  //   FACE is where the middle of that face sits across the limb, ROW is half the gap between the
+  // two rows. Row B lands at 0.62 and its pedestal reaches ~1.05, so the OUTER row is the one that
+  // scallops the silhouette while the inner row sits flat on the face.
+  const K_SUCK_R = 0.31, K_SUCK_FACE = 0.34, K_SUCK_ROW = 0.26
+  // ...and a sucker STANDS OUT OF the limb rather than being painted on it. Owner, 2026-09-15:
+  // "can the ventouse come out a bit like in the designs?" — and in that plate the arm's OUTLINE is
+  // scalloped: each sucker is a knob the flesh is pushed out into, not a disc on a smooth sweep.
+  // So a pedestal of the limb's own flesh goes down first, wider than the sucker and a shade darker
+  // at its rim, and it is what crosses the silhouette. The dark rim is the crease around the base of
+  // the knob, which is the only thing that separates a dome from a flat spot.
+  const K_SUCK_BUMP = 1.26
   const K_LIT_LY = -0.62, K_LIT_LZ = 0.78 // the light is above the arena, tipped toward the camera
-  const K_LIMB_DARK = 0x2b2440 // shadows carry colour; a black shadow reads as a HOLE in the limb
-  function limbLit(u, wet = 1) {
-    const c = Math.sqrt(Math.max(0, 1 - u * u))
-    const nl = Math.max(0, u * K_LIT_LY + c * K_LIT_LZ)
-    const occ = Math.pow(Math.max(0, 1 - u * u), 0.45)
-    const col = mix(K_LIMB_DARK, K_LIMB2, Math.min(1, (0.14 + 0.86 * nl) * occ + 0.06))
-    return mix(col, 0xffffff, Math.pow(nl, 40) * 0.6 * wet)
+  // FOUR COMPLETE DESIGNS, AS A TABLE. Owner, 2026-09-15: "try several complete redesigns and show
+  // me screenshots." They share the geometry — same silhouette, same oral face, same sucker
+  // placement, same roll — because that is the part he has already approved; what differs is
+  // everything that makes one drawing look unlike another.
+  //   amb   ambient floor: how dark the unlit flank goes.
+  //   occ   the silhouette falloff exponent. LOW is a soft round tube, HIGH is a hard terminator
+  //         with a knife edge — the single biggest difference between a render and a painting.
+  //   sss   light coming THROUGH the limb near its edges, which only a thin gelatinous thing does.
+  //   sp/spA  the sheen: tight and hot, or broad and matte, or absent.
+  //   rim   an explicit bright edge on the DORSAL silhouette, drawn as its own band.
+  //   cord  a dark axial line down the middle — the muscle you see through a translucent animal.
+  //   wart  papillae: bumps on the skin and on the outline.
+  //   dark/pale  the two ends of the value ramp.
+  const K_SKINS = {
+    // A — PHOTO. A lit cylinder with a wet back. The incumbent.
+    2: { amb: 0.14, occ: 0.45, sss: 0, sp: 22, spA: 0.62, rim: 0, cord: 0, wart: 0, ring: 0, grain: 1, mot: 0.10,
+      dark: 0x2b2440, pale: 0xf4f1f9, lip: 0.34, bowl: 0.14, pore: 0.22, bump: 0.34,
+      rimU: [-1.0, -0.86], rimCol: 0xffffff, rimA: 0 },
+    // B — PAINTED. Airbrushed creature illustration: a knife-edge terminator, a black shadow flank,
+    // a hot narrow specular and bold near-white sucker pads. The rendering style of the plate.
+    3: { amb: 0.0, occ: 1.45, sss: 0, sp: 64, spA: 1.0, rim: 0, cord: 0, wart: 0, ring: 0, grain: 0.4, mot: 0.26,
+      dark: 0x07030d, pale: 0xffffff, lip: 0.62, bowl: 0.30, pore: 0.46, bump: 0.60,
+      rimU: [-1.0, -0.86], rimCol: 0xffffff, rimA: 0 },
+    // C — ABYSSAL. A black silhouette with ONE hot edge where the light from above grazes it, and
+    // sucker pads picking up the same light. Everything else is gone.
+    4: { amb: 0.0, occ: 0.10, sss: 0, sp: 0, spA: 0, rim: 1, cord: 0, wart: 0, ring: 0, grain: 0.5, mot: 0.05,
+      dark: 0x05040a, pale: 0x3c3560, lip: 0.85, bowl: 0.10, pore: 0.30, bump: 0.18,
+      rimU: [-1.0, -0.90], rimCol: 0xbdf0ff, rimA: 0.95 },
+    // D — GELATINOUS. Lit from WITHIN: the edges are the bright part, there is no shadow flank, and
+    // the axial muscle shows through as a dark cord. A deep-sea animal, not a rubber prop.
+    5: { amb: 0.48, occ: 0.05, sss: 0.80, sp: 10, spA: 0.18, rim: 0.6, cord: 1, wart: 0, ring: 0, grain: 0.3, mot: 0.04,
+      dark: 0x4a3f7a, pale: 0xf4efff, lip: 0.18, bowl: 0.20, pore: 0.08, bump: 0.16,
+      rimU: [-1.0, -0.72], rimCol: 0xe6dcff, rimA: 0.55 },
+    // E — WARTY. Matte, knobbled, papillae on the skin and past the silhouette so the OUTLINE is
+    // lumpy. A monster rather than an animal, and the only one here with no sheen at all.
+    6: { amb: 0.10, occ: 0.55, sss: 0, sp: 0, spA: 0, rim: 0, cord: 0, wart: 1, ring: 0, grain: 2.2, mot: 0.26,
+      dark: 0x1a1426, pale: 0xc6bdd6, lip: 0.22, bowl: 0.08, pore: 0.30, bump: 0.46,
+      rimU: [-1.0, -0.86], rimCol: 0xffffff, rimA: 0 },
+    // G — INK. The limb is a HOLE in the water: flat near-black, no interior modelling at all, one
+    // razor rim, and the suckers as solid white pads. Maximum graphic contrast, zero rendering —
+    // the opposite bet from "photo-like", and the most readable thing on this list at play size.
+    8: { amb: 0.0, occ: 0.05, sss: 0, sp: 0, spA: 0, rim: 1, cord: 0, wart: 0, ring: 0, glow: 0, vein: 0,
+      grain: 0, mot: 0, dark: 0x04030a, pale: 0x0b0914, lip: 1.0, bowl: 0.0, pore: 0.0, bump: 0.5,
+      rimU: [-1.0, -0.93], rimCol: 0xffffff, rimA: 1.0 },
+    // H — LANTERN. The suckers are the animal's LIGHTS. A dark body carrying two rows of lamps that
+    // brighten toward the tip, each bleeding a halo into the water. It is also the only design here
+    // that tells you where an arm reaches while it is still in the dark.
+    9: { amb: 0.0, occ: 0.16, sss: 0, sp: 0, spA: 0, rim: 0.4, cord: 0, wart: 0, ring: 0, glow: 1, vein: 0,
+      grain: 0.4, mot: 0.05, dark: 0x050710, pale: 0x2e3a5c, lip: 0.9, bowl: 0.2, pore: 0.1, bump: 0.35,
+      rimU: [-1.0, -0.88], rimCol: 0x6fe4ff, rimA: 0.35, glowCol: 0x7af2ff },
+    // I — CHITIN. Not flesh: a crustacean limb of overlapping armour plates, each with a hard lit
+    // leading edge and a black crease behind it. Cold, mineral, and a different ANIMAL.
+    10: { amb: 0.04, occ: 0.70, sss: 0, sp: 70, spA: 1.0, rim: 0, cord: 0, wart: 0, ring: 2, glow: 0, vein: 0,
+      grain: 0.8, mot: 0.06, dark: 0x0a1018, pale: 0xcfe2ee, lip: 0.30, bowl: 0.10, pore: 0.35, bump: 0.45,
+      rimU: [-1.0, -0.86], rimCol: 0xffffff, rimA: 0 },
+    // J — VEINED. Pale translucent flesh with a dark branching network running through it. The value
+    // range of the painted one, but the detail is anatomy rather than light.
+    11: { amb: 0.22, occ: 0.30, sss: 0.30, sp: 18, spA: 0.35, rim: 0, cord: 0, wart: 0, ring: 0, glow: 0, vein: 1,
+      grain: 0.5, mot: 0.06, dark: 0x2a1030, pale: 0xfdf6ff, lip: 0.34, bowl: 0.18, pore: 0.26, bump: 0.30,
+      rimU: [-1.0, -0.86], rimCol: 0xffffff, rimA: 0 },
+    // K — INK LANTERN (G x H). G's flat black hole in the water, with H's lamps for suckers. The
+    // two the owner named, crossed: nothing on the limb but its outline and its lights.
+    12: { amb: 0.0, occ: 0.05, sss: 0, sp: 0, spA: 0, rim: 1, cord: 0, wart: 0, ring: 0, glow: 1.3, vein: 0,
+      grain: 0, mot: 0, dark: 0x04030a, pale: 0x0b0914, lip: 1.0, bowl: 0.0, pore: 0.0, bump: 0.55,
+      rimU: [-1.0, -0.93], rimCol: 0xffffff, rimA: 1.0, glowCol: 0x9ef4ff },
+    // L — PLATED GLOW (I x H). Armour, with the light coming from BETWEEN the plates rather than off
+    // them: every crease is a slit of cold light, so the segmentation is what glows.
+    13: { amb: 0.03, occ: 0.65, sss: 0, sp: 60, spA: 0.7, rim: 0, cord: 0, wart: 0, ring: 2, glow: 0, vein: 0,
+      grain: 0.6, mot: 0.05, dark: 0x070c14, pale: 0x8fb4cc, lip: 0.35, bowl: 0.10, pore: 0.35, bump: 0.40,
+      rimU: [-1.0, -0.86], rimCol: 0xffffff, rimA: 0, ringCol: 0x5fd8ff, ringA: 0.60 },
+    // M — DOUBLE RIM. C, but lit from both sides: a cold razor on the dorsal edge and a dim warm
+    // bounce off the floor on the ventral one, with the body between them left as a void. Two edges
+    // is what separates an object from a cut-out.
+    14: { amb: 0.0, occ: 0.08, sss: 0, sp: 0, spA: 0, rim: 1, cord: 0, wart: 0, ring: 0, glow: 0, vein: 0,
+      grain: 0.3, mot: 0.04, dark: 0x05040c, pale: 0x241f3c, lip: 0.95, bowl: 0.05, pore: 0.55, bump: 0.30,
+      rimU: [-1.0, -0.91], rimCol: 0xeaf4ff, rimA: 1.0, rim2U: [0.88, 1.0], rim2Col: 0xc98a5a, rim2A: 0.5 },
+    // N — X-RAY. The skin is opaque black and the ANATOMY is what glows: the axial cord and the
+    // muscle rings lit from inside, seen through the body. An animal that is lit internally.
+    15: { amb: 0.0, occ: 0.10, sss: 0, sp: 0, spA: 0, rim: 0.5, cord: 1, wart: 0, ring: 1, glow: 0.5, vein: 0,
+      grain: 0.3, mot: 0.03, dark: 0x05060f, pale: 0x1c2a44, lip: 0.5, bowl: 0.1, pore: 0.2, bump: 0.25,
+      rimU: [-1.0, -0.9], rimCol: 0x6fe4ff, rimA: 0.28, ringCol: 0x59d6ff, ringA: 0.20,
+      cordCol: 0x7af2ff, cordA: 0.45, glowCol: 0x59d6ff },
+    // O — EMBER. Black chitin with the creases between its plates glowing HOT. The only warm thing
+    // in the chapter, which is exactly why it is worth shooting: it may own the screen, or it may
+    // fight the fish, and a frame settles that faster than an argument.
+    16: { amb: 0.03, occ: 0.70, sss: 0, sp: 60, spA: 0.55, rim: 0, cord: 0, wart: 0, ring: 2, glow: 0, vein: 0,
+      grain: 0.8, mot: 0.06, dark: 0x0b0710, pale: 0x8c7f8f, lip: 0.28, bowl: 0.08, pore: 0.40, bump: 0.42,
+      rimU: [-1.0, -0.86], rimCol: 0xffffff, rimA: 0, ringCol: 0xff7a2a, ringA: 0.70 },
+    // F — SEGMENTED. The one structural departure: the limb is built of overlapping rings, so its
+    // rhythm across the length is the read instead of the sucker rows. Less octopus, more annelid.
+    7: { amb: 0.10, occ: 0.40, sss: 0, sp: 26, spA: 0.45, rim: 0, cord: 0, wart: 0, ring: 1, grain: 0.6, mot: 0.08,
+      dark: 0x221a33, pale: 0xefe9f7, lip: 0.30, bowl: 0.12, pore: 0.22, bump: 0.26,
+      rimU: [-1.0, -0.86], rimCol: 0xffffff, rimA: 0 },
   }
+  const K_ARM = {
+    glow: 0, vein: 0, glowCol: 0x7af2ff, cordCol: 0, cordA: 0.55,
+    ringCol: 0, ringA: 0, rim2U: null, rim2Col: 0xffffff, rim2A: 0,
+    ...(K_SKINS[skinArt] || K_SKINS[2]),
+  }
+  const K_LIMB_DARK = K_ARM.dark // shadows carry colour; a black shadow reads as a HOLE in the limb
+  // ...AND HOW IT CHANGES ALONG THE LIMB, which is the other half of "photo-like" and the half a
+  // cross-section alone cannot reach. t is 0 at the shoulder and 1 at the tip.
+  //  - ROLL. The lit ridge does NOT run dead straight down a real arm. A limb that writhes rolls
+  //    about its own axis, and a highlight pinned to the same line from shoulder to tip is the
+  //    loudest extruded-tube tell there is. Two frequencies so it never reads as a wave.
+  const limbRoll = (t) => 0.30 * Math.sin(t * 6.3) + 0.05 * Math.sin(t * 11.0 + 1.7)
+  //  - DEEP. The shoulder is 980px out, past the ring, in the murk; the tip is in the lit middle of
+  //    the arena. An arm should ARRIVE out of the dark, not run off the screen edge at the same
+  //    brightness it has next to the player.
+  const limbDeep = (t) => 0.30 + 0.70 * Math.min(1, t / 0.42)
+  //  - THIN. The last sixth of an arm is thin enough to pass light through, which is why a
+  //    photographed tentacle tip GLOWS against the dark instead of ending as a silhouette.
+  const limbThin = (t) => Math.pow(Math.max(0, (t - 0.82) / 0.18), 1.4)
+  //   ⚠ t HAS NO DEFAULT, deliberately. A caller that forgets it gets NaN through mix() and draws
+  // nothing, which is loud; a default would silently pin a whole limb to one station and quietly
+  // delete all three of the effects above.
+  function limbLit(u, t) {
+    // the roll turns the SURFACE NORMAL, not the coordinate: occ has to stay tied to the true
+    // silhouette at |u| = 1 or the limb's edge slides off its own outline
+    const phi = Math.asin(Math.max(-1, Math.min(1, u))) + limbRoll(t)
+    const nl = Math.max(0, Math.sin(phi) * K_LIT_LY + Math.cos(phi) * K_LIT_LZ)
+    const round = Math.max(0, 1 - u * u)
+    const occ = Math.pow(round, K_ARM.occ)
+    // light coming THROUGH the limb: strongest where it is thinnest, i.e. at the silhouette, which
+    // is the exact opposite of where occ puts it
+    const glow = K_ARM.sss * (1 - Math.sqrt(round))
+    const lit = ((K_ARM.amb + (1 - K_ARM.amb) * nl) * occ + 0.06) * limbDeep(t)
+      + limbThin(t) * 0.34 * occ + glow
+    const col = mix(K_LIMB_DARK, K_ARM.pale, Math.min(1, lit))
+    return K_ARM.spA <= 0 ? col
+      : mix(col, 0xffffff, Math.pow(nl, K_ARM.sp) * K_ARM.spA * Math.min(1, 0.3 + t * 1.8))
+  }
+  // WHERE THE RIM LIGHT AND THE AXIAL CORD SIT, as u ranges — shared, so the bake and the ribbon put
+  // them in the same place on a limb one draws flat and the other draws bent.
+  const K_RIM_U = [-1.0, -0.86], K_CORD_U = [-0.16, 0.10]
   // A rounded tentacle: a quad from a wide root to a narrow (or bulbous) tip, built from unit
   // perpendiculars so it reads as a limb at any size. Returns a poly for .fill/.stroke.
   const krakenLimb = (g, x0, y0, x1, y1, w0, w1) => {
@@ -18754,11 +18908,11 @@ const spurG = new Graphics()
     for (let i = 0; i <= N; i++) { const t = i / N; pts.push({ x: t * L, w: Math.max(0.8, HH * K_LIMB_PROF(t)) }) }
     // The slab of the cross-section between u0 and u1, following the taper the whole way down — so
     // every band, highlight and margin is stated in ONE coordinate that limbRibbon can share.
-    const band = (u0, u1) => {
+    const band = (u0, u1, i0 = 0, i1 = N) => {
       const a = Math.max(-1, u0), b = Math.min(1, u1)
       const o = []
-      for (const p of pts) o.push(p.x, p.w * a)
-      for (let i = pts.length - 1; i >= 0; i--) o.push(pts[i].x, pts[i].w * b)
+      for (let i = i0; i <= i1; i++) o.push(pts[i].x, pts[i].w * a)
+      for (let i = i1; i >= i0; i--) o.push(pts[i].x, pts[i].w * b)
       return o
     }
     // a fixed stream, so the mottling and the grain are the same drawing on every boot and every
@@ -18774,15 +18928,102 @@ const spurG = new Graphics()
       g.poly(band(-0.58, 1)).fill({ color: K_LINE, alpha: 0.16 })
       g.poly(band(0.26, 0.94)).fill({ color: K_LINE, alpha: 0.46 })
     } else {
-      // THE LIT CYLINDER, as M slabs across the width. Each one OVERLAPS the next by its own width
-      // and is painted over by it: two antialiased polygons that merely touch leave a hairline of
-      // whatever is behind them at every join, all the way down a 2400px strip.
-      const M = 48
+      // THE LIT CYLINDER, as a GRID of M slabs across the width by N/G groups along the length.
+      // It was M full-length stripes until the lighting learned about t: a stripe can only carry one
+      // colour, so the roll, the recession into the murk and the glow in the tip all have nowhere to
+      // live on one. 48 x 40 is 1920 quads, paid ONCE at boot and never again.
+      //   Both axes OVERLAP their neighbour and are painted over by it: two antialiased polygons
+      // that merely touch leave a hairline of whatever is behind them at every single join, and
+      // there are two thousand joins here.
+      const M = 48, G = 3
       g.poly(band(-1, 1)).fill({ color: K_LIMB_DARK })
       if (skinArt === 1) g.poly(band(-1, 1)).stroke({ width: 10, color: K_LINE, join: 'round' })
       for (let j = 0; j < M; j++) {
         const u0 = -1 + 2 * j / M
-        g.poly(band(u0, u0 + 3.2 / M)).fill({ color: limbLit(u0 + 1 / M) })
+        for (let i = 0; i < N; i += G) {
+          const i1 = Math.min(N, i + G + 1)
+          g.poly(band(u0, u0 + 3.2 / M, i, i1)).fill({ color: limbLit(u0 + 1 / M, (i + G * 0.5) / N) })
+        }
+      }
+      // C's RIM: one bright edge where the light from above catches the limb, which is the whole
+      // read of an animal that is otherwise nearly black.
+      if (K_ARM.rim > 0) {
+        for (let i = 0; i < N; i += G) {
+          const i1 = Math.min(N, i + G + 1)
+          const dp = limbDeep((i + G * 0.5) / N)
+          g.poly(band(K_ARM.rimU[0], K_ARM.rimU[1], i, i1)).fill({ color: K_ARM.rimCol, alpha: K_ARM.rimA * dp })
+          // the SECOND rim: a dim bounce off the floor on the shadow edge. One rim is a cut-out,
+          // two is an object — the near edge has to be lit by SOMETHING or the limb has no back.
+          if (K_ARM.rim2U) g.poly(band(K_ARM.rim2U[0], K_ARM.rim2U[1], i, i1)).fill({ color: K_ARM.rim2Col, alpha: K_ARM.rim2A * dp })
+        }
+      }
+      // D's CORD: the axial muscle, seen THROUGH the limb. Only a translucent animal has one, and it
+      // is the single detail that says light is passing through rather than bouncing off.
+      if (K_ARM.cord > 0) {
+        for (let i = 0; i < N; i += G) {
+          const i1 = Math.min(N, i + G + 1)
+          g.poly(band(K_CORD_U[0], K_CORD_U[1], i, i1))
+            .fill({ color: K_ARM.cordCol || K_LIMB_DARK, alpha: K_ARM.cordA * K_ARM.cord })
+        }
+      }
+      // F's RINGS: transverse bands across the whole width, spaced off the local thickness so they
+      // crowd toward the tip. Each is a dark crease with a lit edge on the shoulder side of it,
+      // which is what makes a ring read as a raised segment rather than a painted stripe.
+      if (K_ARM.ring > 0) {
+        // ⚠ WALK STATIONS, NOT X. Spacing this by world distance looks right and is not: where the
+        // limb is thin the step falls below ONE station, so the same band is drawn dozens of times
+        // and its alpha stacks to opaque — the whole arm became a solid wash of whatever colour the
+        // crease carried. It was invisible while creases were dark shading and obvious the moment
+        // one glowed. The advance is in STATIONS and floored so a plate can never overlap its
+        // neighbour.
+        const PX = L / N
+        for (let ri = 4; ri < N - 3;) {
+          const w = wAt(ri * PX)
+          const adv = Math.max(4, Math.round(w * 1.25 / PX))
+          const hard = K_ARM.ring > 1
+          g.poly(band(-1, 1, ri, ri + 1)).fill({
+            color: K_ARM.ringCol || K_LIMB_DARK,
+            alpha: K_ARM.ringA || (hard ? 0.85 : 0.42),
+          })
+          // the plate BEHIND the crease catches the light on its leading edge, which is what makes a
+          // segment read as a shell rather than a painted stripe
+          if (hard) {
+            g.poly(band(-0.95, 0.75, ri + 1, ri + 2)).fill({ color: mix(K_ARM.pale, 0xffffff, 0.4), alpha: 0.45 })
+          }
+          ri += adv
+        }
+      }
+      // J's VEINS: a branching network under translucent flesh. Each is a short run of segments that
+      // wanders and thins, so it reads as anatomy rather than as scratches.
+      if (K_ARM.vein > 0) {
+        for (let k = 0; k < 90; k++) {
+          let vx = rnd() * L, vu = (rnd() * 2 - 1) * 0.8
+          let ang = (rnd() - 0.5) * 1.4
+          let vw = 2.4 + rnd() * 3.0
+          for (let seg = 0; seg < 7 && vw > 0.5; seg++) {
+            const w0 = wAt(vx)
+            if (w0 < 4) break
+            const step = 26 + rnd() * 46
+            const nx2 = vx + Math.cos(ang) * step
+            const nu = Math.max(-0.92, Math.min(0.92, vu + Math.sin(ang) * step / Math.max(6, w0)))
+            g.poly([vx, w0 * vu, nx2, wAt(nx2) * nu, nx2, wAt(nx2) * nu + vw * 0.5, vx, w0 * vu + vw])
+              .fill({ color: K_LIMB_DARK, alpha: 0.26 })
+            vx = nx2; vu = nu; vw *= 0.74
+            ang += (rnd() - 0.5) * 1.1
+          }
+        }
+      }
+      // E's PAPILLAE: bumps, on the skin AND past the silhouette, so the outline itself is knobbled.
+      if (K_ARM.wart > 0) {
+        for (let k = 0; k < 460; k++) {
+          const x = rnd() * L, w = wAt(x)
+          if (w < 3) continue
+          const u = rnd() * 2 - 1
+          const rr = w * (0.11 + rnd() * 0.19)
+          const bc = limbLit(u * 0.80, x / L)
+          g.ellipse(x, w * u, rr, rr * 0.82).fill({ color: mix(bc, 0xffffff, 0.18) })
+          g.ellipse(x, w * u + rr * 0.34, rr * 0.88, rr * 0.58).fill({ color: mix(bc, K_LIMB_DARK, 0.26) })
+        }
       }
     }
 
@@ -18794,33 +19035,60 @@ const spurG = new Graphics()
     // inside it is an eyeball, and two of them level with each other above two more is a FACE: two
     // eyes over two smiles, the same pattern-match that once got the parry wound called a salami.
     // The far row is offset by half a step so no two ever align across the limb.
-    const SU = 0.42 // how far off the midline each row sits
+    const SU = K_SUCK_FACE
     //   ...and no two the same size. Identical discs at an identical pitch is the single loudest
     // remaining tell that something was DRAWN: nothing an animal grows is regular to the pixel.
     const sucker = (x, s) => {
-      const w = wAt(x), u = s * SU, r = w * K_SUCK_R * (0.86 + rnd() * 0.28)
+      // ...off the line as well as off the size. Two rows ruled dead straight is the last piece of
+      // regularity on the limb once the sizes vary, and regularity is what reads as printed.
+      const w = wAt(x), u = SU + s * K_SUCK_ROW + (rnd() - 0.5) * 0.09, r = w * K_SUCK_R * (0.86 + rnd() * 0.28)
       if (x > L * 0.975 || r < 0.9) return
       const y = w * u
       // a disc on a cylinder is seen at a grazing angle the further off the midline it sits, so it
       // is drawn as the ELLIPSE that projection makes of it
       const ry = r * Math.sqrt(1 - u * u)
-      const base = limbLit(u)
+      // the lighting is read INBOARD of where the sucker sits: a knob standing proud of the limb
+      // catches the light the limb's own surface at that angle has already lost
+      const base = limbLit(u * 0.55, x / L)
       if (skinArt === 0) {
         g.circle(x, y, r * 0.5).stroke({ width: Math.max(0.8, r * 0.17), color: 0xbfe8f2, alpha: 0.42 })
         g.circle(x, y, r * 0.2).fill({ color: K_LINE, alpha: 0.30 })
         return
       }
-      // the CUP: a bowl darker than the flesh around it, with its far wall lit and its near wall —
-      // the one its own rim overhangs — in shadow. That pair is the whole difference between a hole
-      // in a surface and a spot painted on one.
-      g.ellipse(x, y, r, ry).fill({ color: mix(base, K_LIMB_DARK, 0.26) })
-      g.ellipse(x, y - ry * 0.16, r * 0.74, ry * 0.68).fill({ color: mix(base, K_LIMB_DARK, 0.46) })
-      // the LIP, catching the same light the limb does, and a pinprick where it is wettest
-      g.ellipse(x, y, r, ry).stroke({ width: Math.max(0.6, r * 0.20), color: mix(base, 0xffffff, 0.55), alpha: 0.42 })
-      if (r > 3) g.circle(x - r * 0.24, y - ry * 0.42, Math.max(0.5, r * 0.16)).fill({ color: 0xffffff, alpha: 0.34 })
+      // A CUP, AS THREE DISCS, AND NEVER A STROKED RING. A ring of even width and even brightness
+      // is a porthole: it reads as bubble wrap stuck on the limb, which is what the stroked version
+      // looked like at zoom. A real sucker is a raised LIP with a bowl sunk into it, and the lip is
+      // lit on the side the light comes from and shadowed on the other — so the lip is a plain disc
+      // and the bowl is offset ACROSS it, which leaves the lit crescent automatically.
+      //   ⚠ AND LOW CONTRAST, which is the half of the reference that is easy to miss. A pale ring
+      // with a dark disc inside it is an EYE — the bake's older comment says so and the first cut at
+      // this size proved it: the limb came back studded with forty of them staring out. What sells a
+      // sucker in that plate is not its internal contrast, it is that it BULGES THE OUTLINE. So the
+      // lip is barely lighter than the flesh, the bowl barely darker, and the ring left visible is
+      // thin because the bowl comes up to 0.86 of the lip.
+      //   AND NO CATCHLIGHT. A bright pinprick inside a pale ring is a PUPIL GLINT, and it put the
+      // eye back the moment the suckers were big enough to see it in. The reference has none.
+      // ⚠ OFFSET, so what shows is a CRESCENT and not an annulus. A dark ring all the way round a
+      // pale disc round a darker centre is a bullseye — three concentric rings, and the limb came
+      // back covered in targets. A dome lit from the dorsal side shows its crease on the VENTRAL
+      // side only, so the pedestal is pushed that way and the lip covers the rest of it.
+      // ⚠ THE WHOLE SUCKER IS LIGHTER THAN THE LIMB, with only a small dark centre. Making the bowl
+      // DARKER than the flesh leaves a bright annulus round a dark disc, and an annulus is a ring:
+      // the plate's suckers are pale pads, and the only dark on them is the pore and the crease
+      // between one and the next.
+      // H's HALO: light leaking out of the lamp into the water around it. Two discs rather than a
+      // blur, because a blur filter on a 4000px strip costs more than the whole bake.
+      if (K_ARM.glow > 0) {
+        g.ellipse(x, y, r * 3.4, ry * 3.4).fill({ color: K_ARM.glowCol, alpha: 0.05 * K_ARM.glow })
+        g.ellipse(x, y, r * 2.0, ry * 2.0).fill({ color: K_ARM.glowCol, alpha: 0.09 * K_ARM.glow })
+      }
+      g.ellipse(x, y + ry * 0.13, r * K_SUCK_BUMP, ry * K_SUCK_BUMP).fill({ color: mix(base, K_LIMB_DARK, K_ARM.bump) })
+      g.ellipse(x, y, r, ry).fill({ color: K_ARM.glow > 0 ? mix(K_ARM.glowCol, 0xffffff, 0.35 * limbThin(x / L) + 0.15) : mix(base, 0xffffff, K_ARM.lip) })
+      g.ellipse(x, y + ry * 0.08, r * 0.86, ry * 0.84).fill({ color: mix(base, 0xffffff, K_ARM.bowl) })
+      g.ellipse(x, y - ry * 0.02, r * 0.42, ry * 0.40).fill({ color: mix(base, K_LIMB_DARK, K_ARM.pore) })
     }
     for (let x = L * 0.05; x < L * 0.97;) {
-      const step = Math.max(5, wAt(x) * K_SUCK_R * 2.35)
+      const step = Math.max(5, wAt(x) * K_SUCK_R * 2.30)
       sucker(x, -1)
       sucker(x + step * 0.5, 1)
       x += step
@@ -18836,21 +19104,7 @@ const spurG = new Graphics()
       // u=1.32 — outside the limb — and because the ellipse is squashed across the width and not
       // along it, each one hung off the edge as a flat rectangular TAB. Six of them down an arm read
       // as a torn silhouette, which is the opposite of what mottling is for.
-      const PIG = skinArt >= 3 ? 0x8a3a44 : 0x6a5570
-      const PA = skinArt >= 3 ? 0.34 : 0.10
-      // ...and at skinArt 3, a second layer at a much coarser scale under the first. Pigment at one
-      // scale is a speckle; what makes a cephalopod photograph the way it does is broad washes with
-      // fine grain sitting IN them.
-      if (skinArt >= 3) {
-        for (let k = 0; k < 90; k++) {
-          const x = rnd() * L, w = wAt(x)
-          if (w < 3) continue
-          const ru = 0.30 + rnd() * 0.55
-          const u = (rnd() * 2 - 1) * 0.5
-          const r = w * ru
-          g.ellipse(x, w * u, r * 2.2, r * 0.8).fill({ color: PIG, alpha: 0.13 * (0.4 + rnd() * 0.6) })
-        }
-      }
+      const PIG = 0x6a5570, PA = K_ARM.mot
       for (let k = 0; k < 420; k++) {
         const x = rnd() * L, w = wAt(x)
         if (w < 3) continue
@@ -18861,7 +19115,7 @@ const spurG = new Graphics()
       }
       // SKIN GRAIN — papillae at the size they really are: hundreds of dots that never resolve
       // individually and only ever read as "this surface is not moulded plastic".
-      for (let k = 0; k < 1400; k++) {
+      for (let k = 0; k < Math.round(1400 * K_ARM.grain); k++) {
         const x = rnd() * L, w = wAt(x)
         if (w < 3) continue
         const u = (rnd() * 2 - 1) * 0.94
@@ -18999,16 +19253,24 @@ const spurG = new Graphics()
     const runs = []
     for (let i = 1, i0 = 0; i < n; i++) {
       const [ax, ay] = norm(i0), [bx, by] = norm(i)
-      if (i === n - 1 || ax * bx + ay * by < 0.997 || Math.abs(hw(i / (n - 1)) - hw(i0 / (n - 1))) > 1.5) {
+      // ⚠ AND CAPPED IN t. The colour is evaluated once per run, so a run that spans a real slice
+      // of the limb paints one value across a length the lighting varies over — which reads as a
+      // vertical seam every time the heading happens to hold. 0.045 is about 3 world px of roll.
+      if (i === n - 1 || ax * bx + ay * by < 0.997 || (i - i0) / (n - 1) > 0.045
+        || Math.abs(hw(i / (n - 1)) - hw(i0 / (n - 1))) > 1.5) {
         runs.push(i0, i); i0 = i
       }
     }
     // ...and each quad is a SLAB of the cross-section between u0 and u1, not a symmetric strip. An
     // asymmetric ramp is the whole difference between a lit cylinder and a band down the middle.
+    //   `color` may be a FUNCTION of t, evaluated per run — which is how the ribbon gets the roll,
+    // the recession into the murk and the glowing tip for nothing: it is already looping runs, so
+    // moving the colour inside that loop costs one call each and buys the whole along-limb model.
     const slab = (u0, u1, color, a, grow = 0) => {
       if (a <= 0) return
       for (let q = 0; q < runs.length; q += 2) {
         const i = runs[q], j = runs[q + 1]
+        const col = typeof color === 'function' ? color((i + j) * 0.5 / (n - 1)) : color
         const [nx, ny] = norm(i), [mx, my] = norm(j)
         const h0 = hw(i / (n - 1)), h1 = hw(j / (n - 1))
         const a0 = h0 * u0 - grow, b0 = h0 * u1 + grow
@@ -19019,7 +19281,7 @@ const spurG = new Graphics()
           pts[j].x + mx * a1, pts[j].y + my * a1,
           pts[j].x + mx * b1, pts[j].y + my * b1,
           pts[i].x + nx * b0, pts[i].y + ny * b0,
-        ]).fill({ color, alpha: a })
+        ]).fill({ color: col, alpha: a })
       }
     }
     // the joint discs: without them every bend shows a notch where two quads meet at an angle. Only
@@ -19028,7 +19290,8 @@ const spurG = new Graphics()
     const joints = (color, a, grow = 0) => {
       for (let q = 0; q < runs.length; q += 2) {
         const i = runs[q + 1], w = hw(i / (n - 1)) + grow
-        if (w > 0.6) g.circle(pts[i].x, pts[i].y, w).fill({ color, alpha: a })
+        const col = typeof color === 'function' ? color(i / (n - 1)) : color
+        if (w > 0.6) g.circle(pts[i].x, pts[i].y, w).fill({ color: col, alpha: a })
       }
     }
     if (flat) { slab(-1, 1, flat, alpha); joints(flat, alpha); return }
@@ -19052,14 +19315,68 @@ const spurG = new Graphics()
       const M = 32
       for (let j = 0; j < M; j++) {
         const u0 = -1 + 2 * j / M
-        slab(u0, u0 + 3.2 / M, tintMul(limbLit(u0 + 1 / M), tint), alpha)
+        slab(u0, u0 + 3.2 / M, (t) => tintMul(limbLit(u0 + 1 / M, t), tint), alpha)
+      }
+      if (K_ARM.rim > 0) {
+        slab(K_ARM.rimU[0], K_ARM.rimU[1], tintMul(K_ARM.rimCol, tint), K_ARM.rimA * alpha)
+        if (K_ARM.rim2U) slab(K_ARM.rim2U[0], K_ARM.rim2U[1], tintMul(K_ARM.rim2Col, tint), K_ARM.rim2A * alpha)
+      }
+      if (K_ARM.cord > 0) {
+        slab(K_CORD_U[0], K_CORD_U[1], K_ARM.cordCol ? tintMul(K_ARM.cordCol, tint) : dark, K_ARM.cordA * K_ARM.cord * alpha)
+      }
+      if (K_ARM.vein > 0) {
+        for (const m of K_RIB_MOTTLE) {
+          const i = Math.min(n - 3, Math.round(m.t * (n - 4)))
+          const w = hw(i / (n - 1))
+          if (w < 3) continue
+          const [nx, ny] = norm(i), [mx, my] = norm(i + 2)
+          const o0 = w * m.u, o1 = hw((i + 2) / (n - 1)) * (m.u * 0.55)
+          const vw = Math.max(0.6, w * 0.10)
+          g.poly([
+            pts[i].x + nx * o0, pts[i].y + ny * o0,
+            pts[i + 2].x + mx * o1, pts[i + 2].y + my * o1,
+            pts[i + 2].x + mx * (o1 + vw * 0.5), pts[i + 2].y + my * (o1 + vw * 0.5),
+            pts[i].x + nx * (o0 + vw), pts[i].y + ny * (o0 + vw),
+          ]).fill({ color: dark, alpha: 0.26 * alpha })
+        }
+      }
+      if (K_ARM.ring > 0) {
+        let racc = 0, rdue = Math.max(5, hw(0.06) * 1.25)
+        for (let i = 0; i < n - 2; i++) {
+          racc += Math.hypot(pts[i + 1].x - pts[i].x, pts[i + 1].y - pts[i].y)
+          if (racc < rdue) continue
+          rdue += Math.max(5, hw(i / (n - 1)) * 1.25)
+          const [nx, ny] = norm(i), [mx, my] = norm(i + 1)
+          const h0 = hw(i / (n - 1)), h1 = hw((i + 1) / (n - 1))
+          if (h0 < 1) continue
+          g.poly([
+            pts[i].x - nx * h0, pts[i].y - ny * h0, pts[i + 1].x - mx * h1, pts[i + 1].y - my * h1,
+            pts[i + 1].x + mx * h1, pts[i + 1].y + my * h1, pts[i].x + nx * h0, pts[i].y + ny * h0,
+          ]).fill({
+            color: K_ARM.ringCol ? tintMul(K_ARM.ringCol, tint) : dark,
+            alpha: (K_ARM.ringA || (K_ARM.ring > 1 ? 0.85 : 0.42)) * alpha,
+          })
+        }
+      }
+      if (K_ARM.wart > 0) {
+        for (const m of K_RIB_MOTTLE) {
+          const i = Math.min(n - 1, Math.round(m.t * (n - 1)))
+          const w = hw(i / (n - 1))
+          if (w < 2) continue
+          const [nx, ny] = norm(i)
+          const o = w * (m.u < 0 ? -1 : 1) * (0.2 + Math.abs(m.u) * 0.9)
+          const rr = w * (0.07 + m.r * 0.32)
+          const bc = tintMul(limbLit(m.u * 0.80, i / (n - 1)), tint)
+          g.circle(pts[i].x + nx * o, pts[i].y + ny * o, rr).fill({ color: mix(bc, 0xffffff, 0.18), alpha })
+          g.circle(pts[i].x + nx * (o + rr * 0.34), pts[i].y + ny * (o + rr * 0.34), rr * 0.7)
+            .fill({ color: mix(bc, dark, 0.26), alpha })
+        }
       }
       if (skinArt >= 2) {
         // the bake's chromatophores, at the only scale worth paying for per frame. Its skin grain —
         // 1400 sub-pixel dots — is not here: free once, unaffordable every frame, and at 0.3 world
         // px each it is texture rather than shape.
-        const PIG = tintMul(skinArt >= 3 ? 0x8a4a52 : 0x6a5570, tint)
-        const PA = skinArt >= 3 ? 0.17 : 0.10
+        const PIG = tintMul(0x6a5570, tint), PA = K_ARM.mot
         for (const m of K_RIB_MOTTLE) {
           const i = Math.min(n - 1, Math.round(m.t * (n - 1)))
           const w = hw(i / (n - 1))
@@ -19078,31 +19395,37 @@ const spurG = new Graphics()
     // sides every HALF step is what offsets the two rows so no pair can ever line up across.
     //   Drawn as circles rather than the bake's ellipses: the projection squash at u=0.42 is 9%,
     // which is half a pixel on a 6px disc.
-    let acc = 0, due = Math.max(2, hw(0.04) * K_SUCK_R * 1.175), side = -1, sk = 0
+    let acc = 0, due = Math.max(2, hw(0.04) * K_SUCK_R * 1.15), side = -1, sk = 0
     for (let i = 0; i < n - 1; i++) {
       acc += Math.hypot(pts[i + 1].x - pts[i].x, pts[i + 1].y - pts[i].y)
       while (acc >= due) {
         const t = i / (n - 1), w = hw(t), r = w * K_SUCK_R * K_SUCK_JIT[sk++ % K_SUCK_JIT.length]
-        due += Math.max(2, w * K_SUCK_R * 1.175)
+        due += Math.max(2, w * K_SUCK_R * 1.15)
         side = -side
         if (r < 1 || t < 0.03 || t > 0.98) continue
         const [nx, ny] = norm(i)
-        const cx = pts[i].x + nx * w * 0.42 * side, cy = pts[i].y + ny * w * 0.42 * side
+        // ...and off the line by a few percent. Two rows ruled dead straight is the last piece of
+        // regularity left on the limb once the sizes vary, and regularity is what reads as printed.
+        const off = w * (K_SUCK_FACE + side * K_SUCK_ROW + K_SUCK_JIT[(sk * 5) % K_SUCK_JIT.length] * 0.05 - 0.05)
+        const cx = pts[i].x + nx * off, cy = pts[i].y + ny * off
         if (skinArt === 0) {
           g.circle(cx, cy, r * 0.5).stroke({ width: Math.max(0.8, r * 0.17), color: 0xbfe8f2, alpha: 0.42 * alpha })
           g.circle(cx, cy, r * 0.2).fill({ color: K_LINE, alpha: 0.30 * alpha })
           continue
         }
-        const base = tintMul(limbLit(0.42 * side), tint)
-        g.circle(cx, cy, r).fill({ color: mix(base, dark, 0.26), alpha })
-        // the near wall — the one the rim overhangs — is the DORSAL one, toward -normal, whichever
-        // row this is: the light does not change sides with the sucker
-        g.circle(cx - nx * r * 0.16, cy - ny * r * 0.16, r * 0.72).fill({ color: mix(base, dark, 0.46), alpha })
-        g.circle(cx, cy, r).stroke({ width: Math.max(0.35, r * 0.20), color: mix(base, 0xffffff, 0.55), alpha: 0.38 * alpha })
-        if (r > 3) {
-          g.circle(cx - ny * r * 0.24 - nx * r * 0.42, cy + nx * r * 0.24 - ny * r * 0.42,
-            Math.max(0.5, r * 0.16)).fill({ color: 0xffffff, alpha: 0.34 * alpha })
+        // the bake's three-disc cup — lip, bowl offset across it, overhang shadow. Never a ring.
+        const base = tintMul(limbLit((K_SUCK_FACE + side * K_SUCK_ROW) * 0.55, t), tint)
+        if (K_ARM.glow > 0) {
+          g.circle(cx, cy, r * 3.4).fill({ color: K_ARM.glowCol, alpha: 0.05 * K_ARM.glow * alpha })
+          g.circle(cx, cy, r * 2.0).fill({ color: K_ARM.glowCol, alpha: 0.09 * K_ARM.glow * alpha })
         }
+        g.circle(cx + nx * r * 0.13, cy + ny * r * 0.13, r * K_SUCK_BUMP).fill({ color: mix(base, dark, K_ARM.bump), alpha })
+        g.circle(cx, cy, r).fill({
+          color: K_ARM.glow > 0 ? tintMul(mix(K_ARM.glowCol, 0xffffff, 0.35 * limbThin(t) + 0.15), tint) : mix(base, 0xffffff, K_ARM.lip),
+          alpha,
+        })
+        g.circle(cx + nx * r * 0.08, cy + ny * r * 0.08, r * 0.86).fill({ color: mix(base, 0xffffff, K_ARM.bowl), alpha })
+        g.circle(cx - nx * r * 0.02, cy - ny * r * 0.02, r * 0.42).fill({ color: mix(base, dark, K_ARM.pore), alpha })
       }
     }
   }
@@ -19353,18 +19676,40 @@ const spurG = new Graphics()
       //   Same restraint, new shape: a dim warm band down the struck line in nested strokes whose
       // individual steps sit below the threshold where a boundary is visible, so it is a glow on the
       // seabed rather than the 300px wheel four earlier cuts kept becoming.
-      const hw = (a.w || KRAKEN_LASH_W) * (0.86 + lf * 0.14)
+      //   AND IT GROWS OUT OF THE ARM. Owner, 2026-09-15: "double the slam telegraph time and
+      // animation (like the rectangle should grow to show the arm arming the slam)." It was drawn at
+      // full length and full width on the frame the fuse was lit, which states the DANGER but not
+      // the WIND-UP: a mark that is already finished tells you nothing about how far through the
+      // attack is, so the fuse had to be read off the limb alone. Now the band reaches out of the
+      // arm's own root at the ring and runs inward across the arena, widening as it goes, so the
+      // telegraph performs the attack before the attack happens.
+      //   ⚠ AND IT IS AT FULL LENGTH WELL BEFORE THE STRIKE, which is not a detail. The block above
+      // records what a mark that lies about the struck shape costs: a bot dodging by what was drawn
+      // took 97-98% of slams against 0-7% for one dodging by the real capsule. So the growth is over
+      // by 58% of the fuse — and because the fuse is now twice what it was, the player gets 1.3s of
+      // the FULL corridor where they used to get 1.1s of it, i.e. the animation is paid for by the
+      // doubling rather than taken out of the warning.
+      // ⚠ 0.55, and a floor. Shot as a strip, the first HALF of the fuse was blank: a band that
+      // starts at zero length near the ring — which is off the screen edge — and ramps from an alpha
+      // of 0.008 is not an animation the player can see, it is an animation the probe can see. The
+      // floor puts a stub on the seabed from the frame the fuse lights, and the shallower exponent
+      // gets it into the arena early enough to be worth watching.
+      const grow = Math.min(1, 0.12 + 0.88 * Math.pow(urg / 0.58, 0.55))
+      const ex = a.lx0 + (a.lx1 - a.lx0) * grow, ey = a.ly0 + (a.ly1 - a.ly0) * grow
+      const hw = (a.w || KRAKEN_LASH_W) * (0.86 + lf * 0.14) * (0.42 + 0.58 * grow)
       for (let b = 0; b < 7; b++) {
         teleG.beginPath()
         teleG.moveTo(a.lx0, a.ly0)
-        teleG.lineTo(a.lx1, a.ly1)
-        teleG.stroke({ width: 2 * hw * (1 - b * 0.13), color: 0xff7a6a, alpha: 0.016 * (0.5 + urg), cap: 'round' })
+        teleG.lineTo(ex, ey)
+        teleG.stroke({ width: 2 * hw * (1 - b * 0.13), color: 0xff7a6a, alpha: 0.020 * (0.7 + 1.3 * urg), cap: 'round' })
       }
       // ...and the exact edges arrive only when they can still be acted on: the two rails of the
       // capsule through the back half of the fuse, gone the rest of the time. These are what say
       // "step off this line", which is the whole answer to the attack.
-      if (urg > 0.52) {
-        const k = (urg - 0.52) / 0.48
+      // ...and the rails open exactly when the band finishes growing, so the two never disagree
+      // about how far the strike reaches
+      if (urg > 0.58) {
+        const k = (urg - 0.58) / 0.42
         const nx = -(a.ly1 - a.ly0), ny = a.lx1 - a.lx0
         const nl = Math.hypot(nx, ny) || 1
         for (const side of [-1, 1]) {
@@ -19751,6 +20096,17 @@ const spurG = new Graphics()
           if (slice.length > 2) {
             // the slice keeps the PARENT's t so its width matches where it was cut from
             const hwSlice = (u) => hwAt((lo + u * (slice.length - 1)) / (K_ROPE_N - 1))
+            // ...AND IT CASTS. A limb drawn over a fish with nothing under it is a sticker on the
+            // screen: contact shadow is the cue that separates "in front of" from "pasted on", and
+            // it is the only one available top-down, where there is no horizon and no perspective.
+            // Offset down-right to the same light the whole chapter uses, and WIDER than the limb,
+            // because a shadow cast onto a surface below spreads.
+            //   ⚠ AND IT IS TIGHT. The first cut was 1.08x wide at alpha 0.30 with joint discs on top,
+            // and the discs double-darken where they overlap the strip: what landed was a soft black
+            // smudge across the whole fish rather than a shadow under a limb. A cast shadow at this
+            // distance is barely wider than the thing casting it.
+            const shd = slice.map((q) => ({ x: q.x + 5, y: q.y + 8 }))
+            limbRibbon(krakenGripFrontG, shd, shd.length, hwSlice, 0xffffff, 0.16, 0x05070d)
             limbRibbon(krakenGripFrontG, slice, slice.length, hwSlice, tn)
           }
         }
