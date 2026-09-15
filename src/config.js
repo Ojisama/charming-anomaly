@@ -8812,7 +8812,14 @@ export const KRAKEN_LASH_R = 150 // px the arm's slam reaches around its tip —
 // through the tip, and cracking OVER the head. The centre is now on every attacking arm's line and
 // the safe ground is the gap between them, which is the positioning decision the ring did not have.
 export const KRAKEN_LASH_W = 70    // px, half-width of the struck line
-export const KRAKEN_LASH_OVER = 96 // px the tip cracks PAST the head, so the middle is never safe
+export const KRAKEN_LASH_OVER = 0  // px the line runs PAST the head centre; segDist2's round cap
+                                   // covers KRAKEN_LASH_W beyond it either way, so the middle is
+                                   // struck at 0. It was 96 for one release and the drawn limb
+                                   // ended inside the boss's face.
+// How much wider than the strike the PARRY reaches. The button has to answer everything that can
+// land and nothing that cannot: at 1.0 a player standing on the very edge of the struck line would
+// be hit by a swing they could not read as theirs.
+export const KRAKEN_PARRY_MARGIN = 1.6
 // (KRAKEN_ARM_HIT_T retired in rev 3 — the flash is KRAKEN_LIMP_FLASH, and it marks a parry that
 // EXPOSED the limb rather than one that chipped it.)
 // THE CAGE. The arms are the arena wall and the sim never said so: you could walk out of the ring

@@ -18658,13 +18658,22 @@ const spurG = new Graphics()
     g.poly(ring(0.22, (p) => -p.w * 0.52)).fill({ color: mix(K_LIMB2, 0xffffff, 0.55), alpha: 0.30 })
     // ventral margin — the shadowed underside
     g.poly(ring(0.34, (p) => p.w * 0.60)).fill({ color: K_LINE, alpha: 0.34 })
-    // two rows of suckers, shrinking with the limb
+    // TWO ROWS OF SUCKERS, STAGGERED — and the stagger is the whole point, not a detail. A pale
+    // disc with a darker disc inside it is an eyeball, and two of them side by side at the same
+    // height, above the pair below, is a FACE: two eyes over two smiles. It read as one down the
+    // whole limb and as a cartoon head at the tip, which is the same pattern-match that got the
+    // wound called a salami. Offsetting the far row by one step means no two ever align across the
+    // limb, so the eye pairs cannot form. The rim is stroked rather than filled and the pupil is
+    // dimmer, which also stops each one being a high-contrast target in its own right — this
+    // release drags the limb's WIDEST section across the middle of the screen on every slam, so
+    // there are ~35 of these on a 390px phone at once.
     for (let i = 3; i < N - 5; i += 2) {
-      const p = pts[i]
-      const r = Math.max(1.2, p.w * 0.155)
       for (const s of [-1, 1]) {
-        g.circle(p.x, s * p.w * 0.40, r).fill({ color: 0xbfe8f2, alpha: 0.9 })
-        g.circle(p.x, s * p.w * 0.40, r * 0.46).fill({ color: K_LINE, alpha: 0.55 })
+        const p = pts[s > 0 ? i : Math.min(N - 6, i + 1)]
+        if (!p) continue
+        const r = Math.max(1.1, p.w * 0.125)
+        g.circle(p.x, s * p.w * 0.40, r).stroke({ width: Math.max(0.8, r * 0.34), color: 0xbfe8f2, alpha: 0.42 })
+        g.circle(p.x, s * p.w * 0.40, r * 0.40).fill({ color: K_LINE, alpha: 0.30 })
       }
     }
     // photophores: the animal's own light, sparse and irregular so it does not read as a pattern
@@ -18904,24 +18913,36 @@ const spurG = new Graphics()
       // exactly backwards: the limb is forty pixels wide, it climbs off the seabed, it drags its
       // shadow away from itself and it comes down on you, and none of that can be read while a
       // 300px wheel is drawn over it.
-      //   What is left is the minimum that keeps the attack FAIR. A dim warm smudge under the tip
-      // says where, in eight nested fills whose individual steps are about three levels of
-      // brightness each — below the threshold where a boundary is visible, which is what made the
-      // five-step version read as a dartboard...
-      const sr = KRAKEN_LASH_R * (0.62 + lf * 0.2)
-      for (let b = 0; b < 8; b++) {
+      //   What is left is the minimum that keeps the attack FAIR — and FAIR now means the LINE, not
+      // a disc under the tip. The strike is a capsule down the whole bearing (sim's krakenLashLine,
+      // published onto the arm as lx0/ly0/lx1/ly1), and for one release this mark stayed a disc of
+      // KRAKEN_LASH_R centred on a.x/a.y. The innermost ground any mark reached was r=50, while the
+      // strike ran to r=0 and beyond — so the arena's entire middle, the ground the rework exists to
+      // make dangerous, was struck with nothing drawn on it, and a player 140px to the SIDE of the
+      // tip was inside the arcs and not hit. Measured: a bot dodging by what was drawn took 97-98%
+      // of slams, one dodging by the real shape took 0-7%.
+      //   Same restraint, new shape: a dim warm band down the struck line in nested strokes whose
+      // individual steps sit below the threshold where a boundary is visible, so it is a glow on the
+      // seabed rather than the 300px wheel four earlier cuts kept becoming.
+      const hw = (a.w || KRAKEN_LASH_W) * (0.86 + lf * 0.14)
+      for (let b = 0; b < 7; b++) {
         teleG.beginPath()
-        teleG.circle(a.x, a.y, sr * (1 - b * 0.115))
-        teleG.fill({ color: 0xff7a6a, alpha: 0.014 * (0.5 + urg) })
+        teleG.moveTo(a.lx0, a.ly0)
+        teleG.lineTo(a.lx1, a.ly1)
+        teleG.stroke({ width: 2 * hw * (1 - b * 0.13), color: 0xff7a6a, alpha: 0.016 * (0.5 + urg), cap: 'round' })
       }
-      // ...and the exact extent arrives only when it can still be acted on: three short broken arcs
-      // at KRAKEN_LASH_R through the back half of the fuse, gone the rest of the time.
+      // ...and the exact edges arrive only when they can still be acted on: the two rails of the
+      // capsule through the back half of the fuse, gone the rest of the time. These are what say
+      // "step off this line", which is the whole answer to the attack.
       if (urg > 0.52) {
         const k = (urg - 0.52) / 0.48
-        for (let b = 0; b < 3; b++) {
-          const a0 = a.i * 1.7 + b * 2.0944 + animT * 0.3
+        const nx = -(a.ly1 - a.ly0), ny = a.lx1 - a.lx0
+        const nl = Math.hypot(nx, ny) || 1
+        for (const side of [-1, 1]) {
+          const ox = (nx / nl) * hw * side, oy = (ny / nl) * hw * side
           teleG.beginPath()
-          teleG.arc(a.x, a.y, KRAKEN_LASH_R, a0, a0 + 1.15)
+          teleG.moveTo(a.lx0 + ox, a.ly0 + oy)
+          teleG.lineTo(a.lx1 + ox, a.ly1 + oy)
           teleG.stroke({ width: 1.4 + k * 2.0, color: 0xffb3a6, alpha: 0.18 + k * 0.34, cap: 'round' })
         }
       }
@@ -19064,8 +19085,16 @@ const spurG = new Graphics()
         // frames — which is what a whip does and what "clacking" sounds like. Before this the limb
         // stopped at its own tip and the dangerous ground was a disc the player could not see it
         // reach; now the drawn limb IS the hitbox, all the way across.
+        // The DRAWN tip stops on the head's own mantle. The struck capsule runs to r=0 and its
+        // round cap covers KRAKEN_LASH_W beyond; the drawn limb stopping at KRAKEN_HEAD_R * 0.75
+        // leaves a gap that is exactly the width of the boss's body, which is the one place a gap
+        // between picture and hitbox is honest — a player standing there is standing ON the boss,
+        // and the floor band above is drawn across the whole line regardless. Before this the tip
+        // went 96px PAST the head centre and every slam in the chase ended in a blunt capped limb
+        // between the two lit eyes, held 8+ frames, about once a second.
         const tipNow = tipR + lift * 55 + bounce
-        const r = shoulderR + ((tipNow * (1 - crack) - KRAKEN_LASH_OVER * crack) - shoulderR) * t
+        const crackTo = KRAKEN_HEAD_R * 0.75
+        const r = shoulderR + ((tipNow * (1 - crack) + crackTo * crack) - shoulderR) * t
         // 4t(1-t) peaks at the middle and is ZERO at both ends: the shoulder stays in the murk
         // where it belongs and the TIP lands on the arm's actual threat point. It used to scale
         // with t, i.e. maximum at the tip, which is why the drawn arm and everything drawn at its
@@ -21641,19 +21670,17 @@ const spurG = new Graphics()
           const lx0 = e.x0 ?? e.x, ly0 = e.y0 ?? e.y
           const lx1 = e.x1 ?? e.x, ly1 = e.y1 ?? e.y
           const lw = e.w || KRAKEN_LASH_W
-          const N = 9
-          for (let i = 0; i < N; i++) {
-            const t = i / (N - 1)
-            // the shoulder end is out at KRAKEN_RING_R and mostly off-screen; the ring grows and
-            // lasts longer toward the CRACKING end, because that is the part a whip lands with
+          for (let i = 0; i < 3; i++) {
+            const t = 0.55 + i * 0.2
             spawnRing(lx0 + (lx1 - lx0) * t, ly0 + (ly1 - ly0) * t,
               lw * (0.5 + 0.7 * t), 0.16 + 0.16 * t, T.novaRing, 0xb9c6c9)
           }
           spawnRing(lx1, ly1, lw * 0.78, 0.24, T.novaWarm, 0xffd0c0)   // the crack itself
-          for (let i = 0; i < 12; i++) {
+          // ...and the length of it in silt, which is on particleLayer and so draws ABOVE the limb
+          for (let i = 0; i < 22; i++) {
             const a = Math.random() * Math.PI * 2
-            const sp = 120 + Math.random() * 240
-            const t = 0.45 + Math.random() * 0.55       // silt off the half of the limb that is on screen
+            const sp = 90 + Math.random() * 240
+            const t = 0.42 + Math.random() * 0.58       // the half of the line that is on screen
             spawnParticle(T.fx.circle_05, lx0 + (lx1 - lx0) * t, ly0 + (ly1 - ly0) * t,
               Math.cos(a) * sp, Math.sin(a) * sp, 0.42, 0.07, 0x9fb0bd, 0.4, 2.6)
           }
@@ -22830,7 +22857,14 @@ const spurG = new Graphics()
         }
         frame = look.frames[s._animFrame]
       }
-      const tex = e.hitFlash > 0 ? frame.white : frame.tex
+      // THE WHITE TEXTURE IS FOR THINGS THAT DIE, NOT FOR A BOSS BEING POURED INTO. hitFlash is set
+      // to 0.12 on every non-DoT hit, so any build landing more than ~8 a second keeps a target
+      // permanently white — which is every build by the time the chase arrives. The Kraken's head
+      // has exactly one moment where it is open and lit, the stagger, and it rendered as a
+      // featureless white cut-out covering half a phone screen: the fight's whole payoff, with its
+      // eyes, beak and photophores erased at the instant they matter. It still takes the white TINT
+      // below, which reads as a flash without deleting the art.
+      const tex = e.hitFlash > 0 && e.rosterId !== 'krakenHead' ? frame.white : frame.tex
       if (s._look !== look) s._look = look
       if (s.texture !== tex) {
         s.texture = tex

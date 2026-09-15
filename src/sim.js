@@ -230,6 +230,7 @@ import {
   KRAKEN_HEAD_TOUCH_DMG,
   KRAKEN_CAGE_R,
   KRAKEN_LASH_R, KRAKEN_LASH_DMG, KRAKEN_LIGHT_START, KRAKEN_HAUL_R, KRAKEN_LASH_W, KRAKEN_LASH_OVER,
+  KRAKEN_PARRY_MARGIN,
   KRAKEN_PERFECT_MUL, KRAKEN_PARRY_CD, KRAKEN_PARRY_REFILL, KRAKEN_BLAZE_R,
   KRAKEN_GRIP_EVERY, KRAKEN_GRIP_PULL, KRAKEN_GRIP_DUR, KRAKEN_GRIP_DMG,
   KRAKEN_TRICKLE_FROM_END, KRAKEN_TRICKLE_T, KRAKEN_TRICKLE_N, KRAKEN_ADD_CAP,
@@ -1718,6 +1719,23 @@ function krakenReach(s) {
 }
 
 // Arms hold their slot angle and ride the ring's radius. Nothing pushes them, nothing pulls them.
+// THE LINE THIS ARM WILL LAND ON, PUBLISHED ONTO THE ARM ITSELF. Three things need it — the strike
+// tests against it, the wind-up draws it and the impact is drawn along it — and for one release only
+// the strike had it. The telegraph stayed a disc of KRAKEN_LASH_R at the tip, so the band from just
+// behind the head out to r=50 (the arena's whole middle, the ground this rework exists to make
+// dangerous) was struck with nothing at all drawn on it: 33% of the reachable strike length.
+// Measured, a bot dodging by what was DRAWN took 97-98% of slams; one dodging by the real shape took
+// 0-7%. So it is a contract field on the arm, live, rewritten every frame beside x/y — never a
+// second copy of the arithmetic in render.js, and never a value cached off an event that goes stale
+// the moment the chase's head moves.
+function krakenLashLine(head, a) {
+  const ca = Math.cos(a.ang), sa = Math.sin(a.ang)
+  a.lx0 = head.x + ca * KRAKEN_RING_R
+  a.ly0 = head.y + sa * KRAKEN_RING_R
+  a.lx1 = head.x - ca * KRAKEN_LASH_OVER
+  a.ly1 = head.y - sa * KRAKEN_LASH_OVER
+}
+
 // Squared distance from a point to a SEGMENT (not a line): t clamped to [0,1] so the ends are
 // round caps rather than the capsule running on forever past the shoulder.
 function segDist2(px, py, x0, y0, x1, y1) {
@@ -1729,6 +1747,7 @@ function segDist2(px, py, x0, y0, x1, y1) {
 }
 
 function krakenPlaceArms(run, head, reach) {
+  for (const a of run.krakenArms) krakenLashLine(head, a)
   for (const a of run.krakenArms) {
     a.x = head.x + Math.cos(a.ang) * reach
     a.y = head.y + Math.sin(a.ang) * reach
@@ -1901,6 +1920,7 @@ function krakenArmsToBlock(run, rung, head) {
         y: head.y + Math.sin(ang) * KRAKEN_ARM_REACH,
         hp: KRAKEN_ARM_HP, maxHP: KRAKEN_ARM_HP,
         tele: 0, fuse: 0, limpT: 0, nodeId: null, dead: false, paid: false, gripT: 0, hitT: 0, breakT: 0, slamT: 0,
+        lx0: 0, ly0: 0, lx1: 0, ly1: 0,   // the struck line, rewritten every frame by krakenPlaceArms
       })
     }
     s.armsSpawned = true
@@ -2097,11 +2117,8 @@ function stepKrakenArms(run, dt, rung, head) {
     // KRAKEN_RING_R where the rope's shoulder is drawn, so what is dangerous is exactly the limb the
     // player watched rear; the near end is KRAKEN_LASH_OVER PAST the head, which is what closes the
     // dead spot in the middle of the arena.
-    const ca = Math.cos(a.ang), sa = Math.sin(a.ang)
-    const x0 = head.x + ca * KRAKEN_RING_R, y0 = head.y + sa * KRAKEN_RING_R
-    const x1 = head.x - ca * KRAKEN_LASH_OVER, y1 = head.y - sa * KRAKEN_LASH_OVER
-    run.events.push({ type: 'lash', x: a.x, y: a.y, r: KRAKEN_LASH_R, x0, y0, x1, y1, w: KRAKEN_LASH_W })
-    if (segDist2(p.x, p.y, x0, y0, x1, y1) <= KRAKEN_LASH_W * KRAKEN_LASH_W) {
+    run.events.push({ type: 'lash', x: a.x, y: a.y, x0: a.lx0, y0: a.ly0, x1: a.lx1, y1: a.ly1, w: KRAKEN_LASH_W })
+    if (segDist2(p.x, p.y, a.lx0, a.ly0, a.lx1, a.ly1) <= KRAKEN_LASH_W * KRAKEN_LASH_W) {
       if (hurtPlayer(run, KRAKEN_LASH_DMG, false, 'krakenArm')) return true
     }
   }
@@ -2196,7 +2213,7 @@ function stepKrakenArms(run, dt, rung, head) {
         // start rather than every frame, so it can carry a sound.
         a.tele = rung.fuse
         a.fuse = rung.fuse
-        run.events.push({ type: 'armRear', x: a.x, y: a.y, r: KRAKEN_LASH_R, t: rung.fuse })
+        run.events.push({ type: 'armRear', x: a.x, y: a.y, r: KRAKEN_LASH_R, t: rung.fuse, w: KRAKEN_LASH_W })
       }
     }
   }
@@ -2384,15 +2401,26 @@ function krakenParry(run) {
   // A PARRY IS AN ANSWER TO A THREAT, so it only reaches a threat that could actually land. Without
   // this, 21-26 of every 36-42 arm parries in the chase were spent on arms further away than their
   // own strike radius — negating swings that were never going to touch you, from safety.
-  const reach2 = (KRAKEN_LASH_R * 1.6) ** 2
+  // THE BUTTON REACHES WHAT CAN LAND, WHICH IS THE STRUCK LINE ITSELF. This was a disc of
+  // KRAKEN_LASH_R * 1.6 around the arm's TIP, and while the strike was a disc of KRAKEN_LASH_R at
+  // that same tip it was a deliberate SUPERSET — 150 inside 240. The strike became a capsule down
+  // the whole limb and the disc stopped being one: 22.9% of the struck area, the band from just
+  // behind the head out to the far cap (exactly the ground the rework added), could take 19 off a
+  // player while the button sat inert. It also let a player parry from 220px to the SIDE of a tip,
+  // where nothing was ever going to reach them, which is what the paragraph above says it exists to
+  // stop. Same shape, widened by KRAKEN_PARRY_MARGIN, so it is a superset by construction again.
+  const parryW2 = (KRAKEN_LASH_W * KRAKEN_PARRY_MARGIN) ** 2
   let best = null          // an arm
   let bestT = Infinity
   for (const a of run.krakenArms) {
     if (a.dead || a.limpT > 0) continue
-    if ((a.x - p.x) ** 2 + (a.y - p.y) ** 2 > reach2) continue
-    // A gripping arm is parryable for the whole hold: it is the one attack whose answer must not
-    // also be a timing test, because the player is being dragged while they look for it.
+    // A gripping arm is parryable for the whole hold AND FROM ANYWHERE, checked before the reach:
+    // it is the one attack whose answer must not also be a positioning test, because the player is
+    // being dragged while they look for it — and the drag moves them off the line of the very arm
+    // holding them.
     if (a.gripT > 0) { best = a; bestT = -1; break }
+    if (!head) continue
+    if (segDist2(p.x, p.y, a.lx0, a.ly0, a.lx1, a.ly1) > parryW2) continue
     if (a.tele > 0 && a.tele <= rung.window && a.tele < bestT) { bestT = a.tele; best = a }
   }
   // The head's lunge reads on exactly the same clock, deliberately: one verb, one timing.
