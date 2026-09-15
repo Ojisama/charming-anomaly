@@ -17,15 +17,33 @@ if (!head) throw new Error('no head on the field — the scene never reached a r
 
 // Put the gap somewhere the player is NOT, so the frame shows the move they have to make rather
 // than the comfortable case where they happen to be standing in it already.
-s.coilGap = -Math.PI / 2
+// THE COIL IS A VOLLEY NOW, not a ring hauling in: every live arm rears except one and they land
+// together, and the spared arm's lane IS the gap. So the scene has to compose the ARMS, not just the
+// clock — forcing s.coilT alone leaves six ordinary arms standing there and the frame shows nothing.
+const cfg = window.__cfg
+const live = run.krakenArms.filter((a) => !a.dead)
+// spare the arm furthest from the player, so the frame shows the move they have to make rather than
+// the comfortable case where they are already standing in the gap
+let spare = live[0], far = -1
+for (const a of live) {
+  const d = Math.hypot(a.x - run.player.x, a.y - run.player.y)
+  if (d > far) { far = d; spare = a }
+}
+for (const a of live) {
+  a.coilArm = a !== spare
+  a.tele = a === spare ? 0 : (window.__coilShut ? 0.08 : 1.1)
+  a.fuse = cfg.KRAKEN_COIL_TELE
+  a.open = false
+}
+s.coilGap = spare.ang
 s.coilT = (window.__coilShut ? 0.45 : 1.4)
-for (const a of run.krakenArms) { a.tele = 99; a.open = false }
 run.player.x = head.x + 40
 run.player.y = head.y + 30
 
 H.note(JSON.stringify({
   phase: s.phase, coilT: +s.coilT.toFixed(2), gapDeg: Math.round((s.coilGap * 180) / Math.PI),
   arms: run.krakenArms.length, armsTotal: s.armsTotal,
+  volley: run.krakenArms.filter((a) => a.coilArm).length, spared: 1,
 }))
 
 // Tick so the ring actually hauls in (the reach follows coilT), then render. Interleaved because

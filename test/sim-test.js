@@ -170,7 +170,7 @@ import {
   // The Kraken (run KR): the rung table and the ring's numbers
   krakenRung, KRAKEN_RUNGS, KRAKEN_ARM_REACH, KRAKEN_WAVE_TIMEOUT,
   KRAKEN_RISE_T, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, hiddenChapters, KRAKEN_CAGE_R, KRAKEN_PARRY_CD,
-  KRAKEN_OPEN_WAVES, KRAKEN_ARRIVE_T, KRAKEN_RING_R, KRAKEN_LASH_R, KRAKEN_SLAM_T, KRAKEN_DEFLECT_CD,
+  KRAKEN_OPEN_WAVES, KRAKEN_COIL_EVERY, KRAKEN_ARRIVE_T, KRAKEN_RING_R, KRAKEN_LASH_R, KRAKEN_SLAM_T, KRAKEN_DEFLECT_CD,
   KRAKEN_LUNGE_T, KRAKEN_GRIP_DUR, KRAKEN_GRIP_DMG, KRAKEN_GRIP_FLICKS, KRAKEN_GRIP_STICK_MUL, TRAWL_WIGGLE_ARC,
   KRAKEN_LASH_W, KRAKEN_LASH_OVER, KRAKEN_LASH_DMG, KRAKEN_ARRIVE_T2, KRAKEN_WAVE_GROWTH,
   KRAKEN_HEAD_SPEED, KRAKEN_PARRY_SPIN_T,
@@ -34980,14 +34980,52 @@ function runKraken() {
       ['const wave = front >= 0 ? Math.exp(-(d * d)) * waveA : 0', 'the strike has no bend TRAVELLING down the limb, so an attack is a rod pivoting on its shoulder instead of a whip'],
       ['krakenTips[a.i] = { x: rig.pts[K_ROPE_N - 1].x', "render records something other than the tip it actually drew — record a.x and the press ring is back on the arm's target"],
       ['teleG.circle(tip.x, tip.y, KRAKEN_ARM_R *', "the press-here ring is drawn somewhere other than the recorded tip, i.e. up to 110px from where the reared limb is"],
-      // THE COIL WEARS ITS OWN LOOK. The ring closing is d3's escalation and it is UNPARRYABLE, so
-      // it is the one attack the press cannot answer: the whole ring changing into one object is
-      // what says so. Lose this and the Coil is six ordinary arms that happen to be moving inward.
-      ['run.script.coilT > 0 && !(a.gripT > 0)', "the ring stops becoming one object while it closes — the Coil's only remaining tell is an arc drawn from the head, which says something is happening but not that the RING is the thing"],
+      // THE COIL'S VOLLEY WEARS ITS OWN LOOK, AND THE SPARED ARM DOES NOT. Five lanes light in the
+      // warning colour and one stays the limb it always was — that dark lane IS the answer to the
+      // move, and it is unparryable, so the colour is the only thing saying "move, do not press".
+      // Painting it off the CLOCK instead of off the arm colours the gap too, which deletes it.
+      ["a.coilArm ? 'coil' : a.role", "the spared arm stops being distinguishable from the five that are about to land, i.e. the Coil's one readable answer is gone while the attack still lands"],
     ]) {
       const n = src.split(needle).length - 1
       assert.strictEqual(n, 1,
         `render.js has ${n} matches for \`${needle}\` (want exactly 1). That expression is what draws ${why} — if you moved or renamed it, re-aim this needle; if you DELETED it, the tell is gone. This check cannot tell those apart, so go and shoot the frame.`)
+    }
+
+    // THE COIL IS A VOLLEY WITH ONE ARM LEFT OUT, and every clause of that is load-bearing:
+    // "volley" (they all fire), "one left out" (there is a gap), and it must not be parryable.
+    // Owner, 2026-09-15: "I was thinking more of all arms slam except 1."
+    //   The two gates are FORCED rather than played to. A Coil needs bossIdx >= 2 and gripN on a
+    // multiple of KRAKEN_COIL_EVERY, which is several minutes of fight away; waiting for it makes
+    // this assertion a timing test of the whole approach, and when it fails you learn that a Coil
+    // did not happen and nothing about why. What is under test is the SHAPE of the volley.
+    {
+      const run = inBlock(3)
+      run.script.bossIdx = 2
+      run.script.gripN = KRAKEN_COIL_EVERY - 1
+      let guard = 0
+      while (guard++ < 60 * 30 && !(run.script.coilT > 0)) {
+        run.player.hp = run.player.maxHP
+        stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+      }
+      assert.ok(run.script.coilT > 0, 'no Coil fired within 30s of its gates being open — the pattern is unreachable, which no other assertion here can see')
+      const live = run.krakenArms.filter((a) => !a.dead)
+      const able = live.filter((a) => a.limpT <= 0 && !(a.gripT > 0))
+      const armed = live.filter((a) => a.coilArm)
+      assert.ok(armed.length >= 2, `a Coil armed only ${armed.length} arms — it is a volley, not a slam with extra steps`)
+      assert.strictEqual(able.length - armed.length, 1,
+        `a Coil left ${able.length - armed.length} of ${able.length} able arms out of the volley (want exactly 1). Zero spared is an attack with no answer; two spared is two gaps and no reading to do.`)
+      // ...and the spared arm's bearing is what render draws the gap on, or the wedge points at
+      // a lane that is about to be struck
+      const spared = able.find((a) => !a.coilArm)
+      assert.ok(spared && Math.abs(spared.ang - run.script.coilGap) < 1e-6,
+        'the gap render draws is not the spared arm\'s bearing — the safe wedge would point at a lane that is about to land')
+      // a press during the volley must not defuse any of it
+      const before = armed.length
+      run.player.hp = run.player.maxHP
+      run.repulseCd = 0
+      stepSim(run, { x: 0, y: 0, skill: true }, 1 / 60)
+      assert.strictEqual(run.krakenArms.filter((a) => !a.dead && a.coilArm).length, before,
+        'the press defused a Coil arm — the Coil is this fight\'s one move-do-not-press beat, and a parry that works on it turns five lanes into one button')
     }
 
     // ...AND ONE AUTHOR FOR THE LIMB'S SKIN. The strip is baked ONCE and a gripping arm is drawn as

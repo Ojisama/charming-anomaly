@@ -1966,6 +1966,7 @@ function krakenArmsToBlock(run, rung, head) {
         y: head.y + Math.sin(ang) * KRAKEN_ARM_REACH,
         hp: KRAKEN_ARM_HP, maxHP: KRAKEN_ARM_HP,
         tele: 0, fuse: 0, limpT: 0, nodeId: null, dead: false, paid: false, gripT: 0, hitT: 0, breakT: 0, slamT: 0,
+        coilArm: false, // true for the length of one Coil: this limb is in the volley, unparryable, drawn in the warning colour
         lx0: 0, ly0: 0, lx1: 0, ly1: 0,   // the struck line, rewritten every frame by krakenPlaceArms
       })
     }
@@ -1993,9 +1994,15 @@ function krakenCadence(s, rung) {
 
 function krakenCoilMul(s) {
   if (!(s.coilT > 0)) return 1
-  // winding up: the ring REARS BACK, which is the tell that this one is ring-wide
+  // THE RING REARS BACK AND DOES NOT COME IN. Owner, 2026-09-15: "I was thinking more of all arms
+  // slam except 1." The Coil used to haul the whole ring to KRAKEN_COIL_IN of its reach and sweep
+  // everything outside a gap sector — a move with its own geometry, its own damage rule and no
+  // relation to anything else the fight had taught. It is five ordinary SLAMS now, fired together,
+  // with one arm left out; the safe ground is the wedge that arm's lane leaves dark. Same test —
+  // find the gap and move into it — stated in the vocabulary the player already reads on the seabed
+  // fifty times a fight.
   if (s.coilT > KRAKEN_COIL_DUR) return 1 + (1 - (s.coilT - KRAKEN_COIL_DUR) / KRAKEN_COIL_TELE) * 0.24
-  return KRAKEN_COIL_IN
+  return 1
 }
 
 // THE RING'S OWN STEP, called from BOTH phases. Rev 3.0 ran the arms only during the ring blocks
@@ -2069,23 +2076,21 @@ function krakenCoilStep(run, dt, rung, head) {
   if (!(s.coilT > 0)) return false
     const wasTele = s.coilT > KRAKEN_COIL_DUR
     s.coilT -= dt
-    // THE MOMENT IT SHUTS. Everything outside the gap sector is swept; the gap is the whole answer,
-    // and there is no parry for it on purpose.
+    // THE MOMENT IT SHUTS is now the moment five fuses run out together, and the damage is done by
+    // the arms in stepKrakenArms like any other slam. This clock only survives as the RENDER's tell
+    // and as the window the coil skin is worn in — it no longer sweeps anything itself.
     if (wasTele && s.coilT <= KRAKEN_COIL_DUR) {
       run.events.push({ type: 'coilClose', x: head.x, y: head.y, r: KRAKEN_ARM_REACH })
-      let d = Math.atan2(p.y - head.y, p.x - head.x) - s.coilGap
-      while (d > Math.PI) d -= Math.PI * 2
-      while (d < -Math.PI) d += Math.PI * 2
-      // the gap is a little wider than one arm's sector — it has to be findable under pressure
-      const gapHalf = (Math.PI / Math.max(1, s.armsTotal)) * 1.45
-      if (Math.abs(d) > gapHalf && hurtPlayer(run, KRAKEN_COIL_DMG, false, 'krakenArm')) return true
     }
     // The Coil ends and every arm goes back to IDLE — it does NOT re-arm them. Rev 2 did
     // (a.tele = max(a.tele, 0.5) on the whole ring), which under rev 3's scheduler sets every
     // standing arm rearing on the same frame and blows straight through rung.rearing: measured at
     // 4 of 6 against a cap of 2, i.e. the exact all-at-once the cap exists to prevent. The ring
     // resumes handing out turns like any other beat.
-    if (s.coilT <= 0) { s.coilT = 0; s.turnT = krakenCadence(s, rung); for (const a of run.krakenArms) if (!a.dead) { a.tele = 0; a.fuse = 0 } }
+    if (s.coilT <= 0) {
+      s.coilT = 0; s.coilHit = false; s.turnT = krakenCadence(s, rung)
+      for (const a of run.krakenArms) if (!a.dead) { a.tele = 0; a.fuse = 0; a.coilArm = false }
+    }
   krakenPlaceArms(run, head, krakenReach(s))
   return false
 }
@@ -2159,8 +2164,18 @@ function stepKrakenArms(run, dt, rung, head) {
     // player watched rear; the near end is KRAKEN_LASH_OVER PAST the head, which is what closes the
     // dead spot in the middle of the arena.
     run.events.push({ type: 'lash', x: a.x, y: a.y, x0: a.lx0, y0: a.ly0, x1: a.lx1, y1: a.ly1, w: KRAKEN_LASH_W })
+    const wasCoil = a.coilArm === true
+    a.coilArm = false
     if (segDist2(p.x, p.y, a.lx0, a.ly0, a.lx1, a.ly1) <= KRAKEN_LASH_W * KRAKEN_LASH_W) {
-      if (hurtPlayer(run, KRAKEN_LASH_DMG, false, 'krakenArm')) return true
+      // ⚠ A COIL HITS ONCE, NOT FIVE TIMES. Every corridor runs from the rim to the head centre, so
+      // they all overlap in the middle of the arena — standing there when five land would be five
+      // separate lash hits on one frame, which is not a hard move, it is an instant death with no
+      // reading for the player to have done differently. One hit, at the Coil's own number.
+      if (wasCoil) {
+        if (s.coilHit) continue
+        s.coilHit = true
+        if (hurtPlayer(run, KRAKEN_COIL_DMG, false, 'krakenArm')) return true
+      } else if (hurtPlayer(run, KRAKEN_LASH_DMG, false, 'krakenArm')) return true
     }
   }
 
@@ -2256,7 +2271,21 @@ function stepKrakenArms(run, dt, rung, head) {
       if (wantCoil) {
         s.gripN++
         s.coilT = KRAKEN_COIL_TELE + KRAKEN_COIL_DUR
-        s.coilGap = Math.random() * Math.PI * 2
+        s.coilHit = false
+        // EVERY LIVE ARM REARS EXCEPT ONE, and they all land together when the wind-up ends. The
+        // spared arm is what the gap IS, so it is picked from the arms that can actually rear —
+        // sparing a limb that is already limp or already holding you would leave the ring with no
+        // dark lane at all and the move unanswerable.
+        const able = run.krakenArms.filter((c) => !c.dead && c.limpT <= 0 && !(c.gripT > 0))
+        const spare = able.length ? able[Math.floor(Math.random() * able.length)] : null
+        for (const c of able) {
+          if (c === spare) continue
+          c.tele = KRAKEN_COIL_TELE
+          c.fuse = KRAKEN_COIL_TELE
+          c.coilArm = true
+        }
+        // the gap is the spared arm's own bearing, which is what render draws the wedge on
+        s.coilGap = spare ? spare.ang : Math.random() * Math.PI * 2
         run.events.push({ type: 'coilWind', x: head.x, y: head.y, ang: s.coilGap })
       } else if (wantGrip) {
         s.gripN++
@@ -2494,7 +2523,10 @@ function krakenParry(run) {
     // AND from anywhere, checked before the reach — which made it outrank every other arm and the
     // head's lunge too, so while one was on, the fight's single button had exactly one answer. It is
     // a slow you wiggle out of now (stepPlayerMovement); here it simply is not a candidate.
-    if (a.dead || a.limpT > 0 || a.gripT > 0) continue
+    // ⚠ A COIL ARM IS NOT PARRYABLE. Five lanes lighting at once against a button on a cooldown is
+    // not a choice, and the Coil is the fight's one "move, do not press" beat. The warning colour it
+    // wears is what says so — see K_ROLE_SKIN.coil.
+    if (a.dead || a.limpT > 0 || a.gripT > 0 || a.coilArm) continue
     if (!head) continue
     if (segDist2(p.x, p.y, a.lx0, a.ly0, a.lx1, a.ly1) > parryW2) continue
     if (a.tele > 0 && a.tele <= rung.window && a.tele < bestT) { bestT = a.tele; best = a }
