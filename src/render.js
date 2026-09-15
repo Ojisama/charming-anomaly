@@ -27,6 +27,7 @@ import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC
   SLICK_SLOW_T, INK_STAIN_T, inLobe,  // The Wreck: the oil and the ink on you, on the glass and the skin
   // The Kraken: the ring's geometry and the per-rung parry windows the telegraph is drawn against
   krakenRung, KRAKEN_RING_R, KRAKEN_ARM_R, KRAKEN_ARM_REACH, KRAKEN_LASH_R, KRAKEN_HEAD_R, KRAKEN_LASH_OVER, KRAKEN_LASH_W,
+  KRAKEN_PARRY_SPIN_T,
   KRAKEN_RISE_T, KRAKEN_COIL_DUR, KRAKEN_COIL_TELE, KRAKEN_PARRY_CD, KRAKEN_CAGE_R, KRAKEN_LIMP_FLASH,
   KRAKEN_SLAM_T,
 } from './config.js'
@@ -21555,6 +21556,10 @@ const spurG = new Graphics()
           // one unexplained break. Same information the bruise tint carries, on the other channel.
           const wear = 1 - (e.frac ?? 1)
           spawnRing(e.x, e.y, 52 + wear * 40, 0.24 + wear * 0.12, T.novaRing, 0xdff4ff)
+          // THE SLAM, thrown from the FISH rather than from the arm — the other half of the gesture
+          // the spin in syncPlayer poses. Without it the whole answer to "did my press land" was
+          // drawn up to 240px away on something the player was not looking at.
+          if (e.px !== undefined) spawnRing(e.px, e.py, 46, 0.20, T.novaWarm, 0xbfe8f2)
           addShake(3 + wear * 3, 0.12 + wear * 0.06)
           break
         }
@@ -21623,6 +21628,9 @@ const spurG = new Graphics()
           const pwear = 1 - (e.frac ?? 1)
           spawnRing(e.x, e.y, 78 + pwear * 46, 0.32 + pwear * 0.12, T.novaRing, 0xffffff)
           spawnRing(e.x, e.y, 44, 0.22, T.novaWarm, 0xdff4ff)
+          // ...and a bigger slam off the fish than a plain parry throws, on the same channel, so the
+          // two are told apart at the PLAYER as well as at the arm
+          if (e.px !== undefined) spawnRing(e.px, e.py, 68, 0.26, T.novaWarm, 0xffffff)
           for (let i = 0; i < 10; i++) {
             const a = (i / 10) * Math.PI * 2
             spawnParticle(T.fx.star_08, e.x, e.y, Math.cos(a) * 190, Math.sin(a) * 190, 0.36, 0.07, 0xffffff, -0.1, 0)
@@ -21961,6 +21969,26 @@ const spurG = new Graphics()
   // second copy of forty lines that already work.
   function syncPlayer(p, dt, rampageT = 0, buffs = null, deathP = 0) {
     playerC.position.set(p.x, p.y)
+
+    // THE PARRY GESTURE. Owner, 2026-09-15: "activating the parry is not enough player feedback. the
+    // fish could do a 'circle slam' or something to show the parry gesture." Every tell this fight
+    // had was drawn on the ARM — the snap, the perfect's sparks, the bruise — so from the seat a
+    // press and a press the game never registered were the same picture, and the button felt dead.
+    //   One whole turn, eased so it is FAST out and settles: k^0.55 puts more than half the spin in
+    // the first third of KRAKEN_PARRY_SPIN_T, which is what makes it read as a snap rather than a
+    // pirouette. The squash rides the same clock so the body flattens into the turn and recovers.
+    // It fires on a whiff too (sim sets parryT on the press, not on the outcome) — "I pressed and
+    // nothing happened" is exactly the reading this exists to stop.
+    const pk = (p.parryT ?? 0) > 0 ? p.parryT / KRAKEN_PARRY_SPIN_T : 0
+    if (pk > 0) {
+      const e = Math.pow(1 - pk, 0.55)
+      playerC.rotation = (1 - e) * Math.PI * 2
+      const sq = 1 + Math.sin(e * Math.PI) * 0.22
+      playerC.scale.set(sq, 2 - sq)
+    } else if (playerC.rotation !== 0) {
+      playerC.rotation = 0
+      playerC.scale.set(1, 1)
+    }
 
     // Filled by whichever form branch runs below: the cheek layer's texture, the butt's centre in
     // that body's drawing space (the jiggle's pivot), the silhouette that clips it, and the butt's
