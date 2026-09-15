@@ -8835,6 +8835,12 @@ export const KRAKEN_PARRY_MARGIN = 1.6
 // `scripted: true` exempting the chapter from the survival clock. Unloseable and unwinnable at once.
 // The wall now stands exactly at the edge of the threat envelope: nowhere inside it is safe.
 export const KRAKEN_CAGE_R = KRAKEN_ARM_REACH + KRAKEN_LASH_R
+// balance_decision : ring block pulls the camera back to fit the threat envelope [2026-09-15]
+//  - stated as a fraction of the SHORT axis in render.js, never in px: a phone (390) pulls back to
+//    ~0.75 and a desktop (800) already clears the envelope and clamps to 1, so this is a no-op there.
+export const KRAKEN_RING_VIEW_MARGIN = 1.3 // how much wider than 2 x ARM_REACH must fit on the short axis
+export const KRAKEN_RING_ZOOM_MIN = 0.62   // floor, so a narrow phone cannot shrink the fish to a speck
+export const KRAKEN_RING_ZOOM_EASE = 2.2   // per second toward the target; the block opens mid-fight
 // Where the closing ring puts the loot it is shutting the player away from — comfortably inside
 // the wall, so a gem is walkable-to rather than pinned against it.
 export const KRAKEN_HAUL_R = KRAKEN_CAGE_R * 0.8

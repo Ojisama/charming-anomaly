@@ -29,6 +29,7 @@ import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC
   krakenRung, KRAKEN_RING_R, KRAKEN_ARM_R, KRAKEN_ARM_REACH, KRAKEN_LASH_R, KRAKEN_HEAD_R, KRAKEN_LASH_OVER, KRAKEN_LASH_W,
   KRAKEN_PARRY_SPIN_T,
   KRAKEN_RISE_T, KRAKEN_COIL_DUR, KRAKEN_COIL_TELE, KRAKEN_PARRY_CD, KRAKEN_CAGE_R, KRAKEN_LIMP_FLASH,
+  KRAKEN_RING_VIEW_MARGIN, KRAKEN_RING_ZOOM_MIN, KRAKEN_RING_ZOOM_EASE,
   KRAKEN_SLAM_T,
 } from './config.js'
 import { currentForce, tideForce } from './sim.js'
@@ -4654,7 +4655,17 @@ export function createRenderer(app) {
   // 0x02101a floor: 1.27:1, a black wedge. Baked at 0x9d8ccb the same tint composites to 3.52:1 and
   // every other state stays exactly as legible relative to it. The strip's own colour is never
   // seen unmultiplied, so this number only ever reads through a state.
-  const K_LIMB = 0x9d8ccb, K_LIMB2 = 0xb9a9e0
+  // THROWAWAY A/B SWITCH (2026-09-15 readability pass — delete it and the losing arms with the pick).
+  // ?kv=0 is the shipped palette; 1..3 are candidates. It is read at MODULE SCOPE because the strip
+  // is baked once at boot, so a per-frame read could never change it.
+  //   WHY THE BAKE HAS TO MOVE AT ALL, and it is not a taste call: a tint MULTIPLIES. Against a
+  // 0x9d8ccb strip the brightest any state can be is 0x9d8ccb itself, which the parry window already
+  // spends at tint 0xffffff — so "the arm about to hit you is brighter than the others" is not
+  // expressible. Measured on the live fight: a REARING arm at 62% of its fuse composites to
+  // (140,83,121) and an idle arm worn to 46% to (121,79,138) — 38/441 apart in RGB, i.e. the threat
+  // and a scratch look the same. A near-white strip puts the whole range back in the tint's hands.
+  const KV = Number(new URLSearchParams(location.search).get('kv') || 0)
+  const K_LIMB = KV ? 0xe6e1ef : 0x9d8ccb, K_LIMB2 = KV ? 0xf4f1f9 : 0xb9a9e0
   // THE LIMB'S TAPER, AND THE ONLY COPY OF IT. makeTentacleTex bakes the strip against it and the
   // tear is stroked against it, so a change to the silhouette that did not reach the wound would put
   // the split outside the flesh — the exact two-authors-of-one-fact drift that is this repo's single
@@ -12196,8 +12207,19 @@ const spurG = new Graphics()
   // world into the same canvas. The camera then applies the zoom once, in sync().
   let mapZoom = 1
   let mapMode = false
-  const viewW = () => app.screen.width / mapZoom
-  const viewH = () => app.screen.height / mapZoom
+  // ...and the SAME mechanism, eased, is the Kraken's ring block: the fight is played from inside a
+  // ring 1100px across and a phone viewport is 390 wide, so at 1:1 two tentacles fill the screen and
+  // the ring, its gaps and the head's shadow are never on screen together. This is a second factor
+  // rather than a write to mapZoom because map mode must keep working over the top of it (and
+  // because setMapMode drops the floor caches, which a per-frame ease must not do — updateFloorLayer
+  // already touches and releases cells against the live viewW/viewH, so a gentle ease needs no
+  // clear). Every culling test picks it up for free through viewW/viewH.
+  // ⚠ updateStreets keys its strip cache on mapZoom alone. That is correct only while camZoom is 1
+  // on every chapter WITH roads — the Kraken has none, so its key is 'off' and never built.
+  let fightZoom = 1
+  const camZoom = () => mapZoom * fightZoom
+  const viewW = () => app.screen.width / camZoom()
+  const viewH = () => app.screen.height / camZoom()
 
 
 
@@ -18657,8 +18679,11 @@ const spurG = new Graphics()
     // dorsal highlight — the lit top of a round limb, which is what stops it reading as a flat band
     g.poly(ring(0.52, (p) => -p.w * 0.36)).fill({ color: mix(K_LIMB2, 0xffffff, 0.30), alpha: 0.40 })
     g.poly(ring(0.22, (p) => -p.w * 0.52)).fill({ color: mix(K_LIMB2, 0xffffff, 0.55), alpha: 0.30 })
-    // ventral margin — the shadowed underside
-    g.poly(ring(0.34, (p) => p.w * 0.60)).fill({ color: K_LINE, alpha: 0.34 })
+    // ventral margin — the shadowed underside. On a near-white strip (KV) the dorsal highlights
+    // above have nothing left to lighten, so ALL of the roundness has to come from shading down:
+    // the margin deepens and a broad mid-tone runs under the lower half.
+    if (KV) g.poly(ring(0.80, (p) => p.w * 0.22)).fill({ color: K_LINE, alpha: 0.16 })
+    g.poly(ring(0.34, (p) => p.w * 0.60)).fill({ color: K_LINE, alpha: KV ? 0.46 : 0.34 })
     // TWO ROWS OF SUCKERS, STAGGERED — and the stagger is the whole point, not a detail. A pale
     // disc with a darker disc inside it is an eyeball, and two of them side by side at the same
     // height, above the pair below, is a FACE: two eyes over two smiles. It read as one down the
@@ -18722,6 +18747,14 @@ const spurG = new Graphics()
   //                            is literally the timing rather than a rough description of it.
   // A slam then holds it planted for KRAKEN_SLAM_T with one bounce, because a strike that snapped
   // back to idle on the frame it landed had a sound and a ring and no movement at all.
+  // Is the ring up? The two phases with tentacles standing over the arena — the arrival raises them
+  // and the block is fought under them. Read by the camera pull, which must be back at 1 for the
+  // chase, where the head is the whole picture and there is no ring to fit.
+  function krakenRingUp(run) {
+    const s = run.script
+    return run.chapter === 'kraken' && !!s && (s.phase === 'arrive' || s.phase === 'boss')
+  }
+
   function krakenLift(a) {
     if (a.slamT > 0) return 0
     if (!(a.tele > 0) || !a.fuse) return 0
@@ -19213,11 +19246,30 @@ const spurG = new Graphics()
         //   window — press NOW: white-hot, and only ever while the window is open
         //   rear   — winding up to hit you: warm, brightening as the fuse runs out
         //   wear   — how close to breaking: a bruise, deliberately away from white entirely
+        // THE INK GOES TO THE LIVE THREAT, NOT THE SPENT ONE. Counted on the real fight (the
+        // kraken-live bot, phone frame, ring block): the already-parried limb covered 6.7% of the
+        // screen and EVERY live arm together covered 4.4% — the thing you have finished with
+        // outweighed every remaining threat 1.5:1. So under KV the exposed limb is pulled down and
+        // idle arms are pushed back, leaving the top of the range for the arm winding up at you.
+        //   The three candidates differ on ONE axis, which is the whole question: how a rearing arm
+        // separates from an idle one. 1 = a new hue (amber), 2 = the same idea pushed hot, 3 = no
+        // new hue at all, pure luminance — it stays the animal's violet and simply lights up.
+        const REAR = [
+          [0xb6acd0, 0xff8a76],   // 0 — shipped: starts at EXACTLY the idle tint, so frame one of a
+          [0xa67f3e, 0xf3c15a],   //     wind-up is invisible. The defect, kept as the control.
+          [0xb1643e, 0xfd8855],
+          [0x8578bb, 0xeee8fe],
+        ][KV]
         if (a.hitT > 0) rig.rope.tint = mix(0xffffff, 0xdff8ff, 1 - a.hitT / KRAKEN_LIMP_FLASH)
-        else if (a.limpT > 0) rig.rope.tint = mix(0x7fd7ee, 0xbfe9f7, 0.5 + 0.5 * Math.sin(animT * 4))
-        else if (rung && a.tele > 0 && a.tele <= rung.window) rig.rope.tint = a.tele <= rung.perfect ? 0xffffff : 0xeaf6ff
-        else if (rung && a.tele > 0 && a.fuse) rig.rope.tint = mix(0xb6acd0, 0xff8a76, 1 - a.tele / a.fuse)
-        else rig.rope.tint = mix(0xb6acd0, 0xd0798f, 1 - fur)
+        else if (a.limpT > 0) {
+          rig.rope.tint = KV
+            ? mix(0x4576a0, 0x5691c0, 0.5 + 0.5 * Math.sin(animT * 4))   // spent: cold AND dimmed
+            : mix(0x7fd7ee, 0xbfe9f7, 0.5 + 0.5 * Math.sin(animT * 4))
+        } else if (rung && a.tele > 0 && a.tele <= rung.window) rig.rope.tint = a.tele <= rung.perfect ? 0xffffff : 0xeaf6ff
+        else if (rung && a.tele > 0 && a.fuse) rig.rope.tint = mix(REAR[0], REAR[1], 1 - a.tele / a.fuse)
+        else rig.rope.tint = KV
+          ? mix(0x7366a0, 0x403d4b, 1 - fur)   // idle recedes, and wear DIMS it rather than warming it
+          : mix(0xb6acd0, 0xd0798f, 1 - fur)
       }
     }
     for (let i = arms.length; i < krakenRopes.length; i++) {
@@ -23309,14 +23361,27 @@ const spurG = new Graphics()
       camLead.x += (hx * lead - camLead.x) * k
       camLead.y += (hy * lead - camLead.y) * k
     }
+    // THE RING BLOCK IS PLAYED FROM INSIDE A 700px ARENA ON A 390px SCREEN. KRAKEN_CAGE_R is 350,
+    // so at 1:1 the wall the player is locked against is off both edges and two tentacles fill the
+    // frame. The target is stated as a FRACTION OF THE SHORT AXIS, never in px: it fits the threat
+    // envelope (2 x KRAKEN_ARM_REACH, the circle every slam lands inside) across the narrow side
+    // with KRAKEN_RING_VIEW_MARGIN to spare, so the phone pulls back and a desktop — which already
+    // clears it — clamps to 1 and is untouched.
+    const wantZoom = krakenRingUp(run)
+      ? Math.max(KRAKEN_RING_ZOOM_MIN, Math.min(1, Math.min(app.screen.width, app.screen.height)
+        / (2 * KRAKEN_ARM_REACH * KRAKEN_RING_VIEW_MARGIN)))
+      : 1
+    // Eased, not snapped: the block opens mid-fight. dt is 0 behind a modal, which holds it still.
+    fightZoom += (wantZoom - fightZoom) * Math.min(1, KRAKEN_RING_ZOOM_EASE * dt)
+    const z = camZoom()
     const camX = (laneAheadX ? camFwd : run.player.x) + camLead.x
     const camY = (laneAheadY ? camFwd : run.player.y) + camLead.y
     const cx = (laneAheadX ? laneFrac(viewW(), chapterLaneAxis.dir) : viewW() / 2) - camX + shake.ox
     const cy = (laneAheadY ? laneFrac(viewH(), chapterLaneAxis.dir) : viewH() / 2) - camY + shake.oy
-    world.scale.set(mapZoom)
-    world.position.set(cx * mapZoom, cy * mapZoom)
-    playerScreen.x = (run.player.x + cx) * mapZoom
-    playerScreen.y = (run.player.y + cy) * mapZoom
+    world.scale.set(z)
+    world.position.set(cx * z, cy * z)
+    playerScreen.x = (run.player.x + cx) * z
+    playerScreen.y = (run.player.y + cy) * z
     updateGroundField(cx, cy)
     updateFloorLayer(cx, cy)
     // v7.x The Wreck: the sunken ship behind. Camera-driven like its two neighbours rather than
