@@ -4655,17 +4655,16 @@ export function createRenderer(app) {
   // 0x02101a floor: 1.27:1, a black wedge. Baked at 0x9d8ccb the same tint composites to 3.52:1 and
   // every other state stays exactly as legible relative to it. The strip's own colour is never
   // seen unmultiplied, so this number only ever reads through a state.
-  // THROWAWAY A/B SWITCH (2026-09-15 readability pass — delete it and the losing arms with the pick).
-  // ?kv=0 is the shipped palette; 1..3 are candidates. It is read at MODULE SCOPE because the strip
-  // is baked once at boot, so a per-frame read could never change it.
-  //   WHY THE BAKE HAS TO MOVE AT ALL, and it is not a taste call: a tint MULTIPLIES. Against a
-  // 0x9d8ccb strip the brightest any state can be is 0x9d8ccb itself, which the parry window already
-  // spends at tint 0xffffff — so "the arm about to hit you is brighter than the others" is not
-  // expressible. Measured on the live fight: a REARING arm at 62% of its fuse composites to
-  // (140,83,121) and an idle arm worn to 46% to (121,79,138) — 38/441 apart in RGB, i.e. the threat
-  // and a scratch look the same. A near-white strip puts the whole range back in the tint's hands.
-  const KV = Number(new URLSearchParams(location.search).get('kv') || 0)
-  const K_LIMB = KV ? 0xe6e1ef : 0x9d8ccb, K_LIMB2 = KV ? 0xf4f1f9 : 0xb9a9e0
+  // THE STRIP BAKES NEAR-WHITE AND THE TINT CARRIES EVERY STATE, and that is not a taste call: a
+  // tint MULTIPLIES. Baked at 0x9d8ccb the brightest any state could be was 0x9d8ccb itself, which
+  // the parry window already spends at tint 0xffffff — so "the arm winding up at you is brighter
+  // than the others" was not expressible at all. Composited on the live fight, the two states that
+  // decide the fight came out as:
+  //     rear at frame ONE of its fuse  #705ea6   |  an untouched idle arm  #705ea6  -> distance 0
+  //     rear 62% through its fuse      #8c5379   |  an arm worn to 46% hp  #794f8a  -> distance 26
+  // Zero, because syncKrakenArms' rear mix and its idle mix both started at 0xb6acd0. A wind-up was
+  // literally not announced on the frame it began. The whole range lives in the tint now.
+  const K_LIMB = 0xe6e1ef, K_LIMB2 = 0xf4f1f9
   // THE LIMB'S TAPER, AND THE ONLY COPY OF IT. makeTentacleTex bakes the strip against it and the
   // tear is stroked against it, so a change to the silhouette that did not reach the wound would put
   // the split outside the flesh — the exact two-authors-of-one-fact drift that is this repo's single
@@ -18679,11 +18678,11 @@ const spurG = new Graphics()
     // dorsal highlight — the lit top of a round limb, which is what stops it reading as a flat band
     g.poly(ring(0.52, (p) => -p.w * 0.36)).fill({ color: mix(K_LIMB2, 0xffffff, 0.30), alpha: 0.40 })
     g.poly(ring(0.22, (p) => -p.w * 0.52)).fill({ color: mix(K_LIMB2, 0xffffff, 0.55), alpha: 0.30 })
-    // ventral margin — the shadowed underside. On a near-white strip (KV) the dorsal highlights
-    // above have nothing left to lighten, so ALL of the roundness has to come from shading down:
-    // the margin deepens and a broad mid-tone runs under the lower half.
-    if (KV) g.poly(ring(0.80, (p) => p.w * 0.22)).fill({ color: K_LINE, alpha: 0.16 })
-    g.poly(ring(0.34, (p) => p.w * 0.60)).fill({ color: K_LINE, alpha: KV ? 0.46 : 0.34 })
+    // ventral margin — the shadowed underside. On a near-white strip the dorsal highlights above
+    // have nothing left to lighten, so ALL of the roundness has to come from shading DOWN: a broad
+    // mid-tone under the lower half, then a deeper margin under that.
+    g.poly(ring(0.80, (p) => p.w * 0.22)).fill({ color: K_LINE, alpha: 0.16 })
+    g.poly(ring(0.34, (p) => p.w * 0.60)).fill({ color: K_LINE, alpha: 0.46 })
     // TWO ROWS OF SUCKERS, STAGGERED — and the stagger is the whole point, not a detail. A pale
     // disc with a darker disc inside it is an eyeball, and two of them side by side at the same
     // height, above the pair below, is a FACE: two eyes over two smiles. It read as one down the
@@ -18747,12 +18746,14 @@ const spurG = new Graphics()
   //                            is literally the timing rather than a rough description of it.
   // A slam then holds it planted for KRAKEN_SLAM_T with one bounce, because a strike that snapped
   // back to idle on the frame it landed had a sound and a ring and no movement at all.
-  // Is the ring up? The two phases with tentacles standing over the arena — the arrival raises them
-  // and the block is fought under them. Read by the camera pull, which must be back at 1 for the
-  // chase, where the head is the whole picture and there is no ring to fit.
-  function krakenRingUp(run) {
+  // Is the boss on the field? Every phase of the fight except the opening waves. Read by the camera
+  // pull, and it covers the CHASE deliberately: the chase is 87-97s of a ~180s fight over 6 seeds,
+  // more than half of it, and at 1:1 the head's own read (its guard arcs and stagger pips span
+  // KRAKEN_HEAD_R * 1.5, so 390px across) exactly fills a phone with no room left for the player it
+  // is hunting. The two phases want the same framing, which is why one envelope serves both.
+  function krakenFight(run) {
     const s = run.script
-    return run.chapter === 'kraken' && !!s && (s.phase === 'arrive' || s.phase === 'boss')
+    return run.chapter === 'kraken' && !!s && (s.phase === 'arrive' || s.phase === 'boss' || s.phase === 'chase')
   }
 
   function krakenLift(a) {
@@ -19089,7 +19090,13 @@ const spurG = new Graphics()
       // is safe to swim onto, without reading a colour at all.
       const windup = a.tele > 0 && a.fuse ? 1 - Math.max(0, a.tele) / a.fuse : 0
       const lift = krakenLift(a)
-      const amp = a.limpT > 0 ? 12 : 40 + windup * 30
+      // ...AND THE COIL IS A SECOND CHANNEL ON THE SAME FRAME. It used to RAMP from the idle
+      // amplitude (40 + windup * 30, and windup is 0 on the frame a fuse is lit), so at the instant
+      // an arm decided to hit you neither its colour nor its movement had changed — the two tells
+      // the fight has, both saying nothing at once. It now SNAPS to a coil the moment the fuse
+      // starts and tightens from there, which lands a tell that survives being colour-blind, being
+      // at the edge of the light, and being on the far side of the screen.
+      const amp = a.limpT > 0 ? 12 : a.tele > 0 ? 58 + windup * 30 : 40
       const curl = Math.sin(a.i * 2.3) * 0.95
       // THE SHOULDER RIDES THE REAL RING. It was pinned to the constant KRAKEN_RING_R and the tip to
       // the constant KRAKEN_ARM_REACH, so the drawn tentacle could not follow the arm the sim was
@@ -19229,47 +19236,30 @@ const spurG = new Graphics()
         // that something is above the floor.
         rig.shadow.alpha = 0.10 + lift * 0.30
         const fur = Math.max(0, Math.min(1, a.hp / a.maxHP))
-        // THREE READS ON ONE TENTACLE, AND THEY MUST NOT USE THE SAME COLOUR. They did: wear
-        // mixed toward 0xffffff and the parry window ALSO tinted 0xffffff, so by mid-fight every
-        // worn arm looked permanently in-window and the window itself stopped meaning anything.
-        // That is most of "there's almost no player feedback when a parry is active".
-        //   Now they are three separate axes, in priority order:
-        //     hitT  — a parry just landed: a hard white flash, brief, the loudest of the three.
-        //     window— press NOW: WHITE-HOT, and only ever while the window is actually open.
-        //     wear  — how close this arm is to breaking: a WARM BRUISE, away from white entirely.
-        //             It is this fight's only progress bar and it lives on the thing it measures.
         // FIVE STATES, FIVE COLOURS, AND NO TWO OF THEM SHARE ONE. Rev 2 tinted a worn arm toward
         // 0xffffff and the parry window toward 0xffffff as well, so by mid-fight every damaged arm
         // looked permanently parryable and the window meant nothing.
         //   flash  — a parry just landed: hard white, brief, the loudest thing here
-        //   LIMP   — parried and exposed: cold and LIT, the one arm you are meant to be shooting
+        //   LIMP   — parried and exposed: cold, and DIMMED (it is spent; see the ink count below)
         //   window — press NOW: white-hot, and only ever while the window is open
-        //   rear   — winding up to hit you: warm, brightening as the fuse runs out
-        //   wear   — how close to breaking: a bruise, deliberately away from white entirely
+        //   rear   — winding up to hit you: the animal's own violet, LIT, brightening to the window
+        //   wear   — how close to breaking: the same violet going DARK, the opposite way to rear
         // THE INK GOES TO THE LIVE THREAT, NOT THE SPENT ONE. Counted on the real fight (the
         // kraken-live bot, phone frame, ring block): the already-parried limb covered 6.7% of the
         // screen and EVERY live arm together covered 4.4% — the thing you have finished with
-        // outweighed every remaining threat 1.5:1. So under KV the exposed limb is pulled down and
-        // idle arms are pushed back, leaving the top of the range for the arm winding up at you.
-        //   The three candidates differ on ONE axis, which is the whole question: how a rearing arm
-        // separates from an idle one. 1 = a new hue (amber), 2 = the same idea pushed hot, 3 = no
-        // new hue at all, pure luminance — it stays the animal's violet and simply lights up.
-        const REAR = [
-          [0xb6acd0, 0xff8a76],   // 0 — shipped: starts at EXACTLY the idle tint, so frame one of a
-          [0xa67f3e, 0xf3c15a],   //     wind-up is invisible. The defect, kept as the control.
-          [0xb1643e, 0xfd8855],
-          [0x8578bb, 0xeee8fe],
-        ][KV]
+        // outweighed every remaining threat 1.5:1. So the exposed limb is pulled down, idle arms
+        // recede, and the top of the range is left to the arm winding up at you.
+        //   REAR SEPARATES ON LUMINANCE, NOT HUE (owner's pick, 2026-09-15, against an amber and an
+        // orange candidate): the animal keeps its violet and simply LIGHTS UP. Its known weakness is
+        // the start of the ramp — the moment the player has to notice — so the ramp does not begin
+        // at the idle colour the way the shipped one did. It begins already lit, at distance 71 from
+        // an untouched arm, and climbs from there. Wear DIMS an arm rather than warming it, which is
+        // what keeps wear off rear's axis; the old pair sat 26 apart and read as the same thing.
         if (a.hitT > 0) rig.rope.tint = mix(0xffffff, 0xdff8ff, 1 - a.hitT / KRAKEN_LIMP_FLASH)
-        else if (a.limpT > 0) {
-          rig.rope.tint = KV
-            ? mix(0x4576a0, 0x5691c0, 0.5 + 0.5 * Math.sin(animT * 4))   // spent: cold AND dimmed
-            : mix(0x7fd7ee, 0xbfe9f7, 0.5 + 0.5 * Math.sin(animT * 4))
-        } else if (rung && a.tele > 0 && a.tele <= rung.window) rig.rope.tint = a.tele <= rung.perfect ? 0xffffff : 0xeaf6ff
-        else if (rung && a.tele > 0 && a.fuse) rig.rope.tint = mix(REAR[0], REAR[1], 1 - a.tele / a.fuse)
-        else rig.rope.tint = KV
-          ? mix(0x7366a0, 0x403d4b, 1 - fur)   // idle recedes, and wear DIMS it rather than warming it
-          : mix(0xb6acd0, 0xd0798f, 1 - fur)
+        else if (a.limpT > 0) rig.rope.tint = mix(0x4576a0, 0x5691c0, 0.5 + 0.5 * Math.sin(animT * 4)) // spent: cold AND dimmed
+        else if (rung && a.tele > 0 && a.tele <= rung.window) rig.rope.tint = a.tele <= rung.perfect ? 0xffffff : 0xeaf6ff
+        else if (rung && a.tele > 0 && a.fuse) rig.rope.tint = mix(0x9e92cf, 0xeee8fe, 1 - a.tele / a.fuse)
+        else rig.rope.tint = mix(0x7366a0, 0x403d4b, 1 - fur)
       }
     }
     for (let i = arms.length; i < krakenRopes.length; i++) {
@@ -23361,13 +23351,13 @@ const spurG = new Graphics()
       camLead.x += (hx * lead - camLead.x) * k
       camLead.y += (hy * lead - camLead.y) * k
     }
-    // THE RING BLOCK IS PLAYED FROM INSIDE A 700px ARENA ON A 390px SCREEN. KRAKEN_CAGE_R is 350,
-    // so at 1:1 the wall the player is locked against is off both edges and two tentacles fill the
-    // frame. The target is stated as a FRACTION OF THE SHORT AXIS, never in px: it fits the threat
-    // envelope (2 x KRAKEN_ARM_REACH, the circle every slam lands inside) across the narrow side
-    // with KRAKEN_RING_VIEW_MARGIN to spare, so the phone pulls back and a desktop — which already
-    // clears it — clamps to 1 and is untouched.
-    const wantZoom = krakenRingUp(run)
+    // THE FIGHT IS PLAYED FROM INSIDE A 700px ARENA ON A 390px SCREEN. KRAKEN_CAGE_R is 350, so at
+    // 1:1 the wall the player is locked against is off both edges and two tentacles fill the frame.
+    // The target is stated as a FRACTION OF THE SHORT AXIS, never in px: it fits the threat envelope
+    // — 2 x KRAKEN_ARM_REACH, the circle every slam lands inside, and the chase's head reads a
+    // whisker under the same span — across the narrow side with KRAKEN_RING_VIEW_MARGIN to spare.
+    // So a phone pulls back and a desktop, which already clears it, clamps to 1 and is untouched.
+    const wantZoom = krakenFight(run)
       ? Math.max(KRAKEN_RING_ZOOM_MIN, Math.min(1, Math.min(app.screen.width, app.screen.height)
         / (2 * KRAKEN_ARM_REACH * KRAKEN_RING_VIEW_MARGIN)))
       : 1
