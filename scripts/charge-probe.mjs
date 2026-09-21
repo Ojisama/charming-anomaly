@@ -44,7 +44,7 @@
 // takes cards and kills far more than a starter-only one ever would.
 import { createRun, ensureBookMeta, ensureChapterMeta } from '../src/state.js'
 import { stepSim, applyChoice, onSandbar, inMaw } from '../src/sim.js'
-import { CHAPTERS, PULSE_CHARGE_COST, darkness, refillSpec, laneAxes, laneScrollFor, bookOf, shopLines, MAX_SHOP_LEVEL, TRAWL_WAKE_DEPTH, TRAWL_SPEED, TRAWL_INTERVAL, TRAWL_LEAD_MUL, spawnRate } from '../src/config.js'
+import { CHAPTERS, PULSE_CHARGE_COST, darkness, refillSpec, laneAxes, laneScrollFor, bookOf, shopLines, MAX_SHOP_LEVEL, TRAWL_WAKE_DEPTH, TRAWL_SPEED, TRAWL_INTERVAL, TRAWL_LEAD_MUL, spawnRate, MAW_GAPE_T } from '../src/config.js'
 
 // --chapter <id> (v7.x, run US.c): every Book 2 chapter shares one `resource`/refill-circle
 // vocabulary (Humidity and tide pools, Clarity and upwellings, Light and sun shafts, Feed and the
@@ -289,7 +289,37 @@ const LANE_MOVES = {
 //   greedy — swim to the nearest anglerfish and never leave. The upper bound on the bar and the
 //            lower bound on the player's health: it should hold the fullest bar in the table AND
 //            eat every bite in the chapter. A tune where greedy is simply best has no card in it.
-const ANGLER_BACKOFF = 0.72        // gape at which `feed` turns and runs. Rig-only, not a game number.
+// ⚠ THIS USED TO BE A HARDCODED GAPE FRACTION (0.72) AND IT WENT STALE WITHOUT A WORD.
+// A gape fraction is a fraction of MAW_GAPE_T, i.e. of a BALANCE CONSTANT. v7.325.0 cut that
+// constant 3.2s -> 2.56s on an owner play note; the distance out of a mouth did not change. So the
+// rig's escape window went 0.896s (197px at the player's 220px/s, just enough from anywhere but
+// dead centre) to 0.717s (158px, against a radius of 200 — it could not get out from anywhere).
+//   The rig then reported the chapter as broken: `feed`, the DISCIPLINED policy, read mean 9.7 with
+// 98% dark and 62.7 devours a run — statistically the do-nothing control, and all but identical to
+// `greedy`, which never leaves at all. That reads exactly like "this chapter punishes the only play
+// pattern it rewards", and it is a property of the rig. Relaxing the threshold to one that can
+// physically clear the mouth returns 49.3 / 48% dark / 0.3 devours / 49 charged pulses.
+//   The tell was in the same table the whole time: `feed hoard` took ZERO bites, because a hoarding
+// player fills the bar and leaves on the full-bar branch long before the gape threshold is ever
+// consulted. Only the arm that waited on the threshold was being eaten.
+//
+// So it is DERIVED, and from the same three quantities a player actually judges: how long this
+// mouth has left, how far they are from its rim, and how fast they swim. It cannot go stale when
+// MAW_GAPE_T, the maw radius or the player's speed move — which is the whole point, and the rule
+// this file's own header gives about a rig deriving a position from a constant.
+// The crossing time is measured against the WHOLE radius, not the distance the bot happens to be
+// at. Measuring from where it stands looks tighter and is wrong twice over: `feed` swims AT the
+// mouth the entire time it is not leaving, so any margin it reads at the rim it has already spent
+// by the next step — and it is doing 220px/s in the wrong direction when it turns. A rule off the
+// live distance duly kept the bot to the very last instant and it was still eaten 61.7 times a run,
+// i.e. it reproduced the stale constant's answer while looking principled. A player does not cut it
+// that fine; they know how wide the mouth is and leave with the whole width in hand.
+const ESCAPE_SAFETY = 1.1          // over the worst-case crossing, for the cost of turning round
+const shouldBackOff = (run, a) => {
+  const left = (1 - (a.gape ?? 0)) * MAW_GAPE_T               // seconds before this mouth swallows
+  const out = (a.r ?? 0) / (run.player.speed || 1)            // worst case: from dead centre to rim
+  return left <= out * ESCAPE_SAFETY
+}
 // A maw is a run.shafts entry, not an enemy (v7.x: "they are not enemies, they are traps"), so the
 // rig walks the same list every other chapter's refill circles live in. A SHUT maw is skipped: it
 // cannot feed you, so a policy that kept steering at one would be modelling a player who has not
@@ -312,7 +342,7 @@ const DEEP_MOVES = {
     if (!a) return null
     // Full bar, or this mouth is nearly shut: leave. Swimming directly AWAY rather than merely
     // stopping, because standing still inside the feed ring is the same thing as staying.
-    const away = run.charge >= res.max - 0.01 || (a.gape ?? 0) >= ANGLER_BACKOFF
+    const away = run.charge >= res.max - 0.01 || shouldBackOff(run, a)
     const ang = Math.atan2(a.y - p.y, a.x - p.x)
     return away ? ang + Math.PI : ang
   },
@@ -427,6 +457,18 @@ if (spec) {
   console.log(`refill:   cell ${spec.cell} chance ${spec.chance} r ${spec.r}` +
     (spec.driftAmp ? `  drift ${spec.driftAmp}px x ${spec.driftHz}rad/s = ${(spec.driftAmp * spec.driftHz).toFixed(1)} px/s peak` : '  no drift'))
   console.log(`coverage: ${(100 * spec.chance * Math.PI * spec.r * spec.r / (spec.cell * spec.cell)).toFixed(1)}% of the plane refills (chance x pi r^2 / cell^2)`)
+  // SAY WHAT THE RIG RESOLVED TO, because the old hardcoded threshold went stale in silence and the
+  // symptom was a chapter that looked broken. Printed from the centre, the worst case: a `feed` bot
+  // steers AT the mouth, so that is where it turns round. If `reach` ever drops under r again, the
+  // disciplined arm cannot escape and every number in the feed row is the rig's, not the chapter's.
+  if (spec.maws || CHAPTERS[CHAPTER].signature?.maws) {
+    const sp = previewRun.player.speed
+    const worst = (spec.r / sp) * ESCAPE_SAFETY                 // s allowed for, worst case + turn
+    const gape = Math.max(0, 1 - worst / MAW_GAPE_T)
+    console.log(`backoff:  DERIVED, not fixed — MAW_GAPE_T ${MAW_GAPE_T}s, r ${spec.r}, player ${sp}px/s, safety x${ESCAPE_SAFETY}` +
+      ` -> turns at gape ${gape.toFixed(2)} from the centre, reach ${Math.round((1 - gape) * MAW_GAPE_T * sp)}px vs r ${spec.r}` +
+      ` ${(1 - gape) * MAW_GAPE_T * sp >= spec.r ? '(clears)' : '(CANNOT ESCAPE — the feed row is the rig, not the chapter)'}`)
+  }
 } else if (trawlCh) {
   // No coverage figure exists for a refill that is not a place. What replaces it is the DUTY CYCLE:
   // how much of the run a net is even on the map, which is the ceiling on how much of it can be
