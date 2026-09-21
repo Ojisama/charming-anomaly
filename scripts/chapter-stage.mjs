@@ -189,6 +189,12 @@ function chapterLive (id, seen = new Set()) {
   const bk = bookOf(id)
   if (!bk) return false
   if (!bk.hidden) return bk.b.wipFrom === undefined || bk.idx < bk.b.wipFrom
+  // ...AND A HIDDEN CHAPTER CAN BE GATED IN ITS OWN RIGHT. `wipFrom` is an index and cannot reach
+  // one, so an unfinished hidden chapter is named in BOOKS[].wipHidden instead (config.js). Without
+  // this line the audit inherits its gate chapter's answer and nothing else — so the day The Deep
+  // ships, The Kraken would report `live`, auto-passing played/art/fr, which is the exact failure
+  // this function's own header was written about.
+  if (bk.b.wipHidden?.includes(id)) return false
   const gate = HIDDEN_UNLOCKS[id]
   if (!gate || seen.has(id)) return false // hidden with no unlock, or a cycle: nobody can get there
   seen.add(id)
@@ -361,7 +367,11 @@ function audit (id) {
         : bk.hidden
           ? (live
             ? `live: ${bk.bid}'s off-ladder chapter, behind a ${HIDDEN_UNLOCKS[id]?.from ?? '???'} win`
-            : `gated behind ${HIDDEN_UNLOCKS[id]?.from ?? 'nothing'}, which is itself not reachable`)
+            // Its OWN gate is named separately from its gate chapter's, because the two come off
+            // at different times: the day `wipFrom` drops, only the second of these goes away.
+            : bk.b.wipHidden?.includes(id)
+              ? `hidden by BOOKS.${bk.bid}.wipHidden (gated in its own right, not by ${HIDDEN_UNLOCKS[id]?.from ?? '???'})`
+              : `gated behind ${HIDDEN_UNLOCKS[id]?.from ?? 'nothing'}, which is itself not reachable`)
           : `live: ${bk.bid} chapter #${bk.idx + 1}`)
 
   return { rows, debt, live }

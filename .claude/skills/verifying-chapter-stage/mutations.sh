@@ -140,9 +140,20 @@ fresh
 echo "    control: kraken behind a WIP Deep       kraken reachable=$(pick "$(axes kraken)" reachable)   (want: wip, or M15 proves nothing)"
 echo "    control: and so its owner gates hold    kraken played=$(pick "$(axes kraken)" played)   (want: YOU — nobody can have played what nobody can reach)"
 
+# M15a IS THE RELEASE, AND ITS ANSWER CHANGED ON 2026-09-21. It used to want `live`: dropping The
+# Deep's wipFrom made The Kraken earnable, because a hidden chapter's only gate was its gate
+# chapter. That coupling is the bug — publishing one chapter published two — so The Kraken is now
+# named in BOOKS[].wipHidden and holds on its own. Keep the mutation, flip the expectation: this is
+# the arm that catches the coupling coming back.
 fresh
-sed -i "s/hidden: \['kraken'\], wipFrom: 5,/hidden: ['kraken'],/" "$T/src/config.js"
-echo "M15a The Deep ships, its hidden boss earnable  kraken reachable=$(pick "$(axes kraken)" reachable)  (want: live)"
+sed -i "s/wipHidden: \['kraken'\], wipFrom: 5,/wipHidden: ['kraken'],/" "$T/src/config.js"
+echo "M15a The Deep ships, the boss holds            kraken reachable=$(pick "$(axes kraken)" reachable)  (want: wip — wipHidden outlives wipFrom)"
+
+# ...and the gate must still OPEN, or it is a padlock with no key. Both lists come off together,
+# which is what publishing The Kraken will actually look like.
+fresh
+sed -i "s/hidden: \['kraken'\], wipHidden: \['kraken'\], wipFrom: 5,/hidden: ['kraken'],/" "$T/src/config.js"
+echo "M15d both gates dropped, the boss ships       kraken reachable=$(pick "$(axes kraken)" reachable)  (want: live)"
 
 fresh
 sed -i "s/hidden: \['blank'\],/hidden: ['blank'], wipFrom: 0,/" "$T/src/config.js"
