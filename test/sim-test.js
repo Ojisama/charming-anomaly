@@ -18498,7 +18498,9 @@ function testEnemySeparation() {
 // asked for, (b) that the cap is actually ENFORCED by a saturating run rather than merely stored,
 // and (c) that a late chapter is left at the global cap.
 function testChapterDensityCap() {
-  // (a) the three multipliers, and that no other chapter carries one
+  // (a) the three multipliers, and that no other BOOK 1 chapter carries one. Scoped to book 1 on
+  // purpose — every Undertow chapter carries one, and pinning six live balance knobs to literals
+  // here would fail on every legitimate tune. The ladder sweep below is what guards those.
   const want = { body: 0.45, pond: 0.6, garden: 0.75 }
   for (const id of CHAPTER_ORDER) {
     const mul = CHAPTERS[id].balance?.maxAliveMul ?? 1
@@ -18507,11 +18509,42 @@ function testChapterDensityCap() {
   // v6.6.7 (owner directive "smooth out the chapter curve"): the ladder must climb in even RATIO
   // steps, which is the property a future one-chapter tweak breaks silently — the pre-v6.6.7
   // ladder was +78% then +13% then +11% and every individual number in it looked reasonable.
-  const ladder = CHAPTER_ORDER.map((id) => Math.round(MAX_ALIVE * (CHAPTERS[id].balance?.maxAliveMul ?? 1)))
-  for (let i = 1; i < ladder.length; i++) {
-    assert(ladder[i] >= ladder[i - 1], `expected the density ladder to never step DOWN, got ${JSON.stringify(ladder)}`)
-    assert(ladder[i] / ladder[i - 1] <= 1.4,
-      `expected no density step past +40%, ${CHAPTER_ORDER[i - 1]} ${ladder[i - 1]} -> ${CHAPTER_ORDER[i]} ${ladder[i]} in ${JSON.stringify(ladder)}`)
+  // ⚠ CHAPTER_ORDER IS BOOK 1 ONLY, so everything above this line has never seen an Undertow
+  // chapter. That is not theoretical: The Deep ships maxAliveMul 0.8 — a cap of 320 behind The
+  // Wreck's 360 — i.e. the exact STEPS-DOWN pathology the ladder check below exists to catch, in a
+  // chapter the check could not reach. Sweep every book's own ladder, and print the denominator,
+  // per CLAUDE.md's rule about sweeps that quietly measure seven chapters and say "every".
+  const LADDER_EXCEPT = {
+    // config.js CHAPTERS.deep: "the crowd is smaller here and hits harder rather than being simply
+    // denser" — The Deep buys its difficulty with enemyHpMul 1.15 / enemyDmgMul 1.1 and a DARKNESS
+    // that makes every meeting closer, so it is the one rung allowed to sit below the one before
+    // it. Listed rather than exempted by a looser threshold: "deliberate" and "nobody noticed" have
+    // to be different outcomes, and if this step-down is ever retuned this line must be retuned with
+    // it instead of silently widening for every chapter.
+    deep: 'trades density for lethality + the dark (config.js CHAPTERS.deep balance block)',
+  }
+  let rungs = 0
+  for (const [bookId, book] of Object.entries(BOOKS)) {
+    const ids = book.chapters
+    const caps = ids.map((id) => Math.round(MAX_ALIVE * (CHAPTERS[id].balance?.maxAliveMul ?? 1)))
+    for (let i = 1; i < caps.length; i++) {
+      rungs++
+      if (!LADDER_EXCEPT[ids[i]]) {
+        assert(caps[i] >= caps[i - 1],
+          `expected ${bookId}'s density ladder to never step DOWN, ${ids[i - 1]} ${caps[i - 1]} -> ${ids[i]} ${caps[i]} in ${JSON.stringify(caps)}`)
+      }
+      assert(caps[i] / caps[i - 1] <= 1.4,
+        `expected no density step past +40%, ${ids[i - 1]} ${caps[i - 1]} -> ${ids[i]} ${caps[i]} in ${JSON.stringify(caps)}`)
+    }
+  }
+  // An exception nobody needs is a green light with no bulb: if The Deep is ever retuned back above
+  // The Wreck, this fails and the entry above comes out with the same edit.
+  for (const [id, why] of Object.entries(LADDER_EXCEPT)) {
+    const book = BOOKS[Object.keys(BOOKS).find((b) => BOOKS[b].chapters.includes(id))]
+    const i = book.chapters.indexOf(id)
+    const cap = (k) => Math.round(MAX_ALIVE * (CHAPTERS[book.chapters[k]].balance?.maxAliveMul ?? 1))
+    assert(i > 0 && cap(i) < cap(i - 1),
+      `${id} is listed in LADDER_EXCEPT (${why}) but no longer steps down — delete the entry`)
   }
   assert.strictEqual(maxAliveFor({ maxAliveMul: 0.7 }), Math.round(MAX_ALIVE * 0.7))
   assert.strictEqual(maxAliveFor({}), MAX_ALIVE, 'a mods object without the key must fall back to the global cap')
@@ -18576,7 +18609,8 @@ function testChapterDensityCap() {
   assert(peaks.body < peaks.pond && peaks.pond < peaks.garden && peaks.garden < peaks.city,
     `expected body < pond < garden < city peaks, got ${JSON.stringify(peaks)}`)
 
-  console.log(`PASS run VV (v6.6.4 per-chapter density cap): peak alive body ${peaks.body} / pond ${peaks.pond} / garden ${peaks.garden} / city ${peaks.city} (global ${MAX_ALIVE})`)
+  console.log(`PASS run VV (v6.6.4 per-chapter density cap): peak alive body ${peaks.body} / pond ${peaks.pond} / garden ${peaks.garden} / city ${peaks.city} (global ${MAX_ALIVE}); ` +
+    `ladder swept over ${rungs} rungs across ${Object.keys(BOOKS).length} books (${Object.values(BOOKS).map((b) => b.chapters.length).join('+')} chapters), ${Object.keys(LADDER_EXCEPT).length} listed exception(s)`)
 }
 
 // ---- Run XX: v6.6.8 French dictionary integrity ----------------------------------------------

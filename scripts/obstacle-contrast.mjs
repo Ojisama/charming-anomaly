@@ -44,6 +44,8 @@ const FOOT = {
   trawl: 0x0d161f, deep: 0x070c12,
   // The Wreck borrows The Reef's BIOMES entry wholesale in phase 1, so it shares the reef foot.
   wreck: 0x1c0a1a,
+  // The Kraken is `kraken: BIOME_DEEP` in render.js — the same borrow, so the same foot as deep.
+  kraken: 0x070c12,
   // District chapters: the value their obstacle style resolves to on the district the audit reads.
   undergrowth: 0xffffff, city: 0x161a20, skies: 0x38332b, beyond: 0xffffff,
 }
