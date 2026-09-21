@@ -5918,7 +5918,12 @@ export const BOOKS = {
   //   `wipFrom` is an INDEX, so that reordering needed no edit to it. 5 since 2026-09-09: The Wreck
    // is the last live rung, The Deep the first gated one, and The Kraken (appended 2026-09-10) the
    // next, still gated: a dev-gated shell whose boss sim lands in a later increment. Saves key on chapter ID, never position.
-   undertow: { name: 'Undertow', cloth: '#1f5c7c', chapters: ['surf', 'shelf', 'reef', 'trawl', 'wreck', 'deep'], hidden: ['kraken'], wipFrom: 5, startCoins: 100 },
+   // `wipHidden` IS `wipFrom` FOR A CHAPTER THAT HAS NO RUNG. The Kraken is unlocked by winning The
+   // Deep at 5, so the day The Deep goes live is the day The Kraken becomes reachable — and
+   // isWipChapter is an INDEX test, which a hidden chapter (indexOf -1) can never trip. Without
+   // this list, dropping `wipFrom` publishes two chapters instead of one. Named rather than
+   // indexed for the same reason `hidden` is.
+   undertow: { name: 'Undertow', cloth: '#1f5c7c', chapters: ['surf', 'shelf', 'reef', 'trawl', 'wreck', 'deep'], hidden: ['kraken'], wipHidden: ['kraken'], wipFrom: 5, startCoins: 100 },
 }
 // Explicit, for the same reason CHAPTER_ORDER is explicit: a sweep that means "every book, in
 // campaign order" must not depend on object key order surviving an edit. The FIRST entry is the
@@ -10050,6 +10055,11 @@ export const bookOf = (id) => Object.keys(BOOKS).find((b) => BOOKS[b].chapters.i
 export const isWipChapter = (id) => {
   const book = BOOKS[bookOf(id)]
   if (!book) return false
+  // A hidden chapter has no rung for `wipFrom` to point at, so an unfinished one is listed by NAME
+  // (see BOOKS.undertow.wipHidden). This is checked before the index test, not folded into it: the
+  // paragraph above is still true — hidden is not the same as unfinished, and The Blank must keep
+  // reading as earned — so the two say so separately.
+  if (book.wipHidden?.includes(id)) return true
   const i = book.chapters.indexOf(id)
   return i >= 0 && i >= (book.wipFrom ?? Infinity)
 }
@@ -10129,8 +10139,16 @@ export const playableChapterId = (meta) => {
 // to the save. (The Blank is also EARNED by winning the ladder — that route stays.)
 const isHiddenChapter = (id) => !!BOOKS[bookOf(id)]?.hidden?.includes(id)
 
+// ⚠ THE WIP TEST COMES FIRST, AND THAT ORDER IS THE GATE. `unlocked` used to be read before
+// anything else, so a WIP chapter carrying the flag was available whatever the gate said — and the
+// flag does not only come from this build. An old build, a save synced from a device with dev on,
+// or a chapter whose unlock fired before it was gated all write it, and `meta` fields are
+// additive-only so the corpse is carried forward for good. The Kraken is exactly that shape: its
+// unlock is a win in The Deep, which is about to ship.
 export const chapterAvailable = (meta, id) =>
-  !!meta?.chapters?.[id]?.unlocked || (meta?.dev === true && (isWipChapter(id) || isHiddenChapter(id)))
+  isWipChapter(id)
+    ? meta?.dev === true
+    : !!meta?.chapters?.[id]?.unlocked || (meta?.dev === true && isHiddenChapter(id))
 
 // The name printed on a chapter's SPINE — its own name with the article dropped. A spine is about
 // 47px wide and reads its title VERTICALLY, which leaves roughly 110px of height for it: 'The
@@ -10181,7 +10199,10 @@ export function titleBookshelf(meta) {
     // A hidden chapter takes a slot once EARNED, or whenever the dev gate is up (The Kraken is
     // reached that way to test, without writing `unlocked` to the save) — mirroring the WIP rung
     // one line above, which the same gate reveals.
-    const ids = [...ladder, ...def.hidden.filter((id) => meta?.dev === true || meta?.chapters?.[id]?.unlocked)]
+    // `!isWipChapter(id)` mirrors the ladder line above, and for the same reason its own comment
+    // gives: an unfinished hidden chapter must not take a slot either. The flag alone is not
+    // enough of a test — it can arrive on a synced or older save (see chapterAvailable).
+    const ids = [...ladder, ...def.hidden.filter((id) => meta?.dev === true || (meta?.chapters?.[id]?.unlocked && !isWipChapter(id)))]
     const volumes = ids.map((id) => ({ id, unlocked: chapterAvailable(meta, id) }))
     shelf.push({
       book,

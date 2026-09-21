@@ -824,6 +824,13 @@ function endRun(victory) {
   if (victory) {
     for (const [id, gate] of Object.entries(HIDDEN_UNLOCKS)) {
       if (run.chapter !== gate.from || (run.difficulty ?? 1) < gate.difficulty) continue
+      // DON'T ANNOUNCE A CHAPTER THAT IS NOT WRITTEN YET. The gate chapter shipping is what arms
+      // the unlock, so The Deep going live would otherwise toast The Kraken at every d5 win and
+      // put a volume on the shelf for something unreachable. The flag is withheld rather than
+      // written-and-hidden because it is the ONE site that writes it, and a `meta` field is
+      // additive-only — easier never to set it than to carry a premature one forever. The win is
+      // not lost: the day The Kraken ships, the next d5 win in The Deep unlocks it as usual.
+      if (isWipChapter(id)) continue
       const hidMeta = ensureChapterMeta(meta, id)
       if (hidMeta.unlocked) continue
       hidMeta.unlocked = true

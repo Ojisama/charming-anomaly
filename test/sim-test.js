@@ -4893,7 +4893,59 @@ function runBooks() {
   // and so already fixes the bug they were written to guard (a book becoming LESS reachable the
   // day its `wip` flag comes off). Their replacement is main's own titleBookshelf coverage — do
   // not resurrect these against the deleted function.
-  console.log(`PASS run BK (books + WIP gate): nextChapter is book-local, ${wip.length} WIP chapter(s) unreachable by order/unlock, gated both ways through createRun and the bookcase`)
+  // (g) THE HIDDEN CHAPTER IS GATED IN ITS OWN RIGHT, NOT BY ITS GATE CHAPTER BEING UNFINISHED.
+  // The Kraken's only unlock is a d5 win in The Deep, so the day The Deep ships is the day The
+  // Kraken becomes reachable — publishing one chapter would publish two. isWipChapter is an INDEX
+  // test and a hidden chapter's indexOf is -1, so `wipFrom` can never reach it; BOOKS[].wipHidden
+  // names it instead.
+  assert.strictEqual(isWipChapter('kraken'), true,
+    "isWipChapter('kraken') — listed in BOOKS.undertow.wipHidden, so it does not ride out on The Deep's release")
+  assert.strictEqual(isWipChapter('blank'), false,
+    "isWipChapter('blank') === false — the other hidden chapter is EARNED, and wipHidden must not be read as 'hidden'")
+
+  // THE ORDER INSIDE chapterAvailable IS THE GATE. `unlocked` used to be read first, so a WIP
+  // chapter carrying the flag was available whatever the gate said — and this flag does not only
+  // come from this build: an older build, a save synced from a device with dev on, or an unlock
+  // that fired before the chapter was gated all write it, and `meta` fields are additive-only, so
+  // the corpse is carried forward for good. This is the assertion that fails if the ternary is
+  // ever flattened back into an `||` chain.
+  const ghost = { dev: false, chapters: { kraken: { unlocked: true }, deep: { unlocked: true } } }
+  assert.strictEqual(chapterAvailable(ghost, 'kraken'), false,
+    'a WIP hidden chapter carrying `unlocked: true` (older or synced save) must still be unavailable — the wip test has to come BEFORE the flag')
+  assert.strictEqual(chapterAvailable(ghost, 'deep'), false,
+    'the same ordering must hold for a WIP LADDER chapter — this hardens the gate that already shipped, not just the new one')
+  assert.ok(!titleBookshelf(ghost).flatMap((sh) => sh.volumes.map((v) => v.id)).includes('kraken'),
+    'a WIP hidden chapter must not take a fore-edge slot even when the save says unlocked — a volume announces that a chapter is there')
+
+  // ⚠ THE ASSERTION THIS SECTION EXISTS FOR: simulate the release. Everything above passes today
+  // only because The Deep is ALSO wip, which makes the question vacuous — exactly the shape of a
+  // gate that is green because its subject is unreachable. Drop `wipFrom` the way publishing The
+  // Deep will, and the Kraken must not move.
+  const savedWipFrom = BOOKS.undertow.wipFrom
+  try {
+    delete BOOKS.undertow.wipFrom
+    assert.strictEqual(isWipChapter('deep'), false, 'sanity: clearing wipFrom must actually publish The Deep, or this arm proves nothing')
+    assert.strictEqual(isWipChapter('kraken'), true,
+      'WITH THE DEEP LIVE, The Kraken must STILL be WIP — this is the whole point of wipHidden, and the one assertion that catches a release that drops wipFrom and forgets it')
+    assert.strictEqual(chapterAvailable({ dev: false, chapters: { kraken: { unlocked: true } } }, 'kraken'), false,
+      'with The Deep live, a player who has already won it at 5 must not find The Kraken open')
+  } finally {
+    BOOKS.undertow.wipFrom = savedWipFrom
+  }
+  assert.strictEqual(isWipChapter('deep'), true, 'the simulated release must be undone — a leaked mutation would silently re-answer every assertion after it')
+
+  // main.js writes the hidden unlock, and it is the ONLY site that does. Not importable (Pixi), so
+  // the run UG.k source-tripwire idiom: without this guard a d5 win in a live Deep would toast
+  // "The Kraken" and shelve a volume for a chapter nobody can open.
+  {
+    const mainSrc = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
+    const loop = mainSrc.slice(mainSrc.indexOf('for (const [id, gate] of Object.entries(HIDDEN_UNLOCKS))'))
+    assert.ok(/if \(isWipChapter\(id\)\) continue/.test(loop.slice(0, 1200)),
+      "main.js's HIDDEN_UNLOCKS loop no longer skips a WIP chapter — shipping The Deep would announce and persist an unlock for The Kraken")
+  }
+
+  console.log(`PASS run BK (books + WIP gate): nextChapter is book-local, ${wip.length} WIP chapter(s) unreachable by order/unlock, gated both ways through createRun and the bookcase; ` +
+    `kraken held by wipHidden across a simulated wipFrom drop, and an \`unlocked\` flag on a WIP chapter does not open it`)
 }
 run(runBooks)
 
