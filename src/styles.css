@@ -2642,6 +2642,12 @@ body {
 .hud--race .skill-btn-chev { display: block; }
 .hud--race .skill-btn-glyph { display: none; }
 .hud--race .skill-btn:not(.skill-btn--ready) .skill-btn-chev { opacity: 0; }
+/* THE PARRY: a chapter whose cast is the parry (CHAPTERS[].parry, The Kraken) draws a parry icon
+   (ui.js, ?pv picks the candidate) in place of the sun. Same disc, same ready/cooldown states. */
+.skill-btn-parry { width: 46px; height: 46px; display: none; pointer-events: none; }
+.skill-btn--parry .skill-btn-parry { display: block; }
+.skill-btn--parry .skill-btn-glyph { display: none; }
+.skill-btn--parry:not(.skill-btn--ready) .skill-btn-parry { opacity: 0; }
 /* THE PARRY LESSON (the Kraken, until the save has ever parried): while the first arm winds up,
    the button that answers it pulses with a white-hot rim, so the words over the fish point here. */
 .skill-btn--lesson {

@@ -400,6 +400,29 @@ function formatShopBonus(bookId, id, levels) {
  *   ui.activeScreen()   the name last passed to showScreen. One caller: main.js's pause hook,
  *     which needs to know whether ⏸ during a level-up means "open the sheet" or "go back".
  */
+// A/B SWITCH FOR THE PARRY BUTTON'S ICON, throwaway (owner, 2026-09-23: "change the action button
+// design / logo so it's more relevant"). 1 = a shield taking a hit, 2 = crossed blades with a spark,
+// 3 = a blow glancing off a bar. DELETE with the pick, and grep the param name to prove it is gone.
+const parryArt = (() => {
+  try { const v = Number(new URLSearchParams(location.search).get('pv') ?? 1); return v >= 1 && v <= 3 ? v : 1 } catch { return 1 }
+})()
+const PARRY_ICONS = {
+  1: `<path d="M19 9 L29 12.5 V20 C29 26.5 24.5 30.5 19 33 C13.5 30.5 9 26.5 9 20 V12.5 Z" fill="#fffaf0" stroke="#5a2c04" stroke-width="2.6" stroke-linejoin="round"/>
+        <path d="M19 12.5 V29.5" stroke="#5a2c04" stroke-width="2" stroke-linecap="round" opacity=".45"/>
+        <g stroke-linecap="round"><path d="M29 9 L35 3 M31.5 11.5 L38 10 M26.5 7 L27 1" stroke="#5a2c04" stroke-width="5"/>
+        <path d="M29 9 L35 3 M31.5 11.5 L38 10 M26.5 7 L27 1" stroke="#fffaf0" stroke-width="2.4"/></g>`,
+  2: `<g stroke-linecap="round" fill="none">
+        <path d="M9 31 L29 8 M31 31 L11 8" stroke="#5a2c04" stroke-width="7"/>
+        <path d="M9 31 L29 8 M31 31 L11 8" stroke="#fffaf0" stroke-width="3.4"/>
+        <path d="M8.5 25 L15 31.5 M31.5 25 L25 31.5" stroke="#5a2c04" stroke-width="6"/>
+        <path d="M8.5 25 L15 31.5 M31.5 25 L25 31.5" stroke="#fffaf0" stroke-width="2.6"/></g>
+        <path d="M20 9.5 L21.6 14.4 L26.5 16 L21.6 17.6 L20 22.5 L18.4 17.6 L13.5 16 L18.4 14.4 Z" fill="#fffaf0" stroke="#5a2c04" stroke-width="1.8" stroke-linejoin="round"/>`,
+  3: `<rect x="27" y="6" width="6" height="28" rx="2.5" fill="#fffaf0" stroke="#5a2c04" stroke-width="2.4"/>
+        <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M6 32 Q17 28 24.5 20 Q17 13 9 9 M9 9 L16 9 M9 9 L10.5 15.5" stroke="#5a2c04" stroke-width="6.4"/>
+        <path d="M6 32 Q17 28 24.5 20 Q17 13 9 9 M9 9 L16 9 M9 9 L10.5 15.5" stroke="#fffaf0" stroke-width="3"/></g>`,
+}
+
 export function initUI(hooks) {
   const root = document.getElementById('ui')
   const { meta } = hooks
@@ -2220,6 +2243,11 @@ export function initUI(hooks) {
            stroke-width="4.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M7 12l8 8-8 8" opacity=".55"/><path d="M17 12l8 8-8 8"/><path d="M27 12l8 8-8 8" opacity=".8"/>
       </svg>
+      <!-- THE PARRY (a chapter with parry: true, i.e. The Kraken): the same cast answers a blow there,
+           so the button says so. Three candidates behind ?pv for the owner to pick. -->
+      <svg class="skill-btn-parry" viewBox="0 0 40 40" aria-hidden="true">
+        ${PARRY_ICONS[parryArt]}
+      </svg>
       <span class="skill-btn-cd"></span>
     </button>
   `
@@ -2330,6 +2358,11 @@ export function initUI(hooks) {
     if (laneChapter !== last.laneChapter) {
       last.laneChapter = laneChapter
       hud.skillBtn.classList.toggle('skill-btn--hidden', !laneChapter)
+    }
+    const parryChapter = CHAPTERS[run.chapter].parry === true
+    if (parryChapter !== last.parryChapter) {
+      last.parryChapter = parryChapter
+      hud.skillBtn.classList.toggle('skill-btn--parry', parryChapter)
     }
     if (laneChapter) {
       // Whole seconds only: this is a cache key as well as the label, so ticking it 60x a second
