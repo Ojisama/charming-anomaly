@@ -14905,3 +14905,42 @@ export const FRENZY_HP_FRAC = 0.3    // frenzied: speed boost kicks in once hp d
 export const FRENZY_SPEED_MUL = 1.6  // frenzied: speed multiplier once below FRENZY_HP_FRAC
 export const GILDED_HP_MUL = 1.3     // gilded: extra maxHP/hp multiplier at spawn (stacks with ELITE.hpMul)
 export const GILDED_COIN_MUL = 2     // gilded: death coin count multiplier (on top of ELITE.coins)
+
+// ---- The Kraken's ceremony: the name card, the two phase beats, the kill ------------------------
+// PRESENTATION ONLY. Nothing here is read by sim.js; render.js paints it, main.js holds the summary
+// back for KRAKEN_OUTRO.time. The arrival card's two lines are NOT here:
+// they are CHAPTERS.kraken.name and .tagline, already on the title shelf and already in French.
+export const KRAKEN_BEATS = {
+  rise:   { name: 'IT RISES' },         // the head coming up: the fight gets a second thing to read
+  enrage: { name: 'THE ARMS RETURN' },  // the ring you broke, hauled back: says why it is back
+  slain:  { name: 'KRAKEN SLAIN' },     // the banner the death holds on, before the summary
+}
+
+// Card timings are seconds from the beat's own event. `hold` is when the text starts to leave.
+export const KRAKEN_CEREMONY = {
+  arrive: { bars: 0.4, textIn: 0.7, hold: 3.6, out: 0.6, dim: 0.42, zoomFrom: 1.14 },
+  // 2.6s is KRAKEN_RISE_T, the head's own harmless window: the beat lives inside it, never past it
+  rise:   { bars: 0.3, textIn: 0.35, hold: 2.2, out: 0.4, dim: 0.34, lean: 0.38 },
+  // the enrage has no safe window: no bars, no dim over the arms, the line on the half the head is not
+  enrage: { textIn: 0.1, hold: 1.5, out: 0.35, edge: 0.55, zoomKick: 1.07 },
+  barFrac: 0.085,   // letterbox bar height, fraction of screen height
+}
+
+// THE KILL. main.js stops stepping the sim the frame phase flips to 'victory' and counts
+// run.bossOutroT up to `time` before endRun(true), so nothing can move, hurt or score during it:
+// the same frozen-sim / live-renderer split as DEATH_OUTRO. render.js reads the clock, never writes it.
+export const KRAKEN_OUTRO = {
+  time: 4.8,        // s from the killing blow to the summary
+  skipLock: 0.9,    // s before input can skip (the thumb that won is still on the stick)
+  hitstop: 0.16,    // s the world is held dead still on the kill frame (main.js passes sync dt 0)
+  thrash: 1.15,     // s the arms flail after the hit-stop
+  sinkFrom: 1.0,    // s: arms go limp and the body starts to sink
+  sinkT: 2.8,       // s the sink takes
+  bannerAt: 1.45,   // s: the banner slams in (and main.js plays the victory sting)
+  fadeFrom: 3.7,    // s: the sea goes dark under the banner
+  bannerOut: 4.45,  // s: the banner leaves, so the summary opens over the dark and not over text
+  dark: 0.82,       // final dim alpha
+}
+
+// Does this chapter's win hold on the boss dying (KRAKEN_OUTRO) before the summary?
+export const hasBossOutro = (chapterId) => chapterId === 'kraken'

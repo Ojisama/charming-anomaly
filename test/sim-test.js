@@ -97,7 +97,7 @@ import {
   BLANK_PHASE_LEVELS, BLANK_BOSS_SPEED_P3, BLANK_READ3_T, BLANK_BAND_LEN, BLANK_FAN_N,
   BLANK_BAND_W, BLANK_BAND_DPS, BLANK_BAND_GROW, STATUS_TICK,
   BLANK_RECRUIT_T, BLANK_WAVE_XP_MUL, BLANK_WAVE_GAP,
-  SPAWN_RING, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES, HIDDEN_UNLOCKS,
+  SPAWN_RING, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES, HIDDEN_UNLOCKS, KRAKEN_BEATS, KRAKEN_OUTRO, hasBossOutro,
   CIRCUIT_CAM_LEAD, CIRCUIT_CAM_EASE,
   // v6.3.1 difficulty pass (Run LL)
   BLANK_BOSS_SPEED, BLANK_BOSS_SPEED_P1, BLANK_BOSS_HP, BLANK_MAX_ALIVE, BLANK_CATCHUP_MAX,
@@ -18684,6 +18684,8 @@ function testFrenchDictionary() {
   // strings four separate times. Moving it into a table is only half the fix; this line is the
   // other half, and it went red for The Kraken's hint the moment it was written.
   for (const v of Object.values(HIDDEN_UNLOCKS ?? {})) need(v?.hint)
+  // The Kraken's phase cards and death banner (render.js draws them through t()).
+  for (const v of Object.values(KRAKEN_BEATS ?? {})) need(v?.name)
   for (const v of Object.values(CHAPTER_UNLOCK_LINES ?? {})) need(v)
   // Same flat id -> string shape, one book down. Joined here the day the table landed rather than
   // the day someone noticed the badge was English — the whole point of this walk.
@@ -20316,6 +20318,7 @@ run(testLeLargeWeapons)
   run(testScreenPositioning)
   run(testRefund)
   run(runKraken)
+  run(runKrakenCeremony)
   run(runBiomes)
   run(testBootLoader)
   // A hand-typed filter that matched nothing is the silent pass without a parent watching:
@@ -35413,4 +35416,37 @@ function runKraken() {
   }
 
   console.log('PASS run KR (The Kraken, rev 3): a standing arm is untouchable by all three weapons and puts nothing on the field, a parry makes it LIMP and materialises a real enemy at its tip that weapons do kill, a window closing takes that node away without paying a kill or xp and keeps the damage, finishing it breaks the arm for good, the ring never winds up more arms at once than its rung allows (d1/d2/d3), the head is sealed against hits AND burns until its posture breaks, staggerNeed parried lunges open the only window on it and a burn lit inside outlives it, a whiff reports itself and still pays the cooldown, the cage holds while the ring is up, all 3 rungs read arms/rearing/window/perfect/fuse/limp/cadence/staggerNeed with the windows nested, both hidden chapters resolve through HIDDEN_UNLOCKS with no id hardcoded in main/ui/state, the approach is 3 waves that never touch bossIdx and the ring closes in from the murk with the cage riding it, a sealed head answers every refused hit with a throttled deflect, an unparried slam holds its pose for KRAKEN_SLAM_T and lands down the WHOLE limb so the middle of the arena is not safe while a gap between two arms is, and render.js (comments stripped) reads limpT, fuse, hitT, slamT, the arrival ramp, the recorded arm tips, the stagger pips, the cage radius the sim published, the limb WRAPPING the player for a grip and the bend travelling down a striking limb')
+}
+
+// ---- Run KC: The Kraken's ceremony (the kill outro's contract) --------------------------------
+// The kill holds on the boss dying before the summary. That is only safe because main.js stops
+// stepping the sim for it — if a future edit let stepSim run under the outro, the player could be
+// hurt, or the run clock and kills could move, after the run was already won. None of that throws,
+// so it is asserted here as source text (main.js is not importable), comments stripped.
+function runKrakenCeremony() {
+  const O = KRAKEN_OUTRO
+  assert.ok(O.hitstop < O.skipLock && O.skipLock < O.bannerAt && O.bannerAt < O.bannerOut && O.bannerOut <= O.time,
+    'KRAKEN_OUTRO beats out of order: hit-stop, skip lock, banner in, banner out, summary')
+  assert.ok(O.fadeFrom < O.time && O.sinkFrom < O.fadeFrom, 'KRAKEN_OUTRO: the dark must land after the sink starts and before the summary')
+  assert.ok(hasBossOutro('kraken') && !hasBossOutro('blank') && !hasBossOutro('body'),
+    'only The Kraken holds its kill; every other victory keeps its instant summary')
+  const strip = (src) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1')
+  const main = strip(readFileSync(new URL('../src/main.js', import.meta.url), 'utf8'))
+  // (a) the outro branch never steps the sim
+  const at = main.indexOf('run.bossOutroT > 0 && run.bossOutroT < KRAKEN_OUTRO.time')
+  assert.ok(at > 0, 'main.js has no kill-outro branch in the frame loop')
+  const branch = main.slice(at, main.indexOf('} else if (run.deathT > 0', at))
+  assert.ok(branch.length > 0 && !/stepSim\s*\(/.test(branch), 'main.js steps the sim during the kill outro')
+  assert.ok(/endRun\(true\)/.test(branch), 'the kill outro never reaches endRun(true)')
+  // (b) the kill frame does not ALSO end the run at once, and the clock is set before the frame renders
+  assert.ok(/run\.phase === 'victory'\) \{ if \(!bossOutro\) endRun\(true\) \}/.test(main),
+    'main.js ends the run on the kill frame regardless of the outro')
+  const begin = main.indexOf('const bossOutro = run.phase === \'victory\' && beginBossOutro(dt)')
+  assert.ok(begin > 0 && begin < main.indexOf('renderer.sync(run, dt, events)'),
+    'run.bossOutroT must be set before the kill frame is rendered, or its first frame draws no death')
+  // (c) render.js paints it off the clock, from the kill event
+  const render = strip(readFileSync(new URL('../src/render.js', import.meta.url), 'utf8'))
+  assert.ok(/case 'bossDead': \{\s*if \(run\.chapter === 'kraken'\) \{ krakenDeathBegin\(\)/.test(render), 'bossDead does not start the Kraken death')
+  assert.ok(/run\.bossOutroT/.test(render), 'render.js never reads run.bossOutroT')
+  console.log('PASS run KC (The Kraken ceremony): KRAKEN_OUTRO beats in order, only the kraken holds its kill, main.js never steps the sim in the kill outro and reaches endRun(true) from it alone, the clock is set before the kill frame renders, render.js starts the death on bossDead and reads the clock')
 }

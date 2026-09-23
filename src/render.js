@@ -33,6 +33,9 @@ import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC
   KRAKEN_SLAM_T,
 } from './config.js'
 import { currentForce, tideForce } from './sim.js'
+// The Kraken's ceremony (name card, phase beats, the kill). Its own import line so it merges clean.
+import { KRAKEN_BEATS, KRAKEN_CEREMONY, KRAKEN_OUTRO } from './config.js'
+import { t as tr } from './i18n.js'
 
 
 const DARK = 0x3b3345
@@ -10908,6 +10911,10 @@ export function createRenderer(app) {
   world.addChild(floorLayer, swellLayer, causticLayer, cloudShadowLayer, entitiesLayer)
   app.stage.addChild(world, waterWash, aboveWater, darkLayer, currentLayer, stormCloudLayer, stormRainLayer, idleLayer, dustLayer, leafLayer, oilStain, inkStain, lightningFlash, vignette, deathFlat, deathIris)
   entitiesLayer.visible = false // title screen shows first; reset(run) reveals entities
+  // The Kraken's ceremony: screen-space and ABOVE everything, the death dark included, because the
+  // name card and the kill banner are the only things on screen at those moments that must be read.
+  const cerLayer = new Container()
+  app.stage.addChild(cerLayer)
 
   // v5.3 garden field layers (empty/hidden for other chapters, driven purely by run.trails/webs/
   // lures presence — no hard chapter gate needed since createRun leaves them [] elsewhere):
@@ -12510,7 +12517,9 @@ const spurG = new Graphics()
   // ⚠ updateStreets keys its strip cache on mapZoom alone. That is correct only while camZoom is 1
   // on every chapter WITH roads — the Kraken has none, so its key is 'off' and never built.
   let fightZoom = 1
-  const camZoom = () => mapZoom * fightZoom
+  let cerZoom = 1            // The Kraken's ceremony camera: a push/kick on top of the fight pull
+  const cerCam = { x: 0, y: 0 } // ...and a lean toward the head as it rises
+  const camZoom = () => mapZoom * fightZoom * cerZoom
   const viewW = () => app.screen.width / camZoom()
   const viewH = () => app.screen.height / camZoom()
 
@@ -21559,6 +21568,417 @@ const spurG = new Graphics()
     return p
   }
 
+  // ---- THE KRAKEN'S CEREMONY (KRAKEN_CEREMONY / KRAKEN_OUTRO in config.js) ------------------------
+  // Three kinds of beat, all presentation: nothing here is read back by the sim.
+  //   the NAME CARD as the ring first closes, the two PHASE CARDS (the head rising, the enrage), and
+  //   the DEATH, which holds on the animal dying before the summary.
+  // The cards run on a render-local clock advanced by sync's dt, so a modal freezes them with the
+  // world. The death runs on run.bossOutroT, main.js's clock, because main.js is what holds the
+  // summary back for it and a second timer here would be the same fact in two places.
+  const cer = { kind: null, t: 0, dur: 0 }
+  let cerArriveShown = false
+  const cerDim = new Sprite(Texture.WHITE)
+  const cerEdge = new Sprite(T.edgeWash)
+  const cerFlash = new Sprite(Texture.WHITE)
+  const cerBarTop = new Sprite(Texture.WHITE)
+  const cerBarBot = new Sprite(Texture.WHITE)
+  const cerG = new Graphics()          // rules, the banner's band, the kill's starburst
+  const cerTitleStyle = {
+    fontFamily: 'Georgia, "Times New Roman", serif', fontWeight: '700', fontSize: 40,
+    fill: 0xeafdff, letterSpacing: 6, align: 'center',
+    stroke: { color: 0x02080f, width: 5, join: 'round' },
+    dropShadow: { color: K_GLOW, alpha: 0.75, blur: 14, distance: 0, angle: 0 },
+  }
+  const cerTitle = new Text({ text: '', style: cerTitleStyle })
+  const cerSub = new Text({
+    text: '',
+    style: {
+      fontFamily: 'Georgia, "Times New Roman", serif', fontStyle: 'italic', fontSize: 18,
+      fill: 0xbfe8f2, letterSpacing: 1.5, align: 'center',
+      stroke: { color: 0x02080f, width: 4, join: 'round' },
+    },
+  })
+  cerTitle.anchor.set(0.5)
+  cerSub.anchor.set(0.5)
+  cerDim.tint = 0x02080f
+  cerEdge.tint = 0x02080f
+  cerBarTop.tint = cerBarBot.tint = 0x000000
+  for (const o of [cerDim, cerEdge, cerFlash, cerBarTop, cerBarBot, cerTitle, cerSub]) o.alpha = 0
+  cerLayer.addChild(cerDim, cerEdge, cerFlash, cerBarTop, cerBarBot, cerG, cerTitle, cerSub)
+
+  // The corpse. The head's own sprite goes the moment the entity dies, and the death has to hold on
+  // it, so the kill copies its last drawn pose onto this and animates the copy.
+  const kCorpse = new Sprite(Texture.WHITE)
+  kCorpse.visible = false
+  const kDeathG = new Graphics()       // the hole it sinks into, under the corpse
+  let kCorpseParented = false
+  const kDeath = { on: false, hx: 0, hy: 0, rot: 0, sx: 1, sy: 1, limbs: [], fired: 0, bubbleAcc: 0 }
+
+  const clamp01 = (v) => Math.max(0, Math.min(1, v))
+  const smooth01 = (v) => { const x = clamp01(v); return x * x * (3 - 2 * x) }
+  // A card's envelope: in over `a`, full until `hold`, out over `out`.
+  const cardEnv = (t, a, hold, out) => (t < a ? smooth01(t / a) : t < hold ? 1 : 1 - smooth01((t - hold) / out))
+
+  // The title's colour: the fight's cold glow, or warning-warm for the enrage. Set per beat, not per
+  // frame: a Text restyle re-rasterises it.
+  let cerWarm = false
+  function cerTone(warm) {
+    if (warm === cerWarm) return
+    cerWarm = warm
+    cerTitle.style.fill = warm ? 0xffd9c4 : 0xeafdff
+    cerTitle.style.dropShadow = { ...cerTitleStyle.dropShadow, color: warm ? 0xff5a3c : K_GLOW }
+  }
+
+  function krakenBeat(kind, len) {
+    const C = KRAKEN_CEREMONY[kind]
+    cerTone(kind === 'enrage')
+    cer.kind = kind
+    cer.t = 0
+    cer.low = undefined
+    cer.dur = C.hold + C.out
+    if (kind === 'arrive') cer.len = len ?? 3.4
+  }
+
+  function krakenDeathBegin() {
+    kDeath.on = true
+    kDeath.fired = 0
+    kDeath.bubbleAcc = 0
+    kDeath.limbs.length = 0
+    cer.kind = null  // a card still up at the kill gives way to the death
+    cerTone(false)
+    // FROM THE LAST LIVE FRAME, not this one: the head is flagged dead a step before the script
+    // calls the win, so on the frame bossDead arrives the ring has already hidden every rope and the
+    // head sprite is gone. kLast is what the screen last showed of it.
+    kDeath.hx = kLast.on ? kLast.hx : playerX
+    kDeath.hy = kLast.on ? kLast.hy : playerY
+    if (kLast.on && kLast.tex) {
+      if (!kCorpseParented) { enemyLayer.addChild(kDeathG, kCorpse); kCorpseParented = true }
+      kCorpse.texture = kLast.tex
+      kCorpse.anchor.set(kLast.ax, kLast.ay)
+      kDeath.rot = kLast.rot
+      kDeath.sx = kLast.sx
+      kDeath.sy = kLast.sy
+      kCorpse.visible = true
+    } else kCorpse.visible = false
+    for (let i = 0; i < kLast.limbs.length; i++) {
+      const L = kLast.limbs[i]
+      if (L.on) kDeath.limbs.push({ rig: L.rig, pts: L.pts.map((q) => [q[0], q[1]]), tint: L.tint })
+    }
+  }
+
+  // What the screen last showed of the living Kraken: refreshed every frame it is up, read by the kill.
+  const kLast = { on: false, hx: 0, hy: 0, tex: null, ax: 0.5, ay: 0.5, rot: 0, sx: 1, sy: 1, limbs: [] }
+  function krakenRemember() {
+    const head = krakenHead
+    if (!head) return
+    kLast.on = true
+    kLast.hx = head.x
+    kLast.hy = head.y
+    const hs = enemySprites.get(head.id)
+    if (hs && hs.visible && hs.texture) {
+      kLast.tex = hs.texture
+      kLast.ax = hs.anchor.x; kLast.ay = hs.anchor.y
+      kLast.rot = hs.rotation
+      kLast.sx = hs.scale.x; kLast.sy = hs.scale.y
+    } else kLast.tex = null
+    for (let i = 0; i < krakenRopes.length; i++) {
+      const rig = krakenRopes[i]
+      const L = kLast.limbs[i] || (kLast.limbs[i] = { rig, on: false, tint: 0, pts: rig.pts.map(() => [0, 0]) })
+      L.on = rig.rope.visible && rig.rope.alpha > 0.05
+      if (!L.on) continue
+      L.tint = rig.rope.tint
+      for (let k = 0; k < rig.pts.length; k++) { L.pts[k][0] = rig.pts[k].x; L.pts[k][1] = rig.pts[k].y }
+    }
+  }
+
+  function clearKrakenCeremony() {
+    cer.kind = null
+    cerArriveShown = false
+    kDeath.on = false
+    kDeath.limbs.length = 0
+    kLast.on = false
+    kLast.tex = null
+    for (const L of kLast.limbs) L.on = false
+    kCorpse.visible = false
+    kDeathG.clear()
+    cerG.clear()
+    cerZoom = 1
+    cerCam.x = cerCam.y = 0
+    for (const o of [cerDim, cerEdge, cerFlash, cerBarTop, cerBarBot, cerTitle, cerSub]) o.alpha = 0
+  }
+
+  // Screen-relative type: the short axis, capped by the height so a desktop is not all title.
+  const cerUnit = () => Math.min(app.screen.width, app.screen.height * 0.62)
+  // A card's top line: under the HUD's two top rows (~150px on any screen, DOM) with its upper rule clear of them.
+  const cerTopY = (h, U) => Math.max(h * 0.2, 150 + U * 0.09)
+  function cerText(obj, str, size, maxW) {
+    if (obj.text !== str) obj.text = str
+    if (obj.style.fontSize !== size) obj.style.fontSize = size
+    obj.scale.set(1)
+    if (obj.width > maxW) obj.scale.set(maxW / obj.width)
+  }
+  function cerBars(k) {
+    const w = app.screen.width, h = app.screen.height
+    const bh = Math.round(h * KRAKEN_CEREMONY.barFrac * k)
+    cerBarTop.position.set(0, 0); cerBarTop.width = w; cerBarTop.height = bh
+    cerBarBot.position.set(0, h - bh); cerBarBot.width = w; cerBarBot.height = bh
+    cerBarTop.alpha = cerBarBot.alpha = k > 0 ? 1 : 0
+  }
+  // a thin lit rule either side of centre, drawn out from the middle as `k` goes 0 -> 1
+  function cerRule(cx, y, half, k, color, alpha) {
+    if (k <= 0) return
+    const l = half * k
+    cerG.moveTo(cx - l, y).lineTo(cx + l, y).stroke({ width: 1.5, color, alpha })
+    cerG.circle(cx - l, y, 2.2).fill({ color, alpha })
+    cerG.circle(cx + l, y, 2.2).fill({ color, alpha })
+  }
+
+  function updateKrakenCeremony(run, dt) {
+    const w = app.screen.width, h = app.screen.height
+    const U = cerUnit()
+    cerG.clear()
+    cerDim.width = cerEdge.width = cerFlash.width = w
+    cerDim.height = cerEdge.height = cerFlash.height = h
+    let dim = 0, edge = 0, bars = 0, flash = 0
+    cerEdge.tint = 0x02080f
+    cerTitle.alpha = cerSub.alpha = 0
+    cerZoom = 1
+    cerCam.x = cerCam.y = 0
+    if (!kDeath.on) krakenRemember()
+
+    if (kDeath.on && (run.bossOutroT ?? 0) > 0) {
+      const r = updateKrakenDeath(run, dt, w, h, U)
+      dim = r.dim; bars = r.bars; flash = r.flash; edge = r.edge
+      // the camera goes to the body and closes on it: the death is framed, not left at the edge
+      const k = smooth01((run.bossOutroT - KRAKEN_OUTRO.hitstop) / 0.8)
+      cerCam.x = (kDeath.hx - run.player.x) * 0.6 * k
+      cerCam.y = (kDeath.hy - run.player.y) * 0.6 * k
+      cerZoom = 1 + 0.12 * smooth01((run.bossOutroT - KRAKEN_OUTRO.hitstop) / 1.6)
+    } else if (cer.kind) {
+      cer.t += dt
+      const C = KRAKEN_CEREMONY[cer.kind]
+      const t = cer.t
+      if (t >= cer.dur) cer.kind = null
+      else if (cer.kind === 'arrive') {
+        // THE NAME. The ring walking in is the drama; this frames it — the bars close like a lens,
+        // the edges go dark, the camera starts tight on you and pulls out with the arms.
+        const env = cardEnv(t, C.bars, C.hold, C.out)
+        bars = env
+        edge = C.dim * env
+        const push = t < 0.5 ? smooth01(t / 0.5) : 1 - smooth01((t - 0.5) / Math.max(0.5, cer.len - 0.5))
+        cerZoom = 1 + (C.zoomFrom - 1) * push
+        const k = t < C.textIn ? 0 : cardEnv(t - C.textIn, 0.45, C.hold - C.textIn, C.out)
+        const ch = CHAPTERS.kraken
+        // high, under the HUD's top row and clear of the Light rail below it on a phone
+        const y = cerTopY(h, U)
+        cerText(cerTitle, tr(ch.name).toUpperCase(), Math.round(U * 0.12), w * 0.9)
+        cerTitle.position.set(w / 2, y + (1 - k) * U * 0.03)
+        cerTitle.alpha = k
+        cerText(cerSub, tr(ch.tagline), Math.round(U * 0.047), w * 0.86)
+        cerSub.position.set(w / 2, y + U * 0.105)
+        cerSub.alpha = clamp01(k * 1.4 - 0.4)
+        const ruleK = t < C.textIn ? 0 : smooth01((t - C.textIn) / 0.7) * k
+        cerRule(w / 2, y - U * 0.085, Math.min(w * 0.4, U * 0.36), ruleK, K_GLOW, 0.7 * k)
+        cerRule(w / 2, y + U * 0.055, Math.min(w * 0.3, U * 0.24), ruleK, K_GLOW, 0.45 * k)
+      } else if (cer.kind === 'rise') {
+        // IT COMES UP. Inside its own harmless window: bars, a darker edge, the camera leaning
+        // toward the head so the thing you are about to fight is framed, and the line.
+        const env = cardEnv(t, C.bars, C.hold, C.out)
+        bars = env * 0.8
+        edge = C.dim * env
+        const head = krakenHead
+        if (head) {
+          cerCam.x = (head.x - run.player.x) * C.lean * env
+          cerCam.y = (head.y - run.player.y) * C.lean * env
+        }
+        const k = t < C.textIn ? 0 : cardEnv(t - C.textIn, 0.25, C.hold - C.textIn, C.out)
+        const y = cerTopY(h, U)
+        cerText(cerTitle, tr(KRAKEN_BEATS.rise.name), Math.round(U * 0.1), w * 0.9)
+        // it grows as it arrives, the way the head does under it
+        cerTitle.scale.set(cerTitle.scale.x * (0.86 + 0.14 * smooth01((t - C.textIn) / 0.6)))
+        cerTitle.position.set(w / 2, y)
+        cerTitle.alpha = k
+        cerRule(w / 2, y + U * 0.07, Math.min(w * 0.36, U * 0.3), k, K_GLOW, 0.6 * k)
+      } else if (cer.kind === 'enrage') {
+        // IT IS ANGRY. No safe window here, so nothing covers the arena: a warning-coloured edge
+        // pulse, a hard camera kick, and the line tucked into the top of the screen.
+        const pulse = Math.exp(-t * 2.6)
+        edge = C.edge * pulse
+        cerEdge.tint = 0xff5a3c
+        cerZoom = 1 + (C.zoomKick - 1) * (t < 0.06 ? t / 0.06 : Math.exp(-(t - 0.06) * 6))
+        const k = cardEnv(t, C.textIn, C.hold, C.out)
+        // on the half of the screen the head is NOT on: this card lands mid-fight, over live arms
+        // (decided once, on the beat's first frame, so the line never jumps as the head moves)
+        if (cer.low === undefined) {
+          const hd = krakenHead
+          cer.low = !!hd && world.position.y + hd.y * world.scale.y < h * 0.5
+        }
+        const y = cer.low ? h * 0.78 : cerTopY(h, U)
+        cerText(cerTitle, tr(KRAKEN_BEATS.enrage.name), Math.round(U * 0.075), w * 0.9)
+        cerTitle.scale.set(cerTitle.scale.x * (1 + 0.25 * Math.exp(-t * 14)))
+        cerTitle.position.set(w / 2, y)
+        cerTitle.alpha = k
+        cerRule(w / 2, y + U * 0.055, Math.min(w * 0.36, U * 0.3), k, 0xff9a7a, 0.7 * k)
+      }
+    }
+    cerBars(bars)
+    cerDim.alpha = dim
+    cerEdge.alpha = edge
+    cerFlash.alpha = flash
+  }
+
+  // THE DEATH. Four beats on run.bossOutroT, and the arms, the head and the screen all read it:
+  //   hit-stop  everything held dead still (main.js passes dt 0), a white-hot starburst on the head
+  //   thrash    the arms lash, ink bursts out of it, the head convulses
+  //   sink      the arms go slack and fade into the murk, the head shrinks and darkens into a hole
+  //   banner    the name of what you did, over the dark it leaves behind
+  function updateKrakenDeath(run, dt, w, h, U) {
+    const O = KRAKEN_OUTRO
+    const t = run.bossOutroT
+    const hs = O.hitstop
+    const thrashK = t < hs ? 0 : Math.min(1, (t - hs) / 0.1) * Math.pow(clamp01(1 - (t - hs) / O.thrash), 1.3)
+    const sink = smooth01((t - O.sinkFrom) / O.sinkT)
+    const hx = kDeath.hx, hy = kDeath.hy
+
+    // one-shot bursts, crossed once each on the outro clock
+    const cross = (bit, at) => { if (t >= at && !(kDeath.fired & bit)) { kDeath.fired |= bit; return true } return false }
+    if (cross(1, 0)) addShake(22, 1.0)
+    if (cross(2, hs)) {
+      // the ink: the animal's last defence, all of it at once
+      // SMALL puffs thrown wide, never one cloud: the death is the subject and the ink must not hide it
+      for (let i = 0; i < 26; i++) {
+        const a = Math.random() * Math.PI * 2
+        const sp = 160 + Math.random() * 360
+        spawnParticle(T.fx.circle_05, hx + Math.cos(a) * 60, hy + Math.sin(a) * 60, Math.cos(a) * sp, Math.sin(a) * sp,
+          1.1 + Math.random() * 0.6, 0.07 + Math.random() * 0.07, i % 3 ? 0x06050c : 0x1a1030, 0.35, 1.8)
+      }
+      for (let i = 0; i < 20; i++) {
+        const a = (i / 20) * Math.PI * 2
+        spawnParticle(T.fx.star_08, hx, hy, Math.cos(a) * 520, Math.sin(a) * 520, 0.55, 0.13, i % 2 ? 0xffffff : K_GLOW, -0.1, 1.2)
+      }
+      spawnRing(hx, hy, 460, 0.8, T.novaRing, 0xffffff)
+      spawnRing(hx, hy, 300, 0.6, T.novaRing, K_GLOW)
+    }
+    // two more puffs thrown off the limbs as they lash
+    for (const [bit, at] of [[4, hs + 0.38], [8, hs + 0.78]]) {
+      if (!cross(bit, at)) continue
+      for (const L of kDeath.limbs) {
+        const q = L.pts[Math.floor(L.pts.length * (0.55 + Math.random() * 0.35))]
+        for (let i = 0; i < 5; i++) {
+          const a = Math.random() * Math.PI * 2
+          spawnParticle(T.fx.circle_05, q[0], q[1], Math.cos(a) * 90, Math.sin(a) * 90, 1.1, 0.05 + Math.random() * 0.05, 0x06050c, 0.3, 1.4)
+        }
+      }
+      addShake(9, 0.35)
+    }
+    if (cross(16, O.bannerAt)) addShake(10, 0.3)
+    // it sinks with its last air leaving it
+    if (dt > 0 && sink > 0 && sink < 1) {
+      kDeath.bubbleAcc += 40 * (1 - sink) * dt
+      while (kDeath.bubbleAcc >= 1) {
+        kDeath.bubbleAcc -= 1
+        const a = Math.random() * Math.PI * 2, rr = Math.random() * KRAKEN_HEAD_R * 0.6
+        spawnParticle(T.fx.circle_05, hx + Math.cos(a) * rr, hy + Math.sin(a) * rr, (Math.random() - 0.5) * 50,
+          -110 - Math.random() * 90, 1.1, 0.04 + Math.random() * 0.05, 0xdff2ff, 0.02, 0.7)
+      }
+    }
+
+    // THE ARMS, re-posed from where each was on the kill frame
+    kDeath.limbs.forEach((L, i) => {
+      const { rig, pts } = L
+      const n = pts.length
+      for (let k = 0; k < n; k++) {
+        const u = k / (n - 1)
+        const p0 = pts[Math.max(0, k - 1)], p1 = pts[Math.min(n - 1, k + 1)]
+        let tx = p1[0] - p0[0], ty = p1[1] - p0[1]
+        const tl = Math.hypot(tx, ty) || 1
+        const nx = -ty / tl, ny = tx / tl
+        const lash = Math.sin(t * Math.PI * 2 * 3.1 + u * 6 + i * 1.7) * 130 * thrashK * Math.pow(u, 1.3)
+        const droop = Math.sin(u * Math.PI) * 26 * sink * (i % 2 ? 1 : -1)
+        // and it draws in toward the body as it goes, the way a dying octopus pulls its arms home
+        const pull = 1 - 0.22 * sink * u
+        const x = hx + (pts[k][0] - hx) * pull + nx * (lash + droop)
+        const y = hy + (pts[k][1] - hy) * pull + ny * (lash + droop)
+        rig.pts[k].set(x, y)
+        rig.shadowPts[k].set(x + (16 + u * 10) * (1 - sink), y + (22 + u * 14) * (1 - sink))
+      }
+      const a = 1 - smooth01((sink - 0.3) / 0.7)
+      rig.rope.visible = rig.shadow.visible = a > 0.01
+      rig.rope.alpha = a
+      rig.shadow.alpha = 0.16 * a
+      const flick = thrashK > 0 && Math.sin(t * 38 + i) > 0.55 ? 1 : 0
+      rig.rope.tint = t < hs ? 0xffffff
+        : mix(mix(L.tint, 0xffffff, Math.max(flick * 0.6, clamp01(1 - (t - hs) / 0.3))), 0x17131f, sink)
+    })
+
+    // THE HEAD
+    kDeathG.clear()
+    if (sink > 0) {
+      const R = KRAKEN_HEAD_R * (1.2 + 0.9 * sink)
+      kDeathG.ellipse(hx, hy, R * 1.25, R * 1.05).fill({ color: 0x14304a, alpha: 0.35 * sink * (1 - sink * 0.5) })
+      kDeathG.ellipse(hx, hy, R, R * 0.86).fill({ color: 0x02080f, alpha: 0.7 * Math.sin(Math.PI * Math.min(1, sink * 1.2)) })
+    }
+    if (kCorpse.visible) {
+      const jit = 11 * thrashK
+      kCorpse.position.set(hx + (Math.random() * 2 - 1) * jit * (dt > 0 ? 1 : 0), hy + (Math.random() * 2 - 1) * jit * (dt > 0 ? 1 : 0))
+      kCorpse.rotation = kDeath.rot + Math.sin(t * 21) * 0.14 * thrashK + sink * 0.5
+      const sc = (1 + 0.07 * thrashK * Math.sin(t * 17)) * (1 - 0.5 * sink)
+      kCorpse.scale.set(kDeath.sx * sc, kDeath.sy * sc)
+      kCorpse.tint = t < hs ? 0xffffff : mix(Math.sin(t * 30) > 0.3 && thrashK > 0.2 ? 0xffc4c4 : 0xffffff, 0x0a1420, sink)
+      kCorpse.alpha = 1 - Math.pow(sink, 1.6)
+    }
+
+    // THE STARBURST: the hard-cut kill flash, drawn on the head in screen space
+    const sx = world.position.x + hx * world.scale.x
+    const sy = world.position.y + hy * world.scale.y
+    const burstK = t < hs ? 1 : clamp01(1 - (t - hs) / 0.32)
+    if (burstK > 0) {
+      const R = U * (t < hs ? 0.34 : 0.34 + (t - hs) * 0.9)
+      const pts = []
+      for (let i = 0; i < 28; i++) {
+        const a = (i / 28) * Math.PI * 2 + 0.2
+        const rr = R * (i % 2 ? 0.42 : 0.82 + 0.18 * Math.sin(i * 7.3))
+        pts.push(sx + Math.cos(a) * rr, sy + Math.sin(a) * rr)
+      }
+      cerG.poly(pts).fill({ color: K_GLOW, alpha: 0.55 * burstK })
+      const inner = pts.map((v, j) => (j % 2 ? sy + (v - sy) * 0.62 : sx + (v - sx) * 0.62))
+      cerG.poly(inner).fill({ color: 0xffffff, alpha: 0.95 * burstK })
+      // speed lines out to the edge of the screen
+      for (let i = 0; i < 14; i++) {
+        const a = (i / 14) * Math.PI * 2 + 0.11
+        const r0 = R * 0.95, r1 = Math.hypot(w, h)
+        cerG.moveTo(sx + Math.cos(a) * r0, sy + Math.sin(a) * r0).lineTo(sx + Math.cos(a) * r1, sy + Math.sin(a) * r1)
+          .stroke({ width: 3 + (i % 3) * 2, color: 0xeafdff, alpha: 0.5 * burstK })
+      }
+    }
+    const flash = t < hs ? 0.42 : 0.42 * clamp01(1 - (t - hs) / 0.25)
+
+    // THE BANNER
+    const bT = t - O.bannerAt
+    let dim = 0.2 * smooth01(bT / 0.4) + (O.dark - 0.2) * smooth01((t - O.fadeFrom) / (O.time - O.fadeFrom))
+    if (bT >= 0) {
+      const inK = smooth01(bT / 0.12)
+      const outK = 1 - smooth01((t - O.bannerOut) / 0.3)
+      const k = inK * outK
+      // below the body the camera is holding on, and narrow enough to clear the HUD's side rail
+      const y = h * 0.66
+      cerText(cerTitle, tr(KRAKEN_BEATS.slain.name), Math.round(U * 0.12), w * 0.76)
+      const slam = 1 + 0.6 * Math.pow(1 - clamp01(bT / 0.14), 2)
+      cerTitle.scale.set(cerTitle.scale.x * slam)
+      cerTitle.position.set(w / 2, y)
+      cerTitle.alpha = k
+      // the band it sits on, and its lit edges drawing outward
+      const bandH = U * 0.2 * smooth01(bT / 0.18)
+      cerG.rect(0, y - bandH / 2, w, bandH).fill({ color: 0x02080f, alpha: 0.72 * outK })
+      const ruleK = smooth01(bT / 0.5) * outK
+      cerRule(w / 2, y - bandH / 2, w * 0.5, ruleK, K_GLOW, 0.8)
+      cerRule(w / 2, y + bandH / 2, w * 0.5, ruleK, K_GLOW, 0.8)
+    }
+    const bars = smooth01((t - 0.2) / 0.4)
+    const edge = 0.35 * smooth01((t - hs) / 0.6)
+    return { dim, bars, flash, edge }
+  }
+
   // ------------------------------------------------------------------ events
   function killPoof(x, y, etype, elite) {
     const color = elite ? 0xff9d5c : (ENEMY_LOOKS[etype]?.fill ?? 0xcccccc)
@@ -22611,6 +23031,7 @@ const spurG = new Graphics()
           break
         }
         case 'bossDead': {
+          if (run.chapter === 'kraken') { krakenDeathBegin(); break } // its own death, not the whiteout
           // the final kill only — the deletion deletes itself: a full-field white-out (the void
           // taking everything back, reusing the stage-level flash sprite) over a violet/ink burst
           lightningFlashA = 1
@@ -22676,6 +23097,7 @@ const spurG = new Graphics()
           spawnRing(e.x, e.y, e.r * 3.4, 0.9, T.novaRing, 0xff9a7a)
           spawnRing(e.x, e.y, e.r * 2.2, 0.7, T.novaRing, 0xffd9c4)
           spawnRing(e.x, e.y, e.r * 1.2, 0.5, T.novaWarm, 0xffffff)
+          krakenBeat('enrage')
           // one burst per arm coming back, thrown along the ring it is returning to
           const n = Math.max(1, e.n | 0)
           for (let i = 0; i < n * 5; i++) {
@@ -22805,6 +23227,7 @@ const spurG = new Graphics()
           // timed off the arrival's OWN length (e.t), not a literal: the swell and the walk-in are
           // one beat, and two numbers for it would drift the moment either is tuned
           const at = Math.max(0.6, Math.min(1.8, (e.t ?? 3) * 0.42))
+          if (!cerArriveShown) { cerArriveShown = true; krakenBeat('arrive', e.t) } // the first only
           spawnRing(e.x, e.y, 300, at, T.novaRing, 0x2f6a86)
           spawnRing(e.x, e.y, 170, at * 0.78, T.novaRing, 0x8fb4c4)
           for (let i = 0; i < 22; i++) {
@@ -22841,6 +23264,7 @@ const spurG = new Graphics()
           spawnRing(e.x, e.y, 340, 1.1, T.novaRing, 0xdff4ff)
           spawnRing(e.x, e.y, 210, 0.9, T.novaRing, 0x8fb4c4)
           spawnRing(e.x, e.y, 110, 0.7, T.novaWarm, 0xffffff)
+          krakenBeat('rise')
           for (let i = 0; i < 26; i++) {
             const a = Math.random() * Math.PI * 2
             const sp = 150 + Math.random() * 320
@@ -23025,6 +23449,7 @@ const spurG = new Graphics()
     deathIris.alpha = 0
     deathFlat.alpha = 0
     deathVentAcc = 0
+    clearKrakenCeremony()
     prevSkiesBombs = new Set()
     prevRampageT = 0
     animT = 0
@@ -24443,8 +24868,8 @@ const spurG = new Graphics()
     // Eased, not snapped: the block opens mid-fight. dt is 0 behind a modal, which holds it still.
     fightZoom += (wantZoom - fightZoom) * Math.min(1, KRAKEN_RING_ZOOM_EASE * dt)
     const z = camZoom()
-    const camX = (laneAheadX ? camFwd : run.player.x) + camLead.x
-    const camY = (laneAheadY ? camFwd : run.player.y) + camLead.y
+    const camX = (laneAheadX ? camFwd : run.player.x) + camLead.x + cerCam.x
+    const camY = (laneAheadY ? camFwd : run.player.y) + camLead.y + cerCam.y
     const cx = (laneAheadX ? laneFrac(viewW(), chapterLaneAxis.dir) : viewW() / 2) - camX + shake.ox
     const cy = (laneAheadY ? laneFrac(viewH(), chapterLaneAxis.dir) : viewH() / 2) - camY + shake.oy
     world.scale.set(z)
@@ -24537,6 +24962,7 @@ const spurG = new Graphics()
     syncJets((run.zones || []).filter((g) => g.jetDur > 0 && !(g.delay > 0)))
     redrawTelegraphs(run)
     syncKrakenArms(run, dt) // AFTER redrawTelegraphs: that is what resolves the head this frame
+    updateKrakenCeremony(run, dt) // AFTER syncKrakenArms: the death re-poses the ropes it just hid
     updateStrafeLocks(dt) // draws INTO teleG, on top of what redrawTelegraphs just drew — see its own comment
     if (chapterHasStorm) {
       drawMissileLocks(run)          // also draws into teleG

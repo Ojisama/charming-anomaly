@@ -2,7 +2,7 @@
 import { Application } from 'pixi.js'
 import { loadMeta, saveMeta, resetSave, deleteSlot, createRun, ensureChapterMeta, ensureBookMeta, unlockBook, setActiveSlot, activeSlot, setSlotName, cleanName, exportSlot, importSlot, freezeSaves, setSaveHook, SAVE_SLOTS } from './state.js'
 import * as CFG from './config.js'
-import { shopCost, refundValue, shopLines, shopLineUnlocked, lineMax, runBonusCoins, randomMutators, rerollMutator, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, difficultyCoinMul, CONSUMABLES, ANOMALY_REROLL_COST, sacrificeCost, BOOK_UNLOCKS, CHAPTERS, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, isWipChapter, HIDDEN_UNLOCKS, COIN_CAP_PER_RUN, BOOK_ORDER, bookOf, isBookFinale, nextBook, unlockCost, unlockLevel, DEATH_OUTRO } from './config.js'
+import { shopCost, refundValue, shopLines, shopLineUnlocked, lineMax, runBonusCoins, randomMutators, rerollMutator, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, difficultyCoinMul, CONSUMABLES, ANOMALY_REROLL_COST, sacrificeCost, BOOK_UNLOCKS, CHAPTERS, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, isWipChapter, HIDDEN_UNLOCKS, COIN_CAP_PER_RUN, BOOK_ORDER, bookOf, isBookFinale, nextBook, unlockCost, unlockLevel, DEATH_OUTRO, KRAKEN_OUTRO, hasBossOutro } from './config.js'
 import { stepSim, applyChoice, rerollLevelUpChoices, rerollPrice, buildReadout, devCards, devTake } from './sim.js'
 import { createRenderer } from './render.js'
 import { initUI } from './ui.js'
@@ -729,7 +729,7 @@ const SFX_FOR_EVENT = {
   // rarity bar. krakenDeflect is a hit the SEALED head refused: it is throttled in sim on
   // KRAKEN_DEFLECT_CD precisely so it can carry a voice, and the voice is the answer to the
   // question that produced it ("the kraken head is invincible ?"). Nothing is going in.
-  krakenArrive: 'surge', krakenDeflect: 'clang',
+  krakenArrive: 'krakenRoar', krakenDeflect: 'clang',
 }
 
 function endRun(victory) {
@@ -994,6 +994,15 @@ function beginDeathOutro(dt) {
   return true
 }
 
+// The Kraken's kill outro (KRAKEN_OUTRO), or false for every other victory, which keeps its
+// instant summary. Shares the death outro's skip latch: the same held thumb has to let go first.
+function beginBossOutro(dt) {
+  if (!hasBossOutro(run.chapter)) return false
+  run.bossOutroT = dt
+  deathSkipArmed = false
+  return true
+}
+
 // ponytail: a dead-centre tap does not skip. getInput() reports the joystick's VECTOR, so a touch
 // that never leaves the stick's centre is indistinguishable from no touch — dragging in any
 // direction, any WASD/arrow key, or the skill button all skip. Upgrade path if it ever matters:
@@ -1018,18 +1027,35 @@ app.ticker.add((ticker) => {
     stepSim(run, getInput(renderer.playerScreen), dt)
     const events = run.events
     run.events = []
+    // Set BEFORE sync: the kill frame is the first frame of the death render.js draws off this clock.
+    const bossOutro = run.phase === 'victory' && beginBossOutro(dt)
     renderer.sync(run, dt, events)
     for (const e of events) {
       if (e.dot) continue // DoT ticks are silent — they'd drone constantly
+      if (bossOutro && e.type === 'victory') continue // the sting waits for the banner, see below
       const s = SFX_FOR_EVENT[e.type]
       if (s) playSfx(s)
     }
+    if (bossOutro) playSfx('krakenSlain')
     ui.updateHUD(run, events)
     if (run.phase === 'levelup') ui.showScreen('levelup', levelupData())
     // The `dead` event has ALREADY reached the renderer on this frame (it was in `events` above),
     // which is what spawns the vent and the shake. All this decides is whether the summary waits.
     else if (run.phase === 'dead') { if (!beginDeathOutro(dt)) endRun(false) }
-    else if (run.phase === 'victory') endRun(true)
+    else if (run.phase === 'victory') { if (!bossOutro) endRun(true) }
+  } else if (run.bossOutroT > 0 && run.bossOutroT < KRAKEN_OUTRO.time) {
+    // THE KRAKEN'S DEATH: the victory twin of the death outro below, on the same frozen-sim /
+    // live-renderer split. stepSim is never called here (phase is already 'victory'), so nothing
+    // can move, hurt the player or change the run while it plays; endRun(true) sees exactly the run
+    // the killing blow left. The first KRAKEN_OUTRO.hitstop seconds hand sync a dt of 0, which holds
+    // every particle, rope and shake dead still while render.js flashes the kill off this clock.
+    const O = KRAKEN_OUTRO
+    const was = run.bossOutroT
+    run.bossOutroT += dt
+    if (run.bossOutroT >= O.skipLock && deathSkipPressed()) run.bossOutroT = O.time
+    if (was < O.bannerAt && run.bossOutroT >= O.bannerAt) playSfx('victory')
+    renderer.sync(run, run.bossOutroT < O.hitstop ? 0 : dt, [])
+    if (run.bossOutroT >= O.time) endRun(true)
   } else if (run.deathT > 0 && run.deathT < DEATH_OUTRO.time) {
     // THE OUTRO: a frozen sim and a live renderer. stepSim is deliberately not called (phase is
     // already 'dead'), but sync gets the REAL dt — animT, the particle pools and the vent all run on
