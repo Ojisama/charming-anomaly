@@ -20318,6 +20318,7 @@ run(testLeLargeWeapons)
   run(testScreenPositioning)
   run(testRefund)
   run(runKraken)
+  run(testKrakenAimedSlam)
   run(runKrakenCeremony)
   run(runBiomes)
   run(testBootLoader)
@@ -34957,7 +34958,8 @@ function runKraken() {
     // a render change is verified by SHOOTING A FRAME. Do not quote this block as proof a tell
     // works, and do not add a needle here instead of shooting the frame.
     for (const [needle, why] of [
-      ['const HW = KRAKEN_ARM_R * 1.45 * 0.5', 'the TEAR is gone — the whole reward for a parry is invisible on the limb it was won on'],
+      ['if (a.limpT > 0) drawKrakenHitMe(krakenWoundG, a.x, a.y', 'the WEAK POINT on the limp arm\'s node — without it the whole reward for a parry is invisible where the weapons actually land'],
+      ["if (s.phase !== 'chase') { ringRig.root.visible = false; hideKrakenRoots()", 'the head HIDDEN through the ring and the arrival — without it a body is painted at the centre of the arena before the arms are broken'],
       ['mix(0x4576a0, 0x5691c0, 0.5 + 0.5 * Math.sin(animT * 4))', 'an EXPOSED limb is not tinted, so the one state any weapon can hurt looks like every other state'],
       // ...and the arm winding up at you. Pinned for the same reason and with a sharper edge: this
       // needle's FIRST colour is the one that was wrong. Rear used to start its mix at 0xb6acd0,
@@ -34972,8 +34974,6 @@ function runKraken() {
       ['teleG.arc(head.x, head.y, wallR - b * 9', 'the ring wall is DRAWN at its own constant instead of the radius the sim clamped to — 414px behind the player for the whole arrival'],
       ['if (a.slamT > 0) return 0', 'a slam that landed has no pose: the limb snaps back to idle on the frame it hits'],
       ['const bounce = a.slamT > 0 ?', 'a slam that landed does not settle — the follow-through is computed and never drawn'],
-      ["const ga = s.phase === 'chase' ? 1 : Math.min(1, 0.25 + grow)", 'the arrival is not FADED in: the mass is at full opacity on frame 1'],
-      [': KRAKEN_HEAD_R * K_BODY_R * (0.55 + 0.45 * grow)', 'the arrival is not GROWN: the silhouette pops to full size on frame 1 and the player is cut to a boss arena'],
       // THE GRIP HAS NO OVERLAY LEFT TO FALL BACK ON. Both of its previous tells were abstract
       // objects drawn beside the fight (a ring on the player, then a fraying line) and both are
       // deleted: the LIMB is the whole picture now. So losing this warp does not degrade the grab's
@@ -35478,6 +35478,85 @@ function runKraken() {
 // stepping the sim for it — if a future edit let stepSim run under the outro, the player could be
 // hurt, or the run clock and kills could move, after the run was already won. None of that throws,
 // so it is asserted here as source text (main.js is not importable), comments stripped.
+// ---- Run KA: THE ARMS AIM YOU ---------------------------------------------------------------
+// Owner, 2026-09-23, on v7.351: "there are too many safe spot" — every slam came down its arm's own
+// fixed radial spoke into the head, so the ground between the spokes was safe for the whole fight.
+// Ruling: "The arms aim you, not always the same spots". A slam's wind-up LOCKS the player's position
+// and the lane runs from the arm's shoulder toward that point; it never tracks after the lock.
+function testKrakenAimedSlam() {
+  Math.random = mulberry32(20260923)
+  const run = createRun(makeMeta(), { chapter: 'kraken', difficulty: 1 })
+  assert.strictEqual(run.chapter, 'kraken', 'createRun did not make a Kraken run')
+  const budget = KRAKEN_OPEN_WAVES * (KRAKEN_WAVE_TIMEOUT + 2) + KRAKEN_ARRIVE_T + 5
+  let guard = 0
+  while (run.script.phase !== 'boss' && guard++ < 60 * budget) {
+    run.player.hp = run.player.maxHP
+    stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+  }
+  assert.strictEqual(run.script.phase, 'boss', 'the approach never handed over to a ring block')
+  const h = run.enemies.find((e) => e.rosterId === 'krakenHead' && !e._dead)
+  const arm = run.krakenArms[0]
+  // ONE ARM TAKES EVERY TURN, so the fixture knows which shoulder the lane comes from
+  for (const a of run.krakenArms) { a.tele = 0; a.gripT = 0; a.limpT = 0; if (a !== arm) a.dead = true }
+  const seg2 = (px, py, x0, y0, x1, y1) => {
+    const dx = x1 - x0, dy = y1 - y0, l2 = dx * dx + dy * dy
+    const t = l2 > 0 ? Math.max(0, Math.min(1, ((px - x0) * dx + (py - y0) * dy) / l2)) : 0
+    return (px - x0 - dx * t) ** 2 + (py - y0 - dy * t) ** 2
+  }
+  const W2 = KRAKEN_LASH_W * KRAKEN_LASH_W
+  const sx = h.x + Math.cos(arm.ang) * KRAKEN_RING_R, sy = h.y + Math.sin(arm.ang) * KRAKEN_RING_R
+  // P: the aim, well OFF this arm's radial spoke. Q: ON the old spoke, off the aimed lane.
+  const P = { x: h.x + Math.cos(arm.ang + 0.6) * KRAKEN_ARM_REACH * 0.9, y: h.y + Math.sin(arm.ang + 0.6) * KRAKEN_ARM_REACH * 0.9 }
+  const Q = { x: h.x + Math.cos(arm.ang) * KRAKEN_ARM_REACH * 0.6, y: h.y + Math.sin(arm.ang) * KRAKEN_ARM_REACH * 0.6 }
+  assert.ok(seg2(P.x, P.y, sx, sy, h.x, h.y) > (KRAKEN_LASH_W * 1.3) ** 2,
+    'fixture: P is inside the old radial lane, so a hit there proves nothing about aiming')
+  // Hold the player at `at` until this arm is handed a slam turn; returns the lane it locked.
+  function lock(at) {
+    for (let i = 0; i < 60 * 8; i++) {
+      run.player.x = at.x; run.player.y = at.y
+      run.player.hp = run.player.maxHP; run.player.invuln = 0
+      run.events.length = 0
+      stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+      if (arm.gripT > 0) arm.gripT = 0
+      if (run.events.some((e) => e.type === 'armRear')) return { lx0: arm.lx0, ly0: arm.ly0, lx1: arm.lx1, ly1: arm.ly1 }
+    }
+    assert.fail('the ring never handed its one arm a slam in 8s — this fixture measured nothing')
+  }
+  // Stand at `at` until the wind-up lands; returns the damage taken.
+  function land(at) {
+    for (let i = 0; i < 60 * 8; i++) {
+      run.player.x = at.x; run.player.y = at.y
+      run.player.hp = run.player.maxHP; run.player.invuln = 0
+      run.events.length = 0
+      stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+      if (run.events.some((e) => e.type === 'lash')) return run.player.maxHP - run.player.hp
+    }
+    assert.fail('the wind-up never landed')
+  }
+  // 1) locked on P, the player runs to the OLD spoke: the slam is not there any more.
+  const lane1 = lock(P)
+  assert.ok(seg2(P.x, P.y, lane1.lx0, lane1.ly0, lane1.lx1, lane1.ly1) <= (KRAKEN_LASH_W * 0.25) ** 2,
+    'the locked lane does not pass over the point the player stood on when the wind-up started — the arm is not aiming')
+  assert.ok(Math.hypot(lane1.lx0 - sx, lane1.ly0 - sy) < 1, 'the aimed lane no longer starts at the arm\'s shoulder')
+  assert.ok(Math.abs(Math.hypot(lane1.lx1 - lane1.lx0, lane1.ly1 - lane1.ly0) - (KRAKEN_RING_R + KRAKEN_LASH_OVER)) < 1,
+    'the aimed lane is not the length the radial one was')
+  assert.ok(Math.hypot(lane1.lx1 - h.x, lane1.ly1 - h.y) > KRAKEN_LASH_W,
+    `the aimed lane still ends ${Math.hypot(lane1.lx1 - h.x, lane1.ly1 - h.y).toFixed(0)}px from the head centre — every slam still comes down on the head`)
+  assert.ok(Math.hypot(arm.x - P.x, arm.y - P.y) < 1,
+    'the arm tip (where a parried arm hangs its node) is not where the aimed slam lands')
+  const hurtQ = land(Q)
+  assert.strictEqual(hurtQ, 0, `a player standing on the arm's OLD radial spoke took ${hurtQ} from an aimed slam — the lane is still the spoke`)
+  // 2) locked on P, the player stays: it lands on them.
+  const lane2 = lock(P)
+  run.player.x = Q.x; run.player.y = Q.y
+  stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+  assert.ok(arm.tele > 0 && Math.abs(arm.lx1 - lane2.lx1) < 1e-6 && Math.abs(arm.ly1 - lane2.ly1) < 1e-6,
+    'the lane moved after the lock — it tracks the player, so there is nothing to read and step out of')
+  const hurtP = land(P)
+  assert.strictEqual(hurtP, KRAKEN_LASH_DMG, `a player standing where the arm locked took ${hurtP}, not a slam`)
+  console.log(`PASS run KA (aimed slams): the wind-up locks the player's spot and the lane runs from the shoulder toward it at the same length, ending ${Math.hypot(lane1.lx1 - h.x, lane1.ly1 - h.y).toFixed(0)}px off the head centre; the old spoke takes 0, the locked spot takes ${KRAKEN_LASH_DMG}, the lane does not track, and the tip sits on the landing`)
+}
+
 function runKrakenCeremony() {
   const O = KRAKEN_OUTRO
   assert.ok(O.hitstop < O.skipLock && O.skipLock < O.bannerAt && O.bannerAt < O.bannerOut && O.bannerOut <= O.time,

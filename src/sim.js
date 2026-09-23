@@ -1764,12 +1764,43 @@ function krakenReach(s) {
 // 0-7%. So it is a contract field on the arm, live, rewritten every frame beside x/y — never a
 // second copy of the arithmetic in render.js, and never a value cached off an event that goes stale
 // the moment the chase's head moves.
+// AN AIMED ARM strikes from the same shoulder toward the point it locked on the player when its
+// wind-up started (a.aimX/aimY), same length and width. The aim never tracks after the lock.
+//  - a Coil arm is never aimed: the Coil's lanes stay radial, so the spared arm's wedge is the gap
 function krakenLashLine(head, a) {
   const ca = Math.cos(a.ang), sa = Math.sin(a.ang)
   a.lx0 = head.x + ca * KRAKEN_RING_R
   a.ly0 = head.y + sa * KRAKEN_RING_R
+  if (a.aimed && !a.coilArm) {
+    const dx = a.aimX - a.lx0, dy = a.aimY - a.ly0
+    const d = Math.hypot(dx, dy)
+    if (d > 1) {
+      a.lx1 = a.lx0 + (dx / d) * (KRAKEN_RING_R + KRAKEN_LASH_OVER)
+      a.ly1 = a.ly0 + (dy / d) * (KRAKEN_RING_R + KRAKEN_LASH_OVER)
+      return
+    }
+  }
   a.lx1 = head.x - ca * KRAKEN_LASH_OVER
   a.ly1 = head.y - sa * KRAKEN_LASH_OVER
+}
+
+// The arm's tip, and the node a parry hangs on it. Aimed, it sits where the slam lands: on the
+// aimed lane at the locked point (never past the lane's end). Otherwise on its own bearing.
+function krakenPlaceArm(head, a, reach) {
+  // the aim lives exactly as long as the attack it was locked for: wind-up, planted slam, limp
+  // window, and a break's sinking. Idle again, the arm goes back to its slot.
+  if (a.aimed && !(a.tele > 0) && !(a.slamT > 0) && !(a.limpT > 0) && !(a.dead && a.breakT > 0)) a.aimed = false
+  if (a.coilArm) a.aimed = false
+  krakenLashLine(head, a)
+  if (a.aimed) {
+    const d = Math.min(Math.hypot(a.aimX - a.lx0, a.aimY - a.ly0), KRAKEN_RING_R)
+    const L = Math.hypot(a.lx1 - a.lx0, a.ly1 - a.ly0) || 1
+    a.x = a.lx0 + ((a.lx1 - a.lx0) / L) * d
+    a.y = a.ly0 + ((a.ly1 - a.ly0) / L) * d
+    return
+  }
+  a.x = head.x + Math.cos(a.ang) * reach
+  a.y = head.y + Math.sin(a.ang) * reach
 }
 
 // Squared distance from a point to a SEGMENT (not a line): t clamped to [0,1] so the ends are
@@ -1783,11 +1814,7 @@ function segDist2(px, py, x0, y0, x1, y1) {
 }
 
 function krakenPlaceArms(run, head, reach) {
-  for (const a of run.krakenArms) krakenLashLine(head, a)
-  for (const a of run.krakenArms) {
-    a.x = head.x + Math.cos(a.ang) * reach
-    a.y = head.y + Math.sin(a.ang) * reach
-  }
+  for (const a of run.krakenArms) krakenPlaceArm(head, a, reach)
 }
 
 // Everything the closing ring has already swept over is crushed by it. Progressive, not a frame-1
@@ -1968,6 +1995,7 @@ function krakenArmsToBlock(run, rung, head) {
         tele: 0, fuse: 0, limpT: 0, nodeId: null, dead: false, paid: false, gripT: 0, hitT: 0, breakT: 0, slamT: 0,
         coilArm: false, // true for the length of one Coil: this limb is in the volley, unparryable, drawn in the warning colour
         lx0: 0, ly0: 0, lx1: 0, ly1: 0,   // the struck line, rewritten every frame by krakenPlaceArms
+        aimed: false, aimX: 0, aimY: 0,     // the point a slam's wind-up locked on the player
       })
     }
     s.armsSpawned = true
@@ -2304,6 +2332,12 @@ function stepKrakenArms(run, dt, rung, head) {
         // start rather than every frame, so it can carry a sound.
         a.tele = rung.fuse
         a.fuse = rung.fuse
+        // THE ARM AIMS YOU (owner, 2026-09-23: "The arms aim you, not always the same spots").
+        // Locked here, once; the lane does not follow the player after this frame.
+        a.aimed = true
+        a.aimX = p.x
+        a.aimY = p.y
+        krakenPlaceArm(head, a, krakenReach(s))
         run.events.push({ type: 'armRear', x: a.x, y: a.y, r: KRAKEN_LASH_R, t: rung.fuse, w: KRAKEN_LASH_W })
       }
     }

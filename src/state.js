@@ -2367,6 +2367,14 @@ function generateWells(sig) {
   *            be broken more than once and `dead` is no longer monotonic; without this each one
   *            paid twice.
   *     i    — slot index; ang — its FIXED slot angle around the head. Arms never re-space.
+  *     aimed, aimX, aimY — THE ARM AIMS YOU. When a plain slam's wind-up starts, the arm locks the
+  *            player's position (aimX/aimY, world px) and `aimed` goes true; it never tracks after
+  *            that. While aimed the struck line lx0..lx1 runs from the shoulder (head + ang *
+  *            KRAKEN_RING_R) TOWARD the lock, same length and width as the radial one, and the tip
+  *            x/y (where a parry hangs the node) sits on that line at the lock. It clears when the
+  *            arm is idle again (no tele, slamT, limpT or break). A Coil arm is never aimed.
+  *     lx0, ly0, lx1, ly1 — the struck capsule's segment (half-width KRAKEN_LASH_W), rewritten every
+  *            frame by krakenPlaceArms; strike, parry reach and telegraph all read it.
   *     tele — seconds until this arm's slam, 0 when idle. Counting down IS the telegraph, and the
   *            parry window is its last `rung.window` seconds (`rung.perfect` the tail of that).
   *            An arm does NOT re-arm itself: the RING hands out turns, at most `rung.rearing` at a
