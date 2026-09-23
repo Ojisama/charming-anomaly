@@ -12666,7 +12666,13 @@ const spurG = new Graphics()
   let fightZoom = 1
   let cerZoom = 1            // The Kraken's ceremony camera: a push/kick on top of the fight pull
   const cerCam = { x: 0, y: 0 } // ...and a lean toward the head as it rises
-  const camZoom = () => mapZoom * fightZoom * cerZoom
+  // THE IMPACT PUNCH-IN: a slam landing near the player (and the Coil shutting) pushes the camera a
+  // few percent toward the contact and eases back — one punch per landing, never stacked, never while
+  // a ceremony beat owns the camera (cerZoom/cerCam non-neutral). Multiplied in, like cerZoom.
+  let punchZ = 1
+  const punch = { t: 0, amp: 0, x: 0, y: 0 }
+  const K_PUNCH_IN = 0.05, K_PUNCH_OUT = 0.35
+  const camZoom = () => mapZoom * fightZoom * cerZoom * punchZ
   const viewW = () => app.screen.width / camZoom()
   const viewH = () => app.screen.height / camZoom()
 
@@ -19996,8 +20002,10 @@ const spurG = new Graphics()
       // the dust ring: a HARD edge running out across the seabed, slowing, thinning
       if (b.ring) {
         const e = age / K_BURST_T
-        const rr = Math.min(b.ring * (0.35 + 0.65 * (1 - (1 - e) * (1 - e))), b.maxR ?? Infinity)
-        krakenSlabTopG.circle(b.x, b.y, rr).stroke({ width: 5 * (1 - e) + 1, color: 0xd8c7ad, alpha: 0.85 * (1 - e) })
+        // fast out, then coasting: most of its travel is in the first frames
+        const rr = b.ring * (0.2 + 0.8 * (1 - Math.pow(1 - e, 3)))
+        krakenSlabTopG.circle(b.x, b.y, rr).stroke({ width: 7 * (1 - e) + 1.5, color: 0xd8c7ad, alpha: 0.9 * (1 - e) })
+        krakenSlabTopG.circle(b.x, b.y, rr - 5).stroke({ width: 2, color: 0x0a0604, alpha: 0.6 * (1 - e) })
       }
     }
   }
@@ -20601,7 +20609,7 @@ const spurG = new Graphics()
       krakenTips[a.i] = { x: rig.pts[K_ROPE_N - 1].x, y: rig.pts[K_ROPE_N - 1].y }
       if (a.slamT > 0) {
         const hwS = KRAKEN_ARM_R * 1.45 * 0.5
-        const k0 = Math.round((K_ROPE_N - 1) * 0.3)
+        const k0 = Math.round((K_ROPE_N - 1) * (a.coilArm ? 0.5 : 0.3))
         const k = a.slamT / KRAKEN_SLAM_T
         // the contact that lights it: the landing nearest this limb (its burst point)
         let cxL = rig.pts[K_ROPE_N - 1].x, cyL = rig.pts[K_ROPE_N - 1].y, best = 180 * 180
@@ -20775,6 +20783,15 @@ const spurG = new Graphics()
         }
         else rig.rope.tint = mix(0x7366a0, 0x403d4b, 1 - fur)
       }
+    }
+    // THE LIMB SITS IN ITS HOLE: the crater's near lip is drawn again over the landed slab
+    for (const g of krakenGround) {
+      const age = K_GROUND_T - g.t
+      if (age > KRAKEN_SLAM_T + 0.1) continue
+      const cr = g.r * 0.5
+      const poly = []
+      for (let m = 0; m < g.crater.length; m += 2) poly.push(g.x + g.crater[m] * cr, g.y + g.crater[m + 1] * cr)
+      krakenSlabTopG.poly(poly).stroke({ width: 5, color: 0xd8b888, alpha: 0.9, join: 'miter' })
     }
     drawKrakenChunks(dt)
     // THE PLAYER, OUTLINED ON TOP, while anything Kraken is landing near them: a crisp dark-and-
@@ -22750,6 +22767,12 @@ const spurG = new Graphics()
   // the world is drawn at camZoom (0.62 on a phone in the Kraken fight), so a fixed amp is a
   // different jolt on every device. `frac` of the short side is the same share of the view anywhere:
   // 0.02 is ~8px on a 390px phone and ~16px on a 1280x800 desktop.
+  function addPunch(amp, x, y) {
+    // one punch at a time: a new one only replaces a weaker one that has already peaked
+    const live = punch.t > 0 ? punch.amp : 0
+    if (amp <= live * 0.9) return
+    punch.amp = amp; punch.x = x; punch.y = y; punch.t = K_PUNCH_IN + K_PUNCH_OUT
+  }
   function addShakeScreen(frac, dur) {
     addShake(frac * Math.min(app.screen.width, app.screen.height) / Math.max(0.05, camZoom()), dur)
   }
@@ -22773,7 +22796,7 @@ const spurG = new Graphics()
   const K_STAR_T = 0.13
   // A slam's contact burst, for its few frames. Same ownership as krakenScars.
   const krakenBursts = []
-  const K_BURST_T = 0.07 // the shockwave ring's life; the bright disc itself is the first K_FLASH_T of it
+  const K_BURST_T = 0.4 // the dust ring's life; the bright disc itself is the first K_FLASH_T of it
   const K_FLASH_T = 0.035
   // Where each slam met the ground, for the length of its hold — what lights the landed slab.
   const krakenLandings = []
@@ -22796,7 +22819,7 @@ const spurG = new Graphics()
     const plates = []
     for (let i = 0; i < 6; i++) {
       const a = Math.random() * Math.PI * 2, d = r * (0.35 + Math.random() * 0.55)
-      plates.push({ x: x + Math.cos(a) * d, y: y + Math.sin(a) * d, r: r * (0.10 + Math.random() * 0.10), rot: Math.random() * 6.28, shape: krakenChunkShape() })
+      plates.push({ x: x + Math.cos(a) * d, y: y + Math.sin(a) * d, r: r * (0.16 + Math.random() * 0.12), rot: Math.random() * 6.28, shape: krakenChunkShape() })
     }
     const crater = []
     const n = 11
@@ -24672,14 +24695,16 @@ const spurG = new Graphics()
           {
             const nc = krakenNearK(run, lx0, ly0, lx1, ly1, lw)
             const cx = e.coil ? e.x : nc.qx, cy = e.coil ? e.y : nc.qy
-            krakenBursts.push({ x: cx, y: cy, r: Math.min(lw * (e.coil ? 0.5 : 0.7), Math.max(10, Math.hypot(cx - run.player.x, cy - run.player.y) - 40)), t: K_BURST_T, ring: e.coil ? 0 : lw * 2.6, maxR: Math.max(10, Math.hypot(cx - run.player.x, cy - run.player.y) - 40) })
+            krakenBursts.push({ x: cx, y: cy, r: Math.min(lw * (e.coil ? 0.5 : 0.7), Math.max(10, Math.hypot(cx - run.player.x, cy - run.player.y) - 40)), t: K_BURST_T, ring: e.coil ? 0 : lw * 6.5 })
             if (krakenBursts.length > 8) krakenBursts.shift()
             krakenLandings.push({ x: cx, y: cy, t: KRAKEN_SLAM_T })
             const hd = krakenHead
             const onBody = !!hd && (cx - hd.x) ** 2 + (cy - hd.y) ** 2 < (KRAKEN_HEAD_R * 1.4) ** 2
             const pd = Math.hypot(cx - run.player.x, cy - run.player.y)
-            const gr = Math.min(lw * (e.coil ? 1.3 : 1.9), (pd - 38) / 0.55)
-            if (!onBody && gr > lw * 0.5) {
+            // a REAL hole: up to three limb-widths across. It may reach the player — the holes in
+            // the light layers keep the fish drawn clean on top of it
+            const gr = e.coil ? lw * 1.3 : Math.max(lw * 1.6, Math.min(lw * 3.2, pd * 1.6))
+            if (!onBody) {
               krakenGround.push(krakenGroundPatch(cx, cy, gr))
               if (krakenGround.length > 8) krakenGround.shift()
             }
@@ -24687,7 +24712,7 @@ const spurG = new Graphics()
             const sc0 = krakenScars[krakenScars.length - 1]
             if (sc0) { sc0.cx = cx; sc0.cy = cy }
             if (e.coil) {
-              const far = Math.min(L, KRAKEN_CAGE_R * 1.6)
+              const far = Math.min(L, KRAKEN_CAGE_R * 1.15)
               krakenBlasts.push({ x0: lx1 - ux * far, y0: ly1 - uy * far, x1: lx1, y1: ly1, w: lw, t: K_BLAST_T })
               if (krakenBlasts.length > 8) krakenBlasts.shift()
             }
@@ -24700,7 +24725,7 @@ const spurG = new Graphics()
               krakenChunks.push({
                 x: cx + ux * along + nx * side * lw * 0.7, y: cy + uy * along + ny * side * lw * 0.7,
                 vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, rot: Math.random() * 6.28, vr: (Math.random() - 0.5) * 9,
-                r: (i < 2 ? 26 : 13) + Math.random() * 8, t: K_CHUNK_T, shape: krakenChunkShape(),
+                r: (i < 3 ? 34 : 18) + Math.random() * 10, t: K_CHUNK_T, shape: krakenChunkShape(),
               })
             }
             while (krakenChunks.length > 40) krakenChunks.shift()
@@ -24712,6 +24737,7 @@ const spurG = new Graphics()
               // THE KICK RUNS DOWN THE SLAM'S OWN AXIS — the limb comes down the line from the rim
               // toward the head, and the camera is thrown the same way — plus a shove off the line
               addKick(ux, uy, 0.034 * nk.k)
+              addPunch(0.09 * nk.k, nk.qx, nk.qy)
               addKick(run.player.x - nk.qx, run.player.y - nk.qy, 0.008 * nk.k)
               if (nk.k >= 1) {
                 // it landed ON you: a hot burst at the fish, so the hit has a place and not only a
@@ -24799,6 +24825,7 @@ const spurG = new Graphics()
           spawnRing(e.x, e.y, e.r * 0.5, 0.26, T.novaWarm, 0xdff4ff)
           addShakeScreen(0.05, 0.55)
           addKick(0, 1, 0.03)
+          addPunch(0.07, e.x, e.y)
           // the one full-field flash in the fight, and a dim one: the Coil comes once every
           // KRAKEN_COIL_EVERY arm attacks, far under the lightning's photosensitivity budget
           lightningFlashA = Math.max(lightningFlashA, 0.22)
@@ -24979,6 +25006,8 @@ const spurG = new Graphics()
     shake.oy = 0
     kick.x = 0
     kick.y = 0
+    punch.t = 0
+    punchZ = 1
     flashT = 0
     vignetteA = 0
     vignette.alpha = 0
@@ -26414,9 +26443,23 @@ const spurG = new Graphics()
       : 1)
     // Eased, not snapped: the block opens mid-fight. dt is 0 behind a modal, which holds it still.
     fightZoom += (wantZoom - fightZoom) * Math.min(1, KRAKEN_RING_ZOOM_EASE * dt)
+    // the punch: rise over K_PUNCH_IN, ease back over K_PUNCH_OUT, monotone both ways
+    const cerBusy = cerZoom !== 1 || cerCam.x !== 0 || cerCam.y !== 0
+    if (punch.t > 0 && dt > 0) punch.t = Math.max(0, punch.t - dt)
+    if (cerBusy) punch.t = 0
+    let pe = 0
+    if (punch.t > 0) {
+      const age = K_PUNCH_IN + K_PUNCH_OUT - punch.t
+      pe = age < K_PUNCH_IN ? age / K_PUNCH_IN : 1 - smooth01((age - K_PUNCH_IN) / K_PUNCH_OUT)
+    }
+    punchZ = 1 + punch.amp * pe
     const z = camZoom()
-    const camX = (laneAheadX ? camFwd : run.player.x) + camLead.x + cerCam.x
-    const camY = (laneAheadY ? camFwd : run.player.y) + camLead.y + cerCam.y
+    // zooming TOWARD the contact: hold that world point still on screen as the view closes in
+    // ...and PAN a third of the way to it: the ring camera leans toward the body, which can leave a
+    // blow landing beside you on the screen's edge; for the punch's length the blow is the shot
+    const pzk = pe > 0 ? (1 - 1 / punchZ) + 0.35 * pe : 0
+    const camX = (laneAheadX ? camFwd : run.player.x) + camLead.x + cerCam.x + (punch.x - run.player.x - camLead.x) * pzk
+    const camY = (laneAheadY ? camFwd : run.player.y) + camLead.y + cerCam.y + (punch.y - run.player.y - camLead.y) * pzk
     if (dt > 0) { const kd = Math.exp(-dt * 14); kick.x *= kd; kick.y *= kd }
     const cx = (laneAheadX ? laneFrac(viewW(), chapterLaneAxis.dir) : viewW() / 2) - camX + shake.ox + kick.x
     const cy = (laneAheadY ? laneFrac(viewH(), chapterLaneAxis.dir) : viewH() / 2) - camY + shake.oy + kick.y
