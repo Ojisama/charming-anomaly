@@ -35503,6 +35503,14 @@ function runKrakenCeremony() {
   const render = strip(readFileSync(new URL('../src/render.js', import.meta.url), 'utf8'))
   assert.ok(/case 'bossDead': \{\s*if \(run\.chapter === 'kraken'\) \{ krakenDeathBegin\(\)/.test(render), 'bossDead does not start the Kraken death')
   assert.ok(/run\.bossOutroT/.test(render), 'render.js never reads run.bossOutroT')
+  // no damage number over the dying face: muted from the kill frame on, and the ones in flight cleared
+  {
+    const sd = render.slice(render.indexOf('function spawnDamage('), render.indexOf('function updateDamage('))
+    assert.ok(/^\s*function spawnDamage\([^)]*\)\s*\{\s*if \(dmgMuted\) return/.test(sd), 'spawnDamage is not muted in the kill outro')
+    assert.ok(/dmgMuted = \(run\.bossOutroT \?\? 0\) > 0\s+handleEvents\(run, events\)/.test(render), 'dmgMuted is not set from run.bossOutroT before the kill frame\'s events are handled')
+    const db = render.slice(render.indexOf('function krakenDeathBegin('), render.indexOf('function krakenRemember('))
+    assert.ok(/clearDamage\(\)/.test(db), 'the kill leaves the numbers already in flight over the face')
+  }
   // (d) the kill step never opens a card screen: the level-up would freeze the death under a modal
   // for a choice the run can never use (it ends on the next step). BEHAVIOURAL: a real kraken run,
   // its head killed by hand, enough xp for a level, one stepLevelUp's worth of stepSim.
