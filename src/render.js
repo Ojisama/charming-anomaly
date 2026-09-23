@@ -20826,7 +20826,7 @@ const spurG = new Graphics()
       krakenSlabTopG.poly(poly).stroke({ width: 5, color: 0xd8b888, alpha: 0.9, join: 'miter' })
     }
     drawKrakenChunks(dt)
-    drawKrakenSplashes(dt)
+    drawKrakenSplashes(dt, run.player)
     // THE PLAYER, OUTLINED ON TOP, while anything Kraken is landing near them: a crisp dark-and-
     // light rim at the fish's own size, so no blow, slab or flash can ever make them hard to find
     if (krakenLandings.length || krakenDim > 0) {
@@ -22969,20 +22969,25 @@ const spurG = new Graphics()
   // frames — a white-hot core, a crown of sand and foam thrown out round it, and flecks flying clear.
   const krakenSplashes = []
   const K_SPLASH_T = 0.24
-  function krakenSplash(x, y, lw, ux, uy) {
+  // the broken ground it leaves (fissures, tipped plates) outlasts the flash
+  const K_SPLASH_LIFE = 0.75
+  // THE BLOW BREAKS THE SEABED ON ITS FIRST FRAME. Thrown along the limb's line, away from the head
+  // (dx,dy): a lumpy sand plume, rock chunks already in the air, fissures running out to three
+  // times the burst, plates tipped up round it. The burst itself is ragged and skewed the same way.
+  function krakenSplash(x, y, lw, ux, uy, dx, dy) {
+    const sa = Math.atan2(dy, dx)
+    const skew = (a) => Math.max(0, Math.cos(a - sa))
+    const side = (a) => Math.abs(Math.cos(a) * -uy + Math.sin(a) * ux)
     const spikes = []
-    const n = 14
+    const n = 13
     for (let i = 0; i < n; i++) {
-      const a = (i / n) * Math.PI * 2 + (Math.random() - 0.5) * 0.3
-      // thrown out sideways off the limb hardest: the seabed goes up on both sides of the blow
-      const side = Math.abs(Math.cos(a) * -uy + Math.sin(a) * ux)
-      spikes.push({ a, len: 0.45 + 0.8 * side + Math.random() * 0.75 })
+      const a = (i / n) * Math.PI * 2 + (Math.random() - 0.5) * 0.45
+      spikes.push({ a, len: 0.35 + 1.15 * skew(a) + 0.35 * side(a) + Math.random() * 0.6, ri: 0.3 + Math.random() * 0.25 })
     }
     const flecks = []
-    for (let i = 0; i < 24; i++) {
-      const a = Math.random() * Math.PI * 2
-      const side = Math.abs(Math.cos(a) * -uy + Math.sin(a) * ux)
-      flecks.push({ a, d: lw * (1.5 + 1.6 * side + Math.random() * 1.2), w: 4 + Math.random() * 5,
+    for (let i = 0; i < 18; i++) {
+      const a = sa + (Math.random() - 0.5) * (i % 3 ? 2.2 : 5.5)
+      flecks.push({ a, d: lw * (1.3 + 1.6 * skew(a) + Math.random() * 1.2), w: 3 + Math.random() * 4,
         c: [0xffffff, 0xfff4d8, 0xffd27a][i % 3], drop: i % 4 === 0 })
     }
     const pit = []
@@ -22990,57 +22995,182 @@ const spurG = new Graphics()
       const a = (i / 14) * Math.PI * 2 + (Math.random() - 0.5) * 0.3, r = i % 2 ? 0.55 + Math.random() * 0.2 : 0.95 + Math.random() * 0.3
       pit.push(Math.cos(a) * r, Math.sin(a) * r)
     }
-    return { x, y, lw, t: K_SPLASH_T, spikes, flecks, pit }
+    // fissures: jagged dark cracks run out from the contact, longest ahead of the blow
+    const cracks = []
+    const nc = 9
+    for (let i = 0; i < nc; i++) {
+      const a = (i / nc) * Math.PI * 2 + (Math.random() - 0.5) * 0.5
+      // short toward the head: the ground under the mantle is the Kraken's own bulk
+      const back = Math.cos(a - sa) < -0.5
+      const reach = lw * (back ? 1.3 + Math.random() * 0.4 : 2.6 + 1.2 * skew(a) + Math.random() * 1.1)
+      const pts = [], segs = 4
+      let ca = a
+      for (let k = 0; k <= segs; k++) {
+        const r = lw * 0.55 + (reach - lw * 0.55) * (k / segs)
+        pts.push(Math.cos(ca) * r, Math.sin(ca) * r)
+        ca += (Math.random() - 0.5) * 0.5
+      }
+      const fork = Math.random() < 0.6 ? { k: 2, a: ca + (Math.random() < 0.5 ? -0.6 : 0.6), len: reach * 0.35 } : null
+      cracks.push({ pts, w: 5 + Math.random() * 4, fork })
+    }
+    // seabed plates tipped up round the contact, heavier on the thrown side
+    const plates = []
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2 + (Math.random() - 0.5) * 0.5
+      const d = lw * (1.05 + 0.5 * skew(a) + Math.random() * 0.35)
+      plates.push({ a, d, r: lw * (0.26 + 0.2 * skew(a) + Math.random() * 0.12), rot: a + (Math.random() - 0.5) * 0.8, shape: krakenChunkShape() })
+    }
+    // the sand plume: opaque lumps blasted out in a fan along the throw, a few thrown sideways
+    const lumps = []
+    for (let i = 0; i < 18; i++) {
+      const fan = i < 14 ? (Math.random() - 0.5) * 1.5 : (Math.random() < 0.5 ? -1 : 1) * (1.3 + Math.random() * 0.4)
+      lumps.push({ a: sa + fan, d: lw * (0.5 + Math.random() * (i < 12 ? 1.9 : 1.0)), r: lw * (0.28 + Math.random() * 0.32), c: [0xc9a36a, 0xb8925a, 0xd8b884][i % 3] })
+    }
+    // rock thrown clear, mixed sizes, a few as big as the fish
+    const rocks = []
+    for (let i = 0; i < 12; i++) {
+      const a = sa + (Math.random() - 0.5) * (i < 8 ? 1.7 : 4.2)
+      const big = i < 3
+      rocks.push({ a, d0: lw * (0.8 + Math.random() * 0.3), d1: lw * (2.4 + Math.random() * 1.9 + (big ? 0 : 0.6)),
+        r: big ? 20 + Math.random() * 10 : 6 + Math.random() * 10, rot: Math.random() * 6.28, vr: (Math.random() - 0.5) * 14, shape: krakenChunkShape() })
+    }
+    return { x, y, lw, t: K_SPLASH_LIFE, sa, spikes, flecks, pit, cracks, plates, lumps, rocks }
   }
-  function drawKrakenSplashes(dt) {
+  function drawKrakenSplashes(dt, pl0) {
+    const G = krakenSlabTopG
+    const clear = (x, y, r) => !pl0 || (x - pl0.x) ** 2 + (y - pl0.y) ** 2 > (34 + r) ** 2
     for (let i = krakenSplashes.length - 1; i >= 0; i--) {
       const sp = krakenSplashes[i]
       if (dt > 0) sp.t -= dt
       if (sp.t <= 0) { krakenSplashes.splice(i, 1); continue }
-      const age = K_SPLASH_T - sp.t, e = age / K_SPLASH_T, lw = sp.lw
+      const age = K_SPLASH_LIFE - sp.t, e = Math.min(1, age / K_SPLASH_T), lw = sp.lw
       const out = 1 - Math.pow(1 - e, 3)
-      // the crown: a jagged star of foam and sand, full size within a few frames, then thinning
-      const g = Math.min(1, age / 0.05)
-      const ca = age < 0.1 ? 1 : Math.max(0, 1 - (age - 0.1) / 0.12)
-      if (ca > 0) {
-        const pts = []
-        for (let k = 0; k < sp.spikes.length; k++) {
-          const s0 = sp.spikes[k], s1 = sp.spikes[(k + 1) % sp.spikes.length]
-          const ro = lw * (0.6 + 0.7 * g) * s0.len
-          pts.push(sp.x + Math.cos(s0.a) * ro, sp.y + Math.sin(s0.a) * ro)
-          const am = s0.a + (((s1.a - s0.a) + Math.PI * 4) % (Math.PI * 2)) * 0.5
-          const ri = lw * (0.45 + 0.35 * g)
-          pts.push(sp.x + Math.cos(am) * ri, sp.y + Math.sin(am) * ri)
+      const al = Math.min(1, sp.t / 0.3)
+      // the fissures, full length from the first frame: tapered black wedges, lit on one lip
+      for (const c of sp.cracks) {
+        const wedge = (pts, w0, ox, oy, color, alpha) => {
+          const n = pts.length / 2, L = [], R = []
+          for (let k = 0; k < n; k++) {
+            const k0 = Math.max(0, k - 1), k1 = Math.min(n - 1, k + 1)
+            let tx = pts[k1 * 2] - pts[k0 * 2], ty = pts[k1 * 2 + 1] - pts[k0 * 2 + 1]
+            const tl = Math.hypot(tx, ty) || 1
+            tx /= tl; ty /= tl
+            const hw = (w0 * (1 - k / (n - 1)) + 1) * 0.5
+            const x = sp.x + pts[k * 2] + ox, y = sp.y + pts[k * 2 + 1] + oy
+            L.push(x - ty * hw, y + tx * hw); R.unshift(x + ty * hw, y - tx * hw)
+          }
+          G.poly(L.concat(R)).fill({ color, alpha })
         }
-        krakenSlabTopG.poly(pts).fill({ color: 0xfff8ea, alpha: 0.95 * ca })
-        krakenSlabTopG.poly(pts).stroke({ width: 5, color: 0xff9a2e, alpha: ca, join: 'miter' })
+        const fk = c.fork ? [c.pts[c.fork.k * 2], c.pts[c.fork.k * 2 + 1]] : null
+        const fpts = fk ? [fk[0], fk[1], fk[0] + Math.cos(c.fork.a) * c.fork.len * 0.5, fk[1] + Math.sin(c.fork.a) * c.fork.len * 0.5, fk[0] + Math.cos(c.fork.a + 0.2) * c.fork.len, fk[1] + Math.sin(c.fork.a + 0.2) * c.fork.len] : null
+        wedge(c.pts, c.w * 2.4, -3, -3, 0xe0c090, 0.8 * al)
+        if (fpts) wedge(fpts, c.w * 1.2, -3, -3, 0xe0c090, 0.8 * al)
+        wedge(c.pts, c.w * 2.4, 0, 0, 0x050302, al)
+        if (fpts) wedge(fpts, c.w * 1.2, 0, 0, 0x050302, al)
       }
-      // the crater it punches: black and hard-lipped, opening under the spray as it lifts off
-      const pr = lw * (0.25 + 0.5 * Math.min(1, age / 0.06))
-      if (age > 0.012) {
-        const pp = []
-        for (let m = 0; m < sp.pit.length; m += 2) pp.push(sp.x + sp.pit[m] * pr, sp.y + sp.pit[m + 1] * pr)
-        krakenSlabTopG.poly(pp).fill({ color: 0x050302, alpha: 1 })
-        krakenSlabTopG.poly(pp).stroke({ width: 5, color: 0xffd9a0, alpha: 1, join: 'miter' })
-      }
-      // the white-hot core, biggest on the first frames
-      const cr = lw * 0.42 * (age < 0.04 ? 1 : Math.max(0, 1 - (age - 0.04) / 0.06))
-      if (cr > 1) {
-        krakenSlabTopG.circle(sp.x, sp.y, cr + 6).fill({ color: 0xffc23a, alpha: 1 })
-        krakenSlabTopG.circle(sp.x, sp.y, cr).fill({ color: 0xffffff, alpha: 1 })
-      }
-      // flecks flying clear, each a streak laid along its own flight, a few of them round drops
-      const fa = e < 0.7 ? 1 : (1 - e) / 0.3
-      for (const f of sp.flecks) {
-        const d = lw * 0.4 + (f.d - lw * 0.4) * out
-        const x = sp.x + Math.cos(f.a) * d, y = sp.y + Math.sin(f.a) * d
-        if (f.drop) {
-          krakenSlabTopG.circle(x, y, f.w * 0.9).fill({ color: f.c, alpha: fa })
-          continue
+      // plates of seabed tipped up: a black underside showing on the outer edge, a lit sand face
+      const tip = Math.min(1, age / 0.03)
+      for (const p of sp.plates) {
+        const d = p.d + lw * 0.12 * tip
+        const px = sp.x + Math.cos(p.a) * d, py = sp.y + Math.sin(p.a) * d
+        if (!clear(px, py, p.r * 0.5)) continue
+        const cs = Math.cos(p.rot), sn = Math.sin(p.rot)
+        const poly = (ox, oy, k) => {
+          const pp = []
+          for (let m = 0; m < p.shape.length; m += 2) {
+            const qx = p.shape[m] * p.r * k, qy = p.shape[m + 1] * p.r
+            pp.push(px + ox + qx * cs - qy * sn, py + oy + qx * sn + qy * cs)
+          }
+          return pp
         }
-        const tl = (16 + 40 * (1 - e)) * (0.6 + f.w / 12)
-        krakenSlabTopG.moveTo(x - Math.cos(f.a) * tl, y - Math.sin(f.a) * tl).lineTo(x, y)
-          .stroke({ width: f.w, color: f.c, alpha: fa, cap: 'round' })
+        const lift = p.r * 0.35 * tip
+        G.poly(poly(Math.cos(p.a) * lift, Math.sin(p.a) * lift, 1)).fill({ color: 0x0a0604, alpha: al })
+        G.poly(poly(0, 0, 1 - 0.25 * tip)).fill({ color: 0xa88a60, alpha: al })
+        G.poly(poly(0, 0, 1 - 0.25 * tip)).stroke({ width: 3, color: 0xe8d0a0, alpha: al, join: 'miter' })
+      }
+      // the burst goes under the matter, so the sand and rock read as thrown THROUGH the flash
+      if (age < K_SPLASH_T) {
+        // the burst: ragged, skewed hard along the throw
+        const g = Math.min(1, age / 0.04)
+        const ca = age < 0.1 ? 1 : Math.max(0, 1 - (age - 0.1) / 0.12)
+        if (ca > 0) {
+          const pts = []
+          for (let k = 0; k < sp.spikes.length; k++) {
+            const s0 = sp.spikes[k], s1 = sp.spikes[(k + 1) % sp.spikes.length]
+            const ro = lw * (0.45 + 0.4 * g) * s0.len
+            pts.push(sp.x + Math.cos(s0.a) * ro, sp.y + Math.sin(s0.a) * ro)
+            const am = s0.a + (((s1.a - s0.a) + Math.PI * 4) % (Math.PI * 2)) * 0.5
+            const ri = lw * (s0.ri + 0.2 * g)
+            pts.push(sp.x + Math.cos(am) * ri, sp.y + Math.sin(am) * ri)
+          }
+          G.poly(pts).fill({ color: 0xfff8ea, alpha: 0.95 * ca })
+          G.poly(pts).stroke({ width: 4, color: 0xff9a2e, alpha: ca, join: 'miter' })
+        }
+      }
+      // the sand plume: opaque, lumpy, rolling out along the throw and settling
+      const pa = age < 0.3 ? 1 : Math.max(0, 1 - (age - 0.3) / 0.3)
+      if (pa > 0) {
+        const grow = 1 - Math.exp(-age / 0.07)
+        for (const L of sp.lumps) {
+          const d = L.d * (0.45 + 0.75 * grow), r = L.r * (0.7 + 0.5 * grow)
+          G.circle(sp.x + Math.cos(L.a) * d + 4, sp.y + Math.sin(L.a) * d + 6, r + 3).fill({ color: 0x1a120a, alpha: 0.9 * pa })
+          G.circle(sp.x + Math.cos(L.a) * d, sp.y + Math.sin(L.a) * d, r + 3).fill({ color: 0x5a3e22, alpha: pa })
+        }
+        for (const L of sp.lumps) {
+          const d = L.d * (0.45 + 0.75 * grow), r = L.r * (0.7 + 0.5 * grow)
+          const x = sp.x + Math.cos(L.a) * d, y = sp.y + Math.sin(L.a) * d
+          G.circle(x, y, r).fill({ color: L.c, alpha: pa })
+          G.circle(x - r * 0.25, y - r * 0.25, r * 0.45).fill({ color: 0xf0dcb0, alpha: 0.6 * pa })
+        }
+      }
+      if (age < K_SPLASH_T) {
+        // the crater it punches
+        const pr = lw * (0.22 + 0.4 * Math.min(1, age / 0.06))
+        if (age > 0.012) {
+          const pp = []
+          for (let m = 0; m < sp.pit.length; m += 2) pp.push(sp.x + sp.pit[m] * pr, sp.y + sp.pit[m + 1] * pr)
+          G.poly(pp).fill({ color: 0x050302, alpha: 1 })
+          G.poly(pp).stroke({ width: 4, color: 0xffd9a0, alpha: 1, join: 'miter' })
+        }
+        // the white-hot core, small and hard
+        const cr = lw * 0.28 * (age < 0.04 ? 1 : Math.max(0, 1 - (age - 0.04) / 0.06))
+        if (cr > 1) {
+          G.circle(sp.x, sp.y, cr + 5).fill({ color: 0xffc23a, alpha: 1 })
+          G.circle(sp.x, sp.y, cr).fill({ color: 0xffffff, alpha: 1 })
+        }
+        const fa = e < 0.7 ? 1 : (1 - e) / 0.3
+        for (const f of sp.flecks) {
+          const d = lw * 0.4 + (f.d - lw * 0.4) * out
+          const x = sp.x + Math.cos(f.a) * d, y = sp.y + Math.sin(f.a) * d
+          if (f.drop) { G.circle(x, y, f.w * 0.9).fill({ color: f.c, alpha: fa }); continue }
+          const tl = (14 + 34 * (1 - e)) * (0.6 + f.w / 12)
+          G.moveTo(x - Math.cos(f.a) * tl, y - Math.sin(f.a) * tl).lineTo(x, y).stroke({ width: f.w, color: f.c, alpha: fa, cap: 'round' })
+        }
+      }
+      // rock chunks in the air from the first frame, streaking out and dropping
+      const ra = age < 0.45 ? 1 : Math.max(0, 1 - (age - 0.45) / 0.2)
+      if (ra > 0) {
+        const fly = 1 - Math.exp(-age / 0.09)
+        const v = Math.exp(-age / 0.09)
+        for (const r of sp.rocks) {
+          const d = r.d0 + (r.d1 - r.d0) * fly
+          const x = sp.x + Math.cos(r.a) * d, y = sp.y + Math.sin(r.a) * d
+          if (!clear(x, y, r.r)) continue
+          const k = 1 + 0.35 * Math.sin(Math.min(1, age / 0.5) * Math.PI)
+          const tl = (r.d1 - r.d0) * v * 0.45
+          if (tl > 4) {
+            G.moveTo(x - Math.cos(r.a) * (tl + r.r), y - Math.sin(r.a) * (tl + r.r)).lineTo(x, y)
+              .stroke({ width: r.r * 0.8, color: 0x9a7a50, alpha: 0.6 * ra, cap: 'round' })
+          }
+          const rot = r.rot + r.vr * age, cs = Math.cos(rot), sn = Math.sin(rot)
+          const pp = []
+          for (let m = 0; m < r.shape.length; m += 2) {
+            const qx = r.shape[m] * r.r * k, qy = r.shape[m + 1] * r.r * k
+            pp.push(x + qx * cs - qy * sn, y + qx * sn + qy * cs)
+          }
+          G.poly(pp).fill({ color: 0x2a2019, alpha: ra })
+          G.poly(pp).stroke({ width: 2.5, color: 0xb89c70, alpha: ra, join: 'miter' })
+        }
       }
     }
   }
@@ -25003,7 +25133,10 @@ const spurG = new Graphics()
             if (krakenBursts.length > 8) krakenBursts.shift()
             krakenLandings.push({ x: cx, y: cy, t: KRAKEN_SLAM_T })
             if (!e.coil) {
-              krakenSplashes.push(krakenSplash(cx, cy, lw, ux, uy))
+              // thrown along the limb's line, away from the head
+              const hh = krakenHead
+              const away = hh ? Math.sign((cx - hh.x) * ux + (cy - hh.y) * uy) || 1 : 1
+              krakenSplashes.push(krakenSplash(cx, cy, lw, ux, uy, ux * away, uy * away))
               if (krakenSplashes.length > 4) krakenSplashes.shift()
             }
             const hd = krakenHead
