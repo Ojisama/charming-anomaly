@@ -19979,9 +19979,9 @@ const spurG = new Graphics()
       if (dt > 0) b.t -= dt
       if (b.t <= 0) { krakenBlasts.splice(i, 1); continue }
       krakenDangerG.moveTo(b.x0, b.y0).lineTo(b.x1, b.y1)
-        .stroke({ width: 2 * b.w, color: K_HAZARD_HOT, alpha: 0.85, cap: 'round' })
+        .stroke({ width: 2 * b.w, color: K_HAZARD_HOT, alpha: 0.6, cap: 'round' })
       krakenDangerG.moveTo(b.x0, b.y0).lineTo(b.x1, b.y1)
-        .stroke({ width: b.w, color: 0xffffff, alpha: 0.7, cap: 'round' })
+        .stroke({ width: b.w * 0.45, color: 0xffffff, alpha: 0.6, cap: 'round' })
     }
     for (let i = krakenBursts.length - 1; i >= 0; i--) {
       const b = krakenBursts[i]
@@ -19996,7 +19996,7 @@ const spurG = new Graphics()
       // the dust ring: a HARD edge running out across the seabed, slowing, thinning
       if (b.ring) {
         const e = age / K_BURST_T
-        const rr = b.ring * (0.35 + 0.65 * (1 - (1 - e) * (1 - e)))
+        const rr = Math.min(b.ring * (0.35 + 0.65 * (1 - (1 - e) * (1 - e))), b.maxR ?? Infinity)
         krakenSlabTopG.circle(b.x, b.y, rr).stroke({ width: 5 * (1 - e) + 1, color: 0xd8c7ad, alpha: 0.85 * (1 - e) })
       }
     }
@@ -20277,7 +20277,7 @@ const spurG = new Graphics()
     krakenGripG.clear()
     krakenGripFrontG.clear()
     drawKrakenStars(dt)
-    drawKrakenGround(dt)
+    drawKrakenGround(dt, run.player)
     drawKrakenBursts(dt)
     krakenHold = 0
     const head = krakenHead
@@ -21638,11 +21638,11 @@ const spurG = new Graphics()
     krakenDangerG.clear()
     krakenImpactG.clear()
     krakenDangerHole.clear()
-    krakenDangerHole.circle(run.player.x, run.player.y, 30).fill({ color: 0xffffff })
+    krakenDangerHole.circle(run.player.x, run.player.y, 36).fill({ color: 0xffffff })
     krakenSlabHole.clear()
-    krakenSlabHole.circle(run.player.x, run.player.y, 30).fill({ color: 0xffffff })
+    krakenSlabHole.circle(run.player.x, run.player.y, 36).fill({ color: 0xffffff })
     krakenDimHole.clear()
-    krakenDimHole.circle(run.player.x, run.player.y, 30).fill({ color: 0xffffff })
+    krakenDimHole.circle(run.player.x, run.player.y, 36).fill({ color: 0xffffff })
     krakenDimG.clear()
     if (krakenDim > 0) {
       if (frameDt > 0) krakenDim = Math.max(0, krakenDim - frameDt)
@@ -22773,19 +22773,19 @@ const spurG = new Graphics()
   const K_STAR_T = 0.13
   // A slam's contact burst, for its few frames. Same ownership as krakenScars.
   const krakenBursts = []
-  const K_BURST_T = 0.4 // the ring's life; the bright disc itself is the first K_FLASH_T of it
-  const K_FLASH_T = 0.04
+  const K_BURST_T = 0.07 // the shockwave ring's life; the bright disc itself is the first K_FLASH_T of it
+  const K_FLASH_T = 0.035
   // Where each slam met the ground, for the length of its hold — what lights the landed slab.
   const krakenLandings = []
   // A Coil lane's detonation: the struck lane filled and blown outward with a hard leading edge.
   const krakenBlasts = []
-  const K_BLAST_T = 0.06
+  const K_BLAST_T = 0.035
   // THE GROUND THE BLOW REVEALS. Under the Light-bar dark there is no seabed on screen to break, so
   // a landing LIGHTS a patch of it — sand ripples and rock plates — around the contact for a beat,
   // stamps its crater into that lit ground, and throws chunks of the same ground; the patch fades
   // back to dark over K_GROUND_T and the crater's lit rim is the last thing to go.
   const krakenGround = []
-  const K_GROUND_T = 1.1
+  const K_GROUND_T = 1.6
   function krakenGroundPatch(x, y, r) {
     const ripples = []
     const ang = Math.random() * Math.PI
@@ -22807,40 +22807,46 @@ const spurG = new Graphics()
     }
     return { x, y, r, t: K_GROUND_T, ripples, plates, crater, ang }
   }
-  function drawKrakenGround(dt) {
+  function drawKrakenGround(dt, pl0) {
+    const clear = (x, y) => !pl0 || (x - pl0.x) ** 2 + (y - pl0.y) ** 2 > 44 * 44
     for (let i = krakenGround.length - 1; i >= 0; i--) {
       const g = krakenGround[i]
       if (dt > 0) g.t -= dt
       if (g.t <= 0) { krakenGround.splice(i, 1); continue }
       const age = K_GROUND_T - g.t
-      const lit = age < 0.15 ? 1 : Math.max(0, 1 - (age - 0.15) / (K_GROUND_T - 0.15))
-      // the lit seabed: a warm sand disc and its ripples and plates, in the additive danger light
-      krakenDangerG.circle(g.x, g.y, g.r).fill({ color: 0x5a4a34, alpha: 0.75 * lit })
-      krakenDangerG.circle(g.x, g.y, g.r * 0.62).fill({ color: 0x3a2e1e, alpha: 0.6 * lit })
+      // it stays a solid mark for most of its life and only fades out at the very end
+      const al = Math.min(1, g.t / 0.4)
+      const lit = age < 0.12 ? 1 : Math.max(0.35, 1 - (age - 0.12) / 0.6)
+      const cr = g.r * 0.5 * (0.85 + 0.15 * Math.min(1, age / 0.06))
+      // cracks radiating out of the pit across the seabed: dark fissures with a lit edge
       const ca = Math.cos(g.ang), sa = Math.sin(g.ang)
-      for (const rp of g.ripples) {
-        const cx = g.x - sa * rp.off, cy = g.y + ca * rp.off
-        const c2 = Math.cos(rp.a), s2 = Math.sin(rp.a)
-        krakenDangerG.moveTo(cx - c2 * rp.len * 0.5, cy - s2 * rp.len * 0.5)
-          .quadraticCurveTo(cx - s2 * 6, cy + c2 * 6, cx + c2 * rp.len * 0.5, cy + s2 * rp.len * 0.5)
-          .stroke({ width: 2.5, color: 0xa08a64, alpha: 0.8 * lit })
+      for (let k = 0; k < g.ripples.length; k++) {
+        const rp = g.ripples[k]
+        const a = g.ang + k * 1.26 + rp.off * 0.004
+        const x0 = g.x + Math.cos(a) * cr * 0.9, y0 = g.y + Math.sin(a) * cr * 0.9
+        const x1 = g.x + Math.cos(a + 0.18) * (cr + rp.len * 0.55), y1 = g.y + Math.sin(a + 0.18) * (cr + rp.len * 0.55)
+        const x2 = g.x + Math.cos(a - 0.1) * (cr + rp.len), y2 = g.y + Math.sin(a - 0.1) * (cr + rp.len)
+        if (!clear(x1, y1) || !clear(x2, y2)) continue
+        krakenSlabTopG.moveTo(x0, y0).lineTo(x1, y1).lineTo(x2, y2).stroke({ width: 6, color: 0xc8a878, alpha: 0.7 * al * lit, join: 'miter' })
+        krakenSlabTopG.moveTo(x0, y0).lineTo(x1, y1).lineTo(x2, y2).stroke({ width: 3, color: 0x070403, alpha: al, join: 'miter' })
       }
-      for (const pl of g.plates) {
-        const cs = Math.cos(pl.rot), sn = Math.sin(pl.rot)
-        const poly = []
-        for (let m = 0; m < pl.shape.length; m += 2) {
-          const px = pl.shape[m] * pl.r, py = pl.shape[m + 1] * pl.r
-          poly.push(pl.x + px * cs - py * sn, pl.y + px * sn + py * cs)
-        }
-        krakenDangerG.poly(poly).stroke({ width: 2, color: 0xb8a078, alpha: 0.7 * lit })
-      }
-      // the crater, STAMPED INTO the ground: an opaque dark pit with a jagged lip, lit on its rim
-      const cf = Math.min(1, g.t / 0.35)
-      const cr = g.r * 0.42 * (0.8 + 0.2 * Math.min(1, age / 0.08))
+      // the pit: opaque, jagged, a thick lit lip — stamped, not glowing
       const poly = []
       for (let m = 0; m < g.crater.length; m += 2) poly.push(g.x + g.crater[m] * cr, g.y + g.crater[m + 1] * cr)
-      krakenSlabTopG.poly(poly).fill({ color: 0x080503, alpha: 0.92 * cf })
-      krakenSlabTopG.poly(poly).stroke({ width: 3, color: 0xe8c898, alpha: (0.35 + 0.6 * lit) * cf, join: 'miter' })
+      krakenSlabTopG.poly(poly).stroke({ width: 7, color: 0xd8b888, alpha: 0.9 * al * lit, join: 'miter' })
+      krakenSlabTopG.poly(poly).fill({ color: 0x0a0604, alpha: 0.96 * al })
+      // broken plates of seabed lying round the rim, filled
+      for (const pl of g.plates) {
+        if (!clear(pl.x, pl.y)) continue
+        const cs = Math.cos(pl.rot), sn = Math.sin(pl.rot)
+        const pp = []
+        for (let m = 0; m < pl.shape.length; m += 2) {
+          const px = pl.shape[m] * pl.r, py = pl.shape[m + 1] * pl.r
+          pp.push(pl.x + px * cs - py * sn, pl.y + px * sn + py * cs)
+        }
+        krakenSlabTopG.poly(pp).fill({ color: 0x8a7254, alpha: al })
+        krakenSlabTopG.poly(pp).stroke({ width: 2, color: 0x150d06, alpha: al, join: 'miter' })
+      }
     }
   }
   // Seabed slabs thrown out from under a landed limb: angular, dark, lit-edged, settling.
@@ -24666,11 +24672,17 @@ const spurG = new Graphics()
           {
             const nc = krakenNearK(run, lx0, ly0, lx1, ly1, lw)
             const cx = e.coil ? e.x : nc.qx, cy = e.coil ? e.y : nc.qy
-            krakenBursts.push({ x: cx, y: cy, r: lw * (e.coil ? 0.5 : 0.7), t: K_BURST_T, ring: e.coil ? 0 : lw * 2.6 })
+            krakenBursts.push({ x: cx, y: cy, r: Math.min(lw * (e.coil ? 0.5 : 0.7), Math.max(10, Math.hypot(cx - run.player.x, cy - run.player.y) - 40)), t: K_BURST_T, ring: e.coil ? 0 : lw * 2.6, maxR: Math.max(10, Math.hypot(cx - run.player.x, cy - run.player.y) - 40) })
             if (krakenBursts.length > 8) krakenBursts.shift()
             krakenLandings.push({ x: cx, y: cy, t: KRAKEN_SLAM_T })
-            krakenGround.push(krakenGroundPatch(cx, cy, lw * (e.coil ? 1.3 : 1.9)))
-            if (krakenGround.length > 8) krakenGround.shift()
+            const hd = krakenHead
+            const onBody = !!hd && (cx - hd.x) ** 2 + (cy - hd.y) ** 2 < (KRAKEN_HEAD_R * 1.4) ** 2
+            const pd = Math.hypot(cx - run.player.x, cy - run.player.y)
+            const gr = Math.min(lw * (e.coil ? 1.3 : 1.9), (pd - 38) / 0.55)
+            if (!onBody && gr > lw * 0.5) {
+              krakenGround.push(krakenGroundPatch(cx, cy, gr))
+              if (krakenGround.length > 8) krakenGround.shift()
+            }
             if (krakenLandings.length > 8) krakenLandings.shift()
             const sc0 = krakenScars[krakenScars.length - 1]
             if (sc0) { sc0.cx = cx; sc0.cy = cy }
