@@ -14794,6 +14794,13 @@ function buildLevelUpChoices(run) {
   return cards
 }
 
+// The Kraken's head has died this step and stepKrakenScript will call the win on the next one.
+export function krakenWinPending(run) {
+  const s = run.script
+  if (run.chapter !== 'kraken' || !s || s.headId == null) return false
+  return !run.enemies.some((e) => e.id === s.headId && !e._dead)
+}
+
 function stepLevelUp(run) {
   const p = run.player
   if (p.xp < p.xpNext) return
@@ -14803,6 +14810,9 @@ function stepLevelUp(run) {
   p.xp -= p.xpNext
   p.level += 1
   p.xpNext = xpForLevel(p.level)
+  // THE KRAKEN'S KILL. Its head is dead and the win lands on the next step, so a card screen now is
+  // one the run can never use, and it froze the boss's death under a modal. The level still counts.
+  if (krakenWinPending(run)) return
   // (v7.20: the per-screen anomaly memo that used to be cleared here is gone — the tier is rolled
   // fresh on every deal, at ANOMALY_REROLL_MUL of its weight on the paid ones. The pity counter
   // below is now the only per-screen anomaly state.)

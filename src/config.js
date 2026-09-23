@@ -14925,7 +14925,7 @@ export const KRAKEN_BEATS = {
 export const KRAKEN_CEREMONY = {
   arrive: { bars: 0.4, textIn: 0.7, hold: 3.6, out: 0.6, dim: 0.42, zoomFrom: 1.14 },
   // 2.6s is KRAKEN_RISE_T, the head's own harmless window: the beat lives inside it, never past it
-  rise:   { bars: 0.3, textIn: 0.35, hold: 2.2, out: 0.4, dim: 0.34, lean: 0.38 },
+  rise:   { bars: 0.3, textIn: 0.35, hold: 2.2, out: 0.4, dim: 0.34 },
   // the enrage has no safe window: no bars, no dim over the arms, the line on the half the head is not
   enrage: { textIn: 0.1, hold: 1.5, out: 0.35, edge: 0.55, zoomKick: 1.07 },
   barFrac: 0.085,   // letterbox bar height, fraction of screen height

@@ -175,7 +175,7 @@ import {
   KRAKEN_LASH_W, KRAKEN_LASH_OVER, KRAKEN_LASH_DMG, KRAKEN_ARRIVE_T2, KRAKEN_WAVE_GROWTH, KRAKEN_COIL_DMG,
   KRAKEN_HEAD_SPEED, KRAKEN_PARRY_SPIN_T,
 } from '../src/config.js'
-import { stepSim, applyChoice, buildLevelUpChoices, eligibleWeaponModCandidates, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, inRefillCircle, stepCharge, newElWindow, spurAt } from '../src/sim.js'
+import { krakenWinPending, stepSim, applyChoice, buildLevelUpChoices, eligibleWeaponModCandidates, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, inRefillCircle, stepCharge, newElWindow, spurAt } from '../src/sim.js'
 
 // ---- Scenario runner: one filter, and the gate's own dispatch flag ----------------------------
 // THIS FILE IS NO LONGER WHAT `npm test` RUNS. scripts/test-isolation.mjs hands one scenario to
@@ -35503,5 +35503,38 @@ function runKrakenCeremony() {
   const render = strip(readFileSync(new URL('../src/render.js', import.meta.url), 'utf8'))
   assert.ok(/case 'bossDead': \{\s*if \(run\.chapter === 'kraken'\) \{ krakenDeathBegin\(\)/.test(render), 'bossDead does not start the Kraken death')
   assert.ok(/run\.bossOutroT/.test(render), 'render.js never reads run.bossOutroT')
-  console.log('PASS run KC (The Kraken ceremony): KRAKEN_OUTRO beats in order, only the kraken holds its kill, main.js never steps the sim in the kill outro and reaches endRun(true) from it alone, the clock is set before the kill frame renders, render.js starts the death on bossDead and reads the clock')
+  // (d) the kill step never opens a card screen: the level-up would freeze the death under a modal
+  // for a choice the run can never use (it ends on the next step). BEHAVIOURAL: a real kraken run,
+  // its head killed by hand, enough xp for a level, one stepLevelUp's worth of stepSim.
+  {
+    const run = createRun(makeMeta(), { chapter: 'kraken', difficulty: 3 })
+    assert.strictEqual(run.chapter, 'kraken', 'createRun did not make a Kraken run')
+    let g = 0
+    while (run.script.headId == null && g++ < 60 * 400) {
+      stepSim(run, { x: 0, y: 0 }, 1 / 60); run.events.length = 0; run.player.hp = run.player.maxHP
+      if (run.phase === 'levelup') { applyChoice(run, 0); run.phase = 'playing' }
+    }
+    assert.ok(run.script.headId != null, 'the head never surfaced, so nothing below is measured')
+    const head = run.enemies.find((e) => e.id === run.script.headId)
+    assert.ok(!krakenWinPending(run), 'a live head reads as a pending win')
+    const other = createRun(makeMeta(), { chapter: 'deep', difficulty: 1 })
+    other.script = { headId: 12345 }
+    assert.ok(!krakenWinPending(other), 'krakenWinPending fires outside The Kraken')
+    head._dead = true
+    assert.ok(krakenWinPending(run), 'a dead head is not read as a pending win')
+    // the order stepSim really has: the script already ran this step (it saw the head alive), then
+    // the kill and the xp. Reproduced by giving the xp with the head dead and calling the tail of the
+    // step directly through stepSim's own level-up gate.
+    const lv = run.player.level
+    run.player.xp = run.player.xpNext + 1
+    const src = strip(readFileSync(new URL('../src/sim.js', import.meta.url), 'utf8'))
+    const fnAt = src.indexOf('function stepLevelUp(run)')
+    const body = src.slice(fnAt, src.indexOf("run.phase = 'levelup'", fnAt))
+    assert.ok(fnAt > 0 && /if \(krakenWinPending\(run\)\) return/.test(body) && body.indexOf('p.level += 1') < body.indexOf('krakenWinPending'),
+      'stepLevelUp does not skip the card screen on the Kraken kill step (after counting the level)')
+    stepSim(run, { x: 0, y: 0 }, 1 / 60)
+    assert.strictEqual(run.phase, 'victory', 'the step after the kill is not the win, got ' + run.phase)
+    assert.ok(run.player.level >= lv, 'the level was lost')
+  }
+  console.log('PASS run KC (The Kraken ceremony): the kill step opens no card screen (the level still counts), KRAKEN_OUTRO beats in order, only the kraken holds its kill, main.js never steps the sim in the kill outro and reaches endRun(true) from it alone, the clock is set before the kill frame renders, render.js starts the death on bossDead and reads the clock')
 }

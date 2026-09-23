@@ -1674,9 +1674,9 @@ const CONFIG = {
   'The Kraken': 'Le Kraken',
   'the graveyard is its domain': 'le cimetière est son domaine',
   'Kraken': 'Kraken',
-  // KRAKEN_BEATS: the fight's two phase cards and its death banner. DRAFTS pending the owner.
+  // KRAKEN_BEATS: the fight's two phase cards and its death banner (owner-approved 2026-09-23).
   'IT RISES': 'IL SURGIT',
-  'THE ARMS RETURN': 'LES BRAS REVIENNENT',
+  'THE ARMS RETURN': 'LES TENTACULES REPOUSSENT',
   'KRAKEN SLAIN': 'KRAKEN TERRASSÉ',
   'The Bulkhead': 'La Cloison',
   'The Gaff': 'La Gaffe',

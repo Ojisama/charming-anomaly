@@ -16188,6 +16188,25 @@ const spurG = new Graphics()
     darkCtx.beginPath()
     darkCtx.arc(px * s, py * s, lampR, 0, Math.PI * 2)
     darkCtx.fill()
+    // THE KRAKEN DIES IN ITS OWN LIGHT. The kill is framed on the head, which in the chase is usually
+    // past the edge of your lamp; the death lights it (burst, then the glow dying with the body),
+    // or the ceremony would be a starburst round a black hole.
+    const kd = krakenDeathLight(run)
+    if (kd > 0.01) {
+      // world -> screen through the real transform: the fight camera is zoomed out
+      const hx = (world.position.x + kDeath.hx * world.scale.x) * s, hy = (world.position.y + kDeath.hy * world.scale.y) * s
+      const hr = Math.max(1, KRAKEN_HEAD_R * 2.6 * s * world.scale.x)
+      const g2 = darkCtx.createRadialGradient(hx, hy, 0, hx, hy, hr)
+      g2.addColorStop(0, rgbAt(kd))
+      g2.addColorStop(0.55, rgbAt(kd * 0.8))
+      g2.addColorStop(1, rgbAt(0))
+      darkCtx.globalCompositeOperation = 'lighten'
+      darkCtx.fillStyle = g2
+      darkCtx.beginPath()
+      darkCtx.arc(hx, hy, hr, 0, Math.PI * 2)
+      darkCtx.fill()
+      darkCtx.globalCompositeOperation = 'source-over'
+    }
 
     // A MAW IS NOT A LIGHT, AND THIS IS THE LINE THAT SAYS SO. Every other refill circle in the game
     // clears the darkness it sits in — a sun shaft, a tide pool, a pocket of air are all places you
@@ -21549,7 +21568,10 @@ const spurG = new Graphics()
 
   // THE CHASE: the same body at head size, riding the pooled sprite's transform (so the rise, the
   // lunge pose and status tints all still apply) with that sprite hidden
-  function syncKrakenHeadRig(run, dt, head) {
+  // `death` (the ceremony's krakenDeathPose) drives this same rig through the kill: the entity and
+  // its pooled sprite are gone by then, so the pose carries the last drawn transform instead.
+  function syncKrakenHeadRig(run, dt, head, death = null) {
+    if (death) { poseKrakenHeadDeath(death); return }
     const s = run.script
     const hs = head && s && s.phase === 'chase' ? enemySprites.get(head.id) : null
     if (!hs || !hs.visible || !T.krakenBody) { krakenHeadRig.visible = false; headRig.root.visible = false; return }
@@ -21637,6 +21659,33 @@ const spurG = new Graphics()
     }
   }
 
+  // THE KILL, drawn with A's own rig and drawKrakenFace: nothing here draws a feature, it only chooses
+  // the transform and the face's existing parameters (pain = screwed shut, stun = wide and rolling,
+  // blink = lids down, jaw/grit = the gape and the teeth, core/white = the hot wound and the flash).
+  function poseKrakenHeadDeath(P) {
+    const rig = headRig
+    if (!P.visible || !T.krakenBody) { krakenHeadRig.visible = false; rig.root.visible = false; return }
+    krakenHeadRig.visible = true
+    rig.root.visible = true
+    if (rig.body.texture !== T.krakenBody.tex) { rig.body.texture = T.krakenBody.tex; rig.body.anchor.set(T.krakenBody.ax, T.krakenBody.ay) }
+    if (rig.flash.texture !== T.krakenBodyWhite.tex) { rig.flash.texture = T.krakenBodyWhite.tex; rig.flash.anchor.set(T.krakenBodyWhite.ax, T.krakenBodyWhite.ay) }
+    krakenHeadRig.position.set(P.x, P.y)
+    krakenHeadRig.rotation = P.rot
+    krakenHeadRig.scale.set(P.sx * P.scale, P.sy * P.scale)
+    krakenHeadRig.alpha = P.alpha
+    krakenHeadRig.tint = P.tint
+    rig.flash.tint = P.flashTint
+    rig.flash.alpha = P.flash
+    const sc = krakenHeadRig.scale.x
+    const cr = Math.cos(P.rot), sn = Math.sin(P.rot)
+    const L = (x, y) => [P.x + (x * cr - y * sn) * sc, P.y + (x * sn + y * cr) * sc]
+    drawKrakenFace(rig, {
+      rot: P.rot, glare: 0, pain: P.pain, stun: P.stun, blink: P.blink, lx: P.lx, ly: P.ly,
+      white: P.white, core: P.core, crown: P.crown, jaw: P.jaw, grit: P.grit, rim: P.rim, guard: 0,
+      lamp: P.light > 0.02 ? L : null, lampA: 0.3 * P.light, lampS: sc,
+    })
+  }
+
   // THE BOSS IS FRAMED. Camera-centred on the fish, the body at the ring's centre and the head in the
   // chase are half off a phone's edge most of the time; the camera leads toward them (past the chase
   // head toward its tail, where most of the drawn body is), clamped so the player never gets closer
@@ -21705,6 +21754,18 @@ const spurG = new Graphics()
     kc.deflect = Math.max(0, kc.deflect - k * 5)
     kc.wide = Math.max(0, kc.wide - k * 0.55)
     kc.blink = Math.max(0, kc.blink - k * 6)
+    if (kDeath.on && (run.bossOutroT ?? 0) > 0) {
+      // THE KILL: the ring's body is long gone (the chase), and the head is posed by the ceremony
+      // everything of the ring's body goes (A's krakenCreatureReset, minus the head rig)
+      krakenDeepG.clear(); krakenLampG.clear(); krakenFaceTopG.clear()
+      krakenLampSp.visible = false
+      ringRig.root.visible = false
+      for (const r of krakenRootRopes) r.visible = false
+      krakenLampLayer.position.copyFrom(world.position)
+      krakenLampLayer.scale.copyFrom(world.scale)
+      syncKrakenHeadRig(run, dt, null, krakenDeathPose(run))
+      return
+    }
     if (!krakenFight(run)) {
       if (krakenHeadRig.visible || kc.ang != null) krakenCreatureReset()
       return
@@ -23230,13 +23291,70 @@ const spurG = new Graphics()
   for (const o of [cerDim, cerEdge, cerFlash, cerBarTop, cerBarBot, cerTitle, cerSub]) o.alpha = 0
   cerLayer.addChild(cerDim, cerEdge, cerFlash, cerBarTop, cerBarBot, cerG, cerTitle, cerSub)
 
-  // The corpse. The head's own sprite goes the moment the entity dies, and the death has to hold on
-  // it, so the kill copies its last drawn pose onto this and animates the copy.
-  const kCorpse = new Sprite(Texture.WHITE)
-  kCorpse.visible = false
-  const kDeathG = new Graphics()       // the hole it sinks into, under the corpse
+  const kDeathG = new Graphics()       // the hole it sinks into, under the head rig
   let kCorpseParented = false
-  const kDeath = { on: false, hx: 0, hy: 0, rot: 0, sx: 1, sy: 1, limbs: [], fired: 0, bubbleAcc: 0 }
+  const kDeath = { on: false, hasHead: false, hx: 0, hy: 0, rot: 0, sx: 1, sy: 1, limbs: [], fired: 0, bubbleAcc: 0, lead: { x: 0, y: 0 } }
+  const kPose = {
+    visible: false, x: 0, y: 0, rot: 0, sx: 1, sy: 1, scale: 1, alpha: 1, tint: 0xffffff, flash: 0, flashTint: 0xffffff,
+    pain: 0, stun: 0, blink: 0, lx: 0, ly: 0, white: 0, core: 0, crown: 1, jaw: 0, grit: 0, rim: 0, light: 1,
+  }
+
+  // How lit the dying head is, 0..1 (updateDark punches it out of the Light chapter's dark).
+  function krakenDeathLight(run) {
+    if (!kDeath.on || !((run.bossOutroT ?? 0) > 0)) return 0
+    const O = KRAKEN_OUTRO
+    return 1 - smooth01((run.bossOutroT - O.sinkFrom - 0.6) / (O.sinkT - 0.6))
+  }
+
+  // THE HEAD'S DEATH, as a pose for A's head rig, off the outro clock. Brineybeard's wince in the
+  // starburst, then the Hydra's collapse:
+  //   the hit    screwed shut in pain, jaw wide and teeth bared, the wound white-hot, crown flung open
+  //   thrash     eyes flung wide and rolling, the jaw snapping, the crown convulsing, the body strobing
+  //   the end    crown falls slack, the wound gutters out, the lids come down, and the head shrinks
+  //              and darkens as it sinks into the hole under it
+  function krakenDeathPose(run) {
+    const O = KRAKEN_OUTRO
+    const t = run.bossOutroT
+    const H = O.hitstop
+    const th = t < H ? 0 : Math.min(1, (t - H) / 0.08) * Math.pow(clamp01(1 - (t - H) / O.thrash), 1.1)
+    const sink = smooth01((t - O.sinkFrom) / O.sinkT)
+    const P = kPose
+    P.visible = kDeath.hasHead
+    const jit = 14 * th
+    P.x = kDeath.hx + (Math.sin(t * 53) + Math.sin(t * 31)) * 0.5 * jit
+    P.y = kDeath.hy + (Math.sin(t * 47 + 1) + Math.sin(t * 29)) * 0.5 * jit
+    P.rot = kDeath.rot + Math.sin(t * 17) * 0.22 * th + sink * 0.5
+    P.sx = kDeath.sx; P.sy = kDeath.sy
+    P.tint = mix(0xffffff, 0x101c2a, sink)
+    P.alpha = 1 - Math.pow(sink, 2.2)
+    P.light = krakenDeathLight(run)
+    if (t < H) {
+      P.scale = 1.14; P.flash = 0.7; P.flashTint = 0xffffff; P.white = 0.35
+      P.pain = 1; P.stun = 0; P.blink = 0; P.jaw = 1; P.grit = 1; P.rim = 1; P.core = 1; P.crown = 1
+      P.lx = 0; P.ly = 0
+      return P
+    }
+    const after = clamp01(1 - (t - H) / 0.35)
+    P.scale = (1 + 0.1 * after + 0.06 * th * Math.sin(t * 15)) * (1 - 0.42 * sink)
+    // the body strobes red with each convulsion, as A's hit flash does
+    P.flash = 0.55 * after + 0.5 * th * Math.max(0, Math.sin(t * 30))
+    P.flashTint = after > 0.5 ? 0xffffff : 0xff3050
+    P.white = 0.25 * after
+    // pain eases into the wide, rolling stare of the thrash; then the lids come down for good
+    P.pain = Math.max(after, 0.35 * th * Math.max(0, Math.sin(t * 9)))
+    P.stun = th > 0 ? 1 : 1 - smooth01((t - O.sinkFrom) / 0.8)
+    P.blink = smooth01((t - O.sinkFrom - 0.3) / 1.4)
+    P.lx = Math.cos(t * 11) * th
+    P.ly = Math.sin(t * 8) * th - 0.9 * (1 - th)   // rolled back as it goes
+    P.jaw = Math.min(1, (0.55 + 0.45 * Math.abs(Math.sin(t * 13))) * th + (1 - th) * (0.6 - 0.25 * sink))
+    P.grit = Math.max(0.6 * after, th * Math.max(0, Math.sin(t * 13 + 1.5)))
+    P.rim = Math.max(after, 0.5 * th)
+    // the wound gutters: its glow stutters on a shrinking duty cycle, then is out
+    const gut = Math.sin(t * 23) + Math.sin(t * 37) > 1.4 * sink - 0.3 ? 1 : 0.3
+    P.core = Math.max(0, 1 - smooth01((t - O.sinkFrom) / 1.6)) * (sink > 0 ? gut : 1)
+    P.crown = (0.35 + 0.65 * Math.sin(t * 21)) * th + (1 - th) * (0.85 - 0.3 * sink)
+    return P
+  }
 
   const clamp01 = (v) => Math.max(0, Math.min(1, v))
   const smooth01 = (v) => { const x = clamp01(v); return x * x * (3 - 2 * x) }
@@ -23275,15 +23393,11 @@ const spurG = new Graphics()
     // head sprite is gone. kLast is what the screen last showed of it.
     kDeath.hx = kLast.on ? kLast.hx : playerX
     kDeath.hy = kLast.on ? kLast.hy : playerY
-    if (kLast.on && kLast.tex) {
-      if (!kCorpseParented) { enemyLayer.addChild(kDeathG, kCorpse); kCorpseParented = true }
-      kCorpse.texture = kLast.tex
-      kCorpse.anchor.set(kLast.ax, kLast.ay)
-      kDeath.rot = kLast.rot
-      kDeath.sx = kLast.sx
-      kDeath.sy = kLast.sy
-      kCorpse.visible = true
-    } else kCorpse.visible = false
+    if (!kCorpseParented) { entitiesLayer.addChildAt(kDeathG, entitiesLayer.getChildIndex(krakenHeadRig)); kCorpseParented = true }
+    // THE CORPSE IS THE LIVE HEAD RIG, held at the transform it was last drawn with
+    kDeath.hasHead = kLast.on && kLast.hasHead
+    kDeath.rot = kLast.rot; kDeath.sx = kLast.sx; kDeath.sy = kLast.sy
+    kDeath.lead.x = camLead.x; kDeath.lead.y = camLead.y
     for (let i = 0; i < kLast.limbs.length; i++) {
       const L = kLast.limbs[i]
       if (L.on) kDeath.limbs.push({ rig: L.rig, pts: L.pts.map((q) => [q[0], q[1]]), tint: L.tint })
@@ -23291,20 +23405,18 @@ const spurG = new Graphics()
   }
 
   // What the screen last showed of the living Kraken: refreshed every frame it is up, read by the kill.
-  const kLast = { on: false, hx: 0, hy: 0, tex: null, ax: 0.5, ay: 0.5, rot: 0, sx: 1, sy: 1, limbs: [] }
+  const kLast = { on: false, hx: 0, hy: 0, hasHead: false, rot: 0, sx: 1, sy: 1, limbs: [] }
   function krakenRemember() {
     const head = krakenHead
     if (!head) return
     kLast.on = true
-    kLast.hx = head.x
-    kLast.hy = head.y
-    const hs = enemySprites.get(head.id)
-    if (hs && hs.visible && hs.texture) {
-      kLast.tex = hs.texture
-      kLast.ax = hs.anchor.x; kLast.ay = hs.anchor.y
-      kLast.rot = hs.rotation
-      kLast.sx = hs.scale.x; kLast.sy = hs.scale.y
-    } else kLast.tex = null
+    // the head rig as it was DRAWN (A's knock-back, tilt and squash included), not the entity
+    kLast.hasHead = krakenHeadRig.visible
+    if (kLast.hasHead) {
+      kLast.hx = krakenHeadRig.position.x; kLast.hy = krakenHeadRig.position.y
+      kLast.rot = krakenHeadRig.rotation
+      kLast.sx = krakenHeadRig.scale.x; kLast.sy = krakenHeadRig.scale.y
+    } else { kLast.hx = head.x; kLast.hy = head.y }
     for (let i = 0; i < krakenRopes.length; i++) {
       const rig = krakenRopes[i]
       const L = kLast.limbs[i] || (kLast.limbs[i] = { rig, on: false, tint: 0, pts: rig.pts.map(() => [0, 0]) })
@@ -23321,9 +23433,9 @@ const spurG = new Graphics()
     kDeath.on = false
     kDeath.limbs.length = 0
     kLast.on = false
-    kLast.tex = null
+    kLast.hasHead = false
     for (const L of kLast.limbs) L.on = false
-    kCorpse.visible = false
+    kDeath.hasHead = false
     kDeathG.clear()
     cerG.clear()
     cerZoom = 1
@@ -23374,10 +23486,15 @@ const spurG = new Graphics()
       const r = updateKrakenDeath(run, dt, w, h, U)
       dim = r.dim; bars = r.bars; flash = r.flash; edge = r.edge
       // the camera goes to the body and closes on it: the death is framed, not left at the edge
-      const k = smooth01((run.bossOutroT - KRAKEN_OUTRO.hitstop) / 0.8)
-      cerCam.x = (kDeath.hx - run.player.x) * 0.6 * k
-      cerCam.y = (kDeath.hy - run.player.y) * 0.6 * k
-      cerZoom = 1 + 0.12 * smooth01((run.bossOutroT - KRAKEN_OUTRO.hitstop) / 1.6)
+      // camLead (track A's chase framing) eases to 0 once the head is gone; this holds the total
+      // on a path from where the lead had the camera to the body, so the two never fight
+      const t = run.bossOutroT, H = KRAKEN_OUTRO.hitstop
+      const k = smooth01((t - H) / 0.8)
+      cerCam.x = kDeath.lead.x + ((kDeath.hx - run.player.x) * 0.95 - kDeath.lead.x) * k - camLead.x
+      cerCam.y = kDeath.lead.y + ((kDeath.hy - run.player.y) * 0.95 - kDeath.lead.y) * k - camLead.y
+      // a hard punch-in on the hit, then a slow close on the body as it goes down
+      const punch = t < H ? 1 : Math.exp(-(t - H) * 5)
+      cerZoom = 1 + 0.16 * punch + 0.16 * smooth01((t - H) / 2.2)
     } else if (cer.kind) {
       cer.t += dt
       const C = KRAKEN_CEREMONY[cer.kind]
@@ -23393,8 +23510,9 @@ const spurG = new Graphics()
         cerZoom = 1 + (C.zoomFrom - 1) * push
         const k = t < C.textIn ? 0 : cardEnv(t - C.textIn, 0.45, C.hold - C.textIn, C.out)
         const ch = CHAPTERS.kraken
-        // high, under the HUD's top row and clear of the Light rail below it on a phone
-        const y = cerTopY(h, U)
+        // LOW: the face lies across the top of the view through the whole ring (drawKrakenBody holds
+        // it there), so the name goes under you and the animal it names keeps the top of the screen
+        const y = h * 0.74
         cerText(cerTitle, tr(ch.name).toUpperCase(), Math.round(U * 0.12), w * 0.9)
         cerTitle.position.set(w / 2, y + (1 - k) * U * 0.03)
         cerTitle.alpha = k
@@ -23405,16 +23523,11 @@ const spurG = new Graphics()
         cerRule(w / 2, y - U * 0.085, Math.min(w * 0.4, U * 0.36), ruleK, K_GLOW, 0.7 * k)
         cerRule(w / 2, y + U * 0.055, Math.min(w * 0.3, U * 0.24), ruleK, K_GLOW, 0.45 * k)
       } else if (cer.kind === 'rise') {
-        // IT COMES UP. Inside its own harmless window: bars, a darker edge, the camera leaning
-        // toward the head so the thing you are about to fight is framed, and the line.
+        // IT COMES UP. Inside its own harmless window: bars, a darker edge and the line. The framing
+        // is krakenCamLead's, which already leads the camera onto the head through the chase.
         const env = cardEnv(t, C.bars, C.hold, C.out)
         bars = env * 0.8
         edge = C.dim * env
-        const head = krakenHead
-        if (head) {
-          cerCam.x = (head.x - run.player.x) * C.lean * env
-          cerCam.y = (head.y - run.player.y) * C.lean * env
-        }
         const k = t < C.textIn ? 0 : cardEnv(t - C.textIn, 0.25, C.hold - C.textIn, C.out)
         const y = cerTopY(h, U)
         cerText(cerTitle, tr(KRAKEN_BEATS.rise.name), Math.round(U * 0.1), w * 0.9)
@@ -23542,31 +23655,32 @@ const spurG = new Graphics()
       kDeathG.ellipse(hx, hy, R * 1.25, R * 1.05).fill({ color: 0x14304a, alpha: 0.35 * sink * (1 - sink * 0.5) })
       kDeathG.ellipse(hx, hy, R, R * 0.86).fill({ color: 0x02080f, alpha: 0.7 * Math.sin(Math.PI * Math.min(1, sink * 1.2)) })
     }
-    if (kCorpse.visible) {
-      const jit = 11 * thrashK
-      kCorpse.position.set(hx + (Math.random() * 2 - 1) * jit * (dt > 0 ? 1 : 0), hy + (Math.random() * 2 - 1) * jit * (dt > 0 ? 1 : 0))
-      kCorpse.rotation = kDeath.rot + Math.sin(t * 21) * 0.14 * thrashK + sink * 0.5
-      const sc = (1 + 0.07 * thrashK * Math.sin(t * 17)) * (1 - 0.5 * sink)
-      kCorpse.scale.set(kDeath.sx * sc, kDeath.sy * sc)
-      kCorpse.tint = t < hs ? 0xffffff : mix(Math.sin(t * 30) > 0.3 && thrashK > 0.2 ? 0xffc4c4 : 0xffffff, 0x0a1420, sink)
-      kCorpse.alpha = 1 - Math.pow(sink, 1.6)
-    }
 
     // THE STARBURST: the hard-cut kill flash, drawn on the head in screen space
     const sx = world.position.x + hx * world.scale.x
     const sy = world.position.y + hy * world.scale.y
-    const burstK = t < hs ? 1 : clamp01(1 - (t - hs) / 0.32)
+    const burstK = t < hs ? 1 : clamp01(1 - (t - hs) / 0.4)
     if (burstK > 0) {
-      const R = U * (t < hs ? 0.34 : 0.34 + (t - hs) * 0.9)
-      const pts = []
-      for (let i = 0; i < 28; i++) {
-        const a = (i / 28) * Math.PI * 2 + 0.2
-        const rr = R * (i % 2 ? 0.42 : 0.82 + 0.18 * Math.sin(i * 7.3))
-        pts.push(sx + Math.cos(a) * rr, sy + Math.sin(a) * rr)
+      // the face is the subject: the burst's spikes stand out of a hole the size of the head, so
+      // the wince is framed by the hit instead of buried under it
+      // sized to the head AS DRAWN (A's rig is the body bake at head scale, larger than the hitbox)
+      const hole = Math.max(KRAKEN_HEAD_R * 1.05, kDeath.hasHead ? Math.abs(kDeath.sx) * K_BODY_BAKE_R * 0.95 : 0) * world.scale.x
+      const R = Math.max(hole * 1.9, U * 0.46) * (t < hs ? 1 : 1 + (t - hs) * 1.6)
+      for (let i = 0; i < 14; i++) {
+        const a = (i / 14) * Math.PI * 2 + 0.2
+        const tipR = R * (0.8 + 0.2 * Math.sin(i * 7.3))
+        const half = Math.PI / 14 * 0.78
+        const base = hole * (t < hs ? 1 : 1 + (t - hs) * 1.2)
+        const p0 = [sx + Math.cos(a - half) * base, sy + Math.sin(a - half) * base]
+        const p1 = [sx + Math.cos(a) * tipR, sy + Math.sin(a) * tipR]
+        const p2 = [sx + Math.cos(a + half) * base, sy + Math.sin(a + half) * base]
+        cerG.poly([...p0, ...p1, ...p2]).fill({ color: K_GLOW, alpha: 0.6 * burstK })
+        const q1 = [sx + Math.cos(a) * (base + (tipR - base) * 0.62), sy + Math.sin(a) * (base + (tipR - base) * 0.62)]
+        const h2 = half * 0.55
+        cerG.poly([sx + Math.cos(a - h2) * base, sy + Math.sin(a - h2) * base, ...q1, sx + Math.cos(a + h2) * base, sy + Math.sin(a + h2) * base])
+          .fill({ color: 0xffffff, alpha: 0.95 * burstK })
       }
-      cerG.poly(pts).fill({ color: K_GLOW, alpha: 0.55 * burstK })
-      const inner = pts.map((v, j) => (j % 2 ? sy + (v - sy) * 0.62 : sx + (v - sx) * 0.62))
-      cerG.poly(inner).fill({ color: 0xffffff, alpha: 0.95 * burstK })
+      cerG.circle(sx, sy, hole * (t < hs ? 1 : 1 + (t - hs) * 1.2)).stroke({ width: 5, color: 0xffffff, alpha: 0.9 * burstK })
       // speed lines out to the edge of the screen
       for (let i = 0; i < 14; i++) {
         const a = (i / 14) * Math.PI * 2 + 0.11
@@ -23575,7 +23689,7 @@ const spurG = new Graphics()
           .stroke({ width: 3 + (i % 3) * 2, color: 0xeafdff, alpha: 0.5 * burstK })
       }
     }
-    const flash = t < hs ? 0.42 : 0.42 * clamp01(1 - (t - hs) / 0.25)
+    const flash = t < hs ? 0.22 : 0.22 * clamp01(1 - (t - hs) / 0.25)
 
     // THE BANNER
     const bT = t - O.bannerAt
