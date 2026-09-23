@@ -2105,7 +2105,8 @@ function stepKrakenArms(run, dt, rung, head) {
   // back when it closed.
   krakenCage(run, head, dt)
   if (krakenCoilStep(run, dt, rung, head)) return true
-  if (s.coilT > 0) return false
+  // while the Coil runs, only its own arms move: their fuses run out and they land below
+  const coiling = s.coilT > 0
 
   // Rev 2 gave every arm its own period, so how many were winding up at once was an emergent
   // property nobody chose: 2.2 of 8 on average, 4 at the peak. "The arms all attack too
@@ -2120,6 +2121,7 @@ function stepKrakenArms(run, dt, rung, head) {
   // over whether a DEAD arm is placed.
   krakenPlaceArms(run, head, krakenReach(s))
   for (const a of run.krakenArms) {
+    if (coiling && !a.coilArm) continue
     if (a.breakT > 0) a.breakT = Math.max(0, a.breakT - dt)
     if (a.hitT > 0) a.hitT = Math.max(0, a.hitT - dt)
     // the follow-through of a slam that connected with the seabed. Render holds the limb planted
@@ -2157,16 +2159,16 @@ function stepKrakenArms(run, dt, rung, head) {
     // because the ring owns the cadence now.
     a.tele = 0
     a.slamT = KRAKEN_SLAM_T
-    s.gripN++
     // THE WHOLE LIMB COMES DOWN, AND THE TIP CRACKS PAST THE HEAD. The struck shape is a capsule on
     // the arm's own bearing rather than a disc at its tip — see KRAKEN_LASH_W. The far end is out at
     // KRAKEN_RING_R where the rope's shoulder is drawn, so what is dangerous is exactly the limb the
     // player watched rear; the near end is KRAKEN_LASH_OVER PAST the head, which is what closes the
     // dead spot in the middle of the arena.
     const wasCoil = a.coilArm === true
+    // the Coil already counted itself as ONE attack when it was handed out
+    if (!wasCoil) s.gripN++
     // `coil` is for render only: five lashes land on the Coil's frame and are drawn as one blow
     run.events.push({ type: 'lash', x: a.x, y: a.y, x0: a.lx0, y0: a.ly0, x1: a.lx1, y1: a.ly1, w: KRAKEN_LASH_W, coil: wasCoil })
-    a.coilArm = false
     if (segDist2(p.x, p.y, a.lx0, a.ly0, a.lx1, a.ly1) <= KRAKEN_LASH_W * KRAKEN_LASH_W) {
       // ⚠ A COIL HITS ONCE, NOT FIVE TIMES. Every corridor runs from the rim to the head centre, so
       // they all overlap in the middle of the arena — standing there when five land would be five
@@ -2179,6 +2181,7 @@ function stepKrakenArms(run, dt, rung, head) {
       } else if (hurtPlayer(run, KRAKEN_LASH_DMG, false, 'krakenArm')) return true
     }
   }
+  if (coiling) return false
 
   // ---- AN EXPOSED ARM IS A REAL ENEMY, FOR EXACTLY AS LONG AS IT IS EXPOSED -------------------
   // An arm lives outside run.enemies on purpose: that is what makes every exclusion structural

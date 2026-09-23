@@ -172,7 +172,7 @@ import {
   KRAKEN_RISE_T, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, hiddenChapters, KRAKEN_CAGE_R, KRAKEN_PARRY_CD,
   KRAKEN_OPEN_WAVES, KRAKEN_COIL_EVERY, KRAKEN_ARRIVE_T, KRAKEN_RING_R, KRAKEN_LASH_R, KRAKEN_SLAM_T, KRAKEN_DEFLECT_CD,
   KRAKEN_LUNGE_T, KRAKEN_GRIP_DUR, KRAKEN_GRIP_DMG, KRAKEN_GRIP_FLICKS, KRAKEN_GRIP_STICK_MUL, TRAWL_WIGGLE_ARC,
-  KRAKEN_LASH_W, KRAKEN_LASH_OVER, KRAKEN_LASH_DMG, KRAKEN_ARRIVE_T2, KRAKEN_WAVE_GROWTH,
+  KRAKEN_LASH_W, KRAKEN_LASH_OVER, KRAKEN_LASH_DMG, KRAKEN_ARRIVE_T2, KRAKEN_WAVE_GROWTH, KRAKEN_COIL_DMG,
   KRAKEN_HEAD_SPEED, KRAKEN_PARRY_SPIN_T,
 } from '../src/config.js'
 import { krakenWinPending, stepSim, applyChoice, buildLevelUpChoices, eligibleWeaponModCandidates, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, inRefillCircle, stepCharge, newElWindow, spurAt } from '../src/sim.js'
@@ -34972,8 +34972,8 @@ function runKraken() {
       ['teleG.arc(head.x, head.y, wallR - b * 9', 'the ring wall is DRAWN at its own constant instead of the radius the sim clamped to — 414px behind the player for the whole arrival'],
       ['if (a.slamT > 0) return 0', 'a slam that landed has no pose: the limb snaps back to idle on the frame it hits'],
       ['const bounce = a.slamT > 0 ?', 'a slam that landed does not settle — the follow-through is computed and never drawn'],
-      ["const ga = s.phase === 'chase' ? rise : 0.3 + 0.7 * grow", 'the arrival is not FADED in: the mass is at full opacity on frame 1'],
-      [': KRAKEN_HEAD_R * K_BODY_R * (0.5 + 0.5 * grow)', 'the arrival is not GROWN: the silhouette pops to full size on frame 1 and the player is cut to a boss arena'],
+      ["const ga = s.phase === 'chase' ? 1 : Math.min(1, 0.25 + grow)", 'the arrival is not FADED in: the mass is at full opacity on frame 1'],
+      [': KRAKEN_HEAD_R * K_BODY_R * (0.55 + 0.45 * grow)', 'the arrival is not GROWN: the silhouette pops to full size on frame 1 and the player is cut to a boss arena'],
       // THE GRIP HAS NO OVERLAY LEFT TO FALL BACK ON. Both of its previous tells were abstract
       // objects drawn beside the fight (a ring on the player, then a fraying line) and both are
       // deleted: the LIMB is the whole picture now. So losing this warp does not degrade the grab's
@@ -35029,6 +35029,61 @@ function runKraken() {
       stepSim(run, { x: 0, y: 0, skill: true }, 1 / 60)
       assert.strictEqual(run.krakenArms.filter((a) => !a.dead && a.coilArm).length, before,
         'the press defused a Coil arm — the Coil is this fight\'s one move-do-not-press beat, and a parry that works on it turns five lanes into one button')
+    }
+
+    // ...AND IT LANDS. Asserted on the player's hp, not on any arm field: for the whole life of the
+    // volley rev, stepKrakenArms returned before its arm loop while the Coil ran, so no coil arm's
+    // fuse ever ran out — the lanes lit, the ring shut, and nobody standing anywhere lost a point.
+    // Standing in a struck lane costs KRAKEN_COIL_DMG exactly once; standing in the spared lane costs
+    // nothing. Same forced gates as the block above, for the same reason.
+    {
+      const coilRun = (pick) => {
+        const run = inBlock(3)
+        run.script.bossIdx = 2
+        run.script.gripN = KRAKEN_COIL_EVERY - 1
+        let guard = 0
+        while (guard++ < 60 * 30 && !(run.script.coilT > 0)) {
+          run.player.hp = run.player.maxHP
+          stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+        }
+        assert.ok(run.script.coilT > 0, 'no Coil fired within 30s of its gates being open')
+        const live = run.krakenArms.filter((a) => !a.dead)
+        const spared = live.find((a) => !a.coilArm && a.limpT <= 0 && !(a.gripT > 0))
+        const lane = pick === 'spared' ? spared : live.find((a) => a.coilArm)
+        // the spared arm can be mid-rear when the Coil takes the ring; its old fuse must not land in the gap
+        if (pick === 'spared') { spared.tele = 0.5; spared.fuse = krakenRung(3).fuse }
+        // a point on the chosen lane 260px out from the head, inside the cage and clear of every
+        // other lane — or, for 'centre', the head end, where every struck lane overlaps
+        const out = pick === 'centre' ? 0 : 260
+        const at = () => {
+          const L = Math.hypot(lane.lx0 - lane.lx1, lane.ly0 - lane.ly1) || 1
+          return { x: lane.lx1 + (lane.lx0 - lane.lx1) / L * out, y: lane.ly1 + (lane.ly0 - lane.ly1) / L * out }
+        }
+        const hits = []
+        let lashes = 0
+        guard = 0
+        while (guard++ < 60 * 10 && run.script.coilT > 0) {
+          const q = at()
+          run.player.x = q.x; run.player.y = q.y
+          run.player.hp = run.player.maxHP = 999
+          stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+          if (run.player.hp < 999) hits.push(999 - run.player.hp)
+          lashes += run.events.filter((e) => e.type === 'lash' && e.coil).length
+          run.events.length = 0
+        }
+        assert.ok(!(run.script.coilT > 0), 'the Coil never finished')
+        const armed = live.filter((a) => a.coilArm || a.slamT > 0).length
+        return { hits, lashes, armed }
+      }
+      const inLane = coilRun('armed')
+      assert.ok(inLane.lashes >= 2, `a Coil landed ${inLane.lashes} lashes — the volley never came down, so its lanes are a picture of an attack that does not exist`)
+      assert.deepStrictEqual(inLane.hits, [KRAKEN_COIL_DMG],
+        `standing in a struck Coil lane cost [${inLane.hits}] (want exactly one hit of ${KRAKEN_COIL_DMG})`)
+      const inMiddle = coilRun('centre')
+      assert.deepStrictEqual(inMiddle.hits, [KRAKEN_COIL_DMG],
+        `standing where every Coil lane overlaps cost [${inMiddle.hits}] — the Coil hits ONCE, not once per lane`)
+      const inGap = coilRun('spared')
+      assert.deepStrictEqual(inGap.hits, [], `standing in the SPARED lane cost [${inGap.hits}] — the gap is not safe, so the Coil has no answer`)
     }
 
     // ...AND ONE AUTHOR FOR THE LIMB'S SKIN. The strip is baked ONCE and a gripping arm is drawn as
