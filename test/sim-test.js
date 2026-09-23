@@ -172,7 +172,7 @@ import {
   KRAKEN_RISE_T, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, hiddenChapters, KRAKEN_CAGE_R, KRAKEN_PARRY_CD,
   KRAKEN_OPEN_WAVES, KRAKEN_COIL_EVERY, KRAKEN_ARRIVE_T, KRAKEN_RING_R, KRAKEN_LASH_R, KRAKEN_SLAM_T, KRAKEN_DEFLECT_CD,
   KRAKEN_LUNGE_T, KRAKEN_GRIP_DUR, KRAKEN_GRIP_DMG, KRAKEN_GRIP_FLICKS, KRAKEN_GRIP_STICK_MUL, TRAWL_WIGGLE_ARC,
-  KRAKEN_LASH_W, KRAKEN_LASH_OVER, KRAKEN_LASH_DMG, KRAKEN_ARRIVE_T2, KRAKEN_WAVE_GROWTH, KRAKEN_COIL_DMG,
+  KRAKEN_LASH_W, KRAKEN_LASH_OVER, KRAKEN_LASH_DMG, KRAKEN_LESSON_MAX, KRAKEN_ARRIVE_T2, KRAKEN_WAVE_GROWTH, KRAKEN_COIL_DMG,
   KRAKEN_HEAD_SPEED, KRAKEN_PARRY_SPIN_T,
 } from '../src/config.js'
 import { krakenWinPending, stepSim, applyChoice, buildLevelUpChoices, eligibleWeaponModCandidates, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, inRefillCircle, stepCharge, newElWindow, spurAt } from '../src/sim.js'
@@ -20319,6 +20319,7 @@ run(testLeLargeWeapons)
   run(testRefund)
   run(runKraken)
   run(testKrakenAimedSlam)
+  run(testKrakenLesson)
   run(runKrakenCeremony)
   run(runBiomes)
   run(testBootLoader)
@@ -34462,7 +34463,7 @@ function runKraken() {
   const R1 = krakenRung(1)
 
   function inBlock(difficulty = 1) {
-    const run = createRun(makeMeta(), { chapter: 'kraken', difficulty })
+    const run = createRun({ ...makeMeta(), krakenParried: true }, { chapter: 'kraken', difficulty }) // krakenParried: the fight, not the parry lesson (run KL)
     // CLAUDE.md's probe rule as an assertion: createRun takes an OPTIONS OBJECT, and getting that
     // wrong hands you a Body run at difficulty 1 without throwing or warning.
     assert.strictEqual(run.chapter, 'kraken', 'createRun did not make a Kraken run — every assertion below would be measuring another chapter')
@@ -35141,7 +35142,7 @@ function runKraken() {
   // before the boss, like the blank : 2 or 3 waves, then the boss comes from under you" and
   // "currently you are 'teleported' to the boss, thats weird and confusing".
   {
-    const run = createRun(makeMeta(), { chapter: 'kraken', difficulty: 2 })
+    const run = createRun({ ...makeMeta(), krakenParried: true }, { chapter: 'kraken', difficulty: 2 })
     const budget = KRAKEN_OPEN_WAVES * (KRAKEN_WAVE_TIMEOUT + 2) + KRAKEN_ARRIVE_T + 5
     let guard = 0, sawArrive = false, maxOpen = 0, bossIdxInWaves = 0
     let minReach = Infinity, maxReach = 0, maxLeash = 0, midReach = 0, killsInArrive = 0
@@ -35221,7 +35222,7 @@ function runKraken() {
   // field before the ring closed, so the sweep had nothing to crush and killsInArrive went red —
   // a false red about the sweep, produced by a rig built for the haul.)
   {
-    const run = createRun(makeMeta(), { chapter: 'kraken', difficulty: 2 })
+    const run = createRun({ ...makeMeta(), krakenParried: true }, { chapter: 'kraken', difficulty: 2 })
     run.weapons = [{ id: 'sunspear', level: 5 }, { id: 'skippingShell', level: 5 }]
     const budget = KRAKEN_OPEN_WAVES * (KRAKEN_WAVE_TIMEOUT + 2) + KRAKEN_ARRIVE_T + 5
     let guard = 0
@@ -35485,7 +35486,7 @@ function runKraken() {
 // and the lane runs from the arm's shoulder toward that point; it never tracks after the lock.
 function testKrakenAimedSlam() {
   Math.random = mulberry32(20260923)
-  const run = createRun(makeMeta(), { chapter: 'kraken', difficulty: 1 })
+  const run = createRun({ ...makeMeta(), krakenParried: true }, { chapter: 'kraken', difficulty: 1 })
   assert.strictEqual(run.chapter, 'kraken', 'createRun did not make a Kraken run')
   const budget = KRAKEN_OPEN_WAVES * (KRAKEN_WAVE_TIMEOUT + 2) + KRAKEN_ARRIVE_T + 5
   let guard = 0
@@ -35557,6 +35558,100 @@ function testKrakenAimedSlam() {
   console.log(`PASS run KA (aimed slams): the wind-up locks the player's spot and the lane runs from the shoulder toward it at the same length, ending ${Math.hypot(lane1.lx1 - h.x, lane1.ly1 - h.y).toFixed(0)}px off the head centre; the old spoke takes 0, the locked spot takes ${KRAKEN_LASH_DMG}, the lane does not track, and the tip sits on the landing`)
 }
 
+// ---- Run KL: THE PARRY LESSON -------------------------------------------------------------
+// Owner, 2026-09-23: "I know how to deal damage, but players won't, there is no parry anywhere else
+// in the game." Until a save has ever parried, the fight's first slam crawls through its parry
+// window while every other arm holds; the first parry ever emits the event main.js saves on.
+function testKrakenLesson() {
+  Math.random = mulberry32(20260924)
+  function toRing(meta) {
+    const run = createRun(meta, { chapter: 'kraken', difficulty: 3 })
+    assert.strictEqual(run.chapter, 'kraken')
+    const budget = KRAKEN_OPEN_WAVES * (KRAKEN_WAVE_TIMEOUT + 2) + KRAKEN_ARRIVE_T + 5
+    let guard = 0
+    while (run.script.phase !== 'boss' && guard++ < 60 * budget) {
+      run.player.hp = run.player.maxHP
+      stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+    }
+    assert.strictEqual(run.script.phase, 'boss', 'the approach never reached the ring')
+    return run
+  }
+  const rung = krakenRung(3)
+  // Hold still until the first plain slam is handed out; returns that arm.
+  function firstRear(run) {
+    for (let i = 0; i < 60 * 10; i++) {
+      run.player.hp = run.player.maxHP
+      run.events.length = 0
+      stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+      for (const a of run.krakenArms) a.gripT = 0
+      const e = run.events.find((ev) => ev.type === 'armRear')
+      if (e) return run.krakenArms.find((a) => a.tele > 0 && Math.abs(a.x - e.x) < 1e-6 && Math.abs(a.y - e.y) < 1e-6)
+    }
+    assert.fail('no arm reared in 10s')
+  }
+  // Stand where the arm locked and step until `arm` lands; returns [seconds, lashes from other arms].
+  function untilLash(run, arm) {
+    let t = 0, others = 0
+    for (let i = 0; i < 60 * 20; i++) {
+      run.player.hp = run.player.maxHP
+      run.player.invuln = 0
+      run.events.length = 0
+      stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+      t += 1 / 60
+      for (const e of run.events) if (e.type === 'lash') {
+        if (Math.abs(e.x - arm.x) < 1e-6 && Math.abs(e.y - arm.y) < 1e-6) return [t, others]
+        others++
+      }
+    }
+    assert.fail('the lesson arm never landed in 20s — the crawl holds forever')
+  }
+
+  // (a) a fresh save: the first slam is slowed, and nothing else fires while it is
+  const run = toRing(makeMeta())
+  assert.strictEqual(run.krakenLesson, 1, 'a save that has never parried gets no lesson')
+  const arm = firstRear(run)
+  assert.ok(arm, 'fixture: could not identify the rearing arm')
+  assert.strictEqual(run.script.lessonI, arm.i, 'the first slam of the fight is not the lesson arm')
+  // another arm, already mid wind-up: it must hold its fuse through the lesson
+  const other = run.krakenArms.find((a) => a !== arm && !a.dead)
+  other.tele = 0.3; other.fuse = rung.fuse
+  const [tLesson, othersDuring] = untilLash(run, arm)
+  const normal = arm.fuse
+  assert.ok(tLesson > normal + 3,
+    `the lesson arm landed ${tLesson.toFixed(2)}s after rearing against a normal fuse of ${normal}s — its parry window does not crawl`)
+  assert.ok(tLesson < normal + KRAKEN_LESSON_MAX + 0.5, `the crawl outlasted KRAKEN_LESSON_MAX: ${tLesson.toFixed(2)}s`)
+  assert.strictEqual(othersDuring, 0, `${othersDuring} other slam(s) landed during the lesson — the other arms do not hold`)
+  assert.ok(other.tele > 0.29, `the other arm's fuse ran during the lesson (tele ${other.tele.toFixed(3)} of 0.3)`)
+  assert.strictEqual(run.krakenLesson, 3, 'an ignored lesson arm must end the crawl (state 3), leaving the first parry still to teach')
+
+  // (b) the first parry ever: state 2 and the event main.js saves the flag on
+  const run2 = toRing(makeMeta())
+  const arm2 = firstRear(run2)
+  let evt = null
+  for (let i = 0; i < 60 * 12 && !evt; i++) {
+    run2.player.hp = run2.player.maxHP
+    run2.events.length = 0
+    const press = arm2.tele > 0 && arm2.tele <= rung.window * 0.5 && (run2.repulseCd ?? 0) <= 0
+    stepSim(run2, { x: 0, y: 0, skill: press }, 1 / 60)
+    evt = run2.events.find((e) => e.type === 'krakenLesson')
+  }
+  assert.ok(evt, 'a parry during the lesson emitted no krakenLesson event — main.js would never save the flag')
+  assert.strictEqual(run2.krakenLesson, 2, 'after the first parry the lesson is not on its second line')
+  assert.ok(arm2.limpT > 0, 'the lesson parry did not open the arm')
+  const main = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
+  assert.ok(/e\.type === 'krakenLesson'[^\n]*meta\.krakenParried = true; saveMeta\(meta\)/.test(main),
+    'main.js does not set meta.krakenParried and save on the krakenLesson event — the lesson would repeat forever')
+
+  // (c) a save that has parried: no lesson, the first slam lands on its normal fuse
+  const meta3 = makeMeta(); meta3.krakenParried = true
+  const run3 = toRing(meta3)
+  assert.strictEqual(run3.krakenLesson, 0, 'a save that has parried still gets the lesson')
+  const arm3 = firstRear(run3)
+  const [t3] = untilLash(run3, arm3)
+  assert.ok(t3 < arm3.fuse + 0.1, `with the flag set the first slam still crawled: ${t3.toFixed(2)}s against ${arm3.fuse}s`)
+  console.log(`PASS run KL (parry lesson): fresh save — the first slam takes ${tLesson.toFixed(1)}s against a ${normal}s fuse and no other arm fires; the first parry emits krakenLesson and main.js saves meta.krakenParried; a parried save's first slam lands in ${t3.toFixed(2)}s`)
+}
+
 function runKrakenCeremony() {
   const O = KRAKEN_OUTRO
   assert.ok(O.hitstop < O.skipLock && O.skipLock < O.bannerAt && O.bannerAt < O.bannerOut && O.bannerOut <= O.time,
@@ -35594,7 +35689,7 @@ function runKrakenCeremony() {
   // for a choice the run can never use (it ends on the next step). BEHAVIOURAL: a real kraken run,
   // its head killed by hand, enough xp for a level, one stepLevelUp's worth of stepSim.
   {
-    const run = createRun(makeMeta(), { chapter: 'kraken', difficulty: 3 })
+    const run = createRun({ ...makeMeta(), krakenParried: true }, { chapter: 'kraken', difficulty: 3 })
     assert.strictEqual(run.chapter, 'kraken', 'createRun did not make a Kraken run')
     let g = 0
     while (run.script.headId == null && g++ < 60 * 400) {

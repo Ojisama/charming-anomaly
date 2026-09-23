@@ -19911,8 +19911,13 @@ const spurG = new Graphics()
 
   // THE WEAK POINT: bright, pulsing, bracketed — drawn on exactly the spot the weapons hit (a limp
   // arm's node, the staggered head). `G` gets the solid body; the additive glow goes over the dark.
-  function drawKrakenHitMe(G, x, y, r, core) {
-    const pu = 0.5 + 0.5 * Math.sin(animT * 7)
+  function drawKrakenHitMe(G, x, y, r, core, hard = false) {
+    const pu = 0.5 + 0.5 * Math.sin(animT * (hard ? 12 : 7))
+    if (hard) {
+      // the lesson's second line is up: the target shouts
+      krakenDangerG.circle(x, y, r * (2.6 + 1.6 * pu)).stroke({ width: 6, color: 0xffffff, alpha: 0.6 + 0.4 * pu })
+      krakenDangerG.circle(x, y, r * (1.6 + 0.6 * pu)).fill({ color: 0xffc050, alpha: 0.25 + 0.25 * pu })
+    }
     if (core) {
       G.circle(x, y, r * 1.55 + pu * 3).fill({ color: 0xff9a3a, alpha: 0.55 })
       G.circle(x, y, r * 1.1).fill({ color: 0x2a0608 })
@@ -20286,6 +20291,14 @@ const spurG = new Graphics()
       // ...and the last `window` seconds of it are the PARRY, which has to be unmistakably its own
       // colour. Red is the danger, white-hot is the answer.
       const tipW = krakenTips[a.i] || a
+      const lessonA = run.krakenLesson === 1 && run.script.lessonI === a.i
+      if (lessonA && a.tele <= rung.window) {
+        // THE LESSON'S FLASH: "parry when it flashes" — the whole limb and a big ring at its tip
+        // blink white-hot at 5Hz for as long as the window is open
+        const on = Math.sin(animT * Math.PI * 10) > -0.2
+        krakenDangerG.circle(tipW.x, tipW.y, KRAKEN_ARM_R * (on ? 2.8 : 2.2)).stroke({ width: on ? 9 : 4, color: 0xffffff, alpha: on ? 1 : 0.5 })
+        if (on) krakenDangerG.circle(tipW.x, tipW.y, KRAKEN_ARM_R * 1.6).fill({ color: 0xffffff, alpha: 0.35 })
+      }
       if (a.tele <= rung.window && !a.coilArm && (tipW.x - p.x) ** 2 + (tipW.y - p.y) ** 2 > 70 * 70) {
         const perfect = a.tele <= rung.perfect
         const tip = tipW
@@ -20886,7 +20899,7 @@ const spurG = new Graphics()
       // THE WEAK POINT IS THE NODE. A parried arm hangs a real enemy at a.x/a.y and that is where
       // every weapon lands, so that is where the target is drawn — the tip of the limb, on the spot
       // the aimed slam came down. Nothing further up the rope suggests damage goes anywhere else.
-      if (a.limpT > 0) drawKrakenHitMe(krakenWoundG, a.x, a.y, KRAKEN_ARM_R * 0.62, true)
+      if (a.limpT > 0) drawKrakenHitMe(krakenWoundG, a.x, a.y, KRAKEN_ARM_R * 0.62, true, run.krakenLesson === 2)
       if (a.dead) {
         // A BROKEN ARM SINKS: it fades back into the murk it came out of over breakT, and after that
         // its slice of the cage is simply open for the rest of the fight.
@@ -20928,6 +20941,7 @@ const spurG = new Graphics()
         // KRAKEN_SLAM_T — full-strength colour, no lit wash — so the blow has a body at the contact
         else if (a.slamT > 0) rig.rope.tint = 0x5d5470
         else if (a.limpT > 0) rig.rope.tint = mix(0x4576a0, 0x5691c0, 0.5 + 0.5 * Math.sin(animT * 4)) // spent: cold AND dimmed
+        else if (rung && !a.coilArm && a.tele > 0 && a.tele <= rung.window && run.krakenLesson === 1 && run.script.lessonI === a.i) rig.rope.tint = Math.sin(animT * Math.PI * 10) > -0.2 ? 0xffffff : 0x8a7fc0
         else if (rung && !a.coilArm && a.tele > 0 && a.tele <= rung.window) rig.rope.tint = a.tele <= rung.perfect ? 0xffffff : 0xeaf6ff
         else if (rung && a.tele > 0 && a.fuse) rig.rope.tint = teleArt === 1 && !a.coilArm ? mix(0xd08a70, 0xffa070, 1 - a.tele / a.fuse) : mix(0x9e92cf, 0xeee8fe, 1 - a.tele / a.fuse)
         else if (krakenGripTell(run, a) > 0) {
@@ -23742,11 +23756,19 @@ const spurG = new Graphics()
   })
   cerTitle.anchor.set(0.5)
   cerSub.anchor.set(0.5)
+  // THE PARRY LESSON's line (KRAKEN_BEATS.parry / .tip): its own Text, so a ceremony card still up
+  // can never swap its words out from under it
+  const lessonTitle = new Text({ text: '', style: { ...cerTitleStyle, fill: 0xfff4dc, letterSpacing: 3,
+    stroke: { color: 0x0a0402, width: 7, join: 'round' },
+    dropShadow: { ...cerTitleStyle.dropShadow, color: 0xffa21e, alpha: 0.9 } } })
+  lessonTitle.anchor.set(0.5)
+  lessonTitle.alpha = 0
+  const lessonCard = { k: 0, stage: 0 }
   cerDim.tint = 0x02080f
   cerEdge.tint = 0x02080f
   cerBarTop.tint = cerBarBot.tint = 0x000000
   for (const o of [cerDim, cerEdge, cerFlash, cerBarTop, cerBarBot, cerTitle, cerSub]) o.alpha = 0
-  cerLayer.addChild(cerDim, cerEdge, cerFlash, cerBarTop, cerBarBot, cerG, cerTitle, cerSub)
+  cerLayer.addChild(cerDim, cerEdge, cerFlash, cerBarTop, cerBarBot, cerG, cerTitle, cerSub, lessonTitle)
 
   const kDeathG = new Graphics()       // the hole it sinks into, under the head rig
   let kCorpseParented = false
@@ -24348,7 +24370,8 @@ const spurG = new Graphics()
     cerG.clear()
     cerZoom = 1
     cerCam.x = cerCam.y = 0
-    for (const o of [cerDim, cerEdge, cerFlash, cerBarTop, cerBarBot, cerTitle, cerSub]) o.alpha = 0
+    for (const o of [cerDim, cerEdge, cerFlash, cerBarTop, cerBarBot, cerTitle, cerSub, lessonTitle]) o.alpha = 0
+    lessonCard.k = 0
   }
 
   // Screen-relative type: the short axis, capped by the height so a desktop is not all title.
@@ -24375,6 +24398,39 @@ const spurG = new Graphics()
     cerG.moveTo(cx - l, y).lineTo(cx + l, y).stroke({ width: 1.5, color, alpha })
     cerG.circle(cx - l, y, 2.2).fill({ color, alpha })
     cerG.circle(cx + l, y, 2.2).fill({ color, alpha })
+  }
+
+  // THE PARRY LESSON'S LINE, on a plate above the fish (the ceremony's own card style): line 1
+  // while the lesson arm winds up, line 2 for the seconds after the first parry ever.
+  function krakenLessonNow(run) {
+    const s = run.script
+    if (!s || run.chapter !== 'kraken' || kDeath.on) return 0
+    if (run.krakenLesson === 2) return 2
+    if (run.krakenLesson !== 1) return 0
+    const a = run.krakenArms[s.lessonI]
+    return a && !a.dead && a.tele > 0 && a.limpT <= 0 ? 1 : 0
+  }
+  function drawKrakenLessonCard(run, dt, w, h, U) {
+    const stage = krakenLessonNow(run)
+    if (stage) lessonCard.stage = stage
+    lessonCard.k = stage ? Math.min(1, lessonCard.k + (dt || 0) * 6) : Math.max(0, lessonCard.k - (dt || 0) * 4)
+    const k = lessonCard.k
+    lessonTitle.alpha = k
+    if (k <= 0) return
+    const str = tr(lessonCard.stage === 2 ? KRAKEN_BEATS.tip.name : KRAKEN_BEATS.parry.name)
+    // WRAPPED, not shrunk: a long line scaled to a phone's width came out at ~20px
+    lessonTitle.style.wordWrap = true
+    lessonTitle.style.wordWrapWidth = w * 0.64 // narrow enough to clear the Light rail down the left edge
+    cerText(lessonTitle, str, Math.round(U * 0.085), w * 0.68)
+    const py0 = world.position.y + run.player.y * world.scale.y
+    const y = Math.max(cerTopY(h, U), py0 - U * 0.42)
+    lessonTitle.scale.set(lessonTitle.scale.x * (1 + 0.12 * (1 - k)))
+    lessonTitle.position.set(w / 2, y)
+    const pw = Math.min(w * 0.74, lessonTitle.width + U * 0.1), ph = lessonTitle.height + U * 0.06
+    const px = w / 2 - pw / 2, py = y - ph / 2
+    cerG.roundRect(px, py, pw, ph, ph * 0.22).fill({ color: 0x05030a, alpha: 0.88 * k })
+      .stroke({ width: 3, color: 0xffb040, alpha: 0.95 * k })
+    cerG.roundRect(px + 5, py + 5, pw - 10, ph - 10, ph * 0.18).stroke({ width: 1.5, color: 0xffe6a0, alpha: 0.6 * k })
   }
 
   function updateKrakenCeremony(run, dt) {
@@ -24519,6 +24575,7 @@ const spurG = new Graphics()
         cerRule(w / 2, y + U * 0.055, Math.min(w * 0.36, U * 0.3), k, 0xff9a7a, 0.7 * k)
       }
     }
+    drawKrakenLessonCard(run, dt, w, h, U)
     updateKrakenChunks(dt)
     cerBars(bars)
     cerDim.alpha = dim
@@ -25957,6 +26014,11 @@ const spurG = new Graphics()
           // the moment the attack STARTS, so it fires once and it is allowed to be loud: a warm ring
           // snapping OUT of the arm, the opposite motion to the aperture that then closes on it.
           spawnRing(e.x, e.y, e.r * 0.55, 0.3, T.novaRing, 0xff9a7a)
+          break
+        }
+        case 'krakenLesson': {
+          // THE FIRST PARRY EVER: a white snap on the limb it opened, where line 2 points
+          spawnRing(e.x, e.y, 90, 0.35, T.novaRing, 0xffffff)
           break
         }
         case 'armRecover': {

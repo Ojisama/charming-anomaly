@@ -399,6 +399,9 @@ export function loadMeta() {
     lang: 'en', // v6.1 i18n (see the loadMeta migration above)
     skillSide: 'left', // right-handed default (see the loadMeta migration above)
     sfx: true, // sound on (see the loadMeta migration above)
+    // Has this save ever parried the Kraken? Until it has, the fight opens on the parry lesson
+    // (run.krakenLesson). ADDITIVE: a save without the field reads as false and gets the lesson.
+    krakenParried: false,
     // WIP gate, off for every real player (see the loadMeta migration above). It is ALSO the
     // leaderboard's integrity rule: endRun (main.js) submits no score from a run played with this
     // on, because unlocking unfinished chapters and opening the dev card list are the same switch.
@@ -2348,6 +2351,17 @@ function generateWells(sig) {
   * bossBar: null whenever no scripted boss is alive; while one is, { hp, max, stage } mirrors the
   *   current phase entity so ui.js can render a boss HP bar without reaching into run.enemies
   *   (rampage pattern: the field always exists, stays inert for every non-scripted chapter).
+  * krakenLesson: THE PARRY LESSON (0|1|2|3), set on every run and read only by the Kraken's script.
+  *   0 = none (meta.krakenParried is already true — an ADDITIVE top-level meta field; a save
+  *   without it gets the lesson). 1 = pending: the fight's first plain slam becomes the LESSON ARM
+  *   (script.lessonI); while it winds up every other arm holds its fuse and the ring hands out no
+  *   turns, and inside its parry window its fuse runs at KRAKEN_LESSON_SLOW for up to
+  *   KRAKEN_LESSON_MAX s of real time (script.lessonSlow). Render shows line 1 (KRAKEN_BEATS.parry)
+  *   and the arm flashes. 2 = the first parry ever just landed: event {type:'krakenLesson', stage:2,
+  *   x, y}, which main.js answers by setting meta.krakenParried = true and saving; line 2
+  *   (KRAKEN_BEATS.tip) shows for krakenLessonT (KRAKEN_LESSON_TIP_T), then 0. 3 = the lesson arm
+  *   landed unparried: no text, and the next successful parry still goes to 2.
+  *   krakenLessonT: seconds left on line 2.
   * krakenArms: [] for every chapter but The Kraken. The tentacle ring, and THE ONE ENTITY FAMILY IN
   *   THE GAME THAT IS DELIBERATELY NOT IN run.enemies. Under rev 2 an arm is not a creature: it is
   *   a door with a health bar that exactly one verb (the parry) can turn. Keeping it in run.enemies
@@ -2859,9 +2873,13 @@ export function createRun(meta, opts = {}) {
           headHp: 0, armsTotal: 0, bankedLevels: 0, gripN: 0, trickleT: 0, charged: false, opened: false,
           riseT: 0, coilT: 0, coilGap: 0, cageT: 0, turnT: 0, stagger: 0, staggerT: 0, staggerDecay: 0,
           openW: 0, arriveT: 0, arriveMax: 0, deflT: 0, cageR: 0,
-          gripSoonI: -1, gripSoonT: -1,
+          gripSoonI: -1, gripSoonT: -1, lessonI: -1, lessonSlow: 0,
           enraged: false }
       : null,
+    // THE PARRY LESSON — see the doc block. 1 until this save has ever parried (meta.krakenParried,
+    // additive: an old save without the field simply gets the lesson), 0 once it has.
+    krakenLesson: meta.krakenParried !== true ? 1 : 0, // read only by the Kraken's own script
+    krakenLessonT: 0,
     // The tentacle ring — see the doc block above for why an arm is NOT an enemy. Empty and inert
     // for every chapter but The Kraken, the same rampage pattern as `script` itself.
     // HITSTOP, in seconds. >0 freezes stepSim entirely (see its early return) while main.js keeps

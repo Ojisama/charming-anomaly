@@ -238,6 +238,7 @@ import {
   KRAKEN_COIL_EVERY, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, KRAKEN_COIL_IN, KRAKEN_COIL_DMG,
   KRAKEN_WAVE, KRAKEN_WAVE_GAP, KRAKEN_WAVE_TIMEOUT, KRAKEN_WAVE_XP_MUL,
   KRAKEN_OPEN_WAVES, KRAKEN_WAVE_GROWTH, KRAKEN_ARRIVE_T, KRAKEN_ARRIVE_T2, KRAKEN_SLAM_T,
+  KRAKEN_LESSON_SLOW, KRAKEN_LESSON_MAX, KRAKEN_LESSON_TIP_T,
   KRAKEN_DEFLECT_CD,
   // v6.4.2 (owner directive): per-run coin cap
   COIN_CAP_PER_RUN,
@@ -2148,6 +2149,12 @@ function stepKrakenArms(run, dt, rung, head) {
   // this loop carried its own copy of the same three lines, and the two copies had already drifted
   // over whether a DEAD arm is placed.
   krakenPlaceArms(run, head, krakenReach(s))
+  if (run.krakenLesson === 2) {
+    run.krakenLessonT = Math.max(0, run.krakenLessonT - dt)
+    if (run.krakenLessonT === 0) run.krakenLesson = 0
+  }
+  // THE LESSON ARM, while it is winding up: the only arm whose fuse runs (see run.krakenLesson)
+  const lesson = krakenLessonArm(run)
   for (const a of run.krakenArms) {
     if (coiling && !a.coilArm) continue
     if (a.breakT > 0) a.breakT = Math.max(0, a.breakT - dt)
@@ -2180,8 +2187,15 @@ function stepKrakenArms(run, dt, rung, head) {
     }
 
     if (a.tele <= 0) continue          // idle, waiting for the ring to hand it a turn
-    a.tele -= dt
+    if (lesson && a !== lesson) continue // every other arm holds its fuse through the lesson
+    let tick = dt
+    if (a === lesson && a.tele <= rung.window && s.lessonSlow < KRAKEN_LESSON_MAX) {
+      s.lessonSlow += dt
+      tick = dt * KRAKEN_LESSON_SLOW
+    }
+    a.tele -= tick
     if (a.tele > 0) continue
+    if (a === lesson) { run.krakenLesson = 3; s.lessonI = -1 } // ignored: the player sees what it does
 
     // THE STRIKE LANDS, unparried. The arm goes straight back to idle — it does not re-arm itself,
     // because the ring owns the cadence now.
@@ -2269,9 +2283,9 @@ function stepKrakenArms(run, dt, rung, head) {
     }
   }
 
-  // ...and the ring hands out the next turn.
-  s.turnT -= dt
-  if (s.turnT <= 0) {
+  // ...and the ring hands out the next turn — never while the lesson arm is winding up
+  if (!lesson) s.turnT -= dt
+  if (s.turnT <= 0 && !lesson) {
     s.turnT = krakenCadence(s, rung)
     const { rearing, idle } = krakenTurnPool(run)
     if (rearing < rung.rearing && idle.length) {
@@ -2337,6 +2351,7 @@ function stepKrakenArms(run, dt, rung, head) {
         a.aimed = true
         a.aimX = p.x
         a.aimY = p.y
+        if (run.krakenLesson === 1) { s.lessonI = a.i; s.lessonSlow = 0 }
         krakenPlaceArm(head, a, krakenReach(s))
         run.events.push({ type: 'armRear', x: a.x, y: a.y, r: KRAKEN_LASH_R, t: rung.fuse, w: KRAKEN_LASH_W })
       }
@@ -2345,6 +2360,14 @@ function stepKrakenArms(run, dt, rung, head) {
 
   krakenGripForecast(run, rung)
   return false
+}
+
+// The arm the parry lesson is being taught on, while it is still winding up; null otherwise.
+function krakenLessonArm(run) {
+  const s = run.script
+  if (run.krakenLesson !== 1 || !(s.lessonI >= 0)) return null
+  const a = run.krakenArms[s.lessonI]
+  return a && !a.dead && a.tele > 0 && a.limpT <= 0 && !a.coilArm ? a : null
 }
 
 // Who is free to take the ring's next turn, and how many are already busy. One author for the turn
@@ -2702,6 +2725,13 @@ function krakenParry(run) {
   // The tear. Applied to the LIMB, not through dealDamage: the arm is not an enemy until its node
   // exists, and the node reads a.hp when it spawns — so this is simply the limb being hurt.
   best.hp = Math.max(0, best.hp - best.maxHP * KRAKEN_EXPOSE_BITE)
+  // THE FIRST PARRY EVER: line 2 of the lesson, and main.js marks the save so it never shows again
+  if (run.krakenLesson === 1 || run.krakenLesson === 3) {
+    run.krakenLesson = 2
+    run.krakenLessonT = KRAKEN_LESSON_TIP_T
+    s.lessonI = -1
+    run.events.push({ type: 'krakenLesson', stage: 2, x: best.x, y: best.y })
+  }
 
   // AT FULL, THE NEXT PARRY BLAZES — off a LATCH (s.charged), not a sample of the bar. Testing
   // `charge >= chargeMax` at press time measures the passive drain, not the player: the bar leaves

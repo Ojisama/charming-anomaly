@@ -2642,6 +2642,16 @@ body {
 .hud--race .skill-btn-chev { display: block; }
 .hud--race .skill-btn-glyph { display: none; }
 .hud--race .skill-btn:not(.skill-btn--ready) .skill-btn-chev { opacity: 0; }
+/* THE PARRY LESSON (the Kraken, until the save has ever parried): while the first arm winds up,
+   the button that answers it pulses with a white-hot rim, so the words over the fish point here. */
+.skill-btn--lesson {
+  opacity: 1;
+  animation: skill-lesson 0.55s ease-in-out infinite alternate;
+}
+@keyframes skill-lesson {
+  from { transform: scale(1); box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.9), 0 0 22px 6px rgba(255, 200, 90, 0.7); }
+  to { transform: scale(1.14); box-shadow: 0 0 0 7px rgba(255, 255, 255, 0.95), 0 0 46px 18px rgba(255, 190, 60, 0.9); }
+}
 
 /* ---- pause: the build readout (v6.6.17) -------------------------------------------------- */
 /* Design 2's spec tables inside design 3's collapsible rows. The whole block is one flex column

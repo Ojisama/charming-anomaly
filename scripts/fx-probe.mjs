@@ -80,6 +80,8 @@ if (!Number.isFinite(difficulty) || difficulty < 1 || difficulty > 5) {
 const waitMs = +arg('wait', '16000')
 const W = +arg('w', '390')
 const H = +arg('h', '844')
+// --meta '<json>': extra top-level save fields merged into the seeded save (e.g. {"krakenParried":true})
+const metaExtra = JSON.parse(arg('meta', '{}'))
 // Header states what this shot will actually measure — the createRun(meta, opts) options-object
 // trap (CLAUDE.md) silently degrades an unresolvable chapter id to Body at difficulty 1, and this
 // print is what would catch it if bootstrap's seeded `chapter` field were ever wrong. Confirmed
@@ -147,6 +149,7 @@ const bootstrap = `(() => {
   localStorage.setItem('charming-anomaly-save-v1', JSON.stringify({
     schema: 1, coins: 0, runs: 5, lang: 'en', chapter: ${JSON.stringify(chapter)}, dev: true,
     shop: {}, best: { time: 0, kills: 0 }, choiceSlots: 2, chapters, nick: 'fxprobe',
+    ...${JSON.stringify(metaExtra)},
   }))
 
   // A note is DIAGNOSTIC — painted into the page so the screenshot carries it, and nothing more.

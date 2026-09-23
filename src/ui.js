@@ -2340,6 +2340,13 @@ export function initUI(hooks) {
         hud.skillBtn.classList.toggle('skill-btn--ready', cd <= 0)
         hud.skillCd.textContent = cd > 0 ? String(cd) : ''
       }
+      // THE PARRY LESSON: the button pulses while the lesson arm winds up (run.krakenLesson, state.js)
+      const la = run.krakenLesson === 1 && run.script ? run.krakenArms[run.script.lessonI] : null
+      const lesson = !!la && la.tele > 0 && !la.dead
+      if (lesson !== last.skillLesson) {
+        last.skillLesson = lesson
+        hud.skillBtn.classList.toggle('skill-btn--lesson', lesson)
+      }
     }
     // v5.24: scripted chapters (The Blank) have no survival countdown — stepSpawning/the victory
     // timer are both off (see sim.js), so the HUD timer slot instead reads run.script's stage

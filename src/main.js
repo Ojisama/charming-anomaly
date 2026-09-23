@@ -133,6 +133,9 @@ if (new URLSearchParams(location.search).has('debug')) {
   // EVERY shot while its own comment explained why a hardcoded copy would be wrong. config.js is
   // pure data and pure functions, so exposing all of it behind ?debug costs nothing.
   window.__cfg = CFG
+  // THE DOM HUD, for a probe scene that steps the sim itself: main's ticker is what normally calls
+  // updateHUD, so without this a scene's frames show the HUD as it was when the ticker stopped.
+  window.__hud = (r) => ui.updateHUD(r, [])
 }
 initInput(document.body)
 
@@ -1035,6 +1038,9 @@ app.ticker.add((ticker) => {
     const bossOutro = run.phase === 'victory' && beginBossOutro(dt)
     renderer.sync(run, dt, events)
     for (const e of events) {
+      // THE FIRST PARRY EVER: the Kraken's parry lesson never shows on this save again
+      // (additive top-level field; an old save without it simply gets the lesson)
+      if (e.type === 'krakenLesson' && meta.krakenParried !== true) { meta.krakenParried = true; saveMeta(meta) }
       if (e.dot) continue // DoT ticks are silent — they'd drone constantly
       if (bossOutro && e.type === 'victory') continue // the sting waits for the banner, see below
       const s = SFX_FOR_EVENT[e.type]

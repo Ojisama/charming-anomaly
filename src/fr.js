@@ -1676,6 +1676,8 @@ const CONFIG = {
   'Kraken': 'Kraken',
   // KRAKEN_BEATS: the fight's two phase cards and its death banner (owner-approved 2026-09-23).
   'IT RISES': 'IL SURGIT',
+  'PARRY WHEN IT FLASHES': 'PARE QUAND IL CLIGNOTE',
+  'SHOOT THE TIP TO BREAK THE ARM': 'TIRE SUR LE BOUT POUR BRISER LE BRAS',
   'THE ARMS RETURN': 'LES TENTACULES REPOUSSENT',
   'KRAKEN SLAIN': 'KRAKEN TERRASSÉ',
   'The Bulkhead': 'La Cloison',

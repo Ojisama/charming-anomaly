@@ -8961,6 +8961,12 @@ export const KRAKEN_WAVE_GROWTH = 2 // extra dead per opening wave — 6, then 8
 export const KRAKEN_ARRIVE_T = 3.4  // the first time: the reveal
 export const KRAKEN_ARRIVE_T2 = 1.5 // every block after it: the ring coming back, not a cutscene
 export const KRAKEN_SLAM_T = 0.30   // s an unparried arm stays planted where it landed
+// THE PARRY LESSON (owner, 2026-09-23: "there is no parry anywhere else in the game. We need to
+// show/teach them the mechanic"). Until the player has ever parried (meta.krakenParried), the
+// fight's first slam crawls through its parry window so the words can be read and acted on.
+export const KRAKEN_LESSON_SLOW = 0.06 // x the lesson arm's fuse clock inside its parry window
+export const KRAKEN_LESSON_MAX = 6     // s of real time the crawl may last before the slam proceeds
+export const KRAKEN_LESSON_TIP_T = 3   // s the second line ("shoot the tip") stays up after the parry
 // A SEALED HEAD HAS TO SAY NO. Seconds between deflect sparks while weapons pound a head that is
 // not staggered — a full build lands dozens of hits a second and a spark per bullet is a strobe.
 export const KRAKEN_DEFLECT_CD = 0.28
@@ -14919,6 +14925,10 @@ export const KRAKEN_BEATS = {
   rise:   { name: 'IT RISES' },         // the head coming up: the fight gets a second thing to read
   enrage: { name: 'THE ARMS RETURN' },  // the ring you broke, hauled back: says why it is back
   slain:  { name: 'KRAKEN SLAIN' },     // the banner the death holds on, before the summary
+  // THE PARRY LESSON's two lines (owner-approved wording): while the first arm winds up, then
+  // after the first parry ever, while the limp arm's tip target is lit
+  parry:  { name: 'PARRY WHEN IT FLASHES' },
+  tip:    { name: 'SHOOT THE TIP TO BREAK THE ARM' },
 }
 
 // Card timings are seconds from the beat's own event. `hold` is when the text starts to leave.
