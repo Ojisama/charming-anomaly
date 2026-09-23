@@ -34972,8 +34972,8 @@ function runKraken() {
       ['teleG.arc(head.x, head.y, wallR - b * 9', 'the ring wall is DRAWN at its own constant instead of the radius the sim clamped to — 414px behind the player for the whole arrival'],
       ['if (a.slamT > 0) return 0', 'a slam that landed has no pose: the limb snaps back to idle on the frame it hits'],
       ['const bounce = a.slamT > 0 ?', 'a slam that landed does not settle — the follow-through is computed and never drawn'],
-      ["const ga = s.phase === 'chase' ? rise : 0.3 + 0.7 * grow", 'the arrival is not FADED in: the mass is at full opacity on frame 1'],
-      [': KRAKEN_HEAD_R * K_BODY_R * (0.5 + 0.5 * grow)', 'the arrival is not GROWN: the silhouette pops to full size on frame 1 and the player is cut to a boss arena'],
+      ["const ga = s.phase === 'chase' ? 1 : Math.min(1, 0.25 + grow)", 'the arrival is not FADED in: the mass is at full opacity on frame 1'],
+      [': KRAKEN_HEAD_R * K_BODY_R * (0.55 + 0.45 * grow)', 'the arrival is not GROWN: the silhouette pops to full size on frame 1 and the player is cut to a boss arena'],
       // THE GRIP HAS NO OVERLAY LEFT TO FALL BACK ON. Both of its previous tells were abstract
       // objects drawn beside the fight (a ring on the player, then a fraying line) and both are
       // deleted: the LIMB is the whole picture now. So losing this warp does not degrade the grab's

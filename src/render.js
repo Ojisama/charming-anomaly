@@ -5025,8 +5025,6 @@ export function createRenderer(app) {
   //
   // Drawn nose-forward along +x with `lean: 90` — bilaterally symmetric about its line of travel,
   // exactly like the Moon Jelly, so the shipped facing code turns it to face what it is hunting.
-  // 'all' for the roster look (summary thumbnail, cast bake); 'body' only while baking T.krakenHeadBody
-  let krakenHeadParts = 'all'
   function drawKrakenHead(g, elite, white) {
     const r = BLANK_BOSS_R
     const f = (c) => white ? 0xffffff : c
@@ -5103,9 +5101,6 @@ export function createRenderer(app) {
       g.stroke({ width: lw * 0.75, color: rimBot, alpha: 0.42, cap: 'round' })
     }
 
-    // THE CROWN, THE BEAK AND THE EYES MOVE IN THE CHASE, so the chase rig (syncKrakenHeadRig) draws
-    // them live over a body baked without them; everything else bakes the whole animal as before.
-    if (krakenHeadParts !== 'body') {
     // ---- the arm crown: eight thick bases fanning FORWARD, the beak sitting in the middle of them
     // ONE TAPERED POLYGON PER ARM, built from a curved centreline. Chaining short quads and
     // stroking each of them outlines every joint, so an eight-arm crown showed forty seams and read
@@ -5186,7 +5181,6 @@ export function createRenderer(app) {
         g.stroke({ width: r * 0.042, color: 0x07050c, cap: 'round' })
       }
     }
-    } // end of the parts the chase rig draws live (krakenHeadParts)
 
     if (!white) {
       // photophores down the mantle's edges — literally the same lights its GRABBER arms carry,
@@ -5204,6 +5198,79 @@ export function createRenderer(app) {
       }
     }
     if (elite) eliteCrown(-r * 0.9, r)
+  }
+
+  // THE KRAKEN'S BODY, PAINTED — one bake for the whole fight: the vast thing under the ring and the
+  // head that hunts you in the chase are the same drawing at two sizes. Plan view, its head toward
+  // +y (the bottom of the screen) so the face it wears is the right way up, the mantle trailing away
+  // up the screen. It is a solid mass with volume, not an outline: a dome lit from the camera (the
+  // shading steps in toward a light spot on the mantle's crown), a cold rim on the lit side and a
+  // warm floor-bounce on the other, chromatophore mottling, wet specular streaks, and the grabber's
+  // photophores down its flanks. The eyes, brows, crown and wound are NOT baked: they act, so the
+  // rig draws them live on top (drawKrakenFace).
+  const K_BODY_BAKE_R = 160
+  function drawKrakenBodyBake(g, white) {
+    const R = K_BODY_BAKE_R
+    const f = (c) => white ? 0xffffff : c
+    const shapes = [
+      ['e', 0, -0.52, 0.62, 0.80],   // the mantle, trailing up-screen
+      ['e', 0, -0.08, 0.52, 0.44],   // the neck, blending mantle into head
+      ['e', 0, 0.26, 0.60, 0.44],    // the head, carrying the eyes
+      ['c', -0.37, 0.24, 0.25],      // eye bulges: the eyes sit ON the head, not in a disc
+      ['c', 0.37, 0.24, 0.25],
+    ]
+    const draw = (sc, ox, oy, color, alpha, cx = 0, cy = 0) => {
+      for (const s of shapes) {
+        const x = cx + (s[1] * R - cx) * sc + ox, y = cy + (s[2] * R - cy) * sc + oy
+        if (s[0] === 'e') g.ellipse(x, y, s[3] * R * sc, s[4] * R * sc)
+        else g.circle(x, y, s[3] * R * sc)
+        g.fill({ color: f(color), alpha })
+      }
+    }
+    groundShadow(R * 0.9, R * 0.1)
+    // the two rims first, offset, so the base leaves a sliver of each on its own side
+    draw(1.02, -R * 0.025, -R * 0.03, 0xcfe0ff, 0.95)
+    draw(1.02, R * 0.02, R * 0.035, 0xc98a5a, 0.7)
+    // the dome: stepped fills shrinking toward a light spot on the crown of the mantle
+    const lx = -R * 0.10, ly = -R * 0.40
+    const N = 26
+    for (let i = 0; i <= N; i++) {
+      const t = i / N
+      draw(1 - 0.86 * t, 0, 0, mix(0x0c0918, 0x6a5a9e, Math.pow(t, 1.25)), 1, lx, ly)
+    }
+    if (white) return
+    // the eye sockets: dark hollows the live eyes sit in
+    for (const sg of [-1, 1]) {
+      g.circle(sg * 0.37 * R, 0.24 * R, 0.205 * R).fill({ color: 0x07050e, alpha: 0.95 })
+      g.circle(sg * 0.37 * R, 0.24 * R, 0.205 * R).stroke({ width: R * 0.025, color: 0x8c7cc0, alpha: 0.35 })
+    }
+    // chromatophores: darker blotches and a few paler flecks, so it is skin and not plastic
+    let seed = 0x6b1d
+    const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296)
+    const inside = (x, y) => ((x / 0.58) ** 2 + ((y + 0.52) / 0.76) ** 2 < 1) || ((x / 0.56) ** 2 + ((y - 0.26) / 0.40) ** 2 < 1)
+    for (let k = 0; k < 70; k++) {
+      const x = (rnd() - 0.5) * 1.2, y = -1.3 + rnd() * 1.95
+      if (!inside(x, y)) continue
+      if (Math.hypot(Math.abs(x) - 0.37, y - 0.24) < 0.24) continue
+      const dark = rnd() < 0.72
+      g.circle(x * R, y * R, R * (0.018 + rnd() * 0.05)).fill({ color: dark ? 0x0a0716 : 0x9c8ad0, alpha: dark ? 0.45 : 0.22 })
+    }
+    // a faint dorsal ridge down the mantle, and the fold where mantle meets head
+    g.moveTo(0, -1.22 * R).quadraticCurveTo(-0.04 * R, -0.6 * R, 0, -0.05 * R).stroke({ width: R * 0.035, color: 0x9c8ad0, alpha: 0.28, cap: 'round' })
+    g.moveTo(-0.46 * R, -0.06 * R).quadraticCurveTo(0, 0.06 * R, 0.46 * R, -0.06 * R).stroke({ width: R * 0.03, color: 0x07050e, alpha: 0.55, cap: 'round' })
+    // WET: specular streaks on the crown of the mantle and the brow
+    g.ellipse(-0.14 * R, -0.66 * R, 0.17 * R, 0.07 * R).fill({ color: 0xffffff, alpha: 0.12 })
+    g.ellipse(-0.17 * R, -0.70 * R, 0.08 * R, 0.028 * R).fill({ color: 0xffffff, alpha: 0.5 })
+    g.ellipse(0.2 * R, -0.95 * R, 0.05 * R, 0.02 * R).fill({ color: 0xffffff, alpha: 0.3 })
+    g.ellipse(-0.08 * R, 0.08 * R, 0.1 * R, 0.03 * R).fill({ color: 0xffffff, alpha: 0.18 })
+    // the grabber's lights down both flanks of the mantle
+    const glow = K_ROLE_SKIN.grab.glowCol
+    for (let k = 0; k < 9; k++) {
+      const phi = Math.PI * (0.62 + k * 0.085) // down the left flank, from the neck to the tail
+      const x = 0.88 * 0.62 * R * Math.cos(phi), y = -0.52 * R + 0.88 * 0.80 * R * Math.sin(phi)
+      photophore(g, x, y, R * 0.022, glow)
+      photophore(g, -x, y, R * 0.022, glow)
+    }
   }
 
   // A single massive curling arm — the boss's grab. Wide at the shoulder, curling to a bulbous club.
@@ -5688,10 +5755,15 @@ export function createRenderer(app) {
       // never draws one.
       if (ROSTER_LOOKS[id].childDraw) T.roster[id + '_child'] = makeRosterLook(id, false, true)
     }
-    // The chase head's body with no crown, beak or eyes: syncKrakenHeadRig draws those live on top.
-    krakenHeadParts = 'body'
-    T.krakenHeadBody = makeRosterLook('krakenHead', false)
-    krakenHeadParts = 'all'
+    {
+      const g = new Graphics()
+      drawKrakenBodyBake(g, false)
+      T.krakenBody = bake(g, 3, 2)
+      const w = new Graphics()
+      drawKrakenBodyBake(w, true)
+      T.krakenBodyWhite = bake(w, 3, 2)
+      shadowSpec = null
+    }
 
     // The Kraken's tentacle strip, for the MeshRope arms. Baked long (560px) because the rope
     // stretches it over ~230 world px of arm and a short texture would visibly smear.
@@ -20624,63 +20696,75 @@ const spurG = new Graphics()
     }
   }
 
-  // ---- THE CREATURE: the body under the ring, and the head alive in the chase ------------------
+  // ---- THE CREATURE: one painted animal, under the ring and then hunting you ------------------
   // Brineybeard's first quality: the boss is ON SCREEN and IN CHARACTER from the first frame, and
-  // the late reveal is those same eyes doing something new. So the animal the arms belong to lies
-  // under the arena for the whole ring — a mantle bigger than the phone, its arm ROOTS running out
-  // along each live arm's own bearing, and two eyes that watch you. Its lights are points (eyes,
-  // photophores), its flesh a shade DARKER than the floor with one lit contour: a field this size at
-  // telegraph contrast is exactly "why is everything purple", so the ink goes to the eyes and the
-  // body only has to be there. It reacts to the fight: eyes narrow as an arm rears, it flinches when you parry or break
-  // one, a broken arm's root recoils into the body, and it opens its eyes wide at the rise.
-  // In the chase the head is a rig over a body bake without its crown, beak or eyes, so those three
-  // can ACT: sealed is a clenched crown and hooded eyes, staggered is the crown thrown open, the
-  // beak gaping on a lit soft mouth and the eyes wide and swimming — the weak point is a body part.
-  const K_BODY_R = 2.7        // the body's radius, in head radii (the head bake is 1)
-  const K_FACE_D = 300        // world px from the player up to the face
-  const K_FACE_W = 0.46       // the head dome's half-width, in body radii
-  const K_EYE_R = 0.12        // eye radius, in body radii
-  const K_EYE_V = 0.27        // each eye's offset from the face's midline, in body radii
-  const K_BODY_TURN = 1.4     // rad/s — the face keeps turning to hold you in its eyes
-  const K_ROOT_LEN = KRAKEN_RING_R + 520
+  // the late reveal is the same eyes doing something new. So the body the arms belong to lies at the
+  // ring's centre — where the sim's head actually is — as a SOLID painted mass a third of the phone
+  // across (T.krakenBody), with its arm ROOTS (the same lit limb strips as the ropes) growing out of
+  // it along each arm's bearing, and a face that acts: eyes that follow you, brows that drop as an
+  // arm rears, a flinch on a parry or a break. The chase head is the SAME bake at head size: sealed
+  // it wraps its crown over its face, staggered it comes up at the camera, its mantle split open on
+  // a glowing core, and a hit is a saturated pop and a flinch rather than a grey wash.
+  // Top-down, head toward the bottom of the screen: its eyes look UP out of the screen at you, which
+  // is also what keeps the face the right way up wherever you are.
+  const K_BODY_R = 2.0        // the ring body's radius, in head radii
+  const K_ROOT_LEN = 1400     // world px a root runs out from the body — well past any screen edge
+  const K_ROOT_N = 24
   const kc = {
-    fx: null, fy: null, ang: null, flinch: 0, wide: 0, deflect: 0, blink: 0, blinkAt: 2.5, rootLen: [],
-    lastHF: 0, flash: 0, flashCd: 0, stagPeak: 0, crown: -1, gape: 0,
+    x: null, y: null, tilt: 0, flinch: 0, wide: 0, deflect: 0, blink: 0, blinkAt: 2.5, rootLen: [],
+    lastHF: 0, flash: 0, flashCd: 0, recoil: 0, stagPeak: 0, crown: -1, near: 0, core: 0,
   }
-  const krakenEyeG = new Graphics()
+  function makeCreatureRig() {
+    const root = new Container()
+    const under = new Graphics()        // the crown's arms, which come out from under the head
+    const body = new Sprite(Texture.EMPTY)
+    const flash = new Sprite(Texture.EMPTY)
+    flash.blendMode = 'add'
+    const g = new Graphics()            // eyes, brows, the wound, and arms laid over the face
+    root.addChild(under, body, flash, g)
+    root.visible = false
+    return { root, under, body, flash, g }
+  }
+  const krakenBodyLayer = new Container()
+  const krakenRootRopes = []
+  const ringRig = makeCreatureRig()
   const krakenHeadRig = new Container()
-  const krakenHeadBodySp = new Sprite(Texture.EMPTY)
-  const krakenHeadFlashSp = new Sprite(Texture.EMPTY)
-  const krakenHeadG = new Graphics()
-  krakenHeadRig.addChild(krakenHeadBodySp, krakenHeadFlashSp, krakenHeadG)
+  const headRig = makeCreatureRig()
+  krakenHeadRig.addChild(headRig.root)
   krakenHeadRig.visible = false
   // ITS EYES SHOW THROUGH THE DARK. They are lights, like the photophores the dark already spares,
   // and a pair of eyes watching you from past the edge of your lamp is the whole horror of the
   // Light bar running low. Added light only (blend add), on a layer above darkLayer that follows the
   // world camera; it carries nothing the fight needs, so the dark still hides every threat.
   const krakenLampLayer = new Container()
+  const krakenLampSp = new Sprite(Texture.EMPTY)
+  krakenLampSp.blendMode = 'add'
   const krakenLampG = new Graphics()
   krakenLampG.blendMode = 'add'
-  krakenLampLayer.addChild(krakenLampG)
+  krakenLampLayer.addChild(krakenLampSp, krakenLampG)
   app.stage.addChildAt(krakenLampLayer, app.stage.getChildIndex(darkLayer) + 1)
   app.stage.addChildAt(krakenDangerLayer, app.stage.getChildIndex(darkLayer) + 1)
-  // UNDER the wreck field, not over it: the body is below the seabed clutter, and the eyes sit on
-  // it unblurred. The head rig sits directly over the enemy layer, where its pooled sprite was.
+  // The body is UNDER the wreck field (it lies beneath the seabed clutter); the soft glows go in the
+  // blurred krakenDeepG under it. The head rig sits directly over the enemy layer, where its pooled
+  // sprite was.
   entitiesLayer.removeChild(krakenDeepG)
   entitiesLayer.addChildAt(krakenDeepG, entitiesLayer.getChildIndex(obstacleLayer))
-  entitiesLayer.addChildAt(krakenEyeG, entitiesLayer.getChildIndex(krakenDeepG) + 1)
+  entitiesLayer.addChildAt(krakenBodyLayer, entitiesLayer.getChildIndex(krakenDeepG) + 1)
+  krakenBodyLayer.addChild(ringRig.root)
   entitiesLayer.addChildAt(krakenHeadRig, entitiesLayer.getChildIndex(enemyLayer) + 1)
-  krakenDeepG.filters = [new BlurFilter({ strength: 3, quality: 2 })]
+  krakenDeepG.filters = [new BlurFilter({ strength: 6, quality: 2 })]
 
   function krakenCreatureReset() {
     krakenDeepG.clear()
-    krakenEyeG.clear()
     krakenLampG.clear()
-    krakenHeadG.clear()
+    krakenLampSp.visible = false
+    ringRig.root.visible = false
+    headRig.root.visible = false
     krakenHeadRig.visible = false
-    kc.fx = null; kc.fy = null; kc.near = 0; kc.recoil = 0
-    kc.ang = null; kc.flinch = 0; kc.wide = 0; kc.deflect = 0; kc.blink = 0; kc.rootLen.length = 0
-    kc.lastHF = 0; kc.flash = 0; kc.stagPeak = 0; kc.crown = -1; kc.gape = 0
+    for (const r of krakenRootRopes) r.visible = false
+    kc.x = null; kc.y = null; kc.tilt = 0; kc.near = 0; kc.recoil = 0; kc.core = 0
+    kc.flinch = 0; kc.wide = 0; kc.deflect = 0; kc.blink = 0; kc.rootLen.length = 0
+    kc.lastHF = 0; kc.flash = 0; kc.stagPeak = 0; kc.crown = -1
   }
 
   // one eye, in its own frame: (ux,uy) is its long axis. e.open 0..1 is the lid aperture, (e.lx,
@@ -20719,9 +20803,9 @@ const spurG = new Graphics()
     }
     g.poly(pp).fill({ color: 0x020206, alpha: al }) // the pupil never flashes: the face survives a hit
     // the catchlight: one hard point of light is the difference between an eye and a painted disc
-    if (o > 0.25 && wh < 0.5) {
+    if (o > 0.25) {
       const [hx, hy] = P(-re * 0.28, -re * 0.30 * o)
-      g.circle(hx, hy, Math.max(1.5, re * 0.11)).fill({ color: 0xffffff, alpha: 0.75 * al })
+      g.circle(hx, hy, Math.max(1.5, re * 0.12)).fill({ color: 0xffffff, alpha: 0.8 * al })
     }
     g.poly(pts).stroke({ width: Math.max(2, re * 0.16), color: mix(e.lid, 0xffffff, wh), alpha: al, join: 'round' })
     if (e.lamp && e.lampA > 0) {
@@ -20732,11 +20816,11 @@ const spurG = new Graphics()
         const cr = []
         for (let i = 0; i <= 10; i++) {
           const f = (half + i / 10) * Math.PI
-          cr.push(...P(ix + Math.cos(f) * ir, iy + Math.sin(f) * irv))
+          cr.push(...e.lampP(...P(ix + Math.cos(f) * ir, iy + Math.sin(f) * irv)))
         }
         for (let i = 10; i >= 0; i--) {
           const f = (half + i / 10) * Math.PI
-          cr.push(...P(ix + Math.cos(f) * pu, iy + Math.sin(f) * pv))
+          cr.push(...e.lampP(...P(ix + Math.cos(f) * pu, iy + Math.sin(f) * pv)))
         }
         e.lamp.poly(cr).fill({ color: e.iris, alpha: e.lampA })
       }
@@ -20753,460 +20837,394 @@ const spurG = new Graphics()
     }
   }
 
-  // THE BODY BELOW. Drawn only while the ring is up (arrive/boss), and through the rise, where it
-  // collapses up into the head that is surfacing.
+  // THE FACE AND WHAT MOVES, drawn live over the body bake, in the bake's own units (R = the bake's
+  // radius, head toward +y). The eyes and brows are laid out in SCREEN axes so a tilted body still
+  // wears an upright face — the eyes are on top of the head looking up out of the screen at you.
+  //   st: rot (the rig's rotation), open, angry (-1 raised .. 1 a hard V), lx/ly (look, screen),
+  //   round (dilated), white (flash), core (0..1 the split mantle), crown (null = no crown drawn,
+  //   else -1 fist .. 1 splayed), guard (0..1 arms over the face), lamp (world mapper or null)
+  function drawKrakenFace(rig, st) {
+    const g = rig.g, u = rig.under
+    g.clear()
+    u.clear()
+    const R = K_BODY_BAKE_R
+    const cr = Math.cos(-st.rot), sr = Math.sin(-st.rot)
+    const sx = [cr, sr], sy = [-sr, cr] // screen right / screen down, in local units
+    const fl = st.white || 0
+    const SS = K_ROLE_SKIN.slam, GS = K_ROLE_SKIN.grab
+    const skin = mix(mix(SS.dark, SS.pale, 0.9), 0x6a5a9e, 0.5)
+    // ---- the crown: eight arms out from under the front of the head
+    const armAt = (k, spread, curl, len, target) => {
+      const side = k < 4 ? -1 : 1
+      const kk = (k + 0.5) / 8 - 0.5                       // -0.44 .. 0.44 across the front
+      let x = kk * R * 0.95, y = R * 0.52
+      let ang = Math.PI / 2 + kk * 2 * spread
+      const pts = [[x, y]]
+      const segL = R * 0.15 * len
+      for (let q = 0; q < 8; q++) {
+        const t = q / 8
+        ang += (curl * -side + Math.sin(animT * 2.2 + k * 1.3) * 0.05) * (0.4 + t)
+        x += Math.cos(ang) * segL * (1 - t * 0.35)
+        y += Math.sin(ang) * segL * (1 - t * 0.35)
+        pts.push([x, y])
+      }
+      const L = [], Rr = []
+      for (let m = 0; m < pts.length; m++) {
+        const t = m / (pts.length - 1)
+        const w = R * (0.085 - 0.07 * t)
+        const a = pts[Math.max(0, m - 1)], b = pts[Math.min(pts.length - 1, m + 1)]
+        const dx = b[0] - a[0], dy = b[1] - a[1], dl = Math.hypot(dx, dy) || 1
+        L.push(pts[m][0] - dy / dl * w, pts[m][1] + dx / dl * w)
+        Rr.unshift(pts[m][0] + dy / dl * w, pts[m][1] - dx / dl * w)
+      }
+      target.poly([...L, ...Rr]).fill(mix(skin, 0xffffff, 0.2 * fl)).stroke({ width: R * 0.018, color: K_LINE, join: 'round' })
+      // the dorsal rim catches the light down its length
+      const rim = []
+      for (let m = 0; m < L.length; m += 2) rim.push(L[m], L[m + 1])
+      target.poly(rim, false).stroke({ width: R * 0.012, color: SS.rimCol, alpha: 0.55, cap: 'round' })
+      return pts
+    }
+    if (st.crown != null) {
+      const open = (st.crown + 1) / 2
+      for (let k = 0; k < 8; k++) {
+        const pts = armAt(k, 0.35 + 0.95 * open, 0.26 * (1 - open) - 0.10 * open, 0.9 + 0.3 * open, u)
+        if (open > 0.5) {
+          const la = (open - 0.5) * 2
+          for (let m = 2; m < pts.length; m += 2) u.circle(pts[m][0], pts[m][1], R * 0.02).fill({ color: GS.glowCol, alpha: 0.85 * la })
+        }
+      }
+    }
+    // ---- THE WOUND: the mantle split open on its core. Huge, warm, the one hot thing on it.
+    if (st.core > 0.01) {
+      const m = st.core
+      const cx = 0, cy = -R * 0.55
+      const pulse = 0.9 + 0.1 * Math.sin(animT * 8)
+      const hw = R * 0.30 * m, hh = R * 0.62 * m
+      g.ellipse(cx, cy, hw * 1.5 * pulse, hh * 1.12 * pulse).fill({ color: 0xff6a3a, alpha: 0.16 * m })
+      // the peeled flaps, curled back either side of the split
+      for (const sg of [-1, 1]) {
+        const flap = []
+        for (let i = 0; i <= 12; i++) {
+          const t = i / 12, yy = cy - hh + t * hh * 2, bulge = Math.sin(t * Math.PI)
+          flap.push(cx + sg * hw * bulge, yy)
+        }
+        for (let i = 12; i >= 0; i--) {
+          const t = i / 12, yy = cy - hh + t * hh * 2, bulge = Math.sin(t * Math.PI)
+          flap.push(cx + sg * (hw * bulge + R * 0.13 * m * bulge), yy)
+        }
+        g.poly(flap).fill(0x2a1f46).stroke({ width: R * 0.02, color: 0xb7a6ea, alpha: 0.7, join: 'round' })
+      }
+      // the opening: a lens of raw flesh with the core burning in it
+      const lens = []
+      for (let i = 0; i <= 16; i++) { const t = i / 16; lens.push(cx + hw * Math.sin(t * Math.PI), cy - hh + t * hh * 2) }
+      for (let i = 16; i >= 0; i--) { const t = i / 16; lens.push(cx - hw * Math.sin(t * Math.PI), cy - hh + t * hh * 2) }
+      g.poly(lens).fill(0x5a1020).stroke({ width: R * 0.03, color: 0xffa27a, alpha: 0.95, join: 'round' })
+      g.ellipse(cx, cy, hw * 0.78 * pulse, hh * 0.8 * pulse).fill({ color: 0xff8a50, alpha: 0.9 })
+      g.ellipse(cx, cy, hw * 0.48 * pulse, hh * 0.55 * pulse).fill({ color: 0xffc49a, alpha: 0.95 })
+      g.ellipse(cx, cy - hh * 0.08, hw * 0.22, hh * 0.28).fill({ color: 0xfff4e6, alpha: 0.95 })
+      for (let k = 0; k < 7; k++) {
+        const a = (k / 7) * Math.PI * 2 + 0.4
+        g.moveTo(cx + Math.cos(a) * hw * 1.05, cy + Math.sin(a) * hh * 1.02)
+          .lineTo(cx + Math.cos(a) * hw * 1.9, cy + Math.sin(a) * hh * 1.35)
+          .stroke({ width: R * 0.015, color: 0xff8a5a, alpha: 0.55 * m })
+      }
+      if (st.lamp) {
+        const [wx, wy] = st.lamp(cx, cy)
+        krakenLampG.circle(wx, wy, st.lampS * hh * 1.3 * pulse).fill({ color: 0xff7a4a, alpha: 0.12 * m })
+        krakenLampG.circle(wx, wy, st.lampS * hh * 0.6 * pulse).fill({ color: 0xffb08a, alpha: 0.25 * m })
+      }
+    }
+    // ---- the eyes and brows, on top of the head, upright on screen
+    for (const sg of [-1, 1]) {
+      const ex = sg * 0.37 * R, ey = 0.24 * R
+      const re = R * 0.165
+      krakenEye(g, ex, ey, re, sx[0], sx[1], {
+        open: st.open, lx: st.lx, ly: st.ly, round: st.round, alpha: 1, white: 0,
+        glow: 0.10 + 0.12 * (st.round || 0), globe: st.round > 0.5 ? 0xd7e9f0 : 0x0a1420,
+        iris: st.round > 0.5 ? 0x7fd8e8 : 0x9ef4ff, irisA: st.round > 0.5 ? 0.4 : 0.95, lid: 0x07050e,
+        lamp: st.lamp ? krakenLampG : null, lampP: st.lamp, lampA: st.lampA || 0,
+      })
+      // THE BROW: a fleshy ridge over the eye, lit along its top. Down in a V over the nose when it
+      // means you harm; flung up when it is dazed.
+      const a = st.angry
+      const at = (along, up) => [ex + sx[0] * along - sy[0] * up, ey + sx[1] * along - sy[1] * up]
+      const inner = -sg * re * 1.05, outer = sg * re * 1.15
+      const base = re * (1.05 + 0.35 * Math.max(0, st.open - 0.5))
+      const i0 = at(inner, base - re * 0.55 * a), md = at(0, base + re * 0.25 - re * 0.1 * a), o0 = at(outer, base + re * 0.1 + re * 0.2 * a)
+      const th = re * 0.32
+      const top = [], bot = []
+      for (let i = 0; i <= 10; i++) {
+        const t = i / 10
+        const bx = (1 - t) * (1 - t) * i0[0] + 2 * (1 - t) * t * md[0] + t * t * o0[0]
+        const by = (1 - t) * (1 - t) * i0[1] + 2 * (1 - t) * t * md[1] + t * t * o0[1]
+        const w = th * Math.sin(Math.PI * (0.15 + 0.7 * t))
+        top.push(bx - sy[0] * w * 0.5, by - sy[1] * w * 0.5)
+        bot.unshift(bx + sy[0] * w * 0.5, by + sy[1] * w * 0.5)
+      }
+      g.poly([...top, ...bot]).fill(mix(0x3a2f62, 0xffffff, 0.25 * fl)).stroke({ width: R * 0.012, color: K_LINE, join: 'round' })
+      g.poly(top, false).stroke({ width: R * 0.018, color: 0xb9c8ff, alpha: 0.75, cap: 'round' })
+      if (st.lamp) {
+        const lp = []
+        for (let i = 0; i < top.length; i += 2) lp.push(...st.lamp(top[i], top[i + 1]))
+        krakenLampG.poly(lp, false).stroke({ width: 3, color: 0x7fe6ff, alpha: 0.25 + 0.2 * Math.max(0, a), cap: 'round' })
+      }
+    }
+    // ---- GUARD: its inner arms come up and lie across the face, eyes glaring over them
+    if (st.guard > 0.01) {
+      // two arms a side sweep up out of the crown, round the outside of each eye and in across its
+      // lower half: a boxer's guard, with the eyes glaring over the top
+      const gk = st.guard
+      for (const sg of [-1, 1]) {
+        for (const j of [0, 1]) {
+          const lerp = (a0, a1) => [a0[0] + (a1[0] - a0[0]) * gk, a0[1] + (a1[1] - a0[1]) * gk]
+          const off = j * 0.07
+          const c0 = [sg * (0.16 + off) * R, 0.58 * R]
+          const c1 = lerp([sg * 0.3 * R, 0.95 * R], [sg * (0.70 + off) * R, (0.52 + off) * R])
+          const c2 = lerp([sg * 0.35 * R, 1.25 * R], [sg * (0.58 + off) * R, (0.10 + off) * R])
+          const c3 = lerp([sg * 0.3 * R, 1.45 * R], [sg * (0.12 + off * 0.5) * R, (0.26 + off) * R])
+          const L = [], Rr = []
+          const N = 14
+          for (let i = 0; i <= N; i++) {
+            const t = i / N, mt = 1 - t
+            const bx = mt ** 3 * c0[0] + 3 * mt * mt * t * c1[0] + 3 * mt * t * t * c2[0] + t ** 3 * c3[0]
+            const by = mt ** 3 * c0[1] + 3 * mt * mt * t * c1[1] + 3 * mt * t * t * c2[1] + t ** 3 * c3[1]
+            const t2 = Math.min(1, t + 0.02), m2 = 1 - t2
+            const nx2 = mt ** 3 * c0[0] + 3 * mt * mt * t * c1[0] + 3 * mt * t * t * c2[0] + t ** 3 * c3[0]
+            const px = m2 ** 3 * c0[0] + 3 * m2 * m2 * t2 * c1[0] + 3 * m2 * t2 * t2 * c2[0] + t2 ** 3 * c3[0]
+            const py = m2 ** 3 * c0[1] + 3 * m2 * m2 * t2 * c1[1] + 3 * m2 * t2 * t2 * c2[1] + t2 ** 3 * c3[1]
+            let dx = px - nx2, dy = py - by
+            const dl = Math.hypot(dx, dy) || 1
+            dx /= dl; dy /= dl
+            const w = R * (0.085 - 0.06 * t)
+            L.push(bx - dy * w, by + dx * w)
+            Rr.unshift(bx + dy * w, by - dx * w)
+          }
+          g.poly([...L, ...Rr]).fill(mix(skin, 0xffffff, 0.2 * fl)).stroke({ width: R * 0.018, color: K_LINE, join: 'round' })
+          const rim = []
+          for (let m = 0; m < L.length; m += 2) rim.push(L[m], L[m + 1])
+          g.poly(rim, false).stroke({ width: R * 0.012, color: SS.rimCol, alpha: 0.6 * gk, cap: 'round' })
+          // suckers on the face side, lit: the grabber's lights pressed against its own face
+          for (let m = 4; m < L.length - 4; m += 6) g.circle((L[m] + Rr[Rr.length - 2 - m]) / 2, (L[m + 1] + Rr[Rr.length - 1 - m]) / 2, R * 0.018).fill({ color: GS.glowCol, alpha: 0.7 * gk })
+        }
+      }
+    }
+  }
+
+  // THE RING: the body at the ring's centre, roots growing out of it along every arm's bearing
   function drawKrakenBody(run, dt, head) {
     krakenDeepG.clear()
-    krakenEyeG.clear()
     krakenLampG.clear()
     krakenLampLayer.position.copyFrom(world.position)
     krakenLampLayer.scale.copyFrom(world.scale)
     const s = run.script
-    if (!head || !s || !krakenFight(run)) return
-    const rise = s.phase === 'chase' && KRAKEN_RISE_T > 0 ? Math.max(0, s.riseT) / KRAKEN_RISE_T : 0
-    if (s.phase === 'chase' && rise <= 0) return
-    const p = run.player
     const k = dt || 0
+    const hideRoots = () => { for (const r of krakenRootRopes) r.visible = false }
+    if (!head || !s || !krakenFight(run) || !T.krakenBody) { ringRig.root.visible = false; krakenLampSp.visible = false; hideRoots(); return }
+    const rise = s.phase === 'chase' && KRAKEN_RISE_T > 0 ? Math.max(0, s.riseT) / KRAKEN_RISE_T : 0
+    if (s.phase === 'chase' && rise <= 0) { ringRig.root.visible = false; krakenLampSp.visible = false; hideRoots(); return }
+    const p = run.player
     const grow = s.phase === 'arrive' && s.arriveMax > 0 ? 1 - s.arriveT / s.arriveMax : 1
-    const ga = s.phase === 'chase' ? rise : 0.3 + 0.7 * grow
-    const R0 = s.phase === 'chase'
-      ? KRAKEN_HEAD_R * (1 + (K_BODY_R - 1) * rise)
-      : KRAKEN_HEAD_R * K_BODY_R * (0.5 + 0.5 * grow)
-    const R = R0 * (1 + 0.035 * Math.sin(animT * 0.9)) * (1 - 0.035 * kc.flinch)
-
-    // ---- WHERE THE FACE IS. It watches you from a distance, not from under your feet, eased (it is
-    // vast, it moves like it) and CLAMPED INSIDE THE VIEW so the face is on screen, whole, for the
-    // whole ring. Deep-below parallax is what licenses the slide: it is not at the ring's centre in
-    // the first place, it is far beneath it.
-    const z = world.scale.x || 1
-    const vx0 = -world.position.x / z, vy0 = -world.position.y / z
-    const vw = app.screen.width / z, vh = app.screen.height / z
-    const faceR = R * K_FACE_W * 1.15
-    // ALWAYS ABOVE YOU, LOOKING DOWN. The face reads as a face only the right way up on the screen
-    // — the same thing below you is upside down, and beside you it is on its side — so it holds the
-    // top of the view, sliding across with the ring's centre, and never passes through you.
-    const D = Math.max(0, Math.min(K_FACE_D, vh / 2 - faceR - 16))
-    let tx = p.x + (head.x - p.x) * 0.5, ty = p.y - D
-    const mX = Math.min(vw * 0.5, faceR + 12), mY = Math.min(vh * 0.5, faceR + 12)
-    tx = Math.max(vx0 + mX, Math.min(vx0 + vw - mX, tx))
-    ty = Math.max(vy0 + mY, Math.min(vy0 + vh - mY, ty))
-    // the rise pulls it in onto the head that is surfacing
-    if (s.phase === 'chase') { tx = head.x; ty = head.y }
-    if (kc.fx == null) { kc.fx = tx; kc.fy = ty }
-    const ease = Math.min(1, k * (s.phase === 'chase' ? 6 : 3))
-    kc.fx += (tx - kc.fx) * ease
-    kc.fy += (ty - kc.fy) * ease
-    // it faces you (slowly), so its forward axis is the line its eyes look down
-    const want = Math.atan2(p.y - kc.fy, p.x - kc.fx)
-    if (kc.ang == null) kc.ang = want
-    let dA = want - kc.ang
-    while (dA > Math.PI) dA -= Math.PI * 2
-    while (dA < -Math.PI) dA += Math.PI * 2
-    kc.ang += Math.sign(dA) * Math.min(Math.abs(dA), K_BODY_TURN * k)
-    const c = Math.cos(kc.ang), sn = Math.sin(kc.ang)
-    const jolt = kc.flinch * 22
-    // (cx, cy) is the face point — the midpoint between the eyes. u runs forward toward you.
-    const cx = kc.fx - c * jolt, cy = kc.fy - sn * jolt
-    const W = (u, v) => [cx + c * u - sn * v, cy + sn * u + c * v]
-    // A HOLE DRAWN BY ITS CONTOUR: flesh darker than the floor, one lit rim, and its own lights.
-    // (Picked over a tonal body lifted OFF the floor: that one read as a shape more easily, and
-    // turned every slam corridor laid across it from red to mauve — the telegraph paid for it.)
-    const flesh = 0x010307
-    const rimC = 0x34497a
-    const glowC = K_ROLE_SKIN.grab.glowCol
-    const lampC = 0x7fe6ff
-
-    // ---- the arm ROOTS: from the body out along each live arm's own bearing, under the rim
+    const ga = s.phase === 'chase' ? 1 : Math.min(1, 0.25 + grow)
     let lift = 0
-    for (const a of run.krakenArms) {
-      if (!a.dead) lift = Math.max(lift, krakenLift(a))
-      const tgt = (a.dead ? (a.breakT > 0 ? 0.3 + 0.7 * (a.breakT / 0.9) : 0.26) : 1) * grow
+    for (const a of run.krakenArms) if (!a.dead) lift = Math.max(lift, krakenLift(a))
+    // where: the ring's centre, leaning at you as an arm rears, jolted back by a flinch
+    const dx = p.x - head.x, dy = p.y - head.y, dl = Math.hypot(dx, dy) || 1
+    const lean = 26 * lift - 24 * kc.flinch
+    const tx = head.x + dx / dl * lean, ty = head.y + dy / dl * lean
+    if (kc.x == null) { kc.x = tx; kc.y = ty }
+    const e = Math.min(1, k * 6)
+    kc.x += (tx - kc.x) * e
+    kc.y += (ty - kc.y) * e
+    // how it is turned: head toward the bottom of the screen, tilting a little toward you
+    const tilt = -0.3 * dx / dl
+    kc.tilt += (tilt - kc.tilt) * Math.min(1, k * 2)
+    const worldR = s.phase === 'chase'
+      ? KRAKEN_HEAD_R * (1.3 + (K_BODY_R - 1.3) * rise)
+      : KRAKEN_HEAD_R * K_BODY_R * (0.55 + 0.45 * grow)
+    const sc = worldR / K_BODY_BAKE_R * (1 + 0.025 * Math.sin(animT * 1.1)) * (1 - 0.04 * kc.flinch)
+    const rig = ringRig
+    rig.root.visible = true
+    if (rig.body.texture !== T.krakenBody.tex) { rig.body.texture = T.krakenBody.tex; rig.body.anchor.set(T.krakenBody.ax, T.krakenBody.ay) }
+    if (rig.flash.texture !== T.krakenBodyWhite.tex) { rig.flash.texture = T.krakenBodyWhite.tex; rig.flash.anchor.set(T.krakenBodyWhite.ax, T.krakenBodyWhite.ay) }
+    rig.root.position.set(kc.x, kc.y)
+    rig.root.rotation = kc.tilt
+    rig.root.scale.set(sc, sc * (1 + 0.02 * Math.sin(animT * 1.1 + 1)))
+    rig.root.alpha = ga
+    rig.flash.tint = 0xb58cff
+    rig.flash.alpha = 0.55 * kc.flinch
+    // ---- the roots: the same limb strips as the ropes, thick where they leave the body
+    const arms = run.krakenArms
+    for (let i = 0; i < arms.length; i++) {
+      const a = arms[i]
+      let rope = krakenRootRopes[i]
+      if (!rope) {
+        const pts = []
+        for (let q = 0; q < K_ROOT_N; q++) pts.push(new Point(0, 0))
+        rope = new MeshRope({ texture: T.krakenLimb.slam, points: pts })
+        rope._pts = pts
+        rope._kMul = 1.6
+        rope.onRender = function () {
+          this.geometry._width = this.texture.height * this._kMul
+          this.geometry.update()
+        }
+        krakenBodyLayer.addChildAt(rope, 0)
+        krakenRootRopes.push(rope)
+      }
+      const tex = T.krakenLimb[a.role] || T.krakenLimb.slam
+      if (rope.texture !== tex) rope.texture = tex
+      const tgt = (a.dead ? (a.breakT > 0 ? 0.3 + 0.7 * (a.breakT / 0.9) : 0.22) : 1) * Math.min(1, grow * 1.2) * (s.phase === 'chase' ? rise : 1)
       const cur = kc.rootLen[a.i] ?? tgt
       kc.rootLen[a.i] = cur + (tgt - cur) * Math.min(1, k * (tgt < cur ? 6 : 1.4))
       const len = kc.rootLen[a.i]
-      const dx = Math.cos(a.ang), dy = Math.sin(a.ang), nx = -dy, ny = dx
-      const swing = Math.sin(a.i * 2.7) >= 0 ? 1 : -1
+      rope.visible = len > 0.03
+      if (!rope.visible) continue
       const tense = a.tele > 0 && a.fuse ? krakenLift(a) : 0
-      const amp = a.limpT > 0 ? 70 : 44 * (1 - 0.7 * tense)
-      const N = 16
-      const L = [], Rr = [], spine = []
-      const r0 = R * 0.2, span = K_ROOT_LEN * Math.max(0.05, len)
-      // roots leave from under the head — the crown of arms is beneath it — so they fan out of it
-      const bx = cx - c * R * 0.05, by = cy - sn * R * 0.05
-      for (let q = 0; q <= N; q++) {
-        const t = q / N
-        const rr = r0 + t * span
-        let lat = Math.sin(animT * (a.limpT > 0 ? 0.5 : 0.8) + a.i * 1.9 + t * 3.6) * amp * t + Math.sin(a.i * 2.3) * 60 * t
-        if (a.dead) lat += swing * t * t * 150            // a broken root curls back on itself
-        const x = bx + dx * rr + nx * lat, y = by + dy * rr + ny * lat
-        const w = R * 0.15 * (1 - 0.72 * t) * (a.dead ? 0.8 : 1) * (1 + 0.25 * tense)
-        spine.push([x, y, w])
-        L.push(x + nx * w, y + ny * w)
-        Rr.unshift(x - nx * w, y - ny * w)
+      const cx0 = Math.cos(a.ang), cy0 = Math.sin(a.ang), nx = -cy0, ny = cx0
+      const swing = Math.sin(a.i * 2.7) >= 0 ? 1 : -1
+      const amp = a.limpT > 0 ? 60 : 36 * (1 - 0.6 * tense)
+      const r0 = worldR * 0.35
+      for (let q = 0; q < K_ROOT_N; q++) {
+        const t = q / (K_ROOT_N - 1)
+        const rr = r0 + t * K_ROOT_LEN * len
+        let lat = Math.sin(animT * (a.limpT > 0 ? 0.6 : 1.0) + a.i * 1.9 + t * 3.2) * amp * t + Math.sin(a.i * 2.3) * 70 * t * t
+        if (a.dead) lat += swing * t * t * 220
+        rope._pts[q].set(kc.x + cx0 * rr + nx * lat, kc.y + cy0 * rr + ny * lat)
       }
-      const fill = mix(flesh, 0x2a2350, 0.3 * tense)
-      krakenDeepG.poly([...L, ...Rr]).fill({ color: fill, alpha: 0.95 * ga })
-      krakenDeepG.poly([...L, ...Rr]).stroke({ width: 4, color: rimC, alpha: 0.7 * ga, join: 'round' })
-      const edge = []
-      for (const [x, y, w] of spine) edge.push(x + nx * w * 0.9, y + ny * w * 0.9)
-      krakenDeepG.poly(edge, false).stroke({ width: 5, color: mix(rimC, 0xb9a8ff, tense), alpha: (0.75 + 0.25 * tense) * ga })
-      // self-lit: a faint cold line down each root, so the arms read as the head's own through the
-      // dark — from where the root leaves the head, never across the face
-      {
-        const out = []
-        for (let q = 0; q <= N; q++) {
-          const [x, y, w] = spine[q]
-          if ((x - cx) ** 2 + (y - cy) ** 2 < (R * 0.62) ** 2) continue
-          out.push(x + nx * w * 0.9, y + ny * w * 0.9)
-        }
-        if (out.length >= 4) krakenLampG.poly(out, false).stroke({ width: 2, color: lampC, alpha: 0.07 * ga * (a.dead ? 0.4 : 1) })
-      }
-      // THE STRIKE BEING SENT: a bright pulse runs from the face out along this root with the fuse,
-      // reaching the rim as the parry window opens — where it comes from, and when.
+      rope._kMul = (1.5 + 0.5 * tense) * Math.min(1, 0.4 + worldR / (KRAKEN_HEAD_R * K_BODY_R))
+      rope.alpha = ga
+      rope.tint = a.limpT > 0 ? 0x5a7fa8 : mix(0x8a80aa, 0xeee8fe, tense)
+      // the strike being SENT: a glow runs out along the root with the fuse
       if (tense > 0 && a.fuse) {
         const f = 1 - Math.max(0, a.tele) / a.fuse
-        const head_ = Math.min(N, Math.round(f * N * 1.1))
-        for (let q = Math.max(0, head_ - 4); q <= head_; q++) {
-          const [x, y, w] = spine[q]
-          const fall = 1 - (head_ - q) / 5
-          krakenDeepG.circle(x, y, w * 1.1).fill({ color: 0xb9a8ff, alpha: 0.30 * fall * tense * ga })
-          // ...and faintly through the dark: it says WHICH WAY, not where the corridor lands
-          krakenLampG.circle(x, y, w * 0.7).fill({ color: 0xb9a8ff, alpha: 0.12 * fall * tense * ga })
-        }
-      }
-      if (a.role === 'grab') {
-        for (let q = 1; q < N; q += 2) {
-          const [x, y, w] = spine[q]
-          const pa = (0.35 + 0.3 * Math.sin(animT * 1.6 - q * 0.7 + a.i)) * ga * (a.dead ? 0.3 : 1)
-          krakenDeepG.circle(x + nx * w * 0.45, y + ny * w * 0.45, 3.2).fill({ color: glowC, alpha: pa })
-          krakenDeepG.circle(x - nx * w * 0.45, y - ny * w * 0.45, 3.2).fill({ color: glowC, alpha: pa })
-          krakenLampG.circle(x + nx * w * 0.45, y + ny * w * 0.45, 3).fill({ color: glowC, alpha: pa * 0.3 })
-          krakenLampG.circle(x - nx * w * 0.45, y - ny * w * 0.45, 3).fill({ color: glowC, alpha: pa * 0.3 })
-        }
+        const q = Math.min(K_ROOT_N - 1, Math.round(f * (K_ROOT_N - 1)))
+        const pt = rope._pts[q]
+        krakenDeepG.circle(pt.x, pt.y, 60).fill({ color: 0xb9a8ff, alpha: 0.35 * tense * ga })
       }
     }
-
-    // ---- the mantle, trailing away behind the head
-    const mantle = (sc) => {
-      const pts = []
-      const N = 24
-      const top = [], bot = []
-      for (let q = 0; q <= N; q++) {
-        const t = q / N
-        const u = -R * (0.25 + t * 2.0)
-        const w = R * sc * 0.66 * Math.sin(Math.PI * Math.min(1, 0.12 + t * 0.88)) ** 0.7
-        top.push(W(u, -w)); bot.unshift(W(u, w))
-      }
-      for (const q of [...top, ...bot]) pts.push(q[0], q[1])
-      return pts
-    }
-    // ---- the HEAD: one dome holding both eyes, so they read as a FACE and not two lights
-    const dome = (sc) => {
-      const pts = []
-      for (let q = 0; q < 36; q++) {
-        const f = (q / 36) * Math.PI * 2
-        // flatter at the brow (forward), fuller at the cheeks
-        const cu = Math.cos(f), sv = Math.sin(f)
-        // ...and swollen where the eyes sit, so the eyes are bumps ON the head, not holes in a disc
-        const fa = Math.abs(Math.atan2(sv, cu))
-        const bump = 1 + 0.13 * Math.exp(-(((fa - 1.2) / 0.38) ** 2))
-        const ru = R * sc * (cu > 0 ? 0.40 : 0.50) * bump, rv = R * sc * K_FACE_W * (1 - 0.08 * cu * cu) * bump
-        pts.push(...W(R * 0.02 + cu * ru, sv * rv))
-      }
-      return pts
-    }
-    krakenDeepG.poly(mantle(1.035)).fill({ color: rimC, alpha: 0.8 * ga })
-    krakenDeepG.poly(mantle(1)).fill({ color: flesh, alpha: 0.96 * ga })
-    krakenDeepG.poly(dome(1.045)).fill({ color: rimC, alpha: 0.9 * ga })
-    krakenDeepG.poly(dome(1)).fill({ color: flesh, alpha: ga })
-    for (let q = 0; q < 22; q++) {
-      const h1 = Math.sin(q * 12.9898) * 43758.5453, h2 = Math.sin(q * 39.3468) * 24634.6345
-      const u = h1 - Math.floor(h1), v = h2 - Math.floor(h2)
-      const uu = -R * (0.35 + u * 1.7), vv = (v - 0.5) * R * 0.8 * Math.sin(Math.PI * (0.1 + 0.9 * u))
-      const [x, y] = W(uu, vv)
-      krakenDeepG.circle(x, y, R * (0.03 + 0.05 * v)).fill({ color: 0x0b1424, alpha: 0.6 * ga })
-    }
-
-    // ---- SELF-LIT. Its lights are on the lamp layer as well, so they show through the dark: the
-    // lit rim of the head, a circlet of photophores framing the face, and the rows down its flanks.
-    const lampK = ga * (1 + 0.25 * kc.wide)
-    krakenLampG.poly(dome(1.02)).stroke({ width: 3, color: lampC, alpha: (0.16 + 0.05 * Math.sin(animT * 0.9)) * lampK, join: 'round' })
-    // a faint sheen over the dome, brightest across the crown of the head: skin, not a cut-out
-    krakenLampG.poly(dome(1)).fill({ color: lampC, alpha: 0.03 * lampK })
-    // chromatophores catching the light: skin, not a lamp shade
-    for (let q = 0; q < 16; q++) {
-      const h1 = Math.sin(q * 71.13) * 43758.5453, h2 = Math.sin(q * 19.71) * 24634.6345
-      const u = h1 - Math.floor(h1), v = h2 - Math.floor(h2)
-      const [x, y] = W(-R * (0.05 + u * 0.38), (v - 0.5) * R * K_FACE_W * 1.5 * (1 - u * 0.4))
-      krakenLampG.circle(x, y, R * (0.018 + 0.03 * v)).fill({ color: lampC, alpha: 0.05 * lampK })
-    }
-    // the dorsal ridge, running back from between the eyes
-    {
-      const a0 = W(R * 0.02, 0), a1 = W(-R * 0.42, 0)
-      krakenLampG.moveTo(a0[0], a0[1]).lineTo(a1[0], a1[1]).stroke({ width: 3, color: lampC, alpha: 0.08 * lampK, cap: 'round' })
-    }
-    krakenLampG.poly(mantle(1.0), false).stroke({ width: 2, color: lampC, alpha: 0.07 * lampK, join: 'round' })
-    for (let q = 0; q < 14; q++) {
-      const f = Math.PI * (0.55 + (q / 13) * 0.9) // the back half of the dome, behind the eyes
-      const ff = q % 2 ? f : f
-      const [x, y] = W(R * 0.02 + Math.cos(ff) * R * 0.44, Math.sin(ff) * R * K_FACE_W * 0.94)
-      const pa = (0.35 + 0.4 * Math.max(0, Math.sin(animT * 1.6 - q * 0.6))) * lampK
-      krakenDeepG.circle(x, y, 4.5).fill({ color: glowC, alpha: pa })
-      krakenLampG.circle(x, y, 7).fill({ color: glowC, alpha: pa * 0.35 })
-    }
-    for (let q = 0; q < 8; q++) {
-      const t = 0.1 + q * 0.1
-      const u = -R * (0.25 + t * 2.0)
-      const w = R * 0.56 * Math.sin(Math.PI * Math.min(1, 0.12 + t * 0.88)) ** 0.7
-      const pa = (0.30 + 0.45 * Math.max(0, Math.sin(animT * 1.3 - q * 0.7))) * ga
-      for (const sg of [-1, 1]) {
-        const [x, y] = W(u, sg * w)
-        krakenDeepG.circle(x, y, 4).fill({ color: glowC, alpha: pa })
-        krakenLampG.circle(x, y, 5).fill({ color: glowC, alpha: pa * 0.5 })
-      }
-    }
-
-    // ---- the eyes and brows: the part that ACTS
+    for (let i = arms.length; i < krakenRootRopes.length; i++) krakenRootRopes[i].visible = false
+    // ---- the face
     kc.blinkAt -= k
     if (kc.blinkAt <= 0) { kc.blink = 1; kc.blinkAt = 3.5 + 3 * (0.5 + 0.5 * Math.sin(animT * 7.3)) }
     const bl = kc.blink > 0 ? Math.sin(kc.blink * Math.PI) : 0
-    const wake = Math.min(1, Math.max(0, (grow - 0.25) / 0.6))
-    const open = (0.98 - 0.62 * lift) * (1 - 0.92 * kc.flinch) * (1 - 0.95 * bl) * wake + 0.3 * kc.wide
-    const re = R * K_EYE_R
-    const ea = s.phase === 'chase' ? ga * Math.max(0, (rise - 0.5) / 0.5) : ga
-    // the eye's long axis runs ACROSS the face (so you see two almonds side by side, lids top and
-    // bottom as you look at it); v = backward, i.e. "up" on the face you are looking at
-    const ex_ = -sn, ey_ = c
-    for (const sg of [-1, 1]) {
-      const [ex, ey] = W(R * 0.10, sg * R * K_EYE_V)
-      const px = p.x - ex, py = p.y - ey, pl = Math.hypot(px, py) || 1
-      const lx = (px * ex_ + py * ey_) / pl, ly = (px * -c + py * -sn) / pl
-      krakenEye(krakenEyeG, ex, ey, re, ex_, ey_, { open, lx, ly, round: kc.wide, alpha: ea, white: 0,
-        glow: 0, globe: 0x07121c, iris: 0x9ef4ff, irisA: 0.6 + 0.3 * kc.wide + 0.2 * lift, lid: 0x02040a,
-        lamp: krakenLampG, lampA: (0.30 + 0.25 * kc.wide + 0.2 * lift) * ea })
-      // THE BROW: a lit ridge over each eye. Relaxed it arches; as an arm rears it drops into a V
-      // over the nose — the face narrowing on you is the wind-up, read at a glance.
-      // never quite at rest: a predator's resting brow is already lowered
-      const angry = Math.max(0.3, lift, kc.flinch * 0.6)
-      const inV = sg * R * (K_EYE_V - re / R * 1.05), outV = sg * R * (K_EYE_V + re / R * 1.15)
-      const back = R * 0.10 - re * (1.35 - 0.25 * open)
-      const i0 = W(back + R * (0.02 + 0.10 * angry), inV)
-      const mid = W(back - R * (0.05 - 0.03 * angry), sg * R * K_EYE_V)
-      const o0 = W(back - R * (0.01 + 0.04 * angry), outV)
-      const bw = Math.max(3, re * 0.26)
-      krakenEyeG.beginPath()
-      krakenEyeG.moveTo(i0[0], i0[1])
-      krakenEyeG.quadraticCurveTo(mid[0], mid[1], o0[0], o0[1])
-      krakenEyeG.stroke({ width: bw, color: mix(rimC, 0xdff8ff, 0.4 + 0.4 * angry), alpha: 0.9 * ea, cap: 'round' })
-      krakenLampG.beginPath()
-      krakenLampG.moveTo(i0[0], i0[1])
-      krakenLampG.quadraticCurveTo(mid[0], mid[1], o0[0], o0[1])
-      krakenLampG.stroke({ width: bw * 0.7, color: lampC, alpha: (0.18 + 0.3 * angry) * ea, cap: 'round' })
+    const wake = Math.min(1, Math.max(0, (grow - 0.2) / 0.6))
+    const open = ((0.95 - 0.6 * lift) * (1 - 0.92 * kc.flinch) * (1 - 0.95 * bl) * wake + 0.3 * kc.wide)
+    const L = (lx, ly) => {
+      const c = Math.cos(kc.tilt), sn = Math.sin(kc.tilt)
+      return [kc.x + (lx * c - ly * sn) * sc, kc.y + (lx * sn + ly * c) * sc]
     }
+    drawKrakenFace(rig, {
+      rot: kc.tilt, open, angry: Math.max(0.3, lift, kc.flinch * 0.7), lx: dx / dl, ly: dy / dl,
+      round: kc.wide * 0.6, white: 0, core: 0, crown: null, guard: 0,
+      lamp: s.phase === 'chase' ? null : L, lampA: 0.35 * ga, lampS: sc,
+    })
+    // through the dark, a faint cold ghost of the whole body, so it is a MASS there too
+    krakenLampSp.visible = true
+    if (krakenLampSp.texture !== T.krakenBodyWhite.tex) { krakenLampSp.texture = T.krakenBodyWhite.tex; krakenLampSp.anchor.set(T.krakenBodyWhite.ax, T.krakenBodyWhite.ay) }
+    krakenLampSp.position.copyFrom(rig.root.position)
+    krakenLampSp.rotation = rig.root.rotation
+    krakenLampSp.scale.copyFrom(rig.root.scale)
+    krakenLampSp.tint = 0x4a78b0
+    krakenLampSp.alpha = 0.16 * ga
   }
 
-  // THE HEAD ALIVE. The pooled enemy sprite still does everything it did (position, heading, the
-  // rise's scale/tint/alpha, status tints); this reads its transform and hides it, and draws the
-  // same animal with its crown, beak and eyes posed by state.
+  // THE CHASE: the same body at head size, riding the pooled sprite's transform (so the rise, the
+  // lunge pose and status tints all still apply) with that sprite hidden
   function syncKrakenHeadRig(run, dt, head) {
-    krakenHeadG.clear()
     const s = run.script
     const hs = head && s && s.phase === 'chase' ? enemySprites.get(head.id) : null
-    if (!hs || !hs.visible || !T.krakenHeadBody) { krakenHeadRig.visible = false; return }
+    if (!hs || !hs.visible || !T.krakenBody) { krakenHeadRig.visible = false; headRig.root.visible = false; return }
+    // THROUGH THE RISE the ring's body IS the head, shrinking onto it; this takes over when it lands
+    if (s.riseT > 0) { hs.visible = false; krakenHeadRig.visible = false; headRig.root.visible = false; return }
     krakenHeadRig.visible = true
-    const look = T.krakenHeadBody
-    if (krakenHeadBodySp.texture !== look.tex) { krakenHeadBodySp.texture = look.tex; krakenHeadBodySp.anchor.set(look.ax, look.ay) }
-    if (krakenHeadFlashSp.texture !== look.white) { krakenHeadFlashSp.texture = look.white; krakenHeadFlashSp.anchor.set(look.ax, look.ay) }
+    const rig = headRig
+    rig.root.visible = true
+    if (rig.body.texture !== T.krakenBody.tex) { rig.body.texture = T.krakenBody.tex; rig.body.anchor.set(T.krakenBody.ax, T.krakenBody.ay) }
+    if (rig.flash.texture !== T.krakenBodyWhite.tex) { rig.flash.texture = T.krakenBodyWhite.tex; rig.flash.anchor.set(T.krakenBodyWhite.ax, T.krakenBodyWhite.ay) }
     const rung = krakenRung(run.difficulty)
+    const k = dt || 0
     const stag = s.staggerT > 0
     kc.stagPeak = stag ? Math.max(kc.stagPeak, s.staggerT) : 0
     const stagK = stag ? s.staggerT / (kc.stagPeak || 1) : 0
     const lungeK = !stag && head.lungeT > 0 && head.lungeT <= rung.lungeWindow ? 1 - head.lungeT / rung.lungeWindow : 0
-    // the hit flash: a hard white BEAT per hit, never a held white — a boss being poured into takes
-    // hits every frame, and a sprite that stays white deletes the face at the moment it matters
+    // a hit is a hard, SATURATED beat — never a grey wash — and a flinch that outlasts it
     const hf = head.hitFlash || 0
-    kc.flashCd -= dt || 0
+    kc.flashCd -= k
     if (hf > kc.lastHF + 1e-4 && kc.flashCd <= 0) { kc.flash = 1; kc.flashCd = 0.11; kc.recoil = 1 }
     kc.lastHF = hf
-    kc.flash = Math.max(0, kc.flash - (dt || 0) / 0.075)
-    // ...and a FLINCH that outlasts the flash: the head snaps back from the hit, the crown curls
-    kc.recoil = Math.max(0, (kc.recoil || 0) - (dt || 0) / 0.28)
+    kc.flash = Math.max(0, kc.flash - k / 0.09)
+    kc.recoil = Math.max(0, kc.recoil - k / 0.3)
     const fl = kc.flash, rc = kc.recoil
-    // STAGGERED, IT COMES UP AT YOU: drawn bigger (nearer the camera) for the whole window
-    kc.near = (kc.near || 0) + ((stag ? 1 : 0) - (kc.near || 0)) * Math.min(1, (dt || 0) * (stag ? 8 : 3))
-    // POSE: -1 clenched (sealed), +1 thrown open (staggered). The crown closes back up as the
-    // stagger runs out, so the body is the timer.
+    // STAGGERED, IT COMES UP AT THE CAMERA and its mantle splits; the crown closes as it recovers
+    kc.near += ((stag ? 1 : 0) - kc.near) * Math.min(1, k * (stag ? 7 : 3))
+    kc.core += ((stag ? Math.min(1, 0.35 + stagK) : 0) - kc.core) * Math.min(1, k * (stag ? 8 : 4))
     const want = stag ? Math.min(1, 0.2 + stagK * 1.3) : -1 + 0.9 * lungeK
-    kc.crown += (want - kc.crown) * Math.min(1, (dt || 0) * (stag ? 9 : 5))
-    const q = Math.max(-1, Math.min(1, kc.crown - 0.35 * kc.deflect - 0.5 * rc))
-    const gWant = stag ? 0.55 + 0.45 * stagK : (lungeK > 0 ? 0.5 * lungeK : 0.10 + 0.10 * Math.max(0, Math.sin(animT * 2.6)))
-    kc.gape += (gWant - kc.gape) * Math.min(1, (dt || 0) * 8)
-    const br = (1 + 0.035 * Math.sin(animT * 2.2) - 0.05 * kc.deflect - 0.04 * rc) * (1 + 0.28 * kc.near)
-    {
-      const dx = run.player.x - head.x, dy = run.player.y - head.y, dl = Math.hypot(dx, dy) || 1
-      krakenHeadRig.position.set(hs.position.x - dx / dl * 16 * rc, hs.position.y - dy / dl * 16 * rc)
-    }
-    krakenHeadRig.rotation = hs.rotation
-    krakenHeadRig.scale.set(hs.scale.x * br, hs.scale.y * br)
+    kc.crown += (want - kc.crown) * Math.min(1, k * (stag ? 9 : 5))
+    const q = Math.max(-1, Math.min(1, kc.crown - 0.35 * kc.deflect - 0.6 * rc))
+    // its pose: the pooled sprite's position (rise, lunge pose) and its scale relative to the plain
+    // roster scale (the rise's shrink, the lunge's stretch)
+    const k0 = head.radius / BLANK_BOSS_R
+    const stretchX = Math.abs(hs.scale.x) / k0, stretchY = Math.abs(hs.scale.y) / k0
+    const p = run.player
+    const dx = p.x - head.x, dy = p.y - head.y, dl = Math.hypot(dx, dy) || 1
+    // it faces you as far as it can while keeping its face the right way up
+    const tilt = stag ? 0 : -0.7 * dx / dl
+    kc.tilt += (tilt - kc.tilt) * Math.min(1, k * 4)
+    const base = (KRAKEN_HEAD_R * 1.3) / K_BODY_BAKE_R
+    const br = (1 + 0.035 * Math.sin(animT * 2.2) - 0.05 * kc.deflect - 0.06 * rc) * (1 + 0.38 * kc.near)
+    krakenHeadRig.position.set(hs.position.x - dx / dl * 18 * rc, hs.position.y - dy / dl * 18 * rc)
+    krakenHeadRig.rotation = kc.tilt
+    krakenHeadRig.scale.set(base * br * stretchY, base * br * stretchX)
     krakenHeadRig.alpha = hs.alpha
     krakenHeadRig.tint = hs.tint
     hs.visible = false
-    // a BRIGHT BEAT, not a silhouette: the white body goes on at half strength and the crown, beak
-    // and eyes are drawn over it in their own colours, so the face stays readable through the hit
-    krakenHeadFlashSp.alpha = 0.5 * fl
-
-    const g = krakenHeadG
-    const r = BLANK_BOSS_R
-    const SS = K_ROLE_SKIN.slam, GS = K_ROLE_SKIN.grab
-    const skin = mix(mix(SS.dark, SS.pale, 0.55), 0xffffff, 0.45 * fl)
-    const line = mix(K_LINE, 0xffffff, 0.3 * fl)
-    const lw = Math.max(4, r * 0.05)
-    // ---- the crown. Sealed: the eight arms fold forward and over, tips crossing in front of the
-    // beak, cold rims out — a fist. Staggered: flung open to the sides, slack, lights showing.
-    const open = (q + 1) / 2 // 0 fist .. 1 splayed
-    for (let k = 0; k < 8; k++) {
-      const side = k < 4 ? -1 : 1
-      const a00 = (-1 + (k / 7) * 2) * 1.5
-      const a0 = a00 * (0.34 + 0.86 * open)
-      const bend0 = ((k % 2 ? 1 : -1) * 0.17 + Math.sin(k * 2.1) * 0.10)
-      // a fist curls every arm toward the midline; open, each arm falls away outward and droops
-      const bend = bend0 * (0.4 + 0.6 * open) - side * 0.30 * (1 - open) + side * 0.12 * open
-        + Math.sin(animT * (stag ? 1.3 : 2.4) + k * 1.3) * (stag ? 0.09 : 0.05)
-      let x = r * 0.24 + Math.cos(a0) * r * 0.10
-      let y = Math.sin(a0) * r * 0.16
-      let ang = a0
-      const pts = [[x, y]]
-      const segL = r * 0.145 * (0.92 + 0.26 * open)
-      for (let seg = 0; seg < 7; seg++) {
-        const t = seg / 7
-        ang += bend * (0.45 + t)
-        x += Math.cos(ang) * segL * (1 - t * 0.3)
-        y += Math.sin(ang) * segL * (1 - t * 0.3)
-        pts.push([x, y])
-      }
-      const Lp = [], Rp = []
-      for (let m = 0; m < pts.length; m++) {
-        const t = m / (pts.length - 1)
-        const w = r * (0.10 + (0.016 - 0.10) * t) * (1 + 0.12 * (1 - open))
-        const a = pts[Math.max(0, m - 1)], b = pts[Math.min(pts.length - 1, m + 1)]
-        const ddx = b[0] - a[0], ddy = b[1] - a[1], dl = Math.hypot(ddx, ddy) || 1
-        Lp.push([pts[m][0] - ddy / dl * w, pts[m][1] + ddx / dl * w])
-        Rp.push([pts[m][0] + ddy / dl * w, pts[m][1] - ddx / dl * w])
-      }
-      const poly = []
-      for (const [px, py] of Lp) poly.push(px, py)
-      for (let m = Rp.length - 1; m >= 0; m--) poly.push(Rp[m][0], Rp[m][1])
-      g.poly(poly).fill(skin).stroke({ width: lw * 0.55, color: line, join: 'round' })
-      if (open < 0.5) {
-        // the guard's cold edge, on the outside of the fist
-        const edge = []
-        for (const [px, py] of (side < 0 ? Lp : Rp)) edge.push(px, py)
-        g.poly(edge, false).stroke({ width: lw * 0.6, color: SS.rimCol, alpha: 0.7 * (1 - open * 2), cap: 'round' })
-      }
-      if (open > 0.5) {
-        // splayed, the underside shows: the grabber's lights along each arm
-        const la = (open - 0.5) * 2
-        for (let m = 2; m < pts.length; m += 2) {
-          g.circle(pts[m][0], pts[m][1], r * 0.03).fill({ color: GS.glowCol, alpha: 0.8 * la })
-        }
-      }
-    }
-    // ---- the beak, and behind it the soft mouth — warm, the one warm thing, lit when it gapes
-    const gape = kc.gape
-    if (gape > 0.2) {
-      const m = (gape - 0.2) / 0.8
-      // a dark throat with a warm lit rim and the soft buccal mass pulsing inside it: a mouth, not a disc
-      const mw = r * (0.10 + 0.13 * m), mh = r * (0.06 + 0.15 * m)
-      const pulse = 0.85 + 0.15 * Math.sin(animT * 7)
-      // THE WEAK POINT, and the one warm light on a cold animal: a hot glow spilling out of the gape
-      g.ellipse(r * 0.46, 0, mw * 2.4 * pulse, mh * 2.4 * pulse).fill({ color: 0xff7a4a, alpha: 0.14 * m })
-      g.ellipse(r * 0.46, 0, mw * 1.6, mh * 1.6).fill({ color: 0xff8a5a, alpha: 0.30 * m })
-      g.ellipse(r * 0.45, 0, mw, mh).fill(0x2a0608).stroke({ width: lw * 0.55, color: 0xffb08a, alpha: 0.6 + 0.4 * m })
-      g.ellipse(r * 0.43, 0, mw * 0.55 * pulse, mh * 0.58 * pulse).fill({ color: 0xffd6bc, alpha: 0.7 + 0.3 * m })
-      g.ellipse(r * 0.41, -mh * 0.12, mw * 0.2, mh * 0.2).fill({ color: 0xffffff, alpha: 0.8 * m })
-      // ...and through the dark, since this is the thing the whole fight is spent reaching
-      if (stag) {
-        const rot = krakenHeadRig.rotation, sx = krakenHeadRig.scale.x
-        const wx = krakenHeadRig.position.x + Math.cos(rot) * r * 0.45 * sx
-        const wy = krakenHeadRig.position.y + Math.sin(rot) * r * 0.45 * sx
-        krakenLampG.circle(wx, wy, r * Math.abs(sx) * 0.55 * pulse).fill({ color: 0xff7a4a, alpha: 0.10 * m })
-        krakenLampG.circle(wx, wy, r * Math.abs(sx) * 0.28 * pulse).fill({ color: 0xffb08a, alpha: 0.22 * m })
-      }
-    }
-    for (const sgn of [-1, 1]) {
-      const rot = sgn * gape * 0.75
-      const cr = Math.cos(rot), sr = Math.sin(rot)
-      const px0 = r * 0.30, py0 = sgn * r * 0.10
-      const T2 = (x, y) => [px0 + (x - px0) * cr - (y - py0) * sr, py0 + (x - px0) * sr + (y - py0) * cr]
-      const a1 = T2(r * 0.30, sgn * r * 0.055), c1 = T2(r * 0.56, sgn * r * 0.16), e1 = T2(r * 0.66, sgn * r * 0.02)
-      const c2 = T2(r * 0.50, sgn * r * 0.04), e2 = T2(r * 0.32, sgn * r * 0.19)
-      g.beginPath()
-      g.moveTo(a1[0], a1[1])
-      g.quadraticCurveTo(c1[0], c1[1], e1[0], e1[1])
-      g.quadraticCurveTo(c2[0], c2[1], e2[0], e2[1])
-      g.closePath()
-      g.fill(mix(0x0a0710, 0xffffff, 0.3 * fl))
-      const l0 = T2(r * 0.64, sgn * r * 0.025), l1 = T2(r * 0.52, sgn * r * 0.09), l2 = T2(r * 0.33, sgn * r * 0.17)
-      g.beginPath()
-      g.moveTo(l0[0], l0[1])
-      g.quadraticCurveTo(l1[0], l1[1], l2[0], l2[1])
-      g.stroke({ width: lw * 0.5, color: 0xbfa9a2, alpha: 0.6 * (1 - fl), cap: 'round' })
-    }
-    // ---- the eyes. Sealed: hooded, a hard slit that tracks you. Staggered: wide, dilated, swimming.
-    kc.blinkAt -= dt || 0
+    rig.flash.tint = 0xb58cff
+    rig.flash.alpha = 0.95 * fl
+    kc.blinkAt -= k
     if (kc.blinkAt <= 0 && !stag) { kc.blink = 1; kc.blinkAt = 3 + 3 * (0.5 + 0.5 * Math.sin(animT * 7.3)) }
     const bl = kc.blink > 0 ? Math.sin(kc.blink * Math.PI) : 0
-    const eyeOpen = stag
-      ? 0.95 + 0.05 * Math.sin(animT * 3)
-      : (0.55 + 0.3 * lungeK) * (1 - 0.8 * kc.deflect) * (1 - 0.95 * bl) * (1 - 0.6 * rc)
-    // the player in the rig's local frame (inverse of rotate-then-scale)
-    const rx = run.player.x - head.x, ry = run.player.y - head.y
-    const ca = Math.cos(-hs.rotation), sa = Math.sin(-hs.rotation)
-    let lx = rx * ca - ry * sa, ly = rx * sa + ry * ca
-    lx *= Math.sign(hs.scale.x) || 1; ly *= Math.sign(hs.scale.y) || 1
-    // THE SAME EYES AS THE FACE BELOW: dark globe, lit iris, a slit across it, and a lit brow —
-    // the thing that watched you through the whole ring is the thing hunting you now
-    const re = r * 0.15
-    for (const sgn of [-1, 1]) {
-      const ex = -r * 0.06, ey = sgn * r * 0.34
-      let tx = lx - ex, ty = ly - ey
-      const tl = Math.hypot(tx, ty) || 1
-      tx /= tl; ty /= tl
-      if (stag) { tx = Math.cos(animT * 4.2 + sgn) * 0.8; ty = Math.sin(animT * 3.1 + sgn * 2) * 0.8 }
-      // long axis ACROSS the head (local y); "up" on the face is backward (local -x)
-      krakenEye(g, ex, ey, re, 0, 1, { open: eyeOpen, lx: ty, ly: -tx, round: stag ? 0.9 : 0, alpha: 1, white: 0,
-        glow: stag ? 0.22 : 0.12, globe: stag ? 0xd7e9f0 : 0x07121c, iris: stag ? 0x7fd8e8 : 0x9ef4ff, irisA: stag ? 0.35 : 0.9, lid: K_LINE })
-      // sealed: the brow is down in a V; staggered: flung up and slack
-      const angry = stag ? -0.5 : Math.min(1, 0.55 + 0.45 * lungeK + 0.4 * kc.deflect)
-      const back = ex - re * (1.45 - 0.2 * eyeOpen) - (stag ? re * 0.35 : 0)
-      const i0 = [back + r * 0.10 * angry, sgn * r * 0.20], mid = [back - r * 0.05 + r * 0.02 * angry, sgn * r * 0.34]
-      const o0 = [back - r * 0.02 - r * 0.04 * angry, sgn * r * 0.50]
-      g.beginPath()
-      g.moveTo(i0[0], i0[1])
-      g.quadraticCurveTo(mid[0], mid[1], o0[0], o0[1])
-      g.stroke({ width: Math.max(3, re * 0.3), color: mix(0x9fd8ea, 0xffffff, 0.3 * fl), alpha: 0.95, cap: 'round' })
-    }
+    const open = (stag ? 1 : (0.62 + 0.3 * lungeK) * (1 - 0.8 * kc.deflect) * (1 - 0.95 * bl)) * (1 - 0.92 * rc)
+    const lx = stag ? Math.cos(animT * 4.2) * 0.8 : dx / dl, ly = stag ? Math.sin(animT * 3.1) * 0.8 : dy / dl
+    const sc = krakenHeadRig.scale.x
+    const cr = Math.cos(kc.tilt), sn = Math.sin(kc.tilt)
+    const L = (x, y) => [krakenHeadRig.position.x + (x * cr - y * sn) * sc, krakenHeadRig.position.y + (x * sn + y * cr) * sc]
+    drawKrakenFace(rig, {
+      rot: kc.tilt, open, angry: stag ? -0.6 : Math.min(1, 0.6 + 0.4 * lungeK + 0.4 * kc.deflect + 0.4 * rc),
+      lx, ly, round: stag ? 0.9 : 0, white: fl, core: kc.core, crown: q,
+      guard: stag ? 0 : Math.max(0, (1 - lungeK * 1.4)) * (1 - kc.near),
+      lamp: L, lampA: 0.3, lampS: sc,
+    })
   }
 
-  // THE CHASE IS FRAMED ON THE HEAD. Camera-centred on the fish, a head resting at its own radius
-  // beside you is half off a phone's edge for most of the chase; leading the camera halfway toward
-  // it frames both. Clamped so the player never gets closer than a fifth of the view to its edge. Kraken only —
-  // camLead is otherwise the circuit's.
+  // THE BOSS IS FRAMED. Camera-centred on the fish, the body at the ring's centre and the head in the
+  // chase are half off a phone's edge most of the time; the camera leads toward them (past the chase
+  // head toward its tail, where most of the drawn body is), clamped so the player never gets closer
+  // than a fifth of the view to its edge. Returns a zoom PUSH for the stagger window, when the head
+  // comes up at the camera. Kraken only — camLead is otherwise the circuit's.
+  let krakenPush = 1
   function krakenCamLead(run, dt) {
-    if (run.chapter !== 'kraken') return
+    if (run.chapter !== 'kraken') return 1
     const s = run.script
-    const head = s && s.phase === 'chase' && s.headId != null ? run.enemies.find((e) => e.id === s.headId && !e._dead) : null
+    const fight = krakenFight(run)
+    const head = fight && s.headId != null ? run.enemies.find((e) => e.id === s.headId && !e._dead) : null
     let tx = 0, ty = 0
     if (head) {
-      // aimed past the head's centre toward its tail, which is where most of the drawn body is
       const dx = head.x - run.player.x, dy = head.y - run.player.y, dl = Math.hypot(dx, dy) || 1
-      const bx = dx + dx / dl * KRAKEN_HEAD_R * 0.5, by = dy + dy / dl * KRAKEN_HEAD_R * 0.5
-      tx = Math.max(-viewW() * 0.3, Math.min(viewW() * 0.3, bx * 0.6))
-      ty = Math.max(-viewH() * 0.3, Math.min(viewH() * 0.3, by * 0.6))
+      const chase = s.phase === 'chase'
+      const bx = dx + (chase ? dx / dl * KRAKEN_HEAD_R * 0.5 : 0), by = dy + (chase ? dy / dl * KRAKEN_HEAD_R * 0.5 : 0)
+      // staggered, the head IS the shot: centre on it, and let the player go nearer the edge
+      const stag = chase && s.staggerT > 0
+      const f = stag ? 1 : chase ? 0.6 : 0.5
+      const lim = stag ? 0.36 : 0.3
+      const sx = stag ? dx : bx, sy = stag ? dy - KRAKEN_HEAD_R * 0.4 : by
+      tx = Math.max(-viewW() * lim, Math.min(viewW() * lim, sx * f))
+      ty = Math.max(-viewH() * lim, Math.min(viewH() * lim, sy * f))
     }
-    const k = dt > 0 ? Math.min(1, 3 * dt) : 0
+    const k = dt > 0 ? Math.min(1, (fight && s.phase === 'chase' && s.staggerT > 0 ? 7 : 3) * dt) : 0
     camLead.x += (tx - camLead.x) * k
     camLead.y += (ty - camLead.y) * k
+    const push = fight && s.phase === 'chase' && s.staggerT > 0 ? 1.22 : 1
+    krakenPush += (push - krakenPush) * (dt > 0 ? Math.min(1, 4 * dt) : 0)
+    return krakenPush
   }
 
   // A REARING ARM COMES UP AT THE CAMERA, so it draws THICKER as it rises — a limb about to strike
@@ -25945,11 +25963,11 @@ const spurG = new Graphics()
     // — 2 x KRAKEN_ARM_REACH, the circle every slam lands inside, and the chase's head reads a
     // whisker under the same span — across the narrow side with KRAKEN_RING_VIEW_MARGIN to spare.
     // So a phone pulls back and a desktop, which already clears it, clamps to 1 and is untouched.
-    krakenCamLead(run, dt)
-    const wantZoom = krakenFight(run)
+    const kPush = krakenCamLead(run, dt)
+    const wantZoom = kPush * (krakenFight(run)
       ? Math.max(KRAKEN_RING_ZOOM_MIN, Math.min(1, Math.min(app.screen.width, app.screen.height)
         / (2 * KRAKEN_ARM_REACH * KRAKEN_RING_VIEW_MARGIN)))
-      : 1
+      : 1)
     // Eased, not snapped: the block opens mid-fight. dt is 0 behind a modal, which holds it still.
     fightZoom += (wantZoom - fightZoom) * Math.min(1, KRAKEN_RING_ZOOM_EASE * dt)
     const z = camZoom()
