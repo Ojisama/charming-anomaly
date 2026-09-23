@@ -20866,7 +20866,7 @@ const spurG = new Graphics()
   const K_ROOT_N = 24
   const K_FACE_CLEAR = 330    // world px the ring body is held back from the player
   const kc = {
-    x: null, y: null, tilt: 0, cant: 0, flinch: 0, wide: 0, deflect: 0, blink: 0, blinkAt: 2.5, rootLen: [],
+    x: null, y: null, tilt: 0, cant: 0, skew: 0, flinch: 0, wide: 0, deflect: 0, blink: 0, blinkAt: 2.5, rootLen: [],
     lastHF: 0, flash: 0, flashCd: 0, recoil: 0, stagPeak: 0, crown: -1, near: 0, core: 0,
   }
   function makeCreatureRig() {
@@ -21072,81 +21072,95 @@ const spurG = new Graphics()
     }
   }
 
-  // THE MAW: where the arms meet, below the eyes (bake units, head toward +y). A ring of hooked
-  // teeth round a dark throat and the black parrot beak inside it — the thing that makes it a
-  // monster and not a face. st.jaw 0..1 gape (wind-up, lunge, slack in a stagger), st.grit 0..1 a
-  // clenched grimace with the teeth bared (hit, the snap of a strike). Lit from inside, and the
-  // lit throat and teeth show through the dark.
+  // THE MAW: where the arms meet, below the eyes (bake units, head toward +y). A fleshy lip round a
+  // near-black throat with a warm glow deep in it, hooked teeth set in the rim — the thing that makes
+  // it a monster and not a face. st.jaw 0..1 gape (wind-up, lunge, a stagger), st.grit 0..1 a
+  // clenched grimace with the teeth bared (hit, the snap of a strike), st.slack 0..1 the jaw hanging
+  // open (a hit through a stagger). Lit from inside, and the lit throat and teeth show through the dark.
   function drawKrakenMaw(g, st, fl) {
     drawKrakenMawBody(g, st, fl, Math.max(0, Math.min(1, st.sneer || 0)))
   }
   // lop 0..1: A LOPSIDED GRIN (idle only). The mouth widens, one corner hikes up and gapes tall
-  // while the other stays a thin curl, so the tooth ring is bared on the high side
+  // while the other stays a thin curl, so the teeth are bared on the high side
   function drawKrakenMawBody(g, st, fl, lop = 0) {
     const R = K_BODY_BAKE_R
-    const cx = 0, cy = 0.62 * R
+    const slack = Math.max(0, Math.min(1, st.slack || 0))
+    const cx = 0, cy = (0.62 + 0.05 * slack) * R
     const jaw = Math.max(0, Math.min(1, st.jaw || 0)), grit = Math.max(0, Math.min(1, Math.max(st.grit || 0, 0.4 * lop)))
-    const w = R * (0.20 + 0.06 * jaw + 0.08 * grit + 0.13 * lop), h = R * (0.05 + 0.17 * jaw + 0.02 * grit)
+    const w = R * (0.20 + 0.06 * jaw + 0.08 * grit + 0.13 * lop - 0.04 * slack), h = R * (0.05 + 0.17 * jaw + 0.02 * grit + 0.09 * slack)
     const W = lop > 0 ? (x, y) => {
       const u = Math.max(-1.5, Math.min(1.5, (x - cx) / w))
       let v = (y - cy) * (1 + 0.55 * lop * u)
       v -= lop * R * 0.12 * Math.max(0, u) ** 1.6
       v += lop * R * 0.03 * Math.max(0, -u)
       return [x, cy + v]
+    } : slack > 0 ? (x, y) => {
+      // SLACK: the lower lip hangs, the mouth sags into a tall pear
+      const v = y - cy
+      return [x * (1 - 0.18 * slack * Math.max(0, -v) / h), cy + (v > 0 ? v * (1 + 0.35 * slack) : v)]
     } : (x, y) => [x, y]
-    const ell = (ex, ey, rx, ry, n = 30) => { const o = []; for (let i = 0; i < n; i++) { const f = (i / n) * Math.PI * 2; o.push(...W(ex + Math.cos(f) * rx, ey + Math.sin(f) * ry)) } return o }
-    // the lips: a thick muscular ring, then the throat
-    g.poly(ell(cx, cy, w * 1.28, h * 1.25 + R * 0.05)).fill(mix(0x2b1f45, 0xffffff, 0.2 * fl)).stroke({ width: R * 0.02, color: K_LINE })
-    g.poly(ell(cx, cy, w, h)).fill(0x1a0308)
-    g.poly(ell(cx, cy + h * 0.15, w * 0.7, h * 0.6)).fill({ color: 0x8a1020, alpha: 0.35 + 0.4 * jaw })
-    // the beak: two black hooked mandibles, parting as it gapes, meeting in a snap
-    const part = h * 0.55
-    for (const sg of [-1, 1]) {
-      const by = cy + sg * part * 0.5
-      const p0 = W(cx - w * 0.42, by), c1 = W(cx - w * 0.1, by + sg * R * 0.06), p1 = W(cx + w * 0.02, by + sg * R * 0.015)
-      const c2 = W(cx + w * 0.1, by - sg * R * 0.02), p2 = W(cx + w * 0.42, by), c3 = W(cx, by - sg * R * 0.07)
-      g.moveTo(p0[0], p0[1])
-        .quadraticCurveTo(c1[0], c1[1], p1[0], p1[1])
-        .quadraticCurveTo(c2[0], c2[1], p2[0], p2[1])
-        .quadraticCurveTo(c3[0], c3[1], p0[0], p0[1])
-        .fill(0x07050a).stroke({ width: R * 0.01, color: 0x8a7fa0, alpha: 0.7 })
-    }
-    // the teeth: hooked, pointing into the throat, all the way round — longer as it gapes
-    const nT = 16
+    const ell = (ex, ey, rx, ry, n = 36) => { const o = []; for (let i = 0; i < n; i++) { const f = (i / n) * Math.PI * 2; o.push(...W(ex + Math.cos(f) * rx, ey + Math.sin(f) * ry)) } return o }
+    // THE LIPS: a thick fleshy rim, lit along its top edge
+    const lipW = w * 1.2 + R * 0.03, lipH = h * 1.2 + R * 0.045
+    g.poly(ell(cx, cy, lipW, lipH)).fill(mix(0x5a3160, 0xffffff, 0.25 * fl)).stroke({ width: R * 0.02, color: K_LINE })
+    g.poly(ell(cx, cy - R * 0.008, w * 1.1 + R * 0.012, h * 1.1 + R * 0.02)).fill(mix(0x8a4a7a, 0xffffff, 0.25 * fl))
+    // THE THROAT: near black, with a warm glow a long way down it
+    g.poly(ell(cx, cy, w, h)).fill(0x07020a)
+    const deep = Math.min(1, h / (R * 0.12))
+    g.poly(ell(cx, cy + h * 0.12, w * 0.55, h * 0.5)).fill({ color: 0x3a0a10, alpha: 0.9 })
+    g.poly(ell(cx, cy + h * 0.16, w * 0.34, h * 0.3)).fill({ color: 0x9a2a1a, alpha: 0.35 + 0.45 * deep })
+    g.poly(ell(cx, cy + h * 0.18, w * 0.16, h * 0.14)).fill({ color: 0xff8a40, alpha: 0.25 + 0.5 * deep })
+    // THE TEETH: hooks set in the rim, each pointing straight in off the lip and curving over at the
+    // tip — short enough that none reaches the middle, so the throat stays a hole and not a pie
+    const nT = 18
+    const cap = Math.max(R * 0.03, h * 0.62)
     for (let i = 0; i < nT; i++) {
-      const f = (i / nT) * Math.PI * 2 + 0.1
-      const ox = cx + Math.cos(f) * w * 1.02, oy = cy + Math.sin(f) * h * 1.02
-      const ix = cx + Math.cos(f) * w * (0.62 - 0.1 * jaw), iy = cy + Math.sin(f) * h * (0.55 - 0.2 * jaw)
-      const len = 1 + 0.4 * grit
-      const tx = ox + (ix - ox) * len, ty = oy + (iy - oy) * len
-      const nx = -Math.sin(f), ny = Math.cos(f)
-      const bw = R * 0.022 * (1 + 0.35 * lop)
-      g.poly([...W(ox + nx * bw, oy + ny * bw), ...W(tx + nx * bw * 0.6, ty + ny * bw * 0.6), ...W(tx, ty), ...W(ox - nx * bw, oy - ny * bw)])
-        .fill(mix(0xe8e0d0, 0xffffff, fl)).stroke({ width: R * 0.006, color: 0x2a2030 })
+      const f = (i / nT) * Math.PI * 2 + 0.17
+      const c = Math.cos(f), s = Math.sin(f)
+      // the corners stay bare: teeth ride the upper and lower rows, where a mouth has them
+      const row = Math.abs(s)
+      if (row < 0.35) continue
+      const bx = cx + c * w * 0.98, by = cy + s * h * 0.98
+      let nx = -c / w, ny = -s / h
+      const nl = Math.hypot(nx, ny) || 1
+      nx /= nl; ny /= nl
+      const tx = -ny, ty = nx
+      const len = Math.min(cap, R * (0.058 + 0.02 * jaw + 0.025 * grit)) * (0.7 + 0.3 * row) * (i % 3 === 1 ? 1.25 : 1)
+      const bw = R * 0.02 * (1 + 0.3 * lop)
+      const hook = (i % 2 ? 1 : -1) * len * 0.35
+      const p = [
+        ...W(bx + tx * bw, by + ty * bw),
+        ...W(bx + nx * len * 0.6 + tx * bw * 0.7, by + ny * len * 0.6 + ty * bw * 0.7),
+        ...W(bx + nx * len + tx * hook, by + ny * len + ty * hook),
+        ...W(bx + nx * len * 0.45 - tx * bw * 0.4, by + ny * len * 0.45 - ty * bw * 0.4),
+        ...W(bx - tx * bw, by - ty * bw),
+      ]
+      g.poly(p).fill(mix(0xece2cf, 0xffffff, fl)).stroke({ width: R * 0.006, color: 0x2a2030 })
     }
+    // the rim of the throat over the tooth roots, so they sit IN the lip
+    g.poly(ell(cx, cy, w, h)).stroke({ width: R * 0.014, color: 0x2a0e1e })
     // grimace: the lip corners drawn back into creases
     if (grit > 0.1) {
       for (const sg of [-1, 1]) {
         const k = lop > 0 ? (sg > 0 ? 1.4 : 0.5) : 1
-        const q0 = W(cx + sg * w * 1.25, cy), q1 = W(cx + sg * w * 1.6, cy - R * 0.06 * grit * k)
+        const q0 = W(cx + sg * lipW, cy), q1 = W(cx + sg * (lipW + w * 0.32), cy - R * 0.06 * grit * k)
         g.moveTo(q0[0], q0[1]).lineTo(q1[0], q1[1])
           .stroke({ width: R * 0.022, color: 0x05030a, alpha: grit, cap: 'round' })
       }
     }
     if (st.lamp) {
-      const [wx, wy] = st.lamp(cx, cy)
       const S = st.lampS
-      krakenLampG.ellipse(wx, wy, w * S * 1.1, (h + R * 0.03) * S).fill({ color: 0xff5a4a, alpha: 0.10 + 0.25 * jaw + 0.1 * grit })
-      if (lop > 0) {
-        const ring = ell(cx, cy, w * 1.28, h * 1.25 + R * 0.05), lr = []
-        for (let i = 0; i < ring.length; i += 2) lr.push(...st.lamp(ring[i], ring[i + 1]))
-        krakenLampG.poly(lr).stroke({ width: 3, color: 0xd6c8ff, alpha: 0.35 })
-      } else krakenLampG.ellipse(wx, wy, w * S * 1.28, (h * 1.25 + R * 0.05) * S).stroke({ width: 3, color: 0xd6c8ff, alpha: 0.35 })
-      // the teeth catch the light from the throat
-      for (let i = 0; i < 16; i++) {
-        const f = (i / 16) * Math.PI * 2 + 0.1
+      const mapP = (arr) => { const o = []; for (let i = 0; i < arr.length; i += 2) o.push(...st.lamp(arr[i], arr[i + 1])); return o }
+      // the glow down the throat, and the lip's lit edge
+      const [gx, gy] = st.lamp(...W(cx, cy + h * 0.16))
+      krakenLampG.ellipse(gx, gy, w * S * 0.45, h * S * 0.4 + 2).fill({ color: 0xff6a3a, alpha: 0.12 + 0.25 * jaw + 0.1 * grit })
+      krakenLampG.poly(mapP(ell(cx, cy, lipW, lipH))).stroke({ width: 3, color: 0xe0b8e8, alpha: 0.35 })
+      // the teeth catch the light at the rim, where they are rooted
+      for (let i = 0; i < nT; i++) {
+        const f = (i / nT) * Math.PI * 2 + 0.17
+        if (Math.abs(Math.sin(f)) < 0.35) continue
         const [tx, ty] = st.lamp(...W(cx + Math.cos(f) * w * 0.9, cy + Math.sin(f) * h * 0.9))
-        krakenLampG.circle(tx, ty, 2.5).fill({ color: 0xfff0e0, alpha: 0.55 })
+        krakenLampG.circle(tx, ty, 2.5).fill({ color: 0xfff0e0, alpha: 0.5 })
       }
     }
   }
@@ -21267,7 +21281,8 @@ const spurG = new Graphics()
     // ---- THE MAW, below the eyes where the arms meet
     drawKrakenMaw(g, st, 0)
     // ---- THE EYES: predatory by default, and the face carries every state
-    for (const sg of [-1, 1]) krakenGlareEye(g, sg * 0.37 * R, 0.24 * R, R * 0.165, sg, sx, sy, st, fl)
+    // st.shock (a hit through a stagger): the stunned eyes go WIDER still, never shut
+    for (const sg of [-1, 1]) krakenGlareEye(g, sg * 0.37 * R, 0.24 * R, R * 0.165 * (1 + 0.3 * (st.shock || 0)), sg, sx, sy, st, fl)
     // ---- GUARD: its inner arms come up and lie across the face, eyes glaring over them
     if (st.guard > 0.01) {
       // two arms a side sweep up out of the crown, round the outside of each eye and in across its
@@ -21351,17 +21366,33 @@ const spurG = new Graphics()
       ? KRAKEN_HEAD_R * (1.3 + (K_BODY_R - 1.3) * rise)
       : KRAKEN_HEAD_R * K_BODY_R * (0.55 + 0.45 * grow)
     const sc = worldR / K_BODY_BAKE_R * (1 + 0.025 * Math.sin(animT * 1.1)) * (1 - 0.04 * kc.flinch)
+    // AT EASE THE WHOLE BODY IS IN IT: the mantle BREATHES (swells and sags on a 1.2s beat, the grin
+    // opening with it) and LEANS off-axis past the head's cant, sheared about the eye line so the face
+    // stays put while the bag of the mantle flops over to one side
+    const breath = Math.sin(animT * Math.PI * 2 / 1.2)
+    const scx = sc * (1 + 0.035 * breath * idleK), scy = sc * (1 + 0.02 * Math.sin(animT * 1.1 + 1) + 0.07 * breath * idleK)
+    const sk = -idleK * (0.17 + 0.05 * Math.sin(animT * 0.45))
+    kc.skew += (sk - kc.skew) * Math.min(1, k * 2)
+    const y0 = 0.3 * K_BODY_BAKE_R * scy
     const rig = ringRig
     rig.root.visible = true
     if (rig.body.texture !== T.krakenBody.tex) { rig.body.texture = T.krakenBody.tex; rig.body.anchor.set(T.krakenBody.ax, T.krakenBody.ay) }
     if (rig.flash.texture !== T.krakenBodyWhite.tex) { rig.flash.texture = T.krakenBodyWhite.tex; rig.flash.anchor.set(T.krakenBodyWhite.ax, T.krakenBodyWhite.ay) }
-    rig.root.position.set(kc.x, kc.y)
+    rig.root.position.set(
+      kc.x + y0 * (-Math.sin(kc.tilt) + Math.sin(kc.tilt - kc.skew)),
+      kc.y + y0 * (Math.cos(kc.tilt) - Math.cos(kc.tilt - kc.skew)))
     rig.root.rotation = kc.tilt
-    rig.root.scale.set(sc, sc * (1 + 0.02 * Math.sin(animT * 1.1 + 1)))
+    rig.root.skew.set(kc.skew, 0)
+    rig.root.scale.set(scx, scy)
     rig.root.alpha = ga
     rig.flash.alpha = 0
     // ---- the roots: the same limb strips as the ropes, thick where they leave the body
     const arms = run.krakenArms
+    // the two roots nearest the fish are the ones it plays with
+    const pAng = Math.atan2(dy, dx)
+    const near2 = arms.filter((a) => !a.dead)
+      .map((a) => [a, Math.abs(Math.atan2(Math.sin(a.ang - pAng), Math.cos(a.ang - pAng)))])
+      .sort((u, v) => u[1] - v[1]).slice(0, 2).map((u) => u[0])
     for (let i = 0; i < arms.length; i++) {
       const a = arms[i]
       let rope = krakenRootRopes[i]
@@ -21387,6 +21418,7 @@ const spurG = new Graphics()
       rope.visible = len > 0.03
       if (!rope.visible) continue
       const tense = a.tele > 0 && a.fuse ? krakenLift(a) : 0
+      const curl = near2.includes(a) && !(a.limpT > 0) ? idleK * (1 - tense) : 0
       const cx0 = Math.cos(a.ang), cy0 = Math.sin(a.ang), nx = -cy0, ny = cx0
       const swing = Math.sin(a.i * 2.7) >= 0 ? 1 : -1
       const amp = a.limpT > 0 ? 60 : 36 * (1 - 0.6 * tense)
@@ -21399,11 +21431,18 @@ const spurG = new Graphics()
         lat += Math.sin(animT * 1.7 + a.i * 2.4) * worldR * 0.45 * Math.sin(Math.PI * Math.min(1, t * 3.5)) * (1 - tense)
           * (1 + 0.9 * idleK * (Math.cos(a.ang) > 0 ? 1 : -0.6)) // lopsided at ease: one side idly curling
         if (a.dead) lat += swing * t * t * 220
+        // AT EASE, THE TWO NEAREST ROOTS CURL: a hook thrown out sideways and back, beating like a
+        // drummer's fingers
+        if (curl > 0) {
+          const ph = animT * 2.4 + a.i * 1.7
+          const beat = 0.55 + 0.45 * Math.sin(ph)
+          lat += curl * swing * worldR * 1.25 * beat * Math.sin(Math.PI * Math.min(1, t * 2.2)) * (1 + 0.4 * Math.sin(ph * 0.5 + t * 6))
+        }
         rope._pts[q].set(kc.x + cx0 * rr + nx * lat, kc.y + cy0 * rr + ny * lat)
       }
-      rope._kMul = (1.5 + 0.5 * tense) * Math.min(1, 0.4 + worldR / (KRAKEN_HEAD_R * K_BODY_R))
+      rope._kMul = (1.5 + 0.5 * tense + 0.7 * curl * (0.6 + 0.4 * Math.sin(animT * 2.4 + a.i * 1.7))) * Math.min(1, 0.4 + worldR / (KRAKEN_HEAD_R * K_BODY_R))
       rope.alpha = ga
-      rope.tint = a.limpT > 0 ? 0x5a7fa8 : mix(0xb4a8dc, 0xffffff, tense)
+      rope.tint = a.limpT > 0 ? 0x5a7fa8 : mix(0xb4a8dc, 0xffffff, Math.max(tense, 0.35 * curl))
       // its lit edge, through the dark, from where it leaves the body out past the face
       {
         const lp = []
@@ -21425,24 +21464,26 @@ const spurG = new Graphics()
     const bl = kc.blink > 0 ? Math.sin(kc.blink * Math.PI) : 0
     const wake = Math.min(1, Math.max(0, (grow - 0.2) / 0.6))
     const L = (lx, ly) => {
-      const c = Math.cos(kc.tilt), sn = Math.sin(kc.tilt)
-      return [kc.x + (lx * c - ly * sn) * sc, kc.y + (lx * sn + ly * c) * sc]
+      const c = Math.cos(kc.tilt), sn = Math.sin(kc.tilt), c2 = Math.cos(kc.tilt - kc.skew), s2 = Math.sin(kc.tilt - kc.skew)
+      const o = rig.root.position
+      return [o.x + lx * c * scx - ly * s2 * scy, o.y + lx * sn * scx + ly * c2 * scy]
     }
     let snap = 0
     for (const a of run.krakenArms) if (!a.dead && a.slamT > 0) snap = Math.max(snap, a.slamT / KRAKEN_SLAM_T)
     rig.g.clear()
     krakenFaceTop.position.copyFrom(rig.root.position)
     krakenFaceTop.rotation = rig.root.rotation
+    krakenFaceTop.skew.copyFrom(rig.root.skew)
     krakenFaceTop.scale.copyFrom(rig.root.scale)
     krakenFaceTop.alpha = ga
     drawKrakenFace({ g: krakenFaceTopG, under: rig.under }, {
       rot: kc.tilt, glare: Math.min(1, lift * 1.1), pain: kc.flinch, stun: 0, blink: bl * wake + (1 - wake),
-      asym: idleK * (0.85 + 0.15 * Math.sin(animT * 0.4)), sneer: idleK * (0.85 + 0.15 * Math.sin(animT * 0.7)),
+      asym: idleK * (0.85 + 0.15 * Math.sin(animT * 0.4)), sneer: idleK * (0.8 + 0.2 * breath),
       cant: kc.cant, idle: idleK,
       lx: dx / dl, ly: dy / dl, white: 0, core: 0, crown: null, guard: 0,
       // the maw GAPES as an arm rears, SNAPS shut with its teeth bared on the frame a slam lands,
       // and bares them in a grimace on a parry or a break; at rest it works slowly
-      jaw: snap > 0 ? 0 : Math.max(lift * 0.95, (0.12 + 0.08 * Math.sin(animT * 1.7)) * (1 - idleK) + idleK * (0.55 + 0.1 * Math.sin(animT * 1.3))) * (1 - kc.flinch),
+      jaw: snap > 0 ? 0 : Math.max(lift * 0.95, (0.12 + 0.08 * Math.sin(animT * 1.7)) * (1 - idleK) + idleK * (0.5 + 0.18 * breath)) * (1 - kc.flinch),
       grit: Math.max(snap, kc.flinch), rim: kc.flinch,
       lamp: s.phase === 'chase' ? null : L, lampA: 0.35 * ga, lampS: sc,
     })
@@ -21472,6 +21513,7 @@ const spurG = new Graphics()
     if (krakenLampSp.texture !== T.krakenBody.tex) { krakenLampSp.texture = T.krakenBody.tex; krakenLampSp.anchor.set(T.krakenBody.ax, T.krakenBody.ay) }
     krakenLampSp.position.copyFrom(rig.root.position)
     krakenLampSp.rotation = rig.root.rotation
+    krakenLampSp.skew.copyFrom(rig.root.skew)
     krakenLampSp.scale.copyFrom(rig.root.scale)
     krakenLampSp.tint = 0xc8d0ff
     krakenLampSp.alpha = 0.75 * ga
@@ -21538,29 +21580,34 @@ const spurG = new Graphics()
     // KNOCKED BACK by the stagger: thrown away from you, then settling
     kc.knock = Math.max(0, (kc.knock || 0) - k / 0.7)
     const kb = 28 * rc + 46 * Math.sin(Math.min(1, kc.knock) * Math.PI * 0.5) + 30 * stagK
-    krakenHeadRig.position.set(hs.position.x - dx / dl * kb, hs.position.y - dy / dl * kb)
-    krakenHeadRig.rotation = kc.tilt
-    // the hit SQUASHES it: flattened into the blow, springing back as the recoil runs out
+    // the hit SQUASHES it: flattened into the blow, springing back as the recoil runs out. Staggered
+    // it is not braced for it: the blow SNAPS THE HEAD BACK — shrunk away from the camera, thrown
+    // down the screen and wrenched round — with its jaw hanging and its eyes wider still
     const sq = Math.sin(rc * Math.PI) * 0.8 + rc * 0.2
-    krakenHeadRig.scale.set(base * br * stretchY * (1 + 0.16 * sq), base * br * stretchX * (1 - 0.14 * sq))
+    const snapK = stag ? sq : 0
+    krakenHeadRig.position.set(hs.position.x - dx / dl * kb, hs.position.y - dy / dl * kb + 26 * snapK)
+    krakenHeadRig.rotation = kc.tilt + 0.26 * snapK * (dx >= 0 ? -1 : 1)
+    krakenHeadRig.scale.set(base * br * stretchY * (stag ? 1 - 0.13 * sq : 1 + 0.16 * sq), base * br * stretchX * (stag ? 1 - 0.1 * sq : 1 - 0.14 * sq))
     krakenHeadRig.alpha = hs.alpha
     krakenHeadRig.tint = hs.tint
     hs.visible = false
     // a hard saturated pulse — red, never a grey wash — under the rim
     rig.flash.tint = 0xff3050
-    rig.flash.alpha = 0.6 * fl
+    rig.flash.alpha = (stag ? 0.28 : 0.6) * fl
     kc.blinkAt -= k
     if (kc.blinkAt <= 0 && !stag) { kc.blink = 1; kc.blinkAt = 3 + 3 * (0.5 + 0.5 * Math.sin(animT * 7.3)) }
     const bl = kc.blink > 0 ? Math.sin(kc.blink * Math.PI) : 0
     const lx = stag ? Math.cos(animT * 4.2) * 0.8 : dx / dl, ly = stag ? Math.sin(animT * 3.1) * 0.8 : dy / dl
     const sc = krakenHeadRig.scale.x
-    const cr = Math.cos(kc.tilt), sn = Math.sin(kc.tilt)
+    const hr = krakenHeadRig.rotation
+    const cr = Math.cos(hr), sn = Math.sin(hr)
     const L = (x, y) => [krakenHeadRig.position.x + (x * cr - y * sn) * sc, krakenHeadRig.position.y + (x * sn + y * cr) * sc]
     drawKrakenFace(rig, {
-      rot: kc.tilt, glare: stag ? 0 : Math.min(1, 0.3 + 0.7 * lungeK + 0.6 * kc.deflect), pain: rc,
-      stun: stag ? 1 : 0, blink: stag ? 0 : bl, lx, ly, white: 0, core: kc.core * (1 - 0.6 * rc), crown: q,
-      jaw: stag ? 0.55 + 0.1 * Math.sin(animT * 2.3) : Math.max(lungeK, 0.12 + 0.06 * Math.sin(animT * 1.9)) * (1 - rc),
-      grit: Math.max(rc, kc.deflect), rim: Math.max(fl, rc * 0.6),
+      rot: kc.tilt, glare: stag ? 0 : Math.min(1, 0.3 + 0.7 * lungeK + 0.6 * kc.deflect), pain: stag ? 0 : rc, shock: stag ? rc : 0,
+      stun: stag ? 1 : 0, blink: stag ? 0 : bl, lx, ly, white: 0, core: kc.core * (1 - (stag ? 0.1 : 0.6) * rc), crown: stag ? Math.max(q, kc.crown - 0.15 * rc) : q,
+      jaw: stag ? Math.min(1, 0.55 + 0.1 * Math.sin(animT * 2.3) + 0.45 * rc) : Math.max(lungeK, 0.12 + 0.06 * Math.sin(animT * 1.9)) * (1 - rc),
+      slack: stag ? rc : 0,
+      grit: stag ? 0 : Math.max(rc, kc.deflect), rim: Math.max(fl, rc * 0.6),
       guard: stag ? 0 : Math.max(0, (1 - lungeK * 1.4)) * (1 - kc.near),
       lamp: L, lampA: 0.3, lampS: sc,
     })
@@ -23836,6 +23883,13 @@ const spurG = new Graphics()
           // the head's mouth): a number there sits on the fish, so it is pushed out to one side.
           let hx = e.x, hy = e.y
           if (run.chapter === 'kraken') {
+            // ...and a hit on the head lands on its FACE, which is the read in a stagger: the number
+            // goes up past the brow on the far side, off the eyes and the mouth
+            const kh = run.script && run.script.headId != null ? run.enemies.find((q) => q.id === run.script.headId) : null
+            if (kh && Math.hypot(hx - kh.x, hy - kh.y) < KRAKEN_HEAD_R * 1.5) {
+              const side = run.player.x > kh.x ? -1 : 1
+              hx = kh.x + side * KRAKEN_HEAD_R * (1.9 + 0.5 * Math.random()); hy = kh.y - KRAKEN_HEAD_R * (1.3 + 0.5 * Math.random())
+            }
             const dx = hx - run.player.x, dy = hy - run.player.y, d = Math.hypot(dx, dy)
             if (d < 52) { const ux2 = d > 1 ? dx / d : 0.7, uy2 = d > 1 ? dy / d : -0.7; hx = run.player.x + ux2 * 52; hy = run.player.y + uy2 * 52 }
           }
