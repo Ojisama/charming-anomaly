@@ -21582,11 +21582,13 @@ const spurG = new Graphics()
     // AT EASE it holds its head canted and sways; the moment an arm rears it squares up at you
     const idleK = Math.max(0, 1 - lift * 1.6) * (1 - kc.flinch)
     kc.idleK = s.phase === 'chase' ? 0 : idleK * Math.min(1, grow)
-    const cant = idleK * (0.36 + 0.08 * Math.sin(animT * 0.45))
-    kc.cant += (cant - kc.cant) * Math.min(1, k * 2)
+    // IT RISES square to the camera: no cant, no tilt, no lean while the card is up
+    const upK = cer.kind === 'rise' ? cardEnv(cer.t, 0.25, KRAKEN_CEREMONY.rise.hold, KRAKEN_CEREMONY.rise.out) : 0
+    const cant = idleK * (0.36 + 0.08 * Math.sin(animT * 0.45)) * (1 - upK)
+    kc.cant += (cant - kc.cant) * Math.min(1, k * (upK > 0 ? 10 : 2))
     // ...and at ease the face swings round to aim at you, rocking with the laugh
-    const tilt = -0.3 * dx / dl + cant - kc.idleK * (0.28 * dx / dl + 0.07 * (heave - 0.5))
-    kc.tilt += (tilt - kc.tilt) * Math.min(1, k * 2)
+    const tilt = (-0.3 * dx / dl + cant - kc.idleK * (0.28 * dx / dl + 0.07 * (heave - 0.5))) * (1 - upK)
+    kc.tilt += (tilt - kc.tilt) * Math.min(1, k * (upK > 0 ? 10 : 2))
     const worldR = s.phase === 'chase'
       ? KRAKEN_HEAD_R * (1.3 + (K_BODY_R - 1.3) * rise)
       : KRAKEN_HEAD_R * K_BODY_R * (0.55 + 0.45 * grow)
@@ -21602,8 +21604,8 @@ const spurG = new Graphics()
     // stays put while the bag of the mantle flops over to one side
     const breath = Math.sin(animT * Math.PI * 2 / 1.2)
     const scx = sc * (1 + 0.035 * breath * idleK), scy = sc * (1 + 0.02 * Math.sin(animT * 1.1 + 1) + 0.07 * breath * idleK)
-    const sk = -idleK * (0.17 + 0.05 * Math.sin(animT * 0.45))
-    kc.skew += (sk - kc.skew) * Math.min(1, k * 2)
+    const sk = -idleK * (0.17 + 0.05 * Math.sin(animT * 0.45)) * (1 - upK)
+    kc.skew += (sk - kc.skew) * Math.min(1, k * (upK > 0 ? 10 : 2))
     const y0 = 0.3 * K_BODY_BAKE_R * scy
     const rig = ringRig
     rig.root.visible = true
@@ -21616,7 +21618,8 @@ const spurG = new Graphics()
     rig.root.skew.set(kc.skew, 0)
     rig.root.scale.set(scx, scy)
     rig.root.alpha = ga
-    rig.flash.alpha = 0
+    rig.flash.alpha = 0.3 * upK
+    rig.flash.tint = 0xb8a8ff
     // ---- the roots: the same limb strips as the ropes, thick where they leave the body
     const arms = run.krakenArms
     // the two roots nearest the fish are the ones it plays with
@@ -21957,6 +21960,10 @@ const spurG = new Graphics()
       lamp: P.light > 0.02 ? L : null, lampA: 0.3 * P.light, lampS: sc,
     })
     drawKrakenCracks(rig.g, P.crack, P.heat, L, sc)
+    if (P.outline > 0.01 && krakenBodyContour) {
+      // UNDER the body: only its outer half shows, so it rings the silhouette and never crosses the face
+      rig.under.poly(krakenBodyContour).stroke({ width: K_BODY_BAKE_R * 0.14, color: 0x05030a, alpha: P.outline, join: 'round' })
+    }
     krakenWarpOn(P)
   }
 
@@ -23874,10 +23881,13 @@ const spurG = new Graphics()
   const kPose = {
     visible: false, x: 0, y: 0, rot: 0, sx: 1, sy: 1, scale: 1, alpha: 1, tint: 0xffffff, flash: 0, flashTint: 0xffffff,
     pain: 0, stun: 0, blink: 0, lx: 0, ly: 0, white: 0, core: 0, crown: 1, jaw: 0, grit: 0, rim: 0, light: 1,
-    shock: 0, slack: 0, blank: 0, ko: 0, crack: 0, heat: 0, buckle: 0,
+    shock: 0, slack: 0, blank: 0, ko: 0, crack: 0, heat: 0, buckle: 0, outline: 0,
   }
+  // THE KILL SHOT: for the hit-stop and this long after it, the world behind the head is dimmed and
+  // the head is drawn again ABOVE the dim (kWarp.top, in cerLayer), so nothing covers it
+  const K_KO_HOLD = 0.4, K_KO_DIM = 0.72
   // the kill pose's squash (x, y) and swell: the camera fits the body to these, so they live here
-  const K_KO_SX = 1.12, K_KO_SY = 0.84, K_KO_SCALE = 1.14
+  const K_KO_SX = 1.2, K_KO_SY = 0.74, K_KO_SCALE = 1.14
 
   // THE KILL IS FRAMED WHOLE: the camera cuts to the middle of the body and pulls back until the
   // head, the mantle and the crown under it sit inside the view with a margin, so the buckle reads
@@ -23907,7 +23917,8 @@ const spurG = new Graphics()
   // mantle's crown dented down toward the face and folded over to one side, its flanks pinched in and
   // crumpled. The face (y > 0) is left where it is, so the X'd eyes stay the read. Kill only.
   const KW_X0 = 1.4, KW_Y0 = 1.6, KW_W = 2.8, KW_H = 3.4   // the box, in bake R: x from -1.4R, y from -1.6R
-  const kWarp = { rt: null, mesh: null, src: null, rest: null }
+  const kWarp = { rt: null, mesh: null, src: null, rest: null, top: null }
+  const kWarpTopK = (P) => P.outline
   function krakenWarpOn(P) {
     const R0 = K_BODY_BAKE_R
     if (!kWarp.mesh) {
@@ -23917,7 +23928,21 @@ const spurG = new Graphics()
       kWarp.mesh.position.set(-KW_X0 * R0, -KW_Y0 * R0)
       kWarp.rest = Float32Array.from(kWarp.mesh.geometry.getBuffer('aPosition').data)
       krakenHeadRig.addChild(kWarp.mesh)
+      kWarp.top = new Container()
+      const tm = new Mesh({ geometry: kWarp.mesh.geometry, texture: kWarp.rt })
+      tm.position.copyFrom(kWarp.mesh.position)
+      kWarp.top.addChild(tm)
+      cerLayer.addChildAt(kWarp.top, cerLayer.getChildIndex(cerFlash) + 1)
     }
+    // ...and ABOVE the kill's dim: the same mesh placed in screen space where the rig is drawn
+    const ws = world.scale.x
+    const hr = krakenHeadRig
+    kWarp.top.visible = kWarpTopK(P) > 0.01
+    kWarp.top.position.set(world.position.x + hr.position.x * ws, world.position.y + hr.position.y * ws)
+    kWarp.top.rotation = hr.rotation
+    kWarp.top.scale.set(hr.scale.x * ws, hr.scale.y * ws)
+    kWarp.top.alpha = hr.alpha
+    kWarp.top.tint = hr.tint
     const root = headRig.root
     if (root.parent !== kWarp.src) kWarp.src.addChild(root)
     root.position.set(KW_X0 * R0, KW_Y0 * R0)
@@ -23947,6 +23972,7 @@ const spurG = new Graphics()
   function krakenWarpOff() {
     if (!kWarp.mesh || headRig.root.parent === krakenHeadRig) return
     kWarp.mesh.visible = false
+    kWarp.top.visible = false
     headRig.root.position.set(0, 0)
     krakenHeadRig.addChildAt(headRig.root, 0)
   }
@@ -23956,7 +23982,8 @@ const spurG = new Graphics()
   const kChunks = []
   // a world-px rectangle the chunks are not drawn in (the IT RISES plate); set per frame by the ceremony
   const kClip = { on: false, x0: 0, y0: 0, x1: 0, y1: 0 }
-  const kClipped = (c, r) => kClip.on && c.x + r > kClip.x0 && c.x - r < kClip.x1 && c.y + r > kClip.y0 && c.y - r < kClip.y1
+  const kClipped = (c, r) => (kClip.on && c.x + r > kClip.x0 && c.x - r < kClip.x1 && c.y + r > kClip.y0 && c.y - r < kClip.y1)
+    || (kClip.body && ((c.x - kClip.bx) / (kClip.rx + r)) ** 2 + ((c.y - kClip.by) / (kClip.ry + r)) ** 2 < 1)
 
   // How lit the dying head is, 0..1 (updateDark punches it out of the Light chapter's dark).
   function krakenDeathLight(run) {
@@ -24000,13 +24027,16 @@ const spurG = new Graphics()
     if (t < H) {
       // FLATTENED BY IT: wider than tall, the mantle caved in (krakenWarpOn), the jaw fallen open
       P.sx = kDeath.sx * K_KO_SX; P.sy = kDeath.sy * K_KO_SY
-      P.scale = K_KO_SCALE; P.flash = 0.75; P.flashTint = 0xffffff; P.white = 0.4
-      P.shock = 1; P.blink = 0; P.jaw = 1; P.rim = 1; P.core = 1; P.crown = 1
-      P.crack = 0.45; P.heat = 1
+      P.scale = K_KO_SCALE; P.flash = 1; P.flashTint = 0xffffff; P.white = 1
+      P.shock = 1; P.blink = 0; P.jaw = 1; P.rim = 0; P.core = 0; P.crown = -0.6
+      P.crack = 0; P.heat = 0; P.outline = 1
+      // SAGGED: slumped down the screen and dropped to one side
+      P.y += 0.12 * K_BODY_BAKE_R * Math.abs(kDeath.sy); P.rot += (kDeath.rot >= 0 ? 1 : -1) * 0.12
       P.lx = 0; P.ly = 0
       return P
     }
     const after = clamp01(1 - (t - H) / 0.35)
+    P.outline = clamp01(1 - (t - H) / K_KO_HOLD)
     P.sx = kDeath.sx * (1 + (K_KO_SX - 1) * after); P.sy = kDeath.sy * (1 - (1 - K_KO_SY) * after)
     // the burst throws it wide for a beat, then it shrinks away
     P.scale = (1 + 0.1 * after + 0.06 * th * Math.sin(t * 15) + 0.12 * burst * Math.exp(-(t - O.sinkFrom) * 6)) * (1 - 0.42 * sink)
@@ -24233,6 +24263,7 @@ const spurG = new Graphics()
     for (let i = 0; i < krakenBodyContour.length; i += 2) rim.push(...L(krakenBodyContour[i], krakenBodyContour[i + 1]))
     krakenLampG.poly(rim).stroke({ width: 34, color: 0xff5a1e, alpha: (0.16 + 0.3 * kRise.flare) * k * pulse, join: 'round' })
     krakenLampG.poly(rim).stroke({ width: 9, color: 0xffa050, alpha: (0.5 + 0.4 * kRise.flare) * k * pulse, join: 'round' })
+    krakenLampG.poly(rim).stroke({ width: 3.5, color: 0xfff0d8, alpha: 0.9 * k, join: 'round' })
     const re = R * 0.165 * kRise.sc
     for (const sg of [-1, 1]) {
       const [ex, ey] = L(sg * 0.37 * R, 0.24 * R)
@@ -24382,6 +24413,7 @@ const spurG = new Graphics()
     const U = cerUnit()
     cerG.clear()
     kClip.on = false
+    kClip.body = false
     cerDim.width = cerEdge.width = cerFlash.width = w
     cerDim.height = cerEdge.height = cerFlash.height = h
     let dim = 0, edge = 0, bars = 0, flash = 0
@@ -24440,12 +24472,13 @@ const spurG = new Graphics()
         if (rr.visible) {
           // its drawn bounds (tilt and lean included), back into world px. The sprite's bounds carry the
           // bake's transparent margin: the animal itself is ~0.7 of their width and ~0.75 of their height
-          const bb = ringRig.body.getBounds()
-          const ws = world.scale.x || 1
-          const bw = 0.7 * bb.width / ws, bh = 0.75 * bb.height / ws
-          const bx = (bb.x + bb.width / 2 - world.position.x) / ws, by = (bb.y + bb.height / 2 - world.position.y) / ws
+          // measured off the rig's own scale and the bake's shapes (the mantle's crown at -1.32R to the
+          // chin at +0.7R, 1.24R across), not the sprite's bounds, which carry the bake's margin
+          const R0 = K_BODY_BAKE_R, rs = rr.scale
+          const bw = 1.3 * R0 * Math.abs(rs.x), bh = 2.05 * R0 * Math.abs(rs.y)
+          const bx = rr.position.x + Math.sin(rr.rotation) * 0.31 * R0 * rs.y, by = rr.position.y - Math.cos(rr.rotation) * 0.31 * R0 * rs.y
           const base = mapZoom * fightZoom
-          const zc = Math.max(0.5, Math.min(4, Math.min(w * 0.7 / bw, h * 0.58 / bh) / base))
+          const zc = Math.max(0.5, Math.min(4, Math.min(w * 0.8 / bw, h * 0.5 / bh) / base))
           const outK = t < C.hold ? 1 : 1 - smooth01((t - C.hold) / C.out)
           // a damped spring 0 -> 1 that overshoots ~20% at 0.4s
           const surge = 1 - Math.exp(-4 * t) * (Math.cos(8 * t) + 0.5 * Math.sin(8 * t))
@@ -24457,6 +24490,7 @@ const spurG = new Graphics()
           // AND IT THROWS THE SEA OFF ITSELF: rock, silt and water blasted out from round the body as it
           // breaks the surface, a second wave on the surge, and bubbles streaming off it throughout
           const br = Math.max(bw, bh) * 0.5
+          kClip.body = true; kClip.bx = bx; kClip.by = by; kClip.rx = bw * 0.56; kClip.ry = bh * 0.56
           const reach = 0.55 * Math.hypot(w, h) / z
           if (!(cer.threw & 1)) {
             cer.threw |= 1
@@ -24648,8 +24682,7 @@ const spurG = new Graphics()
         const lash = Math.sin(t * Math.PI * 2 * 3.1 + u * 6 + i * 1.7) * 130 * thrashK * Math.pow(u, 1.3)
         const droop = Math.sin(u * Math.PI) * 26 * sink * (i % 2 ? 1 : -1)
         // and it draws in toward the body as it goes, the way a dying octopus pulls its arms home
-        const fling = t < hs ? 1 : Math.exp(-(t - hs) * 3)
-        const pull = 1 + 0.2 * fling * u - 0.22 * sink * u
+        const pull = 1 - 0.22 * sink * u
         const x = hx + (pts[k][0] - hx) * pull + nx * (lash + droop)
         const y = hy + (pts[k][1] - hy) * pull + ny * (lash + droop)
         rig.pts[k].set(x, y)
@@ -24672,33 +24705,14 @@ const spurG = new Graphics()
       kDeathG.ellipse(hx, hy, R, R * 0.86).fill({ color: 0x02080f, alpha: 0.7 * Math.sin(Math.PI * Math.min(1, sink * 1.2)) })
     }
 
-    // THE STARBURST: the hard-cut kill flash, drawn on the head in screen space
+    // THE KILL'S SPEED LINES: out from past the body to the screen's edge. No starburst and no ring
+    // round it: the white silhouette over the dim (kWarp.top) is the hit
     const [bcx, bcy, bcr] = bodyC()
     const sx = world.position.x + bcx * world.scale.x
     const sy = world.position.y + bcy * world.scale.y
     const burstK = t < hs ? 1 : clamp01(1 - (t - hs) / 0.4)
     if (burstK > 0) {
-      // the face is the subject: the burst's spikes stand out of a hole the size of the head, so
-      // the wince is framed by the hit instead of buried under it
-      // sized to the head AS DRAWN (A's rig is the body bake at head scale, larger than the hitbox)
-      const hole = Math.max(KRAKEN_HEAD_R * 1.05, bcr * 1.08) * world.scale.x
-      const R = Math.max(hole * 1.6, U * 0.46) * (t < hs ? 1 : 1 + (t - hs) * 1.6)
-      for (let i = 0; i < 14; i++) {
-        const a = (i / 14) * Math.PI * 2 + 0.2
-        const tipR = R * (0.8 + 0.2 * Math.sin(i * 7.3))
-        const half = Math.PI / 14 * 0.78
-        const base = hole * (t < hs ? 1 : 1 + (t - hs) * 1.2)
-        const p0 = [sx + Math.cos(a - half) * base, sy + Math.sin(a - half) * base]
-        const p1 = [sx + Math.cos(a) * tipR, sy + Math.sin(a) * tipR]
-        const p2 = [sx + Math.cos(a + half) * base, sy + Math.sin(a + half) * base]
-        cerG.poly([...p0, ...p1, ...p2]).fill({ color: K_GLOW, alpha: 0.6 * burstK })
-        const q1 = [sx + Math.cos(a) * (base + (tipR - base) * 0.62), sy + Math.sin(a) * (base + (tipR - base) * 0.62)]
-        const h2 = half * 0.55
-        cerG.poly([sx + Math.cos(a - h2) * base, sy + Math.sin(a - h2) * base, ...q1, sx + Math.cos(a + h2) * base, sy + Math.sin(a + h2) * base])
-          .fill({ color: 0xffffff, alpha: 0.95 * burstK })
-      }
-      cerG.circle(sx, sy, hole * (t < hs ? 1 : 1 + (t - hs) * 1.2)).stroke({ width: 5, color: 0xffffff, alpha: 0.9 * burstK })
-      // speed lines out to the edge of the screen
+      const R = Math.max(KRAKEN_HEAD_R * 1.05, bcr * 1.08) * world.scale.x * 1.35 * (t < hs ? 1 : 1 + (t - hs) * 1.6)
       for (let i = 0; i < 14; i++) {
         const a = (i / 14) * Math.PI * 2 + 0.11
         const r0 = R * 0.95, r1 = Math.hypot(w, h)
@@ -24753,7 +24767,8 @@ const spurG = new Graphics()
     }
     const bars = smooth01((t - 0.2) / 0.4)
     const edge = 0.35 * smooth01((t - hs) / 0.6)
-    return { dim, bars, flash, edge }
+    dim = Math.max(dim, K_KO_DIM * (t < hs ? 1 : 1 - smooth01((t - hs) / K_KO_HOLD)))
+    return { dim, bars, flash: t < hs ? 0 : flash, edge }
   }
 
   // ------------------------------------------------------------------ events
