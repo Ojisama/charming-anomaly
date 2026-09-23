@@ -11057,6 +11057,11 @@ export function createRenderer(app) {
   const krakenGripG = new Graphics()
   const krakenGripFrontG = new Graphics()
   const krakenArmLayer = new Container()
+  // A LANDED LIMB IS A SLAB: drawn under its rope for KRAKEN_SLAM_T, a near-black body wider than
+  // the rope with a hard pale rim, so the thing that struck is an opaque, hard-edged object on the
+  // seabed — a different language from the orange warning light it replaced.
+  const krakenSlabG = new Graphics()
+  krakenArmLayer.addChild(krakenSlabG)
   // ...and the half of a GRIP that passes in FRONT of the player (gripArt 1). Drawn top-down in one
   // plane, a limb curled round a fish is indistinguishable from a hoop lying on the seabed: every
   // pixel of it is behind the fish, so nothing says it is holding them rather than surrounding them.
@@ -19693,18 +19698,9 @@ const spurG = new Graphics()
       const f = sc.t / K_SCAR_T
       const fade = f * f
       const age = K_SCAR_T - sc.t
-      // THE BLOW'S FOOTPRINT, LIT FOR A BLINK: the whole struck capsule flashes pale on the frames
-      // it lands, at exactly the width sim tested. The telegraph said "here"; this says "that was it".
-      const flashT = sc.big ? 0.34 : 0.12   // the Coil's five hold longer: the biggest blow
-      if (age < flashT) {
-        // the lane that was burning goes WHITE-HOT for a blink and dies: the danger fill resolving
-        // into the blow, at the width it was drawn — so the warning and the hit are one shape
-        const k = 1 - age / flashT
-        krakenImpactG.moveTo(sc.x0, sc.y0).lineTo(sc.x1, sc.y1)
-          .stroke({ width: 2 * sc.w * (1 + 0.35 * (1 - k)), color: K_HAZARD, alpha: (sc.big ? 0.8 : 0.6) * k, cap: 'round' })
-        krakenImpactG.moveTo(sc.x0, sc.y0).lineTo(sc.x1, sc.y1)
-          .stroke({ width: sc.w * 1.1, color: 0xffffff, alpha: 0.7 * k, cap: 'round' })
-      }
+      // NO LIGHT AT THE LANDING. The warning is orange light on the ground; the frame the blow lands
+      // that light snaps off and what is left is the limb itself, dark and solid (krakenSlabG), with
+      // one bright burst at the contact point. A flash of the lane read as the warning again.
       // THE DUST WALL: the seabed thrown up along both edges of the print and rolling outward, the
       // way Hydra's slam throws a ring of dust out from its own telegraph's edge. It starts ON the
       // struck edge, so the first thing it shows is how wide the hit was.
@@ -19849,6 +19845,18 @@ const spurG = new Graphics()
   // The star cut: eight spikes, the four on the clash's own axis long and the diagonals short, hard
   // white with a cold rim, holding full size for the first half of its life and then snapping shut.
   // On krakenGripFrontG, the one ring layer drawn OVER the limbs and the fish.
+  function drawKrakenBursts(dt) {
+    for (let i = krakenBursts.length - 1; i >= 0; i--) {
+      const b = krakenBursts[i]
+      if (dt > 0) b.t -= dt
+      if (b.t <= 0) { krakenBursts.splice(i, 1); continue }
+      const f = b.t / K_BURST_T
+      const r = b.r * (0.7 + 0.5 * (1 - f))
+      krakenDangerG.circle(b.x, b.y, r).fill({ color: 0xffffff, alpha: 0.95 * f })
+      krakenDangerG.circle(b.x, b.y, r).stroke({ width: 4, color: 0xffd2a8, alpha: f })
+    }
+  }
+
   function drawKrakenStars(dt) {
     for (let i = krakenStars.length - 1; i >= 0; i--) {
       const st = krakenStars[i]
@@ -20115,10 +20123,12 @@ const spurG = new Graphics()
   // The arms themselves: a spline per arm, from the shoulder out in the murk to the tip reaching in
   // over the arena, undulating on its own phase so the ring never moves as one piece.
   function syncKrakenArms(run, dt) {
+    krakenSlabG.clear()
     krakenWoundG.clear()
     krakenGripG.clear()
     krakenGripFrontG.clear()
     drawKrakenStars(dt)
+    drawKrakenBursts(dt)
     krakenHold = 0
     const head = krakenHead
     const arms = head ? run.krakenArms.filter((a) => !a.dead || a.breakT > 0) : []
@@ -20439,6 +20449,29 @@ const spurG = new Graphics()
       rig.rope.visible = true
       rig.shadow.visible = true
       krakenTips[a.i] = { x: rig.pts[K_ROPE_N - 1].x, y: rig.pts[K_ROPE_N - 1].y }
+      if (a.slamT > 0) {
+        const hwS = KRAKEN_ARM_R * 1.45 * 0.5
+        const k0 = Math.round((K_ROPE_N - 1) * 0.3)
+        const k = a.slamT / KRAKEN_SLAM_T
+        for (const [w, col, al] of [[hwS * 2.5 + 6, 0xffe6d2, 0.9 * k], [hwS * 2.5, 0x06040a, 0.96]]) {
+          krakenSlabG.moveTo(rig.pts[k0].x, rig.pts[k0].y)
+          for (let q = k0 + 1; q < K_ROPE_N; q++) krakenSlabG.lineTo(rig.pts[q].x, rig.pts[q].y)
+          krakenSlabG.stroke({ width: w, color: col, alpha: al, cap: 'round', join: 'round' })
+        }
+        // ...and its OUTLINE in light, above the dark: a Coil's five slabs land mostly past the
+        // lamp, where a dark body on a dark floor is nothing — the hard edge is what shows
+        const off = hwS * 1.25 + 2
+        for (const sd of [-1, 1]) {
+          for (let q = k0; q < K_ROPE_N; q++) {
+            const pa = rig.pts[Math.max(k0, q - 1)], pb = rig.pts[Math.min(K_ROPE_N - 1, q + 1)]
+            const dx = pb.x - pa.x, dy = pb.y - pa.y, dl = Math.hypot(dx, dy) || 1
+            const x = rig.pts[q].x - dy / dl * off * sd, y = rig.pts[q].y + dx / dl * off * sd
+            if (q === k0) krakenDangerG.moveTo(x, y)
+            else krakenDangerG.lineTo(x, y)
+          }
+          krakenDangerG.stroke({ width: 3, color: 0xffe6d2, alpha: 0.85 * k, join: 'round' })
+        }
+      }
       // ...AND THE WATER AROUND THE PLAYER STARTS MOVING TOWARD IT. The reach alone can start at the
       // edge of the light; silt lifting off the seabed around the fish and streaming toward the limb
       // is the half of the tell that is always where the player is looking — and it is a physical
@@ -20562,7 +20595,7 @@ const spurG = new Graphics()
         if (a.hitT > 0) rig.rope.tint = mix(0xffffff, 0xdff8ff, 1 - a.hitT / KRAKEN_LIMP_FLASH)
         // PLANTED: the limb that just landed is the heaviest-looking thing on screen for its
         // KRAKEN_SLAM_T — full-strength colour, no lit wash — so the blow has a body at the contact
-        else if (a.slamT > 0) rig.rope.tint = 0xffffff
+        else if (a.slamT > 0) rig.rope.tint = 0x5d5470
         else if (a.limpT > 0) rig.rope.tint = mix(0x4576a0, 0x5691c0, 0.5 + 0.5 * Math.sin(animT * 4)) // spent: cold AND dimmed
         else if (rung && !a.coilArm && a.tele > 0 && a.tele <= rung.window) rig.rope.tint = a.tele <= rung.perfect ? 0xffffff : 0xeaf6ff
         else if (rung && a.tele > 0 && a.fuse) rig.rope.tint = mix(0x9e92cf, 0xeee8fe, 1 - a.tele / a.fuse)
@@ -22418,6 +22451,9 @@ const spurG = new Graphics()
   // A perfect parry's star cut, for its few frames. Same ownership as krakenScars.
   const krakenStars = []
   const K_STAR_T = 0.13
+  // A slam's contact burst, for its few frames. Same ownership as krakenScars.
+  const krakenBursts = []
+  const K_BURST_T = 0.12
 
   function fitScreen() {
     const w = app.screen.width
@@ -23298,9 +23334,17 @@ const spurG = new Graphics()
 
     for (const e of events) {
       switch (e.type) {
-        case 'hit':
-          spawnDamage(e.x, e.y, e.dmg, e.crit, e.dot)
+        case 'hit': {
+          // In the Kraken fight the thing being hit is often ON the player (an opened limb's node,
+          // the head's mouth): a number there sits on the fish, so it is pushed out to one side.
+          let hx = e.x, hy = e.y
+          if (run.chapter === 'kraken') {
+            const dx = hx - run.player.x, dy = hy - run.player.y, d = Math.hypot(dx, dy)
+            if (d < 52) { const ux2 = d > 1 ? dx / d : 0.7, uy2 = d > 1 ? dy / d : -0.7; hx = run.player.x + ux2 * 52; hy = run.player.y + uy2 * 52 }
+          }
+          spawnDamage(hx, hy, e.dmg, e.crit, e.dot)
           break
+        }
         // A shot that bounced off a Shore Crab's raised claw. This exists because the alternative is
         // NOTHING happening on screen, and nothing-happening is indistinguishable from a broken
         // weapon — which is precisely how the elements redesign shipped a dead freeze. Deliberately
@@ -24185,8 +24229,8 @@ const spurG = new Graphics()
           const nx = -uy, ny = ux
           krakenScars.push({ x0: lx0, y0: ly0, x1: lx1, y1: ly1, w: lw, t: K_SCAR_T, big: !!e.coil, cracks: krakenCrack(lx0, ly0, lx1, ly1, lw, !!e.coil) })
           if (krakenScars.length > 10) krakenScars.shift()
-          // the crack itself, at the end that is on screen
-          spawnRing(lx1, ly1, lw * 1.1, 0.26, T.novaWarm, 0xffd0c0)
+          // dust is never thrown on top of the player: they have to stay findable in the blow
+          const clearOfPlayer = (x, y) => (x - run.player.x) ** 2 + (y - run.player.y) ** 2 > 90 * 90
           // A COIL'S FIVE LASHES ARE ONE BLOW: coilClose carries the camera and the big burst, so each
           // limb here only throws its own wall, thinner, to keep the particle budget for the middle.
           // DIM AND OVERLAPPING, so the puffs merge into one cloud instead of reading as bubbles: a
@@ -24199,7 +24243,7 @@ const spurG = new Graphics()
             const sx = lx0 + (lx1 - lx0) * t + nx * off, sy = ly0 + (ly1 - ly0) * t + ny * off
             const sp = 60 + Math.random() * 150
             const along = (Math.random() - 0.5) * 50
-            spawnParticle(T.fx.circle_05, sx, sy, nx * side * sp + ux * along, ny * side * sp + uy * along,
+            if (clearOfPlayer(sx, sy)) spawnParticle(T.fx.circle_05, sx, sy, nx * side * sp + ux * along, ny * side * sp + uy * along,
               0.6 + Math.random() * 0.35, 0.10 + Math.random() * 0.06, 0x3c4a53, 0.35, 3.0)
           }
           // chips of the seabed kicked straight up off the spine, bright for a frame
@@ -24212,7 +24256,7 @@ const spurG = new Graphics()
           }
           // DEBRIS: chunks of seabed thrown hard OUT of the line, both sides, fast and dragging to a
           // stop — the part of a heavy blow that is thrown, which a flash alone never says
-          for (let i = 0; i < (e.coil ? 10 : 34); i++) {
+          for (let i = 0; i < (e.coil ? 6 : 14); i++) {
             const t = 0.4 + Math.random() * 0.6
             const side = Math.random() < 0.5 ? -1 : 1
             // born ON the struck edge, so the first frames already show them leaving the lane
@@ -24224,27 +24268,25 @@ const spurG = new Graphics()
             spawnParticle(T.fx.circle_05, sx, sy, Math.cos(a) * sp, Math.sin(a) * sp,
               0.45 + Math.random() * 0.3, 0.04 + Math.random() * 0.05, i % 3 ? 0xd9c3a0 : 0xffe0b8, -0.04, 4.0)
           }
-          // THE CONTACT POINT: where the blow met the ground nearest the player — the part of a long
-          // slam the eye is on. A fast shockwave races out of it and the seabed comes up in CLUMPS,
-          // big pale chunks thrown out of the lane and dragging to a stop, which is the part of a
-          // Cuphead barrel landing that makes the world react: something was broken and thrown.
+          // THE CONTACT POINT. A plain slam: where the struck line meets the ground nearest the
+          // player, the part of a long blow the eye is on. A Coil lane: its own tip, so the five
+          // slabs each land with their own burst. ONE bright hard-edged burst there (krakenBursts,
+          // over the limbs), one fast shockwave, and LARGE clumps of seabed thrown out from under
+          // the slab — a Cuphead barrel landing, where everything comes out from under the object.
           {
             const nc = krakenNearK(run, lx0, ly0, lx1, ly1, lw)
-            spawnRing(nc.qx, nc.qy, lw * 3.2, 0.22, T.novaRing, 0xffffff)
-            spawnRing(nc.qx, nc.qy, lw * 1.9, 0.16, T.novaWarm, 0xffd8b0)
-            const clumps = e.coil ? 2 : 5
-            for (let c = 0; c < clumps; c++) {
-              // clumps along the visible stretch of the lane, the first right at the contact point
-              const t = c === 0 ? Math.max(0, Math.min(1, ((nc.qx - lx0) * (lx1 - lx0) + (nc.qy - ly0) * (ly1 - ly0)) / (L * L))) : 0.45 + Math.random() * 0.55
-              const cx = lx0 + (lx1 - lx0) * t, cy = ly0 + (ly1 - ly0) * t
-              for (let i = 0; i < 6; i++) {
-                const side = i % 2 ? 1 : -1
-                const a = Math.atan2(ny * side, nx * side) + (Math.random() - 0.5) * 1.4
-                const sp = 260 + Math.random() * 360
-                spawnParticle(T.fx.circle_05, cx + nx * side * lw * 0.8, cy + ny * side * lw * 0.8,
-                  Math.cos(a) * sp, Math.sin(a) * sp, 0.5 + Math.random() * 0.3, 0.07 + Math.random() * 0.06,
-                  i % 3 ? 0xe6dcc8 : 0xfff3e0, 0.12, 4.0)
-              }
+            const cx = e.coil ? e.x : nc.qx, cy = e.coil ? e.y : nc.qy
+            krakenBursts.push({ x: cx, y: cy, r: lw * (e.coil ? 0.55 : 0.8), t: K_BURST_T })
+            if (krakenBursts.length > 8) krakenBursts.shift()
+            spawnRing(cx, cy, lw * (e.coil ? 2.2 : 3.4), 0.24, T.novaRing, 0xffffff)
+            for (let i = 0; i < (e.coil ? 6 : 12); i++) {
+              const side = i % 2 ? 1 : -1
+              const along = (Math.random() - 0.5) * lw * 1.6
+              const a = Math.atan2(ny * side, nx * side) + (Math.random() - 0.5) * 0.9
+              const sp = 300 + Math.random() * 380
+              spawnParticle(T.fx.circle_05, cx + ux * along + nx * side * lw * 0.9, cy + uy * along + ny * side * lw * 0.9,
+                Math.cos(a) * sp, Math.sin(a) * sp, 0.55 + Math.random() * 0.3, 0.10 + Math.random() * 0.07,
+                i % 3 ? 0xe6dcc8 : 0xfff3e0, 0.1, 4.0)
             }
           }
           if (!e.coil) {
@@ -24342,6 +24384,7 @@ const spurG = new Graphics()
             const a = (i / 40) * Math.PI * 2 + Math.random() * 0.12
             const r0 = KRAKEN_HEAD_R * (0.6 + Math.random() * 0.5)
             const sp = 200 + Math.random() * 260
+            if ((e.x + Math.cos(a) * r0 - run.player.x) ** 2 + (e.y + Math.sin(a) * r0 - run.player.y) ** 2 < 90 * 90) continue
             spawnParticle(T.fx.circle_05, e.x + Math.cos(a) * r0, e.y + Math.sin(a) * r0,
               Math.cos(a) * sp, Math.sin(a) * sp, 0.8 + Math.random() * 0.3, 0.12 + Math.random() * 0.06, 0x4a5a64, 0.6, 2.6)
           }
@@ -24393,6 +24436,8 @@ const spurG = new Graphics()
     // into the next one they would put a parry ring somewhere off in the last arena for one frame
     krakenTips.length = 0
     krakenScars.length = 0
+    krakenBursts.length = 0
+    krakenSlabG.clear()
     krakenStars.length = 0
     // v6.6.22: the lawn grows back between runs. mownByLane is a WeakMap keyed on lane objects the
     // old run owned, so it empties itself once those are unreachable — only the list needs clearing.
