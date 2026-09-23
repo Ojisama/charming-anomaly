@@ -14935,15 +14935,15 @@ export const KRAKEN_CEREMONY = {
 // run.bossOutroT up to `time` before endRun(true), so nothing can move, hurt or score during it:
 // the same frozen-sim / live-renderer split as DEATH_OUTRO. render.js reads the clock, never writes it.
 export const KRAKEN_OUTRO = {
-  time: 4.8,        // s from the killing blow to the summary
+  time: 5.3,        // s from the killing blow to the summary
   skipLock: 0.9,    // s before input can skip (the thumb that won is still on the stick)
   hitstop: 0.16,    // s the world is held dead still on the kill frame (main.js passes sync dt 0)
   thrash: 1.15,     // s the arms flail after the hit-stop
-  sinkFrom: 1.0,    // s: arms go limp and the body starts to sink
-  sinkT: 2.8,       // s the sink takes
-  bannerAt: 1.45,   // s: the banner slams in (and main.js plays the victory sting)
-  fadeFrom: 3.7,    // s: the sea goes dark under the banner
-  bannerOut: 4.45,  // s: the banner leaves, so the summary opens over the dark and not over text
+  sinkFrom: 1.0,    // s: the cracked mantle bursts, the arms go limp and the body starts to sink
+  sinkT: 1.4,       // s the sink takes
+  bannerAt: 2.05,   // s: the banner slams in, once the head is dead and going (and main.js plays the victory sting)
+  fadeFrom: 3.9,    // s: the sea goes dark under the banner
+  bannerOut: 4.95,  // s: the banner leaves, so the summary opens over the dark and not over text
   dark: 0.82,       // final dim alpha
 }
 
