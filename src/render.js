@@ -19766,9 +19766,10 @@ const spurG = new Graphics()
   // outline as the fuse runs out; the frame it meets the edges is the frame it lands. The owner's
   // "the rectangle should grow to show the arm arming the slam" is that widening. The Coil's lanes
   // are the same drawing, hotter, so the one lane left dark is the gap.
-  function drawKrakenLane(a, urg, rung) {
+  function drawKrakenLane(a, urg, rung, s, p) {
     const W = a.w || KRAKEN_LASH_W
     const coil = a.coilArm === true
+    if (!coil && s) return drawKrakenFootprint(a, urg, rung, s, p)
     const win = a.tele <= rung.window && !coil
     const L = Math.hypot(a.lx1 - a.lx0, a.ly1 - a.ly0) || 1
     const nx = -(a.ly1 - a.ly0) / L, ny = (a.lx1 - a.lx0) / L
@@ -19795,6 +19796,50 @@ const spurG = new Graphics()
     krakenDangerG.stroke({ width: 2.5 + 2.5 * e, color: win ? 0xffffff : col, alpha: 0.45 + 0.5 * e, join: 'round', cap: 'round' })
   }
 
+  // A PLAIN SLAM'S TELEGRAPH IS A FOOTPRINT ON THE GROUND, not a light over the limb. It runs from
+  // the arena's own wall (s.cageR — no player can stand further out, so this is the whole reachable
+  // hitbox) to the round cap past the head, and both ends are drawn as ends: a hard flat bar at the
+  // wall, the cap at the head. Inside, HATCHING instead of a fill, so the limb rearing over it shows
+  // through the gaps rather than being tinted into one blob with it; the hatch widens from the
+  // spine out to the edges as the fuse runs down, and goes white-hot in the parry window.
+  function drawKrakenFootprint(a, urg, rung, s, p) {
+    const W = a.w || KRAKEN_LASH_W
+    const win = a.tele <= rung.window
+    const L = Math.hypot(a.lx1 - a.lx0, a.ly1 - a.ly0) || 1
+    const dx = (a.lx1 - a.lx0) / L, dy = (a.ly1 - a.ly0) / L      // rim -> head
+    const nx = -dy, ny = dx
+    const reach = Math.min(L, (s.cageR > 0 ? s.cageR : KRAKEN_CAGE_R))
+    const ax = a.lx1 - dx * reach, ay = a.ly1 - dy * reach            // the wall end
+    const e = Math.pow(Math.max(0, Math.min(1, urg)), 0.85)
+    const col = win ? K_HAZARD_HOT : K_HAZARD
+    // a faint ground tone over the whole footprint, so it is one shape from the first frame
+    krakenDangerG.moveTo(ax, ay).lineTo(a.lx1, a.ly1).stroke({ width: 2 * W, color: K_HAZARD, alpha: 0.06 + 0.05 * e, cap: 'butt' })
+    krakenDangerG.circle(a.lx1, a.ly1, W).fill({ color: K_HAZARD, alpha: 0.06 + 0.05 * e })
+    // the hatch: stripes across the lane at 45 degrees, reaching out from the spine to e of the width
+    const hwNow = Math.max(8, W * e)
+    const step = 22
+    const n = Math.floor(reach / step)
+    for (let i = 0; i <= n; i++) {
+      const t = i * step
+      const cx = ax + dx * t, cy = ay + dy * t
+      krakenDangerG.moveTo(cx - nx * hwNow - dx * hwNow * 0.6, cy - ny * hwNow - dy * hwNow * 0.6)
+        .lineTo(cx + nx * hwNow + dx * hwNow * 0.6, cy + ny * hwNow + dy * hwNow * 0.6)
+    }
+    krakenDangerG.stroke({ width: 6, color: col, alpha: 0.30 + 0.45 * e, cap: 'butt' })
+    // the spine, hot, the first thing the eye catches
+    krakenDangerG.moveTo(ax, ay).lineTo(a.lx1, a.ly1).stroke({ width: 3 + 2 * e, color: K_HAZARD_HOT, alpha: 0.4 + 0.45 * e, cap: 'butt' })
+    // the edge: the exact hitbox, hard, with its two ENDS — the flat bar at the wall and the cap
+    const ux = nx * W, uy = ny * W
+    const la = Math.atan2(dy, dx)
+    krakenDangerG.beginPath()
+    krakenDangerG.moveTo(ax + ux, ay + uy)
+    krakenDangerG.lineTo(ax - ux, ay - uy)
+    krakenDangerG.lineTo(a.lx1 - ux, a.ly1 - uy)
+    krakenDangerG.arc(a.lx1, a.ly1, W, la - Math.PI / 2, la + Math.PI / 2)
+    krakenDangerG.lineTo(ax + ux, ay + uy)
+    krakenDangerG.stroke({ width: 3.5 + 2.5 * e, color: win ? 0xffffff : col, alpha: 0.6 + 0.4 * e, join: 'miter' })
+  }
+
   // THE SLAMS' PRINTS: every landed strike leaves its struck capsule on the seabed for K_SCAR_T —
   // a pale silt haze over EXACTLY the ground that was hit, and a crack run down its spine. Hydra's
   // slam leaves its dust ring filling the telegraph's footprint for a beat after it lands, which is
@@ -19808,11 +19853,6 @@ const spurG = new Graphics()
       const f = sc.t / K_SCAR_T
       const fade = f * f
       const age = K_SCAR_T - sc.t
-      if (sc.cx !== undefined) {
-        const cr = sc.w * (0.55 + 0.25 * Math.min(1, age / 0.15))
-        teleG.ellipse(sc.cx, sc.cy, cr * 1.15, cr).fill({ color: 0x010306, alpha: 0.8 * f })
-        teleG.ellipse(sc.cx, sc.cy, cr * 1.15, cr).stroke({ width: 3, color: 0xd9c8b0, alpha: 0.55 * f })
-      }
       // NO LIGHT AT THE LANDING. The warning is orange light on the ground; the frame the blow lands
       // that light snaps off and what is left is the limb itself, dark and solid (krakenSlabG), with
       // one bright burst at the contact point. A flash of the lane read as the warning again.
@@ -20148,13 +20188,14 @@ const spurG = new Graphics()
       // gets it into the arena early enough to be worth watching.
       // while the Coil runs only its own arms move; a spared arm's frozen fuse never lands, so its
       // lane must not keep burning in the one lane that is safe
-      if (!(s.coilT > 0) || a.coilArm) drawKrakenLane(a, urg, rung)
+      if (!(s.coilT > 0) || a.coilArm) drawKrakenLane(a, urg, rung, s, p)
 
       // ...and the last `window` seconds of it are the PARRY, which has to be unmistakably its own
       // colour. Red is the danger, white-hot is the answer.
-      if (a.tele <= rung.window && !a.coilArm) {
+      const tipW = krakenTips[a.i] || a
+      if (a.tele <= rung.window && !a.coilArm && (tipW.x - p.x) ** 2 + (tipW.y - p.y) ** 2 > 70 * 70) {
         const perfect = a.tele <= rung.perfect
-        const tip = krakenTips[a.i] || a
+        const tip = tipW
         teleG.beginPath()
         teleG.circle(tip.x, tip.y, KRAKEN_ARM_R * (perfect ? 1.5 : 2.1))
         teleG.stroke({ width: perfect ? 7 : 4, color: 0xffffff, alpha: perfect ? 0.98 : 0.8 })
@@ -20236,6 +20277,7 @@ const spurG = new Graphics()
     krakenGripG.clear()
     krakenGripFrontG.clear()
     drawKrakenStars(dt)
+    drawKrakenGround(dt)
     drawKrakenBursts(dt)
     krakenHold = 0
     const head = krakenHead
@@ -22607,6 +22649,69 @@ const spurG = new Graphics()
   // A Coil lane's detonation: the struck lane filled and blown outward with a hard leading edge.
   const krakenBlasts = []
   const K_BLAST_T = 0.06
+  // THE GROUND THE BLOW REVEALS. Under the Light-bar dark there is no seabed on screen to break, so
+  // a landing LIGHTS a patch of it — sand ripples and rock plates — around the contact for a beat,
+  // stamps its crater into that lit ground, and throws chunks of the same ground; the patch fades
+  // back to dark over K_GROUND_T and the crater's lit rim is the last thing to go.
+  const krakenGround = []
+  const K_GROUND_T = 1.1
+  function krakenGroundPatch(x, y, r) {
+    const ripples = []
+    const ang = Math.random() * Math.PI
+    for (let i = 0; i < 5; i++) {
+      const off = (i - 2) * r * 0.32 + (Math.random() - 0.5) * r * 0.08
+      ripples.push({ off, a: ang + (Math.random() - 0.5) * 0.25, len: r * (0.9 - Math.abs(i - 2) * 0.2) })
+    }
+    const plates = []
+    for (let i = 0; i < 6; i++) {
+      const a = Math.random() * Math.PI * 2, d = r * (0.35 + Math.random() * 0.55)
+      plates.push({ x: x + Math.cos(a) * d, y: y + Math.sin(a) * d, r: r * (0.10 + Math.random() * 0.10), rot: Math.random() * 6.28, shape: krakenChunkShape() })
+    }
+    const crater = []
+    const n = 11
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2
+      const rr = 0.75 + Math.random() * 0.35
+      crater.push(Math.cos(a) * rr, Math.sin(a) * rr * 0.8)
+    }
+    return { x, y, r, t: K_GROUND_T, ripples, plates, crater, ang }
+  }
+  function drawKrakenGround(dt) {
+    for (let i = krakenGround.length - 1; i >= 0; i--) {
+      const g = krakenGround[i]
+      if (dt > 0) g.t -= dt
+      if (g.t <= 0) { krakenGround.splice(i, 1); continue }
+      const age = K_GROUND_T - g.t
+      const lit = age < 0.15 ? 1 : Math.max(0, 1 - (age - 0.15) / (K_GROUND_T - 0.15))
+      // the lit seabed: a warm sand disc and its ripples and plates, in the additive danger light
+      krakenDangerG.circle(g.x, g.y, g.r).fill({ color: 0x5a4a34, alpha: 0.75 * lit })
+      krakenDangerG.circle(g.x, g.y, g.r * 0.62).fill({ color: 0x3a2e1e, alpha: 0.6 * lit })
+      const ca = Math.cos(g.ang), sa = Math.sin(g.ang)
+      for (const rp of g.ripples) {
+        const cx = g.x - sa * rp.off, cy = g.y + ca * rp.off
+        const c2 = Math.cos(rp.a), s2 = Math.sin(rp.a)
+        krakenDangerG.moveTo(cx - c2 * rp.len * 0.5, cy - s2 * rp.len * 0.5)
+          .quadraticCurveTo(cx - s2 * 6, cy + c2 * 6, cx + c2 * rp.len * 0.5, cy + s2 * rp.len * 0.5)
+          .stroke({ width: 2.5, color: 0xa08a64, alpha: 0.8 * lit })
+      }
+      for (const pl of g.plates) {
+        const cs = Math.cos(pl.rot), sn = Math.sin(pl.rot)
+        const poly = []
+        for (let m = 0; m < pl.shape.length; m += 2) {
+          const px = pl.shape[m] * pl.r, py = pl.shape[m + 1] * pl.r
+          poly.push(pl.x + px * cs - py * sn, pl.y + px * sn + py * cs)
+        }
+        krakenDangerG.poly(poly).stroke({ width: 2, color: 0xb8a078, alpha: 0.7 * lit })
+      }
+      // the crater, STAMPED INTO the ground: an opaque dark pit with a jagged lip, lit on its rim
+      const cf = Math.min(1, g.t / 0.35)
+      const cr = g.r * 0.42 * (0.8 + 0.2 * Math.min(1, age / 0.08))
+      const poly = []
+      for (let m = 0; m < g.crater.length; m += 2) poly.push(g.x + g.crater[m] * cr, g.y + g.crater[m + 1] * cr)
+      krakenSlabTopG.poly(poly).fill({ color: 0x080503, alpha: 0.92 * cf })
+      krakenSlabTopG.poly(poly).stroke({ width: 3, color: 0xe8c898, alpha: (0.35 + 0.6 * lit) * cf, join: 'miter' })
+    }
+  }
   // Seabed slabs thrown out from under a landed limb: angular, dark, lit-edged, settling.
   const krakenChunks = []
   const K_CHUNK_T = 0.9
@@ -22638,8 +22743,9 @@ const spurG = new Graphics()
         const px = c.shape[m] * c.r, py = c.shape[m + 1] * c.r
         poly.push(c.x + px * cs - py * sn, c.y + px * sn + py * cs)
       }
-      krakenSlabTopG.poly(poly).fill({ color: 0x3e3129, alpha: al })
-      krakenSlabTopG.poly(poly).stroke({ width: 3, color: 0xf0dcc0, alpha: al, join: 'miter' })
+      // pieces of the same lit ground: sand-rock faces with a dark broken edge
+      krakenSlabTopG.poly(poly).fill({ color: 0x9a825e, alpha: al })
+      krakenSlabTopG.poly(poly).stroke({ width: 2.5, color: 0x1a120a, alpha: al, join: 'miter' })
     }
   }
 
@@ -24432,6 +24538,8 @@ const spurG = new Graphics()
             krakenBursts.push({ x: cx, y: cy, r: lw * (e.coil ? 0.5 : 0.7), t: K_BURST_T, ring: e.coil ? 0 : lw * 2.6 })
             if (krakenBursts.length > 8) krakenBursts.shift()
             krakenLandings.push({ x: cx, y: cy, t: KRAKEN_SLAM_T })
+            krakenGround.push(krakenGroundPatch(cx, cy, lw * (e.coil ? 1.3 : 1.9)))
+            if (krakenGround.length > 8) krakenGround.shift()
             if (krakenLandings.length > 8) krakenLandings.shift()
             const sc0 = krakenScars[krakenScars.length - 1]
             if (sc0) { sc0.cx = cx; sc0.cy = cy }
@@ -24598,6 +24706,7 @@ const spurG = new Graphics()
     krakenLandings.length = 0
     krakenBlasts.length = 0
     krakenChunks.length = 0
+    krakenGround.length = 0
     krakenDim = 0
     krakenDimG.clear()
     krakenSlabG.clear()
