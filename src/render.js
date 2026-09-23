@@ -21991,6 +21991,13 @@ const spurG = new Graphics()
       lamp: P.light > 0.02 ? L : null, lampA: 0.3 * P.light, lampS: sc,
     })
     drawKrakenCracks(rig.g, P.crack, P.heat, L, sc)
+    if (P.hot > 0.01) {
+      const R = K_BODY_BAKE_R
+      for (let i = 0; i < 5; i++) {
+        const f = 1 - i * 0.17
+        rig.g.ellipse(0, -0.6 * R, 0.5 * R * f, 0.55 * R * f).fill({ color: i < 3 ? 0xfff2e2 : 0xffffff, alpha: 0.2 * P.hot })
+      }
+    }
     if (P.outline > 0.01 && krakenBodyContour) {
       // UNDER the body: only its outer half shows, so it rings the silhouette and never crosses the face
       rig.under.poly(krakenBodyContour).stroke({ width: K_BODY_BAKE_R * 0.14, color: 0x05030a, alpha: P.outline, join: 'round' })
@@ -23950,11 +23957,11 @@ const spurG = new Graphics()
   const kPose = {
     visible: false, x: 0, y: 0, rot: 0, sx: 1, sy: 1, scale: 1, alpha: 1, tint: 0xffffff, flash: 0, flashTint: 0xffffff,
     pain: 0, stun: 0, blink: 0, lx: 0, ly: 0, white: 0, core: 0, crown: 1, jaw: 0, grit: 0, rim: 0, light: 1,
-    shock: 0, slack: 0, blank: 0, ko: 0, crack: 0, heat: 0, buckle: 0, outline: 0,
+    shock: 0, slack: 0, blank: 0, ko: 0, crack: 0, heat: 0, buckle: 0, outline: 0, hot: 0, stave: 0,
   }
   // THE KILL SHOT: for the hit-stop and this long after it, the world behind the head is dimmed and
   // the head is drawn again ABOVE the dim (kWarp.top, in cerLayer), so nothing covers it
-  const K_KO_HOLD = 0.4, K_KO_DIM = 0.72
+  const K_KO_HOLD = 0.4, K_KO_DIM = 0.55
   // the kill pose's squash (x, y) and swell: the camera fits the body to these, so they live here
   const K_KO_SX = 1.2, K_KO_SY = 0.74, K_KO_SCALE = 1.14
 
@@ -24033,8 +24040,14 @@ const spurG = new Graphics()
         + 0.04 * R0 * Math.sin(y / R0 * 9 + 1.3) * m
       const dy = 0.4 * R0 * m * m * cx
         + 0.035 * R0 * Math.sin(x / R0 * 11) * m
-      d[i] = rest[i] + dx * D
-      d[i + 1] = rest[i + 1] + dy * D
+      // ONE FLANK STAVED IN: the side away from the fold is punched in toward the middle, and the
+      // whole outline is broken up, so the shape is lopsided and torn, never a clean blob
+      const cv = P.stave || 0
+      const flank = Math.exp(-(((y + 0.5 * R0) / (0.5 * R0)) ** 2)) * clamp01(-x * side / (0.6 * R0))
+      const cdx = side * 0.3 * R0 * flank + 0.05 * R0 * Math.sin(y / R0 * 14 + x / R0 * 5) * (0.3 + m)
+      const cdy = 0.05 * R0 * Math.sin(x / R0 * 13 + 0.7) * (0.3 + m) * (y < 0.1 * R0 ? 1 : 0)
+      d[i] = rest[i] + dx * D + cdx * cv
+      d[i + 1] = rest[i + 1] + dy * D + cdy * cv
     }
     buf.update()
   }
@@ -24051,6 +24064,52 @@ const spurG = new Graphics()
   const kChunks = []
   // a world-px rectangle the chunks are not drawn in (the IT RISES plate); set per frame by the ceremony
   const kClip = { on: false, x0: 0, y0: 0, x1: 0, y1: 0 }
+  // THE RISE'S SURGE, for updateKrakenChunks to draw after the chunks: the breach ring round the base
+  // and the streaks racing up past the body (both skip the body's ellipse)
+  const kSurge = { on: false, t: 0, k: 0, bx: 0, by: 0, rx: 1, ry: 1, z: 1 }
+  // one gout of silt or water from just outside the outline, surging UP the screen and a little out
+  function krakenSurgeOne(bx, by, rx, ry, z, U) {
+    const a = Math.PI * (0.05 + 0.9 * Math.random()) * (Math.random() < 0.5 ? 1 : -1) + Math.PI / 2
+    const x = bx + Math.cos(a) * rx * 1.12, y = by + Math.sin(a) * ry * 1.05
+    const out = Math.cos(a) >= 0 ? 1 : -1
+    const up = (500 + Math.random() * 500) / Math.max(0.3, z)
+    if (Math.random() < 0.55) {
+      kChunks.push({ kind: 2, x, y, vx: out * (80 + Math.random() * 160) / z, vy: -up, sz: U * (0.03 + Math.random() * 0.035) / z,
+        color: Math.random() < 0.5 ? 0xc9b08a : 0xcfe6f2, life: 0, max: 0.7 + Math.random() * 0.4, rot: Math.random() * 6.3, vr: 1 })
+    } else {
+      kChunks.push({ kind: 3, x, y, vx: out * (60 + Math.random() * 120) / z, vy: -up * 1.3, sz: 3 + Math.random() * 4, life: 0, max: 0.4 + Math.random() * 0.3, rot: 0, vr: 0 })
+    }
+  }
+  function drawKrakenSurge() {
+    if (!kSurge.on) return
+    const S = kSurge, g = kDeathTopG
+    const inBody = (x, y) => ((x - S.bx) / S.rx) ** 2 + ((y - S.by) / S.ry) ** 2 < 1
+    // the breach: foam rings spreading flat from round its base, one after another
+    const baseY = S.by + S.ry * 1.02
+    for (let j = 0; j < 3; j++) {
+      const u = ((S.t * 1.4 + j / 3) % 1)
+      const rx = S.rx * (1.05 + 0.9 * u), ry = rx * 0.2
+      const a = (1 - u) * S.k
+      let prev = null
+      for (let i = 0; i <= 48; i++) {
+        const f = (i / 48) * Math.PI * 2
+        const x = S.bx + Math.cos(f) * rx, y = baseY + Math.sin(f) * ry
+        const ok = !inBody(x, y)
+        if (prev && ok && prev[2]) g.moveTo(prev[0], prev[1]).lineTo(x, y).stroke({ width: (10 - 6 * u) / S.z, color: 0xeaf8ff, alpha: 0.85 * a, cap: 'round' })
+        prev = [x, y, ok]
+      }
+    }
+    // the streaks: rushing up past it on both sides, the thing coming up fast
+    for (let i = 0; i < 18; i++) {
+      const side = i % 2 ? 1 : -1
+      const lane = 1.08 + 0.9 * ((i * 0.618) % 1)
+      const x = S.bx + side * S.rx * lane
+      const L = S.ry * (0.35 + 0.3 * ((i * 0.37) % 1))
+      const y = S.by + S.ry * 1.6 - ((S.t * 2.6 + i * 0.29) % 1) * S.ry * 3.6
+      if (inBody(x, y) || inBody(x, y + L)) continue
+      g.moveTo(x, y).lineTo(x, y + L).stroke({ width: (2 + (i % 3)) / S.z, color: 0xeaf8ff, alpha: 0.6 * S.k, cap: 'round' })
+    }
+  }
   const kClipped = (c, r) => (kClip.on && c.x + r > kClip.x0 && c.x - r < kClip.x1 && c.y + r > kClip.y0 && c.y - r < kClip.y1)
     || (kClip.body && ((c.x - kClip.bx) / (kClip.rx + r)) ** 2 + ((c.y - kClip.by) / (kClip.ry + r)) ** 2 < 1)
 
@@ -24096,16 +24155,20 @@ const spurG = new Graphics()
     if (t < H) {
       // FLATTENED BY IT: wider than tall, the mantle caved in (krakenWarpOn), the jaw fallen open
       P.sx = kDeath.sx * K_KO_SX; P.sy = kDeath.sy * K_KO_SY
-      P.scale = K_KO_SCALE; P.flash = 1; P.flashTint = 0xffffff; P.white = 1
+      P.scale = K_KO_SCALE; P.flash = 0.5; P.flashTint = 0xfff0e0; P.white = 0.6
       P.shock = 1; P.blink = 0; P.jaw = 1; P.rim = 0; P.core = 0; P.crown = -0.6
-      P.crack = 0; P.heat = 0; P.outline = 1
-      // SAGGED: slumped down the screen and dropped to one side
-      P.y += 0.12 * K_BODY_BAKE_R * Math.abs(kDeath.sy); P.rot += (kDeath.rot >= 0 ? 1 : -1) * 0.12
+      P.crack = 0; P.heat = 0; P.outline = 1; P.hot = 1; P.stave = 1
+      // KNOCKED OVER: slumped down the screen and thrown ~20 degrees to one side
+      P.y += 0.12 * K_BODY_BAKE_R * Math.abs(kDeath.sy); P.rot += (kDeath.rot >= 0 ? 1 : -1) * 0.36
       P.lx = 0; P.ly = 0
       return P
     }
     const after = clamp01(1 - (t - H) / 0.35)
     P.outline = clamp01(1 - (t - H) / K_KO_HOLD)
+    P.hot = P.outline
+    P.stave = 0.45 + 0.55 * P.outline
+    // it stays knocked over, easing back only a little as it thrashes
+    P.rot += (kDeath.rot >= 0 ? 1 : -1) * 0.36 * (0.6 + 0.4 * P.outline)
     P.sx = kDeath.sx * (1 + (K_KO_SX - 1) * after); P.sy = kDeath.sy * (1 - (1 - K_KO_SY) * after)
     // the burst throws it wide for a beat, then it shrinks away
     P.scale = (1 + 0.1 * after + 0.06 * th * Math.sin(t * 15) + 0.12 * burst * Math.exp(-(t - O.sinkFrom) * 6)) * (1 - 0.42 * sink)
@@ -24231,6 +24294,7 @@ const spurG = new Graphics()
   }
   function updateKrakenChunks(dt) {
     kDeathTopG.clear()
+    drawKrakenSurge()
     for (let i = kChunks.length - 1; i >= 0; i--) {
       const c = kChunks[i]
       if (dt > 0) {
@@ -24333,6 +24397,18 @@ const spurG = new Graphics()
     krakenLampG.poly(rim).stroke({ width: 34, color: 0xff5a1e, alpha: (0.16 + 0.3 * kRise.flare) * k * pulse, join: 'round' })
     krakenLampG.poly(rim).stroke({ width: 9, color: 0xffa050, alpha: (0.5 + 0.4 * kRise.flare) * k * pulse, join: 'round' })
     krakenLampG.poly(rim).stroke({ width: 3.5, color: 0xfff0d8, alpha: 0.9 * k, join: 'round' })
+    // THE DOME BURNS TOO: its seams lit from inside and a glow in the middle of the mantle
+    const sc = kRise.sc
+    const [gx, gy] = L(0, -0.62 * R)
+    krakenLampG.circle(gx, gy, 0.55 * R * sc).fill({ color: 0xff5a1e, alpha: 0.18 * k * pulse })
+    krakenLampG.circle(gx, gy, 0.32 * R * sc).fill({ color: 0xffa050, alpha: 0.2 * k * pulse })
+    for (const c of krakenCrackPaths()) {
+      const lp = []
+      for (let i = 0; i < c.pts.length; i += 2) lp.push(...L(c.pts[i], c.pts[i + 1]))
+      const wv = 1 - 0.45 * c.depth
+      krakenLampG.poly(lp, false).stroke({ width: R * 0.07 * wv * sc, color: 0xff5a1e, alpha: 0.35 * k * pulse, cap: 'round', join: 'round' })
+      krakenLampG.poly(lp, false).stroke({ width: R * 0.022 * wv * sc, color: 0xffd08a, alpha: 0.7 * k * pulse, cap: 'round', join: 'round' })
+    }
     const re = R * 0.165 * kRise.sc
     for (const sg of [-1, 1]) {
       const [ex, ey] = L(sg * 0.37 * R, 0.24 * R)
@@ -24382,6 +24458,7 @@ const spurG = new Graphics()
     kDeath.fired = 0
     kDeath.bubbleAcc = 0
     kDeath.limbs.length = 0
+    kKo.items.length = 0
     cer.kind = null  // a card still up at the kill gives way to the death
     cerTone('gold')
     clearDamage()    // the numbers of the blows before it, too
@@ -24483,6 +24560,7 @@ const spurG = new Graphics()
     cerG.clear()
     kClip.on = false
     kClip.body = false
+    kSurge.on = false
     cerDim.width = cerEdge.width = cerFlash.width = w
     cerDim.height = cerEdge.height = cerFlash.height = h
     let dim = 0, edge = 0, bars = 0, flash = 0
@@ -24547,15 +24625,23 @@ const spurG = new Graphics()
           const bw = 1.3 * R0 * Math.abs(rs.x), bh = 2.05 * R0 * Math.abs(rs.y)
           const bx = rr.position.x + Math.sin(rr.rotation) * 0.31 * R0 * rs.y, by = rr.position.y - Math.cos(rr.rotation) * 0.31 * R0 * rs.y
           const base = mapZoom * fightZoom
-          const zc = Math.max(0.5, Math.min(4, Math.min(w * 0.8 / bw, h * 0.5 / bh) / base))
+          // THE FISH IS IN THE SHOT, for scale: the view fits the body and you together, between the
+          // plate and the ability orb (never smaller than 0.62 of the body-only fit; a fish further
+          // off than that is left at the edge)
+          const pl = run.player, pm = 60
+          const x0 = Math.min(bx - bw / 2, pl.x - pm), x1 = Math.max(bx + bw / 2, pl.x + pm)
+          const y0 = Math.min(by - bh / 2, pl.y - pm), y1 = Math.max(by + bh / 2, pl.y + pm)
+          const zB = Math.min(w * 0.8 / bw, h * 0.46 / bh), zU = Math.min(w * 0.88 / (x1 - x0), h * 0.46 / (y1 - y0))
+          const zc = Math.max(0.5, Math.min(4, Math.max(zU, zB * 0.62) / base))
+          const fx = (x0 + x1) / 2, fy = (y0 + y1) / 2
           const outK = t < C.hold ? 1 : 1 - smooth01((t - C.hold) / C.out)
           // a damped spring 0 -> 1 that overshoots ~20% at 0.4s
           const surge = 1 - Math.exp(-4 * t) * (Math.cos(8 * t) + 0.5 * Math.sin(8 * t))
           cerZoom = Math.pow(zc, surge * outK)
           const z = base * zc
           const camK = smooth01(t / 0.3) * outK
-          cerCam.x = (bx - run.player.x - camLead.x) * camK
-          cerCam.y = (by - h * 0.07 / z - run.player.y - camLead.y) * camK
+          cerCam.x = (fx - run.player.x - camLead.x) * camK
+          cerCam.y = (fy - h * 0.06 / z - run.player.y - camLead.y) * camK
           // AND IT THROWS THE SEA OFF ITSELF: rock, silt and water blasted out from round the body as it
           // breaks the surface, a second wave on the surge, and bubbles streaming off it throughout
           const br = Math.max(bw, bh) * 0.5
@@ -24578,13 +24664,17 @@ const spurG = new Graphics()
           if (dt > 0 && t < C.hold) {
             cer.bub = (cer.bub || 0) + 26 * dt
             while (cer.bub >= 1) { cer.bub -= 1; krakenBubbles(1, bx, by, br * 0.9) }
+            cer.surge = (cer.surge || 0) + 60 * dt
+            while (cer.surge >= 1) { cer.surge -= 1; krakenSurgeOne(bx, by, bw * 0.56, bh * 0.56, z, U) }
           }
+          kSurge.on = t < C.hold + C.out; kSurge.t = t; kSurge.k = outK
+          kSurge.bx = bx; kSurge.by = by; kSurge.rx = bw * 0.56; kSurge.ry = bh * 0.56; kSurge.z = z
         }
         // THE LINE IS THE READ: fully up by +0.15s, big, warm white on a black outline, centred on a
         // dark plate with a gold glow round it, and nothing the rise throws is drawn over the plate
         const k = cardEnv(t, 0.15, C.hold, C.out)
-        const y = cerTopY(h, U) + U * 0.07
-        cerText(cerTitle, tr(KRAKEN_BEATS.rise.name), Math.round(U * 0.15), w * 0.84)
+        const y = cerTopY(h, U) + U * 0.005
+        cerText(cerTitle, tr(KRAKEN_BEATS.rise.name), Math.round(U * 0.13), w * 0.8)
         // it slams in a little over size and settles
         cerTitle.scale.set(cerTitle.scale.x * (1 + 0.18 * Math.exp(-t * 9)))
         cerTitle.position.set(w / 2, y)
@@ -24640,6 +24730,86 @@ const spurG = new Graphics()
   //   burst     the cracked mantle breaks apart: a flash, a ring, chunks of it flung off
   //   sink      the arms go slack and fade into the murk, the dead head shrinks and darkens into a hole
   //   banner    only once it is gone: a gold plate across the screen, over the dark it leaves behind
+  // THE KNOCKOUT BURST, in screen space over the kill shot: ink and shards thrown OUT of the body
+  // (each starts on its outline and only travels outward, so none is ever over the face), one bold
+  // shockwave ring outside it, and the arms smeared with the blow. Laid out once on the kill frame
+  // (frozen through the hit-stop), then flown out and faded.
+  const kKo = { items: [], seed: 1 }
+  function krakenKoEllipse() {
+    const P = kPose, R = K_BODY_BAKE_R, ws = world.scale.x
+    const sx = Math.abs(P.sx * P.scale), sy = Math.abs(P.sy * P.scale)
+    const cyB = -0.3 * R * sy
+    const cx = world.position.x + (P.x - Math.sin(P.rot) * cyB) * ws
+    const cy = world.position.y + (P.y + Math.cos(P.rot) * cyB) * ws
+    return { cx, cy, ex: 1.0 * R * sx * ws, ey: 1.2 * R * sy * ws, rot: P.rot }
+  }
+  function krakenKoBurst(t, hs, w, h, U) {
+    if (!kDeath.hasHead) return
+    const E = krakenKoEllipse()
+    const rnd = () => { kKo.seed = (kKo.seed * 16807) % 2147483647; return kKo.seed / 2147483647 }
+    if (!kKo.items.length) {
+      kKo.seed = 7
+      for (let i = 0; i < 12; i++) kKo.items.push({ ink: true, a: (i / 12) * Math.PI * 2 + rnd() * 0.35, d0: 0.25 + rnd() * 0.45, v: 0.9 + rnd() * 1.4, sz: U * (0.03 + rnd() * 0.04), r: rnd() })
+      for (let i = 0; i < 22; i++) kKo.items.push({ ink: false, a: rnd() * Math.PI * 2, d0: 0.2 + rnd() * 0.6, v: 1.2 + rnd() * 2, sz: U * (0.018 + rnd() * 0.035), r: rnd() })
+    }
+    const age = t < hs ? 0 : t - hs
+    const fade = 1 - smooth01((age - 0.25) / 0.5)
+    if (fade <= 0) return
+    const cr = Math.cos(E.rot), sr = Math.sin(E.rot)
+    // a point on the rotated outline at parameter a, pushed out by d (in outline radii)
+    const at = (a, d) => {
+      const lx = Math.cos(a) * E.ex * (1 + d), ly = Math.sin(a) * E.ey * (1 + d)
+      return [E.cx + lx * cr - ly * sr, E.cy + lx * sr + ly * cr]
+    }
+    // THE SHOCKWAVE: one bold bright ring outside the body, racing out once the hit-stop lets go
+    const rs = Math.max(E.ex, E.ey) * 1.15 * (1 + 2.2 * (1 - Math.exp(-age * 4)))
+    const ra = t < hs ? 1 : clamp01(1 - age / 0.45)
+    if (ra > 0) {
+      cerG.circle(E.cx, E.cy, rs).stroke({ width: U * 0.07, color: 0xffb040, alpha: 0.35 * ra })
+      cerG.circle(E.cx, E.cy, rs).stroke({ width: U * 0.028, color: 0xffffff, alpha: 0.95 * ra })
+    }
+    const out = age * 1.6
+    for (const it of kKo.items) {
+      const d = it.d0 + it.v * out
+      const [x, y] = at(it.a, d)
+      const [x0, y0] = at(it.a, Math.max(0.02, d - 0.35 - it.v * age * 0.4))
+      const dx = x - x0, dy = y - y0, dl = Math.hypot(dx, dy) || 1, nx = -dy / dl, ny = dx / dl
+      if (it.ink) {
+        // a splat: a fat head flung outward, a tapering tail back toward the body, and droplets
+        const r = it.sz
+        cerG.poly([x0 + nx * r * 0.25, y0 + ny * r * 0.25, x + nx * r * 0.8, y + ny * r * 0.8, x - nx * r * 0.8, y - ny * r * 0.8, x0 - nx * r * 0.25, y0 - ny * r * 0.25])
+          .fill({ color: 0x140a24, alpha: 0.92 * fade })
+        cerG.circle(x, y, r).fill({ color: 0x140a24, alpha: 0.92 * fade }).stroke({ width: 2.5, color: 0x9a6ae0, alpha: 0.8 * fade })
+        for (let k = 0; k < 3; k++) {
+          const f = 1.3 + k * 0.45 + it.r * 0.3
+          cerG.circle(x0 + dx * f + nx * r * (k - 1) * 0.9, y0 + dy * f + ny * r * (k - 1) * 0.9, r * (0.32 - k * 0.07)).fill({ color: 0x140a24, alpha: 0.9 * fade })
+        }
+        continue
+      }
+      // a shard of mantle, hot on its broken edge, spinning out
+      const r = it.sz, rot = it.r * 6.3 + age * (4 + it.v * 3)
+      const pts = []
+      for (let k = 0; k < 5; k++) {
+        const f = rot + k * 1.2566, rr = r * (0.6 + 0.5 * (((k * 7 + it.r * 10) | 0) % 3) / 2)
+        pts.push(x + Math.cos(f) * rr, y + Math.sin(f) * rr)
+      }
+      cerG.moveTo(x0, y0).lineTo(x, y).stroke({ width: r * 0.5, color: 0xffd9a0, alpha: 0.35 * fade, cap: 'round' })
+      cerG.poly(pts).fill({ color: 0x4a3c7a, alpha: fade }).stroke({ width: 2.5, color: 0xffc070, alpha: fade, join: 'round' })
+    }
+    // THE ARMS SMEARED BY IT: a pale streak down each, doubled across its line of travel
+    if (age < 0.35) {
+      const sk = 1 - age / 0.35, ws = world.scale.x
+      for (const L of kDeath.limbs) {
+        const pts = []
+        for (let k = 0; k < L.rig.pts.length; k++) pts.push(world.position.x + L.rig.pts[k].x * ws, world.position.y + L.rig.pts[k].y * ws)
+        for (const o of [-1, 1]) {
+          const q = pts.map((v, j) => v + (j % 2 ? o * U * 0.022 : o * U * 0.012))
+          cerG.poly(q, false).stroke({ width: U * 0.04, color: 0xd8ccff, alpha: 0.22 * sk, cap: 'round', join: 'round' })
+        }
+      }
+    }
+  }
+
   function updateKrakenDeath(run, dt, w, h, U) {
     const O = KRAKEN_OUTRO
     const t = run.bossOutroT
@@ -24786,9 +24956,10 @@ const spurG = new Graphics()
         const a = (i / 14) * Math.PI * 2 + 0.11
         const r0 = R * 0.95, r1 = Math.hypot(w, h)
         cerG.moveTo(sx + Math.cos(a) * r0, sy + Math.sin(a) * r0).lineTo(sx + Math.cos(a) * r1, sy + Math.sin(a) * r1)
-          .stroke({ width: 3 + (i % 3) * 2, color: 0xeafdff, alpha: 0.5 * burstK })
+          .stroke({ width: 3 + (i % 3) * 2, color: 0xffffff, alpha: 0.75 * burstK })
       }
     }
+    krakenKoBurst(t, hs, w, h, U)
     const bu = t - O.sinkFrom
     const flash = Math.max(t < hs ? 0.22 : 0.22 * clamp01(1 - (t - hs) / 0.25), bu >= 0 ? 0.3 * clamp01(1 - bu / 0.3) : 0)
 
@@ -24837,7 +25008,7 @@ const spurG = new Graphics()
     const bars = smooth01((t - 0.2) / 0.4)
     const edge = 0.35 * smooth01((t - hs) / 0.6)
     dim = Math.max(dim, K_KO_DIM * (t < hs ? 1 : 1 - smooth01((t - hs) / K_KO_HOLD)))
-    return { dim, bars, flash: t < hs ? 0 : flash, edge }
+    return { dim, bars, flash: t < hs ? 0.2 : flash, edge }
   }
 
   // ------------------------------------------------------------------ events
