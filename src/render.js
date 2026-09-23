@@ -12671,7 +12671,7 @@ const spurG = new Graphics()
   // a ceremony beat owns the camera (cerZoom/cerCam non-neutral). Multiplied in, like cerZoom.
   let punchZ = 1
   const punch = { t: 0, amp: 0, x: 0, y: 0 }
-  const K_PUNCH_IN = 0.05, K_PUNCH_OUT = 0.35
+  const K_PUNCH_IN = 0.033, K_PUNCH_OUT = 0.35
   const camZoom = () => mapZoom * fightZoom * cerZoom * punchZ
   const viewW = () => app.screen.width / camZoom()
   const viewH = () => app.screen.height / camZoom()
@@ -20004,7 +20004,7 @@ const spurG = new Graphics()
         const e = age / K_BURST_T
         // fast out, then coasting: most of its travel is in the first frames
         const rr = b.ring * (0.2 + 0.8 * (1 - Math.pow(1 - e, 3)))
-        krakenSlabTopG.circle(b.x, b.y, rr).stroke({ width: 7 * (1 - e) + 1.5, color: 0xd8c7ad, alpha: 0.9 * (1 - e) })
+        krakenSlabTopG.circle(b.x, b.y, rr).stroke({ width: 7 * (1 - e) + 1.5, color: mix(0xfff6e6, 0xd8c7ad, Math.min(1, e * 3)), alpha: 0.9 * (1 - e) })
         krakenSlabTopG.circle(b.x, b.y, rr - 5).stroke({ width: 2, color: 0x0a0604, alpha: 0.6 * (1 - e) })
       }
     }
@@ -20628,17 +20628,30 @@ const spurG = new Graphics()
           for (let q = k0 + 1; q < K_ROPE_N; q++) krakenDangerG.lineTo(rig.pts[q].x, rig.pts[q].y)
           krakenDangerG.stroke({ width: hwS * 3.2, color: K_HAZARD_HOT, alpha: 0.6, cap: 'round', join: 'round' })
         }
+        // DRIVEN IN: for its first frames the flesh at the contact squashes flat and wide against
+        // the floor, pressing a hard black shadow out round it — the limb crushing down on one spot
+        const sq = a.coilArm ? 0 : Math.max(0, 1 - (KRAKEN_SLAM_T - a.slamT) / 0.18)
+        const near = (q) => Math.exp(-(((rig.pts[q].x - cxL) ** 2 + (rig.pts[q].y - cyL) ** 2) / ((hwS * 3.2) ** 2)))
+        const wq = (q) => 1 + 0.6 * sq * near(q)
+        if (sq > 0) {
+          for (let q = k0; q < K_ROPE_N - 1; q++) {
+            const nq = near(q)
+            if (nq < 0.08) continue
+            krakenSlabTopG.moveTo(rig.pts[q].x, rig.pts[q].y).lineTo(rig.pts[q + 1].x, rig.pts[q + 1].y)
+              .stroke({ width: hwS * 2.4 * wq(q) + 26, color: 0x000000, alpha: 0.85 * nq * Math.min(1, sq * 2), cap: 'round' })
+          }
+        }
         // the slab: an OPAQUE mass, hard pale rim, its body lit warm where the blow landed and
         // falling to near-black away from it — segment by segment, so the light has a place
         for (let q = k0; q < K_ROPE_N - 1; q++) {
           const lq = lit(q)
           krakenSlabTopG.moveTo(rig.pts[q].x, rig.pts[q].y).lineTo(rig.pts[q + 1].x, rig.pts[q + 1].y)
-            .stroke({ width: hwS * 2.4 + 5, color: mix(0x9a8aa8, 0xfff2e2, lq), alpha: hold, cap: 'round' })
+            .stroke({ width: hwS * 2.4 * wq(q) + 5, color: mix(0x9a8aa8, 0xfff2e2, lq), alpha: hold, cap: 'round' })
         }
         for (let q = k0; q < K_ROPE_N - 1; q++) {
           const lq = lit(q)
           krakenSlabTopG.moveTo(rig.pts[q].x, rig.pts[q].y).lineTo(rig.pts[q + 1].x, rig.pts[q + 1].y)
-            .stroke({ width: hwS * 2.4, color: mix(0x120a1a, 0x4a2c2a, lq), alpha: hold, cap: 'round' })
+            .stroke({ width: hwS * 2.4 * wq(q), color: mix(0x120a1a, 0x4a2c2a, lq), alpha: hold, cap: 'round' })
         }
         // ...its spine catching the light, so it reads as a rounded body and not a flat strip
         for (let q = k0; q < K_ROPE_N - 1; q++) {
@@ -20794,6 +20807,7 @@ const spurG = new Graphics()
       krakenSlabTopG.poly(poly).stroke({ width: 5, color: 0xd8b888, alpha: 0.9, join: 'miter' })
     }
     drawKrakenChunks(dt)
+    drawKrakenSplashes(dt)
     // THE PLAYER, OUTLINED ON TOP, while anything Kraken is landing near them: a crisp dark-and-
     // light rim at the fish's own size, so no blow, slab or flash can ever make them hard to find
     if (krakenLandings.length || krakenDim > 0) {
@@ -22843,6 +22857,85 @@ const spurG = new Graphics()
   const K_FLASH_T = 0.035
   // Where each slam met the ground, for the length of its hold — what lights the landed slab.
   const krakenLandings = []
+  // THE SPLASH: a slam's point of contact, the brightest and busiest thing on screen for its first
+  // frames — a white-hot core, a crown of sand and foam thrown out round it, and flecks flying clear.
+  const krakenSplashes = []
+  const K_SPLASH_T = 0.24
+  function krakenSplash(x, y, lw, ux, uy) {
+    const spikes = []
+    const n = 14
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2 + (Math.random() - 0.5) * 0.3
+      // thrown out sideways off the limb hardest: the seabed goes up on both sides of the blow
+      const side = Math.abs(Math.cos(a) * -uy + Math.sin(a) * ux)
+      spikes.push({ a, len: 0.45 + 0.8 * side + Math.random() * 0.75 })
+    }
+    const flecks = []
+    for (let i = 0; i < 24; i++) {
+      const a = Math.random() * Math.PI * 2
+      const side = Math.abs(Math.cos(a) * -uy + Math.sin(a) * ux)
+      flecks.push({ a, d: lw * (1.5 + 1.6 * side + Math.random() * 1.2), w: 4 + Math.random() * 5,
+        c: [0xffffff, 0xfff4d8, 0xffd27a][i % 3], drop: i % 4 === 0 })
+    }
+    const pit = []
+    for (let i = 0; i < 14; i++) {
+      const a = (i / 14) * Math.PI * 2 + (Math.random() - 0.5) * 0.3, r = i % 2 ? 0.55 + Math.random() * 0.2 : 0.95 + Math.random() * 0.3
+      pit.push(Math.cos(a) * r, Math.sin(a) * r)
+    }
+    return { x, y, lw, t: K_SPLASH_T, spikes, flecks, pit }
+  }
+  function drawKrakenSplashes(dt) {
+    for (let i = krakenSplashes.length - 1; i >= 0; i--) {
+      const sp = krakenSplashes[i]
+      if (dt > 0) sp.t -= dt
+      if (sp.t <= 0) { krakenSplashes.splice(i, 1); continue }
+      const age = K_SPLASH_T - sp.t, e = age / K_SPLASH_T, lw = sp.lw
+      const out = 1 - Math.pow(1 - e, 3)
+      // the crown: a jagged star of foam and sand, full size within a few frames, then thinning
+      const g = Math.min(1, age / 0.05)
+      const ca = age < 0.1 ? 1 : Math.max(0, 1 - (age - 0.1) / 0.12)
+      if (ca > 0) {
+        const pts = []
+        for (let k = 0; k < sp.spikes.length; k++) {
+          const s0 = sp.spikes[k], s1 = sp.spikes[(k + 1) % sp.spikes.length]
+          const ro = lw * (0.6 + 0.7 * g) * s0.len
+          pts.push(sp.x + Math.cos(s0.a) * ro, sp.y + Math.sin(s0.a) * ro)
+          const am = s0.a + (((s1.a - s0.a) + Math.PI * 4) % (Math.PI * 2)) * 0.5
+          const ri = lw * (0.45 + 0.35 * g)
+          pts.push(sp.x + Math.cos(am) * ri, sp.y + Math.sin(am) * ri)
+        }
+        krakenSlabTopG.poly(pts).fill({ color: 0xfff8ea, alpha: 0.95 * ca })
+        krakenSlabTopG.poly(pts).stroke({ width: 5, color: 0xff9a2e, alpha: ca, join: 'miter' })
+      }
+      // the crater it punches: black and hard-lipped, opening under the spray as it lifts off
+      const pr = lw * (0.25 + 0.5 * Math.min(1, age / 0.06))
+      if (age > 0.012) {
+        const pp = []
+        for (let m = 0; m < sp.pit.length; m += 2) pp.push(sp.x + sp.pit[m] * pr, sp.y + sp.pit[m + 1] * pr)
+        krakenSlabTopG.poly(pp).fill({ color: 0x050302, alpha: 1 })
+        krakenSlabTopG.poly(pp).stroke({ width: 5, color: 0xffd9a0, alpha: 1, join: 'miter' })
+      }
+      // the white-hot core, biggest on the first frames
+      const cr = lw * 0.42 * (age < 0.04 ? 1 : Math.max(0, 1 - (age - 0.04) / 0.06))
+      if (cr > 1) {
+        krakenSlabTopG.circle(sp.x, sp.y, cr + 6).fill({ color: 0xffc23a, alpha: 1 })
+        krakenSlabTopG.circle(sp.x, sp.y, cr).fill({ color: 0xffffff, alpha: 1 })
+      }
+      // flecks flying clear, each a streak laid along its own flight, a few of them round drops
+      const fa = e < 0.7 ? 1 : (1 - e) / 0.3
+      for (const f of sp.flecks) {
+        const d = lw * 0.4 + (f.d - lw * 0.4) * out
+        const x = sp.x + Math.cos(f.a) * d, y = sp.y + Math.sin(f.a) * d
+        if (f.drop) {
+          krakenSlabTopG.circle(x, y, f.w * 0.9).fill({ color: f.c, alpha: fa })
+          continue
+        }
+        const tl = (16 + 40 * (1 - e)) * (0.6 + f.w / 12)
+        krakenSlabTopG.moveTo(x - Math.cos(f.a) * tl, y - Math.sin(f.a) * tl).lineTo(x, y)
+          .stroke({ width: f.w, color: f.c, alpha: fa, cap: 'round' })
+      }
+    }
+  }
   // A Coil lane's detonation: the struck lane filled and blown outward with a hard leading edge.
   const krakenBlasts = []
   const K_BLAST_T = 0.035
@@ -24741,6 +24834,10 @@ const spurG = new Graphics()
             krakenBursts.push({ x: cx, y: cy, r: Math.min(lw * (e.coil ? 0.5 : 0.7), Math.max(10, Math.hypot(cx - run.player.x, cy - run.player.y) - 40)), t: K_BURST_T, ring: e.coil ? 0 : lw * 6.5 })
             if (krakenBursts.length > 8) krakenBursts.shift()
             krakenLandings.push({ x: cx, y: cy, t: KRAKEN_SLAM_T })
+            if (!e.coil) {
+              krakenSplashes.push(krakenSplash(cx, cy, lw, ux, uy))
+              if (krakenSplashes.length > 4) krakenSplashes.shift()
+            }
             const hd = krakenHead
             const onBody = !!hd && (cx - hd.x) ** 2 + (cy - hd.y) ** 2 < (KRAKEN_HEAD_R * 1.4) ** 2
             const pd = Math.hypot(cx - run.player.x, cy - run.player.y)
@@ -24916,6 +25013,7 @@ const spurG = new Graphics()
     krakenTips.length = 0
     krakenScars.length = 0
     krakenBursts.length = 0
+    krakenSplashes.length = 0
     krakenLandings.length = 0
     krakenBlasts.length = 0
     krakenChunks.length = 0
@@ -26498,9 +26596,9 @@ const spurG = new Graphics()
     punchZ = 1 + punch.amp * pe
     const z = camZoom()
     // zooming TOWARD the contact: hold that world point still on screen as the view closes in
-    // ...and PAN a third of the way to it: the ring camera leans toward the body, which can leave a
+    // ...and PAN half the way to it: the ring camera leans toward the body, which can leave a
     // blow landing beside you on the screen's edge; for the punch's length the blow is the shot
-    const pzk = pe > 0 ? (1 - 1 / punchZ) + 0.35 * pe : 0
+    const pzk = pe > 0 ? (1 - 1 / punchZ) + 0.5 * pe : 0
     const camX = (laneAheadX ? camFwd : run.player.x) + camLead.x + cerCam.x + (punch.x - run.player.x - camLead.x) * pzk
     const camY = (laneAheadY ? camFwd : run.player.y) + camLead.y + cerCam.y + (punch.y - run.player.y - camLead.y) * pzk
     if (dt > 0) { const kd = Math.exp(-dt * 14); kick.x *= kd; kick.y *= kd }
