@@ -20551,14 +20551,16 @@ const spurG = new Graphics()
     const wake = Math.min(1, Math.max(0, (grow - 0.25) / 0.6))
     const open = (0.74 - 0.5 * lift) * (1 - 0.92 * kc.flinch) * (1 - 0.95 * bl) * wake + 0.3 * kc.wide
     const re = R * 0.115
+    // through the rise the head's own eyes take over, so these go first rather than cross-fading
+    const ea = s.phase === 'chase' ? ga * Math.max(0, (rise - 0.5) / 0.5) : ga
     for (const sg of [-1, 1]) {
       const [ex, ey] = W(R * 0.06, sg * R * 0.36)
       // where you are, in the eye's own axes (u = the body's forward, v = its left)
       const px = p.x - ex, py = p.y - ey, pl = Math.hypot(px, py) || 1
       const lx = (px * c + py * sn) / pl, ly = (-px * sn + py * c) / pl
-      krakenEye(krakenEyeG, ex, ey, re, c, sn, { open, lx, ly, round: kc.wide, alpha: ga, white: 0,
+      krakenEye(krakenEyeG, ex, ey, re, c, sn, { open, lx, ly, round: kc.wide, alpha: ea, white: 0,
         glow: 0, globe: 0x0a1622, iris: 0x7fd8e8, irisA: 0.34 + 0.3 * kc.wide, lid: 0x02040a,
-        lamp: krakenLampG, lampA: (0.10 + 0.2 * kc.wide) * ga })
+        lamp: krakenLampG, lampA: (0.10 + 0.2 * kc.wide) * ea })
     }
   }
 
