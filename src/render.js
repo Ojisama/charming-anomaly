@@ -11117,7 +11117,10 @@ export function createRenderer(app) {
   const krakenSlabTopLayer = new Container()
   const krakenSlabTopG = new Graphics()
   const krakenSlabHole = new Graphics()
-  krakenSlabTopLayer.addChild(krakenSlabTopG, krakenSlabHole)
+  // a slam's floor (lit seabed, crater, cracks, shockwave): beneath everything else in the layer, and
+  // drawn AFTER the arms, once the fist it is centred on has been placed this frame
+  const krakenSplashUnderG = new Graphics()
+  krakenSlabTopLayer.addChild(krakenSplashUnderG, krakenSlabTopG, krakenSlabHole)
   krakenSlabTopLayer.setMask({ mask: krakenSlabHole, inverse: true })
   // A SLAM'S BLAST, UNDER THE LIMB. Additive like the danger layer, but in the world below the
   // arm layer: the glow is the seabed lighting up round the blow, and the limb that struck stays a
@@ -20312,8 +20315,10 @@ const spurG = new Graphics()
   // The arms themselves: a spline per arm, from the shoulder out in the murk to the tip reaching in
   // over the arena, undulating on its own phase so the ring never moves as one piece.
   function syncKrakenArms(run, dt) {
+    krakenFistPt = null
     krakenSlabG.clear()
     krakenSlabTopG.clear()
+    krakenSplashUnderG.clear()
     krakenWoundG.clear()
     krakenGripG.clear()
     krakenGripFrontG.clear()
@@ -20321,7 +20326,6 @@ const spurG = new Graphics()
     drawKrakenGround(dt, run.player)
     drawKrakenBursts(dt)
     drawKrakenPrints(dt)
-    drawKrakenSplashes(dt, run.player, 'under')
     krakenHold = 0
     const head = krakenHead
     const arms = head ? run.krakenArms.filter((a) => !a.dead || a.breakT > 0) : []
@@ -20703,7 +20707,7 @@ const spurG = new Graphics()
         const lit = (q) => Math.exp(-(((rig.pts[q].x - cxL) ** 2 + (rig.pts[q].y - cyL) ** 2) / ((hwS * 7) ** 2)))
         // underglow: the seabed under the blow lit hot, brightest at the contact
         // the blow's light is a frame or two, then the glow is CUT — what stays is the slab
-        if (a.slamT > KRAKEN_SLAM_T - K_FLASH_T) {
+        if (a.coilArm && a.slamT > KRAKEN_SLAM_T - K_FLASH_T) {
           krakenDangerG.moveTo(rig.pts[k0].x, rig.pts[k0].y)
           for (let q = k0 + 1; q < K_ROPE_N; q++) krakenDangerG.lineTo(rig.pts[q].x, rig.pts[q].y)
           krakenDangerG.stroke({ width: hwS * 3.2, color: K_HAZARD_HOT, alpha: 0.6, cap: 'round', join: 'round' })
@@ -20723,6 +20727,7 @@ const spurG = new Graphics()
             const d = (rig.pts[q].x - cxL) ** 2 + (rig.pts[q].y - cyL) ** 2
             if (d < bC) { bC = d; kC = q }
           }
+
           const hc = krakenHead
           // the landing is recorded by the event pass, which runs after this on the strike's first
           // frame: until then the fist lands where the lane's contact will be — nearest the player,
@@ -20737,6 +20742,7 @@ const spurG = new Graphics()
             }
           }
           const tC = kC / (K_ROPE_N - 1)
+          if (age < 0.05) krakenFistPt = { x: rig.pts[kC].x, y: rig.pts[kC].y }
           const HWR = KRAKEN_ARM_R * 1.45 * 0.5
           const profC = K_LIMB_PROF(0.35)
           const hwAt = (t) => {
@@ -20966,6 +20972,18 @@ const spurG = new Graphics()
       krakenSlabTopG.poly(poly).stroke({ width: 5, color: 0xd8b888, alpha: 0.9, join: 'miter' })
     }
     drawKrakenChunks(dt)
+    // THE SPLASH SITS ON THE FIST: a fresh plain-slam splash is moved onto the flattened fist's tip,
+    // and a punch-in aimed at it follows, so flash, crater, cracks and floor share one centre
+    if (krakenFistPt) {
+      for (const sp of krakenSplashes) {
+        if (sp.snapped || K_SPLASH_LIFE - sp.t > 0.1) continue
+        const dx = krakenFistPt.x - sp.x, dy = krakenFistPt.y - sp.y
+        if (dx * dx + dy * dy > (sp.lw * 3) ** 2) continue
+        sp.x += dx; sp.y += dy; sp.snapped = true
+        if (punch.t > 0 && punch.pan >= 1) { punch.x += dx; punch.y += dy }
+      }
+    }
+    drawKrakenSplashes(dt, run.player, 'under')
     drawKrakenSplashes(0, run.player, 'over')
     for (const f of krakenFists) f()
     krakenFists.length = 0
@@ -22104,11 +22122,11 @@ const spurG = new Graphics()
         // one veil with a hole, and a ramp of rings inside the hole's rim: the lit disc fades out
         // rather than ending on an edge
         const ro = hd.r * 1.5, n = 6, bw = (ro - hd.r) / n
-        krakenHitDimG.rect(run.player.x - vw, run.player.y - vh, vw * 2, vh * 2).fill({ color: 0x000000, alpha: 0.55 * k })
+        krakenHitDimG.rect(run.player.x - vw, run.player.y - vh, vw * 2, vh * 2).fill({ color: 0x000000, alpha: 0.7 * k })
         krakenHitDimHole.circle(hd.x, hd.y, ro).fill({ color: 0xffffff })
         krakenHitDimHole.circle(run.player.x, run.player.y, 36).fill({ color: 0xffffff })
         for (let m = 0; m < n; m++) {
-          krakenHitDimRampG.circle(hd.x, hd.y, hd.r + bw * (m + 0.5)).stroke({ width: bw, color: 0x000000, alpha: 0.55 * k * (m + 0.5) / n })
+          krakenHitDimRampG.circle(hd.x, hd.y, hd.r + bw * (m + 0.5)).stroke({ width: bw, color: 0x000000, alpha: 0.7 * k * (m + 0.5) / n })
         }
       }
     }
@@ -23257,6 +23275,11 @@ const spurG = new Graphics()
   // THE SPLASH: a slam's point of contact, the only bright thing on screen for its first frames —
   // one filled impact flash under the fist, one shockwave ring, a handful of rocks, the crater left.
   const krakenSplashes = []
+  // where this frame's flattened fist lies (set by syncKrakenArms, which runs AFTER the event pass):
+  // a plain slam's splash is moved onto it there, so flash, crater, cracks and floor share the fist's point
+  let krakenFistPt = null
+  // the head's FACE (eyes, brows, jaw) reaches past its body: no floor patch or flash is drawn inside it
+  const K_SPLASH_FACE = KRAKEN_HEAD_R * 1.5
   const K_SPLASH_T = 0.24
   // the head's DRAWN body radius, a little over its hit radius: no splash matter is drawn inside it
   const K_HEAD_CLEAR = KRAKEN_HEAD_R * 1.45
@@ -23274,12 +23297,11 @@ const spurG = new Graphics()
   function krakenSplash(x, y, lw, ux, uy, dx, dy) {
     const sa = Math.atan2(dy, dx)
     const skew = (a) => Math.max(0, Math.cos(a - sa))
-    const side = (a) => Math.abs(Math.cos(a) * -uy + Math.sin(a) * ux)
     const spikes = []
     const n = 13
     for (let i = 0; i < n; i++) {
       const a = (i / n) * Math.PI * 2 + (Math.random() - 0.5) * 0.45
-      spikes.push({ a, len: 0.35 + 1.15 * skew(a) + 0.35 * side(a) + Math.random() * 0.6, ri: 0.3 + Math.random() * 0.25 })
+      spikes.push({ a, len: 0.75 + Math.random() * 0.35, ri: 0.3 + Math.random() * 0.25 })
     }
     const pit = []
     for (let i = 0; i < 14; i++) {
@@ -23308,10 +23330,10 @@ const spurG = new Graphics()
     // either side of the throw, a few straight down it. Each flies on an arc (bigger as it rises
     // toward the camera, its shadow falling away from it), lands and is gone inside K_EJECTA_T.
     const ejecta = []
-    for (let i = 0; i < 8; i++) {
-      // fanned out round the far side of the blow, away from the head, skidding along the floor
-      const a = sa + (i / 7 - 0.5) * 4.2 + (Math.random() - 0.5) * 0.3
-      ejecta.push({ a, d0: lw * 1.35, d1: lw * (2.8 + Math.random() * 1.2),
+    for (let i = 0; i < 10; i++) {
+      // out from the fist's tip in every direction, skidding along the floor
+      const a = (i / 10) * Math.PI * 2 + (Math.random() - 0.5) * 0.4
+      ejecta.push({ a, d0: lw * 1.0, d1: lw * (2.8 + Math.random() * 1.2),
         life: K_EJECTA_T * (0.8 + Math.random() * 0.2), h: 0.12 + Math.random() * 0.12,
         r: 13 + Math.random() * 7, rot: Math.random() * 6.28, vr: (Math.random() - 0.5) * 12,
         shape: krakenChunkShape() })
@@ -23322,14 +23344,22 @@ const spurG = new Graphics()
     // the crack ring: a jagged broken circle just outside the crater
     const ring = []
     for (let i = 0; i < 22; i++) ring.push(1.22 + (Math.random() - 0.5) * 0.16)
-    return { x, y, lw, t: K_SPLASH_LIFE, sa, spikes, pit, cracks, ejecta, dust, ring }
+    // the floor patch's ragged edge: a few low harmonics, so it fades out unevenly, never a disc
+    const edge = []
+    const ph = [Math.random() * 6.28, Math.random() * 6.28, Math.random() * 6.28]
+    for (let m = 0; m < 48; m++) {
+      const t = (m / 48) * Math.PI * 2
+      edge.push(1 + 0.12 * Math.sin(3 * t + ph[0]) + 0.08 * Math.sin(5 * t + ph[1]) + 0.06 * Math.sin(8 * t + ph[2]))
+    }
+    return { x, y, lw, t: K_SPLASH_LIFE, sa, spikes, pit, cracks, ejecta, dust, ring, edge }
   }
   // Three passes: 'under' is the ground (fissures, crater, shockwave) beneath the landed limb;
   // 'over' is the impact flash, under the pancaked fist; 'top' is the rock thrown, over the fist.
   function drawKrakenSplashes(dt, pl0, pass) {
-    const G = krakenSlabTopG
+    const G = pass === 'under' ? krakenSplashUnderG : krakenSlabTopG
     const hd = krakenHead
     const offHead = (x, y, r) => !hd || (x - hd.x) ** 2 + (y - hd.y) ** 2 > (K_HEAD_CLEAR + r) ** 2
+    const offFace = (x, y) => !hd || (x - hd.x) ** 2 + (y - hd.y) ** 2 > K_SPLASH_FACE ** 2
     const clear = (x, y, r) => (!pl0 || (x - pl0.x) ** 2 + (y - pl0.y) ** 2 > (34 + r) ** 2) && offHead(x, y, r)
     for (let i = krakenSplashes.length - 1; i >= 0; i--) {
       const sp = krakenSplashes[i]
@@ -23343,11 +23373,11 @@ const spurG = new Graphics()
         // crater. Paints over any other limb crossing the spot, so only the fist is there.
         const lit = age < 0.09 ? 1 : Math.max(0, 1 - (age - 0.09) / 0.4)
         if (lit > 0) {
-          const R = lw * 2.7, NA = 48, rad = []
+          const R = lw * 3.0, NA = 48, rad = []
           for (let m = 0; m < NA; m++) {
             const t = (m / NA) * Math.PI * 2
-            let r = R
-            while (r > lw * 0.9 && !offHead(sp.x + Math.cos(t) * r, sp.y + Math.sin(t) * r, 0)) r -= 6
+            let r = R * sp.edge[m]
+            while (r > lw * 0.5 && !offFace(sp.x + Math.cos(t) * r, sp.y + Math.sin(t) * r)) r -= 6
             rad.push(r)
           }
           const disc = (k) => {
@@ -23358,15 +23388,18 @@ const spurG = new Graphics()
             }
             return pp
           }
-          const bands = [[1, 0x3a2a1c, 0.9], [0.86, 0x5c4430, 0.95], [0.72, 0x806042, 1], [0.58, 0xa8814f, 1], [0.45, 0xcaa06a, 1]]
+          // no rim: the outer bands are faint and dark, so the patch fades into the floor; the sand
+          // is brightest in a ring round the bowl, and the bowl under the fist is the darkest spot
+          const bands = [[1, 0x2a2016, 0.2], [0.9, 0x44341f, 0.35], [0.8, 0x6a5034, 0.55], [0.7, 0x957249, 0.8],
+            [0.6, 0xb89160, 0.95], [0.48, 0xcaa36e, 1], [0.34, 0x7a5c3e, 1], [0.26, 0x2a1d12, 1]]
           for (const [k, c, a2] of bands) G.poly(disc(k)).fill({ color: c, alpha: a2 * lit })
           for (const d of sp.dust) {
             const tip = lw * d.len, r0 = lw * 0.85
             const tx = sp.x + Math.cos(d.a) * tip, ty = sp.y + Math.sin(d.a) * tip
-            if (!offHead(tx, ty, 0)) continue
+            if (!offFace(tx, ty)) continue
             const w0 = lw * d.w, nx = -Math.sin(d.a), ny = Math.cos(d.a)
             const bx = sp.x + Math.cos(d.a) * r0, by = sp.y + Math.sin(d.a) * r0
-            G.poly([bx + nx * w0, by + ny * w0, tx, ty, bx - nx * w0, by - ny * w0]).fill({ color: 0x1a120a, alpha: 0.45 * lit })
+            G.poly([bx + nx * w0, by + ny * w0, tx, ty, bx - nx * w0, by - ny * w0]).fill({ color: 0x1a120a, alpha: 0.25 * lit })
           }
         }
         {
@@ -23414,16 +23447,16 @@ const spurG = new Graphics()
           const pp = []
           for (let m = 0; m < sp.pit.length; m += 2) pp.push(sp.x + sp.pit[m] * pr, sp.y + sp.pit[m + 1] * pr)
           G.poly(pp).fill({ color: 0x050302, alpha: al })
-          G.poly(pp).stroke({ width: 5, color: 0xffd9a0, alpha: al, join: 'miter' })
+          G.poly(pp).stroke({ width: 4, color: 0x8a6a48, alpha: al, join: 'miter' })
         }
         if (age < K_SHOCK_T) {
           // THE SHOCKWAVE: one hard ring racing out across the seabed from the contact, a thick
           // bright edge on a black lip, gone in K_SHOCK_T. Never drawn over the head.
           const u = age / K_SHOCK_T
-          const rr = lw * (2.0 + 1.8 * (1 - Math.pow(1 - u, 3)))
-          const w = 16 * (1 - u) + 4
-          const fa = 1 - u * u
-          for (const [r2, w2, c2, a2] of [[rr, w, 0xffe6bf, fa]]) {
+          const rr = lw * (2.9 + 1.4 * (1 - Math.pow(1 - u, 3)))
+          const w = 6 * (1 - u) + 2
+          const fa = 0.7 * (1 - u * u)
+          for (const [r2, w2, c2, a2] of [[rr, w, 0xd8c09a, fa]]) {
             let pen = false
             for (let k = 0; k <= 56; k++) {
               const t = (k / 56) * Math.PI * 2
@@ -23446,10 +23479,12 @@ const spurG = new Graphics()
             const pts = []
             for (let m = 0; m < sp.spikes.length; m++) {
               const s0 = sp.spikes[m], s1 = sp.spikes[(m + 1) % sp.spikes.length]
-              const ro = lw * (1.35 + 0.5 * Math.min(1.4, s0.len)) * g * sc
+              let ro = lw * 1.7 * s0.len * g * sc
+              while (ro > lw * 0.4 && !offHead(sp.x + Math.cos(s0.a) * ro, sp.y + Math.sin(s0.a) * ro, 0)) ro -= 5
               pts.push(sp.x + Math.cos(s0.a) * ro, sp.y + Math.sin(s0.a) * ro)
               const am = s0.a + (((s1.a - s0.a) + Math.PI * 4) % (Math.PI * 2)) * 0.5
-              const ri = lw * (1.0 + s0.ri * 0.35) * g * sc
+              let ri = lw * (1.0 + s0.ri * 0.35) * g * sc
+              while (ri > lw * 0.4 && !offHead(sp.x + Math.cos(am) * ri, sp.y + Math.sin(am) * ri, 0)) ri -= 5
               pts.push(sp.x + Math.cos(am) * ri, sp.y + Math.sin(am) * ri)
             }
             return pts
@@ -23459,6 +23494,14 @@ const spurG = new Graphics()
           G.poly(outer).stroke({ width: 6, color: 0x120602, alpha: k, join: 'miter' })
           G.poly(star(0.74 * (0.35 + 0.65 * k))).fill({ color: 0xffc94a, alpha: 1 })
           if (k > 0.2) G.poly(star(0.55 * k)).fill({ color: 0xfff8e8, alpha: 1 })
+        }
+        {
+          // THE CONTACT SHADOW: the bowl the fist is driven into, dark and flat, right under it —
+          // the darkest thing in the patch, with the flash ringing it
+          const pr = lw * 0.62
+          const pp = []
+          for (let m = 0; m < sp.pit.length; m += 2) pp.push(sp.x + sp.pit[m] * pr, sp.y + sp.pit[m + 1] * pr)
+          G.poly(pp).fill({ color: 0x050302, alpha: 0.92 * al })
         }
         // the rock it threw, skidding out along the floor — under the fist, never in front of it
         for (const q of sp.ejecta) {
@@ -24248,6 +24291,7 @@ const spurG = new Graphics()
     for (const p of particles) if (p.live) { p.live = false; if (p.s) p.s.visible = false }
     krakenSplashes.length = 0
     krakenSlabTopG.clear()
+    krakenSplashUnderG.clear()
     // FROM THE LAST LIVE FRAME, not this one: the head is flagged dead a step before the script
     // calls the win, so on the frame bossDead arrives the ring has already hidden every rope and the
     // head sprite is gone. kLast is what the screen last showed of it.
@@ -26061,7 +26105,7 @@ const spurG = new Graphics()
               // THE SHOT IS THE CONTACT: the punch centres on the splash, a little past it away from the
               // head, and pans all the way there — the ground round the fist is the frame, the head its edge
               const spl = krakenSplashes[krakenSplashes.length - 1]
-              if (spl && spl.t > K_SPLASH_LIFE - 0.001) addPunch(0.09 * nk.k, spl.x + Math.cos(spl.sa) * spl.lw * 0.25, spl.y + Math.sin(spl.sa) * spl.lw * 0.25, 1)
+              if (spl && spl.t > K_SPLASH_LIFE - 0.001) addPunch(0.2 * nk.k, spl.x + Math.cos(spl.sa) * spl.lw * 1.0, spl.y + Math.sin(spl.sa) * spl.lw * 1.0, 1)
               else addPunch(0.09 * nk.k, nk.qx, nk.qy)
               addKick(run.player.x - nk.qx, run.player.y - nk.qy, 0.008 * nk.k)
               if (nk.k >= 1) {
@@ -26212,6 +26256,7 @@ const spurG = new Graphics()
     krakenDimG.clear()
     krakenSlabG.clear()
     krakenSlabTopG.clear()
+    krakenSplashUnderG.clear()
     krakenSlabHole.clear()
     krakenStars.length = 0
     // v6.6.22: the lawn grows back between runs. mownByLane is a WeakMap keyed on lane objects the
@@ -27784,14 +27829,14 @@ const spurG = new Graphics()
     let pe = 0
     if (punch.t > 0) {
       const age = K_PUNCH_IN + K_PUNCH_OUT - punch.t
-      pe = age < K_PUNCH_IN ? age / K_PUNCH_IN : 1 - smooth01((age - K_PUNCH_IN) / K_PUNCH_OUT)
+      pe = age < K_PUNCH_IN ? (punch.pan >= 1 ? 1 : age / K_PUNCH_IN) : 1 - smooth01((age - K_PUNCH_IN) / K_PUNCH_OUT)
     }
     punchZ = 1 + punch.amp * pe
     const z = camZoom()
     // zooming TOWARD the contact: hold that world point still on screen as the view closes in
     // ...and PAN half the way to it: the ring camera leans toward the body, which can leave a
     // blow landing beside you on the screen's edge; for the punch's length the blow is the shot
-    const pzk = pe > 0 ? Math.min(1, (1 - 1 / punchZ) + punch.pan * pe) : 0
+    const pzk = pe > 0 ? (punch.pan >= 1 ? Math.min(1, 3 * pe) : Math.min(1, (1 - 1 / punchZ) + punch.pan * pe)) : 0
     const camX = (laneAheadX ? camFwd : run.player.x) + camLead.x + cerCam.x + (punch.x - run.player.x - camLead.x) * pzk
     const camY = (laneAheadY ? camFwd : run.player.y) + camLead.y + cerCam.y + (punch.y - run.player.y - camLead.y) * pzk
     if (dt > 0) { const kd = Math.exp(-dt * 14); kick.x *= kd; kick.y *= kd }
