@@ -2326,6 +2326,12 @@ function generateWells(sig) {
   *       this — krakenReach is sim-side — and drawing the membrane at the bare constant put the lit
   *       skin 414px behind a player leaning on the real wall, which is an invisible wall with a
   *       decoration somewhere else.
+  *     gripSoonI / gripSoonT — the Grip's FORECAST, for render's pre-grab tell only. gripSoonI is
+  *       the index (a.i) of the arm the ring would hand a grab to if the turn came now, or -1.
+  *       gripSoonT >= 0: the coming turn IS the grab, in that many seconds. gripSoonT = -1 with an
+  *       arm named: the grab is LOADED — the next slam that lands makes the turn after it a grab.
+  *       Rewritten every frame by krakenGripForecast from the same helpers the turn uses. No rule
+  *       reads it.
   *     coilT / coilGap — P3, D3 only. coilT counts the wind-up and then the closure; coilGap is the
   *       world angle of the ONE sector the ring does not sweep. Deliberately not parryable: a verb
   *       that answers every pattern stops being a decision.
@@ -2839,6 +2845,7 @@ export function createRun(meta, opts = {}) {
           headHp: 0, armsTotal: 0, bankedLevels: 0, gripN: 0, trickleT: 0, charged: false, opened: false,
           riseT: 0, coilT: 0, coilGap: 0, cageT: 0, turnT: 0, stagger: 0, staggerT: 0, staggerDecay: 0,
           openW: 0, arriveT: 0, arriveMax: 0, deflT: 0, cageR: 0,
+          gripSoonI: -1, gripSoonT: -1,
           enraged: false }
       : null,
     // The tentacle ring — see the doc block above for why an arm is NOT an enemy. Empty and inert

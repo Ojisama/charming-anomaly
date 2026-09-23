@@ -689,9 +689,10 @@ const SFX_FOR_EVENT = {
   sunspear: 'shoot', sunlance: 'beam',
   // The Kraken (the Undertow's hidden parry boss). parry/parryPerfect are the dash button landing
   // on an arm's pending slam — puffblock is the "block" voice, crush the heavier perfect one. blaze
-  // is the bar topping and the arm breaking outright. headLunge is the bare head's wind-up in the
-  // chase — orcaAim, the one note in the bank that is a countdown rather than a report.
-  parry: 'puffblock', parryPerfect: 'crush', blaze: 'explode', headLunge: 'orcaAim',
+  // is the bar topping and the arm breaking outright. headWindup is the bare head drawing back
+  // before a lunge — orcaAim, the one note in the bank that is a countdown rather than a report, and
+  // it fires KRAKEN_LUNGE_WINDUP_T ahead so it LEADS the parry window. headLunge is the launch.
+  parry: 'puffblock', parryPerfect: 'crush', blaze: 'explode', headWindup: 'orcaAim', headLunge: 'lunge',
   // parryWhiff is a press that found nothing. `click` and not a miss-swoosh on purpose: it is the
   // bank's one DRY, dead note, and a whiff is exactly "the button did nothing" — the same sound a
   // dead button makes. It fires often enough (about a quarter of presses) that anything with a
@@ -721,10 +722,13 @@ const SFX_FOR_EVENT = {
   // the fight the player's own stick produces, and it is the confirmation that the wiggle worked.
   // 'surge' rather than a snap: what you feel is the lurch as the drag comes off.
   tentacleBreak: 'bossFall', headHide: 'hole', gripLatch: 'zap', gripBreak: 'surge', lash: 'whip',
+  // gripWarn is the grip's forecast STARTING — the tell before a grab, which had none at all. Its
+  // own voice: a rising draw of water, which is what the reaching limb is doing to the sea.
+  gripWarn: 'suck',
   // headRise is the fight's one reveal (once a run); coilWind/coilClose are D3's unparryable
   // ring, rare enough to bear a voice and important enough to need one — it is the only pattern
   // with no button answer, so it must be audible before it is visible.
-  headRise: 'bossRise', coilWind: 'siren', coilClose: 'crush',
+  headRise: 'bossRise', coilWind: 'siren', coilClose: 'quake',
   // krakenArrive is the arena being built — twice a fight at most, so it comfortably clears the
   // rarity bar. krakenDeflect is a hit the SEALED head refused: it is throttled in sim on
   // KRAKEN_DEFLECT_CD precisely so it can carry a voice, and the voice is the answer to the

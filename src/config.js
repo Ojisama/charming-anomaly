@@ -8919,6 +8919,11 @@ export const KRAKEN_ADD_CAP = 16 // most graveyard dead on the field at once, wa
 // harmless and motionless while it ascends — the drama is the drama, not a free hit.
 export const KRAKEN_RISE_T = 2.6 // s the head takes to come up out of the abyss
 export const KRAKEN_LUNGE_T = 3.2 // s between chase lunges (final block)
+// THE LUNGE'S WIND-UP — PRESENTATION ONLY. How long before the strike the head draws back and the
+// countdown note sounds (sim's headWindup event). It moves no rule: the lunge still fires at
+// lungeT = 0 and the parry window is still rung.lungeWindow. It has to exceed every rung's
+// lungeWindow, so the cue always LEADS the window instead of landing inside or after it.
+export const KRAKEN_LUNGE_WINDUP_T = 0.9
 // A MISS HAS TO BE A MISTAKE, NOT A DEATH. The player reaches the chase on ~100 max HP; at 26 a
 // lunge took a quarter of it every KRAKEN_LUNGE_T, so four connected lunges killed — while a stagger
 // needs staggerNeed of them PARRIED in a row. The arithmetic left no room to learn the timing at
