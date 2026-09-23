@@ -20307,6 +20307,7 @@ const spurG = new Graphics()
     drawKrakenGround(dt, run.player)
     drawKrakenBursts(dt)
     drawKrakenPrints(dt)
+    drawKrakenDust(dt)
     drawKrakenSplashes(dt, run.player, 'under')
     krakenHold = 0
     const head = krakenHead
@@ -20694,37 +20695,114 @@ const spurG = new Graphics()
           for (let q = k0 + 1; q < K_ROPE_N; q++) krakenDangerG.lineTo(rig.pts[q].x, rig.pts[q].y)
           krakenDangerG.stroke({ width: hwS * 3.2, color: K_HAZARD_HOT, alpha: 0.6, cap: 'round', join: 'round' })
         }
-        // DRIVEN IN: for its first frames the flesh at the contact squashes flat and wide against
-        // the floor, pressing a hard black shadow out round it — the limb crushing down on one spot
-        const sq = a.coilArm ? 0 : Math.max(0, 1 - (KRAKEN_SLAM_T - a.slamT) / 0.18)
-        const near = (q) => Math.exp(-(((rig.pts[q].x - cxL) ** 2 + (rig.pts[q].y - cyL) ** 2) / ((hwS * 3.2) ** 2)))
-        const wq = (q) => 1 + 0.6 * sq * near(q)
-        // PRESSED IN ALONG ITS WHOLE LENGTH: a hard black contact shadow down both sides of the landed
-        // limb, where it lies in the lit print, widest where it struck hardest
         if (!a.coilArm) {
-          for (let q = k0; q < K_ROPE_N - 1; q++) {
-            krakenSlabTopG.moveTo(rig.pts[q].x, rig.pts[q].y).lineTo(rig.pts[q + 1].x, rig.pts[q + 1].y)
-              .stroke({ width: hwS * 2.4 * wq(q) + 9 + 12 * sq * near(q), color: 0x000000, alpha: 0.92 * hold, cap: 'round' })
+          // THE LANDED LIMB IS THE TENTACLE, AND IT PANCAKES. Drawn by limbRibbon — the grip's own
+          // painter of the baked strip, taper, lit roll and sucker rows — so what lies in the lane
+          // is the same animal that reared, not a uniform-width slab. Round the contact the flesh
+          // squashes flat and splays to ~2x on a damped spring (back to normal by ~0.25s, with one
+          // thin rebound), like a fist driven into the floor. It never splays inside the head's body.
+          const age = KRAKEN_SLAM_T - a.slamT
+          const sp = age - K_SQUASH_HOLD
+          const pan = age < K_SQUASH_IN ? age / K_SQUASH_IN
+            : sp < 0 ? 1 : Math.exp(-sp * 16) * Math.cos(sp * Math.PI / 0.09)
+          let kC = K_ROPE_N - 1, bC = Infinity
+          for (let q = 0; q < K_ROPE_N; q++) {
+            const d = (rig.pts[q].x - cxL) ** 2 + (rig.pts[q].y - cyL) ** 2
+            if (d < bC) { bC = d; kC = q }
           }
-        }
-        // the slab: an OPAQUE mass, hard pale rim, its body lit warm where the blow landed and
-        // falling to near-black away from it — segment by segment, so the light has a place
-        for (let q = k0; q < K_ROPE_N - 1; q++) {
-          const lq = lit(q)
-          krakenSlabTopG.moveTo(rig.pts[q].x, rig.pts[q].y).lineTo(rig.pts[q + 1].x, rig.pts[q + 1].y)
-            .stroke({ width: hwS * 2.4 * wq(q) + 5, color: mix(0x9a8aa8, 0xfff2e2, lq), alpha: hold, cap: 'round' })
-        }
-        for (let q = k0; q < K_ROPE_N - 1; q++) {
-          const lq = lit(q)
-          krakenSlabTopG.moveTo(rig.pts[q].x, rig.pts[q].y).lineTo(rig.pts[q + 1].x, rig.pts[q + 1].y)
-            .stroke({ width: hwS * 2.4 * wq(q), color: mix(0x120a1a, 0x4a2c2a, lq), alpha: hold, cap: 'round' })
-        }
-        // ...its spine catching the light, so it reads as a rounded body and not a flat strip
-        for (let q = k0; q < K_ROPE_N - 1; q++) {
-          const lq = lit(q)
-          if (lq < 0.05) continue
-          krakenSlabTopG.moveTo(rig.pts[q].x, rig.pts[q].y).lineTo(rig.pts[q + 1].x, rig.pts[q + 1].y)
-            .stroke({ width: hwS * 0.5, color: 0xd8b8a0, alpha: lq * hold * 0.5, cap: 'round' })
+          const hc = krakenHead
+          // the landing is recorded by the event pass, which runs after this on the strike's first
+          // frame: until then the fist lands where the lane's contact will be — nearest the player,
+          // clear of the head's body
+          if (cxL === rig.pts[K_ROPE_N - 1].x && cyL === rig.pts[K_ROPE_N - 1].y) {
+            let bp = Infinity
+            for (let q = 0; q < K_ROPE_N; q++) {
+              const pq = rig.pts[q]
+              if (hc && (pq.x - hc.x) ** 2 + (pq.y - hc.y) ** 2 < (K_HEAD_CLEAR + KRAKEN_LASH_W * 0.8) ** 2) continue
+              const d = (pq.x - run.player.x) ** 2 + (pq.y - run.player.y) ** 2
+              if (d < bp) { bp = d; kC = q }
+            }
+          }
+          const tC = kC / (K_ROPE_N - 1)
+          const HWR = KRAKEN_ARM_R * 1.45 * 0.5
+          const profC = K_LIMB_PROF(0.35)
+          const hwAt = (t) => {
+            const q = Math.min(K_ROPE_N - 1, Math.round(t * (K_ROPE_N - 1)))
+            const dq = (t - tC) / 0.035
+            let g = Math.exp(-dq * dq)
+            if (hc) {
+              const dh = Math.hypot(rig.pts[q].x - hc.x, rig.pts[q].y - hc.y)
+              g *= Math.max(0, Math.min(1, (dh - KRAKEN_HEAD_R) / (K_HEAD_CLEAR - KRAKEN_HEAD_R)))
+            }
+            // the flattened flesh loses its taper too: the fist is as wide as the limb above it
+            const prof = K_LIMB_PROF(t) + (profC - K_LIMB_PROF(t)) * g * Math.max(0, pan)
+            return HWR * prof * (1 + K_SQUASH_SPLAY * g * pan)
+          }
+          rig.rope.visible = false
+          rig.shadow.visible = false
+          const shp = rig.pts.map((q) => ({ x: q.x + 7, y: q.y + 10 }))
+          // pressed in: a hard black contact shadow, tight and a little wider than the flesh
+          limbRibbon(krakenSlabTopG, shp, K_ROPE_N, (t) => hwAt(t) * 1.12 + 4, 0xffffff, skin, 0.7 * hold, 0x000000)
+          limbRibbon(krakenSlabTopG, rig.pts, K_ROPE_N, hwAt, 0x5d5470, skin)
+          // THE FIST, FLATTENED: the splayed stretch drawn again, lit — the blow's light on the flesh
+          // pressed out flat, rimmed hard, so the pancake reads against the dark limb it belongs to
+          if (pan > 0.15) {
+            const lo = Math.max(0, kC - 5), hi = Math.min(K_ROPE_N - 1, kC + 5)
+            const slice = rig.pts.slice(lo, hi + 1)
+            const hwS2 = (u) => hwAt((lo + u * (slice.length - 1)) / (K_ROPE_N - 1))
+            const pk = Math.min(1, pan)
+            // drawn after the burst (krakenFists), so the spikes erupt from under the flattened flesh
+            krakenFists.push(() => {
+              limbRibbon(krakenSlabTopG, slice, slice.length, (u) => hwS2(u) + 4, 0xffffff, skin, pk, 0xffcf9a)
+              limbRibbon(krakenSlabTopG, slice, slice.length, hwS2, 0x5d5470, skin, pk)
+            })
+          }
+          // the splayed rim catching the blow's light
+          if (pan > 0.2) {
+            for (let q = Math.max(1, kC - 8); q <= Math.min(K_ROPE_N - 2, kC + 8); q++) {
+              const t = q / (K_ROPE_N - 1)
+              const p0 = rig.pts[q - 1], p1 = rig.pts[q + 1]
+              const dx = p1.x - p0.x, dy = p1.y - p0.y, l = Math.hypot(dx, dy) || 1
+              const nx = -dy / l, ny = dx / l, w = hwAt(t) + 1
+              for (const sd of [1, -1]) {
+                krakenSlabTopG.moveTo(p0.x + nx * w * sd, p0.y + ny * w * sd).lineTo(p1.x + nx * w * sd, p1.y + ny * w * sd)
+                  .stroke({ width: 5, color: 0xffd8b0, alpha: 0.9 * Math.min(1, pan) * Math.exp(-(((q - kC) / 6) ** 2)), cap: 'round' })
+              }
+            }
+          }
+        } else {
+          // DRIVEN IN: for its first frames the flesh at the contact squashes flat and wide against
+          // the floor, pressing a hard black shadow out round it — the limb crushing down on one spot
+          const sq = a.coilArm ? 0 : Math.max(0, 1 - (KRAKEN_SLAM_T - a.slamT) / 0.18)
+          const near = (q) => Math.exp(-(((rig.pts[q].x - cxL) ** 2 + (rig.pts[q].y - cyL) ** 2) / ((hwS * 3.2) ** 2)))
+          const wq = (q) => 1 + 0.6 * sq * near(q)
+          // PRESSED IN ALONG ITS WHOLE LENGTH: a hard black contact shadow down both sides of the landed
+          // limb, where it lies in the lit print, widest where it struck hardest
+          if (!a.coilArm) {
+            for (let q = k0; q < K_ROPE_N - 1; q++) {
+              krakenSlabTopG.moveTo(rig.pts[q].x, rig.pts[q].y).lineTo(rig.pts[q + 1].x, rig.pts[q + 1].y)
+                .stroke({ width: hwS * 2.4 * wq(q) + 9 + 12 * sq * near(q), color: 0x000000, alpha: 0.92 * hold, cap: 'round' })
+            }
+          }
+          // the slab: an OPAQUE mass, hard pale rim, its body lit warm where the blow landed and
+          // falling to near-black away from it — segment by segment, so the light has a place
+          for (let q = k0; q < K_ROPE_N - 1; q++) {
+            const lq = lit(q)
+            krakenSlabTopG.moveTo(rig.pts[q].x, rig.pts[q].y).lineTo(rig.pts[q + 1].x, rig.pts[q + 1].y)
+              .stroke({ width: hwS * 2.4 * wq(q) + 5, color: mix(0x9a8aa8, 0xfff2e2, lq), alpha: hold, cap: 'round' })
+          }
+          for (let q = k0; q < K_ROPE_N - 1; q++) {
+            const lq = lit(q)
+            krakenSlabTopG.moveTo(rig.pts[q].x, rig.pts[q].y).lineTo(rig.pts[q + 1].x, rig.pts[q + 1].y)
+              .stroke({ width: hwS * 2.4 * wq(q), color: mix(0x120a1a, 0x4a2c2a, lq), alpha: hold, cap: 'round' })
+          }
+          // ...its spine catching the light, so it reads as a rounded body and not a flat strip
+          for (let q = k0; q < K_ROPE_N - 1; q++) {
+            const lq = lit(q)
+            if (lq < 0.05) continue
+            krakenSlabTopG.moveTo(rig.pts[q].x, rig.pts[q].y).lineTo(rig.pts[q + 1].x, rig.pts[q + 1].y)
+              .stroke({ width: hwS * 0.5, color: 0xd8b8a0, alpha: lq * hold * 0.5, cap: 'round' })
+          }
         }
       }
       // ...AND THE WATER AROUND THE PLAYER STARTS MOVING TOWARD IT. The reach alone can start at the
@@ -20874,6 +20952,8 @@ const spurG = new Graphics()
     }
     drawKrakenChunks(dt)
     drawKrakenSplashes(0, run.player, 'over')
+    for (const f of krakenFists) f()
+    krakenFists.length = 0
     // THE PLAYER, OUTLINED ON TOP, while anything Kraken is landing near them: a crisp dark-and-
     // light rim at the fish's own size, so no blow, slab or flash can ever make them hard to find
     if (krakenLandings.length || krakenDim > 0) {
@@ -23116,6 +23196,12 @@ const spurG = new Graphics()
   const krakenBursts = []
   const K_BURST_T = 0.4 // the dust ring's life; the bright disc itself is the first K_FLASH_T of it
   const K_FLASH_T = 0.035
+  // the landed limb's pancake: seconds to full splay, held flat to K_SQUASH_HOLD, and how much wider than the limb it splays
+  const K_SQUASH_IN = 0.01
+  // this frame's pancaked fists, painted over the burst
+  const krakenFists = []
+  const K_SQUASH_SPLAY = 1.2
+  const K_SQUASH_HOLD = 0.08
   // Where each slam met the ground, for the length of its hold — what lights the landed slab.
   const krakenLandings = []
   // THE SPLASH: a slam's point of contact, the brightest and busiest thing on screen for its first
@@ -23126,6 +23212,8 @@ const spurG = new Graphics()
   const K_HEAD_CLEAR = KRAKEN_HEAD_R * 1.45
   // the broken ground it leaves (fissures, tipped plates) outlasts the flash
   const K_SPLASH_LIFE = 0.75
+  // the burst is secondary: the pancaked limb and the lane's dust wall carry the size of the blow
+  const K_BURST_K = 1.1
   // THE BLOW BREAKS THE SEABED ON ITS FIRST FRAME. Thrown along the limb's line, away from the head
   // (dx,dy): a lumpy sand plume, rock chunks already in the air, fissures running out to three
   // times the burst, plates tipped up round it. The burst itself is ragged and skewed the same way.
@@ -23287,10 +23375,10 @@ const spurG = new Graphics()
             const pts = []
             for (let k = 0; k < sp.spikes.length; k++) {
               const s0 = sp.spikes[k], s1 = sp.spikes[(k + 1) % sp.spikes.length]
-              const ro = lw * (0.28 + 0.24 * g) * s0.len
+              const ro = lw * (0.28 + 0.24 * g) * s0.len * K_BURST_K
               pts.push(sp.x + Math.cos(s0.a) * ro, sp.y + Math.sin(s0.a) * ro)
               const am = s0.a + (((s1.a - s0.a) + Math.PI * 4) % (Math.PI * 2)) * 0.5
-              const ri = lw * (s0.ri + 0.2 * g) * 0.6
+              const ri = lw * (s0.ri + 0.2 * g) * 0.6 * K_BURST_K
               pts.push(sp.x + Math.cos(am) * ri, sp.y + Math.sin(am) * ri)
             }
             G.poly(pts).fill({ color: 0xfff8ea, alpha: 0.95 * ca })
@@ -23299,7 +23387,7 @@ const spurG = new Graphics()
         }
         if (age < K_SPLASH_T) {
           // the white-hot core, small and hard
-          const cr = lw * 0.28 * (age < 0.04 ? 1 : Math.max(0, 1 - (age - 0.04) / 0.06))
+          const cr = lw * 0.28 * K_BURST_K * (age < 0.04 ? 1 : Math.max(0, 1 - (age - 0.04) / 0.06))
           if (cr > 1) {
             G.circle(sp.x, sp.y, cr + 5).fill({ color: 0xffc23a, alpha: 1 })
             G.circle(sp.x, sp.y, cr).fill({ color: 0xffffff, alpha: 1 })
@@ -23321,7 +23409,8 @@ const spurG = new Graphics()
           for (const r of sp.rocks) {
             const d = r.d0 + (r.d1 - r.d0) * fly
             const x = sp.x + Math.cos(r.a) * d, y = sp.y + Math.sin(r.a) * d
-            if (!clear(x, y, r.r)) continue
+            // not over the pancaked fist: a rock shows once it has flown clear of the landed limb
+            if (!clear(x, y, r.r) || d < lw * 0.85) continue
             const k = 1 + 0.35 * Math.sin(Math.min(1, age / 0.5) * Math.PI)
             const tl = (r.d1 - r.d0) * v * 0.45
             if (tl > 4) {
@@ -23348,6 +23437,60 @@ const spurG = new Graphics()
   const krakenPrints = []
   const K_PRINT_HOT = 0.25
   const K_PRINT_T = 0.7
+  // the lane-long hot fill: off — shot beside the limb it read as a pale plank; the dust wall carries the width
+  const K_PRINT_FILL = false
+  // THE LANE'S DUST WALL: a plain slam kicks an opaque bank of sand up along BOTH sides of the whole
+  // struck length, rolling outward — the size of the hit read off the ground, rim to the head's edge.
+  const krakenDust = []
+  const K_DUST_T = 0.85
+  function krakenLaneDust(x0, y0, x1, y1, w) {
+    const L = Math.hypot(x1 - x0, y1 - y0) || 1
+    const ux = (x1 - x0) / L, uy = (y1 - y0) / L
+    const nx = -uy, ny = ux
+    const hd = krakenHead
+    for (let d = 10; d < L; d += 20) {
+      const cx = x1 - ux * d, cy = y1 - uy * d
+      if (hd && (cx - hd.x) ** 2 + (cy - hd.y) ** 2 < (K_HEAD_CLEAR + 50) ** 2) continue
+      for (const side of [1, -1]) {
+        for (let row = 0; row < 2; row++) {
+          const off = w * (1.0 + row * 0.4) + (Math.random() - 0.5) * 10
+          const sp = (row ? 300 : 170) + Math.random() * 120
+          krakenDust.push({
+            x: cx + nx * side * off + ux * (Math.random() - 0.5) * 12, y: cy + ny * side * off + uy * (Math.random() - 0.5) * 12,
+            vx: nx * side * sp + ux * (Math.random() - 0.5) * 60, vy: ny * side * sp + uy * (Math.random() - 0.5) * 60,
+            r0: (row ? 13 : 19) + Math.random() * 8, r1: (row ? 30 : 42) + Math.random() * 14,
+            t: K_DUST_T * (0.8 + Math.random() * 0.2), shade: Math.random(),
+          })
+        }
+      }
+    }
+    while (krakenDust.length > 260) krakenDust.shift()
+  }
+  function drawKrakenDust(dt) {
+    const G = krakenSlabTopG
+    const hd = krakenHead
+    // three passes: every puff's dark outline, then the sand, then its lit top — one mass, not bubbles
+    for (let pass = 0; pass < 3; pass++) {
+      for (let i = krakenDust.length - 1; i >= 0; i--) {
+        const p = krakenDust[i]
+        if (pass === 0 && dt > 0) {
+          p.t -= dt
+          const dr = Math.exp(-dt * 6)
+          p.vx *= dr; p.vy *= dr
+          p.x += p.vx * dt; p.y += p.vy * dt
+        }
+        if (p.t <= 0) { if (pass === 0) krakenDust.splice(i, 1); continue }
+        const u = 1 - p.t / K_DUST_T
+        const grow = 1 - Math.pow(1 - Math.min(1, u * 2.2), 2)
+        const r = p.r0 + (p.r1 - p.r0) * grow
+        if (hd && (p.x - hd.x) ** 2 + (p.y - hd.y) ** 2 < (K_HEAD_CLEAR + r * 0.5) ** 2) continue
+        const al = Math.min(1, p.t / 0.3)
+        if (pass === 0) G.circle(p.x, p.y, r + 3).fill({ color: 0x1a1008, alpha: al })
+        else if (pass === 1) G.circle(p.x, p.y, r).fill({ color: mix(0x9c8058, 0xc2a476, p.shade), alpha: al })
+        else G.circle(p.x - r * 0.28, p.y - r * 0.3, r * 0.52).fill({ color: 0xe8d2a4, alpha: 0.75 * al })
+      }
+    }
+  }
   function krakenPrint(x0, y0, x1, y1, w) {
     const L = Math.hypot(x1 - x0, y1 - y0) || 1
     const ux = (x1 - x0) / L, uy = (y1 - y0) / L
@@ -23405,7 +23548,7 @@ const spurG = new Graphics()
       const outline = pr.outline
       // the hot fill: white-hot for its first frames, cooling to orange, then gone
       const hot = age < 0.06 ? 1 : Math.max(0, 1 - (age - 0.06) / (K_PRINT_HOT - 0.06))
-      if (hot > 0) {
+      if (hot > 0 && K_PRINT_FILL) {
         const c = age < 0.06 ? 0xffe8a4 : mix(0xff6a14, 0xffe8a4, hot)
         G.poly(outline).fill({ color: 0x000000, alpha: 0.9 * hot })
         G.poly(outline).stroke({ width: 16, color: 0x000000, alpha: 0.85 * hot, join: 'miter' })
@@ -25630,10 +25773,24 @@ const spurG = new Graphics()
                 back += 4; cx = lx1 - ux * back; cy = ly1 - uy * back
               }
             }
-            krakenBursts.push({ x: cx, y: cy, r: Math.min(lw * (e.coil ? 0.5 : 0.4), Math.max(10, Math.hypot(cx - run.player.x, cy - run.player.y) - 40)), t: K_BURST_T, ring: 0 })
+            krakenBursts.push({ x: cx, y: cy, r: Math.min(lw * (e.coil ? 0.5 : 0.3), Math.max(10, Math.hypot(cx - run.player.x, cy - run.player.y) - 40)), t: K_BURST_T, ring: 0 })
             if (!e.coil) {
               krakenPrints.push(krakenPrint(lx0, ly0, lx1, ly1, lw))
               if (krakenPrints.length > 4) krakenPrints.shift()
+              krakenLaneDust(lx0, ly0, lx1, ly1, lw)
+              // rock thrown clear from along the WHOLE struck length, not only the contact
+              for (let d = 30; d < L; d += 46) {
+                const px = lx1 - ux * d, py = ly1 - uy * d
+                if (hc && (px - hc.x) ** 2 + (py - hc.y) ** 2 < (K_HEAD_CLEAR + 40) ** 2) continue
+                const side = Math.random() < 0.5 ? 1 : -1
+                const a = Math.atan2(ny * side, nx * side) + (Math.random() - 0.5) * 0.8
+                const sp = 300 + Math.random() * 360
+                krakenChunks.push({
+                  x: px + nx * side * lw * 0.6, y: py + ny * side * lw * 0.6,
+                  vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, rot: Math.random() * 6.28, vr: (Math.random() - 0.5) * 10,
+                  r: 9 + Math.random() * 14, t: K_CHUNK_T * (0.7 + Math.random() * 0.3), shape: krakenChunkShape(),
+                })
+              }
             }
             if (krakenBursts.length > 8) krakenBursts.shift()
             krakenLandings.push({ x: cx, y: cy, t: KRAKEN_SLAM_T })
@@ -25674,7 +25831,7 @@ const spurG = new Graphics()
                 r: (i < 3 ? 34 : 18) + Math.random() * 10, t: K_CHUNK_T, shape: krakenChunkShape(),
               })
             }
-            while (krakenChunks.length > 40) krakenChunks.shift()
+            while (krakenChunks.length > 70) krakenChunks.shift()
           }
           if (!e.coil) {
             const nk = krakenNearK(run, lx0, ly0, lx1, ly1, lw)
@@ -25821,6 +25978,7 @@ const spurG = new Graphics()
     krakenBursts.length = 0
     krakenSplashes.length = 0
     krakenPrints.length = 0
+    krakenDust.length = 0
     krakenLandings.length = 0
     krakenBlasts.length = 0
     krakenChunks.length = 0
