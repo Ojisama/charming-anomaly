@@ -20787,7 +20787,8 @@ const spurG = new Graphics()
           }
           const shp = spts.map((q) => ({ x: q.x + 7, y: q.y + 10 }))
           // pressed in: a hard black contact shadow, tight and a little wider than the flesh
-          limbRibbon(krakenSlabTopG, shp, K_ROPE_N, (t) => hwQ(t) * 1.12 + 4, 0xffffff, skin, 0.7 * hold, 0x000000)
+          const shA = Math.min(1, Math.max(0, (age - 0.3) / 0.25))
+          if (shA > 0) limbRibbon(krakenSlabTopG, shp, K_ROPE_N, (t) => hwQ(t) * 1.12 + 4, 0xffffff, skin, 0.7 * hold * shA, 0x000000)
           limbRibbon(krakenSlabTopG, spts, K_ROPE_N, hwQ, 0x5d5470, skin)
           // THE FIST, FLATTENED: the splayed stretch drawn again, lit — the blow's light on the flesh
           // pressed out flat, rimmed hard, so the pancake reads against the dark limb it belongs to
@@ -20798,10 +20799,12 @@ const spurG = new Graphics()
             const pk = Math.min(1, pan)
             // drawn after the burst (krakenFists), so the spikes erupt from under the flattened flesh
             krakenFists.push(() => {
-              // lit from under by the flash: a bright halo, a hard dark line, then the flesh
-              limbRibbon(krakenSlabTopG, slice, slice.length, (u) => hwS2(u) + 16, 0xffffff, skin, pk, 0xfff6e2)
-              limbRibbon(krakenSlabTopG, slice, slice.length, (u) => hwS2(u) + 6, 0xffffff, skin, pk, 0x120602)
-              limbRibbon(krakenSlabTopG, slice, slice.length, hwS2, 0x8a80b4, skin, pk)
+              // ONE CLEAN SHAPE ON THE FLOOR: while it is squashed the fist is a single pale fill (the
+              // arm's underside, lit by the blow) inside one bold dark outline — no suckers, no halo —
+              // then the skin comes back as it springs up
+              limbRibbon(krakenSlabTopG, slice, slice.length, (u) => hwS2(u) + 7, 0xffffff, skin, pk, 0x120602)
+              if (sqk > 0) limbRibbon(krakenSlabTopG, slice, slice.length, hwS2, 0xffffff, skin, pk, K_FIST_LIT)
+              if (sqk < 1) limbRibbon(krakenSlabTopG, slice, slice.length, hwS2, 0x8a80b4, skin, pk * (1 - sqk))
             })
           }
           // the splayed rim catching the blow's light
@@ -23321,6 +23324,8 @@ const spurG = new Graphics()
   // the impact squash of the fist's tip, screen space: held, then back by K_FIST_SQ_T
   const K_FIST_SQX = 1.6, K_FIST_SQY = 0.6
   const K_FIST_SQ_HOLD = 0.06, K_FIST_SQ_T = 0.16
+  // the flattened fist's fill on impact: the arm's pale underside, lit
+  const K_FIST_LIT = 0xd6c6f2
   // Where each slam met the ground, for the length of its hold — what lights the landed slab.
   const krakenLandings = []
   // THE SPLASH: a slam's point of contact, the only bright thing on screen for its first frames —
@@ -23399,8 +23404,8 @@ const spurG = new Graphics()
     }
     // slabs of floor tipped up round the crater's near half
     const plates = []
-    for (let i = 0; i < 5; i++) {
-      plates.push({ a: 0.1 * Math.PI + (i / 4) * 0.8 * Math.PI + (Math.random() - 0.5) * 0.15, d: 1.12 + Math.random() * 0.12,
+    for (let i = 0; i < 7; i++) {
+      plates.push({ a: (i / 7) * Math.PI * 2 + 0.3 + (Math.random() - 0.5) * 0.25, d: 1.45 + Math.random() * 0.2,
         w: 0.16 + Math.random() * 0.08, h: 0.2 + Math.random() * 0.1, tilt: (Math.random() - 0.5) * 0.5,
         c: [0xb89160, 0xa07a4c, 0xc9a36a][i % 3] })
     }
@@ -23522,10 +23527,33 @@ const spurG = new Graphics()
           G.poly(pp).stroke({ width: 4, color: 0x8a6a48, alpha: al, join: 'miter' })
         }
       } else if (pass === 'over') {
+        if (age < 0.5) {
+          // THE DUST SKIRT: a low ring of dust and grit lying flat on the seabed, much flatter than
+          // wide, spreading out from the crater and settling
+          const u = age / 0.5
+          const sx = (sp.rx || lw) * (1.7 + 1.1 * (1 - Math.pow(1 - u, 2))), sy = sx * 0.34
+          const fa = u < 0.5 ? 1 : (1 - u) / 0.5
+          for (const [k, wd, c, a2] of [[1.0, sy * 0.9, 0xe8d3a8, 0.45], [1.0, sy * 0.45, 0xf6e6c4, 0.7], [1.08, 3, 0x6a5034, 0.6]]) {
+            let pen = false
+            for (let m = 0; m <= 48; m++) {
+              const t = (m / 48) * Math.PI * 2
+              const x = sp.x + Math.cos(t) * sx * k, y = sp.y + Math.sin(t) * sy * k + (sp.ry || lw * 0.6) * 0.35
+              if (!offHead(x, y, 0)) { pen = false; continue }
+              if (pen) G.lineTo(x, y); else G.moveTo(x, y)
+              pen = true
+            }
+            G.stroke({ width: wd, color: c, alpha: a2 * fa, cap: 'round', join: 'round' })
+          }
+          for (let m = 0; m < 18; m++) {
+            const t = (m / 18) * Math.PI * 2 + sp.sa
+            const x = sp.x + Math.cos(t) * sx * (1.05 + 0.1 * Math.sin(m * 7.3)), y = sp.y + Math.sin(t) * sy * 1.05 + (sp.ry || lw * 0.6) * 0.35
+            if (offHead(x, y, 0)) G.circle(x, y, 3 + (m % 3) * 1.5).fill({ color: 0x5c4430, alpha: fa })
+          }
+        }
         {
           // THE CONTACT SHADOW: the bowl the fist is driven into, dark and flat, right under it —
           // the darkest thing in the patch, with the flash ringing it
-          const px = (sp.rx || lw) * 1.02, py = (sp.ry || lw * 0.62) * 1.02
+          const px = (sp.rx || lw) * 0.92, py = (sp.ry || lw * 0.62) * 0.92
           const pp = []
           for (let m = 0; m < sp.pit.length; m += 2) pp.push(sp.x + sp.pit[m] * px, sp.y + sp.pit[m + 1] * py)
           G.poly(pp).fill({ color: 0x050302, alpha: 0.95 * al })
@@ -23549,8 +23577,8 @@ const spurG = new Graphics()
             const qx = q.shape[m] * q.r * k, qy = q.shape[m + 1] * q.r * k
             pp.push(x + qx * cs - qy * sn, y + qx * sn + qy * cs)
           }
-          G.poly(pp).fill({ color: 0x2a2019, alpha: fa })
-          G.poly(pp).stroke({ width: 3, color: 0xfff0cc, alpha: fa, join: 'miter' })
+          G.poly(pp).fill({ color: 0xb89160, alpha: fa })
+          G.poly(pp).stroke({ width: 2, color: 0x2a1d12, alpha: fa, join: 'miter' })
         }
       } else if (pass === 'top') {
         // THE FIST SITS IN THE GROUND: the crater's near lip is drawn over its lower edge — a thick
@@ -23566,24 +23594,23 @@ const spurG = new Graphics()
         const lipW = fw * 0.2
         const band = arc.slice()
         for (let m = arc.length - 2; m >= 0; m -= 2) band.push(arc[m] + Math.cos(0.12 * Math.PI + (m / 2 / 24) * 0.76 * Math.PI) * lipW * 0.6, arc[m + 1] + lipW)
-        G.poly(band).fill({ color: 0x3a2a1c, alpha: al })
-        G.poly(band).stroke({ width: 3, color: 0x050302, alpha: al, join: 'miter' })
+        G.poly(band).fill({ color: 0xb89160, alpha: al })
+        G.poly(band).stroke({ width: 2, color: 0x2a1d12, alpha: al, join: 'miter' })
         let pen = false
         for (let m = 0; m < arc.length; m += 2) { if (pen) G.lineTo(arc[m], arc[m + 1]); else G.moveTo(arc[m], arc[m + 1]); pen = true }
         G.stroke({ width: 6, color: 0xfff0cc, alpha: al, cap: 'round' })
+        // slabs of floor broken off and tipped outward, each a pale wedge pointing away from the fist
         for (const pl of sp.plates) {
-          const t = pl.a, cx = sp.x + Math.cos(t) * lx * pl.d, cy = sp.y + Math.sin(t) * ly * pl.d
-          if (!offHead(cx, cy, 0)) continue
-          const w = fw * pl.w, h = fw * pl.h, ta = t + Math.PI / 2 + pl.tilt
-          const ux = Math.cos(ta), uy = Math.sin(ta)
-          // a slab tipped up: its lit top face, and the dark underside showing below it
-          const lift = h * 0.9
-          const q = [cx - ux * w, cy - uy * w, cx + ux * w, cy + uy * w,
-            cx + ux * w * 0.8, cy + uy * w * 0.8 - lift, cx - ux * w * 0.8, cy - uy * w * 0.8 - lift]
-          G.poly([q[0], q[1], q[2], q[3], q[2], q[3] + h * 0.35, q[0], q[1] + h * 0.35]).fill({ color: 0x120b06, alpha: al })
+          const t = pl.a, ct = Math.cos(t), st = Math.sin(t)
+          const bx = sp.x + ct * lx * pl.d, by = sp.y + st * ly * pl.d
+          const len = fw * pl.h * 1.6, w = fw * pl.w
+          const tx = bx + ct * len, ty = by + st * len * 0.8
+          if (!offHead(tx, ty, 0) || !offHead(bx, by, 0)) continue
+          const nx = -st, ny = ct
+          const q = [bx + nx * w, by + ny * w, tx + nx * w * 0.35, ty + ny * w * 0.35, tx - nx * w * 0.35, ty - ny * w * 0.35, bx - nx * w, by - ny * w]
           G.poly(q).fill({ color: pl.c, alpha: al })
-          G.poly(q).stroke({ width: 3, color: 0x050302, alpha: al, join: 'miter' })
-          G.moveTo(q[6], q[7]).lineTo(q[4], q[5]).stroke({ width: 4, color: 0xfff0cc, alpha: al, cap: 'round' })
+          G.poly(q).stroke({ width: 2, color: 0x2a1d12, alpha: al, join: 'miter' })
+          G.moveTo(q[2], q[3]).lineTo(q[4], q[5]).stroke({ width: 4, color: 0xfff0cc, alpha: al, cap: 'round' })
         }
         // THE BIG CHUNKS: slabs of seabed half the fist's width, thrown clear past the burst
         for (const q of sp.chunks) {
@@ -23602,8 +23629,8 @@ const spurG = new Graphics()
             const qx = q.shape[m] * r, qy = q.shape[m + 1] * r
             pp.push(x + qx * cs - qy * sn, y + qx * sn + qy * cs)
           }
-          G.poly(pp).fill({ color: 0x3a2a1c, alpha: fa })
-          G.poly(pp).stroke({ width: 4, color: 0x050302, alpha: fa, join: 'miter' })
+          G.poly(pp).fill({ color: 0x9a774a, alpha: fa })
+          G.poly(pp).stroke({ width: 2.5, color: 0x2a1d12, alpha: fa, join: 'miter' })
           // its lit top face
           const tp = []
           for (let m = 0; m < q.shape.length; m += 2) {
@@ -23695,7 +23722,7 @@ const spurG = new Graphics()
         pr.ax + pr.nx * tw, pr.ay + pr.ny * tw, pr.bx + pr.nx * tw, pr.by + pr.ny * tw,
         pr.bx - pr.nx * tw, pr.by - pr.ny * tw, pr.ax - pr.nx * tw, pr.ay - pr.ny * tw,
       ]
-      const ta = age < 0.03 ? 0 : al
+      const ta = age < 0.45 ? 0 : al * Math.min(1, (age - 0.45) / 0.2)
       if (ta > 0) {
         G.poly(tr).fill({ color: 0x140804, alpha: (0.55 + 0.35 * (1 - hot)) * ta })
         G.moveTo(tr[0], tr[1]).lineTo(tr[2], tr[3]).stroke({ width: 4, color: 0xf0d2a0, alpha: 0.85 * ta })
