@@ -125,7 +125,7 @@ function fight(seed) {
       }
       if (!press) {
         for (const a of run.krakenArms) {
-          if (a.dead || a.limpT > 0) continue
+          if (a.dead || a.limpT > 0 || a.coilArm) continue   // krakenParry skips a Coil arm too
           if ((a.x - p.x) ** 2 + (a.y - p.y) ** 2 > reach2) continue
           if (a.tele > 0 && a.tele <= rung.window) { press = true; break }
         }
