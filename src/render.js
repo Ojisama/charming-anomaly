@@ -11072,6 +11072,17 @@ export function createRenderer(app) {
   // thing in its neighbourhood even when a second arm's live warning lies across it, and under the
   // Light-bar dark a dark slab on a dark floor is nothing. The burst lights it; the hole keeps the
   // player visible through it.
+  // THE COIL DARKENS EVERYTHING IT DID NOT STRIKE for a beat as it closes: a black veil over the
+  // whole view under the lanes' flash, so the struck ground is the only lit thing and the spared
+  // lane reads as the safe dark it is. Its own layer, directly above darkLayer; the player shows
+  // through its hole.
+  const krakenDimLayer = new Container()
+  const krakenDimG = new Graphics()
+  const krakenDimHole = new Graphics()
+  krakenDimLayer.addChild(krakenDimG, krakenDimHole)
+  krakenDimLayer.setMask({ mask: krakenDimHole, inverse: true })
+  let krakenDim = 0
+  const K_DIM_T = 0.35
   const krakenSlabTopLayer = new Container()
   const krakenSlabTopG = new Graphics()
   const krakenSlabHole = new Graphics()
@@ -19788,44 +19799,11 @@ const spurG = new Graphics()
       // NO LIGHT AT THE LANDING. The warning is orange light on the ground; the frame the blow lands
       // that light snaps off and what is left is the limb itself, dark and solid (krakenSlabG), with
       // one bright burst at the contact point. A flash of the lane read as the warning again.
-      // THE DUST WALL: the seabed thrown up along both edges of the print and rolling outward, the
-      // way Hydra's slam throws a ring of dust out from its own telegraph's edge. It starts ON the
-      // struck edge, so the first thing it shows is how wide the hit was.
-      if (age < 0.6) {
-        const e = age / 0.6
-        const out = sc.w * (1 + 0.9 * (1 - (1 - e) * (1 - e)))
-        const L = Math.hypot(sc.x1 - sc.x0, sc.y1 - sc.y0) || 1
-        const nx = -(sc.y1 - sc.y0) / L, ny = (sc.x1 - sc.x0) / L
-        const ux = (sc.x1 - sc.x0) / L, uy = (sc.y1 - sc.y0) / L
-        const a0x = sc.x0 + (sc.x1 - sc.x0) * 0.3, a0y = sc.y0 + (sc.y1 - sc.y0) * 0.3
-        for (const side of [-1, 1]) {
-          for (let b = 0; b < 3; b++) {
-            const o = out - b * 9
-            teleG.beginPath()
-            teleG.moveTo(a0x + nx * o * side, a0y + ny * o * side)
-            teleG.lineTo(sc.x1 + nx * o * side, sc.y1 + ny * o * side)
-            // ...and round the cap past the head, so the wall is the capsule's outline growing
-            const la = Math.atan2(uy, ux)
-            if (side > 0) teleG.arc(sc.x1, sc.y1, o, la + Math.PI / 2, la, true)
-            else teleG.arc(sc.x1, sc.y1, o, la - Math.PI / 2, la)
-            teleG.stroke({ width: (16 + 14 * e) * (1 - b * 0.3), color: 0x9fb4c0, alpha: (0.16 - b * 0.04) * (1 - e), cap: 'round', join: 'round' })
-          }
-        }
-      }
-      // the haze: the capsule itself, in the width sim struck, fading out
-      teleG.beginPath()
-      teleG.moveTo(sc.x0, sc.y0)
-      teleG.lineTo(sc.x1, sc.y1)
-      teleG.stroke({ width: 2 * sc.w, color: 0x8fa6b4, alpha: 0.10 * fade, cap: 'round' })
-      teleG.beginPath()
-      teleG.moveTo(sc.x0, sc.y0)
-      teleG.lineTo(sc.x1, sc.y1)
-      teleG.stroke({ width: 1.2 * sc.w, color: 0xb8cbd6, alpha: 0.07 * fade, cap: 'round' })
       // the crack, baked at spawn so it does not boil. Bright at the moment of impact, cooling.
       const hot = Math.max(0, (f - 0.7) / 0.3)
       for (const line of sc.cracks) {
         // a fissure lit from below: a wide soft glow, then the hard bright line down its middle
-        for (const [wd, al, col] of [[sc.big ? 12 : 9, 0.10, 0x7fb4cc], [sc.big ? 3.4 : 2.4, 0.45, mix(0x8fb8cc, 0xffffff, hot)]]) {
+        for (const [wd, al, col] of [[sc.big ? 7 : 5.5, 0.55, 0x010306], [sc.big ? 2.6 : 2, 0.6, mix(0xb8a890, 0xffffff, hot)]]) {
           teleG.beginPath()
           teleG.moveTo(line[0], line[1])
           for (let m = 2; m < line.length; m += 2) teleG.lineTo(line[m], line[m + 1])
@@ -19937,40 +19915,33 @@ const spurG = new Graphics()
       if (dt > 0) krakenLandings[i].t -= dt
       if (krakenLandings[i].t <= 0) krakenLandings.splice(i, 1)
     }
-    // A COIL LANE DETONATES: the whole struck lane fills white-hot and blows outward, its HARD
-    // leading edge travelling out across the seabed, so the attack occupies the space it struck.
+    // A COIL LANE FLASHES INSIDE ITS OWN WIDTH for a frame or two and is gone: the struck ground
+    // lit, everything else dimmed (krakenDim), so the spared lane reads as the safe dark.
     for (let i = krakenBlasts.length - 1; i >= 0; i--) {
       const b = krakenBlasts[i]
       if (dt > 0) b.t -= dt
       if (b.t <= 0) { krakenBlasts.splice(i, 1); continue }
-      const e = 1 - b.t / K_BLAST_T
-      const hw = b.w * (1 + 1.3 * (1 - (1 - e) * (1 - e)))
-      if (b.disc) {
-        krakenDangerG.circle(b.x0, b.y0, hw).fill({ color: K_HAZARD, alpha: 0.3 * (1 - e) })
-        krakenDangerG.circle(b.x0, b.y0, hw).stroke({ width: 6, color: 0xffffff, alpha: 0.95 * (1 - e) })
-        continue
-      }
       krakenDangerG.moveTo(b.x0, b.y0).lineTo(b.x1, b.y1)
-        .stroke({ width: 2 * hw, color: K_HAZARD, alpha: 0.42 * Math.pow(1 - e, 1.5), cap: 'round' })
+        .stroke({ width: 2 * b.w, color: K_HAZARD_HOT, alpha: 0.85, cap: 'round' })
       krakenDangerG.moveTo(b.x0, b.y0).lineTo(b.x1, b.y1)
-        .stroke({ width: 1.1 * b.w * (1 - 0.6 * e), color: 0xffffff, alpha: 0.5 * (1 - e) * (1 - e), cap: 'round' })
-      const L = Math.hypot(b.x1 - b.x0, b.y1 - b.y0) || 1
-      const nx = -(b.y1 - b.y0) / L * hw, ny = (b.x1 - b.x0) / L * hw
-      const la = Math.atan2(b.y1 - b.y0, b.x1 - b.x0)
-      krakenDangerG.beginPath()
-      krakenDangerG.moveTo(b.x0 - nx, b.y0 - ny).lineTo(b.x1 - nx, b.y1 - ny)
-      krakenDangerG.arc(b.x1, b.y1, hw, la - Math.PI / 2, la + Math.PI / 2)
-      krakenDangerG.lineTo(b.x0 + nx, b.y0 + ny)
-      krakenDangerG.stroke({ width: 5, color: 0xffffff, alpha: 0.95 * (1 - e), join: 'round' })
+        .stroke({ width: b.w, color: 0xffffff, alpha: 0.7, cap: 'round' })
     }
     for (let i = krakenBursts.length - 1; i >= 0; i--) {
       const b = krakenBursts[i]
       if (dt > 0) b.t -= dt
       if (b.t <= 0) { krakenBursts.splice(i, 1); continue }
-      const f = b.t / K_BURST_T
-      const r = b.r * (0.7 + 0.5 * (1 - f))
-      krakenDangerG.circle(b.x, b.y, r).fill({ color: 0xffffff, alpha: 0.95 * f })
-      krakenDangerG.circle(b.x, b.y, r).stroke({ width: 4, color: 0xffd2a8, alpha: f })
+      const age = K_BURST_T - b.t
+      // the flash: one or two frames, then gone
+      if (age < K_FLASH_T) {
+        krakenDangerG.circle(b.x, b.y, b.r).fill({ color: 0xffffff, alpha: 0.95 })
+        krakenDangerG.circle(b.x, b.y, b.r).stroke({ width: 4, color: 0xffd2a8, alpha: 1 })
+      }
+      // the dust ring: a HARD edge running out across the seabed, slowing, thinning
+      if (b.ring) {
+        const e = age / K_BURST_T
+        const rr = b.ring * (0.35 + 0.65 * (1 - (1 - e) * (1 - e)))
+        krakenSlabTopG.circle(b.x, b.y, rr).stroke({ width: 5 * (1 - e) + 1, color: 0xd8c7ad, alpha: 0.85 * (1 - e) })
+      }
     }
   }
 
@@ -20158,7 +20129,9 @@ const spurG = new Graphics()
       // of 0.008 is not an animation the player can see, it is an animation the probe can see. The
       // floor puts a stub on the seabed from the frame the fuse lights, and the shallower exponent
       // gets it into the arena early enough to be worth watching.
-      drawKrakenLane(a, urg, rung)
+      // while the Coil runs only its own arms move; a spared arm's frozen fuse never lands, so its
+      // lane must not keep burning in the one lane that is safe
+      if (!(s.coilT > 0) || a.coilArm) drawKrakenLane(a, urg, rung)
 
       // ...and the last `window` seconds of it are the PARRY, which has to be unmistakably its own
       // colour. Red is the danger, white-hot is the answer.
@@ -20579,13 +20552,15 @@ const spurG = new Graphics()
             if (d < best) { best = d; cxL = ln.x; cyL = ln.y }
           }
         }
-        const hold = Math.pow(k, 0.5)
+        const hold = Math.min(1, k * 2.2)
         const lit = (q) => Math.exp(-(((rig.pts[q].x - cxL) ** 2 + (rig.pts[q].y - cyL) ** 2) / ((hwS * 7) ** 2)))
         // underglow: the seabed under the blow lit hot, brightest at the contact
-        krakenDangerG.moveTo(rig.pts[k0].x, rig.pts[k0].y)
-        for (let q = k0 + 1; q < K_ROPE_N; q++) krakenDangerG.lineTo(rig.pts[q].x, rig.pts[q].y)
-        krakenDangerG.stroke({ width: hwS * 4.2, color: K_HAZARD, alpha: 0.35 * hold, cap: 'round', join: 'round' })
-        krakenDangerG.circle(cxL, cyL, hwS * 4.5).fill({ color: K_HAZARD_HOT, alpha: 0.45 * hold })
+        // the blow's light is a frame or two, then the glow is CUT — what stays is the slab
+        if (a.slamT > KRAKEN_SLAM_T - K_FLASH_T) {
+          krakenDangerG.moveTo(rig.pts[k0].x, rig.pts[k0].y)
+          for (let q = k0 + 1; q < K_ROPE_N; q++) krakenDangerG.lineTo(rig.pts[q].x, rig.pts[q].y)
+          krakenDangerG.stroke({ width: hwS * 3.2, color: K_HAZARD_HOT, alpha: 0.6, cap: 'round', join: 'round' })
+        }
         // the slab: an OPAQUE mass, hard pale rim, its body lit warm where the blow landed and
         // falling to near-black away from it — segment by segment, so the light has a place
         for (let q = k0; q < K_ROPE_N - 1; q++) {
@@ -20596,14 +20571,14 @@ const spurG = new Graphics()
         for (let q = k0; q < K_ROPE_N - 1; q++) {
           const lq = lit(q)
           krakenSlabTopG.moveTo(rig.pts[q].x, rig.pts[q].y).lineTo(rig.pts[q + 1].x, rig.pts[q + 1].y)
-            .stroke({ width: hwS * 2.4, color: mix(0x150d1e, 0x8a4a38, lq), alpha: hold, cap: 'round' })
+            .stroke({ width: hwS * 2.4, color: mix(0x120a1a, 0x4a2c2a, lq), alpha: hold, cap: 'round' })
         }
         // ...its spine catching the light, so it reads as a rounded body and not a flat strip
         for (let q = k0; q < K_ROPE_N - 1; q++) {
           const lq = lit(q)
           if (lq < 0.05) continue
           krakenSlabTopG.moveTo(rig.pts[q].x, rig.pts[q].y).lineTo(rig.pts[q + 1].x, rig.pts[q + 1].y)
-            .stroke({ width: hwS * 0.7, color: 0xffc8a0, alpha: lq * hold * 0.8, cap: 'round' })
+            .stroke({ width: hwS * 0.5, color: 0xd8b8a0, alpha: lq * hold * 0.5, cap: 'round' })
         }
       }
       // ...AND THE WATER AROUND THE PLAYER STARTS MOVING TOWARD IT. The reach alone can start at the
@@ -20742,6 +20717,14 @@ const spurG = new Graphics()
         else rig.rope.tint = mix(0x7366a0, 0x403d4b, 1 - fur)
       }
     }
+    drawKrakenChunks(dt)
+    // THE PLAYER, OUTLINED ON TOP, while anything Kraken is landing near them: a crisp dark-and-
+    // light rim at the fish's own size, so no blow, slab or flash can ever make them hard to find
+    if (krakenLandings.length || krakenDim > 0) {
+      const p = run.player
+      krakenSlabTopG.circle(p.x, p.y, 31).stroke({ width: 3, color: 0x000000, alpha: 0.9 })
+      krakenSlabTopG.circle(p.x, p.y, 29).stroke({ width: 1.5, color: 0xffffff, alpha: 0.95 })
+    }
     for (let i = arms.length; i < krakenRopes.length; i++) {
       krakenRopes[i].rope.visible = false
       krakenRopes[i].shadow.visible = false
@@ -20839,6 +20822,7 @@ const spurG = new Graphics()
   krakenLampLayer.addChild(krakenLampSp, krakenLampG)
   app.stage.addChildAt(krakenLampLayer, app.stage.getChildIndex(darkLayer) + 1)
   app.stage.addChildAt(krakenDangerLayer, app.stage.getChildIndex(darkLayer) + 1)
+  app.stage.addChildAt(krakenDimLayer, app.stage.getChildIndex(darkLayer) + 1)
   app.stage.addChildAt(krakenSlabTopLayer, app.stage.getChildIndex(krakenDangerLayer) + 1)
   // The body is UNDER the wreck field (it lies beneath the seabed clutter); the soft glows go in the
   // blurred krakenDeepG under it. The head rig sits directly over the enemy layer, where its pooled
@@ -21412,6 +21396,14 @@ const spurG = new Graphics()
     krakenDangerHole.circle(run.player.x, run.player.y, 30).fill({ color: 0xffffff })
     krakenSlabHole.clear()
     krakenSlabHole.circle(run.player.x, run.player.y, 30).fill({ color: 0xffffff })
+    krakenDimHole.clear()
+    krakenDimHole.circle(run.player.x, run.player.y, 30).fill({ color: 0xffffff })
+    krakenDimG.clear()
+    if (krakenDim > 0) {
+      if (frameDt > 0) krakenDim = Math.max(0, krakenDim - frameDt)
+      const vw = viewW(), vh = viewH()
+      krakenDimG.rect(run.player.x - vw, run.player.y - vh, vw * 2, vh * 2).fill({ color: 0x000000, alpha: 0.55 * Math.min(1, krakenDim / (K_DIM_T * 0.5)) })
+    }
     const p = run.player
     drawKrakenRing(run)
     for (const e of run.enemies) {
@@ -22536,12 +22528,48 @@ const spurG = new Graphics()
   const K_STAR_T = 0.13
   // A slam's contact burst, for its few frames. Same ownership as krakenScars.
   const krakenBursts = []
-  const K_BURST_T = 0.12
+  const K_BURST_T = 0.4 // the ring's life; the bright disc itself is the first K_FLASH_T of it
+  const K_FLASH_T = 0.04
   // Where each slam met the ground, for the length of its hold — what lights the landed slab.
   const krakenLandings = []
   // A Coil lane's detonation: the struck lane filled and blown outward with a hard leading edge.
   const krakenBlasts = []
-  const K_BLAST_T = 0.3
+  const K_BLAST_T = 0.06
+  // Seabed slabs thrown out from under a landed limb: angular, dark, lit-edged, settling.
+  const krakenChunks = []
+  const K_CHUNK_T = 0.9
+  function krakenChunkShape() {
+    const n = 5 + Math.floor(Math.random() * 3)
+    const pts = []
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2 + (Math.random() - 0.5) * 0.6
+      const r = 0.6 + Math.random() * 0.4
+      pts.push(Math.cos(a) * r, Math.sin(a) * r * 0.75)
+    }
+    return pts
+  }
+  // Drawn on the slab top layer, over the limbs: matter the blow broke off, readable in the dark.
+  function drawKrakenChunks(dt) {
+    for (let i = krakenChunks.length - 1; i >= 0; i--) {
+      const c = krakenChunks[i]
+      if (dt > 0) {
+        c.t -= dt
+        const dr = Math.exp(-dt * 5.5)
+        c.vx *= dr; c.vy *= dr; c.vr *= dr
+        c.x += c.vx * dt; c.y += c.vy * dt; c.rot += c.vr * dt
+      }
+      if (c.t <= 0) { krakenChunks.splice(i, 1); continue }
+      const al = Math.min(1, c.t / 0.3)
+      const cs = Math.cos(c.rot), sn = Math.sin(c.rot)
+      const poly = []
+      for (let m = 0; m < c.shape.length; m += 2) {
+        const px = c.shape[m] * c.r, py = c.shape[m + 1] * c.r
+        poly.push(c.x + px * cs - py * sn, c.y + px * sn + py * cs)
+      }
+      krakenSlabTopG.poly(poly).fill({ color: 0x3e3129, alpha: al })
+      krakenSlabTopG.poly(poly).stroke({ width: 3, color: 0xf0dcc0, alpha: al, join: 'miter' })
+    }
+  }
 
   function fitScreen() {
     const w = app.screen.width
@@ -24321,75 +24349,38 @@ const spurG = new Graphics()
           const nx = -uy, ny = ux
           krakenScars.push({ x0: lx0, y0: ly0, x1: lx1, y1: ly1, w: lw, t: K_SCAR_T, big: !!e.coil, cracks: krakenCrack(lx0, ly0, lx1, ly1, lw, !!e.coil) })
           if (krakenScars.length > 10) krakenScars.shift()
-          // dust is never thrown on top of the player: they have to stay findable in the blow
-          const clearOfPlayer = (x, y) => (x - run.player.x) ** 2 + (y - run.player.y) ** 2 > 90 * 90
-          // A COIL'S FIVE LASHES ARE ONE BLOW: coilClose carries the camera and the big burst, so each
-          // limb here only throws its own wall, thinner, to keep the particle budget for the middle.
-          // DIM AND OVERLAPPING, so the puffs merge into one cloud instead of reading as bubbles: a
-          // bright tint made every disc its own object. Born across the full width, thrown sideways.
-          const walls = e.coil ? 8 : 16
-          for (let i = 0; i < walls; i++) {
-            const t = 0.36 + Math.random() * 0.64
-            const side = Math.random() < 0.5 ? -1 : 1
-            const off = Math.random() * lw * side
-            const sx = lx0 + (lx1 - lx0) * t + nx * off, sy = ly0 + (ly1 - ly0) * t + ny * off
-            const sp = 60 + Math.random() * 150
-            const along = (Math.random() - 0.5) * 50
-            if (clearOfPlayer(sx, sy)) spawnParticle(T.fx.circle_05, sx, sy, nx * side * sp + ux * along, ny * side * sp + uy * along,
-              0.6 + Math.random() * 0.35, 0.10 + Math.random() * 0.06, 0x3c4a53, 0.35, 3.0)
-          }
-          // chips of the seabed kicked straight up off the spine, bright for a frame
-          for (let i = 0; i < (e.coil ? 3 : 8); i++) {
-            const t = 0.45 + Math.random() * 0.55
-            const a = Math.random() * Math.PI * 2
-            const sp = 160 + Math.random() * 220
-            spawnParticle(T.fx.star_08, lx0 + (lx1 - lx0) * t, ly0 + (ly1 - ly0) * t,
-              Math.cos(a) * sp, Math.sin(a) * sp, 0.3, 0.05, 0xe6f2f8, -0.05, 2)
-          }
-          // DEBRIS: chunks of seabed thrown hard OUT of the line, both sides, fast and dragging to a
-          // stop — the part of a heavy blow that is thrown, which a flash alone never says
-          for (let i = 0; i < (e.coil ? 6 : 14); i++) {
-            const t = 0.4 + Math.random() * 0.6
-            const side = Math.random() < 0.5 ? -1 : 1
-            // born ON the struck edge, so the first frames already show them leaving the lane
-            const off = lw * (0.75 + Math.random() * 0.35)
-            const sx = lx0 + (lx1 - lx0) * t + nx * side * off
-            const sy = ly0 + (ly1 - ly0) * t + ny * side * off
-            const sp = 420 + Math.random() * 520
-            const a = Math.atan2(ny * side, nx * side) + (Math.random() - 0.5) * 1.0
-            spawnParticle(T.fx.circle_05, sx, sy, Math.cos(a) * sp, Math.sin(a) * sp,
-              0.45 + Math.random() * 0.3, 0.04 + Math.random() * 0.05, i % 3 ? 0xd9c3a0 : 0xffe0b8, -0.04, 4.0)
-          }
           // THE CONTACT POINT. A plain slam: where the struck line meets the ground nearest the
-          // player, the part of a long blow the eye is on. A Coil lane: its own tip, so the five
-          // slabs each land with their own burst. ONE bright hard-edged burst there (krakenBursts,
-          // over the limbs), one fast shockwave, and LARGE clumps of seabed thrown out from under
-          // the slab — a Cuphead barrel landing, where everything comes out from under the object.
+          // player, the part of a long blow the eye is on. A Coil lane: its own tip, so each slab
+          // lands with its own burst. What it leaves is MATTER, not light: one burst for a frame or
+          // two, a hard-edged dust ring, and a few big angular slabs of seabed thrown out from under
+          // the limb (krakenChunks) — soft round puffs read as bokeh, never as something broken.
           {
             const nc = krakenNearK(run, lx0, ly0, lx1, ly1, lw)
             const cx = e.coil ? e.x : nc.qx, cy = e.coil ? e.y : nc.qy
-            krakenBursts.push({ x: cx, y: cy, r: lw * (e.coil ? 0.55 : 0.8), t: K_BURST_T })
+            krakenBursts.push({ x: cx, y: cy, r: lw * (e.coil ? 0.5 : 0.7), t: K_BURST_T, ring: e.coil ? 0 : lw * 2.6 })
             if (krakenBursts.length > 8) krakenBursts.shift()
             krakenLandings.push({ x: cx, y: cy, t: KRAKEN_SLAM_T })
             if (krakenLandings.length > 8) krakenLandings.shift()
             const sc0 = krakenScars[krakenScars.length - 1]
             if (sc0) { sc0.cx = cx; sc0.cy = cy }
             if (e.coil) {
-              // from the head out to the far edge of the arena, not to the rim off-screen
               const far = Math.min(L, KRAKEN_CAGE_R * 1.6)
               krakenBlasts.push({ x0: lx1 - ux * far, y0: ly1 - uy * far, x1: lx1, y1: ly1, w: lw, t: K_BLAST_T })
               if (krakenBlasts.length > 8) krakenBlasts.shift()
             }
-            spawnRing(cx, cy, lw * (e.coil ? 2.2 : 3.4), 0.24, T.novaRing, 0xffffff)
-            for (let i = 0; i < (e.coil ? 10 : 12); i++) {
+            const n = e.coil ? 3 : 7
+            for (let i = 0; i < n; i++) {
               const side = i % 2 ? 1 : -1
-              const along = (Math.random() - 0.5) * lw * 1.6
+              const along = (Math.random() - 0.5) * lw * 1.4
               const a = Math.atan2(ny * side, nx * side) + (Math.random() - 0.5) * 0.9
-              const sp = 300 + Math.random() * 380
-              spawnParticle(T.fx.circle_05, cx + ux * along + nx * side * lw * 0.9, cy + uy * along + ny * side * lw * 0.9,
-                Math.cos(a) * sp, Math.sin(a) * sp, 0.55 + Math.random() * 0.3, 0.10 + Math.random() * 0.07,
-                i % 3 ? 0xe6dcc8 : 0xfff3e0, 0.1, 4.0)
+              const sp = 260 + Math.random() * 320
+              krakenChunks.push({
+                x: cx + ux * along + nx * side * lw * 0.7, y: cy + uy * along + ny * side * lw * 0.7,
+                vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, rot: Math.random() * 6.28, vr: (Math.random() - 0.5) * 9,
+                r: (i < 2 ? 26 : 13) + Math.random() * 8, t: K_CHUNK_T, shape: krakenChunkShape(),
+              })
             }
+            while (krakenChunks.length > 40) krakenChunks.shift()
           }
           if (!e.coil) {
             const nk = krakenNearK(run, lx0, ly0, lx1, ly1, lw)
@@ -24480,17 +24471,9 @@ const spurG = new Graphics()
           // under the blow — it has no side, it is everywhere but the gap), a shock ring racing out
           // across the arena floor, and a collar of silt thrown up where the arms met.
           spawnRing(e.x, e.y, e.r * 2.6, 0.62, T.novaRing, 0xffb080)
-          krakenBlasts.push({ disc: true, x0: e.x, y0: e.y, w: KRAKEN_HEAD_R * 1.2, t: K_BLAST_T })
+          krakenDim = K_DIM_T
           spawnRing(e.x, e.y, e.r * 1.4, 0.34, T.novaRing, 0xffffff)
           spawnRing(e.x, e.y, e.r * 0.5, 0.26, T.novaWarm, 0xdff4ff)
-          for (let i = 0; i < 40; i++) {
-            const a = (i / 40) * Math.PI * 2 + Math.random() * 0.12
-            const r0 = KRAKEN_HEAD_R * (0.6 + Math.random() * 0.5)
-            const sp = 200 + Math.random() * 260
-            if ((e.x + Math.cos(a) * r0 - run.player.x) ** 2 + (e.y + Math.sin(a) * r0 - run.player.y) ** 2 < 90 * 90) continue
-            spawnParticle(T.fx.circle_05, e.x + Math.cos(a) * r0, e.y + Math.sin(a) * r0,
-              Math.cos(a) * sp, Math.sin(a) * sp, 0.8 + Math.random() * 0.3, 0.12 + Math.random() * 0.06, 0x4a5a64, 0.6, 2.6)
-          }
           addShakeScreen(0.05, 0.55)
           addKick(0, 1, 0.03)
           // the one full-field flash in the fight, and a dim one: the Coil comes once every
@@ -24542,6 +24525,9 @@ const spurG = new Graphics()
     krakenBursts.length = 0
     krakenLandings.length = 0
     krakenBlasts.length = 0
+    krakenChunks.length = 0
+    krakenDim = 0
+    krakenDimG.clear()
     krakenSlabG.clear()
     krakenSlabTopG.clear()
     krakenSlabHole.clear()
@@ -26116,6 +26102,8 @@ const spurG = new Graphics()
     krakenDangerLayer.position.set(cx * z, cy * z)
     krakenSlabTopLayer.scale.set(z)
     krakenSlabTopLayer.position.set(cx * z, cy * z)
+    krakenDimLayer.scale.set(z)
+    krakenDimLayer.position.set(cx * z, cy * z)
     playerScreen.x = (run.player.x + cx) * z
     playerScreen.y = (run.player.y + cy) * z
     updateGroundField(cx, cy)
