@@ -20306,6 +20306,8 @@ const spurG = new Graphics()
     drawKrakenStars(dt)
     drawKrakenGround(dt, run.player)
     drawKrakenBursts(dt)
+    drawKrakenPrints(dt)
+    drawKrakenSplashes(dt, run.player, 'under')
     krakenHold = 0
     const head = krakenHead
     const arms = head ? run.krakenArms.filter((a) => !a.dead || a.breakT > 0) : []
@@ -20697,12 +20699,12 @@ const spurG = new Graphics()
         const sq = a.coilArm ? 0 : Math.max(0, 1 - (KRAKEN_SLAM_T - a.slamT) / 0.18)
         const near = (q) => Math.exp(-(((rig.pts[q].x - cxL) ** 2 + (rig.pts[q].y - cyL) ** 2) / ((hwS * 3.2) ** 2)))
         const wq = (q) => 1 + 0.6 * sq * near(q)
-        if (sq > 0) {
+        // PRESSED IN ALONG ITS WHOLE LENGTH: a hard black contact shadow down both sides of the landed
+        // limb, where it lies in the lit print, widest where it struck hardest
+        if (!a.coilArm) {
           for (let q = k0; q < K_ROPE_N - 1; q++) {
-            const nq = near(q)
-            if (nq < 0.08) continue
             krakenSlabTopG.moveTo(rig.pts[q].x, rig.pts[q].y).lineTo(rig.pts[q + 1].x, rig.pts[q + 1].y)
-              .stroke({ width: hwS * 2.4 * wq(q) + 26, color: 0x000000, alpha: 0.85 * nq * Math.min(1, sq * 2), cap: 'round' })
+              .stroke({ width: hwS * 2.4 * wq(q) + 9 + 12 * sq * near(q), color: 0x000000, alpha: 0.92 * hold, cap: 'round' })
           }
         }
         // the slab: an OPAQUE mass, hard pale rim, its body lit warm where the blow landed and
@@ -20871,7 +20873,7 @@ const spurG = new Graphics()
       krakenSlabTopG.poly(poly).stroke({ width: 5, color: 0xd8b888, alpha: 0.9, join: 'miter' })
     }
     drawKrakenChunks(dt)
-    drawKrakenSplashes(dt, run.player)
+    drawKrakenSplashes(0, run.player, 'over')
     // THE PLAYER, OUTLINED ON TOP, while anything Kraken is landing near them: a crisp dark-and-
     // light rim at the fish's own size, so no blow, slab or flash can ever make them hard to find
     if (krakenLandings.length || krakenDim > 0) {
@@ -23054,6 +23056,8 @@ const spurG = new Graphics()
   // frames — a white-hot core, a crown of sand and foam thrown out round it, and flecks flying clear.
   const krakenSplashes = []
   const K_SPLASH_T = 0.24
+  // the head's DRAWN body radius, a little over its hit radius: no splash matter is drawn inside it
+  const K_HEAD_CLEAR = KRAKEN_HEAD_R * 1.45
   // the broken ground it leaves (fissures, tipped plates) outlasts the flash
   const K_SPLASH_LIFE = 0.75
   // THE BLOW BREAKS THE SEABED ON ITS FIRST FRAME. Thrown along the limb's line, away from the head
@@ -23121,9 +23125,13 @@ const spurG = new Graphics()
     }
     return { x, y, lw, t: K_SPLASH_LIFE, sa, spikes, flecks, pit, cracks, plates, lumps, rocks }
   }
-  function drawKrakenSplashes(dt, pl0) {
+  // Two passes: 'under' is the ground (fissures, plates, plume, crater) and goes beneath the landed
+  // limb so the limb lies in it; 'over' is what flies (the burst, flecks, rock) and goes on top.
+  function drawKrakenSplashes(dt, pl0, pass) {
     const G = krakenSlabTopG
-    const clear = (x, y, r) => !pl0 || (x - pl0.x) ** 2 + (y - pl0.y) ** 2 > (34 + r) ** 2
+    const hd = krakenHead
+    const offHead = (x, y, r) => !hd || (x - hd.x) ** 2 + (y - hd.y) ** 2 > (K_HEAD_CLEAR + r) ** 2
+    const clear = (x, y, r) => (!pl0 || (x - pl0.x) ** 2 + (y - pl0.y) ** 2 > (34 + r) ** 2) && offHead(x, y, r)
     for (let i = krakenSplashes.length - 1; i >= 0; i--) {
       const sp = krakenSplashes[i]
       if (dt > 0) sp.t -= dt
@@ -23131,131 +23139,228 @@ const spurG = new Graphics()
       const age = K_SPLASH_LIFE - sp.t, e = Math.min(1, age / K_SPLASH_T), lw = sp.lw
       const out = 1 - Math.pow(1 - e, 3)
       const al = Math.min(1, sp.t / 0.3)
-      // the fissures, full length from the first frame: tapered black wedges, lit on one lip
-      for (const c of sp.cracks) {
-        const wedge = (pts, w0, ox, oy, color, alpha) => {
-          const n = pts.length / 2, L = [], R = []
-          for (let k = 0; k < n; k++) {
-            const k0 = Math.max(0, k - 1), k1 = Math.min(n - 1, k + 1)
-            let tx = pts[k1 * 2] - pts[k0 * 2], ty = pts[k1 * 2 + 1] - pts[k0 * 2 + 1]
-            const tl = Math.hypot(tx, ty) || 1
-            tx /= tl; ty /= tl
-            const hw = (w0 * (1 - k / (n - 1)) + 1) * 0.5
-            const x = sp.x + pts[k * 2] + ox, y = sp.y + pts[k * 2 + 1] + oy
-            L.push(x - ty * hw, y + tx * hw); R.unshift(x + ty * hw, y - tx * hw)
+      if (pass === 'under') {
+        // the fissures, full length from the first frame: tapered black wedges, lit on one lip
+        for (const c of sp.cracks) {
+          if (!offHead(sp.x + c.pts[c.pts.length - 2], sp.y + c.pts[c.pts.length - 1], 0)) continue
+          const wedge = (pts, w0, ox, oy, color, alpha) => {
+            const n = pts.length / 2, L = [], R = []
+            for (let k = 0; k < n; k++) {
+              const k0 = Math.max(0, k - 1), k1 = Math.min(n - 1, k + 1)
+              let tx = pts[k1 * 2] - pts[k0 * 2], ty = pts[k1 * 2 + 1] - pts[k0 * 2 + 1]
+              const tl = Math.hypot(tx, ty) || 1
+              tx /= tl; ty /= tl
+              const hw = (w0 * (1 - k / (n - 1)) + 1) * 0.5
+              const x = sp.x + pts[k * 2] + ox, y = sp.y + pts[k * 2 + 1] + oy
+              L.push(x - ty * hw, y + tx * hw); R.unshift(x + ty * hw, y - tx * hw)
+            }
+            G.poly(L.concat(R)).fill({ color, alpha })
           }
-          G.poly(L.concat(R)).fill({ color, alpha })
+          const fk = c.fork ? [c.pts[c.fork.k * 2], c.pts[c.fork.k * 2 + 1]] : null
+          const fpts = fk ? [fk[0], fk[1], fk[0] + Math.cos(c.fork.a) * c.fork.len * 0.5, fk[1] + Math.sin(c.fork.a) * c.fork.len * 0.5, fk[0] + Math.cos(c.fork.a + 0.2) * c.fork.len, fk[1] + Math.sin(c.fork.a + 0.2) * c.fork.len] : null
+          wedge(c.pts, c.w * 2.4, -3, -3, 0xe0c090, 0.8 * al)
+          if (fpts) wedge(fpts, c.w * 1.2, -3, -3, 0xe0c090, 0.8 * al)
+          wedge(c.pts, c.w * 2.4, 0, 0, 0x050302, al)
+          if (fpts) wedge(fpts, c.w * 1.2, 0, 0, 0x050302, al)
         }
-        const fk = c.fork ? [c.pts[c.fork.k * 2], c.pts[c.fork.k * 2 + 1]] : null
-        const fpts = fk ? [fk[0], fk[1], fk[0] + Math.cos(c.fork.a) * c.fork.len * 0.5, fk[1] + Math.sin(c.fork.a) * c.fork.len * 0.5, fk[0] + Math.cos(c.fork.a + 0.2) * c.fork.len, fk[1] + Math.sin(c.fork.a + 0.2) * c.fork.len] : null
-        wedge(c.pts, c.w * 2.4, -3, -3, 0xe0c090, 0.8 * al)
-        if (fpts) wedge(fpts, c.w * 1.2, -3, -3, 0xe0c090, 0.8 * al)
-        wedge(c.pts, c.w * 2.4, 0, 0, 0x050302, al)
-        if (fpts) wedge(fpts, c.w * 1.2, 0, 0, 0x050302, al)
-      }
-      // plates of seabed tipped up: a black underside showing on the outer edge, a lit sand face
-      const tip = Math.min(1, age / 0.03)
-      for (const p of sp.plates) {
-        const d = p.d + lw * 0.12 * tip
-        const px = sp.x + Math.cos(p.a) * d, py = sp.y + Math.sin(p.a) * d
-        if (!clear(px, py, p.r * 0.5)) continue
-        const cs = Math.cos(p.rot), sn = Math.sin(p.rot)
-        const poly = (ox, oy, k) => {
-          const pp = []
-          for (let m = 0; m < p.shape.length; m += 2) {
-            const qx = p.shape[m] * p.r * k, qy = p.shape[m + 1] * p.r
-            pp.push(px + ox + qx * cs - qy * sn, py + oy + qx * sn + qy * cs)
+        // plates of seabed tipped up: a black underside showing on the outer edge, a lit sand face
+        const tip = Math.min(1, age / 0.03)
+        for (const p of sp.plates) {
+          const d = p.d + lw * 0.12 * tip
+          const px = sp.x + Math.cos(p.a) * d, py = sp.y + Math.sin(p.a) * d
+          if (!clear(px, py, p.r * 0.5)) continue
+          const cs = Math.cos(p.rot), sn = Math.sin(p.rot)
+          const poly = (ox, oy, k) => {
+            const pp = []
+            for (let m = 0; m < p.shape.length; m += 2) {
+              const qx = p.shape[m] * p.r * k, qy = p.shape[m + 1] * p.r
+              pp.push(px + ox + qx * cs - qy * sn, py + oy + qx * sn + qy * cs)
+            }
+            return pp
           }
-          return pp
+          const lift = p.r * 0.35 * tip
+          G.poly(poly(Math.cos(p.a) * lift, Math.sin(p.a) * lift, 1)).fill({ color: 0x0a0604, alpha: al })
+          G.poly(poly(0, 0, 1 - 0.25 * tip)).fill({ color: 0xa88a60, alpha: al })
+          G.poly(poly(0, 0, 1 - 0.25 * tip)).stroke({ width: 3, color: 0xe8d0a0, alpha: al, join: 'miter' })
         }
-        const lift = p.r * 0.35 * tip
-        G.poly(poly(Math.cos(p.a) * lift, Math.sin(p.a) * lift, 1)).fill({ color: 0x0a0604, alpha: al })
-        G.poly(poly(0, 0, 1 - 0.25 * tip)).fill({ color: 0xa88a60, alpha: al })
-        G.poly(poly(0, 0, 1 - 0.25 * tip)).stroke({ width: 3, color: 0xe8d0a0, alpha: al, join: 'miter' })
-      }
-      // the burst goes under the matter, so the sand and rock read as thrown THROUGH the flash
-      if (age < K_SPLASH_T) {
-        // the burst: ragged, skewed hard along the throw
-        const g = Math.min(1, age / 0.04)
-        const ca = age < 0.1 ? 1 : Math.max(0, 1 - (age - 0.1) / 0.12)
-        if (ca > 0) {
-          const pts = []
-          for (let k = 0; k < sp.spikes.length; k++) {
-            const s0 = sp.spikes[k], s1 = sp.spikes[(k + 1) % sp.spikes.length]
-            const ro = lw * (0.45 + 0.4 * g) * s0.len
-            pts.push(sp.x + Math.cos(s0.a) * ro, sp.y + Math.sin(s0.a) * ro)
-            const am = s0.a + (((s1.a - s0.a) + Math.PI * 4) % (Math.PI * 2)) * 0.5
-            const ri = lw * (s0.ri + 0.2 * g)
-            pts.push(sp.x + Math.cos(am) * ri, sp.y + Math.sin(am) * ri)
+        // the sand plume: opaque, lumpy, rolling out along the throw and settling
+        const pa = age < 0.3 ? 1 : Math.max(0, 1 - (age - 0.3) / 0.3)
+        if (pa > 0) {
+          const grow = 1 - Math.exp(-age / 0.07)
+          for (const L of sp.lumps) {
+            const d = L.d * (0.35 + 0.6 * grow), r = L.r * (0.45 + 0.3 * grow)
+            if (!offHead(sp.x + Math.cos(L.a) * d, sp.y + Math.sin(L.a) * d, r)) continue
+            G.circle(sp.x + Math.cos(L.a) * d + 4, sp.y + Math.sin(L.a) * d + 6, r + 3).fill({ color: 0x1a120a, alpha: 0.9 * pa })
+            G.circle(sp.x + Math.cos(L.a) * d, sp.y + Math.sin(L.a) * d, r + 3).fill({ color: 0x5a3e22, alpha: pa })
           }
-          G.poly(pts).fill({ color: 0xfff8ea, alpha: 0.95 * ca })
-          G.poly(pts).stroke({ width: 4, color: 0xff9a2e, alpha: ca, join: 'miter' })
-        }
-      }
-      // the sand plume: opaque, lumpy, rolling out along the throw and settling
-      const pa = age < 0.3 ? 1 : Math.max(0, 1 - (age - 0.3) / 0.3)
-      if (pa > 0) {
-        const grow = 1 - Math.exp(-age / 0.07)
-        for (const L of sp.lumps) {
-          const d = L.d * (0.45 + 0.75 * grow), r = L.r * (0.7 + 0.5 * grow)
-          G.circle(sp.x + Math.cos(L.a) * d + 4, sp.y + Math.sin(L.a) * d + 6, r + 3).fill({ color: 0x1a120a, alpha: 0.9 * pa })
-          G.circle(sp.x + Math.cos(L.a) * d, sp.y + Math.sin(L.a) * d, r + 3).fill({ color: 0x5a3e22, alpha: pa })
-        }
-        for (const L of sp.lumps) {
-          const d = L.d * (0.45 + 0.75 * grow), r = L.r * (0.7 + 0.5 * grow)
-          const x = sp.x + Math.cos(L.a) * d, y = sp.y + Math.sin(L.a) * d
-          G.circle(x, y, r).fill({ color: L.c, alpha: pa })
-          G.circle(x - r * 0.25, y - r * 0.25, r * 0.45).fill({ color: 0xf0dcb0, alpha: 0.6 * pa })
-        }
-      }
-      if (age < K_SPLASH_T) {
-        // the crater it punches
-        const pr = lw * (0.22 + 0.4 * Math.min(1, age / 0.06))
-        if (age > 0.012) {
-          const pp = []
-          for (let m = 0; m < sp.pit.length; m += 2) pp.push(sp.x + sp.pit[m] * pr, sp.y + sp.pit[m + 1] * pr)
-          G.poly(pp).fill({ color: 0x050302, alpha: 1 })
-          G.poly(pp).stroke({ width: 4, color: 0xffd9a0, alpha: 1, join: 'miter' })
-        }
-        // the white-hot core, small and hard
-        const cr = lw * 0.28 * (age < 0.04 ? 1 : Math.max(0, 1 - (age - 0.04) / 0.06))
-        if (cr > 1) {
-          G.circle(sp.x, sp.y, cr + 5).fill({ color: 0xffc23a, alpha: 1 })
-          G.circle(sp.x, sp.y, cr).fill({ color: 0xffffff, alpha: 1 })
-        }
-        const fa = e < 0.7 ? 1 : (1 - e) / 0.3
-        for (const f of sp.flecks) {
-          const d = lw * 0.4 + (f.d - lw * 0.4) * out
-          const x = sp.x + Math.cos(f.a) * d, y = sp.y + Math.sin(f.a) * d
-          if (f.drop) { G.circle(x, y, f.w * 0.9).fill({ color: f.c, alpha: fa }); continue }
-          const tl = (14 + 34 * (1 - e)) * (0.6 + f.w / 12)
-          G.moveTo(x - Math.cos(f.a) * tl, y - Math.sin(f.a) * tl).lineTo(x, y).stroke({ width: f.w, color: f.c, alpha: fa, cap: 'round' })
-        }
-      }
-      // rock chunks in the air from the first frame, streaking out and dropping
-      const ra = age < 0.45 ? 1 : Math.max(0, 1 - (age - 0.45) / 0.2)
-      if (ra > 0) {
-        const fly = 1 - Math.exp(-age / 0.09)
-        const v = Math.exp(-age / 0.09)
-        for (const r of sp.rocks) {
-          const d = r.d0 + (r.d1 - r.d0) * fly
-          const x = sp.x + Math.cos(r.a) * d, y = sp.y + Math.sin(r.a) * d
-          if (!clear(x, y, r.r)) continue
-          const k = 1 + 0.35 * Math.sin(Math.min(1, age / 0.5) * Math.PI)
-          const tl = (r.d1 - r.d0) * v * 0.45
-          if (tl > 4) {
-            G.moveTo(x - Math.cos(r.a) * (tl + r.r), y - Math.sin(r.a) * (tl + r.r)).lineTo(x, y)
-              .stroke({ width: r.r * 0.8, color: 0x9a7a50, alpha: 0.6 * ra, cap: 'round' })
+          for (const L of sp.lumps) {
+            const d = L.d * (0.35 + 0.6 * grow), r = L.r * (0.45 + 0.3 * grow)
+            const x = sp.x + Math.cos(L.a) * d, y = sp.y + Math.sin(L.a) * d
+            if (!offHead(x, y, r)) continue
+            G.circle(x, y, r).fill({ color: L.c, alpha: pa })
+            G.circle(x - r * 0.25, y - r * 0.25, r * 0.45).fill({ color: 0xf0dcb0, alpha: 0.6 * pa })
           }
-          const rot = r.rot + r.vr * age, cs = Math.cos(rot), sn = Math.sin(rot)
-          const pp = []
-          for (let m = 0; m < r.shape.length; m += 2) {
-            const qx = r.shape[m] * r.r * k, qy = r.shape[m + 1] * r.r * k
-            pp.push(x + qx * cs - qy * sn, y + qx * sn + qy * cs)
-          }
-          G.poly(pp).fill({ color: 0x2a2019, alpha: ra })
-          G.poly(pp).stroke({ width: 2.5, color: 0xb89c70, alpha: ra, join: 'miter' })
         }
+        if (age < K_SPLASH_T) {
+          // the crater it punches
+          const pr = lw * (0.22 + 0.4 * Math.min(1, age / 0.06))
+          if (age > 0.012) {
+            const pp = []
+            for (let m = 0; m < sp.pit.length; m += 2) pp.push(sp.x + sp.pit[m] * pr, sp.y + sp.pit[m + 1] * pr)
+            G.poly(pp).fill({ color: 0x050302, alpha: 1 })
+            G.poly(pp).stroke({ width: 4, color: 0xffd9a0, alpha: 1, join: 'miter' })
+          }
+        }
+      } else {
+        // the burst: over the limb, small — the limb and the lane carry the size of the blow
+        if (age < K_SPLASH_T) {
+          // the burst: ragged, skewed hard along the throw
+          const g = Math.min(1, age / 0.04)
+          const ca = age < 0.1 ? 1 : Math.max(0, 1 - (age - 0.1) / 0.12)
+          if (ca > 0) {
+            const pts = []
+            for (let k = 0; k < sp.spikes.length; k++) {
+              const s0 = sp.spikes[k], s1 = sp.spikes[(k + 1) % sp.spikes.length]
+              const ro = lw * (0.28 + 0.24 * g) * s0.len
+              pts.push(sp.x + Math.cos(s0.a) * ro, sp.y + Math.sin(s0.a) * ro)
+              const am = s0.a + (((s1.a - s0.a) + Math.PI * 4) % (Math.PI * 2)) * 0.5
+              const ri = lw * (s0.ri + 0.2 * g) * 0.6
+              pts.push(sp.x + Math.cos(am) * ri, sp.y + Math.sin(am) * ri)
+            }
+            G.poly(pts).fill({ color: 0xfff8ea, alpha: 0.95 * ca })
+            G.poly(pts).stroke({ width: 4, color: 0xff9a2e, alpha: ca, join: 'miter' })
+          }
+        }
+        if (age < K_SPLASH_T) {
+          // the white-hot core, small and hard
+          const cr = lw * 0.28 * (age < 0.04 ? 1 : Math.max(0, 1 - (age - 0.04) / 0.06))
+          if (cr > 1) {
+            G.circle(sp.x, sp.y, cr + 5).fill({ color: 0xffc23a, alpha: 1 })
+            G.circle(sp.x, sp.y, cr).fill({ color: 0xffffff, alpha: 1 })
+          }
+          const fa = e < 0.7 ? 1 : (1 - e) / 0.3
+          for (const f of sp.flecks) {
+            const d = lw * 0.4 + (f.d - lw * 0.4) * out
+            const x = sp.x + Math.cos(f.a) * d, y = sp.y + Math.sin(f.a) * d
+            if (f.drop) { G.circle(x, y, f.w * 0.9).fill({ color: f.c, alpha: fa }); continue }
+            const tl = (14 + 34 * (1 - e)) * (0.6 + f.w / 12)
+            G.moveTo(x - Math.cos(f.a) * tl, y - Math.sin(f.a) * tl).lineTo(x, y).stroke({ width: f.w, color: f.c, alpha: fa, cap: 'round' })
+          }
+        }
+        // rock chunks in the air from the first frame, streaking out and dropping
+        const ra = age < 0.45 ? 1 : Math.max(0, 1 - (age - 0.45) / 0.2)
+        if (ra > 0) {
+          const fly = 1 - Math.exp(-age / 0.09)
+          const v = Math.exp(-age / 0.09)
+          for (const r of sp.rocks) {
+            const d = r.d0 + (r.d1 - r.d0) * fly
+            const x = sp.x + Math.cos(r.a) * d, y = sp.y + Math.sin(r.a) * d
+            if (!clear(x, y, r.r)) continue
+            const k = 1 + 0.35 * Math.sin(Math.min(1, age / 0.5) * Math.PI)
+            const tl = (r.d1 - r.d0) * v * 0.45
+            if (tl > 4) {
+              G.moveTo(x - Math.cos(r.a) * (tl + r.r), y - Math.sin(r.a) * (tl + r.r)).lineTo(x, y)
+                .stroke({ width: r.r * 0.8, color: 0x9a7a50, alpha: 0.6 * ra, cap: 'round' })
+            }
+            const rot = r.rot + r.vr * age, cs = Math.cos(rot), sn = Math.sin(rot)
+            const pp = []
+            for (let m = 0; m < r.shape.length; m += 2) {
+              const qx = r.shape[m] * r.r * k, qy = r.shape[m + 1] * r.r * k
+              pp.push(x + qx * cs - qy * sn, y + qx * sn + qy * cs)
+            }
+            G.poly(pp).fill({ color: 0x2a2019, alpha: ra })
+            G.poly(pp).stroke({ width: 2.5, color: 0xb89c70, alpha: ra, join: 'miter' })
+          }
+        }
+      }
+    }
+  }
+  // THE STRUCK LANE, FILLED: the frame a plain slam lands, the whole struck capsule (rim to the head's
+  // mantle) is one solid white-hot shape with a hard black lip, cooling to orange and gone by
+  // K_PRINT_HOT; the trench and cracks the limb drove into it stay to K_PRINT_T. Drawn UNDER the
+  // landed limb, so the limb lies in it.
+  const krakenPrints = []
+  const K_PRINT_HOT = 0.25
+  const K_PRINT_T = 0.7
+  function krakenPrint(x0, y0, x1, y1, w) {
+    const L = Math.hypot(x1 - x0, y1 - y0) || 1
+    const ux = (x1 - x0) / L, uy = (y1 - y0) / L
+    const nx = -uy, ny = ux
+    // the WHOLE struck segment, rim to mantle: past the cage wall it is ground no player can reach,
+    // but it is where the limb lies, and the print is the picture of the limb's footprint
+    const reach = L
+    // it ends where the head's drawn body begins, measured off the head where it IS
+    const hd = krakenHead
+    let stop = 0
+    if (hd) while (stop < reach - w && (x1 - ux * stop - hd.x) ** 2 + (y1 - uy * stop - hd.y) ** 2 < (K_HEAD_CLEAR * 0.7) ** 2) stop += 4
+    const ax = x1 - ux * reach, ay = y1 - uy * reach
+    const bx = x1 - ux * stop, by = y1 - uy * stop
+    const len = reach - stop
+    // the lane's two edges, broken: the ground gave way unevenly along the whole length
+    const edge = (side) => {
+      const pts = [], n = 16
+      for (let k = 0; k <= n; k++) {
+        const t = k / n
+        const j = (k === 0 || k === n) ? 0 : (Math.random() - 0.3) * w * 0.16
+        pts.push(ax + ux * len * t + nx * side * (w + j), ay + uy * len * t + ny * side * (w + j))
+      }
+      return pts
+    }
+    const eL = edge(1), eR = edge(-1)
+    // cracks: a jagged spine down the trench, and short ones breaking out through both edges
+    const cracks = []
+    const spine = [], ns = 12
+    for (let k = 0; k <= ns; k++) {
+      const t = k / ns, j = (Math.random() - 0.5) * w * 0.35
+      spine.push(ax + ux * len * t + nx * j, ay + uy * len * t + ny * j)
+    }
+    cracks.push({ pts: spine, w: 7 })
+    for (let b = 0; b < 12; b++) {
+      const t = (b + 0.3 + Math.random() * 0.4) / 12
+      const side = b % 2 ? 1 : -1
+      const px = ax + ux * len * t + nx * side * w * 0.3, py = ay + uy * len * t + ny * side * w * 0.3
+      const a = Math.atan2(ny * side, nx * side) + (Math.random() - 0.5) * 0.9
+      const cl = w * (1.0 + Math.random() * 0.9)
+      const mx = px + Math.cos(a) * cl * 0.5 + (Math.random() - 0.5) * 10, my = py + Math.sin(a) * cl * 0.5 + (Math.random() - 0.5) * 10
+      cracks.push({ pts: [px, py, mx, my, px + Math.cos(a + (Math.random() - 0.5) * 0.5) * cl, py + Math.sin(a + (Math.random() - 0.5) * 0.5) * cl], w: 4 + Math.random() * 3 })
+    }
+    const outline = eL.slice()
+    for (let k = eR.length - 2; k >= 0; k -= 2) outline.push(eR[k], eR[k + 1])
+    return { ax, ay, bx, by, nx, ny, w, outline, cracks, t: K_PRINT_T }
+  }
+  function drawKrakenPrints(dt) {
+    const G = krakenSlabTopG
+    for (let i = krakenPrints.length - 1; i >= 0; i--) {
+      const pr = krakenPrints[i]
+      if (dt > 0) pr.t -= dt
+      if (pr.t <= 0) { krakenPrints.splice(i, 1); continue }
+      const age = K_PRINT_T - pr.t
+      const al = Math.min(1, pr.t / 0.25)
+      const outline = pr.outline
+      // the hot fill: white-hot for its first frames, cooling to orange, then gone
+      const hot = age < 0.06 ? 1 : Math.max(0, 1 - (age - 0.06) / (K_PRINT_HOT - 0.06))
+      if (hot > 0) {
+        const c = age < 0.06 ? 0xffe8a4 : mix(0xff6a14, 0xffe8a4, hot)
+        G.poly(outline).fill({ color: 0x000000, alpha: 0.9 * hot })
+        G.poly(outline).stroke({ width: 16, color: 0x000000, alpha: 0.85 * hot, join: 'miter' })
+        G.poly(outline).fill({ color: c, alpha: Math.min(1, 0.35 + hot) })
+        G.poly(outline).stroke({ width: 5, color: 0x1a0a02, alpha: hot, join: 'miter' })
+      }
+      // the trench the limb drove down the lane: dark, lit on one lip, outlasting the heat
+      const tw = pr.w * 0.62
+      const tr = [
+        pr.ax + pr.nx * tw, pr.ay + pr.ny * tw, pr.bx + pr.nx * tw, pr.by + pr.ny * tw,
+        pr.bx - pr.nx * tw, pr.by - pr.ny * tw, pr.ax - pr.nx * tw, pr.ay - pr.ny * tw,
+      ]
+      const ta = age < 0.03 ? 0 : al
+      if (ta > 0) {
+        G.poly(tr).fill({ color: 0x140804, alpha: (0.55 + 0.35 * (1 - hot)) * ta })
+        G.moveTo(tr[0], tr[1]).lineTo(tr[2], tr[3]).stroke({ width: 4, color: 0xf0d2a0, alpha: 0.85 * ta })
+      }
+      for (const c of pr.cracks) {
+        G.moveTo(c.pts[0], c.pts[1])
+        for (let m = 2; m < c.pts.length; m += 2) G.lineTo(c.pts[m], c.pts[m + 1])
+        G.stroke({ width: c.w, color: 0x050201, alpha: al, join: 'miter', cap: 'round' })
       }
     }
   }
@@ -25211,10 +25316,23 @@ const spurG = new Graphics()
           // lands with its own burst. What it leaves is MATTER, not light: one burst for a frame or
           // two, a hard-edged dust ring, and a few big angular slabs of seabed thrown out from under
           // the limb (krakenChunks) — soft round puffs read as bokeh, never as something broken.
+          //   NEVER ON THE FACE: a plain slam's contact is pushed down the lane until the splash clears
+          // the head's drawn body (K_HEAD_CLEAR), or the plume and rock paint over the Kraken itself.
           {
             const nc = krakenNearK(run, lx0, ly0, lx1, ly1, lw)
-            const cx = e.coil ? e.x : nc.qx, cy = e.coil ? e.y : nc.qy
-            krakenBursts.push({ x: cx, y: cy, r: Math.min(lw * (e.coil ? 0.5 : 0.7), Math.max(10, Math.hypot(cx - run.player.x, cy - run.player.y) - 40)), t: K_BURST_T, ring: e.coil ? 0 : lw * 6.5 })
+            let cx = e.coil ? e.x : nc.qx, cy = e.coil ? e.y : nc.qy
+            const hc = krakenHead
+            if (!e.coil && hc) {
+              let back = (lx1 - cx) * ux + (ly1 - cy) * uy
+              while (back < L && (cx - hc.x) ** 2 + (cy - hc.y) ** 2 < (K_HEAD_CLEAR + lw * 0.8) ** 2) {
+                back += 4; cx = lx1 - ux * back; cy = ly1 - uy * back
+              }
+            }
+            krakenBursts.push({ x: cx, y: cy, r: Math.min(lw * (e.coil ? 0.5 : 0.4), Math.max(10, Math.hypot(cx - run.player.x, cy - run.player.y) - 40)), t: K_BURST_T, ring: 0 })
+            if (!e.coil) {
+              krakenPrints.push(krakenPrint(lx0, ly0, lx1, ly1, lw))
+              if (krakenPrints.length > 4) krakenPrints.shift()
+            }
             if (krakenBursts.length > 8) krakenBursts.shift()
             krakenLandings.push({ x: cx, y: cy, t: KRAKEN_SLAM_T })
             if (!e.coil) {
@@ -25230,7 +25348,7 @@ const spurG = new Graphics()
             // a REAL hole: up to three limb-widths across. It may reach the player — the holes in
             // the light layers keep the fish drawn clean on top of it
             const gr = e.coil ? lw * 1.3 : Math.max(lw * 1.6, Math.min(lw * 3.2, pd * 1.6))
-            if (!onBody) {
+            if (!onBody && e.coil) {
               krakenGround.push(krakenGroundPatch(cx, cy, gr))
               if (krakenGround.length > 8) krakenGround.shift()
             }
@@ -25400,6 +25518,7 @@ const spurG = new Graphics()
     krakenScars.length = 0
     krakenBursts.length = 0
     krakenSplashes.length = 0
+    krakenPrints.length = 0
     krakenLandings.length = 0
     krakenBlasts.length = 0
     krakenChunks.length = 0
