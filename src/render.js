@@ -12689,6 +12689,8 @@ const spurG = new Graphics()
   let punchZ = 1
   const punch = { t: 0, amp: 0, x: 0, y: 0, pan: 0.5 }
   const K_PUNCH_IN = 0.033, K_PUNCH_OUT = 0.35
+  // a plain slam's punch-in frames about this many lane widths across the screen at its peak
+  const K_PUNCH_VIEW_LW = 13
   const camZoom = () => mapZoom * fightZoom * cerZoom * punchZ
   const viewW = () => app.screen.width / camZoom()
   const viewH = () => app.screen.height / camZoom()
@@ -20786,7 +20788,6 @@ const spurG = new Graphics()
           const shp = spts.map((q) => ({ x: q.x + 7, y: q.y + 10 }))
           // pressed in: a hard black contact shadow, tight and a little wider than the flesh
           limbRibbon(krakenSlabTopG, shp, K_ROPE_N, (t) => hwQ(t) * 1.12 + 4, 0xffffff, skin, 0.7 * hold, 0x000000)
-          if (pan > 0.15) limbRibbon(krakenSlabTopG, spts, K_ROPE_N, (t) => hwQ(t) + 9, 0xffffff, skin, Math.min(1, pan), 0xfff0d8)
           limbRibbon(krakenSlabTopG, spts, K_ROPE_N, hwQ, 0x5d5470, skin)
           // THE FIST, FLATTENED: the splayed stretch drawn again, lit — the blow's light on the flesh
           // pressed out flat, rimmed hard, so the pancake reads against the dark limb it belongs to
@@ -22163,6 +22164,8 @@ const spurG = new Graphics()
         krakenHitDimG.rect(run.player.x - vw, run.player.y - vh, vw * 2, vh * 2).fill({ color: 0x000000, alpha: 0.7 * k })
         krakenHitDimHole.circle(hd.x, hd.y, ro).fill({ color: 0xffffff })
         krakenHitDimHole.circle(run.player.x, run.player.y, 36).fill({ color: 0xffffff })
+        // the head stays under the veil even where the hole reaches it: the blow is the only lit thing
+        if (krakenHead) for (const rk of [1.1, 0.95, 0.8, 0.65]) krakenHitDimRampG.circle(krakenHead.x, krakenHead.y, K_HEAD_CLEAR * rk).fill({ color: 0x000000, alpha: 0.2 * k })
         for (let m = 0; m < n; m++) {
           krakenHitDimRampG.circle(hd.x, hd.y, hd.r + bw * (m + 0.5)).stroke({ width: bw, color: 0x000000, alpha: 0.7 * k * (m + 0.5) / n })
         }
@@ -23424,7 +23427,7 @@ const spurG = new Graphics()
         // crater. Paints over any other limb crossing the spot, so only the fist is there.
         const lit = age < 0.09 ? 1 : Math.max(0, 1 - (age - 0.09) / 0.4)
         if (lit > 0) {
-          const R = lw * 3.7, NA = 48, rad = []
+          const R = lw * 4.2, NA = 48, rad = []
           for (let m = 0; m < NA; m++) {
             const t = (m / NA) * Math.PI * 2
             let r = R * sp.edge[m]
@@ -23441,8 +23444,8 @@ const spurG = new Graphics()
           }
           // no rim: the outer bands are faint and dark, so the patch fades into the floor; the sand
           // is brightest in a ring round the bowl, and the bowl under the fist is the darkest spot
-          const bands = [[1, 0x2a2016, 0.2], [0.9, 0x44341f, 0.35], [0.8, 0x6a5034, 0.55], [0.7, 0x957249, 0.8],
-            [0.6, 0xb89160, 0.95], [0.48, 0xcaa36e, 1], [0.34, 0x7a5c3e, 1], [0.26, 0x2a1d12, 1]]
+          const bands = [[1, 0x3a2c1e, 0.35], [0.9, 0x6a5034, 0.65], [0.8, 0x9a774a, 0.9], [0.68, 0xc49c66, 1],
+            [0.55, 0xdcb77e, 1], [0.42, 0xecce98, 1], [0.3, 0x8a6a48, 1], [0.24, 0x2a1d12, 1]]
           for (const [k, c, a2] of bands) G.poly(disc(k)).fill({ color: c, alpha: a2 * lit })
           for (const d of sp.dust) {
             const tip = lw * d.len, r0 = lw * 0.85
@@ -23540,7 +23543,7 @@ const spurG = new Graphics()
             pp.push(x + qx * cs - qy * sn, y + qx * sn + qy * cs)
           }
           G.poly(pp).fill({ color: 0x2a2019, alpha: fa })
-          G.poly(pp).stroke({ width: 3, color: 0xc9a36a, alpha: fa, join: 'miter' })
+          G.poly(pp).stroke({ width: 3, color: 0xfff0cc, alpha: fa, join: 'miter' })
         }
       } else if (pass === 'top') {
         // THE FIST SITS IN THE GROUND: the crater's near lip is drawn over its lower edge — a thick
@@ -23560,7 +23563,7 @@ const spurG = new Graphics()
         G.poly(band).stroke({ width: 3, color: 0x050302, alpha: al, join: 'miter' })
         let pen = false
         for (let m = 0; m < arc.length; m += 2) { if (pen) G.lineTo(arc[m], arc[m + 1]); else G.moveTo(arc[m], arc[m + 1]); pen = true }
-        G.stroke({ width: 4, color: 0xd8b07a, alpha: al, cap: 'round' })
+        G.stroke({ width: 6, color: 0xfff0cc, alpha: al, cap: 'round' })
         for (const pl of sp.plates) {
           const t = pl.a, cx = sp.x + Math.cos(t) * lx * pl.d, cy = sp.y + Math.sin(t) * ly * pl.d
           if (!offHead(cx, cy, 0)) continue
@@ -23573,6 +23576,7 @@ const spurG = new Graphics()
           G.poly([q[0], q[1], q[2], q[3], q[2], q[3] + h * 0.35, q[0], q[1] + h * 0.35]).fill({ color: 0x120b06, alpha: al })
           G.poly(q).fill({ color: pl.c, alpha: al })
           G.poly(q).stroke({ width: 3, color: 0x050302, alpha: al, join: 'miter' })
+          G.moveTo(q[6], q[7]).lineTo(q[4], q[5]).stroke({ width: 4, color: 0xfff0cc, alpha: al, cap: 'round' })
         }
         // THE BIG CHUNKS: slabs of seabed half the fist's width, thrown clear past the burst
         for (const q of sp.chunks) {
@@ -23599,7 +23603,8 @@ const spurG = new Graphics()
             const qx = q.shape[m] * r * 0.62, qy = q.shape[m + 1] * r * 0.62 - r * 0.18
             tp.push(x + qx * cs - qy * sn, y + qx * sn + qy * cs)
           }
-          G.poly(tp).fill({ color: 0xc9a36a, alpha: fa })
+          G.poly(tp).fill({ color: 0xe8c894, alpha: fa })
+          G.poly(tp).stroke({ width: 3, color: 0xfff0cc, alpha: fa, join: 'miter' })
         }
       }
     }
@@ -26143,7 +26148,7 @@ const spurG = new Graphics()
               const hh = krakenHead
               const away = hh ? Math.sign((cx - hh.x) * ux + (cy - hh.y) * uy) || 1 : 1
               krakenSplashes.push(krakenSplash(cx, cy, lw, ux, uy, ux * away, uy * away))
-              krakenHitDim = { x: cx, y: cy, r: lw * 2.3, t: K_HITDIM_T }
+              krakenHitDim = { x: cx, y: cy, r: lw * 3.0, t: K_HITDIM_T }
               if (krakenSplashes.length > 4) krakenSplashes.shift()
             }
             const hd = krakenHead
@@ -26189,7 +26194,7 @@ const spurG = new Graphics()
               // THE SHOT IS THE CONTACT: the punch centres on the splash, a little past it away from the
               // head, and pans all the way there — the ground round the fist is the frame, the head its edge
               const spl = krakenSplashes[krakenSplashes.length - 1]
-              if (spl && spl.t > K_SPLASH_LIFE - 0.001) addPunch(0.2 * nk.k, spl.x + Math.cos(spl.sa) * spl.lw * 1.0, spl.y + Math.sin(spl.sa) * spl.lw * 1.0, 1)
+              if (spl && spl.t > K_SPLASH_LIFE - 0.001) addPunch(Math.max(0.2 * nk.k, app.screen.width / (mapZoom * fightZoom * cerZoom) / (spl.lw * K_PUNCH_VIEW_LW) - 1), spl.x + Math.cos(spl.sa) * spl.lw * 1.0, spl.y + Math.sin(spl.sa) * spl.lw * 1.0, 1)
               else addPunch(0.09 * nk.k, nk.qx, nk.qy)
               addKick(run.player.x - nk.qx, run.player.y - nk.qy, 0.008 * nk.k)
               if (nk.k >= 1) {
