@@ -20944,7 +20944,10 @@ const spurG = new Graphics()
     const at = (a, b) => [ex + sx[0] * a - sy[0] * b, ey + sx[1] * a - sy[1] * b]
     const pain = st.pain || 0, blink = st.blink || 0
     const stun = (st.stun || 0) * (1 - Math.min(1, pain * 1.5)) // a hit through a stagger still HURTS
-    const glare = Math.min(1.35, (st.glare || 0) + 1.1 * pain)
+    // AT EASE IT SIZES YOU UP: one eye narrowed, the other brow cocked (st.asym, idle only)
+    const asym = st.asym || 0
+    const glare = Math.max(0, Math.min(1.35, (st.glare || 0) + 1.1 * pain + asym * (sg < 0 ? 0.95 : -0.6)))
+    const cock = asym * (sg > 0 ? 1.0 : -0.15) * re
     const lookA = (st.lx || 0), lookB = -(st.ly || 0)
     const aIn = -sg * re, aOut = sg * re
     // upper-lid heights (in re, from the eye's centre, up +) at the inner and outer corners
@@ -21008,8 +21011,8 @@ const spurG = new Graphics()
     }
     // THE BROW: a fleshy ridge riding just above the lid line and running past the eye. It takes the
     // lid's slant and exaggerates it — or, in pain, KNOTS: the inner end goes UP.
-    const bIn = re * (hIn + 0.30 - 0.1 * glare) + re * 0.55 * stun
-    const bOut = re * (hOut + 0.22 + 0.25 * pain) + re * 0.35 * stun
+    const bIn = re * (hIn + 0.30 - 0.1 * glare) + re * 0.55 * stun + cock * 0.7
+    const bOut = re * (hOut + 0.22 + 0.25 * pain) + re * 0.35 * stun + cock
     const bA = (a) => bIn + (bOut - bIn) * (a - aIn * 1.25) / (aOut * 1.3 - aIn * 1.25)
     const top = [], bot = []
     for (let i = 0; i <= 12; i++) {
@@ -21058,6 +21061,22 @@ const spurG = new Graphics()
   // clenched grimace with the teeth bared (hit, the snap of a strike). Lit from inside, and the
   // lit throat and teeth show through the dark.
   function drawKrakenMaw(g, st, fl) {
+    const R = K_BODY_BAKE_R
+    const cx = 0, cy = 0.62 * R
+    // A SNEER: the whole mouth canted up on one side (st.sneer, idle only), the teeth bared there
+    const sneer = st.sneer || 0
+    if (Math.abs(sneer) > 0.01) {
+      g.save()
+      g.translateTransform(cx, cy).rotateTransform(-0.45 * sneer).translateTransform(-cx, -cy)
+      drawKrakenMawBody(g, { ...st, sneer: 0, grit: Math.max(st.grit || 0, 0.45 * sneer) }, fl)
+      g.restore()
+      g.moveTo(cx + R * 0.26, cy - R * 0.06 * sneer).lineTo(cx + R * 0.36, cy - R * 0.13 * sneer)
+        .stroke({ width: R * 0.02, color: 0x05030a, alpha: Math.min(1, sneer), cap: 'round' })
+      return
+    }
+    drawKrakenMawBody(g, st, fl)
+  }
+  function drawKrakenMawBody(g, st, fl) {
     const R = K_BODY_BAKE_R
     const cx = 0, cy = 0.62 * R
     const jaw = Math.max(0, Math.min(1, st.jaw || 0)), grit = Math.max(0, Math.min(1, st.grit || 0))
@@ -21292,7 +21311,9 @@ const spurG = new Graphics()
     kc.x += (tx - kc.x) * e
     kc.y += (ty - kc.y) * e
     // how it is turned: head toward the bottom of the screen, tilting a little toward you
-    const tilt = -0.3 * dx / dl
+    // AT EASE it holds its head canted and sways; the moment an arm rears it squares up at you
+    const idleK = Math.max(0, 1 - lift * 1.6) * (1 - kc.flinch)
+    const tilt = -0.3 * dx / dl + idleK * (0.24 + 0.1 * Math.sin(animT * 0.45))
     kc.tilt += (tilt - kc.tilt) * Math.min(1, k * 2)
     const worldR = s.phase === 'chase'
       ? KRAKEN_HEAD_R * (1.3 + (K_BODY_R - 1.3) * rise)
@@ -21344,6 +21365,7 @@ const spurG = new Graphics()
         let lat = Math.sin(animT * (a.limpT > 0 ? 0.6 : 1.0) + a.i * 1.9 + t * 3.2) * amp * t + Math.sin(a.i * 2.3) * 70 * t * t
         // ALIVE AT THE ROOT: the first stretch out of the body curls and flexes on its own clock
         lat += Math.sin(animT * 1.7 + a.i * 2.4) * worldR * 0.45 * Math.sin(Math.PI * Math.min(1, t * 3.5)) * (1 - tense)
+          * (1 + 0.9 * idleK * (Math.cos(a.ang) > 0 ? 1 : -0.6)) // lopsided at ease: one side idly curling
         if (a.dead) lat += swing * t * t * 220
         rope._pts[q].set(kc.x + cx0 * rr + nx * lat, kc.y + cy0 * rr + ny * lat)
       }
@@ -21383,6 +21405,7 @@ const spurG = new Graphics()
     krakenFaceTop.alpha = ga
     drawKrakenFace({ g: krakenFaceTopG, under: rig.under }, {
       rot: kc.tilt, glare: Math.min(1, lift * 1.1), pain: kc.flinch, stun: 0, blink: bl * wake + (1 - wake),
+      asym: idleK * (0.75 + 0.25 * Math.sin(animT * 0.4)), sneer: idleK * (0.65 + 0.35 * Math.sin(animT * 0.7)),
       lx: dx / dl, ly: dy / dl, white: 0, core: 0, crown: null, guard: 0,
       // the maw GAPES as an arm rears, SNAPS shut with its teeth bared on the frame a slam lands,
       // and bares them in a grimace on a parry or a break; at rest it works slowly
@@ -21459,8 +21482,8 @@ const spurG = new Graphics()
     kc.flashCd -= k
     if (hf > kc.lastHF + 1e-4 && kc.flashCd <= 0) { kc.flash = 1; kc.flashCd = 0.11; kc.recoil = 1 }
     kc.lastHF = hf
-    kc.flash = Math.max(0, kc.flash - k / 0.09)
-    kc.recoil = Math.max(0, kc.recoil - k / 0.3)
+    kc.flash = Math.max(0, kc.flash - k / 0.14)
+    kc.recoil = Math.max(0, kc.recoil - k / 0.35)
     const fl = kc.flash, rc = kc.recoil
     // STAGGERED, IT COMES UP AT THE CAMERA and its mantle splits; the crown closes as it recovers
     kc.near += ((stag ? 1 : 0) - kc.near) * Math.min(1, k * (stag ? 7 : 3))
@@ -21481,14 +21504,18 @@ const spurG = new Graphics()
     const br = (1 + 0.035 * Math.sin(animT * 2.2) - 0.05 * kc.deflect - 0.06 * rc) * (1 + 0.38 * kc.near)
     // KNOCKED BACK by the stagger: thrown away from you, then settling
     kc.knock = Math.max(0, (kc.knock || 0) - k / 0.7)
-    const kb = 18 * rc + 46 * Math.sin(Math.min(1, kc.knock) * Math.PI * 0.5) + 30 * stagK
+    const kb = 28 * rc + 46 * Math.sin(Math.min(1, kc.knock) * Math.PI * 0.5) + 30 * stagK
     krakenHeadRig.position.set(hs.position.x - dx / dl * kb, hs.position.y - dy / dl * kb)
     krakenHeadRig.rotation = kc.tilt
-    krakenHeadRig.scale.set(base * br * stretchY, base * br * stretchX)
+    // the hit SQUASHES it: flattened into the blow, springing back as the recoil runs out
+    const sq = Math.sin(rc * Math.PI) * 0.8 + rc * 0.2
+    krakenHeadRig.scale.set(base * br * stretchY * (1 + 0.16 * sq), base * br * stretchX * (1 - 0.14 * sq))
     krakenHeadRig.alpha = hs.alpha
     krakenHeadRig.tint = hs.tint
     hs.visible = false
-    rig.flash.alpha = 0
+    // a hard saturated pulse — red, never a grey wash — under the rim
+    rig.flash.tint = 0xff3050
+    rig.flash.alpha = 0.6 * fl
     kc.blinkAt -= k
     if (kc.blinkAt <= 0 && !stag) { kc.blink = 1; kc.blinkAt = 3 + 3 * (0.5 + 0.5 * Math.sin(animT * 7.3)) }
     const bl = kc.blink > 0 ? Math.sin(kc.blink * Math.PI) : 0
@@ -21498,7 +21525,7 @@ const spurG = new Graphics()
     const L = (x, y) => [krakenHeadRig.position.x + (x * cr - y * sn) * sc, krakenHeadRig.position.y + (x * sn + y * cr) * sc]
     drawKrakenFace(rig, {
       rot: kc.tilt, glare: stag ? 0 : Math.min(1, 0.3 + 0.7 * lungeK + 0.6 * kc.deflect), pain: rc,
-      stun: stag ? 1 : 0, blink: stag ? 0 : bl, lx, ly, white: 0, core: kc.core, crown: q,
+      stun: stag ? 1 : 0, blink: stag ? 0 : bl, lx, ly, white: 0, core: kc.core * (1 - 0.6 * rc), crown: q,
       jaw: stag ? 0.55 + 0.1 * Math.sin(animT * 2.3) : Math.max(lungeK, 0.12 + 0.06 * Math.sin(animT * 1.9)) * (1 - rc),
       grit: Math.max(rc, kc.deflect), rim: Math.max(fl, rc * 0.6),
       guard: stag ? 0 : Math.max(0, (1 - lungeK * 1.4)) * (1 - kc.near),
