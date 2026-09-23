@@ -20014,12 +20014,7 @@ const spurG = new Graphics()
       // of 0.008 is not an animation the player can see, it is an animation the probe can see. The
       // floor puts a stub on the seabed from the frame the fuse lights, and the shallower exponent
       // gets it into the arena early enough to be worth watching.
-      // A COIL LANE RUNS ON THE COIL'S CLOCK, not the arm's: stepKrakenArms returns before its arm
-      // loop while s.coilT > 0, so a coil arm's tele sits at its start value and the lane would
-      // never fill. It fills over the wind-up and is gone once the ring shuts.
-      if (a.coilArm) {
-        if (s.coilT > KRAKEN_COIL_DUR) drawKrakenLane(a, 1 - (s.coilT - KRAKEN_COIL_DUR) / Math.max(0.001, KRAKEN_COIL_TELE), rung)
-      } else drawKrakenLane(a, urg, rung)
+      drawKrakenLane(a, urg, rung)
 
       // ...and the last `window` seconds of it are the PARRY, which has to be unmistakably its own
       // colour. Red is the danger, white-hot is the answer.
@@ -23686,13 +23681,6 @@ const spurG = new Graphics()
             spawnParticle(T.fx.circle_05, e.x + Math.cos(a) * r0, e.y + Math.sin(a) * r0,
               Math.cos(a) * sp, Math.sin(a) * sp, 0.8 + Math.random() * 0.3, 0.12 + Math.random() * 0.06, 0x4a5a64, 0.6, 2.6)
           }
-          // ...AND EVERY LANE IT STRUCK FLASHES, off the arms wearing the coil: the five burning
-          // lanes resolve into the blow on the same frame, and the spared one stays dark
-          for (const a of run.krakenArms) {
-            if (a.dead || !a.coilArm) continue
-            krakenScars.push({ x0: a.lx0, y0: a.ly0, x1: a.lx1, y1: a.ly1, w: KRAKEN_LASH_W, t: K_SCAR_T, big: true, cracks: krakenCrack(a.lx0, a.ly0, a.lx1, a.ly1, KRAKEN_LASH_W, true) })
-          }
-          while (krakenScars.length > 10) krakenScars.shift()
           addShakeScreen(0.05, 0.55)
           addKick(0, 1, 0.03)
           // the one full-field flash in the fight, and a dim one: the Coil comes once every

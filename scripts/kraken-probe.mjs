@@ -66,6 +66,7 @@ function fight(seed) {
 
   let parries = 0, whiffs = 0, limpWindows = 0, staggers = 0, levels = 0
   let ringT = 0, limpT = 0, chaseT = 0, won = false, maxRearing = 0, enraged = -1, coilWind = 0, coilClose = 0
+  let dmg = 0, coilDmg = 0, coilLash = 0
   const steps = Math.round(SECS / DT)
   for (let i = 0; i < steps; i++) {
     if (run.phase === 'levelup') { levels++; run.phase = 'playing'; continue }
@@ -139,7 +140,12 @@ function fight(seed) {
 
     run.player.hp = run.player.maxHP
     stepSim(run, { x: inX, y: inY, skill: press }, DT)
+    // damage TAKEN this step (the rig is immortal, so this is what a mortal player would have lost)
+    const lost = Math.max(0, run.player.maxHP - run.player.hp)
+    dmg += lost
+    if (run.events.some((e) => e.type === 'lash' && e.coil)) coilDmg += lost
     for (const e of run.events) {
+      if (e.type === 'lash' && e.coil) coilLash++
       if (e.type === 'parry' || e.type === 'parryPerfect') parries++
       else if (e.type === 'parryWhiff') whiffs++
       else if (e.type === 'armRear') limpWindows += 0
@@ -151,7 +157,7 @@ function fight(seed) {
     run.events.length = 0
   }
   return {
-    won, t: run.time, parries, whiffs, staggers, levels, maxRearing, enraged, coilWind, coilClose,
+    won, t: run.time, parries, whiffs, staggers, levels, maxRearing, enraged, coilWind, coilClose, dmg, coilDmg, coilLash,
     broken: run.krakenArms.filter((a) => a.dead).length, arms: run.krakenArms.length,
     ringT, limpT, chaseT, headLeft: Math.round(run.script?.headHp ?? 0),
   }
@@ -182,3 +188,5 @@ console.log(`arms hauled back at the enrage ${f('enraged')}   (-1 = the enrage n
 // A COIL THAT WINDS AND NEVER CLOSES is the shape of this chapter's worst bug class: the siren
 // fires, the gap wedge goes up, and nothing ever resolves it. Counted so it cannot hide again.
 console.log(`coils wound / closed  ${f('coilWind')} / ${f('coilClose')}`)
+console.log(`coil lashes landed    ${f('coilLash')}`)
+console.log(`damage taken          ${f('dmg')}   of it on a coil's landing ${f('coilDmg')}`)
