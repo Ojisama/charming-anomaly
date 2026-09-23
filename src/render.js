@@ -20786,6 +20786,7 @@ const spurG = new Graphics()
           const shp = spts.map((q) => ({ x: q.x + 7, y: q.y + 10 }))
           // pressed in: a hard black contact shadow, tight and a little wider than the flesh
           limbRibbon(krakenSlabTopG, shp, K_ROPE_N, (t) => hwQ(t) * 1.12 + 4, 0xffffff, skin, 0.7 * hold, 0x000000)
+          if (pan > 0.15) limbRibbon(krakenSlabTopG, spts, K_ROPE_N, (t) => hwQ(t) + 9, 0xffffff, skin, Math.min(1, pan), 0xfff0d8)
           limbRibbon(krakenSlabTopG, spts, K_ROPE_N, hwQ, 0x5d5470, skin)
           // THE FIST, FLATTENED: the splayed stretch drawn again, lit — the blow's light on the flesh
           // pressed out flat, rimmed hard, so the pancake reads against the dark limb it belongs to
@@ -23325,8 +23326,7 @@ const spurG = new Graphics()
   const K_HEAD_CLEAR = KRAKEN_HEAD_R * 1.45
   // the broken ground it leaves (fissures, tipped plates) outlasts the flash
   const K_SPLASH_LIFE = 0.75
-  // the ground shockwave's life, and the ejecta's longest flight
-  const K_SHOCK_T = 0.2
+  // the ejecta's longest flight
   const K_EJECTA_T = 0.35
   // the impact flash holds full-size this long, then collapses by K_FLASH_OUT
   const K_FLASH_HOLD = 0.08
@@ -23350,9 +23350,9 @@ const spurG = new Graphics()
     }
     // fissures: jagged dark cracks run out from the contact, longest ahead of the blow
     const cracks = []
-    const nc = 5
+    const nc = 3 + (Math.random() < 0.5 ? 1 : 0)
     for (let i = 0; i < nc; i++) {
-      const a = (i / nc) * Math.PI * 2 + (Math.random() - 0.5) * 0.5
+      const a = (i / nc) * Math.PI * 2 + 0.4 + (Math.random() - 0.5) * 0.5
       // short toward the head: the ground under the mantle is the Kraken's own bulk
       const back = Math.cos(a - sa) < -0.5
       const reach = lw * (back ? 1.3 + Math.random() * 0.4 : 2.6 + 1.2 * skew(a) + Math.random() * 1.1)
@@ -23363,8 +23363,7 @@ const spurG = new Graphics()
         pts.push(Math.cos(ca) * r, Math.sin(ca) * r)
         ca += (Math.random() - 0.5) * 0.5
       }
-      const fork = Math.random() < 0.6 ? { k: 2, a: ca + (Math.random() < 0.5 ? -0.6 : 0.6), len: reach * 0.35 } : null
-      cracks.push({ pts, w: 13 + Math.random() * 6, fork })
+      cracks.push({ pts, w: 20 + Math.random() * 6, fork: null })
     }
     // EJECTA: sand and rock thrown up and out in a V away from the contact — the two arms of the V
     // either side of the throw, a few straight down it. Each flies on an arc (bigger as it rises
@@ -23381,9 +23380,6 @@ const spurG = new Graphics()
     // the dust shadow: soft dark streaks blown out radially across the lit floor
     const dust = []
     for (let i = 0; i < 12; i++) dust.push({ a: (i / 12) * Math.PI * 2 + (Math.random() - 0.5) * 0.35, len: 1.9 + Math.random() * 0.8, w: 0.18 + Math.random() * 0.12 })
-    // the crack ring: a jagged broken circle just outside the crater
-    const ring = []
-    for (let i = 0; i < 22; i++) ring.push(1.22 + (Math.random() - 0.5) * 0.16)
     // the floor patch's ragged edge: a few low harmonics, so it fades out unevenly, never a disc
     const edge = []
     const ph = [Math.random() * 6.28, Math.random() * 6.28, Math.random() * 6.28]
@@ -23406,7 +23402,7 @@ const spurG = new Graphics()
       chunks.push({ a, d0: lw * 1.0, d1: lw * (3.4 + Math.random() * 0.8), life: 0.42 + Math.random() * 0.1,
         r: 0.42 + Math.random() * 0.12, rot: Math.random() * 6.28, vr: (Math.random() - 0.5) * 8, shape: krakenChunkShape() })
     }
-    return { x, y, lw, t: K_SPLASH_LIFE, sa, spikes, pit, cracks, ejecta, dust, ring, edge, plates, chunks }
+    return { x, y, lw, t: K_SPLASH_LIFE, sa, spikes, pit, cracks, ejecta, dust, edge, plates, chunks }
   }
   // Three passes: 'under' is the ground (fissures, crater, shockwave) beneath the landed limb;
   // 'over' is the impact flash, under the pancaked fist; 'top' is the rock thrown, over the fist.
@@ -23473,23 +23469,18 @@ const spurG = new Graphics()
             G.poly(pp).fill({ color: c, alpha: a2 * Math.min(1, k * 1.5) })
           }
         }
-        {
-          const pp = []
-          for (let m = 0; m < sp.ring.length; m++) {
-            const t = (m / sp.ring.length) * Math.PI * 2
-            pp.push(sp.x + Math.cos(t) * lw * sp.ring[m], sp.y + Math.sin(t) * lw * sp.ring[m])
-          }
-          let pen = false
-          for (let m = 0; m <= sp.ring.length; m++) {
-            const x = pp[(m % sp.ring.length) * 2], y = pp[(m % sp.ring.length) * 2 + 1]
-            if (!offHead(x, y, 4)) { pen = false; continue }
-            if (pen) G.lineTo(x, y); else G.moveTo(x, y)
-            pen = true
-          }
-          G.stroke({ width: 6, color: 0x050302, alpha: al, join: 'miter' })
-        }
         // the fissures, full length from the first frame: tapered black wedges, lit on one lip
-        for (const c of sp.cracks) {
+        // each crack is pushed out to start at the crater's lip, beyond the fist and its slabs
+        const lipX = (sp.rx || lw) * 1.3, lipY = (sp.ry || lw * 0.62) * 1.45
+        for (const c0 of sp.cracks) {
+          const c = { w: c0.w, fork: null, pts: [] }
+          for (let m = 0; m < c0.pts.length; m += 2) {
+            const px = c0.pts[m], py = c0.pts[m + 1], r = Math.hypot(px, py) || 1
+            const cs = px / r, sn = py / r
+            const lip = 1 / Math.sqrt((cs / lipX) ** 2 + (sn / lipY) ** 2)
+            const r2 = r - lw * 0.55 + lip
+            c.pts.push(cs * r2, sn * r2)
+          }
           if (!offHead(sp.x + c.pts[c.pts.length - 2], sp.y + c.pts[c.pts.length - 1], 0)) continue
           const wedge = (pts, w0, ox, oy, color, alpha) => {
             const n = pts.length / 2, L = [], R = []
@@ -23519,25 +23510,6 @@ const spurG = new Graphics()
           for (let m = 0; m < sp.pit.length; m += 2) pp.push(sp.x + sp.pit[m] * pr, sp.y + sp.pit[m + 1] * pr)
           G.poly(pp).fill({ color: 0x050302, alpha: al })
           G.poly(pp).stroke({ width: 4, color: 0x8a6a48, alpha: al, join: 'miter' })
-        }
-        if (age < K_SHOCK_T) {
-          // THE SHOCKWAVE: one hard ring racing out across the seabed from the contact, a thick
-          // bright edge on a black lip, gone in K_SHOCK_T. Never drawn over the head.
-          const u = age / K_SHOCK_T
-          const rr = lw * (2.9 + 1.4 * (1 - Math.pow(1 - u, 3)))
-          const w = 6 * (1 - u) + 2
-          const fa = 0.7 * (1 - u * u)
-          for (const [r2, w2, c2, a2] of [[rr, w, 0xd8c09a, fa]]) {
-            let pen = false
-            for (let k = 0; k <= 56; k++) {
-              const t = (k / 56) * Math.PI * 2
-              const x = sp.x + Math.cos(t) * r2, y = sp.y + Math.sin(t) * r2
-              if (!offHead(x, y, w2)) { pen = false; continue }
-              if (pen) G.lineTo(x, y); else G.moveTo(x, y)
-              pen = true
-            }
-            G.stroke({ width: w2, color: c2, alpha: a2, cap: 'round', join: 'round' })
-          }
         }
       } else if (pass === 'over') {
         {
@@ -23717,6 +23689,8 @@ const spurG = new Graphics()
         G.moveTo(tr[0], tr[1]).lineTo(tr[2], tr[3]).stroke({ width: 4, color: 0xf0d2a0, alpha: 0.85 * ta })
       }
       for (const c of pr.cracks) {
+        // the splash's own few wide cracks own the ground round the fist: none of the lane's thin ones there
+        if (krakenSplashes.some((sp) => (c.pts[0] - sp.x) ** 2 + (c.pts[1] - sp.y) ** 2 < (sp.lw * 3.8) ** 2)) continue
         G.moveTo(c.pts[0], c.pts[1])
         for (let m = 2; m < c.pts.length; m += 2) G.lineTo(c.pts[m], c.pts[m + 1])
         G.stroke({ width: c.w, color: 0x050201, alpha: al, join: 'miter', cap: 'round' })
@@ -26169,7 +26143,7 @@ const spurG = new Graphics()
               const hh = krakenHead
               const away = hh ? Math.sign((cx - hh.x) * ux + (cy - hh.y) * uy) || 1 : 1
               krakenSplashes.push(krakenSplash(cx, cy, lw, ux, uy, ux * away, uy * away))
-              krakenHitDim = { x: cx, y: cy, r: lw * 1.9, t: K_HITDIM_T }
+              krakenHitDim = { x: cx, y: cy, r: lw * 2.3, t: K_HITDIM_T }
               if (krakenSplashes.length > 4) krakenSplashes.shift()
             }
             const hd = krakenHead
