@@ -23962,7 +23962,7 @@ const spurG = new Graphics()
   const kPose = {
     visible: false, x: 0, y: 0, rot: 0, sx: 1, sy: 1, scale: 1, alpha: 1, tint: 0xffffff, flash: 0, flashTint: 0xffffff,
     pain: 0, stun: 0, blink: 0, lx: 0, ly: 0, white: 0, core: 0, crown: 1, jaw: 0, grit: 0, rim: 0, light: 1,
-    shock: 0, slack: 0, blank: 0, ko: 0, crack: 0, heat: 0, buckle: 0, outline: 0, hot: 0, stave: 0,
+    shock: 0, slack: 0, blank: 0, ko: 0, crack: 0, heat: 0, buckle: 0, outline: 0, hot: 0, stave: 0, split: 0,
   }
   // THE KILL SHOT: for the hit-stop and this long after it, the world behind the head is dimmed and
   // the head is drawn again ABOVE the dim (kWarp.top, in cerLayer), so nothing covers it
@@ -23997,15 +23997,55 @@ const spurG = new Graphics()
   // and drawn through a MeshPlane whose grid is bent, so the WHOLE silhouette caves in on itself: the
   // mantle's crown dented down toward the face and folded over to one side, its flanks pinched in and
   // crumpled. The face (y > 0) is left where it is, so the X'd eyes stay the read. Kill only.
+  // THE SPLIT: a jagged seam down the dome, crown to brows; the two halves pull apart across it
+  const K_SPLIT_Y = [-1.45, -1.25, -1.05, -0.85, -0.65, -0.45, -0.25, -0.08]
+  const K_SPLIT_X = [0.02, -0.09, 0.06, -0.08, 0.07, -0.06, 0.05, 0]
+  const K_SPLIT_G = 0.09   // half the gap, in bake R, on the kill frame
+  function krakenSplitX(y) {   // y in bake R
+    if (y <= K_SPLIT_Y[0]) return K_SPLIT_X[0]
+    for (let i = 1; i < K_SPLIT_Y.length; i++) {
+      if (y <= K_SPLIT_Y[i]) { const f = (y - K_SPLIT_Y[i - 1]) / (K_SPLIT_Y[i] - K_SPLIT_Y[i - 1]); return K_SPLIT_X[i - 1] + (K_SPLIT_X[i] - K_SPLIT_X[i - 1]) * f }
+    }
+    return 0
+  }
+  const krakenSplitOpen = (y) => smooth01((-y - 0.08) / 0.45)   // 0 at the brows, 1 up the dome
   const KW_X0 = 1.4, KW_Y0 = 1.6, KW_W = 2.8, KW_H = 3.4   // the box, in bake R: x from -1.4R, y from -1.6R
-  const kWarp = { rt: null, mesh: null, src: null, rest: null, top: null }
+  const kWarp = { rt: null, mesh: null, src: null, rest: null, top: null, flash: null, crack: null, crackG: null }
   const kWarpTopK = (P) => P.outline
+  const run0T = () => kDeath.t || 0
+  // the warp's displacement of bake point (x, y) into kWD; sg forces the side of the split (0 = by x)
+  const kWD = [0, 0]
+  function krakenWarpAt(P, x, y, sg) {
+    const R0 = K_BODY_BAKE_R, D = P.buckle || 0
+    const side = kDeath.rot >= 0 ? 1 : -1
+    // how far up the mantle: 0 at the neck, 1 at its crown
+    const m = smooth01((-y - 0.15 * R0) / (1.15 * R0))
+    const cx = Math.exp(-((x / (0.36 * R0)) ** 2))
+    const pinch = Math.exp(-(((y + 0.75 * R0) / (0.4 * R0)) ** 2))
+    const dx = -x * 0.2 * pinch * m
+      + side * 0.16 * R0 * m * m
+      + 0.04 * R0 * Math.sin(y / R0 * 9 + 1.3) * m
+    // (the dent gives way to the split: a dome that has split is not also caved in at the seam)
+    const dy = 0.4 * R0 * m * m * cx * (1 - 0.85 * clamp01(P.split || 0))
+      + 0.035 * R0 * Math.sin(x / R0 * 11) * m
+    // ONE FLANK STAVED IN: the side away from the fold is punched in toward the middle, and the
+    // whole outline is broken up, so the shape is lopsided and torn, never a clean blob
+    const cv = P.stave || 0
+    const flank = Math.exp(-(((y + 0.5 * R0) / (0.5 * R0)) ** 2)) * clamp01(-x * side / (0.6 * R0))
+    const cdx = side * 0.3 * R0 * flank + 0.05 * R0 * Math.sin(y / R0 * 14 + x / R0 * 5) * (0.3 + m)
+    const cdy = 0.05 * R0 * Math.sin(x / R0 * 13 + 0.7) * (0.3 + m) * (y < 0.1 * R0 ? 1 : 0)
+    // SPLIT DOWN THE DOME: each half pushed off the seam, and dropped a little apart at the top
+    const yr = y / R0, s2 = sg || (x / R0 > krakenSplitX(yr) ? 1 : -1), op = krakenSplitOpen(yr) * (P.split || 0)
+    kWD[0] = dx * D + cdx * cv + s2 * K_SPLIT_G * R0 * op
+    kWD[1] = dy * D + cdy * cv + 0.06 * R0 * op * op
+    return kWD
+  }
   function krakenWarpOn(P) {
     const R0 = K_BODY_BAKE_R
     if (!kWarp.mesh) {
       kWarp.rt = RenderTexture.create({ width: Math.ceil(KW_W * R0), height: Math.ceil(KW_H * R0), resolution: 1.5 })
       kWarp.src = new Container()
-      kWarp.mesh = new MeshPlane({ texture: kWarp.rt, verticesX: 18, verticesY: 22 })
+      kWarp.mesh = new MeshPlane({ texture: kWarp.rt, verticesX: 44, verticesY: 34 })
       kWarp.mesh.position.set(-KW_X0 * R0, -KW_Y0 * R0)
       kWarp.rest = Float32Array.from(kWarp.mesh.geometry.getBuffer('aPosition').data)
       krakenHeadRig.addChild(kWarp.mesh)
@@ -24014,6 +24054,12 @@ const spurG = new Graphics()
       tm.position.copyFrom(kWarp.mesh.position)
       kWarp.top.addChild(tm)
       cerLayer.addChildAt(kWarp.top, cerLayer.getChildIndex(cerFlash) + 1)
+      // THE IMPACT FRAME: white over the whole screen, and only the light out of the split over it
+      kWarp.flash = new Sprite(Texture.WHITE)
+      kWarp.crack = new Container()
+      kWarp.crackG = new Graphics()
+      kWarp.crack.addChild(kWarp.crackG)
+      cerLayer.addChild(kWarp.flash, kWarp.crack)
     }
     // ...and ABOVE the kill's dim: the same mesh placed in screen space where the rig is drawn
     const ws = world.scale.x
@@ -24024,6 +24070,32 @@ const spurG = new Graphics()
     kWarp.top.scale.set(hr.scale.x * ws, hr.scale.y * ws)
     kWarp.top.alpha = hr.alpha
     kWarp.top.tint = hr.tint
+    {
+      const t = run0T(), H = KRAKEN_OUTRO.hitstop
+      kWarp.flash.width = app.screen.width; kWarp.flash.height = app.screen.height
+      kWarp.flash.alpha = t < H ? 0.5 : 0.5 * (1 - smooth01((t - H) / 0.12))
+      kWarp.flash.visible = kWarp.flash.alpha > 0.005
+      kWarp.crack.position.copyFrom(kWarp.top.position)
+      kWarp.crack.rotation = kWarp.top.rotation
+      kWarp.crack.scale.copyFrom(kWarp.top.scale)
+      const g = kWarp.crackG
+      g.clear()
+      const sp = P.split || 0
+      kWarp.crack.visible = sp > 0.01
+      if (sp > 0.01) {
+        // the gap, as the warp opened it: lit white-hot from inside, burning orange at its lips
+        const L = [], Rr = []
+        for (let y = -1.5; y <= -0.06; y += 0.05) {
+          const x = krakenSplitX(y) * R0, yy = y * R0, lip = 0.012 * R0 * krakenSplitOpen(y) * sp
+          krakenWarpAt(P, x, yy, -1); L.push(x + kWD[0] - lip, yy + kWD[1])
+          krakenWarpAt(P, x, yy, 1); Rr.unshift(x + kWD[0] + lip, yy + kWD[1])
+        }
+        const poly = [...L, ...Rr]
+        const hot = 1 - 0.5 * smooth01((run0T() - KRAKEN_OUTRO.hitstop) / 0.5)
+        g.poly(poly).stroke({ width: 0.09 * R0, color: 0xff6a1e, alpha: 0.55 * hot, join: 'round' })
+        g.poly(poly).fill({ color: 0xfff2d0, alpha: 1 }).stroke({ width: 0.04 * R0, color: 0xffb040, alpha: 1, join: 'round' })
+      }
+    }
     const root = headRig.root
     if (root.parent !== kWarp.src) kWarp.src.addChild(root)
     root.position.set(KW_X0 * R0, KW_Y0 * R0)
@@ -24032,27 +24104,12 @@ const spurG = new Graphics()
     kWarp.mesh.visible = true
     // bend the grid
     const buf = kWarp.mesh.geometry.getBuffer('aPosition')
-    const d = buf.data, rest = kWarp.rest, D = P.buckle || 0
-    const side = kDeath.rot >= 0 ? 1 : -1
+    const d = buf.data, rest = kWarp.rest
     for (let i = 0; i < d.length; i += 2) {
       const x = rest[i] - KW_X0 * R0, y = rest[i + 1] - KW_Y0 * R0
-      // how far up the mantle: 0 at the neck, 1 at its crown
-      const m = smooth01((-y - 0.15 * R0) / (1.15 * R0))
-      const cx = Math.exp(-((x / (0.36 * R0)) ** 2))
-      const pinch = Math.exp(-(((y + 0.75 * R0) / (0.4 * R0)) ** 2))
-      const dx = -x * 0.2 * pinch * m
-        + side * 0.16 * R0 * m * m
-        + 0.04 * R0 * Math.sin(y / R0 * 9 + 1.3) * m
-      const dy = 0.4 * R0 * m * m * cx
-        + 0.035 * R0 * Math.sin(x / R0 * 11) * m
-      // ONE FLANK STAVED IN: the side away from the fold is punched in toward the middle, and the
-      // whole outline is broken up, so the shape is lopsided and torn, never a clean blob
-      const cv = P.stave || 0
-      const flank = Math.exp(-(((y + 0.5 * R0) / (0.5 * R0)) ** 2)) * clamp01(-x * side / (0.6 * R0))
-      const cdx = side * 0.3 * R0 * flank + 0.05 * R0 * Math.sin(y / R0 * 14 + x / R0 * 5) * (0.3 + m)
-      const cdy = 0.05 * R0 * Math.sin(x / R0 * 13 + 0.7) * (0.3 + m) * (y < 0.1 * R0 ? 1 : 0)
-      d[i] = rest[i] + dx * D + cdx * cv
-      d[i + 1] = rest[i + 1] + dy * D + cdy * cv
+      krakenWarpAt(P, x, y, 0)
+      d[i] = rest[i] + kWD[0]
+      d[i + 1] = rest[i + 1] + kWD[1]
     }
     buf.update()
   }
@@ -24060,6 +24117,8 @@ const spurG = new Graphics()
     if (!kWarp.mesh || headRig.root.parent === krakenHeadRig) return
     kWarp.mesh.visible = false
     kWarp.top.visible = false
+    kWarp.flash.visible = false
+    kWarp.crack.visible = false
     headRig.root.position.set(0, 0)
     krakenHeadRig.addChildAt(headRig.root, 0)
   }
@@ -24074,44 +24133,22 @@ const spurG = new Graphics()
   const kSurge = { on: false, t: 0, k: 0, bx: 0, by: 0, rx: 1, ry: 1, z: 1 }
   // one gout of silt or water from just outside the outline, surging UP the screen and a little out
   function krakenSurgeOne(bx, by, rx, ry, z, U) {
-    const a = Math.PI * (0.05 + 0.9 * Math.random()) * (Math.random() < 0.5 ? 1 : -1) + Math.PI / 2
-    const x = bx + Math.cos(a) * rx * 1.12, y = by + Math.sin(a) * ry * 1.05
-    const out = Math.cos(a) >= 0 ? 1 : -1
-    const up = (500 + Math.random() * 500) / Math.max(0.3, z)
-    if (Math.random() < 0.55) {
-      kChunks.push({ kind: 2, x, y, vx: out * (80 + Math.random() * 160) / z, vy: -up, sz: U * (0.03 + Math.random() * 0.035) / z,
-        color: Math.random() < 0.5 ? 0xc9b08a : 0xcfe6f2, life: 0, max: 0.7 + Math.random() * 0.4, rot: Math.random() * 6.3, vr: 1 })
-    } else {
-      kChunks.push({ kind: 3, x, y, vx: out * (60 + Math.random() * 120) / z, vy: -up * 1.3, sz: 3 + Math.random() * 4, life: 0, max: 0.4 + Math.random() * 0.3, rot: 0, vr: 0 })
-    }
+    // water only, off the bottom edge under the maw, thrown up short and out to the sides
+    const x = bx + (Math.random() * 2 - 1) * rx * 0.9, y = by + ry * (1.04 + 0.08 * Math.random())
+    const out = x >= bx ? 1 : -1
+    const up = (260 + Math.random() * 260) / Math.max(0.3, z)
+    kChunks.push({ kind: 3, x, y, vx: out * (120 + Math.random() * 200) / z, vy: -up, sz: 3 + Math.random() * 4, life: 0, max: 0.25 + Math.random() * 0.15, rot: 0, vr: 0 })
   }
   function drawKrakenSurge() {
     if (!kSurge.on) return
     const S = kSurge, g = kDeathTopG
     const inBody = (x, y) => ((x - S.bx) / S.rx) ** 2 + ((y - S.by) / S.ry) ** 2 < 1
-    // the breach: foam rings spreading flat from round its base, one after another
-    const baseY = S.by + S.ry * 1.02
-    for (let j = 0; j < 3; j++) {
-      const u = ((S.t * 1.4 + j / 3) % 1)
-      const rx = S.rx * (1.05 + 0.9 * u), ry = rx * 0.2
-      const a = (1 - u) * S.k
-      let prev = null
-      for (let i = 0; i <= 48; i++) {
-        const f = (i / 48) * Math.PI * 2
-        const x = S.bx + Math.cos(f) * rx, y = baseY + Math.sin(f) * ry
-        const ok = !inBody(x, y)
-        if (prev && ok && prev[2]) g.moveTo(prev[0], prev[1]).lineTo(x, y).stroke({ width: (10 - 6 * u) / S.z, color: 0xeaf8ff, alpha: 0.85 * a, cap: 'round' })
-        prev = [x, y, ok]
-      }
-    }
     // the streaks: rushing up past it on both sides, the thing coming up fast
-    for (let i = 0; i < 18; i++) {
-      const side = i % 2 ? 1 : -1
-      const lane = 1.08 + 0.9 * ((i * 0.618) % 1)
-      const x = S.bx + side * S.rx * lane
-      const L = S.ry * (0.35 + 0.3 * ((i * 0.37) % 1))
-      const y = S.by + S.ry * 1.6 - ((S.t * 2.6 + i * 0.29) % 1) * S.ry * 3.6
-      if (inBody(x, y) || inBody(x, y + L)) continue
+    for (let i = 0; i < 8; i++) {
+      const x = S.bx + (((i * 0.618) % 1) * 2 - 1) * S.rx * 1.3
+      const L = S.ry * (0.12 + 0.1 * ((i * 0.37) % 1))
+      const y = S.by + S.ry * 1.55 - ((S.t * 2.6 + i * 0.29) % 1) * S.ry * 0.5
+      if (inBody(x, y) || inBody(x, y + L) || y < S.by + S.ry * 1.02) continue
       g.moveTo(x, y).lineTo(x, y + L).stroke({ width: (2 + (i % 3)) / S.z, color: 0xeaf8ff, alpha: 0.6 * S.k, cap: 'round' })
     }
   }
@@ -24138,6 +24175,7 @@ const spurG = new Graphics()
   function krakenDeathPose(run) {
     const O = KRAKEN_OUTRO
     const t = run.bossOutroT
+    kDeath.t = t
     const H = O.hitstop
     const th = t < H ? 0 : Math.min(1, (t - H) / 0.08) * Math.pow(clamp01(1 - (t - H) / O.thrash), 1.1)
     const sink = smooth01((t - O.sinkFrom) / O.sinkT)
@@ -24162,9 +24200,9 @@ const spurG = new Graphics()
       P.sx = kDeath.sx * K_KO_SX; P.sy = kDeath.sy * K_KO_SY
       P.scale = K_KO_SCALE; P.flash = 0.5; P.flashTint = 0xfff0e0; P.white = 0.6
       P.shock = 1; P.blink = 0; P.jaw = 1; P.rim = 0; P.core = 0; P.crown = -0.6
-      P.crack = 0; P.heat = 0; P.outline = 1; P.hot = 1; P.stave = 1
+      P.crack = 0; P.heat = 0; P.outline = 1; P.hot = 1; P.stave = 1; P.split = 1
       // KNOCKED OVER: slumped down the screen and thrown ~20 degrees to one side
-      P.y += 0.12 * K_BODY_BAKE_R * Math.abs(kDeath.sy); P.rot += (kDeath.rot >= 0 ? 1 : -1) * 0.36
+      P.y += 0.12 * K_BODY_BAKE_R * Math.abs(kDeath.sy); P.rot += (kDeath.rot >= 0 ? 1 : -1) * 0.61
       P.lx = 0; P.ly = 0
       return P
     }
@@ -24172,8 +24210,9 @@ const spurG = new Graphics()
     P.outline = clamp01(1 - (t - H) / K_KO_HOLD)
     P.hot = P.outline
     P.stave = 0.45 + 0.55 * P.outline
+    P.split = (1 + 0.25 * smooth01((t - H) / 0.3)) * (1 - smooth01((t - O.sinkFrom) / 0.2))
     // it stays knocked over, easing back only a little as it thrashes
-    P.rot += (kDeath.rot >= 0 ? 1 : -1) * 0.36 * (0.6 + 0.4 * P.outline)
+    P.rot += (kDeath.rot >= 0 ? 1 : -1) * 0.61 * (0.6 + 0.4 * P.outline)
     P.sx = kDeath.sx * (1 + (K_KO_SX - 1) * after); P.sy = kDeath.sy * (1 - (1 - K_KO_SY) * after)
     // the burst throws it wide for a beat, then it shrinks away
     P.scale = (1 + 0.1 * after + 0.06 * th * Math.sin(t * 15) + 0.12 * burst * Math.exp(-(t - O.sinkFrom) * 6)) * (1 - 0.42 * sink)
@@ -24630,15 +24669,9 @@ const spurG = new Graphics()
           const bw = 1.3 * R0 * Math.abs(rs.x), bh = 2.05 * R0 * Math.abs(rs.y)
           const bx = rr.position.x + Math.sin(rr.rotation) * 0.31 * R0 * rs.y, by = rr.position.y - Math.cos(rr.rotation) * 0.31 * R0 * rs.y
           const base = mapZoom * fightZoom
-          // THE FISH IS IN THE SHOT, for scale: the view fits the body and you together, between the
-          // plate and the ability orb (never smaller than 0.62 of the body-only fit; a fish further
-          // off than that is left at the edge)
-          const pl = run.player, pm = 60
-          const x0 = Math.min(bx - bw / 2, pl.x - pm), x1 = Math.max(bx + bw / 2, pl.x + pm)
-          const y0 = Math.min(by - bh / 2, pl.y - pm), y1 = Math.max(by + bh / 2, pl.y + pm)
-          const zB = Math.min(w * 0.8 / bw, h * 0.46 / bh), zU = Math.min(w * 0.88 / (x1 - x0), h * 0.46 / (y1 - y0))
-          const zc = Math.max(0.5, Math.min(4, Math.max(zU, zB * 0.62) / base))
-          const fx = (x0 + x1) / 2, fy = (y0 + y1) / 2
+          // THE HEAD IS THE SHOT: ~70% of the width, set between the plate and the ability orb
+          const zc = Math.max(0.5, Math.min(4, Math.min(w * 0.8 / bw, h * 0.5 / bh) / base))
+          const fx = bx, fy = by
           const outK = t < C.hold ? 1 : 1 - smooth01((t - C.hold) / C.out)
           // a damped spring 0 -> 1 that overshoots ~20% at 0.4s
           const surge = 1 - Math.exp(-4 * t) * (Math.cos(8 * t) + 0.5 * Math.sin(8 * t))
@@ -24646,30 +24679,14 @@ const spurG = new Graphics()
           const z = base * zc
           const camK = smooth01(t / 0.3) * outK
           cerCam.x = (fx - run.player.x - camLead.x) * camK
-          cerCam.y = (fy - h * 0.06 / z - run.player.y - camLead.y) * camK
+          cerCam.y = (fy - h * 0.035 / z - run.player.y - camLead.y) * camK
           // AND IT THROWS THE SEA OFF ITSELF: rock, silt and water blasted out from round the body as it
           // breaks the surface, a second wave on the surge, and bubbles streaming off it throughout
           const br = Math.max(bw, bh) * 0.5
           kClip.body = true; kClip.bx = bx; kClip.by = by; kClip.rx = bw * 0.56; kClip.ry = bh * 0.56
           const reach = 0.55 * Math.hypot(w, h) / z
-          if (!(cer.threw & 1)) {
-            cer.threw |= 1
-            krakenThrowPuffs(26, bx, by, br * 1.05, br * 1.45, reach, U * 0.07 / z, 0xb49c70, 1.7)
-            krakenThrowChunks(16, bx, by, br * 0.9, 380, 1000, true, true)
-            krakenThrowChunks(10, bx, by, br * 0.8, 260, 700, false, true)
-            krakenThrowDrops(46, bx, by, br * 0.85, 600, 1400)
-            krakenBubbles(24, bx, by, br)
-          }
-          if (t >= 0.38 && !(cer.threw & 2)) {
-            cer.threw |= 2
-            krakenThrowPuffs(16, bx, by, br * 1.1, br * 1.45, reach * 0.8, U * 0.055 / z, 0x8fa2ae, 1.4)
-            krakenThrowDrops(30, bx, by, br * 0.9, 500, 1200)
-            krakenThrowChunks(8, bx, by, br * 0.9, 300, 800, false, true)
-          }
           if (dt > 0 && t < C.hold) {
-            cer.bub = (cer.bub || 0) + 26 * dt
-            while (cer.bub >= 1) { cer.bub -= 1; krakenBubbles(1, bx, by, br * 0.9) }
-            cer.surge = (cer.surge || 0) + 60 * dt
+            cer.surge = (cer.surge || 0) + 40 * dt
             while (cer.surge >= 1) { cer.surge -= 1; krakenSurgeOne(bx, by, bw * 0.56, bh * 0.56, z, U) }
           }
           kSurge.on = t < C.hold + C.out; kSurge.t = t; kSurge.k = outK
@@ -24755,6 +24772,7 @@ const spurG = new Graphics()
     if (!kKo.items.length) {
       kKo.seed = 7
       for (let i = 0; i < 12; i++) kKo.items.push({ ink: true, a: (i / 12) * Math.PI * 2 + rnd() * 0.35, d0: 0.25 + rnd() * 0.45, v: 0.9 + rnd() * 1.4, sz: U * (0.03 + rnd() * 0.04), r: rnd() })
+      for (let i = 0; i < 4; i++) kKo.items.push({ big: true, a: -Math.PI * (0.18 + 0.64 * (i + 0.5 * rnd()) / 4), d0: 0.45 + rnd() * 0.35, v: 0.8 + rnd() * 0.6, sz: U * (0.1 + rnd() * 0.05), r: rnd() })
       for (let i = 0; i < 22; i++) kKo.items.push({ ink: false, a: rnd() * Math.PI * 2, d0: 0.2 + rnd() * 0.6, v: 1.2 + rnd() * 2, sz: U * (0.018 + rnd() * 0.035), r: rnd() })
     }
     const age = t < hs ? 0 : t - hs
@@ -24768,7 +24786,7 @@ const spurG = new Graphics()
     }
     // THE SHOCKWAVE: one bold bright ring outside the body, racing out once the hit-stop lets go
     const rs = Math.max(E.ex, E.ey) * 1.15 * (1 + 2.2 * (1 - Math.exp(-age * 4)))
-    const ra = t < hs ? 1 : clamp01(1 - age / 0.45)
+    const ra = 0
     if (ra > 0) {
       cerG.circle(E.cx, E.cy, rs).stroke({ width: U * 0.07, color: 0xffb040, alpha: 0.35 * ra })
       cerG.circle(E.cx, E.cy, rs).stroke({ width: U * 0.028, color: 0xffffff, alpha: 0.95 * ra })
@@ -24789,6 +24807,20 @@ const spurG = new Graphics()
           const f = 1.3 + k * 0.45 + it.r * 0.3
           cerG.circle(x0 + dx * f + nx * r * (k - 1) * 0.9, y0 + dy * f + ny * r * (k - 1) * 0.9, r * (0.32 - k * 0.07)).fill({ color: 0x140a24, alpha: 0.9 * fade })
         }
+        continue
+      }
+      if (it.big) {
+        // a slab of the dome: its dark skin, its lit outer face, a white-hot broken edge
+        const r = it.sz, rot = it.r * 6.3 + age * 3
+        const pts = []
+        for (let k = 0; k < 7; k++) {
+          const f = rot + k * 0.8976, rr = r * (0.55 + 0.45 * (((k * 5 + it.r * 9) | 0) % 4) / 3)
+          pts.push(x + Math.cos(f) * rr, y + Math.sin(f) * rr * 0.75)
+        }
+        cerG.moveTo(x0, y0).lineTo(x, y).stroke({ width: r * 0.7, color: 0xffd9a0, alpha: 0.3 * fade, cap: 'round' })
+        cerG.poly(pts).fill({ color: 0x5a4a8e, alpha: fade }).stroke({ width: 5, color: 0x05030a, alpha: fade, join: 'round' })
+        cerG.poly(pts.map((v, j) => (j % 2 ? y + (v - y) * 0.55 - r * 0.12 : x + (v - x) * 0.55))).fill({ color: 0x8a7ac8, alpha: 0.8 * fade })
+        cerG.poly(pts.slice(0, 8), false).stroke({ width: 4, color: 0xffc070, alpha: fade, cap: 'round', join: 'round' })
         continue
       }
       // a shard of mantle, hot on its broken edge, spinning out
@@ -24842,8 +24874,6 @@ const spurG = new Graphics()
     if (cross(1, 0)) {
       addShake(22, 1.0)
       const [bx, by, br] = bodyC()
-      krakenThrowPuffs(30, bx, by, br * 1.15, br * 1.5, edgeReach, U * 0.07 / ws, 0xb4bfcc, 1.5)
-      krakenThrowPuffs(14, bx, by, br * 1.1, br * 1.35, edgeReach * 0.7, U * 0.055 / ws, 0x8e98a8, 1.3)
       krakenThrowChunks(10, bx, by, br * 1.05, 380, 900, true, true)
       krakenThrowChunks(10, bx, by, br, 300, 760, false)
     }
@@ -24884,7 +24914,6 @@ const spurG = new Graphics()
         const [bx, by, br] = bodyC()
         krakenThrowChunks(16, mx, my, mr * 0.9, 320, 820, true)
         krakenThrowChunks(12, mx, my, mr, 180, 560, false)
-        krakenThrowPuffs(22, bx, by, br * 0.9, br * 1.4, edgeReach * 0.85, U * 0.07 / ws, 0x9aa4b4, 1.6)
         for (let i = 0; i < 18; i++) {
           const a = Math.random() * Math.PI * 2, sp = 300 + Math.random() * 500
           spawnParticle(T.fx.spark_04, mx, my, Math.cos(a) * sp, Math.sin(a) * sp, 0.5 + Math.random() * 0.4, 0.09 + Math.random() * 0.06, i % 2 ? 0xffc070 : 0xffffff, 0, 3)
@@ -24897,7 +24926,6 @@ const spurG = new Graphics()
       if (cross(32, O.sinkFrom)) {
         const [mx, my, mr] = mantle()
         krakenThrowChunks(8, mx, my, mr * 0.9, 200, 480, false)
-        krakenThrowPuffs(12, mx, my, mr * 0.8, mr * 1.3, edgeReach * 0.35, U * 0.05 / ws, 0x6e7888, 1.3)
         spawnRing(mx, my, mr * 2.4, 0.6, T.novaRing, 0xffb060)
         addShake(8, 0.4)
       }
