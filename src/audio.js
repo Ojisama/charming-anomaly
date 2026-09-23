@@ -1,6 +1,6 @@
 // Procedural WebAudio SFX, no assets. Names: shoot, hit, kill, gem, coin, clang, surge, whip,
 // levelup, hurt, death, victory, click, buy, explode, zap, hole, beam, crush,
-// bossRise, bossFall, siren, lunge, quake, suck.
+// bossRise, bossFall, siren, lunge, quake, suck, krakenRoar, krakenSlain.
 
 let ctx = null
 let master = null
@@ -221,6 +221,93 @@ const SFX = {
     tone(760, { type: 'sawtooth', dur: 0.16, gain: 0.16, slide: 1000 })
     tone(1000, { type: 'sawtooth', dur: 0.16, gain: 0.14, slide: 760, at: 0.16 })
   },
+  // THE KRAKEN ARRIVING: the floor opening (surge, unchanged) and then the animal itself, a roar
+  // landing as its name card does. Played by krakenArrive, which fires at most twice a fight.
+  krakenRoar() {
+    SFX.surge()
+    roar(ctx, master, ctx.currentTime + 0.55, { dur: 1.9, f0: 46, peak: 64, end: 34, gain: 0.34 })
+  },
+  // THE KILL: a hard impact on the hit-stop, then the animal's last sound, falling away as it sinks.
+  krakenSlain() {
+    const t0 = ctx.currentTime
+    noiseVoice(ctx, master, t0, { dur: 0.45, gain: 0.34, lp: 1800 })
+    noiseVoice(ctx, master, t0, { dur: 0.05, gain: 0.22, lp: 12000 })
+    tone(130, { type: 'sine', dur: 0.9, gain: 0.42, slide: 28 })
+    tone(260, { type: 'triangle', dur: 0.5, gain: 0.12, slide: 60 })
+    roar(ctx, master, t0 + 0.22, { dur: 2.6, f0: 70, peak: 76, end: 24, gain: 0.3 })
+  },
+}
+
+// A creature's voice: three detuned saws on one pitch contour through a sweeping low-pass, with a
+// slow wobble.
+function roar(ac, out, t0, { dur, f0, peak, end, gain }) {
+  const lp = ac.createBiquadFilter()
+  lp.type = 'lowpass'
+  lp.Q.value = 4
+  lp.frequency.setValueAtTime(260, t0)
+  lp.frequency.linearRampToValueAtTime(1300, t0 + dur * 0.25)
+  lp.frequency.exponentialRampToValueAtTime(240, t0 + dur)
+  const g = ac.createGain()
+  g.gain.setValueAtTime(0.0001, t0)
+  g.gain.exponentialRampToValueAtTime(gain, t0 + dur * 0.18)
+  g.gain.setValueAtTime(gain, t0 + dur * 0.45)
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur)
+  lp.connect(g).connect(out)
+  const lfo = ac.createOscillator()
+  const lfoG = ac.createGain()
+  lfo.frequency.value = 7
+  lfoG.gain.value = 22   // cents of wobble
+  lfo.connect(lfoG)
+  for (const [mul, det] of [[1, -9], [1, 11], [1.5, 4]]) {
+    const o = ac.createOscillator()
+    o.type = 'sawtooth'
+    o.detune.value = det
+    lfoG.connect(o.detune)
+    o.frequency.setValueAtTime(f0 * mul, t0)
+    o.frequency.exponentialRampToValueAtTime(peak * mul, t0 + dur * 0.3)
+    o.frequency.exponentialRampToValueAtTime(end * mul, t0 + dur)
+    o.connect(lp)
+    o.start(t0)
+    o.stop(t0 + dur + 0.05)
+  }
+  lfo.start(t0)
+  lfo.stop(t0 + dur + 0.05)
+  noiseVoice(ac, out, t0, { dur: dur * 0.8, gain: gain * 0.35, lp: 900, attack: dur * 0.2 })
+}
+
+const noiseBufs = new WeakMap()
+function noiseFor(ac) {
+  let b = noiseBufs.get(ac)
+  if (!b) {
+    b = ac.createBuffer(1, Math.ceil(ac.sampleRate * 0.5), ac.sampleRate)
+    const d = b.getChannelData(0)
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1
+    noiseBufs.set(ac, b)
+  }
+  return b
+}
+// Filtered noise with its own envelope, on any context (the SFX helper noise() is live-only).
+function noiseVoice(ac, out, t0, { dur, gain, lp = 0, hp = 0, bp = 0, attack = 0.002 }) {
+  const src = ac.createBufferSource()
+  src.buffer = noiseFor(ac)
+  src.loop = true
+  let node = src
+  for (const [type, f] of [['lowpass', lp], ['highpass', hp], ['bandpass', bp]]) {
+    if (!f) continue
+    const fl = ac.createBiquadFilter()
+    fl.type = type
+    fl.frequency.value = f
+    if (type === 'bandpass') fl.Q.value = 1.4
+    node.connect(fl)
+    node = fl
+  }
+  const g = ac.createGain()
+  g.gain.setValueAtTime(0.0001, t0)
+  g.gain.exponentialRampToValueAtTime(gain, t0 + attack)
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur)
+  node.connect(g).connect(out)
+  src.start(t0)
+  src.stop(t0 + dur + 0.02)
 }
 
 export function playSfx(name) {
@@ -236,3 +323,4 @@ export function playSfx(name) {
   }
   SFX[name]?.()
 }
+

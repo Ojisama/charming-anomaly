@@ -703,6 +703,11 @@ function generateWells(sig) {
  *   the bakes are built in PAIRS at boot rather than branched at bake time, because the shop sits
  *   between RUNS and not between page loads.
  *
+ * bossOutroT: seconds ELAPSED in The Kraken's KILL outro (KRAKEN_OUTRO in config.js), the victory
+ *   twin of deathT below and owned the same way: main.js counts it while phase is 'victory' and
+ *   stepSim is not called; render.js reads it to draw the death; sim.js never touches it. 0 for
+ *   every run whose boss has not died, and for every other chapter.
+ *
  * deathT (v7.x): seconds ELAPSED in the DEATH OUTRO — the beat between the killing blow and the
  *   summary screen (DEATH_OUTRO in config.js). OWNED BY main.js, NOT BY THE SIM: sim.js never reads
  *   or writes it, and stepSim does not run while it is counting (phase is already 'dead'). It is on
@@ -2832,6 +2837,7 @@ export function createRun(meta, opts = {}) {
     // summary screen. Declared for EVERY run, not just Undertow's — the tally is chapter-agnostic
     // (it is just "what hit me"), and only the OUTRO is book-scoped.
     deathT: 0,
+    bossOutroT: 0,   // The Kraken's kill outro, main.js's clock (see the doc block above)
     killedBy: null,
     dmgBySrc: {},
     // v5.24 The Blank (see doc block above): rampage pattern again — these three fields exist on
