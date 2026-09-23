@@ -10972,6 +10972,17 @@ export function createRenderer(app) {
   const prismBodyG = new Graphics()
   const prismG = new Graphics()
   prismG.blendMode = 'add'
+  // THE KRAKEN'S DANGER, IN LIGHT. Every ground the fight is about to strike — a slam's lane, the
+  // Coil's five, the lunge's path — is filled here in one saturated hazard colour, ADDED to the
+  // floor rather than painted on it: the seabed is near-black navy, and a normal-blend mark on it
+  // was dark-on-dark however it was coloured. And it is ABOVE darkLayer, in a container that copies
+  // the world camera (the same arrangement as the head's eyes, krakenLampLayer): the Coil's five
+  // lanes run out past the edge of any lamp, and a threat you have to dodge cannot be one you are
+  // not shown. The dark still hides the ARMS and everything else; only the struck ground is lit.
+  const krakenDangerLayer = new Container()
+  const krakenDangerG = new Graphics()
+  krakenDangerG.blendMode = 'add'
+  krakenDangerLayer.addChild(krakenDangerG)
   // v5.10 skies: the jet strafe's halogen landing-light pool is the one telegraph element that must
   // be ADDITIVE (a light on wet asphalt, not a painted band) — its own single-texture container, so
   // the blend-mode switch costs exactly one batch break. rampG carries the rampage rim-lights and
@@ -19580,6 +19591,74 @@ const spurG = new Graphics()
       teleG.circle(head.x, head.y, R * quiver * (1 - b * 0.07))
       teleG.stroke({ width: 10 + b * 4, color: 0xdff4ff, alpha: (0.05 + 0.09 * w) * (1 - b * 0.12) })
     }
+    // THE PATH: where it is coming. A lane in the hazard colour from the head's leading edge
+    // through the player and a body-width past them, reaching further and burning brighter over
+    // the wind-up, with chevrons running down it toward the fish. It turns white-hot when the parry
+    // window opens — the same "red is the danger, white is the answer" as an arm. The lunge SEEKS,
+    // so this is its heading, not a hitbox; it is aimed at where the player is, every frame.
+    const p = run.player
+    const dx = p.x - head.x, dy = p.y - head.y
+    const d = Math.hypot(dx, dy) || 1
+    const ux = dx / d, uy = dy / d
+    const win = head.lungeT <= rung.lungeWindow
+    const x0 = head.x + ux * KRAKEN_HEAD_R * 0.7, y0 = head.y + uy * KRAKEN_HEAD_R * 0.7
+    const reach = Math.max(KRAKEN_HEAD_R, d + KRAKEN_HEAD_R * 0.6 - KRAKEN_HEAD_R * 0.7) * (0.35 + 0.65 * w)
+    const x1 = x0 + ux * reach, y1 = y0 + uy * reach
+    const hw = KRAKEN_HEAD_R * 0.55
+    const col = win ? K_HAZARD_HOT : K_HAZARD
+    krakenDangerG.moveTo(x0, y0).lineTo(x1, y1).stroke({ width: 2 * hw, color: col, alpha: 0.12 + 0.22 * w, cap: 'round' })
+    krakenDangerG.moveTo(x0, y0).lineTo(x1, y1).stroke({ width: hw * 0.5, color: K_HAZARD_HOT, alpha: 0.25 + 0.5 * w, cap: 'round' })
+    const nx = -uy, ny = ux
+    for (let c = 0; c < 3; c++) {
+      const t = ((animT * (1.2 + 2.5 * w) + c / 3) % 1)
+      const cx = x0 + ux * reach * t, cy = y0 + uy * reach * t
+      const s2 = hw * 0.8
+      krakenDangerG.moveTo(cx - ux * s2 * 0.6 + nx * s2, cy - uy * s2 * 0.6 + ny * s2)
+        .lineTo(cx, cy)
+        .lineTo(cx - ux * s2 * 0.6 - nx * s2, cy - uy * s2 * 0.6 - ny * s2)
+        .stroke({ width: 5, color: win ? 0xffffff : K_HAZARD_HOT, alpha: (0.3 + 0.6 * w) * Math.sin(t * Math.PI), join: 'round', cap: 'round' })
+    }
+  }
+
+  // THE HAZARD COLOUR. One colour for "this ground is about to be struck", whatever strikes it — a
+  // slam, the Coil, the lunge — so the player learns it once. White is kept for the parry answer.
+  const K_HAZARD = 0xff5a1e
+  const K_HAZARD_HOT = 0xffc080
+
+  // A SLAM'S LANE, FROM THE FRAME THE FUSE LIGHTS. Where: the exact capsule sim strikes (segment
+  // lx0..lx1, half-width W, round cap past the head) is outlined in the hazard colour from the
+  // first frame — the old band grew in from the ring, off-screen, and was invisible for the first
+  // third of the fuse. When: the fill starts as a thin hot spine down the middle and WIDENS to the
+  // outline as the fuse runs out; the frame it meets the edges is the frame it lands. The owner's
+  // "the rectangle should grow to show the arm arming the slam" is that widening. The Coil's lanes
+  // are the same drawing, hotter, so the one lane left dark is the gap.
+  function drawKrakenLane(a, urg, rung) {
+    const W = a.w || KRAKEN_LASH_W
+    const coil = a.coilArm === true
+    const win = a.tele <= rung.window && !coil
+    const L = Math.hypot(a.lx1 - a.lx0, a.ly1 - a.ly0) || 1
+    const nx = -(a.ly1 - a.ly0) / L, ny = (a.lx1 - a.lx0) / L
+    const la = Math.atan2(a.ly1 - a.ly0, a.lx1 - a.lx0)
+    const e = Math.pow(Math.max(0, Math.min(1, urg)), 0.85)
+    const col = win ? K_HAZARD_HOT : K_HAZARD
+    // the whole lane, faint, so the ground is readable as ONE shape from the first frame
+    krakenDangerG.moveTo(a.lx0, a.ly0).lineTo(a.lx1, a.ly1)
+      .stroke({ width: 2 * W, color: K_HAZARD, alpha: (coil ? 0.10 : 0.07) + 0.06 * e, cap: 'round' })
+    // the fill closing out to the edges: where it has reached is where it is dangerous NOW
+    const fw = Math.max(6, 2 * W * e)
+    krakenDangerG.moveTo(a.lx0, a.ly0).lineTo(a.lx1, a.ly1)
+      .stroke({ width: fw, color: col, alpha: (coil ? 0.30 : 0.22) + (win ? 0.16 : 0.30) * e, cap: 'round' })
+    // ...and its spine, hot, so even the first frame has a bright line to catch the eye
+    krakenDangerG.moveTo(a.lx0, a.ly0).lineTo(a.lx1, a.ly1)
+      .stroke({ width: 3 + 3 * e, color: K_HAZARD_HOT, alpha: 0.35 + 0.45 * e, cap: 'round' })
+    // the outline: the hitbox, exact, brightening toward the strike
+    const ux = nx * W, uy = ny * W
+    krakenDangerG.beginPath()
+    krakenDangerG.moveTo(a.lx0 - ux, a.ly0 - uy)
+    krakenDangerG.lineTo(a.lx1 - ux, a.ly1 - uy)
+    krakenDangerG.arc(a.lx1, a.ly1, W, la - Math.PI / 2, la + Math.PI / 2)
+    krakenDangerG.lineTo(a.lx0 + ux, a.ly0 + uy)
+    krakenDangerG.stroke({ width: 2.5 + 2.5 * e, color: win ? 0xffffff : col, alpha: 0.45 + 0.5 * e, join: 'round', cap: 'round' })
   }
 
   // THE SLAMS' PRINTS: every landed strike leaves its struck capsule on the seabed for K_SCAR_T —
@@ -19597,12 +19676,15 @@ const spurG = new Graphics()
       const age = K_SCAR_T - sc.t
       // THE BLOW'S FOOTPRINT, LIT FOR A BLINK: the whole struck capsule flashes pale on the frames
       // it lands, at exactly the width sim tested. The telegraph said "here"; this says "that was it".
-      if (age < 0.12) {
-        const k = 1 - age / 0.12
-        teleG.beginPath()
-        teleG.moveTo(sc.x0, sc.y0)
-        teleG.lineTo(sc.x1, sc.y1)
-        teleG.stroke({ width: 2 * sc.w, color: 0xe8f4fa, alpha: 0.30 * k, cap: 'round' })
+      const flashT = sc.big ? 0.34 : 0.12   // the Coil's five hold longer: the biggest blow
+      if (age < flashT) {
+        // the lane that was burning goes WHITE-HOT for a blink and dies: the danger fill resolving
+        // into the blow, at the width it was drawn — so the warning and the hit are one shape
+        const k = 1 - age / flashT
+        krakenDangerG.moveTo(sc.x0, sc.y0).lineTo(sc.x1, sc.y1)
+          .stroke({ width: 2 * sc.w * (1 + 0.25 * (1 - k)), color: K_HAZARD, alpha: (sc.big ? 0.8 : 0.45) * k, cap: 'round' })
+        krakenDangerG.moveTo(sc.x0, sc.y0).lineTo(sc.x1, sc.y1)
+          .stroke({ width: sc.w * 0.5, color: 0xffffff, alpha: 0.55 * k, cap: 'round' })
       }
       // THE DUST WALL: the seabed thrown up along both edges of the print and rolling outward, the
       // way Hydra's slam throws a ring of dust out from its own telegraph's edge. It starts ON the
@@ -19826,16 +19908,16 @@ const spurG = new Graphics()
       const gapHalf = half * 1.45
       const urg = closing ? 1 : 1 - (s.coilT - KRAKEN_COIL_DUR) / Math.max(0.001, KRAKEN_COIL_TELE)
       const g0 = s.coilGap - gapHalf, g1 = s.coilGap + gapHalf
-      teleG.beginPath()
-      teleG.moveTo(head.x, head.y)
-      teleG.arc(head.x, head.y, ringR * 1.5, g0, g1)
-      teleG.closePath()
-      teleG.fill({ color: 0x9fe8ff, alpha: 0.05 + urg * 0.10 })
+      // NO FILL IN THE GAP. Owner: "the lane the spared arm leaves dark is where you have to be" —
+      // and it was the one lit thing in the ring, pale blue, while the five lanes that were about to
+      // be struck were near-black. The struck lanes now burn in the hazard colour (drawKrakenLane)
+      // and the gap is simply the ground they leave dark; only its two edges are drawn, faint and
+      // cold, so the way in has a doorframe.
       for (const e of [g0, g1]) {
         teleG.beginPath()
         teleG.moveTo(head.x, head.y)
         teleG.lineTo(head.x + Math.cos(e) * ringR * 1.5, head.y + Math.sin(e) * ringR * 1.5)
-        teleG.stroke({ width: 2 + urg * 2, color: 0xdff8ff, alpha: 0.35 + urg * 0.5 })
+        teleG.stroke({ width: 1.5 + urg * 1.5, color: 0xdff8ff, alpha: 0.22 + urg * 0.3 })
       }
     }
 
@@ -19932,39 +20014,12 @@ const spurG = new Graphics()
       // of 0.008 is not an animation the player can see, it is an animation the probe can see. The
       // floor puts a stub on the seabed from the frame the fuse lights, and the shallower exponent
       // gets it into the arena early enough to be worth watching.
-      const grow = Math.min(1, 0.12 + 0.88 * Math.pow(urg / 0.58, 0.55))
-      const ex = a.lx0 + (a.lx1 - a.lx0) * grow, ey = a.ly0 + (a.ly1 - a.ly0) * grow
-      // ...AND IT FINISHES AT EXACTLY THE STRUCK WIDTH. It was W x (0.86 + lift x 0.14), and lift
-      // falls to 0 as the arm comes down — so on the frames that decide a dodge the drawn band was
-      // 60px against sim's 70: a player standing on the drawn edge was 10px inside the hitbox.
-      const hw = (a.w || KRAKEN_LASH_W) * (0.42 + 0.58 * grow)
-      for (let b = 0; b < 7; b++) {
-        teleG.beginPath()
-        teleG.moveTo(a.lx0, a.ly0)
-        teleG.lineTo(ex, ey)
-        teleG.stroke({ width: 2 * hw * (1 - b * 0.13), color: 0xff7a6a, alpha: 0.020 * (0.7 + 1.3 * urg), cap: 'round' })
-      }
-      // ...and the exact edges arrive only when they can still be acted on: the two rails of the
-      // capsule through the back half of the fuse, gone the rest of the time. These are what say
-      // "step off this line", which is the whole answer to the attack.
-      // ...and the rails open exactly when the band finishes growing, so the two never disagree
-      // about how far the strike reaches
-      if (urg > 0.58) {
-        const k = (urg - 0.58) / 0.42
-        const nx = -(a.ly1 - a.ly0), ny = a.lx1 - a.lx0
-        const nl = Math.hypot(nx, ny) || 1
-        // THE RAILS ARE THE CAPSULE sim tests (segDist2 <= W^2), round cap included: two sides and
-        // the half-circle past the head centre, as ONE path, so the outline the player dodges by is
-        // the hitbox and not a pair of lines that stop where the danger does not.
-        const la = Math.atan2(a.ly1 - a.ly0, a.lx1 - a.lx0)
-        const ux = (nx / nl) * hw, uy = (ny / nl) * hw
-        teleG.beginPath()
-        teleG.moveTo(a.lx0 - ux, a.ly0 - uy)
-        teleG.lineTo(a.lx1 - ux, a.ly1 - uy)
-        teleG.arc(a.lx1, a.ly1, hw, la - Math.PI / 2, la + Math.PI / 2)
-        teleG.lineTo(a.lx0 + ux, a.ly0 + uy)
-        teleG.stroke({ width: 1.4 + k * 2.0, color: 0xffb3a6, alpha: 0.18 + k * 0.34, cap: 'round', join: 'round' })
-      }
+      // A COIL LANE RUNS ON THE COIL'S CLOCK, not the arm's: stepKrakenArms returns before its arm
+      // loop while s.coilT > 0, so a coil arm's tele sits at its start value and the lane would
+      // never fill. It fills over the wind-up and is gone once the ring shuts.
+      if (a.coilArm) {
+        if (s.coilT > KRAKEN_COIL_DUR) drawKrakenLane(a, 1 - (s.coilT - KRAKEN_COIL_DUR) / Math.max(0.001, KRAKEN_COIL_TELE), rung)
+      } else drawKrakenLane(a, urg, rung)
 
       // ...and the last `window` seconds of it are the PARRY, which has to be unmistakably its own
       // colour. Red is the danger, white-hot is the answer.
@@ -20587,6 +20642,7 @@ const spurG = new Graphics()
   krakenLampG.blendMode = 'add'
   krakenLampLayer.addChild(krakenLampG)
   app.stage.addChildAt(krakenLampLayer, app.stage.getChildIndex(darkLayer) + 1)
+  app.stage.addChildAt(krakenDangerLayer, app.stage.getChildIndex(darkLayer) + 1)
   // UNDER the wreck field, not over it: the body is below the seabed clutter, and the eyes sit on
   // it unblurred. The head rig sits directly over the enemy layer, where its pooled sprite was.
   entitiesLayer.removeChild(krakenDeepG)
@@ -21018,6 +21074,7 @@ const spurG = new Graphics()
 
   function redrawTelegraphs(run) {
     teleG.clear()
+    krakenDangerG.clear()
     const p = run.player
     drawKrakenRing(run)
     for (const e of run.enemies) {
@@ -23519,12 +23576,37 @@ const spurG = new Graphics()
             spawnParticle(T.fx.star_08, lx0 + (lx1 - lx0) * t, ly0 + (ly1 - ly0) * t,
               Math.cos(a) * sp, Math.sin(a) * sp, 0.3, 0.05, 0xe6f2f8, -0.05, 2)
           }
+          // DEBRIS: chunks of seabed thrown hard OUT of the line, both sides, fast and dragging to a
+          // stop — the part of a heavy blow that is thrown, which a flash alone never says
+          for (let i = 0; i < (e.coil ? 10 : 34); i++) {
+            const t = 0.4 + Math.random() * 0.6
+            const side = Math.random() < 0.5 ? -1 : 1
+            // born ON the struck edge, so the first frames already show them leaving the lane
+            const off = lw * (0.75 + Math.random() * 0.35)
+            const sx = lx0 + (lx1 - lx0) * t + nx * side * off
+            const sy = ly0 + (ly1 - ly0) * t + ny * side * off
+            const sp = 420 + Math.random() * 520
+            const a = Math.atan2(ny * side, nx * side) + (Math.random() - 0.5) * 1.0
+            spawnParticle(T.fx.circle_05, sx, sy, Math.cos(a) * sp, Math.sin(a) * sp,
+              0.45 + Math.random() * 0.3, 0.04 + Math.random() * 0.05, i % 3 ? 0xd9c3a0 : 0xffe0b8, -0.04, 4.0)
+          }
           if (!e.coil) {
             const nk = krakenNearK(run, lx0, ly0, lx1, ly1, lw)
             if (nk.k > 0) {
-              addShakeScreen(0.004 + 0.016 * nk.k * nk.k, 0.16 + 0.12 * nk.k)
-              // shoved AWAY from the line, the way a blow beside you pushes you off it
-              addKick(run.player.x - nk.qx, run.player.y - nk.qy, 0.012 * nk.k)
+              addShakeScreen(0.006 + 0.022 * nk.k * nk.k, 0.18 + 0.14 * nk.k)
+              // THE KICK RUNS DOWN THE SLAM'S OWN AXIS — the limb comes down the line from the rim
+              // toward the head, and the camera is thrown the same way — plus a shove off the line
+              addKick(ux, uy, 0.022 * nk.k)
+              addKick(run.player.x - nk.qx, run.player.y - nk.qy, 0.008 * nk.k)
+              if (nk.k >= 1) {
+                // it landed ON you: a hot burst at the fish, so the hit has a place and not only a
+                // red screen edge
+                spawnRing(run.player.x, run.player.y, 64, 0.22, T.novaWarm, 0xffb080)
+                for (let i = 0; i < 10; i++) {
+                  const a = Math.random() * Math.PI * 2
+                  spawnParticle(T.fx.star_08, run.player.x, run.player.y, Math.cos(a) * 260, Math.sin(a) * 260, 0.22, 0.06, 0xffc890, -0.1, 3)
+                }
+              }
             } else addShakeScreen(0.003, 0.12)
           }
           break
@@ -23594,7 +23676,7 @@ const spurG = new Graphics()
           // seabed on one frame. A long heavy shake, a kick straight down (the whole world dropping
           // under the blow — it has no side, it is everywhere but the gap), a shock ring racing out
           // across the arena floor, and a collar of silt thrown up where the arms met.
-          spawnRing(e.x, e.y, e.r * 2.6, 0.62, T.novaRing, 0xcfe6f0)
+          spawnRing(e.x, e.y, e.r * 2.6, 0.62, T.novaRing, 0xffb080)
           spawnRing(e.x, e.y, e.r * 1.4, 0.34, T.novaRing, 0xffffff)
           spawnRing(e.x, e.y, e.r * 0.5, 0.26, T.novaWarm, 0xdff4ff)
           for (let i = 0; i < 40; i++) {
@@ -23604,6 +23686,13 @@ const spurG = new Graphics()
             spawnParticle(T.fx.circle_05, e.x + Math.cos(a) * r0, e.y + Math.sin(a) * r0,
               Math.cos(a) * sp, Math.sin(a) * sp, 0.8 + Math.random() * 0.3, 0.12 + Math.random() * 0.06, 0x4a5a64, 0.6, 2.6)
           }
+          // ...AND EVERY LANE IT STRUCK FLASHES, off the arms wearing the coil: the five burning
+          // lanes resolve into the blow on the same frame, and the spared one stays dark
+          for (const a of run.krakenArms) {
+            if (a.dead || !a.coilArm) continue
+            krakenScars.push({ x0: a.lx0, y0: a.ly0, x1: a.lx1, y1: a.ly1, w: KRAKEN_LASH_W, t: K_SCAR_T, big: true, cracks: krakenCrack(a.lx0, a.ly0, a.lx1, a.ly1, KRAKEN_LASH_W, true) })
+          }
+          while (krakenScars.length > 10) krakenScars.shift()
           addShakeScreen(0.05, 0.55)
           addKick(0, 1, 0.03)
           // the one full-field flash in the fight, and a dim one: the Coil comes once every
@@ -23670,6 +23759,7 @@ const spurG = new Graphics()
     spurRev = -1
     hazardG.clear()
     teleG.clear()
+    krakenDangerG.clear()
     // The Kraken: the abyss, and the arm ropes. Meshes rather than a syncPool pool, so they are
     // hidden here by hand — a cage left up would greet the next run as furniture, which is the
     // exact failure run CP exists for.
@@ -25214,6 +25304,8 @@ const spurG = new Graphics()
     const cy = (laneAheadY ? laneFrac(viewH(), chapterLaneAxis.dir) : viewH() / 2) - camY + shake.oy + kick.y
     world.scale.set(z)
     world.position.set(cx * z, cy * z)
+    krakenDangerLayer.scale.set(z)
+    krakenDangerLayer.position.set(cx * z, cy * z)
     playerScreen.x = (run.player.x + cx) * z
     playerScreen.y = (run.player.y + cy) * z
     updateGroundField(cx, cy)
