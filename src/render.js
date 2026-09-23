@@ -5209,6 +5209,9 @@ export function createRenderer(app) {
   // photophores down its flanks. The eyes, brows, crown and wound are NOT baked: they act, so the
   // rig draws them live on top (drawKrakenFace).
   const K_BODY_BAKE_R = 160
+  // the body's OUTER contour, in bake units — traced once at bake time from the same shapes, so the
+  // rim light the rig draws through the dark hugs the silhouette the bake actually has
+  let krakenBodyContour = null
   function drawKrakenBodyBake(g, white) {
     const R = K_BODY_BAKE_R
     const f = (c) => white ? 0xffffff : c
@@ -5228,6 +5231,18 @@ export function createRenderer(app) {
       }
     }
     groundShadow(R * 0.9, R * 0.1)
+    if (!krakenBodyContour) {
+      const inside = (x, y) => shapes.some((sh) => sh[0] === 'e'
+        ? ((x - sh[1] * R) / (sh[3] * R)) ** 2 + ((y - sh[2] * R) / (sh[4] * R)) ** 2 <= 1
+        : (x - sh[1] * R) ** 2 + (y - sh[2] * R) ** 2 <= (sh[3] * R) ** 2)
+      krakenBodyContour = []
+      for (let i = 0; i < 96; i++) {
+        const f = (i / 96) * Math.PI * 2, c = Math.cos(f), sn = Math.sin(f)
+        let r = 2 * R
+        while (r > 0 && !inside(c * r, -0.2 * R + sn * r)) r -= R * 0.01
+        krakenBodyContour.push(c * r, -0.2 * R + sn * r)
+      }
+    }
     // the two rims first, offset, so the base leaves a sliver of each on its own side
     draw(1.02, -R * 0.025, -R * 0.03, 0xcfe0ff, 0.95)
     draw(1.02, R * 0.02, R * 0.035, 0xc98a5a, 0.7)
@@ -5239,6 +5254,8 @@ export function createRenderer(app) {
       draw(1 - 0.86 * t, 0, 0, mix(0x0c0918, 0x6a5a9e, Math.pow(t, 1.25)), 1, lx, ly)
     }
     if (white) return
+    // THE RIM: a cold line of light round the whole silhouette, so it holds against black water
+    g.poly(krakenBodyContour).stroke({ width: R * 0.022, color: 0xd6e4ff, alpha: 0.75, join: 'round' })
     // the eye sockets: dark hollows the live eyes sit in
     for (const sg of [-1, 1]) {
       g.circle(sg * 0.37 * R, 0.24 * R, 0.205 * R).fill({ color: 0x07050e, alpha: 0.95 })
@@ -20795,69 +20812,9 @@ const spurG = new Graphics()
     headRig.root.visible = false
     krakenHeadRig.visible = false
     for (const r of krakenRootRopes) r.visible = false
-    kc.x = null; kc.y = null; kc.tilt = 0; kc.near = 0; kc.recoil = 0; kc.core = 0
+    kc.x = null; kc.y = null; kc.tilt = 0; kc.near = 0; kc.recoil = 0; kc.core = 0; kc.knock = 0
     kc.flinch = 0; kc.wide = 0; kc.deflect = 0; kc.blink = 0; kc.rootLen.length = 0
     kc.lastHF = 0; kc.flash = 0; kc.stagPeak = 0; kc.crown = -1
-  }
-
-  // one eye, in its own frame: (ux,uy) is its long axis. e.open 0..1 is the lid aperture, (e.lx,
-  // e.ly) where the pupil looks (-1..1 in the eye's own axes), e.round 0..1 turns the slit into a
-  // dilated disc, e.white 0..1 is the hit flash. e.globe/e.iris colour the eyeball and its iris.
-  function krakenEye(g, x, y, re, ux, uy, e) {
-    const vx = -uy, vy = ux
-    const P = (a, b) => [x + ux * a + vx * b, y + uy * a + vy * b]
-    const al = e.alpha, wh = e.white || 0
-    if (e.glow > 0) g.circle(x, y, re * 1.7).fill({ color: e.iris, alpha: e.glow * al })
-    const o = Math.max(0.06, Math.min(1, e.open))
-    const pts = []
-    for (let i = 0; i < 24; i++) {
-      const f = (i / 24) * Math.PI * 2
-      // an almond, not an ellipse: the corners are pinched, which is what makes a lid read as a lid
-      const sy = Math.sin(f)
-      pts.push(...P(re * Math.cos(f), re * o * sy * (0.75 + 0.25 * Math.abs(sy))))
-    }
-    g.poly(pts).fill({ color: mix(e.globe, 0xffffff, wh), alpha: al })
-    // the iris, then the pupil: a horizontal slit that opens into a disc. Both are squashed by the
-    // lid so a narrowed eye is a narrowed eye all the way through, not a disc behind a letterbox.
-    const ix = e.lx * re * 0.30, iy = e.ly * re * 0.26 * o
-    const ir = re * 0.66, ip = []
-    for (let i = 0; i < 18; i++) {
-      const f = (i / 18) * Math.PI * 2
-      ip.push(...P(ix + Math.cos(f) * ir, iy + Math.sin(f) * Math.min(ir, re * o * 0.86)))
-    }
-    g.poly(ip).fill({ color: mix(e.iris, 0xffffff, wh), alpha: e.irisA * al })
-    // narrowed right down, the slit closes too and what is left is a lit sliver: a glare, not a ring
-    const slitK = Math.min(1, Math.max(0, (o - 0.22) / 0.3))
-    const pu = re * (0.52 - 0.14 * e.round), pv = Math.min(re * o * 0.45, re * (0.09 + 0.38 * e.round)) * slitK
-    const pp = []
-    for (let i = 0; i < 14; i++) {
-      const f = (i / 14) * Math.PI * 2
-      pp.push(...P(ix + Math.cos(f) * pu, iy + Math.sin(f) * pv))
-    }
-    g.poly(pp).fill({ color: 0x020206, alpha: al }) // the pupil never flashes: the face survives a hit
-    // the catchlight: one hard point of light is the difference between an eye and a painted disc
-    if (o > 0.25) {
-      const [hx, hy] = P(-re * 0.28, -re * 0.30 * o)
-      g.circle(hx, hy, Math.max(1.5, re * 0.12)).fill({ color: 0xffffff, alpha: 0.8 * al })
-    }
-    g.poly(pts).stroke({ width: Math.max(2, re * 0.16), color: mix(e.lid, 0xffffff, wh), alpha: al, join: 'round' })
-    if (e.lamp && e.lampA > 0) {
-      // the iris as light, MINUS the slit: added light cannot paint the dark pupil, so the iris is
-      // drawn as the two crescents either side of it (Graphics.cut is banned by the dark's tripwire in sim-test)
-      const irv = Math.min(ir, re * o * 0.86)
-      for (const half of [0, 1]) {
-        const cr = []
-        for (let i = 0; i <= 10; i++) {
-          const f = (half + i / 10) * Math.PI
-          cr.push(...e.lampP(...P(ix + Math.cos(f) * ir, iy + Math.sin(f) * irv)))
-        }
-        for (let i = 10; i >= 0; i--) {
-          const f = (half + i / 10) * Math.PI
-          cr.push(...e.lampP(...P(ix + Math.cos(f) * pu, iy + Math.sin(f) * pv)))
-        }
-        e.lamp.poly(cr).fill({ color: e.iris, alpha: e.lampA })
-      }
-    }
   }
 
   function krakenCreatureEvents(events) {
@@ -20866,7 +20823,130 @@ const spurG = new Graphics()
       else if (ev.type === 'parryPerfect') kc.flinch = 1
       else if (ev.type === 'tentacleBreak') kc.flinch = 1
       else if (ev.type === 'krakenDeflect') kc.deflect = 1
+      else if (ev.type === 'headStagger') { kc.knock = 1; kc.wide = 1 }
       else if (ev.type === 'headStagger' || ev.type === 'krakenEnrage' || ev.type === 'headRise' || ev.type === 'krakenArrive') kc.wide = 1
+    }
+  }
+
+  // ONE EYE AND ITS BROW, in the face's SCREEN axes (sx = screen right, sy = screen down, both in
+  // the bake's local units) so the expression is upright however the body is turned. The owner-
+  // facing rule this encodes: the face carries the state, not an effect drawn beside it.
+  //   default  — OPEN, iris lit, a vertical slit pupil locked on the fish, the upper lid cut on a
+  //              slant (low at the nose) and the brow angled down: it is hunting you
+  //   st.glare — winding up: the lid drops harder on the slant, the brow crushes down, the slit
+  //              thins and the iris burns hotter. A glare, never a doze
+  //   st.pain  — hit / parried / broken: squeezed shut to a crease, the brow KNOTS (inner end up)
+  //   st.stun  — staggered: wide open, pale, a pinpoint pupil wandering, brow flung up
+  //   st.blink — both lids meet
+  // e: eye centre in local units, re its radius, sg -1 left / +1 right (inner corner toward 0)
+  function krakenGlareEye(g, ex, ey, re, sg, sx, sy, st, fl) {
+    const R = K_BODY_BAKE_R
+    // (a = along screen-right, b = screen-UP) relative to the eye -> local
+    const at = (a, b) => [ex + sx[0] * a - sy[0] * b, ey + sx[1] * a - sy[1] * b]
+    const glare = st.glare || 0, pain = st.pain || 0, stun = st.stun || 0, blink = st.blink || 0
+    const lookA = (st.lx || 0), lookB = -(st.ly || 0)
+    const aIn = -sg * re, aOut = sg * re
+    // upper-lid heights (in re, from the eye's centre, up +) at the inner and outer corners
+    let hIn = 0.14 - 0.24 * glare, hOut = 0.90 - 0.12 * glare
+    hIn += (1.25 - hIn) * stun; hOut += (1.25 - hOut) * stun
+    const low = -0.78 + 0.12 * glare
+    const shut = Math.max(blink, Math.min(1, pain * 1.6))
+    hIn += (low + 0.05 - hIn) * shut; hOut += (low + 0.05 - hOut) * shut
+    const lidB = (a) => re * (hIn + (hOut - hIn) * (a - aIn) / (aOut - aIn))
+    const lowB = (a) => re * (low + 0.08 * (a - aIn) / (aOut - aIn)) * (1 - 0.3 * stun)
+    const circ = (r, n = 28) => { const o = []; for (let i = 0; i < n; i++) { const f = (i / n) * Math.PI * 2; o.push([Math.cos(f) * r, Math.sin(f) * r]) } return o }
+    const toPoly = (pts) => { const o = []; for (const [a, b] of pts) o.push(...at(a, b)); return o }
+    // the eyeball
+    g.poly(toPoly(circ(re))).fill(stun > 0.5 ? mix(0xdfeef4, 0xffffff, fl) : 0x0a1420)
+    if (shut < 0.9) {
+      // the iris and the pupil, both looking at you
+      const ir = re * (0.74 - 0.30 * stun)
+      const wob = stun * 0.5
+      const ia = lookA * re * 0.26 + Math.cos(animT * 5.2 + sg) * re * 0.2 * wob
+      const ib = lookB * re * 0.22 + Math.sin(animT * 4.1 + sg * 2) * re * 0.2 * wob
+      const irisC = stun > 0.5 ? 0x7fb8c8 : mix(0x9ef4ff, 0xe8fdff, 0.45 * glare)
+      if (glare > 0.05) g.poly(toPoly(circ(ir * 1.25).map(([a, b]) => [ia + a, ib + b]))).fill({ color: irisC, alpha: 0.18 * glare })
+      g.poly(toPoly(circ(ir).map(([a, b]) => [ia + a, ib + b]))).fill(irisC)
+      g.poly(toPoly(circ(ir * 0.62).map(([a, b]) => [ia + a, ib + b]))).fill({ color: 0xffffff, alpha: 0.18 + 0.2 * glare })
+      if (stun > 0.5) {
+        g.poly(toPoly(circ(re * 0.075, 12).map(([a, b]) => [ia + a, ib + b]))).fill(0x020206)
+      } else {
+        const pw = re * (0.15 - 0.08 * glare), ph = ir * 0.92
+        const slit = []
+        for (let i = 0; i < 16; i++) { const f = (i / 16) * Math.PI * 2; slit.push([ia + Math.cos(f) * pw, ib + Math.sin(f) * ph]) }
+        g.poly(toPoly(slit)).fill(0x020206)
+      }
+      const [cx, cy] = at(ia - ir * 0.35, ib + ir * 0.4)
+      g.circle(cx, cy, Math.max(1.5, re * 0.13)).fill({ color: 0xffffff, alpha: 0.85 })
+    }
+    // the lids: the circle cut on each lid line, filled in flesh
+    const skin = mix(0x2a2046, 0xffffff, 0.3 * fl)
+    const up = circ(re * 1.04, 32).map(([a, b]) => [a, Math.max(b, Math.min(lidB(a), re * 1.04))])
+    g.poly(toPoly(up)).fill(skin)
+    const dn = circ(re * 1.04, 32).map(([a, b]) => [a, Math.min(b, Math.max(lowB(a), -re * 1.04))])
+    g.poly(toPoly(dn)).fill(skin)
+    // the lid edge: a hard dark line along the upper lid, which is what reads as a LOOK at a glance
+    const edge = []
+    for (let i = 0; i <= 12; i++) {
+      const a = -re + (2 * re * i) / 12, b = lidB(a)
+      if (a * a + b * b <= re * re * 1.02) edge.push(...at(a, b))
+    }
+    if (edge.length >= 4) g.poly(edge, false).stroke({ width: re * 0.2, color: 0x05030a, cap: 'round' })
+    g.poly(toPoly(circ(re * 1.04))).stroke({ width: re * 0.1, color: 0x05030a, alpha: 0.9 })
+    // PAIN: squeezed to a crease — a chevron pointing at the nose, and wrinkles either side
+    if (pain > 0.4) {
+      const k = Math.min(1, (pain - 0.4) / 0.3)
+      const c0 = at(aOut * 0.9, re * 0.35), c1 = at(aIn * 0.55, -re * 0.05), c2 = at(aOut * 0.9, -re * 0.45)
+      g.moveTo(c0[0], c0[1]).lineTo(c1[0], c1[1]).lineTo(c2[0], c2[1]).stroke({ width: re * 0.2, color: 0x05030a, alpha: k, cap: 'round', join: 'round' })
+      for (const w of [-1, 1]) {
+        const w0 = at(aOut * 1.1, w * re * 0.55), w1 = at(aOut * 1.35, w * re * 0.8)
+        g.moveTo(w0[0], w0[1]).lineTo(w1[0], w1[1]).stroke({ width: re * 0.09, color: 0x05030a, alpha: 0.8 * k, cap: 'round' })
+      }
+    }
+    // THE BROW: a fleshy ridge riding just above the lid line and running past the eye. It takes the
+    // lid's slant and exaggerates it — or, in pain, KNOTS: the inner end goes UP.
+    const knot = pain
+    const bIn = re * (hIn + 0.30 + 1.1 * knot - 0.1 * glare) + re * 0.55 * stun
+    const bOut = re * (hOut + 0.22 - 0.2 * knot) + re * 0.35 * stun
+    const bA = (a) => bIn + (bOut - bIn) * (a - aIn * 1.25) / (aOut * 1.3 - aIn * 1.25)
+    const top = [], bot = []
+    for (let i = 0; i <= 12; i++) {
+      const t = i / 12
+      const a = aIn * 1.25 + (aOut * 1.3 - aIn * 1.25) * t
+      const arch = Math.sin(Math.PI * t) * re * (0.18 - 0.25 * glare + 0.2 * stun)
+      const w = re * (0.44 + 0.12 * glare) * Math.sin(Math.PI * (0.12 + 0.76 * t))
+      const b = bA(a) + arch
+      top.push(...at(a, b + w * 0.5))
+      bot.unshift(...at(a, b - w * 0.5))
+    }
+    const brow = [...top, ...bot] // bot was unshifted pairwise, so it already runs back
+    g.poly(brow).fill(mix(0x3a2f62, 0xffffff, 0.3 * fl)).stroke({ width: R * 0.012, color: K_LINE, join: 'round' })
+    g.poly(top, false).stroke({ width: R * 0.02, color: 0xc9d6ff, alpha: 0.8, cap: 'round' })
+    // THROUGH THE DARK: the open part of the eye glows, and the brow's lit edge — two slanted lit
+    // eyes under a scowl, which is the whole of it you see past your lamp
+    if (st.lamp) {
+      const ap = []
+      for (let i = 0; i <= 16; i++) {
+        const a = -re + (2 * re * i) / 16
+        const top_ = Math.min(Math.sqrt(Math.max(0, re * re - a * a)), lidB(a))
+        ap.push(a, top_)
+      }
+      for (let i = 16; i >= 0; i--) {
+        const a = -re + (2 * re * i) / 16
+        const bot_ = Math.max(-Math.sqrt(Math.max(0, re * re - a * a)), lowB(a))
+        ap.push(a, bot_)
+      }
+      const lp = []
+      let open = false
+      for (let i = 0; i < ap.length; i += 2) {
+        const [x, y] = at(ap[i], ap[i + 1])
+        lp.push(...st.lamp(x, y))
+      }
+      for (let i = 0; i <= 16; i++) { const a = -re + (2 * re * i) / 16; if (lidB(a) > lowB(a) + re * 0.05) open = true }
+      if (open && shut < 0.9) krakenLampG.poly(lp).fill({ color: stun > 0.5 ? 0xbfefff : 0x9ef4ff, alpha: (st.lampA || 0) * (0.8 + 0.4 * glare) })
+      const bl = []
+      for (let i = 0; i < top.length; i += 2) bl.push(...st.lamp(top[i], top[i + 1]))
+      krakenLampG.poly(bl, false).stroke({ width: 6, color: 0x9fdcff, alpha: 0.5 + 0.3 * glare, cap: 'round' })
     }
   }
 
@@ -20932,7 +21012,7 @@ const spurG = new Graphics()
       const m = st.core
       const cx = 0, cy = -R * 0.55
       const pulse = 0.9 + 0.1 * Math.sin(animT * 8)
-      const hw = R * 0.30 * m, hh = R * 0.62 * m
+      const hw = R * 0.30 * m, hh = R * 0.5 * m
       g.ellipse(cx, cy, hw * 1.5 * pulse, hh * 1.12 * pulse).fill({ color: 0xff6a3a, alpha: 0.16 * m })
       // the peeled flaps, curled back either side of the split
       for (const sg of [-1, 1]) {
@@ -20967,41 +21047,8 @@ const spurG = new Graphics()
         krakenLampG.circle(wx, wy, st.lampS * hh * 0.6 * pulse).fill({ color: 0xffb08a, alpha: 0.25 * m })
       }
     }
-    // ---- the eyes and brows, on top of the head, upright on screen
-    for (const sg of [-1, 1]) {
-      const ex = sg * 0.37 * R, ey = 0.24 * R
-      const re = R * 0.165
-      krakenEye(g, ex, ey, re, sx[0], sx[1], {
-        open: st.open, lx: st.lx, ly: st.ly, round: st.round, alpha: 1, white: 0,
-        glow: 0.10 + 0.12 * (st.round || 0), globe: st.round > 0.5 ? 0xd7e9f0 : 0x0a1420,
-        iris: st.round > 0.5 ? 0x7fd8e8 : 0x9ef4ff, irisA: st.round > 0.5 ? 0.4 : 0.95, lid: 0x07050e,
-        lamp: st.lamp ? krakenLampG : null, lampP: st.lamp, lampA: st.lampA || 0,
-      })
-      // THE BROW: a fleshy ridge over the eye, lit along its top. Down in a V over the nose when it
-      // means you harm; flung up when it is dazed.
-      const a = st.angry
-      const at = (along, up) => [ex + sx[0] * along - sy[0] * up, ey + sx[1] * along - sy[1] * up]
-      const inner = -sg * re * 1.05, outer = sg * re * 1.15
-      const base = re * (1.05 + 0.35 * Math.max(0, st.open - 0.5))
-      const i0 = at(inner, base - re * 0.55 * a), md = at(0, base + re * 0.25 - re * 0.1 * a), o0 = at(outer, base + re * 0.1 + re * 0.2 * a)
-      const th = re * 0.32
-      const top = [], bot = []
-      for (let i = 0; i <= 10; i++) {
-        const t = i / 10
-        const bx = (1 - t) * (1 - t) * i0[0] + 2 * (1 - t) * t * md[0] + t * t * o0[0]
-        const by = (1 - t) * (1 - t) * i0[1] + 2 * (1 - t) * t * md[1] + t * t * o0[1]
-        const w = th * Math.sin(Math.PI * (0.15 + 0.7 * t))
-        top.push(bx - sy[0] * w * 0.5, by - sy[1] * w * 0.5)
-        bot.unshift(bx + sy[0] * w * 0.5, by + sy[1] * w * 0.5)
-      }
-      g.poly([...top, ...bot]).fill(mix(0x3a2f62, 0xffffff, 0.25 * fl)).stroke({ width: R * 0.012, color: K_LINE, join: 'round' })
-      g.poly(top, false).stroke({ width: R * 0.018, color: 0xb9c8ff, alpha: 0.75, cap: 'round' })
-      if (st.lamp) {
-        const lp = []
-        for (let i = 0; i < top.length; i += 2) lp.push(...st.lamp(top[i], top[i + 1]))
-        krakenLampG.poly(lp, false).stroke({ width: 3, color: 0x7fe6ff, alpha: 0.25 + 0.2 * Math.max(0, a), cap: 'round' })
-      }
-    }
+    // ---- THE EYES: predatory by default, and the face carries every state
+    for (const sg of [-1, 1]) krakenGlareEye(g, sg * 0.37 * R, 0.24 * R, R * 0.165, sg, sx, sy, st, fl)
     // ---- GUARD: its inner arms come up and lie across the face, eyes glaring over them
     if (st.guard > 0.01) {
       // two arms a side sweep up out of the crown, round the outside of each eye and in across its
@@ -21140,14 +21187,13 @@ const spurG = new Graphics()
     if (kc.blinkAt <= 0) { kc.blink = 1; kc.blinkAt = 3.5 + 3 * (0.5 + 0.5 * Math.sin(animT * 7.3)) }
     const bl = kc.blink > 0 ? Math.sin(kc.blink * Math.PI) : 0
     const wake = Math.min(1, Math.max(0, (grow - 0.2) / 0.6))
-    const open = ((0.95 - 0.6 * lift) * (1 - 0.92 * kc.flinch) * (1 - 0.95 * bl) * wake + 0.3 * kc.wide)
     const L = (lx, ly) => {
       const c = Math.cos(kc.tilt), sn = Math.sin(kc.tilt)
       return [kc.x + (lx * c - ly * sn) * sc, kc.y + (lx * sn + ly * c) * sc]
     }
     drawKrakenFace(rig, {
-      rot: kc.tilt, open, angry: Math.max(0.3, lift, kc.flinch * 0.7), lx: dx / dl, ly: dy / dl,
-      round: kc.wide * 0.6, white: 0, core: 0, crown: null, guard: 0,
+      rot: kc.tilt, glare: Math.min(1, lift * 1.1), pain: kc.flinch, stun: 0, blink: bl * wake + (1 - wake),
+      lx: dx / dl, ly: dy / dl, white: 0, core: 0, crown: null, guard: 0,
       lamp: s.phase === 'chase' ? null : L, lampA: 0.35 * ga, lampS: sc,
     })
     // through the dark, a faint cold ghost of the whole body, so it is a MASS there too
@@ -21157,7 +21203,21 @@ const spurG = new Graphics()
     krakenLampSp.rotation = rig.root.rotation
     krakenLampSp.scale.copyFrom(rig.root.scale)
     krakenLampSp.tint = 0x4a78b0
-    krakenLampSp.alpha = 0.16 * ga
+    krakenLampSp.alpha = 0.21 * ga
+    // ...and its RIM, lit, so the silhouette separates from the water even where the lamp is not
+    if (krakenBodyContour) {
+      const rim = []
+      for (let i = 0; i < krakenBodyContour.length; i += 2) rim.push(...L(krakenBodyContour[i], krakenBodyContour[i + 1]))
+      krakenLampG.poly(rim).stroke({ width: 5, color: 0x8fb8ff, alpha: 0.4 * ga, join: 'round' })
+      krakenLampG.poly(rim).stroke({ width: 14, color: 0x4a78b0, alpha: 0.12 * ga, join: 'round' })
+      // a string of its lights just inside the rim, pulsing slowly round it
+      for (let i = 0; i < krakenBodyContour.length; i += 8) {
+        const x = krakenBodyContour[i] * 0.86, y = -0.2 * K_BODY_BAKE_R + (krakenBodyContour[i + 1] + 0.2 * K_BODY_BAKE_R) * 0.86
+        const [wx, wy] = L(x, y)
+        const pa = (0.35 + 0.4 * Math.max(0, Math.sin(animT * 1.4 - i * 0.05))) * ga
+        krakenLampG.circle(wx, wy, 4).fill({ color: K_ROLE_SKIN.grab.glowCol, alpha: pa })
+      }
+    }
   }
 
   // THE CHASE: the same body at head size, riding the pooled sprite's transform (so the rise, the
@@ -21204,7 +21264,10 @@ const spurG = new Graphics()
     kc.tilt += (tilt - kc.tilt) * Math.min(1, k * 4)
     const base = (KRAKEN_HEAD_R * 1.3) / K_BODY_BAKE_R
     const br = (1 + 0.035 * Math.sin(animT * 2.2) - 0.05 * kc.deflect - 0.06 * rc) * (1 + 0.38 * kc.near)
-    krakenHeadRig.position.set(hs.position.x - dx / dl * 18 * rc, hs.position.y - dy / dl * 18 * rc)
+    // KNOCKED BACK by the stagger: thrown away from you, then settling
+    kc.knock = Math.max(0, (kc.knock || 0) - k / 0.7)
+    const kb = 18 * rc + 46 * Math.sin(Math.min(1, kc.knock) * Math.PI * 0.5) + 30 * stagK
+    krakenHeadRig.position.set(hs.position.x - dx / dl * kb, hs.position.y - dy / dl * kb)
     krakenHeadRig.rotation = kc.tilt
     krakenHeadRig.scale.set(base * br * stretchY, base * br * stretchX)
     krakenHeadRig.alpha = hs.alpha
@@ -21215,17 +21278,26 @@ const spurG = new Graphics()
     kc.blinkAt -= k
     if (kc.blinkAt <= 0 && !stag) { kc.blink = 1; kc.blinkAt = 3 + 3 * (0.5 + 0.5 * Math.sin(animT * 7.3)) }
     const bl = kc.blink > 0 ? Math.sin(kc.blink * Math.PI) : 0
-    const open = (stag ? 1 : (0.62 + 0.3 * lungeK) * (1 - 0.8 * kc.deflect) * (1 - 0.95 * bl)) * (1 - 0.92 * rc)
     const lx = stag ? Math.cos(animT * 4.2) * 0.8 : dx / dl, ly = stag ? Math.sin(animT * 3.1) * 0.8 : dy / dl
     const sc = krakenHeadRig.scale.x
     const cr = Math.cos(kc.tilt), sn = Math.sin(kc.tilt)
     const L = (x, y) => [krakenHeadRig.position.x + (x * cr - y * sn) * sc, krakenHeadRig.position.y + (x * sn + y * cr) * sc]
     drawKrakenFace(rig, {
-      rot: kc.tilt, open, angry: stag ? -0.6 : Math.min(1, 0.6 + 0.4 * lungeK + 0.4 * kc.deflect + 0.4 * rc),
-      lx, ly, round: stag ? 0.9 : 0, white: fl, core: kc.core, crown: q,
+      rot: kc.tilt, glare: stag ? 0 : Math.min(1, 0.3 + 0.7 * lungeK + 0.6 * kc.deflect), pain: rc,
+      stun: stag ? 1 : 0, blink: stag ? 0 : bl, lx, ly, white: fl, core: kc.core, crown: q,
       guard: stag ? 0 : Math.max(0, (1 - lungeK * 1.4)) * (1 - kc.near),
       lamp: L, lampA: 0.3, lampS: sc,
     })
+    // THE FACE IS NOT UNDER THE DANGER while it is the target. A lane that crosses the staggered
+    // head is still drawn — its edges run on either side — but the fill is cut round the eyes, so
+    // the stunned face is what you see, not a stripe of orange through it.
+    if (stag) {
+      // the eyes AND the split core: the face and the target
+      const [fx, fy] = L(0, 0.24 * K_BODY_BAKE_R)
+      krakenDangerHole.ellipse(fx, fy, 0.62 * K_BODY_BAKE_R * sc, 0.30 * K_BODY_BAKE_R * sc).fill({ color: 0xffffff })
+      const [cx2, cy2] = L(0, -0.55 * K_BODY_BAKE_R)
+      krakenDangerHole.ellipse(cx2, cy2, 0.34 * K_BODY_BAKE_R * sc, 0.5 * K_BODY_BAKE_R * sc).fill({ color: 0xffffff })
+    }
   }
 
   // THE BOSS IS FRAMED. Camera-centred on the fish, the body at the ring's centre and the head in the
