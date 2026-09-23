@@ -6,7 +6,7 @@
 //   r.reset(run|null)          new run started (build world) or back to title (clear)
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
-import { Assets, BlurFilter, Container, FillGradient, Graphics, Mesh, MeshGeometry, MeshRope, Point, Rectangle, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
+import { Assets, BlurFilter, Container, FillGradient, Graphics, Mesh, MeshGeometry, MeshPlane, MeshRope, Point, Rectangle, RenderTexture, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
 import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, BEAM_ENVELOPE, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, CIRCUIT_CAM_LEAD, CIRCUIT_CAM_EASE, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, drawdownSecsFor, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPUR_VIS, LANE_HALF_W, UPWELLING_VIS, FOUL_SPRING_VIS, FOUL_SPRING_FOUL_T, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, BRING_SNAP_T, SHOREBREAK_RADIUS, BURST_WAKE, burstWakeAt, DUST, dustVel, laneScrollFor, BALLAST_THROW_R, BALLAST_RING, ORCA_LEN, ORCA_CIRCLE_DUR, ORCA_RING_BAND, ORCA_FEAR_TELL, ORCA_HERD_GAP, CHUM_VIS, BILGE_TRAIL_VIS, OIL_STAIN_MAX, SLICK_FIRE_SPREAD_T, caveAt, laneHalfWidth, laneDrawSpan, CIRCUIT_GATE_VIS, ringXY, ringFU, ringRot, ringHeading, gateAnchorF, caveSpecOf, ORCA_RISE_DUR, ORCA_SPLASH_R, ORCA_AIM_W, ORCA_AIM_TELL, ORCA_WAKE_R, ORCA_OVERSHOOT,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
@@ -21807,6 +21807,7 @@ const spurG = new Graphics()
   // its pooled sprite are gone by then, so the pose carries the last drawn transform instead.
   function syncKrakenHeadRig(run, dt, head, death = null) {
     if (death) { poseKrakenHeadDeath(death); return }
+    krakenWarpOff()
     const s = run.script
     const hs = head && s && s.phase === 'chase' ? enemySprites.get(head.id) : null
     if (!hs || !hs.visible || !T.krakenBody) { krakenHeadRig.visible = false; headRig.root.visible = false; return }
@@ -21921,6 +21922,7 @@ const spurG = new Graphics()
       lamp: P.light > 0.02 ? L : null, lampA: 0.3 * P.light, lampS: sc,
     })
     drawKrakenCracks(rig.g, P.crack, P.heat, L, sc)
+    krakenWarpOn(P)
   }
 
   // THE BOSS IS FRAMED. Camera-centred on the fish, the body at the ring's centre and the head in the
@@ -23763,12 +23765,89 @@ const spurG = new Graphics()
   const kPose = {
     visible: false, x: 0, y: 0, rot: 0, sx: 1, sy: 1, scale: 1, alpha: 1, tint: 0xffffff, flash: 0, flashTint: 0xffffff,
     pain: 0, stun: 0, blink: 0, lx: 0, ly: 0, white: 0, core: 0, crown: 1, jaw: 0, grit: 0, rim: 0, light: 1,
-    shock: 0, slack: 0, blank: 0, ko: 0, crack: 0, heat: 0,
+    shock: 0, slack: 0, blank: 0, ko: 0, crack: 0, heat: 0, buckle: 0,
+  }
+  // the kill pose's squash (x, y) and swell: the camera fits the body to these, so they live here
+  const K_KO_SX = 1.12, K_KO_SY = 0.84, K_KO_SCALE = 1.14
+
+  // THE KILL IS FRAMED WHOLE: the camera cuts to the middle of the body and pulls back until the
+  // head, the mantle and the crown under it sit inside the view with a margin, so the buckle reads
+  // as a silhouette. Fitted to the kill pose (never the live one), so it does not pump as it thrashes;
+  // then a slow close as it goes down. Sets cerZoom/cerCam; called by the camera and the ceremony.
+  function krakenDeathCam(run) {
+    const O = KRAKEN_OUTRO, t = run.bossOutroT, H = O.hitstop
+    const w = app.screen.width, h = app.screen.height
+    const R = K_BODY_BAKE_R
+    const k0 = kDeath.hasHead ? 1 : KRAKEN_HEAD_R * 1.3 / R
+    const Sx = (kDeath.hasHead ? Math.abs(kDeath.sx) : k0) * K_KO_SX * K_KO_SCALE
+    const Sy = (kDeath.hasHead ? Math.abs(kDeath.sy) : k0) * K_KO_SY * K_KO_SCALE
+    // the box, bake units: the mantle's crown (-1.38R) to the crown arms under the maw (+1.1R)
+    const cyB = -0.14 * R, ax = 0.8 * R * Sx, ay = 1.24 * R * Sy
+    const rot = kDeath.hasHead ? kDeath.rot : 0
+    const c = Math.abs(Math.cos(rot)), sn = Math.abs(Math.sin(rot))
+    const bw = 2 * (c * ax + sn * ay), bh = 2 * (sn * ax + c * ay)
+    const zAbs = Math.min(0.84 * w / bw, 0.6 * h / bh) * (1 + 0.2 * smooth01((t - H) / 2.2))
+    cerZoom = zAbs / Math.max(0.05, mapZoom * fightZoom)
+    const bx = kDeath.hx - Math.sin(rot) * cyB * Sy, by = kDeath.hy + Math.cos(rot) * cyB * Sy
+    cerCam.x = bx - run.player.x - camLead.x
+    cerCam.y = by - run.player.y - camLead.y + h * 0.1 / zAbs * smooth01((t - O.sinkFrom) / 0.9)
+  }
+
+  // THE BUCKLE: through the kill, the head rig (body, flash, face, cracks) is rendered into a texture
+  // and drawn through a MeshPlane whose grid is bent, so the WHOLE silhouette caves in on itself: the
+  // mantle's crown dented down toward the face and folded over to one side, its flanks pinched in and
+  // crumpled. The face (y > 0) is left where it is, so the X'd eyes stay the read. Kill only.
+  const KW_X0 = 1.4, KW_Y0 = 1.6, KW_W = 2.8, KW_H = 3.4   // the box, in bake R: x from -1.4R, y from -1.6R
+  const kWarp = { rt: null, mesh: null, src: null, rest: null }
+  function krakenWarpOn(P) {
+    const R0 = K_BODY_BAKE_R
+    if (!kWarp.mesh) {
+      kWarp.rt = RenderTexture.create({ width: Math.ceil(KW_W * R0), height: Math.ceil(KW_H * R0), resolution: 1.5 })
+      kWarp.src = new Container()
+      kWarp.mesh = new MeshPlane({ texture: kWarp.rt, verticesX: 18, verticesY: 22 })
+      kWarp.mesh.position.set(-KW_X0 * R0, -KW_Y0 * R0)
+      kWarp.rest = Float32Array.from(kWarp.mesh.geometry.getBuffer('aPosition').data)
+      krakenHeadRig.addChild(kWarp.mesh)
+    }
+    const root = headRig.root
+    if (root.parent !== kWarp.src) kWarp.src.addChild(root)
+    root.position.set(KW_X0 * R0, KW_Y0 * R0)
+    root.visible = true
+    R.render({ container: kWarp.src, target: kWarp.rt, clear: true })
+    kWarp.mesh.visible = true
+    // bend the grid
+    const buf = kWarp.mesh.geometry.getBuffer('aPosition')
+    const d = buf.data, rest = kWarp.rest, D = P.buckle || 0
+    const side = kDeath.rot >= 0 ? 1 : -1
+    for (let i = 0; i < d.length; i += 2) {
+      const x = rest[i] - KW_X0 * R0, y = rest[i + 1] - KW_Y0 * R0
+      // how far up the mantle: 0 at the neck, 1 at its crown
+      const m = smooth01((-y - 0.15 * R0) / (1.15 * R0))
+      const cx = Math.exp(-((x / (0.36 * R0)) ** 2))
+      const pinch = Math.exp(-(((y + 0.75 * R0) / (0.4 * R0)) ** 2))
+      const dx = -x * 0.2 * pinch * m
+        + side * 0.16 * R0 * m * m
+        + 0.04 * R0 * Math.sin(y / R0 * 9 + 1.3) * m
+      const dy = 0.4 * R0 * m * m * cx
+        + 0.035 * R0 * Math.sin(x / R0 * 11) * m
+      d[i] = rest[i] + dx * D
+      d[i + 1] = rest[i + 1] + dy * D
+    }
+    buf.update()
+  }
+  function krakenWarpOff() {
+    if (!kWarp.mesh || headRig.root.parent === krakenHeadRig) return
+    kWarp.mesh.visible = false
+    headRig.root.position.set(0, 0)
+    krakenHeadRig.addChildAt(headRig.root, 0)
   }
   // the mantle's broken pieces, flung off it (world px, in krakenLampLayer so the dark never hides them)
   const kDeathTopG = new Graphics()
   krakenLampLayer.addChild(kDeathTopG)
   const kChunks = []
+  // a world-px rectangle the chunks are not drawn in (the IT RISES plate); set per frame by the ceremony
+  const kClip = { on: false, x0: 0, y0: 0, x1: 0, y1: 0 }
+  const kClipped = (c, r) => kClip.on && c.x + r > kClip.x0 && c.x - r < kClip.x1 && c.y + r > kClip.y0 && c.y - r < kClip.y1
 
   // How lit the dying head is, 0..1 (updateDark punches it out of the Light chapter's dark).
   function krakenDeathLight(run) {
@@ -23806,17 +23885,20 @@ const spurG = new Graphics()
     P.stun = 1; P.pain = 0; P.slack = 1; P.grit = 0
     // KNOCKED OUT ON THE KILL FRAME: the eyes are X'd and empty from the blow on, never alive again
     P.ko = 1; P.blank = 1
+    // THE BUCKLE (krakenWarpOn): caved in by the blow, convulsing through the thrash, collapsing
+    // further when the mantle bursts, and left crumpled as it sinks
+    P.buckle = t < H ? 1 : 0.62 + 0.38 * Math.abs(Math.sin((t - H) * 9)) * th + (1 - th) * 0.3 + 0.45 * burst
     if (t < H) {
-      // BLOWN UP BY IT: wider than tall, the jaw fallen open
-      P.sx = kDeath.sx * 1.1; P.sy = kDeath.sy * 0.92
-      P.scale = 1.14; P.flash = 0.75; P.flashTint = 0xffffff; P.white = 0.4
+      // FLATTENED BY IT: wider than tall, the mantle caved in (krakenWarpOn), the jaw fallen open
+      P.sx = kDeath.sx * K_KO_SX; P.sy = kDeath.sy * K_KO_SY
+      P.scale = K_KO_SCALE; P.flash = 0.75; P.flashTint = 0xffffff; P.white = 0.4
       P.shock = 1; P.blink = 0; P.jaw = 1; P.rim = 1; P.core = 1; P.crown = 1
       P.crack = 0.45; P.heat = 1
       P.lx = 0; P.ly = 0
       return P
     }
     const after = clamp01(1 - (t - H) / 0.35)
-    P.sx = kDeath.sx * (1 + 0.1 * after); P.sy = kDeath.sy * (1 - 0.08 * after)
+    P.sx = kDeath.sx * (1 + (K_KO_SX - 1) * after); P.sy = kDeath.sy * (1 - (1 - K_KO_SY) * after)
     // the burst throws it wide for a beat, then it shrinks away
     P.scale = (1 + 0.1 * after + 0.06 * th * Math.sin(t * 15) + 0.12 * burst * Math.exp(-(t - O.sinkFrom) * 6)) * (1 - 0.42 * sink)
     // the body strobes hot with each convulsion
@@ -23957,6 +24039,7 @@ const spurG = new Graphics()
       if (c.kind !== 2) continue
       const u = c.life / c.max
       const r = c.sz * (1 + 1.6 * (1 - (1 - u) * (1 - u)))
+      if (kClipped(c, r * 1.1)) continue
       const a = 1 - smooth01((u - 0.25) / 0.75)
       // a billow, not a ball: five lobes round a middle, shadowed underneath, lit on top, no rim
       const lobes = (rr, dy, col, al) => {
@@ -23972,6 +24055,7 @@ const spurG = new Graphics()
     for (const c of kChunks) {
       const u = c.life / c.max
       if (c.kind === 2) continue
+      if (kClipped(c, c.kind === 3 ? Math.hypot(c.vx, c.vy) * 0.05 : (c.sz || 45) * 1.2)) continue
       if (c.kind === 3) {
         const a = 1 - smooth01((u - 0.3) / 0.7)
         kDeathTopG.moveTo(c.x, c.y).lineTo(c.x - c.vx * 0.045, c.y - c.vy * 0.045)
@@ -24060,19 +24144,21 @@ const spurG = new Graphics()
     cold: { fill: 0xeafdff, glow: K_GLOW, stroke: 0x02080f },
     warm: { fill: 0xffd9c4, glow: 0xff5a3c, stroke: 0x02080f },
     gold: { fill: 0xffe6a3, glow: 0xffa21e, stroke: 0x2a1400 },
+    // IT RISES: warm white on a heavy black outline, a gold glow, over its own plate
+    rise: { fill: 0xfff4dc, glow: 0xffa21e, stroke: 0x0a0402, width: 9 },
   }
   function cerTone(tone) {
     if (tone === cerToneNow) return
     cerToneNow = tone
     const T0 = CER_TONES[tone]
     cerTitle.style.fill = T0.fill
-    cerTitle.style.stroke = { ...cerTitleStyle.stroke, color: T0.stroke }
-    cerTitle.style.dropShadow = { ...cerTitleStyle.dropShadow, color: T0.glow, alpha: tone === 'gold' ? 0.95 : 0.75 }
+    cerTitle.style.stroke = { ...cerTitleStyle.stroke, color: T0.stroke, width: T0.width ?? cerTitleStyle.stroke.width }
+    cerTitle.style.dropShadow = { ...cerTitleStyle.dropShadow, color: T0.glow, alpha: tone === 'gold' || tone === 'rise' ? 0.95 : 0.75 }
   }
 
   function krakenBeat(kind, len) {
     const C = KRAKEN_CEREMONY[kind]
-    cerTone(kind === 'arrive' ? 'cold' : 'warm')
+    cerTone(kind === 'arrive' ? 'cold' : kind === 'rise' ? 'rise' : 'warm')
     cer.kind = kind
     cer.t = 0
     cer.low = undefined
@@ -24144,6 +24230,7 @@ const spurG = new Graphics()
     kLast.hasHead = false
     for (const L of kLast.limbs) L.on = false
     kDeath.hasHead = false
+    krakenWarpOff()
     kDeathG.clear()
     kChunks.length = 0
     kDeathTopG.clear()
@@ -24184,6 +24271,7 @@ const spurG = new Graphics()
     const w = app.screen.width, h = app.screen.height
     const U = cerUnit()
     cerG.clear()
+    kClip.on = false
     cerDim.width = cerEdge.width = cerFlash.width = w
     cerDim.height = cerEdge.height = cerFlash.height = h
     let dim = 0, edge = 0, bars = 0, flash = 0
@@ -24199,14 +24287,7 @@ const spurG = new Graphics()
       // the camera goes to the body and closes on it: the death is framed, not left at the edge
       // camLead (track A's chase framing) eases to 0 once the head is gone; this holds the total
       // on a path from where the lead had the camera to the body, so the two never fight
-      const t = run.bossOutroT, H = KRAKEN_OUTRO.hitstop
-      const k = smooth01((t - H) / 0.8)
-      cerCam.x = kDeath.lead.x + ((kDeath.hx - run.player.x) * 0.95 - kDeath.lead.x) * k - camLead.x
-      cerCam.y = kDeath.lead.y + ((kDeath.hy - run.player.y) * 0.95 - kDeath.lead.y) * k - camLead.y
-        + h * 0.1 / Math.max(0.2, world.scale.y) * smooth01((t - KRAKEN_OUTRO.sinkFrom) / 0.9)
-      // a hard punch-in on the hit, then a slow close on the body as it goes down
-      const punch = t < H ? 1 : Math.exp(-(t - H) * 5)
-      cerZoom = 1 + 0.16 * punch + 0.16 * smooth01((t - H) / 2.2)
+      krakenDeathCam(run)
     } else if (cer.kind) {
       cer.t += dt
       const C = KRAKEN_CEREMONY[cer.kind]
@@ -24286,14 +24367,31 @@ const spurG = new Graphics()
             while (cer.bub >= 1) { cer.bub -= 1; krakenBubbles(1, bx, by, br * 0.9) }
           }
         }
-        const k = t < C.textIn ? 0 : cardEnv(t - C.textIn, 0.25, C.hold - C.textIn, C.out)
-        const y = cerTopY(h, U)
-        cerText(cerTitle, tr(KRAKEN_BEATS.rise.name), Math.round(U * 0.1), w * 0.9)
-        // it grows as it arrives, the way the head does under it
-        cerTitle.scale.set(cerTitle.scale.x * (0.86 + 0.14 * smooth01((t - C.textIn) / 0.6)))
+        // THE LINE IS THE READ: fully up by +0.15s, big, warm white on a black outline, centred on a
+        // dark plate with a gold glow round it, and nothing the rise throws is drawn over the plate
+        const k = cardEnv(t, 0.15, C.hold, C.out)
+        const y = cerTopY(h, U) + U * 0.07
+        cerText(cerTitle, tr(KRAKEN_BEATS.rise.name), Math.round(U * 0.15), w * 0.84)
+        // it slams in a little over size and settles
+        cerTitle.scale.set(cerTitle.scale.x * (1 + 0.18 * Math.exp(-t * 9)))
         cerTitle.position.set(w / 2, y)
         cerTitle.alpha = k
-        cerRule(w / 2, y + U * 0.07, Math.min(w * 0.36, U * 0.3), k, 0xff9a7a, 0.7 * k)
+        const pw = Math.min(w * 0.93, cerTitle.width + U * 0.16), ph = cerTitle.height + U * 0.07
+        const px = w / 2 - pw / 2, py = y - ph / 2
+        const fl = Math.exp(-t * 3)
+        cerG.ellipse(w / 2, y, pw * 0.62, ph * 1.05).fill({ color: 0xff8a1e, alpha: (0.16 + 0.24 * fl) * k })
+        cerG.ellipse(w / 2, y, pw * 0.56, ph * 0.8).fill({ color: 0xffc860, alpha: (0.12 + 0.2 * fl) * k })
+        cerG.roundRect(px, py, pw, ph, ph * 0.22).fill({ color: 0x05030a, alpha: 0.9 * k })
+          .stroke({ width: 3, color: 0xffb040, alpha: 0.95 * k })
+        cerG.roundRect(px + 5, py + 5, pw - 10, ph - 10, ph * 0.18).stroke({ width: 1.5, color: 0xffe6a0, alpha: 0.6 * k })
+        cerRule(w / 2, py + ph + U * 0.03, Math.min(w * 0.36, U * 0.3), k, 0xffc860, 0.8 * k)
+        // the debris goes round the plate, never over it (world px, for updateKrakenChunks)
+        if (k > 0.01) {
+          const ws = world.scale.x || 1
+          kClip.on = true
+          kClip.x0 = (px - U * 0.03 - world.position.x) / ws; kClip.x1 = (px + pw + U * 0.03 - world.position.x) / ws
+          kClip.y0 = (py - U * 0.03 - world.position.y) / ws; kClip.y1 = (py + ph + U * 0.05 - world.position.y) / ws
+        }
       } else if (cer.kind === 'enrage') {
         // IT IS ANGRY. No safe window here, so nothing covers the arena: a warning-coloured edge
         // pulse, a hard camera kick, and the line tucked into the top of the screen.
@@ -24346,7 +24444,7 @@ const spurG = new Graphics()
     // the whole drawn body: its middle (between the mantle and the maw) and a radius that reaches its rim
     const bodyC = () => {
       const P = kPose, R = K_BODY_BAKE_R, sc = Math.abs(P.sx * P.scale)
-      return kDeath.hasHead ? [P.x + Math.sin(P.rot) * 0.25 * R * sc, P.y - Math.cos(P.rot) * 0.25 * R * sc, 0.95 * R * sc]
+      return kDeath.hasHead ? [P.x + Math.sin(P.rot) * 0.3 * R * sc, P.y - Math.cos(P.rot) * 0.3 * R * sc, 1.02 * R * sc]
         : [hx, hy, KRAKEN_HEAD_R * 1.2]
     }
     // THE KNOCKOUT CLOUD: on the kill frame itself a ring of smoke and debris stands round the body's
@@ -24356,8 +24454,8 @@ const spurG = new Graphics()
     if (cross(1, 0)) {
       addShake(22, 1.0)
       const [bx, by, br] = bodyC()
-      krakenThrowPuffs(30, bx, by, br * 0.85, br * 1.35, edgeReach, U * 0.075 / ws, 0xb4bfcc, 1.5)
-      krakenThrowPuffs(14, bx, by, br * 0.7, br * 1.1, edgeReach * 0.7, U * 0.06 / ws, 0x8e98a8, 1.3)
+      krakenThrowPuffs(30, bx, by, br * 1.15, br * 1.5, edgeReach, U * 0.07 / ws, 0xb4bfcc, 1.5)
+      krakenThrowPuffs(14, bx, by, br * 1.1, br * 1.35, edgeReach * 0.7, U * 0.055 / ws, 0x8e98a8, 1.3)
       krakenThrowChunks(10, bx, by, br * 1.05, 380, 900, true, true)
       krakenThrowChunks(10, bx, by, br, 300, 760, false)
     }
@@ -24440,7 +24538,8 @@ const spurG = new Graphics()
         const lash = Math.sin(t * Math.PI * 2 * 3.1 + u * 6 + i * 1.7) * 130 * thrashK * Math.pow(u, 1.3)
         const droop = Math.sin(u * Math.PI) * 26 * sink * (i % 2 ? 1 : -1)
         // and it draws in toward the body as it goes, the way a dying octopus pulls its arms home
-        const pull = 1 - 0.22 * sink * u
+        const fling = t < hs ? 1 : Math.exp(-(t - hs) * 3)
+        const pull = 1 + 0.2 * fling * u - 0.22 * sink * u
         const x = hx + (pts[k][0] - hx) * pull + nx * (lash + droop)
         const y = hy + (pts[k][1] - hy) * pull + ny * (lash + droop)
         rig.pts[k].set(x, y)
@@ -24464,15 +24563,16 @@ const spurG = new Graphics()
     }
 
     // THE STARBURST: the hard-cut kill flash, drawn on the head in screen space
-    const sx = world.position.x + hx * world.scale.x
-    const sy = world.position.y + hy * world.scale.y
+    const [bcx, bcy, bcr] = bodyC()
+    const sx = world.position.x + bcx * world.scale.x
+    const sy = world.position.y + bcy * world.scale.y
     const burstK = t < hs ? 1 : clamp01(1 - (t - hs) / 0.4)
     if (burstK > 0) {
       // the face is the subject: the burst's spikes stand out of a hole the size of the head, so
       // the wince is framed by the hit instead of buried under it
       // sized to the head AS DRAWN (A's rig is the body bake at head scale, larger than the hitbox)
-      const hole = Math.max(KRAKEN_HEAD_R * 1.05, kDeath.hasHead ? Math.abs(kDeath.sx) * K_BODY_BAKE_R * 0.95 : 0) * world.scale.x
-      const R = Math.max(hole * 1.9, U * 0.46) * (t < hs ? 1 : 1 + (t - hs) * 1.6)
+      const hole = Math.max(KRAKEN_HEAD_R * 1.05, bcr * 1.08) * world.scale.x
+      const R = Math.max(hole * 1.6, U * 0.46) * (t < hs ? 1 : 1 + (t - hs) * 1.6)
       for (let i = 0; i < 14; i++) {
         const a = (i / 14) * Math.PI * 2 + 0.2
         const tipR = R * (0.8 + 0.2 * Math.sin(i * 7.3))
@@ -27600,6 +27700,8 @@ const spurG = new Graphics()
       : 1)
     // Eased, not snapped: the block opens mid-fight. dt is 0 behind a modal, which holds it still.
     fightZoom += (wantZoom - fightZoom) * Math.min(1, KRAKEN_RING_ZOOM_EASE * dt)
+    // the kill frames itself HERE, before the world is placed, so the held kill frame is framed too
+    if (kDeath.on && (run.bossOutroT ?? 0) > 0) krakenDeathCam(run)
     // the punch: rise over K_PUNCH_IN, ease back over K_PUNCH_OUT, monotone both ways
     const cerBusy = cerZoom !== 1 || cerCam.x !== 0 || cerCam.y !== 0
     if (punch.t > 0 && dt > 0) punch.t = Math.max(0, punch.t - dt)
