@@ -1,6 +1,6 @@
 // Procedural WebAudio SFX, no assets. Names: shoot, hit, kill, gem, coin, clang, surge, whip,
 // levelup, hurt, death, victory, click, buy, explode, zap, hole, beam, crush,
-// bossRise, bossFall, siren.
+// bossRise, bossFall, siren, lunge, quake, suck.
 
 let ctx = null
 let master = null
@@ -175,6 +175,27 @@ const SFX = {
   crush() {
     tone(70, { type: 'sine', dur: 0.09, gain: 0.26, slide: 32 })
     noise({ dur: 0.07, gain: 0.15 })
+  },
+  // THE KRAKEN'S HEAD LAUNCHING (its lunge). The countdown (orcaAim) now plays on the wind-up,
+  // BEFORE the parry window; this is the strike itself leaving — a short rush of water with the
+  // mass of the head under it, falling, so it reads as "it went" rather than "it is coming".
+  lunge() {
+    noise({ dur: 0.16, gain: 0.07 })
+    tone(120, { type: 'sine', dur: 0.2, gain: 0.14, slide: 48 })
+  },
+  // A GRABBER ABOUT TO TAKE YOU (the Grip's forecast starting): a short rising draw of water — the
+  // limb pulling on the sea around you — soft enough to sit under the slam's crack. ~13 a fight.
+  suck() {
+    tone(160, { type: 'triangle', dur: 0.32, gain: 0.08, slide: 420 })
+    noise({ dur: 0.22, gain: 0.03 })
+  },
+  // THE COIL SHUTTING — the heaviest blow in the fight, once every ~11 arm attacks at D3. crush's
+  // thud with a sub-bass drop under it and a longer rubble tail: the whole ring hitting the seabed.
+  quake() {
+    tone(62, { type: 'sine', dur: 0.55, gain: 0.30, slide: 24 })
+    tone(40, { type: 'sine', dur: 0.7, gain: 0.18, slide: 20, at: 0.03 })
+    noise({ dur: 0.18, gain: 0.18 })
+    noise({ dur: 0.35, gain: 0.06, at: 0.1 })
   },
   // v5.24 The Blank: the boss's scripted arrival, once per phase — death() inverted (rising
   // instead of falling) and layered a third voice deeper, so it reads as something assembling

@@ -234,7 +234,7 @@ import {
   KRAKEN_PERFECT_MUL, KRAKEN_PARRY_CD, KRAKEN_PARRY_REFILL, KRAKEN_BLAZE_R,
   KRAKEN_GRIP_EVERY, KRAKEN_GRIP_DUR, KRAKEN_GRIP_DMG, KRAKEN_GRIP_STICK_MUL, KRAKEN_GRIP_FLICKS,
   KRAKEN_TRICKLE_FROM_END, KRAKEN_TRICKLE_T, KRAKEN_TRICKLE_N, KRAKEN_ADD_CAP,
-  KRAKEN_LUNGE_T, KRAKEN_LUNGE_DMG, KRAKEN_RISE_T,
+  KRAKEN_LUNGE_T, KRAKEN_LUNGE_WINDUP_T, KRAKEN_LUNGE_DMG, KRAKEN_RISE_T,
   KRAKEN_COIL_EVERY, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, KRAKEN_COIL_IN, KRAKEN_COIL_DMG,
   KRAKEN_WAVE, KRAKEN_WAVE_GAP, KRAKEN_WAVE_TIMEOUT, KRAKEN_WAVE_XP_MUL,
   KRAKEN_OPEN_WAVES, KRAKEN_WAVE_GROWTH, KRAKEN_ARRIVE_T, KRAKEN_ARRIVE_T2, KRAKEN_SLAM_T,
@@ -2163,8 +2163,9 @@ function stepKrakenArms(run, dt, rung, head) {
     // KRAKEN_RING_R where the rope's shoulder is drawn, so what is dangerous is exactly the limb the
     // player watched rear; the near end is KRAKEN_LASH_OVER PAST the head, which is what closes the
     // dead spot in the middle of the arena.
-    run.events.push({ type: 'lash', x: a.x, y: a.y, x0: a.lx0, y0: a.ly0, x1: a.lx1, y1: a.ly1, w: KRAKEN_LASH_W })
     const wasCoil = a.coilArm === true
+    // `coil` is for render only: five lashes land on the Coil's frame and are drawn as one blow
+    run.events.push({ type: 'lash', x: a.x, y: a.y, x0: a.lx0, y0: a.ly0, x1: a.lx1, y1: a.ly1, w: KRAKEN_LASH_W, coil: wasCoil })
     a.coilArm = false
     if (segDist2(p.x, p.y, a.lx0, a.ly0, a.lx1, a.ly1) <= KRAKEN_LASH_W * KRAKEN_LASH_W) {
       // ⚠ A COIL HITS ONCE, NOT FIVE TIMES. Every corridor runs from the rim to the head centre, so
@@ -2241,13 +2242,7 @@ function stepKrakenArms(run, dt, rung, head) {
   s.turnT -= dt
   if (s.turnT <= 0) {
     s.turnT = krakenCadence(s, rung)
-    let rearing = 0
-    const idle = []
-    for (const a of run.krakenArms) {
-      if (a.dead) continue
-      if (a.tele > 0 || a.gripT > 0) rearing++
-      else if (a.limpT <= 0) idle.push(a)
-    }
+    const { rearing, idle } = krakenTurnPool(run)
     if (rearing < rung.rearing && idle.length) {
       // THE ACTION IS CHOSEN BEFORE THE ARM, which is the whole point of roles. It used to be the
       // other way round — pick an idle arm at random, then decide what it does — and with roles that
@@ -2258,8 +2253,7 @@ function stepKrakenArms(run, dt, rung, head) {
       // the turn there would silently drop attacks and make the ring stutter; it falls back to the
       // whole idle pool instead, which is the old behaviour and costs only the design's promise on
       // a rare turn.
-      const wantCoil = (rung.coil || s.enraged) && run.difficulty >= 2 && (s.phase === 'chase' || s.bossIdx >= 2) && s.gripN > 0 && s.gripN % KRAKEN_COIL_EVERY === 0
-      const wantGrip = !wantCoil && rung.grip && s.bossIdx >= 1 && s.gripN > 0 && s.gripN % KRAKEN_GRIP_EVERY === 0
+      const { wantCoil, wantGrip } = krakenTurnWant(run, rung)
       const want = wantGrip ? 'grab' : 'slam'
       const pool = rung.grabbers > 0 ? idle.filter((c) => c.role === want) : idle
       const use = pool.length ? pool : idle
@@ -2298,11 +2292,7 @@ function stepKrakenArms(run, dt, rung, head) {
         //  - ⚠ the REAR stays random. Which limb swings next is the one thing the player has to
         //    watch the whole ring for, and picking the nearest there would collapse the fight to a
         //    single arm. This is the opposite case: a grab is a thing that reached you.
-        let g = a, gd = Infinity
-        for (const c of use) {
-          const d = (c.x - p.x) ** 2 + (c.y - p.y) ** 2
-          if (d < gd) { gd = d; g = c }
-        }
+        const g = krakenNearestArm(p, use) || a
         g.gripT = KRAKEN_GRIP_DUR
         run.events.push({ type: 'gripLatch', x: g.x, y: g.y })
       } else {
@@ -2316,7 +2306,69 @@ function stepKrakenArms(run, dt, rung, head) {
     }
   }
 
+  krakenGripForecast(run, rung)
   return false
+}
+
+// Who is free to take the ring's next turn, and how many are already busy. One author for the turn
+// itself and for the grip forecast below, so the forecast cannot name an arm the turn would skip.
+function krakenTurnPool(run) {
+  let rearing = 0
+  const idle = []
+  for (const a of run.krakenArms) {
+    if (a.dead) continue
+    if (a.tele > 0 || a.gripT > 0) rearing++
+    else if (a.limpT <= 0) idle.push(a)
+  }
+  return { rearing, idle }
+}
+
+// What the ring's next turn will be — or, given `n`, what it would be at that attack count. Pure:
+// reads the counters, draws no randoms.
+function krakenTurnWant(run, rung, n = run.script.gripN) {
+  const s = run.script
+  const wantCoil = (rung.coil || s.enraged) && run.difficulty >= 2 && (s.phase === 'chase' || s.bossIdx >= 2) && n > 0 && n % KRAKEN_COIL_EVERY === 0
+  const wantGrip = !wantCoil && rung.grip && s.bossIdx >= 1 && n > 0 && n % KRAKEN_GRIP_EVERY === 0
+  return { wantCoil, wantGrip }
+}
+
+function krakenNearestArm(p, arms) {
+  let g = null, gd = Infinity
+  for (const c of arms) {
+    const d = (c.x - p.x) ** 2 + (c.y - p.y) ** 2
+    if (d < gd) { gd = d; g = c }
+  }
+  return g
+}
+
+// THE GRIP'S TELL — PUBLISHED, NOT DECIDED. The grab is chosen on the tick the turn comes round, so
+// render has nothing to warn with unless sim says which arm it WOULD pick. Two stages, both
+// recomputed every frame from the same helpers the turn uses:
+//   LOADED (gripSoonT = -1): the NEXT slam that lands will make the turn after it a grab. A grip
+//     turn is every KRAKEN_GRIP_EVERY LANDED slams, and a slam lands a fixed fuse after its turn —
+//     at d3 that puts the landing 0.28s before the next turn, and at d2 (fuse = 2 x cadence) ON it,
+//     so the "next turn is a grab" stage alone is a quarter second at best and zero at worst. This
+//     stage is what gives the tell room, and it is true: it holds until a slam lands.
+//   NEXT (gripSoonT >= 0): the coming turn IS the grab; gripSoonT is the seconds to it.
+// gripSoonI is the arm the turn would hand it to if it came now (-1 when neither stage holds). No
+// rule reads either field and nothing here draws a random, so it changes no outcome.
+function krakenGripForecast(run, rung) {
+  const s = run.script
+  const was = s.gripSoonI ?? -1
+  s.gripSoonI = -1
+  s.gripSoonT = -1
+  if (!rung.grip || s.coilT > 0) return
+  const next = krakenTurnWant(run, rung).wantGrip
+  if (!next && !krakenTurnWant(run, rung, s.gripN + 1).wantGrip) return
+  const { rearing, idle } = krakenTurnPool(run)
+  if (!idle.length || (next && rearing >= rung.rearing)) return
+  const pool = rung.grabbers > 0 ? idle.filter((c) => c.role === 'grab') : idle
+  const g = krakenNearestArm(run.player, pool.length ? pool : idle)
+  if (!g) return
+  s.gripSoonI = g.i
+  s.gripSoonT = next ? Math.max(0, s.turnT) : -1
+  // ...and the moment a forecast starts is announced once, so it can carry a sound
+  if (was < 0) run.events.push({ type: 'gripWarn', x: g.x, y: g.y })
 }
 
 function stepKrakenBlock(run, dt, rung, head) {
@@ -2448,7 +2500,14 @@ function stepKrakenChase(run, dt, rung, head) {
   if (head.lungeT == null) head.lungeT = KRAKEN_LUNGE_T
   // `lungeT` counts DOWN to the strike, so the parry window is its last `rung.window` seconds —
   // the same read as an arm's, deliberately: one verb, one timing, two bodies.
-  head.lungeT = (head.lungeT ?? KRAKEN_LUNGE_T) - dt
+  const lungeWas = head.lungeT ?? KRAKEN_LUNGE_T
+  head.lungeT = lungeWas - dt
+  // THE WIND-UP IS ANNOUNCED BEFORE THE WINDOW OPENS, not after it shuts. The only cue used to be
+  // headLunge's sound, which plays when the strike launches — i.e. after the parry window it was
+  // meant to warn about. Cosmetic: no rule reads this event.
+  if (lungeWas > KRAKEN_LUNGE_WINDUP_T && head.lungeT <= KRAKEN_LUNGE_WINDUP_T && head.lungeT > 0) {
+    run.events.push({ type: 'headWindup', x: head.x, y: head.y })
+  }
   if (head.lungeT <= 0) {
     head.lungeT = KRAKEN_LUNGE_T
     head._lungeBurst = 0.5

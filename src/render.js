@@ -27,6 +27,7 @@ import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC
   SLICK_SLOW_T, INK_STAIN_T, inLobe,  // The Wreck: the oil and the ink on you, on the glass and the skin
   // The Kraken: the ring's geometry and the per-rung parry windows the telegraph is drawn against
   krakenRung, KRAKEN_RING_R, KRAKEN_ARM_R, KRAKEN_ARM_REACH, KRAKEN_LASH_R, KRAKEN_HEAD_R, KRAKEN_LASH_OVER, KRAKEN_LASH_W,
+  KRAKEN_LUNGE_WINDUP_T,
   KRAKEN_PARRY_SPIN_T,
   KRAKEN_RISE_T, KRAKEN_COIL_DUR, KRAKEN_COIL_TELE, KRAKEN_PARRY_CD, KRAKEN_CAGE_R, KRAKEN_LIMP_FLASH,
   KRAKEN_RING_VIEW_MARGIN, KRAKEN_RING_ZOOM_MIN, KRAKEN_RING_ZOOM_EASE, KRAKEN_GRIP_DUR,
@@ -19563,9 +19564,213 @@ const spurG = new Graphics()
     return Math.max(0, 1 - (w - 0.68) / 0.32)
   }
 
+  // THE HEAD GATHERING ITSELF. From KRAKEN_LUNGE_WINDUP_T out it wears a soft pale aura that
+  // swells and tightens onto the body — Hades' Hydra rears inside a white glow for a beat before it
+  // bites, and that beat is the read. It starts BEFORE the parry window (the white ring above), so
+  // the window arrives as the end of something the player already saw coming. It also shoves a
+  // bow wave of silt out from under the head's leading edge, so the direction is read too.
+  function drawKrakenLungeAura(run, head, rung) {
+    const s = run.script
+    if (s.staggerT > 0 || !(head.lungeT > 0) || head.lungeT > KRAKEN_LUNGE_WINDUP_T) return
+    const w = 1 - head.lungeT / KRAKEN_LUNGE_WINDUP_T         // 0 as it starts, 1 at the strike
+    const R = KRAKEN_HEAD_R * (1.9 - 0.75 * w)
+    const quiver = 1 + 0.03 * Math.sin(animT * (30 + 40 * w)) * w
+    for (let b = 0; b < 6; b++) {
+      teleG.beginPath()
+      teleG.circle(head.x, head.y, R * quiver * (1 - b * 0.07))
+      teleG.stroke({ width: 10 + b * 4, color: 0xdff4ff, alpha: (0.05 + 0.09 * w) * (1 - b * 0.12) })
+    }
+  }
+
+  // THE SLAMS' PRINTS: every landed strike leaves its struck capsule on the seabed for K_SCAR_T —
+  // a pale silt haze over EXACTLY the ground that was hit, and a crack run down its spine. Hydra's
+  // slam leaves its dust ring filling the telegraph's footprint for a beat after it lands, which is
+  // what makes the telegraph retroactively true: the player sees that the mark they dodged WAS the
+  // blow. Drawn under the ring's live marks so an incoming band is never confused with an old one.
+  function drawKrakenScars() {
+    for (let i = krakenScars.length - 1; i >= 0; i--) {
+      const sc = krakenScars[i]
+      if (frameDt > 0) sc.t -= frameDt
+      if (sc.t <= 0) { krakenScars.splice(i, 1); continue }
+      const f = sc.t / K_SCAR_T
+      const fade = f * f
+      const age = K_SCAR_T - sc.t
+      // THE BLOW'S FOOTPRINT, LIT FOR A BLINK: the whole struck capsule flashes pale on the frames
+      // it lands, at exactly the width sim tested. The telegraph said "here"; this says "that was it".
+      if (age < 0.12) {
+        const k = 1 - age / 0.12
+        teleG.beginPath()
+        teleG.moveTo(sc.x0, sc.y0)
+        teleG.lineTo(sc.x1, sc.y1)
+        teleG.stroke({ width: 2 * sc.w, color: 0xe8f4fa, alpha: 0.30 * k, cap: 'round' })
+      }
+      // THE DUST WALL: the seabed thrown up along both edges of the print and rolling outward, the
+      // way Hydra's slam throws a ring of dust out from its own telegraph's edge. It starts ON the
+      // struck edge, so the first thing it shows is how wide the hit was.
+      if (age < 0.6) {
+        const e = age / 0.6
+        const out = sc.w * (1 + 0.9 * (1 - (1 - e) * (1 - e)))
+        const L = Math.hypot(sc.x1 - sc.x0, sc.y1 - sc.y0) || 1
+        const nx = -(sc.y1 - sc.y0) / L, ny = (sc.x1 - sc.x0) / L
+        const ux = (sc.x1 - sc.x0) / L, uy = (sc.y1 - sc.y0) / L
+        const a0x = sc.x0 + (sc.x1 - sc.x0) * 0.3, a0y = sc.y0 + (sc.y1 - sc.y0) * 0.3
+        for (const side of [-1, 1]) {
+          for (let b = 0; b < 3; b++) {
+            const o = out - b * 9
+            teleG.beginPath()
+            teleG.moveTo(a0x + nx * o * side, a0y + ny * o * side)
+            teleG.lineTo(sc.x1 + nx * o * side, sc.y1 + ny * o * side)
+            // ...and round the cap past the head, so the wall is the capsule's outline growing
+            const la = Math.atan2(uy, ux)
+            if (side > 0) teleG.arc(sc.x1, sc.y1, o, la + Math.PI / 2, la, true)
+            else teleG.arc(sc.x1, sc.y1, o, la - Math.PI / 2, la)
+            teleG.stroke({ width: (16 + 14 * e) * (1 - b * 0.3), color: 0x9fb4c0, alpha: (0.16 - b * 0.04) * (1 - e), cap: 'round', join: 'round' })
+          }
+        }
+      }
+      // the haze: the capsule itself, in the width sim struck, fading out
+      teleG.beginPath()
+      teleG.moveTo(sc.x0, sc.y0)
+      teleG.lineTo(sc.x1, sc.y1)
+      teleG.stroke({ width: 2 * sc.w, color: 0x8fa6b4, alpha: 0.10 * fade, cap: 'round' })
+      teleG.beginPath()
+      teleG.moveTo(sc.x0, sc.y0)
+      teleG.lineTo(sc.x1, sc.y1)
+      teleG.stroke({ width: 1.2 * sc.w, color: 0xb8cbd6, alpha: 0.07 * fade, cap: 'round' })
+      // the crack, baked at spawn so it does not boil. Bright at the moment of impact, cooling.
+      const hot = Math.max(0, (f - 0.7) / 0.3)
+      for (const line of sc.cracks) {
+        // a fissure lit from below: a wide soft glow, then the hard bright line down its middle
+        for (const [wd, al, col] of [[sc.big ? 12 : 9, 0.10, 0x7fb4cc], [sc.big ? 3.4 : 2.4, 0.45, mix(0x8fb8cc, 0xffffff, hot)]]) {
+          teleG.beginPath()
+          teleG.moveTo(line[0], line[1])
+          for (let m = 2; m < line.length; m += 2) teleG.lineTo(line[m], line[m + 1])
+          teleG.stroke({ width: wd * (0.6 + 0.4 * f), color: col, alpha: al * fade + 0.3 * hot * (al > 0.5 ? 1 : 0.4), join: 'round', cap: 'round' })
+        }
+      }
+    }
+  }
+
+  // Bake a crack down the struck line: a jagged spine over the ON-FLOOR part of the capsule, with a
+  // few short branches thrown sideways inside its width. Random at spawn, then fixed.
+  function krakenCrack(x0, y0, x1, y1, w, big) {
+    const L = Math.hypot(x1 - x0, y1 - y0) || 1
+    const ux = (x1 - x0) / L, uy = (y1 - y0) / L
+    const nx = -uy, ny = ux
+    const cracks = []
+    const spine = []
+    const from = 0.30, n = 14
+    for (let k = 0; k <= n; k++) {
+      const t = from + (1 - from) * (k / n)
+      const j = (k === 0 || k === n ? 0 : (Math.random() - 0.5) * w * 0.45)
+      spine.push(x0 + (x1 - x0) * t + nx * j, y0 + (y1 - y0) * t + ny * j)
+    }
+    cracks.push(spine)
+    const branches = big ? 7 : 4
+    for (let b = 0; b < branches; b++) {
+      const k = 2 + Math.floor(Math.random() * (n - 3))
+      const bx = spine[k * 2], by = spine[k * 2 + 1]
+      const side = Math.random() < 0.5 ? -1 : 1
+      const len = w * (0.45 + Math.random() * 0.45)
+      const a = Math.atan2(ny * side, nx * side) + (Math.random() - 0.5) * 1.1
+      const mx = bx + Math.cos(a) * len * 0.5 + (Math.random() - 0.5) * 8
+      const my = by + Math.sin(a) * len * 0.5 + (Math.random() - 0.5) * 8
+      cracks.push([bx, by, mx, my, bx + Math.cos(a) * len, by + Math.sin(a) * len])
+    }
+    return cracks
+  }
+
+  // How close the player stood to a struck capsule: 1 inside it, falling to 0 at KRAKEN_LASH_W x 4
+  // past its edge. Drives how hard a slam lands on the CAMERA — the one nearest you is the one felt.
+  function krakenNearK(run, x0, y0, x1, y1, w) {
+    const p = run.player
+    const dx = x1 - x0, dy = y1 - y0
+    const l2 = dx * dx + dy * dy || 1
+    const t = Math.max(0, Math.min(1, ((p.x - x0) * dx + (p.y - y0) * dy) / l2))
+    const d = Math.hypot(p.x - (x0 + dx * t), p.y - (y0 + dy * t))
+    return { k: Math.max(0, Math.min(1, 1 - (d - w) / (w * 4))), qx: x0 + dx * t, qy: y0 + dy * t }
+  }
+
+  // THE PARRY'S CLASH, at the point where the fish's slam meets the limb. e.x/e.y is the thing that
+  // was parried, e.px/e.py the fish. Spark streaks spray back along the fish->limb line (the blow is
+  // turned aside, so it has a direction), and a flare sits on the contact for the length of the
+  // hitstop freeze. `perfect` adds the star cut: a spiked burst at full size on its first frame.
+  function krakenClash(e, perfect) {
+    const fx = e.px ?? e.x, fy = e.py ?? e.y
+    let dx = e.x - fx, dy = e.y - fy
+    const dl = Math.hypot(dx, dy)
+    // the meeting point: a little way out from the fish toward the limb, where the two actually touch
+    const reach = Math.min(dl, 44)
+    const ux = dl > 1e-6 ? dx / dl : 1, uy = dl > 1e-6 ? dy / dl : 0
+    const cx = fx + ux * reach, cy = fy + uy * reach
+    const n = perfect ? 16 : 12
+    for (let i = 0; i < n; i++) {
+      // a fan back toward the fish and out to both sides — the blow deflected, not absorbed. Streaks
+      // laid along their own velocity, so they read as sparks thrown off a blade, not as dots.
+      const a = Math.atan2(-uy, -ux) + (Math.random() - 0.5) * (perfect ? 3.6 : 2.6)
+      const sp = (perfect ? 420 : 320) + Math.random() * 240
+      spawnParticle(T.fx.trace_05, cx, cy, Math.cos(a) * sp, Math.sin(a) * sp,
+        0.2 + Math.random() * 0.1, perfect ? 0.2 : 0.16, perfect ? 0xffffff : 0xe8f8ff, -0.3, 5)
+      particles[(particleCursor + MAX_PARTICLES - 1) % MAX_PARTICLES].s.rotation = a - Math.PI / 2
+    }
+    const face = Math.atan2(uy, ux)
+    if (perfect) {
+      // THE STAR CUT: a hard eight-point star at full size on its first frame, gone in a blink — no
+      // ramp in, which is what makes it read as a CUT rather than as an effect playing. Drawn as a
+      // polygon (krakenStars, drawn over the limbs in syncKrakenArms) because every baked star in
+      // src/fx is a soft glow with faint rays, which at this size reads as a white puff. A good
+      // parry blooms; a perfect one flashes.
+      krakenStars.push({ x: cx, y: cy, ang: face, t: K_STAR_T })
+      if (krakenStars.length > 4) krakenStars.shift()
+    } else {
+      // the bloom over the contact: largest on frame one and shrinking, so it is at its biggest
+      // through the hitstop's freeze
+      spawnParticle(T.fx.magic_05, cx, cy, 0, 0, 0.18, 0.26, 0xdff4ff, -1.2, 0)
+      particles[(particleCursor + MAX_PARTICLES - 1) % MAX_PARTICLES].s.rotation = face + Math.PI / 4
+    }
+    // THE REWARD IS PAID WHERE IT WAS EARNED. A parry refills the Light, and that used to happen on
+    // the HUD bar alone, a screen away from the clash. Motes of light now come OFF the parried
+    // thing and fly into the fish, arriving together in a quarter second — the threat and the
+    // reward in the same place, which is the Brineybeard read. Twice as many on a perfect, because
+    // a perfect refills twice as much.
+    if (e.px !== undefined) {
+      const m = perfect ? 10 : 5
+      for (let i = 0; i < m; i++) {
+        const ox = e.x + (Math.random() - 0.5) * 50, oy = e.y + (Math.random() - 0.5) * 50
+        const T0 = 0.26 + Math.random() * 0.06
+        spawnParticle(T.fx.star_08, ox, oy, (e.px - ox) / T0, (e.py - oy) / T0, T0, 0.055, 0xfff1c8, -0.05, 0)
+      }
+    }
+    // the fish is knocked back off the contact, on the camera: a small kick away from the limb
+    addKick(-ux, -uy, perfect ? 0.014 : 0.008)
+  }
+
+  // The star cut: eight spikes, the four on the clash's own axis long and the diagonals short, hard
+  // white with a cold rim, holding full size for the first half of its life and then snapping shut.
+  // On krakenGripFrontG, the one ring layer drawn OVER the limbs and the fish.
+  function drawKrakenStars(dt) {
+    for (let i = krakenStars.length - 1; i >= 0; i--) {
+      const st = krakenStars[i]
+      if (dt > 0) st.t -= dt
+      if (st.t <= 0) { krakenStars.splice(i, 1); continue }
+      const f = st.t / K_STAR_T
+      const k = f > 0.5 ? 1 : f / 0.5
+      const pts = []
+      for (let j = 0; j < 16; j++) {
+        const a = st.ang + (j / 16) * Math.PI * 2
+        const r = j % 2 ? 9 * k : (j % 4 === 0 ? 118 : 62) * (0.55 + 0.45 * k)
+        pts.push(st.x + Math.cos(a) * r, st.y + Math.sin(a) * r)
+      }
+      krakenGripFrontG.poly(pts).fill({ color: 0xffffff, alpha: 0.95 * k + 0.05 })
+      krakenGripFrontG.poly(pts).stroke({ width: 3, color: 0x9fe8ff, alpha: 0.7 * k })
+      krakenGripFrontG.circle(st.x, st.y, 16 * k + 4).fill({ color: 0xffffff, alpha: k })
+    }
+  }
+
   function drawKrakenRing(run) {
     krakenHead = null
     krakenDeepG.clear()
+    drawKrakenScars()
     const s = run.script
     if (!s || !run.krakenArms.length) return
     const head = s.headId != null ? run.enemies.find((en) => en.id === s.headId && !en._dead) : null
@@ -19729,7 +19934,10 @@ const spurG = new Graphics()
       // gets it into the arena early enough to be worth watching.
       const grow = Math.min(1, 0.12 + 0.88 * Math.pow(urg / 0.58, 0.55))
       const ex = a.lx0 + (a.lx1 - a.lx0) * grow, ey = a.ly0 + (a.ly1 - a.ly0) * grow
-      const hw = (a.w || KRAKEN_LASH_W) * (0.86 + lf * 0.14) * (0.42 + 0.58 * grow)
+      // ...AND IT FINISHES AT EXACTLY THE STRUCK WIDTH. It was W x (0.86 + lift x 0.14), and lift
+      // falls to 0 as the arm comes down — so on the frames that decide a dodge the drawn band was
+      // 60px against sim's 70: a player standing on the drawn edge was 10px inside the hitbox.
+      const hw = (a.w || KRAKEN_LASH_W) * (0.42 + 0.58 * grow)
       for (let b = 0; b < 7; b++) {
         teleG.beginPath()
         teleG.moveTo(a.lx0, a.ly0)
@@ -19745,13 +19953,17 @@ const spurG = new Graphics()
         const k = (urg - 0.58) / 0.42
         const nx = -(a.ly1 - a.ly0), ny = a.lx1 - a.lx0
         const nl = Math.hypot(nx, ny) || 1
-        for (const side of [-1, 1]) {
-          const ox = (nx / nl) * hw * side, oy = (ny / nl) * hw * side
-          teleG.beginPath()
-          teleG.moveTo(a.lx0 + ox, a.ly0 + oy)
-          teleG.lineTo(a.lx1 + ox, a.ly1 + oy)
-          teleG.stroke({ width: 1.4 + k * 2.0, color: 0xffb3a6, alpha: 0.18 + k * 0.34, cap: 'round' })
-        }
+        // THE RAILS ARE THE CAPSULE sim tests (segDist2 <= W^2), round cap included: two sides and
+        // the half-circle past the head centre, as ONE path, so the outline the player dodges by is
+        // the hitbox and not a pair of lines that stop where the danger does not.
+        const la = Math.atan2(a.ly1 - a.ly0, a.lx1 - a.lx0)
+        const ux = (nx / nl) * hw, uy = (ny / nl) * hw
+        teleG.beginPath()
+        teleG.moveTo(a.lx0 - ux, a.ly0 - uy)
+        teleG.lineTo(a.lx1 - ux, a.ly1 - uy)
+        teleG.arc(a.lx1, a.ly1, hw, la - Math.PI / 2, la + Math.PI / 2)
+        teleG.lineTo(a.lx0 + ux, a.ly0 + uy)
+        teleG.stroke({ width: 1.4 + k * 2.0, color: 0xffb3a6, alpha: 0.18 + k * 0.34, cap: 'round', join: 'round' })
       }
 
       // ...and the last `window` seconds of it are the PARRY, which has to be unmistakably its own
@@ -19788,6 +20000,7 @@ const spurG = new Graphics()
         teleG.circle(head.x, head.y, KRAKEN_HEAD_R * 1.1)
         teleG.stroke({ width: 6, color: 0xffffff, alpha: 0.9 })
       }
+      drawKrakenLungeAura(run, head, rung)
     }
 
     // ---- CAN I PRESS, AND IS THERE ANYTHING TO PRESS ON? ---------------------------------------
@@ -19836,6 +20049,7 @@ const spurG = new Graphics()
     krakenWoundG.clear()
     krakenGripG.clear()
     krakenGripFrontG.clear()
+    drawKrakenStars(dt)
     krakenHold = 0
     const head = krakenHead
     const arms = head ? run.krakenArms.filter((a) => !a.dead || a.breakT > 0) : []
@@ -19869,7 +20083,9 @@ const spurG = new Graphics()
       // strike coils harder every frame, and a parried one goes slack — which is what tells you it
       // is safe to swim onto, without reading a colour at all.
       const windup = a.tele > 0 && a.fuse ? 1 - Math.max(0, a.tele) / a.fuse : 0
-      const lift = krakenLift(a)
+      // a grabber about to take you lifts its tip off the seabed too — cocked, like a rear, but on
+      // the grabber's own skin and throbbing (see the tint), so it cannot be misread as a slam
+      const lift = Math.max(krakenLift(a), 0.75 * krakenGripTell(run, a))
       // ...AND THE COIL IS A SECOND CHANNEL ON THE SAME FRAME. It used to RAMP from the idle
       // amplitude (40 + windup * 30, and windup is 0 on the frame a fuse is lit), so at the instant
       // an arm decided to hit you neither its colour nor its movement had changed — the two tells
@@ -19969,7 +20185,13 @@ const spurG = new Graphics()
       // ...and it EXTENDS and RETRACTS rather than switching on. dt is 0 behind a modal, which
       // holds the reach still exactly like every other animation in this renderer.
       {
-        const want = a.gripT > 0 ? 1 : 0
+        // THE GRIP'S TELL IS THE START OF THE GRAB. While sim's forecast names this arm, the limb
+        // begins to leave its ring and reach for the player — up to K_GRIP_TELL_REACH of the way,
+        // short of where the coil starts winding — so the latch is the SAME motion finishing
+        // rather than a limb teleporting onto you. The owner's rule for the grip holds: the
+        // tentacle does the telling, no ring or line is drawn for it.
+        const tell = krakenGripTell(run, a)
+        const want = a.gripT > 0 ? 1 : (tell > K_GRIP_TELL_LOADED ? K_GRIP_TELL_REACH * tell : 0)
         const rate = (dt || 0) / (want > 0 ? K_GRIP_EXTEND_T : K_GRIP_RETRACT_T)
         const now = krakenGrab[a.i] ?? 0
         krakenGrab[a.i] = want > now ? Math.min(want, now + rate) : Math.max(want, now - rate)
@@ -20148,6 +20370,23 @@ const spurG = new Graphics()
       rig.rope.visible = true
       rig.shadow.visible = true
       krakenTips[a.i] = { x: rig.pts[K_ROPE_N - 1].x, y: rig.pts[K_ROPE_N - 1].y }
+      // ...AND THE WATER AROUND THE PLAYER STARTS MOVING TOWARD IT. The reach alone can start at the
+      // edge of the light; silt lifting off the seabed around the fish and streaming toward the limb
+      // is the half of the tell that is always where the player is looking — and it is a physical
+      // thing in the water, not a ring or a line, which is the owner's rule for the grip.
+      {
+        const gk = krakenGripTell(run, a)
+        if (gk > 0 && dt > 0 && Math.random() < dt * (18 + 30 * gk)) {
+          const p = run.player
+          const tip = krakenTips[a.i]
+          const ang = Math.random() * Math.PI * 2
+          const r0 = 26 + Math.random() * 40
+          const sx = p.x + Math.cos(ang) * r0, sy = p.y + Math.sin(ang) * r0
+          const dx = tip.x - sx, dy = tip.y - sy, dl = Math.hypot(dx, dy) || 1
+          const sp = 140 + 160 * gk
+          spawnParticle(T.fx.circle_05, sx, sy, (dx / dl) * sp, (dy / dl) * sp, 0.45, 0.035 + Math.random() * 0.02, 0xd8b8d0, -0.03, 0)
+        }
+      }
       // THE TEAR RUNS ALONG THE LIMB, AND IT IS BUILT OUT OF THE LIMB'S OWN POINTS. Two shipped
       // attempts drew a SHAPE at the arm's tip — first a pink ellipse with a bar through it ("the
       // fuck is this pink oval with a slash on it"), then a ragged cavity in the same place ("it just
@@ -20254,6 +20493,12 @@ const spurG = new Graphics()
         else if (a.limpT > 0) rig.rope.tint = mix(0x4576a0, 0x5691c0, 0.5 + 0.5 * Math.sin(animT * 4)) // spent: cold AND dimmed
         else if (rung && a.tele > 0 && a.tele <= rung.window) rig.rope.tint = a.tele <= rung.perfect ? 0xffffff : 0xeaf6ff
         else if (rung && a.tele > 0 && a.fuse) rig.rope.tint = mix(0x9e92cf, 0xeee8fe, 1 - a.tele / a.fuse)
+        else if (krakenGripTell(run, a) > 0) {
+          // the suckers lighting up: a grabber about to take you flushes warm and throbs, faster as
+          // the turn comes round — the only warm pulse on a limb anywhere in the ring
+          const gk = krakenGripTell(run, a)
+          rig.rope.tint = mix(0x6a5e94, 0xffffff, gk * (0.5 + 0.5 * Math.sin(animT * (14 + 22 * gk))))
+        }
         else rig.rope.tint = mix(0x7366a0, 0x403d4b, 1 - fur)
       }
     }
@@ -20302,6 +20547,7 @@ const spurG = new Graphics()
     } else {
       hs.tint = 0xffffff
       hs.alpha = 1
+      poseKrakenLunge(run, head, hs)
     }
   }
 
@@ -20727,6 +20973,47 @@ const spurG = new Graphics()
     }
     drawKrakenBody(run, dt, krakenHead)
     syncKrakenHeadRig(run, dt, krakenHead)
+  }
+
+  // THE GRIP FORECAST as a 0..1 ramp for this arm: 0 unless sim's forecast (script.gripSoonI) names
+  // it. LOADED (gripSoonT < 0 — the next slam to land arms the grab) is a low K_GRIP_TELL_LOADED:
+  // the limb stirs and throbs but does not reach. NEXT (the coming turn is the grab) jumps to 0.6
+  // and climbs to 1 over the last K_GRIP_TELL_T seconds — the reach and the lift ride this.
+  const K_GRIP_TELL_T = 0.9
+  const K_GRIP_TELL_LOADED = 0.3
+  const K_GRIP_TELL_REACH = 0.42 // < K_GRIP_COIL_AT: the reach may start, the coil may not
+  function krakenGripTell(run, a) {
+    const s = run.script
+    if (!s || s.gripSoonI !== a.i || a.gripT > 0 || a.dead) return 0
+    if (!((s.gripSoonT ?? -1) >= 0)) return K_GRIP_TELL_LOADED
+    return 0.6 + 0.4 * Math.max(0, 1 - s.gripSoonT / K_GRIP_TELL_T)
+  }
+
+  // THE LUNGE, POSED. The bare head was one baked sprite that slid at you with no anticipation; from
+  // KRAKEN_LUNGE_WINDUP_T out it now DRAWS BACK away from the player and swells, quivering harder as
+  // the strike nears, and on the launch it stretches along its own heading and snaps forward. All of
+  // it is sprite offset and scale over sim's own clock (lungeT, _lungeBurst) — the hitbox is where
+  // sim put it and nothing here moves it.
+  function poseKrakenLunge(run, head, hs) {
+    const s = run.script
+    const p = run.player
+    const dx = p.x - head.x, dy = p.y - head.y
+    const dl = Math.hypot(dx, dy) || 1
+    const ux = dx / dl, uy = dy / dl
+    const burst = Math.max(0, head._lungeBurst ?? 0) / 0.5
+    if (burst > 0) {
+      const b = Math.sin(burst * Math.PI * 0.5)
+      hs.scale.set(hs.scale.x * (1 + 0.16 * b), hs.scale.y * (1 - 0.06 * b))
+      hs.position.set(hs.position.x + ux * 22 * b, hs.position.y + uy * 22 * b)
+      return
+    }
+    if (s.staggerT > 0 || !(head.lungeT > 0) || head.lungeT > KRAKEN_LUNGE_WINDUP_T) return
+    const w = 1 - head.lungeT / KRAKEN_LUNGE_WINDUP_T
+    const back = 1 - (1 - w) * (1 - w)
+    const tremble = Math.sin(animT * (40 + 50 * w)) * 3 * w * w
+    const off = -34 * back + tremble
+    hs.position.set(hs.position.x + ux * off - uy * tremble, hs.position.y + uy * off + ux * tremble)
+    hs.scale.set(hs.scale.x * (1 - 0.05 * back), hs.scale.y * (1 + 0.09 * back))
   }
 
   function redrawTelegraphs(run) {
@@ -21828,6 +22115,31 @@ const spurG = new Graphics()
     shake.t = dur
     shake.dur = dur
   }
+  // THE SAME SHAKE, STATED AS A FRACTION OF THE SCREEN'S SHORT SIDE. addShake takes WORLD px, and
+  // the world is drawn at camZoom (0.62 on a phone in the Kraken fight), so a fixed amp is a
+  // different jolt on every device. `frac` of the short side is the same share of the view anywhere:
+  // 0.02 is ~8px on a 390px phone and ~16px on a 1280x800 desktop.
+  function addShakeScreen(frac, dur) {
+    addShake(frac * Math.min(app.screen.width, app.screen.height) / Math.max(0.05, camZoom()), dur)
+  }
+  // THE CAMERA KICK: one directional jolt that springs back, where the shake is random jitter. A
+  // blow landing BESIDE you should shove the view AWAY from where it landed; jitter cannot say which
+  // side the hit was on. Renderer state, like `shake`. Same screen-relative unit as addShakeScreen.
+  const kick = { x: 0, y: 0 }
+  function addKick(dx, dy, frac) {
+    const l = Math.hypot(dx, dy)
+    if (!(l > 1e-6)) return
+    const m = frac * Math.min(app.screen.width, app.screen.height) / Math.max(0.05, camZoom())
+    kick.x += (dx / l) * m
+    kick.y += (dy / l) * m
+  }
+  // Where a slam cracked the seabed: a short-lived decal over the exact struck capsule. Renderer
+  // state, cleared by clearWorld with the rest of the Kraken's drawn memory.
+  const krakenScars = []
+  const K_SCAR_T = 1.3
+  // A perfect parry's star cut, for its few frames. Same ownership as krakenScars.
+  const krakenStars = []
+  const K_STAR_T = 0.13
 
   function fitScreen() {
     const w = app.screen.width
@@ -23021,7 +23333,12 @@ const spurG = new Graphics()
           // the spin in syncPlayer poses. Without it the whole answer to "did my press land" was
           // drawn up to 240px away on something the player was not looking at.
           if (e.px !== undefined) spawnRing(e.px, e.py, 46, 0.20, T.novaWarm, 0xbfe8f2)
-          addShake(3 + wear * 3, 0.12 + wear * 0.06)
+          // THE CLASH, AT THE POINT OF CONTACT. A parry is two things meeting, and the rings above are
+          // both things that happened to ONE side. Sparks spray off the meeting point along the line
+          // from the fish to the limb — the deflection has a direction — and a flare sits over the
+          // contact for the hitstop's freeze, so the frozen frame has something in it to read.
+          krakenClash(e, false)
+          addShakeScreen(0.007 + wear * 0.006, 0.12 + wear * 0.06)
           break
         }
         case 'armRear': {
@@ -23096,7 +23413,12 @@ const spurG = new Graphics()
             const a = (i / 10) * Math.PI * 2
             spawnParticle(T.fx.star_08, e.x, e.y, Math.cos(a) * 190, Math.sin(a) * 190, 0.36, 0.07, 0xffffff, -0.1, 0)
           }
-          addShake(6, 0.2)
+          // THE PERFECT IS A STARBURST. Cuphead's parry and Brineybeard's death both resolve as a hard
+          // white star cut onto the frame — no ramp, full size on the first frame, gone in a blink —
+          // and that is the read a tight press has earned: it is shaped differently from a good
+          // parry's spray, not just larger.
+          krakenClash(e, true)
+          addShakeScreen(0.016, 0.22)
           break
         }
         case 'blaze': {
@@ -23135,6 +23457,16 @@ const spurG = new Graphics()
           addShake(4, 0.14)
           break
         }
+        case 'gripWarn': {
+          // the forecast starting: a puff of silt lifting off the seabed under the grabber that is
+          // about to reach. The limb's own reach, lift and throb carry the rest (syncKrakenArms).
+          for (let i = 0; i < 8; i++) {
+            const a = Math.random() * Math.PI * 2
+            const sp = 60 + Math.random() * 90
+            spawnParticle(T.fx.circle_05, e.x, e.y, Math.cos(a) * sp, Math.sin(a) * sp, 0.5, 0.06, 0xd8b8d0, 0.2, 2)
+          }
+          break
+        }
         case 'gripLatch': {
           // The grab starting. The taut line to the player is drawn live in drawKrakenRing for as
           // long as the hold lasts; this is only the moment it takes, so it stays a single snap.
@@ -23143,28 +23475,57 @@ const spurG = new Graphics()
           break
         }
         case 'lash': {
-          // The slam LANDING, DOWN THE WHOLE LIMB. It was a hoop at the tip because the struck
-          // shape was a disc there; the sim strikes a capsule on the arm's bearing now, so the
-          // impact is drawn along that same line — a picture the player is dodging that is not the
-          // shape that hits them is worse than no picture. Still no shake: it fires about once a
-          // second across the ring, and 'hurt' already shakes the ones that connect, which is the
-          // only distinction that matters.
+          // THE SLAM LANDING, DOWN THE WHOLE LIMB, ON EXACTLY THE GROUND IT STRUCK. Hades' Hydra
+          // slams into a ring the size of its hitbox and the dust it throws FILLS that ring; the
+          // footprint of the burst is the footprint of the hit. So the silt here is spawned inside
+          // the capsule sim tested (segment x0..x1, half-width w) and thrown out SIDEWAYS, off the
+          // limb's own line — a wall of seabed going up on both sides of where it came down — and
+          // the capsule stays printed on the floor (krakenScars) while the silt settles.
+          //   THE CAMERA FEELS IT BY DISTANCE. It used to be "no shake: it fires about once a
+          // second" — and a blow that lands a limb's width from you with the screen dead still has
+          // no weight at all. Scaled by how close the player stood to the struck line, so the ring's
+          // far arms are a tremor and the one that nearly had you is a jolt; screen-relative, so it
+          // is the same share of a phone as of a desktop. 'hurt' still shakes the ones that connect.
           const lx0 = e.x0 ?? e.x, ly0 = e.y0 ?? e.y
           const lx1 = e.x1 ?? e.x, ly1 = e.y1 ?? e.y
           const lw = e.w || KRAKEN_LASH_W
-          for (let i = 0; i < 3; i++) {
-            const t = 0.55 + i * 0.2
-            spawnRing(lx0 + (lx1 - lx0) * t, ly0 + (ly1 - ly0) * t,
-              lw * (0.5 + 0.7 * t), 0.16 + 0.16 * t, T.novaRing, 0xb9c6c9)
+          const L = Math.hypot(lx1 - lx0, ly1 - ly0) || 1
+          const ux = (lx1 - lx0) / L, uy = (ly1 - ly0) / L
+          const nx = -uy, ny = ux
+          krakenScars.push({ x0: lx0, y0: ly0, x1: lx1, y1: ly1, w: lw, t: K_SCAR_T, big: !!e.coil, cracks: krakenCrack(lx0, ly0, lx1, ly1, lw, !!e.coil) })
+          if (krakenScars.length > 10) krakenScars.shift()
+          // the crack itself, at the end that is on screen
+          spawnRing(lx1, ly1, lw * 1.1, 0.26, T.novaWarm, 0xffd0c0)
+          // A COIL'S FIVE LASHES ARE ONE BLOW: coilClose carries the camera and the big burst, so each
+          // limb here only throws its own wall, thinner, to keep the particle budget for the middle.
+          // DIM AND OVERLAPPING, so the puffs merge into one cloud instead of reading as bubbles: a
+          // bright tint made every disc its own object. Born across the full width, thrown sideways.
+          const walls = e.coil ? 8 : 16
+          for (let i = 0; i < walls; i++) {
+            const t = 0.36 + Math.random() * 0.64
+            const side = Math.random() < 0.5 ? -1 : 1
+            const off = Math.random() * lw * side
+            const sx = lx0 + (lx1 - lx0) * t + nx * off, sy = ly0 + (ly1 - ly0) * t + ny * off
+            const sp = 60 + Math.random() * 150
+            const along = (Math.random() - 0.5) * 50
+            spawnParticle(T.fx.circle_05, sx, sy, nx * side * sp + ux * along, ny * side * sp + uy * along,
+              0.6 + Math.random() * 0.35, 0.10 + Math.random() * 0.06, 0x3c4a53, 0.35, 3.0)
           }
-          spawnRing(lx1, ly1, lw * 0.78, 0.24, T.novaWarm, 0xffd0c0)   // the crack itself
-          // ...and the length of it in silt, which is on particleLayer and so draws ABOVE the limb
-          for (let i = 0; i < 22; i++) {
+          // chips of the seabed kicked straight up off the spine, bright for a frame
+          for (let i = 0; i < (e.coil ? 3 : 8); i++) {
+            const t = 0.45 + Math.random() * 0.55
             const a = Math.random() * Math.PI * 2
-            const sp = 90 + Math.random() * 240
-            const t = 0.42 + Math.random() * 0.58       // the half of the line that is on screen
-            spawnParticle(T.fx.circle_05, lx0 + (lx1 - lx0) * t, ly0 + (ly1 - ly0) * t,
-              Math.cos(a) * sp, Math.sin(a) * sp, 0.42, 0.07, 0x9fb0bd, 0.4, 2.6)
+            const sp = 160 + Math.random() * 220
+            spawnParticle(T.fx.star_08, lx0 + (lx1 - lx0) * t, ly0 + (ly1 - ly0) * t,
+              Math.cos(a) * sp, Math.sin(a) * sp, 0.3, 0.05, 0xe6f2f8, -0.05, 2)
+          }
+          if (!e.coil) {
+            const nk = krakenNearK(run, lx0, ly0, lx1, ly1, lw)
+            if (nk.k > 0) {
+              addShakeScreen(0.004 + 0.016 * nk.k * nk.k, 0.16 + 0.12 * nk.k)
+              // shoved AWAY from the line, the way a blow beside you pushes you off it
+              addKick(run.player.x - nk.qx, run.player.y - nk.qy, 0.012 * nk.k)
+            } else addShakeScreen(0.003, 0.12)
           }
           break
         }
@@ -23229,16 +23590,45 @@ const spurG = new Graphics()
         case 'coilClose': {
           // the ring shutting. A hard inward snap, and no parry exists for it — the picture has to
           // say "that already happened" rather than "you could have blocked that".
+          //   THE BIGGEST HIT IN THE FIGHT, so it gets the biggest camera: five limbs hitting the
+          // seabed on one frame. A long heavy shake, a kick straight down (the whole world dropping
+          // under the blow — it has no side, it is everywhere but the gap), a shock ring racing out
+          // across the arena floor, and a collar of silt thrown up where the arms met.
+          spawnRing(e.x, e.y, e.r * 2.6, 0.62, T.novaRing, 0xcfe6f0)
           spawnRing(e.x, e.y, e.r * 1.4, 0.34, T.novaRing, 0xffffff)
           spawnRing(e.x, e.y, e.r * 0.5, 0.26, T.novaWarm, 0xdff4ff)
-          addShake(12, 0.4)
+          for (let i = 0; i < 40; i++) {
+            const a = (i / 40) * Math.PI * 2 + Math.random() * 0.12
+            const r0 = KRAKEN_HEAD_R * (0.6 + Math.random() * 0.5)
+            const sp = 200 + Math.random() * 260
+            spawnParticle(T.fx.circle_05, e.x + Math.cos(a) * r0, e.y + Math.sin(a) * r0,
+              Math.cos(a) * sp, Math.sin(a) * sp, 0.8 + Math.random() * 0.3, 0.12 + Math.random() * 0.06, 0x4a5a64, 0.6, 2.6)
+          }
+          addShakeScreen(0.05, 0.55)
+          addKick(0, 1, 0.03)
+          // the one full-field flash in the fight, and a dim one: the Coil comes once every
+          // KRAKEN_COIL_EVERY arm attacks, far under the lightning's photosensitivity budget
+          lightningFlashA = Math.max(lightningFlashA, 0.22)
+          break
+        }
+        case 'headWindup': {
+          // THE HEAD DRAWING BACK — KRAKEN_LUNGE_WINDUP_T before the strike, i.e. BEFORE the parry
+          // window. The countdown note plays on this now; the pose and aura are drawn live off lungeT.
+          // This is only the moment it starts: water sucked IN toward the body as it gathers itself.
+          for (let i = 0; i < 12; i++) {
+            const a = (i / 12) * Math.PI * 2 + Math.random() * 0.3
+            const d = KRAKEN_HEAD_R * (1.8 + Math.random() * 0.5)
+            spawnParticle(T.fx.circle_05, e.x + Math.cos(a) * d, e.y + Math.sin(a) * d,
+              -Math.cos(a) * d * 1.2, -Math.sin(a) * d * 1.2, 0.55, 0.07, 0xbfe8f2, -0.05, 0)
+          }
           break
         }
         case 'headLunge': {
           // P5's one move of its own: the wind-up before it comes at you between the hulls, and the
           // only thing that keeps the finale from reading as The Blank's P3 with props.
           spawnRing(e.x, e.y, 170, 0.4, T.novaRing, 0xdff4ff)
-          addShake(7, 0.22)
+          addShakeScreen(0.014, 0.22)
+          addKick(e.x - run.player.x, e.y - run.player.y, 0.01)
           break
         }
       }
@@ -23261,6 +23651,8 @@ const spurG = new Graphics()
     // the ring's drawn tip positions are WORLD coordinates from the run that just ended — carried
     // into the next one they would put a parry ring somewhere off in the last arena for one frame
     krakenTips.length = 0
+    krakenScars.length = 0
+    krakenStars.length = 0
     // v6.6.22: the lawn grows back between runs. mownByLane is a WeakMap keyed on lane objects the
     // old run owned, so it empties itself once those are unreachable — only the list needs clearing.
     mown.length = 0
@@ -23379,6 +23771,8 @@ const spurG = new Graphics()
     shake.amp = 0
     shake.ox = 0
     shake.oy = 0
+    kick.x = 0
+    kick.y = 0
     flashT = 0
     vignetteA = 0
     vignette.alpha = 0
@@ -24815,8 +25209,9 @@ const spurG = new Graphics()
     const z = camZoom()
     const camX = (laneAheadX ? camFwd : run.player.x) + camLead.x
     const camY = (laneAheadY ? camFwd : run.player.y) + camLead.y
-    const cx = (laneAheadX ? laneFrac(viewW(), chapterLaneAxis.dir) : viewW() / 2) - camX + shake.ox
-    const cy = (laneAheadY ? laneFrac(viewH(), chapterLaneAxis.dir) : viewH() / 2) - camY + shake.oy
+    if (dt > 0) { const kd = Math.exp(-dt * 14); kick.x *= kd; kick.y *= kd }
+    const cx = (laneAheadX ? laneFrac(viewW(), chapterLaneAxis.dir) : viewW() / 2) - camX + shake.ox + kick.x
+    const cy = (laneAheadY ? laneFrac(viewH(), chapterLaneAxis.dir) : viewH() / 2) - camY + shake.oy + kick.y
     world.scale.set(z)
     world.position.set(cx * z, cy * z)
     playerScreen.x = (run.player.x + cx) * z
