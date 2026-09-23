@@ -20949,10 +20949,19 @@ const spurG = new Graphics()
   const K_BECKON_FROM = 0.5   // where along the nearest ring arm its idle beckon curl starts
   const K_BECKON_T = 1.9      // seconds per beckon
   const K_BECKON_OUT = 20     // world px the beckoning tip is drawn out from under the head
+  const K_CHUCKLE_T = 1.6     // seconds per idle chuckle: the heave every idle gesture rides
+  const K_IDLE_LEAN = 70      // world px the body leans in toward you at the top of a heave
+  const K_IDLE_ROOT_LEN = 420 // world px a root is drawn at ease: short enough that its tip is in view
+  const K_DRUM_T = 0.8        // seconds per floor tap of a drumming root
+  // at ease, 0..1: slow in-and-out with a triple "ha-ha-ha" shake riding its top half
+  const krakenHeave = () => {
+    const w = 0.5 - 0.5 * Math.cos(animT * Math.PI * 2 / K_CHUCKLE_T)
+    return w * (0.8 + 0.2 * Math.abs(Math.sin(animT * Math.PI * 6 / K_CHUCKLE_T)))
+  }
   const kc = {
     x: null, y: null, tilt: 0, cant: 0, skew: 0, flinch: 0, wide: 0, deflect: 0, blink: 0, blinkAt: 2.5, rootLen: [],
     lastHF: 0, flash: 0, flashCd: 0, recoil: 0, stagPeak: 0, crown: -1, near: 0, core: 0,
-    idleK: 0, frameX: null, frameW: 0, fitMul: 1, beckonI: -1, beckon: [],
+    idleK: 0, frameX: null, frameW: 0, fitMul: 1, beckonI: -1, beckon: [], idleRoot: [],
   }
   function makeCreatureRig() {
     const root = new Container()
@@ -21014,7 +21023,7 @@ const spurG = new Graphics()
     for (const r of krakenRootRopes) r.visible = false
     kc.x = null; kc.y = null; kc.tilt = 0; kc.cant = 0; kc.near = 0; kc.recoil = 0; kc.core = 0; kc.knock = 0
     kc.flinch = 0; kc.wide = 0; kc.deflect = 0; kc.blink = 0; kc.rootLen.length = 0
-    kc.idleK = 0; kc.frameX = null; kc.frameW = 0; kc.fitMul = 1; kc.beckonI = -1; kc.beckon.length = 0
+    kc.idleK = 0; kc.frameX = null; kc.frameW = 0; kc.fitMul = 1; kc.beckonI = -1; kc.beckon.length = 0; kc.idleRoot.length = 0
     kc.lastHF = 0; kc.flash = 0; kc.stagPeak = 0; kc.crown = -1
   }
 
@@ -21438,7 +21447,9 @@ const spurG = new Graphics()
     // ...and NEVER UNDER YOU. The ring's centre is where the sim's head is, but the body lies far below
     // it, so it is free to sit back from the fish: its face stays K_FACE_CLEAR from you, the way you
     // look at something, not something you swim across.
-    const lean = 26 * lift - 24 * kc.flinch - Math.max(0, K_FACE_CLEAR - dl)
+    // AT EASE IT LEANS IN on the chuckle: the whole body pitched at you, further at the top of each heave
+        const heave = krakenHeave()
+    const lean = 26 * lift - 24 * kc.flinch - Math.max(0, K_FACE_CLEAR - dl) + kc.idleK * K_IDLE_LEAN * (0.45 + 0.55 * heave)
     const tx = head.x + dx / dl * lean, ty = head.y + dy / dl * lean
     if (kc.x == null) { kc.x = tx; kc.y = ty }
     const e = Math.min(1, k * 6)
@@ -21450,7 +21461,8 @@ const spurG = new Graphics()
     kc.idleK = s.phase === 'chase' ? 0 : idleK * Math.min(1, grow)
     const cant = idleK * (0.36 + 0.08 * Math.sin(animT * 0.45))
     kc.cant += (cant - kc.cant) * Math.min(1, k * 2)
-    const tilt = -0.3 * dx / dl + cant
+    // ...and at ease the face swings round to aim at you, rocking with the laugh
+    const tilt = -0.3 * dx / dl + cant - kc.idleK * (0.28 * dx / dl + 0.07 * (heave - 0.5))
     kc.tilt += (tilt - kc.tilt) * Math.min(1, k * 2)
     const worldR = s.phase === 'chase'
       ? KRAKEN_HEAD_R * (1.3 + (K_BODY_R - 1.3) * rise)
@@ -21461,7 +21473,7 @@ const spurG = new Graphics()
     const fitW = kc.frameW > 0 ? kc.frameW / kc.fitMul : 0
     const fitT = fitW > 0 ? Math.min(1, K_FIT_ACROSS * viewW() / fitW) : 1
     kc.fitMul += ((1 - kc.idleK * (1 - fitT)) - kc.fitMul) * Math.min(1, k * 3)
-    const sc = worldR / K_BODY_BAKE_R * (1 + 0.025 * Math.sin(animT * 1.1)) * (1 - 0.04 * kc.flinch) * kc.fitMul
+    const sc = worldR / K_BODY_BAKE_R * (1 + 0.025 * Math.sin(animT * 1.1)) * (1 - 0.04 * kc.flinch) * kc.fitMul * (1 + 0.05 * kc.idleK * heave)
     // AT EASE THE WHOLE BODY IS IN IT: the mantle BREATHES (swells and sags on a 1.2s beat, the grin
     // opening with it) and LEANS off-axis past the head's cant, sheared about the eye line so the face
     // stays put while the bag of the mantle flops over to one side
@@ -21535,6 +21547,55 @@ const spurG = new Graphics()
           lat += curl * swing * worldR * 1.25 * beat * Math.sin(Math.PI * Math.min(1, t * 2.2)) * (1 + 0.4 * Math.sin(ph * 0.5 + t * 6))
         }
         rope._pts[q].set(kc.x + cx0 * rr + nx * lat, kc.y + cy0 * rr + ny * lat)
+      }
+      // AT EASE EVERY ROOT JOINS THE TAUNT. Drawn short enough that the whole limb and its tip are in
+      // view, held in a loose S that heaves with the chuckle: the two nearest you reach your way and
+      // curl their tips like beckoning fingers, the rest coil up and drum their tips on the seabed,
+      // kicking sand. Cut fast the moment the arm tenses, so every tell draws exactly as before.
+      {
+        const wantI = a.dead || a.limpT > 0 ? 0 : kc.idleK * (1 - tense)
+        const curI = kc.idleRoot[a.i] ?? 0
+        const w = (kc.idleRoot[a.i] = curI + (wantI - curI) * Math.min(1, k * (wantI > curI ? 2.5 : 10)))
+        if (w > 0.01) {
+          const ni = near2.indexOf(a)
+          const reach = ni >= 0
+          let dA = Math.atan2(Math.sin(pAng - a.ang), Math.cos(pAng - a.ang))
+          const side = dA >= 0 ? 1 : -1
+          // a reaching root passes BESIDE you, flanking, so its hooked tip closes on you from the side
+          // ...and the others splay out to your left and right, off from behind the mantle, where
+          // their coils and taps are in view beside the face
+          const hd = reach ? pAng - side * 0.6 : pAng - side * Math.max(1.25, Math.min(2.0, Math.abs(dA) - 0.35))
+          const ph = animT * Math.PI * 2 / K_CHUCKLE_T + a.i * 1.3
+          const drumU = (animT / K_DRUM_T + a.i * 0.37) % 1
+          const drumUp = Math.sin(Math.PI * Math.min(1, drumU / 0.85)) ** 0.7
+          const beat = 0.5 - 0.5 * Math.cos(animT * Math.PI * 2 / K_BECKON_T + (ni === 1 ? Math.PI : 0))
+          const hook = reach ? side * (1.5 + 1.9 * beat) : side * (2.0 + 1.4 * drumUp)
+          const L = K_IDLE_ROOT_LEN * (reach ? 0.95 : 0.7) * (1 + 0.08 * heave)
+          const step = L / (K_ROOT_N - 1)
+          let x = kc.x + cx0 * r0, y = kc.y + cy0 * r0
+          for (let q = 0; q < K_ROOT_N; q++) {
+            const t = q / (K_ROOT_N - 1)
+            const sBend = (reach ? 0.45 : 0.9) * Math.sin(t * Math.PI * 1.8 + ph * 0.5 + a.i) * (0.8 + 0.2 * heave)
+            const hk = hook * Math.pow(Math.max(0, (t - 0.5) / 0.5), 1.5)
+            const h = hd + sBend + hk
+            if (q > 0) { x += Math.cos(h) * step; y += Math.sin(h) * step }
+            // lifted off the seabed along its length; a drummer's tip comes down hard on the tap
+            const up = (reach ? 70 : 55) * (0.7 + 0.3 * heave) * t * (reach ? 1 : 1 - Math.pow(t, 4) * (1 - drumUp))
+            const P = rope._pts[q]
+            P.set(P.x + (x - P.x) * w, P.y + (y - up - P.y) * w)
+          }
+          // the tap's puff of sand, on the seabed where the tip came down
+          if (!reach && w > 0.25 && drumU < 0.45) {
+            const e = drumU / 0.45
+            const rr = 18 + 60 * (1 - Math.pow(1 - e, 2.5))
+            const al = w * (1 - e) * ga
+            for (let m = 0; m < 6; m++) {
+              const an = m * 1.05 + a.i
+              krakenDeepG.circle(x + Math.cos(an) * rr * 0.75, y + Math.sin(an) * rr * 0.45, 10 + 18 * e).fill({ color: 0xcdbfa6, alpha: 0.4 * al })
+            }
+            krakenDeepG.ellipse(x, y, rr, rr * 0.55).stroke({ width: 4 * (1 - e) + 1.5, color: 0xf0e6d2, alpha: 0.75 * al })
+          }
+        }
       }
       rope._kMul = (1.5 + 0.5 * tense + 0.7 * curl * (0.6 + 0.4 * Math.sin(animT * 2.4 + a.i * 1.7))) * Math.min(1, 0.4 + worldR / (KRAKEN_HEAD_R * K_BODY_R))
       rope.alpha = ga
