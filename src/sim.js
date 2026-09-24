@@ -239,6 +239,7 @@ import {
   KRAKEN_WAVE, KRAKEN_WAVE_GAP, KRAKEN_WAVE_TIMEOUT, KRAKEN_WAVE_XP_MUL,
   KRAKEN_OPEN_WAVES, KRAKEN_WAVE_GROWTH, KRAKEN_ARRIVE_T, KRAKEN_ARRIVE_T2, KRAKEN_SLAM_T,
   KRAKEN_LESSON_SLOW, KRAKEN_LESSON_MAX, KRAKEN_LESSON_TIP_T,
+  KRAKEN_PARRY_SHOVE_R, KRAKEN_PARRY_SHOVE_FORCE, KRAKEN_PARRY_DAZE,
   KRAKEN_DEFLECT_CD,
   // v6.4.2 (owner directive): per-run coin cap
   COIN_CAP_PER_RUN,
@@ -1776,8 +1777,11 @@ function krakenLashLine(head, a) {
     const dx = a.aimX - a.lx0, dy = a.aimY - a.ly0
     const d = Math.hypot(dx, dy)
     if (d > 1) {
-      a.lx1 = a.lx0 + (dx / d) * (KRAKEN_RING_R + KRAKEN_LASH_OVER)
-      a.ly1 = a.ly0 + (dy / d) * (KRAKEN_RING_R + KRAKEN_LASH_OVER)
+      // AT LEAST RING_R, AND ALWAYS AS FAR AS THE LOCK: an arm across the ring from you used to stop
+      // 620px out and fall short, so standing still dodged every slam from the far side
+      const L = Math.max(KRAKEN_RING_R, d) + KRAKEN_LASH_OVER
+      a.lx1 = a.lx0 + (dx / d) * L
+      a.ly1 = a.ly0 + (dy / d) * L
       return
     }
   }
@@ -1786,7 +1790,7 @@ function krakenLashLine(head, a) {
 }
 
 // The arm's tip, and the node a parry hangs on it. Aimed, it sits where the slam lands: on the
-// aimed lane at the locked point (never past the lane's end). Otherwise on its own bearing.
+// aimed lane at the locked point. Otherwise on its own bearing.
 function krakenPlaceArm(head, a, reach) {
   // the aim lives exactly as long as the attack it was locked for: wind-up, planted slam, limp
   // window, and a break's sinking. Idle again, the arm goes back to its slot.
@@ -1794,7 +1798,7 @@ function krakenPlaceArm(head, a, reach) {
   if (a.coilArm) a.aimed = false
   krakenLashLine(head, a)
   if (a.aimed) {
-    const d = Math.min(Math.hypot(a.aimX - a.lx0, a.aimY - a.ly0), KRAKEN_RING_R)
+    const d = Math.hypot(a.aimX - a.lx0, a.aimY - a.ly0)
     const L = Math.hypot(a.lx1 - a.lx0, a.ly1 - a.ly0) || 1
     a.x = a.lx0 + ((a.lx1 - a.lx0) / L) * d
     a.y = a.ly0 + ((a.ly1 - a.ly0) / L) * d
@@ -1938,6 +1942,11 @@ function krakenHide(run, head) {
     a.gripT = 0
     a.tele = 0
     a.fuse = 0
+    // ...and every trace of an attack in flight: an aim left locked kept the limb bent at a spot in
+    // the breather, and a planted slam or a Coil skin would outlive the ring they belong to
+    a.aimed = false
+    a.slamT = 0
+    a.coilArm = false
     if (a.limpT > 0) run.events.push({ type: 'armRecover', x: a.x, y: a.y })
     a.limpT = 0
     if (a.nodeId != null) {
@@ -2594,6 +2603,9 @@ function krakenBreakArm(run, a) {
   a.nodeId = null
   a.hp = 0
   a.gripT = 0
+  a.tele = 0      // a wind-up in flight dies with the arm: the enrage revives it, and a stale fuse would fire
+  a.fuse = 0
+  a.coilArm = false
   a.breakT = 0.9 // render staging: bare, then peels and sinks
   s.blockKills++
   // PAID ONCE PER ARM, EVER. The enrage hauls broken arms back up, so without this every arm is
@@ -2601,6 +2613,27 @@ function krakenBreakArm(run, a) {
   if (!a.paid) { a.paid = true; s.bankedLevels += KRAKEN_ARM_LEVELS }
   run.hitStop = Math.max(run.hitStop, KRAKEN_HITSTOP_BREAK)
   run.events.push({ type: 'tentacleBreak', x: a.x, y: a.y })
+}
+
+// A PARRY THROWS THE ADDS OFF YOU (owner, 2026-09-24: "parry should knockback and daze the regular
+// enemies"). Every landed parry, arm or lunge, shoves and stuns the ordinary enemies within
+// KRAKEN_PARRY_SHOVE_R through the same e.kb / e.stunT contract the Pulse uses, and says so with
+// the Pulse's own 'repulse' event. The head and the arms' nodes are the fight, not adds: exempt.
+function krakenParryShove(run) {
+  const p = run.player
+  const R = KRAKEN_PARRY_SHOVE_R
+  for (const e of run.enemies) {
+    if (e._dead || isAlly(e) || e.rosterId === 'krakenHead' || e.rosterId === 'krakenArm') continue
+    const dx = e.x - p.x, dy = e.y - p.y
+    const d = Math.hypot(dx, dy)
+    if (d > R) continue
+    const ux = d > 1e-6 ? dx / d : 0, uy = d > 1e-6 ? dy / d : -1
+    const k = KRAKEN_PARRY_SHOVE_FORCE * (1 - d / R)
+    e.kb.x += ux * k
+    e.kb.y += uy * k
+    e.stunT = Math.max(e.stunT || 0, KRAKEN_PARRY_DAZE)
+  }
+  run.events.push({ type: 'repulse', x: p.x, y: p.y, r: R, charged: 0 })
 }
 
 // THE KRAKEN'S PARRY (called from stepRepulse's parry branch — the dash button, not a shove).
@@ -2701,6 +2734,7 @@ function krakenParry(run) {
     run.charge = Math.min(run.chargeMax, run.charge + KRAKEN_PARRY_REFILL * (perfect ? KRAKEN_PERFECT_MUL : 1))
     p.parryT = KRAKEN_PARRY_SPIN_T
     run.events.push({ type: perfect ? 'parryPerfect' : 'parry', x: head.x, y: head.y, frac: Math.max(0, 1 - s.stagger / rung.staggerNeed), px: p.x, py: p.y })
+    krakenParryShove(run)
     if (s.stagger >= rung.staggerNeed) {
       s.stagger = 0
       s.staggerT = KRAKEN_STAGGER_T
@@ -2733,6 +2767,7 @@ function krakenParry(run) {
     run.events.push({ type: 'krakenLesson', stage: 2, x: best.x, y: best.y })
   }
 
+  krakenParryShove(run)
   // AT FULL, THE NEXT PARRY BLAZES — off a LATCH (s.charged), not a sample of the bar. Testing
   // `charge >= chargeMax` at press time measures the passive drain, not the player: the bar leaves
   // its ceiling within a frame of touching it, and the blaze fired ~0 times a fight.
@@ -2828,8 +2863,8 @@ function stepRepulse(run, input, dt) {
   if (!input.skill || run.repulseCd > 0) return
   // The Kraken's button is a PARRY, not a shove: the same dash press negates the nearest arm's
   // pending slam and chunks it, and a fast KRAKEN_PARRY_CD is the whole skill. It returns before
-  // the shove below so a parry never spends Light or pushes enemies, and the commit is the cooldown
-  // either way (a whiff is a whiff).
+  // the shove below so a parry never spends Light, and the commit is the cooldown either way (a
+  // whiff is a whiff). A LANDED parry has its own short shove and daze (krakenParryShove).
   if (ch.parry) {
     run.repulseCd = KRAKEN_PARRY_CD
     krakenParry(run)

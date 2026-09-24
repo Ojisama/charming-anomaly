@@ -20398,6 +20398,7 @@ const spurG = new Graphics()
     krakenHold = 0
     const head = krakenHead
     const arms = head ? run.krakenArms.filter((a) => !a.dead || a.breakT > 0) : []
+    if (!head) krakenTipE.length = 0 // no fight on: the next ring starts from its own tips, not the last one's
     const rung = head ? krakenRung(run.difficulty) : null
     for (let i = 0; i < arms.length; i++) {
       const a = arms[i]
@@ -21882,6 +21883,10 @@ const spurG = new Graphics()
     // straight out of the ring left the whole body lying in the breather's open water.
     if (!krakenFight(run)) {
       if (krakenHeadRig.visible || ringRig.root.visible || krakenLampSp.visible || krakenRootRopes.some((r) => r.visible)) krakenCreatureReset()
+      // THE LAMP LAYER IS CLEARED EVERY FRAME OUTSIDE THE FIGHT, not only when the body was up. The
+      // ring draws no body any more, so the test above was false after a hide and the last frame's
+      // rearing-limb glow (drawKrakenRearGlow) stayed on screen through the whole breather.
+      krakenLampG.clear(); krakenDeepG.clear(); krakenFaceTopG.clear()
       return
     }
     drawKrakenBody(run, dt, krakenHead)

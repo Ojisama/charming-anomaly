@@ -2647,18 +2647,23 @@ body {
    the glow follows the shield through drop-shadow. On cooldown the plate dims and the icon hides,
    while the white border traces the shield and fills up; the countdown number stays on top. */
 .skill-btn-face { display: none; position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
-.skill-btn--parry { background: none; border: none; border-radius: 0; --parry-glow: rgba(110, 225, 255, 0.85); }
+/* 80% of the shared 78px disc (owner: "the shield parry icon should be a bit smaller"), re-centred
+   on the same spot so the thumb still finds it; the border, glow and pulse all scale with it */
+.skill-btn--parry { background: none; border: none; border-radius: 0; --parry-glow: rgba(110, 225, 255, 0.85);
+  width: 62px; height: 62px; left: 30px; bottom: 42px; font-size: 24px; }
+.skill-btn--parry.skill-btn--right { left: auto; right: 30px; }
+.skill-btn--parry .skill-btn-cd { font-size: 21px; }
 .skill-btn--parry .skill-btn-face { display: block; }
 .skill-btn--parry .skill-btn-glyph { display: none; }
 .skill-btn--parry .skill-btn-cd { z-index: 1; }
-.skill-btn--parry.skill-btn--ready { box-shadow: none; filter: drop-shadow(0 0 8px var(--parry-glow)) drop-shadow(0 0 20px var(--parry-glow)); }
+.skill-btn--parry.skill-btn--ready { box-shadow: none; filter: drop-shadow(0 0 6px var(--parry-glow)) drop-shadow(0 0 16px var(--parry-glow)); }
 .skill-btn--parry:not(.skill-btn--ready) { opacity: 1; filter: none; }
 .skill-btn--parry:not(.skill-btn--ready) .parry-plate { opacity: 0.4; }
 .skill-btn--parry:not(.skill-btn--ready) .parry-ico { opacity: 0; }
 .skill-btn--parry.skill-btn--lesson { animation-name: skill-lesson-parry; }
 @keyframes skill-lesson-parry {
-  from { transform: scale(1); filter: drop-shadow(0 0 4px #fff) drop-shadow(0 0 14px var(--parry-glow)); }
-  to { transform: scale(1.14); filter: drop-shadow(0 0 8px #fff) drop-shadow(0 0 30px var(--parry-glow)); }
+  from { transform: scale(1); filter: drop-shadow(0 0 3px #fff) drop-shadow(0 0 11px var(--parry-glow)); }
+  to { transform: scale(1.14); filter: drop-shadow(0 0 6px #fff) drop-shadow(0 0 24px var(--parry-glow)); }
 }
 /* THE PARRY LESSON (the Kraken, until the save has ever parried): while the first arm winds up,
    the button that answers it pulses with a white-hot rim, so the words over the fish point here. */

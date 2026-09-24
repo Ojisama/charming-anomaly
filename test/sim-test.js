@@ -172,7 +172,7 @@ import {
   KRAKEN_RISE_T, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, hiddenChapters, KRAKEN_CAGE_R, KRAKEN_PARRY_CD,
   KRAKEN_OPEN_WAVES, KRAKEN_COIL_EVERY, KRAKEN_ARRIVE_T, KRAKEN_RING_R, KRAKEN_LASH_R, KRAKEN_SLAM_T, KRAKEN_DEFLECT_CD,
   KRAKEN_LUNGE_T, KRAKEN_GRIP_DUR, KRAKEN_GRIP_DMG, KRAKEN_GRIP_FLICKS, KRAKEN_GRIP_STICK_MUL, TRAWL_WIGGLE_ARC,
-  KRAKEN_LASH_W, KRAKEN_LASH_OVER, KRAKEN_LASH_DMG, KRAKEN_LESSON_MAX, KRAKEN_ARRIVE_T2, KRAKEN_WAVE_GROWTH, KRAKEN_COIL_DMG,
+  KRAKEN_LASH_W, KRAKEN_LASH_OVER, KRAKEN_LASH_DMG, KRAKEN_LESSON_MAX, KRAKEN_PARRY_SHOVE_R, KRAKEN_ARRIVE_T2, KRAKEN_WAVE_GROWTH, KRAKEN_COIL_DMG,
   KRAKEN_HEAD_SPEED, KRAKEN_PARRY_SPIN_T,
 } from '../src/config.js'
 import { krakenWinPending, stepSim, applyChoice, buildLevelUpChoices, eligibleWeaponModCandidates, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, inRefillCircle, stepCharge, newElWindow, spurAt } from '../src/sim.js'
@@ -20320,6 +20320,7 @@ run(testLeLargeWeapons)
   run(runKraken)
   run(testKrakenAimedSlam)
   run(testKrakenLesson)
+  run(testKrakenParryShove)
   run(runKrakenCeremony)
   run(runBiomes)
   run(testBootLoader)
@@ -35540,7 +35541,7 @@ function testKrakenAimedSlam() {
     'the locked lane does not pass over the point the player stood on when the wind-up started — the arm is not aiming')
   assert.ok(Math.hypot(lane1.lx0 - sx, lane1.ly0 - sy) < 1, 'the aimed lane no longer starts at the arm\'s shoulder')
   assert.ok(Math.abs(Math.hypot(lane1.lx1 - lane1.lx0, lane1.ly1 - lane1.ly0) - (KRAKEN_RING_R + KRAKEN_LASH_OVER)) < 1,
-    'the aimed lane is not the length the radial one was')
+    'an aimed lane that locked inside RING_R is not the length the radial one was')
   assert.ok(Math.hypot(lane1.lx1 - h.x, lane1.ly1 - h.y) > KRAKEN_LASH_W,
     `the aimed lane still ends ${Math.hypot(lane1.lx1 - h.x, lane1.ly1 - h.y).toFixed(0)}px from the head centre — every slam still comes down on the head`)
   assert.ok(Math.hypot(arm.x - P.x, arm.y - P.y) < 1,
@@ -35555,6 +35556,35 @@ function testKrakenAimedSlam() {
     'the lane moved after the lock — it tracks the player, so there is nothing to read and step out of')
   const hurtP = land(P)
   assert.strictEqual(hurtP, KRAKEN_LASH_DMG, `a player standing where the arm locked took ${hurtP}, not a slam`)
+  // 3) A STILL PLAYER IS REACHED FROM THE FAR SHOULDER TOO (owner, v7.352: "they very often hit
+  // towards the head and not towards you so you can just stay there"). The ring centre, and the
+  // wall on the far side of the head from this arm, 935px from its shoulder, past a 620px lane.
+  const cage = run.script.cageR > 0 ? run.script.cageR : KRAKEN_CAGE_R
+  for (const [label, at] of [
+    ['the ring centre', { x: h.x, y: h.y }],
+    ['the wall across the ring', { x: h.x - Math.cos(arm.ang) * cage * 0.9, y: h.y - Math.sin(arm.ang) * cage * 0.9 }],
+  ]) {
+    lock(at)
+    const hurt = land(at)
+    assert.strictEqual(hurt, KRAKEN_LASH_DMG, `a player standing still at ${label} took ${hurt} from the slam aimed at them: the lane falls short of where it locked`)
+  }
+  // 4) THE HEAD HIDING TAKES EVERY ATTACK IN FLIGHT WITH IT (owner, v7.352: "sometimes the
+  // telegraphs stay on screen after a arm is broken or kraken repousse"). An arm mid-wind-up, one
+  // planted and one aimed are all cleared by the hide, and render clears its lamp layer every frame
+  // outside the fight, which is where the last rearing-limb glow was left standing.
+  const alive = run.krakenArms.filter((q) => !q.dead)
+  arm.tele = 1; arm.fuse = 2; arm.aimed = true; arm.slamT = 0.2
+  run.script.blockKills = 99
+  run.events.length = 0
+  stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+  assert.ok(run.events.some((e) => e.type === 'headHide'), 'fixture: the head did not hide')
+  for (const q of alive) {
+    assert.ok(!q.aimed && !(q.tele > 0) && !(q.slamT > 0) && !q.coilArm,
+      `arm ${q.i} still carries an attack after the head hid (aimed ${q.aimed}, tele ${q.tele}, slamT ${q.slamT}): it keeps drawing in the breather`)
+  }
+  const renderSrc = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
+  const off = renderSrc.slice(renderSrc.indexOf('    if (!krakenFight(run)) {'), renderSrc.indexOf('    drawKrakenBody(run, dt, krakenHead)'))
+  assert.ok(/krakenLampG\.clear\(\)/.test(off), "syncKrakenCreature's out-of-fight branch no longer clears krakenLampG: the last rearing-limb glow stays on screen after a hide")
   console.log(`PASS run KA (aimed slams): the wind-up locks the player's spot and the lane runs from the shoulder toward it at the same length, ending ${Math.hypot(lane1.lx1 - h.x, lane1.ly1 - h.y).toFixed(0)}px off the head centre; the old spoke takes 0, the locked spot takes ${KRAKEN_LASH_DMG}, the lane does not track, and the tip sits on the landing`)
 }
 
@@ -35650,6 +35680,48 @@ function testKrakenLesson() {
   const [t3] = untilLash(run3, arm3)
   assert.ok(t3 < arm3.fuse + 0.1, `with the flag set the first slam still crawled: ${t3.toFixed(2)}s against ${arm3.fuse}s`)
   console.log(`PASS run KL (parry lesson): fresh save — the first slam takes ${tLesson.toFixed(1)}s against a ${normal}s fuse and no other arm fires; the first parry emits krakenLesson and main.js saves meta.krakenParried; a parried save's first slam lands in ${t3.toFixed(2)}s`)
+}
+
+// ---- Run KS: A PARRY THROWS THE ADDS OFF YOU ------------------------------------------------
+// Owner, 2026-09-24: "parry should knockback and daze the regular enemies". A landed parry shoves
+// and stuns the ordinary enemies within KRAKEN_PARRY_SHOVE_R through the existing e.kb / e.stunT
+// contract; the head and the arms' nodes are exempt.
+function testKrakenParryShove() {
+  Math.random = mulberry32(20260925)
+  const run = createRun({ ...makeMeta(), krakenParried: true }, { chapter: 'kraken', difficulty: 1 })
+  const budget = KRAKEN_OPEN_WAVES * (KRAKEN_WAVE_TIMEOUT + 2) + KRAKEN_ARRIVE_T + 5
+  let guard = 0
+  while (run.script.phase !== 'boss' && guard++ < 60 * budget) { run.player.hp = run.player.maxHP; stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60) }
+  assert.strictEqual(run.script.phase, 'boss', 'the approach never reached the ring')
+  const R1 = krakenRung(1)
+  const arm = run.krakenArms[0]
+  for (const a of run.krakenArms) { a.tele = 0; a.gripT = 0 }
+  run.player.x = arm.x; run.player.y = arm.y
+  const p = run.player
+  const at = (dx, dy, extra = {}) => { const e = makeStatusEnemy(run, { x: p.x + dx, y: p.y + dy, speed: 0 }); Object.assign(e, extra); run.enemies.push(e); return e }
+  const near = at(KRAKEN_PARRY_SHOVE_R * 0.4, 0)
+  const far = at(0, KRAKEN_PARRY_SHOVE_R * 1.8)
+  const node = at(-KRAKEN_PARRY_SHOVE_R * 0.4, 0, { rosterId: 'krakenArm' })
+  const head = run.enemies.find((e) => e.rosterId === 'krakenHead' && !e._dead)
+  const d0 = Math.hypot(near.x - p.x, near.y - p.y)
+  const far0 = { x: far.x, y: far.y }, node0 = { x: node.x, y: node.y }
+  arm.tele = R1.window * 0.5
+  arm.fuse = R1.fuse
+  run.repulseCd = 0
+  run.events.length = 0
+  stepSim(run, { x: 0, y: 0, skill: true }, 1 / 60)
+  assert.ok(arm.limpT > 0, 'fixture: the parry did not land, so nothing below is about a parry')
+  assert.ok(run.events.some((e) => e.type === 'repulse'), 'a landed parry emits no repulse event, so the shove has no tell')
+  assert.ok(near.stunT > 0, 'an add inside the parry radius is not dazed')
+  assert.strictEqual(far.stunT || 0, 0, 'an add outside the parry radius was dazed')
+  assert.strictEqual(node.stunT || 0, 0, "an arm's node was dazed by the parry: it is the fight, not an add")
+  assert.strictEqual(head.stunT || 0, 0, 'the head was dazed by the parry')
+  for (let i = 0; i < 12; i++) { for (const a of run.krakenArms) if (a !== arm) { a.tele = 0; a.gripT = 0 } ; run.player.hp = run.player.maxHP; stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60) }
+  const d1 = Math.hypot(near.x - p.x, near.y - p.y)
+  assert.ok(d1 > d0 + 20, `an add ${d0.toFixed(0)}px from the parry was not thrown back (now ${d1.toFixed(0)}px)`)
+  assert.ok(Math.hypot(far.x - far0.x, far.y - far0.y) < 1, 'an add outside the parry radius was moved')
+  assert.ok(Math.hypot(node.x - node0.x, node.y - node0.y) < 1, "an arm's node was knocked back by the parry")
+  console.log(`PASS run KS (parry shove): a landed parry throws an add ${d0.toFixed(0)}px out to ${d1.toFixed(0)}px and dazes it; an add past ${KRAKEN_PARRY_SHOVE_R}px, an arm node and the head are untouched`)
 }
 
 function runKrakenCeremony() {
