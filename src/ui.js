@@ -408,7 +408,7 @@ const PARRY_FACE = `<defs><linearGradient id="parryPlate" x1="0" y1="0" x2="1" y
       <path class="parry-plate" d="M40 3 L73 13 V37 C73 57 59 70 40 78 C21 70 7 57 7 37 V13 Z" fill="url(#parryPlate)" stroke="#063447" stroke-width="3" stroke-linejoin="round"/>
       <path d="M40 3 L73 13 V37 C73 57 59 70 40 78 C21 70 7 57 7 37 V13 Z" fill="none" stroke="#ffffff" stroke-opacity=".22" stroke-width="4.5" stroke-linejoin="round"/>
       <path class="parry-cd" d="M40 3 L73 13 V37 C73 57 59 70 40 78 C21 70 7 57 7 37 V13 Z" pathLength="1" fill="none" stroke="#ffffff" stroke-width="4.5" stroke-linejoin="round" stroke-dasharray="1 1" stroke-dashoffset="0"/>
-      <g class="parry-ico" transform="translate(40 41) scale(1.3) translate(-19.5 -20)" stroke-linecap="round" stroke-linejoin="round">
+      <g class="parry-ico" transform="translate(40 41) scale(1.1) translate(-19.5 -20)" stroke-linecap="round" stroke-linejoin="round">
         <rect x="27" y="6" width="6" height="28" rx="2.5" fill="#ffffff" stroke="#062a3a" stroke-width="2.4"/>
         <path d="M6 32 Q17 28 24.5 20 Q17 13 9 9 M9 9 L16 9 M9 9 L10.5 15.5" fill="none" stroke="#062a3a" stroke-width="6.4"/>
         <path d="M6 32 Q17 28 24.5 20 Q17 13 9 9 M9 9 L16 9 M9 9 L10.5 15.5" fill="none" stroke="#ffffff" stroke-width="3"/></g>`
