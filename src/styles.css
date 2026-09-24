@@ -2648,6 +2648,26 @@ body {
 .skill-btn--parry .skill-btn-parry { display: block; }
 .skill-btn--parry .skill-btn-glyph { display: none; }
 .skill-btn--parry:not(.skill-btn--ready) .skill-btn-parry { opacity: 0; }
+/* pv 4-9: the button's whole face is the SVG (its own shape and colour), so the gold disc, its
+   round rim and its round glow step aside; the glow follows the shape through drop-shadow. */
+.skill-btn-face { display: none; position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
+.skill-btn--face { background: none; border: none; border-radius: 0; --pv-glow: rgba(255, 190, 70, 0.8); }
+.skill-btn--face .skill-btn-face { display: block; }
+.skill-btn--face .skill-btn-parry, .skill-btn--face .skill-btn-glyph { display: none; }
+.skill-btn--face .skill-btn-cd { z-index: 1; }
+.skill-btn--face.skill-btn--ready { box-shadow: none; filter: drop-shadow(0 0 8px var(--pv-glow)) drop-shadow(0 0 20px var(--pv-glow)); }
+.skill-btn--face:not(.skill-btn--ready) .pv-ico { opacity: 0; }
+.skill-btn--pv4, .skill-btn--pv8 { --pv-glow: rgba(110, 220, 255, 0.85); }
+.skill-btn--pv5 { --pv-glow: rgba(255, 240, 200, 0.9); }
+.skill-btn--pv6, .skill-btn--pv9 { --pv-glow: rgba(255, 110, 40, 0.85); }
+.skill-btn--pv7 { --pv-glow: rgba(210, 230, 255, 0.85); }
+/* a white-hot plate needs a dark countdown */
+.skill-btn--pv5 .skill-btn-cd { color: #3a1600; text-shadow: none; }
+.skill-btn--face.skill-btn--lesson { animation-name: skill-lesson-face; }
+@keyframes skill-lesson-face {
+  from { transform: scale(1); filter: drop-shadow(0 0 4px #fff) drop-shadow(0 0 14px var(--pv-glow)); }
+  to { transform: scale(1.14); filter: drop-shadow(0 0 8px #fff) drop-shadow(0 0 30px var(--pv-glow)); }
+}
 /* THE PARRY LESSON (the Kraken, until the save has ever parried): while the first arm winds up,
    the button that answers it pulses with a white-hot rim, so the words over the fish point here. */
 .skill-btn--lesson {

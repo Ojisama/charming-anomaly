@@ -402,10 +402,57 @@ function formatShopBonus(bookId, id, levels) {
  */
 // A/B SWITCH FOR THE PARRY BUTTON'S ICON, throwaway (owner, 2026-09-23: "change the action button
 // design / logo so it's more relevant"). 1 = a shield taking a hit, 2 = crossed blades with a spark,
-// 3 = a blow glancing off a bar. DELETE with the pick, and grep the param name to prove it is gone.
+// 3 = a blow glancing off a bar — all on the gold disc. Round 2 ("Propose more options, you can
+// change colour, shape etc") changes the whole face, see PARRY_FACES: 4 steel-cyan round + blade,
+// 5 white-hot round + dark shield, 6 red-orange hexagon + glancing blow, 7 a shield-shaped steel
+// plate + impact star, 8 cyan diamond + shield, 9 dark round with a hot rim + the flash ring.
+// DELETE with the pick, and grep the param name to prove it is gone.
 const parryArt = (() => {
-  try { const v = Number(new URLSearchParams(location.search).get('pv') ?? 1); return v >= 1 && v <= 3 ? v : 1 } catch { return 1 }
+  try { const v = Number(new URLSearchParams(location.search).get('pv') ?? 1); return v >= 1 && v <= 9 ? v : 1 } catch { return 1 }
 })()
+const PARRY_FACES = {
+  4: `<defs><radialGradient id="pvg4" cx="38%" cy="28%" r="80%"><stop offset="0" stop-color="#f4feff"/><stop offset=".35" stop-color="#a6e2f4"/><stop offset=".72" stop-color="#3a8db3"/><stop offset="1" stop-color="#0f3550"/></radialGradient></defs>
+      <circle cx="40" cy="40" r="37" fill="url(#pvg4)" stroke="#e8fcff" stroke-width="3"/>
+      <g class="pv-ico" stroke-linecap="round" stroke-linejoin="round"><g stroke="#0a2638" fill="none">
+        <path d="M24 58 L54 20" stroke-width="10"/>
+        <path d="M20 48 L32 60" stroke-width="9"/>
+        <path d="M20 62 L24 58" stroke-width="9"/>
+        <path d="M44 33 L60 44 M46 30 L62 30 M42 36 L50 52" stroke-width="7.5"/></g><g stroke="#ffffff" fill="none">
+        <path d="M24 58 L54 20" stroke-width="5"/>
+        <path d="M20 48 L32 60" stroke-width="4.5"/>
+        <path d="M20 62 L24 58" stroke-width="4.5"/>
+        <path d="M44 33 L60 44 M46 30 L62 30 M42 36 L50 52" stroke-width="3.4"/></g></g>`,
+  5: `<defs><radialGradient id="pvg5" cx="40%" cy="32%" r="75%"><stop offset="0" stop-color="#ffffff"/><stop offset=".5" stop-color="#fff4da"/><stop offset=".85" stop-color="#ffd488"/><stop offset="1" stop-color="#e79a2c"/></radialGradient></defs>
+      <circle cx="40" cy="40" r="37" fill="url(#pvg5)" stroke="#ffffff" stroke-width="3"/>
+      <g class="pv-ico" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M37 21 L54 27 V41 C54 53 46 60 37 65 C28 60 20 53 20 41 V27 Z" fill="#3a1600"/>
+        <path d="M37 26 V60" stroke="#ffcf7a" stroke-width="3"/>
+        <path d="M54 22 L62 13 M57 27 L68 25 M50 19 L51 9" stroke="#3a1600" stroke-width="4.5" fill="none"/></g>`,
+  6: `<defs><linearGradient id="pvg6" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffb46a"/><stop offset=".5" stop-color="#e2461a"/><stop offset="1" stop-color="#6e1004"/></linearGradient></defs>
+      <path d="M21 6 H59 L78 40 L59 74 H21 L2 40 Z" fill="url(#pvg6)" stroke="#ffd8a8" stroke-width="3" stroke-linejoin="round"/>
+      <g class="pv-ico" stroke-linecap="round" stroke-linejoin="round"><g stroke="#3a0600" fill="none">
+        <path d="M55 18 V62" stroke-width="12"/>
+        <path d="M14 58 Q32 52 46 40 Q32 28 20 22 M20 22 L31 21 M20 22 L23 32" stroke-width="9.5"/></g><g stroke="#ffffff" fill="none">
+        <path d="M55 18 V62" stroke-width="7"/>
+        <path d="M14 58 Q32 52 46 40 Q32 28 20 22 M20 22 L31 21 M20 22 L23 32" stroke-width="4.8"/></g></g>`,
+  7: `<defs><linearGradient id="pvg7" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6f9fc"/><stop offset=".45" stop-color="#a7bacb"/><stop offset="1" stop-color="#3e5064"/></linearGradient></defs>
+      <path d="M40 3 L73 13 V37 C73 57 59 70 40 78 C21 70 7 57 7 37 V13 Z" fill="url(#pvg7)" stroke="#ffffff" stroke-width="3" stroke-linejoin="round"/>
+      <g class="pv-ico" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M40 16 L44.5 30 L58 33 L46 40 L49 55 L40 45 L31 55 L34 40 L22 33 L35.5 30 Z" fill="#fffbe8" stroke="#1a2430" stroke-width="3.2"/>
+        <path d="M40 30 L40 38 M36 36 L44 36" stroke="#ff9a2a" stroke-width="3.2"/></g>`,
+  8: `<defs><linearGradient id="pvg8" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e8ffff"/><stop offset=".5" stop-color="#4fd2ea"/><stop offset="1" stop-color="#075c78"/></linearGradient></defs>
+      <path d="M40 1 L79 40 L40 79 L1 40 Z" fill="url(#pvg8)" stroke="#eaffff" stroke-width="3" stroke-linejoin="round"/>
+      <g class="pv-ico" stroke-linecap="round" stroke-linejoin="round"><path d="M37 24.96 L50.94 29.880000000000003 V41.36 C50.94 51.2 44.38 56.94 37 61.04 C29.62 56.94 23.060000000000002 51.2 23.060000000000002 41.36 V29.880000000000003 Z" fill="#032c3a" stroke="#032c3a" stroke-width="6"/>
+        <path d="M51 25 L58 17 M54 29 L63 27 M47 22 L48 13" stroke="#032c3a" stroke-width="7" fill="none"/><path d="M37 24.96 L50.94 29.880000000000003 V41.36 C50.94 51.2 44.38 56.94 37 61.04 C29.62 56.94 23.060000000000002 51.2 23.060000000000002 41.36 V29.880000000000003 Z" fill="#ffffff" stroke="#ffffff" stroke-width="0"/>
+        <path d="M51 25 L58 17 M54 29 L63 27 M47 22 L48 13" stroke="#ffffff" stroke-width="3.2" fill="none"/></g>`,
+  9: `<defs><radialGradient id="pvg9" cx="45%" cy="38%" r="70%"><stop offset="0" stop-color="#3a1a3e"/><stop offset="1" stop-color="#090510"/></radialGradient></defs>
+      <circle cx="40" cy="40" r="36" fill="url(#pvg9)" stroke="#ff8a2e" stroke-width="4"/>
+      <g class="pv-ico" stroke-linecap="round" stroke-linejoin="round"><g stroke="#ff7a1e" fill="none">
+        <circle cx="40" cy="40" r="11" stroke-width="9"/>
+        <path d="M40 16 V22 M40 58 V64 M16 40 H22 M58 40 H64 M23 23 L27.5 27.5 M52.5 52.5 L57 57 M57 23 L52.5 27.5 M27.5 52.5 L23 57" stroke-width="8"/></g><g stroke="#ffffff" fill="none">
+        <circle cx="40" cy="40" r="11" stroke-width="4.5"/>
+        <path d="M40 16 V22 M40 58 V64 M16 40 H22 M58 40 H64 M23 23 L27.5 27.5 M52.5 52.5 L57 57 M57 23 L52.5 27.5 M27.5 52.5 L23 57" stroke-width="4"/></g></g>`,
+}
 const PARRY_ICONS = {
   1: `<path d="M19 9 L29 12.5 V20 C29 26.5 24.5 30.5 19 33 C13.5 30.5 9 26.5 9 20 V12.5 Z" fill="#fffaf0" stroke="#5a2c04" stroke-width="2.6" stroke-linejoin="round"/>
         <path d="M19 12.5 V29.5" stroke="#5a2c04" stroke-width="2" stroke-linecap="round" opacity=".45"/>
@@ -2246,7 +2293,11 @@ export function initUI(hooks) {
       <!-- THE PARRY (a chapter with parry: true, i.e. The Kraken): the same cast answers a blow there,
            so the button says so. Three candidates behind ?pv for the owner to pick. -->
       <svg class="skill-btn-parry" viewBox="0 0 40 40" aria-hidden="true">
-        ${PARRY_ICONS[parryArt]}
+        ${PARRY_ICONS[parryArt] || ''}
+      </svg>
+      <!-- pv 4-9: the WHOLE button face (shape, colour and icon), see PARRY_FACES -->
+      <svg class="skill-btn-face" viewBox="0 0 80 80" aria-hidden="true">
+        ${PARRY_FACES[parryArt] || ''}
       </svg>
       <span class="skill-btn-cd"></span>
     </button>
@@ -2363,6 +2414,8 @@ export function initUI(hooks) {
     if (parryChapter !== last.parryChapter) {
       last.parryChapter = parryChapter
       hud.skillBtn.classList.toggle('skill-btn--parry', parryChapter)
+      hud.skillBtn.classList.toggle('skill-btn--face', parryChapter && !!PARRY_FACES[parryArt])
+      hud.skillBtn.classList.toggle('skill-btn--pv' + parryArt, parryChapter)
     }
     if (laneChapter) {
       // Whole seconds only: this is a cache key as well as the label, so ticking it 60x a second
