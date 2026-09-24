@@ -2616,7 +2616,7 @@ function krakenBreakArm(run, a) {
 }
 
 // A PARRY THROWS THE ADDS OFF YOU (owner, 2026-09-24: "parry should knockback and daze the regular
-// enemies"). Every landed parry, arm or lunge, shoves and stuns the ordinary enemies within
+// enemies"). Every press, landed or whiffed, shoves and stuns the ordinary enemies within
 // KRAKEN_PARRY_SHOVE_R through the same e.kb / e.stunT contract the Pulse uses, and says so with
 // the Pulse's own 'repulse' event. The head and the arms' nodes are the fight, not adds: exempt.
 function krakenParryShove(run) {
@@ -2734,7 +2734,6 @@ function krakenParry(run) {
     run.charge = Math.min(run.chargeMax, run.charge + KRAKEN_PARRY_REFILL * (perfect ? KRAKEN_PERFECT_MUL : 1))
     p.parryT = KRAKEN_PARRY_SPIN_T
     run.events.push({ type: perfect ? 'parryPerfect' : 'parry', x: head.x, y: head.y, frac: Math.max(0, 1 - s.stagger / rung.staggerNeed), px: p.x, py: p.y })
-    krakenParryShove(run)
     if (s.stagger >= rung.staggerNeed) {
       s.stagger = 0
       s.staggerT = KRAKEN_STAGGER_T
@@ -2767,7 +2766,6 @@ function krakenParry(run) {
     run.events.push({ type: 'krakenLesson', stage: 2, x: best.x, y: best.y })
   }
 
-  krakenParryShove(run)
   // AT FULL, THE NEXT PARRY BLAZES — off a LATCH (s.charged), not a sample of the bar. Testing
   // `charge >= chargeMax` at press time measures the passive drain, not the player: the bar leaves
   // its ceiling within a frame of touching it, and the blaze fired ~0 times a fight.
@@ -2864,10 +2862,11 @@ function stepRepulse(run, input, dt) {
   // The Kraken's button is a PARRY, not a shove: the same dash press negates the nearest arm's
   // pending slam and chunks it, and a fast KRAKEN_PARRY_CD is the whole skill. It returns before
   // the shove below so a parry never spends Light, and the commit is the cooldown either way (a
-  // whiff is a whiff). A LANDED parry has its own short shove and daze (krakenParryShove).
+  // whiff is a whiff). EVERY press, whiff included, shoves and dazes the adds (krakenParryShove).
   if (ch.parry) {
     run.repulseCd = KRAKEN_PARRY_CD
     krakenParry(run)
+    krakenParryShove(run)
     return
   }
   // FAST TWITCH (PASSIVES.dashCooldown) comes off the cooldown HERE, at the one site that arms it,

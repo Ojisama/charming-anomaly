@@ -35721,7 +35721,20 @@ function testKrakenParryShove() {
   assert.ok(d1 > d0 + 20, `an add ${d0.toFixed(0)}px from the parry was not thrown back (now ${d1.toFixed(0)}px)`)
   assert.ok(Math.hypot(far.x - far0.x, far.y - far0.y) < 1, 'an add outside the parry radius was moved')
   assert.ok(Math.hypot(node.x - node0.x, node.y - node0.y) < 1, "an arm's node was knocked back by the parry")
-  console.log(`PASS run KS (parry shove): a landed parry throws an add ${d0.toFixed(0)}px out to ${d1.toFixed(0)}px and dazes it; an add past ${KRAKEN_PARRY_SHOVE_R}px, an arm node and the head are untouched`)
+  // A WHIFF SHOVES TOO (owner: "i see my fish doing a parry … but enemies dont move at all. even
+  // when enemies are on me"): the push belongs to the press, not to what it lands on.
+  for (const a of run.krakenArms) { a.tele = 0; a.gripT = 0 }
+  const hug = at(30, 0)
+  const h0 = Math.hypot(hug.x - p.x, hug.y - p.y)
+  run.repulseCd = 0
+  run.events.length = 0
+  stepSim(run, { x: 0, y: 0, skill: true }, 1 / 60)
+  assert.ok(run.events.some((e) => e.type === 'parryWhiff'), 'fixture: the second press was not a whiff')
+  for (let i = 0; i < 12; i++) { for (const a of run.krakenArms) { a.tele = 0; a.gripT = 0 } ; run.player.hp = run.player.maxHP; stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60) }
+  const h1 = Math.hypot(hug.x - p.x, hug.y - p.y)
+  assert.ok(hug.stunT > 0, 'a whiffed parry did not daze the add sitting on the player')
+  assert.ok(h1 > h0 + 60, `a whiffed parry did not throw the add on the player clear (${h0.toFixed(0)} -> ${h1.toFixed(0)}px)`)
+  console.log(`PASS run KS (parry shove): a landed parry throws an add ${d0.toFixed(0)}px out to ${d1.toFixed(0)}px and dazes it, a WHIFF throws an add on the player ${h0.toFixed(0)} -> ${h1.toFixed(0)}px; an add past ${KRAKEN_PARRY_SHOVE_R}px, an arm node and the head are untouched`)
 }
 
 function runKrakenCeremony() {
