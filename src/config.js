@@ -8834,6 +8834,26 @@ export const KRAKEN_LASH_OVER = 0  // px the line runs PAST the head centre; seg
 // land and nothing that cannot: at 1.0 a player standing on the very edge of the struck line would
 // be hit by a swing they could not read as theirs.
 export const KRAKEN_PARRY_MARGIN = 1.6
+// A PLAIN SLAM HITS WITH THE DRAWN TENTACLE AND NOTHING WIDER (owner, 2026-09-24: a hit zone wider
+// than the tentacle is unfair). render.js draws the limb as a MeshRope 2 x KRAKEN_LIMB_HW wide whose
+// baked silhouette follows krakenLimbProf(t), t running 0..1 along the rope from its shoulder out in
+// the murk (krakenShoulderR) to its tip; sim tests the player's body against that same tapered
+// shape. Render's rope width, K_LIMB_PROF and shoulder radius are these, so the two cannot drift.
+// balance_decision : plain slam hitbox = drawn tapered tentacle [2026-09-24]
+//  - the Coil still strikes KRAKEN_LASH_W either side, and the parry still reaches KRAKEN_LASH_W x MARGIN
+export const KRAKEN_LIMB_HW = KRAKEN_ARM_R * 1.45 * 0.5
+export function krakenLimbProf(t) {
+  return (0.16 + 0.84 * Math.pow(1 - t, 0.42)) * (1 - Math.pow(t, 7) * 0.30) * Math.min(1, Math.pow(t / 0.12, 0.65))
+}
+// how far out from the head the drawn rope's shoulder sits, for a tip `tipR` px from the head
+export function krakenShoulderR(tipR) { return Math.max(KRAKEN_RING_R + 360, tipR + 560) }
+// the drawn limb's half-width `s` px along a struck line of length L (lx0 on the ring -> lx1 at the
+// tip), for a tip `tipR` from the head: the rope runs shoulder -> ring (l1), then ring -> tip (L)
+export function krakenLimbHalfW(s, L, tipR) {
+  const l1 = Math.max(0, krakenShoulderR(tipR) - KRAKEN_RING_R)
+  const t = (l1 + Math.max(0, Math.min(L, s))) / (l1 + L || 1)
+  return KRAKEN_LIMB_HW * krakenLimbProf(t)
+}
 // (KRAKEN_ARM_HIT_T retired in rev 3 — the flash is KRAKEN_LIMP_FLASH, and it marks a parry that
 // EXPOSED the limb rather than one that chipped it.)
 // THE CAGE. The arms are the arena wall and the sim never said so: you could walk out of the ring
