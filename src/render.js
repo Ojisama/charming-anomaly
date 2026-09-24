@@ -108,7 +108,7 @@ const ENEMY_LOOKS = {
 // turned off while every test and every frame still passes.
 const skinArt = (() => {
   try {
-    const v = new URLSearchParams(location.search).get('sv') // ?tv is the slam telegraph's switch
+    const v = new URLSearchParams(location.search).get('sv') // was ?tv until 2026-09-23
     return v === null ? null : Number(v)
   } catch { return null }
 })()
@@ -11320,15 +11320,6 @@ const spurArt = (() => {
 const gripArt = (() => {
   try { return Number(new URLSearchParams(location.search).get('gv') ?? 0) } catch { return 0 }
 })()
-// A/B SWITCH FOR THE SLAM TELEGRAPH, throwaway. Owner, 2026-09-23: "Telegraph is ugly". Each one
-// draws the exact aimed capsule the sim strikes (lx0..lx1, KRAKEN_LASH_W).
-// 1 = the limb itself lit hot along its length + two thin edge rails, no fill.
-// 2 = a soft translucent red lane filling from the shoulder toward its round end, like a fuse.
-// 3 = a hot outline, chevrons running down it to a ring closing on the landing point.
-// DELETE with the pick, and grep the param name to prove it is gone.
-const teleArt = (() => {
-  try { const v = Number(new URLSearchParams(location.search).get('tv') ?? 2); return v >= 1 && v <= 3 ? v : 2 } catch { return 2 }
-})()
 // Under the coral, so the finish mat tucks beneath the colonies overhanging the passage edge.
 const gateFloorG = new Graphics()
 const gateFrontG = new Graphics()
@@ -19849,8 +19840,9 @@ const spurG = new Graphics()
     krakenDangerG.stroke({ width: 2.5 + 2.5 * e, color: win ? 0xffffff : col, alpha: 0.45 + 0.5 * e, join: 'round', cap: 'round' })
   }
 
-  // A PLAIN SLAM'S TELEGRAPH: the aimed capsule (shoulder toward the point it locked on the player),
-  // drawn exactly, in the variant ?tv picks. Additive, above the dark.
+  // A PLAIN SLAM'S TELEGRAPH (owner's pick, 2026-09-23): the aimed capsule — shoulder toward the
+  // point it locked on the player — drawn exactly, as a soft red lane that fills from the shoulder
+  // like a fuse and reaches its round end as the slam lands. Additive, above the dark.
   function drawKrakenAimLane(a, urg, rung) {
     const G = krakenDangerG
     const W = a.w || KRAKEN_LASH_W
@@ -19868,45 +19860,19 @@ const spurG = new Graphics()
       G.arc(a.lx1, a.ly1, w, la - Math.PI / 2, la + Math.PI / 2)
       G.lineTo(a.lx0 + nx * w, a.ly0 + ny * w)
     }
-    if (teleArt === 1) {
-      // the limb lights up (its tint and glow, see syncKrakenArms / drawKrakenRearGlow); on the
-      // ground only the lane's two rails and its end, thin, brightening to the strike
-      outline(W)
-      G.stroke({ width: 1.5 + 2 * e, color: win ? 0xffffff : 0xffb3a6, alpha: 0.30 + 0.5 * e, join: 'round', cap: 'round' })
-      return
-    }
-    if (teleArt === 2) {
-      // the whole lane, faint, so its extent is there from the first frame
-      G.moveTo(a.lx0, a.ly0).lineTo(a.lx1, a.ly1).stroke({ width: 2 * W, color: 0xff2a1a, alpha: 0.10, cap: 'round' })
-      // the fuse: filled from the shoulder, its round front reaching the far end as it lands
-      const k = Math.pow(e, 0.6)
-      const fx = a.lx0 + dx * L * k, fy = a.ly0 + dy * L * k
-      // a flat front (a round one reads as a disc travelling down the lane); the round end fills in
-      // as the front reaches it
-      const fc = win ? 0xff7a40 : 0xff3a24, fa = 0.30 + 0.22 * e
-      G.moveTo(a.lx0, a.ly0).lineTo(fx, fy).stroke({ width: 2 * W, color: fc, alpha: fa, cap: 'butt' })
-      const endK = Math.max(0, Math.min(1, (L * k - (L - W)) / W))
-      if (endK > 0) { G.beginPath(); G.arc(a.lx1, a.ly1, W, la - Math.PI / 2, la + Math.PI / 2); G.closePath(); G.fill({ color: fc, alpha: fa * endK }) }
-      outline(W)
-      G.stroke({ width: 2, color: win ? 0xffffff : 0xff6a50, alpha: 0.22 + 0.35 * e, join: 'round' })
-      return
-    }
-    // 3: a hard hot outline, near-empty inside, chevrons running toward the landing, and a ring
-    // closing on the landing point (the arm's tip) to the lane's own width at the strike
-    G.moveTo(a.lx0, a.ly0).lineTo(a.lx1, a.ly1).stroke({ width: 2 * W, color: K_HAZARD, alpha: 0.05 + 0.07 * e, cap: 'round' })
+    // the whole lane, faint, so its extent is there from the first frame
+    G.moveTo(a.lx0, a.ly0).lineTo(a.lx1, a.ly1).stroke({ width: 2 * W, color: 0xff2a1a, alpha: 0.10, cap: 'round' })
+    // the fuse: filled from the shoulder, its round front reaching the far end as it lands
+    const k = Math.pow(e, 0.6)
+    const fx = a.lx0 + dx * L * k, fy = a.ly0 + dy * L * k
+    // a flat front (a round one reads as a disc travelling down the lane); the round end fills in
+    // as the front reaches it
+    const fc = win ? 0xff7a40 : 0xff3a24, fa = 0.30 + 0.22 * e
+    G.moveTo(a.lx0, a.ly0).lineTo(fx, fy).stroke({ width: 2 * W, color: fc, alpha: fa, cap: 'butt' })
+    const endK = Math.max(0, Math.min(1, (L * k - (L - W)) / W))
+    if (endK > 0) { G.beginPath(); G.arc(a.lx1, a.ly1, W, la - Math.PI / 2, la + Math.PI / 2); G.closePath(); G.fill({ color: fc, alpha: fa * endK }) }
     outline(W)
-    G.stroke({ width: 3 + 2 * e, color: win ? 0xffffff : K_HAZARD_HOT, alpha: 0.5 + 0.45 * e, join: 'round' })
-    const tx = a.x, ty = a.y
-    const along = Math.max(W, (tx - a.lx0) * dx + (ty - a.ly0) * dy)
-    const n = 6
-    for (let c = 0; c < n; c++) {
-      const u = ((animT * (0.5 + 1.6 * e) + c / n) % 1)
-      const px = a.lx0 + dx * along * u, py = a.ly0 + dy * along * u
-      const cs = W * 0.55
-      G.moveTo(px - dx * cs * 0.7 + nx * cs, py - dy * cs * 0.7 + ny * cs).lineTo(px, py).lineTo(px - dx * cs * 0.7 - nx * cs, py - dy * cs * 0.7 - ny * cs)
-        .stroke({ width: 5, color: win ? 0xffffff : K_HAZARD_HOT, alpha: (0.25 + 0.6 * e) * Math.sin(u * Math.PI), cap: 'round', join: 'round' })
-    }
-    G.circle(tx, ty, W * (0.9 + 1.6 * (1 - e))).stroke({ width: 3 + 3 * e, color: win ? 0xffffff : K_HAZARD_HOT, alpha: 0.45 + 0.5 * e })
+    G.stroke({ width: 2, color: win ? 0xffffff : 0xff6a50, alpha: 0.22 + 0.35 * e, join: 'round' })
   }
 
   // THE WEAK POINT: bright, pulsing, bracketed — drawn on exactly the spot the weapons hit (a limp
@@ -20943,7 +20909,7 @@ const spurG = new Graphics()
         else if (a.limpT > 0) rig.rope.tint = mix(0x4576a0, 0x5691c0, 0.5 + 0.5 * Math.sin(animT * 4)) // spent: cold AND dimmed
         else if (rung && !a.coilArm && a.tele > 0 && a.tele <= rung.window && run.krakenLesson === 1 && run.script.lessonI === a.i) rig.rope.tint = Math.sin(animT * Math.PI * 10) > -0.2 ? 0xffffff : 0x8a7fc0
         else if (rung && !a.coilArm && a.tele > 0 && a.tele <= rung.window) rig.rope.tint = a.tele <= rung.perfect ? 0xffffff : 0xeaf6ff
-        else if (rung && a.tele > 0 && a.fuse) rig.rope.tint = teleArt === 1 && !a.coilArm ? mix(0xd08a70, 0xffa070, 1 - a.tele / a.fuse) : mix(0x9e92cf, 0xeee8fe, 1 - a.tele / a.fuse)
+        else if (rung && a.tele > 0 && a.fuse) rig.rope.tint = mix(0x9e92cf, 0xeee8fe, 1 - a.tele / a.fuse)
         else if (krakenGripTell(run, a) > 0) {
           // the suckers lighting up: a grabber about to take you flushes warm and throbs, faster as
           // the turn comes round — the only warm pulse on a limb anywhere in the ring
@@ -21619,21 +21585,19 @@ const spurG = new Graphics()
 
   // THE LIMB THAT IS ABOUT TO STRIKE, lit: a rim of light down the rearing rope, brightest at the
   // tip it will land with, so the wind-up is a thing on the creature and not only a lane on the floor.
-  // tv=1 lights it hot (the limb is that variant's telegraph).
   function drawKrakenRearGlow(run) {
-    const hot = teleArt === 1
     const live = run.krakenArms.filter((a) => !a.dead || a.breakT > 0)
     for (let i = 0; i < live.length && i < krakenRopes.length; i++) {
       const a = live[i]
       if (a.dead || !(a.tele > 0) || a.limpT > 0) continue
-      const lf = hot && !a.coilArm ? Math.max(krakenLift(a), 1 - a.tele / a.fuse) : krakenLift(a)
+      const lf = krakenLift(a)
       if (lf <= 0.02) continue
       const pts = krakenRopes[i].pts
       const n = pts.length
       const lp = []
-      for (let q = Math.floor(n * (hot ? 0.15 : 0.35)); q < n; q++) lp.push(pts[q].x, pts[q].y)
-      krakenLampG.poly(lp, false).stroke({ width: 10 + 10 * lf, color: hot ? 0xff6a30 : 0xb9a8ff, alpha: (hot ? 0.3 : 0.14) * lf, cap: 'round', join: 'round' })
-      krakenLampG.poly(lp, false).stroke({ width: 3 + 2 * lf, color: hot ? 0xffc090 : 0xf0e8ff, alpha: 0.35 + 0.45 * lf, cap: 'round', join: 'round' })
+      for (let q = Math.floor(n * 0.35); q < n; q++) lp.push(pts[q].x, pts[q].y)
+      krakenLampG.poly(lp, false).stroke({ width: 10 + 10 * lf, color: 0xb9a8ff, alpha: 0.14 * lf, cap: 'round', join: 'round' })
+      krakenLampG.poly(lp, false).stroke({ width: 3 + 2 * lf, color: 0xf0e8ff, alpha: 0.35 + 0.45 * lf, cap: 'round', join: 'round' })
       const tp = pts[n - 1]
       krakenLampG.circle(tp.x, tp.y, 16 + 14 * lf).fill({ color: 0xffd8c8, alpha: 0.25 * lf })
     }
