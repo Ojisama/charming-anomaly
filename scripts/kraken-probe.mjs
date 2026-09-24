@@ -37,6 +37,13 @@ const DIFF = Number(arg('diff', 3))
 const LEVEL = Number(arg('level', 3))
 const SECS = Number(arg('secs', 300))
 const WEAPON = arg('weapon', 'skippingShell')
+// --parry P: the bot answers each arm's wind-up with probability P, decided once per wind-up on its
+// own RNG so the sim's stream is not re-phased by it. 1 = the ceiling rig; below 1 slams LAND, which
+// is the only way to measure the slam's own hitbox (at 1 nearly every plain slam is parried).
+const PARRY_P = Number(arg('parry', 1))
+if (!(PARRY_P >= 0 && PARRY_P <= 1)) { console.error('ABORT: --parry must be 0..1, got ' + arg('parry')); process.exit(1) }
+const DODGE = process.argv.includes('--dodge')
+const DODGE_T = Number(arg('dodgeT', 0.35))
 const SEEDS = String(arg('seeds', '1001,2002,3003,4004,5005,6006')).split(',').map(Number)
 if (![DIFF, LEVEL, SECS].every(Number.isFinite)) { console.error('ABORT: bad numeric arg'); process.exit(1) }
 const DT = 1 / 60
@@ -66,7 +73,8 @@ function fight(seed) {
 
   let parries = 0, whiffs = 0, limpWindows = 0, staggers = 0, levels = 0
   let ringT = 0, limpT = 0, chaseT = 0, won = false, maxRearing = 0, enraged = -1, coilWind = 0, coilClose = 0
-  let dmg = 0, coilDmg = 0, coilLash = 0
+  let dmg = 0, coilDmg = 0, coilLash = 0, slamLands = 0, slamHits = 0
+  const botRnd = mulberry32(seed ^ 0x5bd1e995)
   const steps = Math.round(SECS / DT)
   for (let i = 0; i < steps; i++) {
     if (run.phase === 'levelup') { levels++; run.phase = 'playing'; continue }
@@ -108,12 +116,29 @@ function fight(seed) {
     // is. One full turn a second is ~4 flicks/s, a rate a thumb can hold.
     const held = run.krakenArms.find((a) => !a.dead && a.gripT > 0)
     if (held) { held._botA = (held._botA ?? 0) + Math.PI * 2 * DT; inX = Math.cos(held._botA); inY = Math.sin(held._botA) }
+    // --dodge: an arm the bot chose NOT to answer is side-stepped instead — for its last DODGE_T
+    // seconds the bot walks straight off the struck line (perpendicular to it, away from its axis).
+    // Without this a skipped slam lands on a player parked on its tip, and the hitbox's width never
+    // enters the number.
+    else if (DODGE) {
+      const d = run.krakenArms.find((a) => !a.dead && a._botSkip && !a.coilArm && a.tele > 0 && a.tele <= DODGE_T && a.lx1 != null)
+      if (d) {
+        const L = Math.hypot(d.lx1 - d.lx0, d.ly1 - d.ly0) || 1
+        const nx = -(d.ly1 - d.ly0) / L, ny = (d.lx1 - d.lx0) / L
+        const side = (p.x - d.lx0) * nx + (p.y - d.ly0) * ny >= 0 ? 1 : -1
+        inX = nx * side; inY = ny * side
+      }
+    }
 
     // --- the press: any arm in its window or gripping, or the head's lunge in its window
     // THE BOT ONLY PRESSES AT SOMETHING IT COULD ACTUALLY ANSWER. The parry has a range gate — you
     // cannot deflect a swing that was never going to reach you — so a bot that ignores range spends
     // its cooldown on whiffs and reports the fight as harder than it is. Mirrors krakenParry.
     const reach2 = (C.KRAKEN_LASH_R * 1.6) ** 2
+    for (const a of run.krakenArms) {
+      if (a.tele > 0 && !a._botSeen) { a._botSeen = true; a._botSkip = botRnd() >= PARRY_P }
+      else if (!(a.tele > 0)) a._botSeen = false
+    }
     let press = false
     if ((run.repulseCd ?? 0) <= 0) {
       // THE HEAD FIRST, mirroring krakenParry. A lunge is rare and is the only route to a stagger,
@@ -126,6 +151,7 @@ function fight(seed) {
       if (!press) {
         for (const a of run.krakenArms) {
           if (a.dead || a.limpT > 0 || a.coilArm) continue   // krakenParry skips a Coil arm too
+          if (a._botSkip) continue
           if ((a.x - p.x) ** 2 + (a.y - p.y) ** 2 > reach2) continue
           if (a.tele > 0 && a.tele <= rung.window) { press = true; break }
         }
@@ -146,6 +172,8 @@ function fight(seed) {
     if (run.events.some((e) => e.type === 'lash' && e.coil)) coilDmg += lost
     for (const e of run.events) {
       if (e.type === 'lash' && e.coil) coilLash++
+      if (e.type === 'lash' && !e.coil) slamLands++
+      if (e.type === 'hurt' && e.src === 'krakenArm' && run.events.some((q) => q.type === 'lash' && !q.coil) && !run.events.some((q) => q.type === 'lash' && q.coil)) slamHits++
       if (e.type === 'parry' || e.type === 'parryPerfect') parries++
       else if (e.type === 'parryWhiff') whiffs++
       else if (e.type === 'armRear') limpWindows += 0
@@ -157,7 +185,7 @@ function fight(seed) {
     run.events.length = 0
   }
   return {
-    won, t: run.time, parries, whiffs, staggers, levels, maxRearing, enraged, coilWind, coilClose, dmg, coilDmg, coilLash,
+    won, t: run.time, parries, whiffs, staggers, levels, maxRearing, enraged, coilWind, coilClose, dmg, coilDmg, coilLash, slamLands, slamHits,
     broken: run.krakenArms.filter((a) => a.dead).length, arms: run.krakenArms.length,
     ringT, limpT, chaseT, headLeft: Math.round(run.script?.headHp ?? 0),
   }
@@ -190,3 +218,6 @@ console.log(`arms hauled back at the enrage ${f('enraged')}   (-1 = the enrage n
 console.log(`coils wound / closed  ${f('coilWind')} / ${f('coilClose')}`)
 console.log(`coil lashes landed    ${f('coilLash')}`)
 console.log(`damage taken          ${f('dmg')}   of it on a coil's landing ${f('coilDmg')}`)
+// THE SLAM'S OWN HITBOX: plain (non-Coil) slams that landed unparried, and how many of them hurt.
+console.log(`parry answer rate     ${PARRY_P}${DODGE ? `   dodging the rest (last ${DODGE_T}s, straight off the line)` : "   the rest land on a bot standing at the tip"}`)
+console.log(`plain slams landed    ${f('slamLands')}   of them hit ${f('slamHits')}   hits/min [${rs.map((r) => (r.slamHits / (r.t / 60)).toFixed(2)).join(' ')}]`)

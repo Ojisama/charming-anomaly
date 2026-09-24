@@ -173,7 +173,7 @@ import {
   KRAKEN_OPEN_WAVES, KRAKEN_COIL_EVERY, KRAKEN_ARRIVE_T, KRAKEN_RING_R, KRAKEN_LASH_R, KRAKEN_SLAM_T, KRAKEN_DEFLECT_CD,
   KRAKEN_LUNGE_T, KRAKEN_GRIP_DUR, KRAKEN_GRIP_DMG, KRAKEN_GRIP_FLICKS, KRAKEN_GRIP_STICK_MUL, TRAWL_WIGGLE_ARC,
   KRAKEN_LASH_W, KRAKEN_LASH_OVER, KRAKEN_LASH_DMG, KRAKEN_LESSON_MAX, KRAKEN_PARRY_SHOVE_R, KRAKEN_ARRIVE_T2, KRAKEN_WAVE_GROWTH, KRAKEN_COIL_DMG,
-  KRAKEN_HEAD_SPEED, KRAKEN_PARRY_SPIN_T,
+  KRAKEN_HEAD_SPEED, KRAKEN_PARRY_SPIN_T, krakenLimbHalfW, FISH_R, FISH_BODY,
 } from '../src/config.js'
 import { krakenWinPending, stepSim, applyChoice, buildLevelUpChoices, eligibleWeaponModCandidates, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, inRefillCircle, stepCharge, newElWindow, spurAt } from '../src/sim.js'
 
@@ -34984,7 +34984,12 @@ function runKraken() {
       ['* (0.34 + 0.66 * held)', 'the GRIP\'s coil does not slip as the hold runs down — the grab still draws, but its escape bar is gone and nothing tells the player they are winning'],
       ['const wave = front >= 0 ? Math.exp(-(d * d)) * waveA : 0', 'the strike has no bend TRAVELLING down the limb, so an attack is a rod pivoting on its shoulder instead of a whip'],
       ['krakenTips[a.i] = { x: rig.pts[K_ROPE_N - 1].x', "render records something other than the tip it actually drew — record a.x and the press ring is back on the arm's target"],
-      ['teleG.circle(tip.x, tip.y, KRAKEN_ARM_R *', "the press-here ring is drawn somewhere other than the recorded tip, i.e. up to 110px from where the reared limb is"],
+      // A PLAIN SLAM'S WHOLE TELEGRAPH IS ITS OWN SUCKERS (nothing on the floor since 2026-09-24):
+      // lose the call and a slam winds up with no tell at all; lose the white and "PARRY WHEN IT
+      // FLASHES" is a lie; lose the travelling front and the fuse has no clock.
+      ['0xa99ed6; drawKrakenCharge(rig, a, rung)', 'a plain slam winding up — no suckers light, nothing is drawn on the floor, so the attack is unannounced'],
+      ['G.circle(x, y, r).fill({ color: 0xfff6ec', "the parry window — the suckers never go white, so the lesson's PARRY WHEN IT FLASHES has nothing to point at"],
+      ['const tF = tS + (1 - tS) * Math.pow(prog, 0.9)', 'the charge running up the limb — without the front, how much fuse is left cannot be read'],
       // THE COIL'S VOLLEY WEARS ITS OWN LOOK, AND THE SPARED ARM DOES NOT. Five lanes light in the
       // warning colour and one stays the limb it always was — that dark lane IS the answer to the
       // move, and it is unparryable, so the colour is the only thing saying "move, do not press".
@@ -35308,23 +35313,39 @@ function runKraken() {
     }
     assert.ok(Math.hypot(mid.e.x0 - h.x, mid.e.y0 - h.y) >= KRAKEN_RING_R - 1,
       'the struck line starts at the tip instead of at the shoulder — it is not the whole tentacle')
-    // THE BAND HAS A REAL WIDTH, AND A FINITE ONE. Both assertions above are satisfied by a
-    // ZERO-width line: mid stands exactly on the axis, so segDist2 returns 0 and 0 <= W*W holds at
-    // W = 0, and the published w was only checked with Number.isFinite, which 0 is. A zero-width whip hits
-    // nobody in the real game. So: step off the axis and check both sides of the edge.
+    // A PLAIN SLAM HITS WITH THE DRAWN TENTACLE, NOT A BAND AROUND IT (owner, 2026-09-24: a hit zone
+    // wider than the tentacle is unfair). Both assertions above are satisfied by a ZERO-width line —
+    // mid stands exactly on the axis — so step off it and check both sides of the drawn edge: the
+    // limb's own half-width there (krakenLimbHalfW, which render draws the rope with) plus the
+    // fish's body. The body is laid along the lane so its whole length sits at one distance.
     assert.ok(KRAKEN_LASH_W >= 40 && KRAKEN_LASH_W <= 130,
-      `KRAKEN_LASH_W is ${KRAKEN_LASH_W}: below ~40 the whip is a hairline nothing can stand off, above ~130 two arms leave no gap in a ${KRAKEN_CAGE_R}px cage`)
-    const perp = arm.ang + Math.PI / 2
-    const onLine = (f) => ({
-      x: h.x + Math.cos(arm.ang) * KRAKEN_ARM_REACH * 0.6 + Math.cos(perp) * KRAKEN_LASH_W * f,
-      y: h.y + Math.sin(arm.ang) * KRAKEN_ARM_REACH * 0.6 + Math.sin(perp) * KRAKEN_LASH_W * f,
-    })
-    const inside = onLine(0.5)
-    assert.strictEqual(strike(inside.x, inside.y).hurt, KRAKEN_LASH_DMG,
-      `a player half a width off the limb's centreline was missed — the struck band is thinner than KRAKEN_LASH_W says (${KRAKEN_LASH_W}), or it has no width at all`)
-    const outside = onLine(1.6)
-    assert.strictEqual(strike(outside.x, outside.y).hurt, 0,
-      `a player ${(KRAKEN_LASH_W * 1.6).toFixed(0)}px off the centreline was hit against a half-width of ${KRAKEN_LASH_W} — the band is wider than it publishes, so there is no gap to step into`)
+      `KRAKEN_LASH_W is ${KRAKEN_LASH_W}: the Coil still strikes this band; below ~40 it is a hairline, above ~130 two lanes leave no gap in a ${KRAKEN_CAGE_R}px cage`)
+    const L = Math.hypot(mid.e.x1 - mid.e.x0, mid.e.y1 - mid.e.y0)
+    const ux = (mid.e.x1 - mid.e.x0) / L, uy = (mid.e.y1 - mid.e.y0) / L
+    const sMid = L * 0.5
+    const tipR = Math.hypot(arm.x - h.x, arm.y - h.y)
+    const edge = krakenLimbHalfW(sMid, L, tipR) + FISH_R * FISH_BODY.halfWidth
+    // ...and it is the width RENDER draws, tapering like the limb does: the rope is built from the
+    // same half-width and profile, and the struck width narrows toward the tip exactly as the flesh
+    // does (the tip is the club, ~0.11 of the shoulder), rather than holding the shoulder's width.
+    const renderSrc = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
+    assert.ok(renderSrc.includes('const K_LIMB_PROF = krakenLimbProf') && renderSrc.split('width: 2 * KRAKEN_LIMB_HW })').length - 1 === 2,
+      'render.js no longer draws the limb from config\'s KRAKEN_LIMB_HW / krakenLimbProf — the slam hits one shape and the screen shows another')
+    assert.ok(krakenLimbHalfW(L, L, tipR) < 0.3 * krakenLimbHalfW(0, L, tipR),
+      `the struck width does not taper (${krakenLimbHalfW(0, L, tipR).toFixed(1)}px at the ring, ${krakenLimbHalfW(L, L, tipR).toFixed(1)}px at the tip) — the drawn tentacle does`)
+    // THE FIXTURE MUST SEPARATE THE TWO SHAPES: a point just past the drawn edge has to sit well
+    // inside the old 70px band, or "safe" below would pass under either rule.
+    assert.ok(edge + 3 < KRAKEN_LASH_W - 10, `the drawn edge (${edge.toFixed(1)}px with the body) is too close to KRAKEN_LASH_W for this case to tell them apart`)
+    const offAxis = (d) => ({ x: mid.e.x0 + ux * sMid - uy * d, y: mid.e.y0 + uy * sMid + ux * d })
+    run.player.facingAngle = Math.atan2(uy, ux)
+    const onLimb = offAxis(edge - 3)
+    assert.strictEqual(strike(onLimb.x, onLimb.y).hurt, KRAKEN_LASH_DMG,
+      `a fish whose body overlaps the drawn limb by 3px was missed — the slam is thinner than the tentacle it draws (edge ${edge.toFixed(1)}px)`)
+    const offLimb = offAxis(edge + 3)
+    assert.strictEqual(strike(offLimb.x, offLimb.y).hurt, 0,
+      `a fish 3px clear of the drawn limb was hit (edge ${edge.toFixed(1)}px, old band ${KRAKEN_LASH_W}) — the slam's hit zone is wider than the tentacle again`)
+    const offOther = offAxis(-(edge + 3))
+    assert.strictEqual(strike(offOther.x, offOther.y).hurt, 0, 'the far side of the limb is struck wider than the near side')
     // AND THE TELEGRAPH IS THE SAME LINE, BY CONSTRUCTION. The wind-up drew a disc at the tip for a
     // release after the strike became this, leaving the arena's whole middle struck with nothing on
     // it. Both now read the arm's own published lx0/ly0/lx1/ly1, so they cannot drift.

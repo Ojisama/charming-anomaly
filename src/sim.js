@@ -230,6 +230,7 @@ import {
   KRAKEN_HEAD_TOUCH_DMG,
   KRAKEN_CAGE_R,
   KRAKEN_LASH_R, KRAKEN_LASH_DMG, KRAKEN_LIGHT_START, KRAKEN_HAUL_R, KRAKEN_LASH_W, KRAKEN_LASH_OVER,
+  KRAKEN_LIMB_HW, krakenLimbHalfW,
   KRAKEN_PARRY_MARGIN, KRAKEN_PARRY_SPIN_T,
   KRAKEN_PERFECT_MUL, KRAKEN_PARRY_CD, KRAKEN_PARRY_REFILL, KRAKEN_BLAZE_R,
   KRAKEN_GRIP_EVERY, KRAKEN_GRIP_DUR, KRAKEN_GRIP_DMG, KRAKEN_GRIP_STICK_MUL, KRAKEN_GRIP_FLICKS,
@@ -1818,6 +1819,28 @@ function segDist2(px, py, x0, y0, x1, y1) {
   return (px - cx) ** 2 + (py - cy) ** 2
 }
 
+// A PLAIN SLAM LANDS WITH THE TENTACLE ITSELF: the drawn limb (krakenLimbHalfW, tapering from the
+// ring to its tip) against the player's own body (playerBodyEnds' capsule, or the PLAYER.radius
+// circle). The body is sampled at five points down its spine, which is exact along the capsule's
+// straight run and at most a few px short round its two ends.
+function krakenLimbTouches(run, a, head) {
+  const dx = a.lx1 - a.lx0, dy = a.ly1 - a.ly0
+  const L = Math.hypot(dx, dy) || 1
+  const tipR = Math.hypot(a.x - head.x, a.y - head.y)
+  const body = playerBodyEnds(run)
+  const p = run.player
+  const n = body ? 5 : 1
+  for (let k = 0; k < n; k++) {
+    const u = n > 1 ? k / (n - 1) : 0
+    const px = body ? body.ax + (body.bx - body.ax) * u : p.x
+    const py = body ? body.ay + (body.by - body.ay) * u : p.y
+    const s = Math.max(0, Math.min(L, ((px - a.lx0) * dx + (py - a.ly0) * dy) / L))
+    const d = Math.hypot(px - (a.lx0 + dx * s / L), py - (a.ly0 + dy * s / L))
+    if (d < krakenLimbHalfW(s, L, tipR) + (body ? body.halfWidth : PLAYER.radius)) return true
+  }
+  return false
+}
+
 function krakenPlaceArms(run, head, reach) {
   for (const a of run.krakenArms) krakenPlaceArm(head, a, reach)
 }
@@ -2219,8 +2242,9 @@ function stepKrakenArms(run, dt, rung, head) {
     // the Coil already counted itself as ONE attack when it was handed out
     if (!wasCoil) s.gripN++
     // `coil` is for render only: five lashes land on the Coil's frame and are drawn as one blow
-    run.events.push({ type: 'lash', x: a.x, y: a.y, x0: a.lx0, y0: a.ly0, x1: a.lx1, y1: a.ly1, w: KRAKEN_LASH_W, coil: wasCoil })
-    if (segDist2(p.x, p.y, a.lx0, a.ly0, a.lx1, a.ly1) <= KRAKEN_LASH_W * KRAKEN_LASH_W) {
+    run.events.push({ type: 'lash', x: a.x, y: a.y, x0: a.lx0, y0: a.ly0, x1: a.lx1, y1: a.ly1, w: wasCoil ? KRAKEN_LASH_W : KRAKEN_LIMB_HW, coil: wasCoil })
+    const struck = wasCoil ? segDist2(p.x, p.y, a.lx0, a.ly0, a.lx1, a.ly1) <= KRAKEN_LASH_W * KRAKEN_LASH_W : krakenLimbTouches(run, a, head)
+    if (struck) {
       // ⚠ A COIL HITS ONCE, NOT FIVE TIMES. Every corridor runs from the rim to the head centre, so
       // they all overlap in the middle of the arena — standing there when five land would be five
       // separate lash hits on one frame, which is not a hard move, it is an instant death with no

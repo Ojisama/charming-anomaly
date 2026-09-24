@@ -26,7 +26,7 @@ import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC
   GLINT_GLOW,         // ...and a Glint's spark, which is the card that BUYS its light with the bar
   SLICK_SLOW_T, INK_STAIN_T, inLobe,  // The Wreck: the oil and the ink on you, on the glass and the skin
   // The Kraken: the ring's geometry and the per-rung parry windows the telegraph is drawn against
-  krakenRung, KRAKEN_RING_R, KRAKEN_ARM_R, KRAKEN_ARM_REACH, KRAKEN_LASH_R, KRAKEN_HEAD_R, KRAKEN_LASH_OVER, KRAKEN_LASH_W,
+  krakenRung, KRAKEN_RING_R, KRAKEN_ARM_R, KRAKEN_LIMB_HW, krakenLimbProf, krakenShoulderR, KRAKEN_ARM_REACH, KRAKEN_LASH_R, KRAKEN_HEAD_R, KRAKEN_LASH_OVER, KRAKEN_LASH_W,
   KRAKEN_LUNGE_WINDUP_T,
   KRAKEN_PARRY_SPIN_T,
   KRAKEN_RISE_T, KRAKEN_COIL_DUR, KRAKEN_COIL_TELE, KRAKEN_PARRY_CD, KRAKEN_CAGE_R, KRAKEN_LIMP_FLASH,
@@ -4718,8 +4718,7 @@ export function createRenderer(app) {
   // half-viewport — 42% of the way in, not a corner case — and it is a sliced sausage end hanging
   // in open water. The first 12% now runs out to a wisp, and syncKrakenArms pushes the shoulder far
   // enough past the ring that the wisp is in the murk where nothing can stand.
-  const K_LIMB_PROF = (t) => (0.16 + 0.84 * Math.pow(1 - t, 0.42)) * (1 - Math.pow(t, 7) * 0.30)
-    * Math.min(1, Math.pow(t / 0.12, 0.65))
+  const K_LIMB_PROF = krakenLimbProf   // config.js: sim strikes with this same silhouette
   // HOW A ROUND, WET LIMB IS LIT — and the ONLY copy of it, because the strip is baked once and a
   // gripping arm is drawn as vector every frame, and those two drifting apart is last release's
   // "demarcation between the tentacle and the tip" defect wearing a new coat.
@@ -19911,10 +19910,10 @@ void main() {
     const pts = []
     const shadowPts = []
     for (let i = 0; i < K_ROPE_N; i++) { pts.push(new Point(0, 0)); shadowPts.push(new Point(0, 0)) }
-    const shadow = new MeshRope({ texture: T.krakenLimb.slam, points: shadowPts, width: KRAKEN_ARM_R * 1.45 })
+    const shadow = new MeshRope({ texture: T.krakenLimb.slam, points: shadowPts, width: 2 * KRAKEN_LIMB_HW })
     shadow.tint = 0x000205
     shadow.alpha = 0.16
-    const rope = new MeshRope({ texture: T.krakenLimb.slam, points: pts, width: KRAKEN_ARM_R * 1.45 })
+    const rope = new MeshRope({ texture: T.krakenLimb.slam, points: pts, width: 2 * KRAKEN_LIMB_HW })
     krakenArmLayer.addChild(shadow)
     krakenArmLayer.addChild(rope)
     krakenArmLayer.addChild(krakenGripG)  // above the ropes, below the wound
@@ -20023,7 +20022,6 @@ void main() {
   function drawKrakenLane(a, urg, rung, s, p) {
     const W = a.w || KRAKEN_LASH_W
     const coil = a.coilArm === true
-    if (!coil && s) return drawKrakenAimLane(a, urg, rung)
     const win = a.tele <= rung.window && !coil
     const L = Math.hypot(a.lx1 - a.lx0, a.ly1 - a.ly0) || 1
     const nx = -(a.ly1 - a.ly0) / L, ny = (a.lx1 - a.lx0) / L
@@ -20050,39 +20048,70 @@ void main() {
     krakenDangerG.stroke({ width: 2.5 + 2.5 * e, color: win ? 0xffffff : col, alpha: 0.45 + 0.5 * e, join: 'round', cap: 'round' })
   }
 
-  // A PLAIN SLAM'S TELEGRAPH (owner's pick, 2026-09-23): the aimed capsule — shoulder toward the
-  // point it locked on the player — drawn exactly, as a soft red lane that fills from the shoulder
-  // like a fuse and reaches its round end as the slam lands. Additive, above the dark.
-  function drawKrakenAimLane(a, urg, rung) {
+  // A PLAIN SLAM'S TELEGRAPH IS ITS OWN SUCKERS (owner's pick, 2026-09-24: "a bit like the kaiju
+  // laser filling up the dorsal fins"). As the fuse burns they light one after another from the
+  // ring toward the tip — how far the light has run is how much fuse is gone, and it reaches the tip
+  // as the parry window opens. Then every one of them goes white at once, brightest on its first
+  // frames, and holds until the strike: that is "PARRY WHEN IT FLASHES". Nothing is drawn on the
+  // floor. Added light in the danger layer, so it reads above the dark.
+  //   The lit dots walk the rope's own points at the bake's sucker pitch; they are not the baked
+  // suckers themselves, which live in the texture.
+  const K_WHIP_SLACK = 23   // px a landed plain slam's whip bend may stray off the struck axis, once the hit has resolved
+  function drawKrakenCharge(rig, a, rung) {
     const G = krakenDangerG
-    const W = a.w || KRAKEN_LASH_W
+    const pts = rig.pts
+    if (!pts || pts.length < 2) return
+    const HW = KRAKEN_LIMB_HW
+    const N = K_ROPE_N
+    const tS = Math.max(0.02, Math.min(0.9, rig._tS ?? 0.35))
     const win = a.tele <= rung.window
-    const L = Math.hypot(a.lx1 - a.lx0, a.ly1 - a.ly0) || 1
-    const dx = (a.lx1 - a.lx0) / L, dy = (a.ly1 - a.ly0) / L
-    const nx = -dy, ny = dx
-    const la = Math.atan2(dy, dx)
-    const e = Math.max(0, Math.min(1, urg))
-    // the capsule's outline from the shoulder, down both edges and round the far cap
-    const outline = (w) => {
-      G.beginPath()
-      G.moveTo(a.lx0 - nx * w, a.ly0 - ny * w)
-      G.lineTo(a.lx1 - nx * w, a.ly1 - ny * w)
-      G.arc(a.lx1, a.ly1, w, la - Math.PI / 2, la + Math.PI / 2)
-      G.lineTo(a.lx0 + nx * w, a.ly0 + ny * w)
+    const windup = 1 - Math.max(0, a.tele) / a.fuse
+    const wOpen = Math.max(0.05, 1 - rung.window / a.fuse)
+    const prog = Math.min(1, windup / wOpen)
+    const tF = tS + (1 - tS) * Math.pow(prog, 0.9)
+    const since = Math.max(0, rung.window - a.tele)
+    const pop = win ? Math.exp(-since / 0.08) : 0
+    const kOf = (t) => Math.round(Math.max(0, Math.min(1, t)) * (N - 1))
+    const hwAt = (k) => HW * K_LIMB_PROF(k / (N - 1))
+    const strokeRun = (k0, k1, w, color, alpha, cap = 'butt') => {
+      if (k1 <= k0) return
+      G.moveTo(pts[k0].x, pts[k0].y)
+      for (let q = k0 + 1; q <= k1; q++) G.lineTo(pts[q].x, pts[q].y)
+      G.stroke({ width: w, color, alpha, cap, join: 'round' })
     }
-    // the whole lane, faint, so its extent is there from the first frame
-    G.moveTo(a.lx0, a.ly0).lineTo(a.lx1, a.ly1).stroke({ width: 2 * W, color: 0xff2a1a, alpha: 0.10, cap: 'round' })
-    // the fuse: filled from the shoulder, its round front reaching the far end as it lands
-    const k = Math.pow(e, 0.6)
-    const fx = a.lx0 + dx * L * k, fy = a.ly0 + dy * L * k
-    // a flat front (a round one reads as a disc travelling down the lane); the round end fills in
-    // as the front reaches it
-    const fc = win ? 0xff7a40 : 0xff3a24, fa = 0.30 + 0.22 * e
-    G.moveTo(a.lx0, a.ly0).lineTo(fx, fy).stroke({ width: 2 * W, color: fc, alpha: fa, cap: 'butt' })
-    const endK = Math.max(0, Math.min(1, (L * k - (L - W)) / W))
-    if (endK > 0) { G.beginPath(); G.arc(a.lx1, a.ly1, W, la - Math.PI / 2, la + Math.PI / 2); G.closePath(); G.fill({ color: fc, alpha: fa * endK }) }
-    outline(W)
-    G.stroke({ width: 2, color: win ? 0xffffff : 0xff6a50, alpha: 0.22 + 0.35 * e, join: 'round' })
+    const kS = kOf(tS - 0.03), kF = kOf(tF), kE = N - 1
+    // walk the limb at the bake's own pitch (~2.3 sucker radii of the local width), two staggered
+    // rows either side of the midline
+    let acc = 0
+    let j = 0
+    if (win) strokeRun(kS, kE, hwAt(kOf(0.6)) * 2.2, 0xffe0c0, 0.18 + 0.25 * pop, 'round')
+    for (let k = kS + 1; k < kE - 1; k++) {
+      const p0 = pts[k - 1], p1 = pts[k]
+      const seg = Math.hypot(p1.x - p0.x, p1.y - p0.y)
+      acc += seg
+      const hw = hwAt(k)
+      const step = Math.max(6, hw * K_SUCK_R * 2.3 * 2)      // both rows share one pitch, staggered by half
+      if (acc < step * 0.5) continue
+      acc = 0
+      j++
+      const t = k / (N - 1)
+      const dx = (pts[k + 1].x - p0.x), dy = (pts[k + 1].y - p0.y), dl = Math.hypot(dx, dy) || 1
+      const nx = -dy / dl, ny = dx / dl
+      const side = j % 2 ? 1 : -1
+      const x = p1.x + nx * hw * 0.42 * side, y = p1.y + ny * hw * 0.42 * side
+      const r = Math.max(2, hw * K_SUCK_R * 0.95)
+      if (win) {
+        const k2 = 0.5 + 0.5 * pop
+        G.circle(x, y, r * 2.2).fill({ color: 0xffe6c8, alpha: 0.20 * k2 })
+        G.circle(x, y, r).fill({ color: 0xfff6ec, alpha: 0.85 * k2 + 0.1 })
+      } else if (t <= tF) {
+        // just lit = hottest; the older ones settle to a steady ember
+        const age = Math.max(0, Math.min(1, (tF - t) / 0.12))
+        const col = mix(0xffc070, 0xff5028, age)
+        G.circle(x, y, r * 2.3).fill({ color: col, alpha: 0.10 + 0.14 * (1 - age) })
+        G.circle(x, y, r).fill({ color: col, alpha: 0.45 + 0.40 * (1 - age) })
+      }
+    }
   }
 
   // THE WEAK POINT: bright, pulsing, bracketed — drawn on exactly the spot the weapons hit (a limp
@@ -20409,63 +20438,15 @@ void main() {
       // cannot have a soft edge and so can only ever be an outline of the thing it is standing in for.
       if (a.slamT > 0) continue
 
-      // AN ARM WINDING UP: THE ATTACK, ANNOUNCED — and the announcement is the ARM, not the floor.
-      // Rev 3 drew a filled red disc that got redder, and the owner's verdict was "the telegraphs of
-      // tentacles are ugly ... not a bland red circle, this looks amateur". He is right: a disc says
-      // nothing about what is happening, only where. What is on the floor now is the mark the limb
-      // is going to leave — wide and faint while the arm is still up, converging to a tight dark
-      // print as it comes down — driven by the SAME krakenLift that poses the tentacle, so the two
-      // halves of the telegraph cannot disagree with each other.
+      // AN ARM WINDING UP. A plain slam draws NOTHING on the floor: the tentacle is the whole
+      // telegraph (owner, 2026-09-24: "could the telegraph be only the tentacle appearance?") — its
+      // cocked pose and its suckers lighting in sequence, both in syncKrakenArms, and it hits with
+      // exactly the flesh that is drawn (krakenLimbHalfW). Only the Coil still lights its lanes.
       if (a.tele <= 0 || !a.fuse) continue
       const urg = 1 - Math.max(0, a.tele) / a.fuse      // 0 at the rear, 1 at the strike
-      const lf = krakenLift(a)
-      // LIT, NOT DARK. The first cut of this drew the shadow the limb would cast — which is the right
-      // idea on any floor but THIS one: the graveyard's ground is 0x02101a, so a dark mark on it is
-      // a dark mark on black and the telegraph simply was not there. The animal is bioluminescent
-      // everywhere else in the chapter; a raised arm pools its own light on the seabed instead, and
-      // that pool TIGHTENS onto the reach it is about to cover as the limb comes down.
-      // THE FLOOR GETS OUT OF THE WAY, because the tentacle is the telegraph. Owner: "i wanna see the
-      // tentacle arming and swooshing down on the player, not a bland red circle". Four cuts of this
-      // have now been a circle of some kind — filled red, filled dark, broken arcs, a nine-spoke
-      // sunburst — and every one of them ended up being the loudest object on screen, which is
-      // exactly backwards: the limb is forty pixels wide, it climbs off the seabed, it drags its
-      // shadow away from itself and it comes down on you, and none of that can be read while a
-      // 300px wheel is drawn over it.
-      //   What is left is the minimum that keeps the attack FAIR — and FAIR now means the LINE, not
-      // a disc under the tip. The strike is a capsule down the whole bearing (sim's krakenLashLine,
-      // published onto the arm as lx0/ly0/lx1/ly1), and for one release this mark stayed a disc of
-      // KRAKEN_LASH_R centred on a.x/a.y. The innermost ground any mark reached was r=50, while the
-      // strike ran to r=0 and beyond — so the arena's entire middle, the ground the rework exists to
-      // make dangerous, was struck with nothing drawn on it, and a player 140px to the SIDE of the
-      // tip was inside the arcs and not hit. Measured: a bot dodging by what was drawn took 97-98%
-      // of slams, one dodging by the real shape took 0-7%.
-      //   Same restraint, new shape: a dim warm band down the struck line in nested strokes whose
-      // individual steps sit below the threshold where a boundary is visible, so it is a glow on the
-      // seabed rather than the 300px wheel four earlier cuts kept becoming.
-      //   AND IT GROWS OUT OF THE ARM. Owner, 2026-09-15: "double the slam telegraph time and
-      // animation (like the rectangle should grow to show the arm arming the slam)." It was drawn at
-      // full length and full width on the frame the fuse was lit, which states the DANGER but not
-      // the WIND-UP: a mark that is already finished tells you nothing about how far through the
-      // attack is, so the fuse had to be read off the limb alone. Now the band reaches out of the
-      // arm's own root at the ring and runs inward across the arena, widening as it goes, so the
-      // telegraph performs the attack before the attack happens.
-      //   ⚠ AND IT IS AT FULL LENGTH WELL BEFORE THE STRIKE, which is not a detail. The block above
-      // records what a mark that lies about the struck shape costs: a bot dodging by what was drawn
-      // took 97-98% of slams against 0-7% for one dodging by the real capsule. So the growth is over
-      // by 58% of the fuse — and because the fuse is now twice what it was, the player gets 1.3s of
-      // the FULL corridor where they used to get 1.1s of it, i.e. the animation is paid for by the
-      // doubling rather than taken out of the warning.
-      // ⚠ 0.55, and a floor. Shot as a strip, the first HALF of the fuse was blank: a band that
-      // starts at zero length near the ring — which is off the screen edge — and ramps from an alpha
-      // of 0.008 is not an animation the player can see, it is an animation the probe can see. The
-      // floor puts a stub on the seabed from the frame the fuse lights, and the shallower exponent
-      // gets it into the arena early enough to be worth watching.
-      // while the Coil runs only its own arms move; a spared arm's frozen fuse never lands, so its
-      // lane must not keep burning in the one lane that is safe
-      if (!(s.coilT > 0) || a.coilArm) drawKrakenLane(a, urg, rung, s, p)
+      if (a.coilArm) drawKrakenLane(a, urg, rung, s, p)
 
-      // ...and the last `window` seconds of it are the PARRY, which has to be unmistakably its own
-      // colour. Red is the danger, white-hot is the answer.
+      // THE LESSON ARM'S window keeps its own louder flash on top of the lit suckers
       const tipW = krakenTips[a.i] || a
       const lessonA = run.krakenLesson === 1 && run.script.lessonI === a.i
       if (lessonA && a.tele <= rung.window) {
@@ -20474,13 +20455,6 @@ void main() {
         const on = Math.sin(animT * Math.PI * 10) > -0.2
         krakenDangerG.circle(tipW.x, tipW.y, KRAKEN_ARM_R * (on ? 2.8 : 2.2)).stroke({ width: on ? 9 : 4, color: 0xffffff, alpha: on ? 1 : 0.5 })
         if (on) krakenDangerG.circle(tipW.x, tipW.y, KRAKEN_ARM_R * 1.6).fill({ color: 0xffffff, alpha: 0.35 })
-      }
-      if (a.tele <= rung.window && !a.coilArm && (tipW.x - p.x) ** 2 + (tipW.y - p.y) ** 2 > 70 * 70) {
-        const perfect = a.tele <= rung.perfect
-        const tip = tipW
-        teleG.beginPath()
-        teleG.circle(tip.x, tip.y, KRAKEN_ARM_R * (perfect ? 1.5 : 2.1))
-        teleG.stroke({ width: perfect ? 7 : 4, color: 0xffffff, alpha: perfect ? 0.98 : 0.8 })
       }
     }
 
@@ -20644,7 +20618,14 @@ void main() {
       const windup = a.tele > 0 && a.fuse ? 1 - Math.max(0, a.tele) / a.fuse : 0
       // a grabber about to take you lifts its tip off the seabed too — cocked, like a rear, but on
       // the grabber's own skin and throbbing (see the tint), so it cannot be misread as a slam
-      const lift = Math.max(krakenLift(a), 0.75 * krakenGripTell(run, a))
+      // A PLAIN SLAM IS COCKED LIKE A WHIP, and the pose is half its telegraph (the lit suckers are
+      // the other half, drawKrakenCharge). It rears and curls back until it is highest AS the parry
+      // window opens, then whips down through the window to land on the tick it strikes.
+      const cocked = !a.coilArm && !!rung && a.tele > 0 && a.fuse > 0
+      const wOpen = cocked ? Math.max(0.05, 1 - rung.window / a.fuse) : 1
+      const fDown = cocked && windup > wOpen ? Math.min(1, (windup - wOpen) / (1 - wOpen)) : 0
+      const cockLift = !cocked ? 0 : windup < wOpen ? (windup / wOpen) ** 2 * (3 - 2 * windup / wOpen) : Math.cos(fDown * Math.PI / 2)
+      const lift = cocked ? cockLift : Math.max(krakenLift(a), 0.75 * krakenGripTell(run, a))
       // ...AND THE COIL IS A SECOND CHANNEL ON THE SAME FRAME. It used to RAMP from the idle
       // amplitude (40 + windup * 30, and windup is 0 on the frame a fuse is lit), so at the instant
       // an arm decided to hit you neither its colour nor its movement had changed — the two tells
@@ -20668,7 +20649,7 @@ void main() {
       // 270px from a player standing on the cage wall on that side — inside the viewport at every
       // size. The extra length is DRAWN ONLY: the struck capsule still ends where the sim put it,
       // and the difference lies entirely outside KRAKEN_CAGE_R, i.e. on ground no player can reach.
-      const shoulderR = Math.max(KRAKEN_RING_R + 360, tipR + 560)
+      const shoulderR = krakenShoulderR(tipR)
       // ...AND THE TIP IS POSED. Reared, it is hauled back out of the arena (radially) and thrown to
       // one side (laterally, on a t^2 taper so only the far half of the limb carries it) — a cocked
       // whip. Both fall to zero as it comes down, so the tip is exactly on the arm's threat point on
@@ -20691,7 +20672,11 @@ void main() {
       const front = strike >= 0 ? 0.45 + 0.75 * strike : (a.tele > 0 ? windup * 0.45 : -1)
       const waveA = strike >= 0 ? -swing * 96 : swing * 54
       // 0 while it stands or rears, 1 from the moment it starts coming down to the end of the slam
-      const onLine = a.slamT > 0 ? 1 : (a.tele > 0 && windup > 0.68 ? Math.min(1, (windup - 0.68) / 0.2) : 0)
+      const onLine = a.slamT > 0 ? 1 : cocked ? Math.pow(fDown, 1.5) : (a.tele > 0 && windup > 0.68 ? Math.min(1, (windup - 0.68) / 0.2) : 0)
+      // A PLAIN SLAM LANDS ON THE STRUCK AXIS WITH NO SLACK: sim hits with this drawn limb
+      // (krakenLimbHalfW), so on the landing tick the flesh must lie on lx0..lx1. The whip's
+      // travelling bend is allowed back only as the slam plays out, when nothing is being struck.
+      const latCap = a.coilArm ? KRAKEN_LASH_W * 0.33 : K_WHIP_SLACK * (a.slamT > 0 ? strike : 1 - onLine)
       // THE SPINE: out in the dark on the arm's own bearing, in to its shoulder on the ring, and from
       // there straight at the tip — which for an aimed arm is off the spoke, so the limb bends at the
       // ring. Reared, the tip is hauled back up its own line; striking, it cracks down the lane.
@@ -20702,7 +20687,7 @@ void main() {
         const bent = tipR < KRAKEN_RING_R - 40
         let ux = -ca, uy = -sa
         if (bent) { const l = Math.hypot(te.x - Sx, te.y - Sy) || 1; ux = (te.x - Sx) / l; uy = (te.y - Sy) / l }
-        const pull = lift * 55 + bounce
+        const pull = lift * (cocked ? 150 : 55) + bounce
         let Tx = te.x - ux * pull, Ty = te.y - uy * pull
         if (crack > 0) {
           let Cx = head.x + ca * KRAKEN_HEAD_R * 0.75, Cy = head.y + sa * KRAKEN_HEAD_R * 0.75
@@ -20750,21 +20735,23 @@ void main() {
         // limb is thrown at a time and the rest of it is still catching up
         const d = (t - front) * 3.0
         const wave = front >= 0 ? Math.exp(-(d * d)) * waveA : 0
-        let lat = Math.sin(phase + t * 3.4) * amp * taper + curl * taper * 110 + swing * lift * 90 * t * t + wave
+        let lat = Math.sin(phase + t * 3.4) * amp * taper + curl * taper * 110 + swing * lift * (cocked ? 170 : 90) * t * t + wave
         // THE LIMB COMES DOWN ON THE LINE THE SIM STRIKES: its bends ease out through the descent and
         // a landed limb lies within a third of the lane's half-width of its spine, so the flesh on the
         // floor IS the struck ground (the capsule lx0..lx1, KRAKEN_LASH_W either side)
-        if (onLine > 0) { const cap = KRAKEN_LASH_W * 0.33; lat = lat * (1 - onLine) + Math.max(-cap, Math.min(cap, lat)) * onLine }
+        if (onLine > 0) { const cap = latCap; lat = lat * (1 - onLine) + Math.max(-cap, Math.min(cap, lat)) * onLine }
         krakenSpineAt(t)
         const bx = kSpOx, by = kSpOy, nx = kSpOnx, ny = kSpOny
         // the far half of the limb climbs; the shoulder stays in the murk where it is anchored
-        const rise = lift * 62 * t * t
+        const rise = lift * (cocked ? 110 : 62) * t * t
         rig.pts[k].set(bx + nx * lat, by + ny * lat - rise)
         // THE SHADOW STAYS ON THE SEABED. It is drawn from the UNRISEN point, so the gap between the
         // limb and its shadow IS the height — it opens as the arm goes up and shuts as it comes down,
         // which is what makes the wind-up and the strike read as one action rather than two drawings.
         rig.shadowPts[k].set(bx + nx * lat + 16 + t * 10, by + ny * lat + 22 + t * 14)
       }
+      // where along the rope the arena part begins (the ring shoulder): the sucker charge starts there
+      rig._tS = (shoulderR - KRAKEN_RING_R) / ((shoulderR - KRAKEN_RING_R) + Math.hypot(te.x - (head.x + Math.cos(a.ang) * KRAKEN_RING_R), te.y - (head.y + Math.sin(a.ang) * KRAKEN_RING_R)) || 1)
       // THE LIMB IS THE GRIP. Owner, 2026-09-15: "the tentacles should do everything: wrap around
       // you for grip (they could morph) or whip/swing for attacks." A grab used to be a glowing
       // LINE struck between the arm's tip and the player while the tentacle itself carried on
@@ -20964,7 +20951,7 @@ void main() {
       rig.shadow.visible = true
       krakenTips[a.i] = { x: rig.pts[K_ROPE_N - 1].x, y: rig.pts[K_ROPE_N - 1].y }
       if (a.slamT > 0) {
-        const hwS = KRAKEN_ARM_R * 1.45 * 0.5
+        const hwS = KRAKEN_LIMB_HW
         const k0 = Math.round((K_ROPE_N - 1) * (a.coilArm ? 0.5 : 0.3))
         const k = a.slamT / KRAKEN_SLAM_T
         // the contact that lights it: the landing nearest this limb (its burst point)
@@ -20998,7 +20985,7 @@ void main() {
           }
           // THE LANDED TIP STAYS THE LIMB: the same strip, planted, pressed into a tight contact
           // shadow — no splay, no squash and no lit halo, which read as a disc apart from the arm
-          const HWR = KRAKEN_ARM_R * 1.45 * 0.5
+          const HWR = KRAKEN_LIMB_HW
           const hwQ = (t) => HWR * K_LIMB_PROF(t)
           const c0 = rig.pts[kC]
           if (age < 0.3) {
@@ -21121,7 +21108,7 @@ void main() {
         else if (a.slamT > 0) rig.rope.tint = 0x5d5470
         else if (a.limpT > 0) rig.rope.tint = mix(0x4576a0, 0x5691c0, 0.5 + 0.5 * Math.sin(animT * 4)) // spent: cold AND dimmed
         else if (rung && !a.coilArm && a.tele > 0 && a.tele <= rung.window && run.krakenLesson === 1 && run.script.lessonI === a.i) rig.rope.tint = Math.sin(animT * Math.PI * 10) > -0.2 ? 0xffffff : 0x8a7fc0
-        else if (rung && !a.coilArm && a.tele > 0 && a.tele <= rung.window) rig.rope.tint = a.tele <= rung.perfect ? 0xffffff : 0xeaf6ff
+        else if (rung && !a.coilArm && a.tele > 0 && a.fuse) { rig.rope.tint = a.tele <= rung.window ? 0xfff2e4 : 0xa99ed6; drawKrakenCharge(rig, a, rung) }
         else if (rung && a.tele > 0 && a.fuse) rig.rope.tint = mix(0x9e92cf, 0xeee8fe, 1 - a.tele / a.fuse)
         else if (krakenGripTell(run, a) > 0) {
           // the suckers lighting up: a grabber about to take you flushes warm and throbs, faster as
