@@ -20792,11 +20792,10 @@ const spurG = new Graphics()
             const w = hwQ(kC / (K_ROPE_N - 1))
             krakenFistPt = { x: c0.x, y: c0.y, rx: w, ry: w * 0.7, fresh: age < 0.05 }
           }
-          rig.rope.visible = false
-          rig.shadow.visible = false
-          const shp = rig.pts.map((q) => ({ x: q.x + 7, y: q.y + 10 }))
-          limbRibbon(krakenSlabTopG, shp, K_ROPE_N, (t) => hwQ(t) * 1.12 + 4, 0xffffff, skin, 0.7 * hold, 0x000000)
-          limbRibbon(krakenSlabTopG, rig.pts, K_ROPE_N, hwQ, 0x5d5470, skin)
+          // THE ROPE ITSELF STAYS UP (its tint and its 0.55 contact shadow are set below). This used to
+          // hide the rope and repaint the limb with limbRibbon, twice (shadow and flesh), every frame of
+          // the KRAKEN_SLAM_T hold: measured at ~9ms of sync a frame against ~0.8 for a quiet one, which
+          // is the owner's "the game lags when a tentacle slams" on a mid-range phone.
         } else {
           // DRIVEN IN: for its first frames the flesh at the contact squashes flat and wide against
           // the floor, pressing a hard black shadow out round it — the limb crushing down on one spot
