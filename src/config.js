@@ -8877,7 +8877,7 @@ export const KRAKEN_LASH_DMG = 19 // an un-parried slam's damage
 export const KRAKEN_PARRY_CD = 0.8 // s the parry button's cooldown (vs REPULSE_CD 6.0)
 // balance_decision : parry throws the adds visibly clear, owner 2026-09-24
 //  - radius and force read at the parry, falloff linear like the Pulse; nodes and the head are exempt
-export const KRAKEN_PARRY_SHOVE_R = 300
+export const KRAKEN_PARRY_SHOVE_R = 150
 export const KRAKEN_PARRY_SHOVE_FORCE = 1600 // an add at 64px slides ~200px (kb decays at 6/s)
 export const KRAKEN_PARRY_DAZE = 1.0
 // The player's own parry gesture: a spin and a slam ring, on the PRESS rather than on the outcome.
