@@ -1,5 +1,5 @@
 // DOM overlay inside #ui: title, shop, HUD, level-up, pause, summary. No Pixi.
-import { shopCost, refundValue, REFUND_RATE, shopLines, shopLineUnlocked, chaptersMastered, lineMax, SHOP_FAMILY, RUN_DURATION, RARITIES, modPct, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, MUTATOR_EFFECT_LABELS, CONSUMABLES, MAX_DIFFICULTY, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, SACRIFICE_COSTS, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES, chapterNumber, CHAPTERS, CHAPTER_ORDER, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, HIDDEN_UNLOCKS, titleBookshelf, spineName, chaosStatus, PULSE_CHARGE_COST, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS, bookOf, BOOK_ORDER, BOOKS, BOOK_UNLOCKS, unlockCost, unlockLevel, unlockMax, dmgSrcName, dmgSrcArt, passiveEffectText, CHAPTER_BOARDS_DEFAULT } from './config.js'
+import { shopCost, refundValue, REFUND_RATE, shopLines, shopLineUnlocked, chaptersMastered, lineMax, SHOP_FAMILY, RUN_DURATION, RARITIES, modPct, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, MUTATOR_EFFECT_LABELS, CONSUMABLES, MAX_DIFFICULTY, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, SACRIFICE_COSTS, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES, chapterNumber, CHAPTERS, CHAPTER_ORDER, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, HIDDEN_UNLOCKS, titleBookshelf, spineName, chaosStatus, PULSE_CHARGE_COST, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS, bookOf, BOOK_ORDER, BOOKS, BOOK_UNLOCKS, unlockCost, unlockLevel, unlockMax, dmgSrcName, dmgSrcArt, passiveEffectText, CHAPTER_BOARDS_DEFAULT, KRAKEN_PARRY_CD } from './config.js'
 import { playSfx } from './audio.js'
 import { t, tt, getLang, LANGS } from './i18n.js'
 import { SAVE_SLOTS, activeSlot, slotSummary, saveSummary, exportSlot, NAME_MAX, bookMeta, ensureBookMeta, bookProgress } from './state.js'
@@ -400,75 +400,18 @@ function formatShopBonus(bookId, id, levels) {
  *   ui.activeScreen()   the name last passed to showScreen. One caller: main.js's pause hook,
  *     which needs to know whether ⏸ during a level-up means "open the sheet" or "go back".
  */
-// A/B SWITCH FOR THE PARRY BUTTON'S ICON, throwaway (owner, 2026-09-23: "change the action button
-// design / logo so it's more relevant"). 1 = a shield taking a hit, 2 = crossed blades with a spark,
-// 3 = a blow glancing off a bar — all on the gold disc. Round 2 ("Propose more options, you can
-// change colour, shape etc") changes the whole face, see PARRY_FACES: 4 steel-cyan round + blade,
-// 5 white-hot round + dark shield, 6 red-orange hexagon + glancing blow, 7 a shield-shaped steel
-// plate + impact star, 8 cyan diamond + shield, 9 dark round with a hot rim + the flash ring.
-// DELETE with the pick, and grep the param name to prove it is gone.
-const parryArt = (() => {
-  try { const v = Number(new URLSearchParams(location.search).get('pv') ?? 1); return v >= 1 && v <= 9 ? v : 1 } catch { return 1 }
-})()
-const PARRY_FACES = {
-  4: `<defs><radialGradient id="pvg4" cx="38%" cy="28%" r="80%"><stop offset="0" stop-color="#f4feff"/><stop offset=".35" stop-color="#a6e2f4"/><stop offset=".72" stop-color="#3a8db3"/><stop offset="1" stop-color="#0f3550"/></radialGradient></defs>
-      <circle cx="40" cy="40" r="37" fill="url(#pvg4)" stroke="#e8fcff" stroke-width="3"/>
-      <g class="pv-ico" stroke-linecap="round" stroke-linejoin="round"><g stroke="#0a2638" fill="none">
-        <path d="M24 58 L54 20" stroke-width="10"/>
-        <path d="M20 48 L32 60" stroke-width="9"/>
-        <path d="M20 62 L24 58" stroke-width="9"/>
-        <path d="M44 33 L60 44 M46 30 L62 30 M42 36 L50 52" stroke-width="7.5"/></g><g stroke="#ffffff" fill="none">
-        <path d="M24 58 L54 20" stroke-width="5"/>
-        <path d="M20 48 L32 60" stroke-width="4.5"/>
-        <path d="M20 62 L24 58" stroke-width="4.5"/>
-        <path d="M44 33 L60 44 M46 30 L62 30 M42 36 L50 52" stroke-width="3.4"/></g></g>`,
-  5: `<defs><radialGradient id="pvg5" cx="40%" cy="32%" r="75%"><stop offset="0" stop-color="#ffffff"/><stop offset=".5" stop-color="#fff4da"/><stop offset=".85" stop-color="#ffd488"/><stop offset="1" stop-color="#e79a2c"/></radialGradient></defs>
-      <circle cx="40" cy="40" r="37" fill="url(#pvg5)" stroke="#ffffff" stroke-width="3"/>
-      <g class="pv-ico" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M37 21 L54 27 V41 C54 53 46 60 37 65 C28 60 20 53 20 41 V27 Z" fill="#3a1600"/>
-        <path d="M37 26 V60" stroke="#ffcf7a" stroke-width="3"/>
-        <path d="M54 22 L62 13 M57 27 L68 25 M50 19 L51 9" stroke="#3a1600" stroke-width="4.5" fill="none"/></g>`,
-  6: `<defs><linearGradient id="pvg6" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffb46a"/><stop offset=".5" stop-color="#e2461a"/><stop offset="1" stop-color="#6e1004"/></linearGradient></defs>
-      <path d="M21 6 H59 L78 40 L59 74 H21 L2 40 Z" fill="url(#pvg6)" stroke="#ffd8a8" stroke-width="3" stroke-linejoin="round"/>
-      <g class="pv-ico" stroke-linecap="round" stroke-linejoin="round"><g stroke="#3a0600" fill="none">
-        <path d="M55 18 V62" stroke-width="12"/>
-        <path d="M14 58 Q32 52 46 40 Q32 28 20 22 M20 22 L31 21 M20 22 L23 32" stroke-width="9.5"/></g><g stroke="#ffffff" fill="none">
-        <path d="M55 18 V62" stroke-width="7"/>
-        <path d="M14 58 Q32 52 46 40 Q32 28 20 22 M20 22 L31 21 M20 22 L23 32" stroke-width="4.8"/></g></g>`,
-  7: `<defs><linearGradient id="pvg7" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6f9fc"/><stop offset=".45" stop-color="#a7bacb"/><stop offset="1" stop-color="#3e5064"/></linearGradient></defs>
-      <path d="M40 3 L73 13 V37 C73 57 59 70 40 78 C21 70 7 57 7 37 V13 Z" fill="url(#pvg7)" stroke="#ffffff" stroke-width="3" stroke-linejoin="round"/>
-      <g class="pv-ico" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M40 16 L44.5 30 L58 33 L46 40 L49 55 L40 45 L31 55 L34 40 L22 33 L35.5 30 Z" fill="#fffbe8" stroke="#1a2430" stroke-width="3.2"/>
-        <path d="M40 30 L40 38 M36 36 L44 36" stroke="#ff9a2a" stroke-width="3.2"/></g>`,
-  8: `<defs><linearGradient id="pvg8" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e8ffff"/><stop offset=".5" stop-color="#4fd2ea"/><stop offset="1" stop-color="#075c78"/></linearGradient></defs>
-      <path d="M40 1 L79 40 L40 79 L1 40 Z" fill="url(#pvg8)" stroke="#eaffff" stroke-width="3" stroke-linejoin="round"/>
-      <g class="pv-ico" stroke-linecap="round" stroke-linejoin="round"><path d="M37 24.96 L50.94 29.880000000000003 V41.36 C50.94 51.2 44.38 56.94 37 61.04 C29.62 56.94 23.060000000000002 51.2 23.060000000000002 41.36 V29.880000000000003 Z" fill="#032c3a" stroke="#032c3a" stroke-width="6"/>
-        <path d="M51 25 L58 17 M54 29 L63 27 M47 22 L48 13" stroke="#032c3a" stroke-width="7" fill="none"/><path d="M37 24.96 L50.94 29.880000000000003 V41.36 C50.94 51.2 44.38 56.94 37 61.04 C29.62 56.94 23.060000000000002 51.2 23.060000000000002 41.36 V29.880000000000003 Z" fill="#ffffff" stroke="#ffffff" stroke-width="0"/>
-        <path d="M51 25 L58 17 M54 29 L63 27 M47 22 L48 13" stroke="#ffffff" stroke-width="3.2" fill="none"/></g>`,
-  9: `<defs><radialGradient id="pvg9" cx="45%" cy="38%" r="70%"><stop offset="0" stop-color="#3a1a3e"/><stop offset="1" stop-color="#090510"/></radialGradient></defs>
-      <circle cx="40" cy="40" r="36" fill="url(#pvg9)" stroke="#ff8a2e" stroke-width="4"/>
-      <g class="pv-ico" stroke-linecap="round" stroke-linejoin="round"><g stroke="#ff7a1e" fill="none">
-        <circle cx="40" cy="40" r="11" stroke-width="9"/>
-        <path d="M40 16 V22 M40 58 V64 M16 40 H22 M58 40 H64 M23 23 L27.5 27.5 M52.5 52.5 L57 57 M57 23 L52.5 27.5 M27.5 52.5 L23 57" stroke-width="8"/></g><g stroke="#ffffff" fill="none">
-        <circle cx="40" cy="40" r="11" stroke-width="4.5"/>
-        <path d="M40 16 V22 M40 58 V64 M16 40 H22 M58 40 H64 M23 23 L27.5 27.5 M52.5 52.5 L57 57 M57 23 L52.5 27.5 M27.5 52.5 L23 57" stroke-width="4"/></g></g>`,
-}
-const PARRY_ICONS = {
-  1: `<path d="M19 9 L29 12.5 V20 C29 26.5 24.5 30.5 19 33 C13.5 30.5 9 26.5 9 20 V12.5 Z" fill="#fffaf0" stroke="#5a2c04" stroke-width="2.6" stroke-linejoin="round"/>
-        <path d="M19 12.5 V29.5" stroke="#5a2c04" stroke-width="2" stroke-linecap="round" opacity=".45"/>
-        <g stroke-linecap="round"><path d="M29 9 L35 3 M31.5 11.5 L38 10 M26.5 7 L27 1" stroke="#5a2c04" stroke-width="5"/>
-        <path d="M29 9 L35 3 M31.5 11.5 L38 10 M26.5 7 L27 1" stroke="#fffaf0" stroke-width="2.4"/></g>`,
-  2: `<g stroke-linecap="round" fill="none">
-        <path d="M9 31 L29 8 M31 31 L11 8" stroke="#5a2c04" stroke-width="7"/>
-        <path d="M9 31 L29 8 M31 31 L11 8" stroke="#fffaf0" stroke-width="3.4"/>
-        <path d="M8.5 25 L15 31.5 M31.5 25 L25 31.5" stroke="#5a2c04" stroke-width="6"/>
-        <path d="M8.5 25 L15 31.5 M31.5 25 L25 31.5" stroke="#fffaf0" stroke-width="2.6"/></g>
-        <path d="M20 9.5 L21.6 14.4 L26.5 16 L21.6 17.6 L20 22.5 L18.4 17.6 L13.5 16 L18.4 14.4 Z" fill="#fffaf0" stroke="#5a2c04" stroke-width="1.8" stroke-linejoin="round"/>`,
-  3: `<rect x="27" y="6" width="6" height="28" rx="2.5" fill="#fffaf0" stroke="#5a2c04" stroke-width="2.4"/>
-        <g fill="none" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M6 32 Q17 28 24.5 20 Q17 13 9 9 M9 9 L16 9 M9 9 L10.5 15.5" stroke="#5a2c04" stroke-width="6.4"/>
-        <path d="M6 32 Q17 28 24.5 20 Q17 13 9 9 M9 9 L16 9 M9 9 L10.5 15.5" stroke="#fffaf0" stroke-width="3"/></g>`,
-}
+// THE PARRY BUTTON (owner's pick, 2026-09-24: "Shape of 7, cyan color, icon of 3, and while on
+// cooldown a white border filling up"). A cyan shield-shaped plate, a blow glancing off a bar, and
+// a white border that traces the shield and fills as the cooldown runs (.parry-cd, set per frame
+// in updateHUD: dash offset 1 = empty, 0 = full = ready).
+const PARRY_FACE = `<defs><linearGradient id="parryPlate" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#e8ffff"/><stop offset=".45" stop-color="#46c8e6"/><stop offset="1" stop-color="#0a4f6c"/></linearGradient></defs>
+      <path class="parry-plate" d="M40 3 L73 13 V37 C73 57 59 70 40 78 C21 70 7 57 7 37 V13 Z" fill="url(#parryPlate)" stroke="#063447" stroke-width="3" stroke-linejoin="round"/>
+      <path d="M40 3 L73 13 V37 C73 57 59 70 40 78 C21 70 7 57 7 37 V13 Z" fill="none" stroke="#ffffff" stroke-opacity=".22" stroke-width="4.5" stroke-linejoin="round"/>
+      <path class="parry-cd" d="M40 3 L73 13 V37 C73 57 59 70 40 78 C21 70 7 57 7 37 V13 Z" pathLength="1" fill="none" stroke="#ffffff" stroke-width="4.5" stroke-linejoin="round" stroke-dasharray="1 1" stroke-dashoffset="0"/>
+      <g class="parry-ico" transform="translate(40 41) scale(1.3) translate(-19.5 -20)" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="27" y="6" width="6" height="28" rx="2.5" fill="#ffffff" stroke="#062a3a" stroke-width="2.4"/>
+        <path d="M6 32 Q17 28 24.5 20 Q17 13 9 9 M9 9 L16 9 M9 9 L10.5 15.5" fill="none" stroke="#062a3a" stroke-width="6.4"/>
+        <path d="M6 32 Q17 28 24.5 20 Q17 13 9 9 M9 9 L16 9 M9 9 L10.5 15.5" fill="none" stroke="#ffffff" stroke-width="3"/></g>`
 
 export function initUI(hooks) {
   const root = document.getElementById('ui')
@@ -2291,13 +2234,9 @@ export function initUI(hooks) {
         <path d="M7 12l8 8-8 8" opacity=".55"/><path d="M17 12l8 8-8 8"/><path d="M27 12l8 8-8 8" opacity=".8"/>
       </svg>
       <!-- THE PARRY (a chapter with parry: true, i.e. The Kraken): the same cast answers a blow there,
-           so the button says so. Three candidates behind ?pv for the owner to pick. -->
-      <svg class="skill-btn-parry" viewBox="0 0 40 40" aria-hidden="true">
-        ${PARRY_ICONS[parryArt] || ''}
-      </svg>
-      <!-- pv 4-9: the WHOLE button face (shape, colour and icon), see PARRY_FACES -->
+           so the button is a shield. See PARRY_FACE. -->
       <svg class="skill-btn-face" viewBox="0 0 80 80" aria-hidden="true">
-        ${PARRY_FACES[parryArt] || ''}
+        ${PARRY_FACE}
       </svg>
       <span class="skill-btn-cd"></span>
     </button>
@@ -2326,6 +2265,7 @@ export function initUI(hooks) {
     rampageFill: screens.hud.querySelector('.rampage-fill'),
     skillBtn: screens.hud.querySelector('.skill-btn'),
     skillCd: screens.hud.querySelector('.skill-btn-cd'),
+    parryCd: screens.hud.querySelector('.parry-cd'),
     bossBarWrap: screens.hud.querySelector('[data-boss-bar]'),
     bossBarFill: screens.hud.querySelector('[data-boss-bar] .rampage-fill'),
     wiggleWrap: screens.hud.querySelector('[data-wiggle]'),
@@ -2414,8 +2354,6 @@ export function initUI(hooks) {
     if (parryChapter !== last.parryChapter) {
       last.parryChapter = parryChapter
       hud.skillBtn.classList.toggle('skill-btn--parry', parryChapter)
-      hud.skillBtn.classList.toggle('skill-btn--face', parryChapter && !!PARRY_FACES[parryArt])
-      hud.skillBtn.classList.toggle('skill-btn--pv' + parryArt, parryChapter)
     }
     if (laneChapter) {
       // Whole seconds only: this is a cache key as well as the label, so ticking it 60x a second
@@ -2425,6 +2363,11 @@ export function initUI(hooks) {
         last.repulseCd = cd
         hud.skillBtn.classList.toggle('skill-btn--ready', cd <= 0)
         hud.skillCd.textContent = cd > 0 ? String(cd) : ''
+      }
+      if (parryChapter) {
+        // the shield's white border fills as the cooldown runs, and is whole when it is ready
+        const fill = Math.round(100 * (1 - Math.min(1, Math.max(0, run.repulseCd) / KRAKEN_PARRY_CD))) / 100
+        if (fill !== last.parryFill) { last.parryFill = fill; hud.parryCd.setAttribute('stroke-dashoffset', String(1 - fill)) }
       }
       // THE PARRY LESSON: the button pulses while the lesson arm winds up (run.krakenLesson, state.js)
       const la = run.krakenLesson === 1 && run.script ? run.krakenArms[run.script.lessonI] : null
