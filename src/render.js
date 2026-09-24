@@ -19534,6 +19534,7 @@ void main() {
       mesh, geom, colBuf,
       P: new Float32Array(8192), U: new Float32Array(8192), C: new Float32Array(16384), I: new Uint32Array(16384),
       nv: 0, ni: 0, k: 0, pts: null, cx: 0, cy: 0, r: 0,
+      coarse: false, // limbRibbon's surface detail (suckers, spots): drawn as small polygons, see ribCircle
       clear() { this.nv = 0; this.ni = 0 },
       poly(p) { this.k = 1; this.pts = p; return this },
       circle(x, y, r) { this.k = 2; this.cx = x; this.cy = y; this.r = r; return this },
@@ -19607,7 +19608,10 @@ void main() {
     if (alpha <= 0 || rad <= 0) return
     const n = Math.ceil(2.3 * Math.sqrt(rad + rad))
     if (n === 0) return
-    const seg = n * 4
+    // SURFACE DETAIL IS BLOCKY ON PURPOSE (owner, 2026-09-24: "make the suckers blockier, still lags
+    // when grabbed"): 6 to 10 sides by radius instead of Pixi's ~32 on a 6px cup. The limb's own
+    // silhouette (the joint discs) keeps Pixi's count.
+    const seg = B.coarse ? Math.min(n * 4, 2 * Math.max(3, Math.min(5, Math.round(2 + rad * 0.3)))) : n * 4
     const U = ribUnit(seg)
     const a = Math.min(1, alpha)
     const r = ((color >> 16) & 255) / 255 * a, g = ((color >> 8) & 255) / 255 * a, b = (color & 255) / 255 * a
@@ -19648,8 +19652,19 @@ void main() {
     B.geom.indices = B.I.subarray(0, B.ni)
   }
   const krakenGripBatch = makeRibbonBatch()
+  // THE VIEW, IN WORLD PX, with a margin wider than anything a ribbon puts beside its spine (half
+  // width, shadow offset, a sucker's glow). The gripping limb runs from its shoulder far out in the
+  // dark to the player, and most of that length is off the screen: nothing outside this is built.
+  const ribView = { x0: -1e9, y0: -1e9, x1: 1e9, y1: 1e9 }
+  function ribViewUpdate() {
+    const z = world.scale.x || 1, m = 90
+    ribView.x0 = -world.position.x / z - m; ribView.y0 = -world.position.y / z - m
+    ribView.x1 = ribView.x0 + app.screen.width / z + 2 * m; ribView.y1 = ribView.y0 + app.screen.height / z + 2 * m
+  }
+  const ribSeen = (x, y) => x >= ribView.x0 && x <= ribView.x1 && y >= ribView.y0 && y <= ribView.y1
   const krakenGripFrontBatch = makeRibbonBatch()
   function limbRibbon(g, pts, n, hw, tint, S, alpha = 1, flat = 0) {
+    g.coarse = false
     // ⚠ NOT ONE CLOSED POLYGON. A coil that wraps crosses ITSELF, and handing a self-intersecting
     // 126-vertex path to Pixi's triangulator produces garbage: stray floating triangles, a spike
     // where the two edges meet, and an outline that traces every internal crossing as a hard slab.
@@ -19659,12 +19674,15 @@ void main() {
     // by paint order instead of by triangulation, which is both correct and free.
     //   Two passes, not one per segment: all of the dark first at a slightly greater width, then all
     // of the flesh on top. Per-segment outline-then-flesh would draw a seam at every joint.
-    const norm = (i) => {
+    // every point's normal, once: the run merge below and every slab read them
+    const NX = new Float32Array(n), NY = new Float32Array(n)
+    for (let i = 0; i < n; i++) {
       const p1 = pts[Math.min(n - 1, i + 1)], p2 = pts[Math.max(0, i - 1)]
       const dx = p1.x - p2.x, dy = p1.y - p2.y
       const l = Math.hypot(dx, dy) || 1
-      return [-dy / l, dx / l]
+      NX[i] = -dy / l; NY[i] = dx / l
     }
+    const norm = (i) => [NX[i], NY[i]]
     // ONE QUAD PER SEGMENT PER SLAB IS 2000 QUADS A FRAME at 32 slabs, measured at 2.4ms of extra
     // sync on a desktop — which is a phone's whole frame. Most of them redraw a straight line: a
     // limb is only really curved where it COILS, and the long shoulder run is near enough straight
@@ -19673,7 +19691,7 @@ void main() {
     // typical grab cuts 63 segments to roughly 25 and the cost with them.
     const runs = []
     for (let i = 1, i0 = 0; i < n; i++) {
-      const [ax, ay] = norm(i0), [bx, by] = norm(i)
+      const ax = NX[i0], ay = NY[i0], bx = NX[i], by = NY[i]
       // ⚠ AND CAPPED IN t. The colour is evaluated once per run, so a run that spans a real slice
       // of the limb paints one value across a length the lighting varies over — which reads as a
       // vertical seam every time the heading happens to hold. 0.045 is about 3 world px of roll.
@@ -19691,8 +19709,10 @@ void main() {
     // these through norm()/hw() again for each of its ~33 passes.
     const R2 = runs.length >> 1
     const RN = new Float32Array(R2 * 9)
+    const RV = new Uint8Array(R2)
     for (let q = 0; q < R2; q++) {
       const i = runs[q * 2], j = runs[q * 2 + 1]
+      RV[q] = ribSeen(pts[i].x, pts[i].y) || ribSeen(pts[j].x, pts[j].y) ? 1 : 0
       const [nx, ny] = norm(i), [mx, my] = norm(j)
       const o = q * 9
       RN[o] = nx; RN[o + 1] = ny; RN[o + 2] = mx; RN[o + 3] = my
@@ -19715,7 +19735,7 @@ void main() {
     const slab = (u0, u1, color, a, grow = 0) => {
       if (a <= 0) return
       const fn = typeof color === 'function'
-      for (let q = 0; q < R2; q++) slabQ(q, u0, u1, fn ? color(RN[q * 9 + 8]) : color, a, grow)
+      for (let q = 0; q < R2; q++) if (RV[q]) slabQ(q, u0, u1, fn ? color(RN[q * 9 + 8]) : color, a, grow)
     }
     // the joint discs: without them every bend shows a notch where two quads meet at an angle. Only
     // the SILHOUETTE needs them — an inner slab's notch is a fraction of a px at this point count,
@@ -19724,7 +19744,7 @@ void main() {
       for (let q = 0; q < runs.length; q += 2) {
         const i = runs[q + 1], w = hw(i / (n - 1)) + grow
         const col = typeof color === 'function' ? color(i / (n - 1)) : color
-        if (w > 0.6) g.circle(pts[i].x, pts[i].y, w).fill({ color: col, alpha: a })
+        if (w > 0.6 && ribSeen(pts[i].x, pts[i].y)) g.circle(pts[i].x, pts[i].y, w).fill({ color: col, alpha: a })
       }
     }
     if (flat) { slab(-1, 1, flat, alpha); joints(flat, alpha); return }
@@ -19761,13 +19781,14 @@ void main() {
         const occ = Math.pow(round, S.occ)
         const glow = S.sss * (1 - Math.sqrt(round))
         for (let q = 0; q < R2; q++) {
+          if (!RV[q]) continue
           const cr = RT[q * 5], sr = RT[q * 5 + 1]
           const sinP = u * cr + cq * sr, cosP = cq * cr - u * sr  // sin/cos(asin u + roll)
           const nl = Math.max(0, sinP * K_LIT_LY + cosP * K_LIT_LZ)
           const lit = ((S.amb + (1 - S.amb) * nl) * occ + 0.06) * RT[q * 5 + 2] + RT[q * 5 + 3] * 0.34 * occ + glow
           let col = mix(S.dark, S.pale, Math.min(1, lit))
           if (S.spA > 0) col = mix(col, 0xffffff, Math.pow(nl, S.sp) * RT[q * 5 + 4])
-          if (alpha > 0) slabQ(q, u0, u0 + 3.2 / M, tintMul(col, tint), alpha, 0)
+          if (alpha > 0 && RV[q]) slabQ(q, u0, u0 + 3.2 / M, tintMul(col, tint), alpha, 0)
         }
       }
       if (S.rim > 0) {
@@ -19811,6 +19832,7 @@ void main() {
           })
         }
       }
+      g.coarse = true // from here on it is surface detail, not the silhouette
       if (S.wart > 0) {
         for (const m of K_RIB_MOTTLE) {
           const i = Math.min(n - 1, Math.round(m.t * (n - 1)))
@@ -19841,6 +19863,7 @@ void main() {
       }
     }
 
+    g.coarse = true
     // SUCKERS, WALKED BY ARC LENGTH so their spacing is the bake's own: it steps 0.61 of the local
     // half-width along a strip whose two scales now agree to within 3%, so the same fraction of the
     // same half-width lands the same suckers in the same places on a limb that is bent, not flat.
@@ -19855,7 +19878,7 @@ void main() {
         const t = i / (n - 1), w = hw(t), r = w * K_SUCK_R * K_SUCK_JIT[sk++ % K_SUCK_JIT.length]
         due += Math.max(2, w * K_SUCK_R * 1.15)
         side = -side
-        if (r < 1 || t < 0.03 || t > 0.98) continue
+        if (r < 1 || t < 0.03 || t > 0.98 || !ribSeen(pts[i].x, pts[i].y)) continue
         const [nx, ny] = norm(i)
         // ...and off the line by a few percent. Two rows ruled dead straight is the last piece of
         // regularity left on the limb once the sizes vary, and regularity is what reads as printed.
@@ -19881,6 +19904,7 @@ void main() {
         g.circle(cx - nx * r * 0.02, cy - ny * r * 0.02, r * 0.42).fill({ color: mix(base, dark, S.pore), alpha })
       }
     }
+    g.coarse = false
   }
 
   function acquireRope() {
@@ -20571,6 +20595,7 @@ void main() {
 
   function syncKrakenArms(run, dt) {
     krakenFistPt = null
+    ribViewUpdate()
     krakenSlabG.clear()
     krakenSlabTopG.clear()
     krakenSplashUnderG.clear()
