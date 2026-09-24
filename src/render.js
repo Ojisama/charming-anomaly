@@ -6,7 +6,7 @@
 //   r.reset(run|null)          new run started (build world) or back to title (clear)
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
-import { Assets, BlurFilter, Container, FillGradient, Graphics, Mesh, MeshGeometry, MeshPlane, MeshRope, Point, Rectangle, RenderTexture, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
+import { Assets, BlurFilter, Buffer as PixiBuffer, BufferUsage, Container, FillGradient, Graphics, Mesh, MeshGeometry, MeshPlane, MeshRope, Point, Rectangle, RenderTexture, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
 import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, BEAM_ENVELOPE, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, CIRCUIT_CAM_LEAD, CIRCUIT_CAM_EASE, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, drawdownSecsFor, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPUR_VIS, LANE_HALF_W, UPWELLING_VIS, FOUL_SPRING_VIS, FOUL_SPRING_FOUL_T, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, BRING_SNAP_T, SHOREBREAK_RADIUS, BURST_WAKE, burstWakeAt, DUST, dustVel, laneScrollFor, BALLAST_THROW_R, BALLAST_RING, ORCA_LEN, ORCA_CIRCLE_DUR, ORCA_RING_BAND, ORCA_FEAR_TELL, ORCA_HERD_GAP, CHUM_VIS, BILGE_TRAIL_VIS, OIL_STAIN_MAX, SLICK_FIRE_SPREAD_T, caveAt, laneHalfWidth, laneDrawSpan, CIRCUIT_GATE_VIS, ringXY, ringFU, ringRot, ringHeading, gateAnchorF, caveSpecOf, ORCA_RISE_DUR, ORCA_SPLASH_R, ORCA_AIM_W, ORCA_AIM_TELL, ORCA_WAKE_R, ORCA_OVERSHOOT,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
@@ -19497,6 +19497,158 @@ const spurG = new Graphics()
   // ...and the size wobble the bake gives its suckers, so a gripping arm is as irregular as the
   // five writhing beside it. A short cycle is enough: what has to go is the PERFECT repeat.
   const K_SUCK_JIT = [0.93, 1.07, 0.88, 1.01, 0.97, 1.11, 0.90, 1.04, 0.95, 1.08, 0.87, 1.00]
+  // THE GRIP'S RIBBON IS ONE VERTEX-COLOURED MESH, NOT A GRAPHICS. Owner: "the game lags when a
+  // tentacle slams" -- and a grip repaints this whole ribbon every frame it holds you: ~1000
+  // poly()/circle() shapes a frame, each a Graphics command Pixi records, stores and then
+  // triangulates again at render. Measured at d3: grip frames 3.8ms of sync against 0.6 quiet.
+  //   So limbRibbon draws into a RibbonBatch instead: the SAME shapes in the same order (a convex
+  //   quad is two triangles, a circle is Pixi's own 4n-gon with n = ceil(2.3 * sqrt(2r))), written
+  //   straight into typed arrays and drawn in one call. It speaks just enough of the Graphics API
+  //   (poly/circle/fill/stroke) that limbRibbon's body is unchanged.
+  const RIB_VERT = `
+in vec2 aPosition;
+in vec4 aColor;
+out vec4 vColor;
+uniform mat3 uProjectionMatrix;
+uniform mat3 uWorldTransformMatrix;
+uniform mat3 uTransformMatrix;
+void main() {
+  mat3 mvp = uProjectionMatrix * uWorldTransformMatrix * uTransformMatrix;
+  gl_Position = vec4((mvp * vec3(aPosition, 1.0)).xy, 0.0, 1.0);
+  vColor = aColor;
+}`
+  const RIB_FRAG = `
+precision mediump float;
+in vec4 vColor;
+uniform vec4 uColor;
+void main() {
+  gl_FragColor = vColor * uColor;
+}`
+  function makeRibbonBatch() {
+    const geom = new MeshGeometry({ positions: new Float32Array(6), uvs: new Float32Array(6), indices: new Uint32Array([0, 1, 2]) })
+    const colBuf = new PixiBuffer({ data: new Float32Array(12), label: 'ribbon-colors', usage: BufferUsage.VERTEX | BufferUsage.COPY_DST })
+    geom.addAttribute('aColor', { buffer: colBuf, format: 'float32x4', stride: 16, offset: 0 })
+    const mesh = new Mesh({ geometry: geom, shader: Shader.from({ gl: { vertex: RIB_VERT, fragment: RIB_FRAG }, resources: {} }) })
+    mesh.visible = false
+    const B = {
+      mesh, geom, colBuf,
+      P: new Float32Array(8192), U: new Float32Array(8192), C: new Float32Array(16384), I: new Uint32Array(16384),
+      nv: 0, ni: 0, k: 0, pts: null, cx: 0, cy: 0, r: 0,
+      clear() { this.nv = 0; this.ni = 0 },
+      poly(p) { this.k = 1; this.pts = p; return this },
+      circle(x, y, r) { this.k = 2; this.cx = x; this.cy = y; this.r = r; return this },
+      fill(o) {
+        if (this.k === 1) ribPoly(this, this.pts, o.color, o.alpha ?? 1)
+        else if (this.k === 2) ribCircle(this, this.cx, this.cy, this.r, 0, o.color, o.alpha ?? 1)
+        return this
+      },
+      stroke(o) {
+        if (this.k === 2) ribCircle(this, this.cx, this.cy, this.r, o.width ?? 1, o.color, o.alpha ?? 1)
+        return this
+      },
+    }
+    return B
+  }
+  function ribGrow(B, nv, ni) {
+    if ((B.nv + nv) * 2 > B.P.length) {
+      const m = Math.max(B.P.length * 2, (B.nv + nv) * 2)
+      const P = new Float32Array(m); P.set(B.P); B.P = P
+      B.U = new Float32Array(m)
+      const C = new Float32Array(m * 2); C.set(B.C); B.C = C
+    }
+    if (B.ni + ni > B.I.length) { const I = new Uint32Array(Math.max(B.I.length * 2, B.ni + ni)); I.set(B.I); B.I = I }
+  }
+  function ribVert(B, x, y, r, g, b, a) {
+    const v = B.nv++
+    B.P[v * 2] = x; B.P[v * 2 + 1] = y
+    B.C[v * 4] = r; B.C[v * 4 + 1] = g; B.C[v * 4 + 2] = b; B.C[v * 4 + 3] = a
+    return v
+  }
+  // one convex quad, corners in order, colour already premultiplied
+  function ribQuad(B, x0, y0, x1, y1, x2, y2, x3, y3, r, g, b, a) {
+    ribGrow(B, 4, 6)
+    const P = B.P, C = B.C, v = B.nv
+    P[v * 2] = x0; P[v * 2 + 1] = y0; P[v * 2 + 2] = x1; P[v * 2 + 3] = y1
+    P[v * 2 + 4] = x2; P[v * 2 + 5] = y2; P[v * 2 + 6] = x3; P[v * 2 + 7] = y3
+    for (let k = 0; k < 4; k++) { const o = (v + k) * 4; C[o] = r; C[o + 1] = g; C[o + 2] = b; C[o + 3] = a }
+    const I = B.I
+    let i = B.ni
+    I[i++] = v; I[i++] = v + 1; I[i++] = v + 2; I[i++] = v; I[i++] = v + 2; I[i++] = v + 3
+    B.ni = i
+    B.nv = v + 4
+  }
+  // a convex polygon, fanned from its first corner (what earcut returns for one)
+  function ribPoly(B, p, color, alpha) {
+    const n = p.length >> 1
+    if (n < 3 || alpha <= 0) return
+    const a = Math.min(1, alpha)
+    const r = ((color >> 16) & 255) / 255 * a, g = ((color >> 8) & 255) / 255 * a, b = (color & 255) / 255 * a
+    ribGrow(B, n, (n - 2) * 3)
+    const v0 = B.nv
+    for (let k = 0; k < n; k++) ribVert(B, p[k * 2], p[k * 2 + 1], r, g, b, a)
+    for (let k = 1; k < n - 1; k++) { B.I[B.ni++] = v0; B.I[B.ni++] = v0 + k; B.I[B.ni++] = v0 + k + 1 }
+  }
+  // Pixi's own circle: 4n points, n = ceil(2.3 * sqrt(rx + ry)), so the suckers' edges land on the
+  // same pixels they did as Graphics. width > 0 draws the stroke instead (an annulus of that width
+  // centred on the radius, as Graphics.stroke does).
+  // the unit circle for a segment count, computed once: the ribbon draws ~150 suckers' worth of
+  // circles a frame, and a cos/sin per vertex per frame was most of its cost
+  const RIB_UNIT = new Map()
+  function ribUnit(seg) {
+    let u = RIB_UNIT.get(seg)
+    if (!u) {
+      u = new Float32Array(seg * 2)
+      for (let k = 0; k < seg; k++) { const t = (k / seg) * Math.PI * 2; u[k * 2] = Math.cos(t); u[k * 2 + 1] = Math.sin(t) }
+      RIB_UNIT.set(seg, u)
+    }
+    return u
+  }
+  function ribCircle(B, x, y, rad, width, color, alpha) {
+    if (alpha <= 0 || rad <= 0) return
+    const n = Math.ceil(2.3 * Math.sqrt(rad + rad))
+    if (n === 0) return
+    const seg = n * 4
+    const U = ribUnit(seg)
+    const a = Math.min(1, alpha)
+    const r = ((color >> 16) & 255) / 255 * a, g = ((color >> 8) & 255) / 255 * a, b = (color & 255) / 255 * a
+    if (width > 0) {
+      const ri = Math.max(0, rad - width / 2), ro = rad + width / 2
+      ribGrow(B, seg * 2, seg * 6)
+      const v0 = B.nv
+      for (let k = 0; k < seg; k++) {
+        const c = U[k * 2], sn = U[k * 2 + 1]
+        ribVert(B, x + c * ri, y + sn * ri, r, g, b, a)
+        ribVert(B, x + c * ro, y + sn * ro, r, g, b, a)
+      }
+      for (let k = 0; k < seg; k++) {
+        const i0 = v0 + k * 2, i1 = v0 + ((k + 1) % seg) * 2
+        B.I[B.ni++] = i0; B.I[B.ni++] = i0 + 1; B.I[B.ni++] = i1 + 1
+        B.I[B.ni++] = i0; B.I[B.ni++] = i1 + 1; B.I[B.ni++] = i1
+      }
+      return
+    }
+    ribGrow(B, seg, (seg - 2) * 3)
+    const v0 = B.nv
+    const P = B.P, C = B.C
+    let v = B.nv
+    for (let k = 0; k < seg; k++, v++) {
+      P[v * 2] = x + U[k * 2] * rad; P[v * 2 + 1] = y + U[k * 2 + 1] * rad
+      C[v * 4] = r; C[v * 4 + 1] = g; C[v * 4 + 2] = b; C[v * 4 + 3] = a
+    }
+    B.nv = v
+    for (let k = 1; k < seg - 1; k++) { B.I[B.ni++] = v0; B.I[B.ni++] = v0 + k; B.I[B.ni++] = v0 + k + 1 }
+  }
+  // hand this frame's triangles to the GPU (one upload, one draw), or hide the mesh if there are none
+  function ribFlush(B) {
+    B.mesh.visible = B.ni > 0
+    if (!B.ni) return
+    B.geom.positions = B.P.subarray(0, B.nv * 2)
+    B.geom.uvs = B.U.subarray(0, B.nv * 2)
+    B.colBuf.data = B.C.subarray(0, B.nv * 4)
+    B.geom.indices = B.I.subarray(0, B.ni)
+  }
+  const krakenGripBatch = makeRibbonBatch()
+  const krakenGripFrontBatch = makeRibbonBatch()
   function limbRibbon(g, pts, n, hw, tint, S, alpha = 1, flat = 0) {
     // ⚠ NOT ONE CLOSED POLYGON. A coil that wraps crosses ITSELF, and handing a self-intersecting
     // 126-vertex path to Pixi's triangulator produces garbage: stray floating triangles, a spike
@@ -19535,23 +19687,35 @@ const spurG = new Graphics()
     //   `color` may be a FUNCTION of t, evaluated per run — which is how the ribbon gets the roll,
     // the recession into the murk and the glowing tip for nothing: it is already looping runs, so
     // moving the colour inside that loop costs one call each and buys the whole along-limb model.
+    // per run, once: its two ends' normals and half-widths and its mid t. Every slab below read
+    // these through norm()/hw() again for each of its ~33 passes.
+    const R2 = runs.length >> 1
+    const RN = new Float32Array(R2 * 9)
+    for (let q = 0; q < R2; q++) {
+      const i = runs[q * 2], j = runs[q * 2 + 1]
+      const [nx, ny] = norm(i), [mx, my] = norm(j)
+      const o = q * 9
+      RN[o] = nx; RN[o + 1] = ny; RN[o + 2] = mx; RN[o + 3] = my
+      RN[o + 4] = hw(i / (n - 1)); RN[o + 5] = hw(j / (n - 1)); RN[o + 6] = i; RN[o + 7] = j
+      RN[o + 8] = (i + j) * 0.5 / (n - 1)
+    }
+    const slabQ = (q, u0, u1, col, a, grow) => {
+      const o = q * 9
+      const nx = RN[o], ny = RN[o + 1], mx = RN[o + 2], my = RN[o + 3], h0 = RN[o + 4], h1 = RN[o + 5]
+      const pi = pts[RN[o + 6]], pj = pts[RN[o + 7]]
+      const a0 = h0 * u0 - grow, b0 = h0 * u1 + grow
+      const a1 = h1 * u0 - grow, b1 = h1 * u1 + grow
+      if (b0 - a0 <= 0.25 && b1 - a1 <= 0.25) return
+      const aa = Math.min(1, a)
+      ribQuad(g,
+        pi.x + nx * a0, pi.y + ny * a0, pj.x + mx * a1, pj.y + my * a1,
+        pj.x + mx * b1, pj.y + my * b1, pi.x + nx * b0, pi.y + ny * b0,
+        ((col >> 16) & 255) / 255 * aa, ((col >> 8) & 255) / 255 * aa, (col & 255) / 255 * aa, aa)
+    }
     const slab = (u0, u1, color, a, grow = 0) => {
       if (a <= 0) return
-      for (let q = 0; q < runs.length; q += 2) {
-        const i = runs[q], j = runs[q + 1]
-        const col = typeof color === 'function' ? color((i + j) * 0.5 / (n - 1)) : color
-        const [nx, ny] = norm(i), [mx, my] = norm(j)
-        const h0 = hw(i / (n - 1)), h1 = hw(j / (n - 1))
-        const a0 = h0 * u0 - grow, b0 = h0 * u1 + grow
-        const a1 = h1 * u0 - grow, b1 = h1 * u1 + grow
-        if (b0 - a0 <= 0.25 && b1 - a1 <= 0.25) continue
-        g.poly([
-          pts[i].x + nx * a0, pts[i].y + ny * a0,
-          pts[j].x + mx * a1, pts[j].y + my * a1,
-          pts[j].x + mx * b1, pts[j].y + my * b1,
-          pts[i].x + nx * b0, pts[i].y + ny * b0,
-        ]).fill({ color: col, alpha: a })
-      }
+      const fn = typeof color === 'function'
+      for (let q = 0; q < R2; q++) slabQ(q, u0, u1, fn ? color(RN[q * 9 + 8]) : color, a, grow)
     }
     // the joint discs: without them every bend shows a notch where two quads meet at an angle. Only
     // the SILHOUETTE needs them — an inner slab's notch is a fraction of a px at this point count,
@@ -19582,9 +19746,29 @@ const spurG = new Graphics()
       if (skinArt === 1) { slab(-1, 1, K_LINE, 0.95 * alpha, 3); joints(K_LINE, 0.95 * alpha, 3) }
       slab(-1, 1, dark, alpha); joints(dark, alpha)
       const M = 32
+      const RT = new Float32Array(R2 * 5)
+      for (let q = 0; q < R2; q++) {
+        const t = RN[q * 9 + 8], roll = limbRoll(t)
+        RT[q * 5] = Math.cos(roll); RT[q * 5 + 1] = Math.sin(roll)
+        RT[q * 5 + 2] = limbDeep(t); RT[q * 5 + 3] = limbThin(t)
+        RT[q * 5 + 4] = S.spA <= 0 ? 0 : S.spA * Math.min(1, 0.3 + t * 1.8)
+      }
       for (let j = 0; j < M; j++) {
         const u0 = -1 + 2 * j / M
-        slab(u0, u0 + 3.2 / M, (t) => tintMul(limbLit(u0 + 1 / M, t, S), tint), alpha)
+        const u = Math.max(-1, Math.min(1, u0 + 1 / M))
+        const cq = Math.sqrt(1 - u * u)                       // cos(asin u)
+        const round = Math.max(0, 1 - u * u)
+        const occ = Math.pow(round, S.occ)
+        const glow = S.sss * (1 - Math.sqrt(round))
+        for (let q = 0; q < R2; q++) {
+          const cr = RT[q * 5], sr = RT[q * 5 + 1]
+          const sinP = u * cr + cq * sr, cosP = cq * cr - u * sr  // sin/cos(asin u + roll)
+          const nl = Math.max(0, sinP * K_LIT_LY + cosP * K_LIT_LZ)
+          const lit = ((S.amb + (1 - S.amb) * nl) * occ + 0.06) * RT[q * 5 + 2] + RT[q * 5 + 3] * 0.34 * occ + glow
+          let col = mix(S.dark, S.pale, Math.min(1, lit))
+          if (S.spA > 0) col = mix(col, 0xffffff, Math.pow(nl, S.sp) * RT[q * 5 + 4])
+          if (alpha > 0) slabQ(q, u0, u0 + 3.2 / M, tintMul(col, tint), alpha, 0)
+        }
       }
       if (S.rim > 0) {
         slab(S.rimU[0], S.rimU[1], tintMul(S.rimCol, tint), S.rimA * alpha)
@@ -19710,8 +19894,10 @@ const spurG = new Graphics()
     krakenArmLayer.addChild(shadow)
     krakenArmLayer.addChild(rope)
     krakenArmLayer.addChild(krakenGripG)  // above the ropes, below the wound
+    krakenArmLayer.addChild(krakenGripBatch.mesh) // the grip's ribbon, drawn as one mesh (see RibbonBatch)
     krakenArmLayer.addChild(krakenWoundG) // re-parented to the top on every acquire
     if (krakenGripFrontG.parent !== krakenGripFrontLayer) krakenGripFrontLayer.addChild(krakenGripFrontG)
+    if (krakenGripFrontBatch.mesh.parent !== krakenGripFrontLayer) krakenGripFrontLayer.addChild(krakenGripFrontBatch.mesh)
     const rig = { rope, shadow, pts, shadowPts }
     krakenRopes.push(rig)
     return rig
@@ -20391,6 +20577,8 @@ const spurG = new Graphics()
     krakenWoundG.clear()
     krakenGripG.clear()
     krakenGripFrontG.clear()
+    krakenGripBatch.clear()
+    krakenGripFrontBatch.clear()
     drawKrakenStars(dt)
     drawKrakenGround(dt, run.player)
     drawKrakenBursts(dt)
@@ -20712,8 +20900,8 @@ const spurG = new Graphics()
           shp.push({ x: ribbon[k].x + 16 + t * 10, y: ribbon[k].y + 22 + t * 14 })
         }
         // 0.16 is the rope shadow rig's own alpha; at 1 it was a black mass the size of the arm
-        limbRibbon(krakenGripG, shp, K_ROPE_N, hwAt, 0xffffff, skin, 0.16, 0x000205)
-        limbRibbon(krakenGripG, ribbon, K_ROPE_N, hwAt, tn, skin)
+        limbRibbon(krakenGripBatch, shp, K_ROPE_N, hwAt, 0xffffff, skin, 0.16, 0x000205)
+        limbRibbon(krakenGripBatch, ribbon, K_ROPE_N, hwAt, tn, skin)
         // ...AND THE STRETCH THAT PASSES OVER THE PLAYER. Top-down, every pixel of a limb drawn
         // behind the fish reads as a hoop the fish is standing in; one piece over the body is the
         // only depth cue there is. It is picked as the stretch NEAREST the player -- the piece that
@@ -20742,8 +20930,8 @@ const spurG = new Graphics()
             // smudge across the whole fish rather than a shadow under a limb. A cast shadow at this
             // distance is barely wider than the thing casting it.
             const shd = slice.map((q) => ({ x: q.x + 5, y: q.y + 8 }))
-            limbRibbon(krakenGripFrontG, shd, shd.length, hwSlice, 0xffffff, skin, 0.16, 0x05070d)
-            limbRibbon(krakenGripFrontG, slice, slice.length, hwSlice, tn, skin)
+            limbRibbon(krakenGripFrontBatch, shd, shd.length, hwSlice, 0xffffff, skin, 0.16, 0x05070d)
+            limbRibbon(krakenGripFrontBatch, slice, slice.length, hwSlice, tn, skin)
           }
         }
       }
@@ -20919,6 +21107,8 @@ const spurG = new Graphics()
         else rig.rope.tint = mix(0x7366a0, 0x403d4b, 1 - fur)
       }
     }
+    ribFlush(krakenGripBatch)
+    ribFlush(krakenGripFrontBatch)
     // THE LIMB SITS IN ITS HOLE: the crater's near lip is drawn again over the landed slab
     for (const g of krakenGround) {
       const age = K_GROUND_T - g.t
