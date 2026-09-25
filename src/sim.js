@@ -802,10 +802,16 @@ function stepPlayerMovement(run, input, dt) {
     // TEARING LOOSE IS NOT THE SAME AS THE CLOCK RUNNING OUT: this site releases the arm outright,
     // so stepKrakenArms' `gripT > 0` branch never reaches its bite. That is the whole reward for
     // struggling, and it is why the escape lives here rather than by shortening the timer.
+    // ⚠ THE WIGGLE SPENDS ITS OWN COUNTER, NOT THE BITE'S CLOCK. They used to share gripT, so a
+    // struggle that had nearly torn loose left the clock nearly spent too, and the next tick of it
+    // hit zero and BIT (~0.55s into a hold, 6-8 times per 12 min). gripWiggle is the struggle,
+    // gripClock the bite; gripT is published as the smaller, which is what render's slipping coil reads.
     if (flicks > 0) {
-      gripArm.gripT -= flicks * (KRAKEN_GRIP_DUR / KRAKEN_GRIP_FLICKS)
-      if (gripArm.gripT <= 0) {
+      gripArm.gripWiggle = (gripArm.gripWiggle ?? gripArm.gripT) - flicks * (KRAKEN_GRIP_DUR / KRAKEN_GRIP_FLICKS)
+      gripArm.gripT = Math.min(gripArm.gripT, Math.max(0, gripArm.gripWiggle))
+      if (gripArm.gripWiggle <= 0) {
         gripArm.gripT = 0
+        gripArm.gripClock = gripArm.gripWiggle = undefined
         gripArm.tele = 0
         run.events.push({ type: 'gripBreak', x: gripArm.x, y: gripArm.y, px: p.x, py: p.y })
       }
@@ -2213,9 +2219,12 @@ function stepKrakenArms(run, dt, rung, head) {
     // tears you loose both live in stepPlayerMovement, which is the only place the raw stick is
     // known. All that is left here is the clock and the bite it pays if you never struggle.
     if (a.gripT > 0) {
-      a.gripT -= dt
-      if (a.gripT <= 0) {
+      // the BITE runs on its own clock; the struggle (gripWiggle) never spends it (stepPlayerMovement)
+      a.gripClock = (a.gripClock ?? a.gripT) - dt
+      a.gripT = Math.min(a.gripClock, a.gripWiggle ?? a.gripClock)
+      if (a.gripClock <= 0) {
         a.gripT = 0
+        a.gripClock = a.gripWiggle = undefined
         a.tele = 0
         if (hurtPlayer(run, KRAKEN_GRIP_DMG, false, 'krakenArm')) return true
       }
@@ -2238,6 +2247,8 @@ function stepKrakenArms(run, dt, rung, head) {
       a.tele = 0
       if (krakenLimbTouches(run, a, head)) {
         a.gripT = KRAKEN_GRIP_DUR
+        a.gripClock = KRAKEN_GRIP_DUR    // the bite's own clock ...
+        a.gripWiggle = KRAKEN_GRIP_DUR   // ... and the struggle's, spent only by flicks
         run.events.push({ type: 'gripLatch', x: a.x, y: a.y })
       } else {
         a.slamT = KRAKEN_SLAM_T

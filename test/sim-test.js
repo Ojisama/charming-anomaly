@@ -35758,6 +35758,21 @@ function testKrakenGrab() {
   startGrab()
   assert.strictEqual(strike(P), 'caught', 'a grab that came down on the fish did not take hold')
   assert.ok(arm.gripT > 0, 'a grab reported a latch without a grip')
+  // 1b) WIGGLING OUT FREES YOU AND NEVER BITES. The struggle and the bite used to spend one counter,
+  // so a nearly-finished wiggle left the clock nearly spent and the next tick BIT (~0.55s in).
+  {
+    let ang = 0, broke = false, bitten = false, frames = 0
+    while (arm.gripT > 0 && frames++ < 60 * 4) {
+      ang += Math.PI * 2 / 60 * 1.3
+      p.hp = p.maxHP; p.invuln = 0
+      run.events.length = 0
+      stepSim(run, { x: Math.cos(ang), y: Math.sin(ang), skill: false }, 1 / 60)
+      if (run.events.some((e) => e.type === 'gripBreak')) broke = true
+      if (run.events.some((e) => e.type === 'hurt' && e.src === 'krakenArm')) bitten = true
+    }
+    assert.ok(broke, `a fish swinging the stick never tore loose (${frames} frames)`)
+    assert.ok(!bitten, 'a fish that wiggled out of the grip was BITTEN — the struggle spent the bite\'s clock')
+  }
   // 2) OFF ITS LINE: the player steps well clear of the drawn limb after the aim locks — it misses
   arm.gripT = 0
   startGrab()

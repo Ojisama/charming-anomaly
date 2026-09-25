@@ -388,6 +388,16 @@ for (let i = 0; i < frames; i++) {
   const { data } = await send('Page.captureScreenshot', { format: 'png' })
   writeFileSync(`${out}-${String(i).padStart(2, '0')}.png`, Buffer.from(data, 'base64'))
 }
+// --json <file>: a scene that MEASURES rather than shoots leaves its result on window.__fxResult
+// (scripts/scenes/kraken-cues.js); it is written here after the last frame, and a missing result is
+// an abort, not an empty file.
+const jsonOut = arg('json')
+if (jsonOut) {
+  const res = await evaluate('window.__fxResult ?? null')
+  if (res == null) die('--json given but the scene left no window.__fxResult')
+  writeFileSync(jsonOut, JSON.stringify(res, null, 1))
+  console.log(`wrote ${jsonOut}`)
+}
 console.log(`wrote ${frames} frame(s): ${out}-00.png${frames > 1 ? ` .. ${out}-${String(frames - 1).padStart(2, '0')}.png` : ''}`)
 
 ws.close()

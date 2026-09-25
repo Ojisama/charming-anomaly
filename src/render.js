@@ -11319,6 +11319,18 @@ const spurArt = (() => {
 const gripArt = (() => {
   try { return Number(new URLSearchParams(location.search).get('gv') ?? 0) } catch { return 0 }
 })()
+// WHAT IS DRAWN, PUBLISHED (?debug only): every Kraken tell logs itself AT THE SITE THAT DRAWS IT,
+// so a tell that is not drawn cannot be logged. scripts/kraken-cues.mjs plays off this list alone.
+// kinds: slamCharge slamFlash grabCharge hold coil limp lungeCharge lungeFlash pressRing. A new tell is
+// one call: tellDrawn('arm', a.i, 'kind', x, y, x0, y0, x1, y1).
+const tellsOn = (() => { try { return new URLSearchParams(location.search).has('debug') } catch { return false } })()
+let tellLog = []
+function tellDrawn(src, i, kind, x, y, x0, y0, x1, y1, rope) {
+  if (!tellsOn) return
+  // rope: the limb's drawn points, kept every 8th so a reader can measure distance to the FLESH
+  const poly = rope ? rope.filter((q, k) => k % 8 === 0 || k === rope.length - 1).map((q) => [q.x, q.y]) : undefined
+  tellLog.push({ src, i, kind, x, y, x0, y0, x1, y1, poly })
+}
 // Under the coral, so the finish mat tucks beneath the colonies overhanging the passage edge.
 const gateFloorG = new Graphics()
 const gateFrontG = new Graphics()
@@ -19971,6 +19983,7 @@ void main() {
     const s = run.script
     if (s.staggerT > 0 || !(head.lungeT > 0) || head.lungeT > KRAKEN_LUNGE_WINDUP_T) return
     const w = 1 - head.lungeT / KRAKEN_LUNGE_WINDUP_T         // 0 as it starts, 1 at the strike
+    tellDrawn('head', -1, 'lungeCharge', head.x, head.y)
     const R = KRAKEN_HEAD_R * (1.9 - 0.75 * w)
     const quiver = 1 + 0.03 * Math.sin(animT * (30 + 40 * w)) * w
     for (let b = 0; b < 6; b++) {
@@ -20020,6 +20033,7 @@ void main() {
   // "the rectangle should grow to show the arm arming the slam" is that widening. The Coil's lanes
   // are the same drawing, hotter, so the one lane left dark is the gap.
   function drawKrakenLane(a, urg, rung, s, p) {
+    tellDrawn('arm', a.i, 'coil', a.x, a.y, a.lx0, a.ly0, a.lx1, a.ly1)
     const W = a.w || KRAKEN_LASH_W
     const coil = a.coilArm === true
     const win = a.tele <= rung.window && !coil
@@ -20067,6 +20081,9 @@ void main() {
     // A GRAB wears its own colour and NEVER the white parry flash: it is dodged, not parried
     const grab = a.grabArm === true
     const win = !grab && a.tele <= rung.window
+    // a grab's tell names the line it will STRIKE (lx0..lx1, the capsule sim tests), not the limb
+    if (grab) tellDrawn('arm', a.i, 'grabCharge', a.x, a.y, a.lx0, a.ly0, a.lx1, a.ly1, pts)
+    else tellDrawn('arm', a.i, win ? 'slamFlash' : 'slamCharge', a.x, a.y, pts[0].x, pts[0].y, pts[pts.length - 1].x, pts[pts.length - 1].y, pts)
     const windup = 1 - Math.max(0, a.tele) / a.fuse
     const wOpen = grab ? 1 : Math.max(0.05, 1 - rung.window / a.fuse)
     const prog = Math.min(1, windup / wOpen)
@@ -20573,6 +20590,7 @@ void main() {
       if (s.staggerT > 0) drawKrakenHitMe(teleG, head.x, head.y, KRAKEN_HEAD_R * 0.62, false)
       if (!(s.staggerT > 0) && head.lungeT > 0 && head.lungeT <= rung.lungeWindow) {
         // its lunge is parryable on the same READ as an arm, on its own wider clock (rung.lungeWindow)
+        tellDrawn('head', -1, 'lungeFlash', head.x, head.y)
         teleG.beginPath()
         teleG.circle(head.x, head.y, KRAKEN_HEAD_R * 1.1)
         teleG.stroke({ width: 6, color: 0xffffff, alpha: 0.9 })
@@ -20607,6 +20625,7 @@ void main() {
     if (!run.parryReady) winK = 0
     const cd = run.repulseCd ?? 0
     if (winK > 0 && cd <= 0) {
+      tellDrawn('player', -1, 'pressRing', p.x, p.y)
       teleG.beginPath()
       teleG.circle(p.x, p.y, 21 + breathe * 4)
       teleG.stroke({ width: 2.5 + winK * 2.5, color: 0xffffff, alpha: 0.5 + winK * 0.45 })
@@ -20877,6 +20896,7 @@ void main() {
       }
       const grab = krakenGrab[a.i] ?? 0
       if (a.gripT > 0) krakenHold = Math.max(krakenHold, grab)
+      if (a.gripT > 0 && grab > 0.002) tellDrawn('arm', a.i, 'hold', run.player.x, run.player.y)
       if (grab > 0.002) {
         const p = run.player
         const kG = Math.round((K_ROPE_N - 1) * K_GRIP_FROM)
@@ -21148,6 +21168,7 @@ void main() {
       // every weapon lands, so that is where the target is drawn — the tip of the limb, on the spot
       // the aimed slam came down. Nothing further up the rope suggests damage goes anywhere else.
       if (a.limpT > 0) drawKrakenHitMe(krakenWoundG, a.x, a.y, KRAKEN_ARM_R * 0.62, true, run.krakenLesson === 2)
+      if (a.limpT > 0) tellDrawn('arm', a.i, 'limp', a.x, a.y)
       if (a.dead) {
         // A BROKEN ARM SINKS: it fades back into the murk it came out of over breakT, and after that
         // its slice of the cage is simply open for the rest of the fight.
@@ -21190,7 +21211,7 @@ void main() {
         // KRAKEN_SLAM_T — full-strength colour, no lit wash — so the blow has a body at the contact
         else if (a.slamT > 0) rig.rope.tint = 0x5d5470
         else if (a.limpT > 0) rig.rope.tint = mix(0x4576a0, 0x5691c0, 0.5 + 0.5 * Math.sin(animT * 4)) // spent: cold AND dimmed
-        else if (rung && !a.coilArm && a.tele > 0 && a.tele <= rung.window && run.krakenLesson === 1 && run.script.lessonI === a.i) rig.rope.tint = Math.sin(animT * Math.PI * 10) > -0.2 ? 0xffffff : 0x8a7fc0
+        else if (rung && !a.coilArm && a.tele > 0 && a.tele <= rung.window && run.krakenLesson === 1 && run.script.lessonI === a.i) { rig.rope.tint = Math.sin(animT * Math.PI * 10) > -0.2 ? 0xffffff : 0x8a7fc0; tellDrawn('arm', a.i, 'slamFlash', a.x, a.y, rig.pts[0].x, rig.pts[0].y, rig.pts[K_ROPE_N - 1].x, rig.pts[K_ROPE_N - 1].y, rig.pts) }
         else if (rung && !a.coilArm && a.tele > 0 && a.fuse) { rig.rope.tint = a.grabArm ? K_GRAB_TINT : a.tele <= rung.window ? 0xfff2e4 : 0xa99ed6; drawKrakenCharge(rig, a, rung) }
         else if (rung && a.tele > 0 && a.fuse) rig.rope.tint = mix(0x9e92cf, 0xeee8fe, 1 - a.tele / a.fuse)
         else rig.rope.tint = mix(0x7366a0, 0x403d4b, 1 - fur)
@@ -28092,6 +28113,7 @@ void main() {
   }
 
   function sync(run, dt, events) {
+    if (tellsOn) { tellLog = []; window.__tells = tellLog }
     if (idleLayer.visible) {
       // first frame after reset(run) is handled in reset; guard anyway
       idleLayer.visible = false

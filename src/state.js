@@ -2401,6 +2401,9 @@ function generateWells(sig) {
   *       net — one shared author, stickFlicks(). The arm also carries that struggle's scratch state
   *       (_stkX/_stkY/_stkA), same as run.net does. Tearing loose emits 'gripBreak' and costs
   *       nothing; letting the clock run out pays KRAKEN_GRIP_DMG.
+  *       gripClock / gripWiggle — the two counters behind gripT, both KRAKEN_GRIP_DUR at the latch:
+  *       the bite's clock (spent by time) and the struggle (spent only by flicks). gripT is published
+  *       as the smaller. Separate so a nearly-finished wiggle can never make the clock bite early.
   *     grabArm — true while this arm's wind-up (tele/fuse = KRAKEN_GRAB_FUSE, aimed once at the
   *       player like a slam) is a GRAB rather than a slam. At the strike it takes hold (gripT) only
   *       if krakenLimbTouches says the drawn limb lands on the fish's body; otherwise it plants
