@@ -732,7 +732,7 @@ const SFX_FOR_EVENT = {
   tentacleBreak: 'bossFall', headHide: 'hole', gripLatch: 'zap', gripBreak: 'surge', lash: 'whip',
   // grabRear is a grab's wind-up STARTING (its own voice, never a slam's); grabMiss is it slapping
   // the seabed where you were — both rare (a few a fight). A rising draw of water, then the crack.
-  grabRear: 'suck', grabMiss: 'whip',
+  grabRear: 'grabCreak', grabMiss: 'whip',
   // headRise is the fight's one reveal (once a run); coilWind/coilClose are D3's unparryable
   // ring, rare enough to bear a voice and important enough to need one — it is the only pattern
   // with no button answer, so it must be audible before it is visible.

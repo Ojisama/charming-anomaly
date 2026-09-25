@@ -1,6 +1,6 @@
 // Procedural WebAudio SFX, no assets. Names: shoot, hit, kill, gem, coin, clang, surge, whip,
 // levelup, hurt, death, victory, click, buy, explode, zap, hole, beam, crush,
-// bossRise, bossFall, siren, lunge, quake, suck, krakenRoar, krakenSlain.
+// bossRise, bossFall, siren, lunge, quake, suck, grabCreak, krakenRoar, krakenSlain.
 
 let ctx = null
 let master = null
@@ -213,8 +213,17 @@ const SFX = {
     noise({ dur: 0.16, gain: 0.07 })
     tone(120, { type: 'sine', dur: 0.2, gain: 0.14, slide: 48 })
   },
-  // A GRABBER ABOUT TO TAKE YOU (the Grip's forecast starting): a short rising draw of water — the
-  // limb pulling on the sea around you — soft enough to sit under the slam's crack. ~13 a fight.
+  // A GRAB WINDING UP (grabRear): its own sting, nothing like the slam's — LOW and RISING, a wet
+  // creak of the limb coiling (a stepped sawtooth groan) with a draw of water sucked in under it.
+  // It means "move", so it swells rather than ticks: nothing in it can be timed like a beat.
+  grabCreak() {
+    tone(58, { type: 'sawtooth', dur: 0.42, gain: 0.07, slide: 118 })
+    tone(87, { type: 'sawtooth', dur: 0.3, gain: 0.04, slide: 150, at: 0.09 })
+    tone(140, { type: 'triangle', dur: 0.45, gain: 0.07, slide: 380, at: 0.05 })
+    noise({ dur: 0.34, gain: 0.035, at: 0.04 })
+  },
+  // A short rising draw of water — the limb pulling on the sea around you (no longer mapped since the
+  // grab got grabCreak; kept as a voice).
   suck() {
     tone(160, { type: 'triangle', dur: 0.32, gain: 0.08, slide: 420 })
     noise({ dur: 0.22, gain: 0.03 })

@@ -35753,6 +35753,8 @@ function testKrakenGrab() {
   function strike(at) {
     for (let i = 0; i < 60 * 4; i++) {
       const ev = step(at)
+      // the ONLY arm is winding up a grab: the button must never go live, on any frame of it
+      if (arm.grabArm && arm.tele > 0) assert.strictEqual(run.parryReady, false, `the parry button went live ${(arm.fuse - arm.tele).toFixed(2)}s into a grab wind-up with no slam anywhere`)
       if (ev.some((e) => e.type === 'gripLatch')) return 'caught'
       if (ev.some((e) => e.type === 'grabMiss')) return 'missed'
     }

@@ -2658,6 +2658,14 @@ body {
 .skill-btn--parry .skill-btn-cd { z-index: 1; }
 /* Off cooldown the shield is whole but UNLIT; it glows and pulses only while a press would land
    (.skill-btn--armed, from run.parryReady). A lit button that whiffs is the bug this fixes. */
+/* AN OPAQUE DARK DISC BEHIND THE SHIELD IN EVERY STATE: over a lit tentacle the cooldown plate was
+   see-through (its number vanished) and the live halo melted into white suckers. ::before sits
+   under the SVG face by DOM order, no z-index needed. */
+.skill-btn--parry::before {
+  content: ''; position: absolute; inset: 1px; border-radius: 50%; pointer-events: none;
+  background: radial-gradient(circle, #04141c 62%, #02090d 100%);
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.55);
+}
 .skill-btn--parry.skill-btn--ready { box-shadow: none; filter: saturate(0.35) brightness(0.72); }
 .skill-btn--parry.skill-btn--ready .parry-plate { opacity: 0.75; }
 .skill-btn--parry.skill-btn--ready.skill-btn--armed .parry-plate { opacity: 1; }
