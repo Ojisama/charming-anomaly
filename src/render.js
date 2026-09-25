@@ -20183,7 +20183,7 @@ void main() {
   // deutan/protan simulation too (it shifts toward blue while orange shifts toward yellow).
   const K_GRAB_HOT = 0xff3cd2
   const K_GRAB_COOL = 0xb0148c
-  const K_GRAB_TINT = 0xff8ade   // the grab rope's tint while it winds up: magenta, never near-white
+  const K_GRAB_TINT = 0xe040b8   // the grab rope's tint while it winds up: saturated, so even its baked highlight goes magenta, never white
 
   // THE GRAB'S "DODGE THIS" SIGN — Sekiro's perilous kanji, in this game's own vocabulary. It pops
   // ONCE over the fish on the frame a grab starts winding up (the 'grabRear' event, which also
@@ -21893,13 +21893,14 @@ void main() {
       const lf = krakenLift(a)
       if (lf <= 0.02) continue
       const pts = krakenRopes[i].pts
+      // a grab's lamp is its own magenta: never the pale spine a slam wears on the way to its white flash
       const n = pts.length
       const lp = []
       for (let q = Math.floor(n * 0.35); q < n; q++) lp.push(pts[q].x, pts[q].y)
-      krakenLampG.poly(lp, false).stroke({ width: 10 + 10 * lf, color: 0xb9a8ff, alpha: 0.14 * lf, cap: 'round', join: 'round' })
-      krakenLampG.poly(lp, false).stroke({ width: 3 + 2 * lf, color: 0xf0e8ff, alpha: 0.35 + 0.45 * lf, cap: 'round', join: 'round' })
+      krakenLampG.poly(lp, false).stroke({ width: 10 + 10 * lf, color: a.grabArm ? K_GRAB_COOL : 0xb9a8ff, alpha: 0.14 * lf, cap: 'round', join: 'round' })
+      krakenLampG.poly(lp, false).stroke({ width: 3 + 2 * lf, color: a.grabArm ? K_GRAB_HOT : 0xf0e8ff, alpha: 0.35 + 0.45 * lf, cap: 'round', join: 'round' })
       const tp = pts[n - 1]
-      krakenLampG.circle(tp.x, tp.y, 16 + 14 * lf).fill({ color: 0xffd8c8, alpha: 0.25 * lf })
+      krakenLampG.circle(tp.x, tp.y, 16 + 14 * lf).fill({ color: a.grabArm ? K_GRAB_COOL : 0xffd8c8, alpha: 0.25 * lf })
     }
   }
 

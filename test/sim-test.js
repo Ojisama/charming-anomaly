@@ -35761,9 +35761,12 @@ function testKrakenGrab() {
   // 1b) WIGGLING OUT FREES YOU AND NEVER BITES. The struggle and the bite used to spend one counter,
   // so a nearly-finished wiggle left the clock nearly spent and the next tick BIT (~0.55s in).
   {
+    // three quick flicks (~310deg of stick in 12 frames), a pause to 1.25s, then the fourth — the
+    // pause is where the shared counter used to run the clock out and bite
     let ang = 0, broke = false, bitten = false, frames = 0
     while (arm.gripT > 0 && frames++ < 60 * 4) {
-      ang += Math.PI * 2 / 60 * 1.3
+      if (frames <= 12) ang += (Math.PI * 1.56) / 10
+      else if (frames >= 75) ang += Math.PI * 2 / 60 * 1.3
       p.hp = p.maxHP; p.invuln = 0
       run.events.length = 0
       stepSim(run, { x: Math.cos(ang), y: Math.sin(ang), skill: false }, 1 / 60)

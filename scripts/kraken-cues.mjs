@@ -14,7 +14,7 @@
 //   HEADLESS (default): node against sim.js, and window.__tells is an ORACLE built here from sim
 //     truth — what an ideal renderer would draw for every live attack (the struck line for a slam,
 //     the forecast for a grab). It measures the DESIGN: the answer exists, is it one answer, can it
-//     work. Its pressRing is a REPLICA of render.js's rule (any arm in its window, range ignored),
+//     work. Its pressRing is a REPLICA of render.js's rule (lit only while sim's run.parryReady),
 //     so the glow row is a copy of a rule, not a picture.
 //   --browser URL: through scripts/fx-probe.mjs (needs a dev server ALREADY running on URL; start
 //     one with npx vite --port 5203 --strictPort and kill it by PID after), phone 390x844, and
@@ -91,6 +91,8 @@ async function headless(diff, seed) {
       if (a.limpT > 0) tells.push({ src: 'arm', i: a.i, kind: 'limp', x: a.x, y: a.y })
       else if (a.gripT > 0) tells.push({ src: 'arm', i: a.i, kind: 'hold', x: p.x, y: p.y })
       else if (a.tele > 0 && a.coilArm) tells.push({ src: 'arm', i: a.i, kind: 'coil', ...line })
+      // a grab winds up on its own aimed line (render: drawKrakenCharge's grab branch, same x0..x1)
+      else if (a.tele > 0 && a.grabArm) tells.push({ src: 'arm', i: a.i, kind: 'grabCharge', ...line })
       else if (a.tele > 0) {
         tells.push({ src: 'arm', i: a.i, kind: a.tele <= rung.window ? 'slamFlash' : 'slamCharge', ...line })
         if (a.tele <= rung.window) winAny = true
@@ -99,8 +101,8 @@ async function headless(diff, seed) {
     const lunge = s.phase === 'chase' && !(s.staggerT > 0) && head.lungeT > 0
     if (lunge && head.lungeT <= C.KRAKEN_LUNGE_WINDUP_T) tells.push({ src: 'head', i: -1, kind: 'lungeCharge', x: head.x, y: head.y })
     if (lunge && head.lungeT <= rung.lungeWindow) { tells.push({ src: 'head', i: -1, kind: 'lungeFlash', x: head.x, y: head.y }); winAny = true }
-    // REPLICA of render.js's press-ring rule (drawKrakenRing): any arm in window, range ignored
-    if (winAny && !((r.repulseCd ?? 0) > 0)) tells.push({ src: 'player', i: -1, kind: 'pressRing', x: p.x, y: p.y })
+    // REPLICA of render.js's press-ring rule (drawKrakenRing): lit only while sim's run.parryReady
+    if (winAny && r.parryReady === true) tells.push({ src: 'player', i: -1, kind: 'pressRing', x: p.x, y: p.y })
     return tells
   }
   globalThis.window = {
