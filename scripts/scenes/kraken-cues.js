@@ -111,7 +111,7 @@ const tellCounts = {}
 function parryWouldLand(p) {
   // krakenParry's own candidacy (sim.js): arm in window, on its struck line widened by the margin
   for (const a of run.krakenArms) {
-    if (a.dead || a.limpT > 0 || a.gripT > 0 || a.coilArm) continue
+    if (a.dead || a.limpT > 0 || a.gripT > 0 || a.coilArm || a.grabArm) continue   // krakenParryTarget skips a grab wind-up too
     if (!(a.tele > 0 && a.tele <= rung.window)) continue
     if (seg2(p.x, p.y, a.lx0, a.ly0, a.lx1, a.ly1) <= parryW * parryW) return true
   }
@@ -164,7 +164,7 @@ function beat(tells) {
   // --- open/advance attack records off the pre-step state
   for (const a of run.krakenArms) {
     if (a.dead) continue
-    if (a.tele > 0 && !a.coilArm && !openSlam[a.i]) openSlam[a.i] = { kind: 'slam', i: a.i, t0: t, band: false, flash: false, pressed: false, cdBlocked: false }
+    if (a.tele > 0 && !a.coilArm && !a.grabArm && !openSlam[a.i]) openSlam[a.i] = { kind: 'slam', i: a.i, t0: t, band: false, flash: false, pressed: false, cdBlocked: false }
     const r = openSlam[a.i]
     if (r && a.tele > 0 && a.tele <= rung.window) {
       const band = seg2(p.x, p.y, a.lx0, a.ly0, a.lx1, a.ly1) <= parryW * parryW
@@ -293,7 +293,7 @@ window.__fxResult = {
   phase: run.script.phase, won: run.phase === 'victory',
   attacks: attacks.map((r) => ({ ...r, t0: +r.t0.toFixed(2) })),
   conflict: { seconds: +(conf.frames * DT).toFixed(2), moments: conf.moments, pairs: Object.fromEntries(Object.entries(conf.pairs).map(([k, v]) => [k, +v.toFixed(2)])) },
-  press, glow, tellCounts, oracle: !!window.__kcOracle,
+  press, glow, tellCounts, oracle: !!window.__kcOracle, parryCd: C.KRAKEN_PARRY_CD,
 }
 H.note('kraken-cues: ' + attacks.length + ' attacks graded over ' + armsT.toFixed(0) + 's of arms phase')
 return () => { app && app.renderer.render(app.stage) }

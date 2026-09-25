@@ -188,6 +188,35 @@ function report(label, rs) {
   for (const r of rs) for (const [k, v] of Object.entries(r.conflict.pairs)) pairs[k] = (pairs[k] || 0) + v
   console.log(`   as played by this bot: ${cm} moments, ${cs.toFixed(1)}s = ${(cm / (armsT / 60)).toFixed(2)} moments/min, ${(cs / (armsT / 60)).toFixed(2)} s/min, ${pct(cs, armsT)} of arms-phase time`)
   console.log(`   per seed moments/min [${rs.map((r) => (r.conflict.moments / (r.armsT / 60)).toFixed(2)).join(' ')}]   by pair (s): ${Object.entries(pairs).map(([k, v]) => `${k} ${v.toFixed(1)}`).join('  ') || 'none'}   (P=parry W=wiggle D=dodge)`)
+  // ONE BUTTON, ONE COOLDOWN: consecutive parry answers (slams in band + lunges), window by window.
+  // blocked = even a press on the FIRST frame of one leaves the button cooling through all of the
+  // next; tight = a press on the LAST frame of one does. The beat (sim.js krakenBeatClear) makes
+  // both zero by construction; anything above zero here is two parries the player cannot both give.
+  const CD = rs[0].parryCd ?? 0.8
+  let pb = 0, pt = 0, pnn = 0
+  for (const r of rs) {
+    const P = r.attacks.filter((a) => (a.kind === 'slam' || a.kind === 'lunge') && a.ia != null).sort((a, b) => a.ia - b.ia)
+    pnn += Math.max(0, P.length - 1)
+    for (let k = 1; k < P.length; k++) { if (P[k].ib < P[k - 1].ia + CD) pb++; if (P[k].ia < P[k - 1].ib + CD) pt++ }
+  }
+  console.log(`COOLDOWN (${CD}s) over ${pnn} consecutive parry pairs: blocked ${pb}, tight ${pt}`)
+  // A GRAB'S DODGE AND A SLAM. Is a parry window open around the grab strike (the dodge is the
+  // answer then, so a slam there is two answers at once), and how often did the fish, having dodged
+  // a grab, land in a slam lane within 1.5s (in band = a parry was then owed; hit = it landed)?
+  let gn = 0, gBefore = 0, gAfter = 0, gInto = 0, gHit = 0
+  for (const r of rs) {
+    const P = r.attacks.filter((a) => (a.kind === 'slam' || a.kind === 'lunge') && a.ia != null)
+    for (const g of r.attacks.filter((a) => a.kind === 'grab')) {
+      gn++
+      if (P.some((p) => p.ib > g.t0 - 0.4 && p.ib <= g.t0)) gBefore++
+      if (P.some((p) => p.ia >= g.t0 && p.ia < g.t0 + 0.6)) gAfter++
+      if (g.outcome !== 'missed') continue
+      const s = r.attacks.filter((a) => a.kind === 'slam' && a.ia != null && a.ia >= g.t0 && a.ia < g.t0 + 1.5)
+      if (s.length) gInto++
+      if (s.some((a) => a.outcome === 'hit')) gHit++
+    }
+  }
+  console.log(`GRAB vs SLAM over ${gn} grab strikes: a parry window shut <0.4s before ${gBefore}, opened <0.6s after ${gAfter};  dodged grabs followed by a slam in band within 1.5s ${gInto} (of them hit ${gHit})`)
   const pn = rs.reduce((s, r) => s + r.press.n, 0), pl = rs.reduce((s, r) => s + r.press.land, 0), pw = rs.reduce((s, r) => s + r.press.whiff, 0)
   console.log(`PRESSES ${pn}: landed ${pl} (${pct(pl, pn)}), whiffed ${pw} (${pct(pw, pn)}), no parry event at all ${pn - pl - pw}`)
   const g = rs.reduce((s, r) => ({ f: s.f + r.glow.frames, a: s.a + r.glow.ringNoParry, b: s.b + r.glow.parryNoRing, c: s.c + r.glow.both }), { f: 0, a: 0, b: 0, c: 0 })
