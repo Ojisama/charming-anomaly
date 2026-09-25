@@ -1870,7 +1870,7 @@ function krakenGrabSafeSide(run, g, head) {
     }
     const dh = Math.hypot(px - head.x, py - head.y)
     if (dh > cageR - 20) score += (dh - (cageR - 20)) * 20     // off the edge of the cage is no step
-    score += Math.max(0, KRAKEN_HEAD_R * 1.5 - dh)            // nor onto the head
+    score += Math.max(0, KRAKEN_HEAD_R * 1.8 - dh) * 10       // nor onto the head, whose body blocks the step
     if (score < bestScore) { bestScore = score; best = sg }
   }
   return best

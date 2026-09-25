@@ -196,7 +196,7 @@ function report(label, rs) {
   console.log(`   per seed moments/min [${rs.map((r) => (r.conflict.moments / (r.armsT / 60)).toFixed(2)).join(' ')}]   by pair (s): ${Object.entries(pairs).map(([k, v]) => `${k} ${v.toFixed(1)}`).join('  ') || 'none'}   (P=parry W=wiggle D=dodge)`)
   // THE GRAB'S SAFE SIDE (a.grabSafeSide, drawn as the chevron the bot follows)
   const sf = rs.reduce((s, r) => { for (const k of Object.keys(s)) s[k] += r.safe?.[k] ?? 0; return s }, { grabs: 0, sideRight: 0, contested: 0, savedByIt: 0, steppedIntoThreat: 0 })
-  console.log(`GRAB SAFE SIDE over ${sf.grabs} grabs: side clear at the strike ${sf.sideRight}/${sf.grabs} (${pct(sf.sideRight, sf.grabs)}); another threat near one side ${sf.contested}, of which the chevron picked the clear side ${sf.savedByIt}; struck by another arm while dodging ${sf.steppedIntoThreat}`)
+  console.log(`GRAB SAFE SIDE over ${sf.grabs} grabs (threats live when the grab started): side clear ${sf.sideRight}/${sf.grabs} (${pct(sf.sideRight, sf.grabs)}); another threat near one side ${sf.contested}, of which the chevron picked the clear side ${sf.savedByIt}; struck by another arm while dodging ${sf.steppedIntoThreat}`)
   const pn = rs.reduce((s, r) => s + r.press.n, 0), pl = rs.reduce((s, r) => s + r.press.land, 0), pw = rs.reduce((s, r) => s + r.press.whiff, 0)
   console.log(`PRESSES ${pn}: landed ${pl} (${pct(pl, pn)}), whiffed ${pw} (${pct(pw, pn)}), no parry event at all ${pn - pl - pw}`)
   const g = rs.reduce((s, r) => ({ f: s.f + r.glow.frames, a: s.a + r.glow.ringNoParry, b: s.b + r.glow.parryNoRing, c: s.c + r.glow.both }), { f: 0, a: 0, b: 0, c: 0 })
