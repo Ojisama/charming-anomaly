@@ -233,7 +233,7 @@ import {
   KRAKEN_LIMB_HW, krakenLimbHalfW,
   KRAKEN_PARRY_MARGIN, KRAKEN_PARRY_SPIN_T, KRAKEN_PARRY_EARLY_T,
   KRAKEN_PERFECT_MUL, KRAKEN_PARRY_CD, KRAKEN_PARRY_REFILL, KRAKEN_BLAZE_R,
-  KRAKEN_GRIP_EVERY, KRAKEN_GRIP_DUR, KRAKEN_GRIP_DMG, KRAKEN_GRIP_STICK_MUL, KRAKEN_GRIP_FLICKS, KRAKEN_GRAB_FUSE,
+  KRAKEN_GRIP_EVERY, KRAKEN_GRIP_DUR, KRAKEN_GRIP_DMG, KRAKEN_GRIP_STICK_MUL, KRAKEN_GRIP_FLICKS, KRAKEN_GRAB_FUSE, KRAKEN_GRAB_SAFE_STEP,
   KRAKEN_TRICKLE_FROM_END, KRAKEN_TRICKLE_T, KRAKEN_TRICKLE_N, KRAKEN_ADD_CAP,
   KRAKEN_LUNGE_T, KRAKEN_LUNGE_WINDUP_T, KRAKEN_LUNGE_DMG, KRAKEN_RISE_T,
   KRAKEN_COIL_EVERY, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, KRAKEN_COIL_IN, KRAKEN_COIL_DMG,
@@ -1849,6 +1849,33 @@ function krakenLimbTouches(run, a, head) {
   return false
 }
 
+// WHICH WAY TO STEP OFF A GRAB (owner's critic, 2026-09-26: the obvious perpendicular step walked
+// into the slam beside it). Decided ONCE, at the grab's wind-up, and published as a.grabSafeSide
+// (+1/-1 along the lane's left normal (-uy, ux)) so render's chevron and anything grading it agree:
+// the side whose landing spot, KRAKEN_GRAB_SAFE_STEP off the lock point, is further from every other
+// live threat — another arm's struck line while it winds up, or a Coil lane. With nothing near
+// either side, the side that keeps the fish inside the cage and away from the head.
+function krakenGrabSafeSide(run, g, head) {
+  const L = Math.hypot(g.lx1 - g.lx0, g.ly1 - g.ly0) || 1
+  const nx = -(g.ly1 - g.ly0) / L, ny = (g.lx1 - g.lx0) / L
+  const cageR = run.script.cageR > 0 ? run.script.cageR : KRAKEN_CAGE_R
+  let best = 1, bestScore = Infinity
+  for (const sg of [1, -1]) {
+    const px = g.aimX + nx * sg * KRAKEN_GRAB_SAFE_STEP, py = g.aimY + ny * sg * KRAKEN_GRAB_SAFE_STEP
+    let score = 0
+    for (const o of run.krakenArms) {
+      if (o === g || o.dead || !(o.tele > 0) || o.limpT > 0) continue
+      const d = Math.sqrt(segDist2(px, py, o.lx0, o.ly0, o.lx1, o.ly1))
+      score += Math.max(0, KRAKEN_LASH_W * 2.5 - d) * 10     // a live lane near that spot dominates
+    }
+    const dh = Math.hypot(px - head.x, py - head.y)
+    if (dh > cageR - 20) score += (dh - (cageR - 20)) * 20     // off the edge of the cage is no step
+    score += Math.max(0, KRAKEN_HEAD_R * 1.5 - dh)            // nor onto the head
+    if (score < bestScore) { bestScore = score; best = sg }
+  }
+  return best
+}
+
 function krakenPlaceArms(run, head, reach) {
   for (const a of run.krakenArms) krakenPlaceArm(head, a, reach)
 }
@@ -2260,10 +2287,10 @@ function stepKrakenArms(run, dt, rung, head) {
         a.gripT = KRAKEN_GRIP_DUR
         a.gripClock = KRAKEN_GRIP_DUR    // the bite's own clock ...
         a.gripWiggle = KRAKEN_GRIP_DUR   // ... and the struggle's, spent only by flicks
-        run.events.push({ type: 'gripLatch', x: a.x, y: a.y })
+        run.events.push({ type: 'gripLatch', x: a.x, y: a.y, i: a.i })
       } else {
         a.slamT = KRAKEN_SLAM_T
-        run.events.push({ type: 'grabMiss', x: a.x, y: a.y })
+        run.events.push({ type: 'grabMiss', x: a.x, y: a.y, i: a.i })
       }
       continue
     }
@@ -2424,7 +2451,8 @@ function stepKrakenArms(run, dt, rung, head) {
         g.aimX = p.x
         g.aimY = p.y
         krakenPlaceArm(head, g, krakenReach(s))
-        run.events.push({ type: 'grabRear', x: g.x, y: g.y, t: KRAKEN_GRAB_FUSE })
+        g.grabSafeSide = krakenGrabSafeSide(run, g, head)
+        run.events.push({ type: 'grabRear', x: g.x, y: g.y, t: KRAKEN_GRAB_FUSE, i: g.i })
       } else {
         // THE WIND-UP IS THE TELEGRAPH AND IT IS ANNOUNCED. `rear` carries the arm's full fuse so
         // render can draw the danger ground filling up against it, and the event fires ONCE at the

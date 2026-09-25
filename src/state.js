@@ -2408,6 +2408,9 @@ function generateWells(sig) {
   *       player like a slam) is a GRAB rather than a slam. At the strike it takes hold (gripT) only
   *       if krakenLimbTouches says the drawn limb lands on the fish's body; otherwise it plants
   *       (slamT) and emits 'grabMiss', doing nothing. krakenParry skips it — a press is a whiff.
+  *       grabSafeSide — +1/-1, set once at the grab's wind-up by krakenGrabSafeSide: which side of
+  *       the struck line (along its left normal) to step to, away from any other live threat.
+  *       render draws its chevron from it; meaningful only while grabArm.
   *     hitT — >0 for KRAKEN_LIMP_FLASH after A PARRY LANDS ON IT, and render tints the tentacle off
   *            it. NOT set by the arm's own slam: that is the `lash` event's picture. It was, and had
   *            no reader at all, which is why five parries into a 320hp arm looked like one.

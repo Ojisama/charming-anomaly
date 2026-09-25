@@ -35745,8 +35745,9 @@ function testKrakenGrab() {
     s.gripN = KRAKEN_GRIP_EVERY
     s.turnT = 0
     run.repulseCd = 0
+    run.hitStop = 0      // a landed parry's freeze would swallow the turn
     const ev = step(P)
-    assert.ok(ev.some((e) => e.type === 'grabRear'), 'the grab turn did not start a grab wind-up — it latched, or it never came')
+    assert.ok(ev.some((e) => e.type === 'grabRear'), `the grab turn did not start a grab wind-up — it latched, or it never came (phase ${s.phase}, turnT ${s.turnT}, lesson ${run.krakenLesson} ${s.lessonI}, arms ${run.krakenArms.map((c) => (c.dead ? 'D' : '') + c.tele.toFixed(2) + '/' + c.limpT.toFixed(1) + '/' + c.gripT).join(' ')})`)
     assert.ok(arm.grabArm && arm.tele > 0 && arm.gripT === 0, 'the grab took hold on its turn instead of winding up — it is still unavoidable')
     assert.ok(Math.hypot(arm.aimX - P.x, arm.aimY - P.y) < 1, 'the grab is not aimed at where the player stood when it started')
   }
@@ -35818,6 +35819,24 @@ function testKrakenGrab() {
   assert.strictEqual(readyAt(R2.window * 0.5 + 2 / 60), true, 'fixture: not lit before the press')
   step(P, true)
   assert.ok(arm.limpT > 0, 'the button was lit and the press did not land')
+  // 5) WHICH WAY TO STEP: with another arm's slam lane lying beside the lock point, the grab's
+  // published safe side is the OTHER side — both ways round, so a constant cannot pass
+  {
+    const arm2 = run.krakenArms.find((c) => c !== arm)
+    const h = run.enemies.find((e) => e.rosterId === 'krakenHead' && !e._dead)
+    const Sx = h.x + Math.cos(arm.ang) * KRAKEN_RING_R, Sy = h.y + Math.sin(arm.ang) * KRAKEN_RING_R
+    const Ld = Math.hypot(P.x - Sx, P.y - Sy) || 1
+    const nx2 = -(P.y - Sy) / Ld, ny2 = (P.x - Sx) / Ld
+    for (const sg of [1, -1]) {
+      arm.tele = 0; arm.gripT = 0; arm.slamT = 0; arm.limpT = 0; arm.grabArm = false
+      arm2.dead = false; arm2.limpT = 0; arm2.gripT = 0; arm2.slamT = 0; arm2.coilArm = false; arm2.grabArm = false
+      arm2.aimed = true; arm2.aimX = P.x + nx2 * sg * 90; arm2.aimY = P.y + ny2 * sg * 90
+      arm2.fuse = R2.fuse; arm2.tele = R2.fuse
+      startGrab()
+      assert.strictEqual(arm.grabSafeSide, -sg, `a slam lane beside the grab on side ${sg} and the grab still says to step to side ${arm.grabSafeSide} — into it`)
+    }
+    arm2.dead = true
+  }
   console.log(`PASS run KG (grab + parry tell): a grab winds up aimed (${KRAKEN_GRAB_FUSE}s), grips a fish on its line and misses one 120px off it, a press during it is a whiff with the button dark; parryReady lights only inside a slam's window, in reach, off cooldown, and a press on it lands`)
 }
 
