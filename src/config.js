@@ -8929,6 +8929,7 @@ export const KRAKEN_GRIP_FLICKS = 4 // stick swings of TRAWL_WIGGLE_ARC that tea
 // balance_decision : a grab winds up aimed, and misses if you move [2026-09-25]
 //  - it strikes with krakenLimbTouches like a slam; only a hit takes hold. Not parryable.
 export const KRAKEN_GRAB_FUSE = 1.6 // s a grab's wind-up takes, aimed once at where you stood
+export const KRAKEN_GRAB_SAFE_STEP = 90 // px off the lock point where krakenGrabSafeSide judges each side
 
 // THE BEAT: every moment of the arms phase asks ONE answer. The ring hands out a turn only if what
 // it would start fits around every answer already due — slam windows, the head's lunge, grab

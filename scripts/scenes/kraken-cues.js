@@ -71,9 +71,17 @@ function decide(tells) {
     for (const t of has('grabCharge')) { const d = Math.sqrt(seg2(p.x, p.y, t.x0, t.y0, t.x1, t.y1)); if (d < gd) { gd = d; g = t } }
     const L = Math.hypot(g.x1 - g.x0, g.y1 - g.y0) || 1
     const nx = -(g.y1 - g.y0) / L, ny = (g.x1 - g.x0) / L
-    let side = (p.x - g.x0) * nx + (p.y - g.y0) * ny
-    if (Math.abs(side) < 1 && h) side = (p.x - h.x) * nx + (p.y - h.y) * ny
-    ix = nx * (side >= 0 ? 1 : -1); iy = ny * (side >= 0 ? 1 : -1)
+    // THE DRAWN CHEVRON SAYS WHICH WAY (grabSafe: x0,y0 = the lock point, x1,y1 = the chevron's tip).
+    // Without one, fall back to "the side I am already on".
+    const safe = has('grabSafe').find((t) => t.i === g.i)
+    if (safe) {
+      const dx = safe.x1 - safe.x0, dy = safe.y1 - safe.y0, dl = Math.hypot(dx, dy) || 1
+      ix = dx / dl; iy = dy / dl
+    } else {
+      let side = (p.x - g.x0) * nx + (p.y - g.y0) * ny
+      if (Math.abs(side) < 1 && h) side = (p.x - h.x) * nx + (p.y - h.y) * ny
+      ix = nx * (side >= 0 ? 1 : -1); iy = ny * (side >= 0 ? 1 : -1)
+    }
   } else if (has('coil').length && h) {
     act = 'dodgeCoil'
     const angs = has('coil').map((t) => Math.atan2(t.y0 - h.y, t.x0 - h.x)).sort((a, b) => a - b)
@@ -107,6 +115,9 @@ let armsT = 0
 const press = { n: 0, land: 0, whiff: 0 }
 const glow = { frames: 0, ringNoParry: 0, parryNoRing: 0, both: 0, btnClasses: {} }
 const tellCounts = {}
+const grabOpen = {}   // arm -> { hurt } while its grab winds up
+const lastGrabTrace = {}
+const safeStat = { grabs: 0, sideRight: 0, contested: 0, savedByIt: 0, steppedIntoThreat: 0 }
 
 function parryWouldLand(p) {
   // krakenParry's own candidacy (sim.js): arm in window, on its struck line widened by the margin
@@ -198,6 +209,40 @@ function beat(tells) {
   run.player.hp = run.player.maxHP
   if (run.phase === 'levelup') run.phase = 'playing'
   const hurtArm = ev.some((e) => e.type === 'hurt' && e.src === 'krakenArm')
+  // THE GRAB'S SAFE SIDE, GRADED. While a grab winds up: did the bot, dodging it, get struck by
+  // ANOTHER arm (i.e. step into a threat)? At its strike: was the published side actually clear —
+  // no other arm winding up or just landed whose struck line lies within KRAKEN_LASH_W of the spot
+  // KRAKEN_GRAB_SAFE_STEP off the lock point on that side?
+  // the side is judged against the threats that were live WHEN THE GRAB STARTED (what the chevron
+  // could know): a slam that starts later aims at wherever the fish has stepped to, i.e. at the safe
+  // side by construction, so judging at the strike would grade the chevron against its own success
+  const sideHot = (a, sd) => {
+    const L = Math.hypot(a.lx1 - a.lx0, a.ly1 - a.ly0) || 1
+    const nx = -(a.ly1 - a.ly0) / L, ny = (a.lx1 - a.lx0) / L
+    const x = a.aimX + nx * sd * C.KRAKEN_GRAB_SAFE_STEP, y = a.aimY + ny * sd * C.KRAKEN_GRAB_SAFE_STEP
+    return run.krakenArms.some((o) => o !== a && !o.dead && o.tele > 0 && o.limpT <= 0 && seg2(x, y, o.lx0, o.ly0, o.lx1, o.ly1) <= C.KRAKEN_LASH_W ** 2)
+  }
+  for (const a of run.krakenArms) {
+    if (a.grabArm && a.tele > 0) {
+      const r = grabOpen[a.i] || (grabOpen[a.i] = { hurt: false, safeHot: sideHot(a, a.grabSafeSide), otherHot: sideHot(a, -a.grabSafeSide) })
+      if (d.act === 'dodgeGrab' && ev.some((e) => e.type === 'lash' && !e.coil) && hurtArm) r.hurt = true
+      if (typeof process !== 'undefined' && process.env.KC_WHY) { r.trace = r.trace || []; if ((r.trace.length % 1) === 0 && Math.round(a.tele * 60) % 12 === 0) r.trace.push([+a.tele.toFixed(2), d.act, Math.round(Math.sqrt(seg2(p.x, p.y, a.lx0, a.ly0, a.lx1, a.ly1))), Math.round(p.x), Math.round(p.y), +d.ix.toFixed(2), +d.iy.toFixed(2)]) }
+    }
+  }
+  for (const e of ev) {
+    if (!(e.type === 'grabMiss' || e.type === 'gripLatch') || e.i == null) continue
+    const a = run.krakenArms[e.i]
+    const r = grabOpen[e.i] || { hurt: false }
+    delete grabOpen[e.i]
+    lastGrabTrace[e.i] = r.trace
+    if (!a || !(a.grabSafeSide === 1 || a.grabSafeSide === -1)) continue
+    safeStat.grabs++
+    if (r.hurt) safeStat.steppedIntoThreat++
+    const safeHot = !!r.safeHot, otherHot = !!r.otherHot
+    if (safeHot || otherHot) safeStat.contested++
+    if (!safeHot) safeStat.sideRight++
+    if (!safeHot && otherHot) safeStat.savedByIt++
+  }
   for (const e of ev) {
     if (e.type === 'parry' || e.type === 'parryPerfect') press.land++
     else if (e.type === 'parryWhiff') press.whiff++
@@ -245,7 +290,7 @@ function beat(tells) {
       g.ok = false
       g.forecast = preSoon
       g.armWas = pre[k].slamT > 0 ? 'landing a slam' : 'idle'
-      g.cause = g.tellS < 0 ? (preSoon !== a.i ? 'latched by an arm the forecast had not named (the nearest grabber changed as the player moved)' : pre[k].slamT > 0 ? 'no grabCharge drawn: the grabbing arm was still showing its landed slam' : 'no grabCharge drawn before the latch') : g.dodging ? 'dodged off the drawn line and it latched anyway' : 'tell drawn but the bot did not dodge'
+      g.cause = g.tellS < 0 ? (preSoon !== a.i ? 'latched by an arm the forecast had not named (the nearest grabber changed as the player moved)' : pre[k].slamT > 0 ? 'no grabCharge drawn: the grabbing arm was still showing its landed slam' : 'no grabCharge drawn before the latch') : g.dodging ? 'dodged off the drawn line and it latched anyway' + (typeof process !== 'undefined' && process.env.KC_WHY ? ' [' + JSON.stringify({ dLane: Math.round(Math.sqrt(seg2(run.player.x, run.player.y, a.lx0, a.ly0, a.lx1, a.ly1))), dHead: Math.round(Math.hypot(run.player.x - (head()?.x ?? 0), run.player.y - (head()?.y ?? 0))), cage: Math.round(run.script.cageR), side: a.grabSafeSide, L: Math.round(Math.hypot(a.lx1 - a.lx0, a.ly1 - a.ly0)), trace: lastGrabTrace[a.i] }) + ']' : '') : 'tell drawn but the bot did not dodge'
       attacks.push(g)
     }
   })
@@ -293,7 +338,7 @@ window.__fxResult = {
   phase: run.script.phase, won: run.phase === 'victory',
   attacks: attacks.map((r) => ({ ...r, t0: +r.t0.toFixed(2) })),
   conflict: { seconds: +(conf.frames * DT).toFixed(2), moments: conf.moments, pairs: Object.fromEntries(Object.entries(conf.pairs).map(([k, v]) => [k, +v.toFixed(2)])) },
-  press, glow, tellCounts, oracle: !!window.__kcOracle, parryCd: C.KRAKEN_PARRY_CD,
+  press, glow, tellCounts, safe: safeStat, oracle: !!window.__kcOracle, parryCd: C.KRAKEN_PARRY_CD,
 }
 H.note('kraken-cues: ' + attacks.length + ' attacks graded over ' + armsT.toFixed(0) + 's of arms phase')
 return () => { app && app.renderer.render(app.stage) }

@@ -20147,71 +20147,58 @@ void main() {
     }
     if (!grab) return
     const age = a.fuse - Math.max(0, a.tele)
-    // the first 0.2s must POP: a flare down the whole lane, once, with the grabCreak sting
+    // the first 0.2s must POP: the lane flares once, in the grab's own deep magenta — never toward
+    // white, which is where the slam's tell ends and the one colour that could draw a reflex parry
     const flare = Math.exp(-age / 0.1)
-    // THE BODY TIGHTENS: the whole limb glows magenta, the glow narrowing as the fuse runs — tension,
-    // not a sequence, so nothing on it can be counted like a beat. One stroke per stretch, following
-    // the limb's own taper.
-    {
-      const tight = 1 - 0.4 * windup
-      const pu = 0.75 + 0.25 * Math.sin(animT * 7)
-      for (let b = kS; b < kE; b += 6) {
-        const b1 = Math.min(kE, b + 6)
-        strokeRun(b, b1, hwAt((b + b1) >> 1) * 2.6 * tight, K_GRAB_COOL, (0.22 + 0.18 * windup) * pu)
-        strokeRun(b, b1, hwAt((b + b1) >> 1) * 1.0 * tight, K_GRAB_HOT, (0.30 + 0.25 * windup) * pu)
-      }
+    // ONLY ONE MAGENTA LINE IS THE HIT. The grabbing limb itself gets no bright rim here (and no rear
+    // glow, drawKrakenRearGlow); a faint deep wash only, so it cannot read as a second bar.
+    for (let b = kS; b < kE; b += 6) {
+      const b1 = Math.min(kE, b + 6)
+      strokeRun(b, b1, hwAt((b + b1) >> 1) * 2.2, K_GRAB_COOL, 0.10 + 0.06 * windup)
     }
-    // THE LANDING STRIP: "step off this". Drawn straight from the capsule sim strikes the grab with —
-    // lx0..lx1 at krakenLimbHalfW(s), the drawn tentacle's own width at each point, which IS the hit
-    // (krakenLimbTouches) — so the strip can never disagree with the hit: it runs exactly as far past
-    // the fish as the strike does, and no further. Filled in the grab's colour, its edges SERRATED
-    // (teeth pointing out, the way to go), a hard END BAR where the strike ends, and a chevron each
-    // side of the lock point pointing off the strip.
+    // THE LANDING STRIP, drawn straight from the capsule sim strikes the grab with — lx0..lx1 at
+    // krakenLimbHalfW(s), the same function krakenLimbTouches hits with — so its FILL is the hit,
+    // exactly, taper and all. What must not read is "flee along me": the taper alone is a wedge, an
+    // arrow. So the lane is bounded by two CONSTANT-width rails (a corridor, not a pointer), the true
+    // tapered fill sits inside them, and bars run ACROSS it every few steps. A hard end bar where the
+    // strike ends. The step off it is the one chevron at the fish (below), never the strip's shape.
     if (!krakenHead) return
     const L = Math.hypot(a.lx1 - a.lx0, a.ly1 - a.ly0) || 1
     const ux = (a.lx1 - a.lx0) / L, uy = (a.ly1 - a.ly0) / L
     const nxl = -uy, nyl = ux
     const tipR = Math.hypot(a.x - krakenHead.x, a.y - krakenHead.y)
     const wAt = (s) => Math.max(4, krakenLimbHalfW(s, L, tipR))
-    const e = 0.6 + 0.4 * windup
+    const RAIL = wAt(0) + 4                         // the corridor: as wide as the widest the hit gets
     const STEP = 12
     const ns = Math.max(2, Math.ceil(L / STEP))
     for (let q = 0; q < ns; q++) {
       const s0 = (q / ns) * L, s1 = ((q + 1) / ns) * L
       G.moveTo(a.lx0 + ux * s0, a.ly0 + uy * s0).lineTo(a.lx0 + ux * s1, a.ly0 + uy * s1)
-        .stroke({ width: wAt((s0 + s1) / 2) * 2, color: K_GRAB_COOL, alpha: 0.42 * e + 0.5 * flare, cap: 'butt' })
+        .stroke({ width: wAt((s0 + s1) / 2) * 2, color: K_GRAB_COOL, alpha: 0.55 + 0.35 * flare, cap: 'butt' })
     }
     for (const sg of [-1, 1]) {
+      // the true edge of the hit, bright
       G.moveTo(a.lx0 + nxl * wAt(0) * sg, a.ly0 + nyl * wAt(0) * sg)
       for (let q = 1; q <= ns; q++) {
         const s = (q / ns) * L
         G.lineTo(a.lx0 + ux * s + nxl * wAt(s) * sg, a.ly0 + uy * s + nyl * wAt(s) * sg)
       }
-      G.stroke({ width: 3, color: K_GRAB_HOT, alpha: 0.85 + 0.15 * windup, join: 'round' })
-      // teeth every 14px along the edge, pointing OUT of the lane
-      for (let s = 7; s < L; s += 14) {
-        const x = a.lx0 + ux * s + nxl * wAt(s) * sg, y = a.ly0 + uy * s + nyl * wAt(s) * sg
-        G.moveTo(x, y).lineTo(x + nxl * 7 * sg - ux * 3, y + nyl * 7 * sg - uy * 3)
-          .stroke({ width: 2.5, color: K_GRAB_HOT, alpha: 0.7 + 0.3 * windup, cap: 'round' })
-      }
+      G.stroke({ width: 2.5, color: K_GRAB_HOT, alpha: 0.9, join: 'round' })
+      // ...and the constant rail outside it, dimmer
+      G.moveTo(a.lx0 + nxl * RAIL * sg, a.ly0 + nyl * RAIL * sg).lineTo(a.lx1 + nxl * RAIL * sg, a.ly1 + nyl * RAIL * sg)
+        .stroke({ width: 2, color: K_GRAB_HOT, alpha: 0.45 })
     }
-    // the END BAR, hard, across the lane where the strike ends
-    const wE = wAt(L) + 6
-    G.moveTo(a.lx1 - nxl * wE, a.ly1 - nyl * wE).lineTo(a.lx1 + nxl * wE, a.ly1 + nyl * wE)
+    // bars ACROSS the corridor every 26px: a floor to step off, not a direction to run
+    for (let s = 13; s < L; s += 26) {
+      const cx = a.lx0 + ux * s, cy = a.ly0 + uy * s
+      G.moveTo(cx - nxl * RAIL, cy - nyl * RAIL).lineTo(cx + nxl * RAIL, cy + nyl * RAIL)
+        .stroke({ width: 2, color: K_GRAB_HOT, alpha: 0.5 })
+    }
+    G.moveTo(a.lx1 - nxl * (RAIL + 6), a.ly1 - nyl * (RAIL + 6)).lineTo(a.lx1 + nxl * (RAIL + 6), a.ly1 + nyl * (RAIL + 6))
       .stroke({ width: 4, color: K_GRAB_HOT, alpha: 1, cap: 'round' })
-    // at the lock point (where the fish stood), one chevron each side pointing OUT: the way off
-    const sA = Math.max(0, Math.min(L, (a.aimX - a.lx0) * ux + (a.aimY - a.ly0) * uy))
-    for (const sg of [-1, 1]) {
-      const off = wAt(sA) + 16
-      const bx = a.lx0 + ux * sA + nxl * off * sg, by = a.ly0 + uy * sA + nyl * off * sg
-      const ox = nxl * sg, oy = nyl * sg
-      G.moveTo(bx - ux * 8, by - uy * 8).lineTo(bx + ox * 8, by + oy * 8).lineTo(bx + ux * 8, by + uy * 8)
-        .stroke({ width: 3.5, color: K_GRAB_HOT, alpha: 0.9, cap: 'round', join: 'round' })
-    }
-    // the flare: the whole lane lit once, bright, on the first frames
     if (flare > 0.03) {
       G.moveTo(a.lx0, a.ly0).lineTo(a.lx1, a.ly1)
-        .stroke({ width: wAt(L * 0.5) * 2 + 18, color: K_GRAB_HOT, alpha: 0.55 * flare, cap: 'round' })
+        .stroke({ width: RAIL * 2 + 14, color: K_GRAB_FLARE, alpha: 0.5 * flare, cap: 'round' })
     }
   }
   // THE GRAB'S COLOUR, and nothing else in the fight wears it: not the slam's orange charge, not
@@ -20219,14 +20206,15 @@ void main() {
   // deutan/protan simulation too (it shifts toward blue while orange shifts toward yellow).
   const K_GRAB_HOT = 0xff3cd2
   const K_GRAB_COOL = 0xb0148c
+  const K_GRAB_FLARE = 0xc000c8  // the first-frame flare: saturated magenta, nowhere near white
   const K_GRAB_TINT = 0xe040b8   // the grab rope's tint while it winds up: saturated, so even its baked highlight goes magenta, never white
 
   // THE GRAB'S "DODGE THIS" SIGN — Sekiro's perilous kanji, in this game's own vocabulary: one big
-  // magenta HOOK with a dark outline, sitting ON the strike line at the grabbing arm's end, from the
-  // first frame of its wind-up to the strike. It sits a couple of fish-lengths back from the lock
-  // point (the fish stood there when the aim locked), so the hook, the fish and the damage numbers
-  // rising off the fish never share a spot. Scales in 1.6x -> 1x over the first 0.2s. Never white
-  // and never a ring: those are the parry's.
+  // magenta HOOK with a dark outline, ON the strike line K_GRAB_SIGN_BACK back from the lock point,
+  // full size and full brightness for the whole wind-up (it scales in 1.6x -> 1x on its first 0.2s).
+  // And WHICH WAY TO STEP: one bold chevron at the fish, perpendicular off the line toward
+  // a.grabSafeSide — the side sim chose away from every other live threat, so the obvious step never
+  // walks into the slam beside it. Never white and never a ring: those are the parry's.
   const K_GRAB_SIGN_BACK = 90   // px back up the lane from the lock point: past the fish AND the damage numbers rising off it
   function drawKrakenGrabSign(run) {
     if (run.chapter !== 'kraken' || !run.krakenArms) return
@@ -20235,13 +20223,12 @@ void main() {
     const G = krakenSlabTopG   // normal blend, ABOVE the arms and the dark: the dark outline must read, and nothing may cover it
     const L = Math.hypot(arm.lx1 - arm.lx0, arm.ly1 - arm.ly0) || 1
     const ux = (arm.lx1 - arm.lx0) / L, uy = (arm.ly1 - arm.ly0) / L
-    const sA = Math.max(0, (arm.aimX - arm.lx0) * ux + (arm.aimY - arm.ly0) * uy) - K_GRAB_SIGN_BACK
-    const cx = arm.lx0 + ux * sA, cy = arm.ly0 + uy * sA
+    const sA = Math.max(0, (arm.aimX - arm.lx0) * ux + (arm.aimY - arm.ly0) * uy)
+    const cx = arm.lx0 + ux * (sA - K_GRAB_SIGN_BACK), cy = arm.ly0 + uy * (sA - K_GRAB_SIGN_BACK)
     const age = arm.fuse - arm.tele
     const k = age < 0.2 ? 1.6 - 0.6 * (age / 0.2) : 1
-    const s = 1.7 * k
+    const s = 2.0 * k
     const DARKC = 0x1a0414
-    // the hook's bend sits on the line: shank above it, bend at (cx, cy)
     const hook = () => {
       G.moveTo(cx + 11 * s, cy - 26 * s)
       G.lineTo(cx + 11 * s, cy)
@@ -20249,8 +20236,21 @@ void main() {
       G.lineTo(cx - 11 * s, cy - 12 * s)
       G.lineTo(cx - 4 * s, cy - 7 * s)
     }
-    hook(); G.stroke({ width: 15, color: DARKC, alpha: 0.9, cap: 'round', join: 'round' })
-    hook(); G.stroke({ width: 8, color: K_GRAB_HOT, alpha: 1, cap: 'round', join: 'round' })
+    hook(); G.stroke({ width: 16, color: DARKC, alpha: 0.9, cap: 'round', join: 'round' })
+    hook(); G.stroke({ width: 9, color: K_GRAB_HOT, alpha: 1, cap: 'round', join: 'round' })
+    // THE STEP: a bold chevron beside the fish, on the safe side, pointing away from the line
+    const side = arm.grabSafeSide === -1 ? -1 : 1
+    const ox = -uy * side, oy = ux * side                       // off the line, toward safety
+    const bx = arm.aimX + ox * 58, by = arm.aimY + oy * 58      // where the chevron's tip sits
+    const W = 30 * k, D = 26 * k                               // ~60 x 52px: longer than the fish
+    const chev = () => {
+      G.moveTo(bx - ox * D - ux * W, by - oy * D - uy * W)
+      G.lineTo(bx, by)
+      G.lineTo(bx - ox * D + ux * W, by - oy * D + uy * W)
+    }
+    chev(); G.stroke({ width: 18, color: DARKC, alpha: 0.9, cap: 'round', join: 'miter' })
+    chev(); G.stroke({ width: 10, color: K_GRAB_HOT, alpha: 1, cap: 'round', join: 'miter' })
+    tellDrawn('arm', arm.i, 'grabSafe', bx, by, arm.aimX, arm.aimY, bx, by)
   }
 
   // THE WEAK POINT: bright, pulsing, bracketed — drawn on exactly the spot the weapons hit (a limp
@@ -22081,7 +22081,7 @@ void main() {
     const live = run.krakenArms.filter((a) => !a.dead || a.breakT > 0)
     for (let i = 0; i < live.length && i < krakenRopes.length; i++) {
       const a = live[i]
-      if (a.dead || !(a.tele > 0) || a.limpT > 0) continue
+      if (a.dead || !(a.tele > 0) || a.limpT > 0 || a.grabArm) continue   // a grab: one magenta line only, the strip
       const lf = krakenLift(a)
       if (lf <= 0.02) continue
       const pts = krakenRopes[i].pts

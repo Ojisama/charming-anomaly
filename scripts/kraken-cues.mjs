@@ -92,7 +92,13 @@ async function headless(diff, seed) {
       else if (a.gripT > 0) tells.push({ src: 'arm', i: a.i, kind: 'hold', x: p.x, y: p.y })
       else if (a.tele > 0 && a.coilArm) tells.push({ src: 'arm', i: a.i, kind: 'coil', ...line })
       // a grab winds up on its own aimed line (render: drawKrakenCharge's grab branch, same x0..x1)
-      else if (a.tele > 0 && a.grabArm) tells.push({ src: 'arm', i: a.i, kind: 'grabCharge', ...line })
+      else if (a.tele > 0 && a.grabArm) {
+        tells.push({ src: 'arm', i: a.i, kind: 'grabCharge', ...line })
+        // the chevron render draws (drawKrakenGrabSign): 58px off the lock point on a.grabSafeSide
+        const L = Math.hypot(a.lx1 - a.lx0, a.ly1 - a.ly0) || 1, sd = a.grabSafeSide === -1 ? -1 : 1
+        const bx = a.aimX - (a.ly1 - a.ly0) / L * sd * 58, by = a.aimY + (a.lx1 - a.lx0) / L * sd * 58
+        tells.push({ src: 'arm', i: a.i, kind: 'grabSafe', x: bx, y: by, x0: a.aimX, y0: a.aimY, x1: bx, y1: by })
+      }
       else if (a.tele > 0) {
         tells.push({ src: 'arm', i: a.i, kind: a.tele <= rung.window ? 'slamFlash' : 'slamCharge', ...line })
         if (a.tele <= rung.window) winAny = true
@@ -217,6 +223,9 @@ function report(label, rs) {
     }
   }
   console.log(`GRAB vs SLAM over ${gn} grab strikes: a parry window shut <0.4s before ${gBefore}, opened <0.6s after ${gAfter};  dodged grabs followed by a slam in band within 1.5s ${gInto} (of them hit ${gHit})`)
+  // THE GRAB'S SAFE SIDE (a.grabSafeSide, drawn as the chevron the bot follows)
+  const sf = rs.reduce((s, r) => { for (const k of Object.keys(s)) s[k] += r.safe?.[k] ?? 0; return s }, { grabs: 0, sideRight: 0, contested: 0, savedByIt: 0, steppedIntoThreat: 0 })
+  console.log(`GRAB SAFE SIDE over ${sf.grabs} grabs (threats live when the grab started): side clear ${sf.sideRight}/${sf.grabs} (${pct(sf.sideRight, sf.grabs)}); another threat near one side ${sf.contested}, of which the chevron picked the clear side ${sf.savedByIt}; struck by another arm while dodging ${sf.steppedIntoThreat}`)
   const pn = rs.reduce((s, r) => s + r.press.n, 0), pl = rs.reduce((s, r) => s + r.press.land, 0), pw = rs.reduce((s, r) => s + r.press.whiff, 0)
   console.log(`PRESSES ${pn}: landed ${pl} (${pct(pl, pn)}), whiffed ${pw} (${pct(pw, pn)}), no parry event at all ${pn - pl - pw}`)
   const g = rs.reduce((s, r) => ({ f: s.f + r.glow.frames, a: s.a + r.glow.ringNoParry, b: s.b + r.glow.parryNoRing, c: s.c + r.glow.both }), { f: 0, a: 0, b: 0, c: 0 })
