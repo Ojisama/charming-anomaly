@@ -94,9 +94,9 @@ async function headless(diff, seed) {
       // a grab winds up on its own aimed line (render: drawKrakenCharge's grab branch, same x0..x1)
       else if (a.tele > 0 && a.grabArm) {
         tells.push({ src: 'arm', i: a.i, kind: 'grabCharge', ...line })
-        // the chevron render draws (drawKrakenGrabSign): 58px off the lock point on a.grabSafeSide
+        // the chevron render draws (drawKrakenGrabSign): its tip K_GRAB_CHEV_OFF (100px) off the lock point on a.grabSafeSide
         const L = Math.hypot(a.lx1 - a.lx0, a.ly1 - a.ly0) || 1, sd = a.grabSafeSide === -1 ? -1 : 1
-        const bx = a.aimX - (a.ly1 - a.ly0) / L * sd * 58, by = a.aimY + (a.lx1 - a.lx0) / L * sd * 58
+        const bx = a.aimX - (a.ly1 - a.ly0) / L * sd * 100, by = a.aimY + (a.lx1 - a.lx0) / L * sd * 100
         tells.push({ src: 'arm', i: a.i, kind: 'grabSafe', x: bx, y: by, x0: a.aimX, y0: a.aimY, x1: bx, y1: by })
       }
       else if (a.tele > 0) {
