@@ -8746,7 +8746,7 @@ export const KRAKEN_LIMP_FLASH = 0.35      // s of hard white on the arm as the 
 // stop the game, because it is the fight's payoff.
 //   The sim freezes, the RENDERER DOES NOT — animT keeps advancing, so the flash, the rings and the
 // particles all play through the pause. A freeze that froze the picture too would just be a stutter.
-export const KRAKEN_HITSTOP_PARRY = 0.05    // a parry lands on an arm
+export const KRAKEN_HITSTOP_PARRY = 0.07    // a parry lands on an arm (Sekiro's deflect holds ~4 frames)
 export const KRAKEN_HITSTOP_BREAK = 0.085   // an arm comes off
 export const KRAKEN_HITSTOP_STAGGER = 0.15  // the head's posture breaks
 
@@ -8895,6 +8895,11 @@ export const KRAKEN_LASH_DMG = 19 // an un-parried slam's damage
 // 81% of blind presses land, against 43% at 0.8. Difficulty belongs in the window, and a cooldown
 // this short deletes the window's meaning for anyone willing to hold the button down.
 export const KRAKEN_PARRY_CD = 0.8 // s the parry button's cooldown (vs REPULSE_CD 6.0)
+// s before a slam's window opens in which a press is EARLY rather than a plain whiff. Feedback
+// only: an early press is still a whiff by every rule (cooldown spent, nothing parried) — it just
+// says so differently (a dull thud and a small shove on the fish), so "too soon" and "nothing
+// there" stop being the same picture.
+export const KRAKEN_PARRY_EARLY_T = 0.25
 // balance_decision : parry throws the adds visibly clear, owner 2026-09-24
 //  - radius and force read at the parry, falloff linear like the Pulse; nodes and the head are exempt
 export const KRAKEN_PARRY_SHOVE_R = 150
