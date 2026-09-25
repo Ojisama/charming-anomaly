@@ -39,8 +39,6 @@ import { KRAKEN_BEATS, KRAKEN_CEREMONY, KRAKEN_OUTRO } from './config.js'
 import { t as tr } from './i18n.js'
 
 
-// THROWAWAY: the grab telegraph's look variants for the owner to pick (?gv=1..3). Delete with the pick.
-const GV = (() => { try { return Number(new URLSearchParams(location.search).get('gv') || 1) } catch { return 1 } })()
 const DARK = 0x3b3345
 // THE HAUL WAKE (owner pick, 2026-09-04). Shot as four arms on one frame — no wake, the first
 // concentric-arc cut, this at 0.32 alpha, and this. He took the loudest: the chapter's floor already
@@ -20072,7 +20070,6 @@ void main() {
     const windup = 1 - Math.max(0, a.tele) / a.fuse
     const wOpen = grab ? 1 : Math.max(0.05, 1 - rung.window / a.fuse)
     const prog = Math.min(1, windup / wOpen)
-    const GC = K_GRAB_LOOK[GV] || K_GRAB_LOOK[1]
     const tF = tS + (1 - tS) * Math.pow(prog, 0.9)
     // a GRAB lights from its TIP back toward the ring: the end hovering over the fish is the part on screen
     const tG = 1 - (1 - tS) * Math.pow(prog, 0.9)
@@ -20111,57 +20108,71 @@ void main() {
         const k2 = 0.5 + 0.5 * pop
         G.circle(x, y, r * 2.2).fill({ color: 0xffe6c8, alpha: 0.20 * k2 })
         G.circle(x, y, r).fill({ color: 0xfff6ec, alpha: 0.85 * k2 + 0.1 })
-      } else if (grab && GV === 3) {
-        // pulses of light running up the limb from the ring, faster and brighter as it winds
-        let b = 0
-        const ph = animT * (1.2 + 2.4 * windup)
-        for (let q = 0; q < 3; q++) {
-          const c = tS + (1 - tS) * ((ph + q / 3) % 1)
-          b = Math.max(b, Math.exp(-(((t - c) / 0.05) ** 2)))
-        }
-        b *= 0.35 + 0.65 * windup
-        if (b > 0.05) {
-          G.circle(x, y, r * 2.3).fill({ color: GC.hot, alpha: 0.16 * b })
-          G.circle(x, y, r).fill({ color: GC.hot, alpha: 0.85 * b })
-        }
       } else if (grab ? t >= tG : t <= tF) {
         // just lit = hottest; the older ones settle to a steady ember
         const age = Math.max(0, Math.min(1, (grab ? t - tG : tF - t) / 0.12))
-        let col = grab ? mix(GC.hot, GC.cool, age) : mix(0xffc070, 0xff5028, age)
-        // gv=1: in the last stretch every lit sucker throbs — the hold closing
-        if (grab && GV === 1 && windup > 0.8) col = mix(col, GC.hot, 0.5 + 0.5 * Math.sin(animT * 26))
+        let col = grab ? mix(K_GRAB_HOT, K_GRAB_COOL, age) : mix(0xffc070, 0xff5028, age)
+        // a grab's lit suckers throb in the last stretch — the hold closing (never toward white)
+        if (grab && windup > 0.8) col = mix(col, K_GRAB_HOT, 0.5 + 0.5 * Math.sin(animT * 26))
         G.circle(x, y, r * 2.3).fill({ color: col, alpha: 0.10 + 0.14 * (1 - age) })
         G.circle(x, y, r).fill({ color: col, alpha: 0.45 + 0.40 * (1 - age) })
       }
     }
-    // gv=3: the tip opens like a claw — two hooked fingers parting wider as the grab winds up
-    if (grab && GV === 3) {
-      const tip = pts[kE], pre = pts[kE - 3]
-      const ang = Math.atan2(tip.y - pre.y, tip.x - pre.x)
-      const open = 0.25 + 0.9 * windup
-      const len = KRAKEN_ARM_R * 1.3
+    if (!grab) return
+    // WHERE IT LANDS: the grab's own shadow line, lit in its colour. It is the unrisen spine the
+    // shadow rope is drawn from (hover pose, syncKrakenArms), i.e. exactly the ground the limb comes
+    // down on — the struck line — at the limb's own width, run a little past the tip where the
+    // hooked club throws its shade. Brightens as the fuse burns so "here, soon" reads on black.
+    const sp = rig.shadowPts
+    if (sp) {
+      const e = 0.35 + 0.65 * windup
+      for (let b = kS; b < kE; b += 6) {
+        const b1 = Math.min(kE, b + 6)
+        G.moveTo(sp[b].x, sp[b].y)
+        for (let q = b + 1; q <= b1; q++) G.lineTo(sp[q].x, sp[q].y)
+        G.stroke({ width: hwAt((b + b1) >> 1) * 2, color: K_GRAB_COOL, alpha: 0.22 * e, cap: 'butt', join: 'round' })
+      }
+      const ex = sp[kE].x - sp[kE - 4].x, ey = sp[kE].y - sp[kE - 4].y, el = Math.hypot(ex, ey) || 1
+      G.moveTo(sp[kE].x, sp[kE].y).lineTo(sp[kE].x + ex / el * 34, sp[kE].y + ey / el * 34)
+        .stroke({ width: hwAt(kE) * 2 + 10, color: K_GRAB_COOL, alpha: 0.16 * e, cap: 'round' })
+      // the edges of that ground, crisp, so the line to step off reads at a glance
       for (const sg of [-1, 1]) {
-        const a1 = ang + sg * open
-        const mx = tip.x + Math.cos(a1) * len * 0.6, my = tip.y + Math.sin(a1) * len * 0.6
-        const a2 = a1 - sg * 0.9
-        G.moveTo(tip.x, tip.y).lineTo(mx, my).lineTo(mx + Math.cos(a2) * len * 0.5, my + Math.sin(a2) * len * 0.5)
-          .stroke({ width: 3.5, color: GC.hot, alpha: 0.35 + 0.55 * windup, cap: 'round', join: 'round' })
+        G.moveTo(sp[kS].x, sp[kS].y)
+        for (let q = kS + 1; q <= kE; q++) {
+          const dx = sp[Math.min(kE, q + 1)].x - sp[q - 1].x, dy = sp[Math.min(kE, q + 1)].y - sp[q - 1].y, dl = Math.hypot(dx, dy) || 1
+          const w = hwAt(q)
+          if (q === kS + 1) G.moveTo(sp[q].x - dy / dl * w * sg, sp[q].y + dx / dl * w * sg)
+          else G.lineTo(sp[q].x - dy / dl * w * sg, sp[q].y + dx / dl * w * sg)
+        }
+        G.stroke({ width: 1.5, color: K_GRAB_HOT, alpha: 0.30 + 0.40 * windup, join: 'round' })
       }
     }
+    // THE TIP IS A HOOK FOR THE WHOLE WIND-UP: two curved fingers opening at the club, so the arm
+    // itself — not only the sign over the fish — says "this one catches"
+    const tip = pts[kE], pre = pts[kE - 3]
+    const ang = Math.atan2(tip.y - pre.y, tip.x - pre.x)
+    const open = 0.35 + 0.8 * windup
+    const len = KRAKEN_ARM_R * 1.5
+    for (const sg of [-1, 1]) {
+      const a1 = ang + sg * open
+      const mx = tip.x + Math.cos(a1) * len * 0.6, my = tip.y + Math.sin(a1) * len * 0.6
+      const a2 = a1 - sg * 1.3
+      G.moveTo(tip.x, tip.y).lineTo(mx, my).lineTo(mx + Math.cos(a2) * len * 0.45, my + Math.sin(a2) * len * 0.45)
+        .stroke({ width: 5, color: K_GRAB_HOT, alpha: 0.55 + 0.45 * windup, cap: 'round', join: 'round' })
+    }
   }
-  // THROWAWAY (?gv=1..3): the grab's look, for the owner to pick. hot = a just-lit sucker, cool =
-  // one that has settled, tint = the rope's own colour while it winds up. Never white.
-  const K_GRAB_LOOK = {
-    1: { hot: 0x6affd2, cool: 0x10a07a, tint: 0x9fd6c8 },   // teal sequence, throbbing at the end
-    2: { hot: 0xd490ff, cool: 0x7a30c8, tint: 0xb89ae6 },   // violet sequence + the tip hooks
-    3: { hot: 0x70ecff, cool: 0x2a90c0, tint: 0x9cd4ea },   // cyan pulses + the tip opens like a claw
-  }
+  // THE GRAB'S COLOUR, and nothing else in the fight wears it: not the slam's orange charge, not
+  // the parry's white/cyan, not the Coil. Hot magenta stays apart from the slam's orange under
+  // deutan/protan simulation too (it shifts toward blue while orange shifts toward yellow).
+  const K_GRAB_HOT = 0xff3cd2
+  const K_GRAB_COOL = 0xb0148c
+  const K_GRAB_TINT = 0xff8ade   // the grab rope's tint while it winds up: magenta, never near-white
 
   // THE GRAB'S "DODGE THIS" SIGN — Sekiro's perilous kanji, in this game's own vocabulary. It pops
   // ONCE over the fish on the frame a grab starts winding up (the 'grabRear' event, which also
   // carries its own sound), says "this one is not a parry, get off its line" in the grab's colour,
   // and is gone in K_GRAB_SIGN_T. Never white and never a plain ring: those are the parry's.
-  // THROWAWAY variants (?gv): 1 a hook, 2 a pincer ring closing, 3 a three-talon claw.
+  // A hook, drawn big, with a leader to the tip of the arm that is winding up so it names THIS arm.
   const K_GRAB_SIGN_T = 0.75
   let krakenGrabSign = -1
   function drawKrakenGrabSign(run, dt) {
@@ -20171,47 +20182,31 @@ void main() {
     if (krakenGrabSign > K_GRAB_SIGN_T || run.chapter !== 'kraken') { krakenGrabSign = -1; return }
     const p = run.player
     const G = teleG
-    const GC = K_GRAB_LOOK[GV] || K_GRAB_LOOK[1]
     // pop: overshoots big on its first frames, settles, then fades over the last quarter
     const k = age < 0.12 ? 1.6 - 0.6 * (age / 0.12) : 1
     const al = age > K_GRAB_SIGN_T - 0.2 ? Math.max(0, (K_GRAB_SIGN_T - age) / 0.2) : 1
-    const DARKC = 0x061a22
-    const both = (draw, w) => { draw(); G.stroke({ width: w + 5, color: DARKC, alpha: 0.85 * al, cap: 'round', join: 'round' }); draw(); G.stroke({ width: w, color: GC.hot, alpha: al, cap: 'round', join: 'round' }) }
-    if (GV === 2) {
-      // a PINCER closing on the fish: two jaws with inward teeth, sweeping shut round it
-      const R = (70 - 26 * Math.min(1, age / 0.45)) * (0.8 + 0.2 * k)
-      const gap = 0.9 - 0.65 * Math.min(1, age / 0.45)
-      for (const base of [-Math.PI / 2, Math.PI / 2]) {
-        const a0 = base - (Math.PI / 2 - gap / 2), a1 = base + (Math.PI / 2 - gap / 2)
-        both(() => {
-          G.moveTo(p.x + Math.cos(a0) * R * 0.72, p.y + Math.sin(a0) * R * 0.72)
-          G.lineTo(p.x + Math.cos(a0) * R, p.y + Math.sin(a0) * R)
-          G.arc(p.x, p.y, R, a0, a1)
-          G.lineTo(p.x + Math.cos(a1) * R * 0.72, p.y + Math.sin(a1) * R * 0.72)
-        }, 6)
-      }
-      return
+    const DARKC = 0x1a0414
+    const both = (draw, w) => { draw(); G.stroke({ width: w + 6, color: DARKC, alpha: 0.9 * al, cap: 'round', join: 'round' }); draw(); G.stroke({ width: w, color: K_GRAB_HOT, alpha: al, cap: 'round', join: 'round' }) }
+    // ABOVE-RIGHT of the fish: damage numbers rise from its centre, so this corner stays clear
+    const cx = p.x + 52, cy = p.y - 84
+    const s = 2.3 * k
+    // THIS ARM: a leader from the sign to the tip of the limb that is winding up, fading with it
+    const arm = (run.krakenArms || []).find((c) => c.grabArm && c.tele > 0)
+    const tip = arm ? krakenTips[arm.i] : null
+    if (tip) {
+      G.moveTo(cx, cy + 10 * s).lineTo(tip.x, tip.y)
+      G.stroke({ width: 7, color: DARKC, alpha: 0.6 * al, cap: 'round' })
+      G.moveTo(cx, cy + 10 * s).lineTo(tip.x, tip.y)
+      G.stroke({ width: 2.5, color: K_GRAB_HOT, alpha: 0.85 * al, cap: 'round' })
     }
-    const cx = p.x, cy = p.y - 64
-    const s = 1.15 * k
-    if (GV === 3) {
-      // a CLAW: three hooked talons raking down
-      for (const dx of [-15, 0, 15]) {
-        both(() => {
-          G.moveTo(cx + dx * s - 6 * s, cy - 18 * s)
-          G.quadraticCurveTo(cx + dx * s + 8 * s, cy - 4 * s, cx + dx * s + 2 * s, cy + 16 * s)
-        }, 5)
-      }
-      return
-    }
-    // gv=1: a HOOK — shank, bend and barb, the shape of the thing that is about to catch you
+    // a HOOK — shank, bend and barb, the shape of the thing that is about to catch you
     both(() => {
       G.moveTo(cx + 8 * s, cy - 22 * s)
       G.lineTo(cx + 8 * s, cy + 6 * s)
       G.arc(cx - 3 * s, cy + 6 * s, 11 * s, 0, Math.PI)
       G.lineTo(cx - 14 * s, cy - 6 * s)
       G.lineTo(cx - 7 * s, cy - 1 * s)
-    }, 6)
+    }, 9)
   }
 
   // THE WEAK POINT: bright, pulsing, bracketed — drawn on exactly the spot the weapons hit (a limp
@@ -20784,9 +20779,6 @@ void main() {
       // (krakenLimbHalfW), so on the landing tick the flesh must lie on lx0..lx1. The whip's
       // travelling bend is allowed back only as the slam plays out, when nothing is being struck.
       const latCap = a.coilArm ? KRAKEN_LASH_W * 0.33 : hover ? 4 : K_WHIP_SLACK * (a.slamT > 0 ? strike : 1 - onLine)
-      // THROWAWAY gv=2: a grab's tip curls back like a hook as it winds up (straightened by onLine at the strike)
-      const hookK = a.grabArm && GV === 2 ? cockLift : 0
-      const hookLat = (t) => (hookK > 0 ? -swing * hookK * 110 * Math.max(0, (t - 0.72) / 0.28) ** 2 : 0)
       // THE SPINE: out in the dark on the arm's own bearing, in to its shoulder on the ring, and from
       // there straight at the tip — which for an aimed arm is off the spoke, so the limb bends at the
       // ring. Reared, the tip is hauled back up its own line; striking, it cracks down the lane.
@@ -20854,7 +20846,7 @@ void main() {
         const bx = kSpOx, by = kSpOy, nx = kSpOnx, ny = kSpOny
         // the far half of the limb climbs; the shoulder stays in the murk where it is anchored
         const rise = lift * (hover ? 90 : cocked ? 110 : 62) * t * t
-        rig.pts[k].set(bx + nx * (lat + hookLat(t)), by + ny * (lat + hookLat(t)) - rise)
+        rig.pts[k].set(bx + nx * lat, by + ny * lat - rise)
         // THE SHADOW STAYS ON THE SEABED. It is drawn from the UNRISEN point, so the gap between the
         // limb and its shadow IS the height — it opens as the arm goes up and shuts as it comes down,
         // which is what makes the wind-up and the strike read as one action rather than two drawings.
@@ -21199,7 +21191,7 @@ void main() {
         else if (a.slamT > 0) rig.rope.tint = 0x5d5470
         else if (a.limpT > 0) rig.rope.tint = mix(0x4576a0, 0x5691c0, 0.5 + 0.5 * Math.sin(animT * 4)) // spent: cold AND dimmed
         else if (rung && !a.coilArm && a.tele > 0 && a.tele <= rung.window && run.krakenLesson === 1 && run.script.lessonI === a.i) rig.rope.tint = Math.sin(animT * Math.PI * 10) > -0.2 ? 0xffffff : 0x8a7fc0
-        else if (rung && !a.coilArm && a.tele > 0 && a.fuse) { rig.rope.tint = a.grabArm ? (K_GRAB_LOOK[GV] || K_GRAB_LOOK[1]).tint : a.tele <= rung.window ? 0xfff2e4 : 0xa99ed6; drawKrakenCharge(rig, a, rung) }
+        else if (rung && !a.coilArm && a.tele > 0 && a.fuse) { rig.rope.tint = a.grabArm ? K_GRAB_TINT : a.tele <= rung.window ? 0xfff2e4 : 0xa99ed6; drawKrakenCharge(rig, a, rung) }
         else if (rung && a.tele > 0 && a.fuse) rig.rope.tint = mix(0x9e92cf, 0xeee8fe, 1 - a.tele / a.fuse)
         else rig.rope.tint = mix(0x7366a0, 0x403d4b, 1 - fur)
       }
@@ -26385,7 +26377,7 @@ void main() {
         case 'gripLatch': {
           // The grab starting. The taut line to the player is drawn live in drawKrakenRing for as
           // long as the hold lasts; this is only the moment it takes, so it stays a single snap.
-          spawnRing(e.x, e.y, 70, 0.3, T.novaRing, 0xffffff)
+          spawnRing(e.x, e.y, 70, 0.3, T.novaRing, K_GRAB_HOT)   // the grab's colour, never the parry's white
           addShake(5, 0.18)
           break
         }
