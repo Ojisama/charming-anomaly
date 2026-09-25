@@ -3309,3 +3309,16 @@ body {
 .no-pop,
 .no-pop > .bottom-sheet,
 .no-pop > .confirm-sheet { animation: none; }
+
+/* A PARRY JOLTS THE KRAKEN'S BAR (ui.js, on a 'parry'/'parryPerfect' event): a hard white flash
+   and a vertical kick that settles in a fifth of a second. Transform + filter only, never position. */
+.boss-bar-wrap.boss-bump .rampage-bar { animation: boss-bump 0.2s ease-out; }
+.boss-bar-wrap.boss-bump-hi .rampage-bar { animation: boss-bump-hi 0.3s ease-out; }
+@keyframes boss-bump {
+  0% { transform: scaleY(1.9) translateY(2px); filter: brightness(2.6); box-shadow: 0 0 10px #fff; }
+  100% { transform: none; filter: none; box-shadow: none; }
+}
+@keyframes boss-bump-hi {
+  0% { transform: scaleY(2.4) translateY(3px); filter: brightness(3.4); box-shadow: 0 0 18px #fff; }
+  100% { transform: none; filter: none; box-shadow: none; }
+}

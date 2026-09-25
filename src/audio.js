@@ -131,6 +131,36 @@ const SFX = {
     tone(250, { type: 'sine', dur: 0.11, gain: 0.13, slide: 120 })
     noise({ dur: 0.05, gain: 0.05 })
   },
+  // THE KRAKEN'S PARRY WINDOW OPENING (slamWindow): the one sound that means "press now". Short,
+  // bright and rising — two notes a fifth apart inside 60ms — so it reads as a cue rather than an
+  // impact, and nothing like the whip's crack or the deflect's ring that answer it.
+  sting() {
+    tone(1480, { type: 'triangle', dur: 0.05, gain: 0.09 })
+    tone(2220, { type: 'triangle', dur: 0.09, gain: 0.08, at: 0.035 })
+    noise({ dur: 0.012, gain: 0.04 })
+  },
+  // A PARRY LANDING ON AN ARM — Sekiro's deflect "tink": a hard transient, inharmonic metal
+  // partials ringing out for a quarter second, and a short body thump under them.
+  deflect() {
+    noise({ dur: 0.018, gain: 0.09 })
+    tone(2350, { type: 'sine', dur: 0.26, gain: 0.09 })
+    tone(3710, { type: 'sine', dur: 0.18, gain: 0.05 })
+    tone(5560, { type: 'sine', dur: 0.1, gain: 0.03 })
+    tone(190, { type: 'sine', dur: 0.08, gain: 0.1, slide: 95 })
+  },
+  // the PERFECT deflect: the same metal, struck harder and ringing longer, with a second high ping
+  deflectHi() {
+    noise({ dur: 0.022, gain: 0.11 })
+    tone(2350, { type: 'sine', dur: 0.4, gain: 0.1 })
+    tone(3710, { type: 'sine', dur: 0.3, gain: 0.06 })
+    tone(4700, { type: 'sine', dur: 0.22, gain: 0.05, at: 0.03 })
+    tone(170, { type: 'sine', dur: 0.12, gain: 0.14, slide: 70 })
+  },
+  // A PRESS TOO EARLY (parryEarly): dull and low, no ring at all — wood, not metal.
+  thud() {
+    tone(120, { type: 'sine', dur: 0.12, gain: 0.16, slide: 60 })
+    tone(240, { type: 'triangle', dur: 0.05, gain: 0.04, slide: 120 })
+  },
   // THE ORCA TAKING AIM (2026-09-06): the note that lands when the strike's lane is drawn. It fires
   // twice a visit, roughly once every 25s, so it comfortably clears the rarity bar that withholds a
   // sound from freezes and guard blocks.

@@ -231,7 +231,7 @@ import {
   KRAKEN_CAGE_R,
   KRAKEN_LASH_R, KRAKEN_LASH_DMG, KRAKEN_LIGHT_START, KRAKEN_HAUL_R, KRAKEN_LASH_W, KRAKEN_LASH_OVER,
   KRAKEN_LIMB_HW, krakenLimbHalfW,
-  KRAKEN_PARRY_MARGIN, KRAKEN_PARRY_SPIN_T,
+  KRAKEN_PARRY_MARGIN, KRAKEN_PARRY_SPIN_T, KRAKEN_PARRY_EARLY_T,
   KRAKEN_PERFECT_MUL, KRAKEN_PARRY_CD, KRAKEN_PARRY_REFILL, KRAKEN_BLAZE_R,
   KRAKEN_GRIP_EVERY, KRAKEN_GRIP_DUR, KRAKEN_GRIP_DMG, KRAKEN_GRIP_STICK_MUL, KRAKEN_GRIP_FLICKS, KRAKEN_GRAB_FUSE,
   KRAKEN_TRICKLE_FROM_END, KRAKEN_TRICKLE_T, KRAKEN_TRICKLE_N, KRAKEN_ADD_CAP,
@@ -2029,6 +2029,7 @@ function krakenArmsToBlock(run, rung, head) {
         y: head.y + Math.sin(ang) * KRAKEN_ARM_REACH,
         hp: KRAKEN_ARM_HP, maxHP: KRAKEN_ARM_HP,
         tele: 0, fuse: 0, limpT: 0, nodeId: null, dead: false, paid: false, gripT: 0, grabArm: false, hitT: 0, breakT: 0, slamT: 0,
+        nowSent: false, // this wind-up has already pushed its slamWindow (see stepBossScript's arm loop)
         coilArm: false, // true for the length of one Coil: this limb is in the volley, unparryable, drawn in the warning colour
         lx0: 0, ly0: 0, lx1: 0, ly1: 0,   // the struck line, rewritten every frame by krakenPlaceArms
         aimed: false, aimX: 0, aimY: 0,     // the point a slam's wind-up locked on the player
@@ -2230,6 +2231,16 @@ function stepKrakenArms(run, dt, rung, head) {
       tick = dt * KRAKEN_LESSON_SLOW
     }
     a.tele -= tick
+    // THE PRESS-NOW CUE (slamWindow): once per plain wind-up, on the first frame its window is open
+    // AND a press would reach it — the same reach krakenParryTarget uses, so the sting and the glint
+    // at the fish never promise a parry the button would not make. Usually that is the very frame
+    // the window opens; a fish that steps onto the line mid-window gets it on the step.
+    if (a.tele > rung.window) a.nowSent = false
+    else if (a.tele > 0 && !a.nowSent && !a.grabArm && !a.coilArm && krakenArmInReach(run, a)) {
+      a.nowSent = true
+      const q = segClosest(p.x, p.y, a.lx0, a.ly0, a.lx1, a.ly1)
+      run.events.push({ type: 'slamWindow', i: a.i, x: q.x, y: q.y, px: p.x, py: p.y, t: a.tele })
+    }
     if (a.tele > 0) continue
     // A GRAB COMES DOWN: it takes hold only if the limb lands on the fish's body — the same drawn
     // tentacle a slam strikes with — and otherwise it slaps the seabed and misses, doing nothing.
@@ -2694,7 +2705,6 @@ function krakenParryTarget(run) {
   // player while the button sat inert. It also let a player parry from 220px to the SIDE of a tip,
   // where nothing was ever going to reach them, which is what the paragraph above says it exists to
   // stop. Same shape, widened by KRAKEN_PARRY_MARGIN, so it is a superset by construction again.
-  const parryW2 = (KRAKEN_LASH_W * KRAKEN_PARRY_MARGIN) ** 2
   let best = null          // an arm
   let bestT = Infinity
   for (const a of run.krakenArms) {
@@ -2709,7 +2719,7 @@ function krakenParryTarget(run) {
     // one is a whiff, which is what makes "the button is lit" and "a press lands" the same fact.
     if (a.dead || a.limpT > 0 || a.gripT > 0 || a.coilArm || a.grabArm) continue
     if (!head) continue
-    if (segDist2(p.x, p.y, a.lx0, a.ly0, a.lx1, a.ly1) > parryW2) continue
+    if (!krakenArmInReach(run, a)) continue
     if (a.tele > 0 && a.tele <= rung.window && a.tele < bestT) { bestT = a.tele; best = a }
   }
   // The head's lunge reads on exactly the same clock, deliberately: one verb, one timing.
@@ -2740,6 +2750,18 @@ function krakenParryTarget(run) {
   return { best, headReady, head, rung }
 }
 
+// The parry's reach: the arm's struck line, widened by KRAKEN_PARRY_MARGIN. One author, read by the
+// press (krakenParryTarget), by the press-now cue (slamWindow) and by the early-press read.
+function krakenArmInReach(run, a) {
+  const p = run.player
+  return segDist2(p.x, p.y, a.lx0, a.ly0, a.lx1, a.ly1) <= (KRAKEN_LASH_W * KRAKEN_PARRY_MARGIN) ** 2
+}
+function segClosest(px, py, x0, y0, x1, y1) {
+  const dx = x1 - x0, dy = y1 - y0, l2 = dx * dx + dy * dy
+  const t = l2 > 0 ? Math.max(0, Math.min(1, ((px - x0) * dx + (py - y0) * dy) / l2)) : 0
+  return { x: x0 + dx * t, y: y0 + dy * t }
+}
+
 // A press right now would LAND: off cooldown, and krakenParryTarget names something to answer.
 function krakenParryReady(run) {
   if ((run.repulseCd ?? 0) > 0 || !run.script) return false
@@ -2756,7 +2778,21 @@ function krakenParry(run) {
     // THE WHIFF IS AN EVENT. It used to be a bare return: the cooldown was spent and the game said
     // nothing at all, so a miss and a press the game never registered were the same picture.
     p.parryT = KRAKEN_PARRY_SPIN_T
-    run.events.push({ type: 'parryWhiff', x: p.x, y: p.y, cd: KRAKEN_PARRY_CD })
+    // ...AND TOO EARLY IS ITS OWN WHIFF. A plain slam in reach whose window opens within
+    // KRAKEN_PARRY_EARLY_T: the press is still a miss by every rule, it just says "too soon".
+    let early = null
+    if (head) {
+      for (const a of run.krakenArms) {
+        if (a.dead || a.limpT > 0 || a.gripT > 0 || a.coilArm || a.grabArm) continue
+        if (!(a.tele > rung.window && a.tele <= rung.window + KRAKEN_PARRY_EARLY_T)) continue
+        if (!krakenArmInReach(run, a)) continue
+        if (!early || a.tele < early.tele) early = a
+      }
+    }
+    if (early) {
+      const q = segClosest(p.x, p.y, early.lx0, early.ly0, early.lx1, early.ly1)
+      run.events.push({ type: 'parryEarly', i: early.i, x: q.x, y: q.y, px: p.x, py: p.y, cd: KRAKEN_PARRY_CD })
+    } else run.events.push({ type: 'parryWhiff', x: p.x, y: p.y, cd: KRAKEN_PARRY_CD })
     return
   }
 
@@ -2826,6 +2862,7 @@ function krakenParry(run) {
     type: perfect ? 'parryPerfect' : 'parry',
     x: best.x, y: best.y, frac: Math.max(0, best.hp) / best.maxHP,
     px: p.x, py: p.y,   // the SLAM is thrown from the fish; the snap above is on the arm
+    i: best.i,          // which limb: render puts the spark and the recoil on the one it drew
   })
 }
 

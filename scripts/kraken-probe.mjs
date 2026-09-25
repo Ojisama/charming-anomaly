@@ -179,7 +179,7 @@ function fight(seed) {
       if (e.type === 'hurt' && e.src === 'krakenArm' && !run.events.some((q) => q.type === 'lash')) gripDmg += e.dmg
       if (e.type === 'hurt' && e.src === 'krakenArm' && run.events.some((q) => q.type === 'lash' && !q.coil) && !run.events.some((q) => q.type === 'lash' && q.coil)) slamHits++
       if (e.type === 'parry' || e.type === 'parryPerfect') parries++
-      else if (e.type === 'parryWhiff') whiffs++
+      else if (e.type === 'parryWhiff' || e.type === 'parryEarly') whiffs++
       else if (e.type === 'armRear') limpWindows += 0
       else if (e.type === 'headStagger') staggers++
       else if (e.type === 'krakenEnrage') enraged = e.n

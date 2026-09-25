@@ -172,7 +172,7 @@ import {
   KRAKEN_RISE_T, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, hiddenChapters, KRAKEN_CAGE_R, KRAKEN_PARRY_CD,
   KRAKEN_OPEN_WAVES, KRAKEN_COIL_EVERY, KRAKEN_ARRIVE_T, KRAKEN_RING_R, KRAKEN_LASH_R, KRAKEN_SLAM_T, KRAKEN_DEFLECT_CD,
   KRAKEN_LUNGE_T, KRAKEN_GRIP_DUR, KRAKEN_GRIP_DMG, KRAKEN_GRIP_FLICKS, KRAKEN_GRIP_STICK_MUL, TRAWL_WIGGLE_ARC,
-  KRAKEN_LASH_W, KRAKEN_LASH_OVER, KRAKEN_LASH_DMG, KRAKEN_LESSON_MAX, KRAKEN_PARRY_SHOVE_R, KRAKEN_ARRIVE_T2, KRAKEN_WAVE_GROWTH, KRAKEN_COIL_DMG,
+  KRAKEN_LASH_W, KRAKEN_LASH_OVER, KRAKEN_LASH_DMG, KRAKEN_LESSON_MAX, KRAKEN_PARRY_SHOVE_R, KRAKEN_PARRY_EARLY_T, KRAKEN_ARRIVE_T2, KRAKEN_WAVE_GROWTH, KRAKEN_COIL_DMG,
   KRAKEN_HEAD_SPEED, KRAKEN_PARRY_SPIN_T, krakenLimbHalfW, FISH_R, FISH_BODY, KRAKEN_GRIP_EVERY, KRAKEN_GRAB_FUSE,
 } from '../src/config.js'
 import { krakenWinPending, stepSim, applyChoice, buildLevelUpChoices, eligibleWeaponModCandidates, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, inRefillCircle, stepCharge, newElWindow, spurAt } from '../src/sim.js'
@@ -20322,6 +20322,7 @@ run(testLeLargeWeapons)
   run(testKrakenLesson)
   run(testKrakenParryShove)
   run(testKrakenGrab)
+  run(testKrakenNowCue)
   run(runKrakenCeremony)
   run(runBiomes)
   run(testBootLoader)
@@ -34989,7 +34990,10 @@ function runKraken() {
       // lose the call and a slam winds up with no tell at all; lose the white and "PARRY WHEN IT
       // FLASHES" is a lie; lose the travelling front and the fuse has no clock.
       ['0xa99ed6; drawKrakenCharge(rig, a, rung)', 'a plain slam winding up — no suckers light, nothing is drawn on the floor, so the attack is unannounced'],
-      ['G.circle(x, y, r).fill({ color: 0xfff6ec', "the parry window — the suckers never go white, so the lesson's PARRY WHEN IT FLASHES has nothing to point at"],
+      ['const col = mix(0xffc65a, 0xffffff, pop)', "the parry window — the suckers never flash white, so the lesson's PARRY WHEN IT FLASHES has nothing to point at"],
+      // THE PRESS-NOW GLYPH AT THE FISH (slamWindow): the one tell the eye is actually on.
+      ["case 'slamWindow': {", 'the press-now cue at the fish — the window opens on the arm, far off, and nothing where the player is looking says NOW'],
+      ['const left = Math.max(0, Math.min(1, a.tele / rung.window))', "the beat at the fish does not run on the arm's own clock, so it does not end on the impact"],
       ['const tF = tS + (1 - tS) * Math.pow(prog, 0.9)', 'the charge running up the limb — without the front, how much fuse is left cannot be read'],
       // THE COIL'S VOLLEY WEARS ITS OWN LOOK, AND THE SPARED ARM DOES NOT. Five lanes light in the
       // warning colour and one stays the limb it always was — that dark lane IS the answer to the
@@ -35795,6 +35799,97 @@ function testKrakenGrab() {
   step(P, true)
   assert.ok(arm.limpT > 0, 'the button was lit and the press did not land')
   console.log(`PASS run KG (grab + parry tell): a grab winds up aimed (${KRAKEN_GRAB_FUSE}s), grips a fish on its line and misses one 120px off it, a press during it is a whiff with the button dark; parryReady lights only inside a slam's window, in reach, off cooldown, and a press on it lands`)
+}
+
+// THE PRESS-NOW CUE AND THE EARLY PRESS (2026-09-25). A plain slam's window used to open only on
+// the arm — long, often half off the screen, far from the fish the eye is on — so sim now says
+// 'slamWindow' on the frame it opens in reach, and render/audio put a glint and a sting AT THE FISH.
+// That promise is only worth anything if it is exactly once, on exactly that frame, and never for a
+// slam the button could not answer (out of reach, a grab). A press just before it is 'parryEarly'
+// instead of a plain whiff — feedback only: it must still parry nothing and still spend the cooldown.
+function testKrakenNowCue() {
+  Math.random = mulberry32(20260925)
+  const run = createRun({ ...makeMeta(), krakenParried: true }, { chapter: 'kraken', difficulty: 2 })
+  const budget = KRAKEN_OPEN_WAVES * (KRAKEN_WAVE_TIMEOUT + 2) + KRAKEN_ARRIVE_T + 5
+  let guard = 0
+  while (run.script.phase !== 'boss' && guard++ < 60 * budget) { run.player.hp = run.player.maxHP; stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60) }
+  assert.strictEqual(run.script.phase, 'boss', 'the approach never reached the ring')
+  const R = krakenRung(2)
+  const s = run.script
+  const arm = run.krakenArms[0]
+  for (const a of run.krakenArms) { a.tele = 0; a.gripT = 0; a.limpT = 0; a.grabArm = false; if (a !== arm) a.dead = true }
+  const p = run.player
+  const P = { x: arm.x, y: arm.y }
+  const step = (at, press = false) => {
+    if (at) { p.x = at.x; p.y = at.y }
+    p.hp = p.maxHP; p.invuln = 0
+    s.turnT = 99
+    run.events.length = 0
+    stepSim(run, { x: 0, y: 0, skill: press }, 1 / 60)
+    return run.events
+  }
+  const arm0 = (tele, grab = false) => {
+    arm.tele = tele; arm.fuse = R.fuse; arm.slamT = 0; arm.limpT = 0; arm.gripT = 0; arm.grabArm = grab
+    arm.aimed = true; arm.aimX = P.x; arm.aimY = P.y
+    run.repulseCd = 0
+  }
+  // run the wind-up to its end, recording every slamWindow and the tele it fired against
+  const windUp = (at) => {
+    const fired = []
+    for (let i = 0; i < 60 * 3 && arm.tele > 0; i++) {
+      const before = arm.tele
+      const ev = step(at).filter((e) => e.type === 'slamWindow')
+      for (const e of ev) fired.push({ e, before, after: arm.tele })
+    }
+    return fired
+  }
+  // 1) IN REACH: exactly one, on the frame the window opens
+  arm0(R.window + 0.3)
+  let fired = windUp(P)
+  assert.strictEqual(fired.length, 1, `a plain slam in reach pushed ${fired.length} slamWindow events over one wind-up (want exactly 1)`)
+  const f = fired[0]
+  assert.ok(f.before > R.window && f.e.t <= R.window && f.e.t > 0,
+    `slamWindow fired at tele ${f.before.toFixed(3)} -> ${f.e.t.toFixed(3)}, not on the frame the ${R.window}s window opened`)
+  assert.strictEqual(f.e.i, arm.i, 'slamWindow names another arm')
+  // ...and the NEXT wind-up of the same arm gets its own
+  for (let i = 0; i < 30; i++) step(P)
+  arm0(R.window + 0.3)
+  assert.strictEqual(windUp(P).length, 1, "an arm's second wind-up got no press-now cue — the latch never re-armed")
+  // 2) OUT OF REACH: never — the cue is a promise that a press would land
+  for (let i = 0; i < 30; i++) step(P)
+  const L = Math.hypot(arm.lx1 - arm.lx0, arm.ly1 - arm.ly0)
+  const far = { x: P.x - (arm.ly1 - arm.ly0) / L * 600, y: P.y + (arm.lx1 - arm.lx0) / L * 600 }
+  arm0(R.window + 0.3)
+  fired = windUp(far)
+  assert.strictEqual(fired.length, 0, 'slamWindow fired for a slam 600px off the fish — the sting would promise a parry the button cannot make')
+  // 3) A GRAB: never — it is dodged, not parried
+  for (let i = 0; i < 30; i++) step(P)
+  arm0(R.window + 0.3, true)
+  fired = windUp(P)
+  assert.strictEqual(fired.length, 0, 'slamWindow fired for a GRAB wind-up — the press-now cue on a thing the button does not answer')
+  // 4) EARLY: a press KRAKEN_PARRY_EARLY_T or less before the window is parryEarly, and nothing else
+  arm.gripT = 0
+  for (let i = 0; i < 60; i++) { arm.gripT = 0; step(P) }
+  arm0(R.window + KRAKEN_PARRY_EARLY_T * 0.6)
+  let ev = step(P, true)
+  const n = (t) => ev.filter((e) => e.type === t).length
+  assert.strictEqual(n('parryEarly'), 1, 'a press just before the window did not say it was EARLY')
+  assert.ok(n('parryWhiff') === 0 && n('parry') === 0 && n('parryPerfect') === 0, 'an early press was also reported as a whiff or a parry')
+  assert.ok(arm.limpT === 0 && arm.tele > 0, 'an early press parried the slam — it is feedback only, it must not change what lands')
+  assert.ok(run.repulseCd > 0, 'an early press cost no cooldown — it is still a whiff by every rule')
+  let landed = false
+  for (let i = 0; i < 60 * 2 && !landed; i++) landed = step(P).some((e) => e.type === 'lash')
+  assert.ok(landed && arm.limpT === 0, 'the slam an early press was spent on never landed')
+  // 5) TOO EARLY for that is a plain whiff; 6) inside the window is a parry, never 'early'
+  for (let i = 0; i < 30; i++) step(P)
+  arm0(R.window + KRAKEN_PARRY_EARLY_T + 0.1)
+  ev = step(P, true)
+  assert.ok(n('parryWhiff') === 1 && n('parryEarly') === 0, 'a press well before the early band was not a plain whiff')
+  for (let i = 0; i < 60 * 2; i++) step(P)
+  arm0(R.window * 0.5)
+  ev = step(P, true)
+  assert.ok((n('parry') + n('parryPerfect')) === 1 && n('parryEarly') === 0, 'a press inside the window was not a clean parry')
+  console.log(`PASS run KN (press-now cue): slamWindow fires once per plain slam, on the frame its ${R.window}s window opens in reach (tele ${f.before.toFixed(3)} -> ${f.e.t.toFixed(3)}), never 600px out of reach, never for a grab; a press within ${KRAKEN_PARRY_EARLY_T}s before it is parryEarly (no parry, cooldown spent, the slam still lands), earlier is a whiff, inside is a parry`)
 }
 
 function testKrakenParryShove() {

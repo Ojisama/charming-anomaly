@@ -691,16 +691,21 @@ const SFX_FOR_EVENT = {
   // case instead, and the weight of it is carried by the screen shake.
   sunspear: 'shoot', sunlance: 'beam',
   // The Kraken (the Undertow's hidden parry boss). parry/parryPerfect are the dash button landing
-  // on an arm's pending slam — puffblock is the "block" voice, crush the heavier perfect one. blaze
+  // on an arm's pending slam — deflect is Sekiro's metal "tink", deflectHi the harder perfect. blaze
   // is the bar topping and the arm breaking outright. headWindup is the bare head drawing back
   // before a lunge — orcaAim, the one note in the bank that is a countdown rather than a report, and
   // it fires KRAKEN_LUNGE_WINDUP_T ahead so it LEADS the parry window. headLunge is the launch.
-  parry: 'puffblock', parryPerfect: 'crush', blaze: 'explode', headWindup: 'orcaAim', headLunge: 'lunge',
+  parry: 'deflect', parryPerfect: 'deflectHi', blaze: 'explode', headWindup: 'orcaAim', headLunge: 'lunge',
   // parryWhiff is a press that found nothing. `click` and not a miss-swoosh on purpose: it is the
   // bank's one DRY, dead note, and a whiff is exactly "the button did nothing" — the same sound a
   // dead button makes. It fires often enough (about a quarter of presses) that anything with a
   // voice would nag, and quiet enough to sit under the parry's own block.
   parryWhiff: 'click',
+  // slamWindow is THE press-now cue: the frame a plain slam's parry window opens in reach of the
+  // fish. It is as frequent as the slams you stand under, and it is the one sound the whole parry
+  // is timed off, so it earns its voice. parryEarly is a press inside KRAKEN_PARRY_EARLY_T before
+  // that — a whiff by every rule, voiced as a dull thud so "too soon" is not "nothing there".
+  slamWindow: 'sting', parryEarly: 'thud',
   // armRear is the wind-up STARTING — the fight's metronome and the thing the whole parry hangs
   // off, so it gets a voice even though it is the most frequent of these (about one every
   // `cadence` seconds). 'puffblock' is the parry's own note, so the rear uses 'shoot', which is

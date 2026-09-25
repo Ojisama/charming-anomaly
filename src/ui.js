@@ -2580,6 +2580,15 @@ export function initUI(hooks) {
         last.bossBarPct = pct
         hud.bossBarFill.style.width = `${pct}%`
       }
+      // A PARRY JOLTS THE BOSS'S BAR: the deflect is a blow to the boss even when its hp does not
+      // move (Sekiro's posture), so the bar flinches — restarting the CSS animation each time
+      const bump = events && events.find((e) => e.type === 'parry' || e.type === 'parryPerfect')
+      if (bump) {
+        const w = hud.bossBarWrap
+        w.classList.remove('boss-bump', 'boss-bump-hi')
+        void w.offsetWidth
+        w.classList.add(bump.type === 'parryPerfect' ? 'boss-bump-hi' : 'boss-bump')
+      }
     }
     // ...and on a circuit it has to keep the DEV word, or the first frame the counter moves wipes
     // it. Written through the same helper as the chapter-change branch above so the two cannot

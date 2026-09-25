@@ -2366,7 +2366,7 @@ function generateWells(sig) {
   *   and nothing throws. Out here, all of those exclusions are structural instead of remembered.
   *   The HEAD is the opposite call and stays an ordinary enemy: it is a real creature you kill, so
   *   it takes weapon damage, drives the boss bar and pays out on death.
-  *   Each arm: { i, ang, x, y, hp, maxHP, tele, fuse, limpT, nodeId, dead, paid, gripT, grabArm, hitT, breakT, slamT }.
+  *   Each arm: { i, ang, x, y, hp, maxHP, tele, fuse, limpT, nodeId, dead, paid, gripT, grabArm, hitT, breakT, slamT, nowSent }.
   *     slamT — the follow-through of an unparried slam: >0 while the limb is still planted where it
   *             landed. Render holds the pose against it. A strike that went back to idle on the
   *             frame it landed had a sound and a ring and no MOVEMENT, which is most of why the
@@ -2408,6 +2408,14 @@ function generateWells(sig) {
   *     hitT — >0 for KRAKEN_LIMP_FLASH after A PARRY LANDS ON IT, and render tints the tentacle off
   *            it. NOT set by the arm's own slam: that is the `lash` event's picture. It was, and had
   *            no reader at all, which is why five parries into a 320hp arm looked like one.
+  *     nowSent — this wind-up has already pushed its {type:'slamWindow', i, x, y, px, py, t}: the
+  *            press-now cue, once per plain slam, on the first frame its window is open AND a press
+  *            would reach it (x/y the nearest point of the struck line, px/py the fish, t the
+  *            seconds left to impact). Cleared whenever tele is above the window.
+  *     A press that is too EARLY — a plain slam in reach whose window opens within
+  *     KRAKEN_PARRY_EARLY_T — pushes {type:'parryEarly', i, x, y, px, py, cd} INSTEAD of
+  *     'parryWhiff'. It is a whiff by every rule (cooldown spent, nothing parried); only the
+  *     feedback differs. 'parry'/'parryPerfect' on an arm carry `i`, the limb that was parried.
   *
  * The chapter reuses two existing generic entities rather than adding new run arrays: run.bombs
  *   (telegraph->blast) carries `src:'trail'` for every trail detonation (P1's own read, and at
