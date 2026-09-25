@@ -117,7 +117,7 @@ const glow = { frames: 0, ringNoParry: 0, parryNoRing: 0, both: 0, btnClasses: {
 const tellCounts = {}
 const grabOpen = {}   // arm -> { hurt } while its grab winds up
 const lastGrabTrace = {}
-const safeStat = { grabs: 0, sideRight: 0, contested: 0, savedByIt: 0, steppedIntoThreat: 0 }
+const safeStat = { grabs: 0, sideRight: 0, sideRightAny: 0, oneClear: 0, contested: 0, savedByIt: 0, steppedIntoThreat: 0 }
 
 function parryWouldLand(p) {
   // krakenParry's own candidacy (sim.js): arm in window, on its struck line widened by the margin
@@ -216,15 +216,30 @@ function beat(tells) {
   // the side is judged against the threats that were live WHEN THE GRAB STARTED (what the chevron
   // could know): a slam that starts later aims at wherever the fish has stepped to, i.e. at the safe
   // side by construction, so judging at the strike would grade the chevron against its own success
-  const sideHot = (a, sd) => {
+  // timed: only threats that land while the fish would still be out there (before the grab strikes
+  // + KRAKEN_BEAT_BREATH + 0.3s) — a slam landing seconds later aims at wherever the fish is by then.
+  // untimed (any=true): every live lane, however far off it lands, the stricter reading.
+  const sideHot = (a, sd, any = false) => {
     const L = Math.hypot(a.lx1 - a.lx0, a.ly1 - a.ly0) || 1
     const nx = -(a.ly1 - a.ly0) / L, ny = (a.lx1 - a.lx0) / L
     const x = a.aimX + nx * sd * C.KRAKEN_GRAB_SAFE_STEP, y = a.aimY + ny * sd * C.KRAKEN_GRAB_SAFE_STEP
-    return run.krakenArms.some((o) => o !== a && !o.dead && o.tele > 0 && o.limpT <= 0 && seg2(x, y, o.lx0, o.ly0, o.lx1, o.ly1) <= C.KRAKEN_LASH_W ** 2)
+    // a spot past the cage wall is not a place the fish can be: that side is blocked, i.e. not clear
+    const hh = head(), cr = run.script.cageR > 0 ? run.script.cageR : C.KRAKEN_CAGE_R
+    if (hh && Math.hypot(x - hh.x, y - hh.y) > cr) return true
+    return run.krakenArms.some((o) => o !== a && !o.dead && o.tele > 0 && o.limpT <= 0 && (any || o.tele <= C.KRAKEN_GRAB_FUSE + C.KRAKEN_BEAT_BREATH + 0.3) && seg2(x, y, o.lx0, o.ly0, o.lx1, o.ly1) <= C.KRAKEN_LASH_W ** 2)
+  }
+  // why the OTHER side was not picked when it was the clear one (diagnostic)
+  const sideWhy = (a, sd) => {
+    const L = Math.hypot(a.lx1 - a.lx0, a.ly1 - a.ly0) || 1
+    const nx = -(a.ly1 - a.ly0) / L, ny = (a.lx1 - a.lx0) / L
+    const x = a.aimX + nx * sd * C.KRAKEN_GRAB_SAFE_STEP, y = a.aimY + ny * sd * C.KRAKEN_GRAB_SAFE_STEP
+    const hh = head(), cr = run.script.cageR > 0 ? run.script.cageR : C.KRAKEN_CAGE_R
+    const dh = hh ? Math.hypot(x - hh.x, y - hh.y) : 0
+    return dh > cr - 20 ? 'clear side was past the cage wall' : dh < C.KRAKEN_HEAD_R * 1.8 ? 'clear side was on the head' : 'scored threats'
   }
   for (const a of run.krakenArms) {
     if (a.grabArm && a.tele > 0) {
-      const r = grabOpen[a.i] || (grabOpen[a.i] = { hurt: false, safeHot: sideHot(a, a.grabSafeSide), otherHot: sideHot(a, -a.grabSafeSide) })
+      const r = grabOpen[a.i] || (grabOpen[a.i] = { hurt: false, safeHot: sideHot(a, a.grabSafeSide), otherHot: sideHot(a, -a.grabSafeSide), safeHotAny: sideHot(a, a.grabSafeSide, true), why: sideWhy(a, -a.grabSafeSide) })
       if (d.act === 'dodgeGrab' && ev.some((e) => e.type === 'lash' && !e.coil) && hurtArm) r.hurt = true
       if (typeof process !== 'undefined' && process.env.KC_WHY) { r.trace = r.trace || []; if ((r.trace.length % 1) === 0 && Math.round(a.tele * 60) % 12 === 0) r.trace.push([+a.tele.toFixed(2), d.act, Math.round(Math.sqrt(seg2(p.x, p.y, a.lx0, a.ly0, a.lx1, a.ly1))), Math.round(p.x), Math.round(p.y), +d.ix.toFixed(2), +d.iy.toFixed(2)]) }
     }
@@ -241,7 +256,10 @@ function beat(tells) {
     const safeHot = !!r.safeHot, otherHot = !!r.otherHot
     if (safeHot || otherHot) safeStat.contested++
     if (!safeHot) safeStat.sideRight++
+    if (!r.safeHotAny) safeStat.sideRightAny++
     if (!safeHot && otherHot) safeStat.savedByIt++
+    if (safeHot !== otherHot) safeStat.oneClear++
+    if (safeHot && !otherHot) { safeStat.wrong = safeStat.wrong || {}; const k = r.why || '?'; safeStat.wrong[k] = (safeStat.wrong[k] || 0) + 1 }
   }
   for (const e of ev) {
     if (e.type === 'parry' || e.type === 'parryPerfect') press.land++

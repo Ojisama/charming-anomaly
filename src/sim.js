@@ -1852,26 +1852,33 @@ function krakenLimbTouches(run, a, head) {
 
 // WHICH WAY TO STEP OFF A GRAB (owner's critic, 2026-09-26: the obvious perpendicular step walked
 // into the slam beside it). Decided ONCE, at the grab's wind-up, and published as a.grabSafeSide
-// (+1/-1 along the lane's left normal (-uy, ux)) so render's chevron and anything grading it agree:
-// the side whose landing spot, KRAKEN_GRAB_SAFE_STEP off the lock point, is further from every other
-// live threat — another arm's struck line while it winds up, or a Coil lane. With nothing near
-// either side, the side that keeps the fish inside the cage and away from the head.
-function krakenGrabSafeSide(run, g, head) {
+// (+1/-1 along the lane's left normal (-uy, ux)) so render's chevron and anything grading it agree.
+// Each side is scored along the whole ESCAPE PATH (three spots out to KRAKEN_GRAB_SAFE_STEP) against
+// every other live threat — another arm's struck line while it winds up, or a Coil lane — and each
+// threat is WEIGHTED BY WHEN IT LANDS: one landing while the fish is still out there (before the
+// grab's strike + KRAKEN_BEAT_BREATH) counts in full, one still early in a long fuse fades out, so a
+// far-off slam never outweighs an imminent one. The cage wall is no step at all. The head costs a
+// little (its touch is KRAKEN_HEAD_TOUCH_DMG, a slam is a whole lash), so it only breaks near-ties.
+export function krakenGrabSafeSide(run, g, head) {
   const L = Math.hypot(g.lx1 - g.lx0, g.ly1 - g.ly0) || 1
   const nx = -(g.ly1 - g.ly0) / L, ny = (g.lx1 - g.lx0) / L
   const cageR = run.script.cageR > 0 ? run.script.cageR : KRAKEN_CAGE_R
+  const horizon = KRAKEN_GRAB_FUSE + KRAKEN_BEAT_BREATH
   let best = 1, bestScore = Infinity
   for (const sg of [1, -1]) {
-    const px = g.aimX + nx * sg * KRAKEN_GRAB_SAFE_STEP, py = g.aimY + ny * sg * KRAKEN_GRAB_SAFE_STEP
     let score = 0
-    for (const o of run.krakenArms) {
-      if (o === g || o.dead || !(o.tele > 0) || o.limpT > 0) continue
-      const d = Math.sqrt(segDist2(px, py, o.lx0, o.ly0, o.lx1, o.ly1))
-      score += Math.max(0, KRAKEN_LASH_W * 2.5 - d) * 10     // a live lane near that spot dominates
+    for (const f of [0.35, 0.7, 1]) {
+      const px = g.aimX + nx * sg * KRAKEN_GRAB_SAFE_STEP * f, py = g.aimY + ny * sg * KRAKEN_GRAB_SAFE_STEP * f
+      for (const o of run.krakenArms) {
+        if (o === g || o.dead || !(o.tele > 0) || o.limpT > 0) continue
+        const when = o.tele <= horizon ? 1 : Math.exp(-(o.tele - horizon) / 0.4)
+        const d = Math.sqrt(segDist2(px, py, o.lx0, o.ly0, o.lx1, o.ly1))
+        score += Math.max(0, KRAKEN_LASH_W * 2.5 - d) * 10 * when * f   // the far end of the step matters most
+      }
+      const dh = Math.hypot(px - head.x, py - head.y)
+      if (dh > cageR - 20) score += (dh - (cageR - 20)) * 20 * f       // off the edge of the cage is no step
+      score += Math.max(0, KRAKEN_HEAD_R * 1.8 - dh) * f               // onto the head: a small tax, a tie-break
     }
-    const dh = Math.hypot(px - head.x, py - head.y)
-    if (dh > cageR - 20) score += (dh - (cageR - 20)) * 20     // off the edge of the cage is no step
-    score += Math.max(0, KRAKEN_HEAD_R * 1.8 - dh) * 10       // nor onto the head, whose body blocks the step
     if (score < bestScore) { bestScore = score; best = sg }
   }
   return best

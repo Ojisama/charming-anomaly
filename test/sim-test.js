@@ -176,7 +176,7 @@ import {
   KRAKEN_HEAD_SPEED, KRAKEN_PARRY_SPIN_T, krakenLimbHalfW, FISH_R, FISH_BODY, KRAKEN_GRIP_EVERY, KRAKEN_GRAB_FUSE,
   KRAKEN_BEAT_READ, KRAKEN_BEAT_GRAB_CLEAR, KRAKEN_BEAT_BREATH,
 } from '../src/config.js'
-import { krakenWinPending, stepSim, applyChoice, buildLevelUpChoices, eligibleWeaponModCandidates, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, inRefillCircle, stepCharge, newElWindow, spurAt } from '../src/sim.js'
+import { krakenWinPending, krakenGrabSafeSide, stepSim, applyChoice, buildLevelUpChoices, eligibleWeaponModCandidates, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, inRefillCircle, stepCharge, newElWindow, spurAt } from '../src/sim.js'
 
 // ---- Scenario runner: one filter, and the gate's own dispatch flag ----------------------------
 // THIS FILE IS NO LONGER WHAT `npm test` RUNS. scripts/test-isolation.mjs hands one scenario to
@@ -35839,7 +35839,27 @@ function testKrakenGrab() {
       startGrab()
       assert.strictEqual(arm.grabSafeSide, -sg, `a slam lane beside the grab on side ${sg} and the grab still says to step to side ${arm.grabSafeSide} — into it`)
     }
+    // 5b) WHEN IT LANDS MATTERS: a slam lane on EACH side — one landing 0.9s into the grab's wind-up
+    // (while the fish would be standing there), the other still early in a long fuse. The step goes to
+    // the far-off one's side, both ways round; unweighted, the two cancel and a tie-break decides.
+    // Called directly on the grab just staged: with two arms already rearing the ring's cap
+    // (rung.rearing) would never hand out the grab turn, which is the scheduler working, not a bug.
+    const arm3 = run.krakenArms.find((c) => c !== arm && c !== arm2)
+    for (const sg of [1, -1]) {
+      for (const [o, side, tele] of [[arm2, sg, 0.9], [arm3, -sg, R2.fuse + 4]]) {
+        o.dead = false; o.limpT = 0; o.gripT = 0; o.slamT = 0; o.coilArm = false; o.grabArm = false
+        o.aimed = true; o.aimX = P.x + nx2 * side * 90; o.aimY = P.y + ny2 * side * 90
+        o.fuse = Math.max(R2.fuse, tele); o.tele = tele
+        // publish the lane the sim will strike (krakenLashLine runs on every step)
+        const ca = Math.cos(o.ang), sa = Math.sin(o.ang)
+        o.lx0 = h.x + ca * KRAKEN_RING_R; o.ly0 = h.y + sa * KRAKEN_RING_R
+        const dd = Math.hypot(o.aimX - o.lx0, o.aimY - o.ly0) || 1, LL = Math.max(KRAKEN_RING_R, dd)
+        o.lx1 = o.lx0 + (o.aimX - o.lx0) / dd * LL; o.ly1 = o.ly0 + (o.aimY - o.ly0) / dd * LL
+      }
+      assert.strictEqual(krakenGrabSafeSide(run, arm, h), -sg, `an imminent slam on side ${sg} and a far-off one on side ${-sg}, and the chevron says ${krakenGrabSafeSide(run, arm, h)} — into the one about to land`)
+    }
     arm2.dead = true
+    arm3.dead = true
   }
   console.log(`PASS run KG (grab + parry tell): a grab winds up aimed (${KRAKEN_GRAB_FUSE}s), grips a fish on its line and misses one 120px off it, a press during it is a whiff with the button dark; parryReady lights only inside a slam's window, in reach, off cooldown, and a press on it lands`)
 }
