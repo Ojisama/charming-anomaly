@@ -10,6 +10,7 @@
 // THE BOT, in priority order (one answer per kind of attack):
 //   hold tell                        -> WIGGLE the stick (one turn a second, ~4 flicks/s)
 //   slamFlash within reach of me     -> PRESS (reach = distance to the DRAWN limb polyline)
+//   slamNow (the glyph AT the fish)  -> PRESS (it is drawn only for a slam a press would reach)
 //   lungeFlash                       -> PRESS
 //   grabCharge                       -> step PERPENDICULAR off its line (tip -> aim point)
 //   coil lanes                       -> walk to the widest dark gap between the lit lanes
@@ -60,6 +61,7 @@ function decide(tells) {
   const cd = run.repulseCd ?? 0            // the button's own drawn state (its cooldown border)
   if (cd <= 0) {
     if (has('slamFlash').some((t) => polyD(p.x, p.y, t) <= parryW)) press = true
+    if (has('slamNow').length) press = true
     if (has('lungeFlash').length) press = true
   }
   const toward = (x, y, k = 1) => { const dx = x - p.x, dy = y - p.y, d = Math.hypot(dx, dy); if (d > 6) { ix = dx / d * k; iy = dy / d * k } }
@@ -170,7 +172,7 @@ function beat(tells) {
       const band = seg2(p.x, p.y, a.lx0, a.ly0, a.lx1, a.ly1) <= parryW * parryW
       if (band && !r.band) { r.ia = t; r.ib = t + a.tele }   // the answer is DUE from now until it would land
       if (band) r.band = true
-      if (band && drawn(a.i, 'slamFlash')) r.flash = true
+      if (band && (drawn(a.i, 'slamFlash') || drawn(a.i, 'slamNow'))) r.flash = true
       if (band && d.press) r.pressed = true
       if (band && cd > 0) r.cdBlocked = true
     }

@@ -96,6 +96,13 @@ async function headless(diff, seed) {
       else if (a.tele > 0) {
         tells.push({ src: 'arm', i: a.i, kind: a.tele <= rung.window ? 'slamFlash' : 'slamCharge', ...line })
         if (a.tele <= rung.window) winAny = true
+        // REPLICA of drawKrakenNow: the press-now glyph at the fish, for a slam in its window that a
+        // press would reach (sim's slamWindow rule), while the button is off cooldown
+        const RW = C.KRAKEN_LASH_W * C.KRAKEN_PARRY_MARGIN
+        const dx = a.lx1 - a.lx0, dy = a.ly1 - a.ly0, l2 = dx * dx + dy * dy || 1
+        const u = Math.max(0, Math.min(1, ((p.x - a.lx0) * dx + (p.y - a.ly0) * dy) / l2))
+        const inReach = (p.x - a.lx0 - dx * u) ** 2 + (p.y - a.ly0 - dy * u) ** 2 <= RW * RW
+        if (a.tele <= rung.window && inReach && !((r.repulseCd ?? 0) > 0)) tells.push({ src: 'arm', i: a.i, kind: 'slamNow', x: p.x, y: p.y })
       } else if (s.gripSoonI === a.i) tells.push({ src: 'arm', i: a.i, kind: 'grabCharge', x: a.x, y: a.y, x0: a.x, y0: a.y, x1: p.x, y1: p.y })
     }
     const lunge = s.phase === 'chase' && !(s.staggerT > 0) && head.lungeT > 0

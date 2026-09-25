@@ -11321,7 +11321,7 @@ const gripArt = (() => {
 })()
 // WHAT IS DRAWN, PUBLISHED (?debug only): every Kraken tell logs itself AT THE SITE THAT DRAWS IT,
 // so a tell that is not drawn cannot be logged. scripts/kraken-cues.mjs plays off this list alone.
-// kinds: slamCharge slamFlash grabCharge hold coil limp lungeCharge lungeFlash pressRing. A new tell is
+// kinds: slamCharge slamFlash slamNow earlyDent grabCharge hold coil limp lungeCharge lungeFlash pressRing. A new tell is
 // one call: tellDrawn('arm', a.i, 'kind', x, y, x0, y0, x1, y1).
 const tellsOn = (() => { try { return new URLSearchParams(location.search).has('debug') } catch { return false } })()
 let tellLog = []
@@ -20126,7 +20126,9 @@ void main() {
       const x = p1.x + nx * hw * 0.42 * side, y = p1.y + ny * hw * 0.42 * side
       const r = Math.max(2, hw * K_SUCK_R * 0.95)
       if (win) {
-        const col = mix(0xffc65a, 0xffffff, pop)
+        // after its flash the window is EMBER: still the threat colour, dimmer than the flash, so a
+        // bright warm state on this fight only ever follows a parry
+        const col = mix(0xb8321a, 0xffffff, pop)
         G.circle(x, y, r * 1.5).fill({ color: 0x1a0800, alpha: 0.5 })
         G.circle(x, y, r * 2.6).fill({ color: col, alpha: 0.12 + 0.3 * pop })
         G.circle(x, y, r * 1.2).fill({ color: col, alpha: 0.95 })
@@ -20222,28 +20224,32 @@ void main() {
     hook(); G.stroke({ width: 9, color: K_GRAB_HOT, alpha: 1, cap: 'round', join: 'round' })
   }
 
+  // 1 normally; eased down while a plain slam is winding up at the fish (drawKrakenRing), so a parried
+  // arm's target lying under the fish does not bury the press-now read.
+  let krakenHitMeK = 1
   // THE WEAK POINT: bright, pulsing, bracketed — drawn on exactly the spot the weapons hit (a limp
   // arm's node, the staggered head). `G` gets the solid body; the additive glow goes over the dark.
   function drawKrakenHitMe(G, x, y, r, core, hard = false) {
     const pu = 0.5 + 0.5 * Math.sin(animT * (hard ? 12 : 7))
+    const dk = hard ? 1 : krakenHitMeK
     if (hard) {
       // the lesson's second line is up: the target shouts
-      krakenDangerG.circle(x, y, r * (2.6 + 1.6 * pu)).stroke({ width: 6, color: 0xffffff, alpha: 0.6 + 0.4 * pu })
-      krakenDangerG.circle(x, y, r * (1.6 + 0.6 * pu)).fill({ color: 0xffc050, alpha: 0.25 + 0.25 * pu })
+      krakenDangerG.circle(x, y, r * (2.6 + 1.6 * pu)).stroke({ width: 6, color: 0xffffff, alpha: (0.6 + 0.4 * pu) * dk })
+      krakenDangerG.circle(x, y, r * (1.6 + 0.6 * pu)).fill({ color: 0xffc050, alpha: (0.25 + 0.25 * pu) * dk })
     }
     if (core) {
-      G.circle(x, y, r * 1.55 + pu * 3).fill({ color: 0xff9a3a, alpha: 0.55 })
-      G.circle(x, y, r * 1.1).fill({ color: 0x2a0608 })
-      G.circle(x, y, r * (0.7 + 0.12 * pu)).fill({ color: 0xfff2c0 })
-      G.circle(x, y, r * 1.1).stroke({ width: 3, color: 0xffffff, alpha: 0.95 })
+      G.circle(x, y, r * 1.55 + pu * 3).fill({ color: 0xff9a3a, alpha: (0.55) * dk })
+      G.circle(x, y, r * 1.1).fill({ color: 0x2a0608, alpha: dk })
+      G.circle(x, y, r * (0.7 + 0.12 * pu)).fill({ color: 0xfff2c0, alpha: dk })
+      G.circle(x, y, r * 1.1).stroke({ width: 3, color: 0xffffff, alpha: (0.95) * dk })
     }
-    if (core) krakenDangerG.circle(x, y, r * (2.2 + 0.4 * pu)).fill({ color: 0xffb040, alpha: 0.10 + 0.10 * pu })
+    if (core) krakenDangerG.circle(x, y, r * (2.2 + 0.4 * pu)).fill({ color: 0xffb040, alpha: (0.10 + 0.10 * pu) * dk })
     const R = r * 2.1 + (1 - pu) * 8
     for (let k = 0; k < 4; k++) {
       const a0 = animT * 1.6 + k * Math.PI / 2
       krakenDangerG.beginPath()
       krakenDangerG.arc(x, y, R, a0 - 0.32, a0 + 0.32)
-      krakenDangerG.stroke({ width: 4, color: 0xffe6a0, alpha: 0.75 + 0.25 * pu, cap: 'round' })
+      krakenDangerG.stroke({ width: 4, color: 0xffe6a0, alpha: (0.75 + 0.25 * pu) * dk, cap: 'round' })
     }
   }
 
@@ -20327,7 +20333,7 @@ void main() {
   // reads as its shield or its hurt, and never out in open water where the reared limb hung. A
   // streak joins the fish to it, and the limb is thrown back away from the fish (krakenRecoil).
   const K_CLASH_MIN = 52, K_CLASH_MAX = 92
-  function krakenParried(e, perfect) {
+  function krakenParried(e, perfect, run) {
     krakenNow = null
     krakenEarly = null
     const c = e.px !== undefined ? krakenLimbNear(e.i, e.px, e.py) : null
@@ -20336,7 +20342,11 @@ void main() {
     const ux = dx / dl, uy = dy / dl
     const r = Math.max(K_CLASH_MIN, Math.min(K_CLASH_MAX, dl))
     const cx = e.px + ux * r, cy = e.py + uy * r
-    krakenRecoil[e.i] = { t: K_RECOIL_T, ux, uy }
+    // KNOCKED BACK ALONG ITS OWN AXIS: tip toward shoulder, i.e. out from the head along the arm's bearing
+    const arm = run && run.krakenArms.find((q) => q.i === e.i)
+    const bx = arm ? Math.cos(arm.ang) : ux, by = arm ? Math.sin(arm.ang) : uy
+    krakenRecoil[e.i] = { t: K_RECOIL_T, ux: bx, uy: by, amp: perfect ? 190 : 150 }
+    addPunch(perfect ? 0.1 : 0.06, cx, cy, 0.3)
     krakenStreaks.push({ x0: e.px + ux * 22, y0: e.py + uy * 22, x1: cx, y1: cy, t: K_STREAK_T })
     if (krakenStreaks.length > 3) krakenStreaks.shift()
     krakenClash({ ...e, cx, cy }, perfect)
@@ -20371,13 +20381,13 @@ void main() {
       // polygon (krakenStars, drawn over the limbs in syncKrakenArms) because every baked star in
       // src/fx is a soft glow with faint rays, which at this size reads as a white puff. A good
       // parry blooms; a perfect one flashes.
-      krakenStars.push({ x: cx, y: cy, ang: face, t: K_STAR_T })
+      krakenStars.push({ x: cx, y: cy, ang: face, t: K_STAR_PARRY_T + 0.04, T: K_STAR_PARRY_T + 0.04, s: 0.85, fat: true })
       if (krakenStars.length > 4) krakenStars.shift()
     } else {
-      // THE SPARK: the same hard cut at half size with a hot rim — a blade meeting a limb, full
-      // size on its first frame and held through the hitstop. (A soft baked bloom here read as a
-      // puff on the fish.)
-      krakenStars.push({ x: cx, y: cy, ang: face, t: K_STAR_T, s: 0.45, rim: 0xffb050 })
+      // THE SPARK: the same hard cut, two to three fish across, with a hot rim — a blade meeting a
+      // limb, full size on its first frame and HELD through the hitstop so a 20fps capture still
+      // lands on it. (A soft baked bloom here read as a puff on the fish.)
+      krakenStars.push({ x: cx, y: cy, ang: face, t: K_STAR_PARRY_T, T: K_STAR_PARRY_T, s: 0.62, rim: 0xffb050, fat: true })
       if (krakenStars.length > 4) krakenStars.shift()
     }
     // THE REWARD IS PAID WHERE IT WAS EARNED. A parry refills the Light, and that used to happen on
@@ -20485,17 +20495,18 @@ void main() {
         const left = Math.max(0, Math.min(1, a.tele / rung.window))
         const span = 1.1 * left
         if (span > 0.02) {
+          if (live === 1) tellDrawn('arm', n.i, 'slamNow', p.x + ca * R, p.y + sa * R)
           G.beginPath()
           G.arc(p.x, p.y, R, ang - span, ang + span)
           G.stroke({ width: 9, color: 0x160a02, alpha: 0.55 * live, cap: 'round' })
           G.beginPath()
           G.arc(p.x, p.y, R, ang - span, ang + span)
-          G.stroke({ width: 5, color: 0xffd27a, alpha: 0.95 * live, cap: 'round' })
+          G.stroke({ width: 5, color: 0xf2f8ff, alpha: 0.95 * live, cap: 'round' })
         }
         if (n.t < K_NOW_FLASH_T) {
           const k = 1 - n.t / K_NOW_FLASH_T
           const gx = p.x + ca * R, gy = p.y + sa * R
-          tellDrawn('arm', n.i, 'slamNow', gx, gy)
+          if (span <= 0.02 && live === 1) tellDrawn('arm', n.i, 'slamNow', gx, gy)
           const tx = -sa, ty = ca
           // a blade's edge catching the light: long ACROSS the incoming line, short along it
           const L = 40 * (0.7 + 0.3 * k), Wd = 9 * k + 3, Lf = 26 * (0.7 + 0.3 * k)
@@ -20511,15 +20522,35 @@ void main() {
       }
     }
     if (krakenEarly) {
-      // TOO SOON: a dull, short, grey dent on the same side — no light, no beat, gone quickly
+      // TOO SOON: a grey CRACKED dent on the fish's side toward that arm. It HOLDS until the slam
+      // it was spent on lands (then fades over K_EARLY_T), so when the hit arrives the player can
+      // see why: "you were early". A plain miss leaves nothing. No light, no beat.
       const e = krakenEarly
       if (dt > 0) e.t += dt
-      if (e.t >= K_EARLY_T || run.chapter !== 'kraken') krakenEarly = null
+      const a = run.krakenArms.find((q) => q.i === e.i)
+      const pending = !!a && !a.dead && a.tele > 0 && !(a.limpT > 0)
+      if (!pending && e.fade == null) e.fade = 0
+      if (e.fade != null && dt > 0) e.fade += dt
+      if ((e.fade != null && e.fade >= K_EARLY_T) || e.t > 2 || run.chapter !== 'kraken') krakenEarly = null
       else {
-        const k = 1 - e.t / K_EARLY_T
+        const k = e.fade == null ? 1 : 1 - e.fade / K_EARLY_T
+        const pop = Math.exp(-e.t / 0.08)
+        const ang = e.ang, R = 30
         G.beginPath()
-        G.arc(p.x, p.y, 27 + 4 * (1 - k), e.ang - 0.55, e.ang + 0.55)
-        G.stroke({ width: 5 * k + 1, color: 0x8d8579, alpha: 0.8 * k, cap: 'butt' })
+        G.arc(p.x, p.y, R, ang - 0.7, ang + 0.7)
+        G.stroke({ width: 10, color: 0x0c0a08, alpha: 0.5 * k, cap: 'butt' })
+        G.beginPath()
+        G.arc(p.x, p.y, R, ang - 0.7, ang + 0.7)
+        G.stroke({ width: 6 + 3 * pop, color: 0x9a948a, alpha: 0.9 * k, cap: 'butt' })
+        // the cracks: three dark breaks across the plate
+        for (const d of [-0.42, 0.05, 0.38]) {
+          const a0 = ang + d
+          const x0 = p.x + Math.cos(a0) * (R - 6), y0 = p.y + Math.sin(a0) * (R - 6)
+          const a1 = a0 + (d > 0 ? 0.12 : -0.12)
+          G.moveTo(x0, y0).lineTo(p.x + Math.cos(a1) * (R + 7), p.y + Math.sin(a1) * (R + 7))
+            .stroke({ width: 2, color: 0x1a1612, alpha: 0.9 * k })
+        }
+        tellDrawn('arm', e.i, 'earlyDent', p.x + Math.cos(ang) * R, p.y + Math.sin(ang) * R)
       }
     }
     for (let i = krakenStreaks.length - 1; i >= 0; i--) {
@@ -20536,18 +20567,22 @@ void main() {
       const st = krakenStars[i]
       if (dt > 0) st.t -= dt
       if (st.t <= 0) { krakenStars.splice(i, 1); continue }
-      const f = st.t / K_STAR_T
+      const f = st.t / (st.T ?? K_STAR_T)
       const k = f > 0.5 ? 1 : f / 0.5
       const pts = []
+      const sc = st.s ?? 1
+      // a PARRY's star is FAT: a warm bloom behind, broad spikes, a big white core — the burst is
+      // two to three fish across, not a thin glyph
+      if (st.fat) krakenGripFrontG.circle(st.x, st.y, 95 * sc * (0.7 + 0.3 * k)).fill({ color: 0xfff0c8, alpha: 0.4 * k })
+      const inner = st.fat ? 30 : 9
       for (let j = 0; j < 16; j++) {
         const a = st.ang + (j / 16) * Math.PI * 2
-        const sc = st.s ?? 1
-        const r = (j % 2 ? 9 * k : (j % 4 === 0 ? 118 : 62) * (0.55 + 0.45 * k)) * sc
+        const r = (j % 2 ? inner * k : (j % 4 === 0 ? 118 : 62) * (0.55 + 0.45 * k)) * sc
         pts.push(st.x + Math.cos(a) * r, st.y + Math.sin(a) * r)
       }
       krakenGripFrontG.poly(pts).fill({ color: 0xffffff, alpha: 0.95 * k + 0.05 })
       krakenGripFrontG.poly(pts).stroke({ width: 3, color: st.rim ?? 0x9fe8ff, alpha: 0.7 * k })
-      krakenGripFrontG.circle(st.x, st.y, (16 * k + 4) * (st.s ?? 1)).fill({ color: 0xffffff, alpha: k })
+      krakenGripFrontG.circle(st.x, st.y, ((st.fat ? 34 : 16) * k + 4) * sc).fill({ color: 0xffffff, alpha: k })
     }
   }
 
@@ -20575,6 +20610,12 @@ void main() {
     const total = s.armsTotal || run.krakenArms.length
     const half = Math.PI / total
     const breathe = 0.5 + 0.5 * Math.sin(animT * 1.1)
+    {
+      const threat = run.krakenArms.some((a) => !a.dead && a.tele > 0 && !a.grabArm && !a.coilArm && !(a.limpT > 0) && krakenArmNear(run, a))
+      const want = threat ? 0.25 : 1
+      const kk = 1 - Math.exp(-(frameDt || 0) * 12)
+      krakenHitMeK += (want - krakenHitMeK) * kk
+    }
 
     // The animal itself — the body below, then the head that rises out of it — is drawn by
     // drawKrakenBody / syncKrakenHeadRig, after the arms, so it can react to what they are doing.
@@ -20646,7 +20687,7 @@ void main() {
         // the closing ring IS the clock: it shrinks as the window runs out
         teleG.beginPath()
         teleG.arc(a.x, a.y, KRAKEN_LASH_R * (0.30 + 0.36 * k), 0, Math.PI * 2)
-        teleG.stroke({ width: 3, color: 0xdff8ff, alpha: 0.45 + 0.35 * k })
+        teleG.stroke({ width: 3, color: 0xdff8ff, alpha: (0.45 + 0.35 * k) * krakenHitMeK })
         continue
       }
 
@@ -21026,7 +21067,7 @@ void main() {
         if (rc && rc.t > 0) {
           if (dt > 0) rc.t = Math.max(0, rc.t - dt)
           const f = rc.t / K_RECOIL_T
-          const d = 110 * f * f
+          const d = (rc.amp ?? 110) * f * f
           for (let k = 0; k < K_ROPE_N; k++) {
             const w = Math.pow(k / (K_ROPE_N - 1), 1.5) * d
             rig.pts[k].set(rig.pts[k].x + rc.ux * w, rig.pts[k].y + rc.uy * w)
@@ -21373,7 +21414,7 @@ void main() {
         else if (a.slamT > 0) rig.rope.tint = 0x5d5470
         else if (a.limpT > 0) rig.rope.tint = mix(0x4576a0, 0x5691c0, 0.5 + 0.5 * Math.sin(animT * 4)) // spent: cold AND dimmed
         else if (rung && !a.coilArm && a.tele > 0 && a.tele <= rung.window && run.krakenLesson === 1 && run.script.lessonI === a.i) { rig.rope.tint = Math.sin(animT * Math.PI * 10) > -0.2 ? 0xffffff : 0x8a7fc0; tellDrawn('arm', a.i, 'slamFlash', a.x, a.y, rig.pts[0].x, rig.pts[0].y, rig.pts[K_ROPE_N - 1].x, rig.pts[K_ROPE_N - 1].y, rig.pts) }
-        else if (rung && !a.coilArm && a.tele > 0 && a.fuse) { rig.rope.tint = a.grabArm ? K_GRAB_TINT : a.tele <= rung.window ? mix(0xd6b98c, 0xffffff, Math.exp(-Math.max(0, rung.window - a.tele) / 0.06)) : 0xa99ed6; drawKrakenCharge(rig, a, rung) }
+        else if (rung && !a.coilArm && a.tele > 0 && a.fuse) { rig.rope.tint = a.grabArm ? K_GRAB_TINT : a.tele <= rung.window ? mix(0x9a4a50, 0xffffff, Math.exp(-Math.max(0, rung.window - a.tele) / 0.06)) : 0xa99ed6; drawKrakenCharge(rig, a, rung) }
         else if (rung && a.tele > 0 && a.fuse) rig.rope.tint = mix(0x9e92cf, 0xeee8fe, 1 - a.tele / a.fuse)
         else rig.rope.tint = mix(0x7366a0, 0x403d4b, 1 - fur)
       }
@@ -23550,6 +23591,7 @@ void main() {
   // A perfect parry's star cut, for its few frames. Same ownership as krakenScars.
   const krakenStars = []
   const K_STAR_T = 0.13
+  const K_STAR_PARRY_T = 0.2   // a parry's spark: full size for its first half (past the ~70ms hitstop)
   // THE PRESS-NOW GLYPH at the fish ('slamWindow') and its too-early twin ('parryEarly'), the
   // parry's streak from the fish to the flesh it met, and a parried limb's recoil per arm slot.
   // Same ownership as krakenScars.
@@ -26434,16 +26476,8 @@ void main() {
           // THE CLASH, AT THE POINT OF CONTACT ON THE LIMB — sparks off the flesh, a streak from the
           // fish to it, and the limb snapping back (krakenParried). No burst centred on the fish: one
           // there read as the fish's own shield or its hurt.
-          krakenParried(e, false)
+          krakenParried(e, false, run)
           addShakeScreen(0.007 + wear * 0.006, 0.12 + wear * 0.06)
-          break
-        }
-        case 'armRear': {
-          // AN ARM IS COMING. The one thing rev 2 never said out loud — its wind-up was a 150px disc
-          // at alpha 0.07 and the owner's question afterwards was "what is a boss attack". This is
-          // the moment the attack STARTS, so it fires once and it is allowed to be loud: a warm ring
-          // snapping OUT of the arm, the opposite motion to the aperture that then closes on it.
-          spawnRing(e.x, e.y, e.r * 0.55, 0.3, T.novaRing, 0xff9a7a)
           break
         }
         case 'krakenLesson': {
@@ -26506,7 +26540,7 @@ void main() {
           // no recoil, no spark, no light. The arm has not been answered.
           const near = krakenLimbNear(e.i, e.px, e.py) || e
           const ang = Math.atan2(near.y - e.py, near.x - e.px)
-          krakenEarly = { ang, t: 0 }
+          krakenEarly = { i: e.i, ang, t: 0 }
           addKick(-Math.cos(ang), -Math.sin(ang), 0.006)
           break
         }
@@ -26532,7 +26566,7 @@ void main() {
           // white star cut onto the frame — no ramp, full size on the first frame, gone in a blink —
           // and that is the read a tight press has earned: it is shaped differently from a good
           // parry's spray, not just larger.
-          krakenParried(e, true)
+          krakenParried(e, true, run)
           addShakeScreen(0.016, 0.22)
           break
         }
@@ -26831,6 +26865,7 @@ void main() {
     krakenStars.length = 0
     krakenNow = null
     krakenEarly = null
+    krakenHitMeK = 1
     krakenStreaks.length = 0
     krakenRecoil.length = 0
     krakenRigOf.length = 0
