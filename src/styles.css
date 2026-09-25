@@ -2684,7 +2684,9 @@ body {
   to { transform: scale(1.12); filter: drop-shadow(0 0 8px #fff) drop-shadow(0 0 26px var(--parry-glow)); }
 }
 .skill-btn--parry:not(.skill-btn--ready) { opacity: 1; filter: none; }
-.skill-btn--parry:not(.skill-btn--ready) .parry-plate { opacity: 0.4; }
+/* on cooldown the plate goes GREY, not a dimmer cyan: cooldown must never look nearly ready. The white
+   border filling up (.parry-cd) is untouched — the owner's design. */
+.skill-btn--parry:not(.skill-btn--ready) .parry-plate { opacity: 0.9; fill: #3b464c; }
 .skill-btn--parry:not(.skill-btn--ready) .parry-ico { opacity: 0; }
 .skill-btn--parry.skill-btn--lesson { animation-name: skill-lesson-parry; }
 @keyframes skill-lesson-parry {

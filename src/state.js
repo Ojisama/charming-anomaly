@@ -2318,7 +2318,10 @@ function generateWells(sig) {
   *       speeds the ring's cadence and lets the Coil in. One-way: a fight never de-escalates.
   *     turnT — countdown to the ring handing out its next attack turn. THE RING HAS ONE CLOCK,
   *       not one per arm: that is what makes "how many arms are winding up at once" a number in
-  *       the rung table (`rearing`) rather than an emergent property nobody chose.
+  *       the rung table (`rearing`) rather than an emergent property nobody chose. A due turn
+  *       that would stack two answers (krakenBeatClear, sim.js) holds turnT at 0 and waits.
+  *     beatAt — run.time the last slam window shut (struck or parried); null before the first.
+  *       Read only by krakenBeatNeeds, so a Coil never starts on the heels of a parry.
   *     stagger / staggerT / staggerDecay — the head's posture, in the chase. Each parried lunge
   *       adds one (a perfect adds two); at `rung.staggerNeed` the head STAGGERS, staggerT runs the
   *       open window, and that window is the only time the head can be damaged at all. A
@@ -2408,6 +2411,9 @@ function generateWells(sig) {
   *       player like a slam) is a GRAB rather than a slam. At the strike it takes hold (gripT) only
   *       if krakenLimbTouches says the drawn limb lands on the fish's body; otherwise it plants
   *       (slamT) and emits 'grabMiss', doing nothing. krakenParry skips it — a press is a whiff.
+  *       grabSafeSide — +1/-1, set once at the grab's wind-up by krakenGrabSafeSide: which side of
+  *       the struck line (along its left normal) to step to, away from any other live threat.
+  *       render draws its chevron from it; meaningful only while grabArm.
   *     hitT — >0 for KRAKEN_LIMP_FLASH after A PARRY LANDS ON IT, and render tints the tentacle off
   *            it. NOT set by the arm's own slam: that is the `lash` event's picture. It was, and had
   *            no reader at all, which is why five parries into a 320hp arm looked like one.
@@ -2887,7 +2893,7 @@ export function createRun(meta, opts = {}) {
           phase: 'wave', bossIdx: 0, blockKills: 0, armsSpawned: false, headId: null,
           headHp: 0, armsTotal: 0, bankedLevels: 0, gripN: 0, trickleT: 0, charged: false, opened: false,
           riseT: 0, coilT: 0, coilGap: 0, cageT: 0, turnT: 0, stagger: 0, staggerT: 0, staggerDecay: 0,
-          openW: 0, arriveT: 0, arriveMax: 0, deflT: 0, cageR: 0,
+          openW: 0, arriveT: 0, arriveMax: 0, deflT: 0, cageR: 0, beatAt: null,
           lessonI: -1, lessonSlow: 0,
           enraged: false }
       : null,

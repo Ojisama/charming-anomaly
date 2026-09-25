@@ -233,7 +233,8 @@ import {
   KRAKEN_LIMB_HW, krakenLimbHalfW,
   KRAKEN_PARRY_MARGIN, KRAKEN_PARRY_SPIN_T, KRAKEN_PARRY_EARLY_T,
   KRAKEN_PERFECT_MUL, KRAKEN_PARRY_CD, KRAKEN_PARRY_REFILL, KRAKEN_BLAZE_R,
-  KRAKEN_GRIP_EVERY, KRAKEN_GRIP_DUR, KRAKEN_GRIP_DMG, KRAKEN_GRIP_STICK_MUL, KRAKEN_GRIP_FLICKS, KRAKEN_GRAB_FUSE,
+  KRAKEN_GRIP_EVERY, KRAKEN_GRIP_DUR, KRAKEN_GRIP_DMG, KRAKEN_GRIP_STICK_MUL, KRAKEN_GRIP_FLICKS, KRAKEN_GRAB_FUSE, KRAKEN_GRAB_SAFE_STEP,
+  KRAKEN_BEAT_READ, KRAKEN_BEAT_GRAB_CLEAR, KRAKEN_BEAT_BREATH,
   KRAKEN_TRICKLE_FROM_END, KRAKEN_TRICKLE_T, KRAKEN_TRICKLE_N, KRAKEN_ADD_CAP,
   KRAKEN_LUNGE_T, KRAKEN_LUNGE_WINDUP_T, KRAKEN_LUNGE_DMG, KRAKEN_RISE_T,
   KRAKEN_COIL_EVERY, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, KRAKEN_COIL_IN, KRAKEN_COIL_DMG,
@@ -1849,6 +1850,40 @@ function krakenLimbTouches(run, a, head) {
   return false
 }
 
+// WHICH WAY TO STEP OFF A GRAB (owner's critic, 2026-09-26: the obvious perpendicular step walked
+// into the slam beside it). Decided ONCE, at the grab's wind-up, and published as a.grabSafeSide
+// (+1/-1 along the lane's left normal (-uy, ux)) so render's chevron and anything grading it agree.
+// Each side is scored along the whole ESCAPE PATH (three spots out to KRAKEN_GRAB_SAFE_STEP) against
+// every other live threat — another arm's struck line while it winds up, or a Coil lane — and each
+// threat is WEIGHTED BY WHEN IT LANDS: one landing while the fish is still out there (before the
+// grab's strike + KRAKEN_BEAT_BREATH) counts in full, one still early in a long fuse fades out, so a
+// far-off slam never outweighs an imminent one. The cage wall is no step at all. The head costs a
+// little (its touch is KRAKEN_HEAD_TOUCH_DMG, a slam is a whole lash), so it only breaks near-ties.
+export function krakenGrabSafeSide(run, g, head) {
+  const L = Math.hypot(g.lx1 - g.lx0, g.ly1 - g.ly0) || 1
+  const nx = -(g.ly1 - g.ly0) / L, ny = (g.lx1 - g.lx0) / L
+  const cageR = run.script.cageR > 0 ? run.script.cageR : KRAKEN_CAGE_R
+  const horizon = KRAKEN_GRAB_FUSE + KRAKEN_BEAT_BREATH
+  let best = 1, bestScore = Infinity
+  for (const sg of [1, -1]) {
+    let score = 0
+    for (const f of [0.35, 0.7, 1]) {
+      const px = g.aimX + nx * sg * KRAKEN_GRAB_SAFE_STEP * f, py = g.aimY + ny * sg * KRAKEN_GRAB_SAFE_STEP * f
+      for (const o of run.krakenArms) {
+        if (o === g || o.dead || !(o.tele > 0) || o.limpT > 0) continue
+        const when = o.tele <= horizon ? 1 : Math.exp(-(o.tele - horizon) / 0.4)
+        const d = Math.sqrt(segDist2(px, py, o.lx0, o.ly0, o.lx1, o.ly1))
+        score += Math.max(0, KRAKEN_LASH_W * 2.5 - d) * 10 * when * f   // the far end of the step matters most
+      }
+      const dh = Math.hypot(px - head.x, py - head.y)
+      if (dh > cageR - 20) score += (dh - (cageR - 20)) * 20 * f       // off the edge of the cage is no step
+      score += Math.max(0, KRAKEN_HEAD_R * 1.8 - dh) * f               // onto the head: a small tax, a tie-break
+    }
+    if (score < bestScore) { bestScore = score; best = sg }
+  }
+  return best
+}
+
 function krakenPlaceArms(run, head, reach) {
   for (const a of run.krakenArms) krakenPlaceArm(head, a, reach)
 }
@@ -2260,10 +2295,10 @@ function stepKrakenArms(run, dt, rung, head) {
         a.gripT = KRAKEN_GRIP_DUR
         a.gripClock = KRAKEN_GRIP_DUR    // the bite's own clock ...
         a.gripWiggle = KRAKEN_GRIP_DUR   // ... and the struggle's, spent only by flicks
-        run.events.push({ type: 'gripLatch', x: a.x, y: a.y })
+        run.events.push({ type: 'gripLatch', x: a.x, y: a.y, i: a.i })
       } else {
         a.slamT = KRAKEN_SLAM_T
-        run.events.push({ type: 'grabMiss', x: a.x, y: a.y })
+        run.events.push({ type: 'grabMiss', x: a.x, y: a.y, i: a.i })
       }
       continue
     }
@@ -2279,8 +2314,7 @@ function stepKrakenArms(run, dt, rung, head) {
     // player watched rear; the near end is KRAKEN_LASH_OVER PAST the head, which is what closes the
     // dead spot in the middle of the arena.
     const wasCoil = a.coilArm === true
-    // the Coil already counted itself as ONE attack when it was handed out
-    if (!wasCoil) s.gripN++
+    if (!wasCoil) s.beatAt = run.time   // a slam window just shut (krakenBeatNeeds)
     // `coil` is for render only: five lashes land on the Coil's frame and are drawn as one blow
     run.events.push({ type: 'lash', x: a.x, y: a.y, x0: a.lx0, y0: a.ly0, x1: a.lx1, y1: a.ly1, w: wasCoil ? KRAKEN_LASH_W : KRAKEN_LIMB_HW, coil: wasCoil })
     const struck = wasCoil ? segDist2(p.x, p.y, a.lx0, a.ly0, a.lx1, a.ly1) <= KRAKEN_LASH_W * KRAKEN_LASH_W : krakenLimbTouches(run, a, head)
@@ -2359,9 +2393,17 @@ function stepKrakenArms(run, dt, rung, head) {
   // ...and the ring hands out the next turn — never while the lesson arm is winding up
   if (!lesson) s.turnT -= dt
   if (s.turnT <= 0 && !lesson) {
-    s.turnT = krakenCadence(s, rung)
     const { rearing, idle } = krakenTurnPool(run)
-    if (rearing < rung.rearing && idle.length) {
+    const { wantCoil, wantGrip } = krakenTurnWant(run, rung)
+    const free = rearing < rung.rearing && idle.length > 0
+    // A TURN THAT WOULD STACK TWO ANSWERS WAITS FOR ONE THAT DOES NOT (krakenBeatClear), and a turn
+    // with no arm free waits for one. The clock is held at zero, so the ring swings on the first
+    // frame both allow — never with a shortened fuse: the telegraph always reads the same length.
+    // A full ring used to throw its turn away for a whole cadence; now the spacing is the beat's
+    // job, and waiting here instead is what keeps the ring's throughput where it was.
+    if (!free || !krakenBeatClear(run, rung, head, wantCoil ? 'coil' : wantGrip ? 'grab' : 'slam', rearing)) return false
+    s.turnT = krakenCadence(s, rung)
+    {
       // THE ACTION IS CHOSEN BEFORE THE ARM, which is the whole point of roles. It used to be the
       // other way round — pick an idle arm at random, then decide what it does — and with roles that
       // is exactly wrong: it would hand a grab to whichever limb came up and the design would be a
@@ -2371,7 +2413,6 @@ function stepKrakenArms(run, dt, rung, head) {
       // the turn there would silently drop attacks and make the ring stutter; it falls back to the
       // whole idle pool instead, which is the old behaviour and costs only the design's promise on
       // a rare turn.
-      const { wantCoil, wantGrip } = krakenTurnWant(run, rung)
       const want = wantGrip ? 'grab' : 'slam'
       const pool = rung.grabbers > 0 ? idle.filter((c) => c.role === want) : idle
       const use = pool.length ? pool : idle
@@ -2424,11 +2465,17 @@ function stepKrakenArms(run, dt, rung, head) {
         g.aimX = p.x
         g.aimY = p.y
         krakenPlaceArm(head, g, krakenReach(s))
-        run.events.push({ type: 'grabRear', x: g.x, y: g.y, t: KRAKEN_GRAB_FUSE })
+        g.grabSafeSide = krakenGrabSafeSide(run, g, head)
+        run.events.push({ type: 'grabRear', x: g.x, y: g.y, t: KRAKEN_GRAB_FUSE, i: g.i })
       } else {
         // THE WIND-UP IS THE TELEGRAPH AND IT IS ANNOUNCED. `rear` carries the arm's full fuse so
         // render can draw the danger ground filling up against it, and the event fires ONCE at the
         // start rather than every frame, so it can carry a sound.
+        // COUNTED ON THE TURN, LIKE THE GRAB AND THE COIL — so the string is slam, slam, grab
+        // whatever the player did. It was counted where the slam LANDED, which a parry skips: a
+        // player who parried everything never saw a grab or a coil, and one who parried half saw
+        // the ring's pattern stretch and shrink with their own misses.
+        s.gripN++
         a.tele = rung.fuse
         a.fuse = rung.fuse
         // THE ARM AIMS YOU (owner, 2026-09-23: "The arms aim you, not always the same spots").
@@ -2473,6 +2520,67 @@ function krakenTurnWant(run, rung, n = run.script.gripN) {
   const wantCoil = (rung.coil || s.enraged) && run.difficulty >= 2 && (s.phase === 'chase' || s.bossIdx >= 2) && n > 0 && n % KRAKEN_COIL_EVERY === 0
   const wantGrip = !wantCoil && rung.grip && s.bossIdx >= 1 && n > 0 && n % KRAKEN_GRIP_EVERY === 0
   return { wantCoil, wantGrip }
+}
+
+// EVERY ANSWER THE PLAYER ALREADY OWES, as times from now. `P` is a parry window [a, b] (b is the
+// strike), `D` a grab or coil strike at b (a === b). Slams and grabs read their own fuse; the head's
+// lunge is on its own clock, which the ring cannot move, so the ring fits around it: the current
+// lunge and the one after it. (A parry resets that clock up to a window early; at these fuses that
+// moves the next lunge by less than a frame of the gap, and run KB would see it if it grew.)
+// A coil's D spans its whole wind-up: walking to the gap is the answer for all of it. An answer
+// just GIVEN — the last slam window to shut (s.beatAt), the lunge's reset — sits at b <= 0.
+function krakenBeatNeeds(run, rung, head) {
+  const s = run.script
+  const out = []
+  // keep: an answer the Coil cannot take over when it starts — the head's, and any just given
+  if (s.beatAt != null) out.push({ k: 'P', a: s.beatAt - run.time, b: s.beatAt - run.time, keep: true })
+  for (const a of run.krakenArms) {
+    if (a.dead || !(a.tele > 0) || a.coilArm) continue
+    if (a.grabArm) out.push({ k: 'D', a: a.tele, b: a.tele, keep: false })
+    // a slam whose window is open, or opens before the Coil could be read, is not quietly taken over
+    else out.push({ k: 'P', a: a.tele - rung.window, b: a.tele, keep: a.tele - rung.window < KRAKEN_BEAT_GRAB_CLEAR })
+  }
+  if (s.coilT > KRAKEN_COIL_DUR) out.push({ k: 'D', a: 0, b: s.coilT - KRAKEN_COIL_DUR, keep: false })
+  if (head && s.phase === 'chase') {
+    const lw = rung.lungeWindow
+    const t = (s.staggerT > 0 ? s.staggerT : 0) + (head.lungeT ?? KRAKEN_LUNGE_T)
+    const last = s.staggerT > 0 ? s.staggerT - KRAKEN_STAGGER_T : t - KRAKEN_LUNGE_T
+    out.push({ k: 'P', a: last, b: last, keep: true })
+    out.push({ k: 'P', a: t - lw, b: t, keep: true })
+    out.push({ k: 'P', a: t + KRAKEN_LUNGE_T - lw, b: t + KRAKEN_LUNGE_T, keep: true })
+  }
+  return out
+}
+
+// Would the turn `kind` fit the beat? ONE ANSWER AT A TIME:
+//   parry after parry: the next window opens KRAKEN_PARRY_CD + KRAKEN_BEAT_READ after the last one
+//     shuts, so a press anywhere in one leaves the whole of the next pressable;
+//   a grab strike is never inside KRAKEN_BEAT_GRAB_CLEAR after a parry window, and the next window
+//     opens KRAKEN_BEAT_BREATH after it — the breath, and the first read of a hold;
+//   the Coil and a new grab wait out a hold (wiggle and dodge are two answers), and the Coil only
+//     answers to the lunge and to what was just parried: it takes over every other wind-up;
+//   the parry lesson is taught on a quiet ring — nothing else winding up.
+function krakenBeatClear(run, rung, head, kind, rearing) {
+  const held = run.krakenArms.some((a) => !a.dead && a.gripT > 0)
+  if (kind !== 'slam' && held) return false
+  if (kind === 'slam' && run.krakenLesson === 1 && rearing > 0) return false
+  const gap = KRAKEN_PARRY_CD + KRAKEN_BEAT_READ
+  const nk = kind === 'slam' ? 'P' : 'D'
+  const nb = kind === 'slam' ? rung.fuse : kind === 'grab' ? KRAKEN_GRAB_FUSE : KRAKEN_COIL_TELE
+  const na = kind === 'slam' ? nb - rung.window : kind === 'grab' ? nb : 0
+  for (const o of krakenBeatNeeds(run, rung, head)) {
+    if (kind === 'coil' && !o.keep) continue
+    let ok
+    if (nk === 'P' && o.k === 'P') ok = na >= o.b + gap || o.a >= nb + gap
+    else if (nk === 'D' && o.k === 'D') ok = Math.abs(nb - o.b) >= KRAKEN_BEAT_GRAB_CLEAR + KRAKEN_BEAT_BREATH
+    else {
+      const p = nk === 'P' ? { a: na, b: nb } : o
+      const d = nk === 'D' ? { a: na, b: nb } : o
+      ok = p.b <= d.a - KRAKEN_BEAT_GRAB_CLEAR || p.a >= d.b + KRAKEN_BEAT_BREATH
+    }
+    if (!ok) return false
+  }
+  return true
 }
 
 function krakenNearestArm(p, arms) {
@@ -2843,6 +2951,7 @@ function krakenParry(run) {
   // The reward is the state change, and a PERFECT parry buys a longer window rather than a bigger
   // number, because more exposure is more of the thing the player actually wants.
   best.tele = 0
+  s.beatAt = run.time   // its window shut on the press (krakenBeatNeeds)
   best.limpT = rung.limp * (perfect ? KRAKEN_LIMP_PERFECT_MUL : 1)
   best.hitT = KRAKEN_LIMP_FLASH
   // The tear. Applied to the LIMB, not through dealDamage: the arm is not an enemy until its node

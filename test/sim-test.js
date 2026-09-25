@@ -174,8 +174,9 @@ import {
   KRAKEN_LUNGE_T, KRAKEN_GRIP_DUR, KRAKEN_GRIP_DMG, KRAKEN_GRIP_FLICKS, KRAKEN_GRIP_STICK_MUL, TRAWL_WIGGLE_ARC,
   KRAKEN_LASH_W, KRAKEN_LASH_OVER, KRAKEN_LASH_DMG, KRAKEN_LESSON_MAX, KRAKEN_PARRY_SHOVE_R, KRAKEN_PARRY_EARLY_T, KRAKEN_ARRIVE_T2, KRAKEN_WAVE_GROWTH, KRAKEN_COIL_DMG,
   KRAKEN_HEAD_SPEED, KRAKEN_PARRY_SPIN_T, krakenLimbHalfW, FISH_R, FISH_BODY, KRAKEN_GRIP_EVERY, KRAKEN_GRAB_FUSE,
+  KRAKEN_BEAT_READ, KRAKEN_BEAT_GRAB_CLEAR, KRAKEN_BEAT_BREATH,
 } from '../src/config.js'
-import { krakenWinPending, stepSim, applyChoice, buildLevelUpChoices, eligibleWeaponModCandidates, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, inRefillCircle, stepCharge, newElWindow, spurAt } from '../src/sim.js'
+import { krakenWinPending, krakenGrabSafeSide, stepSim, applyChoice, buildLevelUpChoices, eligibleWeaponModCandidates, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, inRefillCircle, stepCharge, newElWindow, spurAt } from '../src/sim.js'
 
 // ---- Scenario runner: one filter, and the gate's own dispatch flag ----------------------------
 // THIS FILE IS NO LONGER WHAT `npm test` RUNS. scripts/test-isolation.mjs hands one scenario to
@@ -20322,6 +20323,7 @@ run(testLeLargeWeapons)
   run(testKrakenLesson)
   run(testKrakenParryShove)
   run(testKrakenGrab)
+  run(testKrakenBeat)
   run(testKrakenNowCue)
   run(runKrakenCeremony)
   run(runBiomes)
@@ -35747,8 +35749,9 @@ function testKrakenGrab() {
     s.gripN = KRAKEN_GRIP_EVERY
     s.turnT = 0
     run.repulseCd = 0
+    run.hitStop = 0      // a landed parry's freeze would swallow the turn
     const ev = step(P)
-    assert.ok(ev.some((e) => e.type === 'grabRear'), 'the grab turn did not start a grab wind-up — it latched, or it never came')
+    assert.ok(ev.some((e) => e.type === 'grabRear'), `the grab turn did not start a grab wind-up — it latched, or it never came (phase ${s.phase}, turnT ${s.turnT}, lesson ${run.krakenLesson} ${s.lessonI}, arms ${run.krakenArms.map((c) => (c.dead ? 'D' : '') + c.tele.toFixed(2) + '/' + c.limpT.toFixed(1) + '/' + c.gripT).join(' ')})`)
     assert.ok(arm.grabArm && arm.tele > 0 && arm.gripT === 0, 'the grab took hold on its turn instead of winding up — it is still unavoidable')
     assert.ok(Math.hypot(arm.aimX - P.x, arm.aimY - P.y) < 1, 'the grab is not aimed at where the player stood when it started')
   }
@@ -35820,7 +35823,171 @@ function testKrakenGrab() {
   assert.strictEqual(readyAt(R2.window * 0.5 + 2 / 60), true, 'fixture: not lit before the press')
   step(P, true)
   assert.ok(arm.limpT > 0, 'the button was lit and the press did not land')
+  // 5) WHICH WAY TO STEP: with another arm's slam lane lying beside the lock point, the grab's
+  // published safe side is the OTHER side — both ways round, so a constant cannot pass
+  {
+    const arm2 = run.krakenArms.find((c) => c !== arm)
+    const h = run.enemies.find((e) => e.rosterId === 'krakenHead' && !e._dead)
+    const Sx = h.x + Math.cos(arm.ang) * KRAKEN_RING_R, Sy = h.y + Math.sin(arm.ang) * KRAKEN_RING_R
+    const Ld = Math.hypot(P.x - Sx, P.y - Sy) || 1
+    const nx2 = -(P.y - Sy) / Ld, ny2 = (P.x - Sx) / Ld
+    for (const sg of [1, -1]) {
+      arm.tele = 0; arm.gripT = 0; arm.slamT = 0; arm.limpT = 0; arm.grabArm = false
+      arm2.dead = false; arm2.limpT = 0; arm2.gripT = 0; arm2.slamT = 0; arm2.coilArm = false; arm2.grabArm = false
+      arm2.aimed = true; arm2.aimX = P.x + nx2 * sg * 90; arm2.aimY = P.y + ny2 * sg * 90
+      // a LONG wind-up, so its parry window opens well after the grab strikes and the beat scheduler
+      // (krakenBeatClear) has no reason to hold the grab back: the lane is live, the window is not near
+      arm2.fuse = R2.fuse + 4; arm2.tele = R2.fuse + 4
+      startGrab()
+      assert.strictEqual(arm.grabSafeSide, -sg, `a slam lane beside the grab on side ${sg} and the grab still says to step to side ${arm.grabSafeSide} — into it`)
+    }
+    // 5b) WHEN IT LANDS MATTERS: a slam lane on EACH side — one landing 0.9s into the grab's wind-up
+    // (while the fish would be standing there), the other still early in a long fuse. The step goes to
+    // the far-off one's side, both ways round; unweighted, the two cancel and a tie-break decides.
+    // Called directly on the grab just staged: with two arms already rearing the ring's cap
+    // (rung.rearing) would never hand out the grab turn, which is the scheduler working, not a bug.
+    const arm3 = run.krakenArms.find((c) => c !== arm && c !== arm2)
+    for (const sg of [1, -1]) {
+      for (const [o, side, tele] of [[arm2, sg, 0.9], [arm3, -sg, R2.fuse + 4]]) {
+        o.dead = false; o.limpT = 0; o.gripT = 0; o.slamT = 0; o.coilArm = false; o.grabArm = false
+        o.aimed = true; o.aimX = P.x + nx2 * side * 90; o.aimY = P.y + ny2 * side * 90
+        o.fuse = Math.max(R2.fuse, tele); o.tele = tele
+        // publish the lane the sim will strike (krakenLashLine runs on every step)
+        const ca = Math.cos(o.ang), sa = Math.sin(o.ang)
+        o.lx0 = h.x + ca * KRAKEN_RING_R; o.ly0 = h.y + sa * KRAKEN_RING_R
+        const dd = Math.hypot(o.aimX - o.lx0, o.aimY - o.ly0) || 1, LL = Math.max(KRAKEN_RING_R, dd)
+        o.lx1 = o.lx0 + (o.aimX - o.lx0) / dd * LL; o.ly1 = o.ly0 + (o.aimY - o.ly0) / dd * LL
+      }
+      assert.strictEqual(krakenGrabSafeSide(run, arm, h), -sg, `an imminent slam on side ${sg} and a far-off one on side ${-sg}, and the chevron says ${krakenGrabSafeSide(run, arm, h)} — into the one about to land`)
+    }
+    arm2.dead = true
+    arm3.dead = true
+  }
   console.log(`PASS run KG (grab + parry tell): a grab winds up aimed (${KRAKEN_GRAB_FUSE}s), grips a fish on its line and misses one 120px off it, a press during it is a whiff with the button dark; parryReady lights only inside a slam's window, in reach, off cooldown, and a press on it lands`)
+}
+
+// THE BEAT (run KB): every moment of the arms phase asks ONE answer. Whole seeded fights at d2 and
+// d3, played by a bot that parries every lunge and half the slams on a lit button, wiggles when held
+// and never dodges (so grabs land and holds happen), and every parry window, grab strike and coil is read off sim
+// truth frame by frame. The spacing is asserted on what HAPPENED, not on the scheduler's arithmetic:
+//   - consecutive parry windows (slams AND the head's lunge) are KRAKEN_PARRY_CD + KRAKEN_BEAT_READ
+//     apart, close to open, so no press can leave the button cooling through the next window;
+//   - no parry window is open within KRAKEN_BEAT_GRAB_CLEAR before a grab strikes or
+//     KRAKEN_BEAT_BREATH after it (the hold's first read), nor across a coil's wind-up.
+function testKrakenBeat() {
+  const EPS = 2 / 60
+  const GAP = KRAKEN_PARRY_CD + KRAKEN_BEAT_READ
+  const tot = { slam: 0, lunge: 0, grab: 0, hold: 0, coil: 0, fights: 0, secs: 0 }
+  for (const [diff, seed] of [[3, 20260925], [3, 777], [3, 31337], [2, 4242], [2, 99]]) {
+    Math.random = mulberry32(seed)
+    const run = createRun({ ...makeMeta(), krakenParried: true }, { chapter: 'kraken', difficulty: diff })
+    assert.strictEqual(run.chapter, 'kraken', 'createRun did not make a Kraken run')
+    run.weapons = [{ id: 'skippingShell', level: 3 }]
+    const rung = krakenRung(diff)
+    const P = []          // parry windows {src, open, close}
+    const openBy = {}     // src -> open window
+    const grabs = [], coils = []
+    let coil = null, wig = 0
+    const coin = mulberry32(seed ^ 0x5bd1e995), answer = {}
+    for (let f = 0; f < 60 * 400 && run.phase !== 'victory'; f++) {
+      if (run.phase === 'levelup') run.phase = 'playing'
+      const p = run.player
+      const s = run.script
+      const head = run.enemies.find((e) => e.rosterId === 'krakenHead' && !e._dead) || null
+      // the bot: stand on an opened limb, else walk to the slam winding up, else hold near the head
+      let tx = p.x, ty = p.y
+      const limp = run.krakenArms.find((a) => !a.dead && a.limpT > 0)
+      const wind = run.krakenArms.filter((a) => !a.dead && a.tele > 0 && !a.grabArm && !a.coilArm).sort((a, b) => a.tele - b.tele)[0]
+      if (limp) { tx = limp.x; ty = limp.y } else if (wind) { tx = wind.x; ty = wind.y } else if (head) { tx = head.x + 150; ty = head.y }
+      const dl = Math.hypot(tx - p.x, ty - p.y)
+      let ix = dl > 6 ? (tx - p.x) / dl : 0, iy = dl > 6 ? (ty - p.y) / dl : 0
+      if (run.krakenArms.some((a) => !a.dead && a.gripT > 0)) { wig += Math.PI * 2 / 60; ix = Math.cos(wig); iy = Math.sin(wig) }
+      // it answers the head every time (the fight has to finish) and each slam on a coin toss from
+      // its OWN stream, so half the windows run their full length instead of shutting on frame one
+      for (const a of run.krakenArms) {
+        if (a.tele > 0 && answer[a.i] == null) answer[a.i] = coin() < 0.5
+        else if (!(a.tele > 0)) answer[a.i] = null
+      }
+      const lungeOpen = !!head && s.phase === 'chase' && !(s.staggerT > 0) && head.lungeT > 0 && head.lungeT <= rung.lungeWindow
+      const want = lungeOpen || run.krakenArms.some((a) => !a.dead && answer[a.i] && a.tele > 0 && a.tele <= rung.window)
+      p.hp = p.maxHP
+      run.events.length = 0
+      stepSim(run, { x: ix, y: iy, skill: run.parryReady === true && want }, 1 / 60)
+      const t = run.time
+      for (const e of run.events) {
+        if (e.type === 'gripLatch' || e.type === 'grabMiss') grabs.push(t)
+        if (e.type === 'gripLatch') tot.hold++
+        if (e.type === 'coilWind') coil = { a: t }
+        if (e.type === 'coilClose' && coil) { coil.b = t; coils.push(coil); coil = null }
+      }
+      // which parry windows are open NOW, from truth
+      const now = {}
+      for (const a of run.krakenArms) {
+        if (!a.dead && a.tele > 0 && a.tele <= rung.window && !a.coilArm && !a.grabArm && !(a.limpT > 0) && !(a.gripT > 0)) now['arm' + a.i] = 1
+      }
+      const h = run.enemies.find((e) => e.rosterId === 'krakenHead' && !e._dead)
+      if (h && s.phase === 'chase' && !(s.staggerT > 0) && !(s.riseT > 0) && h.lungeT > 0 && h.lungeT <= rung.lungeWindow) now.lunge = 1
+      for (const k of Object.keys(now)) if (!openBy[k]) { openBy[k] = { src: k, open: t, close: t }; P.push(openBy[k]) }
+      for (const k of Object.keys(openBy)) { if (now[k]) openBy[k].close = t; else delete openBy[k] }
+    }
+    assert.strictEqual(run.phase, 'victory', `d${diff} seed ${seed}: the fight never finished (${run.script.phase} at ${run.time.toFixed(0)}s), so the chase was not measured`)
+    tot.fights++; tot.secs += run.time
+    tot.slam += P.filter((w) => w.src !== 'lunge').length
+    tot.lunge += P.filter((w) => w.src === 'lunge').length
+    tot.grab += grabs.length
+    tot.coil += coils.length
+    // 1) ONE BUTTON, ONE COOLDOWN
+    P.sort((a, b) => a.open - b.open)
+    let last = null
+    for (const w of P) {
+      if (last) {
+        assert.ok(w.open - last.close >= GAP - EPS,
+          `d${diff} seed ${seed}: parry window ${w.src} opened ${(w.open - last.close).toFixed(2)}s after ${last.src} shut at t=${last.close.toFixed(2)} — under the ${GAP}s a press and its cooldown need`)
+      }
+      if (!last || w.close > last.close) last = w
+    }
+    // 2) A GRAB STRIKE AND A COIL ARE NEVER ANSWERED WITH A PARRY IN HAND
+    const clash = (a, b, what) => {
+      for (const w of P) {
+        assert.ok(!(w.close > a - KRAKEN_BEAT_GRAB_CLEAR + EPS && w.open < b + KRAKEN_BEAT_BREATH - EPS),
+          `d${diff} seed ${seed}: parry window ${w.src} [${w.open.toFixed(2)}, ${w.close.toFixed(2)}] sits on ${what} at ${a.toFixed(2)}..${b.toFixed(2)}`)
+      }
+    }
+    for (const g of grabs) clash(g, g, 'a grab strike')
+    for (const c of coils) clash(c.a, c.b, 'a coil')
+  }
+  assert.ok(tot.slam >= 100 && tot.lunge >= 60 && tot.grab >= 25 && tot.hold >= 15 && tot.coil >= 5,
+    `fixture: too little of the fight to prove a spacing rule — ${JSON.stringify(tot)}`)
+  // A COIL DOES NOT SWALLOW A SLAM THE PLAYER IS ALREADY ANSWERING. Rare in a fight, so staged: the
+  // coil's turn comes due with one slam inside its parry window. The coil waits for that slam to
+  // land and then KRAKEN_BEAT_GRAB_CLEAR more; it does not convert it mid-window.
+  let coilLag
+  {
+    Math.random = mulberry32(99)
+    const run = createRun({ ...makeMeta(), krakenParried: true }, { chapter: 'kraken', difficulty: 3 })
+    const budget = KRAKEN_OPEN_WAVES * (KRAKEN_WAVE_TIMEOUT + 2) + KRAKEN_ARRIVE_T + 5
+    let g = 0
+    while (run.script.phase !== 'boss' && g++ < 60 * budget) { run.player.hp = run.player.maxHP; stepSim(run, { x: 0, y: 0 }, 1 / 60); if (run.phase === 'levelup') run.phase = 'playing' }
+    assert.strictEqual(run.script.phase, 'boss', 'fixture: the approach never reached the ring')
+    const s = run.script, R3 = krakenRung(3)
+    for (const a of run.krakenArms) { a.tele = 0; a.fuse = 0; a.gripT = 0; a.limpT = 0; a.grabArm = false; a.coilArm = false; a.slamT = 0; a.hitT = 0 }
+    const A = run.krakenArms[1]
+    A.tele = R3.window * 0.6; A.fuse = R3.fuse; A.aimed = true; A.aimX = run.player.x; A.aimY = run.player.y
+    s.bossIdx = 2; s.gripN = KRAKEN_COIL_EVERY; s.turnT = 0; s.coilT = 0; s.beatAt = null; s.blockKills = -99
+    let lashAt = null, coilAt = null
+    for (let f = 0; f < 60 * 4 && coilAt == null; f++) {
+      run.player.hp = run.player.maxHP
+      run.events.length = 0
+      stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+      if (lashAt == null && run.events.some((e) => e.type === 'lash' && !e.coil)) lashAt = run.time
+      if (run.events.some((e) => e.type === 'coilWind')) coilAt = run.time
+      if (coilAt == null) assert.ok(!A.coilArm, 'the slam in its window was taken over by a coil')
+    }
+    assert.ok(lashAt != null && coilAt != null, `fixture: the slam never landed (${lashAt}) or the coil never came (${coilAt})`)
+    coilLag = coilAt - lashAt
+    assert.ok(coilLag >= KRAKEN_BEAT_GRAB_CLEAR - EPS, `the coil wound up ${coilLag.toFixed(2)}s after a slam window shut — under ${KRAKEN_BEAT_GRAB_CLEAR}s`)
+  }
+  console.log(`PASS run KB (the Kraken's beat): ${tot.fights} whole fights (${tot.secs.toFixed(0)}s, d2+d3) — ${tot.slam} slam windows and ${tot.lunge} lunge windows each ${GAP}s clear of the last, ${tot.grab} grab strikes (${tot.hold} holds) and ${tot.coil} coils with no parry window within ${KRAKEN_BEAT_GRAB_CLEAR}s before or ${KRAKEN_BEAT_BREATH}s after; a coil due mid-window waited for the slam and wound up ${coilLag.toFixed(2)}s after it`)
 }
 
 // THE PRESS-NOW CUE AND THE EARLY PRESS (2026-09-25). A plain slam's window used to open only on

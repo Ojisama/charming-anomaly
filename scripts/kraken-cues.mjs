@@ -92,7 +92,13 @@ async function headless(diff, seed) {
       else if (a.gripT > 0) tells.push({ src: 'arm', i: a.i, kind: 'hold', x: p.x, y: p.y })
       else if (a.tele > 0 && a.coilArm) tells.push({ src: 'arm', i: a.i, kind: 'coil', ...line })
       // a grab winds up on its own aimed line (render: drawKrakenCharge's grab branch, same x0..x1)
-      else if (a.tele > 0 && a.grabArm) tells.push({ src: 'arm', i: a.i, kind: 'grabCharge', ...line })
+      else if (a.tele > 0 && a.grabArm) {
+        tells.push({ src: 'arm', i: a.i, kind: 'grabCharge', ...line })
+        // the chevron render draws (drawKrakenGrabSign): 58px off the lock point on a.grabSafeSide
+        const L = Math.hypot(a.lx1 - a.lx0, a.ly1 - a.ly0) || 1, sd = a.grabSafeSide === -1 ? -1 : 1
+        const bx = a.aimX - (a.ly1 - a.ly0) / L * sd * 58, by = a.aimY + (a.lx1 - a.lx0) / L * sd * 58
+        tells.push({ src: 'arm', i: a.i, kind: 'grabSafe', x: bx, y: by, x0: a.aimX, y0: a.aimY, x1: bx, y1: by })
+      }
       else if (a.tele > 0) {
         tells.push({ src: 'arm', i: a.i, kind: a.tele <= rung.window ? 'slamFlash' : 'slamCharge', ...line })
         if (a.tele <= rung.window) winAny = true
@@ -195,6 +201,41 @@ function report(label, rs) {
   for (const r of rs) for (const [k, v] of Object.entries(r.conflict.pairs)) pairs[k] = (pairs[k] || 0) + v
   console.log(`   as played by this bot: ${cm} moments, ${cs.toFixed(1)}s = ${(cm / (armsT / 60)).toFixed(2)} moments/min, ${(cs / (armsT / 60)).toFixed(2)} s/min, ${pct(cs, armsT)} of arms-phase time`)
   console.log(`   per seed moments/min [${rs.map((r) => (r.conflict.moments / (r.armsT / 60)).toFixed(2)).join(' ')}]   by pair (s): ${Object.entries(pairs).map(([k, v]) => `${k} ${v.toFixed(1)}`).join('  ') || 'none'}   (P=parry W=wiggle D=dodge)`)
+  // ONE BUTTON, ONE COOLDOWN: consecutive parry answers (slams in band + lunges), window by window.
+  // blocked = even a press on the FIRST frame of one leaves the button cooling through all of the
+  // next; tight = a press on the LAST frame of one does. The beat (sim.js krakenBeatClear) makes
+  // both zero by construction; anything above zero here is two parries the player cannot both give.
+  const CD = rs[0].parryCd ?? 0.8
+  let pb = 0, pt = 0, pnn = 0
+  for (const r of rs) {
+    const P = r.attacks.filter((a) => (a.kind === 'slam' || a.kind === 'lunge') && a.ia != null).sort((a, b) => a.ia - b.ia)
+    pnn += Math.max(0, P.length - 1)
+    for (let k = 1; k < P.length; k++) { if (P[k].ib < P[k - 1].ia + CD) pb++; if (P[k].ia < P[k - 1].ib + CD) pt++ }
+  }
+  console.log(`COOLDOWN (${CD}s) over ${pnn} consecutive parry pairs: blocked ${pb}, tight ${pt}`)
+  // A GRAB'S DODGE AND A SLAM. Is a parry window open around the grab strike (the dodge is the
+  // answer then, so a slam there is two answers at once), and how often did the fish, having dodged
+  // a grab, land in a slam lane within 1.5s (in band = a parry was then owed; hit = it landed)?
+  let gn = 0, gBefore = 0, gAfter = 0, gInto = 0, gHit = 0
+  for (const r of rs) {
+    const P = r.attacks.filter((a) => (a.kind === 'slam' || a.kind === 'lunge') && a.ia != null)
+    for (const g of r.attacks.filter((a) => a.kind === 'grab')) {
+      gn++
+      if (P.some((p) => p.ib > g.t0 - 0.4 && p.ib <= g.t0)) gBefore++
+      if (P.some((p) => p.ia >= g.t0 && p.ia < g.t0 + 0.6)) gAfter++
+      if (g.outcome !== 'missed') continue
+      const s = r.attacks.filter((a) => a.kind === 'slam' && a.ia != null && a.ia >= g.t0 && a.ia < g.t0 + 1.5)
+      if (s.length) gInto++
+      if (s.some((a) => a.outcome === 'hit')) gHit++
+    }
+  }
+  console.log(`GRAB vs SLAM over ${gn} grab strikes: a parry window shut <0.4s before ${gBefore}, opened <0.6s after ${gAfter};  dodged grabs followed by a slam in band within 1.5s ${gInto} (of them hit ${gHit})`)
+  // THE GRAB'S SAFE SIDE (a.grabSafeSide, drawn as the chevron the bot follows)
+  const sf = rs.reduce((s, r) => { for (const k of Object.keys(s)) s[k] += r.safe?.[k] ?? 0; return s }, { grabs: 0, sideRight: 0, sideRightAny: 0, oneClear: 0, contested: 0, savedByIt: 0, steppedIntoThreat: 0 })
+  console.log(`GRAB SAFE SIDE over ${sf.grabs} grabs (threats live when the grab started): side clear of lanes landing while you are there ${sf.sideRight}/${sf.grabs} (${pct(sf.sideRight, sf.grabs)}), of any live lane ${sf.sideRightAny}/${sf.grabs} (${pct(sf.sideRightAny, sf.grabs)}); another threat near (or the cage wall behind) one side ${sf.contested}, of which ONE side was clear ${sf.oneClear} and the chevron picked it ${sf.savedByIt} (${pct(sf.savedByIt, sf.oneClear)}), both hot ${sf.contested - sf.oneClear}; struck by another arm while dodging ${sf.steppedIntoThreat}`)
+  const wr = {}
+  for (const r of rs) for (const [k, v] of Object.entries(r.safe?.wrong || {})) wr[k] = (wr[k] || 0) + v
+  if (Object.keys(wr).length) console.log(`   chevron on the hot side while the other was clear, by cause: ${Object.entries(wr).map(([k, v]) => `${v} ${k}`).join(', ')}`)
   const pn = rs.reduce((s, r) => s + r.press.n, 0), pl = rs.reduce((s, r) => s + r.press.land, 0), pw = rs.reduce((s, r) => s + r.press.whiff, 0)
   console.log(`PRESSES ${pn}: landed ${pl} (${pct(pl, pn)}), whiffed ${pw} (${pct(pw, pn)}), no parry event at all ${pn - pl - pw}`)
   const g = rs.reduce((s, r) => ({ f: s.f + r.glow.frames, a: s.a + r.glow.ringNoParry, b: s.b + r.glow.parryNoRing, c: s.c + r.glow.both }), { f: 0, a: 0, b: 0, c: 0 })
