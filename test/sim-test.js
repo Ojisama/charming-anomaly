@@ -35833,7 +35833,9 @@ function testKrakenGrab() {
       arm.tele = 0; arm.gripT = 0; arm.slamT = 0; arm.limpT = 0; arm.grabArm = false
       arm2.dead = false; arm2.limpT = 0; arm2.gripT = 0; arm2.slamT = 0; arm2.coilArm = false; arm2.grabArm = false
       arm2.aimed = true; arm2.aimX = P.x + nx2 * sg * 90; arm2.aimY = P.y + ny2 * sg * 90
-      arm2.fuse = R2.fuse; arm2.tele = R2.fuse
+      // a LONG wind-up, so its parry window opens well after the grab strikes and the beat scheduler
+      // (krakenBeatClear) has no reason to hold the grab back: the lane is live, the window is not near
+      arm2.fuse = R2.fuse + 4; arm2.tele = R2.fuse + 4
       startGrab()
       assert.strictEqual(arm.grabSafeSide, -sg, `a slam lane beside the grab on side ${sg} and the grab still says to step to side ${arm.grabSafeSide} — into it`)
     }
