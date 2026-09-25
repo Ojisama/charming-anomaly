@@ -2656,7 +2656,14 @@ body {
 .skill-btn--parry .skill-btn-face { display: block; }
 .skill-btn--parry .skill-btn-glyph { display: none; }
 .skill-btn--parry .skill-btn-cd { z-index: 1; }
-.skill-btn--parry.skill-btn--ready { box-shadow: none; filter: drop-shadow(0 0 6px var(--parry-glow)) drop-shadow(0 0 16px var(--parry-glow)); }
+/* Off cooldown the shield is whole but UNLIT; it glows and pulses only while a press would land
+   (.skill-btn--armed, from run.parryReady). A lit button that whiffs is the bug this fixes. */
+.skill-btn--parry.skill-btn--ready { box-shadow: none; filter: none; }
+.skill-btn--parry.skill-btn--ready.skill-btn--armed { animation: skill-parry-armed 0.28s ease-in-out infinite alternate; }
+@keyframes skill-parry-armed {
+  from { transform: scale(1.04); filter: drop-shadow(0 0 5px #fff) drop-shadow(0 0 14px var(--parry-glow)); }
+  to { transform: scale(1.12); filter: drop-shadow(0 0 8px #fff) drop-shadow(0 0 26px var(--parry-glow)); }
+}
 .skill-btn--parry:not(.skill-btn--ready) { opacity: 1; filter: none; }
 .skill-btn--parry:not(.skill-btn--ready) .parry-plate { opacity: 0.4; }
 .skill-btn--parry:not(.skill-btn--ready) .parry-ico { opacity: 0; }

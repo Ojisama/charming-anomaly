@@ -73,7 +73,7 @@ function fight(seed) {
 
   let parries = 0, whiffs = 0, limpWindows = 0, staggers = 0, levels = 0
   let ringT = 0, limpT = 0, chaseT = 0, won = false, maxRearing = 0, enraged = -1, coilWind = 0, coilClose = 0
-  let dmg = 0, coilDmg = 0, coilLash = 0, slamLands = 0, slamHits = 0
+  let dmg = 0, coilDmg = 0, coilLash = 0, slamLands = 0, slamHits = 0, grabs = 0, grips = 0, grabMiss = 0, gripDmg = 0
   const botRnd = mulberry32(seed ^ 0x5bd1e995)
   const steps = Math.round(SECS / DT)
   for (let i = 0; i < steps; i++) {
@@ -121,7 +121,7 @@ function fight(seed) {
     // Without this a skipped slam lands on a player parked on its tip, and the hitbox's width never
     // enters the number.
     else if (DODGE) {
-      const d = run.krakenArms.find((a) => !a.dead && a._botSkip && !a.coilArm && a.tele > 0 && a.tele <= DODGE_T && a.lx1 != null)
+      const d = run.krakenArms.find((a) => !a.dead && (a._botSkip || a.grabArm) && !a.coilArm && a.tele > 0 && a.tele <= DODGE_T && a.lx1 != null)
       if (d) {
         const L = Math.hypot(d.lx1 - d.lx0, d.ly1 - d.ly0) || 1
         const nx = -(d.ly1 - d.ly0) / L, ny = (d.lx1 - d.lx0) / L
@@ -150,7 +150,7 @@ function fight(seed) {
       }
       if (!press) {
         for (const a of run.krakenArms) {
-          if (a.dead || a.limpT > 0 || a.coilArm) continue   // krakenParry skips a Coil arm too
+          if (a.dead || a.limpT > 0 || a.coilArm || a.grabArm) continue   // krakenParry skips a Coil arm and a grab too
           if (a._botSkip) continue
           if ((a.x - p.x) ** 2 + (a.y - p.y) ** 2 > reach2) continue
           if (a.tele > 0 && a.tele <= rung.window) { press = true; break }
@@ -173,6 +173,10 @@ function fight(seed) {
     for (const e of run.events) {
       if (e.type === 'lash' && e.coil) coilLash++
       if (e.type === 'lash' && !e.coil) slamLands++
+      if (e.type === 'grabRear') grabs++
+      if (e.type === 'gripLatch') grips++
+      if (e.type === 'grabMiss') grabMiss++
+      if (e.type === 'hurt' && e.src === 'krakenArm' && !run.events.some((q) => q.type === 'lash')) gripDmg += e.dmg
       if (e.type === 'hurt' && e.src === 'krakenArm' && run.events.some((q) => q.type === 'lash' && !q.coil) && !run.events.some((q) => q.type === 'lash' && q.coil)) slamHits++
       if (e.type === 'parry' || e.type === 'parryPerfect') parries++
       else if (e.type === 'parryWhiff') whiffs++
@@ -185,7 +189,7 @@ function fight(seed) {
     run.events.length = 0
   }
   return {
-    won, t: run.time, parries, whiffs, staggers, levels, maxRearing, enraged, coilWind, coilClose, dmg, coilDmg, coilLash, slamLands, slamHits,
+    won, t: run.time, parries, whiffs, staggers, levels, maxRearing, enraged, coilWind, coilClose, dmg, coilDmg, coilLash, slamLands, slamHits, grabs, grips, grabMiss, gripDmg,
     broken: run.krakenArms.filter((a) => a.dead).length, arms: run.krakenArms.length,
     ringT, limpT, chaseT, headLeft: Math.round(run.script?.headHp ?? 0),
   }
@@ -220,4 +224,7 @@ console.log(`coil lashes landed    ${f('coilLash')}`)
 console.log(`damage taken          ${f('dmg')}   of it on a coil's landing ${f('coilDmg')}`)
 // THE SLAM'S OWN HITBOX: plain (non-Coil) slams that landed unparried, and how many of them hurt.
 console.log(`parry answer rate     ${PARRY_P}${DODGE ? `   dodging the rest (last ${DODGE_T}s, straight off the line)` : "   the rest land on a bot standing at the tip"}`)
+// THE GRAB: wind-ups started (0 on a build where a grab latches on its turn with no wind-up), grips
+// that took hold, grabs that missed, and what the grips cost (the full-hold bite, KRAKEN_GRIP_DMG).
+console.log(`grabs wound / gripped / missed  ${f('grabs')} / ${f('grips')} / ${f('grabMiss')}   grips/min [${rs.map((r) => (r.grips / (r.t / 60)).toFixed(2)).join(' ')}]   grip damage ${f('gripDmg')}`)
 console.log(`plain slams landed    ${f('slamLands')}   of them hit ${f('slamHits')}   hits/min [${rs.map((r) => (r.slamHits / (r.t / 60)).toFixed(2)).join(' ')}]`)

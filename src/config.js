@@ -8919,6 +8919,9 @@ export const KRAKEN_GRIP_DUR = 2.2 // s a grip holds before it lets go on its ow
 export const KRAKEN_GRIP_DMG = 14 // damage a grip that runs its full duration deals
 export const KRAKEN_GRIP_STICK_MUL = 0.45 // player move speed while held — joins the slow MIN
 export const KRAKEN_GRIP_FLICKS = 4 // stick swings of TRAWL_WIGGLE_ARC that tear you loose
+// balance_decision : a grab winds up aimed, and misses if you move [2026-09-25]
+//  - it strikes with krakenLimbTouches like a slam; only a hit takes hold. Not parryable.
+export const KRAKEN_GRAB_FUSE = 1.6 // s a grab's wind-up takes, aimed once at where you stood
 
 // THE LATE TRICKLE (owner ruling, 2026-09-13): from this many blocks before the chase, graveyard
 // dead arrive DURING the block, so the last stretch is a choice between the arm winding up in

@@ -2334,12 +2334,6 @@ function generateWells(sig) {
   *       this — krakenReach is sim-side — and drawing the membrane at the bare constant put the lit
   *       skin 414px behind a player leaning on the real wall, which is an invisible wall with a
   *       decoration somewhere else.
-  *     gripSoonI / gripSoonT — the Grip's FORECAST, for render's pre-grab tell only. gripSoonI is
-  *       the index (a.i) of the arm the ring would hand a grab to if the turn came now, or -1.
-  *       gripSoonT >= 0: the coming turn IS the grab, in that many seconds. gripSoonT = -1 with an
-  *       arm named: the grab is LOADED — the next slam that lands makes the turn after it a grab.
-  *       Rewritten every frame by krakenGripForecast from the same helpers the turn uses. No rule
-  *       reads it.
   *     coilT / coilGap — P3, D3 only. coilT counts the wind-up and then the closure; coilGap is the
   *       world angle of the ONE sector the ring does not sweep. Deliberately not parryable: a verb
   *       that answers every pattern stops being a decision.
@@ -2372,7 +2366,7 @@ function generateWells(sig) {
   *   and nothing throws. Out here, all of those exclusions are structural instead of remembered.
   *   The HEAD is the opposite call and stays an ordinary enemy: it is a real creature you kill, so
   *   it takes weapon damage, drives the boss bar and pays out on death.
-  *   Each arm: { i, ang, x, y, hp, maxHP, tele, fuse, limpT, nodeId, dead, paid, gripT, hitT, breakT, slamT }.
+  *   Each arm: { i, ang, x, y, hp, maxHP, tele, fuse, limpT, nodeId, dead, paid, gripT, grabArm, hitT, breakT, slamT }.
   *     slamT — the follow-through of an unparried slam: >0 while the limb is still planted where it
   *             landed. Render holds the pose against it. A strike that went back to idle on the
   *             frame it landed had a sound and a ring and no MOVEMENT, which is most of why the
@@ -2407,6 +2401,10 @@ function generateWells(sig) {
   *       net — one shared author, stickFlicks(). The arm also carries that struggle's scratch state
   *       (_stkX/_stkY/_stkA), same as run.net does. Tearing loose emits 'gripBreak' and costs
   *       nothing; letting the clock run out pays KRAKEN_GRIP_DMG.
+  *     grabArm — true while this arm's wind-up (tele/fuse = KRAKEN_GRAB_FUSE, aimed once at the
+  *       player like a slam) is a GRAB rather than a slam. At the strike it takes hold (gripT) only
+  *       if krakenLimbTouches says the drawn limb lands on the fish's body; otherwise it plants
+  *       (slamT) and emits 'grabMiss', doing nothing. krakenParry skips it — a press is a whiff.
   *     hitT — >0 for KRAKEN_LIMP_FLASH after A PARRY LANDS ON IT, and render tints the tentacle off
   *            it. NOT set by the arm's own slam: that is the `lash` event's picture. It was, and had
   *            no reader at all, which is why five parries into a 320hp arm looked like one.
@@ -2708,6 +2706,12 @@ export function createRun(meta, opts = {}) {
     // along the lane is not stored at all, it is ROCK_SPEED against the chapter's own direction.
     rocks: [],
     repulseCd: 0,
+    // THE KRAKEN'S PARRY TELL: true exactly while a press would LAND — off cooldown and
+    // krakenParryTarget (sim.js, the predicate krakenParry itself acts on) names an arm in its slam
+    // window within reach, or the head's lunge window. Written by stepSim after the boss script
+    // advances, so it describes the state the next press is judged on. ui.js lights the shield off
+    // it and nothing else; false in every chapter without `parry`.
+    parryReady: false,
     // v5.0 chapter behavior (see doc block above): pools fed by acidPool/soapTrail elite flags;
     // obstacles stream in around the player (sim.js streamObstacles, keyed on _obstacleSeed) —
     // starts empty, populated on the first step. null seed (no chapter config, or tests) = none.
@@ -2873,7 +2877,7 @@ export function createRun(meta, opts = {}) {
           headHp: 0, armsTotal: 0, bankedLevels: 0, gripN: 0, trickleT: 0, charged: false, opened: false,
           riseT: 0, coilT: 0, coilGap: 0, cageT: 0, turnT: 0, stagger: 0, staggerT: 0, staggerDecay: 0,
           openW: 0, arriveT: 0, arriveMax: 0, deflT: 0, cageR: 0,
-          gripSoonI: -1, gripSoonT: -1, lessonI: -1, lessonSlow: 0,
+          lessonI: -1, lessonSlow: 0,
           enraged: false }
       : null,
     // THE PARRY LESSON — see the doc block. 1 until this save has ever parried (meta.krakenParried,

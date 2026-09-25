@@ -233,7 +233,7 @@ import {
   KRAKEN_LIMB_HW, krakenLimbHalfW,
   KRAKEN_PARRY_MARGIN, KRAKEN_PARRY_SPIN_T,
   KRAKEN_PERFECT_MUL, KRAKEN_PARRY_CD, KRAKEN_PARRY_REFILL, KRAKEN_BLAZE_R,
-  KRAKEN_GRIP_EVERY, KRAKEN_GRIP_DUR, KRAKEN_GRIP_DMG, KRAKEN_GRIP_STICK_MUL, KRAKEN_GRIP_FLICKS,
+  KRAKEN_GRIP_EVERY, KRAKEN_GRIP_DUR, KRAKEN_GRIP_DMG, KRAKEN_GRIP_STICK_MUL, KRAKEN_GRIP_FLICKS, KRAKEN_GRAB_FUSE,
   KRAKEN_TRICKLE_FROM_END, KRAKEN_TRICKLE_T, KRAKEN_TRICKLE_N, KRAKEN_ADD_CAP,
   KRAKEN_LUNGE_T, KRAKEN_LUNGE_WINDUP_T, KRAKEN_LUNGE_DMG, KRAKEN_RISE_T,
   KRAKEN_COIL_EVERY, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, KRAKEN_COIL_IN, KRAKEN_COIL_DMG,
@@ -324,6 +324,8 @@ export function stepSim(run, input, dt) {
   stepStragglers(run)     // v6.0.1 anti-kite: chasers shed behind a runner recycle onto the ring ahead
   stepTrail(run, dt)      // must precede stepBossScript: a scripted chapter returns out of stepSim below
   if (stepBossScript(run, dt)) return // v5.24 blank: the scripted chapter's ONLY spawner (phase may be 'dead' — P2 yank)
+  // AFTER the arms have advanced, so it describes exactly the state the NEXT press will be judged on
+  run.parryReady = CHAPTERS[run.chapter].parry === true && krakenParryReady(run)
   stepFormations(run, dt) // v5.18 beyond lane: ranks of marchers, alongside the seeking swarm above
   stepEnemyMovement(run, dt)
   stepSubmission(run, dt) // SUBMISSION: the loan's clock, and the ally's contact attack
@@ -1970,6 +1972,7 @@ function krakenHide(run, head) {
     a.aimed = false
     a.slamT = 0
     a.coilArm = false
+    a.grabArm = false
     if (a.limpT > 0) run.events.push({ type: 'armRecover', x: a.x, y: a.y })
     a.limpT = 0
     if (a.nodeId != null) {
@@ -2025,7 +2028,7 @@ function krakenArmsToBlock(run, rung, head) {
         x: head.x + Math.cos(ang) * KRAKEN_ARM_REACH,
         y: head.y + Math.sin(ang) * KRAKEN_ARM_REACH,
         hp: KRAKEN_ARM_HP, maxHP: KRAKEN_ARM_HP,
-        tele: 0, fuse: 0, limpT: 0, nodeId: null, dead: false, paid: false, gripT: 0, hitT: 0, breakT: 0, slamT: 0,
+        tele: 0, fuse: 0, limpT: 0, nodeId: null, dead: false, paid: false, gripT: 0, grabArm: false, hitT: 0, breakT: 0, slamT: 0,
         coilArm: false, // true for the length of one Coil: this limb is in the volley, unparryable, drawn in the warning colour
         lx0: 0, ly0: 0, lx1: 0, ly1: 0,   // the struck line, rewritten every frame by krakenPlaceArms
         aimed: false, aimX: 0, aimY: 0,     // the point a slam's wind-up locked on the player
@@ -2042,6 +2045,7 @@ function krakenArmsToBlock(run, rung, head) {
     a.fuse = 0
     a.limpT = 0
     a.gripT = 0
+    a.grabArm = false
     a.nodeId = null
   }
   s.turnT = krakenCadence(s, rung) * 0.5 // the first turn comes early, so a block opens ON an attack
@@ -2150,7 +2154,7 @@ function krakenCoilStep(run, dt, rung, head) {
     // resumes handing out turns like any other beat.
     if (s.coilT <= 0) {
       s.coilT = 0; s.coilHit = false; s.turnT = krakenCadence(s, rung)
-      for (const a of run.krakenArms) if (!a.dead) { a.tele = 0; a.fuse = 0; a.coilArm = false }
+      for (const a of run.krakenArms) if (!a.dead) { a.tele = 0; a.fuse = 0; a.coilArm = false; a.grabArm = false }
     }
   krakenPlaceArms(run, head, krakenReach(s))
   return false
@@ -2227,6 +2231,20 @@ function stepKrakenArms(run, dt, rung, head) {
     }
     a.tele -= tick
     if (a.tele > 0) continue
+    // A GRAB COMES DOWN: it takes hold only if the limb lands on the fish's body — the same drawn
+    // tentacle a slam strikes with — and otherwise it slaps the seabed and misses, doing nothing.
+    if (a.grabArm) {
+      a.grabArm = false
+      a.tele = 0
+      if (krakenLimbTouches(run, a, head)) {
+        a.gripT = KRAKEN_GRIP_DUR
+        run.events.push({ type: 'gripLatch', x: a.x, y: a.y })
+      } else {
+        a.slamT = KRAKEN_SLAM_T
+        run.events.push({ type: 'grabMiss', x: a.x, y: a.y })
+      }
+      continue
+    }
     if (a === lesson) { run.krakenLesson = 3; s.lessonI = -1 } // ignored: the player sees what it does
 
     // THE STRIKE LANDS, unparried. The arm goes straight back to idle — it does not re-arm itself,
@@ -2355,6 +2373,7 @@ function stepKrakenArms(run, dt, rung, head) {
           c.tele = KRAKEN_COIL_TELE
           c.fuse = KRAKEN_COIL_TELE
           c.coilArm = true
+          c.grabArm = false
         }
         // the gap is the spared arm's own bearing, which is what render draws the wedge on
         s.coilGap = spare ? spare.ang : Math.random() * Math.PI * 2
@@ -2370,9 +2389,20 @@ function stepKrakenArms(run, dt, rung, head) {
         //  - ⚠ the REAR stays random. Which limb swings next is the one thing the player has to
         //    watch the whole ring for, and picking the nearest there would collapse the fight to a
         //    single arm. This is the opposite case: a grab is a thing that reached you.
+        // A GRAB IS DODGEABLE (owner, 2026-09-25: "you're not sure how to avoid the grabs"). It used
+        // to latch on this tick, from wherever the player stood — unavoidable by construction. It now
+        // winds up like a slam: aimed ONCE at where you are, on its own fuse and in its own colour,
+        // and at the strike it takes hold only if its limb actually lands on you (krakenLimbTouches,
+        // the same drawn-tentacle test as a slam). Parry does not answer it — you step off the line.
         const g = krakenNearestArm(p, use) || a
-        g.gripT = KRAKEN_GRIP_DUR
-        run.events.push({ type: 'gripLatch', x: g.x, y: g.y })
+        g.tele = KRAKEN_GRAB_FUSE
+        g.fuse = KRAKEN_GRAB_FUSE
+        g.grabArm = true
+        g.aimed = true
+        g.aimX = p.x
+        g.aimY = p.y
+        krakenPlaceArm(head, g, krakenReach(s))
+        run.events.push({ type: 'grabRear', x: g.x, y: g.y, t: KRAKEN_GRAB_FUSE })
       } else {
         // THE WIND-UP IS THE TELEGRAPH AND IT IS ANNOUNCED. `rear` carries the arm's full fuse so
         // render can draw the danger ground filling up against it, and the event fires ONCE at the
@@ -2390,8 +2420,6 @@ function stepKrakenArms(run, dt, rung, head) {
       }
     }
   }
-
-  krakenGripForecast(run, rung)
   return false
 }
 
@@ -2404,7 +2432,7 @@ function krakenLessonArm(run) {
 }
 
 // Who is free to take the ring's next turn, and how many are already busy. One author for the turn
-// itself and for the grip forecast below, so the forecast cannot name an arm the turn would skip.
+// itself and for the rearing cap.
 function krakenTurnPool(run) {
   let rearing = 0
   const idle = []
@@ -2432,36 +2460,6 @@ function krakenNearestArm(p, arms) {
     if (d < gd) { gd = d; g = c }
   }
   return g
-}
-
-// THE GRIP'S TELL — PUBLISHED, NOT DECIDED. The grab is chosen on the tick the turn comes round, so
-// render has nothing to warn with unless sim says which arm it WOULD pick. Two stages, both
-// recomputed every frame from the same helpers the turn uses:
-//   LOADED (gripSoonT = -1): the NEXT slam that lands will make the turn after it a grab. A grip
-//     turn is every KRAKEN_GRIP_EVERY LANDED slams, and a slam lands a fixed fuse after its turn —
-//     at d3 that puts the landing 0.28s before the next turn, and at d2 (fuse = 2 x cadence) ON it,
-//     so the "next turn is a grab" stage alone is a quarter second at best and zero at worst. This
-//     stage is what gives the tell room, and it is true: it holds until a slam lands.
-//   NEXT (gripSoonT >= 0): the coming turn IS the grab; gripSoonT is the seconds to it.
-// gripSoonI is the arm the turn would hand it to if it came now (-1 when neither stage holds). No
-// rule reads either field and nothing here draws a random, so it changes no outcome.
-function krakenGripForecast(run, rung) {
-  const s = run.script
-  const was = s.gripSoonI ?? -1
-  s.gripSoonI = -1
-  s.gripSoonT = -1
-  if (!rung.grip || s.coilT > 0) return
-  const next = krakenTurnWant(run, rung).wantGrip
-  if (!next && !krakenTurnWant(run, rung, s.gripN + 1).wantGrip) return
-  const { rearing, idle } = krakenTurnPool(run)
-  if (!idle.length || (next && rearing >= rung.rearing)) return
-  const pool = rung.grabbers > 0 ? idle.filter((c) => c.role === 'grab') : idle
-  const g = krakenNearestArm(run.player, pool.length ? pool : idle)
-  if (!g) return
-  s.gripSoonI = g.i
-  s.gripSoonT = next ? Math.max(0, s.turnT) : -1
-  // ...and the moment a forecast starts is announced once, so it can carry a sound
-  if (was < 0) run.events.push({ type: 'gripWarn', x: g.x, y: g.y })
 }
 
 function stepKrakenBlock(run, dt, rung, head) {
@@ -2576,7 +2574,7 @@ function stepKrakenChase(run, dt, rung, head) {
       a.dead = false
       a.breakT = 0
       a.hp = Math.max(1, Math.round(a.maxHP * KRAKEN_ENRAGE_ARM_HP))
-      a.tele = 0; a.fuse = 0; a.limpT = 0; a.gripT = 0; a.nodeId = null
+      a.tele = 0; a.fuse = 0; a.limpT = 0; a.gripT = 0; a.grabArm = false; a.nodeId = null
       back++
     }
     run.events.push({ type: 'krakenEnrage', x: head.x, y: head.y, r: KRAKEN_ARM_REACH, n: back })
@@ -2630,6 +2628,7 @@ function krakenBreakArm(run, a) {
   a.tele = 0      // a wind-up in flight dies with the arm: the enrage revives it, and a stale fuse would fire
   a.fuse = 0
   a.coilArm = false
+  a.grabArm = false
   a.breakT = 0.9 // render staging: bare, then peels and sinks
   s.blockKills++
   // PAID ONCE PER ARM, EVER. The enrage hauls broken arms back up, so without this every arm is
@@ -2669,7 +2668,11 @@ function krakenParryShove(run) {
 // ORDERING: stepRepulse runs BEFORE stepBossScript in the frame, so `tele` here is the value the
 // player last saw rendered rather than one already advanced by this frame's dt. That is deliberate
 // for a reaction test — the window closes on the frame after it looked closed, never before.
-function krakenParry(run) {
+// WHAT A PRESS WOULD ANSWER RIGHT NOW, and the only author of that answer. krakenParry acts on it
+// and stepSim publishes it as run.parryReady for the button's glow, so the glow can never promise a
+// parry the press would not make (owner, 2026-09-25: "you can't really know if your parry will do
+// something or not").
+function krakenParryTarget(run) {
   const p = run.player
   const rung = krakenRung(run.difficulty)
   const s = run.script
@@ -2702,7 +2705,9 @@ function krakenParry(run) {
     // ⚠ A COIL ARM IS NOT PARRYABLE. Five lanes lighting at once against a button on a cooldown is
     // not a choice, and the Coil is the fight's one "move, do not press" beat. The warning colour it
     // wears is what says so — see K_ROLE_SKIN.coil.
-    if (a.dead || a.limpT > 0 || a.gripT > 0 || a.coilArm) continue
+    // ⚠ NOR IS A GRAB WINDING UP. It is dodged, never parried (owner, 2026-09-25): a press during
+    // one is a whiff, which is what makes "the button is lit" and "a press lands" the same fact.
+    if (a.dead || a.limpT > 0 || a.gripT > 0 || a.coilArm || a.grabArm) continue
     if (!head) continue
     if (segDist2(p.x, p.y, a.lx0, a.ly0, a.lx1, a.ly1) > parryW2) continue
     if (a.tele > 0 && a.tele <= rung.window && a.tele < bestT) { bestT = a.tele; best = a }
@@ -2732,6 +2737,20 @@ function krakenParry(run) {
   // staggers, because the decay ate them faster than they filled. `perfect` is NOT widened with it:
   // the reward for a tight press stays exactly as tight.
   const headReady = headNear && s.phase === 'chase' && !(s.staggerT > 0) && head.lungeT > 0 && head.lungeT <= rung.lungeWindow
+  return { best, headReady, head, rung }
+}
+
+// A press right now would LAND: off cooldown, and krakenParryTarget names something to answer.
+function krakenParryReady(run) {
+  if ((run.repulseCd ?? 0) > 0 || !run.script) return false
+  const t = krakenParryTarget(run)
+  return !!(t.best || t.headReady)
+}
+
+function krakenParry(run) {
+  const p = run.player
+  const s = run.script
+  const { best, headReady, head, rung } = krakenParryTarget(run)
 
   if (!best && !headReady) {
     // THE WHIFF IS AN EVENT. It used to be a bare return: the cooldown was spent and the game said

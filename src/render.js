@@ -39,6 +39,8 @@ import { KRAKEN_BEATS, KRAKEN_CEREMONY, KRAKEN_OUTRO } from './config.js'
 import { t as tr } from './i18n.js'
 
 
+// THROWAWAY: the grab telegraph's look variants for the owner to pick (?gv=1..3). Delete with the pick.
+const GV = (() => { try { return Number(new URLSearchParams(location.search).get('gv') || 1) } catch { return 1 } })()
 const DARK = 0x3b3345
 // THE HAUL WAKE (owner pick, 2026-09-04). Shot as four arms on one frame — no wake, the first
 // concentric-arc cut, this at 0.32 alpha, and this. He took the loudest: the chapter's floor already
@@ -20064,10 +20066,13 @@ void main() {
     const HW = KRAKEN_LIMB_HW
     const N = K_ROPE_N
     const tS = Math.max(0.02, Math.min(0.9, rig._tS ?? 0.35))
-    const win = a.tele <= rung.window
+    // A GRAB wears its own colour and NEVER the white parry flash: it is dodged, not parried
+    const grab = a.grabArm === true
+    const win = !grab && a.tele <= rung.window
     const windup = 1 - Math.max(0, a.tele) / a.fuse
-    const wOpen = Math.max(0.05, 1 - rung.window / a.fuse)
+    const wOpen = grab ? 1 : Math.max(0.05, 1 - rung.window / a.fuse)
     const prog = Math.min(1, windup / wOpen)
+    const GC = K_GRAB_LOOK[GV] || K_GRAB_LOOK[1]
     const tF = tS + (1 - tS) * Math.pow(prog, 0.9)
     const since = Math.max(0, rung.window - a.tele)
     const pop = win ? Math.exp(-since / 0.08) : 0
@@ -20104,14 +20109,50 @@ void main() {
         const k2 = 0.5 + 0.5 * pop
         G.circle(x, y, r * 2.2).fill({ color: 0xffe6c8, alpha: 0.20 * k2 })
         G.circle(x, y, r).fill({ color: 0xfff6ec, alpha: 0.85 * k2 + 0.1 })
+      } else if (grab && GV === 3) {
+        // pulses of light running up the limb from the ring, faster and brighter as it winds
+        let b = 0
+        const ph = animT * (1.2 + 2.4 * windup)
+        for (let q = 0; q < 3; q++) {
+          const c = tS + (1 - tS) * ((ph + q / 3) % 1)
+          b = Math.max(b, Math.exp(-(((t - c) / 0.05) ** 2)))
+        }
+        b *= 0.35 + 0.65 * windup
+        if (b > 0.05) {
+          G.circle(x, y, r * 2.3).fill({ color: GC.hot, alpha: 0.16 * b })
+          G.circle(x, y, r).fill({ color: GC.hot, alpha: 0.85 * b })
+        }
       } else if (t <= tF) {
         // just lit = hottest; the older ones settle to a steady ember
         const age = Math.max(0, Math.min(1, (tF - t) / 0.12))
-        const col = mix(0xffc070, 0xff5028, age)
+        let col = grab ? mix(GC.hot, GC.cool, age) : mix(0xffc070, 0xff5028, age)
+        // gv=1: in the last stretch every lit sucker throbs — the hold closing
+        if (grab && GV === 1 && windup > 0.8) col = mix(col, GC.hot, 0.5 + 0.5 * Math.sin(animT * 26))
         G.circle(x, y, r * 2.3).fill({ color: col, alpha: 0.10 + 0.14 * (1 - age) })
         G.circle(x, y, r).fill({ color: col, alpha: 0.45 + 0.40 * (1 - age) })
       }
     }
+    // gv=3: the tip opens like a claw — two hooked fingers parting wider as the grab winds up
+    if (grab && GV === 3) {
+      const tip = pts[kE], pre = pts[kE - 3]
+      const ang = Math.atan2(tip.y - pre.y, tip.x - pre.x)
+      const open = 0.25 + 0.9 * windup
+      const len = KRAKEN_ARM_R * 1.3
+      for (const sg of [-1, 1]) {
+        const a1 = ang + sg * open
+        const mx = tip.x + Math.cos(a1) * len * 0.6, my = tip.y + Math.sin(a1) * len * 0.6
+        const a2 = a1 - sg * 0.9
+        G.moveTo(tip.x, tip.y).lineTo(mx, my).lineTo(mx + Math.cos(a2) * len * 0.5, my + Math.sin(a2) * len * 0.5)
+          .stroke({ width: 3.5, color: GC.hot, alpha: 0.35 + 0.55 * windup, cap: 'round', join: 'round' })
+      }
+    }
+  }
+  // THROWAWAY (?gv=1..3): the grab's look, for the owner to pick. hot = a just-lit sucker, cool =
+  // one that has settled, tint = the rope's own colour while it winds up. Never white.
+  const K_GRAB_LOOK = {
+    1: { hot: 0x6affd2, cool: 0x10a07a, tint: 0x9fd6c8 },   // teal sequence, throbbing at the end
+    2: { hot: 0xd490ff, cool: 0x7a30c8, tint: 0xb89ae6 },   // violet sequence + the tip hooks
+    3: { hot: 0x70ecff, cool: 0x2a90c0, tint: 0x9cd4ea },   // cyan pulses + the tip opens like a claw
   }
 
   // THE WEAK POINT: bright, pulsing, bracketed — drawn on exactly the spot the weapons hit (a limp
@@ -20498,7 +20539,7 @@ void main() {
       // out of a grip. Lighting the affordance at something unpressable is worse than leaving it
       // dark: it spends the press, and the cooldown, on the arm that was actually about to land.
       if (a.gripT > 0) continue
-      if (!a.coilArm && a.tele > 0 && a.tele <= rung.window) winK = Math.max(winK, a.tele <= rung.perfect ? 1 : 0.6)
+      if (!a.coilArm && !a.grabArm && a.tele > 0 && a.tele <= rung.window) winK = Math.max(winK, a.tele <= rung.perfect ? 1 : 0.6)
     }
     // ...AND THE HEAD'S LUNGE, which this walked right past. It counted arms only, so during the
     // chase the affordance stayed dark for the single press that produces a stagger — and a stagger
@@ -20507,6 +20548,9 @@ void main() {
     if (s.phase === 'chase' && !(s.staggerT > 0) && head.lungeT > 0 && head.lungeT <= rung.lungeWindow) {
       winK = Math.max(winK, head.lungeT <= rung.perfect ? 1 : 0.6)
     }
+    // the ring on the fish lights only when sim says a press would land (run.parryReady, the same
+    // predicate krakenParry acts on) — never for a grab winding up, never out of reach
+    if (!run.parryReady) winK = 0
     const cd = run.repulseCd ?? 0
     if (winK > 0 && cd <= 0) {
       teleG.beginPath()
@@ -20625,7 +20669,7 @@ void main() {
       const wOpen = cocked ? Math.max(0.05, 1 - rung.window / a.fuse) : 1
       const fDown = cocked && windup > wOpen ? Math.min(1, (windup - wOpen) / (1 - wOpen)) : 0
       const cockLift = !cocked ? 0 : windup < wOpen ? (windup / wOpen) ** 2 * (3 - 2 * windup / wOpen) : Math.cos(fDown * Math.PI / 2)
-      const lift = cocked ? cockLift : Math.max(krakenLift(a), 0.75 * krakenGripTell(run, a))
+      const lift = cocked ? cockLift : krakenLift(a)
       // ...AND THE COIL IS A SECOND CHANNEL ON THE SAME FRAME. It used to RAMP from the idle
       // amplitude (40 + windup * 30, and windup is 0 on the frame a fuse is lit), so at the instant
       // an arm decided to hit you neither its colour nor its movement had changed — the two tells
@@ -20677,6 +20721,9 @@ void main() {
       // (krakenLimbHalfW), so on the landing tick the flesh must lie on lx0..lx1. The whip's
       // travelling bend is allowed back only as the slam plays out, when nothing is being struck.
       const latCap = a.coilArm ? KRAKEN_LASH_W * 0.33 : K_WHIP_SLACK * (a.slamT > 0 ? strike : 1 - onLine)
+      // THROWAWAY gv=2: a grab's tip curls back like a hook as it winds up (straightened by onLine at the strike)
+      const hookK = a.grabArm && GV === 2 ? cockLift : 0
+      const hookLat = (t) => (hookK > 0 ? -swing * hookK * 110 * Math.max(0, (t - 0.72) / 0.28) ** 2 : 0)
       // THE SPINE: out in the dark on the arm's own bearing, in to its shoulder on the ring, and from
       // there straight at the tip — which for an aimed arm is off the spoke, so the limb bends at the
       // ring. Reared, the tip is hauled back up its own line; striking, it cracks down the lane.
@@ -20735,7 +20782,7 @@ void main() {
         // limb is thrown at a time and the rest of it is still catching up
         const d = (t - front) * 3.0
         const wave = front >= 0 ? Math.exp(-(d * d)) * waveA : 0
-        let lat = Math.sin(phase + t * 3.4) * amp * taper + curl * taper * 110 + swing * lift * (cocked ? 170 : 90) * t * t + wave
+        let lat = Math.sin(phase + t * 3.4) * amp * taper + curl * taper * 110 + swing * lift * (cocked ? 170 : 90) * t * t + wave + hookLat(t)
         // THE LIMB COMES DOWN ON THE LINE THE SIM STRIKES: its bends ease out through the descent and
         // a landed limb lies within a third of the lane's half-width of its spine, so the flesh on the
         // floor IS the struck ground (the capsule lx0..lx1, KRAKEN_LASH_W either side)
@@ -20765,13 +20812,9 @@ void main() {
       // ...and it EXTENDS and RETRACTS rather than switching on. dt is 0 behind a modal, which
       // holds the reach still exactly like every other animation in this renderer.
       {
-        // THE GRIP'S TELL IS THE START OF THE GRAB. While sim's forecast names this arm, the limb
-        // begins to leave its ring and reach for the player — up to K_GRIP_TELL_REACH of the way,
-        // short of where the coil starts winding — so the latch is the SAME motion finishing
-        // rather than a limb teleporting onto you. The owner's rule for the grip holds: the
-        // tentacle does the telling, no ring or line is drawn for it.
-        const tell = krakenGripTell(run, a)
-        const want = a.gripT > 0 ? 1 : (tell > K_GRIP_TELL_LOADED ? K_GRIP_TELL_REACH * tell : 0)
+        // THE GRAB'S TELL IS ITS OWN WIND-UP now (aimed and struck like a slam, see drawKrakenCharge),
+        // so the limb only winds round the player once sim says it actually took hold.
+        const want = a.gripT > 0 ? 1 : 0
         const rate = (dt || 0) / (want > 0 ? K_GRIP_EXTEND_T : K_GRIP_RETRACT_T)
         const now = krakenGrab[a.i] ?? 0
         krakenGrab[a.i] = want > now ? Math.min(want, now + rate) : Math.max(want, now - rate)
@@ -21031,23 +21074,6 @@ void main() {
           }
         }
       }
-      // ...AND THE WATER AROUND THE PLAYER STARTS MOVING TOWARD IT. The reach alone can start at the
-      // edge of the light; silt lifting off the seabed around the fish and streaming toward the limb
-      // is the half of the tell that is always where the player is looking — and it is a physical
-      // thing in the water, not a ring or a line, which is the owner's rule for the grip.
-      {
-        const gk = krakenGripTell(run, a)
-        if (gk > 0 && dt > 0 && Math.random() < dt * (18 + 30 * gk)) {
-          const p = run.player
-          const tip = krakenTips[a.i]
-          const ang = Math.random() * Math.PI * 2
-          const r0 = 26 + Math.random() * 40
-          const sx = p.x + Math.cos(ang) * r0, sy = p.y + Math.sin(ang) * r0
-          const dx = tip.x - sx, dy = tip.y - sy, dl = Math.hypot(dx, dy) || 1
-          const sp = 140 + 160 * gk
-          spawnParticle(T.fx.circle_05, sx, sy, (dx / dl) * sp, (dy / dl) * sp, 0.45, 0.035 + Math.random() * 0.02, 0xd8b8d0, -0.03, 0)
-        }
-      }
       // THE TEAR RUNS ALONG THE LIMB, AND IT IS BUILT OUT OF THE LIMB'S OWN POINTS. Two shipped
       // attempts drew a SHAPE at the arm's tip — first a pink ellipse with a bar through it ("the
       // fuck is this pink oval with a slash on it"), then a ragged cavity in the same place ("it just
@@ -21108,14 +21134,8 @@ void main() {
         else if (a.slamT > 0) rig.rope.tint = 0x5d5470
         else if (a.limpT > 0) rig.rope.tint = mix(0x4576a0, 0x5691c0, 0.5 + 0.5 * Math.sin(animT * 4)) // spent: cold AND dimmed
         else if (rung && !a.coilArm && a.tele > 0 && a.tele <= rung.window && run.krakenLesson === 1 && run.script.lessonI === a.i) rig.rope.tint = Math.sin(animT * Math.PI * 10) > -0.2 ? 0xffffff : 0x8a7fc0
-        else if (rung && !a.coilArm && a.tele > 0 && a.fuse) { rig.rope.tint = a.tele <= rung.window ? 0xfff2e4 : 0xa99ed6; drawKrakenCharge(rig, a, rung) }
+        else if (rung && !a.coilArm && a.tele > 0 && a.fuse) { rig.rope.tint = a.grabArm ? (K_GRAB_LOOK[GV] || K_GRAB_LOOK[1]).tint : a.tele <= rung.window ? 0xfff2e4 : 0xa99ed6; drawKrakenCharge(rig, a, rung) }
         else if (rung && a.tele > 0 && a.fuse) rig.rope.tint = mix(0x9e92cf, 0xeee8fe, 1 - a.tele / a.fuse)
-        else if (krakenGripTell(run, a) > 0) {
-          // the suckers lighting up: a grabber about to take you flushes warm and throbs, faster as
-          // the turn comes round — the only warm pulse on a limb anywhere in the ring
-          const gk = krakenGripTell(run, a)
-          rig.rope.tint = mix(0x6a5e94, 0xffffff, gk * (0.5 + 0.5 * Math.sin(animT * (14 + 22 * gk))))
-        }
         else rig.rope.tint = mix(0x7366a0, 0x403d4b, 1 - fur)
       }
     }
@@ -22092,20 +22112,6 @@ void main() {
     }
     drawKrakenBody(run, dt, krakenHead)
     syncKrakenHeadRig(run, dt, krakenHead)
-  }
-
-  // THE GRIP FORECAST as a 0..1 ramp for this arm: 0 unless sim's forecast (script.gripSoonI) names
-  // it. LOADED (gripSoonT < 0 — the next slam to land arms the grab) is a low K_GRIP_TELL_LOADED:
-  // the limb stirs and throbs but does not reach. NEXT (the coming turn is the grab) jumps to 0.6
-  // and climbs to 1 over the last K_GRIP_TELL_T seconds — the reach and the lift ride this.
-  const K_GRIP_TELL_T = 0.9
-  const K_GRIP_TELL_LOADED = 0.3
-  const K_GRIP_TELL_REACH = 0.42 // < K_GRIP_COIL_AT: the reach may start, the coil may not
-  function krakenGripTell(run, a) {
-    const s = run.script
-    if (!s || s.gripSoonI !== a.i || a.gripT > 0 || a.dead) return 0
-    if (!((s.gripSoonT ?? -1) >= 0)) return K_GRIP_TELL_LOADED
-    return 0.6 + 0.4 * Math.max(0, 1 - s.gripSoonT / K_GRIP_TELL_T)
   }
 
   // THE LUNGE, POSED. The bare head was one baked sprite that slid at you with no anticipation; from
@@ -26300,8 +26306,8 @@ void main() {
           addShake(4, 0.14)
           break
         }
-        case 'gripWarn': {
-          // the forecast starting: a puff of silt lifting off the seabed under the grabber that is
+        case 'grabRear': {
+          // a grab winding up: a puff of silt lifting off the seabed under the grabber that is
           // about to reach. The limb's own reach, lift and throb carry the rest (syncKrakenArms).
           for (let i = 0; i < 8; i++) {
             const a = Math.random() * Math.PI * 2

@@ -173,7 +173,7 @@ import {
   KRAKEN_OPEN_WAVES, KRAKEN_COIL_EVERY, KRAKEN_ARRIVE_T, KRAKEN_RING_R, KRAKEN_LASH_R, KRAKEN_SLAM_T, KRAKEN_DEFLECT_CD,
   KRAKEN_LUNGE_T, KRAKEN_GRIP_DUR, KRAKEN_GRIP_DMG, KRAKEN_GRIP_FLICKS, KRAKEN_GRIP_STICK_MUL, TRAWL_WIGGLE_ARC,
   KRAKEN_LASH_W, KRAKEN_LASH_OVER, KRAKEN_LASH_DMG, KRAKEN_LESSON_MAX, KRAKEN_PARRY_SHOVE_R, KRAKEN_ARRIVE_T2, KRAKEN_WAVE_GROWTH, KRAKEN_COIL_DMG,
-  KRAKEN_HEAD_SPEED, KRAKEN_PARRY_SPIN_T, krakenLimbHalfW, FISH_R, FISH_BODY,
+  KRAKEN_HEAD_SPEED, KRAKEN_PARRY_SPIN_T, krakenLimbHalfW, FISH_R, FISH_BODY, KRAKEN_GRIP_EVERY, KRAKEN_GRAB_FUSE,
 } from '../src/config.js'
 import { krakenWinPending, stepSim, applyChoice, buildLevelUpChoices, eligibleWeaponModCandidates, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, inRefillCircle, stepCharge, newElWindow, spurAt } from '../src/sim.js'
 
@@ -20321,6 +20321,7 @@ run(testLeLargeWeapons)
   run(testKrakenAimedSlam)
   run(testKrakenLesson)
   run(testKrakenParryShove)
+  run(testKrakenGrab)
   run(runKrakenCeremony)
   run(runBiomes)
   run(testBootLoader)
@@ -35707,6 +35708,95 @@ function testKrakenLesson() {
 // Owner, 2026-09-24: "parry should knockback and daze the regular enemies". A landed parry shoves
 // and stuns the ordinary enemies within KRAKEN_PARRY_SHOVE_R through the existing e.kb / e.stunT
 // contract; the head and the arms' nodes are exempt.
+// THE GRAB IS DODGED, AND THE BUTTON GLOWS ONLY WHEN A PRESS LANDS (owner, 2026-09-25: "you can't
+// really know if your parry will do something or not, and you're not sure how to avoid the grabs").
+// A grab used to latch on the tick its turn came round, from wherever the player stood. It now
+// winds up aimed like a slam and takes hold only if its limb lands on the fish; a press during it
+// is a whiff; and run.parryReady is true exactly while krakenParry would land.
+function testKrakenGrab() {
+  Math.random = mulberry32(20260925)
+  const run = createRun({ ...makeMeta(), krakenParried: true }, { chapter: 'kraken', difficulty: 2 })
+  const budget = KRAKEN_OPEN_WAVES * (KRAKEN_WAVE_TIMEOUT + 2) + KRAKEN_ARRIVE_T + 5
+  let guard = 0
+  while (run.script.phase !== 'boss' && guard++ < 60 * budget) { run.player.hp = run.player.maxHP; stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60) }
+  assert.strictEqual(run.script.phase, 'boss', 'the approach never reached the ring')
+  const R2 = krakenRung(2)
+  assert.ok(R2.grip, 'fixture: d2 has no grip, so nothing below is about a grab')
+  const s = run.script
+  const arm = run.krakenArms[0]
+  for (const a of run.krakenArms) { a.tele = 0; a.gripT = 0; a.limpT = 0; a.grabArm = false; if (a !== arm) a.dead = true }
+  const p = run.player
+  const step = (at, press = false) => {
+    if (at) { p.x = at.x; p.y = at.y }
+    p.hp = p.maxHP; p.invuln = 0
+    run.events.length = 0
+    stepSim(run, { x: 0, y: 0, skill: press }, 1 / 60)
+    return run.events
+  }
+  // hand the one arm a GRAB turn: the grip counter on a multiple, the turn due now
+  const P = { x: arm.x, y: arm.y }
+  function startGrab() {
+    arm.tele = 0; arm.gripT = 0; arm.slamT = 0; arm.limpT = 0; arm.grabArm = false
+    s.bossIdx = Math.max(1, s.bossIdx)
+    s.gripN = KRAKEN_GRIP_EVERY
+    s.turnT = 0
+    run.repulseCd = 0
+    const ev = step(P)
+    assert.ok(ev.some((e) => e.type === 'grabRear'), 'the grab turn did not start a grab wind-up — it latched, or it never came')
+    assert.ok(arm.grabArm && arm.tele > 0 && arm.gripT === 0, 'the grab took hold on its turn instead of winding up — it is still unavoidable')
+    assert.ok(Math.hypot(arm.aimX - P.x, arm.aimY - P.y) < 1, 'the grab is not aimed at where the player stood when it started')
+  }
+  function strike(at) {
+    for (let i = 0; i < 60 * 4; i++) {
+      const ev = step(at)
+      if (ev.some((e) => e.type === 'gripLatch')) return 'caught'
+      if (ev.some((e) => e.type === 'grabMiss')) return 'missed'
+    }
+    assert.fail('the grab wind-up never struck')
+  }
+  // 1) ON ITS LINE: it takes hold
+  startGrab()
+  assert.strictEqual(strike(P), 'caught', 'a grab that came down on the fish did not take hold')
+  assert.ok(arm.gripT > 0, 'a grab reported a latch without a grip')
+  // 2) OFF ITS LINE: the player steps well clear of the drawn limb after the aim locks — it misses
+  arm.gripT = 0
+  startGrab()
+  const L = Math.hypot(arm.lx1 - arm.lx0, arm.ly1 - arm.ly0)
+  const nx = -(arm.ly1 - arm.ly0) / L, ny = (arm.lx1 - arm.lx0) / L
+  const off = { x: P.x + nx * 120, y: P.y + ny * 120 }
+  const hp0 = p.maxHP
+  assert.strictEqual(strike(off), 'missed', 'a grab took hold of a fish standing 120px off its line — it is still unavoidable')
+  assert.ok(arm.gripT === 0 && p.hp === hp0, 'a missed grab still gripped or hurt the fish')
+  // 3) A PRESS DURING A GRAB IS A WHIFF, and the button said so beforehand
+  arm.slamT = 0
+  startGrab()
+  arm.tele = 0.1       // late in the wind-up, where a slam's parry window would be open
+  step(P)
+  assert.strictEqual(run.parryReady, false, 'the parry button is lit during a grab wind-up — it promises a parry the press will not make')
+  const ev = step(P, true)
+  assert.ok(ev.some((e) => e.type === 'parryWhiff'), 'a press during a grab wind-up was not a whiff — the grab is parryable')
+  assert.ok(arm.limpT === 0 && arm.grabArm, 'a press during a grab wind-up negated it')
+  // 4) parryReady IS TRUE EXACTLY IN A SLAM'S WINDOW, IN REACH, OFF COOLDOWN
+  for (let i = 0; i < 60 * 2; i++) { arm.tele = 0; arm.gripT = 0; arm.grabArm = false; step(P) }
+  arm.slamT = 0; arm.limpT = 0; arm.gripT = 0
+  s.turnT = 99
+  arm.aimed = true; arm.aimX = P.x; arm.aimY = P.y
+  arm.fuse = R2.fuse
+  run.repulseCd = 0
+  const readyAt = (tele, cd = 0) => { arm.tele = tele; run.repulseCd = cd; step(P); return run.parryReady }
+  assert.strictEqual(readyAt(R2.window + 0.3), false, 'the button is lit while the slam is still winding up, before its window')
+  assert.strictEqual(readyAt(R2.window * 0.5 + 1 / 60), true, 'the button is not lit inside the slam window, in reach, off cooldown')
+  assert.strictEqual(readyAt(R2.window * 0.5 + 1 / 60, 0.5), false, 'the button is lit while the parry is on cooldown')
+  const far = { x: P.x + nx * 600, y: P.y + ny * 600 }
+  arm.tele = R2.window * 0.5 + 1 / 60; run.repulseCd = 0; step(far)
+  assert.strictEqual(run.parryReady, false, 'the button is lit for a slam far out of reach')
+  // ...and the lit button is a promise: pressing on it lands
+  assert.strictEqual(readyAt(R2.window * 0.5 + 2 / 60), true, 'fixture: not lit before the press')
+  step(P, true)
+  assert.ok(arm.limpT > 0, 'the button was lit and the press did not land')
+  console.log(`PASS run KG (grab + parry tell): a grab winds up aimed (${KRAKEN_GRAB_FUSE}s), grips a fish on its line and misses one 120px off it, a press during it is a whiff with the button dark; parryReady lights only inside a slam's window, in reach, off cooldown, and a press on it lands`)
+}
+
 function testKrakenParryShove() {
   Math.random = mulberry32(20260925)
   const run = createRun({ ...makeMeta(), krakenParried: true }, { chapter: 'kraken', difficulty: 1 })

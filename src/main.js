@@ -725,9 +725,9 @@ const SFX_FOR_EVENT = {
   // the fight the player's own stick produces, and it is the confirmation that the wiggle worked.
   // 'surge' rather than a snap: what you feel is the lurch as the drag comes off.
   tentacleBreak: 'bossFall', headHide: 'hole', gripLatch: 'zap', gripBreak: 'surge', lash: 'whip',
-  // gripWarn is the grip's forecast STARTING — the tell before a grab, which had none at all. Its
-  // own voice: a rising draw of water, which is what the reaching limb is doing to the sea.
-  gripWarn: 'suck',
+  // grabRear is a grab's wind-up STARTING (its own voice, never a slam's); grabMiss is it slapping
+  // the seabed where you were — both rare (a few a fight). A rising draw of water, then the crack.
+  grabRear: 'suck', grabMiss: 'whip',
   // headRise is the fight's one reveal (once a run); coilWind/coilClose are D3's unparryable
   // ring, rare enough to bear a voice and important enough to need one — it is the only pattern
   // with no button answer, so it must be audible before it is visible.

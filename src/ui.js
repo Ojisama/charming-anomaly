@@ -2368,6 +2368,11 @@ export function initUI(hooks) {
         // the shield's white border fills as the cooldown runs, and is whole when it is ready
         const fill = Math.round(100 * (1 - Math.min(1, Math.max(0, run.repulseCd) / KRAKEN_PARRY_CD))) / 100
         if (fill !== last.parryFill) { last.parryFill = fill; hud.parryCd.setAttribute('stroke-dashoffset', String(1 - fill)) }
+        // THE GLOW MEANS "A PRESS LANDS NOW", and only that (owner, 2026-09-25: "you can't really
+        // know if your parry will do something or not"). sim publishes run.parryReady off the same
+        // predicate krakenParry acts on; off cooldown with nothing to answer, the shield sits plain.
+        const armed = run.parryReady === true
+        if (armed !== last.parryArmed) { last.parryArmed = armed; hud.skillBtn.classList.toggle('skill-btn--armed', armed) }
       }
       // THE PARRY LESSON: the button pulses while the lesson arm winds up (run.krakenLesson, state.js)
       const la = run.krakenLesson === 1 && run.script ? run.krakenArms[run.script.lessonI] : null
