@@ -210,32 +210,28 @@ function beat(tells) {
   if (run.phase === 'levelup') run.phase = 'playing'
   const hurtArm = ev.some((e) => e.type === 'hurt' && e.src === 'krakenArm')
   // THE GRAB'S SAFE SIDE, GRADED. While a grab winds up: did the bot, dodging it, get struck by
-  // ANOTHER arm (i.e. step into a threat)? At its strike: was the published side actually clear —
-  // no other arm winding up or just landed whose struck line lies within KRAKEN_LASH_W of the spot
-  // KRAKEN_GRAB_SAFE_STEP off the lock point on that side?
-  // the side is judged against the threats that were live WHEN THE GRAB STARTED (what the chevron
-  // could know): a slam that starts later aims at wherever the fish has stepped to, i.e. at the safe
-  // side by construction, so judging at the strike would grade the chevron against its own success
+  // ANOTHER arm (i.e. step into a threat)? And was the published side actually clear — judged at the
+  // spot sim published for each side (a.grabSpotX/Y, a.grabAltX/Y: the step a player really takes in
+  // the fuse, speed x (fuse - KRAKEN_GRAB_REACT), capped by the cage wall), against threats this
+  // grader tests for itself: a side the wall cuts shorter than KRAKEN_GRAB_MIN_STEP is blocked, and a
+  // side is hot if another arm's struck line lies within KRAKEN_LASH_W of its spot.
+  // Judged against the threats live WHEN THE GRAB STARTED (what the chevron could know): a slam that
+  // starts later aims at wherever the fish has stepped to, i.e. at the safe side by construction.
   // timed: only threats that land while the fish would still be out there (before the grab strikes
-  // + KRAKEN_BEAT_BREATH + 0.3s) — a slam landing seconds later aims at wherever the fish is by then.
-  // untimed (any=true): every live lane, however far off it lands, the stricter reading.
+  // + KRAKEN_BEAT_BREATH + 0.3s). untimed (any=true): every live lane, the stricter reading.
+  const spotOf = (a, sd) => (sd === a.grabSafeSide ? { x: a.grabSpotX, y: a.grabSpotY } : { x: a.grabAltX, y: a.grabAltY })
   const sideHot = (a, sd, any = false) => {
-    const L = Math.hypot(a.lx1 - a.lx0, a.ly1 - a.ly0) || 1
-    const nx = -(a.ly1 - a.ly0) / L, ny = (a.lx1 - a.lx0) / L
-    const x = a.aimX + nx * sd * C.KRAKEN_GRAB_SAFE_STEP, y = a.aimY + ny * sd * C.KRAKEN_GRAB_SAFE_STEP
-    // a spot past the cage wall is not a place the fish can be: that side is blocked, i.e. not clear
-    const hh = head(), cr = run.script.cageR > 0 ? run.script.cageR : C.KRAKEN_CAGE_R
-    if (hh && Math.hypot(x - hh.x, y - hh.y) > cr) return true
+    const { x, y } = spotOf(a, sd)
+    if (!(Number.isFinite(x) && Number.isFinite(y))) return true
+    if (Math.hypot(x - a.aimX, y - a.aimY) < C.KRAKEN_GRAB_MIN_STEP) return true
     return run.krakenArms.some((o) => o !== a && !o.dead && o.tele > 0 && o.limpT <= 0 && (any || o.tele <= C.KRAKEN_GRAB_FUSE + C.KRAKEN_BEAT_BREATH + 0.3) && seg2(x, y, o.lx0, o.ly0, o.lx1, o.ly1) <= C.KRAKEN_LASH_W ** 2)
   }
   // why the OTHER side was not picked when it was the clear one (diagnostic)
   const sideWhy = (a, sd) => {
-    const L = Math.hypot(a.lx1 - a.lx0, a.ly1 - a.ly0) || 1
-    const nx = -(a.ly1 - a.ly0) / L, ny = (a.lx1 - a.lx0) / L
-    const x = a.aimX + nx * sd * C.KRAKEN_GRAB_SAFE_STEP, y = a.aimY + ny * sd * C.KRAKEN_GRAB_SAFE_STEP
-    const hh = head(), cr = run.script.cageR > 0 ? run.script.cageR : C.KRAKEN_CAGE_R
+    const { x, y } = spotOf(a, sd)
+    const hh = head()
     const dh = hh ? Math.hypot(x - hh.x, y - hh.y) : 0
-    return dh > cr - 20 ? 'clear side was past the cage wall' : dh < C.KRAKEN_HEAD_R * 1.8 ? 'clear side was on the head' : 'scored threats'
+    return Math.hypot(x - a.aimX, y - a.aimY) < C.KRAKEN_GRAB_MIN_STEP ? 'clear side was walled off' : dh < C.KRAKEN_HEAD_R * 1.8 ? 'clear side was on the head' : 'scored threats'
   }
   for (const a of run.krakenArms) {
     if (a.grabArm && a.tele > 0) {
