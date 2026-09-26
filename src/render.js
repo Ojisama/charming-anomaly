@@ -36,7 +36,7 @@ import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC
 import { currentForce, tideForce } from './sim.js'
 // The Kraken's ceremony (name card, phase beats, the kill). Its own import line so it merges clean.
 import { KRAKEN_BEATS, KRAKEN_CEREMONY, KRAKEN_OUTRO } from './config.js'
-import { TRAWL_WIGGLE_ARC, KRAKEN_GRIP_FLICKS, KRAKEN_BITE_WINDUP_T } from './config.js'
+import { TRAWL_WIGGLE_ARC, KRAKEN_GRIP_FLICKS, KRAKEN_DASH_DIST, KRAKEN_DASH_T } from './config.js'
 import { t as tr } from './i18n.js'
 
 
@@ -20101,17 +20101,13 @@ void main() {
     // THE PATH: where it is coming. A lane in the hazard colour from the head's leading edge
     // through the player and a body-width past them, reaching further and burning brighter over
     // the wind-up, with chevrons running down it toward the fish. It turns white-hot when the parry
-    // window opens — the same "red is the danger, white is the answer" as an arm. The lunge SEEKS,
-    // so this is its heading, not a hitbox; it is aimed at where the player is, every frame.
-    const p = run.player
-    const dx = p.x - head.x, dy = p.y - head.y
-    const d = Math.hypot(dx, dy) || 1
-    const ux = dx / d, uy = dy / d
+    // window opens — the same "red is the danger, white is the answer" as an arm. It is the DASH's
+    // line (head.dashAng: tracking the fish, locked as the window opens) and its full length
+    // (KRAKEN_DASH_DIST past the head's rim), so the lane is exactly the ground the head will cross.
+    const ux = Math.cos(head.dashAng ?? 0), uy = Math.sin(head.dashAng ?? 0)
     const win = head.lungeT <= rung.lungeWindow
     const x0 = head.x + ux * KRAKEN_HEAD_R * 0.85, y0 = head.y + uy * KRAKEN_HEAD_R * 0.85
-    // ...and at contact range it is still a LANE: never shorter than the fish's own distance plus
-    // most of a head past it, so a lunge from nose-to-nose reads as a path, not a disc under the fish
-    const reach = Math.max(KRAKEN_HEAD_R * 1.6, d + KRAKEN_HEAD_R * 0.9 - KRAKEN_HEAD_R * 0.7) * (0.6 + 0.4 * w)
+    const reach = (KRAKEN_DASH_DIST + KRAKEN_HEAD_R * 0.3) * (0.6 + 0.4 * w)
     const x1 = x0 + ux * reach, y1 = y0 + uy * reach
     const hw = KRAKEN_HEAD_R * 0.3
     // SATURATED, IN THE CUE LAYER: the struck-lane orange everywhere else in this fight, drawn above
@@ -21206,7 +21202,7 @@ void main() {
       // there straight at the tip — which for an aimed arm is off the spoke, so the limb bends at the
       // ring. Reared, the tip is hauled back up its own line; striking, it cracks down the lane.
       {
-        const ca = Math.cos(a.ang), sa = Math.sin(a.ang)
+        const ca = Math.cos(a.angNow ?? a.ang), sa = Math.sin(a.angNow ?? a.ang)
         const Bx = head.x + ca * shoulderR, By = head.y + sa * shoulderR
         const Sx = head.x + ca * KRAKEN_RING_R, Sy = head.y + sa * KRAKEN_RING_R
         const bent = tipR < KRAKEN_RING_R - 40
@@ -21318,7 +21314,7 @@ void main() {
           }
         }
       }
-      rig._tS = (shoulderR - KRAKEN_RING_R) / ((shoulderR - KRAKEN_RING_R) + Math.hypot(te.x - (head.x + Math.cos(a.ang) * KRAKEN_RING_R), te.y - (head.y + Math.sin(a.ang) * KRAKEN_RING_R)) || 1)
+      rig._tS = (shoulderR - KRAKEN_RING_R) / ((shoulderR - KRAKEN_RING_R) + Math.hypot(te.x - (head.x + Math.cos(a.angNow ?? a.ang) * KRAKEN_RING_R), te.y - (head.y + Math.sin(a.angNow ?? a.ang) * KRAKEN_RING_R)) || 1)
       // THE LIMB IS THE GRIP. Owner, 2026-09-15: "the tentacles should do everything: wrap around
       // you for grip (they could morph) or whip/swing for attacks." A grab used to be a glowing
       // LINE struck between the arm's tip and the player while the tentacle itself carried on
@@ -22492,10 +22488,11 @@ void main() {
     const stretchX = Math.abs(hs.scale.x) / k0, stretchY = Math.abs(hs.scale.y) / k0
     const p = run.player
     const dx = p.x - head.x, dy = p.y - head.y, dl = Math.hypot(dx, dy) || 1
-    // THE BITE, WORN BY THE HEAD: head.biteT winds the mouth up, the headBite event is the snap.
-    // bw 0..1 the wind-up, bs 0..1 the snap's slam and release, bOn eases the pose in and out.
-    const biting = !stag && head.biteT != null
-    const bw = biting ? Math.max(0, Math.min(1, 1 - head.biteT / KRAKEN_BITE_WINDUP_T)) : 0
+    // THE DASH, WORN BY THE HEAD'S MOUTH (the bite's pose, owner's pick 2026-09-26, moved onto the
+    // dash when the bite went): the lunge's wind-up opens the mouth and blooms its arms, the
+    // headLunge event slams it shut as it launches. bw 0..1 the wind-up, bs 0..1 the snap.
+    const biting = !stag && s.phase === 'chase' && head.lungeT > 0 && head.lungeT <= KRAKEN_LUNGE_WINDUP_T
+    const bw = biting ? Math.max(0, Math.min(1, 1 - head.lungeT / KRAKEN_LUNGE_WINDUP_T)) : 0
     const sa = !stag && krakenBiteFx > 0 ? K_BITE_FX_T - krakenBiteFx : -1
     const bs = sa < 0 ? 0 : sa < K_BITE_SHUT_T ? sa / K_BITE_SHUT_T : Math.max(0, 1 - (sa - K_BITE_SHUT_T) / (K_BITE_FX_T - K_BITE_SHUT_T))
     kc.bOn = (kc.bOn || 0) + ((biting || sa >= 0 ? 1 : 0) - (kc.bOn || 0)) * Math.min(1, k * 9)
@@ -22677,7 +22674,7 @@ void main() {
   let krakenBiteFx = 0, krakenBiteHit = false
   const K_WIGGLE_INK = 0xdcff3c
   const K_BITE_SHUT_T = 0.05    // the snap: the mouth slams shut
-  const K_BITE_FX_T = 0.4       // the snap's pose, from the headBite event
+  const K_BITE_FX_T = 0.4       // the snap's pose, from the headLunge event
 
   // THE FISH'S OUTLINE, as a silhouette of its own body (the fish's tail is part of that texture):
   // the body texture drawn again
@@ -22726,8 +22723,8 @@ void main() {
     krakenBiteFx = Math.max(0, krakenBiteFx - k)
     krakenEscapeT = Math.max(0, krakenEscapeT - k)
     for (const e of events) {
-      if (e.type === 'headBite') {
-        krakenBiteFx = K_BITE_FX_T; krakenBiteHit = !!e.hit
+      if (e.type === 'headLunge') {
+        krakenBiteFx = K_BITE_FX_T; krakenBiteHit = true
       }
       if (e.type === 'gripBreak') { krakenEscapeT = 0.4; krakenEscapeX = e.px ?? run.player.x; krakenEscapeY = e.py ?? run.player.y }
     }
@@ -22748,7 +22745,7 @@ void main() {
       const urg = 1 - (s.coilT - KRAKEN_COIL_DUR) / Math.max(0.001, KRAKEN_COIL_TELE)
       const k0 = Math.min(1, urg * 1.3), dk = k0 * k0 * (3 - 2 * k0)
       const flick = 0.85 + 0.15 * Math.sin(animT * 3.1) * Math.sin(animT * 1.7)
-      const R = KRAKEN_CAGE_R * 3, W = KRAKEN_LASH_W, n = KRAKEN_COIL_RAYS
+      const R = KRAKEN_CAGE_R * 3, W = KRAKEN_LASH_W, n = s.coilN || KRAKEN_COIL_RAYS
       for (let k = 0; k < n; k++) {
         const t = (s.coilStar ?? 0) + k * Math.PI * 2 / n
         const x1 = head.x + Math.cos(t) * R, y1 = head.y + Math.sin(t) * R
@@ -22764,12 +22761,6 @@ void main() {
         for (let q = 0; q <= 8; q++) { const u2 = t - h + 2 * h * q / 8; lp.push(head.x + Math.cos(u2) * R * 0.4, head.y + Math.sin(u2) * R * 0.4) }
         teleG.poly(lp).fill({ color: 0xcfeaff, alpha: 0.08 * dk * flick })
       }
-    }
-    // ---- THE BITE IS THE HEAD'S OWN MOUTH (syncKrakenHeadRig poses it off head.biteT and the
-    // headBite snap). Nothing is drawn here; the tell is registered for the cue probe.
-    if (s.phase === 'chase' && head.biteT != null) {
-      const ang = Math.atan2(p.y - head.y, p.x - head.x), reach = (head.radius ?? KRAKEN_HEAD_R) + pr
-      tellDrawn('head', -1, 'headBite', head.x + Math.cos(ang) * reach, head.y + Math.sin(ang) * reach)
     }
 
     // ---- the fish's outline: silhouettes of its own body and tail behind it, dark and then a thin
@@ -22860,11 +22851,8 @@ void main() {
   // sim put it and nothing here moves it.
   function poseKrakenLunge(run, head, hs) {
     const s = run.script
-    const p = run.player
-    const dx = p.x - head.x, dy = p.y - head.y
-    const dl = Math.hypot(dx, dy) || 1
-    const ux = dx / dl, uy = dy / dl
-    const burst = Math.max(0, head._lungeBurst ?? 0) / 0.5
+    const ux = Math.cos(head.dashAng ?? 0), uy = Math.sin(head.dashAng ?? 0)
+    const burst = Math.max(0, head._lungeBurst ?? 0) / KRAKEN_DASH_T
     if (burst > 0) {
       const b = Math.sin(burst * Math.PI * 0.5)
       hs.scale.set(hs.scale.x * (1 + 0.16 * b), hs.scale.y * (1 - 0.06 * b))
