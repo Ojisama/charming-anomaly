@@ -2202,6 +2202,8 @@ export function initUI(hooks) {
            own FX accent (render.js), so the bar reads as "the boss's" at a glance. -->
       <div class="boss-bar-wrap" data-boss-bar style="display:none; grid-column:1 / -1; grid-row:2;">
         <div class="rampage-bar" style="height:14px;"><div class="rampage-fill" style="background:#8a5fe0;"></div></div>
+        <!-- the Kraken's arms phase: one pill per arm (run.bossBar.pills) -->
+        <div data-boss-pills style="display:none; gap:6px;"></div>
       </div>
       <!-- The Trawl's WIGGLE TO ESCAPE bar (run.net.wiggle, 2026-09-03): same slot and chrome as
            the boss bar — the two never share a chapter — filled in the net's own twine colour
@@ -2268,6 +2270,7 @@ export function initUI(hooks) {
     parryCd: screens.hud.querySelector('.parry-cd'),
     bossBarWrap: screens.hud.querySelector('[data-boss-bar]'),
     bossBarFill: screens.hud.querySelector('[data-boss-bar] .rampage-fill'),
+    bossPills: screens.hud.querySelector('[data-boss-pills]'),
     wiggleWrap: screens.hud.querySelector('[data-wiggle]'),
     wiggleFill: screens.hud.querySelector('[data-wiggle-fill]'),
     chaosWrap: screens.hud.querySelector('[data-chaos]'),
@@ -2575,8 +2578,23 @@ export function initUI(hooks) {
       hud.bossBarWrap.style.display = bossBarShown ? '' : 'none'
     }
     if (bossBarShown) {
+      const pills = run.bossBar.pills
+      const pillSig = pills ? pills.map((v) => Math.round(v * 100)).join(',') : ''
+      if (pillSig !== last.bossPillSig) {
+        const was = last.bossPillSig
+        last.bossPillSig = pillSig
+        hud.bossBarFill.parentElement.style.display = pills ? 'none' : ''
+        hud.bossPills.style.display = pills ? 'flex' : 'none'
+        if (pills) {
+          if (!was || was.split(',').length !== pills.length) {
+            hud.bossPills.innerHTML = pills.map(() => '<div class="rampage-bar" style="height:14px; flex:1;"><div class="rampage-fill" style="background:#8a5fe0;"></div></div>').join('')
+          }
+          pills.forEach((v, i) => { hud.bossPills.children[i].firstChild.style.width = `${Math.round(v * 100)}%` })
+        }
+        last.bossBarPct = -1
+      }
       const pct = Math.round(Math.max(0, Math.min(1, run.bossBar.hp / run.bossBar.max)) * 100)
-      if (pct !== last.bossBarPct) {
+      if (!pills && pct !== last.bossBarPct) {
         last.bossBarPct = pct
         hud.bossBarFill.style.width = `${pct}%`
       }

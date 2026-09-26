@@ -2350,6 +2350,8 @@ function generateWells(sig) {
   * bossBar: null whenever no scripted boss is alive; while one is, { hp, max, stage } mirrors the
   *   current phase entity so ui.js can render a boss HP bar without reaching into run.enemies
   *   (rampage pattern: the field always exists, stays inert for every non-scripted chapter).
+  *   The Kraken before its head rises adds `pills`: one 0..1 hp fraction per arm (0 = broken),
+  *   and hp/max are then the pills' sum and count.
   * krakenLesson: THE PARRY LESSON (0|1|2|3), set on every run and read only by the Kraken's script.
   *   0 = none (meta.krakenParried is already true — an ADDITIVE top-level meta field; a save
   *   without it gets the lesson). 1 = pending: the fight's first plain slam becomes the LESSON ARM
@@ -2409,13 +2411,14 @@ function generateWells(sig) {
   *       gripClock / gripWiggle — the two counters behind gripT, both KRAKEN_GRIP_DUR at the latch:
   *       the bite's clock (spent by time) and the struggle (spent only by flicks). gripT is published
   *       as the smaller. Separate so a nearly-finished wiggle can never make the clock bite early.
-  *     grabArm — true while this arm's wind-up (tele/fuse = KRAKEN_GRAB_FUSE, aimed once at the
-  *       player like a slam) is a GRAB rather than a slam. At the strike it takes hold (gripT) only
-  *       if krakenLimbTouches says the drawn limb lands on the fish's body; otherwise it plants
-  *       (slamT) and emits 'grabMiss', doing nothing. krakenParry skips it — a press is a whiff.
-  *       grabSafeSide — +1/-1, set once at the grab's wind-up by krakenGrabSafeSide: which side of
-  *       the struck line (along its left normal) to step to, away from any other live threat.
-  *       render draws its chevron from it; meaningful only while grabArm.
+  *     grabArm — true while this arm is one JAW OF A PINCH (tele/fuse = KRAKEN_GRAB_FUSE): two arms
+  *       wind up together, locked once on where the player stood. At the strike the pair takes hold
+  *       (gripT, on one arm) only if krakenPinchTouches says a closing jaw sweeps the fish's body;
+  *       otherwise both plant (slamT) and one 'grabMiss' is emitted. krakenParry skips it. The wind-up
+  *       is ONE 'grabRear' {x, y, x2, y2, t, i, i2} naming both jaws.
+  *       pinchCX/CY — the locked aim point both jaws close on. pinchMate — the other jaw's index.
+  *       jawX/Y — this jaw's tip as the snap starts (KRAKEN_PINCH_OPEN1 out); the snap sweeps
+  *       jaw -> pinchC. aimX/Y walk in over the fuse (krakenPlaceArm). Meaningful only while grabArm.
   *     hitT — >0 for KRAKEN_LIMP_FLASH after A PARRY LANDS ON IT, and render tints the tentacle off
   *            it. NOT set by the arm's own slam: that is the `lash` event's picture. It was, and had
   *            no reader at all, which is why five parries into a 320hp arm looked like one.

@@ -47,6 +47,12 @@ const LUNGE_P = Number(arg('lungeParry', PARRY_P))
 if (!(LUNGE_P >= 0 && LUNGE_P <= 1)) { console.error('ABORT: --lungeParry must be 0..1, got ' + arg('lungeParry')); process.exit(1) }
 if (!(PARRY_P >= 0 && PARRY_P <= 1)) { console.error('ABORT: --parry must be 0..1, got ' + arg('parry')); process.exit(1) }
 const DODGE = process.argv.includes('--dodge')
+// --cadence S: override this rung's ring cadence for the run (sweeps without editing config.js)
+if (arg('cadence', null) != null) {
+  const cad = Number(arg('cadence'))
+  if (!(cad > 0)) { console.error('ABORT: --cadence must be > 0, got ' + arg('cadence')); process.exit(1) }
+  C.krakenRung(Number(arg('diff', 3))).cadence = cad
+}
 const DODGE_T = Number(arg('dodgeT', 0.35))
 const SEEDS = String(arg('seeds', '1001,2002,3003,4004,5005,6006')).split(',').map(Number)
 // --bite dodge|ignore: what the bot does about the chase head's BITE (head.biteT, the jaws winding
@@ -87,7 +93,7 @@ function fight(seed) {
   const rung = C.krakenRung(DIFF)
 
   let parries = 0, whiffs = 0, limpWindows = 0, staggers = 0, levels = 0
-  let ringT = 0, limpT = 0, chaseT = 0, won = false, maxRearing = 0, enraged = -1, coilWind = 0, coilClose = 0
+  let ringT = 0, limpT = 0, chaseT = 0, won = false, maxRearing = 0, enraged = -1, coilWind = 0, coilClose = 0, ringParries = 0, ringBreaks = 0, ringBlazes = 0
   let slamRears = 0, dmg = 0, coilDmg = 0, coilLash = 0, slamLands = 0, slamHits = 0, grabs = 0, grips = 0, grabMiss = 0, gripDmg = 0
   const botRnd = mulberry32(seed ^ 0x5bd1e995)
   let pinned = false, chaseDmg = 0
@@ -158,7 +164,14 @@ function fight(seed) {
     // enters the number.
     else if (DODGE) {
       const d = run.krakenArms.find((a) => !a.dead && (a._botSkip || a.grabArm) && !a.coilArm && a.tele > 0 && a.tele <= DODGE_T && a.lx1 != null)
-      if (d) {
+      const m = d && d.grabArm && d.jawX != null ? run.krakenArms[d.pinchMate] : null
+      if (m && m.jawX != null) {
+        // a PINCH: out of the V, off the jaws' chord on the side away from them
+        const L = Math.hypot(m.jawX - d.jawX, m.jawY - d.jawY) || 1
+        let nx = -(m.jawY - d.jawY) / L, ny = (m.jawX - d.jawX) / L
+        if (nx * ((d.jawX + m.jawX) / 2 - d.pinchCX) + ny * ((d.jawY + m.jawY) / 2 - d.pinchCY) > 0) { nx = -nx; ny = -ny }
+        inX = nx; inY = ny
+      } else if (d) {
         const L = Math.hypot(d.lx1 - d.lx0, d.ly1 - d.ly0) || 1
         const nx = -(d.ly1 - d.ly0) / L, ny = (d.lx1 - d.lx0) / L
         const side = (p.x - d.lx0) * nx + (p.y - d.ly0) * ny >= 0 ? 1 : -1
@@ -224,7 +237,7 @@ function fight(seed) {
     for (const e of run.events) {
       if (e.type === 'lash' && e.coil) coilLash++
       if (e.type === 'lash' && !e.coil) slamLands++
-      if (e.type === 'grabRear') grabs++
+      if (e.type === 'grabRear') grabs++   // one per pinch (it names both jaws)
       if (e.type === 'gripLatch') grips++
       if (e.type === 'grabMiss') grabMiss++
       if (e.type === 'hurt' && e.src === 'krakenArm' && !run.events.some((q) => q.type === 'lash')) gripDmg += e.dmg
@@ -236,11 +249,14 @@ function fight(seed) {
       else if (e.type === 'krakenEnrage') enraged = e.n
       else if (e.type === 'coilWind') coilWind++
       else if (e.type === 'coilClose') coilClose++
+      if (s.phase === 'boss' && (e.type === 'parry' || e.type === 'parryPerfect')) ringParries++
+      if (s.phase === 'boss' && e.type === 'tentacleBreak') ringBreaks++
+      if (s.phase === 'boss' && e.type === 'blaze') ringBlazes++
     }
     run.events.length = 0
   }
   return {
-    won, t: run.time, slamRears, parries, whiffs, staggers, levels, maxRearing, enraged, coilWind, coilClose, dmg, coilDmg, coilLash, slamLands, slamHits, grabs, grips, grabMiss, gripDmg,
+    won, t: run.time, slamRears, parries, whiffs, staggers, levels, maxRearing, enraged, coilWind, coilClose, ringParries, ringBreaks, ringBlazes, dmg, coilDmg, coilLash, slamLands, slamHits, grabs, grips, grabMiss, gripDmg,
     broken: run.krakenArms.filter((a) => a.dead).length, arms: run.krakenArms.length,
     chaseDmg, bySrc, ringT, limpT, chaseT, headLeft: Math.round(run.script?.headHp ?? 0),
   }
@@ -271,6 +287,7 @@ console.log(`arms hauled back at the enrage ${f('enraged')}   (-1 = the enrage n
 // A COIL THAT WINDS AND NEVER CLOSES is the shape of this chapter's worst bug class: the siren
 // fires, the gap wedge goes up, and nothing ever resolves it. Counted so it cannot hide again.
 console.log(`coils wound / closed  ${f('coilWind')} / ${f('coilClose')}`)
+console.log(`ring: arm parries / arms broken  ${f('ringParries')} / ${f('ringBreaks')}   of them by blaze ${f('ringBlazes')}   parries per break ` + (rs.reduce((q, r) => q + r.ringParries, 0) / Math.max(1, rs.reduce((q, r) => q + r.ringBreaks, 0))).toFixed(2))
 console.log(`coil lashes landed    ${f('coilLash')}`)
 console.log(`damage taken          ${f('dmg')}   of it on a coil's landing ${f('coilDmg')}`)
 // THE SLAM'S OWN HITBOX: plain (non-Coil) slams that landed unparried, and how many of them hurt.
@@ -282,7 +299,8 @@ console.log(`plain slams landed    ${f('slamLands')}   of them hit ${f('slamHits
 // THE RING'S THROUGHPUT, per minute of the whole fight: slam wind-ups, grab wind-ups, parries landed.
 const pm = (k) => '[' + rs.map((r) => (r[k] / (r.t / 60)).toFixed(1)).join(' ') + ']  mean ' + (rs.reduce((q, r) => q + r[k] / (r.t / 60), 0) / rs.length).toFixed(2)
 console.log('per minute     slams ' + pm('slamRears') + '   grabs ' + pm('grabs') + '   parries ' + pm('parries'))
-console.log('arm attacks per minute of ring [' + rs.map((r) => ((r.slamRears + r.grabs + r.coilWind) / (r.ringT / 60)).toFixed(1)).join(' ') + ']  mean ' + (rs.reduce((q, r) => q + (r.slamRears + r.grabs + r.coilWind) / (r.ringT / 60), 0) / rs.length).toFixed(2))
+console.log('arm attacks per minute of ring [' + rs.map((r) => ((r.slamRears + r.grabs + r.coilWind) / (r.ringT / 60)).toFixed(1)).join(' ') + ']  mean ' + (rs.reduce((q, r) => q + (r.slamRears + r.grabs + r.coilWind) / (r.ringT / 60), 0) / rs.length).toFixed(2)
+  + '  pooled ' + (rs.reduce((q, r) => q + r.slamRears + r.grabs + r.coilWind, 0) / (rs.reduce((q, r) => q + r.ringT, 0) / 60)).toFixed(2))
 console.log('fight mean     ' + (rs.reduce((q, r) => q + r.t, 0) / rs.length).toFixed(1) + 's')
 // WHAT HURT, whole fight, by source; and the CHASE's own damage per minute of chase
 const srcs = [...new Set(rs.flatMap((r) => Object.keys(r.bySrc)))].sort()
