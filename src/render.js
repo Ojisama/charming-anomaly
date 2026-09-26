@@ -14543,6 +14543,20 @@ const spurG = new Graphics()
     shaftLayer.addChild(body, glow, ring)
     return { body, glow, ring, _r: 0, _look: null }
   }
+  // A ragged fin for the maw's animal: a membrane with a torn edge over n rays from one root.
+  function mawFin(g, bx, by, a0, a1, len, n, M, alpha, hash, k) {
+    const pts = [bx, by]
+    for (let i = 0; i <= n * 2; i++) {
+      const a = a0 + (a1 - a0) * i / (n * 2)
+      const L = len * (i % 2 ? 0.72 + 0.12 * hash(k + i) : 0.95 + 0.12 * hash(k + i))
+      pts.push(bx + Math.cos(a) * L, by + Math.sin(a) * L)
+    }
+    g.poly(pts).fill({ color: M.fin, alpha })
+    for (let i = 0; i <= n; i++) {
+      const a = a0 + (a1 - a0) * i / n
+      g.moveTo(bx, by).lineTo(bx + Math.cos(a) * len * 0.98, by + Math.sin(a) * len * 0.98).stroke({ width: Math.max(1, len * 0.02), color: M.finRay, alpha: alpha * 0.9 })
+    }
+  }
   function updateShafts(run) {
     if (!refillLook) { shaftLayer.visible = false; return }
     shaftLayer.visible = true
@@ -14608,19 +14622,35 @@ const spurG = new Graphics()
         //   Everything else in this branch is radially symmetric (a ring of teeth, a rim, a bait at
         // the centre), so rotating costs nothing and no term below has to carry a bearing.
         g.rotation = sh.phase ?? 0
-        // THE ANIMAL BEHIND THE MOUTH. Drawn first and darkest — it is the half the chapter hides.
-        // At any distance the multiply scrim flattens it to nothing and only the bait punches
-        // through, which is the owner's "huge HIDDEN anglerfish": you steer at a green light and
-        // find out what it was attached to on arrival.
-        g.ellipse(sh.r * 0.86, 0, sh.r * 1.24, sh.r * 0.96).fill({ color: M.head, alpha: M.headA * A })
-        // The tail, off the far end — the one silhouette cue that says fish rather than crater.
-        const tx = sh.r * 2.0
-        g.poly([tx - sh.r * 0.1, 0, tx + sh.r * 0.62, sh.r * 0.5, tx + sh.r * 0.44, 0, tx + sh.r * 0.62, -sh.r * 0.5])
-          .fill({ color: M.head, alpha: M.headA * 0.85 * A })
-        // The head's own rim, then the throat inside the mouth: darker than any floor this chapter
-        // has, so the hole reads as a hole even where the player's lamp reaches it.
-        g.circle(0, 0, sh.r * M.headFrac).fill({ color: M.head, alpha: M.headA * A })
-        g.circle(0, 0, sh.r).fill({ color: M.throat, alpha: M.throatA * A })
+        const toothHash = (n) => {
+          const s = Math.sin(n * 12.9898 + (sh.phase ?? 0) * 78.233) * 43758.5453
+          return s - Math.floor(s)
+        }
+        // THE ANIMAL, FACE-ON: it is looking up at you and the mouth is most of it (see MAW_VIS).
+        // Drawn first and darkest — it is the half the chapter hides. At any distance the multiply
+        // scrim flattens it to nothing and only the bait punches through, which is the owner's "huge
+        // HIDDEN anglerfish": you steer at a green light and find out what it was attached to on
+        // arrival. +x is the brow; the tail's fan shows past it.
+        const R = sh.r
+        mawFin(g, R * 1.3, 0, -0.7, 0.7, R * 0.9, 7, M, M.finA * A, toothHash, 300)
+        for (const sg of [-1, 1]) mawFin(g, R * 0.25, sg * R * 1.02, sg * 0.4, sg * 1.9, R * 0.65, 6, M, M.finA * A, toothHash, sg > 0 ? 400 : 500)
+        const head = []
+        for (let i = 0; i < 40; i++) {
+          const a = i / 40 * Math.PI * 2, w = 1 + M.headLump * (toothHash(10 + i) - 0.5)
+          head.push(R * 0.3 + Math.cos(a) * R * 1.4 * w, Math.sin(a) * R * 1.28 * w)
+        }
+        g.poly(head).fill({ color: M.head, alpha: M.headA * A })
+        for (let i = 1; i <= 4; i++) {   // the brow's faint lift: offset, shrinking lobes
+          const k = 1 - i / 5
+          g.ellipse(R * 0.55 + R * 0.2 * (1 - k), -R * 0.23 * (1 - k), R * 1.1 * k, R * 1.05 * k).fill({ color: M.sheen, alpha: 0.1 * A })
+        }
+        for (let i = 0; i < 12; i++) {
+          const a = toothHash(40 + i) * Math.PI * 2, d = R * (1.12 + 0.3 * toothHash(60 + i))
+          g.circle(R * 0.3 + Math.cos(a) * d * 0.95, Math.sin(a) * d * 0.9, R * (0.04 + 0.06 * toothHash(80 + i))).fill({ color: M.mottle, alpha: 0.3 * A })
+        }
+        for (const sg of [-1, 1]) g.circle(R * 1.12, sg * R * 0.76, R * 0.055).fill({ color: M.eye, alpha: M.eyeA * A * reveal })
+        // The hole: darker than any floor this chapter has, and nothing round its edge.
+        g.circle(0, 0, R).fill({ color: M.throat, alpha: M.throatA * A })
         // The needles: fixed at the rim, reaching further in as the mouth closes. See MAW_VIS for
         // why they grow instead of the ring contracting — the edge you must cross never moves — and
         // for the lighting and the per-tooth variation the three stops below are drawing.
@@ -14632,12 +14662,8 @@ const spurG = new Graphics()
         // per tooth and different per maw, and draws nothing at all.
         const len = sh.r * (M.toothShut + (M.toothFull - M.toothShut) * (shut ? 1 : gp))
         const halfW = sh.r * M.toothW * 0.5
-        const toothHash = (n) => {
-          const s = Math.sin(n * 12.9898 + (sh.phase ?? 0) * 78.233) * 43758.5453
-          return s - Math.floor(s)
-        }
         for (let t = 0; t < M.teeth; t++) {
-          const a = (t / M.teeth) * Math.PI * 2
+          const a = ((t + M.toothSpread * (toothHash(t + 211) - 0.5)) / M.teeth) * Math.PI * 2
           const ca = Math.cos(a), sa = Math.sin(a)
           const px = -sa, py = ca                   // across the tooth, i.e. round the ring
           const lenT = len * (1 - M.toothJag + 2 * M.toothJag * toothHash(t + 1))
@@ -14663,13 +14689,16 @@ const spurG = new Graphics()
               .fill({ color, alpha: M.toothA * A * toothReveal })
           }
         }
+        // TEETH GROWING IN THE SHADOWS: a dark band over the roots, so the fangs come out of the black
+        // and only their points catch the lure.
+        g.circle(0, 0, sh.r * (1 - M.rootShadeW / 2)).stroke({ width: sh.r * M.rootShadeW, color: M.throat, alpha: M.rootShadeA * A })
         // The rim goes cold -> HOT as the swallow approaches. Colour and not only width, because the
         // player is reading this at the edge of their own light: a size change alone is a
-        // second-order cue and this is a first-order decision.
+        // second-order cue and this is a first-order decision. Cold, it is only the lip of the hole.
         g.circle(0, 0, sh.r).stroke({
           width: M.rimW + M.rimWGape * gp,
           color: shut ? M.rimCold : lerpTint(M.rimCold, M.rimHot, gp),
-          alpha: (0.5 + 0.45 * gp) * A * reveal,
+          alpha: (M.rimColdA + (M.rimHotA - M.rimColdA) * gp) * A * reveal,
         })
         // THE ILLICIUM AND THE BAIT. The stalk arches forward off the animal's back and hangs the
         // esca over the middle of its own mouth — which is the whole trick the fish is playing, and
@@ -14678,9 +14707,9 @@ const spurG = new Graphics()
         // across the map rather than discovered on arrival.
         if (!shut) {
           const er = sh.r * M.escaR
-          g.moveTo(sh.r * 1.5, -sh.r * 0.2)
-            .quadraticCurveTo(sh.r * 0.9, -sh.r * 1.15, 0, 0)
-            .stroke({ width: Math.max(2, sh.r * 0.035), color: M.head, alpha: 0.9 })
+          g.moveTo(sh.r * 1.55, 0)   // off the brow, arched over the hole
+            .quadraticCurveTo(sh.r * 1.25, -sh.r * 0.9, 0, 0)
+            .stroke({ width: Math.max(2, sh.r * 0.035), color: M.finRay, alpha: 0.9 })
           g.circle(0, 0, er * 3.4).fill({ color: M.escaHalo, alpha: 0.14 })
           g.circle(0, 0, er * 2.0).fill({ color: M.escaHalo, alpha: 0.34 })
           g.circle(0, 0, er * 1.2).fill({ color: M.escaMid, alpha: 0.7 })
