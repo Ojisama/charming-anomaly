@@ -20109,7 +20109,7 @@ void main() {
     // rows either side of the midline
     let acc = 0
     let j = 0
-    if (win && pop > 0.05) strokeRun(kS, kE, hwAt(kOf(0.6)) * 2.2, 0xffffff, 0.45 * pop, 'round')
+    if (win) strokeRun(kS, kE, hwAt(kOf(0.6)) * 2.2, 0xffffff, 0.2 + 0.35 * pop, 'round')
     for (let k = kS + 1; k < kE - 1; k++) {
       const p0 = pts[k - 1], p1 = pts[k]
       const seg = Math.hypot(p1.x - p0.x, p1.y - p0.y)
@@ -20126,9 +20126,9 @@ void main() {
       const x = p1.x + nx * hw * 0.42 * side, y = p1.y + ny * hw * 0.42 * side
       const r = Math.max(2, hw * K_SUCK_R * 0.95)
       if (win) {
-        // after its flash the window is EMBER: still the threat colour, dimmer than the flash, so a
-        // bright warm state on this fight only ever follows a parry
-        const col = mix(0xb8321a, 0xffffff, pop)
+        // WHITE FOR THE WHOLE WINDOW, open to impact: "press while it is white". The first frames
+        // flare wider (pop); the colour itself does not fade, so the window has one look end to end.
+        const col = 0xffffff
         G.circle(x, y, r * 1.5).fill({ color: 0x1a0800, alpha: 0.5 })
         G.circle(x, y, r * 2.6).fill({ color: col, alpha: 0.12 + 0.3 * pop })
         G.circle(x, y, r * 1.2).fill({ color: col, alpha: 0.95 })
@@ -20550,8 +20550,18 @@ void main() {
           G.arc(p.x, p.y, R, ang - span, ang + span)
           G.stroke({ width: 5, color: 0xf2f8ff, alpha: 0.95 * live, cap: 'round' })
         }
-        if (n.t < K_NOW_FLASH_T) {
-          const k = 1 - n.t / K_NOW_FLASH_T
+        // THE ARM'S WHITE ARRIVES: for its first K_NOW_FLASH_T a white streak runs from the flesh to
+        // the fish's edge, so the glint reads as the limb's own white landing there — one cue, not
+        // two. Then the glint holds with the beat for the whole window, shrinking with it.
+        if (near && n.t < K_NOW_FLASH_T) {
+          const u = n.t / K_NOW_FLASH_T
+          const ex = p.x + ca * R, ey = p.y + sa * R
+          const hx = near.x + (ex - near.x) * Math.min(1, u * 1.6), hy = near.y + (ey - near.y) * Math.min(1, u * 1.6)
+          G.moveTo(near.x + (ex - near.x) * Math.max(0, u * 1.6 - 0.6), near.y + (ey - near.y) * Math.max(0, u * 1.6 - 0.6)).lineTo(hx, hy)
+            .stroke({ width: 7, color: 0xffffff, alpha: 0.9 * live, cap: 'round' })
+        }
+        {
+          const k = n.t < K_NOW_FLASH_T ? 1 : 0.55 + 0.45 * left
           const gx = p.x + ca * R, gy = p.y + sa * R
           const tx = -sa, ty = ca
           // a blade's edge catching the light: long ACROSS the incoming line, short along it
@@ -20568,36 +20578,51 @@ void main() {
       }
     }
     if (krakenEarly) {
-      // TOO SOON: a grey CRACKED dent on the fish's side toward that arm. It HOLDS until the slam
-      // it was spent on lands (then fades over K_EARLY_T), so when the hit arrives the player can
-      // see why: "you were early". A plain miss leaves nothing. No light, no beat.
+      // TOO SOON — THE THIRD OUTCOME. A grey cracked SHELL closes over the fish's side toward that
+      // arm the moment the early press lands, and HOLDS until that slam arrives; the slam then
+      // SHATTERS it into grey shards (krakenShards). So at impact early reads as its own thing: not
+      // the parry's white burst, not a plain hit's red. Grey belongs to nothing else here.
       const e = krakenEarly
       if (dt > 0) e.t += dt
       const a = run.krakenArms.find((q) => q.i === e.i)
       const pending = !!a && !a.dead && a.tele > 0 && !(a.limpT > 0)
-      if (!pending && e.fade == null) e.fade = 0
-      if (e.fade != null && dt > 0) e.fade += dt
-      if ((e.fade != null && e.fade >= K_EARLY_T) || e.t > 2 || run.chapter !== 'kraken') krakenEarly = null
+      if (!pending) {
+        if (a && a.slamT > 0) krakenShatter(p.x + Math.cos(e.ang) * 30, p.y + Math.sin(e.ang) * 30, e.ang)
+        krakenEarly = null
+      } else if (e.t > 2 || run.chapter !== 'kraken') krakenEarly = null
       else {
-        const k = e.fade == null ? 1 : 1 - e.fade / K_EARLY_T
         const pop = Math.exp(-e.t / 0.08)
-        const ang = e.ang, R = 30
-        G.beginPath()
-        G.arc(p.x, p.y, R, ang - 0.7, ang + 0.7)
-        G.stroke({ width: 10, color: 0x0c0a08, alpha: 0.5 * k, cap: 'butt' })
-        G.beginPath()
-        G.arc(p.x, p.y, R, ang - 0.7, ang + 0.7)
-        G.stroke({ width: 6 + 3 * pop, color: 0x9a948a, alpha: 0.9 * k, cap: 'butt' })
-        // the cracks: three dark breaks across the plate
-        for (const d of [-0.42, 0.05, 0.38]) {
-          const a0 = ang + d
-          const x0 = p.x + Math.cos(a0) * (R - 6), y0 = p.y + Math.sin(a0) * (R - 6)
-          const a1 = a0 + (d > 0 ? 0.12 : -0.12)
-          G.moveTo(x0, y0).lineTo(p.x + Math.cos(a1) * (R + 7), p.y + Math.sin(a1) * (R + 7))
-            .stroke({ width: 2, color: 0x1a1612, alpha: 0.9 * k })
+        const ang = e.ang, R = 30, SP = 1.25
+        tellDrawn('arm', e.i, 'earlyShell', p.x + Math.cos(ang) * R, p.y + Math.sin(ang) * R)
+        // the shell: a thick plate on the dark, drawn as four segments so its seams read as plates
+        for (let q = 0; q < 4; q++) {
+          const a0 = ang - SP + (q / 4) * SP * 2 + 0.04, a1 = ang - SP + ((q + 1) / 4) * SP * 2 - 0.04
+          G.beginPath(); G.arc(p.x, p.y, R + 2 * pop, a0, a1)
+          G.stroke({ width: 16, color: 0x0c0b0a, alpha: 0.7, cap: 'butt' })
+          G.beginPath(); G.arc(p.x, p.y, R + 2 * pop, a0, a1)
+          G.stroke({ width: 11, color: 0xa8a39a, alpha: 0.95, cap: 'butt' })
+          G.beginPath(); G.arc(p.x, p.y, R + 5 + 2 * pop, a0, a1)
+          G.stroke({ width: 2, color: 0xd8d4cc, alpha: 0.8, cap: 'butt' })
         }
-        tellDrawn('arm', e.i, 'earlyDent', p.x + Math.cos(ang) * R, p.y + Math.sin(ang) * R)
+        // the cracks: dark breaks across the plates
+        for (const d of [-0.8, -0.3, 0.15, 0.55, 0.95]) {
+          const a0 = ang + d
+          const a1 = a0 + (d > 0 ? 0.16 : -0.16)
+          G.moveTo(p.x + Math.cos(a0) * (R - 6), p.y + Math.sin(a0) * (R - 6))
+            .lineTo(p.x + Math.cos((a0 + a1) / 2 + 0.05) * R, p.y + Math.sin((a0 + a1) / 2 + 0.05) * R)
+            .lineTo(p.x + Math.cos(a1) * (R + 7), p.y + Math.sin(a1) * (R + 7))
+            .stroke({ width: 2.5, color: 0x1a1612, alpha: 0.95 })
+        }
       }
+    }
+    for (let i = krakenShards.length - 1; i >= 0; i--) {
+      const sh = krakenShards[i]
+      if (dt > 0) { sh.t -= dt; sh.x += sh.vx * dt; sh.y += sh.vy * dt; sh.vx *= 0.9; sh.vy *= 0.9; sh.rot += sh.vr * dt }
+      if (sh.t <= 0) { krakenShards.splice(i, 1); continue }
+      const k = Math.min(1, sh.t / 0.2)
+      const c = Math.cos(sh.rot), sn = Math.sin(sh.rot), z = sh.z
+      const pts = [sh.x + c * z, sh.y + sn * z, sh.x - sn * z * 0.6 - c * z * 0.4, sh.y + c * z * 0.6 - sn * z * 0.4, sh.x + sn * z * 0.5 - c * z * 0.7, sh.y - c * z * 0.5 - sn * z * 0.7]
+      G.poly(pts).fill({ color: 0xa8a39a, alpha: k }).stroke({ width: 1.5, color: 0x0c0b0a, alpha: k })
     }
     for (let i = krakenStreaks.length - 1; i >= 0; i--) {
       const st = krakenStreaks[i]
@@ -20970,7 +20995,19 @@ void main() {
       // jumping there, and settles back into its slot when the attack is over
       let te = krakenTipE[a.i]
       if (!te) te = krakenTipE[a.i] = { x: a.x, y: a.y }
-      else { const kk = 1 - Math.exp(-(dt || 0) * 9); te.x += (a.x - te.x) * kk; te.y += (a.y - te.y) * kk }
+      else {
+        // THE STRIKE DRIVES INTO THE FISH. The lane is aimed where the fish WAS when the wind-up
+        // began, so a fish that moved along it got its hit from a tip landing a fish-length away.
+        // Through the window, a plain slam whose line reaches the fish closes its tip on the fish's
+        // own point OF THE LANE (still on the struck line, so the landed limb stays honest to it).
+        let gx = a.x, gy = a.y, rate = 9
+        if (rung && !a.coilArm && !a.grabArm && a.tele > 0 && a.tele <= rung.window && krakenArmInReachR(run, a)) {
+          const dx = a.lx1 - a.lx0, dy = a.ly1 - a.ly0, l2 = dx * dx + dy * dy || 1
+          const u = Math.max(0, Math.min(1, ((run.player.x - a.lx0) * dx + (run.player.y - a.ly0) * dy) / l2))
+          gx = a.lx0 + dx * u; gy = a.ly0 + dy * u; rate = 30
+        }
+        const kk = 1 - Math.exp(-(dt || 0) * rate); te.x += (gx - te.x) * kk; te.y += (gy - te.y) * kk
+      }
       const tipR = Math.hypot(te.x - head.x, te.y - head.y) || KRAKEN_ARM_REACH
       // THE SHOULDER RUNS FURTHER OUT THAN THE RING IT RISES FROM, so the tapered wisp at the base
       // of the strip has somewhere to disappear. It used to sit exactly on KRAKEN_RING_R, which is
@@ -21460,7 +21497,7 @@ void main() {
         else if (a.slamT > 0) rig.rope.tint = 0x5d5470
         else if (a.limpT > 0) rig.rope.tint = mix(0x4576a0, 0x5691c0, 0.5 + 0.5 * Math.sin(animT * 4)) // spent: cold AND dimmed
         else if (rung && !a.coilArm && a.tele > 0 && a.tele <= rung.window && run.krakenLesson === 1 && run.script.lessonI === a.i) { rig.rope.tint = Math.sin(animT * Math.PI * 10) > -0.2 ? 0xffffff : 0x8a7fc0; tellDrawn('arm', a.i, 'slamFlash', a.x, a.y, rig.pts[0].x, rig.pts[0].y, rig.pts[K_ROPE_N - 1].x, rig.pts[K_ROPE_N - 1].y, rig.pts) }
-        else if (rung && !a.coilArm && a.tele > 0 && a.fuse) { rig.rope.tint = a.grabArm ? K_GRAB_TINT : a.tele <= rung.window ? mix(0x9a4a50, 0xffffff, Math.exp(-Math.max(0, rung.window - a.tele) / 0.06)) : 0xa99ed6; drawKrakenCharge(rig, a, rung) }
+        else if (rung && !a.coilArm && a.tele > 0 && a.fuse) { rig.rope.tint = a.grabArm ? K_GRAB_TINT : a.tele <= rung.window ? 0xffffff : 0xa99ed6; drawKrakenCharge(rig, a, rung) }
         else if (rung && a.tele > 0 && a.fuse) rig.rope.tint = mix(0x9e92cf, 0xeee8fe, 1 - a.tele / a.fuse)
         else rig.rope.tint = mix(0x7366a0, 0x403d4b, 1 - fur)
       }
@@ -23647,6 +23684,16 @@ void main() {
   const K_NOW_FLASH_T = 0.09   // s the glint holds at full size before the beat alone is left
   const K_EARLY_T = 0.22
   const krakenStreaks = []
+  // an early press's shell breaking: grey plates thrown off the fish by the slam that arrived
+  const krakenShards = []
+  function krakenShatter(x, y, ang) {
+    for (let i = 0; i < 12; i++) {
+      const a = ang + Math.PI + (Math.random() - 0.5) * 2.6
+      const sp = 220 + Math.random() * 260
+      krakenShards.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, rot: Math.random() * 6.28, vr: (Math.random() - 0.5) * 16, z: 7 + Math.random() * 7, t: 0.45 + Math.random() * 0.15 })
+    }
+    if (krakenShards.length > 36) krakenShards.splice(0, krakenShards.length - 36)
+  }
   const K_STREAK_T = 0.1
   const krakenRecoil = []
   const K_RECOIL_T = 0.32
@@ -25982,6 +26029,10 @@ void main() {
         // (e.r, pushed by stepRepulse) rather than a fixed size — the player has to be able to learn
         // where the edge is, and a burst that lies about its reach makes the cooldown feel arbitrary.
         case 'repulse':
+          // THE KRAKEN'S PARRY SHOVE DRAWS NO RING: every press pushes the adds off the fish, and a
+          // ring blooming out of the fish on every press muddied the three outcomes (parry burst,
+          // early shell, hit) — the adds being thrown clear is the shove's picture there.
+          if (run.chapter === 'kraken' && !e.charged) break
           spawnRing(e.x, e.y, e.r, 0.42, T.novaWarm, 0xbca8ff)
           spawnRing(e.x, e.y, e.r * 0.62, 0.28, T.novaWarm, 0xe8dcff)
           break
@@ -26604,7 +26655,7 @@ void main() {
           // parry at a glance, because telling them apart is how the player learns the tail window.
           const pwear = 1 - (e.frac ?? 1)
           spawnRing(e.x, e.y, 78 + pwear * 46, 0.32 + pwear * 0.12, T.novaRing, 0xffffff)
-          spawnRing(e.x, e.y, 44, 0.22, T.novaWarm, 0xdff4ff)
+          spawnRing(e.x, e.y, 44, 0.22, T.novaRing, 0xdff4ff)
           for (let i = 0; i < 10; i++) {
             const a = (i / 10) * Math.PI * 2
             spawnParticle(T.fx.star_08, e.x, e.y, Math.cos(a) * 190, Math.sin(a) * 190, 0.36, 0.07, 0xffffff, -0.1, 0)
@@ -26766,7 +26817,7 @@ void main() {
               if (nk.k >= 1) {
                 // it landed ON you: a hot burst at the fish, so the hit has a place and not only a
                 // red screen edge
-                spawnRing(run.player.x, run.player.y, 64, 0.22, T.novaWarm, 0xffb080)
+                spawnRing(run.player.x, run.player.y, 64, 0.22, T.novaRing, 0xff4a2a)
                 for (let i = 0; i < 10; i++) {
                   const a = Math.random() * Math.PI * 2
                   spawnParticle(T.fx.star_08, run.player.x, run.player.y, Math.cos(a) * 260, Math.sin(a) * 260, 0.22, 0.06, 0xffc890, -0.1, 3)
@@ -26914,6 +26965,7 @@ void main() {
     krakenEarly = null
     krakenHitMeK = 1
     krakenStreaks.length = 0
+    krakenShards.length = 0
     krakenRecoil.length = 0
     krakenRigOf.length = 0
     krakenLastLash = null
