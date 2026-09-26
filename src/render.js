@@ -11077,6 +11077,7 @@ export function createRenderer(app) {
   // not shown. The dark still hides the ARMS and everything else; only the struck ground is lit.
   const krakenDangerLayer = new Container()
   const krakenDangerG = new Graphics()
+  const krakenDangerGAdd = krakenDangerG   // drawKrakenLane's name for it: it shadows krakenDangerG locally
   krakenDangerG.blendMode = 'add'
   krakenDangerLayer.addChild(krakenDangerG)
   // THE PLAYER IS NEVER UNDER THE DANGER. Five Coil lanes add up to white where they cross, and
@@ -20045,6 +20046,10 @@ void main() {
   // are the same drawing, hotter, so the one lane left dark is the gap.
   function drawKrakenLane(a, urg, rung, s, p) {
     tellDrawn('arm', a.i, 'coil', a.x, a.y, a.lx0, a.ly0, a.lx1, a.ly1)
+    // ORANGE EVERYWHERE, OVER THE HEAD TOO. Added light over the purple head read pink-red, right next
+    // to the bite's crimson; a Coil lane is drawn at normal blend in the cue layer (krakenLungeG),
+    // above the lamp-lit face and under the fish, like the lunge's lane.
+    const krakenDangerG = a.coilArm === true ? krakenLungeG : krakenDangerGAdd
     const W = a.w || KRAKEN_LASH_W
     const coil = a.coilArm === true
     const win = a.tele <= rung.window && !coil
@@ -22546,7 +22551,7 @@ void main() {
   //                nothing on screen said so: the damage vignette arrived with no source. The rim
   //                facing the fish now burns as you close on it, and flares on the touch that hurts.
   let krakenEscapeT = 0, krakenEscapeX = 0, krakenEscapeY = 0
-  let krakenBiteFx = 0, krakenBiteHit = false, krakenBiteA = 0, krakenBiteR = 0
+  let krakenBiteFx = 0, krakenBiteHit = false, krakenBiteA = 0, krakenBiteX = 0, krakenBiteY = 0
   const K_WIGGLE_INK = 0xdcff3c
   const K_GAP_INK = 0x4dff88
   const K_BITE_INK = 0xa8102a      // dim crimson: the jaws are winding up
@@ -22600,11 +22605,9 @@ void main() {
     krakenEscapeT = Math.max(0, krakenEscapeT - k)
     for (const e of events) {
       if (e.type === 'headBite') {
-        const pr0 = run.player.radius ?? PLAYER.radius
-        const dd = Math.hypot(e.px - e.x, e.py - e.y)
         krakenBiteFx = K_BITE_FX_T; krakenBiteHit = !!e.hit
         krakenBiteA = Math.atan2(e.py - e.y, e.px - e.x)
-        krakenBiteR = Math.max(KRAKEN_HEAD_R * 0.55, Math.min(KRAKEN_HEAD_R + pr0, dd - pr0 - 10))
+        krakenBiteX = e.px; krakenBiteY = e.py
       }
       if (e.type === 'gripBreak') { krakenEscapeT = 0.4; krakenEscapeX = e.px ?? run.player.x; krakenEscapeY = e.py ?? run.player.y }
     }
@@ -22748,57 +22751,77 @@ void main() {
       }
     }
 
-    // ---- THE BITE, in the chase: sim's head.biteT is the jaws winding up on their own clock once the
-    // fish is inside the head's reach (KRAKEN_BITE_WINDUP_T), and the snap only hurts a fish still
-    // inside. Drawn as a crimson jaw edge on the head's side facing the fish, OUTSIDE the fish's
-    // footprint, its fangs lengthening and the edge brightening as the snap nears. Crimson, never
-    // white (the parry) and never orange (the fish, and the struck-lane hazard).
-    //   HURT — the snap that took hp: a thick crimson band and a crimson burst ring at the contact.
-    //   MISS — the snap on empty water: the fangs close on nothing, dark crimson, for a beat.
+    // ---- THE BITE IS THE HEAD'S MOUTH. Sim's head.biteT is the jaws winding up (KRAKEN_BITE_WINDUP_T)
+    // once the fish is inside the head's reach, and the snap only hurts a fish still inside. Drawn as
+    // two big crimson jaws hinged deep in the head on the fish's bearing, OPENING either side of the
+    // fish over the wind-up (so the fish never covers them), their tips on the reach itself — past
+    // them is safe, which is the answer — and SNAPPING shut: on the fish when it lands (a crimson
+    // clamp at the fish), on empty water, smaller and dim, when it misses. Crimson only; never white
+    // (the parry) and never orange (the fish, struck lanes). The baked grin stays; these are the
+    // jaws that move.
     const d = Math.hypot(p.x - head.x, p.y - head.y)
-    const Rc = (head.radius ?? KRAKEN_HEAD_R) + pr
+    const reach = (head.radius ?? KRAKEN_HEAD_R) + pr
     const ang = Math.atan2(p.y - head.y, p.x - head.x)
-    const Rj = Math.max((head.radius ?? KRAKEN_HEAD_R) * 0.55, Math.min(Rc, d - pr - 10))
+    const drawJaws = (a0, open, k, heat, scale) => {
+      const Rh = (head.radius ?? KRAKEN_HEAD_R) * 0.35
+      const Rt = Rh + (reach + 6 - Rh) * scale
+      for (const sd of [-1, 1]) {
+        const th = sd * open
+        const N = 10, lW = 0.16   // jaw half-width as a fraction of its length at the root
+        const L = Rt - Rh
+        const inner = [], outer = [], teeth = []
+        for (let m = 0; m <= N; m++) {
+          const f = m / N
+          // the jaw's centreline bows outward (away from the bearing) and curls back in at the tip
+          const bow = Math.sin(f * Math.PI) * 0.18 * sd
+          const a = a0 + th * (0.35 + 0.65 * f) + bow * (0.4 + open)
+          const r = Rh + L * f
+          const cx = head.x + Math.cos(a) * r, cy = head.y + Math.sin(a) * r
+          const w = L * lW * (1 - 0.8 * f) + 3 * u
+          const nx = -Math.sin(a) * sd, ny = Math.cos(a) * sd   // points AWAY from the bearing
+          outer.push(cx + nx * w, cy + ny * w)
+          inner.push(cx - nx * w, cy - ny * w)
+          if (m > 1 && m < N) teeth.push([cx - nx * w, cy - ny * w, -nx, -ny, Math.cos(a), Math.sin(a)])
+        }
+        const poly = outer.slice()
+        for (let m = inner.length - 2; m >= 0; m -= 2) poly.push(inner[m], inner[m + 1])
+        krakenTouchG.poly(poly).fill({ color: 0x000000, alpha: 0.55 * k }).stroke({ width: 7 * u, color: 0x000000, alpha: 0.5 * k, join: 'round' })
+        krakenTouchG.poly(poly).fill({ color: heat > 0.7 ? K_BITE_HOT : K_BITE_INK, alpha: (0.55 + 0.45 * heat) * k })
+        // teeth along the inner edge, pointing across the mouth at the fish
+        for (const [tx, ty, ix, iy, ax, ay] of teeth) {
+          const TL = (7 + 7 * heat) * u * scale, TW = 4 * u
+          krakenTouchG.poly([tx + ax * TW, ty + ay * TW, tx + ix * TL, ty + iy * TL, tx - ax * TW, ty - ay * TW])
+            .fill({ color: 0xfff1f1, alpha: 0.85 * k })
+        }
+      }
+    }
     if (s.phase === 'chase' && head.biteT != null) {
       const w = Math.max(0, Math.min(1, 1 - head.biteT / KRAKEN_BITE_WINDUP_T))
-      const late = w > 0.72 ? 1 : 0
-      const span = 0.62 - 0.22 * w
-      const tremble = Math.sin(animT * (30 + 40 * w)) * 0.03 * w
-      krakenTouchG.beginPath().arc(head.x, head.y, Rj, ang - span + tremble, ang + span + tremble)
-        .stroke({ width: (12 + 6 * w) * u, color: 0x000000, alpha: 0.55, cap: 'round' })
-      krakenTouchG.beginPath().arc(head.x, head.y, Rj, ang - span + tremble, ang + span + tremble)
-        .stroke({ width: (5 + 4 * w) * u, color: late ? K_BITE_HOT : K_BITE_INK, alpha: 0.55 + 0.45 * w, cap: 'round' })
-      for (let m = -3; m <= 3; m++) {
-        const a = ang + tremble + m * span / 3.4
-        const L = (6 + 18 * w) * u, hw = (4 + 2 * w) * u
-        const bx = head.x + Math.cos(a) * Rj, by = head.y + Math.sin(a) * Rj
-        const tx = head.x + Math.cos(a) * (Rj + L), ty = head.y + Math.sin(a) * (Rj + L)
-        const nx = -Math.sin(a), ny = Math.cos(a)
-        const f = [bx + nx * hw, by + ny * hw, tx, ty, bx - nx * hw, by - ny * hw]
-        krakenTouchG.poly(f).fill({ color: late ? K_BITE_HOT : K_BITE_INK, alpha: 0.6 + 0.4 * w }).stroke({ width: 2 * u, color: 0x000000, alpha: 0.6 })
-      }
-      tellDrawn('head', -1, 'headBite', head.x + Math.cos(ang) * Rj, head.y + Math.sin(ang) * Rj)
+      // OPENING over the wind-up: never narrower than the fish at its distance, so the jaws sit either side
+      const clear = Math.min(1.1, (pr + 12 * u) / Math.max(40, d))
+      const open = clear + (0.62 - clear) * Math.sin(Math.min(1, w / 0.8) * Math.PI / 2)
+      const tremble = Math.sin(animT * (30 + 40 * w)) * 0.025 * w
+      drawJaws(ang + tremble, open, 1, w, 1)
+      tellDrawn('head', -1, 'headBite', head.x + Math.cos(ang) * reach, head.y + Math.sin(ang) * reach)
     }
     if (krakenBiteFx > 0) {
       const k = krakenBiteFx / K_BITE_FX_T
-      const a0 = krakenBiteA, R0 = krakenBiteR
+      const shut = Math.max(0, 1 - (1 - k) / 0.3)   // the jaws slam shut over the first 30% of the fx
       if (krakenBiteHit) {
-        krakenTouchG.beginPath().arc(head.x, head.y, R0, a0 - 0.5, a0 + 0.5)
-          .stroke({ width: (10 + 10 * k) * u, color: K_BITE_HOT, alpha: 0.4 + 0.6 * k, cap: 'round' })
-        const cx = head.x + Math.cos(a0) * R0, cy = head.y + Math.sin(a0) * R0
-        const rr = 12 * u + (1 - k) * 26 * u
-        krakenTouchG.circle(cx, cy, rr).stroke({ width: (3 + 5 * k) * u, color: K_BITE_HOT, alpha: k })
+        // THE CLAMP: the jaws shut on the fish, and a crimson ring bites into it at the fish
+        drawJaws(krakenBiteA, 0.1 + 0.25 * shut, k, 1, 1)
+        const cx = krakenBiteX, cy = krakenBiteY
+        const rr = pr + 6 * u + (1 - k) * 10 * u
+        krakenTouchG.circle(cx, cy, rr).stroke({ width: (6 + 4 * k) * u, color: 0x000000, alpha: 0.5 * k })
+        krakenTouchG.circle(cx, cy, rr).stroke({ width: (3 + 4 * k) * u, color: K_BITE_HOT, alpha: k })
         for (let m = 0; m < 8; m++) {
           const a = m * Math.PI / 4 + 0.3
-          krakenTouchG.moveTo(cx + Math.cos(a) * rr * 0.55, cy + Math.sin(a) * rr * 0.55).lineTo(cx + Math.cos(a) * (rr + 14 * u), cy + Math.sin(a) * (rr + 14 * u))
+          krakenTouchG.moveTo(cx + Math.cos(a) * (rr + 2 * u), cy + Math.sin(a) * (rr + 2 * u)).lineTo(cx + Math.cos(a) * (rr - 9 * u), cy + Math.sin(a) * (rr - 9 * u))
             .stroke({ width: 3 * u, color: K_BITE_HOT, alpha: k, cap: 'round' })
         }
       } else {
-        for (let m = -3; m <= 3; m++) {
-          const a = a0 + m * 0.4 / 3.4
-          krakenTouchG.moveTo(head.x + Math.cos(a) * R0, head.y + Math.sin(a) * R0).lineTo(head.x + Math.cos(a) * (R0 + 8 * u), head.y + Math.sin(a) * (R0 + 8 * u))
-            .stroke({ width: 4 * u, color: K_BITE_INK, alpha: 0.7 * k, cap: 'round' })
-        }
+        // THE WHIFF: smaller, dimmer jaws shutting on empty water
+        drawJaws(krakenBiteA, 0.06 + 0.3 * shut, k * 0.75, 0, 0.72)
       }
     }
 
@@ -26454,7 +26477,9 @@ void main() {
             const hd = run.enemies.find((q) => q.rosterId === 'krakenHead' && !q._dead)
             const lunge = e.src === 'krakenHead' && !!hd && (hd._lungeBurst ?? 0) > 0
             if (!lunge) {
-              flashT = Math.max(flashT, 0.2)
+              // NO WHITE FLASH ON THE FISH for the head's bite: white is the parry's language, and the
+              // bite's own crimson clamp at the fish (drawKrakenCues) is its tell
+              if (e.src !== 'krakenHead') flashT = Math.max(flashT, 0.2)
               addShake(2, 0.12)
               spawnDamage(run.player.x + 30, run.player.y - 34, 0, false, false, { text: '-' + Math.round(e.dmg), tint: 0xff5a4a })
               break

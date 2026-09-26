@@ -34918,7 +34918,7 @@ function runKraken() {
   // reach with nothing else on, the fixture MUST be bitten, or every zero below is the rig.
   //   Mutations (each turns this red): drop s.coilT from the quiet; drop the lunge wind-up from it;
   // bill the snap without the still-inside test; start the wind-up at 0
-  // (an instant bite, no lead); drop the lunge-gap check.
+  // (an instant bite, no lead); drop the lunge-gap check; drop the parry-gesture check.
   {
     const run = inBlock(3)
     const s = run.script
@@ -34957,6 +34957,10 @@ function runKraken() {
     const tight = bites(0.3, () => { s.coilT = 0; h.lungeT = KRAKEN_LUNGE_WINDUP_T + KRAKEN_BITE_WINDUP_T + KRAKEN_BITE_GAP * 0.5 })
     assert.deepStrictEqual(tight, [], 'a bite landed inside KRAKEN_BITE_GAP of the lunge wind-up')
     assert.strictEqual(h.biteT ?? null, null, 'a bite wound up where it would land within KRAKEN_BITE_GAP of the lunge wind-up — the two attacks land together')
+    // NOT OVER A PARRY: the jaws never open while the parry's gesture (and its spark) is on screen
+    h.biteT = null; h.biteCd = 0
+    bites(1 / 60, () => { open(); run.player.parryT = 0.2 })
+    assert.strictEqual(h.biteT ?? null, null, 'a bite wound up on the same frames as a parry gesture — the jaws open over the parry spark')
     // THE ANSWER WORKS: a fish that steps out during the wind-up is not bitten
     h.biteT = null; h.biteCd = 0
     bites(KRAKEN_BITE_WINDUP_T * 0.5, open)
