@@ -31981,6 +31981,37 @@ function testTheDeep() {
       assert.ok(Math.abs(ratio('normal') - 1) < 0.1, `run DP.i: normals moved ${ratio('normal').toFixed(3)} — the cut leaked into them`)
       const half = on.sleepershark / on.tank
       assert.ok(Math.abs(half - 0.5) < 0.05, `run DP.i: sleeper shark is ${(half * 100).toFixed(1)}% of tanks, want 50%`)
+      // AT THE CAP (the adversarial pass's finding): _spawnAcc is unclamped, so without the cap
+      // shrinking with the keep a dropped pick just re-rolls and the slot goes to the normals.
+      // Fill to saturation from a huge bank, count, clear, repeat.
+      const fill = (keepOn) => {
+        Math.random = mulberry32(20260927)
+        const saved = CHAPTERS.deep.archetypeKeep
+        if (!keepOn) delete CHAPTERS.deep.archetypeKeep
+        const m = { normal: 0, fast: 0, tank: 0 }
+        try {
+          const run = createRun(makeMeta(), { chapter: 'deep' })
+          run.weapons = []; run.obstacles = []; run._obstacleSeed = null
+          run.player.hp = 1e9; run.player.maxHP = 1e9
+          for (let i = 0; i < 300; i++) {
+            run.time = 250; run._spawnAcc = 1e4
+            stepSim(run, { x: 0, y: 0 }, 1 / 60)
+            run.events.length = 0; run.levelUpChoices = null
+            if (run.phase === 'levelup') run.phase = 'playing'
+            for (const e of run.enemies) {
+              const r = CHAPTERS.deep.roster.find((x) => x.id === e.rosterId)
+              if (r && !e._splitChild) m[r.archetype]++
+            }
+            run.enemies.length = 0
+          }
+        } finally { CHAPTERS.deep.archetypeKeep = saved }
+        return m
+      }
+      const satOff = fill(false), satOn = fill(true)
+      const sr = (k) => satOn[k] / satOff[k]
+      assert.ok(Math.abs(sr('fast') - 0.7) < 0.05 && Math.abs(sr('tank') - 0.8) < 0.06 && Math.abs(sr('normal') - 1) < 0.1,
+        `run DP.i: at the cap kept fast ${sr('fast').toFixed(3)} tank ${sr('tank').toFixed(3)} normal ${sr('normal').toFixed(3)} — want 0.7/0.8/1 (${JSON.stringify(satOff)} -> ${JSON.stringify(satOn)})`)
+      console.log(`PASS run DP.i (archetypeKeep at the cap): fast ${sr('fast').toFixed(3)} tank ${sr('tank').toFixed(3)} normal ${sr('normal').toFixed(3)} — ${JSON.stringify(satOff)} -> ${JSON.stringify(satOn)}`)
       console.log(`PASS run DP.i (archetypeKeep): kept fast ${ratio('fast').toFixed(3)} tank ${ratio('tank').toFixed(3)} normal ${ratio('normal').toFixed(3)}, shark ${(half * 100).toFixed(1)}% of tanks — ${JSON.stringify(off)} -> ${JSON.stringify(on)}`)
     }
     {

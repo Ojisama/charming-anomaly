@@ -1181,11 +1181,22 @@ function stepSpawning(run, dt) {
   // out — a second, invisible buff on top of the card, and one that corrupts any kills-per-run
   // measurement used to price it. Counted once here rather than inside the loop: the cap check runs
   // per spawn, and an O(n) scan in there would make saturated frames O(n^2).
-  const cap = maxAliveFor(run.mods) + allyCount(run) // per-chapter density cap (v6.6.4) — see maxAliveFor
   // CHAPTERS[].archetypeKeep: an ABSOLUTE cut, where archetypeMul is a relative share. A picked
   // spawn of that archetype is dropped (its credit spent) with probability 1 - keep, so the other
   // archetypes' rates do not move. Only a chapter carrying it pays the extra draw.
+  //   AT THE CAP a drop alone leaks: _spawnAcc is unclamped, so a dropped pick just re-rolls until
+  // something is kept and the freed slot goes to the others. So the cap shrinks by the same kept
+  // fraction of the current wave mix — at saturation each archetype then holds keep x its old count.
   const keep = CHAPTERS[run.chapter].archetypeKeep
+  let enemyCap = maxAliveFor(run.mods)
+  if (keep) {
+    let all = 0, kept = 0
+    for (const [type, w] of Object.entries(waveWeights(run.time, CHAPTERS[run.chapter].archetypeMul))) {
+      all += w; kept += w * (keep[TYPE_ARCHETYPE[type]] ?? 1)
+    }
+    if (all > 0) enemyCap = Math.round(enemyCap * kept / all)
+  }
+  const cap = enemyCap + allyCount(run) // per-chapter density cap (v6.6.4) — see maxAliveFor
   while (run._spawnAcc >= 1 && run.enemies.length < cap) {
     run._spawnAcc -= 1
     if (!keep) { spawnEnemy(run); continue }

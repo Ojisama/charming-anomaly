@@ -8474,6 +8474,7 @@ CHAPTERS.deep = {
   //                 argument: with a flag on every entry none reads as special). It shares the
   //                 archetype's spawn share with the lanternfish through `weight`.
   //   fangtooth     the fast slot: a burst dash, the viperfish's flag under an abyssal skin.
+  //   sleepershark  the second tank (2026-09-26), flagless and slow; half the tank share by weight.
   //   siphonophore  the tank: a colony as long as a bus that comes apart into zooids when killed
   //                 (`split`). Its children wear this same bake at SPLIT_RADIUS_FRAC and inherit
   //                 SPLIT_HP_FRAC of its HP and xp, which is why xpMul sits under 1 — see Task 8's
@@ -8536,7 +8537,7 @@ CHAPTERS.deep = {
   // being simply denser.
   balance: { spawnMul: 0.75, enemyHpMul: 1.15, enemyDmgMul: 1.1, maxAliveMul: 0.8 },
   // balance_decision : 30% fewer fangtooth, 20% fewer tanks [2026-09-26]
-  //  - archetypeKeep, not archetypeMul: absolute cut, the normals' rate does not move (stepSpawning)
+  //  - archetypeKeep, not archetypeMul: absolute cut, normals unmoved, cap shrinks too (stepSpawning)
   archetypeKeep: { fast: 1 - 0.3, tank: 1 - 0.2 },
 
   // ---- the arsenal (2026-09-09, spec 2026-09-09-deep-twilight-merge §3). Owner: "I want the

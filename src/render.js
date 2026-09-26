@@ -3006,7 +3006,6 @@ export function createRenderer(app) {
     if (elite) eliteCrown(-r * 1.15, r)
   }
 
-  // lionfish: the one body here that DOES share the reef's own hue, and it separates on shape alone.
   // sleeper shark: the Deep's second tank, the one that does nothing but come (owner, 2026-09-26:
   // "another tank fish species that is just slow"). A long blunt torpedo from above — rounded
   // snout, pectorals out to both sides, two small dorsals on the midline, a long upper tail lobe.
@@ -3066,6 +3065,7 @@ export function createRenderer(app) {
     }
     if (elite) eliteCrown(-r * 0.6, r)
   }
+  // lionfish: the one body here that DOES share the reef's own hue, and it separates on shape alone.
   // From directly overhead a lionfish is not a fish outline at all — it is a STARBURST of pectoral
   // rays thrown out to both sides, wider than the body is long. No retint could have bought that
   // separation from a warm player on a warm floor; the silhouette does it for free.
