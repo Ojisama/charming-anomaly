@@ -35091,7 +35091,7 @@ function runKraken() {
       // lose the call and a slam winds up with no tell at all; lose the white and "PARRY WHEN IT
       // FLASHES" is a lie; lose the travelling front and the fuse has no clock.
       ['0xa99ed6; drawKrakenCharge(rig, a, rung)', 'a plain slam winding up — no suckers light, nothing is drawn on the floor, so the attack is unannounced'],
-      ['const col = 0xffffff', "the parry window — the suckers never flash white, so the lesson's PARRY WHEN IT FLASHES has nothing to point at"],
+      ['const col = nearFish ? 0xffd9b0 : 0xffffff', "the parry window — the suckers never flash white, so the lesson's PARRY WHEN IT FLASHES has nothing to point at"],
       // THE PRESS-NOW GLYPH AT THE FISH (slamWindow): the one tell the eye is actually on.
       ["case 'slamWindow': {", 'the press-now cue at the fish — the window opens on the arm, far off, and nothing where the player is looking says NOW'],
       ['const pending = !!a && !a.dead && a.tele > 0 && !(a.limpT > 0)', "an early press's dent at the fish no longer HOLDS until its slam lands, so early and a plain miss look identical at impact"],
