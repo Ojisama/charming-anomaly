@@ -20247,6 +20247,7 @@ void main() {
   // And WHICH WAY TO STEP: one bold chevron at the fish, perpendicular off the line toward
   // a.grabSafeSide — the side sim chose away from every other live threat, so the obvious step never
   // walks into the slam beside it. Never white and never a ring: those are the parry's.
+  const K_GRAB_CLEAR = 118     // px: while a slam is committed, the grab's glyphs stay outside this (the NOW ring's reach)
   const K_GRAB_NEAR = 110       // px: a grab glyph this close to the fish counts as ON it (about two fish lengths)
   const K_GRAB_SIGN_BACK = 90   // px back up the lane from the lock point: past the fish AND the damage numbers rising off it
   function drawKrakenGrabSign(run) {
@@ -20257,7 +20258,13 @@ void main() {
     const L = Math.hypot(arm.lx1 - arm.lx0, arm.ly1 - arm.ly0) || 1
     const ux = (arm.lx1 - arm.lx0) / L, uy = (arm.ly1 - arm.ly0) / L
     const sA = Math.max(0, (arm.aimX - arm.lx0) * ux + (arm.aimY - arm.ly0) * uy)
-    const cx = arm.lx0 + ux * (sA - K_GRAB_SIGN_BACK), cy = arm.ly0 + uy * (sA - K_GRAB_SIGN_BACK)
+    let back = K_GRAB_SIGN_BACK
+    // committed slam in reach: the hook walks back up the lane until it is outside the NOW ring
+    if (krakenCommitted) {
+      const pl = run.player
+      while (back < sA && (arm.lx0 + ux * (sA - back) - pl.x) ** 2 + (arm.ly0 + uy * (sA - back) - pl.y) ** 2 < K_GRAB_CLEAR ** 2) back += 8
+    }
+    const cx = arm.lx0 + ux * (sA - back), cy = arm.ly0 + uy * (sA - back)
     const age = arm.fuse - arm.tele
     const k = age < 0.2 ? 1.6 - 0.6 * (age / 0.2) : 1
     const s = 2.0 * k
@@ -20282,7 +20289,12 @@ void main() {
     // THE STEP: a bold chevron beside the fish, on the safe side, pointing away from the line
     const side = arm.grabSafeSide === -1 ? -1 : 1
     const ox = -uy * side, oy = ux * side                       // off the line, toward safety
-    const bx = arm.aimX + ox * K_GRAB_CHEV_OFF, by = arm.aimY + oy * K_GRAB_CHEV_OFF   // the tip: its wings stay a fish-length clear of the fish
+    let chevOff = K_GRAB_CHEV_OFF
+    if (krakenCommitted) {
+      const pl = run.player
+      while (chevOff < 400 && (arm.aimX + ox * chevOff - pl.x) ** 2 + (arm.aimY + oy * chevOff - pl.y) ** 2 < (K_GRAB_CLEAR + 30) ** 2) chevOff += 8
+    }
+    const bx = arm.aimX + ox * chevOff, by = arm.aimY + oy * chevOff   // the tip: its wings stay a fish-length clear of the fish
     const W = 30 * k, D = 26 * k                               // ~60 x 52px: longer than the fish
     const chev = () => {
       G.moveTo(bx - ox * D - ux * W, by - oy * D - uy * W)
@@ -20563,8 +20575,8 @@ void main() {
     // ONE GLYPH PER ARM IN ITS WINDOW (two slams can overlap), each drawn only while a press would
     // reach that arm — the same reach sim's krakenArmInReach tests, every frame, so stepping off the
     // line takes the glyph away and the glyph can never promise a parry the press would not make.
-    // PHASE 1, THE LEAD-IN: in the K_LEAD_T before a reachable plain slam's window opens, a THIN,
-    // DIM ring already converges on the fish from K_NOW_LEAD to K_NOW_OPEN — the countdown at the
+    // PHASE 1, THE LEAD-IN: in the K_LEAD_T before a reachable plain slam's window opens, a pale
+    // ring already converges on the fish from K_NOW_LEAD (krakenNowR) — the countdown at the
     // place the eye is, in step with the bead front running up the arm. It snaps bright and thick
     // when the window opens (phase 2, the first frame of the glyph below) and closes to the inner
     // ring on the impact (phase 3).
@@ -20575,11 +20587,15 @@ void main() {
         const toWin = a.tele - rung.window
         if (toWin > K_LEAD_T || !krakenArmInReachR(run, a)) continue
         const u = 1 - toWin / K_LEAD_T
-        const rr = K_NOW_LEAD + (K_NOW_OPEN - K_NOW_LEAD) * u
+        const rr = krakenNowR(a, rung)
+        const lc = cdk === 1 ? 0xdff4ff : 0x6a7484
+        // the target it is closing onto is already there, thin
+        G.beginPath(); G.circle(p.x, p.y, K_NOW_BODY)
+        G.stroke({ width: 2, color: lc, alpha: (0.35 + 0.25 * u) * cdk })
         G.beginPath(); G.circle(p.x, p.y, rr)
-        G.stroke({ width: 5, color: 0x0c1418, alpha: 0.35 * cdk })
+        G.stroke({ width: 6, color: 0x0c1418, alpha: 0.45 * cdk })
         G.beginPath(); G.circle(p.x, p.y, rr)
-        G.stroke({ width: 2.5, color: cdk === 1 ? 0xffffff : 0x6a7484, alpha: (0.3 + 0.3 * u) * cdk })
+        G.stroke({ width: 3, color: lc, alpha: (0.6 + 0.25 * u) * cdk })
       }
     }
     for (let gi = krakenNow.length - 1; gi >= 0; gi--) {
@@ -20608,7 +20624,7 @@ void main() {
         // when the inner ring lights" is the perfect parry. On cooldown both are a dull grey, not
         // white: the press would not land.
         {
-          const rr = K_NOW_BODY + (K_NOW_OPEN - K_NOW_BODY) * left
+          const rr = krakenNowR(a, rung)
           const met = a.tele <= rung.perfect   // the inner ring lights for the perfect tail
           const col = live === 1 ? 0xffffff : 0x6a7484
           G.beginPath(); G.circle(p.x, p.y, K_NOW_BODY)
@@ -20626,7 +20642,7 @@ void main() {
         if (n.t < K_NOW_FLASH_T && live === 1) {
           // the snap OUT, from the clock ring's own radius: the loudest frame of the window
           const u = n.t / K_NOW_FLASH_T
-          const r0 = K_NOW_OPEN + 28 * u
+          const r0 = krakenNowR(a, rung) + 28 * u
           G.beginPath(); G.circle(p.x, p.y, r0)
           G.stroke({ width: 12 * (1 - u) + 3, color: 0x0c1418, alpha: 0.6 * (1 - u) })
           G.beginPath(); G.circle(p.x, p.y, r0)
@@ -20709,7 +20725,7 @@ void main() {
         const u = gf.t / 0.16
         // THE SHELL DROPS: its arc sags and falls away down the screen, dull, no light at all
         G.beginPath(); G.arc(p.x, p.y + 40 * u * u, 38, gf.ang - 1.3, gf.ang + 1.3)
-        G.stroke({ width: 13 * (1 - u) + 2, color: 0x4c586a, alpha: 0.9 * (1 - u) })
+        G.stroke({ width: 13 * (1 - u) + 2, color: u < 0.3 ? 0x9aa6b8 : 0x4c586a, alpha: 0.9 * (1 - u) })
       }
     }
     for (let i = krakenShards.length - 1; i >= 0; i--) {
@@ -20730,6 +20746,32 @@ void main() {
     }
   }
 
+  // THE CLANK: an early press's guard taking the slam. A steel COG — square teeth round a plate — on
+  // a dull slate bloom, the same size class as the parry's star and the miss's red cracks, so the
+  // impact frame has three big, differently SHAPED verdicts: white star, grey cog, red cracks.
+  function krakenDrawClank(st, k, sc) {
+    const G = krakenGripFrontG
+    G.circle(st.x, st.y, 92 * sc * (0.7 + 0.3 * k)).fill({ color: 0x3c4656, alpha: 0.45 * k })
+    const pts = []
+    const N = 12, Ro = 74 * sc * (0.75 + 0.25 * k), Ri = 56 * sc * (0.75 + 0.25 * k)
+    for (let j = 0; j < N; j++) {
+      const a0 = st.ang + (j / N) * Math.PI * 2
+      const w = Math.PI / N * 0.55
+      pts.push(st.x + Math.cos(a0 - w) * Ri, st.y + Math.sin(a0 - w) * Ri)
+      pts.push(st.x + Math.cos(a0 - w * 0.7) * Ro, st.y + Math.sin(a0 - w * 0.7) * Ro)
+      pts.push(st.x + Math.cos(a0 + w * 0.7) * Ro, st.y + Math.sin(a0 + w * 0.7) * Ro)
+      pts.push(st.x + Math.cos(a0 + w) * Ri, st.y + Math.sin(a0 + w) * Ri)
+    }
+    G.poly(pts).fill({ color: 0x7c8898, alpha: 0.95 * k + 0.05 })
+    G.poly(pts).stroke({ width: 5, color: 0x1c222c, alpha: k, join: 'miter' })
+    G.circle(st.x, st.y, 30 * sc * (0.75 + 0.25 * k)).fill({ color: 0x3c4656, alpha: k })
+    G.circle(st.x, st.y, 30 * sc * (0.75 + 0.25 * k)).stroke({ width: 4, color: 0x9aa6b8, alpha: k })
+    // the crack through it
+    G.moveTo(st.x - Math.cos(st.ang + 0.5) * Ro, st.y - Math.sin(st.ang + 0.5) * Ro)
+      .lineTo(st.x + Math.cos(st.ang + 1.3) * 8, st.y + Math.sin(st.ang + 1.3) * 8)
+      .lineTo(st.x + Math.cos(st.ang + 0.4) * Ro, st.y + Math.sin(st.ang + 0.4) * Ro)
+      .stroke({ width: 5, color: 0x0c1016, alpha: k })
+  }
   function drawKrakenStars(dt) {
     for (let i = krakenStars.length - 1; i >= 0; i--) {
       const st = krakenStars[i]
@@ -20748,6 +20790,7 @@ void main() {
         const r = (j % 2 ? inner * k : (j % 4 === 0 ? 118 : 62) * (0.55 + 0.45 * k)) * sc
         pts.push(st.x + Math.cos(a) * r, st.y + Math.sin(a) * r)
       }
+      if (st.shape === 'clank') { krakenDrawClank(st, k, sc); continue }
       krakenGripFrontG.poly(pts).fill({ color: 0xffffff, alpha: 0.95 * k + 0.05 })
       krakenGripFrontG.poly(pts).stroke({ width: 3, color: st.rim ?? 0x9fe8ff, alpha: 0.7 * k })
       krakenGripFrontG.circle(st.x, st.y, ((st.fat ? 34 : 16) * k + 4) * sc).fill({ color: 0xffffff, alpha: k })
@@ -23985,7 +24028,7 @@ void main() {
     const ink = chapterRender.ink ?? 0xffffff
     d.t.tint = label ? label.tint : crit ? 0xff8c42 : dot ? (ink === 0xffffff ? 0xd8cbbd : mix(ink, 0xffffff, 0.45)) : ink
     d.t.visible = true
-    d._base = label ? 0.95 : crit ? 1.25 : dot ? 0.6 : 0.85
+    d._base = label ? (label.scale ?? 0.95) : crit ? 1.25 : dot ? 0.6 : 0.85
   }
 
   function updateDamage(dt) {
@@ -24115,8 +24158,14 @@ void main() {
   const krakenNow = []
   let krakenEarly = null
   const K_NOW_FLASH_T = 0.09   // s the glint holds at full size before the beat alone is left
-  const K_NOW_OPEN = 64        // px the closing ring starts at, as the window opens
   const K_NOW_LEAD = 96        // px the thin lead-in ring starts at, K_LEAD_T before the window
+  // THE RING'S RADIUS, one line from the lead-in to the impact: K_NOW_LEAD when the lead-in starts,
+  // K_NOW_BODY (the target ring) on the impact, moving at one speed — so the window's snap happens
+  // mid-flight and "ring meets ring" is the strike, not a pop.
+  function krakenNowR(a, rung) {
+    const f = Math.max(0, Math.min(1, a.tele / (rung.window + K_LEAD_T)))
+    return K_NOW_BODY + (K_NOW_LEAD - K_NOW_BODY) * f
+  }
   const K_NOW_BODY = 34        // px: the fixed inner ring just outside the fish's body that it closes onto
   const K_EARLY_T = 0.22
   const krakenStreaks = []
@@ -26442,7 +26491,7 @@ void main() {
           if (e.src === 'krakenArm' && run.chapter === 'kraken' && krakenGuardAt === animT) {
             // THE GUARD BROKE (an early press's shell took this slam, see 'lash'): same damage, but
             // it reads as a broken guard — a small shake and a faint edge, no red flash
-            spawnDamage(run.player.x - Math.cos(krakenGuardAng) * 62, run.player.y - Math.sin(krakenGuardAng) * 62, 0, false, false, { text: '-' + Math.round(e.dmg), tint: 0x8894a4 })
+            spawnDamage(run.player.x - Math.cos(krakenGuardAng) * 62, run.player.y - Math.sin(krakenGuardAng) * 62, 0, false, false, { text: '-' + Math.round(e.dmg), tint: 0x9aa6b8, scale: 1.5 })
             addShake(4, 0.18)
             vignetteA = Math.max(vignetteA, 0.12)
             break
@@ -27229,7 +27278,7 @@ void main() {
                 back += 4; cx = lx1 - ux * back; cy = ly1 - uy * back
               }
             }
-            krakenBursts.push({ x: cx, y: cy, r: Math.min(lw * (e.coil ? 0.5 : 0.3), Math.max(10, Math.hypot(cx - run.player.x, cy - run.player.y) - 40)), t: K_BURST_T, ring: 0 })
+            if (!krakenLashGuard) krakenBursts.push({ x: cx, y: cy, r: Math.min(lw * (e.coil ? 0.5 : 0.3), Math.max(10, Math.hypot(cx - run.player.x, cy - run.player.y) - 40)), t: K_BURST_T, ring: 0 })
             if (!e.coil) {
               krakenPrints.push(krakenPrint(lx0, ly0, lx1, ly1, lw))
               if (krakenPrints.length > 4) krakenPrints.shift()
@@ -27293,6 +27342,9 @@ void main() {
                 const ge = krakenEarly
                 krakenShatter(run.player.x + Math.cos(ge.ang) * 36, run.player.y + Math.sin(ge.ang) * 36, ge.ang, true)
                 krakenGuardFlash = { ang: ge.ang, t: 0 }
+                // THE STAMP, at the contact: a big steel cog, held like the parry's star
+                krakenStars.push({ x: run.player.x + Math.cos(ge.ang) * 60, y: run.player.y + Math.sin(ge.ang) * 60, ang: ge.ang, t: K_STAR_PARRY_T, T: K_STAR_PARRY_T, s: 0.62, shape: 'clank' })
+                if (krakenStars.length > 4) krakenStars.shift()
                 // THE CLANK: a hard little spray of dull slate chips off the shell on the impact frame
                 {
                   const gx = run.player.x + Math.cos(ge.ang) * 38, gy = run.player.y + Math.sin(ge.ang) * 38
