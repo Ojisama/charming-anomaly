@@ -114,8 +114,6 @@ const skinArt = (() => {
   } catch { return null }
 })()
 
-// THROWAWAY (2026-09-26): which grab tell to draw, ?gt=1|2|3 — delete with the losing variants
-const GV2 = (() => { try { return Number(new URLSearchParams(location.search).get('gt') || 1) } catch { return 1 } })()
 
 function mix(a, b, t) {
   const r = Math.round((a >> 16 & 255) + ((b >> 16 & 255) - (a >> 16 & 255)) * t)
@@ -11328,8 +11326,6 @@ const gripArt = (() => {
 // so a tell that is not drawn cannot be logged. scripts/kraken-cues.mjs plays off this list alone.
 // kinds: slamCharge slamFlash slamNow earlyDent grabCharge hold coil limp lungeCharge lungeFlash pressRing. A new tell is
 // one call: tellDrawn('arm', a.i, 'kind', x, y, x0, y0, x1, y1).
-// THROWAWAY: which head-bite look (1 turn+rear+lunge, 2 gape+tremble+chomp, 3 arms bloom+clamp) while the owner picks
-const BITE_V = (() => { try { return Number(new URLSearchParams(location.search).get('bt') ?? 1) } catch { return 1 } })()
 const tellsOn = (() => { try { return new URLSearchParams(location.search).has('debug') } catch { return false } })()
 let tellLog = []
 function tellDrawn(src, i, kind, x, y, x0, y0, x1, y1, rope) {
@@ -20190,10 +20186,10 @@ void main() {
   // THE GRAB'S TELL IS THE GRABBING ARM ITSELF (owner, 2026-09-26: no hook glyph, no floor strip).
   // A grab hovers straight along the line it strikes, so the limb IS the zone: its look only has to
   // say "not a slam — get off me". It never lights a root-to-tip fuse and never goes white, the two
-  // things a slam's window is made of. ?gt=1|2|3 picks the variant (throwaway, until the owner picks).
+  // things a slam's window is made of. Owner's pick 2026-09-26: every sucker lit green at once, breathing, the tip curling.
   const K_GRAB_GLOW = 0x8dff5a   // the grab's light: a bio-green nothing else in the fight wears
   const K_GRAB_RISE = 18   // px a grab hovers off its line: enough to lift it off its shadow, not off the fish
-  const K_GRAB_TINT = GV2 === 2 ? 0x6a6478 : 0xb8ffb0   // the grab rope's tint while it winds up
+  const K_GRAB_TINT = 0xb8ffb0   // the grab rope's tint while it winds up
   function drawKrakenGrabTell(G, pts, a, windup, kS, kE, hwAt) {
     const N = pts.length
     const age = a.fuse - Math.max(0, a.tele)
@@ -20213,53 +20209,7 @@ void main() {
       const nx = -dy / dl, ny = dx / dl, side = j % 2 ? 1 : -1
       sk.push({ k, t: k / (N - 1), x: p1.x + nx * hw * 0.42 * side, y: p1.y + ny * hw * 0.42 * side, r: Math.max(2, hw * K_SUCK_R * 0.95) })
     }
-    if (GV2 === 2) {
-      // B — THE LIGHTS GO OUT. A slam's lamps fill up; a grab's go DARK, root to tip, over the first
-      // two thirds of the fuse, until the whole limb is an ink-black shape on the lit floor with one
-      // lure still burning at its tip, twitching (the pose, syncKrakenArms). Dark = get off it.
-      const front = kS + (kE - kS) * Math.min(1, age / (a.fuse * 0.65))
-      for (let b = kS; b < Math.min(kE, Math.floor(front)); b += 4) {
-        const b1 = Math.min(kE, b + 4, Math.floor(front))
-        if (b1 <= b) break
-        G.moveTo(pts[b].x, pts[b].y)
-        for (let q = b + 1; q <= b1; q++) G.lineTo(pts[q].x, pts[q].y)
-        G.stroke({ width: hwAt((b + b1) >> 1) * 1.7, color: 0x05030a, alpha: 0.55 * on, cap: 'butt', join: 'round' })
-      }
-      for (const u of sk) if (u.k >= front) {
-        G.circle(u.x, u.y, u.r * 2.2).fill({ color: K_GRAB_GLOW, alpha: 0.12 * on })
-        G.circle(u.x, u.y, u.r * 0.9).fill({ color: K_GRAB_GLOW, alpha: 0.75 * on })
-      }
-      const tp = pts[kE], beat = 0.5 + 0.5 * Math.sin(animT * (7 + 9 * windup))
-      G.circle(tp.x, tp.y, 16 + 6 * beat).fill({ color: K_GRAB_GLOW, alpha: (0.14 + 0.12 * beat) * on })
-      G.circle(tp.x, tp.y, 6 + 2 * beat).fill({ color: 0xc8ff90, alpha: 0.9 * on })
-      return
-    }
-    if (GV2 === 3) {
-      // C — IT SWALLOWS. Rings of green light run down the limb from root to tip, three gulps in
-      // flight at once and quickening as the fuse runs, like a throat working — where a slam's fuse
-      // runs once and stays lit. Rings ACROSS the limb, never a line along it.
-      const ph = age * (1.0 + 1.8 * windup)
-      for (let q = 0; q < 3; q++) {
-        const u = (ph + q / 3) % 1
-        const kc = Math.round(kS + (kE - kS) * u)
-        const k0 = Math.max(kS, kc - 4), k1 = Math.min(kE, kc + 4)
-        if (k1 <= k0) continue
-        G.moveTo(pts[k0].x, pts[k0].y)
-        for (let m = k0 + 1; m <= k1; m++) G.lineTo(pts[m].x, pts[m].y)
-        G.stroke({ width: hwAt(kc) * 3.6, color: K_GRAB_GLOW, alpha: 0.08 * on, cap: 'round', join: 'round' })
-        for (let d = -2; d <= 2; d++) {
-          const kk = kc + d * 2
-          if (kk <= kS || kk >= kE) continue
-          const dx = pts[kk + 1].x - pts[kk - 1].x, dy = pts[kk + 1].y - pts[kk - 1].y, dl = Math.hypot(dx, dy) || 1
-          const nx = -dy / dl, ny = dx / dl, hw = hwAt(kk) * 1.8
-          const k = Math.exp(-d * d / 2.5)
-          G.moveTo(pts[kk].x - nx * hw, pts[kk].y - ny * hw).lineTo(pts[kk].x + nx * hw, pts[kk].y + ny * hw)
-            .stroke({ width: 3 + 3 * k, color: d === 0 ? 0xd8ffb8 : K_GRAB_GLOW, alpha: (0.45 + 0.5 * k) * on, cap: 'round' })
-        }
-      }
-      return
-    }
-    // A — EVERY LAMP AT ONCE, BREATHING. All the suckers light green together on the first frame
+    // EVERY LAMP AT ONCE, BREATHING. All the suckers light green together on the first frame
     // (a slam's light RUNS down the limb; this one is simply ON) and pulse faster as the fuse
     // runs, while the tip curls into a grasping hook (the pose, syncKrakenArms).
     const beat = 0.5 + 0.5 * Math.sin(age * (8 + 14 * windup))
@@ -21285,24 +21235,22 @@ void main() {
           }
         }
       }
-      // THE GRAB'S POSE (?gt, with drawKrakenGrabTell): A curls its tip into a grasping hook that
-      // tightens with the fuse; B's tip twitches in small snatches. The shadow stays on the line.
-      if (hover && (GV2 === 1 || GV2 === 2)) {
+      // THE GRAB'S POSE (with drawKrakenGrabTell): the tip curls into a grasping hook that tightens
+      // with the fuse. The shadow stays on the line.
+      if (hover) {
         const age = a.fuse - Math.max(0, a.tele)
         // only the last stretch of the limb moves (by length, not share: the limb is ~1000px long)
         let k0 = K_ROPE_N - 2
-        for (let len = 0, lim = GV2 === 1 ? 150 : 100; k0 > 2 && len < lim; k0--) len += Math.hypot(rig.pts[k0].x - rig.pts[k0 - 1].x, rig.pts[k0].y - rig.pts[k0 - 1].y)
+        for (let len = 0, lim = 150; k0 > 2 && len < lim; k0--) len += Math.hypot(rig.pts[k0].x - rig.pts[k0 - 1].x, rig.pts[k0].y - rig.pts[k0 - 1].y)
         const seg = []
         for (let k = k0 + 1; k < K_ROPE_N; k++) seg.push(Math.hypot(rig.pts[k].x - rig.pts[k - 1].x, rig.pts[k].y - rig.pts[k - 1].y))
         let h = Math.atan2(rig.pts[k0].y - rig.pts[k0 - 1].y, rig.pts[k0].x - rig.pts[k0 - 1].x)
         const n = K_ROPE_N - 1 - k0
-        let tot
-        if (GV2 === 1) tot = -(a.grabSafeSide === -1 ? -1 : 1) * (0.5 + 0.8 * Math.min(1, age / 0.25) * (0.6 + 0.4 * windup))
-        else { const tw = Math.sin(animT * 11 + a.i) ; tot = 0.9 * Math.sign(tw) * Math.pow(Math.abs(tw), 4) * (0.4 + 0.6 * windup) }
+        const tot = -(a.grabSafeSide === -1 ? -1 : 1) * (0.5 + 0.8 * Math.min(1, age / 0.25) * (0.6 + 0.4 * windup))
         const tri = n * (n + 1) / 2
         for (let k = k0 + 1; k < K_ROPE_N; k++) {
           const m = k - k0
-          h += tot * (GV2 === 1 ? m / tri : 1 / n)
+          h += tot * m / tri
           const p = rig.pts[k - 1], L = seg[m - 1]
           rig.pts[k].set(p.x + Math.cos(h) * L, p.y + Math.sin(h) * L)
         }
@@ -22506,9 +22454,9 @@ void main() {
     kc.bOn = (kc.bOn || 0) + ((biting || sa >= 0 ? 1 : 0) - (kc.bOn || 0)) * Math.min(1, k * 9)
     const bOn = kc.bOn
     // it faces you as far as it can while keeping its face the right way up — and turns its MOUTH
-    // square on you for a bite (bt 1 and 3)
+    // square on you for a bite
     let tilt = stag ? 0 : -0.7 * dx / dl
-    if (BITE_V !== 2 && bOn > 0.001) {
+    if (bOn > 0.001) {
       const face = Math.atan2(dy, dx) - Math.PI / 2
       let dA = face - tilt
       dA -= Math.PI * 2 * Math.round(dA / (Math.PI * 2))
@@ -22528,22 +22476,9 @@ void main() {
     let scX = base * br * stretchY * (stag ? 1 - 0.06 * sq : 1 + 0.08 * sq), scY = base * br * stretchX * (stag ? 1 - 0.05 * sq : 1 - 0.07 * sq)
     // the bite's body language, along the fish's bearing: + toward it, - away (world px)
     let bOff = 0, jx = 0, jy = 0
-    if (BITE_V === 1) {
-      // REAR AND LUNGE: draws back and swells at the camera, then snaps its mouth forward at you
-      bOff = -26 * bw * bw + 46 * bs
-      scX *= 1 + 0.07 * bw - 0.04 * bs; scY *= 1 + 0.07 * bw + 0.06 * bs
-      const tr = 2.5 * bw * bw * bw
-      jx = Math.sin(animT * 61) * tr; jy = Math.cos(animT * 47) * tr
-    } else if (BITE_V === 2) {
-      // TREMBLE AND CHOMP: shakes harder and harder where it stands, then squashes flat on the snap
-      const tr = 1 + 7 * bw * bw
-      if (bOn > 0.01 && biting) { jx = Math.sin(animT * 57) * tr; jy = Math.cos(animT * 43) * tr }
-      scX *= 1 + 0.03 * bw + 0.12 * bs; scY *= 1 + 0.03 * bw - 0.16 * bs
-    } else {
-      // THE BLOOM: its arms flower open round the mouth, then clamp shut as it lurches in
-      bOff = 20 * bs
-      scX *= 1 + 0.03 * bw; scY *= 1 + 0.03 * bw
-    }
+    // THE BLOOM (owner's pick 2026-09-26): its arms flower open round the mouth, then clamp shut as it lurches in
+    bOff = 20 * bs
+    scX *= 1 + 0.03 * bw; scY *= 1 + 0.03 * bw
     const [ox, oy] = krakenBodyAt(hs.position.x - dx / dl * (kb - bOff) + jx, hs.position.y - dy / dl * (kb - bOff) + jy, rot, scY)
     krakenHeadRig.position.set(ox, oy)
     krakenHeadRig.rotation = rot
@@ -22567,13 +22502,13 @@ void main() {
     const shut = sa >= 0 ? 1 : 0
     const jawBite = biting ? 0.3 + 0.7 * Math.sin(bw * Math.PI / 2) : 0
     const heatFlick = 0.85 + 0.15 * Math.sin(animT * (18 + 30 * bw))
-    const bloom = BITE_V === 3 && !stag ? (biting ? -1 + 1.7 * Math.sin(Math.min(1, bw / 0.7) * Math.PI / 2) : sa >= 0 ? -1 : null) : null
+    const bloom = !stag ? (biting ? -1 + 1.7 * Math.sin(Math.min(1, bw / 0.7) * Math.PI / 2) : sa >= 0 ? -1 : null) : null
     drawKrakenFace(rig, {
       rot: kc.tilt, glare: stag ? 0 : Math.min(1, 0.3 + 0.7 * Math.max(lungeK, bw) + 0.6 * kc.deflect), pain: stag ? 0 : rc, shock: stag ? rc : 0,
       stun: stag ? 1 : 0, blink: stag || bOn > 0.05 ? 0 : bl, lx, ly, white: 0, core: kc.core * (1 - (stag ? 0.1 : 0.6) * rc),
       crown: bloom != null ? bloom : stag ? Math.max(q, kc.crown - 0.15 * rc) : q,
       jaw: shut ? 0 : biting ? Math.max(jawIdle, jawBite) : jawIdle,
-      gape: shut ? 0.35 * bs : (BITE_V === 2 ? 0.8 : 0.55) * bw,
+      gape: shut ? 0.35 * bs : 0.55 * bw,
       heat: biting ? Math.min(1, bw * 1.3) * heatFlick : Math.max(0, bs) * (krakenBiteHit ? 1 : 0.5),
       slack: stag ? rc : 0,
       grit: stag ? 0 : Math.max(rc, kc.deflect, shut ? bs : 0), rim: Math.max(fl, rc * 0.6),
