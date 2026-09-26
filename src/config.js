@@ -8746,7 +8746,8 @@ export const KRAKEN_LIMP_FLASH = 0.35      // s of hard white on the arm as the 
 // stop the game, because it is the fight's payoff.
 //   The sim freezes, the RENDERER DOES NOT — animT keeps advancing, so the flash, the rings and the
 // particles all play through the pause. A freeze that froze the picture too would just be a stutter.
-export const KRAKEN_HITSTOP_PARRY = 0.07    // a parry lands on an arm (Sekiro's deflect holds ~4 frames)
+// balance_decision : parry hitstop 0.07 -> 0.1, a deflect you feel 2026-09-26
+export const KRAKEN_HITSTOP_PARRY = 0.1     // a parry lands on an arm
 export const KRAKEN_HITSTOP_BREAK = 0.085   // an arm comes off
 export const KRAKEN_HITSTOP_STAGGER = 0.15  // the head's posture breaks
 
@@ -8900,6 +8901,11 @@ export const KRAKEN_PARRY_CD = 0.8 // s the parry button's cooldown (vs REPULSE_
 // says so differently (a dull thud and a small shove on the fish), so "too soon" and "nothing
 // there" stop being the same picture.
 export const KRAKEN_PARRY_EARLY_T = 0.25
+// px: a parried arm's tip (and the node the weapons hit) is thrown back along its own lane until it
+// lies at least this far from the fish — the parried limb lies OFF the fish, where you aim next
+// balance_decision : parried tip knocked back off the fish 2026-09-26
+//  - moves the node the build shoots at: it is the arm's tip, not the fish's spot
+export const KRAKEN_LIMP_CLEAR = 90
 // balance_decision : parry throws the adds visibly clear, owner 2026-09-24
 //  - radius and force read at the parry, falloff linear like the Pulse; nodes and the head are exempt
 export const KRAKEN_PARRY_SHOVE_R = 150
