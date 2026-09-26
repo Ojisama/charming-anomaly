@@ -232,7 +232,7 @@ import {
   KRAKEN_CAGE_R,
   KRAKEN_LASH_R, KRAKEN_LASH_DMG, KRAKEN_LIGHT_START, KRAKEN_HAUL_R, KRAKEN_LASH_W, KRAKEN_LASH_OVER,
   KRAKEN_LIMB_HW, krakenLimbHalfW,
-  KRAKEN_PARRY_MARGIN, KRAKEN_PARRY_SPIN_T, KRAKEN_PARRY_EARLY_T,
+  KRAKEN_PARRY_MARGIN, KRAKEN_PARRY_SPIN_T, KRAKEN_PARRY_EARLY_T, KRAKEN_LIMP_CLEAR,
   KRAKEN_PERFECT_MUL, KRAKEN_PARRY_CD, KRAKEN_PARRY_REFILL, KRAKEN_BLAZE_R,
   KRAKEN_GRIP_EVERY, KRAKEN_GRIP_DUR, KRAKEN_GRIP_DMG, KRAKEN_GRIP_STICK_MUL, KRAKEN_GRIP_FLICKS, KRAKEN_GRAB_FUSE, KRAKEN_GRAB_REACT, KRAKEN_GRAB_MIN_STEP,
   KRAKEN_BEAT_READ, KRAKEN_BEAT_GRAB_CLEAR, KRAKEN_BEAT_BREATH,
@@ -3055,6 +3055,21 @@ function krakenParry(run) {
   s.beatAt = run.time   // its window shut on the press (krakenBeatNeeds)
   best.limpT = rung.limp * (perfect ? KRAKEN_LIMP_PERFECT_MUL : 1)
   best.hitT = KRAKEN_LIMP_FLASH
+  // THE PARRIED ARM STAYS KNOCKED BACK. A slam is aimed at the fish, so its tip — where the limp
+  // node hangs and every weapon lands — would lie on the fish, and the end of a clean parry looked
+  // like a miss. The aim point is walked back up the arm's own lane (toward its shoulder) until the
+  // tip is KRAKEN_LIMP_CLEAR off the fish; krakenPlaceArm puts the tip, and so the node, there.
+  if (best.aimed) {
+    const ux = best.aimX - best.lx0, uy = best.aimY - best.ly0
+    const d0 = Math.hypot(ux, uy)
+    if (d0 > 1) {
+      let d = d0
+      while (d > 0 && (best.lx0 + ux / d0 * d - p.x) ** 2 + (best.ly0 + uy / d0 * d - p.y) ** 2 < KRAKEN_LIMP_CLEAR ** 2) d -= 6
+      best.aimX = best.lx0 + ux / d0 * Math.max(0, d)
+      best.aimY = best.ly0 + uy / d0 * Math.max(0, d)
+      if (head) krakenPlaceArm(head, best, krakenReach(s))
+    }
+  }
   // The tear. Applied to the LIMB, not through dealDamage: the arm is not an enemy until its node
   // exists, and the node reads a.hp when it spawns — so this is simply the limb being hurt.
   best.hp = Math.max(0, best.hp - best.maxHP * KRAKEN_EXPOSE_BITE)

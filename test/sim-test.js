@@ -172,7 +172,7 @@ import {
   KRAKEN_RISE_T, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, hiddenChapters, KRAKEN_CAGE_R, KRAKEN_PARRY_CD,
   KRAKEN_OPEN_WAVES, KRAKEN_COIL_EVERY, KRAKEN_ARRIVE_T, KRAKEN_RING_R, KRAKEN_LASH_R, KRAKEN_SLAM_T, KRAKEN_DEFLECT_CD,
   KRAKEN_LUNGE_T, KRAKEN_GRIP_DUR, KRAKEN_GRIP_DMG, KRAKEN_GRIP_FLICKS, KRAKEN_GRIP_STICK_MUL, TRAWL_WIGGLE_ARC,
-  KRAKEN_LASH_W, KRAKEN_LASH_OVER, KRAKEN_LASH_DMG, KRAKEN_LESSON_MAX, KRAKEN_PARRY_SHOVE_R, KRAKEN_PARRY_EARLY_T, KRAKEN_ARRIVE_T2, KRAKEN_WAVE_GROWTH, KRAKEN_COIL_DMG,
+  KRAKEN_LASH_W, KRAKEN_LASH_OVER, KRAKEN_LASH_DMG, KRAKEN_LESSON_MAX, KRAKEN_PARRY_SHOVE_R, KRAKEN_PARRY_EARLY_T, KRAKEN_LIMP_CLEAR, KRAKEN_ARRIVE_T2, KRAKEN_WAVE_GROWTH, KRAKEN_COIL_DMG,
   KRAKEN_HEAD_SPEED, KRAKEN_PARRY_SPIN_T, krakenLimbHalfW, FISH_R, FISH_BODY, KRAKEN_GRIP_EVERY, KRAKEN_GRAB_FUSE, KRAKEN_GRAB_MIN_STEP,
   KRAKEN_BEAT_READ, KRAKEN_BEAT_GRAB_CLEAR, KRAKEN_BEAT_BREATH, KRAKEN_TOUCH_QUIET_T, KRAKEN_HEAD_R, KRAKEN_BITE_WINDUP_T, KRAKEN_BITE_GAP, KRAKEN_LUNGE_WINDUP_T,
 } from '../src/config.js'
@@ -36222,7 +36222,14 @@ function testKrakenNowCue() {
   arm0(R.window * 0.5)
   ev = step(P, true)
   assert.ok((n('parry') + n('parryPerfect')) === 1 && n('parryEarly') === 0, 'a press inside the window was not a clean parry')
-  console.log(`PASS run KN (press-now cue): slamWindow fires once per plain slam, on the frame its ${R.window}s window opens in reach (tele ${f.before.toFixed(3)} -> ${f.e.t.toFixed(3)}), never 600px out of reach, never for a grab; a press within ${KRAKEN_PARRY_EARLY_T}s before it is parryEarly (no parry, cooldown spent, the slam still lands), earlier is a whiff, inside is a parry`)
+  // 7) THE PARRIED ARM LIES OFF THE FISH: its tip, and the node the weapons hit, is knocked back
+  //    along its own lane to KRAKEN_LIMP_CLEAR — a slam aimed at the fish used to leave it on the fish
+  const tipOff = Math.hypot(arm.x - p.x, arm.y - p.y)
+  assert.ok(tipOff >= KRAKEN_LIMP_CLEAR - 1, `a parried arm's tip lies ${tipOff.toFixed(0)}px from the fish (want >= ${KRAKEN_LIMP_CLEAR}) - the end of a parry looks like a miss`)
+  step(P)
+  const node = run.enemies.find((e) => e.rosterId === 'krakenArm' && !e._dead && e._armIdx === arm.i)
+  assert.ok(node && Math.hypot(node.x - arm.x, node.y - arm.y) < 1, 'the limp node is not where the knocked-back tip is drawn')
+  console.log(`PASS run KN (press-now cue): slamWindow fires once per plain slam, on the frame its ${R.window}s window opens in reach, a parried tip lies >= ${KRAKEN_LIMP_CLEAR}px off the fish with its node on it (tele ${f.before.toFixed(3)} -> ${f.e.t.toFixed(3)}), never 600px out of reach, never for a grab; a press within ${KRAKEN_PARRY_EARLY_T}s before it is parryEarly (no parry, cooldown spent, the slam still lands), earlier is a whiff, inside is a parry`)
 }
 
 function testKrakenParryShove() {

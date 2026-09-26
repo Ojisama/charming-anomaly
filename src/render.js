@@ -20325,9 +20325,18 @@ void main() {
   let krakenCommitted = false   // a plain slam in reach is in its lead-in or its window (drawKrakenRing)
   // THE WEAK POINT: bright, pulsing, bracketed — drawn on exactly the spot the weapons hit (a limp
   // arm's node, the staggered head). `G` gets the solid body; the additive glow goes over the dark.
-  function drawKrakenHitMe(G, x, y, r, core, hard = false) {
+  // A PARRIED ARM'S TARGET HOLDS BACK for K_LIMP_SHOW_AT, then fades in: the parry's burst and the
+  // knock-back are the moment, and the gold disc piling on right away buried them
+  const krakenLimpAt = []
+  const K_LIMP_SHOW_AT = 0.3
+  function krakenLimpShow(a) {
+    const at = krakenLimpAt[a.i]
+    if (at == null) return 0
+    return Math.max(0, Math.min(1, (animT - at - K_LIMP_SHOW_AT) / 0.15))
+  }
+  function drawKrakenHitMe(G, x, y, r, core, hard = false, show = 1) {
     const pu = 0.5 + 0.5 * Math.sin(animT * (hard ? 12 : 7))
-    const dk = hard ? 1 : krakenHitMeK
+    const dk = (hard ? 1 : krakenHitMeK) * show
     if (hard) {
       // the lesson's second line is up: the target shouts
       krakenDangerG.circle(x, y, r * (2.6 + 1.6 * pu)).stroke({ width: 6, color: 0xffffff, alpha: (0.6 + 0.4 * pu) * dk })
@@ -20428,7 +20437,7 @@ void main() {
   // press landed), K_CLASH_MIN..K_CLASH_MAX out — clear of the fish's own silhouette, where a burst
   // reads as its shield or its hurt, and never out in open water where the reared limb hung. A
   // streak joins the fish to it, and the limb is thrown back away from the fish (krakenRecoil).
-  const K_CLASH_MIN = 52, K_CLASH_MAX = 92
+  const K_CLASH_MIN = 30, K_CLASH_MAX = 30   // fish-adjacent: the burst is centred on the fish's facing side
   function krakenParried(e, perfect, run) {
     for (let q = krakenNow.length - 1; q >= 0; q--) if (krakenNow[q].i === e.i) krakenNow.splice(q, 1)
     krakenEarly = null
@@ -20446,8 +20455,6 @@ void main() {
     krakenStreaks.push({ x0: e.px + ux * 22, y0: e.py + uy * 22, x1: cx, y1: cy, t: K_STREAK_T })
     if (krakenStreaks.length > 3) krakenStreaks.shift()
     krakenClash({ ...e, cx, cy }, perfect)
-    krakenStars.push({ x: e.px + ux * 26, y: e.py + uy * 26, ang: Math.atan2(uy, ux), t: K_STAR_PARRY_T, T: K_STAR_PARRY_T, s: perfect ? 0.34 : 0.26, rim: 0xffb040, fill: 0xffd878 })
-    if (krakenStars.length > 5) krakenStars.shift()
   }
 
   function krakenClash(e, perfect) {
@@ -20768,9 +20775,9 @@ void main() {
       const k = 1 - Math.max(0, (f.t - K_FALL_T * 0.5) / (K_FALL_T * 0.5))
       const V = krakenVerdictG
       V.beginPath(); V.arc(f.x, f.y, K_EARLY_R, f.a0 + f.rot, f.a1 + f.rot)
-      V.stroke({ width: 13, color: K_STEEL_DARK, alpha: 0.9 * k, cap: 'butt' })
+      V.stroke({ width: 13, color: 0x2a0806, alpha: 0.9 * k, cap: 'butt' })
       V.beginPath(); V.arc(f.x, f.y, K_EARLY_R, f.a0 + f.rot, f.a1 + f.rot)
-      V.stroke({ width: 7, color: f.t < 0.08 ? K_STEEL_HI : K_STEEL, alpha: k, cap: 'butt' })
+      V.stroke({ width: 7, color: f.t < 0.08 ? 0xffffff : 0xff4a2a, alpha: k, cap: 'butt' })
     }
     for (let i = krakenShards.length - 1; i >= 0; i--) {
       const sh = krakenShards[i]
@@ -20933,10 +20940,11 @@ void main() {
         // read in this fight is strokes from here on. The limb itself is the target: parried, it is
         // cold-lit and torn open, and nothing else on screen looks like that.
         const k = Math.min(1, a.limpT / 2.0)
+        if (krakenLimpAt[a.i] == null) krakenLimpAt[a.i] = animT
         // the closing ring IS the clock: it shrinks as the window runs out
         teleG.beginPath()
         teleG.arc(a.x, a.y, KRAKEN_LASH_R * (0.30 + 0.36 * k), 0, Math.PI * 2)
-        teleG.stroke({ width: 3, color: 0xdff8ff, alpha: (0.45 + 0.35 * k) * krakenHitMeK })
+        teleG.stroke({ width: 3, color: 0xdff8ff, alpha: (0.45 + 0.35 * k) * krakenHitMeK * krakenLimpShow(a) })
         continue
       }
 
@@ -21633,7 +21641,8 @@ void main() {
       // THE WEAK POINT IS THE NODE. A parried arm hangs a real enemy at a.x/a.y and that is where
       // every weapon lands, so that is where the target is drawn — the tip of the limb, on the spot
       // the aimed slam came down. Nothing further up the rope suggests damage goes anywhere else.
-      if (a.limpT > 0) drawKrakenHitMe(krakenWoundG, a.x, a.y, KRAKEN_ARM_R * 0.62, true, run.krakenLesson === 2)
+      if (!(a.limpT > 0)) krakenLimpAt[a.i] = null
+      if (a.limpT > 0) drawKrakenHitMe(krakenWoundG, a.x, a.y, KRAKEN_ARM_R * 0.62, true, run.krakenLesson === 2, krakenLimpShow(a))
       if (a.limpT > 0) tellDrawn('arm', a.i, 'limp', a.x, a.y)
       if (a.dead) {
         // A BROKEN ARM SINKS: it fades back into the murk it came out of over breakT, and after that
