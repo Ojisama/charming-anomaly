@@ -174,7 +174,7 @@ import {
   KRAKEN_LUNGE_T, KRAKEN_GRIP_DUR, KRAKEN_GRIP_DMG, KRAKEN_GRIP_FLICKS, KRAKEN_GRIP_STICK_MUL, TRAWL_WIGGLE_ARC,
   KRAKEN_LASH_W, KRAKEN_LASH_OVER, KRAKEN_LASH_DMG, KRAKEN_LESSON_MAX, KRAKEN_PARRY_SHOVE_R, KRAKEN_PARRY_EARLY_T, KRAKEN_LIMP_CLEAR, KRAKEN_ARRIVE_T2, KRAKEN_WAVE_GROWTH, KRAKEN_COIL_DMG,
   KRAKEN_HEAD_SPEED, KRAKEN_PARRY_SPIN_T, krakenLimbHalfW, FISH_R, FISH_BODY, KRAKEN_GRIP_EVERY, KRAKEN_GRAB_FUSE, KRAKEN_GRAB_MIN_STEP, KRAKEN_PINCH_OPEN0, KRAKEN_PINCH_OPEN1,
-  KRAKEN_BEAT_READ, KRAKEN_BEAT_GRAB_CLEAR, KRAKEN_BEAT_BREATH, KRAKEN_TOUCH_QUIET_T, KRAKEN_HEAD_R, KRAKEN_BITE_WINDUP_T, KRAKEN_BITE_GAP, KRAKEN_LUNGE_WINDUP_T,
+  KRAKEN_BEAT_READ, KRAKEN_BEAT_GRAB_CLEAR, KRAKEN_BEAT_BREATH, KRAKEN_HEAD_R, KRAKEN_HEAD_HOLD, KRAKEN_DASH_DIST, KRAKEN_HEAD_TOUCH_DMG, KRAKEN_LUNGE_DMG, KRAKEN_LUNGE_WINDUP_T,
 } from '../src/config.js'
 import { krakenWinPending, krakenPinchProbe, krakenGrabSpot, krakenGrabTurnClear, stepSim, applyChoice, buildLevelUpChoices, eligibleWeaponModCandidates, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, inRefillCircle, stepCharge, newElWindow, spurAt } from '../src/sim.js'
 
@@ -34911,67 +34911,73 @@ function runKraken() {
     ]) assert.ok(code.includes(needle), `render.js no longer reads ${needle}: ${why}`)
   }
 
-  // (h5) THE HEAD'S TOUCH IS A BITE: A TELEGRAPHED ATTACK, ONE CAUSE PER HIT. Contact bills only the
-  // lunge; the touch is its own attack — the jaws wind up for KRAKEN_BITE_WINDUP_T (head.biteT) once
-  // the fish is inside the reach and snap, hurting only a fish still inside. It never winds up
-  // through a Coil or a lunge wind-up (and a quiet ending still leaves the whole wind-up), never where the
-  // snap would land within KRAKEN_BITE_GAP of a lunge wind-up. A CONTROL first: pinned inside the
-  // reach with nothing else on, the fixture MUST be bitten, or every zero below is the rig.
-  //   Mutations (each turns this red): drop s.coilT from the quiet; drop the lunge wind-up from it;
-  // bill the snap without the still-inside test; start the wind-up at 0
-  // (an instant bite, no lead); drop the lunge-gap check; drop the parry-gesture check.
+  // (h5) THE HEAD HURTS, FOLLOWS LOOSELY, AND DASHES (owner, 2026-09-26: "most of the time the best
+  // thing is to stay immobile on the head and wait for the parry window. The head should hurt, and
+  // follow you loosely, and you can parry the dashes of the head").
+  //   Mutations (each turns this red): touch damage 0; the head seeks the fish's exact point (no
+  // hold); instant steering (no looseness); the dash line never locks; the dash moves nothing.
   {
     const run = inBlock(3)
     const s = run.script
     const h = headOf(run)
     s.phase = 'chase'; s.riseT = 0; s.staggerT = 0; s.stagger = 0
     for (const a of run.krakenArms) { a.tele = 0; a.gripT = 0; a.limpT = 0; a.dead = true }
-    const inside = () => { run.player.x = h.x + KRAKEN_HEAD_R * 0.95; run.player.y = h.y }
-    const bites = (secs, pin, place = inside) => {
-      const at = []
-      for (let i = 0; i < Math.round(secs * 60); i++) {
-        pin()
-        h._lungeBurst = 0
-        place()
-        run.player.hp = run.player.maxHP
-        run.player.invuln = 0
-        stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
-        for (const e of run.events.splice(0)) if (e.type === 'hurt' && e.src === 'krakenHead') at.push(i / 60)
-      }
-      return at
+    const rung = krakenRung(3)
+    const p = run.player
+    const tick = (place) => {
+      if (place) place()
+      p.hp = p.maxHP = 999
+      stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+      return run.events.splice(0).filter((e) => e.type === 'hurt' && e.src === 'krakenHead')
     }
-    // the lunge held mid-cycle: its last strike well behind (a bite may not start on a just-given
-    // answer) and its next window well ahead — a bite is a turn in the beat, see krakenBeatClear
-    const open = () => { s.coilT = 0; h.lungeT = KRAKEN_LUNGE_T * 0.75; s.beatAt = null }
-    h.biteT = null; h.biteCd = 0
-    const control = bites(3, open)
-    assert.ok(control.length >= 2, `pinned inside the head's reach with nothing else on, the fish was bitten ${control.length}x in 3s — the zeros below would prove nothing`)
-    // THE LEAD: the first bite lands no sooner than the wind-up after the fish entered the reach
-    assert.ok(control[0] >= KRAKEN_BITE_WINDUP_T - 1 / 60, `the first bite landed ${control[0].toFixed(2)}s after the fish entered the reach — under the ${KRAKEN_BITE_WINDUP_T}s wind-up, so nothing could have warned of it`)
-    const coil = bites(1.5, () => { s.coilT = KRAKEN_COIL_TELE + KRAKEN_COIL_DUR; h.lungeT = KRAKEN_LUNGE_T })
-    assert.deepStrictEqual(coil, [], `the head bit ${coil.length}x through a Coil — the correct dodge into the gap against the head costs hp`)
-    bites(1.5, open)
-    const wind = bites(1.5, () => { s.coilT = 0; h.lungeT = KRAKEN_TOUCH_QUIET_T * 0.5 })
-    assert.deepStrictEqual(wind, [], `the head bit ${wind.length}x through the lunge's wind-up — it reads as the lunge hitting`)
-    const after = bites(KRAKEN_BITE_WINDUP_T * 0.95, open)
-    assert.deepStrictEqual(after, [], `the head bit ${after.length}x within ${KRAKEN_BITE_WINDUP_T}s of the lunge wind-up ending — no wind-up could have led it`)
-    // THE GAP: with the lunge's wind-up closer than a bite's wind-up + KRAKEN_BITE_GAP, no bite starts
-    h.biteT = null; h.biteCd = 0
-    const tight = bites(0.3, () => { s.coilT = 0; h.lungeT = KRAKEN_LUNGE_WINDUP_T + KRAKEN_BITE_WINDUP_T + KRAKEN_BITE_GAP * 0.5 })
-    assert.deepStrictEqual(tight, [], 'a bite landed inside KRAKEN_BITE_GAP of the lunge wind-up')
-    assert.strictEqual(h.biteT ?? null, null, 'a bite wound up where it would land within KRAKEN_BITE_GAP of the lunge wind-up — the two attacks land together')
-    // NOT OVER A PARRY: the jaws never open while the parry's gesture (and its spark) is on screen
-    h.biteT = null; h.biteCd = 0
-    bites(1 / 60, () => { open(); run.player.parryT = 0.2 })
-    assert.strictEqual(h.biteT ?? null, null, 'a bite wound up on the same frames as a parry gesture — the jaws open over the parry spark')
-    // THE ANSWER WORKS: a fish that steps out during the wind-up is not bitten
-    h.biteT = null; h.biteCd = 0
-    bites(KRAKEN_BITE_WINDUP_T * 0.5, open)
-    assert.ok(h.biteT != null, 'the fixture never started a wind-up, so the step-out below proves nothing')
-    const out = bites(KRAKEN_BITE_WINDUP_T, open, () => { run.player.x = h.x + KRAKEN_HEAD_R + 60; run.player.y = h.y })
-    assert.deepStrictEqual(out, [], 'a fish that stepped out of the reach during the wind-up was bitten anyway — the attack has no answer')
-    const back = bites(2, open)
-    assert.ok(back.length >= 1, 'the bite never came back — the head no longer owns its space at all')
+    // (a) TOUCHING IT HURTS, at once: pinned inside its body mid-cycle, the first hit lands within a
+    // few frames and bills the touch
+    h._lungeBurst = 0; h.lungeT = KRAKEN_LUNGE_T; h._kvx = h._kvy = 0
+    let first = -1, dmg = 0
+    for (let i = 0; i < 30 && first < 0; i++) {
+      p.invuln = 0
+      const hits = tick(() => { h.lungeT = KRAKEN_LUNGE_T; p.x = h.x + KRAKEN_HEAD_R * 0.8; p.y = h.y })
+      if (hits.length) { first = i; dmg = hits[0].dmg }
+    }
+    assert.ok(first >= 0 && first <= 3, `a fish pinned inside the head was first hurt ${first < 0 ? 'never' : 'on frame ' + first} — touching the head does not hurt`)
+    assert.strictEqual(dmg, KRAKEN_HEAD_TOUCH_DMG, `the head's touch billed ${dmg}, not KRAKEN_HEAD_TOUCH_DMG`)
+    // (b) IT FOLLOWS LOOSELY: from rest with the fish far off, it picks up speed over time instead of
+    // snapping to full; then it settles near KRAKEN_HEAD_HOLD, never on the fish
+    h._kvx = h._kvy = 0
+    const far = () => { h.lungeT = KRAKEN_LUNGE_T; p.invuln = 99 }
+    const fx = h.x + 900, fy = h.y
+    tick(() => { far(); p.x = fx; p.y = fy })
+    const v1 = Math.hypot(h._kvx, h._kvy)
+    assert.ok(v1 < KRAKEN_HEAD_SPEED * 0.2, `one frame after the fish moved off, the head already drifts at ${v1.toFixed(0)}px/s — it snaps, it does not follow loosely`)
+    for (let i = 0; i < 60 * 12; i++) tick(() => { far(); p.x = fx; p.y = fy })
+    const dEnd = Math.hypot(p.x - h.x, p.y - h.y)
+    assert.ok(dEnd > KRAKEN_HEAD_HOLD - 40 && dEnd < KRAKEN_HEAD_HOLD + 80, `after 12s the head sits ${dEnd.toFixed(0)}px from a still fish (want ~${KRAKEN_HEAD_HOLD}): it parks on you, or never arrives`)
+    // (c) THE DASH: its line tracks the fish until the parry window, then LOCKS; at the strike it
+    // crosses ~KRAKEN_DASH_DIST along that line in KRAKEN_DASH_T
+    const dash = (sidestep) => {
+      h._lungeBurst = 0; h._kvx = h._kvy = 0
+      const bx = h.x, by = h.y
+      const P0 = { x: bx + KRAKEN_HEAD_HOLD, y: by }
+      h.lungeT = rung.lungeWindow + 0.2
+      let locked = null, hits = [], moved = 0, stepped = false
+      for (let i = 0; i < 60 * 2; i++) {
+        const inWin = h.lungeT <= rung.lungeWindow
+        if (inWin && locked == null) locked = h.dashAng
+        if (inWin) stepped = true
+        const hx = h.x, hy = h.y
+        const hurt = tick(() => { p.invuln = 0; p.x = P0.x; p.y = P0.y + (stepped && sidestep ? 220 : 0) })
+        if ((h._lungeBurst ?? 0) > 0 || moved > 0) moved += Math.hypot(h.x - hx, h.y - hy)
+        hits.push(...hurt)
+        if (moved > 0 && !((h._lungeBurst ?? 0) > 0)) break
+      }
+      return { locked, ang: h.dashAng, hits, moved }
+    }
+    const still = dash(false)
+    assert.ok(still.moved > KRAKEN_DASH_DIST * 0.85, `the dash crossed only ${still.moved.toFixed(0)}px — it is not a dash`)
+    assert.ok(still.hits.some((e) => e.dmg === KRAKEN_LUNGE_DMG), 'a fish that stood on the dash line was not hit by it')
+    const side = dash(true)
+    assert.ok(Math.abs(side.ang - side.locked) < 1e-9, 'the dash line followed the fish after the parry window opened — it cannot be sidestepped')
+    assert.ok(!side.hits.some((e) => e.dmg === KRAKEN_LUNGE_DMG), 'a fish that stepped 220px off the locked dash line was still hit by the dash')
   }
 
   // (h6) THE BARED HEAD SMASHES ROCK (owner 2026-09-26: "it gets stuck"). A rock on its path in the
@@ -35146,8 +35152,12 @@ function runKraken() {
       const run = inBlock(3)
       run.script.bossIdx = 2
       run.script.gripN = KRAKEN_COIL_AT - 1
+      // the fish waits HALFWAY BETWEEN two arms, so the star's bands are off the arms' slots and they must swing
+      const hd0 = run.enemies.find((e) => e.rosterId === 'krakenHead' && !e._dead)
+      const b0 = run.krakenArms[0].ang + Math.PI / run.krakenArms.length
       let guard = 0
       while (guard++ < 60 * 30 && !(run.script.coilT > 0)) {
+        run.player.x = hd0.x + Math.cos(b0) * 200; run.player.y = hd0.y + Math.sin(b0) * 200
         run.player.hp = run.player.maxHP
         stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
       }
@@ -35156,13 +35166,24 @@ function runKraken() {
       const able = live.filter((a) => a.limpT <= 0 && !(a.gripT > 0))
       const armed = live.filter((a) => a.coilArm)
       assert.ok(armed.length >= 2, `a Coil armed only ${armed.length} arms — it is a volley, not a slam with extra steps`)
-      assert.strictEqual(able.length - armed.length, 1,
-        `a Coil left ${able.length - armed.length} of ${able.length} able arms out of the volley (want exactly 1). Zero spared is an attack with no answer; two spared is two gaps and no reading to do.`)
-      // ...and the spared arm's bearing is what render draws the gap on, or the wedge points at
-      // a lane that is about to be struck
-      const spared = able.find((a) => !a.coilArm)
-      assert.ok(spared && Math.abs(spared.ang - run.script.coilGap) < 1e-6,
-        'the gap render draws is not the spared arm\'s bearing — the safe wedge would point at a lane that is about to land')
+      // THE STAR IS THE ARMS: one band per coil arm, up to KRAKEN_COIL_RAYS, each arm on its own band
+      assert.strictEqual(armed.length, Math.min(able.length, KRAKEN_COIL_RAYS), `a Coil armed ${armed.length} of ${able.length} able arms (want min(able, ${KRAKEN_COIL_RAYS}))`)
+      assert.strictEqual(run.script.coilN, armed.length, 'the star draws a different number of bands than arms landing on it')
+      const bands = armed.map((a) => { const k = (a.coilAng - run.script.coilStar) / (Math.PI * 2 / armed.length); return Math.round(k) })
+      for (const a of armed) {
+        const k = (a.coilAng - run.script.coilStar) / (Math.PI * 2 / armed.length)
+        assert.ok(Math.abs(k - Math.round(k)) < 1e-6, `a coil arm's band (${a.coilAng.toFixed(3)}) is not one of the star's`)
+      }
+      assert.strictEqual(new Set(bands.map((k) => ((k % armed.length) + armed.length) % armed.length)).size, armed.length, 'two coil arms share a band, so a band has no arm on it')
+      // ...and they SWING ONTO THEM: well inside the wind-up every coil arm's struck lane runs along its band
+      for (let f = 0; f < 60; f++) { run.player.hp = run.player.maxHP; stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60) }
+      const hd = run.enemies.find((e) => e.rosterId === 'krakenHead' && !e._dead)
+      for (const a of armed) {
+        if (!a.coilArm) continue
+        const la = Math.atan2(a.ly0 - hd.y, a.lx0 - hd.x)
+        const d = Math.abs(Math.atan2(Math.sin(la - a.coilAng), Math.cos(la - a.coilAng)))
+        assert.ok(d < 0.02, `1s into the Coil an arm's lane is ${(d * 180 / Math.PI).toFixed(0)}deg off its band — the arms do not lie on the shadows that strike`)
+      }
       // THE STAR IS AIMED: one band runs through where the fish stood when it wound up
       {
         const hd = run.enemies.find((e) => e.rosterId === 'krakenHead' && !e._dead)
@@ -36160,7 +36181,7 @@ function testKrakenEnrage() {
 function testKrakenBeat() {
   const EPS = 2 / 60
   const GAP = KRAKEN_PARRY_CD + KRAKEN_BEAT_READ
-  const tot = { slam: 0, lunge: 0, grab: 0, hold: 0, coil: 0, bite: 0, fights: 0, secs: 0 }
+  const tot = { slam: 0, lunge: 0, grab: 0, hold: 0, coil: 0, fights: 0, secs: 0 }
   for (const [diff, seed] of [[3, 20260925], [3, 777], [3, 31337], [2, 4242], [2, 99]]) {
     Math.random = mulberry32(seed)
     const run = createRun({ ...makeMeta(), krakenParried: true }, { chapter: 'kraken', difficulty: diff })
@@ -36169,8 +36190,8 @@ function testKrakenBeat() {
     const rung = krakenRung(diff)
     const P = []          // parry windows {src, open, close}
     const openBy = {}     // src -> open window
-    const grabs = [], coils = [], bites = []
-    let coil = null, wig = 0, bite = null
+    const grabs = [], coils = []
+    let coil = null, wig = 0
     const coin = mulberry32(seed ^ 0x5bd1e995), answer = {}
     // the d3 last phase slams OVER the beat by design (rung.enrageFree, run KE): the beat ends there
     for (let f = 0; f < 60 * 400 && run.phase !== 'victory' && !(run.script.enraged && krakenRung(diff).enrageFree); f++) {
@@ -36203,14 +36224,6 @@ function testKrakenBeat() {
         if (e.type === 'gripLatch') tot.hold++
         if (e.type === 'coilWind') coil = { a: t }
         if (e.type === 'coilClose' && coil) { coil.b = t; coils.push(coil); coil = null }
-        if (e.type === 'headBite' && bite) { bite.b = t; bites.push(bite); bite = null }
-      }
-      // THE BITE: owed from the frame its jaws open (head.biteT) to its snap, or to the frame it drops
-      {
-        const hb = run.enemies.find((e) => e.rosterId === 'krakenHead' && !e._dead)
-        const winding = !!hb && s.phase === 'chase' && hb.biteT != null
-        if (winding && !bite) bite = { a: t }
-        else if (!winding && bite) { bite.b = t; bites.push(bite); bite = null }
       }
       // which parry windows are open NOW, from truth
       const now = {}
@@ -36228,7 +36241,6 @@ function testKrakenBeat() {
     tot.lunge += P.filter((w) => w.src === 'lunge').length
     tot.grab += grabs.length
     tot.coil += coils.length
-    tot.bite += bites.length
     // 1) ONE BUTTON, ONE COOLDOWN
     P.sort((a, b) => a.open - b.open)
     let last = null
@@ -36248,11 +36260,8 @@ function testKrakenBeat() {
     }
     for (const g of grabs) clash(g, g, 'a grab strike')
     for (const c of coils) clash(c.a, c.b, 'a coil')
-    // 3) THE HEAD'S BITE IS ONE ANSWER TOO: no parry window opens or runs through a bite's wind-up
-    // and snap, nor within the clear bands either side ("I parried and got bitten anyway")
-    for (const b of bites) clash(b.a, b.b, 'a bite')
   }
-  assert.ok(tot.slam >= 100 && tot.lunge >= 60 && tot.grab >= 25 && tot.hold >= 15 && tot.coil >= 5 && tot.bite >= 10,
+  assert.ok(tot.slam >= 100 && tot.lunge >= 60 && tot.grab >= 25 && tot.hold >= 15 && tot.coil >= 5,
     `fixture: too little of the fight to prove a spacing rule — ${JSON.stringify(tot)}`)
   // A COIL DOES NOT SWALLOW A SLAM THE PLAYER IS ALREADY ANSWERING. Rare in a fight, so staged: the
   // coil's turn comes due with one slam inside its parry window. The coil waits for that slam to
@@ -36283,7 +36292,7 @@ function testKrakenBeat() {
     coilLag = coilAt - lashAt
     assert.ok(coilLag >= KRAKEN_BEAT_GRAB_CLEAR - EPS, `the coil wound up ${coilLag.toFixed(2)}s after a slam window shut — under ${KRAKEN_BEAT_GRAB_CLEAR}s`)
   }
-  console.log(`PASS run KB (the Kraken's beat): ${tot.fights} whole fights (${tot.secs.toFixed(0)}s, d2+d3) — ${tot.slam} slam windows and ${tot.lunge} lunge windows each ${GAP}s clear of the last, ${tot.grab} grab strikes (${tot.hold} holds) ${tot.coil} coils and ${tot.bite} bites with no parry window within ${KRAKEN_BEAT_GRAB_CLEAR}s before or ${KRAKEN_BEAT_BREATH}s after; a coil due mid-window waited for the slam and wound up ${coilLag.toFixed(2)}s after it`)
+  console.log(`PASS run KB (the Kraken's beat): ${tot.fights} whole fights (${tot.secs.toFixed(0)}s, d2+d3) — ${tot.slam} slam windows and ${tot.lunge} lunge windows each ${GAP}s clear of the last, ${tot.grab} grab strikes (${tot.hold} holds) and ${tot.coil} coils with no parry window within ${KRAKEN_BEAT_GRAB_CLEAR}s before or ${KRAKEN_BEAT_BREATH}s after; a coil due mid-window waited for the slam and wound up ${coilLag.toFixed(2)}s after it`)
 }
 
 // THE PRESS-NOW CUE AND THE EARLY PRESS (2026-09-25). A plain slam's window used to open only on
