@@ -228,7 +228,7 @@ import {
   KRAKEN_RISE_AT, KRAKEN_ENRAGE_AT, KRAKEN_ENRAGE_CADENCE, KRAKEN_ENRAGE_ARM_HP, KRAKEN_STAGGER_BITE,
   KRAKEN_EXPOSE_BITE, KRAKEN_HITSTOP_PARRY, KRAKEN_HITSTOP_BREAK, KRAKEN_HITSTOP_STAGGER,
   KRAKEN_HEAD_TOUCH_DMG, KRAKEN_TOUCH_QUIET_T,
-  KRAKEN_BITE_WINDUP_T, KRAKEN_BITE_CD, KRAKEN_BITE_SLACK, KRAKEN_BITE_GAP,
+  KRAKEN_BITE_WINDUP_T, KRAKEN_BITE_CD, KRAKEN_BITE_SLACK, KRAKEN_BITE_GAP, KRAKEN_BEAT_BITE_CLEAR,
   KRAKEN_CAGE_R,
   KRAKEN_LASH_R, KRAKEN_LASH_DMG, KRAKEN_LIGHT_START, KRAKEN_HAUL_R, KRAKEN_LASH_W, KRAKEN_LASH_OVER,
   KRAKEN_LIMB_HW, krakenLimbHalfW,
@@ -2592,6 +2592,9 @@ function krakenBeatNeeds(run, rung, head) {
     else out.push({ k: 'P', a: a.tele - rung.window, b: a.tele, keep: a.tele - rung.window < KRAKEN_BEAT_GRAB_CLEAR })
   }
   if (s.coilT > KRAKEN_COIL_DUR) out.push({ k: 'D', a: 0, b: s.coilT - KRAKEN_COIL_DUR, keep: false })
+  // THE HEAD'S BITE is owed for its whole wind-up and snap: stepping out is the answer from the frame
+  // the jaws open. keep: a Coil starting quiets the head, which drops the wind-up, so it may take over.
+  if (head && s.phase === 'chase' && head.biteT != null) out.push({ k: 'D', a: 0, b: head.biteT, keep: false })
   if (head && s.phase === 'chase') {
     const lw = rung.lungeWindow
     const t = (s.staggerT > 0 ? s.staggerT : 0) + (head.lungeT ?? KRAKEN_LUNGE_T)
@@ -2617,17 +2620,22 @@ function krakenBeatClear(run, rung, head, kind, rearing) {
   if (kind === 'slam' && run.krakenLesson === 1 && rearing > 0) return false
   const gap = KRAKEN_PARRY_CD + KRAKEN_BEAT_READ
   const nk = kind === 'slam' ? 'P' : 'D'
-  const nb = kind === 'slam' ? rung.fuse : kind === 'grab' ? KRAKEN_GRAB_FUSE : KRAKEN_COIL_TELE
+  // a BITE is like the Coil: its answer (step out) is owed from the first frame of its wind-up
+  const nb = kind === 'slam' ? rung.fuse : kind === 'grab' ? KRAKEN_GRAB_FUSE : kind === 'bite' ? KRAKEN_BITE_WINDUP_T : KRAKEN_COIL_TELE
   const na = kind === 'slam' ? nb - rung.window : kind === 'grab' ? nb : 0
   for (const o of krakenBeatNeeds(run, rung, head)) {
     if (kind === 'coil' && !o.keep) continue
+    // a bite never wants a second D alongside it either, but the Coil/grab D-D spacing is a ring
+    // rule; for a bite, any other D in flight simply means "not now"
+    if (kind === 'bite' && o.k === 'D') return false
     let ok
     if (nk === 'P' && o.k === 'P') ok = na >= o.b + gap || o.a >= nb + gap
     else if (nk === 'D' && o.k === 'D') ok = Math.abs(nb - o.b) >= KRAKEN_BEAT_GRAB_CLEAR + KRAKEN_BEAT_BREATH
     else {
       const p = nk === 'P' ? { a: na, b: nb } : o
       const d = nk === 'D' ? { a: na, b: nb } : o
-      ok = p.b <= d.a - KRAKEN_BEAT_GRAB_CLEAR || p.a >= d.b + KRAKEN_BEAT_BREATH
+      // a bite waits out the parry spark as well as the press: its own, longer clear band
+      ok = p.b <= d.a - (kind === 'bite' ? KRAKEN_BEAT_BITE_CLEAR : KRAKEN_BEAT_GRAB_CLEAR) || p.a >= d.b + KRAKEN_BEAT_BREATH
     }
     if (!ok) return false
   }
@@ -2801,7 +2809,10 @@ function stepKrakenChase(run, dt, rung, head) {
       }
     // ...nor over a parry's gesture (p.parryT, KRAKEN_PARRY_SPIN_T): the jaws must not open on top of
     // the parry spark, so the two reads never share a frame
+    // ...and it is a TURN IN THE BEAT (krakenBeatClear 'bite'): never while a parry window is open or
+    // near, never while a grab or Coil is owed, never while the fish is held — one answer at a time
     } else if (!touchQuiet && !bursting && head.biteCd <= 0 && !(p.parryT > 0) && d <= reach &&
+      krakenBeatClear(run, krakenRung(run.difficulty), head, 'bite', 0) &&
       head.lungeT - KRAKEN_LUNGE_WINDUP_T >= KRAKEN_BITE_WINDUP_T + KRAKEN_BITE_GAP) {
       head.biteT = KRAKEN_BITE_WINDUP_T
     }

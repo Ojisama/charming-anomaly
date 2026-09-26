@@ -194,8 +194,11 @@ function beat(tells) {
   // will read as "no grab coming" and the conflict count will be low for the wrong reason.
   const grabSoon = ((s.gripSoonT ?? -1) >= 0 && s.gripSoonT <= P.conflictT) || run.krakenArms.some((a) => !a.dead && a.grabArm && a.tele > 0 && a.tele <= P.conflictT)
   const onCoilLane = s.coilT > 0 && run.krakenArms.some((a) => !a.dead && a.coilArm && a.tele > 0 && seg2(p.x, p.y, a.lx0, a.ly0, a.lx1, a.ly1) <= C.KRAKEN_LASH_W ** 2)
+  // ...or the head's jaws are winding up on the fish (the bite: step out)
+  const hB = head()
+  const biteOn = !!hB && s.phase === 'chase' && hB.biteT != null
   const needD = grabSoon || onCoilLane
-  const need = [needP && 'P', needW && 'W', needD && 'D'].filter(Boolean)
+  const need = [needP && 'P', needW && 'W', needD && 'D', biteOn && 'B'].filter(Boolean)
   if (inArms && need.length >= 2) {
     conf.frames++
     const k = need.join('+')
@@ -372,7 +375,7 @@ function beat(tells) {
   })
   // THE BITE: one record per snap, graded by what it billed. correct = the bot was stepping out of
   // the reach in the 0.6s before the snap.
-  for (const e of ev) if (e.type === 'headBite') attacks.push({ kind: 'bite', i: -1, t0: t, outcome: e.hit ? 'bitten' : 'dodged', d: Math.round(Math.hypot(e.px - e.x, e.py - e.y)), spd: Math.round(Math.hypot(run.player.vx ?? 0, run.player.vy ?? 0)), held: run.krakenArms.some((a) => !a.dead && a.gripT > 0), walled: (s.cageT ?? 0) > 0, slowed: (run.player.slowT ?? 0) > 0, correct: lastDodgeBiteT >= t - 0.6, ok: !e.hit, cause: e.hit ? (lastDodgeBiteT >= t - 0.6 ? 'stepped out and was bitten anyway' : 'did not step out') : null })
+  for (const e of ev) if (e.type === 'headBite') attacks.push({ kind: 'bite', i: -1, t0: t, ia: t - C.KRAKEN_BITE_WINDUP_T, ib: t, outcome: e.hit ? 'bitten' : 'dodged', d: Math.round(Math.hypot(e.px - e.x, e.py - e.y)), spd: Math.round(Math.hypot(run.player.vx ?? 0, run.player.vy ?? 0)), held: run.krakenArms.some((a) => !a.dead && a.gripT > 0), walled: (s.cageT ?? 0) > 0, slowed: (run.player.slowT ?? 0) > 0, correct: lastDodgeBiteT >= t - 0.6, ok: !e.hit, cause: e.hit ? (lastDodgeBiteT >= t - 0.6 ? 'stepped out and was bitten anyway' : 'did not step out') : null })
   // a grab that MISSES — the redesign's event. Any of these names counts as a dodged grab.
   for (const e of ev) if (/^(grabMiss|gripMiss|grabWhiff)$/.test(e.type)) attacks.push({ kind: 'grab', i: e.i ?? -1, t0: t, ia: t - P.conflictT, ib: t, outcome: 'missed', correct: lastDodgeGrabT >= t - 0.5, ok: true, cause: null })
   if (coilRec) {

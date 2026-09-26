@@ -8982,9 +8982,10 @@ export const KRAKEN_LUNGE_WINDUP_T = 0.9
 export const KRAKEN_LUNGE_DMG = 13
 // A BOSS YOU CAN LIVE INSIDE IS AS WRONG AS ONE THAT BODY-CHECKS YOU. The head owns its own space:
 // this is what its BITE bills (see KRAKEN_BITE_WINDUP_T) — the head's touch, telegraphed.
-// balance_decision : bite 8 keeps v7.361's head damage for jaw-ignorers [2026-09-26]
-//  - no one value matches both: 10 matches an orbiting player, 6 a hugging one; 8 splits them
-export const KRAKEN_HEAD_TOUCH_DMG = 8
+// balance_decision : bite 20, rarer since it joined the beat [2026-09-26]
+//  - a player orbiting the head is now rarely bitten at all (the beat keeps bites off slam windows);
+//    20 restores a hugging jaw-ignorer's head damage, no value restores an orbiting one's
+export const KRAKEN_HEAD_TOUCH_DMG = 20
 // ONE HIT, ONE CAUSE. The touch tax goes quiet while another ask is on screen — the whole Coil, and
 // the lunge's wind-up — so a hit there can only have been the Coil or the lunge.
 // balance_decision : no head touch through a Coil or lunge wind-up [2026-09-26]
@@ -9004,6 +9005,9 @@ export const KRAKEN_BITE_SLACK = 40
 //  - the other way round is structural: no bite winds up during the 0.5s lunge burst, and its own
 //    wind-up (KRAKEN_BITE_WINDUP_T) follows any parry or Coil that ends the quiet
 export const KRAKEN_BITE_GAP = 0.5
+// balance_decision : jaws open >= 0.6s after a parry window shuts [2026-09-26]
+//  - the bite's own clear band in krakenBeatClear; a grab's is KRAKEN_BEAT_GRAB_CLEAR
+export const KRAKEN_BEAT_BITE_CLEAR = 0.6
 // THE COIL (P3, D3 only). Every Nth arm attack the whole ring hauls inward at once, and the only
 // place that is not swept is ONE sector — the gap. NOT PARRYABLE by design: the parry must not be
 // the answer to everything, or it stops being a choice. You read the gap and you move.

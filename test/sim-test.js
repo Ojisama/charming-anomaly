@@ -34939,7 +34939,9 @@ function runKraken() {
       }
       return at
     }
-    const open = () => { s.coilT = 0; h.lungeT = KRAKEN_LUNGE_T }
+    // the lunge held mid-cycle: its last strike well behind (a bite may not start on a just-given
+    // answer) and its next window well ahead — a bite is a turn in the beat, see krakenBeatClear
+    const open = () => { s.coilT = 0; h.lungeT = KRAKEN_LUNGE_T * 0.75; s.beatAt = null }
     h.biteT = null; h.biteCd = 0
     const control = bites(3, open)
     assert.ok(control.length >= 2, `pinned inside the head's reach with nothing else on, the fish was bitten ${control.length}x in 3s — the zeros below would prove nothing`)
@@ -36007,7 +36009,7 @@ function testKrakenGrab() {
 function testKrakenBeat() {
   const EPS = 2 / 60
   const GAP = KRAKEN_PARRY_CD + KRAKEN_BEAT_READ
-  const tot = { slam: 0, lunge: 0, grab: 0, hold: 0, coil: 0, fights: 0, secs: 0 }
+  const tot = { slam: 0, lunge: 0, grab: 0, hold: 0, coil: 0, bite: 0, fights: 0, secs: 0 }
   for (const [diff, seed] of [[3, 20260925], [3, 777], [3, 31337], [2, 4242], [2, 99]]) {
     Math.random = mulberry32(seed)
     const run = createRun({ ...makeMeta(), krakenParried: true }, { chapter: 'kraken', difficulty: diff })
@@ -36016,8 +36018,8 @@ function testKrakenBeat() {
     const rung = krakenRung(diff)
     const P = []          // parry windows {src, open, close}
     const openBy = {}     // src -> open window
-    const grabs = [], coils = []
-    let coil = null, wig = 0
+    const grabs = [], coils = [], bites = []
+    let coil = null, wig = 0, bite = null
     const coin = mulberry32(seed ^ 0x5bd1e995), answer = {}
     for (let f = 0; f < 60 * 400 && run.phase !== 'victory'; f++) {
       if (run.phase === 'levelup') run.phase = 'playing'
@@ -36049,6 +36051,14 @@ function testKrakenBeat() {
         if (e.type === 'gripLatch') tot.hold++
         if (e.type === 'coilWind') coil = { a: t }
         if (e.type === 'coilClose' && coil) { coil.b = t; coils.push(coil); coil = null }
+        if (e.type === 'headBite' && bite) { bite.b = t; bites.push(bite); bite = null }
+      }
+      // THE BITE: owed from the frame its jaws open (head.biteT) to its snap, or to the frame it drops
+      {
+        const hb = run.enemies.find((e) => e.rosterId === 'krakenHead' && !e._dead)
+        const winding = !!hb && s.phase === 'chase' && hb.biteT != null
+        if (winding && !bite) bite = { a: t }
+        else if (!winding && bite) { bite.b = t; bites.push(bite); bite = null }
       }
       // which parry windows are open NOW, from truth
       const now = {}
@@ -36066,6 +36076,7 @@ function testKrakenBeat() {
     tot.lunge += P.filter((w) => w.src === 'lunge').length
     tot.grab += grabs.length
     tot.coil += coils.length
+    tot.bite += bites.length
     // 1) ONE BUTTON, ONE COOLDOWN
     P.sort((a, b) => a.open - b.open)
     let last = null
@@ -36085,8 +36096,11 @@ function testKrakenBeat() {
     }
     for (const g of grabs) clash(g, g, 'a grab strike')
     for (const c of coils) clash(c.a, c.b, 'a coil')
+    // 3) THE HEAD'S BITE IS ONE ANSWER TOO: no parry window opens or runs through a bite's wind-up
+    // and snap, nor within the clear bands either side ("I parried and got bitten anyway")
+    for (const b of bites) clash(b.a, b.b, 'a bite')
   }
-  assert.ok(tot.slam >= 100 && tot.lunge >= 60 && tot.grab >= 25 && tot.hold >= 15 && tot.coil >= 5,
+  assert.ok(tot.slam >= 100 && tot.lunge >= 60 && tot.grab >= 25 && tot.hold >= 15 && tot.coil >= 5 && tot.bite >= 10,
     `fixture: too little of the fight to prove a spacing rule — ${JSON.stringify(tot)}`)
   // A COIL DOES NOT SWALLOW A SLAM THE PLAYER IS ALREADY ANSWERING. Rare in a fight, so staged: the
   // coil's turn comes due with one slam inside its parry window. The coil waits for that slam to
@@ -36117,7 +36131,7 @@ function testKrakenBeat() {
     coilLag = coilAt - lashAt
     assert.ok(coilLag >= KRAKEN_BEAT_GRAB_CLEAR - EPS, `the coil wound up ${coilLag.toFixed(2)}s after a slam window shut — under ${KRAKEN_BEAT_GRAB_CLEAR}s`)
   }
-  console.log(`PASS run KB (the Kraken's beat): ${tot.fights} whole fights (${tot.secs.toFixed(0)}s, d2+d3) — ${tot.slam} slam windows and ${tot.lunge} lunge windows each ${GAP}s clear of the last, ${tot.grab} grab strikes (${tot.hold} holds) and ${tot.coil} coils with no parry window within ${KRAKEN_BEAT_GRAB_CLEAR}s before or ${KRAKEN_BEAT_BREATH}s after; a coil due mid-window waited for the slam and wound up ${coilLag.toFixed(2)}s after it`)
+  console.log(`PASS run KB (the Kraken's beat): ${tot.fights} whole fights (${tot.secs.toFixed(0)}s, d2+d3) — ${tot.slam} slam windows and ${tot.lunge} lunge windows each ${GAP}s clear of the last, ${tot.grab} grab strikes (${tot.hold} holds) ${tot.coil} coils and ${tot.bite} bites with no parry window within ${KRAKEN_BEAT_GRAB_CLEAR}s before or ${KRAKEN_BEAT_BREATH}s after; a coil due mid-window waited for the slam and wound up ${coilLag.toFixed(2)}s after it`)
 }
 
 // THE PRESS-NOW CUE AND THE EARLY PRESS (2026-09-25). A plain slam's window used to open only on
