@@ -117,8 +117,19 @@ function decide(tells) {
       const gap = el - (o.r ?? 0) - C.PLAYER.radius
       if (gap < 90) { const w = 1.4 * (1 - Math.max(0, gap) / 90); ox += ex / el * w; oy += ey / el * w }
     }
-    const ol = Math.hypot(ox, oy) || 1
-    ix = ox / ol; iy = oy / ol
+    // ...but never so bent that it stops getting OUT: at least 0.6 of the stick stays on the
+    // head->fish ray (traced d3 3@105.9: a 1.4-weight push off a post sent the fish round the head
+    // at the same radius for the whole wind-up)
+    let ol = Math.hypot(ox, oy) || 1
+    let vx = ox / ol, vy = oy / ol
+    const ax = dx / dl, ay = dy / dl, c = vx * ax + vy * ay
+    if (c < 0.6) {
+      let tx = vx - c * ax, ty = vy - c * ay
+      const tl = Math.hypot(tx, ty) || 1
+      tx /= tl; ty /= tl
+      vx = 0.6 * ax + 0.8 * tx; vy = 0.6 * ay + 0.8 * ty
+    }
+    ix = vx; iy = vy
     if (pinnedF >= 2) {
       const sd = Math.floor(pinnedF / 20) % 2 ? -1 : 1
       const tx = 0.35 * ix - sd * iy, ty = 0.35 * iy + sd * ix, tl = Math.hypot(tx, ty)

@@ -41,6 +41,10 @@ const WEAPON = arg('weapon', 'skippingShell')
 // own RNG so the sim's stream is not re-phased by it. 1 = the ceiling rig; below 1 slams LAND, which
 // is the only way to measure the slam's own hitbox (at 1 nearly every plain slam is parried).
 const PARRY_P = Number(arg('parry', 1))
+// --lungeParry P: the same for the chase head's LUNGE (default: the --parry value), decided once per
+// lunge window. At 1 every lunge is parried and the lunge's damage never enters the number at all.
+const LUNGE_P = Number(arg('lungeParry', PARRY_P))
+if (!(LUNGE_P >= 0 && LUNGE_P <= 1)) { console.error('ABORT: --lungeParry must be 0..1, got ' + arg('lungeParry')); process.exit(1) }
 if (!(PARRY_P >= 0 && PARRY_P <= 1)) { console.error('ABORT: --parry must be 0..1, got ' + arg('parry')); process.exit(1) }
 const DODGE = process.argv.includes('--dodge')
 const DODGE_T = Number(arg('dodgeT', 0.35))
@@ -140,6 +144,10 @@ function fight(seed) {
         const gap = el - (o.r ?? 0) - C.PLAYER.radius
         if (gap < 90) { const w = 1.4 * (1 - Math.max(0, gap) / 90); ox += ex / el * w; oy += ey / el * w }
       }
+      {  // at least 0.6 of the stick stays on the head->fish ray (the same rule as the cue bot's)
+        const l0 = Math.hypot(ox, oy) || 1, vx = ox / l0, vy = oy / l0, ax = bx / bl, ay = by / bl, c = vx * ax + vy * ay
+        if (c < 0.6) { let tx = vx - c * ax, ty = vy - c * ay; const tl = Math.hypot(tx, ty) || 1; ox = 0.6 * ax + 0.8 * tx / tl; oy = 0.6 * ay + 0.8 * ty / tl }
+      }
       if (pinned) { const sd = (i >> 5) & 1 ? 1 : -1; const l0 = Math.hypot(ox, oy) || 1; const ux = ox / l0, uy = oy / l0; ox = ux * 0.35 - sd * uy; oy = uy * 0.35 + sd * ux }
       const ol = Math.hypot(ox, oy) || 1
       inX = ox / ol; inY = oy / ol
@@ -174,7 +182,10 @@ function fight(seed) {
       // round again. A bot that checked arms first never pressed at the head once in a whole fight.
       if (head && s.phase === 'chase' && !(s.staggerT > 0)) {
         const near = (head.x - p.x) ** 2 + (head.y - p.y) ** 2 <= C.KRAKEN_CAGE_R ** 2
-        if (near && head.lungeT > 0 && head.lungeT <= rung.lungeWindow) press = true
+        const inWin = head.lungeT > 0 && head.lungeT <= rung.lungeWindow
+        if (inWin && !head._botSeen) { head._botSeen = true; head._botSkip = botRnd() >= LUNGE_P }
+        else if (!inWin) head._botSeen = false
+        if (near && inWin && !head._botSkip) press = true
       }
       if (!press) {
         for (const a of run.krakenArms) {
@@ -274,7 +285,7 @@ console.log('per minute     slams ' + pm('slamRears') + '   grabs ' + pm('grabs'
 console.log('fight mean     ' + (rs.reduce((q, r) => q + r.t, 0) / rs.length).toFixed(1) + 's')
 // WHAT HURT, whole fight, by source; and the CHASE's own damage per minute of chase
 const srcs = [...new Set(rs.flatMap((r) => Object.keys(r.bySrc)))].sort()
-console.log(`bite: ${BITE}   hug: ${HUG || 'off'}   bite dmg ${C.KRAKEN_HEAD_TOUCH_DMG}${C.KRAKEN_BITE_REACH != null ? '   bite reach +' + C.KRAKEN_BITE_REACH : ''}`)
+console.log(`bite: ${BITE}   hug: ${HUG || 'off'}   lunge parry ${LUNGE_P}   lunge dmg ${C.KRAKEN_LUNGE_DMG}   bite dmg ${C.KRAKEN_HEAD_TOUCH_DMG}${C.KRAKEN_BITE_REACH != null ? '   bite reach +' + C.KRAKEN_BITE_REACH : ''}`)
 for (const k of srcs) console.log(`damage by source  ${k.padEnd(16)} [${rs.map((r) => Math.round(r.bySrc[k] || 0)).join(' ')}]`)
 const cpm = rs.map((r) => (r.chaseT > 0 ? r.chaseDmg / (r.chaseT / 60) : 0))
 console.log(`chase damage/min  [${cpm.map((v) => v.toFixed(0)).join(' ')}]  mean ${(cpm.reduce((a, b) => a + b, 0) / cpm.length).toFixed(1)}`)
