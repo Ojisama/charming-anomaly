@@ -174,7 +174,7 @@ import {
   KRAKEN_LUNGE_T, KRAKEN_GRIP_DUR, KRAKEN_GRIP_DMG, KRAKEN_GRIP_FLICKS, KRAKEN_GRIP_STICK_MUL, TRAWL_WIGGLE_ARC,
   KRAKEN_LASH_W, KRAKEN_LASH_OVER, KRAKEN_LASH_DMG, KRAKEN_LESSON_MAX, KRAKEN_PARRY_SHOVE_R, KRAKEN_PARRY_EARLY_T, KRAKEN_LIMP_CLEAR, KRAKEN_ARRIVE_T2, KRAKEN_WAVE_GROWTH, KRAKEN_COIL_DMG,
   KRAKEN_HEAD_SPEED, KRAKEN_PARRY_SPIN_T, krakenLimbHalfW, FISH_R, FISH_BODY, KRAKEN_GRIP_EVERY, KRAKEN_GRAB_FUSE, KRAKEN_GRAB_MIN_STEP, KRAKEN_PINCH_OPEN0, KRAKEN_PINCH_OPEN1,
-  KRAKEN_BEAT_READ, KRAKEN_BEAT_GRAB_CLEAR, KRAKEN_BEAT_BREATH, KRAKEN_HEAD_R, KRAKEN_HEAD_HOLD, KRAKEN_DASH_DIST, KRAKEN_HEAD_TOUCH_DMG, KRAKEN_LUNGE_DMG, KRAKEN_LUNGE_WINDUP_T,
+  KRAKEN_BEAT_READ, KRAKEN_BEAT_GRAB_CLEAR, KRAKEN_BEAT_BREATH, KRAKEN_HEAD_R, KRAKEN_HEAD_HOLD, KRAKEN_DASH_DIST, KRAKEN_DASH_SPEED, KRAKEN_DASH_RUNUP, KRAKEN_DASH_PARRY_PX, KRAKEN_HEAD_TOUCH_DMG, KRAKEN_LUNGE_DMG, KRAKEN_LUNGE_WINDUP_T,
 } from '../src/config.js'
 import { krakenWinPending, krakenPinchProbe, krakenGrabSpot, krakenGrabTurnClear, stepSim, applyChoice, buildLevelUpChoices, eligibleWeaponModCandidates, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, inRefillCircle, stepCharge, newElWindow, spurAt } from '../src/sim.js'
 
@@ -34727,7 +34727,9 @@ function runKraken() {
       `${duringCooloff} deflect sparks fired across 2s with the cooloff never expiring, against ${perTwo.toFixed(1)} expected unthrottled — the gate is not being read, and the answer to "can I hurt it" is a strobe`)
     // fill the posture by parrying its lunges
     for (let k = 0; k < rung.staggerNeed; k++) {
-      h.lungeT = rung.window * 0.5
+      // a charge on the fish, its clock inside the window (krakenDashWindow)
+      h._lungeBurst = KRAKEN_DASH_DIST; h._dashT = rung.lungeWindow * 0.5
+      h.dashAng = Math.atan2(run.player.y - h.y, run.player.x - h.x)
       run.repulseCd = 0
       run.player.hp = run.player.maxHP
       stepSim(run, { x: 0, y: 0, skill: true }, 1 / 60)
@@ -34849,28 +34851,42 @@ function runKraken() {
       `held by a grip the player moved at ${ratio.toFixed(2)}x their free speed, not KRAKEN_GRIP_STICK_MUL ${KRAKEN_GRIP_STICK_MUL} — the grip is not joining the slow MIN, so being caught costs nothing`)
   }
 
-  // (h3) THE HEAD'S LUNGE HAS ITS OWN, WIDER WINDOW. Pinned as an EFFECT — a press in the band that
-  // ONLY rung.lungeWindow covers has to fill the posture — because the whole failure it fixes was
-  // invisible: on the arm's window a stagger is the only damage the head takes, and the posture
-  // decays faster than a human fills it. Mutation: point headReady back at rung.window and the
-  // press below lands in a shut window, s.stagger never moves, and this fails.
+  // (h3) THE DASH IS PARRIED BY DISTANCE (owner, 2026-09-26: "the parry should be when the head gets
+  // close to the player, it should depend of the distance to the head. Otherwise there is no logic
+  // in the parry if you parry away from the head and it still counts"). A press lands only while
+  // the head is CHARGING and CLOSING and its gap to the fish is inside KRAKEN_DASH_SPEED x
+  // rung.lungeWindow (krakenDashWindow); it stops the charge and fills the posture. Far, past, or
+  // merely gathering, the same press is a whiff.
+  //   Mutations: back to the time window (lungeT <= lungeWindow); drop the closing test; the parry
+  // not stopping the charge.
   {
-    const run = inBlock(3)
     const rung = krakenRung(3)
-    const h = headOf(run)
-    run.script.phase = 'chase'
-    run.script.staggerT = 0
-    run.script.stagger = 0
-    for (const a of run.krakenArms) { a.tele = 0; a.gripT = 0 }
-    run.player.x = h.x + 30; run.player.y = h.y
-    // squarely between the two windows: shut for an arm, open for the head
-    h.lungeT = (rung.window + rung.lungeWindow) / 2
-    assert.ok(h.lungeT > rung.window && h.lungeT <= rung.lungeWindow, 'the fixture did not land between the two windows')
-    run.repulseCd = 0
-    run.player.hp = run.player.maxHP
-    stepSim(run, { x: 0, y: 0, skill: true }, 1 / 60)
-    assert.ok(run.script.stagger > 0,
-      `a lunge ${h.lungeT.toFixed(3)}s out — inside the head's own ${rung.lungeWindow}s window — was not answerable, so the head is still being read on the arms' ${rung.window}s`)
+    const press = (gap, opts = {}) => {
+      const run = inBlock(3)
+      const h = headOf(run)
+      const s = run.script
+      s.phase = 'chase'; s.staggerT = 0; s.stagger = 0; s.riseT = 0
+      for (const a of run.krakenArms) { a.tele = 0; a.gripT = 0; a.dead = true }
+      const d = gap + (h.radius ?? KRAKEN_HEAD_R) + PLAYER.radius
+      run.player.x = h.x + (opts.behind ? -d : d); run.player.y = h.y
+      h.dashAng = 0
+      h._lungeBurst = opts.gathering ? 0 : KRAKEN_DASH_DIST
+      h._dashT = opts.dashT ?? gap / KRAKEN_DASH_SPEED   // on schedule: this far out, this long to contact
+      h.lungeT = opts.gathering ? KRAKEN_LUNGE_WINDUP_T * 0.3 : KRAKEN_LUNGE_T
+      run.repulseCd = 0
+      run.player.hp = run.player.maxHP
+      stepSim(run, { x: 0, y: 0, skill: true }, 1 / 60)
+      return { stagger: s.stagger, burst: h._lungeBurst ?? 0 }
+    }
+    const reach = rung.lungeWindow * KRAKEN_DASH_PARRY_PX
+    assert.ok(reach * 1.6 + (KRAKEN_HEAD_R + PLAYER.radius) < KRAKEN_CAGE_R, 'fixture: the far press would sit outside the cage, where the cage alone refuses it')
+    const near = press(reach * 0.5)
+    assert.ok(near.stagger > 0, `a press with the charging head ${(reach * 0.5).toFixed(0)}px off the fish (inside ${reach.toFixed(0)}px) did not parry it`)
+    assert.ok(!(near.burst > 0), 'a parried charge kept charging')
+    // FAR, with its clock deep inside the window: only the distance can refuse it
+    assert.strictEqual(press(reach * 1.7, { dashT: rung.lungeWindow * 0.5 }).stagger, 0, `a press with the charging head ${(reach * 1.6).toFixed(0)}px away parried it — the parry does not depend on the distance`)
+    assert.strictEqual(press(reach * 0.5, { behind: true }).stagger, 0, 'a press after the head had already charged past the fish parried it')
+    assert.strictEqual(press(reach * 0.3, { gathering: true }).stagger, 0, 'a press while the head was only gathering (not charging) parried it')
   }
 
   // (h4) THE CHASE'S HEAD RISES HARMLESS. krakenRaiseHead zeroed h.dmg for the arrival frame and
@@ -34952,32 +34968,53 @@ function runKraken() {
     for (let i = 0; i < 60 * 12; i++) tick(() => { far(); p.x = fx; p.y = fy })
     const dEnd = Math.hypot(p.x - h.x, p.y - h.y)
     assert.ok(dEnd > KRAKEN_HEAD_HOLD - 40 && dEnd < KRAKEN_HEAD_HOLD + 80, `after 12s the head sits ${dEnd.toFixed(0)}px from a still fish (want ~${KRAKEN_HEAD_HOLD}): it parks on you, or never arrives`)
-    // (c) THE DASH: its line tracks the fish until the parry window, then LOCKS; at the strike it
-    // crosses ~KRAKEN_DASH_DIST along that line in KRAKEN_DASH_T
+    // (c) THE DASH: over its wind-up it GATHERS, drawing back to ~KRAKEN_DASH_RUNUP; at launch its
+    // line LOCKS and it charges ~KRAKEN_DASH_DIST along it: a fish on the line is hit, one that
+    // stepped 220px off it after the launch is not
     const dash = (sidestep) => {
       h._lungeBurst = 0; h._kvx = h._kvy = 0
-      const bx = h.x, by = h.y
-      const P0 = { x: bx + KRAKEN_HEAD_HOLD, y: by }
-      h.lungeT = rung.lungeWindow + 0.2
-      let locked = null, hits = [], moved = 0, stepped = false
-      for (let i = 0; i < 60 * 2; i++) {
-        const inWin = h.lungeT <= rung.lungeWindow
-        if (inWin && locked == null) locked = h.dashAng
-        if (inWin) stepped = true
+      const P0 = { x: h.x + KRAKEN_HEAD_HOLD, y: h.y }
+      h.lungeT = KRAKEN_LUNGE_WINDUP_T + 0.05
+      let locked = null, hits = [], moved = 0, gathered = 0, launched = false
+      for (let i = 0; i < 60 * 4; i++) {
         const hx = h.x, hy = h.y
-        const hurt = tick(() => { p.invuln = 0; p.x = P0.x; p.y = P0.y + (stepped && sidestep ? 220 : 0) })
-        if ((h._lungeBurst ?? 0) > 0 || moved > 0) moved += Math.hypot(h.x - hx, h.y - hy)
+        const hurt = tick(() => { p.invuln = 0; p.x = P0.x; p.y = P0.y + (launched && sidestep ? 220 : 0) })
+        if (!launched && (h._lungeBurst ?? 0) > 0) { launched = true; locked = h.dashAng }
+        if (!launched) gathered = Math.max(gathered, Math.hypot(P0.x - h.x, P0.y - h.y))
+        if (launched) moved += Math.hypot(h.x - hx, h.y - hy)
         hits.push(...hurt)
-        if (moved > 0 && !((h._lungeBurst ?? 0) > 0)) break
+        if (launched && !((h._lungeBurst ?? 0) > 0)) break
       }
-      return { locked, ang: h.dashAng, hits, moved }
+      return { locked, ang: h.dashAng, hits, moved, gathered }
     }
     const still = dash(false)
-    assert.ok(still.moved > KRAKEN_DASH_DIST * 0.85, `the dash crossed only ${still.moved.toFixed(0)}px — it is not a dash`)
+    assert.ok(still.gathered > KRAKEN_DASH_RUNUP - 40, `the head only drew back to ${still.gathered.toFixed(0)}px before charging (want ~${KRAKEN_DASH_RUNUP})`)
+    assert.ok(still.moved > KRAKEN_DASH_DIST * 0.85, `the dash crossed only ${still.moved.toFixed(0)}px — it is not a charge`)
     assert.ok(still.hits.some((e) => e.dmg === KRAKEN_LUNGE_DMG), 'a fish that stood on the dash line was not hit by it')
     const side = dash(true)
-    assert.ok(Math.abs(side.ang - side.locked) < 1e-9, 'the dash line followed the fish after the parry window opened — it cannot be sidestepped')
+    assert.ok(Math.abs(side.ang - side.locked) < 1e-9, 'the dash line followed the fish after the launch — it cannot be sidestepped')
     assert.ok(!side.hits.some((e) => e.dmg === KRAKEN_LUNGE_DMG), 'a fish that stepped 220px off the locked dash line was still hit by the dash')
+    // (d) THE WINDOW IS OPEN AT THE JAWS: a fish fleeing straight down the line at 200px/s is still
+    // reached inside the parry window — the charge paces itself to its clock — so the parry exists
+    // where it matters
+    {
+      h._lungeBurst = 0; h._kvx = h._kvy = 0
+      const Q = { x: h.x + KRAKEN_HEAD_HOLD, y: h.y }
+      h.lungeT = KRAKEN_LUNGE_WINDUP_T + 0.05
+      let launched = false, winAtJaws = null
+      for (let i = 0; i < 60 * 4 && winAtJaws == null; i++) {
+        tick(() => { p.invuln = 99; p.x = Q.x; p.y = Q.y })
+        if (!launched && (h._lungeBurst ?? 0) > 0) launched = true
+        if (launched) {
+          Q.x += Math.cos(h.dashAng) * 200 / 60; Q.y += Math.sin(h.dashAng) * 200 / 60
+          const gap = Math.hypot(p.x - h.x, p.y - h.y) - (h.radius ?? KRAKEN_HEAD_R) - PLAYER.radius
+          if (gap < 25) winAtJaws = h.dashWin ?? 0
+          if (!((h._lungeBurst ?? 0) > 0)) break
+        }
+      }
+      assert.ok(winAtJaws != null, 'the charge never reached a fish fleeing down its line')
+      assert.ok(winAtJaws > 0, 'the charge reached a fleeing fish after its parry window had shut — at the jaws there was nothing to press')
+    }
   }
 
   // (h6) THE BARED HEAD SMASHES ROCK (owner 2026-09-26: "it gets stuck"). A rock on its path in the
@@ -36154,7 +36191,7 @@ function testKrakenEnrage() {
   // ...and they SLAM: over 60s the ring rears up to the enraged cap, never past it, and the grown
   // arms take turns too
   let maxR = 0, grownRears = 0, slams = 0
-  for (let f = 0; f < 60 * 60 && run.phase === 'playing'; f++) {
+  for (let f = 0; f < 60 * 60; f++) {   // step() skips the level-up screens
     const before = grown.map((a) => a.tele > 0)
     step()
     slams += run.events.filter((e) => e.type === 'armRear').length
@@ -36164,8 +36201,8 @@ function testKrakenEnrage() {
   }
   assert.ok(maxR <= R3.enrageRearing, `${maxR} arms reared at once in the last phase (cap ${R3.enrageRearing})`)
   assert.ok(maxR > R3.rearing, `the last phase never reared more than ${R3.rearing} at once — the higher cap does nothing`)
-  // ...and it SLAMS A LOT: over the beat (rung.enrageFree), measured 25 in 60s against 15 with the beat
-  assert.ok(slams >= 21, `the last phase slammed only ${slams}x in 60s — it is still spaced one answer at a time`)
+  // ...and it SLAMS A LOT: over the beat (rung.enrageFree), measured 21 in 60s against 14 with the beat
+  assert.ok(slams >= 18, `the last phase slammed only ${slams}x in 60s — it is still spaced one answer at a time`)
   assert.ok(grownRears >= 3, `the grown arms reared only ${grownRears} times in 60s — they are scenery`)
   console.log(`PASS run KE (last phase, d3): ${R3.enrageArms} new arms grow beside the ${n0} returning, the ring rears up to ${maxR} at once (cap ${R3.enrageRearing}), the grown arms reared ${grownRears}x in 60s, ${slams} slams in 60s`)
 }
@@ -36213,7 +36250,7 @@ function testKrakenBeat() {
         if (a.tele > 0 && answer[a.i] == null) answer[a.i] = coin() < 0.5
         else if (!(a.tele > 0)) answer[a.i] = null
       }
-      const lungeOpen = !!head && s.phase === 'chase' && !(s.staggerT > 0) && head.lungeT > 0 && head.lungeT <= rung.lungeWindow
+      const lungeOpen = !!head && (head.dashWin ?? 0) > 0
       const want = lungeOpen || run.krakenArms.some((a) => !a.dead && answer[a.i] && a.tele > 0 && a.tele <= rung.window)
       p.hp = p.maxHP
       run.events.length = 0
@@ -36231,7 +36268,7 @@ function testKrakenBeat() {
         if (!a.dead && a.tele > 0 && a.tele <= rung.window && !a.coilArm && !a.grabArm && !(a.limpT > 0) && !(a.gripT > 0)) now['arm' + a.i] = 1
       }
       const h = run.enemies.find((e) => e.rosterId === 'krakenHead' && !e._dead)
-      if (h && s.phase === 'chase' && !(s.staggerT > 0) && !(s.riseT > 0) && h.lungeT > 0 && h.lungeT <= rung.lungeWindow) now.lunge = 1
+      if (h && (h.dashWin ?? 0) > 0) now.lunge = 1
       for (const k of Object.keys(now)) if (!openBy[k]) { openBy[k] = { src: k, open: t, close: t }; P.push(openBy[k]) }
       for (const k of Object.keys(openBy)) { if (now[k]) openBy[k].close = t; else delete openBy[k] }
     }

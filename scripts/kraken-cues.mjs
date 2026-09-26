@@ -122,8 +122,8 @@ async function headless(diff, seed) {
       tells.push({ src: 'head', i: k, kind: 'coil', x: head.x, y: head.y, x0: head.x, y0: head.y, x1: head.x + Math.cos(t) * R, y1: head.y + Math.sin(t) * R })
     }
     const lunge = s.phase === 'chase' && !(s.staggerT > 0) && head.lungeT > 0
-    if (lunge && head.lungeT <= C.KRAKEN_LUNGE_WINDUP_T) tells.push({ src: 'head', i: -1, kind: 'lungeCharge', x: head.x, y: head.y })
-    if (lunge && head.lungeT <= rung.lungeWindow) { tells.push({ src: 'head', i: -1, kind: 'lungeFlash', x: head.x, y: head.y }); winAny = true }
+    if ((lunge && head.lungeT <= C.KRAKEN_LUNGE_WINDUP_T) || (head._lungeBurst ?? 0) > 0) tells.push({ src: 'head', i: -1, kind: 'lungeCharge', x: head.x, y: head.y })
+    if ((head.dashWin ?? 0) > 0) { tells.push({ src: 'head', i: -1, kind: 'lungeFlash', x: head.x, y: head.y }); winAny = true }
     // REPLICA of render.js's press-ring rule (drawKrakenRing): lit only while sim's run.parryReady
     if (winAny && r.parryReady === true) tells.push({ src: 'player', i: -1, kind: 'pressRing', x: p.x, y: p.y })
     return tells

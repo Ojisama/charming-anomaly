@@ -207,7 +207,7 @@ function parryWouldLand(p) {
   }
   const h = head(), s = run.script
   const cageR = s.cageR > 0 ? s.cageR : C.KRAKEN_CAGE_R
-  return !!h && s.phase === 'chase' && !(s.staggerT > 0) && h.lungeT > 0 && h.lungeT <= rung.lungeWindow &&
+  return !!h && (h.dashWin ?? 0) > 0 &&
     (h.x - p.x) ** 2 + (h.y - p.y) ** 2 <= cageR * cageR
 }
 
@@ -277,9 +277,10 @@ function beat(tells) {
   if (coilRec && s.coilT > 0) { coilRec.frames++; if (d.act === 'dodgeCoil') coilRec.dodging++; if (tells.some((tl) => tl.kind === 'coil')) coilRec.lanesDrawn++; if (onCoilLane) { coilRec.onLane++; if (coilRec.ia == null) coilRec.ia = t; coilRec.ib = t + DT }
     coilRec.lanes = Math.max(coilRec.lanes, run.krakenArms.filter((a) => !a.dead && a.coilArm && a.tele > 0).length) }
   const h = head()
-  const lungeOpen = !!h && s.phase === 'chase' && !(s.staggerT > 0) && h.lungeT > 0 && h.lungeT <= rung.lungeWindow
-  if (lungeOpen && !lungeRec) lungeRec = { kind: 'lunge', t0: t, ia: t, ib: t + h.lungeT, flash: false, pressed: false, cdBlocked: false }
-  if (lungeRec && lungeOpen) { if (tells.some((tl) => tl.kind === 'lungeFlash')) lungeRec.flash = true; if (d.press) lungeRec.pressed = true; if (cd > 0) lungeRec.cdBlocked = true }
+  const lungeOpen = !!h && (h.dashWin ?? 0) > 0
+  // the dash's window is spatial now (head.dashWin): it spans the frames it is open, grown as it runs
+  if (lungeOpen && !lungeRec) lungeRec = { kind: 'lunge', t0: t, ia: t, ib: t + DT, flash: false, pressed: false, cdBlocked: false }
+  if (lungeRec && lungeOpen) { lungeRec.ib = t + DT; if (tells.some((tl) => tl.kind === 'lungeFlash')) lungeRec.flash = true; if (d.press) lungeRec.pressed = true; if (cd > 0) lungeRec.cdBlocked = true }
   if (d.press) press.n++
 
   // --- step
@@ -392,7 +393,7 @@ function beat(tells) {
   }
   if (lungeRec) {
     const hh = head()
-    const still = !!hh && run.script.phase === 'chase' && !(run.script.staggerT > 0) && hh.lungeT > 0 && hh.lungeT <= rung.lungeWindow
+    const still = !!hh && (hh.dashWin ?? 0) > 0
     if (!still) {
       // a head parry is the posture filling (the event's x/y is the head BEFORE this step moved it)
       const parried = (run.script.stagger ?? 0) > preStagger || ev.some((e) => e.type === 'headStagger')

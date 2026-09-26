@@ -59,7 +59,7 @@ function beat() {
     // head first, mirroring krakenParry
     if (h && run.script.phase === 'chase' && !(run.script.staggerT > 0)) {
       const nr = (h.x - p.x) ** 2 + (h.y - p.y) ** 2 <= window.__cfg.KRAKEN_CAGE_R ** 2
-      if (nr && h.lungeT > 0 && h.lungeT <= rung.lungeWindow) press = true
+      if (nr && (h.dashWin ?? 0) > 0) press = true   // the dash, by distance (head.dashWin)
     }
     if (!press) for (const a of run.krakenArms) {
       if (a.dead || a.limpT > 0) continue

@@ -2348,9 +2348,12 @@ function generateWells(sig) {
   *       band) and angNow (its live bearing, eased from ang onto the band and back; sim and render
   *       both place the limb off it).
   *     The chase HEAD (an enemy) is moved by the chase step itself (head.speed 0): lungeT counts to
-  *       its dash, dashAng is the dash's line (tracks the fish, locked once the parry window opens),
-  *       _lungeBurst > 0 while it dashes, _kvx/_kvy its drifting velocity. Its touch is plain
-  *       contact damage (head.dmg). There is no bite any more.
+  *       its dash (over the last KRAKEN_LUNGE_WINDUP_T it gathers at KRAKEN_DASH_RUNUP), dashAng is
+  *       the dash's line (tracks the fish until launch, then locked), _lungeBurst = px of charge left,
+  *       _dashT = its clock to contact (the charge paces itself to it), dashWin = the parry window
+  *       0..1 (krakenDashWindow: charging, closing, close, and in its last lungeWindow s),
+  *       _kvx/_kvy its drifting velocity. Its touch is plain contact damage (head.dmg). No bite.
+  *     dashWinAt — run.time the dash window was last open (or parried): the beat's "just answered".
   *     charged — THE BLAZE LATCH. Set the moment Light reaches its ceiling, consumed by the next
   *       parry (which breaks its arm outright). A latch rather than a test of the bar at press
   *       time, because the passive drain leaves the ceiling within a frame of touching it: sampling

@@ -36,7 +36,7 @@ import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC
 import { currentForce, tideForce } from './sim.js'
 // The Kraken's ceremony (name card, phase beats, the kill). Its own import line so it merges clean.
 import { KRAKEN_BEATS, KRAKEN_CEREMONY, KRAKEN_OUTRO } from './config.js'
-import { TRAWL_WIGGLE_ARC, KRAKEN_GRIP_FLICKS, KRAKEN_DASH_DIST, KRAKEN_DASH_T } from './config.js'
+import { TRAWL_WIGGLE_ARC, KRAKEN_GRIP_FLICKS } from './config.js'
 import { t as tr } from './i18n.js'
 
 
@@ -19976,52 +19976,41 @@ void main() {
     return Math.max(0, 1 - (w - 0.68) / 0.32)
   }
 
-  // THE HEAD GATHERING ITSELF. From KRAKEN_LUNGE_WINDUP_T out it wears a soft pale aura that
-  // swells and tightens onto the body — Hades' Hydra rears inside a white glow for a beat before it
-  // bites, and that beat is the read. It starts BEFORE the parry window (the white ring above), so
-  // the window arrives as the end of something the player already saw coming. It also shoves a
-  // bow wave of silt out from under the head's leading edge, so the direction is read too.
+  // THE DASH, IN THE WATER (owner, 2026-09-26: "the telegraph is too out of the realism, not
+  // diegetic"). No lane, no rings: while it GATHERS (the wind-up, sim draws it back to the run-up)
+  // silt is sucked in toward its mouth, more and faster as the charge nears; while it CHARGES a bow
+  // wave of silt sprays off its leading edge and the water churns behind it. The head's own pose (the
+  // mouth opening, syncKrakenHeadRig) and the closing distance are the read; the parry is when it
+  // is on you (head.dashWin).
   function drawKrakenLungeAura(run, head, rung) {
     const s = run.script
-    if (s.staggerT > 0 || !(head.lungeT > 0) || head.lungeT > KRAKEN_LUNGE_WINDUP_T) return
-    const w = 1 - head.lungeT / KRAKEN_LUNGE_WINDUP_T         // 0 as it starts, 1 at the strike
-    tellDrawn('head', -1, 'lungeCharge', head.x, head.y)
-    const R = KRAKEN_HEAD_R * (1.9 - 0.75 * w)
-    const quiver = 1 + 0.03 * Math.sin(animT * (30 + 40 * w)) * w
-    // SOFT (owner, 2026-09-26: "the head dash telegraph is too strong"): three faint rings, not six
-    for (let b = 0; b < 3; b++) {
-      teleG.beginPath()
-      teleG.circle(head.x, head.y, R * quiver * (1 - b * 0.07))
-      teleG.stroke({ width: 8 + b * 4, color: 0xdff4ff, alpha: (0.03 + 0.05 * w) * (1 - b * 0.2) })
-    }
-    // THE PATH: where it is coming. A lane in the hazard colour from the head's leading edge
-    // through the player and a body-width past them, reaching further and burning brighter over
-    // the wind-up, with chevrons running down it toward the fish. It turns white-hot when the parry
-    // window opens — the same "red is the danger, white is the answer" as an arm. It is the DASH's
-    // line (head.dashAng: tracking the fish, locked as the window opens) and its full length
-    // (KRAKEN_DASH_DIST past the head's rim), so the lane is exactly the ground the head will cross.
+    if (s.staggerT > 0 || !(frameDt > 0)) return
     const ux = Math.cos(head.dashAng ?? 0), uy = Math.sin(head.dashAng ?? 0)
-    const win = head.lungeT <= rung.lungeWindow
-    const x0 = head.x + ux * KRAKEN_HEAD_R * 0.85, y0 = head.y + uy * KRAKEN_HEAD_R * 0.85
-    const reach = (KRAKEN_DASH_DIST + KRAKEN_HEAD_R * 0.3) * (0.6 + 0.4 * w)
-    const x1 = x0 + ux * reach, y1 = y0 + uy * reach
-    const hw = KRAKEN_HEAD_R * 0.3
-    // SATURATED, IN THE CUE LAYER: the struck-lane orange everywhere else in this fight, drawn above
-    // the lamp-lit face and under the fish. It used to be additive at 0.12-0.34 in the danger light,
-    // which sits UNDER the head's face, so it read as a low-alpha tan smear beneath the head.
-    const col = win ? K_HAZARD_HOT : K_HAZARD
-    // a thin, faint lane that firms up as the strike nears — the head's own pose is the loud part
-    krakenLungeG.moveTo(x0, y0).lineTo(x1, y1).stroke({ width: 2 * hw, color: K_HAZARD, alpha: 0.12 + 0.18 * w, cap: 'round' })
-    krakenLungeG.moveTo(x0, y0).lineTo(x1, y1).stroke({ width: hw * 0.35, color: col, alpha: 0.35 + 0.35 * w, cap: 'round' })
-    const nx = -uy, ny = ux
-    for (let c = 0; c < 2; c++) {
-      const t = ((animT * (1.2 + 2.5 * w) + c / 2) % 1)
-      const cx = x0 + ux * reach * t, cy = y0 + uy * reach * t
-      const s2 = hw * 0.8
-      krakenLungeG.moveTo(cx - ux * s2 * 0.6 + nx * s2, cy - uy * s2 * 0.6 + ny * s2)
-        .lineTo(cx, cy)
-        .lineTo(cx - ux * s2 * 0.6 - nx * s2, cy - uy * s2 * 0.6 - ny * s2)
-        .stroke({ width: 3, color: win ? 0xffffff : K_HAZARD_HOT, alpha: (0.2 + 0.4 * w) * Math.sin(t * Math.PI), join: 'round', cap: 'round' })
+    const R = head.radius ?? KRAKEN_HEAD_R
+    if ((head._lungeBurst ?? 0) > 0) {
+      tellDrawn('head', -1, 'lungeCharge', head.x, head.y)
+      let n = frameDt * 70
+      while (n > 0 && (n >= 1 || Math.random() < n)) {
+        n--
+        const side = Math.random() < 0.5 ? -1 : 1, sp = 120 + Math.random() * 160
+        const fx = head.x + ux * R * 0.9 - uy * side * R * (0.3 + 0.6 * Math.random()), fy = head.y + uy * R * 0.9 + ux * side * R * (0.3 + 0.6 * Math.random())
+        spawnParticle(T.fx.circle_05, fx, fy, (-uy * side * 0.8 + ux * 0.4) * sp, (ux * side * 0.8 + uy * 0.4) * sp, 0.5 + Math.random() * 0.3, 0.02 + 0.02 * Math.random(), 0xa9b4bb, 0, 2.5)
+        const bx = head.x - ux * R * (0.8 + 0.4 * Math.random()), by = head.y - uy * R * (0.8 + 0.4 * Math.random())
+        spawnParticle(T.fx.circle_05, bx, by, (Math.random() - 0.5) * 40, (Math.random() - 0.5) * 40, 0.8, 0.03, 0x7f8c94, 0, 1.2)
+      }
+      return
+    }
+    if (!(head.lungeT > 0) || head.lungeT > KRAKEN_LUNGE_WINDUP_T) return
+    const w = 1 - head.lungeT / KRAKEN_LUNGE_WINDUP_T
+    tellDrawn('head', -1, 'lungeCharge', head.x, head.y)
+    let n = frameDt * (20 + 60 * w)
+    while (n > 0 && (n >= 1 || Math.random() < n)) {
+      n--
+      // from a ring in front of the mouth, drawn in toward it
+      const a = (head.dashAng ?? 0) + (Math.random() - 0.5) * 2.2, r = R * (1.5 + Math.random() * 0.9)
+      const x = head.x + Math.cos(a) * r, y = head.y + Math.sin(a) * r
+      const sp = 90 + 200 * w
+      spawnParticle(T.fx.circle_05, x, y, (head.x + ux * R * 0.6 - x) / r * sp, (head.y + uy * R * 0.6 - y) / r * sp, 0.45, 0.015 + 0.015 * Math.random(), 0xa9b4bb, 0, 0.5)
     }
   }
 
@@ -20865,13 +20854,8 @@ void main() {
       // STAGGERED is the pose too: the crown thrown open, beak gaping on the lit mouth, eyes wide,
       // closing back up as the window runs out. Bracketed like a limp arm's node: the same "hit me".
       if (s.staggerT > 0) drawKrakenHitMe(teleG, head.x, head.y, KRAKEN_HEAD_R * 0.62, false)
-      if (!(s.staggerT > 0) && head.lungeT > 0 && head.lungeT <= rung.lungeWindow) {
-        // its lunge is parryable on the same READ as an arm, on its own wider clock (rung.lungeWindow)
-        tellDrawn('head', -1, 'lungeFlash', head.x, head.y)
-        teleG.beginPath()
-        teleG.circle(head.x, head.y, KRAKEN_HEAD_R * 1.1)
-        teleG.stroke({ width: 6, color: 0xffffff, alpha: 0.9 })
-      }
+      // its dash is parryable while it is ON you (head.dashWin, by distance): no ring, the charge is the read
+      if ((head.dashWin ?? 0) > 0) tellDrawn('head', -1, 'lungeFlash', head.x, head.y)
       drawKrakenLungeAura(run, head, rung)
     }
 
@@ -20895,8 +20879,8 @@ void main() {
     // chase the affordance stayed dark for the single press that produces a stagger — and a stagger
     // is the only way the head can be damaged at all. The head got a ring around ITSELF and the
     // player got nothing, which is the half of the read that was never done.
-    if (s.phase === 'chase' && !(s.staggerT > 0) && head.lungeT > 0 && head.lungeT <= rung.lungeWindow) {
-      winK = Math.max(winK, head.lungeT <= rung.perfect ? 1 : 0.6)
+    if ((head.dashWin ?? 0) > 0) {
+      winK = Math.max(winK, head.dashWin >= 1 - rung.perfect / rung.lungeWindow ? 1 : 0.6)
     }
     // the ring on the fish lights only when sim says a press would land (run.parryReady, the same
     // predicate krakenParry acts on) — never for a grab winding up, never out of reach
@@ -21708,12 +21692,11 @@ void main() {
   const krakenCueLayer = new Container()
   const krakenHaloG = new Graphics()
   const krakenTouchG = new Graphics()
-  const krakenLungeG = new Graphics()
   const krakenFishHost = new Container()
   const krakenWiggleG = new Graphics()
   // the early press's verdict (its snapped ring and the steel cog) sits over the fish itself
   const krakenVerdictG = new Graphics()
-  krakenCueLayer.addChild(krakenHaloG, krakenLungeG, krakenTouchG, krakenFishHost, krakenWiggleG, krakenVerdictG)
+  krakenCueLayer.addChild(krakenHaloG, krakenTouchG, krakenFishHost, krakenWiggleG, krakenVerdictG)
   app.stage.addChildAt(krakenCueLayer, app.stage.getChildIndex(krakenHitDimLayer) + 1)
   // The body is UNDER the wreck field (it lies beneath the seabed clutter); the soft glows go in the
   // blurred krakenDeepG under it. The head rig sits directly over the enemy layer, where its pooled
@@ -22363,7 +22346,7 @@ void main() {
     const stag = s.staggerT > 0
     kc.stagPeak = stag ? Math.max(kc.stagPeak, s.staggerT) : 0
     const stagK = stag ? s.staggerT / (kc.stagPeak || 1) : 0
-    const lungeK = !stag && head.lungeT > 0 && head.lungeT <= rung.lungeWindow ? 1 - head.lungeT / rung.lungeWindow : 0
+    const lungeK = !stag ? (head.dashWin ?? 0) : 0
     // a hit is a hard, SATURATED beat — never a grey wash — and a flinch that outlasts it
     const hf = head.hitFlash || 0
     kc.flashCd -= k
@@ -22581,7 +22564,7 @@ void main() {
   fishRimL.tint = 0xfff1dc
   fishRimD.alpha = 0.85
   fishRimL.alpha = 0.7
-  function krakenFishRims(on, boost = false) {
+  function krakenFishRims(on) {
     if (!on) {
       for (const sp of [fishRimD, fishRimL]) if (sp.parent) sp.parent.removeChild(sp)
       return
@@ -22595,8 +22578,8 @@ void main() {
       dst.scale.set(src.scale.x * k, src.scale.y * k)
       dst.visible = src.visible && src.texture !== Texture.EMPTY
     }
-    copy(fishRimL, pBody, boost ? 1.4 : 1.3); copy(fishRimD, pBody, 1.2)
-    fishRimL.alpha = boost ? 1 : 0.7
+    copy(fishRimL, pBody, 1.3); copy(fishRimD, pBody, 1.2)
+    fishRimL.alpha = 0.7
   }
 
   // playerC in or out of the cue layer. Only the Kraken lifts it; every other chapter keeps the
@@ -22660,12 +22643,9 @@ void main() {
     }
 
     // ---- the fish's outline: silhouettes of its own body and tail behind it, dark and then a thin
-    // light rim, so an orange-brown fish still has an edge on the orange maw, the hazard fill and the
-    // lunge lane. The Kraken chapter only (krakenLiftFish adds and removes them).
-    // ...and brighter while the fish stands in a lunge's orange lane, where an orange-brown fish
-    // otherwise goes muddy
-    const inOrange = s.phase === 'chase' && !(s.staggerT > 0) && head.lungeT > 0 && head.lungeT <= KRAKEN_LUNGE_WINDUP_T
-    krakenFishRims(true, inOrange)
+    // light rim, so an orange-brown fish still has an edge on the orange maw and the hazard fill.
+    // The Kraken chapter only (krakenLiftFish adds and removes them).
+    krakenFishRims(true)
 
     // ---- the hold: WIGGLE, and how far along the struggle is
     const held = run.krakenArms.find((a) => !a.dead && a.gripT > 0)
@@ -22748,18 +22728,17 @@ void main() {
   function poseKrakenLunge(run, head, hs) {
     const s = run.script
     const ux = Math.cos(head.dashAng ?? 0), uy = Math.sin(head.dashAng ?? 0)
-    const burst = Math.max(0, head._lungeBurst ?? 0) / KRAKEN_DASH_T
-    if (burst > 0) {
-      const b = Math.sin(burst * Math.PI * 0.5)
-      hs.scale.set(hs.scale.x * (1 + 0.16 * b), hs.scale.y * (1 - 0.06 * b))
-      hs.position.set(hs.position.x + ux * 22 * b, hs.position.y + uy * 22 * b)
+    // CHARGING: stretched along its heading for the whole charge
+    if ((head._lungeBurst ?? 0) > 0) {
+      hs.scale.set(hs.scale.x * 1.16, hs.scale.y * 0.94)
       return
     }
     if (s.staggerT > 0 || !(head.lungeT > 0) || head.lungeT > KRAKEN_LUNGE_WINDUP_T) return
+    // GATHERING: sim draws the body back itself; this only swells and trembles it
     const w = 1 - head.lungeT / KRAKEN_LUNGE_WINDUP_T
     const back = 1 - (1 - w) * (1 - w)
     const tremble = Math.sin(animT * (40 + 50 * w)) * 3 * w * w
-    const off = -34 * back + tremble
+    const off = tremble
     hs.position.set(hs.position.x + ux * off - uy * tremble, hs.position.y + uy * off + ux * tremble)
     hs.scale.set(hs.scale.x * (1 - 0.05 * back), hs.scale.y * (1 + 0.09 * back))
   }
@@ -22767,7 +22746,6 @@ void main() {
   function redrawTelegraphs(run) {
     teleG.clear()
     krakenDangerG.clear()
-    krakenLungeG.clear()
     krakenImpactG.clear()
     krakenDangerHole.clear()
     // A POINT, not the old 36px hole: the fish is lifted above every Kraken layer (krakenLiftFish),
@@ -27368,7 +27346,6 @@ void main() {
     hazardG.clear()
     teleG.clear()
     krakenDangerG.clear()
-    krakenLungeG.clear()
     krakenImpactG.clear()
     krakenDangerHole.clear()
     // The Kraken: the abyss, and the arm ropes. Meshes rather than a syncPool pool, so they are

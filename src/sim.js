@@ -227,7 +227,7 @@ import {
   KRAKEN_LIMP_PERFECT_MUL, KRAKEN_STAGGER_T, KRAKEN_STAGGER_DECAY, KRAKEN_LIMP_FLASH,
   KRAKEN_RISE_AT, KRAKEN_ENRAGE_AT, KRAKEN_ENRAGE_CADENCE, KRAKEN_ENRAGE_ARM_HP, KRAKEN_STAGGER_BITE,
   KRAKEN_EXPOSE_BITE, KRAKEN_HITSTOP_PARRY, KRAKEN_HITSTOP_BREAK, KRAKEN_HITSTOP_STAGGER,
-  KRAKEN_HEAD_TOUCH_DMG, KRAKEN_HEAD_HOLD, KRAKEN_HEAD_STEER, KRAKEN_DASH_T, KRAKEN_DASH_DIST,
+  KRAKEN_HEAD_TOUCH_DMG, KRAKEN_HEAD_HOLD, KRAKEN_HEAD_STEER, KRAKEN_DASH_RUNUP, KRAKEN_DASH_SPEED, KRAKEN_DASH_DIST, KRAKEN_DASH_PARRY_PX,
 
   KRAKEN_CAGE_R,
   KRAKEN_LASH_R, KRAKEN_LASH_DMG, KRAKEN_LIGHT_START, KRAKEN_HAUL_R, KRAKEN_LASH_W, KRAKEN_LASH_OVER,
@@ -2649,12 +2649,19 @@ function krakenBeatNeeds(run, rung, head) {
   }
   if (s.coilT > KRAKEN_COIL_DUR) out.push({ k: 'D', a: 0, b: s.coilT - KRAKEN_COIL_DUR, keep: false })
   if (head && s.phase === 'chase') {
+    // THE DASH'S WINDOW SITS AT CONTACT (krakenDashWindow): the charge's own if one is running,
+    // else launch + the run-up's travel. One dash cycle is the wait plus the charge.
     const lw = rung.lungeWindow
-    const t = (s.staggerT > 0 ? s.staggerT : 0) + (head.lungeT ?? KRAKEN_LUNGE_T)
-    const last = s.staggerT > 0 ? s.staggerT - KRAKEN_STAGGER_T : t - KRAKEN_LUNGE_T
+    const P = KRAKEN_LUNGE_T + KRAKEN_DASH_DIST / KRAKEN_DASH_SPEED
+    let t
+    if ((head._lungeBurst ?? 0) > 0) t = Math.max(0, head._dashT ?? 0)
+    else t = (s.staggerT > 0 ? s.staggerT : 0) + (head.lungeT ?? KRAKEN_LUNGE_T) + krakenDashImpactT()
+    // ...the charge paces itself to its clock (_dashT), so only a sliver of slack either side
+    const early = 0.1, late = 0.05
+    const last = s.staggerT > 0 ? s.staggerT - KRAKEN_STAGGER_T : (s.dashWinAt ?? -99) - run.time
     out.push({ k: 'P', a: last, b: last, keep: true })
-    out.push({ k: 'P', a: t - lw, b: t, keep: true })
-    out.push({ k: 'P', a: t + KRAKEN_LUNGE_T - lw, b: t + KRAKEN_LUNGE_T, keep: true })
+    out.push({ k: 'P', a: t - lw - early, b: t + late, keep: true })
+    out.push({ k: 'P', a: t + P - lw - early, b: t + P + late, keep: true })
   }
   return out
 }
@@ -2849,44 +2856,91 @@ function stepKrakenChase(run, dt, rung, head) {
   //   - touching it hurts: head.dmg is contact damage, i-framed like any body's;
   //   - it drifts after the fish with inertia (KRAKEN_HEAD_STEER) and stops closing at
   //     KRAKEN_HEAD_HOLD, so it never parks on you;
-  //   - its lunge is a DASH: a straight line, head.dashAng, that tracks the fish until the parry
-  //     window opens and then locks; at lungeT 0 it covers KRAKEN_DASH_DIST in KRAKEN_DASH_T. A parry
-  //     in the window cancels it (krakenParry resets lungeT); a step off the line makes it overshoot.
+  //   - its lunge is a DASH (owner, 2026-09-26: "the parry should be when the head gets close to
+  //     the player, it should depend of the distance"): over its wind-up it draws back to
+  //     KRAKEN_DASH_RUNUP, aiming at the fish (head.dashAng); at lungeT 0 it CHARGES along that line at
+  //     KRAKEN_DASH_SPEED for KRAKEN_DASH_DIST. The parry window is spatial: head.dashWin > 0 while the
+  //     charging head is closing and its gap to the fish is inside KRAKEN_DASH_SPEED x lungeWindow
+  //     (krakenDashWindow). A parry stops the charge; a step off the line makes it overshoot.
   // The head is moved HERE (head.speed 0, so the generic seek never touches it).
   const p = run.player
   if (head.lungeT == null) head.lungeT = KRAKEN_LUNGE_T
   const lungeWas = head.lungeT
   const bursting = (head._lungeBurst ?? 0) > 0
   if (!bursting) head.lungeT = lungeWas - dt
-  // THE WIND-UP IS ANNOUNCED BEFORE THE WINDOW OPENS. Cosmetic: no rule reads this event.
+  // THE WIND-UP IS ANNOUNCED BEFORE THE CHARGE. Cosmetic: no rule reads this event.
   if (lungeWas > KRAKEN_LUNGE_WINDUP_T && head.lungeT <= KRAKEN_LUNGE_WINDUP_T && head.lungeT > 0) {
     run.events.push({ type: 'headWindup', x: head.x, y: head.y })
   }
-  if (!bursting && head.lungeT > rung.lungeWindow) head.dashAng = Math.atan2(p.y - head.y, p.x - head.x)
+  if (!bursting) head.dashAng = Math.atan2(p.y - head.y, p.x - head.x)
   if (!bursting && head.lungeT <= 0) {
     head.lungeT = KRAKEN_LUNGE_T
-    head._lungeBurst = KRAKEN_DASH_T
+    head._lungeBurst = KRAKEN_DASH_DIST   // px of charge left
+    head._dashT = krakenDashImpactT()     // s until the jaws reach the fish's spot on the line
     run.events.push({ type: 'headLunge', x: head.x, y: head.y, ang: head.dashAng })
   }
   head.speed = 0
   head.dmg = (head._lungeBurst ?? 0) > 0 ? KRAKEN_LUNGE_DMG : KRAKEN_HEAD_TOUCH_DMG
+  const ca = Math.cos(head.dashAng ?? 0), sa = Math.sin(head.dashAng ?? 0)
   if ((head._lungeBurst ?? 0) > 0) {
-    const v = KRAKEN_DASH_DIST / KRAKEN_DASH_T, ca = Math.cos(head.dashAng ?? 0), sa = Math.sin(head.dashAng ?? 0)
-    head.x += ca * v * dt
-    head.y += sa * v * dt
-    head._kvx = ca * KRAKEN_HEAD_SPEED; head._kvy = sa * KRAKEN_HEAD_SPEED   // it coasts out of the dash
-    head._lungeBurst -= dt
+    // IT ARRIVES ON SCHEDULE: along its locked line it paces itself to reach the fish's spot on that
+    // line when its clock (_dashT, which also runs the parry window) runs out — faster if the fish
+    // flees, slower if it comes on — so the jaws always land inside the window. Off the line, it
+    // simply passes.
+    let v = KRAKEN_DASH_SPEED
+    if ((head._dashT ?? 0) > 0) {
+      const along = (p.x - head.x) * ca + (p.y - head.y) * sa - (head.radius ?? KRAKEN_HEAD_R) - PLAYER.radius
+      v = Math.max(KRAKEN_DASH_SPEED * 0.4, Math.min(KRAKEN_DASH_SPEED * 2.2, Math.max(0, along) / Math.max(dt, head._dashT)))
+    }
+    head._dashT = (head._dashT ?? 0) - dt
+    const step = Math.min(head._lungeBurst, v * dt)
+    head.x += ca * step
+    head.y += sa * step
+    head._kvx = ca * KRAKEN_HEAD_SPEED; head._kvy = sa * KRAKEN_HEAD_SPEED   // it coasts out of the charge
+    head._lungeBurst -= step
   } else {
     const dx = p.x - head.x, dy = p.y - head.y, d = Math.hypot(dx, dy) || 1
-    const want = d > KRAKEN_HEAD_HOLD ? KRAKEN_HEAD_SPEED * Math.min(1, (d - KRAKEN_HEAD_HOLD) / 120) : 0
-    const k = 1 - Math.exp(-dt * KRAKEN_HEAD_STEER)
-    head._kvx = (head._kvx ?? 0) + (dx / d * want - (head._kvx ?? 0)) * k
-    head._kvy = (head._kvy ?? 0) + (dy / d * want - (head._kvy ?? 0)) * k
-    head.x += head._kvx * dt
-    head.y += head._kvy * dt
+    if (head.lungeT <= KRAKEN_LUNGE_WINDUP_T) {
+      // GATHERING: it settles at the run-up from the fish — drawing back if nearer, following if the
+      // fish flees — so every charge launches from KRAKEN_DASH_RUNUP and its contact time is one the
+      // beat can plan around (krakenBeatNeeds)
+      const err = d - KRAKEN_DASH_RUNUP, lim = 520 * dt
+      const mv = Math.max(-lim, Math.min(lim, err * Math.min(1, dt * 7)))
+      head.x += dx / d * mv; head.y += dy / d * mv
+      head._kvx = 0; head._kvy = 0
+    } else {
+      const want = d > KRAKEN_HEAD_HOLD ? KRAKEN_HEAD_SPEED * Math.min(1, (d - KRAKEN_HEAD_HOLD) / 120) : 0
+      const k = 1 - Math.exp(-dt * KRAKEN_HEAD_STEER)
+      head._kvx = (head._kvx ?? 0) + (dx / d * want - (head._kvx ?? 0)) * k
+      head._kvy = (head._kvy ?? 0) + (dy / d * want - (head._kvy ?? 0)) * k
+      head.x += head._kvx * dt
+      head.y += head._kvy * dt
+    }
   }
+  head.dashWin = krakenDashWindow(run, head, rung)
+  if (head.dashWin > 0) s.dashWinAt = run.time   // the beat's "just answered" (krakenBeatNeeds)
   return false
 }
+
+// THE DASH'S PARRY WINDOW: the head must be CHARGING, CLOSING and CLOSE — its gap to the fish inside
+// 1.6 x krakenDashReach(rung) — and the charge, which paces itself to arrive on schedule (_dashT),
+// must be in its last rung.lungeWindow seconds before contact. Close is the logic ("otherwise there
+// is no logic in the parry if you parry away from the head"); the schedule is what keeps the moment
+// the same length on every rung and plannable by the ring. 0..1, rising to 1 at contact.
+export function krakenDashWindow(run, head, rung) {
+  if (!head || !((head._lungeBurst ?? 0) > 0) || run.script.phase !== 'chase' || run.script.staggerT > 0) return 0
+  const tl = head._dashT ?? 0
+  if (tl > rung.lungeWindow || tl < -1 / 60) return 0
+  const p = run.player
+  const dx = p.x - head.x, dy = p.y - head.y
+  if (dx * Math.cos(head.dashAng ?? 0) + dy * Math.sin(head.dashAng ?? 0) <= 0) return 0   // already past
+  const gap = Math.hypot(dx, dy) - (head.radius ?? KRAKEN_HEAD_R) - PLAYER.radius
+  if (gap > krakenDashReach(rung) * 1.6) return 0   // far off the line, or not yet near: not on you
+  return Math.min(1, 1 - Math.max(0, tl) / rung.lungeWindow)
+}
+export const krakenDashReach = (rung) => rung.lungeWindow * KRAKEN_DASH_PARRY_PX
+// how long a charge takes from its launch to contact, off the run-up (the beat plans with this)
+const krakenDashImpactT = () => Math.max(0, KRAKEN_DASH_RUNUP - KRAKEN_HEAD_R - PLAYER.radius) / KRAKEN_DASH_SPEED
 
 // An arm breaks. Its sector is open for the rest of the fight, and it is never re-armed.
 function krakenBreakArm(run, a) {
@@ -3006,7 +3060,7 @@ function krakenParryTarget(run) {
   // bot answering 40% of its windows landed MORE head parries than a perfect one and got FEWER
   // staggers, because the decay ate them faster than they filled. `perfect` is NOT widened with it:
   // the reward for a tight press stays exactly as tight.
-  const headReady = headNear && s.phase === 'chase' && !(s.staggerT > 0) && head.lungeT > 0 && head.lungeT <= rung.lungeWindow
+  const headReady = headNear && krakenDashWindow(run, head, rung) > 0
   return { best, headReady, head, rung }
 }
 
@@ -3066,8 +3120,15 @@ function krakenParry(run) {
   if (headReady) {
     // ---- THE HEAD'S POSTURE. Sekiro's rule: pay a deflect with a state change on the BOSS, and
     // make breaking it the one loud window the fight has.
-    const perfect = head.lungeT <= rung.perfect
-    head.lungeT = KRAKEN_LUNGE_T
+    // perfect: the last KRAKEN_DASH_SPEED x rung.perfect px — the jaws all but on you
+    const perfect = krakenDashWindow(run, head, rung) >= 1 - rung.perfect / rung.lungeWindow
+    // THE CHARGE STOPS DEAD and the head is thrown back off the fish — and it waits out the rest of
+    // the charge's time as well, so the dash cycle keeps the length the ring planned around
+    head.lungeT = KRAKEN_LUNGE_T + (head._lungeBurst ?? 0) / KRAKEN_DASH_SPEED
+    head._lungeBurst = 0
+    s.dashWinAt = run.time
+    head._kvx = -Math.cos(head.dashAng ?? 0) * KRAKEN_HEAD_SPEED * 2; head._kvy = -Math.sin(head.dashAng ?? 0) * KRAKEN_HEAD_SPEED * 2
+    head.dashWin = 0
     s.staggerDecay = KRAKEN_STAGGER_DECAY
     s.stagger += perfect ? 2 : 1
     run.charge = Math.min(run.chargeMax, run.charge + KRAKEN_PARRY_REFILL * (perfect ? KRAKEN_PERFECT_MUL : 1))

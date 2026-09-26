@@ -193,7 +193,7 @@ function fight(seed) {
       // round again. A bot that checked arms first never pressed at the head once in a whole fight.
       if (head && s.phase === 'chase' && !(s.staggerT > 0)) {
         const near = (head.x - p.x) ** 2 + (head.y - p.y) ** 2 <= C.KRAKEN_CAGE_R ** 2
-        const inWin = head.lungeT > 0 && head.lungeT <= rung.lungeWindow
+        const inWin = (head.dashWin ?? 0) > 0   // the dash, by distance
         if (inWin && !head._botSeen) { head._botSeen = true; head._botSkip = botRnd() >= LUNGE_P }
         else if (!inWin) head._botSeen = false
         if (near && inWin && !head._botSkip) press = true

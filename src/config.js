@@ -8992,7 +8992,8 @@ export const KRAKEN_ADD_CAP = 16 // most graveyard dead on the field at once, wa
 // chase is where it comes up, and that beat is the payoff for never having shown it. It is
 // harmless and motionless while it ascends — the drama is the drama, not a free hit.
 export const KRAKEN_RISE_T = 2.6 // s the head takes to come up out of the abyss
-export const KRAKEN_LUNGE_T = 3.2 // s between chase lunges (final block)
+// balance_decision : 2.4s wait + the 1.2s charge keeps the old 3.6s dash cycle [2026-09-26]
+export const KRAKEN_LUNGE_T = 2.4 // s between chase lunges (final block)
 // THE LUNGE'S WIND-UP — PRESENTATION ONLY. How long before the strike the head draws back and the
 // countdown note sounds (sim's headWindup event). It moves no rule: the lunge still fires at
 // lungeT = 0 and the parry window is still rung.lungeWindow. It has to exceed every rung's
@@ -9013,9 +9014,14 @@ export const KRAKEN_HEAD_TOUCH_DMG = 12
 //  - STEER is 1/s: how fast its velocity turns toward the wanted one. Low = loose, lagging
 export const KRAKEN_HEAD_HOLD = 260 // px from the fish the head stops closing at
 export const KRAKEN_HEAD_STEER = 1.6
-// balance_decision : the lunge is a straight dash on a line locked at the window [2026-09-26]
-export const KRAKEN_DASH_T = 0.35 // s the dash lasts
-export const KRAKEN_DASH_DIST = 440 // px it covers: from its hold distance, through the fish and past
+// balance_decision : the dash gathers back, then charges; parried by DISTANCE, owner 2026-09-26
+//  - RUNUP must stay inside KRAKEN_CAGE_R: the chase's cage is centred on the head and would drag the fish
+export const KRAKEN_DASH_RUNUP = 330 // px from the fish the head gathers at over its wind-up
+export const KRAKEN_DASH_SPEED = 400 // px/s of the charge
+export const KRAKEN_DASH_DIST = 480 // px the charge covers: the run-up, through the fish and past
+// the parry window is the last rung.lungeWindow x this px of gap before the jaws reach the fish
+// (d3 ~110px, d1 ~136px): "close" is a head-length, not the arena
+export const KRAKEN_DASH_PARRY_PX = 262
 // THE COIL (P3, D3 only). Every Nth arm attack the whole ring hauls inward at once, and the only
 // place that is not swept is ONE sector — the gap. NOT PARRYABLE by design: the parry must not be
 // the answer to everything, or it stops being a choice. You read the gap and you move.
