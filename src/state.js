@@ -1715,6 +1715,8 @@ function generateWells(sig) {
  *                                the pass already has its engine noise, and one sfx per felled bush
  *                                would machine-gun the graph exactly as design doc §2 warns.
  *                                See `mows` under lanes[i] below, and stepLanePasses in sim.js.
+ *   {type:'headSmash', x, y, r}  the Kraken's bared head smashed an obstacle in the chase (x,y = its
+ *                                centre, r = its radius); permanent like 'crush' (run._crushed).
  *   {type:'crush', x, y, kind}   a structure was destroyed (x,y = its center, kind = the obstacle's
  *                                STRUCTURE_KINDS tag) — render draws collapse + dust, audio maps it
  *                                to a crush sfx (throttled like shoot/hit/zap; see design doc §2).

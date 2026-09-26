@@ -8241,6 +8241,22 @@ function stepObstacles(run) {
     // whole of the flag; it does not change speed, seek or contact damage, so a flyover enemy is an
     // ordinary chaser that happens to take the straight line while everything else goes around.
     if (e.flags && e.flags.includes('flyover')) continue
+    // THE BARED HEAD GOES THROUGH ROCK: in the chase it smashes what it touches, never gets stuck
+    // on it (owner 2026-09-26). Permanent, like stepCrush: the cell never re-rolls.
+    if (e.rosterId === 'krakenHead' && run.script?.phase === 'chase') {
+      let smashed = false
+      for (let i = run.obstacles.length - 1; i >= 0; i--) {
+        const o = run.obstacles[i]
+        const minSep = o.r + e.radius
+        if ((e.x - o.x) ** 2 + (e.y - o.y) ** 2 >= minSep * minSep) continue
+        run.obstacles.splice(i, 1)
+        run._crushed.add(o._cell)
+        smashed = true
+        run.events.push({ type: 'headSmash', x: o.x, y: o.y, r: o.r })
+      }
+      if (smashed) run._obstacleRev = (run._obstacleRev || 0) + 1
+      continue
+    }
     for (const o of run.obstacles) {
       const dx = e.x - o.x, dy = e.y - o.y
       const minSep = o.r + e.radius

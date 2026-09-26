@@ -15661,10 +15661,6 @@ const spurG = new Graphics()
       }
 
       // THE APERTURE: a thin ring closing onto the splash radius, over a warm core that brightens.
-      // IN THE KRAKEN'S ARENA ONLY THE CORE. The column mostly lands on the limb beside the fish,
-      // and its spoked aperture there read as a reticle round the fish on the very frames the
-      // parry is being timed — a glyph that meant nothing about the press.
-      if (run.chapter === 'kraken') { disc(r * (0.35 + 0.65 * k), 0xffe9a8, 0.05 + 0.16 * k * k); continue }
       ring(rim, Math.max(1.5, r * 0.06), 0xfff2c0, 0.18 + 0.5 * k)
       disc(r * (0.35 + 0.65 * k), 0xffe9a8, 0.05 + 0.16 * k * k)
 
@@ -26545,6 +26541,19 @@ void main() {
             spawnParticle(T.fx.circle_05, e.x, e.y, Math.cos(a) * sp, Math.sin(a) * sp,
               0.35 + Math.random() * 0.2, 0.07, i % 3 ? 0x7cb342 : 0x9ccc65, 0.1, 2)
           }
+          break
+        }
+        case 'headSmash': {
+          // the Kraken's head through a rock: silt and grit thrown off it, one ring, a thump
+          const n = 8 + Math.min(10, Math.round((e.r ?? 60) / 10))
+          for (let i = 0; i < n; i++) {
+            const a = Math.random() * Math.PI * 2
+            const sp = 80 + Math.random() * 140
+            spawnParticle(T.fx.circle_05, e.x + Math.cos(a) * e.r * 0.5, e.y + Math.sin(a) * e.r * 0.5, Math.cos(a) * sp, Math.sin(a) * sp,
+              0.45 + Math.random() * 0.25, 0.08 + Math.random() * 0.05, i % 3 ? 0x5a6470 : 0x8a95a0, 0.1, 2)
+          }
+          spawnRing(e.x, e.y, (e.r ?? 60) * 1.3, 0.3, T.novaRing, 0x9aa8b4)
+          addShake(5, 0.2)
           break
         }
         case 'crush': {
