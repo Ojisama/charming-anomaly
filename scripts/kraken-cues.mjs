@@ -122,11 +122,15 @@ async function headless(diff, seed) {
     const lunge = s.phase === 'chase' && !(s.staggerT > 0) && head.lungeT > 0
     if (lunge && head.lungeT <= C.KRAKEN_LUNGE_WINDUP_T) tells.push({ src: 'head', i: -1, kind: 'lungeCharge', x: head.x, y: head.y })
     if (lunge && head.lungeT <= rung.lungeWindow) { tells.push({ src: 'head', i: -1, kind: 'lungeFlash', x: head.x, y: head.y }); winAny = true }
-    // REPLICA of drawKrakenCues' head-touch rule: the bared head's rim burns once the fish is within
-    // 60px of its touch reach (head radius + fish radius), and for the last 0.6s of a rise or a stagger
+    // REPLICA of drawKrakenCues' head-touch rule: a WARNING, lit (past its 0.25 publish threshold)
+    // only when the fish is within 50px of the touch reach AND its i-frames are in their last 0.225s
+    // (or the last 0.6s of a rise or stagger), never while sim's re-arm clock head.touchRearmT > 0.3
     const Rc = (head.radius ?? C.KRAKEN_HEAD_R) + (p.radius ?? C.PLAYER.radius)
     const touchSoon = (s.riseT > 0 && s.riseT < 0.6) || (s.staggerT > 0 && s.staggerT < 0.6)
-    if (s.phase === 'chase' && (touchSoon || (!(s.riseT > 0) && !(s.staggerT > 0) && (head.dmg ?? 0) > 0)) && Math.hypot(p.x - head.x, p.y - head.y) < Rc + 60) tells.push({ src: 'head', i: -1, kind: 'headTouch', x: head.x, y: head.y })
+    const quiet = (head.touchRearmT ?? 0) > 0.3
+    const armed = touchSoon || (!(s.riseT > 0) && !(s.staggerT > 0) && ((head.dmg ?? 0) > 0 || (head.touchRearmT ?? 0) > 0))
+    const soon = touchSoon || Math.max(p.invuln ?? 0, head.touchRearmT ?? 0) < 0.225
+    if (s.phase === 'chase' && !quiet && armed && soon && Math.hypot(p.x - head.x, p.y - head.y) < Rc + 50) tells.push({ src: 'head', i: -1, kind: 'headTouch', x: head.x, y: head.y })
     // REPLICA of render.js's press-ring rule (drawKrakenRing): lit only while sim's run.parryReady
     if (winAny && r.parryReady === true) tells.push({ src: 'player', i: -1, kind: 'pressRing', x: p.x, y: p.y })
     return tells
