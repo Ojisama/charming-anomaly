@@ -29,7 +29,7 @@ import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC
   krakenRung, KRAKEN_RING_R, KRAKEN_ARM_R, KRAKEN_LIMB_HW, krakenLimbProf, krakenShoulderR, krakenLimbHalfW, KRAKEN_ARM_REACH, KRAKEN_LASH_R, KRAKEN_HEAD_R, KRAKEN_LASH_OVER, KRAKEN_LASH_W,
   KRAKEN_LUNGE_WINDUP_T,
   KRAKEN_PARRY_SPIN_T, KRAKEN_PARRY_MARGIN,
-  KRAKEN_RISE_T, KRAKEN_COIL_DUR, KRAKEN_COIL_TELE, KRAKEN_PARRY_CD, KRAKEN_CAGE_R, KRAKEN_LIMP_FLASH,
+  KRAKEN_RISE_T, KRAKEN_COIL_DUR, KRAKEN_COIL_TELE, KRAKEN_COIL_RAYS, KRAKEN_PARRY_CD, KRAKEN_CAGE_R, KRAKEN_LIMP_FLASH,
   KRAKEN_RING_VIEW_MARGIN, KRAKEN_RING_ZOOM_MIN, KRAKEN_RING_ZOOM_EASE, KRAKEN_GRIP_DUR,
   KRAKEN_SLAM_T,
 } from './config.js'
@@ -20041,28 +20041,6 @@ void main() {
   // outline as the fuse runs out; the frame it meets the edges is the frame it lands. The owner's
   // "the rectangle should grow to show the arm arming the slam" is that widening. The Coil's lanes
   // are the same drawing, hotter, so the one lane left dark is the gap.
-  // THE COIL, IN THE WATER (owner, 2026-09-26: "way more subtle and in game realistic instead of big
-  // signs HUD"; picked "silt + light" off a sheet). Fine silt lifts off the ground each rearing arm
-  // will land on, thicker as the strike nears; a shaft of light falls into the gap (drawKrakenCues).
-  // No lanes, outlines, arrows or route on the floor.
-  function drawKrakenCoilShade(a, urg) {
-    tellDrawn('arm', a.i, 'coil', a.x, a.y, a.lx0, a.ly0, a.lx1, a.ly1)
-    const W = KRAKEN_LASH_W
-    const e = Math.max(0, Math.min(1, urg))
-    const L = Math.hypot(a.lx1 - a.lx0, a.ly1 - a.ly0) || 1
-    const nx = -(a.ly1 - a.ly0) / L, ny = (a.lx1 - a.lx0) / L
-    if (frameDt > 0) {
-      let n = frameDt * (25 + 70 * e) * L / 600
-      while (n > 0) {
-        if (n < 1 && Math.random() > n) break
-        n--
-        const t = Math.random(), o = (Math.random() * 2 - 1) * W * 0.85
-        const x = a.lx0 + (a.lx1 - a.lx0) * t + nx * o, y = a.ly0 + (a.ly1 - a.ly0) * t + ny * o
-        spawnParticle(T.fx.circle_05, x, y, (Math.random() - 0.5) * 14, -(8 + Math.random() * 18), 0.7 + Math.random() * 0.5, 0.012 + 0.012 * Math.random(), 0x9aa6ae, 0, 1.5)
-      }
-    }
-  }
-
   // A PLAIN SLAM'S TELEGRAPH IS ITS OWN SUCKERS (owner's pick, 2026-09-24: "a bit like the kaiju
   // laser filling up the dorsal fins"). As the fuse burns they light one after another from the
   // ring toward the tip — how far the light has run is how much fuse is gone, and it reaches the tip
@@ -20860,7 +20838,6 @@ void main() {
       // exactly the flesh that is drawn (krakenLimbHalfW). Only the Coil still lights its lanes.
       if (a.tele <= 0 || !a.fuse) continue
       const urg = 1 - Math.max(0, a.tele) / a.fuse      // 0 at the rear, 1 at the strike
-      if (a.coilArm) drawKrakenCoilShade(a, urg)
 
       // THE LESSON ARM'S window keeps its own louder flash on top of the lit suckers
       const tipW = krakenTips[a.i] || a
@@ -22570,7 +22547,9 @@ void main() {
         }
       }
       const a = arms[i]
-      const mul = a && !a.dead ? 1 + 0.75 * krakenLift(a) : 1
+      let mul = a && !a.dead ? 1 + 0.75 * krakenLift(a) : 1
+      // a Coil arm SWELLS as it rears: the limbs that are about to come down grow over the arena
+      if (a && !a.dead && a.coilArm && a.tele > 0 && a.fuse > 0) mul *= 1 + 1.2 * (1 - a.tele / a.fuse)
       rig.rope._kMul = mul
       rig.shadow._kMul = mul
     }
@@ -22655,17 +22634,31 @@ void main() {
     const u = 1 / (world.scale.x || 1)
     const pr = p.radius ?? PLAYER.radius
 
-    // ---- the Coil's way out, for the WIND-UP only: a soft shaft of light falling into the spared
-    // arm's gap, on the floor layer, flickering like light through water (owner's pick 2026-09-26:
-    // no signs, no route, no arrows). The lanes it avoids lift silt (drawKrakenCoilShade).
+    // ---- THE COIL'S STAR, for the WIND-UP only (owner, 2026-09-26: "a star like shadow, 6 or 8
+    // arms crossing the whole screen, and only the space between arms safe" — picked 6, "softer
+    // edges"). The rearing ring throws KRAKEN_COIL_RAYS arm-shadows from the head across the arena,
+    // exactly the bands krakenCoilStarHits strikes (half-width KRAKEN_LASH_W), deepening as the arms
+    // rise; a faint light lies in the safe wedges between them. The shadow's edge is feathered: many
+    // wide faint strokes, so the core is dark and it fades out past the struck width.
     if (s.coilT > KRAKEN_COIL_DUR) {
       const urg = 1 - (s.coilT - KRAKEN_COIL_DUR) / Math.max(0.001, KRAKEN_COIL_TELE)
-      const g = s.coilGap, ux = Math.cos(g), uy = Math.sin(g)
-      const r0 = KRAKEN_HEAD_R * 1.2, r1 = KRAKEN_CAGE_R * 1.1
+      const k0 = Math.min(1, urg * 1.3), dk = k0 * k0 * (3 - 2 * k0)
       const flick = 0.85 + 0.15 * Math.sin(animT * 3.1) * Math.sin(animT * 1.7)
-      for (const [k, al] of [[1, 0.05], [0.6, 0.06], [0.3, 0.08]]) {
-        teleG.moveTo(head.x + ux * r0, head.y + uy * r0).lineTo(head.x + ux * r1, head.y + uy * r1)
-          .stroke({ width: KRAKEN_LASH_W * 2.2 * k, color: 0xcfeaff, alpha: al * (0.5 + 0.8 * urg) * flick, cap: 'round' })
+      const R = KRAKEN_CAGE_R * 3, W = KRAKEN_LASH_W, n = KRAKEN_COIL_RAYS
+      for (let k = 0; k < n; k++) {
+        const t = (s.coilStar ?? 0) + k * Math.PI * 2 / n
+        const x1 = head.x + Math.cos(t) * R, y1 = head.y + Math.sin(t) * R
+        tellDrawn('head', k, 'coil', head.x, head.y, head.x, head.y, x1, y1)
+        for (let q = 0; q < 8; q++) {
+          const m = 0.45 + q * 0.15   // 0.45W .. 1.5W: dark core, soft falloff past the struck edge
+          teleG.moveTo(head.x, head.y).lineTo(x1, y1).stroke({ width: 2 * W * m, color: 0x000000, alpha: 0.13 * dk })
+        }
+      }
+      for (let k = 0; k < n; k++) {
+        const t = (s.coilStar ?? 0) + (k + 0.5) * Math.PI * 2 / n, h = Math.PI / n * 0.45
+        const lp = [head.x, head.y]
+        for (let q = 0; q <= 8; q++) { const u2 = t - h + 2 * h * q / 8; lp.push(head.x + Math.cos(u2) * R * 0.4, head.y + Math.sin(u2) * R * 0.4) }
+        teleG.poly(lp).fill({ color: 0xcfeaff, alpha: 0.08 * dk * flick })
       }
     }
     // ---- THE BITE IS THE HEAD'S OWN MOUTH (syncKrakenHeadRig poses it off head.biteT and the

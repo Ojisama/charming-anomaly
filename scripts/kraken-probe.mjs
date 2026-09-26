@@ -93,7 +93,7 @@ function fight(seed) {
   const rung = C.krakenRung(DIFF)
 
   let parries = 0, whiffs = 0, limpWindows = 0, staggers = 0, levels = 0
-  let ringT = 0, limpT = 0, chaseT = 0, won = false, maxRearing = 0, enraged = -1, coilWind = 0, coilClose = 0, ringParries = 0, ringBreaks = 0, ringBlazes = 0
+  let ringT = 0, limpT = 0, chaseT = 0, won = false, maxRearing = 0, enraged = -1, coilWind = 0, coilClose = 0, ringParries = 0, ringBreaks = 0, ringBlazes = 0, enrT = 0, enrRears = 0
   let slamRears = 0, dmg = 0, coilDmg = 0, coilLash = 0, slamLands = 0, slamHits = 0, grabs = 0, grips = 0, grabMiss = 0, gripDmg = 0
   const botRnd = mulberry32(seed ^ 0x5bd1e995)
   let pinned = false, chaseDmg = 0
@@ -214,6 +214,7 @@ function fight(seed) {
     if (rearing > maxRearing) maxRearing = rearing
     if (s.phase === 'boss') ringT += DT
     if (s.phase === 'chase') chaseT += DT
+    if (s.enraged) enrT += DT
     if (limp.length) limpT += DT
 
     run.player.hp = run.player.maxHP
@@ -244,7 +245,7 @@ function fight(seed) {
       if (e.type === 'hurt' && e.src === 'krakenArm' && run.events.some((q) => q.type === 'lash' && !q.coil) && !run.events.some((q) => q.type === 'lash' && q.coil)) slamHits++
       if (e.type === 'parry' || e.type === 'parryPerfect') parries++
       else if (e.type === 'parryWhiff' || e.type === 'parryEarly') whiffs++
-      else if (e.type === 'armRear') slamRears++
+      else if (e.type === 'armRear') { slamRears++; if (s.enraged) enrRears++ }
       else if (e.type === 'headStagger') staggers++
       else if (e.type === 'krakenEnrage') enraged = e.n
       else if (e.type === 'coilWind') coilWind++
@@ -256,7 +257,7 @@ function fight(seed) {
     run.events.length = 0
   }
   return {
-    won, t: run.time, slamRears, parries, whiffs, staggers, levels, maxRearing, enraged, coilWind, coilClose, ringParries, ringBreaks, ringBlazes, dmg, coilDmg, coilLash, slamLands, slamHits, grabs, grips, grabMiss, gripDmg,
+    won, t: run.time, slamRears, parries, whiffs, staggers, levels, maxRearing, enraged, coilWind, coilClose, ringParries, ringBreaks, ringBlazes, enrT, enrRears, armsEnd: run.krakenArms.length, dmg, coilDmg, coilLash, slamLands, slamHits, grabs, grips, grabMiss, gripDmg,
     broken: run.krakenArms.filter((a) => a.dead).length, arms: run.krakenArms.length,
     chaseDmg, bySrc, ringT, limpT, chaseT, headLeft: Math.round(run.script?.headHp ?? 0),
   }
@@ -299,6 +300,7 @@ console.log(`plain slams landed    ${f('slamLands')}   of them hit ${f('slamHits
 // THE RING'S THROUGHPUT, per minute of the whole fight: slam wind-ups, grab wind-ups, parries landed.
 const pm = (k) => '[' + rs.map((r) => (r[k] / (r.t / 60)).toFixed(1)).join(' ') + ']  mean ' + (rs.reduce((q, r) => q + r[k] / (r.t / 60), 0) / rs.length).toFixed(2)
 console.log('per minute     slams ' + pm('slamRears') + '   grabs ' + pm('grabs') + '   parries ' + pm('parries'))
+console.log('last phase: slams per minute [' + rs.map((r) => (r.enrT > 1 ? (r.enrRears / (r.enrT / 60)).toFixed(1) : '-')).join(' ') + ']  arms at the end [' + rs.map((r) => r.armsEnd ?? '-').join(' ') + ']')
 console.log('arm attacks per minute of ring [' + rs.map((r) => ((r.slamRears + r.grabs + r.coilWind) / (r.ringT / 60)).toFixed(1)).join(' ') + ']  mean ' + (rs.reduce((q, r) => q + (r.slamRears + r.grabs + r.coilWind) / (r.ringT / 60), 0) / rs.length).toFixed(2)
   + '  pooled ' + (rs.reduce((q, r) => q + r.slamRears + r.grabs + r.coilWind, 0) / (rs.reduce((q, r) => q + r.ringT, 0) / 60)).toFixed(2))
 console.log('fight mean     ' + (rs.reduce((q, r) => q + r.t, 0) / rs.length).toFixed(1) + 's')

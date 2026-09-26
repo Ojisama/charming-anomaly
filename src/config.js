@@ -8689,11 +8689,14 @@ export const KRAKEN_RUNGS = [
   //    (27 against 36) and won 2/6 — the decay eating them faster than they filled.
   // balance_decision : arms attack half as often, owner 2026-09-26
   //  - cadence alone is not the rate: d2/d3 needed x2.55 for -50% (the beat and `rearing` also gate)
+  // balance_decision : d3's last phase grows 3 more arms and rears 3 at once, owner 2026-09-26
+  //  - its coils drop to every 8th turn (enrageCoilEvery/At): at every 4th they ate a third of its slams
+  //  - enrageFree: its slams skip the one-answer beat (owner 2026-09-26): ~26/min, dodge what you can't parry
   // balance_decision : arms attack 20% more often, owner 2026-09-26
   //  - measure POOLED over 48 seeds (kraken-probe --cadence): per-fight rates swing +-30%
   { arms: 4, rearing: 1, window: 0.34, lungeWindow: 0.52, perfect: 0.150, fuse: 2.20, limp: 4.0, cadence: 2.55, staggerNeed: 2, drainMul: 1.00, headHpMul: 1.00, grip: false, coil: false, grabbers: 0 },
   { arms: 5, rearing: 2, window: 0.28, lungeWindow: 0.46, perfect: 0.125, fuse: 1.80, limp: 3.2, cadence: 1.45, staggerNeed: 3, drainMul: 1.30, headHpMul: 1.02, grip: true,  coil: false, grabbers: 2 },
-  { arms: 6, rearing: 2, window: 0.24, lungeWindow: 0.42, perfect: 0.110, fuse: 1.50, limp: 2.6, cadence: 1.45, staggerNeed: 3, drainMul: 1.60, headHpMul: 1.30, grip: true,  coil: true,  grabbers: 2 },
+  { arms: 6, rearing: 2, window: 0.24, lungeWindow: 0.42, perfect: 0.110, fuse: 1.50, limp: 2.6, cadence: 1.45, staggerNeed: 3, drainMul: 1.60, headHpMul: 1.30, grip: true,  coil: true,  grabbers: 2, enrageArms: 3, enrageRearing: 3, enrageCoilEvery: 8, enrageCoilAt: 6, enrageCadence: 0.45, enrageFree: true },
 ]
 // The one accessor, so no site has to remember the difficulty-1 offset or the clamp. The cap is
 // enforced by the chapter, but a probe or a migrated save can hand this anything.
@@ -9032,10 +9035,14 @@ export const KRAKEN_BEAT_BITE_CLEAR = 0.6
 // THE COIL (P3, D3 only). Every Nth arm attack the whole ring hauls inward at once, and the only
 // place that is not swept is ONE sector — the gap. NOT PARRYABLE by design: the parry must not be
 // the answer to everything, or it stops being a choice. You read the gap and you move.
-// balance_decision : coils twice as often, on a slam's turn, owner 2026-09-26
+// balance_decision : a coil every 4th turn, on a slam's, owner 2026-09-26
 //  - keep EVERY a multiple of KRAKEN_GRIP_EVERY and AT off it, or the coil eats the grabs
-export const KRAKEN_COIL_EVERY = 8 // arm attacks between coils
-export const KRAKEN_COIL_AT = 6 // which turn of each KRAKEN_COIL_EVERY is the coil (a slam's, not a grab's)
+export const KRAKEN_COIL_EVERY = 4 // arm attacks between coils
+export const KRAKEN_COIL_AT = 2 // which turn of each KRAKEN_COIL_EVERY is the coil (a slam's, not a grab's)
+// THE COIL IS A STAR (owner, 2026-09-26): the rearing ring throws KRAKEN_COIL_RAYS arm-shadows across
+// the whole arena through the head, one aimed at where the fish stood; inside a band when it lands
+// is the hit (krakenCoilStarHits), the wedges between are safe.
+export const KRAKEN_COIL_RAYS = 6
 export const KRAKEN_COIL_TELE = 1.6 // s of wind-up before the ring closes — long, it is a move test
 export const KRAKEN_COIL_DUR = 0.9 // s the ring spends hauled in
 export const KRAKEN_COIL_IN = 0.34 // the fraction of KRAKEN_ARM_REACH the arms close to

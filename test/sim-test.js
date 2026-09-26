@@ -170,7 +170,7 @@ import {
   // The Kraken (run KR): the rung table and the ring's numbers
   krakenRung, KRAKEN_RUNGS, KRAKEN_ARM_REACH, KRAKEN_WAVE_TIMEOUT,
   KRAKEN_RISE_T, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, hiddenChapters, KRAKEN_CAGE_R, KRAKEN_PARRY_CD,
-  KRAKEN_OPEN_WAVES, KRAKEN_COIL_EVERY, KRAKEN_COIL_AT, KRAKEN_ARRIVE_T, KRAKEN_RING_R, KRAKEN_LASH_R, KRAKEN_SLAM_T, KRAKEN_DEFLECT_CD,
+  KRAKEN_OPEN_WAVES, KRAKEN_COIL_EVERY, KRAKEN_COIL_AT, KRAKEN_COIL_RAYS, KRAKEN_ENRAGE_AT, KRAKEN_ARRIVE_T, KRAKEN_RING_R, KRAKEN_LASH_R, KRAKEN_SLAM_T, KRAKEN_DEFLECT_CD,
   KRAKEN_LUNGE_T, KRAKEN_GRIP_DUR, KRAKEN_GRIP_DMG, KRAKEN_GRIP_FLICKS, KRAKEN_GRIP_STICK_MUL, TRAWL_WIGGLE_ARC,
   KRAKEN_LASH_W, KRAKEN_LASH_OVER, KRAKEN_LASH_DMG, KRAKEN_LESSON_MAX, KRAKEN_PARRY_SHOVE_R, KRAKEN_PARRY_EARLY_T, KRAKEN_LIMP_CLEAR, KRAKEN_ARRIVE_T2, KRAKEN_WAVE_GROWTH, KRAKEN_COIL_DMG,
   KRAKEN_HEAD_SPEED, KRAKEN_PARRY_SPIN_T, krakenLimbHalfW, FISH_R, FISH_BODY, KRAKEN_GRIP_EVERY, KRAKEN_GRAB_FUSE, KRAKEN_GRAB_MIN_STEP, KRAKEN_PINCH_OPEN0, KRAKEN_PINCH_OPEN1,
@@ -20323,6 +20323,7 @@ run(testLeLargeWeapons)
   run(testKrakenLesson)
   run(testKrakenParryShove)
   run(testKrakenGrab)
+  run(testKrakenEnrage)
   run(testKrakenBeat)
   run(testKrakenNowCue)
   run(runKrakenCeremony)
@@ -34904,7 +34905,7 @@ function runKraken() {
     const code = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8').replace(/\/\/.*$/gm, '')
     for (const [needle, why] of [
       ['held.gripWiggle', 'the wiggle prompt\'s pips no longer read the struggle counter, so they never fill'],
-      ['s.coilGap', 'the Coil\'s way out is no longer drawn on the spared arm\'s bearing'],
+      ['s.coilStar', 'the Coil\'s star is no longer drawn on the bands sim strikes'],
       ['KRAKEN_GRIP_FLICKS', 'the wiggle prompt no longer draws one pip per flick the escape takes'],
       ["e.src === 'krakenHead'", 'the head\'s burning rim no longer flares on the touch that hurt'],
     ]) assert.ok(code.includes(needle), `render.js no longer reads ${needle}: ${why}`)
@@ -35162,6 +35163,13 @@ function runKraken() {
       const spared = able.find((a) => !a.coilArm)
       assert.ok(spared && Math.abs(spared.ang - run.script.coilGap) < 1e-6,
         'the gap render draws is not the spared arm\'s bearing — the safe wedge would point at a lane that is about to land')
+      // THE STAR IS AIMED: one band runs through where the fish stood when it wound up
+      {
+        const hd = run.enemies.find((e) => e.rosterId === 'krakenHead' && !e._dead)
+        let dA = Math.atan2(run.player.y - hd.y, run.player.x - hd.x) - run.script.coilStar
+        dA = Math.atan2(Math.sin(dA), Math.cos(dA))
+        assert.ok(Math.abs(dA) < 0.05, `the Coil's star missed the fish by ${(dA * 180 / Math.PI).toFixed(0)}deg — standing still would be safe`)
+      }
       // a press during the volley must not defuse any of it
       const before = armed.length
       run.player.hp = run.player.maxHP
@@ -35181,24 +35189,33 @@ function runKraken() {
         const run = inBlock(3)
         run.script.bossIdx = 2
         run.script.gripN = KRAKEN_COIL_AT - 1
+        // the fish waits HALFWAY BETWEEN two arms, so the star it aims is off the arms' own lanes
+        const hd0 = run.enemies.find((e) => e.rosterId === 'krakenHead' && !e._dead)
+        const b0 = run.krakenArms[0].ang + Math.PI / run.krakenArms.length
         let guard = 0
         while (guard++ < 60 * 30 && !(run.script.coilT > 0)) {
+          run.player.x = hd0.x + Math.cos(b0) * 200; run.player.y = hd0.y + Math.sin(b0) * 200
           run.player.hp = run.player.maxHP
           stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
         }
         assert.ok(run.script.coilT > 0, 'no Coil fired within 30s of its gates being open')
         const live = run.krakenArms.filter((a) => !a.dead)
         const spared = live.find((a) => !a.coilArm && a.limpT <= 0 && !(a.gripT > 0))
-        const lane = pick === 'spared' ? spared : live.find((a) => a.coilArm)
-        // the spared arm can be mid-rear when the Coil takes the ring; its old fuse must not land in the gap
-        if (pick === 'spared') { spared.tele = 0.5; spared.fuse = krakenRung(3).fuse }
-        // a point on the chosen lane 260px out from the head, inside the cage and clear of every
-        // other lane — or, for 'centre', the head end, where every struck lane overlaps
-        const out = pick === 'centre' ? 0 : 260
-        const at = () => {
-          const L = Math.hypot(lane.lx0 - lane.lx1, lane.ly0 - lane.ly1) || 1
-          return { x: lane.lx1 + (lane.lx0 - lane.lx1) / L * out, y: lane.ly1 + (lane.ly0 - lane.ly1) / L * out }
+        // the spared arm can be mid-rear when the Coil takes the ring; its old fuse must not land on the fish
+        if (pick === 'spared' && spared) { spared.tele = 0; spared.fuse = 0 }
+        // THE STAR (owner, 2026-09-26): a point 260px out from the head on the first band (the one
+        // aimed at the fish), mid-wedge between two bands, or the head, where every band overlaps
+        const hd = run.enemies.find((e) => e.rosterId === 'krakenHead' && !e._dead)
+        let bear = (run.script.coilStar ?? 0) + (pick === 'spared' ? Math.PI / KRAKEN_COIL_RAYS : 0)
+        if (pick === 'laneInWedge') {
+          // a coil arm's own bearing that is well off every band: its old lane runs through a wedge
+          const off = (b) => Math.min(...Array.from({ length: KRAKEN_COIL_RAYS }, (_, k) => { const d = b - (run.script.coilStar + k * Math.PI * 2 / KRAKEN_COIL_RAYS); return Math.abs(Math.atan2(Math.sin(d), Math.cos(d))) }))
+          const arm = live.filter((a) => a.coilArm).sort((x, y) => off(y.ang) - off(x.ang))[0]
+          bear = arm.ang
+          assert.ok(off(bear) * 260 > KRAKEN_LASH_W + 30, 'fixture: no coil arm lies clear of every band')
         }
+        const out = pick === 'centre' ? 0 : 260
+        const at = () => ({ x: hd.x + Math.cos(bear) * out, y: hd.y + Math.sin(bear) * out })
         const hits = []
         let lashes = 0
         guard = 0
@@ -35223,7 +35240,9 @@ function runKraken() {
       assert.deepStrictEqual(inMiddle.hits, [KRAKEN_COIL_DMG],
         `standing where every Coil lane overlaps cost [${inMiddle.hits}] — the Coil hits ONCE, not once per lane`)
       const inGap = coilRun('spared')
-      assert.deepStrictEqual(inGap.hits, [], `standing in the SPARED lane cost [${inGap.hits}] — the gap is not safe, so the Coil has no answer`)
+      assert.deepStrictEqual(inGap.hits, [], `standing between two of the star's bands cost [${inGap.hits}] — the wedges are not safe, so the Coil has no answer`)
+      const onOldLane = coilRun('laneInWedge')
+      assert.deepStrictEqual(onOldLane.hits, [], `standing on a rearing arm's own lane but between two bands cost [${onOldLane.hits}] — the hit is the arms' lanes, not the star that is drawn`)
     }
 
     // ...AND ONE AUTHOR FOR THE LIMB'S SKIN. The strip is baked ONCE and a gripping arm is drawn as
@@ -35866,6 +35885,7 @@ function testKrakenGrab() {
     a0.hp = a0.maxHP; a1.dead = false
   }
   // THE COIL TAKES A SLAM'S TURN, NEVER A GRAB'S: twice as many coils must not mean half the pinches
+  for (const R of [1, 2, 3].map(krakenRung)) if (R.enrageCoilEvery) assert.ok(R.enrageCoilEvery % KRAKEN_GRIP_EVERY === 0 && R.enrageCoilAt % KRAKEN_GRIP_EVERY !== 0, 'a rung\'s last-phase coil lands on a grab\'s turn')
   assert.ok(KRAKEN_COIL_EVERY % KRAKEN_GRIP_EVERY === 0 && KRAKEN_COIL_AT % KRAKEN_GRIP_EVERY !== 0, `the coil (turn ${KRAKEN_COIL_AT} of ${KRAKEN_COIL_EVERY}) lands on a grab's turn (every ${KRAKEN_GRIP_EVERY})`)
   // THE TWO GRABBERS ARE THE PINCH'S JAWS; every other arm is out of the fight
   const [arm, mate] = run.krakenArms.filter((c) => c.role === 'grab')
@@ -36075,6 +36095,60 @@ function testKrakenGrab() {
 }
 
 
+// THE LAST PHASE AT D3 GROWS NEW ARMS AND SLAMS HARDER (owner, 2026-09-26: "the last phase of the
+// boss should have more arms regrowing in difficulty 3 that slam a lot on you"). At the enrage every
+// broken arm comes back AND krakenRung(3).enrageArms new ones grow; the ring may then rear
+// enrageRearing arms at once — and never more.
+function testKrakenEnrage() {
+  Math.random = mulberry32(20260926)
+  const R3 = krakenRung(3)
+  assert.ok(R3.enrageArms > 0 && R3.enrageRearing > R3.rearing, 'fixture: d3 has no extra arms or no higher cap in its last phase')
+  const run = createRun({ ...makeMeta(), krakenParried: true }, { chapter: 'kraken', difficulty: 3 })
+  const s = run.script
+  const step = () => { run.events.length = 0; if (run.phase === 'levelup') run.phase = 'playing'; run.player.hp = run.player.maxHP; run.player.invuln = 0; run.hitStop = 0; stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60) }
+  let guard = 0
+  while (s.phase !== 'boss' && guard++ < 60 * 200) step()
+  assert.strictEqual(s.phase, 'boss', 'the approach never reached the ring')
+  // break half the ring: the head rises into the chase
+  guard = 0
+  while (s.phase !== 'chase' && guard++ < 60 * 200) {
+    for (const a of run.krakenArms.slice(0, Math.ceil(run.krakenArms.length / 2))) if (!a.dead) { a.dead = true; a.hp = 0; s.blockKills++ }
+    step()
+  }
+  assert.strictEqual(s.phase, 'chase', 'breaking half the ring did not raise the head')
+  guard = 0
+  while (s.riseT > 0 && guard++ < 60 * 10) step()
+  const n0 = run.krakenArms.length
+  guard = 0
+  while (s.headId == null && guard++ < 60 * 10) step()
+  const head = run.enemies.find((e) => e.id === s.headId)
+  assert.ok(head, `no head on the field in the chase (phase ${s.phase}, headId ${s.headId}, riseT ${s.riseT})`)
+  guard = 0
+  while (!s.enraged && guard++ < 60 * 5) { head.hp = Math.min(head.hp, Math.floor(head.maxHP * KRAKEN_ENRAGE_AT) - 1); step() }
+  assert.ok(s.enraged, 'the head fell below KRAKEN_ENRAGE_AT and the last phase did not start')
+  assert.strictEqual(run.krakenArms.length, n0 + R3.enrageArms, `the last phase grew ${run.krakenArms.length - n0} new arms (want ${R3.enrageArms})`)
+  assert.ok(run.krakenArms.every((a) => !a.dead), 'an arm stayed broken through the last phase')
+  const grown = run.krakenArms.slice(n0)
+  assert.ok(grown.every((a) => a.role === 'slam' && a.hp > 0 && a.hp < a.maxHP && a.i === run.krakenArms.indexOf(a)), 'a grown arm is not a torn slam arm at its own index')
+  // ...and they SLAM: over 60s the ring rears up to the enraged cap, never past it, and the grown
+  // arms take turns too
+  let maxR = 0, grownRears = 0, slams = 0
+  for (let f = 0; f < 60 * 60 && run.phase === 'playing'; f++) {
+    const before = grown.map((a) => a.tele > 0)
+    step()
+    slams += run.events.filter((e) => e.type === 'armRear').length
+    const r = run.krakenArms.filter((a) => !a.dead && a.tele > 0 && !a.coilArm).length
+    maxR = Math.max(maxR, r)
+    grown.forEach((a, k) => { if (!before[k] && a.tele > 0 && !a.coilArm) grownRears++ })
+  }
+  assert.ok(maxR <= R3.enrageRearing, `${maxR} arms reared at once in the last phase (cap ${R3.enrageRearing})`)
+  assert.ok(maxR > R3.rearing, `the last phase never reared more than ${R3.rearing} at once — the higher cap does nothing`)
+  // ...and it SLAMS A LOT: over the beat (rung.enrageFree), measured 25 in 60s against 15 with the beat
+  assert.ok(slams >= 21, `the last phase slammed only ${slams}x in 60s — it is still spaced one answer at a time`)
+  assert.ok(grownRears >= 3, `the grown arms reared only ${grownRears} times in 60s — they are scenery`)
+  console.log(`PASS run KE (last phase, d3): ${R3.enrageArms} new arms grow beside the ${n0} returning, the ring rears up to ${maxR} at once (cap ${R3.enrageRearing}), the grown arms reared ${grownRears}x in 60s, ${slams} slams in 60s`)
+}
+
 // THE BEAT (run KB): every moment of the arms phase asks ONE answer. Whole seeded fights at d2 and
 // d3, played by a bot that parries every lunge and half the slams on a lit button, wiggles when held
 // and never dodges (so grabs land and holds happen), and every parry window, grab strike and coil is read off sim
@@ -36098,7 +36172,8 @@ function testKrakenBeat() {
     const grabs = [], coils = [], bites = []
     let coil = null, wig = 0, bite = null
     const coin = mulberry32(seed ^ 0x5bd1e995), answer = {}
-    for (let f = 0; f < 60 * 400 && run.phase !== 'victory'; f++) {
+    // the d3 last phase slams OVER the beat by design (rung.enrageFree, run KE): the beat ends there
+    for (let f = 0; f < 60 * 400 && run.phase !== 'victory' && !(run.script.enraged && krakenRung(diff).enrageFree); f++) {
       if (run.phase === 'levelup') run.phase = 'playing'
       const p = run.player
       const s = run.script
@@ -36147,7 +36222,7 @@ function testKrakenBeat() {
       for (const k of Object.keys(now)) if (!openBy[k]) { openBy[k] = { src: k, open: t, close: t }; P.push(openBy[k]) }
       for (const k of Object.keys(openBy)) { if (now[k]) openBy[k].close = t; else delete openBy[k] }
     }
-    assert.strictEqual(run.phase, 'victory', `d${diff} seed ${seed}: the fight never finished (${run.script.phase} at ${run.time.toFixed(0)}s), so the chase was not measured`)
+    assert.ok(run.phase === 'victory' || (run.script.enraged && krakenRung(diff).enrageFree), `d${diff} seed ${seed}: the fight never finished (${run.script.phase} at ${run.time.toFixed(0)}s), so the chase was not measured`)
     tot.fights++; tot.secs += run.time
     tot.slam += P.filter((w) => w.src !== 'lunge').length
     tot.lunge += P.filter((w) => w.src === 'lunge').length
