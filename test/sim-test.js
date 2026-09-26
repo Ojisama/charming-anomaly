@@ -174,7 +174,7 @@ import {
   KRAKEN_LUNGE_T, KRAKEN_GRIP_DUR, KRAKEN_GRIP_DMG, KRAKEN_GRIP_FLICKS, KRAKEN_GRIP_STICK_MUL, TRAWL_WIGGLE_ARC,
   KRAKEN_LASH_W, KRAKEN_LASH_OVER, KRAKEN_LASH_DMG, KRAKEN_LESSON_MAX, KRAKEN_PARRY_SHOVE_R, KRAKEN_PARRY_EARLY_T, KRAKEN_ARRIVE_T2, KRAKEN_WAVE_GROWTH, KRAKEN_COIL_DMG,
   KRAKEN_HEAD_SPEED, KRAKEN_PARRY_SPIN_T, krakenLimbHalfW, FISH_R, FISH_BODY, KRAKEN_GRIP_EVERY, KRAKEN_GRAB_FUSE, KRAKEN_GRAB_MIN_STEP,
-  KRAKEN_BEAT_READ, KRAKEN_BEAT_GRAB_CLEAR, KRAKEN_BEAT_BREATH, KRAKEN_TOUCH_QUIET_T, KRAKEN_TOUCH_REARM_T, KRAKEN_HEAD_R,
+  KRAKEN_BEAT_READ, KRAKEN_BEAT_GRAB_CLEAR, KRAKEN_BEAT_BREATH, KRAKEN_TOUCH_QUIET_T, KRAKEN_HEAD_R, KRAKEN_BITE_WINDUP_T, KRAKEN_BITE_GAP, KRAKEN_LUNGE_WINDUP_T,
 } from '../src/config.js'
 import { krakenWinPending, krakenGrabSafeSide, krakenGrabSpot, krakenGrabTurnClear, stepSim, applyChoice, buildLevelUpChoices, eligibleWeaponModCandidates, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, inRefillCircle, stepCharge, newElWindow, spurAt } from '../src/sim.js'
 
@@ -34910,44 +34910,61 @@ function runKraken() {
     ]) assert.ok(code.includes(needle), `render.js no longer reads ${needle}: ${why}`)
   }
 
-  // (h5) ONE HIT, ONE CAUSE: THE HEAD'S TOUCH GOES QUIET WHILE ANOTHER ASK IS ON SCREEN. Through
-  // the whole Coil (its safe gap starts against the head, so the correct dodge used to cost a touch)
-  // and through the lunge's wind-up (a touch there reads as "the lunge hit me"), and for
-  // KRAKEN_TOUCH_REARM_T after either, so the next touch is warned instead of instant. A CONTROL
-  // first: the same fixture, not quiet, must bill touches, or every zero below is the rig.
-  //   Mutations: drop s.coilT from the quiet (the Coil case bites); drop the lunge wind-up from it
-  // (the wind-up case bites); drop the re-arm hangover (the first frames after the quiet bite).
+  // (h5) THE HEAD'S TOUCH IS A BITE: A TELEGRAPHED ATTACK, ONE CAUSE PER HIT. Contact bills only the
+  // lunge; the touch is its own attack — the jaws wind up for KRAKEN_BITE_WINDUP_T (head.biteT) once
+  // the fish is inside the reach and snap, hurting only a fish still inside. It never winds up
+  // through a Coil or a lunge wind-up (and a quiet ending still leaves the whole wind-up), never where the
+  // snap would land within KRAKEN_BITE_GAP of a lunge wind-up. A CONTROL first: pinned inside the
+  // reach with nothing else on, the fixture MUST be bitten, or every zero below is the rig.
+  //   Mutations (each turns this red): drop s.coilT from the quiet; drop the lunge wind-up from it;
+  // bill the snap without the still-inside test; start the wind-up at 0
+  // (an instant bite, no lead); drop the lunge-gap check.
   {
     const run = inBlock(3)
     const s = run.script
     const h = headOf(run)
     s.phase = 'chase'; s.riseT = 0; s.staggerT = 0; s.stagger = 0
     for (const a of run.krakenArms) { a.tele = 0; a.gripT = 0; a.limpT = 0; a.dead = true }
-    const touches = (secs, pin) => {
-      let n = 0
+    const inside = () => { run.player.x = h.x + KRAKEN_HEAD_R * 0.95; run.player.y = h.y }
+    const bites = (secs, pin, place = inside) => {
+      const at = []
       for (let i = 0; i < Math.round(secs * 60); i++) {
         pin()
         h._lungeBurst = 0
-        run.player.x = h.x + KRAKEN_HEAD_R * 0.95; run.player.y = h.y
+        place()
         run.player.hp = run.player.maxHP
+        run.player.invuln = 0
         stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
-        for (const e of run.events.splice(0)) if (e.type === 'hurt' && e.src === 'krakenHead') n++
+        for (const e of run.events.splice(0)) if (e.type === 'hurt' && e.src === 'krakenHead') at.push(i / 60)
       }
-      return n
+      return at
     }
     const open = () => { s.coilT = 0; h.lungeT = KRAKEN_LUNGE_T }
-    h.touchRearmT = 0
-    const control = touches(2, open)
-    assert.ok(control >= 2, `the fixture billed ${control} head touches in 2s nosed up against the head with nothing else on — the zeros below would prove nothing`)
-    const coil = touches(1.5, () => { s.coilT = KRAKEN_COIL_TELE + KRAKEN_COIL_DUR; h.lungeT = KRAKEN_LUNGE_T })
-    assert.strictEqual(coil, 0, `the head's touch billed ${coil}x through a Coil — the correct dodge into the gap against the head costs hp`)
-    touches(KRAKEN_TOUCH_REARM_T + 0.8, open)   // let it re-arm and bill again
-    const wind = touches(1.5, () => { s.coilT = 0; h.lungeT = KRAKEN_TOUCH_QUIET_T * 0.5 })
-    assert.strictEqual(wind, 0, `the head's touch billed ${wind}x through the lunge's wind-up — it reads as the lunge hitting`)
-    const rearm = touches(KRAKEN_TOUCH_REARM_T * 0.8, open)
-    assert.strictEqual(rearm, 0, `the touch billed ${rearm}x in the first ${KRAKEN_TOUCH_REARM_T * 0.8}s after the wind-up — no warning ramp could have led it`)
-    const back = touches(1.5, open)
-    assert.ok(back >= 1, 'the touch never came back after the quiet — the tax is gone for good, not paused')
+    h.biteT = null; h.biteCd = 0
+    const control = bites(3, open)
+    assert.ok(control.length >= 2, `pinned inside the head's reach with nothing else on, the fish was bitten ${control.length}x in 3s — the zeros below would prove nothing`)
+    // THE LEAD: the first bite lands no sooner than the wind-up after the fish entered the reach
+    assert.ok(control[0] >= KRAKEN_BITE_WINDUP_T - 1 / 60, `the first bite landed ${control[0].toFixed(2)}s after the fish entered the reach — under the ${KRAKEN_BITE_WINDUP_T}s wind-up, so nothing could have warned of it`)
+    const coil = bites(1.5, () => { s.coilT = KRAKEN_COIL_TELE + KRAKEN_COIL_DUR; h.lungeT = KRAKEN_LUNGE_T })
+    assert.deepStrictEqual(coil, [], `the head bit ${coil.length}x through a Coil — the correct dodge into the gap against the head costs hp`)
+    bites(1.5, open)
+    const wind = bites(1.5, () => { s.coilT = 0; h.lungeT = KRAKEN_TOUCH_QUIET_T * 0.5 })
+    assert.deepStrictEqual(wind, [], `the head bit ${wind.length}x through the lunge's wind-up — it reads as the lunge hitting`)
+    const after = bites(KRAKEN_BITE_WINDUP_T * 0.95, open)
+    assert.deepStrictEqual(after, [], `the head bit ${after.length}x within ${KRAKEN_BITE_WINDUP_T}s of the lunge wind-up ending — no wind-up could have led it`)
+    // THE GAP: with the lunge's wind-up closer than a bite's wind-up + KRAKEN_BITE_GAP, no bite starts
+    h.biteT = null; h.biteCd = 0
+    const tight = bites(0.3, () => { s.coilT = 0; h.lungeT = KRAKEN_LUNGE_WINDUP_T + KRAKEN_BITE_WINDUP_T + KRAKEN_BITE_GAP * 0.5 })
+    assert.deepStrictEqual(tight, [], 'a bite landed inside KRAKEN_BITE_GAP of the lunge wind-up')
+    assert.strictEqual(h.biteT ?? null, null, 'a bite wound up where it would land within KRAKEN_BITE_GAP of the lunge wind-up — the two attacks land together')
+    // THE ANSWER WORKS: a fish that steps out during the wind-up is not bitten
+    h.biteT = null; h.biteCd = 0
+    bites(KRAKEN_BITE_WINDUP_T * 0.5, open)
+    assert.ok(h.biteT != null, 'the fixture never started a wind-up, so the step-out below proves nothing')
+    const out = bites(KRAKEN_BITE_WINDUP_T, open, () => { run.player.x = h.x + KRAKEN_HEAD_R + 60; run.player.y = h.y })
+    assert.deepStrictEqual(out, [], 'a fish that stepped out of the reach during the wind-up was bitten anyway — the attack has no answer')
+    const back = bites(2, open)
+    assert.ok(back.length >= 1, 'the bite never came back — the head no longer owns its space at all')
   }
 
   // (i) THE RING IS A CAGE, AND ONLY WHILE IT IS UP (owner: "i can get out of the arms circle and
@@ -35580,7 +35597,7 @@ function runKraken() {
       'a WHIFF left the player with no gesture — a press that found nothing and a press the game never registered are the same picture, which is the complaint')
   }
 
-  console.log('PASS run KR (The Kraken, rev 3): a standing arm is untouchable by all three weapons and puts nothing on the field, a parry makes it LIMP and materialises a real enemy at its tip that weapons do kill, a window closing takes that node away without paying a kill or xp and keeps the damage, finishing it breaks the arm for good, the ring never winds up more arms at once than its rung allows (d1/d2/d3), the head is sealed against hits AND burns until its posture breaks, staggerNeed parried lunges open the only window on it and a burn lit inside outlives it, a whiff reports itself and still pays the cooldown, the cage holds while the ring is up, all 3 rungs read arms/rearing/window/perfect/fuse/limp/cadence/staggerNeed with the windows nested, both hidden chapters resolve through HIDDEN_UNLOCKS with no id hardcoded in main/ui/state, the approach is 3 waves that never touch bossIdx and the ring closes in from the murk with the cage riding it, a sealed head answers every refused hit with a throttled deflect, an unparried slam holds its pose for KRAKEN_SLAM_T and lands down the WHOLE limb so the middle of the arena is not safe while a gap between two arms is, and render.js (comments stripped) reads limpT, fuse, hitT, slamT, the arrival ramp, the recorded arm tips, the stagger pips, the cage radius the sim published, the limb WRAPPING the player for a grip and the bend travelling down a striking limb; the chase head rises harmless (no bite during riseT), its touch goes quiet through a Coil and a lunge wind-up and re-arms after KRAKEN_TOUCH_REARM_T, and render.js reads the struggle counter, the Coil gap and the head-touch hurt for the fish\'s three cues')
+  console.log('PASS run KR (The Kraken, rev 3): a standing arm is untouchable by all three weapons and puts nothing on the field, a parry makes it LIMP and materialises a real enemy at its tip that weapons do kill, a window closing takes that node away without paying a kill or xp and keeps the damage, finishing it breaks the arm for good, the ring never winds up more arms at once than its rung allows (d1/d2/d3), the head is sealed against hits AND burns until its posture breaks, staggerNeed parried lunges open the only window on it and a burn lit inside outlives it, a whiff reports itself and still pays the cooldown, the cage holds while the ring is up, all 3 rungs read arms/rearing/window/perfect/fuse/limp/cadence/staggerNeed with the windows nested, both hidden chapters resolve through HIDDEN_UNLOCKS with no id hardcoded in main/ui/state, the approach is 3 waves that never touch bossIdx and the ring closes in from the murk with the cage riding it, a sealed head answers every refused hit with a throttled deflect, an unparried slam holds its pose for KRAKEN_SLAM_T and lands down the WHOLE limb so the middle of the arena is not safe while a gap between two arms is, and render.js (comments stripped) reads limpT, fuse, hitT, slamT, the arrival ramp, the recorded arm tips, the stagger pips, the cage radius the sim published, the limb WRAPPING the player for a grip and the bend travelling down a striking limb; the chase head rises harmless (no bite during riseT), its touch is a BITE with a KRAKEN_BITE_WINDUP_T lead that stepping out beats, quiet through a Coil and a lunge wind-up, never within KRAKEN_BITE_GAP of a lunge wind-up, and render.js reads the struggle counter, the Coil gap and the head-touch hurt for the fish\'s three cues')
 }
 
 // ---- Run KC: The Kraken's ceremony (the kill outro's contract) --------------------------------

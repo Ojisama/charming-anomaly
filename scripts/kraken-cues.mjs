@@ -55,6 +55,7 @@ const SECS = Number(arg('secs', 120))
 const CONFLICT_T = Number(arg('conflictT', 0.4))
 const MISS_GRAB = Number(arg('missGrab', 0))   // fraction of grab wind-ups the bot ignores, so holds happen
 const HUG = Number(arg('hug', 0))              // chase orbit in head radii (0 = the default 0.9 x reach)
+const DODGE_BITE = arg('dodgeBite', '1') !== '0'   // --dodgeBite 0: the bot ignores the jaws (what a player who does not read them takes)
 const WIGGLE_ON = arg('wiggleOn', 'wiggle')      // the tell the bot wiggles on: the prompt, or 'hold' (the wrapped limb)
 const BROWSER = arg('browser', null)
 const LIST = argv.includes('--list')
@@ -122,21 +123,14 @@ async function headless(diff, seed) {
     const lunge = s.phase === 'chase' && !(s.staggerT > 0) && head.lungeT > 0
     if (lunge && head.lungeT <= C.KRAKEN_LUNGE_WINDUP_T) tells.push({ src: 'head', i: -1, kind: 'lungeCharge', x: head.x, y: head.y })
     if (lunge && head.lungeT <= rung.lungeWindow) { tells.push({ src: 'head', i: -1, kind: 'lungeFlash', x: head.x, y: head.y }); winAny = true }
-    // REPLICA of drawKrakenCues' head-touch rule: a WARNING, lit (past its 0.25 publish threshold)
-    // only when the fish is within 50px of the touch reach AND its i-frames are in their last 0.225s
-    // (or the last 0.6s of a rise or stagger), never while sim's re-arm clock head.touchRearmT > 0.3
-    const Rc = (head.radius ?? C.KRAKEN_HEAD_R) + (p.radius ?? C.PLAYER.radius)
-    const touchSoon = (s.riseT > 0 && s.riseT < 0.6) || (s.staggerT > 0 && s.staggerT < 0.6)
-    const quiet = (head.touchRearmT ?? 0) > 0.3
-    const armed = touchSoon || (!(s.riseT > 0) && !(s.staggerT > 0) && ((head.dmg ?? 0) > 0 || (head.touchRearmT ?? 0) > 0))
-    const soon = touchSoon || Math.max(p.invuln ?? 0, head.touchRearmT ?? 0) < 0.225
-    if (s.phase === 'chase' && !quiet && armed && soon && Math.hypot(p.x - head.x, p.y - head.y) < Rc + 50) tells.push({ src: 'head', i: -1, kind: 'headTouch', x: head.x, y: head.y })
+    // REPLICA of drawKrakenCues' bite rule: the jaws are drawn for as long as sim's head.biteT runs
+    if (s.phase === 'chase' && head.biteT != null) tells.push({ src: 'head', i: -1, kind: 'headBite', x: head.x, y: head.y })
     // REPLICA of render.js's press-ring rule (drawKrakenRing): lit only while sim's run.parryReady
     if (winAny && r.parryReady === true) tells.push({ src: 'player', i: -1, kind: 'pressRing', x: p.x, y: p.y })
     return tells
   }
   globalThis.window = {
-    __cfg: C, __kcParams: { secs: SECS, seed, conflictT: CONFLICT_T, missGrab: MISS_GRAB, hug: HUG, wiggleOn: WIGGLE_ON }, __kcOracle: true, __tells: [],
+    __cfg: C, __kcParams: { secs: SECS, seed, conflictT: CONFLICT_T, missGrab: MISS_GRAB, hug: HUG, wiggleOn: WIGGLE_ON, dodgeBite: DODGE_BITE }, __kcOracle: true, __tells: [],
     __renderer: { sync: (r) => { globalThis.window.__tells = oracle(r) } },
   }
   const H = {
@@ -154,7 +148,7 @@ async function headless(diff, seed) {
 // ------------------------------------------------------------------ browser: fx-probe, real tells
 function browser(diff, seed, dir) {
   const json = join(dir, `kc-d${diff}-${seed}.json`)
-  const url = BROWSER + (BROWSER.includes('?') ? '&' : '?') + `secs=${SECS}&seed=${seed}&conflictT=${CONFLICT_T}&missGrab=${MISS_GRAB}&hug=${HUG}&wiggleOn=${WIGGLE_ON}`
+  const url = BROWSER + (BROWSER.includes('?') ? '&' : '?') + `secs=${SECS}&seed=${seed}&conflictT=${CONFLICT_T}&missGrab=${MISS_GRAB}&hug=${HUG}&wiggleOn=${WIGGLE_ON}&dodgeBite=${DODGE_BITE ? 1 : 0}`
   const r = spawnSync('node', [new URL('./fx-probe.mjs', import.meta.url).pathname, '--scene', SCENE, '--out', join(dir, `kc-d${diff}-${seed}`),
     '--chapter', 'kraken', '--difficulty', String(diff), '--url', url, '--json', json, '--wait', String(Math.max(60000, SECS * 2500))], { encoding: 'utf8' })
   if (r.status !== 0) { console.error(r.stdout + r.stderr); console.error(`ABORT: fx-probe failed for d${diff} seed ${seed}`); process.exit(1) }
@@ -171,7 +165,7 @@ function report(label, rs) {
   if (armsT < 30) { console.error(`ABORT: only ${armsT.toFixed(0)}s of arms phase — nothing to grade`); process.exit(1) }
   console.log('kind    seen  correct answer  success   (per minute of arms phase)')
   const all = rs.flatMap((r) => r.attacks.map((a) => ({ ...a, seed: r.seed })))
-  for (const k of ['slam', 'grab', 'hold', 'coil', 'lunge']) {
+  for (const k of ['slam', 'grab', 'hold', 'coil', 'lunge', 'bite']) {
     const xs = all.filter((a) => a.kind === k)
     const c = xs.filter((a) => a.correct).length, o = xs.filter((a) => a.ok).length
     console.log(`${k.padEnd(6)} ${String(xs.length).padStart(5)}  ${`${c}/${xs.length} ${pct(c, xs.length)}`.padStart(14)}  ${`${o}/${xs.length} ${pct(o, xs.length)}`.padStart(12)}   ${(xs.length / (armsT / 60)).toFixed(2)}/min`)
@@ -261,8 +255,8 @@ function report(label, rs) {
   for (const r of rs) for (const [k, v] of Object.entries(r.glow.btnClasses || {})) cls[k] = (cls[k] || 0) + v
   if (Object.keys(cls).length) console.log('HUD button classes (frames): ' + Object.entries(cls).map(([k, v]) => `"${k}" ${v}`).join('  '))
   // EVERY HIT THE PLAYER TOOK, by source, and how many had NO drawn source in the 0.5s before it
-  // (the scene's HIT_TELLS: an arm hit needs an arm tell, a lunge the lunge's, a head TOUCH the
-  // headTouch tell; any other src is an add whose body is its own tell). The rig is immortal, so this
+  // (the scene's HIT_TELLS: an arm hit needs an arm tell, a lunge the lunge's, a head BITE the
+  // headBite tell; any other src is an add whose body is its own tell). The rig is immortal, so this
   // is a damage-taken profile, not a cause of death.
   const hs = rs.flatMap((r) => (r.hits || []).map((h) => ({ ...h, seed: r.seed })))
   const bySrc = {}
@@ -282,7 +276,7 @@ if (REPORT) {
   for (const d of [...new Set(rs.map((r) => r.difficulty))]) report(`d${d}`, rs.filter((r) => r.difficulty === d))
   process.exit(0)
 }
-console.log(`kraken-cues: ${BROWSER ? 'BROWSER ' + BROWSER : 'HEADLESS'}  diffs ${DIFFS.join(',')}  seeds ${SEEDS.join(',')}  ${SECS}s of arms phase (boss + chase) per run  missGrab ${MISS_GRAB}  hug ${HUG || 'off'}  wiggles on '${WIGGLE_ON}'`)
+console.log(`kraken-cues: ${BROWSER ? 'BROWSER ' + BROWSER : 'HEADLESS'}  diffs ${DIFFS.join(',')}  seeds ${SEEDS.join(',')}  ${SECS}s of arms phase (boss + chase) per run  missGrab ${MISS_GRAB}  hug ${HUG || 'off'}  wiggles on '${WIGGLE_ON}'  dodges bites ${DODGE_BITE ? 'yes' : 'NO'}`)
 const dir = BROWSER ? mkdtempSync(join(tmpdir(), 'kraken-cues-')) : null
 for (const d of DIFFS) {
   const rs = []

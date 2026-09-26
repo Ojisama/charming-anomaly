@@ -227,7 +227,8 @@ import {
   KRAKEN_LIMP_PERFECT_MUL, KRAKEN_STAGGER_T, KRAKEN_STAGGER_DECAY, KRAKEN_LIMP_FLASH,
   KRAKEN_RISE_AT, KRAKEN_ENRAGE_AT, KRAKEN_ENRAGE_CADENCE, KRAKEN_ENRAGE_ARM_HP, KRAKEN_STAGGER_BITE,
   KRAKEN_EXPOSE_BITE, KRAKEN_HITSTOP_PARRY, KRAKEN_HITSTOP_BREAK, KRAKEN_HITSTOP_STAGGER,
-  KRAKEN_HEAD_TOUCH_DMG, KRAKEN_TOUCH_QUIET_T, KRAKEN_TOUCH_REARM_T,
+  KRAKEN_HEAD_TOUCH_DMG, KRAKEN_TOUCH_QUIET_T,
+  KRAKEN_BITE_WINDUP_T, KRAKEN_BITE_CD, KRAKEN_BITE_SLACK, KRAKEN_BITE_GAP,
   KRAKEN_CAGE_R,
   KRAKEN_LASH_R, KRAKEN_LASH_DMG, KRAKEN_LIGHT_START, KRAKEN_HAUL_R, KRAKEN_LASH_W, KRAKEN_LASH_OVER,
   KRAKEN_LIMB_HW, krakenLimbHalfW,
@@ -2770,11 +2771,39 @@ function stepKrakenChase(run, dt, rung, head) {
   // ...and it goes QUIET while another ask is on screen (KRAKEN_TOUCH_QUIET_T): through the whole
   // Coil, whose safe gap starts right against the head, and through the lunge's wind-up, where a
   // touch landing reads as "the lunge hit me". One hit, one visible cause.
-  // It comes back KRAKEN_TOUCH_REARM_T after the quiet ends (head.touchRearmT, which render's rim
-  // ramps on), so a touch after a parried lunge or a Coil is warned rather than instant.
+  //   AND IT IS A BITE, NOT A TICK. Contact damage billed every i-frame window made 98% of all chase
+  // hits a proximity tax nobody could read, while the telegraphed lunge was parried every time.
+  // Contact now bills ONLY the lunge; the touch is its own attack: once the fish is inside the reach
+  // the jaws wind up (head.biteT, which render draws as closing jaws) and SNAP, and the snap hurts
+  // only a fish still inside the reach. Stepping out is the answer, and it works: 220px/s against a
+  // 165px/s head clears the reach inside the wind-up. A bite never starts where it would land within
+  // KRAKEN_BITE_GAP of a lunge wind-up, and cannot start in the re-arm after one, so the two
+  // attacks never land together.
   const touchQuiet = s.coilT > 0 || (head.lungeT > 0 && head.lungeT <= KRAKEN_TOUCH_QUIET_T)
-  head.touchRearmT = touchQuiet ? KRAKEN_TOUCH_REARM_T : Math.max(0, (head.touchRearmT ?? 0) - dt)
-  head.dmg = (head._lungeBurst ?? 0) > 0 ? KRAKEN_LUNGE_DMG : head.touchRearmT > 0 ? 0 : KRAKEN_HEAD_TOUCH_DMG
+  const bursting = (head._lungeBurst ?? 0) > 0
+  head.dmg = bursting ? KRAKEN_LUNGE_DMG : 0
+  {
+    const p = run.player
+    const reach = (head.radius ?? KRAKEN_HEAD_R) + PLAYER.radius
+    const d = Math.hypot(p.x - head.x, p.y - head.y)
+    head.biteCd = Math.max(0, (head.biteCd ?? 0) - dt)
+    if (head.biteT != null) {
+      if (touchQuiet || bursting || d > reach + KRAKEN_BITE_SLACK) head.biteT = null
+      else {
+        head.biteT -= dt
+        if (head.biteT <= 0) {
+          head.biteT = null
+          head.biteCd = KRAKEN_BITE_CD
+          const hit = d <= reach && !(p.invuln > 0)
+          run.events.push({ type: 'headBite', x: head.x, y: head.y, px: p.x, py: p.y, hit })
+          if (hit && hurtPlayer(run, KRAKEN_HEAD_TOUCH_DMG, false, 'krakenHead')) return true
+        }
+      }
+    } else if (!touchQuiet && !bursting && head.biteCd <= 0 && d <= reach &&
+      head.lungeT - KRAKEN_LUNGE_WINDUP_T >= KRAKEN_BITE_WINDUP_T + KRAKEN_BITE_GAP) {
+      head.biteT = KRAKEN_BITE_WINDUP_T
+    }
+  }
   if (head.lungeT == null) head.lungeT = KRAKEN_LUNGE_T
   // `lungeT` counts DOWN to the strike, so the parry window is its last `rung.window` seconds —
   // the same read as an arm's, deliberately: one verb, one timing, two bodies.
@@ -2799,7 +2828,9 @@ function stepKrakenChase(run, dt, rung, head) {
   // what makes this a rest rather than a boundary to bounce on.
   const hd = Math.hypot(head.x - run.player.x, head.y - run.player.y)
   const closing = (head._lungeBurst ?? 0) > 0
-  head.speed = hd < KRAKEN_HEAD_R && !closing ? 0 : (closing ? KRAKEN_HEAD_SPEED * 2 : KRAKEN_HEAD_SPEED)
+  // ...and it SETS ITSELF TO BITE: still for the whole wind-up, so stepping out works at any speed
+  // the fish has (the dark's slow included), not only when it outruns a head still hunting it.
+  head.speed = head.biteT != null ? 0 : hd < KRAKEN_HEAD_R && !closing ? 0 : (closing ? KRAKEN_HEAD_SPEED * 2 : KRAKEN_HEAD_SPEED)
   if ((head._lungeBurst ?? 0) > 0) head._lungeBurst -= dt
   return false
 }
