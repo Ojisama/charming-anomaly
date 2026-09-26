@@ -20154,15 +20154,15 @@ void main() {
         // backing so it holds against the lit seabed, hot orange at the running front settling to a
         // deep ember behind it. Saturated colour and no white — the window's flash stays the loudest.
         const age = Math.max(0, Math.min(1, (tF - t) / 0.12))
-        let col = mix(0xffb040, 0xff4a14, age)
+        let col = mix(0xff8a2a, 0xe03a10, age)
         // the lead-in's beads burn hotter as they are reached, and the whole run heats with it
         const hot = t >= tLead ? lead : 0
-        if (hot > 0) col = mix(col, 0xffe6b8, 0.35 + 0.45 * hot)
+        if (hot > 0) col = mix(col, 0xffd8c0, 0.35 + 0.45 * hot)
         const rs = 1 + 0.25 * hot
         G.circle(x, y, r * 1.55 * rs).fill({ color: 0x1a0500, alpha: 0.6 })
         G.circle(x, y, r * 2.6 * rs).fill({ color: col, alpha: 0.14 + 0.18 * (1 - age) + 0.15 * hot })
         G.circle(x, y, r * 1.25 * rs).fill({ color: col, alpha: 0.9 + 0.1 * (1 - age) })
-        if (age < 0.5) G.circle(x, y, r * 0.55).fill({ color: 0xffe0a0, alpha: 0.9 * (1 - age * 2) })
+        if (age < 0.5) G.circle(x, y, r * 0.55).fill({ color: 0xffd0b0, alpha: 0.9 * (1 - age * 2) })
       }
     }
     if (!grab) return
@@ -20554,6 +20554,25 @@ void main() {
     // ONE GLYPH PER ARM IN ITS WINDOW (two slams can overlap), each drawn only while a press would
     // reach that arm — the same reach sim's krakenArmInReach tests, every frame, so stepping off the
     // line takes the glyph away and the glyph can never promise a parry the press would not make.
+    // PHASE 1, THE LEAD-IN: in the K_LEAD_T before a reachable plain slam's window opens, a THIN,
+    // DIM ring already converges on the fish from K_NOW_LEAD to K_NOW_OPEN — the countdown at the
+    // place the eye is, in step with the bead front running up the arm. It snaps bright and thick
+    // when the window opens (phase 2, the first frame of the glyph below) and closes to the inner
+    // ring on the impact (phase 3).
+    if (rung) {
+      const cdk = (run.repulseCd ?? 0) <= 0 ? 1 : 0.35
+      for (const a of run.krakenArms) {
+        if (a.dead || !(a.tele > rung.window) || a.grabArm || a.coilArm || a.limpT > 0 || a.gripT > 0) continue
+        const toWin = a.tele - rung.window
+        if (toWin > K_LEAD_T || !krakenArmInReachR(run, a)) continue
+        const u = 1 - toWin / K_LEAD_T
+        const rr = K_NOW_LEAD + (K_NOW_OPEN - K_NOW_LEAD) * u
+        G.beginPath(); G.circle(p.x, p.y, rr)
+        G.stroke({ width: 5, color: 0x0c1418, alpha: 0.35 * cdk })
+        G.beginPath(); G.circle(p.x, p.y, rr)
+        G.stroke({ width: 2.5, color: cdk === 1 ? 0xffffff : 0x6a7484, alpha: (0.3 + 0.3 * u) * cdk })
+      }
+    }
     for (let gi = krakenNow.length - 1; gi >= 0; gi--) {
       const n = krakenNow[gi]
       if (dt > 0) n.t += dt
@@ -20575,14 +20594,13 @@ void main() {
         // THE CLOCK: one full white ring round the fish that CLOSES onto it on the arm's own tele,
         // reaching the fish's body exactly on the impact — "still open ... closing ... now it lands".
         // Outside the body (K_NOW_BODY) until the last frames; thick enough to read on a phone.
-        // It closes onto a FIXED INNER RING just outside the body (K_NOW_BODY) and meets it as the
-        // perfect tail opens (rung.perfect), then holds there to the impact: "press when it meets the
-        // inner ring" falls inside the window, never on its last frame. On cooldown it is a dull
-        // grey, not white: the press would not land.
+        // It closes onto a FIXED INNER RING just outside the body (K_NOW_BODY) and meets it on the
+        // impact; the inner ring itself lights up thick for the perfect tail (rung.perfect), so "press
+        // when the inner ring lights" is the perfect parry. On cooldown both are a dull grey, not
+        // white: the press would not land.
         {
-          const pf = Math.max(0, Math.min(1, (a.tele - rung.perfect) / Math.max(0.01, rung.window - rung.perfect)))
-          const rr = K_NOW_BODY + (K_NOW_OPEN - K_NOW_BODY) * pf
-          const met = pf <= 0
+          const rr = K_NOW_BODY + (K_NOW_OPEN - K_NOW_BODY) * left
+          const met = a.tele <= rung.perfect   // the inner ring lights for the perfect tail
           const col = live === 1 ? 0xffffff : 0x6a7484
           G.beginPath(); G.circle(p.x, p.y, K_NOW_BODY)
           G.stroke({ width: met ? 8 : 3, color: col, alpha: (met ? 0.95 : 0.45) * (live === 1 ? 1 : 0.6) })
@@ -20916,7 +20934,7 @@ void main() {
       const f = 1 - Math.min(1, cd / KRAKEN_PARRY_CD)
       teleG.beginPath()
       teleG.arc(p.x, p.y, 27, -Math.PI / 2, -Math.PI / 2 + f * Math.PI * 2)
-      teleG.stroke({ width: 3, color: winK > 0 ? 0xffb08a : K_GLOW, alpha: (0.30 + 0.35 * (1 - f)) * (krakenCommitted ? 0.25 : 1) })
+      teleG.stroke({ width: 3, color: winK > 0 ? 0xffb08a : K_GLOW, alpha: (0.30 + 0.35 * (1 - f)) * (krakenCommitted ? 0 : 1) })
     }
   }
 
@@ -24039,6 +24057,7 @@ void main() {
   let krakenEarly = null
   const K_NOW_FLASH_T = 0.09   // s the glint holds at full size before the beat alone is left
   const K_NOW_OPEN = 64        // px the closing ring starts at, as the window opens
+  const K_NOW_LEAD = 96        // px the thin lead-in ring starts at, K_LEAD_T before the window
   const K_NOW_BODY = 34        // px: the fixed inner ring just outside the fish's body that it closes onto
   const K_EARLY_T = 0.22
   const krakenStreaks = []
@@ -27213,6 +27232,16 @@ void main() {
                 const ge = krakenEarly
                 krakenShatter(run.player.x + Math.cos(ge.ang) * 36, run.player.y + Math.sin(ge.ang) * 36, ge.ang, true)
                 krakenGuardFlash = { ang: ge.ang, t: 0 }
+                // THE CLANK: a hard little spray of dull slate chips off the shell on the impact frame
+                {
+                  const gx = run.player.x + Math.cos(ge.ang) * 38, gy = run.player.y + Math.sin(ge.ang) * 38
+                  for (let i = 0; i < 12; i++) {
+                    const a = ge.ang + (Math.random() - 0.5) * 2.2
+                    const sp = 280 + Math.random() * 220
+                    spawnParticle(T.fx.star_08, gx, gy, Math.cos(a) * sp, Math.sin(a) * sp, 0.12 + Math.random() * 0.05, 0.05, i % 2 ? 0x7d8ca4 : 0x4c586a, -0.2, 3)
+                  }
+                  addShake(5, 0.14)
+                }
                 krakenGuardAng = ge.ang
                 krakenEarly = null
                 krakenGuardAt = animT
