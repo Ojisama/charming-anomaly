@@ -12,6 +12,7 @@
 //                                       limb's own 'hold' tell: that says HELD, not what to do about it.
 //                                       ?wiggleOn=hold restores the old key for comparison.
 //   slamFlash within reach of me     -> PRESS (reach = distance to the DRAWN limb polyline)
+//   slamNow (the glyph AT the fish)  -> PRESS (it is drawn only for a slam a press would reach)
 //   lungeFlash                       -> PRESS
 //   grabCharge                       -> step PERPENDICULAR off its line (tip -> aim point)
 //   coil lanes                       -> walk to the widest dark gap between the lit lanes
@@ -68,6 +69,7 @@ function decide(tells) {
   const cd = run.repulseCd ?? 0            // the button's own drawn state (its cooldown border)
   if (cd <= 0) {
     if (has('slamFlash').some((t) => polyD(p.x, p.y, t) <= parryW)) press = true
+    if (has('slamNow').length) press = true
     if (has('lungeFlash').length) press = true
   }
   const toward = (x, y, k = 1) => { const dx = x - p.x, dy = y - p.y, d = Math.hypot(dx, dy); if (d > 6) { ix = dx / d * k; iy = dy / d * k } }
@@ -79,9 +81,17 @@ function decide(tells) {
     for (const t of has('grabCharge').filter((t) => !ignoreGrab[t.i])) { const d = Math.sqrt(seg2(p.x, p.y, t.x0, t.y0, t.x1, t.y1)); if (d < gd) { gd = d; g = t } }
     const L = Math.hypot(g.x1 - g.x0, g.y1 - g.y0) || 1
     const nx = -(g.y1 - g.y0) / L, ny = (g.x1 - g.x0) / L
-    let side = (p.x - g.x0) * nx + (p.y - g.y0) * ny
-    if (Math.abs(side) < 1 && h) side = (p.x - h.x) * nx + (p.y - h.y) * ny
-    ix = nx * (side >= 0 ? 1 : -1); iy = ny * (side >= 0 ? 1 : -1)
+    // THE DRAWN CHEVRON SAYS WHICH WAY (grabSafe: x0,y0 = the lock point, x1,y1 = the chevron's tip).
+    // Without one, fall back to "the side I am already on".
+    const safe = has('grabSafe').find((t) => t.i === g.i)
+    if (safe) {
+      const dx = safe.x1 - safe.x0, dy = safe.y1 - safe.y0, dl = Math.hypot(dx, dy) || 1
+      ix = dx / dl; iy = dy / dl
+    } else {
+      let side = (p.x - g.x0) * nx + (p.y - g.y0) * ny
+      if (Math.abs(side) < 1 && h) side = (p.x - h.x) * nx + (p.y - h.y) * ny
+      ix = nx * (side >= 0 ? 1 : -1); iy = ny * (side >= 0 ? 1 : -1)
+    }
   } else if (has('coil').length && h) {
     act = 'dodgeCoil'
     const angs = has('coil').map((t) => Math.atan2(t.y0 - h.y, t.x0 - h.x)).sort((a, b) => a - b)
@@ -125,6 +135,9 @@ const HIT_LOOKBACK = 0.5
 const HIT_TELLS = { krakenArm: ['slamCharge', 'slamFlash', 'grabCharge', 'hold', 'coil'], 'krakenHead:lunge': ['lungeCharge', 'lungeFlash'], 'krakenHead:touch': ['headTouch'] }
 const tellSeen = {}
 const hits = []
+const grabOpen = {}   // arm -> { hurt } while its grab winds up
+const lastGrabTrace = {}
+const safeStat = { grabs: 0, sideRight: 0, sideRightAny: 0, oneClear: 0, contested: 0, savedByIt: 0, steppedIntoThreat: 0 }
 
 function parryWouldLand(p) {
   // krakenParry's own candidacy (sim.js): arm in window, on its struck line widened by the margin
@@ -188,7 +201,9 @@ function beat(tells) {
       const band = seg2(p.x, p.y, a.lx0, a.ly0, a.lx1, a.ly1) <= parryW * parryW
       if (band && !r.band) { r.ia = t; r.ib = t + a.tele }   // the answer is DUE from now until it would land
       if (band) r.band = true
-      if (band && drawn(a.i, 'slamFlash')) r.flash = true
+      // what was on this arm the first frame it was due, for a failure's post-mortem in the json
+      if (band && !r.dbg) r.dbg = { tells: tells.filter((tl) => tl.i === a.i).map((tl) => tl.kind), tele: +a.tele.toFixed(3), fuse: a.fuse, slamT: a.slamT, hitT: a.hitT, lesson: run.krakenLesson, phase: s.phase, hitStop: run.hitStop }
+      if (band && (drawn(a.i, 'slamFlash') || drawn(a.i, 'slamNow'))) r.flash = true
       if (band && d.press) r.pressed = true
       if (band && cd > 0) r.cdBlocked = true
     }
@@ -216,6 +231,54 @@ function beat(tells) {
   run.player.hp = run.player.maxHP
   if (run.phase === 'levelup') run.phase = 'playing'
   const hurtArm = ev.some((e) => e.type === 'hurt' && e.src === 'krakenArm')
+  // THE GRAB'S SAFE SIDE, GRADED. While a grab winds up: did the bot, dodging it, get struck by
+  // ANOTHER arm (i.e. step into a threat)? And was the published side actually clear — judged at the
+  // spot sim published for each side (a.grabSpotX/Y, a.grabAltX/Y: the step a player really takes in
+  // the fuse, speed x (fuse - KRAKEN_GRAB_REACT), capped by the cage wall), against threats this
+  // grader tests for itself: a side the wall cuts shorter than KRAKEN_GRAB_MIN_STEP is blocked, and a
+  // side is hot if another arm's struck line lies within KRAKEN_LASH_W of its spot.
+  // Judged against the threats live WHEN THE GRAB STARTED (what the chevron could know): a slam that
+  // starts later aims at wherever the fish has stepped to, i.e. at the safe side by construction.
+  // timed: only threats that land while the fish would still be out there (before the grab strikes
+  // + KRAKEN_BEAT_BREATH + 0.3s). untimed (any=true): every live lane, the stricter reading.
+  const spotOf = (a, sd) => (sd === a.grabSafeSide ? { x: a.grabSpotX, y: a.grabSpotY } : { x: a.grabAltX, y: a.grabAltY })
+  const sideHot = (a, sd, any = false) => {
+    const { x, y } = spotOf(a, sd)
+    if (!(Number.isFinite(x) && Number.isFinite(y))) return true
+    if (Math.hypot(x - a.aimX, y - a.aimY) < C.KRAKEN_GRAB_MIN_STEP) return true
+    return run.krakenArms.some((o) => o !== a && !o.dead && o.tele > 0 && o.limpT <= 0 && (any || o.tele <= C.KRAKEN_GRAB_FUSE + C.KRAKEN_BEAT_BREATH + 0.3) && seg2(x, y, o.lx0, o.ly0, o.lx1, o.ly1) <= C.KRAKEN_LASH_W ** 2)
+  }
+  // why the OTHER side was not picked when it was the clear one (diagnostic)
+  const sideWhy = (a, sd) => {
+    const { x, y } = spotOf(a, sd)
+    const hh = head()
+    const dh = hh ? Math.hypot(x - hh.x, y - hh.y) : 0
+    return Math.hypot(x - a.aimX, y - a.aimY) < C.KRAKEN_GRAB_MIN_STEP ? 'clear side was walled off' : dh < C.KRAKEN_HEAD_R * 1.8 ? 'clear side was on the head' : 'scored threats'
+  }
+  for (const a of run.krakenArms) {
+    if (a.grabArm && a.tele > 0) {
+      const r = grabOpen[a.i] || (grabOpen[a.i] = { hurt: false, safeHot: sideHot(a, a.grabSafeSide), otherHot: sideHot(a, -a.grabSafeSide), safeHotAny: sideHot(a, a.grabSafeSide, true), why: sideWhy(a, -a.grabSafeSide) })
+      if (d.act === 'dodgeGrab' && ev.some((e) => e.type === 'lash' && !e.coil) && hurtArm) r.hurt = true
+      if (typeof process !== 'undefined' && process.env.KC_WHY) { r.trace = r.trace || []; if ((r.trace.length % 1) === 0 && Math.round(a.tele * 60) % 12 === 0) r.trace.push([+a.tele.toFixed(2), d.act, Math.round(Math.sqrt(seg2(p.x, p.y, a.lx0, a.ly0, a.lx1, a.ly1))), Math.round(p.x), Math.round(p.y), +d.ix.toFixed(2), +d.iy.toFixed(2)]) }
+    }
+  }
+  for (const e of ev) {
+    if (!(e.type === 'grabMiss' || e.type === 'gripLatch') || e.i == null) continue
+    const a = run.krakenArms[e.i]
+    const r = grabOpen[e.i] || { hurt: false }
+    delete grabOpen[e.i]
+    lastGrabTrace[e.i] = r.trace
+    if (!a || !(a.grabSafeSide === 1 || a.grabSafeSide === -1)) continue
+    safeStat.grabs++
+    if (r.hurt) safeStat.steppedIntoThreat++
+    const safeHot = !!r.safeHot, otherHot = !!r.otherHot
+    if (safeHot || otherHot) safeStat.contested++
+    if (!safeHot) safeStat.sideRight++
+    if (!r.safeHotAny) safeStat.sideRightAny++
+    if (!safeHot && otherHot) safeStat.savedByIt++
+    if (safeHot !== otherHot) safeStat.oneClear++
+    if (safeHot && !otherHot) { safeStat.wrong = safeStat.wrong || {}; const k = r.why || '?'; safeStat.wrong[k] = (safeStat.wrong[k] || 0) + 1 }
+  }
   for (const e of ev) {
     if (e.type !== 'hurt') continue
     // by what it BILLED: the burst flag is set after head.dmg in stepKrakenChase, so it is off by a frame at both ends
@@ -276,7 +339,7 @@ function beat(tells) {
       g.ok = false
       g.forecast = preSoon
       g.armWas = pre[k].slamT > 0 ? 'landing a slam' : 'idle'
-      g.cause = g.tellS < 0 ? (preSoon !== a.i ? 'latched by an arm the forecast had not named (the nearest grabber changed as the player moved)' : pre[k].slamT > 0 ? 'no grabCharge drawn: the grabbing arm was still showing its landed slam' : 'no grabCharge drawn before the latch') : g.dodging ? 'dodged off the drawn line and it latched anyway' : 'tell drawn but the bot did not dodge'
+      g.cause = g.tellS < 0 ? (preSoon !== a.i ? 'latched by an arm the forecast had not named (the nearest grabber changed as the player moved)' : pre[k].slamT > 0 ? 'no grabCharge drawn: the grabbing arm was still showing its landed slam' : 'no grabCharge drawn before the latch') : g.dodging ? 'dodged off the drawn line and it latched anyway' + (typeof process !== 'undefined' && process.env.KC_WHY ? ' [' + JSON.stringify({ dLane: Math.round(Math.sqrt(seg2(run.player.x, run.player.y, a.lx0, a.ly0, a.lx1, a.ly1))), dHead: Math.round(Math.hypot(run.player.x - (head()?.x ?? 0), run.player.y - (head()?.y ?? 0))), cage: Math.round(run.script.cageR), side: a.grabSafeSide, L: Math.round(Math.hypot(a.lx1 - a.lx0, a.ly1 - a.ly0)), trace: lastGrabTrace[a.i] }) + ']' : '') : 'tell drawn but the bot did not dodge'
       attacks.push(g)
     }
   })
@@ -324,7 +387,7 @@ window.__fxResult = {
   phase: run.script.phase, won: run.phase === 'victory',
   attacks: attacks.map((r) => ({ ...r, t0: +r.t0.toFixed(2) })),
   conflict: { seconds: +(conf.frames * DT).toFixed(2), moments: conf.moments, pairs: Object.fromEntries(Object.entries(conf.pairs).map(([k, v]) => [k, +v.toFixed(2)])) },
-  press, glow, tellCounts, hits, oracle: !!window.__kcOracle, parryCd: C.KRAKEN_PARRY_CD,
+  press, glow, tellCounts, hits, safe: safeStat, oracle: !!window.__kcOracle, parryCd: C.KRAKEN_PARRY_CD,
 }
 H.note('kraken-cues: ' + attacks.length + ' attacks graded over ' + armsT.toFixed(0) + 's of arms phase')
 return () => { app && app.renderer.render(app.stage) }
