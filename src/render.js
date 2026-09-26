@@ -20152,11 +20152,12 @@ void main() {
     // the first 0.2s must POP: the lane flares once, in the grab's own deep magenta — never toward
     // white, which is where the slam's tell ends and the one colour that could draw a reflex parry
     const flare = Math.exp(-age / 0.1)
-    // ONLY ONE MAGENTA LINE IS THE HIT. The grabbing limb itself gets no bright rim here (and no rear
-    // glow, drawKrakenRearGlow); a faint deep wash only, so it cannot read as a second bar.
+    // THE GRABBING ARM IS A MAGENTA ANIMAL: its whole body, root to tip, filled in the grab hue at the
+    // limb's own width — a body colour, not a rim line, so the strip stays the only bright LINE and
+    // a first look links the band to the right arm (magenta arm = dodge, orange/white arm = parry).
     for (let b = kS; b < kE; b += 6) {
       const b1 = Math.min(kE, b + 6)
-      strokeRun(b, b1, hwAt((b + b1) >> 1) * 2.2, K_GRAB_COOL, 0.10 + 0.06 * windup)
+      strokeRun(b, b1, hwAt((b + b1) >> 1) * 2.0, K_GRAB_BODY, 0.40 + 0.15 * windup)
     }
     // THE LANDING STRIP, drawn straight from the capsule sim strikes the grab with — lx0..lx1 at
     // krakenLimbHalfW(s), the same function krakenLimbTouches hits with — so its FILL is the hit,
@@ -20209,6 +20210,8 @@ void main() {
   const K_GRAB_HOT = 0xff3cd2
   const K_GRAB_COOL = 0xb0148c
   const K_GRAB_FLARE = 0xc000c8  // the first-frame flare: saturated magenta, nowhere near white
+  const K_GRAB_BODY = 0xc01498   // the grabbing limb's own body fill (additive over the rope): a magenta animal
+  const K_GRAB_CHEV_OFF = 100    // px from the lock point to the chevron's tip: base ~74px out, clear of a ~52px fish
   const K_GRAB_TINT = 0xe040b8   // the grab rope's tint while it winds up: saturated, so even its baked highlight goes magenta, never white
 
   // THE GRAB'S "DODGE THIS" SIGN — Sekiro's perilous kanji, in this game's own vocabulary: one big
@@ -20243,7 +20246,7 @@ void main() {
     // THE STEP: a bold chevron beside the fish, on the safe side, pointing away from the line
     const side = arm.grabSafeSide === -1 ? -1 : 1
     const ox = -uy * side, oy = ux * side                       // off the line, toward safety
-    const bx = arm.aimX + ox * 58, by = arm.aimY + oy * 58      // where the chevron's tip sits
+    const bx = arm.aimX + ox * K_GRAB_CHEV_OFF, by = arm.aimY + oy * K_GRAB_CHEV_OFF   // the tip: its wings stay a fish-length clear of the fish
     const W = 30 * k, D = 26 * k                               // ~60 x 52px: longer than the fish
     const chev = () => {
       G.moveTo(bx - ox * D - ux * W, by - oy * D - uy * W)
@@ -26656,7 +26659,7 @@ void main() {
           for (let i = 0; i < 8; i++) {
             const a = Math.random() * Math.PI * 2
             const sp = 60 + Math.random() * 90
-            spawnParticle(T.fx.circle_05, e.x, e.y, Math.cos(a) * sp, Math.sin(a) * sp, 0.5, 0.06, 0xd8b8d0, 0.2, 2)
+            spawnParticle(T.fx.circle_05, e.x, e.y, Math.cos(a) * sp, Math.sin(a) * sp, 0.5, 0.06, K_GRAB_COOL, 0.2, 2)   // magenta: nothing white on the fish while a grab winds
           }
           break
         }
