@@ -173,10 +173,10 @@ import {
   KRAKEN_OPEN_WAVES, KRAKEN_COIL_EVERY, KRAKEN_ARRIVE_T, KRAKEN_RING_R, KRAKEN_LASH_R, KRAKEN_SLAM_T, KRAKEN_DEFLECT_CD,
   KRAKEN_LUNGE_T, KRAKEN_GRIP_DUR, KRAKEN_GRIP_DMG, KRAKEN_GRIP_FLICKS, KRAKEN_GRIP_STICK_MUL, TRAWL_WIGGLE_ARC,
   KRAKEN_LASH_W, KRAKEN_LASH_OVER, KRAKEN_LASH_DMG, KRAKEN_LESSON_MAX, KRAKEN_PARRY_SHOVE_R, KRAKEN_PARRY_EARLY_T, KRAKEN_ARRIVE_T2, KRAKEN_WAVE_GROWTH, KRAKEN_COIL_DMG,
-  KRAKEN_HEAD_SPEED, KRAKEN_PARRY_SPIN_T, krakenLimbHalfW, FISH_R, FISH_BODY, KRAKEN_GRIP_EVERY, KRAKEN_GRAB_FUSE,
+  KRAKEN_HEAD_SPEED, KRAKEN_PARRY_SPIN_T, krakenLimbHalfW, FISH_R, FISH_BODY, KRAKEN_GRIP_EVERY, KRAKEN_GRAB_FUSE, KRAKEN_GRAB_MIN_STEP,
   KRAKEN_BEAT_READ, KRAKEN_BEAT_GRAB_CLEAR, KRAKEN_BEAT_BREATH,
 } from '../src/config.js'
-import { krakenWinPending, krakenGrabSafeSide, stepSim, applyChoice, buildLevelUpChoices, eligibleWeaponModCandidates, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, inRefillCircle, stepCharge, newElWindow, spurAt } from '../src/sim.js'
+import { krakenWinPending, krakenGrabSafeSide, krakenGrabSpot, krakenGrabTurnClear, stepSim, applyChoice, buildLevelUpChoices, eligibleWeaponModCandidates, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, inRefillCircle, stepCharge, newElWindow, spurAt } from '../src/sim.js'
 
 // ---- Scenario runner: one filter, and the gate's own dispatch flag ----------------------------
 // THIS FILE IS NO LONGER WHAT `npm test` RUNS. scripts/test-isolation.mjs hands one scenario to
@@ -35823,45 +35823,76 @@ function testKrakenGrab() {
   assert.strictEqual(readyAt(R2.window * 0.5 + 2 / 60), true, 'fixture: not lit before the press')
   step(P, true)
   assert.ok(arm.limpT > 0, 'the button was lit and the press did not land')
-  // 5) WHICH WAY TO STEP: with another arm's slam lane lying beside the lock point, the grab's
-  // published safe side is the OTHER side — both ways round, so a constant cannot pass
+  // 5) WHICH WAY TO STEP. The step judged is the one a player really takes in the fuse (speed x
+  // (fuse - react), capped by the cage: krakenGrabSpot), so the neighbour threats are aimed AT those
+  // spots. `probe` is the grab's lane as the turn would lock it (shoulder -> the fish).
   {
-    const arm2 = run.krakenArms.find((c) => c !== arm)
+    const [arm2, arm3] = run.krakenArms.filter((c) => c !== arm)
     const h = run.enemies.find((e) => e.rosterId === 'krakenHead' && !e._dead)
     const Sx = h.x + Math.cos(arm.ang) * KRAKEN_RING_R, Sy = h.y + Math.sin(arm.ang) * KRAKEN_RING_R
-    const Ld = Math.hypot(P.x - Sx, P.y - Sy) || 1
-    const nx2 = -(P.y - Sy) / Ld, ny2 = (P.x - Sx) / Ld
-    for (const sg of [1, -1]) {
-      arm.tele = 0; arm.gripT = 0; arm.slamT = 0; arm.limpT = 0; arm.grabArm = false
-      arm2.dead = false; arm2.limpT = 0; arm2.gripT = 0; arm2.slamT = 0; arm2.coilArm = false; arm2.grabArm = false
-      arm2.aimed = true; arm2.aimX = P.x + nx2 * sg * 90; arm2.aimY = P.y + ny2 * sg * 90
-      // a LONG wind-up, so its parry window opens well after the grab strikes and the beat scheduler
-      // (krakenBeatClear) has no reason to hold the grab back: the lane is live, the window is not near
-      arm2.fuse = R2.fuse + 4; arm2.tele = R2.fuse + 4
-      startGrab()
-      assert.strictEqual(arm.grabSafeSide, -sg, `a slam lane beside the grab on side ${sg} and the grab still says to step to side ${arm.grabSafeSide} — into it`)
+    const Ld = Math.hypot(P.x - Sx, P.y - Sy) || 1, LL = Math.max(KRAKEN_RING_R, Ld)
+    const probe = { i: arm.i, lx0: Sx, ly0: Sy, lx1: Sx + (P.x - Sx) / Ld * LL, ly1: Sy + (P.y - Sy) / Ld * LL, aimX: P.x, aimY: P.y }
+    const spot = (sg) => krakenGrabSpot(run, probe, h, sg)
+    assert.ok(spot(1).d > 100 && spot(-1).d > 100, `fixture: a side is walled off (${spot(1).d.toFixed(0)} / ${spot(-1).d.toFixed(0)}px), so nothing below tests a threat`)
+    assert.ok(spot(1).d > 150 || spot(-1).d > 150, 'the judged step is still a token distance, not what a fish covers in the fuse')
+    // stage arm o winding up with its lane through the spot on side `side`, landing in `tele`
+    const stage = (o, side, tele) => {
+      const sp = spot(side)
+      o.dead = false; o.limpT = 0; o.gripT = 0; o.slamT = 0; o.coilArm = false; o.grabArm = false
+      o.aimed = true; o.aimX = sp.x; o.aimY = sp.y
+      o.fuse = Math.max(R2.fuse, tele); o.tele = tele
+      const ca = Math.cos(o.ang), sa = Math.sin(o.ang)
+      o.lx0 = h.x + ca * KRAKEN_RING_R; o.ly0 = h.y + sa * KRAKEN_RING_R
+      const dd = Math.hypot(o.aimX - o.lx0, o.aimY - o.ly0) || 1, L2 = Math.max(KRAKEN_RING_R, dd)
+      o.lx1 = o.lx0 + (o.aimX - o.lx0) / dd * L2; o.ly1 = o.ly0 + (o.aimY - o.ly0) / dd * L2
     }
-    // 5b) WHEN IT LANDS MATTERS: a slam lane on EACH side — one landing 0.9s into the grab's wind-up
-    // (while the fish would be standing there), the other still early in a long fuse. The step goes to
-    // the far-off one's side, both ways round; unweighted, the two cancel and a tie-break decides.
-    // Called directly on the grab just staged: with two arms already rearing the ring's cap
-    // (rung.rearing) would never hand out the grab turn, which is the scheduler working, not a bug.
-    const arm3 = run.krakenArms.find((c) => c !== arm && c !== arm2)
+    const clearAll = () => { for (const o of [arm2, arm3]) { o.tele = 0; o.dead = true } }
+    // 5a) one side struck: the chevron points to the other, both ways round
     for (const sg of [1, -1]) {
-      for (const [o, side, tele] of [[arm2, sg, 0.9], [arm3, -sg, R2.fuse + 4]]) {
-        o.dead = false; o.limpT = 0; o.gripT = 0; o.slamT = 0; o.coilArm = false; o.grabArm = false
-        o.aimed = true; o.aimX = P.x + nx2 * side * 90; o.aimY = P.y + ny2 * side * 90
-        o.fuse = Math.max(R2.fuse, tele); o.tele = tele
-        // publish the lane the sim will strike (krakenLashLine runs on every step)
-        const ca = Math.cos(o.ang), sa = Math.sin(o.ang)
-        o.lx0 = h.x + ca * KRAKEN_RING_R; o.ly0 = h.y + sa * KRAKEN_RING_R
-        const dd = Math.hypot(o.aimX - o.lx0, o.aimY - o.ly0) || 1, LL = Math.max(KRAKEN_RING_R, dd)
-        o.lx1 = o.lx0 + (o.aimX - o.lx0) / dd * LL; o.ly1 = o.ly0 + (o.aimY - o.ly0) / dd * LL
+      clearAll(); stage(arm2, sg, 0.9)
+      assert.strictEqual(krakenGrabSafeSide(run, probe, h), -sg, `a slam landing on side ${sg}'s step and the chevron still says ${krakenGrabSafeSide(run, probe, h)} — into it`)
+    }
+    // 5b) WHEN IT LANDS MATTERS: an imminent slam on one side's step, a far-off one on the other's.
+    // The step goes to the far-off one's side, both ways round; unweighted, the two cancel.
+    for (const sg of [1, -1]) {
+      clearAll(); stage(arm2, sg, 0.9); stage(arm3, -sg, R2.fuse + 4)
+      assert.strictEqual(krakenGrabSafeSide(run, probe, h), -sg, `an imminent slam on side ${sg} and a far-off one on side ${-sg}, and the chevron says ${krakenGrabSafeSide(run, probe, h)} — into the one about to land`)
+    }
+    // 5c) BOTH SIDES STRUCK: the beat does not start that grab until one side clears — then it does.
+    clearAll(); stage(arm2, 1, 0.9); stage(arm3, -1, 1.0)
+    p.x = P.x; p.y = P.y   // the gate aims the probe at where the fish IS
+    assert.strictEqual(krakenGrabTurnClear(run, h, arm), false, 'both steps off the grab are struck, and the beat would still start it')
+    clearAll()   // the strikes gone (each lane runs on past its aim, so one lane alone can shadow both steps)
+    assert.strictEqual(krakenGrabTurnClear(run, h, arm), true, 'nothing near either step off the grab, and the beat still holds it back')
+    // ...and WIRED INTO THE RING: stand the fish near the cage wall so one step is walled off, strike
+    // the other with a slam — the grab turn must wait; clear the slam — the grab turn comes.
+    const cr = (s.cageR > 0 ? s.cageR : KRAKEN_CAGE_R) - 30
+    let Q = null, qProbe = null, wallSide = 0
+    for (let k = 0; k < 24 && !Q; k++) {
+      const th = arm.ang + 0.4 + k * 0.25
+      const q = { x: h.x + Math.cos(th) * cr, y: h.y + Math.sin(th) * cr }
+      const d0 = Math.hypot(q.x - Sx, q.y - Sy) || 1, l0 = Math.max(KRAKEN_RING_R, d0)
+      const pr = { i: arm.i, lx0: Sx, ly0: Sy, lx1: Sx + (q.x - Sx) / d0 * l0, ly1: Sy + (q.y - Sy) / d0 * l0, aimX: q.x, aimY: q.y }
+      for (const sg of [1, -1]) {
+        if (krakenGrabSpot(run, pr, h, sg).d < KRAKEN_GRAB_MIN_STEP && krakenGrabSpot(run, pr, h, -sg).d > 150) { Q = q; qProbe = pr; wallSide = sg; break }
       }
-      assert.strictEqual(krakenGrabSafeSide(run, arm, h), -sg, `an imminent slam on side ${sg} and a far-off one on side ${-sg}, and the chevron says ${krakenGrabSafeSide(run, arm, h)} — into the one about to land`)
     }
-    arm2.dead = true
-    arm3.dead = true
+    assert.ok(Q, 'fixture: no spot by the cage wall walls off one step of the grab')
+    const hot = krakenGrabSpot(run, qProbe, h, -wallSide)
+    const tryStart = () => {
+      arm.tele = 0; arm.gripT = 0; arm.slamT = 0; arm.limpT = 0; arm.grabArm = false
+      s.bossIdx = Math.max(1, s.bossIdx); s.gripN = KRAKEN_GRIP_EVERY; s.turnT = 0; run.hitStop = 0; run.repulseCd = 0
+      p.x = Q.x; p.y = Q.y; run.events.length = 0
+      stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+      return run.events.some((e) => e.type === 'grabRear')
+    }
+    clearAll()
+    arm2.dead = false; arm2.limpT = 0; arm2.gripT = 0; arm2.slamT = 0; arm2.coilArm = false; arm2.grabArm = false
+    arm2.aimed = true; arm2.aimX = hot.x; arm2.aimY = hot.y; arm2.fuse = R2.fuse; arm2.tele = 1.0   // its window shuts 0.6s before the grab would strike: the beat itself has no objection
+    assert.strictEqual(tryStart(), false, 'the ring started a grab whose one open step was struck and the other walled off')
+    clearAll()
+    assert.strictEqual(tryStart(), true, 'with the strike gone the grab turn still did not come')
+    clearAll()
   }
   console.log(`PASS run KG (grab + parry tell): a grab winds up aimed (${KRAKEN_GRAB_FUSE}s), grips a fish on its line and misses one 120px off it, a press during it is a whiff with the button dark; parryReady lights only inside a slam's window, in reach, off cooldown, and a press on it lands`)
 }
