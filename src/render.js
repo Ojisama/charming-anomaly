@@ -20575,7 +20575,7 @@ void main() {
     // ONE GLYPH PER ARM IN ITS WINDOW (two slams can overlap), each drawn only while a press would
     // reach that arm — the same reach sim's krakenArmInReach tests, every frame, so stepping off the
     // line takes the glyph away and the glyph can never promise a parry the press would not make.
-    // PHASE 1, THE LEAD-IN: in the K_LEAD_T before a reachable plain slam's window opens, a pale
+    // PHASE 1, THE LEAD-IN: in the K_RING_LEAD before a reachable plain slam's window opens, a pale
     // ring already converges on the fish from K_NOW_LEAD (krakenNowR) — the countdown at the
     // place the eye is, in step with the bead front running up the arm. It snaps bright and thick
     // when the window opens (phase 2, the first frame of the glyph below) and closes to the inner
@@ -20585,9 +20585,9 @@ void main() {
       for (const a of run.krakenArms) {
         if (a.dead || !(a.tele > rung.window) || a.grabArm || a.coilArm || a.limpT > 0 || a.gripT > 0) continue
         const toWin = a.tele - rung.window
-        if (toWin > K_LEAD_T || !krakenArmInReachR(run, a)) continue
+        if (toWin > krakenRingLead(a, rung) || !krakenArmInReachR(run, a)) continue
         if (krakenEarly && krakenEarly.i === a.i) continue
-        const u = 1 - toWin / K_LEAD_T
+        const u = 1 - toWin / krakenRingLead(a, rung)
         const rr = krakenNowR(a, rung)
         const lc = cdk === 1 ? 0xdff4ff : 0x6a7484
         // the target it is closing onto is already there, thin
@@ -20623,12 +20623,12 @@ void main() {
         const left = Math.max(0, Math.min(1, a.tele / rung.window))
         // what the player reads as PRESS: logged for scripts/kraken-cues.mjs on every frame it is lit
         if (live === 1) { tellDrawn('arm', n.i, 'slamNow', p.x + ca * R, p.y + sa * R); tellDrawn('player', -1, 'pressRing', p.x, p.y) }
-        // THE CLOCK: one full white ring round the fish that CLOSES onto it on the arm's own tele,
-        // reaching the fish's body exactly on the impact — "still open ... closing ... now it lands".
+        // THE CLOCK: one full white ring round the fish that CLOSES onto it at a constant rate,
+        // reaching the target ring at the perfect point — "closing ... meets ... now it lands".
         // Outside the body (K_NOW_BODY) until the last frames; thick enough to read on a phone.
-        // It closes onto a FIXED INNER RING just outside the body (K_NOW_BODY) and meets it on the
-        // impact; the inner ring itself lights up thick for the perfect tail (rung.perfect), so "press
-        // when the inner ring lights" is the perfect parry. On cooldown both are a dull grey, not
+        // It closes onto a FIXED INNER RING just outside the body (K_NOW_BODY) at one constant rate
+        // (krakenNowR) and meets it at the perfect point (rung.perfect); the inner ring lights up thick
+        // from there to the impact, so "press when ring meets ring" is the perfect parry. On cooldown both are a dull grey, not
         // white: the press would not land.
         {
           const rr = krakenNowR(a, rung)
@@ -20770,13 +20770,13 @@ void main() {
       if (dt > 0) c.t -= dt
       if (c.t <= 0) { krakenClanks.splice(i, 1); continue }
       // full size for all but its last 0.12s: at least 0.4s of verdict on screen
-      const k = Math.min(1, c.t / 0.12)
-      krakenDrawClank(c, k, 0.85)
+      const k = Math.min(1, c.t / 0.1)
+      krakenDrawClank(c, k, 0.45, true)
     }
   }
-  function krakenDrawClank(st, k, sc) {
+  function krakenDrawClank(st, k, sc, outline = false) {
     const G = krakenVerdictG
-    G.circle(st.x, st.y, 92 * sc * (0.7 + 0.3 * k)).fill({ color: K_STEEL_DARK, alpha: 0.5 * k })
+    if (!outline) G.circle(st.x, st.y, 92 * sc * (0.7 + 0.3 * k)).fill({ color: K_STEEL_DARK, alpha: 0.5 * k })
     const pts = []
     const N = 12, Ro = 74 * sc * (0.75 + 0.25 * k), Ri = 56 * sc * (0.75 + 0.25 * k)
     for (let j = 0; j < N; j++) {
@@ -20786,6 +20786,12 @@ void main() {
       pts.push(st.x + Math.cos(a0 - w * 0.7) * Ro, st.y + Math.sin(a0 - w * 0.7) * Ro)
       pts.push(st.x + Math.cos(a0 + w * 0.7) * Ro, st.y + Math.sin(a0 + w * 0.7) * Ro)
       pts.push(st.x + Math.cos(a0 + w) * Ri, st.y + Math.sin(a0 + w) * Ri)
+    }
+    if (outline) {
+      G.poly(pts).stroke({ width: 9, color: K_STEEL_DARK, alpha: 0.9 * k, join: 'miter' })
+      G.poly(pts).stroke({ width: 4.5, color: K_STEEL, alpha: k, join: 'miter' })
+      G.circle(st.x, st.y, 30 * sc * (0.75 + 0.25 * k)).stroke({ width: 4, color: K_STEEL_HI, alpha: k })
+      return
     }
     G.poly(pts).fill({ color: K_STEEL, alpha: 0.95 * k + 0.05 })
     G.poly(pts).stroke({ width: 5, color: K_STEEL_DARK, alpha: k, join: 'miter' })
@@ -20846,8 +20852,8 @@ void main() {
     const breathe = 0.5 + 0.5 * Math.sin(animT * 1.1)
     {
       const threat = run.krakenArms.some((a) => !a.dead && a.tele > 0 && !a.grabArm && !a.coilArm && !(a.limpT > 0) && krakenArmNear(run, a))
-      // committed (its window within K_LEAD_T of opening, or open): the white ring is the only circle
-      const committed = run.krakenArms.some((a) => !a.dead && a.tele > 0 && !a.grabArm && !a.coilArm && !(a.limpT > 0) && a.tele <= rung.window + K_LEAD_T && krakenArmInReachR(run, a))
+      // committed (its approach ring is running, or its window is open): the white ring is the only circle
+      const committed = run.krakenArms.some((a) => !a.dead && a.tele > 0 && !a.grabArm && !a.coilArm && !(a.limpT > 0) && a.tele <= rung.window + krakenRingLead(a, rung) && krakenArmInReachR(run, a))
       krakenCommitted = committed
       const want = committed ? 0.1 : threat ? 0.25 : 1
       const kk = 1 - Math.exp(-(frameDt || 0) * 12)
@@ -24189,14 +24195,18 @@ void main() {
   const K_NOW_FADE_T = 0.16
   let krakenEarly = null
   const K_NOW_FLASH_T = 0.09   // s the glint holds at full size before the beat alone is left
-  const K_NOW_LEAD = 96        // px the thin lead-in ring starts at, K_LEAD_T before the window
-  // THE RING'S RADIUS, one line from the lead-in to the impact: K_NOW_LEAD when the lead-in starts,
-  // K_NOW_BODY (the target ring) on the impact, moving at one speed — so the window's snap happens
-  // mid-flight and "ring meets ring" is the strike, not a pop.
+  const K_NOW_LEAD = 96        // px the approach ring starts at, K_RING_LEAD before the window
+  // THE RING'S RADIUS, one straight line: K_NOW_LEAD when the lead-in starts (K_RING_LEAD before the
+  // window), K_NOW_BODY (the target ring) at the PERFECT point, at one constant rate — a beat you
+  // can predict, not a flash to react to. It sits on the target from there to the impact.
+  const K_RING_LEAD = 0.5
   function krakenNowR(a, rung) {
-    const f = Math.max(0, Math.min(1, a.tele / (rung.window + K_LEAD_T)))
+    const f = Math.max(0, Math.min(1, (a.tele - rung.perfect) / (krakenRingLead(a, rung) + rung.window - rung.perfect)))
     return K_NOW_BODY + (K_NOW_LEAD - K_NOW_BODY) * f
   }
+  // how long before the window the approach ring starts: K_RING_LEAD, or half the fuse on a rung
+  // whose fuse is too short for it (none today: the shortest fuse, d3, is 1.5s)
+  function krakenRingLead(a, rung) { return Math.min(K_RING_LEAD, (a.fuse || rung.fuse) * 0.5) }
   const K_NOW_BODY = 34        // px: the fixed inner ring just outside the fish's body that it closes onto
   const K_EARLY_T = 0.22
   const krakenStreaks = []
@@ -24206,7 +24216,8 @@ void main() {
   // STEEL BLUE: the early press's colour, and nothing else in the fight wears it
   const K_STEEL = 0x4f86c6, K_STEEL_DARK = 0x10203a, K_STEEL_HI = 0xa8cdf4
   const K_EARLY_R = 38          // px: the ring an early press snaps shut onto, round the fish
-  const K_CLANK_T = 0.55        // s the steel cog holds (full size for all but its last 0.12s)
+  const K_CLANK_T = 0.3         // s the steel cog lingers (full size for all but its last 0.1s)
+  const K_CLANK_OFF = 82        // px from the fish to the cog's centre: K_EARLY_R + its ~33px radius + a gap
   const K_FALL_T = 0.5          // s the snapped ring's plates take to fall away
   const krakenClanks = []
   const krakenFallPlates = []
@@ -27387,7 +27398,8 @@ void main() {
                     vx: Math.cos(mid) * 90, vy: Math.sin(mid) * 90 - 60, rot: 0, vr: (Math.random() - 0.5) * 3, t: 0 })
                 }
                 // THE STAMP, at the contact, over the fish: a big steel-blue cog, held K_CLANK_T
-                krakenClanks.push({ x: run.player.x + Math.cos(ge.ang) * 44, y: run.player.y + Math.sin(ge.ang) * 44, ang: ge.ang, t: K_CLANK_T })
+                // toward the arm and clear of the fish: past the snapped ring plus the cog's own radius
+                krakenClanks.push({ x: run.player.x + Math.cos(ge.ang) * K_CLANK_OFF, y: run.player.y + Math.sin(ge.ang) * K_CLANK_OFF, ang: ge.ang, t: K_CLANK_T })
                 if (krakenClanks.length > 2) krakenClanks.shift()
                 // THE CLANK: a hard little spray of dull slate chips off the shell on the impact frame
                 {
