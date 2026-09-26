@@ -35076,7 +35076,7 @@ function runKraken() {
       ['const pending = !!a && !a.dead && a.tele > 0 && !(a.limpT > 0)', "an early press's dent at the fish no longer HOLDS until its slam lands, so early and a plain miss look identical at impact"],
       ['krakenRecoil[e.i] = { t: K_RECOIL_T, ux: bx, uy: by', "a parried arm is no longer knocked back along its own axis"],
       ['const left = Math.max(0, Math.min(1, a.tele / rung.window))', "the beat at the fish does not run on the arm's own clock, so it does not end on the impact"],
-      ['const tF = tS + (1 - tS) * Math.pow(prog, 0.9)', 'the charge running up the limb — without the front, how much fuse is left cannot be read'],
+      ['const tLead = tS + (1 - tS) * K_LEAD_FRAC', 'the charge running up the limb — without the front, how much fuse is left cannot be read'],
       // THE COIL'S VOLLEY WEARS ITS OWN LOOK, AND THE SPARED ARM DOES NOT. Five lanes light in the
       // warning colour and one stays the limb it always was — that dark lane IS the answer to the
       // move, and it is unparryable, so the colour is the only thing saying "move, do not press".
