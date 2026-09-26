@@ -2799,7 +2799,9 @@ function stepKrakenChase(run, dt, rung, head) {
           if (hit && hurtPlayer(run, KRAKEN_HEAD_TOUCH_DMG, false, 'krakenHead')) return true
         }
       }
-    } else if (!touchQuiet && !bursting && head.biteCd <= 0 && d <= reach &&
+    // ...nor over a parry's gesture (p.parryT, KRAKEN_PARRY_SPIN_T): the jaws must not open on top of
+    // the parry spark, so the two reads never share a frame
+    } else if (!touchQuiet && !bursting && head.biteCd <= 0 && !(p.parryT > 0) && d <= reach &&
       head.lungeT - KRAKEN_LUNGE_WINDUP_T >= KRAKEN_BITE_WINDUP_T + KRAKEN_BITE_GAP) {
       head.biteT = KRAKEN_BITE_WINDUP_T
     }
