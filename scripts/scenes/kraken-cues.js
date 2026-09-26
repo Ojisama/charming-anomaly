@@ -105,6 +105,8 @@ function decide(tells) {
   } else if (P.dodgeBite !== false && has('headBite').length && h) {
     // the head's jaws are winding up on me: step straight out of its reach
     act = 'dodgeBite'
+    // ⚠ straight out can be pinned between the head and a seabed obstacle (a pier post, traced): 220px/s of stick,
+    // ~0.5px a frame of travel; the bot does not path round obstacles, so its bite dodge rate is a floor
     const dx = p.x - h.x, dy = p.y - h.y, dl = Math.hypot(dx, dy) || 1
     ix = dx / dl; iy = dy / dl
   } else if (has('limp').length) {
@@ -353,7 +355,7 @@ function beat(tells) {
   })
   // THE BITE: one record per snap, graded by what it billed. correct = the bot was stepping out of
   // the reach in the 0.6s before the snap.
-  for (const e of ev) if (e.type === 'headBite') attacks.push({ kind: 'bite', i: -1, t0: t, outcome: e.hit ? 'bitten' : 'dodged', held: run.krakenArms.some((a) => !a.dead && a.gripT > 0), walled: (s.cageT ?? 0) > 0, slowed: (run.player.slowT ?? 0) > 0, correct: lastDodgeBiteT >= t - 0.6, ok: !e.hit, cause: e.hit ? (lastDodgeBiteT >= t - 0.6 ? 'stepped out and was bitten anyway' : 'did not step out') : null })
+  for (const e of ev) if (e.type === 'headBite') attacks.push({ kind: 'bite', i: -1, t0: t, outcome: e.hit ? 'bitten' : 'dodged', d: Math.round(Math.hypot(e.px - e.x, e.py - e.y)), spd: Math.round(Math.hypot(run.player.vx ?? 0, run.player.vy ?? 0)), held: run.krakenArms.some((a) => !a.dead && a.gripT > 0), walled: (s.cageT ?? 0) > 0, slowed: (run.player.slowT ?? 0) > 0, correct: lastDodgeBiteT >= t - 0.6, ok: !e.hit, cause: e.hit ? (lastDodgeBiteT >= t - 0.6 ? 'stepped out and was bitten anyway' : 'did not step out') : null })
   // a grab that MISSES — the redesign's event. Any of these names counts as a dodged grab.
   for (const e of ev) if (/^(grabMiss|gripMiss|grabWhiff)$/.test(e.type)) attacks.push({ kind: 'grab', i: e.i ?? -1, t0: t, ia: t - P.conflictT, ib: t, outcome: 'missed', correct: lastDodgeGrabT >= t - 0.5, ok: true, cause: null })
   if (coilRec) {

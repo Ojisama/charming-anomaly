@@ -22506,22 +22506,21 @@ void main() {
   const K_BITE_HOT = 0xff2448      // hot crimson: the snap is imminent, or it took hp
   const K_BITE_FX_T = 0.3
 
-  // THE FISH'S OUTLINE, as silhouettes of its own parts: its body and tail textures drawn again
-  // behind them, scaled up, once dark and once as a thin pale rim. A ring would be a UI circle (and
+  // THE FISH'S OUTLINE, as a silhouette of its own body (the fish's tail is part of that texture):
+  // the body texture drawn again
+  // behind it, scaled up, once dark and once as a thin pale rim. A ring would be a UI circle (and
   // the parry's press ring is one); a silhouette is the fish's own edge.
   const fishRimD = new Sprite(Texture.EMPTY), fishRimL = new Sprite(Texture.EMPTY)
-  const tailRimD = new Sprite(Texture.EMPTY), tailRimL = new Sprite(Texture.EMPTY)
-  fishRimD.tint = tailRimD.tint = 0x000000
-  fishRimL.tint = tailRimL.tint = 0xfff1dc
-  fishRimD.alpha = tailRimD.alpha = 0.85
-  fishRimL.alpha = tailRimL.alpha = 0.7
+  fishRimD.tint = 0x000000
+  fishRimL.tint = 0xfff1dc
+  fishRimD.alpha = 0.85
+  fishRimL.alpha = 0.7
   function krakenFishRims(on) {
     if (!on) {
-      for (const sp of [fishRimD, fishRimL, tailRimD, tailRimL]) if (sp.parent) sp.parent.removeChild(sp)
+      for (const sp of [fishRimD, fishRimL]) if (sp.parent) sp.parent.removeChild(sp)
       return
     }
     if (fishRimL.parent !== bodyC) { bodyC.addChildAt(fishRimL, 0); bodyC.addChildAt(fishRimD, 1) }
-    if (tailRimL.parent !== playerC) { const ti = playerC.getChildIndex(pTail); playerC.addChildAt(tailRimL, ti); playerC.addChildAt(tailRimD, ti + 1) }
     const copy = (dst, src, k) => {
       dst.texture = src.texture
       dst.anchor.copyFrom(src.anchor)
@@ -22531,7 +22530,6 @@ void main() {
       dst.visible = src.visible && src.texture !== Texture.EMPTY
     }
     copy(fishRimL, pBody, 1.3); copy(fishRimD, pBody, 1.2)
-    copy(tailRimL, pTail, 1.3); copy(tailRimD, pTail, 1.2)
   }
 
   // playerC in or out of the cue layer. Only the Kraken lifts it; every other chapter keeps the

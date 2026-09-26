@@ -695,7 +695,8 @@ const SFX_FOR_EVENT = {
   // is the bar topping and the arm breaking outright. headWindup is the bare head drawing back
   // before a lunge — orcaAim, the one note in the bank that is a countdown rather than a report, and
   // it fires KRAKEN_LUNGE_WINDUP_T ahead so it LEADS the parry window. headLunge is the launch.
-  parry: 'deflect', parryPerfect: 'deflectHi', blaze: 'explode', headWindup: 'orcaAim', headLunge: 'lunge',
+  // headBite is the head's jaws snapping after their wind-up — crush, hit or miss.
+  parry: 'deflect', parryPerfect: 'deflectHi', blaze: 'explode', headWindup: 'orcaAim', headLunge: 'lunge', headBite: 'crush',
   // parryWhiff is a press that found nothing. `click` and not a miss-swoosh on purpose: it is the
   // bank's one DRY, dead note, and a whiff is exactly "the button did nothing" — the same sound a
   // dead button makes. It fires often enough (about a quarter of presses) that anything with a
