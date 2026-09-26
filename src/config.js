@@ -5019,8 +5019,23 @@ export const LURE_GLOW = {
 // boundary has to be findable by eye under pressure, so the rim stays exactly at `r` for the whole
 // countdown and the needles reaching in from it are what says how long you have left.
 export const MAW_VIS = {
-  head: 0x140e1c, headA: 0.62, headFrac: 1.26,  // the body behind the mouth — a rim of animal around the hole
-  throat: 0x05070b, throatA: 0.72,              // inside the mouth: darker than any floor this chapter has
+  // THE ANIMAL, FACE-ON (owner's pick 2026-09-26 of three redesigns, "A but more subtle ... less stuff
+  // around the mouth. It should just be a black hole with teeth growing in the shadows"). It looks up
+  // at you out of the water column: a lumpy dark head only a shade off the floor, faint ragged fins,
+  // the tail's fan past the brow, two dim eyes. Nothing decorates the mouth itself.
+  head: 0x1d1a20, headA: 0.85, headFrac: 1.26,  // headFrac: the old disc, still read by nothing but kept
+  headLump: 0.05,                               // ± on the head's outline, per lobe
+  mottle: 0x100d12, sheen: 0x3a3034,            // dark blotches, and the faint lift on the brow
+  fin: 0x2a2428, finRay: 0x4a3f3a, finA: 0.42,  // translucent smudges, not fans
+  eye: 0xb9c8c2, eyeA: 0.6,                     // two milky eyes — they ride MAW_REVEAL, they are bright
+  // THE EYES OPEN WITH THE TEETH (owner, 2026-09-26: "the eyes opening slowly when the teeth come
+  // out"). Shut slits at gape 0, eased open across this band of sh.gape, shut again as you escape.
+  eyeW: 0.11, eyeOpenFrom: 0.1, eyeOpenTo: 0.85, // half-length (x r), and the gape band they open over
+  eyeLid: 0x0b080d,                             // the closed slit
+  throat: 0x05070b, throatA: 0.96,              // a black hole: darker than any floor this chapter has
+  // THE SHADOW THE TEETH GROW OUT OF: a dark band laid over the needles' roots, so only the points
+  // come out of the dark. Width as a fraction of r, drawn just inside the rim.
+  rootShadeW: 0.12, rootShadeA: 0.7,
   // THE NEEDLES ARE LIT BY THE LURE, AND NOTHING ELSE IS DOWN HERE TO LIGHT THEM. Owner, 2026-09-12:
   // "teeth shouldn't be plain white but in the shadow... more realistic more frightening." The first
   // cut was one flat bone-white triangle per needle, which is a DIAGRAM of a tooth — no volume, no
@@ -5031,23 +5046,25 @@ export const MAW_VIS = {
   // the esca itself is drawn with, and for the same reason (one flat mid tone reads as a grey spike;
   // the ramp is what makes it a tooth). `tooth` is BONE, not white: it is the brightest thing in the
   // mouth, and MAW_REVEAL exists because the old value gave the animal away from across the water.
-  tooth: 0xc9bda4, toothA: 0.9,                 // the lure's catch, on the point only
-  toothMid: 0x544c3e,                           // ...the shank, half in shadow
+  tooth: 0xb8ad97, toothA: 0.8,                 // the lure's catch, on the point only
+  toothMid: 0x5e5546,                           // ...the shank, half in shadow
   toothShade: 0x181611,                         // ...and the jaw end, nearly as dark as the throat
   toothMidF: 0.54, toothLitF: 0.26,             // how much of the fang, back from the point, each covers
-  teeth: 22,                                    // needles around the ring
-  toothW: 0.065,                                // each needle's base width, as a fraction of r. Wider
+  teeth: 13,                                    // fangs around the ring: few and long, not a comb
+  toothSpread: 0.75,                            // ± this fraction of one slot on each fang's angle
+  toothW: 0.085,                                // each needle's base width, as a fraction of r. Wider
                                                 // than the flat cut needed: at 0.05 the tip stop is
                                                 // ~2.6px across and the three stops cannot resolve.
   // NO TWO NEEDLES ALIKE. 22 identical spikes is a machined ring — a gear, not a jaw — and it was the
   // other half of why the flat version read as a diagram. Length, width and curve are varied per
   // tooth off a hash of its own index and the maw's `phase`, so every mouth is uneven in its own way.
-  toothJag: 0.22,                               // ± this fraction on each needle's length and width
-  toothHook: 0.16,                              // how far its point is dragged round the ring, as a
+  toothJag: 0.38,                               // ± this fraction on each needle's length and width
+  toothHook: 0.2,                               // how far its point is dragged round the ring, as a
                                                 // fraction of its length — a fang curves, a nail does not
-  toothShut: 0.09, toothFull: 0.40,             // needle length at gape 0 and gape 1, as fractions of r
-  rimCold: 0x7d6a58, rimHot: 0xff5a3c,          // the rim as the swallow approaches — colour, not just size
-  rimW: 3, rimWGape: 5,                         // stroke width at gape 0, and how much it grows by
+  toothShut: 0.1, toothFull: 0.5,               // needle length at gape 0 and gape 1, as fractions of r
+  rimCold: 0x4a3e36, rimHot: 0xff5a3c,          // the rim as the swallow approaches — colour, not just size
+  rimW: 2, rimWGape: 5,                         // stroke width at gape 0, and how much it grows by
+  rimColdA: 0.22, rimHotA: 0.95,                // ...and alpha: the lip of the hole, until it starts to close
   escaCore: 0xf2fffb, escaMid: 0xaef4e2, escaHalo: 0x5fd8c0,
   escaR: 0.075,                                 // the bait's core radius, as a fraction of r
   shutA: 0.35,                                  // everything dims to this while the mouth is shut and spent
@@ -8474,6 +8491,7 @@ CHAPTERS.deep = {
   //                 argument: with a flag on every entry none reads as special). It shares the
   //                 archetype's spawn share with the lanternfish through `weight`.
   //   fangtooth     the fast slot: a burst dash, the viperfish's flag under an abyssal skin.
+  //   sleepershark  the second tank (2026-09-26), flagless and slow; half the tank share by weight.
   //   siphonophore  the tank: a colony as long as a bus that comes apart into zooids when killed
   //                 (`split`). Its children wear this same bake at SPLIT_RADIUS_FRAC and inherit
   //                 SPLIT_HP_FRAC of its HP and xp, which is why xpMul sits under 1 — see Task 8's
@@ -8507,8 +8525,11 @@ CHAPTERS.deep = {
     // spread over seven bodies that each die in a hit: 7 x 0.14 = 0.98 of the parent's health
     // against the old 2 x 0.45 = 0.90, and 7 x 0.4 = 2.8 contact hits against the old 2 x 1 = 2.
     // xp rides hpFrac in spawnSplitChildren, so the total xp is unchanged too — see xpMul below.
-    { id: 'siphonophore', archetype: 'tank',   name: 'Siphonophore', hpMul: 1.9, speedMul: 0.62, xpMul: 0.7, flags: ['split'],
+    { id: 'siphonophore', archetype: 'tank',   name: 'Siphonophore', hpMul: 1.9, speedMul: 0.62, xpMul: 0.7, weight: 1, flags: ['split'],
       split: { count: 7, hpFrac: 0.14, radiusFrac: 0.38, speedMul: 4, dmgMul: 0.4 } },
+    // balance_decision : flagless slow tank takes half the tank share [2026-09-26]
+    //  - weight 1 vs the siphonophore's 1 IS the half — move them together
+    { id: 'sleepershark', archetype: 'tank',  name: 'Sleeper Shark', hpMul: 2.2, speedMul: 0.45, weight: 1, flags: [] },
   ],
   // NO elite behaviour flag (R2.4): `webZone` existed for the hagfish's slime and nothing here
   // produces slime. Elites still roll affixes (ELITE_AFFIXES); this only stops a chapter flag being
@@ -8532,6 +8553,9 @@ CHAPTERS.deep = {
   // from one you watched cross the screen — so the crowd is smaller here and hits harder rather than
   // being simply denser.
   balance: { spawnMul: 0.75, enemyHpMul: 1.15, enemyDmgMul: 1.1, maxAliveMul: 0.8 },
+  // balance_decision : 30% fewer fangtooth, 20% fewer tanks [2026-09-26]
+  //  - archetypeKeep, not archetypeMul: absolute cut, normals unmoved, cap shrinks too (stepSpawning)
+  archetypeKeep: { fast: 1 - 0.3, tank: 1 - 0.2 },
 
   // ---- the arsenal (2026-09-09, spec 2026-09-09-deep-twilight-merge §3). Owner: "I want the
   // weapons of the twilight (light related) but the darkness of the abyss." Four light cards, no
