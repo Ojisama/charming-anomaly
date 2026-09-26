@@ -128,6 +128,9 @@ let armsT = 0
 const press = { n: 0, land: 0, whiff: 0 }
 const glow = { frames: 0, ringNoParry: 0, parryNoRing: 0, both: 0, btnClasses: {} }
 const tellCounts = {}
+const grabOpen = {}   // arm -> { hurt } while its grab winds up
+const lastGrabTrace = {}
+const safeStat = { grabs: 0, sideRight: 0, sideRightAny: 0, oneClear: 0, contested: 0, savedByIt: 0, steppedIntoThreat: 0 }
 // EVERY HIT, AND WHETHER ITS SOURCE WAS ON SCREEN. A hurt event's src is matched against the tells
 // that could have warned of it; "sourced" = one of them was drawn in the last HIT_LOOKBACK s. Adds
 // (graveyard dead, any other src) are sprites render always draws, so they count as sourced by body.
@@ -135,9 +138,6 @@ const HIT_LOOKBACK = 0.5
 const HIT_TELLS = { krakenArm: ['slamCharge', 'slamFlash', 'grabCharge', 'hold', 'coil'], 'krakenHead:lunge': ['lungeCharge', 'lungeFlash'], 'krakenHead:touch': ['headTouch'] }
 const tellSeen = {}
 const hits = []
-const grabOpen = {}   // arm -> { hurt } while its grab winds up
-const lastGrabTrace = {}
-const safeStat = { grabs: 0, sideRight: 0, sideRightAny: 0, oneClear: 0, contested: 0, savedByIt: 0, steppedIntoThreat: 0 }
 
 function parryWouldLand(p) {
   // krakenParry's own candidacy (sim.js): arm in window, on its struck line widened by the margin
@@ -387,7 +387,7 @@ window.__fxResult = {
   phase: run.script.phase, won: run.phase === 'victory',
   attacks: attacks.map((r) => ({ ...r, t0: +r.t0.toFixed(2) })),
   conflict: { seconds: +(conf.frames * DT).toFixed(2), moments: conf.moments, pairs: Object.fromEntries(Object.entries(conf.pairs).map(([k, v]) => [k, +v.toFixed(2)])) },
-  press, glow, tellCounts, hits, safe: safeStat, oracle: !!window.__kcOracle, parryCd: C.KRAKEN_PARRY_CD,
+  press, glow, tellCounts, safe: safeStat, hits, oracle: !!window.__kcOracle, parryCd: C.KRAKEN_PARRY_CD,
 }
 H.note('kraken-cues: ' + attacks.length + ' attacks graded over ' + armsT.toFixed(0) + 's of arms phase')
 return () => { app && app.renderer.render(app.stage) }
