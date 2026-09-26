@@ -83,13 +83,8 @@ function decide(tells) {
     for (const t of has('grabCharge').filter((t) => !ignoreGrab[t.i])) { const d = Math.sqrt(seg2(p.x, p.y, t.x0, t.y0, t.x1, t.y1)); if (d < gd) { gd = d; g = t } }
     const L = Math.hypot(g.x1 - g.x0, g.y1 - g.y0) || 1
     const nx = -(g.y1 - g.y0) / L, ny = (g.x1 - g.x0) / L
-    // THE DRAWN CHEVRON SAYS WHICH WAY (grabSafe: x0,y0 = the lock point, x1,y1 = the chevron's tip).
-    // Without one, fall back to "the side I am already on".
-    const safe = has('grabSafe').find((t) => t.i === g.i)
-    if (safe) {
-      const dx = safe.x1 - safe.x0, dy = safe.y1 - safe.y0, dl = Math.hypot(dx, dy) || 1
-      ix = dx / dl; iy = dy / dl
-    } else {
+    // Nothing on screen names a side (the grab's tell is its own limb): step off to the side I am on.
+    {
       let side = (p.x - g.x0) * nx + (p.y - g.y0) * ny
       if (Math.abs(side) < 1 && h) side = (p.x - h.x) * nx + (p.y - h.y) * ny
       ix = nx * (side >= 0 ? 1 : -1); iy = ny * (side >= 0 ? 1 : -1)
