@@ -8990,10 +8990,20 @@ export const KRAKEN_HEAD_TOUCH_DMG = 4
 // balance_decision : no head touch through a Coil or lunge wind-up [2026-09-26]
 //  - tied to KRAKEN_LUNGE_WINDUP_T: the quiet starts on the frame the wind-up is drawn
 export const KRAKEN_TOUCH_QUIET_T = KRAKEN_LUNGE_WINDUP_T
-// ...and it re-arms only this long after the quiet ends, so the touch that follows a parried lunge
-// or a Coil is warned (the rim's ramp) instead of landing on the first frame.
-// balance_decision : touch re-arms 0.5s after a quiet ends [2026-09-26]
-export const KRAKEN_TOUCH_REARM_T = 0.5
+// THE BITE. The head's touch is an ATTACK on its own clock, not a contact tick: once the fish is
+// inside its touch reach the jaws wind up for KRAKEN_BITE_WINDUP_T and snap, and the snap bills
+// KRAKEN_HEAD_TOUCH_DMG only if the fish is STILL inside the reach. Answer: step out.
+// balance_decision : head touch is a 0.6s wind-up bite, not contact [2026-09-26]
+//  - the lead is the whole point: keep it >= 0.5s
+export const KRAKEN_BITE_WINDUP_T = 0.6
+// balance_decision : 0.5s rest between one snap and the next wind-up [2026-09-26]
+export const KRAKEN_BITE_CD = 0.5
+// balance_decision : a wind-up is dropped once the fish is this far past the reach [2026-09-26]
+export const KRAKEN_BITE_SLACK = 40
+// balance_decision : no bite lands within 0.5s of a lunge wind-up starting [2026-09-26]
+//  - the other way round is structural: no bite winds up during the 0.5s lunge burst, and its own
+//    wind-up (KRAKEN_BITE_WINDUP_T) follows any parry or Coil that ends the quiet
+export const KRAKEN_BITE_GAP = 0.5
 // THE COIL (P3, D3 only). Every Nth arm attack the whole ring hauls inward at once, and the only
 // place that is not swept is ONE sector — the gap. NOT PARRYABLE by design: the parry must not be
 // the answer to everything, or it stops being a choice. You read the gap and you move.
