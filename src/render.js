@@ -14648,7 +14648,22 @@ const spurG = new Graphics()
           const a = toothHash(40 + i) * Math.PI * 2, d = R * (1.12 + 0.3 * toothHash(60 + i))
           g.circle(R * 0.3 + Math.cos(a) * d * 0.95, Math.sin(a) * d * 0.9, R * (0.04 + 0.06 * toothHash(80 + i))).fill({ color: M.mottle, alpha: 0.3 * A })
         }
-        for (const sg of [-1, 1]) g.circle(R * 1.12, sg * R * 0.76, R * 0.055).fill({ color: M.eye, alpha: M.eyeA * A * reveal })
+        // The eyes open with the teeth: a lens swept along the head's curve whose height is the
+        // eased gape (see MAW_VIS.eyeOpenFrom). Shut, it is a dark slit and nothing else.
+        const eu = Math.max(0, Math.min(1, ((shut ? 0 : gp) - M.eyeOpenFrom) / (M.eyeOpenTo - M.eyeOpenFrom)))
+        const open = eu * eu * (3 - 2 * eu)
+        for (const sg of [-1, 1]) {
+          const ex = R * 1.12, ey = sg * R * 0.76
+          const th = Math.atan2(ey, ex) + Math.PI / 2, tx = Math.cos(th), ty = Math.sin(th)
+          const w = R * M.eyeW, h = w * 1.2 * open
+          const x0 = ex - tx * w, y0 = ey - ty * w, x1 = ex + tx * w, y1 = ey + ty * w
+          g.moveTo(x0, y0).lineTo(x1, y1).stroke({ width: Math.max(1.5, R * 0.012), color: M.eyeLid, alpha: A * reveal * (1 - open) })
+          if (open > 0.02) {
+            g.moveTo(x0, y0).quadraticCurveTo(ex - ty * h, ey + tx * h, x1, y1)
+              .quadraticCurveTo(ex + ty * h, ey - tx * h, x0, y0).closePath()
+              .fill({ color: M.eye, alpha: M.eyeA * A * reveal * (0.4 + 0.6 * open) })
+          }
+        }
         // The hole: darker than any floor this chapter has, and nothing round its edge.
         g.circle(0, 0, R).fill({ color: M.throat, alpha: M.throatA * A })
         // The needles: fixed at the rim, reaching further in as the mouth closes. See MAW_VIS for

@@ -5027,7 +5027,11 @@ export const MAW_VIS = {
   headLump: 0.05,                               // ± on the head's outline, per lobe
   mottle: 0x100d12, sheen: 0x3a3034,            // dark blotches, and the faint lift on the brow
   fin: 0x2a2428, finRay: 0x4a3f3a, finA: 0.42,  // translucent smudges, not fans
-  eye: 0xb9c8c2, eyeA: 0.45,                    // two dim pearls — they ride MAW_REVEAL, they are bright
+  eye: 0xb9c8c2, eyeA: 0.6,                     // two milky eyes — they ride MAW_REVEAL, they are bright
+  // THE EYES OPEN WITH THE TEETH (owner, 2026-09-26: "the eyes opening slowly when the teeth come
+  // out"). Shut slits at gape 0, eased open across this band of sh.gape, shut again as you escape.
+  eyeW: 0.11, eyeOpenFrom: 0.1, eyeOpenTo: 0.85, // half-length (x r), and the gape band they open over
+  eyeLid: 0x0b080d,                             // the closed slit
   throat: 0x05070b, throatA: 0.96,              // a black hole: darker than any floor this chapter has
   // THE SHADOW THE TEETH GROW OUT OF: a dark band laid over the needles' roots, so only the points
   // come out of the dark. Width as a fraction of r, drawn just inside the rim.
