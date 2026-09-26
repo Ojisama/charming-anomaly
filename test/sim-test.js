@@ -174,7 +174,7 @@ import {
   KRAKEN_LUNGE_T, KRAKEN_GRIP_DUR, KRAKEN_GRIP_DMG, KRAKEN_GRIP_FLICKS, KRAKEN_GRIP_STICK_MUL, TRAWL_WIGGLE_ARC,
   KRAKEN_LASH_W, KRAKEN_LASH_OVER, KRAKEN_LASH_DMG, KRAKEN_LESSON_MAX, KRAKEN_PARRY_SHOVE_R, KRAKEN_PARRY_EARLY_T, KRAKEN_ARRIVE_T2, KRAKEN_WAVE_GROWTH, KRAKEN_COIL_DMG,
   KRAKEN_HEAD_SPEED, KRAKEN_PARRY_SPIN_T, krakenLimbHalfW, FISH_R, FISH_BODY, KRAKEN_GRIP_EVERY, KRAKEN_GRAB_FUSE, KRAKEN_GRAB_MIN_STEP,
-  KRAKEN_BEAT_READ, KRAKEN_BEAT_GRAB_CLEAR, KRAKEN_BEAT_BREATH,
+  KRAKEN_BEAT_READ, KRAKEN_BEAT_GRAB_CLEAR, KRAKEN_BEAT_BREATH, KRAKEN_TOUCH_QUIET_T, KRAKEN_TOUCH_REARM_T, KRAKEN_HEAD_R,
 } from '../src/config.js'
 import { krakenWinPending, krakenGrabSafeSide, krakenGrabSpot, krakenGrabTurnClear, stepSim, applyChoice, buildLevelUpChoices, eligibleWeaponModCandidates, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, inRefillCircle, stepCharge, newElWindow, spurAt } from '../src/sim.js'
 
@@ -34910,6 +34910,46 @@ function runKraken() {
     ]) assert.ok(code.includes(needle), `render.js no longer reads ${needle}: ${why}`)
   }
 
+  // (h5) ONE HIT, ONE CAUSE: THE HEAD'S TOUCH GOES QUIET WHILE ANOTHER ASK IS ON SCREEN. Through
+  // the whole Coil (its safe gap starts against the head, so the correct dodge used to cost a touch)
+  // and through the lunge's wind-up (a touch there reads as "the lunge hit me"), and for
+  // KRAKEN_TOUCH_REARM_T after either, so the next touch is warned instead of instant. A CONTROL
+  // first: the same fixture, not quiet, must bill touches, or every zero below is the rig.
+  //   Mutations: drop s.coilT from the quiet (the Coil case bites); drop the lunge wind-up from it
+  // (the wind-up case bites); drop the re-arm hangover (the first frames after the quiet bite).
+  {
+    const run = inBlock(3)
+    const s = run.script
+    const h = headOf(run)
+    s.phase = 'chase'; s.riseT = 0; s.staggerT = 0; s.stagger = 0
+    for (const a of run.krakenArms) { a.tele = 0; a.gripT = 0; a.limpT = 0; a.dead = true }
+    const touches = (secs, pin) => {
+      let n = 0
+      for (let i = 0; i < Math.round(secs * 60); i++) {
+        pin()
+        h._lungeBurst = 0
+        run.player.x = h.x + KRAKEN_HEAD_R * 0.95; run.player.y = h.y
+        run.player.hp = run.player.maxHP
+        stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+        for (const e of run.events.splice(0)) if (e.type === 'hurt' && e.src === 'krakenHead') n++
+      }
+      return n
+    }
+    const open = () => { s.coilT = 0; h.lungeT = KRAKEN_LUNGE_T }
+    h.touchRearmT = 0
+    const control = touches(2, open)
+    assert.ok(control >= 2, `the fixture billed ${control} head touches in 2s nosed up against the head with nothing else on — the zeros below would prove nothing`)
+    const coil = touches(1.5, () => { s.coilT = KRAKEN_COIL_TELE + KRAKEN_COIL_DUR; h.lungeT = KRAKEN_LUNGE_T })
+    assert.strictEqual(coil, 0, `the head's touch billed ${coil}x through a Coil — the correct dodge into the gap against the head costs hp`)
+    touches(KRAKEN_TOUCH_REARM_T + 0.8, open)   // let it re-arm and bill again
+    const wind = touches(1.5, () => { s.coilT = 0; h.lungeT = KRAKEN_TOUCH_QUIET_T * 0.5 })
+    assert.strictEqual(wind, 0, `the head's touch billed ${wind}x through the lunge's wind-up — it reads as the lunge hitting`)
+    const rearm = touches(KRAKEN_TOUCH_REARM_T * 0.8, open)
+    assert.strictEqual(rearm, 0, `the touch billed ${rearm}x in the first ${KRAKEN_TOUCH_REARM_T * 0.8}s after the wind-up — no warning ramp could have led it`)
+    const back = touches(1.5, open)
+    assert.ok(back >= 1, 'the touch never came back after the quiet — the tax is gone for good, not paused')
+  }
+
   // (i) THE RING IS A CAGE, AND ONLY WHILE IT IS UP (owner: "i can get out of the arms circle and
   // wander off on the map"). KRAKEN_CAGE_R is derived from the membrane render draws, so the wall
   // and the picture of it cannot end up in different places.
@@ -35540,7 +35580,7 @@ function runKraken() {
       'a WHIFF left the player with no gesture — a press that found nothing and a press the game never registered are the same picture, which is the complaint')
   }
 
-  console.log('PASS run KR (The Kraken, rev 3): a standing arm is untouchable by all three weapons and puts nothing on the field, a parry makes it LIMP and materialises a real enemy at its tip that weapons do kill, a window closing takes that node away without paying a kill or xp and keeps the damage, finishing it breaks the arm for good, the ring never winds up more arms at once than its rung allows (d1/d2/d3), the head is sealed against hits AND burns until its posture breaks, staggerNeed parried lunges open the only window on it and a burn lit inside outlives it, a whiff reports itself and still pays the cooldown, the cage holds while the ring is up, all 3 rungs read arms/rearing/window/perfect/fuse/limp/cadence/staggerNeed with the windows nested, both hidden chapters resolve through HIDDEN_UNLOCKS with no id hardcoded in main/ui/state, the approach is 3 waves that never touch bossIdx and the ring closes in from the murk with the cage riding it, a sealed head answers every refused hit with a throttled deflect, an unparried slam holds its pose for KRAKEN_SLAM_T and lands down the WHOLE limb so the middle of the arena is not safe while a gap between two arms is, and render.js (comments stripped) reads limpT, fuse, hitT, slamT, the arrival ramp, the recorded arm tips, the stagger pips, the cage radius the sim published, the limb WRAPPING the player for a grip and the bend travelling down a striking limb; the chase head rises harmless (no bite during riseT) and render.js reads the struggle counter, the Coil gap and the head-touch hurt for the fish\'s three cues')
+  console.log('PASS run KR (The Kraken, rev 3): a standing arm is untouchable by all three weapons and puts nothing on the field, a parry makes it LIMP and materialises a real enemy at its tip that weapons do kill, a window closing takes that node away without paying a kill or xp and keeps the damage, finishing it breaks the arm for good, the ring never winds up more arms at once than its rung allows (d1/d2/d3), the head is sealed against hits AND burns until its posture breaks, staggerNeed parried lunges open the only window on it and a burn lit inside outlives it, a whiff reports itself and still pays the cooldown, the cage holds while the ring is up, all 3 rungs read arms/rearing/window/perfect/fuse/limp/cadence/staggerNeed with the windows nested, both hidden chapters resolve through HIDDEN_UNLOCKS with no id hardcoded in main/ui/state, the approach is 3 waves that never touch bossIdx and the ring closes in from the murk with the cage riding it, a sealed head answers every refused hit with a throttled deflect, an unparried slam holds its pose for KRAKEN_SLAM_T and lands down the WHOLE limb so the middle of the arena is not safe while a gap between two arms is, and render.js (comments stripped) reads limpT, fuse, hitT, slamT, the arrival ramp, the recorded arm tips, the stagger pips, the cage radius the sim published, the limb WRAPPING the player for a grip and the bend travelling down a striking limb; the chase head rises harmless (no bite during riseT), its touch goes quiet through a Coil and a lunge wind-up and re-arms after KRAKEN_TOUCH_REARM_T, and render.js reads the struggle counter, the Coil gap and the head-touch hurt for the fish\'s three cues')
 }
 
 // ---- Run KC: The Kraken's ceremony (the kill outro's contract) --------------------------------
