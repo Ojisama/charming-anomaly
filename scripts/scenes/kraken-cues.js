@@ -183,6 +183,8 @@ function beat(tells) {
       const band = seg2(p.x, p.y, a.lx0, a.ly0, a.lx1, a.ly1) <= parryW * parryW
       if (band && !r.band) { r.ia = t; r.ib = t + a.tele }   // the answer is DUE from now until it would land
       if (band) r.band = true
+      // what was on this arm the first frame it was due, for a failure's post-mortem in the json
+      if (band && !r.dbg) r.dbg = { tells: tells.filter((tl) => tl.i === a.i).map((tl) => tl.kind), tele: +a.tele.toFixed(3), fuse: a.fuse, slamT: a.slamT, hitT: a.hitT, lesson: run.krakenLesson, phase: s.phase, hitStop: run.hitStop }
       if (band && (drawn(a.i, 'slamFlash') || drawn(a.i, 'slamNow'))) r.flash = true
       if (band && d.press) r.pressed = true
       if (band && cd > 0) r.cdBlocked = true

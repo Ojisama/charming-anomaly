@@ -20365,7 +20365,7 @@ void main() {
   // streak joins the fish to it, and the limb is thrown back away from the fish (krakenRecoil).
   const K_CLASH_MIN = 52, K_CLASH_MAX = 92
   function krakenParried(e, perfect, run) {
-    krakenNow = null
+    for (let q = krakenNow.length - 1; q >= 0; q--) if (krakenNow[q].i === e.i) krakenNow.splice(q, 1)
     krakenEarly = null
     const c = e.px !== undefined ? krakenLimbNear(e.i, e.px, e.py) : null
     if (!c) { krakenClash(e, perfect); return }
@@ -20491,6 +20491,14 @@ void main() {
     }
     return best ? { x: best.x, y: best.y } : null
   }
+  // sim's krakenArmInReach, exactly: the struck line widened by KRAKEN_PARRY_MARGIN
+  function krakenArmInReachR(run, a) {
+    const p = run.player
+    const dx = a.lx1 - a.lx0, dy = a.ly1 - a.ly0, l2 = dx * dx + dy * dy
+    const t = l2 > 0 ? Math.max(0, Math.min(1, ((p.x - a.lx0) * dx + (p.y - a.ly0) * dy) / l2)) : 0
+    const R = KRAKEN_LASH_W * KRAKEN_PARRY_MARGIN
+    return (p.x - a.lx0 - dx * t) ** 2 + (p.y - a.ly0 - dy * t) ** 2 <= R * R
+  }
   // Is the fish close enough to this arm's struck line to be the one it is coming for.
   function krakenArmNear(run, a) {
     const p = run.player
@@ -20503,7 +20511,7 @@ void main() {
   // PRESS NOW — drawn AT THE FISH, because that is where the eye is; the limb is long, partly off
   // the screen and far away. On the frame a plain slam's window opens in reach (sim's 'slamWindow')
   // a hard white glint cuts onto the fish's edge on the side the blow is coming from, full size on
-  // its first frame, gone in K_NOW_FLASH_T. What stays is the BEAT: a gold arc on that side whose
+  // its first frame, gone in K_NOW_FLASH_T. What stays is the BEAT: a white arc on that side whose
   // span runs out on the arm's own clock, so it closes exactly on the impact — "flash ... hit".
   // One glyph for the arms; the head's lunge keeps its ring. Dimmed while the button is cooling:
   // a press then would not land, and the glyph must not say it would.
@@ -20511,12 +20519,16 @@ void main() {
     const p = run.player
     const G = krakenGripFrontG
     const rung = run.script ? krakenRung(run.difficulty) : null
-    if (krakenNow) {
-      const n = krakenNow
+    // ONE GLYPH PER ARM IN ITS WINDOW (two slams can overlap), each drawn only while a press would
+    // reach that arm — the same reach sim's krakenArmInReach tests, every frame, so stepping off the
+    // line takes the glyph away and the glyph can never promise a parry the press would not make.
+    for (let gi = krakenNow.length - 1; gi >= 0; gi--) {
+      const n = krakenNow[gi]
       if (dt > 0) n.t += dt
       const a = rung ? run.krakenArms.find((q) => q.i === n.i) : null
-      if (!a || a.dead || !(a.tele > 0) || a.limpT > 0 || run.chapter !== 'kraken') krakenNow = null
-      else {
+      if (!a || a.dead || !(a.tele > 0) || a.limpT > 0 || a.grabArm || a.coilArm || run.chapter !== 'kraken') { krakenNow.splice(gi, 1); continue }
+      if (!krakenArmInReachR(run, a)) continue
+      {
         const near = krakenLimbNear(n.i, p.x, p.y)
         if (near) n.ang = Math.atan2(near.y - p.y, near.x - p.x)
         const ang = n.ang
@@ -20525,8 +20537,9 @@ void main() {
         const R = 34
         const left = Math.max(0, Math.min(1, a.tele / rung.window))
         const span = 1.1 * left
+        // what the player reads as PRESS: logged for scripts/kraken-cues.mjs on every frame it is lit
+        if (live === 1) { tellDrawn('arm', n.i, 'slamNow', p.x + ca * R, p.y + sa * R); tellDrawn('player', -1, 'pressRing', p.x, p.y) }
         if (span > 0.02) {
-          if (live === 1) tellDrawn('arm', n.i, 'slamNow', p.x + ca * R, p.y + sa * R)
           G.beginPath()
           G.arc(p.x, p.y, R, ang - span, ang + span)
           G.stroke({ width: 9, color: 0x160a02, alpha: 0.55 * live, cap: 'round' })
@@ -20537,7 +20550,6 @@ void main() {
         if (n.t < K_NOW_FLASH_T) {
           const k = 1 - n.t / K_NOW_FLASH_T
           const gx = p.x + ca * R, gy = p.y + sa * R
-          if (span <= 0.02 && live === 1) tellDrawn('arm', n.i, 'slamNow', gx, gy)
           const tx = -sa, ty = ca
           // a blade's edge catching the light: long ACROSS the incoming line, short along it
           const L = 40 * (0.7 + 0.3 * k), Wd = 9 * k + 3, Lf = 26 * (0.7 + 0.3 * k)
@@ -23627,7 +23639,7 @@ void main() {
   // THE PRESS-NOW GLYPH at the fish ('slamWindow') and its too-early twin ('parryEarly'), the
   // parry's streak from the fish to the flesh it met, and a parried limb's recoil per arm slot.
   // Same ownership as krakenScars.
-  let krakenNow = null
+  const krakenNow = []
   let krakenEarly = null
   const K_NOW_FLASH_T = 0.09   // s the glint holds at full size before the beat alone is left
   const K_EARLY_T = 0.22
@@ -26563,8 +26575,8 @@ void main() {
         }
         case 'slamWindow': {
           // PRESS NOW (drawKrakenNow): the glint and the beat at the fish
-          krakenNow = { i: e.i, ang: Math.atan2(e.y - e.py, e.x - e.px), t: 0 }
-          krakenEarly = null
+          for (let q = krakenNow.length - 1; q >= 0; q--) if (krakenNow[q].i === e.i) krakenNow.splice(q, 1)
+          krakenNow.push({ i: e.i, ang: Math.atan2(e.y - e.py, e.x - e.px), t: 0 })
           break
         }
         case 'parryEarly': {
@@ -26895,7 +26907,7 @@ void main() {
     krakenSplashUnderG.clear()
     krakenSlabHole.clear()
     krakenStars.length = 0
-    krakenNow = null
+    krakenNow.length = 0
     krakenEarly = null
     krakenHitMeK = 1
     krakenStreaks.length = 0
