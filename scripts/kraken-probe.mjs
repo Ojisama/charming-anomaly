@@ -55,12 +55,10 @@ if (arg('cadence', null) != null) {
 }
 const DODGE_T = Number(arg('dodgeT', 0.35))
 const SEEDS = String(arg('seeds', '1001,2002,3003,4004,5005,6006')).split(',').map(Number)
-// --bite dodge|ignore: what the bot does about the chase head's BITE (head.biteT, the jaws winding
-// up). 'ignore' (the default, and the only behaviour on a build without the bite) plays on as if
-// nothing were drawn; 'dodge' steps out along the head->fish ray bent away from the nearest
-// collider, and slides round whatever it is pinned against (a pier post) when a frame of full stick
-// moves it under 1px.
-const BITE = arg('bite', 'ignore')
+// --bite dodge|ignore: what the bot does when the chase head is ON it (touching it hurts since
+// 2026-09-26; the flag kept its old name). 'dodge' (default) steps out along the head->fish ray
+// bent away from the nearest collider, sliding round whatever pins it; 'ignore' stays put.
+const BITE = arg('bite', 'dodge')
 if (!['dodge', 'ignore'].includes(BITE)) { console.error('ABORT: --bite must be dodge or ignore, got ' + BITE); process.exit(1) }
 // --hug F: in the chase, hold station at F x KRAKEN_HEAD_R from the head instead of 1.2 x the arm
 // reach — a player who stays in the head's face. 0 = off.
@@ -139,7 +137,7 @@ function fight(seed) {
     // without this every grip runs its clock out and bites, and the fight measures harder than it
     // is. One full turn a second is ~4 flicks/s, a rate a thumb can hold.
     const held = run.krakenArms.find((a) => !a.dead && a.gripT > 0)
-    const biting = BITE === 'dodge' && head && s.phase === 'chase' && head.biteT != null
+    const biting = BITE === 'dodge' && head && s.phase === 'chase' && Math.hypot(p.x - head.x, p.y - head.y) < (head.radius ?? C.KRAKEN_HEAD_R) + C.PLAYER.radius + 50
     if (biting && !held) {
       // out along the head->fish ray, bent away from the nearest collider within 90px (the same
       // rule as scripts/scenes/kraken-cues.js's bot), sliding tangentially if still pinned
@@ -231,7 +229,7 @@ function fight(seed) {
       // a head hit while its lunge burst runs (before or after the step) is the lunge; any other is its
       // touch (v7.361) or bite. NOT by amount: a bite tuned near KRAKEN_LUNGE_DMG would be misfiled.
       const burstNow = burstPre || (!!head && (head._lungeBurst ?? 0) > 0)
-      const k = e.src === 'krakenHead' ? (burstNow ? 'lunge' : 'head touch/bite') : e.src === 'krakenArm' ? 'arms' : 'adds+other'
+      const k = e.src === 'krakenHead' ? (burstNow ? 'lunge' : 'head touch') : e.src === 'krakenArm' ? 'arms' : 'adds+other'
       bySrc[k] = (bySrc[k] || 0) + e.dmg
     }
     if (run.events.some((e) => e.type === 'lash' && e.coil)) coilDmg += lost
@@ -306,7 +304,7 @@ console.log('arm attacks per minute of ring [' + rs.map((r) => ((r.slamRears + r
 console.log('fight mean     ' + (rs.reduce((q, r) => q + r.t, 0) / rs.length).toFixed(1) + 's')
 // WHAT HURT, whole fight, by source; and the CHASE's own damage per minute of chase
 const srcs = [...new Set(rs.flatMap((r) => Object.keys(r.bySrc)))].sort()
-console.log(`bite: ${BITE}   hug: ${HUG || 'off'}   lunge parry ${LUNGE_P}   lunge dmg ${C.KRAKEN_LUNGE_DMG}   bite dmg ${C.KRAKEN_HEAD_TOUCH_DMG}${C.KRAKEN_BITE_REACH != null ? '   bite reach +' + C.KRAKEN_BITE_REACH : ''}`)
+console.log(`bite: ${BITE}   hug: ${HUG || 'off'}   lunge parry ${LUNGE_P}   lunge dmg ${C.KRAKEN_LUNGE_DMG}   touch dmg ${C.KRAKEN_HEAD_TOUCH_DMG}`)
 for (const k of srcs) console.log(`damage by source  ${k.padEnd(16)} [${rs.map((r) => Math.round(r.bySrc[k] || 0)).join(' ')}]`)
 const cpm = rs.map((r) => (r.chaseT > 0 ? r.chaseDmg / (r.chaseT / 60) : 0))
 console.log(`chase damage/min  [${cpm.map((v) => v.toFixed(0)).join(' ')}]  mean ${(cpm.reduce((a, b) => a + b, 0) / cpm.length).toFixed(1)}`)

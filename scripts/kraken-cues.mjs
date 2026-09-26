@@ -117,15 +117,13 @@ async function headless(diff, seed) {
       } else if (s.gripSoonI === a.i) tells.push({ src: 'arm', i: a.i, kind: 'grabCharge', x: a.x, y: a.y, x0: a.x, y0: a.y, x1: p.x, y1: p.y })
     }
     // REPLICA of the Coil's star (render: drawKrakenCues): KRAKEN_COIL_RAYS bands from the head, wind-up only
-    if (s.coilT > C.KRAKEN_COIL_DUR) for (let k = 0; k < C.KRAKEN_COIL_RAYS; k++) {
-      const t = (s.coilStar ?? 0) + k * Math.PI * 2 / C.KRAKEN_COIL_RAYS, R = C.KRAKEN_CAGE_R * 3
+    if (s.coilT > C.KRAKEN_COIL_DUR) for (let k = 0; k < (s.coilN || C.KRAKEN_COIL_RAYS); k++) {
+      const t = (s.coilStar ?? 0) + k * Math.PI * 2 / (s.coilN || C.KRAKEN_COIL_RAYS), R = C.KRAKEN_CAGE_R * 3
       tells.push({ src: 'head', i: k, kind: 'coil', x: head.x, y: head.y, x0: head.x, y0: head.y, x1: head.x + Math.cos(t) * R, y1: head.y + Math.sin(t) * R })
     }
     const lunge = s.phase === 'chase' && !(s.staggerT > 0) && head.lungeT > 0
     if (lunge && head.lungeT <= C.KRAKEN_LUNGE_WINDUP_T) tells.push({ src: 'head', i: -1, kind: 'lungeCharge', x: head.x, y: head.y })
     if (lunge && head.lungeT <= rung.lungeWindow) { tells.push({ src: 'head', i: -1, kind: 'lungeFlash', x: head.x, y: head.y }); winAny = true }
-    // REPLICA of drawKrakenCues' bite rule: the jaws are drawn for as long as sim's head.biteT runs
-    if (s.phase === 'chase' && head.biteT != null) tells.push({ src: 'head', i: -1, kind: 'headBite', x: head.x, y: head.y })
     // REPLICA of render.js's press-ring rule (drawKrakenRing): lit only while sim's run.parryReady
     if (winAny && r.parryReady === true) tells.push({ src: 'player', i: -1, kind: 'pressRing', x: p.x, y: p.y })
     return tells
@@ -254,7 +252,7 @@ function report(label, rs) {
   if (Object.keys(cls).length) console.log('HUD button classes (frames): ' + Object.entries(cls).map(([k, v]) => `"${k}" ${v}`).join('  '))
   // EVERY HIT THE PLAYER TOOK, by source, and how many had NO drawn source in the 0.5s before it
   // (the scene's HIT_TELLS: an arm hit needs an arm tell, a lunge the lunge's, a head BITE the
-  // headBite tell; any other src is an add whose body is its own tell). The rig is immortal, so this
+  // head's body; any other src is an add whose body is its own tell). The rig is immortal, so this
   // is a damage-taken profile, not a cause of death.
   const hs = rs.flatMap((r) => (r.hits || []).map((h) => ({ ...h, seed: r.seed })))
   const bySrc = {}

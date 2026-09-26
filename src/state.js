@@ -2344,6 +2344,13 @@ function generateWells(sig) {
   *       KRAKEN_COIL_RAYS shadow bands from the head across the arena, locked on the fish at the
   *       wind-up: inside a band at the close is the hit (krakenCoilStarHits). Not parryable. The
   *       last phase (s.enraged) on a rung with enrageArms pushes NEW arms onto run.krakenArms.
+  *       coilN — how many bands (= coil arms) this Coil has. Each coil arm carries coilAng (its
+  *       band) and angNow (its live bearing, eased from ang onto the band and back; sim and render
+  *       both place the limb off it).
+  *     The chase HEAD (an enemy) is moved by the chase step itself (head.speed 0): lungeT counts to
+  *       its dash, dashAng is the dash's line (tracks the fish, locked once the parry window opens),
+  *       _lungeBurst > 0 while it dashes, _kvx/_kvy its drifting velocity. Its touch is plain
+  *       contact damage (head.dmg). There is no bite any more.
   *     charged — THE BLAZE LATCH. Set the moment Light reaches its ceiling, consumed by the next
   *       parry (which breaks its arm outright). A latch rather than a test of the bar at press
   *       time, because the passive drain leaves the ceiling within a frame of touching it: sampling
