@@ -34973,6 +34973,29 @@ function runKraken() {
     assert.ok(back.length >= 1, 'the bite never came back — the head no longer owns its space at all')
   }
 
+  // (h6) THE BARED HEAD SMASHES ROCK (owner 2026-09-26: "it gets stuck"). A rock on its path in the
+  // chase is gone after one step, for good (run._crushed), and the head is not pushed off it; the
+  // same rock in the ring phase stays and pushes, like any enemy's.
+  //   Mutations: drop the chase gate (the ring-phase rock goes); push instead of smash; skip _crushed.
+  {
+    const run = inBlock(3)
+    const s = run.script
+    const h = headOf(run)
+    const rock = () => { const o = { x: h.x + 40, y: h.y, r: 80, _cell: 'h6', kind: 'rock' }; run.obstacles.push(o); return o }
+    const o0 = rock()
+    const hx = h.x
+    stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+    assert.ok(run.obstacles.includes(o0), 'the head smashed a rock outside the chase')
+    run.obstacles.splice(run.obstacles.indexOf(o0), 1)
+    s.phase = 'chase'; s.riseT = 0
+    const o1 = rock()
+    const hx1 = h.x
+    stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+    assert.ok(!run.obstacles.includes(o1), 'the bared head is still stuck on a rock it overlaps')
+    assert.ok(run._crushed.has('h6'), 'a smashed rock is not recorded, so streaming would roll it back')
+    assert.ok(Math.abs(h.x - hx1) < 20, 'the head was shoved by the rock instead of going through it: moved ' + (h.x - hx1).toFixed(0) + 'px')
+  }
+
   // (i) THE RING IS A CAGE, AND ONLY WHILE IT IS UP (owner: "i can get out of the arms circle and
   // wander off on the map"). KRAKEN_CAGE_R is derived from the membrane render draws, so the wall
   // and the picture of it cannot end up in different places.
@@ -36247,7 +36270,7 @@ function testKrakenParryShove() {
   const at = (dx, dy, extra = {}) => { const e = makeStatusEnemy(run, { x: p.x + dx, y: p.y + dy, speed: 0 }); Object.assign(e, extra); run.enemies.push(e); return e }
   const near = at(KRAKEN_PARRY_SHOVE_R * 0.4, 0)
   const far = at(0, KRAKEN_PARRY_SHOVE_R * 1.8)
-  const node = at(-KRAKEN_PARRY_SHOVE_R * 0.4, 0, { rosterId: 'krakenArm' })
+  const node = at(-KRAKEN_PARRY_SHOVE_R * 0.6, 0, { rosterId: 'krakenArm' })
   const head = run.enemies.find((e) => e.rosterId === 'krakenHead' && !e._dead)
   const d0 = Math.hypot(near.x - p.x, near.y - p.y)
   const far0 = { x: far.x, y: far.y }, node0 = { x: node.x, y: node.y }
@@ -36280,6 +36303,7 @@ function testKrakenParryShove() {
   const h1 = Math.hypot(hug.x - p.x, hug.y - p.y)
   assert.ok(hug.stunT > 0, 'a whiffed parry did not daze the add sitting on the player')
   assert.ok(h1 > h0 + 60, `a whiffed parry did not throw the add on the player clear (${h0.toFixed(0)} -> ${h1.toFixed(0)}px)`)
+  assert.strictEqual(KRAKEN_PARRY_SHOVE_R, Math.round(150 * 0.7), 'owner 2026-09-26: shove reach -30% from 150')
   console.log(`PASS run KS (parry shove): a landed parry throws an add ${d0.toFixed(0)}px out to ${d1.toFixed(0)}px and dazes it, a WHIFF throws an add on the player ${h0.toFixed(0)} -> ${h1.toFixed(0)}px; an add past ${KRAKEN_PARRY_SHOVE_R}px, an arm node and the head are untouched`)
 }
 

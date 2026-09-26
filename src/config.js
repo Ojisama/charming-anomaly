@@ -8687,9 +8687,11 @@ export const KRAKEN_RUNGS = [
   //    0.24s it was not: sweeping bot accuracy over 6 seeds, 60% answered 6/6 staggers and won 6/6,
   //    while 40% landed MORE head parries (15-24 against the perfect bot's 17) for FEWER staggers
   //    (27 against 36) and won 2/6 — the decay eating them faster than they filled.
-  { arms: 4, rearing: 1, window: 0.34, lungeWindow: 0.52, perfect: 0.150, fuse: 2.20, limp: 4.0, cadence: 1.9, staggerNeed: 2, drainMul: 1.00, headHpMul: 1.00, grip: false, coil: false, grabbers: 0 },
-  { arms: 5, rearing: 2, window: 0.28, lungeWindow: 0.46, perfect: 0.125, fuse: 1.80, limp: 3.2, cadence: 0.9, staggerNeed: 3, drainMul: 1.30, headHpMul: 1.02, grip: true,  coil: false, grabbers: 2 },
-  { arms: 6, rearing: 2, window: 0.24, lungeWindow: 0.42, perfect: 0.110, fuse: 1.50, limp: 2.6, cadence: 0.9, staggerNeed: 3, drainMul: 1.60, headHpMul: 1.30, grip: true,  coil: true,  grabbers: 2 },
+  // balance_decision : arms attack half as often, owner 2026-09-26
+  //  - cadence alone is not the rate: d2/d3 needed x2.55 for -50% (the beat and `rearing` also gate)
+  { arms: 4, rearing: 1, window: 0.34, lungeWindow: 0.52, perfect: 0.150, fuse: 2.20, limp: 4.0, cadence: 3.8, staggerNeed: 2, drainMul: 1.00, headHpMul: 1.00, grip: false, coil: false, grabbers: 0 },
+  { arms: 5, rearing: 2, window: 0.28, lungeWindow: 0.46, perfect: 0.125, fuse: 1.80, limp: 3.2, cadence: 2.3, staggerNeed: 3, drainMul: 1.30, headHpMul: 1.02, grip: true,  coil: false, grabbers: 2 },
+  { arms: 6, rearing: 2, window: 0.24, lungeWindow: 0.42, perfect: 0.110, fuse: 1.50, limp: 2.6, cadence: 2.3, staggerNeed: 3, drainMul: 1.60, headHpMul: 1.30, grip: true,  coil: true,  grabbers: 2 },
 ]
 // The one accessor, so no site has to remember the difficulty-1 offset or the clamp. The cap is
 // enforced by the chapter, but a probe or a migrated save can hand this anything.
@@ -8906,9 +8908,9 @@ export const KRAKEN_PARRY_EARLY_T = 0.25
 // balance_decision : parried tip knocked back off the fish 2026-09-26
 //  - moves the node the build shoots at: it is the arm's tip, not the fish's spot
 export const KRAKEN_LIMP_CLEAR = 90
-// balance_decision : parry throws the adds visibly clear, owner 2026-09-24
+// balance_decision : parry shove reach -30% (150 -> 105), owner 2026-09-26
 //  - radius and force read at the parry, falloff linear like the Pulse; nodes and the head are exempt
-export const KRAKEN_PARRY_SHOVE_R = 150
+export const KRAKEN_PARRY_SHOVE_R = 105
 export const KRAKEN_PARRY_SHOVE_FORCE = 1600 // an add at 64px slides ~200px (kb decays at 6/s)
 export const KRAKEN_PARRY_DAZE = 1.0
 // The player's own parry gesture: a spin and a slam ring, on the PRESS rather than on the outcome.

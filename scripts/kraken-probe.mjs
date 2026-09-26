@@ -282,6 +282,7 @@ console.log(`plain slams landed    ${f('slamLands')}   of them hit ${f('slamHits
 // THE RING'S THROUGHPUT, per minute of the whole fight: slam wind-ups, grab wind-ups, parries landed.
 const pm = (k) => '[' + rs.map((r) => (r[k] / (r.t / 60)).toFixed(1)).join(' ') + ']  mean ' + (rs.reduce((q, r) => q + r[k] / (r.t / 60), 0) / rs.length).toFixed(2)
 console.log('per minute     slams ' + pm('slamRears') + '   grabs ' + pm('grabs') + '   parries ' + pm('parries'))
+console.log('arm attacks per minute of ring [' + rs.map((r) => ((r.slamRears + r.grabs + r.coilWind) / (r.ringT / 60)).toFixed(1)).join(' ') + ']  mean ' + (rs.reduce((q, r) => q + (r.slamRears + r.grabs + r.coilWind) / (r.ringT / 60), 0) / rs.length).toFixed(2))
 console.log('fight mean     ' + (rs.reduce((q, r) => q + r.t, 0) / rs.length).toFixed(1) + 's')
 // WHAT HURT, whole fight, by source; and the CHASE's own damage per minute of chase
 const srcs = [...new Set(rs.flatMap((r) => Object.keys(r.bySrc)))].sort()
