@@ -234,11 +234,11 @@ import {
   KRAKEN_LIMB_HW, krakenLimbHalfW,
   KRAKEN_PARRY_MARGIN, KRAKEN_PARRY_SPIN_T, KRAKEN_PARRY_EARLY_T, KRAKEN_LIMP_CLEAR,
   KRAKEN_PERFECT_MUL, KRAKEN_PARRY_CD, KRAKEN_PARRY_REFILL, KRAKEN_BLAZE_R,
-  KRAKEN_GRIP_EVERY, KRAKEN_GRIP_DUR, KRAKEN_GRIP_DMG, KRAKEN_GRIP_STICK_MUL, KRAKEN_GRIP_FLICKS, KRAKEN_GRAB_FUSE, KRAKEN_GRAB_REACT, KRAKEN_GRAB_MIN_STEP,
+  KRAKEN_GRIP_EVERY, KRAKEN_GRIP_DUR, KRAKEN_GRIP_DMG, KRAKEN_GRIP_STICK_MUL, KRAKEN_GRIP_FLICKS, KRAKEN_GRAB_FUSE, KRAKEN_GRAB_REACT, KRAKEN_GRAB_MIN_STEP, KRAKEN_PINCH_OPEN0, KRAKEN_PINCH_OPEN1, KRAKEN_PINCH_SNAP, KRAKEN_PINCH_HW,
   KRAKEN_BEAT_READ, KRAKEN_BEAT_GRAB_CLEAR, KRAKEN_BEAT_BREATH,
   KRAKEN_TRICKLE_FROM_END, KRAKEN_TRICKLE_T, KRAKEN_TRICKLE_N, KRAKEN_ADD_CAP,
   KRAKEN_LUNGE_T, KRAKEN_LUNGE_WINDUP_T, KRAKEN_LUNGE_DMG, KRAKEN_RISE_T,
-  KRAKEN_COIL_EVERY, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, KRAKEN_COIL_IN, KRAKEN_COIL_DMG,
+  KRAKEN_COIL_EVERY, KRAKEN_COIL_AT, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, KRAKEN_COIL_IN, KRAKEN_COIL_DMG,
   KRAKEN_WAVE, KRAKEN_WAVE_GAP, KRAKEN_WAVE_TIMEOUT, KRAKEN_WAVE_XP_MUL,
   KRAKEN_OPEN_WAVES, KRAKEN_WAVE_GROWTH, KRAKEN_ARRIVE_T, KRAKEN_ARRIVE_T2, KRAKEN_SLAM_T,
   KRAKEN_LESSON_SLOW, KRAKEN_LESSON_MAX, KRAKEN_LESSON_TIP_T,
@@ -1663,7 +1663,13 @@ function stepKrakenScript(run, dt) {
     run.events.push({ type: 'victory' })
     return true
   }
-  if (head) {
+  if (head && s.phase !== 'chase' && s.armsSpawned) {
+    // THE ARMS PHASE: one pill per arm, each draining with its own limb (owner, 2026-09-26). The
+    // head is on the field but sealed, so its full bar said nothing about progress.
+    s.headHp = head.hp
+    const pills = run.krakenArms.map((a) => (a.dead ? 0 : Math.max(0, a.hp) / a.maxHP))
+    run.bossBar = { hp: pills.reduce((q, v) => q + v, 0), max: pills.length, stage: s.bossIdx + 1, kraken: true, pills }
+  } else if (head) {
     s.headHp = head.hp
     run.bossBar = { hp: head.hp, max: head.maxHP, stage: s.bossIdx + 1, kraken: true }
   } else {
@@ -1807,6 +1813,19 @@ function krakenPlaceArm(head, a, reach) {
   // window, and a break's sinking. Idle again, the arm goes back to its slot.
   if (a.aimed && !(a.tele > 0) && !(a.slamT > 0) && !(a.limpT > 0) && !(a.dead && a.breakT > 0)) a.aimed = false
   if (a.coilArm) a.aimed = false
+  // A PINCH JAW rides its own curve toward the aim point (a.pinchCX/CY): open, creeping in, then the
+  // snap. Its lane stays on the line shoulder -> aim point, so only the tip's distance moves.
+  if (a.grabArm && a.tele > 0 && a.pinchCX != null) {
+    const sx = head.x + Math.cos(a.ang) * KRAKEN_RING_R, sy = head.y + Math.sin(a.ang) * KRAKEN_RING_R
+    const dx = sx - a.pinchCX, dy = sy - a.pinchCY, d = Math.hypot(dx, dy) || 1
+    const creep = Math.min(1, (a.fuse - a.tele) / Math.max(0.01, a.fuse - KRAKEN_PINCH_SNAP))
+    const o = a.tele > KRAKEN_PINCH_SNAP
+      ? KRAKEN_PINCH_OPEN0 + (KRAKEN_PINCH_OPEN1 - KRAKEN_PINCH_OPEN0) * creep * creep * (3 - 2 * creep)
+      : KRAKEN_PINCH_OPEN1 * a.tele / KRAKEN_PINCH_SNAP
+    a.aimX = a.pinchCX + dx / d * o; a.aimY = a.pinchCY + dy / d * o
+    // the jaw as the snap starts: what the snap sweeps is jaw -> aim point (krakenPinchTouches)
+    a.jawX = a.pinchCX + dx / d * KRAKEN_PINCH_OPEN1; a.jawY = a.pinchCY + dy / d * KRAKEN_PINCH_OPEN1
+  }
   krakenLashLine(head, a)
   if (a.aimed) {
     const d = Math.hypot(a.aimX - a.lx0, a.aimY - a.ly0)
@@ -1851,18 +1870,31 @@ function krakenLimbTouches(run, a, head) {
   return false
 }
 
+// A PINCH CATCHES WHAT ITS JAWS SWEEP: jaw -> aim point for each arm, a V closing on where you stood.
+// A jaw whose mate is gone sweeps the mirror of its own path too, so a lone jaw still closes a line.
+export function krakenPinchTouches(run, a, m) {
+  const cx = a.pinchCX, cy = a.pinchCY
+  const mx = m ? m.jawX : 2 * cx - a.jawX, my = m ? m.jawY : 2 * cy - a.jawY
+  const body = playerBodyEnds(run)
+  const p = run.player
+  const n = body ? 5 : 1
+  const r = KRAKEN_PINCH_HW + (body ? body.halfWidth : PLAYER.radius)
+  for (let k = 0; k < n; k++) {
+    const u = n > 1 ? k / (n - 1) : 0
+    const px = body ? body.ax + (body.bx - body.ax) * u : p.x
+    const py = body ? body.ay + (body.by - body.ay) * u : p.y
+    if (segDist2(px, py, a.jawX, a.jawY, cx, cy) < r * r || segDist2(px, py, mx, my, cx, cy) < r * r) return true
+  }
+  return false
+}
+
 // WHICH WAY TO STEP OFF A GRAB (owner's critic, 2026-09-26: the obvious perpendicular step walked
-// into the slam beside it). Decided ONCE, at the grab's wind-up, and published as a.grabSafeSide
-// (+1/-1 along the lane's left normal (-uy, ux)) with the spot it points at (a.grabSpotX/Y), so
-// render's chevron and anything grading it agree.
+// into the slam beside it). The beat's gate (krakenGrabTurnClear) asks whether either side is clear.
 //   THE STEP IS THE ONE A PLAYER ACTUALLY TAKES: full speed for the fuse less a reaction
 // (KRAKEN_GRAB_REACT), capped where the cage wall stops it — ~260px, not a token 90. A side the wall
 // cuts shorter than KRAKEN_GRAB_MIN_STEP (enough to clear the limb and the fish's own body) is no
-// step at all. Each side is scored along that whole path against every other live threat — another
-// arm's struck line while it winds up, or a Coil lane — WEIGHTED BY WHEN IT LANDS: one landing while
-// the fish is still out there (before the grab's strike + KRAKEN_BEAT_BREATH) counts in full, one
-// early in a long fuse fades out. The head costs a little (its touch is KRAKEN_HEAD_TOUCH_DMG, a
-// slam is a whole lash), so it only breaks near-ties.
+// step at all, and so is one another arm's struck line crosses while the fish is still out there
+// (before the grab's strike + KRAKEN_BEAT_BREATH).
 const krakenGrabHorizon = () => KRAKEN_GRAB_FUSE + KRAKEN_BEAT_BREATH
 // how far the fish gets off the line on side sg, and where that leaves it
 export function krakenGrabSpot(run, g, head, sg) {
@@ -1889,39 +1921,23 @@ export function krakenGrabSideHot(run, g, head, sg) {
   }
   return false
 }
-export function krakenGrabSafeSide(run, g, head) {
-  const horizon = krakenGrabHorizon()
-  let best = 1, bestScore = Infinity
-  for (const sg of [1, -1]) {
-    const sp = krakenGrabSpot(run, g, head, sg)
-    let score = sp.d < KRAKEN_GRAB_MIN_STEP ? 1e6 : 0          // walled off: no step at all
-    for (const f of [0.35, 0.7, 1]) {
-      const px = g.aimX + sp.nx * sp.d * f, py = g.aimY + sp.ny * sp.d * f
-      for (const o of run.krakenArms) {
-        if (o === g || o.i === g.i || o.dead || !(o.tele > 0) || o.limpT > 0) continue
-        const when = o.tele <= horizon ? 1 : Math.exp(-(o.tele - horizon) / 0.4)
-        const d = Math.sqrt(segDist2(px, py, o.lx0, o.ly0, o.lx1, o.ly1))
-        score += Math.max(0, KRAKEN_LASH_W * 2.5 - d) * 10 * when * f   // the far end of the step matters most
-      }
-      score += Math.max(0, KRAKEN_HEAD_R * 1.8 - Math.hypot(px - head.x, py - head.y)) * f   // the head: a tie-break
-    }
-    if (score < bestScore) { bestScore = score; best = sg }
-  }
-  return best
-}
-// THE BEAT'S GRAB GATE: would a grab started NOW, by the arm the turn would hand it to and aimed at
+// THE BEAT'S GRAB GATE: would a pinch started NOW, by the pair the turn would hand it to and aimed at
 // where the fish is, leave at least one clear step? If both sides are struck or walled off, the turn
-// waits like any other beat conflict (a grab with no escape is not a pattern). The lane is the one
-// krakenLashLine would lock, computed without touching the arm.
-export function krakenGrabTurnClear(run, head, g) {
-  if (!g) return true
+// waits like any other beat conflict (a grab with no escape is not a pattern). The step is off
+// the line between its two jaws as the snap starts, stepped off from the aim point — the V's chord.
+// the pinch's step line, as the turn would lock it on where the fish IS: jaw g -> jaw m at the snap
+export function krakenPinchProbe(run, head, g, m) {
   const p = run.player
-  const ca = Math.cos(g.ang), sa = Math.sin(g.ang)
-  const lx0 = head.x + ca * KRAKEN_RING_R, ly0 = head.y + sa * KRAKEN_RING_R
-  const dx = p.x - lx0, dy = p.y - ly0, d = Math.hypot(dx, dy) || 1
-  const L = Math.max(KRAKEN_RING_R, d) + KRAKEN_LASH_OVER
-  const probe = { i: g.i, lx0, ly0, lx1: lx0 + dx / d * L, ly1: ly0 + dy / d * L, aimX: p.x, aimY: p.y }
-  // (the threat walks skip the arm by its index, so g's own stale lane never counts against it)
+  const [a, b] = [g, m].map((c) => {
+    const sx = head.x + Math.cos(c.ang) * KRAKEN_RING_R, sy = head.y + Math.sin(c.ang) * KRAKEN_RING_R
+    const d = Math.hypot(sx - p.x, sy - p.y) || 1
+    return { x: p.x + (sx - p.x) / d * KRAKEN_PINCH_OPEN1, y: p.y + (sy - p.y) / d * KRAKEN_PINCH_OPEN1 }
+  })
+  return { i: g.i, lx0: a.x, ly0: a.y, lx1: b.x, ly1: b.y, aimX: p.x, aimY: p.y }
+}
+export function krakenGrabTurnClear(run, head, g, m) {
+  const probe = krakenPinchProbe(run, head, g, m)
+  // (the threat walks skip only armed arms, and neither jaw is armed yet)
   return !krakenGrabSideHot(run, probe, head, 1) || !krakenGrabSideHot(run, probe, head, -1)
 }
 
@@ -2327,12 +2343,15 @@ function stepKrakenArms(run, dt, rung, head) {
       run.events.push({ type: 'slamWindow', i: a.i, x: q.x, y: q.y, px: p.x, py: p.y, t: a.tele })
     }
     if (a.tele > 0) continue
-    // A GRAB COMES DOWN: it takes hold only if the limb lands on the fish's body — the same drawn
-    // tentacle a slam strikes with — and otherwise it slaps the seabed and misses, doing nothing.
+    // THE PINCH SHUTS: it takes hold only if a closing jaw sweeps the fish's body, and otherwise the
+    // jaws clap on empty water. Both resolve on the first one's frame: one latch or one miss.
     if (a.grabArm) {
+      const m = run.krakenArms[a.pinchMate]
+      const mate = m && m !== a && !m.dead && m.grabArm ? m : null
       a.grabArm = false
       a.tele = 0
-      if (krakenLimbTouches(run, a, head)) {
+      if (mate) { mate.grabArm = false; mate.tele = 0; mate.slamT = KRAKEN_SLAM_T }
+      if (krakenPinchTouches(run, a, mate)) {
         a.gripT = KRAKEN_GRIP_DUR
         a.gripClock = KRAKEN_GRIP_DUR    // the bite's own clock ...
         a.gripWiggle = KRAKEN_GRIP_DUR   // ... and the struggle's, spent only by flicks
@@ -2435,8 +2454,13 @@ function stepKrakenArms(run, dt, rung, head) {
   if (!lesson) s.turnT -= dt
   if (s.turnT <= 0 && !lesson) {
     const { rearing, idle } = krakenTurnPool(run)
-    const { wantCoil, wantGrip } = krakenTurnWant(run, rung)
-    const free = rearing < rung.rearing && idle.length > 0
+    const { wantCoil } = krakenTurnWant(run, rung)
+    let { wantGrip } = krakenTurnWant(run, rung)
+    // a pinch takes two free arms; without them the grab's turn is a plain slam
+    const pinch = wantGrip && !wantCoil ? krakenPinchPair(run, head, idle) : null
+    if (!pinch) wantGrip = false
+    // a pinch rears two arms, so it waits for room for both under the cap
+    const free = rearing + (wantGrip ? 2 : 1) <= rung.rearing && idle.length > 0
     // A TURN THAT WOULD STACK TWO ANSWERS WAITS FOR ONE THAT DOES NOT (krakenBeatClear), and a turn
     // with no arm free waits for one. The clock is held at zero, so the ring swings on the first
     // frame both allow — never with a shortened fuse: the telegraph always reads the same length.
@@ -2446,8 +2470,7 @@ function stepKrakenArms(run, dt, rung, head) {
     // ...AND A GRAB THAT WOULD LEAVE NO CLEAR STEP WAITS TOO: both sides of its line struck or walled
     // off is two answers owed at once (dodge, and dodge the other thing). krakenGrabTurnClear.
     if (!wantCoil && wantGrip) {
-      const gp = rung.grabbers > 0 ? idle.filter((c) => c.role === 'grab') : idle
-      if (!krakenGrabTurnClear(run, head, krakenNearestArm(p, gp.length ? gp : idle))) return false
+      if (!krakenGrabTurnClear(run, head, pinch[0], pinch[1])) return false
     }
     s.turnT = krakenCadence(s, rung)
     {
@@ -2490,34 +2513,21 @@ function stepKrakenArms(run, dt, rung, head) {
         run.events.push({ type: 'coilWind', x: head.x, y: head.y, ang: s.coilGap })
       } else if (wantGrip) {
         s.gripN++
-        // THE NEAREST ARM IS THE ONE THAT CAN REACH YOU, so it is the one that grabs. A grip draws a
-        // taut line from the arm's tip to the player, and picking at random put that line a median
-        // 197-319px long with a max of 431 — 8 to 14 of every ~22 grips a fight latching from beyond
-        // KRAKEN_ARM_REACH, which at this fight's zoom is a stroke across most of a phone with its
-        // far end off the edge. It never showed while the Grip HAULED the player toward the head;
-        // taking the pull out is what left the line standing there explaining nothing.
-        //  - ⚠ the REAR stays random. Which limb swings next is the one thing the player has to
-        //    watch the whole ring for, and picking the nearest there would collapse the fight to a
-        //    single arm. This is the opposite case: a grab is a thing that reached you.
-        // A GRAB IS DODGEABLE (owner, 2026-09-25: "you're not sure how to avoid the grabs"). It used
-        // to latch on this tick, from wherever the player stood — unavoidable by construction. It now
-        // winds up like a slam: aimed ONCE at where you are, on its own fuse and in its own colour,
-        // and at the strike it takes hold only if its limb actually lands on you (krakenLimbTouches,
-        // the same drawn-tentacle test as a slam). Parry does not answer it — you step off the line.
-        const g = krakenNearestArm(p, use) || a
-        g.tele = KRAKEN_GRAB_FUSE
-        g.fuse = KRAKEN_GRAB_FUSE
-        g.grabArm = true
-        g.aimed = true
-        g.aimX = p.x
-        g.aimY = p.y
-        krakenPlaceArm(head, g, krakenReach(s))
-        g.grabSafeSide = krakenGrabSafeSide(run, g, head)
-        {
-          const s1 = krakenGrabSpot(run, g, head, g.grabSafeSide), s2 = krakenGrabSpot(run, g, head, -g.grabSafeSide)
-          g.grabSpotX = s1.x; g.grabSpotY = s1.y; g.grabAltX = s2.x; g.grabAltY = s2.y
+        // THE PINCH (owner, 2026-09-26: "two tentacles close on you like a pinch"). Both jaws lock on
+        // where you are NOW and never track after this frame; krakenPlaceArm walks their tips in.
+        // Parry does not answer it — you step out of the V before it shuts.
+        for (const g of pinch) {
+          g.tele = KRAKEN_GRAB_FUSE
+          g.fuse = KRAKEN_GRAB_FUSE
+          g.grabArm = true
+          g.aimed = true
+          g.pinchCX = p.x
+          g.pinchCY = p.y
+          g.pinchMate = (g === pinch[0] ? pinch[1] : pinch[0]).i
+          krakenPlaceArm(head, g, krakenReach(s))
         }
-        run.events.push({ type: 'grabRear', x: g.x, y: g.y, t: KRAKEN_GRAB_FUSE, i: g.i })
+        // ONE event per pinch (one sound, one count), naming both jaws
+        run.events.push({ type: 'grabRear', x: pinch[0].x, y: pinch[0].y, x2: pinch[1].x, y2: pinch[1].y, t: KRAKEN_GRAB_FUSE, i: pinch[0].i, i2: pinch[1].i })
       } else {
         // THE WIND-UP IS THE TELEGRAPH AND IT IS ANNOUNCED. `rear` carries the arm's full fuse so
         // render can draw the danger ground filling up against it, and the event fires ONCE at the
@@ -2568,7 +2578,7 @@ function krakenTurnPool(run) {
 // reads the counters, draws no randoms.
 function krakenTurnWant(run, rung, n = run.script.gripN) {
   const s = run.script
-  const wantCoil = (rung.coil || s.enraged) && run.difficulty >= 2 && (s.phase === 'chase' || s.bossIdx >= 2) && n > 0 && n % KRAKEN_COIL_EVERY === 0
+  const wantCoil = (rung.coil || s.enraged) && run.difficulty >= 2 && (s.phase === 'chase' || s.bossIdx >= 2) && n > 0 && n % KRAKEN_COIL_EVERY === KRAKEN_COIL_AT
   const wantGrip = !wantCoil && rung.grip && s.bossIdx >= 1 && n > 0 && n % KRAKEN_GRIP_EVERY === 0
   return { wantCoil, wantGrip }
 }
@@ -2642,13 +2652,24 @@ function krakenBeatClear(run, rung, head, kind, rearing) {
   return true
 }
 
-function krakenNearestArm(p, arms) {
-  let g = null, gd = Infinity
-  for (const c of arms) {
-    const d = (c.x - p.x) ** 2 + (c.y - p.y) ** 2
-    if (d < gd) { gd = d; g = c }
+// THE PINCH'S TWO JAWS: the pair of free arms that come at the fish from the most opposite sides,
+// from the grabbers when both are free (they are drawn as the grabbing animal), else from any.
+function krakenPinchPair(run, head, idle) {
+  const p = run.player
+  const gp = idle.filter((c) => c.role === 'grab')
+  const pool = gp.length >= 2 ? gp : idle
+  if (pool.length < 2) return null
+  const dir = (c) => {
+    const x = head.x + Math.cos(c.ang) * KRAKEN_RING_R - p.x, y = head.y + Math.sin(c.ang) * KRAKEN_RING_R - p.y
+    const d = Math.hypot(x, y) || 1
+    return { x: x / d, y: y / d }
   }
-  return g
+  let best = null, bestDot = Infinity
+  for (let i = 0; i < pool.length; i++) for (let j = i + 1; j < pool.length; j++) {
+    const u = dir(pool[i]), v = dir(pool[j]), dot = u.x * v.x + u.y * v.y
+    if (dot < bestDot) { bestDot = dot; best = [pool[i], pool[j]] }
+  }
+  return best
 }
 
 function stepKrakenBlock(run, dt, rung, head) {

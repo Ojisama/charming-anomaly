@@ -8689,9 +8689,11 @@ export const KRAKEN_RUNGS = [
   //    (27 against 36) and won 2/6 — the decay eating them faster than they filled.
   // balance_decision : arms attack half as often, owner 2026-09-26
   //  - cadence alone is not the rate: d2/d3 needed x2.55 for -50% (the beat and `rearing` also gate)
-  { arms: 4, rearing: 1, window: 0.34, lungeWindow: 0.52, perfect: 0.150, fuse: 2.20, limp: 4.0, cadence: 3.8, staggerNeed: 2, drainMul: 1.00, headHpMul: 1.00, grip: false, coil: false, grabbers: 0 },
-  { arms: 5, rearing: 2, window: 0.28, lungeWindow: 0.46, perfect: 0.125, fuse: 1.80, limp: 3.2, cadence: 2.3, staggerNeed: 3, drainMul: 1.30, headHpMul: 1.02, grip: true,  coil: false, grabbers: 2 },
-  { arms: 6, rearing: 2, window: 0.24, lungeWindow: 0.42, perfect: 0.110, fuse: 1.50, limp: 2.6, cadence: 2.3, staggerNeed: 3, drainMul: 1.60, headHpMul: 1.30, grip: true,  coil: true,  grabbers: 2 },
+  // balance_decision : arms attack 20% more often, owner 2026-09-26
+  //  - measure POOLED over 48 seeds (kraken-probe --cadence): per-fight rates swing +-30%
+  { arms: 4, rearing: 1, window: 0.34, lungeWindow: 0.52, perfect: 0.150, fuse: 2.20, limp: 4.0, cadence: 2.55, staggerNeed: 2, drainMul: 1.00, headHpMul: 1.00, grip: false, coil: false, grabbers: 0 },
+  { arms: 5, rearing: 2, window: 0.28, lungeWindow: 0.46, perfect: 0.125, fuse: 1.80, limp: 3.2, cadence: 1.45, staggerNeed: 3, drainMul: 1.30, headHpMul: 1.02, grip: true,  coil: false, grabbers: 2 },
+  { arms: 6, rearing: 2, window: 0.24, lungeWindow: 0.42, perfect: 0.110, fuse: 1.50, limp: 2.6, cadence: 1.45, staggerNeed: 3, drainMul: 1.60, headHpMul: 1.30, grip: true,  coil: true,  grabbers: 2 },
 ]
 // The one accessor, so no site has to remember the difficulty-1 offset or the clamp. The cap is
 // enforced by the chapter, but a probe or a migrated save can hand this anything.
@@ -8768,7 +8770,8 @@ export const KRAKEN_STAGGER_BITE = 0.13 // of maxHP, dealt the instant the postu
 // progress is pure dps and a thin build does not have one. Measured at d3 with a level-1 weapon:
 // 156 parries broke TWO of six arms in 300s and the fight timed out. A parry is a skill move landing
 // on a limb — it should visibly cost that limb something even if you never fire a shot.
-export const KRAKEN_EXPOSE_BITE = 0.18 // of the arm's max, on the parry that exposes it
+// balance_decision : same raw tear (68hp) on the 2.5x tougher arm, 2026-09-26
+export const KRAKEN_EXPOSE_BITE = 0.072 // of the arm's max, on the parry that exposes it
 export const KRAKEN_HEAD_HP = 4400
 // THE HEAD HAS TO FIT THE CAGE IT IS IN. At 190 the bare head drew ~464px wide inside an 837px
 // arena — 60% of a phone screen, half of it off-frame — and, worse, its drawn half-extent (232px)
@@ -8800,7 +8803,8 @@ export const KRAKEN_ARM_REACH = 200
 // broken arm leaves a permanent hole in the ring. Re-spacing the survivors evenly — which rev 1
 // did — would have two arms covering half the circle each and a ring that is still shut with six
 // of eight arms dead.
-export const KRAKEN_ARM_HP = 380 // per tentacle. Removed by WEAPONS (+ KRAKEN_EXPOSE_BITE a parry), while limp.
+// balance_decision : arms 2.5x tougher, owner 2026-09-26 ("too fragile")
+export const KRAKEN_ARM_HP = 950 // per tentacle. Removed by WEAPONS (+ KRAKEN_EXPOSE_BITE a parry), while limp.
 // (KRAKEN_PARRY_DMG retired in rev 3: a parry EXPOSES an arm, it does not chip it. Weapons kill.)
 export const KRAKEN_PERFECT_MUL = 2.0 // damage + refill multiplier inside the perfect window
 // A PERFECT PARRY ALSO STALLS THE ARM'S NEXT WIND-UP, and without this perfect timing is a NET LOSS.
@@ -8939,6 +8943,15 @@ export const KRAKEN_GRIP_FLICKS = 4 // stick swings of TRAWL_WIGGLE_ARC that tea
 export const KRAKEN_GRAB_FUSE = 1.6 // s a grab's wind-up takes, aimed once at where you stood
 export const KRAKEN_GRAB_REACT = 0.4 // s of the grab's fuse a player spends seeing it before moving: the step is speed x (fuse - this)
 export const KRAKEN_GRAB_MIN_STEP = 50 // px a side must allow before the wall to count as a step at all (limb + the fish's body)
+// THE GRAB IS A PINCH (owner, 2026-09-26): two arms reach in from two sides, their tips hover open
+// either side of where you stood, creep in over the fuse and snap shut on it. What catches is the
+// path each tip sweeps in the snap: jaw -> aim point, both jaws (krakenPinchTouches).
+// balance_decision : grab = two-arm pinch, same fuse, same grip, owner 2026-09-26
+//  - fewer than two arms free and the turn is a plain slam: there is no one-arm grab any more
+export const KRAKEN_PINCH_OPEN0 = 230 // px each jaw hovers from the aim point as the wind-up starts
+export const KRAKEN_PINCH_OPEN1 = 140 // px it has crept in to when the snap starts
+export const KRAKEN_PINCH_SNAP = 0.14 // s the jaws take to slam shut: the end of the fuse
+export const KRAKEN_PINCH_HW = 40 // px half-width of what a closing jaw sweeps (+ the fish's body)
 
 // THE BEAT: every moment of the arms phase asks ONE answer. The ring hands out a turn only if what
 // it would start fits around every answer already due — slam windows, the head's lunge, grab
@@ -9019,9 +9032,10 @@ export const KRAKEN_BEAT_BITE_CLEAR = 0.6
 // THE COIL (P3, D3 only). Every Nth arm attack the whole ring hauls inward at once, and the only
 // place that is not swept is ONE sector — the gap. NOT PARRYABLE by design: the parry must not be
 // the answer to everything, or it stops being a choice. You read the gap and you move.
-// balance_decision : coil ends every fourth 4-turn bar, in the grab's place [2026-09-25]
-//  - keep it a multiple of KRAKEN_GRIP_EVERY, or the bar the player learns stops repeating
-export const KRAKEN_COIL_EVERY = 16 // arm attacks between coils
+// balance_decision : coils twice as often, on a slam's turn, owner 2026-09-26
+//  - keep EVERY a multiple of KRAKEN_GRIP_EVERY and AT off it, or the coil eats the grabs
+export const KRAKEN_COIL_EVERY = 8 // arm attacks between coils
+export const KRAKEN_COIL_AT = 6 // which turn of each KRAKEN_COIL_EVERY is the coil (a slam's, not a grab's)
 export const KRAKEN_COIL_TELE = 1.6 // s of wind-up before the ring closes — long, it is a move test
 export const KRAKEN_COIL_DUR = 0.9 // s the ring spends hauled in
 export const KRAKEN_COIL_IN = 0.34 // the fraction of KRAKEN_ARM_REACH the arms close to

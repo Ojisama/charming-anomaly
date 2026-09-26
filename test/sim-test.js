@@ -170,13 +170,13 @@ import {
   // The Kraken (run KR): the rung table and the ring's numbers
   krakenRung, KRAKEN_RUNGS, KRAKEN_ARM_REACH, KRAKEN_WAVE_TIMEOUT,
   KRAKEN_RISE_T, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, hiddenChapters, KRAKEN_CAGE_R, KRAKEN_PARRY_CD,
-  KRAKEN_OPEN_WAVES, KRAKEN_COIL_EVERY, KRAKEN_ARRIVE_T, KRAKEN_RING_R, KRAKEN_LASH_R, KRAKEN_SLAM_T, KRAKEN_DEFLECT_CD,
+  KRAKEN_OPEN_WAVES, KRAKEN_COIL_EVERY, KRAKEN_COIL_AT, KRAKEN_ARRIVE_T, KRAKEN_RING_R, KRAKEN_LASH_R, KRAKEN_SLAM_T, KRAKEN_DEFLECT_CD,
   KRAKEN_LUNGE_T, KRAKEN_GRIP_DUR, KRAKEN_GRIP_DMG, KRAKEN_GRIP_FLICKS, KRAKEN_GRIP_STICK_MUL, TRAWL_WIGGLE_ARC,
   KRAKEN_LASH_W, KRAKEN_LASH_OVER, KRAKEN_LASH_DMG, KRAKEN_LESSON_MAX, KRAKEN_PARRY_SHOVE_R, KRAKEN_PARRY_EARLY_T, KRAKEN_LIMP_CLEAR, KRAKEN_ARRIVE_T2, KRAKEN_WAVE_GROWTH, KRAKEN_COIL_DMG,
-  KRAKEN_HEAD_SPEED, KRAKEN_PARRY_SPIN_T, krakenLimbHalfW, FISH_R, FISH_BODY, KRAKEN_GRIP_EVERY, KRAKEN_GRAB_FUSE, KRAKEN_GRAB_MIN_STEP,
+  KRAKEN_HEAD_SPEED, KRAKEN_PARRY_SPIN_T, krakenLimbHalfW, FISH_R, FISH_BODY, KRAKEN_GRIP_EVERY, KRAKEN_GRAB_FUSE, KRAKEN_GRAB_MIN_STEP, KRAKEN_PINCH_OPEN0, KRAKEN_PINCH_OPEN1,
   KRAKEN_BEAT_READ, KRAKEN_BEAT_GRAB_CLEAR, KRAKEN_BEAT_BREATH, KRAKEN_TOUCH_QUIET_T, KRAKEN_HEAD_R, KRAKEN_BITE_WINDUP_T, KRAKEN_BITE_GAP, KRAKEN_LUNGE_WINDUP_T,
 } from '../src/config.js'
-import { krakenWinPending, krakenGrabSafeSide, krakenGrabSpot, krakenGrabTurnClear, stepSim, applyChoice, buildLevelUpChoices, eligibleWeaponModCandidates, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, inRefillCircle, stepCharge, newElWindow, spurAt } from '../src/sim.js'
+import { krakenWinPending, krakenPinchProbe, krakenGrabSpot, krakenGrabTurnClear, stepSim, applyChoice, buildLevelUpChoices, eligibleWeaponModCandidates, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, inRefillCircle, stepCharge, newElWindow, spurAt } from '../src/sim.js'
 
 // ---- Scenario runner: one filter, and the gate's own dispatch flag ----------------------------
 // THIS FILE IS NO LONGER WHAT `npm test` RUNS. scripts/test-isolation.mjs hands one scenario to
@@ -35138,13 +35138,13 @@ function runKraken() {
     // "volley" (they all fire), "one left out" (there is a gap), and it must not be parryable.
     // Owner, 2026-09-15: "I was thinking more of all arms slam except 1."
     //   The two gates are FORCED rather than played to. A Coil needs bossIdx >= 2 and gripN on a
-    // multiple of KRAKEN_COIL_EVERY, which is several minutes of fight away; waiting for it makes
+    // KRAKEN_COIL_AT turn of every KRAKEN_COIL_EVERY, which is several minutes of fight away; waiting for it makes
     // this assertion a timing test of the whole approach, and when it fails you learn that a Coil
     // did not happen and nothing about why. What is under test is the SHAPE of the volley.
     {
       const run = inBlock(3)
       run.script.bossIdx = 2
-      run.script.gripN = KRAKEN_COIL_EVERY - 1
+      run.script.gripN = KRAKEN_COIL_AT - 1
       let guard = 0
       while (guard++ < 60 * 30 && !(run.script.coilT > 0)) {
         run.player.hp = run.player.maxHP
@@ -35180,7 +35180,7 @@ function runKraken() {
       const coilRun = (pick) => {
         const run = inBlock(3)
         run.script.bossIdx = 2
-        run.script.gripN = KRAKEN_COIL_EVERY - 1
+        run.script.gripN = KRAKEN_COIL_AT - 1
         let guard = 0
         while (guard++ < 60 * 30 && !(run.script.coilT > 0)) {
           run.player.hp = run.player.maxHP
@@ -35842,9 +35842,9 @@ function testKrakenLesson() {
 // contract; the head and the arms' nodes are exempt.
 // THE GRAB IS DODGED, AND THE BUTTON GLOWS ONLY WHEN A PRESS LANDS (owner, 2026-09-25: "you can't
 // really know if your parry will do something or not, and you're not sure how to avoid the grabs").
-// A grab used to latch on the tick its turn came round, from wherever the player stood. It now
-// winds up aimed like a slam and takes hold only if its limb lands on the fish; a press during it
-// is a whiff; and run.parryReady is true exactly while krakenParry would land.
+// The grab is a PINCH (owner, 2026-09-26): two jaws wind up locked on where the player stood, creep
+// in and snap shut; it takes hold only if a jaw sweeps the fish; a press during it is a whiff; and
+// run.parryReady is true exactly while krakenParry would land.
 function testKrakenGrab() {
   Math.random = mulberry32(20260925)
   const run = createRun({ ...makeMeta(), krakenParried: true }, { chapter: 'kraken', difficulty: 2 })
@@ -35855,8 +35855,23 @@ function testKrakenGrab() {
   const R2 = krakenRung(2)
   assert.ok(R2.grip, 'fixture: d2 has no grip, so nothing below is about a grab')
   const s = run.script
-  const arm = run.krakenArms[0]
-  for (const a of run.krakenArms) { a.tele = 0; a.gripT = 0; a.limpT = 0; a.grabArm = false; if (a !== arm) a.dead = true }
+  // THE ARMS PHASE'S BAR IS ONE PILL PER ARM (owner, 2026-09-26), each its own limb's hp
+  {
+    const [a0, a1] = run.krakenArms
+    a0.hp = a0.maxHP / 2; a1.dead = true
+    run.player.hp = run.player.maxHP; stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+    const pl = run.bossBar?.pills
+    assert.ok(pl && pl.length === run.krakenArms.length, `the arms phase has no pill per arm (bossBar ${JSON.stringify(run.bossBar)})`)
+    assert.ok(Math.abs(pl[0] - 0.5) < 0.02 && pl[1] === 0 && pl.slice(2).every((v) => v > 0.99), `the pills do not follow the arms: ${pl.map((v) => v.toFixed(2)).join(' ')}`)
+    a0.hp = a0.maxHP; a1.dead = false
+  }
+  // THE COIL TAKES A SLAM'S TURN, NEVER A GRAB'S: twice as many coils must not mean half the pinches
+  assert.ok(KRAKEN_COIL_EVERY % KRAKEN_GRIP_EVERY === 0 && KRAKEN_COIL_AT % KRAKEN_GRIP_EVERY !== 0, `the coil (turn ${KRAKEN_COIL_AT} of ${KRAKEN_COIL_EVERY}) lands on a grab's turn (every ${KRAKEN_GRIP_EVERY})`)
+  // THE TWO GRABBERS ARE THE PINCH'S JAWS; every other arm is out of the fight
+  const [arm, mate] = run.krakenArms.filter((c) => c.role === 'grab')
+  assert.ok(arm && mate, 'fixture: d2 does not have two grabbers')
+  for (const a of run.krakenArms) { a.tele = 0; a.gripT = 0; a.limpT = 0; a.grabArm = false; if (a !== arm && a !== mate) a.dead = true }
+  const jaws = [arm, mate]
   const p = run.player
   const step = (at, press = false) => {
     if (at) { p.x = at.x; p.y = at.y }
@@ -35865,41 +35880,82 @@ function testKrakenGrab() {
     stepSim(run, { x: 0, y: 0, skill: press }, 1 / 60)
     return run.events
   }
-  // hand the one arm a GRAB turn: the grip counter on a multiple, the turn due now
-  const P = { x: arm.x, y: arm.y }
+  const h0 = run.enemies.find((e) => e.rosterId === 'krakenHead' && !e._dead)
+  // halfway out along the grabber's bearing: room inside the cage to step out of the V
+  const P = { x: (arm.x + h0.x) / 2, y: (arm.y + h0.y) / 2 }
+  // a point k px out of the V: off the jaws' chord, on the side away from them (needs a live pinch)
+  const outOfV = (k) => {
+    const L = Math.hypot(mate.jawX - arm.jawX, mate.jawY - arm.jawY) || 1
+    let nx = -(mate.jawY - arm.jawY) / L, ny = (mate.jawX - arm.jawX) / L
+    if (nx * ((arm.jawX + mate.jawX) / 2 - P.x) + ny * ((arm.jawY + mate.jawY) / 2 - P.y) > 0) { nx = -nx; ny = -ny }
+    return { x: P.x + nx * k, y: P.y + ny * k, nx, ny }
+  }
   function startGrab() {
-    arm.tele = 0; arm.gripT = 0; arm.slamT = 0; arm.limpT = 0; arm.grabArm = false
+    for (const c of jaws) { c.tele = 0; c.gripT = 0; c.slamT = 0; c.limpT = 0; c.grabArm = false }
     s.bossIdx = Math.max(1, s.bossIdx)
     s.gripN = KRAKEN_GRIP_EVERY
     s.turnT = 0
     run.repulseCd = 0
     run.hitStop = 0      // a landed parry's freeze would swallow the turn
     const ev = step(P)
-    assert.ok(ev.some((e) => e.type === 'grabRear'), `the grab turn did not start a grab wind-up — it latched, or it never came (phase ${s.phase}, turnT ${s.turnT}, lesson ${run.krakenLesson} ${s.lessonI}, arms ${run.krakenArms.map((c) => (c.dead ? 'D' : '') + c.tele.toFixed(2) + '/' + c.limpT.toFixed(1) + '/' + c.gripT).join(' ')})`)
-    assert.ok(arm.grabArm && arm.tele > 0 && arm.gripT === 0, 'the grab took hold on its turn instead of winding up — it is still unavoidable')
-    assert.ok(Math.hypot(arm.aimX - P.x, arm.aimY - P.y) < 1, 'the grab is not aimed at where the player stood when it started')
+    const rear = ev.filter((e) => e.type === 'grabRear')
+    const rears = jaws.filter((c) => c.grabArm && c.tele > 0).length
+    assert.ok(rear.length === 1 && rear[0].i2 != null, `the pinch announced itself ${rear.length} times, or without its second jaw (one sound, one count)`)
+    assert.strictEqual(rears, 2, `the grab turn started ${rears} jaws, not a two-arm pinch (phase ${s.phase}, turnT ${s.turnT}, arms ${run.krakenArms.map((c) => (c.dead ? 'D' : '') + c.tele.toFixed(2) + '/' + c.limpT.toFixed(1) + '/' + c.gripT).join(' ')})`)
+    for (const c of jaws) {
+      assert.ok(c.grabArm && c.tele > 0 && c.gripT === 0, 'a jaw took hold on its turn instead of winding up — the pinch is unavoidable')
+      assert.ok(Math.hypot(c.pinchCX - P.x, c.pinchCY - P.y) < 1, 'a jaw is not closing on where the player stood when it started')
+    }
+    assert.ok(arm.pinchMate === mate.i && mate.pinchMate === arm.i, 'the two jaws do not name each other')
   }
   function strike(at) {
+    let outcomes = 0, res = null
     for (let i = 0; i < 60 * 4; i++) {
+      const winding = jaws.some((c) => c.grabArm && c.tele > 0)
       const ev = step(at)
-      // the ONLY arm is winding up a grab: the button must never go live, on any frame of it
-      if (arm.grabArm && arm.tele > 0) assert.strictEqual(run.parryReady, false, `the parry button went live ${(arm.fuse - arm.tele).toFixed(2)}s into a grab wind-up with no slam anywhere`)
-      if (ev.some((e) => e.type === 'gripLatch')) return 'caught'
-      if (ev.some((e) => e.type === 'grabMiss')) return 'missed'
+      if (winding) assert.strictEqual(run.parryReady, false, 'the parry button went live during a pinch wind-up with no slam anywhere')
+      outcomes += ev.filter((e) => e.type === 'gripLatch' || e.type === 'grabMiss').length
+      if (ev.some((e) => e.type === 'gripLatch')) res = 'caught'
+      else if (ev.some((e) => e.type === 'grabMiss')) res = 'missed'
+      if (res) {
+        assert.strictEqual(outcomes, 1, `one pinch shut with ${outcomes} latch/miss events — the two jaws resolved separately`)
+        assert.ok(jaws.every((c) => !c.grabArm), 'a jaw was still a pinch jaw after the pinch shut')
+        return res
+      }
     }
-    assert.fail('the grab wind-up never struck')
+    assert.fail('the pinch never shut')
   }
-  // 1) ON ITS LINE: it takes hold
+  // 0) THE JAWS CLOSE ON YOU: each tip starts KRAKEN_PINCH_OPEN0 out, only ever creeps in, and is
+  // snapping onto the aim point on the last frame before it shuts
+  {
+    startGrab()
+    const d = (c) => Math.hypot(c.x - P.x, c.y - P.y)
+    const first = jaws.map(d)
+    for (const v of first) assert.ok(Math.abs(v - KRAKEN_PINCH_OPEN0) < 12, `a jaw opened ${v.toFixed(0)}px from the fish, not ${KRAKEN_PINCH_OPEN0}`)
+    const clear = outOfV(150)
+    let prev = first, last = first
+    while (jaws.every((c) => c.grabArm && c.tele > 1 / 60)) {
+      step(clear)   // out of the V: this pass only watches the jaws
+      const now = jaws.map(d)
+      now.forEach((v, k) => assert.ok(v <= prev[k] + 0.5, `a jaw backed off the fish mid-pinch (${prev[k].toFixed(1)} -> ${v.toFixed(1)}px)`))
+      prev = last = now
+    }
+    for (const v of last) assert.ok(v < KRAKEN_PINCH_OPEN1 * 0.3, `a jaw was still ${v.toFixed(0)}px out on the pinch's last frame — it never snapped shut`)
+    assert.strictEqual(strike(clear), 'missed', 'a pinch caught a fish 150px out of the V')
+  }
+  // 1) STANDING WHERE IT AIMED: it takes hold, on exactly one arm; the other plants
   startGrab()
-  assert.strictEqual(strike(P), 'caught', 'a grab that came down on the fish did not take hold')
-  assert.ok(arm.gripT > 0, 'a grab reported a latch without a grip')
+  assert.strictEqual(strike(P), 'caught', 'a pinch that shut on the fish did not take hold')
+  const held = jaws.filter((c) => c.gripT > 0)
+  assert.strictEqual(held.length, 1, `${held.length} arms hold the fish after one pinch`)
+  const holder = held[0]
   // 1b) WIGGLING OUT FREES YOU AND NEVER BITES. The struggle and the bite used to spend one counter,
   // so a nearly-finished wiggle left the clock nearly spent and the next tick BIT (~0.55s in).
   {
     // three quick flicks (~310deg of stick in 12 frames), a pause to 1.25s, then the fourth — the
     // pause is where the shared counter used to run the clock out and bite
     let ang = 0, broke = false, bitten = false, frames = 0
-    while (arm.gripT > 0 && frames++ < 60 * 4) {
+    while (holder.gripT > 0 && frames++ < 60 * 4) {
       if (frames <= 12) ang += (Math.PI * 1.56) / 10
       else if (frames >= 75) ang += Math.PI * 2 / 60 * 1.3
       p.hp = p.maxHP; p.invuln = 0
@@ -35911,26 +35967,94 @@ function testKrakenGrab() {
     assert.ok(broke, `a fish swinging the stick never tore loose (${frames} frames)`)
     assert.ok(!bitten, 'a fish that wiggled out of the grip was BITTEN — the struggle spent the bite\'s clock')
   }
-  // 2) OFF ITS LINE: the player steps well clear of the drawn limb after the aim locks — it misses
-  arm.gripT = 0
+  // 1c) ON A JAW'S PATH, most of the way out to where the snap starts: caught too — the jaw sweeps
+  // it (and far enough out that the other jaw's path cannot reach the fish's body)
+  for (const c of jaws) {
+    startGrab()
+    const on = { x: P.x + (c.jawX - P.x) * 0.8, y: P.y + (c.jawY - P.y) * 0.8 }
+    assert.strictEqual(strike(on), 'caught', 'a fish on a closing jaw\'s path was not caught')
+    for (const q of jaws) q.gripT = 0
+  }
+  // 2) OUT OF THE V: a step off the jaws' chord, away from them — it misses
   startGrab()
-  const L = Math.hypot(arm.lx1 - arm.lx0, arm.ly1 - arm.ly0)
-  const nx = -(arm.ly1 - arm.ly0) / L, ny = (arm.lx1 - arm.lx0) / L
-  const off = { x: P.x + nx * 120, y: P.y + ny * 120 }
+  const off = outOfV(120), { nx, ny } = off
   const hp0 = p.maxHP
-  assert.strictEqual(strike(off), 'missed', 'a grab took hold of a fish standing 120px off its line — it is still unavoidable')
-  assert.ok(arm.gripT === 0 && p.hp === hp0, 'a missed grab still gripped or hurt the fish')
-  // 3) A PRESS DURING A GRAB IS A WHIFF, and the button said so beforehand
-  arm.slamT = 0
+  assert.strictEqual(strike(off), 'missed', 'a pinch took hold of a fish that stepped 120px out of it — it is still unavoidable')
+  assert.ok(jaws.every((c) => c.gripT === 0) && p.hp === hp0, 'a missed pinch still gripped or hurt the fish')
+  // 3) A PRESS DURING A PINCH IS A WHIFF, and the button said so beforehand
+  for (const c of jaws) c.slamT = 0
   startGrab()
-  arm.tele = 0.1       // late in the wind-up, where a slam's parry window would be open
+  for (const c of jaws) c.tele = 0.1       // late in the wind-up, where a slam's parry window would be open
   step(P)
-  assert.strictEqual(run.parryReady, false, 'the parry button is lit during a grab wind-up — it promises a parry the press will not make')
+  assert.strictEqual(run.parryReady, false, 'the parry button is lit during a pinch — it promises a parry the press will not make')
   const ev = step(P, true)
-  assert.ok(ev.some((e) => e.type === 'parryWhiff'), 'a press during a grab wind-up was not a whiff — the grab is parryable')
-  assert.ok(arm.limpT === 0 && arm.grabArm, 'a press during a grab wind-up negated it')
-  // 4) parryReady IS TRUE EXACTLY IN A SLAM'S WINDOW, IN REACH, OFF COOLDOWN
-  for (let i = 0; i < 60 * 2; i++) { arm.tele = 0; arm.gripT = 0; arm.grabArm = false; step(P) }
+  assert.ok(ev.some((e) => e.type === 'parryWhiff'), 'a press during a pinch was not a whiff — the grab is parryable')
+  assert.ok(jaws.every((c) => c.limpT === 0 && c.grabArm), 'a press during a pinch negated it')
+  for (let i = 0; i < 60 * 2; i++) { for (const c of jaws) { c.tele = 0; c.gripT = 0; c.grabArm = false } step(P) }
+  // 4) THE BEAT'S GATE: a pinch whose two ways out are both struck waits; clear them and it comes.
+  // krakenPinchProbe is the line the turn would lock (jaw to jaw at the snap, stepped off from the fish).
+  {
+    const [arm2, arm3] = run.krakenArms.filter((c) => c !== arm && c !== mate)
+    const h = run.enemies.find((e) => e.rosterId === 'krakenHead' && !e._dead)
+    p.x = P.x; p.y = P.y
+    const probe = krakenPinchProbe(run, h, arm, mate)
+    const spot = (sg) => krakenGrabSpot(run, probe, h, sg)
+    assert.ok(spot(1).d > 100 && spot(-1).d > 100, `fixture: a side is walled off (${spot(1).d.toFixed(0)} / ${spot(-1).d.toFixed(0)}px), so nothing below tests a threat`)
+    // stage arm o winding up with its lane through the spot on side `side`, landing in `tele`
+    const stage = (o, side, tele) => {
+      const sp = spot(side)
+      o.dead = false; o.limpT = 0; o.gripT = 0; o.slamT = 0; o.coilArm = false; o.grabArm = false
+      o.aimed = true; o.aimX = sp.x; o.aimY = sp.y
+      o.fuse = Math.max(R2.fuse, tele); o.tele = tele
+      const ca = Math.cos(o.ang), sa = Math.sin(o.ang)
+      o.lx0 = h.x + ca * KRAKEN_RING_R; o.ly0 = h.y + sa * KRAKEN_RING_R
+      const dd = Math.hypot(o.aimX - o.lx0, o.aimY - o.ly0) || 1, L2 = Math.max(KRAKEN_RING_R, dd)
+      o.lx1 = o.lx0 + (o.aimX - o.lx0) / dd * L2; o.ly1 = o.ly0 + (o.aimY - o.ly0) / dd * L2
+    }
+    const clearAll = () => { for (const o of [arm2, arm3]) { o.tele = 0; o.dead = true } }
+    clearAll(); stage(arm2, 1, 0.9); stage(arm3, -1, 1.0)
+    assert.strictEqual(krakenGrabTurnClear(run, h, arm, mate), false, 'both steps out of the pinch are struck, and the beat would still start it')
+    clearAll()
+    assert.strictEqual(krakenGrabTurnClear(run, h, arm, mate), true, 'nothing near either step out of the pinch, and the beat still holds it back')
+    // ...and WIRED INTO THE RING: stand the fish near the cage wall so one step is walled off, strike
+    // the other with a slam — the pinch turn must wait; clear the slam — the pinch comes.
+    const cr = (s.cageR > 0 ? s.cageR : KRAKEN_CAGE_R) - 30
+    let Q = null, wallSide = 0, hot = null
+    for (let k = 0; k < 48 && !Q; k++) {
+      const th = arm.ang + 0.4 + k * 0.13
+      const q = { x: h.x + Math.cos(th) * cr, y: h.y + Math.sin(th) * cr }
+      p.x = q.x; p.y = q.y
+      const pr = krakenPinchProbe(run, h, arm, mate)
+      for (const sg of [1, -1]) {
+        if (krakenGrabSpot(run, pr, h, sg).d < KRAKEN_GRAB_MIN_STEP && krakenGrabSpot(run, pr, h, -sg).d > 150) { Q = q; wallSide = sg; hot = krakenGrabSpot(run, pr, h, -sg); break }
+      }
+    }
+    assert.ok(Q, 'fixture: no spot by the cage wall walls off one step of the pinch')
+    const tryStart = () => {
+      for (const c of jaws) { c.tele = 0; c.gripT = 0; c.slamT = 0; c.limpT = 0; c.grabArm = false }
+      s.bossIdx = Math.max(1, s.bossIdx); s.gripN = KRAKEN_GRIP_EVERY; s.turnT = 0; run.hitStop = 0; run.repulseCd = 0
+      p.x = Q.x; p.y = Q.y; run.events.length = 0
+      stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+      return run.events.some((e) => e.type === 'grabRear')
+    }
+    clearAll()
+    arm2.dead = false; arm2.limpT = 0; arm2.gripT = 0; arm2.slamT = 0; arm2.coilArm = false; arm2.grabArm = false
+    arm2.aimed = true; arm2.aimX = hot.x; arm2.aimY = hot.y; arm2.fuse = R2.fuse; arm2.tele = 1.0   // its window shuts 0.6s before the pinch would shut: the beat itself has no objection
+    assert.strictEqual(tryStart(), false, 'the ring started a pinch whose one open step was struck and the other walled off')
+    clearAll()
+    assert.strictEqual(tryStart(), true, 'with the strike gone the pinch turn still did not come')
+    clearAll()
+    for (const c of jaws) { c.tele = 0; c.gripT = 0; c.grabArm = false }
+    // 4b) ONE JAW FREE IS NO PINCH: the grab's turn is a plain slam
+    mate.limpT = 99
+    s.gripN = KRAKEN_GRIP_EVERY; s.turnT = 0; run.hitStop = 0
+    p.x = P.x; p.y = P.y; run.events.length = 0
+    stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+    assert.ok(!run.events.some((e) => e.type === 'grabRear') && run.events.some((e) => e.type === 'armRear'), 'with one arm free the grab turn was not a plain slam')
+    mate.limpT = 0; mate.dead = true
+    for (let i = 0; i < 60 * 2; i++) { arm.tele = 0; arm.gripT = 0; arm.grabArm = false; step(P) }
+  }
+  // 5) parryReady IS TRUE EXACTLY IN A SLAM'S WINDOW, IN REACH, OFF COOLDOWN (one arm left standing)
   arm.slamT = 0; arm.limpT = 0; arm.gripT = 0
   s.turnT = 99
   arm.aimed = true; arm.aimX = P.x; arm.aimY = P.y
@@ -35947,79 +36071,9 @@ function testKrakenGrab() {
   assert.strictEqual(readyAt(R2.window * 0.5 + 2 / 60), true, 'fixture: not lit before the press')
   step(P, true)
   assert.ok(arm.limpT > 0, 'the button was lit and the press did not land')
-  // 5) WHICH WAY TO STEP. The step judged is the one a player really takes in the fuse (speed x
-  // (fuse - react), capped by the cage: krakenGrabSpot), so the neighbour threats are aimed AT those
-  // spots. `probe` is the grab's lane as the turn would lock it (shoulder -> the fish).
-  {
-    const [arm2, arm3] = run.krakenArms.filter((c) => c !== arm)
-    const h = run.enemies.find((e) => e.rosterId === 'krakenHead' && !e._dead)
-    const Sx = h.x + Math.cos(arm.ang) * KRAKEN_RING_R, Sy = h.y + Math.sin(arm.ang) * KRAKEN_RING_R
-    const Ld = Math.hypot(P.x - Sx, P.y - Sy) || 1, LL = Math.max(KRAKEN_RING_R, Ld)
-    const probe = { i: arm.i, lx0: Sx, ly0: Sy, lx1: Sx + (P.x - Sx) / Ld * LL, ly1: Sy + (P.y - Sy) / Ld * LL, aimX: P.x, aimY: P.y }
-    const spot = (sg) => krakenGrabSpot(run, probe, h, sg)
-    assert.ok(spot(1).d > 100 && spot(-1).d > 100, `fixture: a side is walled off (${spot(1).d.toFixed(0)} / ${spot(-1).d.toFixed(0)}px), so nothing below tests a threat`)
-    assert.ok(spot(1).d > 150 || spot(-1).d > 150, 'the judged step is still a token distance, not what a fish covers in the fuse')
-    // stage arm o winding up with its lane through the spot on side `side`, landing in `tele`
-    const stage = (o, side, tele) => {
-      const sp = spot(side)
-      o.dead = false; o.limpT = 0; o.gripT = 0; o.slamT = 0; o.coilArm = false; o.grabArm = false
-      o.aimed = true; o.aimX = sp.x; o.aimY = sp.y
-      o.fuse = Math.max(R2.fuse, tele); o.tele = tele
-      const ca = Math.cos(o.ang), sa = Math.sin(o.ang)
-      o.lx0 = h.x + ca * KRAKEN_RING_R; o.ly0 = h.y + sa * KRAKEN_RING_R
-      const dd = Math.hypot(o.aimX - o.lx0, o.aimY - o.ly0) || 1, L2 = Math.max(KRAKEN_RING_R, dd)
-      o.lx1 = o.lx0 + (o.aimX - o.lx0) / dd * L2; o.ly1 = o.ly0 + (o.aimY - o.ly0) / dd * L2
-    }
-    const clearAll = () => { for (const o of [arm2, arm3]) { o.tele = 0; o.dead = true } }
-    // 5a) one side struck: the chevron points to the other, both ways round
-    for (const sg of [1, -1]) {
-      clearAll(); stage(arm2, sg, 0.9)
-      assert.strictEqual(krakenGrabSafeSide(run, probe, h), -sg, `a slam landing on side ${sg}'s step and the chevron still says ${krakenGrabSafeSide(run, probe, h)} — into it`)
-    }
-    // 5b) WHEN IT LANDS MATTERS: an imminent slam on one side's step, a far-off one on the other's.
-    // The step goes to the far-off one's side, both ways round; unweighted, the two cancel.
-    for (const sg of [1, -1]) {
-      clearAll(); stage(arm2, sg, 0.9); stage(arm3, -sg, R2.fuse + 4)
-      assert.strictEqual(krakenGrabSafeSide(run, probe, h), -sg, `an imminent slam on side ${sg} and a far-off one on side ${-sg}, and the chevron says ${krakenGrabSafeSide(run, probe, h)} — into the one about to land`)
-    }
-    // 5c) BOTH SIDES STRUCK: the beat does not start that grab until one side clears — then it does.
-    clearAll(); stage(arm2, 1, 0.9); stage(arm3, -1, 1.0)
-    p.x = P.x; p.y = P.y   // the gate aims the probe at where the fish IS
-    assert.strictEqual(krakenGrabTurnClear(run, h, arm), false, 'both steps off the grab are struck, and the beat would still start it')
-    clearAll()   // the strikes gone (each lane runs on past its aim, so one lane alone can shadow both steps)
-    assert.strictEqual(krakenGrabTurnClear(run, h, arm), true, 'nothing near either step off the grab, and the beat still holds it back')
-    // ...and WIRED INTO THE RING: stand the fish near the cage wall so one step is walled off, strike
-    // the other with a slam — the grab turn must wait; clear the slam — the grab turn comes.
-    const cr = (s.cageR > 0 ? s.cageR : KRAKEN_CAGE_R) - 30
-    let Q = null, qProbe = null, wallSide = 0
-    for (let k = 0; k < 24 && !Q; k++) {
-      const th = arm.ang + 0.4 + k * 0.25
-      const q = { x: h.x + Math.cos(th) * cr, y: h.y + Math.sin(th) * cr }
-      const d0 = Math.hypot(q.x - Sx, q.y - Sy) || 1, l0 = Math.max(KRAKEN_RING_R, d0)
-      const pr = { i: arm.i, lx0: Sx, ly0: Sy, lx1: Sx + (q.x - Sx) / d0 * l0, ly1: Sy + (q.y - Sy) / d0 * l0, aimX: q.x, aimY: q.y }
-      for (const sg of [1, -1]) {
-        if (krakenGrabSpot(run, pr, h, sg).d < KRAKEN_GRAB_MIN_STEP && krakenGrabSpot(run, pr, h, -sg).d > 150) { Q = q; qProbe = pr; wallSide = sg; break }
-      }
-    }
-    assert.ok(Q, 'fixture: no spot by the cage wall walls off one step of the grab')
-    const hot = krakenGrabSpot(run, qProbe, h, -wallSide)
-    const tryStart = () => {
-      arm.tele = 0; arm.gripT = 0; arm.slamT = 0; arm.limpT = 0; arm.grabArm = false
-      s.bossIdx = Math.max(1, s.bossIdx); s.gripN = KRAKEN_GRIP_EVERY; s.turnT = 0; run.hitStop = 0; run.repulseCd = 0
-      p.x = Q.x; p.y = Q.y; run.events.length = 0
-      stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
-      return run.events.some((e) => e.type === 'grabRear')
-    }
-    clearAll()
-    arm2.dead = false; arm2.limpT = 0; arm2.gripT = 0; arm2.slamT = 0; arm2.coilArm = false; arm2.grabArm = false
-    arm2.aimed = true; arm2.aimX = hot.x; arm2.aimY = hot.y; arm2.fuse = R2.fuse; arm2.tele = 1.0   // its window shuts 0.6s before the grab would strike: the beat itself has no objection
-    assert.strictEqual(tryStart(), false, 'the ring started a grab whose one open step was struck and the other walled off')
-    clearAll()
-    assert.strictEqual(tryStart(), true, 'with the strike gone the grab turn still did not come')
-    clearAll()
-  }
-  console.log(`PASS run KG (grab + parry tell): a grab winds up aimed (${KRAKEN_GRAB_FUSE}s), grips a fish on its line and misses one 120px off it, a press during it is a whiff with the button dark; parryReady lights only inside a slam's window, in reach, off cooldown, and a press on it lands`)
+  console.log(`PASS run KG (pinch + parry tell): the arms phase bar is one pill per arm; two jaws wind up (${KRAKEN_GRAB_FUSE}s) from ${KRAKEN_PINCH_OPEN0}px, creep in and snap shut on where the fish stood; a fish there or on a jaw's path is caught (one arm holds), one 120px out of the V is missed, a press during it is a whiff with the button dark, the beat holds a pinch with both steps struck, one free arm makes it a slam; parryReady lights only inside a slam's window, in reach, off cooldown`)
 }
+
 
 // THE BEAT (run KB): every moment of the arms phase asks ONE answer. Whole seeded fights at d2 and
 // d3, played by a bot that parries every lunge and half the slams on a lit button, wiggles when held
@@ -36140,7 +36194,7 @@ function testKrakenBeat() {
     for (const a of run.krakenArms) { a.tele = 0; a.fuse = 0; a.gripT = 0; a.limpT = 0; a.grabArm = false; a.coilArm = false; a.slamT = 0; a.hitT = 0 }
     const A = run.krakenArms[1]
     A.tele = R3.window * 0.6; A.fuse = R3.fuse; A.aimed = true; A.aimX = run.player.x; A.aimY = run.player.y
-    s.bossIdx = 2; s.gripN = KRAKEN_COIL_EVERY; s.turnT = 0; s.coilT = 0; s.beatAt = null; s.blockKills = -99
+    s.bossIdx = 2; s.gripN = KRAKEN_COIL_AT; s.turnT = 0; s.coilT = 0; s.beatAt = null; s.blockKills = -99
     let lashAt = null, coilAt = null
     for (let f = 0; f < 60 * 4 && coilAt == null; f++) {
       run.player.hp = run.player.maxHP

@@ -237,12 +237,9 @@ function report(label, rs) {
     }
   }
   console.log(`GRAB vs SLAM over ${gn} grab strikes: a parry window shut <0.4s before ${gBefore}, opened <0.6s after ${gAfter};  dodged grabs followed by a slam in band within 1.5s ${gInto} (of them hit ${gHit})`)
-  // THE GRAB'S SAFE SIDE (a.grabSafeSide: sim's pick, no longer drawn — the bot steps to the side it is on)
-  const sf = rs.reduce((s, r) => { for (const k of Object.keys(s)) s[k] += r.safe?.[k] ?? 0; return s }, { grabs: 0, sideRight: 0, sideRightAny: 0, oneClear: 0, contested: 0, savedByIt: 0, steppedIntoThreat: 0 })
-  console.log(`GRAB SAFE SIDE over ${sf.grabs} grabs (threats live when the grab started): side clear of lanes landing while you are there ${sf.sideRight}/${sf.grabs} (${pct(sf.sideRight, sf.grabs)}), of any live lane ${sf.sideRightAny}/${sf.grabs} (${pct(sf.sideRightAny, sf.grabs)}); another threat near (or the cage wall behind) one side ${sf.contested}, of which ONE side was clear ${sf.oneClear} and the safe side picked it ${sf.savedByIt} (${pct(sf.savedByIt, sf.oneClear)}), both hot ${sf.contested - sf.oneClear}; struck by another arm while dodging ${sf.steppedIntoThreat}`)
-  const wr = {}
-  for (const r of rs) for (const [k, v] of Object.entries(r.safe?.wrong || {})) wr[k] = (wr[k] || 0) + v
-  if (Object.keys(wr).length) console.log(`   safe side on the hot side while the other was clear, by cause: ${Object.entries(wr).map(([k, v]) => `${v} ${k}`).join(', ')}`)
+  // A PINCH DODGED INTO ANOTHER ARM: struck by a different arm while stepping out of a pinch
+  const sf = rs.reduce((s, r) => ({ grabs: s.grabs + (r.safe?.grabs ?? 0), hit: s.hit + (r.safe?.steppedIntoThreat ?? 0) }), { grabs: 0, hit: 0 })
+  console.log('PINCH DODGES over ' + sf.grabs + ' pinches: struck by another arm while dodging ' + sf.hit)
   const pn = rs.reduce((s, r) => s + r.press.n, 0), pl = rs.reduce((s, r) => s + r.press.land, 0), pw = rs.reduce((s, r) => s + r.press.whiff, 0)
   console.log(`PRESSES ${pn}: landed ${pl} (${pct(pl, pn)}), whiffed ${pw} (${pct(pw, pn)}), no parry event at all ${pn - pl - pw}`)
   const g = rs.reduce((s, r) => ({ f: s.f + r.glow.frames, a: s.a + r.glow.ringNoParry, b: s.b + r.glow.parryNoRing, c: s.c + r.glow.both }), { f: 0, a: 0, b: 0, c: 0 })

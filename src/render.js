@@ -19989,10 +19989,11 @@ void main() {
     tellDrawn('head', -1, 'lungeCharge', head.x, head.y)
     const R = KRAKEN_HEAD_R * (1.9 - 0.75 * w)
     const quiver = 1 + 0.03 * Math.sin(animT * (30 + 40 * w)) * w
-    for (let b = 0; b < 6; b++) {
+    // SOFT (owner, 2026-09-26: "the head dash telegraph is too strong"): three faint rings, not six
+    for (let b = 0; b < 3; b++) {
       teleG.beginPath()
       teleG.circle(head.x, head.y, R * quiver * (1 - b * 0.07))
-      teleG.stroke({ width: 10 + b * 4, color: 0xdff4ff, alpha: (0.05 + 0.09 * w) * (1 - b * 0.12) })
+      teleG.stroke({ width: 8 + b * 4, color: 0xdff4ff, alpha: (0.03 + 0.05 * w) * (1 - b * 0.2) })
     }
     // THE PATH: where it is coming. A lane in the hazard colour from the head's leading edge
     // through the player and a body-width past them, reaching further and burning brighter over
@@ -20009,23 +20010,23 @@ void main() {
     // most of a head past it, so a lunge from nose-to-nose reads as a path, not a disc under the fish
     const reach = Math.max(KRAKEN_HEAD_R * 1.6, d + KRAKEN_HEAD_R * 0.9 - KRAKEN_HEAD_R * 0.7) * (0.6 + 0.4 * w)
     const x1 = x0 + ux * reach, y1 = y0 + uy * reach
-    const hw = KRAKEN_HEAD_R * 0.55
+    const hw = KRAKEN_HEAD_R * 0.3
     // SATURATED, IN THE CUE LAYER: the struck-lane orange everywhere else in this fight, drawn above
     // the lamp-lit face and under the fish. It used to be additive at 0.12-0.34 in the danger light,
     // which sits UNDER the head's face, so it read as a low-alpha tan smear beneath the head.
     const col = win ? K_HAZARD_HOT : K_HAZARD
-    krakenLungeG.moveTo(x0, y0).lineTo(x1, y1).stroke({ width: 2 * hw + 6, color: 0x000000, alpha: 0.35, cap: 'round' })
-    krakenLungeG.moveTo(x0, y0).lineTo(x1, y1).stroke({ width: 2 * hw, color: K_HAZARD, alpha: 0.45 + 0.3 * w, cap: 'round' })
-    krakenLungeG.moveTo(x0, y0).lineTo(x1, y1).stroke({ width: hw * 0.5, color: col, alpha: 0.6 + 0.4 * w, cap: 'round' })
+    // a thin, faint lane that firms up as the strike nears — the head's own pose is the loud part
+    krakenLungeG.moveTo(x0, y0).lineTo(x1, y1).stroke({ width: 2 * hw, color: K_HAZARD, alpha: 0.12 + 0.18 * w, cap: 'round' })
+    krakenLungeG.moveTo(x0, y0).lineTo(x1, y1).stroke({ width: hw * 0.35, color: col, alpha: 0.35 + 0.35 * w, cap: 'round' })
     const nx = -uy, ny = ux
-    for (let c = 0; c < 3; c++) {
-      const t = ((animT * (1.2 + 2.5 * w) + c / 3) % 1)
+    for (let c = 0; c < 2; c++) {
+      const t = ((animT * (1.2 + 2.5 * w) + c / 2) % 1)
       const cx = x0 + ux * reach * t, cy = y0 + uy * reach * t
       const s2 = hw * 0.8
       krakenLungeG.moveTo(cx - ux * s2 * 0.6 + nx * s2, cy - uy * s2 * 0.6 + ny * s2)
         .lineTo(cx, cy)
         .lineTo(cx - ux * s2 * 0.6 - nx * s2, cy - uy * s2 * 0.6 - ny * s2)
-        .stroke({ width: 5, color: win ? 0xffffff : K_HAZARD_HOT, alpha: (0.3 + 0.6 * w) * Math.sin(t * Math.PI), join: 'round', cap: 'round' })
+        .stroke({ width: 3, color: win ? 0xffffff : K_HAZARD_HOT, alpha: (0.2 + 0.4 * w) * Math.sin(t * Math.PI), join: 'round', cap: 'round' })
     }
   }
 
@@ -20184,9 +20185,10 @@ void main() {
     drawKrakenGrabTell(G, pts, a, windup, kS, kE, hwAt)
   }
   // THE GRAB'S TELL IS THE GRABBING ARM ITSELF (owner, 2026-09-26: no hook glyph, no floor strip).
-  // A grab hovers straight along the line it strikes, so the limb IS the zone: its look only has to
-  // say "not a slam — get off me". It never lights a root-to-tip fuse and never goes white, the two
-  // things a slam's window is made of. Owner's pick 2026-09-26: every sucker lit green at once, breathing, the tip curling.
+  // The grab is a PINCH: two arms hover straight along their lanes, their tips creeping in on the
+  // fish (sim walks them, krakenPlaceArm) and snapping shut, so the jaws ARE the zone. Its look only
+  // has to say "not a slam — get out from between us". It never lights a root-to-tip fuse and never
+  // goes white, the two things a slam's window is made of. Every sucker lit green at once, breathing.
   const K_GRAB_GLOW = 0x8dff5a   // the grab's light: a bio-green nothing else in the fight wears
   const K_GRAB_RISE = 18   // px a grab hovers off its line: enough to lift it off its shadow, not off the fish
   const K_GRAB_TINT = 0xb8ffb0   // the grab rope's tint while it winds up
@@ -20210,8 +20212,7 @@ void main() {
       sk.push({ k, t: k / (N - 1), x: p1.x + nx * hw * 0.42 * side, y: p1.y + ny * hw * 0.42 * side, r: Math.max(2, hw * K_SUCK_R * 0.95) })
     }
     // EVERY LAMP AT ONCE, BREATHING. All the suckers light green together on the first frame
-    // (a slam's light RUNS down the limb; this one is simply ON) and pulse faster as the fuse
-    // runs, while the tip curls into a grasping hook (the pose, syncKrakenArms).
+    // (a slam's light RUNS down the limb; this one is simply ON) and pulse faster as the fuse runs.
     const beat = 0.5 + 0.5 * Math.sin(age * (8 + 14 * windup))
     for (const u of sk) {
       G.circle(u.x, u.y, u.r * 1.5).fill({ color: 0x031006, alpha: 0.55 * on })
@@ -21090,9 +21091,8 @@ void main() {
         // Through the window, a plain slam whose line reaches the fish closes its tip on the fish's
         // own point OF THE LANE (still on the struck line, so the landed limb stays honest to it).
         let gx = a.x, gy = a.y, rate = 9
-        // A GRAB REACHES ITS WHOLE LINE: with no strip on the floor, the hovering limb is the zone, so
-        // it lies the full length it strikes (lx0..lx1), across the fish and past it
-        if (hover) { gx = a.lx1; gy = a.ly1 }
+        // A PINCH JAW IS WHERE SIM PUT IT, and fast: the tip IS the jaw, and the snap is 0.14s
+        if (hover) rate = 40
         if (rung && !a.coilArm && !a.grabArm && a.tele > 0 && a.tele <= rung.window && krakenArmInReachR(run, a)) {
           const dx = a.lx1 - a.lx0, dy = a.ly1 - a.ly0, l2 = dx * dx + dy * dy || 1
           const u = Math.max(0, Math.min(1, ((run.player.x - a.lx0) * dx + (run.player.y - a.ly0) * dy) / l2))
@@ -21233,26 +21233,6 @@ void main() {
             rig.pts[k].set(rig.pts[k].x + dx * w, rig.pts[k].y + dy * w)
             rig.shadowPts[k].set(rig.shadowPts[k].x + dx * w, rig.shadowPts[k].y + dy * w)
           }
-        }
-      }
-      // THE GRAB'S POSE (with drawKrakenGrabTell): the tip curls into a grasping hook that tightens
-      // with the fuse. The shadow stays on the line.
-      if (hover) {
-        const age = a.fuse - Math.max(0, a.tele)
-        // only the last stretch of the limb moves (by length, not share: the limb is ~1000px long)
-        let k0 = K_ROPE_N - 2
-        for (let len = 0, lim = 150; k0 > 2 && len < lim; k0--) len += Math.hypot(rig.pts[k0].x - rig.pts[k0 - 1].x, rig.pts[k0].y - rig.pts[k0 - 1].y)
-        const seg = []
-        for (let k = k0 + 1; k < K_ROPE_N; k++) seg.push(Math.hypot(rig.pts[k].x - rig.pts[k - 1].x, rig.pts[k].y - rig.pts[k - 1].y))
-        let h = Math.atan2(rig.pts[k0].y - rig.pts[k0 - 1].y, rig.pts[k0].x - rig.pts[k0 - 1].x)
-        const n = K_ROPE_N - 1 - k0
-        const tot = -(a.grabSafeSide === -1 ? -1 : 1) * (0.5 + 0.8 * Math.min(1, age / 0.25) * (0.6 + 0.4 * windup))
-        const tri = n * (n + 1) / 2
-        for (let k = k0 + 1; k < K_ROPE_N; k++) {
-          const m = k - k0
-          h += tot * m / tri
-          const p = rig.pts[k - 1], L = seg[m - 1]
-          rig.pts[k].set(p.x + Math.cos(h) * L, p.y + Math.sin(h) * L)
         }
       }
       // A PARRIED LIMB SNAPS BACK off the contact: thrown away from the fish on the parry's frame and
@@ -27220,12 +27200,14 @@ void main() {
           break
         }
         case 'grabRear': {
-          // a grab winding up: a puff of silt lifting off the seabed under the grabber that is
-          // about to reach. The limb's own reach, lift and throb carry the rest (syncKrakenArms).
-          for (let i = 0; i < 8; i++) {
-            const a = Math.random() * Math.PI * 2
-            const sp = 60 + Math.random() * 90
-            spawnParticle(T.fx.circle_05, e.x, e.y, Math.cos(a) * sp, Math.sin(a) * sp, 0.5, 0.06, K_GRAB_GLOW, 0.2, 2)   // the grab's green: nothing white on the fish while a grab winds
+          // a pinch winding up: a puff of silt lifting off the seabed under each jaw that is about to
+          // reach. The limbs' own reach, lift and throb carry the rest (syncKrakenArms).
+          for (const [px, py] of [[e.x, e.y], [e.x2 ?? e.x, e.y2 ?? e.y]]) {
+            for (let i = 0; i < 8; i++) {
+              const a = Math.random() * Math.PI * 2
+              const sp = 60 + Math.random() * 90
+              spawnParticle(T.fx.circle_05, px, py, Math.cos(a) * sp, Math.sin(a) * sp, 0.5, 0.06, K_GRAB_GLOW, 0.2, 2)   // the grab's green: nothing white on the fish while a grab winds
+            }
           }
           break
         }

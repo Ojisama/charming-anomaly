@@ -80,7 +80,29 @@ function decide(tells) {
   } else if (has('grabCharge').filter((t) => { if (!(t.i in ignoreGrab)) ignoreGrab[t.i] = botRng() < (P.missGrab || 0); return !ignoreGrab[t.i] }).length) {
     act = 'dodgeGrab'
     let g = null, gd = Infinity
-    for (const t of has('grabCharge').filter((t) => !ignoreGrab[t.i])) { const d = Math.sqrt(seg2(p.x, p.y, t.x0, t.y0, t.x1, t.y1)); if (d < gd) { gd = d; g = t } }
+    const gs = has('grabCharge').filter((t) => !ignoreGrab[t.i])
+    for (const t of gs) { const d = Math.sqrt(seg2(p.x, p.y, t.x0, t.y0, t.x1, t.y1)); if (d < gd) { gd = d; g = t } }
+    // A PINCH shows two jaws closing along their own limbs: they meet where the two limbs' lines
+    // cross. Step to whichever of 12 headings ends furthest from both jaws' paths (tip -> meet),
+    // never into the cage wall (the drawn membrane).
+    const g2 = gs.find((t) => t !== g)
+    if (g2) {
+      const d1x = g.x1 - g.x0, d1y = g.y1 - g.y0, d2x = g2.x1 - g2.x0, d2y = g2.y1 - g2.y0
+      const den = d1x * d2y - d1y * d2x
+      const u = Math.abs(den) > 1e-6 ? ((g2.x0 - g.x0) * d2y - (g2.y0 - g.y0) * d2x) / den : null
+      const mx = u != null ? g.x0 + d1x * u : (g.x + g2.x) / 2, my = u != null ? g.y0 + d1y * u : (g.y + g2.y) / 2
+      const cr = run.script.cageR
+      let best = -1
+      for (let k = 0; k < 12; k++) {
+        const a = k * Math.PI / 6, qx = p.x + Math.cos(a) * 90, qy = p.y + Math.sin(a) * 90
+        if (h && cr > 0 && Math.hypot(qx - h.x, qy - h.y) > cr - 15) continue
+        const sc = Math.min(seg2(qx, qy, g.x, g.y, mx, my), seg2(qx, qy, g2.x, g2.y, mx, my))
+        if (sc > best) { best = sc; ix = Math.cos(a); iy = Math.sin(a) }
+      }
+      if (best >= 0) g = null
+      else g = { x0: g.x, y0: g.y, x1: g2.x, y1: g2.y }
+    }
+    if (g) {
     const L = Math.hypot(g.x1 - g.x0, g.y1 - g.y0) || 1
     const nx = -(g.y1 - g.y0) / L, ny = (g.x1 - g.x0) / L
     // Nothing on screen names a side (the grab's tell is its own limb): step off to the side I am on.
@@ -88,6 +110,7 @@ function decide(tells) {
       let side = (p.x - g.x0) * nx + (p.y - g.y0) * ny
       if (Math.abs(side) < 1 && h) side = (p.x - h.x) * nx + (p.y - h.y) * ny
       ix = nx * (side >= 0 ? 1 : -1); iy = ny * (side >= 0 ? 1 : -1)
+    }
     }
   } else if (has('coil').length && h) {
     act = 'dodgeCoil'
@@ -160,7 +183,7 @@ const glow = { frames: 0, ringNoParry: 0, parryNoRing: 0, both: 0, btnClasses: {
 const tellCounts = {}
 const grabOpen = {}   // arm -> { hurt } while its grab winds up
 const lastGrabTrace = {}
-const safeStat = { grabs: 0, sideRight: 0, sideRightAny: 0, oneClear: 0, contested: 0, savedByIt: 0, steppedIntoThreat: 0 }
+const safeStat = { grabs: 0, steppedIntoThreat: 0 }
 // EVERY HIT, AND WHETHER ITS SOURCE WAS ON SCREEN. A hurt event's src is matched against the tells
 // that could have warned of it; "sourced" = one of them was drawn in the last HIT_LOOKBACK s. Adds
 // (graveyard dead, any other src) are sprites render always draws, so they count as sourced by body.
@@ -267,33 +290,10 @@ function beat(tells) {
   run.player.hp = run.player.maxHP
   if (run.phase === 'levelup') run.phase = 'playing'
   const hurtArm = ev.some((e) => e.type === 'hurt' && e.src === 'krakenArm')
-  // THE GRAB'S SAFE SIDE, GRADED. While a grab winds up: did the bot, dodging it, get struck by
-  // ANOTHER arm (i.e. step into a threat)? And was the published side actually clear — judged at the
-  // spot sim published for each side (a.grabSpotX/Y, a.grabAltX/Y: the step a player really takes in
-  // the fuse, speed x (fuse - KRAKEN_GRAB_REACT), capped by the cage wall), against threats this
-  // grader tests for itself: a side the wall cuts shorter than KRAKEN_GRAB_MIN_STEP is blocked, and a
-  // side is hot if another arm's struck line lies within KRAKEN_LASH_W of its spot.
-  // Judged against the threats live WHEN THE GRAB STARTED (what the chevron could know): a slam that
-  // starts later aims at wherever the fish has stepped to, i.e. at the safe side by construction.
-  // timed: only threats that land while the fish would still be out there (before the grab strikes
-  // + KRAKEN_BEAT_BREATH + 0.3s). untimed (any=true): every live lane, the stricter reading.
-  const spotOf = (a, sd) => (sd === a.grabSafeSide ? { x: a.grabSpotX, y: a.grabSpotY } : { x: a.grabAltX, y: a.grabAltY })
-  const sideHot = (a, sd, any = false) => {
-    const { x, y } = spotOf(a, sd)
-    if (!(Number.isFinite(x) && Number.isFinite(y))) return true
-    if (Math.hypot(x - a.aimX, y - a.aimY) < C.KRAKEN_GRAB_MIN_STEP) return true
-    return run.krakenArms.some((o) => o !== a && !o.dead && o.tele > 0 && o.limpT <= 0 && (any || o.tele <= C.KRAKEN_GRAB_FUSE + C.KRAKEN_BEAT_BREATH + 0.3) && seg2(x, y, o.lx0, o.ly0, o.lx1, o.ly1) <= C.KRAKEN_LASH_W ** 2)
-  }
-  // why the OTHER side was not picked when it was the clear one (diagnostic)
-  const sideWhy = (a, sd) => {
-    const { x, y } = spotOf(a, sd)
-    const hh = head()
-    const dh = hh ? Math.hypot(x - hh.x, y - hh.y) : 0
-    return Math.hypot(x - a.aimX, y - a.aimY) < C.KRAKEN_GRAB_MIN_STEP ? 'clear side was walled off' : dh < C.KRAKEN_HEAD_R * 1.8 ? 'clear side was on the head' : 'scored threats'
-  }
+  // A PINCH, GRADED: did the bot, dodging it, get struck by ANOTHER arm (step into a threat)?
   for (const a of run.krakenArms) {
     if (a.grabArm && a.tele > 0) {
-      const r = grabOpen[a.i] || (grabOpen[a.i] = { hurt: false, safeHot: sideHot(a, a.grabSafeSide), otherHot: sideHot(a, -a.grabSafeSide), safeHotAny: sideHot(a, a.grabSafeSide, true), why: sideWhy(a, -a.grabSafeSide) })
+      const r = grabOpen[a.i] || (grabOpen[a.i] = { hurt: false })
       if (d.act === 'dodgeGrab' && ev.some((e) => e.type === 'lash' && !e.coil) && hurtArm) r.hurt = true
       if (typeof process !== 'undefined' && process.env.KC_WHY) { r.trace = r.trace || []; if ((r.trace.length % 1) === 0 && Math.round(a.tele * 60) % 12 === 0) r.trace.push([+a.tele.toFixed(2), d.act, Math.round(Math.sqrt(seg2(p.x, p.y, a.lx0, a.ly0, a.lx1, a.ly1))), Math.round(p.x), Math.round(p.y), +d.ix.toFixed(2), +d.iy.toFixed(2)]) }
     }
@@ -302,18 +302,13 @@ function beat(tells) {
     if (!(e.type === 'grabMiss' || e.type === 'gripLatch') || e.i == null) continue
     const a = run.krakenArms[e.i]
     const r = grabOpen[e.i] || { hurt: false }
+    // the pinch ends for BOTH jaws: the mate's record must not leak into its next pinch
+    const m = a && a.pinchMate != null ? grabOpen[a.pinchMate] : null
     delete grabOpen[e.i]
+    if (a && a.pinchMate != null) delete grabOpen[a.pinchMate]
     lastGrabTrace[e.i] = r.trace
-    if (!a || !(a.grabSafeSide === 1 || a.grabSafeSide === -1)) continue
     safeStat.grabs++
-    if (r.hurt) safeStat.steppedIntoThreat++
-    const safeHot = !!r.safeHot, otherHot = !!r.otherHot
-    if (safeHot || otherHot) safeStat.contested++
-    if (!safeHot) safeStat.sideRight++
-    if (!r.safeHotAny) safeStat.sideRightAny++
-    if (!safeHot && otherHot) safeStat.savedByIt++
-    if (safeHot !== otherHot) safeStat.oneClear++
-    if (safeHot && !otherHot) { safeStat.wrong = safeStat.wrong || {}; const k = r.why || '?'; safeStat.wrong[k] = (safeStat.wrong[k] || 0) + 1 }
+    if (r.hurt || m?.hurt) safeStat.steppedIntoThreat++
   }
   for (const e of ev) {
     if (e.type !== 'hurt') continue
@@ -375,7 +370,7 @@ function beat(tells) {
       g.ok = false
       g.forecast = preSoon
       g.armWas = pre[k].slamT > 0 ? 'landing a slam' : 'idle'
-      g.cause = g.tellS < 0 ? (preSoon !== a.i ? 'latched by an arm the forecast had not named (the nearest grabber changed as the player moved)' : pre[k].slamT > 0 ? 'no grabCharge drawn: the grabbing arm was still showing its landed slam' : 'no grabCharge drawn before the latch') : g.dodging ? 'dodged off the drawn line and it latched anyway' + (typeof process !== 'undefined' && process.env.KC_WHY ? ' [' + JSON.stringify({ dLane: Math.round(Math.sqrt(seg2(run.player.x, run.player.y, a.lx0, a.ly0, a.lx1, a.ly1))), dHead: Math.round(Math.hypot(run.player.x - (head()?.x ?? 0), run.player.y - (head()?.y ?? 0))), cage: Math.round(run.script.cageR), side: a.grabSafeSide, L: Math.round(Math.hypot(a.lx1 - a.lx0, a.ly1 - a.ly0)), trace: lastGrabTrace[a.i] }) + ']' : '') : 'tell drawn but the bot did not dodge'
+      g.cause = g.tellS < 0 ? (preSoon !== a.i ? 'latched by an arm the forecast had not named (the nearest grabber changed as the player moved)' : pre[k].slamT > 0 ? 'no grabCharge drawn: the grabbing arm was still showing its landed slam' : 'no grabCharge drawn before the latch') : g.dodging ? 'dodged off the drawn line and it latched anyway' + (typeof process !== 'undefined' && process.env.KC_WHY ? ' [' + JSON.stringify({ dLane: Math.round(Math.sqrt(seg2(run.player.x, run.player.y, a.lx0, a.ly0, a.lx1, a.ly1))), dHead: Math.round(Math.hypot(run.player.x - (head()?.x ?? 0), run.player.y - (head()?.y ?? 0))), cage: Math.round(run.script.cageR), L: Math.round(Math.hypot(a.lx1 - a.lx0, a.ly1 - a.ly0)), trace: lastGrabTrace[a.i] }) + ']' : '') : 'tell drawn but the bot did not dodge'
       attacks.push(g)
     }
   })
