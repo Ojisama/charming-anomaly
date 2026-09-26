@@ -227,7 +227,7 @@ import {
   KRAKEN_LIMP_PERFECT_MUL, KRAKEN_STAGGER_T, KRAKEN_STAGGER_DECAY, KRAKEN_LIMP_FLASH,
   KRAKEN_RISE_AT, KRAKEN_ENRAGE_AT, KRAKEN_ENRAGE_CADENCE, KRAKEN_ENRAGE_ARM_HP, KRAKEN_STAGGER_BITE,
   KRAKEN_EXPOSE_BITE, KRAKEN_HITSTOP_PARRY, KRAKEN_HITSTOP_BREAK, KRAKEN_HITSTOP_STAGGER,
-  KRAKEN_HEAD_TOUCH_DMG,
+  KRAKEN_HEAD_TOUCH_DMG, KRAKEN_TOUCH_QUIET_T, KRAKEN_TOUCH_REARM_T,
   KRAKEN_CAGE_R,
   KRAKEN_LASH_R, KRAKEN_LASH_DMG, KRAKEN_LIGHT_START, KRAKEN_HAUL_R, KRAKEN_LASH_W, KRAKEN_LASH_OVER,
   KRAKEN_LIMB_HW, krakenLimbHalfW,
@@ -2767,7 +2767,14 @@ function stepKrakenChase(run, dt, rung, head) {
   // the rise having seen ZERO lunges, which is also zero chances at the stagger that is the only way
   // to hurt it. A telegraphed strike that you can answer means nothing if the untelegraphed touch
   // kills you first.
-  head.dmg = (head._lungeBurst ?? 0) > 0 ? KRAKEN_LUNGE_DMG : KRAKEN_HEAD_TOUCH_DMG
+  // ...and it goes QUIET while another ask is on screen (KRAKEN_TOUCH_QUIET_T): through the whole
+  // Coil, whose safe gap starts right against the head, and through the lunge's wind-up, where a
+  // touch landing reads as "the lunge hit me". One hit, one visible cause.
+  // It comes back KRAKEN_TOUCH_REARM_T after the quiet ends (head.touchRearmT, which render's rim
+  // ramps on), so a touch after a parried lunge or a Coil is warned rather than instant.
+  const touchQuiet = s.coilT > 0 || (head.lungeT > 0 && head.lungeT <= KRAKEN_TOUCH_QUIET_T)
+  head.touchRearmT = touchQuiet ? KRAKEN_TOUCH_REARM_T : Math.max(0, (head.touchRearmT ?? 0) - dt)
+  head.dmg = (head._lungeBurst ?? 0) > 0 ? KRAKEN_LUNGE_DMG : head.touchRearmT > 0 ? 0 : KRAKEN_HEAD_TOUCH_DMG
   if (head.lungeT == null) head.lungeT = KRAKEN_LUNGE_T
   // `lungeT` counts DOWN to the strike, so the parry window is its last `rung.window` seconds —
   // the same read as an arm's, deliberately: one verb, one timing, two bodies.

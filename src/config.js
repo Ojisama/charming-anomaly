@@ -8985,6 +8985,15 @@ export const KRAKEN_LUNGE_DMG = 13
 // a 62-73s chase took ONE hit. This is the small constant tax for standing in its mouth — enough
 // that the head owns its own space, nowhere near enough to kill you while you fight its arms.
 export const KRAKEN_HEAD_TOUCH_DMG = 4
+// ONE HIT, ONE CAUSE. The touch tax goes quiet while another ask is on screen — the whole Coil, and
+// the lunge's wind-up — so a hit there can only have been the Coil or the lunge.
+// balance_decision : no head touch through a Coil or lunge wind-up [2026-09-26]
+//  - tied to KRAKEN_LUNGE_WINDUP_T: the quiet starts on the frame the wind-up is drawn
+export const KRAKEN_TOUCH_QUIET_T = KRAKEN_LUNGE_WINDUP_T
+// ...and it re-arms only this long after the quiet ends, so the touch that follows a parried lunge
+// or a Coil is warned (the rim's ramp) instead of landing on the first frame.
+// balance_decision : touch re-arms 0.5s after a quiet ends [2026-09-26]
+export const KRAKEN_TOUCH_REARM_T = 0.5
 // THE COIL (P3, D3 only). Every Nth arm attack the whole ring hauls inward at once, and the only
 // place that is not swept is ONE sector — the gap. NOT PARRYABLE by design: the parry must not be
 // the answer to everything, or it stops being a choice. You read the gap and you move.
