@@ -53,12 +53,16 @@ const DIFFS = String(arg('diffs', '2,3')).split(',').map(Number)
 const SEEDS = String(arg('seeds', '1,2,3,4,5,6')).split(',').map(Number)
 const SECS = Number(arg('secs', 120))
 const CONFLICT_T = Number(arg('conflictT', 0.4))
+const MISS_GRAB = Number(arg('missGrab', 0))   // fraction of grab wind-ups the bot ignores, so holds happen
+const HUG = Number(arg('hug', 0))              // chase orbit in head radii (0 = the default 0.9 x reach)
+const WIGGLE_ON = arg('wiggleOn', 'wiggle')      // the tell the bot wiggles on: the prompt, or 'hold' (the wrapped limb)
 const BROWSER = arg('browser', null)
 const LIST = argv.includes('--list')
 const SAVE = arg('save', null)   // --save DIR: keep each run's json for --report
 if (SAVE) mkdirSync(SAVE, { recursive: true })
 const REPORT = argv.includes('--report') ? argv.slice(argv.indexOf('--report') + 1).filter((a) => !a.startsWith('--')) : null
-if (![SECS, CONFLICT_T, ...DIFFS, ...SEEDS].every(Number.isFinite) || SECS <= 0 || !DIFFS.every((d) => d >= 1 && d <= 5)) {
+if (!['wiggle', 'hold'].includes(WIGGLE_ON)) { console.error(`ABORT: --wiggleOn must be wiggle or hold, got ${WIGGLE_ON}`); process.exit(1) }
+if (![SECS, CONFLICT_T, MISS_GRAB, HUG, ...DIFFS, ...SEEDS].every(Number.isFinite) || MISS_GRAB < 0 || MISS_GRAB > 1 || HUG < 0 || SECS <= 0 || !DIFFS.every((d) => d >= 1 && d <= 5)) {
   console.error('ABORT: bad --secs/--conflictT/--diffs/--seeds'); process.exit(1)
 }
 const SCENE = new URL('./scenes/kraken-cues.js', import.meta.url).pathname
@@ -89,7 +93,11 @@ async function headless(diff, seed) {
       if (a.dead) continue
       const line = { x: a.x, y: a.y, x0: a.lx0, y0: a.ly0, x1: a.lx1, y1: a.ly1 }
       if (a.limpT > 0) tells.push({ src: 'arm', i: a.i, kind: 'limp', x: a.x, y: a.y })
-      else if (a.gripT > 0) tells.push({ src: 'arm', i: a.i, kind: 'hold', x: p.x, y: p.y })
+      else if (a.gripT > 0) {
+        tells.push({ src: 'arm', i: a.i, kind: 'hold', x: p.x, y: p.y })
+        // drawKrakenCues' prompt waits for the limb to be 30% wound (0.3 x K_GRIP_EXTEND_T = 0.09s)
+        if ((a.gripClock ?? C.KRAKEN_GRIP_DUR) <= C.KRAKEN_GRIP_DUR - 0.09) tells.push({ src: 'player', i: -1, kind: 'wiggle', x: p.x, y: p.y })
+      }
       else if (a.tele > 0 && a.coilArm) tells.push({ src: 'arm', i: a.i, kind: 'coil', ...line })
       // a grab winds up on its own aimed line (render: drawKrakenCharge's grab branch, same x0..x1)
       else if (a.tele > 0 && a.grabArm) tells.push({ src: 'arm', i: a.i, kind: 'grabCharge', ...line })
@@ -101,12 +109,17 @@ async function headless(diff, seed) {
     const lunge = s.phase === 'chase' && !(s.staggerT > 0) && head.lungeT > 0
     if (lunge && head.lungeT <= C.KRAKEN_LUNGE_WINDUP_T) tells.push({ src: 'head', i: -1, kind: 'lungeCharge', x: head.x, y: head.y })
     if (lunge && head.lungeT <= rung.lungeWindow) { tells.push({ src: 'head', i: -1, kind: 'lungeFlash', x: head.x, y: head.y }); winAny = true }
+    // REPLICA of drawKrakenCues' head-touch rule: the bared head's rim burns once the fish is within
+    // 60px of its touch reach (head radius + fish radius), and for the last 0.6s of a rise or a stagger
+    const Rc = (head.radius ?? C.KRAKEN_HEAD_R) + (p.radius ?? C.PLAYER.radius)
+    const touchSoon = (s.riseT > 0 && s.riseT < 0.6) || (s.staggerT > 0 && s.staggerT < 0.6)
+    if (s.phase === 'chase' && (touchSoon || (!(s.riseT > 0) && !(s.staggerT > 0) && (head.dmg ?? 0) > 0)) && Math.hypot(p.x - head.x, p.y - head.y) < Rc + 60) tells.push({ src: 'head', i: -1, kind: 'headTouch', x: head.x, y: head.y })
     // REPLICA of render.js's press-ring rule (drawKrakenRing): lit only while sim's run.parryReady
     if (winAny && r.parryReady === true) tells.push({ src: 'player', i: -1, kind: 'pressRing', x: p.x, y: p.y })
     return tells
   }
   globalThis.window = {
-    __cfg: C, __kcParams: { secs: SECS, seed, conflictT: CONFLICT_T }, __kcOracle: true, __tells: [],
+    __cfg: C, __kcParams: { secs: SECS, seed, conflictT: CONFLICT_T, missGrab: MISS_GRAB, hug: HUG, wiggleOn: WIGGLE_ON }, __kcOracle: true, __tells: [],
     __renderer: { sync: (r) => { globalThis.window.__tells = oracle(r) } },
   }
   const H = {
@@ -124,7 +137,7 @@ async function headless(diff, seed) {
 // ------------------------------------------------------------------ browser: fx-probe, real tells
 function browser(diff, seed, dir) {
   const json = join(dir, `kc-d${diff}-${seed}.json`)
-  const url = BROWSER + (BROWSER.includes('?') ? '&' : '?') + `secs=${SECS}&seed=${seed}&conflictT=${CONFLICT_T}`
+  const url = BROWSER + (BROWSER.includes('?') ? '&' : '?') + `secs=${SECS}&seed=${seed}&conflictT=${CONFLICT_T}&missGrab=${MISS_GRAB}&hug=${HUG}&wiggleOn=${WIGGLE_ON}`
   const r = spawnSync('node', [new URL('./fx-probe.mjs', import.meta.url).pathname, '--scene', SCENE, '--out', join(dir, `kc-d${diff}-${seed}`),
     '--chapter', 'kraken', '--difficulty', String(diff), '--url', url, '--json', json, '--wait', String(Math.max(60000, SECS * 2500))], { encoding: 'utf8' })
   if (r.status !== 0) { console.error(r.stdout + r.stderr); console.error(`ABORT: fx-probe failed for d${diff} seed ${seed}`); process.exit(1) }
@@ -224,6 +237,17 @@ function report(label, rs) {
   const cls = {}
   for (const r of rs) for (const [k, v] of Object.entries(r.glow.btnClasses || {})) cls[k] = (cls[k] || 0) + v
   if (Object.keys(cls).length) console.log('HUD button classes (frames): ' + Object.entries(cls).map(([k, v]) => `"${k}" ${v}`).join('  '))
+  // EVERY HIT THE PLAYER TOOK, by source, and how many had NO drawn source in the 0.5s before it
+  // (the scene's HIT_TELLS: an arm hit needs an arm tell, a lunge the lunge's, a head TOUCH the
+  // headTouch tell; any other src is an add whose body is its own tell). The rig is immortal, so this
+  // is a damage-taken profile, not a cause of death.
+  const hs = rs.flatMap((r) => (r.hits || []).map((h) => ({ ...h, seed: r.seed })))
+  const bySrc = {}
+  for (const h of hs) { const b = (bySrc[h.src] ||= { n: 0, dmg: 0, bare: 0, at: [] }); b.n++; b.dmg += h.dmg; if (!h.sourced) { b.bare++; b.at.push(h.seed + '@' + h.t.toFixed(1)) } }
+  const bare = hs.filter((h) => !h.sourced).length
+  console.log(`HITS ${hs.length} (${(hs.length / (armsT / 60)).toFixed(2)}/min), hits with no drawn source ${bare} (${pct(bare, hs.length)}):  ` +
+    Object.entries(bySrc).sort((a, b) => b[1].n - a[1].n).map(([k, v]) => `${k} ${v.n} (${v.dmg.toFixed(0)}hp, bare ${v.bare})`).join('   '))
+  for (const [k, v] of Object.entries(bySrc)) if (v.bare) console.log(`   bare ${k}: ${(LIST ? v.at : v.at.slice(0, 8)).join(' ')}${!LIST && v.at.length > 8 ? ' ...' : ''}`)
   const tc = {}
   for (const r of rs) for (const [k, v] of Object.entries(r.tellCounts)) tc[k] = (tc[k] || 0) + v
   console.log('tells drawn (arm-frames): ' + Object.entries(tc).map(([k, v]) => `${k} ${v}`).join('  '))
@@ -235,7 +259,7 @@ if (REPORT) {
   for (const d of [...new Set(rs.map((r) => r.difficulty))]) report(`d${d}`, rs.filter((r) => r.difficulty === d))
   process.exit(0)
 }
-console.log(`kraken-cues: ${BROWSER ? 'BROWSER ' + BROWSER : 'HEADLESS'}  diffs ${DIFFS.join(',')}  seeds ${SEEDS.join(',')}  ${SECS}s of arms phase (boss + chase) per run`)
+console.log(`kraken-cues: ${BROWSER ? 'BROWSER ' + BROWSER : 'HEADLESS'}  diffs ${DIFFS.join(',')}  seeds ${SEEDS.join(',')}  ${SECS}s of arms phase (boss + chase) per run  missGrab ${MISS_GRAB}  hug ${HUG || 'off'}  wiggles on '${WIGGLE_ON}'`)
 const dir = BROWSER ? mkdtempSync(join(tmpdir(), 'kraken-cues-')) : null
 for (const d of DIFFS) {
   const rs = []

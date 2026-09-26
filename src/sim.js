@@ -1936,18 +1936,18 @@ function krakenRaiseHead(run, rung, bared) {
   // UNDER the player, not across the arena from them: the head is the floor of this fight and
   // the ring closes around wherever they are standing when it rises.
   const h = spawnBlankEnemy(run, 'krakenHead', true, { x: p.x + KRAKEN_ARM_REACH * 0.5, y: p.y })
-  // ...and it spawns HARMLESS. stepContactDamage runs later in this same stepSim than the script
-  // does, and the head spawns already overlapping the player (100px out, radius 130) — so a head
-  // raised with dmg already set billed a full hit on its ARRIVAL FRAME, before riseT could zero it
-  // on the next one. Measured 6/6 seeds, against the rise's own comment: "still and harmless".
-  if (h) h.dmg = 0
   if (!h) return null
   h.maxHP = roundHP(KRAKEN_HEAD_HP * rung.headHpMul)
   h.hp = s.headHp > 0 ? s.headHp : h.maxHP // ONE persistent pool across every block
   h.radius = KRAKEN_HEAD_R
   h.affixes = ['anchored'] // knockback/pull immune at every kb site
   h.speed = bared ? KRAKEN_HEAD_SPEED : 0
-  h.dmg = bared ? KRAKEN_LUNGE_DMG : 0
+  // IT SPAWNS HARMLESS, bared or not. stepContactDamage runs later in this same stepSim than the
+  // script does, and the head spawns already overlapping the player — so a head raised with dmg
+  // set bills a full hit on its ARRIVAL FRAME. This line armed the bared head at KRAKEN_LUNGE_DMG
+  // for a long time after an earlier zeroing line claimed to have fixed exactly that: every chase
+  // opened with a lunge's damage and nothing drawn. stepKrakenChase owns head.dmg from here on.
+  h.dmg = 0
   h.lungeT = KRAKEN_LUNGE_T
   s.headId = h.id
   s.headHp = h.hp
