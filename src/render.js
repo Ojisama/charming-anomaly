@@ -20446,6 +20446,8 @@ void main() {
     krakenStreaks.push({ x0: e.px + ux * 22, y0: e.py + uy * 22, x1: cx, y1: cy, t: K_STREAK_T })
     if (krakenStreaks.length > 3) krakenStreaks.shift()
     krakenClash({ ...e, cx, cy }, perfect)
+    krakenStars.push({ x: e.px + ux * 26, y: e.py + uy * 26, ang: Math.atan2(uy, ux), t: K_STAR_PARRY_T, T: K_STAR_PARRY_T, s: perfect ? 0.34 : 0.26, rim: 0xffb040, fill: 0xffd878 })
+    if (krakenStars.length > 5) krakenStars.shift()
   }
 
   function krakenClash(e, perfect) {
@@ -20650,10 +20652,17 @@ void main() {
           const met = a.tele <= rung.perfect   // the inner ring lights for the perfect tail
           const col = live === 1 ? 0xffffff : 0x6a7484
           const V = krakenVerdictG
+          // MET: from the ring's arrival to the contact the landing circle beats — a halo and a hard
+          // throb — so the whole remaining span reads as "now", not two candidate moments
+          const beat = met ? 0.5 + 0.5 * Math.cos(n.t * Math.PI * 2 * 14) : 0
+          if (met) {
+            V.beginPath(); V.circle(p.x, p.y, K_NOW_BODY)
+            V.stroke({ width: 20 + 8 * beat, color: col, alpha: (0.18 + 0.14 * beat) * live })
+          }
           V.beginPath(); V.circle(p.x, p.y, K_NOW_BODY)
-          V.stroke({ width: met ? 12 : 8, color: 0x0c1418, alpha: 0.6 * live })
+          V.stroke({ width: met ? 13 + 3 * beat : 8, color: 0x0c1418, alpha: 0.6 * live })
           V.beginPath(); V.circle(p.x, p.y, K_NOW_BODY)
-          V.stroke({ width: met ? 8 : 4, color: col, alpha: (met ? 0.95 : 0.9) * (live === 1 ? 1 : 0.6) })
+          V.stroke({ width: met ? 8 + 3 * beat : 4, color: col, alpha: (met ? 0.95 : 0.9) * (live === 1 ? 1 : 0.6) })
           // THE OPEN: the ring itself thickens once as the window opens, then settles
           const thick = n.t < K_NOW_FLASH_T ? 1 - n.t / K_NOW_FLASH_T : 0
           V.beginPath(); V.circle(p.x, p.y, rr)
@@ -20842,7 +20851,7 @@ void main() {
         pts.push(st.x + Math.cos(a) * r, st.y + Math.sin(a) * r)
       }
       if (st.shape === 'clank') { krakenDrawClank(st, k, sc); continue }
-      krakenGripFrontG.poly(pts).fill({ color: 0xffffff, alpha: 0.95 * k + 0.05 })
+      krakenGripFrontG.poly(pts).fill({ color: st.fill ?? 0xffffff, alpha: 0.95 * k + 0.05 })
       krakenGripFrontG.poly(pts).stroke({ width: 3, color: st.rim ?? 0x9fe8ff, alpha: 0.7 * k })
       krakenGripFrontG.circle(st.x, st.y, ((st.fat ? 34 : 16) * k + 4) * sc).fill({ color: 0xffffff, alpha: k })
     }
@@ -24259,7 +24268,6 @@ void main() {
   let krakenGuardFlash = null
   let krakenGuardAt = -1   // animT of the frame a slam broke an early press's shell
   let krakenGuardAng = 0
-  let krakenSteelHurt = false   // the fish's hurt flash is the early press's steel blue, not white/red
   let krakenLashGuard = false  // the slam being drawn this event is the one an early press shelled
   function krakenShatter(x, y, ang, big = false) {
     // thrown AWAY from the arm (the blow's direction) and fanned wide; a guard break is bigger
@@ -26573,14 +26581,14 @@ void main() {
         case 'hurt': {
           // A KRAKEN BLOW SAYS HOW MUCH, BESIDE THE FISH — the after-state of a hit that connected
           if (e.src === 'krakenArm' && run.chapter === 'kraken' && krakenGuardAt === animT) {
-            // THE GUARD BROKE (an early press's shell took this slam, see 'lash'): same damage, but
-            // it reads as a broken guard — a small shake and a faint edge, no red flash
+            // EARLY: THE FISH IS HURT EXACTLY AS BY A MISS (the white-then-red flash, the shake and the
+            // red edge below) — it did not half-work — and the steel-blue cog beside it is the cause
+            // (see 'lash'). Only the number stays steel blue.
             spawnDamage(run.player.x - Math.cos(krakenGuardAng) * 62, run.player.y - Math.sin(krakenGuardAng) * 62, 0, false, false, { text: '-' + Math.round(e.dmg), tint: K_STEEL_HI, scale: 1.5 })
-            addShake(4, 0.18)
-            // the fish is HURT, and says by what: the same flash a miss gets, in steel blue
-            flashT = 0.34
-            krakenSteelHurt = true
-            vignetteA = Math.max(vignetteA, 0.12)
+            const gm = 0.4 + 0.6 * Math.min(1, (e.dmg / Math.max(1, run.player.maxHP)) * 5)
+            addShake(6 * gm, 0.25)
+            vignetteA = 0.6 * gm
+            flashT = 0.28 * gm
             break
           }
           if (e.src === 'krakenArm' && run.chapter === 'kraken') {
@@ -27366,7 +27374,7 @@ void main() {
                 back += 4; cx = lx1 - ux * back; cy = ly1 - uy * back
               }
             }
-            if (!krakenLashGuard) krakenBursts.push({ x: cx, y: cy, r: Math.min(lw * (e.coil ? 0.5 : 0.3), Math.max(10, Math.hypot(cx - run.player.x, cy - run.player.y) - 40)), t: K_BURST_T, ring: 0 })
+            krakenBursts.push({ x: cx, y: cy, r: Math.min(lw * (e.coil ? 0.5 : 0.3), Math.max(10, Math.hypot(cx - run.player.x, cy - run.player.y) - 40)), t: K_BURST_T, ring: 0 })
             if (!e.coil) {
               krakenPrints.push(krakenPrint(lx0, ly0, lx1, ly1, lw))
               if (krakenPrints.length > 4) krakenPrints.shift()
@@ -27374,7 +27382,7 @@ void main() {
             if (krakenBursts.length > 8) krakenBursts.shift()
             krakenLandings.push({ x: cx, y: cy, t: KRAKEN_SLAM_T })
             // an early press's shell took this one: its grey shards are the burst, not thrown seabed
-            if (!e.coil && !krakenLashGuard) {
+            if (!e.coil) {
               // thrown along the limb's line, away from the head
               const hh = krakenHeadUp
               const away = hh ? Math.sign((cx - hh.x) * ux + (cy - hh.y) * uy) || 1 : 1
@@ -27428,8 +27436,13 @@ void main() {
                 // hurt that follows on this frame is drawn as a guard break, not a hit (krakenGuardAt).
                 // The damage is exactly the same — this is only how it reads.
                 const ge = krakenEarly
-                krakenShatter(run.player.x + Math.cos(ge.ang) * 36, run.player.y + Math.sin(ge.ang) * 36, ge.ang, true)
                 krakenGuardFlash = null
+                // the miss's own hurt burst at the fish, exactly
+                spawnRing(run.player.x, run.player.y, 64, 0.22, T.novaRing, 0xff4a2a)
+                for (let i = 0; i < 10; i++) {
+                  const a = Math.random() * Math.PI * 2
+                  spawnParticle(T.fx.star_08, run.player.x, run.player.y, Math.cos(a) * 260, Math.sin(a) * 260, 0.22, 0.06, i % 2 ? 0xff3a22 : 0x7a1208, -0.1, 3)
+                }
                 for (let q = 0; q < 8; q++) {
                   const mid = ((q + 0.5) / 8) * Math.PI * 2 + ge.ang
                   krakenFallPlates.push({ x: run.player.x, y: run.player.y, a0: (q / 8) * Math.PI * 2 + 0.06 + ge.ang, a1: ((q + 1) / 8) * Math.PI * 2 - 0.06 + ge.ang,
@@ -27446,16 +27459,6 @@ void main() {
                   krakenClanks.push({ x: run.player.x + Math.cos(ca) * K_CLANK_OFF, y: run.player.y + Math.sin(ca) * K_CLANK_OFF, ang: ca, t: K_CLANK_T })
                 }
                 if (krakenClanks.length > 2) krakenClanks.shift()
-                // THE CLANK: a hard little spray of dull slate chips off the shell on the impact frame
-                {
-                  const gx = run.player.x + Math.cos(ge.ang) * 38, gy = run.player.y + Math.sin(ge.ang) * 38
-                  for (let i = 0; i < 12; i++) {
-                    const a = ge.ang + (Math.random() - 0.5) * 2.2
-                    const sp = 280 + Math.random() * 220
-                    spawnParticle(T.fx.star_08, gx, gy, Math.cos(a) * sp, Math.sin(a) * sp, 0.12 + Math.random() * 0.05, 0.05, i % 2 ? K_STEEL : K_STEEL_HI, -0.2, 3)
-                  }
-                  addShake(5, 0.14)
-                }
                 krakenGuardAng = ge.ang
                 krakenEarly = null
                 krakenGuardAt = animT
@@ -28174,15 +28177,14 @@ void main() {
     if (flashT > 0) {
       if (dt > 0) flashT = Math.max(0, flashT - dt)
       if (flashT > 0.2) {
-        pFlash.tint = krakenSteelHurt ? K_STEEL : 0xffffff
+        pFlash.tint = 0xffffff
         pFlash.alpha = 0.9
       } else {
-        pFlash.tint = krakenSteelHurt ? K_STEEL : 0xff4d5e
-        pFlash.alpha = (flashT / 0.2) * (krakenSteelHurt ? 0.7 : 0.45)
+        pFlash.tint = 0xff4d5e
+        pFlash.alpha = (flashT / 0.2) * 0.45
       }
     } else {
       pFlash.alpha = 0
-      krakenSteelHurt = false
     }
 
     // ---- BUTT FEET (BUTT_FEET) ----------------------------------------------------------------
