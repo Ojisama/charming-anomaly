@@ -20538,7 +20538,9 @@ void main() {
         const ang = n.ang
         const live = (run.repulseCd ?? 0) <= 0 ? 1 : 0.35
         const ca = Math.cos(ang), sa = Math.sin(ang)
-        const R = 34
+        // BESIDE THE FISH, NEVER OVER IT: the fish is lifted above every Kraken layer
+        // (krakenCueLayer), so the beat rides just outside its body and the glint sits past that
+        const R = 38, RG = 50
         const left = Math.max(0, Math.min(1, a.tele / rung.window))
         const span = 1.1 * left
         // what the player reads as PRESS: logged for scripts/kraken-cues.mjs on every frame it is lit
@@ -20556,22 +20558,22 @@ void main() {
         // two. Then the glint holds with the beat for the whole window, shrinking with it.
         if (near && n.t < K_NOW_FLASH_T) {
           const u = n.t / K_NOW_FLASH_T
-          const ex = p.x + ca * R, ey = p.y + sa * R
+          const ex = p.x + ca * RG, ey = p.y + sa * RG
           const hx = near.x + (ex - near.x) * Math.min(1, u * 1.6), hy = near.y + (ey - near.y) * Math.min(1, u * 1.6)
           G.moveTo(near.x + (ex - near.x) * Math.max(0, u * 1.6 - 0.6), near.y + (ey - near.y) * Math.max(0, u * 1.6 - 0.6)).lineTo(hx, hy)
             .stroke({ width: 7, color: 0xffffff, alpha: 0.9 * live, cap: 'round' })
         }
         {
           const k = n.t < K_NOW_FLASH_T ? 1 : 0.55 + 0.45 * left
-          const gx = p.x + ca * R, gy = p.y + sa * R
+          const gx = p.x + ca * RG, gy = p.y + sa * RG
           const tx = -sa, ty = ca
           // a blade's edge catching the light: long ACROSS the incoming line, short along it
-          const L = 40 * (0.7 + 0.3 * k), Wd = 9 * k + 3, Lf = 26 * (0.7 + 0.3 * k)
+          const L = 30 * (0.7 + 0.3 * k), Wd = 8 * k + 3, Lf = 22 * (0.7 + 0.3 * k)
           const q = Wd * 0.7071
           const star = [gx + tx * L, gy + ty * L, gx + (tx + ca) * q, gy + (ty + sa) * q,
             gx + ca * Lf, gy + sa * Lf, gx + (ca - tx) * q, gy + (sa - ty) * q,
             gx - tx * L, gy - ty * L, gx - (tx + ca) * q, gy - (ty + sa) * q,
-            gx - ca * Lf * 0.5, gy - sa * Lf * 0.5, gx + (tx - ca) * q, gy + (ty - sa) * q]
+            gx - ca * Lf * 0.3, gy - sa * Lf * 0.3, gx + (tx - ca) * q, gy + (ty - sa) * q]
           G.poly(star).fill({ color: 0xffffff, alpha: live })
           G.poly(star).stroke({ width: 2, color: 0x7fe6ff, alpha: 0.8 * live * k })
           G.circle(gx, gy, 5 + 5 * k).fill({ color: 0xffffff, alpha: live })
@@ -20593,7 +20595,7 @@ void main() {
       } else if (e.t > 2 || run.chapter !== 'kraken') krakenEarly = null
       else {
         const pop = Math.exp(-e.t / 0.08)
-        const ang = e.ang, R = 30, SP = 1.25
+        const ang = e.ang, R = 36, SP = 1.15
         tellDrawn('arm', e.i, 'earlyShell', p.x + Math.cos(ang) * R, p.y + Math.sin(ang) * R)
         // the shell: a thick plate on the dark, drawn as four segments so its seams read as plates
         for (let q = 0; q < 4; q++) {
