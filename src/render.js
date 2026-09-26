@@ -36,6 +36,7 @@ import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC
 import { currentForce, tideForce } from './sim.js'
 // The Kraken's ceremony (name card, phase beats, the kill). Its own import line so it merges clean.
 import { KRAKEN_BEATS, KRAKEN_CEREMONY, KRAKEN_OUTRO } from './config.js'
+import { TRAWL_WIGGLE_ARC, KRAKEN_GRIP_FLICKS } from './config.js'
 import { t as tr } from './i18n.js'
 
 
@@ -20678,8 +20679,6 @@ void main() {
     krakenHeadUp = s.phase === 'chase' ? head : null
     const p = run.player
     const rung = krakenRung(run.difficulty)
-    const total = s.armsTotal || run.krakenArms.length
-    const half = Math.PI / total
     const breathe = 0.5 + 0.5 * Math.sin(animT * 1.1)
     {
       const threat = run.krakenArms.some((a) => !a.dead && a.tele > 0 && !a.grabArm && !a.coilArm && !(a.limpT > 0) && krakenArmNear(run, a))
@@ -20710,32 +20709,9 @@ void main() {
       }
     }
 
-    // ---- THE COIL'S GAP: the one sector the ring will not sweep -------------------------------
-    // This is the whole counterplay to the one pattern that has no parry, so it is the loudest
-    // thing the chapter ever draws: a lit wedge you run into, brightening as the ring closes.
-    if (s.coilT > 0) {
-      const closing = s.coilT <= KRAKEN_COIL_DUR
-      // ...AT THE RING'S REAL RADIUS. The wedge was drawn at the constant KRAKEN_ARM_REACH * 1.5
-      // while the move it belongs to hauls the arms in to a third of that: the ropes follow the sim
-      // now and the gap they leave did not, so the lit sector stayed put while the ring shut inside
-      // it. Taken off a live arm, which is the same source the ropes use.
-      const live0 = run.krakenArms.find((a) => !a.dead)
-      const ringR = live0 ? Math.hypot(live0.x - head.x, live0.y - head.y) : KRAKEN_ARM_REACH
-      const gapHalf = half * 1.45
-      const urg = closing ? 1 : 1 - (s.coilT - KRAKEN_COIL_DUR) / Math.max(0.001, KRAKEN_COIL_TELE)
-      const g0 = s.coilGap - gapHalf, g1 = s.coilGap + gapHalf
-      // NO FILL IN THE GAP. Owner: "the lane the spared arm leaves dark is where you have to be" —
-      // and it was the one lit thing in the ring, pale blue, while the five lanes that were about to
-      // be struck were near-black. The struck lanes now burn in the hazard colour (drawKrakenLane)
-      // and the gap is simply the ground they leave dark; only its two edges are drawn, faint and
-      // cold, so the way in has a doorframe.
-      for (const e of [g0, g1]) {
-        teleG.beginPath()
-        teleG.moveTo(head.x, head.y)
-        teleG.lineTo(head.x + Math.cos(e) * ringR * 1.5, head.y + Math.sin(e) * ringR * 1.5)
-        teleG.stroke({ width: 1.5 + urg * 1.5, color: 0xdff8ff, alpha: 0.22 + urg * 0.3 })
-      }
-    }
+    // ---- THE COIL'S GAP is drawn by drawKrakenCues, ABOVE the dark: a green doorframe on the spared
+    // arm's wedge, chevrons marching out along it, and an arrow on the fish while it still stands on
+    // a struck lane. NO FILL (owner: "the lane the spared arm leaves dark is where you have to be").
 
     // ---- WHAT IS THE BOSS DOING RIGHT NOW ------------------------------------------------------
     // Three states, three completely different pictures, because the owner's question after rev 2
@@ -21644,6 +21620,22 @@ void main() {
   app.stage.addChildAt(krakenDimLayer, app.stage.getChildIndex(darkLayer) + 1)
   app.stage.addChildAt(krakenSlabTopLayer, app.stage.getChildIndex(krakenDangerLayer) + 1)
   app.stage.addChildAt(krakenHitDimLayer, app.stage.getChildIndex(krakenLampLayer) + 1)
+  // THE FISH IS NEVER UNDER THE KRAKEN. Every Kraken layer that paints above the dark (the lamp-lit
+  // face and maw, the danger light, the slab, the dims) sits over the world, and the fish lives in
+  // the world — so in the chase, where the head noses up to within its own radius, the maw and
+  // the tentacle beard were drawn straight over the player and "am I held / am I touching it"
+  // became the same unreadable picture. In this chapter playerC (and the half of a grip that passes
+  // in front of it) is lifted into krakenFishHost, at the top of every Kraken layer, following the
+  // world camera like its neighbours. krakenCueLayer carries the cues that belong to the fish too:
+  // the Coil's way out and the head's burning rim UNDER it, the wiggle prompt OVER it.
+  const krakenCueLayer = new Container()
+  const krakenHaloG = new Graphics()
+  const krakenGapG = new Graphics()
+  const krakenTouchG = new Graphics()
+  const krakenFishHost = new Container()
+  const krakenWiggleG = new Graphics()
+  krakenCueLayer.addChild(krakenHaloG, krakenGapG, krakenTouchG, krakenFishHost, krakenWiggleG)
+  app.stage.addChildAt(krakenCueLayer, app.stage.getChildIndex(krakenHitDimLayer) + 1)
   // The body is UNDER the wreck field (it lies beneath the seabed clutter); the soft glows go in the
   // blurred krakenDeepG under it. The head rig sits directly over the enemy layer, where its pooled
   // sprite was.
@@ -22442,6 +22434,199 @@ void main() {
       rig.rope._kMul = mul
       rig.shadow._kMul = mul
     }
+  }
+
+  // ---- THE FISH'S OWN CUES: what to do NEXT, drawn where the player is looking -----------------
+  // Three answers the fight asks for and never showed. All three live in krakenCueLayer, above every
+  // Kraken layer and the dark, following the world camera; sizes are SCREEN px (divided by the
+  // camera zoom), so the fight's zoom never shrinks a prompt below a thumb's read.
+  //   THE HOLD  -> a stick glyph shaking left-right over the fish, with KRAKEN_GRIP_FLICKS pips that
+  //                fill as the struggle lands. Acid lime: not the NOW glint's white-gold star, not
+  //                the grab's magenta hook, not the parry button — a shape that only means "swing".
+  //   THE COIL  -> the spared arm's wedge gets a green doorframe and chevrons marching out along it,
+  //                and while the fish is still on a struck lane, a green arrow on the fish points
+  //                into the gap. The gap itself stays dark ground (owner: the dark lane is where you
+  //                have to be); only its frame and its way in are lit.
+  //   THE HEAD  -> in the chase the bared head's body taxes every touch (KRAKEN_HEAD_TOUCH_DMG) and
+  //                nothing on screen said so: the damage vignette arrived with no source. The rim
+  //                facing the fish now burns as you close on it, and flares on the touch that hurts.
+  let krakenTouchFlash = 0, krakenEscapeT = 0, krakenEscapeX = 0, krakenEscapeY = 0
+  const K_WIGGLE_INK = 0xdcff3c
+  const K_GAP_INK = 0x4dff88
+  const K_TOUCH_INK = 0xff3b1f
+
+  // playerC in or out of the cue layer. Only the Kraken lifts it; every other chapter keeps the
+  // fish in the world between the crowd and the shots, exactly where it has always been.
+  function krakenLiftFish(on) {
+    if (on && playerC.parent !== krakenFishHost) {
+      krakenFishHost.addChild(playerC, krakenGripFrontLayer)
+    } else if (!on && playerC.parent === krakenFishHost) {
+      entitiesLayer.addChildAt(playerC, entitiesLayer.getChildIndex(lockLayer) + 1)
+      entitiesLayer.addChildAt(krakenGripFrontLayer, entitiesLayer.getChildIndex(playerC) + 1)
+    }
+  }
+
+  function drawKrakenCues(run, dt, events) {
+    krakenHaloG.clear(); krakenGapG.clear(); krakenTouchG.clear(); krakenWiggleG.clear()
+    const k = dt || 0
+    krakenTouchFlash = Math.max(0, krakenTouchFlash - k)
+    krakenEscapeT = Math.max(0, krakenEscapeT - k)
+    for (const e of events) {
+      if (e.type === 'hurt' && e.src === 'krakenHead') krakenTouchFlash = 0.3
+      if (e.type === 'gripBreak') { krakenEscapeT = 0.4; krakenEscapeX = e.px ?? run.player.x; krakenEscapeY = e.py ?? run.player.y }
+    }
+    const head = krakenHead
+    if (!krakenFight(run) || !head || run.phase === 'dead') return
+    const s = run.script
+    const p = run.player
+    const u = 1 / (world.scale.x || 1)
+    const pr = p.radius ?? PLAYER.radius
+
+    // ---- the Coil's way out
+    if (s.coilT > 0) {
+      const live = run.krakenArms.filter((a) => !a.dead)
+      const total = s.armsTotal || run.krakenArms.length || 1
+      const gapHalf = Math.PI / total * 1.45
+      const ringR = live.length ? Math.hypot(live[0].x - head.x, live[0].y - head.y) : KRAKEN_ARM_REACH
+      const closing = s.coilT <= KRAKEN_COIL_DUR
+      const urg = closing ? 1 : 1 - (s.coilT - KRAKEN_COIL_DUR) / Math.max(0.001, KRAKEN_COIL_TELE)
+      const fade = closing ? Math.max(0, s.coilT / KRAKEN_COIL_DUR) : Math.min(1, (KRAKEN_COIL_TELE + KRAKEN_COIL_DUR - s.coilT) / 0.15)
+      const g = s.coilGap
+      const r0 = KRAKEN_HEAD_R * 1.15, r1 = Math.max(ringR * 1.5, KRAKEN_ARM_REACH * 1.2)
+      for (const e of [g - gapHalf, g + gapHalf]) {
+        const c = Math.cos(e), sn = Math.sin(e)
+        krakenGapG.moveTo(head.x + c * r0, head.y + sn * r0).lineTo(head.x + c * r1, head.y + sn * r1)
+          .stroke({ width: 10 * u, color: 0x000000, alpha: 0.5 * fade, cap: 'round' })
+        krakenGapG.moveTo(head.x + c * r0, head.y + sn * r0).lineTo(head.x + c * r1, head.y + sn * r1)
+          .stroke({ width: (3.5 + 2 * urg) * u, color: K_GAP_INK, alpha: (0.7 + 0.3 * urg) * fade, cap: 'round' })
+      }
+      // chevrons marching OUT along the bisector: this way, and keep going
+      if (!closing) {
+        const ux = Math.cos(g), uy = Math.sin(g), nx = -uy, ny = ux
+        const a0 = KRAKEN_HEAD_R * 1.7, a1 = Math.max(ringR * 1.2, a0 + 200)
+        for (let m = 0; m < 3; m++) {
+          const ph = (animT * 0.9 + m / 3) % 1
+          const r = a0 + (a1 - a0) * ph
+          const w = Math.min(r * Math.tan(gapHalf) * 0.55, 46 * u)
+          const edge = Math.min(1, ph / 0.15, (1 - ph) / 0.2)
+          const tx = head.x + ux * r, ty = head.y + uy * r
+          const bx = tx - ux * w * 0.8, by = ty - uy * w * 0.8
+          const pts = [bx + nx * w, by + ny * w, tx, ty, bx - nx * w, by - ny * w]
+          krakenGapG.poly(pts, false).stroke({ width: 9 * u, color: 0x000000, alpha: 0.45 * edge * fade, cap: 'round', join: 'round' })
+          krakenGapG.poly(pts, false).stroke({ width: 5 * u, color: K_GAP_INK, alpha: 0.95 * edge * fade, cap: 'round', join: 'round' })
+        }
+      }
+      // ...and if the fish stands on a lane that is about to be struck, an arrow ON the fish into the gap
+      const onLane = run.krakenArms.some((a) => !a.dead && a.coilArm && a.tele > 0 &&
+        krakenSegD2(p.x, p.y, a.lx0, a.ly0, a.lx1, a.ly1) <= KRAKEN_LASH_W * KRAKEN_LASH_W)
+      if (onLane && !closing) {
+        // ...and never into the head's own touch reach, which taxes the fish in the chase
+        const fd = Math.hypot(p.x - head.x, p.y - head.y)
+        const clear = (head.radius ?? KRAKEN_HEAD_R) + pr + 30
+        const tRad = Math.max(KRAKEN_ARM_REACH * 0.6, clear, Math.min(Math.max(KRAKEN_ARM_REACH * 0.9, clear + 30), fd))
+        const tx = head.x + Math.cos(g) * tRad, ty = head.y + Math.sin(g) * tRad
+        const dl = Math.hypot(tx - p.x, ty - p.y) || 1
+        const ax = (tx - p.x) / dl, ay = (ty - p.y) / dl
+        const pulse = 0.5 + 0.5 * Math.sin(animT * 12)
+        const base = pr + 10 * u + 5 * u * pulse, tip = base + 26 * u, w = 13 * u
+        const bx = p.x + ax * base, by = p.y + ay * base
+        const pts = [bx - ay * w, by + ax * w, p.x + ax * tip, p.y + ay * tip, bx + ay * w, by - ax * w]
+        krakenGapG.poly(pts).fill({ color: 0x000000, alpha: 0.55 }).stroke({ width: 6 * u, color: 0x000000, alpha: 0.4, join: 'round' })
+        krakenGapG.poly(pts).fill({ color: K_GAP_INK, alpha: 0.95 })
+        tellDrawn('player', -1, 'coilWay', p.x, p.y, p.x, p.y, tx, ty)
+      }
+    }
+
+    // ---- the head's burning rim, in the chase
+    // ...and it LEADS the first touch: the rim lights for the last K_TOUCH_LEAD s of a rise or a
+    // stagger too, both of which end with the head already nosed up against the fish
+    const K_TOUCH_LEAD = 0.6
+    const touchSoon = (s.riseT > 0 && s.riseT < K_TOUCH_LEAD) || (s.staggerT > 0 && s.staggerT < K_TOUCH_LEAD)
+    if (s.phase === 'chase' && (touchSoon || (!(s.riseT > 0) && !(s.staggerT > 0) && (head.dmg ?? 0) > 0))) {
+      const d = Math.hypot(p.x - head.x, p.y - head.y)
+      const Rc = (head.radius ?? KRAKEN_HEAD_R) + pr
+      const near = Math.max(0, Math.min(1, (Rc + 80 - d) / 80))
+      const kk = Math.min(1, near + krakenTouchFlash / 0.3)
+      if (kk > 0.01) {
+        const ang = Math.atan2(p.y - head.y, p.x - head.x)
+        const span = 0.32 + 0.28 * kk
+        // ON THE REACH OF ITS TOUCH, not on its skin: the head rests nosed up inside the fish's own
+        // radius, so an arc on the skin runs across the mouth. At Rc the fish is plainly INSIDE the burn.
+        const R = Rc
+        const flare = krakenTouchFlash / 0.3
+        krakenTouchG.beginPath().arc(head.x, head.y, R, ang - span, ang + span)
+          .stroke({ width: (11 + 6 * flare) * u, color: 0x000000, alpha: 0.45 * kk, cap: 'round' })
+        krakenTouchG.beginPath().arc(head.x, head.y, R, ang - span, ang + span)
+          .stroke({ width: (4 + 3 * kk + 4 * flare) * u, color: K_TOUCH_INK, alpha: 0.35 + 0.6 * kk, cap: 'round' })
+        krakenTouchG.beginPath().arc(head.x, head.y, R, ang - span * 0.6, ang + span * 0.6)
+          .stroke({ width: (1.5 + 2 * flare) * u, color: 0xffd0b8, alpha: (0.3 + 0.6 * kk), cap: 'round' })
+        // barbs pointing out of the rim at the fish: the edge that bites, not a highlight
+        for (let m = -2; m <= 2; m++) {
+          const a = ang + m * span * 0.38
+          const bx = head.x + Math.cos(a) * R, by = head.y + Math.sin(a) * R
+          const L = (7 + 6 * kk + 6 * flare) * u
+          krakenTouchG.moveTo(bx, by).lineTo(bx + Math.cos(a) * L, by + Math.sin(a) * L)
+            .stroke({ width: 3 * u, color: K_TOUCH_INK, alpha: 0.3 + 0.65 * kk, cap: 'round' })
+        }
+        if (flare > 0) {
+          const cx = head.x + Math.cos(ang) * R, cy = head.y + Math.sin(ang) * R
+          for (let m = 0; m < 6; m++) {
+            const a = m * Math.PI / 3 + animT * 3
+            const L = (10 + 14 * (1 - flare)) * u
+            krakenTouchG.moveTo(cx + Math.cos(a) * 4 * u, cy + Math.sin(a) * 4 * u).lineTo(cx + Math.cos(a) * L, cy + Math.sin(a) * L)
+              .stroke({ width: 2.5 * u, color: 0xffe2c8, alpha: flare, cap: 'round' })
+          }
+        }
+        if (kk > 0.25) tellDrawn('head', -1, 'headTouch', head.x + Math.cos(ang) * R, head.y + Math.sin(ang) * R)
+      }
+    }
+
+    // ---- the fish's own shadow-halo: a soft dark disc under it, so over the lit head, a limb or
+    // a burning lane the body keeps an edge. On the black floor it is invisible, which is the point.
+    for (const [rk, al] of [[2.0, 0.16], [1.6, 0.2], [1.25, 0.24]]) krakenHaloG.circle(p.x, p.y, pr * rk).fill({ color: 0x000000, alpha: al })
+
+    // ---- the hold: WIGGLE, and how far along the struggle is
+    const held = run.krakenArms.find((a) => !a.dead && a.gripT > 0)
+    if (held && krakenHold > 0.3) {
+      const need = KRAKEN_GRIP_FLICKS
+      const wig = held.gripWiggle ?? held.gripT
+      const done = Math.max(0, Math.min(need, (KRAKEN_GRIP_DUR - wig) / (KRAKEN_GRIP_DUR / need)))
+      const part = Math.max(0, Math.min(0.999, (held._stkA ?? 0) / TRAWL_WIGGLE_ARC))
+      const shake = Math.sin(animT * 16)
+      const al = Math.min(1, (krakenHold - 0.3) / 0.4)
+      const cx = p.x + shake * 3 * u, cy = p.y - pr - 44 * u
+      // the stick: a well and a knob swinging hard side to side
+      krakenWiggleG.circle(cx, cy, 17 * u).fill({ color: 0x0a1016, alpha: 0.85 * al }).stroke({ width: 3 * u, color: K_WIGGLE_INK, alpha: al })
+      krakenWiggleG.circle(cx + shake * 9 * u, cy, 7.5 * u).fill({ color: 0xffffff, alpha: al })
+      // double chevrons either side, thrown outward on each swing
+      for (const sd of [-1, 1]) {
+        const push = Math.max(0, shake * sd) * 5 * u
+        for (let c = 0; c < 2; c++) {
+          const x = cx + sd * (27 * u + c * 10 * u + push)
+          const pts = [x - sd * 6 * u, cy - 9 * u, x, cy, x - sd * 6 * u, cy + 9 * u]
+          krakenWiggleG.poly(pts, false).stroke({ width: 7 * u, color: 0x000000, alpha: 0.5 * al, cap: 'round', join: 'round' })
+          krakenWiggleG.poly(pts, false).stroke({ width: 3.5 * u, color: K_WIGGLE_INK, alpha: al * (c === 0 ? 1 : 0.7), cap: 'round', join: 'round' })
+        }
+      }
+      // the struggle, one pip per flick it takes to tear loose
+      const gap = 13 * u, y = cy + 27 * u
+      for (let m = 0; m < need; m++) {
+        const x = cx + (m - (need - 1) / 2) * gap
+        krakenWiggleG.circle(x, y, 5 * u).fill({ color: 0x0a1016, alpha: 0.85 * al }).stroke({ width: 2 * u, color: K_WIGGLE_INK, alpha: al })
+        const f = m < Math.floor(done) ? 1 : m === Math.floor(done) ? part : 0
+        if (f > 0) krakenWiggleG.circle(x, y, 4 * u * Math.sqrt(f)).fill({ color: K_WIGGLE_INK, alpha: al })
+      }
+      tellDrawn('player', -1, 'wiggle', p.x, p.y)
+    }
+    if (krakenEscapeT > 0) {
+      const e = krakenEscapeT / 0.4
+      krakenWiggleG.circle(krakenEscapeX, krakenEscapeY, pr + (1 - e) * 60 * u).stroke({ width: 4 * u * e, color: K_WIGGLE_INK, alpha: e })
+    }
+  }
+  function krakenSegD2(px, py, x0, y0, x1, y1) {
+    const dx = x1 - x0, dy = y1 - y0, L2 = dx * dx + dy * dy
+    const t = L2 > 0 ? Math.max(0, Math.min(1, ((px - x0) * dx + (py - y0) * dy) / L2)) : 0
+    return (px - x0 - dx * t) ** 2 + (py - y0 - dy * t) ** 2
   }
 
   function syncKrakenCreature(run, dt, events) {
@@ -26956,6 +27141,12 @@ void main() {
     krakenHitDimHole.clear()
     krakenHitDimRampG.clear()
     krakenDimG.clear()
+    // the fish's cue layer is on the STAGE, not in entitiesLayer: reset(null) hiding the world does
+    // not reach it, so a quit mid-fight would leave the fish and its prompts over the brief screen
+    krakenLiftFish(false)
+    krakenHaloG.clear(); krakenGapG.clear(); krakenTouchG.clear(); krakenWiggleG.clear()
+    krakenTouchFlash = 0
+    krakenEscapeT = 0
     krakenSlabG.clear()
     krakenSlabTopG.clear()
     krakenSplashUnderG.clear()
@@ -27548,7 +27739,10 @@ void main() {
     }
 
     // invuln blink
-    playerC.alpha = p.invuln > 0 ? (Math.sin(animT * 32) > 0 ? 1 : 0.4) : 1
+    // In the Kraken's chase the head's contact tax re-arms i-frames every few tenths of a second, so
+    // a 0.4 blink kept the fish half-transparent for as long as it stood near the head — over the
+    // purple face that read as the fish being UNDER it. The lifted fish (krakenLiftFish) blinks shallower.
+    playerC.alpha = p.invuln > 0 ? (Math.sin(animT * 32) > 0 ? 1 : (playerC.parent === krakenFishHost ? 0.85 : 0.4)) : 1
 
     // ---- the death outro's pose (v7.x, DEATH_OUTRO) ----------------------------------------------
     // A fish that has stopped swimming. Last in the function on purpose (see the deathP note on the
@@ -28563,6 +28757,9 @@ void main() {
     krakenDimLayer.position.set(cx * z, cy * z)
     krakenHitDimLayer.scale.set(z)
     krakenHitDimLayer.position.set(cx * z, cy * z)
+    krakenCueLayer.scale.set(z)
+    krakenCueLayer.position.set(cx * z, cy * z)
+    krakenLiftFish(run.chapter === 'kraken')
     playerScreen.x = (run.player.x + cx) * z
     playerScreen.y = (run.player.y + cy) * z
     updateGroundField(cx, cy)
@@ -28652,6 +28849,7 @@ void main() {
     redrawTelegraphs(run)
     syncKrakenArms(run, dt) // AFTER redrawTelegraphs: that is what resolves the head this frame
     syncKrakenCreature(run, dt, events) // AFTER syncKrakenArms: it reads the head sprite that placed
+    drawKrakenCues(run, dt, events) // AFTER both: reads krakenHead and krakenHold as this frame resolved them
     updateKrakenCeremony(run, dt) // AFTER syncKrakenArms: the death re-poses the ropes it just hid
     updateStrafeLocks(dt) // draws INTO teleG, on top of what redrawTelegraphs just drew — see its own comment
     if (chapterHasStorm) {
@@ -29370,6 +29568,7 @@ void main() {
     // field without it answers nothing about how much of the floor is oil.
     for (const child of entitiesLayer.children) child.visible = on ? (child === obstacleLayer || child === spurG || child === slickG) : true
     entitiesLayer.visible = true
+    krakenCueLayer.visible = !on   // the Kraken's lifted fish and its cues live outside entitiesLayer
     cloudShadowLayer.visible = !on
     stormRainLayer.visible = !on
     stormCloudLayer.visible = !on

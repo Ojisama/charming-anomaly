@@ -296,7 +296,19 @@ const bootstrap = `(() => {
 })()`
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
-const PORT = 9333 + (process.pid % 200)   // parallel sessions must not collide on the debug port
+// parallel sessions must not collide on the debug port — and pid % 200 alone DOES collide: with
+// several sessions probing at once, a chrome that fails to bind a taken port leaves this script
+// talking to ANOTHER session's browser, navigating its page, reading its console and hanging on
+// its scene (seen 2026-09-26: a capture logging someone else's "EV frame" lines, stuck for 25 min).
+// So probe the port first and walk past any that answer.
+async function freePort() {
+  for (let k = 0; k < 400; k++) {
+    const port = 9333 + ((process.pid + k * 7) % 400)
+    try { await fetch(`http://127.0.0.1:${port}/json/version`, { signal: AbortSignal.timeout(300) }) } catch { return port }
+  }
+  throw new Error('no free devtools port in 9333..9732')
+}
+const PORT = await freePort()
 const browser = spawn(chrome, [
   '--no-sandbox', '--hide-scrollbars', `--window-size=${W},${H}`,
   `--remote-debugging-port=${PORT}`, `--user-data-dir=/tmp/fx-probe-${process.pid}`, 'about:blank',

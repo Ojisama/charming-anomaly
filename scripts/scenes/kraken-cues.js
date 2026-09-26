@@ -8,7 +8,9 @@
 // prints the tables. Params arrive as window.__kcParams (headless) or the page URL (?secs=&seed=).
 //
 // THE BOT, in priority order (one answer per kind of attack):
-//   hold tell                        -> WIGGLE the stick (one turn a second, ~4 flicks/s)
+//   wiggle prompt (drawKrakenCues)   -> WIGGLE the stick (one turn a second, ~4 flicks/s). NOT the
+//                                       limb's own 'hold' tell: that says HELD, not what to do about it.
+//                                       ?wiggleOn=hold restores the old key for comparison.
 //   slamFlash within reach of me     -> PRESS (reach = distance to the DRAWN limb polyline)
 //   slamNow (the glyph AT the fish)  -> PRESS (it is drawn only for a slam a press would reach)
 //   lungeFlash                       -> PRESS
@@ -19,7 +21,13 @@
 // It is IMMORTAL (hp topped up every step) and takes no cards: this is a readability instrument,
 // not a difficulty statement.
 const q = (() => { try { return new URLSearchParams(location.search) } catch { return new URLSearchParams('') } })()
-const P = window.__kcParams || { secs: +(q.get('secs') || 120), seed: +(q.get('seed') || 1), conflictT: +(q.get('conflictT') || 0.4) }
+const P = window.__kcParams || { secs: +(q.get('secs') || 120), seed: +(q.get('seed') || 1), conflictT: +(q.get('conflictT') || 0.4), missGrab: +(q.get('missGrab') || 0), hug: +(q.get('hug') || 0), wiggleOn: q.get('wiggleOn') || 'wiggle' }
+// --missGrab F: the bot ignores that fraction of grab wind-ups (decided once per wind-up, off its OWN
+// stream so the game's Math.random is not re-phased), so it gets HELD and the hold's wiggle is graded.
+// --hug F: in the chase the bot orbits the head at F x KRAKEN_HEAD_R instead of 0.9 x reach — the
+// real player's habit of staying in the head's face, where its contact tax lands.
+const botRng = ((sd) => () => { sd |= 0; sd = (sd + 0x6d2b79f5) | 0; let t = Math.imul(sd ^ (sd >>> 15), 1 | sd); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296 })((P.seed ^ 0x51ed) >>> 0)
+const ignoreGrab = {}
 const C = window.__cfg
 const DT = 1 / 60
 function mulberry32(seed) {
@@ -65,12 +73,12 @@ function decide(tells) {
     if (has('lungeFlash').length) press = true
   }
   const toward = (x, y, k = 1) => { const dx = x - p.x, dy = y - p.y, d = Math.hypot(dx, dy); if (d > 6) { ix = dx / d * k; iy = dy / d * k } }
-  if (has('hold').length) {
+  if (has(P.wiggleOn || 'wiggle').length) {
     act = 'wiggle'; wig += Math.PI * 2 * DT; ix = Math.cos(wig); iy = Math.sin(wig)
-  } else if (has('grabCharge').length) {
+  } else if (has('grabCharge').filter((t) => { if (!(t.i in ignoreGrab)) ignoreGrab[t.i] = botRng() < (P.missGrab || 0); return !ignoreGrab[t.i] }).length) {
     act = 'dodgeGrab'
     let g = null, gd = Infinity
-    for (const t of has('grabCharge')) { const d = Math.sqrt(seg2(p.x, p.y, t.x0, t.y0, t.x1, t.y1)); if (d < gd) { gd = d; g = t } }
+    for (const t of has('grabCharge').filter((t) => !ignoreGrab[t.i])) { const d = Math.sqrt(seg2(p.x, p.y, t.x0, t.y0, t.x1, t.y1)); if (d < gd) { gd = d; g = t } }
     const L = Math.hypot(g.x1 - g.x0, g.y1 - g.y0) || 1
     const nx = -(g.y1 - g.y0) / L, ny = (g.x1 - g.x0) / L
     // THE DRAWN CHEVRON SAYS WHICH WAY (grabSafe: x0,y0 = the lock point, x1,y1 = the chevron's tip).
@@ -100,8 +108,11 @@ function decide(tells) {
     toward(b.x, b.y, 0.85)
   } else if (h) {
     const a = Math.atan2(p.y - h.y, p.x - h.x) + 0.35
-    toward(h.x + Math.cos(a) * C.KRAKEN_ARM_REACH * 0.9, h.y + Math.sin(a) * C.KRAKEN_ARM_REACH * 0.9, 0.7)
+    const R = P.hug > 0 && run.script.phase === 'chase' ? C.KRAKEN_HEAD_R * P.hug : C.KRAKEN_ARM_REACH * 0.9
+    toward(h.x + Math.cos(a) * R, h.y + Math.sin(a) * R, 0.7)
   }
+  // a grab wind-up that has gone (latched or missed) is forgotten, so the arm's NEXT one rolls again
+  for (const k of Object.keys(ignoreGrab)) if (!tells.some((t) => t.kind === 'grabCharge' && String(t.i) === k)) delete ignoreGrab[k]
   if (press && act === 'kite') act = 'parry'
   return { press, act, ix, iy }
 }
@@ -120,6 +131,13 @@ const tellCounts = {}
 const grabOpen = {}   // arm -> { hurt } while its grab winds up
 const lastGrabTrace = {}
 const safeStat = { grabs: 0, sideRight: 0, sideRightAny: 0, oneClear: 0, contested: 0, savedByIt: 0, steppedIntoThreat: 0 }
+// EVERY HIT, AND WHETHER ITS SOURCE WAS ON SCREEN. A hurt event's src is matched against the tells
+// that could have warned of it; "sourced" = one of them was drawn in the last HIT_LOOKBACK s. Adds
+// (graveyard dead, any other src) are sprites render always draws, so they count as sourced by body.
+const HIT_LOOKBACK = 0.5
+const HIT_TELLS = { krakenArm: ['slamCharge', 'slamFlash', 'grabCharge', 'hold', 'coil'], 'krakenHead:lunge': ['lungeCharge', 'lungeFlash'], 'krakenHead:touch': ['headTouch'] }
+const tellSeen = {}
+const hits = []
 
 function parryWouldLand(p) {
   // krakenParry's own candidacy (sim.js): arm in window, on its struck line widened by the margin
@@ -139,7 +157,7 @@ function beat(tells) {
   const p = run.player
   const t = run.time
   const d = decide(tells)
-  for (const tl of tells) tellCounts[tl.kind] = (tellCounts[tl.kind] || 0) + 1
+  for (const tl of tells) { tellCounts[tl.kind] = (tellCounts[tl.kind] || 0) + 1; tellSeen[tl.kind] = t }
   const drawn = (i, k) => tells.some((tl) => tl.i === i && tl.kind === k)
   const inArms = s.phase === 'boss' || s.phase === 'chase'
   if (inArms) armsT += DT
@@ -262,6 +280,18 @@ function beat(tells) {
     if (safeHot && !otherHot) { safeStat.wrong = safeStat.wrong || {}; const k = r.why || '?'; safeStat.wrong[k] = (safeStat.wrong[k] || 0) + 1 }
   }
   for (const e of ev) {
+    if (e.type !== 'hurt') continue
+    // by what it BILLED: the burst flag is set after head.dmg in stepKrakenChase, so it is off by a frame at both ends
+    const lunge = e.src === 'krakenHead' && (e.dmg ?? 0) > C.KRAKEN_HEAD_TOUCH_DMG * 1.5
+    const src = e.src + (e.src === 'krakenHead' ? (lunge ? ':lunge' : ':touch') : '')
+    const kinds = HIT_TELLS[src]
+    // a lunge lands up to its 0.5s burst after the flash, so it gets the burst on top of the lookback
+    const look = HIT_LOOKBACK + (src === 'krakenHead:lunge' ? 0.5 : 0)
+    const by = kinds ? kinds.filter((k) => tellSeen[k] != null && tellSeen[k] >= t - look) : ['body']
+    const hh = head()
+    hits.push({ t: +t.toFixed(2), src, dmg: e.dmg, phase: s.phase, sourced: by.length > 0, by, d: hh ? Math.round(Math.hypot(p.x - hh.x, p.y - hh.y)) : null, riseT: s.riseT ?? null, staggerT: s.staggerT ?? null })
+  }
+  for (const e of ev) {
     if (e.type === 'parry' || e.type === 'parryPerfect') press.land++
     else if (e.type === 'parryWhiff') press.whiff++
   }
@@ -288,9 +318,10 @@ function beat(tells) {
     if (hr && !(a.gripT > 0)) {
       delete openHold[a.i]
       hr.endEvents = [...new Set(ev.map((e) => e.type))]
-      hr.outcome = ev.some((e) => e.type === 'gripBreak') ? 'escaped' : 'bitten'
+      // 'released': the hold ended with no break and no bite — the head hid, or the arm broke under it
+      hr.outcome = ev.some((e) => e.type === 'gripBreak') ? 'escaped' : hurtArm ? 'bitten' : 'released'
       hr.correct = hr.frames > 0 && hr.wiggled / hr.frames >= 0.5
-      hr.ok = hr.outcome === 'escaped'
+      hr.ok = hr.outcome !== 'bitten'
       hr.dur = +(hr.frames * DT).toFixed(2)
       hr.ia = hr.t0; hr.ib = run.time
       hr.cause = hr.ok ? null : hr.drawn === 0 ? 'no hold drawn' : hr.firstDrawnS > 0.3 ? 'hold drawn late, the wiggle started late'
@@ -356,7 +387,7 @@ window.__fxResult = {
   phase: run.script.phase, won: run.phase === 'victory',
   attacks: attacks.map((r) => ({ ...r, t0: +r.t0.toFixed(2) })),
   conflict: { seconds: +(conf.frames * DT).toFixed(2), moments: conf.moments, pairs: Object.fromEntries(Object.entries(conf.pairs).map(([k, v]) => [k, +v.toFixed(2)])) },
-  press, glow, tellCounts, safe: safeStat, oracle: !!window.__kcOracle, parryCd: C.KRAKEN_PARRY_CD,
+  press, glow, tellCounts, safe: safeStat, hits, oracle: !!window.__kcOracle, parryCd: C.KRAKEN_PARRY_CD,
 }
 H.note('kraken-cues: ' + attacks.length + ' attacks graded over ' + armsT.toFixed(0) + 's of arms phase')
 return () => { app && app.renderer.render(app.stage) }
