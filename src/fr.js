@@ -1706,6 +1706,7 @@ const CONFIG = {
   'Barreleye': 'Revenant',
   'Fangtooth': 'Poisson-ogre',
   'Siphonophore': 'Siphonophore',
+  'Sleeper Shark': 'Requin dormeur',
   // The Trawl's three, which shipped in v7.96 with no French at all. Roster `name`s are NOT in
   // run XX's coverage walk (it enumerates config tables for name/desc/title/from, and a roster
   // entry's name is inside an array inside a chapter), so the suite was fully green with three

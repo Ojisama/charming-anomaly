@@ -1182,9 +1182,17 @@ function stepSpawning(run, dt) {
   // measurement used to price it. Counted once here rather than inside the loop: the cap check runs
   // per spawn, and an O(n) scan in there would make saturated frames O(n^2).
   const cap = maxAliveFor(run.mods) + allyCount(run) // per-chapter density cap (v6.6.4) — see maxAliveFor
+  // CHAPTERS[].archetypeKeep: an ABSOLUTE cut, where archetypeMul is a relative share. A picked
+  // spawn of that archetype is dropped (its credit spent) with probability 1 - keep, so the other
+  // archetypes' rates do not move. Only a chapter carrying it pays the extra draw.
+  const keep = CHAPTERS[run.chapter].archetypeKeep
   while (run._spawnAcc >= 1 && run.enemies.length < cap) {
     run._spawnAcc -= 1
-    spawnEnemy(run)
+    if (!keep) { spawnEnemy(run); continue }
+    const type = pickWeighted(waveWeights(run.time, CHAPTERS[run.chapter].archetypeMul))
+    const k = keep[TYPE_ARCHETYPE[type]]
+    if (k != null && Math.random() >= k) continue
+    spawnEnemy(run, { type })
   }
 }
 

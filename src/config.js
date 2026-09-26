@@ -8507,8 +8507,11 @@ CHAPTERS.deep = {
     // spread over seven bodies that each die in a hit: 7 x 0.14 = 0.98 of the parent's health
     // against the old 2 x 0.45 = 0.90, and 7 x 0.4 = 2.8 contact hits against the old 2 x 1 = 2.
     // xp rides hpFrac in spawnSplitChildren, so the total xp is unchanged too — see xpMul below.
-    { id: 'siphonophore', archetype: 'tank',   name: 'Siphonophore', hpMul: 1.9, speedMul: 0.62, xpMul: 0.7, flags: ['split'],
+    { id: 'siphonophore', archetype: 'tank',   name: 'Siphonophore', hpMul: 1.9, speedMul: 0.62, xpMul: 0.7, weight: 1, flags: ['split'],
       split: { count: 7, hpFrac: 0.14, radiusFrac: 0.38, speedMul: 4, dmgMul: 0.4 } },
+    // balance_decision : flagless slow tank takes half the tank share [2026-09-26]
+    //  - weight 1 vs the siphonophore's 1 IS the half — move them together
+    { id: 'sleepershark', archetype: 'tank',  name: 'Sleeper Shark', hpMul: 2.2, speedMul: 0.45, weight: 1, flags: [] },
   ],
   // NO elite behaviour flag (R2.4): `webZone` existed for the hagfish's slime and nothing here
   // produces slime. Elites still roll affixes (ELITE_AFFIXES); this only stops a chapter flag being
@@ -8532,6 +8535,9 @@ CHAPTERS.deep = {
   // from one you watched cross the screen — so the crowd is smaller here and hits harder rather than
   // being simply denser.
   balance: { spawnMul: 0.75, enemyHpMul: 1.15, enemyDmgMul: 1.1, maxAliveMul: 0.8 },
+  // balance_decision : 30% fewer fangtooth, 20% fewer tanks [2026-09-26]
+  //  - archetypeKeep, not archetypeMul: absolute cut, the normals' rate does not move (stepSpawning)
+  archetypeKeep: { fast: 1 - 0.3, tank: 1 - 0.2 },
 
   // ---- the arsenal (2026-09-09, spec 2026-09-09-deep-twilight-merge §3). Owner: "I want the
   // weapons of the twilight (light related) but the darkness of the abyss." Four light cards, no

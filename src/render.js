@@ -3007,6 +3007,65 @@ export function createRenderer(app) {
   }
 
   // lionfish: the one body here that DOES share the reef's own hue, and it separates on shape alone.
+  // sleeper shark: the Deep's second tank, the one that does nothing but come (owner, 2026-09-26:
+  // "another tank fish species that is just slow"). A long blunt torpedo from above — rounded
+  // snout, pectorals out to both sides, two small dorsals on the midline, a long upper tail lobe.
+  // Pale-edged grey so the outline survives the dark floor, and the two eyes carry the faint glow
+  // of the parasitic copepods a real Greenland shark wears — the chapter is about light.
+  function drawSleeperShark(g, elite, white) {
+    const r = 24
+    const f = (c) => white ? 0xffffff : c
+    const line = f(0x05080b), skin = f(0x3b4650), back = f(0x2a323a), edge = f(0x8a9aa6), glow = f(0xc9f4d8)
+    const lw = Math.max(2.2, r * 0.08)
+    const noseX = r * 1.3, len = r * 3.0
+    const spine = (t) => [noseX - t * len, 0]
+    const body = (t) => {
+      const nose = Math.sqrt(Math.max(0, 1 - Math.pow(Math.max(0, 0.22 - t) / 0.22, 2)))
+      return r * 0.38 * Math.max(0.07, nose * (t < 0.3 ? 1 : Math.pow(1 - (t - 0.3) / 0.7, 0.8)))
+    }
+    groundShadow(r * 1.4, r * 0.45)
+    // Pectorals: broad paddles swept back from just behind the head.
+    const [px] = spine(0.3)
+    for (const sg of [-1, 1]) {
+      g.poly([px + r * 0.06, sg * body(0.3) * 0.8, px - r * 0.26, sg * r * 0.74, px - r * 0.44, sg * r * 0.72, px - r * 0.36, sg * body(0.4) * 0.8])
+        .fill(skin).stroke({ width: lw * 0.7, color: line })
+    }
+    // Pelvics: small, well back.
+    const [pvx] = spine(0.64)
+    for (const sg of [-1, 1]) {
+      g.poly([pvx, sg * body(0.64) * 0.8, pvx - r * 0.2, sg * r * 0.36, pvx - r * 0.3, sg * body(0.7) * 0.8])
+        .fill(skin).stroke({ width: lw * 0.55, color: line })
+    }
+    // Tail: the long upper lobe reads from above as a blade trailing off the midline.
+    const [tx] = spine(0.97)
+    g.poly([tx + r * 0.2, -r * 0.05, tx - r * 0.75, -r * 0.2, tx - r * 0.88, -r * 0.06, tx - r * 0.3, r * 0.16, tx + r * 0.2, r * 0.06])
+      .fill(skin).stroke({ width: lw * 0.6, color: line })
+    // The body, then a darker back down the midline.
+    g.poly(spineOutline(spine, body, 40)).fill(skin).stroke({ width: lw, color: line })
+    if (!white) {
+      g.poly(spineOutline(spine, (t) => body(t) * 0.5, 28, 0.06, 0.95)).fill({ color: back, alpha: 0.85 })
+      // pale rim along each flank: the edge that keeps the shape alive in the dark
+      g.poly(spineOutline(spine, body, 40, 0.02, 0.9)).stroke({ width: Math.max(0.8, lw * 0.35), color: edge, alpha: 0.55 })
+      // Two small dorsals on the midline — low ridges from above.
+      for (const [t, l] of [[0.46, 0.34], [0.7, 0.24]]) {
+        const [dx] = spine(t)
+        g.poly([dx + r * 0.08, 0, dx - r * l, -r * 0.05, dx - r * l * 0.9, r * 0.05]).fill({ color: line, alpha: 0.7 })
+      }
+      // Gill slits: short arcs behind the eyes on each flank.
+      for (let i = 0; i < 4; i++) {
+        const [gx] = spine(0.2 + i * 0.03)
+        for (const sg of [-1, 1]) g.moveTo(gx, sg * body(0.2) * 0.55).lineTo(gx - r * 0.04, sg * body(0.2) * 0.95)
+          .stroke({ width: Math.max(0.6, lw * 0.3), color: line, alpha: 0.7 })
+      }
+      // Eyes: small, set wide, each with its dim copepod glow.
+      const [ex] = spine(0.1)
+      for (const sg of [-1, 1]) {
+        g.circle(ex, sg * body(0.1) * 0.78, r * 0.13).fill({ color: glow, alpha: 0.16 })
+        darkEye(g, ex, sg * body(0.1) * 0.78, r * 0.06, r * 0.05, glow, false)
+      }
+    }
+    if (elite) eliteCrown(-r * 0.6, r)
+  }
   // From directly overhead a lionfish is not a fish outline at all — it is a STARBURST of pectoral
   // rays thrown out to both sides, wider than the body is long. No retint could have bought that
   // separation from a warm player on a warm floor; the silhouette does it for free.
@@ -5436,6 +5495,7 @@ export function createRenderer(app) {
     // has one — everything else that splits is a blob halving, which the parent's own bake says
     // perfectly well; a colony coming apart is the case that needs a second picture.
     siphonophore: { archetype: 'tank', draw: drawSiphonophore, childDraw: drawZooid, lean: 90 },   // top-down: float +x, paired bells ±y down a stem
+    sleepershark: { archetype: 'tank', draw: drawSleeperShark, lean: 90 },   // top-down: blunt torpedo +x, pectorals ±y, glowing eyes
     // v7.x The Wreck's own three, added when the chapter's prey stopped being three sizes of one
     // animal (see the Wreck section of the draw fns). All PLAN VIEW, all lean 90 — each is
     // bilaterally symmetric about its own +x front with paired eyes and paired appendages in ±y.

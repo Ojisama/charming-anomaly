@@ -31930,8 +31930,68 @@ function testTheDeep() {
     assert.ok(CHAPTERS.deep.scent === true, 'run DP.i: the chapter does not declare `scent`, so the button spends the bar and does nothing')
     assert.ok(CHAPTERS.deep.weapons.includes(CHAPTERS.deep.starter),
       `run DP.i: the pool is [${CHAPTERS.deep.weapons}] starting '${CHAPTERS.deep.starter}' — the starter is not in its own pool`)
-    assert.deepStrictEqual(CHAPTERS.deep.roster.map((r) => r.id), ['lanternfish', 'barreleye', 'fangtooth', 'siphonophore'],
+    assert.deepStrictEqual(CHAPTERS.deep.roster.map((r) => r.id), ['lanternfish', 'barreleye', 'fangtooth', 'siphonophore', 'sleepershark'],
       'run DP.i: the roster is not the 2026-09-09 re-cut (design spec §7b)')
+    // Owner, 2026-09-26: "decrease density of dashers in the abyss by 30% and tanks that split by
+    // 20%. Replace half the tanks that split by another tank fish species that is just slow."
+    assert.strictEqual(CHAPTERS.deep.archetypeKeep?.fast, 1 - 0.3, 'run DP.i: the fangtooth spawns are not cut by 30%')
+    assert.strictEqual(CHAPTERS.deep.archetypeKeep?.tank, 1 - 0.2, 'run DP.i: the tank spawns are not cut by 20%')
+    for (const [id, c] of Object.entries(CHAPTERS)) {
+      for (const [k, v] of Object.entries(c.archetypeKeep ?? {})) {
+        assert.ok(['normal', 'fast', 'tank'].includes(k) && v > 0 && v <= 1,
+          `run DP.i: ${id}.archetypeKeep.${k} = ${v} — keys are ARCHETYPES (not drone/wisp) and values a kept fraction in (0,1]`)
+      }
+    }
+    // The lever is ABSOLUTE: the same seeded spawn window with and without it, the density cap kept
+    // out by clearing each frame (run SP.c's rig). Fast and tank fall by the asked fraction and the
+    // normals do not move — a relative weight would have handed the cut to them.
+    {
+      const count = (keep) => {
+        Math.random = mulberry32(20260926)
+        const saved = CHAPTERS.deep.archetypeKeep
+        if (keep === null) delete CHAPTERS.deep.archetypeKeep
+        const n = { normal: 0, fast: 0, tank: 0, lanternfish: 0, barreleye: 0, fangtooth: 0, siphonophore: 0, sleepershark: 0 }
+        try {
+          const run = createRun(makeMeta(), { chapter: 'deep' })
+          if (run.chapter !== 'deep') throw new Error('run DP.i: asked for deep, got ' + run.chapter)
+          run.weapons = []; run.obstacles = []; run._obstacleSeed = null
+          run.player.hp = 1e9; run.player.maxHP = 1e9
+          run.mods.spawnMul = 30
+          for (let i = 0; i < 3600; i++) {
+            run.time = 250
+            stepSim(run, { x: 0, y: 0 }, 1 / 60)
+            run.events.length = 0; run.levelUpChoices = null
+            if (run.phase === 'levelup') run.phase = 'playing'
+            for (const e of run.enemies) {
+              if (e._splitChild || n[e.rosterId] == null) continue
+              n[e.rosterId]++
+              n[CHAPTERS.deep.roster.find((r) => r.id === e.rosterId).archetype]++
+            }
+            run.enemies.length = 0
+          }
+        } finally { CHAPTERS.deep.archetypeKeep = saved }
+        return n
+      }
+      const off = count(null), on = count()
+      const ratio = (k) => on[k] / off[k]
+      assert.ok(off.fast > 1500 && off.tank > 1000, `run DP.i: sample too small — ${JSON.stringify(off)}`)
+      assert.ok(Math.abs(ratio('fast') - 0.7) < 0.05, `run DP.i: fangtooth kept ${ratio('fast').toFixed(3)}, want 0.7 (${JSON.stringify(off)} -> ${JSON.stringify(on)})`)
+      assert.ok(Math.abs(ratio('tank') - 0.8) < 0.05, `run DP.i: tanks kept ${ratio('tank').toFixed(3)}, want 0.8`)
+      // 1σ ~0.03 at ~2.4k normals; a relative weight would read 1.30 here
+      assert.ok(Math.abs(ratio('normal') - 1) < 0.1, `run DP.i: normals moved ${ratio('normal').toFixed(3)} — the cut leaked into them`)
+      const half = on.sleepershark / on.tank
+      assert.ok(Math.abs(half - 0.5) < 0.05, `run DP.i: sleeper shark is ${(half * 100).toFixed(1)}% of tanks, want 50%`)
+      console.log(`PASS run DP.i (archetypeKeep): kept fast ${ratio('fast').toFixed(3)} tank ${ratio('tank').toFixed(3)} normal ${ratio('normal').toFixed(3)}, shark ${(half * 100).toFixed(1)}% of tanks — ${JSON.stringify(off)} -> ${JSON.stringify(on)}`)
+    }
+    {
+      const tanks = CHAPTERS.deep.roster.filter((r) => r.archetype === 'tank')
+      const w = (id) => tanks.find((r) => r.id === id)?.weight ?? 1
+      const shark = tanks.find((r) => r.id === 'sleepershark')
+      assert.ok(shark && shark.flags.length === 0 && shark.speedMul < CHAPTERS.deep.roster.find((r) => r.id === 'siphonophore').speedMul,
+        'run DP.i: the sleeper shark is not a flagless tank slower than the siphonophore')
+      assert.strictEqual(w('sleepershark') / (w('sleepershark') + w('siphonophore')), 0.5,
+        'run DP.i: the sleeper shark does not take half the tank share')
+    }
     assert.deepStrictEqual(CHAPTERS.deep.eliteFlags, [], 'run DP.i: an elite behaviour flag came back — nothing on this roster produces slime (R2.4)')
     // Every archetype covered, which is what stops the tank share of WAVE_TABLE finding an empty
     // pool from t=140s and spawning an unskinned body.
