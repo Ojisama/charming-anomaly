@@ -189,7 +189,7 @@ function report(label, rs) {
   // window, a hold from latch to release, a grab the last conflictT before it latches, a coil while
   // a lit lane lies on you. This is what the player FACES; the as-played line below is what a bot
   // that answers on the first frame is left with, which is always smaller.
-  const KIND = { slam: 'P', lunge: 'P', hold: 'W', grab: 'D', coil: 'D' }
+  const KIND = { slam: 'P', lunge: 'P', hold: 'W', grab: 'D', coil: 'D', bite: 'B' }
   let ss = 0, sm = 0
   const sp = {}
   const perSeed = []
@@ -206,12 +206,12 @@ function report(label, rs) {
     perSeed.push((m / (r.armsT / 60)).toFixed(2))
   }
   console.log(`TWO ANSWERS AT ONCE, scheduled (grab horizon ${CONFLICT_T}s): ${sm} moments, ${ss.toFixed(1)}s = ${(sm / (armsT / 60)).toFixed(2)} moments/min, ${(ss / (armsT / 60)).toFixed(2)} s/min, ${pct(ss, armsT)} of arms-phase time`)
-  console.log(`   per seed moments/min [${perSeed.join(' ')}]   by pair (s): ${Object.entries(sp).map(([k, v]) => `${k} ${v.toFixed(1)}`).join('  ') || 'none'}   (P=parry W=wiggle D=dodge)`)
+  console.log(`   per seed moments/min [${perSeed.join(' ')}]   by pair (s): ${Object.entries(sp).map(([k, v]) => `${k} ${v.toFixed(1)}`).join('  ') || 'none'}   (P=parry W=wiggle D=dodge B=bite step-out)`)
   const cs = rs.reduce((s, r) => s + r.conflict.seconds, 0), cm = rs.reduce((s, r) => s + r.conflict.moments, 0)
   const pairs = {}
   for (const r of rs) for (const [k, v] of Object.entries(r.conflict.pairs)) pairs[k] = (pairs[k] || 0) + v
   console.log(`   as played by this bot: ${cm} moments, ${cs.toFixed(1)}s = ${(cm / (armsT / 60)).toFixed(2)} moments/min, ${(cs / (armsT / 60)).toFixed(2)} s/min, ${pct(cs, armsT)} of arms-phase time`)
-  console.log(`   per seed moments/min [${rs.map((r) => (r.conflict.moments / (r.armsT / 60)).toFixed(2)).join(' ')}]   by pair (s): ${Object.entries(pairs).map(([k, v]) => `${k} ${v.toFixed(1)}`).join('  ') || 'none'}   (P=parry W=wiggle D=dodge)`)
+  console.log(`   per seed moments/min [${rs.map((r) => (r.conflict.moments / (r.armsT / 60)).toFixed(2)).join(' ')}]   by pair (s): ${Object.entries(pairs).map(([k, v]) => `${k} ${v.toFixed(1)}`).join('  ') || 'none'}   (P=parry W=wiggle D=dodge B=bite step-out)`)
   // ONE BUTTON, ONE COOLDOWN: consecutive parry answers (slams in band + lunges), window by window.
   // blocked = even a press on the FIRST frame of one leaves the button cooling through all of the
   // next; tight = a press on the LAST frame of one does. The beat (sim.js krakenBeatClear) makes
