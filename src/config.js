@@ -8980,11 +8980,11 @@ export const KRAKEN_LUNGE_WINDUP_T = 0.9
 // all: measured, mortal runs reached the chase and died there with ZERO staggers, every seed.
 // Difficulty in this fight is the window, not the punish.
 export const KRAKEN_LUNGE_DMG = 13
-// A BOSS YOU CAN LIVE INSIDE IS AS WRONG AS ONE THAT BODY-CHECKS YOU. Zeroing contact damage outside
-// the lunge fixed the body-check and went too far: measured, a player glued to the head for 100% of
-// a 62-73s chase took ONE hit. This is the small constant tax for standing in its mouth — enough
-// that the head owns its own space, nowhere near enough to kill you while you fight its arms.
-export const KRAKEN_HEAD_TOUCH_DMG = 4
+// A BOSS YOU CAN LIVE INSIDE IS AS WRONG AS ONE THAT BODY-CHECKS YOU. The head owns its own space:
+// this is what its BITE bills (see KRAKEN_BITE_WINDUP_T) — the head's touch, telegraphed.
+// balance_decision : bite 8 keeps v7.361's head damage for jaw-ignorers [2026-09-26]
+//  - no one value matches both: 10 matches an orbiting player, 6 a hugging one; 8 splits them
+export const KRAKEN_HEAD_TOUCH_DMG = 8
 // ONE HIT, ONE CAUSE. The touch tax goes quiet while another ask is on screen — the whole Coil, and
 // the lunge's wind-up — so a hit there can only have been the Coil or the lunge.
 // balance_decision : no head touch through a Coil or lunge wind-up [2026-09-26]

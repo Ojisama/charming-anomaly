@@ -45,6 +45,17 @@ if (!(PARRY_P >= 0 && PARRY_P <= 1)) { console.error('ABORT: --parry must be 0..
 const DODGE = process.argv.includes('--dodge')
 const DODGE_T = Number(arg('dodgeT', 0.35))
 const SEEDS = String(arg('seeds', '1001,2002,3003,4004,5005,6006')).split(',').map(Number)
+// --bite dodge|ignore: what the bot does about the chase head's BITE (head.biteT, the jaws winding
+// up). 'ignore' (the default, and the only behaviour on a build without the bite) plays on as if
+// nothing were drawn; 'dodge' steps out along the head->fish ray bent away from the nearest
+// collider, and slides round whatever it is pinned against (a pier post) when a frame of full stick
+// moves it under 1px.
+const BITE = arg('bite', 'ignore')
+if (!['dodge', 'ignore'].includes(BITE)) { console.error('ABORT: --bite must be dodge or ignore, got ' + BITE); process.exit(1) }
+// --hug F: in the chase, hold station at F x KRAKEN_HEAD_R from the head instead of 1.2 x the arm
+// reach — a player who stays in the head's face. 0 = off.
+const HUG = Number(arg('hug', 0))
+if (!(HUG >= 0)) { console.error('ABORT: --hug must be >= 0'); process.exit(1) }
 if (![DIFF, LEVEL, SECS].every(Number.isFinite)) { console.error('ABORT: bad numeric arg'); process.exit(1) }
 const DT = 1 / 60
 
@@ -75,6 +86,8 @@ function fight(seed) {
   let ringT = 0, limpT = 0, chaseT = 0, won = false, maxRearing = 0, enraged = -1, coilWind = 0, coilClose = 0
   let slamRears = 0, dmg = 0, coilDmg = 0, coilLash = 0, slamLands = 0, slamHits = 0, grabs = 0, grips = 0, grabMiss = 0, gripDmg = 0
   const botRnd = mulberry32(seed ^ 0x5bd1e995)
+  let pinned = false, chaseDmg = 0
+  const bySrc = {}
   const steps = Math.round(SECS / DT)
   for (let i = 0; i < steps; i++) {
     if (run.phase === 'levelup') { levels++; run.phase = 'playing'; continue }
@@ -105,8 +118,9 @@ function fight(seed) {
       tx = best.x; ty = best.y
     } else if (head) {
       const ang = Math.atan2(p.y - head.y, p.x - head.x)
-      tx = head.x + Math.cos(ang) * C.KRAKEN_ARM_REACH * 1.2
-      ty = head.y + Math.sin(ang) * C.KRAKEN_ARM_REACH * 1.2
+      const R = HUG > 0 && s.phase === 'chase' ? C.KRAKEN_HEAD_R * HUG : C.KRAKEN_ARM_REACH * 1.2
+      tx = head.x + Math.cos(ang) * R
+      ty = head.y + Math.sin(ang) * R
     }
     const dx = tx - p.x, dy = ty - p.y, dl = Math.hypot(dx, dy)
     let inX = dl > 6 ? dx / dl : 0, inY = dl > 6 ? dy / dl : 0
@@ -115,7 +129,21 @@ function fight(seed) {
     // without this every grip runs its clock out and bites, and the fight measures harder than it
     // is. One full turn a second is ~4 flicks/s, a rate a thumb can hold.
     const held = run.krakenArms.find((a) => !a.dead && a.gripT > 0)
-    if (held) { held._botA = (held._botA ?? 0) + Math.PI * 2 * DT; inX = Math.cos(held._botA); inY = Math.sin(held._botA) }
+    const biting = BITE === 'dodge' && head && s.phase === 'chase' && head.biteT != null
+    if (biting && !held) {
+      // out along the head->fish ray, bent away from the nearest collider within 90px (the same
+      // rule as scripts/scenes/kraken-cues.js's bot), sliding tangentially if still pinned
+      const bx = p.x - head.x, by = p.y - head.y, bl = Math.hypot(bx, by) || 1
+      let ox = bx / bl, oy = by / bl
+      for (const o of run.obstacles || []) {
+        const ex = p.x - o.x, ey = p.y - o.y, el = Math.hypot(ex, ey) || 1
+        const gap = el - (o.r ?? 0) - C.PLAYER.radius
+        if (gap < 90) { const w = 1.4 * (1 - Math.max(0, gap) / 90); ox += ex / el * w; oy += ey / el * w }
+      }
+      if (pinned) { const sd = (i >> 5) & 1 ? 1 : -1; const l0 = Math.hypot(ox, oy) || 1; const ux = ox / l0, uy = oy / l0; ox = ux * 0.35 - sd * uy; oy = uy * 0.35 + sd * ux }
+      const ol = Math.hypot(ox, oy) || 1
+      inX = ox / ol; inY = oy / ol
+    } else if (held) { held._botA = (held._botA ?? 0) + Math.PI * 2 * DT; inX = Math.cos(held._botA); inY = Math.sin(held._botA) }
     // --dodge: an arm the bot chose NOT to answer is side-stepped instead — for its last DODGE_T
     // seconds the bot walks straight off the struck line (perpendicular to it, away from its axis).
     // Without this a skipped slam lands on a player parked on its tip, and the hitbox's width never
@@ -165,10 +193,22 @@ function fight(seed) {
     if (limp.length) limpT += DT
 
     run.player.hp = run.player.maxHP
+    const px0 = p.x, py0 = p.y
+    const burstPre = !!head && (head._lungeBurst ?? 0) > 0
     stepSim(run, { x: inX, y: inY, skill: press }, DT)
+    pinned = (inX || inY) && Math.hypot(p.x - px0, p.y - py0) < 1
     // damage TAKEN this step (the rig is immortal, so this is what a mortal player would have lost)
     const lost = Math.max(0, run.player.maxHP - run.player.hp)
     dmg += lost
+    if (s.phase === 'chase') chaseDmg += lost
+    for (const e of run.events) {
+      if (e.type !== 'hurt') continue
+      // a head hit while its lunge burst runs (before or after the step) is the lunge; any other is its
+      // touch (v7.361) or bite. NOT by amount: a bite tuned near KRAKEN_LUNGE_DMG would be misfiled.
+      const burstNow = burstPre || (!!head && (head._lungeBurst ?? 0) > 0)
+      const k = e.src === 'krakenHead' ? (burstNow ? 'lunge' : 'head touch/bite') : e.src === 'krakenArm' ? 'arms' : 'adds+other'
+      bySrc[k] = (bySrc[k] || 0) + e.dmg
+    }
     if (run.events.some((e) => e.type === 'lash' && e.coil)) coilDmg += lost
     for (const e of run.events) {
       if (e.type === 'lash' && e.coil) coilLash++
@@ -191,7 +231,7 @@ function fight(seed) {
   return {
     won, t: run.time, slamRears, parries, whiffs, staggers, levels, maxRearing, enraged, coilWind, coilClose, dmg, coilDmg, coilLash, slamLands, slamHits, grabs, grips, grabMiss, gripDmg,
     broken: run.krakenArms.filter((a) => a.dead).length, arms: run.krakenArms.length,
-    ringT, limpT, chaseT, headLeft: Math.round(run.script?.headHp ?? 0),
+    chaseDmg, bySrc, ringT, limpT, chaseT, headLeft: Math.round(run.script?.headHp ?? 0),
   }
 }
 
@@ -232,3 +272,9 @@ console.log(`plain slams landed    ${f('slamLands')}   of them hit ${f('slamHits
 const pm = (k) => '[' + rs.map((r) => (r[k] / (r.t / 60)).toFixed(1)).join(' ') + ']  mean ' + (rs.reduce((q, r) => q + r[k] / (r.t / 60), 0) / rs.length).toFixed(2)
 console.log('per minute     slams ' + pm('slamRears') + '   grabs ' + pm('grabs') + '   parries ' + pm('parries'))
 console.log('fight mean     ' + (rs.reduce((q, r) => q + r.t, 0) / rs.length).toFixed(1) + 's')
+// WHAT HURT, whole fight, by source; and the CHASE's own damage per minute of chase
+const srcs = [...new Set(rs.flatMap((r) => Object.keys(r.bySrc)))].sort()
+console.log(`bite: ${BITE}   hug: ${HUG || 'off'}   bite dmg ${C.KRAKEN_HEAD_TOUCH_DMG}${C.KRAKEN_BITE_REACH != null ? '   bite reach +' + C.KRAKEN_BITE_REACH : ''}`)
+for (const k of srcs) console.log(`damage by source  ${k.padEnd(16)} [${rs.map((r) => Math.round(r.bySrc[k] || 0)).join(' ')}]`)
+const cpm = rs.map((r) => (r.chaseT > 0 ? r.chaseDmg / (r.chaseT / 60) : 0))
+console.log(`chase damage/min  [${cpm.map((v) => v.toFixed(0)).join(' ')}]  mean ${(cpm.reduce((a, b) => a + b, 0) / cpm.length).toFixed(1)}`)
