@@ -16,7 +16,7 @@
 //   lungeFlash                       -> PRESS
 //   grabCharge                       -> step PERPENDICULAR off its line (tip -> aim point)
 //   coil lanes                       -> walk to the widest dark gap between the lit lanes
-//   headBite (the chase head's jaws) -> step straight out of the head's reach
+//   too close to the chase head (touching it hurts) -> step straight out of its reach
 //   limp tell                        -> go and stand on it (that is where the build does damage)
 //   otherwise                        -> orbit the head at 0.9 x KRAKEN_ARM_REACH
 // It is IMMORTAL (hp topped up every step) and takes no cards: this is a readability instrument,
@@ -127,8 +127,8 @@ function decide(tells) {
     }
     const rr = Math.max(C.KRAKEN_ARM_REACH, Math.min(Math.hypot(p.x - h.x, p.y - h.y), (run.script.cageR || C.KRAKEN_CAGE_R) - 40))
     toward(h.x + Math.cos(mid) * rr, h.y + Math.sin(mid) * rr)
-  } else if (P.dodgeBite !== false && has('headBite').length && h) {
-    // the head's jaws are winding up on me: step straight out of its reach
+  } else if (P.dodgeBite !== false && h && run.script.phase === 'chase' && Math.hypot(p.x - h.x, p.y - h.y) < (h.radius ?? C.KRAKEN_HEAD_R) + C.PLAYER.radius + 50) {
+    // TOO CLOSE TO THE HEAD (its body is its own tell, and touching it hurts): step straight out
     act = 'dodgeBite'
     // OUT ALONG THE HEAD->FISH RAY, BENT AWAY FROM THE NEAREST OBSTACLE. Straight out can be pinned
     // between the head and a seabed obstacle (a pier post, traced: 220px/s of stick, ~0.5px a frame
@@ -194,7 +194,7 @@ const safeStat = { grabs: 0, steppedIntoThreat: 0 }
 // that could have warned of it; "sourced" = one of them was drawn in the last HIT_LOOKBACK s. Adds
 // (graveyard dead, any other src) are sprites render always draws, so they count as sourced by body.
 const HIT_LOOKBACK = 0.5
-const HIT_TELLS = { krakenArm: ['slamCharge', 'slamFlash', 'grabCharge', 'hold', 'coil'], 'krakenHead:lunge': ['lungeCharge', 'lungeFlash'], 'krakenHead:touch': ['headBite'] }
+const HIT_TELLS = { krakenArm: ['slamCharge', 'slamFlash', 'grabCharge', 'hold', 'coil'], 'krakenHead:lunge': ['lungeCharge', 'lungeFlash'] }
 const tellSeen = {}
 const hits = []
 
@@ -228,12 +228,9 @@ function beat(tells) {
   // ⚠ THE GRAB REDESIGN ADDS ITS OWN WIND-UP CLOCK: OR it in here, one line, or a dodgeable grab
   // will read as "no grab coming" and the conflict count will be low for the wrong reason.
   const grabSoon = ((s.gripSoonT ?? -1) >= 0 && s.gripSoonT <= P.conflictT) || run.krakenArms.some((a) => !a.dead && a.grabArm && a.tele > 0 && a.tele <= P.conflictT)
-  const onCoilLane = s.coilT > C.KRAKEN_COIL_DUR && !!head() && Array.from({ length: C.KRAKEN_COIL_RAYS }, (_, k) => (s.coilStar ?? 0) + k * Math.PI * 2 / C.KRAKEN_COIL_RAYS).some((t) => seg2(p.x, p.y, head().x, head().y, head().x + Math.cos(t) * C.KRAKEN_CAGE_R * 4, head().y + Math.sin(t) * C.KRAKEN_CAGE_R * 4) <= C.KRAKEN_LASH_W ** 2)
-  // ...or the head's jaws are winding up on the fish (the bite: step out)
-  const hB = head()
-  const biteOn = !!hB && s.phase === 'chase' && hB.biteT != null
+  const onCoilLane = s.coilT > C.KRAKEN_COIL_DUR && !!head() && Array.from({ length: s.coilN || C.KRAKEN_COIL_RAYS }, (_, k) => (s.coilStar ?? 0) + k * Math.PI * 2 / (s.coilN || C.KRAKEN_COIL_RAYS)).some((t) => seg2(p.x, p.y, head().x, head().y, head().x + Math.cos(t) * C.KRAKEN_CAGE_R * 4, head().y + Math.sin(t) * C.KRAKEN_CAGE_R * 4) <= C.KRAKEN_LASH_W ** 2)
   const needD = grabSoon || onCoilLane
-  const need = [needP && 'P', needW && 'W', needD && 'D', biteOn && 'B'].filter(Boolean)
+  const need = [needP && 'P', needW && 'W', needD && 'D'].filter(Boolean)
   if (inArms && need.length >= 2) {
     conf.frames++
     const k = need.join('+')
@@ -380,9 +377,6 @@ function beat(tells) {
       attacks.push(g)
     }
   })
-  // THE BITE: one record per snap, graded by what it billed. correct = the bot was stepping out of
-  // the reach in the 0.6s before the snap.
-  for (const e of ev) if (e.type === 'headBite') attacks.push({ kind: 'bite', i: -1, t0: t, ia: t - C.KRAKEN_BITE_WINDUP_T, ib: t, outcome: e.hit ? 'bitten' : 'dodged', d: Math.round(Math.hypot(e.px - e.x, e.py - e.y)), spd: Math.round(Math.hypot(run.player.vx ?? 0, run.player.vy ?? 0)), held: run.krakenArms.some((a) => !a.dead && a.gripT > 0), walled: (s.cageT ?? 0) > 0, slowed: (run.player.slowT ?? 0) > 0, correct: lastDodgeBiteT >= t - 0.6, ok: !e.hit, cause: e.hit ? (lastDodgeBiteT >= t - 0.6 ? 'stepped out and was bitten anyway' : 'did not step out') : null })
   // a grab that MISSES — the redesign's event. Any of these names counts as a dodged grab.
   for (const e of ev) if (/^(grabMiss|gripMiss|grabWhiff)$/.test(e.type)) attacks.push({ kind: 'grab', i: e.i ?? -1, t0: t, ia: t - P.conflictT, ib: t, outcome: 'missed', correct: lastDodgeGrabT >= t - 0.5, ok: true, cause: null })
   if (coilRec) {

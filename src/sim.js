@@ -227,8 +227,8 @@ import {
   KRAKEN_LIMP_PERFECT_MUL, KRAKEN_STAGGER_T, KRAKEN_STAGGER_DECAY, KRAKEN_LIMP_FLASH,
   KRAKEN_RISE_AT, KRAKEN_ENRAGE_AT, KRAKEN_ENRAGE_CADENCE, KRAKEN_ENRAGE_ARM_HP, KRAKEN_STAGGER_BITE,
   KRAKEN_EXPOSE_BITE, KRAKEN_HITSTOP_PARRY, KRAKEN_HITSTOP_BREAK, KRAKEN_HITSTOP_STAGGER,
-  KRAKEN_HEAD_TOUCH_DMG, KRAKEN_TOUCH_QUIET_T,
-  KRAKEN_BITE_WINDUP_T, KRAKEN_BITE_CD, KRAKEN_BITE_SLACK, KRAKEN_BITE_GAP, KRAKEN_BEAT_BITE_CLEAR,
+  KRAKEN_HEAD_TOUCH_DMG, KRAKEN_HEAD_HOLD, KRAKEN_HEAD_STEER, KRAKEN_DASH_T, KRAKEN_DASH_DIST,
+
   KRAKEN_CAGE_R,
   KRAKEN_LASH_R, KRAKEN_LASH_DMG, KRAKEN_LIGHT_START, KRAKEN_HAUL_R, KRAKEN_LASH_W, KRAKEN_LASH_OVER,
   KRAKEN_LIMB_HW, krakenLimbHalfW,
@@ -1792,7 +1792,19 @@ function krakenReach(s) {
   return KRAKEN_ARM_REACH * krakenCoilMul(s)
 }
 
-// Arms hold their slot angle and ride the ring's radius. Nothing pushes them, nothing pulls them.
+// Arms hold their slot angle and ride the ring's radius. Nothing pushes them, nothing pulls them —
+// except the Coil, which swings each of its arms onto a band of the star and back (a.angNow).
+const K_COIL_SWING_T = 0.45 // s an arm takes to swing onto its band, and back after the slam
+function krakenAng(a) { return a.angNow ?? a.ang }
+function krakenSwingArms(run, dt) {
+  for (const a of run.krakenArms) {
+    const on = !a.dead && a.coilAng != null && ((a.coilArm && a.tele > 0) || a.slamT > 0)
+    a.coilSwing = Math.max(0, Math.min(1, (a.coilSwing ?? 0) + (on ? 1 : -1) * dt / K_COIL_SWING_T))
+    if (a.coilSwing === 0) { a.coilAng = null; a.angNow = a.ang; continue }
+    const e = a.coilSwing * a.coilSwing * (3 - 2 * a.coilSwing)
+    a.angNow = a.ang + Math.atan2(Math.sin(a.coilAng - a.ang), Math.cos(a.coilAng - a.ang)) * e
+  }
+}
 // THE LINE THIS ARM WILL LAND ON, PUBLISHED ONTO THE ARM ITSELF. Three things need it — the strike
 // tests against it, the wind-up draws it and the impact is drawn along it — and for one release only
 // the strike had it. The telegraph stayed a disc of KRAKEN_LASH_R at the tip, so the band from just
@@ -1806,7 +1818,7 @@ function krakenReach(s) {
 // wind-up started (a.aimX/aimY), same length and width. The aim never tracks after the lock.
 //  - a Coil arm is never aimed: the Coil's lanes stay radial, so the spared arm's wedge is the gap
 function krakenLashLine(head, a) {
-  const ca = Math.cos(a.ang), sa = Math.sin(a.ang)
+  const ca = Math.cos(krakenAng(a)), sa = Math.sin(krakenAng(a))
   a.lx0 = head.x + ca * KRAKEN_RING_R
   a.ly0 = head.y + sa * KRAKEN_RING_R
   if (a.aimed && !a.coilArm) {
@@ -1853,8 +1865,8 @@ function krakenPlaceArm(head, a, reach) {
     a.y = a.ly0 + ((a.ly1 - a.ly0) / L) * d
     return
   }
-  a.x = head.x + Math.cos(a.ang) * reach
-  a.y = head.y + Math.sin(a.ang) * reach
+  a.x = head.x + Math.cos(krakenAng(a)) * reach
+  a.y = head.y + Math.sin(krakenAng(a)) * reach
 }
 
 // Squared distance from a point to a SEGMENT (not a line): t clamped to [0,1] so the ends are
@@ -1889,13 +1901,14 @@ function krakenLimbTouches(run, a, head) {
   return false
 }
 
-// THE COIL'S STAR: KRAKEN_COIL_RAYS bands of half-width KRAKEN_LASH_W from the head out across the
-// whole arena at s.coilStar + k * 2pi / rays. The fish's centre inside any band is the hit.
+// THE COIL'S STAR: s.coilN bands (one per coil arm, at most KRAKEN_COIL_RAYS) of half-width
+// KRAKEN_LASH_W from the head out across the whole arena at s.coilStar + k * 2pi / n. The fish's
+// centre inside any band is the hit.
 export function krakenCoilStarHits(run, head) {
-  const p = run.player, base = run.script.coilStar ?? 0
+  const p = run.player, base = run.script.coilStar ?? 0, n = run.script.coilN || KRAKEN_COIL_RAYS
   const far = KRAKEN_CAGE_R * 4
-  for (let k = 0; k < KRAKEN_COIL_RAYS; k++) {
-    const t = base + k * Math.PI * 2 / KRAKEN_COIL_RAYS
+  for (let k = 0; k < n; k++) {
+    const t = base + k * Math.PI * 2 / n
     if (segDist2(p.x, p.y, head.x, head.y, head.x + Math.cos(t) * far, head.y + Math.sin(t) * far) <= KRAKEN_LASH_W * KRAKEN_LASH_W) return true
   }
   return false
@@ -2310,6 +2323,7 @@ function stepKrakenArms(run, dt, rung, head) {
   // gap", there was no wall: measured at 1170px against a 620px cage, 1.9x the arena, then a snap
   // back when it closed.
   krakenCage(run, head, dt)
+  krakenSwingArms(run, dt)
   if (krakenCoilStep(run, dt, rung, head)) return true
   // while the Coil runs, only its own arms move: their fuses run out and they land below
   const coiling = s.coilT > 0
@@ -2537,23 +2551,28 @@ function stepKrakenArms(run, dt, rung, head) {
         s.gripN++
         s.coilT = KRAKEN_COIL_TELE + KRAKEN_COIL_DUR
         s.coilHit = false
-        // EVERY LIVE ARM REARS EXCEPT ONE, and they all land together when the wind-up ends. The
-        // spared arm is what the gap IS, so it is picked from the arms that can actually rear —
-        // sparing a limb that is already limp or already holding you would leave the ring with no
-        // dark lane at all and the move unanswerable.
+        // THE STAR IS THE ARMS (owner, 2026-09-26: "we don't see all the arms slamming at the same
+        // time"). Up to KRAKEN_COIL_RAYS able arms each take one band, evenly spaced and aimed so one
+        // runs through where the fish is now; each swings round onto its band (a.coilAng, eased in
+        // krakenSwingArms) and they land together along them. Fewer arms, fewer bands.
         const able = run.krakenArms.filter((c) => !c.dead && c.limpT <= 0 && !(c.gripT > 0))
-        const spare = able.length ? able[Math.floor(Math.random() * able.length)] : null
-        for (const c of able) {
-          if (c === spare) continue
+        const n = Math.min(able.length, KRAKEN_COIL_RAYS)
+        s.coilN = n
+        s.coilStar = Math.atan2(p.y - head.y, p.x - head.x)
+        const free = able.slice()
+        for (let k = 0; k < n; k++) {
+          const b = s.coilStar + k * Math.PI * 2 / n
+          let bi = 0, bd = Infinity
+          free.forEach((c, j) => { const d = Math.abs(Math.atan2(Math.sin(b - c.ang), Math.cos(b - c.ang))); if (d < bd) { bd = d; bi = j } })
+          const c = free.splice(bi, 1)[0]
           c.tele = KRAKEN_COIL_TELE
           c.fuse = KRAKEN_COIL_TELE
           c.coilArm = true
           c.grabArm = false
+          c.coilAng = b
         }
-        // the gap is the spared arm's own bearing, which is what render draws the wedge on
-        s.coilGap = spare ? spare.ang : Math.random() * Math.PI * 2
-        // the star is aimed: one band runs through where the fish is now, so standing still is a hit
-        s.coilStar = Math.atan2(p.y - head.y, p.x - head.x)
+        // a safe bearing: the middle of the first wedge
+        s.coilGap = s.coilStar + Math.PI / Math.max(1, n)
         run.events.push({ type: 'coilWind', x: head.x, y: head.y, ang: s.coilGap })
       } else if (wantGrip) {
         s.gripN++
@@ -2648,9 +2667,6 @@ function krakenBeatNeeds(run, rung, head) {
     else out.push({ k: 'P', a: a.tele - rung.window, b: a.tele, keep: a.tele - rung.window < KRAKEN_BEAT_GRAB_CLEAR })
   }
   if (s.coilT > KRAKEN_COIL_DUR) out.push({ k: 'D', a: 0, b: s.coilT - KRAKEN_COIL_DUR, keep: false })
-  // THE HEAD'S BITE is owed for its whole wind-up and snap: stepping out is the answer from the frame
-  // the jaws open. keep: a Coil starting quiets the head, which drops the wind-up, so it may take over.
-  if (head && s.phase === 'chase' && head.biteT != null) out.push({ k: 'D', a: 0, b: head.biteT, keep: false })
   if (head && s.phase === 'chase') {
     const lw = rung.lungeWindow
     const t = (s.staggerT > 0 ? s.staggerT : 0) + (head.lungeT ?? KRAKEN_LUNGE_T)
@@ -2679,22 +2695,17 @@ function krakenBeatClear(run, rung, head, kind, rearing) {
   if (kind === 'slam' && run.krakenLesson === 1 && rearing > 0) return false
   const gap = KRAKEN_PARRY_CD + KRAKEN_BEAT_READ
   const nk = kind === 'slam' ? 'P' : 'D'
-  // a BITE is like the Coil: its answer (step out) is owed from the first frame of its wind-up
-  const nb = kind === 'slam' ? rung.fuse : kind === 'grab' ? KRAKEN_GRAB_FUSE : kind === 'bite' ? KRAKEN_BITE_WINDUP_T : KRAKEN_COIL_TELE
+  const nb = kind === 'slam' ? rung.fuse : kind === 'grab' ? KRAKEN_GRAB_FUSE : KRAKEN_COIL_TELE
   const na = kind === 'slam' ? nb - rung.window : kind === 'grab' ? nb : 0
   for (const o of krakenBeatNeeds(run, rung, head)) {
     if (kind === 'coil' && !o.keep) continue
-    // a bite never wants a second D alongside it either, but the Coil/grab D-D spacing is a ring
-    // rule; for a bite, any other D in flight simply means "not now"
-    if (kind === 'bite' && o.k === 'D') return false
     let ok
     if (nk === 'P' && o.k === 'P') ok = na >= o.b + gap || o.a >= nb + gap
     else if (nk === 'D' && o.k === 'D') ok = Math.abs(nb - o.b) >= KRAKEN_BEAT_GRAB_CLEAR + KRAKEN_BEAT_BREATH
     else {
       const p = nk === 'P' ? { a: na, b: nb } : o
       const d = nk === 'D' ? { a: na, b: nb } : o
-      // a bite waits out the parry spark as well as the press: its own, longer clear band
-      ok = p.b <= d.a - (kind === 'bite' ? KRAKEN_BEAT_BITE_CLEAR : KRAKEN_BEAT_GRAB_CLEAR) || p.a >= d.b + KRAKEN_BEAT_BREATH
+      ok = p.b <= d.a - KRAKEN_BEAT_GRAB_CLEAR || p.a >= d.b + KRAKEN_BEAT_BREATH
     }
     if (!ok) return false
   }
@@ -2850,81 +2861,49 @@ function stepKrakenChase(run, dt, rung, head) {
   }
   if (stepKrakenArms(run, dt, rung, head)) return true
 
-  // THE LUNGE IS THE ATTACK — brushing against the thing is not. head.dmg is CONTACT damage and it
-  // was set for the whole chase, so a head that hunts at 165px/s simply body-checked the player to
-  // death while they were doing the limb loop the fight asks for: measured on d3, dead within ~3s of
-  // the rise having seen ZERO lunges, which is also zero chances at the stagger that is the only way
-  // to hurt it. A telegraphed strike that you can answer means nothing if the untelegraphed touch
-  // kills you first.
-  // ...and it goes QUIET while another ask is on screen (KRAKEN_TOUCH_QUIET_T): through the whole
-  // Coil, whose safe gap starts right against the head, and through the lunge's wind-up, where a
-  // touch landing reads as "the lunge hit me". One hit, one visible cause.
-  //   AND IT IS A BITE, NOT A TICK. Contact damage billed every i-frame window made 98% of all chase
-  // hits a proximity tax nobody could read, while the telegraphed lunge was parried every time.
-  // Contact now bills ONLY the lunge; the touch is its own attack: once the fish is inside the reach
-  // the jaws wind up (head.biteT, which render draws as closing jaws) and SNAP, and the snap hurts
-  // only a fish still inside the reach. Stepping out is the answer, and it works: 220px/s against a
-  // 165px/s head clears the reach inside the wind-up. A bite never starts where it would land within
-  // KRAKEN_BITE_GAP of a lunge wind-up, and cannot start in the re-arm after one, so the two
-  // attacks never land together.
-  const touchQuiet = s.coilT > 0 || (head.lungeT > 0 && head.lungeT <= KRAKEN_TOUCH_QUIET_T)
-  const bursting = (head._lungeBurst ?? 0) > 0
-  head.dmg = bursting ? KRAKEN_LUNGE_DMG : 0
-  {
-    const p = run.player
-    const reach = (head.radius ?? KRAKEN_HEAD_R) + PLAYER.radius
-    const d = Math.hypot(p.x - head.x, p.y - head.y)
-    head.biteCd = Math.max(0, (head.biteCd ?? 0) - dt)
-    if (head.biteT != null) {
-      if (touchQuiet || bursting || d > reach + KRAKEN_BITE_SLACK) head.biteT = null
-      else {
-        head.biteT -= dt
-        if (head.biteT <= 0) {
-          head.biteT = null
-          head.biteCd = KRAKEN_BITE_CD
-          const hit = d <= reach && !(p.invuln > 0)
-          run.events.push({ type: 'headBite', x: head.x, y: head.y, px: p.x, py: p.y, hit })
-          if (hit && hurtPlayer(run, KRAKEN_HEAD_TOUCH_DMG, false, 'krakenHead')) return true
-        }
-      }
-    // ...nor over a parry's gesture (p.parryT, KRAKEN_PARRY_SPIN_T): the jaws must not open on top of
-    // the parry spark, so the two reads never share a frame
-    // ...and it is a TURN IN THE BEAT (krakenBeatClear 'bite'): never while a parry window is open or
-    // near, never while a grab or Coil is owed, never while the fish is held — one answer at a time
-    } else if (!touchQuiet && !bursting && head.biteCd <= 0 && !(p.parryT > 0) && d <= reach &&
-      krakenBeatClear(run, krakenRung(run.difficulty), head, 'bite', 0) &&
-      head.lungeT - KRAKEN_LUNGE_WINDUP_T >= KRAKEN_BITE_WINDUP_T + KRAKEN_BITE_GAP) {
-      head.biteT = KRAKEN_BITE_WINDUP_T
-    }
-  }
+  // THE HEAD HURTS, FOLLOWS LOOSELY, AND DASHES (owner, 2026-09-26: "most of the time the best
+  // thing is to stay immobile on the head and wait for the parry window"). It used to seek the fish
+  // at KRAKEN_HEAD_SPEED and park against it, its touch a slow beat-gated bite — so sitting on it and
+  // waiting was the best play. Now:
+  //   - touching it hurts: head.dmg is contact damage, i-framed like any body's;
+  //   - it drifts after the fish with inertia (KRAKEN_HEAD_STEER) and stops closing at
+  //     KRAKEN_HEAD_HOLD, so it never parks on you;
+  //   - its lunge is a DASH: a straight line, head.dashAng, that tracks the fish until the parry
+  //     window opens and then locks; at lungeT 0 it covers KRAKEN_DASH_DIST in KRAKEN_DASH_T. A parry
+  //     in the window cancels it (krakenParry resets lungeT); a step off the line makes it overshoot.
+  // The head is moved HERE (head.speed 0, so the generic seek never touches it).
+  const p = run.player
   if (head.lungeT == null) head.lungeT = KRAKEN_LUNGE_T
-  // `lungeT` counts DOWN to the strike, so the parry window is its last `rung.window` seconds —
-  // the same read as an arm's, deliberately: one verb, one timing, two bodies.
-  const lungeWas = head.lungeT ?? KRAKEN_LUNGE_T
-  head.lungeT = lungeWas - dt
-  // THE WIND-UP IS ANNOUNCED BEFORE THE WINDOW OPENS, not after it shuts. The only cue used to be
-  // headLunge's sound, which plays when the strike launches — i.e. after the parry window it was
-  // meant to warn about. Cosmetic: no rule reads this event.
+  const lungeWas = head.lungeT
+  const bursting = (head._lungeBurst ?? 0) > 0
+  if (!bursting) head.lungeT = lungeWas - dt
+  // THE WIND-UP IS ANNOUNCED BEFORE THE WINDOW OPENS. Cosmetic: no rule reads this event.
   if (lungeWas > KRAKEN_LUNGE_WINDUP_T && head.lungeT <= KRAKEN_LUNGE_WINDUP_T && head.lungeT > 0) {
     run.events.push({ type: 'headWindup', x: head.x, y: head.y })
   }
-  if (head.lungeT <= 0) {
+  if (!bursting && head.lungeT > rung.lungeWindow) head.dashAng = Math.atan2(p.y - head.y, p.x - head.x)
+  if (!bursting && head.lungeT <= 0) {
     head.lungeT = KRAKEN_LUNGE_T
-    head._lungeBurst = 0.5
-    run.events.push({ type: 'headLunge', x: head.x, y: head.y })
+    head._lungeBurst = KRAKEN_DASH_T
+    run.events.push({ type: 'headLunge', x: head.x, y: head.y, ang: head.dashAng })
   }
-  // IT NOSES UP TO YOU, IT DOES NOT SWALLOW YOU. Owner, 2026-09-15: "the head just stays on top of
-  // you". A 130px-radius body seeking the player's exact point puts a 260px sprite centred on a
-  // 44px fish — the player cannot see themselves, and cannot read which side the next arm is on.
-  // Held off at its own radius it is still touching (stepContactDamage wants radius + radius, which
-  // is 152), so the pressure is unchanged and the picture is legible. The seek's own clamp above is
-  // what makes this a rest rather than a boundary to bounce on.
-  const hd = Math.hypot(head.x - run.player.x, head.y - run.player.y)
-  const closing = (head._lungeBurst ?? 0) > 0
-  // ...and it SETS ITSELF TO BITE: still for the whole wind-up, so stepping out works at any speed
-  // the fish has (the dark's slow included), not only when it outruns a head still hunting it.
-  head.speed = head.biteT != null ? 0 : hd < KRAKEN_HEAD_R && !closing ? 0 : (closing ? KRAKEN_HEAD_SPEED * 2 : KRAKEN_HEAD_SPEED)
-  if ((head._lungeBurst ?? 0) > 0) head._lungeBurst -= dt
+  head.speed = 0
+  head.dmg = (head._lungeBurst ?? 0) > 0 ? KRAKEN_LUNGE_DMG : KRAKEN_HEAD_TOUCH_DMG
+  if ((head._lungeBurst ?? 0) > 0) {
+    const v = KRAKEN_DASH_DIST / KRAKEN_DASH_T, ca = Math.cos(head.dashAng ?? 0), sa = Math.sin(head.dashAng ?? 0)
+    head.x += ca * v * dt
+    head.y += sa * v * dt
+    head._kvx = ca * KRAKEN_HEAD_SPEED; head._kvy = sa * KRAKEN_HEAD_SPEED   // it coasts out of the dash
+    head._lungeBurst -= dt
+  } else {
+    const dx = p.x - head.x, dy = p.y - head.y, d = Math.hypot(dx, dy) || 1
+    const want = d > KRAKEN_HEAD_HOLD ? KRAKEN_HEAD_SPEED * Math.min(1, (d - KRAKEN_HEAD_HOLD) / 120) : 0
+    const k = 1 - Math.exp(-dt * KRAKEN_HEAD_STEER)
+    head._kvx = (head._kvx ?? 0) + (dx / d * want - (head._kvx ?? 0)) * k
+    head._kvy = (head._kvy ?? 0) + (dy / d * want - (head._kvy ?? 0)) * k
+    head.x += head._kvx * dt
+    head.y += head._kvy * dt
+  }
   return false
 }
 

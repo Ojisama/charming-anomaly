@@ -9028,34 +9028,18 @@ export const KRAKEN_LUNGE_WINDUP_T = 0.9
 // all: measured, mortal runs reached the chase and died there with ZERO staggers, every seed.
 // Difficulty in this fight is the window, not the punish.
 export const KRAKEN_LUNGE_DMG = 13
-// A BOSS YOU CAN LIVE INSIDE IS AS WRONG AS ONE THAT BODY-CHECKS YOU. The head owns its own space:
-// this is what its BITE bills (see KRAKEN_BITE_WINDUP_T) — the head's touch, telegraphed.
-// balance_decision : bite 20, rarer since it joined the beat [2026-09-26]
-//  - a player orbiting the head is now rarely bitten at all (the beat keeps bites off slam windows);
-//    20 restores a hugging jaw-ignorer's head damage, no value restores an orbiting one's
-export const KRAKEN_HEAD_TOUCH_DMG = 20
-// ONE HIT, ONE CAUSE. The touch tax goes quiet while another ask is on screen — the whole Coil, and
-// the lunge's wind-up — so a hit there can only have been the Coil or the lunge.
-// balance_decision : no head touch through a Coil or lunge wind-up [2026-09-26]
-//  - tied to KRAKEN_LUNGE_WINDUP_T: the quiet starts on the frame the wind-up is drawn
-export const KRAKEN_TOUCH_QUIET_T = KRAKEN_LUNGE_WINDUP_T
-// THE BITE. The head's touch is an ATTACK on its own clock, not a contact tick: once the fish is
-// inside its touch reach the jaws wind up for KRAKEN_BITE_WINDUP_T and snap, and the snap bills
-// KRAKEN_HEAD_TOUCH_DMG only if the fish is STILL inside the reach. Answer: step out.
-// balance_decision : head touch is a 0.6s wind-up bite, not contact [2026-09-26]
-//  - the lead is the whole point: keep it >= 0.5s
-export const KRAKEN_BITE_WINDUP_T = 0.6
-// balance_decision : 0.5s rest between one snap and the next wind-up [2026-09-26]
-export const KRAKEN_BITE_CD = 0.5
-// balance_decision : a wind-up is dropped once the fish is this far past the reach [2026-09-26]
-export const KRAKEN_BITE_SLACK = 40
-// balance_decision : no bite lands within 0.5s of a lunge wind-up starting [2026-09-26]
-//  - the other way round is structural: no bite winds up during the 0.5s lunge burst, and its own
-//    wind-up (KRAKEN_BITE_WINDUP_T) follows any parry or Coil that ends the quiet
-export const KRAKEN_BITE_GAP = 0.5
-// balance_decision : jaws open >= 0.6s after a parry window shuts [2026-09-26]
-//  - the bite's own clear band in krakenBeatClear; a grab's is KRAKEN_BEAT_GRAB_CLEAR
-export const KRAKEN_BEAT_BITE_CLEAR = 0.6
+// THE HEAD HURTS, FOLLOWS LOOSELY, AND DASHES (owner, 2026-09-26: "most of the time the best thing
+// is to stay immobile on the head and wait for the parry window. The head should hurt, and follow
+// you loosely, and you can parry the dashes of the head").
+// balance_decision : touching the head hurts, contact damage, owner 2026-09-26
+export const KRAKEN_HEAD_TOUCH_DMG = 12
+// balance_decision : head drifts after you, holds off 260px, owner 2026-09-26
+//  - STEER is 1/s: how fast its velocity turns toward the wanted one. Low = loose, lagging
+export const KRAKEN_HEAD_HOLD = 260 // px from the fish the head stops closing at
+export const KRAKEN_HEAD_STEER = 1.6
+// balance_decision : the lunge is a straight dash on a line locked at the window [2026-09-26]
+export const KRAKEN_DASH_T = 0.35 // s the dash lasts
+export const KRAKEN_DASH_DIST = 440 // px it covers: from its hold distance, through the fish and past
 // THE COIL (P3, D3 only). Every Nth arm attack the whole ring hauls inward at once, and the only
 // place that is not swept is ONE sector — the gap. NOT PARRYABLE by design: the parry must not be
 // the answer to everything, or it stops being a choice. You read the gap and you move.
