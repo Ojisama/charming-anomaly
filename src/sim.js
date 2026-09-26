@@ -238,7 +238,7 @@ import {
   KRAKEN_BEAT_READ, KRAKEN_BEAT_GRAB_CLEAR, KRAKEN_BEAT_BREATH,
   KRAKEN_TRICKLE_FROM_END, KRAKEN_TRICKLE_T, KRAKEN_TRICKLE_N, KRAKEN_ADD_CAP,
   KRAKEN_LUNGE_T, KRAKEN_LUNGE_WINDUP_T, KRAKEN_LUNGE_DMG, KRAKEN_RISE_T,
-  KRAKEN_COIL_EVERY, KRAKEN_COIL_AT, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, KRAKEN_COIL_IN, KRAKEN_COIL_DMG,
+  KRAKEN_COIL_EVERY, KRAKEN_COIL_AT, KRAKEN_COIL_RAYS, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, KRAKEN_COIL_IN, KRAKEN_COIL_DMG,
   KRAKEN_WAVE, KRAKEN_WAVE_GAP, KRAKEN_WAVE_TIMEOUT, KRAKEN_WAVE_XP_MUL,
   KRAKEN_OPEN_WAVES, KRAKEN_WAVE_GROWTH, KRAKEN_ARRIVE_T, KRAKEN_ARRIVE_T2, KRAKEN_SLAM_T,
   KRAKEN_LESSON_SLOW, KRAKEN_LESSON_MAX, KRAKEN_LESSON_TIP_T,
@@ -1870,6 +1870,18 @@ function krakenLimbTouches(run, a, head) {
   return false
 }
 
+// THE COIL'S STAR: KRAKEN_COIL_RAYS bands of half-width KRAKEN_LASH_W from the head out across the
+// whole arena at s.coilStar + k * 2pi / rays. The fish's centre inside any band is the hit.
+export function krakenCoilStarHits(run, head) {
+  const p = run.player, base = run.script.coilStar ?? 0
+  const far = KRAKEN_CAGE_R * 4
+  for (let k = 0; k < KRAKEN_COIL_RAYS; k++) {
+    const t = base + k * Math.PI * 2 / KRAKEN_COIL_RAYS
+    if (segDist2(p.x, p.y, head.x, head.y, head.x + Math.cos(t) * far, head.y + Math.sin(t) * far) <= KRAKEN_LASH_W * KRAKEN_LASH_W) return true
+  }
+  return false
+}
+
 // A PINCH CATCHES WHAT ITS JAWS SWEEP: jaw -> aim point for each arm, a V closing on where you stood.
 // A jaw whose mate is gone sweeps the mirror of its own path too, so a lone jaw still closes a line.
 export function krakenPinchTouches(run, a, m) {
@@ -2102,6 +2114,31 @@ function krakenRearm(run, a, lashT) {
   return Math.max(lashT * 0.3, t)
 }
 
+// One arm, idle at its slot (bearing ang) — the ring's, or one the last phase grows.
+function krakenNewArm(i, ang, role, head) {
+  return {
+    i, ang,
+    // THE ROLE IS FIXED FOR THE FIGHT AND IT IS WHAT THE ARM IS DRAWN AS. Owner, 2026-09-15:
+    // "can arms have several designs, and depending on the design, they do different things?
+    // like one does the grab, one does the slam?" Every arm used to be identical, so which one
+    // was about to grab you was unknowable until it did — you could read the RING but never
+    // pre-position against a specific limb. A grabber looks like a different animal, so the
+    // fight can be played around it.
+    //   Spread evenly around the circle rather than taken off the front: consecutive grabbers
+    // would put every grab on one bearing, which collapses the arena's geometry to a single
+    // side. At 6 arms and 2 grabbers this puts them opposite each other.
+    role,
+    x: head.x + Math.cos(ang) * KRAKEN_ARM_REACH,
+    y: head.y + Math.sin(ang) * KRAKEN_ARM_REACH,
+    hp: KRAKEN_ARM_HP, maxHP: KRAKEN_ARM_HP,
+    tele: 0, fuse: 0, limpT: 0, nodeId: null, dead: false, paid: false, gripT: 0, grabArm: false, hitT: 0, breakT: 0, slamT: 0,
+    nowSent: false, // this wind-up has already pushed its slamWindow (see stepBossScript's arm loop)
+    coilArm: false, // true for the length of one Coil: this limb is in the volley, unparryable, drawn in the warning colour
+    lx0: 0, ly0: 0, lx1: 0, ly1: 0,   // the struck line, rewritten every frame by krakenPlaceArms
+    aimed: false, aimX: 0, aimY: 0,     // the point a slam's wind-up locked on the player
+  }
+}
+
 // Stand the ring up for a block. Arms are created ONCE per fight and then persist: a broken arm
 // stays broken, so the ring only ever gets smaller and every block opens on the damage the last
 // one did. Nothing is re-spaced — the gaps are the progress.
@@ -2111,27 +2148,8 @@ function krakenArmsToBlock(run, rung, head) {
     run.krakenArms.length = 0
     for (let i = 0; i < s.armsTotal; i++) {
       const ang = (i / s.armsTotal) * Math.PI * 2
-      run.krakenArms.push({
-        i, ang,
-        // THE ROLE IS FIXED FOR THE FIGHT AND IT IS WHAT THE ARM IS DRAWN AS. Owner, 2026-09-15:
-        // "can arms have several designs, and depending on the design, they do different things?
-        // like one does the grab, one does the slam?" Every arm used to be identical, so which one
-        // was about to grab you was unknowable until it did — you could read the RING but never
-        // pre-position against a specific limb. A grabber looks like a different animal, so the
-        // fight can be played around it.
-        //   Spread evenly around the circle rather than taken off the front: consecutive grabbers
-        // would put every grab on one bearing, which collapses the arena's geometry to a single
-        // side. At 6 arms and 2 grabbers this puts them opposite each other.
-        role: rung.grabbers > 0 && (i * rung.grabbers) % s.armsTotal < rung.grabbers ? 'grab' : 'slam',
-        x: head.x + Math.cos(ang) * KRAKEN_ARM_REACH,
-        y: head.y + Math.sin(ang) * KRAKEN_ARM_REACH,
-        hp: KRAKEN_ARM_HP, maxHP: KRAKEN_ARM_HP,
-        tele: 0, fuse: 0, limpT: 0, nodeId: null, dead: false, paid: false, gripT: 0, grabArm: false, hitT: 0, breakT: 0, slamT: 0,
-        nowSent: false, // this wind-up has already pushed its slamWindow (see stepBossScript's arm loop)
-        coilArm: false, // true for the length of one Coil: this limb is in the volley, unparryable, drawn in the warning colour
-        lx0: 0, ly0: 0, lx1: 0, ly1: 0,   // the struck line, rewritten every frame by krakenPlaceArms
-        aimed: false, aimX: 0, aimY: 0,     // the point a slam's wind-up locked on the player
-      })
+      const role = rung.grabbers > 0 && (i * rung.grabbers) % s.armsTotal < rung.grabbers ? 'grab' : 'slam'
+      run.krakenArms.push(krakenNewArm(i, ang, role, head))
     }
     s.armsSpawned = true
   }
@@ -2153,7 +2171,12 @@ function krakenArmsToBlock(run, rung, head) {
 // The ring's cadence right now. One author, so the enrage speed-up cannot be applied at one site
 // and forgotten at another.
 function krakenCadence(s, rung) {
-  return rung.cadence * (s.enraged ? KRAKEN_ENRAGE_CADENCE : 1)
+  return rung.cadence * (s.enraged ? rung.enrageCadence ?? KRAKEN_ENRAGE_CADENCE : 1)
+}
+
+// how many arms may be rearing at once: the rung's, or its enraged cap in the last phase
+function krakenRearingCap(s, rung) {
+  return s.enraged && rung.enrageRearing ? rung.enrageRearing : rung.rearing
 }
 
 function krakenCoilMul(s) {
@@ -2377,7 +2400,7 @@ function stepKrakenArms(run, dt, rung, head) {
     if (!wasCoil) s.beatAt = run.time   // a slam window just shut (krakenBeatNeeds)
     // `coil` is for render only: five lashes land on the Coil's frame and are drawn as one blow
     run.events.push({ type: 'lash', x: a.x, y: a.y, x0: a.lx0, y0: a.ly0, x1: a.lx1, y1: a.ly1, w: wasCoil ? KRAKEN_LASH_W : KRAKEN_LIMB_HW, coil: wasCoil, i: a.i })
-    const struck = wasCoil ? segDist2(p.x, p.y, a.lx0, a.ly0, a.lx1, a.ly1) <= KRAKEN_LASH_W * KRAKEN_LASH_W : krakenLimbTouches(run, a, head)
+    const struck = wasCoil ? krakenCoilStarHits(run, head) : krakenLimbTouches(run, a, head)
     if (struck) {
       // ⚠ A COIL HITS ONCE, NOT FIVE TIMES. Every corridor runs from the rim to the head centre, so
       // they all overlap in the middle of the arena — standing there when five land would be five
@@ -2460,7 +2483,7 @@ function stepKrakenArms(run, dt, rung, head) {
     const pinch = wantGrip && !wantCoil ? krakenPinchPair(run, head, idle) : null
     if (!pinch) wantGrip = false
     // a pinch rears two arms, so it waits for room for both under the cap
-    const free = rearing + (wantGrip ? 2 : 1) <= rung.rearing && idle.length > 0
+    const free = rearing + (wantGrip ? 2 : 1) <= krakenRearingCap(s, rung) && idle.length > 0
     // A TURN THAT WOULD STACK TWO ANSWERS WAITS FOR ONE THAT DOES NOT (krakenBeatClear), and a turn
     // with no arm free waits for one. The clock is held at zero, so the ring swings on the first
     // frame both allow — never with a shortened fuse: the telegraph always reads the same length.
@@ -2510,6 +2533,8 @@ function stepKrakenArms(run, dt, rung, head) {
         }
         // the gap is the spared arm's own bearing, which is what render draws the wedge on
         s.coilGap = spare ? spare.ang : Math.random() * Math.PI * 2
+        // the star is aimed: one band runs through where the fish is now, so standing still is a hit
+        s.coilStar = Math.atan2(p.y - head.y, p.x - head.x)
         run.events.push({ type: 'coilWind', x: head.x, y: head.y, ang: s.coilGap })
       } else if (wantGrip) {
         s.gripN++
@@ -2578,7 +2603,9 @@ function krakenTurnPool(run) {
 // reads the counters, draws no randoms.
 function krakenTurnWant(run, rung, n = run.script.gripN) {
   const s = run.script
-  const wantCoil = (rung.coil || s.enraged) && run.difficulty >= 2 && (s.phase === 'chase' || s.bossIdx >= 2) && n > 0 && n % KRAKEN_COIL_EVERY === KRAKEN_COIL_AT
+  const every = s.enraged && rung.enrageCoilEvery ? rung.enrageCoilEvery : KRAKEN_COIL_EVERY
+  const at = s.enraged && rung.enrageCoilEvery ? rung.enrageCoilAt : KRAKEN_COIL_AT
+  const wantCoil = (rung.coil || s.enraged) && run.difficulty >= 2 && (s.phase === 'chase' || s.bossIdx >= 2) && n > 0 && n % every === at
   const wantGrip = !wantCoil && rung.grip && s.bossIdx >= 1 && n > 0 && n % KRAKEN_GRIP_EVERY === 0
   return { wantCoil, wantGrip }
 }
@@ -2625,6 +2652,9 @@ function krakenBeatNeeds(run, rung, head) {
 //     answers to the lunge and to what was just parried: it takes over every other wind-up;
 //   the parry lesson is taught on a quiet ring — nothing else winding up.
 function krakenBeatClear(run, rung, head, kind, rearing) {
+  // THE LAST PHASE ON A FREE RUNG (d3) SLAMS OVER THE BEAT: more than you can parry, so you dodge
+  // the rest (owner, 2026-09-26: "arms regrowing ... that slam a lot on you")
+  if (kind === 'slam' && run.script.enraged && rung.enrageFree) return true
   const held = run.krakenArms.some((a) => !a.dead && a.gripT > 0)
   if (kind !== 'slam' && held) return false
   if (kind === 'slam' && run.krakenLesson === 1 && rearing > 0) return false
@@ -2785,6 +2815,16 @@ function stepKrakenChase(run, dt, rung, head) {
       a.breakT = 0
       a.hp = Math.max(1, Math.round(a.maxHP * KRAKEN_ENRAGE_ARM_HP))
       a.tele = 0; a.fuse = 0; a.limpT = 0; a.gripT = 0; a.grabArm = false; a.nodeId = null
+      back++
+    }
+    // ...and on a rung that says so, NEW arms burst out between the old ones (owner, 2026-09-26)
+    const extra = rung.enrageArms || 0
+    for (let k = 0; k < extra; k++) {
+      const ang = (k + 0.5) / extra * Math.PI * 2 + Math.PI / s.armsTotal
+      const a = krakenNewArm(run.krakenArms.length, ang, 'slam', head)
+      a.maxHP = KRAKEN_ARM_HP; a.hp = Math.max(1, Math.round(KRAKEN_ARM_HP * KRAKEN_ENRAGE_ARM_HP))
+      a.paid = true   // a grown arm pays no banked level: it was never part of the ring you broke
+      run.krakenArms.push(a)
       back++
     }
     run.events.push({ type: 'krakenEnrage', x: head.x, y: head.y, r: KRAKEN_ARM_REACH, n: back })

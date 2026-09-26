@@ -99,7 +99,7 @@ async function headless(diff, seed) {
         // drawKrakenCues' prompt waits for the limb to be 30% wound (0.3 x K_GRIP_EXTEND_T = 0.09s)
         if ((a.gripClock ?? C.KRAKEN_GRIP_DUR) <= C.KRAKEN_GRIP_DUR - 0.09) tells.push({ src: 'player', i: -1, kind: 'wiggle', x: p.x, y: p.y })
       }
-      else if (a.tele > 0 && a.coilArm) tells.push({ src: 'arm', i: a.i, kind: 'coil', ...line })
+      else if (a.tele > 0 && a.coilArm) { /* the Coil draws its STAR, below, not the arms' lanes */ }
       // a grab winds up on its own aimed line (render: drawKrakenCharge's grab branch, same x0..x1)
       else if (a.tele > 0 && a.grabArm) {
         tells.push({ src: 'arm', i: a.i, kind: 'grabCharge', ...line })
@@ -115,6 +115,11 @@ async function headless(diff, seed) {
         const inReach = (p.x - a.lx0 - dx * u) ** 2 + (p.y - a.ly0 - dy * u) ** 2 <= RW * RW
         if (a.tele <= rung.window && inReach && !((r.repulseCd ?? 0) > 0)) tells.push({ src: 'arm', i: a.i, kind: 'slamNow', x: p.x, y: p.y })
       } else if (s.gripSoonI === a.i) tells.push({ src: 'arm', i: a.i, kind: 'grabCharge', x: a.x, y: a.y, x0: a.x, y0: a.y, x1: p.x, y1: p.y })
+    }
+    // REPLICA of the Coil's star (render: drawKrakenCues): KRAKEN_COIL_RAYS bands from the head, wind-up only
+    if (s.coilT > C.KRAKEN_COIL_DUR) for (let k = 0; k < C.KRAKEN_COIL_RAYS; k++) {
+      const t = (s.coilStar ?? 0) + k * Math.PI * 2 / C.KRAKEN_COIL_RAYS, R = C.KRAKEN_CAGE_R * 3
+      tells.push({ src: 'head', i: k, kind: 'coil', x: head.x, y: head.y, x0: head.x, y0: head.y, x1: head.x + Math.cos(t) * R, y1: head.y + Math.sin(t) * R })
     }
     const lunge = s.phase === 'chase' && !(s.staggerT > 0) && head.lungeT > 0
     if (lunge && head.lungeT <= C.KRAKEN_LUNGE_WINDUP_T) tells.push({ src: 'head', i: -1, kind: 'lungeCharge', x: head.x, y: head.y })

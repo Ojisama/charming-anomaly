@@ -114,13 +114,19 @@ function decide(tells) {
     }
   } else if (has('coil').length && h) {
     act = 'dodgeCoil'
-    const angs = has('coil').map((t) => Math.atan2(t.y0 - h.y, t.x0 - h.x)).sort((a, b) => a - b)
-    let best = 0, mid = 0
+    // the STAR's bands, as drawn: go to the middle of the nearest wedge between two of them, out
+    // past where the bands' shadows overlap round the head
+    const angs = has('coil').map((t) => Math.atan2(t.y1 - t.y0, t.x1 - t.x0)).sort((a, b) => a - b)
+    const me = Math.atan2(p.y - h.y, p.x - h.x)
+    let mid = me, bd = Infinity
     for (let k = 0; k < angs.length; k++) {
       const a0 = angs[k], a1 = k + 1 < angs.length ? angs[k + 1] : angs[0] + Math.PI * 2
-      if (a1 - a0 > best) { best = a1 - a0; mid = (a0 + a1) / 2 }
+      const m = (a0 + a1) / 2
+      let dd = Math.abs(m - me) % (Math.PI * 2); if (dd > Math.PI) dd = Math.PI * 2 - dd
+      if (dd < bd) { bd = dd; mid = m }
     }
-    toward(h.x + Math.cos(mid) * C.KRAKEN_ARM_REACH, h.y + Math.sin(mid) * C.KRAKEN_ARM_REACH)
+    const rr = Math.max(C.KRAKEN_ARM_REACH, Math.min(Math.hypot(p.x - h.x, p.y - h.y), (run.script.cageR || C.KRAKEN_CAGE_R) - 40))
+    toward(h.x + Math.cos(mid) * rr, h.y + Math.sin(mid) * rr)
   } else if (P.dodgeBite !== false && has('headBite').length && h) {
     // the head's jaws are winding up on me: step straight out of its reach
     act = 'dodgeBite'
@@ -222,7 +228,7 @@ function beat(tells) {
   // ⚠ THE GRAB REDESIGN ADDS ITS OWN WIND-UP CLOCK: OR it in here, one line, or a dodgeable grab
   // will read as "no grab coming" and the conflict count will be low for the wrong reason.
   const grabSoon = ((s.gripSoonT ?? -1) >= 0 && s.gripSoonT <= P.conflictT) || run.krakenArms.some((a) => !a.dead && a.grabArm && a.tele > 0 && a.tele <= P.conflictT)
-  const onCoilLane = s.coilT > 0 && run.krakenArms.some((a) => !a.dead && a.coilArm && a.tele > 0 && seg2(p.x, p.y, a.lx0, a.ly0, a.lx1, a.ly1) <= C.KRAKEN_LASH_W ** 2)
+  const onCoilLane = s.coilT > C.KRAKEN_COIL_DUR && !!head() && Array.from({ length: C.KRAKEN_COIL_RAYS }, (_, k) => (s.coilStar ?? 0) + k * Math.PI * 2 / C.KRAKEN_COIL_RAYS).some((t) => seg2(p.x, p.y, head().x, head().y, head().x + Math.cos(t) * C.KRAKEN_CAGE_R * 4, head().y + Math.sin(t) * C.KRAKEN_CAGE_R * 4) <= C.KRAKEN_LASH_W ** 2)
   // ...or the head's jaws are winding up on the fish (the bite: step out)
   const hB = head()
   const biteOn = !!hB && s.phase === 'chase' && hB.biteT != null
