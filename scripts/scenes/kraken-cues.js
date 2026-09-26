@@ -62,6 +62,7 @@ const btnEl = typeof document !== 'undefined' ? document.querySelector('.skill-b
 
 // ---------------------------------------------------------------- the cue-only bot
 let wig = 0
+let pinnedF = 0   // consecutive frames a full stick moved the fish under 1px (pinned on an obstacle)
 function decide(tells) {
   const p = run.player
   const h = head()
@@ -105,10 +106,24 @@ function decide(tells) {
   } else if (P.dodgeBite !== false && has('headBite').length && h) {
     // the head's jaws are winding up on me: step straight out of its reach
     act = 'dodgeBite'
-    // ⚠ straight out can be pinned between the head and a seabed obstacle (a pier post, traced): 220px/s of stick,
-    // ~0.5px a frame of travel; the bot does not path round obstacles, so its bite dodge rate is a floor
+    // OUT ALONG THE HEAD->FISH RAY, BENT AWAY FROM THE NEAREST OBSTACLE. Straight out can be pinned
+    // between the head and a seabed obstacle (a pier post, traced: 220px/s of stick, ~0.5px a frame
+    // of travel) or slide along one at a crawl; a thumb steers off it, so the bot adds a push away
+    // from the nearest collider within 90px of the fish's edge, weighted by how close it is.
     const dx = p.x - h.x, dy = p.y - h.y, dl = Math.hypot(dx, dy) || 1
-    ix = dx / dl; iy = dy / dl
+    let ox = dx / dl, oy = dy / dl
+    for (const o of run.obstacles || []) {
+      const ex = p.x - o.x, ey = p.y - o.y, el = Math.hypot(ex, ey) || 1
+      const gap = el - (o.r ?? 0) - C.PLAYER.radius
+      if (gap < 90) { const w = 1.4 * (1 - Math.max(0, gap) / 90); ox += ex / el * w; oy += ey / el * w }
+    }
+    const ol = Math.hypot(ox, oy) || 1
+    ix = ox / ol; iy = oy / ol
+    if (pinnedF >= 2) {
+      const sd = Math.floor(pinnedF / 20) % 2 ? -1 : 1
+      const tx = 0.35 * ix - sd * iy, ty = 0.35 * iy + sd * ix, tl = Math.hypot(tx, ty)
+      ix = tx / tl; iy = ty / tl
+    }
   } else if (has('limp').length) {
     act = 'limp'
     let b = null, bd = Infinity
@@ -236,7 +251,9 @@ function beat(tells) {
   const pre = run.krakenArms.map((a) => ({ tele: a.tele, gripT: a.gripT, slamT: a.slamT }))
   const preStagger = run.script.stagger ?? 0
   const preSoon = run.script.gripSoonI ?? -1   // the arm the grab forecast named (truth, for the grade only)
+  const bx0 = p.x, by0 = p.y
   step(run, { x: d.ix, y: d.iy, skill: d.press }, DT)
+  pinnedF = (d.ix || d.iy) && Math.hypot(p.x - bx0, p.y - by0) < 1 ? pinnedF + 1 : 0
   const ev = run.events.splice(0)
   run.player.hp = run.player.maxHP
   if (run.phase === 'levelup') run.phase = 'playing'
