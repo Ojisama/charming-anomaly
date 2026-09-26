@@ -20235,6 +20235,9 @@ void main() {
     const k = age < 0.2 ? 1.6 - 0.6 * (age / 0.2) : 1
     const s = 2.0 * k
     const DARKC = 0x1a0414
+    // A SLAM'S WINDOW IS OPEN AND IN REACH: the grab's two glyphs step back to 55% for it. The rhythm
+    // never lands a grab within 0.4s of a window, so this can not hide an imminent grab.
+    const gk = run.krakenArms.some((c) => !c.dead && !c.grabArm && !c.coilArm && !(c.limpT > 0) && c.tele > 0 && c.tele <= krakenRung(run.difficulty).window && krakenArmInReachR(run, c)) ? 0.55 : 1
     const hook = () => {
       G.moveTo(cx + 11 * s, cy - 26 * s)
       G.lineTo(cx + 11 * s, cy)
@@ -20242,8 +20245,8 @@ void main() {
       G.lineTo(cx - 11 * s, cy - 12 * s)
       G.lineTo(cx - 4 * s, cy - 7 * s)
     }
-    hook(); G.stroke({ width: 16, color: DARKC, alpha: 0.9, cap: 'round', join: 'round' })
-    hook(); G.stroke({ width: 9, color: K_GRAB_HOT, alpha: 1, cap: 'round', join: 'round' })
+    hook(); G.stroke({ width: 16, color: DARKC, alpha: 0.9 * gk, cap: 'round', join: 'round' })
+    hook(); G.stroke({ width: 9, color: K_GRAB_HOT, alpha: gk, cap: 'round', join: 'round' })
     // THE STEP: a bold chevron beside the fish, on the safe side, pointing away from the line
     const side = arm.grabSafeSide === -1 ? -1 : 1
     const ox = -uy * side, oy = ux * side                       // off the line, toward safety
@@ -20254,8 +20257,8 @@ void main() {
       G.lineTo(bx, by)
       G.lineTo(bx - ox * D + ux * W, by - oy * D + uy * W)
     }
-    chev(); G.stroke({ width: 18, color: DARKC, alpha: 0.9, cap: 'round', join: 'miter' })
-    chev(); G.stroke({ width: 10, color: K_GRAB_HOT, alpha: 1, cap: 'round', join: 'miter' })
+    chev(); G.stroke({ width: 18, color: DARKC, alpha: 0.9 * gk, cap: 'round', join: 'miter' })
+    chev(); G.stroke({ width: 10, color: K_GRAB_HOT, alpha: gk, cap: 'round', join: 'miter' })
     tellDrawn('arm', arm.i, 'grabSafe', bx, by, arm.aimX, arm.aimY, bx, by)
   }
 
@@ -20469,7 +20472,7 @@ void main() {
       // the flash: one or two frames, then gone
       if (age < K_FLASH_T) {
         krakenDangerG.circle(b.x, b.y, b.r).fill({ color: 0xffffff, alpha: 0.95 })
-        krakenDangerG.circle(b.x, b.y, b.r).stroke({ width: 4, color: 0xffd2a8, alpha: 1 })
+        krakenDangerG.circle(b.x, b.y, b.r).stroke({ width: 4, color: 0xff6a4a, alpha: 1 })
       }
       // the dust ring: a HARD edge running out across the seabed, slowing, thinning
       if (b.ring) {
@@ -20556,6 +20559,15 @@ void main() {
         // THE ARM'S WHITE ARRIVES: for its first K_NOW_FLASH_T a white streak runs from the flesh to
         // the fish's edge, so the glint reads as the limb's own white landing there — one cue, not
         // two. Then the glint holds with the beat for the whole window, shrinking with it.
+        // THE LOUDEST BEAT IS THE FIRST FRAME: as the glint lands, a hard white ring snaps out round
+        // the fish (outside its body) and is gone in K_NOW_FLASH_T. "White arm" = soon; this = NOW.
+        if (n.t < K_NOW_FLASH_T && live === 1) {
+          const u = n.t / K_NOW_FLASH_T
+          G.beginPath(); G.circle(p.x, p.y, 44 + 26 * u)
+          G.stroke({ width: 9 * (1 - u) + 2, color: 0x0c1418, alpha: 0.6 * (1 - u) })
+          G.beginPath(); G.circle(p.x, p.y, 44 + 26 * u)
+          G.stroke({ width: 6 * (1 - u) + 1.5, color: 0xffffff, alpha: 1 - u })
+        }
         if (near && n.t < K_NOW_FLASH_T) {
           const u = n.t / K_NOW_FLASH_T
           const ex = p.x + ca * RG, ey = p.y + sa * RG
@@ -20595,15 +20607,15 @@ void main() {
       } else if (e.t > 2 || run.chapter !== 'kraken') krakenEarly = null
       else {
         const pop = Math.exp(-e.t / 0.08)
-        const ang = e.ang, R = 36, SP = 1.15
+        const ang = e.ang, R = 38, SP = 1.35
         tellDrawn('arm', e.i, 'earlyShell', p.x + Math.cos(ang) * R, p.y + Math.sin(ang) * R)
         // the shell: a thick plate on the dark, drawn as four segments so its seams read as plates
         for (let q = 0; q < 4; q++) {
           const a0 = ang - SP + (q / 4) * SP * 2 + 0.04, a1 = ang - SP + ((q + 1) / 4) * SP * 2 - 0.04
           G.beginPath(); G.arc(p.x, p.y, R + 2 * pop, a0, a1)
-          G.stroke({ width: 16, color: 0x0c0b0a, alpha: 0.7, cap: 'butt' })
+          G.stroke({ width: 19, color: 0x0c0b0a, alpha: 0.8, cap: 'butt' })
           G.beginPath(); G.arc(p.x, p.y, R + 2 * pop, a0, a1)
-          G.stroke({ width: 11, color: 0xa8a39a, alpha: 0.95, cap: 'butt' })
+          G.stroke({ width: 13, color: 0xc4c0b8, alpha: 1, cap: 'butt' })
           G.beginPath(); G.arc(p.x, p.y, R + 5 + 2 * pop, a0, a1)
           G.stroke({ width: 2, color: 0xd8d4cc, alpha: 0.8, cap: 'butt' })
         }
@@ -20625,7 +20637,7 @@ void main() {
       const k = Math.min(1, sh.t / 0.2)
       const c = Math.cos(sh.rot), sn = Math.sin(sh.rot), z = sh.z
       const pts = [sh.x + c * z, sh.y + sn * z, sh.x - sn * z * 0.6 - c * z * 0.4, sh.y + c * z * 0.6 - sn * z * 0.4, sh.x + sn * z * 0.5 - c * z * 0.7, sh.y - c * z * 0.5 - sn * z * 0.7]
-      G.poly(pts).fill({ color: 0xa8a39a, alpha: k }).stroke({ width: 1.5, color: 0x0c0b0a, alpha: k })
+      G.poly(pts).fill({ color: 0xd4d0c8, alpha: k }).stroke({ width: 2, color: 0x0c0b0a, alpha: k })
     }
     for (let i = krakenStreaks.length - 1; i >= 0; i--) {
       const st = krakenStreaks[i]
@@ -23873,11 +23885,15 @@ void main() {
   const krakenStreaks = []
   // an early press's shell breaking: grey plates thrown off the fish by the slam that arrived
   const krakenShards = []
-  function krakenShatter(x, y, ang) {
-    for (let i = 0; i < 12; i++) {
-      const a = ang + Math.PI + (Math.random() - 0.5) * 2.6
-      const sp = 220 + Math.random() * 260
-      krakenShards.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, rot: Math.random() * 6.28, vr: (Math.random() - 0.5) * 16, z: 7 + Math.random() * 7, t: 0.45 + Math.random() * 0.15 })
+  let krakenGuardAt = -1   // animT of the frame a slam broke an early press's shell
+  let krakenLashGuard = false  // the slam being drawn this event is the one an early press shelled
+  function krakenShatter(x, y, ang, big = false) {
+    // thrown AWAY from the arm (the blow's direction) and fanned wide; a guard break is bigger
+    const n = big ? 20 : 12
+    for (let i = 0; i < n; i++) {
+      const a = ang + Math.PI + (Math.random() - 0.5) * (big ? 3.4 : 2.6)
+      const sp = (big ? 300 : 220) + Math.random() * 280
+      krakenShards.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, rot: Math.random() * 6.28, vr: (Math.random() - 0.5) * 16, z: (big ? 9 : 7) + Math.random() * 8, t: 0.5 + Math.random() * 0.2 })
     }
     if (krakenShards.length > 36) krakenShards.splice(0, krakenShards.length - 36)
   }
@@ -24120,8 +24136,8 @@ void main() {
             const qx = q.shape[m] * q.r * k, qy = q.shape[m + 1] * q.r * k
             pp.push(x + qx * cs - qy * sn, y + qx * sn + qy * cs)
           }
-          G.poly(pp).fill({ color: 0x2a2019, alpha: fa })
-          G.poly(pp).stroke({ width: 3, color: 0xfff0cc, alpha: fa, join: 'miter' })
+          G.poly(pp).fill({ color: 0x1e0806, alpha: fa })
+          G.poly(pp).stroke({ width: 3, color: 0xc8321e, alpha: fa, join: 'miter' })
         }
       } else if (pass === 'top') {
         // THE FIST SITS IN THE GROUND: the crater's near lip is drawn over its lower edge — a thick
@@ -24178,8 +24194,8 @@ void main() {
             const qx = q.shape[m] * r * 0.62, qy = q.shape[m + 1] * r * 0.62 - r * 0.18
             tp.push(x + qx * cs - qy * sn, y + qx * sn + qy * cs)
           }
-          G.poly(tp).fill({ color: 0xe8c894, alpha: fa })
-          G.poly(tp).stroke({ width: 3, color: 0xfff0cc, alpha: fa, join: 'miter' })
+          G.poly(tp).fill({ color: 0x5a160e, alpha: fa })
+          G.poly(tp).stroke({ width: 3, color: 0xe0442a, alpha: fa, join: 'miter' })
         }
       }
     }
@@ -26182,6 +26198,14 @@ void main() {
           break
         case 'hurt': {
           // A KRAKEN BLOW SAYS HOW MUCH, BESIDE THE FISH — the after-state of a hit that connected
+          if (e.src === 'krakenArm' && run.chapter === 'kraken' && krakenGuardAt === animT) {
+            // THE GUARD BROKE (an early press's shell took this slam, see 'lash'): same damage, but
+            // it reads as a broken guard — a small shake and a faint edge, no red flash
+            spawnDamage(run.player.x - 52, run.player.y - 40, 0, false, false, { text: '-' + Math.round(e.dmg), tint: 0xc8c4bc })
+            addShake(4, 0.18)
+            vignetteA = Math.max(vignetteA, 0.12)
+            break
+          }
           if (e.src === 'krakenArm' && run.chapter === 'kraken') {
             // ON THE FAR SIDE OF THE BLOW, so it never sits where the press-now glyph was
             const lp = krakenLastLash
@@ -26938,6 +26962,8 @@ void main() {
           {
             const nc = krakenNearK(run, lx0, ly0, lx1, ly1, lw)
             krakenLastLash = { x: nc.qx, y: nc.qy }
+            // was this the slam an early press was spent on (its shell is still up)?
+            krakenLashGuard = !e.coil && !!krakenEarly && krakenEarly.i === e.i && nc.k >= 1
             let cx = e.x, cy = e.y // the tip: where the aimed limb came down
             const hc = krakenHeadUp
             if (!e.coil && hc) {
@@ -26953,7 +26979,8 @@ void main() {
             }
             if (krakenBursts.length > 8) krakenBursts.shift()
             krakenLandings.push({ x: cx, y: cy, t: KRAKEN_SLAM_T })
-            if (!e.coil) {
+            // an early press's shell took this one: its grey shards are the burst, not thrown seabed
+            if (!e.coil && !krakenLashGuard) {
               // thrown along the limb's line, away from the head
               const hh = krakenHeadUp
               const away = hh ? Math.sign((cx - hh.x) * ux + (cy - hh.y) * uy) || 1 : 1
@@ -27001,13 +27028,27 @@ void main() {
               // toward the head, and the camera is thrown the same way — plus a shove off the line
               addKick(ux, uy, 0.034 * nk.k)
               addKick(run.player.x - nk.qx, run.player.y - nk.qy, 0.008 * nk.k)
-              if (nk.k >= 1) {
+              if (nk.k >= 1 && krakenLashGuard) {
+                // AN EARLY PRESS'S SHELL TAKES IT: the guard breaks instead of the fish. Grey-white
+                // shards off the shell, the limb GLANCES off it (a sideways kick at the tip), and the
+                // hurt that follows on this frame is drawn as a guard break, not a hit (krakenGuardAt).
+                // The damage is exactly the same — this is only how it reads.
+                const ge = krakenEarly
+                krakenShatter(run.player.x + Math.cos(ge.ang) * 36, run.player.y + Math.sin(ge.ang) * 36, ge.ang, true)
+                krakenEarly = null
+                krakenGuardAt = animT
+                const ga = run.krakenArms.find((q) => q.i === e.i)
+                if (ga) {
+                  const side = (Math.cos(ga.ang) * (run.player.y - ga.y) - Math.sin(ga.ang) * (run.player.x - ga.x)) >= 0 ? -1 : 1
+                  krakenRecoil[e.i] = { t: 0.26, ux: Math.cos(ga.ang) * 0.5 - Math.sin(ga.ang) * side, uy: Math.sin(ga.ang) * 0.5 + Math.cos(ga.ang) * side, amp: 90 }
+                }
+              } else if (nk.k >= 1) {
                 // it landed ON you: a hot burst at the fish, so the hit has a place and not only a
-                // red screen edge
+                // red screen edge. RED AND DARK, never gold: gold here is the parry's alone.
                 spawnRing(run.player.x, run.player.y, 64, 0.22, T.novaRing, 0xff4a2a)
                 for (let i = 0; i < 10; i++) {
                   const a = Math.random() * Math.PI * 2
-                  spawnParticle(T.fx.star_08, run.player.x, run.player.y, Math.cos(a) * 260, Math.sin(a) * 260, 0.22, 0.06, 0xffc890, -0.1, 3)
+                  spawnParticle(T.fx.star_08, run.player.x, run.player.y, Math.cos(a) * 260, Math.sin(a) * 260, 0.22, 0.06, i % 2 ? 0xff3a22 : 0x7a1208, -0.1, 3)
                 }
               }
             } else addShakeScreen(0.003, 0.12)

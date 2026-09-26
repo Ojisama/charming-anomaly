@@ -61,7 +61,7 @@ function beat() {
   run.player.hp = run.player.maxHP
   step(run, { x: ix, y: iy, skill: press }, 1 / 60)
   const events = run.events.splice(0)
-  for (const e of events) if (/^(parry|parryPerfect|parryWhiff|parryEarly|slamWindow|lash)$/.test(e.type)) console.error('EV', 'frame', frameNo + 1, (played / 60).toFixed(2), e.type)
+  for (const e of events) if (/^(parry|parryPerfect|parryWhiff|parryEarly|slamWindow|lash|hurt)$/.test(e.type)) console.error('EV', 'frame', frameNo + 1, (played / 60).toFixed(2), e.type + (e.src ? ':' + e.src : ''))
   window.__renderer.sync(run, 1 / 60, events)
   if (run.phase === 'levelup') run.phase = 'playing'
   played++

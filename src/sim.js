@@ -2356,7 +2356,7 @@ function stepKrakenArms(run, dt, rung, head) {
     const wasCoil = a.coilArm === true
     if (!wasCoil) s.beatAt = run.time   // a slam window just shut (krakenBeatNeeds)
     // `coil` is for render only: five lashes land on the Coil's frame and are drawn as one blow
-    run.events.push({ type: 'lash', x: a.x, y: a.y, x0: a.lx0, y0: a.ly0, x1: a.lx1, y1: a.ly1, w: wasCoil ? KRAKEN_LASH_W : KRAKEN_LIMB_HW, coil: wasCoil })
+    run.events.push({ type: 'lash', x: a.x, y: a.y, x0: a.lx0, y0: a.ly0, x1: a.lx1, y1: a.ly1, w: wasCoil ? KRAKEN_LASH_W : KRAKEN_LIMB_HW, coil: wasCoil, i: a.i })
     const struck = wasCoil ? segDist2(p.x, p.y, a.lx0, a.ly0, a.lx1, a.ly1) <= KRAKEN_LASH_W * KRAKEN_LASH_W : krakenLimbTouches(run, a, head)
     if (struck) {
       // ⚠ A COIL HITS ONCE, NOT FIVE TIMES. Every corridor runs from the rim to the head centre, so
