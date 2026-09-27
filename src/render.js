@@ -18066,7 +18066,8 @@ const spurG = new Graphics()
       // the exact complaint the hash was added for (owner: "vase clouds look too similar to each
       // other"), reappearing by a different route. It stays free of Math.random for the reason the
       // note below gives.
-      const hash = (silt || fox) ? ((bl.x * 0.017 + bl.y * 0.029 + (bl.angle ?? 0) * 0.41) % 1 + 1) % 1 : 0
+      // seedX/seedY where the cloud carries them (a foxfire, which can wander): the hash must not move.
+      const hash = (silt || fox) ? (((bl.seedX ?? bl.x) * 0.017 + (bl.seedY ?? bl.y) * 0.029 + (bl.angle ?? 0) * 0.41) % 1 + 1) % 1 : 0
       const churn = hash < 0.5 ? 1 : -1
       const frac = (v) => ((v % 1) + 1) % 1
       // THE CONE. Puffs march along the wedge's axis, each sized off the wedge's own half-angle so
@@ -18132,8 +18133,8 @@ const spurG = new Graphics()
             // seven are never in step and a field of foxfires never pulses in unison.
             //   Every phase here comes from `hash` and animT and never from Math.random: this pool
             // is drawn inside a suite that shares one seeded stream (see the hash's own note above),
-            // and it is safe for the same reason it is for silt — a foxfire never drifts, because
-            // stepBlooms' drift branch is gated on `!bl.look`.
+            // and it stays stable when a foxfire wanders because `hash` reads its cast spot
+            // (bl.seedX/seedY), never its live position.
             const rise = frac(animT * (0.42 + 0.30 * j) + j + t * 0.137)
             const a = (t / FOX_EMBERS) * Math.PI * 2 + (j - 0.5) * 0.9 + hash * Math.PI * 2
             const off = bl.r * (0.16 + 0.74 * rise)

@@ -160,7 +160,7 @@ import {
   MARCH_SPEED_MUL, MARCH_SWAY_PX, MARCH_SWAY_RATE, MARCH_HOME_MUL,
   FORMATION_INTERVAL, FORMATION_COLS, FORMATION_AHEAD_MUL, FORMATION_AHEAD_MIN, FORMATION_ROW_PX, LANE_SPAWN_MUL, LANE_CONTACT_MUL, laneEarlyMul,
   REPULSE_CD, REPULSE_RADIUS, REPULSE_FORCE, REPULSE_STUN, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, PULSE_FORCE_AT_FULL, CLEAR_DUR_MIN, CLEAR_DUR_AT_FULL, CLEAR_SIGHT_FADE, CLEAR_RADIUS_AT_FULL, CLEAR_STUN, darkness, refillSpec, resourceDamageMul, refillGrantFor, pollutionFrac, RUNOFF_MAX_DMG_MUL, RUNOFF_SPEED_FLOOR, FOUL_SPRING_FOUL_T, SILT_PLUME_SPREAD, SILT_FLUSH_MUL, LOBE_SHAPES, inLobe, lobeFactor, SEPARATION_SAMPLES,
-  SUNSPEAR_FALL, SUNSPEAR_SPREAD, FOXFIRE_GLOOM, SUNLANCE_REACH_MIN, GLINT_LIGHT_COST, BUBBLE_COVER_MAX, BUBBLE_ARC_MAX, BALLAST_FLIGHT, BALLAST_BLIND_THROW, BALLAST_REACH_PAD,
+  SUNSPEAR_FALL, SUNSPEAR_SPREAD, FOXFIRE_GLOOM, FOXFIRE_WANDER_SPEED, SUNLANCE_REACH_MIN, GLINT_LIGHT_COST, BUBBLE_COVER_MAX, BUBBLE_ARC_MAX, BALLAST_FLIGHT, BALLAST_BLIND_THROW, BALLAST_REACH_PAD,
   BALLAST_TANK_MUL, BALLAST_DRAG, BALLAST_DRAG_T,
   BURST_SPEED_MUL, BURST_DUR_MIN, BURST_DUR_AT_FULL, BURST_RAM_MUL, BURST_RAM_COINS, DROWN_TICK,
   SPUR_DPS, SPUR_TICK, SPUR_SLOW_MUL,
@@ -1179,7 +1179,7 @@ function stepSpawning(run, dt) {
   // oscillation into it would corrupt it permanently (the same reason RAMPAGE's multipliers are
   // read-time). The payoff half is the damage multiplier in anomalyDamageMul.
   const chaosMul = run.anomalies?.chaosPact && chaosSurgeActive(run.time) ? CHAOS_PACT_SPAWN_MUL : 1
-  run._spawnAcc += spawnRate(run.time) * run.mods.spawnMul * spawnTiltMul(run.mods.spawnTilt ?? 0, run.time) * lateSpawnMulAt(run.mods.lateSpawnMul ?? 1, run.time) * laneMul * chaosMul * dt
+  run._spawnAcc += spawnRate(run.time, run.mods.spawnGrowthMul ?? 1) * run.mods.spawnMul * spawnTiltMul(run.mods.spawnTilt ?? 0, run.time) * lateSpawnMulAt(run.mods.lateSpawnMul ?? 1, run.time) * laneMul * chaosMul * dt
   // SUBMISSION: your allies must not eat the swarm's spawn budget. They live in run.enemies,
   // so without this the cap counts them and the game quietly spawns FEWER hostiles while an ally is
   // out — a second, invisible buff on top of the card, and one that corrupts any kills-per-run
@@ -9881,6 +9881,9 @@ const WEAPON_STAT_MODS = {
  * directly off run.weaponMods.<weapon>.<mod> at their own trigger site. */
 function effectiveWeaponStats(run, w) {
   const stats = { ...WEAPONS[w.id].levels[w.level - 1] }
+  const tune = chapterTune(run, w.id)
+  if (tune.dmg && stats.dmg != null) stats.dmg *= tune.dmg
+  if (tune.dur && stats.glowDur != null) stats.glowDur *= tune.dur
   const modMap = WEAPON_STAT_MODS[w.id]
   const mods = run.weaponMods[w.id]
   if (modMap && mods) {
@@ -9918,8 +9921,10 @@ function globalFireRate(run) {
   return run.player.fireRateMul * (1 + run.passives.fireRate)
     * resourceRateMul(run.charge, CHAPTERS[run.chapter].resource, run.chargeMax)
 }
-// A chapter's per-weapon cadence tune (CHAPTERS[id].weaponRateMul). 1 wherever a chapter names none.
-const chapterWeaponRate = (run, id) => CHAPTERS[run.chapter].weaponRateMul?.[id] ?? 1
+// A chapter's per-weapon tune (CHAPTERS[id].weaponTune[weaponId]): rate, dmg, tank, dur, wander.
+// {} wherever a chapter names none, so every read below defaults to the plain weapon.
+const chapterTune = (run, id) => CHAPTERS[run.chapter].weaponTune?.[id] ?? {}
+const chapterWeaponRate = (run, id) => chapterTune(run, id).rate ?? 1
 
 /**
  * Read-only projection of the player's whole build, for the pause screen. Lives here because this
@@ -11414,7 +11419,7 @@ function stepBeams(run, dt) {
       for (const angle of beamArmAngles(b)) {
         for (const e of run.enemies) {
           if (e._dead) continue
-          if (inBeamArm(run, b, e, angle)) applyDamage(run, e, dmg)
+          if (inBeamArm(run, b, e, angle)) applyDamage(run, e, e.type === 'tank' ? dmg * (b.tankMul ?? 1) : dmg)
         }
         // Beam Prism (v6.7.6): the arm refracts off the NEAREST body it crosses — light bends at
         // the first surface it meets, and refracting off every body in the arm would square a tree
@@ -11593,6 +11598,14 @@ function stepBlooms(run, dt) {
     // holding both would drift a foxfire on the tide and spore-burst it — the same cross-weapon leak
     // stepLobs guards between Net Toss and Debris Toss' shrapnel, and just as silent.
     const pondTide = tide > 0 && !bl.look
+
+    // A WANDERING FOXFIRE: a smooth, seed-dependent heading off its own clock (no Math.random).
+    if (bl.wander) {
+      const h = (bl.seedX * 0.017 + bl.seedY * 0.029) * Math.PI * 2
+      const a = h + 1.7 * Math.sin(bl.t * 1.1 + h) + 1.1 * Math.sin(bl.t * 2.3 + 2 * h)
+      bl.x += Math.cos(a) * FOXFIRE_WANDER_SPEED * dt
+      bl.y += Math.sin(a) * FOXFIRE_WANDER_SPEED * dt
+    }
 
     if (pondTide) {
       const f = currentForce(run, bl.x, bl.y)
@@ -13227,7 +13240,7 @@ function stepLobs(run, dt) {
       for (const e of run.enemies) {
         if (e._dead || isAlly(e)) continue
         const dx = e.x - lo.tx, dy = e.y - lo.ty
-        if (dx * dx + dy * dy <= rSq) applyDamage(run, e, lo.dmg)
+        if (dx * dx + dy * dy <= rSq) applyDamage(run, e, lo.dmg * (e.type === 'tank' ? lo.tankMul ?? 1 : 1))
       }
       run.events.push({ type: 'sunfall', x: lo.tx, y: lo.ty, radius: lo.r })
       continue
@@ -14257,7 +14270,7 @@ function stepSunspearWeapon(run, w, stats, fireRateMul, dt) {
         run.lobs.push({
           x: tx, y: ty, fromX: tx, fromY: ty, tx, ty,
           t: 0, flight: SUNSPEAR_FALL, r: stats.r, dmg: stats.dmg,
-          column: true,
+          column: true, tankMul: chapterTune(run, 'sunspear').tank ?? 1,
         })
       }
     }
@@ -14280,6 +14293,9 @@ function stepFoxfireWeapon(run, w, stats, fireRateMul, dt) {
       run.blooms.push({
         x: spot.x, y: spot.y, r: 0, maxR: stats.maxR * gloom, t: 0,
         dur: stats.glowDur, dmgPerTick: stats.dmg,
+        // seedX/seedY: where it was lit. render.js hashes its embers off these, so a wandering fire
+        // keeps one ember pattern instead of re-rolling it every frame it moves.
+        seedX: spot.x, seedY: spot.y, wander: !!chapterTune(run, 'foxfire').wander,
         // `look` keeps the Spore Bloom's own mods off this cloud (stepBlooms reads sporeburst and
         // tideCarried once for the whole list, exactly like stepLobs reads shrapnel — the same
         // cross-weapon leak, guarded the same way). `slow` keeps the pond's slow off it: the one
@@ -14312,7 +14328,7 @@ function stepSunlanceWeapon(run, w, stats, fireRateMul, dt) {
         angle: a, life: stats.duration, duration: stats.duration, dmg: stats.dmg,
         tick: stats.tick, width: stats.width, length: reach,
         rotSpeed: 0, acc: 0, focusBonus: 0, prism: null,
-        look: 'sunlance',
+        look: 'sunlance', tankMul: chapterTune(run, 'sunlance').tank ?? 1,
       })
     }
     run.events.push({ type: 'sunlance', angle: aim, reach })

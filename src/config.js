@@ -4854,6 +4854,9 @@ export const SUNSPEAR_SPREAD = 48
 // stands in it — and it is why this is the radius rather than the damage (see WEAPONS.longline's
 // block: on a grinder, coverage is throughput and the damage number is not).
 export const FOXFIRE_GLOOM = 1.6
+// px/s a wandering foxfire drifts (CHAPTERS[id].weaponTune.foxfire.wander). Its heading is a smooth
+// function of its own clock, not Math.random: the seeded suite shares one stream.
+export const FOXFIRE_WANDER_SPEED = 45
 // RENDER-ONLY, and it is what makes the card true. A foxfire is drawn inside `world`; the dark is a
 // MULTIPLY scrim on the stage above `world` at dim 1.0 — so a cloud cast outside the player's lamp
 // is not dim, it is ABSENT, exactly as The Deep's anglerfish was before LURE_GLOW existed. Shot on
@@ -5541,11 +5544,13 @@ export const spawnTiltMul = (tilt, t) => 1 + tilt * (1 - 2 * Math.min(1, t / RUN
 // (owner, 2026-09-02: "-25% enemies in late game"); absent everywhere else, where it is exactly 1.
 export const SPAWN_LATE_BLEND = 30
 export const lateSpawnMulAt = (m, t) => 1 + (m - 1) * Math.max(0, Math.min(1, (t - SPAWN_LATE_START) / SPAWN_LATE_BLEND))
-export const spawnRate = (t) => {
-  const base = SPAWN_RATE_BASE + t * SPAWN_RATE_LINEAR
+// `growth` (balance.spawnGrowthMul, default 1) scales only the part that rises over the run, never
+// SPAWN_RATE_BASE, so the opening is unchanged and the ramp is gentler.
+export const spawnRate = (t, growth = 1) => {
+  const base = SPAWN_RATE_BASE + t * SPAWN_RATE_LINEAR * growth
   if (t <= SPAWN_LATE_START) return base * spawnEarlyMul(t)
   const late = t - SPAWN_LATE_START
-  return base + SPAWN_LATE_QUAD * late * late
+  return base + SPAWN_LATE_QUAD * late * late * growth
 }
 // enemy HP scales with time: unchanged for t <= HP_SCALE_LATE_START, then multiplied by a
 // growing late-game factor so HP keeps climbing instead of leveling off (hpScale(300) ≈ 7.6x
@@ -8580,10 +8585,16 @@ CHAPTERS.deep = {
   // from one you watched cross the screen — so the crowd is smaller here and hits harder rather than
   // being simply denser.
   // balance_decision : 10% fewer monsters (spawn and cap), +15% xp [2026-09-27]
-  balance: { spawnMul: 0.675, enemyHpMul: 1.15, enemyDmgMul: 1.1, maxAliveMul: 0.72, xpMul: 1.15 },
-  // balance_decision : +15% fire rate on every native but Glint [2026-09-27]
-  //  - Deep-only: these weapons fire at their plain rate in every other chapter
-  weaponRateMul: { sunspear: 1.15, foxfire: 1.15, sunlance: 1.15 },
+  // balance_decision : spawn rate grows 20% slower over the run [2026-09-27]
+  balance: { spawnMul: 0.675, enemyHpMul: 1.15, enemyDmgMul: 1.1, maxAliveMul: 0.72, xpMul: 1.15, spawnGrowthMul: 0.8 },
+  // balance_decision : non-starters +15% rate, +20% dmg; Sunspear/Sunlance x2 vs tanks [2026-09-27]
+  //  - Deep-only (chapterTune, sim.js): these weapons are plain in every other chapter's pool
+  //  - foxfire: lasts 30% longer and wanders (FOXFIRE_WANDER_SPEED)
+  weaponTune: {
+    sunspear: { rate: 1.15, dmg: 1.2, tank: 2 },
+    foxfire: { rate: 1.15, dmg: 1.2, dur: 1.3, wander: true },
+    sunlance: { rate: 1.15, dmg: 1.2, tank: 2 },
+  },
   // balance_decision : 30% fewer fangtooth, 20% fewer tanks [2026-09-26]
   //  - archetypeKeep, not archetypeMul: absolute cut, normals unmoved, cap shrinks too (stepSpawning)
   archetypeKeep: { fast: 1 - 0.3, tank: 1 - 0.2 },

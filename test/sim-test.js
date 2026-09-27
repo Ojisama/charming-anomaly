@@ -37,7 +37,7 @@ import {
   MAX_PASSIVE_LEVEL, MAX_ELEMENT_PICKS, passiveTotal,
   OBSTACLE_STREAM_RADIUS, OBSTACLE_DROP_RADIUS,
   FRENZY_HP_FRAC, PACER_RADIUS, ELITE, GILDED_COIN_MUL, NOVA_LIFE,
-  SUNSPEAR_FALL, SUNSPEAR_SPREAD, FOXFIRE_GLOOM, FOXFIRE_GLOW, SUNLANCE_REACH_MIN, GLINT_LIGHT_COST, GLINT_GLOW,
+  SUNSPEAR_FALL, SUNSPEAR_SPREAD, FOXFIRE_GLOOM, FOXFIRE_WANDER_SPEED, FOXFIRE_GLOW, SUNLANCE_REACH_MIN, GLINT_LIGHT_COST, GLINT_GLOW,
   WEAPONS, HOLE_SINGULARITY_FRAC, DOWNWASH_PLUNGE_N, DOWNWASH_PLUNGE_FRAC, DOWNWASH_PLUNGE_ARM,
   ORBIT_NOVA_RADIUS, WISP_NOVA_RADIUS, CRUNCH_DMG_MUL, UNDERTOW_VAC_RADIUS_PER_STACK,
   WEAPON_MODS, WEAPON_MOD_TIER_BONUS, MAX_WEAPON_MOD_PICKS, maxModsPerWeaponPerPool, PIERCE_MAX_PICKS,
@@ -24095,7 +24095,7 @@ function testSunspear() {
   // Caught mid-fall: the columns are in run.lobs but have not landed, which is the only window in
   // which their target positions can be read.
   let cols = []
-  for (let i = 0; i < Math.round((lvl.interval / (CHAPTERS.deep.weaponRateMul?.sunspear ?? 1) + SUNSPEAR_FALL * 0.5) * 60); i++) {
+  for (let i = 0; i < Math.round((lvl.interval / (CHAPTERS.deep.weaponTune?.sunspear?.rate ?? 1) + SUNSPEAR_FALL * 0.5) * 60); i++) {
     stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
     run.events.length = 0
     run.enemies = run.enemies.filter((e) => keep.has(e.id))
@@ -24123,7 +24123,7 @@ function testSunspear() {
   run2.enemies.push(lone)
   const keep2 = new Set([lone.id])
   let padCols = []
-  for (let i = 0; i < Math.round((lvl.interval / (CHAPTERS.deep.weaponRateMul?.sunspear ?? 1) + SUNSPEAR_FALL * 0.5) * 60); i++) {
+  for (let i = 0; i < Math.round((lvl.interval / (CHAPTERS.deep.weaponTune?.sunspear?.rate ?? 1) + SUNSPEAR_FALL * 0.5) * 60); i++) {
     stepSim(run2, { x: 0, y: 0, skill: false }, 1 / 60)
     run2.events.length = 0
     run2.enemies = run2.enemies.filter((e) => keep2.has(e.id))
@@ -24189,6 +24189,9 @@ function testFoxfire() {
     for (let i = 0; i < Math.round((lvl.interval + 0.5) * 60) && run.blooms.length === 0; i++) step()
     assert.strictEqual(run.blooms.length, 1, 'the foxfire never kindled — the fixture is not exercising the weapon')
     const bl = run.blooms[0]
+    // Held still: this measures the RADIUS the dark buys, and The Deep's wander would carry the
+    // cloud into the ring. The wander has its own case (run DP.q).
+    bl.wander = false
     // ONE cloud, measured to the end of its life. glowDur (4.4s at L5) outlives `interval` (2.4s), so
     // a still-armed fixture fires again mid-window — onto a ring body, since the ring is in range by
     // then — and the neighbours THAT cloud catches read as the first one's gloom.
@@ -32299,8 +32302,8 @@ function testTheDeep() {
   // (p) THE DEEP'S CADENCE TUNE: every native but Glint fires 15% faster here, counted as real casts
   // against the same fixture with the table removed.
   {
-    const tune = CHAPTERS.deep.weaponRateMul
-    assert.ok(!tune.glint, 'run DP.p: Glint carries a Deep fire-rate tune — the owner excluded it')
+    const tune = CHAPTERS.deep.weaponTune
+    assert.ok(!tune.glint, 'run DP.p: Glint carries a Deep tune — the owner excluded it')
     const casts = (id) => {
       const run = rig(id, 1); run.charge = 100
       const t = fish(run, run.player.x + 150, run.player.y)
@@ -32316,15 +32319,115 @@ function testTheDeep() {
     const out = []
     for (const id of ['sunspear', 'foxfire', 'sunlance']) {
       const tuned = casts(id)
-      delete CHAPTERS.deep.weaponRateMul
+      delete CHAPTERS.deep.weaponTune
       const plain = casts(id)
-      CHAPTERS.deep.weaponRateMul = tune
+      CHAPTERS.deep.weaponTune = tune
       assert.ok(plain >= 4, `run DP.p: ${id} cast only ${plain} times in 60s — the fixture is not measuring its cadence`)
       const ratio = tuned / plain
-      assert.ok(ratio > 1.08 && ratio < 1.25, `run DP.p: ${id} cast x${ratio.toFixed(2)} as often in The Deep — the tune says x${tune[id]}`)
+      assert.ok(ratio > 1.08 && ratio < 1.25, `run DP.p: ${id} cast x${ratio.toFixed(2)} as often in The Deep — the tune says x${tune[id].rate}`)
       out.push(`${id} ${plain}->${tuned}`)
     }
     console.log(`PASS run DP.p (Deep cadence tune): ${out.join(', ')} casts in 60s, Glint untouched`)
+  }
+
+  // (q) THE REST OF THE DEEP'S WEAPON TUNE, each as an effect against the same fixture with the
+  // table removed: +20% damage, x2 against tanks for the column and the lance, and a foxfire that
+  // lasts 30% longer and wanders off where it was lit.
+  {
+    const tune = CHAPTERS.deep.weaponTune
+    const withTune = (on, fn) => {
+      if (!on) delete CHAPTERS.deep.weaponTune
+      try { return fn() } finally { CHAPTERS.deep.weaponTune = tune }
+    }
+    // Damage PER CAST to ONE body over 12s (per cast, so the 1.15 cadence cannot leak into it).
+    // `tank` swaps its archetype, which is all the x2 reads.
+    const dealt = (id, tank) => {
+      const run = rig(id, 1); run.charge = 100
+      const t = fish(run, run.player.x + 150, run.player.y)
+      if (tank) t.type = 'tank'
+      let casts = 0
+      for (let i = 0; i < 12 * 60; i++) {
+        run.charge = 100; t.x = run.player.x + 150; t.y = run.player.y
+        stepSim(run, { x: 0, y: 0 }, dt)
+        for (const ev of run.events) if (ev.type === id) casts++
+        run.events.length = 0
+      }
+      // Stop counting casts whose hit has not landed yet: step past the last one.
+      for (let i = 0; i < 60; i++) { run.weapons.length = 0; stepSim(run, { x: 0, y: 0 }, dt); run.events.length = 0 }
+      return casts ? (t.maxHP - t.hp) / casts : 0
+    }
+    const out = []
+    for (const id of ['sunspear', 'sunlance']) {
+      const [plainN, tunedN, plainT, tunedT] = [
+        withTune(false, () => dealt(id, false)), withTune(true, () => dealt(id, false)),
+        withTune(false, () => dealt(id, true)), withTune(true, () => dealt(id, true)),
+      ]
+      assert.ok(plainN > 0, `run DP.q: ${id} dealt nothing — the fixture is not measuring it`)
+      const perCast = tunedN / plainN
+      assert.ok(Math.abs(perCast - tune[id].dmg) < 0.12,
+        `run DP.q: ${id} deals x${perCast.toFixed(2)} per cast in The Deep — the tune says x${tune[id].dmg}`)
+      assert.ok(Math.abs(plainT / plainN - 1) < 0.05, `run DP.q: WITHOUT the tune ${id} hit a tank for ${plainT} against ${plainN} on a normal body — the tank bonus leaks out of The Deep`)
+      const tankX = tunedT / tunedN
+      assert.ok(Math.abs(tankX - tune[id].tank) < 0.05,
+        `run DP.q: in The Deep ${id} hits a tank x${tankX.toFixed(2)} as hard as a normal body — the tune says x${tune[id].tank}`)
+      out.push(`${id} x${perCast.toFixed(2)}/cast, x${tankX.toFixed(2)} vs tanks`)
+    }
+    assert.ok(!tune.foxfire.tank, 'run DP.q: Foxfire carries a tank bonus — the owner named only the column and the ray')
+
+    // Foxfire: one cloud's life, where it was lit, and where it went.
+    const cloud = (on) => withTune(on, () => {
+      const run = rig('foxfire', 1)
+      fish(run, run.player.x + 150, run.player.y)
+      for (let i = 0; i < 5 * 60 && run.blooms.length === 0; i++) step(run, 1)
+      const bl = run.blooms[0]
+      assert.ok(bl, 'run DP.q: the foxfire never kindled')
+      run.weapons.length = 0
+      const x0 = bl.x, y0 = bl.y, sx = bl.seedX, sy = bl.seedY
+      let life = 0, far = 0, fx = 0, fy = 0
+      while (run.blooms.includes(bl) && life < 20) {
+        step(run, 1); life += dt
+        far = Math.max(far, Math.hypot(bl.x - x0, bl.y - y0)); fx = Math.max(fx, Math.abs(bl.x - x0)); fy = Math.max(fy, Math.abs(bl.y - y0))
+      }
+      return { life, far, fx, fy, dmg: bl.dmgPerTick, seedMoved: bl.seedX !== sx || bl.seedY !== sy }
+    })
+    const still = cloud(false), roam = cloud(true)
+    assert.ok(Math.abs(roam.life / still.life - tune.foxfire.dur) < 0.05,
+      `run DP.q: a Deep foxfire burned ${roam.life.toFixed(2)}s against ${still.life.toFixed(2)}s plain — the tune says x${tune.foxfire.dur}`)
+    assert.ok(Math.abs(roam.dmg / still.dmg - tune.foxfire.dmg) < 0.01, `run DP.q: a Deep foxfire ticks x${(roam.dmg / still.dmg).toFixed(2)} — the tune says x${tune.foxfire.dmg}`)
+    assert.strictEqual(still.far, 0, `run DP.q: a plain foxfire moved ${still.far.toFixed(0)}px — the wander leaks out of The Deep`)
+    assert.ok(roam.far > FOXFIRE_WANDER_SPEED * 0.5, `run DP.q: a Deep foxfire only strayed ${roam.far.toFixed(0)}px from where it was lit — it is not wandering`)
+    assert.ok(Math.min(roam.fx, roam.fy) > 10, `run DP.q: a Deep foxfire drifted ${roam.fx.toFixed(0)}px across and ${roam.fy.toFixed(0)}px down — it only wanders along one axis`)
+    assert.ok(!roam.seedMoved, 'run DP.q: the foxfire\'s seedX/seedY moved with it, so render.js re-rolls its embers every frame')
+    console.log(`PASS run DP.q (Deep weapon tune): ${out.join(', ')}; foxfire ${still.life.toFixed(2)}s -> ${roam.life.toFixed(2)}s, strays up to ${roam.far.toFixed(0)}px`)
+  }
+
+  // (r) THE DEEP'S SPAWN RAMP GROWS 20% SLOWER: same opening, fewer bodies late. Counted as bodies
+  // spawned in 5s at t=250 with the cap out of the way, against the same run at growth 1.
+  {
+    assert.strictEqual(spawnRate(0, 0.8), spawnRate(0), 'run DP.r: spawnGrowthMul moved the OPENING rate — it should scale only the growth')
+    const spawned = (growth) => {
+      Math.random = mulberry32(20260927)
+      const run = createRun(meta, { chapter: 'deep', difficulty: 1 })
+      run.player.hp = run.player.maxHP = 1e9
+      run.weapons.length = 0
+      if (growth != null) run.mods.spawnGrowthMul = growth
+      run.mods.maxAliveMul = 100
+      run.time = 250; run.enemies.length = 0
+      let n = 0
+      for (let i = 0; i < 5 * 60; i++) {
+        const before = run.enemies.length
+        stepSim(run, { x: 0, y: 0 }, dt); run.events.length = 0
+        n += Math.max(0, run.enemies.length - before)
+      }
+      return n
+    }
+    const deep = spawned(), flat = spawned(1)
+    assert.strictEqual(CHAPTERS.deep.balance.spawnGrowthMul, 0.8, 'run DP.r: The Deep lost its spawnGrowthMul')
+    const want = spawnRate(250, 0.8) / spawnRate(250)
+    assert.ok(flat > 20, `run DP.r: only ${flat} bodies spawned in 5s at t=250 — the fixture is not measuring the spawner`)
+    assert.ok(Math.abs(deep / flat - want) < 0.12,
+      `run DP.r: The Deep spawned ${deep} against ${flat} at growth 1 (x${(deep / flat).toFixed(2)}) — spawnRate says x${want.toFixed(2)} at t=250`)
+    console.log(`PASS run DP.r (spawn ramp -20%): ${flat} -> ${deep} bodies in 5s at t=250 (curve says x${want.toFixed(2)}), opening unchanged`)
   }
 
   console.log("PASS run DP (The Deep): the anglerfish is a refill CIRCLE and not a mob, huge and hidden behind its own lure, it is the only food and its mouth is the clock, staying costs half your health AND all your light while leaving in time costs nothing, and Scent marks a group and amplifies every source while buying speed")

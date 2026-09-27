@@ -2559,6 +2559,8 @@ export function createRun(meta, opts = {}) {
     // Also not a multiply — a per-chapter late-game cut read by lateSpawnMulAt in stepSpawning;
     // 1 everywhere it is absent (The Trawl carries 0.75).
     mods.lateSpawnMul = bal.lateSpawnMul ?? 1
+    // Also not a multiply of the rate — it scales only spawnRate's growth term (config.js).
+    mods.spawnGrowthMul = bal.spawnGrowthMul ?? 1
   }
   // Pre-run consumables (see CONSUMABLES in config.js and the doc block above).
   const consumables = opts.consumables ?? []
