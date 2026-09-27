@@ -17999,8 +17999,9 @@ const spurG = new Graphics()
   // its measured shape — the depth ladder divides by it — so raising the pool alone would have
   // silently re-laid The Wreck's wedges. CONE_PUFFS is the cone's; BLOOM_PUFFS is the allocation.
   const CONE_PUFFS = 6
-  const FOX_EMBERS = 7           // ...plus the haze and the core: 9, which is what sizes the pool
-  const BLOOM_PUFFS = 2 + FOX_EMBERS
+  const FOX_FLIES = 10           // fireflies per foxfire swarm...
+  const FOX_TRAIL = 3            // ...each a head and two trail dots: FOX_FLIES x FOX_TRAIL sizes the pool
+  const BLOOM_PUFFS = FOX_FLIES * FOX_TRAIL
   function acquireBloom() {
     const root = new Container()
     const puffs = []
@@ -18096,57 +18097,25 @@ const spurG = new Graphics()
         // travel OUTWARD rather than standing up, because a flame drawn tall would be the side
         // elevation the Trash Tornado shipped and the Sunspear's own block warns about.
         if (fox) {
-          // ONE HOT CORE, ONE HAZE, AND SEVEN EMBERS THAT RISE AND DIE. Fire seen from directly
-          // overhead is not a shape, it is MOTION: material born hot at the middle, carried out,
-          // shrinking and fading. Each ember runs its own loop of that on its own clock, so the
-          // mass boils and no two frames are the same silhouette.
-          //   THE FLAME GLYPH WAS TRIED AND IS NOT IN HERE. T.fx.flame_05 is a broad tapered blade;
-          // nine of them around a centre came back as a rosette, then as an asterisk, then as pale
-          // shards floating in a ring — every arrangement read as something other than a fire, and
-          // at the radius a dark bar buys (maxR 76 in the light, 166 at gloom 1.6) the long ones
-          // were blades bigger than the halo they came out of. Soft circles have no silhouette to
-          // get wrong: they merge, and the READ comes from the motion and from the core's value.
-          const t = k - 2
-          const j = frac(hash * 7.13 + t * 0.371)
-          if (k === 0) {
-            // THE HAZE: the cold light it throws, and the only part that covers the sim's radius.
-            // Wide and faint — updateDark's FOXFIRE_GLOW punch is what lights the floor, so this is
-            // the body of the fire and not a second lamp.
-            s.position.set(0, 0)
-            s.scale.set(sc * 1.02 * (1 + 0.04 * Math.sin(animT * 1.7 + hash * 6.28)))
-            s.tint = 0x9ff0dd
-            s.alpha = alpha * 0.30
-          } else if (k === 1) {
-            // THE CORE, and it is the one part that must not be mint. What separates a cold fire
-            // from this floor is VALUE, not hue: the chapter's water is 0x18567f and its floor wash
-            // 0x9fd6f0, so a pale blue fire on it is a blue smudge on blue — the first probe of
-            // this card came back all but invisible for exactly that reason. A fire with no hot
-            // centre is a puff of gas, and this is the hot centre.
-            s.position.set(0, 0)
-            s.scale.set(sc * 0.46 * (0.88 + 0.18 * Math.sin(animT * 6.1 + hash * 6.28)))
-            s.tint = 0xf2ffff
-            s.alpha = alpha * 0.88
-          } else {
-            // AN EMBER'S WHOLE LIFE IN ONE VALUE. `rise` runs 0 -> 1 and wraps: at 0 it is born
-            // large and bright just off the centre, at 1 it has drifted to 0.72r, shrunk by half
-            // and gone. Its own period and bearing are hashed off the cloud's position, so the
-            // seven are never in step and a field of foxfires never pulses in unison.
-            //   Every phase here comes from `hash` and animT and never from Math.random: this pool
-            // is drawn inside a suite that shares one seeded stream (see the hash's own note above),
-            // and it stays stable when a foxfire wanders because `hash` reads its cast spot
-            // (bl.seedX/seedY), never its live position.
-            const rise = frac(animT * (0.42 + 0.30 * j) + j + t * 0.137)
-            const a = (t / FOX_EMBERS) * Math.PI * 2 + (j - 0.5) * 0.9 + hash * Math.PI * 2
-            const off = bl.r * (0.16 + 0.74 * rise)
-            const rad = bl.r * (0.20 - 0.11 * rise) * (0.70 + 0.60 * j)
-            s.position.set(Math.cos(a) * off, Math.sin(a) * off)
-            s.scale.set(fxScale(T.fx.circle_05, Math.max(1, rad * 2)))
-            // Mint, from the chapter's own eliteIridescent so the fire still belongs to the biome,
-            // and never the Spore Bloom's green: those two are the same ENTITY, and a player
-            // reading their own fire as a pond toxin cloud is the failure this palette avoids.
-            s.tint = t % 2 ? 0xd6fff0 : 0x8ff0d8
-            s.alpha = alpha * 0.8 * (1 - rise) * (0.55 + 0.75 * j)
-          }
+          // A SWARM OF FIREFLIES (owner, 2026-09-27: "Fox fire should be like a small swarm of
+          // fireflies moving around", then from the variant sheet: "C but many more, a real swarm,
+          // bit bigger and tighter grouped"). Each fly loops its own path near the middle, blinks
+          // on its own clock and drags two fading dots where it just was; the whole swarm drifts
+          // because stepBlooms wanders the cloud. Phases come from `hash` (the cast spot) and animT,
+          // never Math.random.
+          //   WHAT THE ART DOES NOT STATE IS THE EDGE: the flies hold to ~0.3r so they read as one
+          // swarm, while the burn reaches bl.r. The FOXFIRE_GLOW punch in updateDark lights that
+          // full reach, so the lit water is the damage area.
+          const i = Math.floor(k / FOX_TRAIL), lag = k % FOX_TRAIL
+          const h = hash * 6.28 + i * 1.7
+          const tt = animT - lag * 0.08
+          const px = bl.r * (0.20 * Math.sin(tt * (1.1 + 0.23 * i) + h) + 0.09 * Math.sin(tt * (2.6 + 0.31 * i) + i))
+          const py = bl.r * (0.20 * Math.cos(tt * (1.0 + 0.19 * i) + h * 1.3) + 0.09 * Math.cos(tt * (2.3 + 0.27 * i) + i * 0.5))
+          const b = 0.2 + 0.8 * Math.pow(Math.max(0, Math.sin(animT * (1.3 + 0.37 * i) + i * 2.1 + hash * 6.28)), 2)
+          s.position.set(px, py)
+          s.scale.set(fxScale(T.fx.circle_05, Math.max(1, (8 - lag * 2) * (0.8 + 0.4 * b) * 2)))
+          s.tint = lag ? 0xd8ffb0 : 0xfdffc8
+          s.alpha = alpha * (lag ? 0.7 - lag * 0.2 : 0.75 + 0.25 * b)
           continue
         }
         if (cone) {

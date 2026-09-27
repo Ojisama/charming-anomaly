@@ -1053,7 +1053,7 @@ function generateWells(sig) {
  *               already visual-safe here since it re-reads h.radius/coreRadius every frame. Big
  *               Crunch (v4.3): on expiry a hole collapses in one last detonation at its FINAL
  *               radius — an {type:'explode'} event, no new field.
- * blooms[i]:    { x, y, r, maxR, t, dur, dmgPerTick, tick?, _mini?, burn?, burnX?, burnY? }  Toxin Bloom clouds (v5.0 pond
+ * blooms[i]:    { x, y, r, maxR, t, dur, dmgPerTick, tick?, _mini?, burn?, burnX?, burnY?, seedX?, seedY?, wander? }  Toxin Bloom clouds (v5.0 pond
  *               native, sim-owned/render-drawn). Planted by stepBloomWeapon at a random enemy
  *               within castRange (fallback: a random offset near the player); r grows 0 -> maxR
  *               over dur × BLOOM_GROW_FRAC (see config.js) then holds maxR; every BLOOM_TICK it
@@ -2070,17 +2070,22 @@ function generateWells(sig) {
  *     object rig, whose parabola and shadow would make a shaft of light into a thrown rock) and
  *     redrawHazards (the amber Debris Toss landing ring, which double-telegraphs it). drawColumns
  *     owns the look. The landing branch in stepLobs sits ABOVE the shrapnel block for the same
- *     reason the net's does.
+ *     reason the net's does. `tankMul` (CHAPTERS[id].weaponTune.sunspear.tank, 1 elsewhere)
+ *     multiplies the landing's damage on an e.type === 'tank' body.
  *   - Foxfire: a run.blooms entry carrying `look: 'foxfire'` and `slow: 0`. `look` keeps the Spore
  *     Bloom's own mods off it — stepBlooms reads sporeburst/tideCarried ONCE for the whole list, so
  *     without the gate a build holding both would spore-burst and tide-drift a foxfire — and drives
  *     the cold near-white tint in syncBlooms. `slow: 0` opts it out of the pond's continuous slow.
  *     Its `maxR` is the DARK BONUS ALREADY APPLIED: FOXFIRE_GLOOM is snapshot at cast, so the cloud
- *     keeps the size the bar bought it however the bar moves afterwards.
+ *     keeps the size the bar bought it however the bar moves afterwards. `seedX/seedY` are where it
+ *     was lit and never move: syncBlooms hashes the firefly swarm's phases off them, so a cloud that
+ *     `wander`s (CHAPTERS[id].weaponTune.foxfire.wander; stepBlooms drifts it FOXFIRE_WANDER_SPEED on
+ *     a heading off its own clock) keeps one swarm instead of re-rolling it every frame.
  *   - Sunlance: a run.beams entry carrying `look: 'sunlance'` with `rotSpeed: 0`. It is NOT `swept`,
  *     which is why `swept` alone could no longer choose the palette — an unswept beam fell into the
  *     Neon Beam's crimson. It takes the third blade bake (T.beamSun). Its `length` is the reach the
  *     bar bought at cast (SUNLANCE_REACH_MIN at empty, full at full) and is never re-read.
+ *     `tankMul` (CHAPTERS[id].weaponTune.sunlance.tank, 1 elsewhere) multiplies its hits on a tank.
  *   {type:'sunspear', x, y, count}  a cast; x,y is the PLAYER (the columns are elsewhere), `count`
  *                                   how many columns it called. Sfx only — the columns draw
  *                                   themselves from run.lobs every frame.
