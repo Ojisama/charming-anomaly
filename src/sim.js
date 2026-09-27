@@ -160,7 +160,7 @@ import {
   MARCH_SPEED_MUL, MARCH_SWAY_PX, MARCH_SWAY_RATE, MARCH_HOME_MUL,
   FORMATION_INTERVAL, FORMATION_COLS, FORMATION_AHEAD_MUL, FORMATION_AHEAD_MIN, FORMATION_ROW_PX, LANE_SPAWN_MUL, LANE_CONTACT_MUL, laneEarlyMul,
   REPULSE_CD, REPULSE_RADIUS, REPULSE_FORCE, REPULSE_STUN, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, PULSE_FORCE_AT_FULL, CLEAR_DUR_MIN, CLEAR_DUR_AT_FULL, CLEAR_SIGHT_FADE, CLEAR_RADIUS_AT_FULL, CLEAR_STUN, darkness, refillSpec, resourceDamageMul, refillGrantFor, pollutionFrac, RUNOFF_MAX_DMG_MUL, RUNOFF_SPEED_FLOOR, FOUL_SPRING_FOUL_T, SILT_PLUME_SPREAD, SILT_FLUSH_MUL, LOBE_SHAPES, inLobe, lobeFactor, SEPARATION_SAMPLES,
-  SUNSPEAR_FALL, SUNSPEAR_SPREAD, FOXFIRE_GLOOM, FOXFIRE_WANDER_SPEED, SUNLANCE_REACH_MIN, GLINT_LIGHT_COST, BUBBLE_COVER_MAX, BUBBLE_ARC_MAX, BALLAST_FLIGHT, BALLAST_BLIND_THROW, BALLAST_REACH_PAD,
+  SUNSPEAR_FALL, SUNSPEAR_SPREAD, FOXFIRE_GLOOM, FOXFIRE_WANDER_SPEED, FOXFIRE_SWARM, SUNLANCE_REACH_MIN, GLINT_LIGHT_COST, BUBBLE_COVER_MAX, BUBBLE_ARC_MAX, BALLAST_FLIGHT, BALLAST_BLIND_THROW, BALLAST_REACH_PAD,
   BALLAST_TANK_MUL, BALLAST_DRAG, BALLAST_DRAG_T,
   BURST_SPEED_MUL, BURST_DUR_MIN, BURST_DUR_AT_FULL, BURST_RAM_MUL, BURST_RAM_COINS, DROWN_TICK,
   SPUR_DPS, SPUR_TICK, SPUR_SLOW_MUL,
@@ -14288,6 +14288,7 @@ function stepFoxfireWeapon(run, w, stats, fireRateMul, dt) {
   const clouds = ipecacN(run, 1)
   fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quickKindle)), dt, () => {
     const gloom = 1 + (FOXFIRE_GLOOM - 1) * darkness(run.charge, CHAPTERS[run.chapter].resource, run.chargeMax)
+    const swarmLvl = 1 + FOXFIRE_SWARM.perLevel * (w.level - 1)
     for (let i = 0; i < clouds; i++) {
       const spot = pickBloomSpot(run, stats.castRange)
       run.blooms.push({
@@ -14296,6 +14297,9 @@ function stepFoxfireWeapon(run, w, stats, fireRateMul, dt) {
         // seedX/seedY: where it was lit. render.js hashes its embers off these, so a wandering fire
         // keeps one ember pattern instead of re-rolling it every frame it moves.
         seedX: spot.x, seedY: spot.y, wander: !!chapterTune(run, 'foxfire').wander,
+        // The firefly swarm render.js draws: count and reach grow with the weapon's level, and the
+        // reach with the gloom too, so the swarm fills a dark-bought fire the way the burn does.
+        flies: Math.round(FOXFIRE_SWARM.flies * swarmLvl), swarmR: FOXFIRE_SWARM.r * swarmLvl * gloom,
         // `look` keeps the Spore Bloom's own mods off this cloud (stepBlooms reads sporeburst and
         // tideCarried once for the whole list, exactly like stepLobs reads shrapnel — the same
         // cross-weapon leak, guarded the same way). `slow` keeps the pond's slow off it: the one
@@ -14829,7 +14833,8 @@ function makeWeaponModCard(run, weaponId, modId, rarity) {
   // legendary Stagger is 0.35 × 4 = 1.4000000000000001, and {n} would print every digit of it.
   // Rounded to 2dp here so the banked value and the card agree exactly, rather than only on screen.
   else if (cfg.kind === 'secs') bonus = Math.round(cfg.base * mult * 100) / 100
-  else bonus = cfg.base * mult
+  // A chapter's weaponTune.mods scales a PERCENT card here, so the card and the bank agree.
+  else bonus = cfg.base * mult * (cfg.kind === 'pct' ? chapterTune(run, weaponId).mods ?? 1 : 1)
   // A desc carrying {n} places the amount ITSELF, anywhere in the sentence, instead of taking the
   // usual "+N " head — see modEffectText in ui.js, which is what actually renders it (and which
   // each language re-places independently, the number being interpolated after translation).

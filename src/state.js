@@ -1053,7 +1053,7 @@ function generateWells(sig) {
  *               already visual-safe here since it re-reads h.radius/coreRadius every frame. Big
  *               Crunch (v4.3): on expiry a hole collapses in one last detonation at its FINAL
  *               radius — an {type:'explode'} event, no new field.
- * blooms[i]:    { x, y, r, maxR, t, dur, dmgPerTick, tick?, _mini?, burn?, burnX?, burnY?, seedX?, seedY?, wander? }  Toxin Bloom clouds (v5.0 pond
+ * blooms[i]:    { x, y, r, maxR, t, dur, dmgPerTick, tick?, _mini?, burn?, burnX?, burnY?, seedX?, seedY?, wander?, flies?, swarmR? }  Toxin Bloom clouds (v5.0 pond
  *               native, sim-owned/render-drawn). Planted by stepBloomWeapon at a random enemy
  *               within castRange (fallback: a random offset near the player); r grows 0 -> maxR
  *               over dur × BLOOM_GROW_FRAC (see config.js) then holds maxR; every BLOOM_TICK it
@@ -2080,7 +2080,8 @@ function generateWells(sig) {
  *     keeps the size the bar bought it however the bar moves afterwards. `seedX/seedY` are where it
  *     was lit and never move: syncBlooms hashes the firefly swarm's phases off them, so a cloud that
  *     `wander`s (CHAPTERS[id].weaponTune.foxfire.wander; stepBlooms drifts it FOXFIRE_WANDER_SPEED on
- *     a heading off its own clock) keeps one swarm instead of re-rolling it every frame.
+ *     a heading off its own clock) keeps one swarm instead of re-rolling it every frame. `flies` and
+ *     `swarmR` are the firefly swarm syncBlooms draws (FOXFIRE_SWARM, +perLevel per weapon level).
  *   - Sunlance: a run.beams entry carrying `look: 'sunlance'` with `rotSpeed: 0`. It is NOT `swept`,
  *     which is why `swept` alone could no longer choose the palette — an unswept beam fell into the
  *     Neon Beam's crimson. It takes the third blade bake (T.beamSun). Its `length` is the reach the
