@@ -9890,6 +9890,8 @@ function globalFireRate(run) {
   return run.player.fireRateMul * (1 + run.passives.fireRate)
     * resourceRateMul(run.charge, CHAPTERS[run.chapter].resource, run.chargeMax)
 }
+// A chapter's per-weapon cadence tune (CHAPTERS[id].weaponRateMul). 1 wherever a chapter names none.
+const chapterWeaponRate = (run, id) => CHAPTERS[run.chapter].weaponRateMul?.[id] ?? 1
 
 /**
  * Read-only projection of the player's whole build, for the pause screen. Lives here because this
@@ -9914,7 +9916,7 @@ export function buildReadout(run) {
     const countKey = WEAPON_COUNT_KEYS[w.id] ?? 'count'
     if (countMod && eff[countKey] != null) eff[countKey] += mods[countMod] ?? 0
     const rateMod = WEAPON_RATE_MODS[w.id]
-    const rateDiv = globalRate * (1 + (rateMod ? (mods[rateMod] ?? 0) : 0))
+    const rateDiv = globalRate * chapterWeaponRate(run, w.id) * (1 + (rateMod ? (mods[rateMod] ?? 0) : 0))
     const stats = []
     // ORDERED — and the order, the membership and the words now all live in ONE table,
     // STAT_KEYS in config.js, which is also where the reasoning behind each slot is written down.
@@ -9969,11 +9971,12 @@ function stepWeapons(run, dt) {
   // run.debris is NOT cleared here. v6.8: a tornado carries its own position between frames
   // because it leaves the ring to hunt, so stepTornadoWeapon resizes the list instead of
   // rebuilding it. (run.orbs above is still the rewrite-every-frame contract.)
-  const fireRateMul = globalFireRate(run)
+  const baseRateMul = globalFireRate(run)
     * (run.rampageT > 0 ? RAMPAGE_FIRE_RATE_MUL : 1)   // v5.14, read-time only (see config)
 
   for (const w of run.weapons) {
     const stats = effectiveWeaponStats(run, w)
+    const fireRateMul = baseRateMul * chapterWeaponRate(run, w.id)
     if (w.id === 'star') stepStarWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'wave') stepWaveWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'orbit') stepOrbitWeapon(run, stats, fireRateMul)
