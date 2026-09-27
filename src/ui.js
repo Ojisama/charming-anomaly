@@ -1,5 +1,5 @@
 // DOM overlay inside #ui: title, shop, HUD, level-up, pause, summary. No Pixi.
-import { shopCost, refundValue, REFUND_RATE, shopLines, shopLineUnlocked, chaptersMastered, lineMax, SHOP_FAMILY, RUN_DURATION, RARITIES, modPct, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, MUTATOR_EFFECT_LABELS, CONSUMABLES, MAX_DIFFICULTY, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, SACRIFICE_COSTS, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES, chapterNumber, CHAPTERS, CHAPTER_ORDER, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, HIDDEN_UNLOCKS, titleBookshelf, spineName, chaosStatus, PULSE_CHARGE_COST, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS, bookOf, BOOK_ORDER, BOOKS, BOOK_UNLOCKS, unlockCost, unlockLevel, unlockMax, dmgSrcName, dmgSrcArt, passiveEffectText, CHAPTER_BOARDS_DEFAULT, KRAKEN_PARRY_CD } from './config.js'
+import { shopCost, refundValue, REFUND_RATE, shopLines, shopLineUnlocked, chaptersMastered, lineMax, SHOP_FAMILY, RUN_DURATION, RARITIES, modPct, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, MUTATOR_EFFECT_LABELS, CONSUMABLES, MAX_DIFFICULTY, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, SACRIFICE_COSTS, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES, chapterNumber, CHAPTERS, CHAPTER_ORDER, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, HIDDEN_UNLOCKS, titleBookshelf, spineName, chaosStatus, PULSE_CHARGE_COST, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS, bookOf, BOOK_ORDER, BOOKS, BOOK_UNLOCKS, unlockCost, unlockLevel, unlockMax, dmgSrcName, dmgSrcArt, passiveEffectText, CHAPTER_BOARDS_DEFAULT, KRAKEN_PARRY_CD, hasSkillButton } from './config.js'
 import { playSfx } from './audio.js'
 import { t, tt, getLang, LANGS } from './i18n.js'
 import { SAVE_SLOTS, activeSlot, slotSummary, saveSummary, exportSlot, NAME_MAX, bookMeta, ensureBookMeta, bookProgress } from './state.js'
@@ -2345,10 +2345,9 @@ export function initUI(hooks) {
     // v5.21: the Repulsion button, shown only for `lane` chapters. Gated on the chapter flag rather
     // than on repulseCd for the same reason the rampage bar above is — a cooldown that merely
     // happens to be 0 is not a signal that the chapter HAS the skill.
-    // v7.x: the button belongs to any chapter with the cast, which is now lane chapters AND any
-    // chapter declaring a resource (sim.js's stepRepulse gates on exactly this same pair — if the
-    // two ever disagree you get a button with no cast, or a cast with no button).
-    const laneChapter = CHAPTERS[run.chapter].lane === true || !!CHAPTERS[run.chapter].resource
+    // v7.x: the button belongs to any chapter with the cast — hasSkillButton, the same test
+    // sim.js's stepRepulse makes.
+    const laneChapter = hasSkillButton(CHAPTERS[run.chapter])
     if (laneChapter !== last.laneChapter) {
       last.laneChapter = laneChapter
       hud.skillBtn.classList.toggle('skill-btn--hidden', !laneChapter)

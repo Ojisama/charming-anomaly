@@ -1345,6 +1345,9 @@ export const HURT_CAP_FRAC = 0.5
 // WEAPONS closes, so a const declared beside them is still in the TDZ while WEAPONS's own literal
 // is being built — `node -e` confirms this throws ReferenceError, not a silent wrong value.
 export const GLINT_LIGHT_COST = 1
+// Does this chapter have the dash button? sim.js's stepRepulse and ui.js's HUD both ask this, so a
+// button without a cast (or a cast without a button) cannot happen. The Kraken has no bar, only the parry.
+export const hasSkillButton = (ch) => ch.lane === true || !!ch.resource || ch.parry === true
 // A weapon card's text for THIS chapter: `descNoSpend` where the chapter's bar cannot be spent.
 export const weaponDesc = (id, chapterId) => (CHAPTERS[chapterId]?.resource?.noSpend && WEAPONS[id].descNoSpend) || WEAPONS[id].desc
 
@@ -2398,7 +2401,7 @@ export const WEAPONS = {
   glint: {
     name: 'Glint',
     desc: `Flings a spark of light at what is nearest. Each cast costs ${GLINT_LIGHT_COST} Light.`,
-    // The card in a chapter whose Light cannot be spent (The Kraken), where the cost above is false.
+    // The card in a chapter whose Light cannot be spent (The Deep), where the cost above is false.
     descNoSpend: 'Flings a spark of light at what is nearest. Here, it costs no Light.',
     icon: '✨', rarity: 'normal',
     // balance_decision : cadence cut ~40%, damage carries the ladder instead [2026-09-09]
@@ -8652,24 +8655,17 @@ CHAPTERS.deep = {
 }
 
 // THE KRAKEN (the graveyard, the Undertow book's last chapter). The book's hidden SCRIPTED PARRY
-// BOSS: a ring of tentacles shields one head, and the dash button is a parry. `refill: 0` on Light
-// is deliberate — a parry is the bar's only refill, which is why kraken stays out of the DRAWDOWN
-// loop below, exactly as wreck does. A full literal, like The Deep — never a spread, so it cannot
+// BOSS: a ring of tentacles shields one head, and the dash button is a parry. No resource bar
+// (owner, 2026-09-27: the Light gauge was not very useful). A full literal, like The Deep — never a spread, so it cannot
 // inherit a sibling's shape.
 CHAPTERS.kraken = {
   playerBody: 'fish',
   name: 'The Kraken',
   tagline: 'the graveyard is its domain',
   icon: '🐙',
-  // `radiusEmpty` IS A SIGHT FLOOR, NOT THE DEEP'S 0.06. The bar is also the telegraph's
-  // legibility here: an empty bar that blacks out the near field takes the parry window with it,
-  // and a window you cannot see is not a difficulty, it is a broken button. 0.28 of the screen
-  // half-diagonal still covers KRAKEN_LASH_R at a phone viewport. Rev 1 copied The Deep's value.
-  resource: { name: 'Light', drain: 1.5, refill: 0, max: 100, noSpend: true, dark: { from: 0.5, speedFloor: 1, dim: 1.0, radiusFull: 0.50, radiusEmpty: 0.28 } },
   // The scripted parry boss (see sim.js's stepKrakenScript). `scripted` opts out of the ordinary
   // run clock (the fight ends on the head dying, not the timer); `parry` routes the dash button to
-  // the parry in stepRepulse; `noSpend` keeps the Light bar from being spent (it is the parry fuel,
-  // refilled by parries). `maxDifficultyCap: 3` bounds the arm-ring size. See the design doc at
+  // the parry in stepRepulse. `maxDifficultyCap: 3` bounds the arm-ring size. See the design doc at
   // docs/superpowers/specs/2026-09-09-the-kraken-final-boss-design.md (revision 2).
   scripted: true,
   parry: true,
@@ -8701,22 +8697,9 @@ CHAPTERS.kraken = {
   //  - measured at d3: krakenDart was 60-75% of ALL damage taken, and the arms landed nothing at d1.
   //    The difficulty was coming from the wrong creature, so the adds sting less and the ring more.
   balance: { spawnMul: 1, enemyHpMul: 0.85, enemyDmgMul: 0.62, maxAliveMul: 1 },
-  // THE DEEP'S OWN ARSENAL, not The Surf's. This chapter shipped with breaker/skippingShell/
-  // barnacles -- character-identical to CHAPTERS.surf's line -- which is a shore kit two kilometres
-  // down: a breaking wave, a shell that 'skips off the sand', and intertidal crust. Measured here at
-  // weapon level 1, head damage per second of the window: Skipping Shell 32.2, Breaker 9.1,
-  // BARNACLES 0.5 -- it propagates when a body DIES and this fight is one enemy that dies once.
-  //   The Deep's four are the chapter you had to beat to be here, they are already abyssal, and two
-  // of them key off mechanics this fight owns: Foxfire is a burn, and a burn lit inside a stagger
-  // outlives it; the Sunlance's reach reads the Light bar that parrying refills. Measured at L5:
-    // NO GLINT HERE, AND THAT IS A COPY DECISION AS MUCH AS A MECHANICAL ONE. Its card says "Each
-  // cast costs 1 Light" in both languages, and this chapter's bar is `noSpend` — parrying is the
-  // only thing that fills it, so nothing may drain it. A Glint here is strictly better than its own
-  // card describes, which is the failure game-art-and-copy names: a card must mean what it says on
-  // the screen the player is looking at. Cheaper to leave it out than to make the sentence
-  // chapter-aware, and its absence costs this pool nothing — the other three already span
-  // 142s/184s/245s at level 5, which is a real spread of answers.
-  weapons: ['sunspear', 'foxfire', 'sunlance', 'glint'], starter: 'sunspear',
+  // The Deep's arsenal minus the Glint, the Sunlance first (owner, 2026-09-27). No bar here, so the
+  // Sunlance reaches its full length.
+  weapons: ['sunlance', 'sunspear', 'foxfire'], starter: 'sunlance',
   // The named ladder, read off KRAKEN_RUNGS: d2 has grabbers and (once enraged) the Coil, d3 adds
   // the Coil from the second block and the enrage* columns.
   modsByDifficulty: { 1: [], 2: ['krakenPinch', 'krakenCoil'], 3: ['krakenPinch', 'krakenCoil', 'krakenFrenzy'] },
@@ -8780,9 +8763,9 @@ export const KRAKEN_RUNGS = [
   //  - enrageFree: its slams skip the one-answer beat (owner 2026-09-26): ~26/min, dodge what you can't parry
   // balance_decision : arms attack 20% more often, owner 2026-09-26
   //  - measure POOLED over 48 seeds (kraken-probe --cadence): per-fight rates swing +-30%
-  { arms: 4, rearing: 1, window: 0.34, lungeWindow: 0.52, perfect: 0.150, fuse: 2.20, limp: 4.0, cadence: 2.55, staggerNeed: 2, drainMul: 1.00, headHpMul: 1.00, grip: false, coil: false, grabbers: 0 },
-  { arms: 5, rearing: 2, window: 0.28, lungeWindow: 0.46, perfect: 0.125, fuse: 1.80, limp: 3.2, cadence: 1.45, staggerNeed: 3, drainMul: 1.30, headHpMul: 1.02, grip: true,  coil: false, grabbers: 2 },
-  { arms: 6, rearing: 2, window: 0.24, lungeWindow: 0.42, perfect: 0.110, fuse: 1.50, limp: 2.6, cadence: 1.45, staggerNeed: 3, drainMul: 1.60, headHpMul: 1.30, grip: true,  coil: true,  grabbers: 2, enrageArms: 3, enrageRearing: 3, enrageCoilEvery: 8, enrageCoilAt: 6, enrageCadence: 0.45, enrageFree: true },
+  { arms: 4, rearing: 1, window: 0.34, lungeWindow: 0.52, perfect: 0.150, fuse: 2.20, limp: 4.0, cadence: 2.55, staggerNeed: 2, headHpMul: 1.00, grip: false, coil: false, grabbers: 0 },
+  { arms: 5, rearing: 2, window: 0.28, lungeWindow: 0.46, perfect: 0.125, fuse: 1.80, limp: 3.2, cadence: 1.45, staggerNeed: 3, headHpMul: 1.02, grip: true,  coil: false, grabbers: 2 },
+  { arms: 6, rearing: 2, window: 0.24, lungeWindow: 0.42, perfect: 0.110, fuse: 1.50, limp: 2.6, cadence: 1.45, staggerNeed: 3, headHpMul: 1.30, grip: true,  coil: true,  grabbers: 2, enrageArms: 3, enrageRearing: 3, enrageCoilEvery: 8, enrageCoilAt: 6, enrageCadence: 0.45, enrageFree: true },
 ]
 // The one accessor, so no site has to remember the difficulty-1 offset or the clamp. The cap is
 // enforced by the chapter, but a probe or a migrated save can hand this anything.
@@ -8898,7 +8881,8 @@ export const KRAKEN_ARM_REACH = 200
 // did — would have two arms covering half the circle each and a ring that is still shut with six
 // of eight arms dead.
 // balance_decision : arms 2.5x tougher, owner 2026-09-26 ("too fragile")
-export const KRAKEN_ARM_HP = 950 // per tentacle. Removed by WEAPONS (+ KRAKEN_EXPOSE_BITE a parry), while limp.
+// balance_decision : tentacle HP doubled, every rung, owner 2026-09-27
+export const KRAKEN_ARM_HP = 1900 // per tentacle. Removed by WEAPONS (+ KRAKEN_EXPOSE_BITE a parry), while limp.
 // (KRAKEN_PARRY_DMG retired in rev 3: a parry EXPOSES an arm, it does not chip it. Weapons kill.)
 export const KRAKEN_PERFECT_MUL = 2.0 // damage + refill multiplier inside the perfect window
 // A PERFECT PARRY ALSO STALLS THE ARM'S NEXT WIND-UP, and without this perfect timing is a NET LOSS.
@@ -9015,9 +8999,6 @@ export const KRAKEN_PARRY_DAZE = 1.0
 // Shorter than the cooldown on purpose — the fish has finished the move and is visibly waiting,
 // which is what makes the 0.8s readable as a cost rather than as the button being broken.
 export const KRAKEN_PARRY_SPIN_T = 0.3
-export const KRAKEN_PARRY_REFILL = 9 // Light regained per good parry (x KRAKEN_PERFECT_MUL on a perfect)
-export const KRAKEN_LIGHT_START = 60 // Light the fight opens on — readable, but not a full bar to spend
-export const KRAKEN_BLAZE_R = KRAKEN_RING_R // the blaze flash's radius
 export const KRAKEN_ARM_LEVELS = 1 // levels a broken arm is worth — BANKED, paid out on the hide
 
 // THE GRIP (P2, D2+). An arm latches on and you are SLOWED, not attacked: you wiggle out of it the
@@ -9128,12 +9109,15 @@ export const KRAKEN_COIL_TELE = 1.6 // s of wind-up before the ring closes — l
 export const KRAKEN_COIL_DUR = 0.9 // s the ring spends hauled in
 export const KRAKEN_COIL_IN = 0.34 // the fraction of KRAKEN_ARM_REACH the arms close to
 export const KRAKEN_COIL_DMG = 30 // caught outside the gap when it shuts
-export const KRAKEN_WAVE = { n: 6, ids: ['krakenDart', 'krakenSnare', 'krakenWall'] }
+// balance_decision : three times the dead between apparitions, owner 2026-09-27
+//  - the waves have their own cap (KRAKEN_WAVE_CAP); KRAKEN_ADD_CAP still bounds the in-block trickle
+export const KRAKEN_WAVE = { n: 18, ids: ['krakenDart', 'krakenSnare', 'krakenWall'] }
 // balance_decision : three graveyard waves before the Kraken surfaces [2026-09-14]
 //  - the opening waves chain on their own counter (script.openW), NOT on bossIdx: the Coil gates on
 //    bossIdx >= 2, so counting them there would pull D3's ring closure a whole block earlier.
 export const KRAKEN_OPEN_WAVES = 3
-export const KRAKEN_WAVE_GROWTH = 2 // extra dead per opening wave — 6, then 8, then 10
+export const KRAKEN_WAVE_GROWTH = 6 // extra dead per opening wave — 18, then 24, then 30
+export const KRAKEN_WAVE_CAP = 48 // most dead on the field once a wave has spawned
 // THE ARENA IS BUILT, NOT CUT TO. Rev 3 raised the head under the player and stood the whole ring
 // up on one frame, which reads as being teleported into a boss room (owner, 2026-09-14: "currently
 // you are 'teleported' to the boss, thats weird and confusing"). The arms now come from
@@ -9141,8 +9125,7 @@ export const KRAKEN_WAVE_GROWTH = 2 // extra dead per opening wave — 6, then 8
 // as they pass and drawing the cage in behind them.
 // KRAKEN_RING_R is off the edge of a PHONE (620 against a 465px half-diagonal) and only just past
 // the edge of a 1280-wide desktop (half-width 640), so on a big screen the walk-in starts at the
-// rim rather than out of the dark. Stated rather than fixed: RING_R is also KRAKEN_BLAZE_R, and
-// moving it to suit one viewport would resize the bar's flash on both.
+// rim rather than out of the dark.
 export const KRAKEN_ARRIVE_T = 3.4  // the first time: the reveal
 export const KRAKEN_ARRIVE_T2 = 1.5 // every block after it: the ring coming back, not a cutscene
 export const KRAKEN_SLAM_T = 0.30   // s an unparried arm stays planted where it landed
@@ -9167,7 +9150,6 @@ export const KRAKEN_WAVE_XP_MUL = 1.5
 //   wreck  — no resource bar at all, so there is nothing to draw down.
 //   trawl  — its food is the net's wake, which is not a place and cannot be used up.
 //   deep   — exempt: see the ⚠ at CHAPTERS.deep.signature. The maw already takes itself away.
-//   kraken — drain-only dark bar (refill 0): the dark is the cost, there is no refill to spend down.
 //   reef   — exempt since 2026-08-26, and it is the ruling's OWN SPIRIT rather than an escape from
 //            it. The owner: "bubble should just give 25 air when you pass through it, remove the
 //            'stay in it to get more' part." A vent still disappears once it has given you a share

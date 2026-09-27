@@ -230,16 +230,17 @@ import {
   KRAKEN_HEAD_TOUCH_DMG, KRAKEN_HEAD_HOLD, KRAKEN_HEAD_STEER, KRAKEN_DASH_RUNUP, KRAKEN_DASH_SPEED, KRAKEN_DASH_DIST, KRAKEN_DASH_PARRY_PX,
 
   KRAKEN_CAGE_R,
-  KRAKEN_LASH_R, KRAKEN_LASH_DMG, KRAKEN_LIGHT_START, KRAKEN_HAUL_R, KRAKEN_LASH_W, KRAKEN_LASH_OVER,
+  KRAKEN_LASH_R, KRAKEN_LASH_DMG, KRAKEN_HAUL_R, KRAKEN_LASH_W, KRAKEN_LASH_OVER,
   KRAKEN_LIMB_HW, krakenLimbHalfW,
   KRAKEN_PARRY_MARGIN, KRAKEN_PARRY_SPIN_T, KRAKEN_PARRY_EARLY_T, KRAKEN_LIMP_CLEAR,
-  KRAKEN_PERFECT_MUL, KRAKEN_PARRY_CD, KRAKEN_PARRY_REFILL, KRAKEN_BLAZE_R,
+  KRAKEN_PERFECT_MUL, KRAKEN_PARRY_CD,
   KRAKEN_GRIP_EVERY, KRAKEN_GRIP_DUR, KRAKEN_GRIP_DMG, KRAKEN_GRIP_STICK_MUL, KRAKEN_GRIP_FLICKS, KRAKEN_GRAB_FUSE, KRAKEN_GRAB_REACT, KRAKEN_GRAB_MIN_STEP, KRAKEN_PINCH_OPEN0, KRAKEN_PINCH_OPEN1, KRAKEN_PINCH_SNAP, KRAKEN_PINCH_HW,
   KRAKEN_BEAT_READ, KRAKEN_BEAT_GRAB_CLEAR, KRAKEN_BEAT_BREATH,
   KRAKEN_TRICKLE_FROM_END, KRAKEN_TRICKLE_T, KRAKEN_TRICKLE_N, KRAKEN_ADD_CAP,
   KRAKEN_LUNGE_T, KRAKEN_LUNGE_WINDUP_T, KRAKEN_LUNGE_DMG, KRAKEN_RISE_T,
   KRAKEN_COIL_EVERY, KRAKEN_COIL_AT, KRAKEN_COIL_RAYS, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, KRAKEN_COIL_IN, KRAKEN_COIL_DMG,
-  KRAKEN_WAVE, KRAKEN_WAVE_GAP, KRAKEN_WAVE_TIMEOUT, KRAKEN_WAVE_XP_MUL,
+  hasSkillButton,
+  KRAKEN_WAVE, KRAKEN_WAVE_CAP, KRAKEN_WAVE_GAP, KRAKEN_WAVE_TIMEOUT, KRAKEN_WAVE_XP_MUL,
   KRAKEN_OPEN_WAVES, KRAKEN_WAVE_GROWTH, KRAKEN_ARRIVE_T, KRAKEN_ARRIVE_T2, KRAKEN_SLAM_T,
   KRAKEN_LESSON_SLOW, KRAKEN_LESSON_MAX, KRAKEN_LESSON_TIP_T,
   KRAKEN_PARRY_SHOVE_R, KRAKEN_PARRY_SHOVE_FORCE, KRAKEN_PARRY_DAZE,
@@ -1664,18 +1665,6 @@ function stepKrakenScript(run, dt) {
   const rung = krakenRung(run.difficulty)
   if (!s.armsTotal) s.armsTotal = rung.arms
 
-  // THE OPENING LIGHT LEVEL, and it MUST happen before the latch below. createRun hands every
-  // resource chapter a FULL bar, so arming the latch first makes the blaze live on frame 1 and the
-  // first parry of every single run a free broken arm — caught by run KR, which saw an arm go from
-  // full HP to 0 in one press. The fight opens readable but not full for the same reason.
-  if (!s.opened) {
-    s.opened = true
-    run.charge = Math.min(run.chargeMax, KRAKEN_LIGHT_START)
-  }
-  // THE BLAZE LATCH. The bar HAVING filled is the event, not standing on the ceiling at the moment
-  // of a press — see krakenParry for why sampling the bar there measures the drain, not the player.
-  if (run.chargeMax > 0 && run.charge >= run.chargeMax - 0.01) s.charged = true
-
   const head = s.headId != null ? run.enemies.find((e) => e.id === s.headId && !e._dead) : null
   // THE WIN — and the one place a hide could be mistaken for one. s.headId is set to null the
   // instant the head is taken off the field deliberately (krakenHide), so "the id is set and the
@@ -1724,7 +1713,7 @@ function stepKrakenWave(run, dt) {
     // a rule: the cap gated only the trickle while the ten-strong wave walked past it, and the field
     // was measured at 17-19 adds against a cap of 14.
     const alive0 = run.enemies.filter((e) => !e._dead && e.rosterId !== 'krakenHead' && e.rosterId !== 'krakenArm').length
-    const room = Math.max(0, KRAKEN_ADD_CAP - alive0)
+    const room = Math.max(0, KRAKEN_WAVE_CAP - alive0)
     // THE APPROACH GETS HEAVIER. The opening is three waves, not one, and each is KRAKEN_WAVE_GROWTH
     // bigger than the last — the chapter you are in before the boss exists, the way The Blank's is.
     // One wave meant the Kraken was standing on top of the player eleven seconds into the run.
@@ -3158,7 +3147,6 @@ function krakenParry(run) {
     head.dashWin = 0
     s.staggerDecay = KRAKEN_STAGGER_DECAY
     s.stagger += perfect ? 2 : 1
-    run.charge = Math.min(run.chargeMax, run.charge + KRAKEN_PARRY_REFILL * (perfect ? KRAKEN_PERFECT_MUL : 1))
     p.parryT = KRAKEN_PARRY_SPIN_T
     run.events.push({ type: perfect ? 'parryPerfect' : 'parry', x: head.x, y: head.y, frac: Math.max(0, 1 - s.stagger / rung.staggerNeed), px: p.x, py: p.y })
     if (s.stagger >= rung.staggerNeed) {
@@ -3177,7 +3165,6 @@ function krakenParry(run) {
 
   // ---- THE RING'S PARRY: negate the strike and EXPOSE the limb.
   const perfect = best.tele <= rung.perfect
-  const mul = perfect ? KRAKEN_PERFECT_MUL : 1
   // The reward is the state change, and a PERFECT parry buys a longer window rather than a bigger
   // number, because more exposure is more of the thing the player actually wants.
   best.tele = 0
@@ -3210,18 +3197,6 @@ function krakenParry(run) {
     run.events.push({ type: 'krakenLesson', stage: 2, x: best.x, y: best.y })
   }
 
-  // AT FULL, THE NEXT PARRY BLAZES — off a LATCH (s.charged), not a sample of the bar. Testing
-  // `charge >= chargeMax` at press time measures the passive drain, not the player: the bar leaves
-  // its ceiling within a frame of touching it, and the blaze fired ~0 times a fight.
-  if (s.charged) {
-    run.charge = 0
-    s.charged = false
-    krakenBreakArm(run, best)
-    run.events.push({ type: 'blaze', x: p.x, y: p.y, r: KRAKEN_BLAZE_R })
-    inkHeartVolley(run, head, best)
-    return
-  }
-  run.charge = Math.min(run.chargeMax, run.charge + KRAKEN_PARRY_REFILL * mul)
   run.hitStop = Math.max(run.hitStop, KRAKEN_HITSTOP_PARRY)
   p.parryT = KRAKEN_PARRY_SPIN_T
   run.events.push({
@@ -3324,7 +3299,7 @@ function stepRepulse(run, input, dt) {
   // v7.x: lane chapters have always had this; a chapter declaring a `resource` gets it too, and
   // spends that resource to amplify it. Both gates on one line so no chapter can have the button
   // without the cast, or the cast without the button (ui.js unhides on exactly this pair).
-  if (!ch.lane && !ch.resource) return
+  if (!hasSkillButton(ch)) return
   run.repulseCd = Math.max(0, (run.repulseCd ?? 0) - dt)
   // ...and the parry GESTURE, beside the cooldown it belongs to. Both are per-frame player timers
   // and splitting them across two steps is how one of them ends up frozen by a modal and the other
@@ -8047,16 +8022,7 @@ export function stepCharge(run, dt) {
   // and the in-circle refill respectively — both default to 1 (no-op) unbought, and both are 1 in
   // every chapter with no resource, so this is inert wherever it always was.
   const p = run.player
-  // THE KRAKEN'S BREATHER DOES NOT DRAIN. Its Light has exactly one refill — a parry — and there is
-  // nothing to parry while the ring is down, so draining through a wave is a cost with no matching
-  // agency: you would enter every block blind for reasons you could not have played around. The
-  // dark is the kraken's, and during the breather the kraken is not there. One reader, and it is
-  // inert for every chapter that does not declare `parry`.
-  const breather = CHAPTERS[run.chapter].parry && run.script?.phase === 'wave'
-  // ...and the Kraken's RUNG scales what the drain costs (KRAKEN_RUNGS[].drainMul). 1 everywhere
-  // else, so this is byte-for-byte the old line for every other chapter's bar.
-  const rungDrain = CHAPTERS[run.chapter].parry ? krakenRung(run.difficulty).drainMul : 1
-  let c = breather ? run.charge : run.charge - drainRate * dryMul * run.chargeDrainMul * rungDrain * dt
+  let c = run.charge - drainRate * dryMul * run.chargeDrainMul * dt
   // Opt-in per FIELD, read through refillSpec() so this asks the streamer's own question rather
   // than a second one that could disagree. 0/undefined everywhere but The Shelf.
   // drawdownSecsFor, not a bare refillSpec read: Dead Water multiplies this clock and all three

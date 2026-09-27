@@ -2319,10 +2319,6 @@ function generateWells(sig) {
   *       in behind it, so the arena is BUILT rather than cut to. krakenReach() is the one reader.
   *     deflT — cooloff between deflect sparks off a SEALED head. A full build lands dozens of
   *       refused hits a second; without this the answer to "can I hurt it" would be a strobe.
-  *     opened — has the fight set its opening Light level yet. createRun hands every resource
-  *       chapter a FULL bar, and the Kraken opens readable-but-not-full instead; this runs BEFORE
-  *       `charged` is latched each frame, because a full bar on frame 1 would otherwise arm the
-  *       blaze before the player has met an arm and make the first parry of every run a free kill.
   *     riseT — the chase's opening beat: seconds left of the head ASCENDING out of the abyss. It
   *       is still and harmless while this runs (but not invulnerable), and render scales it up out
   *       of the dark against it.
@@ -2365,11 +2361,6 @@ function generateWells(sig) {
   *       0..1 (krakenDashWindow: charging, closing, close, and in its last lungeWindow s),
   *       _kvx/_kvy its drifting velocity. Its touch is plain contact damage (head.dmg). No bite.
   *     dashWinAt — run.time the dash window was last open (or parried): the beat's "just answered".
-  *     charged — THE BLAZE LATCH. Set the moment Light reaches its ceiling, consumed by the next
-  *       parry (which breaks its arm outright). A latch rather than a test of the bar at press
-  *       time, because the passive drain leaves the ceiling within a frame of touching it: sampling
-  *       `charge >= chargeMax` there measures the drain, not the player, and blazed ~0 times a
-  *       fight while peak Light read 100/100 on every run.
   * bossBar: null whenever no scripted boss is alive; while one is, { hp, max, stage } mirrors the
   *   current phase entity so ui.js can render a boss HP bar without reaching into run.enemies
   *   (rampage pattern: the field always exists, stays inert for every non-scripted chapter).

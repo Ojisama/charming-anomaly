@@ -34968,6 +34968,9 @@ function runKraken() {
       stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
     }
     assert.strictEqual(run.script.phase, 'boss', `the approach never handed over to a ring block in ${budget}s`)
+    // the approach's leftover gems and level-ups: one landing mid-assertion stops the sim there
+    run.gems.length = 0
+    while (run.phase === 'levelup') declineLevelUp(run)
     for (let i = 0; i < 3; i++) { run.player.hp = run.player.maxHP; stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60) }
     return run
   }
@@ -35357,9 +35360,9 @@ function runKraken() {
     }
   }
 
-  // (g5) GLINT'S CARD SAYS WHAT IT COSTS HERE. The Kraken's bar is noSpend, so "Each cast costs 1
-  // Light" is false on this screen; the real level-up path must deal descNoSpend here and the plain
-  // desc in The Deep, where the cost is real.
+  // (g5) THE KRAKEN HAS NO LIGHT AND NO GLINT, AND STARTS ON THE SUNLANCE (owner, 2026-09-27). The
+  // run is asked, not the table: a run that still carried a bar would still be dark and still drain.
+  // The Deep keeps the Glint, and its bar is unspendable, so its card drops the cost.
   {
     const dealt = (chapter) => {
       const run = createRun({ ...makeMeta(), krakenParried: true }, { chapter })
@@ -35371,8 +35374,12 @@ function runKraken() {
       }
       return null
     }
-    assert.ok(CHAPTERS.kraken.weapons.includes('glint'), 'Glint is not in the Kraken pool')
-    assert.strictEqual(dealt('kraken'), WEAPONS.glint.descNoSpend, 'a Glint card dealt in the Kraken still claims a Light cost the bar cannot pay')
+    {
+      const run = createRun({ ...makeMeta(), krakenParried: true }, { chapter: 'kraken' })
+      assert.strictEqual(run.weapons[0]?.id, 'sunlance', `the Kraken starts on ${run.weapons[0]?.id}, want the Sunlance`)
+      assert.strictEqual(run.chargeMax, 0, `the Kraken still has a ${run.chargeMax} Light bar`)
+      for (let i = 0; i < 400; i++) assert.ok(!buildLevelUpChoices(run).some((x) => x.id === 'glint'), 'a Glint card was dealt in the Kraken')
+    }
     // The Deep's bar is unspendable too since 2026-09-27 (owner: "the level should not consume
     // light, on the glint"), so its card must say the same.
     assert.strictEqual(dealt('deep'), WEAPONS.glint.descNoSpend, 'a Glint card dealt in The Deep still claims a Light cost')
@@ -36258,7 +36265,8 @@ function runKraken() {
     // game locked onto the one target in the chapter that refuses damage — while the arm nodes, the
     // only thing that CAN be killed, were never shot at. Case (b) could not see it: it stands the
     // player ON the arm, so the node is already the nearest body. This one stands them on the HEAD,
-    // which is where the bug lives.
+    // which is where the bug lives. Both the chapter's starter (the Sunlance) and the Sunspear.
+    for (const wid of [CHAPTERS.kraken.starter, 'sunspear']) {
     const run = inBlock(1)
     const h = headOf(run)
     const arm = run.krakenArms[0]
@@ -36269,7 +36277,8 @@ function runKraken() {
     // level 5 enough suns fall that one lands on the node whatever the head is doing and the fixture
     // reads green either way. At level 1 there is ONE sun and it goes to the nearest body — measured,
     // 0 damage to the node before the fix against 34 after.
-    run.weapons = [{ id: 'sunspear', level: 1 }]
+    run.weapons = [{ id: wid, level: 1 }]
+    run.weaponTimers = { [wid]: 0 }   // fire on the first frame, not a whole interval in
     run.player.x = h.x; run.player.y = h.y
     const dHead = Math.hypot(h.x - run.player.x, h.y - run.player.y)
     const dNode = Math.hypot(node.x - run.player.x, node.y - run.player.y)
@@ -36286,7 +36295,8 @@ function runKraken() {
     }
     const live = run.enemies.find((e) => e.id === node.id)
     assert.ok(!live || live._dead || live.hp < nhp,
-      'two seconds of the chapter STARTER did nothing to the one killable thing on the field — every shot went into the sealed head, which refuses all of it, and the fight cannot be finished that way')
+      `two seconds of ${wid} did nothing to the one killable thing on the field — every shot went into the sealed head, which refuses all of it, and the fight cannot be finished that way`)
+    }
   }
   {
     // "it goes 1px left 1px right in a fast loop"
@@ -36329,7 +36339,7 @@ function runKraken() {
       'a WHIFF left the player with no gesture — a press that found nothing and a press the game never registered are the same picture, which is the complaint')
   }
 
-  console.log('PASS run KR (The Kraken, rev 3): a standing arm is untouchable by all three weapons and puts nothing on the field, a parry makes it LIMP and materialises a real enemy at its tip that weapons do kill, a window closing takes that node away without paying a kill or xp and keeps the damage, finishing it breaks the arm for good, the ring never winds up more arms at once than its rung allows (d1/d2/d3), the head is sealed against hits AND burns until its posture breaks, staggerNeed parried lunges open the only window on it and a burn lit inside outlives it, a whiff reports itself and still pays the cooldown, the cage holds while the ring is up, all 3 rungs read arms/rearing/window/perfect/fuse/limp/cadence/staggerNeed with the windows nested, both hidden chapters resolve through HIDDEN_UNLOCKS with no id hardcoded in main/ui/state, the approach is 3 waves that never touch bossIdx and the ring closes in from the murk with the cage riding it, a sealed head answers every refused hit with a throttled deflect, an unparried slam holds its pose for KRAKEN_SLAM_T and lands down the WHOLE limb so the middle of the arena is not safe while a gap between two arms is, and render.js (comments stripped) reads limpT, fuse, hitT, slamT, the arrival ramp, the recorded arm tips, the stagger pips, the cage radius the sim published, the limb WRAPPING the player for a grip and the bend travelling down a striking limb; the chase head rises harmless (no bite during riseT), its touch is a BITE with a KRAKEN_BITE_WINDUP_T lead that stepping out beats, quiet through a Coil and a lunge wind-up, never within KRAKEN_BITE_GAP of a lunge wind-up, and render.js reads the struggle counter, the Coil gap and the head-touch hurt for the fish\'s three cues; a foxfire on the open head lights a burn that carries the player\'s damage and outlives the window (and lights nothing sealed), Ink Heart removes the stagger bite and puts a visible volley through the seal on every parry, the named ladder agrees with KRAKEN_RUNGS rung by rung, and a Glint card dealt here drops its Light cost while The Deep keeps it')
+  console.log('PASS run KR (The Kraken, rev 3): a standing arm is untouchable by all three weapons and puts nothing on the field, a parry makes it LIMP and materialises a real enemy at its tip that weapons do kill, a window closing takes that node away without paying a kill or xp and keeps the damage, finishing it breaks the arm for good, the ring never winds up more arms at once than its rung allows (d1/d2/d3), the head is sealed against hits AND burns until its posture breaks, staggerNeed parried lunges open the only window on it and a burn lit inside outlives it, a whiff reports itself and still pays the cooldown, the cage holds while the ring is up, all 3 rungs read arms/rearing/window/perfect/fuse/limp/cadence/staggerNeed with the windows nested, both hidden chapters resolve through HIDDEN_UNLOCKS with no id hardcoded in main/ui/state, the approach is 3 waves that never touch bossIdx and the ring closes in from the murk with the cage riding it, a sealed head answers every refused hit with a throttled deflect, an unparried slam holds its pose for KRAKEN_SLAM_T and lands down the WHOLE limb so the middle of the arena is not safe while a gap between two arms is, and render.js (comments stripped) reads limpT, fuse, hitT, slamT, the arrival ramp, the recorded arm tips, the stagger pips, the cage radius the sim published, the limb WRAPPING the player for a grip and the bend travelling down a striking limb; the chase head rises harmless (no bite during riseT), its touch is a BITE with a KRAKEN_BITE_WINDUP_T lead that stepping out beats, quiet through a Coil and a lunge wind-up, never within KRAKEN_BITE_GAP of a lunge wind-up, and render.js reads the struggle counter, the Coil gap and the head-touch hurt for the fish\'s three cues; a foxfire on the open head lights a burn that carries the player\'s damage and outlives the window (and lights nothing sealed), Ink Heart removes the stagger bite and puts a visible volley through the seal on every parry, the named ladder agrees with KRAKEN_RUNGS rung by rung, and the Kraken starts on the Sunlance with no Light bar and no Glint')
 }
 
 // ---- Run KC: The Kraken's ceremony (the kill outro's contract) --------------------------------
