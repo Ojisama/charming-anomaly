@@ -32468,7 +32468,7 @@ function testTheDeep() {
       return { bank: run.weaponMods[weapon]?.[mod] ?? 0, card: card.bonus }
     }
     const out = []
-    for (const [weapon, mod, want] of [['sunspear', 'highNoon', 1.2], ['foxfire', 'emberfeed', 1.2], ['sunlance', 'whetted', 1.2], ['glint', 'bright', 0.8], ['glint', 'quickGlint', 0.8], ['sunspear', 'secondSun', 1], ['glint', 'keenLight', 1]]) {
+    for (const [weapon, mod, want] of [['sunspear', 'highNoon', 1.2], ['foxfire', 'emberfeed', 1.2], ['foxfire', 'gloaming', 1.2 * 0.6], ['sunlance', 'whetted', 1.2], ['glint', 'bright', 0.8], ['glint', 'quickGlint', 0.8], ['sunspear', 'secondSun', 1], ['glint', 'keenLight', 1]]) {
       const deep = banked('deep', weapon, mod), body = banked('body', weapon, mod)
       assert.ok(body.bank > 0, `run DP.s: '${weapon}.${mod}' banked nothing — the fixture is not taking the card`)
       assert.ok(Math.abs(deep.bank / body.bank - want) < 1e-9,
@@ -32482,8 +32482,9 @@ function testTheDeep() {
   // (t) THE FIREFLY SWARM GROWS WITH LEVEL: +10% flies and +10% reach per level past 1, published
   // on the bloom for render.js, which must draw that count and that reach.
   {
-    const bloomAt = (level) => {
+    const bloomAt = (level, gloaming = 0) => {
       const run = rig('foxfire', level); run.charge = run.chargeMax
+      if (gloaming) run.weaponMods.foxfire = { gloaming }
       fish(run, run.player.x + 150, run.player.y)
       for (let i = 0; i < 5 * 60 && run.blooms.length === 0; i++) { run.charge = run.chargeMax; step(run, 1) }
       assert.ok(run.blooms[0], `run DP.t: no foxfire at level ${level}`)
@@ -32492,6 +32493,12 @@ function testTheDeep() {
     const top = WEAPONS.foxfire.levels.length
     const l1 = bloomAt(1), lt = bloomAt(top)
     const want = 1 + FOXFIRE_SWARM.perLevel * (top - 1)
+    // GLOAMING WIDENS THE SWARM WITH THE BURN (owner: "the radius upgrade works on light but the
+    // actual swarm doesn't grow"), and never adds flies: the sprite pool is sized for the level.
+    const gl = bloomAt(1, 0.5)
+    assert.ok(Math.abs(gl.swarmR / l1.swarmR - gl.maxR / l1.maxR) < 1e-9 && gl.maxR > l1.maxR * 1.4,
+      `run DP.t: a +50% Gloaming grew the burn x${(gl.maxR / l1.maxR).toFixed(2)} but the swarm x${(gl.swarmR / l1.swarmR).toFixed(2)}`)
+    assert.strictEqual(gl.flies, l1.flies, 'run DP.t: Gloaming added flies — the pool is sized for the top LEVEL, not for a radius mod')
     assert.strictEqual(l1.flies, FOXFIRE_SWARM.flies, `run DP.t: a level-1 foxfire carries ${l1.flies} flies, want ${FOXFIRE_SWARM.flies}`)
     assert.strictEqual(lt.flies, Math.round(FOXFIRE_SWARM.flies * want), `run DP.t: a level-${top} foxfire carries ${lt.flies} flies, want ${Math.round(FOXFIRE_SWARM.flies * want)}`)
     assert.ok(Math.abs(lt.swarmR / l1.swarmR - want) < 1e-9, `run DP.t: the swarm's reach grew x${(lt.swarmR / l1.swarmR).toFixed(2)} from L1 to L${top}, want x${want}`)
@@ -32500,6 +32507,10 @@ function testTheDeep() {
       'run DP.t: syncBlooms no longer draws bl.flies fireflies over bl.swarmR — the level growth is published and never seen')
     assert.ok(/FOX_FLIES = Math\.round\(FOXFIRE_SWARM\.flies \* \(1 \+ FOXFIRE_SWARM\.perLevel \* \(WEAPONS\.foxfire\.levels\.length - 1\)\)\)/.test(rcode),
       'run DP.t: the bloom sprite pool is not sized for the top level\'s swarm — the extra flies would have no sprites')
+    // EVERY FLY ITS OWN PATH (owner: "they all twirl the same pattern"): the fly's phases are hashed
+    // per fly (i) AND per cast (hash), and x and y are independent axes — never a sin/cos pair.
+    assert.ok(/const rnd = \(n\) => frac\(Math\.sin\(\(i \* 7 \+ n\) \* 12\.9898 \+ hash \* 78\.233\)/.test(rcode) && /const px = S \* axis\(0\), py = S \* axis\(20\)/.test(rcode),
+      'run DP.t: the fireflies no longer take per-fly hashed paths on independent axes — they will twirl in step again')
     console.log(`PASS run DP.t (firefly swarm by level): ${l1.flies} -> ${lt.flies} flies and x${want} reach from L1 to L${top}, drawn by syncBlooms`)
   }
 

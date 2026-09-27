@@ -18110,13 +18110,18 @@ const spurG = new Graphics()
           // swarm, while the burn reaches bl.r. The FOXFIRE_GLOW punch in updateDark lights that
           // full reach, so the lit water is the damage area.
           const i = Math.floor(k / FOX_TRAIL), lag = k % FOX_TRAIL
-          const h = hash * 6.28 + i * 1.7
           const tt = animT - lag * 0.08
           // The swarm's reach grows in with the cloud (bl.r / bl.maxR), like the burn does.
           const S = (bl.swarmR ?? FOXFIRE_SWARM.r) * (bl.maxR > 0 ? bl.r / bl.maxR : 1)
-          const px = S * (0.69 * Math.sin(tt * (1.1 + 0.23 * i) + h) + 0.31 * Math.sin(tt * (2.6 + 0.31 * i) + i))
-          const py = S * (0.69 * Math.cos(tt * (1.0 + 0.19 * i) + h * 1.3) + 0.31 * Math.cos(tt * (2.3 + 0.27 * i) + i * 0.5))
-          const b = 0.2 + 0.8 * Math.pow(Math.max(0, Math.sin(animT * (1.3 + 0.37 * i) + i * 2.1 + hash * 6.28)), 2)
+          // EVERY FLY ITS OWN PATH (owner: "they all twirl the same pattern"). x and y are separate
+          // sums of three sines whose speeds and phases are hashed per fly and per cast, so no two
+          // flies trace the same figure and no axis pair closes into a circle.
+          const rnd = (n) => frac(Math.sin((i * 7 + n) * 12.9898 + hash * 78.233) * 43758.5453)
+          const axis = (o) => 0.55 * Math.sin(tt * (0.5 + 1.6 * rnd(o)) + 6.28 * rnd(o + 1))
+            + 0.30 * Math.sin(tt * (1.4 + 2.4 * rnd(o + 2)) + 6.28 * rnd(o + 3))
+            + 0.15 * Math.sin(tt * (3.0 + 3.0 * rnd(o + 4)) + 6.28 * rnd(o + 5))
+          const px = S * axis(0), py = S * axis(20)
+          const b = 0.2 + 0.8 * Math.pow(Math.max(0, Math.sin(animT * (0.8 + 1.4 * rnd(40)) + 6.28 * rnd(41))), 2)
           s.position.set(px, py)
           s.scale.set(fxScale(T.fx.circle_05, Math.max(1, (8 - lag * 2) * (0.8 + 0.4 * b) * 2)))
           s.tint = lag ? 0xd8ffb0 : 0xfdffc8
