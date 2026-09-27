@@ -302,8 +302,8 @@ const UI = {
   // 'Relancer cette anomalie' — that one is prose read aloud, not a label on a control.
   'reroll {n}': 'reroll {n}',
   'Start': 'Commencer',
-  'The Blank\'s ladder is fixed — each difficulty adds its named modifier.':
-    'L\'échelle du Blanc est fixe — chaque difficulté ajoute son modificateur attitré.',
+  'This boss\'s ladder is fixed — each difficulty adds its named modifiers.':
+    'L\'échelle de ce boss est fixe — chaque difficulté ajoute ses modificateurs attitrés.',
   // v6.6.19 per-anomaly reroll, both INFINITIVE. The FR review argued for the imperative
   // ('Relance'), since this file reserves the infinitive for controls and addresses the player
   // directly in prose. The owner overruled it (v6.6.20) on the competing reading, which the review
@@ -1680,6 +1680,17 @@ const CONFIG = {
   'SHOOT THE TIP TO BREAK THE ARM': 'TIRE SUR LE BOUT POUR BRISER LE BRAS',
   'THE ARMS RETURN': 'LES TENTACULES REPOUSSENT',
   'KRAKEN SLAIN': 'KRAKEN TERRASSÉ',
+  // The Kraken, 2026-09-27: Glint's no-cost card, Ink Heart, the named ladder. Owner-picked: Glint,
+  // the Ink Heart name/line/desc wording, L'Étau / L'Étreinte and their two descs. Frenzy's desc is a DRAFT.
+  'Flings a spark of light at what is nearest. Here, it costs no Light.': 'Lance un éclat lumineux qui ne coûte pas de Lumière ici.',
+  'Ink Heart': 'Cœur d\'Encre',
+  'the ink finds its way in': 'l\'encre sait où passer',
+  'Your parries no longer bite the Kraken\'s head, but fire all your attacks into it at once, wherever it is.': 'Les parades ne mordent plus la tête, mais y lancent toutes tes attaques en même temps, où qu\'elle soit.',
+  'The Pinch': 'L\'Étau',
+  'The Coil': 'L\'Étreinte',
+  'two arms pin you in place': 'deux bras t\'immobilisent',
+  'every arm slams down on you at once': 'tous les bras s\'abattent en même temps sur toi',
+  'its last stand grows three more arms that strike faster': 'son dernier souffle fait pousser trois bras de plus, plus rapides',
   'The Bulkhead': 'La Cloison',
   'The Gaff': 'La Gaffe',
   'The Tentacle': 'Le Tentacule',

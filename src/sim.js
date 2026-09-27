@@ -28,7 +28,7 @@
 // flipping phase to 'dead' when one is banked — see hurtPlayer below.
 
 import {
-  RUN_DURATION, PLAYER, WEAPONS, CHAPTERS, MAX_WEAPON_LEVEL, MAX_WEAPONS,
+  RUN_DURATION, PLAYER, WEAPONS, weaponDesc, CHAPTERS, MAX_WEAPON_LEVEL, MAX_WEAPONS,
   PASSIVES, MAX_PASSIVE_LEVEL, passiveTotal, WEAPON_MODS, WEAPON_MOD_TIER_BONUS, MOD_POOL_MAX,
   MOD_CANDIDATES_PER_WEAPON, maxModsPerWeaponPerPool, DUO_PITY_SCREENS, WEAPON_RATE_MODS, WEAPON_COUNT_MODS, WEAPON_COUNT_KEYS, STAT_ROW_KEYS,
   ELEMENTS, MAX_ELEMENT_PICKS,
@@ -225,7 +225,7 @@ import {
   krakenRung, KRAKEN_HEAD_HP, KRAKEN_HEAD_R, KRAKEN_HEAD_SPEED,
   KRAKEN_ARM_HP, KRAKEN_ARM_R, KRAKEN_RING_R, KRAKEN_ARM_REACH, KRAKEN_ARM_LEVELS,
   KRAKEN_LIMP_PERFECT_MUL, KRAKEN_STAGGER_T, KRAKEN_STAGGER_DECAY, KRAKEN_LIMP_FLASH,
-  KRAKEN_RISE_AT, KRAKEN_ENRAGE_AT, KRAKEN_ENRAGE_CADENCE, KRAKEN_ENRAGE_ARM_HP, KRAKEN_STAGGER_BITE,
+  KRAKEN_RISE_AT, KRAKEN_ENRAGE_AT, KRAKEN_ENRAGE_CADENCE, KRAKEN_ENRAGE_ARM_HP, KRAKEN_STAGGER_BITE, KRAKEN_FOXFIRE_BURN_T, INK_HEART_VOLLEY_MUL,
   KRAKEN_EXPOSE_BITE, KRAKEN_HITSTOP_PARRY, KRAKEN_HITSTOP_BREAK, KRAKEN_HITSTOP_STAGGER,
   KRAKEN_HEAD_TOUCH_DMG, KRAKEN_HEAD_HOLD, KRAKEN_HEAD_STEER, KRAKEN_DASH_RUNUP, KRAKEN_DASH_SPEED, KRAKEN_DASH_DIST, KRAKEN_DASH_PARRY_PX,
 
@@ -3161,8 +3161,9 @@ function krakenParry(run) {
       // THE DEATHBLOW ITSELF. Through dealDamage rather than by writing hp, so it takes the one
       // damage path — including the death branch, the boss bar and the kill credit. staggerT is set
       // FIRST on purpose: the seal reads it, so this is the same window the player's weapons get.
-      dealDamage(run, head, Math.round(head.maxHP * KRAKEN_STAGGER_BITE), false)
+      if (!run.anomalies?.inkHeart) dealDamage(run, head, Math.round(head.maxHP * KRAKEN_STAGGER_BITE), false)
     }
+    inkHeartVolley(run, head)
     return
   }
 
@@ -3209,6 +3210,7 @@ function krakenParry(run) {
     s.charged = false
     krakenBreakArm(run, best)
     run.events.push({ type: 'blaze', x: p.x, y: p.y, r: KRAKEN_BLAZE_R })
+    inkHeartVolley(run, head, best)
     return
   }
   run.charge = Math.min(run.chargeMax, run.charge + KRAKEN_PARRY_REFILL * mul)
@@ -3220,6 +3222,32 @@ function krakenParry(run) {
     px: p.x, py: p.y,   // the SLAM is thrown from the fish; the snap above is on the arm
     i: best.i,          // which limb: render puts the spark and the recoil on the one it drew
   })
+  inkHeartVolley(run, head, best)
+}
+
+// INK HEART (ANOMALIES.inkHeart): every landed parry fires one hit of every weapon held straight
+// into the head, THROUGH the seal. Player damage multipliers apply; no crit, no elements — it is one
+// number, not a volley of rolls. Passed as `carried` because that is dealDamage's one seal bypass.
+// ponytail: one cast = dmg x count of the level row; a tick weapon (foxfire, sunlance) pays one tick.
+// Per-weapon cast shapes if the owner wants it to read the build more finely.
+// THE INK'S TARGET ON SCREEN: through the ring the head is not drawn at all (render hides it behind
+// its arms), so an arm parry sends the ink up that ARM to its shoulder, into the dark it comes from.
+function inkHeartVolley(run, head, arm = null) {
+  if (!run.anomalies?.inkHeart || !head || head._dead) return
+  const p = run.player
+  let sum = 0
+  for (const w of run.weapons) {
+    const st = effectiveWeaponStats(run, w)
+    sum += (st.dmg ?? 0) * (st.count ?? 1)
+  }
+  if (sum <= 0) return
+  const dmg = Math.round(sum * INK_HEART_VOLLEY_MUL * p.damageMul * (1 + run.passives.damage) * run.mods.playerDmgMul * anomalyDamageMul(run))
+  const up = arm && run.script?.phase !== 'chase'
+  run.events.push({ type: 'inkVolley', x: p.x, y: p.y, tx: up ? arm.lx0 : head.x, ty: up ? arm.ly0 : head.y })
+  const n0 = run.events.length
+  dealDamage(run, head, dmg, false, false, false, true)
+  // ...and so does its NUMBER: dealDamage prints it at head.x/y, which through the ring is open water.
+  if (up) for (let i = n0; i < run.events.length; i++) if (run.events[i].type === 'hit') { run.events[i].x = arm.x; run.events[i].y = arm.y }
 }
 
 // v6.3.1: detonate k points of the player's trail as staggered telegraph bombs (oldest first,
@@ -11510,6 +11538,7 @@ function applyDotDamage(run, enemy, baseDmg) {
     // v7.55 §5.3 owner ruling: Humidity only. run.chargeMax (Task 9 fix round), not the config max.
     * resourceDamageMul(run.charge, CHAPTERS[run.chapter].resource, run.chargeMax)
   dealDamage(run, enemy, dmg, false, true)
+  return dmg
 }
 
 // Grows each cloud 0 -> maxR over dur × BLOOM_GROW_FRAC (then holds maxR), ticks dot-flagged
@@ -11621,7 +11650,15 @@ function stepBlooms(run, dt) {
         // dealing it, was the same shape until the weapon was deleted) — and a {type:'hit', dmg: 0}
         // draws a floating "0" over the body and evicts a real number from the shared dmgTexts
         // pool. Everything below still runs — the daze and sporeburst are not damage.
-        if (tickDmg > 0) applyDotDamage(run, e, tickDmg)
+        const dealtTick = tickDmg > 0 ? applyDotDamage(run, e, tickDmg) : 0
+        // A FOXFIRE ON THE OPEN KRAKEN HEAD LIGHTS IT (owner, 2026-09-27). The cloud's own tick is
+        // refused by the seal the moment the stagger ends; the burn it planted is a status the head
+        // carries, so stepStatuses keeps ticking it through the shut seal. Published into `ignite`,
+        // the contract field render.js already tints.
+        if (bl.look === 'foxfire' && dealtTick > 0 && e.rosterId === 'krakenHead' && !e._dead && !krakenHeadSealed(run, e)) {
+          e.igniteDps = Math.max(e.igniteDps ?? 0, dealtTick / tickEvery)
+          e.ignite = Math.max(e.ignite ?? 0, KRAKEN_FOXFIRE_BURN_T)
+        }
         // SILT VEIL's daze, published into the e.stunT contract field render.js already reads.
         // The window is the whole guard: gating on "is it stunned" alone lets a persistent cloud
         // re-stun on the frame the last hold lapses, which measures as 100% uptime while reading
@@ -14442,7 +14479,7 @@ function weaponCandidates(run) {
     for (const id of CHAPTERS[run.chapter].weapons) {
       if (!ownedIds.has(id)) {
         const cfg = WEAPONS[id]
-        list.push({ kind: 'weapon', id, title: cfg.name, desc: cfg.desc, tag: 'New!', rarity: cfg.rarity, icon: cfg.icon })
+        list.push({ kind: 'weapon', id, title: cfg.name, desc: weaponDesc(id, run.chapter), tag: 'New!', rarity: cfg.rarity, icon: cfg.icon })
       }
     }
   }
@@ -14454,7 +14491,7 @@ function weaponCandidates(run) {
       // BUCKET_WEIGHTS.weapon percent of rolls (22% when this was written, 17% since v7.7)
       // whatever the tier table says, so wearing cfg.rarity here put a Mythic border on 8.9% of
       // city's cards — every one of them a Neon Beam level.
-      list.push({ kind: 'weapon', id: w.id, title: cfg.name, desc: cfg.desc, tag: `Lv ${w.level + 1}`, rarity: UPGRADE_RARITY, icon: cfg.icon })
+      list.push({ kind: 'weapon', id: w.id, title: cfg.name, desc: weaponDesc(w.id, run.chapter), tag: `Lv ${w.level + 1}`, rarity: UPGRADE_RARITY, icon: cfg.icon })
     }
   }
   return list
@@ -14931,7 +14968,7 @@ export function devCards(run, rarity = 'rare') {
     const owned = run.weapons.find((w) => w.id === id)
     // Same two shapes buildLevelUpChoices deals: a NEW weapon carries its own rarity, an upgrade
     // carries UPGRADE_RARITY (not a RARITIES key, so ui.js prints no tier chip).
-    out.push({ kind: 'weapon', id, title: cfg.name, desc: cfg.desc,
+    out.push({ kind: 'weapon', id, title: cfg.name, desc: weaponDesc(id, run.chapter),
       tag: owned ? `Lv ${owned.level + 1}` : 'New!',
       rarity: owned ? UPGRADE_RARITY : cfg.rarity, icon: cfg.icon })
   }
@@ -15327,7 +15364,7 @@ function buildLevelUpChoices(run) {
     // rollCard: the tier is WHICH weapon, not how big, and under a blind deal the border is the
     // only information there is.
     const rarity = run.anomalies?.blindFaith ? UPGRADE_RARITY : cfg.rarity
-    cards[slot] = { kind: 'weapon', id, title: cfg.name, desc: cfg.desc, tag: 'New!', rarity, icon: cfg.icon }
+    cards[slot] = { kind: 'weapon', id, title: cfg.name, desc: weaponDesc(id, run.chapter), tag: 'New!', rarity, icon: cfg.icon }
   }
 
   // DUO PITY IS SPENT WHEN THE BOON IS OFFERED, not when it is kept — the anomaly tier's contract,

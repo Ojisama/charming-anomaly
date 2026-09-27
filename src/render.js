@@ -26923,6 +26923,17 @@ void main() {
             spawnParticle(T.fx.flare_01, lx, ly, 0, 0, 0.18, 0.08, 0xffe94d, -0.1, 0)
           }
           break
+        case 'inkVolley':
+          // INK HEART: the parry's volley pours from the fish into the head. Ink core with a pale
+          // edge — near-black alone vanishes on this chapter's floor (see 'inkjet').
+          spawnArc([[e.x, e.y], [e.tx, e.ty]], 0x9fc3cf, 0x140c24, 0.45, 16, 1)
+          for (let i = 0; i < 10; i++) {
+            const a = Math.random() * Math.PI * 2
+            const sp = 60 + Math.random() * 90
+            spawnParticle(T.fx.circle_05, e.tx, e.ty, Math.cos(a) * sp, Math.sin(a) * sp,
+              0.3 + Math.random() * 0.2, 0.12 + Math.random() * 0.06, i % 3 ? 0x140c24 : 0x9fc3cf, 0.5, 3)
+          }
+          break
         case 'ignitejump':
           // Fire spreading from a burning body to the next one. The event carried (x,y)->(tx,ty)
           // from the day it was written and nothing ever drew it, so on screen a second enemy

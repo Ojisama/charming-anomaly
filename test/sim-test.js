@@ -168,7 +168,7 @@ import {
   // The Trawl's late-game cut (run TJ)
   lateSpawnMulAt, SPAWN_LATE_BLEND, SPAWN_LATE_START,
   // The Kraken (run KR): the rung table and the ring's numbers
-  krakenRung, KRAKEN_RUNGS, KRAKEN_ARM_REACH, KRAKEN_WAVE_TIMEOUT,
+  krakenRung, KRAKEN_RUNGS, KRAKEN_ARM_REACH, KRAKEN_WAVE_TIMEOUT, KRAKEN_STAGGER_BITE,
   KRAKEN_RISE_T, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, hiddenChapters, KRAKEN_CAGE_R, KRAKEN_PARRY_CD,
   KRAKEN_OPEN_WAVES, KRAKEN_COIL_EVERY, KRAKEN_COIL_AT, KRAKEN_COIL_RAYS, KRAKEN_ENRAGE_AT, KRAKEN_ARRIVE_T, KRAKEN_RING_R, KRAKEN_LASH_R, KRAKEN_SLAM_T, KRAKEN_DEFLECT_CD,
   KRAKEN_LUNGE_T, KRAKEN_GRIP_DUR, KRAKEN_GRIP_DMG, KRAKEN_GRIP_FLICKS, KRAKEN_GRIP_STICK_MUL, TRAWL_WIGGLE_ARC,
@@ -18631,7 +18631,7 @@ function testFrenchDictionary() {
   // no other table has — a walk that only reads name/desc/title covers two thirds of an anomaly
   // card. This is the same shape as the WEAPON_MODS hole below, three releases apart.
   for (const table of [WEAPONS, ELEMENTS, MUTATORS, CONSUMABLES, RARITIES, SHOP, PASSIVES, ANOMALIES]) {
-    for (const v of Object.values(table ?? {})) { need(v?.name); need(v?.desc); need(v?.title); need(v?.from) }
+    for (const v of Object.values(table ?? {})) { need(v?.name); need(v?.desc); need(v?.title); need(v?.from); need(v?.descNoSpend) }
   }
   // v6.6.26: WEAPON_MODS is TWO levels deep (WEAPON_MODS[weaponId][modId]), so the flat walk above
   // silently checked nothing for it — Object.values() yielded the per-weapon dicts, whose own
@@ -34843,6 +34843,146 @@ function runKraken() {
     assert.ok(h.hp < hp2, 'a burn planted through the stagger stopped dead when it closed — damage-over-time is worthless here')
   }
 
+  // (g2) A FOXFIRE ON THE OPEN HEAD LIGHTS IT, AND THE BURN OUTLIVES THE WINDOW (owner, 2026-09-27).
+  // (g) plants the burn by hand; this plants it the way play does, with a real foxfire cloud. The
+  // cloud's own ticks are refused the instant the seal shuts, so any hp lost after that is the burn.
+  // Control: the same cloud on a SEALED head lights nothing.
+  {
+    const run = inBlock(1)
+    const h = headOf(run)
+    h.maxHP = h.hp = 1e9
+    run.weapons = []
+    const cloud = () => ({ x: h.x, y: h.y, r: 0, maxR: 200, t: 0, dur: 10, dmgPerTick: 20, look: 'foxfire', slow: 0 })
+    const hold = (open, s) => {
+      for (let i = 0; i < 60 * s; i++) {
+        if (open) run.script.staggerT = Math.max(run.script.staggerT, 1)
+        for (const bl of run.blooms) { bl.x = h.x; bl.y = h.y }
+        run.player.hp = run.player.maxHP
+        stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+      }
+    }
+    h.ignite = 0; h.igniteDps = 0
+    run.script.staggerT = 0
+    run.blooms = [cloud()]
+    hold(false, 1)
+    assert.ok(!((h.ignite ?? 0) > 0), 'a foxfire on the SEALED head lit it — a Foxfire build fights this boss without ever parrying')
+    run.blooms = [cloud()]
+    const dps1 = (() => { hold(true, 1); return h.igniteDps })()
+    assert.ok((h.ignite ?? 0) > 0, 'a foxfire ticking on the OPEN head did not light it — its fire stops dead when the window shuts')
+    h.ignite = 0; h.igniteDps = 0
+    run.player.damageMul *= 3
+    run.blooms = [cloud()]
+    hold(true, 1)
+    assert.ok(h.igniteDps > dps1 * 2.5, `the carried burn ignores the player's damage (x3 damage: ${dps1.toFixed(1)} -> ${(h.igniteDps ?? 0).toFixed(1)} dps) — every other ignite in the game carries it`)
+    run.player.damageMul /= 3
+    run.blooms = []
+    run.script.staggerT = 0.01
+    const hp0 = h.hp
+    quiet(run, 2)
+    assert.ok(h.hp < hp0, 'the head stopped burning when the window shut — the foxfire burn did not outlive the stagger')
+  }
+
+  // (g3) INK HEART (ANOMALIES.inkHeart). A broken posture no longer bites the head, and every
+  // landed parry fires one hit of each held weapon into the head THROUGH the seal. Four arms: the
+  // bite with and without the card (no weapons, so no volley), then one lunge parry on a still
+  // SEALED head with and without it.
+  {
+    const rung = krakenRung(1)
+    function chaseHead(ink, weapons) {
+      const run = inBlock(1)
+      for (const a of run.krakenArms) { a.dead = true; a.limpT = 0; a.nodeId = null }
+      let guard = 0
+      while (run.script.phase !== 'chase' && guard++ < 60 * 40) { run.player.hp = run.player.maxHP; stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60) }
+      let h = null
+      for (let i = 0; i < 60 * 10 && !h; i++) { run.player.hp = run.player.maxHP; stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60); h = headOf(run) }
+      assert.ok(h, 'the head never rose for the chase')
+      h.maxHP = h.hp = 1e9
+      run.weapons = weapons
+      run.anomalies = ink ? { inkHeart: true } : {}
+      run.enemies = run.enemies.filter((e) => e === h)
+      return { run, h }
+    }
+    function lungeParry(run, h) {
+      h._lungeBurst = KRAKEN_DASH_DIST; h._dashT = rung.lungeWindow * 0.5
+      h.dashAng = Math.atan2(run.player.y - h.y, run.player.x - h.x)
+      run.repulseCd = 0
+      run.player.hp = run.player.maxHP
+      run.events.length = 0
+      stepSim(run, { x: 0, y: 0, skill: true }, 1 / 60)
+    }
+    const breakHp = (ink) => {
+      const { run, h } = chaseHead(ink, [])
+      const hp0 = h.hp
+      for (let k = 0; k < rung.staggerNeed; k++) lungeParry(run, h)
+      assert.ok(run.script.staggerT > 0, 'the posture did not break — the bite arm measures nothing')
+      return hp0 - h.hp
+    }
+    const bite = Math.round(1e9 * KRAKEN_STAGGER_BITE)
+    assert.strictEqual(breakHp(false), bite, 'without Ink Heart a broken posture must bite exactly KRAKEN_STAGGER_BITE')
+    assert.strictEqual(breakHp(true), 0, 'Ink Heart is held and the broken posture still BIT the head — the card costs nothing')
+    const oneParry = (ink) => {
+      const { run, h } = chaseHead(ink, [{ id: 'sunspear', level: 5 }])
+      const hp0 = h.hp
+      lungeParry(run, h)
+      assert.ok(!(run.script.staggerT > 0), 'one parry broke the posture — the seal arm is not measuring a sealed head')
+      return { dmg: hp0 - h.hp, ev: run.events.filter((e) => e.type === 'inkVolley').length }
+    }
+    const on = oneParry(true), off = oneParry(false)
+    assert.strictEqual(off.dmg, 0, 'without Ink Heart a parry hurt a SEALED head')
+    assert.strictEqual(off.ev, 0, 'an inkVolley fired without the card')
+    assert.ok(on.dmg > 0, 'Ink Heart is held and a parry put nothing into the sealed head — the volley does not pass the seal')
+    assert.strictEqual(on.ev, 1, 'the volley landed with no inkVolley event — it is invisible')
+  }
+
+  // (g3b) THROUGH THE RING THE HEAD IS NOT DRAWN, so an Ink Heart arm parry must not print its
+  // number at head.x/y (open water — the class the deflect gate exists for). It goes on the arm.
+  {
+    const run = inBlock(1)
+    const h = headOf(run)
+    h.maxHP = h.hp = 1e9
+    run.weapons = [{ id: 'sunspear', level: 5 }]
+    run.anomalies = { inkHeart: true }
+    run.events.length = 0
+    const hp0 = h.hp
+    parryAt(run, run.krakenArms[0], krakenRung(1).window * 0.5)
+    assert.ok(h.hp < hp0, 'the ring-phase arm parry put no volley into the head — this arm measures nothing')
+    const atHead = run.events.filter((e) => e.type === 'hit' && Math.hypot(e.x - h.x, e.y - h.y) < KRAKEN_HEAD_R * 1.5)
+    assert.strictEqual(atHead.length, 0, `${atHead.length} damage number(s) printed on the undrawn head through the ring — they float in open water`)
+  }
+
+  // (g4) THE NAMED LADDER READS THE RUNG TABLE. A chip is a name for a column of KRAKEN_RUNGS; a
+  // chip on a rung that lacks the behaviour (or a rung with the behaviour and no chip) is the
+  // brief lying about the fight.
+  {
+    const lad = CHAPTERS.kraken.modsByDifficulty
+    for (let d = 1; d <= KRAKEN_RUNGS.length; d++) {
+      const r = KRAKEN_RUNGS[d - 1], ids = lad[d] ?? []
+      for (const id of ids) assert.ok(MUTATORS[id]?.hidden, `d${d} names ${id}, which is not a hidden MUTATORS entry — it would roll at random or render nothing`)
+      assert.strictEqual(ids.includes('krakenPinch'), r.grabbers > 0, `d${d}: the Pinch chip and the rung's grabbers disagree`)
+      assert.strictEqual(ids.includes('krakenCoil'), d >= 2, `d${d}: the Coil chip and the Coil's difficulty >= 2 gate disagree`)
+      assert.strictEqual(ids.includes('krakenFrenzy'), (r.enrageArms ?? 0) > 0, `d${d}: the Frenzy chip and the rung's enrageArms disagree`)
+    }
+  }
+
+  // (g5) GLINT'S CARD SAYS WHAT IT COSTS HERE. The Kraken's bar is noSpend, so "Each cast costs 1
+  // Light" is false on this screen; the real level-up path must deal descNoSpend here and the plain
+  // desc in The Deep, where the cost is real.
+  {
+    const dealt = (chapter) => {
+      const run = createRun({ ...makeMeta(), krakenParried: true }, { chapter })
+      assert.strictEqual(run.chapter, chapter, `createRun fell back from ${chapter} — this arm would measure another chapter`)
+      run.weapons = [{ id: 'glint', level: 1 }]
+      for (let i = 0; i < 400; i++) {
+        const c = buildLevelUpChoices(run).find((x) => x.kind === 'weapon' && x.id === 'glint')
+        if (c) return c.desc
+      }
+      return null
+    }
+    assert.ok(CHAPTERS.kraken.weapons.includes('glint'), 'Glint is not in the Kraken pool')
+    assert.strictEqual(dealt('kraken'), WEAPONS.glint.descNoSpend, 'a Glint card dealt in the Kraken still claims a Light cost the bar cannot pay')
+    assert.strictEqual(dealt('deep'), WEAPONS.glint.desc, 'a Glint card dealt in The Deep lost its Light cost')
+  }
+
   // (h) A PRESS THAT FINDS NOTHING SAYS SO. It used to be a bare return: the cooldown was spent and
   // the game drew and said nothing, so a whiff and a press the game never registered were the same
   // picture. run EV only demands a consumer for an event that EXISTS.
@@ -35794,7 +35934,7 @@ function runKraken() {
       'a WHIFF left the player with no gesture — a press that found nothing and a press the game never registered are the same picture, which is the complaint')
   }
 
-  console.log('PASS run KR (The Kraken, rev 3): a standing arm is untouchable by all three weapons and puts nothing on the field, a parry makes it LIMP and materialises a real enemy at its tip that weapons do kill, a window closing takes that node away without paying a kill or xp and keeps the damage, finishing it breaks the arm for good, the ring never winds up more arms at once than its rung allows (d1/d2/d3), the head is sealed against hits AND burns until its posture breaks, staggerNeed parried lunges open the only window on it and a burn lit inside outlives it, a whiff reports itself and still pays the cooldown, the cage holds while the ring is up, all 3 rungs read arms/rearing/window/perfect/fuse/limp/cadence/staggerNeed with the windows nested, both hidden chapters resolve through HIDDEN_UNLOCKS with no id hardcoded in main/ui/state, the approach is 3 waves that never touch bossIdx and the ring closes in from the murk with the cage riding it, a sealed head answers every refused hit with a throttled deflect, an unparried slam holds its pose for KRAKEN_SLAM_T and lands down the WHOLE limb so the middle of the arena is not safe while a gap between two arms is, and render.js (comments stripped) reads limpT, fuse, hitT, slamT, the arrival ramp, the recorded arm tips, the stagger pips, the cage radius the sim published, the limb WRAPPING the player for a grip and the bend travelling down a striking limb; the chase head rises harmless (no bite during riseT), its touch is a BITE with a KRAKEN_BITE_WINDUP_T lead that stepping out beats, quiet through a Coil and a lunge wind-up, never within KRAKEN_BITE_GAP of a lunge wind-up, and render.js reads the struggle counter, the Coil gap and the head-touch hurt for the fish\'s three cues')
+  console.log('PASS run KR (The Kraken, rev 3): a standing arm is untouchable by all three weapons and puts nothing on the field, a parry makes it LIMP and materialises a real enemy at its tip that weapons do kill, a window closing takes that node away without paying a kill or xp and keeps the damage, finishing it breaks the arm for good, the ring never winds up more arms at once than its rung allows (d1/d2/d3), the head is sealed against hits AND burns until its posture breaks, staggerNeed parried lunges open the only window on it and a burn lit inside outlives it, a whiff reports itself and still pays the cooldown, the cage holds while the ring is up, all 3 rungs read arms/rearing/window/perfect/fuse/limp/cadence/staggerNeed with the windows nested, both hidden chapters resolve through HIDDEN_UNLOCKS with no id hardcoded in main/ui/state, the approach is 3 waves that never touch bossIdx and the ring closes in from the murk with the cage riding it, a sealed head answers every refused hit with a throttled deflect, an unparried slam holds its pose for KRAKEN_SLAM_T and lands down the WHOLE limb so the middle of the arena is not safe while a gap between two arms is, and render.js (comments stripped) reads limpT, fuse, hitT, slamT, the arrival ramp, the recorded arm tips, the stagger pips, the cage radius the sim published, the limb WRAPPING the player for a grip and the bend travelling down a striking limb; the chase head rises harmless (no bite during riseT), its touch is a BITE with a KRAKEN_BITE_WINDUP_T lead that stepping out beats, quiet through a Coil and a lunge wind-up, never within KRAKEN_BITE_GAP of a lunge wind-up, and render.js reads the struggle counter, the Coil gap and the head-touch hurt for the fish\'s three cues; a foxfire on the open head lights a burn that carries the player\'s damage and outlives the window (and lights nothing sealed), Ink Heart removes the stagger bite and puts a visible volley through the seal on every parry, the named ladder agrees with KRAKEN_RUNGS rung by rung, and a Glint card dealt here drops its Light cost while The Deep keeps it')
 }
 
 // ---- Run KC: The Kraken's ceremony (the kill outro's contract) --------------------------------

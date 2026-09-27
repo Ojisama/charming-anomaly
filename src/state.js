@@ -1159,6 +1159,11 @@ function generateWells(sig) {
  *   {type:'freeze', x, y}                cold: the moment an enemy's chill gauge fills and it
  *                                        locks. Deliberately has NO sfx entry — freezes fire
  *                                        dozens of times a minute on a cold build.
+ *   {type:'inkVolley', x, y, tx, ty} Ink Heart (ANOMALIES.inkHeart): a landed Kraken parry
+ *                                        poured the volley from the fish (x,y) into (tx,ty): the
+ *                                        head in the chase, the parried arm's shoulder through
+ *                                        the ring (the head is not drawn there). No sfx: the
+ *                                        parry already sounds.
  *
  * There are no element x element COMBO events. The old system's shatter/frostarc/overload/conduct
  * were deleted with it: elements now compose through one shared number (how much of an enemy's own

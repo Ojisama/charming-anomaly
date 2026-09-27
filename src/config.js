@@ -1067,6 +1067,15 @@ export const ANOMALIES = {
     // an answer to it, before the run offers to turn the hazard up.
     minLevel: 10,
   },
+  inkHeart: {
+    // The Kraken's own card: the parry stops being the damage and becomes the trigger. Cost: a
+    // broken posture no longer bites the head (KRAKEN_STAGGER_BITE, most of a bot's head damage).
+    name: 'Ink Heart', icon: '🦑',
+    from: 'the ink finds its way in',
+    desc: 'Your parries no longer bite the Kraken\'s head, but fire all your attacks into it at once, wherever it is.',
+    when: () => true,
+    weight: 2, chapter: 'kraken', kind: 'pivot',
+  },
 
   // ---- JACKPOTS: no cost at all -------------------------------------------------------
 
@@ -1322,6 +1331,8 @@ export const HURT_CAP_FRAC = 0.5
 // WEAPONS closes, so a const declared beside them is still in the TDZ while WEAPONS's own literal
 // is being built — `node -e` confirms this throws ReferenceError, not a silent wrong value.
 export const GLINT_LIGHT_COST = 1
+// A weapon card's text for THIS chapter: `descNoSpend` where the chapter's bar cannot be spent.
+export const weaponDesc = (id, chapterId) => (CHAPTERS[chapterId]?.resource?.noSpend && WEAPONS[id].descNoSpend) || WEAPONS[id].desc
 
 // ---- Weapons ----------------------------------------------------------------
 // levels[i] applies at weapon level i+1 (cumulative object replaces stats).
@@ -2373,6 +2384,8 @@ export const WEAPONS = {
   glint: {
     name: 'Glint',
     desc: `Flings a spark of light at what is nearest. Each cast costs ${GLINT_LIGHT_COST} Light.`,
+    // The card in a chapter whose Light cannot be spent (The Kraken), where the cost above is false.
+    descNoSpend: 'Flings a spark of light at what is nearest. Here, it costs no Light.',
     icon: '✨', rarity: 'normal',
     // balance_decision : cadence cut ~40%, damage carries the ladder instead [2026-09-09]
     //  - THE INTERVAL IS ALMOST FLAT AND MUST STAY SO: cadence is what this card spends the bar
@@ -8657,7 +8670,10 @@ CHAPTERS.kraken = {
   // the screen the player is looking at. Cheaper to leave it out than to make the sentence
   // chapter-aware, and its absence costs this pool nothing — the other three already span
   // 142s/184s/245s at level 5, which is a real spread of answers.
-  weapons: ['sunspear', 'foxfire', 'sunlance'], starter: 'sunspear',
+  weapons: ['sunspear', 'foxfire', 'sunlance', 'glint'], starter: 'sunspear',
+  // The named ladder, read off KRAKEN_RUNGS: d2 has grabbers and (once enraged) the Coil, d3 adds
+  // the Coil from the second block and the enrage* columns.
+  modsByDifficulty: { 1: [], 2: ['krakenPinch', 'krakenCoil'], 3: ['krakenPinch', 'krakenCoil', 'krakenFrenzy'] },
   // ---- render-only (ZERO sim effect) ----
   // The graveyard: The Deep's near-black carried one more step toward the void.
   render: {
@@ -8793,6 +8809,11 @@ export const KRAKEN_HITSTOP_STAGGER = 0.15  // the head's posture breaks
 //   Solved as a pair: bite x staggers must bracket both ends. At 10% of the pool the range is
 // 4.9 staggers for a strong build and 7.5 for a weak one — one fight, told at one pace.
 export const KRAKEN_STAGGER_BITE = 0.13 // of maxHP, dealt the instant the posture breaks
+// balance_decision : a foxfire lit on the open head outlives the stagger [2026-09-27]
+export const KRAKEN_FOXFIRE_BURN_T = 3.0 // s the head keeps burning after its last foxfire tick
+// balance_decision : a sidegrade, not a reward — break-even at d3 [2026-09-27]
+//  - a tick weapon's volley is one tick: a foxfire-only build loses the fight with it.
+export const INK_HEART_VOLLEY_MUL = 0.3 // x the summed per-cast damage of every weapon, per parry
 // THE PARRY TEARS AS WELL AS EXPOSES, for exactly the reason the stagger bites: without a floor,
 // progress is pure dps and a thin build does not have one. Measured at d3 with a level-1 weapon:
 // 156 parries broke TWO of six arms in 300s and the fight timed out. A parry is a skill move landing
@@ -14751,6 +14772,11 @@ export const MUTATORS = {
   immuneMemory:  { name: 'Immune Memory',        icon: '🧠', desc: 'slain cells leave erasing residue',  hidden: true, effects: {} },
   crossReactive: { name: 'Cross-Reactivity',    icon: '🔀', desc: 'each phase steals a second attack from another',            hidden: true, effects: {} },
   affinityMature:{ name: 'Affinity Maturation', icon: '🧬', desc: 'every attack grows — more bombs, more nodes, a wider star', hidden: true, effects: {} },
+  // The Kraken's ladder (CHAPTERS.kraken.modsByDifficulty), the same idiom. Names only: what each
+  // does is KRAKEN_RUNGS' grabbers/coil/enrage* columns, which sim.js reads off the difficulty.
+  krakenPinch:   { name: 'The Pinch',  icon: '🦀', desc: 'two arms pin you in place',             hidden: true, chapters: ['kraken'], effects: {} },
+  krakenCoil:    { name: 'The Coil',   icon: '🌀', desc: 'every arm slams down on you at once', hidden: true, chapters: ['kraken'], effects: {} },
+  krakenFrenzy:  { name: 'Frenzy',     icon: '💢', desc: 'its last stand grows three more arms that strike faster', hidden: true, chapters: ['kraken'], effects: {} },
   // v5.25: chapter anomalies — each turns ITS chapter's signature mechanic up, paired with a
   // small reward like every generic entry above. `chapters` scopes the roll to where the
   // mechanic exists: a modifier that references a system the chapter doesn't run is noise, not

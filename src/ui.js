@@ -3141,7 +3141,7 @@ export function initUI(hooks) {
         ${ids.length ? `
           ${eyebrow('Anomalies', reroll ? tt('reroll {n}', { n: ANOMALY_REROLL_COST }) : '')}
           <div class="brief-anoms">${ids.map((id, i) => briefAnomHtml(id, i, reroll)).join('')}</div>
-          ${CHAPTERS[d.chapterId].modsByDifficulty ? `<p class="brief-note">${t('The Blank\'s ladder is fixed — each difficulty adds its named modifier.')}</p>` : ''}
+          ${CHAPTERS[d.chapterId].modsByDifficulty ? `<p class="brief-note">${t('This boss\'s ladder is fixed — each difficulty adds its named modifiers.')}</p>` : ''}
         ` : `<p class="brief-note">${t('the base game')}</p>`}
         ${eyebrow('Boosters', t('this run only'))}
         ${boosterSlotsHtml()}
