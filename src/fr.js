@@ -1267,6 +1267,10 @@ const CONFIG = {
   'Twin Lance': 'Lance Jumelle',
   'extra lance(s) per cast': 'lance(s) supplémentaire(s) par lancer',
   'Quick Sun': 'Soleil Vif',
+  'Sunburst': 'Éclat Solaire',
+  'spark(s) burst from each column': 'étincelle(s) jaillie(s) de chaque colonne',
+  'Twin Fox': 'Feu Follet Jumeau',
+  'extra foxfire(s) per cast': 'feu(x) follet(s) supplémentaire(s) par lancer',
   'Held Lance': 'Lance Maintenue',
   'how long the lance is held': 'durée de maintien de la lance',
   // The Deep's starter (2026-09-09). DRAFTS pending the owner's review.

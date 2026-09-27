@@ -134,7 +134,7 @@ import {
   BOMBARDMENT_COUNT, BOMBARDMENT_SPREAD, BOMBARDMENT_FUSE, BOMBARDMENT_RADIUS, BOMBARDMENT_DMG,
   ROAR_RESONANCE_EVERY, LASH_COUNTER_CD,
   LASH_PULL_T, LASH_DRAG_FRAC, LASH_DRAG_R, BREATH_CHARGE_T, BREATH_JUMP_DMG_MUL,
-  LOB_SHRAPNEL_DMG_FRAC, LOB_SHRAPNEL_SPEED, LOB_SHRAPNEL_RANGE, LOB_SHRAPNEL_R,
+  LOB_SHRAPNEL_DMG_FRAC, LOB_SHRAPNEL_SPEED, LOB_SHRAPNEL_RANGE, LOB_SHRAPNEL_R, SUNBURST_DMG_FRAC, SUNBURST_SPEED, SUNBURST_RANGE, SUNBURST_R,
   // v5.8 kaiju redesign (skies crushing + rampage)
   STRUCTURE_KINDS, CRUSH_XP, RAMPAGE_GAIN, RAMPAGE_DECAY, RAMPAGE_DURATION, RAMPAGE_CRUSH_MUL, RAMPAGE_GRACE_T,
   RAMPAGE_SPEED_MUL, RAMPAGE_DMG_MUL, RAMPAGE_FIRE_RATE_MUL,
@@ -11502,6 +11502,12 @@ function stepBloomWeapon(run, w, stats, fireRateMul, dt) {
 
 // A random live enemy within castRange, else a random offset within castRange of the player.
 function pickBloomSpot(run, castRange) {
+  return pickBloomSpots(run, 1, castRange)[0]
+}
+
+// n spots on n DISTINCT enemies (picked without replacement), padded with random offsets once they
+// run out. n = 1 draws exactly the randoms pickBloomSpot always drew.
+function pickBloomSpots(run, n, castRange) {
   const p = run.player
   const rangeSq = castRange * castRange
   const inRange = run.enemies.filter((e) => {
@@ -11509,13 +11515,18 @@ function pickBloomSpot(run, castRange) {
     const dx = e.x - p.x, dy = e.y - p.y
     return dx * dx + dy * dy <= rangeSq
   })
-  if (inRange.length > 0) {
-    const e = inRange[Math.floor(Math.random() * inRange.length)]
-    return { x: e.x, y: e.y }
+  const spots = []
+  for (let i = 0; i < n; i++) {
+    if (inRange.length > 0) {
+      const e = inRange.splice(Math.floor(Math.random() * inRange.length), 1)[0]
+      spots.push({ x: e.x, y: e.y })
+      continue
+    }
+    const a = Math.random() * Math.PI * 2
+    const d = Math.random() * castRange
+    spots.push({ x: p.x + Math.cos(a) * d, y: p.y + Math.sin(a) * d })
   }
-  const a = Math.random() * Math.PI * 2
-  const d = Math.random() * castRange
-  return { x: p.x + Math.cos(a) * d, y: p.y + Math.sin(a) * d }
+  return spots
 }
 
 // Player-scaled but dot-flagged damage (no crit, no white flash, no element application) — a
@@ -13212,10 +13223,24 @@ function stepLobs(run, dt) {
     // of its fall.
     if (lo.column) {
       const rSq = lo.r * lo.r
+      const struck = new Set()
       for (const e of run.enemies) {
         if (e._dead || isAlly(e)) continue
         const dx = e.x - lo.tx, dy = e.y - lo.ty
-        if (dx * dx + dy * dy <= rSq) applyDamage(run, e, lo.dmg * (e.type === 'tank' ? lo.tankMul ?? 1 : 1))
+        if (dx * dx + dy * dy <= rSq) { applyDamage(run, e, lo.dmg * (e.type === 'tank' ? lo.tankMul ?? 1 : 1)); struck.add(e.id) }
+      }
+      // SUNBURST: one local, the loop bound AND the angle divisor, so the sparks spread evenly. Each
+      // spark starts having already "hit" what the column struck, or it would spend its one pierce
+      // on the body at the centre and never leave the splash.
+      const sparks = lo.sparks ?? 0
+      for (let i = 0; i < sparks; i++) {
+        const a = (i / sparks) * Math.PI * 2
+        run.bullets.push({
+          x: lo.tx, y: lo.ty, vx: Math.cos(a) * SUNBURST_SPEED, vy: Math.sin(a) * SUNBURST_SPEED,
+          dmg: lo.dmg * SUNBURST_DMG_FRAC, pierce: 1, life: SUNBURST_RANGE / SUNBURST_SPEED,
+          r: SUNBURST_R, speed: SUNBURST_SPEED,
+          hitIds: new Set(struck), weapon: 'sunburst', _shard: false, _splitDone: true, _chainsLeft: 0,
+        })
       }
       run.events.push({ type: 'sunfall', x: lo.tx, y: lo.ty, radius: lo.r })
       continue
@@ -14251,6 +14276,7 @@ function stepSunspearWeapon(run, w, stats, fireRateMul, dt) {
           x: tx, y: ty, fromX: tx, fromY: ty, tx, ty,
           t: 0, flight: SUNSPEAR_FALL, r: stats.r, dmg: stats.dmg,
           column: true, tankMul: chapterTune(run, 'sunspear').tank ?? 1,
+          sparks: run.weaponMods.sunspear?.sunburst ?? 0,
         })
       }
     }
@@ -14265,15 +14291,14 @@ function stepSunspearWeapon(run, w, stats, fireRateMul, dt) {
 function stepFoxfireWeapon(run, w, stats, fireRateMul, dt) {
   const p = run.player
   const quickKindle = run.weaponMods.foxfire?.quickKindle ?? 0
-  const clouds = ipecacN(run, 1)
+  const clouds = ipecacN(run, 1 + (run.weaponMods.foxfire?.twinFox ?? 0))
   fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quickKindle)), dt, () => {
     const gloom = 1 + (FOXFIRE_GLOOM - 1) * darkness(run.charge, CHAPTERS[run.chapter].resource, run.chargeMax)
     const swarmLvl = 1 + FOXFIRE_SWARM.perLevel * (w.level - 1)
     // Any radius mod (Gloaming) widens the swarm with the burn it stands for. The COUNT stays on the
     // level alone: render.js sizes its sprite pool off the top level's count.
     const swarmMod = stats.maxR / WEAPONS.foxfire.levels[w.level - 1].maxR
-    for (let i = 0; i < clouds; i++) {
-      const spot = pickBloomSpot(run, stats.castRange)
+    for (const spot of pickBloomSpots(run, clouds, stats.castRange)) {
       run.blooms.push({
         x: spot.x, y: spot.y, r: 0, maxR: stats.maxR * gloom, t: 0,
         dur: stats.glowDur, dmgPerTick: stats.dmg, tick: BLOOM_TICK / (chapterTune(run, 'foxfire').tick ?? 1),

@@ -32638,6 +32638,49 @@ function testTheDeep() {
     console.log(`PASS run DP.w (lance + spear mods): Far Reach x1.5 length and width, Twin Lance on two bodies and fanned on one, ${rates.join(', ')} casts in 60s`)
   }
 
+  // (x) THE EPIC+ SUNSPEAR AND FOXFIRE CARDS. Owner, 2026-09-27, picked Sunburst ("where a column
+  // lands, sparks fly outward") and Twin Fox ("+1/+2/+3 foxfire per cast"). A body well outside the
+  // column's splash is hurt only by the sparks; Twin Fox's fires sit on DISTINCT bodies.
+  {
+    const outsider = (mods) => {
+      const run = rig('sunspear', 1); run.charge = 100
+      run.weaponMods.sunspear = mods
+      const t = fish(run, run.player.x + 150, run.player.y)
+      const o = fish(run, run.player.x + 150 + 120, run.player.y)
+      o.hp = o.maxHP = 1e6
+      let sparks = []
+      for (let i = 0; i < 400; i++) {
+        run.charge = 100; t.hp = t.maxHP = 1e6; t.x = run.player.x + 150; t.y = run.player.y
+        o.x = t.x + 120; o.y = t.y
+        stepSim(run, { x: 0, y: 0 }, dt)
+        const b = run.bullets.filter((q) => q.weapon === 'sunburst')
+        if (b.length && !sparks.length) sparks = b.map((q) => Math.atan2(q.vy, q.vx))
+      }
+      return { lost: 1e6 - o.hp, sparks }
+    }
+    assert.ok(WEAPONS.sunspear.levels[0].r < 120 - 20, 'run DP.x: the outsider sits inside the column splash — the fixture measures the column')
+    const plain = outsider({}), burst = outsider({ sunburst: 6 })
+    assert.strictEqual(plain.lost, 0, `run DP.x: without Sunburst the outsider lost ${plain.lost}`)
+    assert.ok(burst.lost > 0, 'run DP.x: Sunburst sparks never reached a body 120px from the column')
+    const angs = burst.sparks.map((a) => (a + 2 * Math.PI) % (2 * Math.PI)).sort((a, b) => a - b)
+    const gaps = angs.map((a, i) => (i ? a - angs[i - 1] : a + 2 * Math.PI - angs[angs.length - 1]))
+    assert.ok(angs.length === 6 && gaps.every((g) => Math.abs(g - Math.PI / 3) < 0.01), `run DP.x: Sunburst +6 threw ${angs.length} sparks at gaps ${gaps.map((g) => g.toFixed(2))}`)
+    assert.deepStrictEqual(Object.keys(WEAPON_MODS.sunspear.sunburst.values), ['epic', 'legendary', 'mythic'], 'run DP.x: Sunburst rolls below epic')
+
+    const run = rig('foxfire', 1); run.charge = 100
+    run.weaponMods.foxfire = { twinFox: 2 }
+    for (const [dx, dy] of [[150, 0], [-150, 0], [0, 150], [0, -150]]) fish(run, run.player.x + dx, run.player.y + dy).hp = 1e6
+    let lit = null
+    for (let i = 0; i < 400 && !lit; i++) {
+      run.charge = 100
+      stepSim(run, { x: 0, y: 0 }, dt)
+      if (run.blooms.length) lit = run.blooms.map((b) => `${Math.round(b.seedX - run.player.x)},${Math.round(b.seedY - run.player.y)}`)
+    }
+    assert.ok(lit && lit.length === 3 && new Set(lit).size === 3, `run DP.x: Twin Fox +2 lit ${lit} — want three fires on three different bodies`)
+    assert.deepStrictEqual(Object.keys(WEAPON_MODS.foxfire.twinFox.values), ['epic', 'legendary', 'mythic'], 'run DP.x: Twin Fox rolls below epic')
+    console.log(`PASS run DP.x (Sunburst + Twin Fox): outsider took ${plain.lost} -> ${burst.lost.toFixed(0)}, 6 sparks at even gaps; Twin Fox +2 lit ${lit.join(' / ')}`)
+  }
+
   // (s) THE DEEP'S UPGRADE CARDS: a percent mod card on a non-starter banks x1.2, on Glint x0.8,
   // against the same card taken in The Body; tier and flat cards are untouched. Taken through
   // devTake, the shipped applyChoice path, and read off what was BANKED — the number every
