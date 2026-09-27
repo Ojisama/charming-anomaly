@@ -35891,6 +35891,10 @@ function runKraken() {
         }
         assert.ok(run.script.coilT > 0, 'no Coil fired within 30s of its gates being open')
         const live = run.krakenArms.filter((a) => !a.dead)
+        // AT MOST SIX ARMS IN A COIL (owner, 2026-09-27), and d3 now stands more than six
+        assert.ok(live.length > KRAKEN_COIL_RAYS, `fixture: only ${live.length} arms stand, so the Coil's cap is never asked`)
+        const inCoil = live.filter((a) => a.coilArm).length
+        assert.ok(inCoil >= 2 && inCoil <= KRAKEN_COIL_RAYS, `${inCoil} arms joined one Coil (cap ${KRAKEN_COIL_RAYS})`)
         const spared = live.find((a) => !a.coilArm && a.limpT <= 0 && !(a.gripT > 0))
         // the spared arm can be mid-rear when the Coil takes the ring; its old fuse must not land on the fish
         if (pick === 'spared' && spared) { spared.tele = 0; spared.fuse = 0 }
@@ -35903,9 +35907,10 @@ function runKraken() {
           const off = (b) => Math.min(...Array.from({ length: KRAKEN_COIL_RAYS }, (_, k) => { const d = b - (run.script.coilStar + k * Math.PI * 2 / KRAKEN_COIL_RAYS); return Math.abs(Math.atan2(Math.sin(d), Math.cos(d))) }))
           const arm = live.filter((a) => a.coilArm).sort((x, y) => off(y.ang) - off(x.ang))[0]
           bear = arm.ang
-          assert.ok(off(bear) * 260 > KRAKEN_LASH_W + 30, 'fixture: no coil arm lies clear of every band')
+          // 300px, not 260: at 9 arms no coil arm sits more than 20deg off a band, which is inside a lash at 260
+          assert.ok(off(bear) * 300 > KRAKEN_LASH_W + 30, 'fixture: no coil arm lies clear of every band')
         }
-        const out = pick === 'centre' ? 0 : 260
+        const out = pick === 'centre' ? 0 : pick === 'laneInWedge' ? 300 : 260
         const at = () => ({ x: hd.x + Math.cos(bear) * out, y: hd.y + Math.sin(bear) * out })
         const hits = []
         let lashes = 0
@@ -36821,9 +36826,21 @@ function testKrakenEnrage() {
   while (s.headId == null && guard++ < 60 * 10) step()
   const head = run.enemies.find((e) => e.id === s.headId)
   assert.ok(head, `no head on the field in the chase (phase ${s.phase}, headId ${s.headId}, riseT ${s.riseT})`)
+  // THE LAST PHASE CANNOT BE SKIPPED (owner, 2026-09-27: a d3 run never saw the arms grow back). A
+  // real weapon, x1000, into a staggered head at 60%: the head takes nearly all its damage inside a
+  // stagger, and a check that ran only outside one let a big build kill it straight through.
+  head.hp = head.maxHP * 0.6
+  s.staggerT = 4
+  run.weapons = [{ id: 'sunspear', level: 5 }]
+  run.weaponTimers = { sunspear: 0 }
+  run.player.damageMul *= 1000
   guard = 0
-  while (!s.enraged && guard++ < 60 * 5) { head.hp = Math.min(head.hp, Math.floor(head.maxHP * KRAKEN_ENRAGE_AT) - 1); step() }
-  assert.ok(s.enraged, 'the head fell below KRAKEN_ENRAGE_AT and the last phase did not start')
+  while (!s.enraged && guard++ < 60 * 3) { run.player.x = head.x + 120; run.player.y = head.y; step() }
+  run.player.damageMul /= 1000
+  assert.ok(!head._dead && s.headId === head.id, 'a x1000 build killed the staggered head from 60% — the last phase was skipped')
+  assert.ok(s.enraged, 'the head fell below KRAKEN_ENRAGE_AT inside a stagger and the last phase did not start')
+  assert.ok(s.staggerT > 0, 'the last phase waited for the stagger to end')
+  assert.ok(head.hp >= head.maxHP * KRAKEN_ENRAGE_AT - 1e-6 && head.hp < head.maxHP * 0.6, `the head sits at ${(head.hp / head.maxHP * 100).toFixed(1)}% — it should stop at the enrage line`)
   assert.strictEqual(run.krakenArms.length, n0 + R3.enrageArms, `the last phase grew ${run.krakenArms.length - n0} new arms (want ${R3.enrageArms})`)
   assert.ok(run.krakenArms.every((a) => !a.dead), 'an arm stayed broken through the last phase')
   const grown = run.krakenArms.slice(n0)
@@ -36871,7 +36888,7 @@ function testKrakenBeat() {
     let coil = null, wig = 0
     const coin = mulberry32(seed ^ 0x5bd1e995), answer = {}
     // the d3 last phase slams OVER the beat by design (rung.enrageFree, run KE): the beat ends there
-    for (let f = 0; f < 60 * 400 && run.phase !== 'victory' && !(run.script.enraged && krakenRung(diff).enrageFree); f++) {
+    for (let f = 0; f < 60 * 900 && run.phase !== 'victory' && !(run.script.enraged && krakenRung(diff).enrageFree); f++) {
       if (run.phase === 'levelup') run.phase = 'playing'
       const p = run.player
       const s = run.script
