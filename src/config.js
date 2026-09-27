@@ -4000,6 +4000,9 @@ export const WEAPON_MODS = {
     // sunspearSpots reads the MODIFIED count and the padding ring divides by that same number.
     secondSun: { name: 'Second Sun', desc: 'extra column(s) per cast', icon: '🔷', kind: 'tier' },
     quickSun:  { name: 'Quick Sun',  desc: 'cast rate', icon: '⏩', base: 0.25, kind: 'pct' },
+    // balance_decision : Sunburst epic+ only, 6/8/10 sparks, one pick [2026-09-27]
+    sunburst:  { name: 'Sunburst',   desc: 'spark(s) burst from each column', icon: '🎆', kind: 'tier', maxPicks: 1,
+                 values: { epic: 6, legendary: 8, mythic: 10 } },
   },
   foxfire: {
     // 'foxfire damage per tick', for the reason barnacles and longline both spell out above: the
@@ -4013,6 +4016,9 @@ export const WEAPON_MODS = {
     // name is also just confusing on its own. Check the name against fr.js before adding a mod.
     longBurn:   { name: 'Long Burn',   desc: 'how long a foxfire burns', icon: '⌛', base: 0.25, kind: 'pct' },
     quickKindle:{ name: 'Quick Kindle', desc: 'cast rate', icon: '⏩', base: 0.25, kind: 'pct' },
+    // balance_decision : Twin Fox epic+ only, +1/+2/+3, owner ruling [2026-09-27]
+    twinFox:    { name: 'Twin Fox',    desc: 'extra foxfire(s) per cast', icon: '🔷', kind: 'tier',
+                  values: { epic: 1, legendary: 2, mythic: 3 } },
   },
   sunlance: {
     whetted:   { name: 'Whetted',   desc: 'lance damage per tick', icon: '💥', base: 0.30, kind: 'pct' },
@@ -4642,6 +4648,11 @@ export const LOB_SHRAPNEL_DMG_FRAC = 0.4   // shrapnel (behavioral): splinter da
 export const LOB_SHRAPNEL_SPEED = 420      // px/s, splinters fly radially from the impact
 export const LOB_SHRAPNEL_RANGE = 200      // px before a splinter expires (life = range/speed)
 export const LOB_SHRAPNEL_R = 7            // px, splinter hit radius (run.bullets tagged weapon:'debris')
+// Sunburst (the Sunspear's epic+ mod): sparks thrown radially from each landed column, drawn as Glint's.
+export const SUNBURST_DMG_FRAC = 0.4       // spark damage, as a fraction of the column's
+export const SUNBURST_SPEED = 460          // px/s
+export const SUNBURST_RANGE = 240          // px before a spark expires
+export const SUNBURST_R = 8                // px, spark hit radius
 
 // ---- Beyond weapons (v5.4: Reality Shard + Pulsar Sweep; Mini Black Hole = the hole) -------
 // Reality Shard (beyond starter — see WEAPONS.realityShard + stepShardWeapon in sim.js): a

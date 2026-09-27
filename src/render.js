@@ -29362,7 +29362,7 @@ void main() {
       s.scale.set(0.55)
       return
     }
-    if (b.weapon === 'glint') {
+    if (b.weapon === 'glint' || b.weapon === 'sunburst') {
       // A spark of light: T.glint carries its own cold tint baked in (see buildFxTextures) — a live
       // tint here on the shared T.bullet texture cannot reach it, so this is a small bake of its
       // own, not a recolor of the star's. white, matching the boomerang's "carries its own colour"
