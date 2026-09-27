@@ -15812,16 +15812,16 @@ const spurG = new Graphics()
       if (e._dead) continue
       const rad = e.radius || 16
 
-      // SCENT: a body you have smelled. An outline rather than a tint, deliberately — this chapter
-      // is nearly black and a tint on an already-dark body is invisible, while a rim survives any
-      // amount of darkness because it is drawn against the water rather than over the animal.
+      // SCENT: a body you have smelled glows faintly warm from within — no edge line, nothing
+      // that reads as UI (owner, 2026-09-27: "more subtle and more diegetic, I don't like a circle on
+      // everything"). Fades out over the mark's last half-second.
       const st = e.scentT || 0
       if (st > 0) {
-        const k = Math.min(1, st / 0.5)             // fades out over the last half-second
-        const pulse = 0.75 + 0.25 * Math.sin(animT * 6 + e.id * 0.9)
-        deepG.circle(e.x, e.y, rad * 1.18)
-          .stroke({ width: Math.max(1.6, rad * 0.13), color: 0xff8a5c, alpha: 0.75 * k * pulse })
-        deepG.circle(e.x, e.y, rad * 1.18).fill({ color: 0xff8a5c, alpha: 0.09 * k })
+        const k = Math.min(1, st / 0.5)
+        const pulse = 0.8 + 0.2 * Math.sin(animT * 2 + e.id * 0.9)
+        for (const [m, a] of [[1.7, 0.05], [1.3, 0.07], [0.95, 0.09]]) {
+          deepG.circle(e.x, e.y, rad * m).fill({ color: 0xff6a3a, alpha: a * k * pulse })
+        }
       }
 
     }
