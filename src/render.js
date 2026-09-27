@@ -27075,17 +27075,6 @@ void main() {
           addShakeScreen(0.016, 0.22)
           break
         }
-        case 'blaze': {
-          // THE BAR EMPTYING INTO THE ARENA: a slow radial bloom from the PLAYER out to full sight
-          // radius — the one frame of this fight that is not dark. Deliberately a different
-          // vocabulary from the window tick and the parry snap (design doc, M2): slow and huge
-          // against sharp and small, so D3's cadence never leaves two flashes reading as one thing.
-          spawnRing(e.x, e.y, e.r, 0.8, T.novaRing, 0xffffff)
-          spawnRing(e.x, e.y, e.r * 0.62, 0.62, T.novaWarm, 0xdff4ff)
-          spawnRing(e.x, e.y, e.r * 0.3, 0.44, T.novaWarm, 0xffffff)
-          addShake(10, 0.38)
-          break
-        }
         case 'tentacleBreak': {
           // An arm comes off. Rare (4-8 a fight) and it is the fight's real progress bar, so it gets
           // the loudest tell in the ring — the fence band it was drawing is gone from here on.
