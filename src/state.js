@@ -2880,8 +2880,7 @@ export function createRun(meta, opts = {}) {
     _bilgeTrailY: null,
     _orcaShadows: ORCA_SHADOW_PASSES,
     // v7.x The Deep. _scentT: seconds left on the Scent window the skill button bought; while it
-    // is up, stepScent keeps every body inside SCENT_R marked and the player moves at
-    // SCENT_SPEED_MUL.
+    // is up, stepScent marks every body inside SCENT_R for SCENT_MARK_T.
     _scentT: 0,
     _obstacleSeed: obstacleSeed,
     _obstacleRev: 0,

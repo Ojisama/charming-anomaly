@@ -5154,8 +5154,11 @@ export const MAW_REVEAL = {
 export const SCENT_R = 620              // px, how far the smell carries — marks, amps and is drawn
 export const SCENT_DUR_MIN = 1.3        // s on an EMPTY bar. Never 0: spec §8.2's no-spiral floor.
 export const SCENT_DUR_AT_FULL = 4.2
-export const SCENT_DMG_MUL = 1.5        // damage multiplier against a marked body
-export const SCENT_SPEED_MUL = 1.26     // and you close on them faster while it lasts
+// balance_decision : mark is +25% dmg taken, 25% slow, 10s; no player speed [2026-09-27]
+//  - SCENT_DUR_* is how long the smell keeps catching bodies; SCENT_MARK_T how long each keeps it
+export const SCENT_DMG_MUL = 1.25       // damage multiplier against a marked body
+export const SCENT_SLOW = 0.25          // and it swims this much slower
+export const SCENT_MARK_T = 10          // s a body stays marked once the smell has caught it
 
 /** The split ladder for a `first` sub-beam count: [first, first-1, ..., 2]. See the block above. */
 export const prismLadder = (first) => {
@@ -8417,8 +8420,7 @@ CHAPTERS.deep = {
   //   takes 20% as well as sight. Deliberate, and it is the chapter's
   //   inversion: you are the apex predator here, so the dark does not slow the shark down — it
   //   only decides how much of the water you can SEE. Light does not stop being punishing; it stops
-  //   being punishing in the same way twice. Spending it on Scent then BUYS speed (SCENT_SPEED_MUL),
-  //   so in this chapter light is what makes you fast rather than dark being what makes you slow.
+  //   being punishing in the same way twice. Spending it on Scent marks the prey instead.
   //   Stacking a Shelf-style slow on top would also have been two penalties on one bar, against a
   //   roster whose whole job is that you cannot see it coming.
   //
@@ -11450,7 +11452,7 @@ export const GNASH_CARRY_FRAC = 0.6
 // ---- BLOODRUSH (v7.x, gnash) -------------------------------------------------------------------
 // Owner: "biting an enemy increases speed by 5% for 2s". The 5% is the card's own base; these two
 // are the shape around it. MULTIPLIED into the player's speed rather than MIN-composed with the
-// chapter's slows, for the reason SCENT_SPEED_MUL gives at the same site: those are floors on how
+// chapter's slows, because those are floors on how
 // slow the world may make you, this is a bonus you bought.
 export const RUSH_DUR = 2.0          // s, refreshed by every landed bite
 export const RUSH_MAX_STACKS = 5     // ceiling on the chain. It stopped being a safety rail with the
