@@ -202,7 +202,7 @@ import {
   BARNACLE_JUMP_R, BARNACLE_FAN, BARNACLE_LARVA_R,
   LONGLINE_HALF_W, LONGLINE_SNAG, LONGLINE_TWIN_GAP, LONGLINE_MAX_SETS, LONGLINE_RETIRE_T, LONGLINE_MIN_OFFSET,
   MAW_GAPE_T, MAW_CLOSE_MUL, MAW_DEVOUR_FRAC, MAW_SHUT_T,
-  SCENT_R, SCENT_DUR_MIN, SCENT_DUR_AT_FULL, SCENT_DMG_MUL, SCENT_SPEED_MUL,
+  SCENT_R, SCENT_DUR_MIN, SCENT_DUR_AT_FULL, SCENT_DMG_MUL, SCENT_SLOW, SCENT_MARK_T,
   // v5.24 The Blank (scripted boss chapter — see stepBossScript)
   BLANK_SCRIPT, BLANK_WAVE_TIMEOUT, BLANK_BOSS_HP, BLANK_BOSS_R, BLANK_BOSS_SPEED, BLANK_BOSS_XP,
   BLANK_STANDOFF_MIN, BLANK_STANDOFF_MAX, BLANK_TRAIL_DT, BLANK_TRAIL_MAX,
@@ -891,21 +891,13 @@ function stepPlayerMovement(run, input, dt) {
   const sleekResist = resistFrac(run.passives.sleek)
   const slowMul = 1 - (1 - composedSlowMul) * (1 - sleekResist)
   const rampMul = run.rampageT > 0 ? RAMPAGE_SPEED_MUL : 1   // v5.14, read-time only (see config)
-  // SCENT (v7.x, The Deep): "or move faster towards your prey" — the owner's own framing for the
-  // button. MULTIPLIED, not MIN-composed with the three slows above, and the asymmetry is right:
-  // those three are floors on how slow the world may make you, while this is a bonus you BOUGHT.
-  // Folding it into the MIN would mean spending a full bar did nothing whenever a web was underfoot.
-  // Note also that this chapter's own dark is the one that does NOT slow (resource.dark.speedFloor
-  // is 1 here), so in The Deep light is what makes you fast rather than dark being what makes you
-  // slow — see CHAPTERS.deep's header.
-  const scentMul = (run._scentT ?? 0) > 0 ? SCENT_SPEED_MUL : 1
-  // BLOODRUSH (v7.x, gnash): momentum from landed bites. Multiplied for the same reason scentMul is
-  // — it is bought, not imposed. The stack count is the whole magnitude; the mod's own value is the
+  // BLOODRUSH (v7.x, gnash): momentum from landed bites. Multiplied, not MIN-composed with the
+  // slows above — it is bought, not imposed. The stack count is the whole magnitude; the mod's own value is the
   // per-stack fraction, so one fact lives in one place and the card's number IS the number applied.
   const rushMul = (run._rushT ?? 0) > 0
     ? 1 + (run.weaponMods.gnash?.bloodrush ?? 0) * (run._rushN ?? 0)
     : 1
-  const speed = p.speed * (1 + run.passives.moveSpeed) * run.mods.playerSpeedMul * slowMul * rampMul * scentMul * rushMul
+  const speed = p.speed * (1 + run.passives.moveSpeed) * run.mods.playerSpeedMul * slowMul * rampMul * rushMul
 
   // v5.18 THE LANE (see CHAPTERS.beyond.lane). You do not roam here: you advance up the lane at a
   // fixed rate forever and the joystick gives you nothing but the two directions across it. Because
@@ -4411,7 +4403,8 @@ function stepEnemyMovement(run, dt) {
     // at one site. `puffT` is the published contract field render already poses off, so the tell
     // and the slow read the same number.
     const puffMul = ((e.puffT ?? 0) > 0 || (e._puffCd ?? 0) > 0) ? PUFFER_DRIFT_MUL : 1
-    const slowMul = (1 - elSlow(run, e)) * bloomMul * dragMul * oilMul * puffMul  // 1.0 slow IS the freeze; no separate branch
+    const scentSlow = (e.scentT || 0) > 0 ? 1 - SCENT_SLOW : 1   // The Deep's mark
+    const slowMul = (1 - elSlow(run, e)) * bloomMul * dragMul * oilMul * puffMul * scentSlow  // 1.0 slow IS the freeze; no separate branch
 
     // Frenzied: speeds up once badly hurt. Cheerleader (pacer): speeds up anyone else nearby.
     let affixSpeedMul = 1
@@ -7927,8 +7920,8 @@ function stepMaws(run, dt) {
 // RE-MARKED EVERY FRAME rather than stamped once at the press. The alternative reads as a smaller
 // change than it is: a one-shot stamp marks the bodies that happened to be in range on the frame
 // the button went down, so a body that swims INTO the smell is untouched by it, and the card
-// becomes "damage the crowd you already had" instead of "hunt for a few seconds". It also means the
-// radius keeps up with the player, which is what "close on them faster" is for.
+// becomes "damage the crowd you already had" instead of "hunt for a few seconds". A body caught
+// keeps the mark for SCENT_MARK_T from the last frame it was inside.
 //
 // `scentT` is published on the enemy for render.js to outline, for the same reason `gape` above is.
 function stepScent(run, dt) {
@@ -7941,7 +7934,7 @@ function stepScent(run, dt) {
     if (e._dead) continue
     const dx = e.x - p.x, dy = e.y - p.y
     if (dx * dx + dy * dy > rSq) continue
-    e.scentT = run._scentT
+    e.scentT = SCENT_MARK_T
   }
 }
 

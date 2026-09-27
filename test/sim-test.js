@@ -46,7 +46,7 @@ import {
   xpForLevel, REVIVE_HP_FRAC, REVIVE_INVULN, rerollCost,
   MAX_DIFFICULTY, PLAYER, BARNACLE_JUMP_R, SHELL_R,
   LONGLINE_SNAG, LONGLINE_HALF_W, LONGLINE_TWIN_GAP, LONGLINE_MAX_SETS, LONGLINE_MIN_OFFSET, CC_DR_FLOOR,
-  MAW_GAPE_T, MAW_DEVOUR_FRAC, BORN_BLIND_MAX_DMG_MUL, BORN_BLIND_REFILL_MUL, MAW_VIS, MAW_REVEAL, LURE_GLOW, SCENT_R, SCENT_DMG_MUL, SCENT_SPEED_MUL, spendSecs,
+  MAW_GAPE_T, MAW_DEVOUR_FRAC, BORN_BLIND_MAX_DMG_MUL, BORN_BLIND_REFILL_MUL, MAW_VIS, MAW_REVEAL, LURE_GLOW, SCENT_R, SCENT_DMG_MUL, SCENT_SLOW, SCENT_MARK_T, spendSecs,
   BOOKS, BOOK_ORDER, BOOK_SHOP, shopLines, BOOK_UNLOCKS, playableChapterId, isWipChapter, chapterAvailable, titleBookshelf, CHAPTER_SPINE, isBookFinale, nextBook, bookOf, chapterNumber,
   DMG_SRC_NAME, dmgSrcName, DMG_SRC_ART, dmgSrcArt, DMG_SRC_NO_ART,
   DEATH_OUTRO, irisCoverMul, deathProgress, LANE_CAMERA_FRAC,
@@ -31925,29 +31925,48 @@ function testTheDeep() {
     console.log(`PASS run DP.e (a group, and every source): ${marked}/${pack.length} marked and nothing at ${SCENT_R + 600}px, hazard damage x${(lostB / lostA).toFixed(2)}`)
   }
 
-  // (f) SCENT BUYS SPEED, AND IT IS A BONUS RATHER THAN A FLOOR. Multiplied in, not MIN-composed
-  // with the chapter slows — folding it into the MIN would mean spending a full bar did nothing at
-  // all whenever anything else was slowing the player, which is when you would spend it.
+  // (f) THE MARK SLOWS THE PREY AND LASTS 10s; THE PLAYER IS NOT FASTER. Owner, 2026-09-27:
+  // "'you close on them' I don't care about that, let's make the debuff 25% more dmg taken and 25%
+  // slow, for 10s".
   {
     const off = rig(); off.charge = res.max
     step(off, 30, { x: 1, y: 0 })
     const plain = Math.hypot(off.player.vx, off.player.vy)
-
     const on = rig(); on.charge = res.max
     stepSim(on, { x: 1, y: 0, skill: true }, dt)
     on.events.length = 0
     step(on, 20, { x: 1, y: 0 })
     const scented = Math.hypot(on.player.vx, on.player.vy)
-
     assert.ok(on._scentT > 0, 'run DP.f: the button did not open a Scent window at all')
-    assert.ok(Math.abs(scented / plain - SCENT_SPEED_MUL) < 0.02,
-      `run DP.f: Scent moved the player at x${(scented / plain).toFixed(3)} against a declared x${SCENT_SPEED_MUL}`)
-    // The chapter's own dark must NOT also slow: two penalties on one bar, in the chapter whose
-    // roster you cannot see coming.
-    assert.strictEqual(res.dark.speedFloor, 1,
-      `run DP.f: The Deep's dark carries speedFloor ${res.dark.speedFloor} — an empty bar now slows the player AND blinds them, which is The Shelf's bargain, not this one`)
-    console.log(`PASS run DP.f (light buys speed): ${plain.toFixed(0)} -> ${scented.toFixed(0)} px/s at x${(scented / plain).toFixed(2)}, and the dark itself never slows`)
+    assert.ok(Math.abs(scented / plain - 1) < 0.01, `run DP.f: Scent still moves the player at x${(scented / plain).toFixed(3)}`)
+
+    // One body walking in from 400px, marked by a press vs not: how far it came in 1s, timed after
+    // the press's own shove has worn off.
+    // The Deep's tide drifts every body whatever its speed, so each arm subtracts a speed-0 twin.
+    const walked = (press, speed = 60) => {
+      const run = rig(); run.charge = res.max
+      const e = fish(run, 400, 0); e.speed = speed
+      if (press) { stepSim(run, { x: 0, y: 0, skill: true }, dt); run.events.length = 0 }
+      step(run, 90)   // let the shove and its stagger wear off (both arms, so the clock matches)
+      e.x = 400; e.y = 0; e.kb.x = 0; e.kb.y = 0
+      const x0 = e.x
+      step(run, 60)
+      return { d: x0 - e.x, e, run }
+    }
+    const a = walked(false), b = walked(true)
+    a.d -= walked(false, 0).d; b.d -= walked(true, 0).d
+    assert.ok(a.d > 20, `run DP.f: the fixture body only moved ${a.d.toFixed(1)}px — not measuring its speed`)
+    assert.ok(Math.abs(b.d / a.d - (1 - SCENT_SLOW)) < 0.03, `run DP.f: a marked body moved x${(b.d / a.d).toFixed(3)} as far, want x${1 - SCENT_SLOW}`)
+    // It keeps the mark for SCENT_MARK_T after the smell stops catching it.
+    const { run, e } = b
+    let t = 0
+    while (run._scentT > 0 && t < 10) { step(run, 1); t += dt }
+    let held = 0
+    while ((e.scentT || 0) > 0 && held < 20) { step(run, 1); held += dt }
+    assert.ok(Math.abs(held - SCENT_MARK_T) < 0.1, `run DP.f: the mark outlived the smell by ${held.toFixed(2)}s, want ${SCENT_MARK_T}`)
+    console.log(`PASS run DP.f (the mark): player x${(scented / plain).toFixed(2)}, marked body x${(b.d / a.d).toFixed(2)} speed, mark held ${held.toFixed(2)}s after the smell`)
   }
+
 
   // (i) THE CHAPTER IS ACTUALLY WIRED IN. Cheap, and it is the class of failure that ships a
   // chapter reachable through the dev gate with a piece missing.
