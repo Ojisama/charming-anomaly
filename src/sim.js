@@ -229,7 +229,7 @@ import {
   KRAKEN_EXPOSE_BITE, KRAKEN_HITSTOP_PARRY, KRAKEN_HITSTOP_BREAK, KRAKEN_HITSTOP_STAGGER,
   KRAKEN_HEAD_TOUCH_DMG, KRAKEN_HEAD_HOLD, KRAKEN_HEAD_STEER, KRAKEN_DASH_RUNUP, KRAKEN_DASH_SPEED, KRAKEN_DASH_DIST, KRAKEN_DASH_PARRY_PX,
 
-  KRAKEN_CAGE_R,
+  KRAKEN_CAGE_R, KRAKEN_CHASE_CAGE_R, KRAKEN_COIL_STAR_R,
   KRAKEN_LASH_R, KRAKEN_LASH_DMG, KRAKEN_HAUL_R, KRAKEN_LASH_W, KRAKEN_LASH_OVER,
   KRAKEN_LIMB_HW, krakenLimbHalfW,
   KRAKEN_PARRY_MARGIN, KRAKEN_PARRY_SPIN_T, KRAKEN_PARRY_EARLY_T, KRAKEN_LIMP_CLEAR,
@@ -1895,7 +1895,7 @@ function krakenLimbTouches(run, a, head) {
 // centre inside any band is the hit.
 export function krakenCoilStarHits(run, head) {
   const p = run.player, base = run.script.coilStar ?? 0, n = run.script.coilN || KRAKEN_COIL_RAYS
-  const far = KRAKEN_CAGE_R * 4
+  const far = KRAKEN_COIL_STAR_R
   for (let k = 0; k < n; k++) {
     const t = base + k * Math.PI * 2 / n
     if (segDist2(p.x, p.y, head.x, head.y, head.x + Math.cos(t) * far, head.y + Math.sin(t) * far) <= KRAKEN_LASH_W * KRAKEN_LASH_W) return true
@@ -2262,7 +2262,7 @@ function krakenCage(run, head, dt = 0) {
   // the ring shut — hauling a player who had run out to the wall 48px inward during the one move
   // whose answer is "run to the gap". Measured 350 -> 398 -> 350, 6/6 seeds at d3.
   const closing = s.phase === 'arrive' || s.riseT > 0
-  const cageR = Math.max(KRAKEN_CAGE_R, (closing ? krakenReach(s) : KRAKEN_ARM_REACH) + KRAKEN_LASH_R)
+  const cageR = Math.max(s.phase === 'chase' ? KRAKEN_CHASE_CAGE_R : KRAKEN_CAGE_R, (closing ? krakenReach(s) : KRAKEN_ARM_REACH) + KRAKEN_LASH_R)
   // ...AND IT IS PUBLISHED, because it is no longer a constant and render cannot recompute it.
   // Measured on the suite's own arrival fixture: the sim stopped the player at 764px while render
   // drew the taut skin at KRAKEN_CAGE_R, 350 — 414px behind them, off the edge of a phone. For the
@@ -2542,12 +2542,12 @@ function stepKrakenArms(run, dt, rung, head) {
         s.coilHit = false
         // THE STAR IS THE ARMS (owner, 2026-09-26: "we don't see all the arms slamming at the same
         // time"). Up to KRAKEN_COIL_RAYS able arms each take one band, evenly spaced and aimed so one
-        // runs through where the fish is now; each swings round onto its band (a.coilAng, eased in
+        // runs at a random bearing; each swings round onto its band (a.coilAng, eased in
         // krakenSwingArms) and they land together along them. Fewer arms, fewer bands.
         const able = run.krakenArms.filter((c) => !c.dead && c.limpT <= 0 && !(c.gripT > 0))
         const n = Math.min(able.length, KRAKEN_COIL_RAYS)
         s.coilN = n
-        s.coilStar = Math.atan2(p.y - head.y, p.x - head.x)
+        s.coilStar = Math.random() * Math.PI * 2
         const free = able.slice()
         for (let k = 0; k < n; k++) {
           const b = s.coilStar + k * Math.PI * 2 / n
@@ -2920,7 +2920,9 @@ function stepKrakenChase(run, dt, rung, head) {
       head.x += dx / d * mv; head.y += dy / d * mv
       head._kvx = 0; head._kvy = 0
     } else {
-      const want = d > KRAKEN_HEAD_HOLD ? KRAKEN_HEAD_SPEED * Math.min(1, (d - KRAKEN_HEAD_HOLD) / 120) : 0
+      // ...and inside the hold it eases back out (at up to half speed): the chase's wider cage lets it
+      // come in fast enough to overshoot, and without this it stayed parked 50px short for good
+      const want = KRAKEN_HEAD_SPEED * Math.max(-0.5, Math.min(1, (d - KRAKEN_HEAD_HOLD) / 120))
       const k = 1 - Math.exp(-dt * KRAKEN_HEAD_STEER)
       head._kvx = (head._kvx ?? 0) + (dx / d * want - (head._kvx ?? 0)) * k
       head._kvy = (head._kvy ?? 0) + (dy / d * want - (head._kvy ?? 0)) * k

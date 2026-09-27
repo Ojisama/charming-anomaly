@@ -8855,7 +8855,8 @@ export const INK_HEART_VOLLEY_MUL = 0.3 // x the summed per-cast damage of every
 // on a limb — it should visibly cost that limb something even if you never fire a shot.
 // balance_decision : same raw tear (68hp) on the 2.5x tougher arm, 2026-09-26
 export const KRAKEN_EXPOSE_BITE = 0.072 // of the arm's max, on the parry that exposes it
-export const KRAKEN_HEAD_HP = 4400
+// balance_decision : head HP tripled, owner 2026-09-27
+export const KRAKEN_HEAD_HP = 13200
 // THE HEAD HAS TO FIT THE CAGE IT IS IN. At 190 the bare head drew ~464px wide inside an 837px
 // arena — 60% of a phone screen, half of it off-frame — and, worse, its drawn half-extent (232px)
 // was LARGER than KRAKEN_ARM_REACH, so every exposed limb (the thing the design tells you to go and
@@ -8960,6 +8961,8 @@ export function krakenLimbHalfW(s, L, tipR) {
 // `scripted: true` exempting the chapter from the survival clock. Unloseable and unwinnable at once.
 // The wall now stands exactly at the edge of the threat envelope: nowhere inside it is safe.
 export const KRAKEN_CAGE_R = KRAKEN_ARM_REACH + KRAKEN_LASH_R
+// the chase's cage, round the risen head: twice as far out (owner, 2026-09-27: "the current range is too small")
+export const KRAKEN_CHASE_CAGE_R = KRAKEN_CAGE_R * 2
 // balance_decision : ring block pulls the camera back to fit the threat envelope [2026-09-15]
 //  - stated as a fraction of the SHORT axis in render.js, never in px: a phone (390) pulls back to
 //    ~0.75 and a desktop (800) already clears the envelope and clamps to 1, so this is a no-op there.
@@ -9108,9 +9111,12 @@ export const KRAKEN_DASH_PARRY_PX = 262
 export const KRAKEN_COIL_EVERY = 4 // arm attacks between coils
 export const KRAKEN_COIL_AT = 2 // which turn of each KRAKEN_COIL_EVERY is the coil (a slam's, not a grab's)
 // THE COIL IS A STAR (owner, 2026-09-26): the rearing ring throws KRAKEN_COIL_RAYS arm-shadows across
-// the whole arena through the head, one aimed at where the fish stood; inside a band when it lands
-// is the hit (krakenCoilStarHits), the wedges between are safe.
-export const KRAKEN_COIL_RAYS = 6 // also the most arms in one Coil (owner, 2026-09-27: "max 6 arms hit at the same time")
+// the whole arena through the head, at a RANDOM bearing (owner, 2026-09-27); inside a band when it
+// lands is the hit (krakenCoilStarHits), the wedges between are safe.
+export const KRAKEN_COIL_RAYS = 7 // also the most arms in one Coil (owner, 2026-09-27: "coil should cap at 7 arms")
+// how far each band runs from the head, for the hit AND the drawing: past any screen edge from anywhere
+// in the widest cage, so the player never sees a band end (owner, 2026-09-27: "the cones stop too soon")
+export const KRAKEN_COIL_STAR_R = 3000
 export const KRAKEN_COIL_TELE = 1.6 // s of wind-up before the ring closes — long, it is a move test
 export const KRAKEN_COIL_DUR = 0.9 // s the ring spends hauled in
 export const KRAKEN_COIL_IN = 0.34 // the fraction of KRAKEN_ARM_REACH the arms close to
