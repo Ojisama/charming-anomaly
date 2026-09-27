@@ -1250,8 +1250,6 @@ const CONFIG = {
   'column damage': 'dégâts de la colonne',
   'Broad Beam': 'Faisceau Large',
   'column radius': 'rayon de la colonne',
-  'Zenith': 'Zénith',
-  'how far a column can be called': 'portée d\'appel d\'une colonne',
   'Second Sun': 'Second Soleil',
   'extra column(s) per cast': 'colonne(s) supplémentaire(s) par lancer',
   'Quick Kindle': 'Allumage Rapide',

@@ -6403,7 +6403,8 @@ export function refillCircleAt(i, j, seed, spec) {
   // Jitter slack subtracts driftAmp, which the non-drifting fields have no reason to do: their
   // circles never move, so they may spend the whole cs/2 - r - 20 budget on jitter. Where a field
   // drifts, jitter and drift share it, and the sum has to stay inside the cell.
-  const slack = Math.max(0, cs / 2 - spec.r - 20 - (spec.driftAmp ?? 0))
+  // spec.jitter shrinks it, for a field whose circles must never land side by side.
+  const slack = Math.max(0, cs / 2 - spec.r - 20 - (spec.driftAmp ?? 0)) * (spec.jitter ?? 1)
   const x = (i + 0.5) * cs + (obstacleCellHash(i, j, seed, s0 + 1) - 0.5) * 2 * slack
   const y = (j + 0.5) * cs + (obstacleCellHash(i, j, seed, s0 + 2) - 0.5) * 2 * slack
   if (Math.hypot(x, y) < spec.minDist) return null // spawn-ring clearance from the run ORIGIN
@@ -9872,7 +9873,7 @@ const WEAPON_STAT_MODS = {
   // and sunspearSpots reads the folded number as BOTH its loop bound and its padding divisor.
   // `quickKindle` is absent here and registered in WEAPON_RATE_MODS instead: folding a rate pick
   // into `interval` would SLOW the weapon.
-  sunspear:      { highNoon: ['dmg', 'pct'], broadBeam: ['r', 'pct'], zenith: ['castRange', 'pct'], secondSun: ['count', 'flat'] },
+  sunspear:      { highNoon: ['dmg', 'pct'], broadBeam: ['r', 'pct'], secondSun: ['count', 'flat'] },
   foxfire:       { emberfeed: ['dmg', 'pct'], gloaming: ['maxR', 'pct'], longBurn: ['glowDur', 'pct'] },
   sunlance:      { whetted: ['dmg', 'pct'], farReach: ['length', 'pct'], broadEdge: ['width', 'pct'], heldLance: ['duration', 'pct'] },
   // Glint: `secondGlint` is a per-cast COUNT read at the fire site like star's multishot;
@@ -14303,7 +14304,7 @@ function stepFoxfireWeapon(run, w, stats, fireRateMul, dt) {
       const spot = pickBloomSpot(run, stats.castRange)
       run.blooms.push({
         x: spot.x, y: spot.y, r: 0, maxR: stats.maxR * gloom, t: 0,
-        dur: stats.glowDur, dmgPerTick: stats.dmg,
+        dur: stats.glowDur, dmgPerTick: stats.dmg, tick: BLOOM_TICK / (chapterTune(run, 'foxfire').tick ?? 1),
         // seedX/seedY: where it was lit. render.js hashes its embers off these, so a wandering fire
         // keeps one ember pattern instead of re-rolling it every frame it moves.
         seedX: spot.x, seedY: spot.y, wander: !!chapterTune(run, 'foxfire').wander,

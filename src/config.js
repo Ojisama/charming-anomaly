@@ -3992,7 +3992,6 @@ export const WEAPON_MODS = {
   sunspear: {
     highNoon:  { name: 'High Noon',  desc: 'column damage', icon: '💥', base: 0.30, kind: 'pct' },
     broadBeam: { name: 'Broad Beam', desc: 'column radius', icon: '⭕', base: 0.28, kind: 'pct' },
-    zenith:    { name: 'Zenith',     desc: 'how far a column can be called', icon: '📏', base: 0.25, kind: 'pct' },
     // A flat count, not a percentage: +30% of one column is one column. It folds through
     // WEAPON_STAT_MODS as 'flat' because `count` is a real key in levels[] — which also means
     // sunspearSpots reads the MODIFIED count and the padding ring divides by that same number.
@@ -8470,7 +8469,9 @@ CHAPTERS.deep = {
   //  - `keepClear` is read by streamObstacles, not by anything that places a maw: no rock, ever,
   //    inside the jaws. It takes 30% of the obstacle placements with it — `obstacles.cell` below is
   //    sized against that loss, so move the two together or the chapter quietly empties out.
-  signature: { type: 'dark', maws: { cell: 900, chance: 0.84, r: 200, minDist: 460, keepClear: true } },
+  // balance_decision : maw jitter x0.4, no two anglerfish side by side [2026-09-27]
+  //  - neighbours now sit >= 716px apart centre to centre (was 440)
+  signature: { type: 'dark', maws: { cell: 900, chance: 0.84, r: 200, minDist: 460, jitter: 0.4, keepClear: true } },
 
   // THE BAR: Light. The maws above are the ONLY source — no shafts, no kill refill, nothing else on
   // the floor. That is what makes this chapter's refill "a place you can fight from, never a place
@@ -8602,9 +8603,11 @@ CHAPTERS.deep = {
   // balance_decision : Gloaming card -40% on top of the x1.2 [2026-09-27]
   //  - `modMul` is per card and multiplies with `mods`
   weaponTune: {
-    sunspear: { rate: 1.15, dmg: 1.2, tank: 2, mods: 1.2 },
-    foxfire: { rate: 1.15, dmg: 1.2, dur: 1.3, wander: true, mods: 1.2, modMul: { gloaming: 0.6 } },
-    sunlance: { rate: 1.15, dmg: 1.2, tank: 2, mods: 1.2 },
+    // balance_decision : column + lance rate/dmg x1.15, foxfire dmg/tick rate x1.2 [2026-09-27]
+    //  - `tick` divides BLOOM_TICK for the foxfire only
+    sunspear: { rate: 1.15 * 1.15, dmg: 1.2 * 1.15, tank: 2, mods: 1.2 },
+    foxfire: { rate: 1.15, dmg: 1.2 * 1.2, tick: 1.2, dur: 1.3, wander: true, mods: 1.2, modMul: { gloaming: 0.6 } },
+    sunlance: { rate: 1.15 * 1.15, dmg: 1.2 * 1.15, tank: 2, mods: 1.2 },
     glint: { mods: 0.8 },
   },
   // balance_decision : 30% fewer fangtooth, 20% fewer tanks [2026-09-26]

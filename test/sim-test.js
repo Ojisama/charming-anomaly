@@ -176,7 +176,7 @@ import {
   KRAKEN_HEAD_SPEED, KRAKEN_PARRY_SPIN_T, krakenLimbHalfW, FISH_R, FISH_BODY, KRAKEN_GRIP_EVERY, KRAKEN_GRAB_FUSE, KRAKEN_GRAB_MIN_STEP, KRAKEN_PINCH_OPEN0, KRAKEN_PINCH_OPEN1,
   KRAKEN_BEAT_READ, KRAKEN_BEAT_GRAB_CLEAR, KRAKEN_BEAT_BREATH, KRAKEN_HEAD_R, KRAKEN_HEAD_HOLD, KRAKEN_DASH_DIST, KRAKEN_DASH_SPEED, KRAKEN_DASH_RUNUP, KRAKEN_DASH_PARRY_PX, KRAKEN_HEAD_TOUCH_DMG, KRAKEN_LUNGE_DMG, KRAKEN_LUNGE_WINDUP_T,
 } from '../src/config.js'
-import { krakenWinPending, krakenPinchProbe, krakenGrabSpot, krakenGrabTurnClear, stepSim, applyChoice, buildLevelUpChoices, eligibleWeaponModCandidates, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, inRefillCircle, stepCharge, newElWindow, spurAt } from '../src/sim.js'
+import { krakenWinPending, krakenPinchProbe, krakenGrabSpot, krakenGrabTurnClear, stepSim, applyChoice, buildLevelUpChoices, eligibleWeaponModCandidates, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, inRefillCircle, refillCircleAt, stepCharge, newElWindow, spurAt } from '../src/sim.js'
 
 // ---- Scenario runner: one filter, and the gate's own dispatch flag ----------------------------
 // THIS FILE IS NO LONGER WHAT `npm test` RUNS. scripts/test-isolation.mjs hands one scenario to
@@ -7175,7 +7175,9 @@ function runModBudget() {
       for (const wid of CHAPTERS[ch].weapons) {
         const n = Object.keys(WEAPON_MODS[wid] ?? {}).length
         rows.push(`${wid} ${n}`)
-        assert(n >= 4, `${ch}.${wid} carries ${n} mods; Book 2's budget is ~4 apiece and a weapon with fewer starves its chapter's mod bucket`)
+        // Owner, 2026-09-27: "remove portée d'appel de la colonne mod" — Sunspear lost Zenith, down to 3.
+        const floor = { sunspear: 3 }[wid] ?? 4
+        assert(n >= floor, `${ch}.${wid} carries ${n} mods; Book 2's budget is ~4 apiece and a weapon with fewer starves its chapter's mod bucket`)
       }
     }
     console.log(`PASS run MB.a2 (budget): ${rows.join(', ')}`)
@@ -32398,7 +32400,7 @@ function testTheDeep() {
       CHAPTERS.deep.weaponTune = tune
       assert.ok(plain >= 4, `run DP.p: ${id} cast only ${plain} times in 60s — the fixture is not measuring its cadence`)
       const ratio = tuned / plain
-      assert.ok(ratio > 1.08 && ratio < 1.25, `run DP.p: ${id} cast x${ratio.toFixed(2)} as often in The Deep — the tune says x${tune[id].rate}`)
+      assert.ok(Math.abs(ratio - tune[id].rate) < 0.1, `run DP.p: ${id} cast x${ratio.toFixed(2)} as often in The Deep — the tune says x${tune[id].rate}`)
       out.push(`${id} ${plain}->${tuned}`)
     }
     console.log(`PASS run DP.p (Deep cadence tune): ${out.join(', ')} casts in 60s, Glint untouched`)
@@ -32465,6 +32467,25 @@ function testTheDeep() {
       return { life, far, fx, fy, dmg: bl.dmgPerTick, seedMoved: bl.seedX !== sx || bl.seedY !== sy }
     })
     const still = cloud(false), roam = cloud(true)
+    // Foxfire ticks: damage into one body parked in a held (non-wandering) cloud for 4s, divided by
+    // the cloud's own per-tick number, is the tick count.
+    const ticks = (on) => withTune(on, () => {
+      const run = rig('foxfire', 1)
+      const t = fish(run, run.player.x + 150, run.player.y)
+      for (let i = 0; i < 5 * 60 && run.blooms.length === 0; i++) step(run, 1)
+      const bl = run.blooms[0]
+      run.weapons.length = 0; bl.wander = false
+      const mid = bl.dur * 0.5
+      t.hp = t.maxHP = 1e9
+      for (let i = 0; i < 60; i++) { bl.t = mid; t.x = bl.x; t.y = bl.y; step(run, 1) }
+      const hp0 = t.hp
+      for (let i = 0; i < 4 * 60; i++) { bl.t = mid; t.x = bl.x; t.y = bl.y; step(run, 1) }
+      return (hp0 - t.hp) / bl.dmgPerTick
+    })
+    const tickOn = ticks(true), tickOff = ticks(false), tickX = tickOn / tickOff
+    assert.ok(tickOff >= 5, `run DP.q: a plain foxfire ticked ${tickOff} times in 4s — the fixture is not measuring it`)
+    assert.ok(Math.abs(tickX - tune.foxfire.tick) < 0.15, `run DP.q: a Deep foxfire ticks x${tickX.toFixed(2)} as often — the tune says x${tune.foxfire.tick}`)
+    out.push(`foxfire ticks x${tickX.toFixed(2)}`)
     assert.ok(Math.abs(roam.life / still.life - tune.foxfire.dur) < 0.05,
       `run DP.q: a Deep foxfire burned ${roam.life.toFixed(2)}s against ${still.life.toFixed(2)}s plain — the tune says x${tune.foxfire.dur}`)
     assert.ok(Math.abs(roam.dmg / still.dmg - tune.foxfire.dmg) < 0.01, `run DP.q: a Deep foxfire ticks x${(roam.dmg / still.dmg).toFixed(2)} — the tune says x${tune.foxfire.dmg}`)
@@ -32502,6 +32523,28 @@ function testTheDeep() {
     assert.ok(Math.abs(deep / flat - want) < 0.12,
       `run DP.r: The Deep spawned ${deep} against ${flat} at growth 1 (x${(deep / flat).toFixed(2)}) — spawnRate says x${want.toFixed(2)} at t=250`)
     console.log(`PASS run DP.r (spawn ramp -20%): ${flat} -> ${deep} bodies in 5s at t=250 (curve says x${want.toFixed(2)}), opening unchanged`)
+  }
+
+  // (u) NO TWO ANGLERFISH SIDE BY SIDE. Owner, 2026-09-27: "make anglerfish bodies further apart from
+  // each other, currently some are side by side". Every maw on a 40x40-cell patch of 5 seeds; the
+  // closest pair must leave a whole body's width (~460px drawn) between the two jaws.
+  {
+    const spec = CHAPTERS.deep.signature.maws
+    let closest = Infinity, n = 0
+    for (const seed of [1, 2, 3, 4, 5]) {
+      const maws = []
+      for (let i = -20; i < 20; i++) for (let j = -20; j < 20; j++) {
+        const c = refillCircleAt(i, j, seed, spec)
+        if (c) maws.push(c)
+      }
+      n += maws.length
+      for (let a = 0; a < maws.length; a++) for (let b = a + 1; b < maws.length; b++) {
+        closest = Math.min(closest, Math.hypot(maws[a].x - maws[b].x, maws[a].y - maws[b].y))
+      }
+    }
+    assert.ok(n > 5000, `run DP.u: only ${n} maws sampled`)
+    assert.ok(closest >= 2 * spec.r + 300, `run DP.u: two anglerfish ${closest.toFixed(0)}px apart centre to centre — jaws r ${spec.r}, want >= ${2 * spec.r + 300}`)
+    console.log(`PASS run DP.u (maw spacing): closest of ${n} maws over 5 seeds is ${closest.toFixed(0)}px apart`)
   }
 
   // (s) THE DEEP'S UPGRADE CARDS: a percent mod card on a non-starter banks x1.2, on Glint x0.8,
@@ -36534,11 +36577,15 @@ function testKrakenGrab() {
   for (const a of run.krakenArms) { a.tele = 0; a.gripT = 0; a.limpT = 0; a.grabArm = false; if (a !== arm && a !== mate) a.dead = true }
   const jaws = [arm, mate]
   const p = run.player
+  // Only an ARM's hurt counts below: the boss phase still sends kraken darts, and whether one grazes
+  // the fish depends on the seeded stream, not on the pinch.
+  let armHurt = 0
   const step = (at, press = false) => {
     if (at) { p.x = at.x; p.y = at.y }
     p.hp = p.maxHP; p.invuln = 0
     run.events.length = 0
     stepSim(run, { x: 0, y: 0, skill: press }, 1 / 60)
+    armHurt += run.events.filter((e) => e.type === 'hurt' && e.src === 'krakenArm').length
     return run.events
   }
   const h0 = run.enemies.find((e) => e.rosterId === 'krakenHead' && !e._dead)
@@ -36639,9 +36686,9 @@ function testKrakenGrab() {
   // 2) OUT OF THE V: a step off the jaws' chord, away from them — it misses
   startGrab()
   const off = outOfV(120), { nx, ny } = off
-  const hp0 = p.maxHP
+  armHurt = 0
   assert.strictEqual(strike(off), 'missed', 'a pinch took hold of a fish that stepped 120px out of it — it is still unavoidable')
-  assert.ok(jaws.every((c) => c.gripT === 0) && p.hp === hp0, 'a missed pinch still gripped or hurt the fish')
+  assert.ok(jaws.every((c) => c.gripT === 0) && armHurt === 0, 'a missed pinch still gripped or hurt the fish')
   // 3) A PRESS DURING A PINCH IS A WHIFF, and the button said so beforehand
   for (const c of jaws) c.slamT = 0
   startGrab()
