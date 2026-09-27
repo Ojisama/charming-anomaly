@@ -174,7 +174,7 @@ import {
   KRAKEN_LUNGE_T, KRAKEN_GRIP_DUR, KRAKEN_GRIP_DMG, KRAKEN_GRIP_FLICKS, KRAKEN_GRIP_STICK_MUL, TRAWL_WIGGLE_ARC,
   KRAKEN_LASH_W, KRAKEN_LASH_OVER, KRAKEN_LASH_DMG, KRAKEN_LESSON_MAX, KRAKEN_PARRY_SHOVE_R, KRAKEN_PARRY_EARLY_T, KRAKEN_LIMP_CLEAR, KRAKEN_ARRIVE_T2, KRAKEN_WAVE_GROWTH, KRAKEN_COIL_DMG,
   KRAKEN_HEAD_SPEED, KRAKEN_PARRY_SPIN_T, krakenLimbHalfW, FISH_R, FISH_BODY, KRAKEN_GRIP_EVERY, KRAKEN_GRAB_FUSE, KRAKEN_GRAB_MIN_STEP, KRAKEN_PINCH_OPEN0, KRAKEN_PINCH_OPEN1,
-  KRAKEN_BEAT_READ, KRAKEN_BEAT_GRAB_CLEAR, KRAKEN_BEAT_BREATH, KRAKEN_HEAD_R, KRAKEN_HEAD_HOLD, KRAKEN_DASH_DIST, KRAKEN_DASH_SPEED, KRAKEN_DASH_RUNUP, KRAKEN_DASH_PARRY_PX, KRAKEN_HEAD_TOUCH_DMG, KRAKEN_LUNGE_DMG, KRAKEN_LUNGE_WINDUP_T,
+  KRAKEN_BEAT_READ, KRAKEN_BEAT_GRAB_CLEAR, KRAKEN_BEAT_BREATH, KRAKEN_HEAD_R, KRAKEN_CHASE_CAGE_R, KRAKEN_HEAD_HOLD, KRAKEN_DASH_DIST, KRAKEN_DASH_SPEED, KRAKEN_DASH_RUNUP, KRAKEN_DASH_PARRY_PX, KRAKEN_HEAD_TOUCH_DMG, KRAKEN_LUNGE_DMG, KRAKEN_LUNGE_WINDUP_T,
 } from '../src/config.js'
 import { krakenWinPending, krakenPinchProbe, krakenGrabSpot, krakenGrabTurnClear, stepSim, applyChoice, buildLevelUpChoices, eligibleWeaponModCandidates, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, inRefillCircle, refillCircleAt, stepCharge, newElWindow, spurAt } from '../src/sim.js'
 
@@ -35633,6 +35633,10 @@ function runKraken() {
     const far = () => { h.lungeT = KRAKEN_LUNGE_T; p.invuln = 99 }
     const fx = h.x + 900, fy = h.y
     tick(() => { far(); p.x = fx; p.y = fy })
+    // THE CHASE'S CAGE IS TWICE THE RING'S (owner, 2026-09-27: "the current range is too small")
+    const d1 = Math.hypot(p.x - h.x, p.y - h.y)
+    assert.ok(Math.abs(d1 - KRAKEN_CHASE_CAGE_R) < 10 && KRAKEN_CHASE_CAGE_R >= KRAKEN_CAGE_R * 2,
+      `a fish 900px out in the chase was held at ${d1.toFixed(0)}px, want the chase cage ${KRAKEN_CHASE_CAGE_R} (2x ${KRAKEN_CAGE_R})`)
     const v1 = Math.hypot(h._kvx, h._kvy)
     assert.ok(v1 < KRAKEN_HEAD_SPEED * 0.2, `one frame after the fish moved off, the head already drifts at ${v1.toFixed(0)}px/s — it snaps, it does not follow loosely`)
     for (let i = 0; i < 60 * 12; i++) tick(() => { far(); p.x = fx; p.y = fy })
@@ -35891,13 +35895,6 @@ function runKraken() {
         const d = Math.abs(Math.atan2(Math.sin(la - a.coilAng), Math.cos(la - a.coilAng)))
         assert.ok(d < 0.02, `1s into the Coil an arm's lane is ${(d * 180 / Math.PI).toFixed(0)}deg off its band — the arms do not lie on the shadows that strike`)
       }
-      // THE STAR IS AIMED: one band runs through where the fish stood when it wound up
-      {
-        const hd = run.enemies.find((e) => e.rosterId === 'krakenHead' && !e._dead)
-        let dA = Math.atan2(run.player.y - hd.y, run.player.x - hd.x) - run.script.coilStar
-        dA = Math.atan2(Math.sin(dA), Math.cos(dA))
-        assert.ok(Math.abs(dA) < 0.05, `the Coil's star missed the fish by ${(dA * 180 / Math.PI).toFixed(0)}deg — standing still would be safe`)
-      }
       // a press during the volley must not defuse any of it
       const before = armed.length
       run.player.hp = run.player.maxHP
@@ -35913,6 +35910,7 @@ function runKraken() {
     // Standing in a struck lane costs KRAKEN_COIL_DMG exactly once; standing in the spared lane costs
     // nothing. Same forced gates as the block above, for the same reason.
     {
+      const starOff = []
       const coilRun = (pick) => {
         const run = inBlock(3)
         run.script.bossIdx = 2
@@ -35938,16 +35936,25 @@ function runKraken() {
         // THE STAR (owner, 2026-09-26): a point 260px out from the head on the first band (the one
         // aimed at the fish), mid-wedge between two bands, or the head, where every band overlaps
         const hd = run.enemies.find((e) => e.rosterId === 'krakenHead' && !e._dead)
-        let bear = (run.script.coilStar ?? 0) + (pick === 'spared' ? Math.PI / KRAKEN_COIL_RAYS : 0)
+        const nB = run.script.coilN || KRAKEN_COIL_RAYS
+        // THE STAR'S BEARING IS RANDOM (owner, 2026-09-27): recorded against the fish's, spread checked below
+        starOff.push(Math.atan2(Math.sin(run.script.coilStar - b0), Math.cos(run.script.coilStar - b0)))
+        let bear = (run.script.coilStar ?? 0) + (pick === 'spared' ? Math.PI / nB : 0)
         if (pick === 'laneInWedge') {
           // a coil arm's own bearing that is well off every band: its old lane runs through a wedge
-          const off = (b) => Math.min(...Array.from({ length: KRAKEN_COIL_RAYS }, (_, k) => { const d = b - (run.script.coilStar + k * Math.PI * 2 / KRAKEN_COIL_RAYS); return Math.abs(Math.atan2(Math.sin(d), Math.cos(d))) }))
-          const arm = live.filter((a) => a.coilArm).sort((x, y) => off(y.ang) - off(x.ang))[0]
+          const off = (b) => Math.min(...Array.from({ length: nB }, (_, k) => { const d = b - (run.script.coilStar + k * Math.PI * 2 / nB); return Math.abs(Math.atan2(Math.sin(d), Math.cos(d))) }))
+          // The star's bearing is random, and with 9 arms the one nearest each band is never far off
+          // it — so the fixture turns the whole star (every band and every coil arm's target with it)
+          // until one coil arm's own bearing sits mid-wedge. The random draw already happened; this
+          // only picks which bearing it drew.
+          const arm = live.find((a) => a.coilArm)
+          const turn = (arm.ang - Math.PI / nB) - run.script.coilStar
+          run.script.coilStar += turn
+          for (const a of live) if (a.coilArm) a.coilAng += turn
           bear = arm.ang
-          // 300px, not 260: at 9 arms no coil arm sits more than 20deg off a band, which is inside a lash at 260
-          assert.ok(off(bear) * 300 > KRAKEN_LASH_W + 30, 'fixture: no coil arm lies clear of every band')
+          assert.ok(off(bear) * 260 > KRAKEN_LASH_W + 30, 'fixture: no coil arm lies clear of every band')
         }
-        const out = pick === 'centre' ? 0 : pick === 'laneInWedge' ? 300 : 260
+        const out = pick === 'centre' ? 0 : 260
         const at = () => ({ x: hd.x + Math.cos(bear) * out, y: hd.y + Math.sin(bear) * out })
         const hits = []
         let lashes = 0
@@ -35975,6 +35982,8 @@ function runKraken() {
       const inGap = coilRun('spared')
       assert.deepStrictEqual(inGap.hits, [], `standing between two of the star's bands cost [${inGap.hits}] — the wedges are not safe, so the Coil has no answer`)
       const onOldLane = coilRun('laneInWedge')
+      const spread = Math.max(...starOff) - Math.min(...starOff)
+      assert.ok(spread > 0.5, `4 Coils wound up within ${(spread * 180 / Math.PI).toFixed(0)}deg of each other against the fish — the star's bearing is not random`)
       assert.deepStrictEqual(onOldLane.hits, [], `standing on a rearing arm's own lane but between two bands cost [${onOldLane.hits}] — the hit is the arms' lanes, not the star that is drawn`)
     }
 

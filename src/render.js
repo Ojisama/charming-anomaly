@@ -30,7 +30,7 @@ import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC
   krakenRung, KRAKEN_RING_R, KRAKEN_ARM_R, KRAKEN_LIMB_HW, krakenLimbProf, krakenShoulderR, krakenLimbHalfW, KRAKEN_ARM_REACH, KRAKEN_LASH_R, KRAKEN_HEAD_R, KRAKEN_LASH_OVER, KRAKEN_LASH_W,
   KRAKEN_LUNGE_WINDUP_T,
   KRAKEN_PARRY_SPIN_T, KRAKEN_PARRY_MARGIN,
-  KRAKEN_RISE_T, KRAKEN_COIL_DUR, KRAKEN_COIL_TELE, KRAKEN_COIL_RAYS, KRAKEN_PARRY_CD, KRAKEN_CAGE_R, KRAKEN_LIMP_FLASH,
+  KRAKEN_RISE_T, KRAKEN_COIL_DUR, KRAKEN_COIL_TELE, KRAKEN_COIL_RAYS, KRAKEN_COIL_STAR_R, KRAKEN_PARRY_CD, KRAKEN_CAGE_R, KRAKEN_LIMP_FLASH,
   KRAKEN_RING_VIEW_MARGIN, KRAKEN_RING_ZOOM_MIN, KRAKEN_RING_ZOOM_EASE, KRAKEN_GRIP_DUR,
   KRAKEN_SLAM_T,
 } from './config.js'
@@ -22708,7 +22708,7 @@ void main() {
       const urg = 1 - (s.coilT - KRAKEN_COIL_DUR) / Math.max(0.001, KRAKEN_COIL_TELE)
       const k0 = Math.min(1, urg * 1.3), dk = k0 * k0 * (3 - 2 * k0)
       const flick = 0.85 + 0.15 * Math.sin(animT * 3.1) * Math.sin(animT * 1.7)
-      const R = KRAKEN_CAGE_R * 3, W = KRAKEN_LASH_W, n = s.coilN || KRAKEN_COIL_RAYS
+      const R = KRAKEN_COIL_STAR_R, W = KRAKEN_LASH_W, n = s.coilN || KRAKEN_COIL_RAYS
       for (let k = 0; k < n; k++) {
         const t = (s.coilStar ?? 0) + k * Math.PI * 2 / n
         const x1 = head.x + Math.cos(t) * R, y1 = head.y + Math.sin(t) * R
@@ -22721,7 +22721,7 @@ void main() {
       for (let k = 0; k < n; k++) {
         const t = (s.coilStar ?? 0) + (k + 0.5) * Math.PI * 2 / n, h = Math.PI / n * 0.45
         const lp = [head.x, head.y]
-        for (let q = 0; q <= 8; q++) { const u2 = t - h + 2 * h * q / 8; lp.push(head.x + Math.cos(u2) * R * 0.4, head.y + Math.sin(u2) * R * 0.4) }
+        for (let q = 0; q <= 8; q++) { const u2 = t - h + 2 * h * q / 8; lp.push(head.x + Math.cos(u2) * R, head.y + Math.sin(u2) * R) }
         teleG.poly(lp).fill({ color: 0xcfeaff, alpha: 0.08 * dk * flick })
       }
     }
