@@ -35806,9 +35806,10 @@ function runKraken() {
     // a render change is verified by SHOOTING A FRAME. Do not quote this block as proof a tell
     // works, and do not add a needle here instead of shooting the frame.
     for (const [needle, why] of [
-      ['if (a.limpT > 0) drawKrakenHitMe(krakenWoundG, a.x, a.y', 'the WEAK POINT on the limp arm\'s node — without it the whole reward for a parry is invisible where the weapons actually land'],
+      ['rig.under.visible = true', 'the limp arm\'s rolled-over BELLY (owner, 2026-09-27) — without it the whole reward for a parry, and every sign that the arm is taking damage, is invisible'],
+      ['const cover = Math.max(0, 0.5 * (1 - hurt)', 'the carapace lip rolling back as the limp arm is spent — the belly\'s damage read'],
       ["if (s.phase !== 'chase') { ringRig.root.visible = false; hideKrakenRoots()", 'the head HIDDEN through the ring and the arrival — without it a body is painted at the centre of the arena before the arms are broken'],
-      ['mix(0x4576a0, 0x5691c0, 0.5 + 0.5 * Math.sin(animT * 4))', 'an EXPOSED limb is not tinted, so the one state any weapon can hurt looks like every other state'],
+      ['else if (a.limpT > 0) rig.rope.tint = 0x5e5468', 'an EXPOSED limb\'s carapace does not drop back, so the belly does not read as rolled over'],
       // ...and the arm winding up at you. Pinned for the same reason and with a sharper edge: this
       // needle's FIRST colour is the one that was wrong. Rear used to start its mix at 0xb6acd0,
       // which is exactly where the idle mix starts, so frame one of a wind-up composited to the

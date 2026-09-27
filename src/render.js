@@ -5853,6 +5853,7 @@ export function createRenderer(app) {
       grab: makeTentacleTex(K_ROLE_SKIN.grab),
       coil: makeTentacleTex(K_ROLE_SKIN.coil),
     }
+    T.krakenUnder = makeUndersideTex()
 
     // The gull STRIKE's three poses (The Surf). Baked at GULL_DIVE_R rather than reusing the 12px
     // roster gull: the strike is drawn ~140px across, and that texture would be a 6x magnification —
@@ -19266,6 +19267,46 @@ const spurG = new Graphics()
   // strip is ~230 texels — which is why this is 2000 x 108 DRAWN at resolution 2 rather than twice
   // the size at resolution 1. That lands ~5 texels per world px in both axes: sharp at play size,
   // and still only mildly soft under the 3.4x the grab probe magnifies by.
+  // THE LIMP ARM'S SOFT UNDERSIDE (owner, 2026-09-27: "the tentacle being belly exposed and not
+  // have the chitinous carapace to protect"), baked like the carapace — flesh with a rounded
+  // cross-section (dark edges, lit middle) and two rows of rim+hole suckers, big at the base
+  function K_UNDER_W() { return 0.8 }   // the belly's width as a fraction of the carapace's, in the bake (a function: the bake runs before a const here exists)
+  // the belly's drawn half-width in world px at fraction t: the rope draws the 128px-tall bake 1:1
+  const krakenUnderHW = (t) => 54 * K_UNDER_W() * K_LIMB_PROF(Math.max(0, Math.min(1, t)))
+  function makeUndersideTex() {
+    const L = 2000, HH = 54, N = 120
+    const g = new Graphics()
+    const w = (t) => Math.max(0.8, HH * K_UNDER_W() * K_LIMB_PROF(t))
+    const from = 0.35, ramp = (t) => Math.max(0, Math.min(1, (t - from) / 0.12))
+    g.rect(0, -HH, L, 2 * HH).fill({ color: 0x000000, alpha: 0.001 })
+    const M = 16
+    for (let j = 0; j < M; j++) {
+      const u = -1 + (j + 0.5) * 2 / M, lit = 1 - Math.abs(u) ** 1.6
+      const col = mix(0x4e3a4a, 0x7e6876, lit)
+      for (let i = Math.floor(from * N); i < N; i++) {
+        const t0 = i / N, t1 = (i + 1.4) / N, a = ramp(t0)
+        if (a <= 0) continue
+        g.poly([t0 * L, w(t0) * u - w(t0) * 1.2 / M, t1 * L, w(t1) * u - w(t1) * 1.2 / M, t1 * L, w(t1) * u + w(t1) * 1.2 / M, t0 * L, w(t0) * u + w(t0) * 1.2 / M])
+          .fill({ color: col, alpha: a })
+      }
+    }
+    // suckers: stepped by the local width so they crowd toward the tip, alternating rows
+    let x = from * L + 40, row = 0
+    while (x < L * 0.96) {
+      const t = x / L, ww = w(t), r = ww * 0.3, y = (row % 2 ? 1 : -1) * ww * 0.42, a = ramp(t)
+      g.circle(x, y, r * 1.12).fill({ color: 0x3a2636, alpha: 0.7 * a })     // the shadow the cup sits in
+      g.circle(x, y, r).fill({ color: 0xa8949e, alpha: a })                  // the rim (infundibulum)
+      for (let k = 0; k < 6; k++) {                                          // its radial ridges
+        const an = k * Math.PI / 3
+        g.moveTo(x + Math.cos(an) * r * 0.5, y + Math.sin(an) * r * 0.5).lineTo(x + Math.cos(an) * r * 0.92, y + Math.sin(an) * r * 0.92)
+          .stroke({ width: Math.max(0.6, r * 0.06), color: 0x9a8490, alpha: 0.4 * a })
+      }
+      g.circle(x, y, r * 0.40).fill({ color: 0x2a1826, alpha: 0.85 * a })    // the hole (acetabulum)
+      x += ww * 0.62; row++
+    }
+    return bake(g, 10, 2).tex
+  }
+
   function makeTentacleTex(S) {
     const L = 2000, HH = 54, N = 120
     const g = new Graphics()
@@ -19519,6 +19560,8 @@ const spurG = new Graphics()
   // coil is what sets the floor: it needs ~13 points to hold a near-full turn at under 30 degrees a
   // vertex, and they all have to come from PAST K_GRIP_FROM.
   const K_ROPE_N = 64
+  const K_LIMP_WOB_A = 24     // px of the limp limb's wobble at its middle (owner: "stronger", 2026-09-27)
+  const K_LIMP_WOB_HZ = 1.8   // its wave's speed down the limb
   // THE GRIP IS SHAPED OUT OF THE LIMB, so its numbers live here with the rope's rather than in
   // config.js — they are the geometry of a drawing, not balance, and nothing in sim.js reads them.
   //  - A ROPE CANNOT WIND A CIRCLE TIGHTER THAN ITS OWN THICKNESS: the quad strip turns inside out
@@ -20012,14 +20055,17 @@ void main() {
     shadow.tint = 0x000205
     shadow.alpha = 0.16
     const rope = new MeshRope({ texture: T.krakenLimb.slam, points: pts, width: 2 * KRAKEN_LIMB_HW })
+    const under = new MeshRope({ texture: T.krakenUnder, points: pts, width: 2 * KRAKEN_LIMB_HW * 0.8 })
+    under.visible = false
     krakenArmLayer.addChild(shadow)
     krakenArmLayer.addChild(rope)
+    krakenArmLayer.addChild(under)
     krakenArmLayer.addChild(krakenGripG)  // above the ropes, below the wound
     krakenArmLayer.addChild(krakenGripBatch.mesh) // the grip's ribbon, drawn as one mesh (see RibbonBatch)
     krakenArmLayer.addChild(krakenWoundG) // re-parented to the top on every acquire
     if (krakenGripFrontG.parent !== krakenGripFrontLayer) krakenGripFrontLayer.addChild(krakenGripFrontG)
     if (krakenGripFrontBatch.mesh.parent !== krakenGripFrontLayer) krakenGripFrontLayer.addChild(krakenGripFrontBatch.mesh)
-    const rig = { rope, shadow, pts, shadowPts }
+    const rig = { rope, shadow, under, pts, shadowPts }
     krakenRopes.push(rig)
     return rig
   }
@@ -20264,6 +20310,15 @@ void main() {
   // A PARRIED ARM'S TARGET HOLDS BACK for K_LIMP_SHOW_AT, then fades in: the parry's burst and the
   // knock-back are the moment, and the gold disc piling on right away buried them
   const krakenLimpAt = []
+  // THE BELLY'S DAMAGE TELL keeps the node's last health fraction and a blanch timer per arm
+  const krakenNodeHp = [], krakenNodeFlash = []
+  const K_BELLY_FROM = 0.35   // where along the limb the rolled-over underside begins
+  // a point and its sideways unit along the limb at fraction t
+  function krakenAlong(pts, t) {
+    const N = pts.length, i = Math.max(0, Math.min(N - 2, Math.floor(t * (N - 1))))
+    const dx = pts[i + 1].x - pts[i].x, dy = pts[i + 1].y - pts[i].y, d = Math.hypot(dx, dy) || 1
+    return { x: pts[i].x, y: pts[i].y, nx: -dy / d, ny: dx / d, hw: KRAKEN_LIMB_HW * K_LIMB_PROF(t) }
+  }
   const K_LIMP_SHOW_AT = 0.3
   function krakenLimpShow(a) {
     const at = krakenLimpAt[a.i]
@@ -20875,12 +20930,9 @@ void main() {
         // what "why is everything purple" and "a bland red circle" have both been about. Every ground
         // read in this fight is strokes from here on. The limb itself is the target: parried, it is
         // cold-lit and torn open, and nothing else on screen looks like that.
-        const k = Math.min(1, a.limpT / 2.0)
         if (krakenLimpAt[a.i] == null) krakenLimpAt[a.i] = animT
-        // the closing ring IS the clock: it shrinks as the window runs out
-        teleG.beginPath()
-        teleG.arc(a.x, a.y, KRAKEN_LASH_R * (0.30 + 0.36 * k), 0, Math.PI * 2)
-        teleG.stroke({ width: 3, color: 0xdff8ff, alpha: (0.45 + 0.35 * k) * krakenHitMeK * krakenLimpShow(a) })
+        // NO RING AND NO DISC ANY MORE (owner, 2026-09-27): the limb rolls over and its soft belly
+        // is the target — see syncKrakenArms. Rings mean the parry window in this fight.
         continue
       }
 
@@ -21278,6 +21330,24 @@ void main() {
           }
         }
       }
+      // A LIMP ARM WOBBLES (owner, 2026-09-27: "a bit wobbly when parried/stunned"): a slow wave
+      // travelling down the limb, zero at the shoulder and at the tip, where the node the weapons
+      // shoot hangs, so the target never slides off the thing being hit
+      if (a.limpT > 0) {
+        const amp = K_LIMP_WOB_A * Math.max(0.35, krakenLimpShow(a))
+        const off = []
+        for (let k = 0; k < K_ROPE_N; k++) {
+          const t = k / (K_ROPE_N - 1)
+          const p0 = rig.pts[Math.max(0, k - 1)], p1 = rig.pts[Math.min(K_ROPE_N - 1, k + 1)]
+          const dx = p1.x - p0.x, dy = p1.y - p0.y, d = Math.hypot(dx, dy) || 1
+          const w = amp * 4 * t * (1 - t) * Math.sin(animT * Math.PI * 2 * K_LIMP_WOB_HZ - t * 7 + a.i)
+          off.push(-dy / d * w, dx / d * w)
+        }
+        for (let k = 0; k < K_ROPE_N; k++) {
+          rig.pts[k].set(rig.pts[k].x + off[2 * k], rig.pts[k].y + off[2 * k + 1])
+          rig.shadowPts[k].set(rig.shadowPts[k].x + off[2 * k], rig.shadowPts[k].y + off[2 * k + 1])
+        }
+      }
       rig._tS = (shoulderR - KRAKEN_RING_R) / ((shoulderR - KRAKEN_RING_R) + Math.hypot(te.x - (head.x + Math.cos(a.angNow ?? a.ang) * KRAKEN_RING_R), te.y - (head.y + Math.sin(a.angNow ?? a.ang) * KRAKEN_RING_R)) || 1)
       // THE LIMB IS THE GRIP. Owner, 2026-09-15: "the tentacles should do everything: wrap around
       // you for grip (they could morph) or whip/swing for attacks." A grab used to be a glowing
@@ -21415,6 +21485,7 @@ void main() {
         //      it is the same animal as the five arms writhing around it.
         rig.rope.visible = false
         rig.shadow.visible = false
+        rig.under.visible = false
         const ribbon = rig.pts
         // the rope's own tint, handed straight to limbRibbon, which composites every colour it
         // draws through it the way the GPU composites a tint over the strip -- otherwise every
@@ -21573,8 +21644,71 @@ void main() {
       // every weapon lands, so that is where the target is drawn — the tip of the limb, on the spot
       // the aimed slam came down. Nothing further up the rope suggests damage goes anywhere else.
       if (!(a.limpT > 0)) krakenLimpAt[a.i] = null
-      if (a.limpT > 0) drawKrakenHitMe(krakenWoundG, a.x, a.y, KRAKEN_ARM_R * 0.62, true, run.krakenLesson === 2, krakenLimpShow(a))
+      if (a.limpT > 0 && run.krakenLesson === 2) drawKrakenHitMe(krakenWoundG, a.x, a.y, KRAKEN_ARM_R * 0.62, true, run.krakenLesson === 2, krakenLimpShow(a))
       if (a.limpT > 0) tellDrawn('arm', a.i, 'limp', a.x, a.y)
+      rig.under.visible = false
+      // THE ROLLED BELLY (owner's pick, 2026-09-27, after six rounds): the limp limb shows its soft
+      // underside; the damage shows ON it, three ways at once and none of them a gauge — the carapace
+      // lip rolls back off it, its suckers go slack from the tip up, and the spent flesh greys. A hit
+      // blanches it (a struck cephalopod goes pale) and closes two more cups. No blood.
+      if (a.limpT > 0 && a.nodeId != null) {
+        const nd = run.enemies.find((q) => q.id === a.nodeId && !q._dead)
+        if (nd) {
+          const fr = Math.max(0, Math.min(1, nd.hp / nd.maxHP)), hurt = 1 - fr
+          if (fr < (krakenNodeHp[a.i] ?? fr) - 1e-6) krakenNodeFlash[a.i] = 0.16
+          krakenNodeHp[a.i] = fr
+          krakenNodeFlash[a.i] = Math.max(0, (krakenNodeFlash[a.i] ?? 0) - dt)
+          const fl = krakenNodeFlash[a.i] / 0.16, show = Math.max(0.35, krakenLimpShow(a))
+          const spentFrom = 1 - hurt * (1 - K_BELLY_FROM)
+          const G = krakenWoundG, N = rig.pts.length, k0 = Math.floor(K_BELLY_FROM * (N - 1))
+          // the underside rope, drawn only while limp
+          rig.under.visible = true
+          rig.under.alpha = show
+          // Everything below is placed in the BELLY's own drawn half-width (krakenUnderHW), the only
+          // frame that lines up with the bake. u in [-1, 1] across the belly.
+          const bandU = (u0, u1, col, al, from = K_BELLY_FROM) => {
+            for (let k = Math.max(k0, Math.floor(from * (N - 1))); k < N - 1; k++) {
+              const t = k / (N - 1), ramp = Math.min(1, (t - K_BELLY_FROM) / 0.12)
+              const q = krakenAlong(rig.pts, t), q2 = krakenAlong(rig.pts, (k + 1) / (N - 1))
+              const h = krakenUnderHW(t), h2 = krakenUnderHW((k + 1) / (N - 1)), m = (u0 + u1) / 2
+              G.moveTo(q.x + q.nx * h * m, q.y + q.ny * h * m).lineTo(q2.x + q2.nx * h2 * m, q2.y + q2.ny * h2 * m)
+                .stroke({ width: Math.max(0.5, h * (u1 - u0)) * ramp, color: col, alpha: al, cap: 'round' })
+            }
+          }
+          // GREY FROM THE TIP: living flesh warm, spent flesh grey
+          rig.under.tint = fl > 0 ? 0xf0e8ec : mix(0xd8b8c4, 0xffffff, hurt)
+          for (let k = Math.max(k0, Math.floor(spentFrom * (N - 1)) - 3); k < N - 1; k++) {
+            const t = k / (N - 1), soft = Math.max(0, Math.min(1, (t - spentFrom) / 0.08 + 0.5))
+            const q = krakenAlong(rig.pts, t), q2 = krakenAlong(rig.pts, (k + 1) / (N - 1))
+            G.moveTo(q.x, q.y).lineTo(q2.x, q2.y).stroke({ width: 2 * krakenUnderHW(t) * 0.95, color: 0x9e969a, alpha: show * 0.45 * soft, cap: 'round' })
+          }
+          // THE SUCKERS GO SLACK: each spent cup's hole fills with the flesh round it; a hit closes two more
+          {
+            let x = 0.35 * 2000 + 40, row = 0
+            const cups = []
+            while (x < 2000 * 0.96) {
+              const ww = 54 * K_UNDER_W() * K_LIMB_PROF(x / 2000)
+              cups.push({ t: (x + 10) / 2020, y: (row % 2 ? 1 : -1) * ww * 0.42, r: ww * 0.3 })
+              x += ww * 0.62; row++
+            }
+            let first = cups.findIndex((c) => c.t >= spentFrom)
+            if (first < 0) first = cups.length
+            for (let c = Math.max(0, first - (fl > 0 ? 2 : 0)); c < cups.length; c++) {
+              const q = krakenAlong(rig.pts, cups[c].t)
+              G.circle(q.x + q.nx * cups[c].y, q.y + q.ny * cups[c].y, cups[c].r * 0.5).fill({ color: 0x725c6b, alpha: show * 0.9 })
+            }
+          }
+          // the oral groove, exactly on the midline between the two sucker rows
+          bandU(-0.03, 0.03, 0x4a3446, show * 0.7)
+          // THE ROLL: the carapace lip over one edge of the belly pulls back as the arm is spent
+          const cover = Math.max(0, 0.5 * (1 - hurt) - 0.08 * fl)   // fraction of the belly's width hidden
+          const edge = -1 + 2 * cover
+          if (cover > 0.005) {
+            bandU(-1, edge, 0x241a2e, show * 0.92)
+            bandU(edge - 0.04, edge + 0.04, 0x5e5468, show * 0.85)   // the lip's lit edge, ON the lip
+          }
+        }
+      }
       if (a.dead) {
         // A BROKEN ARM SINKS: it fades back into the murk it came out of over breakT, and after that
         // its slice of the cage is simply open for the rest of the fight.
@@ -21616,7 +21750,7 @@ void main() {
         // PLANTED: the limb that just landed is the heaviest-looking thing on screen for its
         // KRAKEN_SLAM_T — full-strength colour, no lit wash — so the blow has a body at the contact
         else if (a.slamT > 0) rig.rope.tint = 0x5d5470
-        else if (a.limpT > 0) rig.rope.tint = mix(0x4576a0, 0x5691c0, 0.5 + 0.5 * Math.sin(animT * 4)) // spent: cold AND dimmed
+        else if (a.limpT > 0) rig.rope.tint = 0x5e5468 // limp: the carapace drops back behind the belly
         else if (rung && !a.coilArm && a.tele > 0 && a.tele <= rung.window && run.krakenLesson === 1 && run.script.lessonI === a.i) { rig.rope.tint = Math.sin(animT * Math.PI * 10) > -0.2 ? 0xffffff : 0x8a7fc0; tellDrawn('arm', a.i, 'slamFlash', a.x, a.y, rig.pts[0].x, rig.pts[0].y, rig.pts[K_ROPE_N - 1].x, rig.pts[K_ROPE_N - 1].y, rig.pts) }
         else if (rung && !a.coilArm && a.tele > 0 && a.fuse) { rig.rope.tint = a.grabArm ? K_GRAB_TINT : a.tele <= rung.window ? 0xffffff : 0xa99ed6; drawKrakenCharge(rig, a, rung) }
         else if (rung && a.tele > 0 && a.fuse) rig.rope.tint = mix(0x9e92cf, 0xeee8fe, 1 - a.tele / a.fuse)
@@ -21660,6 +21794,7 @@ void main() {
     for (let i = arms.length; i < krakenRopes.length; i++) {
       krakenRopes[i].rope.visible = false
       krakenRopes[i].shadow.visible = false
+      krakenRopes[i].under.visible = false
     }
     // THE HEAD IS NOT DRAWN while the cage is up: its sprite is hidden and nothing stands in for it
     // (drawKrakenBody draws no body in the ring). It comes back for the chase.
@@ -27436,7 +27571,7 @@ void main() {
     // hidden here by hand — a cage left up would greet the next run as furniture, which is the
     // exact failure run CP exists for.
     krakenCreatureReset()
-    for (const rig of krakenRopes) { rig.rope.visible = false; rig.shadow.visible = false }
+    for (const rig of krakenRopes) { rig.rope.visible = false; rig.shadow.visible = false; rig.under.visible = false }
     wellG.clear()
     bindG.clear()
     breathG.clear() // v7.23: a Graphics, not a pool — clearing it IS the reset (see redrawBreath)
