@@ -23,6 +23,7 @@ import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC
   CHEEK_JIGGLE,       // the cheeks skin's spring — see syncPlayer's jiggle block
   BUTT_FEET,          // ...and its feet — see syncPlayer's feet block // The Deep: the anglerfish maw and its esca punched through the dark scrim
   FOXFIRE_GLOW,       // The Deep: a foxfire punched through the same scrim — a fire is a light
+  FOXFIRE_SWARM,      // ...drawn as a firefly swarm whose count and reach the bloom carries
   GLINT_GLOW,         // ...and a Glint's spark, which is the card that BUYS its light with the bar
   SLICK_SLOW_T, INK_STAIN_T, inLobe,  // The Wreck: the oil and the ink on you, on the glass and the skin
   // The Kraken: the ring's geometry and the per-rung parry windows the telegraph is drawn against
@@ -17999,8 +18000,10 @@ const spurG = new Graphics()
   // its measured shape — the depth ladder divides by it — so raising the pool alone would have
   // silently re-laid The Wreck's wedges. CONE_PUFFS is the cone's; BLOOM_PUFFS is the allocation.
   const CONE_PUFFS = 6
-  const FOX_FLIES = 10           // fireflies per foxfire swarm...
-  const FOX_TRAIL = 3            // ...each a head and two trail dots: FOX_FLIES x FOX_TRAIL sizes the pool
+  // The most fireflies any foxfire can carry (its top level), each a head and two trail dots:
+  // FOX_FLIES x FOX_TRAIL sizes the pool. A bloom's own count is bl.flies (stepFoxfireWeapon).
+  const FOX_FLIES = Math.round(FOXFIRE_SWARM.flies * (1 + FOXFIRE_SWARM.perLevel * (WEAPONS.foxfire.levels.length - 1)))
+  const FOX_TRAIL = 3
   const BLOOM_PUFFS = FOX_FLIES * FOX_TRAIL
   function acquireBloom() {
     const root = new Container()
@@ -18084,7 +18087,7 @@ const spurG = new Graphics()
       const PUFF_FAT = 1.25   // overlap factor: 1.0 is tangent to the wedge and leaves visible gaps
       const half = cone ? Math.sin(bl.arc / 2) : 0
       bv.root.rotation = cone ? bl.angle : 0
-      const used = fox ? BLOOM_PUFFS : cone ? CONE_PUFFS : 3
+      const used = fox ? (bl.flies ?? FOXFIRE_SWARM.flies) * FOX_TRAIL : cone ? CONE_PUFFS : 3
       for (let k = 0; k < BLOOM_PUFFS; k++) {
         const s = bv.puffs[k]
         s.visible = k < used
@@ -18103,14 +18106,16 @@ const spurG = new Graphics()
           // on its own clock and drags two fading dots where it just was; the whole swarm drifts
           // because stepBlooms wanders the cloud. Phases come from `hash` (the cast spot) and animT,
           // never Math.random.
-          //   WHAT THE ART DOES NOT STATE IS THE EDGE: the flies hold to ~0.3r so they read as one
+          //   WHAT THE ART DOES NOT STATE IS THE EDGE: the flies hold to bl.swarmR (~0.3r) so they read as one
           // swarm, while the burn reaches bl.r. The FOXFIRE_GLOW punch in updateDark lights that
           // full reach, so the lit water is the damage area.
           const i = Math.floor(k / FOX_TRAIL), lag = k % FOX_TRAIL
           const h = hash * 6.28 + i * 1.7
           const tt = animT - lag * 0.08
-          const px = bl.r * (0.20 * Math.sin(tt * (1.1 + 0.23 * i) + h) + 0.09 * Math.sin(tt * (2.6 + 0.31 * i) + i))
-          const py = bl.r * (0.20 * Math.cos(tt * (1.0 + 0.19 * i) + h * 1.3) + 0.09 * Math.cos(tt * (2.3 + 0.27 * i) + i * 0.5))
+          // The swarm's reach grows in with the cloud (bl.r / bl.maxR), like the burn does.
+          const S = (bl.swarmR ?? FOXFIRE_SWARM.r) * (bl.maxR > 0 ? bl.r / bl.maxR : 1)
+          const px = S * (0.69 * Math.sin(tt * (1.1 + 0.23 * i) + h) + 0.31 * Math.sin(tt * (2.6 + 0.31 * i) + i))
+          const py = S * (0.69 * Math.cos(tt * (1.0 + 0.19 * i) + h * 1.3) + 0.31 * Math.cos(tt * (2.3 + 0.27 * i) + i * 0.5))
           const b = 0.2 + 0.8 * Math.pow(Math.max(0, Math.sin(animT * (1.3 + 0.37 * i) + i * 2.1 + hash * 6.28)), 2)
           s.position.set(px, py)
           s.scale.set(fxScale(T.fx.circle_05, Math.max(1, (8 - lag * 2) * (0.8 + 0.4 * b) * 2)))

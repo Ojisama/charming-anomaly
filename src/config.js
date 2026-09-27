@@ -4857,6 +4857,10 @@ export const FOXFIRE_GLOOM = 1.6
 // px/s a wandering foxfire drifts (CHAPTERS[id].weaponTune.foxfire.wander). Its heading is a smooth
 // function of its own clock, not Math.random: the seeded suite shares one stream.
 export const FOXFIRE_WANDER_SPEED = 45
+// RENDER-ONLY: the firefly swarm a foxfire is drawn as. `flies` and `r` (px, the swarm's reach at
+// L1 in full light) are the L1 values; each weapon level past 1 adds `perLevel` to both (owner,
+// 2026-09-27: "+10% per level"). stepFoxfireWeapon bakes the count and reach onto the bloom.
+export const FOXFIRE_SWARM = { flies: 10, r: 22, perLevel: 0.1 }
 // RENDER-ONLY, and it is what makes the card true. A foxfire is drawn inside `world`; the dark is a
 // MULTIPLY scrim on the stage above `world` at dim 1.0 — so a cloud cast outside the player's lamp
 // is not dim, it is ABSENT, exactly as The Deep's anglerfish was before LURE_GLOW existed. Shot on
@@ -8504,6 +8508,8 @@ CHAPTERS.deep = {
   //    barely moved (10.0->5.4, 12.0->11.4); full re-measured table: commit body
   resource: {
     name: 'Light', drain: 2.0, refill: 16, max: 100,
+    // balance_decision : Glint costs no Light here (the chapter's only spender) [2026-09-27]
+    noSpend: true,
     dark: { from: 0.5, speedFloor: 1, dim: 1.0, radiusFull: 0.50, radiusEmpty: 0.06 },
   },
   scent: true,        // stepRepulse's third per-chapter branch, beside `burst` and `breach`
@@ -8590,10 +8596,13 @@ CHAPTERS.deep = {
   // balance_decision : non-starters +15% rate, +20% dmg; Sunspear/Sunlance x2 vs tanks [2026-09-27]
   //  - Deep-only (chapterTune, sim.js): these weapons are plain in every other chapter's pool
   //  - foxfire: lasts 30% longer and wanders (FOXFIRE_WANDER_SPEED)
+  // balance_decision : % mod cards x1.2 on non-starters, x0.8 on Glint [2026-09-27]
+  //  - `mods` scales pct cards only (makeWeaponModCard); tier/flat/switch cards are untouched
   weaponTune: {
-    sunspear: { rate: 1.15, dmg: 1.2, tank: 2 },
-    foxfire: { rate: 1.15, dmg: 1.2, dur: 1.3, wander: true },
-    sunlance: { rate: 1.15, dmg: 1.2, tank: 2 },
+    sunspear: { rate: 1.15, dmg: 1.2, tank: 2, mods: 1.2 },
+    foxfire: { rate: 1.15, dmg: 1.2, dur: 1.3, wander: true, mods: 1.2 },
+    sunlance: { rate: 1.15, dmg: 1.2, tank: 2, mods: 1.2 },
+    glint: { mods: 0.8 },
   },
   // balance_decision : 30% fewer fangtooth, 20% fewer tanks [2026-09-26]
   //  - archetypeKeep, not archetypeMul: absolute cut, normals unmoved, cap shrinks too (stepSpawning)

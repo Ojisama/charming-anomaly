@@ -37,7 +37,7 @@ import {
   MAX_PASSIVE_LEVEL, MAX_ELEMENT_PICKS, passiveTotal,
   OBSTACLE_STREAM_RADIUS, OBSTACLE_DROP_RADIUS,
   FRENZY_HP_FRAC, PACER_RADIUS, ELITE, GILDED_COIN_MUL, NOVA_LIFE,
-  SUNSPEAR_FALL, SUNSPEAR_SPREAD, FOXFIRE_GLOOM, FOXFIRE_WANDER_SPEED, FOXFIRE_GLOW, SUNLANCE_REACH_MIN, GLINT_LIGHT_COST, GLINT_GLOW,
+  SUNSPEAR_FALL, SUNSPEAR_SPREAD, FOXFIRE_GLOOM, FOXFIRE_WANDER_SPEED, FOXFIRE_SWARM, weaponDesc, FOXFIRE_GLOW, SUNLANCE_REACH_MIN, GLINT_LIGHT_COST, GLINT_GLOW,
   WEAPONS, HOLE_SINGULARITY_FRAC, DOWNWASH_PLUNGE_N, DOWNWASH_PLUNGE_FRAC, DOWNWASH_PLUNGE_ARM,
   ORBIT_NOVA_RADIUS, WISP_NOVA_RADIUS, CRUNCH_DMG_MUL, UNDERTOW_VAC_RADIUS_PER_STACK,
   WEAPON_MODS, WEAPON_MOD_TIER_BONUS, MAX_WEAPON_MOD_PICKS, maxModsPerWeaponPerPool, PIERCE_MAX_PICKS,
@@ -24276,6 +24276,29 @@ function testFoxfire() {
 function testGlint() {
   const L = 1
   const lvl = WEAPONS.glint.levels[L - 1]
+  // THE DEEP NO LONGER CHARGES FOR A CAST (owner, 2026-09-27: "the level should not consume light,
+  // on the glint") — CHAPTERS.deep.resource.noSpend, the Kraken's switch. Asserted as the effect
+  // first; the spend machinery below is then measured with the switch off, since spendCharge is
+  // still the one funnel a spending chapter would use.
+  const res = CHAPTERS.deep.resource
+  {
+    const drop = (noSpend) => {
+      if (!noSpend) delete res.noSpend
+      try {
+        const run = (Math.random = mulberry32(20260927), deepRun('glint', L))
+        run.chargeMax = 100; run.charge = 50
+        run.enemies.push(makeStatusEnemy(run, { x: run.player.x + 60, y: run.player.y, hp: 1e6, speed: 0 }))
+        for (let i = 0; i < Math.round((lvl.interval + 0.2) * 60); i++) { stepSim(run, { x: 0, y: 0 }, 1 / 60); run.events.length = 0 }
+        return 50 - run.charge
+      } finally { res.noSpend = true }
+    }
+    const free = drop(true), paid = drop(false)
+    assert.ok(paid - free > GLINT_LIGHT_COST * 0.9,
+      `run SH.d: in The Deep a Glint cast still costs Light (${free.toFixed(2)} drained against ${paid.toFixed(2)} with spending on) — the chapter's noSpend is not reaching the cast`)
+    assert.strictEqual(weaponDesc('glint', 'deep'), WEAPONS.glint.descNoSpend,
+      "run SH.d: The Deep's Glint card still says a cast costs Light")
+  }
+  delete res.noSpend
   assert.strictEqual(WEAPONS.glint.rarity, 'normal', 'Glint is the starter, and a starter is normal rarity')
   const mk = (charge) => {
     Math.random = mulberry32(20260909)
@@ -24381,7 +24404,8 @@ function testGlint() {
     assert.ok(GLINT_GLOW.lit > 0.05 && GLINT_GLOW.frac > 0.5,
       `GLINT_GLOW is tuned to nothing (lit ${GLINT_GLOW.lit}, frac ${GLINT_GLOW.frac}) — the punch runs and lights nothing, which looks identical to no punch at all`)
   }
-  console.log(`PASS run SH.d (glint): ${GLINT_LIGHT_COST} Light per cast at a ${lvl.interval}s cadence, halved by a x0.5 Slow Burn, nothing spent with nothing in reach, fires at an empty bar with the bar held at 0, and the spark punches the dark (lit ${GLINT_GLOW.lit}, ${GLINT_GLOW.frac}x r)`)
+  res.noSpend = true
+  console.log(`PASS run SH.d (glint): free in The Deep and its card says so; with spending on, ${GLINT_LIGHT_COST} Light per cast at a ${lvl.interval}s cadence, halved by a x0.5 Slow Burn, nothing spent with nothing in reach, fires at an empty bar with the bar held at 0, and the spark punches the dark (lit ${GLINT_GLOW.lit}, ${GLINT_GLOW.frac}x r)`)
 }
 
 /** The bar's ceiling for a fresh Deep run, read off a run rather than off config — Deep Lungs can
@@ -32303,7 +32327,7 @@ function testTheDeep() {
   // against the same fixture with the table removed.
   {
     const tune = CHAPTERS.deep.weaponTune
-    assert.ok(!tune.glint, 'run DP.p: Glint carries a Deep tune — the owner excluded it')
+    assert.ok(!tune.glint?.rate && !tune.glint?.dmg, 'run DP.p: Glint carries a Deep rate or damage tune — the owner excluded it')
     const casts = (id) => {
       const run = rig(id, 1); run.charge = 100
       const t = fish(run, run.player.x + 150, run.player.y)
@@ -32428,6 +32452,55 @@ function testTheDeep() {
     assert.ok(Math.abs(deep / flat - want) < 0.12,
       `run DP.r: The Deep spawned ${deep} against ${flat} at growth 1 (x${(deep / flat).toFixed(2)}) — spawnRate says x${want.toFixed(2)} at t=250`)
     console.log(`PASS run DP.r (spawn ramp -20%): ${flat} -> ${deep} bodies in 5s at t=250 (curve says x${want.toFixed(2)}), opening unchanged`)
+  }
+
+  // (s) THE DEEP'S UPGRADE CARDS: a percent mod card on a non-starter banks x1.2, on Glint x0.8,
+  // against the same card taken in The Body; tier and flat cards are untouched. Taken through
+  // devTake, the shipped applyChoice path, and read off what was BANKED — the number every
+  // consumer reads.
+  {
+    const banked = (chapter, weapon, mod) => {
+      Math.random = mulberry32(20260927)
+      const run = createRun(meta, { chapter, difficulty: 1 })
+      const card = devCards(run, 'rare').find((c) => c.kind === 'mod' && c.weapon === weapon && c.id === mod)
+      assert.ok(card, `run DP.s: devCards offered no rare '${weapon}.${mod}' card`)
+      devTake(run, card)
+      return { bank: run.weaponMods[weapon]?.[mod] ?? 0, card: card.bonus }
+    }
+    const out = []
+    for (const [weapon, mod, want] of [['sunspear', 'highNoon', 1.2], ['foxfire', 'emberfeed', 1.2], ['sunlance', 'whetted', 1.2], ['glint', 'bright', 0.8], ['glint', 'quickGlint', 0.8], ['sunspear', 'secondSun', 1], ['glint', 'keenLight', 1]]) {
+      const deep = banked('deep', weapon, mod), body = banked('body', weapon, mod)
+      assert.ok(body.bank > 0, `run DP.s: '${weapon}.${mod}' banked nothing — the fixture is not taking the card`)
+      assert.ok(Math.abs(deep.bank / body.bank - want) < 1e-9,
+        `run DP.s: in The Deep '${weapon}.${mod}' banks x${(deep.bank / body.bank).toFixed(3)} of The Body's — want x${want}`)
+      assert.strictEqual(deep.card, deep.bank, `run DP.s: '${weapon}.${mod}' shows ${deep.card} on the card and banks ${deep.bank}`)
+      out.push(`${mod} x${want}`)
+    }
+    console.log(`PASS run DP.s (Deep upgrade cards): ${out.join(', ')}; card and bank agree`)
+  }
+
+  // (t) THE FIREFLY SWARM GROWS WITH LEVEL: +10% flies and +10% reach per level past 1, published
+  // on the bloom for render.js, which must draw that count and that reach.
+  {
+    const bloomAt = (level) => {
+      const run = rig('foxfire', level); run.charge = run.chargeMax
+      fish(run, run.player.x + 150, run.player.y)
+      for (let i = 0; i < 5 * 60 && run.blooms.length === 0; i++) { run.charge = run.chargeMax; step(run, 1) }
+      assert.ok(run.blooms[0], `run DP.t: no foxfire at level ${level}`)
+      return run.blooms[0]
+    }
+    const top = WEAPONS.foxfire.levels.length
+    const l1 = bloomAt(1), lt = bloomAt(top)
+    const want = 1 + FOXFIRE_SWARM.perLevel * (top - 1)
+    assert.strictEqual(l1.flies, FOXFIRE_SWARM.flies, `run DP.t: a level-1 foxfire carries ${l1.flies} flies, want ${FOXFIRE_SWARM.flies}`)
+    assert.strictEqual(lt.flies, Math.round(FOXFIRE_SWARM.flies * want), `run DP.t: a level-${top} foxfire carries ${lt.flies} flies, want ${Math.round(FOXFIRE_SWARM.flies * want)}`)
+    assert.ok(Math.abs(lt.swarmR / l1.swarmR - want) < 1e-9, `run DP.t: the swarm's reach grew x${(lt.swarmR / l1.swarmR).toFixed(2)} from L1 to L${top}, want x${want}`)
+    const rcode = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8').replace(/^\s*\/\/.*$/gm, '')
+    assert.ok(/fox \? \(bl\.flies/.test(rcode) && /bl\.swarmR/.test(rcode),
+      'run DP.t: syncBlooms no longer draws bl.flies fireflies over bl.swarmR — the level growth is published and never seen')
+    assert.ok(/FOX_FLIES = Math\.round\(FOXFIRE_SWARM\.flies \* \(1 \+ FOXFIRE_SWARM\.perLevel \* \(WEAPONS\.foxfire\.levels\.length - 1\)\)\)/.test(rcode),
+      'run DP.t: the bloom sprite pool is not sized for the top level\'s swarm — the extra flies would have no sprites')
+    console.log(`PASS run DP.t (firefly swarm by level): ${l1.flies} -> ${lt.flies} flies and x${want} reach from L1 to L${top}, drawn by syncBlooms`)
   }
 
   console.log("PASS run DP (The Deep): the anglerfish is a refill CIRCLE and not a mob, huge and hidden behind its own lure, it is the only food and its mouth is the clock, staying costs half your health AND all your light while leaving in time costs nothing, and Scent marks a group and amplifies every source while buying speed")
@@ -35196,7 +35269,9 @@ function runKraken() {
     }
     assert.ok(CHAPTERS.kraken.weapons.includes('glint'), 'Glint is not in the Kraken pool')
     assert.strictEqual(dealt('kraken'), WEAPONS.glint.descNoSpend, 'a Glint card dealt in the Kraken still claims a Light cost the bar cannot pay')
-    assert.strictEqual(dealt('deep'), WEAPONS.glint.desc, 'a Glint card dealt in The Deep lost its Light cost')
+    // The Deep's bar is unspendable too since 2026-09-27 (owner: "the level should not consume
+    // light, on the glint"), so its card must say the same.
+    assert.strictEqual(dealt('deep'), WEAPONS.glint.descNoSpend, 'a Glint card dealt in The Deep still claims a Light cost')
   }
 
   // (h) A PRESS THAT FINDS NOTHING SAYS SO. It used to be a bare return: the cooldown was spent and
