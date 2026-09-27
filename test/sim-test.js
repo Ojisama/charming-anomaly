@@ -24095,7 +24095,7 @@ function testSunspear() {
   // Caught mid-fall: the columns are in run.lobs but have not landed, which is the only window in
   // which their target positions can be read.
   let cols = []
-  for (let i = 0; i < Math.round((lvl.interval + SUNSPEAR_FALL * 0.5) * 60); i++) {
+  for (let i = 0; i < Math.round((lvl.interval / (CHAPTERS.deep.weaponRateMul?.sunspear ?? 1) + SUNSPEAR_FALL * 0.5) * 60); i++) {
     stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
     run.events.length = 0
     run.enemies = run.enemies.filter((e) => keep.has(e.id))
@@ -24123,7 +24123,7 @@ function testSunspear() {
   run2.enemies.push(lone)
   const keep2 = new Set([lone.id])
   let padCols = []
-  for (let i = 0; i < Math.round((lvl.interval + SUNSPEAR_FALL * 0.5) * 60); i++) {
+  for (let i = 0; i < Math.round((lvl.interval / (CHAPTERS.deep.weaponRateMul?.sunspear ?? 1) + SUNSPEAR_FALL * 0.5) * 60); i++) {
     stepSim(run2, { x: 0, y: 0, skill: false }, 1 / 60)
     run2.events.length = 0
     run2.enemies = run2.enemies.filter((e) => keep2.has(e.id))
@@ -32294,6 +32294,37 @@ function testTheDeep() {
     assert.ok(!lure(true, false).dead, 'run DP.o: Hungry Floor swallowed a NON-elite — the card says elites')
     assert.ok(!lure(false, true).dead, 'run DP.o: an elite died in a maw without Hungry Floor — the swallow is leaking into every run')
     console.log(`PASS run DP.o (Hungry Floor): the maw bites after ${secs.toFixed(2)}s instead of ${MAW_GAPE_T}s, and eats an elite that sits in it without touching the player`)
+  }
+
+  // (p) THE DEEP'S CADENCE TUNE: every native but Glint fires 15% faster here, counted as real casts
+  // against the same fixture with the table removed.
+  {
+    const tune = CHAPTERS.deep.weaponRateMul
+    assert.ok(!tune.glint, 'run DP.p: Glint carries a Deep fire-rate tune — the owner excluded it')
+    const casts = (id) => {
+      const run = rig(id, 1); run.charge = 100
+      const t = fish(run, run.player.x + 150, run.player.y)
+      let n = 0
+      for (let i = 0; i < 60 * 60; i++) {
+        run.charge = 100; t.x = run.player.x + 150; t.y = run.player.y
+        stepSim(run, { x: 0, y: 0 }, dt)
+        for (const ev of run.events) if (ev.type === id) n++
+        run.events.length = 0
+      }
+      return n
+    }
+    const out = []
+    for (const id of ['sunspear', 'foxfire', 'sunlance']) {
+      const tuned = casts(id)
+      delete CHAPTERS.deep.weaponRateMul
+      const plain = casts(id)
+      CHAPTERS.deep.weaponRateMul = tune
+      assert.ok(plain >= 4, `run DP.p: ${id} cast only ${plain} times in 60s — the fixture is not measuring its cadence`)
+      const ratio = tuned / plain
+      assert.ok(ratio > 1.08 && ratio < 1.25, `run DP.p: ${id} cast x${ratio.toFixed(2)} as often in The Deep — the tune says x${tune[id]}`)
+      out.push(`${id} ${plain}->${tuned}`)
+    }
+    console.log(`PASS run DP.p (Deep cadence tune): ${out.join(', ')} casts in 60s, Glint untouched`)
   }
 
   console.log("PASS run DP (The Deep): the anglerfish is a refill CIRCLE and not a mob, huge and hidden behind its own lure, it is the only food and its mouth is the clock, staying costs half your health AND all your light while leaving in time costs nothing, and Scent marks a group and amplifies every source while buying speed")
