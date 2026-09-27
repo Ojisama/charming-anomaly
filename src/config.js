@@ -8566,7 +8566,11 @@ CHAPTERS.deep = {
   // The dark is doing work the numbers cannot see — an enemy you meet at 200px is a different fight
   // from one you watched cross the screen — so the crowd is smaller here and hits harder rather than
   // being simply denser.
-  balance: { spawnMul: 0.75, enemyHpMul: 1.15, enemyDmgMul: 1.1, maxAliveMul: 0.8 },
+  // balance_decision : 10% fewer monsters (spawn and cap), +15% xp [2026-09-27]
+  balance: { spawnMul: 0.675, enemyHpMul: 1.15, enemyDmgMul: 1.1, maxAliveMul: 0.72, xpMul: 1.15 },
+  // balance_decision : +15% fire rate on every native but Glint [2026-09-27]
+  //  - Deep-only: these weapons fire at their plain rate in every other chapter
+  weaponRateMul: { sunspear: 1.15, foxfire: 1.15, sunlance: 1.15 },
   // balance_decision : 30% fewer fangtooth, 20% fewer tanks [2026-09-26]
   //  - archetypeKeep, not archetypeMul: absolute cut, normals unmoved, cap shrinks too (stepSpawning)
   archetypeKeep: { fast: 1 - 0.3, tank: 1 - 0.2 },
