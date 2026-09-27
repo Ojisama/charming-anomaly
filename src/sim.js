@@ -2809,6 +2809,36 @@ function stepKrakenChase(run, dt, rung, head) {
     krakenCage(run, head, dt)
     return false
   }
+  // IT COMES APART AND GETS WORSE. Checked BEFORE the stagger branch: the head takes nearly all its
+  // damage while staggered, so a check that only ran outside a stagger missed any head that fell
+  // past KRAKEN_ENRAGE_AT inside one (owner, 2026-09-27: a d3 run with no regrow phase).
+  // Below KRAKEN_ENRAGE_AT the Kraken hauls its broken arms back out
+  // of the murk — torn, so they come back at a fraction of their health — the ring speeds up, and
+  // the Coil enters for anyone who has met it. This is the fight's "it's ON" beat: the one moment a
+  // player who thought they had won the ring has to fight it again, under a head that is now awake.
+  if (!s.enraged && head.hp <= head.maxHP * KRAKEN_ENRAGE_AT) {
+    s.enraged = true
+    let back = 0
+    for (const a of run.krakenArms) {
+      if (!a.dead) continue
+      a.dead = false
+      a.breakT = 0
+      a.hp = Math.max(1, Math.round(a.maxHP * KRAKEN_ENRAGE_ARM_HP))
+      a.tele = 0; a.fuse = 0; a.limpT = 0; a.gripT = 0; a.grabArm = false; a.nodeId = null
+      back++
+    }
+    // ...and on a rung that says so, NEW arms burst out between the old ones (owner, 2026-09-26)
+    const extra = rung.enrageArms || 0
+    for (let k = 0; k < extra; k++) {
+      const ang = (k + 0.5) / extra * Math.PI * 2 + Math.PI / s.armsTotal
+      const a = krakenNewArm(run.krakenArms.length, ang, 'slam', head)
+      a.maxHP = KRAKEN_ARM_HP; a.hp = Math.max(1, Math.round(KRAKEN_ARM_HP * KRAKEN_ENRAGE_ARM_HP))
+      a.paid = true   // a grown arm pays no banked level: it was never part of the ring you broke
+      run.krakenArms.push(a)
+      back++
+    }
+    run.events.push({ type: 'krakenEnrage', x: head.x, y: head.y, r: KRAKEN_ARM_REACH, n: back })
+  }
   // A STAGGERED HEAD IS STILL AND OPEN. This is the fight's only damage window on the head, and it
   // is a pose: it stops dead, stops hurting, and everything the player owns lands on it.
   if (s.staggerT > 0) {
@@ -2835,33 +2865,6 @@ function stepKrakenChase(run, dt, rung, head) {
   if (s.stagger > 0) {
     s.staggerDecay -= dt
     if (s.staggerDecay <= 0) { s.stagger = 0; s.staggerDecay = KRAKEN_STAGGER_DECAY }
-  }
-  // IT COMES APART AND GETS WORSE. Below KRAKEN_ENRAGE_AT the Kraken hauls its broken arms back out
-  // of the murk — torn, so they come back at a fraction of their health — the ring speeds up, and
-  // the Coil enters for anyone who has met it. This is the fight's "it's ON" beat: the one moment a
-  // player who thought they had won the ring has to fight it again, under a head that is now awake.
-  if (!s.enraged && head.hp <= head.maxHP * KRAKEN_ENRAGE_AT) {
-    s.enraged = true
-    let back = 0
-    for (const a of run.krakenArms) {
-      if (!a.dead) continue
-      a.dead = false
-      a.breakT = 0
-      a.hp = Math.max(1, Math.round(a.maxHP * KRAKEN_ENRAGE_ARM_HP))
-      a.tele = 0; a.fuse = 0; a.limpT = 0; a.gripT = 0; a.grabArm = false; a.nodeId = null
-      back++
-    }
-    // ...and on a rung that says so, NEW arms burst out between the old ones (owner, 2026-09-26)
-    const extra = rung.enrageArms || 0
-    for (let k = 0; k < extra; k++) {
-      const ang = (k + 0.5) / extra * Math.PI * 2 + Math.PI / s.armsTotal
-      const a = krakenNewArm(run.krakenArms.length, ang, 'slam', head)
-      a.maxHP = KRAKEN_ARM_HP; a.hp = Math.max(1, Math.round(KRAKEN_ARM_HP * KRAKEN_ENRAGE_ARM_HP))
-      a.paid = true   // a grown arm pays no banked level: it was never part of the ring you broke
-      run.krakenArms.push(a)
-      back++
-    }
-    run.events.push({ type: 'krakenEnrage', x: head.x, y: head.y, r: KRAKEN_ARM_REACH, n: back })
   }
   if (stepKrakenArms(run, dt, rung, head)) return true
 
@@ -9302,6 +9305,8 @@ function dealDamage(run, enemy, dmg, crit, dot = false, hazard = false, carried 
   // Zeroing the window here instead would leave the advertised counter reachable only in theory.
   const blocked = guardBlocks(run, enemy, dot)
   if (!blocked) enemy.hp -= dmg
+  // THE KRAKEN'S LAST PHASE CANNOT BE SKIPPED: its head stops at KRAKEN_ENRAGE_AT until the enrage fires.
+  if (enemy.rosterId === 'krakenHead' && run.script && !run.script.enraged) enemy.hp = Math.max(enemy.hp, enemy.maxHP * KRAKEN_ENRAGE_AT)
   // EVERY player damage source feeds the window — weapon hits, burn ticks, arc damage, allies.
   // That is deliberate and load-bearing: feeding it only from applyDamage let a fire build kill
   // enemies without filling any window, which stopped a fire+cold build freezing anything at all.

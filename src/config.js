@@ -8763,9 +8763,11 @@ export const KRAKEN_RUNGS = [
   //  - enrageFree: its slams skip the one-answer beat (owner 2026-09-26): ~26/min, dodge what you can't parry
   // balance_decision : arms attack 20% more often, owner 2026-09-26
   //  - measure POOLED over 48 seeds (kraken-probe --cadence): per-fight rates swing +-30%
-  { arms: 4, rearing: 1, window: 0.34, lungeWindow: 0.52, perfect: 0.150, fuse: 2.20, limp: 4.0, cadence: 2.55, staggerNeed: 2, headHpMul: 1.00, grip: false, coil: false, grabbers: 0 },
-  { arms: 5, rearing: 2, window: 0.28, lungeWindow: 0.46, perfect: 0.125, fuse: 1.80, limp: 3.2, cadence: 1.45, staggerNeed: 3, headHpMul: 1.02, grip: true,  coil: false, grabbers: 2 },
-  { arms: 6, rearing: 2, window: 0.24, lungeWindow: 0.42, perfect: 0.110, fuse: 1.50, limp: 2.6, cadence: 1.45, staggerNeed: 3, headHpMul: 1.30, grip: true,  coil: true,  grabbers: 2, enrageArms: 3, enrageRearing: 3, enrageCoilEvery: 8, enrageCoilAt: 6, enrageCadence: 0.45, enrageFree: true },
+  // balance_decision : 3 more arms every rung, owner 2026-09-27
+  //  - the Coil still takes at most KRAKEN_COIL_RAYS (6) of them at once
+  { arms: 7, rearing: 1, window: 0.34, lungeWindow: 0.52, perfect: 0.150, fuse: 2.20, limp: 4.0, cadence: 2.55, staggerNeed: 2, headHpMul: 1.00, grip: false, coil: false, grabbers: 0 },
+  { arms: 8, rearing: 2, window: 0.28, lungeWindow: 0.46, perfect: 0.125, fuse: 1.80, limp: 3.2, cadence: 1.45, staggerNeed: 3, headHpMul: 1.02, grip: true,  coil: false, grabbers: 2 },
+  { arms: 9, rearing: 2, window: 0.24, lungeWindow: 0.42, perfect: 0.110, fuse: 1.50, limp: 2.6, cadence: 1.45, staggerNeed: 3, headHpMul: 1.30, grip: true,  coil: true,  grabbers: 2, enrageArms: 3, enrageRearing: 3, enrageCoilEvery: 8, enrageCoilAt: 6, enrageCadence: 0.45, enrageFree: true },
 ]
 // The one accessor, so no site has to remember the difficulty-1 offset or the clamp. The cap is
 // enforced by the chapter, but a probe or a migrated save can hand this anything.
@@ -8881,8 +8883,8 @@ export const KRAKEN_ARM_REACH = 200
 // did — would have two arms covering half the circle each and a ring that is still shut with six
 // of eight arms dead.
 // balance_decision : arms 2.5x tougher, owner 2026-09-26 ("too fragile")
-// balance_decision : tentacle HP doubled, every rung, owner 2026-09-27
-export const KRAKEN_ARM_HP = 1900 // per tentacle. Removed by WEAPONS (+ KRAKEN_EXPOSE_BITE a parry), while limp.
+// balance_decision : tentacle HP x4 of 950, every rung, owner 2026-09-27
+export const KRAKEN_ARM_HP = 3800 // per tentacle. Removed by WEAPONS (+ KRAKEN_EXPOSE_BITE a parry), while limp.
 // (KRAKEN_PARRY_DMG retired in rev 3: a parry EXPOSES an arm, it does not chip it. Weapons kill.)
 export const KRAKEN_PERFECT_MUL = 2.0 // damage + refill multiplier inside the perfect window
 // A PERFECT PARRY ALSO STALLS THE ARM'S NEXT WIND-UP, and without this perfect timing is a NET LOSS.
@@ -9104,7 +9106,7 @@ export const KRAKEN_COIL_AT = 2 // which turn of each KRAKEN_COIL_EVERY is the c
 // THE COIL IS A STAR (owner, 2026-09-26): the rearing ring throws KRAKEN_COIL_RAYS arm-shadows across
 // the whole arena through the head, one aimed at where the fish stood; inside a band when it lands
 // is the hit (krakenCoilStarHits), the wedges between are safe.
-export const KRAKEN_COIL_RAYS = 6
+export const KRAKEN_COIL_RAYS = 6 // also the most arms in one Coil (owner, 2026-09-27: "max 6 arms hit at the same time")
 export const KRAKEN_COIL_TELE = 1.6 // s of wind-up before the ring closes — long, it is a move test
 export const KRAKEN_COIL_DUR = 0.9 // s the ring spends hauled in
 export const KRAKEN_COIL_IN = 0.34 // the fraction of KRAKEN_ARM_REACH the arms close to
