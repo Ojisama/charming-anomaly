@@ -11599,10 +11599,13 @@ function stepBlooms(run, dt) {
     // stepLobs guards between Net Toss and Debris Toss' shrapnel, and just as silent.
     const pondTide = tide > 0 && !bl.look
 
-    // A WANDERING FOXFIRE: a smooth, seed-dependent heading off its own clock (no Math.random).
+    // A WANDERING FOXFIRE: a smooth heading off its own clock whose speeds and swings are hashed
+    // from where it was lit, so no two clouds drift alike (no Math.random: the seeded suite).
     if (bl.wander) {
-      const h = (bl.seedX * 0.017 + bl.seedY * 0.029) * Math.PI * 2
-      const a = h + 1.7 * Math.sin(bl.t * 1.1 + h) + 1.1 * Math.sin(bl.t * 2.3 + 2 * h)
+      const rnd = (n) => { const v = Math.sin(bl.seedX * 12.9898 + bl.seedY * 78.233 + n * 37.719) * 43758.5453; return v - Math.floor(v) }
+      const h = rnd(0) * Math.PI * 2
+      const a = h + (1 + 1.2 * rnd(1)) * Math.sin(bl.t * (0.6 + 1.2 * rnd(2)) + 6.28 * rnd(3))
+        + (0.6 + rnd(4)) * Math.sin(bl.t * (1.5 + 1.8 * rnd(5)) + 6.28 * rnd(6))
       bl.x += Math.cos(a) * FOXFIRE_WANDER_SPEED * dt
       bl.y += Math.sin(a) * FOXFIRE_WANDER_SPEED * dt
     }
@@ -14289,6 +14292,9 @@ function stepFoxfireWeapon(run, w, stats, fireRateMul, dt) {
   fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quickKindle)), dt, () => {
     const gloom = 1 + (FOXFIRE_GLOOM - 1) * darkness(run.charge, CHAPTERS[run.chapter].resource, run.chargeMax)
     const swarmLvl = 1 + FOXFIRE_SWARM.perLevel * (w.level - 1)
+    // Any radius mod (Gloaming) widens the swarm with the burn it stands for. The COUNT stays on the
+    // level alone: render.js sizes its sprite pool off the top level's count.
+    const swarmMod = stats.maxR / WEAPONS.foxfire.levels[w.level - 1].maxR
     for (let i = 0; i < clouds; i++) {
       const spot = pickBloomSpot(run, stats.castRange)
       run.blooms.push({
@@ -14299,7 +14305,7 @@ function stepFoxfireWeapon(run, w, stats, fireRateMul, dt) {
         seedX: spot.x, seedY: spot.y, wander: !!chapterTune(run, 'foxfire').wander,
         // The firefly swarm render.js draws: count and reach grow with the weapon's level, and the
         // reach with the gloom too, so the swarm fills a dark-bought fire the way the burn does.
-        flies: Math.round(FOXFIRE_SWARM.flies * swarmLvl), swarmR: FOXFIRE_SWARM.r * swarmLvl * gloom,
+        flies: Math.round(FOXFIRE_SWARM.flies * swarmLvl), swarmR: FOXFIRE_SWARM.r * swarmLvl * swarmMod * gloom,
         // `look` keeps the Spore Bloom's own mods off this cloud (stepBlooms reads sporeburst and
         // tideCarried once for the whole list, exactly like stepLobs reads shrapnel — the same
         // cross-weapon leak, guarded the same way). `slow` keeps the pond's slow off it: the one
@@ -14834,7 +14840,7 @@ function makeWeaponModCard(run, weaponId, modId, rarity) {
   // Rounded to 2dp here so the banked value and the card agree exactly, rather than only on screen.
   else if (cfg.kind === 'secs') bonus = Math.round(cfg.base * mult * 100) / 100
   // A chapter's weaponTune.mods scales a PERCENT card here, so the card and the bank agree.
-  else bonus = cfg.base * mult * (cfg.kind === 'pct' ? chapterTune(run, weaponId).mods ?? 1 : 1)
+  else bonus = cfg.base * mult * (cfg.kind === 'pct' ? (chapterTune(run, weaponId).mods ?? 1) * (chapterTune(run, weaponId).modMul?.[modId] ?? 1) : 1)
   // A desc carrying {n} places the amount ITSELF, anywhere in the sentence, instead of taking the
   // usual "+N " head — see modEffectText in ui.js, which is what actually renders it (and which
   // each language re-places independently, the number being interpolated after translation).

@@ -8598,9 +8598,11 @@ CHAPTERS.deep = {
   //  - foxfire: lasts 30% longer and wanders (FOXFIRE_WANDER_SPEED)
   // balance_decision : % mod cards x1.2 on non-starters, x0.8 on Glint [2026-09-27]
   //  - `mods` scales pct cards only (makeWeaponModCard); tier/flat/switch cards are untouched
+  // balance_decision : Gloaming card -40% on top of the x1.2 [2026-09-27]
+  //  - `modMul` is per card and multiplies with `mods`
   weaponTune: {
     sunspear: { rate: 1.15, dmg: 1.2, tank: 2, mods: 1.2 },
-    foxfire: { rate: 1.15, dmg: 1.2, dur: 1.3, wander: true, mods: 1.2 },
+    foxfire: { rate: 1.15, dmg: 1.2, dur: 1.3, wander: true, mods: 1.2, modMul: { gloaming: 0.6 } },
     sunlance: { rate: 1.15, dmg: 1.2, tank: 2, mods: 1.2 },
     glint: { mods: 0.8 },
   },
