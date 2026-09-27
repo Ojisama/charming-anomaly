@@ -1200,13 +1200,17 @@ function stepSpawning(run, dt) {
     }
     if (all > 0) enemyCap = Math.round(enemyCap * kept / all)
   }
+  // CHAPTERS[].archetypeSwap: a kept spawn of that archetype comes in as a normal instead.
+  const swap = CHAPTERS[run.chapter].archetypeSwap
   const cap = enemyCap + allyCount(run) // per-chapter density cap (v6.6.4) — see maxAliveFor
   while (run._spawnAcc >= 1 && run.enemies.length < cap) {
     run._spawnAcc -= 1
-    if (!keep) { spawnEnemy(run); continue }
-    const type = pickWeighted(waveWeights(run.time, CHAPTERS[run.chapter].archetypeMul))
-    const k = keep[TYPE_ARCHETYPE[type]]
+    if (!keep && !swap) { spawnEnemy(run); continue }
+    let type = pickWeighted(waveWeights(run.time, CHAPTERS[run.chapter].archetypeMul))
+    const k = keep?.[TYPE_ARCHETYPE[type]]
     if (k != null && Math.random() >= k) continue
+    const s = swap?.[TYPE_ARCHETYPE[type]]
+    if (s != null && Math.random() < s) type = ARCHETYPE_TYPE.normal
     spawnEnemy(run, { type })
   }
 }

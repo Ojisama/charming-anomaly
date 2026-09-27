@@ -31975,7 +31975,8 @@ function testTheDeep() {
     {
       const count = (keep) => {
         Math.random = mulberry32(20260926)
-        const saved = CHAPTERS.deep.archetypeKeep
+        const saved = CHAPTERS.deep.archetypeKeep, savedSwap = CHAPTERS.deep.archetypeSwap
+        delete CHAPTERS.deep.archetypeSwap
         if (keep === null) delete CHAPTERS.deep.archetypeKeep
         const n = { normal: 0, fast: 0, tank: 0, lanternfish: 0, barreleye: 0, fangtooth: 0, siphonophore: 0, sleepershark: 0 }
         try {
@@ -31996,7 +31997,7 @@ function testTheDeep() {
             }
             run.enemies.length = 0
           }
-        } finally { CHAPTERS.deep.archetypeKeep = saved }
+        } finally { CHAPTERS.deep.archetypeKeep = saved; CHAPTERS.deep.archetypeSwap = savedSwap }
         return n
       }
       const off = count(null), on = count()
@@ -32013,7 +32014,8 @@ function testTheDeep() {
       // Fill to saturation from a huge bank, count, clear, repeat.
       const fill = (keepOn) => {
         Math.random = mulberry32(20260927)
-        const saved = CHAPTERS.deep.archetypeKeep
+        const saved = CHAPTERS.deep.archetypeKeep, savedSwap = CHAPTERS.deep.archetypeSwap
+        delete CHAPTERS.deep.archetypeSwap
         if (!keepOn) delete CHAPTERS.deep.archetypeKeep
         const m = { normal: 0, fast: 0, tank: 0 }
         try {
@@ -32031,7 +32033,7 @@ function testTheDeep() {
             }
             run.enemies.length = 0
           }
-        } finally { CHAPTERS.deep.archetypeKeep = saved }
+        } finally { CHAPTERS.deep.archetypeKeep = saved; CHAPTERS.deep.archetypeSwap = savedSwap }
         return m
       }
       const satOff = fill(false), satOn = fill(true)
@@ -32039,6 +32041,54 @@ function testTheDeep() {
       assert.ok(Math.abs(sr('fast') - 0.7) < 0.05 && Math.abs(sr('tank') - 0.8) < 0.06 && Math.abs(sr('normal') - 1) < 0.1,
         `run DP.i: at the cap kept fast ${sr('fast').toFixed(3)} tank ${sr('tank').toFixed(3)} normal ${sr('normal').toFixed(3)} — want 0.7/0.8/1 (${JSON.stringify(satOff)} -> ${JSON.stringify(satOn)})`)
       console.log(`PASS run DP.i (archetypeKeep at the cap): fast ${sr('fast').toFixed(3)} tank ${sr('tank').toFixed(3)} normal ${sr('normal').toFixed(3)} — ${JSON.stringify(satOff)} -> ${JSON.stringify(satOn)}`)
+      // Owner, 2026-09-27: "reduce amount of dashers by 30% and replace them with normal mobs",
+      // "reduce proportion of tanks by 20%, replace them with normal monsters". Same rig, keep on in
+      // both arms, swap off vs on: fast and tank fall by the fraction, normals gain what they lost.
+      {
+        const hp = {}
+        const swapCount = (swapOn) => {
+          Math.random = mulberry32(20260928)
+          const saved = CHAPTERS.deep.archetypeSwap
+          if (!swapOn) delete CHAPTERS.deep.archetypeSwap
+          const m = { normal: 0, fast: 0, tank: 0 }
+          try {
+            const run = createRun(makeMeta(), { chapter: 'deep' })
+            run.weapons = []; run.obstacles = []; run._obstacleSeed = null
+            run.player.hp = 1e9; run.player.maxHP = 1e9
+            run.mods.spawnMul = 30
+            for (let i = 0; i < 3600; i++) {
+              run.time = 250
+              stepSim(run, { x: 0, y: 0 }, 1 / 60)
+              run.events.length = 0; run.levelUpChoices = null
+              if (run.phase === 'levelup') run.phase = 'playing'
+              for (const e of run.enemies) {
+                const r = CHAPTERS.deep.roster.find((x) => x.id === e.rosterId)
+                if (r && !e._splitChild) m[r.archetype]++
+                if (r && !e._splitChild && !e.elite) (hp[e.rosterId] ??= []).push(e.maxHP)
+              }
+              run.enemies.length = 0
+            }
+          } finally { CHAPTERS.deep.archetypeSwap = saved }
+          return m
+        }
+        const a = swapCount(false), b = swapCount(true)
+        const rf = b.fast / a.fast, rt = b.tank / a.tank
+        const moved = (a.fast - b.fast) + (a.tank - b.tank), gained = b.normal - a.normal
+        const total = (m) => m.normal + m.fast + m.tank
+        assert.ok(Math.abs(rf - 0.7) < 0.05 && Math.abs(rt - 0.8) < 0.05,
+          `run DP.i: swap kept fast ${rf.toFixed(3)} tank ${rt.toFixed(3)}, want 0.7/0.8 (${JSON.stringify(a)} -> ${JSON.stringify(b)})`)
+        assert.ok(Math.abs(total(b) / total(a) - 1) < 0.05 && gained > 0.7 * moved,
+          `run DP.i: swapped spawns did not become normals — moved ${moved}, normals +${gained}`)
+        // Owner, 2026-09-27: "reduce health of tanks to +0%" — tanks shed the chapter's +15% hp,
+        // normals keep it. Real spawns at one clock, so hpScale and the ladder cancel in the ratio.
+        const mean = (xs) => xs.reduce((p, q) => p + q, 0) / xs.length
+        const tankVsNormal = mean(hp.sleepershark) / mean(hp.lanternfish)
+        const want = (ENEMIES[ARCHETYPE_TYPE.tank].hp * 2.2) / (ENEMIES[ARCHETYPE_TYPE.normal].hp * 1) / 1.15
+        assert.ok(Math.abs(tankVsNormal / want - 1) < 0.03,
+          `run DP.i: sleeper shark / lanternfish hp ${tankVsNormal.toFixed(3)}, want ${want.toFixed(3)} (tanks at +0%, normals at +15%)`)
+        console.log(`PASS run DP.i (tank hp +0%): sleeper shark / lanternfish hp ${tankVsNormal.toFixed(3)} = ${want.toFixed(3)}`)
+        console.log(`PASS run DP.i (archetypeSwap): fast x${rf.toFixed(3)} tank x${rt.toFixed(3)}, normals +${gained} for ${moved} moved — ${JSON.stringify(a)} -> ${JSON.stringify(b)}`)
+      }
       console.log(`PASS run DP.i (archetypeKeep): kept fast ${ratio('fast').toFixed(3)} tank ${ratio('tank').toFixed(3)} normal ${ratio('normal').toFixed(3)}, shark ${(half * 100).toFixed(1)}% of tanks — ${JSON.stringify(off)} -> ${JSON.stringify(on)}`)
     }
     {
