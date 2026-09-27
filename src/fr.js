@@ -1526,6 +1526,14 @@ const CONFIG = {
   'Silt Veil': 'Voile de Vase',
   // The chapter anomaly. 'Dernier Souffle' is the ordinary French idiom for exactly this, and it was
   // re-checked against every key in this file before being used.
+  // The Deep's own anomaly and mutator (owner picks, 2026-09-27). 'baudroie' is the anglerfish on the floor.
+  'Born Blind': 'Né Aveugle',
+  'down here, eyes were never the point': 'ici-bas, les yeux n’ont jamais servi',
+  'Your damage rises as your Light empties, up to +100%. The anglerfish give you half as much Light.':
+    'Tes dégâts montent quand ta Lumière baisse, jusqu’à +100 %. Les baudroies te rendent moitié moins de Lumière.',
+  'Hungry Floor': 'Gueules Affamées',
+  'The anglerfish bite sooner, and they bite elites too.': 'Les baudroies mordent plus tôt, et mordent aussi les élites.',
+  'time before the bite': 'délai avant la morsure',
   'Last Breath': 'Dernier Souffle',
   'the thinner it got, the harder you swung': 'plus l’air manquait, plus tu frappais fort',
   'Your damage rises as your Air empties, up to +100%. While you are drowning, everything hurts you twice as much.':

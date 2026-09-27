@@ -46,7 +46,7 @@ import {
   xpForLevel, REVIVE_HP_FRAC, REVIVE_INVULN, rerollCost,
   MAX_DIFFICULTY, PLAYER, BARNACLE_JUMP_R, SHELL_R,
   LONGLINE_SNAG, LONGLINE_HALF_W, LONGLINE_TWIN_GAP, LONGLINE_MAX_SETS, LONGLINE_MIN_OFFSET, CC_DR_FLOOR,
-  MAW_GAPE_T, MAW_DEVOUR_FRAC, MAW_VIS, MAW_REVEAL, LURE_GLOW, SCENT_R, SCENT_DMG_MUL, SCENT_SPEED_MUL, spendSecs,
+  MAW_GAPE_T, MAW_DEVOUR_FRAC, BORN_BLIND_MAX_DMG_MUL, BORN_BLIND_REFILL_MUL, MAW_VIS, MAW_REVEAL, LURE_GLOW, SCENT_R, SCENT_DMG_MUL, SCENT_SPEED_MUL, spendSecs,
   BOOKS, BOOK_ORDER, BOOK_SHOP, shopLines, BOOK_UNLOCKS, playableChapterId, isWipChapter, chapterAvailable, titleBookshelf, CHAPTER_SPINE, isBookFinale, nextBook, bookOf, chapterNumber,
   DMG_SRC_NAME, dmgSrcName, DMG_SRC_ART, dmgSrcArt, DMG_SRC_NO_ART,
   DEATH_OUTRO, irisCoverMul, deathProgress, LANE_CAMERA_FRAC,
@@ -32212,6 +32212,88 @@ function testTheDeep() {
     assert.ok(/_splitChild && T\.roster\[e\.rosterId \+ '_child'\]/.test(code2),
       'run DP.m: syncEnemies no longer prefers the child look for a split child — the bake exists and nothing reads it')
     console.log(`PASS run DP.m (the colony comes apart): ${sp.count} zooids at ${sp.hpFrac} hp and ${sp.radiusFrac} radius, x${sp.speedMul} speed and x${sp.dmgMul} contact, carrying ${xpShare.toFixed(2)} of the colony's xp, drawn from their own bake`)
+  }
+
+  // (n) BORN BLIND is two sites, like Last Breath: the ramp in anomalyDamageMul and the halved soak
+  // in stepCharge. Either one missing leaves a card that still reads as working.
+  {
+    assert.strictEqual(ANOMALIES.bornBlind.chapter, 'deep', 'run DP.n: Born Blind is not scoped to The Deep')
+    const outgoing = (charge, anom) => {
+      const run = rig('gnash', 5)
+      if (anom) run.anomalies.bornBlind = true
+      const t = fish(run, run.player.x + 120, run.player.y)
+      for (let i = 0; i < 180; i++) {
+        run.charge = charge
+        t.x = run.player.x + 120; t.y = run.player.y
+        stepSim(run, { x: 0, y: 0 }, dt); run.events.length = 0
+      }
+      return t.maxHP - t.hp
+    }
+    const full = outgoing(100, true), empty = outgoing(0, true)
+    const plainFull = outgoing(100, false), plainEmpty = outgoing(0, false)
+    assert.ok(full > 0 && plainEmpty > 0, 'run DP.n: the fixture dealt no damage — nothing below measures the card')
+    assert.strictEqual(full, plainFull, `run DP.n: Born Blind at a FULL bar dealt ${full} against ${plainFull} without it — the ramp should be zero there`)
+    const ramp = empty / plainEmpty
+    assert.ok(Math.abs(ramp - BORN_BLIND_MAX_DMG_MUL) < 0.25,
+      `run DP.n: Born Blind at an EMPTY bar dealt x${ramp.toFixed(2)} of the plain run — the card says x${BORN_BLIND_MAX_DMG_MUL}`)
+    const soak = (anom) => {
+      const run = rig(); run.charge = 20; run.shafts.length = 0
+      if (anom) run.anomalies.bornBlind = true
+      maw(run, 0, 0)
+      step(run, 60)
+      return run.charge - 20
+    }
+    const plain = soak(false), blind = soak(true)
+    const drain = CHAPTERS.deep.resource.drain
+    const refillRatio = (blind + drain) / (plain + drain)
+    assert.ok(Math.abs(refillRatio - BORN_BLIND_REFILL_MUL) < 0.05,
+      `run DP.n: with Born Blind a maw refilled x${refillRatio.toFixed(2)} of the plain rate — the card says half`)
+    console.log(`PASS run DP.n (Born Blind): x${ramp.toFixed(2)} damage at an empty bar, none at a full one, maws refill x${refillRatio.toFixed(2)}`)
+  }
+
+  // (o) HUNGRY FLOOR: the mouth bites sooner, and an elite in it opens it and dies in the swallow.
+  // A normal fish does not open it, and a swallow you are not in costs you nothing.
+  {
+    assert.deepStrictEqual(MUTATORS.hungryFloor.chapters, ['deep'], 'run DP.o: Hungry Floor is not scoped to The Deep alone')
+    const hungryRig = (on) => {
+      const run = rig()
+      if (on) { run.mutators = ['hungryFloor']; run.mods = mergeMutatorMods(run.mutators) }
+      run.shafts.length = 0
+      return run
+    }
+    const secs = MAW_GAPE_T * MUTATORS.hungryFloor.effects.mawTimeMul + 0.2
+    const bitten = (on) => {
+      const run = hungryRig(on); run.charge = 50
+      maw(run, 0, 0)
+      let n = 0
+      for (let i = 0; i < Math.round(secs * 60); i++) {
+        stepSim(run, { x: 0, y: 0 }, dt)
+        for (const ev of run.events) if (ev.type === 'devour') n++
+        run.events.length = 0
+      }
+      return n
+    }
+    assert.strictEqual(bitten(true), 1, 'run DP.o: with Hungry Floor the maw did not bite within its shortened time')
+    assert.strictEqual(bitten(false), 0, 'run DP.o: without Hungry Floor the maw bit early — the shortened time is leaking into every run')
+    const R = CHAPTERS.deep.signature.maws.r
+    const lure = (on, elite) => {
+      const run = hungryRig(on); run.charge = 50
+      const m = maw(run, R + 400, 0)
+      const e = fish(run, m.x, m.y)
+      e.hp = e.maxHP = 50
+      if (elite) e.elite = true
+      const hp0 = run.player.hp, gems0 = run.gems.length
+      step(run, Math.round(secs * 60))
+      return { dead: !!e._dead || !run.enemies.includes(e), hurt: hp0 - run.player.hp, gem: run.gems.length > gems0, charge: run.charge }
+    }
+    const ate = lure(true, true)
+    assert.ok(ate.dead, 'run DP.o: with Hungry Floor an elite sat in a maw and survived — the elite half of the mutator does nothing')
+    assert.ok(ate.gem, 'run DP.o: the swallowed elite dropped no xp')
+    assert.strictEqual(ate.hurt, 0, `run DP.o: a swallow the player was NOT in still hurt them for ${ate.hurt}`)
+    assert.ok(ate.charge > 0, 'run DP.o: a swallow the player was NOT in still took their Light')
+    assert.ok(!lure(true, false).dead, 'run DP.o: Hungry Floor swallowed a NON-elite — the card says elites')
+    assert.ok(!lure(false, true).dead, 'run DP.o: an elite died in a maw without Hungry Floor — the swallow is leaking into every run')
+    console.log(`PASS run DP.o (Hungry Floor): the maw bites after ${secs.toFixed(2)}s instead of ${MAW_GAPE_T}s, and eats an elite that sits in it without touching the player`)
   }
 
   console.log("PASS run DP (The Deep): the anglerfish is a refill CIRCLE and not a mob, huge and hidden behind its own lure, it is the only food and its mouth is the clock, staying costs half your health AND all your light while leaving in time costs nothing, and Scent marks a group and amplifies every source while buying speed")
