@@ -88,7 +88,7 @@ import {
   LANE_SCROLL_SPEED, laneScrollFor, LANE_STRAFE_MUL, circuitKnob, circuitLadder, caveSpecOf, refillGrantFor, swimthroughsFor, SWIMTHROUGHS_PER_LAP, CIRCUIT_GATE_VIS, RUN_DURATION, MARCH_SWAY_RATE, REPULSE_RADIUS, REPULSE_CD,
   SHOREBREAK_RADIUS, SHOREBREAK_DUR_MIN, SHOREBREAK_DUR_AT_FULL, SHOREBREAK_STAGGER, SHOREBREAK_FORCE,
   CLEAR_DUR_MIN, CLEAR_DUR_AT_FULL, CLEAR_SIGHT_FADE, CLEAR_RADIUS_AT_FULL, CLEAR_STUN, REPULSE_STUN,
-  KITE_MIN_SPEED, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, darkness, lightRadius, unlockCost, unlockLevel, unlockMax, SACRIFICE_COSTS, LATCH_SLOW_MUL,
+  KITE_MIN_SPEED, PULSE_CHARGE_COST, SCENT_DUR_AT_FULL, PULSE_RADIUS_AT_FULL, darkness, lightRadius, unlockCost, unlockLevel, unlockMax, SACRIFICE_COSTS, LATCH_SLOW_MUL,
   STRUCTURE_KINDS, STRUCTURE_RADIUS, CRUSH_XP, GEM_VALUE, RAMPAGE_GAIN, RAMPAGE_DECAY, RAMPAGE_DURATION, RAMPAGE_CRUSH_MUL,
   RAMPAGE_SPEED_MUL,
   roadAt, nearestCity, CITY_GRID, elevationAt, urbanAt, pickWorldSeed, terrainAt, BIOME_BUILD_DENSITY, BLOCK_U,
@@ -32545,6 +32545,24 @@ function testTheDeep() {
     assert.ok(n > 5000, `run DP.u: only ${n} maws sampled`)
     assert.ok(closest >= 2 * spec.r + 300, `run DP.u: two anglerfish ${closest.toFixed(0)}px apart centre to centre — jaws r ${spec.r}, want >= ${2 * spec.r + 300}`)
     console.log(`PASS run DP.u (maw spacing): closest of ${n} maws over 5 seeds is ${closest.toFixed(0)}px apart`)
+  }
+
+  // (v) THE SCENT IS CHEAPER AND QUICKER HERE. Owner, 2026-09-27: "Make the action button consume
+  // half less light and reduce cooldown to 4s". One press from a full bar: what it took, how long
+  // until the next, and that it still bought the FULL-strength mark.
+  {
+    const run = rig(); run.charge = res.max
+    const before = run.charge
+    stepSim(run, { x: 0, y: 0, skill: true }, dt)
+    const took = before - run.charge - res.drain * dt
+    assert.ok(Math.abs(took - PULSE_CHARGE_COST * 0.5) < 0.05, `run DP.v: a full Scent took ${took.toFixed(2)} Light, want ${PULSE_CHARGE_COST * 0.5}`)
+    assert.ok(Math.abs(run.repulseCd - 4) < 0.05, `run DP.v: the button is back in ${run.repulseCd.toFixed(2)}s, want 4`)
+    assert.ok(Math.abs(run._scentT - SCENT_DUR_AT_FULL) < 0.05, `run DP.v: the half-price press bought a ${run._scentT.toFixed(2)}s mark, not the full ${SCENT_DUR_AT_FULL}s`)
+    const shelf = createRun(meta, { chapter: 'shelf', difficulty: 1 })
+    shelf.charge = shelf.chargeMax ?? CHAPTERS.shelf.resource.max
+    stepSim(shelf, { x: 0, y: 0, skill: true }, dt)
+    assert.ok(Math.abs(shelf.repulseCd - REPULSE_CD) < 0.05, `run DP.v: The Shelf's button cooldown is ${shelf.repulseCd.toFixed(2)}s — the Deep's 4s leaked`)
+    console.log(`PASS run DP.v (Scent price): took ${took.toFixed(2)} Light for a full ${run._scentT.toFixed(2)}s mark, back in ${run.repulseCd.toFixed(2)}s; The Shelf still ${REPULSE_CD}s`)
   }
 
   // (s) THE DEEP'S UPGRADE CARDS: a percent mod card on a non-starter banks x1.2, on Glint x0.8,

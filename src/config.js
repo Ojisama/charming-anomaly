@@ -8517,6 +8517,8 @@ CHAPTERS.deep = {
     dark: { from: 0.5, speedFloor: 1, dim: 1.0, radiusFull: 0.50, radiusEmpty: 0.06 },
   },
   scent: true,        // stepRepulse's third per-chapter branch, beside `burst` and `breach`
+  // balance_decision : Scent costs half the Light, 4s cooldown [2026-09-27]
+  pulse: { cd: 4, costMul: 0.5 },
 
   // THE ROSTER, AND THE ANGLERFISH IS NOT IN IT. Owner, 2026-08-17: "the anglerfishes dont move,
   // they are not enemies, they are traps." It is `signature.maws` above — a streamed refill circle,
@@ -11217,6 +11219,9 @@ export const REPULSE_STUN = 0.55         // s of stun on top, so the shove reads
 // REPULSE_CD's block above says why, and Book 2's whole premise is that the second verb is
 // POSITIONAL. A pulse that also killed would collapse back into "another weapon, on a button".
 export const PULSE_CHARGE_COST = 45      // charge a full-strength pulse spends; a full bar is two of them
+// A chapter's own action-button price and cooldown (CHAPTERS[].pulse), read by sim and the HUD alike.
+export const pulseCost = (ch) => PULSE_CHARGE_COST * (ch?.pulse?.costMul ?? 1)
+export const pulseCd = (ch) => ch?.pulse?.cd ?? REPULSE_CD
 export const PULSE_RADIUS_AT_FULL = 620  // px at a full spend (floor REPULSE_RADIUS 340)
 export const PULSE_FORCE_AT_FULL = 1500  // px/s at a full spend (floor REPULSE_FORCE 880)
 

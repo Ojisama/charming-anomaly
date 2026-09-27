@@ -159,7 +159,7 @@ import {
   LANE_CRUSH_DPS, LANE_CRUSH_TICK,
   MARCH_SPEED_MUL, MARCH_SWAY_PX, MARCH_SWAY_RATE, MARCH_HOME_MUL,
   FORMATION_INTERVAL, FORMATION_COLS, FORMATION_AHEAD_MUL, FORMATION_AHEAD_MIN, FORMATION_ROW_PX, LANE_SPAWN_MUL, LANE_CONTACT_MUL, laneEarlyMul,
-  REPULSE_CD, REPULSE_RADIUS, REPULSE_FORCE, REPULSE_STUN, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, PULSE_FORCE_AT_FULL, CLEAR_DUR_MIN, CLEAR_DUR_AT_FULL, CLEAR_SIGHT_FADE, CLEAR_RADIUS_AT_FULL, CLEAR_STUN, darkness, refillSpec, resourceDamageMul, refillGrantFor, pollutionFrac, RUNOFF_MAX_DMG_MUL, RUNOFF_SPEED_FLOOR, FOUL_SPRING_FOUL_T, SILT_PLUME_SPREAD, SILT_FLUSH_MUL, LOBE_SHAPES, inLobe, lobeFactor, SEPARATION_SAMPLES,
+  REPULSE_CD, REPULSE_RADIUS, REPULSE_FORCE, REPULSE_STUN, PULSE_CHARGE_COST, pulseCost, pulseCd, PULSE_RADIUS_AT_FULL, PULSE_FORCE_AT_FULL, CLEAR_DUR_MIN, CLEAR_DUR_AT_FULL, CLEAR_SIGHT_FADE, CLEAR_RADIUS_AT_FULL, CLEAR_STUN, darkness, refillSpec, resourceDamageMul, refillGrantFor, pollutionFrac, RUNOFF_MAX_DMG_MUL, RUNOFF_SPEED_FLOOR, FOUL_SPRING_FOUL_T, SILT_PLUME_SPREAD, SILT_FLUSH_MUL, LOBE_SHAPES, inLobe, lobeFactor, SEPARATION_SAMPLES,
   SUNSPEAR_FALL, SUNSPEAR_SPREAD, FOXFIRE_GLOOM, FOXFIRE_WANDER_SPEED, FOXFIRE_SWARM, SUNLANCE_REACH_MIN, GLINT_LIGHT_COST, BUBBLE_COVER_MAX, BUBBLE_ARC_MAX, BALLAST_FLIGHT, BALLAST_BLIND_THROW, BALLAST_REACH_PAD,
   BALLAST_TANK_MUL, BALLAST_DRAG, BALLAST_DRAG_T,
   BURST_SPEED_MUL, BURST_DUR_MIN, BURST_DUR_AT_FULL, BURST_RAM_MUL, BURST_RAM_COINS, DROWN_TICK,
@@ -3328,15 +3328,16 @@ function stepRepulse(run, input, dt) {
   //   Floored at 0.5s rather than at 0: the cap is 2.5 against a 6.0 cooldown so the floor is
   // unreachable today, and it is here so that a future retune of either constant cannot make the
   // button free (or the timer negative) by arithmetic nobody re-read. See PASSIVES.dashCooldown.
-  run.repulseCd = Math.max(0.5, REPULSE_CD - (run.passives.dashCooldown ?? 0))
+  run.repulseCd = Math.max(0.5, pulseCd(ch) - (run.passives.dashCooldown ?? 0))
   const p = run.player
   // The amplification. `spend` is capped by what the bar actually holds, so an EMPTY bar leaves
   // t = 0 and the shipped v5.21 shove fires unchanged - the floor that stops the spiral where
   // having no charge prevents you from earning charge. Lane chapters declare no resource, so their
   // t is 0 forever and The Beyond's pulse is byte-identical to what it was.
   const res = ch.resource
-  const spend = res ? Math.min(run.charge, PULSE_CHARGE_COST) : 0
-  const t = res ? spend / PULSE_CHARGE_COST : 0
+  const cost = pulseCost(ch)
+  const spend = res ? Math.min(run.charge, cost) : 0
+  const t = res ? spend / cost : 0
   if (spend > 0) run.charge -= spend
   // THE SHOREBREAK (v7.x, The Surf — CHAPTERS[].shorebreak). Same press, same cooldown, same `t`
   // as the burst and the scent — and then it RETURNS, which is the one thing none of

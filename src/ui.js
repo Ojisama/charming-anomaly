@@ -1,5 +1,5 @@
 // DOM overlay inside #ui: title, shop, HUD, level-up, pause, summary. No Pixi.
-import { shopCost, refundValue, REFUND_RATE, shopLines, shopLineUnlocked, chaptersMastered, lineMax, SHOP_FAMILY, RUN_DURATION, RARITIES, modPct, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, MUTATOR_EFFECT_LABELS, CONSUMABLES, MAX_DIFFICULTY, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, SACRIFICE_COSTS, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES, chapterNumber, CHAPTERS, CHAPTER_ORDER, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, HIDDEN_UNLOCKS, titleBookshelf, spineName, chaosStatus, PULSE_CHARGE_COST, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS, bookOf, BOOK_ORDER, BOOKS, BOOK_UNLOCKS, unlockCost, unlockLevel, unlockMax, dmgSrcName, dmgSrcArt, passiveEffectText, CHAPTER_BOARDS_DEFAULT, KRAKEN_PARRY_CD, hasSkillButton } from './config.js'
+import { shopCost, refundValue, REFUND_RATE, shopLines, shopLineUnlocked, chaptersMastered, lineMax, SHOP_FAMILY, RUN_DURATION, RARITIES, modPct, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, MUTATOR_EFFECT_LABELS, CONSUMABLES, MAX_DIFFICULTY, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, SACRIFICE_COSTS, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES, chapterNumber, CHAPTERS, CHAPTER_ORDER, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, HIDDEN_UNLOCKS, titleBookshelf, spineName, chaosStatus, pulseCost, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS, bookOf, BOOK_ORDER, BOOKS, BOOK_UNLOCKS, unlockCost, unlockLevel, unlockMax, dmgSrcName, dmgSrcArt, passiveEffectText, CHAPTER_BOARDS_DEFAULT, KRAKEN_PARRY_CD, hasSkillButton } from './config.js'
 import { playSfx } from './audio.js'
 import { t, tt, getLang, LANGS } from './i18n.js'
 import { SAVE_SLOTS, activeSlot, slotSummary, saveSummary, exportSlot, NAME_MAX, bookMeta, ensureBookMeta, bookProgress } from './state.js'
@@ -2680,14 +2680,14 @@ export function initUI(hooks) {
     // ceiling, and painting against the OLD config max pins this bar at full and motionless for
     // the whole band above it. Falls back to res.max for a run object that predates the field (or
     // any chapter with no resource, where it is moot — this call is already gated on `res`).
-    if (res) paintCharge(run.charge, run.chargeMax ?? res.max, res.name, !!res.invert)
+    if (res) paintCharge(run.charge, run.chargeMax ?? res.max, res.name, !!res.invert, pulseCost(CHAPTERS[run.chapter]))
   }
 
   // The RESOURCE rail's per-frame paint, modelled on paintChaos below — refs looked up once (the
   // HUD markup is written exactly once at boot, so they cannot go stale) and every text write
   // guarded by a cache, because the textContent write is the expensive half of a per-frame readout.
   let chargeRefs = null
-  function paintCharge(charge, max, name, invert) {
+  function paintCharge(charge, max, name, invert, cost) {
     if (!chargeRefs) {
       const q = (sel) => hud.chargeWrap.querySelector(sel)
       chargeRefs = { text: q('[data-charge-text]'), fill: q('[data-charge-fill]'), label: q('[data-charge-label]') }
@@ -2701,7 +2701,7 @@ export function initUI(hooks) {
     // player actually asks: the NUMBER is how much light is left, and the ARMED state is whether
     // the next press is a full-strength Pulse or the floor shove. A player reading only the height
     // cannot tell where the threshold is, and PULSE_CHARGE_COST is not a round fraction of max.
-    const armed = charge >= PULSE_CHARGE_COST
+    const armed = charge >= cost
     if (armed !== last.chargeArmed) {
       last.chargeArmed = armed
       hud.chargeWrap.classList.toggle('charge--armed', armed)
