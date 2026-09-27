@@ -3999,6 +3999,7 @@ export const WEAPON_MODS = {
     // WEAPON_STAT_MODS as 'flat' because `count` is a real key in levels[] — which also means
     // sunspearSpots reads the MODIFIED count and the padding ring divides by that same number.
     secondSun: { name: 'Second Sun', desc: 'extra column(s) per cast', icon: '🔷', kind: 'tier' },
+    quickSun:  { name: 'Quick Sun',  desc: 'cast rate', icon: '⏩', base: 0.25, kind: 'pct' },
   },
   foxfire: {
     // 'foxfire damage per tick', for the reason barnacles and longline both spell out above: the
@@ -4015,9 +4016,12 @@ export const WEAPON_MODS = {
   },
   sunlance: {
     whetted:   { name: 'Whetted',   desc: 'lance damage per tick', icon: '💥', base: 0.30, kind: 'pct' },
-    farReach:  { name: 'Far Reach', desc: 'lance length', icon: '📏', base: 0.25, kind: 'pct' },
-    broadEdge: { name: 'Broad Edge', desc: 'lance width', icon: '🪭', base: 0.28, kind: 'pct' },
+    farReach:  { name: 'Far Reach', desc: 'lance length and width', icon: '📏', base: 0.25, kind: 'pct' },
     heldLance: { name: 'Held Lance', desc: 'how long the lance is held', icon: '⌛', base: 0.25, kind: 'pct' },
+    quickLance:{ name: 'Quick Lance', desc: 'cast rate', icon: '⏩', base: 0.25, kind: 'pct' },
+    // balance_decision : Twin Lance epic+ only, +1/+2/+3, owner ruling [2026-09-27]
+    twinLance: { name: 'Twin Lance', desc: 'extra lance(s) per cast', icon: '🔷', kind: 'tier',
+                 values: { epic: 1, legendary: 2, mythic: 3 } },
   },
   // Glint's four (2026-09-09). Spike Protein's axes in light. NONE touches the Light cost — a mod
   // that discounted or refunded it would sell the bar back as a card, the line the Deep's own mods
@@ -4053,6 +4057,7 @@ export const WEAPON_RATE_MODS = {
   atomicBreath: 'quickBreath', skippingShell: 'fastSkim', foxfire: 'quickKindle',
   breaker: 'quickBreak', ballast: 'quickWinch', siltVeil: 'quickStir', downwash: 'quickPour',
   bringItIn: 'quickReel', screw: 'overspeed', glint: 'quickGlint',
+  sunspear: 'quickSun', sunlance: 'quickLance',
   // chum and bilge are absent DELIBERATELY: neither carries a rate mod, and this table's own
   // header says a weapon with none simply does not appear here. Naming one that does not exist
   // would put a phantom row in the pause build sheet's cadence line.

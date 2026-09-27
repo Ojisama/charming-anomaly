@@ -9842,7 +9842,7 @@ const WEAPON_STAT_MODS = {
   // into `interval` would SLOW the weapon.
   sunspear:      { highNoon: ['dmg', 'pct'], broadBeam: ['r', 'pct'], secondSun: ['count', 'flat'] },
   foxfire:       { emberfeed: ['dmg', 'pct'], gloaming: ['maxR', 'pct'], longBurn: ['glowDur', 'pct'] },
-  sunlance:      { whetted: ['dmg', 'pct'], farReach: ['length', 'pct'], broadEdge: ['width', 'pct'], heldLance: ['duration', 'pct'] },
+  sunlance:      { whetted: ['dmg', 'pct'], farReach: [['length', 'width'], 'pct'], heldLance: ['duration', 'pct'] },
   // Glint: `secondGlint` is a per-cast COUNT read at the fire site like star's multishot;
   // `quickGlint` is in WEAPON_RATE_MODS. The other two fold.
   glint:         { bright: ['dmg', 'pct'], keenLight: ['pierce', 'flat'] },
@@ -14187,10 +14187,12 @@ function stepNetTossWeapon(run, w, stats, fireRateMul, dt) {
  * having fired it. Here both readings come off `count` and `pad`, each declared once. The suite
  * asserts DISTINCT POSITIONS rather than a count, because a count is exactly what passes when three
  * columns share a spot. */
-function sunspearSpots(run, count, castRange) {
+// Every live, hittable body within range, nearest first. Shared by the Sunspear's columns and the
+// Sunlance's Twin Lance, so both refuse the sealed Kraken head at one site.
+function sunTargets(run, range) {
   const p = run.player
-  const rangeSq = castRange * castRange
-  const near = run.enemies
+  const rangeSq = range * range
+  return run.enemies
     .filter((e) => {
       if (e._dead || isAlly(e)) return false   // SUBMISSION: never call the sun down on your own ally
       // ...OR ON SOMETHING THAT REFUSES IT. nearestEnemy's header calls itself "THE CHOKE POINT" for
@@ -14205,8 +14207,10 @@ function sunspearSpots(run, count, castRange) {
       return dx * dx + dy * dy <= rangeSq
     })
     .sort((a, b) => ((a.x - p.x) ** 2 + (a.y - p.y) ** 2) - ((b.x - p.x) ** 2 + (b.y - p.y) ** 2))
+}
 
-  const spots = near.slice(0, count).map((e) => ({ x: e.x, y: e.y }))
+function sunspearSpots(run, count, castRange) {
+  const spots = sunTargets(run, castRange).slice(0, count).map((e) => ({ x: e.x, y: e.y }))
   if (spots.length === 0) return spots        // nothing in reach: the cast is a dud, like any aimed weapon's
 
   const pad = count - spots.length
@@ -14228,7 +14232,8 @@ function stepSunspearWeapon(run, w, stats, fireRateMul, dt) {
   // column falls straight down and has no heading to spread across, so the extra casts are pushed
   // off onto the same ring the padding uses instead of being rotated to nowhere.
   const casts = ipecacN(run, 1)
-  fireOnTimer(run, w.id, stats.interval / fireRateMul, dt, () => {
+  const quickSun = run.weaponMods.sunspear?.quickSun ?? 0
+  fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quickSun)), dt, () => {
     // ONE local, read by sunspearSpots as both its loop bound and its padding divisor. It is already
     // mod-folded: `secondSun` is ['count','flat'] in WEAPON_STAT_MODS, so a picked column is a real
     // extra spot rather than a second cast landing on the first.
@@ -14301,11 +14306,19 @@ function stepFoxfireWeapon(run, w, stats, fireRateMul, dt) {
 // THE DARK in config.js): darkness() is flat above half a bar, which would make the top half of
 // this weapon's whole read do nothing. A continuous readout wants the raw bar.
 function stepSunlanceWeapon(run, w, stats, fireRateMul, dt) {
-  fireOnTimer(run, w.id, stats.interval / fireRateMul, dt, () => {
+  const quickLance = run.weaponMods.sunlance?.quickLance ?? 0
+  const lances = 1 + (run.weaponMods.sunlance?.twinLance ?? 0)
+  fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quickLance)), dt, () => {
+    const p = run.player
     const frac = run.chargeMax > 0 ? Math.min(1, Math.max(0, run.charge) / run.chargeMax) : 1
     const reach = stats.length * (SUNLANCE_REACH_MIN + (1 - SUNLANCE_REACH_MIN) * frac)
     const aim = aimAngle(run)
-    for (const a of ipecacAngles(run, aim)) {
+    // Twin Lance: each extra lance takes the next-nearest body in reach; with none left, the rest
+    // fan evenly round the circle from the main aim, so no two lances ever share a bearing.
+    const aims = [aim]
+    for (const e of sunTargets(run, reach).slice(1, lances)) aims.push(Math.atan2(e.y - p.y, e.x - p.x))
+    while (aims.length < lances) aims.push(aim + (aims.length / lances) * Math.PI * 2)
+    for (const a of aims.flatMap((b) => ipecacAngles(run, b))) {
       run.beams.push({
         angle: a, life: stats.duration, duration: stats.duration, dmg: stats.dmg,
         tick: stats.tick, width: stats.width, length: reach,

@@ -32584,6 +32584,60 @@ function testTheDeep() {
     console.log(`PASS run DP.v (Scent price): took ${took.toFixed(2)} Light for a full ${run._scentT.toFixed(2)}s mark, back in ${run.repulseCd.toFixed(2)}s; The Shelf still ${REPULSE_CD}s`)
   }
 
+  // (w) SUNLANCE AND SUNSPEAR MODS. Owner, 2026-09-27: "Merge the sunlance length&width mods. Add
+  // another epic+ that adds another sunlance, and add another one that increases fire rate" and
+  // "Sunspear should also have fire rate mod". Read off the lances actually pushed and the casts
+  // actually fired, never off the table.
+  {
+    const lancesOf = (mods, bodies) => {
+      const run = rig('sunlance', 1); run.charge = 100
+      run.weaponMods.sunlance = mods
+      for (const [dx, dy] of bodies) fish(run, run.player.x + dx, run.player.y + dy)
+      for (let i = 0; i < 400; i++) {
+        run.charge = 100
+        stepSim(run, { x: 0, y: 0 }, dt)
+        const ls = run.beams.filter((b) => b.look === 'sunlance')
+        if (ls.length) return ls
+      }
+      throw new Error('run DP.w: the Sunlance never fired')
+    }
+    const plain = lancesOf({}, [[150, 0]])[0]
+    const reached = lancesOf({ farReach: 0.5 }, [[150, 0]])[0]
+    assert.ok(Math.abs(reached.length / plain.length - 1.5) < 0.01, `run DP.w: Far Reach +50% made the lance x${(reached.length / plain.length).toFixed(2)} long`)
+    assert.ok(Math.abs(reached.width / plain.width - 1.5) < 0.01, `run DP.w: Far Reach +50% made the lance x${(reached.width / plain.width).toFixed(2)} wide`)
+    assert.ok(!('broadEdge' in WEAPON_MODS.sunlance), 'run DP.w: Broad Edge is still its own card')
+
+    const bear = (b) => ((b.angle % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)
+    const two = lancesOf({ twinLance: 1 }, [[150, 0], [0, 200]]).map(bear).sort((a, b) => a - b)
+    assert.strictEqual(two.length, 2, `run DP.w: Twin Lance +1 pushed ${two.length} lances`)
+    assert.ok(Math.abs(two[0]) < 0.05 && Math.abs(two[1] - Math.PI / 2) < 0.05, `run DP.w: Twin Lance aimed at ${two.map((a) => a.toFixed(2))}, want the two bodies at 0 and ${(Math.PI / 2).toFixed(2)}`)
+    const lone = lancesOf({ twinLance: 2 }, [[150, 0]]).map(bear)
+    const gaps = lone.flatMap((a, i) => lone.slice(i + 1).map((b) => Math.abs(a - b)))
+    assert.ok(lone.length === 3 && Math.min(...gaps) > 1, `run DP.w: Twin Lance +2 on one body fanned ${lone.map((a) => a.toFixed(2))} — lances share a bearing`)
+    assert.deepStrictEqual(Object.keys(WEAPON_MODS.sunlance.twinLance.values), ['epic', 'legendary', 'mythic'], 'run DP.w: Twin Lance rolls below epic')
+
+    const casts = (id, mods) => {
+      const run = rig(id, 1); run.charge = 100
+      run.weaponMods[id] = mods
+      const t = fish(run, run.player.x + 150, run.player.y)
+      let n = 0
+      for (let i = 0; i < 60 * 60; i++) {
+        run.charge = 100; t.x = run.player.x + 150; t.y = run.player.y
+        stepSim(run, { x: 0, y: 0 }, dt)
+        for (const ev of run.events) if (ev.type === id) n++
+        run.events.length = 0
+      }
+      return n
+    }
+    const rates = []
+    for (const [id, mod] of [['sunlance', 'quickLance'], ['sunspear', 'quickSun']]) {
+      const a = casts(id, {}), b = casts(id, { [mod]: 0.5 })
+      assert.ok(a >= 4 && Math.abs(b / a - 1.5) < 0.12, `run DP.w: ${mod} +50% cast ${a} -> ${b} in 60s`)
+      rates.push(`${mod} ${a}->${b}`)
+    }
+    console.log(`PASS run DP.w (lance + spear mods): Far Reach x1.5 length and width, Twin Lance on two bodies and fanned on one, ${rates.join(', ')} casts in 60s`)
+  }
+
   // (s) THE DEEP'S UPGRADE CARDS: a percent mod card on a non-starter banks x1.2, on Glint x0.8,
   // against the same card taken in The Body; tier and flat cards are untouched. Taken through
   // devTake, the shipped applyChoice path, and read off what was BANKED — the number every
