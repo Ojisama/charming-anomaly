@@ -238,7 +238,7 @@ import {
   KRAKEN_BEAT_READ, KRAKEN_BEAT_GRAB_CLEAR, KRAKEN_BEAT_BREATH,
   KRAKEN_TRICKLE_FROM_END, KRAKEN_TRICKLE_T, KRAKEN_TRICKLE_N, KRAKEN_ADD_CAP,
   KRAKEN_LUNGE_T, KRAKEN_LUNGE_WINDUP_T, KRAKEN_LUNGE_DMG, KRAKEN_RISE_T,
-  KRAKEN_COIL_EVERY, KRAKEN_COIL_AT, KRAKEN_COIL_RAYS, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, KRAKEN_COIL_IN, KRAKEN_COIL_DMG,
+  KRAKEN_COIL_EVERY, KRAKEN_COIL_AT, KRAKEN_COIL_RAYS, KRAKEN_COIL_STAR_TRIES, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, KRAKEN_COIL_IN, KRAKEN_COIL_DMG,
   hasSkillButton,
   KRAKEN_WAVE, KRAKEN_WAVE_CAP, KRAKEN_WAVE_GAP, KRAKEN_WAVE_TIMEOUT, KRAKEN_WAVE_XP_MUL,
   KRAKEN_OPEN_WAVES, KRAKEN_WAVE_GROWTH, KRAKEN_ARRIVE_T, KRAKEN_ARRIVE_T2, KRAKEN_SLAM_T,
@@ -2200,6 +2200,47 @@ function krakenRearingCap(s, rung) {
   return s.enraged && rung.enrageRearing ? rung.enrageRearing : rung.rearing
 }
 
+// WHERE THE STAR GOES AND WHICH ARM TAKES WHICH BAND (owner, 2026-09-27: "some tentacles are
+// sometimes over each other"). Two ways a Coil stacked limbs: a band laid straight along an arm the
+// Coil leaves where it is (limp, gripping, spare), and two coil arms swinging across each other to
+// reach their bands. So a few random stars are tried and the one whose bands lie farthest from every
+// arm left out wins, and the chosen arms take the bands in the order they already sit round the ring.
+const angDiff = (u, v) => Math.abs(Math.atan2(Math.sin(u - v), Math.cos(u - v)))
+function krakenCoilPlan(run, head, able, n) {
+  const TAU = Math.PI * 2
+  let best = null
+  for (let tr = 0; tr < KRAKEN_COIL_STAR_TRIES; tr++) {
+    const star = Math.random() * TAU
+    const bands = []
+    for (let k = 0; k < n; k++) bands.push(star + k * TAU / n)
+    // which arms: the nearest free one to each band
+    const free = able.slice(), chosen = []
+    for (const b of bands) {
+      let bi = 0, bd = Infinity
+      free.forEach((c, j) => { const d = angDiff(b, c.ang); if (d < bd) { bd = d; bi = j } })
+      chosen.push(free.splice(bi, 1)[0])
+    }
+    // which band: both lists in ring order from the star, then the rotation with the shortest swing
+    const rel = (u) => ((u - star) % TAU + TAU) % TAU
+    chosen.sort((x, y) => rel(x.ang) - rel(y.ang))
+    let rot = 0, rotSwing = Infinity
+    for (let r = 0; r < n; r++) {
+      let m = 0
+      for (let i = 0; i < n; i++) m = Math.max(m, angDiff(chosen[i].ang, bands[(i + r) % n]))
+      if (m < rotSwing) { rotSwing = m; rot = r }
+    }
+    // how clear the bands lie of every arm the Coil leaves where it is (its shoulder and its tip)
+    let clear = Math.PI
+    for (const c of run.krakenArms) {
+      if (c.dead || chosen.includes(c)) continue
+      const tip = Math.atan2(c.y - head.y, c.x - head.x)
+      for (const b of bands) clear = Math.min(clear, angDiff(b, c.ang), angDiff(b, tip))
+    }
+    if (!best || clear > best.clear) best = { star, clear, pairs: chosen.map((c, i) => [c, bands[(i + rot) % n]]) }
+  }
+  return best
+}
+
 function krakenCoilMul(s) {
   if (!(s.coilT > 0)) return 1
   // THE RING REARS BACK AND DOES NOT COME IN. Owner, 2026-09-15: "I was thinking more of all arms
@@ -2546,14 +2587,10 @@ function stepKrakenArms(run, dt, rung, head) {
         // krakenSwingArms) and they land together along them. Fewer arms, fewer bands.
         const able = run.krakenArms.filter((c) => !c.dead && c.limpT <= 0 && !(c.gripT > 0))
         const n = Math.min(able.length, KRAKEN_COIL_RAYS)
+        const plan = krakenCoilPlan(run, head, able, n)
         s.coilN = n
-        s.coilStar = Math.random() * Math.PI * 2
-        const free = able.slice()
-        for (let k = 0; k < n; k++) {
-          const b = s.coilStar + k * Math.PI * 2 / n
-          let bi = 0, bd = Infinity
-          free.forEach((c, j) => { const d = Math.abs(Math.atan2(Math.sin(b - c.ang), Math.cos(b - c.ang))); if (d < bd) { bd = d; bi = j } })
-          const c = free.splice(bi, 1)[0]
+        s.coilStar = plan.star
+        for (const [c, b] of plan.pairs) {
           c.tele = KRAKEN_COIL_TELE
           c.fuse = KRAKEN_COIL_TELE
           c.coilArm = true

@@ -5854,6 +5854,15 @@ export function createRenderer(app) {
       coil: makeTentacleTex(K_ROLE_SKIN.coil),
     }
     T.krakenUnder = makeUndersideTex()
+    // THE COIL'S ARM-SHADOW, BAKED: the eight stacked strips the star used to stroke per band per
+    // frame (dark core, soft edge past the struck width), once. Stretched along the band as one
+    // sprite, so a 7-band star paints each pixel once instead of up to eight times. pad 0: the strip
+    // is stretched lengthwise, and a pad would stretch into a gap at the head.
+    {
+      const g = new Graphics()
+      for (let q = 0; q < 8; q++) { const m = 0.45 + q * 0.15; g.rect(0, -KRAKEN_LASH_W * m, 16, 2 * KRAKEN_LASH_W * m).fill({ color: 0x000000, alpha: 0.13 }) }
+      T.krakenCoilBand = bake(g, 0)
+    }
 
     // The gull STRIKE's three poses (The Surf). Baked at GULL_DIVE_R rather than reusing the 12px
     // roster gull: the strike is drawn ~140px across, and that texture would be a 6x magnification —
@@ -11074,6 +11083,13 @@ export function createRenderer(app) {
   world.addChild(floorLayer, swellLayer, causticLayer, cloudShadowLayer, entitiesLayer)
   app.stage.addChild(world, waterWash, aboveWater, darkLayer, currentLayer, stormCloudLayer, stormRainLayer, idleLayer, dustLayer, leafLayer, oilStain, inkStain, lightningFlash, vignette, deathFlat, deathIris)
   entitiesLayer.visible = false // title screen shows first; reset(run) reveals entities
+  // A SPRITE AT ALPHA 0 IS STILL DRAWN. Pixi v8 culls on visible/renderable, never on alpha, so every
+  // full-screen fade below (and the ceremony's) cost a whole screen of blending on every frame of
+  // every chapter while showing nothing: measured, the Coil's frame went over budget on top of them.
+  // Just before each draw, a fade at 0 is left out. `renderable`, not `visible`: nothing else here
+  // writes it, so this can never fight code that hides a layer on purpose.
+  const skipClear = (list) => R.runners.prerender.add({ prerender() { for (const o of list) o.renderable = o.alpha > 0 } })
+  skipClear([waterWash, oilStain, inkStain, lightningFlash, vignette, deathFlat, deathIris])
   // The Kraken's ceremony: screen-space and ABOVE everything, the death dark included, because the
   // name card and the kill banner are the only things on screen at those moments that must be read.
   const cerLayer = new Container()
@@ -11121,6 +11137,8 @@ export function createRenderer(app) {
   // because the telegraph and the jet it becomes have to stack in that order.
   const jetLayer = new Container()
   const teleG = new Graphics()
+  const krakenCoilBandLayer = new Container()   // the Coil star's arm-shadows (drawKrakenCues)
+  const krakenCoilBands = []
   // v6.7.6 Beam Prism (run.prisms): the refracted sub-beams. ADDITIVE and its own Graphics, because
   // this is light — the same reason strafePoolLayer below is its own container. A sub-beam is
   // already resolved damage by the time it is drawn (see the run.prisms note in state.js), so this
@@ -11420,7 +11438,7 @@ const spurG = new Graphics()
   entitiesLayer.addChild(
     mownG, sandLayer, netWakeG, wellG, bindG, poolLayer, slickG, trailLayer, webLayer, gateFloorG, spurG, coralLayer, gateG, burstWakeG, obstacleLayer, trapLayer,
     gemLayer, coinLayer, holeLayer, eddyLayer, shaftLayer, novaLayer, mineLayer,
-    krakenDeepG, scarLayer, bombG, shellLayer, skyLayer, voltLayer, stripG, laneG, hazardG, jetLayer, teleG, krakenImpactG, strafePoolLayer, rampG, pacerG,
+    krakenDeepG, scarLayer, bombG, shellLayer, skyLayer, voltLayer, stripG, laneG, hazardG, jetLayer, krakenCoilBandLayer, teleG, krakenImpactG, strafePoolLayer, rampG, pacerG,
     rockLayer,
     orcaShadowSp, orcaG,
     enemyShadowLayer, enemyLayer, krakenArmLayer, enemyCrownLayer, orcaSp, netG, longlineG, snareG,
@@ -21599,31 +21617,30 @@ void main() {
           const wq = (q) => 1 + 0.6 * sq * near(q)
           // PRESSED IN ALONG ITS WHOLE LENGTH: a hard black contact shadow down both sides of the landed
           // limb, where it lies in the lit print, widest where it struck hardest
-          if (!a.coilArm) {
+          // ONE STROKE PER RUN OF LIKE SEGMENTS, not one per segment. Width to 2px and light to 1/12
+          // steps, so consecutive segments share a stroke: a Coil lands seven of these at once, and
+          // segment by segment that was ~1300 round-capped strokes rebuilt a frame (measured, the
+          // strike's frame ran at 2.5x a quiet one, three quarters of it here).
+          const qLit = (q) => Math.round(lit(q) * 12) / 12
+          const slabRuns = (wOf, cOf, aOf) => {
+            let key = null, w = 0, c = 0, al = 0
+            const flush = () => { if (key !== null) krakenSlabTopG.stroke({ width: w, color: c, alpha: al, cap: 'round', join: 'round' }); key = null }
             for (let q = k0; q < K_ROPE_N - 1; q++) {
-              krakenSlabTopG.moveTo(rig.pts[q].x, rig.pts[q].y).lineTo(rig.pts[q + 1].x, rig.pts[q + 1].y)
-                .stroke({ width: hwS * 2.4 * wq(q) + 9 + 12 * sq * near(q), color: 0x000000, alpha: 0.92 * hold, cap: 'round' })
+              const qw = Math.round(wOf(q) / 2) * 2, qc = cOf(q), qa = aOf(q)
+              if (qa <= 0) { flush(); continue }
+              const k = qw + ':' + qc + ':' + qa
+              if (k !== key) { flush(); krakenSlabTopG.moveTo(rig.pts[q].x, rig.pts[q].y); key = k; w = qw; c = qc; al = qa }
+              krakenSlabTopG.lineTo(rig.pts[q + 1].x, rig.pts[q + 1].y)
             }
+            flush()
           }
+          if (!a.coilArm) slabRuns((q) => hwS * 2.4 * wq(q) + 9 + 12 * sq * near(q), () => 0x000000, () => 0.92 * hold)
           // the slab: an OPAQUE mass, hard pale rim, its body lit warm where the blow landed and
-          // falling to near-black away from it — segment by segment, so the light has a place
-          for (let q = k0; q < K_ROPE_N - 1; q++) {
-            const lq = lit(q)
-            krakenSlabTopG.moveTo(rig.pts[q].x, rig.pts[q].y).lineTo(rig.pts[q + 1].x, rig.pts[q + 1].y)
-              .stroke({ width: hwS * 2.4 * wq(q) + 5, color: mix(0x9a8aa8, 0xfff2e2, lq), alpha: hold, cap: 'round' })
-          }
-          for (let q = k0; q < K_ROPE_N - 1; q++) {
-            const lq = lit(q)
-            krakenSlabTopG.moveTo(rig.pts[q].x, rig.pts[q].y).lineTo(rig.pts[q + 1].x, rig.pts[q + 1].y)
-              .stroke({ width: hwS * 2.4 * wq(q), color: mix(0x120a1a, 0x4a2c2a, lq), alpha: hold, cap: 'round' })
-          }
+          // falling to near-black away from it — in steps along the limb, so the light has a place
+          slabRuns((q) => hwS * 2.4 * wq(q) + 5, (q) => mix(0x9a8aa8, 0xfff2e2, qLit(q)), () => hold)
+          slabRuns((q) => hwS * 2.4 * wq(q), (q) => mix(0x120a1a, 0x4a2c2a, qLit(q)), () => hold)
           // ...its spine catching the light, so it reads as a rounded body and not a flat strip
-          for (let q = k0; q < K_ROPE_N - 1; q++) {
-            const lq = lit(q)
-            if (lq < 0.05) continue
-            krakenSlabTopG.moveTo(rig.pts[q].x, rig.pts[q].y).lineTo(rig.pts[q + 1].x, rig.pts[q + 1].y)
-              .stroke({ width: hwS * 0.5, color: 0xd8b8a0, alpha: lq * hold * 0.5, cap: 'round' })
-          }
+          slabRuns(() => hwS * 0.5, () => 0xd8b8a0, (q) => (qLit(q) < 0.05 ? 0 : qLit(q) * hold * 0.5))
         }
       }
       // THE TEAR RUNS ALONG THE LIMB, AND IT IS BUILT OUT OF THE LIMB'S OWN POINTS. Two shipped
@@ -22826,6 +22843,7 @@ void main() {
       }
       if (e.type === 'gripBreak') { krakenEscapeT = 0.4; krakenEscapeX = e.px ?? run.player.x; krakenEscapeY = e.py ?? run.player.y }
     }
+    for (const b of krakenCoilBands) b.visible = false
     const head = krakenHead
     if (!krakenFight(run) || !head || run.phase === 'dead') { krakenFishRims(false); return }
     const s = run.script
@@ -22848,10 +22866,15 @@ void main() {
         const t = (s.coilStar ?? 0) + k * Math.PI * 2 / n
         const x1 = head.x + Math.cos(t) * R, y1 = head.y + Math.sin(t) * R
         tellDrawn('head', k, 'coil', head.x, head.y, head.x, head.y, x1, y1)
-        for (let q = 0; q < 8; q++) {
-          const m = 0.45 + q * 0.15   // 0.45W .. 1.5W: dark core, soft falloff past the struck edge
-          teleG.moveTo(head.x, head.y).lineTo(x1, y1).stroke({ width: 2 * W * m, color: 0x000000, alpha: 0.13 * dk })
-        }
+        // 0.45W .. 1.5W: dark core, soft falloff past the struck edge (T.krakenCoilBand)
+        let b = krakenCoilBands[k]
+        if (!b) { b = krakenCoilBands[k] = new Sprite(T.krakenCoilBand); b.anchor.set(0, 0.5); krakenCoilBandLayer.addChild(b) }
+        b.visible = true
+        b.position.set(head.x, head.y)
+        b.rotation = t
+        b.width = R
+        b.height = 3 * W
+        b.alpha = dk
       }
       for (let k = 0; k < n; k++) {
         const t = (s.coilStar ?? 0) + (k + 0.5) * Math.PI * 2 / n, h = Math.PI / n * 0.45
@@ -24826,6 +24849,7 @@ void main() {
   cerBarTop.tint = cerBarBot.tint = 0x000000
   for (const o of [cerDim, cerEdge, cerFlash, cerBarTop, cerBarBot, cerTitle, cerSub]) o.alpha = 0
   cerLayer.addChild(cerDim, cerEdge, cerFlash, cerBarTop, cerBarBot, cerG, cerTitle, cerSub, lessonTitle)
+  skipClear([cerDim, cerEdge, cerFlash, cerBarTop, cerBarBot, cerTitle, cerSub, lessonTitle])
 
   const kDeathG = new Graphics()       // the hole it sinks into, under the head rig
   let kCorpseParented = false

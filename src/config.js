@@ -9129,6 +9129,7 @@ export const KRAKEN_COIL_AT = 2 // which turn of each KRAKEN_COIL_EVERY is the c
 // THE COIL IS A STAR (owner, 2026-09-26): the rearing ring throws KRAKEN_COIL_RAYS arm-shadows across
 // the whole arena through the head, at a RANDOM bearing (owner, 2026-09-27); inside a band when it
 // lands is the hit (krakenCoilStarHits), the wedges between are safe.
+export const KRAKEN_COIL_STAR_TRIES = 8 // random star bearings tried; the one clearest of the arms left out wins
 export const KRAKEN_COIL_RAYS = 7 // also the most arms in one Coil (owner, 2026-09-27: "coil should cap at 7 arms")
 // how far each band runs from the head, for the hit AND the drawing: past any screen edge from anywhere
 // in the widest cage, so the player never sees a band end (owner, 2026-09-27: "the cones stop too soon")
