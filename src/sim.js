@@ -164,7 +164,7 @@ import {
   BALLAST_TANK_MUL, BALLAST_DRAG, BALLAST_DRAG_T,
   BURST_SPEED_MUL, BURST_DUR_MIN, BURST_DUR_AT_FULL, BURST_RAM_MUL, BURST_RAM_COINS, DROWN_TICK,
   SPUR_DPS, SPUR_TICK, SPUR_SLOW_MUL,
-  LAST_BREATH_MAX_DMG_MUL, LAST_BREATH_DROWN_TAKEN_MUL,
+  LAST_BREATH_MAX_DMG_MUL, LAST_BREATH_DROWN_TAKEN_MUL, BORN_BLIND_MAX_DMG_MUL, BORN_BLIND_REFILL_MUL,
   resourceRateMul,
   GNASH_MAW_MUL, GNASH_BASE_CRIT, GNASH_CARRY_FRAC, GNASH_ROLL_KB, RUSH_DUR, RUSH_MAX_STACKS,
   CHUM_FEED_R, CHUM_FEED_HOLD, CHUM_FEED_CD,
@@ -703,6 +703,10 @@ function anomalyDamageMul(run) {
   // every eligibility rule on purpose and ships in the production bundle.
   if (a.lastBreath && run.chargeMax > 0) {
     mul *= 1 + (LAST_BREATH_MAX_DMG_MUL - 1) * (1 - Math.min(1, Math.max(0, run.charge) / run.chargeMax))
+  }
+  // BORN BLIND: The Deep's Light, same ramp and same chargeMax guard as Last Breath.
+  if (a.bornBlind && run.chargeMax > 0) {
+    mul *= 1 + (BORN_BLIND_MAX_DMG_MUL - 1) * (1 - Math.min(1, Math.max(0, run.charge) / run.chargeMax))
   }
   return mul
 }
@@ -7870,12 +7874,17 @@ function stepMaws(run, dt) {
   if (!CHAPTERS[run.chapter].signature?.maws) return false
   const p = run.player
   let died = false
+  // HUNGRY FLOOR (MUTATORS.hungryFloor): an elite in a mouth opens it exactly as you do, and the
+  // swallow kills it. mawTimeMul is 1 for every other run.
+  const hungry = run.mutators.includes('hungryFloor')
+  const gapeT = MAW_GAPE_T * run.mods.mawTimeMul
   for (const sh of run.shafts) {
     sh._shutT = Math.max(0, (sh._shutT ?? 0) - dt)
     // A maw that has just swallowed is shut: it feeds nobody and its lure is out, which is also the
     // visible signal that this one is spent and you should go and find another.
     const feeding = inMaw(sh, p.x, p.y)
-    const rate = feeding ? 1 / MAW_GAPE_T : -MAW_CLOSE_MUL / MAW_GAPE_T
+    const elites = hungry ? run.enemies.filter((e) => e.elite && !e._dead && !isAlly(e) && inMaw(sh, e.x, e.y)) : []
+    const rate = (feeding || elites.length) ? 1 / gapeT : -MAW_CLOSE_MUL / MAW_GAPE_T
     sh.gape = Math.max(0, Math.min(1, (sh.gape ?? 0) + rate * dt))
     if (sh.gape < 1) continue
     // THE DEVOUR. The whole circle is the mouth, so reaching a full gape while inside it IS being
@@ -7883,6 +7892,9 @@ function stepMaws(run, dt) {
     sh.gape = 0
     sh._shutT = MAW_SHUT_T
     run.events.push({ type: 'devour', x: sh.x, y: sh.y, r: sh.r })
+    for (const e of elites) dealDamage(run, e, e.hp, false, false, true)   // hazard: not the player's kill
+    // An elite-only swallow leaves your Light and HP alone: you were not in the mouth.
+    if (!feeding) continue
     // IT TAKES THE LIGHT TOO, and that is the half that reads as being eaten. Zeroed BEFORE the
     // damage, so a devour that kills you still shows an empty bar on the summary rather than the
     // one you died holding.
@@ -8085,7 +8097,7 @@ export function stepCharge(run, dt) {
       if ((sh.drawdown ?? 0) >= life) continue
       sh.drawdown = (sh.drawdown ?? 0) + dt
     }
-    c += res.refill * run.chargeRefillMul * dt
+    c += res.refill * run.chargeRefillMul * (run.anomalies?.bornBlind ? BORN_BLIND_REFILL_MUL : 1) * dt
     // `c` after the add, not before: a bar already at the ceiling swallows the whole tick, and a
     // vent pouring into a full fish is the exact thing the flag exists to switch off.
     sh.feeding = c < run.chargeMax

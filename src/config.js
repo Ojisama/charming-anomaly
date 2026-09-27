@@ -697,6 +697,10 @@ export const RUNOFF_SPEED_FLOOR = 0.6
 //    drown would make the card a free damage ramp for the exact play it is meant to make dangerous.
 export const LAST_BREATH_MAX_DMG_MUL = 2
 export const LAST_BREATH_DROWN_TAKEN_MUL = 2
+// ---- Born Blind (ANOMALIES.bornBlind) — The Deep's bar as a ramp, Last Breath's shape on Light.
+// balance_decision : damage ramps to 2x at empty Light, anglerfish feed half [2026-09-27]
+export const BORN_BLIND_MAX_DMG_MUL = 2
+export const BORN_BLIND_REFILL_MUL = 0.5
 // SOY MILK. Shipped as "paper-neutral and measured neutral (+4.6% kills)", with a note that the
 // probe could not see its real upside because element procs are counted PER HIT. That note was
 // right, and v7.4 quantified it: against a take-and-skip control (body d3, 120 runs) the card is
@@ -1265,6 +1269,16 @@ export const ANOMALIES = {
     // inversion is rare by construction, and minLevel 10 makes the player meet the tears as a way
     // out before the run offers to sell them.
     weight: 2, chapter: 'trawl', kind: 'trade',
+    minLevel: 10,
+  },
+  // The Deep's own. 'the anglerfish' is what the player sees lying on the floor; the game has no
+  // other word for a maw on any screen.
+  bornBlind: {
+    name: 'Born Blind', icon: '🕳️',
+    from: 'down here, eyes were never the point',
+    desc: `Your damage rises as your Light empties, up to +${Math.round((BORN_BLIND_MAX_DMG_MUL - 1) * 100)}%. The anglerfish give you half as much Light.`,
+    when: () => true,
+    weight: 2, chapter: 'deep', kind: 'trade',
     minLevel: 10,
   },
 }
@@ -14895,6 +14909,8 @@ export const MUTATORS = {
   // mutator (15/24 against 14/24), because the clock bonus outran a drain the wall-hugging policies
   // never felt.
   thinAir:      { name: 'Thin Air',       icon: '🫧', desc: 'Your air runs out far faster. More time on the clock.', chapters: ['reef'], effects: { airDrainMul: 3, raceClockMul: 1.08 } },
+  // The Deep's own. The elite half has no mods key: stepMaws reads the id (the Blank's idiom).
+  hungryFloor:  { name: 'Hungry Floor',   icon: '🎣', desc: 'The anglerfish bite sooner, and they bite elites too.', chapters: ['deep'], effects: { mawTimeMul: 0.6 } },
 }
 // Every key mergeMutatorMods can produce, all defaulted to 1 (neutral) before mutator effects
 // multiply in. sim.js applies each of these at one specific point — see sim.js's module doc.
@@ -14923,6 +14939,7 @@ export const MUTATOR_MOD_KEYS = [
                         // same lever CHAPTERS.reef.circuit.ladder's `width` pulls, so the two just
                         // multiply and the racing line survives both
   'airDrainMul',        // stepCharge (sim.js) — the resource bar's per-second drain
+  'mawTimeMul',         // stepMaws (deep; seconds in a mouth before it bites, <1 = sooner)
 ]
 // Human label + "does a value above 1 help the player" for every MUTATOR_MOD_KEYS entry — the
 // brief/pause/summary effect chips read this (ui.js effectChipList) to word the trade and colour
@@ -14974,6 +14991,7 @@ export const MUTATOR_EFFECT_LABELS = {
   // card both use it, so the chip says what the cards say.
   trackWidthMul: ['passage width', true],
   airDrainMul: ['air drain', false],
+  mawTimeMul: ['time before the bite', true],
 }
 // Pure helper: given a list of mutator ids (run.mutators), returns the full run.mods object —
 // every key above defaulted to 1, with each selected mutator's effects multiplied in. Unknown
