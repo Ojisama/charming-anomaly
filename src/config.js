@@ -8638,6 +8638,9 @@ CHAPTERS.deep = {
   archetypeKeep: { fast: 1 - 0.3, tank: 1 - 0.2 },
   // balance_decision : a further 30% fangtooth, 20% tanks spawn as normals [2026-09-27]
   archetypeSwap: { fast: 0.3, tank: 0.2 },
+  // balance_decision : new-weapon floor 15%, first 4 starter picks skip the fade [2026-09-28]
+  //  - minRate replaces NEW_WEAPON_MIN_RATE; starterFree is picks on the starter (levels + mods)
+  newWeapon: { minRate: 0.15, starterFree: 4 },
 
   // ---- the arsenal (2026-09-09, spec 2026-09-09-deep-twilight-merge §3). Owner: "I want the
   // weapons of the twilight (light related) but the darkness of the abyss." Four light cards, no

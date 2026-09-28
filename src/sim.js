@@ -14554,6 +14554,16 @@ function arsenalInvestment(run) {
     const mods = run.weaponModPicks[id]
     for (const k in mods) n += mods[k]
   }
+  // STARTER GRACE: the first `starterFree` picks on the starter do not fade discovery — upgrading
+  // the only weapon you have been shown is not a player choosing to specialise.
+  const ch = CHAPTERS[run.chapter]
+  const free = ch.newWeapon?.starterFree ?? 0
+  if (free > 0 && typeof ch.starter === 'string') {
+    const w = run.weapons.find((x) => x.id === ch.starter)
+    let own = w ? w.level - 1 : 0
+    for (const k in run.weaponModPicks[ch.starter] ?? {}) own += run.weaponModPicks[ch.starter][k]
+    n -= Math.min(free, own)
+  }
   return n
 }
 
@@ -15441,7 +15451,7 @@ function buildLevelUpChoices(run) {
   // pity counter was already reset by the roll, i.e. spend the tier and hand back nothing.
   // The floor is a discovery guarantee for a screen that has no new weapon on it; a screen with an
   // anomaly on it is not a screen that needs rescuing.
-  if (!hasNewCard && !placedAnomaly && unowned.length > 0 && run.weapons.length < MAX_WEAPONS && Math.random() < NEW_WEAPON_MIN_RATE) {
+  if (!hasNewCard && !placedAnomaly && unowned.length > 0 && run.weapons.length < MAX_WEAPONS && Math.random() < (CHAPTERS[run.chapter].newWeapon?.minRate ?? NEW_WEAPON_MIN_RATE)) {
     const id = unowned[Math.floor(Math.random() * unowned.length)]
     const cfg = WEAPONS[id]
     // Swap into the LAST slot — every rolled card is visible now (no purchasable extras), so
