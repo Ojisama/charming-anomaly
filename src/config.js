@@ -4876,7 +4876,8 @@ export const SUNSPEAR_SPREAD = 48
 export const FOXFIRE_GLOOM = 1.6
 // px/s a wandering foxfire drifts (CHAPTERS[id].weaponTune.foxfire.wander). Its heading is a smooth
 // function of its own clock, not Math.random: the seeded suite shares one stream.
-export const FOXFIRE_WANDER_SPEED = 45
+// balance_decision : Deep foxfire drifts 40% faster [2026-09-28]
+export const FOXFIRE_WANDER_SPEED = 45 * 1.4
 // RENDER-ONLY: the firefly swarm a foxfire is drawn as. `flies` and `r` (px, the swarm's reach at
 // L1 in full light) are the L1 values; each weapon level past 1 adds `perLevel` to both (owner,
 // 2026-09-27: "+10% per level"). stepFoxfireWeapon bakes the count and reach onto the bloom.
@@ -8632,7 +8633,8 @@ CHAPTERS.deep = {
     // balance_decision : Sunspear cards +30% dmg, +25% radius, +25% rate [2026-09-28]
     sunspear: { rate: 1.15 * 1.15, dmg: 1.2 * 1.15, mods: 1, modMul: { broadBeam: 0.25 / 0.28 } },
     // balance_decision : every Foxfire % card +30% [2026-09-28]
-    foxfire: { rate: 1.15, dmg: 1.2 * 1.2, tick: 1.2, dur: 1.3, wander: true, mods: 1,
+    // balance_decision : Deep foxfire base radius +25% [2026-09-28]
+    foxfire: { rate: 1.15, dmg: 1.2 * 1.2, tick: 1.2, dur: 1.3, radius: 1.25, wander: true, mods: 1,
       modMul: { gloaming: 0.30 / 0.28, longBurn: 0.30 / 0.25, quickKindle: 0.30 / 0.25, catchingFlame: 0.30 / 0.25 } },
     // balance_decision : lance dmg -20%, paid for the bigger Held Lance [2026-09-28]
     // balance_decision : Sunlance cards +30% dmg, +25% reach, +40% hold, +25% rate [2026-09-28]
