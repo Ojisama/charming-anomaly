@@ -32623,9 +32623,11 @@ function testTheDeep() {
       }
       return most
     }
-    const held = WEAPON_MODS.sunlance.heldLance.base, quick = WEAPON_MODS.sunlance.quickLance.base
-    const overlap = atOnce({ heldLance: 2 * held, quickLance: 3 * quick })
-    assert.strictEqual(overlap, 2, `run DP.w: two Held Lance and three Quick Lance picks at L5 hold ${overlap} lance(s) at once, want two overlapping`)
+    // Deep common cards, owner 2026-09-28: Held Lance +40%, Quick Lance +25%.
+    const held = 0.40, quick = 0.25
+    const overlap = atOnce({ heldLance: 3 * held, quickLance: 3 * quick })
+    assert.strictEqual(overlap, 2, `run DP.w: three Held Lance and three Quick Lance picks at L5 hold ${overlap} lance(s) at once, want two overlapping`)
+    assert.strictEqual(atOnce({ heldLance: 2 * held, quickLance: 3 * quick }), 1, 'run DP.w: two Held and three Quick already overlap, so the fixture cannot see the hold length')
 
     const bear = (b) => ((b.angle % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)
     const two = lancesOf({ twinLance: 1 }, [[150, 0], [0, 200]]).map(bear).sort((a, b) => a - b)
@@ -32655,7 +32657,7 @@ function testTheDeep() {
       assert.ok(a >= 4 && Math.abs(b / a - 1.5) < 0.12, `run DP.w: ${mod} +50% cast ${a} -> ${b} in 60s`)
       rates.push(`${mod} ${a}->${b}`)
     }
-    console.log(`PASS run DP.w (lance + spear mods): Far Reach x1.5 length and width, 2 Held + 3 Quick lances overlap, Twin Lance on two bodies and fanned on one, ${rates.join(', ')} casts in 60s`)
+    console.log(`PASS run DP.w (lance + spear mods): Far Reach x1.5 length and width, 3 Held + 3 Quick lances overlap, 2 + 3 do not, Twin Lance on two bodies and fanned on one, ${rates.join(', ')} casts in 60s`)
   }
 
   // (x) THE EPIC+ SUNSPEAR AND FOXFIRE CARDS. Owner, 2026-09-27, picked Sunburst ("where a column
@@ -32780,7 +32782,7 @@ function testTheDeep() {
       return { bank: run.weaponMods[weapon]?.[mod] ?? 0, card: card.bonus }
     }
     const out = []
-    for (const [weapon, mod, want] of [['sunspear', 'highNoon', 1], ['sunspear', 'broadBeam', 0.25 / 0.28], ['sunspear', 'quickSun', 1], ['foxfire', 'emberfeed', 1.2], ['foxfire', 'gloaming', 1.2 * 0.6], ['sunlance', 'whetted', 1.2], ['glint', 'bright', 0.8], ['glint', 'quickGlint', 0.8], ['sunspear', 'secondSun', 1], ['glint', 'keenLight', 1]]) {
+    for (const [weapon, mod, want] of [['sunspear', 'highNoon', 1], ['sunspear', 'broadBeam', 0.25 / 0.28], ['sunspear', 'quickSun', 1], ['foxfire', 'emberfeed', 1.2], ['foxfire', 'gloaming', 1.2 * 0.6], ['sunlance', 'whetted', 1], ['sunlance', 'heldLance', 0.8], ['sunlance', 'quickLance', 1], ['glint', 'bright', 0.8], ['glint', 'quickGlint', 0.8], ['sunspear', 'secondSun', 1], ['glint', 'keenLight', 1]]) {
       const deep = banked('deep', weapon, mod), body = banked('body', weapon, mod)
       assert.ok(body.bank > 0, `run DP.s: '${weapon}.${mod}' banked nothing — the fixture is not taking the card`)
       assert.ok(Math.abs(deep.bank / body.bank - want) < 1e-9,
