@@ -32610,6 +32610,22 @@ function testTheDeep() {
     assert.ok(Math.abs(reached.length / plain.length - 1.5) < 0.01, `run DP.w: Far Reach +50% made the lance x${(reached.length / plain.length).toFixed(2)} long`)
     assert.ok(Math.abs(reached.width / plain.width - 1.5) < 0.01, `run DP.w: Far Reach +50% made the lance x${(reached.width / plain.width).toFixed(2)} wide`)
     assert.ok(!('broadEdge' in WEAPON_MODS.sunlance), 'run DP.w: Broad Edge is still its own card')
+    // Owner, 2026-09-28: Held Lance +50% a pick (was +25%) so held lances overlap, and "reduce dmg by 20%".
+    assert.ok(Math.abs(plain.dmg - WEAPONS.sunlance.levels[0].dmg * 1.2 * 1.15 * 0.8) < 1e-9, `run DP.w: a Deep lance ticks ${plain.dmg}, want the x1.2 x1.15 tune less 20%`)
+    const atOnce = (mods) => {
+      const run = rig('sunlance', 5); run.weaponMods.sunlance = mods
+      const t = fish(run, run.player.x + 150, run.player.y)
+      let most = 0
+      for (let i = 0; i < 60 * 20; i++) {
+        run.charge = 100; t.x = run.player.x + 150; t.y = run.player.y
+        stepSim(run, { x: 0, y: 0 }, dt); run.events.length = 0
+        most = Math.max(most, run.beams.filter((b) => b.look === 'sunlance').length)
+      }
+      return most
+    }
+    const held = WEAPON_MODS.sunlance.heldLance.base, quick = WEAPON_MODS.sunlance.quickLance.base
+    const overlap = atOnce({ heldLance: 2 * held, quickLance: 3 * quick })
+    assert.strictEqual(overlap, 2, `run DP.w: two Held Lance and three Quick Lance picks at L5 hold ${overlap} lance(s) at once, want two overlapping`)
 
     const bear = (b) => ((b.angle % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)
     const two = lancesOf({ twinLance: 1 }, [[150, 0], [0, 200]]).map(bear).sort((a, b) => a - b)
@@ -32639,7 +32655,7 @@ function testTheDeep() {
       assert.ok(a >= 4 && Math.abs(b / a - 1.5) < 0.12, `run DP.w: ${mod} +50% cast ${a} -> ${b} in 60s`)
       rates.push(`${mod} ${a}->${b}`)
     }
-    console.log(`PASS run DP.w (lance + spear mods): Far Reach x1.5 length and width, Twin Lance on two bodies and fanned on one, ${rates.join(', ')} casts in 60s`)
+    console.log(`PASS run DP.w (lance + spear mods): Far Reach x1.5 length and width, 2 Held + 3 Quick lances overlap, Twin Lance on two bodies and fanned on one, ${rates.join(', ')} casts in 60s`)
   }
 
   // (x) THE EPIC+ SUNSPEAR AND FOXFIRE CARDS. Owner, 2026-09-27, picked Sunburst ("where a column
