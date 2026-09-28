@@ -3077,7 +3077,8 @@ export function initUI(hooks) {
   // the right. Every MUTATORS entry mixes costs and gains (see the table), so the split is a fact
   // about the data, not decoration — and it is the judgement the reroll button is asking for.
   // The Blank's ladder modifiers carry no effects at all; they fall back to their sentence, which
-  // is the only thing that explains them.
+  // is the only thing that explains them. So does a trade whose other half is not a number
+  // (Hungry Floor's gain is "eats elites too"), else the row is a cost beside an empty ⇄.
   // The reroll price lives once, in the ANOMALIES rule — repeating it on every row said the same
   // number three times on one screen.
   const ICO_REROLL = '<svg class="rr-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 9.6A7.6 7.6 0 0 0 5.6 8.5"/><path d="M5 14.4A7.6 7.6 0 0 0 18.4 15.5"/><path d="M19.6 4.6 19 9.9l-5.2-.7"/><path d="m4.4 19.4.6-5.3 5.2.7"/></svg>'
@@ -3105,7 +3106,7 @@ export function initUI(hooks) {
         <span class="brief-anom-icon">${m?.icon ?? '❔'}</span>
         <span class="brief-anom-body">
           <span class="brief-anom-name">${t(m?.name ?? id)}</span>
-          ${chips.length
+          ${cost && gain
             ? `<span class="brief-trade"><span class="brief-tg">${cost}</span><span class="brief-tg"><i class="brief-vs">⇄</i>${gain}</span></span>`
             : `<span class="brief-anom-desc">${t(m?.desc ?? '')}</span>`}
         </span>
