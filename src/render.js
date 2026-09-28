@@ -11437,7 +11437,10 @@ const spurG = new Graphics()
   const textLayer = new Container()
   entitiesLayer.addChild(
     mownG, sandLayer, netWakeG, wellG, bindG, poolLayer, slickG, trailLayer, webLayer, gateFloorG, spurG, coralLayer, gateG, burstWakeG, obstacleLayer, trapLayer,
-    gemLayer, coinLayer, holeLayer, eddyLayer, shaftLayer, novaLayer, mineLayer,
+    // The refill circles (The Deep's anglerfish, sun shafts, pools) sit UNDER the drops: a maw is
+    // a 400px body, and above gemLayer it hid every gem and coin that fell inside it.
+    shaftLayer,
+    gemLayer, coinLayer, holeLayer, eddyLayer, novaLayer, mineLayer,
     krakenDeepG, scarLayer, bombG, shellLayer, skyLayer, voltLayer, stripG, laneG, hazardG, jetLayer, krakenCoilBandLayer, teleG, krakenImpactG, strafePoolLayer, rampG, pacerG,
     rockLayer,
     orcaShadowSp, orcaG,
