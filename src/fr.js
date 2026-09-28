@@ -1694,7 +1694,6 @@ const CONFIG = {
   'KRAKEN SLAIN': 'KRAKEN TERRASSÉ',
   // The Kraken, 2026-09-27: Glint's no-cost card, Ink Heart, the named ladder. Owner-picked: Glint,
   // the Ink Heart name/line/desc wording, L'Étau / L'Étreinte and their two descs. Frenzy's desc is a DRAFT.
-  'Flings a spark of light at what is nearest. Here, it costs no Light.': 'Lance un éclat lumineux qui ne coûte pas de Lumière ici.',
   'Ink Heart': 'Cœur d\'Encre',
   'the ink finds its way in': 'l\'encre sait où passer',
   'Your parries no longer bite the Kraken\'s head, but fire all your attacks into it at once, wherever it is.': 'Les parades ne mordent plus la tête, mais y lancent toutes tes attaques en même temps, où qu\'elle soit.',
