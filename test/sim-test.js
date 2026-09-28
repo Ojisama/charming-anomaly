@@ -24278,29 +24278,34 @@ function testFoxfire() {
 function testGlint() {
   const L = 1
   const lvl = WEAPONS.glint.levels[L - 1]
-  // THE DEEP NO LONGER CHARGES FOR A CAST (owner, 2026-09-27: "the level should not consume light,
-  // on the glint") — CHAPTERS.deep.resource.noSpend, the Kraken's switch. Asserted as the effect
-  // first; the spend machinery below is then measured with the switch off, since spendCharge is
-  // still the one funnel a spending chapter would use.
-  const res = CHAPTERS.deep.resource
+  // THE DEEP CHARGES FOR EVERY CAST, AND A FASTER GLINT CHARGES FASTER (owner, 2026-09-28: "one
+  // 'burst' should be 1 light minus the resource consumption reduction you might have. Currently,
+  // increasing the firerate of glint doesn't increase light drain"). It was free here from v7.376 to
+  // v7.390. Light lost over 10s against the same window with nothing equipped, at x1 and x2 cadence.
   {
-    const drop = (noSpend) => {
-      if (!noSpend) delete res.noSpend
-      try {
-        const run = (Math.random = mulberry32(20260927), deepRun('glint', L))
-        run.chargeMax = 100; run.charge = 50
-        run.enemies.push(makeStatusEnemy(run, { x: run.player.x + 60, y: run.player.y, hp: 1e6, speed: 0 }))
-        for (let i = 0; i < Math.round((lvl.interval + 0.2) * 60); i++) { stepSim(run, { x: 0, y: 0 }, 1 / 60); run.events.length = 0 }
-        return 50 - run.charge
-      } finally { res.noSpend = true }
+    const lost = (weapons, quick) => {
+      const run = (Math.random = mulberry32(20260928), deepRun('glint', L))
+      run.weapons = weapons; run.weaponMods.glint = { quickGlint: quick }
+      run.chargeMax = 100
+      const e = makeStatusEnemy(run, { x: run.player.x + 60, y: run.player.y, hp: 1e9, speed: 0 })
+      run.enemies.push(e)
+      let n = 0
+      for (let i = 0; i < 600; i++) {
+        run.charge = 50; e.hp = 1e9
+        stepSim(run, { x: 0, y: 0 }, 1 / 60); run.events.length = 0
+        n += 50 - run.charge
+      }
+      return n
     }
-    const free = drop(true), paid = drop(false)
-    assert.ok(paid - free > GLINT_LIGHT_COST * 0.9,
-      `run SH.d: in The Deep a Glint cast still costs Light (${free.toFixed(2)} drained against ${paid.toFixed(2)} with spending on) — the chapter's noSpend is not reaching the cast`)
-    assert.strictEqual(weaponDesc('glint', 'deep'), WEAPONS.glint.descNoSpend,
-      "run SH.d: The Deep's Glint card still says a cast costs Light")
+    const base = lost([], 0)
+    const x1 = lost([{ id: 'glint', level: L }], 0) - base
+    const x2 = lost([{ id: 'glint', level: L }], 1) - base
+    const want = (10 / lvl.interval) * GLINT_LIGHT_COST
+    assert.ok(Math.abs(x1 - want) <= 1.5 * GLINT_LIGHT_COST, `run SH.d: a Deep Glint spent ${x1.toFixed(2)} Light in 10s, want ~${want.toFixed(1)} (${GLINT_LIGHT_COST} per cast every ${lvl.interval}s)`)
+    assert.ok(Math.abs(x2 / x1 - 2) < 0.2, `run SH.d: Quick Glint +100% spent x${(x2 / x1).toFixed(2)} the Light — a faster Glint must drain faster`)
+    assert.strictEqual(weaponDesc('glint', 'deep'), WEAPONS.glint.desc, "run SH.d: The Deep's Glint card does not state its Light cost")
+    var deepSpend = `${x1.toFixed(1)} -> ${x2.toFixed(1)} Light/10s at x1 -> x2 cadence`
   }
-  delete res.noSpend
   assert.strictEqual(WEAPONS.glint.rarity, 'normal', 'Glint is the starter, and a starter is normal rarity')
   const mk = (charge) => {
     Math.random = mulberry32(20260909)
@@ -24406,8 +24411,7 @@ function testGlint() {
     assert.ok(GLINT_GLOW.lit > 0.05 && GLINT_GLOW.frac > 0.5,
       `GLINT_GLOW is tuned to nothing (lit ${GLINT_GLOW.lit}, frac ${GLINT_GLOW.frac}) — the punch runs and lights nothing, which looks identical to no punch at all`)
   }
-  res.noSpend = true
-  console.log(`PASS run SH.d (glint): free in The Deep and its card says so; with spending on, ${GLINT_LIGHT_COST} Light per cast at a ${lvl.interval}s cadence, halved by a x0.5 Slow Burn, nothing spent with nothing in reach, fires at an empty bar with the bar held at 0, and the spark punches the dark (lit ${GLINT_GLOW.lit}, ${GLINT_GLOW.frac}x r)`)
+  console.log(`PASS run SH.d (glint): The Deep charges ${deepSpend}; ${GLINT_LIGHT_COST} Light per cast at a ${lvl.interval}s cadence, halved by a x0.5 Slow Burn, nothing spent with nothing in reach, fires at an empty bar with the bar held at 0, and the spark punches the dark (lit ${GLINT_GLOW.lit}, ${GLINT_GLOW.frac}x r)`)
 }
 
 /** The bar's ceiling for a fresh Deep run, read off a run rather than off config — Deep Lungs can
@@ -35533,7 +35537,7 @@ function runKraken() {
 
   // (g5) THE KRAKEN HAS NO LIGHT AND NO GLINT, AND STARTS ON THE SUNLANCE (owner, 2026-09-27). The
   // run is asked, not the table: a run that still carried a bar would still be dark and still drain.
-  // The Deep keeps the Glint, and its bar is unspendable, so its card drops the cost.
+  // The Deep keeps the Glint and charges for it, so its card states the cost.
   {
     const dealt = (chapter) => {
       const run = createRun({ ...makeMeta(), krakenParried: true }, { chapter })
@@ -35551,9 +35555,7 @@ function runKraken() {
       assert.strictEqual(run.chargeMax, 0, `the Kraken still has a ${run.chargeMax} Light bar`)
       for (let i = 0; i < 400; i++) assert.ok(!buildLevelUpChoices(run).some((x) => x.id === 'glint'), 'a Glint card was dealt in the Kraken')
     }
-    // The Deep's bar is unspendable too since 2026-09-27 (owner: "the level should not consume
-    // light, on the glint"), so its card must say the same.
-    assert.strictEqual(dealt('deep'), WEAPONS.glint.descNoSpend, 'a Glint card dealt in The Deep still claims a Light cost')
+    assert.strictEqual(dealt('deep'), WEAPONS.glint.desc, 'a Glint card dealt in The Deep does not state its Light cost')
   }
 
   // (h) A PRESS THAT FINDS NOTHING SAYS SO. It used to be a bare return: the cooldown was spent and

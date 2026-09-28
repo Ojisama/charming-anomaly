@@ -2402,7 +2402,6 @@ export const WEAPONS = {
     name: 'Glint',
     desc: `Flings a spark of light at what is nearest. Each cast costs ${GLINT_LIGHT_COST} Light.`,
     // The card in a chapter whose Light cannot be spent (The Deep), where the cost above is false.
-    descNoSpend: 'Flings a spark of light at what is nearest. Here, it costs no Light.',
     icon: '✨', rarity: 'normal',
     // balance_decision : cadence cut ~40%, damage carries the ladder instead [2026-09-09]
     //  - THE INTERVAL IS ALMOST FLAT AND MUST STAY SO: cadence is what this card spends the bar
@@ -8530,8 +8529,6 @@ CHAPTERS.deep = {
   //    barely moved (10.0->5.4, 12.0->11.4); full re-measured table: commit body
   resource: {
     name: 'Light', drain: 2.0, refill: 16, max: 100,
-    // balance_decision : Glint costs no Light here (the chapter's only spender) [2026-09-27]
-    noSpend: true,
     dark: { from: 0.5, speedFloor: 1, dim: 1.0, radiusFull: 0.50, radiusEmpty: 0.06 },
   },
   scent: true,        // stepRepulse's third per-chapter branch, beside `burst` and `breach`
