@@ -32780,7 +32780,7 @@ function testTheDeep() {
       return { bank: run.weaponMods[weapon]?.[mod] ?? 0, card: card.bonus }
     }
     const out = []
-    for (const [weapon, mod, want] of [['sunspear', 'highNoon', 1.2], ['foxfire', 'emberfeed', 1.2], ['foxfire', 'gloaming', 1.2 * 0.6], ['sunlance', 'whetted', 1.2], ['glint', 'bright', 0.8], ['glint', 'quickGlint', 0.8], ['sunspear', 'secondSun', 1], ['glint', 'keenLight', 1]]) {
+    for (const [weapon, mod, want] of [['sunspear', 'highNoon', 1.2 * 0.9], ['sunspear', 'quickSun', 1.2 * 0.9], ['foxfire', 'emberfeed', 1.2], ['foxfire', 'gloaming', 1.2 * 0.6], ['sunlance', 'whetted', 1.2], ['glint', 'bright', 0.8], ['glint', 'quickGlint', 0.8], ['sunspear', 'secondSun', 1], ['glint', 'keenLight', 1]]) {
       const deep = banked('deep', weapon, mod), body = banked('body', weapon, mod)
       assert.ok(body.bank > 0, `run DP.s: '${weapon}.${mod}' banked nothing — the fixture is not taking the card`)
       assert.ok(Math.abs(deep.bank / body.bank - want) < 1e-9,
