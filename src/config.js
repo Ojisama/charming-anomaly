@@ -8623,16 +8623,17 @@ CHAPTERS.deep = {
   // balance_decision : non-starters +15% rate, +20% dmg; Sunspear/Sunlance x2 vs tanks [2026-09-27]
   //  - Deep-only (chapterTune, sim.js): these weapons are plain in every other chapter's pool
   //  - foxfire: lasts 30% longer and wanders (FOXFIRE_WANDER_SPEED)
-  // balance_decision : % mod cards x1.2 on non-starters, x0.8 on Glint [2026-09-27]
+  // balance_decision : % mod cards x0.8 on Glint; non-starters set per card below [2026-09-28]
   //  - `mods` scales pct cards only (makeWeaponModCard); tier/flat/switch cards are untouched
-  // balance_decision : Gloaming card -40% on top of the x1.2 [2026-09-27]
   //  - `modMul` is per card and multiplies with `mods`
   weaponTune: {
     // balance_decision : column + lance rate/dmg x1.15, foxfire dmg/tick rate x1.2 [2026-09-27]
     //  - `tick` divides BLOOM_TICK for the foxfire only
     // balance_decision : Sunspear cards +30% dmg, +25% radius, +25% rate [2026-09-28]
     sunspear: { rate: 1.15 * 1.15, dmg: 1.2 * 1.15, tank: 2, mods: 1, modMul: { broadBeam: 0.25 / 0.28 } },
-    foxfire: { rate: 1.15, dmg: 1.2 * 1.2, tick: 1.2, dur: 1.3, wander: true, mods: 1.2, modMul: { gloaming: 0.6 } },
+    // balance_decision : every Foxfire % card +30% [2026-09-28]
+    foxfire: { rate: 1.15, dmg: 1.2 * 1.2, tick: 1.2, dur: 1.3, wander: true, mods: 1,
+      modMul: { gloaming: 0.30 / 0.28, longBurn: 0.30 / 0.25, quickKindle: 0.30 / 0.25, catchingFlame: 0.30 / 0.25 } },
     // balance_decision : lance dmg -20%, paid for the bigger Held Lance [2026-09-28]
     // balance_decision : Sunlance cards +30% dmg, +25% reach, +40% hold, +25% rate [2026-09-28]
     sunlance: { rate: 1.15 * 1.15, dmg: 1.2 * 1.15 * 0.8, tank: 2, mods: 1, modMul: { heldLance: 0.8 } },
