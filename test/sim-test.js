@@ -37,7 +37,7 @@ import {
   MAX_PASSIVE_LEVEL, MAX_ELEMENT_PICKS, passiveTotal,
   OBSTACLE_STREAM_RADIUS, OBSTACLE_DROP_RADIUS,
   FRENZY_HP_FRAC, PACER_RADIUS, ELITE, GILDED_COIN_MUL, NOVA_LIFE,
-  SUNSPEAR_FALL, SUNSPEAR_SPREAD, FOXFIRE_GLOOM, FOXFIRE_WANDER_SPEED, FOXFIRE_SWARM, weaponDesc, FOXFIRE_GLOW, SUNLANCE_REACH_MIN, GLINT_LIGHT_COST, GLINT_GLOW,
+  SUNSPEAR_FALL, SUNSPEAR_SPREAD, FOXFIRE_GLOOM, FOXFIRE_WANDER_SPEED, FOXFIRE_SWARM, FOXFIRE_CATCH_FRAC, weaponDesc, FOXFIRE_GLOW, SUNLANCE_REACH_MIN, GLINT_LIGHT_COST, GLINT_GLOW,
   WEAPONS, HOLE_SINGULARITY_FRAC, DOWNWASH_PLUNGE_N, DOWNWASH_PLUNGE_FRAC, DOWNWASH_PLUNGE_ARM,
   ORBIT_NOVA_RADIUS, WISP_NOVA_RADIUS, CRUNCH_DMG_MUL, UNDERTOW_VAC_RADIUS_PER_STACK,
   WEAPON_MODS, WEAPON_MOD_TIER_BONUS, MAX_WEAPON_MOD_PICKS, maxModsPerWeaponPerPool, PIERCE_MAX_PICKS,
@@ -32698,7 +32698,35 @@ function testTheDeep() {
     }
     assert.ok(lit && lit.length === 3 && new Set(lit).size === 3, `run DP.x: Twin Fox +2 lit ${lit} — want three fires on three different bodies`)
     assert.deepStrictEqual(Object.keys(WEAPON_MODS.foxfire.twinFox.values), ['epic', 'legendary', 'mythic'], 'run DP.x: Twin Fox rolls below epic')
-    console.log(`PASS run DP.x (Sunburst + Twin Fox): outsider took ${plain.lost} -> ${burst.lost.toFixed(0)}, 6 sparks at even gaps; Twin Fox +2 lit ${lit.join(' / ')}`)
+
+    // CATCHING FLAME (owner, 2026-09-28: "when something dies inside a foxfire, a small foxfire
+    // lights where it died", as a chance per kill). 40 bodies die inside one hand-lit fire.
+    const caught = (chance) => {
+      const run = rig('foxfire', 1); run.charge = 100
+      run.weaponTimers.foxfire = 1e9
+      run.weaponMods.foxfire = { catchingFlame: chance }
+      const cx = run.player.x + 300, cy = run.player.y
+      run.blooms.push({ x: cx, y: cy, r: 0, maxR: 90, t: 0, dur: 5, dmgPerTick: 1e6, tick: 0.1,
+        seedX: cx, seedY: cy, wander: false, flies: 10, swarmR: 22, look: 'foxfire', slow: 0 })
+      const spot = (i) => [cx + 40 * Math.cos(i), cy + 40 * Math.sin(i)]
+      const bodies = Array.from({ length: 40 }, (_, i) => Object.assign(fish(run, ...spot(i)), { type: 'drone' }))
+      for (let i = 0; i < 240 && !bodies.every((b) => b._dead); i++) {
+        bodies.forEach((b, k) => { if (!b._dead) [b.x, b.y] = spot(k) })   // held: the crowd shoves itself apart
+        run.charge = 100; stepSim(run, { x: 0, y: 0 }, dt); run.events.length = 0
+      }
+      assert.ok(bodies.every((b) => b._dead), 'run DP.x: the fixture fire did not kill its 40 bodies')
+      return run.blooms.slice(1).filter((b) => b.look === 'foxfire')
+    }
+    const none = caught(0), all = caught(1), half = caught(0.5), over = caught(1.5)
+    assert.strictEqual(none.length, 0, `run DP.x: without Catching Flame 40 kills lit ${none.length} fires`)
+    assert.strictEqual(all.length, 40, `run DP.x: Catching Flame at 100% lit ${all.length} fires off 40 kills`)
+    assert.ok(all.every((b) => Math.abs(b.maxR / 90 - FOXFIRE_CATCH_FRAC) < 1e-9 && b.dmgPerTick === 1e6), 'run DP.x: a caught fire is not the parent at FOXFIRE_CATCH_FRAC size')
+    assert.strictEqual(new Set(all.map((b) => Math.round(b.x) + ',' + Math.round(b.y))).size, 40, 'run DP.x: caught fires share a spot — they must light where each body fell')
+    assert.ok(half.length >= 10 && half.length <= 30, `run DP.x: Catching Flame at 50% lit ${half.length} of 40`)
+    // Owner, 2026-09-28: "% can be over 100% which means several can spawn".
+    assert.ok(over.length >= 50 && over.length <= 70, `run DP.x: Catching Flame at 150% lit ${over.length} fires off 40 kills, want ~60`)
+    assert.ok(new Set(over.map((b) => Math.round(b.x) + ',' + Math.round(b.y))).size > over.length * 0.9, 'run DP.x: the fires from one kill are stacked on one spot')
+    console.log(`PASS run DP.x (Sunburst + Twin Fox): outsider took ${plain.lost} -> ${burst.lost.toFixed(0)}, 6 sparks at even gaps; Twin Fox +2 lit ${lit.join(' / ')}; Catching Flame lit 0 / ${half.length} / ${all.length} / ${over.length} off 40 kills at 0 / 50 / 100 / 150%`)
   }
 
   // (y) NEW WEAPONS KEEP SHOWING UP. Owner, 2026-09-28: "in the deep, i think the minimum should be

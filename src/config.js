@@ -4018,6 +4018,8 @@ export const WEAPON_MODS = {
     // balance_decision : Twin Fox epic+ only, +1/+2/+3, owner ruling [2026-09-27]
     twinFox:    { name: 'Twin Fox',    desc: 'extra foxfire(s) per cast', icon: '🔷', kind: 'tier',
                   values: { epic: 1, legendary: 2, mythic: 3 } },
+    // balance_decision : Catching Flame, chance per kill, child fire 60% size [2026-09-28]
+    catchingFlame: { name: 'Catching Flame', desc: 'chance a kill in a foxfire lights a new one', icon: '🔥', base: 0.25, kind: 'pct' },
   },
   sunlance: {
     whetted:   { name: 'Whetted',   desc: 'lance damage per tick', icon: '💥', base: 0.30, kind: 'pct' },
@@ -4879,6 +4881,8 @@ export const FOXFIRE_WANDER_SPEED = 45
 // L1 in full light) are the L1 values; each weapon level past 1 adds `perLevel` to both (owner,
 // 2026-09-27: "+10% per level"). stepFoxfireWeapon bakes the count and reach onto the bloom.
 export const FOXFIRE_SWARM = { flies: 10, r: 22, perLevel: 0.1 }
+// Catching Flame: a fire lit on a kill is this share of the size of the one that made the kill.
+export const FOXFIRE_CATCH_FRAC = 0.6
 // RENDER-ONLY, and it is what makes the card true. A foxfire is drawn inside `world`; the dark is a
 // MULTIPLY scrim on the stage above `world` at dim 1.0 — so a cloud cast outside the player's lamp
 // is not dim, it is ABSENT, exactly as The Deep's anglerfish was before LURE_GLOW existed. Shot on

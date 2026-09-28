@@ -1270,6 +1270,8 @@ const CONFIG = {
   'Sunburst': 'Éclat Solaire',
   'spark(s) burst from each column': 'étincelle(s) jaillie(s) de chaque colonne',
   'Twin Fox': 'Feu Follet Jumeau',
+  'Catching Flame': 'Flamme Contagieuse',
+  'chance a kill in a foxfire lights a new one': 'chance qu\'une victime dans un feu follet en allume un nouveau',
   'extra foxfire(s) per cast': 'feu(x) follet(s) supplémentaire(s) par lancer',
   'Held Lance': 'Lance Maintenue',
   'how long the lance is held': 'durée de maintien de la lance',
