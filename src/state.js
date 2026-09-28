@@ -2070,8 +2070,7 @@ function generateWells(sig) {
  *     object rig, whose parabola and shadow would make a shaft of light into a thrown rock) and
  *     redrawHazards (the amber Debris Toss landing ring, which double-telegraphs it). drawColumns
  *     owns the look. The landing branch in stepLobs sits ABOVE the shrapnel block for the same
- *     reason the net's does. `tankMul` (CHAPTERS[id].weaponTune.sunspear.tank, 1 elsewhere)
- *     multiplies the landing's damage on an e.type === 'tank' body.
+ *     reason the net's does.
  *   - Foxfire: a run.blooms entry carrying `look: 'foxfire'` and `slow: 0`. `look` keeps the Spore
  *     Bloom's own mods off it — stepBlooms reads sporeburst/tideCarried ONCE for the whole list, so
  *     without the gate a build holding both would spore-burst and tide-drift a foxfire — and drives
@@ -2086,7 +2085,6 @@ function generateWells(sig) {
  *     which is why `swept` alone could no longer choose the palette — an unswept beam fell into the
  *     Neon Beam's crimson. It takes the third blade bake (T.beamSun). Its `length` is the reach the
  *     bar bought at cast (SUNLANCE_REACH_MIN at empty, full at full) and is never re-read.
- *     `tankMul` (CHAPTERS[id].weaponTune.sunlance.tank, 1 elsewhere) multiplies its hits on a tank.
  *   {type:'sunspear', x, y, count}  a cast; x,y is the PLAYER (the columns are elsewhere), `count`
  *                                   how many columns it called. Sfx only — the columns draw
  *                                   themselves from run.lobs every frame.

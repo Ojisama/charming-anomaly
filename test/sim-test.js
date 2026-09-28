@@ -32439,7 +32439,7 @@ function testTheDeep() {
       try { return fn() } finally { CHAPTERS.deep.weaponTune = tune }
     }
     // Damage PER CAST to ONE body over 12s (per cast, so the 1.15 cadence cannot leak into it).
-    // `tank` swaps its archetype, which is all the x2 reads.
+    // `tank` swaps its archetype: owner 2026-09-28 removed the x2 vs tanks, so it must not matter.
     const dealt = (id, tank) => {
       const run = rig(id, 1); run.charge = 100
       const t = fish(run, run.player.x + 150, run.player.y)
@@ -32457,21 +32457,18 @@ function testTheDeep() {
     }
     const out = []
     for (const id of ['sunspear', 'sunlance']) {
-      const [plainN, tunedN, plainT, tunedT] = [
+      const [plainN, tunedN, tunedT] = [
         withTune(false, () => dealt(id, false)), withTune(true, () => dealt(id, false)),
-        withTune(false, () => dealt(id, true)), withTune(true, () => dealt(id, true)),
+        withTune(true, () => dealt(id, true)),
       ]
       assert.ok(plainN > 0, `run DP.q: ${id} dealt nothing — the fixture is not measuring it`)
       const perCast = tunedN / plainN
       assert.ok(Math.abs(perCast - tune[id].dmg) < 0.12,
         `run DP.q: ${id} deals x${perCast.toFixed(2)} per cast in The Deep — the tune says x${tune[id].dmg}`)
-      assert.ok(Math.abs(plainT / plainN - 1) < 0.05, `run DP.q: WITHOUT the tune ${id} hit a tank for ${plainT} against ${plainN} on a normal body — the tank bonus leaks out of The Deep`)
       const tankX = tunedT / tunedN
-      assert.ok(Math.abs(tankX - tune[id].tank) < 0.05,
-        `run DP.q: in The Deep ${id} hits a tank x${tankX.toFixed(2)} as hard as a normal body — the tune says x${tune[id].tank}`)
+      assert.ok(Math.abs(tankX - 1) < 0.05, `run DP.q: in The Deep ${id} hits a tank x${tankX.toFixed(2)} as hard as a normal body, want x1`)
       out.push(`${id} x${perCast.toFixed(2)}/cast, x${tankX.toFixed(2)} vs tanks`)
     }
-    assert.ok(!tune.foxfire.tank, 'run DP.q: Foxfire carries a tank bonus — the owner named only the column and the ray')
 
     // Foxfire: one cloud's life, where it was lit, and where it went.
     const cloud = (on) => withTune(on, () => {
