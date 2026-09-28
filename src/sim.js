@@ -11428,7 +11428,7 @@ function stepBeams(run, dt) {
       for (const angle of beamArmAngles(b)) {
         for (const e of run.enemies) {
           if (e._dead) continue
-          if (inBeamArm(run, b, e, angle)) applyDamage(run, e, e.type === 'tank' ? dmg * (b.tankMul ?? 1) : dmg)
+          if (inBeamArm(run, b, e, angle)) applyDamage(run, e, dmg)
         }
         // Beam Prism (v6.7.6): the arm refracts off the NEAREST body it crosses — light bends at
         // the first surface it meets, and refracting off every body in the arm would square a tree
@@ -13278,7 +13278,7 @@ function stepLobs(run, dt) {
       for (const e of run.enemies) {
         if (e._dead || isAlly(e)) continue
         const dx = e.x - lo.tx, dy = e.y - lo.ty
-        if (dx * dx + dy * dy <= rSq) { applyDamage(run, e, lo.dmg * (e.type === 'tank' ? lo.tankMul ?? 1 : 1)); struck.add(e.id) }
+        if (dx * dx + dy * dy <= rSq) { applyDamage(run, e, lo.dmg); struck.add(e.id) }
       }
       // SUNBURST: one local, the loop bound AND the angle divisor, so the sparks spread evenly. Each
       // spark starts having already "hit" what the column struck, or it would spend its one pierce
@@ -14326,7 +14326,7 @@ function stepSunspearWeapon(run, w, stats, fireRateMul, dt) {
         run.lobs.push({
           x: tx, y: ty, fromX: tx, fromY: ty, tx, ty,
           t: 0, flight: SUNSPEAR_FALL, r: stats.r, dmg: stats.dmg,
-          column: true, tankMul: chapterTune(run, 'sunspear').tank ?? 1,
+          column: true,
           sparks: run.weaponMods.sunspear?.sunburst ?? 0,
         })
       }
@@ -14399,7 +14399,7 @@ function stepSunlanceWeapon(run, w, stats, fireRateMul, dt) {
         angle: a, life: stats.duration, duration: stats.duration, dmg: stats.dmg,
         tick: stats.tick, width: stats.width, length: reach,
         rotSpeed: 0, acc: 0, focusBonus: 0, prism: null,
-        look: 'sunlance', tankMul: chapterTune(run, 'sunlance').tank ?? 1,
+        look: 'sunlance',
       })
     }
     run.events.push({ type: 'sunlance', angle: aim, reach })
