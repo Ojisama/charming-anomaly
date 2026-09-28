@@ -8634,7 +8634,8 @@ CHAPTERS.deep = {
     sunspear: { rate: 1.15 * 1.15, dmg: 1.2 * 1.15, tank: 2, mods: 1, modMul: { broadBeam: 0.25 / 0.28 } },
     foxfire: { rate: 1.15, dmg: 1.2 * 1.2, tick: 1.2, dur: 1.3, wander: true, mods: 1.2, modMul: { gloaming: 0.6 } },
     // balance_decision : lance dmg -20%, paid for the bigger Held Lance [2026-09-28]
-    sunlance: { rate: 1.15 * 1.15, dmg: 1.2 * 1.15 * 0.8, tank: 2, mods: 1.2 },
+    // balance_decision : Sunlance cards +30% dmg, +25% reach, +40% hold, +25% rate [2026-09-28]
+    sunlance: { rate: 1.15 * 1.15, dmg: 1.2 * 1.15 * 0.8, tank: 2, mods: 1, modMul: { heldLance: 0.8 } },
     glint: { mods: 0.8 },
   },
   // balance_decision : 30% fewer fangtooth, 20% fewer tanks [2026-09-26]
