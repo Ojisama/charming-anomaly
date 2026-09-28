@@ -32681,6 +32681,43 @@ function testTheDeep() {
     console.log(`PASS run DP.x (Sunburst + Twin Fox): outsider took ${plain.lost} -> ${burst.lost.toFixed(0)}, 6 sparks at even gaps; Twin Fox +2 lit ${lit.join(' / ')}`)
   }
 
+  // (y) NEW WEAPONS KEEP SHOWING UP. Owner, 2026-09-28: "in the deep, i think the minimum should be
+  // 15%. keep the fade ... or start after X starter weapon mods to allow for this 'i didnt see
+  // another weapon yet so i have to upgrade this'". Read off real level-up screens: the share that
+  // carry a New! weapon card.
+  {
+    const N = 3000
+    const newShare = (level, mods) => {
+      let hit = 0
+      for (let i = 0; i < N; i++) {
+        const run = deepRun('glint', level)
+        run.weaponModPicks.glint = { ...mods }
+        if (buildLevelUpChoices(run).some((c) => c.kind === 'weapon' && c.tag === 'New!')) hit++
+      }
+      return hit / N
+    }
+    const spec = CHAPTERS.deep.newWeapon
+    const fresh = newShare(1, {})
+    const graced = newShare(5, {})                 // 4 starter picks: all inside the grace
+    const gracedMods = newShare(1, { bright: 4 })  // the same 4 picks spent on mods instead
+    delete CHAPTERS.deep.newWeapon.starterFree
+    const faded = newShare(5, {})
+    const fadedMods = newShare(1, { bright: 4 })
+    CHAPTERS.deep.newWeapon = spec
+    // Smaller than the level case (Glint's own level card competes at L1): measured +0.041, 1 sigma of the gap ~0.012.
+    assert.ok(gracedMods - fadedMods > 0.02, `run DP.y: 4 Glint MOD picks show new weapons on ${gracedMods.toFixed(3)} with the grace, ${fadedMods.toFixed(3)} without — mods escape the grace`)
+    // 1 sigma on N=3000 is <= 0.009; without the grace, 4 picks fade each weapon to 0.85^4 = 0.52.
+    // Same build both sides (Glint at L5, so no Glint level card competes), grace on vs off.
+    assert.ok(graced - faded > 0.05, `run DP.y: 4 Glint picks show new weapons on ${graced.toFixed(3)} of screens with the grace, ${faded.toFixed(3)} without — the grace does nothing`)
+    const deep = newShare(5, { bright: 30 })          // far past the grace, fade at its floor
+    delete CHAPTERS.deep.newWeapon
+    const plainFloor = newShare(5, { bright: 30 })
+    CHAPTERS.deep.newWeapon = spec
+    assert.ok(deep >= 0.15, `run DP.y: a fully specialised Deep build sees a new weapon on ${(deep * 100).toFixed(1)}% of screens, want >= 15%`)
+    assert.ok(deep - plainFloor > 0.05, `run DP.y: the Deep floor ${deep.toFixed(3)} barely beats the default ${plainFloor.toFixed(3)}`)
+    console.log(`PASS run DP.y (new-weapon floor): fresh ${fresh.toFixed(3)}, 4 Glint levels ${graced.toFixed(3)} (${faded.toFixed(3)} without the grace), 4 Glint mods ${gracedMods.toFixed(3)} (${fadedMods.toFixed(3)}), specialised ${deep.toFixed(3)} vs default floor ${plainFloor.toFixed(3)} over ${N} screens each`)
+  }
+
   // (s) THE DEEP'S UPGRADE CARDS: a percent mod card on a non-starter banks x1.2, on Glint x0.8,
   // against the same card taken in The Body; tier and flat cards are untouched. Taken through
   // devTake, the shipped applyChoice path, and read off what was BANKED — the number every
