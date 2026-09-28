@@ -32484,7 +32484,7 @@ function testTheDeep() {
         step(run, 1); life += dt
         far = Math.max(far, Math.hypot(bl.x - x0, bl.y - y0)); fx = Math.max(fx, Math.abs(bl.x - x0)); fy = Math.max(fy, Math.abs(bl.y - y0))
       }
-      return { life, far, fx, fy, dmg: bl.dmgPerTick, seedMoved: bl.seedX !== sx || bl.seedY !== sy }
+      return { life, far, fx, fy, maxR: bl.maxR, dmg: bl.dmgPerTick, seedMoved: bl.seedX !== sx || bl.seedY !== sy }
     })
     const still = cloud(false), roam = cloud(true)
     // Foxfire ticks: damage into one body parked in a held (non-wandering) cloud for 4s, divided by
@@ -32509,6 +32509,8 @@ function testTheDeep() {
     assert.ok(Math.abs(roam.life / still.life - tune.foxfire.dur) < 0.05,
       `run DP.q: a Deep foxfire burned ${roam.life.toFixed(2)}s against ${still.life.toFixed(2)}s plain — the tune says x${tune.foxfire.dur}`)
     assert.ok(Math.abs(roam.dmg / still.dmg - tune.foxfire.dmg) < 0.01, `run DP.q: a Deep foxfire ticks x${(roam.dmg / still.dmg).toFixed(2)} — the tune says x${tune.foxfire.dmg}`)
+    assert.ok(Math.abs(roam.maxR / still.maxR - 1.25) < 0.01, `run DP.q: a Deep foxfire is x${(roam.maxR / still.maxR).toFixed(2)} as wide, want x1.25 (owner 2026-09-28)`)
+    assert.strictEqual(FOXFIRE_WANDER_SPEED, 45 * 1.4, 'run DP.q: the foxfire drift is not 40% over 45px/s (owner 2026-09-28)')
     assert.strictEqual(still.far, 0, `run DP.q: a plain foxfire moved ${still.far.toFixed(0)}px — the wander leaks out of The Deep`)
     assert.ok(roam.far > FOXFIRE_WANDER_SPEED * 0.5, `run DP.q: a Deep foxfire only strayed ${roam.far.toFixed(0)}px from where it was lit — it is not wandering`)
     assert.ok(Math.min(roam.fx, roam.fy) > 10, `run DP.q: a Deep foxfire drifted ${roam.fx.toFixed(0)}px across and ${roam.fy.toFixed(0)}px down — it only wanders along one axis`)
@@ -32688,7 +32690,8 @@ function testTheDeep() {
 
     const run = rig('foxfire', 1); run.charge = 100
     run.weaponMods.foxfire = { twinFox: 2 }
-    for (const [dx, dy] of [[150, 0], [-150, 0], [0, 150], [0, -150]]) fish(run, run.player.x + dx, run.player.y + dy).hp = 1e6
+    // Owner 2026-09-28: Foxfire lands on the NEAREST bodies. The one at (0,-250) is the farthest.
+    for (const [dx, dy] of [[100, 0], [-150, 0], [0, 200], [0, -250]]) fish(run, run.player.x + dx, run.player.y + dy).hp = 1e6
     let lit = null
     for (let i = 0; i < 400 && !lit; i++) {
       run.charge = 100
@@ -32696,6 +32699,7 @@ function testTheDeep() {
       if (run.blooms.length) lit = run.blooms.map((b) => `${Math.round(b.seedX - run.player.x)},${Math.round(b.seedY - run.player.y)}`)
     }
     assert.ok(lit && lit.length === 3 && new Set(lit).size === 3, `run DP.x: Twin Fox +2 lit ${lit} — want three fires on three different bodies`)
+    assert.ok(lit.every((xy) => Number(xy.split(',')[1]) > -100), `run DP.x: Foxfire lit ${lit} — it took the farthest body over a nearer one`)
     assert.deepStrictEqual(Object.keys(WEAPON_MODS.foxfire.twinFox.values), ['epic', 'legendary', 'mythic'], 'run DP.x: Twin Fox rolls below epic')
 
     // CATCHING FLAME (owner, 2026-09-28: "when something dies inside a foxfire, a small foxfire

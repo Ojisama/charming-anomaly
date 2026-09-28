@@ -9893,6 +9893,7 @@ function effectiveWeaponStats(run, w) {
   const tune = chapterTune(run, w.id)
   if (tune.dmg && stats.dmg != null) stats.dmg *= tune.dmg
   if (tune.dur && stats.glowDur != null) stats.glowDur *= tune.dur
+  if (tune.radius && stats.maxR != null) stats.maxR *= tune.radius
   const modMap = WEAPON_STAT_MODS[w.id]
   const mods = run.weaponMods[w.id]
   if (modMap && mods) {
@@ -11543,8 +11544,9 @@ function pickBloomSpot(run, castRange) {
 }
 
 // n spots on n DISTINCT enemies (picked without replacement), padded with random offsets once they
-// run out. n = 1 draws exactly the randoms pickBloomSpot always drew.
-function pickBloomSpots(run, n, castRange) {
+// run out. n = 1 draws exactly the randoms pickBloomSpot always drew. `nearest` takes the n closest
+// instead of n random ones (Foxfire, owner 2026-09-28).
+function pickBloomSpots(run, n, castRange, nearest = false) {
   const p = run.player
   const rangeSq = castRange * castRange
   const inRange = run.enemies.filter((e) => {
@@ -11552,10 +11554,11 @@ function pickBloomSpots(run, n, castRange) {
     const dx = e.x - p.x, dy = e.y - p.y
     return dx * dx + dy * dy <= rangeSq
   })
+  if (nearest) inRange.sort((a, b) => ((a.x - p.x) ** 2 + (a.y - p.y) ** 2) - ((b.x - p.x) ** 2 + (b.y - p.y) ** 2))
   const spots = []
   for (let i = 0; i < n; i++) {
     if (inRange.length > 0) {
-      const e = inRange.splice(Math.floor(Math.random() * inRange.length), 1)[0]
+      const e = inRange.splice(nearest ? 0 : Math.floor(Math.random() * inRange.length), 1)[0]
       spots.push({ x: e.x, y: e.y })
       continue
     }
@@ -14349,7 +14352,7 @@ function stepFoxfireWeapon(run, w, stats, fireRateMul, dt) {
     // Any radius mod (Gloaming) widens the swarm with the burn it stands for. The COUNT stays on the
     // level alone: render.js sizes its sprite pool off the top level's count.
     const swarmMod = stats.maxR / WEAPONS.foxfire.levels[w.level - 1].maxR
-    for (const spot of pickBloomSpots(run, clouds, stats.castRange)) {
+    for (const spot of pickBloomSpots(run, clouds, stats.castRange, true)) {
       run.blooms.push({
         x: spot.x, y: spot.y, r: 0, maxR: stats.maxR * gloom, t: 0,
         dur: stats.glowDur, dmgPerTick: stats.dmg, tick: BLOOM_TICK / (chapterTune(run, 'foxfire').tick ?? 1),
