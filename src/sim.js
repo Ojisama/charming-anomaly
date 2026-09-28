@@ -160,7 +160,7 @@ import {
   MARCH_SPEED_MUL, MARCH_SWAY_PX, MARCH_SWAY_RATE, MARCH_HOME_MUL,
   FORMATION_INTERVAL, FORMATION_COLS, FORMATION_AHEAD_MUL, FORMATION_AHEAD_MIN, FORMATION_ROW_PX, LANE_SPAWN_MUL, LANE_CONTACT_MUL, laneEarlyMul,
   REPULSE_CD, REPULSE_RADIUS, REPULSE_FORCE, REPULSE_STUN, PULSE_CHARGE_COST, pulseCost, pulseCd, PULSE_RADIUS_AT_FULL, PULSE_FORCE_AT_FULL, CLEAR_DUR_MIN, CLEAR_DUR_AT_FULL, CLEAR_SIGHT_FADE, CLEAR_RADIUS_AT_FULL, CLEAR_STUN, darkness, refillSpec, resourceDamageMul, refillGrantFor, pollutionFrac, RUNOFF_MAX_DMG_MUL, RUNOFF_SPEED_FLOOR, FOUL_SPRING_FOUL_T, SILT_PLUME_SPREAD, SILT_FLUSH_MUL, LOBE_SHAPES, inLobe, lobeFactor, SEPARATION_SAMPLES,
-  SUNSPEAR_FALL, SUNSPEAR_SPREAD, FOXFIRE_GLOOM, FOXFIRE_WANDER_SPEED, FOXFIRE_SWARM, SUNLANCE_REACH_MIN, GLINT_LIGHT_COST, BUBBLE_COVER_MAX, BUBBLE_ARC_MAX, BALLAST_FLIGHT, BALLAST_BLIND_THROW, BALLAST_REACH_PAD,
+  SUNSPEAR_FALL, SUNSPEAR_SPREAD, FOXFIRE_GLOOM, FOXFIRE_WANDER_SPEED, FOXFIRE_SWARM, FOXFIRE_CATCH_FRAC, SUNLANCE_REACH_MIN, GLINT_LIGHT_COST, BUBBLE_COVER_MAX, BUBBLE_ARC_MAX, BALLAST_FLIGHT, BALLAST_BLIND_THROW, BALLAST_REACH_PAD,
   BALLAST_TANK_MUL, BALLAST_DRAG, BALLAST_DRAG_T,
   BURST_SPEED_MUL, BURST_DUR_MIN, BURST_DUR_AT_FULL, BURST_RAM_MUL, BURST_RAM_COINS, DROWN_TICK,
   SPUR_DPS, SPUR_TICK, SPUR_SLOW_MUL,
@@ -11603,6 +11603,7 @@ function stepBlooms(run, dt) {
   if (run.blooms.length === 0) return
   const sporeOn = (run.weaponMods.bloom?.sporeburst ?? 0) > 0
   const tide = run.weaponMods.bloom?.tideCarried ?? 0
+  const catching = run.weaponMods.foxfire?.catchingFlame ?? 0
   const minis = []
   for (const bl of run.blooms) {
     bl.t += dt
@@ -11723,10 +11724,23 @@ function stepBlooms(run, dt) {
         if (sporeOn && !bl.look && !bl._mini && e._dead) {
           minis.push({ x: e.x, y: e.y, maxR: bl.maxR * SPOREBURST_FRAC, dur: bl.dur, dmgPerTick: bl.dmgPerTick })
         }
+        // CATCHING FLAME: a kill inside a foxfire may light a smaller one where the body fell. The
+        // child can catch again, and shrinks each time, so a chain burns itself out. Over 100% the
+        // whole part is sure fires and the rest a chance of one more; several ring the body.
+        if (catching > 0 && bl.look === 'foxfire' && e._dead) {
+          const n = Math.floor(catching) + (Math.random() < catching % 1 ? 1 : 0)
+          const F = FOXFIRE_CATCH_FRAC, ring = n > 1 ? bl.maxR * F * 0.5 : 0
+          for (let k = 0; k < n; k++) {
+            const x = e.x + Math.cos((k / n) * Math.PI * 2) * ring, y = e.y + Math.sin((k / n) * Math.PI * 2) * ring
+            minis.push({ ...bl, x, y, seedX: x, seedY: y, r: 0, t: 0, _tickAcc: 0,
+              maxR: bl.maxR * F, swarmR: bl.swarmR * F, flies: Math.max(1, Math.round(bl.flies * F)), _full: true })
+          }
+        }
       }
     }
   }
   for (const m of minis) {
+    if (m._full) { delete m._full; run.blooms.push(m); continue }
     run.blooms.push({ x: m.x, y: m.y, r: 0, maxR: m.maxR, t: 0, dur: m.dur, dmgPerTick: m.dmgPerTick, _mini: true })
   }
   run.blooms = run.blooms.filter((bl) => bl.t < bl.dur)
