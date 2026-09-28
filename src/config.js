@@ -8630,8 +8630,8 @@ CHAPTERS.deep = {
   weaponTune: {
     // balance_decision : column + lance rate/dmg x1.15, foxfire dmg/tick rate x1.2 [2026-09-27]
     //  - `tick` divides BLOOM_TICK for the foxfire only
-    // balance_decision : Sunspear % cards -10%, it scaled too hard [2026-09-28]
-    sunspear: { rate: 1.15 * 1.15, dmg: 1.2 * 1.15, tank: 2, mods: 1.2 * 0.9 },
+    // balance_decision : Sunspear cards +30% dmg, +25% radius, +25% rate [2026-09-28]
+    sunspear: { rate: 1.15 * 1.15, dmg: 1.2 * 1.15, tank: 2, mods: 1, modMul: { broadBeam: 0.25 / 0.28 } },
     foxfire: { rate: 1.15, dmg: 1.2 * 1.2, tick: 1.2, dur: 1.3, wander: true, mods: 1.2, modMul: { gloaming: 0.6 } },
     // balance_decision : lance dmg -20%, paid for the bigger Held Lance [2026-09-28]
     sunlance: { rate: 1.15 * 1.15, dmg: 1.2 * 1.15 * 0.8, tank: 2, mods: 1.2 },
