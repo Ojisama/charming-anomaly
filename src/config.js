@@ -4022,7 +4022,8 @@ export const WEAPON_MODS = {
   sunlance: {
     whetted:   { name: 'Whetted',   desc: 'lance damage per tick', icon: '💥', base: 0.30, kind: 'pct' },
     farReach:  { name: 'Far Reach', desc: 'lance length and width', icon: '📏', base: 0.25, kind: 'pct' },
-    heldLance: { name: 'Held Lance', desc: 'how long the lance is held', icon: '⌛', base: 0.25, kind: 'pct' },
+    // balance_decision : Held Lance +50% a pick, so lances overlap sooner [2026-09-28]
+    heldLance: { name: 'Held Lance', desc: 'how long the lance is held', icon: '⌛', base: 0.50, kind: 'pct' },
     quickLance:{ name: 'Quick Lance', desc: 'cast rate', icon: '⏩', base: 0.25, kind: 'pct' },
     // balance_decision : Twin Lance epic+ only, +1/+2/+3, owner ruling [2026-09-27]
     twinLance: { name: 'Twin Lance', desc: 'extra lance(s) per cast', icon: '🔷', kind: 'tier',
@@ -8627,7 +8628,8 @@ CHAPTERS.deep = {
     //  - `tick` divides BLOOM_TICK for the foxfire only
     sunspear: { rate: 1.15 * 1.15, dmg: 1.2 * 1.15, tank: 2, mods: 1.2 },
     foxfire: { rate: 1.15, dmg: 1.2 * 1.2, tick: 1.2, dur: 1.3, wander: true, mods: 1.2, modMul: { gloaming: 0.6 } },
-    sunlance: { rate: 1.15 * 1.15, dmg: 1.2 * 1.15, tank: 2, mods: 1.2 },
+    // balance_decision : lance dmg -20%, paid for the bigger Held Lance [2026-09-28]
+    sunlance: { rate: 1.15 * 1.15, dmg: 1.2 * 1.15 * 0.8, tank: 2, mods: 1.2 },
     glint: { mods: 0.8 },
   },
   // balance_decision : 30% fewer fangtooth, 20% fewer tanks [2026-09-26]
