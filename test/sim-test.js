@@ -176,7 +176,7 @@ import {
   KRAKEN_HEAD_SPEED, KRAKEN_PARRY_SPIN_T, krakenLimbHalfW, FISH_R, FISH_BODY, KRAKEN_GRIP_EVERY, KRAKEN_GRAB_FUSE, KRAKEN_GRAB_MIN_STEP, KRAKEN_PINCH_OPEN0, KRAKEN_PINCH_OPEN1,
   KRAKEN_BEAT_READ, KRAKEN_BEAT_GRAB_CLEAR, KRAKEN_BEAT_BREATH, KRAKEN_HEAD_R, KRAKEN_CHASE_CAGE_R, KRAKEN_HEAD_HOLD, KRAKEN_DASH_DIST, KRAKEN_DASH_SPEED, KRAKEN_DASH_RUNUP, KRAKEN_DASH_PARRY_PX, KRAKEN_HEAD_TOUCH_DMG, KRAKEN_LUNGE_DMG, KRAKEN_LUNGE_WINDUP_T,
 } from '../src/config.js'
-import { krakenWinPending, krakenPinchProbe, krakenGrabSpot, krakenGrabTurnClear, stepSim, applyChoice, buildLevelUpChoices, eligibleWeaponModCandidates, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, inRefillCircle, refillCircleAt, stepCharge, newElWindow, spurAt } from '../src/sim.js'
+import { krakenWinPending, krakenPinchProbe, krakenGrabSpot, krakenGrabTurnClear, stepSim, applyChoice, buildLevelUpChoices, eligibleWeaponModCandidates, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, inRefillCircle, refillCircleAt, stepCharge, newElWindow, spurAt, inMaw } from '../src/sim.js'
 
 // ---- Scenario runner: one filter, and the gate's own dispatch flag ----------------------------
 // THIS FILE IS NO LONGER WHAT `npm test` RUNS. scripts/test-isolation.mjs hands one scenario to
@@ -31770,7 +31770,7 @@ function testTheDeep() {
   {
     const R = CHAPTERS.deep.signature.maws.r
     const near = rig(); near.charge = 20; near.shafts.length = 0
-    maw(near, R * 0.5, 0)                   // inside the mouth
+    maw(near, R * 0.3, 0)                   // inside the mouth, even at its opening half size
     step(near, 60)
 
     const far = rig(); far.charge = 20; far.shafts.length = 0
@@ -31783,6 +31783,12 @@ function testTheDeep() {
     assert.ok(near.charge > 20, `run DP.a: standing inside a maw for 1s left the bar at ${near.charge.toFixed(1)} — it does not feed`)
     assert.ok(far.charge < 20, `run DP.a: standing ${R + 400}px away still filled the bar to ${far.charge.toFixed(1)} — the mouth has no edge`)
     assert.ok(none.charge < 20, `run DP.a: the bar rose to ${none.charge.toFixed(1)} with no maw on the map — something else is feeding it`)
+    // THE MOUTH YOU SEE IS THE MOUTH THAT BITES (owner, 2026-09-29): it opens at half r and grows
+    // with its gape to r at the bite, and inMaw tests that same live radius.
+    const m = { x: 0, y: 0, r: R, gape: 0, _shutT: 0 }
+    assert.ok(!inMaw(m, R * 0.7, 0), 'run DP.a: at gape 0 a player at 0.7 r is inside a mouth drawn at half size')
+    m.gape = 1
+    assert.ok(inMaw(m, R * 0.7, 0) && !inMaw(m, R * 1.05, 0), 'run DP.a: at gape 1 the mouth is not full size r')
     // A SHUT MOUTH FEEDS NOBODY. The same fact stepCharge and the lure punch both read; without it
     // a maw that has just swallowed you keeps topping you up while its jaws are visibly closed,
     // which makes being eaten free.

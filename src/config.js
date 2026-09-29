@@ -4925,14 +4925,11 @@ export const GLINT_GLOW = {
 }
 // RENDER-ONLY: the Sunlance lights the water along its line (owner, 2026-09-28, "make the sunbeam
 // light up a bit on its path", then "like a flashlight but not in a cone shape"). Two layers: the dark
-// is lifted along the ray (updateDark), and a warm additive haze is laid on it (placeBeam), so the
-// water is brighter than the lamp, not just as lit. Both scale with the lance's width, so Far Reach
-// lights more water (owner kept that, 2026-09-29). Fades with the lance.
+// is lifted along the ray (updateDark). It scales with the lance's width, so Far Reach lights more
+// water (owner kept that, 2026-09-29). Fades with the lance.
 export const SUNLANCE_GLOW = {
   frac: 5,         // lifted-dark strip width as a multiple of the lance's width
   lit: 1,          // 0 = the chapter's dark, 1 = a shaft
-  haze: 0.45,      // alpha of the warm additive haze on the ray
-  hazeW: 4,        // haze width as a multiple of the lance's width
 }
 // The Sunlance's reach at an EMPTY bar, as a fraction of its `length`. The no-spiral floor, in the
 // same idiom as BURST_DUR_MIN and BREACH_R_MIN: this is the one card in the chapter that gets worse
@@ -5156,10 +5153,10 @@ export const MAW_VIS = {
 // a linear ramp is still plainly legible at 0.3: shot at far 1.7 with the player 292px out, the
 // needles were dimmer and still the loudest thing on screen. The square collapses the far half of
 // the band to a hint and keeps the near half, which is the shape the sentence above describes.
-// The mouth waits small (minScale) and near black; it grows over dur s to full size and fully lit
-// only once the player is inside the SMALL mouth, and shrinks back once they leave the full one.
-//  - the zone that feeds and bites is always sh.r, so between the small and full rim you are in it
-export const MAW_GROW = { minScale: 0.5, shadow: 0.9, dur: 0.45 }
+// balance_decision : maw opens at half r, grows with gape to r at the bite [2026-09-29]
+//  - mawReach is BOTH the drawn mouth and the zone inMaw tests; never split them
+export const MAW_GROW = { minScale: 0.5, shadow: 0.9 }
+export const mawReach = (sh) => sh.r * (MAW_GROW.minScale + (1 - MAW_GROW.minScale) * Math.max(0, Math.min(1, sh.gape ?? 0)))
 export const MAW_REVEAL = {
   far: 1.35,        // where the mouth begins to resolve at all
   near: 1.0,        // ...and where it is fully resolved: the rim itself

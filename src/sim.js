@@ -201,7 +201,7 @@ import {
   SHELL_RETARGET_R, SHELL_SPLASH_LIFE, SHELL_R,
   BARNACLE_JUMP_R, BARNACLE_FAN, BARNACLE_LARVA_R,
   LONGLINE_HALF_W, LONGLINE_SNAG, LONGLINE_TWIN_GAP, LONGLINE_MAX_SETS, LONGLINE_RETIRE_T, LONGLINE_MIN_OFFSET,
-  MAW_GAPE_T, MAW_CLOSE_MUL, MAW_DEVOUR_FRAC, MAW_SHUT_T,
+  MAW_GAPE_T, MAW_CLOSE_MUL, MAW_DEVOUR_FRAC, MAW_SHUT_T, mawReach,
   SCENT_R, SCENT_DUR_MIN, SCENT_DUR_AT_FULL, SCENT_DMG_MUL, SCENT_SLOW, SCENT_MARK_T,
   // v5.24 The Blank (scripted boss chapter — see stepBossScript)
   BLANK_SCRIPT, BLANK_WAVE_TIMEOUT, BLANK_BOSS_HP, BLANK_BOSS_R, BLANK_BOSS_SPEED, BLANK_BOSS_XP,
@@ -7891,7 +7891,8 @@ function stepTrawl(run, dt) {
 // mouth would open at a range the bar does not fill at. That is the single largest defect class in
 // this repo: one fact authored in two places, neither of them an import, so nothing throws. Both
 // call inLobe, which is the same test every other refill circle in the game is checked with.
-export const inMaw = (sh, x, y) => (sh._shutT ?? 0) <= 0 && inLobe(sh, x, y)
+export const inMaw = (sh, x, y) => (sh._shutT ?? 0) <= 0 &&
+  (sh.gape == null ? inLobe(sh, x, y) : Math.hypot(x - sh.x, y - sh.y) <= mawReach(sh))   // a maw's mouth grows with its gape
 
 /** The maw currently feeding the point (x, y), or null. Read by stepCharge for the refill. */
 export function mawFeeding(run, x, y) {
