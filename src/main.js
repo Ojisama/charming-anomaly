@@ -836,7 +836,7 @@ function endRun(victory) {
   let unlockedHiddenChapter = null
   if (victory) {
     for (const [id, gate] of Object.entries(HIDDEN_UNLOCKS)) {
-      if (run.chapter !== gate.from || (run.difficulty ?? 1) < gate.difficulty) continue
+      if (gate.wip || run.chapter !== gate.from || (run.difficulty ?? 1) < gate.difficulty) continue
       const hidMeta = ensureChapterMeta(meta, id)
       if (hidMeta.unlocked) continue
       hidMeta.unlocked = true

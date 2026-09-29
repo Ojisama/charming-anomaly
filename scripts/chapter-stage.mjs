@@ -190,7 +190,7 @@ function chapterLive (id, seen = new Set()) {
   if (!bk) return false
   if (!bk.hidden) return bk.b.wipFrom === undefined || bk.idx < bk.b.wipFrom
   const gate = HIDDEN_UNLOCKS[id]
-  if (!gate || seen.has(id)) return false // hidden with no unlock, or a cycle: nobody can get there
+  if (!gate || gate.wip || seen.has(id)) return false // no unlock, a held-back one (`wip`), or a cycle
   seen.add(id)
   return chapterLive(gate.from, seen)
 }
@@ -361,7 +361,9 @@ function audit (id) {
         : bk.hidden
           ? (live
             ? `live: ${bk.bid}'s off-ladder chapter, behind a ${HIDDEN_UNLOCKS[id]?.from ?? '???'} win`
-            : `gated behind ${HIDDEN_UNLOCKS[id]?.from ?? 'nothing'}, which is itself not reachable`)
+            : HIDDEN_UNLOCKS[id]?.wip
+              ? `held back: HIDDEN_UNLOCKS.${id}.wip, so a ${HIDDEN_UNLOCKS[id].from} win does not open it`
+              : `gated behind ${HIDDEN_UNLOCKS[id]?.from ?? 'nothing'}, which is itself not reachable`)
           : `live: ${bk.bid} chapter #${bk.idx + 1}`)
 
   return { rows, debt, live }

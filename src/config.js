@@ -6010,7 +6010,7 @@ export const BOOKS = {
   //   `wipFrom` is an INDEX, so that reordering needed no edit to it. 5 since 2026-09-09: The Wreck
    // is the last live rung, The Deep the first gated one, and The Kraken (appended 2026-09-10) the
    // next, still gated: a dev-gated shell whose boss sim lands in a later increment. Saves key on chapter ID, never position.
-   undertow: { name: 'Undertow', cloth: '#1f5c7c', chapters: ['surf', 'shelf', 'reef', 'trawl', 'wreck', 'deep'], hidden: ['kraken'], wipFrom: 5, startCoins: 100 },
+   undertow: { name: 'Undertow', cloth: '#1f5c7c', chapters: ['surf', 'shelf', 'reef', 'trawl', 'wreck', 'deep'], hidden: ['kraken'], startCoins: 100 },
 }
 // Explicit, for the same reason CHAPTER_ORDER is explicit: a sweep that means "every book, in
 // campaign order" must not depend on object key order surviving an edit. The FIRST entry is the
@@ -8604,7 +8604,7 @@ CHAPTERS.deep = {
     // against the old 2 x 0.45 = 0.90, and 7 x 0.4 = 2.8 contact hits against the old 2 x 1 = 2.
     // xp rides hpFrac in spawnSplitChildren, so the total xp is unchanged too — see xpMul below.
     // balance_decision : tanks cancel the chapter's +15% hp [2026-09-27]
-    { id: 'siphonophore', archetype: 'tank',   name: 'Siphonophore', hpMul: 1.9 / 1.15, speedMul: 0.62, xpMul: 0.7, weight: 1, flags: ['split'],
+    { id: 'siphonophore', archetype: 'tank',   name: 'Siphonophore', hpMul: 1.9 / 1.15, speedMul: 0.62, xpMul: 0.7, weight: 1, flags: ['split', 'unshakeable'],
       split: { count: 7, hpFrac: 0.14, radiusFrac: 0.38, speedMul: 4, dmgMul: 0.4 } },
     // balance_decision : flagless slow tank takes half the tank share [2026-09-26]
     //  - weight 1 vs the siphonophore's 1 IS the half — move them together
@@ -10250,7 +10250,8 @@ export const ROAD_JUNCTION = {
 // and that exemption has shipped untranslated copy four separate times.
 export const HIDDEN_UNLOCKS = {
   blank:  { from: 'beyond', difficulty: 5, hint: 'win The Beyond at level 5 — something has been counting' },
-  kraken: { from: 'deep',   difficulty: 5, hint: 'win The Deep at level 5 — the graveyard has been waiting' },
+  // `wip`: the win does not unlock it yet (owner, 2026-09-29: ship The Deep, keep The Kraken shut).
+  kraken: { from: 'deep',   difficulty: 5, hint: 'win The Deep at level 5 — the graveyard has been waiting', wip: true },
 }
 // Every chapter that sits OUTSIDE its book's ladder, derived from the books rather than listed
 // again. `hidden` does not mean unreleased — it means off the ladder; only wipFrom hides a chapter
@@ -14605,6 +14606,9 @@ export const CHAPTER_ENDINGS = {
   // shoal), so the death line names the place they share, the way The Reef's names the race.
   // Player's idiom like every Undertow row above; ⚓ is the chapter's own icon.
   wreck:       { victory: 'You left the wreck behind! 🎉',          death: 'Gone down with the wreck… ⚓' },
+  // The Deep: the win points DOWN, at The Kraken below it (owner, 2026-09-29), and the death line
+  // names the bar, Light, the way The Surf's and The Shelf's name theirs.
+  deep:        { victory: 'Deeper still… something vast is waiting. 🦑', death: 'Your light went out… 🕯️' },
   // The Kraken (the graveyard): the boss idiom like The Blank ('THE X FAILED'); the death line
   // names the dark rather than the last hit, the way The Wreck's names the place. Gated, like deep.
   kraken:      { victory: 'THE KRAKEN FAILED. 🎉',                  death: 'Swallowed by the dark… 🌑' },
