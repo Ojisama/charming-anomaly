@@ -5156,9 +5156,10 @@ export const MAW_VIS = {
 // a linear ramp is still plainly legible at 0.3: shot at far 1.7 with the player 292px out, the
 // needles were dimmer and still the loudest thing on screen. The square collapses the far half of
 // the band to a hint and keeps the near half, which is the shape the sentence above describes.
-// The mouth rises out of the dark: from far x r away it is drawn at minScale and near black,
-// and by the rim (near) it is full size and fully lit. Full size AT the rim: DP.k's boundary.
-export const MAW_GROW = { far: 2.4, near: 1.0, minScale: 0.5, shadow: 0.9 }
+// The mouth waits small (minScale) and near black; it grows over dur s to full size and fully lit
+// only once the player is inside the SMALL mouth, and shrinks back once they leave the full one.
+//  - the zone that feeds and bites is always sh.r, so between the small and full rim you are in it
+export const MAW_GROW = { minScale: 0.5, shadow: 0.9, dur: 0.45 }
 export const MAW_REVEAL = {
   far: 1.35,        // where the mouth begins to resolve at all
   near: 1.0,        // ...and where it is fully resolved: the rim itself

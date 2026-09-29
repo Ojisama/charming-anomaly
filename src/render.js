@@ -14636,11 +14636,16 @@ const spurG = new Graphics()
         const ins = Math.max(0, Math.min(1, (sh.r - dp) / inset))
         const toothReveal = reveal * (MAW_REVEAL.toothFaint + (1 - MAW_REVEAL.toothFaint) * ins * ins)
         const rows = M.toothRows, rowStep = M.rowStep, par = M.rowParallax
-        // RISING OUT OF THE DARK (MAW_GROW, owner: "start 50% smaller like it's further away, then
-        // grow and the body could appear from the shadow"). Scale and darkness, never alpha: the
-        // animal is solid. Full size by the rim, so the drawn edge is the one the sim tests.
-        const gu = Math.max(0, Math.min(1, (MAW_GROW.far * sh.r - dp) / ((MAW_GROW.far - MAW_GROW.near) * sh.r)))
-        const grow = gu * gu * (3 - 2 * gu)
+        // RISING OUT OF THE DARK (MAW_GROW, owner: "only grow when you're in it (at the small
+        // size)"). Scale and darkness, never alpha: the animal is solid. Render-side state on the
+        // pool slot, keyed to the circle, eased on animT so a pause freezes it.
+        if (sv._growSh !== sh) { sv._growSh = sh; sv._grow = 0; sv._growIn = false; sv._growT = animT }
+        if (dp < sh.r * MAW_GROW.minScale) sv._growIn = true
+        else if (dp > sh.r) sv._growIn = false
+        const gStep = (animT - sv._growT) / MAW_GROW.dur
+        sv._growT = animT
+        sv._grow = Math.max(0, Math.min(1, sv._grow + (sv._growIn ? gStep : -gStep)))
+        const grow = sv._grow * sv._grow * (3 - 2 * sv._grow)
         const lit = (c) => lerpTint(c, 0x000000, MAW_GROW.shadow * (1 - grow))
         sv.glow.visible = false     // the lure is punched into the LIGHTMAP (updateDark), not stacked here
         sv.ring.clear()
