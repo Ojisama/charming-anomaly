@@ -25,6 +25,7 @@ import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC
   FOXFIRE_GLOW,       // The Deep: a foxfire punched through the same scrim — a fire is a light
   FOXFIRE_SWARM,      // ...drawn as a firefly swarm whose count and reach the bloom carries
   GLINT_GLOW,         // ...and a Glint's spark, which is the card that BUYS its light with the bar
+  SUNLANCE_GLOW,      // ...and a Sunlance, a strip of lit water along its line
   SLICK_SLOW_T, INK_STAIN_T, inLobe,  // The Wreck: the oil and the ink on you, on the glass and the skin
   // The Kraken: the ring's geometry and the per-rung parry windows the telegraph is drawn against
   krakenRung, KRAKEN_RING_R, KRAKEN_ARM_R, KRAKEN_LIMB_HW, krakenLimbProf, krakenShoulderR, krakenLimbHalfW, KRAKEN_ARM_REACH, KRAKEN_LASH_R, KRAKEN_HEAD_R, KRAKEN_LASH_OVER, KRAKEN_LASH_W,
@@ -16515,6 +16516,33 @@ const spurG = new Graphics()
       darkCtx.arc(bx * s, by * s, Math.max(1, br * s), 0, Math.PI * 2)
       darkCtx.fill()
     }
+
+    // THE SUNLANCE (SUNLANCE_GLOW): the ray lights the water around it, from the player out to its
+    // tip, fading with the lance's own envelope. A row of soft discs rather than one gradient strip:
+    // 'lighten' takes the max where they overlap, so the row reads as one glow with round soft ends
+    // (a strip had hard square ends that read as a grey box).
+    for (const b of run.beams) {
+      if (b.look !== 'sunlance') continue
+      const env = BEAM_ENVELOPE.sunlance ?? BEAM_ENVELOPE.default
+      const fadeT = env.fade || b.duration
+      const f = Math.min(1, (b.duration - b.life) / (env.ramp || 0.05), b.life / fadeT)
+      if (f <= 0.01) continue
+      const gr = (b.width * SUNLANCE_GLOW.frac) / 2
+      const n = Math.max(2, Math.ceil(b.length / (gr * 0.5)))
+      const ux = Math.cos(b.angle), uy = Math.sin(b.angle)
+      for (let k = 0; k <= n; k++) {
+        const gx = px + ux * b.length * (k / n), gy = py + uy * b.length * (k / n)
+        if (gx + gr < 0 || gx - gr > w || gy + gr < 0 || gy - gr > h) continue
+        const g = darkCtx.createRadialGradient(gx * s, gy * s, 0, gx * s, gy * s, Math.max(1, gr * s))
+        g.addColorStop(0, rgbAt(SUNLANCE_GLOW.lit * f))
+        g.addColorStop(0.6, rgbAt(SUNLANCE_GLOW.lit * 0.85 * f))
+        g.addColorStop(1, rgbAt(0))
+        darkCtx.fillStyle = g
+        darkCtx.beginPath()
+        darkCtx.arc(gx * s, gy * s, Math.max(1, gr * s), 0, Math.PI * 2)
+        darkCtx.fill()
+      }
+    }
     darkCtx.globalCompositeOperation = 'source-over'
 
     darkTex.source.update()
@@ -17554,9 +17582,17 @@ const spurG = new Graphics()
     muzzle.anchor.set(0.5)
     muzzle.tint = 0xff5a52 // emitter flash, same red as the tip
 
-    root.addChild(beamBody, tip, muzzle)
+    // The Sunlance's flashlight haze (SUNLANCE_GLOW): a warm additive wash along the ray, so the
+    // water it crosses is brighter than the lamp rather than only as lit. Hidden for other beams.
+    const haze = new Sprite(T.stormBlob)
+    haze.anchor.set(0.5)
+    haze.blendMode = 'add'
+    haze.tint = 0xfff0b8
+    haze.visible = false
+
+    root.addChild(haze, beamBody, tip, muzzle)
     beamLayer.addChild(root)
-    return { root, beamBody, bar, streakA, streakB, tip, muzzle }
+    return { root, beamBody, bar, streakA, streakB, tip, muzzle, haze }
   }
 
   function expandBeamArms(beams) {
@@ -29747,6 +29783,12 @@ void main() {
     bv.beamBody.scale.set(b.length / T.beamRefLen, (b.width / T.beamRefWidth) * spawnIn * pulse)
     bv.beamBody.visible = true
     bv.beamBody.alpha = despawnOut
+    bv.haze.visible = lance
+    if (lance) {
+      bv.haze.position.x = b.length / 2
+      bv.haze.scale.set((b.length * 1.3) / T.stormBlob.width, (b.width * SUNLANCE_GLOW.hazeW) / T.stormBlob.height)
+      bv.haze.alpha = SUNLANCE_GLOW.haze * spawnIn * despawnOut
+    }
 
     // shimmer streaks scrolling along the beam's local (pre-scale) length
     const scrollSpeed = 300

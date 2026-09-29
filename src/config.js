@@ -4923,6 +4923,17 @@ export const GLINT_GLOW = {
   core: 0.95,      // ...at the centre, where the spark itself is drawn
   coreFrac: 0.3,   // how much of the glow's radius that core covers
 }
+// RENDER-ONLY: the Sunlance lights the water along its line (owner, 2026-09-28, "make the sunbeam
+// light up a bit on its path", then "like a flashlight but not in a cone shape"). Two layers: the dark
+// is lifted along the ray (updateDark), and a warm additive haze is laid on it (placeBeam), so the
+// water is brighter than the lamp, not just as lit. Both scale with the lance's width, so Far Reach
+// lights more water (owner kept that, 2026-09-29). Fades with the lance.
+export const SUNLANCE_GLOW = {
+  frac: 5,         // lifted-dark strip width as a multiple of the lance's width
+  lit: 1,          // 0 = the chapter's dark, 1 = a shaft
+  haze: 0.45,      // alpha of the warm additive haze on the ray
+  hazeW: 4,        // haze width as a multiple of the lance's width
+}
 // The Sunlance's reach at an EMPTY bar, as a fraction of its `length`. The no-spiral floor, in the
 // same idiom as BURST_DUR_MIN and BREACH_R_MIN: this is the one card in the chapter that gets worse
 // as the bar empties, and the bar empties fastest exactly when a player is in trouble, so a lance
