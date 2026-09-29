@@ -18,7 +18,7 @@ import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC
   ARTILLERY_FUSE, BOMBARDMENT_FUSE, ARTILLERY_ELITE_RADIUS, MISSILE_FIRE_RANGE,
   BREATH_CHARGE_T, // v7.23: the Atomic Breath's wind-up ring closes on exactly the sim's charge clock
   ROAD_MAJOR_WIDTH, HIGHWAY_WIDTH, highwaysNear, BLOCK_U, BLOCK_V, cityAt, nearestCity, CITY_GRID, STREET_SPACING_MAJOR_EVERY, parcelAt, PARCEL, terrainAt, clumpAt,
-  LURE_GLOW, MAW_VIS, MAW_REVEAL, MAW_GROW,
+  LURE_GLOW, MAW_VIS, MAW_REVEAL, MAW_GROW, mawReach,
   FISH_R, FISH_BODY,  // Book 2's fish: the bake draws the same body the sim collides with (playerTouches)
   CHEEK_JIGGLE,       // the cheeks skin's spring — see syncPlayer's jiggle block
   BUTT_FEET,          // ...and its feet — see syncPlayer's feet block // The Deep: the anglerfish maw and its esca punched through the dark scrim
@@ -14624,28 +14624,23 @@ const spurG = new Graphics()
         // holds the needles at a hint until you are actually inside. See MAW_REVEAL for why the
         // teeth could not stay on the rim's band.
         const dp = Math.hypot(run.player.x - sh.x, run.player.y - sh.y)
-        const band = Math.max(1, (MAW_REVEAL.far - MAW_REVEAL.near) * sh.r)
-        const rv = Math.max(0, Math.min(1, (MAW_REVEAL.far * sh.r - dp) / band))
+        const reach = mawReach(sh)   // the live rim: the same radius inMaw tests
+        const band = Math.max(1, (MAW_REVEAL.far - MAW_REVEAL.near) * reach)
+        const rv = Math.max(0, Math.min(1, (MAW_REVEAL.far * reach - dp) / band))
         const reveal = rv * rv   // see MAW_REVEAL: linear still reads at 0.3 against a black floor
         // How far INSIDE the mouth the player is: 0 at the rim, 1 at toothIn x r from the centre.
         // Squared for the same reason `reveal` is — against a floor multiplied to black the low end
         // of a linear ramp is still plainly legible, and the whole point of this band is that its
         // low end reads as almost nothing. Multiplied by `reveal` rather than added to it so the
         // needles can never out-resolve the approach they are inside of.
-        const inset = Math.max(1, (1 - MAW_REVEAL.toothIn) * sh.r)
-        const ins = Math.max(0, Math.min(1, (sh.r - dp) / inset))
+        const inset = Math.max(1, (1 - MAW_REVEAL.toothIn) * reach)
+        const ins = Math.max(0, Math.min(1, (reach - dp) / inset))
         const toothReveal = reveal * (MAW_REVEAL.toothFaint + (1 - MAW_REVEAL.toothFaint) * ins * ins)
         const rows = M.toothRows, rowStep = M.rowStep, par = M.rowParallax
-        // RISING OUT OF THE DARK (MAW_GROW, owner: "only grow when you're in it (at the small
-        // size)"). Scale and darkness, never alpha: the animal is solid. Render-side state on the
-        // pool slot, keyed to the circle, eased on animT so a pause freezes it.
-        if (sv._growSh !== sh) { sv._growSh = sh; sv._grow = 0; sv._growIn = false; sv._growT = animT }
-        if (dp < sh.r * MAW_GROW.minScale) sv._growIn = true
-        else if (dp > sh.r) sv._growIn = false
-        const gStep = (animT - sv._growT) / MAW_GROW.dur
-        sv._growT = animT
-        sv._grow = Math.max(0, Math.min(1, sv._grow + (sv._growIn ? gStep : -gStep)))
-        const grow = sv._grow * sv._grow * (3 - 2 * sv._grow)
+        // RISING OUT OF THE DARK (MAW_GROW, owner: "grow linearly up until the max where it
+        // bites"). The whole drawing is scaled to mawReach, the same radius inMaw tests, and lit as
+        // it grows. Scale and darkness, never alpha: the animal is solid.
+        const grow = (reach / sh.r - MAW_GROW.minScale) / (1 - MAW_GROW.minScale)
         const lit = (c) => lerpTint(c, 0x000000, MAW_GROW.shadow * (1 - grow))
         sv.glow.visible = false     // the lure is punched into the LIGHTMAP (updateDark), not stacked here
         sv.ring.clear()
@@ -14658,7 +14653,7 @@ const spurG = new Graphics()
         //   Everything else in this branch is radially symmetric (a ring of teeth, a rim, a bait at
         // the centre), so rotating costs nothing and no term below has to carry a bearing.
         g.rotation = sh.phase ?? 0
-        g.scale.set(MAW_GROW.minScale + (1 - MAW_GROW.minScale) * grow)
+        g.scale.set(reach / sh.r)
         const toothHash = (n) => {
           const s = Math.sin(n * 12.9898 + (sh.phase ?? 0) * 78.233) * 43758.5453
           return s - Math.floor(s)
@@ -17614,17 +17609,9 @@ const spurG = new Graphics()
     muzzle.anchor.set(0.5)
     muzzle.tint = 0xff5a52 // emitter flash, same red as the tip
 
-    // The Sunlance's flashlight haze (SUNLANCE_GLOW): a warm additive wash along the ray, so the
-    // water it crosses is brighter than the lamp rather than only as lit. Hidden for other beams.
-    const haze = new Sprite(T.stormBlob)
-    haze.anchor.set(0.5)
-    haze.blendMode = 'add'
-    haze.tint = 0xfff0b8
-    haze.visible = false
-
-    root.addChild(haze, beamBody, tip, muzzle)
+    root.addChild(beamBody, tip, muzzle)
     beamLayer.addChild(root)
-    return { root, beamBody, bar, streakA, streakB, tip, muzzle, haze }
+    return { root, beamBody, bar, streakA, streakB, tip, muzzle }
   }
 
   function expandBeamArms(beams) {
@@ -29815,12 +29802,6 @@ void main() {
     bv.beamBody.scale.set(b.length / T.beamRefLen, (b.width / T.beamRefWidth) * spawnIn * pulse)
     bv.beamBody.visible = true
     bv.beamBody.alpha = despawnOut
-    bv.haze.visible = lance
-    if (lance) {
-      bv.haze.position.x = b.length / 2
-      bv.haze.scale.set((b.length * 1.3) / T.stormBlob.width, (b.width * SUNLANCE_GLOW.hazeW) / T.stormBlob.height)
-      bv.haze.alpha = SUNLANCE_GLOW.haze * spawnIn * despawnOut
-    }
 
     // shimmer streaks scrolling along the beam's local (pre-scale) length
     const scrollSpeed = 300
