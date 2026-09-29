@@ -4716,6 +4716,11 @@ function runBooks() {
 
   // (b) A WIP chapter must be unreachable by every route that does NOT ask for it by name: the
   // shipped order and the unlock chain.
+  // FIXTURE GATE: every rung is live since The Deep shipped (2026-09-29), so there is no real WIP
+  // chapter to prove the gate against. The gate is still shipped code, so it is proved against The
+  // Deep re-gated here, and put back before this run ends.
+  const realWipFrom = BOOKS.undertow.wipFrom
+  BOOKS.undertow.wipFrom = BOOKS.undertow.chapters.indexOf('deep')
   const wip = wipChapterIds()
   assert.ok(wip.length > 0, 'expected at least one WIP chapter, or this whole run asserts nothing')
   for (const id of wip) {
@@ -4894,6 +4899,7 @@ function runBooks() {
   // and so already fixes the bug they were written to guard (a book becoming LESS reachable the
   // day its `wip` flag comes off). Their replacement is main's own titleBookshelf coverage — do
   // not resurrect these against the deleted function.
+  if (realWipFrom === undefined) delete BOOKS.undertow.wipFrom; else BOOKS.undertow.wipFrom = realWipFrom
   console.log(`PASS run BK (books + WIP gate): nextChapter is book-local, ${wip.length} WIP chapter(s) unreachable by order/unlock, gated both ways through createRun and the bookcase`)
 }
 run(runBooks)
@@ -16147,10 +16153,14 @@ function testRemaster() {
     // (`wip.length > 0`, isWipChapter) — so assert the relationship
     // directly: every wip chapter is excluded, and there is at least one, or the exclusion is
     // vacuous and someone could hardcode this list again without a single test noticing.
-    const wipIds = wipChapterIds()
+    // Every rung is live now, so the gate is re-applied to The Deep for this one check (fixture).
+    const realWipFrom = BOOKS.undertow.wipFrom
+    BOOKS.undertow.wipFrom = BOOKS.undertow.chapters.indexOf('deep')
+    const wipIds = wipChapterIds(), gatedShipped = shippedChapterIds()
+    if (realWipFrom === undefined) delete BOOKS.undertow.wipFrom; else BOOKS.undertow.wipFrom = realWipFrom
     assert(wipIds.length > 0, 'no chapter is wip, so this sweep cannot show its denominator responds to anything')
     for (const id of wipIds) {
-      assert(!shipped.includes(id), `wip chapter '${id}' is inside the shipped denominator`)
+      assert(!gatedShipped.includes(id), `wip chapter '${id}' is inside the shipped denominator`)
       assert(Object.hasOwn(CHAPTERS, id), `wip chapter '${id}' is not a real CHAPTERS entry`)
     }
     for (const id of shipped) {
@@ -31983,7 +31993,12 @@ function testTheDeep() {
   {
     assert.ok(BOOKS.undertow.chapters.includes('deep'), "run DP.i: The Deep is not in Undertow's chapter list")
     assert.ok(CHAPTER_SPINE.deep, 'run DP.i: no CHAPTER_SPINE entry — the bookcase draws its spine with the article on')
-    assert.ok(isWipChapter('deep'), 'run DP.i: The Deep is not WIP-gated, so it is reachable without the dev flag')
+    // Owner 2026-09-29: "Ship the deep", The Kraken stays shut.
+    assert.ok(!isWipChapter('deep'), 'run DP.i: The Deep is still WIP-gated, so no player can reach it')
+    assert.ok(shippedChapterIds().includes('deep'), 'run DP.i: The Deep is not in the shipped denominator')
+    assert.strictEqual(HIDDEN_UNLOCKS.kraken.wip, true, 'run DP.i: The Kraken is no longer held back, so winning The Deep at 5 opens it')
+    assert.ok(readFileSync(new URL('../src/main.js', import.meta.url), 'utf8').includes('if (gate.wip || run.chapter !== gate.from'),
+      'run DP.i: endRun no longer skips a `wip` hidden unlock, so The Kraken opens off a Deep win')
     assert.strictEqual(CHAPTERS.deep.signature.type, 'dark', 'run DP.i: the signature is not `dark`, so stepAnglers and the lightmap both no-op')
     assert.ok(CHAPTERS.deep.scent === true, 'run DP.i: the chapter does not declare `scent`, so the button spends the bar and does nothing')
     assert.ok(CHAPTERS.deep.weapons.includes(CHAPTERS.deep.starter),
