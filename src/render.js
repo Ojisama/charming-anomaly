@@ -18,7 +18,7 @@ import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC
   ARTILLERY_FUSE, BOMBARDMENT_FUSE, ARTILLERY_ELITE_RADIUS, MISSILE_FIRE_RANGE,
   BREATH_CHARGE_T, // v7.23: the Atomic Breath's wind-up ring closes on exactly the sim's charge clock
   ROAD_MAJOR_WIDTH, HIGHWAY_WIDTH, highwaysNear, BLOCK_U, BLOCK_V, cityAt, nearestCity, CITY_GRID, STREET_SPACING_MAJOR_EVERY, parcelAt, PARCEL, terrainAt, clumpAt,
-  LURE_GLOW, MAW_VIS, MAW_REVEAL,
+  LURE_GLOW, MAW_VIS, MAW_REVEAL, MAW_GROW,
   FISH_R, FISH_BODY,  // Book 2's fish: the bake draws the same body the sim collides with (playerTouches)
   CHEEK_JIGGLE,       // the cheeks skin's spring — see syncPlayer's jiggle block
   BUTT_FEET,          // ...and its feet — see syncPlayer's feet block // The Deep: the anglerfish maw and its esca punched through the dark scrim
@@ -14568,17 +14568,17 @@ const spurG = new Graphics()
     return { body, glow, ring, _r: 0, _look: null }
   }
   // A ragged fin for the maw's animal: a membrane with a torn edge over n rays from one root.
-  function mawFin(g, bx, by, a0, a1, len, n, M, alpha, hash, k) {
+  function mawFin(g, bx, by, a0, a1, len, n, M, alpha, hash, k, lit) {
     const pts = [bx, by]
     for (let i = 0; i <= n * 2; i++) {
       const a = a0 + (a1 - a0) * i / (n * 2)
       const L = len * (i % 2 ? 0.72 + 0.12 * hash(k + i) : 0.95 + 0.12 * hash(k + i))
       pts.push(bx + Math.cos(a) * L, by + Math.sin(a) * L)
     }
-    g.poly(pts).fill({ color: M.fin, alpha })
+    g.poly(pts).fill({ color: lit(M.fin), alpha })
     for (let i = 0; i <= n; i++) {
       const a = a0 + (a1 - a0) * i / n
-      g.moveTo(bx, by).lineTo(bx + Math.cos(a) * len * 0.98, by + Math.sin(a) * len * 0.98).stroke({ width: Math.max(1, len * 0.02), color: M.finRay, alpha: alpha * 0.9 })
+      g.moveTo(bx, by).lineTo(bx + Math.cos(a) * len * 0.98, by + Math.sin(a) * len * 0.98).stroke({ width: Math.max(1, len * 0.02), color: lit(M.finRay), alpha: alpha * 0.9 })
     }
   }
   function updateShafts(run) {
@@ -14635,6 +14635,13 @@ const spurG = new Graphics()
         const inset = Math.max(1, (1 - MAW_REVEAL.toothIn) * sh.r)
         const ins = Math.max(0, Math.min(1, (sh.r - dp) / inset))
         const toothReveal = reveal * (MAW_REVEAL.toothFaint + (1 - MAW_REVEAL.toothFaint) * ins * ins)
+        const rows = M.toothRows, rowStep = M.rowStep, par = M.rowParallax
+        // RISING OUT OF THE DARK (MAW_GROW, owner: "start 50% smaller like it's further away, then
+        // grow and the body could appear from the shadow"). Scale and darkness, never alpha: the
+        // animal is solid. Full size by the rim, so the drawn edge is the one the sim tests.
+        const gu = Math.max(0, Math.min(1, (MAW_GROW.far * sh.r - dp) / ((MAW_GROW.far - MAW_GROW.near) * sh.r)))
+        const grow = gu * gu * (3 - 2 * gu)
+        const lit = (c) => lerpTint(c, 0x000000, MAW_GROW.shadow * (1 - grow))
         sv.glow.visible = false     // the lure is punched into the LIGHTMAP (updateDark), not stacked here
         sv.ring.clear()
         const g = sv.body
@@ -14646,6 +14653,7 @@ const spurG = new Graphics()
         //   Everything else in this branch is radially symmetric (a ring of teeth, a rim, a bait at
         // the centre), so rotating costs nothing and no term below has to carry a bearing.
         g.rotation = sh.phase ?? 0
+        g.scale.set(MAW_GROW.minScale + (1 - MAW_GROW.minScale) * grow)
         const toothHash = (n) => {
           const s = Math.sin(n * 12.9898 + (sh.phase ?? 0) * 78.233) * 43758.5453
           return s - Math.floor(s)
@@ -14656,21 +14664,21 @@ const spurG = new Graphics()
         // HIDDEN anglerfish": you steer at a green light and find out what it was attached to on
         // arrival. +x is the brow; the tail's fan shows past it.
         const R = sh.r
-        mawFin(g, R * 1.3, 0, -0.7, 0.7, R * 0.9, 7, M, M.finA * A, toothHash, 300)
-        for (const sg of [-1, 1]) mawFin(g, R * 0.25, sg * R * 1.02, sg * 0.4, sg * 1.9, R * 0.65, 6, M, M.finA * A, toothHash, sg > 0 ? 400 : 500)
+        mawFin(g, R * 1.3, 0, -0.7, 0.7, R * 0.9, 7, M, M.finA * A, toothHash, 300, lit)
+        for (const sg of [-1, 1]) mawFin(g, R * 0.25, sg * R * 1.02, sg * 0.4, sg * 1.9, R * 0.65, 6, M, M.finA * A, toothHash, sg > 0 ? 400 : 500, lit)
         const head = []
         for (let i = 0; i < 40; i++) {
           const a = i / 40 * Math.PI * 2, w = 1 + M.headLump * (toothHash(10 + i) - 0.5)
           head.push(R * 0.3 + Math.cos(a) * R * 1.4 * w, Math.sin(a) * R * 1.28 * w)
         }
-        g.poly(head).fill({ color: M.head, alpha: M.headA * A })
+        g.poly(head).fill({ color: lit(M.head), alpha: M.headA * A })
         for (let i = 1; i <= 4; i++) {   // the brow's faint lift: offset, shrinking lobes
           const k = 1 - i / 5
-          g.ellipse(R * 0.55 + R * 0.2 * (1 - k), -R * 0.23 * (1 - k), R * 1.1 * k, R * 1.05 * k).fill({ color: M.sheen, alpha: 0.1 * A })
+          g.ellipse(R * 0.55 + R * 0.2 * (1 - k), -R * 0.23 * (1 - k), R * 1.1 * k, R * 1.05 * k).fill({ color: lit(M.sheen), alpha: 0.1 * A })
         }
         for (let i = 0; i < 12; i++) {
           const a = toothHash(40 + i) * Math.PI * 2, d = R * (1.12 + 0.3 * toothHash(60 + i))
-          g.circle(R * 0.3 + Math.cos(a) * d * 0.95, Math.sin(a) * d * 0.9, R * (0.04 + 0.06 * toothHash(80 + i))).fill({ color: M.mottle, alpha: 0.3 * A })
+          g.circle(R * 0.3 + Math.cos(a) * d * 0.95, Math.sin(a) * d * 0.9, R * (0.04 + 0.06 * toothHash(80 + i))).fill({ color: lit(M.mottle), alpha: 0.3 * A })
         }
         // The eyes open with the teeth: a lens swept along the head's curve whose height is the
         // eased gape (see MAW_VIS.eyeOpenFrom). Shut, it is a dark slit and nothing else.
@@ -14685,7 +14693,7 @@ const spurG = new Graphics()
           if (open > 0.02) {
             g.moveTo(x0, y0).quadraticCurveTo(ex - ty * h, ey + tx * h, x1, y1)
               .quadraticCurveTo(ex + ty * h, ey - tx * h, x0, y0).closePath()
-              .fill({ color: M.eye, alpha: M.eyeA * A * reveal * (0.4 + 0.6 * open) })
+              .fill({ color: lit(M.eye), alpha: M.eyeA * A * reveal * (0.4 + 0.6 * open) })
           }
         }
         // The hole: darker than any floor this chapter has, and nothing round its edge.
@@ -14699,19 +14707,35 @@ const spurG = new Graphics()
         // trap means anything that changes how many randoms the process draws re-rolls every sampled
         // statistic in the suite. A sin-hash off (index, phase) is stable across frames, different
         // per tooth and different per maw, and draws nothing at all.
-        const len = sh.r * (M.toothShut + (M.toothFull - M.toothShut) * (shut ? 1 : gp))
-        const halfW = sh.r * M.toothW * 0.5
-        for (let t = 0; t < M.teeth; t++) {
-          const a = ((t + M.toothSpread * (toothHash(t + 211) - 0.5)) / M.teeth) * Math.PI * 2
+        // ROWS OF TEETH DOWN THE THROAT, deepest first. A deeper row is smaller and darker, and it
+        // slides toward the player (parallax, the camera looks down from above the player), so the
+        // throat has depth. Row 0 is the rim row and never moves: DP.k's escape-boundary contract.
+        const rot = sh.phase ?? 0, wx = run.player.x - sh.x, wy = run.player.y - sh.y
+        const lx = wx * Math.cos(rot) + wy * Math.sin(rot), ly = -wx * Math.sin(rot) + wy * Math.cos(rot)
+        for (let row = rows - 1; row >= 0; row--) {
+        const rr = sh.r * (1 - row * rowStep)
+        let ox = lx * par * row * rowStep, oy = ly * par * row * rowStep
+        const om = Math.hypot(ox, oy), omax = (sh.r - rr) * 0.8
+        if (om > omax) { ox *= omax / om; oy *= omax / om }
+        const deep = row / Math.max(1, rows)
+        const rowA = 1 - 0.3 * deep
+        const shadeC = (c) => lit(lerpTint(c, M.throat, deep * 0.6))
+        const nT = Math.round(M.teeth * (1 - 0.12 * row))
+        const len = rr * (M.toothShut + (M.toothFull - M.toothShut) * (shut ? 1 : gp)) * (1 - 0.15 * row)
+        const halfW = rr * M.toothW * 0.5
+        if (row > 0) g.circle(ox, oy, rr).stroke({ width: rr * M.rootShadeW * 1.6, color: M.throat, alpha: 0.85 * A })
+        for (let t0 = 0; t0 < nT; t0++) {
+          const t = t0 + row * 1000
+          const a = ((t0 + row * 0.5 + M.toothSpread * (toothHash(t + 211) - 0.5)) / nT) * Math.PI * 2
           const ca = Math.cos(a), sa = Math.sin(a)
           const px = -sa, py = ca                   // across the tooth, i.e. round the ring
           const lenT = len * (1 - M.toothJag + 2 * M.toothJag * toothHash(t + 1))
           const wT = halfW * (1 - M.toothJag + 2 * M.toothJag * toothHash(t + 71))
           // The base sits just OUTSIDE the rim and the point reaches in, which is the contract run
           // DP.k pins: what closes is the needle's length, never the circle the sim tests against.
-          const bcx = (sh.r + wT * 0.4) * ca, bcy = (sh.r + wT * 0.4) * sa
+          const bcx = ox + (rr + wT * 0.4) * ca, bcy = oy + (rr + wT * 0.4) * sa
           const hook = lenT * M.toothHook * (0.35 + toothHash(t + 149))
-          const tipX = (sh.r - lenT) * ca + px * hook, tipY = (sh.r - lenT) * sa + py * hook
+          const tipX = ox + (rr - lenT) * ca + px * hook, tipY = oy + (rr - lenT) * sa + py * hook
           // Each stop is this same fang truncated to `f` of its length, measured BACK FROM THE POINT:
           // its centre is that fraction along the line from point to base and its half-width tapers
           // with it, so the three NEST exactly rather than being three triangles that overlap.
@@ -14725,8 +14749,9 @@ const spurG = new Graphics()
               .quadraticCurveTo((b0x + tipX) / 2 + px * c, (b0y + tipY) / 2 + py * c, tipX, tipY)
               .quadraticCurveTo((b1x + tipX) / 2 + px * c, (b1y + tipY) / 2 + py * c, b1x, b1y)
               .closePath()
-              .fill({ color, alpha: M.toothA * A * toothReveal })
+              .fill({ color: shadeC(color), alpha: M.toothA * A * toothReveal * rowA })
           }
+        }
         }
         // TEETH GROWING IN THE SHADOWS: a dark band over the roots, so the fangs come out of the black
         // and only their points catch the lure.
@@ -14756,6 +14781,8 @@ const spurG = new Graphics()
         }
         continue
       }
+      sv.body.scale.set(1)   // the maw branch scales and turns this Graphics; a pool never does
+      sv.body.rotation = 0
       // Breathe, out of phase per circle (i, not animT alone) so a field of them does not pulse in
       // unison — the same trick placeEddy uses for its twirl layers. The pool's is slower and
       // shallower, and it wanders the SIZE rather than only the alpha: calm water, not a beacon.

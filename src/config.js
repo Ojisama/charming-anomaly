@@ -5091,7 +5091,7 @@ export const MAW_VIS = {
   // around the mouth. It should just be a black hole with teeth growing in the shadows"). It looks up
   // at you out of the water column: a lumpy dark head only a shade off the floor, faint ragged fins,
   // the tail's fan past the brow, two dim eyes. Nothing decorates the mouth itself.
-  head: 0x1d1a20, headA: 0.85, headFrac: 1.26,  // headFrac: the old disc, still read by nothing but kept
+  head: 0x1d1a20, headA: 1, headFrac: 1.26,  // headFrac: the old disc, still read by nothing but kept
   headLump: 0.05,                               // ± on the head's outline, per lobe
   mottle: 0x100d12, sheen: 0x3a3034,            // dark blotches, and the faint lift on the brow
   fin: 0x2a2428, finRay: 0x4a3f3a, finA: 0.42,  // translucent smudges, not fans
@@ -5118,6 +5118,7 @@ export const MAW_VIS = {
   toothMid: 0x5e5546,                           // ...the shank, half in shadow
   toothShade: 0x181611,                         // ...and the jaw end, nearly as dark as the throat
   toothMidF: 0.54, toothLitF: 0.26,             // how much of the fang, back from the point, each covers
+  toothRows: 4, rowStep: 0.17, rowParallax: 0.4, // rows down the throat: count, radius step (x r), slide toward the player
   teeth: 13,                                    // fangs around the ring: few and long, not a comb
   toothSpread: 0.75,                            // ± this fraction of one slot on each fang's angle
   toothW: 0.085,                                // each needle's base width, as a fraction of r. Wider
@@ -5155,6 +5156,9 @@ export const MAW_VIS = {
 // a linear ramp is still plainly legible at 0.3: shot at far 1.7 with the player 292px out, the
 // needles were dimmer and still the loudest thing on screen. The square collapses the far half of
 // the band to a hint and keeps the near half, which is the shape the sentence above describes.
+// The mouth rises out of the dark: from far x r away it is drawn at minScale and near black,
+// and by the rim (near) it is full size and fully lit. Full size AT the rim: DP.k's boundary.
+export const MAW_GROW = { far: 2.4, near: 1.0, minScale: 0.5, shadow: 0.9 }
 export const MAW_REVEAL = {
   far: 1.35,        // where the mouth begins to resolve at all
   near: 1.0,        // ...and where it is fully resolved: the rim itself
