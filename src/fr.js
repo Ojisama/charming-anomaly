@@ -722,6 +722,8 @@ const CONFIG = {
   // every other death uses, and 'l'épave' is the noun the player reads on the chapter's own title.
   'You left the wreck behind! 🎉': 'Tu as laissé l\'épave derrière toi ! 🎉',
   'Gone down with the wreck… ⚓': 'Coulé·e avec l\'épave… ⚓',
+  'Deeper still… something vast is waiting. 🦑': 'Plus bas encore… quelque chose d\'immense t\'attend. 🦑',
+  'Your light went out… 🕯️': 'Ta lumière s\'est éteinte… 🕯️',
   // The Kraken (the graveyard): the boss idiom like The Blank; the death line names the dark.
   'THE KRAKEN FAILED. 🎉': 'LE KRAKEN A ÉCHOUÉ. 🎉',
   'Swallowed by the dark… 🌑': 'Avalé·e par l\'obscurité… 🌑',
