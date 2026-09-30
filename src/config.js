@@ -8895,8 +8895,8 @@ export const INK_HEART_VOLLEY_MUL = 0.3 // x the summed per-cast damage of every
 // on a limb — it should visibly cost that limb something even if you never fire a shot.
 // balance_decision : same raw tear (68hp) on the 2.5x tougher arm, 2026-09-26
 export const KRAKEN_EXPOSE_BITE = 0.072 // of the arm's max, on the parry that exposes it
-// balance_decision : head HP tripled, owner 2026-09-27
-export const KRAKEN_HEAD_HP = 13200
+// balance_decision : head HP tripled again, owner 2026-09-30
+export const KRAKEN_HEAD_HP = 39600
 // THE HEAD HAS TO FIT THE CAGE IT IS IN. At 190 the bare head drew ~464px wide inside an 837px
 // arena — 60% of a phone screen, half of it off-frame — and, worse, its drawn half-extent (232px)
 // was LARGER than KRAKEN_ARM_REACH, so every exposed limb (the thing the design tells you to go and
@@ -9170,7 +9170,9 @@ export const KRAKEN_WAVE = { n: 18, ids: ['krakenDart', 'krakenSnare', 'krakenWa
 //    bossIdx >= 2, so counting them there would pull D3's ring closure a whole block earlier.
 export const KRAKEN_OPEN_WAVES = 3
 export const KRAKEN_WAVE_GROWTH = 6 // extra dead per opening wave — 18, then 24, then 30
-export const KRAKEN_WAVE_CAP = 48 // most dead on the field once a wave has spawned
+// balance_decision : waves after an arm block tripled, owner 2026-09-30
+export const KRAKEN_BREAK_WAVE_MUL = 3 // x KRAKEN_WAVE.n, every wave once the arms have come
+export const KRAKEN_WAVE_CAP = 144 // most dead on the field once a wave has spawned
 // THE ARENA IS BUILT, NOT CUT TO. Rev 3 raised the head under the player and stood the whole ring
 // up on one frame, which reads as being teleported into a boss room (owner, 2026-09-14: "currently
 // you are 'teleported' to the boss, thats weird and confusing"). The arms now come from
