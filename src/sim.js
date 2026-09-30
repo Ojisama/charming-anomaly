@@ -240,7 +240,7 @@ import {
   KRAKEN_LUNGE_T, KRAKEN_LUNGE_WINDUP_T, KRAKEN_LUNGE_DMG, KRAKEN_RISE_T,
   KRAKEN_COIL_EVERY, KRAKEN_COIL_AT, KRAKEN_COIL_RAYS, KRAKEN_COIL_STAR_TRIES, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, KRAKEN_COIL_IN, KRAKEN_COIL_DMG,
   hasSkillButton,
-  KRAKEN_WAVE, KRAKEN_WAVE_CAP, KRAKEN_WAVE_GAP, KRAKEN_WAVE_TIMEOUT, KRAKEN_WAVE_XP_MUL,
+  KRAKEN_WAVE, KRAKEN_BREAK_WAVE_MUL, KRAKEN_WAVE_CAP, KRAKEN_WAVE_GAP, KRAKEN_WAVE_TIMEOUT, KRAKEN_WAVE_XP_MUL,
   KRAKEN_OPEN_WAVES, KRAKEN_WAVE_GROWTH, KRAKEN_ARRIVE_T, KRAKEN_ARRIVE_T2, KRAKEN_SLAM_T,
   KRAKEN_LESSON_SLOW, KRAKEN_LESSON_MAX, KRAKEN_LESSON_TIP_T,
   KRAKEN_PARRY_SHOVE_R, KRAKEN_PARRY_SHOVE_FORCE, KRAKEN_PARRY_DAZE,
@@ -1709,7 +1709,7 @@ function stepKrakenWave(run, dt) {
     // THE APPROACH GETS HEAVIER. The opening is three waves, not one, and each is KRAKEN_WAVE_GROWTH
     // bigger than the last — the chapter you are in before the boss exists, the way The Blank's is.
     // One wave meant the Kraken was standing on top of the player eleven seconds into the run.
-    const want = KRAKEN_WAVE.n + (s.armsSpawned ? 0 : s.openW * KRAKEN_WAVE_GROWTH)
+    const want = s.armsSpawned ? KRAKEN_WAVE.n * KRAKEN_BREAK_WAVE_MUL : KRAKEN_WAVE.n + s.openW * KRAKEN_WAVE_GROWTH
     for (let i = 0; i < Math.min(want, room); i++) {
       const e = spawnBlankEnemy(run, KRAKEN_WAVE.ids[i % KRAKEN_WAVE.ids.length], false, { gapDir, gapArc: KRAKEN_WAVE_GAP })
       if (!e) break // BLANK_MAX_ALIVE — the field is already saturated
