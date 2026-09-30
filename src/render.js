@@ -21741,22 +21741,35 @@ void main() {
           rig.under.alpha = show
           // Everything below is placed in the BELLY's own drawn half-width (krakenUnderHW), the only
           // frame that lines up with the bake. u in [-1, 1] across the belly.
-          const bandU = (u0, u1, col, al, from = K_BELLY_FROM) => {
-            for (let k = Math.max(k0, Math.floor(from * (N - 1))); k < N - 1; k++) {
-              const t = k / (N - 1), ramp = Math.min(1, (t - K_BELLY_FROM) / 0.12)
-              const q = krakenAlong(rig.pts, t), q2 = krakenAlong(rig.pts, (k + 1) / (N - 1))
-              const h = krakenUnderHW(t), h2 = krakenUnderHW((k + 1) / (N - 1)), m = (u0 + u1) / 2
-              G.moveTo(q.x + q.nx * h * m, q.y + q.ny * h * m).lineTo(q2.x + q2.nx * h2 * m, q2.y + q2.ny * h2 * m)
-                .stroke({ width: Math.max(0.5, h * (u1 - u0)) * ramp, color: col, alpha: al, cap: 'round' })
+          // ONE FILLED STRIP PER RUN OF EQUAL ALPHA, not a round-capped stroke per segment: that was
+          // ~160 strokes per limp arm rebuilt every frame, the fight's worst CPU spike.
+          // cOf/hwOf: the band's centre offset and half-width in px at t; alOf: its alpha there.
+          const strip = (from, col, cOf, hwOf, alOf) => {
+            let L = [], Rr = [], cur = -1
+            const edge = (k) => {
+              const t = k / (N - 1), q = krakenAlong(rig.pts, t), c = cOf(t), w = hwOf(t)
+              L.push(q.x + q.nx * (c - w), q.y + q.ny * (c - w)); Rr.push(q.x + q.nx * (c + w), q.y + q.ny * (c + w))
             }
+            const flush = () => {
+              if (cur > 0 && L.length >= 4) { for (let i = Rr.length - 2; i >= 0; i -= 2) L.push(Rr[i], Rr[i + 1]); G.poly(L).fill({ color: col, alpha: cur }) }
+              L = []; Rr = []
+            }
+            for (let k = Math.max(k0, from); k < N - 1; k++) {
+              const al = Math.round(alOf(k / (N - 1)) * 16) / 16
+              if (al !== cur) { if (L.length) edge(k); flush(); cur = al }
+              edge(k)
+            }
+            edge(N - 1); flush()
           }
+          const bandU = (u0, u1, col, al) => strip(Math.floor(K_BELLY_FROM * (N - 1)), col,
+            (t) => krakenUnderHW(t) * (u0 + u1) / 2,
+            (t) => Math.max(0.5, krakenUnderHW(t) * (u1 - u0)) * Math.min(1, (t - K_BELLY_FROM) / 0.12) / 2,
+            () => al)
           // GREY FROM THE TIP: living flesh warm, spent flesh grey
           rig.under.tint = fl > 0 ? 0xf0e8ec : mix(0xd8b8c4, 0xffffff, hurt)
-          for (let k = Math.max(k0, Math.floor(spentFrom * (N - 1)) - 3); k < N - 1; k++) {
-            const t = k / (N - 1), soft = Math.max(0, Math.min(1, (t - spentFrom) / 0.08 + 0.5))
-            const q = krakenAlong(rig.pts, t), q2 = krakenAlong(rig.pts, (k + 1) / (N - 1))
-            G.moveTo(q.x, q.y).lineTo(q2.x, q2.y).stroke({ width: 2 * krakenUnderHW(t) * 0.95, color: 0x9e969a, alpha: show * 0.45 * soft, cap: 'round' })
-          }
+          // cubed: the per-segment round caps it replaced overlapped ~3 deep, and that opacity IS the look
+          strip(Math.floor(spentFrom * (N - 1)) - 3, 0x9e969a, () => 0, (t) => krakenUnderHW(t) * 0.95,
+            (t) => 1 - (1 - show * 0.45 * Math.max(0, Math.min(1, (t - spentFrom) / 0.08 + 0.5))) ** 3)
           // THE SUCKERS GO SLACK: each spent cup's hole fills with the flesh round it; a hit closes two more
           {
             let x = 0.35 * 2000 + 40, row = 0
