@@ -1186,6 +1186,9 @@ function generateWells(sig) {
  * RUN_DURATION (sim.js curveT), the escalator is the endless level, the coin cap is off.
  * _endlessBase: { enemySpeedMul, spawnMul, maxAliveMul, enemyDmgMul, coinMul, enemyHpMul }, the
  * run.mods snapshot taken at createRun that stepEndless rescales from each step (null otherwise).
+ * _endlessNextMilestone?: run.time of the next milestone (forced elite wave + one mutator drip);
+ *   lazily set by stepEndlessMilestones, Infinity opts a test out. Event {type:'endlessMutator', id}
+ *   fires per drip.
  * _endlessPinLevel?: probe/test hook; when set, stepEndless uses it instead of endlessLevel(time).
  *
  * bombs[i]: { x, y, radius, fuse, duration, dmg, src?, core? }  volatile-elite death bombs
@@ -2610,7 +2613,7 @@ export function createRun(meta, opts = {}) {
     // other shop line, so it dresses whichever body this book uses. DEV wears it outright, same
     // permission-is-the-flag idea as the WIP chapters — the point of dev mode is to see it.
     skin: shopLevel(bm, 'cheeks') > 0 || meta?.dev === true ? 'cheeks' : null,
-    mutators: opts.mutators ?? [],
+    mutators: [...(opts.mutators ?? [])],
     mods,
     consumables,
     revives: consumables.includes('revive') ? 1 : 0,

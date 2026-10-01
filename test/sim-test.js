@@ -31,7 +31,7 @@ import {
   BLOOD_PACT_PER_ELITE, BLOOD_MONEY_HP, STILLNESS_RAMP, CHAOS_PACT_PERIOD, CHAOS_PACT_SURGE,
   ALIGNMENT_POTENCY_MUL, DEADFALL_REARM_MUL, SOY_MILK_FIRE_MUL, SOY_MILK_DMG_MUL, SOY_MILK_CC_MUL,
   ANOMALY_REROLL_MUL, ANOMALY_REROLL_PITY_REFUND, LAST_BREATH_DROWN_TAKEN_MUL,
-  MUTATORS, mergeMutatorMods, randomMutators, rerollMutator,
+  MUTATORS, mutatorPool, ENDLESS_MILESTONE_S, ENDLESS_MILESTONE_ELITES, mergeMutatorMods, randomMutators, rerollMutator,
   sacrificeCost, MAX_CHOICE_SLOTS, resolveChapterId,
   SHIELD_HP_FRAC, SHIELD_DMG_MUL, SPLITTER_COUNT, VOLATILE_FUSE, VOLATILE_RADIUS, VOLATILE_DMG,
   MAX_PASSIVE_LEVEL, MAX_ELEMENT_PICKS, passiveTotal,
@@ -469,6 +469,51 @@ function testEndlessRamp() {
   assert.ok(Math.abs(run.mods.enemyHpMul - base.enemyHpMul * endlessHpMul(d)) < 1e-9)
   assert.ok(run.mods.enemyHpMul > base.enemyHpMul * (1 + ENDLESS_HP_PER_LEVEL), 'hp must have grown')
   console.log(`PASS run EN.d (endless ramp): d=${d.toFixed(2)} at ${(run.time / 60).toFixed(1)}min, dmgMul=${run.mods.enemyDmgMul.toFixed(3)}`)
+}
+
+function testEndlessMilestones() {
+  Math.random = mulberry32(20261002)
+  const run = createRun(makeMeta(), { chapter: 'body', endless: true })
+  run.player.hp = run.player.maxHP = 1e12
+  run._nextEliteAt = 1e9                    // isolate the forced wave from the cadence
+  const cadence = run._nextEliteAt
+  const pool = mutatorPool('body')
+  run.time = ENDLESS_MILESTONE_S - 0.5   // jump the clock: advance() under-runs time on level-ups
+  stepSim(run, { x: 0, y: 0 }, 1 / 60)
+  assert.strictEqual(run.mutators.length, 0, 'no drip before the first milestone')
+  const elitesBefore = run.enemies.filter((e) => e.elite).length
+  while (run.time < ENDLESS_MILESTONE_S + 0.1) stepSim(run, { x: 0, y: 0 }, 1 / 60)
+  stepSim(run, { x: 0, y: 0 }, 1 / 60)   // flushSpawns on the next step
+  assert.strictEqual(run.mutators.length, 1, 'one mutator per milestone')
+  const id = run.mutators[0]
+  assert.ok(pool.includes(id), `${id} not in body's pool`)
+  const fresh = createRun(makeMeta(), { chapter: 'body', endless: true })
+  for (const [k, v] of Object.entries(MUTATORS[id].effects)) {
+    if (k in run._endlessBase) {
+      assert.ok(Math.abs(run._endlessBase[k] / fresh._endlessBase[k] - v) < 1e-9, `${k} not folded into the base`)
+    }
+  }
+  const elitesAfter = run.enemies.filter((e) => e.elite).length + (run._spawnQueue ?? []).filter((e) => e.elite).length
+  assert.ok(elitesAfter - elitesBefore >= ENDLESS_MILESTONE_ELITES, `forced elites: +${elitesAfter - elitesBefore}`)
+  assert.strictEqual(run._nextEliteAt, cadence, 'forced elites must not move the cadence')
+  // a mutator keyed outside the base lands in run.mods directly
+  const other = pool.find((m) => Object.keys(MUTATORS[m].effects).some((k) => !(k in fresh._endlessBase) && typeof fresh.mods[k] === 'number'))
+  if (other) {
+    const probe = createRun(makeMeta(), { chapter: 'body', endless: true })
+    probe._endlessNextMilestone = 0
+    probe.mutators.push(...pool.filter((m) => m !== other))
+    probe.time = 1
+    stepSim(probe, { x: 0, y: 0 }, 1 / 60)
+    assert.strictEqual(probe.mutators.at(-1), other, 'only one mutator was left to drip')
+    for (const [k, v] of Object.entries(MUTATORS[other].effects)) {
+      if (!(k in probe._endlessBase) && typeof fresh.mods[k] === 'number') assert.ok(Math.abs(probe.mods[k] / fresh.mods[k] - v) < 1e-9, `${k} not applied to run.mods`)
+    }
+  }
+  // drip exhausts cleanly: jump milestone by milestone, one step each (cheap)
+  for (let i = 0; i < pool.length + 2; i++) { run.time = run._endlessNextMilestone; stepSim(run, { x: 0, y: 0 }, 1 / 60) }
+  assert.strictEqual(new Set(run.mutators).size, run.mutators.length, 'no duplicate drip')
+  assert.ok(run.mutators.length <= pool.length)
+  console.log(`PASS run EN.f (milestones): first drip ${id}, +${elitesAfter - elitesBefore} elites, pool ${pool.length}, mods-direct ${other ?? 'none'}`)
 }
 
 function testEndlessCoins() {
@@ -20312,6 +20357,7 @@ try {
   run(testEndlessCurvesFrozen)
   run(testEndlessRamp)
   run(testEndlessCoins)
+  run(testEndlessMilestones)
   run(testNewWeapons)
   run(testRaritySanity)
   run(testPoolBuckets)

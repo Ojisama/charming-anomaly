@@ -254,6 +254,7 @@ import {
   // v6.7.11: the level-up reroll's price ladder — rerollLevelUpChoices owns the whole purchase
   rerollCost,
   difficultySpeedMul, difficultyCountMul, difficultyDmgMul, endlessLevel, endlessHpMul, ENDLESS_COIN_HALF_LIFE_S,
+  ENDLESS_MILESTONE_S, ENDLESS_MILESTONE_ELITES, mutatorPool, MUTATORS,
 } from './config.js'
 
 const KB_DECAY_RATE = 6 // per-second exponential-ish decay factor for enemy knockback
@@ -4022,14 +4023,15 @@ function elNeverFreezes(e) { return !!(e.affixes && e.affixes.includes('anchored
 // normal spawn-timer path in stepSpawning.
 
 function spawnEnemy(run, opts = {}) {
-  const isElite = !opts.forceNormal && run.time >= run._nextEliteAt
+  const cadence = !opts.forceNormal && run.time >= run._nextEliteAt
+  const isElite = opts.forceElite === true || cadence
   // BOTH ELITE JACKPOTS BRING THEIR OWN ELITES (config: ELITE_SURGE_EVERY_MUL). Read-time, never
   // written into run.mods — that table is the run's mutator product and must stay fixed.
   //
   // ONCE, not once per card. `||` and not a product: holding Submission and Unstable Cores
   // together is intended and they are specced to combine, but compounding the cadence would be
   // 9x elites rather than 3x, and a jackpot pair should not quietly become a difficulty setting.
-  if (isElite) {
+  if (cadence) {
     const eliteSurge = run.anomalies?.submission || run.anomalies?.unstableCores
     run._nextEliteAt += eliteEveryAt(curveT(run), lateEliteFor(run.chapter)) * run.mods.eliteEveryMul
       * (eliteSurge ? ELITE_SURGE_EVERY_MUL : 1)
@@ -4264,14 +4266,6 @@ function stepStragglers(run) {
   }
 }
 
-// split flag (v5.0, see CHAPTERS roster in config.js): spawns SPLIT_CHILD_COUNT smaller clones
-// of a dying enemy around its corpse — reuses the same corpse-scatter shape as the elite
-// splitter affix (see dealDamage's death branch), but derives the children's hp/radius as a
-// fraction of the PARENT's own stats (not a fresh ENEMIES/hpScale spawn) per the v5.0 spec.
-// Children are flagged `_splitChild: true` so a further death never re-triggers this (see the
-// guard at the call site).
-// Move anything queued during the last step into the world. Tolerates an older save/probe that
-// built a run without the field, since createRun is not the only thing that ever makes one.
 // ENDLESS (spec 2026-10-01): the level climbs on run.time; every difficulty mul is recomputed from
 // the createRun base, never chained, so thousands of steps cannot drift.
 function stepEndless(run) {
@@ -4288,14 +4282,39 @@ function stepEndless(run) {
   stepEndlessMilestones(run)
 }
 
-function stepEndlessMilestones(run) {}   // Task 4 fills this
+// Every ENDLESS_MILESTONE_S: a forced elite wave (off the cadence) and one random chapter mutator.
+// The base-keyed effects fold into _endlessBase so stepEndless's recompute keeps them.
+function stepEndlessMilestones(run) {
+  run._endlessNextMilestone ??= ENDLESS_MILESTONE_S
+  if (run.time < run._endlessNextMilestone) return
+  run._endlessNextMilestone += ENDLESS_MILESTONE_S
+  for (let i = 0; i < ENDLESS_MILESTONE_ELITES; i++) spawnEnemy(run, { forceElite: true })
+  const pool = mutatorPool(run.chapter).filter((id) => !run.mutators.includes(id))
+  if (pool.length === 0) return
+  const id = pool[Math.floor(Math.random() * pool.length)]
+  run.mutators.push(id)
+  for (const [k, v] of Object.entries(MUTATORS[id].effects)) {
+    if (k in run._endlessBase) run._endlessBase[k] *= v
+    else run.mods[k] *= v
+  }
+  run.events.push({ type: 'endlessMutator', id })
+}
 
+// Move anything queued during the last step into the world. Tolerates an older save/probe that
+// built a run without the field, since createRun is not the only thing that ever makes one.
 function flushSpawns(run) {
   const q = run._spawnQueue
   if (!q || q.length === 0) return
   for (const e of q) run.enemies.push(e)
   q.length = 0
 }
+
+// split flag (v5.0, see CHAPTERS roster in config.js): spawns SPLIT_CHILD_COUNT smaller clones
+// of a dying enemy around its corpse — reuses the same corpse-scatter shape as the elite
+// splitter affix (see dealDamage's death branch), but derives the children's hp/radius as a
+// fraction of the PARENT's own stats (not a fresh ENEMIES/hpScale spawn) per the v5.0 spec.
+// Children are flagged `_splitChild: true` so a further death never re-triggers this (see the
+// guard at the call site).
 
 // `count` is the caller's, so the ONE place that knows how many children there are stays the call
 // site; everything about what a child IS comes off the parent's own `split` override, falling back
