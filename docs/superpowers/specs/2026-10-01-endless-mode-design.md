@@ -1,171 +1,234 @@
-# Endless mode — design (rev 1, 2026-10-01)
+# Endless mode — design (rev 2, 2026-10-01)
 
 ## Goal
 
 A per-chapter survival mode: no 300s victory, difficulty climbs until you die, and the score is
 how long you lasted. Ranked on a per-chapter leaderboard.
 
-## Rulings (owner, brainstorm 2026-10-01)
+## Rulings (owner, 2026-10-01)
 
 | Question | Ruling |
 |---|---|
 | What the player chases | Survival time, ranked per chapter |
-| Difficulty | Starts at D1 and escalates on its own |
-| Shape of the escalation | Continuous (a float), not steps |
-| Ramp | Slow at first, then quadratic |
-| Extras | Milestone elites, **mutator drip**, a **growing share of ordinary enemies carrying affixes** |
+| Difficulty | Starts at D1 and escalates on its own, continuously (a float) |
+| Shape of the ramp | Slow at first, then quadratic |
+| What drives the ramp | **The time curves freeze at 300s; the endless level is the ONLY escalator** |
+| Extras | Milestone elites, mutator drip, a growing share of ordinary enemies carrying affixes |
+| Crowd affixes | **Every affix ungated for ordinary enemies** |
+| Caps on speed or crowd size | **None for now; judge in playtest** |
+| Revive consumable | **Allowed** |
+| Coins | **No cap; drops halve every minute** |
 | Leaderboard key | `difficulty: 0` as the endless partition |
 | Entry point | An ∞ pip after the D1–D5 pips |
 
-Considered and **not** in v1: anti-sustain (healing decay), named-tier HUD, a giants-only finale,
-signature escalation, a ghost of your best, push-your-luck cash-out, a daily seed.
+Considered and **not** in v1: anti-sustain, named-tier HUD, a giants-only finale, signature
+escalation, a ghost of your best, cash-out, a daily seed.
 
 ## Scope
 
-- **Eligible:** every chapter that has the 300s timer victory, i.e. `!scripted && !circuit`:
-  body, pond, garden, undergrowth, city, skies, beyond, shelf, surf, wreck, trawl, deep.
-  Derive the set from `Object.keys(CHAPTERS)` with that predicate, never from `CHAPTER_ORDER`
-  (CLAUDE.md: `CHAPTER_ORDER` is Book 1 only).
-- **Excluded:** blank and kraken (scripted boss fights) and reef (a circuit race, with no clock to
-  survive against).
+- **Eligible:** chapters with `!scripted && !circuit && (!isWipChapter(id) || meta.dev)`. That is
+  body, pond, garden, undergrowth, city, skies, beyond, shelf, surf, wreck, trawl, deep. Enumerate
+  over `Object.keys(CHAPTERS)`, never `CHAPTER_ORDER`.
+- **Excluded:** blank and kraken (scripted bosses) and reef (a circuit race).
 - **Unlock:** per chapter, `meta.chapters[id].won >= CHAPTER_UNLOCK_DIFFICULTY` (3).
 
 ## Sim
 
 ### Run flag
 
-`createRun(chapter, { endless: true })` sets `run.endless = true` and `difficulty = 1`. It skips
-the D1 `EARLY_CALM` thinning: endless starts at D1, but it is not the onboarding run.
+`createRun(chapter, { endless: true })` sets `run.endless = true` and `difficulty = 1`, and skips
+`EARLY_CALM`.
 
-### No timer victory
+### Time curves frozen at 300s
 
-`stepSim`'s victory gate gains `&& !run.endless`. **Sweep every other `RUN_DURATION` reader** (18
-sites across config/sim/ui). Anything computing "time remaining" must treat endless as unbounded:
-Chaos Pact's `when` gate, `spawnTiltMul`, `eliteEveryAt` and the HUD countdown at least. List the
-outcome for each site in the plan.
+For an endless run, every time curve reads `tc = Math.min(run.time, RUN_DURATION)` instead of
+`run.time`:
+- `hpScale`, `spawnRate`, `dmgScale`, `speedCreepMul`, `eliteEveryAt`, `spawnTiltMul`;
+- the wave table, the late spawn multiplier and the mower.
+
+So the first 5 minutes play exactly like a normal run's curve, and after that only the endless
+level escalates.
+
+- **Implementation:** one helper, `curveTime(run)`, that every one of those sim call sites goes
+  through. The plan must list every site that reads `run.time` into a curve. A site that is missed
+  keeps ramping on its own, so grep for each curve's name, not just for `run.time`.
+- `run.time` itself keeps advancing (the HUD and the milestones use it).
+
+### Other `RUN_DURATION` readers
+
+- **sim.js:316, the victory gate:** add `&& !run.endless`.
+- **config.js:1015, Chaos Pact's `when` gate:** treat the time remaining as unbounded in endless,
+  so the card stays offerable.
+- **ui.js:2117 and 2506, the HUD clocks:** count up in endless, never down to a stuck 0:00.
 
 ### The ramp: `stepEndless(run, dt)`
 
-`run.difficulty = endlessLevel(run.time)`, where
-
 ```
-endlessLevel(t) = 1 + ENDLESS_RAMP_A * m + ENDLESS_RAMP_B * m * m     // m = t / 60
+endlessLevel(t) = 1 + ENDLESS_RAMP_A * m + ENDLESS_RAMP_B * m * m     // m = run.time / 60
 ```
 
-It reads `run.time` (not real time), so Time Debt compresses endless the same way it compresses a
-normal run.
+- `run.difficulty = endlessLevel(run.time)`. `run.difficulty` is read elsewhere only for the
+  Kraken's rung, which an endless run never reaches, so a float is safe there (verified).
+- **Recompute from a base, never chain ratios:** `createRun` stores
+  `run._endlessBase = { enemySpeedMul, spawnMul, maxAliveMul, enemyDmgMul, coinMul }`, each value
+  divided by its D1 multiplier. Every step then recomputes:
+  - `enemySpeedMul = base * difficultySpeedMul(d)`;
+  - `spawnMul` and `maxAliveMul = base * difficultyCountMul(d)`;
+  - `enemyDmgMul = base * difficultyDmgMul(d)`.
+- Nothing else writes those keys mid-run (verified), so the recompute clobbers nothing. The mutator
+  drip multiplies into `_endlessBase`.
 
-Each step, rescale the four difficulty multipliers already baked into `run.mods` by the
-`mul(new) / mul(old)` ratio:
-- `enemySpeedMul` via `difficultySpeedMul`;
-- `spawnMul` and `maxAliveMul` via `difficultyCountMul`;
-- `enemyDmgMul` via `difficultyDmgMul`.
+### Coins
 
-All three are linear in `d` and already accept floats (config.js:5277-5288). Nothing downstream
-learns that endless exists.
-
-**Coins do NOT follow the difficulty ladder in endless.** `difficultyCoinMul` stays at its D1
-value (1). Coin drops instead decay: `coinMul = base * 0.5 ^ (run.time / 60)`, so they halve every
-minute, smoothly (a continuous curve, like the ramp, not a cliff on the minute).
-- `COIN_CAP_PER_RUN` does **not** apply to an endless run, in `stepPickups` or in `endRun`.
-- Consequence: drops sum to about 1.44 minutes' worth of first-minute income, however long the run
-  lasts. The only income that grows without limit is the end-of-run kill bonus.
-
-- **Drift guard:** a few thousand multiplications per run accumulate float error. Keep
-  `run._endlessBase` (the `mods` values divided by `mul(1)` at `createRun`) and recompute each
-  multiplier as `base * mul(d)` rather than chaining ratios. Mutator drip (below) multiplies into
-  that base too.
-- Starting values for `A`/`B` are placeholders, to be fixed by a probe (see Balance).
+- `difficultyCoinMul` stays at 1 in endless. Every step:
+  `coinMul = base.coinMul * 0.5 ^ (run.time / 60)`, a smooth halving every minute.
+- **`COIN_CAP_PER_RUN` does not apply in endless**, either in `stepPickups` or in `endRun`.
+- The kill bonus (main.js:749) uses `difficultyCoinMul(1)` in endless.
+- **Stated consequence:** endless pays little. Drops add up to about 1.44 minutes' worth of
+  first-minute income, the kill bonus grows like `sqrt(kills)`, and rerolls get expensive late.
+  That is intended.
 
 ### Milestones: every `ENDLESS_MILESTONE_S` seconds (start at 120)
 
-1. **Elite wave:** force-spawn `ENDLESS_MILESTONE_ELITES` elites through `spawnEnemy`. Run SQ
-   requires every enemy push to go through `spawnEnemy`/`flushSpawns`.
-2. **Mutator drip:** pick a random id from `MUTATORS`.
-   - Exclude anything already in `run.mutators`, anything `hidden`, and anything whose `chapters`
-     list excludes this chapter.
-   - Push it onto `run.mutators`, so the behaviour mutators that read the array work as is.
-   - Multiply its `effects` into `run.mods` the way `mergeMutatorMods` does.
-   - Emit `{type: 'endlessMutator', id}`, and give it a render/HUD banner. Run EV requires that
-     consumer.
-   - When the pool is empty, the drip stops.
+1. **Elite wave:** `ENDLESS_MILESTONE_ELITES` elites through `spawnEnemy` with a new
+   `opts.forceElite`. Today elite status comes only from `run.time >= run._nextEliteAt`
+   (sim.js:4020); `forceElite` must not move that cadence.
+2. **Mutator drip:**
+   - Export `mutatorPool(chapterId)` (config.js:5318). It already handles `hidden`, `chapters`,
+     `exclude` and `noGenericMutators`. Filter out anything already in `run.mutators` and pick at
+     random.
+   - Push the id onto `run.mutators` and multiply its `effects` into `run.mods` and `_endlessBase`.
+     Every effect is read live (verified), so a mid-run add works.
+   - Emit `{type: 'endlessMutator', id}`. It needs a render banner and an `SFX_FOR_EVENT` entry
+     (milestones are rare, so a sound is fine), or else a `SILENT_BY_DESIGN` line (run EV).
+   - When the pool is empty (it is small: about 8 generic mutators plus 1-2 per chapter), the drip
+     stops.
 
-### Affixed crowd
+### Affixed crowd (every affix ungated)
 
-In `spawnEnemy`, when `run.endless && !isElite`, roll `Math.random() < endlessAffixChance(d)`.
-On a hit, `affixes = rollAffixes(run).slice(0, 1)`, i.e. one affix.
-
+**The roll:** in `spawnEnemy`, when
+`run.endless && !isElite && !opts.forceNormal && !opts.deferred`, roll
+`Math.random() < endlessAffixChance(d)`. On a hit, set `affixes = rollAffixes(run).slice(0, 1)`.
+- The `forceNormal`/`deferred` guard stops splitter children rolling splitter again, which would
+  chain.
 - `endlessAffixChance(d) = clamp((d - ENDLESS_AFFIX_FROM) * ENDLESS_AFFIX_PER_LEVEL, 0, ENDLESS_AFFIX_MAX)`.
   Start with from = 3, 0.07/level, max 0.5.
-- **`gilded` triples a normal enemy's HP** (`GILDED_HP_MUL`). Decide in the plan whether gilded is
-  excluded from the crowd roll or allowed through as is.
-- **Render gap:** `render.js:28265` draws affix icons for elites only, on purpose, because the
-  Antibody carries an internal `anchored`. Set `e.affixVisible = true` on endless-affixed normal
-  enemies and change that line to `(e.elite || e.affixVisible)`. Without this the mechanic is
-  invisible, and invisible looks the same as broken (CLAUDE.md, contract fields).
+
+**Ungating.** Today every affix that matters checks `enemy.elite`. Change those checks to
+`(enemy.elite || enemy.affixVisible)`, so normal runs are unaffected:
+
+| Affix | Gate site | Normal-enemy behaviour | Payout on a normal |
+|---|---|---|---|
+| gilded | sim.js:4164 (HP), 9468 (coins) | `GILDED_HP_MUL` HP | Gilded coins, scaled by `coinMul` (decays) |
+| shielded | sim.js:9314 | same shield | none |
+| splitter | sim.js:9488 | `SPLITTER_COUNT` wisps | none (wisps pay normally) |
+| volatile | sim.js:9496, 5680 | corpse bomb | none |
+| pacer | already ungated | — | — |
+| frenzied | already ungated | — | — |
+
+- Elite coin and xp payouts stay keyed on `e.elite`, so an affixed normal enemy is not an elite.
+- Set `e.affixVisible = true` on these enemies. Change render.js:28265 to
+  `(e.elite || e.affixVisible)`. Also check render.js:29056 (the shield tell already draws for any
+  `e.affixes`), so it now matches the sim.
+- **Ungating must not reach The Blank's Antibody,** whose `anchored` is internal and not
+  `affixVisible`.
 
 ## Meta, save and unlock
 
-- **Additive field only:** `meta.chapters[id].endlessBest` (milliseconds of real time, 0 when the
-  mode has never been played). Read with `?? 0`; no SCHEMA bump (R2).
-- **`endRun` (main.js) for an endless run:**
-  - it never bumps `maxDifficulty`, `won`, chapter unlocks or `best.time`;
-  - it updates `endlessBest` from `run._realTime`, the honest unit under Time Debt;
-  - coins are banked with no cap. The kill bonus uses `difficultyCoinMul(1)`, **not** the endless
-    level at death. Otherwise the existing line (main.js:749) would pay up to +25% per level and
-    undo the halving.
-- **The dev gate still refuses submission** (run LB).
+- **Additive field:** `meta.chapters[id].endlessBest` (ms of `run._realTime`), read with `?? 0`. No
+  SCHEMA bump.
+- **The ∞ selection is NOT stored as `difficulty: 0`.**
+  - `onDifficulty` (main.js:373), `ensureChapterMeta` (state.js:236, `|| 1`) and `loadPodium`
+    (ui.js:4200, `?? 1`) all turn a 0 into 1, so it would silently start a D1 normal run.
+  - Instead, use an additive `meta.chapters[id].endlessPicked` boolean, so an old build ignores it.
+  - Send `endless` explicitly through `onPlay` → `pendingPlay` → `startClassic` → `createRun`
+    (main.js:185-200).
+- **`endRun` for an endless run:**
+  - it never bumps `maxDifficulty`, `won` or unlocks (all already gated on `victory`);
+  - it **also gates `meta.best.time`** (main.js:759-763, which today is not gated);
+  - it updates `endlessBest`, banks coins with no cap, and uses the kill bonus at D1.
+- **Dev gate:** a dev run still never submits (run LB).
 
 ## Leaderboard
 
-- The client submits `{ chapter, difficulty: 0, kills, level, surviveMs }`.
-- Worker:
-  - widen `int(difficulty, 1, 9)` to `0..9` at both sites;
-  - add a `survive_ms INTEGER` column (`worker/migrate-scores-survive.sql`);
-  - `readBoards` adds `survive` = `survive_ms IS NOT NULL ORDER BY survive_ms DESC, at ASC LIMIT 3`;
-  - `survive_ms` is accepted **only** when `difficulty === 0`, and is required there.
-- Add `boards.survive ?? []` to the tolerated-missing list in scores.js, as with `time`/`lap`.
-  `podiumRank` gains `surviveMs`.
-- The summary screen shows the survive podium for endless runs.
+**Client:**
+- main.js:953 currently submits `run.difficulty ?? 1`, which would be a float like 7.4 and rejected.
+  Endless must send **`difficulty: 0` explicitly**.
+- `submitScore` (scores.js:136-142) forwards a fixed list of fields, so add `surviveMs`.
+- `podiumRank` gains `surviveMs`.
+- Add `boards.survive ?? []` to the tolerated-missing list.
+- `boardsFor` (ui.js:733) picks boards per chapter, so it needs an endless branch that shows `kills`
+  / `level` / `survive`.
+
+**Worker:**
+- `worker/migrate-scores-survive.sql`: `ALTER TABLE scores ADD COLUMN survive_ms INTEGER`, plus the
+  index `scores_survive (chapter, difficulty, survive_ms DESC, at ASC)`. Mirror both in
+  schema.sql, column last.
+- Widen `int(difficulty, 1, 9)` to `0..9` at both sites (index.js:174, 184).
+- `survive_ms`: `int(…, 1, 3600000)`, accepted **only** when `difficulty === 0`, and required
+  there.
+- Add `survive_ms` to `boardRow` (index.js:108). `readBoards` adds `survive`:
+  `survive_ms IS NOT NULL ORDER BY survive_ms DESC, at ASC LIMIT 3`.
+- **Deploy order:** worker migration → worker deploy → client ship.
 
 ## UI
 
-- **Chapter card:** an ∞ pip after the difficulty pips, rendered only when the chapter is eligible
-  and unlocked. Selecting it starts the run with `endless: true`.
-- **HUD:** the clock counts up and shows the level as `∞ 7.4`. Milestone banners announce the
-  mutator by its existing (translated) name.
-- **Summary:** a survival time and "Best: mm:ss" in place of the victory/defeat framing. Copy goes in
-  a config table so run XX walks it; French wording to be confirmed with the owner (memory:
-  french-copy-ask-the-owner).
-- **The ∞ icon is drawn as an inline SVG, not a glyph or emoji** (memory: draw-ui-icons). Judge it
-  at its shipped size.
+- **Chapter card:** an ∞ pip after the difficulty pips, shown when the chapter is eligible and
+  unlocked. It toggles `endlessPicked`.
+- **∞ icon:** drawn as an inline SVG, judged at its shipped size.
+- **HUD:** the clock counts up and shows the level as `∞ 7.4`. A banner names each dripped mutator
+  by its existing translated name.
+- **Summary:** the survival time and the best time.
+- **Copy:** all new strings go in a config table so run XX walks them. French wording to be
+  confirmed with the owner.
 
 ## Balance (measured, not guessed)
 
-Pick `ENDLESS_RAMP_A`/`B`, `ENDLESS_MILESTONE_S` and the affix curve from a probe over endless runs
-with a fixed strong late-game loadout and a median one, across 3+ chapters and several seeds,
-mortal. Target: the median build dies around 8–12 minutes and the strong one around 15–20. Report
-the death-time distribution with its denominator. Load `probing-the-game` before writing it.
+Probe endless runs:
+- **Builds:** a fixed strong late-game loadout and a median one.
+- **Coverage:** 3+ chapters (including beyond, whose formation pressure past 300s is untested),
+  several seeds, mortal.
+- **Control arm:** endless level pinned at 1. This proves the ramp, and not something else, is
+  what kills (memory: rig-must-vary-with-the-knob).
+- **Tune:** `A`/`B`, `ENDLESS_MILESTONE_S` and the affix curve.
+- **Target:** the median build dies around 8–12 minutes, the strong one around 15–20.
+- **Report:** the death-time distribution with its denominator, plus frame-time at the death point.
+  There are no caps on enemy count, so this is the number playtest will judge.
+
+Load `probing-the-game` first.
 
 ## Tests (test/sim-test.js, mutation-proved)
 
-1. An endless run does not reach `phase: 'victory'` at 300s or 900s; a normal run does at 300s.
-2. `run.difficulty` follows `endlessLevel(t)`, and `run.mods.enemyDmgMul` equals
-   `base * difficultyDmgMul(d)` within 1e-9 after 20 simulated minutes (proves no ratio drift).
-3. A milestone adds exactly one new, non-hidden, chapter-legal mutator, and its effect lands in
-   `run.mods`.
-4. At a high level a material share of non-elite spawns carry exactly one affix plus
-   `affixVisible`; at D1 none do.
-5. Unlock: the predicate is false at `won = 2`, true at `won = 3`, and false for blank, kraken and
-   reef. Sweep `Object.keys(CHAPTERS)` and print the denominator.
-6. `endRun` on an endless run leaves `won`/`maxDifficulty` untouched.
-7. Coins: `run.mods.coinMul` at t = 120s is a quarter of its t = 0 value. An endless run can bank
-   more than `COIN_CAP_PER_RUN`; a normal run still cannot.
+1. **No timer victory:** an endless run is not in `victory` at 300s or 900s; a normal run is at
+   300s.
+2. **Curves frozen:** at t = 600 in endless, `hpScale`/`spawnRate`/`dmgScale` inputs equal their
+   t = 300 values. A normal run's do not freeze.
+3. **Ramp exact:** `run.difficulty === endlessLevel(t)`, and `enemyDmgMul` equals
+   `base * difficultyDmgMul(d)` within 1e-9 after 20 simulated minutes.
+4. **Mutator drip:** a milestone adds exactly one new id from `mutatorPool(chapter)`, and its effect
+   lands in `run.mods`.
+5. **Forced elites:** a milestone spawns N elites and `_nextEliteAt` is unchanged.
+6. **Affixed crowd:**
+   - at a high level, a material share of non-elites carry one affix with `affixVisible`; at D1
+     none do;
+   - splitter children never carry an affix;
+   - a shielded normal enemy takes reduced damage, and a volatile normal enemy leaves a bomb (this
+     asserts the effect, not the field).
+7. **Unlock predicate:** false at `won = 2`, true at `won = 3`, false for blank/kraken/reef. Sweep
+   `Object.keys(CHAPTERS)` and print the denominator.
+8. **`endRun`:** `won`, `maxDifficulty` and `meta.best.time` are untouched, and `endlessBest` is
+   updated.
+9. **Coins:** `coinMul` at t = 120 is ¼ of its t = 0 value. Endless can bank more than
+   `COIN_CAP_PER_RUN`; a normal run cannot.
+10. **The 0 → 1 trap:** `endlessPicked` survives `ensureChapterMeta`, and the submitted payload
+    carries `difficulty: 0`.
+11. **Worker:** `worker/test.sh` covers `survive_ms`, the difficulty 0 bounds and the DESC order.
 
-The render pieces (∞ pip, HUD level, affix icons on normal enemies) are verified by shooting
-frames, not by the suite.
+The render pieces (∞ pip, HUD level, affix badges and shield tell on normal enemies) are verified
+by shooting frames.
 
 ## Out of scope for v1
 
-Anti-sustain, named tiers, a giants-only finale, signature escalation, a ghost of your best,
-cash-out, daily seeds, endless for boss or circuit chapters.
+Caps on speed or crowd size (playtest decides), anti-sustain, named tiers, a giants-only finale,
+signature escalation, a ghost of your best, cash-out, daily seeds, endless for boss or circuit
+chapters.
