@@ -59,11 +59,17 @@ Each step, rescale the four difficulty multipliers already baked into `run.mods`
 `mul(new) / mul(old)` ratio:
 - `enemySpeedMul` via `difficultySpeedMul`;
 - `spawnMul` and `maxAliveMul` via `difficultyCountMul`;
-- `enemyDmgMul` via `difficultyDmgMul`;
-- `coinMul` via `difficultyCoinMul`.
+- `enemyDmgMul` via `difficultyDmgMul`.
 
-All four are linear in `d` and already accept floats (config.js:5277-5292). Nothing downstream
+All three are linear in `d` and already accept floats (config.js:5277-5288). Nothing downstream
 learns that endless exists.
+
+**Coins do NOT follow the difficulty ladder in endless.** `difficultyCoinMul` stays at its D1
+value (1). Coin drops instead decay: `coinMul = base * 0.5 ^ (run.time / 60)`, so they halve every
+minute, smoothly (a continuous curve, like the ramp, not a cliff on the minute).
+- `COIN_CAP_PER_RUN` does **not** apply to an endless run, in `stepPickups` or in `endRun`.
+- Consequence: drops sum to about 1.44 minutes' worth of first-minute income, however long the run
+  lasts. The only income that grows without limit is the end-of-run kill bonus.
 
 - **Drift guard:** a few thousand multiplications per run accumulate float error. Keep
   `run._endlessBase` (the `mods` values divided by `mul(1)` at `createRun`) and recompute each
@@ -105,8 +111,9 @@ On a hit, `affixes = rollAffixes(run).slice(0, 1)`, i.e. one affix.
 - **`endRun` (main.js) for an endless run:**
   - it never bumps `maxDifficulty`, `won`, chapter unlocks or `best.time`;
   - it updates `endlessBest` from `run._realTime`, the honest unit under Time Debt;
-  - coins are banked normally under `COIN_CAP_PER_RUN`, and the kill bonus uses
-    `difficultyCoinMul(run.difficulty)` at death (already the existing line).
+  - coins are banked with no cap. The kill bonus uses `difficultyCoinMul(1)`, **not** the endless
+    level at death. Otherwise the existing line (main.js:749) would pay up to +25% per level and
+    undo the halving.
 - **The dev gate still refuses submission** (run LB).
 
 ## Leaderboard
@@ -152,6 +159,8 @@ the death-time distribution with its denominator. Load `probing-the-game` before
 5. Unlock: the predicate is false at `won = 2`, true at `won = 3`, and false for blank, kraken and
    reef. Sweep `Object.keys(CHAPTERS)` and print the denominator.
 6. `endRun` on an endless run leaves `won`/`maxDifficulty` untouched.
+7. Coins: `run.mods.coinMul` at t = 120s is a quarter of its t = 0 value. An endless run can bank
+   more than `COIN_CAP_PER_RUN`; a normal run still cannot.
 
 The render pieces (∞ pip, HUD level, affix icons on normal enemies) are verified by shooting
 frames, not by the suite.
