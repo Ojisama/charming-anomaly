@@ -253,7 +253,7 @@ import {
   ENEMY_SEP_FRAC, ENEMY_SEP_RESOLVE, ENEMY_SEP_CELL,
   // v6.7.11: the level-up reroll's price ladder — rerollLevelUpChoices owns the whole purchase
   rerollCost,
-  difficultySpeedMul, difficultyCountMul, difficultyDmgMul, endlessLevel, endlessHpMul, ENDLESS_COIN_HALF_LIFE_S,
+  difficultySpeedMul, difficultyCountMul, difficultyDmgMul, endlessLevel, endlessHpMul, endlessXpMul, ENDLESS_COIN_HALF_LIFE_S,
   ENDLESS_MILESTONE_S, ENDLESS_MILESTONE_ELITES, endlessAffixChance, ENDLESS_GILDED_COINS, mutatorPool, MUTATORS,
 } from './config.js'
 
@@ -4217,7 +4217,7 @@ function spawnEnemy(run, opts = {}) {
     // xpMul is the roster's third stat lever, alongside hpMul/speedMul above: what a kill of
     // this creature is WORTH, independent of how much health it has. They are separate on
     // purpose — a chapter can make something cheaper to kill and still pay well for it.
-    xp: base.xp * (roster?.xpMul ?? 1),
+    xp: base.xp * (roster?.xpMul ?? 1) * (run.endless ? endlessXpMul(run.difficulty) : 1),
     ...freshEnemyFields(),
   }
   // `deferred` is mandatory for any caller running INSIDE a walk of run.enemies — see the long

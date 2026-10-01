@@ -50,7 +50,7 @@ import {
   BOOKS, BOOK_ORDER, BOOK_SHOP, shopLines, BOOK_UNLOCKS, playableChapterId, isWipChapter, chapterAvailable, titleBookshelf, CHAPTER_SPINE, isBookFinale, nextBook, bookOf, chapterNumber,
   DMG_SRC_NAME, dmgSrcName, DMG_SRC_ART, dmgSrcArt, DMG_SRC_NO_ART,
   DEATH_OUTRO, irisCoverMul, deathProgress, LANE_CAMERA_FRAC,
-  endlessLevel, ENDLESS_HP_PER_LEVEL, endlessHpMul, ENDLESS_COIN_HALF_LIFE_S, endlessAffixChance, endlessEligible, endlessUnlocked, ENDLESS_AFFIX_FROM, ENDLESS_AFFIX_MAX,
+  endlessLevel, endlessHpMul, endlessXpMul, ENDLESS_COIN_HALF_LIFE_S, endlessAffixChance, endlessEligible, endlessUnlocked, ENDLESS_AFFIX_FROM, ENDLESS_AFFIX_MAX,
   CHAPTERS, CHAPTER_ORDER, nextChapter, CHAPTER_UNLOCK_DIFFICULTY, SUBMISSION_DURATION, SUBMISSION_STRIP_FLAGS,
   RUNOFF_MAX_DMG_MUL, RUNOFF_SPEED_FLOOR,
   ELEMENTS, CONSUMABLES,
@@ -467,8 +467,40 @@ function testEndlessRamp() {
   assert.ok(Math.abs(run.mods.enemySpeedMul - base.enemySpeedMul * difficultySpeedMul(d)) < 1e-9)
   assert.ok(Math.abs(run.mods.maxAliveMul - base.maxAliveMul * difficultyCountMul(d)) < 1e-9)
   assert.ok(Math.abs(run.mods.enemyHpMul - base.enemyHpMul * endlessHpMul(d)) < 1e-9)
-  assert.ok(run.mods.enemyHpMul > base.enemyHpMul * (1 + ENDLESS_HP_PER_LEVEL), 'hp must have grown')
+  assert.ok(run.mods.enemyHpMul > base.enemyHpMul * endlessHpMul(2), 'hp must have grown')
+  // exponential: a constant ratio > 1 between consecutive integer levels
+  const r = endlessHpMul(2) / endlessHpMul(1)
+  assert.ok(r > 1, `ratio ${r}`)
+  for (const k of [5, 20, 60]) assert.ok(Math.abs(endlessHpMul(k + 1) / endlessHpMul(k) - r) < 1e-9, `ratio drifts at ${k}`)
   console.log(`PASS run EN.d (endless ramp): d=${d.toFixed(2)} at ${(run.time / 60).toFixed(1)}min, dmgMul=${run.mods.enemyDmgMul.toFixed(3)}`)
+}
+
+// Effect: an endless kill is worth less XP at a high level. Keyed per (type, rosterId), so the
+// roster's own xpMul cancels; the normal-run arm proves the taper never reaches a non-endless spawn.
+function testEndlessXpTaper() {
+  const xpOf = (opts, pin) => {
+    Math.random = mulberry32(20261003)
+    const run = createRun(makeMeta(), { chapter: 'body', ...opts })
+    run.player.hp = run.player.maxHP = 1e12
+    if (pin != null) run._endlessPinLevel = pin
+    run._endlessNextMilestone = Infinity
+    run._nextEliteAt = Infinity
+    advance(run, 3, 1 / 60, { x: 1, y: 0 })
+    const out = new Map()
+    for (const e of run.enemies) if (!e.elite) out.set(`${e.type}/${e.rosterId}`, e.xp)
+    return out
+  }
+  const lo = xpOf({ endless: true }, 1), hi = xpOf({ endless: true }, 40), normal = xpOf({ difficulty: 5 }, null)
+  const shared = [...lo.keys()].filter((k) => hi.has(k))
+  assert.ok(shared.length > 0, 'no common enemy kind between arms')
+  for (const k of shared) {
+    const want = lo.get(k) * endlessXpMul(40)
+    assert.ok(hi.get(k) < lo.get(k) && Math.abs(hi.get(k) - want) < 1e-9, `${k}: ${hi.get(k)} vs ${want}`)
+  }
+  const both = [...normal.keys()].filter((k) => lo.has(k))
+  assert.ok(both.length > 0, 'normal arm shares no kind')
+  for (const k of both) assert.strictEqual(normal.get(k), lo.get(k), `${k}: normal run xp changed`)
+  console.log(`PASS run EN.x (endless xp taper): ${shared.length} kinds, ${both.length} vs normal, x${endlessXpMul(40).toFixed(3)} at d=40`)
 }
 
 function testEndlessMilestones() {
@@ -20490,6 +20522,7 @@ try {
   run(testEndlessNoVictory)
   run(testEndlessCurvesFrozen)
   run(testEndlessRamp)
+  run(testEndlessXpTaper)
   run(testEndlessCoins)
   run(testEndlessCrowdAffixes)
   run(testEndlessMilestones)

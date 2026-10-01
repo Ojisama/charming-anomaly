@@ -5302,9 +5302,12 @@ export const ENDLESS_AFFIX_PER_LEVEL = 0.07
 export const ENDLESS_AFFIX_MAX = 0.5
 export const endlessAffixChance = (d) => Math.min(ENDLESS_AFFIX_MAX, Math.max(0, (d - ENDLESS_AFFIX_FROM) * ENDLESS_AFFIX_PER_LEVEL))
 export const ENDLESS_COIN_HALF_LIFE_S = 60
-// balance_decision : endless-only enemy HP growth, probe tunes rate 2026-10-01
-export const ENDLESS_HP_PER_LEVEL = 0.10
-export const endlessHpMul = (d) => 1 + ENDLESS_HP_PER_LEVEL * (Math.max(1, d) - 1)
+// balance_decision : endless enemy HP exponential, outgrows complete builds 2026-10-01
+export const ENDLESS_HP_GROWTH = 0.06
+export const endlessHpMul = (d) => Math.pow(1 + ENDLESS_HP_GROWTH, Math.max(1, d) - 1)
+// balance_decision : endless xp per kill shrinks with level, stops crowd snowball 2026-10-01
+export const ENDLESS_XP_TAPER = 0.05
+export const endlessXpMul = (d) => 1 / (1 + ENDLESS_XP_TAPER * (Math.max(1, d) - 1))
 export const ENDLESS_GILDED_COINS = 3
 // Player-visible Endless copy. A TABLE so run XX's walk can see it (test/sim-test.js lists it by hand).
 export const ENDLESS_COPY = {

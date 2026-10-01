@@ -806,6 +806,9 @@ function generateWells(sig) {
  *               column is ragdolling. Sim-internal (underscore): the tell is holePull, which render
  *               already reads.
  *
+ *               xp: what the kill is worth, stamped once at spawn (roster xpMul; on an endless
+ *               run also x endlessXpMul(run.difficulty), so a later kill is worth less).
+ *
  *               affixVisible: true on an endless crowd enemy that rolled one affix (never
  *               anchored); sim hasAffix() and render treat it like elite for affix effects/badges.
  *
@@ -1197,6 +1200,8 @@ function generateWells(sig) {
  *   lazily set by stepEndlessMilestones, Infinity opts a test out. Event {type:'endlessMutator', id}
  *   fires per drip.
  * _endlessPinLevel?: probe/test hook; when set, stepEndless uses it instead of endlessLevel(time).
+ * Endless enemy HP grows exponentially (enemyHpMul = base x endlessHpMul(d)), and each spawn
+ *   stamps its xp x endlessXpMul(d), the per-kill taper.
  *
  * bombs[i]: { x, y, radius, fuse, duration, dmg, src?, core? }  volatile-elite death bombs
  *           (v4.0). fuse counts down to 0 (duration is its starting value, kept so render can
