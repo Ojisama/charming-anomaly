@@ -4274,12 +4274,6 @@ function stepStragglers(run) {
   }
 }
 
-// DEV ONLY: plays an endless run headlessly to `seconds` with an immortal autopilot, so a playtest
-// can start late without an XP formula. Picks go through applyChoice, the shipped path.
-const FF_KIND_RANK = { weapon: 0, passive: 1, mod: 2, element: 3 }
-// budgetMs: stop after that much wall time and return false, so main.js can spread a long skip over
-// frames — 10 minutes is ~3s on a desktop and blocked a phone's main thread outright. Returns true
-// once run.time has reached `seconds`.
 // DEV ONLY (Play now): hand a fast-forwarded run to the player away from the bot's crowd — every
 // enemy within ENDLESS_HANDOVER_CLEAR_R vanishes (no kill, no xp, no coin), anchored ones excepted,
 // and the revive's invulnerability window covers the first wave back.
@@ -4291,6 +4285,32 @@ export function endlessHandover(run) {
   p.invuln = Math.max(p.invuln ?? 0, REVIVE_INVULN)
 }
 
+// The speedrun bot's level-up pick, in the owner's order (2026-10-01): any legendary-or-better card
+// (anomaly cards excepted — those are run-altering gambles), then a level of an owned weapon, then a
+// mod of an owned weapon, then a new weapon only while it holds just one, otherwise stats
+// (passives), then elements. Ties inside a tier are broken at random.
+// ponytail: tiers, blind to synergies — a per-weapon pick table if builds still read wrong.
+const LEGENDARY_RANK = RARITY_ORDER.indexOf('legendary')
+export function autopilotPick(run, choices) {
+  const owned = new Set(run.weapons.map((w) => w.id))
+  const tier = (c) => {
+    if (c.kind !== 'anomaly' && RARITY_ORDER.indexOf(c.rarity) >= LEGENDARY_RANK) return 6
+    if (c.kind === 'weapon') return owned.has(c.id) ? 5 : owned.size <= 1 ? 3 : 0
+    if (c.kind === 'mod') return owned.has(c.weapon) ? 4 : 0
+    if (c.kind === 'passive') return 2
+    if (c.kind === 'element') return 1
+    return 0
+  }
+  const top = Math.max(...choices.map(tier))
+  const best = choices.map((c, i) => (tier(c) === top ? i : -1)).filter((i) => i >= 0)
+  return best[Math.floor(Math.random() * best.length)]
+}
+
+// DEV ONLY: plays an endless run headlessly to `seconds` with an immortal autopilot, so a playtest
+// can start late without an XP formula. Picks go through applyChoice, the shipped path.
+// budgetMs: stop after that much wall time and return false, so main.js can spread a long skip over
+// frames — 10 minutes is ~3s on a desktop and blocked a phone's main thread outright. Returns true
+// once run.time has reached `seconds`.
 export function fastForwardEndless(run, seconds, budgetMs = Infinity) {
   const DT = 1 / 30
   run._ffSkipped = seconds   // stamped FIRST: endRun refuses records and coins even if quit mid-skip
@@ -4302,9 +4322,7 @@ export function fastForwardEndless(run, seconds, budgetMs = Infinity) {
     stepSim(run, { x: Math.cos(heading), y: Math.sin(heading), skill: false }, DT)
     run.events.length = 0
     if (run.phase === 'levelup') {
-      let best = 0, bestRank = Infinity
-      run.levelUpChoices.forEach((c, i) => { const r = FF_KIND_RANK[c.kind] ?? Infinity; if (r < bestRank) { bestRank = r; best = i } })
-      applyChoice(run, best)
+      applyChoice(run, autopilotPick(run, run.levelUpChoices))
       run.phase = 'playing'
     }
     run.player.hp = run.player.maxHP
