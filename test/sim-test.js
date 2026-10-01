@@ -177,7 +177,7 @@ import {
   KRAKEN_HEAD_SPEED, KRAKEN_PARRY_SPIN_T, krakenLimbHalfW, FISH_R, FISH_BODY, KRAKEN_GRIP_EVERY, KRAKEN_GRAB_FUSE, KRAKEN_GRAB_MIN_STEP, KRAKEN_PINCH_OPEN0, KRAKEN_PINCH_OPEN1,
   KRAKEN_BEAT_READ, KRAKEN_BEAT_GRAB_CLEAR, KRAKEN_BEAT_BREATH, KRAKEN_HEAD_R, KRAKEN_CHASE_CAGE_R, KRAKEN_HEAD_HOLD, KRAKEN_DASH_DIST, KRAKEN_DASH_SPEED, KRAKEN_DASH_RUNUP, KRAKEN_DASH_PARRY_PX, KRAKEN_HEAD_TOUCH_DMG, KRAKEN_LUNGE_DMG, KRAKEN_LUNGE_WINDUP_T,
 } from '../src/config.js'
-import { krakenWinPending, krakenPinchProbe, krakenGrabSpot, krakenGrabTurnClear, stepSim, applyChoice, fastForwardEndless, endlessHandover, buildLevelUpChoices, eligibleWeaponModCandidates, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, inRefillCircle, refillCircleAt, stepCharge, newElWindow, spurAt, inMaw } from '../src/sim.js'
+import { krakenWinPending, krakenPinchProbe, krakenGrabSpot, krakenGrabTurnClear, stepSim, applyChoice, fastForwardEndless, endlessHandover, autopilotPick, buildLevelUpChoices, eligibleWeaponModCandidates, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, inRefillCircle, refillCircleAt, stepCharge, newElWindow, spurAt, inMaw } from '../src/sim.js'
 
 // ---- Scenario runner: one filter, and the gate's own dispatch flag ----------------------------
 // THIS FILE IS NO LONGER WHAT `npm test` RUNS. scripts/test-isolation.mjs hands one scenario to
@@ -559,6 +559,22 @@ function testEndlessFastForward() {
   assert.strictEqual(run.mutators.length, Math.min(Math.floor(300 / ENDLESS_MILESTONE_S), mutatorPool('body').length), 'milestones fired during the skip')
   assert.strictEqual(run.events.length, 0, 'no stale events handed to the renderer')
   assert.strictEqual(run._ffSkipped, 300, 'fast-forward stamps the skipped seconds')
+  // THE BOT'S PICK ORDER (owner 2026-10-01): legendary+ > owned weapon level > owned weapon mod >
+  // new weapon (only while holding one) > passive > element; anomaly cards never ride the legendary rule.
+  const pickRun = { weapons: [{ id: 'star', level: 2 }] }
+  const two = { weapons: [{ id: 'star', level: 2 }, { id: 'orbit', level: 1 }] }
+  const card = (kind, extra = {}) => ({ kind, rarity: 'normal', ...extra })
+  const pick = (r, cs) => cs[autopilotPick(r, cs)]
+  assert.strictEqual(pick(two, [card('weapon', { id: 'star' }), card('passive', { rarity: 'legendary' })]).kind, 'passive', 'legendary+ always wins')
+  assert.strictEqual(pick(two, [card('anomaly', { rarity: 'anomaly' }), card('passive')]).kind, 'passive', 'anomaly cards are not legendary+')
+  assert.strictEqual(pick(two, [card('mod', { weapon: 'star' }), card('weapon', { id: 'orbit' })]).kind, 'weapon', 'owned weapon level beats its mod')
+  assert.strictEqual(pick(two, [card('weapon', { id: 'homing' }), card('mod', { weapon: 'orbit' })]).kind, 'mod', 'owned mod beats a new weapon')
+  assert.strictEqual(pick(pickRun, [card('passive'), card('weapon', { id: 'orbit' })]).kind, 'weapon', 'a second weapon while holding one')
+  assert.strictEqual(pick(two, [card('weapon', { id: 'homing' }), card('passive')]).kind, 'passive', 'no third weapon: stats instead')
+  assert.strictEqual(pick(two, [card('element'), card('passive')]).kind, 'passive', 'stats before elements')
+  const seen = new Set()
+  for (let i = 0; i < 40; i++) seen.add(autopilotPick(two, [card('passive', { id: 'a' }), card('passive', { id: 'b' })]))
+  assert.strictEqual(seen.size, 2, 'ties inside a tier are random')
   // PLAY NOW hands the run over away from the bot's crowd: nothing (but an anchored body) inside
   // the clear radius, enemies beyond it untouched, and a grace window.
   const p = run.player
