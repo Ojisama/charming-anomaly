@@ -50,6 +50,7 @@ import {
   BOOKS, BOOK_ORDER, BOOK_SHOP, shopLines, BOOK_UNLOCKS, playableChapterId, isWipChapter, chapterAvailable, titleBookshelf, CHAPTER_SPINE, isBookFinale, nextBook, bookOf, chapterNumber,
   DMG_SRC_NAME, dmgSrcName, DMG_SRC_ART, dmgSrcArt, DMG_SRC_NO_ART,
   DEATH_OUTRO, irisCoverMul, deathProgress, LANE_CAMERA_FRAC,
+  endlessLevel, endlessAffixChance, endlessEligible, endlessUnlocked, ENDLESS_AFFIX_FROM, ENDLESS_AFFIX_MAX,
   CHAPTERS, CHAPTER_ORDER, nextChapter, CHAPTER_UNLOCK_DIFFICULTY, SUBMISSION_DURATION, SUBMISSION_STRIP_FLAGS,
   RUNOFF_MAX_DMG_MUL, RUNOFF_SPEED_FLOOR,
   ELEMENTS, CONSUMABLES,
@@ -380,6 +381,34 @@ function testDeath() {
 
   assert.strictEqual(run.phase, 'dead', `expected phase 'dead', got '${run.phase}' at time ${run.time.toFixed(1)}s`)
   console.log(`PASS run B (death): died at time=${run.time.toFixed(1)}s kills=${run.kills}`)
+}
+
+function testEndlessConfig() {
+  // ramp: D1 at 0, monotone, quadratic (second differences constant and positive)
+  assert.strictEqual(endlessLevel(0), 1)
+  const l = [0, 60, 120, 180].map(endlessLevel)
+  assert.ok(l[1] > l[0] && l[2] > l[1] && l[3] > l[2], `ramp not increasing: ${l}`)
+  const d2a = l[2] - 2 * l[1] + l[0], d2b = l[3] - 2 * l[2] + l[1]
+  assert.ok(d2a > 0 && Math.abs(d2a - d2b) < 1e-9, `ramp not quadratic: ${d2a} ${d2b}`)
+  // affix chance: 0 until FROM, clamped at MAX
+  assert.strictEqual(endlessAffixChance(1), 0)
+  assert.strictEqual(endlessAffixChance(ENDLESS_AFFIX_FROM), 0)
+  assert.ok(endlessAffixChance(ENDLESS_AFFIX_FROM + 1) > 0)
+  assert.strictEqual(endlessAffixChance(1e6), ENDLESS_AFFIX_MAX)
+  // eligibility over the HONEST denominator
+  const all = Object.keys(CHAPTERS)
+  const elig = all.filter(endlessEligible)
+  for (const id of ['blank', 'kraken', 'reef']) assert.ok(!elig.includes(id), `${id} must be excluded`)
+  for (const id of ['body', 'deep', 'trawl']) assert.ok(elig.includes(id), `${id} must be eligible`)
+  // unlock gate on won
+  const m = makeMeta()
+  ensureChapterMeta(m, 'body').won = 2
+  assert.ok(!endlessUnlocked(m, 'body'), 'won=2 must not unlock')
+  m.chapters.body.won = 3
+  assert.ok(endlessUnlocked(m, 'body'), 'won=3 must unlock')
+  ensureChapterMeta(m, 'kraken').won = 5
+  assert.ok(!endlessUnlocked(m, 'kraken'), 'boss chapter never unlocks endless')
+  console.log(`PASS run EN.a (endless config): ${elig.length}/${all.length} chapters eligible`)
 }
 
 function testVictory() {
@@ -20193,6 +20222,7 @@ try {
   run(testMovementAndCombat)
   run(testDeath)
   run(testVictory)
+  run(testEndlessConfig)
   run(testNewWeapons)
   run(testRaritySanity)
   run(testPoolBuckets)

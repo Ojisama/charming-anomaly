@@ -5290,6 +5290,23 @@ export const difficultyDmgMul = (d) => 1 + DIFFICULTY_DMG_PER_LEVEL * (Math.max(
 // run.mods.coinMul, and applied to the end-of-run kill bonus in main.js).
 export const DIFFICULTY_COIN_PER_LEVEL = 0.25
 export const difficultyCoinMul = (d) => 1 + DIFFICULTY_COIN_PER_LEVEL * (Math.max(1, d) - 1)
+// ---- Endless mode (spec 2026-10-01-endless-mode-design.md) ----
+// balance_decision : placeholder ramp, Task 9 probe sets A/B 2026-10-01
+export const ENDLESS_RAMP_A = 0.5   // levels per minute, linear term
+export const ENDLESS_RAMP_B = 0.05  // levels per minute^2, quadratic term
+export const endlessLevel = (t) => { const m = Math.max(0, t) / 60; return 1 + ENDLESS_RAMP_A * m + ENDLESS_RAMP_B * m * m }
+export const ENDLESS_MILESTONE_S = 120
+export const ENDLESS_MILESTONE_ELITES = 3
+export const ENDLESS_AFFIX_FROM = 3
+export const ENDLESS_AFFIX_PER_LEVEL = 0.07
+export const ENDLESS_AFFIX_MAX = 0.5
+export const endlessAffixChance = (d) => Math.min(ENDLESS_AFFIX_MAX, Math.max(0, (d - ENDLESS_AFFIX_FROM) * ENDLESS_AFFIX_PER_LEVEL))
+export const ENDLESS_COIN_HALF_LIFE_S = 60
+export const ENDLESS_GILDED_COINS = 3
+export const endlessEligible = (id) => !!CHAPTERS[id] && !CHAPTERS[id].scripted && !CHAPTERS[id].circuit
+export const endlessUnlocked = (meta, id) => endlessEligible(id)
+  && (meta?.chapters?.[id]?.won ?? 0) >= CHAPTER_UNLOCK_DIFFICULTY
+  && (!isWipChapter(id) || meta?.dev === true)
 // v6.4.1/v6.4.3 (owner directives): difficulty 1 of the onboarding chapters spawns thinner but
 // pays more xp per kill, per chapter — body (level 1-1) is the gentlest. Applied in createRun
 // (state.js) ONLY when the caller passes difficulty 1 EXPLICITLY (main.js's classic ladder always
@@ -5312,7 +5329,7 @@ export const EARLY_CALM = {
 // the reason is a property of the CHAPTER and not of each mutator: an unarmed chapter (The Reef,
 // `weapons: []`) cannot feel an enemy-HP, elite-rate, player-damage, infusion, xp or coin knob, and
 // those eight keys are the whole generic pool. See MUTATORS.narrows for the audit, entry by entry.
-const mutatorPool = (chapterId) => {
+export const mutatorPool = (chapterId) => {
   const ownOnly = CHAPTERS[chapterId]?.noGenericMutators === true
   return Object.keys(MUTATORS).filter((id) => {
     const m = MUTATORS[id]
