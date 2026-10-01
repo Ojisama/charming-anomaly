@@ -746,9 +746,9 @@ const SFX_FOR_EVENT = {
 }
 
 function endRun(victory) {
-  const bonus = Math.round(runBonusCoins(run.kills, run.player.level) * difficultyCoinMul(run.difficulty ?? 1))
+  const bonus = Math.round(runBonusCoins(run.kills, run.player.level) * difficultyCoinMul(run.endless ? 1 : (run.difficulty ?? 1)))
   // v6.4.2 (owner directive): the kill bonus can still push a near-capped run over COIN_CAP_PER_RUN — clamp the final banked total too.
-  const earned = Math.min(COIN_CAP_PER_RUN, run.coinsEarned + bonus)
+  const earned = run.endless ? run.coinsEarned + bonus : Math.min(COIN_CAP_PER_RUN, run.coinsEarned + bonus)
   // Banked into the run's OWN book's purse (v7.x per-book progression) — not always meta.coins,
   // which is book 1's alone. Routed through ensureBookMeta rather than `?? 0`: saveMeta below is
   // called from inside the Pixi ticker and Pixi does not catch listener exceptions, so a throw

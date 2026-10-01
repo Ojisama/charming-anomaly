@@ -1182,6 +1182,12 @@ function generateWells(sig) {
  * once here and read wherever that key is consumed. Both are set once at createRun and never
  * mutated mid-run.
  *
+ * endless (spec 2026-10-01): true on an Endless run: no timer victory, time curves frozen at
+ * RUN_DURATION (sim.js curveT), the escalator is the endless level, the coin cap is off.
+ * _endlessBase: { enemySpeedMul, spawnMul, maxAliveMul, enemyDmgMul, coinMul, enemyHpMul }, the
+ * run.mods snapshot taken at createRun that stepEndless rescales from each step (null otherwise).
+ * _endlessPinLevel?: probe/test hook; when set, stepEndless uses it instead of endlessLevel(time).
+ *
  * bombs[i]: { x, y, radius, fuse, duration, dmg, src?, core? }  volatile-elite death bombs
  *           (v4.0). fuse counts down to 0 (duration is its starting value, kept so render can
  *           draw a growing warning telegraph from fuse/duration); when the fuse expires sim.js
@@ -2560,7 +2566,7 @@ export function createRun(meta, opts = {}) {
   }
   // Endless base: D1 multipliers are all 1, so the post-balance snapshot is already the base.
   const endlessBase = endless
-    ? { enemySpeedMul: mods.enemySpeedMul, spawnMul: mods.spawnMul, maxAliveMul: mods.maxAliveMul, enemyDmgMul: mods.enemyDmgMul, coinMul: mods.coinMul }
+    ? { enemySpeedMul: mods.enemySpeedMul, spawnMul: mods.spawnMul, maxAliveMul: mods.maxAliveMul, enemyDmgMul: mods.enemyDmgMul, coinMul: mods.coinMul, enemyHpMul: mods.enemyHpMul }
     : null
   // Pre-run consumables (see CONSUMABLES in config.js and the doc block above).
   const consumables = opts.consumables ?? []

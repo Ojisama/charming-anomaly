@@ -5302,6 +5302,9 @@ export const ENDLESS_AFFIX_PER_LEVEL = 0.07
 export const ENDLESS_AFFIX_MAX = 0.5
 export const endlessAffixChance = (d) => Math.min(ENDLESS_AFFIX_MAX, Math.max(0, (d - ENDLESS_AFFIX_FROM) * ENDLESS_AFFIX_PER_LEVEL))
 export const ENDLESS_COIN_HALF_LIFE_S = 60
+// balance_decision : endless-only enemy HP growth, probe tunes rate 2026-10-01
+export const ENDLESS_HP_PER_LEVEL = 0.10
+export const endlessHpMul = (d) => 1 + ENDLESS_HP_PER_LEVEL * (Math.max(1, d) - 1)
 export const ENDLESS_GILDED_COINS = 3
 export const endlessEligible = (id) => !!CHAPTERS[id] && !CHAPTERS[id].scripted && !CHAPTERS[id].circuit
 export const endlessUnlocked = (meta, id) => endlessEligible(id)

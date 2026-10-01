@@ -50,7 +50,7 @@ import {
   BOOKS, BOOK_ORDER, BOOK_SHOP, shopLines, BOOK_UNLOCKS, playableChapterId, isWipChapter, chapterAvailable, titleBookshelf, CHAPTER_SPINE, isBookFinale, nextBook, bookOf, chapterNumber,
   DMG_SRC_NAME, dmgSrcName, DMG_SRC_ART, dmgSrcArt, DMG_SRC_NO_ART,
   DEATH_OUTRO, irisCoverMul, deathProgress, LANE_CAMERA_FRAC,
-  endlessLevel, endlessAffixChance, endlessEligible, endlessUnlocked, ENDLESS_AFFIX_FROM, ENDLESS_AFFIX_MAX,
+  endlessLevel, ENDLESS_HP_PER_LEVEL, endlessHpMul, ENDLESS_COIN_HALF_LIFE_S, endlessAffixChance, endlessEligible, endlessUnlocked, ENDLESS_AFFIX_FROM, ENDLESS_AFFIX_MAX,
   CHAPTERS, CHAPTER_ORDER, nextChapter, CHAPTER_UNLOCK_DIFFICULTY, SUBMISSION_DURATION, SUBMISSION_STRIP_FLAGS,
   RUNOFF_MAX_DMG_MUL, RUNOFF_SPEED_FLOOR,
   ELEMENTS, CONSUMABLES,
@@ -433,6 +433,7 @@ function testEndlessCurvesFrozen() {
     Math.random = mulberry32(20261001)
     const run = createRun(makeMeta(), { chapter: 'beyond', endless: true })
     run.player.hp = run.player.maxHP = 1e12
+    run._endlessPinLevel = 1   // HP grows with the level; pin it so only the TIME curve can differ
     run.time = t
     run._endlessNextMilestone = Infinity
     run._nextEliteAt = Infinity
@@ -449,6 +450,50 @@ function testEndlessCurvesFrozen() {
   // victory gate returns first, so the control is the pure function).
   assert.ok(hpScale(600, lateRateFor('beyond')) > 2 * hpScale(300, lateRateFor('beyond')))
   console.log(`PASS run EN.c (curves frozen): ${shared.length} kinds compared at 300 vs 600`)
+}
+
+// Pure arithmetic, so it JUMPS the clock: 20 simulated minutes cost ~25s and would set the gate floor.
+function testEndlessRamp() {
+  const run = createRun(makeMeta(), { chapter: 'body', endless: true })
+  run.player.hp = run.player.maxHP = 1e12
+  run._endlessNextMilestone = Infinity   // no drip: it would rewrite _endlessBase under the assertion
+  const base = { ...run._endlessBase }
+  run.time = 20 * 60
+  stepSim(run, { x: 0, y: 0 }, 1 / 60)
+  const d = endlessLevel(run.time)
+  assert.ok(Math.abs(run.difficulty - d) < 1e-9, `difficulty ${run.difficulty} != ${d}`)
+  const want = base.enemyDmgMul * difficultyDmgMul(d)
+  assert.ok(Math.abs(run.mods.enemyDmgMul - want) < 1e-9, `drift: ${run.mods.enemyDmgMul} vs ${want}`)
+  assert.ok(Math.abs(run.mods.enemySpeedMul - base.enemySpeedMul * difficultySpeedMul(d)) < 1e-9)
+  assert.ok(Math.abs(run.mods.maxAliveMul - base.maxAliveMul * difficultyCountMul(d)) < 1e-9)
+  assert.ok(Math.abs(run.mods.enemyHpMul - base.enemyHpMul * endlessHpMul(d)) < 1e-9)
+  assert.ok(run.mods.enemyHpMul > base.enemyHpMul * (1 + ENDLESS_HP_PER_LEVEL), 'hp must have grown')
+  console.log(`PASS run EN.d (endless ramp): d=${d.toFixed(2)} at ${(run.time / 60).toFixed(1)}min, dmgMul=${run.mods.enemyDmgMul.toFixed(3)}`)
+}
+
+function testEndlessCoins() {
+  const run = createRun(makeMeta(), { chapter: 'body', endless: true })
+  run.player.hp = run.player.maxHP = 1e12
+  run._endlessNextMilestone = Infinity   // 5 of body's 9 pool mutators carry coinMul
+  const c0 = run._endlessBase.coinMul
+  // advance() spends a step per level-up without advancing time, so assert against run.time, not 120
+  advance(run, 120, 1 / 30, { x: 1, y: 0 })
+  const want = c0 * Math.pow(0.5, run.time / ENDLESS_COIN_HALF_LIFE_S)
+  assert.ok(run.time > 100 && Math.abs(run.mods.coinMul - want) < 1e-9 * c0, `coinMul ${run.mods.coinMul} != ${want} at t=${run.time}`)
+  // cap bypass through the shipped path; a normal run is the control and must stay capped
+  const over = (r) => {
+    r.coinsEarned = COIN_CAP_PER_RUN - 1
+    r.mods.coinMul = 1
+    r.coins.push({ x: r.player.x, y: r.player.y, value: 50 })
+    stepSim(r, { x: 0, y: 0 }, 1 / 60)
+    return r.coinsEarned
+  }
+  const after = over(run)
+  assert.ok(after > COIN_CAP_PER_RUN, `endless must not cap: ${after}`)
+  const normal = createRun(makeMeta(), { chapter: 'body' })
+  normal.player.hp = normal.player.maxHP = 1e12
+  assert.ok(over(normal) <= COIN_CAP_PER_RUN, 'control: a normal run must stay capped')
+  console.log(`PASS run EN.e (endless coins): x${want.toFixed(2)} at t=${run.time.toFixed(0)}s, earned -> ${after}`)
 }
 
 function testVictory() {
@@ -20265,6 +20310,8 @@ try {
   run(testEndlessConfig)
   run(testEndlessNoVictory)
   run(testEndlessCurvesFrozen)
+  run(testEndlessRamp)
+  run(testEndlessCoins)
   run(testNewWeapons)
   run(testRaritySanity)
   run(testPoolBuckets)

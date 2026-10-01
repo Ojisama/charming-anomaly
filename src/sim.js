@@ -253,6 +253,7 @@ import {
   ENEMY_SEP_FRAC, ENEMY_SEP_RESOLVE, ENEMY_SEP_CELL,
   // v6.7.11: the level-up reroll's price ladder — rerollLevelUpChoices owns the whole purchase
   rerollCost,
+  difficultySpeedMul, difficultyCountMul, difficultyDmgMul, endlessLevel, endlessHpMul, ENDLESS_COIN_HALF_LIFE_S,
 } from './config.js'
 
 const KB_DECAY_RATE = 6 // per-second exponential-ish decay factor for enemy knockback
@@ -265,10 +266,10 @@ const MINE_TRIGGER_R = 28     // px, proximity (added to enemy radius) that arms
 const HOMING_FAN = 0.35       // rad, half-spread when several homing shots are fired
 const HOMING_HIT_R = 10       // px, hit radius added to enemy radius
 
-/** Advance the simulation by dt seconds. input = {x, y} normalized move vector. */
 // Endless freezes every TIME curve at RUN_DURATION: past it, the endless level is the only escalator.
 const curveT = (run) => (run.endless ? Math.min(run.time, RUN_DURATION) : run.time)
 
+/** Advance the simulation by dt seconds. input = {x, y} normalized move vector. */
 export function stepSim(run, input, dt) {
   // HITSTOP: the world holds, the picture does not. main.js keeps handing the renderer real dt, so
   // animT, the flash and every particle play through the freeze — only the simulation waits.
@@ -311,6 +312,7 @@ export function stepSim(run, input, dt) {
   // function has eleven `if (stepX(...)) return` early exits, and a bottom flush would be skipped
   // by every one of them. See spawnSplitChildren for what queues them and why.
   flushSpawns(run)
+  stepEndless(run)
   // v5.24: a scripted chapter (The Blank) has no timer victory at all — killing the script's last
   // boss IS the win (see stepBossScript), so the survival clock below never fires there.
   // v7.x: a `circuit` chapter is won by finishing its laps (stepCircuit), not by outlasting a
@@ -4270,6 +4272,24 @@ function stepStragglers(run) {
 // guard at the call site).
 // Move anything queued during the last step into the world. Tolerates an older save/probe that
 // built a run without the field, since createRun is not the only thing that ever makes one.
+// ENDLESS (spec 2026-10-01): the level climbs on run.time; every difficulty mul is recomputed from
+// the createRun base, never chained, so thousands of steps cannot drift.
+function stepEndless(run) {
+  if (!run.endless) return
+  const d = run._endlessPinLevel ?? endlessLevel(run.time)   // probe/test hook: pins the level
+  run.difficulty = d
+  const b = run._endlessBase
+  run.mods.enemySpeedMul = b.enemySpeedMul * difficultySpeedMul(d)
+  run.mods.spawnMul = b.spawnMul * difficultyCountMul(d)
+  run.mods.maxAliveMul = b.maxAliveMul * difficultyCountMul(d)
+  run.mods.enemyDmgMul = b.enemyDmgMul * difficultyDmgMul(d)
+  run.mods.enemyHpMul = b.enemyHpMul * endlessHpMul(d)
+  run.mods.coinMul = b.coinMul * Math.pow(0.5, run.time / ENDLESS_COIN_HALF_LIFE_S)
+  stepEndlessMilestones(run)
+}
+
+function stepEndlessMilestones(run) {}   // Task 4 fills this
+
 function flushSpawns(run) {
   const q = run._spawnQueue
   if (!q || q.length === 0) return
@@ -8644,7 +8664,7 @@ function stepStrips(run, dt) {
 // It damages BOTH sides, and that IS the mechanic: the trap field is only a hazard until you learn
 // to kite the swarm across it. Gated on the chapter's 'predators' signature so a trap array in a
 // future chapter could mean something else.
-// v6.5 panel: enemy-side damage now scales by hpScale(run.time) — a flat SNAP_TRAP_DMG on both
+// v6.5 panel: enemy-side damage now scales by hpScale(curveT(run)) — a flat SNAP_TRAP_DMG on both
 // sides looks symmetric but isn't, against enemy HP that climbs 7.6x by late-run; the player side
 // stays flat because the player's own toughness doesn't scale the same way. The enemy loop skips
 // any enemy mid-'leap' (pounce's airborne phase, Task 2) — it flies OVER traps on the way in;
@@ -14549,7 +14569,7 @@ function stepPickups(run, dt) {
     const exact = c.value * p.coinGainMul * run.mods.coinMul + (run._coinCarry ?? 0)
     const whole = Math.floor(exact)
     run._coinCarry = exact - whole
-    run.coinsEarned = Math.min(COIN_CAP_PER_RUN, run.coinsEarned + whole)
+    run.coinsEarned = run.endless ? run.coinsEarned + whole : Math.min(COIN_CAP_PER_RUN, run.coinsEarned + whole)
     run.events.push({ type: 'coin', x: c.x, y: c.y, value: c.value })
   })
 }
