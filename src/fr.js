@@ -320,6 +320,7 @@ const UI = {
   // pause + summary
   'Paused': 'Pause',
   'Resume': 'Reprendre',
+  'Auto-paused.': 'Auto-pause activée.',
   'Quit to menu': 'Retour au menu',
   'You escaped! 🎉': 'Tu t\'es échappé·e ! 🎉',
   'Squished… 💦': 'Écrabouillé·e… 💦',

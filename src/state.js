@@ -466,6 +466,30 @@ export function saveMeta(meta) {
   if (ok) { try { saveHook?.(boundSlot ?? activeSlot()) } catch { /* sync is best-effort */ } }
 }
 
+// THE RUN IN PROGRESS, parked while the page is hidden. A phone kills a backgrounded tab whenever
+// it wants memory, and the run lived only in memory, so switching apps lost it. Not part of meta:
+// its own key, written on hide, consumed on the next boot, deleted when the run ends. Restored only
+// by the same build and slot that wrote it — an older run shape fed to a newer sim is a crash.
+// Sets and Maps (hit lists, trap timers) do not survive JSON on their own, hence the tags.
+const RUN_KEY = 'charming-anomaly-run'
+const tagged = (k, v) => v instanceof Set ? { $set: [...v] } : v instanceof Map ? { $map: [...v] } : v
+const untagged = (k, v) => v && v.$set ? new Set(v.$set) : v && v.$map ? new Map(v.$map) : v
+export function parkRun(run, stamp) {
+  try { localStorage.setItem(RUN_KEY, JSON.stringify({ stamp, slot: activeSlot(), run }, tagged)) } catch { /* full or private mode: nothing to resume, same as before */ }
+}
+export function dropParkedRun() {
+  try { localStorage.removeItem(RUN_KEY) } catch { /* private mode */ }
+}
+// Removes it as it reads it, so a parked run that crashes the game on load is tried once, not forever.
+export function takeParkedRun(stamp) {
+  try {
+    const raw = localStorage.getItem(RUN_KEY)
+    dropParkedRun()
+    const p = raw && JSON.parse(raw, untagged)
+    return p && p.stamp === stamp && p.slot === activeSlot() && p.run?.player ? p.run : null
+  } catch { return null }
+}
+
 // The raw accessors sync.js needs. It reaches slots ONLY through these and never constructs a save
 // key itself, which is what keeps key construction entirely inside state.js.
 

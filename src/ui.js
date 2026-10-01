@@ -3398,6 +3398,7 @@ export function initUI(hooks) {
     setHtml(screens.pause, `
       <div class="modal modal--pause" data-pop="pause">
         <h2 class="modal-title">${t('Paused')}</h2>
+        ${d.away ? `<p class="sync-notice">${esc(t('Auto-paused.'))}</p>` : ''}
         ${mutatorBlock}
         ${buildBlockHtml(d.build)}
         <!-- Entry to the element Codex (see renderCodex), carrying this run's own potency so its
