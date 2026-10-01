@@ -541,6 +541,72 @@ function testEndlessCoins() {
   console.log(`PASS run EN.e (endless coins): x${want.toFixed(2)} at t=${run.time.toFixed(0)}s, earned -> ${after}`)
 }
 
+function testEndlessCrowdAffixes() {
+  Math.random = mulberry32(20261003)
+  const mk = (t) => {
+    const run = createRun(makeMeta(), { chapter: 'body', endless: true })
+    run.player.hp = run.player.maxHP = 1e12
+    run._nextEliteAt = 1e9
+    run._endlessNextMilestone = Infinity
+    run.time = t
+    return run
+  }
+  const low = mk(0)
+  advance(low, 30, 1 / 30, { x: 1, y: 0 })
+  assert.ok(low.enemies.every((e) => e.elite || e.affixes.length === 0), 'no crowd affixes at D1')
+  const hi = mk(60 * 30)
+  advance(hi, 30, 1 / 30, { x: 1, y: 0 })
+  const normals = hi.enemies.filter((e) => !e.elite)
+  const aff = normals.filter((e) => e.affixes.length > 0)
+  assert.ok(normals.length >= 100, `denominator too small: ${normals.length}`)
+  assert.ok(aff.length / normals.length > ENDLESS_AFFIX_MAX * 0.6, `share ${aff.length}/${normals.length}`)
+  assert.ok(aff.every((e) => e.affixVisible && e.affixes.length === 1 && e.affixes[0] !== 'anchored'))
+  // splitter children (forceNormal) never roll, even at the top of the ramp
+  {
+    const run = mk(60 * 30)
+    run.mods.spawnMul = 0
+    run.weapons = [{ id: 'star', level: 3 }]
+    for (let k = 0; k < 8; k++) {
+      const t = makeStatusEnemy(run, { x: 50, y: k * 6 - 20, hp: 10, speed: 0, affixes: ['splitter'] })
+      t.affixVisible = true
+      run.enemies.push(t)
+    }
+    for (let i = 0; i < 90 && run.kills < 8; i++) {
+      if (run.phase === 'levelup') { declineLevelUp(run); continue }
+      stepSim(run, { x: 0, y: 0 }, 1 / 30)
+    }
+    const wisps = run.enemies.filter((e) => e.type === 'wisp' && Math.hypot(e.x - 50, e.y) < 150) // the corpse's children; natural spawns are far off
+    assert.ok(run.difficulty > 10 && wisps.length >= 1, `wisps ${wisps.length} d=${run.difficulty}`)
+    assert.ok(wisps.every((e) => e.affixes.length === 0), 'wisp rolled an affix')
+  }
+  // EFFECTS, on a hand-made normal enemy (affixVisible is the only difference from the control)
+  const probe = (affix, visible, hp) => {
+    const run = createRun(makeMeta())
+    run.mods.spawnMul = 0
+    run.weapons = [{ id: 'star', level: 3 }]
+    run.player.hp = run.player.maxHP = 1e9
+    const t = makeStatusEnemy(run, { x: 50, y: 0, hp, speed: 0, affixes: [affix] })
+    t.affixVisible = visible
+    run.enemies.push(t)
+    let hit = null
+    for (let i = 0; i < 90 && !hit && run.kills === 0; i++) {
+      if (run.phase === 'levelup') { declineLevelUp(run); continue }
+      stepSim(run, { x: 0, y: 0 }, 1 / 30)
+      hit = run.events.find((e) => e.type === 'hit') ?? null
+      run.events = []
+    }
+    return { hit, bombs: run.bombs.length, kills: run.kills }
+  }
+  const sh = probe('shielded', true, 1e6).hit.dmg
+  const full = probe('shielded', false, 1e6).hit.dmg
+  assert.strictEqual(sh, Math.round(full * SHIELD_DMG_MUL), `shielded normal: ${sh} vs control ${full}`)
+  const vol = probe('volatile', true, 10)
+  assert.ok(vol.kills > 0 && vol.bombs === 1, `volatile normal should leave a bomb: ${vol.bombs}`)
+  const ctl = probe('volatile', false, 10)
+  assert.ok(ctl.kills > 0 && ctl.bombs === 0, 'control: unflagged leaves no bomb')
+  console.log(`PASS run EN.g (crowd affixes): ${aff.length}/${normals.length} affixed at d=${hi.difficulty.toFixed(1)}`)
+}
+
 function testVictory() {
   const run = createRun(makeMeta())
   run.player.hp = 1e9
@@ -20357,6 +20423,7 @@ try {
   run(testEndlessCurvesFrozen)
   run(testEndlessRamp)
   run(testEndlessCoins)
+  run(testEndlessCrowdAffixes)
   run(testEndlessMilestones)
   run(testNewWeapons)
   run(testRaritySanity)
@@ -34814,7 +34881,7 @@ function testVocabularies() {
     `that read it was removed and the roster still advertises it.`)
 
   // (b) ELITE AFFIXES. Same shape, different array: sim reads these with `affixes.includes('x')`.
-  const readAffixes = new Set([...sim.matchAll(/affixes\.includes\('(\w+)'\)/g)].map((m) => m[1]))
+  const readAffixes = new Set([...sim.matchAll(/(?:affixes\.includes\(|hasAffix\(\w+, )'(\w+)'\)/g)].map((m) => m[1]))
   const deadAffixes = Object.keys(ELITE_AFFIXES).filter((a) => !readAffixes.has(a)).sort()
   assert.deepStrictEqual(deadAffixes, [],
     `${deadAffixes.length} elite affix(es) can be ROLLED but are never read by sim.js: [${deadAffixes.join(', ')}]. ` +

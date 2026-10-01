@@ -28262,7 +28262,7 @@ void main() {
   function syncAffixBadges(s, e) {
     // Elites only: affixes on a non-elite are internal plumbing (the blank's Antibody carries
     // 'anchored' purely for knockback immunity), not a badge to advertise.
-    const affixes = e.elite ? e.affixes : null
+    const affixes = (e.elite || e.affixVisible) ? e.affixes : null
     const n = affixes ? affixes.length : 0
     if (!s._affixTexts) s._affixTexts = []
     while (s._affixTexts.length < n) {

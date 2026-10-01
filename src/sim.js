@@ -254,7 +254,7 @@ import {
   // v6.7.11: the level-up reroll's price ladder — rerollLevelUpChoices owns the whole purchase
   rerollCost,
   difficultySpeedMul, difficultyCountMul, difficultyDmgMul, endlessLevel, endlessHpMul, ENDLESS_COIN_HALF_LIFE_S,
-  ENDLESS_MILESTONE_S, ENDLESS_MILESTONE_ELITES, mutatorPool, MUTATORS,
+  ENDLESS_MILESTONE_S, ENDLESS_MILESTONE_ELITES, endlessAffixChance, ENDLESS_GILDED_COINS, mutatorPool, MUTATORS,
 } from './config.js'
 
 const KB_DECAY_RATE = 6 // per-second exponential-ish decay factor for enemy knockback
@@ -4016,6 +4016,8 @@ function elVenomAmp(run, e) {
 // ordinary heavy enemies here — they resist by having more health, which is the entire point of
 // normalising by maxHP, and giving them a second exemption would re-create the special case the
 // redesign exists to delete.
+// Elite-gated affix check; an endless crowd enemy opts in with affixVisible. Never use for 'anchored'.
+function hasAffix(e, id) { return !!((e.elite || e.affixVisible) && e.affixes && e.affixes.includes(id)) }
 function elNeverFreezes(e) { return !!(e.affixes && e.affixes.includes('anchored')) }
 
 // opts: { type, x, y, forceNormal } — lets splitter deaths spawn wisps at a fixed position
@@ -4167,8 +4169,13 @@ function spawnEnemy(run, opts = {}) {
     * (CHAPTERS[run.chapter].passiveCrowd ? 0 : 1)
   const radius = base.radius * (isElite ? ELITE.sizeMul : 1) * run.mods.enemyRadiusMul * (roster?.radiusMul ?? 1)
 
-  const affixes = isElite ? rollAffixes(run) : []
-  if (isElite && affixes.includes('gilded')) hp *= GILDED_HP_MUL
+  let affixes = isElite ? rollAffixes(run) : []
+  let affixVisible = false
+  if (!isElite && run.endless && !opts.forceNormal && !opts.deferred && Math.random() < endlessAffixChance(run.difficulty)) {
+    affixes = rollAffixes(run).filter((a) => a !== 'anchored').slice(0, 1)
+    affixVisible = affixes.length > 0
+  }
+  if ((isElite || affixVisible) && affixes.includes('gilded')) hp *= GILDED_HP_MUL
   hp = roundHP(hp)   // LAST, after every multiplier — gilded lands after the base roll and a x1.5
                      // on an odd number puts the .5 straight back (caught by run VD.a)
 
@@ -4185,6 +4192,7 @@ function spawnEnemy(run, opts = {}) {
     dmg,
     elite: isElite,
     affixes,
+    affixVisible,
     flags,
     rosterId: roster?.id ?? null,
     // roster.dash (v7.x): per-creature overrides for the dashBurst timings, or null to take the
@@ -5719,7 +5727,7 @@ function stepSubmission(run, dt) {
       // The loan ending reuses `explode`, which already has a render case and an SFX entry —
       // a bespoke `submissionend` was a dead event: nothing drew it and nothing played it.
       run.events.push({ type: 'explode', x: e.x, y: e.y, radius: e.radius * 1.5 })
-      if (e.elite && e.affixes && e.affixes.includes('volatile')) {
+      if (hasAffix(e, 'volatile')) {
         run.bombs.push(volatileBomb(run, e.x, e.y))
       }
       continue
@@ -9353,7 +9361,7 @@ function dealDamage(run, enemy, dmg, crit, dot = false, hazard = false, carried 
   }
   // Shielded (elite affix): while above SHIELD_HP_FRAC of maxHP, the shield absorbs part
   // of every hit. Checked before venom amp per spec (shield softens the raw hit first).
-  if (enemy.elite && enemy.affixes && enemy.affixes.includes('shielded') && enemy.hp > enemy.maxHP * SHIELD_HP_FRAC) {
+  if (hasAffix(enemy, 'shielded') && enemy.hp > enemy.maxHP * SHIELD_HP_FRAC) {
     dmg *= SHIELD_DMG_MUL
   }
   // Venom amplifies ALL damage the enemy takes. Derived from the damage window, not stored as
@@ -9520,6 +9528,14 @@ function dealDamage(run, enemy, dmg, crit, dot = false, hazard = false, carried 
     } else if (Math.random() < ENEMIES[enemy.type].coinChance * coinDropMul) {
       if (paid) run.coins.push({ x: enemy.x, y: enemy.y, value: 1 })
     }
+    if (!enemy.elite && hasAffix(enemy, 'gilded')) {
+      for (let i = 0; i < ENDLESS_GILDED_COINS; i++) {
+        if (Math.random() >= coinDropMul) continue
+        const a = Math.random() * Math.PI * 2
+        const d = Math.random() * 20
+        if (paid) run.coins.push({ x: enemy.x + Math.cos(a) * d, y: enemy.y + Math.sin(a) * d, value: 1 })
+      }
+    }
 
     // Splitter (elite affix): spawns SPLITTER_COUNT wisps around the corpse.
     // DEFERRED for the same reason the `split` flag below queues — this whole branch runs from
@@ -9527,7 +9543,7 @@ function dealDamage(run, enemy, dmg, crit, dot = false, hazard = false, carried 
     // immediate push puts the wisps behind that sweep's cursor where the same cast kills them
     // before they have lived a frame. The two paths were asymmetric until now: the flag was
     // fixed in v7.62 and the affix, thirteen lines above it, was not.
-    if (enemy.elite && enemy.affixes && enemy.affixes.includes('splitter')) {
+    if (hasAffix(enemy, 'splitter')) {
       for (let i = 0; i < SPLITTER_COUNT; i++) {
         const a = Math.random() * Math.PI * 2
         const d = Math.random() * 20
@@ -9535,7 +9551,7 @@ function dealDamage(run, enemy, dmg, crit, dot = false, hazard = false, carried 
       }
     }
     // Volatile (elite affix): a timed bomb goes off where the enemy died (see stepBombs).
-    if (enemy.elite && enemy.affixes && enemy.affixes.includes('volatile')) {
+    if (hasAffix(enemy, 'volatile')) {
       // v5.10.1: `src: 'volatile'` lets skies tell this corpse-bomb apart from its own gun/sky bombs
       // (see render.js bombSrc) instead of both falling through the same "else" branch and detonating
       // as a fake lightning strike. Every other chapter's redrawBombs never reads `src` — inert there.

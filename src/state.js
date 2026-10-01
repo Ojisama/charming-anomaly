@@ -802,6 +802,9 @@ function generateWells(sig) {
  *               column is ragdolling. Sim-internal (underscore): the tell is holePull, which render
  *               already reads.
  *
+ *               affixVisible: true on an endless crowd enemy that rolled one affix (never
+ *               anchored); sim hasAffix() and render treat it like elite for affix effects/badges.
+ *
  *               affixes: array of ELITE_AFFIXES ids (see config.js) — present ONLY on elites;
  *               non-elites always carry affixes: [] (harmless to check unconditionally, but
  *               sim.js still guards elite-only affix logic behind `e.elite &&` first for cost).
