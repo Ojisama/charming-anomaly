@@ -196,37 +196,35 @@ function testEndlessNoVictory() {
   console.log('PASS run EN.b (endless: no timer victory)')
 }
 
-// EFFECT, not state: an enemy born at t=600 in endless has the same hp as one born at t=300,
-// with the endless level pinned (so only the TIME curves could differ).
+// EFFECT, not state: an enemy born at t=600 in endless has the same hp per base hp as one born at
+// t=300. HP carries no difficulty term, so only the TIME curve could differ. Milestones are off so
+// no drip (bulky/jumbo touch enemyHpMul) or forced elite can land. Elites are excluded by type
+// filter, and the ratio is taken per (type, rosterId) so roster hpMul cannot vary between arms.
 function testEndlessCurvesFrozen() {
-  const hpAt = (endless, t) => {
+  const ratios = (t) => {
     Math.random = mulberry32(20261001)
-    const run = createRun(makeMeta(), { chapter: 'beyond', endless })
+    const run = createRun(makeMeta(), { chapter: 'beyond', endless: true })
+    run.player.hp = run.player.maxHP = 1e12
     run.time = t
-    run._endlessPinLevel = 1   // test hook: stepEndless honours it (Task 3); unused here
-    run._nextEliteAt = 1e9
-    const before = run.enemies.length
-    stepSim(run, { x: 0, y: 0 }, 0)   // flush nothing; just ensure shape
-    // spawn one through the shipped path
-    run._spawnAcc = 1
-    stepSim(run, { x: 0, y: 0 }, 1 / 60)
-    stepSim(run, { x: 0, y: 0 }, 1 / 60)   // flushSpawns runs at the top of the NEXT step
-    const e = run.enemies.slice(before).find((x) => !x.elite)
-    assert.ok(e, `no enemy spawned at t=${t}`)
-    return e.maxHP / (ENEMIES[e.type].hp)
+    run._endlessNextMilestone = Infinity
+    run._nextEliteAt = Infinity
+    advance(run, 3, 1 / 60, { x: 1, y: 0 })
+    const out = new Map()
+    for (const e of run.enemies) if (!e.elite) out.set(`${e.type}/${e.rosterId}`, e.maxHP / ENEMIES[e.type].hp)
+    return out
   }
-  const e300 = hpAt(true, 300), e600 = hpAt(true, 600)
-  assert.ok(Math.abs(e600 - e300) / e300 < 0.02, `endless hp curve must freeze: ${e300} vs ${e600}`)
-  const n300 = hpAt(false, 300), n600 = hpAt(false, 600)
-  assert.ok(n600 > n300 * 2, `normal hp curve must keep ramping: ${n300} vs ${n600}`)
-  console.log(`PASS run EN.c (curves frozen): endless x${e300.toFixed(1)}->x${e600.toFixed(1)}, normal x${n300.toFixed(1)}->x${n600.toFixed(1)}`)
+  const a = ratios(300), b = ratios(600)
+  const shared = [...a.keys()].filter((k) => b.has(k))
+  assert.ok(shared.length > 0, 'no common enemy kind between arms')
+  for (const k of shared) assert.ok(Math.abs(b.get(k) - a.get(k)) / a.get(k) < 0.02, `${k}: ${a.get(k)} vs ${b.get(k)}`)
+  // Control: the shipped curve itself keeps ramping (a normal run at t=600 cannot spawn: the
+  // victory gate returns first, so the control is the pure function).
+  assert.ok(hpScale(600, lateRateFor('beyond')) > 2 * hpScale(300, lateRateFor('beyond')))
+  console.log(`PASS run EN.c (curves frozen): ${shared.length} kinds compared at 300 vs 600`)
 }
 ```
 
-The tolerance exists because the roster's `hpMul` varies by type. If the two seeds pick different
-types, compare the same `e.type` by forcing it through `opts.type` on a direct spawn hook instead.
-Read how `spawnEnemy` is reached from tests first (`grep -n "spawnEnemy" test/sim-test.js`) and use
-the existing idiom. Register both with `run(...)`.
+`hpScale` rounds HP to an integer, which is why the tolerance is 2%. Register both with `run(...)`.
 
 - [ ] **Step 2: Run them.** `npm test testEndless`. Expected: EN.b FAILS (the endless run reaches
   victory) and EN.c FAILS (hp keeps ramping).
@@ -270,7 +268,7 @@ grep -nE "(hpScale|spawnRate|dmgScale|speedCreepMul|eliteEveryAt|spawnTiltMul|la
 - [ ] **Step 5: Update the HUD countdown** (ui.js ~2506). In the `else` branch:
 
 ```js
-      const remain = run.endless ? Math.floor(run.time) : Math.max(0, Math.ceil(RUN_DURATION - run.time))
+      const remain = run.endless ? Math.floor(run._realTime ?? 0) : Math.max(0, Math.ceil(RUN_DURATION - run.time))
 ```
 
   That is a count-up. The level label lands in Task 7.
@@ -305,11 +303,14 @@ grep -nE "(hpScale|spawnRate|dmgScale|speedCreepMul|eliteEveryAt|spawnTiltMul|la
 - [ ] **Step 1: Write the failing tests.**
 
 ```js
+// Pure arithmetic, so it JUMPS the clock: 20 simulated minutes cost ~25s and would set the gate floor.
 function testEndlessRamp() {
   const run = createRun(makeMeta(), { chapter: 'body', endless: true })
   run.player.hp = run.player.maxHP = 1e12
+  run._endlessNextMilestone = Infinity   // no drip: it would rewrite _endlessBase under the assertion
   const base = { ...run._endlessBase }
-  advance(run, 20 * 60, 1 / 30, { x: 1, y: 0 })
+  run.time = 20 * 60
+  stepSim(run, { x: 0, y: 0 }, 1 / 60)
   const d = endlessLevel(run.time)
   assert.ok(Math.abs(run.difficulty - d) < 1e-9, `difficulty ${run.difficulty} != ${d}`)
   const want = base.enemyDmgMul * difficultyDmgMul(d)
@@ -322,23 +323,30 @@ function testEndlessRamp() {
 function testEndlessCoins() {
   const run = createRun(makeMeta(), { chapter: 'body', endless: true })
   run.player.hp = run.player.maxHP = 1e12
+  run._endlessNextMilestone = Infinity   // 5 of body's 9 pool mutators carry coinMul
   const c0 = run._endlessBase.coinMul
+  // advance() spends a step per level-up without advancing time, so assert against run.time, not 120
   advance(run, 120, 1 / 30, { x: 1, y: 0 })
-  assert.ok(Math.abs(run.mods.coinMul - c0 * 0.25) < 1e-6 * c0, `coinMul at 120s ${run.mods.coinMul} != ${c0 / 4}`)
-  // cap bypass: force a big pickup through the shipped path
+  const want = c0 * Math.pow(0.5, run.time / 60)
+  assert.ok(run.time > 100 && Math.abs(run.mods.coinMul - want) < 1e-9 * c0, `coinMul ${run.mods.coinMul} != ${want} at t=${run.time}`)
+  // cap bypass: force a big coin through the shipped path (coins live in run.coins as {x,y,value})
   run.coinsEarned = COIN_CAP_PER_RUN - 1
   run.mods.coinMul = 1
   const before = run.coinsEarned
-  run.pickups.push({ kind: 'coin', x: run.player.x, y: run.player.y, value: 50 })
+  run.coins.push({ x: run.player.x, y: run.player.y, value: 50 })
   stepSim(run, { x: 0, y: 0 }, 1 / 60)
   assert.ok(run.coinsEarned > COIN_CAP_PER_RUN, `endless must not cap: ${run.coinsEarned}`)
   console.log(`PASS run EN.e (endless coins): x${(run.mods.coinMul).toFixed(2)} after reset, earned ${before}->${run.coinsEarned}`)
 }
 ```
 
-The pickup shape is a guess. Read `stepPickups` (~14500-14550) and copy the real coin pickup
-shape and collection condition before running. Then assert the same thing against a normal run in
-the same scenario (it must stay ≤ `COIN_CAP_PER_RUN`), so the control is part of the test.
+Confirm the `run.coins` entry shape and the collection radius in `stepPickups` (~14500-14550)
+before running. Then assert the same thing against a normal run in the same scenario (it must stay
+≤ `COIN_CAP_PER_RUN`), so the control is part of the test.
+
+**Probe hook (lands here, used in Task 9):** `stepEndless` reads
+`const d = run._endlessPinLevel ?? endlessLevel(run.time)`. It is a probe-only override; mark it
+with a one-line comment.
 
 - [ ] **Step 2: Run them.** Expected: FAIL.
 
@@ -372,10 +380,8 @@ function stepEndless(run) {
 
 - [ ] **Step 4: Run them.** Expected: PASS. Then `npm test`.
 - [ ] **Step 5: Mutation-prove.**
-  - Chain ratios (`run.mods.enemyDmgMul *= difficultyDmgMul(d) / difficultyDmgMul(prev)`) and
-    drop the base → EN.d must still pass. That shows the drift test is weak, so tighten it to
-    1e-12 or prove the drift exists at 1/30 over 20 minutes. If chaining has no measurable drift,
-    say so in the commit body. Do not add a pointless assertion.
+  - Delete the `stepEndless` call → EN.d fails.
+  - Use `difficultyCountMul` for `enemyDmgMul` → EN.d fails.
   - Remove the endless cap bypass → EN.e fails.
   - Remove the halving → EN.e fails.
 - [ ] **Step 6: Commit.**
@@ -386,9 +392,13 @@ function stepEndless(run) {
 
 **Files:**
 - Modify: `src/sim.js`.
-  - `spawnEnemy` (~4021): `const isElite = opts.forceElite || (!opts.forceNormal && run.time >= run._nextEliteAt)`.
-    The cadence bump stays guarded by the time condition only, so a forced elite never moves
-    `_nextEliteAt`.
+  - `spawnEnemy` (~4021-4029). Today the bump is inside `if (isElite)`, so split the condition:
+
+```js
+  const cadence = !opts.forceNormal && run.time >= run._nextEliteAt
+  const isElite = opts.forceElite === true || cadence
+  if (cadence) { /* the existing eliteSurge + _nextEliteAt bump, unchanged */ }
+```
   - `stepEndlessMilestones`.
 - Modify: `src/main.js`. Add `endlessMutator: '<existing sfx name, e.g. the elite-arrival one>'`
   to `SFX_FOR_EVENT` (~534). Pick from the existing synth names; do not invent one.
@@ -414,10 +424,12 @@ function testEndlessMilestones() {
   run._nextEliteAt = 1e9                    // isolate the forced wave from the cadence
   const cadence = run._nextEliteAt
   const pool = mutatorPool('body')
-  advance(run, ENDLESS_MILESTONE_S - 0.5, 1 / 30, { x: 1, y: 0 })
+  run.time = ENDLESS_MILESTONE_S - 0.5   // jump the clock: advance() under-runs time on level-ups
+  stepSim(run, { x: 0, y: 0 }, 1 / 60)
   assert.strictEqual(run.mutators.length, 0, 'no drip before the first milestone')
   const elitesBefore = run.enemies.filter((e) => e.elite).length
-  advance(run, 1, 1 / 30, { x: 1, y: 0 })
+  while (run.time < ENDLESS_MILESTONE_S + 0.1) stepSim(run, { x: 0, y: 0 }, 1 / 60)
+  stepSim(run, { x: 0, y: 0 }, 1 / 60)   // flushSpawns on the next step
   assert.strictEqual(run.mutators.length, 1, 'one mutator per milestone')
   const id = run.mutators[0]
   assert.ok(pool.includes(id), `${id} not in body's pool`)
@@ -429,8 +441,8 @@ function testEndlessMilestones() {
   const elitesAfter = run.enemies.filter((e) => e.elite).length
   assert.ok(elitesAfter - elitesBefore >= ENDLESS_MILESTONE_ELITES, `forced elites: +${elitesAfter - elitesBefore}`)
   assert.strictEqual(run._nextEliteAt, cadence, 'forced elites must not move the cadence')
-  // drip exhausts cleanly
-  advance(run, ENDLESS_MILESTONE_S * (pool.length + 2), 1 / 10, { x: 1, y: 0 })
+  // drip exhausts cleanly: jump milestone by milestone, one step each (cheap)
+  for (let i = 0; i < pool.length + 2; i++) { run.time = run._endlessNextMilestone; stepSim(run, { x: 0, y: 0 }, 1 / 60) }
   assert.strictEqual(new Set(run.mutators).size, run.mutators.length, 'no duplicate drip')
   assert.ok(run.mutators.length <= pool.length)
   console.log(`PASS run EN.f (milestones): first drip ${id}, +${elitesAfter - elitesBefore} elites, pool ${pool.length}`)
@@ -528,7 +540,9 @@ function testEndlessCrowdAffixes() {
 }
 ```
 
-Before Step 2, complete the two **effect** checks using the suite's existing hand-made-enemy idiom.
+Before Step 2, complete the two **effect** checks. `spawnEnemy` and `dealDamage` are not exported,
+so use `makeStatusEnemy` (test/sim-test.js:3287) and the shipped step path it is used with.
+Also set `run._endlessNextMilestone = Infinity` in `mk`.
 The two checks are:
 - a normal enemy with `affixes: ['shielded'], affixVisible: true` loses
   `dmg * SHIELD_DMG_MUL` per hit, against `dmg` with `affixVisible: false`;
@@ -557,14 +571,18 @@ whose `anchored` is unflagged, safe.
   `e.elite && …`) at 5680, 9314, 9488 and 9496 with `hasAffix(enemy, 'X')`.
 - **Leave 9468's elite coin block alone**; the elite payout stays keyed on `e.elite`.
 - Add, in the non-elite death path:
-  `if (!enemy.elite && hasAffix(enemy, 'gilded')) for (let i = 0; i < ENDLESS_GILDED_COINS; i++) <same coin drop call the elite block uses>`.
+  `if (!enemy.elite && hasAffix(enemy, 'gilded'))` drop `ENDLESS_GILDED_COINS` coins. Copy the
+  elite block's exact drop form (sim.js:9463-9479): coins go into `run.coins` as `{x, y, value}`,
+  and the drop must respect `paid` and `coinDropMul` exactly as that block does.
 - Check the splitter's child spawn passes `forceNormal: true, deferred: true` (it does at 9492),
   so the roll guard covers it.
 
 - [ ] **Step 4: Run it.** Expected: PASS, and the `npm test` gate is green. That gate includes the
   Blank scenarios, which prove the Antibody's `anchored` is unaffected.
 - [ ] **Step 5: Mutation-prove.**
-  - Drop `!opts.deferred` → the wisp assertion fails.
+  - Drop `!opts.forceNormal` → the wisp assertion fails. (`!opts.deferred` is redundant: splitter
+    wisps pass `forceNormal`, and split-flag children go straight to `_spawnQueue` at sim.js:4305,
+    so dropping it cannot fail.)
   - Revert the shielded gate to `enemy.elite` → the effect check fails.
   - Set `affixVisible = false` → the visibility assertion fails.
 - [ ] **Step 6: Shoot a frame.** Load `probing-the-game`. Use `scripts/shot.mjs` with a seed script
@@ -612,21 +630,28 @@ function testEndlessMeta() {
   const again = ensureChapterMeta(m, 'body')
   assert.strictEqual(again.endlessPicked, true, 'ensureChapterMeta dropped endlessPicked')
   assert.strictEqual(again.endlessBest, 123456)
-  // round-trip through save/load keeps them (additive fields)
-  saveMeta(m); const loaded = loadMeta()
+  // round-trip through load keeps them (additive fields). node has no localStorage: use the
+  // suite's loadMetaFrom(blob) shim (test/sim-test.js:298), never saveMeta/loadMeta directly.
+  const loaded = loadMetaFrom(JSON.parse(JSON.stringify(m)))
   assert.strictEqual(loaded.chapters.body.endlessPicked, true)
+  assert.strictEqual(loaded.chapters.body.endlessBest, 123456)
   // main.js contracts, as source text (render/main are not importable)
   const main = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
   assert.match(main, /createRun\(meta, \{[^}]*endless[^}]*\}\)/, 'startClassic must forward endless to createRun')
-  assert.match(main, /difficulty:\s*run\.endless\s*\?\s*0/, 'endless must submit difficulty 0 explicitly')
   assert.match(main, /if \(!run\.endless\)[^\n]*best\.time|!run\.endless[\s\S]{0,200}best\.time/, 'best.time must be gated on !run.endless')
   console.log('PASS run EN.h (endless meta + main wiring)')
 }
 ```
 
-The submission regex depends on Task 8's line. Write it now and let it fail until Task 8 lands, or
-move that one assertion into Task 8. Pick one and say which in the commit. Use whatever save/load
-idiom the suite already uses (e.g. the localStorage shim near `testSave…`); read one first.
+The `difficulty: 0` submission assertion belongs to Task 8 (run LB extension), not here.
+
+**Also in this task, so the summary can show endless:**
+- `summaryData` (main.js:881) carries `endless: run.endless` and `endlessBest`.
+- The brief screen (ui.js:3137) shows "∞" instead of a D-number when `endless`, with no
+  anomaly list.
+- The brief's reroll is hidden for endless runs.
+- The closed-page `leaderLine(…, chMeta.difficulty)` and the "difficulty {n}" line (ui.js:963,
+  1002) read difficulty 0 when `endlessPicked`.
 
 - [ ] **Step 2: Run it.** Expected: FAIL.
 - [ ] **Step 3: Implement** as listed in Files.
@@ -648,13 +673,17 @@ idiom the suite already uses (e.g. the localStorage shim near `testSave…`); re
   - While `endlessPicked`, the numbered pips render un-lit.
   - Click handler: `case 'endless': hooks.onEndless(!selectedChapterMeta(meta).endlessPicked); updateTitleBelow(); break`.
   - **HUD:** `hud.timerK` (the caption slot under the timer) shows `∞ ${run.difficulty.toFixed(1)}`
-    in endless.
+    in endless. Today it is written only on the circuit toggle (ui.js:2411), so add a per-frame
+    write cached on `last.endlessK` (the same idiom as `last.remain`).
+  - **The count-up uses `run._realTime`, not `run.time`,** so the HUD matches the board's unit
+    under Time Debt. Correct Task 2's count-up line accordingly.
   - **Banner** on `endlessMutator`: `t(MUTATORS[id].name)`, the existing translated name, prefixed
     with `t(ENDLESS_COPY.milestone.name)`.
   - **Summary** for an endless run: the survival time and `t(ENDLESS_COPY.best.name)` + `fmtTime(endlessBest/1000)`.
 - Modify: `src/config.js`. Add the `ENDLESS_COPY` table:
   `{ pip: { name: 'Endless' }, milestone: { name: 'Mutation' }, best: { name: 'Best' }, survived: { name: 'Survived' } }`.
-  Add it to run XX's table walk if that walk lists tables explicitly (read run XX first).
+  run XX's walk is NOT automatic. Import `ENDLESS_COPY` in the test file and add it to the
+  explicit table list at test/sim-test.js:18645.
 - Modify: `src/fr.js`. Add the French drafts, then **AskUserQuestion the owner with 2-3 options per
   string** before committing.
 - Modify: `src/styles.css`. Add `.diff-pip--endless`. Run SP: never re-declare `position` on a
@@ -685,7 +714,9 @@ CREATE INDEX IF NOT EXISTS scores_survive ON scores (chapter, difficulty, surviv
 - Modify: `worker/schema.sql`. Add the column last and the index, mirroring the migration.
 - Modify: `worker/src/index.js`.
   - Lines 174 and 184: `int(…, 0, 9)`.
-  - Parse `const surviveMs = body.surviveMs == null ? null : int(body.surviveMs, 1, 3600000)`.
+  - Parse `const surviveMs = body.surviveMs == null ? null : int(body.surviveMs, 1, 86400000)`.
+    The ceiling is 24h, not the 1h bound that `timeMs` uses: a run past one hour would otherwise
+    get a 400 and lose its score.
     Reject with 400 when `difficulty === 0 && surviveMs === null`, and when
     `difficulty !== 0 && body.surviveMs != null`.
   - Add `survive_ms` to the INSERT.
@@ -702,21 +733,27 @@ CREATE INDEX IF NOT EXISTS scores_survive ON scores (chapter, difficulty, surviv
 - Modify: `src/scores.js`.
   - `submitScore({ …, surviveMs = null })` forwards it in the JSON body.
   - `podiumRank(boards, { …, surviveMs = null })` adds
-    `const s = at(boards.survive ?? [], 'surviveMs', surviveMs)` with a **DESC** comparator. Read
-    `at()` first: it assumes the existing sort direction.
+    `const s = at(boards.survive ?? [], 'surviveMs', surviveMs)`. `at()` is a `findIndex` over rows
+    the Worker already sorted (scores.js:111-119), so there is no comparator to change. The DESC
+    order is proved in `worker/test.sh` only.
   - Add `survive` to the tolerated-missing list (~64-69).
 - Modify: `src/main.js` (~953): `difficulty: run.endless ? 0 : (run.difficulty ?? 1)`,
   `surviveMs: run.endless ? Math.round((run._realTime ?? run.time) * 1000) : null`. Pass
   `surviveMs` to `podiumRank` too.
 - Modify: `src/ui.js`.
-  - `boardsFor` (~733): an endless branch returns `['kills', 'level', 'survive']`.
+  - `boardsFor` (~733): an endless branch returns the PAIR `['survive', 'kills']`. ui.js:858
+    destructures `[verso, recto]`, so a third entry would be silently dropped.
+  - Add `survive` to `podiumPageHtml`'s label and score maps (ui.js:915-927):
+    `'Best time'` and `fmtTime(r.surviveMs / 1000)`. Add it to the rank display too.
   - `loadPodium` (~4200): use `chMeta.endlessPicked ? 0 : (chMeta.difficulty ?? 1)`.
   - Find every other `fetchBoards` caller with
     `grep -n "fetchBoards\|loadPodium" src/*.js` and give each the same rule.
 - Test: extend run LB (`testLeaderboard`, test/sim-test.js:19281).
-  - `podiumRank` places a longer `surviveMs` above a shorter one.
+  - `podiumRank` finds a submitted `surviveMs` row in `boards.survive`.
   - A missing `boards.survive` does not throw.
-  - Mutation: flip the comparator → fails.
+  - Source text: main.js submits `difficulty: run.endless ? 0 : …` and forwards `surviveMs`
+    (moved here from EN.h).
+  - Mutation: drop `surviveMs` from `submitScore`'s body → fails.
 
 - [ ] **Step 1:** Write the run LB extension and the worker test cases. Both fail.
 - [ ] **Step 2:** Implement the worker side. Run `cd worker && ./test.sh` (read it for how it runs
@@ -746,8 +783,10 @@ CREATE INDEX IF NOT EXISTS scores_survive ON scores (chapter, difficulty, surviv
   - **Chapters:** body, beyond and deep.
   - **Seeds:** 8 per cell.
   - **Movement axis:** still, amble and kite (memory: kiting-rig-hides-shove-locks).
-  - **Control arm:** `run._endlessPinLevel = 1` (honoured by `stepEndless`; add that one line,
-    clearly marked as a probe hook).
+  - **Control arm:** `run._endlessPinLevel = 1` (the hook from Task 3).
+  - **Also measure render cost:** affix badges are one Pixi `Text` each (render.js:28261). Shoot a
+    late-endless frame on a phone viewport and note the frame time. If it is bad, report it; the
+    owner decides on caps.
   - **Prints:** the death-time distribution (min, median, max), N per cell, and the alive count
     plus sim ms/step at death.
 - [ ] **Step 3: Tune.** Grid-sweep `A`/`B` (3×3) until the median build dies around 8–12 minutes
@@ -771,6 +810,16 @@ CREATE INDEX IF NOT EXISTS scores_survive ON scores (chapter, difficulty, surviv
   the ∞ pip condition, and ship it with a player-facing sentence.
 
 ---
+
+## Known, accepted
+
+- **The Task 2 grep also matches the comment at sim.js:9.** "Must print nothing" means no code
+  lines.
+- **Chaos Pact's damage bonus** (`chaosWavesSurvived(run.time)`, sim.js:685) keeps growing in
+  endless. It is player power, not a time curve, so it is left unfrozen. Flag it in the playtest
+  notes.
+- **The dev gate blocks submission** (main.js:919), so the endless board stays empty until Task 10
+  Step 4. `worker/test.sh` is the board's only proof before then.
 
 ## Self-review notes
 
