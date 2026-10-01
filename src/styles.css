@@ -692,10 +692,6 @@ body {
   opacity: 0.78;
 }
 .race-time .race-k { display: block; }
-/* THE SPLIT DELTA against your best lap so far, directly under the clock it comments on. It is on
-   screen for CIRCUIT_DELTA_S after a lap line and gone the rest of the time, which is exactly why
-   it gets no box of its own: a container that appeared and vanished would read as the HUD breaking
-   rather than as a number arriving. */
 .endless-banner {
   grid-column: 1 / -1;
   grid-row: 3;
@@ -704,11 +700,18 @@ body {
   font-size: 1.1rem;
   font-weight: 900;
   color: var(--gold);
-  text-shadow: 0 2px 3px rgba(0, 0, 0, 0.75);
+  padding: 2px 12px;
+  border-radius: 999px;
+  background: rgba(53, 53, 74, 0.82);
+  text-shadow: none;
   pointer-events: none;
 }
 .endless-banner--show { animation: endless-banner 3.2s ease-out; }
 @keyframes endless-banner { 0% { opacity: 0; transform: scale(0.85); } 10% { opacity: 1; transform: scale(1.05); } 80% { opacity: 1; } 100% { opacity: 0; } }
+/* THE SPLIT DELTA against your best lap so far, directly under the clock it comments on. It is on
+   screen for CIRCUIT_DELTA_S after a lap line and gone the rest of the time, which is exactly why
+   it gets no box of its own: a container that appeared and vanished would read as the HUD breaking
+   rather than as a number arriving. */
 .race-delta {
   grid-column: 2;
   grid-row: 2;

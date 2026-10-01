@@ -90,7 +90,7 @@ const UI = {
   'Difficulty': 'Difficulté',
   'difficulty': 'difficulté',
   'the base game': 'le jeu de base',
-  'Endless': 'Infini',
+  'Endless': 'Sans fin',
   'Mutation': 'Mutation',
   'Best': 'Record',
   'Survived': 'Survécu',

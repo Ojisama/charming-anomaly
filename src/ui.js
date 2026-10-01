@@ -948,7 +948,7 @@ export function initUI(hooks) {
     const endlessSel = endlessOn && chMeta.endlessPicked === true
     const boardDiff = endlessSel ? 0 : chMeta.difficulty
     const coinPct = Math.round(((chMeta.difficulty - 1) * DIFFICULTY_COIN_PER_LEVEL) * 100)
-    const rewardChip = chMeta.difficulty > 1 ? `<b class="diff-reward-chip">+${coinPct}% 🪙</b>` : ''
+    const rewardChip = chMeta.difficulty > 1 && !endlessSel ? `<b class="diff-reward-chip">+${coinPct}% 🪙</b>` : ''
     const playBlock = heroUnlocked ? `
       <div class="diff-row">
         <span class="diff-label">${t('Difficulty')}${rewardChip}</span>
@@ -2518,6 +2518,10 @@ export function initUI(hooks) {
       if (run.endless) {
         const k = `∞ ${run.difficulty.toFixed(1)}`
         if (k !== last.endlessK) { last.endlessK = k; hud.timerK.textContent = k }
+      } else if (last.endlessK) {
+        // the hud object outlives the run: a classic run after an endless one must not inherit the caption
+        last.endlessK = null
+        hud.timerK.textContent = ''
       }
       const remain = run.endless ? Math.floor(run._realTime ?? 0) : Math.max(0, Math.ceil(RUN_DURATION - run.time))
       if (remain !== last.remain) {
