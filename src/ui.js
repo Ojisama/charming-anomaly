@@ -1,5 +1,5 @@
 // DOM overlay inside #ui: title, shop, HUD, level-up, pause, summary. No Pixi.
-import { shopCost, refundValue, REFUND_RATE, shopLines, shopLineUnlocked, chaptersMastered, lineMax, SHOP_FAMILY, RUN_DURATION, RARITIES, modPct, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, MUTATOR_EFFECT_LABELS, CONSUMABLES, MAX_DIFFICULTY, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, SACRIFICE_COSTS, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES, chapterNumber, CHAPTERS, CHAPTER_ORDER, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, HIDDEN_UNLOCKS, titleBookshelf, spineName, chaosStatus, pulseCost, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS, bookOf, BOOK_ORDER, BOOKS, BOOK_UNLOCKS, unlockCost, unlockLevel, unlockMax, dmgSrcName, dmgSrcArt, passiveEffectText, CHAPTER_BOARDS_DEFAULT, KRAKEN_PARRY_CD, hasSkillButton } from './config.js'
+import { shopCost, refundValue, REFUND_RATE, shopLines, shopLineUnlocked, chaptersMastered, lineMax, SHOP_FAMILY, RUN_DURATION, RARITIES, modPct, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, MUTATOR_EFFECT_LABELS, CONSUMABLES, MAX_DIFFICULTY, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, SACRIFICE_COSTS, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES, chapterNumber, CHAPTERS, CHAPTER_ORDER, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, HIDDEN_UNLOCKS, titleBookshelf, spineName, chaosStatus, pulseCost, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS, bookOf, BOOK_ORDER, BOOKS, BOOK_UNLOCKS, unlockCost, unlockLevel, unlockMax, dmgSrcName, dmgSrcArt, passiveEffectText, CHAPTER_BOARDS_DEFAULT, KRAKEN_PARRY_CD, hasSkillButton, ENDLESS_COPY, ENDLESS_MILESTONE_S, endlessUnlocked } from './config.js'
 import { playSfx } from './audio.js'
 import { t, tt, getLang, LANGS } from './i18n.js'
 import { SAVE_SLOTS, activeSlot, slotSummary, saveSummary, exportSlot, NAME_MAX, bookMeta, ensureBookMeta, bookProgress } from './state.js'
@@ -222,6 +222,9 @@ const CIRCUIT_DELTA_S = 3.2
 // which is the range an arcade racer's dial is drawn for. Turbo Fin and the Burst then push past it
 // on purpose: the point of the readout is that the speed cards visibly move a number.
 const CIRCUIT_KMH_PER_PX = 0.5
+
+// Lemniscate for the Endless pip; stroke only, so it takes the pip's text colour (lit or not).
+const INFINITY_SVG = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 12c-2-2.8-3.8-4.5-6-4.5a4.5 4.5 0 000 9c2.2 0 4-1.7 6-4.5s3.8-4.5 6-4.5a4.5 4.5 0 010 9c-2.2 0-4-1.7-6-4.5z"/></svg>'
 
 function fmtTime(s) {
   const t = Math.max(0, Math.floor(s))
@@ -941,7 +944,9 @@ export function initUI(hooks) {
     // "harder", and the anomaly COUNT is level - 1, which the lit pips also say. What no pip can
     // say is the payout, so that is the one thing kept.
     // Endless reads as board 0 (its own leaderboard), dev-gated like its pip.
-    const boardDiff = chMeta.endlessPicked === true && meta.dev === true ? 0 : chMeta.difficulty
+    const endlessOn = meta.dev === true && endlessUnlocked(meta, browseChapterId)
+    const endlessSel = endlessOn && chMeta.endlessPicked === true
+    const boardDiff = endlessSel ? 0 : chMeta.difficulty
     const coinPct = Math.round(((chMeta.difficulty - 1) * DIFFICULTY_COIN_PER_LEVEL) * 100)
     const rewardChip = chMeta.difficulty > 1 ? `<b class="diff-reward-chip">+${coinPct}% 🪙</b>` : ''
     const playBlock = heroUnlocked ? `
@@ -950,8 +955,8 @@ export function initUI(hooks) {
         ${Array.from({ length: cap }, (_, i) => {
           const d = i + 1
           if (d > chMeta.maxDifficulty) return `<button class="diff-pip diff-pip--locked" data-act="diff" data-diff="${d}" disabled>🔒</button>`
-          return `<button class="diff-pip${d <= chMeta.difficulty ? ' diff-pip--on' : ''}" data-act="diff" data-diff="${d}">${d}</button>`
-        }).join('')}
+          return `<button class="diff-pip${!endlessSel && d <= chMeta.difficulty ? ' diff-pip--on' : ''}" data-act="diff" data-diff="${d}">${d}</button>`
+        }).join('')}${endlessOn ? `<button class="diff-pip diff-pip--endless${endlessSel ? ' diff-pip--on' : ''}" data-act="endless" aria-label="${t(ENDLESS_COPY.pip.name)}">${INFINITY_SVG}</button>` : ''}
       </div>
       <!-- IN THE RECTO'S OWN SLACK, which is why it costs the panel nothing. Measured on the live
            build: the spread is 324x168, and this page's content (label + pips) uses 112 of its 168,
@@ -2127,6 +2132,7 @@ export function initUI(hooks) {
              LAP takes column 1 / row 1 and pushes the HP bar down to row 2 under it — a race
            groups "how far along am I" at the top and "what shape am I in" beneath, and the clock
            in the middle is the one that kills you. -->
+      <div class="endless-banner"></div>
       <div class="race-lap race-hidden"><b></b><span class="race-k" data-race-k="LAP"></span></div>
       <!-- The split against your best lap so far, row 2 / column 2, under the checkpoint clock it
            is a comment on. Text only, no plate: it is present for CIRCUIT_DELTA_S after a lap line
@@ -2253,6 +2259,7 @@ export function initUI(hooks) {
     timer: screens.hud.querySelector('.hud-timer'),
     timerNum: screens.hud.querySelector('.hud-timer-num'),
     timerK: screens.hud.querySelector('.hud-timer-k'),
+    banner: screens.hud.querySelector('.endless-banner'),
     raceLap: screens.hud.querySelector('.race-lap b'),
     raceTime: screens.hud.querySelector('.race-time b'),
     raceDelta: screens.hud.querySelector('.race-delta'),
@@ -2451,6 +2458,7 @@ export function initUI(hooks) {
       // for the new meaning — 27 seconds of race clock and 27 seconds of survival clock look the
       // same to `!==`, and the slot would keep the old chapter's number until the value moved.
       last.remain = NaN
+      last.endlessK = null
       if (!circuitChapter) {
         hud.timer.classList.remove('hud-timer--low')
         // ...and the hold, which only a circuit can set. Both cached flags are cleared with the
@@ -2507,6 +2515,10 @@ export function initUI(hooks) {
         hud.timer.classList.toggle('hud-timer--held', heldClock)
       }
     } else {
+      if (run.endless) {
+        const k = `∞ ${run.difficulty.toFixed(1)}`
+        if (k !== last.endlessK) { last.endlessK = k; hud.timerK.textContent = k }
+      }
       const remain = run.endless ? Math.floor(run._realTime ?? 0) : Math.max(0, Math.ceil(RUN_DURATION - run.time))
       if (remain !== last.remain) {
         last.remain = remain
@@ -2650,6 +2662,14 @@ export function initUI(hooks) {
           <span class="weapon-chip-icon">${MUTATORS[id]?.icon ?? '❔'}</span>
         </span>`).join('')
       hud.weaponRow.innerHTML = weaponChips + elementChips + mutatorChips
+    }
+    const ms = events && events.find((e) => e.type === 'endlessMutator')
+    if (ms) {
+      const b = hud.banner
+      b.textContent = `${t(ENDLESS_COPY.milestone.name)}: ${t(MUTATORS[ms.id]?.name ?? ms.id)}`
+      b.classList.remove('endless-banner--show')
+      void b.offsetWidth // restart the animation, same idiom as the boss bump
+      b.classList.add('endless-banner--show')
     }
     // v6.9 (owner: "remove the pest control alert"). The "📋 REPORTED — pest control dispatched"
     // HUD banner is gone; the {type:'dispatch'} event itself STAYS, because render.js's red strobe
@@ -3146,7 +3166,7 @@ export function initUI(hooks) {
           ${eyebrow('Anomalies', reroll ? tt('reroll {n}', { n: ANOMALY_REROLL_COST }) : '')}
           <div class="brief-anoms">${ids.map((id, i) => briefAnomHtml(id, i, reroll)).join('')}</div>
           ${CHAPTERS[d.chapterId].modsByDifficulty ? `<p class="brief-note">${t('This boss\'s ladder is fixed — each difficulty adds its named modifiers.')}</p>` : ''}
-        ` : `<p class="brief-note">${t('the base game')}</p>`}
+        ` : `<p class="brief-note">${d.endless ? tt(ENDLESS_COPY.noAnomalies.name, { n: ENDLESS_MILESTONE_S / 60 }) : t('the base game')}</p>`}
         ${eyebrow('Boosters', t('this run only'))}
         ${boosterSlotsHtml()}
         <button class="btn btn--big" data-act="brief-start">▶&nbsp; ${t('Start')}</button>
@@ -3627,7 +3647,8 @@ export function initUI(hooks) {
         <p class="summary-chapter">${chapter.icon} ${t(chapter.name)}</p>
         ${killedByLine}
         <div class="stats">
-          <div class="stat-row"><span>${t('Time')}</span><b>${fmtTime(d.time)}${rankChip(d.podium?.time, 'time')}</b></div>
+          <div class="stat-row"><span>${t(d.endless ? ENDLESS_COPY.survived.name : 'Time')}</span><b>${fmtTime(d.time)}${rankChip(d.podium?.time, 'time')}</b></div>
+          ${d.endless ? `<div class="stat-row"><span>${t(ENDLESS_COPY.best.name)}</span><b>${fmtTime(d.endlessBest / 1000)}</b></div>` : ''}
           ${raceRows(d, chapterId)}
         </div>
         ${damageBlock(d)}
@@ -4221,6 +4242,10 @@ export function initUI(hooks) {
         break
       }
       case 'brief-reroll': hooks.onBriefReroll?.(Number(el.dataset.i)); break
+      case 'endless':
+        hooks.onEndless(!selectedChapterMeta(meta).endlessPicked)
+        updateTitleBelow()
+        break
       case 'diff': {
         const d = Number(el.dataset.diff)
         if (d > selectedChapterMeta(meta).maxDifficulty) break // belt-and-braces: locked pips are disabled already

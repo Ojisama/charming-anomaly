@@ -696,6 +696,19 @@ body {
    screen for CIRCUIT_DELTA_S after a lap line and gone the rest of the time, which is exactly why
    it gets no box of its own: a container that appeared and vanished would read as the HUD breaking
    rather than as a number arriving. */
+.endless-banner {
+  grid-column: 1 / -1;
+  grid-row: 3;
+  justify-self: center;
+  opacity: 0;
+  font-size: 1.1rem;
+  font-weight: 900;
+  color: var(--gold);
+  text-shadow: 0 2px 3px rgba(0, 0, 0, 0.75);
+  pointer-events: none;
+}
+.endless-banner--show { animation: endless-banner 3.2s ease-out; }
+@keyframes endless-banner { 0% { opacity: 0; transform: scale(0.85); } 10% { opacity: 1; transform: scale(1.05); } 80% { opacity: 1; } 100% { opacity: 0; } }
 .race-delta {
   grid-column: 2;
   grid-row: 2;
@@ -731,6 +744,8 @@ body {
   text-shadow: 0 3px 0 rgba(0, 0, 0, 0.45);
 }
 .race-speed .race-k { display: block; letter-spacing: 0.2em; text-shadow: 0 2px 0 rgba(0, 0, 0, 0.5); }
+/* The caption under the clock off a circuit (Endless writes its level here). A circuit's own rule below wins. */
+.hud-timer-k:not(:empty) { display: block; text-align: center; font-size: 0.6rem; font-weight: 800; letter-spacing: 0.1em; line-height: 1; color: var(--ink-soft); }
 /* ---- what the band does to the boxes it INHERITS ---------------------------------------------
    One class on the hud root carries all of it, so the design lives in one place instead of half
    here and half in style writes from updateHUD. */
@@ -2051,6 +2066,8 @@ body {
 .diff-pip:first-of-type { border-radius: 999px 0 0 999px; }
 .diff-pip:last-of-type { border-radius: 0 999px 999px 0; border-right-width: 3px; }
 .diff-pip--on { background: var(--gold); color: #4a3a00; }
+.diff-pip--endless { display: inline-flex; align-items: center; justify-content: center; }
+.diff-pip--endless svg { display: block; }
 .diff-pip:active { transform: translateY(1px); }
 /* locked difficulty pip (v4.10): not yet unlocked — muted, no press feedback, default cursor */
 .diff-pip--locked { opacity: 0.5; cursor: default; }

@@ -5306,6 +5306,14 @@ export const ENDLESS_COIN_HALF_LIFE_S = 60
 export const ENDLESS_HP_PER_LEVEL = 0.10
 export const endlessHpMul = (d) => 1 + ENDLESS_HP_PER_LEVEL * (Math.max(1, d) - 1)
 export const ENDLESS_GILDED_COINS = 3
+// Player-visible Endless copy. A TABLE so run XX's walk can see it (test/sim-test.js lists it by hand).
+export const ENDLESS_COPY = {
+  pip: { name: 'Endless' },
+  milestone: { name: 'Mutation' },
+  best: { name: 'Best' },
+  survived: { name: 'Survived' },
+  noAnomalies: { name: 'No anomalies — a new one arrives every {n} minutes' },
+}
 export const endlessEligible = (id) => !!CHAPTERS[id] && !CHAPTERS[id].scripted && !CHAPTERS[id].circuit
 export const endlessUnlocked = (meta, id) => endlessEligible(id)
   && (meta?.chapters?.[id]?.won ?? 0) >= CHAPTER_UNLOCK_DIFFICULTY

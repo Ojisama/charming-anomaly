@@ -98,7 +98,7 @@ import {
   BLANK_PHASE_LEVELS, BLANK_BOSS_SPEED_P3, BLANK_READ3_T, BLANK_BAND_LEN, BLANK_FAN_N,
   BLANK_BAND_W, BLANK_BAND_DPS, BLANK_BAND_GROW, STATUS_TICK,
   BLANK_RECRUIT_T, BLANK_WAVE_XP_MUL, BLANK_WAVE_GAP,
-  SPAWN_RING, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES, HIDDEN_UNLOCKS, KRAKEN_BEATS, KRAKEN_OUTRO, hasBossOutro,
+  SPAWN_RING, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES, ENDLESS_COPY, HIDDEN_UNLOCKS, KRAKEN_BEATS, KRAKEN_OUTRO, hasBossOutro,
   CIRCUIT_CAM_LEAD, CIRCUIT_CAM_EASE,
   // v6.3.1 difficulty pass (Run LL)
   BLANK_BOSS_SPEED, BLANK_BOSS_SPEED_P1, BLANK_BOSS_HP, BLANK_MAX_ALIVE, BLANK_CATCHUP_MAX,
@@ -18948,6 +18948,8 @@ function testFrenchDictionary() {
   // Same flat id -> string shape, one book down. Joined here the day the table landed rather than
   // the day someone noticed the badge was English — the whole point of this walk.
   for (const v of Object.values(BOOK_UNLOCK_LINES ?? {})) need(v)
+  // Endless copy: one level deeper ({pip:{name}}), so the generic name walk cannot see it.
+  for (const v of Object.values(ENDLESS_COPY)) need(v.name)
   for (const v of Object.values(CHAPTERS ?? {})) { need(v?.name); need(v?.tagline) }
   // ROSTER NAMES (v7.x). One level deeper than the walk above, so `Object.values(CHAPTERS)` reading
   // `.name` never reached them — and a creature's name had NO French-facing surface until the summary
