@@ -5309,6 +5309,9 @@ export const endlessHpMul = (d) => Math.pow(1 + ENDLESS_HP_GROWTH, Math.max(1, d
 export const ENDLESS_XP_TAPER = 0.03
 export const endlessXpMul = (d) => 1 / (1 + ENDLESS_XP_TAPER * (Math.max(1, d) - 1))
 export const ENDLESS_GILDED_COINS = 3
+// DEV speedrun handover (Play now): enemies inside this radius vanish, so the player is not handed
+// a body buried in the bot's crowd. The grace window reuses REVIVE_INVULN.
+export const ENDLESS_HANDOVER_CLEAR_R = 400
 // Player-visible Endless copy. A TABLE so run XX's walk can see it (test/sim-test.js lists it by hand).
 export const ENDLESS_COPY = {
   pip: { name: 'Endless' },

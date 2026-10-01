@@ -31,7 +31,7 @@ import {
   BLOOD_PACT_PER_ELITE, BLOOD_MONEY_HP, STILLNESS_RAMP, CHAOS_PACT_PERIOD, CHAOS_PACT_SURGE,
   ALIGNMENT_POTENCY_MUL, DEADFALL_REARM_MUL, SOY_MILK_FIRE_MUL, SOY_MILK_DMG_MUL, SOY_MILK_CC_MUL,
   ANOMALY_REROLL_MUL, ANOMALY_REROLL_PITY_REFUND, LAST_BREATH_DROWN_TAKEN_MUL,
-  MUTATORS, mutatorPool, ENDLESS_MILESTONE_S, ENDLESS_MILESTONE_ELITES, mergeMutatorMods, randomMutators, rerollMutator,
+  MUTATORS, mutatorPool, ENDLESS_MILESTONE_S, ENDLESS_HANDOVER_CLEAR_R, ENDLESS_MILESTONE_ELITES, mergeMutatorMods, randomMutators, rerollMutator,
   sacrificeCost, MAX_CHOICE_SLOTS, resolveChapterId,
   SHIELD_HP_FRAC, SHIELD_DMG_MUL, SPLITTER_COUNT, VOLATILE_FUSE, VOLATILE_RADIUS, VOLATILE_DMG,
   MAX_PASSIVE_LEVEL, MAX_ELEMENT_PICKS, passiveTotal,
@@ -177,7 +177,7 @@ import {
   KRAKEN_HEAD_SPEED, KRAKEN_PARRY_SPIN_T, krakenLimbHalfW, FISH_R, FISH_BODY, KRAKEN_GRIP_EVERY, KRAKEN_GRAB_FUSE, KRAKEN_GRAB_MIN_STEP, KRAKEN_PINCH_OPEN0, KRAKEN_PINCH_OPEN1,
   KRAKEN_BEAT_READ, KRAKEN_BEAT_GRAB_CLEAR, KRAKEN_BEAT_BREATH, KRAKEN_HEAD_R, KRAKEN_CHASE_CAGE_R, KRAKEN_HEAD_HOLD, KRAKEN_DASH_DIST, KRAKEN_DASH_SPEED, KRAKEN_DASH_RUNUP, KRAKEN_DASH_PARRY_PX, KRAKEN_HEAD_TOUCH_DMG, KRAKEN_LUNGE_DMG, KRAKEN_LUNGE_WINDUP_T,
 } from '../src/config.js'
-import { krakenWinPending, krakenPinchProbe, krakenGrabSpot, krakenGrabTurnClear, stepSim, applyChoice, fastForwardEndless, buildLevelUpChoices, eligibleWeaponModCandidates, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, inRefillCircle, refillCircleAt, stepCharge, newElWindow, spurAt, inMaw } from '../src/sim.js'
+import { krakenWinPending, krakenPinchProbe, krakenGrabSpot, krakenGrabTurnClear, stepSim, applyChoice, fastForwardEndless, endlessHandover, buildLevelUpChoices, eligibleWeaponModCandidates, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, inRefillCircle, refillCircleAt, stepCharge, newElWindow, spurAt, inMaw } from '../src/sim.js'
 
 // ---- Scenario runner: one filter, and the gate's own dispatch flag ----------------------------
 // THIS FILE IS NO LONGER WHAT `npm test` RUNS. scripts/test-isolation.mjs hands one scenario to
@@ -559,6 +559,16 @@ function testEndlessFastForward() {
   assert.strictEqual(run.mutators.length, Math.min(Math.floor(300 / ENDLESS_MILESTONE_S), mutatorPool('body').length), 'milestones fired during the skip')
   assert.strictEqual(run.events.length, 0, 'no stale events handed to the renderer')
   assert.strictEqual(run._ffSkipped, 300, 'fast-forward stamps the skipped seconds')
+  // PLAY NOW hands the run over away from the bot's crowd: nothing (but an anchored body) inside
+  // the clear radius, enemies beyond it untouched, and a grace window.
+  const p = run.player
+  const near = (e) => Math.hypot(e.x - p.x, e.y - p.y) <= ENDLESS_HANDOVER_CLEAR_R
+  const before = run.enemies.length, nearBefore = run.enemies.filter(near).length
+  assert.ok(nearBefore > 0, 'the bot hands over inside a crowd (else this check proves nothing)')
+  endlessHandover(run)
+  assert.strictEqual(run.enemies.filter((e) => near(e) && !e.affixes.includes('anchored')).length, 0, 'crowd cleared around the player')
+  assert.ok(run.enemies.length >= before - nearBefore, 'enemies beyond the radius are kept')
+  assert.ok(p.invuln >= REVIVE_INVULN, 'handover grants the revive grace window')
   // SLICED: a 0ms budget does no work and reports unfinished, but already stamps _ffSkipped (a quit
   // mid-skip must not bank records); repeated small slices resume and finish at the same clock.
   const sliced = createRun(makeMeta(), { chapter: 'body', endless: true })

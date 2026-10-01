@@ -3,7 +3,7 @@ import { Application } from 'pixi.js'
 import { loadMeta, saveMeta, resetSave, deleteSlot, createRun, ensureChapterMeta, ensureBookMeta, unlockBook, setActiveSlot, activeSlot, setSlotName, cleanName, exportSlot, importSlot, freezeSaves, setSaveHook, SAVE_SLOTS, parkRun, dropParkedRun, takeParkedRun } from './state.js'
 import * as CFG from './config.js'
 import { shopCost, refundValue, shopLines, shopLineUnlocked, lineMax, runBonusCoins, randomMutators, rerollMutator, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, difficultyCoinMul, CONSUMABLES, ANOMALY_REROLL_COST, sacrificeCost, BOOK_UNLOCKS, CHAPTERS, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, isWipChapter, HIDDEN_UNLOCKS, COIN_CAP_PER_RUN, BOOK_ORDER, bookOf, isBookFinale, nextBook, unlockCost, unlockLevel, DEATH_OUTRO, KRAKEN_OUTRO, hasBossOutro } from './config.js'
-import { stepSim, fastForwardEndless, applyChoice, rerollLevelUpChoices, rerollPrice, buildReadout, devCards, devTake } from './sim.js'
+import { stepSim, fastForwardEndless, endlessHandover, applyChoice, rerollLevelUpChoices, rerollPrice, buildReadout, devCards, devTake } from './sim.js'
 import { createRenderer } from './render.js'
 import { initUI } from './ui.js'
 import { initInput, getInput, pressSkill } from './input.js'
@@ -103,6 +103,7 @@ const SPEEDRUN_MAX_S = 3600
 function playNow() {
   if (!run || ffTarget === 0) return
   ffTarget = 0
+  endlessHandover(run)   // away from the bot's crowd, with a grace window
   run.phase = 'paused'
   ui.updateHUD(run, [], false)   // hides the Play now button, which would otherwise float over the sheet
   ui.showScreen('pause', pauseData())

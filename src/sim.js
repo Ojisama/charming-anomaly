@@ -254,7 +254,7 @@ import {
   // v6.7.11: the level-up reroll's price ladder — rerollLevelUpChoices owns the whole purchase
   rerollCost,
   difficultySpeedMul, difficultyCountMul, difficultyDmgMul, endlessLevel, endlessHpMul, endlessXpMul, ENDLESS_COIN_HALF_LIFE_S,
-  ENDLESS_MILESTONE_S, ENDLESS_MILESTONE_ELITES, endlessAffixChance, ENDLESS_GILDED_COINS, mutatorPool, MUTATORS,
+  ENDLESS_MILESTONE_S, ENDLESS_MILESTONE_ELITES, endlessAffixChance, ENDLESS_GILDED_COINS, ENDLESS_HANDOVER_CLEAR_R, mutatorPool, MUTATORS,
 } from './config.js'
 
 const KB_DECAY_RATE = 6 // per-second exponential-ish decay factor for enemy knockback
@@ -4280,6 +4280,17 @@ const FF_KIND_RANK = { weapon: 0, passive: 1, mod: 2, element: 3 }
 // budgetMs: stop after that much wall time and return false, so main.js can spread a long skip over
 // frames — 10 minutes is ~3s on a desktop and blocked a phone's main thread outright. Returns true
 // once run.time has reached `seconds`.
+// DEV ONLY (Play now): hand a fast-forwarded run to the player away from the bot's crowd — every
+// enemy within ENDLESS_HANDOVER_CLEAR_R vanishes (no kill, no xp, no coin), anchored ones excepted,
+// and the revive's invulnerability window covers the first wave back.
+export function endlessHandover(run) {
+  const p = run.player
+  const rSq = ENDLESS_HANDOVER_CLEAR_R * ENDLESS_HANDOVER_CLEAR_R
+  run.enemies = run.enemies.filter((e) => (e.affixes && e.affixes.includes('anchored'))
+    || (e.x - p.x) * (e.x - p.x) + (e.y - p.y) * (e.y - p.y) > rSq)
+  p.invuln = Math.max(p.invuln ?? 0, REVIVE_INVULN)
+}
+
 export function fastForwardEndless(run, seconds, budgetMs = Infinity) {
   const DT = 1 / 30
   run._ffSkipped = seconds   // stamped FIRST: endRun refuses records and coins even if quit mid-skip
