@@ -293,6 +293,8 @@ function formatShopBonus(bookId, id, levels) {
  *     - onRefund(ids, bookId): sells the named upgrade lines back at REFUND_RATE, whole lines
  *       only, and returns the coins paid back (0 if none were owned). One call takes the LIST so
  *       "refund everything" is one transaction — see the refund sheet below.
+ *     - onEndless(on): the infinity pip (dev-gated). main.js no-ops unless meta.dev, then sets
+ *       chapters[id].endlessPicked = !!on, saves, plays 'click'. onDifficulty clears it again.
  *     - onChapter(id): title screen's bookcase (v7.x — see bookcaseHtml/volHtml).
  *       Fires only for unlocked CHAPTER_ORDER ids as the scroll SETTLES a card under the viewport
  *       centre (the locked preview card never calls it) — main.js re-guards via
@@ -938,6 +940,8 @@ export function initUI(hooks) {
     // used to be. The +HP/+damage percentages are gone on purpose: the pip number already says
     // "harder", and the anomaly COUNT is level - 1, which the lit pips also say. What no pip can
     // say is the payout, so that is the one thing kept.
+    // Endless reads as board 0 (its own leaderboard), dev-gated like its pip.
+    const boardDiff = chMeta.endlessPicked === true && meta.dev === true ? 0 : chMeta.difficulty
     const coinPct = Math.round(((chMeta.difficulty - 1) * DIFFICULTY_COIN_PER_LEVEL) * 100)
     const rewardChip = chMeta.difficulty > 1 ? `<b class="diff-reward-chip">+${coinPct}% 🪙</b>` : ''
     const playBlock = heroUnlocked ? `
@@ -960,7 +964,7 @@ export function initUI(hooks) {
       <button class="spread-podium" data-act="podium-open">
         ${ICO_PODIUM}<span>${t('Podium')}</span><i>→</i>
       </button>
-      ${leaderLine(browseChapterId, chMeta.difficulty)}
+      ${leaderLine(browseChapterId, boardDiff)}
       ` : ''
     // Across the FOOT of the spread, not on the recto: at half width this sentence wraps to two
     // lines in both languages, and those two lines were most of why the panel still pushed the
@@ -999,7 +1003,7 @@ export function initUI(hooks) {
              and the next word becomes code — which is exactly how it shipped a blank page for a
              minute, with node --check clean because the check ran before the comment was added. -->
         <button class="diff-hint podium-foot" data-act="podium-close">
-          ←&nbsp; ${tt('all players · difficulty {n}', { n: chMeta.difficulty })}
+          ←&nbsp; ${tt('all players · difficulty {n}', { n: boardDiff })}
         </button>
         <div class="volume-acts">
           <button class="btn btn--big btn--play" data-act="play" ${heroUnlocked ? '' : 'disabled'}>▶&nbsp; ${t('Play')}</button>
@@ -3134,7 +3138,7 @@ export function initUI(hooks) {
           <button class="pill-btn" data-act="brief-back" aria-label="${t('Back')}">←</button>
           <div class="brief-headtext">
             <h2 class="brief-title">${chapter.icon} ${t(chapter.name)}</h2>
-            <div class="brief-diff">${t('difficulty')} <b>${d.difficulty ?? 1}</b></div>
+            <div class="brief-diff">${t('difficulty')} <b>${d.endless ? '∞' : (d.difficulty ?? 1)}</b></div>
           </div>
           <div class="coins-badge">🪙 <b>${briefBm.coins}</b></div>
         </div>

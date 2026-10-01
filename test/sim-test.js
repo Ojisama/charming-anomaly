@@ -516,6 +516,26 @@ function testEndlessMilestones() {
   console.log(`PASS run EN.f (milestones): first drip ${id}, +${elitesAfter - elitesBefore} elites, pool ${pool.length}, mods-direct ${other ?? 'none'}`)
 }
 
+function testEndlessMeta() {
+  const m = makeMeta()
+  const c = ensureChapterMeta(m, 'body')
+  c.endlessPicked = true
+  c.endlessBest = 123456
+  const again = ensureChapterMeta(m, 'body')
+  assert.strictEqual(again.endlessPicked, true, 'ensureChapterMeta dropped endlessPicked')
+  assert.strictEqual(again.endlessBest, 123456)
+  const loaded = loadMetaFrom(JSON.parse(JSON.stringify(m)))
+  assert.strictEqual(loaded.chapters.body.endlessPicked, true)
+  assert.strictEqual(loaded.chapters.body.endlessBest, 123456)
+  // main.js contracts, as source text (render/main are not importable)
+  const main = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
+  assert.match(main, /createRun\(meta, \{[^}]*endless[^}]*\}\)/, 'startClassic must forward endless to createRun')
+  assert.strictEqual((main.match(/if \(!run\.endless\)[^\n]*best\.time/g) ?? []).length, 2, 'meta.best.time AND chMeta.best.time must both be gated on !run.endless')
+  assert.match(main, /endlessPicked === true && meta\.dev === true && CFG\.endlessUnlocked/, 'onPlay must dev-gate endless')
+  assert.match(main, /onEndless\(on\) \{\s*if \(!meta\.dev\) return/, 'onEndless must no-op without meta.dev')
+  console.log('PASS run EN.h (endless meta + main wiring)')
+}
+
 function testEndlessCoins() {
   const run = createRun(makeMeta(), { chapter: 'body', endless: true })
   run.player.hp = run.player.maxHP = 1e12
@@ -5083,8 +5103,8 @@ function runBooks() {
       'main.js onChapter no longer gates on chapterAvailable — the carousel would list the chapter and refuse every tap on it')
     assert.ok(!/const chapterId = resolveChapterId\(meta\.chapter\)/.test(mainSrc),
       'main.js still resolves the play path with resolveChapterId — it must use playableChapterId, or the gate does not apply where it matters')
-    assert.strictEqual((mainSrc.match(/playableChapterId\(meta\)/g) ?? []).length, 2,
-      'onPlay and onDifficulty must BOTH use playableChapterId — onDifficulty writes into the ledger of whatever onPlay launches, so they cannot disagree')
+    assert.strictEqual((mainSrc.match(/playableChapterId\(meta\)/g) ?? []).length, 3,
+      'onPlay, onDifficulty and onEndless must ALL use playableChapterId — they write into the ledger of whatever onPlay launches, so they cannot disagree')
     // THE UNLOCK CHAIN MUST NOT HAND OUT A CHAPTER THAT IS NOT WRITTEN YET. With Undertow shipping
     // one rung at a time, a d3 win on The Surf reaches for The Shelf — and endRun would happily
     // write `unlocked: true` for it, a permission that PERSISTS to disk and so survives the gate
@@ -20425,6 +20445,7 @@ try {
   run(testEndlessCoins)
   run(testEndlessCrowdAffixes)
   run(testEndlessMilestones)
+  run(testEndlessMeta)
   run(testNewWeapons)
   run(testRaritySanity)
   run(testPoolBuckets)

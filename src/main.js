@@ -67,7 +67,7 @@ let devList = []
 
 // Spend boosters (cheapest-first affordability, ui already gates but belt-and-braces), create
 // the classic run with the EXACT mutators the briefing showed, and start it.
-function startClassic(chapter, difficulty, mutators, consumableIds) {
+function startClassic(chapter, difficulty, mutators, consumableIds, endless = false) {
   const ids = []
   if (consumableIds && consumableIds.length) {
     // Boosters are spent from the CHAPTER being played's own book purse (v7.x per-book
@@ -86,7 +86,7 @@ function startClassic(chapter, difficulty, mutators, consumableIds) {
       playSfx('buy')
     }
   }
-  run = createRun(meta, { chapter, mutators, difficulty, consumables: ids })
+  run = createRun(meta, { chapter, mutators, difficulty, consumables: ids, endless })
   beginRun()
 }
 
@@ -181,30 +181,34 @@ const ui = initUI({
     // declare a fixed named ladder instead (modsByDifficulty); the rest simply get none. Keyed off
     // the chapter's own flags rather than off its id, so a third scripted boss needs no edit here.
     const mods = CHAPTERS[chapterId].modsByDifficulty
-    const mutators = mods
-      ? (mods[chMeta.difficulty] ?? [])
-      : CHAPTERS[chapterId].scripted
-        ? []
-        : randomMutators(chMeta.difficulty - 1, chapterId)
+    // Endless is dev-gated until playtested; it takes no anomalies (its own affix drip replaces them).
+    const endless = chMeta.endlessPicked === true && meta.dev === true && CFG.endlessUnlocked(meta, chapterId)
+    const mutators = endless
+      ? []
+      : mods
+        ? (mods[chMeta.difficulty] ?? [])
+        : CHAPTERS[chapterId].scripted
+          ? []
+          : randomMutators(chMeta.difficulty - 1, chapterId)
     // v6.7: EVERY classic run stops here first, even a difficulty-1 roll with no anomalies at all —
     // the brief is the pre-run summary now and owns the booster picks, so skipping it when the roll
     // is empty would make boosters unreachable at difficulty 1. The booster picks arrive one hook
     // later, on onBriefStart (see the ui.js contract).
-    pendingPlay = { chapter: chapterId, difficulty: chMeta.difficulty, mutators }
-    ui.showScreen('brief', { chapterId, difficulty: chMeta.difficulty, mutators, reroll: !CHAPTERS[chapterId].scripted })
+    pendingPlay = { chapter: chapterId, difficulty: chMeta.difficulty, mutators, endless }
+    ui.showScreen('brief', { chapterId, difficulty: chMeta.difficulty, mutators, reroll: !CHAPTERS[chapterId].scripted && !endless, endless })
   },
   onBriefStart(consumableIds = []) {
     if (!pendingPlay) return
     const p = pendingPlay
     pendingPlay = null
-    startClassic(p.chapter, p.difficulty, p.mutators, consumableIds)
+    startClassic(p.chapter, p.difficulty, p.mutators, consumableIds, p.endless)
   },
   // v6.0.4/v6.6.19: reroll ONE staged anomaly (by index) for ANOMALY_REROLL_COST, repeatable while
   // affordable — see rerollMutator in config.js for why a whole-set reroll was worthless. Blank
   // never gets here (its brief passes reroll: false and the guard below is belt-and-braces — its
   // ladder is fixed by design). Charge only once the swap is known to be possible.
   onBriefReroll(i) {
-    if (!pendingPlay || CHAPTERS[pendingPlay.chapter].scripted) return
+    if (!pendingPlay || pendingPlay.endless || CHAPTERS[pendingPlay.chapter].scripted) return
     // Same purse as startClassic's boosters — pendingPlay.chapter is the run about to launch.
     const bm = ensureBookMeta(meta, bookOf(pendingPlay.chapter) ?? BOOK_ORDER[0])
     if (bm.coins < ANOMALY_REROLL_COST) return
@@ -371,12 +375,22 @@ const ui = initUI({
     const chapterId = playableChapterId(meta)
     const chMeta = ensureChapterMeta(meta, chapterId)
     chMeta.difficulty = Math.max(1, Math.min(chMeta.maxDifficulty, Math.min(chapterMaxDifficulty(chapterId), d)))
+    chMeta.endlessPicked = false
     saveMeta(meta)
     playSfx('click')
   },
   // Title screen's chapter selector (v5.0). Belt-and-braces with the UI: never select a chapter
   // that isn't unlocked, even if a stray click somehow got through a disabled locked card. ui.js
   // re-renders the title itself right after calling this (same pattern as onDifficulty above).
+  // The title's infinity pip. Dev-gated like the pip itself; a no-op for a chapter that has not
+  // earned it is decided later, in onPlay (endlessUnlocked), so the pick can survive a chapter hop.
+  onEndless(on) {
+    if (!meta.dev) return
+    const chMeta = ensureChapterMeta(meta, playableChapterId(meta))
+    chMeta.endlessPicked = !!on
+    saveMeta(meta)
+    playSfx('click')
+  },
   onChapter(id) {
     // chapterAvailable, not the raw `unlocked` flag: a WIP chapter has no unlock path yet and
     // meta.dev IS its permission. ensureChapterMeta still runs first, so the entry is created and
@@ -761,11 +775,12 @@ function endRun(victory) {
   meta.runs += 1
   // meta.best: all-time aggregate across every chapter (see state.js doc block), kept
   // unconditionally alongside the per-chapter best below.
-  meta.best.time = Math.max(meta.best.time, Math.floor(run._realTime ?? run.time))
+  if (!run.endless) meta.best.time = Math.max(meta.best.time, Math.floor(run._realTime ?? run.time))
   meta.best.kills = Math.max(meta.best.kills, run.kills)
 
   const chMeta = ensureChapterMeta(meta, run.chapter)
-  chMeta.best.time = Math.max(chMeta.best.time, Math.floor(run._realTime ?? run.time))
+  if (!run.endless) chMeta.best.time = Math.max(chMeta.best.time, Math.floor(run._realTime ?? run.time))
+  else chMeta.endlessBest = Math.max(chMeta.endlessBest ?? 0, Math.round((run._realTime ?? run.time) * 1000))
   chMeta.best.kills = Math.max(chMeta.best.kills, run.kills)
   // A RACE'S RECORD IS THE LOWEST, so it gets the opposite comparison and its own field — the two
   // lines above are a MAX and stay one for every chapter including this one, because meta is
@@ -888,6 +903,7 @@ function endRun(victory) {
     // the board can never round the same lap two different ways. 0 means "never banked a lap".
     bestLapMs: cc && run.bestLap > 0 ? Math.round(run.bestLap * 1000) : 0,
     mutators: run.mutators, nextDifficulty,
+    endless: !!run.endless, endlessBest: chMeta.endlessBest ?? 0,
     // v7.x "what happened to me": the fatal hit's source label and the whole run's damage tally
     // (run.killedBy / run.dmgBySrc — see state.js's doc block). Passed raw, as LABELS not copy:
     // resolving them to names is config.js's dmgSrcName and ui.js's job, and doing it here would put

@@ -3911,7 +3911,7 @@ function rollAffixes(run) {
   if (Math.random() < ANCHORED_CHANCE) picked.push('anchored')
   // ANOMALIES.unstableCores (config.js): every elite dies volatile. Pushed onto the affix ARRAY
   // rather than set as enemy.volatile — 'volatile' is only ever read as
-  // enemy.affixes.includes('volatile') (dealDamage's death path), so a boolean would be a dead
+  // hasAffix(e, 'volatile') (dealDamage's death path), so a boolean would be a dead
   // store nothing reads and no test catches. It is granted ON TOP of the rolled affixes rather
   // than replacing one: the anomaly adds a rule, it does not take the elite's own teeth away.
   if (run.anomalies?.unstableCores && !picked.includes('volatile')) picked.push('volatile')

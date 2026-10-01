@@ -157,6 +157,10 @@ let boundSlot = null
 //   score, and the opposite comparison from `best.time` beside it, which is a max. Written only on
 //   a circuit victory; stays 0 for every other chapter forever. See ensureChapterMeta for why it is
 //   its own field rather than a reused one.
+//   endlessPicked (endless mode): true while the title's infinity pip is selected for this chapter;
+//   cleared by onDifficulty. Read as === true. Additive, ensureChapterMeta leaves it alone.
+//   endlessBest (endless mode): longest endless run in this chapter, in MILLISECONDS, read ?? 0.
+//   Kept apart from best.time, which stays the classic record.
 // meta.best: { time, kills } — all-time aggregate across every chapter, unrelated to any
 //   single chapters[id].best; still updated by endRun (main.js) on every run.
 // meta.nick: the leaderboard name, 3-10 chars, '' until chosen (scores.js owns the rule via
@@ -805,9 +809,9 @@ function generateWells(sig) {
  *               affixVisible: true on an endless crowd enemy that rolled one affix (never
  *               anchored); sim hasAffix() and render treat it like elite for affix effects/badges.
  *
- *               affixes: array of ELITE_AFFIXES ids (see config.js) — present ONLY on elites;
- *               non-elites always carry affixes: [] (harmless to check unconditionally, but
- *               sim.js still guards elite-only affix logic behind `e.elite &&` first for cost).
+ *               affixes: array of ELITE_AFFIXES ids (see config.js) — present on elites and on
+ *               endless crowd enemies flagged affixVisible; other non-elites carry affixes: []
+ *               (sim.js hasAffix() gates affix logic on e.elite || e.affixVisible).
  *               Elites roll 1 random affix at spawn, 2 distinct ones once run.time >=
  *               AFFIX_SECOND_AT. `anchored` is never in that roll: it is layered on top at
  *               ANCHORED_CHANCE, so ~half of elites carry it as well as their rolled affix(es). Render/shield contract: draw a shield bubble while `affixes`

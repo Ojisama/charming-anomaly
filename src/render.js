@@ -28260,8 +28260,8 @@ void main() {
   // as Sprite children, so they don't inherit the enemy's tint/rotation/flip.
   const AFFIX_BADGE_SPACING = 15
   function syncAffixBadges(s, e) {
-    // Elites only: affixes on a non-elite are internal plumbing (the blank's Antibody carries
-    // 'anchored' purely for knockback immunity), not a badge to advertise.
+    // Elites and endless crowd enemies (affixVisible) only: other non-elite affixes are internal
+    // plumbing (the blank's Antibody carries 'anchored' for knockback immunity), not a badge.
     const affixes = (e.elite || e.affixVisible) ? e.affixes : null
     const n = affixes ? affixes.length : 0
     if (!s._affixTexts) s._affixTexts = []
