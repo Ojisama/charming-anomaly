@@ -1,6 +1,6 @@
 // Glue: boots Pixi, owns the tick loop and phase transitions. Keep logic in sim/ui/render.
 import { Application } from 'pixi.js'
-import { loadMeta, saveMeta, resetSave, deleteSlot, createRun, ensureChapterMeta, ensureBookMeta, unlockBook, setActiveSlot, activeSlot, setSlotName, cleanName, exportSlot, importSlot, freezeSaves, setSaveHook, SAVE_SLOTS } from './state.js'
+import { loadMeta, saveMeta, resetSave, deleteSlot, createRun, ensureChapterMeta, ensureBookMeta, unlockBook, setActiveSlot, activeSlot, setSlotName, cleanName, exportSlot, importSlot, freezeSaves, setSaveHook, SAVE_SLOTS, parkRun, dropParkedRun, takeParkedRun } from './state.js'
 import * as CFG from './config.js'
 import { shopCost, refundValue, shopLines, shopLineUnlocked, lineMax, runBonusCoins, randomMutators, rerollMutator, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, difficultyCoinMul, CONSUMABLES, ANOMALY_REROLL_COST, sacrificeCost, BOOK_UNLOCKS, CHAPTERS, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, isWipChapter, HIDDEN_UNLOCKS, COIN_CAP_PER_RUN, BOOK_ORDER, bookOf, isBookFinale, nextBook, unlockCost, unlockLevel, DEATH_OUTRO, KRAKEN_OUTRO, hasBossOutro } from './config.js'
 import { stepSim, fastForwardEndless, applyChoice, rerollLevelUpChoices, rerollPrice, buildReadout, devCards, devTake } from './sim.js'
@@ -466,6 +466,7 @@ const ui = initUI({
   onSkill() { pressSkill() },   // v5.21 lane: HUD button -> input.js latch -> stepSim's input.skill
   onQuit() {  // from pause or summary back to title
     run = null
+    dropParkedRun()
     renderer.reset(null)
     ui.showScreen('title')
     // §6.3 pull trigger 3, and it is the one that rescues the owner's own use case. `run` is
@@ -773,6 +774,7 @@ const SFX_FOR_EVENT = {
 }
 
 function endRun(victory) {
+  dropParkedRun()
   const bonus = Math.round(runBonusCoins(run.kills, run.player.level) * difficultyCoinMul(run.endless ? 1 : (run.difficulty ?? 1)))
   // v6.4.2 (owner directive): the kill bonus can still push a near-capped run over COIN_CAP_PER_RUN — clamp the final banked total too.
   const earned = run.endless ? run.coinsEarned + bonus : Math.min(COIN_CAP_PER_RUN, run.coinsEarned + bonus)
@@ -1152,7 +1154,26 @@ initSync({
 setSaveHook(noteSave)
 // §6.3 pull trigger 1: after the title has rendered, never before, and never awaited.
 syncEvaluate()
+// A run is only ever parked mid-fight: once endRun has banked it, resuming it would bank it twice.
+const BUILD = typeof __BUILD_STAMP__ !== 'undefined' ? __BUILD_STAMP__ : 'dev'
+const parkable = () => run && (run.phase === 'playing' || run.phase === 'paused' || run.phase === 'levelup')
+function leaving() {
+  if (!parkable()) return
+  if (run.phase === 'playing') { run.phase = 'paused'; ui.showScreen('pause', { ...pauseData(), away: true }) }
+  parkRun(run, BUILD)
+}
+// The phone killed the page while it was in the background: come back to the same run, paused.
+const parked = takeParkedRun(BUILD)
+if (parked) {
+  run = parked
+  run.events = []
+  beginRun()
+  ui.updateHUD(run, []) // the ticker only draws the HUD while playing; behind the menu it would read 05:00
+  if (run.phase === 'levelup') ui.showScreen('levelup', levelupData())
+  else { run.phase = 'paused'; ui.showScreen('pause', { ...pauseData(), away: true }) }
+}
 document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') leaving()
   // Pull on the way in, push on the way out. The throttle inside evaluate() is what keeps a
   // tab-switching player from issuing a GET per switch; pushNow is already a no-op when the
   // disk matches what was last pushed, so it costs nothing when there is nothing to send.
@@ -1162,5 +1183,5 @@ document.addEventListener('visibilitychange', () => {
 // The phone going in a pocket. sendBeacon cannot carry an Authorization header (§5.4), so this
 // is an ordinary fetch that may not finish — which is survivable, because the content hash still
 // differs and the next trigger retries.
-addEventListener('pagehide', () => { pushNow() })
+addEventListener('pagehide', () => { leaving(); pushNow() })
 }

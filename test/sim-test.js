@@ -1,7 +1,7 @@
 // Headless self-check for src/sim.js. Plain node, no framework: `npm test`.
 import assert from 'node:assert'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
-import { createRun, loadMeta, saveMeta, ensureChapterMeta, activeSlot, setActiveSlot, slotSummary, deleteSlot, SAVE_SLOTS, SCHEMA, setSaveHook, freezeSaves, exportSlot, importSlot, saveSummary, NAME_MAX, bookMeta, ensureBookMeta, grantBook, unlockBook, bookProgress } from '../src/state.js'
+import { createRun, loadMeta, saveMeta, ensureChapterMeta, activeSlot, setActiveSlot, slotSummary, deleteSlot, SAVE_SLOTS, SCHEMA, setSaveHook, freezeSaves, exportSlot, importSlot, saveSummary, NAME_MAX, bookMeta, ensureBookMeta, grantBook, unlockBook, bookProgress, parkRun, takeParkedRun, dropParkedRun } from '../src/state.js'
 // sync.js keeps browser globals out of its module scope precisely so it can be imported here.
 import { hash, decide, isOwnLostAck, schemaOk, deriveDirty, readRecord, writeRecord, adopt, initSync, joinInto, RECORD_KEY, newCode, canonicalize, groupCode } from '../src/sync.js'
 // scores.js follows sync.js's rule — no browser globals at module scope — so the leaderboard's two
@@ -20680,6 +20680,7 @@ run(testLeLargeWeapons)
   run(runKrakenCeremony)
   run(runBiomes)
   run(testBootLoader)
+  run(testParkedRun)
   // A hand-typed filter that matched nothing is the silent pass without a parent watching:
   // `node test/sim-test.js supernova` printed ALL TESTS PASSED having run no scenario at all.
   if (_ran === 0 && !EXACT_SET) {
@@ -37796,4 +37797,42 @@ function runKrakenCeremony() {
     assert.ok(run.player.level >= lv, 'the level was lost')
   }
   console.log('PASS run KC (The Kraken ceremony): the kill step opens no card screen (the level still counts), KRAKEN_OUTRO beats in order, only the kraken holds its kill, main.js never steps the sim in the kill outro and reaches endRun(true) from it alone, the clock is set before the kill frame renders, render.js starts the death on bossDead and reads the clock')
+}
+
+// Run PR: a run parked on the way out (the phone may kill a hidden tab) comes back as the SAME run.
+// Proved by playing the original and the restored copy on one identical random stream: any field
+// lost or mangled on the way through (a Set of hit ids turning into {}) makes them drift apart.
+function testParkedRun() {
+  const store = {}
+  globalThis.localStorage = { getItem: (k) => store[k] ?? null, setItem: (k, v) => { store[k] = String(v) }, removeItem: (k) => { delete store[k] } }
+  const flat = (r) => JSON.stringify(r, (k, v) => v instanceof Set ? [...v] : v instanceof Map ? [...v] : v)
+  const play = (r, seed, frames) => {
+    Math.random = mulberry32(seed)
+    for (let i = 0; i < frames && r.phase !== 'dead'; i++) {
+      stepSim(r, { x: Math.sin(i / 90), y: Math.cos(i / 130) }, 1 / 60); r.events.length = 0
+      if (r.phase === 'levelup') { applyChoice(r, 0); r.phase = 'playing' }
+    }
+  }
+  const chapters = ['body', 'city', 'wreck', 'deep']
+  let sets = 0
+  try {
+    for (const chapter of chapters) {
+      const a = createRun(makeMeta(), { chapter, difficulty: 2 })
+      play(a, 20261001, 60 * 120)
+      parkRun(a, 'v1')
+      assert.strictEqual(takeParkedRun('v2'), null, chapter + ': a run parked by another build was restored')
+      assert.strictEqual(takeParkedRun('v1'), null, chapter + ': the first take did not consume the parked run')
+      parkRun(a, 'v1')
+      const b = takeParkedRun('v1')
+      assert.ok(b, chapter + ': nothing came back')
+      sets += (flat(a).match(/hitIds|"hit"/g) ?? []).length
+      play(a, 7, 60 * 60)
+      play(b, 7, 60 * 60)
+      assert.strictEqual(flat(b), flat(a), chapter + ': the restored run played differently from the original')
+    }
+    parkRun(createRun(makeMeta(), { chapter: 'body' }), 'v1')
+    dropParkedRun()
+    assert.strictEqual(takeParkedRun('v1'), null, 'dropParkedRun left the run behind')
+  } finally { delete globalThis.localStorage }
+  console.log('PASS run PR (parked run): ' + chapters.length + ' chapters (' + chapters.join(', ') + ') parked after 120s and restored play the next 60s identically to the original; another build, a second take, or a drop gets nothing (' + sets + ' hit-list fields crossed)')
 }
