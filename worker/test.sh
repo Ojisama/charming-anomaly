@@ -153,7 +153,7 @@ sbody()   { scall "$@" | tail -n +2; }
 post()    { scall POST -H 'content-type: application/json' -d "$1" "$SBASE"; }
 
 is "an unknown board is 200, not 404"       200   "$(sstatus GET "$SBASE?chapter=$CH&difficulty=3")"
-is "and it is empty rather than absent"     '{"kills":[],"level":[],"time":[]}' "$(sbody GET "$SBASE?chapter=$CH&difficulty=3")"
+is "and it is empty rather than absent"     '{"kills":[],"level":[],"time":[],"lap":[],"survive":[]}' "$(sbody GET "$SBASE?chapter=$CH&difficulty=3")"
 is "a board read carries no Authorization"  200   "$(sstatus GET "$SBASE?chapter=$CH&difficulty=1")"
 
 is "a score is accepted"                    200   "$(post "{\"nick\":\"Ann\",\"chapter\":\"$CH\",\"difficulty\":3,\"kills\":900,\"level\":20}" | head -1)"
@@ -195,8 +195,15 @@ is "and a row sent without one is null"        'null,null'                  "$(f
 is "a junk starter is still a 200"             200   "$(post "{\"nick\":\"Fay\",\"chapter\":\"$CH\",\"difficulty\":7,\"kills\":7,\"level\":3,\"starter\":\"<script>x\"}" | head -1)"
 is "and the row landed with no weapon on it"   'null' "$(field3 "$(sbody GET "$SBASE?chapter=$CH&difficulty=7")" kills starter)"
 
+# THE ENDLESS BOARD (difficulty 0): longest survival wins, so it sorts DESC. Eli has FEWER kills and
+# a LOWER level than Flo but survived longer, so any ordering borrowed from another board puts Flo on top.
+is "an endless score is accepted"           200   "$(post "{\"nick\":\"Flo\",\"chapter\":\"$CH\",\"difficulty\":0,\"kills\":900,\"level\":30,\"surviveMs\":600000}" | head -1)"
+is "a longer endless run is accepted"       200   "$(post "{\"nick\":\"Eli\",\"chapter\":\"$CH\",\"difficulty\":0,\"kills\":100,\"level\":10,\"surviveMs\":1800000}" | head -1)"
+is "the survive board sorts longest first"  'Eli:1800000,Flo:600000' "$(sbody GET "$SBASE?chapter=$CH&difficulty=0" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{console.log(JSON.parse(s).survive.map(r=>r.nick+":"+r.surviveMs).join(","))}catch{console.log("PARSE_ERROR:"+s.trim())}})')"
+is "a campaign board has no survive rows"   0     "$(count "$(sbody GET "$SBASE?chapter=$CH&difficulty=3")" survive)"
+
 # Difficulty is part of the board's identity, not a filter applied afterwards.
-is "another difficulty is a separate board" '{"kills":[],"level":[],"time":[]}' "$(sbody GET "$SBASE?chapter=$CH&difficulty=4")"
+is "another difficulty is a separate board" '{"kills":[],"level":[],"time":[],"lap":[],"survive":[]}' "$(sbody GET "$SBASE?chapter=$CH&difficulty=4")"
 
 echo "-- leaderboard rejections (shape only — this endpoint is deliberately credulous) --"
 is "a short nick is 400"                    400   "$(post "{\"nick\":\"Bo\",\"chapter\":\"$CH\",\"difficulty\":3,\"kills\":5,\"level\":2}" | head -1)"
@@ -216,12 +223,14 @@ is "a non-integer score is 400"             400   "$(post "{\"nick\":\"Ann\",\"c
 is "a zero kill time is 400"                400   "$(post "{\"nick\":\"Ann\",\"chapter\":\"$CH\",\"difficulty\":4,\"kills\":5,\"level\":2,\"timeMs\":0}" | head -1)"
 is "a non-integer kill time is 400"         400   "$(post "{\"nick\":\"Ann\",\"chapter\":\"$CH\",\"difficulty\":4,\"kills\":5,\"level\":2,\"timeMs\":1.5}" | head -1)"
 is "an explicit null kill time is accepted" 200   "$(post "{\"nick\":\"Eve\",\"chapter\":\"$CH\",\"difficulty\":5,\"kills\":5,\"level\":2,\"timeMs\":null}" | head -1)"
-is "an unparseable envelope is 400"         400   "$(scall POST -H 'content-type: application/json' -d 'not json' "$SBASE" | head -1)"
+is "endless without surviveMs is 400"       400   "$(post "{\"nick\":\"Ann\",\"chapter\":\"$CH\",\"difficulty\":0,\"kills\":5,\"level\":2}" | head -1)"
+is "surviveMs on difficulty 3 is 400"       400   "$(post "{\"nick\":\"Ann\",\"chapter\":\"$CH\",\"difficulty\":3,\"kills\":5,\"level\":2,\"surviveMs\":60000}" | head -1)"
+is "an unparseable envelope is 400"        400   "$(scall POST -H 'content-type: application/json' -d 'not json' "$SBASE" | head -1)"
 is "PUT to /scores is 405"                  405   "$(sstatus PUT "$SBASE")"
 is "a bad board read is 400"                400   "$(sstatus GET "$SBASE?chapter=$CH&difficulty=abc")"
 # Nothing above may have written a row: a rejected submit that still inserted would be invisible
 # until someone opened the podium and found a stranger on it.
-is "no rejection wrote a row"               '{"kills":[],"level":[],"time":[]}' "$(sbody GET "$SBASE?chapter=$CH&difficulty=4")"
+is "no rejection wrote a row"               '{"kills":[],"level":[],"time":[],"lap":[],"survive":[]}' "$(sbody GET "$SBASE?chapter=$CH&difficulty=4")"
 
 echo "-- a missing table answers 500 WITH CORS, not the runtime's own error page --"
 # THE DAY-ONE MISTAKE: deploying the Worker without running `npm run db:remote`. An exception

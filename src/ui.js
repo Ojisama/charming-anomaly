@@ -735,7 +735,15 @@ export function initUI(hooks) {
   //
   // The Worker returns all four boards regardless (it knows no chapter ids), so choosing between
   // them stays a game fact on this side; only WHERE the fact is written has moved.
-  const boardsFor = (chapterId) => CHAPTERS[chapterId]?.boards ?? CHAPTER_BOARDS_DEFAULT
+  // Endless (difficulty 0) draws its own pair whatever the chapter says.
+  const boardsFor = (chapterId, difficulty) => (difficulty === 0 ? ['survive', 'kills'] : CHAPTERS[chapterId]?.boards ?? CHAPTER_BOARDS_DEFAULT)
+
+  // THE ONE RULE for which board a chapter's title panel reads: 0 when endless is picked (dev-gated,
+  // like its pip), else the picked difficulty. Every fetchBoards/loadPodium caller routes through it.
+  const boardDiffOf = (chapterId) => {
+    const c = meta.chapters?.[chapterId]
+    return meta.dev === true && endlessUnlocked(meta, chapterId) && c?.endlessPicked === true ? 0 : (c?.difficulty ?? 1)
+  }
 
   // Dropped when a run PLACES. Not after every run: a score that missed the top 3 moved no board,
   // and re-reading then is a request that can only return what is already held.
@@ -860,7 +868,7 @@ export function initUI(hooks) {
     // spread out of this branch and draw two blank leaves instead. The Reef is the case that makes
     // it concrete — every race submits kills 0 and a level, so its kills board is never empty and
     // is never shown.
-    const [verso, recto] = boardsFor(browseChapterId)
+    const [verso, recto] = boardsFor(browseChapterId, boardDiffOf(browseChapterId))
     if (podiumState && !podiumState[verso].length && !podiumState[recto].length) {
       return `<div class="page page--board page--solo">
         <p class="diff-hint podium-empty">${t('No scores yet — be the first.')}</p>
@@ -894,7 +902,7 @@ export function initUI(hooks) {
   // could not do that (see the drawn shop icons, same ruling).
   function leaderLine(chapterId, difficulty) {
     ensureBoards(chapterId, difficulty)
-    const top = podiumCache.get(boardKey(chapterId, difficulty))?.[boardsFor(chapterId)[0]]?.[0]
+    const top = podiumCache.get(boardKey(chapterId, difficulty))?.[boardsFor(chapterId, difficulty)[0]]?.[0]
     if (!top) return ''
     return `<div class="spread-leader">
       ${medalHtml(1)}
@@ -918,7 +926,7 @@ export function initUI(hooks) {
     // 'Best lap' for the same width reason the two above were chosen: 'Meilleur tour' is SHORTER
     // than 'Meilleur temps', which is itself exactly as long as 'Niveau atteint', so it clears the
     // 142px the eyebrow gets with room over and cannot wrap the leaf to two lines.
-    const label = { kills: 'Kills', level: 'Level reached', time: 'Best time', lap: 'Best lap' }[which]
+    const label = { kills: 'Kills', level: 'Level reached', time: 'Best time', lap: 'Best lap', survive: 'Best time' }[which]
     const eyebrow = `<div class="brief-eyebrow podium-eyebrow">${t(label)}</div>`
     if (podiumState === null) return `${eyebrow}${podiumSkeleton()}`
     // Each board is scored by its OWN metric. Passing rows through with a `score` field rather than
@@ -930,6 +938,7 @@ export function initUI(hooks) {
       level: (r) => r.level,
       time: (r) => fmtTime(r.timeMs / 1000),
       lap: (r) => fmtLap(r.lapMs),
+      survive: (r) => fmtTime(r.surviveMs / 1000),
     }[which]
     const rows = podiumState[which].map((r) => ({ ...r, score: score(r) }))
     return `${eyebrow}${podiumBoardHtml(rows)}`
@@ -945,8 +954,8 @@ export function initUI(hooks) {
     // say is the payout, so that is the one thing kept.
     // Endless reads as board 0 (its own leaderboard), dev-gated like its pip.
     const endlessOn = meta.dev === true && endlessUnlocked(meta, browseChapterId)
-    const endlessSel = endlessOn && chMeta.endlessPicked === true
-    const boardDiff = endlessSel ? 0 : chMeta.difficulty
+    const boardDiff = boardDiffOf(browseChapterId)
+    const endlessSel = boardDiff === 0
     const coinPct = Math.round(((chMeta.difficulty - 1) * DIFFICULTY_COIN_PER_LEVEL) * 100)
     const rewardChip = chMeta.difficulty > 1 && !endlessSel ? `<b class="diff-reward-chip">+${coinPct}% 🪙</b>` : ''
     const playBlock = heroUnlocked ? `
@@ -3651,7 +3660,7 @@ export function initUI(hooks) {
         <p class="summary-chapter">${chapter.icon} ${t(chapter.name)}</p>
         ${killedByLine}
         <div class="stats">
-          <div class="stat-row"><span>${t(d.endless ? ENDLESS_COPY.survived.name : 'Time')}</span><b>${fmtTime(d.time)}${rankChip(d.podium?.time, 'time')}</b></div>
+          <div class="stat-row"><span>${t(d.endless ? ENDLESS_COPY.survived.name : 'Time')}</span><b>${fmtTime(d.time)}${d.endless ? rankChip(d.podium?.survive, 'survive') : rankChip(d.podium?.time, 'time')}</b></div>
           ${d.endless ? `<div class="stat-row"><span>${t(ENDLESS_COPY.best.name)}</span><b>${fmtTime(d.endlessBest / 1000)}</b></div>` : ''}
           ${raceRows(d, chapterId)}
         </div>
@@ -4226,7 +4235,7 @@ export function initUI(hooks) {
       case 'podium-open':
         podiumTurn = !podiumOpen // a retry redraws the page it is already on; it must not re-turn it
         podiumOpen = true
-        loadPodium(browseChapterId, meta.chapters?.[browseChapterId]?.difficulty ?? 1)
+        loadPodium(browseChapterId, boardDiffOf(browseChapterId))
         playSfx('click')
         updateTitleBelow()
         break

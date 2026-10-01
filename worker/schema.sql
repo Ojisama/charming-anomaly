@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS scores (
                                 -- starter is fixed (only a rolled one is worth recording). Carried
                                 -- for display beside the row and never sorted or filtered on, so
                                 -- unlike time_ms it needs no index of its own.
-  lap_ms     INTEGER            -- ms of the FASTEST single lap of a circuit run. NULL everywhere
+  lap_ms     INTEGER,           -- ms of the FASTEST single lap of a circuit run. NULL everywhere
                                 -- else, and on a race that completed no lap. Filtered and sorted
                                 -- exactly like time_ms, and bounded by the same hour ceiling.
                                 --   LAST IN THIS LITERAL ON PURPOSE, which is the only thing that
@@ -44,6 +44,8 @@ CREATE TABLE IF NOT EXISTS scores (
                                 -- every statement in index.js names its columns -- but a schema
                                 -- that reads differently depending on when the database was made
                                 -- is a fact in two places waiting to be trusted.
+  survive_ms INTEGER            -- ms survived in an ENDLESS run (difficulty 0). NULL everywhere else.
+                                -- Appended last, like lap_ms: migrate-scores-survive.sql is an ALTER.
 );
 -- One index per board, and EACH MUST COVER THE WHOLE ORDER BY, `at` included. Without the trailing
 -- `at` SQLite can seek the partition but not the order, so it materialises every row for that
@@ -72,3 +74,5 @@ CREATE INDEX IF NOT EXISTS scores_time  ON scores (chapter, difficulty, time_ms 
 -- rather than a second column on scores_time: the two boards are read in the same batch but never
 -- in the same statement, so a composite would leave the lap board seeking on time_ms first.
 CREATE INDEX IF NOT EXISTS scores_lap   ON scores (chapter, difficulty, lap_ms ASC, at ASC);
+-- Endless board: longest survival wins, so DESC (readBoards filters NULLs in the WHERE).
+CREATE INDEX IF NOT EXISTS scores_survive ON scores (chapter, difficulty, survive_ms DESC, at ASC);

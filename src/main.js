@@ -968,8 +968,10 @@ function endRun(victory) {
     // these boards sort fastest-first.
     const lapMs = run.bestLap > 0 ? Math.round(run.bestLap * 1000) : null
     const entry = {
-      nick, chapter, difficulty: run.difficulty ?? 1, kills: run.kills, level: run.player.level,
+      nick, chapter, difficulty: run.endless ? 0 : (run.difficulty ?? 1), kills: run.kills, level: run.player.level,
       timeMs, lapMs,
+      // Endless's board is longest survival, on the real clock (Time Debt runs run.time at 1.5x).
+      surviveMs: run.endless ? Math.round((run._realTime ?? run.time) * 1000) : null,
       // ONLY WHERE IT IS ROLLED (owner, 2026-08-19). A chapter whose `starter` is a plain string
       // gives every player the same weapon, so recording it on every row of those boards is a
       // column of one repeated answer. `Array.isArray` is the same test createRun rolls on, so the

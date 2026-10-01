@@ -19582,26 +19582,26 @@ function testLeaderboard() {
   const ANN = { nick: 'Ann', kills: 900, level: 20, timeMs: 240000 }
   const BOB = { nick: 'Bob', kills: 500, level: 12, timeMs: 180000 }
   const boards = { kills: [ANN, BOB], level: [BOB, ANN], time: [BOB, ANN] }
-  assert.deepStrictEqual(podiumRank(boards, { nick: 'Bob', kills: 500, level: 12 }), { kills: 2, level: 1, time: null, lap: null },
+  assert.deepStrictEqual(podiumRank(boards, { nick: 'Bob', kills: 500, level: 12 }), { kills: 2, level: 1, time: null, lap: null, survive: null },
     'a run on both boards reports both ranks, and they are allowed to differ')
   assert.strictEqual(podiumRank(boards, { nick: 'Cid', kills: 10, level: 2 }), null, 'a run on neither board reports nothing at all')
   assert.strictEqual(podiumRank(null, { nick: 'Bob', kills: 500, level: 12 }), null, 'an unreachable board is not a rank of null-th')
   assert.deepStrictEqual(podiumRank({ kills: [ANN], level: [], time: [], lap: [] }, { nick: 'Ann', kills: 900, level: 20 }),
-    { kills: 1, level: null, time: null, lap: null }, 'one board without the other is still a result')
+    { kills: 1, level: null, time: null, lap: null, survive: null }, 'one board without the other is still a result')
 
   // THE BOSS BOARD. A run that carries a kill time is ranked on it; one that does not must not be,
   // and `timeMs` defaulting to undefined is the whole reason that needs an assertion — findIndex on
   // a row whose own timeMs is null would MATCH a null lookup and hand an ordinary chapter's run a
   // place on a board it never entered.
   assert.deepStrictEqual(podiumRank(boards, { nick: 'Bob', kills: 500, level: 12, timeMs: 180000 }),
-    { kills: 2, level: 1, time: 1, lap: null }, 'a boss run reports its place on the time board too')
+    { kills: 2, level: 1, time: 1, lap: null, survive: null }, 'a boss run reports its place on the time board too')
   assert.strictEqual(podiumRank({ kills: [], level: [], time: [{ nick: 'Ann', kills: 1, level: 1, timeMs: null }] },
     { nick: 'Ann', kills: 1, level: 1 }), null,
     'a run with no kill time holds no place on the time board, even against a row whose own time is null')
   // The Worker deploys separately from the game, so between shipping the client and deploying it
   // every response lacks the key. The podium must degrade to "no boss scores", not to a crash.
   assert.deepStrictEqual(podiumRank({ kills: [ANN], level: [] }, { nick: 'Ann', kills: 900, level: 20, timeMs: 240000 }),
-    { kills: 1, level: null, time: null, lap: null }, 'a board response with no time key at all is still readable')
+    { kills: 1, level: null, time: null, lap: null, survive: null }, 'a board response with no time key at all is still readable')
 
   // THE CIRCUIT'S SECOND BOARD, on the same terms as the boss board above and with one difference
   // that is the whole design: a run may place on it WITHOUT finishing. A lap has to be completed to
@@ -19610,10 +19610,10 @@ function testLeaderboard() {
   const DOT = { nick: 'Dot', kills: 0, level: 4, timeMs: null, lapMs: 29700 }
   const race = { kills: [], level: [], time: [CID], lap: [DOT, CID] }
   assert.deepStrictEqual(podiumRank(race, { nick: 'Cid', kills: 0, level: 6, timeMs: 160100, lapMs: 30600 }),
-    { kills: null, level: null, time: 1, lap: 2 },
+    { kills: null, level: null, time: 1, lap: 2, survive: null },
     'a finished race reports both of its boards, and the fastest race need not hold the fastest lap')
   assert.deepStrictEqual(podiumRank(race, { nick: 'Dot', kills: 0, level: 4, lapMs: 29700 }),
-    { kills: null, level: null, time: null, lap: 1 },
+    { kills: null, level: null, time: null, lap: 1, survive: null },
     'a race that ran the clock out still holds its best lap — the one board a run can place on without finishing')
   // The same null-matching trap the boss board's case above exists for, on the new column. Without
   // the `want == null` guard, findIndex would match a row whose own lapMs is null and hand every
@@ -19622,7 +19622,31 @@ function testLeaderboard() {
     { nick: 'Ann', kills: 1, level: 1 }), null,
     'a run with no lap time holds no place on the lap board, even against a row whose own lap is null')
   assert.deepStrictEqual(podiumRank({ kills: [ANN], level: [] }, { nick: 'Ann', kills: 900, level: 20, lapMs: 30000 }),
-    { kills: 1, level: null, time: null, lap: null }, 'a board response with no lap key at all is still readable')
+    { kills: 1, level: null, time: null, lap: null, survive: null }, 'a board response with no lap key at all is still readable')
+
+  // THE ENDLESS BOARD (difficulty 0), the fifth: longest survival wins. The Worker sorts it DESC and
+  // returns three rows; podiumRank only finds the row, so it needs no comparator of its own.
+  const EVE = { nick: 'Eve', kills: 100, level: 10, surviveMs: 1800000 }
+  const FLO = { nick: 'Flo', kills: 900, level: 30, surviveMs: 600000 }
+  assert.deepStrictEqual(
+    podiumRank({ kills: [], level: [], time: [], lap: [], survive: [EVE, FLO] }, { nick: 'Flo', kills: 1, level: 1, surviveMs: 600000 }),
+    { kills: null, level: null, time: null, lap: null, survive: 2 },
+    'podiumRank must find a submitted surviveMs row in boards.survive')
+  assert.doesNotThrow(() => podiumRank({ kills: [ANN], level: [] }, { nick: 'Ann', kills: 900, level: 20, surviveMs: 600000 }),
+    'a response with no survive key (Worker not yet deployed) must not throw')
+  assert.strictEqual(podiumRank({ kills: [], level: [], survive: [{ nick: 'Ann', kills: 1, level: 1, surviveMs: null }] }, { nick: 'Ann', kills: 1, level: 1 }), null,
+    'a run with no survive time holds no place on the survive board')
+  {
+    const scoresSrc = readFileSync(new URL('../src/scores.js', import.meta.url), 'utf8')
+    assert.match(/export function submitScore[\s\S]*?\n}\n/.exec(scoresSrc)?.[0] ?? '', /JSON\.stringify\(\{[^}]*surviveMs/,
+      'submitScore must forward surviveMs in the POST body — without it every endless run 400s at the Worker')
+    const mainSrc0 = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
+    assert.match(mainSrc0, /difficulty: run\.endless \? 0 : /, 'main.js must submit an endless run on difficulty 0')
+    assert.match(mainSrc0, /surviveMs: run\.endless \?/, 'main.js must forward surviveMs')
+    // Every board fetch goes through the one rule: endless picked and dev on reads board 0.
+    const uiSrc0 = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
+    assert.ok(!/loadPodium\(browseChapterId, meta\.chapters/.test(uiSrc0), 'podium-open must use boardDiff, not the raw chapter difficulty')
+  }
 
   // (b2) WHICH BOARDS A CHAPTER DRAWS, ACROSS THREE FILES THAT DO NOT IMPORT EACH OTHER.
   // config.js declares the pair, ui.js has to have a LABEL and a SCORE FORMATTER for each name in
@@ -19641,6 +19665,7 @@ function testLeaderboard() {
   }
   const labelKeys = keysOf(uiSrc, /const label = \{([^}]*)\}\[which\]/, "ui.js's podium label map")
   const scoreKeys = keysOf(uiSrc, /const score = \{([\s\S]*?)\}\[which\]/, "ui.js's podium score map")
+  assert.ok(labelKeys.has('survive') && scoreKeys.has('survive'), 'run LB.b2: ui.js has no label/score for the survive board')
   const workerKeys = keysOf(wkSrc, /async function readBoards[\s\S]*?return \{([\s\S]*?)\n  \}/, "the Worker's readBoards return")
   // EVERY CHAPTER, off Object.keys — CHAPTER_ORDER is Book 1 only and would skip the Reef entirely,
   // which is the one chapter this whole change exists for.
@@ -19661,6 +19686,7 @@ function testLeaderboard() {
   // only the ones that declare nothing, would pass every line above.
   assert.ok(chapterIds.length >= 9 && declared >= 2,
     `run LB.b2: walked ${chapterIds.length} chapters of which ${declared} declare their own boards — too few to be reading the real table`)
+  assert.ok(workerKeys.has('survive'), 'run LB.b2: the Worker must return a survive board')
   assert.deepStrictEqual(CHAPTERS.reef.boards, ['time', 'lap'],
     'run LB.b2: The Reef is weapons:[] and one-level-per-lap, so neither a kills board nor a level board can rank anybody on it')
   }

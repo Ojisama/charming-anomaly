@@ -105,7 +105,7 @@ const validChapter = (v) => typeof v === 'string' && /^[a-z][a-z0-9]{0,15}$/.tes
 const validId = (v) => typeof v === 'string' && /^[a-zA-Z][a-zA-Z0-9]{0,23}$/.test(v)
 const int = (v, lo, hi) => (Number.isInteger(v) && v >= lo && v <= hi ? v : null)
 
-const boardRow = (r) => ({ nick: r.nick, kills: r.kills, level: r.level, at: r.at, timeMs: r.time_ms, lapMs: r.lap_ms, starter: r.starter })
+const boardRow = (r) => ({ nick: r.nick, kills: r.kills, level: r.level, at: r.at, timeMs: r.time_ms, lapMs: r.lap_ms, surviveMs: r.survive_ms, starter: r.starter })
 
 // `at ASC` on every board so a tie goes to whoever got there FIRST. Without it SQLite is free to
 // return either row and the podium reorders itself between two reads of an unchanged board.
@@ -128,18 +128,20 @@ const boardRow = (r) => ({ nick: r.nick, kills: r.kills, level: r.level, at: r.a
 // first, and these boards' whole ordering is "smallest wins" — so without the filter each podium
 // would be three players who never finished.
 async function readBoards(env, chapter, difficulty) {
-  const cols = 'SELECT nick, kills, level, at, time_ms, lap_ms, starter FROM scores WHERE chapter = ? AND difficulty = ?'
-  const [byKills, byLevel, byTime, byLap] = await env.DB.batch([
+  const cols = 'SELECT nick, kills, level, at, time_ms, lap_ms, survive_ms, starter FROM scores WHERE chapter = ? AND difficulty = ?'
+  const [byKills, byLevel, byTime, byLap, bySurvive] = await env.DB.batch([
     env.DB.prepare(`${cols} ORDER BY kills DESC, at ASC LIMIT 3`).bind(chapter, difficulty),
     env.DB.prepare(`${cols} ORDER BY level DESC, kills DESC, at ASC LIMIT 3`).bind(chapter, difficulty),
     env.DB.prepare(`${cols} AND time_ms IS NOT NULL ORDER BY time_ms ASC, at ASC LIMIT 3`).bind(chapter, difficulty),
     env.DB.prepare(`${cols} AND lap_ms IS NOT NULL ORDER BY lap_ms ASC, at ASC LIMIT 3`).bind(chapter, difficulty),
+    env.DB.prepare(`${cols} AND survive_ms IS NOT NULL ORDER BY survive_ms DESC, at ASC LIMIT 3`).bind(chapter, difficulty),
   ])
   return {
     kills: byKills.results.map(boardRow),
     level: byLevel.results.map(boardRow),
     time: byTime.results.map(boardRow),
     lap: byLap.results.map(boardRow),
+    survive: bySurvive.results.map(boardRow),
   }
 }
 
@@ -171,7 +173,7 @@ async function scores(req, env) {
   if (req.method === 'GET') {
     const params = new URL(req.url).searchParams
     const chapter = params.get('chapter')
-    const difficulty = int(Number(params.get('difficulty')), 1, 9)
+    const difficulty = int(Number(params.get('difficulty')), 0, 9)
     if (!validChapter(chapter) || difficulty === null) return json(400, { error: 'bad board' })
     return json(200, await readBoards(env, chapter, difficulty))
   }
@@ -181,7 +183,7 @@ async function scores(req, env) {
     if (err) return json(400, { error: err })
     const nick = typeof body.nick === 'string' ? body.nick.trim() : null
     const { chapter } = body
-    const difficulty = int(body.difficulty, 1, 9)
+    const difficulty = int(body.difficulty, 0, 9)
     const kills = int(body.kills, 0, 99999)
     const level = int(body.level, 1, 999)
     // OPTIONAL, and absent is a legal value rather than a bad one: only a boss chapter that was
@@ -210,15 +212,20 @@ async function scores(req, env) {
     // Storing junk would be a different matter, and is what the check is FOR — but note the game
     // never renders this string: ui.js uses it only as a KEY into WEAPONS, drawing that weapon's
     // own icon and its translated name, and nothing at all for an id it does not know.
+    // Endless is difficulty 0 and is the only run with a survival time; it must carry one. 24h ceiling,
+    // not timeMs's hour: a long endless run would otherwise 400 and lose its score.
+    const surviveMs = body.surviveMs == null ? null : int(body.surviveMs, 1, 86400000)
     const starter = validId(body.starter) ? body.starter : null
     if (!validNick(nick)) return json(400, { error: `nick must be ${NICK_MIN}-${NICK_MAX} characters` })
     if (!validChapter(chapter)) return json(400, { error: 'bad chapter' })
     if (difficulty === null || kills === null || level === null) return json(400, { error: 'bad score' })
     if (body.timeMs != null && timeMs === null) return json(400, { error: 'bad time' })
     if (body.lapMs != null && lapMs === null) return json(400, { error: 'bad lap' })
+    if (body.surviveMs != null && surviveMs === null) return json(400, { error: 'bad survive time' })
+    if ((difficulty === 0) !== (surviveMs !== null)) return json(400, { error: 'surviveMs belongs to difficulty 0 only' })
 
-    await env.DB.prepare('INSERT INTO scores (chapter, difficulty, nick, kills, level, at, time_ms, lap_ms, starter) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .bind(chapter, difficulty, nick, kills, level, Date.now(), timeMs, lapMs, starter)
+    await env.DB.prepare('INSERT INTO scores (chapter, difficulty, nick, kills, level, at, time_ms, lap_ms, starter, survive_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .bind(chapter, difficulty, nick, kills, level, Date.now(), timeMs, lapMs, starter, surviveMs)
       .run()
     // The boards come back in the same round trip, so a submit that landed is visibly a submit
     // that landed rather than a 200 the client takes on faith — and the summary screen can say
