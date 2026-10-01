@@ -2503,7 +2503,7 @@ export function initUI(hooks) {
         hud.timer.classList.toggle('hud-timer--held', heldClock)
       }
     } else {
-      const remain = Math.max(0, Math.ceil(RUN_DURATION - run.time))
+      const remain = run.endless ? Math.floor(run._realTime ?? 0) : Math.max(0, Math.ceil(RUN_DURATION - run.time))
       if (remain !== last.remain) {
         last.remain = remain
         hud.timerNum.textContent = fmtTime(remain)

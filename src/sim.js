@@ -266,6 +266,9 @@ const HOMING_FAN = 0.35       // rad, half-spread when several homing shots are 
 const HOMING_HIT_R = 10       // px, hit radius added to enemy radius
 
 /** Advance the simulation by dt seconds. input = {x, y} normalized move vector. */
+// Endless freezes every TIME curve at RUN_DURATION: past it, the endless level is the only escalator.
+const curveT = (run) => (run.endless ? Math.min(run.time, RUN_DURATION) : run.time)
+
 export function stepSim(run, input, dt) {
   // HITSTOP: the world holds, the picture does not. main.js keeps handing the renderer real dt, so
   // animT, the flash and every particle play through the freeze — only the simulation waits.
@@ -313,7 +316,7 @@ export function stepSim(run, input, dt) {
   // v7.x: a `circuit` chapter is won by finishing its laps (stepCircuit), not by outlasting a
   // clock — the same exemption a scripted chapter takes, for the same reason. Without this the
   // Reef would end at 300s mid-race regardless of how far round the track the player had got.
-  if (!CHAPTERS[run.chapter].scripted && !CHAPTERS[run.chapter].circuit && run.time >= RUN_DURATION) {
+  if (!CHAPTERS[run.chapter].scripted && !CHAPTERS[run.chapter].circuit && !run.endless && run.time >= RUN_DURATION) {
     run.phase = 'victory'
     run.events.push({ type: 'victory' })
     return
@@ -610,7 +613,7 @@ function stepAnomalies(run, dt) {
     // deliberately NOT scaled: it is a 5s reward for being hit, not a cost, and shortening it is a
     // nerf nobody asked for.
     const clockDt = a.timeDebt ? dt * TIME_DEBT_MUL : dt
-    run._overloadAcc = (run._overloadAcc ?? 0) + OVERLOAD_HP_PER_SEC * dmgScale(run.time) * clockDt
+    run._overloadAcc = (run._overloadAcc ?? 0) + OVERLOAD_HP_PER_SEC * dmgScale(curveT(run)) * clockDt
     if (run._overloadAcc >= 1) {
       const spend = Math.floor(run._overloadAcc)
       run._overloadAcc -= spend
@@ -1172,7 +1175,7 @@ function stepSpawning(run, dt) {
   // oscillation into it would corrupt it permanently (the same reason RAMPAGE's multipliers are
   // read-time). The payoff half is the damage multiplier in anomalyDamageMul.
   const chaosMul = run.anomalies?.chaosPact && chaosSurgeActive(run.time) ? CHAOS_PACT_SPAWN_MUL : 1
-  run._spawnAcc += spawnRate(run.time, run.mods.spawnGrowthMul ?? 1) * run.mods.spawnMul * spawnTiltMul(run.mods.spawnTilt ?? 0, run.time) * lateSpawnMulAt(run.mods.lateSpawnMul ?? 1, run.time) * laneMul * chaosMul * dt
+  run._spawnAcc += spawnRate(curveT(run), run.mods.spawnGrowthMul ?? 1) * run.mods.spawnMul * spawnTiltMul(run.mods.spawnTilt ?? 0, curveT(run)) * lateSpawnMulAt(run.mods.lateSpawnMul ?? 1, curveT(run)) * laneMul * chaosMul * dt
   // SUBMISSION: your allies must not eat the swarm's spawn budget. They live in run.enemies,
   // so without this the cap counts them and the game quietly spawns FEWER hostiles while an ally is
   // out — a second, invisible buff on top of the card, and one that corrupts any kills-per-run
@@ -1188,7 +1191,7 @@ function stepSpawning(run, dt) {
   let enemyCap = maxAliveFor(run.mods)
   if (keep) {
     let all = 0, kept = 0
-    for (const [type, w] of Object.entries(waveWeights(run.time, CHAPTERS[run.chapter].archetypeMul))) {
+    for (const [type, w] of Object.entries(waveWeights(curveT(run), CHAPTERS[run.chapter].archetypeMul))) {
       all += w; kept += w * (keep[TYPE_ARCHETYPE[type]] ?? 1)
     }
     if (all > 0) enemyCap = Math.round(enemyCap * kept / all)
@@ -1199,7 +1202,7 @@ function stepSpawning(run, dt) {
   while (run._spawnAcc >= 1 && run.enemies.length < cap) {
     run._spawnAcc -= 1
     if (!keep && !swap) { spawnEnemy(run); continue }
-    let type = pickWeighted(waveWeights(run.time, CHAPTERS[run.chapter].archetypeMul))
+    let type = pickWeighted(waveWeights(curveT(run), CHAPTERS[run.chapter].archetypeMul))
     const k = keep?.[TYPE_ARCHETYPE[type]]
     if (k != null && Math.random() >= k) continue
     const s = swap?.[TYPE_ARCHETYPE[type]]
@@ -1227,7 +1230,7 @@ function stepFormations(run, dt) {
   run._formationT += FORMATION_INTERVAL / laneEarlyMul(run.time)
 
   // Extra rows come from the same curve that drives ordinary spawning: 1 row early, up to 3 late.
-  const rows = Math.max(1, Math.min(3, Math.round(spawnRate(run.time) * run.mods.spawnMul / 3)))
+  const rows = Math.max(1, Math.min(3, Math.round(spawnRate(curveT(run)) * run.mods.spawnMul / 3)))
   const p = run.player
   // Columns are spread ACROSS the lane and anchored to the world's cross axis, not to the player.
   // That is what makes a strafe a decision: the gaps are always in the same places, so you are
@@ -4026,11 +4029,11 @@ function spawnEnemy(run, opts = {}) {
   // 9x elites rather than 3x, and a jackpot pair should not quietly become a difficulty setting.
   if (isElite) {
     const eliteSurge = run.anomalies?.submission || run.anomalies?.unstableCores
-    run._nextEliteAt += eliteEveryAt(run.time, lateEliteFor(run.chapter)) * run.mods.eliteEveryMul
+    run._nextEliteAt += eliteEveryAt(curveT(run), lateEliteFor(run.chapter)) * run.mods.eliteEveryMul
       * (eliteSurge ? ELITE_SURGE_EVERY_MUL : 1)
   }
 
-  const type = opts.type ?? pickWeighted(waveWeights(run.time, CHAPTERS[run.chapter].archetypeMul))
+  const type = opts.type ?? pickWeighted(waveWeights(curveT(run), CHAPTERS[run.chapter].archetypeMul))
   const base = ENEMIES[type]
   const p = run.player
 
@@ -4144,8 +4147,8 @@ function spawnEnemy(run, opts = {}) {
   // v7.1: the tail rate is PER CHAPTER (lateRateFor). This is the only site that passes one — the
   // two enemy-side damage sites keep hpScale's default, since scaling those with a difficulty knob
   // would buff the player. Read once at spawn, like the rest of this line.
-  let hp = base.hp * hpScale(run.time, lateRateFor(run.chapter)) * (isElite ? ELITE.hpMul : 1) * run.mods.enemyHpMul * (roster?.hpMul ?? 1)
-  const speed = base.speed * speedCreepMul(run.time) * run.mods.enemySpeedMul * (roster?.speedMul ?? 1)
+  let hp = base.hp * hpScale(curveT(run), lateRateFor(run.chapter)) * (isElite ? ELITE.hpMul : 1) * run.mods.enemyHpMul * (roster?.hpMul ?? 1)
+  const speed = base.speed * speedCreepMul(curveT(run)) * run.mods.enemySpeedMul * (roster?.speedMul ?? 1)
   // roster.dmgMul (v7.x): the per-creature damage term, added last and in the same shape as the
   // hpMul/speedMul/radiusMul/xpMul lines around it. Until it existed, the only ways to make ONE
   // roster entry hit softer were the archetype base in ENEMIES (which moves that archetype in every
@@ -4156,7 +4159,7 @@ function spawnEnemy(run, opts = {}) {
   // own block gives -- contactHarmless already reads 0 as harmless, so one term here disarms every
   // path that reaches the player (plain contact, the latch clause, the formation ranks) with
   // nothing else to keep in step. See CHAPTERS.reef.passiveCrowd for the other half.
-  const dmg = base.dmg * dmgScale(run.time) * (isElite ? ELITE.dmgMul : 1) * run.mods.enemyDmgMul * (roster?.dmgMul ?? 1)
+  const dmg = base.dmg * dmgScale(curveT(run)) * (isElite ? ELITE.dmgMul : 1) * run.mods.enemyDmgMul * (roster?.dmgMul ?? 1)
     * (CHAPTERS[run.chapter].passiveCrowd ? 0 : 1)
   const radius = base.radius * (isElite ? ELITE.sizeMul : 1) * run.mods.enemyRadiusMul * (roster?.radiusMul ?? 1)
 
@@ -5534,7 +5537,7 @@ function hurtPlayer(run, rawDmg, dot = false, src = null) {
   // Same idea, one level up: bank the burst and resolve it in stepMartyr, which runs after every
   // hurtPlayer caller in the frame and so cannot be inside anyone's iteration.
   if (run.anomalies?.martyr && dmg > 0) {
-    (run._martyrBursts ??= []).push({ x: p.x, y: p.y, dmg: dmg * MARTYR_DMG_MUL * hpScale(run.time) })
+    (run._martyrBursts ??= []).push({ x: p.x, y: p.y, dmg: dmg * MARTYR_DMG_MUL * hpScale(curveT(run)) })
   }
   // v5.4 reaction mods: taking damage (contact OR zone — every path routes through here) fires a
   // free Quill Burst / Tail Lash off the weapon timer, each on its own internal cooldown. No-ops
@@ -8054,7 +8057,7 @@ export function stepCharge(run, dt) {
   // new machinery — and it is opt-in per chapter, so nothing else in the game can see it.
   //   mods.airDrainMul (MUTATORS.thinAir) multiplies whichever of the two the chapter declares, so a
   // per-spawn chapter and a flat-drain one are taxed the same way by the same knob.
-  const drainRate = (res.drainPerSpawn != null ? res.drainPerSpawn * spawnRate(run.time) : res.drain) * (run.mods?.airDrainMul ?? 1)
+  const drainRate = (res.drainPerSpawn != null ? res.drainPerSpawn * spawnRate(curveT(run)) : res.drain) * (run.mods?.airDrainMul ?? 1)
   // v7.x Book 2 Task 9: Slow Burn (chargeDrainMul) and Big Gulp (chargeRefillMul) scale the drain
   // and the in-circle refill respectively — both default to 1 (no-op) unbought, and both are 1 in
   // every chapter with no resource, so this is inert wherever it always was.
@@ -8685,7 +8688,7 @@ function stepTraps(run, dt) {
       const dx = e.x - tr.x, dy = e.y - tr.y
       if (dx * dx + dy * dy > rSq) continue
       springTrap(run, tr)
-      dealDamage(run, e, SNAP_TRAP_DMG * hpScale(run.time), false)
+      dealDamage(run, e, SNAP_TRAP_DMG * hpScale(curveT(run)), false)
       break // one entity per snap
     }
   }
@@ -8842,7 +8845,7 @@ function rollMowerLane(run, dt) {
     phase: 'warn', t: MOWER_WARN, warnT: MOWER_WARN, carT: 0,
     // Snapshotted at roll time like every other lane number: the player's flat damage ramps with
     // run.time, so a pass hits for what it was worth when it started, not when it lands.
-    dmg: mowerDmgAt(run.time), sweep: MOWER_SWEEP, deckLen: MOWER_DECK_LEN, deckW: MOWER_DECK_W,
+    dmg: mowerDmgAt(curveT(run)), sweep: MOWER_SWEEP, deckLen: MOWER_DECK_LEN, deckW: MOWER_DECK_W,
     kb: MOWER_KB, enemyFrac: MOWER_ENEMY_HP_FRAC, look: 'mower', dot: true,
     mows: true,   // v6.6.25: this deck clears foliage/webs/trails — see stepLanePasses
 
@@ -9224,7 +9227,7 @@ function stepBombs(run, dt) {
     }
 
     const radSq = b.radius * b.radius
-    const dmg = b.core ? b.dmg * hpScale(run.time) * CORE_BLAST_ENEMY_MUL : b.dmg
+    const dmg = b.core ? b.dmg * hpScale(curveT(run)) * CORE_BLAST_ENEMY_MUL : b.dmg
     for (const e of run.enemies) {
       if (e._dead) continue
       const dx = e.x - b.x, dy = e.y - b.y

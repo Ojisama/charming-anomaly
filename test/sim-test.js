@@ -411,6 +411,46 @@ function testEndlessConfig() {
   console.log(`PASS run EN.a (endless config): ${elig.length}/${all.length} chapters eligible`)
 }
 
+function testEndlessNoVictory() {
+  const run = createRun(makeMeta(), { chapter: 'body', endless: true })
+  assert.strictEqual(run.endless, true)
+  run.player.hp = run.player.maxHP = 1e12
+  advance(run, 305, 1 / 60, { x: 1, y: 0 })
+  assert.strictEqual(run.phase, 'playing', `endless must not win at 300s, got ${run.phase}`)
+  const ctl = createRun(makeMeta(), { chapter: 'body' })
+  ctl.player.hp = ctl.player.maxHP = 1e12
+  advance(ctl, 305, 1 / 60, { x: 1, y: 0 })
+  assert.strictEqual(ctl.phase, 'victory', 'control run must still win at 300s')
+  console.log('PASS run EN.b (endless: no timer victory)')
+}
+
+// EFFECT, not state: an enemy born at t=600 in endless has the same hp per base hp as one born at
+// t=300. HP carries no difficulty term, so only the TIME curve could differ. Milestones are off so
+// no drip (bulky/jumbo touch enemyHpMul) or forced elite can land. Elites are excluded by type
+// filter, and the ratio is taken per (type, rosterId) so roster hpMul cannot vary between arms.
+function testEndlessCurvesFrozen() {
+  const ratios = (t) => {
+    Math.random = mulberry32(20261001)
+    const run = createRun(makeMeta(), { chapter: 'beyond', endless: true })
+    run.player.hp = run.player.maxHP = 1e12
+    run.time = t
+    run._endlessNextMilestone = Infinity
+    run._nextEliteAt = Infinity
+    advance(run, 3, 1 / 60, { x: 1, y: 0 })
+    const out = new Map()
+    for (const e of run.enemies) if (!e.elite) out.set(`${e.type}/${e.rosterId}`, e.maxHP / ENEMIES[e.type].hp)
+    return out
+  }
+  const a = ratios(300), b = ratios(600)
+  const shared = [...a.keys()].filter((k) => b.has(k))
+  assert.ok(shared.length > 0, 'no common enemy kind between arms')
+  for (const k of shared) assert.ok(Math.abs(b.get(k) - a.get(k)) / a.get(k) < 0.02, `${k}: ${a.get(k)} vs ${b.get(k)}`)
+  // Control: the shipped curve itself keeps ramping (a normal run at t=600 cannot spawn: the
+  // victory gate returns first, so the control is the pure function).
+  assert.ok(hpScale(600, lateRateFor('beyond')) > 2 * hpScale(300, lateRateFor('beyond')))
+  console.log(`PASS run EN.c (curves frozen): ${shared.length} kinds compared at 300 vs 600`)
+}
+
 function testVictory() {
   const run = createRun(makeMeta())
   run.player.hp = 1e9
@@ -579,9 +619,9 @@ function testChapterLateRate() {
   // no-op: every chapter would quietly fall back to 0.005 with no test failing and no error. The
   // two enemy-side sites must NOT gain one, or a difficulty knob starts buffing the player.
   const src = readFileSync(new URL('../src/sim.js', import.meta.url), 'utf8')
-  assert.ok(src.includes('hpScale(run.time, lateRateFor(run.chapter))'),
+  assert.ok(src.includes('hpScale(curveT(run), lateRateFor(run.chapter))'),
     'spawnEnemy must pass the chapter tail rate — without it the ladder is inert everywhere')
-  assert.strictEqual((src.match(/hpScale\(run\.time, /g) ?? []).length, 1,
+  assert.strictEqual((src.match(/hpScale\(curveT\(run\), /g) ?? []).length, 1,
     'exactly ONE hpScale call may take a rate (spawnEnemy). The snap-trap and core-blast sites are enemy-side damage: scaling those with the ladder buffs the player in late chapters.')
 
   console.log(`PASS run PB6 (chapter tail): body ${bodyEnd.toFixed(1)}x -> beyond ${beyondEnd.toFixed(1)}x at t=300, inert before ${HP_SCALE_LATE_START}s, wired at exactly one site`)
@@ -657,7 +697,7 @@ function testChapterLateRate() {
   }
 
   const esrc = readFileSync(new URL('../src/sim.js', import.meta.url), 'utf8')
-  assert.ok(esrc.includes('eliteEveryAt(run.time, lateEliteFor(run.chapter))'),
+  assert.ok(esrc.includes('eliteEveryAt(curveT(run), lateEliteFor(run.chapter))'),
     'spawnEnemy must pass the chapter elite ramp — without it beyond keeps the flat cadence and nothing goes red')
 }
 
@@ -20223,6 +20263,8 @@ try {
   run(testDeath)
   run(testVictory)
   run(testEndlessConfig)
+  run(testEndlessNoVictory)
+  run(testEndlessCurvesFrozen)
   run(testNewWeapons)
   run(testRaritySanity)
   run(testPoolBuckets)

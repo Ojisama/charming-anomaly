@@ -1012,7 +1012,7 @@ export const ANOMALIES = {
     // The payoff is a ramp, so a late pick banks a handful of waves and is a dead choice on a
     // screen that only has three. `?? 0` because `when` must not throw on the fixture run shapes
     // that run PB drives it with.
-    when: (r) => (RUN_DURATION - (r.time ?? 0)) >= CHAOS_PACT_MIN_REMAINING,
+    when: (r) => r.endless || (RUN_DURATION - (r.time ?? 0)) >= CHAOS_PACT_MIN_REMAINING,
     weight: 4, chapter: null, kind: 'pivot',
   },
   wildfire: {

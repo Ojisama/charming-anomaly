@@ -2478,7 +2478,8 @@ export function createRun(meta, opts = {}) {
   // thins the swarm and fattens xp per kill, per chapter — see early-calm gate below. v6.4.5: some
   // chapters additionally carry a CHAPTERS[id].balance block that eases spawn/damage at EVERY
   // difficulty (dailies included) — see the chapter-balance block below, which stacks on top.
-  const difficulty = opts.difficulty ?? 1
+  const endless = opts.endless === true
+  const difficulty = endless ? 1 : (opts.difficulty ?? 1)
   const mods = mergeMutatorMods(opts.mutators ?? [])
   // NO ENEMY-HP TERM. See the difficulty block in config.js for the measurement that removed it:
   // +25%/level made every hit a smaller share of the thing it landed on, so the harder rungs read
@@ -2534,7 +2535,7 @@ export function createRun(meta, opts = {}) {
   // onboarding chapters thin the swarm and fatten each kill's xp, per chapter. opts.difficulty
   // (not the defaulted local) on purpose — tests omit it and must keep baseline.
   // Keyed on the VALIDATED id so an unknown chapter degrades to a real body run, easing included.
-  const calm = opts.difficulty === 1 ? EARLY_CALM[chapter] : null
+  const calm = !endless && opts.difficulty === 1 ? EARLY_CALM[chapter] : null
   if (calm) {
     mods.spawnMul *= calm.spawnMul
     mods.xpMul *= calm.xpMul
@@ -2557,6 +2558,10 @@ export function createRun(meta, opts = {}) {
     // Also not a multiply of the rate — it scales only spawnRate's growth term (config.js).
     mods.spawnGrowthMul = bal.spawnGrowthMul ?? 1
   }
+  // Endless base: D1 multipliers are all 1, so the post-balance snapshot is already the base.
+  const endlessBase = endless
+    ? { enemySpeedMul: mods.enemySpeedMul, spawnMul: mods.spawnMul, maxAliveMul: mods.maxAliveMul, enemyDmgMul: mods.enemyDmgMul, coinMul: mods.coinMul }
+    : null
   // Pre-run consumables (see CONSUMABLES in config.js and the doc block above).
   const consumables = opts.consumables ?? []
   const hasHeadstart = consumables.includes('headstart')
@@ -2584,6 +2589,11 @@ export function createRun(meta, opts = {}) {
     events: [],
     chapter,
     difficulty,
+    // Endless mode (opts.endless): no timer victory, time curves frozen at RUN_DURATION (sim.js
+    // curveT), escalation by the endless level. _endlessBase is the mods snapshot stepEndless
+    // scales from; null on a normal run.
+    endless,
+    _endlessBase: endlessBase,
     // The track this run is driving — the chapter's, with the difficulty ladder's width applied.
     // Undefined for a chapter with no cave. caveSpecOf(run) (config.js) is the read; nothing in
     // sim.js or render.js may reach for CHAPTERS[run.chapter].cave instead, or the coral drawn
