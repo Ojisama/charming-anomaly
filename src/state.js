@@ -1338,6 +1338,8 @@ function generateWells(sig) {
  *   position AND the unwrapped ring angle, which have to travel together or a restore puts them
  *   back in the right place a whole lap out. Written by stepCircuit on every on-track frame and
  *   read only by its cut-back block.
+ * _ffSkipped: number — DEV only; seconds fastForwardEndless played for the player. endRun banks no coins and
+ *   sets no best (endlessBest, best.kills) when it is > 0. Undefined on every normal run.
  * _lapAt: number — run._realTime at the last lap line, so the `lap` event can carry its own split.
  * lapSplit: number — the last COMPLETED lap's duration in seconds, undefined before lap 1. The same
  *   value the `lap` event carries, published so the HUD's split flash can be derived from state

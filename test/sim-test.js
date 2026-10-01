@@ -558,6 +558,10 @@ function testEndlessFastForward() {
   assert.ok(run.player.level >= 5, `autopilot levelled: ${run.player.level}`)
   assert.strictEqual(run.mutators.length, Math.min(Math.floor(300 / ENDLESS_MILESTONE_S), mutatorPool('body').length), 'milestones fired during the skip')
   assert.strictEqual(run.events.length, 0, 'no stale events handed to the renderer')
+  assert.strictEqual(run._ffSkipped, 300, 'fast-forward stamps the skipped seconds')
+  // endRun is not importable: lint that it gates the endless record on that stamp.
+  const mainSrc = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
+  assert.ok(/else if \(!skipped\) chMeta\.endlessBest/.test(mainSrc) && mainSrc.includes('const skipped = run._ffSkipped > 0'), 'endRun gates endlessBest on _ffSkipped')
   // The ticker's multi-step loop is reachable only through onDevSpeed, and that hook must refuse
   // outside DEV: the cycling assignment sits behind a meta.dev guard, and beginRun resets to 1.
   const main = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')

@@ -661,7 +661,7 @@ const SFX_FOR_EVENT = {
   // v6.3 dispatch beat (city elite spawn): a two-tone alarm wail — own synth (audio.js), no
   // throttle entry needed (elite cadence is seconds apart, nothing like shoot/hit's per-frame rate).
   dispatch: 'siren',
-  // Endless milestone mutator drip (every few minutes); Task 7 adds the banner.
+  // Endless milestone mutator drip (every few minutes).
   endlessMutator: 'siren',
   // v7.23 skies weapon rework. `breath` fires once per cast (4-5.5s apart) so it takes the beam
   // voice untouched. `arc` fires once per DAMAGE TICK — up to ~8/s while a fork burns — so it takes
@@ -782,17 +782,20 @@ function endRun(victory) {
   // here (a missing purse) would take down the frame loop in the one path that has just banked a
   // run's coins — the write must land somewhere real. bookOf(run.chapter) can only be null for an
   // id no book claims (a config bug elsewhere), so BOOK_ORDER[0] is the safe fallback, not a guess.
-  ensureBookMeta(meta, bookOf(run.chapter) ?? BOOK_ORDER[0]).coins += earned
+  // A fast-forwarded run (DEV start-at-N) banks no coins and sets no record: its first minutes were
+  // played by an immortal autopilot.
+  const skipped = run._ffSkipped > 0
+  if (!skipped) ensureBookMeta(meta, bookOf(run.chapter) ?? BOOK_ORDER[0]).coins += earned
   meta.runs += 1
   // meta.best: all-time aggregate across every chapter (see state.js doc block), kept
   // unconditionally alongside the per-chapter best below.
   if (!run.endless) meta.best.time = Math.max(meta.best.time, Math.floor(run._realTime ?? run.time))
-  meta.best.kills = Math.max(meta.best.kills, run.kills)
+  if (!skipped) meta.best.kills = Math.max(meta.best.kills, run.kills)
 
   const chMeta = ensureChapterMeta(meta, run.chapter)
   if (!run.endless) chMeta.best.time = Math.max(chMeta.best.time, Math.floor(run._realTime ?? run.time))
-  else chMeta.endlessBest = Math.max(chMeta.endlessBest ?? 0, Math.round((run._realTime ?? run.time) * 1000))
-  chMeta.best.kills = Math.max(chMeta.best.kills, run.kills)
+  else if (!skipped) chMeta.endlessBest = Math.max(chMeta.endlessBest ?? 0, Math.round((run._realTime ?? run.time) * 1000))
+  if (!skipped) chMeta.best.kills = Math.max(chMeta.best.kills, run.kills)
   // A RACE'S RECORD IS THE LOWEST, so it gets the opposite comparison and its own field — the two
   // lines above are a MAX and stay one for every chapter including this one, because meta is
   // additive-only (R2) and an older build still writes them. See ensureChapterMeta.
@@ -1073,8 +1076,9 @@ app.ticker.add((ticker) => {
     let events = run.events
     run.events = []
     // devSpeed is 1 outside DEV, so a normal run takes exactly the single step above.
+    const extra = { ...input, skill: false }   // a latched skill press fires once, not devSpeed times
     for (let i = 1; i < devSpeed && run.phase === 'playing'; i++) {
-      stepSim(run, input, dt)
+      stepSim(run, extra, dt)
       events = events.concat(run.events)
       run.events = []
     }

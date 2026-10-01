@@ -116,7 +116,7 @@ const boardRow = (r) => ({ nick: r.nick, kills: r.kills, level: r.level, at: r.a
 // which pair is a game fact, and this Worker is deliberately ignorant of chapter ids so a new
 // chapter never needs a deploy (see validChapter). Asking the client which boards it wants would
 // put that fact in the query string, where a stale build would then be asking for the wrong ones;
-// a fourth 3-row index scan inside the SAME batch is one round trip and no new parameter.
+// another 3-row index scan inside the SAME batch is one round trip and no new parameter.
 //
 // Rows never mix across chapters — every query is partitioned by (chapter, difficulty) — which is
 // what makes one duration column safe to mean two things. The one place that could still have gone
@@ -184,7 +184,7 @@ async function scores(req, env) {
     const nick = typeof body.nick === 'string' ? body.nick.trim() : null
     const { chapter } = body
     const difficulty = int(body.difficulty, 0, 9)
-    const kills = int(body.kills, 0, 99999)
+    const kills = int(body.kills, 0, 9999999)
     const level = int(body.level, 1, 999)
     // OPTIONAL, and absent is a legal value rather than a bad one: only a boss chapter that was
     // actually WON carries a kill time, so almost every submit omits it. An older build that has

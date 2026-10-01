@@ -733,7 +733,7 @@ export function initUI(hooks) {
   // needs both leaves changed — it is `weapons: []`, so its kills board is a column of zeroes.
   // See CHAPTER_BOARDS_DEFAULT in config.js for the rest of that reasoning.
   //
-  // The Worker returns all four boards regardless (it knows no chapter ids), so choosing between
+  // The Worker returns all five boards regardless (it knows no chapter ids), so choosing between
   // them stays a game fact on this side; only WHERE the fact is written has moved.
   // Endless (difficulty 0) draws its own pair whatever the chapter says.
   const boardsFor = (chapterId, difficulty) => (difficulty === 0 ? ['survive', 'kills'] : CHAPTERS[chapterId]?.boards ?? CHAPTER_BOARDS_DEFAULT)
@@ -863,7 +863,7 @@ export function initUI(hooks) {
       </div>`
     }
     // Nobody has played this board at all — which on launch day is every board in the game. Against
-    // THIS chapter's own two boards, never all four: every chapter's rows land on the kills and
+    // THIS chapter's own two boards, never all five: every chapter's rows land on the kills and
     // level boards whether it draws them or not, so testing those would keep a genuinely empty
     // spread out of this branch and draw two blank leaves instead. The Reef is the case that makes
     // it concrete — every race submits kills 0 and a level, so its kills board is never empty and

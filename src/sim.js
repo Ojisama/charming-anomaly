@@ -4292,6 +4292,7 @@ export function fastForwardEndless(run, seconds) {
     }
     run.player.hp = run.player.maxHP
   }
+  run._ffSkipped = seconds   // endRun refuses records and coins for a skipped run
 }
 
 // ENDLESS (spec 2026-10-01): the level climbs on run.time; every difficulty mul is recomputed from
@@ -4323,7 +4324,7 @@ function stepEndlessMilestones(run) {
   run.mutators.push(id)
   for (const [k, v] of Object.entries(MUTATORS[id].effects)) {
     if (k in run._endlessBase) run._endlessBase[k] *= v
-    else run.mods[k] *= v
+    else run.mods[k] = (run.mods[k] ?? 1) * v
   }
   run.events.push({ type: 'endlessMutator', id })
 }
