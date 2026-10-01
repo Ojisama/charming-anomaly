@@ -87,15 +87,19 @@ function startClassic(chapter, difficulty, mutators, consumableIds, endless = fa
     }
   }
   run = createRun(meta, { chapter, mutators, difficulty, consumables: ids, endless })
-  // DEV ONLY: the pre-sim runs before beginRun, so the renderer's first frame is the handed-over world.
-  if (endless && meta.dev && skipToS > 0) fastForwardEndless(run, skipToS)
   beginRun()
+  // DEV ONLY: the skip runs in ~25ms slices from the ticker (see ffTarget there) — done in one call
+  // it froze a phone for tens of seconds. The HUD clock racing to the target is the progress bar.
+  if (endless && meta.dev && skipToS > 0) ffTarget = skipToS
 }
 
 // DEV ONLY playtest speed: stepSim runs this many times per frame. Only onDevSpeed raises it.
 let devSpeed = 1
+// DEV ONLY: seconds an endless run is still being fast-forwarded to; 0 = playing normally.
+let ffTarget = 0
 function beginRun() {
   devSpeed = 1
+  ffTarget = 0
   if (new URLSearchParams(location.search).has('debug')) window.__run = run
   renderer.reset(run)
   ui.showScreen('hud')
@@ -1066,6 +1070,14 @@ function deathSkipPressed() {
 app.ticker.add((ticker) => {
   const dt = Math.min(ticker.deltaMS / 1000, 0.05)
   if (!run) { renderer.idle(dt); return }
+
+  if (ffTarget > 0) {
+    if (fastForwardEndless(run, ffTarget, 25)) ffTarget = 0
+    run.events = []
+    renderer.sync(run, 0, [])
+    ui.updateHUD(run, [])
+    return
+  }
 
   if (run.phase === 'playing') {
     run.viewRadius = Math.hypot(app.screen.width, app.screen.height) / 2

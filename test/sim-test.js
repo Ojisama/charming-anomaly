@@ -559,6 +559,17 @@ function testEndlessFastForward() {
   assert.strictEqual(run.mutators.length, Math.min(Math.floor(300 / ENDLESS_MILESTONE_S), mutatorPool('body').length), 'milestones fired during the skip')
   assert.strictEqual(run.events.length, 0, 'no stale events handed to the renderer')
   assert.strictEqual(run._ffSkipped, 300, 'fast-forward stamps the skipped seconds')
+  // SLICED: a 0ms budget does no work and reports unfinished, but already stamps _ffSkipped (a quit
+  // mid-skip must not bank records); repeated small slices resume and finish at the same clock.
+  const sliced = createRun(makeMeta(), { chapter: 'body', endless: true })
+  assert.strictEqual(fastForwardEndless(sliced, 30, 0), false, 'a spent budget returns unfinished')
+  assert.ok(sliced.time === 0 && sliced._ffSkipped === 30, 'no step taken, skip already stamped')
+  let slices = 1
+  while (!fastForwardEndless(sliced, 30, 2)) slices++
+  assert.ok(sliced.time >= 30 && sliced.time < 31 && sliced.phase === 'playing', `sliced skip finished at ${sliced.time}`)
+  // The ticker drives the skip in slices; a single blocking call froze a phone for tens of seconds.
+  const tick = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
+  assert.ok(/fastForwardEndless\(run, ffTarget, \d+\)/.test(tick), 'main.js slices the skip with a budget')
   // endRun is not importable: lint that it gates the endless record on that stamp.
   const mainSrc = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
   assert.ok(/else if \(!skipped\) chMeta\.endlessBest/.test(mainSrc) && mainSrc.includes('const skipped = run._ffSkipped > 0'), 'endRun gates endlessBest on _ffSkipped')

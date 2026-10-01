@@ -4277,10 +4277,16 @@ function stepStragglers(run) {
 // DEV ONLY: plays an endless run headlessly to `seconds` with an immortal autopilot, so a playtest
 // can start late without an XP formula. Picks go through applyChoice, the shipped path.
 const FF_KIND_RANK = { weapon: 0, passive: 1, mod: 2, element: 3 }
-export function fastForwardEndless(run, seconds) {
+// budgetMs: stop after that much wall time and return false, so main.js can spread a long skip over
+// frames — 10 minutes is ~3s on a desktop and blocked a phone's main thread outright. Returns true
+// once run.time has reached `seconds`.
+export function fastForwardEndless(run, seconds, budgetMs = Infinity) {
   const DT = 1 / 30
-  let heading = 0
+  run._ffSkipped = seconds   // stamped FIRST: endRun refuses records and coins even if quit mid-skip
+  const until = performance.now() + budgetMs
+  let heading = run._ffHeading ?? 0
   while (run.time < seconds && run.phase !== 'dead') {
+    if (performance.now() > until) { run._ffHeading = heading; return false }
     heading += 0.35 * DT
     stepSim(run, { x: Math.cos(heading), y: Math.sin(heading), skill: false }, DT)
     run.events.length = 0
@@ -4292,7 +4298,7 @@ export function fastForwardEndless(run, seconds) {
     }
     run.player.hp = run.player.maxHP
   }
-  run._ffSkipped = seconds   // endRun refuses records and coins for a skipped run
+  return true
 }
 
 // ENDLESS (spec 2026-10-01): the level climbs on run.time; every difficulty mul is recomputed from
