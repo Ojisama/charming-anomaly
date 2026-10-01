@@ -104,6 +104,7 @@ function playNow() {
   if (!run || ffTarget === 0) return
   ffTarget = 0
   run.phase = 'paused'
+  ui.updateHUD(run, [], false)   // hides the Play now button, which would otherwise float over the sheet
   ui.showScreen('pause', pauseData())
 }
 function beginRun() {
