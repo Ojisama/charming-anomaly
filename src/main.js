@@ -67,7 +67,7 @@ let devList = []
 
 // Spend boosters (cheapest-first affordability, ui already gates but belt-and-braces), create
 // the classic run with the EXACT mutators the briefing showed, and start it.
-function startClassic(chapter, difficulty, mutators, consumableIds, endless = false, skipToS = 0) {
+function startClassic(chapter, difficulty, mutators, consumableIds, endless = false, speedrun = false) {
   const ids = []
   if (consumableIds && consumableIds.length) {
     // Boosters are spent from the CHAPTER being played's own book purse (v7.x per-book
@@ -88,15 +88,24 @@ function startClassic(chapter, difficulty, mutators, consumableIds, endless = fa
   }
   run = createRun(meta, { chapter, mutators, difficulty, consumables: ids, endless })
   beginRun()
-  // DEV ONLY: the skip runs in ~25ms slices from the ticker (see ffTarget there) — done in one call
-  // it froze a phone for tens of seconds. The HUD clock racing to the target is the progress bar.
-  if (endless && meta.dev && skipToS > 0) ffTarget = skipToS
+  // DEV ONLY: the bot plays in ~25ms slices from the ticker (see ffTarget there) — done in one call
+  // it froze a phone for tens of seconds. The HUD clock racing is the progress bar; Play now ends it.
+  if (endless && meta.dev && speedrun) ffTarget = SPEEDRUN_MAX_S
 }
 
 // DEV ONLY playtest speed: stepSim runs this many times per frame. Only onDevSpeed raises it.
 let devSpeed = 1
 // DEV ONLY: seconds an endless run is still being fast-forwarded to; 0 = playing normally.
 let ffTarget = 0
+// DEV ONLY: a speedrun hands over here on its own if Play now is never tapped.
+const SPEEDRUN_MAX_S = 3600
+// Play now: the speedrun's only exit (pause and the dev menu are refused while ffTarget > 0).
+function playNow() {
+  if (!run || ffTarget === 0) return
+  ffTarget = 0
+  run.phase = 'paused'
+  ui.showScreen('pause', pauseData())
+}
 function beginRun() {
   devSpeed = 1
   ffTarget = 0
@@ -161,7 +170,7 @@ const ui = initUI({
     unlink: syncUnlink,
     resolveConflict: syncResolve,
   },
-  onPlay(skipToS = 0) {
+  onPlay(speedrun = false) {
     initAudio()
     // Classic = the selected chapter (meta.chapter) at ITS OWN difficulty ladder (level 1 adds
     // nothing, each level above adds one random mutator + enemy HP) — see meta.chapters[id] in
@@ -203,14 +212,14 @@ const ui = initUI({
     // the brief is the pre-run summary now and owns the booster picks, so skipping it when the roll
     // is empty would make boosters unreachable at difficulty 1. The booster picks arrive one hook
     // later, on onBriefStart (see the ui.js contract).
-    pendingPlay = { chapter: chapterId, difficulty: chMeta.difficulty, mutators, endless, skipToS: endless ? Math.max(0, Number(skipToS) || 0) : 0 }
+    pendingPlay = { chapter: chapterId, difficulty: chMeta.difficulty, mutators, endless, speedrun: endless && speedrun === true }
     ui.showScreen('brief', { chapterId, difficulty: chMeta.difficulty, mutators, reroll: !CHAPTERS[chapterId].scripted && !endless, endless })
   },
   onBriefStart(consumableIds = []) {
     if (!pendingPlay) return
     const p = pendingPlay
     pendingPlay = null
-    startClassic(p.chapter, p.difficulty, p.mutators, consumableIds, p.endless, p.skipToS)
+    startClassic(p.chapter, p.difficulty, p.mutators, consumableIds, p.endless, p.speedrun)
   },
   // v6.0.4/v6.6.19: reroll ONE staged anomaly (by index) for ANOMALY_REROLL_COST, repeatable while
   // affordable — see rerollMutator in config.js for why a whole-set reroll was worthless. Blank
@@ -328,8 +337,9 @@ const ui = initUI({
     devSpeed = devSpeed === 1 ? 2 : devSpeed === 2 ? 4 : 1
     if (run) ui.showScreen('pause', pauseData())
   },
+  onPlayNow: playNow,
   onPauseToggle() {
-    if (!run) return
+    if (!run || ffTarget > 0) return
     if (run.phase === 'playing') { run.phase = 'paused'; ui.showScreen('pause', pauseData()) }
     else if (run.phase === 'paused') { run.phase = 'playing'; ui.showScreen('hud') }
     // The same sheet, opened OVER a level-up — "should I reroll this?" is a question about
@@ -350,7 +360,7 @@ const ui = initUI({
   // list is rebuilt on every open and after every take: a weapon already owned reads "Lv 3", not
   // "New!".
   onDevOpen() {
-    if (!run || run.phase !== 'playing') return
+    if (!run || run.phase !== 'playing' || ffTarget > 0) return
     devList = devCards(run)
     run.phase = 'paused'
     ui.showScreen('dev', { cards: devList })
@@ -1072,10 +1082,11 @@ app.ticker.add((ticker) => {
   if (!run) { renderer.idle(dt); return }
 
   if (ffTarget > 0) {
-    if (fastForwardEndless(run, ffTarget, 25)) ffTarget = 0
+    const done = fastForwardEndless(run, ffTarget, 25)
     run.events = []
     renderer.sync(run, 0, [])
-    ui.updateHUD(run, [])
+    ui.updateHUD(run, [], !done)
+    if (done) playNow()   // auto hand-over opens the pause sheet too
     return
   }
 

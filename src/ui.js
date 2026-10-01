@@ -958,6 +958,8 @@ export function initUI(hooks) {
     const endlessSel = boardDiff === 0
     const coinPct = Math.round(((chMeta.difficulty - 1) * DIFFICULTY_COIN_PER_LEVEL) * 100)
     const rewardChip = chMeta.difficulty > 1 && !endlessSel ? `<b class="diff-reward-chip">+${coinPct}% 🪙</b>` : ''
+    // DEV ONLY (endlessOn is meta.dev-gated): the bot plays the clock forward until Play now.
+    const speedrunBtn = endlessOn && endlessSel ? `<button class="btn btn--soft dev-speedrun" data-act="speedrun" ${heroUnlocked ? '' : 'disabled'}>⏩&nbsp; Speedrun</button>` : ''
     const playBlock = heroUnlocked ? `
       <div class="diff-row">
         <span class="diff-label">${t('Difficulty')}${rewardChip}</span>
@@ -967,7 +969,6 @@ export function initUI(hooks) {
           return `<button class="diff-pip${!endlessSel && d <= chMeta.difficulty ? ' diff-pip--on' : ''}" data-act="diff" data-diff="${d}">${d}</button>`
         }).join('')}${endlessOn ? `<button class="diff-pip diff-pip--endless${endlessSel ? ' diff-pip--on' : ''}" data-act="endless" aria-label="${t(ENDLESS_COPY.pip.name)}">${INFINITY_SVG}</button>` : ''}
       </div>
-      ${endlessOn && endlessSel ? `<div class="diff-row diff-row--skip"><span class="diff-label">Start at</span>${[0, 5, 10, 15].map((m) => `<button class="diff-pip${m === endlessSkipMin ? ' diff-pip--on' : ''}" data-act="skip-min" data-min="${m}">${m}</button>`).join('')}<span class="diff-label">min</span></div>` : ''}
       <!-- IN THE RECTO'S OWN SLACK, which is why it costs the panel nothing. Measured on the live
            build: the spread is 324x168, and this page's content (label + pips) uses 112 of its 168,
            so 56px sit empty under the pips while the VERSO — icon, name, tagline, cast, record —
@@ -1020,6 +1021,7 @@ export function initUI(hooks) {
         <button class="diff-hint podium-foot" data-act="podium-close">
           ←&nbsp; ${tt('all players · difficulty {n}', { n: boardDiff })}
         </button>
+        ${speedrunBtn}
         <div class="volume-acts">
           <button class="btn btn--big btn--play" data-act="play" ${heroUnlocked ? '' : 'disabled'}>▶&nbsp; ${t('Play')}</button>
           <button class="btn btn--shop" data-act="shop" style="--shop-pct:${pct}%" aria-label="${t('Shop')}">
@@ -1035,6 +1037,7 @@ export function initUI(hooks) {
         <div class="page page--recto">${playBlock}</div>
       </div>
       ${ladderHint}
+      ${speedrunBtn}
       <div class="volume-acts">
         <button class="btn btn--big btn--play" data-act="play" ${heroUnlocked ? '' : 'disabled'}>▶&nbsp; ${t('Play')}</button>
         <button class="btn btn--shop" data-act="shop" style="--shop-pct:${pct}%" aria-label="${t('Shop')}">
@@ -2158,6 +2161,7 @@ export function initUI(hooks) {
         <span class="hud-coins" data-act="dev-tap">🪙 0</span>
         <button class="btn-pause" data-act="pause" aria-label="Pause">⏸</button>
       </div>
+      <button class="btn btn--big btn--play hud-playnow" data-act="play-now" style="display:none">▶&nbsp; Play now</button>
       <div class="rampage-wrap rampage-wrap--hidden">
         <div class="rampage-bar"><div class="rampage-fill"></div></div>
       </div>
@@ -2264,6 +2268,7 @@ export function initUI(hooks) {
     </button>
   `
   const hud = {
+    playNow: screens.hud.querySelector('.hud-playnow'),
     hpFill: screens.hud.querySelector('.hp-fill'),
     hpText: screens.hud.querySelector('.hp-text'),
     timer: screens.hud.querySelector('.hud-timer'),
@@ -2331,7 +2336,8 @@ export function initUI(hooks) {
   // is the one-fact-two-places shape this project leads its own defect list with.
   const circuitDev = (run) => !!(CHAPTERS[run.chapter]?.circuit && meta.dev)
 
-  function updateHUD(run, events) {
+  function updateHUD(run, events, speedrun = false) {
+    hud.playNow.style.display = speedrun ? '' : 'none'
     const p = run.player
     if (p.hp !== last.hp || p.maxHP !== last.maxHP) {
       last.hp = p.hp
@@ -3432,7 +3438,6 @@ export function initUI(hooks) {
   // needs one.
   let wipTaps = 0
   // DEV ONLY: the 'start at' minute for an endless run. Transient, never saved.
-  let endlessSkipMin = 0
   let wipTapAt = 0
 
   // Card rows, grouped by kind with a sticky header per group. Filtering matches the title, the
@@ -3935,9 +3940,17 @@ export function initUI(hooks) {
         boostersOpen = false
         slotsOpen = false // keyboard focus can reach Play behind a backdrop — don't strand the modal open on return
         settingsOpen = false
-        hooks.onPlay(endlessSkipMin * 60)
+        hooks.onPlay()
         break
       }
+      case 'speedrun':
+        selectedConsumables.clear()
+        boostersOpen = false
+        slotsOpen = false
+        settingsOpen = false
+        hooks.onPlay(true)
+        break
+      case 'play-now': playSfx('click'); hooks.onPlayNow?.(); break
       // The summary's damage recap. One act for both directions (unlike the booster sheet's
       // open/close pair) because this is an inline fold with no backdrop to disambiguate a tap
       // against — the button is the only thing that can be hit.
@@ -4260,10 +4273,6 @@ export function initUI(hooks) {
         break
       }
       case 'dev-speed': playSfx('click'); hooks.onDevSpeed?.(); break
-      case 'skip-min':
-        endlessSkipMin = Number(el.dataset.min)
-        updateTitleBelow()
-        break
       case 'brief-reroll': hooks.onBriefReroll?.(Number(el.dataset.i)); break
       case 'endless':
         hooks.onEndless(!selectedChapterMeta(meta).endlessPicked)

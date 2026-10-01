@@ -570,6 +570,13 @@ function testEndlessFastForward() {
   // The ticker drives the skip in slices; a single blocking call froze a phone for tens of seconds.
   const tick = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
   assert.ok(/fastForwardEndless\(run, ffTarget, \d+\)/.test(tick), 'main.js slices the skip with a budget')
+  // Speedrun contract: ffTarget is armed to the named constant only for a dev endless speedrun, and
+  // Play now (the only exit; pause is refused meanwhile) clears it.
+  assert.ok(/const SPEEDRUN_MAX_S = 3600/.test(tick), 'speedrun cap is a named const')
+  assert.ok(/if \(endless && meta\.dev && speedrun\) ffTarget = SPEEDRUN_MAX_S/.test(tick), 'speedrun arms ffTarget only for dev + endless')
+  assert.ok(/function playNow\(\) \{[^}]*ffTarget = 0/.test(tick), 'Play now clears ffTarget')
+  assert.ok(/onPauseToggle\(\) \{\s*if \(!run \|\| ffTarget > 0\) return/.test(tick), 'pause is refused mid-speedrun')
+  assert.ok(!/skipToS/.test(tick), 'the Start-at-minute plumbing is gone')
   // endRun is not importable: lint that it gates the endless record on that stamp.
   const mainSrc = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
   assert.ok(/else if \(!skipped\) chMeta\.endlessBest/.test(mainSrc) && mainSrc.includes('const skipped = run._ffSkipped > 0'), 'endRun gates endlessBest on _ffSkipped')

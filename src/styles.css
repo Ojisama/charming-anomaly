@@ -3363,3 +3363,7 @@ body {
   0% { transform: scaleY(2.4) translateY(3px); filter: brightness(3.4); box-shadow: 0 0 18px #fff; }
   100% { transform: none; filter: none; box-shadow: none; }
 }
+
+/* DEV ONLY: speedrun exit. The HUD is pointer-events:none, so the button opts back in. */
+.hud-playnow { position: fixed; left: 50%; bottom: 120px; transform: translateX(-50%); pointer-events: auto; z-index: 5; }
+.dev-speedrun { width: 100%; margin: 0 0 8px; }
