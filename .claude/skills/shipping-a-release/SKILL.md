@@ -31,6 +31,15 @@ throwaway remote.) Expect the retry path to fire for real: it merged `main` and 
 one afternoon while another session was shipping, which is working as designed — check
 `git log --oneline origin/main..HEAD` comes back empty afterwards rather than assuming.
 
+## Ship refuses a dirty tree, and a worktree's `node_modules` symlink counts
+
+`ship.mjs` aborts on ANY untracked file ("working tree is not clean"). A worktree has no
+`node_modules` of its own, so linking the main checkout's is the usual fix. But `.gitignore` says
+`node_modules/` with a trailing slash, which matches a directory and not a symlink, so the link shows
+up as `?? node_modules` and blocks the ship (2026-10-01, v7.409.0). Remove the LINK right before
+shipping: `test -L node_modules && rm node_modules`. That removes only the link, and `rm` with no
+`-r` cannot follow it into the real directory.
+
 ## Ship destroys the commit BODY
 
 **Ship amends HEAD with `git commit --amend -m`, which replaces the WHOLE message — any BODY on that
