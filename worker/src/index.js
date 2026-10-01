@@ -110,7 +110,7 @@ const boardRow = (r) => ({ nick: r.nick, kills: r.kills, level: r.level, at: r.a
 // `at ASC` on every board so a tie goes to whoever got there FIRST. Without it SQLite is free to
 // return either row and the podium reorders itself between two reads of an unchanged board.
 //
-// FOUR BOARDS, ALWAYS, and the client picks which two to draw. `time` is a duration that wins by
+// FIVE BOARDS, ALWAYS, and the client picks which two to draw. `time` is a duration that wins by
 // being SMALL, and it means whatever the chapter it belongs to means: a boss chapter's kill time, a
 // circuit's full race. `lap` is the circuit's second one — its best single lap. WHICH chapters draw
 // which pair is a game fact, and this Worker is deliberately ignorant of chapter ids so a new

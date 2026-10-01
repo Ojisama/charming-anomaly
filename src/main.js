@@ -3,7 +3,7 @@ import { Application } from 'pixi.js'
 import { loadMeta, saveMeta, resetSave, deleteSlot, createRun, ensureChapterMeta, ensureBookMeta, unlockBook, setActiveSlot, activeSlot, setSlotName, cleanName, exportSlot, importSlot, freezeSaves, setSaveHook, SAVE_SLOTS } from './state.js'
 import * as CFG from './config.js'
 import { shopCost, refundValue, shopLines, shopLineUnlocked, lineMax, runBonusCoins, randomMutators, rerollMutator, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, difficultyCoinMul, CONSUMABLES, ANOMALY_REROLL_COST, sacrificeCost, BOOK_UNLOCKS, CHAPTERS, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, isWipChapter, HIDDEN_UNLOCKS, COIN_CAP_PER_RUN, BOOK_ORDER, bookOf, isBookFinale, nextBook, unlockCost, unlockLevel, DEATH_OUTRO, KRAKEN_OUTRO, hasBossOutro } from './config.js'
-import { stepSim, applyChoice, rerollLevelUpChoices, rerollPrice, buildReadout, devCards, devTake } from './sim.js'
+import { stepSim, fastForwardEndless, applyChoice, rerollLevelUpChoices, rerollPrice, buildReadout, devCards, devTake } from './sim.js'
 import { createRenderer } from './render.js'
 import { initUI } from './ui.js'
 import { initInput, getInput, pressSkill } from './input.js'
@@ -67,7 +67,7 @@ let devList = []
 
 // Spend boosters (cheapest-first affordability, ui already gates but belt-and-braces), create
 // the classic run with the EXACT mutators the briefing showed, and start it.
-function startClassic(chapter, difficulty, mutators, consumableIds, endless = false) {
+function startClassic(chapter, difficulty, mutators, consumableIds, endless = false, skipToS = 0) {
   const ids = []
   if (consumableIds && consumableIds.length) {
     // Boosters are spent from the CHAPTER being played's own book purse (v7.x per-book
@@ -87,10 +87,15 @@ function startClassic(chapter, difficulty, mutators, consumableIds, endless = fa
     }
   }
   run = createRun(meta, { chapter, mutators, difficulty, consumables: ids, endless })
+  // DEV ONLY: the pre-sim runs before beginRun, so the renderer's first frame is the handed-over world.
+  if (endless && meta.dev && skipToS > 0) fastForwardEndless(run, skipToS)
   beginRun()
 }
 
+// DEV ONLY playtest speed: stepSim runs this many times per frame. Only onDevSpeed raises it.
+let devSpeed = 1
 function beginRun() {
+  devSpeed = 1
   if (new URLSearchParams(location.search).has('debug')) window.__run = run
   renderer.reset(run)
   ui.showScreen('hud')
@@ -152,7 +157,7 @@ const ui = initUI({
     unlink: syncUnlink,
     resolveConflict: syncResolve,
   },
-  onPlay() {
+  onPlay(skipToS = 0) {
     initAudio()
     // Classic = the selected chapter (meta.chapter) at ITS OWN difficulty ladder (level 1 adds
     // nothing, each level above adds one random mutator + enemy HP) — see meta.chapters[id] in
@@ -194,14 +199,14 @@ const ui = initUI({
     // the brief is the pre-run summary now and owns the booster picks, so skipping it when the roll
     // is empty would make boosters unreachable at difficulty 1. The booster picks arrive one hook
     // later, on onBriefStart (see the ui.js contract).
-    pendingPlay = { chapter: chapterId, difficulty: chMeta.difficulty, mutators, endless }
+    pendingPlay = { chapter: chapterId, difficulty: chMeta.difficulty, mutators, endless, skipToS: endless ? Math.max(0, Number(skipToS) || 0) : 0 }
     ui.showScreen('brief', { chapterId, difficulty: chMeta.difficulty, mutators, reroll: !CHAPTERS[chapterId].scripted && !endless, endless })
   },
   onBriefStart(consumableIds = []) {
     if (!pendingPlay) return
     const p = pendingPlay
     pendingPlay = null
-    startClassic(p.chapter, p.difficulty, p.mutators, consumableIds, p.endless)
+    startClassic(p.chapter, p.difficulty, p.mutators, consumableIds, p.endless, p.skipToS)
   },
   // v6.0.4/v6.6.19: reroll ONE staged anomaly (by index) for ANOMALY_REROLL_COST, repeatable while
   // affordable — see rerollMutator in config.js for why a whole-set reroll was worthless. Blank
@@ -312,6 +317,12 @@ const ui = initUI({
     run.phase = 'playing'
     ui.showScreen('hud')
     playSfx('click')
+  },
+  // DEV ONLY: cycles the playtest speed 1 -> 2 -> 4 -> 1 and repaints the pause sheet.
+  onDevSpeed() {
+    if (!meta.dev) return
+    devSpeed = devSpeed === 1 ? 2 : devSpeed === 2 ? 4 : 1
+    if (run) ui.showScreen('pause', pauseData())
   },
   onPauseToggle() {
     if (!run) return
@@ -523,7 +534,7 @@ window.__boot?.(100)
 // buildReadout is a read-only projection (see sim.js): main is the only place allowed to hand sim
 // data to ui, which never imports sim. Two callers — a plain pause, and the same sheet opened
 // over a level-up.
-const pauseData = () => ({ mutators: run.mutators, build: buildReadout(run) })
+const pauseData = () => ({ mutators: run.mutators, build: buildReadout(run), devSpeed: meta.dev ? devSpeed : 0 })
 
 // Everything the level-up screen needs to render its cards + footer buttons.
 function levelupData() {
@@ -1057,9 +1068,16 @@ app.ticker.add((ticker) => {
     // canCommitFrom in config.js. The camera centres the player in every chapter but the lane.
     run.viewW = app.screen.width / 2
     run.viewH = app.screen.height / 2
-    stepSim(run, getInput(renderer.playerScreen), dt)
-    const events = run.events
+    const input = getInput(renderer.playerScreen)
+    stepSim(run, input, dt)
+    let events = run.events
     run.events = []
+    // devSpeed is 1 outside DEV, so a normal run takes exactly the single step above.
+    for (let i = 1; i < devSpeed && run.phase === 'playing'; i++) {
+      stepSim(run, input, dt)
+      events = events.concat(run.events)
+      run.events = []
+    }
     // Set BEFORE sync: the kill frame is the first frame of the death render.js draws off this clock.
     const bossOutro = run.phase === 'victory' && beginBossOutro(dt)
     renderer.sync(run, dt, events)

@@ -82,7 +82,7 @@ async function call(url, init) {
 // -> { kills: [{nick, kills, level, at, timeMs, lapMs, starter}], level: [...], time: [...],
 // lap: [...] } (each 0-3 long), or null.
 //
-// FOUR BOARDS COME BACK AND A CHAPTER DRAWS TWO. `time` is a duration in ms, shortest first, and
+// FIVE BOARDS COME BACK AND A CHAPTER DRAWS TWO. `time` is a duration in ms, shortest first, and
 // means whatever its chapter means by one — a boss's kill time, a circuit's full race. `lap` is the
 // circuit's best single lap. Which pair a chapter draws is a game fact and lives in
 // CHAPTERS[].boards (config.js); ui.js reads it. Rows never mix across chapters, so one duration

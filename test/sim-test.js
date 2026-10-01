@@ -177,7 +177,7 @@ import {
   KRAKEN_HEAD_SPEED, KRAKEN_PARRY_SPIN_T, krakenLimbHalfW, FISH_R, FISH_BODY, KRAKEN_GRIP_EVERY, KRAKEN_GRAB_FUSE, KRAKEN_GRAB_MIN_STEP, KRAKEN_PINCH_OPEN0, KRAKEN_PINCH_OPEN1,
   KRAKEN_BEAT_READ, KRAKEN_BEAT_GRAB_CLEAR, KRAKEN_BEAT_BREATH, KRAKEN_HEAD_R, KRAKEN_CHASE_CAGE_R, KRAKEN_HEAD_HOLD, KRAKEN_DASH_DIST, KRAKEN_DASH_SPEED, KRAKEN_DASH_RUNUP, KRAKEN_DASH_PARRY_PX, KRAKEN_HEAD_TOUCH_DMG, KRAKEN_LUNGE_DMG, KRAKEN_LUNGE_WINDUP_T,
 } from '../src/config.js'
-import { krakenWinPending, krakenPinchProbe, krakenGrabSpot, krakenGrabTurnClear, stepSim, applyChoice, buildLevelUpChoices, eligibleWeaponModCandidates, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, inRefillCircle, refillCircleAt, stepCharge, newElWindow, spurAt, inMaw } from '../src/sim.js'
+import { krakenWinPending, krakenPinchProbe, krakenGrabSpot, krakenGrabTurnClear, stepSim, applyChoice, fastForwardEndless, buildLevelUpChoices, eligibleWeaponModCandidates, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, inRefillCircle, refillCircleAt, stepCharge, newElWindow, spurAt, inMaw } from '../src/sim.js'
 
 // ---- Scenario runner: one filter, and the gate's own dispatch flag ----------------------------
 // THIS FILE IS NO LONGER WHAT `npm test` RUNS. scripts/test-isolation.mjs hands one scenario to
@@ -514,6 +514,26 @@ function testEndlessMilestones() {
   assert.strictEqual(new Set(run.mutators).size, run.mutators.length, 'no duplicate drip')
   assert.ok(run.mutators.length <= pool.length)
   console.log(`PASS run EN.f (milestones): first drip ${id}, +${elitesAfter - elitesBefore} elites, pool ${pool.length}, mods-direct ${other ?? 'none'}`)
+}
+
+function testEndlessFastForward() {
+  Math.random = mulberry32(20261011)
+  const run = createRun(makeMeta(), { chapter: 'body', endless: true })
+  fastForwardEndless(run, 300)
+  assert.strictEqual(run.phase, 'playing')
+  assert.ok(run.time >= 300 && run.time < 301, `time ${run.time}`)
+  assert.strictEqual(run.player.hp, run.player.maxHP, 'handed over at full hp')
+  assert.ok(run.player.level >= 5, `autopilot levelled: ${run.player.level}`)
+  assert.strictEqual(run.mutators.length, Math.min(Math.floor(300 / ENDLESS_MILESTONE_S), mutatorPool('body').length), 'milestones fired during the skip')
+  assert.strictEqual(run.events.length, 0, 'no stale events handed to the renderer')
+  // The ticker's multi-step loop is reachable only through onDevSpeed, and that hook must refuse
+  // outside DEV: the cycling assignment sits behind a meta.dev guard, and beginRun resets to 1.
+  const main = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
+  const hook = main.slice(main.indexOf('onDevSpeed()'))
+  const cycle = hook.indexOf('devSpeed =')
+  assert.ok(cycle > 0 && hook.slice(0, cycle).includes('if (!meta.dev) return'), 'onDevSpeed is dev-gated')
+  assert.ok(/devSpeed = 1\n/.test(main.slice(main.indexOf('function beginRun'))), 'beginRun resets devSpeed')
+  console.log(`PASS run EN.i (fast-forward): t=${run.time.toFixed(1)} level ${run.player.level}, ${run.mutators.length} mutators, d=${run.difficulty.toFixed(2)}`)
 }
 
 function testEndlessMeta() {
@@ -20474,6 +20494,7 @@ try {
   run(testEndlessCrowdAffixes)
   run(testEndlessMilestones)
   run(testEndlessMeta)
+  run(testEndlessFastForward)
   run(testNewWeapons)
   run(testRaritySanity)
   run(testPoolBuckets)

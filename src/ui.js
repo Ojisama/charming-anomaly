@@ -967,6 +967,7 @@ export function initUI(hooks) {
           return `<button class="diff-pip${!endlessSel && d <= chMeta.difficulty ? ' diff-pip--on' : ''}" data-act="diff" data-diff="${d}">${d}</button>`
         }).join('')}${endlessOn ? `<button class="diff-pip diff-pip--endless${endlessSel ? ' diff-pip--on' : ''}" data-act="endless" aria-label="${t(ENDLESS_COPY.pip.name)}">${INFINITY_SVG}</button>` : ''}
       </div>
+      ${endlessOn && endlessSel ? `<div class="diff-row diff-row--skip"><span class="diff-label">Start at</span>${[0, 5, 10, 15].map((m) => `<button class="diff-pip${m === endlessSkipMin ? ' diff-pip--on' : ''}" data-act="skip-min" data-min="${m}">${m}</button>`).join('')}<span class="diff-label">min</span></div>` : ''}
       <!-- IN THE RECTO'S OWN SLACK, which is why it costs the panel nothing. Measured on the live
            build: the spread is 324x168, and this page's content (label + pips) uses 112 of its 168,
            so 56px sit empty under the pips while the VERSO — icon, name, tagline, cast, record —
@@ -3404,6 +3405,7 @@ export function initUI(hooks) {
              to land back on — see the 'codex-open'/'codex-close' cases. -->
         <button class="btn btn--soft" data-act="codex-open" data-from="pause">📖 ${t('Codex')}</button>
         <button class="btn btn--big" data-act="resume">▶&nbsp; ${t('Resume')}</button>
+        ${d.devSpeed ? `<button class="btn btn--soft" data-act="dev-speed">Playtest speed ${d.devSpeed}×</button>` : ''}
         <button class="btn btn--soft" data-act="quit">${t('Quit to menu')}</button>
         ${buildStampHtml()}
       </div>
@@ -3428,6 +3430,8 @@ export function initUI(hooks) {
   // that two dev switches make two different answers to "is this a dev run", and the leaderboard
   // needs one.
   let wipTaps = 0
+  // DEV ONLY: the 'start at' minute for an endless run. Transient, never saved.
+  let endlessSkipMin = 0
   let wipTapAt = 0
 
   // Card rows, grouped by kind with a sticky header per group. Filtering matches the title, the
@@ -3930,7 +3934,7 @@ export function initUI(hooks) {
         boostersOpen = false
         slotsOpen = false // keyboard focus can reach Play behind a backdrop — don't strand the modal open on return
         settingsOpen = false
-        hooks.onPlay()
+        hooks.onPlay(endlessSkipMin * 60)
         break
       }
       // The summary's damage recap. One act for both directions (unlike the booster sheet's
@@ -4254,6 +4258,11 @@ export function initUI(hooks) {
         hooks.onBriefStart?.(ids)
         break
       }
+      case 'dev-speed': playSfx('click'); hooks.onDevSpeed?.(); break
+      case 'skip-min':
+        endlessSkipMin = Number(el.dataset.min)
+        updateTitleBelow()
+        break
       case 'brief-reroll': hooks.onBriefReroll?.(Number(el.dataset.i)); break
       case 'endless':
         hooks.onEndless(!selectedChapterMeta(meta).endlessPicked)

@@ -4274,6 +4274,26 @@ function stepStragglers(run) {
   }
 }
 
+// DEV ONLY: plays an endless run headlessly to `seconds` with an immortal autopilot, so a playtest
+// can start late without an XP formula. Picks go through applyChoice, the shipped path.
+const FF_KIND_RANK = { weapon: 0, passive: 1, mod: 2, element: 3 }
+export function fastForwardEndless(run, seconds) {
+  const DT = 1 / 30
+  let heading = 0
+  while (run.time < seconds && run.phase !== 'dead') {
+    heading += 0.35 * DT
+    stepSim(run, { x: Math.cos(heading), y: Math.sin(heading), skill: false }, DT)
+    run.events.length = 0
+    if (run.phase === 'levelup') {
+      let best = 0, bestRank = Infinity
+      run.levelUpChoices.forEach((c, i) => { const r = FF_KIND_RANK[c.kind] ?? Infinity; if (r < bestRank) { bestRank = r; best = i } })
+      applyChoice(run, best)
+      run.phase = 'playing'
+    }
+    run.player.hp = run.player.maxHP
+  }
+}
+
 // ENDLESS (spec 2026-10-01): the level climbs on run.time; every difficulty mul is recomputed from
 // the createRun base, never chained, so thousands of steps cannot drift.
 function stepEndless(run) {
