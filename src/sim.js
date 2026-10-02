@@ -14577,7 +14577,7 @@ function fireGlint(run, stats) {
 // gems in a 30-minute endless run before this). Value is conserved exactly; render reads it as a
 // tier (GEM_TIER_XP, COIN_PILE_VALUE). A pickup already flying to the player (_vac) is not a target.
 // ponytail: linear scan per drop; merging keeps the list short. Grid it if a probe says otherwise.
-export function dropGem(run, x, y, xp) {
+function dropGem(run, x, y, xp) {
   const g = nearestResting(run.gems, x, y)
   if (g) g.xp += xp
   else run.gems.push({ x, y, xp })

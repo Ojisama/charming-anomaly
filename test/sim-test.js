@@ -177,7 +177,7 @@ import {
   KRAKEN_HEAD_SPEED, KRAKEN_PARRY_SPIN_T, krakenLimbHalfW, FISH_R, FISH_BODY, KRAKEN_GRIP_EVERY, KRAKEN_GRAB_FUSE, KRAKEN_GRAB_MIN_STEP, KRAKEN_PINCH_OPEN0, KRAKEN_PINCH_OPEN1,
   KRAKEN_BEAT_READ, KRAKEN_BEAT_GRAB_CLEAR, KRAKEN_BEAT_BREATH, KRAKEN_HEAD_R, KRAKEN_CHASE_CAGE_R, KRAKEN_HEAD_HOLD, KRAKEN_DASH_DIST, KRAKEN_DASH_SPEED, KRAKEN_DASH_RUNUP, KRAKEN_DASH_PARRY_PX, KRAKEN_HEAD_TOUCH_DMG, KRAKEN_LUNGE_DMG, KRAKEN_LUNGE_WINDUP_T,
 } from '../src/config.js'
-import { krakenWinPending, krakenPinchProbe, krakenGrabSpot, krakenGrabTurnClear, stepSim, dropGem, applyChoice, fastForwardEndless, endlessHandover, autopilotPick, buildLevelUpChoices, eligibleWeaponModCandidates, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, inRefillCircle, refillCircleAt, stepCharge, newElWindow, spurAt, inMaw } from '../src/sim.js'
+import { krakenWinPending, krakenPinchProbe, krakenGrabSpot, krakenGrabTurnClear, stepSim, applyChoice, fastForwardEndless, endlessHandover, autopilotPick, buildLevelUpChoices, eligibleWeaponModCandidates, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, inRefillCircle, refillCircleAt, stepCharge, newElWindow, spurAt, inMaw } from '../src/sim.js'
 
 // ---- Scenario runner: one filter, and the gate's own dispatch flag ----------------------------
 // THIS FILE IS NO LONGER WHAT `npm test` RUNS. scripts/test-isolation.mjs hands one scenario to
@@ -730,14 +730,19 @@ function testPickupMerge() {
   assert.ok(Math.abs(xp - wantXp) < 1e-9, `xp not conserved: ${xp} vs ${wantXp}`)
   assert.strictEqual(coins, 3 * ELITE.coins, `coins not conserved: ${coins}`)
   assert.ok(run.coins.length <= 4, `${3 * ELITE.coins} coins left ${run.coins.length} piles`)
-  // a gem already homing in (_vac) takes nothing: a drop right on top of it lands as its own gem
-  const floorGems = run.gems.length, homing = run.gems[0]
-  homing._vac = true
-  const had = homing.xp
-  dropGem(run, homing.x, homing.y, 5)
-  assert.strictEqual(homing.xp, had, `a homing gem grew from ${had} to ${homing.xp}`)
-  assert.strictEqual(run.gems.length, 3, 'the drop on a homing gem did not land as its own gem')
-  console.log(`PASS run PM (pickup merge): 3 elite kills -> ${floorGems} gems + ${run.coins.length} coin piles, xp ${xp.toFixed(1)} and ${coins} coins conserved`)
+  // a gem already homing in (_vac) takes nothing: the next kill on top of it lands as its own gem
+  for (const g of run.gems) g._vac = true
+  const lone = makeStatusEnemy(run, { x: run.gems[0].x, y: run.gems[0].y, hp: 10, speed: 0 })
+  const before = run.gems.map((g) => g.xp)
+  run.enemies.push(lone)
+  for (let i = 0; i < 300 && run.kills < 4; i++) {
+    if (run.phase === 'levelup') { declineLevelUp(run); continue }
+    stepSim(run, { x: 0, y: 0 }, dt)
+  }
+  assert.strictEqual(run.kills, 4, 'fixture: the lone kill never landed')
+  assert.ok(run.gems.some((g) => !g._vac), 'the kill fused into a homing gem instead of dropping its own')
+  for (const g of run.gems.filter((g) => g._vac)) assert.ok(before.includes(g.xp), `a homing gem grew to ${g.xp}`)
+  console.log(`PASS run PM (pickup merge): 3 elite kills -> ${run.gems.length - 1} gems + ${run.coins.length} coin piles, xp ${xp.toFixed(1)} and ${coins} coins conserved`)
 }
 
 function testEndlessCrowdAffixes() {
