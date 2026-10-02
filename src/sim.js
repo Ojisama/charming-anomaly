@@ -8491,6 +8491,29 @@ function nbQuery(run, x0, y0, x1, y1, padR = false) {
   return _nbOut
 }
 
+// THE SHARED QUERY for weapon code: every enemy whose cell overlaps the box, IN LIST ORDER, so a
+// loop over it visits bodies (and draws randoms) in exactly the order a scan of run.enemies would.
+// The box must contain every body the loop's own test can accept; padR adds the widest body's
+// radius, for tests that pad by e.radius. A fresh array, so a hit inside the loop may query again.
+// Outside stepWeapons, or for a box too big for the grid, it is run.enemies itself.
+function enemiesInBox(run, x0, y0, x1, y1, padR = false) {
+  const ids = nbQuery(run, x0, y0, x1, y1, padR)
+  if (!ids) return run.enemies
+  ids.sort((a, b) => a - b)
+  const es = run.enemies
+  const out = new Array(ids.length)
+  for (let k = 0; k < ids.length; k++) out[k] = es[ids[k]]
+  return out
+}
+function enemiesNear(run, x, y, r, padR = false) {
+  return enemiesInBox(run, x - r, y - r, x + r, y + r, padR)
+}
+// The box around alongRay's test: the segment, padded by half the width and the widest body.
+function enemiesOnRay(run, ox, oy, angle, len, width) {
+  const ex = ox + Math.cos(angle) * len, ey = oy + Math.sin(angle) * len, w = width / 2
+  return enemiesInBox(run, Math.min(ox, ex) - w, Math.min(oy, ey) - w, Math.max(ox, ex) + w, Math.max(oy, ey) + w, true)
+}
+
 // Push one pair of enemies apart if they're stacked past ENEMY_SEP_FRAC of their combined radii.
 // a, b are the bodies; i, j are their run.enemies indices with i < j (see the two call sites above)
 // and are read ONLY by the coincident branch below, which needs a deterministic per-pair angle.
@@ -9589,7 +9612,7 @@ function dealDamage(run, enemy, dmg, crit, dot = false, hazard = false, carried 
       const budget = enemy._fireJumps ?? 0
       if (budget > 0) {
         let best = null, bestSq = WILDFIRE_JUMP_R * WILDFIRE_JUMP_R
-        for (const e of run.enemies) {
+        for (const e of enemiesNear(run, enemy.x, enemy.y, WILDFIRE_JUMP_R)) {
           if (e._dead || isAlly(e) || e === enemy || e.ignite > 0) continue   // already lit (or yours): spend the jump on new ground
           if (krakenHeadSealed(run, e)) continue                              // a sealed head is not new ground either
           const dx = e.x - enemy.x, dy = e.y - enemy.y
@@ -9886,25 +9909,30 @@ function nearestEnemy(run, pad = 100) {
   const rangeSq = (run.viewRadius + pad) ** 2
   let target = null
   let bestSq = Infinity
-  for (const e of run.enemies) {
-    // SUBMISSION: never aim at your own ally. THIS IS THE CHOKE POINT — seven weapon aim
-    // sites plus aimAngle come through here, so the alternative is seven edits that each fail
-    // silently ("my weapons stopped shooting the swarm", no error).
-    if (isAlly(e)) continue
-    // ...AND NEVER AIM AT A TARGET THAT REFUSES DAMAGE. Owner, 2026-09-15: "the weapons aim for the
-    // head even if it's invincible so you can't finish the level." The Kraken's head is sealed for
-    // all but its stagger windows, and in the chase it is the closest body on the field by a wide
-    // margin — so the whole arsenal emptied into it and the arm nodes, which are the only thing
-    // that can actually be killed, were never shot at. dealDamage already refused the damage; this
-    // is the other half, and it belongs at the same choke point for the same reason.
-    // krakenHeadSealed goes false the instant the stagger opens, so the one window the head CAN be
-    // hurt in is also the one window it is aimed at.
-    if (krakenHeadSealed(run, e)) continue
-    const dx = e.x - p.x, dy = e.y - p.y
-    const dSq = dx * dx + dy * dy
-    if (dSq <= rangeSq && dSq < bestSq) { bestSq = dSq; target = e }
+  // A GROWING RING on the grid: a body found within r is nearer than anything outside r, so the
+  // first ring that holds one is the scan's answer (list order kept, so ties fall the same way).
+  for (let r = _nbOn ? ENEMY_QUERY_CELL : Infinity; ; r *= 2) {
+    const limSq = Math.min(rangeSq, r * r)
+    for (const e of (limSq < rangeSq ? enemiesNear(run, p.x, p.y, r) : run.enemies)) {
+      // SUBMISSION: never aim at your own ally. THIS IS THE CHOKE POINT — seven weapon aim
+      // sites plus aimAngle come through here, so the alternative is seven edits that each fail
+      // silently ("my weapons stopped shooting the swarm", no error).
+      if (isAlly(e)) continue
+      // ...AND NEVER AIM AT A TARGET THAT REFUSES DAMAGE. Owner, 2026-09-15: "the weapons aim for the
+      // head even if it's invincible so you can't finish the level." The Kraken's head is sealed for
+      // all but its stagger windows, and in the chase it is the closest body on the field by a wide
+      // margin — so the whole arsenal emptied into it and the arm nodes, which are the only thing
+      // that can actually be killed, were never shot at. dealDamage already refused the damage; this
+      // is the other half, and it belongs at the same choke point for the same reason.
+      // krakenHeadSealed goes false the instant the stagger opens, so the one window the head CAN be
+      // hurt in is also the one window it is aimed at.
+      if (krakenHeadSealed(run, e)) continue
+      const dx = e.x - p.x, dy = e.y - p.y
+      const dSq = dx * dx + dy * dy
+      if (dSq <= limSq && dSq < bestSq) { bestSq = dSq; target = e }
+    }
+    if (target || !(limSq < rangeSq)) return target
   }
-  return target
 }
 
 // A UNIFORMLY RANDOM enemy that is actually ON SCREEN, or null. Owner, 2026-08-18: "this targets
@@ -9929,7 +9957,7 @@ function randomVisibleEnemy(run) {
   const hw = run.viewW ?? run.viewRadius ?? 0
   const hh = run.viewH ?? run.viewRadius ?? 0
   const seen = []
-  for (const e of run.enemies) {
+  for (const e of enemiesInBox(run, p.x - hw, p.y - hh, p.x + hw, p.y + hh)) {
     if (e._dead || isAlly(e)) continue
     // A body with no position must never be a target: a zone planted at NaN renders nothing at all,
     // which is a silent no-op rather than an error. nearestEnemy gets this free — its `dSq <=
@@ -10461,7 +10489,7 @@ function stepBullets(run, dt) {
     if (b._carrier) continue
 
     let justHit = null
-    for (const e of run.enemies) {
+    for (const e of enemiesNear(run, b.x, b.y, b.r, true)) {
       if (b.pierce <= 0) break
       if (e._dead || isAlly(e) || b.hitIds.has(e.id)) continue   // SUBMISSION: pass THROUGH an ally — immune, but blocks nothing
       const dx = e.x - b.x, dy = e.y - b.y
@@ -10533,7 +10561,7 @@ function reboundQuill(run, b) {
   b.dmg = nextDmg
   b.speed = b._reboundSpeed
   b.hitIds.clear()
-  for (const e of run.enemies) {
+  for (const e of enemiesNear(run, b.x, b.y, b.r, true)) {
     if (e._dead) continue
     const dx = e.x - b.x
     const dy = e.y - b.y
@@ -10548,7 +10576,7 @@ function orbitSupernova(run, deadEnemy, dealtDmg, bonus) {
   const dmg = Math.round(dealtDmg * bonus)
   if (dmg <= 0) return
   const radSq = ORBIT_NOVA_RADIUS * ORBIT_NOVA_RADIUS
-  for (const e of run.enemies) {
+  for (const e of enemiesNear(run, deadEnemy.x, deadEnemy.y, ORBIT_NOVA_RADIUS)) {
     if (e._dead || e.id === deadEnemy.id) continue
     const dx = e.x - deadEnemy.x, dy = e.y - deadEnemy.y
     if (dx * dx + dy * dy <= radSq) dealDamage(run, e, dmg, false)
@@ -10559,7 +10587,7 @@ function orbitSupernova(run, deadEnemy, dealtDmg, bonus) {
 // Shared by the main ring and the Twin Ring inner ring: damages the nearest not-on-cooldown
 // enemy touching an orb at (ox, oy), same dmg/tick logic for both rings.
 function hitOrbitAt(run, ox, oy, orbR, stats, fireRateMul, supernovaBonus) {
-  for (const e of run.enemies) {
+  for (const e of enemiesNear(run, ox, oy, orbR, true)) {
     if (e._dead || e.orbCd > 0) continue
     const dx = e.x - ox, dy = e.y - oy
     const rad = orbR + e.radius
@@ -10694,7 +10722,7 @@ function stepNovas(run, dt) {
     const progress = Math.min(1, Math.max(0, 1 - n.life / (n.lifeMax ?? NOVA_LIFE)))
     n.r = n.maxR * progress
 
-    for (const e of run.enemies) {
+    for (const e of (n.carry > 0 ? run.enemies : enemiesNear(run, n.x, n.y, n.r, true))) {
       if (e._dead) continue
       // v5.4: a ghosted phase flicker passes through everything. applyDamage already refuses it,
       // but the shove, the fear and n.hit did not — a ghosted moon jelly was shoved by a ring that
@@ -10820,7 +10848,7 @@ function stepBoomerangs(run, dt) {
       if (d < BOOMERANG_RETURN_R) b._done = true
     }
 
-    for (const e of run.enemies) {
+    for (const e of enemiesNear(run, b.x, b.y, b.hitR, true)) {
       if (e._dead || b.hit.has(e.id)) continue
       const dx = e.x - b.x, dy = e.y - b.y
       const rad = b.hitR + e.radius
@@ -10907,7 +10935,7 @@ function stepMagneticMines(run, dt, bonus) {
 // damageImmune guard applyDamage already uses internally — a ghosted phase flicker takes no
 // damage AND gets no stun, exactly like it eats nothing else.
 function detonateMine(run, m) {
-  for (const e of run.enemies) {
+  for (const e of enemiesNear(run, m.x, m.y, m.radius)) {
     if (e._dead || isAlly(e)) continue   // SUBMISSION: an ally would trip the whole field for zero damage
     const dx = e.x - m.x, dy = e.y - m.y
     if (dx * dx + dy * dy <= m.radius * m.radius) {
@@ -10932,7 +10960,7 @@ function stepMines(run, dt) {
     if (m._dead || m._detonate) continue
 
     let triggered = false
-    for (const e of run.enemies) {
+    for (const e of enemiesNear(run, m.x, m.y, MINE_TRIGGER_R, true)) {
       if (e._dead) continue
       const dx = e.x - m.x, dy = e.y - m.y
       const trig = MINE_TRIGGER_R + e.radius
@@ -11008,7 +11036,7 @@ function wispPop(run, h, bonus) {
   const dmg = h.dmg * bonus
   if (dmg <= 0) return
   const radSq = WISP_NOVA_RADIUS * WISP_NOVA_RADIUS
-  for (const e of run.enemies) {
+  for (const e of enemiesNear(run, h.x, h.y, WISP_NOVA_RADIUS)) {
     if (e._dead) continue
     const dx = e.x - h.x, dy = e.y - h.y
     if (dx * dx + dy * dy <= radSq) applyDamage(run, e, dmg)
@@ -11092,7 +11120,7 @@ function stepHomingShots(run, dt) {
     h.x += h.vx * dt
     h.y += h.vy * dt
 
-    for (const e of run.enemies) {
+    for (const e of enemiesNear(run, h.x, h.y, HOMING_HIT_R, true)) {
       if (e._dead || isAlly(e) || h.hitIds.has(e.id)) continue   // SUBMISSION: pass THROUGH an ally — immune, but blocks nothing
       const dx = e.x - h.x, dy = e.y - h.y
       const rad = HOMING_HIT_R + e.radius
@@ -11133,7 +11161,7 @@ function stepWhirlpoolWeapon(run, w, stats, fireRateMul, dt) {
 function pickHoleSpot(run, excludeIds) {
   const p = run.player
   const viewSq = run.viewRadius * run.viewRadius
-  const inView = run.enemies.filter((e) => {
+  const inView = enemiesNear(run, p.x, p.y, run.viewRadius).filter((e) => {
     // SUBMISSION: an ally is never a valid MARK. This is aim dilution, not friendly fire —
     // the spot is picked uniformly at random, so N allies among M hostiles waste N/(N+M) of every
     // cast, and stacking is uncapped by design.
@@ -11199,7 +11227,7 @@ function holeCrunch(run, h, bonus) {
   const dmg = h.dmg * CRUNCH_DMG_MUL * (1 + bonus)
   if (dmg <= 0) return
   const radSq = h.radius * h.radius
-  for (const e of run.enemies) {
+  for (const e of enemiesNear(run, h.x, h.y, h.radius)) {
     if (e._dead) continue
     const dx = e.x - h.x, dy = e.y - h.y
     if (dx * dx + dy * dy <= radSq) applyDamage(run, e, dmg)
@@ -11241,7 +11269,7 @@ function pickDownwashSpot(run, radius, excludeIds) {
   // DOWNWASH_CAST_FRAC of the viewport, not the whole of it: a column placed on the densest clump
   // anywhere in view lands two thirds of a screen away often enough to be the owner's complaint.
   const viewSq = (run.viewRadius * DOWNWASH_CAST_FRAC) ** 2
-  const inView = run.enemies.filter((e) => {
+  const inView = enemiesNear(run, p.x, p.y, run.viewRadius * DOWNWASH_CAST_FRAC).filter((e) => {
     // An ally is never a mark, for the reason pickHoleSpot states: this is aim dilution.
     if (e._dead || isAlly(e) || excludeIds.has(e.id)) return false
     const dx = e.x - p.x, dy = e.y - p.y
@@ -11296,7 +11324,7 @@ function downwashBurst(run, h) {
   if (!(h.burst > 0)) return
   const dmg = h.burst
   const radSq = h.radius * h.radius
-  for (const e of run.enemies) {
+  for (const e of enemiesNear(run, h.x, h.y, h.radius)) {
     if (e._dead) continue
     const dx = e.x - h.x, dy = e.y - h.y
     if (dx * dx + dy * dy <= radSq) applyDamage(run, e, dmg)
@@ -11349,7 +11377,7 @@ function stepHoles(run, dt) {
                    // Counted before the anchored skip, because an anchored elite standing in the
                    // middle IS the crowd arriving; it just got there without being pulled.
     const plungeSq = (h.radius * DOWNWASH_PLUNGE_FRAC) ** 2
-    for (const e of run.enemies) {
+    for (const e of enemiesNear(run, h.x, h.y, h.radius)) {
       if (e._dead) continue
       const dx0 = h.x - e.x, dy0 = h.y - e.y
       if (dx0 * dx0 + dy0 * dy0 <= plungeSq) inside++
@@ -11414,7 +11442,7 @@ function stepHoles(run, dt) {
     h.acc += dt
     while (h.acc >= h.tick) {
       h.acc -= h.tick
-      for (const e of run.enemies) {
+      for (const e of enemiesNear(run, h.x, h.y, h.radius)) {
         if (e._dead) continue
         const dx = e.x - h.x, dy = e.y - h.y
         const distSq = dx * dx + dy * dy
@@ -11576,7 +11604,7 @@ function collapseSweep(run, b) {
   const p = run.player
   const dmg = b.dmg * PULSAR_COLLAPSE_MUL * (1 + b.collapseBonus)
   const angles = beamArmAngles(b)
-  for (const e of run.enemies) {
+  for (const e of enemiesNear(run, p.x, p.y, b.length + b.width / 2, true)) {
     if (e._dead) continue
     if (!angles.some((a) => inBeamArm(run, b, e, a))) continue
     const dx = p.x - e.x, dy = p.y - e.y
@@ -11616,7 +11644,7 @@ function stepBeams(run, dt) {
       const elapsed = Math.min(b.duration, b.duration - b.life)
       const dmg = focusBonus > 0 ? b.dmg * (1 + focusBonus * (elapsed / b.duration)) : b.dmg
       for (const angle of beamArmAngles(b)) {
-        for (const e of run.enemies) {
+        for (const e of enemiesOnRay(run, p.x, p.y, angle, b.length, b.width)) {
           if (e._dead) continue
           if (inBeamArm(run, b, e, angle)) applyDamage(run, e, dmg)
         }
@@ -11688,7 +11716,7 @@ function fireFlagella(run, stats) {
   // version that measured as a wash.
   const struck = new Set()
   for (const swing of ipecacAngles(run, angle)) {
-    for (const e of run.enemies) {
+    for (const e of enemiesNear(run, p.x, p.y, stats.range, true)) {
       if (e._dead || struck.has(e)) continue
       if (!inSector(p.x, p.y, swing, stats.range, arc, e, fullCircle)) continue
       struck.add(e)
@@ -11738,7 +11766,7 @@ function pickBloomSpot(run, castRange) {
 function pickBloomSpots(run, n, castRange, nearest = false) {
   const p = run.player
   const rangeSq = castRange * castRange
-  const inRange = run.enemies.filter((e) => {
+  const inRange = enemiesNear(run, p.x, p.y, castRange).filter((e) => {
     if (e._dead || isAlly(e)) return false   // SUBMISSION: never mark your own ally
     const dx = e.x - p.x, dy = e.y - p.y
     return dx * dx + dy * dy <= rangeSq
@@ -11833,7 +11861,7 @@ function stepBlooms(run, dt) {
     // it must not quietly add one.
     if (bl.slow !== 0) {
       const slowRSq = bl.r * bl.r
-      for (const e of run.enemies) {
+      for (const e of enemiesNear(run, bl.x, bl.y, bl.r, bl.arc != null)) {
         if (e._dead || damageImmune(e)) continue
         // The wedge gate, on BOTH passes. Silt sets slow: 0 so this branch cannot reach a cone
         // today -- it is here so that the day a cone-shaped bloom does slow, the slow and the
@@ -11879,7 +11907,7 @@ function stepBlooms(run, dt) {
     while (bl._tickAcc >= tickEvery) {
       bl._tickAcc -= tickEvery
       const rSq = bl.r * bl.r
-      for (const e of run.enemies) {
+      for (const e of enemiesNear(run, bl.x, bl.y, bl.r, bl.arc != null)) {
         if (e._dead) continue
         // `arc` MAKES THE BLOOM A WEDGE (Silt Veil, the only one today). inSector tests the enemy's
         // BODY against the sector and treats a body sitting on the apex as inside it, so a cone
@@ -12043,7 +12071,7 @@ function stepLures(run, dt) {
     // shoal strips it in seconds, a bait nobody found lasts its full duration.
     if (lu.bait) {
       const fr2 = CHUM_FEED_R * CHUM_FEED_R
-      for (const e of run.enemies) {
+      for (const e of enemiesNear(run, lu.x, lu.y, CHUM_FEED_R)) {
         if (lu.food <= 0) break
         if (e._dead || isAlly(e) || e._fedBait === lu || (e._fedCd ?? 0) > 0) continue
         const fdx = e.x - lu.x, fdy = e.y - lu.y
@@ -12074,7 +12102,7 @@ function stepLures(run, dt) {
     // expiry path below was a radius-0 {type:'explode'} — an explosion sound over nothing.
     if (lu.bait) { run.events.push({ type: 'chumOut', x: lu.x, y: lu.y }); continue }
     const radSq = lu.burstR * lu.burstR
-    for (const e of run.enemies) {
+    for (const e of enemiesNear(run, lu.x, lu.y, lu.burstR)) {
       if (e._dead) continue
       const dx = e.x - lu.x, dy = e.y - lu.y
       if (dx * dx + dy * dy <= radSq) applyDamage(run, e, lu.burstDmg)
@@ -12105,7 +12133,7 @@ function biteAim(run, range) {
   const rSq = range * range
   let bestSq = Infinity
   let target = null
-  for (const e of run.enemies) {
+  for (const e of enemiesNear(run, p.x, p.y, range)) {
     if (e._dead || isAlly(e) || e.type === 'tank') continue
     const dx = e.x - p.x, dy = e.y - p.y
     const dSq = dx * dx + dy * dy
@@ -12133,7 +12161,7 @@ function farthestAimAngle(run, range) {
   const p = run.player
   const rangeSq = range * range
   let best = null, bestSq = -1, bestCrushable = false
-  for (const e of run.enemies) {
+  for (const e of enemiesNear(run, p.x, p.y, range)) {
     if (e._dead || isAlly(e)) continue
     const dx = e.x - p.x, dy = e.y - p.y
     const dSq = dx * dx + dy * dy
@@ -12325,7 +12353,7 @@ function stepScrewWeapon(run, stats, fireRateMul, dt) {
     // Render-only, and derived here so the sim owns one clock: the blade's own rotation, faster
     // when the cut is faster. render.js reads it and never writes it.
     sc.spin += dt * SCREW_SPIN_RATE * rate
-    for (const en of run.enemies) {
+    for (const en of enemiesNear(run, sc.x, sc.y, sc.r, true)) {
       if (en._dead || en._screwCd > 0 || isAlly(en)) continue
       const ex = en.x - sc.x, ey = en.y - sc.y
       const rad = sc.r + en.radius
@@ -12443,7 +12471,7 @@ function biteGnash(run, stats) {
     // Overkill carry, reset PER SWING: an ipecac cast is three separate mouths, and pooling the
     // spillover across all three would quietly turn that mod into a damage multiplier.
     let carry = 0
-    for (const e of run.enemies) {
+    for (const e of enemiesNear(run, p.x, p.y, stats.range, true)) {
       if (e._dead || struck.has(e)) continue
       if (!inSector(p.x, p.y, swing, stats.range, stats.arc, e, false)) continue
       struck.add(e)
@@ -12518,7 +12546,7 @@ function slashClaws(run, o) {
   // is load-bearing rather than tidy.
   const struck = new Set()
   for (const swing of ipecacAngles(run, angle)) {
-    for (const e of run.enemies) {
+    for (const e of enemiesNear(run, p.x, p.y, o.range, true)) {
       if (e._dead || struck.has(e)) continue
       if (!inSector(p.x, p.y, swing, o.range, o.arc, e, false)) continue
       struck.add(e)
@@ -12767,7 +12795,7 @@ function stepTornadoWeapon(run, stats, fireRateMul, dt) {
     if (t.tgt) continue
     let best = null, bestD = Infinity
     let spare = null, spareD = Infinity
-    for (const e of run.enemies) {
+    for (const e of enemiesNear(run, p.x, p.y, stats.hunt, true)) {
       if (e._dead || !leashed(e)) continue
       const dx = e.x - t.x, dy = e.y - t.y
       const d = dx * dx + dy * dy
@@ -12824,7 +12852,12 @@ function stepTornadoWeapon(run, stats, fireRateMul, dt) {
   // what "only one attacks at a time" looks like once they DO all arrive. Spread over a crowd
   // this changes nothing — each foe has one funnel on it and the count is 1 — so the scaling is
   // paid out exactly where the pack converges, which is the case `moreTrash` never covered.
-  for (const e of run.enemies) {
+  let fx0 = Infinity, fy0 = Infinity, fx1 = -Infinity, fy1 = -Infinity
+  for (const t of list) {
+    fx0 = Math.min(fx0, t.x - t.r); fy0 = Math.min(fy0, t.y - t.r)
+    fx1 = Math.max(fx1, t.x + t.r); fy1 = Math.max(fy1, t.y + t.r)
+  }
+  for (const e of enemiesInBox(run, fx0, fy0, fx1, fy1, true)) {
     if (e._dead || (e._debrisCd || 0) > 0) continue
     let n = 0
     for (const t of list) {
@@ -12922,7 +12955,7 @@ function pickHydrantSpot(run, castRange, fuse) {
   const rangeSq = castRange * castRange
   const tm = run.weaponMods.burstHydrant?.trafficMain ?? 0
   if (tm > 0) {
-    const inLane = run.enemies.filter((e) => {
+    const inLane = enemiesNear(run, p.x, p.y, castRange).filter((e) => {
       if (e._dead || isAlly(e)) return false   // SUBMISSION: never mark your own ally
       const dx = e.x - p.x, dy = e.y - p.y
       return dx * dx + dy * dy <= rangeSq && pointInLane(run, e.x, e.y)
@@ -12941,7 +12974,7 @@ function pickHydrantSpot(run, castRange, fuse) {
   // Deliberately NOT pickBloomSpot, though the RNG shape is identical to it (one draw to choose an
   // enemy, two for the no-enemy fallback) so seeded streams are unchanged: the lead needs the ENEMY,
   // not just its position, because how far to lead depends on how fast that particular thing moves.
-  const inRange = run.enemies.filter((e) => {
+  const inRange = enemiesNear(run, p.x, p.y, castRange).filter((e) => {
     if (e._dead || isAlly(e)) return false   // SUBMISSION: never mark your own ally
     const dx = e.x - p.x, dy = e.y - p.y
     return dx * dx + dy * dy <= rangeSq
@@ -12999,7 +13032,7 @@ function stepZones(run, dt) {
     // ---- eruption ----
     const dmg = zoneDmg(run, g)
     const rSq = g.r * g.r
-    for (const e of run.enemies) {
+    for (const e of (g.d > 0 ? enemiesOnRay(run, g.x, g.y, g.a, g.d, 2 * g.r) : enemiesNear(run, g.x, g.y, g.r))) {
       if (e._dead) continue
       // A zone carrying `d` is a SEAM, not a disc: it cuts within g.r of the LINE from (g.x, g.y)
       // to d px along g.a — the gap the shard skipped. Everything else (every Burst Hydrant) keeps
@@ -13075,7 +13108,7 @@ function stepOpenJet(run, g, dt) {
   // Clamped to HYDRANT_STREAMS_MAX: the render rig has that many stream sprites and no more.
   const maxStreams = Math.min(HYDRANT_STREAMS_MAX, Math.max(1, Math.round(g.nStreams ?? HYDRANT_STREAMS_FALLBACK)))
   const picks = []
-  for (const e of run.enemies) {
+  for (const e of enemiesNear(run, g.x, g.y, g.r)) {
     if (e._dead || isAlly(e)) continue   // SUBMISSION: an ally would eat one of GEYSER_STREAMS_MAX stream slots
     const dx = e.x - g.x, dy = e.y - g.y
     const d2 = dx * dx + dy * dy
@@ -13140,7 +13173,7 @@ function fireRoar(run, stats) {
   // IPECAC: front, left and right — the spec's own reading of "three of it" for a cone.
   const struck = new Set()
   for (const swing of ipecacAngles(run, angle)) {
-    for (const e of run.enemies) {
+    for (const e of enemiesNear(run, p.x, p.y, stats.range, true)) {
       if (e._dead || struck.has(e)) continue
       if (!inSector(p.x, p.y, swing, stats.range, arc, e, fullCircle)) continue
       struck.add(e)
@@ -13190,7 +13223,7 @@ function stepLashWeapon(run, w, stats, fireRateMul, dt) {
 function lashTargets(run, angle, stats) {
   const p = run.player
   const out = []
-  for (const e of run.enemies) {
+  for (const e of enemiesOnRay(run, p.x, p.y, angle, stats.range, stats.width)) {
     if (e._dead || isAlly(e)) continue
     const along = alongRay(p.x, p.y, angle, stats.range, stats.width, e)
     if (along >= 0) out.push({ e, along })
@@ -13258,7 +13291,7 @@ function stepDrags(run, dt) {
     nbDirty()
     e.kb.x = 0; e.kb.y = 0    // the reel owns this body's motion; a leftover shove would fight it
     if (d.dmg > 0) {
-      for (const other of run.enemies) {
+      for (const other of enemiesNear(run, e.x, e.y, LASH_DRAG_R)) {
         if (other._dead || d.hitIds.has(other.id) || isAlly(other)) continue
         const dx = other.x - e.x, dy = other.y - e.y
         if (dx * dx + dy * dy > LASH_DRAG_R * LASH_DRAG_R) continue
@@ -13348,7 +13381,7 @@ function buildFork(run, a) {
     // Clamped by availability: a crowd smaller than the rank falls back to the nearest, not nothing.
     const skip = i === 0 ? (a.rootRank ?? 0) : 0
     const ranked = []
-    for (const e of run.enemies) {
+    for (const e of enemiesNear(run, fx, fy, reach)) {
       if (e._dead || isAlly(e) || taken.has(e.id)) continue
       const dx = e.x - fx, dy = e.y - fy
       const dSq = dx * dx + dy * dy
@@ -13444,7 +13477,7 @@ function stepLobs(run, dt) {
     if (lo.snare > 0) {
       const rSq = lo.r * lo.r
       let caught = 0
-      for (const e of run.enemies) {
+      for (const e of enemiesNear(run, lo.tx, lo.ty, lo.r)) {
         if (e._dead || isAlly(e)) continue
         const dx = e.x - lo.tx, dy = e.y - lo.ty
         if (dx * dx + dy * dy > rSq) continue
@@ -13469,7 +13502,7 @@ function stepLobs(run, dt) {
     if (lo.column) {
       const rSq = lo.r * lo.r
       const struck = new Set()
-      for (const e of run.enemies) {
+      for (const e of enemiesNear(run, lo.tx, lo.ty, lo.r)) {
         if (e._dead || isAlly(e)) continue
         const dx = e.x - lo.tx, dy = e.y - lo.ty
         if (dx * dx + dy * dy <= rSq) { applyDamage(run, e, lo.dmg); struck.add(e.id) }
@@ -13505,7 +13538,7 @@ function stepLobs(run, dt) {
       // ONE ring: the drag catches exactly what the crush catches. It carried a `dragMul` until
       // v7.x, when Foul Water stopped widening the ring and became a cadence card instead.
       const bSq = lo.r * lo.r
-      for (const e of run.enemies) {
+      for (const e of enemiesNear(run, lo.tx, lo.ty, lo.r)) {
         if (e._dead || isAlly(e)) continue
         const dx = e.x - lo.tx, dy = e.y - lo.ty
         const dSq = dx * dx + dy * dy
@@ -13528,7 +13561,7 @@ function stepLobs(run, dt) {
     }
 
     const rSq = lo.r * lo.r
-    for (const e of run.enemies) {
+    for (const e of enemiesNear(run, lo.tx, lo.ty, lo.r)) {
       if (e._dead) continue
       const dx = e.x - lo.tx, dy = e.y - lo.ty
       if (dx * dx + dy * dy <= rSq) applyDamage(run, e, lo.dmg)
@@ -13971,7 +14004,7 @@ function stepShellSkip(run, b, dt) {
   // that visibly chased its target and then damaged nothing at all. The card promises a hit at
   // every touch, so a touch has to be able to happen when the shell ARRIVES.
   let arrived = null
-  for (const e of run.enemies) {
+  for (const e of enemiesNear(run, b.x, b.y, SHELL_R, true)) {
     if (e._dead || isAlly(e) || b.hitIds.has(e.id)) continue
     const dx = e.x - b.x, dy = e.y - b.y
     // SHELL_R, not b.r: b.r is how far the SPLASH reaches, and using it here declares arrival
@@ -13996,7 +14029,7 @@ function stepShellSkip(run, b, dt) {
   // bodies it has already skipped toward: a carrier never runs the contact scan, so the field is
   // free and this is the only thing that reads it.
   let best = null, bestSq = SHELL_RETARGET_R * SHELL_RETARGET_R
-  for (const e of run.enemies) {
+  for (const e of enemiesNear(run, b.x, b.y, SHELL_RETARGET_R)) {
     if (e._dead || isAlly(e) || b.hitIds.has(e.id)) continue
     const dx = e.x - b.x, dy = e.y - b.y
     const dSq = dx * dx + dy * dy
@@ -14049,7 +14082,7 @@ function stepBarnacleWeapon(run, w, stats, fireRateMul, dt) {
 
 // A larva looking for a host. Called from stepBullets in the carrier branch.
 function stepBarnacleFlight(run, b) {
-  for (const e of run.enemies) {
+  for (const e of enemiesNear(run, b.x, b.y, b.r, true)) {
     if (e._dead || isAlly(e)) continue   // SUBMISSION: never crust your own ally
     const dx = e.x - b.x, dy = e.y - b.y
     const rad = b.r + e.radius
@@ -14128,7 +14161,7 @@ function spreadBarnacle(run, host, c) {
   if (left <= 0) return
   const rSq = BARNACLE_JUMP_R * BARNACLE_JUMP_R
   const near = []
-  for (const e of run.enemies) {
+  for (const e of enemiesNear(run, host.x, host.y, BARNACLE_JUMP_R)) {
     if (e._dead || isAlly(e) || e.barnacle) continue
     const dx = e.x - host.x, dy = e.y - host.y
     const dSq = dx * dx + dy * dy
@@ -14222,7 +14255,7 @@ function stepLonglines(run, dt) {
   for (const l of run.longlines) {
     l.life -= dt
     const halfLen = l.len / 2
-    for (const e of run.enemies) {
+    for (const e of enemiesNear(run, l.x, l.y, halfLen + l.half, true)) {
       if (e._dead || isAlly(e)) continue
       const dx = e.x - l.x, dy = e.y - l.y
       const across = dx * l.nx + dy * l.ny
@@ -14272,7 +14305,8 @@ function pickHaulTargets(run, range, n) {
   const p = run.player
   const r2 = range * range
   const cands = []
-  for (const e of run.enemies) {
+  const hw = run.viewW ?? run.viewRadius ?? 0, hh = run.viewH ?? run.viewRadius ?? 0
+  for (const e of enemiesInBox(run, p.x - hw, p.y - hh, p.x + hw, p.y + hh)) {
     // _netted: the wall already has this body, same exemption stepStragglers uses — a catch on
     // the harpoon's line and on the net at once is a body fighting two hazards for one cast.
     if (e._dead || e.elite || isAlly(e) || e._netted) continue
@@ -14396,7 +14430,7 @@ function stepHauls(run, dt) {
     // because a body that jumps aside 3 times a second reads as teleporting where a body eased aside
     // every frame reads as water. Same `w2` for both, so the corridor the player learns from the
     // shove is exactly the corridor that damages.
-    for (const o of run.enemies) {
+    for (const o of enemiesNear(run, e.x, e.y, h.width + e.radius)) {
       if (o._dead || o === e || isAlly(o)) continue
       const ox = o.x - e.x, oy = o.y - e.y
       if (ox * ox + oy * oy > w2) continue
