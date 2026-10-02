@@ -16130,10 +16130,18 @@ const spurG = new Graphics()
   // a bubble reseeded every frame reads as static rather than as motion, a paused frame has to
   // hold still, and two puffs alive at once must not flicker against each other. Same rule, and
   // the same reason, as the crest's foam.
+  // Index of the oldest of the newest DRAW_CAPS.novas novas of one look, so the drawers keep cast
+  // order (later crests over earlier ones) while skipping the overflow.
+  function newestNovaStart(novas, look) {
+    let c = 0
+    for (let i = novas.length - 1; i >= 0; i--) if (novas[i].look === look && ++c === DRAW_CAPS.novas) return i
+    return 0
+  }
   function drawBubblePuffs(run) {
     puffG.clear()
     if (!run.novas || run.novas.length === 0) return
-    for (const n of run.novas) {
+    for (let j = newestNovaStart(run.novas, 'bubble'); j < run.novas.length; j++) {
+      const n = run.novas[j]
       if (n.look !== 'bubble' || n.arc == null) continue
       const life = n.lifeMax || NOVA_LIFE
       const k = Math.max(0, Math.min(1, n.life / life))    // 1 at the cast, 0 as it dies
@@ -16174,7 +16182,8 @@ const spurG = new Graphics()
   function drawBreakers(run) {
     breakerG.clear()
     if (!run.novas || run.novas.length === 0) return
-    for (const n of run.novas) {
+    for (let j = newestNovaStart(run.novas, 'breaker'); j < run.novas.length; j++) {
+      const n = run.novas[j]
       // ⚠ BY LOOK, NOT BY `arc`. run.novas is shared, and this used to claim EVERY nova carrying a
       // sector — so The Deep's Fin Hit was drawing a Surf whitewater crest on top of its own fin
       // sweep (two telegraphs for one strike, the exact bug the Sunspear shipped with a Debris
