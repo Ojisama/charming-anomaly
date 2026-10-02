@@ -2686,7 +2686,7 @@ export function initUI(hooks) {
     const ms = events && events.find((e) => e.type === 'endlessMutator')
     if (ms) {
       const b = hud.banner
-      b.textContent = `${t(ENDLESS_COPY.milestone.name)}: ${t(MUTATORS[ms.id]?.name ?? ms.id)}`
+      b.innerHTML = `${t(ENDLESS_COPY.milestone.name)}: ${t(MUTATORS[ms.id]?.name ?? ms.id)}<span class="endless-banner-fx">${effectChips(MUTATORS[ms.id]?.effects ?? {})}</span>`
       b.classList.remove('endless-banner--show')
       void b.offsetWidth // restart the animation, same idiom as the boss bump
       b.classList.add('endless-banner--show')

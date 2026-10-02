@@ -50,7 +50,7 @@ import {
   BOOKS, BOOK_ORDER, BOOK_SHOP, shopLines, BOOK_UNLOCKS, playableChapterId, isWipChapter, chapterAvailable, titleBookshelf, CHAPTER_SPINE, isBookFinale, nextBook, bookOf, chapterNumber,
   DMG_SRC_NAME, dmgSrcName, DMG_SRC_ART, dmgSrcArt, DMG_SRC_NO_ART,
   DEATH_OUTRO, irisCoverMul, deathProgress, LANE_CAMERA_FRAC,
-  endlessLevel, endlessHpMul, endlessXpMul, ENDLESS_COIN_HALF_LIFE_S, endlessAffixChance, endlessEligible, endlessUnlocked, endlessAccess, ENDLESS_AFFIX_FROM, ENDLESS_AFFIX_MAX,
+  endlessLevel, ENDLESS_START_LEVEL, endlessHpMul, endlessXpMul, ENDLESS_COIN_HALF_LIFE_S, endlessAffixChance, endlessEligible, endlessUnlocked, endlessAccess, ENDLESS_AFFIX_FROM, ENDLESS_AFFIX_MAX,
   CHAPTERS, CHAPTER_ORDER, nextChapter, CHAPTER_UNLOCK_DIFFICULTY, SUBMISSION_DURATION, SUBMISSION_STRIP_FLAGS,
   RUNOFF_MAX_DMG_MUL, RUNOFF_SPEED_FLOOR,
   ELEMENTS, CONSUMABLES,
@@ -385,7 +385,7 @@ function testDeath() {
 
 function testEndlessConfig() {
   // ramp: D1 at 0, monotone, quadratic (second differences constant and positive)
-  assert.strictEqual(endlessLevel(0), 1)
+  assert.strictEqual(endlessLevel(0), ENDLESS_START_LEVEL)
   const l = [0, 60, 120, 180].map(endlessLevel)
   assert.ok(l[1] > l[0] && l[2] > l[1] && l[3] > l[2], `ramp not increasing: ${l}`)
   const d2a = l[2] - 2 * l[1] + l[0], d2b = l[3] - 2 * l[2] + l[1]
@@ -718,6 +718,7 @@ function testEndlessCrowdAffixes() {
     return run
   }
   const low = mk(0)
+  low._endlessPinLevel = 1
   advance(low, 30, 1 / 30, { x: 1, y: 0 })
   assert.ok(low.enemies.every((e) => e.elite || e.affixes.length === 0), 'no crowd affixes at D1')
   const hi = mk(60 * 30)
@@ -731,6 +732,7 @@ function testEndlessCrowdAffixes() {
   let children
   {
     const run = mk(60 * 30)
+    run._endlessPinLevel = 20   // top affix chance without HP the star cannot chew through
     run.mods.spawnMul = 0
     run.weapons = [{ id: 'star', level: 3 }]
     const splitters = []
