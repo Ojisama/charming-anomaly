@@ -4585,6 +4585,11 @@ export const HYDRANT_JET_PUSH = 300    // px/s^2 outward on enemies inside a liv
                                       // well under a drone's 90px/s walk, so seekers wade back in
                                       // and mill at the rim. A jet that ejected its own targets
                                       // would defeat itself; this is a soft wall, not a repulsor.
+// balance_decision : sim safety net on player entities, oldest go past it (lag) 2026-10-02
+//  - blooms counts only soft clouds: enemy ink and every bilge slick are never evicted or counted
+export const LIVE_CAPS = { blooms: 600, bullets: 3000, homingShots: 1000, lures: 200, holes: 150 }
+// RENDER-ONLY: render.js draws at most this many (the newest); the rest still hit, unseen.
+export const DRAW_CAPS = { blooms: 120, bullets: 500, homingShots: 150, lures: 40, holes: 30 }
 export const ZONE_MAX_LIVE = 12     // cap on simultaneous zones. A fast cast rate plus count can
                                       // otherwise carpet the street with live hydrants.
 // Hard ceiling on streams per hydrant. The render rig allocates this many stream sprites per

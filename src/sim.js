@@ -124,7 +124,7 @@ import {
   TORNADO_SWEEP_R, TORNADO_RESPACE,
   DOWNWASH_PLUNGE_N, DOWNWASH_PLUNGE_FRAC, DOWNWASH_PLUNGE_ARM, DOWNWASH_CAST_FRAC, drawdownSecsFor,
   HYDRANT_LAUNCH_KB, HYDRANT_STUN,
-  HYDRANT_SPRAY_FRAC, HYDRANT_IDLE_FRAC, HYDRANT_JET_PUSH, ZONE_MAX_LIVE, HYDRANT_STAGGER, HYDRANT_STREAMS_FALLBACK, HYDRANT_STREAMS_MAX,
+  HYDRANT_SPRAY_FRAC, HYDRANT_IDLE_FRAC, HYDRANT_JET_PUSH, ZONE_MAX_LIVE, LIVE_CAPS, HYDRANT_STAGGER, HYDRANT_STREAMS_FALLBACK, HYDRANT_STREAMS_MAX,
   // v5.4 skies
   STRAFE_STANDOFF, STRAFE_BANK_T, STRAFE_BANK_SPEED_MUL, STRAFE_TELEGRAPH_T, STRAFE_RUN_T, STRAFE_RUN_SPEED_MUL,
   MISSILE_STANDOFF, MISSILE_HOVER_SPEED_MUL, MISSILE_DEADZONE, MISSILE_FIRE_RANGE, MISSILE_REACQUIRE_T, MISSILE_MAX_LIVE, MISSILE_INTERVAL, MISSILE_COUNT,
@@ -10341,6 +10341,16 @@ function turnDeadElites(run) {
 
 // Shared interval countdown with catch-up: fires as often as needed to absorb
 // a long dt (tab-back), carrying the remainder in run.weaponTimers[id].
+// Drops the OLDEST entries past LIVE_CAPS[key] (arrays are append-ordered), like ZONE_MAX_LIVE: the
+// cast just made survives. `spare` entries are never dropped and do not count toward the cap.
+function capLive(arr, key, spare) {
+  const max = LIVE_CAPS[key]
+  let over = (spare ? arr.reduce((n, e) => n + (spare(e) ? 0 : 1), 0) : arr.length) - max
+  if (over <= 0) return arr
+  return arr.filter((e) => (spare && spare(e)) || over-- <= 0)
+}
+const bloomSpared = (bl) => bl.look === 'inkjet' || bl.look === 'bilge'
+
 function fireOnTimer(run, id, interval, dt, fire) {
   let timer = run.weaponTimers[id]
   if (timer === undefined) timer = interval
@@ -10524,7 +10534,7 @@ function stepBullets(run, dt) {
     // promises a return sweep through a crowd.
     if (b.weapon === 'quill' && b.pierce <= 0 && b.life > 0 && b._reboundsLeft > 0) reboundQuill(run, b)
   }
-  run.bullets = bullets.filter((b) => b.life > 0 && b.pierce > 0)
+  run.bullets = capLive(bullets.filter((b) => b.life > 0 && b.pierce > 0), 'bullets')
 }
 
 // reboundQuills (v6.6.28): turn one quill around for a return sweep. Called from BOTH ends of a
@@ -11137,7 +11147,7 @@ function stepHomingShots(run, dt) {
       }
     }
   }
-  run.homingShots = run.homingShots.filter((h) => h.life > 0 && h.pierce > 0)
+  run.homingShots = capLive(run.homingShots.filter((h) => h.life > 0 && h.pierce > 0), 'homingShots')
 }
 
 // -- Black hole -------------------------------------------------------------------------
@@ -11459,7 +11469,7 @@ function stepHoles(run, dt) {
       }
     }
   }
-  run.holes = run.holes.filter((h) => h.life > 0)
+  run.holes = capLive(run.holes.filter((h) => h.life > 0), 'holes')
 
   for (const e of run.enemies) {
     if (e._dead || pulled.has(e.id)) continue
@@ -11964,7 +11974,7 @@ function stepBlooms(run, dt) {
     if (m._full) { delete m._full; run.blooms.push(m); continue }
     run.blooms.push({ x: m.x, y: m.y, r: 0, maxR: m.maxR, t: 0, dur: m.dur, dmgPerTick: m.dmgPerTick, _mini: true })
   }
-  run.blooms = run.blooms.filter((bl) => bl.t < bl.dur)
+  run.blooms = capLive(run.blooms.filter((bl) => bl.t < bl.dur), 'blooms', bloomSpared)
 }
 
 // -- Stinger (v5.3 garden native) -------------------------------------------------------
@@ -12110,7 +12120,7 @@ function stepLures(run, dt) {
     run.events.push({ type: 'explode', x: lu.x, y: lu.y, radius: lu.burstR })
     if (lu.sticky) run.webs.push({ x: lu.x, y: lu.y, r: LURE_STICKY_R, t: LURE_STICKY_DUR })
   }
-  run.lures = run.lures.filter((lu) => !lu._burst)
+  run.lures = capLive(run.lures.filter((lu) => !lu._burst), 'lures')
 }
 
 // ---- v5.4 natives (undergrowth / city / skies / beyond) --------------------------------

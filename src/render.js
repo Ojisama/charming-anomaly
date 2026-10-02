@@ -39,6 +39,7 @@ import { currentForce, tideForce } from './sim.js'
 // The Kraken's ceremony (name card, phase beats, the kill). Its own import line so it merges clean.
 import { KRAKEN_BEATS, KRAKEN_CEREMONY, KRAKEN_OUTRO } from './config.js'
 import { TRAWL_WIGGLE_ARC, KRAKEN_GRIP_FLICKS } from './config.js'
+import { DRAW_CAPS } from './config.js'
 import { t as tr } from './i18n.js'
 
 
@@ -18072,6 +18073,12 @@ const spurG = new Graphics()
   // ONE fade for two readers that must not drift: the puffs' alpha here, and the light a Foxfire
   // punches into the dark (updateDark). A cloud whose light outlives its body is a lamp on an empty
   // patch of floor.
+  // The newest DRAW_CAPS[key] entries of a sim array (append-ordered). Past the cap the screen is
+  // already covered, so the rest keep dealing damage without a sprite each.
+  function newest(arr, key) {
+    const n = DRAW_CAPS[key]
+    return arr.length > n ? arr.slice(-n) : arr
+  }
   function bloomFade(bl) {
     const dur = Math.max(0.001, bl.dur)
     return Math.max(0, Math.min(Math.min(1, bl.t / (dur * 0.2)), Math.min(1, (dur - bl.t) / (dur * 0.25))))
@@ -18093,14 +18100,12 @@ const spurG = new Graphics()
   const FOX_FLIES = Math.round(FOXFIRE_SWARM.flies * (1 + FOXFIRE_SWARM.perLevel * (WEAPONS.foxfire.levels.length - 1)))
   const FOX_TRAIL = 3
   const BLOOM_PUFFS = FOX_FLIES * FOX_TRAIL
+  // Puffs are grown on demand up to BLOOM_PUFFS: a silt disc uses 3 of a foxfire's 42, and with
+  // hundreds of clouds alive the unused 39 were most of the frame's sprite writes.
   function acquireBloom() {
     const root = new Container()
-    const puffs = []
-    for (let i = 0; i < BLOOM_PUFFS; i++) {
-      const s = new Sprite(T.fx.circle_05); s.anchor.set(0.5); root.addChild(s); puffs.push(s)
-    }
     bloomLayer.addChild(root)
-    return { root, puffs }
+    return { root, puffs: [] }
   }
   function syncBlooms(run) {
     // ⚠ `bilge` IS EXCLUDED HERE because syncSlicks draws it instead — with a lobed outline and a
@@ -18110,7 +18115,11 @@ const spurG = new Graphics()
     // a filter.
     // `bilge` excluded because syncSlicks already draws
     // both, and a bloom drawn twice is an edge with a glow sitting over it.
-    const list = (run.blooms || []).filter((b) => b.look !== 'bilge')
+    const all = (run.blooms || []).filter((b) => b.look !== 'bilge')
+    // DRAW_CAPS: the newest clouds are drawn, the rest still tick unseen; enemy ink is always drawn.
+    const list = all.length > DRAW_CAPS.blooms
+      ? [...all.filter((b) => b.look === 'inkjet'), ...newest(all.filter((b) => b.look !== 'inkjet'), 'blooms')]
+      : all
     const n = list.length
     while (bloomPool.length < n) bloomPool.push(acquireBloom())
     // v6.4 Tide-Carried (WEAPON_MODS.bloom.tideCarried): with picks held, stepBlooms drifts each
@@ -18176,7 +18185,13 @@ const spurG = new Graphics()
       const half = cone ? Math.sin(bl.arc / 2) : 0
       bv.root.rotation = cone ? bl.angle : 0
       const used = fox ? (bl.flies ?? FOXFIRE_SWARM.flies) * FOX_TRAIL : cone ? CONE_PUFFS : 3
-      for (let k = 0; k < BLOOM_PUFFS; k++) {
+      while (bv.puffs.length < used) {
+        const s = new Sprite(T.fx.circle_05); s.anchor.set(0.5); bv.root.addChild(s); bv.puffs.push(s)
+      }
+      // Walks only the puffs shown now or last frame: a slot that once held a foxfire keeps 42.
+      const walk = Math.max(used, bv.shown ?? bv.puffs.length)
+      bv.shown = used
+      for (let k = 0; k < walk; k++) {
         const s = bv.puffs[k]
         s.visible = k < used
         if (k >= used) continue
@@ -29329,7 +29344,7 @@ void main() {
     syncPlayer(run.player, dt, run.rampageT || 0, playerBuffs(run), deathP)
     syncEnemies(run)
     syncBlooms(run)
-    syncLures(run.lures || [])
+    syncLures(newest(run.lures || [], 'lures'))
     redrawBombs(run)
     redrawStrips(run)
     redrawLanes(run)
@@ -29356,7 +29371,7 @@ void main() {
     redrawMown()                     // after syncCars: it is what grows the stripe this frame
     syncLobs(run)
 
-    syncPool(bulletPool, bulletLayer, run.bullets, 'bullet', T.bullet, placeBullet)
+    syncPool(bulletPool, bulletLayer, newest(run.bullets, 'bullets'), 'bullet', T.bullet, placeBullet)
     syncPool(novaPool, novaLayer, run.novas, 'nova', T.nova, placeNova)
     syncPool(orbPool, orbLayer, run.orbs, 'orb', T.orb, placeOrb)
     // The chain FIRST, so it is added to orbLayer before any screw sprite and therefore draws under
@@ -29369,10 +29384,10 @@ void main() {
     syncPool(coinPool, coinLayer, onScreenPickups(run.coins, coinsShown, cx, cy), 'coin', T.coin, placeCoin)
     syncPool(boomerangPool, boomerangLayer, run.boomerangs, 'boomerang', T.boomerang, placeBoomerang)
     syncPool(minePool, mineLayer, run.mines, 'mine', T.mine, placeMine)
-    syncPool(homingPool, homingLayer, run.homingShots, 'homing', T.homing, placeHoming)
+    syncPool(homingPool, homingLayer, newest(run.homingShots, 'homingShots'), 'homing', T.homing, placeHoming)
     syncTornadoes(run.debris || [])
     syncPool(shotPool, shotLayer, run.enemyShots || [], 'shot', T.missile, placeShot)
-    syncHoles(run.holes)
+    syncHoles(newest(run.holes, 'holes'))
     // v5.22: expand a SWEPT beam into one drawn arm per damaging arm. syncBeams draws a single
     // sprite per run.beams entry, so the opposite arm has never been drawn at all — it dealt
     // damage down a line with nothing on screen. Fan mode made that visible rather than causing it:
