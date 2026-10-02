@@ -250,7 +250,7 @@ import {
   // v6.4.3 (owner directive): opening spawn credit
   SPAWN_OPENING_CREDIT,
   // v6.5.1 (owner directive): enemy separation — no more 100% stacks
-  ENEMY_SEP_FRAC, ENEMY_SEP_RESOLVE, ENEMY_SEP_CELL,
+  ENEMY_SEP_FRAC, ENEMY_SEP_RESOLVE, ENEMY_SEP_CELL, ENEMY_QUERY_CELL, ENEMY_QUERY_MAX_CELLS,
   // v6.7.11: the level-up reroll's price ladder — rerollLevelUpChoices owns the whole purchase
   rerollCost,
   difficultySpeedMul, difficultyCountMul, difficultyDmgMul, endlessLevel, endlessHpMul, endlessXpMul, ENDLESS_COIN_HALF_LIFE_S, ENDLESS_COUNT_MUL_MAX,
@@ -4227,7 +4227,7 @@ function spawnEnemy(run, opts = {}) {
   // read the newborn straight back. Those three take the RETURN VALUE instead, so no caller has
   // to index run.enemies to find what it just made.
   if (opts.deferred) (run._spawnQueue ??= []).push(born)
-  else run.enemies.push(born)
+  else { run.enemies.push(born); nbDirty() }
   // v6.3 dispatch beat (CHAPTERS[].dispatch, currently city only): a REAL elite birth here — never
   // a spawner's minions, which always pass forceNormal and so never reach isElite — fires the
   // "pest control has been reported" fiction beat. render.js draws the strobe, main.js plays the
@@ -8441,6 +8441,56 @@ function stepEnemySeparation(run) {
   }
 }
 
+// ---- Weapon-phase neighbour grid ----------------------------------------------------------
+// elArc, tryChainBullet and firstOnRay each scanned EVERY enemy per hit; at 1,000 enemies and a
+// late endless build that was most of a step. While stepWeapons runs they read this grid instead,
+// and it must give the scan's exact answer: it rebuilds when the list changes (identity, length,
+// or nbDirty() from spawnEnemy) or a weapon drags a body (nbDirty() at each such write), and every
+// caller breaks ties on array index, which is what the scans' first-wins order was.
+let _nbOn = false
+let _nbDirty = true
+let _nbArr = null
+let _nbLen = -1
+let _nbMaxR = 0
+const _nbCells = new Map()  // packed cell key -> [index, ...]
+const _nbOut = []
+function nbDirty() { _nbDirty = true }
+// Indices of every enemy whose cell overlaps the box [x0,x1]x[y0,y1], or null for "scan the whole
+// list" (outside stepWeapons, or a box too big for the grid to pay). Reused array: consume it
+// before the next query.
+// padR also pads the box by the widest body (a ray counts any disc touching its axis).
+function nbQuery(run, x0, y0, x1, y1, padR = false) {
+  if (!_nbOn) return null
+  const es = run.enemies
+  if (_nbDirty || _nbArr !== es || _nbLen !== es.length) {
+    _nbCells.clear()
+    _nbMaxR = 0
+    for (let i = 0; i < es.length; i++) {
+      const e = es[i]
+      if (e.radius > _nbMaxR) _nbMaxR = e.radius
+      const key = sepKey(Math.floor(e.x / ENEMY_QUERY_CELL), Math.floor(e.y / ENEMY_QUERY_CELL))
+      const c = _nbCells.get(key)
+      if (c) c.push(i)
+      else _nbCells.set(key, [i])
+    }
+    _nbDirty = false
+    _nbArr = es
+    _nbLen = es.length
+  }
+  const pad = padR ? _nbMaxR : 0
+  const i0 = Math.floor((x0 - pad) / ENEMY_QUERY_CELL), i1 = Math.floor((x1 + pad) / ENEMY_QUERY_CELL)
+  const j0 = Math.floor((y0 - pad) / ENEMY_QUERY_CELL), j1 = Math.floor((y1 + pad) / ENEMY_QUERY_CELL)
+  if (!((i1 - i0 + 1) * (j1 - j0 + 1) <= ENEMY_QUERY_MAX_CELLS)) return null  // also catches NaN
+  _nbOut.length = 0
+  for (let i = i0; i <= i1; i++) {
+    for (let j = j0; j <= j1; j++) {
+      const c = _nbCells.get(sepKey(i, j))
+      if (c) for (let k = 0; k < c.length; k++) _nbOut.push(c[k])
+    }
+  }
+  return _nbOut
+}
+
 // Push one pair of enemies apart if they're stacked past ENEMY_SEP_FRAC of their combined radii.
 // a, b are the bodies; i, j are their run.enemies indices with i < j (see the two call sites above)
 // and are read ONLY by the coincident branch below, which needs a deterministic per-pair angle.
@@ -9738,15 +9788,19 @@ function elArc(run, source, P, dmgDealt) {
   const range = SHOCK_RANGE * (1 + EL_LIGHT_RANGE * k)
   const rangeSq = range * range
   const near = []
-  for (const e of run.enemies) {
+  const es = run.enemies
+  const ids = nbQuery(run, source.x - range, source.y - range, source.x + range, source.y + range)
+  for (let n = 0, len = ids ? ids.length : es.length; n < len; n++) {
+    const i = ids ? ids[n] : n
+    const e = es[i]
     if (e === source || e._dead || isAlly(e)) continue
     const dx = e.x - source.x, dy = e.y - source.y
     const dSq = dx * dx + dy * dy
-    if (dSq <= rangeSq) near.push({ e, dSq })
+    if (dSq <= rangeSq) near.push({ e, dSq, i })
   }
   if (near.length === 0) return
   source._shockCd = SHOCK_CD
-  near.sort((a, b) => a.dSq - b.dSq)
+  near.sort((a, b) => a.dSq - b.dSq || a.i - b.i)
   const targets = near.slice(0, arcs).map((n) => n.e)
 
   const arcDmg = Math.round(EL_LIGHT_SHARE * k * dmgDealt)
@@ -10124,6 +10178,11 @@ export function buildReadout(run) {
 }
 
 function stepWeapons(run, dt) {
+  _nbOn = true
+  _nbDirty = true
+  try { stepWeaponsInner(run, dt) } finally { _nbOn = false }
+}
+function stepWeaponsInner(run, dt) {
   const p = run.player
   run.orbs = []
   // run.debris is NOT cleared here. v6.8: a tornado carries its own position between frames
@@ -10341,11 +10400,17 @@ function tryChainBullet(run, b, fromEnemy) {
   const rangeSq = STAR_CHAIN_RANGE * STAR_CHAIN_RANGE
   let target = null
   let bestSq = Infinity
-  for (const e of run.enemies) {
+  let bestI = Infinity
+  const es = run.enemies
+  const R = STAR_CHAIN_RANGE
+  const ids = nbQuery(run, fromEnemy.x - R, fromEnemy.y - R, fromEnemy.x + R, fromEnemy.y + R)
+  for (let n = 0, len = ids ? ids.length : es.length; n < len; n++) {
+    const i = ids ? ids[n] : n
+    const e = es[i]
     if (e._dead || isAlly(e) || b.hitIds.has(e.id)) continue   // SUBMISSION: pass THROUGH an ally — immune, but blocks nothing
     const dx = e.x - fromEnemy.x, dy = e.y - fromEnemy.y
     const dSq = dx * dx + dy * dy
-    if (dSq <= rangeSq && dSq < bestSq) { bestSq = dSq; target = e }
+    if (dSq <= rangeSq && (dSq < bestSq || (dSq === bestSq && i < bestI))) { bestSq = dSq; bestI = i; target = e }
   }
   if (!target) return false
 
@@ -11304,6 +11369,7 @@ function stepHoles(run, dt) {
         const radial = Math.min(d, radialSpeed * dt) // never fling an enemy past the center
         e.x += ux * radial - uy * tangentSpeed * dt
         e.y += uy * radial + ux * tangentSpeed * dt
+        nbDirty()
 
         e.holePull = Math.max(e.holePull ?? 0, t)
         // WHICH hole has hold of it, for contactHarmless: a body a water column is ragdolling
@@ -11438,11 +11504,19 @@ function inBeamArm(run, b, e, angle) {
 function firstOnRay(run, ox, oy, angle, len, width, hit) {
   let best = null
   let bestD = Infinity
-  for (const e of run.enemies) {
+  let bestI = Infinity
+  const es = run.enemies
+  const ex = Math.cos(angle) * len, ey = Math.sin(angle) * len
+  const w = width / 2
+  const ids = nbQuery(run, Math.min(ox, ox + ex) - w, Math.min(oy, oy + ey) - w, Math.max(ox, ox + ex) + w, Math.max(oy, oy + ey) + w, true)
+  for (let n = 0, cnt = ids ? ids.length : es.length; n < cnt; n++) {
+    const i = ids ? ids[n] : n
+    const e = es[i]
     if (e._dead || isAlly(e) || hit.has(e.id)) continue   // SUBMISSION: light must not bend off your ally ("blocks nothing")
     const d = alongRay(ox, oy, angle, len, width, e)
-    if (d < 0 || d >= bestD) continue
+    if (d < 0 || d > bestD || (d === bestD && i > bestI)) continue
     bestD = d
+    bestI = i
     best = e
   }
   return best
@@ -11786,6 +11860,7 @@ function stepBlooms(run, dt) {
             const pull = Math.min(fd, OIL_FUNNEL_PULL * _fun * dt)
             e.x += (fdx / fd) * pull
             e.y += (fdy / fd) * pull
+            nbDirty()
           }
         }
         // AND OIL STAINS PERMANENTLY. Gated on look:'bilge' and nothing else — this loop also
@@ -13180,6 +13255,7 @@ function stepDrags(run, dt) {
     const k = Math.min(1, dt / Math.max(1e-6, d.dur - (d.t - dt)))  // fraction of the REMAINING gap
     e.x += (p.x - e.x) * k
     e.y += (p.y - e.y) * k
+    nbDirty()
     e.kb.x = 0; e.kb.y = 0    // the reel owns this body's motion; a leftover shove would fight it
     if (d.dmg > 0) {
       for (const other of run.enemies) {
@@ -14306,6 +14382,7 @@ function stepHauls(run, dt) {
     const ux = dx / d, uy = dy / d
     e.x += ux * step
     e.y += uy * step
+    nbDirty()
     h.x = e.x; h.y = e.y
     // THE CORRIDOR. Everything within `width` of the catch takes the plough tick — the value of this
     // card is the NUMBER OF BODIES it drags through, never the number on any one of them, which is
@@ -14339,6 +14416,7 @@ function stepHauls(run, dt) {
       // Fades to nothing at the corridor's edge: a body already clear of the line is not shoved
       // further out, so the effect states the extent instead of pushing past it.
       const fall = 1 - Math.min(1, Math.abs(side) / (h.width + e.radius))
+      nbDirty()
       o.x += -uy * s * BRING_SHOVE * fall * dt
       o.y += ux * s * BRING_SHOVE * fall * dt
     }

@@ -5779,6 +5779,10 @@ export const ENEMY_SEP_RESOLVE = 1
 // ENEMIES.tank.radius) = ~51px at FRAC 0.65 — under 64, but that is the headroom: raising
 // ENEMY_SEP_FRAC past ~0.8 needs this cell raised with it or the biggest pairs stop separating.
 export const ENEMY_SEP_CELL = 64
+// px, cell of the weapon-phase neighbour grid (elArc, tryChainBullet, firstOnRay). A query whose
+// box spans more than ENEMY_QUERY_MAX_CELLS cells scans the whole list instead.
+export const ENEMY_QUERY_CELL = 128
+export const ENEMY_QUERY_MAX_CELLS = 64
 
 // ---- Progression ---------------------------------------------------------------
 // balance_decision : levels past 75 cost quadratically more xp (endless lag) 2026-10-02
