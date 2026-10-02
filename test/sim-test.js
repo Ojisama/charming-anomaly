@@ -728,24 +728,28 @@ function testEndlessCrowdAffixes() {
   assert.ok(aff.length / normals.length > ENDLESS_AFFIX_MAX * 0.6, `share ${aff.length}/${normals.length}`)
   assert.ok(aff.every((e) => e.affixVisible && e.affixes.length === 1 && e.affixes[0] !== 'anchored'))
   // splitter children (forceNormal) never roll, even at the top of the ramp
+  let children
   {
     const run = mk(60 * 30)
     run.mods.spawnMul = 0
     run.weapons = [{ id: 'star', level: 3 }]
+    const splitters = []
     for (let k = 0; k < 8; k++) {
       const t = makeStatusEnemy(run, { x: 50, y: k * 6 - 20, hp: 10, speed: 0, affixes: ['splitter'] })
       t.affixVisible = true
       run.enemies.push(t)
+      splitters.push(t)
     }
     // a corpse's children are BORN on it; the crowd is born off-screen but can walk in, so judge birthplace
-    const children = []
-    for (let i = 0; i < 90 && run.kills < 8; i++) {
+    children = []
+    for (let i = 0; i < 300 && splitters.some((s) => run.enemies.includes(s)); i++) {
       if (run.phase === 'levelup') { declineLevelUp(run); continue }
       const before = new Set(run.enemies)
       stepSim(run, { x: 0, y: 0 }, 1 / 30)
       for (const e of run.enemies) if (!before.has(e) && e.type === 'wisp' && Math.hypot(e.x - 50, e.y) < 150) children.push(e)
     }
-    assert.ok(run.difficulty > 10 && children.length >= 1, `children ${children.length} d=${run.difficulty}`)
+    // >= 8: at the top affix chance (0.5) a leak survives 8 children with p = 0.4%
+    assert.ok(run.difficulty > 10 && children.length >= 8, `children ${children.length} d=${run.difficulty}`)
     assert.ok(children.every((e) => e.affixes.length === 0), `child rolled an affix: ${JSON.stringify(children.filter((e) => e.affixes.length).map((e) => e.affixes))} of ${children.length}`)
   }
   // EFFECTS, on a hand-made normal enemy (affixVisible is the only difference from the control)
@@ -773,7 +777,7 @@ function testEndlessCrowdAffixes() {
   assert.ok(vol.kills > 0 && vol.bombs === 1, `volatile normal should leave a bomb: ${vol.bombs}`)
   const ctl = probe('volatile', false, 10)
   assert.ok(ctl.kills > 0 && ctl.bombs === 0, 'control: unflagged leaves no bomb')
-  console.log(`PASS run EN.g (crowd affixes): ${aff.length}/${normals.length} affixed at d=${hi.difficulty.toFixed(1)}`)
+  console.log(`PASS run EN.g (crowd affixes): ${aff.length}/${normals.length} affixed at d=${hi.difficulty.toFixed(1)}, 0/${children.length} splitter children`)
 }
 
 function testVictory() {
