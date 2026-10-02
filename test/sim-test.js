@@ -107,7 +107,7 @@ import {
   BLANK_XREACT_READ1_MUL, BLANK_XREACT_READ3_K,
   BLANK_BAND_ANGLES, BLANK_BAND_ANGLES_MATURE, BLANK_FAN_N_MATURE,
   // v6.3.4 anti-turtle pass (Run MM)
-  ENEMIES, dmgScale, difficultyDmgMul, difficultySpeedMul, difficultyCountMul, ENDLESS_COUNT_MUL_MAX, XP_LATE_FROM, DIFFICULTY_DMG_PER_LEVEL, HURT_CAP_FRAC,
+  ENEMIES, dmgScale, difficultyDmgMul, difficultySpeedMul, difficultyCountMul, ENDLESS_COUNT_MUL_MAX, XP_LATE_FROM, PICKUP_MERGE_R, DIFFICULTY_DMG_PER_LEVEL, HURT_CAP_FRAC,
   // v6.4 pond identity (Run NN)
   BLOOM_SLOW, TIDE_DMG_BONUS, TIDE_TURN, MINE_STUN, SOAP_INTERVAL,
   // v6.4.1/v6.4.3 early-calm (Run OO)
@@ -707,6 +707,44 @@ function testEndlessCoins() {
   console.log(`PASS run EN.e (endless coins): x${want.toFixed(2)} at t=${run.time.toFixed(0)}s, earned -> ${after}`)
 }
 
+// Effect: drops landing close together fuse into one floor object and lose nothing; drops far
+// apart stay separate; a pickup already flying to the player is never fused into.
+function testPickupMerge() {
+  Math.random = mulberry32(20261002)
+  const dt = 1 / 60
+  const run = createRun(makeMeta())
+  run.mods.spawnMul = 0
+  run.weapons = [{ id: 'star', level: 3 }]
+  run.player.x = 0; run.player.y = 0
+  const spots = [[200, 0], [200 + PICKUP_MERGE_R * 0.6, 0], [200, -100]]   // two inside the radius, one far
+  const elites = spots.map(([x, y]) => makeStatusEnemy(run, { x, y, hp: 10, speed: 0, elite: true }))
+  run.enemies.push(...elites)
+  const wantXp = elites.reduce((n, e) => n + e.xp * ELITE.xpMul, 0)
+  for (let i = 0; i < 600 && run.kills < 3; i++) {
+    if (run.phase === 'levelup') { declineLevelUp(run); continue }
+    stepSim(run, { x: 0, y: 0 }, dt)
+  }
+  assert.strictEqual(run.kills, 3, `fixture: ${run.kills}/3 elites died`)
+  const xp = run.gems.reduce((n, g) => n + g.xp, 0), coins = run.coins.reduce((n, c) => n + c.value, 0)
+  assert.strictEqual(run.gems.length, 2, `3 gems (2 close, 1 far) should leave 2 on the floor, got ${run.gems.length}`)
+  assert.ok(Math.abs(xp - wantXp) < 1e-9, `xp not conserved: ${xp} vs ${wantXp}`)
+  assert.strictEqual(coins, 3 * ELITE.coins, `coins not conserved: ${coins}`)
+  assert.ok(run.coins.length <= 4, `${3 * ELITE.coins} coins left ${run.coins.length} piles`)
+  // a gem already homing in (_vac) takes nothing: the next kill on top of it lands as its own gem
+  for (const g of run.gems) g._vac = true
+  const lone = makeStatusEnemy(run, { x: run.gems[0].x, y: run.gems[0].y, hp: 10, speed: 0 })
+  const before = run.gems.map((g) => g.xp)
+  run.enemies.push(lone)
+  for (let i = 0; i < 300 && run.kills < 4; i++) {
+    if (run.phase === 'levelup') { declineLevelUp(run); continue }
+    stepSim(run, { x: 0, y: 0 }, dt)
+  }
+  assert.strictEqual(run.kills, 4, 'fixture: the lone kill never landed')
+  assert.ok(run.gems.some((g) => !g._vac), 'the kill fused into a homing gem instead of dropping its own')
+  for (const g of run.gems.filter((g) => g._vac)) assert.ok(before.includes(g.xp), `a homing gem grew to ${g.xp}`)
+  console.log(`PASS run PM (pickup merge): 3 elite kills -> ${run.gems.length - 1} gems + ${run.coins.length} coin piles, xp ${xp.toFixed(1)} and ${coins} coins conserved`)
+}
+
 function testEndlessCrowdAffixes() {
   Math.random = mulberry32(20261003)
   const mk = (t) => {
@@ -1273,6 +1311,20 @@ function testAnomalySlate() {
       assert.strictEqual(shown, r.player.hp - before,
         `AVARICE's coin events promised +${shown} HP but the player gained ${r.player.hp - before} — the floating number would be lying about a clamped heal`)
       assert.ok(healEvents[0].heal <= 2, `first conversion 2 HP below full reported +${healEvents[0].heal}, want <= 2 (clamped)`)
+    }
+    // A FUSED PILE IS ITS COINS: one pile of 200 rolls 200 times, so on the same seed it heals and
+    // pays exactly what 200 loose coins do. One roll per pile would quietly shrink the card.
+    {
+      const pick = (lay) => {
+        const r = withCard('avarice', (x) => { x.player.maxHP = 5000; x.player.hp = 100 })
+        lay(r)
+        stepSim(r, { x: 0, y: 0 }, dt)
+        return { hp: r.player.hp, coins: r.coinsEarned }
+      }
+      const loose = pick((r) => { for (let i = 0; i < 200; i++) r.coins.push({ x: 0, y: 0, value: 1 }) })
+      const pile = pick((r) => r.coins.push({ x: 0, y: 0, value: 200 }))
+      assert.ok(loose.hp > 100, 'fixture: the loose coins healed nothing')
+      assert.deepStrictEqual(pile, loose, `a pile of 200 ${JSON.stringify(pile)} != 200 loose coins ${JSON.stringify(loose)}`)
     }
   }
 
@@ -3804,7 +3856,7 @@ function testAffixes() {
         if (run.kills > 0) killed = true
       }
       assert(killed, 'expected the elite to die')
-      return run.coins.length
+      return run.coins.reduce((n, c) => n + c.value, 0)   // drops fuse into piles: count value, not objects
     }
     const plainCoins = killElite([])
     const gildedCoins = killElite(['gilded'])
@@ -8414,7 +8466,7 @@ function runTurtleJackpot() {
     }
     assert.strictEqual(r.kills, 1, `precondition: the ${rosterId} must die within 12s`)
     stepSim(r, { x: 0, y: 0 }, dt)   // one more step, so the level check runs on the granted xp
-    const coinsAtBody = r.coins.filter((c) => Math.hypot(c.x - e.x, c.y - e.y) <= 40).length
+    const coinsAtBody = r.coins.filter((c) => Math.hypot(c.x - e.x, c.y - e.y) <= 40).reduce((n, c) => n + c.value, 0)
     return { levelled: r.phase === 'levelup' || r.player.level > level0, coinsAtBody, jackpots }
   }
   const turtle = killOne('turtle')
@@ -20626,6 +20678,7 @@ try {
   run(testEndlessXpTaper)
   run(testEndlessCoins)
   run(testEndlessCrowdAffixes)
+  run(testPickupMerge)
   run(testEndlessMilestones)
   run(testEndlessMeta)
   run(testEndlessAccess)
