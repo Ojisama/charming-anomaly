@@ -11,7 +11,13 @@
 // under app.stage. The screenshot taken after each frame call shows that crowd.
 // ⚠ chrome-headless-shell renders WebGL in software (SwiftShader): `render` ms are CPU-for-GPU and
 // not a phone number. Read the GROWTH between minutes and the sync column (pure JS), not absolutes.
-const mins = (new URLSearchParams(location.search).get('mins') || '5,10,20,30').split(',').map(Number)
+//
+// ?maxed=1 — the FAST sweep: no autopilot fast-forward. Frame i JUMPS run.time to mins[i] (the
+// endless level reads the clock), devTakes every weapon in the chapter pool to MAX_WEAPON_LEVEL and
+// every one of their mods (once, first frame), plays 30s so the crowd fills, then times. devTake
+// ignores switch exclusivity, so this is a CEILING build, not a realistic one.
+const maxed = new URLSearchParams(location.search).get('maxed') === '1'
+const mins =(new URLSearchParams(location.search).get('mins') || '5,10,20,30').split(',').map(Number)
 if (!run.endless) throw new Error('run is not endless — pass the --meta in this file\'s header')
 const result = { chapter: run.chapter, rows: [] }
 window.__fxResult = result
@@ -26,7 +32,34 @@ let i = 0
 return async () => {
   const sim = await import('/src/sim.js')
   const target = mins[Math.min(i++, mins.length - 1)] * 60
-  sim.fastForwardEndless(run, target)
+  if (maxed) {
+    if (i === 1) {
+      const { CHAPTERS, MAX_WEAPON_LEVEL, WEAPON_MODS } = await import('/src/config.js')
+      const pool = CHAPTERS[run.chapter].weapons
+      const card = (pred) => sim.devCards(run).find(pred)
+      for (const id of pool) {
+        while ((run.weapons.find((w) => w.id === id)?.level ?? 0) < MAX_WEAPON_LEVEL) {
+          const before = run.weapons.find((w) => w.id === id)?.level ?? 0
+          sim.devTake(run, card((c) => c.kind === 'weapon' && c.id === id))
+          if ((run.weapons.find((w) => w.id === id)?.level ?? 0) === before) throw new Error('devTake did not level ' + id)
+        }
+        for (const mid of Object.keys(WEAPON_MODS[id] ?? {})) {
+          const c = card((c) => c.kind === 'mod' && c.weapon === id && c.id === mid)
+          if (!c) throw new Error('no dev card for mod ' + id + '.' + mid)
+          sim.devTake(run, c)
+        }
+      }
+      run.phase = 'playing'
+      result.build = run.weapons.length + ' weapons, ' + pool.length + ' in pool'
+    }
+    run.time = Math.max(run.time, target)
+    for (let f = 0; f < 900; f++) {
+      step(run, { x: Math.cos(f / 60), y: Math.sin(f / 60) }, 1 / 30)
+      run.events.length = 0
+      if (run.phase === 'levelup') { sim.applyChoice(run, sim.autopilotPick(run, run.levelUpChoices)); run.phase = 'playing' }
+      run.player.hp = run.player.maxHP
+    }
+  } else sim.fastForwardEndless(run, target)
   run.events.length = 0
   window.__renderer.sync(run, 0, [])
   const t = { step: [], sync: [], draw: [] }
