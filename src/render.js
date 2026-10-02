@@ -17495,6 +17495,17 @@ const spurG = new Graphics()
   const orbPool = []
   const gemPool = []
   const coinPool = []
+  const gemsShown = []
+  const coinsShown = []
+  const PICKUP_CULL_PAD = 32 // px, past the edge so a gem's pulse never pops in
+  // cx/cy: the world offset sync() computes (screen = (world + c) * zoom).
+  function onScreenPickups(list, out, cx, cy) {
+    const x0 = -cx - PICKUP_CULL_PAD, x1 = -cx + viewW() + PICKUP_CULL_PAD
+    const y0 = -cy - PICKUP_CULL_PAD, y1 = -cy + viewH() + PICKUP_CULL_PAD
+    out.length = 0
+    for (const it of list) if (it.x >= x0 && it.x <= x1 && it.y >= y0 && it.y <= y1) out.push(it)
+    return out
+  }
   const boomerangPool = []
   const minePool = []
   const homingPool = []
@@ -29353,8 +29364,9 @@ void main() {
     if (!screwChainG.parent) orbLayer.addChild(screwChainG)
     syncScrewChain(run)
     syncPool(screwPool, orbLayer, run.screws, 'screw', T.screw, placeScrew)
-    syncPool(gemPool, gemLayer, run.gems, 'gem', T.gem, placeGem)
-    syncPool(coinPool, coinLayer, run.coins, 'coin', T.coin, placeCoin)
+    // Endless floors pile up 50k+ pickups; only the ones on screen get a sprite.
+    syncPool(gemPool, gemLayer, onScreenPickups(run.gems, gemsShown, cx, cy), 'gem', T.gem, placeGem)
+    syncPool(coinPool, coinLayer, onScreenPickups(run.coins, coinsShown, cx, cy), 'coin', T.coin, placeCoin)
     syncPool(boomerangPool, boomerangLayer, run.boomerangs, 'boomerang', T.boomerang, placeBoomerang)
     syncPool(minePool, mineLayer, run.mines, 'mine', T.mine, placeMine)
     syncPool(homingPool, homingLayer, run.homingShots, 'homing', T.homing, placeHoming)
