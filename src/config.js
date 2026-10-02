@@ -5321,6 +5321,9 @@ export const ENDLESS_COPY = {
   noAnomalies: { name: 'No anomalies — a new one arrives every {n} minutes' },
 }
 export const endlessEligible = (id) => !!CHAPTERS[id] && !CHAPTERS[id].scripted && !CHAPTERS[id].circuit
+// Who may SEE and PLAY endless: dev, or a server-allowlisted beta tester (meta.betaEndless, set by main.js
+// from the Worker's /v1/beta). Speedrun / Play now / dev speed stay meta.dev only.
+export const endlessAccess = (meta) => meta?.dev === true || meta?.betaEndless === true
 export const endlessUnlocked = (meta, id) => endlessEligible(id)
   && (meta?.chapters?.[id]?.won ?? 0) >= CHAPTER_UNLOCK_DIFFICULTY
   && (!isWipChapter(id) || meta?.dev === true)

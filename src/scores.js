@@ -14,6 +14,8 @@
 // Add `__SCORES_URL__` beside `__BUILD_STAMP__` in vite.config.js if a fork ever needs its own.
 const SCORES_URL = 'https://charming-anomaly-sync.ojisama-san.workers.dev/scores'
 
+const BETA_URL = 'https://charming-anomaly-sync.ojisama-san.workers.dev/v1/beta'
+
 // A dead network must not leave the podium spinning forever, and the game has no other loading
 // state to borrow. Eight seconds is past any healthy round trip and short enough to read as "this
 // is not coming".
@@ -87,6 +89,18 @@ async function call(url, init) {
 // circuit's best single lap. Which pair a chapter draws is a game fact and lives in
 // CHAPTERS[].boards (config.js); ui.js reads it. Rows never mix across chapters, so one duration
 // column meaning two things is safe; the unit is reconciled at the submit site (main.js).
+// -> true | false, or null on any failure (caller keeps its cached answer). Allowlisted beta testers only.
+export async function fetchBeta(nick) {
+  try {
+    const res = await fetch(`${BETA_URL}?nick=${encodeURIComponent(nick)}`, { signal: AbortSignal.timeout(TIMEOUT_MS) })
+    if (!res.ok) return null
+    const body = await res.json()
+    return typeof body?.endless === 'boolean' ? body.endless : null
+  } catch {
+    return null
+  }
+}
+
 export function fetchBoards(chapter, difficulty) {
   return call(`${SCORES_URL}?chapter=${encodeURIComponent(chapter)}&difficulty=${difficulty}`)
 }

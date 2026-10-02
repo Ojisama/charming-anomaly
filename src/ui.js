@@ -1,5 +1,5 @@
 // DOM overlay inside #ui: title, shop, HUD, level-up, pause, summary. No Pixi.
-import { shopCost, refundValue, REFUND_RATE, shopLines, shopLineUnlocked, chaptersMastered, lineMax, SHOP_FAMILY, RUN_DURATION, RARITIES, modPct, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, MUTATOR_EFFECT_LABELS, CONSUMABLES, MAX_DIFFICULTY, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, SACRIFICE_COSTS, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES, chapterNumber, CHAPTERS, CHAPTER_ORDER, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, HIDDEN_UNLOCKS, titleBookshelf, spineName, chaosStatus, pulseCost, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS, bookOf, BOOK_ORDER, BOOKS, BOOK_UNLOCKS, unlockCost, unlockLevel, unlockMax, dmgSrcName, dmgSrcArt, passiveEffectText, CHAPTER_BOARDS_DEFAULT, KRAKEN_PARRY_CD, hasSkillButton, ENDLESS_COPY, ENDLESS_MILESTONE_S, endlessUnlocked } from './config.js'
+import { shopCost, refundValue, REFUND_RATE, shopLines, shopLineUnlocked, chaptersMastered, lineMax, SHOP_FAMILY, RUN_DURATION, RARITIES, modPct, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, MUTATOR_EFFECT_LABELS, CONSUMABLES, MAX_DIFFICULTY, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, SACRIFICE_COSTS, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES, chapterNumber, CHAPTERS, CHAPTER_ORDER, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, HIDDEN_UNLOCKS, titleBookshelf, spineName, chaosStatus, pulseCost, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS, bookOf, BOOK_ORDER, BOOKS, BOOK_UNLOCKS, unlockCost, unlockLevel, unlockMax, dmgSrcName, dmgSrcArt, passiveEffectText, CHAPTER_BOARDS_DEFAULT, KRAKEN_PARRY_CD, hasSkillButton, ENDLESS_COPY, ENDLESS_MILESTONE_S, endlessUnlocked, endlessAccess } from './config.js'
 import { playSfx } from './audio.js'
 import { t, tt, getLang, LANGS } from './i18n.js'
 import { SAVE_SLOTS, activeSlot, slotSummary, saveSummary, exportSlot, NAME_MAX, bookMeta, ensureBookMeta, bookProgress } from './state.js'
@@ -296,7 +296,7 @@ function formatShopBonus(bookId, id, levels) {
  *     - onRefund(ids, bookId): sells the named upgrade lines back at REFUND_RATE, whole lines
  *       only, and returns the coins paid back (0 if none were owned). One call takes the LIST so
  *       "refund everything" is one transaction — see the refund sheet below.
- *     - onEndless(on): the infinity pip (dev-gated). main.js no-ops unless meta.dev, then sets
+ *     - onEndless(on): the infinity pip (dev or beta). main.js no-ops unless endlessAccess, then sets
  *       chapters[id].endlessPicked = !!on, saves, plays 'click'. onDifficulty clears it again.
  *     - onChapter(id): title screen's bookcase (v7.x — see bookcaseHtml/volHtml).
  *       Fires only for unlocked CHAPTER_ORDER ids as the scroll SETTLES a card under the viewport
@@ -742,7 +742,7 @@ export function initUI(hooks) {
   // like its pip), else the picked difficulty. Every fetchBoards/loadPodium caller routes through it.
   const boardDiffOf = (chapterId) => {
     const c = meta.chapters?.[chapterId]
-    return meta.dev === true && endlessUnlocked(meta, chapterId) && c?.endlessPicked === true ? 0 : (c?.difficulty ?? 1)
+    return endlessAccess(meta) && endlessUnlocked(meta, chapterId) && c?.endlessPicked === true ? 0 : (c?.difficulty ?? 1)
   }
 
   // Dropped when a run PLACES. Not after every run: a score that missed the top 3 moved no board,
@@ -953,13 +953,13 @@ export function initUI(hooks) {
     // "harder", and the anomaly COUNT is level - 1, which the lit pips also say. What no pip can
     // say is the payout, so that is the one thing kept.
     // Endless reads as board 0 (its own leaderboard), dev-gated like its pip.
-    const endlessOn = meta.dev === true && endlessUnlocked(meta, browseChapterId)
+    const endlessOn = endlessAccess(meta) && endlessUnlocked(meta, browseChapterId)
     const boardDiff = boardDiffOf(browseChapterId)
     const endlessSel = boardDiff === 0
     const coinPct = Math.round(((chMeta.difficulty - 1) * DIFFICULTY_COIN_PER_LEVEL) * 100)
     const rewardChip = chMeta.difficulty > 1 && !endlessSel ? `<b class="diff-reward-chip">+${coinPct}% 🪙</b>` : ''
-    // DEV ONLY (endlessOn is meta.dev-gated): the bot plays the clock forward until Play now.
-    const speedrunBtn = endlessOn && endlessSel ? `<button class="btn btn--soft dev-speedrun" data-act="speedrun" ${heroUnlocked ? '' : 'disabled'}>⏩&nbsp; Speedrun</button>` : ''
+    // DEV ONLY (beta testers see the pip but not this): the bot plays the clock forward until Play now.
+    const speedrunBtn = meta.dev === true && endlessOn && endlessSel ? `<button class="btn btn--soft dev-speedrun" data-act="speedrun" ${heroUnlocked ? '' : 'disabled'}>⏩&nbsp; Speedrun</button>` : ''
     const playBlock = heroUnlocked ? `
       <div class="diff-row">
         <span class="diff-label">${t('Difficulty')}${rewardChip}</span>

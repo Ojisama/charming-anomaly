@@ -39,14 +39,14 @@ body()   { call "$@" | tail -n +2; }
 # emits ANSI colour escapes that silently break every string comparison below.
 field()  { local key="$1"; shift; body "$@" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const o=JSON.parse(s);const v=o[process.argv[1]];console.log(v===null?"null":String(v))}catch{console.log("PARSE_ERROR:"+s.trim())}})' "$key"; }
 
-cleanup() { [ -n "${DEV_PID:-}" ] && kill "$DEV_PID" 2>/dev/null; rm -f "/tmp/ca-body.$$" "/tmp/ca-dev.$$.log"; }
+cleanup() { [ -n "${DEV_PID:-}" ] && kill "$DEV_PID" 2>/dev/null; [ -n "${DEV2_PID:-}" ] && kill "$DEV2_PID" 2>/dev/null; rm -f "/tmp/ca-body.$$" "/tmp/ca-dev.$$.log" "/tmp/ca-dev2.$$.log"; }
 trap cleanup EXIT
 
 echo "Applying schema to local D1..."
 npx wrangler d1 execute charming-anomaly-sync --local --config wrangler.test.toml --file=./schema.sql >/dev/null 2>&1
 
 echo "Starting wrangler dev --local on :$PORT..."
-npx wrangler dev --local --config wrangler.test.toml --port "$PORT" --ip 127.0.0.1 >"/tmp/ca-dev.$$.log" 2>&1 &
+npx wrangler dev --local --config wrangler.test.toml --var 'BETA_ENDLESS:Ann, bob ,' --port "$PORT" --ip 127.0.0.1 >"/tmp/ca-dev.$$.log" 2>&1 &
 DEV_PID=$!
 for _ in $(seq 1 60); do
   sleep 1
@@ -232,6 +232,24 @@ is "a bad board read is 400"                400   "$(sstatus GET "$SBASE?chapter
 # until someone opened the podium and found a stranger on it.
 is "no rejection wrote a row"               '{"kills":[],"level":[],"time":[],"lap":[],"survive":[]}' "$(sbody GET "$SBASE?chapter=$CH&difficulty=4")"
 
+echo "-- beta allowlist (/v1/beta) --"
+BBASE="http://127.0.0.1:$PORT/v1/beta"
+endless_of() { node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{console.log(String(JSON.parse(s).endless))}catch{console.log("PARSE_ERROR:"+s.trim())}})'; }
+is "an allowlisted nick is true"            true  "$(curl -s "$BBASE?nick=Ann" | endless_of)"
+is "matching is case-insensitive"           true  "$(curl -s "$BBASE?nick=BOB" | endless_of)"
+is "a nick not on the list is false"        false "$(curl -s "$BBASE?nick=Cid" | endless_of)"
+is "a missing nick is 400"                  400   "$(sstatus GET "$BBASE")"
+is "a too-short nick is 400"                400   "$(sstatus GET "$BBASE?nick=Bo")"
+is "POST to /v1/beta is 405"                405   "$(sstatus POST "$BBASE?nick=Ann")"
+# No env var at all: a second server started without --var must answer false for everyone.
+PORT2=$((PORT+1))
+npx wrangler dev --local --config wrangler.test.toml --port "$PORT2" --ip 127.0.0.1 >"/tmp/ca-dev2.$$.log" 2>&1 &
+DEV2_PID=$!
+for _ in $(seq 1 60); do sleep 1; curl -s --max-time 2 -o /dev/null "http://127.0.0.1:$PORT2/" && break; done
+is "with no BETA_ENDLESS everyone is false" false "$(curl -s "http://127.0.0.1:$PORT2/v1/beta?nick=Ann" | endless_of)"
+kill "$DEV2_PID" 2>/dev/null
+
+# Before the DROP TABLE below: its schema re-apply reloads the dev server, which drops --var.
 echo "-- a missing table answers 500 WITH CORS, not the runtime's own error page --"
 # THE DAY-ONE MISTAKE: deploying the Worker without running `npm run db:remote`. An exception
 # escaping fetch() is answered by the Workers 1101 page, which carries NO CORS headers — so the

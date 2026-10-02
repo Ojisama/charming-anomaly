@@ -236,6 +236,17 @@ async function scores(req, env) {
   return json(405, { error: 'method not allowed' })
 }
 
+// Beta allowlist: GET /v1/beta?nick=X -> { endless }. BETA_ENDLESS is a comma-separated list of
+// nicknames set in the Cloudflare dashboard (wrangler.toml keep_vars preserves it across deploys).
+// Same normalisation as a scores POST (trim) plus case-folding, so 'ann' and 'Ann ' are one player.
+function beta(req, env) {
+  if (req.method !== 'GET') return json(405, { error: 'method not allowed' })
+  const nick = (new URL(req.url).searchParams.get('nick') ?? '').trim()
+  if (!validNick(nick)) return json(400, { error: 'bad nick' })
+  const list = String(env.BETA_ENDLESS ?? '').split(',').map((n) => n.trim().toLowerCase()).filter(Boolean)
+  return json(200, { endless: list.includes(nick.toLowerCase()) })
+}
+
 export default {
   async fetch(req, env) {
     // §10.3: short-circuit OPTIONS before auth and before D1.
@@ -257,6 +268,15 @@ export default {
       } catch {
         return json(500, { error: 'leaderboard unavailable' })
       }
+    }
+
+    if (new URL(req.url).pathname === '/v1/beta') {
+      if (env.LIMITER) {
+        const ip = req.headers.get('cf-connecting-ip') ?? 'local'
+        const { success } = await env.LIMITER.limit({ key: `beta:${ip}` })
+        if (!success) return json(429, { error: 'rate limited' })
+      }
+      return beta(req, env)
     }
 
     const code = normalizeCode(req.headers.get('authorization'))

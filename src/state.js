@@ -163,6 +163,9 @@ let boundSlot = null
 //   Kept apart from best.time, which stays the classic record.
 // meta.best: { time, kills } — all-time aggregate across every chapter, unrelated to any
 //   single chapters[id].best; still updated by endRun (main.js) on every run.
+// meta.betaEndless (additive, R2): true when the Worker's BETA_ENDLESS allowlist named meta.nick at the last
+//   successful /v1/beta check; cached so a failed check keeps the last answer. Read as === true via
+//   endlessAccess (config.js). Beta endless runs never submit to the leaderboard.
 // meta.nick: the leaderboard name, 3-10 chars, '' until chosen (scores.js owns the rule via
 //   validNick). NOT meta.name, which names the save SLOT and never leaves the device. '' is
 //   load-bearing: renderTitle shows the mandatory prompt for exactly that value, and endRun

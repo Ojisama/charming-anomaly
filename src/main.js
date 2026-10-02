@@ -9,7 +9,7 @@ import { initUI } from './ui.js'
 import { initInput, getInput, pressSkill } from './input.js'
 import { initAudio, playSfx, setSfxOn } from './audio.js'
 import { setLang, t } from './i18n.js'
-import { submitScore, podiumRank, validNick } from './scores.js'
+import { submitScore, podiumRank, validNick, fetchBeta } from './scores.js'
 // Cloud save sync (design docs/superpowers/specs/2026-08-03-cross-device-save-sync-design.md).
 // main.js owns the two things sync.js structurally cannot: the `run === null` predicate behind
 // every adopt, and the DOM registrations §6.3's triggers need. Everything else is sync.js's.
@@ -202,7 +202,7 @@ const ui = initUI({
     // the chapter's own flags rather than off its id, so a third scripted boss needs no edit here.
     const mods = CHAPTERS[chapterId].modsByDifficulty
     // Endless is dev-gated until playtested; it takes no anomalies (its own affix drip replaces them).
-    const endless = chMeta.endlessPicked === true && meta.dev === true && CFG.endlessUnlocked(meta, chapterId)
+    const endless = chMeta.endlessPicked === true && CFG.endlessAccess(meta) && CFG.endlessUnlocked(meta, chapterId)
     const mutators = endless
       ? []
       : mods
@@ -412,7 +412,7 @@ const ui = initUI({
   // The title's infinity pip. Dev-gated like the pip itself; a no-op for a chapter that has not
   // earned it is decided later, in onPlay (endlessUnlocked), so the pick can survive a chapter hop.
   onEndless(on) {
-    if (!meta.dev) return
+    if (!CFG.endlessAccess(meta)) return
     const chMeta = ensureChapterMeta(meta, playableChapterId(meta))
     chMeta.endlessPicked = !!on
     saveMeta(meta)
@@ -541,12 +541,27 @@ const ui = initUI({
   onNick(nick) {
     meta.nick = nick
     saveMeta(meta)
+    refreshBeta()
     playSfx('click')
   },
 })
 // initUI renders the title before it returns, so there is a screen underneath now — anything after
 // this line (the ticker, sync) happens behind a game the player can already see and touch.
 window.__boot?.(100)
+
+// Beta allowlist (owner, 2026-10-02): ask the Worker whether this nickname may play endless. Null (offline,
+// error) keeps the cached meta.betaEndless; only a real answer that differs is saved. Function declaration
+// so the onNick hook above can call it.
+async function refreshBeta() {
+  const nick = validNick(meta.nick)
+  if (!nick) return
+  const res = await fetchBeta(nick)
+  if (res === null || (meta.betaEndless === true) === res) return
+  meta.betaEndless = res
+  saveMeta(meta)
+  if (ui.activeScreen() === 'title') ui.showScreen('title')
+}
+refreshBeta()
 
 // buildReadout is a read-only projection (see sim.js): main is the only place allowed to hand sim
 // data to ui, which never imports sim. Two callers — a plain pause, and the same sheet opened
@@ -966,7 +981,8 @@ function endRun(victory) {
   // build has meta.nick '' until the title screen's prompt is answered, and nothing is submitted
   // in the meantime.
   const nick = validNick(meta.nick)
-  if (nick && !meta.dev && !run._devUsed) {
+  // Endless never submits yet (owner, 2026-10-02): beta testers are not dev, so it needs its own refusal.
+  if (nick && !meta.dev && !run._devUsed && !run.endless) {
     const chapter = run.chapter
     // ONE object, submitted and then looked up. The rank is matched on the score itself (scores.js
     // has no row ids), so a second copy of these numbers is a way for the lookup to ask about a

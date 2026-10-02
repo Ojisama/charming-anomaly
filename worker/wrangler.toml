@@ -2,6 +2,10 @@ name = "charming-anomaly-sync"
 main = "src/index.js"
 compatibility_date = "2025-01-01"
 
+# BETA_ENDLESS (comma-separated nicknames) is set in the Cloudflare dashboard, NOT declared in
+# [vars]: keep_vars stops a deploy from deleting dashboard-set vars.
+keep_vars = true
+
 # Created 2026-08-04 with a WEUR primary location: D1 writes go to the primary, and the owner and
 # the first players are in Europe. `wrangler dev --local` ignores this id entirely — local D1 is a
 # SQLite file under .wrangler/state, which is what test.sh runs against.
