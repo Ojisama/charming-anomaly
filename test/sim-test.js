@@ -50,7 +50,7 @@ import {
   BOOKS, BOOK_ORDER, BOOK_SHOP, shopLines, BOOK_UNLOCKS, playableChapterId, isWipChapter, chapterAvailable, titleBookshelf, CHAPTER_SPINE, isBookFinale, nextBook, bookOf, chapterNumber,
   DMG_SRC_NAME, dmgSrcName, DMG_SRC_ART, dmgSrcArt, DMG_SRC_NO_ART,
   DEATH_OUTRO, irisCoverMul, deathProgress, LANE_CAMERA_FRAC,
-  endlessLevel, ENDLESS_START_LEVEL, endlessHpMul, endlessXpMul, ENDLESS_COIN_HALF_LIFE_S, endlessAffixChance, endlessEligible, endlessUnlocked, endlessAccess, ENDLESS_AFFIX_FROM, ENDLESS_AFFIX_MAX,
+  endlessLevel, ENDLESS_START_LEVEL, endlessHpMul, endlessXpNeedMul, endlessXpMul, ENDLESS_COIN_HALF_LIFE_S, endlessAffixChance, endlessEligible, endlessUnlocked, endlessAccess, ENDLESS_AFFIX_FROM, ENDLESS_AFFIX_MAX,
   CHAPTERS, CHAPTER_ORDER, nextChapter, CHAPTER_UNLOCK_DIFFICULTY, SUBMISSION_DURATION, SUBMISSION_STRIP_FLAGS,
   RUNOFF_MAX_DMG_MUL, RUNOFF_SPEED_FLOOR,
   ELEMENTS, CONSUMABLES,
@@ -471,6 +471,17 @@ function testEndlessRamp() {
   // levels past XP_LATE_FROM cost more than the linear curve; below it, the curve is untouched
   assert.strictEqual(xpForLevel(XP_LATE_FROM), 5 + XP_LATE_FROM * 4)
   assert.ok(xpForLevel(XP_LATE_FROM + 25) > 5 + (XP_LATE_FROM + 25) * 4, 'late levels not dearer')
+  // endless levels cost more than the same level in a normal run (stepLevelUp, both arms)
+  for (const endless of [true, false]) {
+    const r2 = createRun(makeMeta(), { chapter: 'body', endless })
+    r2.player.level = 49
+    r2.player.xp = r2.player.xpNext = 1
+    stepSim(r2, { x: 0, y: 0 }, 1 / 60)
+    assert.strictEqual(r2.player.level, 50)
+    const want = xpForLevel(50) * (endless ? endlessXpNeedMul(50) : 1)
+    assert.ok(Math.abs(r2.player.xpNext - want) < 1e-9, `endless=${endless} xpNext ${r2.player.xpNext} != ${want}`)
+  }
+  assert.ok(endlessXpNeedMul(50) > 1.4, 'endless level 50 not dearer')
   assert.ok(Math.abs(run.mods.enemyHpMul - base.enemyHpMul * endlessHpMul(d)) < 1e-9)
   assert.ok(run.mods.enemyHpMul > base.enemyHpMul * endlessHpMul(2), 'hp must have grown')
   // exponential: a constant ratio > 1 between consecutive integer levels
