@@ -358,7 +358,7 @@ const send = (method, params = {}) => new Promise((res) => {
   ws.send(JSON.stringify({ id: n, method, params }))
 })
 const evaluate = async (expr) =>
-  (await send('Runtime.evaluate', { expression: expr, returnByValue: true })).result?.value
+  (await send('Runtime.evaluate', { expression: expr, returnByValue: true, awaitPromise: true })).result?.value
 
 await send('Page.enable')
 await send('Runtime.enable')
@@ -392,7 +392,8 @@ if (!ready) die('scene never became ready — raise --wait, or check that the pa
 const actualChapter = await evaluate('window.__run && window.__run.chapter')
 if (actualChapter !== chapter) die(`asked for chapter=${chapter}, but window.__run.chapter=${actualChapter}`)
 const actualD = await evaluate('window.__run && window.__run.difficulty')
-if (actualD !== difficulty) die(`asked for difficulty=${difficulty}, but window.__run.difficulty=${actualD} — the seeded ladder did not reach the run, so this frame is of the wrong rung`)
+// An endless run's difficulty IS its climbing endless level, so it never equals the seeded rung.
+if (actualD !== difficulty && !(await evaluate('!!(window.__run && window.__run.endless)'))) die(`asked for difficulty=${difficulty}, but window.__run.difficulty=${actualD} — the seeded ladder did not reach the run, so this frame is of the wrong rung`)
 console.log(`run.chapter confirmed: ${actualChapter} at d${actualD}`)
 
 for (let i = 0; i < frames; i++) {

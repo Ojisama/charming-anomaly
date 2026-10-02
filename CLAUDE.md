@@ -45,6 +45,7 @@ hidden layers). `probing-the-game` holds all of them; load it before you measure
 | `node scripts/charge-probe.mjs` | what a chapter RESOURCE bar (The Deep's Light) does over real 300s runs |
 | `node scripts/kraken-probe.mjs --diff 3 --level 3` | THE KRAKEN, the one chapter weapon-census cannot measure (its bot does not parry, so everything scores zero) — wins, fight length, arms broken, parries, staggers, and the ring/chase split |
 | `node scripts/wreck-threat.mjs` | WHAT KILLS YOU, by source, per seed — 8 seeds x hunt/ignore x mortal/immortal, FIXED loadout. Read the MORTAL arm for lethality: the immortal one cannot die, so its rows are a damage-taken profile and not a cause of death |
+| `node scripts/lag-probe.mjs [--chapters city] [--minutes 30] [--prof <dir>]` | ENDLESS SIM LAG per chapter: ms/step per sim minute + every `run` array's length, stops a run once it is slower than real time. Render half: `scripts/scenes/render-lag.js` (header has the fx-probe line) |
 | `node scripts/obstacle-contrast.mjs` | WCAG contrast audit of obstacle footprints per biome |
 | `node scripts/prop-scale.mjs` | PROP_SCALE ladder audit + render.js bare-`scale:` regression grep |
 | `node scripts/bake-cast.mjs` | re-bake `src/cast/*.png` (title cards' creature thumbnails) |
