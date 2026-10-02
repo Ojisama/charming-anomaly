@@ -31,7 +31,7 @@ import {
   BLOOD_PACT_PER_ELITE, BLOOD_MONEY_HP, STILLNESS_RAMP, CHAOS_PACT_PERIOD, CHAOS_PACT_SURGE,
   ALIGNMENT_POTENCY_MUL, DEADFALL_REARM_MUL, SOY_MILK_FIRE_MUL, SOY_MILK_DMG_MUL, SOY_MILK_CC_MUL,
   ANOMALY_REROLL_MUL, ANOMALY_REROLL_PITY_REFUND, LAST_BREATH_DROWN_TAKEN_MUL,
-  MUTATORS, mutatorPool, ENDLESS_MILESTONE_S, ENDLESS_HANDOVER_CLEAR_R, ENDLESS_MILESTONE_ELITES, mergeMutatorMods, randomMutators, rerollMutator,
+  LIVE_CAPS, MUTATORS, mutatorPool, ENDLESS_MILESTONE_S, ENDLESS_HANDOVER_CLEAR_R, ENDLESS_MILESTONE_ELITES, mergeMutatorMods, randomMutators, rerollMutator,
   sacrificeCost, MAX_CHOICE_SLOTS, resolveChapterId,
   SHIELD_HP_FRAC, SHIELD_DMG_MUL, SPLITTER_COUNT, VOLATILE_FUSE, VOLATILE_RADIUS, VOLATILE_DMG,
   MAX_PASSIVE_LEVEL, MAX_ELEMENT_PICKS, passiveTotal,
@@ -450,6 +450,40 @@ function testEndlessCurvesFrozen() {
   // victory gate returns first, so the control is the pure function).
   assert.ok(hpScale(600, lateRateFor('beyond')) > 2 * hpScale(300, lateRateFor('beyond')))
   console.log(`PASS run EN.c (curves frozen): ${shared.length} kinds compared at 300 vs 600`)
+}
+
+// Effect: a fire-rate pile-up cannot grow a player entity array past LIVE_CAPS; the OLDEST go, the
+// newest stays, and enemy ink / bilge slicks are neither evicted nor counted.
+function testLiveCaps() {
+  Math.random = mulberry32(20261002)
+  const run = createRun(makeMeta(), { chapter: 'body' })
+  run.player.hp = run.player.maxHP = 1e12
+  run.mods.spawnMul = 0
+  run.enemies = []
+  const p = run.player
+  const make = {
+    bullets: () => ({ x: p.x, y: p.y, vx: 0, vy: 0, dmg: 1, pierce: 1, life: 100, r: 4, speed: 0, hitIds: new Set() }),
+    homingShots: () => ({ x: p.x, y: p.y, vx: 0, vy: 0, dmg: 1, pierce: 1, life: 100, hitIds: new Set() }),
+    lures: () => ({ x: p.x, y: p.y, t: 0, dur: 100, aggro: 0, burstR: 0, burstDmg: 0 }),
+    holes: () => ({ x: p.x, y: p.y, radius: 10, coreRadius: 3, life: 100, duration: 100, dmg: 0, tick: 1, pull: 0, acc: 0, spawnRadius: 10 }),
+    blooms: () => ({ x: p.x, y: p.y, r: 0, maxR: 10, t: 0, dur: 100, dmgPerTick: 0, look: 'silt', slow: 0 }),
+  }
+  const ink = [{ x: p.x, y: p.y, r: 0, maxR: 10, t: 0, dur: 100, dmgPerTick: 0, tick: 0, look: 'inkjet', slow: 0 },
+    { x: p.x, y: p.y, r: 0, maxR: 10, t: 0, dur: 100, dmgPerTick: 0, tick: 0, look: 'bilge' }]
+  run.blooms.push(...ink)   // OLDEST of all: a naive slice(-cap) would drop exactly these
+  const newest = {}
+  for (const [k, mk] of Object.entries(make)) {
+    for (let i = 0; i < LIVE_CAPS[k] * 3; i++) run[k].push(mk())
+    newest[k] = run[k][run[k].length - 1]
+  }
+  stepSim(run, { x: 0, y: 0 }, 1 / 60)
+  for (const k of Object.keys(make)) {
+    const n = run[k].filter((e) => !ink.includes(e)).length
+    assert.strictEqual(n, LIVE_CAPS[k], `${k}: ${n} live, cap ${LIVE_CAPS[k]}`)
+    assert.ok(run[k].includes(newest[k]), `${k}: the newest entry was evicted`)
+  }
+  for (const e of ink) assert.ok(run.blooms.includes(e), `${e.look} evicted by the bloom cap`)
+  console.log(`PASS run LC (live caps): ${Object.keys(make).length} arrays held at ${JSON.stringify(LIVE_CAPS)}, newest kept, ink + bilge spared`)
 }
 
 // Pure arithmetic, so it JUMPS the clock: 20 simulated minutes cost ~25s and would set the gate floor.
@@ -20636,6 +20670,7 @@ try {
   run(testEndlessNoVictory)
   run(testEndlessCurvesFrozen)
   run(testEndlessRamp)
+  run(testLiveCaps)
   run(testEndlessXpTaper)
   run(testEndlessCoins)
   run(testEndlessCrowdAffixes)
