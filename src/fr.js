@@ -94,7 +94,7 @@ const UI = {
   'Mutation': 'Mutation',
   'Best': 'Record',
   'Survived': 'Survécu',
-  'No anomalies — a new one arrives every {n} minutes': 'Aucune anomalie — une nouvelle toutes les {n} minutes',
+  'No anomalies — a new one arrives every {n} seconds': 'Aucune anomalie — une nouvelle toutes les {n} secondes',
   'enemy HP': 'PV ennemis',
   'coins': 'pièces',
   'win level {n} to unlock {m}': 'gagne le niveau {n} pour débloquer le {m}',

@@ -5327,7 +5327,7 @@ export const ENDLESS_COPY = {
   milestone: { name: 'Mutation' },
   best: { name: 'Best' },
   survived: { name: 'Survived' },
-  noAnomalies: { name: 'No anomalies — a new one arrives every {n} minutes' },
+  noAnomalies: { name: 'No anomalies — a new one arrives every {n} seconds' },
 }
 export const endlessEligible = (id) => !!CHAPTERS[id] && !CHAPTERS[id].scripted && !CHAPTERS[id].circuit
 // Who may SEE and PLAY endless: dev, or a server-allowlisted beta tester (meta.betaEndless, set by main.js
