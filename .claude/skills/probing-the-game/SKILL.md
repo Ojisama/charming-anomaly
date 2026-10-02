@@ -282,6 +282,14 @@ extension connected. Both can be unavailable at once. Fallbacks, in order:
   Diff enemy `hp` across the step instead — `scripts/weapon-census.mjs` does, and documents the
   other trap in the same breath (`run.events` must be drained every step, as main.js does, or the
   backlog is recounted every frame and dps reads ~2800× high).
+- **ENDLESS LAG HAS A SIM HALF AND A DRAW HALF, AND `lag-probe.mjs` SEES ONLY THE SIM.** A whole
+  session (2026-10-02) cut sim ms/step ~2x with a weapon grid while the renderer was spending
+  ~78ms/frame placing a sprite for each of 75k floor gems, nearly all off screen — found only when
+  `scripts/scenes/pickup-pile.js` laid the pile and timed sync + render (v7.415 culled it to ~2ms).
+  And `lag-probe --jump N` starts on an EMPTY FLOOR (30s of fill), so it reads every accumulation
+  — loot, webs, pools — as cheap; that verdict got a pickup fix dropped unmeasured. For anything
+  that piles up over a run: read its count from the plain 30-min sweep, then time BOTH halves at
+  that count.
 
 ## Two probes with a rig that lies, and the wide-area view (moved out of CLAUDE.md)
 
