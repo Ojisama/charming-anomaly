@@ -5786,11 +5786,6 @@ export const XP_LATE_FROM = 75
 export const XP_LATE_SQ = 0.5
 export const xpForLevel = (level) => 5 + level * 4 + XP_LATE_SQ * Math.max(0, level - XP_LATE_FROM) ** 2
 export const GEM_VALUE = 1
-// balance_decision : a drop landing near a floor gem/coin fuses into it (lag) 2026-10-02
-//  - render tiers read these: gem colour by xp, coin pile size by value
-export const PICKUP_MERGE_R = 40
-export const GEM_TIER_XP = [10, 100]        // blue below 10, green below 100, red above
-export const COIN_PILE_VALUE = [2, 4, 8]    // 1, 2, 3 or 4 coins drawn
 
 // ---- Meta shop (permanent upgrades, cost in coins) ----------------------------
 // `icon` is the emoji FALLBACK only — ui.js draws every one of these (SHOP_ICONS) and the emoji

@@ -253,7 +253,7 @@ import {
   ENEMY_SEP_FRAC, ENEMY_SEP_RESOLVE, ENEMY_SEP_CELL,
   // v6.7.11: the level-up reroll's price ladder — rerollLevelUpChoices owns the whole purchase
   rerollCost,
-  difficultySpeedMul, difficultyCountMul, difficultyDmgMul, endlessLevel, endlessHpMul, endlessXpMul, ENDLESS_COIN_HALF_LIFE_S, ENDLESS_COUNT_MUL_MAX, PICKUP_MERGE_R,
+  difficultySpeedMul, difficultyCountMul, difficultyDmgMul, endlessLevel, endlessHpMul, endlessXpMul, ENDLESS_COIN_HALF_LIFE_S, ENDLESS_COUNT_MUL_MAX,
   ENDLESS_MILESTONE_S, ENDLESS_MILESTONE_ELITES, endlessAffixChance, ENDLESS_GILDED_COINS, ENDLESS_HANDOVER_CLEAR_R, mutatorPool, MUTATORS,
 } from './config.js'
 
@@ -8607,7 +8607,7 @@ function stepRam(run) {
     // ONE coin of value BURST_RAM_COINS rather than ten of value 1: the pickup is a single event,
     // so the HUD ticks up once by ten instead of ten times by one, and render.js prints the number
     // on it (the coin case) rather than leaving a bigger sparkle to carry the whole difference.
-    dropCoin(run, e.x, e.y, BURST_RAM_COINS)
+    run.coins.push({ x: e.x, y: e.y, value: BURST_RAM_COINS })
   }
 }
 
@@ -8628,7 +8628,7 @@ function stepCrush(run) {
     run._crushed.add(o._cell) // v5.9.1 bugfix: permanent — see this function's header comment
     changed = true
     run.events.push({ type: 'crush', x: o.x, y: o.y, kind: o.kind })
-    dropGem(run, o.x, o.y, CRUSH_XP) // same drop path dealDamage uses for a kill
+    run.gems.push({ x: o.x, y: o.y, xp: CRUSH_XP }) // same drop path dealDamage uses for a kill
     run.rampage = Math.min(1, run.rampage + RAMPAGE_GAIN)
     run._rampageGraceT = RAMPAGE_GRACE_T // v5.9.1 bugfix: see stepRampage's own comment below
   }
@@ -9518,13 +9518,13 @@ function dealDamage(run, enemy, dmg, crit, dot = false, hazard = false, carried 
     const jackpot = enemy.rosterId ? CHAPTERS[run.chapter].roster?.find((r) => r.id === enemy.rosterId)?.jackpot : null
     const paid = !jackpot || (!hazard && onScreen(run, enemy.x, enemy.y))
     const xp = enemy.xp * (enemy.elite ? ELITE.xpMul : 1)
-    if (paid) dropGem(run, enemy.x, enemy.y, xp)
+    if (paid) run.gems.push({ x: enemy.x, y: enemy.y, xp })
     if (jackpot && paid) {
       if (jackpot.levels > 0) run.player.xp += run.player.xpNext * jackpot.levels
       for (let i = 0; i < (jackpot.coins ?? 0); i++) {
         const a = Math.random() * Math.PI * 2
         const d = Math.random() * 28
-        dropCoin(run, enemy.x + Math.cos(a) * d, enemy.y + Math.sin(a) * d, 1)
+        run.coins.push({ x: enemy.x + Math.cos(a) * d, y: enemy.y + Math.sin(a) * d, value: 1 })
       }
       run.events.push({ type: 'jackpot', x: enemy.x, y: enemy.y })
     }
@@ -9579,17 +9579,17 @@ function dealDamage(run, enemy, dmg, crit, dot = false, hazard = false, carried 
         const d = Math.random() * 20
         // `paid` (above): an off-screen jackpot body drops no coin of any kind. The draws still
         // happen, so the gate moves no random for a kill it does not touch.
-        if (paid) dropCoin(run, enemy.x + Math.cos(a) * d, enemy.y + Math.sin(a) * d, 1)
+        if (paid) run.coins.push({ x: enemy.x + Math.cos(a) * d, y: enemy.y + Math.sin(a) * d, value: 1 })
       }
     } else if (Math.random() < ENEMIES[enemy.type].coinChance * coinDropMul) {
-      if (paid) dropCoin(run, enemy.x, enemy.y, 1)
+      if (paid) run.coins.push({ x: enemy.x, y: enemy.y, value: 1 })
     }
     if (!enemy.elite && hasAffix(enemy, 'gilded')) {
       for (let i = 0; i < ENDLESS_GILDED_COINS; i++) {
         if (Math.random() >= coinDropMul) continue
         const a = Math.random() * Math.PI * 2
         const d = Math.random() * 20
-        if (paid) dropCoin(run, enemy.x + Math.cos(a) * d, enemy.y + Math.sin(a) * d, 1)
+        if (paid) run.coins.push({ x: enemy.x + Math.cos(a) * d, y: enemy.y + Math.sin(a) * d, value: 1 })
       }
     }
 
@@ -14572,31 +14572,6 @@ function fireGlint(run, stats) {
 
 // ---- Pickups ------------------------------------------------------------------------
 
-// Every floor drop goes through these two. A drop landing within PICKUP_MERGE_R of a resting one
-// fuses into it, so the floor holds one object per patch of ground instead of one per kill (34k
-// gems in a 30-minute endless run before this). Value is conserved exactly; render reads it as a
-// tier (GEM_TIER_XP, COIN_PILE_VALUE). A pickup already flying to the player (_vac) is not a target.
-// ponytail: linear scan per drop; merging keeps the list short. Grid it if a probe says otherwise.
-function dropGem(run, x, y, xp) {
-  const g = nearestResting(run.gems, x, y)
-  if (g) g.xp += xp
-  else run.gems.push({ x, y, xp })
-}
-function dropCoin(run, x, y, value) {
-  const c = nearestResting(run.coins, x, y)
-  if (c) c.value += value
-  else run.coins.push({ x, y, value })
-}
-function nearestResting(list, x, y) {
-  const rSq = PICKUP_MERGE_R * PICKUP_MERGE_R
-  for (const it of list) {
-    if (it._vac) continue
-    const dx = it.x - x, dy = it.y - y
-    if (dx * dx + dy * dy < rSq) return it
-  }
-  return null
-}
-
 function magnetSpeed(dist, magnet) {
   const t = magnet > 0 ? Math.min(1, Math.max(0, dist / magnet)) : 0
   return 800 - t * 300 // faster (800px/s) when close, slower (500px/s) near magnet edge
@@ -14661,25 +14636,16 @@ function stepPickups(run, dt) {
     // every heal, so the pair destroyed 20% of the run's coins outright). Both are invisible: the
     // card says "heal 5 HP INSTEAD OF paying out", from which every player infers that a coin
     // which cannot heal still pays. It does now.
-    // Rolled once per COIN in the pile (dropCoin fuses them), so a pile of 5 is five chances, as
-    // five loose coins were.
-    let value = c.value
-    if (run.anomalies?.avarice) {
-      let healed = 0
-      for (let k = 0; k < c.value; k++) {
-        const canHeal = run.player.hp < run.player.maxHP && !run.anomalies?.bloodPact
-        if (!(canHeal && Math.random() < AVARICE_HEAL_CHANCE)) continue
-        // Carry the HP that ACTUALLY LANDED, not AVARICE_HEAL_HP. healPlayer clamps to maxHP, so a
-        // pickup at maxHP-2 heals 2 — and the renderer prints this number. Sending the nominal 5
-        // would put a figure on screen that the HP bar visibly contradicts, which is worse than the
-        // silence it replaces.
-        const before = run.player.hp
-        healPlayer(run, AVARICE_HEAL_HP)
-        healed += run.player.hp - before
-        value--
-      }
-      if (healed > 0) run.events.push({ type: 'coin', x: c.x, y: c.y, value: c.value - value, healed: true, heal: Math.round(healed) })
-      if (value <= 0) return
+    const canHeal = run.player.hp < run.player.maxHP && !run.anomalies?.bloodPact
+    if (run.anomalies?.avarice && canHeal && Math.random() < AVARICE_HEAL_CHANCE) {
+      // Carry the HP that ACTUALLY LANDED, not AVARICE_HEAL_HP. healPlayer clamps to maxHP, so a
+      // pickup at maxHP-2 heals 2 — and the renderer prints this number. Sending the nominal 5
+      // would put a figure on screen that the HP bar visibly contradicts, which is worse than the
+      // silence it replaces.
+      const before = run.player.hp
+      healPlayer(run, AVARICE_HEAL_HP)
+      run.events.push({ type: 'coin', x: c.x, y: c.y, value: c.value, healed: true, heal: Math.round(run.player.hp - before) })
+      return
     }
     // v6.4.2: clamp at COIN_CAP_PER_RUN (config.js) — pickups past the cap still sparkle
     // (the event still fires below), they just stop paying out.
@@ -14691,11 +14657,11 @@ function stepPickups(run, dt) {
     // paid +100% instead of +50%. The bonus a player reads on the shop row was never what they got.
     // Carrying the fraction makes the run TOTAL exact to within one coin while coinsEarned stays a
     // whole number, which the HUD prints, rerolls spend down and ANOMALIES.bloodMoney gates on.
-    const exact = value * p.coinGainMul * run.mods.coinMul + (run._coinCarry ?? 0)
+    const exact = c.value * p.coinGainMul * run.mods.coinMul + (run._coinCarry ?? 0)
     const whole = Math.floor(exact)
     run._coinCarry = exact - whole
     run.coinsEarned = run.endless ? run.coinsEarned + whole : Math.min(COIN_CAP_PER_RUN, run.coinsEarned + whole)
-    run.events.push({ type: 'coin', x: c.x, y: c.y, value })
+    run.events.push({ type: 'coin', x: c.x, y: c.y, value: c.value })
   })
 }
 
