@@ -5291,19 +5291,22 @@ export const difficultyDmgMul = (d) => 1 + DIFFICULTY_DMG_PER_LEVEL * (Math.max(
 export const DIFFICULTY_COIN_PER_LEVEL = 0.25
 export const difficultyCoinMul = (d) => 1 + DIFFICULTY_COIN_PER_LEVEL * (Math.max(1, d) - 1)
 // ---- Endless mode (spec 2026-10-01-endless-mode-design.md) ----
+// balance_decision : endless starts at difficulty 3, not 1 2026-10-02
+export const ENDLESS_START_LEVEL = 3
 // balance_decision : ramp A/B; HP growth and XP taper carry endless 2026-10-01
 export const ENDLESS_RAMP_A = 0.5   // levels per minute, linear term
 export const ENDLESS_RAMP_B = 0.05  // levels per minute^2, quadratic term
-export const endlessLevel = (t) => { const m = Math.max(0, t) / 60; return 1 + ENDLESS_RAMP_A * m + ENDLESS_RAMP_B * m * m }
-export const ENDLESS_MILESTONE_S = 120
+export const endlessLevel = (t) => { const m = Math.max(0, t) / 60; return ENDLESS_START_LEVEL + ENDLESS_RAMP_A * m + ENDLESS_RAMP_B * m * m }
+// balance_decision : a mutation every 90s, was 120 2026-10-02
+export const ENDLESS_MILESTONE_S = 90
 export const ENDLESS_MILESTONE_ELITES = 3
 export const ENDLESS_AFFIX_FROM = 3
 export const ENDLESS_AFFIX_PER_LEVEL = 0.07
 export const ENDLESS_AFFIX_MAX = 0.5
 export const endlessAffixChance = (d) => Math.min(ENDLESS_AFFIX_MAX, Math.max(0, (d - ENDLESS_AFFIX_FROM) * ENDLESS_AFFIX_PER_LEVEL))
 export const ENDLESS_COIN_HALF_LIFE_S = 60
-// balance_decision : endless HP growth, playtest starting value 2026-10-01
-export const ENDLESS_HP_GROWTH = 0.15
+// balance_decision : endless HP grows faster, was 0.15 2026-10-02
+export const ENDLESS_HP_GROWTH = 0.3
 export const endlessHpMul = (d) => Math.pow(1 + ENDLESS_HP_GROWTH, Math.max(1, d) - 1)
 // balance_decision : endless XP taper, playtest starting value 2026-10-01
 export const ENDLESS_XP_TAPER = 0.03

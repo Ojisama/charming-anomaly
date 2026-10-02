@@ -700,13 +700,16 @@ body {
   font-size: 1.1rem;
   font-weight: 900;
   color: var(--gold);
-  padding: 2px 12px;
-  border-radius: 999px;
+  padding: 4px 12px;
+  border-radius: 14px;
+  text-align: center;
+  max-width: 92vw;
   background: rgba(53, 53, 74, 0.82);
   text-shadow: none;
   pointer-events: none;
 }
-.endless-banner--show { animation: endless-banner 3.2s ease-out; }
+.endless-banner-fx { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; margin-top: 3px; font-size: 0.8rem; }
+.endless-banner--show { animation: endless-banner 4.5s ease-out; }
 @keyframes endless-banner { 0% { opacity: 0; transform: scale(0.85); } 10% { opacity: 1; transform: scale(1.05); } 80% { opacity: 1; } 100% { opacity: 0; } }
 /* THE SPLIT DELTA against your best lap so far, directly under the clock it comments on. It is on
    screen for CIRCUIT_DELTA_S after a lap line and gone the rest of the time, which is exactly why
