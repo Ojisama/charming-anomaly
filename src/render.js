@@ -6070,64 +6070,6 @@ export function createRenderer(app) {
         coinShape(g, 3, 4, 0.9)
         T.mockBag = bake(g)
       }
-      const sparkle = (g, x, y, r) => g.star(x, y, 4, r, r * 0.3).fill({ color: 0xffffff, alpha: 0.95 })
-      // A2: size only — the same blue crystal, bigger and sparklier per tier; coins just grow
-      T.mockSize = [1, 1.4, 1.85, 2.4].map((k, i) => {
-        const g = new Graphics(); gemShape(g, 0, 0, k, 0x4da3ff, 0x2a6fd1, 0x9fd0ff)
-        if (i >= 2) sparkle(g, 4 * k, -5 * k, 2.5 + i)
-        if (i >= 3) sparkle(g, -4 * k, 4 * k, 3)
-        return bake(g)
-      })
-      T.mockCoinBig = [1, 1.35, 1.7, 2.1].map((k) => { const g = new Graphics(); coinShape(g, 0, 0, k); return bake(g) })
-      // A3: shapes — each tier a different cut
-      T.mockCut = []
-      { const g = new Graphics(); gemShape(g, 0, 0, 0.85, 0x4da3ff, 0x2a6fd1, 0x9fd0ff); T.mockCut.push(bake(g)) }
-      { // green hexagon with a table facet
-        const g = new Graphics(), r = 9
-        const hex = (rr) => Array.from({ length: 6 }, (_, i) => [Math.cos(i * Math.PI / 3 + Math.PI / 6) * rr, Math.sin(i * Math.PI / 3 + Math.PI / 6) * rr]).flat()
-        g.poly(hex(r)).fill(0x3fd27a).stroke({ width: 1.8, color: 0x1f8f4c })
-        g.poly(hex(r * 0.5)).fill({ color: 0xa8f0c4, alpha: 0.9 })
-        g.circle(-3, -3, 1.4).fill({ color: 0xffffff, alpha: 0.9 })
-        T.mockCut.push(bake(g))
-      }
-      { // red brilliant: octagon with star facets
-        const g = new Graphics(), r = 12
-        const pts = Array.from({ length: 8 }, (_, i) => [Math.cos(i * Math.PI / 4 + Math.PI / 8) * r, Math.sin(i * Math.PI / 4 + Math.PI / 8) * r])
-        g.poly(pts.flat()).fill(0xff4d5e).stroke({ width: 2, color: 0xb3202f })
-        g.star(0, 0, 8, r * 0.75, r * 0.38).fill({ color: 0xffb0b8, alpha: 0.75 })
-        g.circle(0, 0, r * 0.3).fill(0xff4d5e)
-        g.circle(-4, -4, 1.6).fill({ color: 0xffffff, alpha: 0.9 })
-        T.mockCut.push(bake(g))
-      }
-      { // violet star crystal
-        const g = new Graphics()
-        g.star(0, 0, 6, 17, 9).fill(0xb36bff).stroke({ width: 2, color: 0x6b2fc0 })
-        g.star(0, 0, 6, 9, 5).fill({ color: 0xe2c8ff, alpha: 0.9 })
-        sparkle(g, 9, -10, 4)
-        T.mockCut.push(bake(g))
-      }
-      const pouch = (k) => {
-        const g = new Graphics()
-        g.circle(0, 2 * k, 9 * k).fill(0xa8743a).stroke({ width: 2, color: 0x6b4520 })
-        g.ellipse(0, -7 * k, 4.5 * k, 2.6 * k).fill(0x8a5a2b).stroke({ width: 1.4, color: 0x6b4520 })
-        coinShape(g, 2 * k, 3 * k, 0.6 * k)
-        return bake(g)
-      }
-      T.mockCoinCut = [T.coin, T.mockCoinTier[2], pouch(1), pouch(1.45)]
-      // A4: colour only, three tiers, same size
-      T.mockColour = [[0x4da3ff, 0x2a6fd1, 0x9fd0ff], [0x3fd27a, 0x1f8f4c, 0xa8f0c4], [0xff4d5e, 0xb3202f, 0xffb0b8]].map(([f, e, c]) => {
-        const g = new Graphics(); gemShape(g, 0, 0, 1.1, f, e, c); return bake(g)
-      })
-      // C3: one chest holds both the extra xp and the extra coins (plan view: lid, bands, lock)
-      {
-        const g = new Graphics()
-        g.roundRect(-16, -11, 32, 22, 3).fill(0x9a6332).stroke({ width: 2, color: 0x5a3818 })
-        for (const y of [-4, 4]) g.rect(-16, y - 0.8, 32, 1.6).fill({ color: 0x5a3818, alpha: 0.6 })
-        for (const x of [-11, 11]) g.rect(x - 2, -11, 4, 22).fill(0xe0b040).stroke({ width: 1, color: 0x9a7020 })
-        g.roundRect(-4, -5, 8, 10, 2).fill(0xffcf4d).stroke({ width: 1.4, color: 0x9a7020 })
-        g.poly([0, -3, 2, 0, 0, 3, -2, 0]).fill(0xff4d5e)
-        T.mockChest = bake(g)
-      }
     }
     // particles: soft white dot + 4-point sparkle (tinted per use)
     {
@@ -29689,41 +29631,18 @@ void main() {
     s.position.set(g.x, g.y)
     s.scale.set(1 + 0.15 * Math.sin(animT * 5 + (g.x + g.y) * 0.05))
     const v = g.xp
-    const tier4 = v >= 125 ? 3 : v >= 25 ? 2 : v >= 5 ? 1 : 0
-    mockLook(s, MOCK_TV === 1 ? T.mockTier[tier4]
+    mockLook(s, MOCK_TV === 1 ? T.mockTier[v >= 125 ? 3 : v >= 25 ? 2 : v >= 5 ? 1 : 0]
       : MOCK_TV === 2 ? T.mockCluster[Math.min(4, Math.floor(Math.log2(Math.max(1, v))))]
-      : MOCK_TV === 4 ? T.mockSize[tier4]
-      : MOCK_TV === 5 ? T.mockCut[tier4]
-      : MOCK_TV === 6 ? T.mockColour[v >= 100 ? 2 : v >= 10 ? 1 : 0]
-      : g._chest ? T.mockChest
-      : g._overflow ? T.mockOverflow : T.gem)
-    if (g._overflow && MOCK_TV === 7) s.scale.set(Math.min(2.2, 1 + 0.3 * Math.log2(Math.max(1, v / 40))))
-    if (g._overflow || g._chest) mockCount(s, g, v, 0)
+      : MOCK_TV === 3 && g._overflow ? T.mockOverflow : T.gem)
   }
   function mockLook(s, look) { s.texture = look.tex; s.anchor.set(look.ax, look.ay) }
-  const mockTexts = []
-  function mockCount(s, item, v, k) {
-    if (MOCK_TV !== 9) return
-    if (!mockTexts[k]) {
-      mockTexts[k] = new Text({ text: '', style: { fontFamily: 'sans-serif', fontSize: 15, fontWeight: '900', fill: 0xffffff, stroke: { color: 0x1a1020, width: 4 } } })
-      mockTexts[k].anchor.set(0, 0.5)
-      coinLayer.addChild(mockTexts[k])
-    }
-    mockTexts[k].text = '×' + Math.round(v)
-    mockTexts[k].position.set(item.x + 18, item.y + 10)
-  }
   function placeCoin(s, c) {
     s.position.set(c.x, c.y)
     const v = c.value
-    const ct = Math.min(3, Math.floor(Math.log2(Math.max(1, v)) / 1.2))
-    mockLook(s, MOCK_TV === 1 || MOCK_TV === 6 ? T.mockCoinTier[ct]
+    mockLook(s, MOCK_TV === 1 ? T.mockCoinTier[Math.min(3, Math.floor(Math.log2(Math.max(1, v)) / 1.2))]
       : MOCK_TV === 2 ? T.mockCoinHeap[Math.min(4, Math.floor(Math.log2(Math.max(1, v))))]
-      : MOCK_TV === 4 ? T.mockCoinBig[ct]
-      : MOCK_TV === 5 ? T.mockCoinCut[ct]
-      : c._overflow ? T.mockBag : T.coin)
-    if (c._overflow) mockCount(s, c, v, 1)
+      : MOCK_TV === 3 && c._overflow ? T.mockBag : T.coin)
     s.scale.set(1 + 0.1 * Math.sin(animT * 4 + (c.x - c.y) * 0.05))
-    if (c._overflow && MOCK_TV === 7) s.scale.set(Math.min(2.2, 1 + 0.3 * Math.log2(Math.max(1, v / 10))))
   }
   function placeBoomerang(s, b, i) {
     s.position.set(b.x, b.y)
