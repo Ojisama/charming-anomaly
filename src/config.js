@@ -5308,6 +5308,9 @@ export const endlessHpMul = (d) => Math.pow(1 + ENDLESS_HP_GROWTH, Math.max(1, d
 // balance_decision : endless XP taper, playtest starting value 2026-10-01
 export const ENDLESS_XP_TAPER = 0.03
 export const endlessXpMul = (d) => 1 / (1 + ENDLESS_XP_TAPER * (Math.max(1, d) - 1))
+// balance_decision : endless crowd stops growing past ~minute 10 (lag) 2026-10-02
+//  - caps maxAliveMul only; spawnMul keeps climbing, so the field refills faster
+export const ENDLESS_COUNT_MUL_MAX = 2.5
 export const ENDLESS_GILDED_COINS = 3
 // DEV speedrun handover (Play now): enemies inside this radius vanish, so the player is not handed
 // a body buried in the bot's crowd. The grace window reuses REVIVE_INVULN.
@@ -5778,7 +5781,10 @@ export const ENEMY_SEP_RESOLVE = 1
 export const ENEMY_SEP_CELL = 64
 
 // ---- Progression ---------------------------------------------------------------
-export const xpForLevel = (level) => 5 + level * 4
+// balance_decision : levels past 75 cost quadratically more xp (endless lag) 2026-10-02
+export const XP_LATE_FROM = 75
+export const XP_LATE_SQ = 0.5
+export const xpForLevel = (level) => 5 + level * 4 + XP_LATE_SQ * Math.max(0, level - XP_LATE_FROM) ** 2
 export const GEM_VALUE = 1
 
 // ---- Meta shop (permanent upgrades, cost in coins) ----------------------------

@@ -107,7 +107,7 @@ import {
   BLANK_XREACT_READ1_MUL, BLANK_XREACT_READ3_K,
   BLANK_BAND_ANGLES, BLANK_BAND_ANGLES_MATURE, BLANK_FAN_N_MATURE,
   // v6.3.4 anti-turtle pass (Run MM)
-  ENEMIES, dmgScale, difficultyDmgMul, difficultySpeedMul, difficultyCountMul, DIFFICULTY_DMG_PER_LEVEL, HURT_CAP_FRAC,
+  ENEMIES, dmgScale, difficultyDmgMul, difficultySpeedMul, difficultyCountMul, ENDLESS_COUNT_MUL_MAX, XP_LATE_FROM, DIFFICULTY_DMG_PER_LEVEL, HURT_CAP_FRAC,
   // v6.4 pond identity (Run NN)
   BLOOM_SLOW, TIDE_DMG_BONUS, TIDE_TURN, MINE_STUN, SOAP_INTERVAL,
   // v6.4.1/v6.4.3 early-calm (Run OO)
@@ -465,7 +465,12 @@ function testEndlessRamp() {
   const want = base.enemyDmgMul * difficultyDmgMul(d)
   assert.ok(Math.abs(run.mods.enemyDmgMul - want) < 1e-9, `drift: ${run.mods.enemyDmgMul} vs ${want}`)
   assert.ok(Math.abs(run.mods.enemySpeedMul - base.enemySpeedMul * difficultySpeedMul(d)) < 1e-9)
-  assert.ok(Math.abs(run.mods.maxAliveMul - base.maxAliveMul * difficultyCountMul(d)) < 1e-9)
+  // the crowd ceiling binds by 20 min: the cap, not the uncapped count, is what reaches maxAliveMul
+  assert.ok(difficultyCountMul(d) > ENDLESS_COUNT_MUL_MAX, `cap not reached at d=${d}`)
+  assert.ok(Math.abs(run.mods.maxAliveMul - base.maxAliveMul * ENDLESS_COUNT_MUL_MAX) < 1e-9, `crowd uncapped: ${run.mods.maxAliveMul}`)
+  // levels past XP_LATE_FROM cost more than the linear curve; below it, the curve is untouched
+  assert.strictEqual(xpForLevel(XP_LATE_FROM), 5 + XP_LATE_FROM * 4)
+  assert.ok(xpForLevel(XP_LATE_FROM + 25) > 5 + (XP_LATE_FROM + 25) * 4, 'late levels not dearer')
   assert.ok(Math.abs(run.mods.enemyHpMul - base.enemyHpMul * endlessHpMul(d)) < 1e-9)
   assert.ok(run.mods.enemyHpMul > base.enemyHpMul * endlessHpMul(2), 'hp must have grown')
   // exponential: a constant ratio > 1 between consecutive integer levels
@@ -732,13 +737,16 @@ function testEndlessCrowdAffixes() {
       t.affixVisible = true
       run.enemies.push(t)
     }
+    // a corpse's children are BORN on it; the crowd is born off-screen but can walk in, so judge birthplace
+    const children = []
     for (let i = 0; i < 90 && run.kills < 8; i++) {
       if (run.phase === 'levelup') { declineLevelUp(run); continue }
+      const before = new Set(run.enemies)
       stepSim(run, { x: 0, y: 0 }, 1 / 30)
+      for (const e of run.enemies) if (!before.has(e) && e.type === 'wisp' && Math.hypot(e.x - 50, e.y) < 150) children.push(e)
     }
-    const wisps = run.enemies.filter((e) => e.type === 'wisp' && Math.hypot(e.x - 50, e.y) < 150) // the corpse's children; natural spawns are far off
-    assert.ok(run.difficulty > 10 && wisps.length >= 1, `wisps ${wisps.length} d=${run.difficulty}`)
-    assert.ok(wisps.every((e) => e.affixes.length === 0), 'wisp rolled an affix')
+    assert.ok(run.difficulty > 10 && children.length >= 1, `children ${children.length} d=${run.difficulty}`)
+    assert.ok(children.every((e) => e.affixes.length === 0), `child rolled an affix: ${JSON.stringify(children.filter((e) => e.affixes.length).map((e) => e.affixes))} of ${children.length}`)
   }
   // EFFECTS, on a hand-made normal enemy (affixVisible is the only difference from the control)
   const probe = (affix, visible, hp) => {

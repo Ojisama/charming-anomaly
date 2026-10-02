@@ -253,7 +253,7 @@ import {
   ENEMY_SEP_FRAC, ENEMY_SEP_RESOLVE, ENEMY_SEP_CELL,
   // v6.7.11: the level-up reroll's price ladder — rerollLevelUpChoices owns the whole purchase
   rerollCost,
-  difficultySpeedMul, difficultyCountMul, difficultyDmgMul, endlessLevel, endlessHpMul, endlessXpMul, ENDLESS_COIN_HALF_LIFE_S,
+  difficultySpeedMul, difficultyCountMul, difficultyDmgMul, endlessLevel, endlessHpMul, endlessXpMul, ENDLESS_COIN_HALF_LIFE_S, ENDLESS_COUNT_MUL_MAX,
   ENDLESS_MILESTONE_S, ENDLESS_MILESTONE_ELITES, endlessAffixChance, ENDLESS_GILDED_COINS, ENDLESS_HANDOVER_CLEAR_R, mutatorPool, MUTATORS,
 } from './config.js'
 
@@ -4339,7 +4339,7 @@ function stepEndless(run) {
   const b = run._endlessBase
   run.mods.enemySpeedMul = b.enemySpeedMul * difficultySpeedMul(d)
   run.mods.spawnMul = b.spawnMul * difficultyCountMul(d)
-  run.mods.maxAliveMul = b.maxAliveMul * difficultyCountMul(d)
+  run.mods.maxAliveMul = b.maxAliveMul * Math.min(difficultyCountMul(d), ENDLESS_COUNT_MUL_MAX)
   run.mods.enemyDmgMul = b.enemyDmgMul * difficultyDmgMul(d)
   run.mods.enemyHpMul = b.enemyHpMul * endlessHpMul(d)
   run.mods.coinMul = b.coinMul * Math.pow(0.5, run.time / ENDLESS_COIN_HALF_LIFE_S)
