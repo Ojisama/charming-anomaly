@@ -43,6 +43,7 @@ import { t as tr } from './i18n.js'
 
 
 const DARK = 0x3b3345
+const MOCK_TV = Number(new URLSearchParams(location.search).get('tv') || 0)   // MOCKUP ONLY, delete with the pick
 // THE HAUL WAKE (owner pick, 2026-09-04). Shot as four arms on one frame — no wake, the first
 // concentric-arc cut, this at 0.32 alpha, and this. He took the loudest: the chapter's floor already
 // carries big pale lobed props and 40 pale tide streaks, so a 0.3-alpha hairline is invisible on
@@ -6016,6 +6017,59 @@ export function createRenderer(app) {
       g.circle(0, 0, 3.6).stroke({ width: 1.5, color: 0xffe9a8 })
       g.beginPath().arc(0, 0, 5, -2.3, -1.1).stroke({ width: 1.6, color: 0xffffff, alpha: 0.9, cap: 'round' })
       T.coin = bake(g)
+    }
+    // MOCKUP ONLY (?tv=1..3): merged-pickup looks for the lag fix. Delete with the pick.
+    {
+      const gemShape = (g, x, y, k, fill, edge, facet) => {
+        g.poly([x, y - 7 * k, x + 5 * k, y, x, y + 7 * k, x - 5 * k, y]).fill(fill).stroke({ width: 1.8, color: edge })
+        g.poly([x, y - 7 * k, x + 5 * k, y, x, y]).fill({ color: facet, alpha: 0.9 })
+        g.circle(x - 1.5 * k, y - 2.2 * k, 1.2 * k).fill({ color: 0xffffff, alpha: 0.9 })
+      }
+      const coinShape = (g, x, y, k = 1) => {
+        g.circle(x, y, 6.5 * k).fill(0xffcf4d).stroke({ width: 2, color: 0xb9891d })
+        g.circle(x, y, 3.6 * k).stroke({ width: 1.5, color: 0xffe9a8 })
+        g.beginPath().arc(x, y, 5 * k, -2.3, -1.1).stroke({ width: 1.6, color: 0xffffff, alpha: 0.9, cap: 'round' })
+      }
+      // A: tiers by value — blue, green, red, violet, each bigger
+      T.mockTier = [[0x4da3ff, 0x2a6fd1, 0x9fd0ff, 1], [0x3fd27a, 0x1f8f4c, 0xa8f0c4, 1.25],
+        [0xff4d5e, 0xb3202f, 0xffb0b8, 1.5], [0xb36bff, 0x6b2fc0, 0xe2c8ff, 1.9]].map(([f, e, c, k]) => {
+        const g = new Graphics(); gemShape(g, 0, 0, k, f, e, c); return bake(g)
+      })
+      T.mockCoinTier = [1, 2, 3, 4].map((n) => {
+        const g = new Graphics()
+        const spots = [[0, 0], [5, -3], [-4, -4], [1, -7]]
+        for (let i = 0; i < n; i++) coinShape(g, spots[i][0], spots[i][1])
+        return bake(g)
+      })
+      // B: clusters — same blue crystal, 1..5 of them growing from one spot
+      T.mockCluster = [1, 2, 3, 4, 5].map((n) => {
+        const g = new Graphics()
+        const spots = [[0, 0], [6, 3], [-6, 2], [2, -6], [-3, 7]]
+        for (let i = n - 1; i >= 0; i--) gemShape(g, spots[i][0], spots[i][1], i === 0 ? 1.15 : 0.85, 0x4da3ff, 0x2a6fd1, 0x9fd0ff)
+        return bake(g)
+      })
+      T.mockCoinHeap = [1, 2, 3, 4, 5].map((n) => {
+        const g = new Graphics()
+        const spots = [[0, 0], [6, 2], [-6, 3], [1, 6], [-2, -5]]
+        for (let i = n - 1; i >= 0; i--) coinShape(g, spots[i][0], spots[i][1], 0.95)
+        return bake(g)
+      })
+      // C: overflow — one big red crystal with a soft glow, one coin bag
+      {
+        const g = new Graphics()
+        g.circle(0, 0, 26).fill({ color: 0xff4d5e, alpha: 0.12 })
+        g.circle(0, 0, 18).fill({ color: 0xff4d5e, alpha: 0.18 })
+        gemShape(g, 0, 0, 2.3, 0xff4d5e, 0xb3202f, 0xffb0b8)
+        T.mockOverflow = bake(g)
+      }
+      {
+        const g = new Graphics()
+        g.circle(0, 2, 13).fill(0xa8743a).stroke({ width: 2, color: 0x6b4520 })
+        g.ellipse(0, -10, 6, 3.5).fill(0x8a5a2b).stroke({ width: 1.6, color: 0x6b4520 })
+        g.circle(-4, -2, 3).fill({ color: 0xffffff, alpha: 0.25 })
+        coinShape(g, 3, 4, 0.9)
+        T.mockBag = bake(g)
+      }
     }
     // particles: soft white dot + 4-point sparkle (tinted per use)
     {
@@ -29576,9 +29630,18 @@ void main() {
   function placeGem(s, g) {
     s.position.set(g.x, g.y)
     s.scale.set(1 + 0.15 * Math.sin(animT * 5 + (g.x + g.y) * 0.05))
+    const v = g.xp
+    mockLook(s, MOCK_TV === 1 ? T.mockTier[v >= 125 ? 3 : v >= 25 ? 2 : v >= 5 ? 1 : 0]
+      : MOCK_TV === 2 ? T.mockCluster[Math.min(4, Math.floor(Math.log2(Math.max(1, v))))]
+      : MOCK_TV === 3 && g._overflow ? T.mockOverflow : T.gem)
   }
+  function mockLook(s, look) { s.texture = look.tex; s.anchor.set(look.ax, look.ay) }
   function placeCoin(s, c) {
     s.position.set(c.x, c.y)
+    const v = c.value
+    mockLook(s, MOCK_TV === 1 ? T.mockCoinTier[Math.min(3, Math.floor(Math.log2(Math.max(1, v)) / 1.2))]
+      : MOCK_TV === 2 ? T.mockCoinHeap[Math.min(4, Math.floor(Math.log2(Math.max(1, v))))]
+      : MOCK_TV === 3 && c._overflow ? T.mockBag : T.coin)
     s.scale.set(1 + 0.1 * Math.sin(animT * 4 + (c.x - c.y) * 0.05))
   }
   function placeBoomerang(s, b, i) {
