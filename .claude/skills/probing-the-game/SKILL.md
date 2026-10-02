@@ -290,6 +290,17 @@ extension connected. Both can be unavailable at once. Fallbacks, in order:
   — loot, webs, pools — as cheap; that verdict got a pickup fix dropped unmeasured. For anything
   that piles up over a run: read its count from the plain 30-min sweep, then time BOTH halves at
   that count.
+- **A FABRICATED BLOOM IS INVISIBLE AT `t: 0` OR `r: 0`, AND EVERY COUNT OF IT LIES.** `bloomFade`
+  is 0 at birth and the puffs scale off `bl.r`, which only stepBlooms grows — a scene that pushes
+  blooms and never steps the sim draws nothing. On 2026-10-02 a 400-cloud pile counted 400 visible
+  sprites on BOTH old and new code (the clouds were not among them), then drew an empty floor. Push
+  them mid-life with full size (`t: dur / 2, r: maxR`) and look at the frame before trusting the count.
+- **A NEW ARRAY THAT CARDS SPAWN INTO ON CAST, HIT OR LANDING NEEDS A ROW IN `DRAW_CAPS` AND
+  `LIVE_CAPS` (config.js).** Without one its live count is spawn rate × lifetime, unbounded under
+  fire rate: a 42-build sweep at x15 fire rate (2026-10-02) found 29k blooms, 24k bullets and 18k
+  lures. DRAW_CAPS is render-only (the newest N are drawn, the rest still hit) and is the owner's
+  rule for lag; LIVE_CAPS evicts sim entities, so set it above any measured real build — a 120
+  sim cap measured -77% kills/min on the Silt Plume combo. Run LC floods each listed array.
 
 ## Two probes with a rig that lies, and the wide-area view (moved out of CLAUDE.md)
 
