@@ -5311,6 +5311,9 @@ export const endlessHpMul = (d) => Math.pow(1 + ENDLESS_HP_GROWTH, Math.max(1, d
 // balance_decision : endless XP taper, playtest starting value 2026-10-01
 export const ENDLESS_XP_TAPER = 0.03
 export const endlessXpMul = (d) => 1 / (1 + ENDLESS_XP_TAPER * (Math.max(1, d) - 1))
+// balance_decision : endless levels cost +7% xp per player level 2026-10-02
+export const ENDLESS_XP_NEED_PER_LEVEL = 0.07
+export const endlessXpNeedMul = (lv) => 1 + ENDLESS_XP_NEED_PER_LEVEL * (Math.max(1, lv) - 1)
 // balance_decision : endless crowd stops growing past ~minute 10 (lag) 2026-10-02
 //  - caps maxAliveMul only; spawnMul keeps climbing, so the field refills faster
 export const ENDLESS_COUNT_MUL_MAX = 2.5

@@ -253,7 +253,7 @@ import {
   ENEMY_SEP_FRAC, ENEMY_SEP_RESOLVE, ENEMY_SEP_CELL, ENEMY_QUERY_CELL, ENEMY_QUERY_MAX_CELLS,
   // v6.7.11: the level-up reroll's price ladder — rerollLevelUpChoices owns the whole purchase
   rerollCost,
-  difficultySpeedMul, difficultyCountMul, difficultyDmgMul, endlessLevel, endlessHpMul, endlessXpMul, ENDLESS_COIN_HALF_LIFE_S, ENDLESS_COUNT_MUL_MAX,
+  difficultySpeedMul, difficultyCountMul, difficultyDmgMul, endlessLevel, endlessHpMul, endlessXpMul, endlessXpNeedMul, ENDLESS_COIN_HALF_LIFE_S, ENDLESS_COUNT_MUL_MAX,
   ENDLESS_MILESTONE_S, ENDLESS_MILESTONE_ELITES, endlessAffixChance, ENDLESS_GILDED_COINS, ENDLESS_HANDOVER_CLEAR_R, mutatorPool, MUTATORS,
 } from './config.js'
 
@@ -15739,7 +15739,7 @@ function stepLevelUp(run) {
   // beyond xpNext is handled by this same check on the next 'playing' frame.
   p.xp -= p.xpNext
   p.level += 1
-  p.xpNext = xpForLevel(p.level)
+  p.xpNext = xpForLevel(p.level) * (run.endless ? endlessXpNeedMul(p.level) : 1)
   // THE KRAKEN'S KILL. Its head is dead and the win lands on the next step, so a card screen now is
   // one the run can never use, and it froze the boss's death under a modal. The level still counts.
   if (krakenWinPending(run)) return
