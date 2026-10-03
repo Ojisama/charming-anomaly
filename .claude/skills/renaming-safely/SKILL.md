@@ -29,7 +29,7 @@ before you write a single line of a new mechanic.
     is not English, and which every test passes happily. Nothing catches this but reading it.
 
 - **A RENAME SWEEP CAN CLOBBER A PRE-EXISTING IDENTIFIER YOU DID NOT KNOW ABOUT — the failure mode
-  the two below do not cover, because here the name you are renaming *to* is the collision.**
+  the two above do not cover, because here the name you are renaming *to* is the collision.**
   Renaming a brand-new `waveG` to `swellG` silently overwrote the SHIPPED `swellG` (updateSwell's
   Graphics), and the only symptom was `Identifier "swellG" has already been declared` from esbuild —
   which reads as a typo in your own new code, not as "you just renamed someone else's". `npm test`

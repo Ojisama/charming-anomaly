@@ -12,26 +12,23 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 npm run dev        # vite dev server (host:true — reachable from phone on the LAN for touch testing)
 npm run build      # vite build -> dist/
 npm run preview    # serve the built dist/
-npm test           # THE SHIP GATE — scripts/test-isolation.mjs: all 172 scenarios, ONE PROCESS EACH,
-                   # 8 at a time. 16s. It costs its LONGEST SINGLE SCENARIO, not the sum, so the
-                   # number to watch is the "Floor is..." line it prints (today
-                   # testChapterDensityCap, which IS the whole 16s — splitting its four chapters
-                   # into four scenarios would take the gate to ~8s).
+npm test           # THE SHIP GATE — scripts/test-isolation.mjs: every scenario, ONE PROCESS EACH,
+                   # 8 at a time. It costs its LONGEST SINGLE SCENARIO, not the sum, so the
+                   # number to watch is the "Floor is..." line it prints — splitting that
+                   # scenario is how the gate gets faster.
 npm test <name>    # only scenarios whose FUNCTION name matches, case-insensitive, still parallel.
-                   # `surf` is 0.4s, `element` 1.0s. A filter matching NOTHING is a failure, not
-                   # a pass — that used to print ALL TESTS PASSED having run no scenario at all.
-npm run test:serial   # the old single-process run of test/sim-test.js, source order, ~76s. For a
+                   # A filter matching NOTHING is a failure, not a pass, so a typo cannot print
+                   # a green result having run no scenario at all.
+npm run test:serial   # single-process run of test/sim-test.js in source order. For a
                    # debugger, a print, or a stack you want uninterleaved. NOT the gate.
 ```
 
-**Running each scenario alone is no longer a thing you remember to do — it is the only way the gate
-runs.** That closes the order-coupling hole for good (run V.f never seeded itself, its measured
-drift ranges 18–159px across phases and its threshold sat at 20, so it passed only because the
-full-suite ORDER lands on a passing phase). **And the gate proves COVERAGE, not dispatch:** 13 of
-the 172 `run()` sites sit inside `testCrazyMods`' body, so a child asked for one of those alone
-reaches nothing and exits 0 — the old serial isolation runner counted call sites and had been
-calling that "ALL 172 SCENARIOS PASS IN ISOLATION" for its whole life. Every child now prints
-`#RAN <names>` and the gate unions them against the full list before it says anything.
+**Every scenario runs alone, in its own process — that is the only way the gate runs.** It closes
+the order-coupling hole: a scenario that never seeds itself can pass only because of where the
+full-suite ORDER happens to leave the random stream. **And the gate proves COVERAGE, not
+dispatch:** 13 `run()` sites sit inside `testCrazyMods`' body, so a child asked for one of those
+alone reaches nothing and exits 0 — counting call sites would report it as passing. Every child
+prints `#RAN <names>` and the gate unions them against the full list before it says anything.
 
 **The probes and dev views — one line each. Every one has a trap that has produced a WRONG answer
 in this repo (the kiting rig's own geometry, census numbers compared across invocations, map mode's
@@ -55,7 +52,7 @@ hidden layers). `probing-the-game` holds all of them; load it before you measure
 
 There is no single-test runner and no test framework: `test/sim-test.js` is one plain-node file of `assert`-based scenarios that seeds `Math.random` (mulberry32) for determinism and prints `PASS …` / `ALL TESTS PASSED`. To run a subset, pass a name (above) — do not reach for jest/vitest. To add a check, append a scenario in the same style. **Anything free of Pixi and DOM is testable this way** — the suite already imports `sim.js`, `config.js`, `state.js`, `sync.js` and `fr.js`. (`sync.js` deliberately keeps browser globals out of its module scope precisely so it can be imported here.) `render.js` and `main.js` are not importable, but the suite still asserts against them as **source text** — see run UG.k, which greps `render.js` to prove a declared hook is actually forwarded and read. Reach for that trick when a render-side contract has no other guard.
 
-**THOSE SOURCE-TEXT SCENARIOS READ FILES OUTSIDE `src/` AND `test/`** — `styles.css`, `index.html`, `public/sw.js`, `vite.config.js`. So a scratch copy made for mutation-proofing with `cp -r src test <tmp>` is not a runnable suite: it dies partway with a missing-file throw, which the top-level `try` turns into one `FAIL:` line and `process.exit(1)`. A harness looping over mutations reads that as "caught" and a timing harness prints a total for a run that stopped at scenario 99 of 172 — this cost a whole round of wrong numbers on 2026-09-15. Extract with `git archive HEAD | tar -x -C <tmp>` (the WHOLE tree, not `HEAD src`), and make the harness require a `ALL TESTS PASSED` line on its baseline before it believes anything after it.
+**THOSE SOURCE-TEXT SCENARIOS READ FILES OUTSIDE `src/` AND `test/`** — `index.html`, `public/sw.js`, `vite.config.js`. So a scratch copy made for mutation-proofing with `cp -r src test <tmp>` is not a runnable suite: it dies partway with a missing-file throw, which the top-level `try` turns into one `FAIL:` line and `process.exit(1)`. A harness looping over mutations reads that as "caught" and a timing harness prints a total for a run that stopped partway. Extract with `git archive HEAD | tar -x -C <tmp>` (the WHOLE tree, not `HEAD src`), and make the harness require a `ALL TESTS PASSED` line on its baseline before it believes anything after it.
 
 **Six scenarios lint CROSS-FILE CONTRACTS as source text, and they are the cheapest guards here.**
 An architecture audit over 273 releases found the single largest root-cause class — 28% of every
@@ -66,9 +63,10 @@ render case, an `SFX_FOR_EVENT` entry, or a written line in `SILENT_BY_DESIGN`),
 what it just made), `run CP` (every array handed to `syncPool` is named in `clearWorld`'s flat
 list, and no pool sits in both lists), `run VO` (roster behaviour flags, elite affixes, sfx names
 and structure kinds all resolve on the other side), run XX's config-table walk, and `run MB.a`
-(every weapon mod in the game — 201 across 38 weapons — resolves to a `WEAPON_STAT_MODS` fold, a
-`WEAPON_RATE_MODS` division, or a read at its own fire site; anything else is an INERT CARD, offered
-and picked and banked and doing nothing, with nothing thrown and no test red). **MB.a strips
+(every weapon mod in the game — its PASS line prints the live count — resolves to a
+`WEAPON_STAT_MODS` fold, a `WEAPON_RATE_MODS` division, or a read at its own fire site; anything
+else is an INERT CARD, offered and picked and banked and doing nothing, with nothing thrown and no
+test red). **MB.a strips
 comments from sim.js before searching, and that line is load-bearing:** every mod id is discussed in
 prose right beside its wiring, so a raw substring search is satisfied by the comment alone — delete
 a fold and leave the sentence explaining it and the card goes inert while the check stays green.
@@ -103,44 +101,14 @@ zero — `ALL TESTS PASSED` on a renderer change means the SIM still works, and 
 about what is on screen. The only coverage it has is the handful of source-text lints that grep it,
 and those are spelling checks, not pictures. **A render change is verified by SHOOTING A FRAME**
 (`probing-the-game`; `scripts/fx-probe.mjs` for an effect, `scripts/shot.mjs` for a page) and by
-nothing else. v7.327 shipped a whole boss renderer off a green suite; the first frame ever taken of
-it showed a Pixi path bug that turned the entire ring into a fan of pale wedges, and two frames later
-that the boss did not fit the viewport at all. Neither could have failed a test, and both were
-obvious in one screenshot.
+nothing else: a broken Pixi path or a boss that does not fit the viewport cannot fail a test, and
+is obvious in one screenshot.
 
-## The hidden dev menu (v7.12) — how to test one specific card
+## The hidden dev menu — load `dev-menu` before using or touching it
 
-**Seven quick taps on the TITLE WORDMARK** turn DEV on (the pill appears); then **one tap on the
-HUD coin badge**, mid-run, pauses the game and opens a list of *every* card the game can produce
-(190 of them: weapons, passives, weapon mods, elements, anomalies).
-Tapping one adds it to the run; the list rebuilds, so a weapon you just took now reads `Lv 2`.
-Resume closes it. It ships in the production bundle deliberately — the point is to test a card on
-a phone against the live URL, not only on localhost.
-
-- **THE BADGE HAS NO GESTURE OF ITS OWN, AND THAT IS THE POINT.** It used to take its own
-  seven-tap burst, independent of the title's DEV toggle — so the game had TWO dev switches and
-  therefore two different answers to "is this a dev run". The leaderboard was wired to only one of
-  them: `run._devUsed`, set when a dev CARD is taken. A run played with DEV on to reach a WIP
-  chapter submitted to the public board like any other, and did (v7.161.0). One switch now:
-  `meta.dev` gates the card list, and `endRun` (main.js) refuses to submit anything played under
-  it. If you ever give the badge its own gesture back, you have re-created the bug — run LB
-  asserts the gate, so the suite will tell you.
-- The title's seven taps must be within `DEV_TAP_WINDOW_MS` (1s) of each other, so the counter
-  cannot creep up from stray taps.
-- The filter matches title, description **and kind** — type `anomaly` to get the whole slate,
-  `mod` for all 134 weapon mods.
-- `devCards(run)` (sim.js) ignores every eligibility rule on purpose: chapter pool, minLevel, an
-  anomaly's `when` gate, `MAX_ANOMALIES_PER_RUN`, already-picked dedup. That is the whole point —
-  SUBMISSION needs an elite kill before the real pool will offer it.
-- `devTake` routes through `applyChoice` via `run.levelUpChoices`, so a dev-added card takes the
-  **shipped** code path. Do not reimplement the branches here; you would be testing a second
-  implementation instead of the game.
-- Run DV in the suite guards both halves. Both fail silently otherwise: `devCards` walks the
-  rarity ladder because `make*Card` returns null for a tier a card does not offer (a `switch` mod
-  is normal-only, Sweep Loot is epic-only), and without the walk **9 cards are simply absent from
-  the list** — exactly the ones whose rarity rules are unusual, i.e. the ones most worth testing.
-- The dev screen is Pixi-free like the rest of ui.js, so its layout is testable with the throwaway
-  `harness.html` trick below (see *When there is no MCP browser tab*) — no app boot needed.
+Seven taps on the title wordmark turn DEV on; one tap on the HUD coin badge then lists every card.
+**Never give the coin badge a gesture of its own** — that re-creates the two-dev-switches bug that
+let dev runs reach the public leaderboard (run LB guards it).
 
 ## Module architecture — the boundaries are the design
 
@@ -148,11 +116,11 @@ Every module has a hard rule about what it may touch. These rules are what make 
 
 | File | Role | May NOT touch |
 |------|------|---------------|
-| `terrain.js` | **The world generator** (v5.11). Pure fns of `(x, y, seed)`: elevation/moisture noise fields, rivers, cities (each owning its street grid), biome classification, road queries. Imports nothing; `config.js` re-exports its surface so sim/render keep one import source. | anything — no imports at all |
-| `config.js` (4.9k lines) | All balance numbers + `CHAPTERS`/`WEAPONS`/`WEAPON_MODS`/`ELEMENTS`/`MUTATORS` tables. Treated as **read-only ground truth** by every other module. | — (pure data + pure helper fns) |
+| `terrain.js` | **The world generator.** Pure fns of `(x, y, seed)`: elevation/moisture noise fields, rivers, cities (each owning its street grid), biome classification, road queries. Imports nothing; `config.js` re-exports its surface so sim/render keep one import source. | anything — no imports at all |
+| `config.js` | All balance numbers + `CHAPTERS`/`WEAPONS`/`WEAPON_MODS`/`ELEMENTS`/`MUTATORS` tables. Treated as **read-only ground truth** by every other module. | — (pure data + pure helper fns) |
 | `state.js` | `run` shape (`createRun`) + persistent save (`loadMeta`/`saveMeta`, `localStorage`) + save migrations. | Pixi, DOM (localStorage only) |
-| `sim.js` (6.3k lines) | **Pure simulation.** `stepSim(run, input, dt)` advances the world and pushes to `run.events`. | Pixi, DOM, localStorage — nothing but `run` + `config` |
-| `render.js` (12k lines) | PixiJS renderer. Reads `run`, **never mutates it**. Bakes entity looks into textures once; per-frame work is sprite pools. | writing to `run` |
+| `sim.js` | **Pure simulation.** `stepSim(run, input, dt)` advances the world and pushes to `run.events`. | Pixi, DOM, localStorage — nothing but `run` + `config` |
+| `render.js` | PixiJS renderer. Reads `run`, **never mutates it**. Bakes entity looks into textures once; per-frame work is sprite pools. | writing to `run` |
 | `ui.js` | DOM overlay (`#ui`): title, shop, HUD, level-up, pause, summary screens. | Pixi |
 | `input.js` | Floating touch joystick + WASD/arrows → normalized move vector. | — |
 | `audio.js` | Procedural WebAudio SFX (no audio assets — every sound is synthesized). | — |
@@ -160,9 +128,7 @@ Every module has a hard rule about what it may touch. These rules are what make 
 
 ### The frame loop (main.js)
 
-`app.ticker` each frame: `stepSim(run, getInput(), dt)` → drain `run.events` into a fresh array → `renderer.sync(run, dt, events)` → map events to SFX → `ui.updateHUD` → react to phase change (`levelup`/`dead`/`victory`). `dt` is clamped to 0.05s. When paused/modal, `renderer.sync(run, 0, [])` draws a frozen world.
-
-`sync`'s `dt` also drives `animT`, which every sprite ROTATION and pulse is derived from — so `dt = 0` freezes the animation as well as the sim. That is the intended modal behaviour, and it is also the reason anything driving frames by hand has to pass real time when it wants motion (see `scripts/fx-probe.mjs`).
+While paused or modal, main.js calls `renderer.sync(run, 0, [])`. `sync`'s `dt` drives `animT`, which every sprite ROTATION and pulse is derived from — so `dt = 0` freezes the animation as well as the sim. That is the intended modal behaviour, and it is also the reason anything driving frames by hand has to pass real time when it wants motion (see `scripts/fx-probe.mjs`).
 
 ### Sprite pools vs. rigs (render.js)
 
@@ -172,7 +138,7 @@ One sprite per entity goes through `syncPool`. An entity needing independently-t
 
 ### The event contract
 
-`sim.js` never calls render or audio directly. It **pushes event objects** (`{type:'hit'|'kill'|'shoot'|'explode'|'levelup'|…}`) onto `run.events`; `main.js` drains them once per frame and fans them out to the renderer (visual bursts) and `SFX_FOR_EVENT` (audio). Adding a new visible/audible effect = emit an event in sim, then handle it in render.js and the `SFX_FOR_EVENT` map. **The authoritative list of every event shape and every `run.*` field lives in the giant doc block in `state.js` (lines 438-1115)** — read it before adding entities or events; keep it in sync when you change the `run` shape.
+`sim.js` never calls render or audio directly. It **pushes event objects** (`{type:'hit'|'kill'|'shoot'|'explode'|'levelup'|…}`) onto `run.events`; `main.js` drains them once per frame and fans them out to the renderer (visual bursts) and `SFX_FOR_EVENT` (audio). Adding a new visible/audible effect = emit an event in sim, then handle it in render.js and the `SFX_FOR_EVENT` map. **The authoritative list of every event shape and every `run.*` field lives in the giant doc block directly above `createRun` in `state.js`** — read it before adding entities or events; keep it in sync when you change the `run` shape.
 
 **A NEW MECHANIC IS INVISIBLE UNTIL IT REACHES A CONTRACT FIELD, and invisible is
 indistinguishable from broken.** render.js tints, holds poses and spawns status particles off
@@ -189,11 +155,11 @@ actually setting. A missing tell is also worth a deliberate decision on SOUND: `
 gets a new entry only if the event is rare enough to bear one (freezes fire dozens of times a
 minute, which is why SUBMISSION's expiry has no sound either).
 
-### The chapter system (v5.0+)
+### The chapter system
 
-`CHAPTERS[id]` (config.js, ordered by `CHAPTER_ORDER`) defines each biome: its `weapons` pool (scopes the level-up weapon offers), `starter` weapon, enemy `roster` (mapped to base archetypes `normal`/`fast`/`tank` via `hpMul`/`speedMul`/behavior `flags`), `eliteFlags`, a `signature` mechanic (e.g. `currents`, `pheromones`, `predators`, `gravity`, `traffic`), `obstacles`, and a **render-only** `render` block (tints/bg, zero sim effect). Enemy behavior flags (`latch`, `split`, `dashBurst`, `diveBomb`, `pounce`, `missileVolley`, …) are chapter-agnostic strings that sim.js reads — the flag vocabulary is documented inline in `state.js`'s doc block and each flag's tuning block in config.js.
+`CHAPTERS[id]` (config.js, ordered per book by `BOOKS[book].chapters`) defines each biome: its `weapons` pool (scopes the level-up weapon offers), `starter` weapon, enemy `roster` (mapped to base archetypes `normal`/`fast`/`tank` via `hpMul`/`speedMul`/behavior `flags`), `eliteFlags`, a `signature` mechanic (e.g. `currents`, `pheromones`, `predators`, `gravity`, `traffic`), `obstacles`, and a **render-only** `render` block (tints/bg, zero sim effect). Enemy behavior flags (`latch`, `split`, `dashBurst`, `diveBomb`, `pounce`, `missileVolley`, …) are chapter-agnostic strings that sim.js reads — the flag vocabulary is documented inline in `state.js`'s doc block and each flag's tuning block in config.js.
 
-Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has its own difficulty ladder in `meta.chapters[id]`. `ensureChapterMeta` (state.js) repairs/creates per-chapter save entries on every load, so a save predating a newly-shipped chapter always resolves cleanly. **When adding a chapter, add it to `CHAPTER_ORDER` + `CHAPTERS`** and the migration/unlock logic handles the rest.
+Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has its own difficulty ladder in `meta.chapters[id]`. `ensureChapterMeta` (state.js) repairs/creates per-chapter save entries on every load, so a save predating a newly-shipped chapter always resolves cleanly. **When adding a chapter, add it to `CHAPTERS` and to its book's `BOOKS[book].chapters` ladder** (`CHAPTER_ORDER` is just `BOOKS.book1.chapters`) and the migration/unlock logic handles the rest.
 
 ## Non-obvious constraints (breaking these produces a blank page in prod)
 
@@ -214,7 +180,7 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
   and it is the list you must actually READ**, not just confirm is short. `git fetch && git log
   --oneline HEAD..origin/main` costs one second — run it before rewriting any shared function.
 - **`meta` FIELDS ARE ADDITIVE-ONLY. Never rename, never repurpose, never delete a top-level field**
-  (R2, `docs/superpowers/specs/2026-08-04-cross-device-save-sync-tech-strategy.md:124`): *"A rename
+  (R2 in `docs/superpowers/specs/2026-08-04-cross-device-save-sync-tech-strategy.md`): *"A rename
   is a delete plus an add, and the old build carries the corpse forward."* An old build is always
   still out there — a revert, a stale tab, an un-updated device, `public/sw.js`'s offline shell —
   and it will push its blob over a slot the new build already migrated. Proven on this project's own
@@ -267,7 +233,7 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
   committing it. On 2026-09-13 three documentation fixes were written to the loaded path and only
   caught because `git status` showed the one file that had been edited relatively — the other two
   were invisible, which is exactly how a harness improvement gets written twice and lands never.
-- **SEVEN RULE SETS LIVE IN SKILLS, NOT HERE — load the skill BEFORE the work, not after.** They
+- **EIGHT RULE SETS LIVE IN SKILLS, NOT HERE — load the skill BEFORE the work, not after.** They
   were moved out because they only apply to one kind of task and this file is read on every call;
   moving them does not make them optional. If you are about to do the thing in the left column and
   you have not loaded the skill, stop.
@@ -275,6 +241,7 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
   | About to… | Load |
   |---|---|
   | measure anything, run a probe, shoot a frame, judge a layout | `probing-the-game` (or dispatch the `measure` agent) |
+  | test one card by hand, touch the dev menu / `devCards` / the DEV toggle | `dev-menu` |
   | draw or bake anything, write a card name, desc or any player-visible string, touch `fr.js` | `game-art-and-copy` |
   | rename an existing id/field/display name, or name a new mechanic | `renaming-safely` |
   | add or redesign a weapon or weapon mod | `design-a-weapon` |
@@ -313,7 +280,7 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
   of them captioned "the flush moves to the BOTTOM"; it was caught by re-reading the harness, not by
   running it. Diff the entries, and prefer a mutation that expresses the pathology (move the call)
   over one that merely removes the code.
-- `.gitignore` covers `node_modules/`, `dist/`, `.claude/worktrees/`, `.wrangler/` and `/*.png` — **and no other scratch artifact**. The last one is the trap: only a `.png` at the repo ROOT is ignored. A PNG in a subdirectory is not; neither is a `.json` dump, nor a screenshot in any other format. A 464 KB `_p4.jpg` sat tracked at the repo root for eleven versions for exactly that reason. Delete every scratch file explicitly before committing, and check `git status --short` rather than trusting the ignore rule.
+- `.gitignore` covers `node_modules/`, `dist/`, `.claude/worktrees/`, `.wrangler/` and `/*.png` — **and no other scratch artifact**. The last one is the trap: only a `.png` at the repo ROOT is ignored. A PNG in a subdirectory is not; neither is a `.json` dump, nor a screenshot in any other format. Delete every scratch file explicitly before committing, and check `git status --short` rather than trusting the ignore rule.
 - **`public/` is tracked PWA assets, not scratch** (`sw.js` is registered by `main.js`). Do not "clean up" anything in it. If you need the dev server to serve a probe artifact, put it somewhere you will delete and verify with `git status --short`.
 - Deploy is automatic: pushing to `main` triggers `.github/workflows/deploy.yml` (build → GitHub Pages).
 - **A MULTI-ANCHOR REWRITE OF A BIG FILE SILENTLY SWALLOWS ITS NEIGHBOURS. DIFF THE FUNCTION SET
@@ -347,15 +314,14 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
   "…"` just as much. The shell is zsh: backticks inside a double-quoted
   argument are command substitution, so `` `swept` `` runs `swept` as a command and substitutes its
   (empty) output. The visible symptom is a `command not found` line — which reads as "the command
-  failed", while node **has already run** with your string silently shortened. v7.10 lost four calls
-  to this: the run applied most of its replacements and ate one `` `swept` `` out of a comment, then
-  the follow-up script reported 33 misses because the work was already done. Anything with backticks,
-  nested quotes or newlines goes in a `.cjs` file that you run — the same reason the NBSP rule above
-  sends fr.js edits through node rather than through an exact-string anchor. v7.16 hit the SAME
-  trap in `git commit -m`, where it is quieter still: the commit SUCCEEDS, and two backticked
-  identifiers are simply missing from the message. Write a non-trivial commit message to a file and
+  failed", while node **has already run** with your string silently shortened — so a re-run then
+  "misses" on work already done. Anything with backticks, nested quotes or newlines goes in a `.cjs`
+  file that you run — the same reason `game-art-and-copy`'s NBSP rule sends fr.js edits through node
+  rather than through an exact-string anchor. In `git commit -m` it is quieter still: the commit
+  SUCCEEDS, with the backticked identifiers simply missing from the message. Write a non-trivial
+  commit message to a file and
   use `git commit -F <file>` — and if you only notice afterwards, `git commit --amend -F` fixes it
   while the commit is still unpushed.
 ## Design docs
 
-`docs/superpowers/specs/` and `docs/superpowers/plans/` hold the v1 design, the chapters design, and the chapters implementation plan — useful background for why systems are shaped the way they are.
+`docs/superpowers/specs/` and `docs/superpowers/plans/` hold the design specs and implementation plans (v1, chapters, save sync, and later features) — useful background for why systems are shaped the way they are.

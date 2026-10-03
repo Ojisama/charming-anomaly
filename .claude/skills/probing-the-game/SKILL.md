@@ -16,29 +16,22 @@ construction, and its context dies with it instead of deepening yours.
 
 `sim.js`/`config.js`/`state.js` import cleanly into plain node, which makes "what does this actually
 do over a real run" a 30-line script rather than a browser session. `scripts/weapon-census.mjs` and
-`scripts/pool-probe.mjs` are the worked examples. Five traps. The first four produced CONFIDENT
-WRONG NUMBERS in v7.16 and the fifth was found in 2026-08-16; every one of them fails silently, and
-three of the original four were only caught because a downstream detail looked odd:
+`scripts/pool-probe.mjs` are the worked examples. Every trap below fails silently and returns a
+confident wrong number rather than an error:
 
-- **`createRun(meta, opts)` TAKES AN OPTIONS OBJECT.** `createRun(meta, 'undergrowth', 3)` does not
-  throw and does not warn — `opts` is a string, `opts.chapter` is undefined, and you get **body at
-  difficulty 1**. A whole session's measurements were quoted as "undergrowth d3" before a roster-id
-  breakdown came back `redcell`/`antibody`. Use `createRun(meta, { chapter, difficulty })`, and
-  print `run.chapter` in the probe's own header so the output states what it measured.
+- **`createRun(meta, opts)` TAKES AN OPTIONS OBJECT** and throws on a positional string. Use
+  `createRun(meta, { chapter, difficulty })`, and print `run.chapter` in the probe's own header so
+  the output states what it measured — an unknown or locked chapter id still falls back to `body`
+  without throwing.
 - **The probe meta must UNLOCK the chapters**, exactly like a seeded save (see the browser section
   below). With `chapters: {}` `ensureChapterMeta` defaults `unlocked` to `id === 'body'` and
   `resolveChapterId` falls back — the same wrong-chapter failure, from a different direction.
 - **A PROBE THAT CANNOT MEASURE MUST NOT PRINT NUMBERS — abort, loudly, with a non-zero exit.**
-  The positional order for `pool-probe.mjs` is `<chapter> <slots> <runs> <policy>`, so the plausible
-  `pool-probe body 4 dps` omits `runs` and lands `'dps'` in that slot. `Number('dps')` is `NaN`,
-  every loop bounded by it runs zero times — and it used to print **every heading with `NaN` under
-  it and exit 0**, including `short pools 0/0  (MUST be 0)`, which reads as a PASS when nothing ran
-  at all. That is the worst shape a harness can fail in: not an error, but a confident answer to a
-  question it never asked. It now aborts on all four positionals with a message naming the mistake
-  (v7.99+). Two rules follow for any probe you write or extend: validate every argument that
-  indexes a loop bound, and treat a **silent fallback** as the same defect — `pool-probe`'s
-  `choose()` tests `'random'` and `'defense'` and lets everything else become the dps bot, so
-  `defence` (the spelling this file prints in its own output) quietly measured the wrong policy.
+  A short invocation that lands a word in a numeric slot makes `Number(x)` NaN, every loop bounded
+  by it runs zero times, and the probe prints a full table that reads as a PASS (`0/0`).
+  `pool-probe.mjs` validates all four of its positionals for this reason; do the same in any probe
+  you write or extend: validate every argument that indexes a loop bound, and treat a **silent
+  fallback** (an unknown policy becoming the default bot) as the same defect.
   This is the companion to the print-the-denominator rule: `0/75` proves a run happened, `0/0`
   proves nothing and looks identical.
 - **A HARNESS THAT *WRITES* MUST ABORT ON A FAILED PRECONDITION, NOT LOG AND CARRY ON.** The
@@ -140,16 +133,14 @@ src path as argv). That also keeps the mutation rule intact — the working tree
   screen.
 - **`H.light(frac)`, never `run.charge = …`.** render.js's dark reads `run.sightCharge`, which
   sim.js publishes from `run.charge` every step — so a scene that sets `charge` without stepping
-  leaves the dark frozen at whatever the warm-up ended on. `kraken-ring.js` did exactly that and
-  its three "empty bar -> full bar" frames were **byte-identical for the whole life of the file**,
-  while its own header explained why sweeping the bar was the point. Nobody could have seen it
-  without md5-ing the output, which this file tells you not to do. Generalise it: **any probe that
+  leaves the dark frozen at whatever the warm-up ended on, and every frame comes out identical.
+  Generalise it: **any probe that
   sets a sim field by hand is skipping whatever publishes the field render actually reads.**
 - **Judging a LOOK (an effect, a weapon animation, a telegraph): use `scripts/fx-probe.mjs`.** It
   boots once, seeds a save, pins the RNG, composes a scene from `scripts/scenes/<name>.js`, and
   captures a frame sequence — `node scripts/fx-probe.mjs --scene scripts/scenes/beam-prism.js
   --out /tmp/pr --frames 14`. Write a new scene file per effect; `beam-prism.js` is the worked
-  example and documents the `H` helper surface (`weapon`/`breed`/`keep`/`place`/`pin`/`scrub`).
+  example, and the `H` helper surface is documented in fx-probe.mjs itself.
   Stack the frames with `ffmpeg` into a labelled contact sheet or GIF.
 
   **TWO OPERATIONAL FACTS FIRST, because each costs a round and neither error names its own cause.**
@@ -216,7 +207,8 @@ src path as argv). That also keeps the mutation rule intact — the working tree
   ignored, suspect the reload or the save shape, not a clobber.) Open tabs share localStorage —
   use isolated browser contexts or close extras first.
 - **A seeded save MUST carry `shop: {}`.** `loadMeta` does `m.shop[id] = …` inside its own
-  try/catch, so a save without it throws and falls back to a FRESH meta with no warning — the
+  try/catch, so a save without it throws and falls back to a FRESH meta (with only a
+  `console.warn` — read the console) — the
   symptom is a title screen at difficulty 1 in English while localStorage holds your seed. Same
   trap for any field the loader writes into rather than reads: read `loadMeta` before hand-building
   its input. A working seed is
@@ -230,11 +222,9 @@ src path as argv). That also keeps the mutation rule intact — the working tree
   **any new modal on the title screen breaks every headless probe that seeds a save**, and the
   symptom never names the modal. When a probe that used to work stops reaching a run, shoot the
   bare URL with `scripts/shot.mjs` and look at the page before debugging the scene.
-  Per-book progression (v7.x) has NOT changed this — `shop` is still book 1's own top-level field,
-  still required, still repaired the same way. A seed MAY also carry `books: {}` / `grants: {}`
-  (Book 2's per-book purses and the monotone unlock-grant flags, both additive — see `bookMeta`/
-  `ensureBookMeta` in state.js), but both are optional: `ensureBookMeta` repairs a missing `books`
-  entry on first read, same as every other additive field below.
+  `shop` is book 1's own top-level field and is required. A seed MAY also carry `books: {}` /
+  `grants: {}` (per-book purses and unlock-grant flags — see `bookMeta`/`ensureBookMeta` in
+  state.js); both are optional, since `ensureBookMeta` repairs a missing `books` entry on first read.
 - Judging layout at 320px: the devtools window will not resize below ~500px, and `resize_page`
   fails SILENTLY (it reports success; `innerWidth` still reads 500). Always read `innerWidth` back
   before trusting a width. To actually test the phone width, inject a style constraining the
@@ -302,7 +292,7 @@ extension connected. Both can be unavailable at once. Fallbacks, in order:
   rule for lag; LIVE_CAPS evicts sim entities, so set it above any measured real build — a 120
   sim cap measured -77% kills/min on the Silt Plume combo. Run LC floods each listed array.
 
-## Two probes with a rig that lies, and the wide-area view (moved out of CLAUDE.md)
+## Two probes with a rig that lies, and the wide-area view
 
 - **`scripts/charge-probe.mjs` — what a chapter RESOURCE bar (The Deep's Light) actually does** over
   real 300s runs, across THREE axes: spend policy, MOVEMENT policy, and whether Light Thief is
