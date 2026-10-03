@@ -1225,4 +1225,9 @@ document.addEventListener('visibilitychange', () => {
 // is an ordinary fetch that may not finish — which is survivable, because the content hash still
 // differs and the next trigger retries.
 addEventListener('pagehide', () => { leaving(); pushNow() })
+// The phone threw the GPU away while we were in the background: every baked texture is gone, and
+// the world draws as a blank cream page under a working HUD. Park the run and reload; the parked
+// run comes back paused, exactly like a page the phone killed outright.
+// ponytail: reload instead of re-baking textures on webglcontextrestored, re-bake if reload is too slow
+app.canvas.addEventListener('webglcontextlost', () => { leaving(); location.reload() })
 }
