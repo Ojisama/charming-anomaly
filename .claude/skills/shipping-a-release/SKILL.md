@@ -89,9 +89,6 @@ resurrecting your version against a deleted function is how two designs end up h
 `buildStamp()` (`vite.config.js`) reads HEAD's subject, and when that isn't a release it falls back to
 the most recent `vX.Y.Z` in HEAD's ancestry, marked `v7.7.0+ · <sha>` — the `+` meaning "there are
 commits after that release". A `chore:`, a docs-only push or a merge commit at HEAD therefore stamps
-honestly instead of `dev`, which is what killed the old land-the-chores-first choreography. It stamped
-`dev` twice for real: v6.10.1 shipped to fix the chore form, and a CLAUDE.md-only push took the live
-page from `v6.10.0 · 969a0e8` to `dev · 4f17cad` one command after that rule was written down. The sha
-is still the part that cannot be duplicated or guessed.
+honestly instead of `dev`. The sha is the part that cannot be duplicated or guessed.
 
 Deploy is automatic: pushing to `main` triggers `.github/workflows/deploy.yml` (build → GitHub Pages).

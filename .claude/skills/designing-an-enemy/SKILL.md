@@ -1,6 +1,6 @@
 ---
 name: designing-an-enemy
-description: Use when adding or reworking anything in Charming Anomaly that fights the player — a roster enemy, an elite affix, a scripted wave creature, a boss, or a hazard/trap. Triggers on "new enemy", "add a creature", "design a monster", "make it harder", "this enemy feels wrong", "add a trap/hazard", and on how the owner actually phrases it mid-playtest — "diminish tank amount", "make the telegraph more subtle", "it one-shots me", "no <mechanic> in this chapter", "let's move this idea to an enemy", "reduce <creature> size by X% and increase enemy size by Y%", or any change to what a creature does, telegraphs, or looks like.
+description: Use when adding or reworking anything in Charming Anomaly that fights the player — a roster enemy, an elite affix, a scripted wave creature, a boss, or a hazard/trap. That includes playtest feedback about a creature's difficulty, count, size, damage or telegraph ("it one-shots me", "make the telegraph subtler", "fewer tanks"), moving an idea onto an enemy, and any change to what a creature does, telegraphs, or looks like.
 ---
 
 # Designing an enemy
@@ -90,7 +90,7 @@ spawns unless you set it. `minT` gates earliest spawn.
 |---|---|
 | `ROSTER_LOOKS` entry in render.js | a generic archetype blob |
 | `node scripts/bake-cast.mjs` after adding to `render.cast` | the thumbnail is skipped, the cast row just looks short |
-| French for `roster.name` | run XX goes red — **but only for Book 1**: its walk is `CHAPTER_ORDER.concat(['blank'])`, so a Shelf or Surf creature escapes it entirely |
+| French for `roster.name` | run XX goes red — it walks every `CHAPTERS[].roster[].name`, but only a field that is in its walk; a new player-visible field needs adding to it |
 | new stat read in sim.js | a field in config that nothing reads — assert the spawned ENTITY, never the table |
 
 ## Bosses: what a vulnerability has to BE
@@ -123,7 +123,7 @@ A boss is not a big enemy with a gate on it; these four rules are what the genre
   attack too simultaneously". A ring-level scheduler that hands out turns puts the cap in the rung
   table where it belongs.
 
-## The adversarial pass — before shipping, without being asked## The adversarial pass — before shipping, without being asked
+## The adversarial pass — before shipping, without being asked
 
 He asks for this by hand constantly (*"spawn an adversarial fable agent to challenge your
 findings"*). Make it automatic. Dispatch **one** `general-purpose` subagent to REFUTE the work, and

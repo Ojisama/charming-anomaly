@@ -42,9 +42,9 @@ at a time — testing each alone finds nothing and reads as "cannot reproduce".
 
 Every one of these fails silently. Check them before reporting.
 
-- **`createRun(meta, { chapter, difficulty })` takes an options object.** A positional string used to
-  give you `body` at difficulty 1 with no warning; it now throws, but print `run.chapter` in your
-  own header anyway so the output states what it measured.
+- **`createRun(meta, { chapter, difficulty })` takes an options object** (a positional string
+  throws). Print `run.chapter` in your own header anyway — an unknown or locked id still falls back
+  to `body` silently.
 - **The probe meta must UNLOCK the chapters** and must carry `shop: {}` — `loadMeta` writes into
   `m.shop` inside its own try/catch and falls back to a fresh meta otherwise (it now warns; read
   stderr). A working seed is `{schema:1, coins, runs, lang, chapter, shop:{}, best:{}, chapters:{…}}`.
@@ -70,9 +70,10 @@ Every one of these fails silently. Check them before reporting.
 - **`CHAPTER_ORDER` is Book 1 only.** It silently skips The Blank and all of Book 2. The honest
   denominator for "every chapter" is `Object.keys(CHAPTERS)`. Print the denominator and assert the
   set contains the id you were asked about.
-- **A behaviour forks on `CHAPTERS[id].lane`.** There are two lane chapters (`beyond`, and `reef`
-  with `laneAxis:'x'`) — grep `lane:` rather than trusting any written count. Before describing a
-  mechanic, list the chapters whose pool contains it and check the branch each takes.
+- **A behaviour forks on `CHAPTERS[id].lane`.** Grep `lane:` in config.js for the current set
+  rather than trusting any written count (The Reef carries `laneAxis` but is not a lane chapter).
+  Before describing a mechanic, list the chapters whose pool contains it and check the branch each
+  takes.
 
 ## The instruments that already exist — prefer them to a new script
 

@@ -1,6 +1,6 @@
 ---
 name: verifying-chapter-stage
-description: Use when asked how far along a Charming Anomaly chapter is, what is left on it, whether it is ready to move on, ready to drop its wipFrom gate, or done — and whenever the owner says "is <chapter> finished", "what's left on <chapter>", "can I publish <chapter>", "is this ready", "how far is the reef", "what stage is it at", or names a stage (IDEATING, BUILDING, POLISHING, BALANCING, PLAYTESTING, PUBLISHED). Also use before advancing a chapter, before dropping its wipFrom gate, and before claiming a chapter is done.
+description: Use when asked how far along a Charming Anomaly chapter is, what is left on it, or whether it is finished, ready, or publishable — including when a stage name is used (IDEATING, BUILDING, POLISHING, BALANCING, PLAYTESTING, PUBLISHED). Also use before advancing a chapter, before dropping its wipFrom gate, and before claiming a chapter is done.
 ---
 
 # What is left on a chapter
@@ -17,17 +17,10 @@ node scripts/chapter-stage.mjs reef      # one chapter, the full bill + a greppa
 
 ## There is no stage word, and that is the point
 
-This skill used to report one word per chapter — the lowest failing rung of a strict six-rung
-ladder. It was removed on 2026-08-21 (owner) because it was wrong twice over:
-
-- **It could only ever say three things.** Every un-published chapter trips a pending owner gate
-  early and stops there, so no work-in-progress chapter could report POLISHING or BALANCING
-  however finished it was. The reachable values were IDEATING, BUILDING and PUBLISHED. Reordering
-  the rungs — which was tried — changed *not one chapter's reported stage*.
-- **It flattened facts that are independent.** The Reef carries finished art, finished French, a
-  tuned balance block and a shipped terrain field while its pool is still three weapons; the
-  ladder called that "IDEATING". The Shelf shipped art, then balance, then a fourth weapon, then
-  more balance. The work does not queue, so a report that pretends it does deletes information.
+A chapter's progress is several independent facts — finished art and French can sit beside a
+half-built weapon pool — and the work does not queue, so any single stage word deletes information
+(owner, 2026-08-21). A ladder of stages also stalls at the first pending owner gate, so it can never
+report how finished a work-in-progress chapter actually is.
 
 Report the **bill**, never a single word. If someone asks for a stage, give them the axes line and
 the one or two things actually outstanding.
@@ -144,24 +137,13 @@ Every one of these produced a WRONG answer on a real chapter while the script wa
   decomments first; keep it that way. This is run MB.a's lesson.
 - **A COMMENT STRIPPER IS A SECOND PARSER, AND GETTING IT WRONG DELETES CODE SILENTLY.** Stripping
   block comments before line comments means `src/cast/*.png` written inside a `//` comment opens a
-  block that runs to the next `*/` thousands of lines away. That ate 64% of `test/sim-test.js` —
-  two openers, 7685 and 3134 lines — and reported The Skies, The Trawl and The Deep as shipped
-  chapters with no test coverage, which is a plausible-sounding lie that shipped as v7.187 and was
-  caught by grepping for `'skies'` by hand. Line comments first, then blocks. And a `/*` inside a
+  block that runs to the next `*/` thousands of lines away, and the audit then reports
+  well-tested chapters as untested. Line comments first, then blocks. And a `/*` inside a
   STRING (`import.meta.glob('./props/*.png')`) survives any ordering, so quoted strings are masked
   before either pass — M13 proves it, by hiding The Shelf's whole signature behind one glob.
-  **FIXED 2026-09-13, and there were TWELVE of them in `test/sim-test.js`, not five.** Measured
-  before: block-first kept **21%** of `render.js` (47% is correct) and **9%** of `main.js` (28%),
-  and could not see `drawJelly` or `drawKrakenArm` at all — so a dozen lints in the ship gate were
-  asserting over a hole and reporting success. All now run line-before-block, and **`run CS` holds
-  the line**: known code anchors must survive every stripper (a comment cannot fake
-  `function drawJelly`), no file may be eaten below 25%, and no block-first stripper may come back.
-  Mutation-proven — putting one site back fails it by name.
-  Repairing them immediately surfaced a second bug hiding behind the first: run UR's declaration
-  scan missed the second declarator of a comma list (`const VOL_H_MIN = 94, VOL_H_SPAN = 6`), and
-  had been balancing by accident because the declaration and its use both sat inside the eaten
-  region. **That is the shape to expect when you repair a blind lint — it does not come back green,
-  it comes back holding the thing it could never see.**
+  The suite's strippers all run line-before-block, and **`run CS` enforces it**: known code anchors
+  must survive every stripper, and no file may be eaten below 25%. **When you repair a blind lint,
+  expect it to come back red, holding the thing it could never see** — not green.
 - **A gate can be blind to its own subject.** The `art` axis used to be
   `TESTS.includes('run RA (roster art)')` — a string existing in a file, byte-identical for all 15
   chapters, which never looked at the chapter being audited and never ran the assertion it was

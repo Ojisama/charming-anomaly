@@ -118,8 +118,8 @@ the player has never seen — with a green suite either way.
   - run XX's coverage walk enumerates config **tables** (`WEAPONS`, `ELEMENTS`, `ANOMALIES`,
     `WEAPON_MODS`, `ELITE_AFFIXES`, …) reading `name`/`desc`/`title`/`from`. **Copy that lives in a
     function or a bare const is exempt from it by construction** — as `elementCardDesc`,
-    `elementCodex` and `ELEMENT_CODEX_INTRO` were. This is the THIRD time that exemption has
-    shipped untranslated strings (two City enemies in v6.3, every weapon mod in v6.6.26). When you
+    `elementCodex` and `ELEMENT_CODEX_INTRO` were — and that exemption has shipped untranslated
+    strings repeatedly (two City enemies, every weapon mod, the elements redesign). When you
     add player-visible strings anywhere, add them to that walk in the same commit and watch it go
     red before you write the French.
 

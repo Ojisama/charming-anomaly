@@ -5,9 +5,8 @@ description: Close out a feature — full suite, clean tree, ship, verify live, 
 Close this feature out. Work through it and report; stop and ask only if something is genuinely
 ambiguous.
 
-1. **Full suite, no filter.** `npm test`. A filtered run is not a ship gate — it prints what it
-   skipped on the last line for a reason. If you added a scenario or changed how many randoms are
-   drawn, also run `node scripts/test-isolation.mjs`.
+1. **Full suite, no filter.** `npm test` — it runs every scenario in its own process and proves
+   coverage. A filtered run (`npm test <name>`) checks only what matched and is not a ship gate.
 
 2. **Clean the tree.** `git status --short`. `.gitignore` only covers a `.png` at the repo ROOT —
    a PNG in a subdirectory, a JSON dump, a screenshot in any other format is tracked. Delete every

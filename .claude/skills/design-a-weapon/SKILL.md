@@ -1,6 +1,6 @@
 ---
 name: design-a-weapon
-description: Use when adding, redesigning, rebalancing or fixing a WEAPON or a weapon mod in Charming Anomaly. Triggers on how the owner actually phrases it — "this weapon feels weak/wrong", "it doesn't look like a <thing>", "it's a mess, redesign it or propose alternatives", "propose 3 other designs", "make it work like an auto turret / a shield / a boomerang", "the <X> doesn't work", a new card for a chapter's arsenal, or any change to what a weapon hits, reaches, throws or looks like. Runs the idea, the look and the numbers as three phases, each ending at an owner ruling, then an adversarial pass, then wires it in through the checklist whose every entry fails silently.
+description: Use when adding, redesigning, rebalancing or fixing a WEAPON or a weapon mod in Charming Anomaly — including complaints that one feels weak, looks wrong, or doesn't work, requests for alternative designs or for it to behave like some other thing, a new card for a chapter's arsenal, or any change to what a weapon hits, reaches, throws or looks like. Runs the idea, the look and the numbers as three phases, each ending at an owner ruling, then an adversarial pass, then wires it in through the checklist whose every entry fails silently.
 ---
 
 # Design a Weapon
@@ -83,13 +83,10 @@ Settle these before leaving the phase, because each one is his and each one inva
   usually written twice (loop bound *and* spacing divisor) and multiplying one of them renders
   identically to no change at all.
 
-  **THIS SENTENCE ALONE DID NOT WORK, WHICH IS WHY IT IS NOW ENFORCED.** The Shelf shipped its three
-  natives at 2/0/0 — Silt Veil and Ballast with no mods at all — while this line and the phase-4
-  checkbox both already said not to, so the chapter could offer exactly two distinct mod cards in a
-  300s run and its mod bucket measured 20.4% against a declared 27.9%. `run MB.a2` now fails any
-  weapon in The Surf or The Shelf carrying fewer than four, and `run MB.a` fails any mod anywhere
-  that resolves to no fold, no rate division and no fire site. **Design the mods in this phase and
-  let the suite prove it in phase 4** — an unenforced instruction is a note, not a guard.
+  This is enforced, because the sentence alone was not obeyed: `run MB.a2` fails any weapon in a
+  Book 2 chapter it lists (Surf, Shelf, Reef, Wreck, Trawl, Deep) carrying fewer than four, and
+  `run MB.a` fails any mod anywhere that resolves to no fold, no rate division and no fire site.
+  **Design the mods in this phase and let the suite prove it in phase 4.**
 
   **A count mod that CHOOSES TARGETS must choose distinct ones.** The divisor trap above is the
   version where the spacing is wrong; the other version is a chooser that picks *with replacement*,
@@ -119,8 +116,8 @@ node scripts/fx-probe.mjs --scene scripts/scenes/<weapon>.js --chapter <id> \
   --url http://127.0.0.1:PORT/ --out /tmp/x --frames 6 --wait 60000
 ```
 
-`beam-prism.js` is the worked example and documents the `H` surface
-(`weapon`/`breed`/`keep`/`place`/`pin`/`tick`/`tickFx`/`note`).
+`beam-prism.js` is the worked example; the `H` helper surface is defined and documented in
+`scripts/fx-probe.mjs`.
 
 Non-negotiables, each one a round this repo has already lost:
 
@@ -181,9 +178,9 @@ node scripts/weapon-census.mjs --chapter <id> --level 5 \
   churn, no A/B across runs, no re-phased stream.
 - **300s seeded runs, several seeds.** `WAVE_TABLE` gates archetypes by time: no tank spawns before
   t=140s, so a short probe measures "absent from this window" and reports it as "absent".
-- `createRun(meta, { chapter, difficulty })` takes an **options object** — a positional string
-  silently gives you `body` at difficulty 1. The probe meta must also unlock the chapters, and must
-  carry `shop: {}` or `loadMeta` throws into a fresh meta with no warning.
+- `createRun(meta, { chapter, difficulty })` takes an **options object** (it throws on a positional
+  string). The probe meta must also unlock the chapters, and must carry `shop: {}` or `loadMeta`
+  falls back to a fresh meta with only a `console.warn`.
 
 Present the table with its denominator stated. Never estimate a quantity the harness can measure —
 every guess this repo has made was off 3–6×.
@@ -198,8 +195,8 @@ always "the feature seems to do nothing".
 - [ ] Added to each chapter's `weapons` pool (and `starter` if it is one).
 - [ ] `WEAPON_MODS[id]` — 4–6 mods. An on/off mod that must be EPIC cannot be `kind: 'switch'`;
       use `values: { epic: 1 }` + `maxPicks: 1` (the Beam Prism idiom). **Do not self-report this
-      one — run it.** `node test/sim-test.js modbudget` fails on a weapon below four mods in either
-      Book 2 chapter (MB.a2) and on any mod in the game wired to nothing (MB.a). A mod present in
+      one — run it.** `npm test modbudget` fails on a weapon below four mods in any Book 2 chapter
+      MB.a2 lists, and on any mod in the game wired to nothing (MB.a). A mod present in
       `WEAPON_MODS` but absent from `WEAPON_STAT_MODS`, `WEAPON_RATE_MODS` and every fire site is an
       INERT CARD: offered, picked, banked, doing nothing, with nothing thrown.
 - [ ] **Its player-facing copy names what it reads.** A card that keys off a bar, a zone or a
@@ -208,9 +205,9 @@ always "the feature seems to do nothing".
       Checking a string for fr.js collisions and `tt()` correctness proves it is unique and
       translatable, not that it is legible; both failures in v7.163 passed those checks and were
       caught by the owner reading the card.
-- [ ] **A new stat is registered in ONE place**: `STAT_KEYS` (config.js). This used to be two lists
-      in two files; ui.js now derives `STAT_LABEL` from `STAT_KEYS` and needs **no edit at all** for
-      a new weapon or a new stat. The table is ORDERED and ui.js appends the cadence row then slices
+- [ ] **A new stat is registered in ONE place**: `STAT_KEYS` (config.js). ui.js derives
+      `STAT_LABEL` from it and needs **no edit** for a new weapon or stat. The table is ORDERED
+      and ui.js appends the cadence row then slices
       to `STAT_MAX_ROWS` (5), so where you insert decides which stats fall off the bottom. Add the
       French for the label — run XX walks `STAT_KEYS` and catches a missing one, but only the label,
       never the row order.
@@ -221,9 +218,9 @@ always "the feature seems to do nothing".
       the value changes and can never be translated.
 - [ ] Added to run XX's coverage walk in the same commit, and watched go red before writing the
       French. Copy living in a function or a bare const is exempt from that walk by construction —
-      that exemption has shipped untranslated strings three times.
+      that exemption has shipped untranslated strings repeatedly.
 - [ ] New events emitted by sim.js are handled in **both** render.js and `SFX_FOR_EVENT`
-      (main.js:380). Sound is a deliberate decision, not an oversight: it gets an entry only if the
+      (main.js). Sound is a deliberate decision, not an oversight: it gets an entry only if the
       event is rare enough to bear one.
 - [ ] **Publish into an existing contract field** rather than teaching render.js a new one. Grep
       render.js for the field you are actually setting before shipping any status.
@@ -262,19 +259,16 @@ always "the feature seems to do nothing".
   and check every hit, then ablate to confirm what is actually drawing what you see.
 
 - **A WEAPON'S BEHAVIOUR IS CHAPTER-CONDITIONAL — read the branch its own chapter takes.** Several
-  systems fork on `CHAPTERS[id].lane`. **There are TWO lane chapters, not one: `beyond` (forward is
-  -y) and `reef` (`laneAxis: 'x'`, forward is +x).** This sentence read "`beyond` is the only lane
-  chapter" until v7.120, when the stale count caused a real bug: the death outro's iris is centred on
-  the player, a lane camera holds the player `LANE_CAMERA_FRAC` along the forward axis rather than at
-  the centre (20% across, in The Reef), and a sprite sized only against the screen therefore left a
-  hard dark band down the right of every Reef frame. **Anything screen-space anchored to the player
-  has an off-centre origin in a lane chapter** — see `irisCoverMul` in config.js. Grep `lane:` in
-  config.js rather than trusting a count written here, this one included. So `firePulsar`'s
+  systems fork on `CHAPTERS[id].lane` (The Reef carries `laneAxis` but is free-roam, and forks on
+  `circuit` instead). Grep `lane:` in config.js for the current set rather than trusting a count
+  written anywhere. **Anything screen-space anchored to the player has an off-centre origin in a
+  lane chapter** — the camera holds the player `LANE_CAMERA_FRAC` along the forward axis, so a sprite
+  sized only against the screen leaves a dark band; see `irisCoverMul` in config.js. So `firePulsar`'s
   `lane ? PULSAR_FAN_ARC : 0` means the full-circle rotating rake — the behaviour its comments
   describe at length, and the one you will describe to the owner if you read the function
   top-to-bottom — **never happens in The Beyond**, the only chapter that offers the weapon: there it
-  is a ~112° forward fan wipering left-right-left. (It does run in `blank`, whose pool is all 22
-  weapons, which is exactly why "what does this weapon do" has more than one answer.) Before
+  is a ~112° forward fan wipering left-right-left. (It does run in `blank`, whose pool is the whole
+  arsenal, which is exactly why "what does this weapon do" has more than one answer.) Before
   describing a mechanic, list the chapters whose pool contains it and check the branch each takes.
   v7.10 got this wrong out loud and was corrected from play.
 
