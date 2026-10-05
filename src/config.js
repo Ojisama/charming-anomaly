@@ -2780,6 +2780,88 @@ export const WEAPONS = {
       { rate: 3.0, dur: 6.2, maxR: 174, dmgPerTick: 8 },
     ],
   },
+  // ---- Book 3, Burrow. Topsoil's three and The Geode's three, all auto-fire. ----
+  // Shovel: a short scooping sector at the nearest body (run.novas, look 'shovel'), the opener's
+  // plain melee starter in the Claw Rake / Breaker family.
+  shovel: {
+    name: 'Shovel',
+    desc: 'Scoops a wide arc of dirt at the nearest foe, shoving it back.',
+    icon: '⛏️', rarity: 'normal',
+    levels: [
+      { dmg: 16, interval: 0.80, radius: 150, arc: 2.0, knockback: 80 },
+      { dmg: 19, interval: 0.75, radius: 158, arc: 2.1, knockback: 88 },
+      { dmg: 24, interval: 0.70, radius: 168, arc: 2.2, knockback: 96 },
+      { dmg: 30, interval: 0.64, radius: 180, arc: 2.35, knockback: 105 },
+      { dmg: 38, interval: 0.58, radius: 195, arc: 2.5, knockback: 115 },
+    ],
+  },
+  // Pebble Sling: fast stones at the nearest bodies (run.bullets, weapon 'pebble').
+  pebbleSling: {
+    name: 'Pebble Sling',
+    desc: 'Slings fast pebbles at the nearest foes.',
+    icon: '🎯', rarity: 'normal',
+    levels: [
+      { dmg: 11, interval: 0.70, count: 1, speed: 560, pierce: 1 },
+      { dmg: 13, interval: 0.64, count: 2, speed: 570, pierce: 1 },
+      { dmg: 16, interval: 0.58, count: 2, speed: 590, pierce: 2 },
+      { dmg: 19, interval: 0.52, count: 3, speed: 610, pierce: 2 },
+      { dmg: 24, interval: 0.46, count: 4, speed: 640, pierce: 3 },
+    ],
+  },
+  // Root Snare: roots burst up under a foe and hold the patch (run.snares): slowed, ground down.
+  rootSnare: {
+    name: 'Root Snare',
+    desc: 'Roots burst out of the ground under a foe and hold everything nearby.',
+    icon: '🌱', rarity: 'rare',
+    levels: [
+      { dmg: 5, interval: 2.6, r: 62, duration: 2.6, count: 1 },
+      { dmg: 6, interval: 2.4, r: 68, duration: 2.8, count: 1 },
+      { dmg: 8, interval: 2.2, r: 74, duration: 3.0, count: 2 },
+      { dmg: 10, interval: 2.0, r: 80, duration: 3.2, count: 2 },
+      { dmg: 13, interval: 1.8, r: 88, duration: 3.5, count: 3 },
+    ],
+  },
+  // Prism Shard: crystal shards at the nearest body (run.bullets, weapon 'prism'). In The Geode a
+  // shard that meets a crystal bounces off it, brighter (see CHAPTERS.geode.signature.bounce).
+  prismShard: {
+    name: 'Prism Shard',
+    desc: 'Flicks crystal shards at the nearest foe. Crystals bounce them back, brighter.',
+    icon: '🔹', rarity: 'normal',
+    levels: [
+      { dmg: 13, interval: 0.50, count: 1, speed: 500, pierce: 2 },
+      { dmg: 15, interval: 0.48, count: 2, speed: 510, pierce: 2 },
+      { dmg: 17, interval: 0.47, count: 2, speed: 530, pierce: 2 },
+      { dmg: 20, interval: 0.42, count: 3, speed: 550, pierce: 2 },
+      { dmg: 25, interval: 0.36, count: 4, speed: 580, pierce: 3 },
+    ],
+  },
+  // Echo Pulse: a ring of sound around you (run.novas, look 'echo'). Any crystal it reaches rings
+  // back with a smaller pulse of its own.
+  echoPulse: {
+    name: 'Echo Pulse',
+    desc: 'A click rings out around you. Crystals it reaches ring back.',
+    icon: '🦇', rarity: 'normal',
+    levels: [
+      { dmg: 14, interval: 2.2, radius: 170, knockback: 60 },
+      { dmg: 17, interval: 2.05, radius: 185, knockback: 66 },
+      { dmg: 21, interval: 1.9, radius: 200, knockback: 72 },
+      { dmg: 26, interval: 1.75, radius: 220, knockback: 80 },
+      { dmg: 33, interval: 1.6, radius: 240, knockback: 90 },
+    ],
+  },
+  // Stalactite: a shadow grows over a foe, then a spike of stone drops on it (run.drips).
+  stalactite: {
+    name: 'Stalactite',
+    desc: 'A shadow grows over a foe, then stone falls from the ceiling.',
+    icon: '🗡️', rarity: 'rare',
+    levels: [
+      { dmg: 30, interval: 2.4, count: 1, r: 52 },
+      { dmg: 36, interval: 2.25, count: 2, r: 56 },
+      { dmg: 44, interval: 2.1, count: 2, r: 60 },
+      { dmg: 54, interval: 1.95, count: 3, r: 64 },
+      { dmg: 66, interval: 1.8, count: 4, r: 70 },
+    ],
+  },
 }
 export const MAX_WEAPON_LEVEL = 5
 export const MAX_WEAPONS = 4 // equipped cap; new weapons stop appearing once reached
@@ -4040,6 +4122,43 @@ export const WEAPON_MODS = {
     secondGlint: { name: 'Second Glint', desc: 'extra spark(s) per cast', icon: '💫', kind: 'tier' },
     quickGlint:  { name: 'Quick Glint',  desc: 'cast rate', icon: '⏩', base: 0.25, kind: 'pct' },
   },
+  // ---- Book 3, Burrow ----
+  shovel: {
+    ironEdge:    { name: 'Iron Edge',   desc: 'scoop damage', icon: '💥', base: 0.30, kind: 'pct' },
+    longHandle:  { name: 'Long Handle', desc: 'scoop reach', icon: '📏', base: 0.22, kind: 'pct' },
+    wideScoop:   { name: 'Wide Scoop',  desc: 'scoop width', icon: '🪭', base: 0.25, kind: 'pct' },
+    quickDig:    { name: 'Quick Dig',   desc: 'scoop rate', icon: '⏩', base: 0.25, kind: 'pct' },
+  },
+  pebbleSling: {
+    flint:       { name: 'Flint',        desc: 'pebble damage', icon: '💥', base: 0.30, kind: 'pct' },
+    handful:     { name: 'Handful',      desc: 'extra pebble(s) per throw', icon: '🔷', kind: 'tier' },
+    whirl:       { name: 'Whirl',        desc: 'throw rate', icon: '⏩', base: 0.25, kind: 'pct' },
+    sharpStone:  { name: 'Sharp Stone',  desc: 'pebble pierce', icon: '🎯', base: 1, kind: 'flat', maxPicks: PIERCE_MAX_PICKS },
+  },
+  rootSnare: {
+    thorns:      { name: 'Thorns',       desc: 'root damage per tick', icon: '💥', base: 0.30, kind: 'pct' },
+    spreading:   { name: 'Spreading',    desc: 'snare radius', icon: '⭕', base: 0.25, kind: 'pct' },
+    deepRoots:   { name: 'Deep Roots',   desc: 'how long a snare holds', icon: '⌛', base: 0.25, kind: 'pct' },
+    quickSprout: { name: 'Quick Sprout', desc: 'cast rate', icon: '⏩', base: 0.25, kind: 'pct' },
+  },
+  prismShard: {
+    keenFacet:   { name: 'Keen Facet',   desc: 'shard damage', icon: '💥', base: 0.30, kind: 'pct' },
+    shardSpray:  { name: 'Shard Spray',  desc: 'extra shard(s) per throw', icon: '🔷', kind: 'tier' },
+    flickRate:   { name: 'Quick Flick',  desc: 'throw rate', icon: '⏩', base: 0.25, kind: 'pct' },
+    cleave:      { name: 'Cleave',       desc: 'shard pierce', icon: '🎯', base: 1, kind: 'flat', maxPicks: PIERCE_MAX_PICKS },
+  },
+  echoPulse: {
+    loudClick:   { name: 'Loud Click',   desc: 'pulse damage', icon: '💥', base: 0.30, kind: 'pct' },
+    farCall:     { name: 'Far Call',     desc: 'pulse radius', icon: '⭕', base: 0.22, kind: 'pct' },
+    rapidClick:  { name: 'Rapid Click',  desc: 'pulse rate', icon: '⏩', base: 0.25, kind: 'pct' },
+    rebound:     { name: 'Rebound',      desc: 'pulse push', icon: '💨', base: 0.30, kind: 'pct' },
+  },
+  stalactite: {
+    heavyStone:  { name: 'Heavy Stone',  desc: 'drop damage', icon: '💥', base: 0.30, kind: 'pct' },
+    rockfall:    { name: 'Rockfall',     desc: 'extra stone(s) per cast', icon: '🔷', kind: 'tier' },
+    wideCrash:   { name: 'Wide Crash',   desc: 'impact radius', icon: '⭕', base: 0.25, kind: 'pct' },
+    dripRate:    { name: 'Quick Drip',   desc: 'cast rate', icon: '⏩', base: 0.25, kind: 'pct' },
+  },
 }
 export const MAX_WEAPON_MOD_PICKS = 5
 // Shared by every tier mod: a single pick's bonus is looked up by rolled rarity rather than
@@ -4066,6 +4185,8 @@ export const WEAPON_RATE_MODS = {
   breaker: 'quickBreak', ballast: 'quickWinch', siltVeil: 'quickStir', downwash: 'quickPour',
   bringItIn: 'quickReel', screw: 'overspeed', glint: 'quickGlint',
   sunspear: 'quickSun', sunlance: 'quickLance',
+  shovel: 'quickDig', pebbleSling: 'whirl', rootSnare: 'quickSprout', prismShard: 'flickRate',
+  echoPulse: 'rapidClick', stalactite: 'dripRate',
   // chum and bilge are absent DELIBERATELY: neither carries a rate mod, and this table's own
   // header says a weapon with none simply does not appear here. Naming one that does not exist
   // would put a phantom row in the pause build sheet's cadence line.
@@ -5353,6 +5474,8 @@ export const EARLY_CALM = {
   // balance_decision : Surf d1 thinned and paid up, four compounding rulings 2026-08-17
   //  - now the game's gentlest opening (0.29 spawn / x3.03 xp) vs body's 0.30 / x2.78
   surf:   { spawnMul: 0.43, xpMul: 2.42 },
+  // balance_decision : Topsoil d1 calm like The Surf, Book 3 opener 2026-10-03
+  topsoil: { spawnMul: 0.5, xpMul: 2.2 },
 }
 // count distinct random mutator ids (Fisher-Yates over the full pool)
 // The roll pool for a given chapter: hidden entries never roll; `chapters` (allowlist) and
@@ -5696,6 +5819,7 @@ export const CHAPTER_LATE_RATE = {
   body: 0.005, pond: 0.010, garden: 0.015, undergrowth: 0.020,
   city: 0.028, skies: 0.036, beyond: 0.0605,
   surf: 0.010, shelf: 0.015,
+  topsoil: 0.010, geode: 0.015,
 }
 // Unknown/absent chapter (the Blank, a test run with no chapter) keeps the shipped curve.
 export const lateRateFor = (chapterId) => CHAPTER_LATE_RATE[chapterId] ?? HP_SCALE_LATE_RATE
@@ -6070,11 +6194,13 @@ export const BOOKS = {
    // is the last live rung, The Deep the first gated one, and The Kraken (appended 2026-09-10) the
    // next, still gated: a dev-gated shell whose boss sim lands in a later increment. Saves key on chapter ID, never position.
    undertow: { name: 'Undertow', cloth: '#1f5c7c', chapters: ['surf', 'shelf', 'reef', 'trawl', 'wreck', 'deep'], hidden: ['kraken'], startCoins: 100 },
+  // Book 3: digging down into the earth. wipFrom 0 gates the whole book behind meta.dev.
+  burrow: { name: 'Burrow', cloth: '#2b1d15', chapters: ['topsoil', 'geode'], hidden: [], startCoins: 100, wipFrom: 0 },
 }
 // Explicit, for the same reason CHAPTER_ORDER is explicit: a sweep that means "every book, in
 // campaign order" must not depend on object key order surviving an edit. The FIRST entry is the
 // book whose purse lives at the top level of meta (see bookMeta in state.js).
-export const BOOK_ORDER = ['book1', 'undertow']
+export const BOOK_ORDER = ['book1', 'undertow', 'burrow']
 export const CHAPTER_ORDER = BOOKS.book1.chapters
 // A locked line sits on the shelf from the start with its name and effect MASKED and this count in
 // their place - a visible goal rather than a surprise, which is the whole reason it is not simply
@@ -6105,6 +6231,22 @@ export const ALL_CHAPTER_IDS = Object.values(BOOKS).flatMap((b) => b.chapters)
 // second literal — a `const` referenced inside an object literal must already be initialized, and
 // CHAPTERS is built as one literal below.
 export const HUMIDITY_DMG_FLOOR = 0.7
+// ---- Book 3, Burrow: weapon geometry (balance lives in WEAPONS[].levels) ---------------------------
+export const SHOVEL_LIFE = 0.2           // s, how long the scoop's sector takes to sweep out to its radius
+export const PEBBLE_FAN = 0.13           // rad between pebbles of one throw
+export const PEBBLE_LIFE = 0.85          // s of flight
+export const PEBBLE_R = 7                // px hit radius
+export const ROOT_SNARE_TICK = 0.5       // s between root damage ticks
+export const ROOT_SNARE_SLOW = 0.72      // fraction of speed a held body loses
+export const ROOT_SNARE_HOLD_T = 0.25    // s a body stays held after it leaves the patch
+export const ROOT_SNARE_RANGE = 360      // px from you a snare may be cast
+export const PRISM_FAN = 0.16            // rad between shards of one throw
+export const PRISM_LIFE = 1.0            // s of flight before a bounce refreshes it
+export const PRISM_R = 8                 // px hit radius
+export const ECHO_LIFE = 0.5             // s for the ring to reach its radius
+export const STALACTITE_FUSE = 0.8       // s the shadow grows before the stone lands
+export const STALACTITE_RANGE = 400      // px from you a stone may be dropped
+
 
 // EVERY REFILL FIELD IN BOOK 2 DRAWS DOWN, NOT JUST THE SHELF'S (owner, 2026-08-18: "in all zones of
 // book 2 except pools in 2-1, the resource gathering zones should disappear when you've charged 33%
@@ -8822,6 +8964,101 @@ CHAPTERS.kraken = {
   },
 }
 
+// ---- Book 3: Burrow -------------------------------------------------------------------------------
+// Digging down into the earth. Book 1's blob is the protagonist again (no playerBody/form), so the
+// two chapters below are free-roam survival on an open field, like The Body and The Pond.
+//
+// TOPSOIL is the book's opener and is kept deliberately plain: three ordinary bodies, one new idea.
+// The idea is the MOLE (roster flag 'tunnel', run by stepTunnels in sim.js): it travels underground
+// as a moving bump (e.burrowed — untouchable and harmless), the ground shakes where you stand, then it
+// erupts there (hurt src 'mole'). Walking away from the shaking is the whole dodge. Its tunnel then
+// CAVES IN behind it into a chain of pits (run.pits) that swallow any ordinary body that walks over
+// one — so a player who leads the crowd across a fresh tunnel line gets a free cull.
+CHAPTERS.topsoil = {
+  name: 'Topsoil', tagline: 'the ground is listening', icon: '🪱',
+  weapons: ['shovel', 'pebbleSling', 'rootSnare'], starter: 'shovel',
+  roster: [
+    { id: 'earthworm',   archetype: 'normal', name: 'Earthworm',    hpMul: 0.8, speedMul: 0.8, radiusMul: 0.9, weight: 3, flags: [] },
+    { id: 'moleCricket', archetype: 'fast',   name: 'Mole Cricket', hpMul: 0.75, speedMul: 1.0, radiusMul: 1.2, flags: ['weave'], dmgMul: 0.6 },
+    // Spawned by stepTunnels on its own clock: archetypeSwap below turns every ring tank into a worm,
+    // so the mole is not formationOnly only so that any other tank spawn path still lands on it.
+    { id: 'mole',        archetype: 'tank',   name: 'Mole',         hpMul: 1.1, speedMul: 0.95, flags: ['tunnel', 'unshakeable'] },
+    // The elite. eliteOnly: every elite in this chapter is a badger, and no ordinary spawn is.
+    { id: 'badger',      archetype: 'normal', name: 'Badger',       hpMul: 2.0, speedMul: 1.0, radiusMul: 1.25, flags: ['unshakeable'], eliteOnly: true },
+  ],
+  eliteFlags: [],
+  // The ring's random tanks come in as worms: the mole is this chapter's only tank and it keeps its
+  // own cadence (signature.moles).
+  archetypeSwap: { tank: 1 },
+  signature: {
+    type: 'tunnels',
+    // balance_decision : moles rare-ish, one at a time early, opener 2026-10-03
+    moles: {
+      firstAt: 26, every: 22, everyLate: 13, maxAlive: 1, maxAliveLate: 3, lateAt: 150,
+      digSpeed: 150, quakeRange: 60, quakeT: 1.15, eruptR: 58, eruptDmgMul: 1.0,
+      upT: 3.6, maxDigT: 9, trailStep: 34, trailKeep: 18,
+    },
+    // The pit switch (tests turn it off with caveIns = null). A tunnel caves in `delay` s after its
+    // mole erupts, back along the last `span` px of its run, one pit per trail point.
+    caveIns: { delay: 1.1, stagger: 0.08, span: 330, r: 30, crater: 42, open: 0.35, life: 11, fill: 1.5, max: 40 },
+  },
+  obstacles: null,
+  balance: { spawnMul: 0.75, enemyDmgMul: 0.5, enemyHpMul: 0.85, xpMul: 1.25, maxAliveMul: 0.55 },
+  render: {
+    cast: ['earthworm', 'moleCricket', 'mole', 'badger'],
+    bgColor: 0x1a110a,     // under the photographed floor tile; shows nowhere but a frame's edge
+    floorTint: 0xffffff,   // the floor and its props are photographed in their own colour
+    playerTint: 0xfff2e2,
+    tail: false,
+    // late-afternoon sun low across the soil: motes hang lit in the shafts
+    dust: { tint: 0xffe2b0, alpha: 0.9, speedMul: 0.08, sway: 5 },
+    // MACRO PHOTOGRAPHY (render.js setMacro / src/macro.js): the floor tile, the lens and its grade.
+    macro: {
+      floor: 'topsoil', blur: 9, sharp: 0.6, key: 0.55, vignette: 0.82, grain: 0.07, shadowReach: 0.55,
+      shadowTone: 0x6a8a9a, lightTone: 0xffd49a, shaft: 0xffcf8a, shaftAlpha: 0.16, bokeh: 0xffc77a, bokehAlpha: 0.3, fgAlpha: 0.92,
+    },
+  },
+}
+// THE GEODE: the book's second chapter, a little richer. Crystal pillars stand on the cave floor
+// (run.obstacles, kind 'crystal') and every player shot that meets one BOUNCES (signature.bounce):
+// reflected off the face and steered toward the nearest body on the open side, a little harder each
+// time. Standing beside a crystal with the crowd around you turns a starter into a pinball machine.
+CHAPTERS.geode = {
+  name: 'The Geode', tagline: 'everything rings in here', icon: '💎',
+  weapons: ['prismShard', 'echoPulse', 'stalactite'], starter: 'prismShard',
+  roster: [
+    { id: 'olm',         archetype: 'normal', name: 'Olm',          hpMul: 0.9, speedMul: 0.9, flags: ['weave'] },
+    { id: 'caveCricket', archetype: 'fast',   name: 'Cave Cricket', hpMul: 0.7, speedMul: 1.0, flags: ['pounce'], dmgMul: 0.7 },
+    { id: 'crystalCrab', archetype: 'tank',   name: 'Crystal Crab', hpMul: 1.6, speedMul: 0.8, flags: ['unshakeable'] },
+    { id: 'bat',         archetype: 'fast',   name: 'Cave Bat',     hpMul: 2.6, speedMul: 1.0, radiusMul: 1.1, flags: ['weave'], eliteOnly: true },
+  ],
+  eliteFlags: [],
+  signature: {
+    type: 'crystals',
+    // The bounce switch (tests turn it off with bounce = false). Off, a crystal simply stops a shot.
+    // balance_decision : bounce +25% dmg, splits twice, 3 per shot 2026-10-03
+    bounce: { max: 3, dmgMul: 1.25, life: 1.1, steer: 560, split: 2, splitFan: 0.45, chimeR: 90, chimeDmg: 0.8, chimeKb: 40, chimeCd: 0.25, chimeVac: 200 },
+    // Echo Pulse: a crystal the ring reaches rings back at this fraction of its radius and damage.
+    resonance: { radiusMul: 0.6, dmgMul: 0.6 },
+  },
+  obstacles: { kind: 'crystal', count: 15, cell: 430, minR: 30, maxR: 56, minDist: 240 },
+  balance: { spawnMul: 0.75, enemyDmgMul: 0.75, enemyHpMul: 0.9, xpMul: 1.25, maxAliveMul: 0.62 },
+  render: {
+    cast: ['olm', 'caveCricket', 'crystalCrab', 'bat'],
+    bgColor: 0x07050c,     // under the foil floor tile
+    floorTint: 0xffffff,   // the floor and its props carry their own foil
+    playerTint: 0xffffff,
+    tail: false,
+    // flecks of glitter hanging in the air: white, so the foil pass colours them
+    dust: { tint: 0xffffff, alpha: 0.3, speedMul: 0.05, sway: 2 },
+    // HOLOGRAPHIC FOIL (render.js setHolo / src/holo.js): a holo trading card — cracked-ice foil floor,
+    // inked card-art creatures, thin-film colour over every light neutral surface, diffraction sparkle.
+    // DARK HOLO: a calm dark floor; the foil lives on the pillars and the creatures' rims (maskLo/Hi
+    // pick which brightness goes foil, glare is the sweeping band's strength).
+    holo: { strength: 0.95, sparkle: 1.0, vignette: 0.5, shadowReach: 0.3, shadowAlpha: 0.85, maskLo: 0.34, maskHi: 0.78, glare: 0.14 },
+  },
+}
+
 // ---- The Kraken (hidden boss — the tuning block, sim.js's stepKrakenScript owns the flow) -------
 // REVISION 2 (2026-09-13). An arm is a LOCK AND A DOOR, not an enemy:
 //   - only a PARRY damages it (no weapon can, at any rung — the owner's "no floor anywhere" ruling);
@@ -10437,6 +10674,7 @@ export const CHAPTER_SPINE = {
   body: 'Body', pond: 'Pond', garden: 'Garden', undergrowth: 'Undergrowth',
   city: 'City', skies: 'Skies', beyond: 'Beyond', blank: 'Blank',
   surf: 'Surf', shelf: 'Shelf', reef: 'Reef', wreck: 'Wreck', trawl: 'Trawl', deep: 'Deep', kraken: 'Kraken',
+  topsoil: 'Topsoil', geode: 'Geode',
 }
 // Falls back to the full name rather than throwing: a chapter added without a spine entry renders
 // with its article and looks slightly wrong, which is a far better failure than a blank spine.
@@ -14673,6 +14911,8 @@ export const CHAPTER_ENDINGS = {
   // The Kraken (the graveyard): the boss idiom like The Blank ('THE X FAILED'); the death line
   // names the dark rather than the last hit, the way The Wreck's names the place. Gated, like deep.
   kraken:      { victory: 'THE KRAKEN FAILED. 🎉',                  death: 'Swallowed by the dark… 🌑' },
+  topsoil:     { victory: 'You dug your way down! 🎉',              death: 'Buried… 🪱' },
+  geode:       { victory: 'You found the way through the crystal! 🎉', death: 'Lost in the glitter… 💎' },
 }
 export const CHAPTER_UNLOCK_LINES = {
   pond:        'The Pond — word of you travels downstream',
@@ -14700,6 +14940,7 @@ export const CHAPTER_UNLOCK_LINES = {
 // it): the first book is where you start, so it is never unlocked.
 export const BOOK_UNLOCK_LINES = {
   undertow: 'UNDERTOW — a second book opens, for a new adventure… 🪙 {n} to begin',
+  burrow: 'BURROW — a third book opens, and it digs… 🪙 {n} to begin',
 }
 
 // ---- The Blank (v5.24, hidden final boss chapter, see sim.js's stepBossScript) ----------------

@@ -2112,6 +2112,33 @@ function generateWells(sig) {
  *   {type:'crust', x, y}   a larva has taken hold on a fresh body (not on a refresh).
  *   {type:'skip', x, y, r} one Skipping Shell touch-down. x,y is where it LANDED, r the splash.
  *
+ * BOOK 3, BURROW (sim.js's Burrow section; Topsoil and The Geode).
+ *   pits[i]: { x, y, maxR, r, age, life } — Topsoil cave-in pits. Open over CHAPTERS.topsoil
+ *     .signature.caveIns.open s, swallow any ordinary body whose centre is inside r (a hazard kill,
+ *     {type:'pitFall'}), and fill back in over .fill s before `life`. Elites, burrowed bodies and
+ *     moles never fall. The player is never swallowed: a pit is a tool, not a trap for you.
+ *   caveIns[i]: { x, y, at, r } — a pit due to open at run.time >= at (the cracks render draws first).
+ *     Queued by an eruption back along its mole's tunnel; dropped unopened when caveIns is null.
+ *   snares[i]: { x, y, r, dmg, dur, t, tick } — Root Snare patches. A body inside gets e.rootUntil
+ *     (slowed by ROOT_SNARE_SLOW while run.time < it) and a dot tick every ROOT_SNARE_TICK.
+ *   drips[i]: { x, y, r, dmg, t, fuse, seed } — a Stalactite: the shadow grows for `fuse` s, then it
+ *     lands ({type:'stalactite'}) and hits everything in r.
+ *   echoes[i]: { x, y, at, r, dmg, kb } — a crystal's queued ring-back from an Echo Pulse; it becomes a
+ *     run.novas entry (look 'echo') at run.time >= at.
+ *   Enemy contract fields (render reads them): burrowed (a mole underground — damageImmune, so
+ *     untouchable and harmless, and skipped by aiming and separation), quakeT/quakeX/quakeY (the
+ *     eruption spot and the seconds until it erupts), tunnel ([{x,y}] the live trail of a digging
+ *     mole), digVX/digVY (its heading). Private: _tun ('dig'|'quake'|'up'), _tunT. Run: _moleT.
+ *   Bullets: weapon 'pebble' (Pebble Sling), 'prism' (Prism Shard, _bounces = crystals struck).
+ *   Novas: look 'shovel' (a sector, `arc`), 'echo', 'chime' (a struck crystal's ring).
+ *   Obstacles: kind 'crystal' (CHAPTERS.geode.obstacles.kind); o._chimeAt is its chime cooldown.
+ *   Events: {type:'moleQuake', x, y, r, t} the ground starts shaking where an eruption will land;
+ *     {type:'moleErupt', x, y, r, hit} it came up (hit = it caught the player, hurt src 'mole');
+ *     {type:'moleDive', x, y}; {type:'caveIn', x, y, r}; {type:'pitFall', x, y, r, rosterId};
+ *     {type:'crystalBounce', x, y, n}; {type:'crystalChip', x, y} a shot stopped on a crystal with
+ *     bounce off or spent; {type:'crystalRing', x, y, r}; {type:'rootSnare', x, y, r};
+ *     {type:'stalactite', x, y, r}. All drawn by render.js's burrowEvent; none has a sound.
+ *
  * THE SHELF's three natives add NO run.* array either, on the same argument. Each is an existing
  * entity carrying one extra field, and that field is what the renderer branches on:
  *   - Sunspear: a run.lobs entry carrying `column: true`, whose `fromX/fromY` ARE its `tx/ty` — so
@@ -2863,6 +2890,9 @@ export function createRun(meta, opts = {}) {
     _inkT: 0,              // s of the squid's ink on the SCREEN — render-facing, see stepPlayerMovement
     _rushT: 0,             // s left on BLOODRUSH's window (gnash's bloodrush mod)
     _rushN: 0,             // bites stacked on it, capped at RUSH_MAX_STACKS
+    // Book 3 Burrow (see the sim.js Burrow section): Topsoil's tunnels and pits, and the weapons'
+    // own entities. Empty in every other chapter.
+    pits: [], caveIns: [], snares: [], drips: [], echoes: [],
     sandbars: [],          // Book 2 surf: streamed dry patches (signature.bars) — see streamSandbars
     _sandCellI: null,      // streaming cursor, independent of the obstacle/eddy/trap/shaft cursors
     _sandCellJ: null,

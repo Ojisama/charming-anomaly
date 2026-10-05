@@ -1994,7 +1994,7 @@ function testAnomalySlate() {
       // owning a fixed position, so two lines read as two shapes here exactly as intended — and the
       // day it landed, its absence from this array reported "spawned nothing" for a weapon that was
       // firing correctly, which is the same bite `gnash` records against FX below.
-      const LISTS = ['bullets', 'orbs', 'mines', 'zones', 'lobs', 'blooms', 'lures', 'holes', 'beams', 'debris', 'homingShots', 'boomerangs', 'novas', 'arcs', 'longlines', 'hauls']
+      const LISTS = ['bullets', 'orbs', 'mines', 'zones', 'lobs', 'blooms', 'lures', 'holes', 'beams', 'debris', 'homingShots', 'boomerangs', 'novas', 'arcs', 'longlines', 'hauls', 'snares', 'drips']
       // Same class of quoted-string list as LISTS above, and it bit for real: `gnash` (The Wreck's
       // native, v7.x) spawns no entity at all — its whole output is this event — so the day it
       // landed this fixture reported "spawned nothing — untestable here" for a weapon that was
@@ -5931,7 +5931,8 @@ function runBookProgression() {
   // main.js's usage of it was the only thing exercising it, and that is exactly the invisible
   // path (q) exists to guard. Prove the import earns its place on its own terms.
   assert.strictEqual(nextBook('book1'), 'undertow', "nextBook('book1') === 'undertow'")
-  assert.strictEqual(nextBook('undertow'), null, "nextBook('undertow') === null — Undertow is the last shipped book")
+  assert.strictEqual(nextBook('undertow'), 'burrow', "nextBook('undertow') === 'burrow'")
+  assert.strictEqual(nextBook('burrow'), null, "nextBook('burrow') === null — Burrow is the last book")
   assert.strictEqual(nextBook('nope'), null, 'nextBook of an id no book claims === null')
   // FINAL FIX ROUND, FIX 5 — unlockBook is exported and used `BOOKS[bookId].chapters[0]` with no
   // guard against an id absent from BOOKS, which would throw reading .chapters off undefined. The
@@ -20827,6 +20828,7 @@ run(testLeLargeWeapons)
   run(runBiomes)
   run(testBootLoader)
   run(testParkedRun)
+  run(testBurrow)
   // A hand-typed filter that matched nothing is the silent pass without a parent watching:
   // `node test/sim-test.js supernova` printed ALL TESTS PASSED having run no scenario at all.
   if (_ran === 0 && !EXACT_SET) {
@@ -37981,4 +37983,83 @@ function testParkedRun() {
     assert.strictEqual(takeParkedRun('v1'), null, 'dropParkedRun left the run behind')
   } finally { delete globalThis.localStorage }
   console.log('PASS run PR (parked run): ' + chapters.length + ' chapters (' + chapters.join(', ') + ') parked after 120s and restored play the next 60s identically to the original; another build, a second take, or a drop gets nothing (' + sets + ' hit-list fields crossed)')
+}
+
+// ---- run BU3: Book 3, Burrow — the moles, the pits, the crystals --------------------------------
+// Effects, not state: (a) a burrowed mole loses no hp while a weapon sweeps it and the player still
+// takes 'mole' damage from eruptions; (b) with no weapons at all, cave-in pits are what kills — and
+// with caveIns switched off nothing does; (c) a shot fired into a crystal comes back out the side it
+// went in (velocity reversed), split in two, and with bounce switched off it stops on the crystal.
+function testBurrow() {
+  const meta = () => { const m = makeMeta(); m.dev = true; return m }
+  // (a)
+  Math.random = mulberry32(31001)
+  let run = createRun(meta(), { chapter: 'topsoil', difficulty: 1 })
+  run.player.hp = run.player.maxHP = 1e6
+  let under = 0, lostUnder = 0
+  const prev = new Map()
+  while (run.time < 120 && run.phase !== 'dead') {
+    if (run.phase === 'levelup') { applyChoice(run, 0); run.phase = 'playing' }
+    run.player.hp = run.player.maxHP
+    stepSim(run, { x: 0, y: 0 }, 1 / 60)
+    run.events.length = 0
+    for (const e of run.enemies) {
+      if (e.rosterId !== 'mole') continue
+      const p = prev.get(e)
+      if (e.burrowed) { under++; if (p && p.b && e.hp < p.hp) lostUnder++ }
+      prev.set(e, { b: !!e.burrowed, hp: e.hp })
+    }
+  }
+  assert.ok(under > 300, `run BU3.a: moles were burrowed for only ${under} frames`)
+  assert.strictEqual(lostUnder, 0, 'run BU3.a: a burrowed mole lost hp')
+  assert.ok((run.dmgBySrc?.mole ?? 0) > 0, 'run BU3.a: a still player took no mole damage in 120s')
+  // (b)
+  const pitKills = (on) => {
+    const sig = CHAPTERS.topsoil.signature, saved = sig.caveIns
+    if (!on) sig.caveIns = null
+    try {
+      Math.random = mulberry32(31002)
+      const r = createRun(meta(), { chapter: 'topsoil', difficulty: 1 })
+      r.player.hp = r.player.maxHP = 1e6
+      while (r.time < 200) {
+        if (r.phase === 'levelup') { r.phase = 'playing'; r.levelUpChoices = [] }
+        r.weapons.length = 0
+        r.player.hp = r.player.maxHP
+        stepSim(r, { x: Math.cos(r.time / 4), y: Math.sin(r.time / 4) }, 1 / 60)
+        r.events.length = 0
+      }
+      return r.kills
+    } finally { sig.caveIns = saved }
+  }
+  const kOn = pitKills(true), kOff = pitKills(false)
+  assert.ok(kOn >= 3 && kOff === 0, `run BU3.b: unarmed kills with pits ${kOn}, without ${kOff}`)
+  // (c)
+  const shoot = (bounce) => {
+    const sig = CHAPTERS.geode.signature, saved = sig.bounce
+    if (!bounce) sig.bounce = false
+    try {
+      Math.random = mulberry32(31003)
+      const r = createRun(meta(), { chapter: 'geode', difficulty: 1 })
+      r.weapons = []
+      stepSim(r, { x: 0, y: 0 }, 1 / 60)
+      r.enemies = []
+      r.obstacles = [{ x: r.player.x - 200, y: r.player.y, r: 40, kind: 'crystal', _cell: 'test' }]
+      r._obCellI = Math.floor(r.player.x / 430); r._obCellJ = Math.floor(r.player.y / 430)   // no re-stream
+      r.bullets = [{ x: r.player.x - 100, y: r.player.y, vx: -500, vy: 0, dmg: 10, pierce: 1, life: 1, r: 8, speed: 500,
+        hitIds: new Set(), _shard: true, _splitDone: true, _chainsLeft: 0, weapon: 'prism' }]
+      let bounced = 0
+      for (let i = 0; i < 20; i++) {
+        r.weapons = []
+        stepSim(r, { x: 0, y: 0 }, 1 / 60)
+        for (const e of r.events) if (e.type === 'crystalBounce') bounced++
+        r.events.length = 0
+      }
+      return { bounced, bullets: r.bullets.map((b) => ({ vx: b.vx })) }
+    } finally { sig.bounce = saved }
+  }
+  const on = shoot(true), off = shoot(false)
+  assert.ok(on.bounced >= 1, 'run BU3.c: a shot into a crystal did not bounce')
+  assert.ok(on.bullets.length >= 2 && on.bullets.every((b) => b.vx > 0), `run BU3.c: the bounce should send the shot back out, split: ${JSON.stringify(on.bullets)}`)
+  assert.ok(off.bounced === 0 && off.bullets.length === 0, `run BU3.c: with bounce off the crystal must stop the shot: ${JSON.stringify(off)}`)
+  console.log(`PASS run BU3 (Burrow): moles under ${under} frames, 0 hp lost under, mole dmg ${run.dmgBySrc.mole}; unarmed pit kills ${kOn} vs ${kOff} off; a crystal bounced ${on.bounced}x into ${on.bullets.length} shots, stopped it with bounce off`)
 }

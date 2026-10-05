@@ -255,6 +255,8 @@ import {
   rerollCost,
   difficultySpeedMul, difficultyCountMul, difficultyDmgMul, endlessLevel, endlessHpMul, endlessXpMul, endlessXpNeedMul, ENDLESS_COIN_HALF_LIFE_S, ENDLESS_COUNT_MUL_MAX,
   ENDLESS_MILESTONE_S, ENDLESS_MILESTONE_ELITES, endlessAffixChance, ENDLESS_GILDED_COINS, ENDLESS_HANDOVER_CLEAR_R, mutatorPool, MUTATORS,
+  SHOVEL_LIFE, PEBBLE_FAN, PEBBLE_LIFE, PEBBLE_R, ROOT_SNARE_TICK, ROOT_SNARE_SLOW, ROOT_SNARE_HOLD_T, ROOT_SNARE_RANGE,
+  PRISM_FAN, PRISM_LIFE, PRISM_R, ECHO_LIFE, STALACTITE_FUSE, STALACTITE_RANGE,
 } from './config.js'
 
 const KB_DECAY_RATE = 6 // per-second exponential-ish decay factor for enemy knockback
@@ -392,6 +394,7 @@ export function stepSim(run, input, dt) {
   if (stepLanes(run, dt)) return // phase is now 'dead' (city traffic — v5.4)
   if (stepEnemyShots(run, dt)) return // phase is now 'dead' (helicopter missile — v5.4)
   if (stepPullBeams(run, dt)) return // phase is now 'dead' (UFO abduction beam DoT — v5.4)
+  if (stepTunnels(run, dt)) return // phase is now 'dead' (Book 3 Topsoil: a mole erupted under you)
 
   stepMartyr(run)         // v7.2: resolve the anomaly's queued blasts — after every hurtPlayer caller above
   stepGravityWells(run, dt) // v5.4 beyond signature: bend every projectile in flight (damages nothing)
@@ -4039,8 +4042,8 @@ function spawnEnemy(run, opts = {}) {
       * (eliteSurge ? ELITE_SURGE_EVERY_MUL : 1)
   }
 
-  const type = opts.type ?? pickWeighted(waveWeights(curveT(run), CHAPTERS[run.chapter].archetypeMul))
-  const base = ENEMIES[type]
+  let type = opts.type ?? pickWeighted(waveWeights(curveT(run), CHAPTERS[run.chapter].archetypeMul))
+  let base = ENEMIES[type]
   const p = run.player
 
   // Roster (v5.0, see CHAPTERS[run.chapter].roster in config.js): pick a random roster entry
@@ -4053,7 +4056,8 @@ function spawnEnemy(run, opts = {}) {
   // ordinary spawn ring too, where a formation enemy makes no sense at all.
   const chapterRoster = CHAPTERS[run.chapter].roster
   const forced = opts.rosterId ? chapterRoster.find((r) => r.id === opts.rosterId) : null
-  const rosterPool = chapterRoster.filter((r) => r.archetype === archetype && !r.formationOnly)
+  // `eliteOnly` (Book 3): an entry that is EVERY elite of its chapter and never an ordinary spawn.
+  const rosterPool = chapterRoster.filter((r) => r.archetype === archetype && !r.formationOnly && !r.eliteOnly)
   // v6.3: weight (relative share, default 1) + minT (earliest spawn time, default 0) gate the SAME
   // single draw below — an entry not yet eligible by minT is filtered out of the pool first, but
   // if that filter would empty the pool (every candidate still minT-gated) it falls back to the
@@ -4080,6 +4084,15 @@ function spawnEnemy(run, opts = {}) {
   })
   const pool = capped.length > 0 ? capped : (eligiblePool.length > 0 ? eligiblePool : rosterPool)
   let roster = forced
+  if (!roster && isElite) {
+    const eo = chapterRoster.filter((r) => r.eliteOnly)
+    if (eo.length > 0) {
+      roster = eo.length === 1 ? eo[0] : eo[Math.floor(Math.random() * eo.length)]
+      // An elite-only body brings its own archetype: its base stats are that archetype's.
+      type = ARCHETYPE_TYPE[roster.archetype] ?? type
+      base = ENEMIES[type]
+    }
+  }
   if (!roster && pool.length > 0) {
     let t = Math.random() * pool.reduce((s, r) => s + (r.weight ?? 1), 0)
     roster = pool.find((r) => (t -= r.weight ?? 1) <= 0) ?? pool[pool.length - 1]
@@ -4480,6 +4493,8 @@ function stepEnemyMovement(run, dt) {
   const ring = run.orca && run.orca.state === 'circling' ? run.orca : null
 
   for (const e of run.enemies) {
+    // Book 3: a mole underground is moved by stepTunnels, not by any machine below.
+    if (e.burrowed) continue
     // Seek target: the player by default, or the nearest Pheromone Lure decoy (v5.3 garden) whose
     // aggro radius this enemy sits inside — lured foes path to the decoy instead of the player.
     let tx = p.x, ty = p.y
@@ -4549,7 +4564,8 @@ function stepEnemyMovement(run, dt) {
     // and the slow read the same number.
     const puffMul = ((e.puffT ?? 0) > 0 || (e._puffCd ?? 0) > 0) ? PUFFER_DRIFT_MUL : 1
     const scentSlow = (e.scentT || 0) > 0 ? 1 - SCENT_SLOW : 1   // The Deep's mark
-    const slowMul = (1 - elSlow(run, e)) * bloomMul * dragMul * oilMul * puffMul * scentSlow  // 1.0 slow IS the freeze; no separate branch
+    const rootMul = (e.rootUntil ?? 0) > run.time ? 1 - ROOT_SNARE_SLOW : 1   // Book 3's Root Snare hold
+    const slowMul = (1 - elSlow(run, e)) * bloomMul * dragMul * oilMul * puffMul * scentSlow * rootMul  // 1.0 slow IS the freeze; no separate branch
 
     // Frenzied: speeds up once badly hurt. Cheerleader (pacer): speeds up anyone else nearby.
     let affixSpeedMul = 1
@@ -5721,6 +5737,9 @@ function allyCount(run) {
 
 function damageImmune(e) {
   if (e._phaseSolid === false) return true
+  // Book 3's mole while it is underground (stepTunnels): untouchable AND harmless — contactHarmless
+  // reads this same function, so the bump on the floor can neither be hit nor hit you.
+  if (e.burrowed) return true
   // An ally takes nothing from anyone. This ONE clause buys two of the owner's rulings at
   // once, because damageImmune is checked by dealDamage (3514), applyDamage (3659) AND
   // contactHarmless (2186): your weapons cannot hurt your ally, and your ally cannot hurt you.
@@ -6394,7 +6413,8 @@ function streamObstacles(run) {
       const kinds = perKindRadius
         ? (DISTRICT_STRUCTURE_KINDS[placedBiome] || STRUCTURE_KINDS)
         : STRUCTURE_KINDS
-      const kind = kinds[Math.min(kinds.length - 1, Math.floor(kindRoll * kinds.length))]
+      // cfg.kind (The Geode's crystals): one kind for the whole field, no roll.
+      const kind = cfg.kind ?? kinds[Math.min(kinds.length - 1, Math.floor(kindRoll * kinds.length))]
       // v5.9.2: NOW that kind is known, a perKindRadius cell rolls its real radius from
       // STRUCTURE_RADIUS[kind] (reusing salt 1 — a pure function of (i,j,seed,salt), so calling it
       // here instead of up front changes nothing about determinism). Falls back to the chapter-wide
@@ -8404,6 +8424,7 @@ function stepEnemySeparation(run) {
     const e = run.enemies[i]
     if (e._dead) continue
     if (e._phaseSolid === false) continue // v5.4: a ghosted phase flicker passes through everything
+    if (e.burrowed) continue // Book 3: a mole underground passes beneath the crowd
     if (e.rosterId === 'bindnode') continue // v5.24: stationary by design, nothing to separate
     if (e.affixes && e.affixes.includes('anchored')) continue // knockback/pull immune — checked by every kb site; separation is morally a kb site
     const ci = Math.floor(e.x / ENEMY_SEP_CELL)
@@ -9927,6 +9948,7 @@ function nearestEnemy(run, pad = 100) {
       // krakenHeadSealed goes false the instant the stagger opens, so the one window the head CAN be
       // hurt in is also the one window it is aimed at.
       if (krakenHeadSealed(run, e)) continue
+      if (e.burrowed) continue   // Book 3: a mole underground cannot be hurt, so it is not aimed at
       const dx = e.x - p.x, dy = e.y - p.y
       const dSq = dx * dx + dy * dy
       if (dSq <= limSq && dSq < bestSq) { bestSq = dSq; target = e }
@@ -9958,7 +9980,7 @@ function randomVisibleEnemy(run) {
   const hh = run.viewH ?? run.viewRadius ?? 0
   const seen = []
   for (const e of enemiesInBox(run, p.x - hw, p.y - hh, p.x + hw, p.y + hh)) {
-    if (e._dead || isAlly(e)) continue
+    if (e._dead || isAlly(e) || e.burrowed) continue   // Book 3: never a mole underground
     // A body with no position must never be a target: a zone planted at NaN renders nothing at all,
     // which is a silent no-op rather than an error. nearestEnemy gets this free — its `dSq <=
     // rangeSq` is false for NaN, so such a body is simply never nearest — but a filter phrased as
@@ -9979,6 +10001,14 @@ function randomVisibleEnemy(run) {
 // listed here; they're read directly off run.weaponMods.<weapon>.<mod> at their trigger site
 // (see WEAPON_MODS's doc comment in config.js for the full behavioral-mod list).
 const WEAPON_STAT_MODS = {
+  // Book 3, Burrow. Every rate mod (quickDig, whirl, quickSprout, flickRate, rapidClick, dripRate)
+  // divides the interval at its own fire site, like every other rate mod.
+  shovel:      { ironEdge: ['dmg', 'pct'], longHandle: ['radius', 'pct'], wideScoop: ['arc', 'pct'] },
+  pebbleSling: { flint: ['dmg', 'pct'], handful: ['count', 'flat'], sharpStone: ['pierce', 'flat'] },
+  rootSnare:   { thorns: ['dmg', 'pct'], spreading: ['r', 'pct'], deepRoots: ['duration', 'pct'] },
+  prismShard:  { keenFacet: ['dmg', 'pct'], shardSpray: ['count', 'flat'], cleave: ['pierce', 'flat'] },
+  echoPulse:   { loudClick: ['dmg', 'pct'], farCall: ['radius', 'pct'], rebound: ['knockback', 'pct'] },
+  stalactite:  { heavyStone: ['dmg', 'pct'], rockfall: ['count', 'flat'], wideCrash: ['r', 'pct'] },
   orbit:     { extraOrb: ['orbs', 'flat'], wideRing: ['radius', 'pct'], overdrive: ['rotSpeed', 'pct'] },
   wave:      { bigWave: ['radius', 'pct'], shove: ['knockback', 'pct'], amplitude: ['dmg', 'pct'] },
   boomerang: { extraRang: ['count', 'flat'], longThrow: ['range', 'pct'], heavyBlade: ['dmg', 'pct'] },
@@ -10264,9 +10294,16 @@ function stepWeaponsInner(run, dt) {
     else if (w.id === 'chum') stepChumWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'bilge') stepBilgeWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'screw') stepScrewWeapon(run, stats, fireRateMul, dt)
+    else if (w.id === 'shovel') stepShovelWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'pebbleSling') stepPebbleWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'rootSnare') stepRootSnareWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'prismShard') stepPrismWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'echoPulse') stepEchoWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'stalactite') stepStalactiteWeapon(run, w, stats, fireRateMul, dt)
   }
 
   stepBullets(run, dt)
+  stepEchoes(run, dt)   // Book 3: crystals ringing back (queued by Echo Pulse) join run.novas here
   stepNovas(run, dt)
   stepBoomerangs(run, dt)
   stepMines(run, dt)
@@ -10278,6 +10315,8 @@ function stepWeaponsInner(run, dt) {
   stepClawSlashes(run, dt)
   stepZones(run, dt)
   stepLobs(run, dt)
+  stepSnares(run, dt)   // Book 3: Root Snare patches
+  stepDrips(run, dt)    // Book 3: Stalactite drops
   stepLonglines(run, dt)
   stepHauls(run, dt)
   // v7.23 skies. stepDrags moves bodies, so it runs BEFORE the dead sweep below and before
@@ -10469,10 +10508,12 @@ function tryChainBullet(run, b, fromEnemy) {
 function stepBullets(run, dt) {
   const bullets = run.bullets
   const splitCount = splitCountFor(run)
+  const crystals = crystalSpec(run)
   for (const b of bullets) {
     b.x += b.vx * dt
     b.y += b.vy * dt
     b.life -= dt
+    if (crystals && b.life > 0 && b.pierce > 0 && !b._carrier) stepCrystalShot(run, b, crystals)
     // Reality Shard: every blinkEvery seconds a shard SKIPS blinkDist px along its current heading
     // (post any gravity-well curvature), passing over the gap without touching it.
     if (b.weapon === 'shard' && b.life > 0) stepShardBlink(run, b, dt)
@@ -10502,6 +10543,7 @@ function stepBullets(run, dt) {
     for (const e of enemiesNear(run, b.x, b.y, b.r, true)) {
       if (b.pierce <= 0) break
       if (e._dead || isAlly(e) || b.hitIds.has(e.id)) continue   // SUBMISSION: pass THROUGH an ally — immune, but blocks nothing
+      if (e.burrowed) continue   // Book 3: a shot passes over a mole underground
       const dx = e.x - b.x, dy = e.y - b.y
       const rad = b.r + e.radius
       if (dx * dx + dy * dy <= rad * rad) {
@@ -10535,6 +10577,7 @@ function stepBullets(run, dt) {
     if (b.weapon === 'quill' && b.pierce <= 0 && b.life > 0 && b._reboundsLeft > 0) reboundQuill(run, b)
   }
   run.bullets = capLive(bullets.filter((b) => b.life > 0 && b.pierce > 0), 'bullets')
+  flushCrystalSplits(run)   // Book 3: prism siblings born off a crystal this frame
 }
 
 // reboundQuills (v6.6.28): turn one quill around for a return sweep. Called from BOTH ends of a
@@ -11777,7 +11820,7 @@ function pickBloomSpots(run, n, castRange, nearest = false) {
   const p = run.player
   const rangeSq = castRange * castRange
   const inRange = enemiesNear(run, p.x, p.y, castRange).filter((e) => {
-    if (e._dead || isAlly(e)) return false   // SUBMISSION: never mark your own ally
+    if (e._dead || isAlly(e) || e.burrowed) return false   // SUBMISSION: never mark your own ally
     const dx = e.x - p.x, dy = e.y - p.y
     return dx * dx + dy * dy <= rangeSq
   })
@@ -15900,4 +15943,342 @@ export function rerollLevelUpChoices(run) {
   refundPityOnReroll(run)
   run.levelUpChoices = buildLevelUpChoices(run)
   return true
+}
+
+// ==== Book 3: Burrow ===============================================================================
+// THE TUNNELS (Topsoil's signature). One pass owns the whole mole: its cadence, its underground
+// travel, the quake, the eruption and the cave-in its tunnel leaves behind. Published contract fields
+// (render reads them, state.js documents them): e.burrowed, e.quakeT / e.quakeX / e.quakeY,
+// e.tunnel (the live trail of a digging mole), e.digVX / e.digVY (its heading), run.caveIns and
+// run.pits. Returns true when an eruption killed the player.
+function tunnelSpec(run) {
+  const sig = CHAPTERS[run.chapter].signature
+  return sig && sig.type === 'tunnels' ? sig : null
+}
+function stepTunnels(run, dt) {
+  const sig = tunnelSpec(run)
+  if (!sig) return false
+  const M = sig.moles, C = sig.caveIns
+  const p = run.player
+  let died = false
+
+  // 1. The cadence: one mole at a time early, a few late. Off the ordinary spawner on purpose — the
+  // tank gate in WAVE_TABLE would hold the chapter's one idea back until t=140.
+  if (run._moleT == null) run._moleT = M.firstAt
+  run._moleT -= dt
+  if (run._moleT <= 0) {
+    const late = run.time >= M.lateAt
+    let n = 0
+    for (const e of run.enemies) if (!e._dead && e.rosterId === 'mole') n++
+    if (n < (late ? M.maxAliveLate : M.maxAlive)) spawnEnemy(run, { type: ARCHETYPE_TYPE.tank, rosterId: 'mole', forceNormal: true })
+    run._moleT = late ? M.everyLate : M.every
+  }
+
+  // 2. Every mole.
+  for (const e of run.enemies) {
+    if (e._dead || !e.flags || !e.flags.includes('tunnel')) continue
+    if (e._tun == null) { e._tun = 'dig'; e._tunT = 0; e.burrowed = true; e.tunnel = []; e.quakeT = 0 }
+    e._tunT += dt
+    if (e._tun === 'dig') {
+      e.kb.x = 0; e.kb.y = 0
+      const dx = p.x - e.x, dy = p.y - e.y
+      const d = Math.hypot(dx, dy) || 1
+      // A gentle S in the run, so the bump on the floor reads as something digging rather than a
+      // marker sliding on a rail.
+      const wob = Math.sin(run.time * 2.1 + e.id * 1.7) * 0.4
+      const c = Math.cos(wob), sn = Math.sin(wob)
+      const ux = (dx / d) * c - (dy / d) * sn, uy = (dx / d) * sn + (dy / d) * c
+      const step = Math.min(M.digSpeed * run.mods.enemySpeedMul * dt, d)
+      e.x += ux * step; e.y += uy * step
+      e.digVX = ux; e.digVY = uy
+      const last = e.tunnel[e.tunnel.length - 1]
+      // A recycled straggler (stepStragglers) jumps across the map: a trail across that gap would be
+      // a tunnel through nowhere, so it starts again.
+      if (last && Math.hypot(e.x - last.x, e.y - last.y) > M.trailStep * 4) e.tunnel.length = 0
+      if (!last || Math.hypot(e.x - last.x, e.y - last.y) >= M.trailStep) {
+        e.tunnel.push({ x: e.x, y: e.y })
+        if (e.tunnel.length > M.trailKeep) e.tunnel.shift()
+      }
+      const close = Math.hypot(p.x - e.x, p.y - e.y) <= M.quakeRange
+      if (close || e._tunT >= M.maxDigT) {
+        // THE QUAKE: the ground shakes WHERE YOU STAND NOW, and the spot does not follow you. That is
+        // the whole dodge — keep walking and the mole comes up behind you.
+        e._tun = 'quake'; e._tunT = 0
+        e.quakeX = close ? p.x : e.x
+        e.quakeY = close ? p.y : e.y
+        e.quakeT = M.quakeT
+        run.events.push({ type: 'moleQuake', x: e.quakeX, y: e.quakeY, r: M.eruptR, t: M.quakeT })
+      }
+    } else if (e._tun === 'quake') {
+      e.kb.x = 0; e.kb.y = 0
+      e.quakeT = Math.max(0, e.quakeT - dt)
+      const k = Math.min(1, dt * 8)
+      e.x += (e.quakeX - e.x) * k; e.y += (e.quakeY - e.y) * k
+      if (e.quakeT <= 0) {
+        e._tun = 'up'; e._tunT = 0
+        e.burrowed = false
+        e.x = e.quakeX; e.y = e.quakeY
+        const reach = M.eruptR + PLAYER.radius * 0.5
+        const hit = Math.hypot(p.x - e.x, p.y - e.y) <= reach && p.invuln <= 0
+        run.events.push({ type: 'moleErupt', x: e.x, y: e.y, r: M.eruptR, hit })
+        if (hit && hurtPlayer(run, e.dmg * M.eruptDmgMul, false, 'mole')) died = true
+        // The tunnel caves in behind it, newest end first, back along the last `span` px.
+        if (C) {
+          let acc = 0, k2 = 0
+          run.caveIns.push({ x: e.x, y: e.y, at: run.time + C.delay, r: C.crater })
+          for (let i = e.tunnel.length - 1; i > 0 && acc <= C.span; i--) {
+            const a = e.tunnel[i], b = e.tunnel[i - 1]
+            acc += Math.hypot(a.x - b.x, a.y - b.y)
+            if (Math.hypot(a.x - e.x, a.y - e.y) < C.crater) continue
+            k2++
+            run.caveIns.push({ x: a.x, y: a.y, at: run.time + C.delay + k2 * C.stagger, r: C.r })
+          }
+        }
+        e.tunnel = []
+      }
+    } else if (e._tun === 'up' && e._tunT >= M.upT && (e.stunT || 0) <= 0 && (e.frozen || 0) <= 0) {
+      e._tun = 'dig'; e._tunT = 0
+      e.burrowed = true
+      e.tunnel = []
+      run.events.push({ type: 'moleDive', x: e.x, y: e.y })
+    }
+  }
+
+  // 3. Cave-ins come due and open into pits.
+  if (run.caveIns.length > 0) {
+    for (const c of run.caveIns) {
+      if (run.time < c.at) continue
+      c._done = true
+      if (!C) continue
+      run.pits.push({ x: c.x, y: c.y, maxR: c.r, r: 0, age: 0, life: C.life })
+      run.events.push({ type: 'caveIn', x: c.x, y: c.y, r: c.r })
+    }
+    run.caveIns = run.caveIns.filter((c) => !c._done)
+    if (C && run.pits.length > C.max) run.pits.splice(0, run.pits.length - C.max)
+  }
+
+  // 4. Pits: open, swallow, fill back in.
+  if (run.pits.length > 0) {
+    for (const pt of run.pits) {
+      pt.age += dt
+      const open = C ? C.open : 0.35, fill = C ? C.fill : 1.5
+      const grow = Math.min(1, pt.age / open)
+      const shut = Math.max(0, Math.min(1, (pt.life - pt.age) / fill))
+      pt.r = pt.maxR * Math.min(grow, shut)
+      if (pt.age < open * 0.5 || pt.age > pt.life - fill) continue
+      for (const e of enemiesNear(run, pt.x, pt.y, pt.r + 30)) {
+        // Elites are too big to go down, and a mole lives down there.
+        if (e._dead || e.burrowed || e.elite || isAlly(e) || (e.flags && e.flags.includes('tunnel'))) continue
+        if (Math.hypot(e.x - pt.x, e.y - pt.y) > pt.r - e.radius * 0.25) continue
+        run.events.push({ type: 'pitFall', x: e.x, y: e.y, r: e.radius, rosterId: e.rosterId })
+        dealDamage(run, e, e.hp + e.maxHP, false, false, true)   // hazard: the ground did it
+      }
+    }
+    run.pits = run.pits.filter((pt) => pt.age < pt.life)
+  }
+  return died
+}
+
+// THE CRYSTALS (The Geode's signature). A player shot meeting a crystal pillar either bounces
+// (signature.bounce) or stops dead on it (bounce switched off).
+function crystalSpec(run) {
+  const sig = CHAPTERS[run.chapter].signature
+  return sig && sig.type === 'crystals' ? sig : null
+}
+function crystalAt(run, x, y, pad) {
+  for (const o of run.obstacles) {
+    if (o.kind !== 'crystal') continue
+    const dx = x - o.x, dy = y - o.y, rr = o.r + pad
+    if (dx * dx + dy * dy < rr * rr) return o
+  }
+  return null
+}
+function stepCrystalShot(run, b, spec) {
+  const o = crystalAt(run, b.x, b.y, b.r)
+  if (!o) return
+  const B = spec.bounce
+  if (!B || (b._bounces ?? 0) >= B.max) {
+    b.life = 0
+    run.events.push({ type: 'crystalChip', x: b.x, y: b.y })
+    return
+  }
+  let nx = b.x - o.x, ny = b.y - o.y
+  const nd = Math.hypot(nx, ny) || 1
+  nx /= nd; ny /= nd
+  b.x = o.x + nx * (o.r + b.r + 1)
+  b.y = o.y + ny * (o.r + b.r + 1)
+  const vd = b.vx * nx + b.vy * ny
+  if (vd < 0) { b.vx -= 2 * vd * nx; b.vy -= 2 * vd * ny }
+  // ...then it picks a body on the OPEN side of the face: a pinball, not a mirror. The one closest to
+  // YOU, so a crystal at your shoulder turns your missed shots onto whatever is about to reach you.
+  const sp = Math.hypot(b.vx, b.vy) || b.speed || 1
+  const p = run.player
+  let best = null, bestSq = Infinity
+  const steerSq = B.steer * B.steer
+  for (const e of enemiesNear(run, b.x, b.y, B.steer)) {
+    if (e._dead || isAlly(e) || e.burrowed || b.hitIds.has(e.id)) continue
+    const ex = e.x - b.x, ey = e.y - b.y
+    if (ex * nx + ey * ny <= 0 || ex * ex + ey * ey > steerSq) continue
+    const d2 = (e.x - p.x) ** 2 + (e.y - p.y) ** 2
+    if (d2 < bestSq) { bestSq = d2; best = e }
+  }
+  if (best) {
+    const ex = best.x - b.x, ey = best.y - b.y, ed = Math.hypot(ex, ey) || 1
+    b.vx = (ex / ed) * sp; b.vy = (ey / ed) * sp
+  }
+  b._bounces = (b._bounces ?? 0) + 1
+  b.dmg *= B.dmgMul
+  b.life = Math.max(b.life, B.life)
+  b.hitIds.clear()
+  // THE PRISM: the first `split` bounces of a shot also split it, one sibling fanned off the new
+  // heading. Queued, not pushed: stepBullets is mid-walk over run.bullets (see flushCrystalSplits).
+  if (b._bounces <= B.split) {
+    const a = Math.atan2(b.vy, b.vx) + (b._bounces % 2 ? 1 : -1) * B.splitFan
+    ;(run._crystalSplits ??= []).push({
+      x: b.x, y: b.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, dmg: b.dmg, pierce: Math.max(1, b.pierce),
+      life: b.life, r: b.r, speed: b.speed, hitIds: new Set(), _shard: true, _splitDone: true, _chainsLeft: 0,
+      weapon: b.weapon, _bounces: b._bounces,
+    })
+  }
+  run.events.push({ type: 'crystalBounce', x: b.x, y: b.y, n: b._bounces })
+  // ...AND THE CRYSTAL RINGS: a struck pillar chimes a short ring around itself, at most once per
+  // B.chimeCd. This is what makes standing beside one WITH the crowd pay: the bodies pressing in on
+  // you are the bodies pressing on the crystal.
+  if (B.chimeR > 0 && run.time >= (o._chimeAt ?? 0)) {
+    o._chimeAt = run.time + B.chimeCd
+    spawnNova(run, o.x, o.y, o.r + B.chimeR, b.dmg * B.chimeDmg, B.chimeKb, 0, { look: 'chime', life: 0.3 })
+    // The ring also shakes loose what lies around the pillar: gems and coins in reach are reeled in
+    // to you (the same _vac flag Chemotaxis sets), so a crystal fight pays where you stand.
+    const vr = o.r + B.chimeVac, vrSq = vr * vr
+    for (const it of run.gems) { const dx = it.x - o.x, dy = it.y - o.y; if (dx * dx + dy * dy <= vrSq) it._vac = true }
+    for (const it of run.coins) { const dx = it.x - o.x, dy = it.y - o.y; if (dx * dx + dy * dy <= vrSq) it._vac = true }
+  }
+}
+function flushCrystalSplits(run) {
+  if (!run._crystalSplits || run._crystalSplits.length === 0) return
+  for (const nb of run._crystalSplits) run.bullets.push(nb)
+  run._crystalSplits.length = 0
+}
+
+// -- Shovel (Topsoil starter) -------------------------------------------------------------------
+function stepShovelWeapon(run, w, stats, fireRateMul, dt) {
+  const p = run.player
+  const quick = run.weaponMods.shovel?.quickDig ?? 0
+  fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => {
+    const aim = aimAngle(run)
+    for (const a of ipecacAngles(run, aim)) {
+      spawnNova(run, p.x, p.y, stats.radius, stats.dmg, stats.knockback, 0,
+        { look: 'shovel', arc: stats.arc, angle: a, life: SHOVEL_LIFE })
+    }
+    run.events.push({ type: 'shoot', weapon: 'shovel', x: p.x, y: p.y, angle: aim, maxR: stats.radius, arc: stats.arc })
+  })
+}
+
+// -- Pebble Sling and Prism Shard: plain aimed volleys into run.bullets ---------------------------
+function fireVolley(run, stats, weapon, fan, life, r) {
+  const p = run.player
+  const target = nearestEnemy(run)
+  const base = target ? Math.atan2(target.y - p.y, target.x - p.x) : aimAngle(run)
+  const count = ipecacN(run, stats.count)
+  for (let i = 0; i < count; i++) {
+    const a = base + (i - (count - 1) / 2) * fan
+    run.bullets.push({
+      x: p.x, y: p.y, vx: Math.cos(a) * stats.speed, vy: Math.sin(a) * stats.speed,
+      dmg: stats.dmg, pierce: stats.pierce, life, r, speed: stats.speed,
+      hitIds: new Set(), _shard: true, _splitDone: true, _chainsLeft: 0, weapon,
+    })
+  }
+  run.events.push({ type: 'shoot', weapon })
+}
+function stepPebbleWeapon(run, w, stats, fireRateMul, dt) {
+  const quick = run.weaponMods.pebbleSling?.whirl ?? 0
+  fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => fireVolley(run, stats, 'pebble', PEBBLE_FAN, PEBBLE_LIFE, PEBBLE_R))
+}
+function stepPrismWeapon(run, w, stats, fireRateMul, dt) {
+  const quick = run.weaponMods.prismShard?.flickRate ?? 0
+  fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => fireVolley(run, stats, 'prism', PRISM_FAN, PRISM_LIFE, PRISM_R))
+}
+
+// -- Root Snare (Topsoil) -----------------------------------------------------------------------
+function stepRootSnareWeapon(run, w, stats, fireRateMul, dt) {
+  const quick = run.weaponMods.rootSnare?.quickSprout ?? 0
+  fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => {
+    const n = ipecacN(run, stats.count)
+    for (const sp of pickBloomSpots(run, n, ROOT_SNARE_RANGE)) {
+      run.snares.push({ x: sp.x, y: sp.y, r: stats.r, dmg: stats.dmg, dur: stats.duration, t: 0, tick: 0 })
+      run.events.push({ type: 'rootSnare', x: sp.x, y: sp.y, r: stats.r })
+    }
+  })
+}
+function stepSnares(run, dt) {
+  if (run.snares.length === 0) return
+  for (const sn of run.snares) {
+    sn.t += dt
+    sn.tick -= dt
+    const tick = sn.tick <= 0
+    if (tick) sn.tick += ROOT_SNARE_TICK
+    for (const e of enemiesNear(run, sn.x, sn.y, sn.r, true)) {
+      if (e._dead || isAlly(e) || damageImmune(e)) continue
+      if (Math.hypot(e.x - sn.x, e.y - sn.y) > sn.r + e.radius * 0.5) continue
+      e.rootUntil = run.time + ROOT_SNARE_HOLD_T
+      if (tick) applyDotDamage(run, e, sn.dmg)
+    }
+  }
+  run.snares = run.snares.filter((sn) => sn.t < sn.dur)
+}
+
+// -- Echo Pulse (The Geode) ---------------------------------------------------------------------
+function stepEchoWeapon(run, w, stats, fireRateMul, dt) {
+  const p = run.player
+  const quick = run.weaponMods.echoPulse?.rapidClick ?? 0
+  fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => {
+    for (const r of ipecacRadii(run, stats.radius)) spawnNova(run, p.x, p.y, r, stats.dmg, stats.knockback, 0, { look: 'echo', life: ECHO_LIFE })
+    run.events.push({ type: 'shoot', weapon: 'echoPulse', x: p.x, y: p.y, maxR: stats.radius })
+    // Every crystal the ring will reach rings back when it gets there.
+    const res = crystalSpec(run)?.resonance
+    if (!res) return
+    for (const o of run.obstacles) {
+      if (o.kind !== 'crystal') continue
+      const d = Math.hypot(o.x - p.x, o.y - p.y) - o.r
+      if (d > stats.radius) continue
+      run.echoes.push({ x: o.x, y: o.y, at: run.time + ECHO_LIFE * Math.max(0, d) / stats.radius,
+        r: stats.radius * res.radiusMul + o.r, dmg: stats.dmg * res.dmgMul, kb: stats.knockback * res.dmgMul })
+    }
+  })
+}
+function stepEchoes(run, dt) {
+  if (run.echoes.length === 0) return
+  for (const ec of run.echoes) {
+    if (run.time < ec.at) continue
+    ec._done = true
+    spawnNova(run, ec.x, ec.y, ec.r, ec.dmg, ec.kb, 0, { look: 'echo', life: ECHO_LIFE * 0.8 })
+    run.events.push({ type: 'crystalRing', x: ec.x, y: ec.y, r: ec.r })
+  }
+  run.echoes = run.echoes.filter((ec) => !ec._done)
+}
+
+// -- Stalactite (The Geode) ---------------------------------------------------------------------
+function stepStalactiteWeapon(run, w, stats, fireRateMul, dt) {
+  const quick = run.weaponMods.stalactite?.dripRate ?? 0
+  fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => {
+    const n = ipecacN(run, stats.count)
+    for (const sp of pickBloomSpots(run, n, STALACTITE_RANGE)) {
+      run.drips.push({ x: sp.x, y: sp.y, r: stats.r, dmg: stats.dmg, t: 0, fuse: STALACTITE_FUSE, seed: Math.floor(Math.random() * 1000) })
+    }
+  })
+}
+function stepDrips(run, dt) {
+  if (run.drips.length === 0) return
+  for (const dr of run.drips) {
+    dr.t += dt
+    if (dr.t < dr.fuse) continue
+    dr._done = true
+    for (const e of enemiesNear(run, dr.x, dr.y, dr.r, true)) {
+      if (e._dead || isAlly(e)) continue
+      if (Math.hypot(e.x - dr.x, e.y - dr.y) > dr.r + e.radius) continue
+      applyDamage(run, e, dr.dmg)
+    }
+    run.events.push({ type: 'stalactite', x: dr.x, y: dr.y, r: dr.r })
+  }
+  run.drips = run.drips.filter((dr) => !dr._done)
 }

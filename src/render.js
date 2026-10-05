@@ -6,7 +6,7 @@
 //   r.reset(run|null)          new run started (build world) or back to title (clear)
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
-import { Assets, BlurFilter, Buffer as PixiBuffer, BufferUsage, Container, FillGradient, Graphics, Mesh, MeshGeometry, MeshPlane, MeshRope, Point, Rectangle, RenderTexture, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
+import { Assets, BlurFilter, Buffer as PixiBuffer, BufferUsage, CanvasSource, Container, FillGradient, Filter, GlProgram, Graphics, Mesh, MeshGeometry, MeshPlane, MeshRope, Point, Rectangle, RenderTexture, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
 import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, BEAM_ENVELOPE, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, CIRCUIT_CAM_LEAD, CIRCUIT_CAM_EASE, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, drawdownSecsFor, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPUR_VIS, LANE_HALF_W, UPWELLING_VIS, FOUL_SPRING_VIS, FOUL_SPRING_FOUL_T, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, BRING_SNAP_T, SHOREBREAK_RADIUS, BURST_WAKE, burstWakeAt, DUST, dustVel, laneScrollFor, BALLAST_THROW_R, BALLAST_RING, ORCA_LEN, ORCA_CIRCLE_DUR, ORCA_RING_BAND, ORCA_FEAR_TELL, ORCA_HERD_GAP, CHUM_VIS, BILGE_TRAIL_VIS, OIL_STAIN_MAX, SLICK_FIRE_SPREAD_T, caveAt, laneHalfWidth, laneDrawSpan, CIRCUIT_GATE_VIS, ringXY, ringFU, ringRot, ringHeading, gateAnchorF, caveSpecOf, ORCA_RISE_DUR, ORCA_SPLASH_R, ORCA_AIM_W, ORCA_AIM_TELL, ORCA_WAKE_R, ORCA_OVERSHOOT,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
@@ -40,6 +40,8 @@ import { currentForce, tideForce } from './sim.js'
 import { KRAKEN_BEATS, KRAKEN_CEREMONY, KRAKEN_OUTRO } from './config.js'
 import { TRAWL_WIGGLE_ARC, KRAKEN_GRIP_FLICKS } from './config.js'
 import { DRAW_CAPS } from './config.js'
+import * as MACRO from './macro.js'
+import * as HOLO from './holo.js'
 import { t as tr } from './i18n.js'
 
 
@@ -5420,7 +5422,1099 @@ export function createRenderer(app) {
     if (elite) eliteCrown(-r * 0.6, r * 0.7)
   }
 
+  // ==== Book 3, BURROW: the CLAY DIORAMA look ================================================
+  // One realism step above Book 2. Every creature here is modelled like a little plasticine figure
+  // under one overhead studio lamp: each FORM is filled as a stack of nested outlines going from an
+  // ambient-occluded rim to a lit crown (clayForm), with a soft matte specular on its top, a dark
+  // occlusion halo where it meets the floor, and grooves pressed into it (clayGroove: a shadow line
+  // with a lit lip beside it). The lamp is OVERHEAD, not top-left, and that is forced by the camera
+  // contract: these bodies rotate to face you, and a baked side light would swing round with them,
+  // so the crowd would be lit from every direction at once. Light from straight above is the only
+  // light that stays true under rotation — the crown of every form faces it whichever way it turns.
+  // Squash-and-stretch is two things: baked `phases` (the gait) and `squash` in ROSTER_LOOKS (a live
+  // breathing scale on top, see syncEnemies).
+  const clayK = (c, k) => (k >= 0 ? mix(c, 0xffffff, k) : mix(c, 0x000000, -k))
+  // at(k) -> a flat outline at "inset" k (1 = the silhouette, smaller = toward the crown).
+  function clayForm(g, at, base, white, o = {}) {
+    if (white) { g.poly(at(1)).fill(0xffffff); return }
+    const N = o.steps ?? 8
+    const kMin = o.kMin ?? 0.26
+    const dark = clayK(base, -(o.ao ?? 0.5))
+    const lit = clayK(base, o.lit ?? 0.3)
+    for (let i = 0; i <= N; i++) {
+      const u = i / N
+      const k = 1 - u * (1 - kMin)
+      const c = u < 0.45 ? mix(dark, base, Math.pow(u / 0.45, 0.7)) : mix(base, lit, (u - 0.45) / 0.55)
+      g.poly(at(k)).fill(c)
+    }
+    if ((o.spec ?? 0.3) > 0) {
+      g.poly(at(o.specK ?? 0.2)).fill({ color: 0xffffff, alpha: (o.spec ?? 0.3) * 0.55 })
+      g.poly(at((o.specK ?? 0.2) * 0.55)).fill({ color: 0xffffff, alpha: (o.spec ?? 0.3) * 0.7 })
+    }
+    if ((o.line ?? 1) > 0) g.poly(at(1)).stroke({ width: o.line ?? 1, color: clayK(base, -0.72), alpha: 0.55, join: 'round' })
+  }
+  // The soft dark where a clay body meets the board it stands on. Drawn FIRST, under the form.
+  function clayHalo(g, at, white, a = 1) {
+    if (white) return
+    g.poly(at(1.22)).fill({ color: 0x000000, alpha: 0.06 * a })
+    g.poly(at(1.12)).fill({ color: 0x000000, alpha: 0.1 * a })
+  }
+  // A groove pressed into the clay: the cut in shadow, the lip it raised catching the lamp.
+  function clayGroove(g, pts, w, base, white, alpha = 1) {
+    if (white) return
+    const line = (dx, dy, width, color, a) => {
+      g.moveTo(pts[0][0] + dx, pts[0][1] + dy)
+      for (let i = 1; i < pts.length; i++) g.lineTo(pts[i][0] + dx, pts[i][1] + dy)
+      g.stroke({ width, color, alpha: a, cap: 'round', join: 'round' })
+    }
+    line(0, 0, w * 1.6, clayK(base, 0.35), 0.35 * alpha)
+    line(0, 0, w, clayK(base, -0.55), 0.75 * alpha)
+  }
+  // A glossy bead eye: dark glass, a rim of the socket around it, one hard specular.
+  function clayEye(g, x, y, r, white, socket = 0) {
+    if (white) { g.circle(x, y, r).fill(0xffffff); return }
+    if (socket) g.circle(x, y, r * 1.35).fill({ color: clayK(socket, -0.45), alpha: 0.9 })
+    g.circle(x, y, r).fill(0x140d0a)
+    g.circle(x, y, r * 0.62).fill({ color: 0x2c2420, alpha: 0.8 })
+    g.circle(x + r * 0.15, y - r * 0.32, r * 0.34).fill({ color: 0xffffff, alpha: 0.85 })
+  }
+  // Fingerprint texture: a sprinkle of tiny lighter/darker dents, seeded so every bake matches.
+  function clayDents(g, rnd, n, x0, y0, x1, y1, base, white, inside = null) {
+    if (white) return
+    for (let i = 0; i < n; i++) {
+      const x = x0 + rnd() * (x1 - x0), y = y0 + rnd() * (y1 - y0)
+      if (inside && !inside(x, y)) continue
+      const r = 0.5 + rnd() * 0.9
+      g.circle(x, y, r).fill({ color: clayK(base, rnd() < 0.5 ? -0.35 : 0.3), alpha: 0.35 })
+    }
+  }
+  const clayRnd = (seed) => { let a = seed >>> 0; return () => { a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296 } }
+  const ovalAt = (cx, cy, rx, ry, rot = 0, n = 32) => (k) => ovalPts(cx, cy, rx * (1 - (1 - k) * 0.8), ry * k, rot, n)
+  const spineAt = (spine, halfW, n = 36, t0 = 0, t1 = 1) => (k) => spineOutline(spine, (t) => halfW(t) * k, n, t0, t1)
+  // A limb in clay: a tapered roll with a dark under-edge and a lit top edge.
+  function clayLimb(g, pts, w0, w1, base, white) {
+    if (white) { taperStroke(g, pts, w0, w1, 0xffffff, 3); return }
+    taperStroke(g, pts, w0 * 1.25, w1 * 1.25, clayK(base, -0.6), 3)
+    taperStroke(g, pts, w0, w1, base, 3)
+    taperStroke(g, pts, w0 * 0.45, w1 * 0.45, clayK(base, 0.28), 3)
+  }
 
+  // EARTHWORM — Topsoil's swarm. A long glossy pink tube in an S, ringed with pressed segment
+  // grooves and the paler saddle (clitellum) a third of the way back, head tapering to +x. Six baked
+  // phases are the crawl: the S travels down the body and the body bunches and stretches with it.
+  function drawEarthworm(g, elite, white, phase = 0) {
+    const r = 20
+    const len = r * 2.7
+    const stretch = 1 + 0.07 * Math.sin(phase)
+    const L = len * stretch
+    const spine = (t) => [r * 1.25 - t * L, Math.sin(t * Math.PI * 1.7 - phase) * r * 0.32 * (0.35 + t)]
+    const half = (t) => r * 0.24 / Math.sqrt(stretch) * (t < 0.12 ? 0.45 + 0.55 * Math.sin((t / 0.12) * Math.PI / 2) : t > 0.82 ? 0.5 + 0.5 * Math.cos(((t - 0.82) / 0.18) * Math.PI / 2) : 1)
+      * (1 + 0.16 * Math.exp(-Math.pow((t - 0.3) / 0.06, 2)))
+    groundShadow(r * 1.35, r * 0.32)
+    const at = spineAt(spine, half, 44)
+    const skin = 0xc77a6c
+    clayHalo(g, at, white)
+    clayForm(g, at, skin, white, { kMin: 0.2, lit: 0.34, spec: 0.42, specK: 0.22 })
+    if (white) { if (elite) eliteCrown(-r * 0.55, r); return }
+    // the saddle
+    g.poly(spineAt(spine, (t) => half(t) * 0.98, 10, 0.25, 0.36)(1)).fill({ color: 0xe39a7f, alpha: 0.75 })
+    g.poly(spineAt(spine, (t) => half(t) * 0.45, 10, 0.25, 0.36)(1)).fill({ color: 0xf6c1a4, alpha: 0.55 })
+    // segment grooves, across the tube
+    for (let t = 0.08; t < 0.95; t += 0.055) {
+      if (t > 0.24 && t < 0.37) continue
+      const [x, y] = spine(t), [x2, y2] = spine(t + 0.01)
+      const dx = x2 - x, dy = y2 - y, d = Math.hypot(dx, dy) || 1
+      const nx = -dy / d, ny = dx / d, w = half(t) * 0.86
+      clayGroove(g, [[x + nx * w, y + ny * w], [x - nx * w * 0.2 + dx * 0.15, y - ny * w * 0.2 + dy * 0.15], [x - nx * w, y - ny * w]], 0.75, skin, false, 0.8)
+    }
+    // the wet glint running down the back
+    g.poly(spineAt(spine, (t) => half(t) * 0.16, 30, 0.05, 0.9)(1)).fill({ color: 0xffffff, alpha: 0.28 })
+    // mouth end: a darker prostomium tip
+    const [hx, hy] = spine(0.01)
+    g.circle(hx - 1, hy, r * 0.07).fill({ color: 0x7a3b33, alpha: 0.7 })
+    if (elite) eliteCrown(-r * 0.55, r)
+  }
+
+  // MOLE CRICKET — Topsoil's fast one. The read is the animal's own: a glossy domed shield behind the
+  // head and two huge toothed SHOVEL forelegs thrown out at the front. Velvet brown, folded wings in
+  // pale strips down the back, two tail cerci. Four phases scuttle the legs.
+  function drawMoleCricket(g, elite, white, phase = 0) {
+    const r = 15
+    const s4 = Math.sin(phase), c4 = Math.cos(phase)
+    const brown = 0x8a5a2c, dark = 0x4a2e14, velvet = 0x6e4422
+    groundShadow(r * 1.2, r * 0.45)
+    const f = (c) => (white ? 0xffffff : c)
+    // hind and middle legs, scuttling
+    for (const s of [-1, 1]) {
+      const sw = s * s4 * 0.14
+      clayLimb(g, [[-r * 0.35, s * r * 0.32], [-r * 0.75, s * r * (0.78 + sw)], [-r * 1.25, s * r * (0.86 + sw)]], r * 0.16, r * 0.07, dark, white)
+      clayLimb(g, [[r * 0.05, s * r * 0.34], [-r * 0.1, s * r * (0.8 - sw)], [-r * 0.45, s * r * (0.98 - sw)]], r * 0.12, r * 0.06, dark, white)
+    }
+    // the two rolled hind wings and the cerci, trailing past the abdomen like tails
+    for (const s of [-1, 1]) {
+      clayLimb(g, [[-r * 1.2, s * r * 0.08], [-r * 1.75, s * r * 0.12]], r * 0.09, r * 0.04, 0xc8a070, white)
+      if (!white) g.moveTo(-r * 1.3, s * r * 0.18).lineTo(-r * 1.85, s * r * 0.42).stroke({ width: 0.9, color: dark, cap: 'round' })
+    }
+    // abdomen, ringed
+    const abd = ovalAt(-r * 0.6, 0, r * 0.72, r * 0.44)
+    clayHalo(g, abd, white)
+    clayForm(g, abd, brown, white, { spec: 0.2 })
+    if (!white) {
+      for (let i = 0; i < 4; i++) {
+        const x = -r * (0.3 + i * 0.24)
+        clayGroove(g, [[x, -r * 0.36], [x - r * 0.06, 0], [x, r * 0.36]], 0.7, brown, false, 0.7)
+      }
+      // short folded forewings over the abdomen's front half
+      for (const s of [-1, 1]) g.poly([r * 0.0, s * r * 0.04, -r * 0.7, s * r * 0.02, -r * 0.62, s * r * 0.3, r * 0.0, s * r * 0.32]).fill({ color: 0xc8a070, alpha: 0.5 })
+    }
+    // THE SHOVELS: two broad dark paddles at the front corners, each a fan of four blunt digging teeth
+    for (const s of [-1, 1]) {
+      const sw = s * c4 * 0.05
+      const px = r * 1.0, py = s * r * (0.66 + sw)
+      clayLimb(g, [[r * 0.55, s * r * 0.3], [px - r * 0.1, py]], r * 0.24, r * 0.22, velvet, white)
+      const pad = ovalAt(px, py, r * 0.4, r * 0.32, s * 0.55, 22)
+      clayHalo(g, pad, white, 0.6)
+      clayForm(g, pad, velvet, white, { spec: 0.3, kMin: 0.3, line: 0.9 })
+      for (let k = 0; k < 4; k++) {
+        const a = s * (-0.2 + k * 0.38)
+        const bx = px + Math.cos(a) * r * 0.3, by = py + Math.sin(a) * r * 0.27
+        const tx = px + Math.cos(a) * r * 0.64, ty = py + Math.sin(a) * r * 0.56
+        if (white) { g.moveTo(bx, by).lineTo(tx, ty).stroke({ width: r * 0.14, color: 0xffffff, cap: 'round' }); continue }
+        g.moveTo(bx, by).lineTo(tx, ty).stroke({ width: r * 0.15, color: 0x2a180a, cap: 'round' })
+        g.moveTo(bx, by).lineTo((bx + tx * 2) / 3, (by + ty * 2) / 3).stroke({ width: r * 0.06, color: 0x8a6a48, alpha: 0.8, cap: 'round' })
+      }
+    }
+    // pronotum: the big velvet shield, glossy on top
+    const pro = ovalAt(r * 0.32, 0, r * 0.62, r * 0.5)
+    clayHalo(g, pro, white, 0.5)
+    clayForm(g, pro, velvet, white, { spec: 0.55, specK: 0.3, lit: 0.42, ao: 0.55 })
+    if (!white) clayDents(g, clayRnd(11), 22, -r * 0.2, -r * 0.4, r * 0.85, r * 0.4, velvet, false, (x, y) => ((x - r * 0.32) / (r * 0.55)) ** 2 + (y / (r * 0.44)) ** 2 < 1)
+    // head, eyes, short antennae
+    const hd = ovalAt(r * 1.0, 0, r * 0.24, r * 0.26)
+    clayForm(g, hd, 0x5a3818, white, { spec: 0.35 })
+    for (const s of [-1, 1]) {
+      clayEye(g, r * 1.08, s * r * 0.17, r * 0.08, white)
+      if (!white) g.moveTo(r * 1.18, s * r * 0.08).quadraticCurveTo(r * 1.5, s * r * 0.1, r * 1.65, s * r * 0.32).stroke({ width: 0.9, color: f(dark), alpha: 0.9, cap: 'round' })
+    }
+    if (elite) eliteCrown(-r * 0.9, r)
+  }
+
+  // THE MOLE — three poses, chosen by the sim (poseOf): 0 surfaced, 1 underground (the travelling
+  // bump of turned earth), 2 about to erupt (the bump cracking open, paws breaking through).
+  // Surfaced it is the textbook mole from above: a plump velvet-black barrel, two enormous pink
+  // spade hands turned outward at the shoulders, a long pink snout at +x, a stub tail at -x.
+  function drawMoleBody(g, elite, white) {
+    const r = 26
+    const fur = 0x34302e, pink = 0xe3a19a
+    groundShadow(r * 1.1, r * 0.55)
+    // hind feet
+    for (const s of [-1, 1]) {
+      const ft = ovalAt(-r * 0.72, s * r * 0.55, r * 0.2, r * 0.13, s * 0.5, 18)
+      clayForm(g, ft, pink, white, { spec: 0.2, kMin: 0.4, line: 0.8 })
+    }
+    // tail
+    clayLimb(g, [[-r * 0.95, 0], [-r * 1.3, 0]], r * 0.11, r * 0.06, pink, white)
+    // body
+    const body = ovalAt(-r * 0.05, 0, r * 0.98, r * 0.66, 0, 40)
+    clayHalo(g, body, white)
+    clayForm(g, body, fur, white, { ao: 0.5, lit: 0.42, spec: 0.38, specK: 0.24, steps: 9 })
+    // velvet: soft fur strokes combed back
+    if (!white) {
+      const rnd = clayRnd(7)
+      for (let i = 0; i < 46; i++) {
+        const a = rnd() * Math.PI * 2, d = Math.sqrt(rnd())
+        const x = -r * 0.05 + Math.cos(a) * r * 0.85 * d, y = Math.sin(a) * r * 0.56 * d
+        g.moveTo(x, y).lineTo(x - r * 0.12, y * 1.04).stroke({ width: 0.8, color: rnd() < 0.5 ? 0x5a5450 : 0x1c1918, alpha: 0.5, cap: 'round' })
+      }
+    }
+    // the hands: big pink spades turned out, five clawed fingers each
+    for (const s of [-1, 1]) {
+      const hx = r * 0.42, hy = s * r * 0.78
+      const hand = ovalAt(hx, hy, r * 0.36, r * 0.3, s * -0.35, 24)
+      clayHalo(g, hand, white, 0.7)
+      clayForm(g, hand, pink, white, { spec: 0.32, kMin: 0.3, line: 0.9 })
+      // five short thick digging claws along the hand's outer rim, cream with a dark root
+      for (let k = 0; k < 5; k++) {
+        const a = -0.9 + k * 0.42 + (s < 0 ? 0 : 0)
+        const ang = s > 0 ? a + 0.5 : -a - 0.5
+        const bx = hx + Math.cos(ang) * r * 0.3, by = hy + Math.sin(ang) * r * 0.25
+        const tx = hx + Math.cos(ang) * r * 0.46, ty = hy + Math.sin(ang) * r * 0.39
+        if (white) { g.moveTo(bx, by).lineTo(tx, ty).stroke({ width: r * 0.1, color: 0xffffff, cap: 'round' }); continue }
+        g.moveTo(bx, by).lineTo(tx, ty).stroke({ width: r * 0.11, color: 0x8a7a62, cap: 'round' })
+        g.moveTo(bx, by).lineTo(tx, ty).stroke({ width: r * 0.075, color: 0xefe4cc, cap: 'round' })
+      }
+      // the palm, paler, turned out
+      if (!white) g.poly(ovalAt(hx + r * 0.02, hy + s * r * 0.04, r * 0.18, r * 0.13, s * -0.35, 16)(1)).fill({ color: 0xf6c8c0, alpha: 0.7 })
+      if (!white) clayGroove(g, [[hx - r * 0.12, hy - s * r * 0.08], [hx + r * 0.12, hy + s * r * 0.02]], 0.8, pink, false, 0.6)
+    }
+    // the snout
+    const sn = spineAt((t) => [r * 0.8 + t * r * 0.5, 0], (t) => r * 0.17 * (1 - t * 0.45), 12)
+    clayForm(g, sn, pink, white, { spec: 0.4, kMin: 0.3, line: 0.8 })
+    if (!white) {
+      g.circle(r * 1.29, 0, r * 0.1).fill(0xc4706a)
+      for (const s of [-1, 1]) g.circle(r * 1.3, s * r * 0.04, r * 0.03).fill(0x5a2622)
+      for (const s of [-1, 1]) for (let k = 0; k < 3; k++) g.moveTo(r * 1.15, s * r * 0.1).lineTo(r * 1.45, s * r * (0.2 + k * 0.1)).stroke({ width: 0.5, color: 0xf0e2d6, alpha: 0.6 })
+      // tiny eyes buried in the fur
+      for (const s of [-1, 1]) clayEye(g, r * 0.7, s * r * 0.2, r * 0.045, false)
+    }
+    if (elite) eliteCrown(-r * 0.7, r)
+  }
+  // The bump of a mole underground: a ridge of turned loam heaped up along its heading, crumbs and
+  // clods rolling off it. A RIDGE, not a disc, so it says which way it is travelling.
+  function drawMoleMound(g, elite, white, cracking) {
+    const r = 26
+    const soil = 0x6e4c2e
+    groundShadow(r * 1.0, r * 0.45)
+    const at = ovalAt(0, 0, r * 0.95, r * 0.6, 0, 40)
+    clayHalo(g, at, white, 1.3)
+    clayForm(g, at, soil, white, { ao: 0.55, lit: 0.28, spec: 0.12, line: 0 })
+    if (white) return
+    const rnd = clayRnd(cracking ? 31 : 23)
+    // clods: little clay lumps heaped over the ridge
+    for (let i = 0; i < 16; i++) {
+      const a = rnd() * Math.PI * 2, d = 0.25 + rnd() * 0.75
+      const x = Math.cos(a) * r * 0.85 * d, y = Math.sin(a) * r * 0.5 * d
+      const cr = r * (0.08 + rnd() * 0.1)
+      clayForm(g, ovalAt(x, y, cr, cr * 0.85, rnd() * 3, 12), clayK(soil, (rnd() - 0.5) * 0.4), false, { steps: 4, kMin: 0.35, spec: 0.15, line: 0.5 })
+    }
+    // crumbs spilling off the front, where it is pushing through
+    for (let i = 0; i < 7; i++) {
+      const x = r * (0.75 + rnd() * 0.45), y = (rnd() - 0.5) * r * 0.9
+      g.circle(x, y, 0.8 + rnd() * 1.3).fill({ color: clayK(soil, (rnd() - 0.3) * 0.4), alpha: 0.9 })
+    }
+    if (cracking) {
+      // the crust splitting: dark cracks radiating, and the pink hands breaking through
+      for (let k = 0; k < 7; k++) {
+        const a = k * 0.9 + 0.3
+        g.moveTo(0, 0).lineTo(Math.cos(a) * r * 0.45, Math.sin(a) * r * 0.3).lineTo(Math.cos(a + 0.2) * r * 0.8, Math.sin(a + 0.2) * r * 0.52)
+          .stroke({ width: 1.6, color: 0x24160b, alpha: 0.85, cap: 'round', join: 'round' })
+      }
+      g.ellipse(0, 0, r * 0.32, r * 0.2).fill({ color: 0x1a100a, alpha: 0.9 })
+      for (const s of [-1, 1]) {
+        clayForm(g, ovalAt(r * 0.12, s * r * 0.14, r * 0.16, r * 0.12, s * -0.4, 16), 0xe3a19a, false, { kMin: 0.35, spec: 0.3, line: 0.6 })
+        for (let k = 0; k < 3; k++) g.moveTo(r * 0.22, s * r * (0.08 + k * 0.06)).lineTo(r * 0.36, s * r * (0.04 + k * 0.09)).stroke({ width: 1.3, color: 0xf3ead8, cap: 'round' })
+      }
+    }
+  }
+  function drawMole(g, elite, white, pose = 0) {
+    if (pose === 1) return drawMoleMound(g, elite, white, false)
+    if (pose === 2) return drawMoleMound(g, elite, white, true)
+    return drawMoleBody(g, elite, white)
+  }
+
+  // BADGER — Topsoil's elite. From above the badger is a low wide grizzled-grey wedge with the one
+  // face nothing else has: a white head split by two black stripes running from the nose back over
+  // the eyes to the ears. Stubby black legs at the corners with pale digging claws. Four phases waddle.
+  function drawBadger(g, elite, white, phase = 0) {
+    const r = 20
+    const grey = 0x8f8a84, black = 0x1e1c1b
+    const w = Math.sin(phase)
+    groundShadow(r * 1.15, r * 0.6)
+    for (const [lx, ly, ph] of [[0.55, 0.62, 0], [-0.55, 0.66, Math.PI]]) {
+      for (const s of [-1, 1]) {
+        const sw = Math.sin(phase + ph + (s > 0 ? 0 : Math.PI)) * 0.12
+        const fx = r * (lx + sw), fy = s * r * ly
+        clayLimb(g, [[r * lx * 0.8, s * r * 0.4], [fx, fy]], r * 0.22, r * 0.18, black, white)
+        if (!white) for (let k = -1; k <= 1; k++) g.moveTo(fx + r * 0.05, fy + k * r * 0.05).lineTo(fx + r * 0.2, fy + k * r * 0.07 + s * r * 0.02).stroke({ width: 1.2, color: 0xe8dcc0, cap: 'round' })
+      }
+    }
+    // tail
+    clayLimb(g, [[-r * 0.95, 0], [-r * 1.25, w * r * 0.05]], r * 0.16, r * 0.08, grey, white)
+    const body = ovalAt(-r * 0.12, 0, r * 0.95 * (1 + w * 0.03), r * 0.62 * (1 - w * 0.03), 0, 40)
+    clayHalo(g, body, white)
+    clayForm(g, body, grey, white, { ao: 0.52, lit: 0.3, spec: 0.3 })
+    if (!white) {
+      // grizzle: long guard hairs combed back, black-tipped and silver
+      const rnd = clayRnd(5)
+      for (let i = 0; i < 60; i++) {
+        const a = rnd() * Math.PI * 2, d = Math.sqrt(rnd())
+        const x = -r * 0.12 + Math.cos(a) * r * 0.85 * d, y = Math.sin(a) * r * 0.55 * d
+        g.moveTo(x, y).lineTo(x - r * 0.16, y * 1.05).stroke({ width: 0.7, color: rnd() < 0.5 ? 0xd6d0c8 : 0x3a3633, alpha: 0.55, cap: 'round' })
+      }
+      // darker flanks
+      for (const s of [-1, 1]) g.poly(ovalAt(-r * 0.15, s * r * 0.42, r * 0.7, r * 0.12)(1)).fill({ color: black, alpha: 0.28 })
+    }
+    // head: white wedge with two black stripes
+    const head = spineAt((t) => [r * 0.62 + t * r * 0.62, 0], (t) => r * 0.38 * (1 - t * 0.62), 16)
+    clayHalo(g, head, white, 0.6)
+    clayForm(g, head, 0xf0ece4, white, { ao: 0.35, lit: 0.12, spec: 0.3, line: 0.9 })
+    if (!white) {
+      for (const s of [-1, 1]) {
+        g.poly(spineOutline((t) => [r * 0.6 + t * r * 0.6, s * r * (0.16 - t * 0.1)], (t) => r * 0.085 * (1 - t * 0.4), 10)).fill({ color: black, alpha: 0.95 })
+        // ears: small rounded, white-rimmed
+        clayForm(g, ovalAt(r * 0.6, s * r * 0.33, r * 0.1, r * 0.08, 0, 12), black, false, { kMin: 0.4, spec: 0.1, line: 0.6 })
+        g.circle(r * 0.6, s * r * 0.36, r * 0.05).fill({ color: 0xf0ece4, alpha: 0.8 })
+        clayEye(g, r * 0.88, s * r * 0.13, r * 0.045, false)
+      }
+      g.circle(r * 1.22, 0, r * 0.075).fill(0x141210)   // the nose
+      g.circle(r * 1.2, -r * 0.03, r * 0.025).fill({ color: 0xffffff, alpha: 0.6 })
+    }
+    if (elite) eliteCrown(-r * 0.75, r)
+  }
+
+  // OLM — The Geode's normal. A blind cave salamander: a long pale flesh-pink body, a flat spatulate
+  // head at +x with three FRILLED RED GILLS fanning out on each side (the read, and the reason it is
+  // pale everywhere else), four tiny stick legs, a flattened finned tail. Six phases swim the S.
+  function drawOlm(g, elite, white, phase = 0) {
+    const r = 18
+    const flesh = 0xf0cfc0
+    const L = r * 3.0
+    const spine = (t) => [r * 1.05 - t * L, Math.sin(t * Math.PI * 1.6 - phase) * r * 0.26 * Math.min(1, t * 2.2)]
+    const half = (t) => r * (t < 0.12 ? 0.2 + 0.1 * Math.sin((t / 0.12) * Math.PI / 2) : 0.3 * Math.max(0.12, 1 - Math.pow((t - 0.12) / 0.88, 1.5)))
+    groundShadow(r * 1.5, r * 0.35)
+    // legs
+    for (const [tt, s0] of [[0.22, 1], [0.55, -1]]) {
+      const [lx, ly] = spine(tt)
+      for (const s of [-1, 1]) {
+        const sw = Math.sin(phase + s * s0) * 0.15
+        clayLimb(g, [[lx, ly + s * r * 0.15], [lx + r * (0.12 + sw), ly + s * r * 0.5], [lx + r * (0.22 + sw), ly + s * r * 0.55]], r * 0.08, r * 0.05, flesh, white)
+      }
+    }
+    // gills: three feathery red plumes per side, behind the head
+    const [gx, gy] = spine(0.11)
+    for (const s of [-1, 1]) {
+      for (let k = 0; k < 3; k++) {
+        const a = s * (1.2 + k * 0.42) + Math.sin(phase + k) * 0.05
+        const tx = gx + Math.cos(a) * r * 0.62, ty = gy + Math.sin(a) * r * 0.62
+        const bx = gx + Math.cos(a) * r * 0.12, by = gy + s * r * 0.14 + Math.sin(a) * r * 0.1
+        if (white) { g.moveTo(bx, by).lineTo(tx, ty).stroke({ width: r * 0.14, color: 0xffffff, cap: 'round' }); continue }
+        g.moveTo(bx, by).lineTo(tx, ty).stroke({ width: r * 0.16, color: 0xa3232a, alpha: 0.95, cap: 'round' })
+        g.moveTo(bx, by).lineTo(tx, ty).stroke({ width: r * 0.08, color: 0xe24a4c, cap: 'round' })
+        for (let q = 1; q <= 4; q++) {
+          const u = q / 5, px = bx + (tx - bx) * u, py = by + (ty - by) * u
+          for (const side of [-1, 1]) g.moveTo(px, py).lineTo(px + Math.cos(a + side * 1.2) * r * 0.12, py + Math.sin(a + side * 1.2) * r * 0.12).stroke({ width: 0.8, color: 0xff7a74, alpha: 0.9, cap: 'round' })
+        }
+      }
+    }
+    const at = spineAt(spine, half, 46)
+    clayHalo(g, at, white)
+    clayForm(g, at, flesh, white, { ao: 0.32, lit: 0.22, spec: 0.5, specK: 0.24 })
+    if (white) { if (elite) eliteCrown(-r * 0.4, r); return }
+    // tail fin: a thin translucent keel along the last third
+    g.poly(spineAt(spine, (t) => half(t) * 1.45, 20, 0.62, 1)(1)).fill({ color: 0xf6dcd0, alpha: 0.35 })
+    // skin grooves (costal grooves) down the flank
+    for (let t = 0.2; t < 0.6; t += 0.05) {
+      const [x, y] = spine(t)
+      for (const s of [-1, 1]) clayGroove(g, [[x, y + s * half(t) * 0.45], [x - r * 0.03, y + s * half(t) * 0.92]], 0.6, flesh, false, 0.6)
+    }
+    // the blind head: two faint dark eyespots under the skin, nostrils at the snout
+    const [hx, hy] = spine(0.02)
+    for (const s of [-1, 1]) {
+      g.circle(hx - r * 0.25, hy + s * r * 0.12, r * 0.04).fill({ color: 0x8a5a58, alpha: 0.6 })
+      g.circle(hx + r * 0.02, hy + s * r * 0.06, r * 0.025).fill({ color: 0x6a3a38, alpha: 0.8 })
+    }
+    if (elite) eliteCrown(-r * 0.4, r)
+  }
+
+  // CAVE CRICKET — The Geode's fast pouncer. A humped, wingless, banded tan body; the two ENORMOUS
+  // hind legs folded alongside it like a grasshopper's; and antennae longer than the animal, swept
+  // forward and out. Four POSES off the pounce machine (as the toad's): hold, crouch, leap, land.
+  function drawCaveCricket(g, elite, white, pose = 0) {
+    const r = 13
+    const tan = 0xb48a5a, band = 0x6e4c2a
+    const crouch = pose === 1, leap = pose === 2
+    groundShadow(r * 1.2, r * 0.5)
+    const f = (c) => (white ? 0xffffff : c)
+    // antennae: very long, thin, sweeping
+    for (const s of [-1, 1]) {
+      const sp = leap ? 0.35 : 0.8
+      g.moveTo(r * 0.95, s * r * 0.12).bezierCurveTo(r * 2.0, s * r * 0.3, r * 2.6, s * r * (0.6 + sp), r * 2.0, s * r * (1.7 + sp))
+        .stroke({ width: 0.9, color: f(0x4a3420), alpha: 0.9, cap: 'round' })
+    }
+    // the small legs
+    for (const s of [-1, 1]) {
+      clayLimb(g, [[r * 0.5, s * r * 0.25], [r * 0.8, s * r * 0.65], [r * 1.05, s * r * 0.8]], r * 0.09, r * 0.05, band, white)
+      clayLimb(g, [[r * 0.15, s * r * 0.3], [r * 0.15, s * r * 0.75], [-r * 0.1, s * r * 0.95]], r * 0.09, r * 0.05, band, white)
+    }
+    // the big hind legs: femur forward-folded along the body, tibia back; extended when leaping
+    for (const s of [-1, 1]) {
+      const knee = leap ? [-r * 1.2, s * r * 0.8] : crouch ? [r * 0.25, s * r * 0.95] : [r * 0.1, s * r * 0.8]
+      const foot = leap ? [-r * 2.2, s * r * 1.0] : crouch ? [-r * 1.1, s * r * 1.05] : [-r * 1.25, s * r * 0.95]
+      clayLimb(g, [[-r * 0.3, s * r * 0.3], knee], r * 0.32, r * 0.16, tan, white)
+      clayLimb(g, [knee, foot], r * 0.1, r * 0.07, band, white)
+      if (!white) for (let k = 1; k <= 4; k++) {
+        const u = k / 5, px = knee[0] + (foot[0] - knee[0]) * u, py = knee[1] + (foot[1] - knee[1]) * u
+        g.moveTo(px, py).lineTo(px + r * 0.08, py + s * r * 0.12).stroke({ width: 0.7, color: 0x3a2412, cap: 'round' })
+      }
+    }
+    // humped body in bands
+    const body = ovalAt(-r * 0.15, 0, r * (crouch ? 0.95 : 1.05), r * (crouch ? 0.5 : 0.45), 0, 30)
+    clayHalo(g, body, white)
+    clayForm(g, body, tan, white, { ao: 0.5, lit: 0.34, spec: 0.45, specK: 0.24 })
+    if (!white) {
+      for (let i = 0; i < 6; i++) {
+        const x = r * (0.45 - i * 0.26)
+        const hy = r * 0.45 * Math.sqrt(Math.max(0, 1 - Math.pow((x + r * 0.15) / (r * 1.05), 2)))
+        g.moveTo(x, -hy).quadraticCurveTo(x - r * 0.1, 0, x, hy).stroke({ width: r * 0.08, color: band, alpha: 0.55 })
+      }
+      // ovipositor / cerci
+      for (const s of [-1, 1]) g.moveTo(-r * 1.15, s * r * 0.08).lineTo(-r * 1.55, s * r * 0.2).stroke({ width: 1, color: band, cap: 'round' })
+    }
+    const head = ovalAt(r * 0.88, 0, r * 0.28, r * 0.3)
+    clayForm(g, head, 0x9a7044, white, { spec: 0.4 })
+    for (const s of [-1, 1]) clayEye(g, r * 0.98, s * r * 0.2, r * 0.08, white)
+    if (elite) eliteCrown(-r * 0.6, r)
+  }
+
+  // CRYSTAL CRAB — The Geode's tank. A slate shore crab whose shell has grown a cluster of violet
+  // crystal points: the crystal IS the read, faceted with a lit face and a shadowed face so it looks
+  // like the pillars on the floor. Eight jointed legs, two blunt claws. Four phases shuffle sideways.
+  function crystalPoint(g, x, y, len, wid, ang, hue, white) {
+    const c = Math.cos(ang), s = Math.sin(ang)
+    const P = (u, v) => [x + c * u - s * v, y + s * u + c * v]
+    const tip = P(len, 0), l = P(len * 0.68, -wid), rr = P(len * 0.68, wid), bl = P(0, -wid * 0.9), br = P(0, wid * 0.9)
+    if (white) { g.poly([...bl, ...l, ...tip, ...rr, ...br]).fill(0xffffff); return }
+    g.poly([...bl, ...br, ...rr, ...tip, ...l]).fill({ color: 0x000000, alpha: 0.25 })
+    g.poly([...bl, ...l, ...tip, ...P(len * 0.55, 0), ...P(0, 0)]).fill(clayK(hue, 0.35))     // lit face
+    g.poly([...P(0, 0), ...P(len * 0.55, 0), ...tip, ...rr, ...br]).fill(clayK(hue, -0.25)) // shade face
+    g.poly([...P(len * 0.55, 0), ...l, ...tip]).fill({ color: 0xffffff, alpha: 0.35 })
+    g.moveTo(...P(len * 0.1, -wid * 0.3)).lineTo(...P(len * 0.75, -wid * 0.15)).stroke({ width: 0.8, color: 0xffffff, alpha: 0.75, cap: 'round' })
+    g.poly([...bl, ...l, ...tip, ...rr, ...br]).stroke({ width: 0.7, color: clayK(hue, -0.6), alpha: 0.7, join: 'round' })
+  }
+  function drawCrystalCrab(g, elite, white, phase = 0) {
+    const r = 26
+    const shell = 0x6a6488, limb = 0x585274
+    const sw = Math.sin(phase)
+    groundShadow(r * 1.25, r * 0.6)
+    // eight walking legs, four a side, jointed and splayed sideways (a crab is WIDER than it is long)
+    for (const s of [-1, 1]) {
+      for (let i = 0; i < 4; i++) {
+        const k = (i % 2 ? 1 : -1) * sw * 0.08
+        const bx = r * (0.28 - i * 0.26), by = s * r * 0.5
+        const kx = bx + r * (0.05 - i * 0.12 + k), ky = s * r * (0.98 + Math.abs(k))
+        const tx = kx - r * (0.15 + i * 0.08), ty = s * r * (1.3 - i * 0.04)
+        clayLimb(g, [[bx, by], [kx, ky], [tx, ty]], r * 0.17, r * 0.07, limb, white)
+      }
+    }
+    // the claws: thick arms forward, big pincers with a fixed finger and a moving one
+    for (const s of [-1, 1]) {
+      const cx = r * 0.98, cy = s * r * (0.62 + sw * 0.03)
+      clayLimb(g, [[r * 0.45, s * r * 0.42], [r * 0.7, s * r * 0.72], [cx - r * 0.1, cy]], r * 0.2, r * 0.17, limb, white)
+      const palm = ovalAt(cx, cy, r * 0.36, r * 0.24, s * 0.25, 24)
+      clayHalo(g, palm, white, 0.6)
+      clayForm(g, palm, shell, white, { spec: 0.4, kMin: 0.3, line: 0.9 })
+      const f1 = [[cx + r * 0.2, cy - s * r * 0.08], [cx + r * 0.58, cy - s * r * 0.02]]
+      const f2 = [[cx + r * 0.18, cy + s * r * 0.1], [cx + r * 0.5, cy + s * r * 0.16]]
+      clayLimb(g, f1, r * 0.14, r * 0.05, shell, white)
+      clayLimb(g, f2, r * 0.12, r * 0.04, clayK(shell, -0.1), white)
+      if (!white) for (const q of [f1[1], f2[1]]) g.circle(q[0], q[1], r * 0.03).fill(0x1e1a2a)
+    }
+    const cara = ovalAt(0, 0, r * 0.66, r * 0.82, 0, 40)
+    clayHalo(g, cara, white)
+    clayForm(g, cara, shell, white, { ao: 0.5, lit: 0.32, spec: 0.3 })
+    if (!white) {
+      // the front rim of the carapace with its little teeth, and the eyes on stalks
+      for (let k = -3; k <= 3; k++) {
+        const a = k * 0.22
+        g.circle(Math.cos(a) * r * 0.64, Math.sin(a) * r * 0.8, r * 0.04).fill(clayK(shell, 0.25))
+      }
+      clayGroove(g, [[r * 0.35, -r * 0.45], [r * 0.05, -r * 0.15], [r * 0.05, r * 0.15], [r * 0.35, r * 0.45]], 1, shell, false, 0.6)
+      clayDents(g, clayRnd(41), 30, -r * 0.6, -r * 0.75, r * 0.6, r * 0.75, shell, false, (x, y) => (x / (r * 0.6)) ** 2 + (y / (r * 0.76)) ** 2 < 1)
+      for (const s of [-1, 1]) {
+        g.moveTo(r * 0.55, s * r * 0.2).lineTo(r * 0.78, s * r * 0.26).stroke({ width: 2, color: 0x2a2634, cap: 'round' })
+        clayEye(g, r * 0.8, s * r * 0.27, r * 0.07, false)
+      }
+    }
+    // the crystal cluster growing out of the back
+    const pts = [[-r * 0.12, 0, r * 0.7, r * 0.16, -2.9, 0xa77be0], [r * 0.02, -r * 0.2, r * 0.56, r * 0.14, -1.9, 0xc49af0],
+      [r * 0.0, r * 0.22, r * 0.54, r * 0.13, 1.95, 0x8f66d6], [-r * 0.32, -r * 0.3, r * 0.42, r * 0.11, -2.4, 0x7fd0e8], [-r * 0.32, r * 0.32, r * 0.4, r * 0.11, 2.45, 0xb88ae8]]
+    for (const [x, y, l, w, a, h] of pts) crystalPoint(g, x, y, l, w, a, h, white)
+    if (elite) eliteCrown(-r * 0.95, r)
+  }
+
+  // CAVE BAT — The Geode's elite. Wings spread from above: a furred brown body, big ears at +x, and
+  // two leathery membranes stretched between the finger bones. Four phases are the wingbeat, the
+  // span foreshortening on the upstroke (the same trick the gull's poses use).
+  function drawBat(g, elite, white, phase = 0) {
+    const r = 14
+    const fur = 0x5a4232, mem = 0x3e2c26
+    const flap = 0.72 + 0.28 * Math.cos(phase)
+    groundShadow(r * 1.8 * flap, r * 0.3)
+    for (const s of [-1, 1]) {
+      const span = r * 2.7 * flap
+      const wrist = [r * 0.35, s * span * 0.45]
+      const tips = [[r * 0.15, s * span], [-r * 0.45, s * span * 0.92], [-r * 0.95, s * span * 0.68], [-r * 1.0, s * span * 0.32]]
+      const outline = [r * 0.2, s * r * 0.25, ...wrist, ...tips[0], -r * 0.05, s * span * 0.7, ...tips[1], -r * 0.6, s * span * 0.62, ...tips[2], -r * 0.85, s * span * 0.42, ...tips[3], -r * 0.7, s * r * 0.2]
+      if (white) { g.poly(outline).fill(0xffffff); continue }
+      g.poly(outline).fill({ color: 0x000000, alpha: 0.15 })
+      g.poly(outline).fill(mem)
+      // membrane shading: lighter toward the body, darker at the scalloped trailing edge
+      g.poly([r * 0.2, s * r * 0.25, ...wrist, -r * 0.3, s * span * 0.45, -r * 0.7, s * r * 0.2]).fill({ color: clayK(mem, 0.22), alpha: 0.8 })
+      g.poly(outline).stroke({ width: 0.8, color: 0x1a110d, alpha: 0.8, join: 'round' })
+      // the arm and finger bones
+      g.moveTo(r * 0.2, s * r * 0.25).lineTo(...wrist).stroke({ width: r * 0.13, color: clayK(fur, -0.2), cap: 'round' })
+      g.moveTo(r * 0.2, s * r * 0.25).lineTo(...wrist).stroke({ width: r * 0.05, color: clayK(fur, 0.25), cap: 'round' })
+      for (const t of tips) g.moveTo(...wrist).lineTo(...t).stroke({ width: r * 0.06, color: clayK(fur, -0.1), cap: 'round' })
+      g.moveTo(...wrist).lineTo(wrist[0] + r * 0.2, wrist[1] + s * r * 0.05).stroke({ width: r * 0.07, color: 0xd8c8b0, cap: 'round' })   // thumb claw
+    }
+    const body = ovalAt(-r * 0.15, 0, r * 0.75, r * 0.38, 0, 28)
+    clayHalo(g, body, white)
+    clayForm(g, body, fur, white, { ao: 0.5, lit: 0.38, spec: 0.3 })
+    const head = ovalAt(r * 0.62, 0, r * 0.3, r * 0.3)
+    clayForm(g, head, 0x6a4e3c, white, { spec: 0.3 })
+    for (const s of [-1, 1]) {
+      const ear = [r * 0.6, s * r * 0.08, r * 1.1, s * r * 0.32, r * 0.68, s * r * 0.34]
+      g.poly(ear).fill(white ? 0xffffff : 0x4e3a2e)
+      if (!white) g.poly([r * 0.66, s * r * 0.14, r * 0.98, s * r * 0.3, r * 0.7, s * r * 0.28]).fill({ color: 0xc99a8a, alpha: 0.8 })
+      clayEye(g, r * 0.8, s * r * 0.12, r * 0.06, white)
+    }
+    if (!white) {
+      g.poly([r * 0.88, -r * 0.05, r * 1.0, 0, r * 0.88, r * 0.05]).fill(0x2a1a14)
+      const rnd = clayRnd(9)
+      for (let i = 0; i < 20; i++) { const x = -r * 0.8 + rnd() * r * 1.2, y = (rnd() - 0.5) * r * 0.6; g.moveTo(x, y).lineTo(x - r * 0.12, y).stroke({ width: 0.6, color: rnd() < 0.5 ? 0x7a5e4a : 0x3a2a20, alpha: 0.6 }) }
+    }
+    if (elite) eliteCrown(-r * 0.5, r)
+  }
+
+
+
+
+
+  // ==== Book 3, Burrow: textures (clay props, crystal pillars, shots, particles) ==============
+  // Every one is drawn with the same clay helpers as the roster (clayForm & co, beside drawEarthworm).
+  // The crystal pillars and the floor props are NOT turned to face anything, so they — unlike the
+  // creatures — can take a real top-left key light: each facet's value follows its normal.
+  const BURROW_LIGHT = -2.35   // radians: light arriving from the top-left of the screen
+  function facetLum(a) { return 0.5 + 0.5 * Math.cos(a - BURROW_LIGHT) }
+  function drawCrystalCluster(g, R, variant) {
+    const rnd = clayRnd(101 + variant * 17)
+    const hues = [[0x9b6ad8, 0xb88cf0], [0x5cbfd8, 0x8ee0f0], [0xc070c8, 0xe0a0e8]][variant % 3]
+    // the glow it throws on the cave floor
+    for (let k = 0; k < 5; k++) g.circle(0, 0, R * (1.6 - k * 0.12)).fill({ color: hues[1], alpha: 0.05 })
+    // the geode's rocky foot: a lumpy dark ring the crystals grow out of
+    const foot = []
+    for (let i = 0; i < 18; i++) { const a = (i / 18) * Math.PI * 2; const q = R * (0.98 + (rnd() - 0.5) * 0.18); foot.push(Math.cos(a) * q, Math.sin(a) * q) }
+    g.poly(foot.map((v) => v * 1.12)).fill({ color: 0x000000, alpha: 0.28 })
+    g.poly(foot).fill(0x3a3346)
+    g.poly(foot.map((v) => v * 0.86)).fill(0x4a4258)
+    for (let i = 0; i < 10; i++) { const a = rnd() * Math.PI * 2, d = R * (0.75 + rnd() * 0.2); g.circle(Math.cos(a) * d, Math.sin(a) * d, R * (0.05 + rnd() * 0.06)).fill(clayK(0x4a4258, (rnd() - 0.4) * 0.5)) }
+    // satellites leaning out, behind the core
+    const n = 5 + (variant % 3)
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2 + rnd() * 0.6
+      const d = R * (0.2 + rnd() * 0.15)
+      crystalPoint(g, Math.cos(a) * d, Math.sin(a) * d, R * (0.5 + rnd() * 0.32), R * (0.13 + rnd() * 0.06), a, rnd() < 0.5 ? hues[0] : hues[1], false)
+    }
+    // the core: a hexagonal pyramid seen from straight above, each face lit by its own normal
+    const cr = R * 0.5, rot = rnd() * Math.PI
+    const V = []
+    for (let i = 0; i < 6; i++) { const a = rot + (i / 6) * Math.PI * 2; V.push([Math.cos(a) * cr, Math.sin(a) * cr]) }
+    const ap = [-cr * 0.12, -cr * 0.1]   // apex nudged toward the light, so the lit faces are the small ones
+    for (let i = 0; i < 6; i++) {
+      const p0 = V[i], p1 = V[(i + 1) % 6]
+      const mid = Math.atan2((p0[1] + p1[1]) / 2, (p0[0] + p1[0]) / 2)
+      const L = facetLum(mid)
+      g.poly([...ap, ...p0, ...p1]).fill(mix(clayK(hues[0], -0.5), clayK(hues[1], 0.55), L))
+    }
+    for (let i = 0; i < 6; i++) g.moveTo(...ap).lineTo(...V[i]).stroke({ width: 0.9, color: 0xffffff, alpha: 0.35 })
+    g.poly(V.flat()).stroke({ width: 1.2, color: clayK(hues[0], -0.6), alpha: 0.8, join: 'round' })
+    // the glints: one hard star of light on the lit face, a couple of sparkles
+    g.circle(ap[0] - cr * 0.25, ap[1] - cr * 0.2, cr * 0.09).fill({ color: 0xffffff, alpha: 0.95 })
+    for (let k = 0; k < 3; k++) {
+      const x = (rnd() - 0.5) * R * 1.2, y = (rnd() - 0.5) * R * 1.2
+      g.moveTo(x - 3, y).lineTo(x + 3, y).stroke({ width: 0.8, color: 0xffffff, alpha: 0.8 })
+      g.moveTo(x, y - 3).lineTo(x, y + 3).stroke({ width: 0.8, color: 0xffffff, alpha: 0.8 })
+    }
+  }
+  function buildBurrowTextures() {
+    // the photographed floor props (src/macro.js MACRO_PROPS), three bakes of each
+    for (const name of Object.keys(MACRO.MACRO_PROPS)) {
+      for (let v = 0; v < 3; v++) {
+        const c = MACRO.paintProp(name, 7 + v * 13)
+        T['macro_' + name + v] = { tex: macroCanvasTex(c, 3), ax: 0.5, ay: 0.5 }
+      }
+    }
+    // crystal pillars (The Geode's obstacles), baked at R = 64 and scaled to each collider
+    // a crumb of turned earth, for every dirt spray in the book
+    {
+      const g = new Graphics()
+      clayForm(g, ovalAt(0, 0, 6, 5, 0, 14), 0xd8c0a0, false, { steps: 4, kMin: 0.35, spec: 0.2, line: 0.6 })
+      T.clayClod = bake(g)
+    }
+    // the shots
+    {
+      const g = new Graphics()   // pebble: a rounded clay stone
+      g.ellipse(1, 1.5, 7, 6).fill({ color: 0x000000, alpha: 0.25 })
+      clayForm(g, ovalAt(0, 0, 7, 6, 0.4, 18), 0xb8ada0, false, { steps: 6, kMin: 0.3, spec: 0.4, line: 0.8 })
+      T.pebbleShot = bake(g)
+    }
+    {
+      const g = new Graphics()   // prism shard: a long faceted splinter pointing +x
+      g.poly([-9, 0, -2, -4.5, 12, 0, -2, 4.5]).fill({ color: 0xc9a8ff, alpha: 0.35 })
+      g.poly([-7, 0, -1, -3.2, 10, 0]).fill(0xe8dcff)
+      g.poly([-7, 0, 10, 0, -1, 3.2]).fill(0x8a62d0)
+      g.moveTo(-5, -0.6).lineTo(8, -0.4).stroke({ width: 0.9, color: 0xffffff, alpha: 0.9 })
+      g.poly([-7, 0, -1, -3.2, 10, 0, -1, 3.2]).stroke({ width: 0.7, color: 0x4a2a80, alpha: 0.8 })
+      T.prismShot = bake(g)
+    }
+    // the falling stalactite, seen from above: a rocky cone, its point toward the camera's floor
+    {
+      const g = new Graphics()
+      const R = 30
+      const V = []
+      for (let i = 0; i < 9; i++) { const a = (i / 9) * Math.PI * 2; const q = R * (0.85 + hash(i * 3.3 + 1.7) * 0.25); V.push([Math.cos(a) * q, Math.sin(a) * q]) }
+      for (let i = 0; i < 9; i++) {
+        const p0 = V[i], p1 = V[(i + 1) % 9]
+        g.poly([0, 0, ...p0, ...p1]).fill(mix(0x3a3440, 0xb8b0c4, facetLum(Math.atan2(p0[1] + p1[1], p0[0] + p1[0]))))
+      }
+      g.poly(V.flat()).stroke({ width: 1.4, color: 0x221d28, alpha: 0.9, join: 'round' })
+      g.circle(-R * 0.2, -R * 0.2, R * 0.08).fill({ color: 0xffffff, alpha: 0.7 })
+      T.stalactite = bake(g)
+    }
+    // Topsoil's floor props, in clay. Baked in pale values: the chapter's floorTint multiplies them.
+    {
+      const g = new Graphics()   // a clod of turned earth
+      const rnd = clayRnd(3)
+      const pts = []
+      for (let i = 0; i < 11; i++) { const a = (i / 11) * Math.PI * 2; const q = 14 * (0.78 + rnd() * 0.36); pts.push([Math.cos(a) * q, Math.sin(a) * q * 0.8]) }
+      const at = (k) => pts.flatMap(([x, y]) => [x * (1 - (1 - k) * 0.8), y * k])
+      clayHalo(g, at, false)
+      clayForm(g, at, 0xb08a64, false, { steps: 6, kMin: 0.3, spec: 0.15, line: 0.8 })
+      clayDents(g, rnd, 12, -12, -10, 12, 10, 0xb08a64, false)
+      T.soilClod = bake(g)
+    }
+    {
+      const g = new Graphics()   // a worm cast: a little coil of extruded earth
+      const pts = []
+      for (let t = 0; t <= 1; t += 0.04) { const a = t * Math.PI * 3.6, rr = 3 + t * 10; pts.push([Math.cos(a) * rr, Math.sin(a) * rr]) }
+      g.circle(0, 0, 15).fill({ color: 0x000000, alpha: 0.12 })
+      for (const [w, c, al] of [[6.5, 0x6e5238, 1], [5, 0x9c7a58, 1], [2, 0xc8a882, 0.8]]) {
+        g.moveTo(...pts[pts.length - 1]); for (let i = pts.length - 2; i >= 0; i--) g.lineTo(...pts[i])
+        g.stroke({ width: w, color: c, alpha: al, cap: 'round', join: 'round' })
+      }
+      T.wormCast = bake(g)
+    }
+    {
+      const g = new Graphics()   // a rounded stone
+      g.ellipse(2, 2.5, 12, 9).fill({ color: 0x000000, alpha: 0.22 })
+      clayForm(g, ovalAt(0, 0, 12, 9, 0.3, 22), 0xd2ccc2, false, { steps: 7, kMin: 0.28, spec: 0.45, line: 0.8 })
+      T.stoneClay = bake(g)
+    }
+    {
+      const g = new Graphics()   // a rootlet lying on the soil
+      const pts = [[-26, 4], [-14, -2], [-2, 3], [10, -3], [24, 1]]
+      clayLimb(g, pts, 5, 1.5, 0xd8b48a, false)
+      clayLimb(g, [[-2, 3], [4, 12], [12, 16]], 2.4, 0.8, 0xd8b48a, false)
+      clayLimb(g, [[-14, -2], [-18, -11]], 2.2, 0.8, 0xd8b48a, false)
+      T.rootlet = bake(g)
+    }
+    {
+      const g = new Graphics()   // a seedling from above: two leaves and a bud
+      for (const s of [-1, 1]) {
+        const at = (k) => spineOutline((t) => [s * t * 13, -t * 3], (t) => 5.5 * Math.sin(Math.PI * t) * k, 12)
+        clayForm(g, at, 0x9cc070, false, { steps: 5, kMin: 0.3, spec: 0.3, line: 0.7 })
+        g.moveTo(0, 0).lineTo(s * 11, -2.6).stroke({ width: 0.7, color: 0x5a7a3a, alpha: 0.7 })
+      }
+      clayForm(g, ovalAt(0, 0, 3, 3), 0xb8d890, false, { steps: 3, kMin: 0.4, spec: 0.3, line: 0.6 })
+      T.sprout = bake(g)
+    }
+    // The Geode's floor props.
+    {
+      const g = new Graphics()   // a small crystal druse lying on the rock
+      drawCrystalCluster(g, 18, 4)
+      T.geodeShard = bake(g)
+    }
+    {
+      const g = new Graphics()   // a dark cave stone, faceted
+      const V = []
+      for (let i = 0; i < 7; i++) { const a = (i / 7) * Math.PI * 2; const q = 13 * (0.75 + hash(i * 7.1 + 3) * 0.4); V.push([Math.cos(a) * q, Math.sin(a) * q * 0.8]) }
+      g.poly(V.flat().map((v) => v * 1.15)).fill({ color: 0x000000, alpha: 0.2 })
+      for (let i = 0; i < 7; i++) { const p0 = V[i], p1 = V[(i + 1) % 7]; g.poly([0, -1, ...p0, ...p1]).fill(mix(0x5a5268, 0xcac2d8, facetLum(Math.atan2(p0[1] + p1[1], p0[0] + p1[0])))) }
+      g.poly(V.flat()).stroke({ width: 0.9, color: 0x2a2432, alpha: 0.8, join: 'round' })
+      T.caveStone = bake(g)
+    }
+    // the photographed replacements (src/macro.js): the crumb every dirt spray throws, the shots, the stone
+    T.clayClod = { tex: macroCanvasTex(MACRO.paintCrumbParticle(), 3), ax: 0.5, ay: 0.5 }
+    T.pebbleShot = { tex: macroCanvasTex(MACRO.paintPebbleShot(), 3), ax: 0.5, ay: 0.5 }
+    T.prismShot = { tex: macroCanvasTex(MACRO.paintPrismShot(), 3), ax: 0.5, ay: 0.5 }
+    { const b = MACRO.paintStalactite(); T.stalactite = { tex: macroCanvasTex(b.body, b.S), ax: b.ax, ay: b.ay } }
+    // THE GEODE IN HOLOGRAPHIC FOIL (src/holo.js): its pillars, its three weapons' shots, its props,
+    // and the glints every bounce and chime throws. The prism shard and the stone are the Geode's
+    // own weapons, so they wear the Geode's look wherever they are fired.
+    T.crystalPillars = [0, 1, 2, 3, 4, 5].map((v) => { const b = HOLO.paintHoloPillar(v); return { tex: macroCanvasTex(b.body, b.S), ax: b.ax, ay: b.ay, R: 64 } })
+    T.prismShot = { tex: macroCanvasTex(HOLO.paintHoloShard(), 3), ax: 0.5, ay: 0.5 }
+    { const b = HOLO.paintHoloStalactite(); T.stalactite = { tex: macroCanvasTex(b.body, b.S), ax: b.ax, ay: b.ay } }
+    for (let v = 0; v < 3; v++) {
+      T['holo_druse' + v] = { tex: macroCanvasTex(HOLO.paintHoloProp('druse', 41 + v * 17), 3), ax: 0.5, ay: 0.5 }
+      T['holo_flake' + v] = { tex: macroCanvasTex(HOLO.paintHoloProp('flake', 83 + v * 19), 3), ax: 0.5, ay: 0.5 }
+    }
+    T.holoGlint = { tex: macroCanvasTex(HOLO.paintGlint()), ax: 0.5, ay: 0.5 }
+    T.holoRing = { tex: macroCanvasTex(HOLO.paintFilmRing()), ax: 0.5, ay: 0.5 }
+  }
+
+  // ==== Book 3, Burrow: per-frame drawing ======================================================
+  // burrowGroundG is ON the floor, under the crowd: the ridges of turned earth over digging moles,
+  // the cracks of a coming cave-in or eruption, the open pits, the roots of a snare, the shadow of a
+  // stone about to fall. burrowFxG is over the crowd: the shovel's scoop, the echo rings, a crystal
+  // chiming, the stone itself falling, the light-trails of prism shards (which is what shows a shot
+  // turning off a crystal in a still frame). Both are cleared and redrawn every frame from `run`;
+  // nothing here writes back to it.
+  const burrowSwings = []          // {x, y, angle, r, arc, t, life} — shovel scoops, renderer-local
+  const burrowTrails = new WeakMap() // bullet -> [x, y, x, y, ...] recent positions (prism shards)
+  // The photographed soil's own values (src/macro.js paintTopsoilTile), so every hole, heap and crack
+  // drawn over it sits in the same light: lit from the top-left, shadows thrown down-right.
+  const SOIL = { deep: 0x050302, dark: 0x1c120a, mid: 0x3e2a1a, lit: 0x6e5238, crumb: 0x4e3824, hi: 0x9a7c5c }
+  const SOIL_CRUMBS = [0x3e2a1a, 0x4e3824, 0x5e4630, 0x6e5238, 0x34241a]
+  // One loose crumb of earth: its shadow down-right, the body, a lit cap up-left.
+  function soilCrumb(g, x, y, r, c, a = 1) {
+    g.circle(x + r * 0.35, y + r * 0.45, r * 1.05).fill({ color: 0x000000, alpha: 0.45 * a })
+    g.circle(x, y, r).fill({ color: mix(c, 0x000000, 0.25), alpha: a })
+    g.circle(x - r * 0.22, y - r * 0.26, r * 0.62).fill({ color: c, alpha: a })
+    g.circle(x - r * 0.38, y - r * 0.42, r * 0.22).fill({ color: mix(c, 0xffffff, 0.35), alpha: 0.8 * a })
+  }
+  function burrowCracks(g, x, y, R, k, seed, alpha) {
+    const n = 8
+    for (let i = 0; i < n; i++) {
+      const a0 = (i / n) * Math.PI * 2 + hash(seed + i * 1.3) * 0.7
+      const pts = [x, y]
+      let a = a0
+      for (let j = 1; j <= 5; j++) {
+        a = a0 + (hash(seed + i * 7.1 + j) - 0.5) * 0.9
+        const d = (R * k * j) / 5
+        pts.push(x + Math.cos(a) * d, y + Math.sin(a) * d)
+      }
+      // the lit lip on the far side of each crack, then the crack itself
+      const line = (dx, dy, w, c, al) => { g.moveTo(pts[0] + dx, pts[1] + dy); for (let q = 2; q < pts.length; q += 2) g.lineTo(pts[q] + dx, pts[q + 1] + dy); g.stroke({ width: w, color: c, alpha: al, cap: 'round', join: 'round' }) }
+      line(1.2, 1.4, 2.6 - 0.6 * k, SOIL.hi, alpha * 0.35)
+      line(0, 0, 3.2 - 0.8 * k, SOIL.deep, alpha * 0.95)
+    }
+  }
+  // Pits draw in two passes over the whole list — every lip, then every shaft — so a tunnel's chain
+  // of overlapping pits merges into ONE trench instead of a stack of rings. The lip is not a ring: it
+  // is the ground slumping in, a soft darkening, and the crumbs of the collapse heaped round it.
+  function drawPitLips(g, pits) {
+    for (let k = 0; k < 4; k++) {
+      for (const pt of pits) {
+        if (pt.r < 1) continue
+        g.circle(pt.x + pt.r * 0.08, pt.y + pt.r * 0.1, pt.r * (1.55 - k * 0.1)).fill({ color: 0x000000, alpha: 0.07 })
+      }
+    }
+    for (const pt of pits) {
+      const r = pt.r
+      if (r < 1) continue
+      for (let i = 0; i < 16; i++) {
+        const a = hash(pt.x * 0.37 + pt.y * 0.11 + i * 2.7) * Math.PI * 2
+        const d = r * (1.0 + hash(pt.x * 0.13 + i) * 0.32)
+        soilCrumb(g, pt.x + Math.cos(a) * d, pt.y + Math.sin(a) * d, 1.6 + hash(pt.y * 0.7 + i) * 3.2, SOIL_CRUMBS[i % SOIL_CRUMBS.length])
+      }
+    }
+  }
+  function drawPitShafts(g, pits) {
+    for (let i = 0; i <= 9; i++) {
+      const k = 1 - i / 10
+      const c = mix(i < 2 ? SOIL.mid : SOIL.dark, 0x000000, Math.pow(i / 9, 0.7))
+      for (const pt of pits) {
+        const r = pt.r
+        if (r < 1) continue
+        // the far (lower-right) wall catches the light from the top-left; the near wall is in shadow
+        g.circle(pt.x + r * 0.12 * (1 - k), pt.y + r * 0.14 * (1 - k), r * k).fill(c)
+      }
+    }
+  }
+  // The ridge over a digging mole: the ground heaving up along its run, crumbs rolling off it.
+  function drawRidge(g, pts, w) {
+    if (pts.length < 2) return
+    const line = (width, color, alpha, dx = 0, dy = 0) => {
+      g.moveTo(pts[0] + dx, pts[1] + dy)
+      for (let i = 2; i < pts.length; i += 2) g.lineTo(pts[i] + dx, pts[i + 1] + dy)
+      g.stroke({ width, color, alpha, cap: 'round', join: 'round' })
+    }
+    line(w * 2.1, 0x000000, 0.1, w * 0.25, w * 0.3)
+    line(w * 1.6, 0x000000, 0.14, w * 0.2, w * 0.25)
+    line(w * 1.15, SOIL.dark, 0.85, w * 0.1, w * 0.12)
+    line(w * 0.9, SOIL.mid, 0.95)
+    line(w * 0.45, SOIL.lit, 0.55, -w * 0.12, -w * 0.14)
+    for (let i = 0; i < pts.length; i += 2) {
+      for (let q = 0; q < 3; q++) {
+        const h = hash(pts[i] * 0.21 + pts[i + 1] * 0.13 + q * 3.3), h2 = hash(pts[i] * 0.7 + q * 1.7)
+        soilCrumb(g, pts[i] + (h - 0.5) * w * 1.2, pts[i + 1] + (h2 - 0.5) * w * 1.2, 1.4 + h * 2.6, SOIL_CRUMBS[(i / 2 + q) % SOIL_CRUMBS.length])
+      }
+    }
+  }
+  // A snare is a knot of gnarled clay roots bursting out of a patch of broken soil: thick at the
+  // knot, tapering, kinked, forking — roots, not legs.
+  function drawSnare(g, sn, t) {
+    const grow = Math.min(1, sn.t / 0.25), fade = Math.max(0, Math.min(1, (sn.dur - sn.t) / 0.35))
+    const R = sn.r * grow
+    const hs = sn.x * 0.31 + sn.y * 0.17
+    g.circle(sn.x, sn.y, sn.r * 1.05).fill({ color: SOIL.dark, alpha: 0.3 * fade })
+    g.circle(sn.x, sn.y, sn.r * 0.45 * grow).fill({ color: SOIL.mid, alpha: 0.6 * fade })
+    const root = (pts, w0, w1) => {
+      const n = pts.length / 2 - 1
+      for (const [k, c, al] of [[1.45, 0x22140a, 0.95], [1, 0x7a5530, 1], [0.38, 0xc89a68, 0.85]]) {
+        for (let j = 0; j < n; j++) {
+          const w = (w0 + (w1 - w0) * (j / Math.max(1, n - 1))) * k
+          g.moveTo(pts[j * 2], pts[j * 2 + 1]).lineTo(pts[j * 2 + 2], pts[j * 2 + 3]).stroke({ width: w, color: c, alpha: al * fade, cap: 'round' })
+        }
+      }
+    }
+    const n = 7
+    for (let i = 0; i < n; i++) {
+      const a0 = (i / n) * Math.PI * 2 + hash(hs + i) * 0.6
+      const pts = [], side = []
+      let a = a0
+      for (let j = 0; j <= 5; j++) {
+        a += (hash(hs + i * 7.3 + j) - 0.5) * 0.9 + Math.sin(t * 2.5 + i + j) * 0.03
+        const d = R * (j / 5) * (0.75 + 0.25 * hash(hs + i * 3.1))
+        pts.push(sn.x + Math.cos(a) * d, sn.y + Math.sin(a) * d)
+        if (j === 2 || j === 4) side.push([pts[pts.length - 2], pts[pts.length - 1], a + (hash(hs + i + j * 9) < 0.5 ? 0.9 : -0.9), d])
+      }
+      root(pts, 9, 2.6)
+      for (const [x, y, sa, d] of side) {
+        const L = R * 0.28
+        const bp = [x, y, x + Math.cos(sa) * L * 0.55, y + Math.sin(sa) * L * 0.55, x + Math.cos(sa + 0.4) * L, y + Math.sin(sa + 0.4) * L]
+        root(bp, 4, 1.6)
+      }
+    }
+    // the knot at the middle, a clay lump with a lit top
+    g.circle(sn.x, sn.y, 9 * grow).fill({ color: 0x5a3c1e, alpha: fade })
+    g.circle(sn.x - 2, sn.y - 2, 4.5 * grow).fill({ color: 0xb08050, alpha: fade })
+  }
+  function syncBurrow(run, dt) {
+    const gG = burrowGroundG, gF = burrowFxG
+    gG.clear(); gF.clear()
+    const ch = CHAPTERS[run.chapter]
+    const sigT = ch.signature?.type
+    const t = animT
+    if (sigT === 'tunnels') {
+      // pits first (the deepest thing on the floor), then the ridges over moving moles
+      if (run.pits && run.pits.length) { drawPitLips(gG, run.pits); drawPitShafts(gG, run.pits) }
+      // a tunnel about to cave in: its line cracks, harder as the moment comes
+      for (const c of run.caveIns || []) {
+        const k = Math.max(0, Math.min(1, 1 - (c.at - run.time) / 1.2))
+        gG.circle(c.x, c.y, c.r * 0.8).fill({ color: 0x000000, alpha: 0.12 + 0.18 * k })
+        burrowCracks(gG, c.x, c.y, c.r * 1.1, 0.4 + 0.6 * k, c.x * 0.1 + c.y, 0.5 + 0.5 * k)
+      }
+      const M = ch.signature.moles
+      for (const e of run.enemies) {
+        if (!e.burrowed || e._dead) continue
+        if (e.tunnel && e.tunnel.length > 0) {
+          const pts = []
+          for (const q of e.tunnel) pts.push(q.x, q.y)
+          if (!((e.quakeT || 0) > 0)) pts.push(e.x, e.y)
+          drawRidge(gG, pts, 15)
+        }
+        if ((e.quakeT || 0) > 0) {
+          // THE QUAKE: cracks run out from the spot to the reach of the eruption, a ring of loosened
+          // soil darkens, and crumbs hop. All of it on the ground — the tell is the earth itself.
+          const k = 1 - Math.min(1, e.quakeT / M.quakeT)
+          const R = M.eruptR
+          for (let j = 0; j < 4; j++) gG.circle(e.quakeX, e.quakeY, R * (1.1 - j * 0.15)).fill({ color: 0x000000, alpha: (0.05 + 0.07 * k) })
+          // the ground lifting: a heave of loosened soil that grows as the moment comes
+          gG.circle(e.quakeX - 2, e.quakeY - 2, R * (0.3 + 0.35 * k)).fill({ color: SOIL.lit, alpha: 0.18 + 0.2 * k })
+          burrowCracks(gG, e.quakeX, e.quakeY, R, 0.35 + 0.65 * k, e.id * 3.1, 0.85)
+          for (let i = 0; i < 16; i++) {
+            const a = hash(e.id + i * 3.7) * Math.PI * 2, d = R * hash(e.id * 0.3 + i)
+            const hop = Math.abs(Math.sin(t * (14 + i) + i)) * (2 + 4 * k)
+            soilCrumb(gF, e.quakeX + Math.cos(a) * d, e.quakeY + Math.sin(a) * d - hop, 1.6 + hash(i * 9.1) * 2, SOIL_CRUMBS[i % SOIL_CRUMBS.length])
+          }
+        }
+      }
+    }
+    for (const sn of run.snares || []) drawSnare(gG, sn, t)
+    let stoneN = 0
+    // stalactites: the shadow grows on the floor, the stone drops out of the ceiling onto it
+    for (const dr of run.drips || []) {
+      const k = Math.min(1, dr.t / dr.fuse)
+      gG.ellipse(dr.x, dr.y, dr.r * (0.35 + 0.65 * k), dr.r * (0.3 + 0.55 * k)).fill({ color: 0x000000, alpha: 0.15 + 0.35 * k })
+      gG.circle(dr.x, dr.y, dr.r).stroke({ width: 1.5, color: 0x000000, alpha: 0.18 * k })
+      // a stone the size of the blast's core, shrinking a little as it falls away from the camera
+      const sc = (dr.r / 30) * 0.42 * (1.5 - 0.5 * k * k)
+      const off = (1 - k * k) * 70
+      const sp = stoneSprite(stoneN++)
+      sp.position.set(dr.x + off * 0.5, dr.y - off)
+      sp.scale.set(sc)
+      sp.alpha = Math.min(1, 0.25 + k * 1.2)
+      sp.rotation = (dr.seed || 0) * 0.01
+    }
+    for (let i = stoneN; i < burrowStones.length; i++) burrowStones[i].visible = false
+    // shovel scoops: a clay shovel sweeping through its arc, a crescent of thrown dirt behind it
+    const p = run.player
+    for (let i = burrowSwings.length - 1; i >= 0; i--) {
+      const sw = burrowSwings[i]
+      sw.t += dt
+      if (sw.t >= sw.life) { burrowSwings.splice(i, 1); continue }
+      const k = sw.t / sw.life
+      const a = sw.angle - sw.arc / 2 + sw.arc * Math.min(1, k * 1.3)
+      const x = p.x, y = p.y, R = sw.r
+      const fade = 1 - Math.max(0, (k - 0.6) / 0.4)
+      // the dirt crescent swept so far
+      const a0 = sw.angle - sw.arc / 2
+      gF.moveTo(x + Math.cos(a0) * R * 0.55, y + Math.sin(a0) * R * 0.55)
+      for (let s = 0; s <= 12; s++) { const aa = a0 + (a - a0) * (s / 12); gF.lineTo(x + Math.cos(aa) * R * 0.95, y + Math.sin(aa) * R * 0.95) }
+      for (let s = 12; s >= 0; s--) { const aa = a0 + (a - a0) * (s / 12); gF.lineTo(x + Math.cos(aa) * R * 0.55, y + Math.sin(aa) * R * 0.55) }
+      gF.closePath().fill({ color: SOIL.mid, alpha: 0.45 * fade })
+      for (let s = 0; s < 7; s++) {
+        const aa = a0 + (a - a0) * hash(sw.seed + s), d = R * (0.6 + 0.4 * hash(sw.seed * 2 + s))
+        gF.circle(x + Math.cos(aa) * d, y + Math.sin(aa) * d, 2 + 2 * hash(s + sw.seed)).fill({ color: s % 2 ? SOIL.crumb : SOIL.lit, alpha: fade })
+      }
+      // the shovel: handle, collar, blade
+      const ca = Math.cos(a), sa = Math.sin(a), nx = -sa, ny = ca
+      const hx = x + ca * R * 0.2, hy = y + sa * R * 0.2, bx = x + ca * R * 0.62, by = y + sa * R * 0.62
+      gF.moveTo(hx, hy).lineTo(bx, by).stroke({ width: 6, color: 0x4a2c14, alpha: fade, cap: 'round' })
+      gF.moveTo(hx, hy).lineTo(bx, by).stroke({ width: 3.2, color: 0xb07a44, alpha: fade, cap: 'round' })
+      const tip = R * 0.98, w = R * 0.16
+      const blade = [bx + nx * w, by + ny * w, x + ca * tip + nx * w * 0.55, y + sa * tip + ny * w * 0.55, x + ca * (tip + w * 0.5), y + sa * (tip + w * 0.5),
+        x + ca * tip - nx * w * 0.55, y + sa * tip - ny * w * 0.55, bx - nx * w, by - ny * w]
+      gF.poly(blade).fill({ color: 0x5a6068, alpha: fade }).stroke({ width: 1.2, color: 0x23262a, alpha: fade })
+      gF.poly([bx + nx * w * 0.5, by + ny * w * 0.5, x + ca * tip + nx * w * 0.25, y + sa * tip + ny * w * 0.25, x + ca * tip, y + sa * tip, bx, by]).fill({ color: 0xc8d0d8, alpha: 0.8 * fade })
+    }
+    // echo rings and crystal chimes (run.novas by look; placeNova hides both)
+    for (const n of run.novas || []) {
+      if (n.look !== 'echo' && n.look !== 'chime') continue
+      const k = 1 - Math.max(0, n.life) / (n.lifeMax || 0.5)
+      const fade = 1 - k
+      if (n.look === 'echo') {
+        // a sound wave as an interference ring: an inked edge, then bands of thin-film colour running
+        // red outside to violet inside, the spectrum sliding round as it spreads
+        if (n.r > 4) {
+          gF.circle(n.x, n.y, n.r + 3).stroke({ width: 2.2, color: 0x0b0714, alpha: 0.7 * fade })
+          for (let j = 0; j < 6; j++) {
+            const rr = n.r - j * 2.4
+            if (rr <= 2) break
+            gF.circle(n.x, n.y, rr).stroke({ width: 2.6, color: HOLO.film(j / 6 + k * 0.6), alpha: 0.85 * fade })
+          }
+          gF.circle(n.x, n.y, n.r + 0.5).stroke({ width: 1.2, color: 0xffffff, alpha: 0.9 * fade })
+        }
+      } else {
+        // a crystal chiming: an inked ring of foil, spectrum bands, and its points of light
+        const R = Math.max(1, n.r)
+        gF.circle(n.x, n.y, R + 2.5).stroke({ width: 2, color: 0x0b0714, alpha: 0.6 * fade })
+        for (let j = 0; j < 4; j++) gF.circle(n.x, n.y, Math.max(1, R - j * 2.6)).stroke({ width: 2.4, color: HOLO.film(0.3 + j / 4 - k * 0.5), alpha: 0.8 * fade })
+        for (let j = 0; j < 8; j++) {
+          const a = j * 0.785 + k * 1.5, gx = n.x + Math.cos(a) * R, gy = n.y + Math.sin(a) * R, s = (j % 2 ? 4 : 7) * fade
+          gF.moveTo(gx - s, gy).lineTo(gx + s, gy).stroke({ width: 1.4, color: 0xffffff, alpha: fade })
+          gF.moveTo(gx, gy - s).lineTo(gx, gy + s).stroke({ width: 1.4, color: 0xffffff, alpha: fade })
+        }
+      }
+    }
+    // prism shard light-trails: a shard that turned off a crystal leaves a bent streak
+    for (const b of run.bullets || []) {
+      if (b.weapon !== 'prism') continue
+      let tr = burrowTrails.get(b)
+      if (!tr) {
+        tr = []
+        // a split sibling is born on its parent's bounce point: it inherits the parent's incoming
+        // streak, so both halves of the turn are drawn from the first frame
+        if (b._bounces > 0) for (const o of run.bullets) {
+          const ot = o !== b && o.weapon === 'prism' && burrowTrails.get(o)
+          if (ot && ot.length >= 4 && Math.abs(ot[ot.length - 2] - b.x) + Math.abs(ot[ot.length - 1] - b.y) < 40) { tr = ot.slice(0, -2); break }
+        }
+        burrowTrails.set(b, tr)
+      }
+      if (dt > 0) { tr.push(b.x, b.y); if (tr.length > 40) tr.splice(0, 2) }
+      if (tr.length < 4) continue
+      // a foil streak: the spectrum laid along the path over an ink sleeve (so it reads on the pale
+      // pearl floor), brighter and wider once it has bounced
+      const bright = (b._bounces || 0) > 0
+      for (let j = 2; j < tr.length; j += 2) {
+        const u = j / tr.length
+        gF.moveTo(tr[j - 2], tr[j - 1]).lineTo(tr[j], tr[j + 1]).stroke({ width: (bright ? 9 : 6) * u, color: 0x120a1e, alpha: (bright ? 0.8 : 0.5) * u, cap: 'round' })
+      }
+      for (let j = 2; j < tr.length; j += 2) {
+        const u = j / tr.length
+        gF.moveTo(tr[j - 2], tr[j - 1]).lineTo(tr[j], tr[j + 1]).stroke({ width: (bright ? 6 : 3.8) * u, color: HOLO.film(u * 0.9 + t * 0.8), alpha: (bright ? 0.95 : 0.7) * u, cap: 'round' })
+      }
+      if (bright) for (let j = 2; j < tr.length; j += 2) {
+        const u = j / tr.length
+        gF.moveTo(tr[j - 2], tr[j - 1]).lineTo(tr[j], tr[j + 1]).stroke({ width: 1.4 * u, color: 0xffffff, alpha: u, cap: 'round' })
+      }
+    }
+  }
+  // The falling stones are sprites (a small pool on burrowStoneLayer), hidden past the live count.
+  const burrowStones = []
+  function stoneSprite(i) {
+    while (burrowStones.length <= i) {
+      const s = new Sprite(T.stalactite.tex)
+      s.anchor.set(T.stalactite.ax, T.stalactite.ay)
+      burrowStoneLayer.addChild(s)
+      burrowStones.push(s)
+    }
+    const s = burrowStones[i]
+    s.visible = true
+    return s
+  }
+  function burrowEvent(e) {
+    switch (e.type) {
+      case 'moleQuake':
+        for (let i = 0; i < 6; i++) {
+          const a = Math.random() * Math.PI * 2
+          spawnParticle(T.clayClod.tex, e.x + Math.cos(a) * 20, e.y + Math.sin(a) * 20, Math.cos(a) * 30, Math.sin(a) * 30, 0.5, 0.6, 0x8a6440, -0.5, 2)
+        }
+        return true
+      case 'moleErupt': {
+        for (let i = 0; i < 26; i++) {
+          const a = Math.random() * Math.PI * 2, sp = 80 + Math.random() * 220
+          spawnParticle(T.clayClod.tex, e.x, e.y, Math.cos(a) * sp, Math.sin(a) * sp, 0.45 + Math.random() * 0.35, 0.7 + Math.random() * 0.9,
+            [0x8a6440, 0x6e4c2e, 0xa88560][i % 3], -0.4, 3)
+        }
+        spawnParticle(T.dot.tex, e.x, e.y, 0, 0, 0.4, 2.4, 0x9c7650, 2.5, 0)
+        addShake(e.hit ? 6 : 3.5, 0.22)
+        return true
+      }
+      case 'moleDive':
+        for (let i = 0; i < 10; i++) {
+          const a = Math.random() * Math.PI * 2, sp = 40 + Math.random() * 80
+          spawnParticle(T.clayClod.tex, e.x, e.y, Math.cos(a) * sp, Math.sin(a) * sp, 0.4, 0.6, 0x8a6440, -0.4, 3)
+        }
+        return true
+      case 'caveIn':
+        for (let i = 0; i < 6; i++) {
+          const a = Math.random() * Math.PI * 2, sp = 20 + Math.random() * 60
+          spawnParticle(T.clayClod.tex, e.x + Math.cos(a) * e.r, e.y + Math.sin(a) * e.r, -Math.cos(a) * sp, -Math.sin(a) * sp, 0.35, 0.55, 0x6e4c2e, -0.6, 2)
+        }
+        spawnParticle(T.dot.tex, e.x, e.y, 0, 0, 0.5, 1.6, 0x8a6a48, 1.5, 0)
+        return true
+      case 'pitFall':
+        // the body drops out of sight: a dark shrink where it stood, and the lip crumbling in after it
+        spawnParticle(T.dot.tex, e.x, e.y, 0, 0, 0.35, 1.2 * (e.r / 14), 0x1a100a, -2.5, 0)
+        for (let i = 0; i < 5; i++) {
+          const a = Math.random() * Math.PI * 2
+          spawnParticle(T.clayClod.tex, e.x + Math.cos(a) * 16, e.y + Math.sin(a) * 16, -Math.cos(a) * 40, -Math.sin(a) * 40, 0.3, 0.5, 0x8a6440, -1.2, 3)
+        }
+        return true
+      // the foil glints: a diffraction star and a thin-film ring flash where a shot turns
+      case 'crystalBounce':
+        spawnParticle(T.holoGlint.tex, e.x, e.y, 0, 0, 0.26, 0.62, 0xffffff, -1.2, 0)
+        spawnParticle(T.holoRing.tex, e.x, e.y, 0, 0, 0.24, 0.12, 0xffffff, 2.6, 0)
+        for (let i = 0; i < 5; i++) {
+          const a = Math.random() * Math.PI * 2, sp = 70 + Math.random() * 110
+          spawnParticle(T.fx.spark_04, e.x, e.y, Math.cos(a) * sp, Math.sin(a) * sp, 0.22, 0.035, HOLO.film(Math.random()), -0.2, 2)
+        }
+        return true
+      case 'crystalChip':
+        spawnParticle(T.holoGlint.tex, e.x, e.y, 0, 0, 0.16, 0.3, 0xffffff, -1, 0)
+        for (let i = 0; i < 3; i++) {
+          const a = Math.random() * Math.PI * 2
+          spawnParticle(T.fx.spark_04, e.x, e.y, Math.cos(a) * 50, Math.sin(a) * 50, 0.18, 0.025, HOLO.film(Math.random()), -0.2, 2)
+        }
+        return true
+      case 'crystalRing':
+        spawnParticle(T.holoGlint.tex, e.x, e.y, 0, 0, 0.32, 0.9, 0xffffff, -1, 0)
+        return true
+      case 'rootSnare':
+        for (let i = 0; i < 8; i++) {
+          const a = Math.random() * Math.PI * 2, sp = 40 + Math.random() * 70
+          spawnParticle(T.clayClod.tex, e.x, e.y, Math.cos(a) * sp, Math.sin(a) * sp, 0.35, 0.55, 0x6e4c2e, -0.5, 2)
+        }
+        return true
+      case 'stalactite':
+        for (let i = 0; i < 14; i++) {
+          const a = Math.random() * Math.PI * 2, sp = 60 + Math.random() * 160
+          spawnParticle(i % 3 ? T.clayClod.tex : T.fx.spark_04, e.x, e.y, Math.cos(a) * sp, Math.sin(a) * sp, 0.4, i % 3 ? 0.6 : 0.04, i % 3 ? (i % 2 ? 0x8a8296 : 0x3a3450) : HOLO.film(i / 14), -0.4, 2)
+        }
+        spawnParticle(T.dot.tex, e.x, e.y, 0, 0, 0.45, 2.2 * (e.r / 52), 0x9a92a8, 2, 0)
+        addShake(2.5, 0.12)
+        return true
+      case 'shoot':
+        if (e.weapon === 'shovel') {
+          burrowSwings.push({ angle: e.angle, r: e.maxR, arc: e.arc, t: 0, life: 0.24, seed: Math.random() * 100 })
+          if (burrowSwings.length > 8) burrowSwings.shift()
+        }
+        return false
+    }
+    return false
+  }
 
   // `lean` = MAX LEAN IN DEGREES, 0..90: how far off horizontal this creature may aim its +x nose
   // at the player (syncEnemies mirrors it left/right on top of that, so lean+flip spans the circle).
@@ -5433,6 +6527,30 @@ export function createRenderer(app) {
   //    0 = NO FORWARD AXIS. Discs, cells, vertical cylinders. Rotating them isn't "facing", it's
   //        tumbling — and these are the ones whose art also violates the nose-at-+x contract.
   const ROSTER_LOOKS = {
+    // ---- Book 3, Burrow (clay diorama; see the BURROW block of draw fns above). All PLAN VIEW and
+    // lean 90: each is bilaterally symmetric about its own +x nose. `squash` is the live breathing
+    // scale syncEnemies lays over the baked gait. A missing key here is SILENT (generic blob).
+    earthworm: { archetype: 'normal', draw: drawEarthworm, macro: true, lean: 90, phases: 6 },
+    moleCricket: { archetype: 'fast', draw: drawMoleCricket, macro: true, lean: 90, phases: 4 },
+    // Three POSES off the sim's published state: surfaced, underground (the travelling bump), and
+    // the bump cracking open on the quake. Underground it faces where it is digging, not at you.
+    mole: {
+      archetype: 'tank', draw: drawMole, macro: true, lean: 90, poses: 3,
+      poseOf: (e) => (e.burrowed ? ((e.quakeT || 0) > 0 ? 2 : 1) : 0),
+      faceDir: (e) => (e.burrowed && !((e.quakeT || 0) > 0) && e.digVX != null ? [e.digVX, e.digVY] : null),
+    },
+    badger: { archetype: 'normal', draw: drawBadger, macro: true, lean: 90, phases: 4 },
+    olm: { archetype: 'normal', draw: drawOlm, macro: true, lean: 90, phases: 6 },
+    caveCricket: {
+      archetype: 'fast', draw: drawCaveCricket, macro: true, lean: 90, poses: 4,
+      poseOf: (e) => ({ hold: 0, aim: 1, leap: 2, land: 1 })[e._pounceState] ?? 0,
+      faceDir: (e) => ((e._pounceState === 'aim' || e._pounceState === 'leap')
+        ? [e._pounceDirX ?? 0, e._pounceDirY ?? 0] : null),
+      turnRate: (e) => (e._pounceState === 'leap' ? POUNCE_TURN_LEAP
+        : e._pounceState === 'aim' ? POUNCE_TURN_AIM : POUNCE_TURN_IDLE),
+    },
+    crystalCrab: { archetype: 'tank', draw: drawCrystalCrab, macro: true, lean: 90, phases: 4 },
+    bat: { archetype: 'fast', draw: drawBat, macro: true, lean: 90, phases: 4 },
     redcell: { archetype: 'normal', draw: drawRedcell, lean: 0 },      // biconcave disc, no forward axis — it would just tumble
     wbc: { archetype: 'tank', draw: drawWbc, lean: 0 },                // radial membrane, filopodia all round; no nose
     antibody: { archetype: 'fast', draw: drawAntibody, lean: 0 },      // 3-fold Y (Fc stem at +y), no +x front — a protein has no heading
@@ -5633,8 +6751,51 @@ export function createRenderer(app) {
     krakenArm: { archetype: 'boss', draw: drawKrakenArm, lean: 0, spin: 0, noElite: true },
   }
   const DEG = Math.PI / 180
+  // ---- Book 3, Burrow: the photographed cast (src/macro.js MACRO_CAST) ----------------------------
+  // A ROSTER_LOOKS entry with `macro: true` is painted on a Canvas 2D (gradients, soft blur, fur)
+  // instead of a Graphics, at 3 texels per drawn px. Its three twins are cut on one rectangle, so the
+  // body, the hit-flash white and the raking-light shadow all share an anchor. The elite wears the
+  // same body (its crown is a separate sprite), so each id is painted once and shared.
+  const macroCanvasTex = (c, res = 1) => new Texture({ source: new CanvasSource({ resource: c, resolution: res }) })
+  // tex (body or white twin) -> its blurred black silhouette, for the raking cast shadow (updateMacro)
+  const macroShadowOf = new Map()
+  // tex (body or white twin) -> its white twin: the silhouette the Geode's cavern halos are cut from
+  const macroWhiteOf = new Map()
+  const macroFrames = new Map()
+  function makeMacroLook(id, entry, elite) {
+    const M = HOLO.HOLO_CAST[id] ?? MACRO.MACRO_CAST[id]
+    const n = M.poses ?? M.frames ?? 1
+    let frames = macroFrames.get(id)
+    if (!frames) {
+      frames = []
+      for (let p = 0; p < n; p++) {
+        const f = M.poses ? p : (p / n) * Math.PI * 2
+        const b = MACRO.bakeLocal(M.E, 3, (ctx) => M.paint(ctx, f, p), { shadowBlur: M.shadowBlur ?? 2.5 })
+        const tex = macroCanvasTex(b.body, b.S), white = macroCanvasTex(b.white, b.S), sh = macroCanvasTex(b.shadow, b.S)
+        macroShadowOf.set(tex, sh)
+        macroShadowOf.set(white, sh)
+        macroWhiteOf.set(tex, white)
+        macroWhiteOf.set(white, white)
+        frames.push({ tex, white, ax: b.ax, ay: b.ay })
+      }
+      macroFrames.set(id, frames)
+    }
+    return {
+      tex: frames[0].tex, white: frames[0].white, ax: frames[0].ax, ay: frames[0].ay,
+      frames: n > 1 ? frames : null,
+      baseR: ROSTER_BASE_R[entry.archetype], maxLean: entry.lean * DEG,
+      poseOf: entry.poseOf || null,
+      faceDir: entry.faceDir || null,
+      turnRate: entry.turnRate || null,
+      spin: entry.spin || 0,
+      squash: entry.squash || 0,
+      shadow: { rx: M.shadow[0] * 0.85, ry: Math.max(4, M.shadow[0] * 0.3), y: M.shadow[1] },
+      crown: elite ? { top: M.crown[0], r: M.crown[1] } : null,
+    }
+  }
   function makeRosterLook(id, elite, child = false) {
     const entry0 = ROSTER_LOOKS[id]
+    if (entry0.macro && !child) return makeMacroLook(id, entry0, elite)
     // A child look is the same entry wearing a different draw fn, so it inherits `lean`, `phases`
     // and everything else the parent declared — a zooid that swam on a different axis from the
     // colony it came out of would be a second bug wearing the first one's clothes.
@@ -5673,6 +6834,7 @@ export function createRenderer(app) {
       faceDir: entry.faceDir || null,
       turnRate: entry.turnRate || null,
       spin: entry.spin || 0,
+      squash: entry.squash || 0,   // Book 3: live squash-and-stretch amplitude (syncEnemies)
       shadow: shadowSpec, crown: crownSpec,
     }
   }
@@ -5836,6 +6998,7 @@ export function createRenderer(app) {
       // never draws one.
       if (ROSTER_LOOKS[id].childDraw) T.roster[id + '_child'] = makeRosterLook(id, false, true)
     }
+    buildBurrowTextures()   // Book 3: photographed props, crystal pillars, shots
     {
       const g = new Graphics()
       drawKrakenBodyBake(g, false)
@@ -10844,7 +12007,27 @@ export function createRenderer(app) {
   // In a game whose camera looks straight DOWN, slower-than-the-world reads as further from the
   // camera, and further down is DEEPER — a wreck on a terrace below you, seen through the water.
   const hullLayer = new Container()
-  floorLayer.addChild(groundLayer, hullLayer, blotchLayer, roadLayer, roadDecalLayer, junctionLayer, ruinLayer,
+  // Book 3, Burrow: the photographed floor (see the MACRO block by the stage). Over the ground
+  // colour, under every prop.
+  const macroFloor = new TilingSprite({ texture: Texture.EMPTY, width: 1, height: 1 })
+  macroFloor.visible = false
+  // The Geode's floor (holo): the dark foil tile with the opal caverns cut into it, one shader mesh
+  // over the view (HOLO.CAVERN_FLOOR_FRAG). A unit quad; updateMacro stretches it and hands the shader
+  // the world rect it covers, so the caverns stay nailed to the world.
+  const cavernU = new UniformGroup({
+    uRect: { value: new Float32Array([0, 0, 1, 1]), type: 'vec4<f32>' },
+    uTime: { value: 0, type: 'f32' },
+  })
+  const cavernFloor = new Mesh({
+    geometry: new MeshGeometry({
+      positions: new Float32Array([0, 0, 1, 0, 1, 1, 0, 1]),
+      uvs: new Float32Array([0, 0, 1, 0, 1, 1, 0, 1]),
+      indices: new Uint32Array([0, 1, 2, 0, 2, 3]),
+    }),
+    shader: Shader.from({ gl: { vertex: HOLO.CAVERN_FLOOR_VERT, fragment: HOLO.CAVERN_FLOOR_FRAG, name: 'holo-cavern-floor' }, resources: { cavernU, uDark: Texture.WHITE.source, uNacre: Texture.WHITE.source } }),
+  })
+  cavernFloor.visible = false
+  floorLayer.addChild(groundLayer, macroFloor, cavernFloor, hullLayer, blotchLayer, roadLayer, roadDecalLayer, junctionLayer, ruinLayer,
     bigLayer, midLayer, detailLayer, clutterLayer, edgeLayer)
 
   const entitiesLayer = new Container()
@@ -11097,6 +12280,322 @@ export function createRenderer(app) {
   const cerLayer = new Container()
   app.stage.addChild(cerLayer)
 
+  // ==== Book 3, BURROW: THE MACRO LENS ============================================================
+  // CHAPTERS[id].render.macro turns a chapter into a macro photograph (src/macro.js holds the
+  // painters and the shader): a photographed floor tile under everything, the creatures' cast
+  // shadows from a low raking key, sun shafts / bokeh / out-of-focus foreground over the world, and
+  // ONE filter over the whole stage — depth of field, halation, the key, the grade, vignette, grain.
+  // Every chapter without `macro` gets none of it: stage.filters stays null and every layer here
+  // stays hidden, so Books 1 and 2 render exactly as before.
+  const MACRO_VERT = 'in vec2 aPosition;\nout vec2 vTextureCoord;\nuniform vec4 uInputSize;\nuniform vec4 uOutputFrame;\nuniform vec4 uOutputTexture;\n'
+    + 'vec4 filterVertexPosition(void) {\n  vec2 position = aPosition * uOutputFrame.zw + uOutputFrame.xy;\n  position.x = position.x * (2.0 / uOutputTexture.x) - 1.0;\n'
+    + '  position.y = position.y * (2.0 * uOutputTexture.z / uOutputTexture.y) - uOutputTexture.z;\n  return vec4(position, 0.0, 1.0);\n}\n'
+    + 'void main(void) {\n  gl_Position = filterVertexPosition();\n  vTextureCoord = aPosition * (uOutputFrame.zw * uInputSize.zw);\n}\n'
+  const macroU = new UniformGroup({
+    uTime: { value: 0, type: 'f32' },
+    uBlurPx: { value: 7, type: 'f32' },
+    uFocus: { value: new Float32Array([0.5, 0.5]), type: 'vec2<f32>' },
+    uLightDir: { value: new Float32Array([-0.62, -0.78]), type: 'vec2<f32>' },
+    uKey: { value: 0.4, type: 'f32' },
+    uShadowTone: { value: new Float32Array([0.5, 0.6, 0.7]), type: 'vec3<f32>' },
+    uLightTone: { value: new Float32Array([1, 0.9, 0.75]), type: 'vec3<f32>' },
+    uVignette: { value: 0.7, type: 'f32' },
+    uGrain: { value: 0.06, type: 'f32' },
+    uSharpR: { value: 0.62, type: 'f32' },
+  })
+  const lensFilter = new Filter({
+    glProgram: GlProgram.from({ vertex: MACRO_VERT, fragment: MACRO.LENS_FRAG, name: 'macro-lens' }),
+    resources: { macroU },
+  })
+  const hexTone = (h, out) => { out[0] = ((h >> 16) & 255) / 255; out[1] = ((h >> 8) & 255) / 255; out[2] = (h & 255) / 255 }
+  let macroLook = null          // CHAPTERS[id].render.macro, latched in setMacro (from reset)
+  const macroTiles = {}         // floor kind -> Texture, painted the first time a run needs it
+  const macroAir = new Container()
+  app.stage.addChildAt(macroAir, app.stage.getChildIndex(world) + 1)
+  macroAir.visible = false
+  let macroAirBuilt = null
+  const macroShafts = [], macroBokeh = [], macroFg = []
+  const macroShadowPool = []
+  function buildMacroAir(kind) {
+    if (macroAirBuilt === kind) return
+    macroAir.removeChildren()
+    macroShafts.length = 0; macroBokeh.length = 0; macroFg.length = 0
+    T.macroShaft ??= macroCanvasTex(MACRO.paintShaft())
+    T.macroBokeh ??= macroCanvasTex(MACRO.paintBokeh())
+    for (let i = 0; i < 3; i++) {
+      const s = new Sprite(T.macroShaft)
+      s.anchor.set(0.5, 0)
+      s.blendMode = 'add'
+      macroAir.addChild(s)
+      macroShafts.push(s)
+    }
+    for (let i = 0; i < 2; i++) {
+      const key = 'macroFg_' + kind + i
+      T[key] ??= macroCanvasTex(MACRO.paintForeground(kind, 31 + i * 17))
+      const s = new Sprite(T[key])
+      macroAir.addChild(s)
+      macroFg.push(s)
+    }
+    for (let i = 0; i < 12; i++) {
+      const s = new Sprite(T.macroBokeh)
+      s.anchor.set(0.5)
+      s.blendMode = 'add'
+      macroAir.addChild(s)
+      macroBokeh.push(s)
+    }
+    macroAirBuilt = kind
+  }
+  // CHAPTERS[id].render.holo: THE GEODE AS A HOLO TRADING CARD (src/holo.js). The cracked-ice foil
+  // floor on the macro floor sprite, the creatures' hard sticker shadows on macroShadowLayer, and
+  // FOIL_FRAG over the whole stage. Mutually exclusive with macro (a chapter declares one or neither).
+  // ONE pass over the stage: the floor tile carries its own dark, static shard colours, and the pass
+  // foils only light neutrals — the pillars' pearl faces, the creatures' rims and highlights, the
+  // floor's crack seams — plus a faint glare, the sparkle and the card's dark edge, so the creatures'
+  // cel colour and ink stay as painted and pop off a calm floor.
+  const mkFoilU = () => new UniformGroup({
+    uTime: { value: 0, type: 'f32' },
+    uCam: { value: new Float32Array([0, 0]), type: 'vec2<f32>' },
+    uZoom: { value: 1, type: 'f32' },
+    uStrength: { value: 0.9, type: 'f32' },
+    uSparkle: { value: 1, type: 'f32' },
+    uVignette: { value: 0.5, type: 'f32' },
+    uMaskL: { value: new Float32Array([0.5, 0.85]), type: 'vec2<f32>' },
+    uScreen: { value: new Float32Array([390, 844]), type: 'vec2<f32>' },
+    uGlare: { value: 0.4, type: 'f32' },
+    uFire: { value: 1, type: 'f32' },
+  })
+  const foilU = mkFoilU()
+  const foilProgram = GlProgram.from({ vertex: MACRO_VERT, fragment: HOLO.FOIL_FRAG, name: 'holo-foil' })
+  const foilFilter = new Filter({ glProgram: foilProgram, resources: { foilU } })
+  let holoLook = null
+  function setHolo(look) {
+    holoLook = look
+    if (!macroTiles.holo) {
+      macroTiles.holo = macroCanvasTex(HOLO.paintFoilTile(), HOLO.TILE_RES)
+      macroTiles.holo.source.style.addressMode = 'repeat'
+    }
+    if (!macroTiles.nacre) {
+      macroTiles.nacre = macroCanvasTex(HOLO.paintNacreTile(), HOLO.TILE_RES)
+      macroTiles.nacre.source.style.addressMode = 'repeat'
+    }
+    // the floor is the cavern mesh, not the plain tile
+    macroFloor.visible = false
+    cavernFloor.shader.resources.uDark = macroTiles.holo.source
+    cavernFloor.shader.resources.uNacre = macroTiles.nacre.source
+    cavernFloor.visible = true
+    holoHaloLayer.visible = true
+    blotchLayer.visible = false
+    macroAir.visible = false
+    macroShadowLayer.visible = true
+    const u = foilU.uniforms
+    u.uStrength = look.strength ?? 0.9
+    u.uSparkle = look.sparkle ?? 1
+    u.uVignette = look.vignette ?? 0.5
+    u.uMaskL[0] = look.maskLo ?? 0.5; u.uMaskL[1] = look.maskHi ?? 0.86
+    u.uGlare = look.glare ?? 0.45
+    u.uFire = look.fire ?? 1
+    macroFloor.filters = null
+    app.stage.filterArea = app.screen
+    app.stage.filters = [foilFilter]
+  }
+  function setMacro(run) {
+    const ch = run && CHAPTERS[run.chapter]
+    macroLook = ch?.render?.macro ?? null
+    holoLook = null
+    cavernFloor.visible = false
+    holoHaloLayer.visible = false
+    if (!macroLook && ch?.render?.holo) { setHolo(ch.render.holo); return }
+    macroFloor.filters = null
+    if (!macroLook) {
+      app.stage.filters = null
+      macroFloor.visible = false
+      blotchLayer.visible = true
+      macroAir.visible = false
+      macroShadowLayer.visible = false
+      return
+    }
+    const kind = macroLook.floor
+    if (!macroTiles[kind]) {
+      const c = kind === 'geode' ? MACRO.paintGeodeTile() : MACRO.paintTopsoilTile()
+      macroTiles[kind] = macroCanvasTex(c, MACRO.TILE_RES)
+      macroTiles[kind].source.style.addressMode = 'repeat'
+    }
+    macroFloor.texture = macroTiles[kind]
+    macroFloor.visible = true
+    blotchLayer.visible = false
+    buildMacroAir(kind)
+    macroAir.visible = true
+    macroShadowLayer.visible = true
+    const u = macroU.uniforms
+    u.uBlurPx = macroLook.blur ?? 7
+    u.uKey = macroLook.key ?? 0.4
+    u.uVignette = macroLook.vignette ?? 0.7
+    u.uGrain = macroLook.grain ?? 0.06
+    u.uSharpR = macroLook.sharp ?? 0.62
+    hexTone(macroLook.shadowTone ?? 0x8090b0, u.uShadowTone)
+    hexTone(macroLook.lightTone ?? 0xffe8c0, u.uLightTone)
+    for (const s of macroShafts) s.tint = macroLook.shaft ?? 0xffe0b0
+    for (const s of macroBokeh) s.tint = macroLook.bokeh ?? 0xffd8a0
+    app.stage.filterArea = app.screen
+    app.stage.filters = [lensFilter]
+  }
+  // the raking (macro) or sticker (holo) shadows: every creature's own silhouette, thrown off it
+  function syncCastShadows(LX, LY, reach, alpha) {
+    let n = 0
+    for (const [, s] of enemySprites) {
+      if (!s.visible || !s.parent) continue
+      const st = macroShadowOf.get(s.texture)
+      if (!st) continue
+      let sh = macroShadowPool[n]
+      if (!sh) { sh = new Sprite(st); sh.tint = 0x000000; macroShadowLayer.addChild(sh); macroShadowPool.push(sh) }
+      sh.visible = true
+      sh.texture = st
+      sh.anchor.copyFrom(s.anchor)
+      sh.rotation = s.rotation
+      sh.scale.copyFrom(s.scale)
+      const d = (Math.abs(s.scale.y) * 22 + 5) * reach
+      sh.position.set(s.x - LX * d, s.y - LY * d)
+      sh.alpha = alpha * s.alpha
+      n++
+    }
+    for (let i = n; i < macroShadowPool.length; i++) macroShadowPool[i].visible = false
+  }
+  // THE GEODE'S CREATURES REACT TO THE LIGHT THEY STAND IN. The cavern field (HOLO.cavernAt, the same
+  // function the floor shader draws) is sampled at each creature: on the dark base it wears a dark
+  // ink outline with a cool rim light up its lit side; walking into an opal cavern that outline turns
+  // into a two-tone RAINBOW fringe whose hues slide with time and with where it stands. Blended across
+  // the wall, so a creature crossing it changes as it goes. Two sprites per creature off its own white
+  // twin, UNDER the crowd (an overlay above it washed a dense pile to white); no filter.
+  const holoHaloA = [], holoHaloB = []
+  const rainbow = (t) => {
+    const f = (o) => Math.round(255 * Math.max(0, Math.min(1, 0.5 + 0.62 * Math.cos(Math.PI * 2 * (t + o)))))
+    return (f(0) << 16) | (f(0.33) << 8) | f(0.67)
+  }
+  const mixHex = (a, b, k) => {
+    const m = (sh) => Math.round(((a >> sh) & 255) + ((((b >> sh) & 255) - ((a >> sh) & 255)) * k))
+    return (m(16) << 16) | (m(8) << 8) | m(0)
+  }
+  function syncHoloHalos() {
+    let n = 0
+    for (const [, s] of enemySprites) {
+      if (!s.visible || !s.parent) continue
+      const wt = macroWhiteOf.get(s.texture)
+      if (!wt) continue
+      const f = HOLO.cavernAt(s.x, s.y)
+      const w = 1 - Math.max(0, Math.min(1, (f - 0.95) / 0.08))
+      const ws = w * w * (3 - 2 * w)
+      let a = holoHaloA[n], b = holoHaloB[n]
+      if (!a) {
+        a = new Sprite(wt); b = new Sprite(wt)
+        holoHaloLayer.addChild(a, b)
+        holoHaloA.push(a); holoHaloB.push(b)
+      }
+      // outline thickness: ~2.6 world px whatever the creature's size
+      const sz = Math.max(8, Math.min(wt.width, wt.height) * Math.abs(s.scale.y))
+      const k = 1 + 5.2 / sz
+      const hue = animT * 0.3 + s.x * 0.0021 + s.y * 0.0017
+      const o = 1.4 + ws * 0.6
+      for (const [sp, dx, dark, rb] of [[a, -o, 0x9ec4ff, hue], [b, o, 0x05030a, hue + 0.45]]) {
+        sp.visible = true
+        sp.texture = wt
+        sp.anchor.copyFrom(s.anchor)
+        sp.rotation = s.rotation
+        sp.scale.set(s.scale.x * k, s.scale.y * k)
+        sp.position.set(s.x + dx, s.y + dx)
+        sp.tint = mixHex(dark, rainbow(rb), ws)
+        sp.alpha = s.alpha * (sp === a ? 0.55 + 0.45 * ws : 0.8 + 0.2 * ws)
+      }
+      n++
+    }
+    for (let i = n; i < holoHaloA.length; i++) { holoHaloA[i].visible = holoHaloB[i].visible = false }
+  }
+  function updateMacro(run, dt, cx, cy) {
+    if (holoLook) {
+      const w = viewW(), h = viewH(), z = world.scale.x || 1
+      const M = 96
+      const fx = -cx - M, fy = -cy - M, fw = w / z + M * 2, fh = h / z + M * 2
+      cavernFloor.position.set(fx, fy)
+      cavernFloor.scale.set(fw, fh)
+      const cr = cavernU.uniforms.uRect
+      cr[0] = fx; cr[1] = fy; cr[2] = fw; cr[3] = fh
+      cavernU.uniforms.uTime = animT
+      const u = foilU.uniforms
+      u.uTime = animT
+      u.uCam[0] = cx; u.uCam[1] = cy
+      u.uZoom = z
+      u.uScreen[0] = app.screen.width; u.uScreen[1] = app.screen.height
+      syncCastShadows(-0.45, -0.75, holoLook.shadowReach ?? 0.3, holoLook.shadowAlpha ?? 0.8)
+      syncHoloHalos()
+      return
+    }
+    if (!macroLook) return
+    const w = viewW(), h = viewH(), z = world.scale.x || 1
+    // the floor: one tile repeated, cut to the view (tilePosition cancels the sprite's own offset so
+    // the pattern stays nailed to the world, the caustics' idiom)
+    const M = 96
+    macroFloor.position.set(-cx - M, -cy - M)
+    macroFloor.width = w / z + M * 2
+    macroFloor.height = h / z + M * 2
+    macroFloor.tilePosition.set(-macroFloor.x, -macroFloor.y)
+    const u = macroU.uniforms
+    u.uTime = animT
+    // focus rides the player, held near the middle of the frame
+    const sx = (run.player.x + cx) * z / app.screen.width, sy = (run.player.y + cy) * z / app.screen.height
+    u.uFocus[0] = 0.5 + (sx - 0.5) * 0.6
+    u.uFocus[1] = 0.5 + (sy - 0.5) * 0.6
+    // the raking shadows: every creature's own silhouette, blurred, thrown away from the key
+    let n = 0
+    const LX = -0.62, LY = -0.78
+    const reach = macroLook.shadowReach ?? 0.5
+    for (const [, s] of enemySprites) {
+      if (!s.visible || !s.parent) continue
+      const st = macroShadowOf.get(s.texture)
+      if (!st) continue
+      let sh = macroShadowPool[n]
+      if (!sh) { sh = new Sprite(st); sh.tint = 0x000000; macroShadowLayer.addChild(sh); macroShadowPool.push(sh) }
+      sh.visible = true
+      sh.texture = st
+      sh.anchor.copyFrom(s.anchor)
+      sh.rotation = s.rotation
+      sh.scale.copyFrom(s.scale)
+      const d = (Math.abs(s.scale.y) * 22 + 5) * reach
+      sh.position.set(s.x - LX * d, s.y - LY * d)
+      sh.alpha = 0.62 * s.alpha
+      n++
+    }
+    for (let i = n; i < macroShadowPool.length; i++) macroShadowPool[i].visible = false
+    // the air: shafts sway, bokeh drifts at the edges, foreground hugs two corners
+    const W = app.screen.width, H = app.screen.height, D = Math.hypot(W, H)
+    const t = animT
+    for (let i = 0; i < macroShafts.length; i++) {
+      const s = macroShafts[i]
+      s.rotation = -0.62 + Math.sin(t * 0.07 + i * 2.1) * 0.05
+      s.position.set(W * (0.05 + i * 0.3) + Math.sin(t * 0.11 + i) * W * 0.05, -H * 0.12)
+      s.width = D * (0.16 + 0.08 * ((i * 37) % 3))
+      s.height = D * 1.25
+      s.alpha = (macroLook.shaftAlpha ?? 0.14) * (0.7 + 0.3 * Math.sin(t * 0.3 + i * 1.7))
+    }
+    const px = run.player.x, py = run.player.y
+    for (let i = 0; i < macroBokeh.length; i++) {
+      const s = macroBokeh[i]
+      // parked round the rim of the frame, never over the middle where the fight is
+      const a = (i / macroBokeh.length) * Math.PI * 2 + Math.sin(t * 0.05 + i) * 0.2 - px * 0.0004
+      const rr = 0.56 + 0.1 * Math.sin(i * 2.3 + t * 0.13)
+      s.position.set(W / 2 + Math.cos(a) * W * rr * 1.05, H / 2 + Math.sin(a) * H * rr + Math.sin(py * 0.001 + i) * 20)
+      const size = D * (0.03 + 0.045 * ((i * 7919) % 11) / 11)
+      s.width = s.height = size
+      s.alpha = (macroLook.bokehAlpha ?? 0.22) * (0.5 + 0.5 * Math.sin(t * 0.4 + i * 1.3))
+    }
+    const fgS = Math.max(W, H) / 1300
+    for (let i = 0; i < macroFg.length; i++) {
+      const s = macroFg[i]
+      s.scale.set(i ? -fgS : fgS, i ? -fgS : fgS)
+      const swx = Math.sin(px * 0.0015 + i * 2) * 26, swy = Math.sin(py * 0.0015 + i) * 26
+      s.position.set((i ? W : 0) + swx - (i ? -30 : 30), (i ? H : 0) + swy - (i ? -30 : 30))
+      s.alpha = macroLook.fgAlpha ?? 0.9
+    }
+  }
+
   // v5.3 garden field layers (empty/hidden for other chapters, driven purely by run.trails/webs/
   // lures presence — no hard chapter gate needed since createRun leaves them [] elsewhere):
   //   trailLayer/webLayer sit with the ground decals (under enemies); lureLayer floats the decoy
@@ -11255,6 +12754,12 @@ export function createRenderer(app) {
   // them. Both are declared HERE, above the entitiesLayer.addChild below, for the usual reason: a
   // layer addChild'd before its own const is a TDZ crash that only ever shows in the minified bundle.
   const enemyShadowLayer = new Container()
+  // Book 3, Burrow: each creature's cast shadow from the low raking key (updateMacro).
+  const macroShadowLayer = new Container()
+  // The Geode (holo): each creature's two-tone outline under it, reacting to the opal cavern it
+  // stands in (syncHoloHalos)
+  const holoHaloLayer = new Container()
+  holoHaloLayer.visible = false
   const enemyLayer = new Container()
   // The Kraken's arm ring. Its OWN layer, above the enemies, because the arms shield the head and
   // have to read as being in front of it; flat (one baked Sprite per arm, no independently
@@ -11310,6 +12815,11 @@ export function createRenderer(app) {
   // which is the one thing a bow wave is not. NOT additive, unlike columnG: that one is light in a
   // dark chapter, this one is foam on a bright beach, and adding white to pale sand just clips.
   const shorebreakG = new Graphics()
+  // Book 3, Burrow (see syncBurrow): the floor layer under the crowd, the fx layer over it, and the
+  // falling stones' sprite pool.
+  const burrowGroundG = new Graphics()
+  const burrowFxG = new Graphics()
+  const burrowStoneLayer = new Container()
   // Barnacle crusts, drawn OVER the bodies they are growing on — they sit on top of the enemy
   // sprite, so this has to be added after the entity layer, not with the ground effects.
   const crustG = new Graphics()
@@ -11438,7 +12948,7 @@ const spurG = new Graphics()
   const particleLayer = new Container()
   const textLayer = new Container()
   entitiesLayer.addChild(
-    mownG, sandLayer, netWakeG, wellG, bindG, poolLayer, slickG, trailLayer, webLayer, gateFloorG, spurG, coralLayer, gateG, burstWakeG, obstacleLayer, trapLayer,
+    mownG, sandLayer, netWakeG, wellG, bindG, poolLayer, slickG, burrowGroundG, trailLayer, webLayer, gateFloorG, spurG, coralLayer, gateG, burstWakeG, obstacleLayer, trapLayer,
     // The refill circles (The Deep's anglerfish, sun shafts, pools) sit UNDER the drops: a maw is
     // a 400px body, and above gemLayer it hid every gem and coin that fell inside it.
     shaftLayer,
@@ -11446,8 +12956,8 @@ const spurG = new Graphics()
     krakenDeepG, scarLayer, bombG, shellLayer, skyLayer, voltLayer, stripG, laneG, hazardG, jetLayer, krakenCoilBandLayer, teleG, krakenImpactG, strafePoolLayer, rampG, pacerG,
     rockLayer,
     orcaShadowSp, orcaG,
-    enemyShadowLayer, enemyLayer, krakenArmLayer, enemyCrownLayer, orcaSp, netG, longlineG, snareG,
-    bloomLayer, lureLayer, shieldG, affixLayer, crustG, deepG, lockLayer, playerC, krakenGripFrontLayer, netHoldG, gateFrontG, breakerG, puffG, splashG, columnG, shorebreakG,
+    macroShadowLayer, enemyShadowLayer, holoHaloLayer, enemyLayer, krakenArmLayer, enemyCrownLayer, orcaSp, netG, longlineG, snareG,
+    bloomLayer, lureLayer, shieldG, affixLayer, crustG, deepG, lockLayer, playerC, krakenGripFrontLayer, netHoldG, gateFrontG, breakerG, puffG, splashG, columnG, shorebreakG, burrowFxG, burrowStoneLayer,
     bulletLayer, boomerangLayer, orbLayer, debrisLayer, homingLayer, shotLayer, beamLayer, whipLayer, arcG, breathG,
     lobLayer, carLayer, smokeLayer, particleLayer,
     // v6.7.7: the refraction sits in FRONT of traffic, smoke and particles — everything except the
@@ -12410,8 +13920,48 @@ const spurG = new Graphics()
     // manhole. Re-run scripts/obstacle-contrast.mjs after touching either.
     obstacle: { baked: ['hullPlate', 'hullRib', 'drum'], tint: 0xdcd2c6, foot: 0x2a3d45 },
   }
+  // ---- Book 3, Burrow ---------------------------------------------------------------------------
+  // Topsoil: turned loam with clods, stones, rootlets, worm casts and a few seedlings and grass tufts
+  // still at the surface — the one chapter in the book that is not yet underground. The Geode: cave
+  // rock, dark faceted stones and small crystal druses glinting on the floor. The clay props are
+  // baked pale on purpose: each chapter's floorTint multiplies them into its own palette.
+  const BIOME_TOPSOIL = {
+    big: [
+      { name: 'macro_moss0', baked: true, size: [60, 96] },
+      { name: 'macro_moss1', baked: true, size: [50, 80] },
+      { name: 'macro_deadLeaf0', baked: true, size: [56, 86] },
+    ],
+    mid: [
+      { name: 'macro_wetPebble0', baked: true, size: [22, 40] },
+      { name: 'macro_wetPebble1', baked: true, size: [18, 34] },
+      { name: 'macro_twig0', baked: true, size: [44, 70] },
+      { name: 'macro_deadLeaf1', baked: true, size: [34, 54] },
+    ],
+    detail: [
+      { name: 'macro_wetPebble2', baked: true, size: [10, 18] },
+      { name: 'macro_twig1', baked: true, size: [22, 36] },
+    ],
+    obstacle: { clumps: OBSTACLE_CLUMPS, tint: 0x6e4c2e, foot: 0x22160c },
+  }
+  const BIOME_GEODE = {
+    // holographic foil (src/holo.js): druses of foil crystal and flakes of foil lying on the floor
+    big: [{ name: 'holo_druse0', baked: true, size: [40, 64] }, { name: 'holo_flake0', baked: true, size: [36, 56] }],
+    mid: [
+      { name: 'holo_druse1', baked: true, size: [26, 42] },
+      { name: 'holo_flake1', baked: true, size: [22, 36] },
+      { name: 'holo_druse2', baked: true, size: [20, 32] },
+    ],
+    detail: [
+      { name: 'holo_flake2', baked: true, size: [10, 18] },
+    ],
+    // The pillars themselves are drawn by syncObstacles' crystal branch (T.crystalPillars).
+    obstacle: { clumps: OBSTACLE_CLUMPS, tint: 0xffffff, foot: 0x1a1424 },
+  }
   const BIOMES = {
     body: BIOME_BODY,
+    // Book 3. The same silent fallback the comments below warn about, twice more.
+    topsoil: BIOME_TOPSOIL,
+    geode: BIOME_GEODE,
     // The Blank shares the body's decor DELIBERATELY, and this line exists so that it is a decision
     // rather than an accident. Its boss is the ANTIBODY and its fiction is reality's immune response,
     // so villi and plasma motes are the right furniture — but it was getting them by falling through
@@ -17899,6 +19449,17 @@ const spurG = new Graphics()
       // EVERY structure is crushable. The rim still lands exactly on o.r; only its weight changes.
       ov.ring.alpha = (chapterHasDistricts && STRUCTURE_SKINS[o.kind]?.topDown) ? 0.45 : 1
       ov.ring.scale.set(o.r / foot.ref)
+      // Book 3, The Geode: a crystal pillar is one centred plan bake scaled to its collider, lit from
+      // the top-left of the SCREEN, so it is never rotated.
+      if (o.kind === 'crystal') {
+        const a = T.crystalPillars[Math.floor(hash(o.x * 1.7 + o.y * 0.31) * T.crystalPillars.length)]
+        ov.root.rotation = 0
+        ov.clumpA.texture = a.tex; ov.clumpA.anchor.set(a.ax, a.ay); ov.clumpA.tint = 0xffffff
+        ov.clumpA.scale.set(o.r / a.R); ov.clumpA.rotation = 0; ov.clumpA.position.set(0, 0)
+        ov.clumpB.texture = Texture.EMPTY; ov.clumpB.scale.set(1)
+        ov.ring.alpha = 0.5
+        continue
+      }
       if (shape.baked) {
         // baked furniture: pick two pieces off the kind's list by position hash, plant the big
         // one on the pad and tuck a smaller second at the rim. Baked props carry their own origin
@@ -24132,6 +25693,13 @@ void main() {
     d.x = x + (Math.random() * 10 - 5)
     d.y = y - 10
     d.t.text = label ? label.text : String(Math.round(dmg))
+    // The Geode (holo) only: a heavy near-black ink stroke, so a number reads on the pale opal
+    // caverns as well as on the dark shards. Every other chapter keeps the brown stroke.
+    const holoInk = !!holoLook
+    if (d._holoInk !== holoInk) {
+      d._holoInk = holoInk
+      d.t.style.stroke = holoInk ? { color: 0x120a1e, width: 5, join: 'round' } : { color: 0x6b5847, width: 3.5, join: 'round' }
+    }
     // DoT ticks read as small muted numbers so a status-covered crowd doesn't flood the screen.
     // v5.24: chapterRender.ink (the blank) replaces the white base fill — white numbers vanish on
     // the white void — and pulls the muted DoT grey toward itself for the same reason. The crit
@@ -26442,6 +28010,7 @@ void main() {
     } else scrapeT = 0
 
     for (const e of events) {
+      if (burrowEvent(e)) continue   // Book 3, Burrow: its own events (and the shovel's scoop)
       switch (e.type) {
         case 'hit': {
           // In the Kraken fight the thing being hit is often ON the player (an opened limb's node,
@@ -27626,6 +29195,8 @@ void main() {
 
   // ------------------------------------------------------------------- reset
   function clearWorld() {
+    burrowGroundG.clear(); burrowFxG.clear(); burrowSwings.length = 0
+    for (const st of burrowStones) st.visible = false
     for (const [id, s] of enemySprites) {
       s.visible = false
       hideAffixBadges(s)
@@ -28909,7 +30480,11 @@ void main() {
       const feedK = (e.feedT || 0) > 0
         ? 1 - CHUM_VIS.feedSquash * (0.78 + 0.22 * Math.sin(animT * 11 + e.id * 2.1))
         : 1
-      s.scale.set(k * flip * shrink * feedK, k * shrink)
+      // Book 3's clay squash-and-stretch: the body breathes along its own axis, volume kept (x up, y
+      // down). Held still by the same frozen/stun rule as every other animation here.
+      const sq = look.squash && !((e.frozen || 0) > 0 || (e.stunT || 0) > 0)
+        ? look.squash * Math.sin(animT * 9 + e.id * 1.3) : 0
+      s.scale.set(k * flip * shrink * feedK * (1 + sq), k * shrink * (1 - sq))
 
       // Elemental status (contract fields, guarded — sim half may not have landed yet).
       const frozen = e.frozen || 0
@@ -28954,6 +30529,12 @@ void main() {
       }
       s.rotation = face + wobble + currentWobble + pull * animT * 5 + (look.spin ? s._spinA : 0)
       s.position.set(e.x, e.y)
+      // Book 3: THE QUAKE. A mole about to erupt (quakeT, published by stepTunnels) shakes its bump,
+      // harder as the moment comes.
+      if ((e.quakeT || 0) > 0) {
+        const qk = 1.5 + 3.5 * (1 - Math.min(1, e.quakeT / 1.2))
+        s.position.set(e.x + Math.sin(animT * 71 + e.id) * qk, e.y + Math.cos(animT * 83 + e.id) * qk)
+      }
 
       // dominant tint, one status wins (frozen > chill > venom > ignite > none). The
       // hit-flash white silhouette overrides all of these so the hit pop still reads white —
@@ -29337,6 +30918,7 @@ void main() {
     syncGates(run)    // ...and the circuit's checkpoints and start line (no-op unless `circuit`)
     syncTrails(run.trails || [])
     syncWebs(run.webs || [])
+    syncBurrow(run, dt)   // Book 3: tunnels, pits, quakes, snares, stones, scoops, echoes (no-op elsewhere)
     // v7.x surf: the dry patches. `|| []` like every field above — a save or a test run predating
     // the chapter has no run.sandbars at all.
     // sandbarTex is a LIST now (one bake per outline) — the pool's default texture is the first, and
@@ -29418,6 +31000,7 @@ void main() {
     updateRings(dt)
     updateDamage(dt)
     updateDustMotes(dt)
+    updateMacro(run, dt, cx, cy)   // Book 3: the macro lens (no-op elsewhere)
     updateLeaves(dt)
     updateCurrents(run, dt, cx, cy)
     updateEddies(run, dt)
@@ -29445,6 +31028,23 @@ void main() {
   const WEAPON_BULLET_TINT = { shard: 0xb9a8f0, quill: 0xf2ead8, trash: 0xc27b4a, debris: 0x9aa0a6 }
   function placeBullet(s, b, i) {
     s.position.set(b.x, b.y)
+    // Book 3: a clay pebble (Pebble Sling) and a crystal splinter along its flight (Prism Shard),
+    // the latter swelling and whitening with each crystal it has bounced off.
+    if (b.weapon === 'pebble') {
+      if (s.texture !== T.pebbleShot.tex) { s.texture = T.pebbleShot.tex; s.anchor.set(T.pebbleShot.ax, T.pebbleShot.ay) }
+      s.tint = 0xffffff
+      s.rotation = (b.x + b.y) * 0.05
+      s.scale.set(0.9)
+      return
+    }
+    if (b.weapon === 'prism') {
+      if (s.texture !== T.prismShot.tex) { s.texture = T.prismShot.tex; s.anchor.set(T.prismShot.ax, T.prismShot.ay) }
+      const nb = b._bounces || 0
+      s.tint = nb > 0 ? 0xffffff : 0xe6dcff
+      s.rotation = Math.atan2(b.vy, b.vx)
+      s.scale.set(1.15 + 0.2 * nb)
+      return
+    }
     // Stinger needles (v5.3 garden) share run.bullets with star shots but render as thin amber
     // streaks aimed along their velocity — swap this pool slot's texture/anchor/tint on the fly.
     if (b.weapon === 'stinger') {
@@ -29522,6 +31122,8 @@ void main() {
     // it covers only the side you face — and the sector would still be correct in the sim, so the
     // weapon would measure right and look wrong.
     if (n.arc != null) { s.visible = false; return }
+    // Book 3's Echo Pulse and crystal chimes are drawn by syncBurrow as their own rings.
+    if (n.look === 'echo' || n.look === 'chime') { s.visible = false; return }
     s.position.set(n.x, n.y)
     // A Skipping Shell's touch-down is a DARK MARK, not a bright one, and that inverts what every
     // other impact in this game does. It is the one treatment with a physical argument behind it:
@@ -30043,6 +31645,7 @@ void main() {
     dustLook = chapterRender.dust ?? null
     for (const m of dustMotes) { m.s.tint = dustLook?.tint ?? 0xffffff; m.s.alpha *= dustLook?.alpha ?? 1 }
     R.background.color = chapterRender.bgColor
+    setMacro(run)   // Book 3: the macro lens on or off
     clearWorld()
     if (run) {
       entitiesLayer.visible = true
@@ -30114,6 +31717,10 @@ void main() {
       const look = T.roster[id]
       if (!look) continue
       try {
+        // a Book 3 photographed look is already a canvas: hand that over as it is (a GPU extract of a
+        // canvas-sourced texture that has never been drawn comes back black)
+        const cv = look.tex.source?.resource
+        if (typeof HTMLCanvasElement !== 'undefined' && cv instanceof HTMLCanvasElement) { out[id] = cv.toDataURL('image/png'); continue }
         out[id] = await R.extract.base64(look.tex)
       } catch {
         // extract does a GPU readback; on a context that refuses one we simply have no face here
