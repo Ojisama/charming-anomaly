@@ -38061,5 +38061,10 @@ function testBurrow() {
   assert.ok(on.bounced >= 1, 'run BU3.c: a shot into a crystal did not bounce')
   assert.ok(on.bullets.length >= 2 && on.bullets.every((b) => b.vx > 0), `run BU3.c: the bounce should send the shot back out, split: ${JSON.stringify(on.bullets)}`)
   assert.ok(off.bounced === 0 && off.bullets.length === 0, `run BU3.c: with bounce off the crystal must stop the shot: ${JSON.stringify(off)}`)
+  // (d) Burrow ships DEV-only: a player save neither shelves the book nor opens it.
+  const player = makeMeta()
+  assert.ok(!titleBookshelf(player).some((sh) => sh.book === 'burrow'), 'run BU3.d: a non-dev save shelves Burrow')
+  assert.ok(!unlockBook(player, 'burrow') && !player.chapters?.topsoil?.unlocked, 'run BU3.d: a non-dev save opened Burrow')
+  assert.ok(titleBookshelf(meta()).some((sh) => sh.book === 'burrow'), 'run BU3.d: a dev save does not shelve Burrow')
   console.log(`PASS run BU3 (Burrow): moles under ${under} frames, 0 hp lost under, mole dmg ${run.dmgBySrc.mole}; unarmed pit kills ${kOn} vs ${kOff} off; a crystal bounced ${on.bounced}x into ${on.bullets.length} shots, stopped it with bounce off`)
 }
