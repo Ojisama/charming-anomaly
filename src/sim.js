@@ -222,10 +222,10 @@ import {
   BLANK_READ1_K_MATURE, BLANK_NODE_MAX_MATURE, BLANK_FAN_N_MATURE,
   BLANK_BAND_ANGLES, BLANK_BAND_ANGLES_MATURE, BLANK_READ3_DESPERATE_MUL,
   // The Kraken (scripted parry boss — see stepKrakenScript / krakenParry)
-  krakenRung, KRAKEN_HEAD_HP, KRAKEN_HEAD_R, KRAKEN_HEAD_SPEED,
+  krakenRungFor, KRAKEN_HEAD_HP, KRAKEN_HEAD_R, KRAKEN_HEAD_SPEED,
   KRAKEN_ARM_HP, KRAKEN_ARM_R, KRAKEN_RING_R, KRAKEN_ARM_REACH, KRAKEN_ARM_LEVELS,
   KRAKEN_LIMP_PERFECT_MUL, KRAKEN_STAGGER_T, KRAKEN_STAGGER_DECAY, KRAKEN_LIMP_FLASH,
-  KRAKEN_RISE_AT, KRAKEN_ENRAGE_AT, KRAKEN_ENRAGE_CADENCE, KRAKEN_ENRAGE_ARM_HP, KRAKEN_STAGGER_BITE, KRAKEN_FOXFIRE_BURN_T, INK_HEART_VOLLEY_MUL,
+  KRAKEN_RISE_AT, KRAKEN_ENRAGE_AT, KRAKEN_ENRAGE_CADENCE, KRAKEN_ENRAGE_ARM_HP, KRAKEN_STAGGER_BITE, KRAKEN_FOXFIRE_BURN_T, OPEN_GUARD_TAKEN_MUL, HAIR_TRIGGER_DMG_MUL, HAIR_TRIGGER_T,
   KRAKEN_EXPOSE_BITE, KRAKEN_HITSTOP_PARRY, KRAKEN_HITSTOP_BREAK, KRAKEN_HITSTOP_STAGGER,
   KRAKEN_HEAD_TOUCH_DMG, KRAKEN_HEAD_HOLD, KRAKEN_HEAD_STEER, KRAKEN_DASH_RUNUP, KRAKEN_DASH_SPEED, KRAKEN_DASH_DIST, KRAKEN_DASH_PARRY_PX,
 
@@ -594,6 +594,7 @@ function stepAnomalies(run, dt) {
   const a = run.anomalies
   if (!a) return false
   if (a.berserk && run._berserkT > 0) run._berserkT = Math.max(0, run._berserkT - dt)
+  if (a.hairTrigger && run._hairTriggerT > 0) run._hairTriggerT = Math.max(0, run._hairTriggerT - dt)
   if (a.overload) {
     // PER SECOND, never per shot. Weapon cadence spans 0.5/s (a city beam) to 3.8/s (body) across
     // chapters — a 7.6x lottery — and "per shot" is undefined for a beam at all, so a per-fire cost
@@ -681,6 +682,8 @@ function anomalyDamageMul(run) {
   let mul = 1
   // BERSERK: a window, refreshed by every non-dot hit (hurtPlayer) and ticked down in stepAnomalies.
   if (a.berserk && run._berserkT > 0) mul *= BERSERK_DMG_MUL
+  // HAIR TRIGGER: a window opened by every landed Kraken parry (krakenParry), ticked in stepAnomalies.
+  if (a.hairTrigger && run._hairTriggerT > 0) mul *= HAIR_TRIGGER_DMG_MUL
   // STILLNESS: a ramp over run._stillT, which stepPlayerMovement resets on any INPUT (never on
   // velocity — pond's currents shove the player, so a velocity test would hard-counter the card in
   // exactly one chapter).
@@ -1663,7 +1666,7 @@ function krakenHeadSealed(run, enemy) {
 function stepKrakenScript(run, dt) {
   const p = run.player
   const s = run.script
-  const rung = krakenRung(run.difficulty)
+  const rung = krakenRungFor(run)
   if (!s.armsTotal) s.armsTotal = rung.arms
 
   const head = s.headId != null ? run.enemies.find((e) => e.id === s.headId && !e._dead) : null
@@ -3058,7 +3061,7 @@ function krakenParryShove(run) {
 // something or not").
 function krakenParryTarget(run) {
   const p = run.player
-  const rung = krakenRung(run.difficulty)
+  const rung = krakenRungFor(run)
   const s = run.script
   const head = run.enemies.find((e) => e.rosterId === 'krakenHead' && !e._dead)
 
@@ -3200,9 +3203,9 @@ function krakenParry(run) {
       // THE DEATHBLOW ITSELF. Through dealDamage rather than by writing hp, so it takes the one
       // damage path — including the death branch, the boss bar and the kill credit. staggerT is set
       // FIRST on purpose: the seal reads it, so this is the same window the player's weapons get.
-      if (!run.anomalies?.inkHeart) dealDamage(run, head, Math.round(head.maxHP * KRAKEN_STAGGER_BITE), false)
+      dealDamage(run, head, Math.round(head.maxHP * KRAKEN_STAGGER_BITE), false)
     }
-    inkHeartVolley(run, head)
+    if (run.anomalies?.hairTrigger) run._hairTriggerT = HAIR_TRIGGER_T
     return
   }
 
@@ -3248,32 +3251,7 @@ function krakenParry(run) {
     px: p.x, py: p.y,   // the SLAM is thrown from the fish; the snap above is on the arm
     i: best.i,          // which limb: render puts the spark and the recoil on the one it drew
   })
-  inkHeartVolley(run, head, best)
-}
-
-// INK HEART (ANOMALIES.inkHeart): every landed parry fires one hit of every weapon held straight
-// into the head, THROUGH the seal. Player damage multipliers apply; no crit, no elements — it is one
-// number, not a volley of rolls. Passed as `carried` because that is dealDamage's one seal bypass.
-// ponytail: one cast = dmg x count of the level row; a tick weapon (foxfire, sunlance) pays one tick.
-// Per-weapon cast shapes if the owner wants it to read the build more finely.
-// THE INK'S TARGET ON SCREEN: through the ring the head is not drawn at all (render hides it behind
-// its arms), so an arm parry sends the ink up that ARM to its shoulder, into the dark it comes from.
-function inkHeartVolley(run, head, arm = null) {
-  if (!run.anomalies?.inkHeart || !head || head._dead) return
-  const p = run.player
-  let sum = 0
-  for (const w of run.weapons) {
-    const st = effectiveWeaponStats(run, w)
-    sum += (st.dmg ?? 0) * (st.count ?? 1)
-  }
-  if (sum <= 0) return
-  const dmg = Math.round(sum * INK_HEART_VOLLEY_MUL * p.damageMul * (1 + run.passives.damage) * run.mods.playerDmgMul * anomalyDamageMul(run))
-  const up = arm && run.script?.phase !== 'chase'
-  run.events.push({ type: 'inkVolley', x: p.x, y: p.y, tx: up ? arm.lx0 : head.x, ty: up ? arm.ly0 : head.y })
-  const n0 = run.events.length
-  dealDamage(run, head, dmg, false, false, false, true)
-  // ...and so does its NUMBER: dealDamage prints it at head.x/y, which through the ring is open water.
-  if (up) for (let i = n0; i < run.events.length; i++) if (run.events[i].type === 'hit') { run.events[i].x = arm.x; run.events[i].y = arm.y }
+  if (run.anomalies?.hairTrigger) run._hairTriggerT = HAIR_TRIGGER_T
 }
 
 // v6.3.1: detonate k points of the player's trail as staggered telegraph bombs (oldest first,
@@ -5603,6 +5581,8 @@ function hurtPlayer(run, rawDmg, dot = false, src = null) {
   //   Applied to rawDmg, BEFORE armor, contactDmgTakenMul and HURT_CAP_FRAC, so it composes the way
   // every other incoming multiplier does and stays under the one-shot cap on the non-dot side.
   if (run.anomalies?.lastBreath && run.chargeMax > 0 && run.charge <= 0) rawDmg *= LAST_BREATH_DROWN_TAKEN_MUL
+  // OPEN GUARD's cost: the Kraken's own body only (arms incl. grabs and the Coil, the head). Adds are not it.
+  if (run.anomalies?.openGuard && (src === 'krakenArm' || src === 'krakenHead')) rawDmg *= OPEN_GUARD_TAKEN_MUL
   const dmg = dot
     ? Math.max(1, Math.round(rawDmg))
     // v6.3.4 anti-turtle: HURT_CAP_FRAC caps a single non-dot hit so multiplicative sources

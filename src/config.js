@@ -922,6 +922,16 @@ export const specialistSubjects = (run) => (run.weapons ?? [])
 export const TIGHT_WEAVE_TEAR_MUL = 0.3
 export const TIGHT_WEAVE_ENEMY_DMG_MUL = 2.2
 
+// ---- Open Guard / Hair Trigger (ANOMALIES.openGuard / hairTrigger, The Kraken): the parry flash,
+// stretched or squeezed. krakenRungFor applies the window; sim reads the rest.
+// balance_decision : first guesses, owner playtests [2026-10-07]
+//  - the two exclude each other (each `when`): holding both would cancel out
+export const OPEN_GUARD_WINDOW_MUL = 1.5   // x every parry window (arm, lunge, perfect)
+export const OPEN_GUARD_TAKEN_MUL = 1.5    // x damage from the Kraken's own body (krakenArm / krakenHead)
+export const HAIR_TRIGGER_WINDOW_MUL = 0.67
+export const HAIR_TRIGGER_DMG_MUL = 1.5    // x player damage while the boost is up
+export const HAIR_TRIGGER_T = 3            // s of boost per landed parry (refreshed, not stacked)
+
 export const ANOMALIES = {
   unstableCores: {
     name: 'Unstable Cores', icon: '💥',
@@ -1071,13 +1081,20 @@ export const ANOMALIES = {
     // an answer to it, before the run offers to turn the hazard up.
     minLevel: 10,
   },
-  inkHeart: {
-    // The Kraken's own card: the parry stops being the damage and becomes the trigger. Cost: a
-    // broken posture no longer bites the head (KRAKEN_STAGGER_BITE, most of a bot's head damage).
-    name: 'Ink Heart', icon: '🦑',
-    from: 'the ink finds its way in',
-    desc: 'Your parries no longer bite the Kraken\'s head, but fire all your attacks into it at once, wherever it is.',
-    when: () => true,
+  openGuard: {
+    // The Kraken's pair of parry cards: a wider flash paid for in the Kraken's own blows.
+    name: 'Open Guard', icon: '🛡️',
+    from: 'the ink gives you time',
+    desc: `The parry flash lasts ${Math.round((OPEN_GUARD_WINDOW_MUL - 1) * 100)}% longer, but the Kraken's blows hurt you ${Math.round((OPEN_GUARD_TAKEN_MUL - 1) * 100)}% more.`,
+    when: (run) => !run.anomalies?.hairTrigger,
+    weight: 2, chapter: 'kraken', kind: 'pivot',
+  },
+  hairTrigger: {
+    // ...and a narrower flash paid back as a damage window after every parry that lands.
+    name: 'Hair Trigger', icon: '⚡',
+    from: 'the ink is quicker than you',
+    desc: `The parry flash is ${Math.round((1 - HAIR_TRIGGER_WINDOW_MUL) * 100)}% shorter, but each parry makes your attacks deal ${Math.round((HAIR_TRIGGER_DMG_MUL - 1) * 100)}% more damage for ${HAIR_TRIGGER_T}s.`,
+    when: (run) => !run.anomalies?.openGuard,
     weight: 2, chapter: 'kraken', kind: 'pivot',
   },
 
@@ -9112,6 +9129,14 @@ export const KRAKEN_RUNGS = [
 export function krakenRung(difficulty) {
   return KRAKEN_RUNGS[Math.min(KRAKEN_RUNGS.length, Math.max(1, difficulty | 0)) - 1]
 }
+// The rung THIS run fights on: krakenRung with Open Guard / Hair Trigger applied to the windows.
+// sim and render both read it, so the flash drawn and the flash that counts are one number.
+export function krakenRungFor(run) {
+  const r = krakenRung(run.difficulty)
+  const a = run.anomalies
+  const m = a?.openGuard ? OPEN_GUARD_WINDOW_MUL : a?.hairTrigger ? HAIR_TRIGGER_WINDOW_MUL : 1
+  return m === 1 ? r : { ...r, window: r.window * m, lungeWindow: r.lungeWindow * m, perfect: r.perfect * m }
+}
 
 // ---- REVISION 3: THE LIMB IS THE WEAK POINT, AND THE PARRY IS WHAT EXPOSES IT ------------------
 // Rev 2 gated the head by an ANGULAR SECTOR measured player->head. It shipped, and the owner could
@@ -9179,9 +9204,6 @@ export const KRAKEN_HITSTOP_STAGGER = 0.15  // the head's posture breaks
 export const KRAKEN_STAGGER_BITE = 0.13 // of maxHP, dealt the instant the posture breaks
 // balance_decision : a foxfire lit on the open head outlives the stagger [2026-09-27]
 export const KRAKEN_FOXFIRE_BURN_T = 3.0 // s the head keeps burning after its last foxfire tick
-// balance_decision : a sidegrade, not a reward — break-even at d3 [2026-09-27]
-//  - a tick weapon's volley is one tick: a foxfire-only build loses the fight with it.
-export const INK_HEART_VOLLEY_MUL = 0.3 // x the summed per-cast damage of every weapon, per parry
 // THE PARRY TEARS AS WELL AS EXPOSES, for exactly the reason the stagger bites: without a floor,
 // progress is pure dps and a thin build does not have one. Measured at d3 with a level-1 weapon:
 // 156 parries broke TWO of six arms in 300s and the fight timed out. A parry is a skill move landing

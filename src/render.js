@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, BlurFilter, Buffer as PixiBuffer, BufferUsage, CanvasSource, Container, FillGradient, Filter, GlProgram, Graphics, Mesh, MeshGeometry, MeshPlane, MeshRope, Point, Rectangle, RenderTexture, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, BEAM_ENVELOPE, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, CIRCUIT_CAM_LEAD, CIRCUIT_CAM_EASE, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, drawdownSecsFor, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPUR_VIS, LANE_HALF_W, UPWELLING_VIS, FOUL_SPRING_VIS, FOUL_SPRING_FOUL_T, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, BRING_SNAP_T, SHOREBREAK_RADIUS, BURST_WAKE, burstWakeAt, DUST, dustVel, laneScrollFor, BALLAST_THROW_R, BALLAST_RING, ORCA_LEN, ORCA_CIRCLE_DUR, ORCA_RING_BAND, ORCA_FEAR_TELL, ORCA_HERD_GAP, CHUM_VIS, BILGE_TRAIL_VIS, OIL_STAIN_MAX, SLICK_FIRE_SPREAD_T, caveAt, laneHalfWidth, laneDrawSpan, CIRCUIT_GATE_VIS, ringXY, ringFU, ringRot, ringHeading, gateAnchorF, caveSpecOf, ORCA_RISE_DUR, ORCA_SPLASH_R, ORCA_AIM_W, ORCA_AIM_TELL, ORCA_WAKE_R, ORCA_OVERSHOOT,
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, HAIR_TRIGGER_T, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, BEAM_ENVELOPE, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, CIRCUIT_CAM_LEAD, CIRCUIT_CAM_EASE, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, drawdownSecsFor, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPUR_VIS, LANE_HALF_W, UPWELLING_VIS, FOUL_SPRING_VIS, FOUL_SPRING_FOUL_T, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, BRING_SNAP_T, SHOREBREAK_RADIUS, BURST_WAKE, burstWakeAt, DUST, dustVel, laneScrollFor, BALLAST_THROW_R, BALLAST_RING, ORCA_LEN, ORCA_CIRCLE_DUR, ORCA_RING_BAND, ORCA_FEAR_TELL, ORCA_HERD_GAP, CHUM_VIS, BILGE_TRAIL_VIS, OIL_STAIN_MAX, SLICK_FIRE_SPREAD_T, caveAt, laneHalfWidth, laneDrawSpan, CIRCUIT_GATE_VIS, ringXY, ringFU, ringRot, ringHeading, gateAnchorF, caveSpecOf, ORCA_RISE_DUR, ORCA_SPLASH_R, ORCA_AIM_W, ORCA_AIM_TELL, ORCA_WAKE_R, ORCA_OVERSHOOT,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
@@ -28,7 +28,7 @@ import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC
   SUNLANCE_GLOW,      // ...and a Sunlance, a strip of lit water along its line
   SLICK_SLOW_T, INK_STAIN_T, inLobe,  // The Wreck: the oil and the ink on you, on the glass and the skin
   // The Kraken: the ring's geometry and the per-rung parry windows the telegraph is drawn against
-  krakenRung, KRAKEN_RING_R, KRAKEN_ARM_R, KRAKEN_LIMB_HW, krakenLimbProf, krakenShoulderR, krakenLimbHalfW, KRAKEN_ARM_REACH, KRAKEN_LASH_R, KRAKEN_HEAD_R, KRAKEN_LASH_OVER, KRAKEN_LASH_W,
+  krakenRungFor, KRAKEN_RING_R, KRAKEN_ARM_R, KRAKEN_LIMB_HW, krakenLimbProf, krakenShoulderR, krakenLimbHalfW, KRAKEN_ARM_REACH, KRAKEN_LASH_R, KRAKEN_HEAD_R, KRAKEN_LASH_OVER, KRAKEN_LASH_W,
   KRAKEN_LUNGE_WINDUP_T,
   KRAKEN_PARRY_SPIN_T, KRAKEN_PARRY_MARGIN,
   KRAKEN_RISE_T, KRAKEN_COIL_DUR, KRAKEN_COIL_TELE, KRAKEN_COIL_RAYS, KRAKEN_COIL_STAR_R, KRAKEN_PARRY_CD, KRAKEN_CAGE_R, KRAKEN_LIMP_FLASH,
@@ -22255,7 +22255,7 @@ void main() {
   function drawKrakenNow(run, dt) {
     const p = run.player
     const G = krakenGripFrontG
-    const rung = run.script ? krakenRung(run.difficulty) : null
+    const rung = run.script ? krakenRungFor(run) : null
     // ONE GLYPH PER ARM IN ITS WINDOW (two slams can overlap), each drawn only while a press would
     // reach that arm — the same reach sim's krakenArmInReach tests, every frame, so stepping off the
     // line takes the glyph away and the glyph can never promise a parry the press would not make.
@@ -22547,7 +22547,7 @@ void main() {
     krakenHead = head
     krakenHeadUp = s.phase === 'chase' ? head : null
     const p = run.player
-    const rung = krakenRung(run.difficulty)
+    const rung = krakenRungFor(run)
     const breathe = 0.5 + 0.5 * Math.sin(animT * 1.1)
     {
       const threat = run.krakenArms.some((a) => !a.dead && a.tele > 0 && !a.grabArm && !a.coilArm && !(a.limpT > 0) && krakenArmNear(run, a))
@@ -22777,7 +22777,7 @@ void main() {
     const head = krakenHead
     const arms = head ? run.krakenArms.filter((a) => !a.dead || a.breakT > 0) : []
     if (!head) krakenTipE.length = 0 // no fight on: the next ring starts from its own tips, not the last one's
-    const rung = head ? krakenRung(run.difficulty) : null
+    const rung = head ? krakenRungFor(run) : null
     for (let i = 0; i < arms.length; i++) {
       const a = arms[i]
       const rig = krakenRopes[i] || acquireRope()
@@ -24244,7 +24244,7 @@ void main() {
     rig.root.visible = true
     if (rig.body.texture !== T.krakenBody.tex) { rig.body.texture = T.krakenBody.tex; rig.body.anchor.set(T.krakenBody.ax, T.krakenBody.ay) }
     if (rig.flash.texture !== T.krakenBodyWhite.tex) { rig.flash.texture = T.krakenBodyWhite.tex; rig.flash.anchor.set(T.krakenBodyWhite.ax, T.krakenBodyWhite.ay) }
-    const rung = krakenRung(run.difficulty)
+    const rung = krakenRungFor(run)
     const k = dt || 0
     const stag = s.staggerT > 0
     kc.stagPeak = stag ? Math.max(kc.stagPeak, s.staggerT) : 0
@@ -28737,17 +28737,6 @@ void main() {
             spawnParticle(T.fx.flare_01, lx, ly, 0, 0, 0.18, 0.08, 0xffe94d, -0.1, 0)
           }
           break
-        case 'inkVolley':
-          // INK HEART: the parry's volley pours from the fish into the head. Ink core with a pale
-          // edge — near-black alone vanishes on this chapter's floor (see 'inkjet').
-          spawnArc([[e.x, e.y], [e.tx, e.ty]], 0x9fc3cf, 0x140c24, 0.45, 16, 1)
-          for (let i = 0; i < 10; i++) {
-            const a = Math.random() * Math.PI * 2
-            const sp = 60 + Math.random() * 90
-            spawnParticle(T.fx.circle_05, e.tx, e.ty, Math.cos(a) * sp, Math.sin(a) * sp,
-              0.3 + Math.random() * 0.2, 0.12 + Math.random() * 0.06, i % 3 ? 0x140c24 : 0x9fc3cf, 0.5, 3)
-          }
-          break
         case 'ignitejump':
           // Fire spreading from a burning body to the next one. The event carried (x,y)->(tx,ty)
           // from the day it was written and nothing ever drew it, so on screen a second enemy
@@ -28879,7 +28868,7 @@ void main() {
           const near = krakenLimbNear(e.i, e.px, e.py) || e
           const ang = Math.atan2(near.y - e.py, near.x - e.px)
           const ea = run.krakenArms.find((q) => q.i === e.i)
-          krakenEarly = { i: e.i, ang, t: 0, r0: ea ? krakenNowR(ea, krakenRung(run.difficulty)) : K_NOW_LEAD }
+          krakenEarly = { i: e.i, ang, t: 0, r0: ea ? krakenNowR(ea, krakenRungFor(run)) : K_NOW_LEAD }
           addKick(-Math.cos(ang), -Math.sin(ang), 0.006)
           break
         }
@@ -29419,9 +29408,13 @@ void main() {
     // after), as a 0..1 — so the stain on the skin IS the slow, made visible.
     const foul = clamp01((run._foulT ?? 0) / SLICK_SLOW_T)
     // Still null when nothing is on — the common case, and the one that must cost nothing.
-    if ((!a || (!a.berserk && !a.stillness)) && !foul) return null
+    if ((!a || (!a.berserk && !a.stillness && !a.hairTrigger)) && !foul) return null
+    // HAIR TRIGGER's boost runs hot on the same skin as Berserk's: same animal, same tell.
+    const heat = Math.max(
+      a?.berserk ? clamp01((run._berserkT ?? 0) / BERSERK_DURATION) : 0,
+      a?.hairTrigger ? clamp01((run._hairTriggerT ?? 0) / HAIR_TRIGGER_T) : 0)
     return {
-      berserk: a?.berserk ? clamp01((run._berserkT ?? 0) / BERSERK_DURATION) : 0,
+      berserk: heat,
       still: a?.stillness ? clamp01((run._stillT ?? 0) / STILLNESS_RAMP) : 0,
       foul,
     }

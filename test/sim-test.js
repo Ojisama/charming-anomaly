@@ -169,7 +169,7 @@ import {
   // The Trawl's late-game cut (run TJ)
   lateSpawnMulAt, SPAWN_LATE_BLEND, SPAWN_LATE_START,
   // The Kraken (run KR): the rung table and the ring's numbers
-  krakenRung, KRAKEN_RUNGS, KRAKEN_ARM_REACH, KRAKEN_WAVE_TIMEOUT, KRAKEN_STAGGER_BITE,
+  krakenRung, krakenRungFor, OPEN_GUARD_WINDOW_MUL, HAIR_TRIGGER_WINDOW_MUL, HAIR_TRIGGER_DMG_MUL, KRAKEN_RUNGS, KRAKEN_ARM_REACH, KRAKEN_WAVE_TIMEOUT, KRAKEN_STAGGER_BITE,
   KRAKEN_RISE_T, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, hiddenChapters, KRAKEN_CAGE_R, KRAKEN_PARRY_CD,
   KRAKEN_OPEN_WAVES, KRAKEN_COIL_EVERY, KRAKEN_COIL_AT, KRAKEN_COIL_RAYS, KRAKEN_ENRAGE_AT, KRAKEN_ARRIVE_T, KRAKEN_RING_R, KRAKEN_LASH_R, KRAKEN_SLAM_T, KRAKEN_DEFLECT_CD,
   KRAKEN_LUNGE_T, KRAKEN_GRIP_DUR, KRAKEN_GRIP_DMG, KRAKEN_GRIP_FLICKS, KRAKEN_GRIP_STICK_MUL, TRAWL_WIGGLE_ARC,
@@ -36009,13 +36009,74 @@ function runKraken() {
     assert.ok(h.hp < hp0, 'the head stopped burning when the window shut — the foxfire burn did not outlive the stagger')
   }
 
-  // (g3) INK HEART (ANOMALIES.inkHeart). A broken posture no longer bites the head, and every
-  // landed parry fires one hit of each held weapon into the head THROUGH the seal. Four arms: the
-  // bite with and without the card (no weapons, so no volley), then one lunge parry on a still
-  // SEALED head with and without it.
+  // (g3) OPEN GUARD / HAIR TRIGGER (ANOMALIES.openGuard / hairTrigger): the parry flash stretched or
+  // squeezed. Each arm is an EFFECT: a press that lands or whiffs, HP lost, damage dealt.
   {
     const rung = krakenRung(1)
-    function chaseHead(ink, weapons) {
+    const armParry = (cards, tele) => {
+      const run = inBlock(1)
+      run.anomalies = cards
+      const arm = run.krakenArms[0]
+      parryAt(run, arm, tele)
+      return arm.limpT > 0
+    }
+    // the window: a press just OUTSIDE the plain flash lands only with Open Guard, one just INSIDE
+    // it whiffs with Hair Trigger
+    const late = rung.window * (1 + OPEN_GUARD_WINDOW_MUL) / 2
+    const early = rung.window * (1 + HAIR_TRIGGER_WINDOW_MUL) / 2
+    assert.strictEqual(armParry({}, late), false, 'a press outside the plain flash landed — the Open Guard arm measures nothing')
+    assert.strictEqual(armParry({ openGuard: true }, late), true, 'Open Guard is held and a press inside its wider flash whiffed — the sim never read krakenRungFor')
+    assert.strictEqual(armParry({}, early), true, 'a press inside the plain flash whiffed — the Hair Trigger arm measures nothing')
+    assert.strictEqual(armParry({ hairTrigger: true }, early), false, 'Hair Trigger is held and a press outside its narrower flash still landed')
+    assert.ok(!/krakenRung\(run\.difficulty\)/.test(readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')),
+      'render.js reads krakenRung(run.difficulty): the flash it DRAWS ignores Open Guard / Hair Trigger, so the one it shows is not the one that counts')
+
+    // Open Guard's cost: an unparried slam hurts more; an add's bite does not
+    const R0 = Math.random
+    const slam = (cards) => {
+      Math.random = mulberry32(711)
+      const run = inBlock(1)
+      run.anomalies = cards
+      const arm = run.krakenArms[0]
+      for (const a of run.krakenArms) { a.tele = 0; a.gripT = 0 }
+      arm.tele = 1 / 120
+      arm.fuse = rung.fuse
+      run.player.x = arm.x; run.player.y = arm.y
+      run.player.hp = run.player.maxHP; run.player.invuln = 0
+      run.events.length = 0
+      stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+      assert.strictEqual(run.events.filter((e) => e.type === 'lash').length, 1, 'the slam never struck — this arm measured nothing')
+      return run.player.maxHP - run.player.hp
+    }
+    const slamOff = slam({}), slamOn = slam({ openGuard: true })
+    assert.ok(slamOff > 0 && slamOn > slamOff, `an unparried slam took ${slamOff} without Open Guard and ${slamOn} with it — the card's cost is not paid`)
+    const addBite = (cards) => {
+      Math.random = mulberry32(712)
+      // the opening waves: adds and no arms yet
+      const run = createRun({ ...makeMeta(), krakenParried: true }, { chapter: 'kraken', difficulty: 1 })
+      const isAdd = (e) => !e._dead && e.rosterId !== 'krakenArm' && e.rosterId !== 'krakenHead' && (e.dmg ?? 0) > 0
+      let add = null
+      for (let i = 0; i < 60 * 30 && !add; i++) {
+        run.player.hp = run.player.maxHP
+        stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+        while (run.phase === 'levelup') declineLevelUp(run)
+        add = run.enemies.find(isAdd)
+      }
+      assert.ok(add, 'no add on the field to bite — the "adds are not it" arm measures nothing')
+      run.anomalies = cards
+      run.player.x = add.x; run.player.y = add.y
+      run.player.hp = run.player.maxHP; run.player.invuln = 0
+      run.events.length = 0
+      stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+      const hurt = run.events.filter((e) => e.type === 'hurt' && e.src === add.rosterId)
+      assert.ok(hurt.length > 0, 'the add touched the player and nothing hurt — this arm measured nothing')
+      return hurt.reduce((t, e) => t + e.dmg, 0)
+    }
+    assert.strictEqual(addBite({ openGuard: true }), addBite({}), 'Open Guard made an ADD hit harder — the cost is the Kraken\'s own blows only')
+
+    // Hair Trigger's reward: weapon damage on the staggered head, boost up vs the same run with it spent
+    const openHeadDmg = (boost) => {
+      Math.random = mulberry32(713)
       const run = inBlock(1)
       for (const a of run.krakenArms) { a.dead = true; a.limpT = 0; a.nodeId = null }
       let guard = 0
@@ -36024,57 +36085,34 @@ function runKraken() {
       for (let i = 0; i < 60 * 10 && !h; i++) { run.player.hp = run.player.maxHP; stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60); h = headOf(run) }
       assert.ok(h, 'the head never rose for the chase')
       h.maxHP = h.hp = 1e9
-      run.weapons = weapons
-      run.anomalies = ink ? { inkHeart: true } : {}
+      run.weapons = [{ id: 'skippingShell', level: 5 }, { id: 'sunspear', level: 5 }, { id: 'sunlance', level: 5 }]
+      run.anomalies = { hairTrigger: true }
       run.enemies = run.enemies.filter((e) => e === h)
-      return { run, h }
-    }
-    function lungeParry(run, h) {
-      h._lungeBurst = KRAKEN_DASH_DIST; h._dashT = rung.lungeWindow * 0.5
-      h.dashAng = Math.atan2(run.player.y - h.y, run.player.x - h.x)
-      run.repulseCd = 0
-      run.player.hp = run.player.maxHP
-      run.events.length = 0
-      stepSim(run, { x: 0, y: 0, skill: true }, 1 / 60)
-    }
-    const breakHp = (ink) => {
-      const { run, h } = chaseHead(ink, [])
+      const lw = krakenRungFor(run).lungeWindow
+      for (let k = 0; k < rung.staggerNeed; k++) {
+        h._lungeBurst = KRAKEN_DASH_DIST; h._dashT = lw * 0.5
+        h.dashAng = Math.atan2(run.player.y - h.y, run.player.x - h.x)
+        run.repulseCd = 0
+        run.player.hp = run.player.maxHP
+        stepSim(run, { x: 0, y: 0, skill: true }, 1 / 60)
+      }
+      assert.ok(run.script.staggerT > 0, 'the posture did not break — the Hair Trigger arm measures nothing')
+      assert.strictEqual(1e9 - h.hp, Math.round(1e9 * KRAKEN_STAGGER_BITE), 'Hair Trigger is held and the broken posture did not bite exactly KRAKEN_STAGGER_BITE — the card must leave the bite alone')
+      if (!boost) run._hairTriggerT = 0
       const hp0 = h.hp
-      for (let k = 0; k < rung.staggerNeed; k++) lungeParry(run, h)
-      assert.ok(run.script.staggerT > 0, 'the posture did not break — the bite arm measures nothing')
+      // 2s, inside both the 3s boost and the 4.5s stagger; parked on the head like the window probe above
+      for (let i = 0; i < 60 * 2; i++) {
+        run.player.x = h.x + 30; run.player.y = h.y
+        run.player.hp = run.player.maxHP
+        stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+      }
       return hp0 - h.hp
     }
-    const bite = Math.round(1e9 * KRAKEN_STAGGER_BITE)
-    assert.strictEqual(breakHp(false), bite, 'without Ink Heart a broken posture must bite exactly KRAKEN_STAGGER_BITE')
-    assert.strictEqual(breakHp(true), 0, 'Ink Heart is held and the broken posture still BIT the head — the card costs nothing')
-    const oneParry = (ink) => {
-      const { run, h } = chaseHead(ink, [{ id: 'sunspear', level: 5 }])
-      const hp0 = h.hp
-      lungeParry(run, h)
-      assert.ok(!(run.script.staggerT > 0), 'one parry broke the posture — the seal arm is not measuring a sealed head')
-      return { dmg: hp0 - h.hp, ev: run.events.filter((e) => e.type === 'inkVolley').length }
-    }
-    const on = oneParry(true), off = oneParry(false)
-    assert.strictEqual(off.dmg, 0, 'without Ink Heart a parry hurt a SEALED head')
-    assert.strictEqual(off.ev, 0, 'an inkVolley fired without the card')
-    assert.ok(on.dmg > 0, 'Ink Heart is held and a parry put nothing into the sealed head — the volley does not pass the seal')
-    assert.strictEqual(on.ev, 1, 'the volley landed with no inkVolley event — it is invisible')
-  }
-
-  // (g3b) THROUGH THE RING THE HEAD IS NOT DRAWN, so an Ink Heart arm parry must not print its
-  // number at head.x/y (open water — the class the deflect gate exists for). It goes on the arm.
-  {
-    const run = inBlock(1)
-    const h = headOf(run)
-    h.maxHP = h.hp = 1e9
-    run.weapons = [{ id: 'sunspear', level: 5 }]
-    run.anomalies = { inkHeart: true }
-    run.events.length = 0
-    const hp0 = h.hp
-    parryAt(run, run.krakenArms[0], krakenRung(1).window * 0.5)
-    assert.ok(h.hp < hp0, 'the ring-phase arm parry put no volley into the head — this arm measures nothing')
-    const atHead = run.events.filter((e) => e.type === 'hit' && Math.hypot(e.x - h.x, e.y - h.y) < KRAKEN_HEAD_R * 1.5)
-    assert.strictEqual(atHead.length, 0, `${atHead.length} damage number(s) printed on the undrawn head through the ring — they float in open water`)
+    const plain = openHeadDmg(false), boosted = openHeadDmg(true)
+    Math.random = R0
+    assert.ok(plain > 0, 'no weapon damage reached the open head in 2s — the Hair Trigger arm measures nothing')
+    const ratio = boosted / plain
+    assert.ok(Math.abs(ratio - HAIR_TRIGGER_DMG_MUL) < 0.1, `Hair Trigger's boost dealt x${ratio.toFixed(2)} on the open head, not x${HAIR_TRIGGER_DMG_MUL}`)
   }
 
   // (g4) THE NAMED LADDER READS THE RUNG TABLE. A chip is a name for a column of KRAKEN_RUNGS; a
@@ -37083,7 +37121,7 @@ function runKraken() {
       'a WHIFF left the player with no gesture — a press that found nothing and a press the game never registered are the same picture, which is the complaint')
   }
 
-  console.log('PASS run KR (The Kraken, rev 3): a standing arm is untouchable by all three weapons and puts nothing on the field, a parry makes it LIMP and materialises a real enemy at its tip that weapons do kill, a window closing takes that node away without paying a kill or xp and keeps the damage, finishing it breaks the arm for good, the ring never winds up more arms at once than its rung allows (d1/d2/d3), the head is sealed against hits AND burns until its posture breaks, staggerNeed parried lunges open the only window on it and a burn lit inside outlives it, a whiff reports itself and still pays the cooldown, the cage holds while the ring is up, all 3 rungs read arms/rearing/window/perfect/fuse/limp/cadence/staggerNeed with the windows nested, both hidden chapters resolve through HIDDEN_UNLOCKS with no id hardcoded in main/ui/state, the approach is 3 waves that never touch bossIdx and the ring closes in from the murk with the cage riding it, a sealed head answers every refused hit with a throttled deflect, an unparried slam holds its pose for KRAKEN_SLAM_T and lands down the WHOLE limb so the middle of the arena is not safe while a gap between two arms is, and render.js (comments stripped) reads limpT, fuse, hitT, slamT, the arrival ramp, the recorded arm tips, the stagger pips, the cage radius the sim published, the limb WRAPPING the player for a grip and the bend travelling down a striking limb; the chase head rises harmless (no bite during riseT), its touch is a BITE with a KRAKEN_BITE_WINDUP_T lead that stepping out beats, quiet through a Coil and a lunge wind-up, never within KRAKEN_BITE_GAP of a lunge wind-up, and render.js reads the struggle counter, the Coil gap and the head-touch hurt for the fish\'s three cues; a foxfire on the open head lights a burn that carries the player\'s damage and outlives the window (and lights nothing sealed), Ink Heart removes the stagger bite and puts a visible volley through the seal on every parry, the named ladder agrees with KRAKEN_RUNGS rung by rung, and the Kraken starts on the Sunlance with no Light bar and no Glint')
+  console.log('PASS run KR (The Kraken, rev 3): a standing arm is untouchable by all three weapons and puts nothing on the field, a parry makes it LIMP and materialises a real enemy at its tip that weapons do kill, a window closing takes that node away without paying a kill or xp and keeps the damage, finishing it breaks the arm for good, the ring never winds up more arms at once than its rung allows (d1/d2/d3), the head is sealed against hits AND burns until its posture breaks, staggerNeed parried lunges open the only window on it and a burn lit inside outlives it, a whiff reports itself and still pays the cooldown, the cage holds while the ring is up, all 3 rungs read arms/rearing/window/perfect/fuse/limp/cadence/staggerNeed with the windows nested, both hidden chapters resolve through HIDDEN_UNLOCKS with no id hardcoded in main/ui/state, the approach is 3 waves that never touch bossIdx and the ring closes in from the murk with the cage riding it, a sealed head answers every refused hit with a throttled deflect, an unparried slam holds its pose for KRAKEN_SLAM_T and lands down the WHOLE limb so the middle of the arena is not safe while a gap between two arms is, and render.js (comments stripped) reads limpT, fuse, hitT, slamT, the arrival ramp, the recorded arm tips, the stagger pips, the cage radius the sim published, the limb WRAPPING the player for a grip and the bend travelling down a striking limb; the chase head rises harmless (no bite during riseT), its touch is a BITE with a KRAKEN_BITE_WINDUP_T lead that stepping out beats, quiet through a Coil and a lunge wind-up, never within KRAKEN_BITE_GAP of a lunge wind-up, and render.js reads the struggle counter, the Coil gap and the head-touch hurt for the fish\'s three cues; a foxfire on the open head lights a burn that carries the player\'s damage and outlives the window (and lights nothing sealed), Open Guard widens the flash and its cost hits only the Kraken\'s blows, Hair Trigger narrows it and boosts weapons after a parry without touching the bite, the named ladder agrees with KRAKEN_RUNGS rung by rung, and the Kraken starts on the Sunlance with no Light bar and no Glint')
 }
 
 // ---- Run KC: The Kraken's ceremony (the kill outro's contract) --------------------------------
