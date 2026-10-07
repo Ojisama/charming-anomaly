@@ -9060,15 +9060,12 @@ CHAPTERS.geode = {
 }
 
 // ---- The Kraken (hidden boss — the tuning block, sim.js's stepKrakenScript owns the flow) -------
-// REVISION 2 (2026-09-13). An arm is a LOCK AND A DOOR, not an enemy:
-//   - only a PARRY damages it (no weapon can, at any rung — the owner's "no floor anywhere" ruling);
-//   - a parry holds that arm's SECTOR open until it winds up again, and a BROKEN arm's sector is
-//     open for good. The head takes damage only from inside an open sector, measured player->head.
-// Rev 1 made an arm an ordinary roster enemy with a big HP pool and softened head damage by a live
-// COUNT of standing arms. It failed structurally, not numerically: the player's thirty-eight
-// weapons deleted the ring (6.7 of 8 arms died inside the breather waves on D3, measured), so the
-// parry was decoration. Arm HP is a slider between "shoot them off" and "bullet sponge" with no
-// value in between that makes parrying correct. See the design doc's post-mortem:
+// THE PARRY OPENS, THE BUILD KILLS:
+//   - an ARM is sealed until a parry makes it limp (KRAKEN_EXPOSE_BITE tears it on that parry);
+//     while limp, weapons damage it (KRAKEN_ARM_HP). Broken arms let the head rise (KRAKEN_RISE_AT).
+//   - the HEAD is sealed (krakenHeadSealed) except while staggered: parried dashes fill its
+//     posture, the break bites KRAKEN_STAGGER_BITE, then weapons hit it for KRAKEN_STAGGER_T.
+// The design doc predates most of the tuning; this block and the code are the source of truth:
 // docs/superpowers/specs/2026-09-09-the-kraken-final-boss-design.md
 //
 // THE RUNG TABLE IS THE DIFFICULTY, and it is read (`krakenRung`). Rev 1 shipped this same table as
@@ -9084,7 +9081,8 @@ export const KRAKEN_RUNGS = [
   //    windup, so doubling it roughly halves how many slams a fight contains. `cadence` was left
   //    alone deliberately — measure before compensating.
   //  - `rearing` IS THE READABILITY KNOB and the most important number in this table. It caps how
-  //    many arms may be winding up AT ONCE. Rev 2 had no such cap — every arm ran its own clock, so
+  //    many arms may be winding up AT ONCE for a parryable attack (slam, grab). The Coil is exempt by
+  //    design: it rears up to KRAKEN_COIL_RAYS arms together as ONE attack, answered by moving. Rev 2 had no such cap — every arm ran its own clock, so
   //    2.2 of 8 were rearing on average and 4 at the peak, and the owner's verdict was "the arms all
   //    attack too simultaneously". You cannot read four telegraphs; you can read one.
   //  - difficulty is bought with SHORTER WINDOWS and MORE PATTERNS, never with a less legible
@@ -9104,7 +9102,7 @@ export const KRAKEN_RUNGS = [
   // balance_decision : arms attack 20% more often, owner 2026-09-26
   //  - measure POOLED over 48 seeds (kraken-probe --cadence): per-fight rates swing +-30%
   // balance_decision : 3 more arms every rung, owner 2026-09-27
-  //  - the Coil still takes at most KRAKEN_COIL_RAYS (6) of them at once
+  //  - the Coil still takes at most KRAKEN_COIL_RAYS of them at once
   { arms: 7, rearing: 1, window: 0.34, lungeWindow: 0.52, perfect: 0.150, fuse: 2.20, limp: 4.0, cadence: 2.55, staggerNeed: 2, headHpMul: 1.00, grip: false, coil: false, grabbers: 0 },
   { arms: 8, rearing: 2, window: 0.28, lungeWindow: 0.46, perfect: 0.125, fuse: 1.80, limp: 3.2, cadence: 1.45, staggerNeed: 3, headHpMul: 1.02, grip: true,  coil: false, grabbers: 2 },
   { arms: 9, rearing: 2, window: 0.24, lungeWindow: 0.42, perfect: 0.110, fuse: 1.50, limp: 2.6, cadence: 1.45, staggerNeed: 3, headHpMul: 1.30, grip: true,  coil: true,  grabbers: 2, enrageArms: 3, enrageRearing: 3, enrageCoilEvery: 8, enrageCoilAt: 6, enrageCadence: 0.45, enrageFree: true },
@@ -9177,8 +9175,7 @@ export const KRAKEN_HITSTOP_STAGGER = 0.15  // the head's posture breaks
 // weapon finished in 5 staggers and a level-2 one needed 13-17 and ran to 240s, which is the same
 // fight told twice as slowly and half as well. The deathblow is the boss's own number, so a thin
 // build still visibly takes the thing apart, and the window on top is where a real build shows.
-//   Solved as a pair: bite x staggers must bracket both ends. At 10% of the pool the range is
-// 4.9 staggers for a strong build and 7.5 for a weak one — one fight, told at one pace.
+// Bite and KRAKEN_HEAD_HP are a pair: retune one, re-measure staggers per fight with a real build.
 export const KRAKEN_STAGGER_BITE = 0.13 // of maxHP, dealt the instant the posture breaks
 // balance_decision : a foxfire lit on the open head outlives the stagger [2026-09-27]
 export const KRAKEN_FOXFIRE_BURN_T = 3.0 // s the head keeps burning after its last foxfire tick
@@ -9439,9 +9436,9 @@ export const KRAKEN_DASH_DIST = 480 // px the charge covers: the run-up, through
 // the parry window is the last rung.lungeWindow x this px of gap before the jaws reach the fish
 // (d3 ~110px, d1 ~136px): "close" is a head-length, not the arena
 export const KRAKEN_DASH_PARRY_PX = 262
-// THE COIL (P3, D3 only). Every Nth arm attack the whole ring hauls inward at once, and the only
-// place that is not swept is ONE sector — the gap. NOT PARRYABLE by design: the parry must not be
-// the answer to everything, or it stops being a choice. You read the gap and you move.
+// THE COIL (D3 from the second block, D2 once enraged). Every Nth arm attack up to KRAKEN_COIL_RAYS
+// arms slam together along a star of bands; the wedges between them are safe. NOT PARRYABLE by
+// design: the parry must not be the answer to everything. You read the gaps and you move.
 // balance_decision : a coil every 4th turn, on a slam's, owner 2026-09-26
 //  - keep EVERY a multiple of KRAKEN_GRIP_EVERY and AT off it, or the coil eats the grabs
 export const KRAKEN_COIL_EVERY = 4 // arm attacks between coils

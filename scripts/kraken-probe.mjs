@@ -3,7 +3,7 @@
 // been committed, so every number quoted about this fight — win rates, open-window shares, the
 // whole balance table in the design doc — could not be re-run by anyone, including me.
 //
-//   node scripts/kraken-probe.mjs --diff 3 --level 3 --weapon skippingShell
+//   node scripts/kraken-probe.mjs --diff 3 --level 3            (weapon: the chapter's starter)
 //   node scripts/kraken-probe.mjs --diff 1 --level 1 --seeds 11,22,33
 //
 // WHY scripts/weapon-census.mjs CANNOT DO THIS. Its bot does not parry, and under rev 3 a parry is
@@ -18,8 +18,11 @@
 //     truth is between them. Quote both or neither.
 //   - Survival is not what this measures; a weapon that gets the player killed would
 //     otherwise score its own short run as low output for entirely the wrong reason.
-//   - It parries EVERY window it is offered, so it is a CEILING on player skill, not a model of
-//     one. Fight lengths off this rig are the fastest a human could manage, never the median.
+//   - It parries EVERY window it is offered, so it is a CEILING on parry skill, not a model of one.
+//   - ONE WEAPON, NO MODS: it CANNOT judge build impact or fight length. A real build kills the
+//     limp arms and the open head far faster, so "always N staggers" or "the fight takes 6 min"
+//     off this rig describes the rig (owner, 2026-10-07: "the weapons do matter"). Quote only
+//     per-mechanic counts from it: parries per window, rearing, staggers per posture, hitboxes.
 //   - It stands on whatever limb its last parry opened, which is rev 3's actual loop: the parry
 //     opens the limb and the player's own build kills it.
 //   - Every distance is measured off KRAKEN_ARM_REACH and PRINTED. This boss has twice had a rig
@@ -36,7 +39,7 @@ const arg = (k, d) => { const i = process.argv.indexOf('--' + k); return i < 0 ?
 const DIFF = Number(arg('diff', 3))
 const LEVEL = Number(arg('level', 3))
 const SECS = Number(arg('secs', 300))
-const WEAPON = arg('weapon', 'skippingShell')
+const WEAPON = arg('weapon', C.CHAPTERS.kraken.starter)
 // --parry P: the bot answers each arm's wind-up with probability P, decided once per wind-up on its
 // own RNG so the sim's stream is not re-phased by it. 1 = the ceiling rig; below 1 slams LAND, which
 // is the only way to measure the slam's own hitbox (at 1 nearly every plain slam is parried).
