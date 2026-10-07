@@ -20,6 +20,7 @@
 
 import { spawnSync } from 'node:child_process'
 import assert from 'node:assert'
+import { pathToFileURL } from 'node:url'
 
 const VERSION_RE = /^v(\d+)\.(\d+)(?:\.(\d+))?(?=[:\s]|$)/
 
@@ -122,4 +123,6 @@ function main() {
   }
 }
 
-main()
+// Only when RUN, never when imported: nextVersion is exported, and an import used to ship HEAD
+// with the importer's argv as its subject (2026-10-07, v7.422.0).
+if (import.meta.url === pathToFileURL(process.argv[1]).href) main()
