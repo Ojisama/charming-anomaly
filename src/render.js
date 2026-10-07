@@ -4782,8 +4782,8 @@ export function createRenderer(app) {
   // arena and see the cut at the base of the tentacle, it's unprofessional." Shot standing on the
   // cage wall at 1280x800, the nearest shoulder is 270 world px from the player against a 640px
   // half-viewport — 42% of the way in, not a corner case — and it is a sliced sausage end hanging
-  // in open water. The first 12% now runs out to a wisp, and syncKrakenArms pushes the shoulder far
-  // enough past the ring that the wisp is in the murk where nothing can stand.
+  // in open water. The base end is now never in frame: krakenSpineAtTail stretches the rope's first
+  // 12% K_TAIL_PX out along the arm's bearing, so the arm runs on past every screen edge.
   const K_LIMB_PROF = krakenLimbProf   // config.js: sim strikes with this same silhouette
   // HOW A ROUND, WET LIMB IS LIT — and the ONLY copy of it, because the strip is baked once and a
   // gripping arm is drawn as vector every frame, and those two drifting apart is last release's
@@ -22741,6 +22741,24 @@ void main() {
   }
   // position and left normal at fraction t of the spine's length (normal = the old radial one for a
   // straight arm: direction (dx,dy) -> (dy,-dx))
+  // THE BASE RUNS OFF-SCREEN (owner, 2026-10-07: "the arms should be longer because you can see their
+  // edges" — from the chase cage's wall, 700px out, the wisp at the shoulder was on screen). The first
+  // K_TAIL_T of the rope (the wisp) is stretched K_TAIL_PX further out along the arm's own bearing;
+  // from K_TAIL_T on, every rope point is exactly where it was, so the width on the struck stretch —
+  // the sim's hitbox, krakenLimbHalfW, which starts past t ~0.2 (ring -> tip) — does not move.
+  const K_TAIL_T = 0.12      // the wisp: krakenLimbProf's base taper ends here
+  const K_TAIL_PX = 1600     // past any viewport from the chase cage's wall
+  // EASED, NOT LINEAR: the rope's texture runs by point index, so a linear stretch spread the wisp's
+  // suckers ~10x long right at the join, on screen. a*s matches the rope's own spacing at the join
+  // and b*s^6 does the stretching further out, off-screen (s^3 doubled the second segment, on screen).
+  function krakenSpineAtTail(t, ox, oy) {
+    if (t >= K_TAIL_T) return krakenSpineAt(t)
+    krakenSpineAt(K_TAIL_T)
+    const sN = 1 - t / K_TAIL_T
+    const a = K_TAIL_T * (kSpN > 1 ? kSpL[kSpN - 1] : 0), b = Math.max(0, K_TAIL_PX - a)
+    const off = a * sN + b * Math.pow(sN, 6)
+    kSpOx += ox * off; kSpOy += oy * off
+  }
   function krakenSpineAt(t) {
     if (kSpN < 2) { kSpOx = kSpX[0] || 0; kSpOy = kSpY[0] || 0; kSpOnx = 0; kSpOny = 1; return }
     const want = t * kSpL[kSpN - 1]
@@ -22900,8 +22918,8 @@ void main() {
         let Tx = te.x - ux * pull, Ty = te.y - uy * pull
         if (crack > 0) {
           let Cx = head.x + ca * KRAKEN_HEAD_R * 0.75, Cy = head.y + sa * KRAKEN_HEAD_R * 0.75
-          if (a.aimed && !a.coilArm) {
-            // down the aimed lane to its end, but never onto a head that is up
+          if ((a.aimed && !a.coilArm) || (a.coilArm && a.coilCX != null)) {
+            // down the aimed lane (or the Coil's lane, through the star's centre) to its end, but never onto a head that is up
             const L = Math.hypot(a.lx1 - a.lx0, a.ly1 - a.ly0) || 1
             const lx = (a.lx1 - a.lx0) / L, ly = (a.ly1 - a.ly0) / L
             const dTip = (te.x - a.lx0) * lx + (te.y - a.ly0) * ly
@@ -22949,7 +22967,7 @@ void main() {
         // a landed limb lies within a third of the lane's half-width of its spine, so the flesh on the
         // floor IS the struck ground (the capsule lx0..lx1, KRAKEN_LASH_W either side)
         if (onLine > 0) { const cap = latCap; lat = lat * (1 - onLine) + Math.max(-cap, Math.min(cap, lat)) * onLine }
-        krakenSpineAt(t)
+        krakenSpineAtTail(t, Math.cos(a.angNow ?? a.ang), Math.sin(a.angNow ?? a.ang))
         const bx = kSpOx, by = kSpOy, nx = kSpOnx, ny = kSpOny
         // the far half of the limb climbs; the shoulder stays in the murk where it is anchored
         const rise = lift * (hover ? K_GRAB_RISE : cocked ? 110 : 62) * t * t
@@ -24487,21 +24505,34 @@ void main() {
 
   // playerC in or out of the cue layer. Only the Kraken lifts it; every other chapter keeps the
   // fish in the world between the crowd and the shots, exactly where it has always been.
+  // AN ARM THAT LANDS MAKES THE FISH STROBE (owner, 2026-10-07: "when getting hit by coil or slam there
+  // should be a very visual flicker of your character"). Not the generic invuln blink, which the
+  // head's contact tax re-arms every few tenths in the chase: only an arm's hit (slam, Coil, grip) arms it.
+  const K_HURT_BLINK_T = 0.7   // s of strobe after an arm's hit
+  const K_HURT_BLINK_HZ = 7    // full on/off cycles a second
+  let krakenHurtBlinkT = 0
   function krakenLiftFish(on) {
     if (on && playerC.parent !== krakenFishHost) {
       // the fish ABOVE the grip's front arc: that Graphics also carries the parry spark, and the
       // one thing that must never be blotted out in this fight is the fish itself
       krakenFishHost.addChild(krakenGripFrontLayer, playerC)
+      // ...and the DAMAGE NUMBERS with it (owner, 2026-10-07: "we should have dmg numbers on arms
+      // during arms phase"). In the world they sat under krakenDimLayer and the dark, so a number on
+      // an arm out past the fish's light was dimmed to nothing; the parry's tear included.
+      krakenCueLayer.addChild(textLayer)
     } else if (!on && playerC.parent === krakenFishHost) {
       krakenFishRims(false)
       entitiesLayer.addChildAt(playerC, entitiesLayer.getChildIndex(lockLayer) + 1)
       entitiesLayer.addChildAt(krakenGripFrontLayer, entitiesLayer.getChildIndex(playerC) + 1)
+      entitiesLayer.addChild(textLayer)
     }
   }
 
   function drawKrakenCues(run, dt, events) {
     krakenHaloG.clear(); krakenTouchG.clear(); krakenWiggleG.clear()
     const k = dt || 0
+    krakenHurtBlinkT = Math.max(0, krakenHurtBlinkT - k)
+    for (const e of events) if (e.type === 'hurt' && e.src === 'krakenArm' && !e.dot) krakenHurtBlinkT = K_HURT_BLINK_T
     krakenBiteFx = Math.max(0, krakenBiteFx - k)
     krakenEscapeT = Math.max(0, krakenEscapeT - k)
     for (const e of events) {
@@ -24529,15 +24560,17 @@ void main() {
       const k0 = Math.min(1, urg * 1.3), dk = k0 * k0 * (3 - 2 * k0)
       const flick = 0.85 + 0.15 * Math.sin(animT * 3.1) * Math.sin(animT * 1.7)
       const R = KRAKEN_COIL_STAR_R, W = KRAKEN_LASH_W, n = s.coilN || KRAKEN_COIL_RAYS
+      // the star's centre: the fish's spot when it wound up (sim's s.coilCX/CY), not the head
+      const cx = s.coilCX ?? head.x, cy = s.coilCY ?? head.y
       for (let k = 0; k < n; k++) {
         const t = (s.coilStar ?? 0) + k * Math.PI * 2 / n
-        const x1 = head.x + Math.cos(t) * R, y1 = head.y + Math.sin(t) * R
-        tellDrawn('head', k, 'coil', head.x, head.y, head.x, head.y, x1, y1)
+        const x1 = cx + Math.cos(t) * R, y1 = cy + Math.sin(t) * R
+        tellDrawn('head', k, 'coil', cx, cy, cx, cy, x1, y1)
         // 0.45W .. 1.5W: dark core, soft falloff past the struck edge (T.krakenCoilBand)
         let b = krakenCoilBands[k]
         if (!b) { b = krakenCoilBands[k] = new Sprite(T.krakenCoilBand); b.anchor.set(0, 0.5); krakenCoilBandLayer.addChild(b) }
         b.visible = true
-        b.position.set(head.x, head.y)
+        b.position.set(cx, cy)
         b.rotation = t
         b.width = R
         b.height = 3 * W
@@ -24545,8 +24578,8 @@ void main() {
       }
       for (let k = 0; k < n; k++) {
         const t = (s.coilStar ?? 0) + (k + 0.5) * Math.PI * 2 / n, h = Math.PI / n * 0.45
-        const lp = [head.x, head.y]
-        for (let q = 0; q <= 8; q++) { const u2 = t - h + 2 * h * q / 8; lp.push(head.x + Math.cos(u2) * R, head.y + Math.sin(u2) * R) }
+        const lp = [cx, cy]
+        for (let q = 0; q <= 8; q++) { const u2 = t - h + 2 * h * q / 8; lp.push(cx + Math.cos(u2) * R, cy + Math.sin(u2) * R) }
         teleG.poly(lp).fill({ color: 0xcfeaff, alpha: 0.08 * dk * flick })
       }
     }
@@ -29822,9 +29855,11 @@ void main() {
     // invuln blink
     // In the Kraken's chase the head's contact tax re-arms i-frames every few tenths of a second, so
     // a 0.4 blink kept the fish half-transparent for as long as it stood near the head — over the
-    // purple face that read as the fish being UNDER it. The lifted fish (krakenLiftFish) does not
-    // blink: its hits are told by the crimson touch band and the damage vignette.
-    playerC.alpha = p.invuln > 0 ? (Math.sin(animT * 32) > 0 ? 1 : (playerC.parent === krakenFishHost ? 1 : 0.4)) : 1
+    // purple face that read as the fish being UNDER it. The lifted fish (krakenLiftFish) blinks only
+    // for an ARM's hit (krakenHurtBlinkT) — the head's touch is told by the crimson touch band.
+    playerC.alpha = playerC.parent === krakenFishHost
+      ? (dt > 0 && krakenHurtBlinkT > 0 && Math.sin(animT * Math.PI * 2 * K_HURT_BLINK_HZ) < 0 ? 0.08 : 1)
+      : p.invuln > 0 ? (Math.sin(animT * 32) > 0 ? 1 : 0.4) : 1
 
     // ---- the death outro's pose (v7.x, DEATH_OUTRO) ----------------------------------------------
     // A fish that has stopped swimming. Last in the function on purpose (see the deathP note on the
@@ -31499,6 +31534,7 @@ void main() {
     // a third of a screen off-centre on the new one's first frames, easing back over ~0.3s — which
     // reads as the start line drifting rather than as a camera.
     camLead.x = 0; camLead.y = 0
+    krakenHurtBlinkT = 0
     // Gull strikes in flight when a run ends. These are NOT in the flat-pool list below — that list
     // does `s.visible = false` over plain sprite arrays, and gullDives holds {sp, sh, ...} records
     // (TWO sprites each — the bird and the shadow it left on the sand), so adding it there would set

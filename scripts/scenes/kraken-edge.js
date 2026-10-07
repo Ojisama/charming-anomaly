@@ -10,6 +10,9 @@
 // Owner, 2026-09-15: "you can move to the edge of the boss arena and see the cut at the base of the
 // tentacle, it's unprofessional."
 //
+// ?chase=1 breaks the ring first and shoots from the CHASE cage's wall, twice as far out (owner,
+// 2026-10-07: "the arms should be longer because you can see their edges").
+//
 // Four bearings, because which arm you end up looking at depends on where you stand and the ring is
 // not symmetric about the player. The note prints the distance from the player to the NEAREST
 // shoulder in world px beside the viewport's own half-width, so "is it in frame" is a number rather
@@ -29,6 +32,13 @@ function beat(ix, iy) {
   if (run.phase === 'levelup') run.phase = 'playing'
 }
 
+if (new URLSearchParams(location.search).get('chase') === '1') {
+  for (const a of run.krakenArms) { a.dead = true; a.limpT = 0; a.nodeId = null }
+  let g = 0
+  while ((run.script.phase !== 'chase' || !head() || run.script.riseT > 0) && g++ < 60 * 40) beat(0, 0)
+  for (const a of run.krakenArms) { a.dead = false; a.breakT = 0; a.tele = 0 }   // stand the ring back up to look at it
+}
+
 let shot = 0
 return (age) => {
   const ang = BEARINGS[Math.min(BEARINGS.length - 1, shot++)]
@@ -44,7 +54,8 @@ return (age) => {
     // hand, so it is a second author of one number — if the drawn shoulder moves, move it here too
     // or the note reports a distance to a place nothing is drawn.
     const tipR = Math.hypot(a.x - h.x, a.y - h.y) || cfg.KRAKEN_ARM_REACH
-    const sr = Math.max(cfg.KRAKEN_RING_R + 360, tipR + 560)
+    // + 1600: render's K_TAIL_PX, the wisp stretched off-screen (2026-10-07)
+    const sr = Math.max(cfg.KRAKEN_RING_R + 360, tipR + 560) + 1600
     const sx = h.x + Math.cos(a.ang) * sr, sy = h.y + Math.sin(a.ang) * sr
     const d = Math.hypot(sx - p.x, sy - p.y)
     if (d < near) { near = d; nearArm = a.i }

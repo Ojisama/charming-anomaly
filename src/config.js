@@ -8962,9 +8962,9 @@ CHAPTERS.kraken = {
   // The Deep's arsenal minus the Glint, the Sunlance first (owner, 2026-09-27). No bar here, so the
   // Sunlance reaches its full length.
   weapons: ['sunlance', 'sunspear', 'foxfire'], starter: 'sunlance',
-  // The named ladder, read off KRAKEN_RUNGS: d2 has grabbers and (once enraged) the Coil, d3 adds
+  // The named ladder, read off KRAKEN_RUNGS: d2 has grabbers, d3 adds
   // the Coil from the second block and the enrage* columns.
-  modsByDifficulty: { 1: [], 2: ['krakenPinch', 'krakenCoil'], 3: ['krakenPinch', 'krakenCoil', 'krakenFrenzy'] },
+  modsByDifficulty: { 1: [], 2: ['krakenPinch'], 3: ['krakenPinch', 'krakenCoil', 'krakenFrenzy'] },
   // ---- render-only (ZERO sim effect) ----
   // The graveyard: The Deep's near-black carried one more step toward the void.
   render: {
@@ -9118,11 +9118,13 @@ export const KRAKEN_RUNGS = [
   //  - enrageFree: its slams skip the one-answer beat (owner 2026-09-26): ~26/min, dodge what you can't parry
   // balance_decision : arms attack 20% more often, owner 2026-09-26
   //  - measure POOLED over 48 seeds (kraken-probe --cadence): per-fight rates swing +-30%
+  // balance_decision : d2 +20% / d3 +40% arm attacks, by faster wind-ups [2026-10-07]
+  //  - wind-up alone saturates (~+30% on d3); the gap 1.45 -> 1.20 buys the rest. kraken-probe --secs 900, pooled
   // balance_decision : 3 more arms every rung, owner 2026-09-27
   //  - the Coil still takes at most KRAKEN_COIL_RAYS of them at once
-  { arms: 7, rearing: 1, window: 0.34, lungeWindow: 0.52, perfect: 0.150, fuse: 2.20, limp: 4.0, cadence: 2.55, staggerNeed: 2, headHpMul: 1.00, grip: false, coil: false, grabbers: 0 },
-  { arms: 8, rearing: 2, window: 0.28, lungeWindow: 0.46, perfect: 0.125, fuse: 1.80, limp: 3.2, cadence: 1.45, staggerNeed: 3, headHpMul: 1.02, grip: true,  coil: false, grabbers: 2 },
-  { arms: 9, rearing: 2, window: 0.24, lungeWindow: 0.42, perfect: 0.110, fuse: 1.50, limp: 2.6, cadence: 1.45, staggerNeed: 3, headHpMul: 1.30, grip: true,  coil: true,  grabbers: 2, enrageArms: 3, enrageRearing: 3, enrageCoilEvery: 8, enrageCoilAt: 6, enrageCadence: 0.45, enrageFree: true },
+  { arms: 7, rearing: 1, window: 0.34, lungeWindow: 0.52, perfect: 0.150, fuse: 2.20, limp: 4.0, cadence: 2.55, staggerNeed: 2, headHpMul: 1.00, grip: false, coil: false, grabbers: 0, trickle: 2 },
+  { arms: 8, rearing: 2, window: 0.28, lungeWindow: 0.46, perfect: 0.125, fuse: 1.60, limp: 3.2, cadence: 1.20, staggerNeed: 3, headHpMul: 1.02, grip: true,  coil: false, grabbers: 2, trickle: 3, gripDur: 4.4 },
+  { arms: 9, rearing: 2, window: 0.24, lungeWindow: 0.42, perfect: 0.110, fuse: 1.35, limp: 2.6, cadence: 1.20, staggerNeed: 3, headHpMul: 1.30, grip: true,  coil: true,  grabbers: 2, trickle: 4, gripHold: true, enrageArms: 3, enrageRearing: 3, enrageCoilEvery: 8, enrageCoilAt: 6, enrageCadence: 0.45, enrageFree: true },
 ]
 // The one accessor, so no site has to remember the difficulty-1 offset or the clamp. The cap is
 // enforced by the chapter, but a probe or a migrated save can hand this anything.
@@ -9171,7 +9173,8 @@ export const KRAKEN_LIMP_PERFECT_MUL = 1.6 // x the limp window on a perfect par
 // now and the survivors keep swinging under it, so the verb the chapter teaches is the verb it ends
 // on — and then the thing hauls its broken arms back out of the murk when it starts to die.
 export const KRAKEN_RISE_AT = 0.5        // fraction of the ring broken that brings the head up
-export const KRAKEN_ENRAGE_AT = 0.38     // head hp fraction that starts the last phase
+// balance_decision : arms regrow at half the head's life, owner [2026-10-07]
+export const KRAKEN_ENRAGE_AT = 0.5      // head hp fraction that starts the last phase
 export const KRAKEN_ENRAGE_CADENCE = 0.72 // x the ring's cadence once enraged
 export const KRAKEN_ENRAGE_ARM_HP = 0.55 // regrown arms come back this tough (they are torn already)
 export const KRAKEN_STAGGER_T = 4.5        // s the head stays open once its stagger fills
@@ -9289,8 +9292,10 @@ export const KRAKEN_PARRY_MARGIN = 1.6
 // balance_decision : plain slam hitbox = drawn tapered tentacle [2026-09-24]
 //  - the Coil still strikes KRAKEN_LASH_W either side, and the parry still reaches KRAKEN_LASH_W x MARGIN
 export const KRAKEN_LIMB_HW = KRAKEN_ARM_R * 1.45 * 0.5
+// No taper at the shoulder end: render runs that end K_TAIL_PX off-screen (krakenSpineAtTail), and the
+// struck stretch starts past t ~0.2, so the base's width is never tested.
 export function krakenLimbProf(t) {
-  return (0.16 + 0.84 * Math.pow(1 - t, 0.42)) * (1 - Math.pow(t, 7) * 0.30) * Math.min(1, Math.pow(t / 0.12, 0.65))
+  return (0.16 + 0.84 * Math.pow(1 - t, 0.42)) * (1 - Math.pow(t, 7) * 0.30)
 }
 // how far out from the head the drawn rope's shoulder sits, for a tip `tipR` px from the head
 export function krakenShoulderR(tipR) { return Math.max(KRAKEN_RING_R + 360, tipR + 560) }
@@ -9373,7 +9378,10 @@ export const KRAKEN_ARM_LEVELS = 1 // levels a broken arm is worth — BANKED, p
 // balance_decision : every 4th ring TURN is a grab, parried or not [2026-09-25]
 //  - counted when handed out (sim.js): 4 keeps the old share of a half-parrying player
 export const KRAKEN_GRIP_EVERY = 4 // every Nth arm attack in a Grip block is a grab, not a slam
-export const KRAKEN_GRIP_DUR = 2.2 // s a grip holds before it lets go on its own
+// balance_decision : grips last 2x on d2, never let go on d3 [2026-10-07]
+//  - rung.gripDur overrides the bite's clock; rung.gripHold bites every KRAKEN_GRIP_DUR and keeps holding.
+//    The wiggle always needs KRAKEN_GRIP_FLICKS, whatever the clock.
+export const KRAKEN_GRIP_DUR = 2.2 // s a grip holds before it bites and lets go (rung.gripDur, rung.gripHold)
 export const KRAKEN_GRIP_DMG = 14 // damage a grip that runs its full duration deals
 export const KRAKEN_GRIP_STICK_MUL = 0.45 // player move speed while held — joins the slow MIN
 export const KRAKEN_GRIP_FLICKS = 4 // stick swings of TRAWL_WIGGLE_ARC that tear you loose
@@ -9405,12 +9413,12 @@ export const KRAKEN_BEAT_GRAB_CLEAR = 0.4 // s a parry window must have shut bef
 //  - also covers the hold ruling: slams keep coming while you are held, but not in its first read
 export const KRAKEN_BEAT_BREATH = 0.6 // s after a grab strikes before the next parry window opens
 
-// THE LATE TRICKLE (owner ruling, 2026-09-13): from this many blocks before the chase, graveyard
-// dead arrive DURING the block, so the last stretch is a choice between the arm winding up in
-// front of you and the thing on your back.
-export const KRAKEN_TRICKLE_FROM_END = 2 // blocks before the chase that start trickling
-export const KRAKEN_TRICKLE_T = 5.5 // s between trickle arrivals
-export const KRAKEN_TRICKLE_N = 2 // dead per arrival
+// THE TRICKLE: graveyard dead arrive DURING every ring block after the first, and the chase.
+// balance_decision : trickle every 4s, rung.trickle dead each, from the arena edge [2026-10-07]
+//  - they spawned ~650px out and the player's weapons killed them before they reached the arena
+export const KRAKEN_TRICKLE_T = 4 // s between trickle arrivals (rung.trickle dead per arrival)
+export const KRAKEN_TRICKLE_CLEAR = 140 // px: a ring trickle add born nearer the fish than this is born across the cage instead
+export const KRAKEN_TRICKLE_EDGE = 40 // px past the live cage wall (s.cageR) where trickle dead are born
 // THE CROWD IS A SPICE, NOT THE MEAL. Waves and the trickle put dead on the field and nothing took
 // them off, so they accumulated across every breather: 30 adds on screen at 145s, covering the boss,
 // and a mortal rig dying to a wave tank before the Kraken ever got a turn.
@@ -9458,7 +9466,7 @@ export const KRAKEN_DASH_DIST = 480 // px the charge covers: the run-up, through
 // the parry window is the last rung.lungeWindow x this px of gap before the jaws reach the fish
 // (d3 ~110px, d1 ~136px): "close" is a head-length, not the arena
 export const KRAKEN_DASH_PARRY_PX = 262
-// THE COIL (D3 from the second block, D2 once enraged). Every Nth arm attack up to KRAKEN_COIL_RAYS
+// THE COIL (D3 only, from the second block). Every Nth arm attack up to KRAKEN_COIL_RAYS
 // arms slam together along a star of bands; the wedges between them are safe. NOT PARRYABLE by
 // design: the parry must not be the answer to everything. You read the gaps and you move.
 // balance_decision : a coil every 4th turn, on a slam's, owner 2026-09-26
