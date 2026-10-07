@@ -1196,11 +1196,6 @@ function generateWells(sig) {
  *   {type:'freeze', x, y}                cold: the moment an enemy's chill gauge fills and it
  *                                        locks. Deliberately has NO sfx entry — freezes fire
  *                                        dozens of times a minute on a cold build.
- *   {type:'inkVolley', x, y, tx, ty} Ink Heart (ANOMALIES.inkHeart): a landed Kraken parry
- *                                        poured the volley from the fish (x,y) into (tx,ty): the
- *                                        head in the chase, the parried arm's shoulder through
- *                                        the ring (the head is not drawn there). No sfx: the
- *                                        parry already sounds.
  *
  * There are no element x element COMBO events. The old system's shatter/frostarc/overload/conduct
  * were deleted with it: elements now compose through one shared number (how much of an enemy's own
@@ -2238,6 +2233,8 @@ function generateWells(sig) {
  *   is self-inflicted and would otherwise open both gates on a timer rather than on play.
  * _berserkT (v7.2): seconds left on BERSERK's damage window. Set to BERSERK_DURATION by every
  *   non-dot hit (no cooldown, no threshold — owner ruling) and ticked down in stepAnomalies.
+ * _hairTriggerT: seconds left on HAIR TRIGGER's damage window. Set to HAIR_TRIGGER_T by every landed
+ *   Kraken parry (krakenParry), ticked down in stepAnomalies. render's playerBuffs shows it as heat.
  * _stillT (v7.2): seconds of continuous NO MOVEMENT INPUT, for STILLNESS's damage ramp. Reset by
  *   stepPlayerMovement on any stick deflection at all. Reads INPUT, never velocity: pond's
  *   currents shove the player every frame and the beyond lane advances them regardless, so a
@@ -2773,6 +2770,7 @@ export function createRun(meta, opts = {}) {
     // needs and nothing more. See the doc block above for what each one gates.
     _hitsTaken: 0,
     _berserkT: 0,
+    _hairTriggerT: 0,
     _stillT: 0,
     _bloodPact: 0,
     _overloadAcc: 0,

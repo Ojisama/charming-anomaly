@@ -1,15 +1,21 @@
-// Scene: INK HEART in real play. kraken-live.js's bot, holding Ink Heart from the start, and each
-// frame is taken a few frames after a parry fired its volley, so the ink streak is on screen.
-//   node scripts/fx-probe.mjs --scene scripts/scenes/kraken-ink.js --out /tmp/ki --chapter kraken --frames 6
+// Scene: OPEN GUARD / HAIR TRIGGER in real play — kraken-live.js's bot holding one parry card.
+// ?card=openGuard | hairTrigger | none (default none). Frame 0: an arm FLASH_AT s from its strike,
+// the bot's press held back that frame, so the flash reads on/off per card on one moment of the
+// fight. Frame 1: a few frames after a landed parry (Hair Trigger's hot skin).
+//   node scripts/fx-probe.mjs --scene scripts/scenes/kraken-flash.js --out /tmp/kf --chapter kraken --frames 2 --url 'http://127.0.0.1:PORT/?card=openGuard'
 // ponytail: the bot is copied from kraken-live.js (scenes are eval'd bodies and cannot import).
 
 H.until(() => run.script.phase === "boss" && run.krakenArms.length > 0, 8000)
 
-const rung = window.__cfg.krakenRung(run.difficulty)
+const card = new URLSearchParams(location.search).get('card') || 'none'
+run.anomalies = card === 'none' ? {} : { [card]: true }
+run.krakenLesson = 0   // the fight, not the parry lesson (its slowed arm and its banner)
+const rung = window.__cfg.krakenRungFor(run)
+const FLASH_AT = 0.30
 const head = () => run.enemies.find((e) => e.rosterId === 'krakenHead' && !e._dead) || null
 
 // One frame of play: pick a move, decide whether to press, step, render.
-function beat() {
+function beat(hold = false) {
   const p = run.player
   const h = head()
   // REV 3'S ACTUAL LOOP: go and stand on whatever limb your last parry opened, because that is
@@ -40,7 +46,7 @@ function beat() {
   // the wound are of a fight that was not being played properly. Mirrors krakenParry.
   const reach2 = (window.__cfg.KRAKEN_LASH_R * 1.6) ** 2
   let press = false
-  if ((run.repulseCd ?? 0) <= 0) {
+  if (!hold && (run.repulseCd ?? 0) <= 0) {
     // head first, mirroring krakenParry
     if (h && run.script.phase === 'chase' && !(run.script.staggerT > 0)) {
       const nr = (h.x - p.x) ** 2 + (h.y - p.y) ** 2 <= window.__cfg.KRAKEN_CAGE_R ** 2
@@ -67,16 +73,21 @@ function beat() {
   return events
 }
 
-run.anomalies = { inkHeart: true }
-let lastAt = -99
+let shot = 0
 return (age) => {
-  let guard = 0, hit = false
-  while (!hit && guard++ < 60 * 120) {
-    const ev = beat()
-    if (run.time - lastAt > 6 && ev.some((e) => e.type === 'inkVolley')) hit = true
+  let guard = 0
+  if (shot++ === 0) {
+    // step until a plain slam is about to cross FLASH_AT, then hold the press for the frame shot
+    const next = () => run.krakenArms.find((a) => !a.dead && a.limpT <= 0 && !a.grabArm && !a.coilArm && a.tele > FLASH_AT && a.tele - FLASH_AT < 1 / 60)
+    while (!next() && guard++ < 60 * 120) beat(true)   // no presses: a parry would end the wind-up before FLASH_AT
+    const a = next()
+    while (a && a.tele > FLASH_AT && guard++ < 60 * 130) beat(true)
+    H.note(JSON.stringify({ card, window: +rung.window.toFixed(2), tele: a ? +a.tele.toFixed(2) : null, inFlash: a ? a.tele <= rung.window : null }))
+  } else {
+    let hit = false
+    while (!hit && guard++ < 60 * 120) hit = beat().some((e) => e.type === 'parry' || e.type === 'parryPerfect')
+    for (let i = 0; i < 10; i++) beat()
+    H.note(JSON.stringify({ card, parried: hit, boostT: +(run._hairTriggerT ?? 0).toFixed(1) }))
   }
-  lastAt = run.time
-  for (let i = 0; i < 9; i++) beat()
-  H.note(JSON.stringify({ at: Math.round(run.time) + 's', phase: run.script.phase, staggerT: +(run.script.staggerT ?? 0).toFixed(1), volleyFound: hit }))
   app.renderer.render(app.stage)
 }

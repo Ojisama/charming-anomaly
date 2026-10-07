@@ -1702,11 +1702,15 @@ const CONFIG = {
   'SHOOT THE TIP TO BREAK THE ARM': 'TIRE SUR LE BOUT POUR BRISER LE BRAS',
   'THE ARMS RETURN': 'LES TENTACULES REPOUSSENT',
   'KRAKEN SLAIN': 'KRAKEN TERRASSÉ',
-  // The Kraken, 2026-09-27: Glint's no-cost card, Ink Heart, the named ladder. Owner-picked: Glint,
-  // the Ink Heart name/line/desc wording, L'Étau / L'Étreinte and their two descs. Frenzy's desc is a DRAFT.
-  'Ink Heart': 'Cœur d\'Encre',
-  'the ink finds its way in': 'l\'encre sait où passer',
-  'Your parries no longer bite the Kraken\'s head, but fire all your attacks into it at once, wherever it is.': 'Les parades ne mordent plus la tête, mais y lancent toutes tes attaques en même temps, où qu\'elle soit.',
+  // The Kraken, 2026-09-27: Glint's no-cost card, the named ladder. Owner-picked: Glint,
+  // L'Étau / L'Étreinte and their two descs. Frenzy's desc is a DRAFT.
+  // Open Guard / Hair Trigger (2026-10-07): names, lines and descs are DRAFTS, English and French.
+  'Open Guard': 'Garde Ouverte',
+  'the ink gives you time': 'l\'encre te laisse le temps',
+  'The parry flash lasts 50% longer, but the Kraken\'s blows hurt you 50% more.': 'Le clignotement de la parade dure 50 % de plus, mais les coups du Kraken te font 50 % de dégâts en plus.',
+  'Hair Trigger': 'Gâchette Sensible',
+  'the ink is quicker than you': 'l\'encre va plus vite que toi',
+  'The parry flash is 33% shorter, but each parry makes your attacks deal 50% more damage for 3s.': 'Le clignotement de la parade est 33 % plus court, mais chaque parade donne +50 % de dégâts à tes attaques pendant 3s.',
   'The Pinch': 'L\'Étau',
   'The Coil': 'L\'Étreinte',
   'two arms pin you in place': 'deux bras t\'immobilisent',
