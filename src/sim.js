@@ -236,7 +236,7 @@ import {
   KRAKEN_PERFECT_MUL, KRAKEN_PARRY_CD,
   KRAKEN_GRIP_EVERY, KRAKEN_GRIP_DUR, KRAKEN_GRIP_DMG, KRAKEN_GRIP_STICK_MUL, KRAKEN_GRIP_FLICKS, KRAKEN_GRAB_FUSE, KRAKEN_GRAB_REACT, KRAKEN_GRAB_MIN_STEP, KRAKEN_PINCH_OPEN0, KRAKEN_PINCH_OPEN1, KRAKEN_PINCH_SNAP, KRAKEN_PINCH_HW,
   KRAKEN_BEAT_READ, KRAKEN_BEAT_GRAB_CLEAR, KRAKEN_BEAT_BREATH,
-  KRAKEN_TRICKLE_FROM_END, KRAKEN_TRICKLE_T, KRAKEN_TRICKLE_N, KRAKEN_ADD_CAP,
+  KRAKEN_TRICKLE_T, KRAKEN_TRICKLE_EDGE, KRAKEN_TRICKLE_CLEAR, KRAKEN_ADD_CAP,
   KRAKEN_LUNGE_T, KRAKEN_LUNGE_WINDUP_T, KRAKEN_LUNGE_DMG, KRAKEN_RISE_T,
   KRAKEN_COIL_EVERY, KRAKEN_COIL_AT, KRAKEN_COIL_RAYS, KRAKEN_COIL_STAR_TRIES, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, KRAKEN_COIL_IN, KRAKEN_COIL_DMG,
   hasSkillButton,
@@ -1822,6 +1822,13 @@ function krakenLashLine(head, a) {
   const ca = Math.cos(krakenAng(a)), sa = Math.sin(krakenAng(a))
   a.lx0 = head.x + ca * KRAKEN_RING_R
   a.ly0 = head.y + sa * KRAKEN_RING_R
+  // A COIL ARM runs from its shoulder through the star's centre (krakenCoilPlan), not the head's
+  if (a.coilArm && a.coilCX != null) {
+    const dx = a.coilCX - a.lx0, dy = a.coilCY - a.ly0, d = Math.hypot(dx, dy) || 1
+    a.lx1 = a.coilCX + (dx / d) * KRAKEN_LASH_OVER
+    a.ly1 = a.coilCY + (dy / d) * KRAKEN_LASH_OVER
+    return
+  }
   if (a.aimed && !a.coilArm) {
     const dx = a.aimX - a.lx0, dy = a.aimY - a.ly0
     const d = Math.hypot(dx, dy)
@@ -1862,6 +1869,14 @@ function krakenPlaceArm(head, a, reach) {
   if (a.aimed) {
     const d = Math.hypot(a.aimX - a.lx0, a.aimY - a.ly0)
     const L = Math.hypot(a.lx1 - a.lx0, a.ly1 - a.ly0) || 1
+    a.x = a.lx0 + ((a.lx1 - a.lx0) / L) * d
+    a.y = a.ly0 + ((a.ly1 - a.ly0) / L) * d
+    return
+  }
+  // a Coil arm's tip rides its own lane (shoulder -> star centre), as far from the shoulder as a
+  // spoke arm's tip would be, so the drawn limb lies on the band that strikes
+  if (a.coilArm && a.coilCX != null) {
+    const L = Math.hypot(a.lx1 - a.lx0, a.ly1 - a.ly0) || 1, d = KRAKEN_RING_R - reach
     a.x = a.lx0 + ((a.lx1 - a.lx0) / L) * d
     a.y = a.ly0 + ((a.ly1 - a.ly0) / L) * d
     return
@@ -1908,9 +1923,10 @@ function krakenLimbTouches(run, a, head) {
 export function krakenCoilStarHits(run, head) {
   const p = run.player, base = run.script.coilStar ?? 0, n = run.script.coilN || KRAKEN_COIL_RAYS
   const far = KRAKEN_COIL_STAR_R
+  const cx = run.script.coilCX ?? head.x, cy = run.script.coilCY ?? head.y
   for (let k = 0; k < n; k++) {
     const t = base + k * Math.PI * 2 / n
-    if (segDist2(p.x, p.y, head.x, head.y, head.x + Math.cos(t) * far, head.y + Math.sin(t) * far) <= KRAKEN_LASH_W * KRAKEN_LASH_W) return true
+    if (segDist2(p.x, p.y, cx, cy, cx + Math.cos(t) * far, cy + Math.sin(t) * far) <= KRAKEN_LASH_W * KRAKEN_LASH_W) return true
   }
   return false
 }
@@ -2218,37 +2234,52 @@ function krakenRearingCap(s, rung) {
 // reach their bands. So a few random stars are tried and the one whose bands lie farthest from every
 // arm left out wins, and the chosen arms take the bands in the order they already sit round the ring.
 const angDiff = (u, v) => Math.abs(Math.atan2(Math.sin(u - v), Math.cos(u - v)))
-function krakenCoilPlan(run, head, able, n) {
+// THE STAR IS CENTRED ON THE PLAYER'S SPOT AT ARMING (owner, 2026-10-07: "a player at the very edge
+// of the arena is protected" — a star from the head opens its widest wedges at the wall). Band b
+// runs out from (cx, cy); its arm swings to the ring slot where that band leaves the ring, so the
+// lane it slams down is the band itself. Matching and clearance are done in ring slots.
+function krakenCoilShoulderAng(head, cx, cy, b) {
+  const ux = Math.cos(b), uy = Math.sin(b), ox = cx - head.x, oy = cy - head.y
+  const pu = ox * ux + oy * uy, disc = pu * pu - (ox * ox + oy * oy - KRAKEN_RING_R * KRAKEN_RING_R)
+  // ponytail: a centre outside the ring (the chase cage reaches past it) misses it on some bands,
+  // or meets it only BEHIND the centre; those arms take the head's own bearing and their drawn lane
+  // is off the band by that much.
+  const t = disc < 0 ? -1 : -pu + Math.sqrt(disc)
+  if (t <= 0) return b
+  return Math.atan2(oy + uy * t, ox + ux * t)
+}
+function krakenCoilPlan(run, head, able, n, cx = head.x, cy = head.y) {
   const TAU = Math.PI * 2
   let best = null
   for (let tr = 0; tr < KRAKEN_COIL_STAR_TRIES; tr++) {
     const star = Math.random() * TAU
-    const bands = []
-    for (let k = 0; k < n; k++) bands.push(star + k * TAU / n)
-    // which arms: the nearest free one to each band
+    const bands = [], slots = []
+    for (let k = 0; k < n; k++) { bands.push(star + k * TAU / n); slots.push(krakenCoilShoulderAng(head, cx, cy, bands[k])) }
+    // which arms: the nearest free one to each band's slot
     const free = able.slice(), chosen = []
-    for (const b of bands) {
+    for (const sl of slots) {
       let bi = 0, bd = Infinity
-      free.forEach((c, j) => { const d = angDiff(b, c.ang); if (d < bd) { bd = d; bi = j } })
+      free.forEach((c, j) => { const d = angDiff(sl, c.ang); if (d < bd) { bd = d; bi = j } })
       chosen.push(free.splice(bi, 1)[0])
     }
-    // which band: both lists in ring order from the star, then the rotation with the shortest swing
-    const rel = (u) => ((u - star) % TAU + TAU) % TAU
+    // which band: both lists in ring order from the first slot, then the rotation with the shortest swing
+    const rel = (u) => ((u - slots[0]) % TAU + TAU) % TAU
     chosen.sort((x, y) => rel(x.ang) - rel(y.ang))
+    const order = slots.map((_, k) => k).sort((x, y) => rel(slots[x]) - rel(slots[y]))
     let rot = 0, rotSwing = Infinity
     for (let r = 0; r < n; r++) {
       let m = 0
-      for (let i = 0; i < n; i++) m = Math.max(m, angDiff(chosen[i].ang, bands[(i + r) % n]))
+      for (let i = 0; i < n; i++) m = Math.max(m, angDiff(chosen[i].ang, slots[order[(i + r) % n]]))
       if (m < rotSwing) { rotSwing = m; rot = r }
     }
     // how clear the bands lie of every arm the Coil leaves where it is (its shoulder and its tip)
     let clear = Math.PI
     for (const c of run.krakenArms) {
       if (c.dead || chosen.includes(c)) continue
-      const tip = Math.atan2(c.y - head.y, c.x - head.x)
-      for (const b of bands) clear = Math.min(clear, angDiff(b, c.ang), angDiff(b, tip))
+      const tip = Math.atan2(c.y - cy, c.x - cx)
+      for (let k = 0; k < n; k++) clear = Math.min(clear, angDiff(slots[k], c.ang), angDiff(bands[k], tip))
     }
-    if (!best || clear > best.clear) best = { star, clear, pairs: chosen.map((c, i) => [c, bands[(i + rot) % n]]) }
+    if (!best || clear > best.clear) best = { star, clear, pairs: chosen.map((c, i) => { const k = order[(i + rot) % n]; return [c, slots[k], bands[k]] }) }
   }
   return best
 }
@@ -2341,7 +2372,7 @@ function krakenCoilStep(run, dt, rung, head) {
     // the arms in stepKrakenArms like any other slam. This clock only survives as the RENDER's tell
     // and as the window the coil skin is worn in — it no longer sweeps anything itself.
     if (wasTele && s.coilT <= KRAKEN_COIL_DUR) {
-      run.events.push({ type: 'coilClose', x: head.x, y: head.y, r: KRAKEN_ARM_REACH })
+      run.events.push({ type: 'coilClose', x: s.coilCX ?? head.x, y: s.coilCY ?? head.y, r: KRAKEN_ARM_REACH })
     }
     // The Coil ends and every arm goes back to IDLE — it does NOT re-arm them. Rev 2 did
     // (a.tele = max(a.tele, 0.5) on the whole ring), which under rev 3's scheduler sets every
@@ -2414,9 +2445,15 @@ function stepKrakenArms(run, dt, rung, head) {
       a.gripClock = (a.gripClock ?? a.gripT) - dt
       a.gripT = Math.min(a.gripClock, a.gripWiggle ?? a.gripClock)
       if (a.gripClock <= 0) {
-        a.gripT = 0
-        a.gripClock = a.gripWiggle = undefined
-        a.tele = 0
+        // a HOLDING rung bites and keeps you: only the wiggle lets go
+        if (rung.gripHold) {
+          a.gripClock = KRAKEN_GRIP_DUR
+          a.gripT = Math.min(a.gripClock, a.gripWiggle ?? a.gripClock)
+        } else {
+          a.gripT = 0
+          a.gripClock = a.gripWiggle = undefined
+          a.tele = 0
+        }
         if (hurtPlayer(run, KRAKEN_GRIP_DMG, false, 'krakenArm')) return true
       }
       continue
@@ -2450,9 +2487,9 @@ function stepKrakenArms(run, dt, rung, head) {
       a.tele = 0
       if (mate) { mate.grabArm = false; mate.tele = 0; mate.slamT = KRAKEN_SLAM_T }
       if (krakenPinchTouches(run, a, mate)) {
-        a.gripT = KRAKEN_GRIP_DUR
-        a.gripClock = KRAKEN_GRIP_DUR    // the bite's own clock ...
+        a.gripClock = rung.gripDur ?? KRAKEN_GRIP_DUR   // the bite's own clock ...
         a.gripWiggle = KRAKEN_GRIP_DUR   // ... and the struggle's, spent only by flicks
+        a.gripT = Math.min(a.gripClock, a.gripWiggle)
         run.events.push({ type: 'gripLatch', x: a.x, y: a.y, i: a.i })
       } else {
         a.slamT = KRAKEN_SLAM_T
@@ -2552,8 +2589,11 @@ function stepKrakenArms(run, dt, rung, head) {
   if (!lesson) s.turnT -= dt
   if (s.turnT <= 0 && !lesson) {
     const { rearing, idle } = krakenTurnPool(run)
-    const { wantCoil } = krakenTurnWant(run, rung)
-    let { wantGrip } = krakenTurnWant(run, rung)
+    let { wantCoil, wantGrip } = krakenTurnWant(run, rung)
+    // A HOLD THAT NEVER LETS GO (rung.gripHold) MUST NOT FREEZE THE RING: a Coil or grab turn waits
+    // out a hold (krakenBeatClear), and on d3 a hold only ends when the fish wiggles free — so while
+    // it holds, that turn is a plain slam instead.
+    if (rung.gripHold && (wantCoil || wantGrip) && run.krakenArms.some((c) => !c.dead && c.gripT > 0)) wantCoil = wantGrip = false
     // a pinch takes two free arms; without them the grab's turn is a plain slam
     const pinch = wantGrip && !wantCoil ? krakenPinchPair(run, head, idle) : null
     if (!pinch) wantGrip = false
@@ -2599,19 +2639,25 @@ function stepKrakenArms(run, dt, rung, head) {
         // krakenSwingArms) and they land together along them. Fewer arms, fewer bands.
         const able = run.krakenArms.filter((c) => !c.dead && c.limpT <= 0 && !(c.gripT > 0))
         const n = Math.min(able.length, KRAKEN_COIL_RAYS)
-        const plan = krakenCoilPlan(run, head, able, n)
+        // locked on the fish's spot NOW, like an aimed slam: the star does not follow after this frame
+        s.coilCX = p.x
+        s.coilCY = p.y
+        const plan = krakenCoilPlan(run, head, able, n, s.coilCX, s.coilCY)
         s.coilN = n
         s.coilStar = plan.star
-        for (const [c, b] of plan.pairs) {
+        for (const [c, slot, band] of plan.pairs) {
           c.tele = KRAKEN_COIL_TELE
           c.fuse = KRAKEN_COIL_TELE
           c.coilArm = true
           c.grabArm = false
-          c.coilAng = b
+          c.coilAng = slot
+          c.coilBand = band
+          c.coilCX = s.coilCX
+          c.coilCY = s.coilCY
         }
         // a safe bearing: the middle of the first wedge
         s.coilGap = s.coilStar + Math.PI / Math.max(1, n)
-        run.events.push({ type: 'coilWind', x: head.x, y: head.y, ang: s.coilGap })
+        run.events.push({ type: 'coilWind', x: s.coilCX, y: s.coilCY, ang: s.coilGap })
       } else if (wantGrip) {
         s.gripN++
         // THE PINCH (owner, 2026-09-26: "two tentacles close on you like a pinch"). Both jaws lock on
@@ -2681,7 +2727,8 @@ function krakenTurnWant(run, rung, n = run.script.gripN) {
   const s = run.script
   const every = s.enraged && rung.enrageCoilEvery ? rung.enrageCoilEvery : KRAKEN_COIL_EVERY
   const at = s.enraged && rung.enrageCoilEvery ? rung.enrageCoilAt : KRAKEN_COIL_AT
-  const wantCoil = (rung.coil || s.enraged) && run.difficulty >= 2 && (s.phase === 'chase' || s.bossIdx >= 2) && n > 0 && n % every === at
+  // the rung's own column: d2 never coils, not even enraged (owner, 2026-10-07: it came before it was learned)
+  const wantCoil = rung.coil && (s.phase === 'chase' || s.bossIdx >= 2) && n > 0 && n % every === at
   const wantGrip = !wantCoil && rung.grip && s.bossIdx >= 1 && n > 0 && n % KRAKEN_GRIP_EVERY === 0
   return { wantCoil, wantGrip }
 }
@@ -2790,35 +2837,39 @@ function stepKrakenBlock(run, dt, rung, head) {
 
   if (stepKrakenArms(run, dt, rung, head)) return true
 
-  // THE LATE TRICKLE (owner ruling, 2026-09-13). From KRAKEN_TRICKLE_FROM_END blocks before the
-  // chase, graveyard dead arrive DURING the block, so the last stretch is a choice between the arm
-  // winding up in front of you and the thing on your back. Clamped so D1 — which has only two ring
-  // blocks — does not trickle through its own teach.
-  // HOW MANY RING BLOCKS THIS FIGHT ACTUALLY HAS. It used to assume the ring had to be broken in
-  // FULL before the head came up; since the head rises at KRAKEN_RISE_AT the count is smaller, and
-  // on d1 the stale derivation left exactly one ring block that also trickled — so the chapter's
-  // whole teach happened under a crowd, against the clamp's own stated intent.
-  const ringBlocks = Math.max(1, Math.ceil((s.armsTotal * KRAKEN_RISE_AT) / 2))
-  const trickleFrom = ringBlocks - Math.min(KRAKEN_TRICKLE_FROM_END, ringBlocks - 1)
-  if (ringBlocks > 1 && s.bossIdx >= trickleFrom) {
-    s.trickleT -= dt
-    if (s.trickleT <= 0) {
-      s.trickleT = KRAKEN_TRICKLE_T
-      // never past the cap: the trickle is meant to make a late block busier, not to bury the ring
-      const live = run.enemies.filter((e) => !e._dead && e.rosterId !== 'krakenHead' && e.rosterId !== 'krakenArm').length
-      for (let i = 0; i < (live >= KRAKEN_ADD_CAP ? 0 : KRAKEN_TRICKLE_N); i++) {
-        const e = spawnBlankEnemy(run, KRAKEN_WAVE.ids[i % KRAKEN_WAVE.ids.length], false, {})
-        if (e) e.xp = Math.round(e.xp * KRAKEN_WAVE_XP_MUL)
-      }
-    }
-  }
+  // every ring block after the first (bossIdx counts ring blocks from 1): the first is the parry teach
+  if (s.bossIdx >= 2) krakenTrickle(run, dt, rung, head)
 
   const standingNow = run.krakenArms.filter((a) => !a.dead).length
   if (s.blockKills >= Math.min(2, standingNow + s.blockKills)) krakenHide(run, head)
   return false
 }
 
-// P5, the finale. Nothing between the head and you.
+// THE TRICKLE (owner, 2026-10-07): graveyard dead arrive DURING the arms and the chase, so the
+// Kraken is fought with something on your back. rung.trickle of them every KRAKEN_TRICKLE_T, born
+// just outside the live cage so they reach the fight instead of dying on the way in from off-screen.
+// In the chase the cage is twice as wide, so they come in on the player's side of it.
+function krakenTrickle(run, dt, rung, head) {
+  const s = run.script, p = run.player
+  s.trickleT -= dt
+  if (s.trickleT > 0) return
+  s.trickleT = KRAKEN_TRICKLE_T
+  // never past the cap: the trickle makes the fight busier, it must not bury it
+  const live = run.enemies.filter((e) => !e._dead && e.rosterId !== 'krakenHead' && e.rosterId !== 'krakenArm').length
+  const r = (s.cageR || KRAKEN_CAGE_R) + KRAKEN_TRICKLE_EDGE
+  for (let i = 0; i < Math.min(rung.trickle ?? 0, KRAKEN_ADD_CAP - live); i++) {
+    let ang = s.phase === 'chase'
+      ? Math.atan2(p.y - head.y, p.x - head.x) + (Math.random() - 0.5) * Math.PI * 2 / 3
+      : Math.random() * Math.PI * 2
+    // the ring: never born on a fish standing at the wall
+    if (s.phase !== 'chase' && (head.x + Math.cos(ang) * r - p.x) ** 2 + (head.y + Math.sin(ang) * r - p.y) ** 2 < KRAKEN_TRICKLE_CLEAR ** 2) ang += Math.PI
+    const e = spawnBlankEnemy(run, KRAKEN_WAVE.ids[i % KRAKEN_WAVE.ids.length], false,
+      { x: head.x + Math.cos(ang) * r, y: head.y + Math.sin(ang) * r })
+    if (e) e.xp = Math.round(e.xp * KRAKEN_WAVE_XP_MUL)
+  }
+}
+
+// P5, the finale. Nothing between the head and you but what the trickle sends.
 function stepKrakenChase(run, dt, rung, head) {
   const s = run.script
   if (!head) {
@@ -2843,19 +2894,20 @@ function stepKrakenChase(run, dt, rung, head) {
     // murk and has to be brought in — the same closing sweep the arrival uses, around a head that is
     // surfacing under the player. Rev 3 left every arm parked around the PREVIOUS head's position
     // for the whole 2.6s rise, so the tips, the telegraphs and the wound were all in open water.
-    // NO SWEEP HERE. krakenSweepAdds already emptied the field on the raise frame and nothing
-    // spawns during the chase, so a second sweep is a loop over a list that cannot match.
+    // NO SWEEP HERE. krakenSweepAdds already emptied the field on the raise frame, and the trickle
+    // waits for the rise to finish.
     krakenPlaceArms(run, head, krakenReach(s))
     // the cage still holds through the rise — 2.6s of unclamped swimming reached 1501px
     krakenCage(run, head, dt)
     return false
   }
+  krakenTrickle(run, dt, rung, head)
   // IT COMES APART AND GETS WORSE. Checked BEFORE the stagger branch: the head takes nearly all its
   // damage while staggered, so a check that only ran outside a stagger missed any head that fell
   // past KRAKEN_ENRAGE_AT inside one (owner, 2026-09-27: a d3 run with no regrow phase).
   // Below KRAKEN_ENRAGE_AT the Kraken hauls its broken arms back out
   // of the murk — torn, so they come back at a fraction of their health — the ring speeds up, and
-  // the Coil enters for anyone who has met it. This is the fight's "it's ON" beat: the one moment a
+  // the Coil enters on d3. This is the fight's "it's ON" beat: the one moment a
   // player who thought they had won the ring has to fight it again, under a head that is now awake.
   if (!s.enraged && head.hp <= head.maxHP * KRAKEN_ENRAGE_AT) {
     s.enraged = true
@@ -3234,7 +3286,11 @@ function krakenParry(run) {
   }
   // The tear. Applied to the LIMB, not through dealDamage: the arm is not an enemy until its node
   // exists, and the node reads a.hp when it spawns — so this is simply the limb being hurt.
-  best.hp = Math.max(0, best.hp - best.maxHP * KRAKEN_EXPOSE_BITE)
+  const tear = Math.min(best.hp, best.maxHP * KRAKEN_EXPOSE_BITE)
+  best.hp = Math.max(0, best.hp - tear)
+  // ...AND IT SHOWS (owner, 2026-10-07: "we should have dmg numbers on arms during arms phase"): the
+  // tear is the biggest hit an arm takes and it printed nothing; a starter weapon may not land for 1.5s
+  run.events.push({ type: 'hit', x: best.x, y: best.y, dmg: Math.round(tear), crit: perfect, dot: false })
   // THE FIRST PARRY EVER: line 2 of the lesson, and main.js marks the save so it never shows again
   if (run.krakenLesson === 1 || run.krakenLesson === 3) {
     run.krakenLesson = 2

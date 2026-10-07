@@ -2418,6 +2418,8 @@ function generateWells(sig) {
   *       this — krakenReach is sim-side — and drawing the membrane at the bare constant put the lit
   *       skin 414px behind a player leaning on the real wall, which is an invisible wall with a
   *       decoration somewhere else.
+  *     coilCX / coilCY — the Coil's centre: the player's spot when it wound up. Its star's bands
+  *       radiate from here (krakenCoilStarHits, render's bands) and its arms' lanes run through it.
   *     coilT / coilGap / coilStar — P3, D3 only. coilT counts the wind-up and then the closure;
   *       coilGap is the spared arm's bearing (it does not rear). coilStar is the angle of the first of
   *       KRAKEN_COIL_RAYS shadow bands from the head across the arena, locked on the fish at the
@@ -2998,7 +3000,7 @@ export function createRun(meta, opts = {}) {
           // never reads stage/waveIdx/waveT/bossId, so the two ladders share one shape.
           phase: 'wave', bossIdx: 0, blockKills: 0, armsSpawned: false, headId: null,
           headHp: 0, armsTotal: 0, bankedLevels: 0, gripN: 0, trickleT: 0, charged: false, opened: false,
-          riseT: 0, coilT: 0, coilGap: 0, coilStar: 0, cageT: 0, turnT: 0, stagger: 0, staggerT: 0, staggerDecay: 0,
+          riseT: 0, coilT: 0, coilGap: 0, coilStar: 0, coilCX: null, coilCY: null, cageT: 0, turnT: 0, stagger: 0, staggerT: 0, staggerDecay: 0,
           openW: 0, arriveT: 0, arriveMax: 0, deflT: 0, cageR: 0, beatAt: null,
           lessonI: -1, lessonSlow: 0,
           enraged: false }

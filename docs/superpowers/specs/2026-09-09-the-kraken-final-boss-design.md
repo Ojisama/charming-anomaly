@@ -18,7 +18,7 @@ the halves shared nothing. Three changes make it one fight:
 - **The head rises at HALF the ring** (`KRAKEN_RISE_AT`) and the survivors keep swinging under it,
   so the verb the chapter teaches is the verb it ends on. The parry chooses between an arm and the
   head by TIME TO IMPACT — one rule a player can hold: answer whatever is about to land.
-- **The enrage** (`KRAKEN_ENRAGE_AT`, 38% of the head): it hauls every broken arm back out of the
+- **The enrage** (`KRAKEN_ENRAGE_AT`, 50% of the head): it hauls every broken arm back out of the
   murk at `KRAKEN_ENRAGE_ARM_HP`, speeds the ring's cadence, and lets the Coil in at d2+. The one
   moment a player who thought they had finished the ring has to fight it again under a woken head.
 - **A stagger takes a fixed bite** (`KRAKEN_STAGGER_BITE`) and a parry TEARS the limb it exposes

@@ -169,7 +169,7 @@ import {
   // The Trawl's late-game cut (run TJ)
   lateSpawnMulAt, SPAWN_LATE_BLEND, SPAWN_LATE_START,
   // The Kraken (run KR): the rung table and the ring's numbers
-  krakenRung, krakenRungFor, OPEN_GUARD_WINDOW_MUL, HAIR_TRIGGER_WINDOW_MUL, HAIR_TRIGGER_DMG_MUL, KRAKEN_RUNGS, KRAKEN_ARM_REACH, KRAKEN_WAVE_TIMEOUT, KRAKEN_STAGGER_BITE,
+  krakenRung, krakenRungFor, KRAKEN_TRICKLE_T, KRAKEN_TRICKLE_EDGE, KRAKEN_TRICKLE_CLEAR, OPEN_GUARD_WINDOW_MUL, HAIR_TRIGGER_WINDOW_MUL, HAIR_TRIGGER_DMG_MUL, KRAKEN_RUNGS, KRAKEN_ARM_REACH, KRAKEN_WAVE_TIMEOUT, KRAKEN_STAGGER_BITE,
   KRAKEN_RISE_T, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, hiddenChapters, KRAKEN_CAGE_R, KRAKEN_PARRY_CD,
   KRAKEN_OPEN_WAVES, KRAKEN_COIL_EVERY, KRAKEN_COIL_AT, KRAKEN_COIL_RAYS, KRAKEN_ENRAGE_AT, KRAKEN_ARRIVE_T, KRAKEN_RING_R, KRAKEN_LASH_R, KRAKEN_SLAM_T, KRAKEN_DEFLECT_CD,
   KRAKEN_LUNGE_T, KRAKEN_GRIP_DUR, KRAKEN_GRIP_DMG, KRAKEN_GRIP_FLICKS, KRAKEN_GRIP_STICK_MUL, TRAWL_WIGGLE_ARC,
@@ -36115,6 +36115,131 @@ function runKraken() {
     assert.ok(Math.abs(ratio - HAIR_TRIGGER_DMG_MUL) < 0.1, `Hair Trigger's boost dealt x${ratio.toFixed(2)} on the open head, not x${HAIR_TRIGGER_DMG_MUL}`)
   }
 
+  // (g3c) THE TRICKLE DURING THE ARMS (owner, 2026-10-07: "adds cannot get into the arena"). Not in
+  // the first block (the parry teach); after it, rung.trickle dead every KRAKEN_TRICKLE_T, born at the
+  // arena edge so they reach the fight instead of dying on the way in from off-screen.
+  {
+    const trickle = (d) => {
+      const run = inBlock(d)
+      run.weapons = []
+      const isAdd = (e) => !e._dead && e.rosterId !== 'krakenArm' && e.rosterId !== 'krakenHead'
+      const seen = new Set(run.enemies.filter(isAdd))
+      const born = []
+      const watch = (secs) => {
+        for (let i = 0; i < Math.round(secs * 60); i++) {
+          for (const a of run.krakenArms) if (!a.dead && a.limpT <= 0) { a.tele = 0; a.gripT = 0 }
+          run.player.hp = run.player.maxHP
+          stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+          const h = headOf(run)
+          for (const e of run.enemies) if (isAdd(e) && !seen.has(e)) { seen.add(e); born.push(h ? Math.hypot(e.x - h.x, e.y - h.y) : -1) }
+        }
+      }
+      watch(KRAKEN_TRICKLE_T * 2)
+      const teach = born.length
+      run.script.bossIdx = 99          // a late block
+      run.script.trickleT = 0.01
+      born.length = 0
+      watch(0.1)
+      return { teach, born: born.slice() }
+    }
+    for (const d of [1, 3]) {
+      const { teach, born } = trickle(d)
+      const want = krakenRung(d).trickle
+      assert.strictEqual(teach, 0, `d${d}: ${teach} add(s) trickled into the FIRST block — the parry teach is meant to be empty`)
+      assert.strictEqual(born.length, want, `d${d}: a trickle brought ${born.length} add(s), not rung.trickle = ${want}`)
+      // a loose band: a spawn on a rock is pushed off it, either way (seen 311 and 415px). The old
+      // off-screen spawn landed ~650px out, well past it.
+      for (const r of born) assert.ok(r > KRAKEN_ARM_REACH && r <= KRAKEN_CAGE_R + KRAKEN_TRICKLE_EDGE + 100,
+        `d${d}: a trickle add was born ${Math.round(r)}px from the head — not at the arena edge (${KRAKEN_ARM_REACH}..${KRAKEN_CAGE_R + KRAKEN_TRICKLE_EDGE + 100})`)
+    }
+    assert.ok(krakenRung(3).trickle > krakenRung(1).trickle, 'the trickle does not grow with difficulty')
+    // ...and NEVER ON A FISH AT THE WALL: born at the cage edge, a random bearing used to drop adds
+    // right on top of a fish hugging it (seen 37px)
+    {
+      const run = inBlock(3)
+      run.weapons = []
+      run.script.bossIdx = 99
+      const isAdd = (e) => !e._dead && e.rosterId !== 'krakenArm' && e.rosterId !== 'krakenHead'
+      const h = headOf(run)
+      let near = Infinity, n = 0
+      for (let w = 0; w < 15; w++) {
+        for (const e of run.enemies) if (isAdd(e)) e._dead = true
+        run.enemies = run.enemies.filter((e) => !e._dead)
+        run.player.x = h.x + (KRAKEN_CAGE_R - 10); run.player.y = h.y
+        const seen = new Set(run.enemies)
+        run.script.trickleT = 0.001
+        stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+        for (const e of run.enemies) if (isAdd(e) && !seen.has(e)) { n++; near = Math.min(near, Math.hypot(e.x - run.player.x, e.y - run.player.y)) }
+      }
+      assert.ok(n >= 40, `fixture: only ${n} trickle adds born at the wall`)
+      assert.ok(near >= KRAKEN_TRICKLE_CLEAR - 30, `a trickle add was born ${Math.round(near)}px from a fish at the cage wall (of ${n})`)
+    }
+    // ...AND IN THE CHASE (owner, 2026-10-07: "there should be adds in the head rush too"): once the
+    // head has risen, on the fish's side of the wider cage
+    {
+      const run = inBlock(1)
+      run.weapons = []
+      for (const a of run.krakenArms) { a.dead = true; a.limpT = 0; a.nodeId = null }
+      let guard = 0
+      while ((run.script.phase !== 'chase' || !headOf(run) || run.script.riseT > 0) && guard++ < 60 * 40) {
+        run.player.hp = run.player.maxHP
+        stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+      }
+      assert.ok(run.script.phase === 'chase' && headOf(run), 'the head never rose for the chase')
+      const isAdd = (e) => !e._dead && e.rosterId !== 'krakenArm' && e.rosterId !== 'krakenHead'
+      const seen = new Set(run.enemies.filter(isAdd)), born = []
+      for (let i = 0; i < Math.round(KRAKEN_TRICKLE_T * 2 * 60); i++) {
+        run.player.hp = run.player.maxHP
+        stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+        const h = headOf(run), p = run.player
+        if (!h) break
+        for (const e of run.enemies) if (isAdd(e) && !seen.has(e)) {
+          seen.add(e)
+          const side = Math.atan2(e.y - h.y, e.x - h.x) - Math.atan2(p.y - h.y, p.x - h.x)
+          born.push({ r: Math.hypot(e.x - h.x, e.y - h.y), side: Math.abs(Math.atan2(Math.sin(side), Math.cos(side))) })
+        }
+      }
+      assert.ok(born.length >= krakenRung(1).trickle, `the chase trickled ${born.length} add(s) in ${KRAKEN_TRICKLE_T * 2}s — the head rush has nothing on your back`)
+      for (const b of born) {
+        assert.ok(b.r > KRAKEN_CHASE_CAGE_R - 100 && b.r <= KRAKEN_CHASE_CAGE_R + KRAKEN_TRICKLE_EDGE + 100, `a chase add was born ${Math.round(b.r)}px from the head, not at the chase cage's edge`)
+        assert.ok(b.side <= Math.PI / 3 + 0.3, `a chase add was born ${Math.round(b.side * 180 / Math.PI)}deg round the cage from the fish — on the far side, seconds away`)
+      }
+    }
+  }
+
+  // (g3d) OWNER RULINGS OF 2026-10-07, pinned as he stated them
+  {
+    // "arms should regrow at 50% life of the head"
+    assert.strictEqual(KRAKEN_ENRAGE_AT, 0.5, 'the arms regrow (the last phase) at a head life other than 50%')
+    // "in difficulty 2, the head coils when coil is not learned yet": d2 never coils, not even
+    // enraged, not even in the chase, on a turn that would be the Coil's
+    const run = inBlock(2)
+    run.script.bossIdx = 2
+    run.script.enraged = true
+    run.script.trickleT = 1e9
+    let coils = 0
+    for (let t = 0; t < 60 * 40; t++) {
+      if (run.script.gripN % KRAKEN_COIL_EVERY === KRAKEN_COIL_AT - 1) run.script.turnT = 0
+      run.player.hp = run.player.maxHP
+      stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+      coils += run.events.filter((e) => e.type === 'coilWind').length
+      run.events.length = 0
+      if (run.phase === 'levelup') run.phase = 'playing'
+    }
+    assert.ok(run.script.gripN > KRAKEN_COIL_EVERY * 2, `fixture: only ${run.script.gripN} arm turns in 40s — the Coil's turn was never reached`)
+    assert.strictEqual(coils, 0, `d2 wound ${coils} Coil(s) — it is d3's pattern only`)
+    // "we should have dmg numbers on arms during arms phase": the parry's tear prints its own number
+    const r2 = inBlock(1)
+    const arm = r2.krakenArms[0]
+    const hp0 = arm.hp
+    r2.events.length = 0
+    parryAt(r2, arm, krakenRung(1).window * 0.5)
+    const num = r2.events.filter((e) => e.type === 'hit' && Math.hypot(e.x - arm.x, e.y - arm.y) < 40)
+    assert.ok(arm.limpT > 0, 'fixture: the parry did not land')
+    assert.strictEqual(num.length, 1, `a landed ring parry printed ${num.length} number(s) on the arm — the tear is invisible`)
+    assert.strictEqual(num[0].dmg, Math.round(hp0 - arm.hp), `the tear printed ${num[0].dmg}, but took ${Math.round(hp0 - arm.hp)} off the arm`)
+  }
+
   // (g4) THE NAMED LADDER READS THE RUNG TABLE. A chip is a name for a column of KRAKEN_RUNGS; a
   // chip on a rung that lacks the behaviour (or a rung with the behaviour and no chip) is the
   // brief lying about the fight.
@@ -36124,7 +36249,7 @@ function runKraken() {
       const r = KRAKEN_RUNGS[d - 1], ids = lad[d] ?? []
       for (const id of ids) assert.ok(MUTATORS[id]?.hidden, `d${d} names ${id}, which is not a hidden MUTATORS entry — it would roll at random or render nothing`)
       assert.strictEqual(ids.includes('krakenPinch'), r.grabbers > 0, `d${d}: the Pinch chip and the rung's grabbers disagree`)
-      assert.strictEqual(ids.includes('krakenCoil'), d >= 2, `d${d}: the Coil chip and the Coil's difficulty >= 2 gate disagree`)
+      assert.strictEqual(ids.includes('krakenCoil'), !!r.coil, `d${d}: the Coil chip and the rung's coil column disagree`)
       assert.strictEqual(ids.includes('krakenFrenzy'), (r.enrageArms ?? 0) > 0, `d${d}: the Frenzy chip and the rung's enrageArms disagree`)
     }
   }
@@ -36216,6 +36341,25 @@ function runKraken() {
     assert.strictEqual(run.player.hp, hpBefore,
       `tearing loose still cost ${hpBefore - run.player.hp} health — then struggling buys nothing and the wiggle is decoration`)
 
+    // 2b. ON D3 IT NEVER LETS GO ON ITS OWN (owner, 2026-10-07): it bites every KRAKEN_GRIP_DUR and
+    //     keeps holding; only the wiggle frees you
+    {
+      const r3 = inBlock(3)
+      const g3 = r3.krakenArms.find((a) => !a.dead)
+      for (const a of r3.krakenArms) { a.tele = 0; a.gripT = a === g3 ? KRAKEN_GRIP_DUR : 0 }
+      r3.player.x = g3.x; r3.player.y = g3.y
+      let bites = 0
+      for (let i = 0; i < Math.round((KRAKEN_GRIP_DUR * 2 + 0.2) * 60); i++) {
+        for (const a of r3.krakenArms) if (a !== g3) { a.tele = 0; a.slamT = 0 }
+        r3.player.hp = r3.player.maxHP; r3.player.invuln = 0
+        r3.events.length = 0
+        stepSim(r3, { x: 0, y: 0, skill: false }, 1 / 60)
+        bites += r3.events.filter((e) => e.type === 'hurt' && e.src === 'krakenArm').length
+      }
+      assert.ok(krakenRung(3).gripHold, 'fixture: d3 is not a holding rung')
+      assert.strictEqual(bites, 2, `a d3 grip bit ${bites} time(s) in ${(KRAKEN_GRIP_DUR * 2 + 0.2).toFixed(1)}s, not twice`)
+      assert.ok(g3.gripT > 0, 'a d3 grip let go on its own after biting — it must hold until the fish wiggles free')
+    }
     // 3. STANDING STILL DOES NOT FREE YOU: the clock runs out and it bites. Without this, assertion
     //    2 would pass just as well against a grip that simply expires on its own.
     only(KRAKEN_GRIP_DUR)
@@ -36611,10 +36755,10 @@ function runKraken() {
       // THE STAR IS THE ARMS: one band per coil arm, up to KRAKEN_COIL_RAYS, each arm on its own band
       assert.strictEqual(armed.length, Math.min(able.length, KRAKEN_COIL_RAYS), `a Coil armed ${armed.length} of ${able.length} able arms (want min(able, ${KRAKEN_COIL_RAYS}))`)
       assert.strictEqual(run.script.coilN, armed.length, 'the star draws a different number of bands than arms landing on it')
-      const bands = armed.map((a) => { const k = (a.coilAng - run.script.coilStar) / (Math.PI * 2 / armed.length); return Math.round(k) })
+      const bands = armed.map((a) => { const k = (a.coilBand - run.script.coilStar) / (Math.PI * 2 / armed.length); return Math.round(k) })
       for (const a of armed) {
-        const k = (a.coilAng - run.script.coilStar) / (Math.PI * 2 / armed.length)
-        assert.ok(Math.abs(k - Math.round(k)) < 1e-6, `a coil arm's band (${a.coilAng.toFixed(3)}) is not one of the star's`)
+        const k = (a.coilBand - run.script.coilStar) / (Math.PI * 2 / armed.length)
+        assert.ok(Math.abs(k - Math.round(k)) < 1e-6, `a coil arm's band (${a.coilBand.toFixed(3)}) is not one of the star's`)
       }
       assert.strictEqual(new Set(bands.map((k) => ((k % armed.length) + armed.length) % armed.length)).size, armed.length, 'two coil arms share a band, so a band has no arm on it')
       // ...and they SWING ONTO THEM: well inside the wind-up every coil arm's struck lane runs along its band
@@ -36625,6 +36769,15 @@ function runKraken() {
         const la = Math.atan2(a.ly0 - hd.y, a.lx0 - hd.x)
         const d = Math.abs(Math.atan2(Math.sin(la - a.coilAng), Math.cos(la - a.coilAng)))
         assert.ok(d < 0.02, `1s into the Coil an arm's lane is ${(d * 180 / Math.PI).toFixed(0)}deg off its band — the arms do not lie on the shadows that strike`)
+        // ...and the lane runs DOWN its band, inward to the star's centre (the fish's spot at arming)
+        const inward = Math.atan2(a.ly1 - a.ly0, a.lx1 - a.lx0), want = a.coilBand + Math.PI
+        const db = Math.abs(Math.atan2(Math.sin(inward - want), Math.cos(inward - want)))
+        assert.ok(db < 0.02, `a coil arm's lane points ${(db * 180 / Math.PI).toFixed(0)}deg off its band — the limb drawn is not the shadow that strikes`)
+        // ...and its TIP is on that lane too (render draws the limb to a.x/a.y): the fish stands 200px
+        // off the head, so a tip left on the head's own spoke sits well off the band
+        const L = Math.hypot(a.lx1 - a.lx0, a.ly1 - a.ly0)
+        const off = Math.abs((a.x - a.lx0) * (a.ly1 - a.ly0) - (a.y - a.ly0) * (a.lx1 - a.lx0)) / L
+        assert.ok(off < 2, `a coil arm's tip sits ${off.toFixed(0)}px off its own lane — the drawn limb converges on the head, not on the band that strikes`)
       }
       // a press during the volley must not defuse any of it
       const before = armed.length
@@ -36642,16 +36795,17 @@ function runKraken() {
     // nothing. Same forced gates as the block above, for the same reason.
     {
       const starOff = []
-      const coilRun = (pick) => {
+      const coilRun = (pick, waitR = 200) => {
         const run = inBlock(3)
         run.script.bossIdx = 2
+        run.script.trickleT = 1e9   // forcing block 2 turns the trickle on; this measures the Coil alone
         run.script.gripN = KRAKEN_COIL_AT - 1
         // the fish waits HALFWAY BETWEEN two arms, so the star it aims is off the arms' own lanes
         const hd0 = run.enemies.find((e) => e.rosterId === 'krakenHead' && !e._dead)
         const b0 = run.krakenArms[0].ang + Math.PI / run.krakenArms.length
         let guard = 0
         while (guard++ < 60 * 30 && !(run.script.coilT > 0)) {
-          run.player.x = hd0.x + Math.cos(b0) * 200; run.player.y = hd0.y + Math.sin(b0) * 200
+          run.player.x = hd0.x + Math.cos(b0) * waitR; run.player.y = hd0.y + Math.sin(b0) * waitR
           run.player.hp = run.player.maxHP
           stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
         }
@@ -36664,29 +36818,46 @@ function runKraken() {
         const spared = live.find((a) => !a.coilArm && a.limpT <= 0 && !(a.gripT > 0))
         // the spared arm can be mid-rear when the Coil takes the ring; its old fuse must not land on the fish
         if (pick === 'spared' && spared) { spared.tele = 0; spared.fuse = 0 }
-        // THE STAR (owner, 2026-09-26): a point 260px out from the head on the first band (the one
-        // aimed at the fish), mid-wedge between two bands, or the head, where every band overlaps
+        // THE STAR (owner, 2026-09-26): a point 260px out from its centre on the first band, mid-wedge
+        // between two bands, or the centre itself, where every band overlaps
         const hd = run.enemies.find((e) => e.rosterId === 'krakenHead' && !e._dead)
         const nB = run.script.coilN || KRAKEN_COIL_RAYS
         // THE STAR'S BEARING IS RANDOM (owner, 2026-09-27): recorded against the fish's, spread checked below
         starOff.push(Math.atan2(Math.sin(run.script.coilStar - b0), Math.cos(run.script.coilStar - b0)))
-        let bear = (run.script.coilStar ?? 0) + (pick === 'spared' ? Math.PI / nB : 0)
-        if (pick === 'laneInWedge') {
-          // a coil arm's own bearing that is well off every band: its old lane runs through a wedge
-          const off = (b) => Math.min(...Array.from({ length: nB }, (_, k) => { const d = b - (run.script.coilStar + k * Math.PI * 2 / nB); return Math.abs(Math.atan2(Math.sin(d), Math.cos(d))) }))
-          // The star's bearing is random, and with 9 arms the one nearest each band is never far off
-          // it — so the fixture turns the whole star (every band and every coil arm's target with it)
-          // until one coil arm's own bearing sits mid-wedge. The random draw already happened; this
-          // only picks which bearing it drew.
-          const arm = live.find((a) => a.coilArm)
-          const turn = (arm.ang - Math.PI / nB) - run.script.coilStar
-          run.script.coilStar += turn
-          for (const a of live) if (a.coilArm) a.coilAng += turn
-          bear = arm.ang
-          assert.ok(off(bear) * 260 > KRAKEN_LASH_W + 30, 'fixture: no coil arm lies clear of every band')
+        // every position is measured from the star's centre: the fish's spot when it wound up
+        const cx = run.script.coilCX, cy = run.script.coilCY
+        // measured against where the fixture PLACED the fish before the arming step: the same step can
+        // still shove it (seen 40px), which is after the lock and not what this asserts
+        const placed = { x: hd0.x + Math.cos(b0) * waitR, y: hd0.y + Math.sin(b0) * waitR }
+        const lockOff = Math.hypot(cx - placed.x, cy - placed.y)
+        assert.ok(lockOff < 60, `the Coil did not lock its centre on the fish at arming (${pick}, waitR ${waitR}: ${Math.round(lockOff)}px from where it stood)`)
+        const off = (b) => Math.min(...Array.from({ length: nB }, (_, k) => { const d = b - (run.script.coilStar + k * Math.PI * 2 / nB); return Math.abs(Math.atan2(Math.sin(d), Math.cos(d))) }))
+        // how far out from the centre along a bearing the fish can stand and still be inside the cage
+        // (the centre can sit near the wall now, and the cage would shove an outside point onto a band)
+        const room = (b) => {
+          const ux = Math.cos(b), uy = Math.sin(b), ox = cx - hd.x, oy = cy - hd.y, R = KRAKEN_CAGE_R - 20
+          const pu = ox * ux + oy * uy
+          return -pu + Math.sqrt(Math.max(0, pu * pu - (ox * ox + oy * oy - R * R)))
         }
-        const out = pick === 'centre' ? 0 : 260
-        const at = () => ({ x: hd.x + Math.cos(bear) * out, y: hd.y + Math.sin(bear) * out })
+        // of the star's bands (armed) or wedges (spared), the one with the most room
+        const pickBear = (half) => Array.from({ length: nB }, (_, k) => (run.script.coilStar ?? 0) + (k + half) * Math.PI * 2 / nB).sort((p1, p2) => room(p2) - room(p1))[0]
+        let bear = pickBear(pick === 'spared' ? 0.5 : 0)
+        let out = pick === 'centre' ? 0 : Math.min(260, room(bear))
+        if (pick === 'spared') assert.ok(out * Math.sin(Math.PI / nB) > KRAKEN_LASH_W + 30, `fixture: the roomiest wedge leaves only ${Math.round(out)}px inside the cage — no point in it is clear of the bands`)
+        if (pick === 'laneInWedge') {
+          // a point on a coil arm's OWN idle lane (its slot through the head), with the star turned so
+          // that point sits mid-wedge: the hit must be the star, not where the arm used to lie. Only
+          // the star turns; the arms' lanes stay put, which is what makes the two disagree here.
+          // the arm whose idle lane passes farthest from the centre: near it the bands crowd together
+          const lanePt = (q) => ({ x: hd.x + Math.cos(q.ang) * 300, y: hd.y + Math.sin(q.ang) * 300 })
+          const arm = live.filter((q) => q.coilArm).sort((p1, p2) => Math.hypot(lanePt(p2).x - cx, lanePt(p2).y - cy) - Math.hypot(lanePt(p1).x - cx, lanePt(p1).y - cy))[0]
+          const { x: px, y: py } = lanePt(arm)
+          bear = Math.atan2(py - cy, px - cx)
+          out = Math.hypot(px - cx, py - cy)
+          run.script.coilStar += (bear - Math.PI / nB) - run.script.coilStar
+          assert.ok(off(bear) * out > KRAKEN_LASH_W + 30, 'fixture: the point on the arm\'s lane is not clear of every band')
+        }
+        const at = () => ({ x: cx + Math.cos(bear) * out, y: cy + Math.sin(bear) * out })
         const hits = []
         let lashes = 0
         guard = 0
@@ -36710,6 +36881,12 @@ function runKraken() {
       const inMiddle = coilRun('centre')
       assert.deepStrictEqual(inMiddle.hits, [KRAKEN_COIL_DMG],
         `standing where every Coil lane overlaps cost [${inMiddle.hits}] — the Coil hits ONCE, not once per lane`)
+      // THE WALL IS NOT A HIDING PLACE (owner, 2026-10-07: "a player at the very edge of the arena is
+      // protected"). The star is centred on the fish when it winds up, so standing still where you
+      // were — even pressed against the cage — is standing where every band crosses.
+      const atWall = coilRun('centre', KRAKEN_CAGE_R - 10)
+      assert.deepStrictEqual(atWall.hits, [KRAKEN_COIL_DMG],
+        `a fish that armed the Coil against the cage wall and stood still cost [${atWall.hits}] — the wall is still safe from it`)
       const inGap = coilRun('spared')
       assert.deepStrictEqual(inGap.hits, [], `standing between two of the star's bands cost [${inGap.hits}] — the wedges are not safe, so the Coil has no answer`)
       const onOldLane = coilRun('laneInWedge')
@@ -37466,6 +37643,25 @@ function testKrakenGrab() {
     }
     assert.ok(broke, `a fish swinging the stick never tore loose (${frames} frames)`)
     assert.ok(!bitten, 'a fish that wiggled out of the grip was BITTEN — the struggle spent the bite\'s clock')
+  }
+  // 1d) ON D2 THE GRIP LASTS rung.gripDur, NOT KRAKEN_GRIP_DUR (owner, 2026-10-07: "twice longer in
+  // d2"), measured from a real latch: standing still, the bite lands then, and only then lets go
+  {
+    startGrab()
+    assert.strictEqual(strike(P), 'caught', 'a pinch that shut on the fish did not take hold')
+    const h = jaws.find((c) => c.gripT > 0)
+    let frames = 0, bitAt = -1
+    while (h.gripT > 0 && frames++ < 60 * 8) {
+      for (const c of run.krakenArms) if (c !== h) { c.tele = 0; c.slamT = 0 }
+      p.hp = p.maxHP; p.invuln = 0
+      run.events.length = 0
+      stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+      if (bitAt < 0 && run.events.some((e) => e.type === 'hurt' && e.src === 'krakenArm')) bitAt = frames / 60
+    }
+    const want = krakenRung(2).gripDur
+    assert.ok(want > KRAKEN_GRIP_DUR, 'fixture: d2 has no longer grip than the default')
+    assert.ok(Math.abs(bitAt - want) < 0.1, `a d2 grip bit at ${bitAt.toFixed(2)}s, not rung.gripDur = ${want}s`)
+    assert.strictEqual(h.gripT, 0, 'a d2 grip still held after its bite')
   }
   // 1c) ON A JAW'S PATH, most of the way out to where the snap starts: caught too — the jaw sweeps
   // it (and far enough out that the other jaw's path cannot reach the fish's body)
