@@ -9224,7 +9224,7 @@ CHAPTERS.mine = {
     firedamp: {
       count: 12, near: 1000, ring: [120, 620], seam: [2, 4], gap: 92, r: [44, 62], drift: 16, relay: 0.5,
       creep: 16, creepStop: 0,
-      blastMul: 2.2, reach: 1.15, link: 0.13, dmg: 120, kb: 170, sting: 4,
+      blastMul: 2.2, reach: 1.15, link: 0.22, dmg: 120, kb: 170, sting: 4,
     },
   },
   obstacles: null,
