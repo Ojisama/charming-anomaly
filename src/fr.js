@@ -307,6 +307,7 @@ const UI = {
   // 'Relancer cette anomalie' — that one is prose read aloud, not a label on a control.
   'reroll {n}': 'reroll {n}',
   'Start': 'Commencer',
+  'A new version of the game is out. Updating now — you will be back on this screen in a moment.': 'Une nouvelle version du jeu est sortie. Mise à jour en cours — vous revenez sur cet écran dans un instant.',
   'This boss\'s ladder is fixed — each difficulty adds its named modifiers.':
     'L\'échelle de ce boss est fixe — chaque difficulté ajoute ses modificateurs attitrés.',
   // v6.6.19 per-anomaly reroll, both INFINITIVE. The FR review argued for the imperative

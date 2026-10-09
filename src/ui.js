@@ -3160,6 +3160,9 @@ export function initUI(hooks) {
 
   function renderBrief(d) {
     lastBriefData = d
+    // Booster picks handed back after a new-build reload (main.js staleBuild). Taken once: this
+    // object is re-rendered from lastBriefData, which must not re-add a pick the player then drops.
+    if (d.picks) { for (const id of d.picks) if (CONSUMABLES[id]) selectedConsumables.add(id); delete d.picks }
     const chapter = CHAPTERS[d.chapterId] ?? CHAPTERS.body
     // The purse this screen spends from is the CHAPTER ABOUT TO BE PLAYED's own book — not
     // shopBookId() (the title carousel's browse state). Resolving it the same way main.js's
@@ -3189,7 +3192,9 @@ export function initUI(hooks) {
         ` : `<p class="brief-note">${d.endless ? tt(ENDLESS_COPY.noAnomalies.name, { n: ENDLESS_MILESTONE_S }) : t('the base game')}</p>`}
         ${eyebrow('Boosters', t('this run only'))}
         ${boosterSlotsHtml()}
-        <button class="btn btn--big" data-act="brief-start">▶&nbsp; ${t('Start')}</button>
+        ${d.updating
+          ? `<p class="brief-note">${t('A new version of the game is out. Updating now — you will be back on this screen in a moment.')}</p>`
+          : `<button class="btn btn--big" data-act="brief-start">▶&nbsp; ${t('Start')}</button>`}
       </div>
       ${boosterSheetHtml(briefBookId)}
     `)
