@@ -9176,24 +9176,23 @@ export const KRAKEN_RISE_AT = 0.5        // fraction of the ring broken that bri
 // balance_decision : arms regrow at 60% of the head's life, owner 2026-10-09
 export const KRAKEN_ENRAGE_AT = 0.6      // head hp fraction that hauls the broken arms back (phase 2)
 // THE RAGE (d3 only, rung.rage; owner, 2026-10-09). Below KRAKEN_RAGE_AT it screams, goes green,
-// and throws KRAKEN_RAGE_HITS_MIN..MAX slams, grabs and slaps you cannot parry, KRAKEN_RAGE_GAP apart
-// and with no cap on how many arms wind up at once; the last is KRAKEN_RAGE_VOLLEY slams together, one
-// on you and the rest between you and the head. You swim. Then at least KRAKEN_RAGE_CALM normal turns, and each
+// and throws KRAKEN_RAGE_HITS_MIN..MAX slams on your spot that you cannot parry, KRAKEN_RAGE_GAP apart
+// and with no cap on how many arms wind up at once; then KRAKEN_RAGE_VOLLEY slams together, one on you
+// and the rest round you. You swim. Then at least KRAKEN_RAGE_CALM normal turns, and each
 // turn after is a new rage at KRAKEN_RAGE_CHANCE instead.
 export const KRAKEN_RAGE_AT = 0.3
 // balance_decision : head +1% hp per second its fight starts before 4:00, owner 2026-10-09
 //  - set once, when the chase raises it; the hp it already lost scales with it
 export const KRAKEN_HEAD_HP_AT = 240
 export const KRAKEN_HEAD_HP_PER_S = 0.01
-// balance_decision : rage is 4-8 attacks, 30% faster, ends in 6 slams, owner 2026-10-09
+// balance_decision : rage is 4-8 slams on you, then 6 at once, owner 2026-10-09
 export const KRAKEN_RAGE_HITS_MIN = 4
 export const KRAKEN_RAGE_HITS_MAX = 8
 export const KRAKEN_RAGE_VOLLEY = 6
-// balance_decision : volley lands between head and fish, owner 2026-10-09
-export const KRAKEN_RAGE_VOLLEY_SPREAD = 150 // px past half the head-fish distance, round their midpoint
-// balance_decision : rage slam winds up faster, aims ahead of you 2026-10-09
-export const KRAKEN_RAGE_FUSE = 0.9   // s a rage slam winds up (the rung's own fuse is 1.35)
-export const KRAKEN_RAGE_LEAD = 0.65  // s of the fish's swim a rage slam or grab aims ahead: a straight line is hit, a turn dodges
+// balance_decision : volley lands on and near the fish, owner 2026-10-09
+export const KRAKEN_RAGE_VOLLEY_SPREAD = 300 // px round the fish its other slams land in
+// balance_decision : rage slam winds up 1.2s, owner 2026-10-09
+export const KRAKEN_RAGE_FUSE = 1.2   // s a rage slam winds up (the rung's own fuse is 1.35)
 export const KRAKEN_RAGE_SCREAM = 1.2   // s it screams before the first rage attack
 export const KRAKEN_RAGE_GAP = 0.8 / 1.3 // s between rage attacks starting
 export const KRAKEN_RAGE_CALM = 3

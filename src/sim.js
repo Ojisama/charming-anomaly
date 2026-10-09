@@ -225,7 +225,7 @@ import {
   krakenRungFor, KRAKEN_HEAD_HP, KRAKEN_HEAD_R, KRAKEN_HEAD_SPEED,
   KRAKEN_ARM_HP, KRAKEN_ARM_R, KRAKEN_RING_R, KRAKEN_ARM_REACH, KRAKEN_NODE_BACK,
   KRAKEN_LIMP_PERFECT_MUL, KRAKEN_STAGGER_T, KRAKEN_STAGGER_DECAY, KRAKEN_LIMP_FLASH,
-  KRAKEN_RISE_AT, KRAKEN_ENRAGE_AT, KRAKEN_ENRAGE_ARM_HP, KRAKEN_RAGE_AT, KRAKEN_HEAD_HP_AT, KRAKEN_HEAD_HP_PER_S, KRAKEN_RAGE_HITS_MIN, KRAKEN_RAGE_HITS_MAX, KRAKEN_RAGE_VOLLEY, KRAKEN_RAGE_VOLLEY_SPREAD, KRAKEN_RAGE_SCREAM, KRAKEN_RAGE_FUSE, KRAKEN_RAGE_LEAD, KRAKEN_RAGE_GAP, KRAKEN_RAGE_CALM, KRAKEN_RAGE_CHANCE, KRAKEN_STAGGER_BITE, KRAKEN_FOXFIRE_BURN_T, OPEN_GUARD_TAKEN_MUL, HAIR_TRIGGER_DMG_MUL, HAIR_TRIGGER_T,
+  KRAKEN_RISE_AT, KRAKEN_ENRAGE_AT, KRAKEN_ENRAGE_ARM_HP, KRAKEN_RAGE_AT, KRAKEN_HEAD_HP_AT, KRAKEN_HEAD_HP_PER_S, KRAKEN_RAGE_HITS_MIN, KRAKEN_RAGE_HITS_MAX, KRAKEN_RAGE_VOLLEY, KRAKEN_RAGE_VOLLEY_SPREAD, KRAKEN_RAGE_SCREAM, KRAKEN_RAGE_FUSE, KRAKEN_RAGE_GAP, KRAKEN_RAGE_CALM, KRAKEN_RAGE_CHANCE, KRAKEN_STAGGER_BITE, KRAKEN_FOXFIRE_BURN_T, OPEN_GUARD_TAKEN_MUL, HAIR_TRIGGER_DMG_MUL, HAIR_TRIGGER_T,
   KRAKEN_EXPOSE_BITE, KRAKEN_HITSTOP_PARRY, KRAKEN_HITSTOP_BREAK, KRAKEN_HITSTOP_STAGGER,
   KRAKEN_HEAD_TOUCH_DMG, KRAKEN_HEAD_HOLD, KRAKEN_HEAD_STEER, KRAKEN_DASH_RUNUP, KRAKEN_DASH_SPEED, KRAKEN_DASH_DIST, KRAKEN_DASH_PARRY_PX,
 
@@ -2676,12 +2676,8 @@ function stepKrakenArms(run, dt, rung, head) {
       if (run.krakenArms.some((c) => !c.dead && c.gripT > 0)) return false
       // the last one is the volley: KRAKEN_RAGE_VOLLEY slams at once, once the arms in the air have landed
       if (s.rageLeft === 1) { s.rageKind = 'volley'; if (rearing > 0) return false }
-      if (s.rageKind == null) {
-        const kinds = ['slam']
-        if (rung.grip) kinds.push('grab')
-        if (rung.slap) kinds.push('slap')
-        s.rageKind = kinds[Math.floor(Math.random() * kinds.length)]
-      }
+      // every other rage turn is a slam on the fish (owner, 2026-10-09: "4 slams on players position")
+      if (s.rageKind == null) s.rageKind = 'slam'
     } else if (!(s.turnBagI < (s.turnBag?.length ?? 0)) || (s.turnBag.late != null && s.turnBag.late !== krakenTurnLate(s))) { s.turnBag = krakenTurnBag(run, rung); s.turnBagI = 0 }
     let { wantCoil, wantGrip, wantSlap } = rage ? { wantCoil: false, wantGrip: s.rageKind === 'grab', wantSlap: s.rageKind === 'slap' } : krakenTurnWant(run, rung)
     // A HOLD THAT NEVER LETS GO (rung.gripHold) MUST NOT FREEZE THE RING: a Coil or grab turn waits
@@ -2725,13 +2721,12 @@ function stepKrakenArms(run, dt, rung, head) {
       // the turn there would silently drop attacks and make the ring stutter; it falls back to the
       // whole idle pool instead, which is the old behaviour and costs only the design's promise on
       // a rare turn.
-      // THE VOLLEY ENDS THE RAGE: one slam on the fish, the rest round the water between it and the head
+      // THE VOLLEY ENDS THE RAGE: one slam on the fish, the rest anywhere within KRAKEN_RAGE_VOLLEY_SPREAD of it
       if (volley) {
         const arms = idle.slice()
         for (let i = arms.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [arms[i], arms[j]] = [arms[j], arms[i]] }
         arms.length = Math.min(arms.length, KRAKEN_RAGE_VOLLEY)
-        const mx = (head.x + p.x) / 2, my = (head.y + p.y) / 2
-        const R = Math.hypot(p.x - head.x, p.y - head.y) / 2 + KRAKEN_RAGE_VOLLEY_SPREAD
+        const R = KRAKEN_RAGE_VOLLEY_SPREAD
         arms.forEach((a, k) => {
           s.gripN++
           a.tele = rung.fuse
@@ -2740,13 +2735,9 @@ function stepKrakenArms(run, dt, rung, head) {
           a.aimed = true
           if (k === 0) { a.aimX = p.x; a.aimY = p.y }
           else {
-            // uniform over the disc round the head-fish midpoint, kept off the fish's own zone so each reads
-            let x, y, n = 0
-            do {
-              const r = R * Math.sqrt(Math.random()), th = Math.random() * Math.PI * 2
-              x = mx + Math.cos(th) * r; y = my + Math.sin(th) * r
-            } while (++n < 20 && (x - p.x) ** 2 + (y - p.y) ** 2 < (KRAKEN_LASH_R * 1.5) ** 2)
-            a.aimX = x; a.aimY = y
+            // uniform over the disc round the fish
+            const r = R * Math.sqrt(Math.random()), th = Math.random() * Math.PI * 2
+            a.aimX = p.x + Math.cos(th) * r; a.aimY = p.y + Math.sin(th) * r
           }
           krakenPlaceArm(head, a, krakenReach(s))
           run.events.push({ type: 'armRear', x: a.x, y: a.y, r: KRAKEN_LASH_R, t: rung.fuse, w: KRAKEN_LASH_W })
@@ -2816,8 +2807,8 @@ function stepKrakenArms(run, dt, rung, head) {
           g.fuse = KRAKEN_GRAB_FUSE
           g.grabArm = true
           g.aimed = true
-          g.pinchCX = p.x + (rage ? p.vx * KRAKEN_RAGE_LEAD : 0)
-          g.pinchCY = p.y + (rage ? p.vy * KRAKEN_RAGE_LEAD : 0)
+          g.pinchCX = p.x
+          g.pinchCY = p.y
           g.pinchMate = (g === pinch[0] ? pinch[1] : pinch[0]).i
           g.rageArm = rage
           krakenPlaceArm(head, g, krakenReach(s))
@@ -2837,11 +2828,10 @@ function stepKrakenArms(run, dt, rung, head) {
         a.fuse = a.tele
         a.rageArm = rage
         // THE ARM AIMS YOU (owner, 2026-09-23: "The arms aim you, not always the same spots").
-        // Locked here, once; the lane does not follow the player after this frame. A rage slam
-        // aims where your swim will have taken you (KRAKEN_RAGE_LEAD).
+        // Locked here, once; the lane does not follow the player after this frame.
         a.aimed = true
-        a.aimX = p.x + (rage ? p.vx * KRAKEN_RAGE_LEAD : 0)
-        a.aimY = p.y + (rage ? p.vy * KRAKEN_RAGE_LEAD : 0)
+        a.aimX = p.x
+        a.aimY = p.y
         if (run.krakenLesson === 1) { s.lessonI = a.i; s.lessonSlow = 0 }
         krakenPlaceArm(head, a, krakenReach(s))
         run.events.push({ type: 'armRear', x: a.x, y: a.y, r: KRAKEN_LASH_R, t: a.fuse, w: KRAKEN_LASH_W })
@@ -2899,13 +2889,13 @@ function krakenTurnBag(run, rung) {
   return bag
 }
 // THE RAGE STARTS (d3, rung.rage): it screams, goes green, and its next KRAKEN_RAGE_HITS_MIN..MAX turns are
-// attacks nobody can parry (owner, 2026-10-09: "you know you can't parry you have to swim away").
+// slams nobody can parry, then the volley (owner, 2026-10-09: "you know you can't parry you have to swim away").
 function krakenRageStart(run, head) {
   const s = run.script
   s.rageN++
   s.raging = true
   s.rageScreamT = KRAKEN_RAGE_SCREAM
-  s.rageLeft = KRAKEN_RAGE_HITS_MIN + Math.floor(Math.random() * (KRAKEN_RAGE_HITS_MAX - KRAKEN_RAGE_HITS_MIN + 1))
+  s.rageLeft = KRAKEN_RAGE_HITS_MIN + Math.floor(Math.random() * (KRAKEN_RAGE_HITS_MAX - KRAKEN_RAGE_HITS_MIN + 1)) + 1   // + the volley
   s.rageKind = null
   s.rageNext = false
   s.turnT = 0

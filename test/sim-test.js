@@ -20823,7 +20823,7 @@ run(testLeLargeWeapons)
   run(testKrakenGrab)
   run(testKrakenEnrage)
   run(testKrakenRage)
-  run(testKrakenRageLead)
+  run(testKrakenRageAim)
   run(testKrakenPace)
   run(testKrakenBeat)
   run(testKrakenNowCue)
@@ -38135,47 +38135,39 @@ function testKrakenPace() {
   console.log(`PASS run KP (the Kraken's pace): a level costs x1.2 here and x1 in The Body, ${broke} broken arms paid no level when the chase opened, and a head raised at ${tUp.toFixed(0)}s has x${(head.maxHP / base).toFixed(2)} hp (x1 after 4:00)`)
 }
 
-// PHASE 3, THE RAGE (owner, 2026-10-09). d3 only, below KRAKEN_RAGE_AT: it screams, and its next
-// KRAKEN_RAGE_HITS_MIN..MAX attacks are slams, grabs and slaps nobody can parry, ending in a volley of
-// KRAKEN_RAGE_VOLLEY slams — you swim. Then at least
-// KRAKEN_RAGE_CALM normal turns, then a KRAKEN_RAGE_CHANCE of a new rage on each.
-// A RAGE SLAM AIMS WHERE YOUR SWIM IS TAKING YOU (owner, 2026-10-09: "shorten the wind up and aim a
-// little bit ahead of you"): swimming on in a straight line is hit, turning back dodges it.
-function testKrakenRageLead() {
-  assert.ok(KRAKEN_RAGE_FUSE < krakenRung(3).fuse, 'a rage slam does not wind up faster than a normal one')
-  const swim = (turn) => {
-    const { run, s, head } = krakenChase3(4242)
-    for (const a of run.krakenArms) { a.tele = 0; a.slapArm = a.grabArm = a.coilArm = false; a.gripT = 0 }
-    run.player.x = head.x; run.player.y = head.y + 260
-    Object.assign(s, { raging: true, rageN: 1, rageLeft: 3, rageScreamT: 0, rageKind: 'slam', rageNext: false, turnT: 0, staggerT: 0, coilT: 0 })
-    let dir = 1, arm = null, hit = false, landed = false, g = 0
-    while (!landed && g++ < 600) {
-      run.events.length = 0; run.player.hp = run.player.maxHP; run.player.invuln = 0; run.hitStop = 0
-      if (run.phase === 'levelup') run.phase = 'playing'
-      stepSim(run, { x: dir, y: 0, skill: false }, 1 / 60)
-      if (!arm) {
-        arm = run.krakenArms.find((a) => a.rageArm && a.tele > 0 && !a.slapArm && !a.grabArm) || null
-        if (arm) s.turnT = 99   // the one slam: nothing else lands meanwhile
-      } else if (turn && dir === 1 && arm.tele < arm.fuse * 0.5) dir = -1
-      if (arm && run.events.some((e) => e.type === 'lash' && e.i === arm.i)) {
-        landed = true
-        hit = run.events.some((e) => e.type === 'hurt' && e.src === 'krakenArm')
-      }
-    }
-    assert.ok(arm && landed, `fixture: no rage slam reared and landed (arm ${!!arm})`)
-    assert.strictEqual(arm.fuse, KRAKEN_RAGE_FUSE, 'the rage slam did not wind up on KRAKEN_RAGE_FUSE')
-    return hit
+// A RAGE SLAM LANDS ON YOUR SPOT (owner, 2026-10-09: "remove the aims ahead and re-add 0.3s of
+// windup"): it locks where the fish is when it rears, swimming or not, and winds up 0.9 + 0.3 s.
+function testKrakenRageAim() {
+  assert.ok(Math.abs(KRAKEN_RAGE_FUSE - (0.9 + 0.3)) < 1e-9, 'a rage slam does not wind up 0.9 + 0.3 s')
+  const { run, s, head } = krakenChase3(4242)
+  for (const a of run.krakenArms) { a.tele = 0; a.slapArm = a.grabArm = a.coilArm = false; a.gripT = 0 }
+  run.player.x = head.x; run.player.y = head.y + 260
+  Object.assign(s, { raging: true, rageN: 1, rageLeft: 3, rageScreamT: 0, rageKind: 'slam', rageNext: false, turnT: 0.3, staggerT: 0, coilT: 0 })
+  let arm = null, g = 0
+  while (!arm && g++ < 600) {
+    run.events.length = 0; run.player.hp = run.player.maxHP; run.player.invuln = 0; run.hitStop = 0
+    if (run.phase === 'levelup') run.phase = 'playing'
+    stepSim(run, { x: 1, y: 0, skill: false }, 1 / 60)
+    arm = run.krakenArms.find((a) => a.rageArm && a.tele > 0) || null
   }
-  assert.ok(swim(false), 'a rage slam missed a fish swimming on in a straight line')
-  assert.ok(!swim(true), 'a rage slam hit a fish that turned back')
+  assert.ok(arm, 'fixture: no rage slam reared')
+  assert.ok(Math.hypot(run.player.vx, run.player.vy) > 100, 'fixture: the fish was not swimming')
+  assert.ok(!arm.slapArm && !arm.grabArm && arm.aimed, 'the rage turn was not a slam')
+  assert.strictEqual(arm.fuse, KRAKEN_RAGE_FUSE, 'the rage slam did not wind up on KRAKEN_RAGE_FUSE')
+  const off = Math.hypot(arm.aimX - run.player.x, arm.aimY - run.player.y)
+  assert.ok(off < 1, `a rage slam aimed ${off.toFixed(0)}px off a swimming fish, not on its spot`)
 }
+// PHASE 3, THE RAGE (owner, 2026-10-09). d3 only, below KRAKEN_RAGE_AT: it screams, and its next
+// KRAKEN_RAGE_HITS_MIN..MAX turns are slams on the fish nobody can parry, then a volley of
+// KRAKEN_RAGE_VOLLEY slams on and round it — you swim. Then at least
+// KRAKEN_RAGE_CALM normal turns, then a KRAKEN_RAGE_CHANCE of a new rage on each.
 function testKrakenRage() {
   const { run, s, head, step } = krakenChase3(20261009)
   assert.ok(krakenRung(3).rage && !krakenRung(2).rage && !krakenRung(1).rage, 'the rage is not d3 only')
   // the owner's numbers (2026-10-09), as he said them
   assert.ok(KRAKEN_RAGE_AT === 0.3 && KRAKEN_RAGE_CALM === 3 && KRAKEN_RAGE_CHANCE === 0.2, 'the rage is not "<30%, at least 3 normal, then 20%"')
   assert.ok(KRAKEN_RAGE_HITS_MIN === 4 && KRAKEN_RAGE_HITS_MAX === 8 && KRAKEN_RAGE_VOLLEY === 6 && KRAKEN_RAGE_GAP === 0.8 / 1.3,
-    'the rage is not "random 4 to 8 attacks, 30% faster than 0.8s apart, the last one 6 slams"')
+    'the rage is not "random 4 to 8 slams, 30% faster than 0.8s apart, then 6 slams at once"')
   assert.ok(KRAKEN_HEAD_HP_AT === 240 && KRAKEN_HEAD_HP_PER_S === 0.01, 'the head is not "+1% per second before 4:00"')
   // phase 2 first, then a x1000 build into a staggered head: it stops at the rage line
   head.hp = head.maxHP * 0.7
@@ -38201,7 +38193,7 @@ function testKrakenRage() {
   s.staggerT = 0
   run.player.x = head.x + 200; run.player.y = head.y
   let lungePrev = head.lungeT
-  let rageAtk = 0, windows = 0, ready = 0, lungeMoved = false, frames = 0
+  let rageAtk = 0, windows = 0, ready = 0, lungeMoved = false, frames = 0, notOnFish = 0
   const want = s.rageLeft, turnAt = []
   let last = null
   const take = (ev) => ev.filter((e) => e.type === 'armRear' || e.type === 'grabRear').length
@@ -38217,6 +38209,8 @@ function testKrakenRage() {
       last = run.krakenArms.filter((a) => !a.dead && a.rageArm && a.tele > 0 && a.tele >= a.fuse - 1.5 / 60)
       last.rears = take(run.events); last.fx = run.player.x; last.fy = run.player.y; last.hx = head.x; last.hy = head.y
       last.inAir = run.krakenArms.filter((a) => !a.dead && (a.tele > 0 || a.gripT > 0)).length
+      // every turn before the volley is one slam on the fish's spot (owner: "4 slams on players position")
+      if (s.rageLeft > 0 && !(last.length === 1 && !last[0].slapArm && !last[0].grabArm && last[0].aimed && Math.hypot(last[0].aimX - last.fx, last[0].aimY - last.fy) < 1)) notOnFish++
     }
     windows += run.events.filter((e) => e.type === 'slamWindow').length
     if (run.parryReady) ready++
@@ -38225,7 +38219,8 @@ function testKrakenRage() {
     lungePrev = head.lungeT
   }
   assert.ok(!s.raging, 'the rage never ended')
-  assert.ok(want >= KRAKEN_RAGE_HITS_MIN && want <= KRAKEN_RAGE_HITS_MAX, `the rage drew ${want} attacks, outside ${KRAKEN_RAGE_HITS_MIN}-${KRAKEN_RAGE_HITS_MAX}`)
+  assert.ok(want - 1 >= KRAKEN_RAGE_HITS_MIN && want - 1 <= KRAKEN_RAGE_HITS_MAX, `the rage drew ${want - 1} slams before its volley, outside ${KRAKEN_RAGE_HITS_MIN}-${KRAKEN_RAGE_HITS_MAX}`)
+  assert.strictEqual(notOnFish, 0, `${notOnFish} rage turn(s) before the volley were not one slam on the fish`)
   assert.strictEqual(rageAtk, want, `the rage threw ${rageAtk} attacks, not the ${want} it drew`)
   // 30% FASTER: no gap shorter than KRAKEN_RAGE_GAP, and they come on it (no arm cap holds them back)
   const gaps = turnAt.slice(1).map((t, i) => t - turnAt[i])
@@ -38239,14 +38234,10 @@ function testKrakenRage() {
   assert.strictEqual(last.inAir, KRAKEN_RAGE_VOLLEY, `the volley reared with ${last.inAir - KRAKEN_RAGE_VOLLEY} earlier attack(s) still in the air`)
   const onFish = last.filter((a) => Math.hypot(a.aimX - last.fx, a.aimY - last.fy) < 1)
   assert.strictEqual(onFish.length, 1, `${onFish.length} of the volley's slams aimed at the fish, not one`)
-  assert.ok(last.filter((a) => !onFish.includes(a)).every((a) => Math.hypot(a.aimX - last.fx, a.aimY - last.fy) >= KRAKEN_LASH_R * 1.5), 'a volley slam meant for the arena landed on the fish')
-  // ...packed between the fish and the head (owner, 2026-10-09: "too spread out, they should be closer
-  // to the head and the player")
+  // ...on and near the fish (owner, 2026-10-09: "the multiple slam randomly on and near the player")
   {
-    const mx = (last.hx + last.fx) / 2, my = (last.hy + last.fy) / 2
-    const R = Math.hypot(last.fx - last.hx, last.fy - last.hy) / 2 + KRAKEN_RAGE_VOLLEY_SPREAD
-    const far = last.map((a) => Math.hypot(a.aimX - mx, a.aimY - my)).filter((d) => d > R + 1)
-    assert.strictEqual(far.length, 0, `${far.length} volley slam(s) landed ${far.map((d) => d.toFixed(0))}px from the head-fish midpoint, past ${R.toFixed(0)}`)
+    const far = last.map((a) => Math.hypot(a.aimX - last.fx, a.aimY - last.fy)).filter((d) => d > KRAKEN_RAGE_VOLLEY_SPREAD + 1)
+    assert.strictEqual(far.length, 0, `${far.length} volley slam(s) landed ${far.map((d) => d.toFixed(0))}px from the fish, past ${KRAKEN_RAGE_VOLLEY_SPREAD}`)
   }
   assert.strictEqual(windows, 0, `the rage pushed ${windows} press-now cue(s): its attacks are not parried`)
   assert.strictEqual(ready, 0, `the parry button lit on ${ready} frame(s) of the rage`)
@@ -38263,14 +38254,14 @@ function testKrakenRage() {
   }
   // ...and it comes back, never before KRAKEN_RAGE_CALM normal turns
   let normal = 0, minCalm = Infinity, rages = 1
-  const drawn = [want]
+  const drawn = [want - 1]
   guard = 0
   while (rages < 10 && guard++ < 60 * 900) {
     for (const a of run.krakenArms) if (a.gripT > 0) { a.gripT = 0; a.gripClock = a.gripWiggle = undefined }
     const was = s.raging
     step()
     if (!was && !s.raging) normal += take(run.events) + run.events.filter((e) => e.type === 'coilWind').length
-    if (run.events.some((e) => e.type === 'krakenRage')) { rages++; minCalm = Math.min(minCalm, normal); normal = 0; drawn.push(s.rageLeft) }
+    if (run.events.some((e) => e.type === 'krakenRage')) { rages++; minCalm = Math.min(minCalm, normal); normal = 0; drawn.push(s.rageLeft - 1) }
   }
   assert.ok(rages >= 10, `only ${rages} rages in 900s at a ${KRAKEN_RAGE_CHANCE} chance a turn`)
   // ...and how long each one is, is random: 4 to 8 (owner, 2026-10-09)
