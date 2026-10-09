@@ -1701,6 +1701,7 @@ const CONFIG = {
   'PARRY WHEN IT FLASHES': 'PARE QUAND IL CLIGNOTE',
   'SHOOT THE TIP TO BREAK THE ARM': 'TIRE SUR LE BOUT POUR BRISER LE BRAS',
   'THE ARMS RETURN': 'LES TENTACULES REPOUSSENT',
+  'IT ENRAGES': 'IL EST VERT DE RAGE !',
   'KRAKEN SLAIN': 'KRAKEN TERRASSÉ',
   // The Kraken, 2026-09-27: Glint's no-cost card, the named ladder. Owner-picked: Glint,
   // L'Étau / L'Étreinte and their two descs. Frenzy's desc is a DRAFT.
@@ -1715,7 +1716,7 @@ const CONFIG = {
   'The Coil': 'L\'Étreinte',
   'two arms pin you in place': 'deux bras t\'immobilisent',
   'every arm slams down on you at once': 'tous les bras s\'abattent en même temps sur toi',
-  'its last stand grows three more arms that strike faster': 'son dernier souffle fait pousser trois bras de plus, plus rapides',
+  'it grows three more arms, then goes green with rage': 'fait pousser trois bras de plus, puis il est vert de rage',
   'The Bulkhead': 'La Cloison',
   'The Gaff': 'La Gaffe',
   'The Tentacle': 'Le Tentacule',

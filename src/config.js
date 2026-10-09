@@ -8933,6 +8933,8 @@ CHAPTERS.kraken = {
   parry: true,
   boards: ['kills', 'time'],
   maxDifficultyCap: 3,
+  // balance_decision : 20% more xp per level here, owner 2026-10-09
+  xpNeedMul: 1.2,
   // No tide: it is a boss arena, not a rung — the Undertow sway would fight the parry (see run US).
   tide: null,
   signature: null,
@@ -9113,9 +9115,7 @@ export const KRAKEN_RUNGS = [
   //    (27 against 36) and won 2/6 — the decay eating them faster than they filled.
   // balance_decision : arms attack half as often, owner 2026-09-26
   //  - cadence alone is not the rate: d2/d3 needed x2.55 for -50% (the beat and `rearing` also gate)
-  // balance_decision : d3's last phase grows 3 more arms and rears 3 at once, owner 2026-09-26
-  //  - its coils drop to every 8th turn (enrageCoilEvery/At): at every 4th they ate a third of its slams
-  //  - enrageFree: its slams skip the one-answer beat (owner 2026-09-26): ~26/min, dodge what you can't parry
+  // balance_decision : d3 regrows 3 more arms at 60%, rages at 30%, owner 2026-10-09
   // balance_decision : arms attack 20% more often, owner 2026-09-26
   //  - measure POOLED over 48 seeds (kraken-probe --cadence): per-fight rates swing +-30%
   // balance_decision : d2 +20% / d3 +40% arm attacks, by faster wind-ups [2026-10-07]
@@ -9124,7 +9124,7 @@ export const KRAKEN_RUNGS = [
   //  - the Coil still takes at most KRAKEN_COIL_RAYS of them at once
   { arms: 7, rearing: 1, window: 0.34, lungeWindow: 0.52, perfect: 0.150, fuse: 2.20, limp: 4.0, cadence: 2.55, staggerNeed: 2, headHpMul: 1.00, grip: false, coil: false, grabbers: 0, trickle: 2 },
   { arms: 8, rearing: 2, window: 0.28, lungeWindow: 0.46, perfect: 0.125, fuse: 1.60, limp: 3.2, cadence: 1.20, staggerNeed: 3, headHpMul: 1.02, grip: true,  coil: false, grabbers: 2, trickle: 3, gripDur: 4.4 },
-  { arms: 9, rearing: 2, window: 0.24, lungeWindow: 0.42, perfect: 0.110, fuse: 1.35, limp: 2.6, cadence: 1.20, staggerNeed: 3, headHpMul: 1.30, grip: true,  coil: true,  grabbers: 2, trickle: 4, gripHold: true, slap: true, enrageArms: 3, enrageRearing: 3, enrageCoilEvery: 8, enrageCadence: 0.45, enrageFree: true },
+  { arms: 9, rearing: 2, window: 0.24, lungeWindow: 0.42, perfect: 0.110, fuse: 1.35, limp: 2.6, cadence: 1.20, staggerNeed: 3, headHpMul: 1.30, grip: true,  coil: true,  grabbers: 2, trickle: 4, gripHold: true, slap: true, enrageArms: 3, rage: true },
 ]
 // The one accessor, so no site has to remember the difficulty-1 offset or the clamp. The cap is
 // enforced by the chapter, but a probe or a migrated save can hand this anything.
@@ -9173,10 +9173,25 @@ export const KRAKEN_LIMP_PERFECT_MUL = 1.6 // x the limp window on a perfect par
 // now and the survivors keep swinging under it, so the verb the chapter teaches is the verb it ends
 // on — and then the thing hauls its broken arms back out of the murk when it starts to die.
 export const KRAKEN_RISE_AT = 0.5        // fraction of the ring broken that brings the head up
-// balance_decision : arms regrow at half the head's life, owner [2026-10-07]
-export const KRAKEN_ENRAGE_AT = 0.5      // head hp fraction that starts the last phase
-export const KRAKEN_ENRAGE_CADENCE = 0.72 // x the ring's cadence once enraged
+// balance_decision : arms regrow at 60% of the head's life, owner 2026-10-09
+export const KRAKEN_ENRAGE_AT = 0.6      // head hp fraction that hauls the broken arms back (phase 2)
+// THE RAGE (d3 only, rung.rage; owner, 2026-10-09). Below KRAKEN_RAGE_AT it screams, goes green,
+// and throws KRAKEN_RAGE_HITS slams, grabs and slaps you cannot parry, KRAKEN_RAGE_GAP apart: you
+// swim. Then at least KRAKEN_RAGE_CALM normal turns, and each turn after is a new rage at
+// KRAKEN_RAGE_CHANCE instead.
+export const KRAKEN_RAGE_AT = 0.3
+// balance_decision : head +1% hp per second its fight starts before 4:00, owner 2026-10-09
+//  - set once, when the chase raises it; the hp it already lost scales with it
+export const KRAKEN_HEAD_HP_AT = 240
+export const KRAKEN_HEAD_HP_PER_S = 0.01
+export const KRAKEN_RAGE_HITS = 5
+export const KRAKEN_RAGE_SCREAM = 1.2   // s it screams before the first rage attack
+export const KRAKEN_RAGE_GAP = 0.8      // s between rage attacks starting
+export const KRAKEN_RAGE_CALM = 3
+export const KRAKEN_RAGE_CHANCE = 0.2
 export const KRAKEN_ENRAGE_ARM_HP = 0.55 // regrown arms come back this tough (they are torn already)
+// px up the limb from its tip the opened arm's node sits: weapons aim where there is flesh (owner, 2026-10-09)
+export const KRAKEN_NODE_BACK = 60
 export const KRAKEN_STAGGER_T = 4.5        // s the head stays open once its stagger fills
 // Long enough to survive a trip to a limb. At 7s the posture drained while the player was doing the
 // other thing the fight asks of them — chasing an arm they had just opened — which punishes the loop
@@ -9368,7 +9383,6 @@ export const KRAKEN_PARRY_DAZE = 1.0
 // Shorter than the cooldown on purpose — the fish has finished the move and is visibly waiting,
 // which is what makes the 0.8s readable as a cost rather than as the button being broken.
 export const KRAKEN_PARRY_SPIN_T = 0.3
-export const KRAKEN_ARM_LEVELS = 1 // levels a broken arm is worth — BANKED, paid out on the hide
 
 // THE GRIP (P2, D2+). An arm latches on and you are SLOWED, not attacked: you wiggle out of it the
 // way the Trawl's net taught you, and the parry button is never involved.
@@ -9491,7 +9505,7 @@ export const KRAKEN_TURN_BAG = 16
 
 // THE BACKHAND SLAP (d3 only, rung.slap). One arm pivots on its own ring shoulder, cocks back to one
 // side of the fish with its suckers lit (the slam's own wind-up), then swings through the fish's
-// bearing and follows through: whatever it crosses, out to KRAKEN_SLAP_LEN, is slapped ONCE. The
+// bearing and follows through: whatever it crosses, out to its tip (KRAKEN_SLAP_PAST), is slapped ONCE. The
 // answers are the parry, in the normal window as the swing starts, and hugging the head, which the
 // limb passes over. A parried slap goes limp like any parried slam.
 export const KRAKEN_SLAP_EVERY = 4      // arm attacks per slap
@@ -9500,7 +9514,9 @@ export const KRAKEN_SLAP_SWING = 0.25   // s of that, the swing itself (cocked -
 export const KRAKEN_SLAP_COCK = 170     // px beside the fish the cocked limb lies: on a phone's screen, so the wind-up is SEEN
 export const KRAKEN_SLAP_FOLLOW = 0.6   // rad it follows through past it, still striking
 export const KRAKEN_SLAP_FOLLOW_T = 0.2 // s of follow-through
-export const KRAKEN_SLAP_LEN = 1500     // px from the shoulder the flat of the limb reaches: past every screen edge
+// the limb reaches KRAKEN_SLAP_PAST beyond the fish's distance from the shoulder, locked when the
+// slap winds up: swim out past its tip to dodge (owner, 2026-10-09: "only sweep half of the screen")
+export const KRAKEN_SLAP_PAST = 110
 export const KRAKEN_SLAP_SAFE_R = 200   // px round the head centre the limb passes OVER
 export const KRAKEN_SLAP_DMG = 24
 // balance_decision : three times the dead between apparitions, owner 2026-09-27
@@ -15211,7 +15227,7 @@ export const MUTATORS = {
   // does is KRAKEN_RUNGS' grabbers/coil/enrage* columns, which sim.js reads off the difficulty.
   krakenPinch:   { name: 'The Pinch',  icon: '🦀', desc: 'two arms pin you in place',             hidden: true, chapters: ['kraken'], effects: {} },
   krakenCoil:    { name: 'The Coil',   icon: '🌀', desc: 'every arm slams down on you at once', hidden: true, chapters: ['kraken'], effects: {} },
-  krakenFrenzy:  { name: 'Frenzy',     icon: '💢', desc: 'its last stand grows three more arms that strike faster', hidden: true, chapters: ['kraken'], effects: {} },
+  krakenFrenzy:  { name: 'Frenzy',     icon: '💢', desc: 'it grows three more arms, then goes green with rage', hidden: true, chapters: ['kraken'], effects: {} },
   // v5.25: chapter anomalies — each turns ITS chapter's signature mechanic up, paired with a
   // small reward like every generic entry above. `chapters` scopes the roll to where the
   // mechanic exists: a modifier that references a system the chapter doesn't run is noise, not
@@ -15507,6 +15523,7 @@ export const GILDED_COIN_MUL = 2     // gilded: death coin count multiplier (on 
 export const KRAKEN_BEATS = {
   rise:   { name: 'IT RISES' },         // the head coming up: the fight gets a second thing to read
   enrage: { name: 'THE ARMS RETURN' },  // the ring you broke, hauled back: says why it is back
+  rage:   { name: 'IT ENRAGES' },       // d3's scream: green with rage, nothing it throws can be parried
   slain:  { name: 'KRAKEN SLAIN' },     // the banner the death holds on, before the summary
   // THE PARRY LESSON's two lines (owner-approved wording): while the first arm winds up, then
   // after the first parry ever, while the limp arm's tip target is lit
@@ -15521,6 +15538,7 @@ export const KRAKEN_CEREMONY = {
   rise:   { bars: 0.3, textIn: 0.35, hold: 2.2, out: 0.4, dim: 0.34 },
   // the enrage has no safe window: no bars, no dim over the arms, the line on the half the head is not
   enrage: { textIn: 0.1, hold: 1.5, out: 0.35, edge: 0.55, zoomKick: 1.07 },
+  rage:   { textIn: 0.1, hold: 1.5, out: 0.35, edge: 0.55, zoomKick: 1.07 },
   barFrac: 0.085,   // letterbox bar height, fraction of screen height
 }
 

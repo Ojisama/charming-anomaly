@@ -779,6 +779,7 @@ const SFX_FOR_EVENT = {
   // hauls every broken arm back up. 'siren' is shared with coilWind on purpose — both are "something
   // ring-wide is coming", which is the one association worth having in this chapter.
   krakenEnrage: 'siren',
+  krakenRage: 'siren',   // each rage: rare (a 20% turn after 3 calm ones), and the one warning not to parry
   // tentacleBreak is the fight's real progress, headHide is the kraken dropping below the field,
   // gripLatch is a grab taking hold — all three are rare enough to bear a voice (4-8 a fight).
   // `lash` HAD none until 2026-09-14, on the ground that the ring throws one about once a second.

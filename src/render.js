@@ -21918,9 +21918,10 @@ void main() {
       while (k1 < pts.length - 1 && l1 < K_SLAP_LIT) { l1 += Math.hypot(pts[k1 + 1].x - pts[k1].x, pts[k1 + 1].y - pts[k1].y); k1++ }
       tS = k0 / (pts.length - 1); tE = k1 / (pts.length - 1)
     }
-    // A GRAB wears its own colour and NEVER the white parry flash: it is dodged, not parried
+    // A GRAB wears its own colour and NEVER the white parry flash: it is dodged, not parried. Nor
+    // does a RAGE attack: it is swum away from
     const grab = a.grabArm === true
-    const win = !grab && a.tele <= rung.window
+    const win = !grab && !a.rageArm && a.tele <= rung.window
     // a grab's tell names the line it will STRIKE (lx0..lx1, the capsule sim tests), not the limb
     if (grab) tellDrawn('arm', a.i, 'grabCharge', a.x, a.y, a.lx0, a.ly0, a.lx1, a.ly1, pts)
     else tellDrawn('arm', a.i, win ? 'slamFlash' : 'slamCharge', a.x, a.y, pts[0].x, pts[0].y, pts[pts.length - 1].x, pts[pts.length - 1].y, pts)
@@ -21990,16 +21991,16 @@ void main() {
         // backing so it holds against the lit seabed, hot orange at the running front settling to a
         // deep ember behind it. Saturated colour and no white — the window's flash stays the loudest.
         const age = Math.max(0, Math.min(1, (tF - t) / 0.12))
-        let col = slap ? mix(K_SLAP_HOT, K_SLAP_EMBER, age) : mix(0xff8a2a, 0xe03a10, age)
+        let col = a.rageArm ? mix(0x9af58a, 0x2fa83a, age) : slap ? mix(K_SLAP_HOT, K_SLAP_EMBER, age) : mix(0xff8a2a, 0xe03a10, age)
         const soft = slap ? K_SLAP_SOFT : K_SLAM_SOFT
         // the lead-in's beads burn hotter as they are reached, and the whole run heats with it
         const hot = t >= tLead ? lead : 0
-        if (hot > 0) col = mix(col, 0xffd8c0, 0.35 + 0.45 * hot)
+        if (hot > 0 && !a.rageArm) col = mix(col, 0xffd8c0, 0.35 + 0.45 * hot)
         const rs = 1 + 0.25 * hot
         G.circle(x, y, fit(1.55 * rs)).fill({ color: 0x1a0500, alpha: 0.6 * soft })
         G.circle(x, y, fit(K_HALO_R)).fill({ color: col, alpha: (0.14 + 0.18 * (1 - age) + 0.15 * hot) * soft })
         G.circle(x, y, r * (1.25 * soft + 0.25 * (soft < 1)) * rs).fill({ color: col, alpha: (0.9 + 0.1 * (1 - age)) * soft })
-        if (age < 0.5) G.circle(x, y, r * 0.55).fill({ color: slap ? 0xffffff : 0xffd0b0, alpha: 0.9 * (1 - age * 2) * soft })
+        if (age < 0.5) G.circle(x, y, r * 0.55).fill({ color: a.rageArm ? 0xe6ffe0 : slap ? 0xffffff : 0xffd0b0, alpha: 0.9 * (1 - age * 2) * soft })
       }
     }
     if (!grab) return
@@ -22010,11 +22011,11 @@ void main() {
   // fish (sim walks them, krakenPlaceArm) and snapping shut, so the jaws ARE the zone. Its look only
   // has to say "not a slam — get out from between us". It never lights a root-to-tip fuse and never
   // goes white, the two things a slam's window is made of. Every sucker lit green at once, breathing.
-  const K_GRAB_GLOW = 0x8dff5a   // the grab's light: a bio-green nothing else in the fight wears
+  const K_GRAB_GLOW = 0xf08cff   // the grab's light: a pink-violet nothing else wears (green is the rage's)
   // 0: a grab lying off its own shadow read as the limb SWELLING through the wind-up on any arm that
   // crosses the screen sideways (owner, 2026-10-08); the hover is told by the green suckers instead
   const K_GRAB_RISE = 0
-  const K_GRAB_TINT = 0xb8ffb0   // the grab rope's tint while it winds up
+  const K_GRAB_TINT = 0xe0a8ff   // the grab rope's tint while it winds up
   function drawKrakenGrabTell(G, rig, a, windup, kS, kE) {
     const N = rig.pts.length
     const age = a.fuse - Math.max(0, a.tele)
@@ -22326,7 +22327,7 @@ void main() {
     if (rung) {
       const cdk = (run.repulseCd ?? 0) <= 0 ? 1 : 0.35
       for (const a of run.krakenArms) {
-        if (a.dead || !(a.tele > rung.window) || a.grabArm || a.coilArm || a.limpT > 0 || a.gripT > 0) continue
+        if (a.dead || !(a.tele > rung.window) || a.grabArm || a.coilArm || a.rageArm || a.limpT > 0 || a.gripT > 0) continue
         const toWin = a.tele - rung.window
         if (toWin > krakenRingLead(a, rung) || !krakenArmInReachR(run, a)) continue
         if (krakenEarly && krakenEarly.i === a.i) continue
@@ -22344,6 +22345,16 @@ void main() {
         V.beginPath(); V.circle(p.x, p.y, rr)
         V.stroke({ width: 3, color: lc, alpha: (0.6 + 0.25 * u) * cdk })
       }
+    }
+    // A RAGE SLAM SAYS WHERE IT LANDS: a green disc on the spot it locked, filling as it comes down
+    if (rung) for (const a of run.krakenArms) {
+      if (a.dead || !a.rageArm || !(a.tele > 0) || a.grabArm || a.slapArm || !a.aimed || !a.fuse) continue
+      const f = 1 - a.tele / a.fuse
+      const V = krakenVerdictG
+      V.beginPath(); V.circle(a.aimX, a.aimY, KRAKEN_LASH_R)
+      V.stroke({ width: 3, color: 0x6cf05a, alpha: 0.7 })
+      V.beginPath(); V.circle(a.aimX, a.aimY, KRAKEN_LASH_R * f)
+      V.fill({ color: 0x6cf05a, alpha: 0.06 + 0.12 * f })
     }
     for (let gi = krakenNow.length - 1; gi >= 0; gi--) {
       const n = krakenNow[gi]
@@ -22611,7 +22622,7 @@ void main() {
     {
       const threat = run.krakenArms.some((a) => !a.dead && a.tele > 0 && !a.grabArm && !a.coilArm && !(a.limpT > 0) && krakenArmNear(run, a))
       // committed (its approach ring is running, or its window is open): the white ring is the only circle
-      const committed = run.krakenArms.some((a) => !a.dead && a.tele > 0 && !a.grabArm && !a.coilArm && !(a.limpT > 0) && a.tele <= rung.window + krakenRingLead(a, rung) && krakenArmInReachR(run, a))
+      const committed = run.krakenArms.some((a) => !a.dead && a.tele > 0 && !a.grabArm && !a.coilArm && !a.rageArm && !(a.limpT > 0) && a.tele <= rung.window + krakenRingLead(a, rung) && krakenArmInReachR(run, a))
       krakenCommitted = committed
       const want = committed ? 0.1 : threat ? 0.25 : 1
       const kk = 1 - Math.exp(-(frameDt || 0) * 12)
@@ -22925,7 +22936,7 @@ void main() {
         // THE SLAP'S DRAWN LIMB KEEPS UP WITH ITS SWING: the hit is the sim's angle, and an arm that
         // lagged a tenth of a second would slap the fish before it was seen to arrive
         if (a.slapArm) rate = 30
-        if (rung && !a.coilArm && !a.grabArm && !a.slapArm && a.tele > 0 && a.tele <= rung.window && krakenArmInReachR(run, a)) {
+        if (rung && !a.coilArm && !a.grabArm && !a.slapArm && !a.rageArm && a.tele > 0 && a.tele <= rung.window && krakenArmInReachR(run, a)) {
           const dx = a.lx1 - a.lx0, dy = a.ly1 - a.ly0, l2 = dx * dx + dy * dy || 1
           const u = Math.max(0, Math.min(1, ((run.player.x - a.lx0) * dx + (run.player.y - a.ly0) * dy) / l2))
           gx = a.lx0 + dx * u; gy = a.ly0 + dy * u; rate = 30
@@ -23392,11 +23403,11 @@ void main() {
       // the baked strip's own taper, so it cannot be wider than the flesh it is in and cannot be
       // anywhere the flesh is not. Long and thin and following a curve is also the one silhouette
       // that can never be mistaken for a badge.
-      // THE WEAK POINT IS THE NODE. A parried arm hangs a real enemy at a.x/a.y and that is where
-      // every weapon lands, so that is where the target is drawn — the tip of the limb, on the spot
-      // the aimed slam came down. Nothing further up the rope suggests damage goes anywhere else.
+      // THE WEAK POINT IS THE NODE. A parried arm hangs a real enemy just up the limb from its tip
+      // (KRAKEN_NODE_BACK) and that is where every weapon lands, so that is where the target is drawn.
       if (!(a.limpT > 0)) krakenLimpAt[a.i] = null
-      if (a.limpT > 0 && run.krakenLesson === 2) drawKrakenHitMe(krakenWoundG, a.x, a.y, KRAKEN_ARM_R * 0.62, true, run.krakenLesson === 2, krakenLimpShow(a))
+      const nodeAt = a.limpT > 0 && a.nodeId != null ? run.enemies.find((q) => q.id === a.nodeId && !q._dead) : null
+      if (a.limpT > 0 && run.krakenLesson === 2) drawKrakenHitMe(krakenWoundG, nodeAt?.x ?? a.x, nodeAt?.y ?? a.y, KRAKEN_ARM_R * 0.62, true, run.krakenLesson === 2, krakenLimpShow(a))
       if (a.limpT > 0) tellDrawn('arm', a.i, 'limp', a.x, a.y)
       rig.under.visible = false
       // THE ROLLED BELLY (owner's pick, 2026-09-27, after six rounds): the limp limb shows its soft
@@ -23517,9 +23528,12 @@ void main() {
         else if (a.slamT > 0) rig.rope.tint = 0x5d5470
         else if (a.limpT > 0) rig.rope.tint = 0x5e5468 // limp: the carapace drops back behind the belly
         else if (rung && !a.coilArm && a.tele > 0 && a.tele <= rung.window && run.krakenLesson === 1 && run.script.lessonI === a.i) { rig.rope.tint = Math.sin(animT * Math.PI * 10) > -0.2 ? limbTint(0xffffff) : 0x8a7fc0; tellDrawn('arm', a.i, 'slamFlash', a.x, a.y, rig.pts[0].x, rig.pts[0].y, rig.pts[K_ROPE_N - 1].x, rig.pts[K_ROPE_N - 1].y, rig.pts) }
-        else if (rung && !a.coilArm && a.tele > 0 && a.fuse) { rig.rope.tint = limbTint(a.grabArm ? K_GRAB_TINT : a.tele <= rung.window ? 0xffffff : 0xa99ed6); drawKrakenCharge(rig, a, rung) }
+        else if (rung && !a.coilArm && a.tele > 0 && a.fuse) { rig.rope.tint = limbTint(a.grabArm ? K_GRAB_TINT : a.rageArm ? 0xd8ffc8 : a.tele <= rung.window ? 0xffffff : 0xa99ed6); drawKrakenCharge(rig, a, rung) }
         else if (rung && a.tele > 0 && a.fuse) rig.rope.tint = limbTint(mix(0x9e92cf, 0xeee8fe, 1 - a.tele / a.fuse))
-        else rig.rope.tint = mix(0x7366a0, 0x403d4b, 1 - fur)
+        else {
+          rig.rope.tint = mix(0x7366a0, 0x403d4b, 1 - fur)
+          if (kRage > 0.01) rig.rope.tint = mix(rig.rope.tint, K_RAGE_ARM, 0.5 * kRage)
+        }
       }
     }
     ribFlush(krakenGripBatch)
@@ -24312,7 +24326,14 @@ void main() {
   // lunge pose and status tints all still apply) with that sprite hidden
   // `death` (the ceremony's krakenDeathPose) drives this same rig through the kill: the entity and
   // its pooled sprite are gone by then, so the pose carries the last drawn transform instead.
+  // THE RAGE (sim: s.raging, s.rageScreamT): it goes light green, Hulk-like (owner, 2026-10-09), eased
+  // in and out, and screams with its whole face while rageScreamT runs
+  const K_RAGE_TINT = 0xa8f59a
+  const K_RAGE_ARM = 0xa8f59a    // the resting arms' skin through a rage, half-mixed in: light, not toxic
+  const K_RAGE_WASH = 0.22       // the head's green wash, over its own white bake (owner: "more subtle")
+  let kRage = 0
   function syncKrakenHeadRig(run, dt, head, death = null) {
+    kRage += ((run.script?.raging && !death ? 1 : 0) - kRage) * Math.min(1, (dt || 0) * 5)
     if (death) { poseKrakenHeadDeath(death); return }
     krakenWarpOff()
     const s = run.script
@@ -24383,6 +24404,8 @@ void main() {
     let scX = base * br * stretchY * (stag ? 1 - 0.06 * sq : 1 + 0.08 * sq), scY = base * br * stretchX * (stag ? 1 - 0.05 * sq : 1 - 0.07 * sq)
     // the bite's body language, along the fish's bearing: + toward it, - away (world px)
     let bOff = 0, jx = 0, jy = 0
+    const scream = s.rageScreamT > 0
+    if (scream) { jx = Math.sin(animT * 61) * 5; jy = Math.cos(animT * 53) * 5 }
     // THE BLOOM (owner's pick 2026-09-26): its arms flower open round the mouth, then clamp shut as it lurches in
     bOff = 20 * bs
     scX *= 1 + 0.03 * bw; scY *= 1 + 0.03 * bw
@@ -24391,11 +24414,12 @@ void main() {
     krakenHeadRig.rotation = rot
     krakenHeadRig.scale.set(scX, scY)
     krakenHeadRig.alpha = hs.alpha
-    krakenHeadRig.tint = hs.tint
+    krakenHeadRig.tint = kRage > 0.01 ? mix(hs.tint, K_RAGE_TINT, kRage) : hs.tint
     hs.visible = false
     // a hard saturated pulse — red, never a grey wash — under the rim
     rig.flash.tint = 0xff3050
     rig.flash.alpha = (stag ? 0.28 : 0.6) * fl
+    if (kRage > 0.01 && rig.flash.alpha < K_RAGE_WASH * kRage) { rig.flash.tint = K_RAGE_TINT; rig.flash.alpha = K_RAGE_WASH * kRage }
     kc.blinkAt -= k
     if (kc.blinkAt <= 0 && !stag) { kc.blink = 1; kc.blinkAt = 3 + 3 * (0.5 + 0.5 * Math.sin(animT * 7.3)) }
     const bl = kc.blink > 0 ? Math.sin(kc.blink * Math.PI) : 0
@@ -24411,14 +24435,14 @@ void main() {
     const heatFlick = 0.85 + 0.15 * Math.sin(animT * (18 + 30 * bw))
     const bloom = !stag ? (biting ? -1 + 1.7 * Math.sin(Math.min(1, bw / 0.7) * Math.PI / 2) : sa >= 0 ? -1 : null) : null
     drawKrakenFace(rig, {
-      rot: kc.tilt, glare: stag ? 0 : Math.min(1, 0.3 + 0.7 * Math.max(lungeK, bw) + 0.6 * kc.deflect), pain: stag ? 0 : rc, shock: stag ? rc : 0,
+      rot: kc.tilt, glare: scream ? 1 : stag ? 0 : Math.min(1, 0.3 + 0.7 * Math.max(lungeK, bw) + 0.6 * kc.deflect), pain: stag ? 0 : rc, shock: stag ? rc : 0,
       stun: stag ? 1 : 0, blink: stag || bOn > 0.05 ? 0 : bl, lx, ly, white: 0, core: kc.core * (1 - (stag ? 0.1 : 0.6) * rc),
       crown: bloom != null ? bloom : stag ? Math.max(q, kc.crown - 0.15 * rc) : q,
-      jaw: shut ? 0 : biting ? Math.max(jawIdle, jawBite) : jawIdle,
-      gape: shut ? 0.35 * bs : 0.55 * bw,
+      jaw: scream ? 0.9 + 0.1 * Math.sin(animT * 40) : shut ? 0 : biting ? Math.max(jawIdle, jawBite) : jawIdle,
+      gape: scream ? 0.8 : shut ? 0.35 * bs : 0.55 * bw,
       heat: biting ? Math.min(1, bw * 1.3) * heatFlick : Math.max(0, bs) * (krakenBiteHit ? 1 : 0.5),
       slack: stag ? rc : 0,
-      grit: stag ? 0 : Math.max(rc, kc.deflect, shut ? bs : 0), rim: Math.max(fl, rc * 0.6),
+      grit: scream ? 1 : stag ? 0 : Math.max(rc, kc.deflect, shut ? bs : 0), rim: Math.max(fl, rc * 0.6),
       guard: stag ? 0 : Math.max(0, (1 - lungeK * 1.4)) * (1 - kc.near) * (1 - bOn),
       lamp: L, lampA: 0.3, lampS: sc,
     })
@@ -27184,6 +27208,7 @@ void main() {
     gold: { fill: 0xffe6a3, glow: 0xffa21e, stroke: 0x2a1400 },
     // IT RISES: warm white on a heavy black outline, a gold glow, over its own plate
     rise: { fill: 0xfff4dc, glow: 0xffa21e, stroke: 0x0a0402, width: 9 },
+    rage: { fill: 0xd8ffc8, glow: 0x48e05a, stroke: 0x02080f },
   }
   function cerTone(tone) {
     if (tone === cerToneNow) return
@@ -27191,12 +27216,12 @@ void main() {
     const T0 = CER_TONES[tone]
     cerTitle.style.fill = T0.fill
     cerTitle.style.stroke = { ...cerTitleStyle.stroke, color: T0.stroke, width: T0.width ?? cerTitleStyle.stroke.width }
-    cerTitle.style.dropShadow = { ...cerTitleStyle.dropShadow, color: T0.glow, alpha: tone === 'gold' || tone === 'rise' ? 0.95 : 0.75 }
+    cerTitle.style.dropShadow = { ...cerTitleStyle.dropShadow, color: T0.glow, alpha: tone === 'gold' || tone === 'rise' ? 0.95 : tone === 'rage' ? 0.5 : 0.75 }
   }
 
   function krakenBeat(kind, len) {
     const C = KRAKEN_CEREMONY[kind]
-    cerTone(kind === 'arrive' ? 'cold' : kind === 'rise' ? 'rise' : 'warm')
+    cerTone(kind === 'arrive' ? 'cold' : kind === 'rise' ? 'rise' : kind === 'rage' ? 'rage' : 'warm')
     cer.kind = kind
     cer.t = 0
     cer.low = undefined
@@ -27461,12 +27486,12 @@ void main() {
           kClip.x0 = (px - U * 0.03 - world.position.x) / ws; kClip.x1 = (px + pw + U * 0.03 - world.position.x) / ws
           kClip.y0 = (py - U * 0.03 - world.position.y) / ws; kClip.y1 = (py + ph + U * 0.05 - world.position.y) / ws
         }
-      } else if (cer.kind === 'enrage') {
+      } else if (cer.kind === 'enrage' || cer.kind === 'rage') {
         // IT IS ANGRY. No safe window here, so nothing covers the arena: a warning-coloured edge
         // pulse, a hard camera kick, and the line tucked into the top of the screen.
         const pulse = Math.exp(-t * 2.6)
         edge = C.edge * pulse
-        cerEdge.tint = 0xff5a3c
+        cerEdge.tint = cer.kind === 'rage' ? 0x48e05a : 0xff5a3c
         cerZoom = 1 + (C.zoomKick - 1) * (t < 0.06 ? t / 0.06 : Math.exp(-(t - 0.06) * 6))
         const k = cardEnv(t, C.textIn, C.hold, C.out)
         // on the half of the screen the head is NOT on: this card lands mid-fight, over live arms
@@ -27476,11 +27501,11 @@ void main() {
           cer.low = !!hd && world.position.y + hd.y * world.scale.y < h * 0.5
         }
         const y = cer.low ? h * 0.78 : cerTopY(h, U)
-        cerText(cerTitle, tr(KRAKEN_BEATS.enrage.name), Math.round(U * 0.075), w * 0.9)
+        cerText(cerTitle, tr(KRAKEN_BEATS[cer.kind].name), Math.round(U * 0.075), w * 0.9)
         cerTitle.scale.set(cerTitle.scale.x * (1 + 0.25 * Math.exp(-t * 14)))
         cerTitle.position.set(w / 2, y)
         cerTitle.alpha = k
-        cerRule(w / 2, y + U * 0.055, Math.min(w * 0.36, U * 0.3), k, 0xff9a7a, 0.7 * k)
+        cerRule(w / 2, y + U * 0.055, Math.min(w * 0.36, U * 0.3), k, cer.kind === 'rage' ? 0x9af58a : 0xff9a7a, 0.7 * k)
       }
     }
     drawKrakenLessonCard(run, dt, w, h, U)
@@ -28172,8 +28197,10 @@ void main() {
           if (run.chapter === 'kraken') {
             // ...and a hit on the head lands on its FACE, which is the read in a stagger: the number
             // goes up past the brow on the far side, off the eyes and the mouth
-            const kh = run.script && run.script.headId != null ? run.enemies.find((q) => q.id === run.script.headId) : null
-            if (kh && Math.hypot(hx - kh.x, hy - kh.y) < KRAKEN_HEAD_R * 1.5) {
+            // ONLY THE HEAD'S OWN (e.id): an opened arm's tip often lies near the head, and moving its
+            // numbers to the face threw them off a phone's screen (owner, 2026-10-09)
+            const kh = run.script && run.script.headId != null && e.id === run.script.headId ? run.enemies.find((q) => q.id === run.script.headId) : null
+            if (kh) {
               const side = run.player.x > kh.x ? -1 : 1
               hx = kh.x + side * KRAKEN_HEAD_R * (1.9 + 0.5 * Math.random()); hy = kh.y - KRAKEN_HEAD_R * (1.3 + 0.5 * Math.random())
             }
@@ -28990,6 +29017,14 @@ void main() {
           addShake(16, 0.6)
           break
         }
+        case 'krakenRage': {
+          // IT SCREAMS: green rings out of the head, a hard shake, the card (KRAKEN_BEATS.rage)
+          spawnRing(e.x, e.y, KRAKEN_ARM_REACH * 2.4, 0.8, T.novaRing, 0x6cf05a)
+          spawnRing(e.x, e.y, KRAKEN_ARM_REACH * 0.8, 0.6, T.novaWarm, 0xd8ffc8)
+          krakenBeat('rage')
+          addShake(18, 0.9)
+          break
+        }
         case 'headStagger': {
           // THE FIGHT'S BIGGEST MOMENT. The head's posture breaks and it is open — the only time it
           // can be hurt at all. Everything about this is scaled to say so.
@@ -29083,7 +29118,7 @@ void main() {
             for (let i = 0; i < 8; i++) {
               const a = Math.random() * Math.PI * 2
               const sp = 60 + Math.random() * 90
-              spawnParticle(T.fx.circle_05, px, py, Math.cos(a) * sp, Math.sin(a) * sp, 0.5, 0.06, K_GRAB_GLOW, 0.2, 2)   // the grab's green: nothing white on the fish while a grab winds
+              spawnParticle(T.fx.circle_05, px, py, Math.cos(a) * sp, Math.sin(a) * sp, 0.5, 0.06, K_GRAB_GLOW, 0.2, 2)   // the grab's colour: nothing white on the fish while a grab winds
             }
           }
           break
@@ -31655,6 +31690,7 @@ void main() {
     // reads as the start line drifting rather than as a camera.
     camLead.x = 0; camLead.y = 0
     krakenHurtBlinkT = 0
+    kRage = 0
     // Gull strikes in flight when a run ends. These are NOT in the flat-pool list below — that list
     // does `s.visible = false` over plain sprite arrays, and gullDives holds {sp, sh, ...} records
     // (TWO sprites each — the bird and the shadow it left on the sand), so adding it there would set

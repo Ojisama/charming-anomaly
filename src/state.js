@@ -767,7 +767,7 @@ function generateWells(sig) {
  *   (see CLAUDE.md). Damage prevented by RAMPAGE invulnerability is not tallied because it never
  *   happened: hurtPlayer returns before this line.
  * events: drained by main.js every frame. Event shapes:
- *   { type:'hit', x, y, dmg, crit }          weapon damaged an enemy
+ *   { type:'hit', x, y, dmg, crit, id }      weapon damaged an enemy (id: the enemy's; render moves only the Kraken head's)
  *   { type:'kill', x, y, elite, etype }      enemy died
  *   { type:'shoot', weapon }                 weapon fired ('star' | 'wave'; orbit is continuous)
  *   { type:'gem', x, y }                     xp gem collected
@@ -2375,8 +2375,16 @@ function generateWells(sig) {
   *       breather is then true because the head is not there, which nothing can get wrong.
   *     armsTotal — the rung's STARTING arm count, frozen for the fight. It is the denominator of
   *       every arm's sector width (2pi/armsTotal), so it must not follow the survivor count down.
-  *     bankedLevels — levels owed to the player for arms broken, paid out in one go on the hide.
-  *       Eight level-up modals landing mid-parry is the interruption; the total is unchanged.
+  *     Events: { type: 'krakenRage', x, y, n } — a rage starts (n = how many so far).
+  *     headHpMul — the head's hp multiplier, set once when the chase raises it: +KRAKEN_HEAD_HP_PER_S
+  *       per second before KRAKEN_HEAD_HP_AT (null until then).
+  *     rageN / raging / rageScreamT / rageLeft / rageCalm / rageNext / rageKind — THE RAGE (d3,
+  *       rung.rage): rageN bursts so far; raging while one is on (render tints the Kraken green off
+  *       it); rageScreamT the scream before its first attack; rageLeft attacks still to throw;
+  *       rageCalm normal turns since the last; rageNext whether the next turn is a new burst;
+  *       rageKind the drawn kind of the pending rage turn. An arm whose attack is a rage one carries
+  *       rageArm: it is not parryable, pushes no slamWindow, and render draws no parry tell on it.
+  *       A rage with no live arm left ends (or never starts), so the head's floor and clock let go.
   *     turnBag, turnBagI — the ring's next turns, a shuffled bag of KRAKEN_TURN_BAG kinds ('slam',
   *       'grab', 'coil', 'slap') in the rung's mix (krakenTurnBag), and the index of the next one. A
   *       kind the moment does not allow is a slam (krakenTurnWant); every turn taken spends one.
@@ -2398,8 +2406,8 @@ function generateWells(sig) {
   *       is still and harmless while this runs (but not invulnerable), and render scales it up out
   *       of the dark against it.
   *     enraged — latched the first time the head drops below KRAKEN_ENRAGE_AT. It hauls every
-  *       broken arm back up (at KRAKEN_ENRAGE_ARM_HP of full, because they are already torn),
-  *       speeds the ring's cadence and lets the Coil in. One-way: a fight never de-escalates.
+  *       broken arm back up (at KRAKEN_ENRAGE_ARM_HP of full, because they are already torn); the
+  *       ring keeps its pace. One-way: a fight never de-escalates.
   *     turnT — countdown to the ring handing out its next attack turn. THE RING HAS ONE CLOCK,
   *       not one per arm: that is what makes "how many arms are winding up at once" a number in
   *       the rung table (`rearing`) rather than an emergent property nobody chose. A due turn
@@ -2464,7 +2472,7 @@ function generateWells(sig) {
   *   and nothing throws. Out here, all of those exclusions are structural instead of remembered.
   *   The HEAD is the opposite call and stays an ordinary enemy: it is a real creature you kill, so
   *   it takes weapon damage, drives the boss bar and pays out on death.
-  *   Each arm: { i, ang, x, y, hp, maxHP, tele, fuse, limpT, nodeId, dead, paid, gripT, grabArm, hitT, breakT, slamT, nowSent }.
+  *   Each arm: { i, ang, x, y, hp, maxHP, tele, fuse, limpT, nodeId, dead, gripT, grabArm, rageArm, hitT, breakT, slamT, nowSent }.
   *     slamT — the follow-through of an unparried slam: >0 while the limb is still planted where it
   *             landed. Render holds the pose against it. A strike that went back to idle on the
   *             frame it landed had a sound and a ring and no MOVEMENT, which is most of why the
@@ -2516,7 +2524,7 @@ function generateWells(sig) {
   *       back off it (the angle that lays the limb KRAKEN_SLAP_COCK beside the fish), slapDir (+-1)
   *       the side it swings in from, slapTh its angle last frame (krakenSlapAng), slapHit whether it
   *       has already slapped the fish (once per slap). lx0..lx1 is the flat of the limb, shoulder
-  *       out KRAKEN_SLAP_LEN, and x/y its far end. A parry turns it into an aimed arm, limp.
+  *       out a.slapLen (KRAKEN_SLAP_PAST past the fish, locked at the wind-up), and x/y its far end. A parry turns it into an aimed arm, limp.
   *     hitT — >0 for KRAKEN_LIMP_FLASH after A PARRY LANDS ON IT, and render tints the tentacle off
   *            it. NOT set by the arm's own slam: that is the `lash` event's picture. It was, and had
   *            no reader at all, which is why five parries into a 320hp arm looked like one.
@@ -2651,7 +2659,7 @@ export function createRun(meta, opts = {}) {
   // Pre-run consumables (see CONSUMABLES in config.js and the doc block above).
   const consumables = opts.consumables ?? []
   const hasHeadstart = consumables.includes('headstart')
-  const startXp = hasHeadstart ? xpForLevel(1) + xpForLevel(2) : 0
+  const startXp = hasHeadstart ? (xpForLevel(1) + xpForLevel(2)) * (CHAPTERS[chapter]?.xpNeedMul ?? 1) : 0
   const startWeaponLevel = consumables.includes('charged') ? 2 : 1
   // v6.3: hoisted out of the object literal below so _districtSeed can derive city's world seed
   // from the SAME draw _obstacleSeed uses, rather than spending a second Math.random() call — no
@@ -2729,7 +2737,7 @@ export function createRun(meta, opts = {}) {
       ccMul: 1,
       fireRateMul: 1 + shopBonus(bm, bookId, 'fireRate'),
       coinGainMul: 1 + shopBonus(bm, bookId, 'coinGain'),
-      xp: startXp, level: 1, xpNext: xpForLevel(1),
+      xp: startXp, level: 1, xpNext: xpForLevel(1) * (CHAPTERS[chapter]?.xpNeedMul ?? 1),
       invuln: 0,
       slowT: 0,           // s remaining of the latch-flag movement debuff (see doc block above)
       facing: 1,          // 1 right, -1 left (render flips the face)
@@ -3009,7 +3017,7 @@ export function createRun(meta, opts = {}) {
           // The Kraken (see sim.js's stepKrakenScript). Blank never reads these and The Kraken
           // never reads stage/waveIdx/waveT/bossId, so the two ladders share one shape.
           phase: 'wave', bossIdx: 0, blockKills: 0, armsSpawned: false, headId: null,
-          headHp: 0, armsTotal: 0, bankedLevels: 0, gripN: 0, turnBag: null, turnBagI: 0, trickleT: 0, charged: false, opened: false,
+          headHp: 0, armsTotal: 0, headHpMul: null, rageN: 0, raging: false, rageScreamT: 0, rageLeft: 0, rageCalm: 0, rageNext: false, rageKind: null, gripN: 0, turnBag: null, turnBagI: 0, trickleT: 0, charged: false, opened: false,
           riseT: 0, coilT: 0, coilGap: 0, coilStar: 0, coilCX: null, coilCY: null, cageT: 0, turnT: 0, stagger: 0, staggerT: 0, staggerDecay: 0,
           openW: 0, arriveT: 0, arriveMax: 0, deflT: 0, cageR: 0, beatAt: null,
           lessonI: -1, lessonSlow: 0,

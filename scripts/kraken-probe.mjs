@@ -277,7 +277,7 @@ function fight(seed) {
 const rung = C.krakenRung(DIFF)
 console.log(`REV 3 — d${DIFF}, ${WEAPON} L${LEVEL}, ${SECS}s cap, ${SEEDS.length} seeds`)
 console.log(`rung: ${rung.arms} arms, <=${rung.rearing} rearing at once, window ${rung.window}s, limp ${rung.limp}s, cadence ${rung.cadence}s, staggerNeed ${rung.staggerNeed}`)
-console.log(`pools: arm ${C.KRAKEN_ARM_HP}hp x${rung.arms}, head ${Math.round(C.KRAKEN_HEAD_HP * rung.headHpMul)}hp\n`)
+console.log(`pools: arm ${C.KRAKEN_ARM_HP}hp x${rung.arms}, head ${Math.round(C.KRAKEN_HEAD_HP * rung.headHpMul)}hp before the early-rise bonus (+${C.KRAKEN_HEAD_HP_PER_S * 100}%/s before ${C.KRAKEN_HEAD_HP_AT}s)\n`)
 const rs = SEEDS.map(fight)
 const f = (k, d = 0) => `[${rs.map((r) => (+r[k]).toFixed(d)).join(' ')}]`
 console.log(`won            ${rs.filter((r) => r.won).length}/${rs.length}`)
