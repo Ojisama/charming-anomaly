@@ -9191,6 +9191,9 @@ export const KRAKEN_RAGE_HITS_MAX = 8
 export const KRAKEN_RAGE_VOLLEY = 6
 // balance_decision : volley lands between head and fish, owner 2026-10-09
 export const KRAKEN_RAGE_VOLLEY_SPREAD = 150 // px past half the head-fish distance, round their midpoint
+// balance_decision : rage slam winds up faster, aims ahead of you 2026-10-09
+export const KRAKEN_RAGE_FUSE = 0.9   // s a rage slam winds up (the rung's own fuse is 1.35)
+export const KRAKEN_RAGE_LEAD = 0.65  // s of the fish's swim a rage slam or grab aims ahead: a straight line is hit, a turn dodges
 export const KRAKEN_RAGE_SCREAM = 1.2   // s it screams before the first rage attack
 export const KRAKEN_RAGE_GAP = 0.8 / 1.3 // s between rage attacks starting
 export const KRAKEN_RAGE_CALM = 3
