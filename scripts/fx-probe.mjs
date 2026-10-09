@@ -311,7 +311,9 @@ async function freePort() {
 const PORT = await freePort()
 const browser = spawn(chrome, [
   '--no-sandbox', '--hide-scrollbars', `--window-size=${W},${H}`,
-  `--remote-debugging-port=${PORT}`, `--user-data-dir=/tmp/fx-probe-${process.pid}`, 'about:blank',
+  `--remote-debugging-port=${PORT}`, `--user-data-dir=/tmp/fx-probe-${process.pid}`,
+  // FX_CHROME_ARGS='--use-angle=vulkan --enable-gpu' draws on the real GPU instead of SwiftShader
+  ...(process.env.FX_CHROME_ARGS ? process.env.FX_CHROME_ARGS.split(' ') : []), 'about:blank',
 ], { stdio: 'ignore' })
 
 async function target() {
@@ -364,6 +366,9 @@ await send('Page.enable')
 await send('Runtime.enable')
 await send('Emulation.setDeviceMetricsOverride', { width: W, height: H, deviceScaleFactor: 2, mobile: true })
 await send('Page.addScriptToEvaluateOnNewDocument', { source: bootstrap })
+// --cpu-prof <file>: a CPU profile from navigation to scene-ready (boot included), for a measuring scene
+const cpuProf = arg('cpu-prof')
+if (cpuProf) { await send('Profiler.enable'); await send('Profiler.start') }
 await send('Page.navigate', { url: url + (url.includes('?') ? '&' : '?') + 'debug' })
 
 // The scene runs thousands of sim steps SYNCHRONOUSLY, which blocks the main thread — a capture
@@ -386,6 +391,7 @@ for (let i = 0; i < Math.ceil(waitMs / 500) + 40; i++) {
   await sleep(500)
 }
 if (!ready) die('scene never became ready — raise --wait, or check that the page reached a run')
+if (cpuProf) { writeFileSync(cpuProf, JSON.stringify((await send('Profiler.stop')).profile)); console.log(`wrote ${cpuProf}`) }
 
 // Confirm the run that actually booted is the chapter this shot claims to be — playableChapterId
 // (main.js) or a stale/garbage seed could otherwise have quietly landed on CHAPTER_ORDER[0].
