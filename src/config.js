@@ -932,6 +932,10 @@ export const HAIR_TRIGGER_WINDOW_MUL = 0.67
 export const HAIR_TRIGGER_DMG_MUL = 1.5    // x player damage while the boost is up
 export const HAIR_TRIGGER_T = 3            // s of boost per landed parry (refreshed, not stacked)
 
+// CANARY (ANOMALIES.canary, The Mine). Hoisted above ANOMALIES because the card's desc reads them.
+// balance_decision : first guess, owner playtests 2026-10-09
+export const CANARY_REACH_MUL = 1.5      // x how far a blast reaches to light the next pocket
+export const CANARY_LINK_DMG = 0.3       // + this much blast damage per link down the chain
 export const ANOMALIES = {
   unstableCores: {
     name: 'Unstable Cores', icon: '💥',
@@ -1306,6 +1310,16 @@ export const ANOMALIES = {
     when: () => true,
     weight: 2, chapter: 'deep', kind: 'trade',
     minLevel: 10,
+  },
+  // The Mine's own. A jackpot on the chapter's one idea: the chains you start run farther and end
+  // harder. Names the firedamp, which is the word on the chapter's tagline and its damage recap.
+  canary: {
+    name: 'Canary', icon: '🐤',
+    from: 'the bird in the cage stopped singing',
+    desc: `Firedamp you set off reaches ${Math.round((CANARY_REACH_MUL - 1) * 100)}% farther to the next pocket, and every link down a chain hits ${Math.round(CANARY_LINK_DMG * 100)}% harder than the one before.`,
+    when: () => true,
+    weight: 2, chapter: 'mine', kind: 'jackpot',
+    minLevel: 3,
   },
 }
 
@@ -2879,6 +2893,62 @@ export const WEAPONS = {
       { dmg: 66, interval: 1.8, count: 4, r: 70 },
     ],
   },
+  // ---- Book 3, Burrow: The Mine's four. Every one of them lights the firedamp it touches. ----
+  // Pickaxe: a blow on the ground beside the nearest foe (all in r), and rock chips burst out of it
+  // (run.bullets, weapon 'chip', count of them).
+  pickaxe: {
+    name: 'Pickaxe',
+    desc: 'Strikes the ground beside the nearest foe. Rock chips burst out around the blow.',
+    icon: '⛏️', rarity: 'normal',
+    levels: [
+      { dmg: 20, interval: 0.85, r: 54, count: 4 },
+      { dmg: 24, interval: 0.80, r: 58, count: 5 },
+      { dmg: 29, interval: 0.75, r: 62, count: 6 },
+      { dmg: 35, interval: 0.70, r: 66, count: 7 },
+      { dmg: 44, interval: 0.62, r: 72, count: 8 },
+    ],
+  },
+  // Dynamite: a lit stick thrown at a foe (run.sticks); it lands, fizzes, and blows up (all in r).
+  dynamite: {
+    name: 'Dynamite',
+    desc: 'Throws a lit stick at a foe. It blows up a moment later and sets off any firedamp it reaches.',
+    icon: '🧨', rarity: 'normal',
+    levels: [
+      { dmg: 48, interval: 2.3, r: 92, count: 1 },
+      { dmg: 56, interval: 2.15, r: 98, count: 1 },
+      { dmg: 66, interval: 2.0, r: 104, count: 2 },
+      { dmg: 78, interval: 1.85, r: 110, count: 2 },
+      { dmg: 94, interval: 1.7, r: 120, count: 3 },
+    ],
+  },
+  // Minecart: a cart rolls out of you in a straight line (run.carts), hitting each body it passes
+  // once and shoving it aside. width is the cart's half-width, range how far it rolls.
+  minecart: {
+    name: 'Minecart',
+    desc: 'Sends a cart rolling straight through the crowd.',
+    icon: '🛒', rarity: 'rare',
+    levels: [
+      { dmg: 30, interval: 2.2, width: 26, count: 1, range: 950 },
+      { dmg: 36, interval: 2.05, width: 28, count: 1, range: 1000 },
+      { dmg: 43, interval: 1.9, width: 30, count: 2, range: 1050 },
+      { dmg: 52, interval: 1.75, width: 32, count: 2, range: 1100 },
+      { dmg: 64, interval: 1.6, width: 36, count: 3, range: 1150 },
+    ],
+  },
+  // Lantern: a glow around you (run.lanternR publishes it) that burns every body inside radius
+  // each interval, and lights every firedamp pocket within range of you.
+  lantern: {
+    name: 'Lantern',
+    desc: 'A warm glow around you burns whatever comes close, and sets off the firedamp near you.',
+    icon: '🏮', rarity: 'normal',
+    levels: [
+      { dmg: 15, interval: 0.4, radius: 150, range: 165 },
+      { dmg: 18, interval: 0.38, radius: 158, range: 175 },
+      { dmg: 22, interval: 0.36, radius: 166, range: 185 },
+      { dmg: 27, interval: 0.34, radius: 176, range: 200 },
+      { dmg: 33, interval: 0.32, radius: 188, range: 215 },
+    ],
+  },
 }
 export const MAX_WEAPON_LEVEL = 5
 export const MAX_WEAPONS = 4 // equipped cap; new weapons stop appearing once reached
@@ -4176,6 +4246,31 @@ export const WEAPON_MODS = {
     wideCrash:   { name: 'Wide Crash',   desc: 'impact radius', icon: '⭕', base: 0.25, kind: 'pct' },
     dripRate:    { name: 'Quick Drip',   desc: 'cast rate', icon: '⏩', base: 0.25, kind: 'pct' },
   },
+  // ---- The Mine ----
+  pickaxe: {
+    sharpPick:   { name: 'Sharp Pick',   desc: 'strike damage', icon: '💥', base: 0.30, kind: 'pct' },
+    wideSwing:   { name: 'Wide Swing',   desc: 'strike radius', icon: '⭕', base: 0.22, kind: 'pct' },
+    rubble:      { name: 'Rubble',       desc: 'extra rock chip(s) per strike', icon: '🪨', kind: 'tier' },
+    quickSwing:  { name: 'Quick Swing',  desc: 'strike rate', icon: '⏩', base: 0.25, kind: 'pct' },
+  },
+  dynamite: {
+    blastingCap: { name: 'Blasting Cap', desc: 'dynamite damage', icon: '💥', base: 0.30, kind: 'pct' },
+    bigBang:     { name: 'Big Bang',     desc: 'dynamite blast radius', icon: '⭕', base: 0.22, kind: 'pct' },
+    bundle:      { name: 'Bundle',       desc: 'extra stick(s) per throw', icon: '🔷', kind: 'tier' },
+    shortFuse:   { name: 'Short Fuse',   desc: 'throw rate', icon: '⏩', base: 0.25, kind: 'pct' },
+  },
+  minecart: {
+    heavyLoad:   { name: 'Heavy Load',   desc: 'cart damage', icon: '💥', base: 0.30, kind: 'pct' },
+    wideCart:    { name: 'Wide Cart',    desc: 'cart width', icon: '↔️', base: 0.25, kind: 'pct' },
+    secondCart:  { name: 'Second Cart',  desc: 'extra cart(s) per push', icon: '🔷', kind: 'tier' },
+    greasedAxle: { name: 'Greased Axle', desc: 'push rate', icon: '⏩', base: 0.25, kind: 'pct' },
+  },
+  lantern: {
+    brightFlame: { name: 'Bright Flame', desc: 'glow damage', icon: '💥', base: 0.30, kind: 'pct' },
+    wideGlow:    { name: 'Wide Glow',    desc: 'glow radius', icon: '⭕', base: 0.18, kind: 'pct' },
+    quickWick:   { name: 'Quick Wick',   desc: 'burn rate', icon: '⏩', base: 0.25, kind: 'pct' },
+    openFlame:   { name: 'Open Flame',   desc: 'how far the glow sets off firedamp', icon: '🔥', base: 0.30, kind: 'pct' },
+  },
 }
 export const MAX_WEAPON_MOD_PICKS = 5
 // Shared by every tier mod: a single pick's bonus is looked up by rolled rarity rather than
@@ -4204,6 +4299,7 @@ export const WEAPON_RATE_MODS = {
   sunspear: 'quickSun', sunlance: 'quickLance',
   shovel: 'quickDig', pebbleSling: 'whirl', rootSnare: 'quickSprout', prismShard: 'flickRate',
   echoPulse: 'rapidClick', stalactite: 'dripRate',
+  pickaxe: 'quickSwing', dynamite: 'shortFuse', minecart: 'greasedAxle', lantern: 'quickWick',
   // chum and bilge are absent DELIBERATELY: neither carries a rate mod, and this table's own
   // header says a weapon with none simply does not appear here. Naming one that does not exist
   // would put a phantom row in the pause build sheet's cadence line.
@@ -5836,7 +5932,7 @@ export const CHAPTER_LATE_RATE = {
   body: 0.005, pond: 0.010, garden: 0.015, undergrowth: 0.020,
   city: 0.028, skies: 0.036, beyond: 0.0605,
   surf: 0.010, shelf: 0.015,
-  topsoil: 0.010, geode: 0.015,
+  topsoil: 0.010, geode: 0.015, mine: 0.020,
 }
 // Unknown/absent chapter (the Blank, a test run with no chapter) keeps the shipped curve.
 export const lateRateFor = (chapterId) => CHAPTER_LATE_RATE[chapterId] ?? HP_SCALE_LATE_RATE
@@ -6212,7 +6308,7 @@ export const BOOKS = {
    // next, still gated: a dev-gated shell whose boss sim lands in a later increment. Saves key on chapter ID, never position.
    undertow: { name: 'Undertow', cloth: '#1f5c7c', chapters: ['surf', 'shelf', 'reef', 'trawl', 'wreck', 'deep'], hidden: ['kraken'], startCoins: 100 },
   // Book 3: digging down into the earth. wipFrom 0 gates the whole book behind meta.dev.
-  burrow: { name: 'Burrow', cloth: '#2b1d15', chapters: ['topsoil', 'geode'], hidden: [], startCoins: 100, wipFrom: 0 },
+  burrow: { name: 'Burrow', cloth: '#2b1d15', chapters: ['topsoil', 'geode', 'mine'], hidden: [], startCoins: 100, wipFrom: 0 },
 }
 // Explicit, for the same reason CHAPTER_ORDER is explicit: a sweep that means "every book, in
 // campaign order" must not depend on object key order surviving an edit. The FIRST entry is the
@@ -6263,6 +6359,22 @@ export const PRISM_R = 8                 // px hit radius
 export const ECHO_LIFE = 0.5             // s for the ring to reach its radius
 export const STALACTITE_FUSE = 0.8       // s the shadow grows before the stone lands
 export const STALACTITE_RANGE = 400      // px from you a stone may be dropped
+// ---- Book 3, The Mine: weapon geometry (balance lives in WEAPONS[].levels) --------------------------
+export const PICKAXE_RANGE = 420         // px from you the nearest foe must be for a blow to land
+export const PICKAXE_KB = 70             // knockback of the blow itself
+export const PICKAXE_CHIP_DMG = 0.45     // a rock chip's damage, as a fraction of the blow's
+export const PICKAXE_CHIP_SPEED = 430    // px/s
+export const PICKAXE_CHIP_LIFE = 0.32    // s of flight
+export const PICKAXE_CHIP_R = 6          // px hit radius
+export const DYNAMITE_RANGE = 430        // px from you a stick may be thrown
+export const DYNAMITE_FLIGHT = 0.4       // s in the air
+export const DYNAMITE_FUSE = 0.65        // s it fizzes on the ground before it goes off
+export const DYNAMITE_KB = 150
+export const MINECART_SPEED = 560        // px/s
+export const MINECART_FAN = 0.32         // rad between the carts of one push
+export const MINECART_KB = 120           // the sideways shove a cart gives what it hits
+export const MINE_BOOM_KEEP = 0.6        // s a blast stays in run.booms for the renderer (render-facing only)
+export const LANTERN_PULSE = 0.18        // s a Lantern burn takes to sweep out to its radius (a run.novas pulse)
 
 
 // EVERY REFILL FIELD IN BOOK 2 DRAWS DOWN, NOT JUST THE SHELF'S (owner, 2026-08-18: "in all zones of
@@ -9078,6 +9190,60 @@ CHAPTERS.geode = {
   },
 }
 
+// THE MINE: the book's third chapter, an old miners' gallery — the dungeon of the first ASCII
+// roguelikes, which was a mine. Its idea is FIREDAMP (signature.firedamp, run by stepFiredamp in
+// sim.js): pockets of gas hang in the galleries in seams, and any blow, shot or blast of yours that
+// touches one sets it off; a blast sets off every pocket in its reach, so a seam goes up as a chain.
+// The blasts hurt the crowd hard and sting you a little (hurt src 'firedamp'): lure the crowd into
+// the gas, step out, and let your weapons light it.
+// The whole chapter is drawn in coloured text glyphs (render.ascii -> src/ascii.js).
+CHAPTERS.mine = {
+  name: 'The Mine', tagline: 'mind the firedamp', icon: '⛏️',
+  weapons: ['pickaxe', 'dynamite', 'minecart', 'lantern'], starter: 'pickaxe',
+  roster: [
+    { id: 'rat',        archetype: 'normal', name: 'Pit Rat',     hpMul: 0.75, speedMul: 1.05, radiusMul: 0.85, flags: [] },
+    { id: 'caveSpider', archetype: 'fast',   name: 'Cave Spider', hpMul: 0.75, speedMul: 1.0, flags: ['pounce'], dmgMul: 0.7 },
+    { id: 'kobold',     archetype: 'tank',   name: 'Kobold',      hpMul: 1.4, speedMul: 0.85, flags: ['unshakeable'] },
+    // The elite. eliteOnly: every elite in this chapter is a golem, and no ordinary spawn is.
+    { id: 'golem',      archetype: 'tank',   name: 'Golem',       hpMul: 2.2, speedMul: 0.9, radiusMul: 1.3, flags: ['unshakeable'], eliteOnly: true },
+  ],
+  eliteFlags: [],
+  signature: {
+    type: 'firedamp',
+    // The gas switch (tests turn it off with firedamp = null): no pocket is ever laid, nothing blows.
+    //   count/near   pockets kept within `near` px of you (x the mutator's gasCountMul)
+    //   ring         [min, max] px from you a new seam is laid; seam [min, max] pockets in a row, gap px apart
+    //   r            [min, max] pocket radius; drift px/s it wanders; relay s between two seams laid
+    //   creep        px/s a pocket seeps toward you (the crowd you draw in walks into it), until it
+    //                is creepStop px away
+    //   blastMul     blast radius = pocket r x this (x gasBlastMul); reach = how far past its own
+    //                blast a pocket sets off the next one, as a fraction of it; link s between links
+    //   dmg          blast damage at t=0 (rides hpScale, like the crowd's hp); kb its shove
+    //   sting        hp a blast takes off you if you stand in it (the normal hurt path, invuln after)
+    // balance_decision : seams of 2-4, blasts hard on the crowd, a sting on you 2026-10-09
+    firedamp: {
+      count: 12, near: 1000, ring: [120, 620], seam: [2, 4], gap: 92, r: [44, 62], drift: 16, relay: 0.5,
+      creep: 16, creepStop: 0,
+      blastMul: 2.2, reach: 1.15, link: 0.13, dmg: 120, kb: 170, sting: 4,
+    },
+  },
+  obstacles: null,
+  // balance_decision : a small tough crowd (cap ~28) refilled fast, the gas kills it 2026-10-09
+  //  - maxAliveMul is the lever that lets the gas matter: with no cap the crowd dies on arrival either way
+  balance: { spawnMul: 2.5, enemyDmgMul: 0.45, enemyHpMul: 1.8, xpMul: 1.25, maxAliveMul: 0.07 },
+  render: {
+    cast: ['rat', 'caveSpider', 'kobold', 'golem'],
+    bgColor: 0x0a0806,     // the gallery's own dark, under the glyph floor
+    floorTint: 0xffffff,
+    playerTint: 0xffffff,
+    tail: false,
+    dust: { tint: 0xffd9a0, alpha: 0.0, speedMul: 0.05, sway: 2 },
+    // PRETTY COLOURED ASCII (render.js setAscii -> src/ascii.js): every visual of this chapter is
+    // decided in that module. Its keys are ascii.js's own to read.
+    ascii: { cell: 18, floorAlpha: 0.55 },
+  },
+}
+
 // ---- The Kraken (hidden boss — the tuning block, sim.js's stepKrakenScript owns the flow) -------
 // THE PARRY OPENS, THE BUILD KILLS:
 //   - an ARM is sealed until a parry makes it limp (KRAKEN_EXPOSE_BITE tears it on that parry);
@@ -10756,7 +10922,7 @@ export const CHAPTER_SPINE = {
   body: 'Body', pond: 'Pond', garden: 'Garden', undergrowth: 'Undergrowth',
   city: 'City', skies: 'Skies', beyond: 'Beyond', blank: 'Blank',
   surf: 'Surf', shelf: 'Shelf', reef: 'Reef', wreck: 'Wreck', trawl: 'Trawl', deep: 'Deep', kraken: 'Kraken',
-  topsoil: 'Topsoil', geode: 'Geode',
+  topsoil: 'Topsoil', geode: 'Geode', mine: 'Mine',
 }
 // Falls back to the full name rather than throwing: a chapter added without a spine entry renders
 // with its article and looks slightly wrong, which is a far better failure than a blank spine.
@@ -13236,6 +13402,7 @@ export const DMG_SRC_NAME = {
   orca: 'The Orca',
   trawl: 'The Net',            // The Trawl: the mesh wall
   devour: 'Swallowed',         // The Deep: an anglerfish maw closed on you (a run.shafts entry)
+  firedamp: 'Firedamp',        // The Mine: a gas pocket went off with you inside its blast
   // Book 1's hazards — with the caveat that `pool` is the single most widespread hazard in the game
   pool: 'Caustic Pools',       // acidPool (body) AND soapTrail, which is the elite affix in pond,
                                // shelf, surf, reef and trawl — four of them Book 2. Not Book 1 only.
@@ -14995,6 +15162,7 @@ export const CHAPTER_ENDINGS = {
   kraken:      { victory: 'THE KRAKEN FAILED. 🎉',                  death: 'Swallowed by the dark… 🌑' },
   topsoil:     { victory: 'You dug your way down! 🎉',              death: 'Buried… 🪱' },
   geode:       { victory: 'You found the way through the crystal! 🎉', death: 'Lost in the glitter… 💎' },
+  mine:        { victory: 'You struck daylight! 🎉',               death: 'Lost in the old galleries… ⛏️' },
 }
 export const CHAPTER_UNLOCK_LINES = {
   pond:        'The Pond — word of you travels downstream',
@@ -15395,6 +15563,9 @@ export const MUTATORS = {
   thinAir:      { name: 'Thin Air',       icon: '🫧', desc: 'Your air runs out far faster. More time on the clock.', chapters: ['reef'], effects: { airDrainMul: 3, raceClockMul: 1.08 } },
   // The Deep's own. The elite half has no mods key: stepMaws reads the id (the Blank's idiom).
   hungryFloor:  { name: 'Hungry Floor',   icon: '🎣', desc: 'The anglerfish bite sooner, and they bite elites too.', chapters: ['deep'], effects: { mawTimeMul: 0.6 } },
+  // The Mine's own. Both ways: more firedamp to set off, and bigger blasts to stand clear of.
+  // balance_decision : first guess, owner playtests 2026-10-09
+  methaneSeam:  { name: 'Methane Seam',   icon: '💨', desc: 'Far more firedamp, and every blast is bigger. Stand well clear.', chapters: ['mine'], effects: { gasCountMul: 1.7, gasBlastMul: 1.3 } },
 }
 // Every key mergeMutatorMods can produce, all defaulted to 1 (neutral) before mutator effects
 // multiply in. sim.js applies each of these at one specific point — see sim.js's module doc.
@@ -15424,6 +15595,8 @@ export const MUTATOR_MOD_KEYS = [
                         // multiply and the racing line survives both
   'airDrainMul',        // stepCharge (sim.js) — the resource bar's per-second drain
   'mawTimeMul',         // stepMaws (deep; seconds in a mouth before it bites, <1 = sooner)
+  'gasCountMul',        // stepFiredamp (mine; how many firedamp pockets hang around you)
+  'gasBlastMul',        // stepFiredamp (mine; a pocket's blast radius)
 ]
 // Human label + "does a value above 1 help the player" for every MUTATOR_MOD_KEYS entry — the
 // brief/pause/summary effect chips read this (ui.js effectChipList) to word the trade and colour
@@ -15476,6 +15649,8 @@ export const MUTATOR_EFFECT_LABELS = {
   trackWidthMul: ['passage width', true],
   airDrainMul: ['air drain', false],
   mawTimeMul: ['time before the bite', true],
+  gasCountMul: ['firedamp pockets', true],
+  gasBlastMul: ['firedamp blast size', true],
 }
 // Pure helper: given a list of mutator ids (run.mutators), returns the full run.mods object —
 // every key above defaulted to 1, with each selected mutator's effects multiplied in. Unknown

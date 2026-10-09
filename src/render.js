@@ -42,6 +42,7 @@ import { TRAWL_WIGGLE_ARC, KRAKEN_GRIP_FLICKS } from './config.js'
 import { DRAW_CAPS } from './config.js'
 import * as MACRO from './macro.js'
 import * as HOLO from './holo.js'
+import * as ASCII from './ascii.js'
 import { t as tr } from './i18n.js'
 
 
@@ -6557,6 +6558,13 @@ export function createRenderer(app) {
     },
     crystalCrab: { archetype: 'tank', draw: drawCrystalCrab, macro: true, lean: 90, phases: 4 },
     bat: { archetype: 'fast', draw: drawBat, macro: true, lean: 90, phases: 4 },
+    // ---- Book 3, The Mine: PRETTY COLOURED ASCII. `ascii: true` hands the whole drawing to
+    // src/ascii.js (ASCII_CAST / bakeCreature), the way `macro: true` hands it to macro.js. The
+    // mine's rat shares the id 'rat' with the city's, so its look lives in ascii.js too and is
+    // swapped in by syncEnemies while an ascii chapter is up (T.asciiRoster).
+    caveSpider: { archetype: 'fast', ascii: true },
+    kobold: { archetype: 'tank', ascii: true },
+    golem: { archetype: 'tank', ascii: true },
     redcell: { archetype: 'normal', draw: drawRedcell, lean: 0 },      // biconcave disc, no forward axis — it would just tumble
     wbc: { archetype: 'tank', draw: drawWbc, lean: 0 },                // radial membrane, filopodia all round; no nose
     antibody: { archetype: 'fast', draw: drawAntibody, lean: 0 },      // 3-fold Y (Fc stem at +y), no +x front — a protein has no heading
@@ -6799,8 +6807,23 @@ export function createRenderer(app) {
       crown: elite ? { top: M.crown[0], r: M.crown[1] } : null,
     }
   }
+  // ---- Book 3, The Mine: a creature drawn by src/ascii.js. Its canvases become the body and the
+  // hit-flash twin; everything about HOW it looks (glyphs, colours, frames, poses) is ascii.js's.
+  function makeAsciiLook(id, elite) {
+    const b = ASCII.bakeCreature(id, elite)
+    if (!b) return null
+    const frames = b.frames.map((f) => ({ tex: macroCanvasTex(f.canvas, f.res), white: macroCanvasTex(f.white, f.res), ax: f.ax, ay: f.ay }))
+    return {
+      tex: frames[0].tex, white: frames[0].white, ax: frames[0].ax, ay: frames[0].ay,
+      frames: frames.length > 1 ? frames : null,
+      baseR: b.baseR, maxLean: (b.lean ?? 0) * DEG, upright: !!b.upright,
+      poseOf: b.poseOf || null, faceDir: b.faceDir || null, turnRate: b.turnRate || null,
+      spin: 0, squash: 0, shadow: null, crown: null,
+    }
+  }
   function makeRosterLook(id, elite, child = false) {
     const entry0 = ROSTER_LOOKS[id]
+    if (entry0.ascii && !child) return makeAsciiLook(id, elite)
     if (entry0.macro && !child) return makeMacroLook(id, entry0, elite)
     // A child look is the same entry wearing a different draw fn, so it inherits `lean`, `phases`
     // and everything else the parent declared — a zooid that swam on a different axis from the
@@ -7003,6 +7026,14 @@ export function createRenderer(app) {
       // than swapped live for the same reason every other look is: syncEnemies picks a texture, it
       // never draws one.
       if (ROSTER_LOOKS[id].childDraw) T.roster[id + '_child'] = makeRosterLook(id, false, true)
+    }
+    // Book 3, The Mine: every creature src/ascii.js draws, keyed like T.roster. syncEnemies prefers
+    // these while an ascii chapter is up, so an id shared with another chapter (the rat) is drawn
+    // in glyphs in the mine and by its own bake everywhere else.
+    T.asciiRoster = {}
+    for (const id of Object.keys(ASCII.ASCII_CAST)) {
+      T.asciiRoster[id] = makeAsciiLook(id, false)
+      T.asciiRoster[id + '_elite'] = makeAsciiLook(id, true)
     }
     buildBurrowTextures()   // Book 3: photographed props, crystal pillars, shots
     {
@@ -13043,6 +13074,54 @@ const spurG = new Graphics()
     textLayer,
   )
 
+  // ==== Book 3, THE MINE: PRETTY COLOURED ASCII (src/ascii.js) ===================================
+  // CHAPTERS[id].render.ascii hands the WHOLE look of a chapter to src/ascii.js. render.js keeps its
+  // camera, its enemy pool (driven with ascii.js's own creature looks) and the damage numbers, gives
+  // the module three containers — world-space under and over the creatures, and screen-space over
+  // the world — switches off the layers the module asks it to (renderer.hide), and forwards every
+  // frame and every event. Nothing about what the chapter looks like is decided here.
+  const asciiUnder = new Container()
+  const asciiOver = new Container()
+  const asciiScreen = new Container()
+  entitiesLayer.addChildAt(asciiUnder, entitiesLayer.getChildIndex(gemLayer))
+  entitiesLayer.addChildAt(asciiOver, entitiesLayer.getChildIndex(bulletLayer))
+  asciiUnder.visible = asciiOver.visible = asciiScreen.visible = false
+  const ASCII_HIDEABLE = {
+    floor: [floorLayer], dust: [dustLayer], gems: [gemLayer], coins: [coinLayer], bullets: [bulletLayer],
+    player: [playerC], particles: [particleLayer], novas: [novaLayer], shadows: [enemyShadowLayer, macroShadowLayer],
+    crowns: [enemyCrownLayer], enemies: [enemyLayer], text: [textLayer], telegraphs: [teleG, bombG, pacerG],
+    affixes: [affixLayer, shieldG], obstacles: [obstacleLayer],
+  }
+  let asciiR = null       // the module's renderer, created the first time an ascii chapter starts
+  let asciiOn = false
+  let asciiHidden = []
+  function setAscii(run) {
+    const look = run ? CHAPTERS[run.chapter]?.render?.ascii : null
+    for (const o of asciiHidden) o.renderable = true
+    asciiHidden = []
+    if (!look) {
+      if (asciiOn && asciiR) asciiR.exit()
+      asciiOn = false
+      asciiUnder.visible = asciiOver.visible = asciiScreen.visible = false
+      return
+    }
+    if (!asciiR) {
+      if (!asciiScreen.parent) app.stage.addChildAt(asciiScreen, app.stage.getChildIndex(world) + 1)
+      asciiR = ASCII.createAsciiRenderer({ app, world, under: asciiUnder, over: asciiOver, screen: asciiScreen })
+    }
+    asciiOn = true
+    asciiUnder.visible = asciiOver.visible = asciiScreen.visible = true
+    for (const name of asciiR.hide ?? []) for (const o of ASCII_HIDEABLE[name] ?? []) { o.renderable = false; asciiHidden.push(o) }
+    asciiR.enter(run, look)
+    const f = asciiR.filters?.()
+    if (f && f.length) { app.stage.filterArea = app.screen; app.stage.filters = f }
+  }
+  function syncAscii(run, dt, cx, cy) {
+    if (!asciiOn) return
+    const w = viewW(), h = viewH()
+    asciiR.sync(run, dt, { left: -cx, top: -cy, right: -cx + w, bottom: -cy + h, zoom: world.scale.x || 1, w: app.screen.width, h: app.screen.height, animT })
+  }
+
   // ---------------------------------------------------------- organic floor
   // Ground blotches + scattered foliage: one sprite per occupied world-space cell,
   // picked/tinted/rotated/scaled by cellHash(i, j, salt) so a cell's look never
@@ -14038,6 +14117,9 @@ const spurG = new Graphics()
     // Book 3. The same silent fallback the comments below warn about, twice more.
     topsoil: BIOME_TOPSOIL,
     geode: BIOME_GEODE,
+    // The Mine never shows this: an ascii chapter switches the whole floor layer off (src/ascii.js's
+    // renderer.hide) and draws its own. The line is here so the fallback is a decision.
+    mine: BIOME_TOPSOIL,
     // The Blank shares the body's decor DELIBERATELY, and this line exists so that it is a decision
     // rather than an accident. Its boss is the ANTIBODY and its fiction is reality's immune response,
     // so villi and plasma motes are the right furniture — but it was getting them by falling through
@@ -28325,6 +28407,7 @@ void main() {
     } else scrapeT = 0
 
     for (const e of events) {
+      if (asciiOn && asciiR.event(e, run)) continue   // Book 3, The Mine: src/ascii.js draws its own
       if (burrowEvent(e)) continue   // Book 3, Burrow: its own events (and the shovel's scoop)
       switch (e.type) {
         case 'hit': {
@@ -30676,7 +30759,7 @@ void main() {
       const rkey = e.rosterId
         ? e.rosterId + (e._splitChild && T.roster[e.rosterId + '_child'] ? '_child' : (e.elite ? '_elite' : ''))
         : null
-      const look = (rkey && T.roster[rkey]) || T.enemies[e.elite ? e.type + '_elite' : e.type]
+      const look = (asciiOn && rkey && T.asciiRoster[rkey]) || (rkey && T.roster[rkey]) || T.enemies[e.elite ? e.type + '_elite' : e.type]
       // Animated looks (look.frames, e.g. the centipede's baked wave phases): flip through the
       // frames on animT, offset per enemy id so a pack doesn't slither in lockstep. Frozen/stunned
       // creatures HOLD their current pose (matching the wisp-wobble rule below) instead of
@@ -30849,6 +30932,8 @@ void main() {
         s._spinT = animT
       }
       s.rotation = face + wobble + currentWobble + pull * animT * 5 + (look.spin ? s._spinA : 0)
+      // an `upright` look (src/ascii.js's text) is never mirrored or turned: a glyph must stay readable
+      if (look.upright) { s.scale.x = Math.abs(s.scale.x); s.rotation = 0 }
       s.position.set(e.x, e.y)
       // Book 3: THE QUAKE. A mole about to erupt (quakeT, published by stepTunnels) shakes its bump,
       // harder as the moment comes.
@@ -31323,6 +31408,7 @@ void main() {
     updateDamage(dt)
     updateDustMotes(dt)
     updateMacro(run, dt, cx, cy)   // Book 3: the macro lens (no-op elsewhere)
+    syncAscii(run, dt, cx, cy)     // Book 3, The Mine: src/ascii.js draws the chapter (no-op elsewhere)
     updateLeaves(dt)
     updateCurrents(run, dt, cx, cy)
     updateEddies(run, dt)
@@ -31970,6 +32056,7 @@ void main() {
     for (const m of dustMotes) { m.s.tint = dustLook?.tint ?? 0xffffff; m.s.alpha *= dustLook?.alpha ?? 1 }
     R.background.color = chapterRender.bgColor
     setMacro(run)   // Book 3: the macro lens on or off
+    setAscii(run)   // Book 3, The Mine: the ascii look on or off (after setMacro: it may set the stage's filters)
     clearWorld()
     if (run) {
       entitiesLayer.visible = true
@@ -32284,6 +32371,8 @@ void main() {
         }
         return [g, null]
       },
+      // The Mine's firedamp: src/ascii.js paints it, like everything else in that chapter.
+      firedamp: () => [new Sprite(macroCanvasTex(ASCII.paintHazard('firedamp'))), null],
       devour: () => {
         // The Deep's maw, from the palette updateShafts' maw branch draws it with. Needles point
         // INWARD, as they do in world (see MAW_VIS), and the esca is the bright bead that baits you in.

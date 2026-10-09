@@ -2142,6 +2142,29 @@ function generateWells(sig) {
  *     bounce off or spent; {type:'crystalRing', x, y, r}; {type:'rootSnare', x, y, r};
  *     {type:'stalactite', x, y, r}. All drawn by render.js's burrowEvent; none has a sound.
  *
+ * BOOK 3, THE MINE (sim.js's Mine section). EVERY VISUAL OF THIS CHAPTER IS DRAWN BY src/ascii.js
+ *   (CHAPTERS.mine.render.ascii), which reads the fields below; render.js only delegates to it.
+ *   gas[i]: { x, y, r, age, seed } — an IDLE firedamp pocket (CHAPTERS.mine.signature.firedamp),
+ *     laid in seams of a few pockets around the player, drifting slowly, let go once far behind.
+ *     A plain object: copying one and moving its x/y/r gives a working pocket. Empty with the
+ *     switch (signature.firedamp) null. Private on it: _lit (set the frame it is set off).
+ *   gasLit[i]: { x, y, r, at, chain, seed } — a pocket already SET OFF, waiting for run.time >= at.
+ *     chain 0 = set off by a player weapon this frame; n = the nth link of a chain. It blasts once.
+ *   sticks[i]: { x, y, fromX, fromY, t, flight, fuse, r, dmg, seed } — Dynamite: in the air for
+ *     `flight` s from (fromX, fromY) to (x, y), then fizzing for `fuse` s, then {type:'dynamite'}.
+ *   carts[i]: { x, y, angle, vx, vy, dist, range, w, dmg, hit } — a Minecart rolling (w = half-width).
+ *   lanternR: the Lantern's glow radius this frame (0 = no lantern held). Republished every step.
+ *   booms[i]: { x, y, r, chain, kind: 'gas'|'dynamite', at } — the blasts of the last MINE_BOOM_KEEP
+ *     s, for the renderer alone (it draws a blast at its age run.time - at, so a chain reads from
+ *     state even on a frame that missed the gasBlast/dynamite events). Nothing in sim reads it.
+ *   Bullets: weapon 'chip' (the Pickaxe's rock chips).
+ *   Private: _gasLayT (s until the next seam may be laid).
+ *   Hurt src: 'firedamp' (a blast with the player inside it; the normal hurt path, invuln after).
+ *   Events: {type:'gasBlast', x, y, r, chain} a pocket went off (r = blast radius, chain as above);
+ *     {type:'pickaxe', x, y, r, angle} a blow landed; {type:'dynamite', x, y, r} a stick blew up;
+ *     {type:'shoot', weapon:'dynamite'|'minecart', x, y[, angle]} a throw / a push.
+ *     gasBlast and dynamite have a sound (SFX_FOR_EVENT); pickaxe is silent by design (see main.js).
+ *
  * THE SHELF's three natives add NO run.* array either, on the same argument. Each is an existing
  * entity carrying one extra field, and that field is what the renderer branches on:
  *   - Sunspear: a run.lobs entry carrying `column: true`, whose `fromX/fromY` ARE its `tx/ty` — so
@@ -2922,6 +2945,8 @@ export function createRun(meta, opts = {}) {
     // Book 3 Burrow (see the sim.js Burrow section): Topsoil's tunnels and pits, and the weapons'
     // own entities. Empty in every other chapter.
     pits: [], caveIns: [], snares: [], drips: [], echoes: [],
+    // Book 3, The Mine (sim.js's Mine section): the firedamp field and the Mine's weapons' entities.
+    gas: [], gasLit: [], sticks: [], carts: [], lanternR: 0, booms: [],
     sandbars: [],          // Book 2 surf: streamed dry patches (signature.bars) — see streamSandbars
     _sandCellI: null,      // streaming cursor, independent of the obstacle/eddy/trap/shaft cursors
     _sandCellJ: null,
