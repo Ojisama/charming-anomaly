@@ -388,9 +388,9 @@ function formatShopBonus(bookId, id, levels) {
  *       main.js), else null — rendered as a mint .summary-unlock badge. unlockedChapter (v5.0)
  *       is the newly-unlocked NEXT chapter's name when this win (classic, difficulty 3+) just
  *       unlocked it, else null — rendered as a second, violet .summary-unlock--chapter badge.
- *       unlockedHiddenChapter (v5.24) is CHAPTERS.blank.name the one time a classic Beyond win at
- *       difficulty 5 just unlocked The Blank, else null/absent — rendered as a third,
- *       .summary-unlock--hidden badge. unlockedBook (v7.x) is the book id a finale win just
+ *       unlockedHiddenChapter is the HIDDEN_UNLOCKS id (blank, kraken) a classic win just
+ *       unlocked, else null/absent — rendered as a third, .summary-unlock--hidden badge whose icon
+ *       and copy are that row's own. unlockedBook (v7.x) is the book id a finale win just
  *       OPENED, else null — rendered as a fourth, .summary-unlock--book badge whose copy and
  *       welcome-purse figure come from BOOK_UNLOCK_LINES + BOOKS[id].startCoins. A book with no
  *       BOOK_UNLOCK_LINES row renders no badge at all (run BU asserts every unlockable book has
@@ -3680,7 +3680,7 @@ export function initUI(hooks) {
         ${d.unlockedChapter ? `<div class="summary-unlock summary-unlock--chapter">🔓 ${CHAPTER_UNLOCK_LINES[d.unlockedChapterId]
           ? t(CHAPTER_UNLOCK_LINES[d.unlockedChapterId])
           : tt('New level unlocked: {n} {name}', { n: chapterNumber(d.unlockedChapterId), name: t(d.unlockedChapter) })}</div>` : ''}
-        ${d.unlockedHiddenChapter ? `<div class="summary-unlock summary-unlock--hidden">⬜ ${t('THE BLANK — the antibody that let you go wants you back')}</div>` : ''}
+        ${HIDDEN_UNLOCKS[d.unlockedHiddenChapter] ? `<div class="summary-unlock summary-unlock--hidden">${HIDDEN_UNLOCKS[d.unlockedHiddenChapter].icon} ${t(HIDDEN_UNLOCKS[d.unlockedHiddenChapter].unlocked)}</div>` : ''}
         ${BOOK_UNLOCK_LINES[d.unlockedBook] ? `<div class="summary-unlock summary-unlock--book">📖 ${tt(BOOK_UNLOCK_LINES[d.unlockedBook], { n: BOOKS[d.unlockedBook]?.startCoins ?? 0 })}</div>` : ''}
         <div class="earned">🪙 +${d.earned}
           ${d.bonus > 0 ? `<span class="earned-bonus">+${d.bonus} ${t('finish bonus')}</span>` : ''}

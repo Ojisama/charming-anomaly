@@ -10623,13 +10623,15 @@ export const ROAD_JUNCTION = {
 // EVERY HIDDEN CHAPTER AND THE WIN THAT REVEALS IT. One table, because there are two of them now
 // and the second is what makes the generalization pay: The Blank had its id hardcoded at seven
 // sites, and a second hidden chapter would have meant a second copy of all seven.
-//   `hint` is PLAYER-VISIBLE COPY and therefore lives in a config TABLE, which is the only shape
-// run XX can walk — a string in a ui.js branch is exempt from the coverage sweep by construction,
+//   `hint` and `unlocked` (the summary badge the win shows) are PLAYER-VISIBLE COPY and therefore
+// live in a config TABLE, which is the only shape run XX can walk — a string in a ui.js branch is exempt from the coverage sweep by construction,
 // and that exemption has shipped untranslated copy four separate times.
 export const HIDDEN_UNLOCKS = {
-  blank:  { from: 'beyond', difficulty: 5, hint: 'win The Beyond at level 5 — something has been counting' },
+  blank:  { from: 'beyond', difficulty: 5, hint: 'win The Beyond at level 5 — something has been counting',
+            icon: '⬜', unlocked: 'THE BLANK — the antibody that let you go wants you back' },
   // `wip: true` would hold one back: the win does not unlock it (The Kraken shipped 2026-10-09)
-  kraken: { from: 'deep',   difficulty: 5, hint: 'win The Deep at level 5 — the graveyard has been waiting' },
+  kraken: { from: 'deep',   difficulty: 5, hint: 'win The Deep at level 5 — the graveyard has been waiting',
+            icon: '🦑', unlocked: 'THE KRAKEN — the monster below is angered by your light' },
 }
 // Every chapter that sits OUTSIDE its book's ladder, derived from the books rather than listed
 // again. `hidden` does not mean unreleased — it means off the ladder; only wipFrom hides a chapter

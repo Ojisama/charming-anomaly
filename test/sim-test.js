@@ -19142,7 +19142,7 @@ function testFrenchDictionary() {
   // exempt from this sweep BY CONSTRUCTION, which is the exemption that has shipped untranslated
   // strings four separate times. Moving it into a table is only half the fix; this line is the
   // other half, and it went red for The Kraken's hint the moment it was written.
-  for (const v of Object.values(HIDDEN_UNLOCKS ?? {})) need(v?.hint)
+  for (const v of Object.values(HIDDEN_UNLOCKS ?? {})) { need(v?.hint); need(v?.unlocked) }
   // The Kraken's phase cards and death banner (render.js draws them through t()).
   for (const v of Object.values(KRAKEN_BEATS ?? {})) need(v?.name)
   for (const v of Object.values(CHAPTER_UNLOCK_LINES ?? {})) need(v)
@@ -36845,7 +36845,12 @@ function runKraken() {
       assert.ok(CHAPTERS[gate.from], `${id} unlocks from a chapter that does not exist`)
       assert.ok(typeof gate.difficulty === 'number', `${id} has no difficulty gate`)
       assert.ok(typeof gate.hint === 'string' && gate.hint.length > 0, `${id} has no hint`)
+      assert.ok(typeof gate.unlocked === 'string' && gate.unlocked.length > 0, `${id} has no unlock badge line`)
     }
+    // The summary badge reads the row of the chapter the win unlocked — it was one Blank line for both.
+    const uiSrcK = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
+    assert.ok(/HIDDEN_UNLOCKS\[d\.unlockedHiddenChapter\]\.unlocked/.test(uiSrcK), 'the hidden-unlock badge no longer reads its own HIDDEN_UNLOCKS row')
+    assert.ok(!uiSrcK.includes("t('THE BLANK"), 'ui.js hardcodes The Blank\'s unlock line again')
     assert.deepStrictEqual([...hiddenChapters()].sort(), ['blank', 'kraken'], 'hiddenChapters() no longer derives both from the books')
     for (const f of ['src/main.js', 'src/ui.js', 'src/state.js']) {
       const src = readFileSync(new URL('../' + f, import.meta.url), 'utf8')
