@@ -955,6 +955,9 @@ function endRun(victory) {
   // kill count that `passiveCrowd` pins at 0 and a level every finisher ties on. `lapsTotal` is
   // read off the chapter rather than off the run because a DNF has no total of its own.
   const cc = CHAPTERS[run.chapter]?.circuit
+  // The Kraken's second board: landed / (landed + parryable hits taken), whole percent. null = no tries.
+  const parryTries = run.parryLanded + run.parryMissed
+  const parryPct = CHAPTERS[run.chapter]?.parry && parryTries > 0 ? Math.round((100 * run.parryLanded) / parryTries) : null
   const summaryData = {
     victory, time: shownTime, kills: run.kills, level: run.player.level, earned, bonus,
     laps: cc ? (run.lap ?? 0) : null,
@@ -962,7 +965,7 @@ function endRun(victory) {
     // Milliseconds, the unit fmtLap and the podium's lap board already speak, so the summary and
     // the board can never round the same lap two different ways. 0 means "never banked a lap".
     bestLapMs: cc && run.bestLap > 0 ? Math.round(run.bestLap * 1000) : 0,
-    mutators: run.mutators, nextDifficulty,
+    mutators: run.mutators, nextDifficulty, parryPct,
     endless: !!run.endless, endlessBest: chMeta.endlessBest ?? 0,
     // v7.x "what happened to me": the fatal hit's source label and the whole run's damage tally
     // (run.killedBy / run.dmgBySrc — see state.js's doc block). Passed raw, as LABELS not copy:
@@ -1031,6 +1034,8 @@ function endRun(victory) {
     const entry = {
       nick, chapter, difficulty: run.endless ? 0 : (run.difficulty ?? 1), kills: run.kills, level: run.player.level,
       timeMs, lapMs,
+      // WINS ONLY, like the kill time: one parry then dying would otherwise sit at 100%
+      parryPct: victory ? parryPct : null,
       // Endless's board is longest survival, on the real clock (Time Debt runs run.time at 1.5x).
       surviveMs: run.endless ? Math.round((run._realTime ?? run.time) * 1000) : null,
       // ONLY WHERE IT IS ROLLED (owner, 2026-08-19). A chapter whose `starter` is a plain string

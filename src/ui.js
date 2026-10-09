@@ -926,7 +926,7 @@ export function initUI(hooks) {
     // 'Best lap' for the same width reason the two above were chosen: 'Meilleur tour' is SHORTER
     // than 'Meilleur temps', which is itself exactly as long as 'Niveau atteint', so it clears the
     // 142px the eyebrow gets with room over and cannot wrap the leaf to two lines.
-    const label = { kills: 'Kills', level: 'Level reached', time: 'Best time', lap: 'Best lap', survive: 'Best time' }[which]
+    const label = { kills: 'Kills', level: 'Level reached', time: 'Best time', lap: 'Best lap', survive: 'Best time', parry: 'Parries' }[which]
     const eyebrow = `<div class="brief-eyebrow podium-eyebrow">${t(label)}</div>`
     if (podiumState === null) return `${eyebrow}${podiumSkeleton()}`
     // Each board is scored by its OWN metric. Passing rows through with a `score` field rather than
@@ -939,6 +939,7 @@ export function initUI(hooks) {
       time: (r) => fmtTime(r.timeMs / 1000),
       lap: (r) => fmtLap(r.lapMs),
       survive: (r) => fmtTime(r.surviveMs / 1000),
+      parry: (r) => `${r.parryPct}%`,
     }[which]
     const rows = podiumState[which].map((r) => ({ ...r, score: score(r) }))
     return `${eyebrow}${podiumBoardHtml(rows)}`
@@ -3635,6 +3636,9 @@ export function initUI(hooks) {
     // score: that board is not drawn anywhere for a scripted chapter, so a rank on it points at a
     // page the player cannot open. The time chip needs no such guard — podium.time only exists for
     // a WON boss run in the first place.
+    // The Kraken: its parry % replaces Kills/Level, neither of which it ranks on
+    if (d.parryPct != null) return `
+          <div class="stat-row"><span>${t('Parries')}</span><b>${d.parryPct}%${rankChip(d.podium?.parry, 'parry')}</b></div>`
     return `
           <div class="stat-row"><span>${t('Kills')}</span><b>${d.kills}${rankChip(d.podium?.kills, 'kills')}</b></div>
           <div class="stat-row"><span>${t('Level reached')}</span><b>${d.level}${
