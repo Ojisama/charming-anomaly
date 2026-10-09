@@ -36249,7 +36249,7 @@ function runKraken() {
   // the parry as the swing starts, or hugging the head, which the limb passes over.
   {
     // the next ring turn is the slap's; the fish holds `at` (an offset from the head) throughout
-    const slapRun = (diff, at, press = false, drift = 0, flee = 0) => {
+    const slapRun = (diff, at, press = false, drift = 0, flee = 0, rage = false) => {
       const run = inBlock(diff)
       run.weapons = []
       run.script.bossIdx = 2
@@ -36258,10 +36258,11 @@ function runKraken() {
       run.script.gripN = 1
       run.script.turnBag = ['slap']; run.script.turnBagI = 0
       run.script.turnT = 0
+      if (rage) Object.assign(run.script, { raging: true, rageN: 1, rageLeft: 1, rageScreamT: 0, rageKind: 'slap', rageNext: false })
       for (const a of run.krakenArms) { a.tele = 0; a.gripT = 0 }
       const hits = []
       const cock = []   // the fish's distance from the cocked limb's line, through the wind-up
-      let arm = null, armed = false, hitTele = null, ox = 0, qx = 0, qy = 0
+      let arm = null, armed = false, hitTele = null, ox = 0, qx = 0, qy = 0, dEnd = null
       const T = KRAKEN_SLAP_FUSE + KRAKEN_SLAP_FOLLOW_T + 0.6
       for (let i = 0; i < Math.round((T + 1) * 60); i++) {
         const h = headOf(run)
@@ -36282,6 +36283,8 @@ function runKraken() {
         const fx = run.player.x, fy = run.player.y
         stepSim(run, { x: 0, y: 0, skill: !!win }, 1 / 60)
         for (const e of run.events) if (e.type === 'hurt' && e.src === 'krakenArm') { hits.push(e.dmg); if (hitTele == null && arm) hitTele = arm.tele }
+        // where the fish ended up from the slapping shoulder as the swing came through
+        if (arm && dEnd == null && arm.tele <= 0) { const h2 = headOf(run); dEnd = Math.hypot(run.player.x - h2.x - Math.cos(arm.ang) * KRAKEN_RING_R, run.player.y - h2.y - Math.sin(arm.ang) * KRAKEN_RING_R) }
         if (arm && arm.slapArm && arm.tele > KRAKEN_SLAP_SWING && arm.tele < arm.fuse - 0.1) {
           const dx = arm.lx1 - arm.lx0, dy = arm.ly1 - arm.ly0, l2 = dx * dx + dy * dy
           const t = Math.max(0, Math.min(1, ((fx - arm.lx0) * dx + (fy - arm.ly0) * dy) / l2))
@@ -36290,7 +36293,7 @@ function runKraken() {
         run.events.length = 0
         if (run.phase === 'levelup') run.phase = 'playing'
       }
-      return { run, arm, armed, hits, cock, hitTele }
+      return { run, arm, armed, hits, cock, hitTele, dEnd }
     }
     const out = { x: Math.cos(1.0) * 280, y: Math.sin(1.0) * 280 }
     const hit = slapRun(3, out)
@@ -36303,12 +36306,19 @@ function runKraken() {
     for (const d of hit.cock) assert.ok(Math.abs(d - KRAKEN_SLAP_COCK) <= 40, `the cocked slap lay ${Math.round(d)}px from the fish, not ~${KRAKEN_SLAP_COCK} — its wind-up is off the screen`)
     // IT LANDS ON THE FUSE'S LAST FRAME, as a slam does: an early hit cut the parry window in half
     assert.ok(hit.hitTele != null && hit.hitTele < 0.02, `the slap hit with ${hit.hitTele?.toFixed(3)}s of fuse left — before its parry window closed`)
-    // ...AND IT ENDS A LITTLE PAST WHERE YOU STOOD (owner, 2026-10-09: "only sweep half of the screen"):
-    // swim out from its shoulder through the wind-up and it misses
+    // A NORMAL SLAP SWEEPS THE WHOLE ARENA: swimming out from its shoulder does not dodge it...
+    // ...BUT A RAGE SLAP ENDS A LITTLE PAST WHERE YOU STOOD, and swimming out does (owner, 2026-10-09:
+    // the short reach is "just for the enraged phase")
     {
-      const fled = slapRun(3, out, false, 0, 3)
-      assert.ok(fled.armed && fled.arm.slapLen > 0, 'fixture: the fleeing run never wound a slap')
-      assert.strictEqual(fled.hits.length, 0, `a fish that swam ${(3 * 60 * KRAKEN_SLAP_FUSE).toFixed(0)}px out from the shoulder was still slapped (${fled.hits.length} hit)`)
+      // starts near the head: the arm phase's cage (KRAKEN_CAGE_R) leaves no room to flee from its edge
+      const near = { x: Math.cos(1.0) * 120, y: Math.sin(1.0) * 120 }
+      const far = slapRun(3, near, false, 0, 3)
+      assert.ok(far.armed && !far.arm.rageArm, 'fixture: the normal fleeing run never wound a normal slap')
+      assert.strictEqual(far.hits.length, 1, `a fish that swam ${(3 * 60 * KRAKEN_SLAP_FUSE).toFixed(0)}px out from a NORMAL slap's shoulder took ${far.hits.length} hit(s), not one — it no longer sweeps the arena`)
+      const fled = slapRun(3, near, false, 0, 3, true)
+      assert.ok(fled.armed && fled.arm.rageArm, 'fixture: the rage fleeing run never wound a rage slap')
+      assert.ok(fled.dEnd > fled.arm.slapLen + PLAYER.radius, `fixture: the fish ended ${fled.dEnd?.toFixed(0)}px from the shoulder, not past the rage slap's ${fled.arm.slapLen.toFixed(0)}px tip`)
+      assert.strictEqual(fled.hits.length, 0, `a fish that swam ${(3 * 60 * KRAKEN_SLAP_FUSE).toFixed(0)}px out from a RAGE slap's shoulder was still slapped (${fled.hits.length} hit)`)
     }
     // A MOVING HEAD (the chase) KEEPS THE WIND-UP ON THE FISH, and it still lands
     const run2 = slapRun(3, out, false, 4)

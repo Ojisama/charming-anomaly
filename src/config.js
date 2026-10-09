@@ -9505,7 +9505,7 @@ export const KRAKEN_TURN_BAG = 16
 
 // THE BACKHAND SLAP (d3 only, rung.slap). One arm pivots on its own ring shoulder, cocks back to one
 // side of the fish with its suckers lit (the slam's own wind-up), then swings through the fish's
-// bearing and follows through: whatever it crosses, out to its tip (KRAKEN_SLAP_PAST), is slapped ONCE. The
+// bearing and follows through: whatever it crosses, out to its tip (KRAKEN_SLAP_LEN; a rage slap's is shorter), is slapped ONCE. The
 // answers are the parry, in the normal window as the swing starts, and hugging the head, which the
 // limb passes over. A parried slap goes limp like any parried slam.
 export const KRAKEN_SLAP_EVERY = 4      // arm attacks per slap
@@ -9514,8 +9514,9 @@ export const KRAKEN_SLAP_SWING = 0.25   // s of that, the swing itself (cocked -
 export const KRAKEN_SLAP_COCK = 170     // px beside the fish the cocked limb lies: on a phone's screen, so the wind-up is SEEN
 export const KRAKEN_SLAP_FOLLOW = 0.6   // rad it follows through past it, still striking
 export const KRAKEN_SLAP_FOLLOW_T = 0.2 // s of follow-through
-// the limb reaches KRAKEN_SLAP_PAST beyond the fish's distance from the shoulder, locked when the
-// slap winds up: swim out past its tip to dodge (owner, 2026-10-09: "only sweep half of the screen")
+export const KRAKEN_SLAP_LEN = 1500     // px from the shoulder the flat of the limb reaches: past every screen edge
+// a RAGE slap reaches only KRAKEN_SLAP_PAST beyond the fish's distance from the shoulder, locked when
+// it winds up: swim out past its tip to dodge (owner, 2026-10-09: the short reach is "just for the enraged phase")
 export const KRAKEN_SLAP_PAST = 110
 export const KRAKEN_SLAP_SAFE_R = 200   // px round the head centre the limb passes OVER
 export const KRAKEN_SLAP_DMG = 24

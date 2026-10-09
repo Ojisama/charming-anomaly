@@ -2524,7 +2524,7 @@ function generateWells(sig) {
   *       back off it (the angle that lays the limb KRAKEN_SLAP_COCK beside the fish), slapDir (+-1)
   *       the side it swings in from, slapTh its angle last frame (krakenSlapAng), slapHit whether it
   *       has already slapped the fish (once per slap). lx0..lx1 is the flat of the limb, shoulder
-  *       out a.slapLen (KRAKEN_SLAP_PAST past the fish, locked at the wind-up), and x/y its far end. A parry turns it into an aimed arm, limp.
+  *       out a.slapLen (KRAKEN_SLAP_LEN; a rage slap's KRAKEN_SLAP_PAST past the fish, locked at the wind-up), and x/y its far end. A parry turns it into an aimed arm, limp.
   *     hitT — >0 for KRAKEN_LIMP_FLASH after A PARRY LANDS ON IT, and render tints the tentacle off
   *            it. NOT set by the arm's own slam: that is the `lash` event's picture. It was, and had
   *            no reader at all, which is why five parries into a 320hp arm looked like one.
