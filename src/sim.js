@@ -2805,19 +2805,19 @@ function krakenTurnPool(run) {
   return { rearing, idle }
 }
 
-// A FRESH BAG OF KRAKEN_TURN_BAG ARM ATTACKS plus its Coils, in the rung's mix and a random order
-// (Fisher-Yates). Only what this moment allows goes in: before the Coil and the slap are taught their
-// turns are not slams in disguise, they are simply not in the bag.
+// A FRESH BAG OF KRAKEN_TURN_BAG TURNS, in the rung's mix and a random order (Fisher-Yates). Only
+// what this moment allows goes in: before the Coil and the slap are taught their turns are not
+// slams in disguise, they are simply not in the bag.
 function krakenTurnBag(run, rung) {
   const s = run.script
   const coilEvery = s.enraged && rung.enrageCoilEvery ? rung.enrageCoilEvery : KRAKEN_COIL_EVERY
   const late = krakenTurnLate(s)
   const bag = []
-  const put = (k, n) => { for (let i = 0; i < n; i++) bag.push(k) }
-  if (rung.grip) put('grab', KRAKEN_TURN_BAG / KRAKEN_GRIP_EVERY)
-  if (rung.slap && late) put('slap', KRAKEN_TURN_BAG / KRAKEN_SLAP_EVERY)
-  put('slam', KRAKEN_TURN_BAG - bag.length)
-  if (rung.coil && late) put('coil', Math.round(KRAKEN_TURN_BAG / (coilEvery - 1)))
+  const put = (k, every) => { for (let i = 0; i < Math.round(KRAKEN_TURN_BAG / every); i++) bag.push(k) }
+  if (rung.coil && late) put('coil', coilEvery)
+  if (rung.grip) put('grab', KRAKEN_GRIP_EVERY)
+  if (rung.slap && late) put('slap', KRAKEN_SLAP_EVERY)
+  while (bag.length < KRAKEN_TURN_BAG) bag.push('slam')
   bag.late = late
   for (let i = bag.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [bag[i], bag[j]] = [bag[j], bag[i]] }
   return bag

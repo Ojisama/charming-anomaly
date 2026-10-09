@@ -36371,11 +36371,11 @@ function runKraken() {
     }
     const d3 = bags(3, 120)
     assert.ok(d3.length >= 4, `fixture: only ${d3.length} turn bags in 120s of d3`)
-    const mix3 = ['coil', 'coil', 'coil', 'coil', 'grab', 'grab', 'grab', 'slam', 'slam', 'slam', 'slam', 'slam', 'slam', 'slap', 'slap', 'slap']
+    const mix3 = ['coil', 'coil', 'coil', 'coil', 'grab', 'grab', 'grab', 'grab', 'slam', 'slam', 'slam', 'slam', 'slap', 'slap', 'slap', 'slap']
     for (const b of d3) assert.deepStrictEqual(b.slice().sort(), mix3, `a d3 turn bag held [${b}] — not the rung's mix`)
-    // the owner's split of the arm attacks (2026-10-09): half slams, a quarter slaps, a quarter grabs
-    const n = (k) => mix3.filter((x) => x === k).length, arm = n('slam') + n('slap') + n('grab')
-    assert.ok(n('slam') === arm / 2 && n('slap') === arm / 4 && n('grab') === arm / 4, 'the d3 mix is not half slams, a quarter slaps, a quarter grabs')
+    // the owner's split (2026-10-09): a quarter each of slams, slaps, grabs and coils
+    const n = (k) => mix3.filter((x) => x === k).length
+    assert.ok(['slam', 'slap', 'grab', 'coil'].every((k) => n(k) === mix3.length / 4), 'the d3 mix is not a quarter each of slams, slaps, grabs and coils')
     // ...and before the Coil and the slap are taught, their turns are not slams: the bag leaves them out
     {
       const run = inBlock(3)
@@ -36385,7 +36385,7 @@ function runKraken() {
       for (let i = 0; i < 60 * 10 && !run.script.turnBag; i++) { run.player.hp = run.player.maxHP; stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60); if (run.phase === 'levelup') run.phase = 'playing' }
       const b = run.script.turnBag
       assert.ok(b, 'fixture: no turn bag drawn in the first d3 block')
-      assert.deepStrictEqual(b.slice().sort(), ['grab', 'grab', 'grab', 'slam', 'slam', 'slam', 'slam', 'slam', 'slam', 'slam', 'slam', 'slam'], `the first d3 block's bag held [${b}]`)
+      assert.deepStrictEqual(b.slice().sort(), ['grab', 'grab', 'grab', 'grab', 'slam', 'slam', 'slam', 'slam', 'slam', 'slam', 'slam', 'slam', 'slam', 'slam', 'slam', 'slam'], `the first d3 block's bag held [${b}]`)
     }
     assert.ok(new Set(d3.map((b) => b.join())).size >= 2, `${d3.length} d3 bags all came out in the same order — the turns are not shuffled`)
     // ...AND THE RING'S NEXT TURN IS THE BAG'S: a grab at the top of the bag, on a turn the old
@@ -36480,6 +36480,7 @@ function runKraken() {
     // the old code had for treating it as the parry's target.
     const only = (grip) => {
       for (const a of run.krakenArms) { a.tele = 0; a.gripT = a === arm ? grip : 0 }
+      run.script.turnT = 1e9; run.script.coilT = 0   // no real turn lands mid-check
       run.player.x = arm.x; run.player.y = arm.y
     }
 
@@ -37718,8 +37719,8 @@ function testKrakenGrab() {
   // THE COIL TAKES A SLAM'S TURN, NEVER A GRAB'S: twice as many coils must not mean half the pinches
   // THE TURN BAG HOLDS THE WHOLE MIX: every special's share is a whole number of its KRAKEN_TURN_BAG
   // turns, and together they leave room for slams
-  for (const R of [1, 2, 3].map(krakenRung)) {
-    const per = [R.grip && KRAKEN_GRIP_EVERY, R.slap && KRAKEN_SLAP_EVERY].filter(Boolean)
+  for (const R of [1, 2, 3].map(krakenRung)) for (const coilEvery of [KRAKEN_COIL_EVERY, R.enrageCoilEvery].filter(Boolean)) {
+    const per = [R.coil && coilEvery, R.grip && KRAKEN_GRIP_EVERY, R.slap && KRAKEN_SLAP_EVERY].filter(Boolean)
     for (const e of per) assert.ok(KRAKEN_TURN_BAG % e === 0, `a special every ${e} turns does not fit a whole number of times in a bag of ${KRAKEN_TURN_BAG}`)
     assert.ok(per.reduce((n, e) => n + KRAKEN_TURN_BAG / e, 0) < KRAKEN_TURN_BAG, `a rung's specials fill the whole bag of ${KRAKEN_TURN_BAG}: no slam left`)
   }
@@ -37767,6 +37768,7 @@ function testKrakenGrab() {
       assert.ok(Math.hypot(c.pinchCX - P.x, c.pinchCY - P.y) < 1, 'a jaw is not closing on where the player stood when it started')
     }
     assert.ok(arm.pinchMate === mate.i && mate.pinchMate === arm.i, 'the two jaws do not name each other')
+    s.turnT = 1e9   // one pinch at a time: no real turn lands mid-check
   }
   function strike(at) {
     let outcomes = 0, res = null

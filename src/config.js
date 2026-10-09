@@ -9483,11 +9483,11 @@ export const KRAKEN_COIL_TELE = 1.6 // s of wind-up before the ring closes — l
 export const KRAKEN_COIL_DUR = 0.9 // s the ring spends hauled in
 export const KRAKEN_COIL_IN = 0.34 // the fraction of KRAKEN_ARM_REACH the arms close to
 export const KRAKEN_COIL_DMG = 30 // caught outside the gap when it shuts
-// THE RING'S TURNS COME OUT OF A SHUFFLED BAG of this many arm attacks: a grab per KRAKEN_GRIP_EVERY, a
-// slap per KRAKEN_SLAP_EVERY, slams for the rest — plus the Coils on top, one per its every-1 of these.
-// The same mix, never the same order (owner, 2026-10-08: "currently it's always 3 slams then 1 grab")
-// balance_decision : d3 arm attacks are half slams, 1/4 slaps, 1/4 grabs, owner 2026-10-09
-export const KRAKEN_TURN_BAG = 12
+// THE RING'S TURNS COME OUT OF A SHUFFLED BAG of this many: a Coil per its every, a grab per
+// KRAKEN_GRIP_EVERY, a slap per KRAKEN_SLAP_EVERY, slams for the rest — the same mix, never the same
+// order (owner, 2026-10-08: "currently it's always 3 slams then 1 grab over and over")
+// balance_decision : d3 turns are 1/4 slams, slaps, grabs, coils, owner 2026-10-09
+export const KRAKEN_TURN_BAG = 16
 
 // THE BACKHAND SLAP (d3 only, rung.slap). One arm pivots on its own ring shoulder, cocks back to one
 // side of the fish with its suckers lit (the slam's own wind-up), then swings through the fish's
