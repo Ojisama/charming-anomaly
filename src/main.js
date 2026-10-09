@@ -108,6 +108,17 @@ function playNow() {
   ui.updateHUD(run, [], false)   // hides the Play now button, which would otherwise float over the sheet
   ui.showScreen('pause', pauseData())
 }
+// A tab left open for days (a phone PWA) keeps running the build it booted. Play is the last moment
+// a reload costs nothing: the run is only created later, by the briefing's Start button. Offline,
+// the service worker answers with the cached shell, which names the same bundle, so nothing happens.
+function reloadIfStale() {
+  if (!import.meta.env.PROD) return
+  const mine = document.querySelector('script[type=module][src]')?.src.split('/').pop()
+  fetch('./', { cache: 'no-store' }).then((r) => r.text()).then((html) => {
+    const live = html.match(/assets\/(index-[\w-]+\.js)/)?.[1]
+    if (mine && live && live !== mine && run === null) location.reload()
+  }).catch(() => {})
+}
 function beginRun() {
   devSpeed = 1
   ffTarget = 0
@@ -174,6 +185,7 @@ const ui = initUI({
   },
   onPlay(speedrun = false) {
     initAudio()
+    reloadIfStale()
     // Classic = the selected chapter (meta.chapter) at ITS OWN difficulty ladder (level 1 adds
     // nothing, each level above adds one random mutator + enemy HP) — see meta.chapters[id] in
     // state.js. v6.0.2: the run does NOT start yet — the pre-run summary explains the anomalies
