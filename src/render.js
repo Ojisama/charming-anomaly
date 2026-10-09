@@ -31,7 +31,7 @@ import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC
   krakenRungFor, KRAKEN_RING_R, KRAKEN_ARM_R, KRAKEN_LIMB_HW, krakenLimbProf, krakenShoulderR, krakenLimbHalfW, KRAKEN_ARM_REACH, KRAKEN_LASH_R, KRAKEN_HEAD_R, KRAKEN_LASH_OVER, KRAKEN_LASH_W,
   KRAKEN_LUNGE_WINDUP_T,
   KRAKEN_PARRY_SPIN_T, KRAKEN_PARRY_MARGIN,
-  KRAKEN_RISE_T, KRAKEN_COIL_DUR, KRAKEN_COIL_TELE, KRAKEN_COIL_RAYS, KRAKEN_COIL_STAR_R, KRAKEN_COIL_SHADOW_SOFT, KRAKEN_PARRY_CD, KRAKEN_CAGE_R, KRAKEN_LIMP_FLASH,
+  KRAKEN_RISE_T, KRAKEN_COIL_DUR, KRAKEN_COIL_TELE, KRAKEN_COIL_RAYS, KRAKEN_COIL_STAR_R, KRAKEN_COIL_SHADOW_SOFT, krakenCoilBandHalfW, KRAKEN_PARRY_CD, KRAKEN_CAGE_R, KRAKEN_LIMP_FLASH,
   KRAKEN_RING_VIEW_MARGIN, KRAKEN_RING_ZOOM_MIN, KRAKEN_RING_ZOOM_EASE, KRAKEN_GRIP_DUR,
   KRAKEN_SLAM_T,
 } from './config.js'
@@ -7030,9 +7030,15 @@ export function createRenderer(app) {
     // is stretched lengthwise, and a pad would stretch into a gap at the head.
     {
       const g = new Graphics()
-      // 24 nested strips from (1-SOFT)W to (1+SOFT)W: ~55% dark inside, a short fade whose half-dark
-      // line is the struck edge (krakenCoilStarHits), so what the shadow covers is what gets hit
-      for (let q = 0; q < 24; q++) { const m = 1 - KRAKEN_COIL_SHADOW_SOFT + q * 2 * KRAKEN_COIL_SHADOW_SOFT / 23; g.rect(0, -KRAKEN_LASH_W * m, 16, 2 * KRAKEN_LASH_W * m).fill({ color: 0x000000, alpha: 0.033 }) }
+      // 24 nested cones from (1-SOFT) to (1+SOFT) of krakenCoilBandHalfW: ~55% dark inside, a short
+      // fade whose half-dark line is the struck edge (krakenCoilStarHits). Baked K_COIL_BAKE_L long and
+      // stretched to KRAKEN_COIL_STAR_R, so its width at x is the band's at x * STAR_R / K_COIL_BAKE_L.
+      const K_COIL_BAKE_L = 64
+      const w0 = krakenCoilBandHalfW(0), w1 = krakenCoilBandHalfW(KRAKEN_COIL_STAR_R)
+      for (let q = 0; q < 24; q++) {
+        const m = 1 - KRAKEN_COIL_SHADOW_SOFT + q * 2 * KRAKEN_COIL_SHADOW_SOFT / 23
+        g.poly([0, -w0 * m, K_COIL_BAKE_L, -w1 * m, K_COIL_BAKE_L, w1 * m, 0, w0 * m]).fill({ color: 0x000000, alpha: 0.033 })
+      }
       T.krakenCoilBand = bake(g, 0)
     }
 
@@ -24700,13 +24706,13 @@ void main() {
     // ---- THE COIL'S STAR, for the WIND-UP only (owner, 2026-09-26: "a star like shadow, 6 or 8
     // arms crossing the whole screen, and only the space between arms safe" — picked 6, "softer
     // edges"). The rearing ring throws KRAKEN_COIL_RAYS arm-shadows from the head across the arena,
-    // exactly the bands krakenCoilStarHits strikes (half-width KRAKEN_LASH_W), deepening as the arms
+    // exactly the cones krakenCoilStarHits strikes (krakenCoilBandHalfW), deepening as the arms
     // rise; the wedges between them stay as they are. The shadow's edge is feathered: many
-    // wide faint strokes, so the core is dark and it fades out past the struck width.
+    // faint cones, so the core is dark and its half-dark line is the struck edge.
     if (s.coilT > KRAKEN_COIL_DUR) {
       const urg = 1 - (s.coilT - KRAKEN_COIL_DUR) / Math.max(0.001, KRAKEN_COIL_TELE)
       const k0 = Math.min(1, urg * 1.3), dk = k0 * k0 * (3 - 2 * k0)
-      const R = KRAKEN_COIL_STAR_R, W = KRAKEN_LASH_W, n = s.coilN || KRAKEN_COIL_RAYS
+      const R = KRAKEN_COIL_STAR_R, n = s.coilN || KRAKEN_COIL_RAYS
       // the star's centre: the fish's spot when it wound up (sim's s.coilCX/CY), not the head
       const cx = s.coilCX ?? head.x, cy = s.coilCY ?? head.y
       for (let k = 0; k < n; k++) {
@@ -24720,7 +24726,7 @@ void main() {
         b.position.set(cx, cy)
         b.rotation = t
         b.width = R
-        b.height = 2 * (1 + KRAKEN_COIL_SHADOW_SOFT) * W
+        b.height = 2 * (1 + KRAKEN_COIL_SHADOW_SOFT) * krakenCoilBandHalfW(R)
         b.alpha = dk
       }
     }

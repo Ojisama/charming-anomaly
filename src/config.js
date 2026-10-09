@@ -9502,9 +9502,14 @@ export const KRAKEN_COIL_RAYS = 7 // also the most arms in one Coil (owner, 2026
 // in the widest cage, so the player never sees a band end (owner, 2026-09-27: "the cones stop too soon")
 export const KRAKEN_COIL_STAR_R = 3000
 // THE SHADOW IS THE HITBOX (owner, 2026-10-09: "the telegraph should always match what the actual
-// attack hits"): each band's shadow is half dark exactly at KRAKEN_LASH_W from its line, fading over
-// +-SOFT x KRAKEN_LASH_W round that edge, and the fish's BODY touching that edge is the hit.
+// attack hits"): each band is a thin cone, half-width krakenCoilBandHalfW(s) at s px out from the
+// star's centre. Its shadow is half dark exactly on that edge, fading over +-SOFT of it, and the
+// fish's BODY touching that edge is the hit. Sim and render both read the one function.
 export const KRAKEN_COIL_SHADOW_SOFT = 0.15
+// balance_decision : coil bands thinner, cone-shaped, owner 2026-10-09
+export const KRAKEN_COIL_BAND_W0 = 35        // px half-width at the star's centre
+export const KRAKEN_COIL_BAND_SPREAD = 0.06  // px of half-width gained per px out
+export const krakenCoilBandHalfW = (s) => KRAKEN_COIL_BAND_W0 + KRAKEN_COIL_BAND_SPREAD * Math.max(0, s)
 export const KRAKEN_COIL_TELE = 1.6 // s of wind-up before the ring closes — long, it is a move test
 export const KRAKEN_COIL_DUR = 0.9 // s the ring spends hauled in
 export const KRAKEN_COIL_IN = 0.34 // the fraction of KRAKEN_ARM_REACH the arms close to

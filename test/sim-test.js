@@ -173,7 +173,7 @@ import {
   KRAKEN_RISE_T, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, hiddenChapters, KRAKEN_CAGE_R, KRAKEN_PARRY_CD,
   KRAKEN_OPEN_WAVES, KRAKEN_COIL_EVERY, KRAKEN_COIL_RAYS, KRAKEN_ENRAGE_AT, KRAKEN_RAGE_AT, KRAKEN_RAGE_HITS_MIN, KRAKEN_RAGE_HITS_MAX, KRAKEN_RAGE_VOLLEY, KRAKEN_RAGE_VOLLEY_SPREAD, KRAKEN_RAGE_FUSE, KRAKEN_RAGE_GAP, KRAKEN_RAGE_CALM, KRAKEN_RAGE_CHANCE, KRAKEN_NODE_BACK, KRAKEN_HEAD_HP, KRAKEN_HEAD_HP_AT, KRAKEN_HEAD_HP_PER_S, KRAKEN_ARRIVE_T, KRAKEN_RING_R, KRAKEN_LASH_R, KRAKEN_SLAM_T, KRAKEN_DEFLECT_CD,
   KRAKEN_LUNGE_T, KRAKEN_GRIP_DUR, KRAKEN_GRIP_DMG, KRAKEN_GRIP_FLICKS, KRAKEN_GRIP_STICK_MUL, TRAWL_WIGGLE_ARC,
-  KRAKEN_LASH_W, KRAKEN_LASH_OVER, KRAKEN_LASH_DMG, KRAKEN_LESSON_MAX, KRAKEN_PARRY_SHOVE_R, KRAKEN_PARRY_EARLY_T, KRAKEN_LIMP_CLEAR, KRAKEN_ARRIVE_T2, KRAKEN_WAVE_GROWTH, KRAKEN_COIL_DMG, KRAKEN_COIL_SHADOW_SOFT,
+  KRAKEN_LASH_W, KRAKEN_LASH_OVER, KRAKEN_LASH_DMG, KRAKEN_LESSON_MAX, KRAKEN_PARRY_SHOVE_R, KRAKEN_PARRY_EARLY_T, KRAKEN_LIMP_CLEAR, KRAKEN_ARRIVE_T2, KRAKEN_WAVE_GROWTH, KRAKEN_COIL_DMG, KRAKEN_COIL_SHADOW_SOFT, krakenCoilBandHalfW,
   KRAKEN_HEAD_SPEED, KRAKEN_PARRY_SPIN_T, krakenLimbHalfW, FISH_R, FISH_BODY, KRAKEN_GRIP_EVERY, KRAKEN_GRAB_FUSE, KRAKEN_GRAB_MIN_STEP, KRAKEN_PINCH_OPEN0, KRAKEN_PINCH_OPEN1,
   KRAKEN_BEAT_READ, KRAKEN_BEAT_GRAB_CLEAR, KRAKEN_BEAT_BREATH, KRAKEN_HEAD_R, KRAKEN_CHASE_CAGE_R, KRAKEN_HEAD_HOLD, KRAKEN_DASH_DIST, KRAKEN_DASH_SPEED, KRAKEN_DASH_RUNUP, KRAKEN_DASH_PARRY_PX, KRAKEN_HEAD_TOUCH_DMG, KRAKEN_LUNGE_DMG, KRAKEN_LUNGE_WINDUP_T,
 } from '../src/config.js'
@@ -38144,29 +38144,37 @@ function testKrakenPace() {
 // A RAGE SLAM LANDS ON YOUR SPOT (owner, 2026-10-09: "remove the aims ahead and re-add 0.3s of
 // windup"): it locks where the fish is when it rears, swimming or not, and winds up 0.9 + 0.3 s.
 // THE COIL'S SHADOW IS ITS HITBOX (owner, 2026-10-09: "the telegraph should always match what the actual
-// attack hits"): a fish whose body reaches the band's half-dark edge is hit, one just clear of it is not,
-// and render.js shapes that edge from the same KRAKEN_COIL_SHADOW_SOFT, centred on KRAKEN_LASH_W.
+// attack hits"; then "a bit cone shaped still, and a bit thinner"): a fish whose body reaches a band's
+// half-dark edge is hit and one just clear of it is not, at every distance out along the cone, and
+// render.js bakes that edge from the same krakenCoilBandHalfW and KRAKEN_COIL_SHADOW_SOFT.
 function testKrakenCoilShadowHit() {
   const run = createRun({ ...makeMeta(), krakenParried: true }, { chapter: 'kraken', difficulty: 3 })
   assert.strictEqual(CHAPTERS.kraken.playerBody, 'fish', 'fixture: the Kraken fish has no body')
-  const s = run.script
-  Object.assign(s, { coilStar: 0, coilN: 1, coilCX: 0, coilCY: 0 })
+  Object.assign(run.script, { coilStar: 0, coilN: 1, coilCX: 0, coilCY: 0 })
   const head = { x: 0, y: 0 }
   const hw = FISH_R * FISH_BODY.halfWidth
-  // a fish swimming alongside the band (+x), its body's edge d px off the band's own edge
-  const at = (d) => { run.player.x = 400; run.player.y = KRAKEN_LASH_W + hw + d; run.player.facingAngle = 0; return krakenCoilStarHits(run, head) }
-  assert.ok(at(-2), 'a fish body 2px inside the Coil band\'s shadow edge was not hit')
-  assert.ok(!at(2), 'a fish body 2px clear of the Coil band\'s shadow edge was hit')
+  // the cone: thinner than the old 70px lane on screen, and wider out than in
+  assert.ok(krakenCoilBandHalfW(0) < KRAKEN_LASH_W && krakenCoilBandHalfW(450) < KRAKEN_LASH_W, 'the Coil band is not thinner than the old KRAKEN_LASH_W lane across a screen')
+  assert.ok(krakenCoilBandHalfW(450) > krakenCoilBandHalfW(0) * 1.4, 'the Coil band is not cone-shaped (barely wider out than at its centre)')
+  // a fish swimming alongside the band (+x) with its NOSE (the sample farthest out) d px off the edge
+  for (const x of [120, 400, 900]) {
+    const nx = x + FISH_R * FISH_BODY.nose
+    const at = (d) => { run.player.x = x; run.player.y = krakenCoilBandHalfW(nx) + hw + d; run.player.facingAngle = 0; return krakenCoilStarHits(run, head) }
+    assert.ok(at(-2), `a fish body 2px inside the Coil band's shadow edge ${x}px out was not hit`)
+    assert.ok(!at(2), `a fish body 2px clear of the Coil band's shadow edge ${x}px out was hit`)
+  }
   // nose-on: a fish pointing AT the band is hit by its nose, not its centre
   run.player.facingAngle = -Math.PI / 2; run.player.x = 400
-  run.player.y = KRAKEN_LASH_W + hw + FISH_R * FISH_BODY.nose - 2
+  run.player.y = krakenCoilBandHalfW(400) + hw + FISH_R * FISH_BODY.nose - 2
   assert.ok(krakenCoilStarHits(run, head), 'a fish nosing into the Coil band\'s shadow was not hit')
-  // the bake's half-dark line sits on the struck edge: its strips run (1-SOFT)W .. (1+SOFT)W
+  // the bake: nested cones from krakenCoilBandHalfW at both ends, (1-SOFT)..(1+SOFT), stretched to STAR_R
   const src = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
-  assert.ok(src.includes('const m = 1 - KRAKEN_COIL_SHADOW_SOFT + q * 2 * KRAKEN_COIL_SHADOW_SOFT / 23; g.rect(0, -KRAKEN_LASH_W * m'),
-    'render.js no longer centres the Coil shadow\'s fade on KRAKEN_LASH_W from KRAKEN_COIL_SHADOW_SOFT')
-  assert.ok(src.includes('b.height = 2 * (1 + KRAKEN_COIL_SHADOW_SOFT) * W') && src.includes('new Sprite(T.krakenCoilBand.tex)'),
-    'render.js stretches the Coil shadow to a different width than it baked, or hands the sprite no texture')
+  assert.ok(src.includes('const w0 = krakenCoilBandHalfW(0), w1 = krakenCoilBandHalfW(KRAKEN_COIL_STAR_R)')
+    && src.includes('const m = 1 - KRAKEN_COIL_SHADOW_SOFT + q * 2 * KRAKEN_COIL_SHADOW_SOFT / 23')
+    && src.includes('g.poly([0, -w0 * m, K_COIL_BAKE_L, -w1 * m, K_COIL_BAKE_L, w1 * m, 0, w0 * m])'),
+    'render.js no longer bakes the Coil shadow as the cone krakenCoilBandHalfW describes')
+  assert.ok(src.includes('b.width = R') && src.includes('b.height = 2 * (1 + KRAKEN_COIL_SHADOW_SOFT) * krakenCoilBandHalfW(R)') && src.includes('new Sprite(T.krakenCoilBand.tex)'),
+    'render.js stretches the Coil shadow to a different size than it baked, or hands the sprite no texture')
   assert.ok(KRAKEN_COIL_SHADOW_SOFT > 0 && KRAKEN_COIL_SHADOW_SOFT <= 0.2, `the Coil shadow's fade (${KRAKEN_COIL_SHADOW_SOFT}) is not a sharp edge`)
 }
 function testKrakenRageAim() {

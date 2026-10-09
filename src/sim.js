@@ -239,7 +239,7 @@ import {
   KRAKEN_TRICKLE_T, KRAKEN_TRICKLE_EDGE, KRAKEN_TRICKLE_CLEAR, KRAKEN_ADD_CAP,
   KRAKEN_LUNGE_T, KRAKEN_LUNGE_WINDUP_T, KRAKEN_LUNGE_DMG, KRAKEN_RISE_T,
   KRAKEN_SLAP_EVERY, KRAKEN_TURN_BAG, KRAKEN_SLAP_FUSE, KRAKEN_SLAP_SWING, KRAKEN_SLAP_COCK, KRAKEN_SLAP_FOLLOW, KRAKEN_SLAP_FOLLOW_T, KRAKEN_SLAP_LEN, KRAKEN_SLAP_PAST, KRAKEN_SLAP_DMG,
-  KRAKEN_COIL_EVERY, KRAKEN_COIL_RAYS, KRAKEN_COIL_STAR_TRIES, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, KRAKEN_COIL_IN, KRAKEN_COIL_DMG,
+  KRAKEN_COIL_EVERY, KRAKEN_COIL_RAYS, krakenCoilBandHalfW, KRAKEN_COIL_STAR_TRIES, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, KRAKEN_COIL_IN, KRAKEN_COIL_DMG,
   hasSkillButton,
   KRAKEN_WAVE, KRAKEN_BREAK_WAVE_MUL, KRAKEN_WAVE_CAP, KRAKEN_WAVE_GAP, KRAKEN_WAVE_TIMEOUT, KRAKEN_WAVE_XP_MUL,
   KRAKEN_OPEN_WAVES, KRAKEN_WAVE_GROWTH, KRAKEN_ARRIVE_T, KRAKEN_ARRIVE_T2, KRAKEN_SLAM_T,
@@ -1979,23 +1979,27 @@ function krakenLimbTouches(run, a, head) {
 }
 
 // THE COIL'S STAR: s.coilN bands (one per coil arm, at most KRAKEN_COIL_RAYS) of half-width
-// KRAKEN_LASH_W from the head out across the whole arena at s.coilStar + k * 2pi / n. The fish's
-// BODY touching any band is the hit: the band's shadow is drawn half dark on that very edge.
+// krakenCoilBandHalfW (a thin cone) out across the whole arena at s.coilStar + k * 2pi / n. The
+// fish's BODY touching any band is the hit: the band's shadow is drawn half dark on that very edge.
 export function krakenCoilStarHits(run, head) {
   const p = run.player, base = run.script.coilStar ?? 0, n = run.script.coilN || KRAKEN_COIL_RAYS
   const far = KRAKEN_COIL_STAR_R
   const cx = run.script.coilCX ?? head.x, cy = run.script.coilCY ?? head.y
   const body = playerBodyEnds(run)
-  const reach = KRAKEN_LASH_W + (body ? body.halfWidth : PLAYER.radius)
+  const hw = body ? body.halfWidth : PLAYER.radius
   const m = body ? 5 : 1
   for (let k = 0; k < n; k++) {
     const t = base + k * Math.PI * 2 / n
-    const x1 = cx + Math.cos(t) * far, y1 = cy + Math.sin(t) * far
+    const ux = Math.cos(t), uy = Math.sin(t)
     for (let j = 0; j < m; j++) {
       const u = m > 1 ? j / (m - 1) : 0
-      const px = body ? body.ax + (body.bx - body.ax) * u : p.x
-      const py = body ? body.ay + (body.by - body.ay) * u : p.y
-      if (segDist2(px, py, cx, cy, x1, y1) <= reach * reach) return true
+      const dx = (body ? body.ax + (body.bx - body.ax) * u : p.x) - cx
+      const dy = (body ? body.ay + (body.by - body.ay) * u : p.y) - cy
+      const along = dx * ux + dy * uy
+      if (along > far) continue
+      // behind the centre the band ends in a round cap of its centre half-width
+      const d = along < 0 ? Math.hypot(dx, dy) : Math.abs(dx * uy - dy * ux)
+      if (d <= krakenCoilBandHalfW(along) + hw) return true
     }
   }
   return false
