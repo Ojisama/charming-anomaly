@@ -238,7 +238,8 @@ import {
   KRAKEN_BEAT_READ, KRAKEN_BEAT_GRAB_CLEAR, KRAKEN_BEAT_BREATH,
   KRAKEN_TRICKLE_T, KRAKEN_TRICKLE_EDGE, KRAKEN_TRICKLE_CLEAR, KRAKEN_ADD_CAP,
   KRAKEN_LUNGE_T, KRAKEN_LUNGE_WINDUP_T, KRAKEN_LUNGE_DMG, KRAKEN_RISE_T,
-  KRAKEN_COIL_EVERY, KRAKEN_COIL_AT, KRAKEN_COIL_RAYS, KRAKEN_COIL_STAR_TRIES, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, KRAKEN_COIL_IN, KRAKEN_COIL_DMG,
+  KRAKEN_SLAP_EVERY, KRAKEN_TURN_BAG, KRAKEN_SLAP_FUSE, KRAKEN_SLAP_SWING, KRAKEN_SLAP_COCK, KRAKEN_SLAP_FOLLOW, KRAKEN_SLAP_FOLLOW_T, KRAKEN_SLAP_LEN, KRAKEN_SLAP_SAFE_R, KRAKEN_SLAP_DMG,
+  KRAKEN_COIL_EVERY, KRAKEN_COIL_RAYS, KRAKEN_COIL_STAR_TRIES, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, KRAKEN_COIL_IN, KRAKEN_COIL_DMG,
   hasSkillButton,
   KRAKEN_WAVE, KRAKEN_BREAK_WAVE_MUL, KRAKEN_WAVE_CAP, KRAKEN_WAVE_GAP, KRAKEN_WAVE_TIMEOUT, KRAKEN_WAVE_XP_MUL,
   KRAKEN_OPEN_WAVES, KRAKEN_WAVE_GROWTH, KRAKEN_ARRIVE_T, KRAKEN_ARRIVE_T2, KRAKEN_SLAM_T,
@@ -1797,6 +1798,57 @@ function krakenReach(s) {
 // except the Coil, which swings each of its arms onto a band of the star and back (a.angNow).
 const K_COIL_SWING_T = 0.45 // s an arm takes to swing onto its band, and back after the slam
 function krakenAng(a) { return a.angNow ?? a.ang }
+// THE BACKHAND'S ANGLE off its shoulder: cocked slapBack behind the fish's bearing for the wind-up
+// (the angle that puts the limb KRAKEN_SLAP_COCK beside the fish), swung over the last
+// KRAKEN_SLAP_SWING of the fuse to slapEdge — the limb's edge touching the fish, so the blow lands
+// on the fuse's last frame as a slam's does — then the follow-through (slamT) carries it
+// KRAKEN_SLAP_FOLLOW past.
+function krakenSlapAng(a) {
+  const e = a.slapEdge ?? 0
+  if (a.tele > KRAKEN_SLAP_SWING) return a.slapPhi - a.slapDir * a.slapBack
+  if (a.tele > 0) return a.slapPhi - a.slapDir * (e + (a.slapBack - e) * (a.tele / KRAKEN_SLAP_SWING))
+  const f = 1 - Math.max(0, a.slamT) / KRAKEN_SLAP_FOLLOW_T
+  return a.slapPhi - a.slapDir * (e - (e + KRAKEN_SLAP_FOLLOW) * f)
+}
+// Aim the cocked slap at the fish from its shoulder where it is NOW: the chase's head moves the
+// shoulder hundreds of px through a wind-up, and an aim locked at the turn lay off the fish.
+function krakenSlapAim(run, a, head) {
+  const p = run.player
+  const sdx = p.x - (head.x + Math.cos(a.ang) * KRAKEN_RING_R), sdy = p.y - (head.y + Math.sin(a.ang) * KRAKEN_RING_R)
+  const d = Math.max(1, Math.hypot(sdx, sdy))
+  a.slapPhi = Math.atan2(sdy, sdx)
+  // cocked a fixed DISTANCE beside the fish, not a fixed angle: the shoulder is 300-1000px off,
+  // and a fixed 0.8 rad threw the wound-up limb clean off the screen in real play
+  a.slapBack = Math.asin(Math.min(1, KRAKEN_SLAP_COCK / d))
+  a.slapEdge = Math.asin(Math.min(1, (KRAKEN_LIMB_HW + PLAYER.radius) / d))
+}
+// Does the flat of the limb, turning from angle `from` to `to` about its shoulder, cross the fish?
+// The head's own ground (KRAKEN_SLAP_SAFE_R) is passed over.
+function krakenSlapSweeps(run, a, head, from, to) {
+  const p = run.player
+  if ((p.x - head.x) ** 2 + (p.y - head.y) ** 2 < KRAKEN_SLAP_SAFE_R ** 2) return false
+  const sx = head.x + Math.cos(a.ang) * KRAKEN_RING_R, sy = head.y + Math.sin(a.ang) * KRAKEN_RING_R
+  const d = Math.hypot(p.x - sx, p.y - sy)
+  if (d > KRAKEN_SLAP_LEN + PLAYER.radius) return false
+  const wrap = (x) => Math.atan2(Math.sin(x), Math.cos(x))
+  const tol = (KRAKEN_LIMB_HW + PLAYER.radius) / Math.max(1, d)   // the limb as drawn
+  const swept = wrap(to - from) * a.slapDir, at = wrap(Math.atan2(p.y - sy, p.x - sx) - from) * a.slapDir
+  return at >= -tol && at <= swept + tol
+}
+// One frame of a slap: the swing's hit, once, and the end of the follow-through. True if it killed.
+function krakenSlapStep(run, a, head) {
+  if (a.tele > KRAKEN_SLAP_SWING) krakenSlapAim(run, a, head)
+  const th = krakenSlapAng(a)
+  const prev = a.slapTh ?? th
+  a.slapTh = th
+  let killed = false
+  if (!a.slapHit && a.tele <= KRAKEN_SLAP_SWING && krakenSlapSweeps(run, a, head, prev, th)) {
+    a.slapHit = true
+    killed = hurtPlayer(run, KRAKEN_SLAP_DMG, false, 'krakenArm')
+  }
+  if (a.tele <= 0 && !(a.slamT > 0)) { a.slapArm = false; a.slapTh = undefined }
+  return killed
+}
 function krakenSwingArms(run, dt) {
   for (const a of run.krakenArms) {
     const on = !a.dead && a.coilAng != null && ((a.coilArm && a.tele > 0) || a.slamT > 0)
@@ -1848,6 +1900,16 @@ function krakenLashLine(head, a) {
 // The arm's tip, and the node a parry hangs on it. Aimed, it sits where the slam lands: on the
 // aimed lane at the locked point. Otherwise on its own bearing.
 function krakenPlaceArm(head, a, reach) {
+  if (a.slapArm) {
+    const th = krakenSlapAng(a)
+    a.aimed = false
+    a.lx0 = head.x + Math.cos(a.ang) * KRAKEN_RING_R
+    a.ly0 = head.y + Math.sin(a.ang) * KRAKEN_RING_R
+    a.lx1 = a.lx0 + Math.cos(th) * KRAKEN_SLAP_LEN
+    a.ly1 = a.ly0 + Math.sin(th) * KRAKEN_SLAP_LEN
+    a.x = a.lx1; a.y = a.ly1
+    return
+  }
   // the aim lives exactly as long as the attack it was locked for: wind-up, planted slam, limp
   // window, and a break's sinking. Idle again, the arm goes back to its slot.
   if (a.aimed && !(a.tele > 0) && !(a.slamT > 0) && !(a.limpT > 0) && !(a.dead && a.breakT > 0)) a.aimed = false
@@ -2132,6 +2194,7 @@ function krakenHide(run, head) {
     a.slamT = 0
     a.coilArm = false
     a.grabArm = false
+    a.slapArm = false
     if (a.limpT > 0) run.events.push({ type: 'armRecover', x: a.x, y: a.y })
     a.limpT = 0
     if (a.nodeId != null) {
@@ -2212,6 +2275,7 @@ function krakenArmsToBlock(run, rung, head) {
     a.limpT = 0
     a.gripT = 0
     a.grabArm = false
+    a.slapArm = false
     a.nodeId = null
   }
   s.turnT = krakenCadence(s, rung) * 0.5 // the first turn comes early, so a block opens ON an attack
@@ -2427,6 +2491,7 @@ function stepKrakenArms(run, dt, rung, head) {
     // against it — a strike that snapped back to idle on the same frame it landed had no impact.
     if (a.slamT > 0) a.slamT = Math.max(0, a.slamT - dt)
     if (a.dead) continue
+    if (a.slapArm && !(a.limpT > 0) && krakenSlapStep(run, a, head)) return true
 
     // THE LIMP WINDOW — the whole point of the rebuild. A parried arm hangs slack and EXPOSED, and
     // this is the only state in which any weapon in the game can hurt it (see dealDamage). It ends
@@ -2495,6 +2560,12 @@ function stepKrakenArms(run, dt, rung, head) {
         a.slamT = KRAKEN_SLAM_T
         run.events.push({ type: 'grabMiss', x: a.x, y: a.y, i: a.i })
       }
+      continue
+    }
+    if (a.slapArm) {
+      a.tele = 0
+      a.slamT = KRAKEN_SLAP_FOLLOW_T
+      s.beatAt = run.time   // its swing has been striking; it follows through, no lash along its line
       continue
     }
     if (a === lesson) { run.krakenLesson = 3; s.lessonI = -1 } // ignored: the player sees what it does
@@ -2589,11 +2660,12 @@ function stepKrakenArms(run, dt, rung, head) {
   if (!lesson) s.turnT -= dt
   if (s.turnT <= 0 && !lesson) {
     const { rearing, idle } = krakenTurnPool(run)
-    let { wantCoil, wantGrip } = krakenTurnWant(run, rung)
+    if (!(s.turnBagI < (s.turnBag?.length ?? 0))) { s.turnBag = krakenTurnBag(run, rung); s.turnBagI = 0 }
+    let { wantCoil, wantGrip, wantSlap } = krakenTurnWant(run, rung)
     // A HOLD THAT NEVER LETS GO (rung.gripHold) MUST NOT FREEZE THE RING: a Coil or grab turn waits
     // out a hold (krakenBeatClear), and on d3 a hold only ends when the fish wiggles free — so while
     // it holds, that turn is a plain slam instead.
-    if (rung.gripHold && (wantCoil || wantGrip) && run.krakenArms.some((c) => !c.dead && c.gripT > 0)) wantCoil = wantGrip = false
+    if (rung.gripHold && (wantCoil || wantGrip || wantSlap) && run.krakenArms.some((c) => !c.dead && c.gripT > 0)) wantCoil = wantGrip = wantSlap = false
     // a pinch takes two free arms; without them the grab's turn is a plain slam
     const pinch = wantGrip && !wantCoil ? krakenPinchPair(run, head, idle) : null
     if (!pinch) wantGrip = false
@@ -2604,13 +2676,14 @@ function stepKrakenArms(run, dt, rung, head) {
     // frame both allow — never with a shortened fuse: the telegraph always reads the same length.
     // A full ring used to throw its turn away for a whole cadence; now the spacing is the beat's
     // job, and waiting here instead is what keeps the ring's throughput where it was.
-    if (!free || !krakenBeatClear(run, rung, head, wantCoil ? 'coil' : wantGrip ? 'grab' : 'slam', rearing)) return false
+    if (!free || !krakenBeatClear(run, rung, head, wantCoil ? 'coil' : wantGrip ? 'grab' : wantSlap ? 'slap' : 'slam', rearing)) return false
     // ...AND A GRAB THAT WOULD LEAVE NO CLEAR STEP WAITS TOO: both sides of its line struck or walled
     // off is two answers owed at once (dodge, and dodge the other thing). krakenGrabTurnClear.
     if (!wantCoil && wantGrip) {
       if (!krakenGrabTurnClear(run, head, pinch[0], pinch[1])) return false
     }
     s.turnT = krakenCadence(s, rung)
+    s.turnBagI++
     {
       // THE ACTION IS CHOSEN BEFORE THE ARM, which is the whole point of roles. It used to be the
       // other way round — pick an idle arm at random, then decide what it does — and with roles that
@@ -2650,6 +2723,7 @@ function stepKrakenArms(run, dt, rung, head) {
           c.fuse = KRAKEN_COIL_TELE
           c.coilArm = true
           c.grabArm = false
+          c.slapArm = false
           c.coilAng = slot
           c.coilBand = band
           c.coilCX = s.coilCX
@@ -2658,6 +2732,19 @@ function stepKrakenArms(run, dt, rung, head) {
         // a safe bearing: the middle of the first wedge
         s.coilGap = s.coilStar + Math.PI / Math.max(1, n)
         run.events.push({ type: 'coilWind', x: s.coilCX, y: s.coilCY, ang: s.coilGap })
+      } else if (wantSlap) {
+        // THE BACKHAND: this arm's own shoulder is the pivot; the fish's bearing from it is locked
+        // now, and the side it swings in from is a coin
+        s.gripN++
+        a.tele = KRAKEN_SLAP_FUSE
+        a.fuse = KRAKEN_SLAP_FUSE
+        a.slapArm = true
+        a.slapHit = false
+        a.slapTh = undefined
+        krakenSlapAim(run, a, head)
+        a.slapDir = Math.random() < 0.5 ? 1 : -1
+        krakenPlaceArm(head, a, krakenReach(s))
+        run.events.push({ type: 'armRear', x: a.x, y: a.y, r: KRAKEN_LASH_R, t: KRAKEN_SLAP_FUSE, w: KRAKEN_LASH_W })
       } else if (wantGrip) {
         s.gripN++
         // THE PINCH (owner, 2026-09-26: "two tentacles close on you like a pinch"). Both jaws lock on
@@ -2716,21 +2803,37 @@ function krakenTurnPool(run) {
   for (const a of run.krakenArms) {
     if (a.dead) continue
     if (a.tele > 0 || a.gripT > 0) rearing++
-    else if (a.limpT <= 0) idle.push(a)
+    else if (a.limpT <= 0 && !a.slapArm) idle.push(a)
   }
   return { rearing, idle }
 }
 
-// What the ring's next turn will be — or, given `n`, what it would be at that attack count. Pure:
-// reads the counters, draws no randoms.
-function krakenTurnWant(run, rung, n = run.script.gripN) {
+// A FRESH BAG OF KRAKEN_TURN_BAG TURNS, in the rung's mix and a random order (Fisher-Yates).
+function krakenTurnBag(run, rung) {
   const s = run.script
-  const every = s.enraged && rung.enrageCoilEvery ? rung.enrageCoilEvery : KRAKEN_COIL_EVERY
-  const at = s.enraged && rung.enrageCoilEvery ? rung.enrageCoilAt : KRAKEN_COIL_AT
-  // the rung's own column: d2 never coils, not even enraged (owner, 2026-10-07: it came before it was learned)
-  const wantCoil = rung.coil && (s.phase === 'chase' || s.bossIdx >= 2) && n > 0 && n % every === at
-  const wantGrip = !wantCoil && rung.grip && s.bossIdx >= 1 && n > 0 && n % KRAKEN_GRIP_EVERY === 0
-  return { wantCoil, wantGrip }
+  const coilEvery = s.enraged && rung.enrageCoilEvery ? rung.enrageCoilEvery : KRAKEN_COIL_EVERY
+  const bag = []
+  const put = (k, every) => { for (let i = 0; i < Math.round(KRAKEN_TURN_BAG / every); i++) bag.push(k) }
+  if (rung.coil) put('coil', coilEvery)
+  if (rung.grip) put('grab', KRAKEN_GRIP_EVERY)
+  if (rung.slap) put('slap', KRAKEN_SLAP_EVERY)
+  while (bag.length < KRAKEN_TURN_BAG) bag.push('slam')
+  for (let i = bag.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [bag[i], bag[j]] = [bag[j], bag[i]] }
+  return bag
+}
+// What the ring's next turn will be: the bag's next entry, if this rung and this moment allow it —
+// otherwise a plain slam. Pure: reads the bag, draws no randoms.
+function krakenTurnWant(run, rung) {
+  const s = run.script
+  const k = s.turnBag?.[s.turnBagI] ?? 'slam'
+  // the block's first attack is always a slam; the Coil and the slap are never the first thing a
+  // rung teaches; d2 never coils, not even enraged (rung.coil: owner, 2026-10-07)
+  const open = s.gripN > 0
+  const late = s.phase === 'chase' || s.bossIdx >= 2
+  const wantCoil = open && k === 'coil' && !!rung.coil && late
+  const wantGrip = open && k === 'grab' && !!rung.grip && s.bossIdx >= 1
+  const wantSlap = open && k === 'slap' && !!rung.slap && late
+  return { wantCoil, wantGrip, wantSlap }
 }
 
 // EVERY ANSWER THE PLAYER ALREADY OWES, as times from now. `P` is a parry window [a, b] (b is the
@@ -2786,9 +2889,9 @@ function krakenBeatClear(run, rung, head, kind, rearing) {
   if (kind !== 'slam' && held) return false
   if (kind === 'slam' && run.krakenLesson === 1 && rearing > 0) return false
   const gap = KRAKEN_PARRY_CD + KRAKEN_BEAT_READ
-  const nk = kind === 'slam' ? 'P' : 'D'
-  const nb = kind === 'slam' ? rung.fuse : kind === 'grab' ? KRAKEN_GRAB_FUSE : KRAKEN_COIL_TELE
-  const na = kind === 'slam' ? nb - rung.window : kind === 'grab' ? nb : 0
+  const nk = kind === 'slam' || kind === 'slap' ? 'P' : 'D'
+  const nb = kind === 'slam' ? rung.fuse : kind === 'slap' ? KRAKEN_SLAP_FUSE : kind === 'grab' ? KRAKEN_GRAB_FUSE : KRAKEN_COIL_TELE
+  const na = nk === 'P' ? nb - rung.window : kind === 'grab' ? nb : 0
   for (const o of krakenBeatNeeds(run, rung, head)) {
     if (kind === 'coil' && !o.keep) continue
     let ok
@@ -2917,7 +3020,7 @@ function stepKrakenChase(run, dt, rung, head) {
       a.dead = false
       a.breakT = 0
       a.hp = Math.max(1, Math.round(a.maxHP * KRAKEN_ENRAGE_ARM_HP))
-      a.tele = 0; a.fuse = 0; a.limpT = 0; a.gripT = 0; a.grabArm = false; a.nodeId = null
+      a.tele = 0; a.fuse = 0; a.limpT = 0; a.gripT = 0; a.grabArm = false; a.slapArm = false; a.nodeId = null
       back++
     }
     // ...and on a rung that says so, NEW arms burst out between the old ones (owner, 2026-09-26)
@@ -3068,6 +3171,7 @@ function krakenBreakArm(run, a) {
   a.fuse = 0
   a.coilArm = false
   a.grabArm = false
+  a.slapArm = false
   a.breakT = 0.9 // render staging: bare, then peels and sinks
   s.blockKills++
   // PAID ONCE PER ARM, EVER. The enrage hauls broken arms back up, so without this every arm is
@@ -3180,8 +3284,12 @@ function krakenParryTarget(run) {
 
 // The parry's reach: the arm's struck line, widened by KRAKEN_PARRY_MARGIN. One author, read by the
 // press (krakenParryTarget), by the press-now cue (slamWindow) and by the early-press read.
-function krakenArmInReach(run, a) {
+export function krakenArmInReach(run, a) {
   const p = run.player
+  if (a.slapArm) {
+    const head = run.enemies.find((e) => e.rosterId === 'krakenHead' && !e._dead)
+    return !!head && a.tele > 0 && krakenSlapSweeps(run, a, head, krakenSlapAng(a), a.slapPhi + a.slapDir * KRAKEN_SLAP_FOLLOW)
+  }
   return segDist2(p.x, p.y, a.lx0, a.ly0, a.lx1, a.ly1) <= (KRAKEN_LASH_W * KRAKEN_PARRY_MARGIN) ** 2
 }
 function segClosest(px, py, x0, y0, x1, y1) {
@@ -3265,6 +3373,13 @@ function krakenParry(run) {
   const perfect = best.tele <= rung.perfect
   // The reward is the state change, and a PERFECT parry buys a longer window rather than a bigger
   // number, because more exposure is more of the thing the player actually wants.
+  if (best.slapArm) {
+    const th = krakenSlapAng(best), d = Math.hypot(p.x - best.lx0, p.y - best.ly0)
+    best.slapArm = false
+    best.aimed = true
+    best.aimX = best.lx0 + Math.cos(th) * d
+    best.aimY = best.ly0 + Math.sin(th) * d
+  }
   best.tele = 0
   s.beatAt = run.time   // its window shut on the press (krakenBeatNeeds)
   best.limpT = rung.limp * (perfect ? KRAKEN_LIMP_PERFECT_MUL : 1)

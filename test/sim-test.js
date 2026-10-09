@@ -169,9 +169,9 @@ import {
   // The Trawl's late-game cut (run TJ)
   lateSpawnMulAt, SPAWN_LATE_BLEND, SPAWN_LATE_START,
   // The Kraken (run KR): the rung table and the ring's numbers
-  krakenRung, krakenRungFor, KRAKEN_TRICKLE_T, KRAKEN_TRICKLE_EDGE, KRAKEN_TRICKLE_CLEAR, OPEN_GUARD_WINDOW_MUL, HAIR_TRIGGER_WINDOW_MUL, HAIR_TRIGGER_DMG_MUL, KRAKEN_RUNGS, KRAKEN_ARM_REACH, KRAKEN_WAVE_TIMEOUT, KRAKEN_STAGGER_BITE,
+  krakenRung, krakenRungFor, KRAKEN_TURN_BAG, KRAKEN_SLAP_EVERY, KRAKEN_SLAP_COCK, KRAKEN_SLAP_SWING, KRAKEN_SLAP_SAFE_R, KRAKEN_SLAP_FUSE, KRAKEN_SLAP_FOLLOW_T, KRAKEN_TRICKLE_T, KRAKEN_TRICKLE_EDGE, KRAKEN_TRICKLE_CLEAR, OPEN_GUARD_WINDOW_MUL, HAIR_TRIGGER_WINDOW_MUL, HAIR_TRIGGER_DMG_MUL, KRAKEN_RUNGS, KRAKEN_ARM_REACH, KRAKEN_WAVE_TIMEOUT, KRAKEN_STAGGER_BITE,
   KRAKEN_RISE_T, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, hiddenChapters, KRAKEN_CAGE_R, KRAKEN_PARRY_CD,
-  KRAKEN_OPEN_WAVES, KRAKEN_COIL_EVERY, KRAKEN_COIL_AT, KRAKEN_COIL_RAYS, KRAKEN_ENRAGE_AT, KRAKEN_ARRIVE_T, KRAKEN_RING_R, KRAKEN_LASH_R, KRAKEN_SLAM_T, KRAKEN_DEFLECT_CD,
+  KRAKEN_OPEN_WAVES, KRAKEN_COIL_EVERY, KRAKEN_COIL_RAYS, KRAKEN_ENRAGE_AT, KRAKEN_ARRIVE_T, KRAKEN_RING_R, KRAKEN_LASH_R, KRAKEN_SLAM_T, KRAKEN_DEFLECT_CD,
   KRAKEN_LUNGE_T, KRAKEN_GRIP_DUR, KRAKEN_GRIP_DMG, KRAKEN_GRIP_FLICKS, KRAKEN_GRIP_STICK_MUL, TRAWL_WIGGLE_ARC,
   KRAKEN_LASH_W, KRAKEN_LASH_OVER, KRAKEN_LASH_DMG, KRAKEN_LESSON_MAX, KRAKEN_PARRY_SHOVE_R, KRAKEN_PARRY_EARLY_T, KRAKEN_LIMP_CLEAR, KRAKEN_ARRIVE_T2, KRAKEN_WAVE_GROWTH, KRAKEN_COIL_DMG,
   KRAKEN_HEAD_SPEED, KRAKEN_PARRY_SPIN_T, krakenLimbHalfW, FISH_R, FISH_BODY, KRAKEN_GRIP_EVERY, KRAKEN_GRAB_FUSE, KRAKEN_GRAB_MIN_STEP, KRAKEN_PINCH_OPEN0, KRAKEN_PINCH_OPEN1,
@@ -36161,7 +36161,7 @@ function runKraken() {
       run.script.bossIdx = 99
       const isAdd = (e) => !e._dead && e.rosterId !== 'krakenArm' && e.rosterId !== 'krakenHead'
       const h = headOf(run)
-      let near = Infinity, n = 0
+      let close = 0, n = 0
       for (let w = 0; w < 15; w++) {
         for (const e of run.enemies) if (isAdd(e)) e._dead = true
         run.enemies = run.enemies.filter((e) => !e._dead)
@@ -36169,10 +36169,12 @@ function runKraken() {
         const seen = new Set(run.enemies)
         run.script.trickleT = 0.001
         stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
-        for (const e of run.enemies) if (isAdd(e) && !seen.has(e)) { n++; near = Math.min(near, Math.hypot(e.x - run.player.x, e.y - run.player.y)) }
+        for (const e of run.enemies) if (isAdd(e) && !seen.has(e)) { n++; if (Math.hypot(e.x - run.player.x, e.y - run.player.y) < KRAKEN_TRICKLE_CLEAR - 30) close++ }
       }
       assert.ok(n >= 40, `fixture: only ${n} trickle adds born at the wall`)
-      assert.ok(near >= KRAKEN_TRICKLE_CLEAR - 30, `a trickle add was born ${Math.round(near)}px from a fish at the cage wall (of ${n})`)
+      // a spawn landing on a rock is pushed off it, which can nudge one toward the fish now and then;
+      // with no clearance a random bearing lands ~9% of them on it (5 of 60)
+      assert.ok(close <= 1, `${close} of ${n} trickle adds were born within ${KRAKEN_TRICKLE_CLEAR - 30}px of a fish at the cage wall`)
     }
     // ...AND IN THE CHASE (owner, 2026-10-07: "there should be adds in the head rush too"): once the
     // head has risen, on the fish's side of the wider cage
@@ -36219,7 +36221,7 @@ function runKraken() {
     run.script.trickleT = 1e9
     let coils = 0
     for (let t = 0; t < 60 * 40; t++) {
-      if (run.script.gripN % KRAKEN_COIL_EVERY === KRAKEN_COIL_AT - 1) run.script.turnT = 0
+      run.script.turnBag = ['coil']; run.script.turnBagI = 0   // every turn offers d2 a Coil
       run.player.hp = run.player.maxHP
       stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
       coils += run.events.filter((e) => e.type === 'coilWind').length
@@ -36238,6 +36240,162 @@ function runKraken() {
     assert.ok(arm.limpT > 0, 'fixture: the parry did not land')
     assert.strictEqual(num.length, 1, `a landed ring parry printed ${num.length} number(s) on the arm — the tear is invisible`)
     assert.strictEqual(num[0].dmg, Math.round(hp0 - arm.hp), `the tear printed ${num[0].dmg}, but took ${Math.round(hp0 - arm.hp)} off the arm`)
+  }
+
+  // (g3e) THE BACKHAND SLAP (owner, 2026-10-08: "make the slap a real attack"). d3 only; one arm
+  // pivots on its shoulder and swings through the fish's bearing across the whole arena. Answers:
+  // the parry as the swing starts, or hugging the head, which the limb passes over.
+  {
+    // the next ring turn is the slap's; the fish holds `at` (an offset from the head) throughout
+    const slapRun = (diff, at, press = false, drift = 0) => {
+      const run = inBlock(diff)
+      run.weapons = []
+      run.script.bossIdx = 2
+      run.script.trickleT = 1e9
+      run.script.beatAt = null
+      run.script.gripN = 1
+      run.script.turnBag = ['slap']; run.script.turnBagI = 0
+      run.script.turnT = 0
+      for (const a of run.krakenArms) { a.tele = 0; a.gripT = 0 }
+      const hits = []
+      const cock = []   // the fish's distance from the cocked limb's line, through the wind-up
+      let arm = null, armed = false, hitTele = null, ox = 0
+      const T = KRAKEN_SLAP_FUSE + KRAKEN_SLAP_FOLLOW_T + 0.6
+      for (let i = 0; i < Math.round((T + 1) * 60); i++) {
+        const h = headOf(run)
+        // the chase: the head (and every shoulder) moves through the wind-up; the fish holds its spot
+        if (arm && drift) { h.x += drift; ox += drift }
+        run.player.x = h.x - ox + at.x; run.player.y = h.y + at.y
+        run.player.hp = run.player.maxHP
+        if (!arm) arm = run.krakenArms.find((a) => a.slapArm) || null
+        if (arm) { run.script.turnT = 1e9; armed = true; for (const a of run.krakenArms) if (a !== arm && a.limpT <= 0) { a.tele = 0; a.gripT = 0 } }
+        const win = press && arm && arm.slapArm && arm.tele > 0 && arm.tele <= krakenRung(diff).window
+        if (win) run.repulseCd = 0
+        stepSim(run, { x: 0, y: 0, skill: !!win }, 1 / 60)
+        for (const e of run.events) if (e.type === 'hurt' && e.src === 'krakenArm') { hits.push(e.dmg); if (hitTele == null && arm) hitTele = arm.tele }
+        if (arm && arm.slapArm && arm.tele > KRAKEN_SLAP_SWING && arm.tele < arm.fuse - 0.1) {
+          const dx = arm.lx1 - arm.lx0, dy = arm.ly1 - arm.ly0, l2 = dx * dx + dy * dy
+          const t = Math.max(0, Math.min(1, ((run.player.x - arm.lx0) * dx + (run.player.y - arm.ly0) * dy) / l2))
+          cock.push(Math.hypot(run.player.x - arm.lx0 - dx * t, run.player.y - arm.ly0 - dy * t))
+        }
+        run.events.length = 0
+        if (run.phase === 'levelup') run.phase = 'playing'
+      }
+      return { run, arm, armed, hits, cock, hitTele }
+    }
+    const out = { x: Math.cos(1.0) * 280, y: Math.sin(1.0) * 280 }
+    const hit = slapRun(3, out)
+    assert.ok(hit.armed, 'd3: the slap\'s turn came and no arm took a slap — the attack is unreachable')
+    assert.strictEqual(hit.hits.length, 1, `a fish standing still in the slap's path took ${hit.hits.length} arm hit(s), not exactly one`)
+    assert.ok(!hit.arm.slapArm, 'the slap never ended: its arm is still a slapArm after its follow-through')
+    // THE WIND-UP IS SEEN: the cocked limb lies KRAKEN_SLAP_COCK beside the fish, on a phone's screen
+    // (a fixed angle threw it 400-650px off, out of view, in real play)
+    assert.ok(hit.cock.length > 30, `fixture: only ${hit.cock.length} wind-up frames measured`)
+    for (const d of hit.cock) assert.ok(Math.abs(d - KRAKEN_SLAP_COCK) <= 40, `the cocked slap lay ${Math.round(d)}px from the fish, not ~${KRAKEN_SLAP_COCK} — its wind-up is off the screen`)
+    // IT LANDS ON THE FUSE'S LAST FRAME, as a slam does: an early hit cut the parry window in half
+    assert.ok(hit.hitTele != null && hit.hitTele < 0.02, `the slap hit with ${hit.hitTele?.toFixed(3)}s of fuse left — before its parry window closed`)
+    // A MOVING HEAD (the chase) KEEPS THE WIND-UP ON THE FISH, and it still lands
+    const run2 = slapRun(3, out, false, 4)
+    assert.ok(run2.cock.length > 30, 'fixture: no wind-up measured with a moving head')
+    for (const d of run2.cock) assert.ok(Math.abs(d - KRAKEN_SLAP_COCK) <= 40, `with the head moving the cocked slap lay ${Math.round(d)}px from the fish, not ~${KRAKEN_SLAP_COCK}`)
+    assert.strictEqual(run2.hits.length, 1, `with the head moving, a still fish in the slap's path took ${run2.hits.length} hit(s)`)
+    // THE HEAD'S GROUND IS PASSED OVER
+    const hug = slapRun(3, { x: Math.cos(1.0) * (KRAKEN_SLAP_SAFE_R - 40), y: Math.sin(1.0) * (KRAKEN_SLAP_SAFE_R - 40) })
+    assert.ok(hug.armed, 'fixture: no slap armed for the hug case')
+    assert.deepStrictEqual(hug.hits, [], `a fish hugging the head (${KRAKEN_SLAP_SAFE_R - 40}px) was slapped — the limb is meant to pass over it`)
+    // THE PARRY ANSWERS IT, in the normal window as the swing starts
+    const par = slapRun(3, out, true)
+    assert.ok(par.armed, 'fixture: no slap armed for the parry case')
+    assert.deepStrictEqual(par.hits, [], `a slap parried in its window still hit the fish (${par.hits})`)
+    assert.ok(par.arm.limpT > 0 || par.arm.hitT > 0 || par.arm.hp < par.arm.maxHP, 'a parried slap did not go limp — the parry missed it')
+    // d2 NEVER SLAPS (it is d3's pattern), however many of its turns come round
+    {
+      const run = inBlock(2)
+      run.script.bossIdx = 2
+      run.script.trickleT = 1e9
+      let slaps = 0
+      for (let i = 0; i < 60 * 40; i++) {
+        run.script.turnBag = ['slap']; run.script.turnBagI = 0   // every turn offers d2 a slap
+        run.player.hp = run.player.maxHP
+        stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+        if (run.krakenArms.some((a) => a.slapArm)) slaps++
+        run.events.length = 0
+        if (run.phase === 'levelup') run.phase = 'playing'
+      }
+      assert.ok(run.script.gripN > 16, `fixture: only ${run.script.gripN} d2 arm turns in 40s`)
+      assert.strictEqual(slaps, 0, 'd2 slapped — the backhand is d3\'s pattern only')
+    }
+    // ...AND d3 SLAPS ON ITS OWN, in plain play, more than once a minute and a half
+    {
+      const run = inBlock(3)
+      run.script.bossIdx = 2
+      run.script.trickleT = 1e9
+      let n = 0, on = false
+      for (let i = 0; i < 60 * 90; i++) {
+        const h = headOf(run)
+        if (h) { run.player.x = h.x + out.x; run.player.y = h.y + out.y }
+        run.player.hp = run.player.maxHP
+        stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+        // a player WIGGLES out: on d3 a hold never ends on its own, and a slap turn under a hold is a slam
+        for (const a of run.krakenArms) if (a.gripT > 0) { a.gripT = 0; a.gripClock = a.gripWiggle = undefined }
+        const now = run.krakenArms.some((a) => a.slapArm)
+        if (now && !on) n++
+        on = now
+        run.events.length = 0
+        if (run.phase === 'levelup') run.phase = 'playing'
+      }
+      assert.ok(n >= 2, `d3 slapped ${n} time(s) in 90s of plain play — the turn never comes round`)
+    }
+  }
+
+  // (g3f) THE RING'S TURNS ARE A SHUFFLED BAG (owner, 2026-10-08: "make the attacks more random,
+  // currently it's always 3 slams then 1 grab over and over"): every bag holds the rung's mix, and
+  // the order is not the same bag after bag.
+  {
+    const bags = (diff, secs) => {
+      const run = inBlock(diff)
+      run.script.bossIdx = 2
+      run.script.trickleT = 1e9
+      const seen = []
+      let last = null
+      for (let i = 0; i < 60 * secs; i++) {
+        run.player.hp = run.player.maxHP
+        stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+        for (const a of run.krakenArms) if (a.gripT > 0) { a.gripT = 0; a.gripClock = a.gripWiggle = undefined }
+        if (run.script.turnBag && run.script.turnBag !== last) { last = run.script.turnBag; seen.push(last.slice()) }
+        run.events.length = 0
+        if (run.phase === 'levelup') run.phase = 'playing'
+      }
+      return seen
+    }
+    const d3 = bags(3, 60)
+    assert.ok(d3.length >= 4, `fixture: only ${d3.length} turn bags in 60s of d3`)
+    const mix3 = ['coil', 'coil', 'grab', 'grab', 'slam', 'slam', 'slam', 'slap']
+    for (const b of d3) assert.deepStrictEqual(b.slice().sort(), mix3, `a d3 turn bag held [${b}] — not the rung's mix`)
+    assert.strictEqual(d3[0].length, KRAKEN_TURN_BAG)
+    assert.ok(new Set(d3.map((b) => b.join())).size >= 2, `${d3.length} d3 bags all came out in the same order — the turns are not shuffled`)
+    // ...AND THE RING'S NEXT TURN IS THE BAG'S: a grab at the top of the bag, on a turn the old
+    // counter would have made a slam (gripN 1), is a pinch
+    {
+      const run = inBlock(3)
+      run.script.bossIdx = 2
+      run.script.trickleT = 1e9
+      run.script.beatAt = null
+      for (const a of run.krakenArms) { a.tele = 0; a.gripT = 0 }
+      run.script.gripN = 1
+      run.script.turnBag = ['grab', 'slam']; run.script.turnBagI = 0
+      run.script.turnT = 0
+      let first = null
+      for (let i = 0; i < 60 * 4 && !first; i++) {
+        run.player.hp = run.player.maxHP
+        stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+        for (const e of run.events) if (!first && (e.type === 'grabRear' || e.type === 'armRear' || e.type === 'coilWind')) first = e.type
+        run.events.length = 0
+      }
+      assert.strictEqual(first, 'grabRear', `the bag said grab and the ring's next turn was ${first}`)
+    }
+    const d1 = bags(1, 30)
+    for (const b of d1) assert.ok(b.every((k) => k === 'slam'), `a d1 turn bag held [${b}] — d1 only slams`)
   }
 
   // (g4) THE NAMED LADDER READS THE RUNG TABLE. A chip is a name for a column of KRAKEN_RUNGS; a
@@ -36716,7 +36874,7 @@ function runKraken() {
       ['const pending = !!a && !a.dead && a.tele > 0 && !(a.limpT > 0)', "an early press's dent at the fish no longer HOLDS until its slam lands, so early and a plain miss look identical at impact"],
       ['krakenRecoil[e.i] = { t: K_RECOIL_T, ux: bx, uy: by', "a parried arm is no longer knocked back along its own axis"],
       ['const left = Math.max(0, Math.min(1, a.tele / rung.window))', "the beat at the fish does not run on the arm's own clock, so it does not end on the impact"],
-      ['const tLead = tS + (1 - tS) * K_LEAD_FRAC', 'the charge running up the limb — without the front, how much fuse is left cannot be read'],
+      ['const tLead = slap ? 2 : tS + (1 - tS) * K_LEAD_FRAC', 'the charge running up the limb — without the front, how much fuse is left cannot be read'],
       // THE COIL'S VOLLEY WEARS ITS OWN LOOK, AND THE SPARED ARM DOES NOT. Five lanes light in the
       // warning colour and one stays the limb it always was — that dark lane IS the answer to the
       // move, and it is unparryable, so the colour is the only thing saying "move, do not press".
@@ -36732,13 +36890,14 @@ function runKraken() {
     // "volley" (they all fire), "one left out" (there is a gap), and it must not be parryable.
     // Owner, 2026-09-15: "I was thinking more of all arms slam except 1."
     //   The two gates are FORCED rather than played to. A Coil needs bossIdx >= 2 and gripN on a
-    // KRAKEN_COIL_AT turn of every KRAKEN_COIL_EVERY, which is several minutes of fight away; waiting for it makes
+    // Coil in its turn bag, which is several minutes of fight away; waiting for it makes
     // this assertion a timing test of the whole approach, and when it fails you learn that a Coil
     // did not happen and nothing about why. What is under test is the SHAPE of the volley.
     {
       const run = inBlock(3)
       run.script.bossIdx = 2
-      run.script.gripN = KRAKEN_COIL_AT - 1
+      run.script.gripN = 1
+      run.script.turnBag = ['slam', 'coil']; run.script.turnBagI = 0
       // the fish waits HALFWAY BETWEEN two arms, so the star's bands are off the arms' slots and they must swing
       const hd0 = run.enemies.find((e) => e.rosterId === 'krakenHead' && !e._dead)
       const b0 = run.krakenArms[0].ang + Math.PI / run.krakenArms.length
@@ -36800,7 +36959,8 @@ function runKraken() {
         const run = inBlock(3)
         run.script.bossIdx = 2
         run.script.trickleT = 1e9   // forcing block 2 turns the trickle on; this measures the Coil alone
-        run.script.gripN = KRAKEN_COIL_AT - 1
+        run.script.gripN = 1
+        run.script.turnBag = ['slam', 'coil']; run.script.turnBagI = 0
         // the fish waits HALFWAY BETWEEN two arms, so the star it aims is off the arms' own lanes
         const hd0 = run.enemies.find((e) => e.rosterId === 'krakenHead' && !e._dead)
         const b0 = run.krakenArms[0].ang + Math.PI / run.krakenArms.length
@@ -37539,8 +37699,13 @@ function testKrakenGrab() {
     a0.hp = a0.maxHP; a1.dead = false
   }
   // THE COIL TAKES A SLAM'S TURN, NEVER A GRAB'S: twice as many coils must not mean half the pinches
-  for (const R of [1, 2, 3].map(krakenRung)) if (R.enrageCoilEvery) assert.ok(R.enrageCoilEvery % KRAKEN_GRIP_EVERY === 0 && R.enrageCoilAt % KRAKEN_GRIP_EVERY !== 0, 'a rung\'s last-phase coil lands on a grab\'s turn')
-  assert.ok(KRAKEN_COIL_EVERY % KRAKEN_GRIP_EVERY === 0 && KRAKEN_COIL_AT % KRAKEN_GRIP_EVERY !== 0, `the coil (turn ${KRAKEN_COIL_AT} of ${KRAKEN_COIL_EVERY}) lands on a grab's turn (every ${KRAKEN_GRIP_EVERY})`)
+  // THE TURN BAG HOLDS THE WHOLE MIX: every special's share is a whole number of its KRAKEN_TURN_BAG
+  // turns, and together they leave room for slams
+  for (const R of [1, 2, 3].map(krakenRung)) for (const coilEvery of [KRAKEN_COIL_EVERY, R.enrageCoilEvery].filter(Boolean)) {
+    const per = [R.coil && coilEvery, R.grip && KRAKEN_GRIP_EVERY, R.slap && KRAKEN_SLAP_EVERY].filter(Boolean)
+    for (const e of per) assert.ok(KRAKEN_TURN_BAG % e === 0, `a special every ${e} turns does not fit a whole number of times in a bag of ${KRAKEN_TURN_BAG}`)
+    assert.ok(per.reduce((n, e) => n + KRAKEN_TURN_BAG / e, 0) < KRAKEN_TURN_BAG, `a rung's specials fill the whole bag of ${KRAKEN_TURN_BAG}: no slam left`)
+  }
   // THE TWO GRABBERS ARE THE PINCH'S JAWS; every other arm is out of the fight
   const [arm, mate] = run.krakenArms.filter((c) => c.role === 'grab')
   assert.ok(arm && mate, 'fixture: d2 does not have two grabbers')
@@ -37571,7 +37736,7 @@ function testKrakenGrab() {
   function startGrab() {
     for (const c of jaws) { c.tele = 0; c.gripT = 0; c.slamT = 0; c.limpT = 0; c.grabArm = false }
     s.bossIdx = Math.max(1, s.bossIdx)
-    s.gripN = KRAKEN_GRIP_EVERY
+    s.gripN = KRAKEN_GRIP_EVERY; s.turnBag = ['grab']; s.turnBagI = 0
     s.turnT = 0
     run.repulseCd = 0
     run.hitStop = 0      // a landed parry's freeze would swallow the turn
@@ -37729,7 +37894,7 @@ function testKrakenGrab() {
     assert.ok(Q, 'fixture: no spot by the cage wall walls off one step of the pinch')
     const tryStart = () => {
       for (const c of jaws) { c.tele = 0; c.gripT = 0; c.slamT = 0; c.limpT = 0; c.grabArm = false }
-      s.bossIdx = Math.max(1, s.bossIdx); s.gripN = KRAKEN_GRIP_EVERY; s.turnT = 0; run.hitStop = 0; run.repulseCd = 0
+      s.bossIdx = Math.max(1, s.bossIdx); s.gripN = KRAKEN_GRIP_EVERY; s.turnBag = ['grab']; s.turnBagI = 0; s.turnT = 0; run.hitStop = 0; run.repulseCd = 0
       p.x = Q.x; p.y = Q.y; run.events.length = 0
       stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
       return run.events.some((e) => e.type === 'grabRear')
@@ -37744,7 +37909,7 @@ function testKrakenGrab() {
     for (const c of jaws) { c.tele = 0; c.gripT = 0; c.grabArm = false }
     // 4b) ONE JAW FREE IS NO PINCH: the grab's turn is a plain slam
     mate.limpT = 99
-    s.gripN = KRAKEN_GRIP_EVERY; s.turnT = 0; run.hitStop = 0
+    s.gripN = KRAKEN_GRIP_EVERY; s.turnBag = ['grab']; s.turnBagI = 0; s.turnT = 0; run.hitStop = 0
     p.x = P.x; p.y = P.y; run.events.length = 0
     stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
     assert.ok(!run.events.some((e) => e.type === 'grabRear') && run.events.some((e) => e.type === 'armRear'), 'with one arm free the grab turn was not a plain slam')
@@ -37946,7 +38111,7 @@ function testKrakenBeat() {
     for (const a of run.krakenArms) { a.tele = 0; a.fuse = 0; a.gripT = 0; a.limpT = 0; a.grabArm = false; a.coilArm = false; a.slamT = 0; a.hitT = 0 }
     const A = run.krakenArms[1]
     A.tele = R3.window * 0.6; A.fuse = R3.fuse; A.aimed = true; A.aimX = run.player.x; A.aimY = run.player.y
-    s.bossIdx = 2; s.gripN = KRAKEN_COIL_AT; s.turnT = 0; s.coilT = 0; s.beatAt = null; s.blockKills = -99
+    s.bossIdx = 2; s.gripN = 2; s.turnBag = ['coil']; s.turnBagI = 0; s.turnT = 0; s.coilT = 0; s.beatAt = null; s.blockKills = -99
     let lashAt = null, coilAt = null
     for (let f = 0; f < 60 * 4 && coilAt == null; f++) {
       run.player.hp = run.player.maxHP

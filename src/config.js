@@ -9124,7 +9124,7 @@ export const KRAKEN_RUNGS = [
   //  - the Coil still takes at most KRAKEN_COIL_RAYS of them at once
   { arms: 7, rearing: 1, window: 0.34, lungeWindow: 0.52, perfect: 0.150, fuse: 2.20, limp: 4.0, cadence: 2.55, staggerNeed: 2, headHpMul: 1.00, grip: false, coil: false, grabbers: 0, trickle: 2 },
   { arms: 8, rearing: 2, window: 0.28, lungeWindow: 0.46, perfect: 0.125, fuse: 1.60, limp: 3.2, cadence: 1.20, staggerNeed: 3, headHpMul: 1.02, grip: true,  coil: false, grabbers: 2, trickle: 3, gripDur: 4.4 },
-  { arms: 9, rearing: 2, window: 0.24, lungeWindow: 0.42, perfect: 0.110, fuse: 1.35, limp: 2.6, cadence: 1.20, staggerNeed: 3, headHpMul: 1.30, grip: true,  coil: true,  grabbers: 2, trickle: 4, gripHold: true, enrageArms: 3, enrageRearing: 3, enrageCoilEvery: 8, enrageCoilAt: 6, enrageCadence: 0.45, enrageFree: true },
+  { arms: 9, rearing: 2, window: 0.24, lungeWindow: 0.42, perfect: 0.110, fuse: 1.35, limp: 2.6, cadence: 1.20, staggerNeed: 3, headHpMul: 1.30, grip: true,  coil: true,  grabbers: 2, trickle: 4, gripHold: true, slap: true, enrageArms: 3, enrageRearing: 3, enrageCoilEvery: 8, enrageCadence: 0.45, enrageFree: true },
 ]
 // The one accessor, so no site has to remember the difficulty-1 offset or the clamp. The cap is
 // enforced by the chapter, but a probe or a migrated save can hand this anything.
@@ -9472,7 +9472,6 @@ export const KRAKEN_DASH_PARRY_PX = 262
 // balance_decision : a coil every 4th turn, on a slam's, owner 2026-09-26
 //  - keep EVERY a multiple of KRAKEN_GRIP_EVERY and AT off it, or the coil eats the grabs
 export const KRAKEN_COIL_EVERY = 4 // arm attacks between coils
-export const KRAKEN_COIL_AT = 2 // which turn of each KRAKEN_COIL_EVERY is the coil (a slam's, not a grab's)
 // THE COIL IS A STAR (owner, 2026-09-26): the rearing ring throws KRAKEN_COIL_RAYS arm-shadows across
 // the whole arena through the head, at a RANDOM bearing (owner, 2026-09-27); inside a band when it
 // lands is the hit (krakenCoilStarHits), the wedges between are safe.
@@ -9485,6 +9484,25 @@ export const KRAKEN_COIL_TELE = 1.6 // s of wind-up before the ring closes — l
 export const KRAKEN_COIL_DUR = 0.9 // s the ring spends hauled in
 export const KRAKEN_COIL_IN = 0.34 // the fraction of KRAKEN_ARM_REACH the arms close to
 export const KRAKEN_COIL_DMG = 30 // caught outside the gap when it shuts
+// THE RING'S TURNS COME OUT OF A SHUFFLED BAG of this many: a grab per KRAKEN_GRIP_EVERY, a Coil per its
+// every, a slap per KRAKEN_SLAP_EVERY, slams for the rest — the same mix, never the same order
+// (owner, 2026-10-08: "currently it's always 3 slams then 1 grab over and over")
+export const KRAKEN_TURN_BAG = 8
+
+// THE BACKHAND SLAP (d3 only, rung.slap). One arm pivots on its own ring shoulder, cocks back to one
+// side of the fish with its suckers lit (the slam's own wind-up), then swings through the fish's
+// bearing and follows through: whatever it crosses, out to KRAKEN_SLAP_LEN, is slapped ONCE. The
+// answers are the parry, in the normal window as the swing starts, and hugging the head, which the
+// limb passes over. A parried slap goes limp like any parried slam.
+export const KRAKEN_SLAP_EVERY = 8      // arm attacks per slap (one in each turn bag)
+export const KRAKEN_SLAP_FUSE = 1.6     // s from the turn to the swing reaching the fish's bearing
+export const KRAKEN_SLAP_SWING = 0.25   // s of that, the swing itself (cocked -> the fish's bearing)
+export const KRAKEN_SLAP_COCK = 170     // px beside the fish the cocked limb lies: on a phone's screen, so the wind-up is SEEN
+export const KRAKEN_SLAP_FOLLOW = 0.6   // rad it follows through past it, still striking
+export const KRAKEN_SLAP_FOLLOW_T = 0.2 // s of follow-through
+export const KRAKEN_SLAP_LEN = 1500     // px from the shoulder the flat of the limb reaches: past every screen edge
+export const KRAKEN_SLAP_SAFE_R = 200   // px round the head centre the limb passes OVER
+export const KRAKEN_SLAP_DMG = 24
 // balance_decision : three times the dead between apparitions, owner 2026-09-27
 //  - the waves have their own cap (KRAKEN_WAVE_CAP); KRAKEN_ADD_CAP still bounds the in-block trickle
 export const KRAKEN_WAVE = { n: 18, ids: ['krakenDart', 'krakenSnare', 'krakenWall'] }
