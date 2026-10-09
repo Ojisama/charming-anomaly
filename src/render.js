@@ -7030,7 +7030,7 @@ export function createRenderer(app) {
     // is stretched lengthwise, and a pad would stretch into a gap at the head.
     {
       const g = new Graphics()
-      for (let q = 0; q < 8; q++) { const m = 0.45 + q * 0.15; g.rect(0, -KRAKEN_LASH_W * m, 16, 2 * KRAKEN_LASH_W * m).fill({ color: 0x000000, alpha: 0.13 }) }
+      for (let q = 0; q < 8; q++) { const m = 0.45 + q * 0.15; g.rect(0, -KRAKEN_LASH_W * m, 16, 2 * KRAKEN_LASH_W * m).fill({ color: 0x000000, alpha: 0.2 }) }
       T.krakenCoilBand = bake(g, 0)
     }
 
@@ -12647,8 +12647,6 @@ export function createRenderer(app) {
   // regrown ring of limbs hid the whole star (owner, 2026-10-09)
   const krakenCoilBandLayer = new Container()
   const krakenCoilBands = []
-  const krakenCoilCoreG = new Graphics()   // each band's darker core, over its sprite
-  krakenCoilBandLayer.addChild(krakenCoilCoreG)
   const krakenSlapWakeG = new Graphics()   // the slap's wake on the floor (drawKrakenCues)
   // v6.7.6 Beam Prism (run.prisms): the refracted sub-beams. ADDITIVE and its own Graphics, because
   // this is light — the same reason strafePoolLayer below is its own container. A sub-beam is
@@ -24689,7 +24687,6 @@ void main() {
       if (e.type === 'gripBreak') { krakenEscapeT = 0.4; krakenEscapeX = e.px ?? run.player.x; krakenEscapeY = e.py ?? run.player.y }
     }
     for (const b of krakenCoilBands) b.visible = false
-    krakenCoilCoreG.clear()
     krakenSlapWakeG.clear()
     const head = krakenHead
     if (!krakenFight(run) || !head || run.phase === 'dead') { krakenFishRims(false); return }
@@ -24717,14 +24714,13 @@ void main() {
         tellDrawn('head', k, 'coil', cx, cy, cx, cy, x1, y1)
         // 0.45W .. 1.5W: dark core, soft falloff past the struck edge (T.krakenCoilBand)
         let b = krakenCoilBands[k]
-        if (!b) { b = krakenCoilBands[k] = new Sprite(T.krakenCoilBand); b.anchor.set(0, 0.5); krakenCoilBandLayer.addChildAt(b, 0) }
+        if (!b) { b = krakenCoilBands[k] = new Sprite(T.krakenCoilBand); b.anchor.set(0, 0.5); krakenCoilBandLayer.addChild(b) }
         b.visible = true
         b.position.set(cx, cy)
         b.rotation = t
         b.width = R
         b.height = 3 * W
         b.alpha = dk
-        krakenCoilCoreG.moveTo(cx, cy).lineTo(x1, y1).stroke({ width: W * 1.6, color: 0x000000, alpha: 0.45 * dk })
       }
       for (let k = 0; k < n; k++) {
         const t = (s.coilStar ?? 0) + (k + 0.5) * Math.PI * 2 / n, h = Math.PI / n * 0.45

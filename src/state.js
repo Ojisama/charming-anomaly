@@ -2380,7 +2380,7 @@ function generateWells(sig) {
   *       per second before KRAKEN_HEAD_HP_AT (null until then).
   *     rageN / raging / rageScreamT / rageLeft / rageCalm / rageNext / rageKind — THE RAGE (d3,
   *       rung.rage): rageN bursts so far; raging while one is on (render tints the Kraken green off
-  *       it); rageScreamT the scream before its first attack; rageLeft attacks still to throw;
+  *       it); rageScreamT the scream before its first attack; rageLeft turns still to throw (slams, then the volley);
   *       rageCalm normal turns since the last; rageNext whether the next turn is a new burst;
   *       rageKind the drawn kind of the pending rage turn. An arm whose attack is a rage one carries
   *       rageArm: it is not parryable, pushes no slamWindow, and render draws no parry tell on it.
