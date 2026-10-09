@@ -29361,9 +29361,8 @@ void main() {
           break
         }
         case 'coilWind': {
-          // the ring rearing back. The GAP itself is drawn live in drawKrakenRing for the whole
-          // wind-up, because it is the answer and it has to be readable the entire time.
-          spawnRing(e.x, e.y, KRAKEN_ARM_REACH * 1.6, 0.5, T.novaRing, 0x9fe8ff)
+          // the ring rearing back: a shake only. The wind-up is read off the stirred water in
+          // drawKrakenCues (owner, 2026-10-09: "remove the growing blue circle").
           addShake(4, 0.25)
           break
         }
