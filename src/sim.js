@@ -225,7 +225,7 @@ import {
   krakenRungFor, KRAKEN_HEAD_HP, KRAKEN_HEAD_R, KRAKEN_HEAD_SPEED,
   KRAKEN_ARM_HP, KRAKEN_ARM_R, KRAKEN_RING_R, KRAKEN_ARM_REACH, KRAKEN_NODE_BACK,
   KRAKEN_LIMP_PERFECT_MUL, KRAKEN_STAGGER_T, KRAKEN_STAGGER_DECAY, KRAKEN_LIMP_FLASH,
-  KRAKEN_RISE_AT, KRAKEN_ENRAGE_AT, KRAKEN_ENRAGE_ARM_HP, KRAKEN_RAGE_AT, KRAKEN_HEAD_HP_AT, KRAKEN_HEAD_HP_PER_S, KRAKEN_RAGE_HITS_MIN, KRAKEN_RAGE_HITS_MAX, KRAKEN_RAGE_VOLLEY, KRAKEN_RAGE_VOLLEY_SPREAD, KRAKEN_RAGE_SCREAM, KRAKEN_RAGE_GAP, KRAKEN_RAGE_CALM, KRAKEN_RAGE_CHANCE, KRAKEN_STAGGER_BITE, KRAKEN_FOXFIRE_BURN_T, OPEN_GUARD_TAKEN_MUL, HAIR_TRIGGER_DMG_MUL, HAIR_TRIGGER_T,
+  KRAKEN_RISE_AT, KRAKEN_ENRAGE_AT, KRAKEN_ENRAGE_ARM_HP, KRAKEN_RAGE_AT, KRAKEN_HEAD_HP_AT, KRAKEN_HEAD_HP_PER_S, KRAKEN_RAGE_HITS_MIN, KRAKEN_RAGE_HITS_MAX, KRAKEN_RAGE_VOLLEY, KRAKEN_RAGE_VOLLEY_SPREAD, KRAKEN_RAGE_SCREAM, KRAKEN_RAGE_FUSE, KRAKEN_RAGE_LEAD, KRAKEN_RAGE_GAP, KRAKEN_RAGE_CALM, KRAKEN_RAGE_CHANCE, KRAKEN_STAGGER_BITE, KRAKEN_FOXFIRE_BURN_T, OPEN_GUARD_TAKEN_MUL, HAIR_TRIGGER_DMG_MUL, HAIR_TRIGGER_T,
   KRAKEN_EXPOSE_BITE, KRAKEN_HITSTOP_PARRY, KRAKEN_HITSTOP_BREAK, KRAKEN_HITSTOP_STAGGER,
   KRAKEN_HEAD_TOUCH_DMG, KRAKEN_HEAD_HOLD, KRAKEN_HEAD_STEER, KRAKEN_DASH_RUNUP, KRAKEN_DASH_SPEED, KRAKEN_DASH_DIST, KRAKEN_DASH_PARRY_PX,
 
@@ -2816,8 +2816,8 @@ function stepKrakenArms(run, dt, rung, head) {
           g.fuse = KRAKEN_GRAB_FUSE
           g.grabArm = true
           g.aimed = true
-          g.pinchCX = p.x
-          g.pinchCY = p.y
+          g.pinchCX = p.x + (rage ? p.vx * KRAKEN_RAGE_LEAD : 0)
+          g.pinchCY = p.y + (rage ? p.vy * KRAKEN_RAGE_LEAD : 0)
           g.pinchMate = (g === pinch[0] ? pinch[1] : pinch[0]).i
           g.rageArm = rage
           krakenPlaceArm(head, g, krakenReach(s))
@@ -2833,17 +2833,18 @@ function stepKrakenArms(run, dt, rung, head) {
         // player who parried everything never saw a grab or a coil, and one who parried half saw
         // the ring's pattern stretch and shrink with their own misses.
         s.gripN++
-        a.tele = rung.fuse
-        a.fuse = rung.fuse
+        a.tele = rage ? KRAKEN_RAGE_FUSE : rung.fuse
+        a.fuse = a.tele
         a.rageArm = rage
         // THE ARM AIMS YOU (owner, 2026-09-23: "The arms aim you, not always the same spots").
-        // Locked here, once; the lane does not follow the player after this frame.
+        // Locked here, once; the lane does not follow the player after this frame. A rage slam
+        // aims where your swim will have taken you (KRAKEN_RAGE_LEAD).
         a.aimed = true
-        a.aimX = p.x
-        a.aimY = p.y
+        a.aimX = p.x + (rage ? p.vx * KRAKEN_RAGE_LEAD : 0)
+        a.aimY = p.y + (rage ? p.vy * KRAKEN_RAGE_LEAD : 0)
         if (run.krakenLesson === 1) { s.lessonI = a.i; s.lessonSlow = 0 }
         krakenPlaceArm(head, a, krakenReach(s))
-        run.events.push({ type: 'armRear', x: a.x, y: a.y, r: KRAKEN_LASH_R, t: rung.fuse, w: KRAKEN_LASH_W })
+        run.events.push({ type: 'armRear', x: a.x, y: a.y, r: KRAKEN_LASH_R, t: a.fuse, w: KRAKEN_LASH_W })
       }
     }
   }

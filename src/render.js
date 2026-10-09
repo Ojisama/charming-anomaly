@@ -12643,8 +12643,12 @@ export function createRenderer(app) {
   // because the telegraph and the jet it becomes have to stack in that order.
   const jetLayer = new Container()
   const teleG = new Graphics()
-  const krakenCoilBandLayer = new Container()   // the Coil star's arm-shadows (drawKrakenCues)
+  // the Coil star's arm-shadows (drawKrakenCues), drawn OVER the arms and the head: under them a
+  // regrown ring of limbs hid the whole star (owner, 2026-10-09)
+  const krakenCoilBandLayer = new Container()
   const krakenCoilBands = []
+  const krakenCoilCoreG = new Graphics()   // each band's darker core, over its sprite
+  krakenCoilBandLayer.addChild(krakenCoilCoreG)
   const krakenSlapWakeG = new Graphics()   // the slap's wake on the floor (drawKrakenCues)
   // v6.7.6 Beam Prism (run.prisms): the refracted sub-beams. ADDITIVE and its own Graphics, because
   // this is light — the same reason strafePoolLayer below is its own container. A sub-beam is
@@ -12959,10 +12963,10 @@ const spurG = new Graphics()
     // a 400px body, and above gemLayer it hid every gem and coin that fell inside it.
     shaftLayer,
     gemLayer, coinLayer, holeLayer, eddyLayer, novaLayer, mineLayer,
-    krakenDeepG, scarLayer, bombG, shellLayer, skyLayer, voltLayer, stripG, laneG, hazardG, jetLayer, krakenCoilBandLayer, krakenSlapWakeG, teleG, krakenImpactG, strafePoolLayer, rampG, pacerG,
+    krakenDeepG, scarLayer, bombG, shellLayer, skyLayer, voltLayer, stripG, laneG, hazardG, jetLayer, krakenSlapWakeG, teleG, krakenImpactG, strafePoolLayer, rampG, pacerG,
     rockLayer,
     orcaShadowSp, orcaG,
-    macroShadowLayer, enemyShadowLayer, holoHaloLayer, enemyLayer, krakenArmLayer, enemyCrownLayer, orcaSp, netG, longlineG, snareG,
+    macroShadowLayer, enemyShadowLayer, holoHaloLayer, enemyLayer, krakenArmLayer, enemyCrownLayer, krakenCoilBandLayer, orcaSp, netG, longlineG, snareG,
     bloomLayer, lureLayer, shieldG, affixLayer, crustG, deepG, lockLayer, playerC, krakenGripFrontLayer, netHoldG, gateFrontG, breakerG, puffG, splashG, columnG, shorebreakG, burrowFxG, burrowStoneLayer,
     bulletLayer, boomerangLayer, orbLayer, debrisLayer, homingLayer, shotLayer, beamLayer, whipLayer, arcG, breathG,
     lobLayer, carLayer, smokeLayer, particleLayer,
@@ -22319,7 +22323,7 @@ void main() {
     // ONE GLYPH PER ARM IN ITS WINDOW (two slams can overlap), each drawn only while a press would
     // reach that arm — the same reach sim's krakenArmInReach tests, every frame, so stepping off the
     // line takes the glyph away and the glyph can never promise a parry the press would not make.
-    // PHASE 1, THE LEAD-IN: in the K_RING_LEAD before a reachable plain slam's window opens, a pale
+    // PHASE 1, THE LEAD-IN: in the K_RING_LEAD before a reachable plain slam's window opens, a dim grey
     // ring already converges on the fish from K_NOW_LEAD (krakenNowR) — the countdown at the
     // place the eye is, in step with the bead front running up the arm. It snaps bright and thick
     // when the window opens (phase 2, the first frame of the glyph below) and closes to the inner
@@ -22333,17 +22337,19 @@ void main() {
         if (krakenEarly && krakenEarly.i === a.i) continue
         const u = 1 - toWin / krakenRingLead(a, rung)
         const rr = krakenNowR(a, rung)
-        const lc = cdk === 1 ? 0xdff4ff : 0x6a7484
+        // dark grey at half strength: only the open window is light (owner, 2026-10-09)
+        const lc = 0x5a636e
+        const la = 0.5 * cdk
         // the target it is closing onto is already there: solid, bright, just larger than the fish
         const V = krakenVerdictG
         V.beginPath(); V.circle(p.x, p.y, K_NOW_BODY)
-        V.stroke({ width: 8, color: 0x0c1418, alpha: 0.6 * cdk })
+        V.stroke({ width: 8, color: 0x0c1418, alpha: 0.6 * la })
         V.beginPath(); V.circle(p.x, p.y, K_NOW_BODY)
-        V.stroke({ width: 4, color: lc, alpha: 0.9 * cdk })
+        V.stroke({ width: 4, color: lc, alpha: 0.9 * la })
         V.beginPath(); V.circle(p.x, p.y, rr)
-        V.stroke({ width: 6, color: 0x0c1418, alpha: 0.45 * cdk })
+        V.stroke({ width: 6, color: 0x0c1418, alpha: 0.45 * la })
         V.beginPath(); V.circle(p.x, p.y, rr)
-        V.stroke({ width: 3, color: lc, alpha: (0.6 + 0.25 * u) * cdk })
+        V.stroke({ width: 3, color: lc, alpha: (0.6 + 0.25 * u) * la })
       }
     }
     // A RAGE SLAM SAYS WHERE IT LANDS: a green disc on the spot it locked, filling as it comes down
@@ -24683,6 +24689,7 @@ void main() {
       if (e.type === 'gripBreak') { krakenEscapeT = 0.4; krakenEscapeX = e.px ?? run.player.x; krakenEscapeY = e.py ?? run.player.y }
     }
     for (const b of krakenCoilBands) b.visible = false
+    krakenCoilCoreG.clear()
     krakenSlapWakeG.clear()
     const head = krakenHead
     if (!krakenFight(run) || !head || run.phase === 'dead') { krakenFishRims(false); return }
@@ -24710,13 +24717,14 @@ void main() {
         tellDrawn('head', k, 'coil', cx, cy, cx, cy, x1, y1)
         // 0.45W .. 1.5W: dark core, soft falloff past the struck edge (T.krakenCoilBand)
         let b = krakenCoilBands[k]
-        if (!b) { b = krakenCoilBands[k] = new Sprite(T.krakenCoilBand); b.anchor.set(0, 0.5); krakenCoilBandLayer.addChild(b) }
+        if (!b) { b = krakenCoilBands[k] = new Sprite(T.krakenCoilBand); b.anchor.set(0, 0.5); krakenCoilBandLayer.addChildAt(b, 0) }
         b.visible = true
         b.position.set(cx, cy)
         b.rotation = t
         b.width = R
         b.height = 3 * W
         b.alpha = dk
+        krakenCoilCoreG.moveTo(cx, cy).lineTo(x1, y1).stroke({ width: W * 1.6, color: 0x000000, alpha: 0.45 * dk })
       }
       for (let k = 0; k < n; k++) {
         const t = (s.coilStar ?? 0) + (k + 0.5) * Math.PI * 2 / n, h = Math.PI / n * 0.45

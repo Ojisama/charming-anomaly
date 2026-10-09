@@ -171,7 +171,7 @@ import {
   // The Kraken (run KR): the rung table and the ring's numbers
   krakenRung, krakenRungFor, KRAKEN_TURN_BAG, KRAKEN_SLAP_EVERY, KRAKEN_SLAP_COCK, KRAKEN_SLAP_SWING, KRAKEN_SLAP_FUSE, KRAKEN_SLAP_FOLLOW_T, KRAKEN_TRICKLE_T, KRAKEN_TRICKLE_EDGE, KRAKEN_TRICKLE_CLEAR, OPEN_GUARD_WINDOW_MUL, HAIR_TRIGGER_WINDOW_MUL, HAIR_TRIGGER_DMG_MUL, KRAKEN_RUNGS, KRAKEN_ARM_REACH, KRAKEN_WAVE_TIMEOUT, KRAKEN_STAGGER_BITE,
   KRAKEN_RISE_T, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, hiddenChapters, KRAKEN_CAGE_R, KRAKEN_PARRY_CD,
-  KRAKEN_OPEN_WAVES, KRAKEN_COIL_EVERY, KRAKEN_COIL_RAYS, KRAKEN_ENRAGE_AT, KRAKEN_RAGE_AT, KRAKEN_RAGE_HITS_MIN, KRAKEN_RAGE_HITS_MAX, KRAKEN_RAGE_VOLLEY, KRAKEN_RAGE_VOLLEY_SPREAD, KRAKEN_RAGE_GAP, KRAKEN_RAGE_CALM, KRAKEN_RAGE_CHANCE, KRAKEN_NODE_BACK, KRAKEN_HEAD_HP, KRAKEN_HEAD_HP_AT, KRAKEN_HEAD_HP_PER_S, KRAKEN_ARRIVE_T, KRAKEN_RING_R, KRAKEN_LASH_R, KRAKEN_SLAM_T, KRAKEN_DEFLECT_CD,
+  KRAKEN_OPEN_WAVES, KRAKEN_COIL_EVERY, KRAKEN_COIL_RAYS, KRAKEN_ENRAGE_AT, KRAKEN_RAGE_AT, KRAKEN_RAGE_HITS_MIN, KRAKEN_RAGE_HITS_MAX, KRAKEN_RAGE_VOLLEY, KRAKEN_RAGE_VOLLEY_SPREAD, KRAKEN_RAGE_FUSE, KRAKEN_RAGE_GAP, KRAKEN_RAGE_CALM, KRAKEN_RAGE_CHANCE, KRAKEN_NODE_BACK, KRAKEN_HEAD_HP, KRAKEN_HEAD_HP_AT, KRAKEN_HEAD_HP_PER_S, KRAKEN_ARRIVE_T, KRAKEN_RING_R, KRAKEN_LASH_R, KRAKEN_SLAM_T, KRAKEN_DEFLECT_CD,
   KRAKEN_LUNGE_T, KRAKEN_GRIP_DUR, KRAKEN_GRIP_DMG, KRAKEN_GRIP_FLICKS, KRAKEN_GRIP_STICK_MUL, TRAWL_WIGGLE_ARC,
   KRAKEN_LASH_W, KRAKEN_LASH_OVER, KRAKEN_LASH_DMG, KRAKEN_LESSON_MAX, KRAKEN_PARRY_SHOVE_R, KRAKEN_PARRY_EARLY_T, KRAKEN_LIMP_CLEAR, KRAKEN_ARRIVE_T2, KRAKEN_WAVE_GROWTH, KRAKEN_COIL_DMG,
   KRAKEN_HEAD_SPEED, KRAKEN_PARRY_SPIN_T, krakenLimbHalfW, FISH_R, FISH_BODY, KRAKEN_GRIP_EVERY, KRAKEN_GRAB_FUSE, KRAKEN_GRAB_MIN_STEP, KRAKEN_PINCH_OPEN0, KRAKEN_PINCH_OPEN1,
@@ -20823,6 +20823,7 @@ run(testLeLargeWeapons)
   run(testKrakenGrab)
   run(testKrakenEnrage)
   run(testKrakenRage)
+  run(testKrakenRageLead)
   run(testKrakenPace)
   run(testKrakenBeat)
   run(testKrakenNowCue)
@@ -38138,6 +38139,36 @@ function testKrakenPace() {
 // KRAKEN_RAGE_HITS_MIN..MAX attacks are slams, grabs and slaps nobody can parry, ending in a volley of
 // KRAKEN_RAGE_VOLLEY slams — you swim. Then at least
 // KRAKEN_RAGE_CALM normal turns, then a KRAKEN_RAGE_CHANCE of a new rage on each.
+// A RAGE SLAM AIMS WHERE YOUR SWIM IS TAKING YOU (owner, 2026-10-09: "shorten the wind up and aim a
+// little bit ahead of you"): swimming on in a straight line is hit, turning back dodges it.
+function testKrakenRageLead() {
+  assert.ok(KRAKEN_RAGE_FUSE < krakenRung(3).fuse, 'a rage slam does not wind up faster than a normal one')
+  const swim = (turn) => {
+    const { run, s, head } = krakenChase3(4242)
+    for (const a of run.krakenArms) { a.tele = 0; a.slapArm = a.grabArm = a.coilArm = false; a.gripT = 0 }
+    run.player.x = head.x; run.player.y = head.y + 260
+    Object.assign(s, { raging: true, rageN: 1, rageLeft: 3, rageScreamT: 0, rageKind: 'slam', rageNext: false, turnT: 0, staggerT: 0, coilT: 0 })
+    let dir = 1, arm = null, hit = false, landed = false, g = 0
+    while (!landed && g++ < 600) {
+      run.events.length = 0; run.player.hp = run.player.maxHP; run.player.invuln = 0; run.hitStop = 0
+      if (run.phase === 'levelup') run.phase = 'playing'
+      stepSim(run, { x: dir, y: 0, skill: false }, 1 / 60)
+      if (!arm) {
+        arm = run.krakenArms.find((a) => a.rageArm && a.tele > 0 && !a.slapArm && !a.grabArm) || null
+        if (arm) s.turnT = 99   // the one slam: nothing else lands meanwhile
+      } else if (turn && dir === 1 && arm.tele < arm.fuse * 0.5) dir = -1
+      if (arm && run.events.some((e) => e.type === 'lash' && e.i === arm.i)) {
+        landed = true
+        hit = run.events.some((e) => e.type === 'hurt' && e.src === 'krakenArm')
+      }
+    }
+    assert.ok(arm && landed, `fixture: no rage slam reared and landed (arm ${!!arm})`)
+    assert.strictEqual(arm.fuse, KRAKEN_RAGE_FUSE, 'the rage slam did not wind up on KRAKEN_RAGE_FUSE')
+    return hit
+  }
+  assert.ok(swim(false), 'a rage slam missed a fish swimming on in a straight line')
+  assert.ok(!swim(true), 'a rage slam hit a fish that turned back')
+}
 function testKrakenRage() {
   const { run, s, head, step } = krakenChase3(20261009)
   assert.ok(krakenRung(3).rage && !krakenRung(2).rage && !krakenRung(1).rage, 'the rage is not d3 only')
