@@ -225,7 +225,7 @@ import {
   krakenRungFor, KRAKEN_HEAD_HP, KRAKEN_HEAD_R, KRAKEN_HEAD_SPEED,
   KRAKEN_ARM_HP, KRAKEN_ARM_R, KRAKEN_RING_R, KRAKEN_ARM_REACH, KRAKEN_NODE_BACK,
   KRAKEN_LIMP_PERFECT_MUL, KRAKEN_STAGGER_T, KRAKEN_STAGGER_DECAY, KRAKEN_LIMP_FLASH,
-  KRAKEN_RISE_AT, KRAKEN_ENRAGE_AT, KRAKEN_ENRAGE_ARM_HP, KRAKEN_RAGE_AT, KRAKEN_HEAD_HP_AT, KRAKEN_HEAD_HP_PER_S, KRAKEN_RAGE_HITS_MIN, KRAKEN_RAGE_HITS_MAX, KRAKEN_RAGE_VOLLEY, KRAKEN_RAGE_SCREAM, KRAKEN_RAGE_GAP, KRAKEN_RAGE_CALM, KRAKEN_RAGE_CHANCE, KRAKEN_STAGGER_BITE, KRAKEN_FOXFIRE_BURN_T, OPEN_GUARD_TAKEN_MUL, HAIR_TRIGGER_DMG_MUL, HAIR_TRIGGER_T,
+  KRAKEN_RISE_AT, KRAKEN_ENRAGE_AT, KRAKEN_ENRAGE_ARM_HP, KRAKEN_RAGE_AT, KRAKEN_HEAD_HP_AT, KRAKEN_HEAD_HP_PER_S, KRAKEN_RAGE_HITS_MIN, KRAKEN_RAGE_HITS_MAX, KRAKEN_RAGE_VOLLEY, KRAKEN_RAGE_VOLLEY_SPREAD, KRAKEN_RAGE_SCREAM, KRAKEN_RAGE_GAP, KRAKEN_RAGE_CALM, KRAKEN_RAGE_CHANCE, KRAKEN_STAGGER_BITE, KRAKEN_FOXFIRE_BURN_T, OPEN_GUARD_TAKEN_MUL, HAIR_TRIGGER_DMG_MUL, HAIR_TRIGGER_T,
   KRAKEN_EXPOSE_BITE, KRAKEN_HITSTOP_PARRY, KRAKEN_HITSTOP_BREAK, KRAKEN_HITSTOP_STAGGER,
   KRAKEN_HEAD_TOUCH_DMG, KRAKEN_HEAD_HOLD, KRAKEN_HEAD_STEER, KRAKEN_DASH_RUNUP, KRAKEN_DASH_SPEED, KRAKEN_DASH_DIST, KRAKEN_DASH_PARRY_PX,
 
@@ -2725,12 +2725,13 @@ function stepKrakenArms(run, dt, rung, head) {
       // the turn there would silently drop attacks and make the ring stutter; it falls back to the
       // whole idle pool instead, which is the old behaviour and costs only the design's promise on
       // a rare turn.
-      // THE VOLLEY ENDS THE RAGE: one slam on the fish, the rest on random water across the arena
+      // THE VOLLEY ENDS THE RAGE: one slam on the fish, the rest round the water between it and the head
       if (volley) {
         const arms = idle.slice()
         for (let i = arms.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [arms[i], arms[j]] = [arms[j], arms[i]] }
         arms.length = Math.min(arms.length, KRAKEN_RAGE_VOLLEY)
-        const R = s.cageR > 0 ? s.cageR : KRAKEN_CHASE_CAGE_R
+        const mx = (head.x + p.x) / 2, my = (head.y + p.y) / 2
+        const R = Math.hypot(p.x - head.x, p.y - head.y) / 2 + KRAKEN_RAGE_VOLLEY_SPREAD
         arms.forEach((a, k) => {
           s.gripN++
           a.tele = rung.fuse
@@ -2739,11 +2740,11 @@ function stepKrakenArms(run, dt, rung, head) {
           a.aimed = true
           if (k === 0) { a.aimX = p.x; a.aimY = p.y }
           else {
-            // uniform over the arena's disc, kept off the fish's own zone so each reads as its own
+            // uniform over the disc round the head-fish midpoint, kept off the fish's own zone so each reads
             let x, y, n = 0
             do {
-              const r = R * 0.9 * Math.sqrt(Math.random()), th = Math.random() * Math.PI * 2
-              x = head.x + Math.cos(th) * r; y = head.y + Math.sin(th) * r
+              const r = R * Math.sqrt(Math.random()), th = Math.random() * Math.PI * 2
+              x = mx + Math.cos(th) * r; y = my + Math.sin(th) * r
             } while (++n < 20 && (x - p.x) ** 2 + (y - p.y) ** 2 < (KRAKEN_LASH_R * 1.5) ** 2)
             a.aimX = x; a.aimY = y
           }

@@ -171,7 +171,7 @@ import {
   // The Kraken (run KR): the rung table and the ring's numbers
   krakenRung, krakenRungFor, KRAKEN_TURN_BAG, KRAKEN_SLAP_EVERY, KRAKEN_SLAP_COCK, KRAKEN_SLAP_SWING, KRAKEN_SLAP_FUSE, KRAKEN_SLAP_FOLLOW_T, KRAKEN_TRICKLE_T, KRAKEN_TRICKLE_EDGE, KRAKEN_TRICKLE_CLEAR, OPEN_GUARD_WINDOW_MUL, HAIR_TRIGGER_WINDOW_MUL, HAIR_TRIGGER_DMG_MUL, KRAKEN_RUNGS, KRAKEN_ARM_REACH, KRAKEN_WAVE_TIMEOUT, KRAKEN_STAGGER_BITE,
   KRAKEN_RISE_T, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, hiddenChapters, KRAKEN_CAGE_R, KRAKEN_PARRY_CD,
-  KRAKEN_OPEN_WAVES, KRAKEN_COIL_EVERY, KRAKEN_COIL_RAYS, KRAKEN_ENRAGE_AT, KRAKEN_RAGE_AT, KRAKEN_RAGE_HITS_MIN, KRAKEN_RAGE_HITS_MAX, KRAKEN_RAGE_VOLLEY, KRAKEN_RAGE_GAP, KRAKEN_RAGE_CALM, KRAKEN_RAGE_CHANCE, KRAKEN_NODE_BACK, KRAKEN_HEAD_HP, KRAKEN_HEAD_HP_AT, KRAKEN_HEAD_HP_PER_S, KRAKEN_ARRIVE_T, KRAKEN_RING_R, KRAKEN_LASH_R, KRAKEN_SLAM_T, KRAKEN_DEFLECT_CD,
+  KRAKEN_OPEN_WAVES, KRAKEN_COIL_EVERY, KRAKEN_COIL_RAYS, KRAKEN_ENRAGE_AT, KRAKEN_RAGE_AT, KRAKEN_RAGE_HITS_MIN, KRAKEN_RAGE_HITS_MAX, KRAKEN_RAGE_VOLLEY, KRAKEN_RAGE_VOLLEY_SPREAD, KRAKEN_RAGE_GAP, KRAKEN_RAGE_CALM, KRAKEN_RAGE_CHANCE, KRAKEN_NODE_BACK, KRAKEN_HEAD_HP, KRAKEN_HEAD_HP_AT, KRAKEN_HEAD_HP_PER_S, KRAKEN_ARRIVE_T, KRAKEN_RING_R, KRAKEN_LASH_R, KRAKEN_SLAM_T, KRAKEN_DEFLECT_CD,
   KRAKEN_LUNGE_T, KRAKEN_GRIP_DUR, KRAKEN_GRIP_DMG, KRAKEN_GRIP_FLICKS, KRAKEN_GRIP_STICK_MUL, TRAWL_WIGGLE_ARC,
   KRAKEN_LASH_W, KRAKEN_LASH_OVER, KRAKEN_LASH_DMG, KRAKEN_LESSON_MAX, KRAKEN_PARRY_SHOVE_R, KRAKEN_PARRY_EARLY_T, KRAKEN_LIMP_CLEAR, KRAKEN_ARRIVE_T2, KRAKEN_WAVE_GROWTH, KRAKEN_COIL_DMG,
   KRAKEN_HEAD_SPEED, KRAKEN_PARRY_SPIN_T, krakenLimbHalfW, FISH_R, FISH_BODY, KRAKEN_GRIP_EVERY, KRAKEN_GRAB_FUSE, KRAKEN_GRAB_MIN_STEP, KRAKEN_PINCH_OPEN0, KRAKEN_PINCH_OPEN1,
@@ -38184,7 +38184,7 @@ function testKrakenRage() {
       rageAtk++
       turnAt.push(frames / 60)
       last = run.krakenArms.filter((a) => !a.dead && a.rageArm && a.tele > 0 && a.tele >= a.fuse - 1.5 / 60)
-      last.rears = take(run.events); last.fx = run.player.x; last.fy = run.player.y
+      last.rears = take(run.events); last.fx = run.player.x; last.fy = run.player.y; last.hx = head.x; last.hy = head.y
       last.inAir = run.krakenArms.filter((a) => !a.dead && (a.tele > 0 || a.gripT > 0)).length
     }
     windows += run.events.filter((e) => e.type === 'slamWindow').length
@@ -38209,6 +38209,14 @@ function testKrakenRage() {
   const onFish = last.filter((a) => Math.hypot(a.aimX - last.fx, a.aimY - last.fy) < 1)
   assert.strictEqual(onFish.length, 1, `${onFish.length} of the volley's slams aimed at the fish, not one`)
   assert.ok(last.filter((a) => !onFish.includes(a)).every((a) => Math.hypot(a.aimX - last.fx, a.aimY - last.fy) >= KRAKEN_LASH_R * 1.5), 'a volley slam meant for the arena landed on the fish')
+  // ...packed between the fish and the head (owner, 2026-10-09: "too spread out, they should be closer
+  // to the head and the player")
+  {
+    const mx = (last.hx + last.fx) / 2, my = (last.hy + last.fy) / 2
+    const R = Math.hypot(last.fx - last.hx, last.fy - last.hy) / 2 + KRAKEN_RAGE_VOLLEY_SPREAD
+    const far = last.map((a) => Math.hypot(a.aimX - mx, a.aimY - my)).filter((d) => d > R + 1)
+    assert.strictEqual(far.length, 0, `${far.length} volley slam(s) landed ${far.map((d) => d.toFixed(0))}px from the head-fish midpoint, past ${R.toFixed(0)}`)
+  }
   assert.strictEqual(windows, 0, `the rage pushed ${windows} press-now cue(s): its attacks are not parried`)
   assert.strictEqual(ready, 0, `the parry button lit on ${ready} frame(s) of the rage`)
   assert.ok(!lungeMoved, 'the head kept its lunge clock running through the rage')
