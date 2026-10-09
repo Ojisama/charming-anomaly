@@ -20822,6 +20822,7 @@ run(testLeLargeWeapons)
   run(testKrakenParryShove)
   run(testKrakenGrab)
   run(testKrakenEnrage)
+  run(testKrakenRegrowRung)
   run(testKrakenRage)
   run(testKrakenRageAim)
   run(testKrakenCoilShadowHit)
@@ -38073,6 +38074,39 @@ function testKrakenEnrage() {
   assert.ok(slams >= 5, `phase 2 slammed only ${slams}x in 60s — the ring stopped`)
   assert.ok(grownRears >= 3, `the grown arms reared only ${grownRears} times in 60s — they are scenery`)
   console.log(`PASS run KE (phase 2, d3): ${R3.enrageArms} new arms grow beside the ${n0} returning, the ring rears up to ${maxR} at once (cap ${R3.rearing}), the grown arms reared ${grownRears}x in 60s, ${slams} slams in 60s`)
+}
+
+// d1's broken arms stay broken past KRAKEN_ENRAGE_AT; d2 hauls them back (owner, 2026-10-09)
+function testKrakenRegrowRung() {
+  const out = []
+  for (const d of [1, 2]) {
+    Math.random = mulberry32(20261009 + d)
+    const run = createRun({ ...makeMeta(), krakenParried: true }, { chapter: 'kraken', difficulty: d })
+    const s = run.script
+    const step = () => { run.events.length = 0; if (run.phase === 'levelup') run.phase = 'playing'; run.player.hp = run.player.maxHP; run.player.invuln = 0; run.hitStop = 0; stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60) }
+    let guard = 0
+    while (s.phase !== 'boss' && guard++ < 60 * 200) step()
+    guard = 0
+    while (s.phase !== 'chase' && guard++ < 60 * 200) {
+      for (const a of run.krakenArms.slice(0, Math.ceil(run.krakenArms.length / 2))) if (!a.dead) { a.dead = true; a.hp = 0; s.blockKills++ }
+      step()
+    }
+    guard = 0
+    while ((s.riseT > 0 || s.headId == null) && guard++ < 60 * 20) step()
+    const head = run.enemies.find((e) => e.id === s.headId)
+    assert.ok(head, `d${d}: no head in the chase`)
+    const dead0 = run.krakenArms.filter((a) => a.dead).length
+    assert.ok(dead0 > 0, `d${d} fixture: no broken arm to regrow`)
+    head.hp = head.maxHP * (KRAKEN_ENRAGE_AT - 0.01)
+    step()
+    const cards = run.events.filter((e) => e.type === 'krakenEnrage').length
+    const dead1 = run.krakenArms.filter((a) => a.dead).length
+    assert.ok(s.enraged, `d${d}: the head fell below KRAKEN_ENRAGE_AT and the last phase did not start`)
+    if (d === 1) assert.ok(dead1 === dead0 && cards === 0, `d1: ${dead0 - dead1} arms regrew, ${cards} "arms return" cards — d1 arms must stay broken`)
+    else assert.ok(dead1 === 0 && cards === 1, `d2: ${dead1} arms still broken, ${cards} cards — d2 must regrow every arm`)
+    out.push(`d${d} ${dead0}->${dead1} broken`)
+  }
+  console.log(`PASS run KR (regrow by rung): ${out.join(', ')}`)
 }
 
 // THE KRAKEN'S PACE (owner, 2026-10-09: "the player gets too much xp", "a very strong build can skip

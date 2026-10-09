@@ -3108,7 +3108,7 @@ function stepKrakenChase(run, dt, rung, head) {
     s.enraged = true
     let back = 0
     for (const a of run.krakenArms) {
-      if (!a.dead) continue
+      if (!a.dead || !rung.regrow) continue
       a.dead = false
       a.breakT = 0
       a.hp = Math.max(1, Math.round(a.maxHP * KRAKEN_ENRAGE_ARM_HP))
@@ -3124,7 +3124,8 @@ function stepKrakenChase(run, dt, rung, head) {
       run.krakenArms.push(a)
       back++
     }
-    run.events.push({ type: 'krakenEnrage', x: head.x, y: head.y, r: KRAKEN_ARM_REACH, n: back })
+    // no card when nothing came back: "THE ARMS RETURN" would lie (d1)
+    if (back) run.events.push({ type: 'krakenEnrage', x: head.x, y: head.y, r: KRAKEN_ARM_REACH, n: back })
   }
   if (rung.rage && s.enraged && !s.rageN && head.hp <= head.maxHP * KRAKEN_RAGE_AT) s.rageNext = true
   // A STAGGERED HEAD IS STILL AND OPEN. This is the fight's only damage window on the head, and it

@@ -9116,6 +9116,9 @@ export const KRAKEN_RUNGS = [
   // balance_decision : arms attack half as often, owner 2026-09-26
   //  - cadence alone is not the rate: d2/d3 needed x2.55 for -50% (the beat and `rearing` also gate)
   // balance_decision : d3 regrows 3 more arms at 60%, rages at 30%, owner 2026-10-09
+  // balance_decision : d1 broken arms stay broken (regrow d2/d3 only), owner 2026-10-09
+  // balance_decision : d3 arm parry window -12% (0.24 -> 0.211), owner 2026-10-09
+  // balance_decision : head lunge window d2 -12%, d3 -24%, owner 2026-10-09
   // balance_decision : arms attack 20% more often, owner 2026-09-26
   //  - measure POOLED over 48 seeds (kraken-probe --cadence): per-fight rates swing +-30%
   // balance_decision : d2 +20% / d3 +40% arm attacks, by faster wind-ups [2026-10-07]
@@ -9123,8 +9126,8 @@ export const KRAKEN_RUNGS = [
   // balance_decision : 3 more arms every rung, owner 2026-09-27
   //  - the Coil still takes at most KRAKEN_COIL_RAYS of them at once
   { arms: 7, rearing: 1, window: 0.34, lungeWindow: 0.52, perfect: 0.150, fuse: 2.20, limp: 4.0, cadence: 2.55, staggerNeed: 2, headHpMul: 1.00, grip: false, coil: false, grabbers: 0, trickle: 2 },
-  { arms: 8, rearing: 2, window: 0.28, lungeWindow: 0.46, perfect: 0.125, fuse: 1.60, limp: 3.2, cadence: 1.20, staggerNeed: 3, headHpMul: 1.02, grip: true,  coil: false, grabbers: 2, trickle: 3, gripDur: 4.4 },
-  { arms: 9, rearing: 2, window: 0.24, lungeWindow: 0.42, perfect: 0.110, fuse: 1.35, limp: 2.6, cadence: 1.20, staggerNeed: 3, headHpMul: 1.30, grip: true,  coil: true,  grabbers: 2, trickle: 4, gripHold: true, slap: true, enrageArms: 3, rage: true },
+  { arms: 8, rearing: 2, window: 0.28, lungeWindow: 0.405, perfect: 0.125, fuse: 1.60, limp: 3.2, cadence: 1.20, staggerNeed: 3, headHpMul: 1.02, grip: true,  coil: false, grabbers: 2, trickle: 3, gripDur: 4.4, regrow: true },
+  { arms: 9, rearing: 2, window: 0.211, lungeWindow: 0.319, perfect: 0.110, fuse: 1.35, limp: 2.6, cadence: 1.20, staggerNeed: 3, headHpMul: 1.30, grip: true,  coil: true,  grabbers: 2, trickle: 4, regrow: true, gripHold: true, slap: true, enrageArms: 3, rage: true },
 ]
 // The one accessor, so no site has to remember the difficulty-1 offset or the clamp. The cap is
 // enforced by the chapter, but a probe or a migrated save can hand this anything.
