@@ -143,6 +143,8 @@ const gverts = () => {
   return out.sort((x, y) => y[1] - x[1]).slice(0, 5)
 }
 const rows = []
+const landVerts = []
+let landAt = 0
 let ev = [], acc = 0
 for (let f = 0; f < SECS * 60 && run.phase !== 'victory'; f++) {
   run.player.hp = run.player.maxHP
@@ -163,11 +165,24 @@ for (let f = 0; f < SECS * 60 && run.phase !== 'victory'; f++) {
   gl?.finish()
   const d = performance.now()
   rows.push({ k, t: +run.time.toFixed(2), types: [...new Set(ev.map((e) => e.type))].join(','), step: b - a, sync: c - c0, draw: d - c, rjs: rEnd - c, ev: ev.length, kb: glc.bufferSubDataKB ?? 0, gl: d - c > 25 ? { ...glc, verts: gverts() } : null, vis: rows.length % 5 ? 0 : countVisible(app.stage) })
+  if (ev.some((e) => e.type === "coilClose")) landAt = 5
+  if (landAt > 0 && --landAt === 0) landVerts.push(gverts())
   ev = []; acc = 0
   // ?ablate=1: on a spike (draw > 25ms) redraw that same frame with each layer hidden in turn
   if (ABLATE && d - c > 25 && spikes.length < 12) spikes.push({ t: +run.time.toFixed(2), k, draw: +(d - c).toFixed(1), redraw: +timeDraw(null).toFixed(1), top: ablate(), shapes: gstats() })
 }
 window.__spikes = spikes
+// every Coil landing (coilClose) lined up: per frame offset from impact, the median and max ms (sync + draw)
+const landing = () => {
+  const at = rows.map((r, i) => (r.types.includes("coilClose") ? i : -1)).filter((i) => i >= 0)
+  const per = []
+  for (let o = -5; o <= 40; o++) {
+    const xs = at.map((i) => rows[i + o]).filter(Boolean).map((r) => r.sync + r.draw).sort((x, y) => x - y)
+    const sy = at.map((i) => rows[i + o]).filter(Boolean).map((r) => r.sync).sort((x, y) => x - y)
+    if (xs.length) per.push([o, +xs[xs.length >> 1].toFixed(1), +xs[xs.length - 1].toFixed(1), "sync", +sy[sy.length >> 1].toFixed(1)])
+  }
+  return { coils: at.length, at: at.map((i) => rows[i].t), per, verts: landVerts }
+}
 const agg = {}
 for (const r of rows) {
   const g = agg[r.k] ??= { n: 0, step: 0, sync: 0, draw: 0, ev: 0, vis: 0, nv: 0, max: 0 }
@@ -180,5 +195,5 @@ out.sort((x, y) => (y.step + y.sync + y.draw) - (x.step + x.sync + x.draw))
 const worst = [...rows].sort((x, y) => (y.step + y.sync + y.draw) - (x.step + x.sync + x.draw)).slice(0, 30).map((r) => ({ k: r.k, t: r.t, types: r.types, step: +r.step.toFixed(1), sync: +r.sync.toFixed(1), draw: +r.draw.toFixed(1), rjs: +r.rjs.toFixed(1), ev: r.ev, gl: r.gl }))
 const dbg = gl?.getExtension('WEBGL_debug_renderer_info')
 const median = (k) => { const s = rows.map((r) => r[k]).sort((x, y) => x - y); return +s[s.length >> 1].toFixed(2) }
-window.__fxResult = { kbMedian: [...rows].map((r) => r.kb).sort((x, y) => x - y)[rows.length >> 1], over25: rows.filter((r) => r.draw > 25).length, over16: rows.filter((r) => r.sync + r.draw > 16).length, spikes, gpu: dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : '?', median: { step: median('step'), sync: median('sync'), draw: median('draw') }, frames: rows.length, phase: run.phase, byState: out, worst }
+window.__fxResult = { land: landing(), kbMedian: [...rows].map((r) => r.kb).sort((x, y) => x - y)[rows.length >> 1], over25: rows.filter((r) => r.draw > 25).length, over16: rows.filter((r) => r.sync + r.draw > 16).length, spikes, gpu: dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : '?', median: { step: median('step'), sync: median('sync'), draw: median('draw') }, frames: rows.length, phase: run.phase, byState: out, worst }
 H.note('done ' + rows.length)
