@@ -108,17 +108,21 @@ function playNow() {
   ui.updateHUD(run, [], false)   // hides the Play now button, which would otherwise float over the sheet
   ui.showScreen('pause', pauseData())
 }
-// A tab left open for days (a phone PWA) keeps running the build it booted. Play is the last moment
-// a reload costs nothing: the run is only created later, by the briefing's Start button. Offline,
-// the service worker answers with the cached shell, which names the same bundle, so nothing happens.
-function reloadIfStale() {
-  if (!import.meta.env.PROD) return
+// A tab left open for days (a phone PWA) keeps running the build it booted. Start asks this before
+// creating the run; a stale tab says so on the brief, reloads, and comes back to the same brief
+// (BRIEF_KEY). Offline, the service worker answers with the cached shell, which names the same
+// bundle, so it reads as fresh; a slow network gives up after 2s rather than holding Start.
+const BRIEF_KEY = 'ca-brief-resume'
+async function staleBuild() {
+  if (!import.meta.env.PROD) return false
   const mine = document.querySelector('script[type=module][src]')?.src.split('/').pop()
-  fetch('./', { cache: 'no-store' }).then((r) => r.text()).then((html) => {
+  try {
+    const html = await (await fetch('./', { cache: 'no-store', signal: AbortSignal.timeout(2000) })).text()
     const live = html.match(/assets\/(index-[\w-]+\.js)/)?.[1]
-    if (mine && live && live !== mine && run === null) location.reload()
-  }).catch(() => {})
+    return !!(mine && live && live !== mine)
+  } catch { return false }
 }
+const briefData = (p, extra) => ({ chapterId: p.chapter, difficulty: p.difficulty, mutators: p.mutators, reroll: !CHAPTERS[p.chapter].scripted && !p.endless, endless: p.endless, ...extra })
 function beginRun() {
   devSpeed = 1
   ffTarget = 0
@@ -185,7 +189,6 @@ const ui = initUI({
   },
   onPlay(speedrun = false) {
     initAudio()
-    reloadIfStale()
     // Classic = the selected chapter (meta.chapter) at ITS OWN difficulty ladder (level 1 adds
     // nothing, each level above adds one random mutator + enemy HP) — see meta.chapters[id] in
     // state.js. v6.0.2: the run does NOT start yet — the pre-run summary explains the anomalies
@@ -229,10 +232,17 @@ const ui = initUI({
     pendingPlay = { chapter: chapterId, difficulty: chMeta.difficulty, mutators, endless, speedrun: endless && speedrun === true }
     ui.showScreen('brief', { chapterId, difficulty: chMeta.difficulty, mutators, reroll: !CHAPTERS[chapterId].scripted && !endless, endless })
   },
-  onBriefStart(consumableIds = []) {
+  async onBriefStart(consumableIds = []) {
     if (!pendingPlay) return
     const p = pendingPlay
     pendingPlay = null
+    if (await staleBuild()) {
+      try { sessionStorage.setItem(BRIEF_KEY, JSON.stringify({ ...p, picks: consumableIds })) } catch { /* private mode */ }
+      ui.showScreen('brief', briefData(p, { picks: consumableIds, updating: true }))
+      setTimeout(() => location.reload(), 2500)
+      return
+    }
+    if (ui.activeScreen() !== 'brief') return // backed out while the check was in flight
     startClassic(p.chapter, p.difficulty, p.mutators, consumableIds, p.endless, p.speedrun)
   },
   // v6.0.4/v6.6.19: reroll ONE staged anomaly (by index) for ANOMALY_REROLL_COST, repeatable while
@@ -1225,6 +1235,15 @@ if (parked) {
   ui.updateHUD(run, []) // the ticker only draws the HUD while playing; behind the menu it would read 05:00
   if (run.phase === 'levelup') ui.showScreen('levelup', levelupData())
   else { run.phase = 'paused'; ui.showScreen('pause', { ...pauseData(), away: true }) }
+}
+// Start found a newer build and reloaded: put the player back on the brief they left.
+let resumeBrief = null
+try { resumeBrief = JSON.parse(sessionStorage.getItem(BRIEF_KEY)); sessionStorage.removeItem(BRIEF_KEY) } catch { /* private mode */ }
+if (resumeBrief && !run && CHAPTERS[resumeBrief.chapter]) {
+  const { picks, ...p } = resumeBrief
+  p.mutators = p.mutators.filter((id) => CFG.MUTATORS[id]) // an anomaly the new build dropped
+  pendingPlay = p
+  ui.showScreen('brief', briefData(p, { picks }))
 }
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') leaving()
