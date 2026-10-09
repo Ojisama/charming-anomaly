@@ -21861,6 +21861,9 @@ void main() {
   // slam, the Coil, the lunge — so the player learns it once. White is kept for the parry answer.
   const K_HAZARD = 0xff5a1e
   const K_HAZARD_HOT = 0xffc080
+  const K_COIL_MOTES = 300     // bubbles + plankton per Coil band
+  const K_COIL_MOTE_A = 0.6    // their alpha: faint by the owner's ask
+  const krakenMoteHash = (i) => { const x = Math.sin(i * 12.9898) * 43758.5453; return x - Math.floor(x) }
 
   // A SLAM'S LANE, FROM THE FRAME THE FUSE LIGHTS. Where: the exact capsule sim strikes (segment
   // lx0..lx1, half-width W, round cap past the head) is outlined in the hazard colour from the
@@ -24728,6 +24731,33 @@ void main() {
         b.width = R
         b.height = 2 * (1 + KRAKEN_COIL_SHADOW_SOFT) * krakenCoilBandHalfW(R)
         b.alpha = dk
+        // ...AND THE WATER IN IT STIRS (owner's pick, 2026-10-09: "mix bubbles and plankton
+        // faintly"): plankton wakes and twinkles and bubbles boil up, scattered over exactly this
+        // cone, so the struck ground reads in the dark of the head chase phase. Placed by a hash,
+        // never Math.random, which would re-phase the sim.
+        const ux = Math.cos(t), uy = Math.sin(t), nx = -uy, ny = ux
+        const D = Math.min(R, 1700)
+        const vr2 = (Math.hypot(app.screen.width, app.screen.height) / 2 * u + 30) ** 2   // off-screen motes are skipped
+        for (let i = 0; i < K_COIL_MOTES; i++) {
+          const sd = k * 1000 + i
+          const d = krakenMoteHash(sd * 3) * D, w = krakenCoilBandHalfW(d) * (krakenMoteHash(sd * 3 + 1) * 2 - 1)
+          const x = cx + ux * d + nx * w, y = cy + uy * d + ny * w
+          if ((x - p.x) ** 2 + (y - p.y) ** 2 > vr2) continue
+          if (i & 1) {
+            // a plankton speck: a soft halo and a bright core, twinkling
+            const tw = 0.55 + 0.45 * Math.sin(animT * (2 + 3 * krakenMoteHash(sd * 7)) + i * 2.1)
+            const al = K_COIL_MOTE_A * (0.2 + 0.8 * dk) * tw, r = 1.6 + 2.2 * krakenMoteHash(sd * 5)
+            krakenDangerG.circle(x, y, r * 4).fill({ color: 0x2fd6c4, alpha: 0.10 * al })
+            krakenDangerG.circle(x, y, r).fill({ color: 0xbffff4, alpha: 0.9 * al })
+          } else {
+            // a bubble rising toward the camera: it grows, then pops, faster as the arms come down
+            const life = (krakenMoteHash(sd * 3 + 2) + animT * (0.5 + 1.2 * dk)) % 1
+            const r = (2 + 7 * krakenMoteHash(sd * 5)) * (0.4 + life)
+            const al = K_COIL_MOTE_A * (0.3 + 0.6 * dk) * (life < 0.9 ? 1 : (1 - life) * 10)
+            krakenDangerG.circle(x, y, r).stroke({ width: 1.5 * u, color: 0xcfeaff, alpha: 0.8 * al })
+            krakenDangerG.circle(x - r * 0.35, y - r * 0.35, r * 0.28).fill({ color: 0xffffff, alpha: 0.7 * al })
+          }
+        }
       }
     }
 
