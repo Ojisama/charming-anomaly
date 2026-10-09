@@ -8,7 +8,7 @@ import {
   GRAVITY_WELL_R, GRAVITY_FORCE, GRAVITY_MIN_DIST, GRAVITY_MIN_GAP,
   pickWorldSeed, usesObstacleSeed, TRAWL_FIRST_PASS, ORCA_SHADOW_FIRST, ORCA_SHADOW_PASSES,
   BOOKS, BOOK_ORDER, shopLines, bookOf, isWipChapter, SLOW_BURN_FLOOR, CURRENT_RESIST_FLOOR, unlockLevel, unlockMax,
-  lineMax, SACRIFICE_COSTS, BOOK_UNLOCKS, unlockCost, SPUR_TICK, hiddenChapters } from './config.js'
+  lineMax, SACRIFICE_COSTS, BOOK_UNLOCKS, unlockCost, SPUR_TICK, hiddenChapters, HIDDEN_UNLOCKS } from './config.js'
 
 const SAVE_KEY = 'charming-anomaly-save-v1'
 
@@ -325,6 +325,14 @@ export function loadMeta() {
           const prev = m.chapters[book.chapters[i - 1]]
           if (prev?.maxDifficulty > CHAPTER_UNLOCK_DIFFICULTY) m.chapters[book.chapters[i]].unlocked = true
         }
+      }
+      // ...and the same for a HIDDEN chapter: one that shipped after the player already won its
+      // gate (HIDDEN_UNLOCKS) opens on load, since endRun skipped it while it was held back
+      for (const [id, gate] of Object.entries(HIDDEN_UNLOCKS)) {
+        if (gate.wip) continue
+        const from = m.chapters[gate.from]
+        const beat = Math.max(Number(from?.won) || 0, (Number(from?.maxDifficulty) || 1) - 1)
+        if (beat >= gate.difficulty) ensureChapterMeta(m, id).unlocked = true
       }
       // R3 (see ensureChapterMeta above): floor only. A future build's higher choiceSlots is kept
       // exactly as stored — clamping it here would persist the smaller number — and createRun

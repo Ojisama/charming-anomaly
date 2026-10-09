@@ -173,11 +173,11 @@ import {
   KRAKEN_RISE_T, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, hiddenChapters, KRAKEN_CAGE_R, KRAKEN_PARRY_CD,
   KRAKEN_OPEN_WAVES, KRAKEN_COIL_EVERY, KRAKEN_COIL_RAYS, KRAKEN_ENRAGE_AT, KRAKEN_RAGE_AT, KRAKEN_RAGE_HITS_MIN, KRAKEN_RAGE_HITS_MAX, KRAKEN_RAGE_VOLLEY, KRAKEN_RAGE_VOLLEY_SPREAD, KRAKEN_RAGE_FUSE, KRAKEN_RAGE_GAP, KRAKEN_RAGE_CALM, KRAKEN_RAGE_CHANCE, KRAKEN_NODE_BACK, KRAKEN_HEAD_HP, KRAKEN_HEAD_HP_AT, KRAKEN_HEAD_HP_PER_S, KRAKEN_ARRIVE_T, KRAKEN_RING_R, KRAKEN_LASH_R, KRAKEN_SLAM_T, KRAKEN_DEFLECT_CD,
   KRAKEN_LUNGE_T, KRAKEN_GRIP_DUR, KRAKEN_GRIP_DMG, KRAKEN_GRIP_FLICKS, KRAKEN_GRIP_STICK_MUL, TRAWL_WIGGLE_ARC,
-  KRAKEN_LASH_W, KRAKEN_LASH_OVER, KRAKEN_LASH_DMG, KRAKEN_LESSON_MAX, KRAKEN_PARRY_SHOVE_R, KRAKEN_PARRY_EARLY_T, KRAKEN_LIMP_CLEAR, KRAKEN_ARRIVE_T2, KRAKEN_WAVE_GROWTH, KRAKEN_COIL_DMG,
+  KRAKEN_LASH_W, KRAKEN_LASH_OVER, KRAKEN_LASH_DMG, KRAKEN_LESSON_MAX, KRAKEN_PARRY_SHOVE_R, KRAKEN_PARRY_EARLY_T, KRAKEN_LIMP_CLEAR, KRAKEN_ARRIVE_T2, KRAKEN_WAVE_GROWTH, KRAKEN_COIL_DMG, KRAKEN_COIL_SHADOW_SOFT,
   KRAKEN_HEAD_SPEED, KRAKEN_PARRY_SPIN_T, krakenLimbHalfW, FISH_R, FISH_BODY, KRAKEN_GRIP_EVERY, KRAKEN_GRAB_FUSE, KRAKEN_GRAB_MIN_STEP, KRAKEN_PINCH_OPEN0, KRAKEN_PINCH_OPEN1,
   KRAKEN_BEAT_READ, KRAKEN_BEAT_GRAB_CLEAR, KRAKEN_BEAT_BREATH, KRAKEN_HEAD_R, KRAKEN_CHASE_CAGE_R, KRAKEN_HEAD_HOLD, KRAKEN_DASH_DIST, KRAKEN_DASH_SPEED, KRAKEN_DASH_RUNUP, KRAKEN_DASH_PARRY_PX, KRAKEN_HEAD_TOUCH_DMG, KRAKEN_LUNGE_DMG, KRAKEN_LUNGE_WINDUP_T,
 } from '../src/config.js'
-import { krakenWinPending, krakenPinchProbe, krakenGrabSpot, krakenGrabTurnClear, stepSim, applyChoice, fastForwardEndless, endlessHandover, autopilotPick, buildLevelUpChoices, eligibleWeaponModCandidates, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, inRefillCircle, refillCircleAt, stepCharge, newElWindow, spurAt, inMaw } from '../src/sim.js'
+import { krakenCoilStarHits, krakenWinPending, krakenPinchProbe, krakenGrabSpot, krakenGrabTurnClear, stepSim, applyChoice, fastForwardEndless, endlessHandover, autopilotPick, buildLevelUpChoices, eligibleWeaponModCandidates, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, inRefillCircle, refillCircleAt, stepCharge, newElWindow, spurAt, inMaw } from '../src/sim.js'
 
 // ---- Scenario runner: one filter, and the gate's own dispatch flag ----------------------------
 // THIS FILE IS NO LONGER WHAT `npm test` RUNS. scripts/test-isolation.mjs hands one scenario to
@@ -20824,6 +20824,7 @@ run(testLeLargeWeapons)
   run(testKrakenEnrage)
   run(testKrakenRage)
   run(testKrakenRageAim)
+  run(testKrakenCoilShadowHit)
   run(testKrakenPace)
   run(testKrakenBeat)
   run(testKrakenNowCue)
@@ -32484,12 +32485,17 @@ function testTheDeep() {
   {
     assert.ok(BOOKS.undertow.chapters.includes('deep'), "run DP.i: The Deep is not in Undertow's chapter list")
     assert.ok(CHAPTER_SPINE.deep, 'run DP.i: no CHAPTER_SPINE entry — the bookcase draws its spine with the article on')
-    // Owner 2026-09-29: "Ship the deep", The Kraken stays shut.
+    // Owner 2026-09-29: "Ship the deep"; 2026-10-09: "make the boss available to all players".
     assert.ok(!isWipChapter('deep'), 'run DP.i: The Deep is still WIP-gated, so no player can reach it')
     assert.ok(shippedChapterIds().includes('deep'), 'run DP.i: The Deep is not in the shipped denominator')
-    assert.strictEqual(HIDDEN_UNLOCKS.kraken.wip, true, 'run DP.i: The Kraken is no longer held back, so winning The Deep at 5 opens it')
-    assert.ok(readFileSync(new URL('../src/main.js', import.meta.url), 'utf8').includes('if (gate.wip || run.chapter !== gate.from'),
-      'run DP.i: endRun no longer skips a `wip` hidden unlock, so The Kraken opens off a Deep win')
+    assert.ok(!HIDDEN_UNLOCKS.kraken.wip, 'run DP.i: The Kraken is still held back, so winning The Deep at 5 does not open it')
+    assert.deepStrictEqual([HIDDEN_UNLOCKS.kraken.from, HIDDEN_UNLOCKS.kraken.difficulty], ['deep', 5], 'run DP.i: The Kraken is not behind a Deep win at 5')
+    // ...and a player who won The Deep at 5 BEFORE it shipped finds it open on load, not after a re-win
+    {
+      const save = (won) => ({ schema: 1, coins: 0, runs: 3, lang: 'en', shop: {}, best: {}, nick: 'x', chapters: { deep: { unlocked: true, maxDifficulty: won + 1, difficulty: won, won } } })
+      assert.ok(loadMetaFrom(save(5)).chapters.kraken?.unlocked === true, 'run DP.i: a save that won The Deep at 5 loads with The Kraken locked')
+      assert.ok(loadMetaFrom(save(4)).chapters.kraken?.unlocked !== true, 'run DP.i: a save that won The Deep only at 4 loads with The Kraken open')
+    }
     assert.strictEqual(CHAPTERS.deep.signature.type, 'dark', 'run DP.i: the signature is not `dark`, so stepAnglers and the lightmap both no-op')
     assert.ok(CHAPTERS.deep.scent === true, 'run DP.i: the chapter does not declare `scent`, so the button spends the bar and does nothing')
     assert.ok(CHAPTERS.deep.weapons.includes(CHAPTERS.deep.starter),
@@ -38137,6 +38143,32 @@ function testKrakenPace() {
 
 // A RAGE SLAM LANDS ON YOUR SPOT (owner, 2026-10-09: "remove the aims ahead and re-add 0.3s of
 // windup"): it locks where the fish is when it rears, swimming or not, and winds up 0.9 + 0.3 s.
+// THE COIL'S SHADOW IS ITS HITBOX (owner, 2026-10-09: "the telegraph should always match what the actual
+// attack hits"): a fish whose body reaches the band's half-dark edge is hit, one just clear of it is not,
+// and render.js shapes that edge from the same KRAKEN_COIL_SHADOW_SOFT, centred on KRAKEN_LASH_W.
+function testKrakenCoilShadowHit() {
+  const run = createRun({ ...makeMeta(), krakenParried: true }, { chapter: 'kraken', difficulty: 3 })
+  assert.strictEqual(CHAPTERS.kraken.playerBody, 'fish', 'fixture: the Kraken fish has no body')
+  const s = run.script
+  Object.assign(s, { coilStar: 0, coilN: 1, coilCX: 0, coilCY: 0 })
+  const head = { x: 0, y: 0 }
+  const hw = FISH_R * FISH_BODY.halfWidth
+  // a fish swimming alongside the band (+x), its body's edge d px off the band's own edge
+  const at = (d) => { run.player.x = 400; run.player.y = KRAKEN_LASH_W + hw + d; run.player.facingAngle = 0; return krakenCoilStarHits(run, head) }
+  assert.ok(at(-2), 'a fish body 2px inside the Coil band\'s shadow edge was not hit')
+  assert.ok(!at(2), 'a fish body 2px clear of the Coil band\'s shadow edge was hit')
+  // nose-on: a fish pointing AT the band is hit by its nose, not its centre
+  run.player.facingAngle = -Math.PI / 2; run.player.x = 400
+  run.player.y = KRAKEN_LASH_W + hw + FISH_R * FISH_BODY.nose - 2
+  assert.ok(krakenCoilStarHits(run, head), 'a fish nosing into the Coil band\'s shadow was not hit')
+  // the bake's half-dark line sits on the struck edge: its strips run (1-SOFT)W .. (1+SOFT)W
+  const src = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
+  assert.ok(src.includes('const m = 1 - KRAKEN_COIL_SHADOW_SOFT + q * 2 * KRAKEN_COIL_SHADOW_SOFT / 23; g.rect(0, -KRAKEN_LASH_W * m'),
+    'render.js no longer centres the Coil shadow\'s fade on KRAKEN_LASH_W from KRAKEN_COIL_SHADOW_SOFT')
+  assert.ok(src.includes('b.height = 2 * (1 + KRAKEN_COIL_SHADOW_SOFT) * W') && src.includes('new Sprite(T.krakenCoilBand.tex)'),
+    'render.js stretches the Coil shadow to a different width than it baked, or hands the sprite no texture')
+  assert.ok(KRAKEN_COIL_SHADOW_SOFT > 0 && KRAKEN_COIL_SHADOW_SOFT <= 0.2, `the Coil shadow's fade (${KRAKEN_COIL_SHADOW_SOFT}) is not a sharp edge`)
+}
 function testKrakenRageAim() {
   assert.ok(Math.abs(KRAKEN_RAGE_FUSE - (0.9 + 0.3)) < 1e-9, 'a rage slam does not wind up 0.9 + 0.3 s')
   const { run, s, head } = krakenChase3(4242)
