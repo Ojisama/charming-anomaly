@@ -2081,11 +2081,8 @@ function krakenSweepOutside(run, head, reach) {
   return swept
 }
 
-// ...AND THE ARMS BRING THE FLOOR IN WITH THEM. The cage shuts to KRAKEN_CAGE_R around a head that
-// surfaced wherever the player happened to be standing, and gems only home inside p.magnet and are
-// otherwise static — so everything the approach paid for, plus everything the closing ring crushed,
-// is left in water the player is then locked out of. Measured at victory before this: 122-140 xp on
-// the ground, about three levels at that point in the fight.
+// ...AND THE ARMS BRING THE COINS IN WITH THEM, NEVER THE GEMS: xp left outside the cage stays
+// there (owner, 2026-10-09: hauling it in "gives too much xp to the player").
 //   ONE SHOT, ON THE FRAME THE CAGE SHUTS — not per-frame while it closes. A per-frame re-projection
 // fights the magnet: a gem being vacuumed from just outside is pinned back onto the circle every
 // frame and can only slide around it, never in. Called from the two frames that put a wall up.
@@ -2095,7 +2092,7 @@ function krakenSweepOutside(run, head, reach) {
 // against a ring that opens at 620. Measured over a whole fight: 0 or 1 sweeps, 0 or 1 hauls.
 function krakenHaulLoot(run, head) {
   const inner = KRAKEN_HAUL_R
-  for (const list of [run.gems, run.coins]) {
+  for (const list of [run.coins]) {
     for (const g of list) {
       const dx = g.x - head.x, dy = g.y - head.y
       const d = Math.hypot(dx, dy)
@@ -2660,7 +2657,7 @@ function stepKrakenArms(run, dt, rung, head) {
   if (!lesson) s.turnT -= dt
   if (s.turnT <= 0 && !lesson) {
     const { rearing, idle } = krakenTurnPool(run)
-    if (!(s.turnBagI < (s.turnBag?.length ?? 0))) { s.turnBag = krakenTurnBag(run, rung); s.turnBagI = 0 }
+    if (!(s.turnBagI < (s.turnBag?.length ?? 0)) || (s.turnBag.late != null && s.turnBag.late !== krakenTurnLate(s))) { s.turnBag = krakenTurnBag(run, rung); s.turnBagI = 0 }
     let { wantCoil, wantGrip, wantSlap } = krakenTurnWant(run, rung)
     // A HOLD THAT NEVER LETS GO (rung.gripHold) MUST NOT FREEZE THE RING: a Coil or grab turn waits
     // out a hold (krakenBeatClear), and on d3 a hold only ends when the fish wiggles free — so while
@@ -2808,19 +2805,25 @@ function krakenTurnPool(run) {
   return { rearing, idle }
 }
 
-// A FRESH BAG OF KRAKEN_TURN_BAG TURNS, in the rung's mix and a random order (Fisher-Yates).
+// A FRESH BAG OF KRAKEN_TURN_BAG ARM ATTACKS plus its Coils, in the rung's mix and a random order
+// (Fisher-Yates). Only what this moment allows goes in: before the Coil and the slap are taught their
+// turns are not slams in disguise, they are simply not in the bag.
 function krakenTurnBag(run, rung) {
   const s = run.script
   const coilEvery = s.enraged && rung.enrageCoilEvery ? rung.enrageCoilEvery : KRAKEN_COIL_EVERY
+  const late = krakenTurnLate(s)
   const bag = []
-  const put = (k, every) => { for (let i = 0; i < Math.round(KRAKEN_TURN_BAG / every); i++) bag.push(k) }
-  if (rung.coil) put('coil', coilEvery)
-  if (rung.grip) put('grab', KRAKEN_GRIP_EVERY)
-  if (rung.slap) put('slap', KRAKEN_SLAP_EVERY)
-  while (bag.length < KRAKEN_TURN_BAG) bag.push('slam')
+  const put = (k, n) => { for (let i = 0; i < n; i++) bag.push(k) }
+  if (rung.grip) put('grab', KRAKEN_TURN_BAG / KRAKEN_GRIP_EVERY)
+  if (rung.slap && late) put('slap', KRAKEN_TURN_BAG / KRAKEN_SLAP_EVERY)
+  put('slam', KRAKEN_TURN_BAG - bag.length)
+  if (rung.coil && late) put('coil', Math.round(KRAKEN_TURN_BAG / (coilEvery - 1)))
+  bag.late = late
   for (let i = bag.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [bag[i], bag[j]] = [bag[j], bag[i]] }
   return bag
 }
+// the Coil and the slap are never the first thing a rung teaches: from the second ring block on
+const krakenTurnLate = (s) => s.phase === 'chase' || s.bossIdx >= 2
 // What the ring's next turn will be: the bag's next entry, if this rung and this moment allow it —
 // otherwise a plain slam. Pure: reads the bag, draws no randoms.
 function krakenTurnWant(run, rung) {
@@ -2829,7 +2832,7 @@ function krakenTurnWant(run, rung) {
   // the block's first attack is always a slam; the Coil and the slap are never the first thing a
   // rung teaches; d2 never coils, not even enraged (rung.coil: owner, 2026-10-07)
   const open = s.gripN > 0
-  const late = s.phase === 'chase' || s.bossIdx >= 2
+  const late = krakenTurnLate(s)
   const wantCoil = open && k === 'coil' && !!rung.coil && late
   const wantGrip = open && k === 'grab' && !!rung.grip && s.bossIdx >= 1
   const wantSlap = open && k === 'slap' && !!rung.slap && late

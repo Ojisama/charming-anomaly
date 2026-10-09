@@ -9470,7 +9470,6 @@ export const KRAKEN_DASH_PARRY_PX = 262
 // arms slam together along a star of bands; the wedges between them are safe. NOT PARRYABLE by
 // design: the parry must not be the answer to everything. You read the gaps and you move.
 // balance_decision : a coil every 4th turn, on a slam's, owner 2026-09-26
-//  - keep EVERY a multiple of KRAKEN_GRIP_EVERY and AT off it, or the coil eats the grabs
 export const KRAKEN_COIL_EVERY = 4 // arm attacks between coils
 // THE COIL IS A STAR (owner, 2026-09-26): the rearing ring throws KRAKEN_COIL_RAYS arm-shadows across
 // the whole arena through the head, at a RANDOM bearing (owner, 2026-09-27); inside a band when it
@@ -9484,17 +9483,18 @@ export const KRAKEN_COIL_TELE = 1.6 // s of wind-up before the ring closes — l
 export const KRAKEN_COIL_DUR = 0.9 // s the ring spends hauled in
 export const KRAKEN_COIL_IN = 0.34 // the fraction of KRAKEN_ARM_REACH the arms close to
 export const KRAKEN_COIL_DMG = 30 // caught outside the gap when it shuts
-// THE RING'S TURNS COME OUT OF A SHUFFLED BAG of this many: a grab per KRAKEN_GRIP_EVERY, a Coil per its
-// every, a slap per KRAKEN_SLAP_EVERY, slams for the rest — the same mix, never the same order
-// (owner, 2026-10-08: "currently it's always 3 slams then 1 grab over and over")
-export const KRAKEN_TURN_BAG = 8
+// THE RING'S TURNS COME OUT OF A SHUFFLED BAG of this many arm attacks: a grab per KRAKEN_GRIP_EVERY, a
+// slap per KRAKEN_SLAP_EVERY, slams for the rest — plus the Coils on top, one per its every-1 of these.
+// The same mix, never the same order (owner, 2026-10-08: "currently it's always 3 slams then 1 grab")
+// balance_decision : d3 arm attacks are half slams, 1/4 slaps, 1/4 grabs, owner 2026-10-09
+export const KRAKEN_TURN_BAG = 12
 
 // THE BACKHAND SLAP (d3 only, rung.slap). One arm pivots on its own ring shoulder, cocks back to one
 // side of the fish with its suckers lit (the slam's own wind-up), then swings through the fish's
 // bearing and follows through: whatever it crosses, out to KRAKEN_SLAP_LEN, is slapped ONCE. The
 // answers are the parry, in the normal window as the swing starts, and hugging the head, which the
 // limb passes over. A parried slap goes limp like any parried slam.
-export const KRAKEN_SLAP_EVERY = 8      // arm attacks per slap (one in each turn bag)
+export const KRAKEN_SLAP_EVERY = 4      // arm attacks per slap
 export const KRAKEN_SLAP_FUSE = 1.6     // s from the turn to the swing reaching the fish's bearing
 export const KRAKEN_SLAP_SWING = 0.25   // s of that, the swing itself (cocked -> the fish's bearing)
 export const KRAKEN_SLAP_COCK = 170     // px beside the fish the cocked limb lies: on a phone's screen, so the wind-up is SEEN
