@@ -10631,7 +10631,7 @@ export const HIDDEN_UNLOCKS = {
             icon: '⬜', unlocked: 'THE BLANK — the antibody that let you go wants you back' },
   // `wip: true` would hold one back: the win does not unlock it (The Kraken shipped 2026-10-09)
   kraken: { from: 'deep',   difficulty: 5, hint: 'win The Deep at level 5 — the graveyard has been waiting',
-            icon: '🦑', unlocked: 'THE KRAKEN — the monster below is angered by your light' },
+            icon: '🌊', unlocked: 'The monster below is angered by your light' },
 }
 // Every chapter that sits OUTSIDE its book's ladder, derived from the books rather than listed
 // again. `hidden` does not mean unreleased — it means off the ladder; only wipFrom hides a chapter
