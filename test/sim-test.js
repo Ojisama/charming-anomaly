@@ -169,7 +169,7 @@ import {
   // The Trawl's late-game cut (run TJ)
   lateSpawnMulAt, SPAWN_LATE_BLEND, SPAWN_LATE_START,
   // The Kraken (run KR): the rung table and the ring's numbers
-  krakenRung, krakenRungFor, KRAKEN_TURN_BAG, KRAKEN_SLAP_EVERY, KRAKEN_SLAP_COCK, KRAKEN_SLAP_SWING, KRAKEN_SLAP_SAFE_R, KRAKEN_SLAP_FUSE, KRAKEN_SLAP_FOLLOW_T, KRAKEN_TRICKLE_T, KRAKEN_TRICKLE_EDGE, KRAKEN_TRICKLE_CLEAR, OPEN_GUARD_WINDOW_MUL, HAIR_TRIGGER_WINDOW_MUL, HAIR_TRIGGER_DMG_MUL, KRAKEN_RUNGS, KRAKEN_ARM_REACH, KRAKEN_WAVE_TIMEOUT, KRAKEN_STAGGER_BITE,
+  krakenRung, krakenRungFor, KRAKEN_TURN_BAG, KRAKEN_SLAP_EVERY, KRAKEN_SLAP_COCK, KRAKEN_SLAP_SWING, KRAKEN_SLAP_FUSE, KRAKEN_SLAP_FOLLOW_T, KRAKEN_TRICKLE_T, KRAKEN_TRICKLE_EDGE, KRAKEN_TRICKLE_CLEAR, OPEN_GUARD_WINDOW_MUL, HAIR_TRIGGER_WINDOW_MUL, HAIR_TRIGGER_DMG_MUL, KRAKEN_RUNGS, KRAKEN_ARM_REACH, KRAKEN_WAVE_TIMEOUT, KRAKEN_STAGGER_BITE,
   KRAKEN_RISE_T, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, hiddenChapters, KRAKEN_CAGE_R, KRAKEN_PARRY_CD,
   KRAKEN_OPEN_WAVES, KRAKEN_COIL_EVERY, KRAKEN_COIL_RAYS, KRAKEN_ENRAGE_AT, KRAKEN_RAGE_AT, KRAKEN_RAGE_HITS, KRAKEN_RAGE_CALM, KRAKEN_RAGE_CHANCE, KRAKEN_NODE_BACK, KRAKEN_HEAD_HP, KRAKEN_HEAD_HP_AT, KRAKEN_HEAD_HP_PER_S, KRAKEN_ARRIVE_T, KRAKEN_RING_R, KRAKEN_LASH_R, KRAKEN_SLAM_T, KRAKEN_DEFLECT_CD,
   KRAKEN_LUNGE_T, KRAKEN_GRIP_DUR, KRAKEN_GRIP_DMG, KRAKEN_GRIP_FLICKS, KRAKEN_GRIP_STICK_MUL, TRAWL_WIGGLE_ARC,
@@ -36246,7 +36246,7 @@ function runKraken() {
 
   // (g3e) THE BACKHAND SLAP (owner, 2026-10-08: "make the slap a real attack"). d3 only; one arm
   // pivots on its shoulder and swings through the fish's bearing across the whole arena. Answers:
-  // the parry as the swing starts, or hugging the head, which the limb passes over.
+  // the parry as the swing starts (a rage slap: swimming out past its tip). No ground by the head is safe.
   {
     // the next ring turn is the slap's; the fish holds `at` (an offset from the head) throughout
     const slapRun = (diff, at, press = false, drift = 0, flee = 0, rage = false) => {
@@ -36325,10 +36325,11 @@ function runKraken() {
     assert.ok(run2.cock.length > 30, 'fixture: no wind-up measured with a moving head')
     for (const d of run2.cock) assert.ok(Math.abs(d - KRAKEN_SLAP_COCK) <= 40, `with the head moving the cocked slap lay ${Math.round(d)}px from the fish, not ~${KRAKEN_SLAP_COCK}`)
     assert.strictEqual(run2.hits.length, 1, `with the head moving, a still fish in the slap's path took ${run2.hits.length} hit(s)`)
-    // THE HEAD'S GROUND IS PASSED OVER
-    const hug = slapRun(3, { x: Math.cos(1.0) * (KRAKEN_SLAP_SAFE_R - 40), y: Math.sin(1.0) * (KRAKEN_SLAP_SAFE_R - 40) })
+    // NO SAFE GROUND BY THE HEAD: the limb drawn across the fish hits it (owner, 2026-10-09: the slaps
+    // "pass over my body and i don't get hit", "remove the safe zone altogether")
+    const hug = slapRun(3, { x: Math.cos(1.0) * 160, y: Math.sin(1.0) * 160 })
     assert.ok(hug.armed, 'fixture: no slap armed for the hug case')
-    assert.deepStrictEqual(hug.hits, [], `a fish hugging the head (${KRAKEN_SLAP_SAFE_R - 40}px) was slapped — the limb is meant to pass over it`)
+    assert.strictEqual(hug.hits.length, 1, `a fish 160px from the head took ${hug.hits.length} hit(s), not one — the limb crossed it and passed over`)
     // THE PARRY ANSWERS IT, in the normal window as the swing starts
     const par = slapRun(3, out, true)
     assert.ok(par.armed, 'fixture: no slap armed for the parry case')

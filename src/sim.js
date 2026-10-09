@@ -238,7 +238,7 @@ import {
   KRAKEN_BEAT_READ, KRAKEN_BEAT_GRAB_CLEAR, KRAKEN_BEAT_BREATH,
   KRAKEN_TRICKLE_T, KRAKEN_TRICKLE_EDGE, KRAKEN_TRICKLE_CLEAR, KRAKEN_ADD_CAP,
   KRAKEN_LUNGE_T, KRAKEN_LUNGE_WINDUP_T, KRAKEN_LUNGE_DMG, KRAKEN_RISE_T,
-  KRAKEN_SLAP_EVERY, KRAKEN_TURN_BAG, KRAKEN_SLAP_FUSE, KRAKEN_SLAP_SWING, KRAKEN_SLAP_COCK, KRAKEN_SLAP_FOLLOW, KRAKEN_SLAP_FOLLOW_T, KRAKEN_SLAP_LEN, KRAKEN_SLAP_PAST, KRAKEN_SLAP_SAFE_R, KRAKEN_SLAP_DMG,
+  KRAKEN_SLAP_EVERY, KRAKEN_TURN_BAG, KRAKEN_SLAP_FUSE, KRAKEN_SLAP_SWING, KRAKEN_SLAP_COCK, KRAKEN_SLAP_FOLLOW, KRAKEN_SLAP_FOLLOW_T, KRAKEN_SLAP_LEN, KRAKEN_SLAP_PAST, KRAKEN_SLAP_DMG,
   KRAKEN_COIL_EVERY, KRAKEN_COIL_RAYS, KRAKEN_COIL_STAR_TRIES, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, KRAKEN_COIL_IN, KRAKEN_COIL_DMG,
   hasSkillButton,
   KRAKEN_WAVE, KRAKEN_BREAK_WAVE_MUL, KRAKEN_WAVE_CAP, KRAKEN_WAVE_GAP, KRAKEN_WAVE_TIMEOUT, KRAKEN_WAVE_XP_MUL,
@@ -1823,10 +1823,9 @@ function krakenSlapAim(run, a, head) {
   a.slapEdge = Math.asin(Math.min(1, (KRAKEN_LIMB_HW + PLAYER.radius) / d))
 }
 // Does the flat of the limb, turning from angle `from` to `to` about its shoulder, cross the fish?
-// The head's own ground (KRAKEN_SLAP_SAFE_R) is passed over.
+// It hits wherever the limb crosses, next to the head too (owner, 2026-10-09: "remove the safe zone altogether").
 function krakenSlapSweeps(run, a, head, from, to) {
   const p = run.player
-  if ((p.x - head.x) ** 2 + (p.y - head.y) ** 2 < KRAKEN_SLAP_SAFE_R ** 2) return false
   const sx = head.x + Math.cos(a.ang) * KRAKEN_RING_R, sy = head.y + Math.sin(a.ang) * KRAKEN_RING_R
   const d = Math.hypot(p.x - sx, p.y - sy)
   if (d > a.slapLen + PLAYER.radius) return false
