@@ -368,7 +368,7 @@ const UI = {
   // v6.7 carousel counter. Stands alone in front of a numeral ("Chapitre 3"), so it takes no
   // article and no agreement — the single word is the whole string on purpose.
   'THE BLANK — the antibody that let you go wants you back': 'LE BLANC — l\'anticorps qui t\'a laissé filer veut que tu reviennes',
-  'THE KRAKEN — the monster below is angered by your light': 'LE KRAKEN — le monstre des profondeurs est furieux de ta lumière',
+  'The monster below is angered by your light': 'Le monstre des profondeurs est furieux de ta lumière',
   'finish bonus': 'bonus de fin',
   // v7.5 SPECIALIST on the build sheet ("Spécialiste : Borne Incendie"). NBSP before the colon —
   // the one piece of French this string carries, and the reason it needs an entry at all.
