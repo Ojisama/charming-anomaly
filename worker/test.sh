@@ -153,7 +153,7 @@ sbody()   { scall "$@" | tail -n +2; }
 post()    { scall POST -H 'content-type: application/json' -d "$1" "$SBASE"; }
 
 is "an unknown board is 200, not 404"       200   "$(sstatus GET "$SBASE?chapter=$CH&difficulty=3")"
-is "and it is empty rather than absent"     '{"kills":[],"level":[],"time":[],"lap":[],"survive":[]}' "$(sbody GET "$SBASE?chapter=$CH&difficulty=3")"
+is "and it is empty rather than absent"     '{"kills":[],"level":[],"time":[],"lap":[],"survive":[],"parry":[]}' "$(sbody GET "$SBASE?chapter=$CH&difficulty=3")"
 is "a board read carries no Authorization"  200   "$(sstatus GET "$SBASE?chapter=$CH&difficulty=1")"
 
 is "a score is accepted"                    200   "$(post "{\"nick\":\"Ann\",\"chapter\":\"$CH\",\"difficulty\":3,\"kills\":900,\"level\":20}" | head -1)"
@@ -202,8 +202,16 @@ is "a longer endless run is accepted"       200   "$(post "{\"nick\":\"Eli\",\"c
 is "the survive board sorts longest first"  'Eli:1800000,Flo:600000' "$(sbody GET "$SBASE?chapter=$CH&difficulty=0" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{console.log(JSON.parse(s).survive.map(r=>r.nick+":"+r.surviveMs).join(","))}catch{console.log("PARSE_ERROR:"+s.trim())}})')"
 is "a campaign board has no survive rows"   0     "$(count "$(sbody GET "$SBASE?chapter=$CH&difficulty=3")" survive)"
 
+# THE PARRY BOARD (the Kraken): highest % first, a tie goes to the FASTER kill. Gus ties Hal on % but
+# killed slower; Ivy has the lowest % and the fastest kill, so a board sorted on time puts her first.
+is "a parry score is accepted"              200   "$(post "{\"nick\":\"Gus\",\"chapter\":\"$CH\",\"difficulty\":2,\"kills\":1,\"level\":5,\"timeMs\":200000,\"parryPct\":90}" | head -1)"
+post "{\"nick\":\"Hal\",\"chapter\":\"$CH\",\"difficulty\":2,\"kills\":1,\"level\":5,\"timeMs\":100000,\"parryPct\":90}" >/dev/null
+post "{\"nick\":\"Ivy\",\"chapter\":\"$CH\",\"difficulty\":2,\"kills\":1,\"level\":5,\"timeMs\":50000,\"parryPct\":40}" >/dev/null
+is "the parry board sorts highest first"    'Hal:90,Gus:90,Ivy:40' "$(sbody GET "$SBASE?chapter=$CH&difficulty=2" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{console.log(JSON.parse(s).parry.map(r=>r.nick+":"+r.parryPct).join(","))}catch{console.log("PARSE_ERROR:"+s.trim())}})')"
+is "a parry % over 100 is 400"              400   "$(post "{\"nick\":\"Ann\",\"chapter\":\"$CH\",\"difficulty\":4,\"kills\":5,\"level\":2,\"parryPct\":101}" | head -1)"
+
 # Difficulty is part of the board's identity, not a filter applied afterwards.
-is "another difficulty is a separate board" '{"kills":[],"level":[],"time":[],"lap":[],"survive":[]}' "$(sbody GET "$SBASE?chapter=$CH&difficulty=4")"
+is "another difficulty is a separate board" '{"kills":[],"level":[],"time":[],"lap":[],"survive":[],"parry":[]}' "$(sbody GET "$SBASE?chapter=$CH&difficulty=4")"
 
 echo "-- leaderboard rejections (shape only — this endpoint is deliberately credulous) --"
 is "a short nick is 400"                    400   "$(post "{\"nick\":\"Bo\",\"chapter\":\"$CH\",\"difficulty\":3,\"kills\":5,\"level\":2}" | head -1)"
@@ -230,7 +238,7 @@ is "PUT to /scores is 405"                  405   "$(sstatus PUT "$SBASE")"
 is "a bad board read is 400"                400   "$(sstatus GET "$SBASE?chapter=$CH&difficulty=abc")"
 # Nothing above may have written a row: a rejected submit that still inserted would be invisible
 # until someone opened the podium and found a stranger on it.
-is "no rejection wrote a row"               '{"kills":[],"level":[],"time":[],"lap":[],"survive":[]}' "$(sbody GET "$SBASE?chapter=$CH&difficulty=4")"
+is "no rejection wrote a row"               '{"kills":[],"level":[],"time":[],"lap":[],"survive":[],"parry":[]}' "$(sbody GET "$SBASE?chapter=$CH&difficulty=4")"
 
 echo "-- beta allowlist (/v1/beta) --"
 BBASE="http://127.0.0.1:$PORT/v1/beta"

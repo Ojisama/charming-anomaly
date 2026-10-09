@@ -337,6 +337,7 @@ const UI = {
   // fastest lap, and it is a character SHORTER than 'Meilleur temps' above -- so it clears the
   // same 142px eyebrow that comment measured, with room over.
   'Best lap': 'Meilleur tour',
+  'Parries': 'Parades',
   // The circuit summary's own row, beside 'Meilleur tour'. 'Tours' and not 'Tours de piste':
   // the row prints '3/5' next to it, which is what says these are laps of a circuit.
   'Laps': 'Tours',

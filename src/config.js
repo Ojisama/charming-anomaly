@@ -8931,7 +8931,7 @@ CHAPTERS.kraken = {
   // docs/superpowers/specs/2026-09-09-the-kraken-final-boss-design.md (revision 2).
   scripted: true,
   parry: true,
-  boards: ['kills', 'time'],
+  boards: ['time', 'parry'],
   maxDifficultyCap: 3,
   // balance_decision : 20% more xp per level here, owner 2026-10-09
   xpNeedMul: 1.2,
@@ -9449,8 +9449,8 @@ export const KRAKEN_TRICKLE_EDGE = 40 // px past the live cage wall (s.cageR) wh
 // and a mortal rig dying to a wave tank before the Kraken ever got a turn.
 //   THE FIRST FIX WAS WORSE THAN THE PROBLEM. Sweeping the floor whenever the head arrived deleted
 // 37-42% of every add spawned — with no kill, no gem, no coin and no death event, because it wrote
-// `hp = 0` instead of going through dealDamage. This chapter's leaderboard is `boards: ['kills',
-// 'time']`, so the boss's own script was erasing nearly half the player's score; measured, kills
+// `hp = 0` instead of going through dealDamage. This chapter's leaderboard was `boards: ['kills',
+// 'time']` then, so the boss's own script was erasing nearly half the player's score; measured, kills
 // 49 -> 12 and level-ups 8 -> 5. It also emptied the arena (the chase became one squid and one fish
 // on a black plain) and fired the fight's ONE reveal — full shake, siren and all — once per block.
 //   A CAP is the honest tool: it stops the floor filling up without taking anything the player

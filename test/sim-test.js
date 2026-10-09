@@ -19783,26 +19783,26 @@ function testLeaderboard() {
   const ANN = { nick: 'Ann', kills: 900, level: 20, timeMs: 240000 }
   const BOB = { nick: 'Bob', kills: 500, level: 12, timeMs: 180000 }
   const boards = { kills: [ANN, BOB], level: [BOB, ANN], time: [BOB, ANN] }
-  assert.deepStrictEqual(podiumRank(boards, { nick: 'Bob', kills: 500, level: 12 }), { kills: 2, level: 1, time: null, lap: null, survive: null },
+  assert.deepStrictEqual(podiumRank(boards, { nick: 'Bob', kills: 500, level: 12 }), { kills: 2, level: 1, time: null, lap: null, survive: null, parry: null },
     'a run on both boards reports both ranks, and they are allowed to differ')
   assert.strictEqual(podiumRank(boards, { nick: 'Cid', kills: 10, level: 2 }), null, 'a run on neither board reports nothing at all')
   assert.strictEqual(podiumRank(null, { nick: 'Bob', kills: 500, level: 12 }), null, 'an unreachable board is not a rank of null-th')
   assert.deepStrictEqual(podiumRank({ kills: [ANN], level: [], time: [], lap: [] }, { nick: 'Ann', kills: 900, level: 20 }),
-    { kills: 1, level: null, time: null, lap: null, survive: null }, 'one board without the other is still a result')
+    { kills: 1, level: null, time: null, lap: null, survive: null, parry: null }, 'one board without the other is still a result')
 
   // THE BOSS BOARD. A run that carries a kill time is ranked on it; one that does not must not be,
   // and `timeMs` defaulting to undefined is the whole reason that needs an assertion — findIndex on
   // a row whose own timeMs is null would MATCH a null lookup and hand an ordinary chapter's run a
   // place on a board it never entered.
   assert.deepStrictEqual(podiumRank(boards, { nick: 'Bob', kills: 500, level: 12, timeMs: 180000 }),
-    { kills: 2, level: 1, time: 1, lap: null, survive: null }, 'a boss run reports its place on the time board too')
+    { kills: 2, level: 1, time: 1, lap: null, survive: null, parry: null }, 'a boss run reports its place on the time board too')
   assert.strictEqual(podiumRank({ kills: [], level: [], time: [{ nick: 'Ann', kills: 1, level: 1, timeMs: null }] },
     { nick: 'Ann', kills: 1, level: 1 }), null,
     'a run with no kill time holds no place on the time board, even against a row whose own time is null')
   // The Worker deploys separately from the game, so between shipping the client and deploying it
   // every response lacks the key. The podium must degrade to "no boss scores", not to a crash.
   assert.deepStrictEqual(podiumRank({ kills: [ANN], level: [] }, { nick: 'Ann', kills: 900, level: 20, timeMs: 240000 }),
-    { kills: 1, level: null, time: null, lap: null, survive: null }, 'a board response with no time key at all is still readable')
+    { kills: 1, level: null, time: null, lap: null, survive: null, parry: null }, 'a board response with no time key at all is still readable')
 
   // THE CIRCUIT'S SECOND BOARD, on the same terms as the boss board above and with one difference
   // that is the whole design: a run may place on it WITHOUT finishing. A lap has to be completed to
@@ -19811,10 +19811,10 @@ function testLeaderboard() {
   const DOT = { nick: 'Dot', kills: 0, level: 4, timeMs: null, lapMs: 29700 }
   const race = { kills: [], level: [], time: [CID], lap: [DOT, CID] }
   assert.deepStrictEqual(podiumRank(race, { nick: 'Cid', kills: 0, level: 6, timeMs: 160100, lapMs: 30600 }),
-    { kills: null, level: null, time: 1, lap: 2, survive: null },
+    { kills: null, level: null, time: 1, lap: 2, survive: null, parry: null },
     'a finished race reports both of its boards, and the fastest race need not hold the fastest lap')
   assert.deepStrictEqual(podiumRank(race, { nick: 'Dot', kills: 0, level: 4, lapMs: 29700 }),
-    { kills: null, level: null, time: null, lap: 1, survive: null },
+    { kills: null, level: null, time: null, lap: 1, survive: null, parry: null },
     'a race that ran the clock out still holds its best lap — the one board a run can place on without finishing')
   // The same null-matching trap the boss board's case above exists for, on the new column. Without
   // the `want == null` guard, findIndex would match a row whose own lapMs is null and hand every
@@ -19823,7 +19823,7 @@ function testLeaderboard() {
     { nick: 'Ann', kills: 1, level: 1 }), null,
     'a run with no lap time holds no place on the lap board, even against a row whose own lap is null')
   assert.deepStrictEqual(podiumRank({ kills: [ANN], level: [] }, { nick: 'Ann', kills: 900, level: 20, lapMs: 30000 }),
-    { kills: 1, level: null, time: null, lap: null, survive: null }, 'a board response with no lap key at all is still readable')
+    { kills: 1, level: null, time: null, lap: null, survive: null, parry: null }, 'a board response with no lap key at all is still readable')
 
   // THE ENDLESS BOARD (difficulty 0), the fifth: longest survival wins. The Worker sorts it DESC and
   // returns three rows; podiumRank only finds the row, so it needs no comparator of its own.
@@ -19831,12 +19831,19 @@ function testLeaderboard() {
   const FLO = { nick: 'Flo', kills: 900, level: 30, surviveMs: 600000 }
   assert.deepStrictEqual(
     podiumRank({ kills: [], level: [], time: [], lap: [], survive: [EVE, FLO] }, { nick: 'Flo', kills: 1, level: 1, surviveMs: 600000 }),
-    { kills: null, level: null, time: null, lap: null, survive: 2 },
+    { kills: null, level: null, time: null, lap: null, survive: 2, parry: null },
     'podiumRank must find a submitted surviveMs row in boards.survive')
   assert.doesNotThrow(() => podiumRank({ kills: [ANN], level: [] }, { nick: 'Ann', kills: 900, level: 20, surviveMs: 600000 }),
     'a response with no survive key (Worker not yet deployed) must not throw')
   assert.strictEqual(podiumRank({ kills: [], level: [], survive: [{ nick: 'Ann', kills: 1, level: 1, surviveMs: null }] }, { nick: 'Ann', kills: 1, level: 1 }), null,
     'a run with no survive time holds no place on the survive board')
+  // THE KRAKEN'S PARRY BOARD: found like the others, and a run with no % holds no place on it
+  assert.deepStrictEqual(
+    podiumRank({ kills: [], level: [], parry: [{ nick: 'Ann', kills: 1, level: 1, parryPct: 95 }, { nick: 'Flo', kills: 1, level: 1, parryPct: 80 }] }, { nick: 'Flo', kills: 9, level: 9, parryPct: 80 }),
+    { kills: null, level: null, time: null, lap: null, survive: null, parry: 2 },
+    'podiumRank must find a submitted parryPct row in boards.parry')
+  assert.strictEqual(podiumRank({ kills: [], level: [], parry: [{ nick: 'Ann', kills: 1, level: 1, parryPct: null }] }, { nick: 'Ann', kills: 1, level: 1 }), null,
+    'a run with no parry % holds no place on the parry board')
   {
     const scoresSrc = readFileSync(new URL('../src/scores.js', import.meta.url), 'utf8')
     assert.match(/export function submitScore[\s\S]*?\n}\n/.exec(scoresSrc)?.[0] ?? '', /JSON\.stringify\(\{[^}]*surviveMs/,
@@ -19844,6 +19851,9 @@ function testLeaderboard() {
     const mainSrc0 = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
     assert.match(mainSrc0, /difficulty: run\.endless \? 0 : /, 'main.js must submit an endless run on difficulty 0')
     assert.match(mainSrc0, /surviveMs: run\.endless \?/, 'main.js must forward surviveMs')
+    assert.match(/export function submitScore[\s\S]*?\n}\n/.exec(scoresSrc)?.[0] ?? '', /JSON\.stringify\(\{[^}]*parryPct/,
+      'submitScore must forward parryPct in the POST body')
+    assert.match(mainSrc0, /parryPct: victory \? parryPct : null/, 'main.js must submit the parry % on a WIN only (one parry then dying is 100%)')
     // Every board fetch goes through the one rule: endless picked and dev on reads board 0.
     const uiSrc0 = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
     assert.ok(!/loadPodium\(browseChapterId, meta\.chapters/.test(uiSrc0), 'podium-open must use boardDiff, not the raw chapter difficulty')
@@ -30178,9 +30188,9 @@ function testDeathAttribution() {
     assert.strictEqual(unlabelled, 0,
       `run DA.d: ${unlabelled} of ${calls} hurtPlayer call sites pass no src — an unlabelled one tallies ` +
       `into 'unknown' and shows the player a mystery row`)
-    // The parser itself must be working: every site should have parsed 3 or 4 arguments. A silent
+    // The parser itself must be working: every site should have parsed 3 to 5 arguments (5th: parryable). A silent
     // parse failure would return [] for each and make both asserts above vacuously true.
-    const malformed = sites.filter((a) => a.length < 3 || a.length > 4).length
+    const malformed = sites.filter((a) => a.length < 3 || a.length > 5).length
     assert.strictEqual(malformed, 0,
       `run DA.d: ${malformed} hurtPlayer call sites parsed to an unexpected argument count — the argument ` +
       `splitter is broken, and a broken splitter makes this whole block pass on anything`)
@@ -37590,7 +37600,9 @@ function testKrakenAimedSlam() {
     `the aimed lane still ends ${Math.hypot(lane1.lx1 - h.x, lane1.ly1 - h.y).toFixed(0)}px from the head centre — every slam still comes down on the head`)
   assert.ok(Math.hypot(arm.x - P.x, arm.y - P.y) < 1,
     'the arm tip (where a parried arm hangs its node) is not where the aimed slam lands')
+  const miss0 = run.parryMissed
   const hurtQ = land(Q)
+  assert.strictEqual(run.parryMissed, miss0, 'a DODGED slam counted as a missed parry')
   assert.strictEqual(hurtQ, 0, `a player standing on the arm's OLD radial spoke took ${hurtQ} from an aimed slam — the lane is still the spoke`)
   // 2) locked on P, the player stays: it lands on them.
   const lane2 = lock(P)
@@ -37600,6 +37612,8 @@ function testKrakenAimedSlam() {
     'the lane moved after the lock — it tracks the player, so there is nothing to read and step out of')
   const hurtP = land(P)
   assert.strictEqual(hurtP, KRAKEN_LASH_DMG, `a player standing where the arm locked took ${hurtP}, not a slam`)
+  assert.strictEqual(run.parryMissed, miss0 + 1, 'a slam that LANDED did not count as a missed parry')
+  assert.strictEqual(run.parryLanded, 0, 'fixture: nothing was parried yet')
   // 3) A STILL PLAYER IS REACHED FROM THE FAR SHOULDER TOO (owner, v7.352: "they very often hit
   // towards the head and not towards you so you can just stay there"). The ring centre, and the
   // wall on the far side of the head from this arm, 935px from its shoulder, past a 620px lane.
@@ -37712,6 +37726,7 @@ function testKrakenLesson() {
   assert.ok(evt, 'a parry during the lesson emitted no krakenLesson event — main.js would never save the flag')
   assert.strictEqual(run2.krakenLesson, 2, 'after the first parry the lesson is not on its second line')
   assert.ok(arm2.limpT > 0, 'the lesson parry did not open the arm')
+  assert.strictEqual(run2.parryLanded, 1, 'a landed parry did not count toward the parry board')
   const main = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
   assert.ok(/e\.type === 'krakenLesson'[^\n]*meta\.krakenParried = true; saveMeta\(meta\)/.test(main),
     'main.js does not set meta.krakenParried and save on the krakenLesson event — the lesson would repeat forever')

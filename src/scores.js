@@ -75,6 +75,7 @@ async function call(url, init) {
       time: Array.isArray(body.time) ? body.time : [],
       lap: Array.isArray(body.lap) ? body.lap : [],
       survive: Array.isArray(body.survive) ? body.survive : [], // tolerated missing, like the two above
+      parry: Array.isArray(body.parry) ? body.parry : [], // same
     }
   } catch {
     return null
@@ -115,7 +116,7 @@ export function fetchBoards(chapter, difficulty) {
 // player who submits the SAME kill count twice matches their earlier row and is told the rank that
 // row holds. It is still a rank they hold, so it is not a lie, and the alternative is an id column
 // and a rank query to remove an ambiguity nobody can perceive.
-export function podiumRank(boards, { nick, kills, level, timeMs = null, lapMs = null, surviveMs = null }) {
+export function podiumRank(boards, { nick, kills, level, timeMs = null, lapMs = null, surviveMs = null, parryPct = null }) {
   if (!boards) return null
   const at = (rows, key, want) => {
     // A RUN THAT CARRIES NO SUCH SCORE HOLDS NO PLACE ON THAT BOARD -- and this guard now serves
@@ -131,7 +132,8 @@ export function podiumRank(boards, { nick, kills, level, timeMs = null, lapMs = 
   const t = at(boards.time ?? [], 'timeMs', timeMs)
   const p = at(boards.lap ?? [], 'lapMs', lapMs)
   const s = at(boards.survive ?? [], 'surviveMs', surviveMs)
-  return k || l || t || p || s ? { kills: k, level: l, time: t, lap: p, survive: s } : null
+  const r = at(boards.parry ?? [], 'parryPct', parryPct)
+  return k || l || t || p || s || r ? { kills: k, level: l, time: t, lap: p, survive: s, parry: r } : null
 }
 
 // Returns the boards AFTER the insert, so the caller can see where the run landed without a second
@@ -149,12 +151,12 @@ export function podiumRank(boards, { nick, kills, level, timeMs = null, lapMs = 
 // `starter` is null unless the chapter ROLLS its starter. It ranks nothing — it is carried so a
 // podium row can say which weapon the record was set with, which is only a fact worth recording
 // where two rows can differ.
-export function submitScore({ nick, chapter, difficulty, kills, level, timeMs = null, lapMs = null, starter = null, surviveMs = null }) {
+export function submitScore({ nick, chapter, difficulty, kills, level, timeMs = null, lapMs = null, starter = null, surviveMs = null, parryPct = null }) {
   const name = validNick(nick)
   if (!name) return Promise.resolve(null)
   return call(SCORES_URL, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ nick: name, chapter, difficulty, kills, level, timeMs, lapMs, surviveMs, starter }),
+    body: JSON.stringify({ nick: name, chapter, difficulty, kills, level, timeMs, lapMs, surviveMs, parryPct, starter }),
   })
 }

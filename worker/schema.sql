@@ -44,8 +44,10 @@ CREATE TABLE IF NOT EXISTS scores (
                                 -- every statement in index.js names its columns -- but a schema
                                 -- that reads differently depending on when the database was made
                                 -- is a fact in two places waiting to be trusted.
-  survive_ms INTEGER            -- ms survived in an ENDLESS run (difficulty 0). NULL everywhere else.
+  survive_ms INTEGER,           -- ms survived in an ENDLESS run (difficulty 0). NULL everywhere else.
                                 -- Appended last, like lap_ms: migrate-scores-survive.sql is an ALTER.
+  parry_pct  INTEGER            -- The Kraken's parry % (0-100) on a WON run. NULL everywhere else.
+                                -- Appended last: migrate-scores-parry.sql is an ALTER.
 );
 -- One index per board, and EACH MUST COVER THE WHOLE ORDER BY, `at` included. Without the trailing
 -- `at` SQLite can seek the partition but not the order, so it materialises every row for that
@@ -76,3 +78,5 @@ CREATE INDEX IF NOT EXISTS scores_time  ON scores (chapter, difficulty, time_ms 
 CREATE INDEX IF NOT EXISTS scores_lap   ON scores (chapter, difficulty, lap_ms ASC, at ASC);
 -- Endless board: longest survival wins, so DESC (readBoards filters NULLs in the WHERE).
 CREATE INDEX IF NOT EXISTS scores_survive ON scores (chapter, difficulty, survive_ms DESC, at ASC);
+-- The Kraken's parry board: highest % wins, the faster kill breaks a tie.
+CREATE INDEX IF NOT EXISTS scores_parry ON scores (chapter, difficulty, parry_pct DESC, time_ms ASC, at ASC);

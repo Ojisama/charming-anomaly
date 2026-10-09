@@ -2470,6 +2470,9 @@ function generateWells(sig) {
   *   (KRAKEN_BEATS.tip) shows for krakenLessonT (KRAKEN_LESSON_TIP_T), then 0. 3 = the lesson arm
   *   landed unparried: no text, and the next successful parry still goes to 2.
   *   krakenLessonT: seconds left on line 2.
+  * parryLanded / parryMissed: The Kraken's parry tally, the second board (parry %). Landed = every
+  *   parry/parryPerfect event; missed = a PARRYABLE attack that hurt the player (a non-rage lash or
+  *   slap, a lunging head). A dodge is neither. 0 on every other chapter.
   * krakenArms: [] for every chapter but The Kraken. The tentacle ring, and THE ONE ENTITY FAMILY IN
   *   THE GAME THAT IS DELIBERATELY NOT IN run.enemies. Under rev 2 an arm is not a creature: it is
   *   a door with a health bar that exactly one verb (the parry) can turn. Keeping it in run.enemies
@@ -3017,6 +3020,8 @@ export function createRun(meta, opts = {}) {
     bossOutroT: 0,   // The Kraken's kill outro, main.js's clock (see the doc block above)
     killedBy: null,
     dmgBySrc: {},
+    parryLanded: 0,
+    parryMissed: 0,
     // v5.24 The Blank (see doc block above): rampage pattern again — these three fields exist on
     // every run but stepBossScript (sim.js) is the only thing that ever writes them, and it early-
     // returns unless CHAPTERS[chapter].scripted, so a non-blank run carries them inert forever.

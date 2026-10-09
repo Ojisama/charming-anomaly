@@ -1843,7 +1843,7 @@ function krakenSlapStep(run, a, head) {
   let killed = false
   if (!a.slapHit && a.tele <= KRAKEN_SLAP_SWING && krakenSlapSweeps(run, a, head, prev, th)) {
     a.slapHit = true
-    killed = hurtPlayer(run, KRAKEN_SLAP_DMG, false, 'krakenArm')
+    killed = hurtPlayer(run, KRAKEN_SLAP_DMG, false, 'krakenArm', !a.rageArm)
   }
   if (a.tele <= 0 && !(a.slamT > 0)) { a.slapArm = false; a.slapTh = undefined }
   return killed
@@ -2593,7 +2593,7 @@ function stepKrakenArms(run, dt, rung, head) {
         if (s.coilHit) continue
         s.coilHit = true
         if (hurtPlayer(run, KRAKEN_COIL_DMG, false, 'krakenArm')) return true
-      } else if (hurtPlayer(run, KRAKEN_LASH_DMG, false, 'krakenArm')) return true
+      } else if (hurtPlayer(run, KRAKEN_LASH_DMG, false, 'krakenArm', !a.rageArm)) return true
     }
   }
   if (coiling) return false
@@ -3439,6 +3439,7 @@ function krakenParry(run) {
     s.staggerDecay = KRAKEN_STAGGER_DECAY
     s.stagger += perfect ? 2 : 1
     p.parryT = KRAKEN_PARRY_SPIN_T
+    run.parryLanded++
     run.events.push({ type: perfect ? 'parryPerfect' : 'parry', x: head.x, y: head.y, frac: Math.max(0, 1 - s.stagger / rung.staggerNeed), px: p.x, py: p.y })
     if (s.stagger >= rung.staggerNeed) {
       s.stagger = 0
@@ -3501,6 +3502,7 @@ function krakenParry(run) {
 
   run.hitStop = Math.max(run.hitStop, KRAKEN_HITSTOP_PARRY)
   p.parryT = KRAKEN_PARRY_SPIN_T
+  run.parryLanded++
   run.events.push({
     type: perfect ? 'parryPerfect' : 'parry',
     x: best.x, y: best.y, frac: Math.max(0, best.hp) / best.maxHP,
@@ -5821,7 +5823,8 @@ function stepFlashlightCones(run, dt) {
 // self-inflicted running cost is indistinguishable from being hit, and the card turns the last
 // three minutes of a run into a strobe. Only the anomaly passes one; every existing caller keeps
 // `src: undefined` and behaves exactly as before.
-function hurtPlayer(run, rawDmg, dot = false, src = null) {
+// `parryable`: this hit could have been parried, so landing it is a missed parry (run.parryMissed)
+function hurtPlayer(run, rawDmg, dot = false, src = null, parryable = false) {
   const p = run.player
   // v5.14: RAMPAGE = INVULNERABLE. Every player-damage path in this file funnels through here
   // (contact, pools, spray strips, snap traps, traffic lanes, enemy shots, pull beams, bombs), so
@@ -5829,6 +5832,7 @@ function hurtPlayer(run, rawDmg, dot = false, src = null) {
   // normal invuln window. Derived from run.rampageT, never assigned onto the player: see
   // RAMPAGE_CRUSH_MUL's doc block in config.js for why that distinction is load-bearing.
   if (run.rampageT > 0) return false
+  if (parryable) run.parryMissed++
   // LAST BREATH's other half (v7.x, The Reef). Every player-damage path in this file funnels here,
   // which is the whole reason the card is two lines instead of a multiplier at sixteen call sites —
   // and it is also why the DROWN tick is doubled along with everything else. That is deliberate,
@@ -6285,7 +6289,8 @@ function stepContactDamage(run) {
     // can both put an enemy on the field, and an honest "Tank" beats an "Unknown" row. Elite status
     // is deliberately NOT in the key: it would double every bucket to distinguish a modifier the
     // player already saw, and the summary wants "what killed me", not a damage-source taxonomy.
-    return hurtPlayer(run, dmg, false, e.rosterId ?? e.type) // one hit per frame; invuln now active either way
+    // a lunging Kraken head is a parryable hit; its idle touch is not
+    return hurtPlayer(run, dmg, false, e.rosterId ?? e.type, e.rosterId === 'krakenHead' && (e._lungeBurst ?? 0) > 0) // one hit per frame; invuln now active either way
   }
   return false
 }
