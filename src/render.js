@@ -12771,7 +12771,14 @@ export function createRenderer(app) {
   // a slam's floor (lit seabed, crater, cracks, shockwave): beneath everything else in the layer, and
   // drawn AFTER the arms, once the fist it is centred on has been placed this frame
   const krakenSplashUnderG = new Graphics()
-  krakenSlabTopLayer.addChild(krakenSplashUnderG, krakenSlabTopG, krakenSlabHole)
+  // A COIL LIMB'S SLAB IS BUILT ONCE, THEN ONLY FADED. Planted, it has no squash and does not move,
+  // so its strokes are the same every frame of the hold but its alpha; rebuilt each frame, seven of
+  // them were ~90k vertices a frame for the ~0.3s after a Coil lands (the owner's stutter). One
+  // Graphics per arm (krakenCoilSlabs[a.i]), rebuilt only if its limb or contact moves.
+  const krakenCoilSlabLayer = new Container()
+  const krakenCoilSlabs = []
+  let krakenCoilSlabFrame = 0
+  krakenSlabTopLayer.addChild(krakenSplashUnderG, krakenSlabTopG, krakenCoilSlabLayer, krakenSlabHole)
   krakenSlabTopLayer.setMask({ mask: krakenSlabHole, inverse: true })
   // A SLAM'S BLAST, UNDER THE LIMB. Additive like the danger layer, but in the world below the
   // arm layer: the glow is the seabed lighting up round the blow, and the limb that struck stays a
@@ -22919,6 +22926,7 @@ void main() {
 
   function syncKrakenArms(run, dt) {
     krakenFistPt = null
+    krakenCoilSlabFrame++
     ribViewUpdate()
     krakenSlabG.clear()
     krakenSlabTopG.clear()
@@ -23443,25 +23451,49 @@ void main() {
           // segment by segment that was ~1300 round-capped strokes rebuilt a frame (measured, the
           // strike's frame ran at 2.5x a quiet one, three quarters of it here).
           const qLit = (q) => Math.round(lit(q) * 12) / 12
-          const slabRuns = (wOf, cOf, aOf) => {
-            let key = null, w = 0, c = 0, al = 0
-            const flush = () => { if (key !== null) krakenSlabTopG.stroke({ width: w, color: c, alpha: al, cap: 'round', join: 'round' }); key = null }
+          let G = krakenSlabTopG, hd = hold
+          if (a.coilArm) {
+            // its own Graphics at hold 1, faded by the Graphics' alpha (Pixi multiplies it into every
+            // stroke, so the picture is the one hold-scaled strokes drew)
+            const P = rig.pts, cs = krakenCoilSlabs[a.i] ??= { g: krakenCoilSlabLayer.addChild(new Graphics()), sig: '', at: 0 }
+            const sig = [P[k0].x, P[k0].y, P[K_ROPE_N >> 1].x, P[K_ROPE_N >> 1].y, P[K_ROPE_N - 1].x, P[K_ROPE_N - 1].y, cxL, cyL].map(Math.round).join()
+            cs.at = krakenCoilSlabFrame
+            cs.g.alpha = hold
+            if (!cs.g.visible) cs.g.visible = true
+            if (sig === cs.sig) G = null
+            else { cs.g.clear(); cs.sig = sig; G = cs.g; hd = 1 }
+          }
+          // THE WIDE PASSES CAP ROUND ONLY AT THE LIMB'S OWN ENDS; butt where one light step meets the
+          // next. A round cap there is a disc of the limb's full width painted twice over, and a Coil's
+          // seven limbs were ~400 of them, most of the GPU's work for the hold. The thin spine keeps
+          // its round caps (inner = true): their overlaps are its beads, and they are cheap.
+          const slabRuns = (wOf, cOf, aOf, inner = false) => {
+            let key = null, w = 0, c = 0, al = 0, open = true
+            const flush = (end) => {
+              if (key !== null) G.stroke({ width: w, color: c, alpha: al, cap: inner || open || end ? 'round' : 'butt', join: 'round' })
+              key = null
+            }
             for (let q = k0; q < K_ROPE_N - 1; q++) {
               const qw = Math.round(wOf(q) / 2) * 2, qc = cOf(q), qa = aOf(q)
-              if (qa <= 0) { flush(); continue }
+              if (qa <= 0) { flush(true); open = true; continue }
               const k = qw + ':' + qc + ':' + qa
-              if (k !== key) { flush(); krakenSlabTopG.moveTo(rig.pts[q].x, rig.pts[q].y); key = k; w = qw; c = qc; al = qa }
-              krakenSlabTopG.lineTo(rig.pts[q + 1].x, rig.pts[q + 1].y)
+              if (k !== key) {
+                if (key !== null) { flush(false); open = false }
+                G.moveTo(rig.pts[q].x, rig.pts[q].y); key = k; w = qw; c = qc; al = qa
+              }
+              G.lineTo(rig.pts[q + 1].x, rig.pts[q + 1].y)
             }
-            flush()
+            flush(true)
           }
-          if (!a.coilArm) slabRuns((q) => hwS * 2.4 * wq(q) + 9 + 12 * sq * near(q), () => 0x000000, () => 0.92 * hold)
-          // the slab: an OPAQUE mass, hard pale rim, its body lit warm where the blow landed and
-          // falling to near-black away from it — in steps along the limb, so the light has a place
-          slabRuns((q) => hwS * 2.4 * wq(q) + 5, (q) => mix(0x9a8aa8, 0xfff2e2, qLit(q)), () => hold)
-          slabRuns((q) => hwS * 2.4 * wq(q), (q) => mix(0x120a1a, 0x4a2c2a, qLit(q)), () => hold)
-          // ...its spine catching the light, so it reads as a rounded body and not a flat strip
-          slabRuns(() => hwS * 0.5, () => 0xd8b8a0, (q) => (qLit(q) < 0.05 ? 0 : qLit(q) * hold * 0.5))
+          if (G) {
+            if (!a.coilArm) slabRuns((q) => hwS * 2.4 * wq(q) + 9 + 12 * sq * near(q), () => 0x000000, () => 0.92 * hd)
+            // the slab: an OPAQUE mass, hard pale rim, its body lit warm where the blow landed and
+            // falling to near-black away from it — in steps along the limb, so the light has a place
+            slabRuns((q) => hwS * 2.4 * wq(q) + 5, (q) => mix(0x9a8aa8, 0xfff2e2, qLit(q)), () => hd)
+            slabRuns((q) => hwS * 2.4 * wq(q), (q) => mix(0x120a1a, 0x4a2c2a, qLit(q)), () => hd)
+            // ...its spine catching the light, so it reads as a rounded body and not a flat strip
+            slabRuns(() => hwS * 0.5, () => 0xd8b8a0, (q) => (qLit(q) < 0.05 ? 0 : qLit(q) * hd * 0.5), true)
+          }
         }
       }
       // THE TEAR RUNS ALONG THE LIMB, AND IT IS BUILT OUT OF THE LIMB'S OWN POINTS. Two shipped
@@ -23635,6 +23667,7 @@ void main() {
         sp.rx = Math.max(sp.rx || 0, fp.rx); sp.ry = Math.max(sp.ry || 0, fp.ry)
       }
     }
+    for (const cs of krakenCoilSlabs) if (cs && cs.at !== krakenCoilSlabFrame && cs.g.visible) { cs.g.visible = false; cs.sig = '' }
     drawKrakenSplashes(dt, run.player, 'under')
     drawKrakenSplashes(0, run.player, 'over')
     drawKrakenSplashes(0, run.player, 'top')
