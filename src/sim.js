@@ -1980,14 +1980,23 @@ function krakenLimbTouches(run, a, head) {
 
 // THE COIL'S STAR: s.coilN bands (one per coil arm, at most KRAKEN_COIL_RAYS) of half-width
 // KRAKEN_LASH_W from the head out across the whole arena at s.coilStar + k * 2pi / n. The fish's
-// centre inside any band is the hit.
+// BODY touching any band is the hit: the band's shadow is drawn half dark on that very edge.
 export function krakenCoilStarHits(run, head) {
   const p = run.player, base = run.script.coilStar ?? 0, n = run.script.coilN || KRAKEN_COIL_RAYS
   const far = KRAKEN_COIL_STAR_R
   const cx = run.script.coilCX ?? head.x, cy = run.script.coilCY ?? head.y
+  const body = playerBodyEnds(run)
+  const reach = KRAKEN_LASH_W + (body ? body.halfWidth : PLAYER.radius)
+  const m = body ? 5 : 1
   for (let k = 0; k < n; k++) {
     const t = base + k * Math.PI * 2 / n
-    if (segDist2(p.x, p.y, cx, cy, cx + Math.cos(t) * far, cy + Math.sin(t) * far) <= KRAKEN_LASH_W * KRAKEN_LASH_W) return true
+    const x1 = cx + Math.cos(t) * far, y1 = cy + Math.sin(t) * far
+    for (let j = 0; j < m; j++) {
+      const u = m > 1 ? j / (m - 1) : 0
+      const px = body ? body.ax + (body.bx - body.ax) * u : p.x
+      const py = body ? body.ay + (body.by - body.ay) * u : p.y
+      if (segDist2(px, py, cx, cy, x1, y1) <= reach * reach) return true
+    }
   }
   return false
 }

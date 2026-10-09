@@ -9501,6 +9501,10 @@ export const KRAKEN_COIL_RAYS = 7 // also the most arms in one Coil (owner, 2026
 // how far each band runs from the head, for the hit AND the drawing: past any screen edge from anywhere
 // in the widest cage, so the player never sees a band end (owner, 2026-09-27: "the cones stop too soon")
 export const KRAKEN_COIL_STAR_R = 3000
+// THE SHADOW IS THE HITBOX (owner, 2026-10-09: "the telegraph should always match what the actual
+// attack hits"): each band's shadow is half dark exactly at KRAKEN_LASH_W from its line, fading over
+// +-SOFT x KRAKEN_LASH_W round that edge, and the fish's BODY touching that edge is the hit.
+export const KRAKEN_COIL_SHADOW_SOFT = 0.15
 export const KRAKEN_COIL_TELE = 1.6 // s of wind-up before the ring closes — long, it is a move test
 export const KRAKEN_COIL_DUR = 0.9 // s the ring spends hauled in
 export const KRAKEN_COIL_IN = 0.34 // the fraction of KRAKEN_ARM_REACH the arms close to
@@ -10616,8 +10620,8 @@ export const ROAD_JUNCTION = {
 // and that exemption has shipped untranslated copy four separate times.
 export const HIDDEN_UNLOCKS = {
   blank:  { from: 'beyond', difficulty: 5, hint: 'win The Beyond at level 5 — something has been counting' },
-  // `wip`: the win does not unlock it yet (owner, 2026-09-29: ship The Deep, keep The Kraken shut).
-  kraken: { from: 'deep',   difficulty: 5, hint: 'win The Deep at level 5 — the graveyard has been waiting', wip: true },
+  // `wip: true` would hold one back: the win does not unlock it (The Kraken shipped 2026-10-09)
+  kraken: { from: 'deep',   difficulty: 5, hint: 'win The Deep at level 5 — the graveyard has been waiting' },
 }
 // Every chapter that sits OUTSIDE its book's ladder, derived from the books rather than listed
 // again. `hidden` does not mean unreleased — it means off the ladder; only wipFrom hides a chapter
