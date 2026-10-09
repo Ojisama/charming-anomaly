@@ -398,6 +398,7 @@ export function createRenderer(app) {
   // here on purpose: BIOMES is a `const` further down, so reading it at construction time would be a
   // TDZ crash — it's seeded right after BIOMES itself and re-latched per reset(run).
   let chapterBiome = null
+  const K_BUBBLE_R = [3, 6, 12]   // the Coil bubble bakes (T.krakenBubble)
 
   // ---------------------------------------------------------------- textures
   // Bake a Graphics into a texture; return anchor so sprite.position = drawing origin.
@@ -7041,6 +7042,23 @@ export function createRenderer(app) {
       }
       T.krakenCoilBand = bake(g, 0)
     }
+    // the Coil's motes, drawn scaled to their r: a speck baked at core radius 4, a bubble at radius
+    // 3, 6 and 12 (K_BUBBLE_R) so its 1.5px ring stays 1-2px at any size
+    {
+      const g = new Graphics()
+      g.circle(0, 0, 16).fill({ color: 0x2fd6c4, alpha: 0.10 })
+      g.circle(0, 0, 4).fill({ color: 0xbffff4, alpha: 0.9 })
+      T.krakenSpeck = bake(g, 1, 4)
+      T.krakenBubble = K_BUBBLE_R.map((r) => {
+        const b = new Graphics()
+        b.circle(0, 0, r).stroke({ width: 1.5, color: 0xcfeaff, alpha: 0.8 })
+        b.circle(-r * 0.35, -r * 0.35, r * 0.28).fill({ color: 0xffffff, alpha: 0.7 })
+        return bake(b, 1, 4)
+      })
+      const d = new Graphics()
+      d.circle(0, 0, 8).fill({ color: 0xffffff })
+      T.krakenDisc = bake(d, 1, 4)
+    }
 
     // The gull STRIKE's three poses (The Surf). Baked at GULL_DIVE_R rather than reusing the 12px
     // roster gull: the strike is drawn ~140px across, and that texture would be a 6x magnification —
@@ -12677,6 +12695,41 @@ export function createRenderer(app) {
   const krakenDangerG = new Graphics()
   krakenDangerG.blendMode = 'add'
   krakenDangerLayer.addChild(krakenDangerG)
+  // FLAT DISCS AND MOTES ON THE DANGER LAYER ARE POOLED SPRITES, not krakenDangerG circles: a grab's
+  // suckers, a slam's beads and a Coil's bubbles were thousands of shapes re-tessellated a frame.
+  // Additive like krakenDangerG, so their order against its fills does not matter.
+  // THE POOL NEVER TOGGLES visible: any visible flip, even off and back on in one frame, makes Pixi
+  // rebuild the whole stage's draw list, and this pool's count changes nearly every frame (motes
+  // culled at the screen edge, beads lit along a fuse). The surplus goes to alpha 0 instead
+  // (krakenDangerSpTrim), and the layer itself is shown only while the pool is in use.
+  const krakenDangerSpLayer = new Container()
+  const krakenDangerSp = []
+  let krakenDangerSpN = 0, krakenDangerSpShown = 0
+  krakenDangerLayer.addChild(krakenDangerSpLayer)
+  function krakenDangerSprite(bk) {
+    let sp = krakenDangerSp[krakenDangerSpN++]
+    if (!sp) { sp = new Sprite(); sp.blendMode = 'add'; krakenDangerSp.push(sp); krakenDangerSpLayer.addChild(sp) }
+    sp.texture = bk.tex
+    sp.anchor.set(bk.ax, bk.ay)
+    sp.tint = 0xffffff
+    return sp
+  }
+  // G.circle(x, y, r).fill({ color, alpha }) on krakenDangerG, as a sprite (T.krakenDisc is r 8)
+  function krakenDangerDisc(x, y, r, color, alpha) {
+    const sp = krakenDangerSprite(T.krakenDisc)
+    sp.position.set(x, y)
+    sp.scale.set(r / 8)
+    sp.tint = color
+    sp.alpha = alpha
+  }
+  function krakenDangerSpReset() { krakenDangerSpN = 0 }
+  // after the frame's last krakenDangerSprite
+  function krakenDangerSpTrim() {
+    for (let i = krakenDangerSpN; i < krakenDangerSpShown; i++) krakenDangerSp[i].alpha = 0
+    krakenDangerSpShown = krakenDangerSpN
+    const on = krakenDangerSpN > 0
+    if (krakenDangerSpLayer.visible !== on) krakenDangerSpLayer.visible = on
+  }
   // THE PLAYER IS NEVER UNDER THE DANGER. Five Coil lanes add up to white where they cross, and
   // that was on top of the fish. An inverse mask cuts a hole in the danger layer around the player.
   const krakenDangerHole = new Graphics()
@@ -21973,11 +22026,18 @@ void main() {
       if (krakenFishPt) for (let q = kS; q <= kE; q++) if ((pts[q].x - krakenFishPt.x) ** 2 + (pts[q].y - krakenFishPt.y) ** 2 < K_NEAR_WARM ** 2) { kN = q; break }
       // ...INSIDE the limb, following its taper: one fixed width overhung the narrowing tip and read as
       // the arm swelling every time it flashed (owner, 2026-10-08: "why does the arm grow thicker?")
+      // one stroke per run of equal width (to 2px): a round cap per segment was ~10k vertices a frame
       const glowRun = (k0, k1, color) => {
+        let w = -1
         for (let q = k0; q < k1; q++) {
-          G.moveTo(pts[q].x, pts[q].y).lineTo(pts[q + 1].x, pts[q + 1].y)
-          G.stroke({ width: hwAt(q) * 2 * K_GLOW_IN, color, alpha: 0.2 + 0.35 * pop, cap: 'round' })
+          const qw = Math.round(hwAt(q) * K_GLOW_IN) * 2
+          if (qw !== w) {
+            if (w >= 0) G.stroke({ width: w, color, alpha: 0.2 + 0.35 * pop, cap: 'round', join: 'round' })
+            G.moveTo(pts[q].x, pts[q].y); w = qw
+          }
+          G.lineTo(pts[q + 1].x, pts[q + 1].y)
         }
+        if (w >= 0) G.stroke({ width: w, color, alpha: 0.2 + 0.35 * pop, cap: 'round', join: 'round' })
       }
       glowRun(kS, kN, 0xffffff)
       if (kN < kE) glowRun(kN, kE, 0xffd9b0)
@@ -21993,9 +22053,9 @@ void main() {
         // flare wider (pop); the colour itself does not fade, so the window has one look end to end.
         const nearFish = krakenFishPt && (x - krakenFishPt.x) ** 2 + (y - krakenFishPt.y) ** 2 < K_NEAR_WARM ** 2
         const col = nearFish ? 0xffd9b0 : 0xffffff
-        G.circle(x, y, fit(1.5)).fill({ color: 0x1a0800, alpha: 0.5 })
-        G.circle(x, y, fit(K_HALO_R)).fill({ color: col, alpha: 0.12 + 0.3 * pop })
-        G.circle(x, y, r * 1.2).fill({ color: col, alpha: 0.95 })
+        krakenDangerDisc(x, y, fit(1.5), 0x1a0800, 0.5)
+        krakenDangerDisc(x, y, fit(K_HALO_R), col, 0.12 + 0.3 * pop)
+        krakenDangerDisc(x, y, r * 1.2, col, 0.95)
       } else if (grab) {
         // A GRAB LIGHTS NO DOTS: a row of lit suckers is the slam's vocabulary in any colour. Its
         // body glows instead (below, after this walk).
@@ -22010,10 +22070,10 @@ void main() {
         const hot = t >= tLead ? lead : 0
         if (hot > 0 && !a.rageArm) col = mix(col, 0xffd8c0, 0.35 + 0.45 * hot)
         const rs = 1 + 0.25 * hot
-        G.circle(x, y, fit(1.55 * rs)).fill({ color: 0x1a0500, alpha: 0.6 * soft })
-        G.circle(x, y, fit(K_HALO_R)).fill({ color: col, alpha: (0.14 + 0.18 * (1 - age) + 0.15 * hot) * soft })
-        G.circle(x, y, r * (1.25 * soft + 0.25 * (soft < 1)) * rs).fill({ color: col, alpha: (0.9 + 0.1 * (1 - age)) * soft })
-        if (age < 0.5) G.circle(x, y, r * 0.55).fill({ color: a.rageArm ? 0xe6ffe0 : slap ? 0xffffff : 0xffd0b0, alpha: 0.9 * (1 - age * 2) * soft })
+        krakenDangerDisc(x, y, fit(1.55 * rs), 0x1a0500, 0.6 * soft)
+        krakenDangerDisc(x, y, fit(K_HALO_R), col, (0.14 + 0.18 * (1 - age) + 0.15 * hot) * soft)
+        krakenDangerDisc(x, y, r * (1.25 * soft + 0.25 * (soft < 1)) * rs, col, (0.9 + 0.1 * (1 - age)) * soft)
+        if (age < 0.5) krakenDangerDisc(x, y, r * 0.55, a.rageArm ? 0xe6ffe0 : slap ? 0xffffff : 0xffd0b0, 0.9 * (1 - age * 2) * soft)
       }
     }
     if (!grab) return
@@ -22039,9 +22099,9 @@ void main() {
     // (a slam's light RUNS down the limb; this one is simply ON) and pulse faster as the fuse runs.
     const beat = 0.5 + 0.5 * Math.sin(age * (8 + 14 * windup))
     for (const u of sk) {
-      G.circle(u.x, u.y, Math.min(u.r * 1.5, Math.max(u.r, u.room))).fill({ color: 0x031006, alpha: 0.55 * on * K_GRAB_SOFT })
-      G.circle(u.x, u.y, Math.min(u.r * K_HALO_R, Math.max(u.r, u.room))).fill({ color: K_GRAB_GLOW, alpha: (0.10 + 0.14 * beat) * on * K_GRAB_SOFT })
-      G.circle(u.x, u.y, u.r * (1.15 * K_GRAB_SOFT + 0.25 * (K_GRAB_SOFT < 1))).fill({ color: K_GRAB_GLOW, alpha: (0.75 + 0.25 * beat) * on * K_GRAB_SOFT })
+      krakenDangerDisc(u.x, u.y, Math.min(u.r * 1.5, Math.max(u.r, u.room)), 0x031006, 0.55 * on * K_GRAB_SOFT)
+      krakenDangerDisc(u.x, u.y, Math.min(u.r * K_HALO_R, Math.max(u.r, u.room)), K_GRAB_GLOW, (0.10 + 0.14 * beat) * on * K_GRAB_SOFT)
+      krakenDangerDisc(u.x, u.y, u.r * (1.15 * K_GRAB_SOFT + 0.25 * (K_GRAB_SOFT < 1)), K_GRAB_GLOW, (0.75 + 0.25 * beat) * on * K_GRAB_SOFT)
     }
   }
 
@@ -24697,10 +24757,12 @@ void main() {
       }
       if (e.type === 'gripBreak') { krakenEscapeT = 0.4; krakenEscapeX = e.px ?? run.player.x; krakenEscapeY = e.py ?? run.player.y }
     }
-    for (const b of krakenCoilBands) b.visible = false
+    // only the surplus bands are hidden: a visible flip rebuilds the stage's draw list (krakenDangerSpTrim)
+    let coilBands = 0
+    const hideBands = (from) => { for (let i = from; i < krakenCoilBands.length; i++) if (krakenCoilBands[i].visible) krakenCoilBands[i].visible = false }
     krakenSlapWakeG.clear()
     const head = krakenHead
-    if (!krakenFight(run) || !head || run.phase === 'dead') { krakenFishRims(false); return }
+    if (!krakenFight(run) || !head || run.phase === 'dead') { hideBands(0); krakenFishRims(false); return }
     const s = run.script
     const p = run.player
     const u = 1 / (world.scale.x || 1)
@@ -24725,7 +24787,8 @@ void main() {
         // dark core, a short fade centred on the struck edge (T.krakenCoilBand)
         let b = krakenCoilBands[k]
         if (!b) { b = krakenCoilBands[k] = new Sprite(T.krakenCoilBand.tex); b.anchor.set(0, 0.5); krakenCoilBandLayer.addChild(b) }
-        b.visible = true
+        if (!b.visible) b.visible = true
+        coilBands = k + 1
         b.position.set(cx, cy)
         b.rotation = t
         b.width = R
@@ -24744,23 +24807,28 @@ void main() {
           const x = cx + ux * d + nx * w, y = cy + uy * d + ny * w
           if ((x - p.x) ** 2 + (y - p.y) ** 2 > vr2) continue
           if (i & 1) {
-            // a plankton speck: a soft halo and a bright core, twinkling
+            // a plankton speck: a soft halo and a bright core, twinkling (T.krakenSpeck, core r 4)
             const tw = 0.55 + 0.45 * Math.sin(animT * (2 + 3 * krakenMoteHash(sd * 7)) + i * 2.1)
-            const al = K_COIL_MOTE_A * (0.2 + 0.8 * dk) * tw, r = 1.6 + 2.2 * krakenMoteHash(sd * 5)
-            krakenDangerG.circle(x, y, r * 4).fill({ color: 0x2fd6c4, alpha: 0.10 * al })
-            krakenDangerG.circle(x, y, r).fill({ color: 0xbffff4, alpha: 0.9 * al })
+            const r = 1.6 + 2.2 * krakenMoteHash(sd * 5)
+            const m = krakenDangerSprite(T.krakenSpeck)
+            m.position.set(x, y)
+            m.scale.set(r / 4)
+            m.alpha = K_COIL_MOTE_A * (0.2 + 0.8 * dk) * tw
           } else {
             // a bubble rising toward the camera: it grows, then pops, faster as the arms come down
             const life = (krakenMoteHash(sd * 3 + 2) + animT * (0.5 + 1.2 * dk)) % 1
             const r = (2 + 7 * krakenMoteHash(sd * 5)) * (0.4 + life)
-            const al = K_COIL_MOTE_A * (0.3 + 0.6 * dk) * (life < 0.9 ? 1 : (1 - life) * 10)
-            krakenDangerG.circle(x, y, r).stroke({ width: 1.5 * u, color: 0xcfeaff, alpha: 0.8 * al })
-            krakenDangerG.circle(x - r * 0.35, y - r * 0.35, r * 0.28).fill({ color: 0xffffff, alpha: 0.7 * al })
+            const bi = r < 4.5 ? 0 : r < 9 ? 1 : 2
+            const m = krakenDangerSprite(T.krakenBubble[bi])
+            m.position.set(x, y)
+            m.scale.set(r / K_BUBBLE_R[bi])
+            m.alpha = K_COIL_MOTE_A * (0.3 + 0.6 * dk) * (life < 0.9 ? 1 : (1 - life) * 10)
           }
         }
       }
     }
 
+    hideBands(coilBands)
     drawKrakenSlapWake(run, s, k)
 
     // ---- the fish's outline: silhouettes of its own body and tail behind it, dark and then a thin
@@ -24867,6 +24935,7 @@ void main() {
   function redrawTelegraphs(run) {
     teleG.clear()
     krakenDangerG.clear()
+    krakenDangerSpReset()
     krakenImpactG.clear()
     krakenDangerHole.clear()
     // A POINT, not the old 36px hole: the fish is lifted above every Kraken layer (krakenLiftFish),
@@ -29477,6 +29546,8 @@ void main() {
     hazardG.clear()
     teleG.clear()
     krakenDangerG.clear()
+    krakenDangerSpReset()
+    krakenDangerSpTrim()
     krakenImpactG.clear()
     krakenDangerHole.clear()
     // The Kraken: the abyss, and the arm ropes. Meshes rather than a syncPool pool, so they are
@@ -31167,6 +31238,7 @@ void main() {
     syncKrakenArms(run, dt) // AFTER redrawTelegraphs: that is what resolves the head this frame
     syncKrakenCreature(run, dt, events) // AFTER syncKrakenArms: it reads the head sprite that placed
     drawKrakenCues(run, dt, events) // AFTER both: reads krakenHead and krakenHold as this frame resolved them
+    krakenDangerSpTrim()
     updateKrakenCeremony(run, dt) // AFTER syncKrakenArms: the death re-poses the ropes it just hid
     updateStrafeLocks(dt) // draws INTO teleG, on top of what redrawTelegraphs just drew — see its own comment
     if (chapterHasStorm) {
