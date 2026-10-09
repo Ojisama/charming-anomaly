@@ -9506,8 +9506,7 @@ export const KRAKEN_TURN_BAG = 16
 // THE BACKHAND SLAP (d3 only, rung.slap). One arm pivots on its own ring shoulder, cocks back to one
 // side of the fish with its suckers lit (the slam's own wind-up), then swings through the fish's
 // bearing and follows through: whatever it crosses, out to its tip (KRAKEN_SLAP_LEN; a rage slap's is shorter), is slapped ONCE. The
-// answers are the parry, in the normal window as the swing starts, and hugging the head, which the
-// limb passes over. A parried slap goes limp like any parried slam.
+// answer is the parry, in the normal window as the swing starts; a rage slap's is swimming out past its tip. A parried slap goes limp like any parried slam.
 export const KRAKEN_SLAP_EVERY = 4      // arm attacks per slap
 export const KRAKEN_SLAP_FUSE = 1.6     // s from the turn to the swing reaching the fish's bearing
 export const KRAKEN_SLAP_SWING = 0.25   // s of that, the swing itself (cocked -> the fish's bearing)
@@ -9518,7 +9517,6 @@ export const KRAKEN_SLAP_LEN = 1500     // px from the shoulder the flat of the 
 // a RAGE slap reaches only KRAKEN_SLAP_PAST beyond the fish's distance from the shoulder, locked when
 // it winds up: swim out past its tip to dodge (owner, 2026-10-09: the short reach is "just for the enraged phase")
 export const KRAKEN_SLAP_PAST = 110
-export const KRAKEN_SLAP_SAFE_R = 200   // px round the head centre the limb passes OVER
 export const KRAKEN_SLAP_DMG = 24
 // balance_decision : three times the dead between apparitions, owner 2026-09-27
 //  - the waves have their own cap (KRAKEN_WAVE_CAP); KRAKEN_ADD_CAP still bounds the in-block trickle
