@@ -21894,6 +21894,9 @@ void main() {
   const K_SLAP_HOT = 0x5fe6ff
   const K_SLAP_EMBER = 0x1a78e0
   const K_SLAP_SOFT = 0.6
+  // the slam's and grab's lit suckers, as dim (owner, 2026-10-09: "lighting up too much" on a phone)
+  const K_SLAM_SOFT = 0.4
+  const K_GRAB_SOFT = 0.4
   const K_SLAP_LIT = 450   // px of limb either side of the point nearest the fish the slap's fuse runs over
   function drawKrakenCharge(rig, a, rung) {
     const G = krakenDangerG
@@ -21988,14 +21991,14 @@ void main() {
         // deep ember behind it. Saturated colour and no white — the window's flash stays the loudest.
         const age = Math.max(0, Math.min(1, (tF - t) / 0.12))
         let col = slap ? mix(K_SLAP_HOT, K_SLAP_EMBER, age) : mix(0xff8a2a, 0xe03a10, age)
-        const soft = slap ? K_SLAP_SOFT : 1
+        const soft = slap ? K_SLAP_SOFT : K_SLAM_SOFT
         // the lead-in's beads burn hotter as they are reached, and the whole run heats with it
         const hot = t >= tLead ? lead : 0
         if (hot > 0) col = mix(col, 0xffd8c0, 0.35 + 0.45 * hot)
         const rs = 1 + 0.25 * hot
         G.circle(x, y, fit(1.55 * rs)).fill({ color: 0x1a0500, alpha: 0.6 * soft })
         G.circle(x, y, fit(K_HALO_R)).fill({ color: col, alpha: (0.14 + 0.18 * (1 - age) + 0.15 * hot) * soft })
-        G.circle(x, y, r * (slap ? 1.25 * soft + 0.25 : 1.25) * rs).fill({ color: col, alpha: (0.9 + 0.1 * (1 - age)) * soft })
+        G.circle(x, y, r * (1.25 * soft + 0.25 * (soft < 1)) * rs).fill({ color: col, alpha: (0.9 + 0.1 * (1 - age)) * soft })
         if (age < 0.5) G.circle(x, y, r * 0.55).fill({ color: slap ? 0xffffff : 0xffd0b0, alpha: 0.9 * (1 - age * 2) * soft })
       }
     }
@@ -22022,9 +22025,9 @@ void main() {
     // (a slam's light RUNS down the limb; this one is simply ON) and pulse faster as the fuse runs.
     const beat = 0.5 + 0.5 * Math.sin(age * (8 + 14 * windup))
     for (const u of sk) {
-      G.circle(u.x, u.y, Math.min(u.r * 1.5, Math.max(u.r, u.room))).fill({ color: 0x031006, alpha: 0.55 * on })
-      G.circle(u.x, u.y, Math.min(u.r * K_HALO_R, Math.max(u.r, u.room))).fill({ color: K_GRAB_GLOW, alpha: (0.10 + 0.14 * beat) * on })
-      G.circle(u.x, u.y, u.r * 1.15).fill({ color: K_GRAB_GLOW, alpha: (0.75 + 0.25 * beat) * on })
+      G.circle(u.x, u.y, Math.min(u.r * 1.5, Math.max(u.r, u.room))).fill({ color: 0x031006, alpha: 0.55 * on * K_GRAB_SOFT })
+      G.circle(u.x, u.y, Math.min(u.r * K_HALO_R, Math.max(u.r, u.room))).fill({ color: K_GRAB_GLOW, alpha: (0.10 + 0.14 * beat) * on * K_GRAB_SOFT })
+      G.circle(u.x, u.y, u.r * (1.15 * K_GRAB_SOFT + 0.25 * (K_GRAB_SOFT < 1))).fill({ color: K_GRAB_GLOW, alpha: (0.75 + 0.25 * beat) * on * K_GRAB_SOFT })
     }
   }
 
