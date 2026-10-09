@@ -36271,12 +36271,13 @@ function runKraken() {
         if (arm) { run.script.turnT = 1e9; armed = true; for (const a of run.krakenArms) if (a !== arm && a.limpT <= 0) { a.tele = 0; a.gripT = 0 } }
         const win = press && arm && arm.slapArm && arm.tele > 0 && arm.tele <= krakenRung(diff).window
         if (win) run.repulseCd = 0
+        const fx = run.player.x, fy = run.player.y
         stepSim(run, { x: 0, y: 0, skill: !!win }, 1 / 60)
         for (const e of run.events) if (e.type === 'hurt' && e.src === 'krakenArm') { hits.push(e.dmg); if (hitTele == null && arm) hitTele = arm.tele }
         if (arm && arm.slapArm && arm.tele > KRAKEN_SLAP_SWING && arm.tele < arm.fuse - 0.1) {
           const dx = arm.lx1 - arm.lx0, dy = arm.ly1 - arm.ly0, l2 = dx * dx + dy * dy
-          const t = Math.max(0, Math.min(1, ((run.player.x - arm.lx0) * dx + (run.player.y - arm.ly0) * dy) / l2))
-          cock.push(Math.hypot(run.player.x - arm.lx0 - dx * t, run.player.y - arm.ly0 - dy * t))
+          const t = Math.max(0, Math.min(1, ((fx - arm.lx0) * dx + (fy - arm.ly0) * dy) / l2))
+          cock.push(Math.hypot(fx - arm.lx0 - dx * t, fy - arm.ly0 - dy * t))
         }
         run.events.length = 0
         if (run.phase === 'levelup') run.phase = 'playing'
@@ -36368,11 +36369,24 @@ function runKraken() {
       }
       return seen
     }
-    const d3 = bags(3, 60)
-    assert.ok(d3.length >= 4, `fixture: only ${d3.length} turn bags in 60s of d3`)
-    const mix3 = ['coil', 'coil', 'grab', 'grab', 'slam', 'slam', 'slam', 'slap']
+    const d3 = bags(3, 120)
+    assert.ok(d3.length >= 4, `fixture: only ${d3.length} turn bags in 120s of d3`)
+    const mix3 = ['coil', 'coil', 'coil', 'coil', 'grab', 'grab', 'grab', 'slam', 'slam', 'slam', 'slam', 'slam', 'slam', 'slap', 'slap', 'slap']
     for (const b of d3) assert.deepStrictEqual(b.slice().sort(), mix3, `a d3 turn bag held [${b}] — not the rung's mix`)
-    assert.strictEqual(d3[0].length, KRAKEN_TURN_BAG)
+    // the owner's split of the arm attacks (2026-10-09): half slams, a quarter slaps, a quarter grabs
+    const n = (k) => mix3.filter((x) => x === k).length, arm = n('slam') + n('slap') + n('grab')
+    assert.ok(n('slam') === arm / 2 && n('slap') === arm / 4 && n('grab') === arm / 4, 'the d3 mix is not half slams, a quarter slaps, a quarter grabs')
+    // ...and before the Coil and the slap are taught, their turns are not slams: the bag leaves them out
+    {
+      const run = inBlock(3)
+      run.script.bossIdx = 1
+      run.script.turnBag = null
+      run.script.trickleT = 1e9
+      for (let i = 0; i < 60 * 10 && !run.script.turnBag; i++) { run.player.hp = run.player.maxHP; stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60); if (run.phase === 'levelup') run.phase = 'playing' }
+      const b = run.script.turnBag
+      assert.ok(b, 'fixture: no turn bag drawn in the first d3 block')
+      assert.deepStrictEqual(b.slice().sort(), ['grab', 'grab', 'grab', 'slam', 'slam', 'slam', 'slam', 'slam', 'slam', 'slam', 'slam', 'slam'], `the first d3 block's bag held [${b}]`)
+    }
     assert.ok(new Set(d3.map((b) => b.join())).size >= 2, `${d3.length} d3 bags all came out in the same order — the turns are not shuffled`)
     // ...AND THE RING'S NEXT TURN IS THE BAG'S: a grab at the top of the bag, on a turn the old
     // counter would have made a slam (gripN 1), is a pinch
@@ -37204,9 +37218,12 @@ function runKraken() {
     assert.ok(h, 'no head at the end of the arrival')
     assert.ok(run.gems.length > 0,
       'the approach paid no gems at all on a wave-clearing build — this fixture cannot see the haul either way')
+    // ...BUT ONLY THE COINS: gems the player walked away from stay put (owner, 2026-10-09: hauling
+    // them in "gives too much xp")
     const outside = run.gems.filter((g) => Math.hypot(g.x - h.x, g.y - h.y) > KRAKEN_CAGE_R).length
-    assert.strictEqual(outside, 0,
-      `${outside} of ${run.gems.length} gems were left outside the ${KRAKEN_CAGE_R}px cage the player is locked into — gems do not move, so that xp is simply gone`)
+    assert.ok(outside > 0, `all ${run.gems.length} gems sit inside the ${KRAKEN_CAGE_R}px cage — the gems were hauled in with the coins`)
+    const coinsOut = run.coins.filter((g) => Math.hypot(g.x - h.x, g.y - h.y) > KRAKEN_CAGE_R).length
+    assert.strictEqual(coinsOut, 0, `${coinsOut} of ${run.coins.length} coins were left outside the cage`)
   }
 
   // (n) AN UNPARRIED SLAM STAYS WHERE IT LANDED. Without the hold the strike had a sound and a ring
@@ -37701,8 +37718,8 @@ function testKrakenGrab() {
   // THE COIL TAKES A SLAM'S TURN, NEVER A GRAB'S: twice as many coils must not mean half the pinches
   // THE TURN BAG HOLDS THE WHOLE MIX: every special's share is a whole number of its KRAKEN_TURN_BAG
   // turns, and together they leave room for slams
-  for (const R of [1, 2, 3].map(krakenRung)) for (const coilEvery of [KRAKEN_COIL_EVERY, R.enrageCoilEvery].filter(Boolean)) {
-    const per = [R.coil && coilEvery, R.grip && KRAKEN_GRIP_EVERY, R.slap && KRAKEN_SLAP_EVERY].filter(Boolean)
+  for (const R of [1, 2, 3].map(krakenRung)) {
+    const per = [R.grip && KRAKEN_GRIP_EVERY, R.slap && KRAKEN_SLAP_EVERY].filter(Boolean)
     for (const e of per) assert.ok(KRAKEN_TURN_BAG % e === 0, `a special every ${e} turns does not fit a whole number of times in a bag of ${KRAKEN_TURN_BAG}`)
     assert.ok(per.reduce((n, e) => n + KRAKEN_TURN_BAG / e, 0) < KRAKEN_TURN_BAG, `a rung's specials fill the whole bag of ${KRAKEN_TURN_BAG}: no slam left`)
   }
