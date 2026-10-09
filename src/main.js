@@ -917,7 +917,7 @@ function endRun(victory) {
       const hidMeta = ensureChapterMeta(meta, id)
       if (hidMeta.unlocked) continue
       hidMeta.unlocked = true
-      unlockedHiddenChapter = CHAPTERS[id].name
+      unlockedHiddenChapter = id
     }
   }
 
