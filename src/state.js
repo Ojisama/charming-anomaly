@@ -2377,6 +2377,9 @@ function generateWells(sig) {
   *       every arm's sector width (2pi/armsTotal), so it must not follow the survivor count down.
   *     bankedLevels — levels owed to the player for arms broken, paid out in one go on the hide.
   *       Eight level-up modals landing mid-parry is the interruption; the total is unchanged.
+  *     turnBag, turnBagI — the ring's next turns, a shuffled bag of KRAKEN_TURN_BAG kinds ('slam',
+  *       'grab', 'coil', 'slap') in the rung's mix (krakenTurnBag), and the index of the next one. A
+  *       kind the moment does not allow is a slam (krakenTurnWant); every turn taken spends one.
   *     gripN — arm attacks so far this block. P2 (the Grip) rides the RING'S OWN RHYTHM rather than
   *       a wall clock: every KRAKEN_GRIP_EVERY-th attack is a grab instead of a slam. A seconds
   *       timer made the Grip a cameo (1 per fight, measured), because once the ring is worn down a
@@ -2507,6 +2510,13 @@ function generateWells(sig) {
   *       pinchCX/CY — the locked aim point both jaws close on. pinchMate — the other jaw's index.
   *       jawX/Y — this jaw's tip as the snap starts (KRAKEN_PINCH_OPEN1 out); the snap sweeps
   *       jaw -> pinchC. aimX/Y walk in over the fuse (krakenPlaceArm). Meaningful only while grabArm.
+  *     slapArm — true while this arm is THE BACKHAND SLAP (d3, rung.slap): tele/fuse =
+  *       KRAKEN_SLAP_FUSE, then slamT = KRAKEN_SLAP_FOLLOW_T of follow-through. It pivots on its own
+  *       shoulder: slapPhi is the fish's bearing from that shoulder, locked at the turn, slapBack how far it cocks
+  *       back off it (the angle that lays the limb KRAKEN_SLAP_COCK beside the fish), slapDir (+-1)
+  *       the side it swings in from, slapTh its angle last frame (krakenSlapAng), slapHit whether it
+  *       has already slapped the fish (once per slap). lx0..lx1 is the flat of the limb, shoulder
+  *       out KRAKEN_SLAP_LEN, and x/y its far end. A parry turns it into an aimed arm, limp.
   *     hitT — >0 for KRAKEN_LIMP_FLASH after A PARRY LANDS ON IT, and render tints the tentacle off
   *            it. NOT set by the arm's own slam: that is the `lash` event's picture. It was, and had
   *            no reader at all, which is why five parries into a 320hp arm looked like one.
@@ -2999,7 +3009,7 @@ export function createRun(meta, opts = {}) {
           // The Kraken (see sim.js's stepKrakenScript). Blank never reads these and The Kraken
           // never reads stage/waveIdx/waveT/bossId, so the two ladders share one shape.
           phase: 'wave', bossIdx: 0, blockKills: 0, armsSpawned: false, headId: null,
-          headHp: 0, armsTotal: 0, bankedLevels: 0, gripN: 0, trickleT: 0, charged: false, opened: false,
+          headHp: 0, armsTotal: 0, bankedLevels: 0, gripN: 0, turnBag: null, turnBagI: 0, trickleT: 0, charged: false, opened: false,
           riseT: 0, coilT: 0, coilGap: 0, coilStar: 0, coilCX: null, coilCY: null, cageT: 0, turnT: 0, stagger: 0, staggerT: 0, staggerDecay: 0,
           openW: 0, arriveT: 0, arriveMax: 0, deflT: 0, cageR: 0, beatAt: null,
           lessonI: -1, lessonSlow: 0,

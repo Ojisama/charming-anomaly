@@ -35,7 +35,7 @@ import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC
   KRAKEN_RING_VIEW_MARGIN, KRAKEN_RING_ZOOM_MIN, KRAKEN_RING_ZOOM_EASE, KRAKEN_GRIP_DUR,
   KRAKEN_SLAM_T,
 } from './config.js'
-import { currentForce, tideForce } from './sim.js'
+import { currentForce, tideForce, krakenArmInReach } from './sim.js'
 // The Kraken's ceremony (name card, phase beats, the kill). Its own import line so it merges clean.
 import { KRAKEN_BEATS, KRAKEN_CEREMONY, KRAKEN_OUTRO } from './config.js'
 import { TRAWL_WIGGLE_ARC, KRAKEN_GRIP_FLICKS } from './config.js'
@@ -408,7 +408,7 @@ export function createRenderer(app) {
     const frame = new Rectangle(b.x - pad, b.y - pad, b.width + pad * 2, b.height + pad * 2)
     const tex = R.generateTexture({ target: g, frame, resolution: res, antialias: true })
     g.destroy(true)
-    return { tex, ax: -frame.x / frame.width, ay: -frame.y / frame.height }
+    return { tex, ax: -frame.x / frame.width, ay: -frame.y / frame.height, fw: frame.width, fh: frame.height }
   }
 
   // Same as bake(), but for a Container of Sprites (fx composites, e.g. glow-behind-star).
@@ -4821,6 +4821,11 @@ export function createRenderer(app) {
   // two rows. Row B lands at 0.62 and its pedestal reaches ~1.05, so the OUTER row is the one that
   // scallops the silhouette while the inner row sits flat on the face.
   const K_SUCK_R = 0.31, K_SUCK_FACE = 0.34, K_SUCK_ROW = 0.26
+  // WHERE EACH LIMB BAKE PUT ITS SUCKERS, so a lit sucker is lit ON one (owner, 2026-10-08: "the lights
+  // are not on the suckers"): per texture, { f, v, r } — along the strip 0..1, across it 0..1, and the
+  // radius as a fraction of its height, and `room`, its centre's distance to the limb's edge (same unit) —
+  // what any light drawn round it must stay inside. Filled by makeTentacleTex, read by limbSuckers.
+  const K_LIMB_SUCKERS = new Map()
   // ...and a sucker STANDS OUT OF the limb rather than being painted on it. Owner, 2026-09-15:
   // "can the ventouse come out a bit like in the designs?" — and in that plate the arm's OUTLINE is
   // scalloped: each sucker is a knob the flesh is pushed out into, not a disc on a smooth sweep.
@@ -12640,7 +12645,7 @@ export function createRenderer(app) {
   const teleG = new Graphics()
   const krakenCoilBandLayer = new Container()   // the Coil star's arm-shadows (drawKrakenCues)
   const krakenCoilBands = []
-  const krakenSweepG = new Graphics()   // the Sweep's wake on the floor (drawKrakenCues)
+  const krakenSlapWakeG = new Graphics()   // the slap's wake on the floor (drawKrakenCues)
   // v6.7.6 Beam Prism (run.prisms): the refracted sub-beams. ADDITIVE and its own Graphics, because
   // this is light — the same reason strafePoolLayer below is its own container. A sub-beam is
   // already resolved damage by the time it is drawn (see the run.prisms note in state.js), so this
@@ -12954,7 +12959,7 @@ const spurG = new Graphics()
     // a 400px body, and above gemLayer it hid every gem and coin that fell inside it.
     shaftLayer,
     gemLayer, coinLayer, holeLayer, eddyLayer, novaLayer, mineLayer,
-    krakenDeepG, scarLayer, bombG, shellLayer, skyLayer, voltLayer, stripG, laneG, hazardG, jetLayer, krakenCoilBandLayer, krakenSweepG, teleG, krakenImpactG, strafePoolLayer, rampG, pacerG,
+    krakenDeepG, scarLayer, bombG, shellLayer, skyLayer, voltLayer, stripG, laneG, hazardG, jetLayer, krakenCoilBandLayer, krakenSlapWakeG, teleG, krakenImpactG, strafePoolLayer, rampG, pacerG,
     rockLayer,
     orcaShadowSp, orcaG,
     macroShadowLayer, enemyShadowLayer, holoHaloLayer, enemyLayer, krakenArmLayer, enemyCrownLayer, orcaSp, netG, longlineG, snareG,
@@ -21118,12 +21123,14 @@ const spurG = new Graphics()
     const SU = K_SUCK_FACE
     //   ...and no two the same size. Identical discs at an identical pitch is the single loudest
     // remaining tell that something was DRAWN: nothing an animal grows is regular to the pixel.
+    const suckAt = []
     const sucker = (x, s) => {
       // ...off the line as well as off the size. Two rows ruled dead straight is the last piece of
       // regularity on the limb once the sizes vary, and regularity is what reads as printed.
       const w = wAt(x), u = SU + s * K_SUCK_ROW + (rnd() - 0.5) * 0.09, r = w * K_SUCK_R * (0.86 + rnd() * 0.28)
       if (x > L * 0.975 || r < 0.9) return
       const y = w * u
+      suckAt.push(x, y, r, w)
       // a disc on a cylinder is seen at a grazing angle the further off the midline it sits, so it
       // is drawn as the ELLIPSE that projection makes of it
       const ry = r * Math.sqrt(1 - u * u)
@@ -21219,7 +21226,30 @@ const spurG = new Graphics()
       const p = pts[i]
       g.circle(p.x, -p.w * 0.12, Math.max(1, p.w * 0.09)).fill({ color: K_GLOW, alpha: 0.75 })
     }
-    return bake(g, 10, 2).tex
+    const b = bake(g, 10, 2)
+    const list = []
+    for (let i = 0; i < suckAt.length; i += 4) list.push({ f: b.ax + suckAt[i] / b.fw, v: b.ay + suckAt[i + 1] / b.fh, r: suckAt[i + 2] / b.fh, room: (suckAt[i + 3] - Math.abs(suckAt[i + 1])) / b.fh })
+    K_LIMB_SUCKERS.set(b.tex, list)
+    return b.tex
+  }
+  // THE BAKE'S SUCKERS ON THIS ROPE AS DRAWN, between rope fractions t0..t1: { t, x, y, r, room } in world px.
+  // A MeshRope stretches its texture by POINT INDEX (u = k / (N - 1)) and puts v = 0 on the side of
+  // perp = (next.y - last.y, -(next.x - last.x)), the full texture height across the drawn width.
+  function limbSuckers(rig, t0, t1) {
+    const list = K_LIMB_SUCKERS.get(rig.rope.texture) || []
+    // the drawn width: krakenRopeWidths sets it to the texture's height x _kMul every render
+    const P = rig.pts, N = P.length, W = rig.rope.texture.height * (rig.rope._kMul ?? 1), out = []
+    for (const q of list) {
+      if (q.f < t0 || q.f > t1) continue
+      const kf = q.f * (N - 1), k = Math.min(N - 2, Math.floor(kf)), u = kf - k
+      const a = P[Math.max(0, k - 1)], b = P[Math.min(N - 1, k + 2)]
+      let px = b.y - a.y, py = -(b.x - a.x)
+      const l = Math.hypot(px, py) || 1
+      px /= l; py /= l
+      const off = (0.5 - q.v) * W
+      out.push({ t: q.f, x: P[k].x + (P[k + 1].x - P[k].x) * u + px * off, y: P[k].y + (P[k + 1].y - P[k].y) * u + py * off, r: q.r * W, room: Math.max(0, q.room * W) })
+    }
+    return out
   }
 
   // One rope per arm, plus a second rope beneath it as its shadow on the murk — that offset pair is
@@ -21843,10 +21873,12 @@ void main() {
   const K_LEAD_FRAC = 0.6   // share of the limb the front has lit when that run starts
   const K_WHIP_SLACK = 23   // px a landed plain slam's whip bend may stray off the struck axis, once the hit has resolved
   const K_GLOW_IN = 0.8   // the window's glow down the limb, as a fraction of the limb's own width
-  // a lit sucker's halo, in sucker radii: the suckers sit 0.42 of the half-width off the midline at a
-  // radius of ~0.29 of it, so 1.9 reaches 0.98 — the light stays INSIDE the limb's outline, never on
-  // the floor beside it, where it read as the arm swelling
+  // a lit sucker's halo, in sucker radii — and never past the limb's outline (each sucker's own
+  // `room`, limbSuckers): light on the floor beside the limb read as the arm swelling
   const K_HALO_R = 1.9
+  // a light's base radius per baked sucker radius: its halo (K_HALO_R of it) stays on its own
+  // sucker, so a lit row reads as separate lamps and not one glowing band
+  const K_LIT = 0.5
   // A WIND-UP TINT NEVER BRIGHTENS THE LIMB PAST A RESTING ONE'S (0x7366a0). A MeshRope tint
   // multiplies the whole strip, so a white or green one lights the limb's dark edge, which otherwise
   // sinks into the floor, and the arm reads as swelling. The hue is kept; the flash itself is carried
@@ -21857,13 +21889,32 @@ void main() {
     const k = Math.min(1, K_TINT_LUMA / Math.max(1e-3, (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255))
     return (Math.round(r * k) << 16) | (Math.round(g * k) << 8) | Math.round(b * k)
   }
+  // THE SLAP'S OWN LIGHT (owner, 2026-10-09: "cyan but more subtle"), hot at the running front
+  // settling behind it, as the slam's orange does, and dimmer than it by K_SLAP_SOFT
+  const K_SLAP_HOT = 0x5fe6ff
+  const K_SLAP_EMBER = 0x1a78e0
+  const K_SLAP_SOFT = 0.6
+  const K_SLAP_LIT = 450   // px of limb either side of the point nearest the fish the slap's fuse runs over
   function drawKrakenCharge(rig, a, rung) {
     const G = krakenDangerG
     const pts = rig.pts
     if (!pts || pts.length < 2) return
     const HW = KRAKEN_LIMB_HW
     const N = K_ROPE_N
-    const tS = Math.max(0.02, Math.min(0.9, rig._tS ?? 0.35))
+    let tS = Math.max(0.02, Math.min(0.9, rig._tS ?? 0.35))
+    // THE SLAP'S FUSE RUNS WHERE IT CAN BE SEEN: its limb runs from a shoulder off one edge of the
+    // screen to a tip off the other, so a root-to-tip run spent most of the wind-up off screen. It
+    // runs instead over K_SLAP_LIT px either side of the point nearest the fish.
+    const slap = a.slapArm === true
+    let tE = 1
+    if (slap && krakenFishPt) {
+      let kc = 0, bd = Infinity
+      for (let q = 0; q < pts.length; q++) { const d = (pts[q].x - krakenFishPt.x) ** 2 + (pts[q].y - krakenFishPt.y) ** 2; if (d < bd) { bd = d; kc = q } }
+      let k0 = kc, k1 = kc, l0 = 0, l1 = 0
+      while (k0 > 0 && l0 < K_SLAP_LIT) { l0 += Math.hypot(pts[k0].x - pts[k0 - 1].x, pts[k0].y - pts[k0 - 1].y); k0-- }
+      while (k1 < pts.length - 1 && l1 < K_SLAP_LIT) { l1 += Math.hypot(pts[k1 + 1].x - pts[k1].x, pts[k1 + 1].y - pts[k1].y); k1++ }
+      tS = k0 / (pts.length - 1); tE = k1 / (pts.length - 1)
+    }
     // A GRAB wears its own colour and NEVER the white parry flash: it is dodged, not parried
     const grab = a.grabArm === true
     const win = !grab && a.tele <= rung.window
@@ -21880,9 +21931,10 @@ void main() {
     const lead = grab ? 0 : Math.max(0, Math.min(1, 1 - toWin / K_LEAD_T))
     const leadStart = Math.max(0.05, wOpen - K_LEAD_T / a.fuse)
     const pre = grab ? prog : Math.min(1, windup / leadStart)
-    const tF = grab ? tS + (1 - tS) * Math.pow(prog, 0.9)
+    const tF = slap ? tS + (tE - tS) * Math.pow(prog, 0.9)
+      : grab ? tS + (1 - tS) * Math.pow(prog, 0.9)
       : tS + (1 - tS) * (toWin > K_LEAD_T ? K_LEAD_FRAC * Math.pow(pre, 0.9) : K_LEAD_FRAC + (1 - K_LEAD_FRAC) * lead * lead)
-    const tLead = tS + (1 - tS) * K_LEAD_FRAC
+    const tLead = slap ? 2 : tS + (1 - tS) * K_LEAD_FRAC
     const since = Math.max(0, rung.window - a.tele)
     // THE WINDOW IS ONE FLASH: white on its first frames, then the dots drop to a gold that says
     // "committed" and hold it to the impact — so there is a "flash" to count from, and an end.
@@ -21895,11 +21947,9 @@ void main() {
       for (let q = k0 + 1; q <= k1; q++) G.lineTo(pts[q].x, pts[q].y)
       G.stroke({ width: w, color, alpha, cap, join: 'round' })
     }
-    const kS = kOf(tS - 0.03), kF = kOf(tF), kE = N - 1
+    const kS = kOf(tS - 0.03), kF = kOf(tF), kE = slap ? kOf(tE) : N - 1
     // walk the limb at the bake's own pitch (~2.3 sucker radii of the local width), two staggered
     // rows either side of the midline
-    let acc = 0
-    let j = 0
     if (win) {
       // the white glow down the limb stops a fish-length short of the fish; the rest of it is warm
       let kN = kE
@@ -21915,28 +21965,19 @@ void main() {
       glowRun(kS, kN, 0xffffff)
       if (kN < kE) glowRun(kN, kE, 0xffd9b0)
     }
-    for (let k = kS + 1; k < kE - 1; k++) {
-      const p0 = pts[k - 1], p1 = pts[k]
-      const seg = Math.hypot(p1.x - p0.x, p1.y - p0.y)
-      acc += seg
-      const hw = hwAt(k)
-      const step = Math.max(6, hw * K_SUCK_R * 2.3 * 2)      // both rows share one pitch, staggered by half
-      if (acc < step * 0.5) continue
-      acc = 0
-      j++
-      const t = k / (N - 1)
-      const dx = (pts[k + 1].x - p0.x), dy = (pts[k + 1].y - p0.y), dl = Math.hypot(dx, dy) || 1
-      const nx = -dy / dl, ny = dx / dl
-      const side = j % 2 ? 1 : -1
-      const x = p1.x + nx * hw * 0.42 * side, y = p1.y + ny * hw * 0.42 * side
-      const r = Math.max(2, hw * K_SUCK_R * 0.95)
+    // ON THE BAKE'S OWN SUCKERS (limbSuckers): a pitch of our own drifted off them, two rows at
+    // +-0.42 of the half-width against suckers baked at 0.08 and 0.60 on ONE side
+    for (const sk of limbSuckers(rig, (kS + 1) / (N - 1), (kE - 1) / (N - 1))) {
+      const t = sk.t, x = sk.x, y = sk.y
+      const r = Math.max(2, sk.r * K_LIT)
+      const fit = (k) => Math.min(r * k, Math.max(r, sk.room))   // never past the limb's outline
       if (win) {
         // WHITE FOR THE WHOLE WINDOW, open to impact: "press while it is white". The first frames
         // flare wider (pop); the colour itself does not fade, so the window has one look end to end.
         const nearFish = krakenFishPt && (x - krakenFishPt.x) ** 2 + (y - krakenFishPt.y) ** 2 < K_NEAR_WARM ** 2
         const col = nearFish ? 0xffd9b0 : 0xffffff
-        G.circle(x, y, r * 1.5).fill({ color: 0x1a0800, alpha: 0.5 })
-        G.circle(x, y, r * K_HALO_R).fill({ color: col, alpha: 0.12 + 0.3 * pop })
+        G.circle(x, y, fit(1.5)).fill({ color: 0x1a0800, alpha: 0.5 })
+        G.circle(x, y, fit(K_HALO_R)).fill({ color: col, alpha: 0.12 + 0.3 * pop })
         G.circle(x, y, r * 1.2).fill({ color: col, alpha: 0.95 })
       } else if (grab) {
         // A GRAB LIGHTS NO DOTS: a row of lit suckers is the slam's vocabulary in any colour. Its
@@ -21946,19 +21987,20 @@ void main() {
         // backing so it holds against the lit seabed, hot orange at the running front settling to a
         // deep ember behind it. Saturated colour and no white — the window's flash stays the loudest.
         const age = Math.max(0, Math.min(1, (tF - t) / 0.12))
-        let col = mix(0xff8a2a, 0xe03a10, age)
+        let col = slap ? mix(K_SLAP_HOT, K_SLAP_EMBER, age) : mix(0xff8a2a, 0xe03a10, age)
+        const soft = slap ? K_SLAP_SOFT : 1
         // the lead-in's beads burn hotter as they are reached, and the whole run heats with it
         const hot = t >= tLead ? lead : 0
         if (hot > 0) col = mix(col, 0xffd8c0, 0.35 + 0.45 * hot)
         const rs = 1 + 0.25 * hot
-        G.circle(x, y, r * 1.55 * rs).fill({ color: 0x1a0500, alpha: 0.6 })
-        G.circle(x, y, r * K_HALO_R).fill({ color: col, alpha: 0.14 + 0.18 * (1 - age) + 0.15 * hot })
-        G.circle(x, y, r * 1.25 * rs).fill({ color: col, alpha: 0.9 + 0.1 * (1 - age) })
-        if (age < 0.5) G.circle(x, y, r * 0.55).fill({ color: 0xffd0b0, alpha: 0.9 * (1 - age * 2) })
+        G.circle(x, y, fit(1.55 * rs)).fill({ color: 0x1a0500, alpha: 0.6 * soft })
+        G.circle(x, y, fit(K_HALO_R)).fill({ color: col, alpha: (0.14 + 0.18 * (1 - age) + 0.15 * hot) * soft })
+        G.circle(x, y, r * (slap ? 1.25 * soft + 0.25 : 1.25) * rs).fill({ color: col, alpha: (0.9 + 0.1 * (1 - age)) * soft })
+        if (age < 0.5) G.circle(x, y, r * 0.55).fill({ color: slap ? 0xffffff : 0xffd0b0, alpha: 0.9 * (1 - age * 2) * soft })
       }
     }
     if (!grab) return
-    drawKrakenGrabTell(G, pts, a, windup, kS, kE, hwAt)
+    drawKrakenGrabTell(G, rig, a, windup, kS, kE)
   }
   // THE GRAB'S TELL IS THE GRABBING ARM ITSELF (owner, 2026-09-26: no hook glyph, no floor strip).
   // The grab is a PINCH: two arms hover straight along their lanes, their tips creeping in on the
@@ -21970,31 +22012,18 @@ void main() {
   // crosses the screen sideways (owner, 2026-10-08); the hover is told by the green suckers instead
   const K_GRAB_RISE = 0
   const K_GRAB_TINT = 0xb8ffb0   // the grab rope's tint while it winds up
-  function drawKrakenGrabTell(G, pts, a, windup, kS, kE, hwAt) {
-    const N = pts.length
+  function drawKrakenGrabTell(G, rig, a, windup, kS, kE) {
+    const N = rig.pts.length
     const age = a.fuse - Math.max(0, a.tele)
     const on = Math.min(1, age / 0.12)   // snaps on: the first frame of the wind-up already reads
-    // the suckers down the limb, at the bake's pitch, two staggered rows (as the slam's fuse walks them)
-    const sk = []
-    let acc = 0, j = 0
-    for (let k = kS + 1; k < kE - 1; k++) {
-      const p0 = pts[k - 1], p1 = pts[k]
-      acc += Math.hypot(p1.x - p0.x, p1.y - p0.y)
-      const hw = hwAt(k)
-      const step = Math.max(6, hw * K_SUCK_R * 2.3 * 2)
-      if (acc < step * 0.5) continue
-      acc = 0
-      j++
-      const dx = pts[k + 1].x - p0.x, dy = pts[k + 1].y - p0.y, dl = Math.hypot(dx, dy) || 1
-      const nx = -dy / dl, ny = dx / dl, side = j % 2 ? 1 : -1
-      sk.push({ k, t: k / (N - 1), x: p1.x + nx * hw * 0.42 * side, y: p1.y + ny * hw * 0.42 * side, r: Math.max(2, hw * K_SUCK_R * 0.95) })
-    }
+    // the bake's own suckers down the limb (limbSuckers), as the slam's fuse lights them
+    const sk = limbSuckers(rig, (kS + 1) / (N - 1), (kE - 1) / (N - 1)).map((q) => ({ ...q, r: Math.max(2, q.r * K_LIT) }))
     // EVERY LAMP AT ONCE, BREATHING. All the suckers light green together on the first frame
     // (a slam's light RUNS down the limb; this one is simply ON) and pulse faster as the fuse runs.
     const beat = 0.5 + 0.5 * Math.sin(age * (8 + 14 * windup))
     for (const u of sk) {
-      G.circle(u.x, u.y, u.r * 1.5).fill({ color: 0x031006, alpha: 0.55 * on })
-      G.circle(u.x, u.y, u.r * K_HALO_R).fill({ color: K_GRAB_GLOW, alpha: (0.10 + 0.14 * beat) * on })
+      G.circle(u.x, u.y, Math.min(u.r * 1.5, Math.max(u.r, u.room))).fill({ color: 0x031006, alpha: 0.55 * on })
+      G.circle(u.x, u.y, Math.min(u.r * K_HALO_R, Math.max(u.r, u.room))).fill({ color: K_GRAB_GLOW, alpha: (0.10 + 0.14 * beat) * on })
       G.circle(u.x, u.y, u.r * 1.15).fill({ color: K_GRAB_GLOW, alpha: (0.75 + 0.25 * beat) * on })
     }
   }
@@ -22256,6 +22285,7 @@ void main() {
   }
   // sim's krakenArmInReach, exactly: the struck line widened by KRAKEN_PARRY_MARGIN
   function krakenArmInReachR(run, a) {
+    if (a.slapArm) return krakenArmInReach(run, a)   // a swing, not a line: the sim's sweep test
     const p = run.player
     const dx = a.lx1 - a.lx0, dy = a.ly1 - a.ly0, l2 = dx * dx + dy * dy
     const t = l2 > 0 ? Math.max(0, Math.min(1, ((p.x - a.lx0) * dx + (p.y - a.ly0) * dy) / l2)) : 0
@@ -22857,7 +22887,7 @@ void main() {
       // A PLAIN SLAM IS COCKED LIKE A WHIP, and the pose is half its telegraph (the lit suckers are
       // the other half, drawKrakenCharge). It rears and curls back until it is highest AS the parry
       // window opens, then whips down through the window to land on the tick it strikes.
-      const cocked = !a.coilArm && !!rung && a.tele > 0 && a.fuse > 0 && a.i !== run.script.sweepArmI   // the slap keeps its own pose; it borrows only the lit suckers
+      const cocked = !a.coilArm && !!rung && a.tele > 0 && a.fuse > 0 && !a.slapArm   // the slap keeps its own pose; it borrows only the lit suckers
       // A GRAB HOVERS OVER ITS OWN LINE: it rises off the floor lying straight along the lane it will
       // strike (shoulder -> aim), so its shadow on the seabed IS the ground it lands on (grab round 2)
       const hover = cocked && a.grabArm === true
@@ -22889,7 +22919,10 @@ void main() {
         let gx = a.x, gy = a.y, rate = 9
         // A PINCH JAW IS WHERE SIM PUT IT, and fast: the tip IS the jaw, and the snap is 0.14s
         if (hover) rate = 40
-        if (rung && !a.coilArm && !a.grabArm && a.i !== run.script.sweepArmI && a.tele > 0 && a.tele <= rung.window && krakenArmInReachR(run, a)) {
+        // THE SLAP'S DRAWN LIMB KEEPS UP WITH ITS SWING: the hit is the sim's angle, and an arm that
+        // lagged a tenth of a second would slap the fish before it was seen to arrive
+        if (a.slapArm) rate = 30
+        if (rung && !a.coilArm && !a.grabArm && !a.slapArm && a.tele > 0 && a.tele <= rung.window && krakenArmInReachR(run, a)) {
           const dx = a.lx1 - a.lx0, dy = a.ly1 - a.ly0, l2 = dx * dx + dy * dy || 1
           const u = Math.max(0, Math.min(1, ((run.player.x - a.lx0) * dx + (run.player.y - a.ly0) * dy) / l2))
           gx = a.lx0 + dx * u; gy = a.ly0 + dy * u; rate = 30
@@ -22909,7 +22942,7 @@ void main() {
       // the frame the strike lands, and the bounce on a landed slam punches a little past it.
       const swing = Math.sin(a.i * 2.7) >= 0 ? 1 : -1
       const bounce = a.slamT > 0 ? -Math.sin((1 - a.slamT / KRAKEN_SLAM_T) * Math.PI) * 24 : 0
-      const crack = a.slamT > 0 ? Math.pow(a.slamT / KRAKEN_SLAM_T, 1.6) : 0
+      const crack = a.slamT > 0 && !a.slapArm ? Math.pow(a.slamT / KRAKEN_SLAM_T, 1.6) : 0   // a slap follows through, it does not crack onto the head
       // AND THE CRACK TRAVELS DOWN THE LIMB — owner, 2026-09-15: "whip/swing for attacks". Every
       // term above moves the WHOLE arm at once, which is a rod pivoting on its shoulder: shot on the
       // live fight, the frame a slam lands is a fat column standing in its own print, and the only
@@ -22937,8 +22970,8 @@ void main() {
         const ca = Math.cos(a.angNow ?? a.ang), sa = Math.sin(a.angNow ?? a.ang)
         const Bx = head.x + ca * shoulderR, By = head.y + sa * shoulderR
         const Sx = head.x + ca * KRAKEN_RING_R, Sy = head.y + sa * KRAKEN_RING_R
-        // ponytail: the Sweep look prototype lets its arm's tip go past the ring; settle with the build
-        const bent = tipR < KRAKEN_RING_R - 40 || a.i === run.script.sweepArmI
+        // the slap lies from its shoulder out past the screen, its tip far beyond the ring
+        const bent = tipR < KRAKEN_RING_R - 40 || a.slapArm === true
         let ux = -ca, uy = -sa
         if (bent) { const l = Math.hypot(te.x - Sx, te.y - Sy) || 1; ux = (te.x - Sx) / l; uy = (te.y - Sy) / l }
         const pull = lift * (hover ? 0 : cocked ? 150 : 55) + bounce
@@ -24555,51 +24588,51 @@ void main() {
     }
   }
 
-  // THE SWEEP'S WAKE: a trail left BEHIND the sweeping arm (s.sweepArmI). Every K_SWEEP_SNAP s the
+  // THE SLAP'S WAKE: a trail left BEHIND the swinging arm (a.slapArm). Every K_SLAP_WAKE_SNAP s the
   // arm's trailing edge is copied as a ripple line and drops a little grit; both spread back and
   // fade. Read off the rope as DRAWN (rig.pts), so the wake cannot drift off the limb, and "behind"
   // is against the limb's own motion since the last frame, so it holds for any movement.
-  const K_SWEEP_SNAP = 0.02, K_SWEEP_LIFE = 0.45, K_SWEEP_MIN_V = 900   // px/s: slower than this leaves no wake
-  const krakenSweepTrail = []
-  let krakenSweepSnapT = 0, krakenSweepPrev = null, krakenSweepN = 0
-  function drawKrakenSweep(run, s, dt) {
-    const g = krakenSweepG
+  const K_SLAP_WAKE_SNAP = 0.02, K_SLAP_WAKE_LIFE = 0.45, K_SLAP_WAKE_MIN_V = 900   // px/s: slower than this leaves no wake
+  const krakenSlapWakeTrail = []
+  let krakenSlapWakeSnapT = 0, krakenSlapWakePrev = null, krakenSlapWakeN = 0
+  function drawKrakenSlapWake(run, s, dt) {
+    const g = krakenSlapWakeG
     const hash = (k) => { const x = Math.sin(k * 127.1) * 43758.5; return x - Math.floor(x) }
-    for (const w of krakenSweepTrail) w.life -= dt
-    while (krakenSweepTrail.length && krakenSweepTrail[0].life <= 0) krakenSweepTrail.shift()
-    const arm = s.sweepArmI != null ? run.krakenArms.find((c) => c.i === s.sweepArmI && !c.dead) : null
+    for (const w of krakenSlapWakeTrail) w.life -= dt
+    while (krakenSlapWakeTrail.length && krakenSlapWakeTrail[0].life <= 0) krakenSlapWakeTrail.shift()
+    const arm = run.krakenArms.find((c) => c.slapArm && !c.dead) || null
     const rig = arm ? krakenRigOf[arm.i] : null
     if (rig) {
       const P = rig.pts, N = P.length
       let side = 0, len = 0
-      if (krakenSweepPrev && krakenSweepPrev.length === 2 * N) {
+      if (krakenSlapWakePrev && krakenSlapWakePrev.length === 2 * N) {
         for (let k = 1; k < N - 1; k++) {
           const tx = P[k + 1].x - P[k - 1].x, ty = P[k + 1].y - P[k - 1].y
-          side += (P[k].x - krakenSweepPrev[2 * k]) * -ty + (P[k].y - krakenSweepPrev[2 * k + 1]) * tx
+          side += (P[k].x - krakenSlapWakePrev[2 * k]) * -ty + (P[k].y - krakenSlapWakePrev[2 * k + 1]) * tx
           len += Math.hypot(tx, ty)
         }
       }
-      krakenSweepSnapT -= dt
-      const fast = len > 0 && dt > 0 && Math.abs(side / len) / dt > K_SWEEP_MIN_V
-      if (krakenSweepSnapT <= 0 && fast) {
-        krakenSweepSnapT = K_SWEEP_SNAP
+      krakenSlapWakeSnapT -= dt
+      const fast = len > 0 && dt > 0 && Math.abs(side / len) / dt > K_SLAP_WAKE_MIN_V
+      if (krakenSlapWakeSnapT <= 0 && fast) {
+        krakenSlapWakeSnapT = K_SLAP_WAKE_SNAP
         const sg = side > 0 ? -1 : 1, edge = [], grit = []
-        krakenSweepN++
+        krakenSlapWakeN++
         for (let k = 1; k < N - 1; k++) {
           const tx = P[k + 1].x - P[k - 1].x, ty = P[k + 1].y - P[k - 1].y, l = Math.hypot(tx, ty) || 1
           const nx = sg * -ty / l, ny = sg * tx / l
           const off = KRAKEN_LIMB_HW * krakenLimbProf(k / (N - 1)) + 4
           const x = P[k].x + nx * off, y = P[k].y + ny * off
           edge.push(x, y, nx, ny)
-          if (hash(k + krakenSweepN * 31) < 0.4) { const d = 4 + 22 * hash(k * 7 + krakenSweepN); grit.push(x + nx * d, y + ny * d, 1.5 + 3 * hash(k * 3 + krakenSweepN * 5)) }
+          if (hash(k + krakenSlapWakeN * 31) < 0.4) { const d = 4 + 22 * hash(k * 7 + krakenSlapWakeN); grit.push(x + nx * d, y + ny * d, 1.5 + 3 * hash(k * 3 + krakenSlapWakeN * 5)) }
         }
-        krakenSweepTrail.push({ edge, grit, life: K_SWEEP_LIFE })
+        krakenSlapWakeTrail.push({ edge, grit, life: K_SLAP_WAKE_LIFE })
       }
-      if (!krakenSweepPrev || krakenSweepPrev.length !== 2 * N) krakenSweepPrev = new Float32Array(2 * N)
-      for (let k = 0; k < N; k++) { krakenSweepPrev[2 * k] = P[k].x; krakenSweepPrev[2 * k + 1] = P[k].y }
-    } else krakenSweepPrev = null
-    for (const w of krakenSweepTrail) {
-      const f = Math.max(0, w.life / K_SWEEP_LIFE), spread = (1 - f) * 30, E = w.edge, pts = []
+      if (!krakenSlapWakePrev || krakenSlapWakePrev.length !== 2 * N) krakenSlapWakePrev = new Float32Array(2 * N)
+      for (let k = 0; k < N; k++) { krakenSlapWakePrev[2 * k] = P[k].x; krakenSlapWakePrev[2 * k + 1] = P[k].y }
+    } else krakenSlapWakePrev = null
+    for (const w of krakenSlapWakeTrail) {
+      const f = Math.max(0, w.life / K_SLAP_WAKE_LIFE), spread = (1 - f) * 30, E = w.edge, pts = []
       for (let q = 0; q < E.length; q += 4) {
         const wob = 3 * Math.sin(q * 0.35 + animT * 5)
         pts.push(E[q] + E[q + 2] * (spread + wob), E[q + 1] + E[q + 3] * (spread + wob))
@@ -24623,7 +24656,7 @@ void main() {
       if (e.type === 'gripBreak') { krakenEscapeT = 0.4; krakenEscapeX = e.px ?? run.player.x; krakenEscapeY = e.py ?? run.player.y }
     }
     for (const b of krakenCoilBands) b.visible = false
-    krakenSweepG.clear()
+    krakenSlapWakeG.clear()
     const head = krakenHead
     if (!krakenFight(run) || !head || run.phase === 'dead') { krakenFishRims(false); return }
     const s = run.script
@@ -24666,7 +24699,7 @@ void main() {
       }
     }
 
-    drawKrakenSweep(run, s, k)
+    drawKrakenSlapWake(run, s, k)
 
     // ---- the fish's outline: silhouettes of its own body and tail behind it, dark and then a thin
     // light rim, so an orange-brown fish still has an edge on the orange maw and the hazard fill.

@@ -95,6 +95,7 @@ function fight(seed) {
 
   let parries = 0, whiffs = 0, limpWindows = 0, staggers = 0, levels = 0
   let ringT = 0, limpT = 0, chaseT = 0, won = false, maxRearing = 0, enraged = -1, coilWind = 0, coilClose = 0, ringParries = 0, ringBreaks = 0, ringBlazes = 0, enrT = 0, enrRears = 0
+  let slaps = 0, slapParried = 0, slapHits = 0
   let slamRears = 0, dmg = 0, coilDmg = 0, coilLash = 0, slamLands = 0, slamHits = 0, grabs = 0, grips = 0, grabMiss = 0, gripDmg = 0
   const botRnd = mulberry32(seed ^ 0x5bd1e995)
   let pinned = false, chaseDmg = 0
@@ -205,7 +206,8 @@ function fight(seed) {
         for (const a of run.krakenArms) {
           if (a.dead || a.limpT > 0 || a.coilArm || a.grabArm) continue   // krakenParry skips a Coil arm and a grab too
           if (a._botSkip) continue
-          if ((a.x - p.x) ** 2 + (a.y - p.y) ** 2 > reach2) continue
+          // a SLAP's tip is off the screen: its reach is the rest of its swing, which the sim knows
+          if (!a.slapArm && (a.x - p.x) ** 2 + (a.y - p.y) ** 2 > reach2) continue
           if (a.tele > 0 && a.tele <= rung.window) { press = true; break }
         }
       }
@@ -221,7 +223,15 @@ function fight(seed) {
     run.player.hp = run.player.maxHP
     const px0 = p.x, py0 = p.y
     const burstPre = !!head && (head._lungeBurst ?? 0) > 0
+    const slapPre = run.krakenArms.map((a) => ({ on: !!a.slapArm, hit: !!a.slapHit }))
     stepSim(run, { x: inX, y: inY, skill: press }, DT)
+    // THE BACKHAND (d3): wound on its turn, parried if it went limp mid-slap, landed when it slapped
+    run.krakenArms.forEach((a, k) => {
+      const was = slapPre[k] || { on: false, hit: false }
+      if (a.slapArm && !was.on) slaps++
+      if (was.on && !a.slapArm && a.limpT > 0) slapParried++
+      if (a.slapHit && !was.hit && (a.slapArm || was.on)) slapHits++
+    })
     pinned = (inX || inY) && Math.hypot(p.x - px0, p.y - py0) < 1
     // damage TAKEN this step (the rig is immortal, so this is what a mortal player would have lost)
     const lost = Math.max(0, run.player.maxHP - run.player.hp)
@@ -258,7 +268,7 @@ function fight(seed) {
     run.events.length = 0
   }
   return {
-    won, t: run.time, slamRears, parries, whiffs, staggers, levels, maxRearing, enraged, coilWind, coilClose, ringParries, ringBreaks, ringBlazes, enrT, enrRears, armsEnd: run.krakenArms.length, dmg, coilDmg, coilLash, slamLands, slamHits, grabs, grips, grabMiss, gripDmg,
+    won, t: run.time, slaps, slapParried, slapHits, slapsPerMin: slaps / Math.max(1e-9, run.time / 60), slamRears, parries, whiffs, staggers, levels, maxRearing, enraged, coilWind, coilClose, ringParries, ringBreaks, ringBlazes, enrT, enrRears, armsEnd: run.krakenArms.length, dmg, coilDmg, coilLash, slamLands, slamHits, grabs, grips, grabMiss, gripDmg,
     broken: run.krakenArms.filter((a) => a.dead).length, arms: run.krakenArms.length,
     chaseDmg, bySrc, ringT, limpT, chaseT, headLeft: Math.round(run.script?.headHp ?? 0),
   }
@@ -289,6 +299,7 @@ console.log(`arms hauled back at the enrage ${f('enraged')}   (-1 = the enrage n
 // A COIL THAT WINDS AND NEVER CLOSES is the shape of this chapter's worst bug class: the siren
 // fires, the gap wedge goes up, and nothing ever resolves it. Counted so it cannot hide again.
 console.log(`coils wound / closed  ${f('coilWind')} / ${f('coilClose')}`)
+console.log(`slaps wound / parried / landed  ${f('slaps')} / ${f('slapParried')} / ${f('slapHits')}   slaps per minute of fight ${f('slapsPerMin', 1)}`)
 console.log(`ring: arm parries / arms broken  ${f('ringParries')} / ${f('ringBreaks')}   of them by blaze ${f('ringBlazes')}   parries per break ` + (rs.reduce((q, r) => q + r.ringParries, 0) / Math.max(1, rs.reduce((q, r) => q + r.ringBreaks, 0))).toFixed(2))
 console.log(`coil lashes landed    ${f('coilLash')}`)
 console.log(`damage taken          ${f('dmg')}   of it on a coil's landing ${f('coilDmg')}`)
