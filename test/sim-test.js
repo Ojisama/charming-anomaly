@@ -171,7 +171,7 @@ import {
   // The Kraken (run KR): the rung table and the ring's numbers
   krakenRung, krakenRungFor, KRAKEN_TURN_BAG, KRAKEN_SLAP_EVERY, KRAKEN_SLAP_COCK, KRAKEN_SLAP_SWING, KRAKEN_SLAP_SAFE_R, KRAKEN_SLAP_FUSE, KRAKEN_SLAP_FOLLOW_T, KRAKEN_TRICKLE_T, KRAKEN_TRICKLE_EDGE, KRAKEN_TRICKLE_CLEAR, OPEN_GUARD_WINDOW_MUL, HAIR_TRIGGER_WINDOW_MUL, HAIR_TRIGGER_DMG_MUL, KRAKEN_RUNGS, KRAKEN_ARM_REACH, KRAKEN_WAVE_TIMEOUT, KRAKEN_STAGGER_BITE,
   KRAKEN_RISE_T, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, hiddenChapters, KRAKEN_CAGE_R, KRAKEN_PARRY_CD,
-  KRAKEN_OPEN_WAVES, KRAKEN_COIL_EVERY, KRAKEN_COIL_RAYS, KRAKEN_ENRAGE_AT, KRAKEN_ARRIVE_T, KRAKEN_RING_R, KRAKEN_LASH_R, KRAKEN_SLAM_T, KRAKEN_DEFLECT_CD,
+  KRAKEN_OPEN_WAVES, KRAKEN_COIL_EVERY, KRAKEN_COIL_RAYS, KRAKEN_ENRAGE_AT, KRAKEN_RAGE_AT, KRAKEN_RAGE_HITS, KRAKEN_RAGE_CALM, KRAKEN_RAGE_CHANCE, KRAKEN_NODE_BACK, KRAKEN_HEAD_HP, KRAKEN_HEAD_HP_AT, KRAKEN_HEAD_HP_PER_S, KRAKEN_ARRIVE_T, KRAKEN_RING_R, KRAKEN_LASH_R, KRAKEN_SLAM_T, KRAKEN_DEFLECT_CD,
   KRAKEN_LUNGE_T, KRAKEN_GRIP_DUR, KRAKEN_GRIP_DMG, KRAKEN_GRIP_FLICKS, KRAKEN_GRIP_STICK_MUL, TRAWL_WIGGLE_ARC,
   KRAKEN_LASH_W, KRAKEN_LASH_OVER, KRAKEN_LASH_DMG, KRAKEN_LESSON_MAX, KRAKEN_PARRY_SHOVE_R, KRAKEN_PARRY_EARLY_T, KRAKEN_LIMP_CLEAR, KRAKEN_ARRIVE_T2, KRAKEN_WAVE_GROWTH, KRAKEN_COIL_DMG,
   KRAKEN_HEAD_SPEED, KRAKEN_PARRY_SPIN_T, krakenLimbHalfW, FISH_R, FISH_BODY, KRAKEN_GRIP_EVERY, KRAKEN_GRAB_FUSE, KRAKEN_GRAB_MIN_STEP, KRAKEN_PINCH_OPEN0, KRAKEN_PINCH_OPEN1,
@@ -20822,6 +20822,8 @@ run(testLeLargeWeapons)
   run(testKrakenParryShove)
   run(testKrakenGrab)
   run(testKrakenEnrage)
+  run(testKrakenRage)
+  run(testKrakenPace)
   run(testKrakenBeat)
   run(testKrakenNowCue)
   run(runKrakenCeremony)
@@ -36211,8 +36213,8 @@ function runKraken() {
 
   // (g3d) OWNER RULINGS OF 2026-10-07, pinned as he stated them
   {
-    // "arms should regrow at 50% life of the head"
-    assert.strictEqual(KRAKEN_ENRAGE_AT, 0.5, 'the arms regrow (the last phase) at a head life other than 50%')
+    // "the arms should regrow at 60%" (2026-10-09)
+    assert.strictEqual(KRAKEN_ENRAGE_AT, 0.6, 'the arms regrow at a head life other than 60%')
     // "in difficulty 2, the head coils when coil is not learned yet": d2 never coils, not even
     // enraged, not even in the chase, on a turn that would be the Coil's
     const run = inBlock(2)
@@ -36247,7 +36249,7 @@ function runKraken() {
   // the parry as the swing starts, or hugging the head, which the limb passes over.
   {
     // the next ring turn is the slap's; the fish holds `at` (an offset from the head) throughout
-    const slapRun = (diff, at, press = false, drift = 0) => {
+    const slapRun = (diff, at, press = false, drift = 0, flee = 0) => {
       const run = inBlock(diff)
       run.weapons = []
       run.script.bossIdx = 2
@@ -36259,13 +36261,19 @@ function runKraken() {
       for (const a of run.krakenArms) { a.tele = 0; a.gripT = 0 }
       const hits = []
       const cock = []   // the fish's distance from the cocked limb's line, through the wind-up
-      let arm = null, armed = false, hitTele = null, ox = 0
+      let arm = null, armed = false, hitTele = null, ox = 0, qx = 0, qy = 0
       const T = KRAKEN_SLAP_FUSE + KRAKEN_SLAP_FOLLOW_T + 0.6
       for (let i = 0; i < Math.round((T + 1) * 60); i++) {
         const h = headOf(run)
         // the chase: the head (and every shoulder) moves through the wind-up; the fish holds its spot
         if (arm && drift) { h.x += drift; ox += drift }
-        run.player.x = h.x - ox + at.x; run.player.y = h.y + at.y
+        // flee: swim straight away from the slapping arm's shoulder through its wind-up
+        if (arm && flee && arm.tele > 0) {
+          const sx = h.x + Math.cos(arm.ang) * KRAKEN_RING_R, sy = h.y + Math.sin(arm.ang) * KRAKEN_RING_R
+          const ux = run.player.x - sx, uy = run.player.y - sy, ul = Math.hypot(ux, uy) || 1
+          qx += ux / ul * flee; qy += uy / ul * flee
+        }
+        run.player.x = h.x - ox + at.x + qx; run.player.y = h.y + at.y + qy
         run.player.hp = run.player.maxHP
         if (!arm) arm = run.krakenArms.find((a) => a.slapArm) || null
         if (arm) { run.script.turnT = 1e9; armed = true; for (const a of run.krakenArms) if (a !== arm && a.limpT <= 0) { a.tele = 0; a.gripT = 0 } }
@@ -36295,6 +36303,13 @@ function runKraken() {
     for (const d of hit.cock) assert.ok(Math.abs(d - KRAKEN_SLAP_COCK) <= 40, `the cocked slap lay ${Math.round(d)}px from the fish, not ~${KRAKEN_SLAP_COCK} — its wind-up is off the screen`)
     // IT LANDS ON THE FUSE'S LAST FRAME, as a slam does: an early hit cut the parry window in half
     assert.ok(hit.hitTele != null && hit.hitTele < 0.02, `the slap hit with ${hit.hitTele?.toFixed(3)}s of fuse left — before its parry window closed`)
+    // ...AND IT ENDS A LITTLE PAST WHERE YOU STOOD (owner, 2026-10-09: "only sweep half of the screen"):
+    // swim out from its shoulder through the wind-up and it misses
+    {
+      const fled = slapRun(3, out, false, 0, 3)
+      assert.ok(fled.armed && fled.arm.slapLen > 0, 'fixture: the fleeing run never wound a slap')
+      assert.strictEqual(fled.hits.length, 0, `a fish that swam ${(3 * 60 * KRAKEN_SLAP_FUSE).toFixed(0)}px out from the shoulder was still slapped (${fled.hits.length} hit)`)
+    }
     // A MOVING HEAD (the chase) KEEPS THE WIND-UP ON THE FISH, and it still lands
     const run2 = slapRun(3, out, false, 4)
     assert.ok(run2.cock.length > 30, 'fixture: no wind-up measured with a moving head')
@@ -37719,8 +37734,8 @@ function testKrakenGrab() {
   // THE COIL TAKES A SLAM'S TURN, NEVER A GRAB'S: twice as many coils must not mean half the pinches
   // THE TURN BAG HOLDS THE WHOLE MIX: every special's share is a whole number of its KRAKEN_TURN_BAG
   // turns, and together they leave room for slams
-  for (const R of [1, 2, 3].map(krakenRung)) for (const coilEvery of [KRAKEN_COIL_EVERY, R.enrageCoilEvery].filter(Boolean)) {
-    const per = [R.coil && coilEvery, R.grip && KRAKEN_GRIP_EVERY, R.slap && KRAKEN_SLAP_EVERY].filter(Boolean)
+  for (const R of [1, 2, 3].map(krakenRung)) {
+    const per = [R.coil && KRAKEN_COIL_EVERY, R.grip && KRAKEN_GRIP_EVERY, R.slap && KRAKEN_SLAP_EVERY].filter(Boolean)
     for (const e of per) assert.ok(KRAKEN_TURN_BAG % e === 0, `a special every ${e} turns does not fit a whole number of times in a bag of ${KRAKEN_TURN_BAG}`)
     assert.ok(per.reduce((n, e) => n + KRAKEN_TURN_BAG / e, 0) < KRAKEN_TURN_BAG, `a rung's specials fill the whole bag of ${KRAKEN_TURN_BAG}: no slam left`)
   }
@@ -37956,14 +37971,36 @@ function testKrakenGrab() {
 }
 
 
-// THE LAST PHASE AT D3 GROWS NEW ARMS AND SLAMS HARDER (owner, 2026-09-26: "the last phase of the
-// boss should have more arms regrowing in difficulty 3 that slam a lot on you"). At the enrage every
-// broken arm comes back AND krakenRung(3).enrageArms new ones grow; the ring may then rear
-// enrageRearing arms at once — and never more.
+// PHASE 2 AT D3 GROWS NEW ARMS (owner, 2026-09-26: "more arms regrowing in difficulty 3"). At the
+// regrow every broken arm comes back AND krakenRung(3).enrageArms new ones grow — and the ring keeps
+// its pace and its cap (owner, 2026-10-09: the faster last phase was "a bit crazy").
+// A shared d3 chase fixture: the ring broken in half, the head up and out of its rise.
+function krakenChase3(seed) {
+  Math.random = mulberry32(seed)
+  const run = createRun({ ...makeMeta(), krakenParried: true }, { chapter: 'kraken', difficulty: 3 })
+  const s = run.script
+  const step = () => { run.events.length = 0; if (run.phase === 'levelup') run.phase = 'playing'; run.player.hp = run.player.maxHP; run.player.invuln = 0; run.hitStop = 0; stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60) }
+  let guard = 0
+  while (s.phase !== 'boss' && guard++ < 60 * 200) step()
+  assert.strictEqual(s.phase, 'boss', 'the approach never reached the ring')
+  guard = 0
+  while (s.phase !== 'chase' && guard++ < 60 * 200) {
+    for (const a of run.krakenArms.slice(0, Math.ceil(run.krakenArms.length / 2))) if (!a.dead) { a.dead = true; a.hp = 0; s.blockKills++ }
+    step()
+  }
+  assert.strictEqual(s.phase, 'chase', 'breaking half the ring did not raise the head')
+  guard = 0
+  while (s.riseT > 0 && guard++ < 60 * 10) step()
+  guard = 0
+  while (s.headId == null && guard++ < 60 * 10) step()
+  const head = run.enemies.find((e) => e.id === s.headId)
+  assert.ok(head, `no head on the field in the chase (phase ${s.phase}, headId ${s.headId}, riseT ${s.riseT})`)
+  return { run, s, head, step }
+}
 function testKrakenEnrage() {
   Math.random = mulberry32(20260926)
   const R3 = krakenRung(3)
-  assert.ok(R3.enrageArms > 0 && R3.enrageRearing > R3.rearing, 'fixture: d3 has no extra arms or no higher cap in its last phase')
+  assert.ok(R3.enrageArms > 0, 'fixture: d3 has no extra arms in phase 2')
   const run = createRun({ ...makeMeta(), krakenParried: true }, { chapter: 'kraken', difficulty: 3 })
   const s = run.script
   const step = () => { run.events.length = 0; if (run.phase === 'levelup') run.phase = 'playing'; run.player.hp = run.player.maxHP; run.player.invuln = 0; run.hitStop = 0; stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60) }
@@ -37987,7 +38024,7 @@ function testKrakenEnrage() {
   // THE LAST PHASE CANNOT BE SKIPPED (owner, 2026-09-27: a d3 run never saw the arms grow back). A
   // real weapon, x1000, into a staggered head at 60%: the head takes nearly all its damage inside a
   // stagger, and a check that ran only outside one let a big build kill it straight through.
-  head.hp = head.maxHP * 0.6
+  head.hp = head.maxHP * 0.7
   s.staggerT = 4
   run.weapons = [{ id: 'sunspear', level: 5 }]
   run.weaponTimers = { sunspear: 0 }
@@ -37995,16 +38032,16 @@ function testKrakenEnrage() {
   guard = 0
   while (!s.enraged && guard++ < 60 * 3) { run.player.x = head.x + 120; run.player.y = head.y; step() }
   run.player.damageMul /= 1000
-  assert.ok(!head._dead && s.headId === head.id, 'a x1000 build killed the staggered head from 60% — the last phase was skipped')
+  assert.ok(!head._dead && s.headId === head.id, 'a x1000 build killed the staggered head from 70% — the last phase was skipped')
   assert.ok(s.enraged, 'the head fell below KRAKEN_ENRAGE_AT inside a stagger and the last phase did not start')
   assert.ok(s.staggerT > 0, 'the last phase waited for the stagger to end')
-  assert.ok(head.hp >= head.maxHP * KRAKEN_ENRAGE_AT - 1e-6 && head.hp < head.maxHP * 0.6, `the head sits at ${(head.hp / head.maxHP * 100).toFixed(1)}% — it should stop at the enrage line`)
+  assert.ok(head.hp >= head.maxHP * KRAKEN_ENRAGE_AT - 1e-6 && head.hp < head.maxHP * 0.7, `the head sits at ${(head.hp / head.maxHP * 100).toFixed(1)}% — it should stop at the enrage line`)
   assert.strictEqual(run.krakenArms.length, n0 + R3.enrageArms, `the last phase grew ${run.krakenArms.length - n0} new arms (want ${R3.enrageArms})`)
   assert.ok(run.krakenArms.every((a) => !a.dead), 'an arm stayed broken through the last phase')
   const grown = run.krakenArms.slice(n0)
   assert.ok(grown.every((a) => a.role === 'slam' && a.hp > 0 && a.hp < a.maxHP && a.i === run.krakenArms.indexOf(a)), 'a grown arm is not a torn slam arm at its own index')
-  // ...and they SLAM: over 60s the ring rears up to the enraged cap, never past it, and the grown
-  // arms take turns too
+  // ...and they fight: over 60s the ring rears up to its own cap, never past it, and the grown arms
+  // take turns too
   let maxR = 0, grownRears = 0, slams = 0
   for (let f = 0; f < 60 * 60; f++) {   // step() skips the level-up screens
     const before = grown.map((a) => a.tele > 0)
@@ -38014,12 +38051,209 @@ function testKrakenEnrage() {
     maxR = Math.max(maxR, r)
     grown.forEach((a, k) => { if (!before[k] && a.tele > 0 && !a.coilArm) grownRears++ })
   }
-  assert.ok(maxR <= R3.enrageRearing, `${maxR} arms reared at once in the last phase (cap ${R3.enrageRearing})`)
-  assert.ok(maxR > R3.rearing, `the last phase never reared more than ${R3.rearing} at once — the higher cap does nothing`)
-  // ...and it SLAMS A LOT: over the beat (rung.enrageFree), measured 21 in 60s against 14 with the beat
-  assert.ok(slams >= 18, `the last phase slammed only ${slams}x in 60s — it is still spaced one answer at a time`)
+  assert.ok(maxR <= R3.rearing, `${maxR} arms reared at once in phase 2 (cap ${R3.rearing}) — the regrow sped the ring up`)
+  assert.ok(slams >= 5, `phase 2 slammed only ${slams}x in 60s — the ring stopped`)
   assert.ok(grownRears >= 3, `the grown arms reared only ${grownRears} times in 60s — they are scenery`)
-  console.log(`PASS run KE (last phase, d3): ${R3.enrageArms} new arms grow beside the ${n0} returning, the ring rears up to ${maxR} at once (cap ${R3.enrageRearing}), the grown arms reared ${grownRears}x in 60s, ${slams} slams in 60s`)
+  console.log(`PASS run KE (phase 2, d3): ${R3.enrageArms} new arms grow beside the ${n0} returning, the ring rears up to ${maxR} at once (cap ${R3.rearing}), the grown arms reared ${grownRears}x in 60s, ${slams} slams in 60s`)
+}
+
+// THE KRAKEN'S PACE (owner, 2026-10-09: "the player gets too much xp", "a very strong build can skip
+// phases"): a level costs 20% more here and nowhere else; a broken arm pays no level when the next
+// block opens; and a head raised before KRAKEN_HEAD_HP_AT has KRAKEN_HEAD_HP_PER_S more hp a second.
+function testKrakenPace() {
+  Math.random = mulberry32(20261010)
+  const kr = createRun({ ...makeMeta(), krakenParried: true }, { chapter: 'kraken', difficulty: 3 })
+  const body = createRun(makeMeta(), { chapter: 'body', difficulty: 1 })
+  assert.ok(Math.abs(kr.player.xpNext - xpForLevel(1) * 1.2) < 1e-9 && body.player.xpNext === xpForLevel(1), `level 1 costs ${kr.player.xpNext} in the Kraken and ${body.player.xpNext} in The Body, want x1.2 and x1`)
+  kr.player.xp = kr.player.xpNext
+  stepSim(kr, { x: 0, y: 0, skill: false }, 1 / 60)
+  assert.ok(kr.player.level === 2 && Math.abs(kr.player.xpNext - xpForLevel(2) * 1.2) < 1e-9, `level 2 in the Kraken costs ${kr.player.xpNext}, not ${xpForLevel(2) * 1.2}`)
+  // ...and Head Start still banks TWO of this chapter's levels, not one
+  {
+    const hs = createRun({ ...makeMeta(), krakenParried: true }, { chapter: 'kraken', difficulty: 3, consumables: ['headstart'] })
+    let ups = 0
+    for (let i = 0; i < 10; i++) { stepSim(hs, { x: 0, y: 0, skill: false }, 1 / 60); if (hs.phase === 'levelup') { ups++; hs.phase = 'playing' } }
+    assert.strictEqual(hs.player.level, 3, `Head Start gave ${ups} level(s) in the Kraken (level ${hs.player.level}), not 2`)
+  }
+  // every arm of a block broken through the real break path, then the next block opens: no level
+  const run = createRun({ ...makeMeta(), krakenParried: true }, { chapter: 'kraken', difficulty: 3 })
+  const sc = run.script
+  run.mods.xpMul = 0   // gems pay nothing here, so any level is the arms'
+  const step = () => { run.gems.length = 0; run.events.length = 0; run.player.hp = run.player.maxHP; run.hitStop = 0; stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60) }
+  let guard = 0
+  while (sc.phase !== 'boss' && guard++ < 60 * 200) { step(); if (run.phase === 'levelup') run.phase = 'playing' }
+  assert.strictEqual(sc.phase, 'boss', 'the approach never reached the ring')
+  const lvl0 = run.player.level, xp0 = run.player.xp
+  let levelups = 0, broke = 0
+  guard = 0
+  while (sc.phase !== 'chase' && guard++ < 60 * 120) {
+    for (const a of run.krakenArms) if (!a.dead && !(a.limpT > 0)) { a.tele = 0; a.gripT = 0; a.limpT = 5; a.nodeId = -1 }
+    step()
+    broke += run.events.filter((e) => e.type === 'tentacleBreak').length
+    if (run.phase === 'levelup') { levelups++; run.phase = 'playing' }
+  }
+  assert.strictEqual(sc.phase, 'chase', 'breaking the ring never opened the chase')
+  assert.ok(broke >= 3, `fixture: only ${broke} arms broke through the real path`)
+  assert.ok(levelups === 0 && run.player.level === lvl0 && run.player.xp === xp0, `${broke} broken arms paid ${levelups} level(s) (xp ${xp0} -> ${run.player.xp}) when the chase opened`)
+  // the head that rose early is tougher, by the second
+  guard = 0
+  while (sc.headHpMul == null && guard++ < 60 * 10) step()
+  const tUp = run.time
+  const head = run.enemies.find((e) => e.id === sc.headId)
+  const base = KRAKEN_HEAD_HP * krakenRung(3).headHpMul
+  assert.ok(head && tUp < KRAKEN_HEAD_HP_AT, `fixture: the head rose at ${tUp.toFixed(0)}s, not early`)
+  const want = 1 + (KRAKEN_HEAD_HP_AT - tUp) * KRAKEN_HEAD_HP_PER_S
+  assert.ok(Math.abs(head.maxHP / base - want) < 0.02 && Math.abs(head.hp / head.maxHP - 1) < 0.01, `a head raised at ${tUp.toFixed(0)}s has ${head.maxHP} hp (x${(head.maxHP / base).toFixed(2)}), want x${want.toFixed(2)}, full`)
+  // ...and one raised after 4:00 is the base
+  {
+    const late = createRun({ ...makeMeta(), krakenParried: true }, { chapter: 'kraken', difficulty: 3 })
+    const ls = late.script
+    const lstep = () => { late.gems.length = 0; late.events.length = 0; late.player.hp = late.player.maxHP; late.hitStop = 0; stepSim(late, { x: 0, y: 0, skill: false }, 1 / 60); if (late.phase === 'levelup') late.phase = 'playing' }
+    guard = 0
+    while (ls.phase !== 'boss' && guard++ < 60 * 200) lstep()
+    late.time = KRAKEN_HEAD_HP_AT + 30
+    guard = 0
+    while (ls.headHpMul == null && guard++ < 60 * 120) {
+      for (const a of late.krakenArms) if (!a.dead && !(a.limpT > 0)) { a.tele = 0; a.gripT = 0; a.limpT = 5; a.nodeId = -1 }
+      lstep()
+    }
+    const lh = late.enemies.find((e) => e.id === ls.headId)
+    assert.ok(lh && ls.headHpMul === 1 && lh.maxHP === Math.round(base) || (lh && ls.headHpMul === 1 && Math.abs(lh.maxHP - base) < 1), `a head raised after 4:00 has ${lh?.maxHP} hp (x${ls.headHpMul}), not the base ${base}`)
+  }
+  console.log(`PASS run KP (the Kraken's pace): a level costs x1.2 here and x1 in The Body, ${broke} broken arms paid no level when the chase opened, and a head raised at ${tUp.toFixed(0)}s has x${(head.maxHP / base).toFixed(2)} hp (x1 after 4:00)`)
+}
+
+// PHASE 3, THE RAGE (owner, 2026-10-09). d3 only, below KRAKEN_RAGE_AT: it screams, and its next
+// KRAKEN_RAGE_HITS attacks are slams, grabs and slaps nobody can parry — you swim. Then at least
+// KRAKEN_RAGE_CALM normal turns, then a KRAKEN_RAGE_CHANCE of a new rage on each.
+function testKrakenRage() {
+  const { run, s, head, step } = krakenChase3(20261009)
+  assert.ok(krakenRung(3).rage && !krakenRung(2).rage && !krakenRung(1).rage, 'the rage is not d3 only')
+  // the owner's numbers (2026-10-09), as he said them
+  assert.ok(KRAKEN_RAGE_AT === 0.3 && KRAKEN_RAGE_HITS === 5 && KRAKEN_RAGE_CALM === 3 && KRAKEN_RAGE_CHANCE === 0.2, 'the rage is not "<30%, 5 attacks, at least 3 normal, then 20%"')
+  assert.ok(KRAKEN_HEAD_HP_AT === 240 && KRAKEN_HEAD_HP_PER_S === 0.01, 'the head is not "+1% per second before 4:00"')
+  // phase 2 first, then a x1000 build into a staggered head: it stops at the rage line
+  head.hp = head.maxHP * 0.7
+  s.staggerT = 30
+  run.weapons = [{ id: 'sunspear', level: 5 }]
+  run.weaponTimers = { sunspear: 0 }
+  run.player.damageMul *= 1000
+  let guard = 0
+  while (!s.rageNext && guard++ < 60 * 20) { run.player.x = head.x + 120; run.player.y = head.y; step() }
+  for (let i = 0; i < 60 * 2; i++) { run.player.x = head.x + 120; run.player.y = head.y; step() }
+  run.player.damageMul /= 1000
+  run.weapons = []
+  assert.ok(s.enraged, 'fixture: the arms never regrew on the way down')
+  assert.ok(!head._dead && s.rageNext, `a x1000 build took the head from 70% without a rage due (dead ${head._dead})`)
+  assert.ok(head.hp >= head.maxHP * KRAKEN_RAGE_AT - 1e-6, `the head sits at ${(head.hp / head.maxHP * 100).toFixed(1)}%, under the rage line`)
+  // ...AND IT WAITS OUT THE STAGGER: the open head the player earned is not sealed by it
+  assert.ok(!s.rageN && !s.raging && s.staggerT > 0, `the rage started inside a stagger (staggerT ${s.staggerT.toFixed(2)})`)
+  s.staggerT = 0
+  guard = 0
+  while (!s.raging && guard++ < 60 * 20) step()
+  assert.ok(s.raging && s.rageN === 1, 'the rage never started once the stagger was over')
+  // through the rage: count its attacks, the parry it refuses, and the head's clock
+  s.staggerT = 0
+  run.player.x = head.x + 200; run.player.y = head.y
+  let lungePrev = head.lungeT
+  let rageAtk = 0, windows = 0, ready = 0, lungeMoved = false, frames = 0
+  const take = (ev) => ev.filter((e) => e.type === 'armRear' || e.type === 'grabRear').length
+  guard = 0
+  while (s.raging && guard++ < 60 * 30) {
+    for (const a of run.krakenArms) if (a.gripT > 0) { a.gripT = 0; a.gripClock = a.gripWiggle = undefined }
+    step()
+    frames++
+    rageAtk += take(run.events)
+    windows += run.events.filter((e) => e.type === 'slamWindow').length
+    if (run.parryReady) ready++
+    // the clock never counts DOWN while it rages (a charge already running may finish and reset it)
+    if (s.raging && (head._lungeBurst ?? 0) === 0 && head.lungeT < lungePrev - 1e-9) lungeMoved = true
+    lungePrev = head.lungeT
+  }
+  assert.ok(!s.raging, 'the rage never ended')
+  assert.strictEqual(rageAtk, KRAKEN_RAGE_HITS, `the rage threw ${rageAtk} attacks, not ${KRAKEN_RAGE_HITS}`)
+  assert.strictEqual(windows, 0, `the rage pushed ${windows} press-now cue(s): its attacks are not parried`)
+  assert.strictEqual(ready, 0, `the parry button lit on ${ready} frame(s) of the rage`)
+  assert.ok(!lungeMoved, 'the head kept its lunge clock running through the rage')
+  // ...a press at a rage slam's window is a whiff, not a parry
+  {
+    const a = run.krakenArms.find((c) => !c.dead && c.limpT <= 0 && !(c.gripT > 0))
+    a.tele = krakenRung(3).window * 0.5; a.fuse = krakenRung(3).fuse; a.rageArm = true; a.aimed = true; a.aimX = run.player.x; a.aimY = run.player.y
+    run.repulseCd = 0; run.events.length = 0
+    stepSim(run, { x: 0, y: 0, skill: true }, 1 / 60)
+    assert.ok(run.events.some((e) => e.type === 'parryWhiff'), 'a press at a rage slam was not a whiff')
+    assert.ok(!(a.limpT > 0), 'a rage slam was parried')
+    a.rageArm = false
+  }
+  // ...and it comes back, never before KRAKEN_RAGE_CALM normal turns
+  let normal = 0, minCalm = Infinity, rages = 1
+  guard = 0
+  while (rages < 4 && guard++ < 60 * 400) {
+    for (const a of run.krakenArms) if (a.gripT > 0) { a.gripT = 0; a.gripClock = a.gripWiggle = undefined }
+    const was = s.raging
+    step()
+    if (!was && !s.raging) normal += take(run.events) + run.events.filter((e) => e.type === 'coilWind').length
+    if (run.events.some((e) => e.type === 'krakenRage')) { rages++; minCalm = Math.min(minCalm, normal); normal = 0 }
+  }
+  assert.ok(rages >= 4, `only ${rages} rages in 400s at a ${KRAKEN_RAGE_CHANCE} chance a turn`)
+  assert.ok(minCalm >= KRAKEN_RAGE_CALM, `a rage came back after only ${minCalm} normal turn(s)`)
+  // ...and while it rages it CANNOT BE HURT, staggered or not (owner, 2026-10-09). Control first:
+  // the same x1000 build into the same staggered head, not raging, takes it down to the rage line.
+  {
+    const f = krakenChase3(5150)
+    f.s.enraged = true
+    f.head.hp = f.head.maxHP * 0.5
+    f.run.weapons = [{ id: 'sunspear', level: 5 }]
+    f.run.player.damageMul *= 1000
+    const burn = (secs) => {
+      f.run.weaponTimers = { sunspear: 0 }
+      for (let i = 0; i < 60 * secs; i++) { f.s.staggerT = Math.max(f.s.staggerT, 1); f.run.player.x = f.head.x + 120; f.run.player.y = f.head.y; f.step() }
+    }
+    // a burn hurts it outside a rage (the control for the burn below)
+    const hpB = f.head.hp
+    f.head.ignite = 1; f.head.igniteDps = 400
+    for (let i = 0; i < 60; i++) f.step()
+    assert.ok(f.head.hp < hpB - 1, 'fixture: a burn never hurt the head')
+    f.head.ignite = 0; f.head.igniteDps = 0
+    const hpA = f.head.hp
+    burn(3)
+    assert.ok(f.head.hp < hpA - 1, 'fixture: the x1000 build never hurt the staggered head at all')
+    f.s.rageNext = true
+    f.s.staggerT = 0
+    let g = 0
+    while (!f.s.raging && g++ < 60 * 20) f.step()
+    assert.ok(f.s.raging, 'fixture: the rage never started')
+    const hp0 = f.head.hp
+    let raged = 0
+    f.run.weaponTimers = { sunspear: 0 }
+    f.head.ignite = 5; f.head.igniteDps = 400   // ...and a burn carried into it is refused too
+    for (let i = 0; i < 60 * 3 && f.s.raging; i++) { f.s.staggerT = Math.max(f.s.staggerT, 1); f.run.player.x = f.head.x + 120; f.run.player.y = f.head.y; f.step(); raged++ }
+    f.run.player.damageMul /= 1000
+    assert.ok(raged > 60, `fixture: the rage lasted only ${raged} frames`)
+    assert.ok(f.head.hp >= hp0 - 1e-6, `a x1000 build and a burn took ${(hp0 - f.head.hp).toFixed(0)} hp off a staggered head mid-rage — it must be invincible`)
+  }
+  // ...and NO ARM LEFT never freezes the fight: a rage with nothing to throw ends, and one due with
+  // nothing to throw is spent, so the head's 30% floor and its lunge clock let go
+  {
+    const f = krakenChase3(424242)
+    f.s.enraged = true
+    f.s.rageNext = true
+    let g = 0
+    while (!f.s.raging && g++ < 60 * 20) f.step()
+    assert.ok(f.s.raging, 'fixture: the rage never started')
+    for (const a of f.run.krakenArms) { a.dead = true; a.tele = 0; a.gripT = 0; a.limpT = 0 }
+    g = 0
+    while (f.s.raging && g++ < 60 * 5) f.step()
+    assert.ok(!f.s.raging, 'a rage with every arm broken never ended — the head is floored and never lunges again')
+    const n0 = f.s.rageN
+    f.s.rageNext = true
+    for (let i = 0; i < 60 * 3; i++) f.step()
+    assert.ok(!f.s.rageNext && !f.s.raging && f.s.rageN === n0 + 1, 'a rage due with no arm left was never spent')
+  }
+  // ...and it is SEEN: render tints it off s.raging, screams off s.rageScreamT, cards krakenRage
+  const rSrc = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8').replace(/\/\/.*$/gm, '')
+  for (const k of ['script?.raging', 's.rageScreamT', "case 'krakenRage'", "krakenBeat('rage')"]) assert.ok(rSrc.includes(k), `render.js does not read ${k}: the rage is invisible`)
+  console.log(`PASS run KRG (the rage, d3): stops the head at ${KRAKEN_RAGE_AT * 100}%, ${rageAtk} unparryable attacks (0 cues, button dark, a press whiffs, the head waits), back ${rages - 1}x after >= ${minCalm} normal turns`)
 }
 
 // THE BEAT (run KB): every moment of the arms phase asks ONE answer. Whole seeded fights at d2 and
@@ -38045,8 +38279,8 @@ function testKrakenBeat() {
     const grabs = [], coils = []
     let coil = null, wig = 0
     const coin = mulberry32(seed ^ 0x5bd1e995), answer = {}
-    // the d3 last phase slams OVER the beat by design (rung.enrageFree, run KE): the beat ends there
-    for (let f = 0; f < 60 * 900 && run.phase !== 'victory' && !(run.script.enraged && krakenRung(diff).enrageFree); f++) {
+    // d3's rage throws OVER the beat by design (run KRG): the beat ends there
+    for (let f = 0; f < 60 * 900 && run.phase !== 'victory' && !run.script.rageN; f++) {
       if (run.phase === 'levelup') run.phase = 'playing'
       const p = run.player
       const s = run.script
@@ -38087,7 +38321,7 @@ function testKrakenBeat() {
       for (const k of Object.keys(now)) if (!openBy[k]) { openBy[k] = { src: k, open: t, close: t }; P.push(openBy[k]) }
       for (const k of Object.keys(openBy)) { if (now[k]) openBy[k].close = t; else delete openBy[k] }
     }
-    assert.ok(run.phase === 'victory' || (run.script.enraged && krakenRung(diff).enrageFree), `d${diff} seed ${seed}: the fight never finished (${run.script.phase} at ${run.time.toFixed(0)}s), so the chase was not measured`)
+    assert.ok(run.phase === 'victory' || run.script.rageN > 0, `d${diff} seed ${seed}: the fight never finished (${run.script.phase} at ${run.time.toFixed(0)}s), so the chase was not measured`)
     tot.fights++; tot.secs += run.time
     tot.slam += P.filter((w) => w.src !== 'lunge').length
     tot.lunge += P.filter((w) => w.src === 'lunge').length
@@ -38241,8 +38475,11 @@ function testKrakenNowCue() {
   assert.ok(tipOff >= KRAKEN_LIMP_CLEAR - 1, `a parried arm's tip lies ${tipOff.toFixed(0)}px from the fish (want >= ${KRAKEN_LIMP_CLEAR}) - the end of a parry looks like a miss`)
   step(P)
   const node = run.enemies.find((e) => e.rosterId === 'krakenArm' && !e._dead && e._armIdx === arm.i)
-  assert.ok(node && Math.hypot(node.x - arm.x, node.y - arm.y) < 1, 'the limp node is not where the knocked-back tip is drawn')
-  console.log(`PASS run KN (press-now cue): slamWindow fires once per plain slam, on the frame its ${R.window}s window opens in reach, a parried tip lies >= ${KRAKEN_LIMP_CLEAR}px off the fish with its node on it (tele ${f.before.toFixed(3)} -> ${f.e.t.toFixed(3)}), never 600px out of reach, never for a grab; a press within ${KRAKEN_PARRY_EARLY_T}s before it is parryEarly (no parry, cooldown spent, the slam still lands), earlier is a whiff, inside is a parry`)
+  // ...KRAKEN_NODE_BACK up the limb from it, where there is flesh to shoot (owner, 2026-10-09)
+  const back = Math.min(KRAKEN_NODE_BACK, Math.hypot(arm.lx0 - arm.x, arm.ly0 - arm.y))
+  assert.ok(node && Math.abs(Math.hypot(node.x - arm.x, node.y - arm.y) - back) < 1 && Math.hypot(node.x - arm.lx0, node.y - arm.ly0) < Math.hypot(arm.x - arm.lx0, arm.y - arm.ly0),
+    'the limp node is not KRAKEN_NODE_BACK up the limb from the knocked-back tip')
+  console.log(`PASS run KN (press-now cue): slamWindow fires once per plain slam, on the frame its ${R.window}s window opens in reach, a parried tip lies >= ${KRAKEN_LIMP_CLEAR}px off the fish with its node ${KRAKEN_NODE_BACK}px up the limb from it (tele ${f.before.toFixed(3)} -> ${f.e.t.toFixed(3)}), never 600px out of reach, never for a grab; a press within ${KRAKEN_PARRY_EARLY_T}s before it is parryEarly (no parry, cooldown spent, the slam still lands), earlier is a whiff, inside is a parry`)
 }
 
 function testKrakenParryShove() {
@@ -38258,9 +38495,11 @@ function testKrakenParryShove() {
   run.player.x = arm.x; run.player.y = arm.y
   const p = run.player
   const at = (dx, dy, extra = {}) => { const e = makeStatusEnemy(run, { x: p.x + dx, y: p.y + dy, speed: 0 }); Object.assign(e, extra); run.enemies.push(e); return e }
-  const near = at(KRAKEN_PARRY_SHOVE_R * 0.4, 0)
-  const far = at(0, KRAKEN_PARRY_SHOVE_R * 1.8)
-  const node = at(-KRAKEN_PARRY_SHOVE_R * 0.6, 0, { rosterId: 'krakenArm' })
+  // the add sits off the tip, away from the limb: the opened arm's node sits up the limb (KRAKEN_NODE_BACK)
+  const ul = Math.hypot(arm.x - arm.lx0, arm.y - arm.ly0) || 1, ux = (arm.x - arm.lx0) / ul, uy = (arm.y - arm.ly0) / ul
+  const near = at(ux * KRAKEN_PARRY_SHOVE_R * 0.4, uy * KRAKEN_PARRY_SHOVE_R * 0.4)
+  const far = at(-uy * KRAKEN_PARRY_SHOVE_R * 1.8, ux * KRAKEN_PARRY_SHOVE_R * 1.8)
+  const node = at(uy * KRAKEN_PARRY_SHOVE_R * 0.6, -ux * KRAKEN_PARRY_SHOVE_R * 0.6, { rosterId: 'krakenArm' })
   const head = run.enemies.find((e) => e.rosterId === 'krakenHead' && !e._dead)
   const d0 = Math.hypot(near.x - p.x, near.y - p.y)
   const far0 = { x: far.x, y: far.y }, node0 = { x: node.x, y: node.y }
@@ -38283,7 +38522,7 @@ function testKrakenParryShove() {
   // A WHIFF SHOVES TOO (owner: "i see my fish doing a parry … but enemies dont move at all. even
   // when enemies are on me"): the push belongs to the press, not to what it lands on.
   for (const a of run.krakenArms) { a.tele = 0; a.gripT = 0 }
-  const hug = at(30, 0)
+  const hug = at(ux * 30, uy * 30)
   const h0 = Math.hypot(hug.x - p.x, hug.y - p.y)
   run.repulseCd = 0
   run.events.length = 0
