@@ -6193,37 +6193,59 @@ export function createRenderer(app) {
       line(0, 0, 3.2 - 0.8 * k, SOIL.deep, alpha * 0.95)
     }
   }
-  // Pits draw in two passes over the whole list — every lip, then every shaft — so a tunnel's chain
-  // of overlapping pits merges into ONE trench instead of a stack of rings. The lip is not a ring: it
-  // is the ground slumping in, a soft darkening, and the crumbs of the collapse heaped round it.
-  function drawPitLips(g, pits) {
-    for (let k = 0; k < 4; k++) {
-      for (const pt of pits) {
-        if (pt.r < 1) continue
-        g.circle(pt.x + pt.r * 0.08, pt.y + pt.r * 0.1, pt.r * (1.55 - k * 0.1)).fill({ color: 0x000000, alpha: 0.07 })
-      }
-    }
-    for (const pt of pits) {
-      const r = pt.r
-      if (r < 1) continue
-      for (let i = 0; i < 16; i++) {
-        const a = hash(pt.x * 0.37 + pt.y * 0.11 + i * 2.7) * Math.PI * 2
-        const d = r * (1.0 + hash(pt.x * 0.13 + i) * 0.32)
-        soilCrumb(g, pt.x + Math.cos(a) * d, pt.y + Math.sin(a) * d, 1.6 + hash(pt.y * 0.7 + i) * 3.2, SOIL_CRUMBS[i % SOIL_CRUMBS.length])
-      }
+  // THE PITS, photographed (MACRO.paintPit*): sprites on pitLayer, under burrowGroundG. Drawn as five
+  // passes over the whole list, every pass for every pit before the next, so a chain of overlapping
+  // pits reads as ONE trench: the cave-in tells (under everything, so no crack shows over an open
+  // hole), the spoil heaps, every shaft, every shaft's inner face (which buries the lip of a
+  // neighbour inside this pit), every floor. Only the chain's outer edge keeps a lip and its spoil.
+  // A filling pit shrinks back into the ground (sim's pt.r); its spoil fades with it.
+  let pitTex = null
+  function bakePits() {
+    if (pitTex) return
+    const tx = (c) => macroCanvasTex(c, 3)
+    const seeds = [101, 138, 175]
+    pitTex = {
+      wall: seeds.map((v) => tx(MACRO.paintPitWall(v))),
+      inner: seeds.map((v) => tx(MACRO.paintPitInner(v))),
+      floor: seeds.map((v) => tx(MACRO.paintPitFloor(v))),
+      spoil: seeds.map((v) => tx(MACRO.paintPitSpoil(v + 110))),
+      tell: [311, 324].map((v) => Array.from({ length: MACRO.PIT_TELL_STAGES }, (_, i) => tx(MACRO.paintPitTell(v, i / (MACRO.PIT_TELL_STAGES - 1))))),
     }
   }
-  function drawPitShafts(g, pits) {
-    for (let i = 0; i <= 9; i++) {
-      const k = 1 - i / 10
-      const c = mix(i < 2 ? SOIL.mid : SOIL.dark, 0x000000, Math.pow(i / 9, 0.7))
+  const pitPass = () => ({ c: new Container(), list: [], n: 0 })
+  const pitPasses = { tell: pitPass(), spoil: pitPass(), wall: pitPass(), inner: pitPass(), floor: pitPass() }
+  function pitSprite(p, tex, x, y, scale, alpha) {
+    let sp = p.list[p.n]
+    if (!sp) { sp = new Sprite(tex); sp.anchor.set(0.5); p.c.addChild(sp); p.list.push(sp) }
+    sp.texture = tex; sp.visible = true
+    sp.position.set(x, y); sp.scale.set(scale); sp.alpha = alpha
+    p.n++
+  }
+  function hidePits() { for (const k in pitPasses) { const p = pitPasses[k]; for (const sp of p.list) sp.visible = false; p.n = 0 } }
+  function syncPits(run) {
+    for (const k in pitPasses) pitPasses[k].n = 0
+    const pits = run.pits || [], caves = run.caveIns || []
+    if (pits.length || caves.length) {
+      bakePits()
+      const R0 = MACRO.PIT_R0, C = CHAPTERS[run.chapter].signature?.caveIns
+      const pick = (x, y, n) => Math.floor(hash(x * 0.137 + y * 0.311) * n) % n
+      const P = pitPasses
+      for (const c of caves) {
+        const k = Math.max(0, Math.min(1, 1 - (c.at - run.time) / 1.2))
+        const st = Math.min(MACRO.PIT_TELL_STAGES - 1, Math.floor(k * MACRO.PIT_TELL_STAGES))
+        pitSprite(P.tell, pitTex.tell[pick(c.x, c.y, 2)][st], c.x, c.y, c.r / R0, Math.min(1, k * 2.5))
+      }
       for (const pt of pits) {
-        const r = pt.r
-        if (r < 1) continue
-        // the far (lower-right) wall catches the light from the top-left; the near wall is in shadow
-        g.circle(pt.x + r * 0.12 * (1 - k), pt.y + r * 0.14 * (1 - k), r * k).fill(c)
+        const open = pt.open ?? C?.open ?? 0.35, fill = pt.fill ?? C?.fill ?? 1.5
+        const g = Math.max(0, Math.min(1, pt.age / open)), shut = Math.max(0, Math.min(1, (pt.life - pt.age) / fill))
+        const v = pick(pt.x, pt.y, 3), sr = Math.max(0.02, pt.r) / R0
+        pitSprite(P.spoil, pitTex.spoil[v], pt.x, pt.y, (pt.maxR / R0) * (0.8 + 0.2 * g), g * Math.sqrt(shut))
+        pitSprite(P.wall, pitTex.wall[v], pt.x, pt.y, sr, 1)
+        pitSprite(P.inner, pitTex.inner[v], pt.x, pt.y, sr, 1)
+        pitSprite(P.floor, pitTex.floor[v], pt.x, pt.y, sr, g * g)
       }
     }
+    for (const k in pitPasses) { const p = pitPasses[k]; for (let i = p.n; i < p.list.length; i++) p.list[i].visible = false }
   }
   // The ridge over a digging mole: the ground heaving up along its run, crumbs rolling off it.
   function drawRidge(g, pts, w) {
@@ -6293,14 +6315,8 @@ export function createRenderer(app) {
     const ch = CHAPTERS[run.chapter]
     const sigT = ch.signature?.type
     const t = animT
-    // pits first (the deepest thing on the floor), in any chapter: the Furrow digs them too
-    if (run.pits && run.pits.length) { drawPitLips(gG, run.pits); drawPitShafts(gG, run.pits) }
-    // a tunnel or furrow about to cave in: its line cracks, harder as the moment comes
-    for (const c of run.caveIns || []) {
-      const k = Math.max(0, Math.min(1, 1 - (c.at - run.time) / 1.2))
-      gG.circle(c.x, c.y, c.r * 0.8).fill({ color: 0x000000, alpha: 0.12 + 0.18 * k })
-      burrowCracks(gG, c.x, c.y, c.r * 1.1, 0.4 + 0.6 * k, c.x * 0.1 + c.y, 0.5 + 0.5 * k)
-    }
+    // pits and the cave-ins coming (the deepest things on the floor), in any chapter: the Furrow digs them too
+    syncPits(run)
     if (sigT === 'tunnels') {
       const M = ch.signature.moles
       for (const e of run.enemies) {
@@ -12769,6 +12785,7 @@ export function createRenderer(app) {
   }
   function setMacro(run) {
     const ch = run && CHAPTERS[run.chapter]
+    if (ch && (ch.signature?.caveIns || ch.weapons?.includes('furrow'))) bakePits()
     if (pixelLook) { pixelLook = null; pixelRig.disable(); pixelRig.player.tint = 0xffffff; if (pixelHotSprite) pixelHotSprite.visible = false; pixelHitT = pixelLastInvuln = 0; bodyC.visible = true; pShadow.visible = true }
     if (ch?.render?.pixel) { macroLook = null; holoLook = null; setPixel(ch.render.pixel); return }
     macroLook = ch?.render?.macro ?? null
@@ -13265,6 +13282,8 @@ export function createRenderer(app) {
   // Book 3, Burrow (see syncBurrow): the floor layer under the crowd, the fx layer over it, and the
   // falling stones' sprite pool.
   const burrowGroundG = new Graphics()
+  const pitLayer = new Container()   // the photographed pits (syncPits), one container per pass
+  for (const k of ['tell', 'spoil', 'wall', 'inner', 'floor']) pitLayer.addChild(pitPasses[k].c)
   const burrowFxG = new Graphics()
   const burrowStoneLayer = new Container()
   const snareRootLayer = new Container()   // the Root Snare's baked roots (syncSnareSprites)
@@ -13401,7 +13420,7 @@ const spurG = new Graphics()
   const particleLayer = new Container()
   const textLayer = new Container()
   entitiesLayer.addChild(
-    mownG, sandLayer, netWakeG, wellG, bindG, poolLayer, slickG, burrowGroundG, snareRootLayer, shovelFloorLayer, pixelRig.ground, trailLayer, webLayer, gateFloorG, spurG, coralLayer, gateG, burstWakeG, obstacleLayer, trapLayer,
+    mownG, sandLayer, netWakeG, wellG, bindG, poolLayer, slickG, pitLayer, burrowGroundG, snareRootLayer, shovelFloorLayer, pixelRig.ground, trailLayer, webLayer, gateFloorG, spurG, coralLayer, gateG, burstWakeG, obstacleLayer, trapLayer,
     // The refill circles (The Deep's anglerfish, sun shafts, pools) sit UNDER the drops: a maw is
     // a 400px body, and above gemLayer it hid every gem and coin that fell inside it.
     shaftLayer,
@@ -29973,6 +29992,7 @@ void main() {
   function clearWorld() {
     pixelRig.clear()   // The Magma (src/pixel.js): its own pools
     burrowGroundG.clear(); burrowFxG.clear(); burrowSwings.length = 0; hideShovel()
+    hidePits()
     for (const st of burrowStones) st.visible = false
     for (const sp of snareSprites) sp.visible = false
     for (const [id, s] of enemySprites) {
