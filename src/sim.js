@@ -257,7 +257,7 @@ import {
   difficultySpeedMul, difficultyCountMul, difficultyDmgMul, endlessLevel, endlessHpMul, endlessXpMul, endlessXpNeedMul, ENDLESS_COIN_HALF_LIFE_S, ENDLESS_COUNT_MUL_MAX,
   ENDLESS_MILESTONE_S, ENDLESS_MILESTONE_ELITES, endlessAffixChance, ENDLESS_GILDED_COINS, ENDLESS_HANDOVER_CLEAR_R, mutatorPool, MUTATORS,
   SHOVEL_LIFE, PEBBLE_FAN, PEBBLE_LIFE, PEBBLE_R, ROOT_SNARE_TICK, ROOT_SNARE_SLOW, ROOT_SNARE_HOLD_T, ROOT_SNARE_RANGE,
-  FURROW_STEP, FURROW_KEEP, FURROW_DELAY, FURROW_STAGGER, FURROW_PIT_OPEN, FURROW_PIT_LIFE, FURROW_PIT_FILL, FURROW_PIT_MAX,
+  FURROW_STEP, FURROW_KEEP, FURROW_DELAY, FURROW_STAGGER, FURROW_PIT_OPEN, FURROW_PIT_LIFE, FURROW_PIT_FILL, FURROW_PIT_MAX, FURROW_JUMP, FURROW_LANE_GAP,
   SUNDOWN_SPEED_MUL, SUNDOWN_XP_MUL,
   PRISM_FAN, PRISM_LIFE, PRISM_R, ECHO_LIFE, STALACTITE_FUSE, STALACTITE_RANGE,
   PICKAXE_RANGE, PICKAXE_KB, PICKAXE_CHIP_DMG, PICKAXE_CHIP_SPEED, PICKAXE_CHIP_LIFE, PICKAXE_CHIP_R,
@@ -16250,8 +16250,8 @@ export function rerollLevelUpChoices(run) {
 // THE TUNNELS (Topsoil's signature). One pass owns the whole mole: its cadence, its underground
 // travel, the quake, the eruption and the cave-in its tunnel leaves behind. Published contract fields
 // (render reads them, state.js documents them): e.burrowed, e.quakeT / e.quakeX / e.quakeY,
-// e.tunnel (the live trail of a digging mole), e.digVX / e.digVY (its heading), run.caveIns and
-// run.pits. Returns true when an eruption killed the player.
+// e.tunnel (the live trail of a digging mole), e.digVX / e.digVY (its heading), and the cave-ins it
+// queues on run.caveIns (stepPits opens them). Returns true when an eruption killed the player.
 function tunnelSpec(run) {
   const sig = CHAPTERS[run.chapter].signature
   return sig && sig.type === 'tunnels' ? sig : null
@@ -16370,7 +16370,7 @@ function stepPits(run, dt) {
     run.caveIns = run.caveIns.filter((c) => !c._done)
     // Each author has its own cap and loses its own oldest pits: a Furrow under IPECAC digs three
     // lanes, and must never push a mole's pit out (nor its own before they open).
-    const fMax = FURROW_PIT_MAX * (run.anomalies?.ipecac ? 3 : 1), mMax = C ? C.max : 0
+    const fMax = ipecacN(run, FURROW_PIT_MAX), mMax = C ? C.max : 0
     let nf = 0, nm = 0
     for (const pt of run.pits) if (pt.src === 'furrow') nf++; else nm++
     if (nf > fMax || nm > mMax) {
@@ -16387,7 +16387,7 @@ function stepPits(run, dt) {
     if (pt.age < open * 0.5 || pt.age > pt.life - fill) continue
     if (pt.src === 'furrow') {
       for (const e of enemiesNear(run, pt.x, pt.y, pt.r + 30)) {
-        if (e._dead || e.burrowed || isAlly(e) || pt.hit[e.id]) continue
+        if (e._dead || isAlly(e) || damageImmune(e) || pt.hit[e.id]) continue
         if (Math.hypot(e.x - pt.x, e.y - pt.y) > pt.r + e.radius * 0.5) continue
         pt.hit[e.id] = 1
         applyDamage(run, e, pt.dmg)
@@ -16395,14 +16395,12 @@ function stepPits(run, dt) {
       }
       continue
     }
-    {
-      for (const e of enemiesNear(run, pt.x, pt.y, pt.r + 30)) {
-        // Elites are too big to go down, and a mole lives down there.
-        if (e._dead || e.burrowed || e.elite || isAlly(e) || (e.flags && e.flags.includes('tunnel'))) continue
-        if (Math.hypot(e.x - pt.x, e.y - pt.y) > pt.r - e.radius * 0.25) continue
-        run.events.push({ type: 'pitFall', x: e.x, y: e.y, r: e.radius, rosterId: e.rosterId })
-        dealDamage(run, e, e.hp + e.maxHP, false, false, true)   // hazard: the ground did it
-      }
+    for (const e of enemiesNear(run, pt.x, pt.y, pt.r + 30)) {
+      // Elites are too big to go down, and a mole lives down there.
+      if (e._dead || e.burrowed || e.elite || isAlly(e) || (e.flags && e.flags.includes('tunnel'))) continue
+      if (Math.hypot(e.x - pt.x, e.y - pt.y) > pt.r - e.radius * 0.25) continue
+      run.events.push({ type: 'pitFall', x: e.x, y: e.y, r: e.radius, rosterId: e.rosterId })
+      dealDamage(run, e, e.hp + e.maxHP, false, false, true)   // hazard: the ground did it
     }
   }
   run.pits = run.pits.filter((pt) => pt.age < pt.life)
@@ -16547,7 +16545,7 @@ function stepFurrowWeapon(run, w, stats, fireRateMul, dt) {
   const p = run.player
   const tr = (run._furrow ??= [])
   const last = tr[tr.length - 1]
-  if (last && Math.hypot(p.x - last.x, p.y - last.y) > FURROW_STEP * 4) tr.length = 0   // a jump, not a walk
+  if (last && Math.hypot(p.x - last.x, p.y - last.y) > FURROW_STEP * FURROW_JUMP) tr.length = 0   // a jump, not a walk
   if (!tr.length || Math.hypot(p.x - tr[tr.length - 1].x, p.y - tr[tr.length - 1].y) >= FURROW_STEP) {
     tr.push({ x: p.x, y: p.y })
     if (tr.length > FURROW_KEEP) tr.shift()
@@ -16558,15 +16556,15 @@ function stepFurrowWeapon(run, w, stats, fireRateMul, dt) {
     if (!run._furrowNew) return
     run._furrowNew = 0
     const clear = PLAYER.radius + stats.r
-    const lanes = run.anomalies?.ipecac ? [-1, 0, 1] : [0]   // IPECAC: three furrows side by side
+    const nL = ipecacN(run, 1)   // IPECAC: furrows side by side
     let acc = 0, k = 0
     for (let i = tr.length - 1; i > 0 && acc <= stats.length; i--) {
       const a = tr[i - 1], dx = tr[i].x - a.x, dy = tr[i].y - a.y, d = Math.hypot(dx, dy) || 1
       acc += d
       if (Math.hypot(a.x - p.x, a.y - p.y) < clear) continue
       const at = run.time + FURROW_DELAY + k++ * FURROW_STAGGER
-      for (const l of lanes) {
-        const off = l * stats.r * 2.2
+      for (let j = 0; j < nL; j++) {
+        const off = (j - (nL - 1) / 2) * stats.r * FURROW_LANE_GAP
         run.caveIns.push({ x: a.x - (dy / d) * off, y: a.y + (dx / d) * off, at, r: stats.r, dmg: stats.dmg, src: 'furrow' })
       }
     }

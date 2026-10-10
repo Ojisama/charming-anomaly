@@ -39586,6 +39586,7 @@ function testTopsoilPolish() {
     if (opts.ipecac) r.anomalies = { ...(r.anomalies ?? {}), ipecac: true }
     const line = []
     for (let i = 0; i < 8; i++) { const e = makeStatusEnemy(r, { x: 80 + i * 60, y: 70, hp: 1e6, speed: 0 }); line.push(e); r.enemies.push(e) }
+    if (opts.roots) { r.weaponMods.rootSnare = { deepRoots: opts.roots }; for (const e of line) e.rootUntil = 1e9 }
     const pits = new Set()
     let prev = [], evicted = 0
     for (let i = 0; i < (opts.secs ?? 6) * 60; i++) {
@@ -39604,11 +39605,41 @@ function testTopsoilPolish() {
   const on = walk({ weapon: true }), off = walk({ weapon: false }), still = walk({ weapon: true, still: true })
   assert.ok(on.dmg > 0 && on.pits >= 8, `run TS.a: the Furrow should pit the ground you walked and hurt what stands on it: ${JSON.stringify(on)}`)
   assert.strictEqual(off.dmg, 0, `run TS.a: control — the line took ${off.dmg} with no weapon`)
+  const perPit = WEAPONS.furrow.levels[2].dmg
+  assert.ok(on.dmg <= on.pits * 4 * perPit, `run TS.a: a pit hits each body ONCE — ${on.dmg} dmg from ${on.pits} pits of ${perPit}`)
+  const rooted = walk({ weapon: true, roots: 0.9 })
+  assert.ok(rooted.dmg > on.dmg * 1.6, `run TS.e: DEEP ROOTS raises EVERY weapon's damage to held bodies (Furrow): ${rooted.dmg} vs ${on.dmg}`)
   assert.strictEqual(still.pits, 0, `run TS.a: standing still digs no furrow, got ${still.pits} pits`)
   const sick = walk({ weapon: true, ipecac: true })
   assert.ok(sick.pits >= on.pits * 2.5, `run TS.b: IPECAC should spread the Furrow over three times the pits: ${sick.pits} vs ${on.pits}`)
   const sick5 = walk({ weapon: true, ipecac: true, level: 5, secs: 20 })
   assert.strictEqual(sick5.evicted, 0, `run TS.b: an L5 Furrow under IPECAC lost ${sick5.evicted} pits to the cap before they filled in`)
+  {
+    Math.random = mulberry32(33006)
+    const r = createRun(meta(), { chapter: 'body', difficulty: 1 })
+    r.weapons = []
+    r.enemies.length = 0
+    for (let i = 0; i < 200; i++) r.pits.push({ x: 5000 + i, y: 5000, maxR: 20, r: 0, age: 0, life: 99, open: 0.25, fill: 0.6, src: 'furrow', dmg: 1, hit: {}, _k: i })
+    r.caveIns.push({ x: 5000, y: 5100, at: 0, r: 20, dmg: 1, src: 'furrow' })
+    stepSim(r, { x: 0, y: 0 }, dt)
+    const kept = r.pits.filter((pt) => pt.src === 'furrow' && pt._k != null).map((pt) => pt._k)
+    assert.ok(kept.length > 0 && kept.length < 200, `run TS.b: the furrow pit cap never bit: ${kept.length} of 200 kept`)
+    assert.ok(Math.min(...kept) === 200 - kept.length, `run TS.b: the cap must evict the OLDEST pits, kept from #${Math.min(...kept)}`)
+  }
+  {
+    Math.random = mulberry32(33007)
+    const r = createRun(meta(), { chapter: 'body', difficulty: 1 })
+    r.player.hp = r.player.maxHP = 1e9
+    r.weapons = [{ id: 'furrow', level: 3 }]
+    r.enemies.length = 0
+    r.player.x = 0; r.player.y = 0
+    for (let i = 0; i < 60; i++) { stepSim(r, { x: 1, y: 0 }, dt); r.events.length = 0 }
+    r.player.x += 2000
+    r.caveIns.length = 0; r.pits.length = 0
+    for (let i = 0; i < 4 * 60; i++) { if (r.phase === 'levelup') { r.phase = 'playing'; r.levelUpChoices = [] }; stepSim(r, { x: 1, y: 0 }, dt); r.events.length = 0 }
+    const back = [...r.caveIns, ...r.pits].filter((c) => c.x < 1500)
+    assert.strictEqual(back.length, 0, `run TS.b: a jump is not a walk — ${back.length} pits dug back where you jumped from`)
+  }
 
   // (c) Sundown
   assert.strictEqual(ANOMALIES.sundown.chapter, 'topsoil', 'run TS.c: Sundown is Topsoil\'s own anomaly')
@@ -39629,6 +39660,25 @@ function testTopsoilPolish() {
     stepSim(r, { x: 0, y: 0 }, dt)
     return { closed, xp: r.player.xp - xp0 }
   }
+  const fresh = (take) => {
+    Math.random = mulberry32(33008)
+    const r = createRun(meta(), { chapter: 'topsoil', difficulty: 1 })
+    r.weapons = []
+    r.player.hp = r.player.maxHP = 1e9
+    if (take) { r.levelUpChoices = [{ kind: 'anomaly', id: 'sundown' }]; applyChoice(r, 0); r.phase = 'playing' }
+    const seen = new Map()
+    for (let i = 0; i < 20 * 60; i++) {
+      if (r.phase === 'levelup') { r.phase = 'playing'; r.levelUpChoices = [] }
+      r.player.hp = r.player.maxHP
+      stepSim(r, { x: 0, y: 0 }, dt)
+      for (const e of r.enemies) if (!e.elite && !seen.has(e.rosterId)) seen.set(e.rosterId, e.speed)
+      r.events.length = 0
+    }
+    return seen
+  }
+  const daySp = fresh(false), nightSp = fresh(true)
+  const ratios = [...daySp].filter(([id]) => nightSp.has(id)).map(([id, v]) => nightSp.get(id) / v)
+  assert.ok(ratios.length > 0 && ratios.every((q) => q > 1.15), `run TS.c: under Sundown a body spawned AFTER the take should be faster too: ${ratios.map((q) => q.toFixed(2))}`)
   const day = dusk(false), night = dusk(true)
   assert.ok(night.closed > day.closed * 1.12, `run TS.c: under Sundown a chaser should close faster: ${night.closed.toFixed(1)} vs ${day.closed.toFixed(1)} px`)
   assert.ok(day.xp > 0 && night.xp > day.xp * 1.4, `run TS.c: under Sundown a gem should pay more XP: ${night.xp} vs ${day.xp}`)

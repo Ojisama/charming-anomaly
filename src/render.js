@@ -30107,6 +30107,7 @@ void main() {
       // creature's mass rather than dead-centre.
       const shOff = SKIES_KAIJU.shadowRx * SKIES_KAIJU.bodyScale
       pShadow.position.set(SKIES_SHADOW.dx * shOff, SKIES_SHADOW.dy * shOff + 20 * SKIES_KAIJU.bodyScale)
+      pShadow.visible = !pixelLook
     } else if (playerForm === 'fish') {
       // Book 2's fish (drawFish, near drawKaijuBody above): FISH_PHASES baked swim frames, flipped
       // through on animT — the same speed (`animT * 10`) syncEnemies uses for the centipede's
@@ -30128,6 +30129,7 @@ void main() {
         pShadow.texture = T.fishShadow.tex; pShadow.anchor.set(T.fishShadow.ax, T.fishShadow.ay)
       }
       pShadow.position.set(0, PLAYER.radius * 0.95)
+      pShadow.visible = !pixelLook
     } else {
       // STILLNESS picks a rung of the morph ladder; rung 0 IS the plain body, so a run without the
       // card takes exactly the old texture. Compared against the CHOSEN look rather than against
@@ -30152,7 +30154,7 @@ void main() {
         pShadow.texture = T.playerShadow.tex; pShadow.anchor.set(T.playerShadow.ax, T.playerShadow.ay)
       }
       pShadow.position.set(0, PLAYER.radius * 0.95)
-      pShadow.visible = !photo   // under the lens the raking cast shadow (updateMacro) replaces the puddle
+      pShadow.visible = !photo && !pixelLook   // under the lens the raking cast shadow (updateMacro) replaces the puddle
     }
 
     // per-chapter blob tint (white = identity for body) + optional tail. The kaiju AND fish bakes
