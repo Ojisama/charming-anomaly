@@ -263,6 +263,7 @@ import {
   CANARY_REACH_MUL, CANARY_LINK_DMG, LANTERN_PULSE, MINE_BOOM_KEEP, MINE_GAS_FADE_IN, MINE_GAS_LIT_SHRINK,
   SLAG_RANGE, SLAG_FLIGHT, SLAG_TICK, OBSIDIAN_FAN, OBSIDIAN_LIFE, OBSIDIAN_R, SPLINTER_DMG_MUL, SPLINTER_LIFE, SPLINTER_SPEED, SPLINTER_R,
   BELLOWS_LIFE, BELLOWS_FLARE_MUL, BELLOWS_FLARE_R, BELLOWS_FLARE_T, BOMB_RANGE, BOMB_FLIGHT, BOMB_LAVA_R, BOMB_LAVA_T, HOT_FEET_OPEN_MUL, HOT_FEET_BURN_MUL,
+  noiseAt,
 } from './config.js'
 
 const KB_DECAY_RATE = 6 // per-second exponential-ish decay factor for enemy knockback
@@ -16860,11 +16861,91 @@ function crustSpec(run) {
   const sig = CHAPTERS[run.chapter].signature
   return sig && sig.type === 'crust' && sig.crust ? sig.crust : null
 }
+// ---- THE FLOOR (signature.crust.floor = MAGMA_FLOOR): lava rivers, cooled flows, hot ground ----
+// Pure functions of (x, y, the run's seed) — nothing is stored, render reads the same answers to draw
+// the ground (src/pixel.js), and a later card can bend any of them through these four names. Each
+// returns 0 off its ground and a depth in (0, 1] on it (1 = the middle of the channel or patch).
+// The seed is derived from _driftSeed rather than drawn, so the floor costs the random stream nothing.
+const floorSeed = (run) => Math.floor((run._driftSeed ?? 0) * 1e8) | 0
+function floorSpec(run) { return crustSpec(run)?.floor ?? null }
+const seedFrac = (seed, k) => noiseAt(k * 7.31 + 0.5, k * 3.17 + 0.5, (seed ^ (k * 0x2f1b)) | 0, 1, 1)
+// how far the start sits from a patch's middle, 0 at the start and 1 from spawnClear on
+const spawnFade = (F, x, y) => Math.min(1, Math.hypot(x, y) / F.spawnClear)
+// the river family's phase, chosen per run so the START sits between two channels (never on one)
+// (memoised on the last spec + seed asked: a memo table, it changes timing and never a result)
+let riverFrameMemo = null
+function riverFrame(F, seed) {
+  const m = riverFrameMemo
+  if (m && m.R === F.river && m.seed === seed && m.spacing === F.river.spacing && m.warp === F.river.warp && m.warpWave === F.river.warpWave) return m
+  const R = F.river, th = seedFrac(seed, 1) * Math.PI
+  const c = Math.cos(th), s = Math.sin(th)
+  const warp0 = (noiseAt(0, 0, seed ^ 0x51a1, 2, R.warpWave) - 0.5) * 2 * R.warp
+  const phase = R.spacing * (0.25 + 0.5 * seedFrac(seed, 2)) - warp0
+  riverFrameMemo = { R, seed, spacing: R.spacing, warp: R.warp, warpWave: R.warpWave, c, s, phase }
+  return riverFrameMemo
+}
+export function riverDepthAt(F, x, y, seed) {
+  const R = F?.river
+  if (!R) return 0
+  const { c, s, phase } = riverFrame(F, seed)
+  const u = x * c + y * s + (noiseAt(x, y, seed ^ 0x51a1, 2, R.warpWave) - 0.5) * 2 * R.warp + phase
+  const f = ((u / R.spacing) % 1 + 1) % 1
+  const d = Math.min(f, 1 - f) * R.spacing
+  const half = (R.width / 2) * (0.7 + 0.6 * noiseAt(x, y, seed ^ 0x51a2, 1, R.widthWave))
+  return d < half ? 1 - d / half : 0
+}
+function patchDepth(P, x, y, seed, salt, fade, stretch = 1) {
+  if (!P) return 0
+  let px = x, py = y
+  if (stretch !== 1) {
+    const th = seedFrac(seed, salt) * Math.PI, c = Math.cos(th), s = Math.sin(th)
+    px = (x * c + y * s) / stretch; py = -x * s + y * c
+  }
+  const n = noiseAt(px, py, seed ^ salt, 3, P.wave)
+  const t = P.thresh + (1 - P.thresh) * (1 - fade)
+  return n > t ? Math.min(1, (n - t) / ((1 - P.thresh) * 0.5)) : 0
+}
+export function cooledDepthAt(F, x, y, seed) {
+  if (!F?.cooled || riverDepthAt(F, x, y, seed) > 0) return 0
+  return patchDepth(F.cooled, x, y, seed, 0xc001, spawnFade(F, x, y), F.cooled.stretch ?? 1)
+}
+export function hotDepthAt(F, x, y, seed) {
+  if (!F?.hot || riverDepthAt(F, x, y, seed) > 0 || cooledDepthAt(F, x, y, seed) > 0) return 0
+  return patchDepth(F.hot, x, y, seed, 0x4077, spawnFade(F, x, y))
+}
+export function magmaRiverAt(run, x, y) { const F = floorSpec(run); return F ? riverDepthAt(F, x, y, floorSeed(run)) : 0 }
+export function magmaCooledAt(run, x, y) { const F = floorSpec(run); return F ? cooledDepthAt(F, x, y, floorSeed(run)) : 0 }
+export function magmaHotAt(run, x, y) { const F = floorSpec(run); return F ? hotDepthAt(F, x, y, floorSeed(run)) : 0 }
+// 'river' | 'cooled' | 'hot' | null — the one ground under (x, y); a river wins over both patches
+export function magmaGroundAt(run, x, y) {
+  const F = floorSpec(run)
+  if (!F) return null
+  const seed = floorSeed(run)
+  if (riverDepthAt(F, x, y, seed) > 0) return 'river'
+  if (F.cooled && patchDepth(F.cooled, x, y, seed, 0xc001, spawnFade(F, x, y), F.cooled.stretch ?? 1) > 0) return 'cooled'
+  if (F.hot && patchDepth(F.hot, x, y, seed, 0x4077, spawnFade(F, x, y)) > 0) return 'hot'
+  return null
+}
+// The seed and spec render needs to paint the same floor (src/pixel.js): null off The Magma.
+export function magmaFloorOf(run) { const F = floorSpec(run); return F ? { F, seed: floorSeed(run) } : null }
+// the way every river of this floor runs, as a unit vector (render drifts its crust plates along it)
+export function riverFlowOf(F, seed) { const { c, s } = riverFrame(F, seed); return [-s, c] }
+// the axis an old cooled flow ran along (its patches are stretched along it; render lays its ropes across it)
+export function cooledFlowOf(F, seed) { const th = seedFrac(seed, 0xc001) * Math.PI; return [Math.cos(th), Math.sin(th)] }
+
+// A crack, unless the ground refuses one: the crust under a lava river is already molten, and an old
+// cooled flow is too thick for a footstep (or Thin Crust) to break — a bomb still smashes it. Hot
+// ground is thin: the crack there opens sooner and wider. Returns the crack, or null.
 function addCrack(run, C, x, y, r, by, molten = false, lavaT = null) {
   const hot = run.anomalies?.hotFeet
+  let openMul = 1
+  const g = C.floor ? magmaGroundAt(run, x, y) : null
+  if (g === 'river' && !molten) return null
+  if (g === 'cooled' && (by === 'step' || by === 'thinCrust')) return null
+  if (g === 'hot') { r *= C.floor.hot.rMul; openMul = C.floor.hot.openMul }
   const c = {
     x, y, r, by, state: molten ? 'lava' : 'crack', t: 0, tick: 0,
-    openAt: run.time + (molten ? 0 : C.openT * (hot ? HOT_FEET_OPEN_MUL : 1)),
+    openAt: run.time + (molten ? 0 : C.openT * openMul * (hot ? HOT_FEET_OPEN_MUL : 1)),
     lavaT: lavaT ?? C.lavaT, coolT: C.coolT, lavaEnd: 0, coolEnd: 0,
   }
   if (molten) {
@@ -16925,7 +17006,25 @@ function stepCrust(run, dt) {
     } else if (c.state === 'cool' && run.time >= c.coolEnd) c._gone = true
   }
   if (run.cracks.length > 0 && run.cracks.some((c) => c._gone)) run.cracks = run.cracks.filter((c) => !c._gone)
-  // 4. The player in open lava: a steady dot burn (one burn, however many cracks overlap).
+  // 4. A LAVA RIVER burns whatever is in it, on the crust's own tick (a river near you only: it is
+  // a long way between channels, and that is most of the time).
+  const F = C.floor
+  if (F?.river) {
+    const seed = floorSeed(run)
+    if (riverDepthAt(F, p.x, p.y, seed) > 0) onLava = true
+    run._riverT = (run._riverT ?? 0) - dt
+    if (run._riverT <= 0) {
+      run._riverT += C.tick
+      for (const e of run.enemies) {
+        if (e._dead || isAlly(e) || damageImmune(e)) continue
+        if ((e.x - p.x) ** 2 + (e.y - p.y) ** 2 > F.river.reach ** 2) continue
+        if (riverDepthAt(F, e.x, e.y, seed) <= 0) continue
+        const dmg = (C.burnFlat + C.burnPct * e.maxHP) * C.tick * hot * F.river.burnMul * (e.elite ? C.eliteMul : 1)
+        dealDamage(run, e, dmg, false, true, true)   // hazard: the river did it
+      }
+    }
+  }
+  // 5. The player in open lava: a steady dot burn (one burn, however many cracks overlap).
   if (onLava) {
     run._lavaPT = (run._lavaPT ?? 0) - dt
     if (run._lavaPT <= 0) {

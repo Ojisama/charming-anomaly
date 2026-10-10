@@ -2177,7 +2177,13 @@ function generateWells(sig) {
  *     slag or a volcanic bomb in the air; lands at t >= flight.
  *   Bullets: weapon 'obsidian' (Obsidian Shards), 'splinter' (what a killing shard bursts into).
  *   Novas: look 'bellows' (a sector: arc, angle).
- *   Run: _crustOdo / _crustStill (footstep clock), _crustWildT (Thin Crust's clock).
+ *   Run: _crustOdo / _crustStill (footstep clock), _crustWildT (Thin Crust's clock), _riverT (the
+ *     lava rivers' burn clock).
+ *   THE FLOOR (signature.crust.floor = MAGMA_FLOOR) is NOT stored: lava rivers, cooled flows and hot
+ *     ground are pure functions of (x, y, a seed derived from _driftSeed) — sim.js magmaGroundAt /
+ *     magmaRiverAt / magmaCooledAt / magmaHotAt, and magmaFloorOf for render. A river burns whatever
+ *     stands in it (hurt src 'lava') and takes no footstep crack; a cooled flow takes no footstep or
+ *     Thin Crust crack; on hot ground a crack opens sooner and wider. No new events.
  *   Events: {type:'crackOpen', x, y, r, by} a crack opened into lava (by as above);
  *     {type:'crustCrack', x, y, r, by} a new crack; {type:'lavaFlare', x, y, r} Bellows lit a lava;
  *     {type:'slagSplash', x, y, r}; {type:'bombLand', x, y, r}; {type:'lavaBurn', x, y} a body

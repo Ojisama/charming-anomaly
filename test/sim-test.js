@@ -11,6 +11,7 @@ import { validNick, podiumRank, NICK_MIN, NICK_MAX } from '../src/scores.js'
 import { steerFromAnchor } from '../src/input.js'
 // fr.js is pure data (no Pixi, no DOM), so run XX can check it here — see testFrenchDictionary.
 import { FR } from '../src/fr.js'
+import { magmaGroundAt, magmaRiverAt, magmaCooledAt, magmaHotAt } from '../src/sim.js'
 import {
   SHOP, shopCost, refundValue, REFUND_RATE, MAX_SHOP_LEVEL, lineMax, CURRENT_RESIST_FLOOR, SHOP_FAMILY, SHOP_COST_CAP, SHOP_COST_CAP_DEFAULT,
   PASSIVES, RARITIES, RARITY_ORDER, RARITY_WEIGHTS, UPGRADE_RARITY, resistFrac, PASSIVE_RESIST_K, passiveEffectText,
@@ -20847,6 +20848,7 @@ run(testLeLargeWeapons)
   run(testMine)
   run(testMineGlyphTells)
   run(testMagma)
+  run(testMagmaFloor)
   // A hand-typed filter that matched nothing is the silent pass without a parent watching:
   // `node test/sim-test.js supernova` printed ALL TESTS PASSED having run no scenario at all.
   if (_ran === 0 && !EXACT_SET) {
@@ -39342,4 +39344,101 @@ function testMagma() {
   const thin = wild(['thinCrust']), plainWild = wild([])
   assert.ok(thin >= 10 && plainWild === 0, `run MG.f: Thin Crust should crack the floor away from you on its own: ${thin} vs ${plainWild}`)
   console.log(`PASS run MA (The Magma): still burn ${stillOn.lava} vs 0 off; walking ${walk.steps} footstep lava openings, 0 off; lava killed a parked body; ${bOn.opened}/${bOn.landed} bomb landings opened lava (0/${bOff.landed} off); a killing shard burst; the bellows flared the lava; Hot Feet opens in ${hotOpen.toFixed(2)}s vs ${plainOpen.toFixed(2)}s; Thin Crust cracked ${thin} spots on its own`)
+}
+
+// ---- run MF: The Magma's floor — lava rivers, cooled flows, hot ground ---------------------------
+// Effects, not state: (a) a LAVA RIVER burns a body parked in it (the same body on plain crust takes
+// nothing) and burns the player standing in it with no crack under them (cracks are refused on a
+// river); (b) a COOLED FLOW takes no footstep cracks: a player standing still there cracks nothing,
+// on plain crust every stillT; (c) HOT GROUND opens a footstep crack sooner and wider than plain
+// crust; (d) rivers are RARE (under 5% of a wide sample of floor), the start is plain crust, the floor
+// draws nothing from Math.random, and no other chapter has one.
+function testMagmaFloor() {
+  const meta = () => { const m = makeMeta(); m.dev = true; return m }
+  const C = CHAPTERS.magma.signature.crust
+  const boot = (seed) => { Math.random = mulberry32(seed); const r = createRun(meta(), { chapter: 'magma', difficulty: 1 }); r.player.hp = r.player.maxHP = 1e6; r.weapons = []; r.enemies = []; return r }
+  // the nearest point (spiral out from the start) where pred holds
+  const findWhere = (pred) => {
+    for (let d = 200; d < 60000; d += 40) for (let a = 0; a < 6.283; a += 120 / d) {
+      const x = Math.cos(a) * d, y = Math.sin(a) * d
+      if (pred(x, y)) return { x, y }
+    }
+    throw new Error('run MF: no such ground within 60000px')
+  }
+  const hold = (r, secs, at, onEv) => {
+    for (let i = 0; i < Math.round(secs * 60); i++) {
+      if (r.phase === 'levelup') { r.phase = 'playing'; r.levelUpChoices = [] }
+      r.weapons = []
+      r.player.x = at.x; r.player.y = at.y; r.player.hp = r.player.maxHP
+      stepSim(r, { x: 0, y: 0 }, 1 / 60)
+      if (onEv) onEv(r.events)
+      r.events.length = 0
+    }
+  }
+  // (a) the river
+  {
+    const r = boot(33001)
+    const deep = findWhere((x, y) => magmaRiverAt(r, x, y) > 0.8)
+    const plain = findWhere((x, y) => Math.hypot(x - deep.x, y - deep.y) < 900 && Math.hypot(x - deep.x, y - deep.y) > 300 && magmaGroundAt(r, x, y) === null)
+    // the player stands beside the river (on plain crust, 500px off), a body in it and one beside it
+    const stand = findWhere((x, y) => Math.hypot(x - deep.x, y - deep.y) > 500 && Math.hypot(x - deep.x, y - deep.y) < 1200 && magmaGroundAt(r, x, y) === null && Math.hypot(x - plain.x, y - plain.y) > 200)
+    const inR = makeStatusEnemy(r, { x: deep.x, y: deep.y, hp: 400, speed: 0 }), out = makeStatusEnemy(r, { x: plain.x, y: plain.y, hp: 400, speed: 0 })
+    r.enemies.push(inR, out)
+    for (let i = 0; i < 180; i++) { inR.x = deep.x; inR.y = deep.y; out.x = plain.x; out.y = plain.y; hold(r, 1 / 60, stand) }
+    assert.ok(inR.hp < 400 * 0.5 || inR._dead, `run MF.a: a body in a lava river for 3s should burn (hp ${inR.hp.toFixed(0)}/400)`)
+    assert.strictEqual(out.hp, 400, 'run MF.a: a body on plain crust beside the river must take nothing from it')
+    const lava0 = r.dmgBySrc?.lava ?? 0
+    let cracksHere = 0
+    hold(r, 3, deep, (evs) => { for (const e of evs) if (e.type === 'crustCrack' && Math.hypot(e.x - deep.x, e.y - deep.y) < 60) cracksHere++ })
+    assert.strictEqual(cracksHere, 0, 'run MF.a: the crust under a river is already molten: no footstep crack there')
+    assert.ok((r.dmgBySrc?.lava ?? 0) > lava0, `run MF.a: the player standing in a river with no crack under them must burn (hurt src lava ${lava0} -> ${r.dmgBySrc?.lava})`)
+  }
+  // (b) cooled flow vs plain crust: a still player cracks every stillT on plain crust, never on old rock
+  const stillCracks = (seed, kind) => {
+    const r = boot(seed)
+    const at = kind === 'cooled' ? findWhere((x, y) => magmaCooledAt(r, x, y) > 0.8) : findWhere((x, y) => magmaGroundAt(r, x, y) === null)
+    let n = 0
+    hold(r, 6, at, (evs) => { for (const e of evs) if (e.type === 'crustCrack' && e.by === 'step') n++ })
+    return n
+  }
+  const plainN = stillCracks(33002, 'plain'), cooledN = stillCracks(33002, 'cooled')
+  assert.ok(plainN >= 5, `run MF.b: a still player on plain crust should crack it every ${C.stillT}s (${plainN} in 6s)`)
+  assert.strictEqual(cooledN, 0, `run MF.b: a cooled flow is too thick to crack underfoot (${cooledN} cracks)`)
+  // (c) hot ground: the first footstep crack opens sooner and wider
+  const firstCrack = (seed, kind) => {
+    const r = boot(seed)
+    const at = kind === 'hot' ? findWhere((x, y) => magmaHotAt(r, x, y) > 0.5) : findWhere((x, y) => magmaGroundAt(r, x, y) === null)
+    let made = null, opened = null
+    hold(r, 3, at, (evs) => {
+      for (const e of evs) {
+        if (e.type === 'crustCrack' && e.by === 'step' && !made) made = { t: r.time, r: e.r }
+        if (e.type === 'crackOpen' && e.by === 'step' && made && opened === null) opened = r.time - made.t
+      }
+    })
+    assert.ok(made && opened !== null, `run MF.c: no footstep crack opened on ${kind} ground`)
+    return { delay: opened, r: made.r }
+  }
+  const hotC = firstCrack(33003, 'hot'), plainC = firstCrack(33003, 'plain')
+  assert.ok(hotC.delay < plainC.delay * 0.75, `run MF.c: hot ground should open sooner (${hotC.delay.toFixed(2)}s vs ${plainC.delay.toFixed(2)}s)`)
+  assert.ok(hotC.r > plainC.r * 1.2, `run MF.c: hot ground should open wider (r ${hotC.r} vs ${plainC.r})`)
+  // (d) rare, plain at the start, free of the random stream, and The Magma's only
+  let riverN = 0, sampled = 0, startPlain = 0
+  for (let s = 0; s < 6; s++) {
+    const r = boot(33010 + s)
+    let draws = 0
+    const rnd = Math.random
+    Math.random = () => { draws++; return rnd() }
+    for (let x = -20000; x <= 20000; x += 400) for (let y = -20000; y <= 20000; y += 400) { sampled++; if (magmaGroundAt(r, x, y) === 'river') riverN++ }
+    Math.random = rnd
+    assert.strictEqual(draws, 0, 'run MF.d: the floor must not draw from Math.random')
+    if (magmaGroundAt(r, r.player.x, r.player.y) === null && magmaRiverAt(r, r.player.x + 300, r.player.y) === 0) startPlain++
+    assert.strictEqual(magmaGroundAt(r, 1234, -567), magmaGroundAt(r, 1234, -567), 'run MF.d: the floor must be a pure function')
+  }
+  const share = riverN / sampled
+  assert.ok(share > 0 && share < 0.05, `run MF.d: rivers should be rare but present: ${(share * 100).toFixed(2)}% of ${sampled} sampled points`)
+  assert.strictEqual(startPlain, 6, 'run MF.d: every run must start on plain crust')
+  Math.random = mulberry32(33020)
+  const city = createRun(meta(), { chapter: 'city', difficulty: 1 })
+  assert.strictEqual(magmaGroundAt(city, 0, 0), null, 'run MF.d: no other chapter has a magma floor')
+  console.log(`PASS run MF (The Magma floor): a river burned a parked body and the player; still cracks ${plainN} plain vs ${cooledN} cooled; hot opens ${hotC.delay.toFixed(2)}s r${hotC.r} vs ${plainC.delay.toFixed(2)}s r${plainC.r}; river ${(share * 100).toFixed(2)}% of ${sampled} sampled points over 6 seeds`)
 }

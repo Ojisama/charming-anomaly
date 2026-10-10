@@ -9383,6 +9383,27 @@ CHAPTERS.mine = {
   },
 }
 
+// THE MAGMA'S FLOOR (signature.crust.floor; sim.js magmaRiverAt / magmaCooledAt / magmaHotAt /
+// magmaGroundAt). Three kinds of ground, all a pure function of (x, y, the run's seed), so nothing
+// is stored and every lookup agrees with the picture:
+//   river   a long winding channel of open lava. Crossable by anyone, never a wall: whatever is in
+//           it burns while it is in it (hurt src 'lava', the crust's own burn x burnMul). A family of
+//           parallel channels `spacing` px apart, bent by `warp` px of noise every `warpWave` px,
+//           `width` px wide (x0.7..1.3 along its length). Never within spawnClear of the start.
+//           Only bodies within `reach` px of you are checked against it (all that fight you are).
+//   cooled  an old flow of thick black rock: nothing cracks underfoot there (the trail stops).
+//   hot     thin crust: cracks open in openT x openMul, at r x rMul.
+//   A patch is where its noise field (`wave` px features, cooled stretched x`stretch` along one
+//   axis like a flow) passes `thresh`; it shrinks to nothing toward the start (spawnClear px).
+// balance_decision : rivers rare, patches common, first guesses 2026-10-10
+//  - spawnClear keeps the start on plain crust: run MA's still-player checks stand there
+export const MAGMA_FLOOR = {
+  spawnClear: 520,
+  river: { spacing: 12000, warp: 900, warpWave: 2600, width: 96, widthWave: 1400, burnMul: 1, reach: 2400 },
+  cooled: { wave: 820, thresh: 0.6, stretch: 2.2 },
+  hot: { wave: 640, thresh: 0.6, openMul: 0.45, rMul: 1.45 },
+}
+
 // THE MAGMA: the book's chamber of molten rock at the bottom of the crust (the core lies deeper).
 // The floor is a thin skin of cooled crust over lava (signature.crust, run by stepCrust in sim.js):
 // every few steps your weight CRACKS it (run.cracks), a moment later the crack OPENS into lava that
@@ -9413,6 +9434,8 @@ CHAPTERS.magma = {
       // THIN CRUST (the chapter's mutator): cracks appear on their own all around you, every
       // `every` s, between near and far px away.
       wild: { every: 0.3, near: 120, far: 560 },
+      // the ground itself: lava rivers, cooled flows, hot ground (MAGMA_FLOOR above; null = plain crust)
+      floor: MAGMA_FLOOR,
     },
   },
   obstacles: null,
@@ -10898,7 +10921,7 @@ export const ROAD_MAJOR_WIDTH = STREET_MAJOR_WIDTH
 // the "only config.js is imported by both sim and render" rule in CLAUDE.md still holds literally.
 export {
   nearestCity, cityAt, blockSnap, parcelAt, PARCEL, pickWorldSeed,
-  terrainAt, elevationAt, urbanAt, riverAt, clumpAt, BIOME_BUILD_DENSITY, CITY_GRID,
+  terrainAt, elevationAt, urbanAt, riverAt, clumpAt, noiseAt, BIOME_BUILD_DENSITY, CITY_GRID,
   STREET_SPACING_MAJOR_EVERY, HIGHWAY_WIDTH, highwaysNear, BLOCK_U, BLOCK_V,
 } from './terrain.js'
 
