@@ -302,6 +302,9 @@ uniform vec3 uLightTone;
 uniform float uVignette;
 uniform float uGrain;
 uniform float uSharpR;
+uniform vec3 uSunTone;
+uniform vec3 uSkyTone;
+uniform float uKeyTint;
 
 vec3 tap(vec2 uv) {
   return texture(uTexture, clamp(uv, uInputClamp.xy, uInputClamp.zw)).rgb;
@@ -359,6 +362,11 @@ void main(void) {
   float side = dot(q * vec2(aspect, 1.0) / max(aspect, 1.0), -uLightDir);
   col *= 1.0 + uKey * clamp(side * 0.55 + 0.1, -0.7, 0.8);
   col *= uExposure;   // 1 by day; Topsoil's Sundown takes it down
+  // Sundown's key colour: warm sun on the frame's sunward side, cool sky across the far side (0 by day)
+  if (uKeyTint > 0.001) {
+    float sl = dot(q * vec2(aspect, 1.0) / max(aspect, 1.0), uLightDir);
+    col *= mix(vec3(1.0), mix(uSkyTone, uSunTone, smoothstep(-0.9, 0.9, sl)), uKeyTint);
+  }
 
   // grade: split tone around the mid luminance, then a soft filmic shoulder
   float L = luma(col);
@@ -380,6 +388,63 @@ void main(void) {
   finalColor = vec4(clamp(col, 0.0, 1.0), 1.0);
 }
 `
+
+// SUNDOWN ON THE FLOOR: a filter on the floor tile alone (render.js), on only while the sun is going.
+// The tile's own luminance is read as relief and marched toward the low sun: a texel with something
+// brighter (taller) between it and the light falls into a long, slightly cool shadow, and a
+// grain brighter than the soil around it is turned to the sun and goes warm. The floor only, because
+// a sprite's highlight (the blob's specular) read as relief throws a shadow across its own face.
+export const SUNDOWN_RAKE_FRAG = `
+in vec2 vTextureCoord;
+out vec4 finalColor;
+uniform sampler2D uTexture;
+uniform highp vec4 uInputSize;
+uniform vec4 uInputClamp;
+uniform vec2 uRakeDir;
+uniform float uRake;
+uniform float uRakeLen;
+uniform float uRakeSlope;
+uniform float uFace;
+uniform vec3 uRakeSky;
+uniform vec3 uRakeSun;
+float rl(vec2 uv) { return dot(texture(uTexture, clamp(uv, uInputClamp.xy, uInputClamp.zw)).rgb, vec3(0.2126, 0.7152, 0.0722)); }
+float rh(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
+void main(void) {
+  vec4 c = texture(uTexture, vTextureCoord);
+  vec2 px = uInputSize.zw;
+  float h0 = dot(c.rgb, vec3(0.2126, 0.7152, 0.0722));
+  float j = rh(gl_FragCoord.xy);
+  float occ = 0.0, avg = 0.0;
+  for (int i = 0; i < RAKE_TAPS; i++) {
+    float f = (float(i) + j) / float(RAKE_TAPS);
+    vec2 o = uRakeDir * (1.5 + f * uRakeLen) * px;
+    avg += rl(vTextureCoord - o * 0.5);
+    occ = max(occ, rl(vTextureCoord + o) - h0 - f * uRakeSlope);
+  }
+  avg /= float(RAKE_TAPS);
+  float sh = smoothstep(0.02, 0.17, occ) * uRake;
+  float lit = smoothstep(-0.06, 0.08, h0 - avg);
+  vec3 col = c.rgb * mix(vec3(1.0), mix(uRakeSky * 0.9, uRakeSun * 1.15, lit), uFace);
+  col = mix(col, col * uRakeSky * 0.55, sh);
+  finalColor = vec4(col, c.a);
+}
+`
+
+// A baked canvas's silhouette in white, for Sundown (render.js macroSilhouette): solid (alpha
+// thresholded, for a rim, so a bake's faint wash cannot tint into a disc) or soft (alpha kept, for a
+// cave-in's damp, which a tint can colour and the tell's own near-black bake cannot take).
+export function paintSundownSilhouette(src, solid) {
+  const cv = makeCanvas(src.width, src.height), c = cv.getContext('2d')
+  c.drawImage(src, 0, 0)
+  if (solid) {
+    const id = c.getImageData(0, 0, cv.width, cv.height), d = id.data
+    for (let i = 3; i < d.length; i += 4) { const a = d[i]; d[i] = a > 200 ? 255 : a > 140 ? (a - 140) * 4 : 0; d[i - 1] = d[i - 2] = d[i - 3] = 255 }
+    c.putImageData(id, 0, 0)
+  } else {
+    c.globalCompositeOperation = 'source-in'; c.fillStyle = '#fff'; c.fillRect(0, 0, cv.width, cv.height)
+  }
+  return cv
+}
 
 // ==== THE FLOORS =================================================================================
 // One seamless tile per chapter, painted once (lazily, the first time a run enters the chapter) at

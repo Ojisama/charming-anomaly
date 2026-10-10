@@ -9331,6 +9331,20 @@ CHAPTERS.topsoil = {
     macro: {
       floor: 'topsoil', blur: 5, sharp: 0.75, key: 0.55, vignette: 0.82, grain: 0.07, shadowReach: 0.55,
       shadowTone: 0x6a8a9a, lightTone: 0xffd49a, shaft: 0xffcf8a, shaftAlpha: 0.16, bokeh: 0xffc77a, bokehAlpha: 0.3, fgAlpha: 0.92,
+      // SUNDOWN's golden hour (render.js updateMacro), every value the full-dusk target: a low warm key
+      // from the top-left (key < 0 flips the lens's side light onto the floor's own), sun/sky tint the
+      // frame's lit and far sides, the floor's grains throw long cool shadows (face/rake*), the cast
+      // shadows stretch along the light, a warm rim lights every body's and pickup's sunward edge, and
+      // the soil of a coming cave-in goes darker still with the water in it (damp), so the tell reads.
+      //  - shadowTone x1.6 (the lens grade) must stay <= 1 per channel: above it the shade LIFTS into a blue fog
+      dusk: {
+        exposure: 0.8, lightTone: 0xffc27a, shadowTone: 0x5c7090, key: -0.8,
+        sun: [1.24, 0.9, 0.56], sky: [0.6, 0.72, 1.12], keyTint: 0.6,
+        face: 0.7, rake: 0.6, rakeLen: 14, rakeSlope: 0.09,
+        stretch: 2.4, shadowAlpha: 0.7,
+        rim: 0xffb060, rimAlpha: 0.55, rimOff: 1.3, pickRim: 0.85, coinGlow: 0.3, damp: 0.45, dampTint: 0x0b0d12,
+        shaft: 0.7, shaftTint: 0xff9a50, dust: 0.5, bokeh: 0.6, bokehTint: 0xffa060,
+      },
     },
   },
 }
