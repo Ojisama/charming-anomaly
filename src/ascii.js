@@ -602,12 +602,12 @@ export function createAsciiRenderer(host) {
           const rock = vnoise(x / 170, y / 170, 5)      // ridges of heavier rock: the gallery walls
           const wall = clamp01((rock - 0.58) * 5)
           const l = Math.min(1, li)
-          if (h > 0.3 + 0.65 * l + wall * 0.3) {
+          if (h > 0.5 + 0.45 * l + wall * 0.3) {
             // the dark: a rare dull ore fleck survives
             if (hash2(i, j, 9) < 0.004) floor.put('◇', x, y, hash2(i, j, 10) < 0.5 ? 0x6a5a3a : 0x4a6266, 0.35, 5, 0, false, 1, false)
             continue
           }
-          const v = clamp01(0.12 + l * (0.4 + 0.5 * hash2(i, j, 4)) + wall * 0.25)
+          const v = clamp01(0.22 + l * (0.4 + 0.5 * hash2(i, j, 4)) + wall * 0.25)
           let ch = FL[Math.min(FL.length - 1, Math.floor(v * FL.length))]
           if (wall > 0.3 && hash2(i, j, 6) < wall * 0.35) ch = hash2(i, j, 7) < 0.5 ? '%' : '#'
           let col = ramp3(0x403a34, 0x6e665a, 0x9a8e7c, v)
@@ -618,7 +618,7 @@ export function createAsciiRenderer(host) {
             floor.put('◇', x, y, hash2(i, j, 10) < 0.5 ? 0x9a8458 : 0x6a8a8e, 0.3 + 0.3 * v * tw, 5 + 3 * v, 0, false, 1, false)
             continue
           }
-          floor.put(ch, x, y, col, 0.4 + 0.45 * v, 6 + 5.5 * v + wall * 2, (hash2(i, j, 8) - 0.5) * 0.7, false, 1, false)
+          floor.put(ch, x, y, col, 0.42 + 0.36 * v, 6.5 + 5.5 * v + wall * 2, (hash2(i, j, 8) - 0.5) * 0.7, false, 1, false)
         }
       }
       floor.end()
@@ -910,7 +910,7 @@ export function createAsciiRenderer(host) {
         const sc = 1.35 * pr / PLAYER_LOOK.baseR
         const cos = Math.cos(heading), sin = Math.sin(heading)
         const blink = (p.invuln ?? 0) > 0 && Math.floor(clock * 16) % 2 === 0
-        const A = blink ? 0.35 : 1
+        const A = blink ? 0.75 : 1   // the i-frame tell is a colour flicker on the '@' (below), never a dimmed miner
         const flash = (p.hitFlash ?? 0) > 0 ? 0.6 : 0
         const pout = (ch, x, y, col, al, size, rot, add, font, glow) => me.put(ch, x, y, col, al * A, size, rot, add, font, glow)
         // arms swinging as you walk
@@ -928,8 +928,8 @@ export function createAsciiRenderer(host) {
             pout(':', ix, iy, 0xd8c4a0, 0.7, 7 * sc, 0, false, 2, false)
           }
         }
-        pout('@', p.x + cos * 2 * sc, p.y + sin * 2 * sc, 0xffd890, 0.75, 34 * sc, 0, true, 0, true)
-        pout('@', p.x + cos * 2 * sc, p.y + sin * 2 * sc, flash ? 0xffffff : 0xfff4d8, 1, 25 * sc, 0, false, 0, false)
+        me.put('@', p.x + cos * 2 * sc, p.y + sin * 2 * sc, blink ? 0xff8a60 : 0xffd890, 0.75, 34 * sc, 0, true, 0, true)
+        me.put('@', p.x + cos * 2 * sc, p.y + sin * 2 * sc, flash ? 0xffffff : blink ? 0xffc8a8 : 0xfff4d8, 1, 25 * sc, 0, false, 0, false)
         const [lx, ly] = at(p.x, p.y, cos, sin, sc, 13, 0)
         pout('✦', lx, ly, 0xffffff, 1, 10 * sc, 0, true, 0, false)
         pout('✦', lx, ly, 0xffd070, 0.7, 20 * sc, 0, true, 0, true)
