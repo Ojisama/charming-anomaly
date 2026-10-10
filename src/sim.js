@@ -373,6 +373,7 @@ export function stepSim(run, input, dt) {
   streamTraps(run)        // v6.5 undergrowth identity: materialize/drop snap traps (no-op outside predators)
   streamObstacles(run)    // v5.6.13: materialize/drop obstacle cells as the player roams
   stepEnemySeparation(run) // v6.5.1: push overlapping enemies apart (owner directive: no 100% stacks)
+  holdBankAfterCrowd(run) // The Magma: the crowd behind does not shove a body waiting at a lava bank in
   stepObstacles(run)      // v5.0: push player/enemies out of this chapter's obstacle field (if any) — terrain snaps last and wins
 
   stepRam(run)            // v7.x The Reef: the Burst ploughs the crowd, the bite's own slot
@@ -4742,10 +4743,14 @@ function stepEnemyMovement(run, dt) {
   // commit has left the ring behind. run.orca is not in run.enemies, so nothing else in this loop
   // can see it and it needs its own term.
   const ring = run.orca && run.orca.state === 'circling' ? run.orca : null
+  // The Magma's lava rivers (holdAtRiverBank): null off that floor
+  const rivF = floorSpec(run)?.river?.avoid ? floorSpec(run) : null
+  const rivSeed = rivF ? floorSeed(run) : 0
 
   for (const e of run.enemies) {
     // Book 3: a mole underground is moved by stepTunnels, not by any machine below.
     if (e.burrowed) continue
+    const ox = e.x, oy = e.y
     // Seek target: the player by default, or the nearest Pheromone Lure decoy (v5.3 garden) whose
     // aggro radius this enemy sits inside — lured foes path to the decoy instead of the player.
     let tx = p.x, ty = p.y
@@ -5032,8 +5037,11 @@ function stepEnemyMovement(run, dt) {
       e.y += uy * step
     }
 
+    if (rivF && !isAlly(e)) holdAtRiverBank(e, ox, oy, tx, ty, rivF, rivSeed, dt)
     e.x += e.kb.x * dt
     e.y += e.kb.y * dt
+    // where a body held at a bank stands after its own step and any knockback (holdBankAfterCrowd)
+    if (e.bankT > 0) { e._bankPX = e.x; e._bankPY = e.y }
     // ...and the closing wall drags anything out at its rim back toward the centre it is drawn
     // around — which is the player, or the fullest bait under WEAPON_MODS.chum.decoyBarrel, since
     // both the ring and this read the same anchor. Applied as a displacement beside the knockback
@@ -16991,11 +16999,13 @@ function riverFrame(F, seed) {
   riverFrameMemo = { R, seed, spacing: R.spacing, warp: R.warp, warpWave: R.warpWave, c, s, phase }
   return riverFrameMemo
 }
+// the coordinate across the river family: a channel's centre line sits at every multiple of spacing
+function riverU(R, c, s, phase, x, y, seed) { return x * c + y * s + (noiseAt(x, y, seed ^ 0x51a1, 2, R.warpWave) - 0.5) * 2 * R.warp + phase }
 export function riverDepthAt(F, x, y, seed) {
   const R = F?.river
   if (!R) return 0
   const { c, s, phase } = riverFrame(F, seed)
-  const u = x * c + y * s + (noiseAt(x, y, seed ^ 0x51a1, 2, R.warpWave) - 0.5) * 2 * R.warp + phase
+  const u = riverU(R, c, s, phase, x, y, seed)
   const f = ((u / R.spacing) % 1 + 1) % 1
   const d = Math.min(f, 1 - f) * R.spacing
   const half = (R.width / 2) * (0.7 + 0.6 * noiseAt(x, y, seed ^ 0x51a2, 1, R.widthWave))
@@ -17035,6 +17045,69 @@ export function magmaGroundAt(run, x, y) {
 }
 // The seed and spec render needs to paint the same floor (src/pixel.js): null off The Magma.
 export function magmaFloorOf(run) { const F = floorSpec(run); return F ? { F, seed: floorSeed(run) } : null }
+// A LAVA RIVER IS A BANK, NOT A ROAD (river.avoid): a body does not walk into one unless what it
+// hunts is just across (crossNear px), and then it wades in and burns. Its step loses the part that
+// points into the channel, so it follows the bank or waits on it; one already in (shoved, spawned)
+// makes for the nearer bank. Knockback lands after this, so a shove can still put a body in.
+// Cheap: a noise-free band test rules out every body far from a channel before any noise is read.
+function riverBandNear(F, x, y, seed, margin) {
+  const R = F.river, { c, s, phase } = riverFrame(F, seed)
+  const f = (((x * c + y * s + phase) / R.spacing) % 1 + 1) % 1
+  return Math.min(f, 1 - f) * R.spacing < R.warp + R.width * 0.65 + margin
+}
+// unit vector from (x, y) toward the nearest channel's centre line
+function riverToCentre(F, x, y, seed) {
+  const R = F.river, { c, s, phase } = riverFrame(F, seed), h = 4
+  const u = riverU(R, c, s, phase, x, y, seed)
+  const gx = riverU(R, c, s, phase, x + h, y, seed) - u, gy = riverU(R, c, s, phase, x, y + h, seed) - u
+  const gl = Math.hypot(gx, gy) || 1, k = ((u / R.spacing) % 1 + 1) % 1 < 0.5 ? -1 : 1
+  return [(k * gx) / gl, (k * gy) / gl]
+}
+function holdAtRiverBank(e, ox, oy, tx, ty, F, seed, dt) {
+  if (e.bankT > 0) e.bankT = Math.max(0, e.bankT - dt)
+  const A = F.river.avoid
+  const mx = e.x - ox, my = e.y - oy, ml = Math.hypot(mx, my)
+  if (ml < 1e-6 || !riverBandNear(F, e.x, e.y, seed, e.radius + ml)) return
+  if ((tx - e.x) ** 2 + (ty - e.y) ** 2 < A.crossNear * A.crossNear) return
+  if (riverDepthAt(F, ox, oy, seed) > 0) {
+    const n = riverToCentre(F, ox, oy, seed)
+    e.x = ox - n[0] * ml; e.y = oy - n[1] * ml
+    e.bankT = A.faceT; e.bankX = -n[0]; e.bankY = -n[1]
+    return
+  }
+  const fe = e.radius * A.edge
+  if (riverDepthAt(F, e.x + (mx / ml) * fe, e.y + (my / ml) * fe, seed) <= 0) return
+  const n = riverToCentre(F, e.x + (mx / ml) * fe, e.y + (my / ml) * fe, seed)
+  let ax = mx, ay = my
+  const into = ax * n[0] + ay * n[1]
+  if (into > 0) { ax -= into * n[0]; ay -= into * n[1] }
+  const al = Math.hypot(ax, ay)
+  // a bend in the bank: a slide that still dips in is no step at all
+  if (al < 1e-6 || riverDepthAt(F, ox + ax + (ax / al) * fe, oy + ay + (ay / al) * fe, seed) > 0) { ax = 0; ay = 0 }
+  e.x = ox + ax; e.y = oy + ay
+  e.bankT = A.faceT
+  if (Math.hypot(ax, ay) > ml * 0.3) { const l = Math.hypot(ax, ay); e.bankX = ax / l; e.bankY = ay / l } else { e.bankX = 0; e.bankY = 0 }
+}
+// ...and the crowd behind it does not push it in either: a body held at a bank that the separation
+// pass shoved toward the lava (its front, edge x radius ahead along the shove, now over it) keeps
+// only the part of the shove along the bank, or none of it on a bend.
+function holdBankAfterCrowd(run) {
+  const F = floorSpec(run)
+  if (!F?.river?.avoid) return
+  const seed = floorSeed(run), edge = F.river.avoid.edge
+  for (const e of run.enemies) {
+    if (!(e.bankT > 0) || e._bankPX === undefined) continue
+    const sx = e.x - e._bankPX, sy = e.y - e._bankPY, sl = Math.hypot(sx, sy)
+    if (sl < 1e-6) continue
+    const fe = (e.radius * edge) / sl
+    if (riverDepthAt(F, e.x + sx * fe, e.y + sy * fe, seed) <= 0 || riverDepthAt(F, e._bankPX, e._bankPY, seed) > 0) continue
+    const n = riverToCentre(F, e.x, e.y, seed), into = sx * n[0] + sy * n[1]
+    let ax = sx - Math.max(0, into) * n[0], ay = sy - Math.max(0, into) * n[1]
+    const al = Math.hypot(ax, ay), fa = al > 1e-6 ? (e.radius * edge) / al : 0
+    if (al < 1e-6 || riverDepthAt(F, e._bankPX + ax + ax * fa, e._bankPY + ay + ay * fa, seed) > 0) { ax = 0; ay = 0 }
+    e.x = e._bankPX + ax; e.y = e._bankPY + ay
+  }
+}
 // the way every river of this floor runs, as a unit vector (render drifts its crust plates along it)
 export function riverFlowOf(F, seed) { const { c, s } = riverFrame(F, seed); return [-s, c] }
 // the axis an old cooled flow ran along (its patches are stretched along it; render lays its ropes across it)

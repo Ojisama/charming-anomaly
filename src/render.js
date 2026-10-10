@@ -6576,9 +6576,9 @@ export function createRenderer(app) {
     kobold: { archetype: 'tank', ascii: true },
     golem: { archetype: 'tank', ascii: true },
     // Book 3, The Magma: PIXEL ART (`pixel: true` — painted by src/pixel.js PIXEL_CAST, not here).
-    // lean 0: a pixel body only ever MIRRORS (faces left or right, nose +x), never rotates. The CRT
-    // pass re-grids whatever it is given, and a sprite turned to an arbitrary angle comes out as
-    // ragged stair-steps; a mirror keeps every art pixel square on the grid.
+    // A pixel body TURNS to its heading by swapping pre-turned bakes (makePixelLook's dirs), never by
+    // rotating the sprite: the CRT pass re-grids whatever it is given, and a sprite turned to an
+    // arbitrary angle comes out as ragged stair-steps. lean is unused on that path.
     cinderBeetle: { archetype: 'normal', pixel: true, lean: 0 },
     salamander: { archetype: 'fast', pixel: true, lean: 0 },
     obsidianTortoise: { archetype: 'tank', pixel: true, lean: 0 },
@@ -6859,6 +6859,12 @@ export function createRenderer(app) {
   // baseR grows by it so k comes out at 1 (art pixel = grid pixel). A bake that returns no scale
   // (the original two-argument contract) is stretched by k exactly as before.
   const pixelFrames = new Map()
+  // enemy -> the heading (0..CAST_DIRS-1) syncEnemies last drew it at; the pixel rig's emissive mask
+  // reads it so the creature light lands on the body as turned
+  const pixelDirOf = new WeakMap()
+  const pixelDirAt = (e) => pixelDirOf.get(e)
+  // rad/s a pixel body turns at: a turn reads as a turn, not a snap between bakes
+  const PIXEL_TURN_RATE = 8
   // THE PIXEL CROWN SITS ON THE BODY AS DRAWN. A fixed crown offset (PIXEL_CAST.crown) cannot know
   // the frame, the facing rotation, the elite draw scale or a restyled bake, and it floated the crown
   // well clear of the creature. So each baked frame keeps its opaque outline (every opaque row's left
@@ -6921,14 +6927,33 @@ export function createRenderer(app) {
         if (pts) { pixelOutline.set(fr.tex, pts); pixelOutline.set(fr.white, pts) }
         frames.push(fr)
       }
+      frames.dirCache = new Map()
       pixelFrames.set(key, frames)
+    }
+    // heading d of frame fi, baked on first sight (d 0 is the frame itself)
+    const dirTex = (fi, d) => {
+      if (!d) return frames[fi] ?? frames[0]
+      const dk = fi * 64 + d
+      let fr = frames.dirCache.get(dk)
+      if (!fr) {
+        const b = PIXEL.bakeCreature(id, fi, drawScale, d)
+        fr = { tex: PIXEL.pixelTex(b.body, b.res), white: PIXEL.pixelTex(b.white, b.res), ax: b.ax, ay: b.ay }
+        const pts = pixelOutlinePts(b.body, b.res ?? 1, b.ax, b.ay)
+        if (pts) { pixelOutline.set(fr.tex, pts); pixelOutline.set(fr.white, pts) }
+        frames.dirCache.set(dk, fr)
+      }
+      return fr
     }
     const baked = frames[0].scale > 0 ? frames[0].scale : 1
     return {
       tex: frames[0].tex, white: frames[0].white, ax: frames[0].ax, ay: frames[0].ay,
       frames: frames.length > 1 ? frames : null,
       baseR: ROSTER_BASE_R[entry.archetype] * baked, maxLean: entry.lean * DEG,
-      poseOf: null, faceDir: null, turnRate: null, spin: 0, squash: 0,
+      poseOf: null, spin: 0, squash: 0,
+      // turns: dirs headings, smoothed; along a lava river's bank it faces the way it walks
+      dirs: PIXEL.CAST_DIRS, dirTex,
+      faceDir: (e) => ((e.bankT || 0) > 0 && (e.bankX || e.bankY) ? [e.bankX, e.bankY] : null),
+      turnRate: () => PIXEL_TURN_RATE,
       shadow: null,
       // crown.pixel: drawn at the grid size by syncEnemyDecor (pixelCrownLook), never stretched by k
       crown: elite ? { top: M.crown[0], r: M.crown[1], pixel: true, baked } : null,
@@ -31054,6 +31079,7 @@ void main() {
         // v6.4 phase (tardigrade cryptobiosis flicker): last-seen solid/ghost state, so the flip
         // particle below fires on a real transition and not on a recycled slot's first frame.
         s._lastPhaseSolid = undefined
+        s._pxDir = undefined
         enemySprites.set(e.id, s)
       }
       s._seen = true
@@ -31094,7 +31120,7 @@ void main() {
       // below, which reads as a flash without deleting the art.
       const tex = e.hitFlash > 0 && e.rosterId !== 'krakenHead' ? frame.white : frame.tex
       if (s._look !== look) s._look = look
-      if (s.texture !== tex) {
+      if (!look.dirs && s.texture !== tex) {
         s.texture = tex
         s.anchor.set(frame.ax, frame.ay)
       }
@@ -31172,10 +31198,26 @@ void main() {
         s._dirY = Math.sin(cur + step)
       }
       const dx = s._dirX
-      const flip = dx < 0 ? -1 : 1
+      const flip = look.dirs ? 1 : dx < 0 ? -1 : 1
       const maxLean = look.maxLean
       const lean = Math.atan2(s._dirY, Math.abs(dx))
-      const face = flip * Math.max(-maxLean, Math.min(maxLean, lean))
+      const face = look.dirs ? 0 : flip * Math.max(-maxLean, Math.min(maxLean, lean))
+      // A PIXEL BODY TURNS BY SWAPPING BAKES (look.dirs: src/pixel/cast.js castPose), never by rotating
+      // the sprite. The heading picks the nearest of look.dirs drawings, held until it is well past
+      // the boundary so a heading sitting on one does not flicker between two.
+      if (look.dirs) {
+        const N = look.dirs, stp = (Math.PI * 2) / N
+        const ang = Math.atan2(s._dirY, s._dirX)
+        let di = s._pxDir
+        if (di === undefined || Math.abs(Math.atan2(Math.sin(ang - di * stp), Math.cos(ang - di * stp))) > stp * 0.62) {
+          di = ((Math.round(ang / stp) % N) + N) % N
+        }
+        s._pxDir = di
+        pixelDirOf.set(e, di)
+        const df = look.dirTex(s._animFrame ?? 0, di)
+        const t2 = e.hitFlash > 0 ? df.white : df.tex
+        if (s.texture !== t2) { s.texture = t2; s.anchor.set(df.ax, df.ay) }
+      }
       // holePull (0..1, set by sim while an enemy is being sucked into a black hole) may
       // not exist on older/other enemies — guard it. Shrinks + spins the sprite as it nears.
       const pull = e.holePull || 0
@@ -31238,6 +31280,8 @@ void main() {
         s._spinT = animT
       }
       s.rotation = face + wobble + currentWobble + pull * animT * 5 + (look.spin ? s._spinA : 0)
+      // a pixel body is never turned off its own grid (see look.dirs above)
+      if (look.dirs) s.rotation = 0
       // an `upright` look (src/ascii.js's text) is never mirrored or turned: a glyph must stay readable
       if (look.upright) { s.scale.x = Math.abs(s.scale.x); s.rotation = 0 }
       s.position.set(e.x, e.y)
@@ -31632,7 +31676,7 @@ void main() {
     syncTrails(run.trails || [])
     syncWebs(run.webs || [])
     syncBurrow(run, dt)   // Book 3: tunnels, pits, quakes, snares, stones, scoops, echoes (no-op elsewhere)
-    if (pixelLook) pixelRig.sync(run, dt, { cx, cy, z: world.scale.x, w: viewW(), h: viewH(), animT })   // The Magma (src/pixel.js)
+    if (pixelLook) pixelRig.sync(run, dt, { cx, cy, z: world.scale.x, w: viewW(), h: viewH(), animT, dirOf: pixelDirAt })   // The Magma (src/pixel.js)
     // v7.x surf: the dry patches. `|| []` like every field above — a save or a test run predating
     // the chapter has no run.sandbars at all.
     // sandbarTex is a LIST now (one bake per outline) — the pool's default texture is the first, and
