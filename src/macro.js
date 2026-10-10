@@ -2102,3 +2102,46 @@ export function paintSoilClod(seed) {
     softDot(ctx, LX * r * 0.45, LY * r * 0.45, r * 0.12, r * 0.1, 'rgba(255,250,236,0.9)')   // the wet glint
   }, { shadowBlur: 1.6 })
 }
+
+// ==== HIT FEEDBACK (Topsoil) =====================================================================
+// A puff of fine dry dust for the particle system: soft lobes and a few specks, painted near-white
+// so each spawn's tint colours it, and kept faint so it never reaches the lens's halation threshold.
+export function paintDustPuff() {
+  return bakeLocal(22, 3, (ctx) => {
+    const rnd = rng(3)
+    for (let i = 0; i < 9; i++) {
+      const a = rnd() * TAU, d = rnd() * 7, r = 4 + rnd() * 4
+      softDot(ctx, Math.cos(a) * d, Math.sin(a) * d, r, 3.5, `rgba(255,255,255,${0.3 + rnd() * 0.18})`)
+    }
+    for (let i = 0; i < 26; i++) {
+      const a = rnd() * TAU, d = rnd() * 11
+      ctx.fillStyle = `rgba(255,255,255,${0.25 + rnd() * 0.35})`
+      ctx.fillRect(Math.cos(a) * d, Math.sin(a) * d, 0.6 + rnd() * 0.6, 0.6 + rnd() * 0.6)
+    }
+  }, { shadowBlur: 0.3 }).body
+}
+// One grain of soil, lit from the top-left, near-white so the tint colours it.
+export function paintGrain() {
+  return bakeLocal(4, 4, (ctx) => {
+    const rnd = rng(11), pts = blobPts(rnd, 0, 0, 1.6, 7, 0.45, 0.8)
+    withBlur(ctx, 0.5, 'rgba(0,0,0,0.6)', () => { ctx.save(); ctx.translate(0.5, 0.6); smoothTrace(ctx, pts); ctx.fill(); ctx.restore() })
+    const g = ctx.createRadialGradient(-0.5, -0.5, 0, 0, 0, 2)
+    g.addColorStop(0, '#ffffff'); g.addColorStop(0.6, '#bdbdbd'); g.addColorStop(1, '#5a5a5a')
+    smoothTrace(ctx, pts); ctx.fillStyle = g; ctx.fill()
+  }, { shadowBlur: 0.2 }).body
+}
+// A struck body's flash twin: the body itself, brightened warm (screen) — a flash of light with the
+// art still there, where the white silhouette would be a blown-out cut-out under the macro lens.
+export function paintFlashTwin(body) {
+  const w = body.width, h = body.height
+  const out = makeCanvas(w, h), c = out.getContext('2d')
+  c.drawImage(body, 0, 0)
+  const sil = makeCanvas(w, h), s = sil.getContext('2d')
+  s.drawImage(body, 0, 0)
+  s.globalCompositeOperation = 'source-in'
+  s.fillStyle = 'rgba(236,214,178,0.62)'
+  s.fillRect(0, 0, w, h)
+  c.globalCompositeOperation = 'screen'
+  c.drawImage(sil, 0, 0)
+  return out
+}
