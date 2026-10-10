@@ -6,7 +6,7 @@
 //   r.reset(run|null)          new run started (build world) or back to title (clear)
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
-import { Assets, BlurFilter, Buffer as PixiBuffer, BufferUsage, CanvasSource, Container, FillGradient, Filter, GlProgram, Graphics, Mesh, MeshGeometry, MeshPlane, MeshRope, Point, Rectangle, RenderTexture, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
+import { Assets, BlurFilter, Buffer as PixiBuffer, BufferUsage, CanvasSource, Container, FillGradient, Filter, GlProgram, Graphics, Matrix, Mesh, MeshGeometry, MeshPlane, MeshRope, Point, Rectangle, RenderTexture, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
 import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, HAIR_TRIGGER_T, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, BEAM_ENVELOPE, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, CIRCUIT_CAM_LEAD, CIRCUIT_CAM_EASE, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, drawdownSecsFor, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPUR_VIS, LANE_HALF_W, UPWELLING_VIS, FOUL_SPRING_VIS, FOUL_SPRING_FOUL_T, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, BRING_SNAP_T, SHOREBREAK_RADIUS, BURST_WAKE, burstWakeAt, DUST, dustVel, laneScrollFor, BALLAST_THROW_R, BALLAST_RING, ORCA_LEN, ORCA_CIRCLE_DUR, ORCA_RING_BAND, ORCA_FEAR_TELL, ORCA_HERD_GAP, CHUM_VIS, BILGE_TRAIL_VIS, OIL_STAIN_MAX, SLICK_FIRE_SPREAD_T, caveAt, laneHalfWidth, laneDrawSpan, CIRCUIT_GATE_VIS, ringXY, ringFU, ringRot, ringHeading, gateAnchorF, caveSpecOf, ORCA_RISE_DUR, ORCA_SPLASH_R, ORCA_AIM_W, ORCA_AIM_TELL, ORCA_WAKE_R, ORCA_OVERSHOOT,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
@@ -6238,7 +6238,7 @@ export function createRenderer(app) {
     }
   }
   const pitPass = () => ({ c: new Container(), list: [], n: 0 })
-  const pitPasses = { trRim: pitPass(), trBed: pitPass(), tell: pitPass(), spoil: pitPass(), wall: pitPass(), inner: pitPass(), floor: pitPass(), collar: pitPass() }
+  const pitPasses = { trRim: pitPass(), trBed: pitPass(), tell: pitPass(), damp: pitPass(), spoil: pitPass(), wall: pitPass(), inner: pitPass(), floor: pitPass(), collar: pitPass() }
   // THE TRENCH. A segment per pair of furrow points (and one more up to the player), one copy per
   // IPECAC lane at the sim's own offsets. A point the sim has queued a cave-in on is SPENT: its
   // segment goes once the pit over it has opened. A new point throws the dug soil off both sides.
@@ -6370,7 +6370,13 @@ export function createRenderer(app) {
       for (const c of caves) {
         const k = Math.max(0, Math.min(1, 1 - (c.at - run.time) / 1.2))
         const st = Math.min(MACRO.PIT_TELL_STAGES - 1, Math.floor(k * MACRO.PIT_TELL_STAGES))
-        pitSprite(P.tell, pitTex.tell[pick(c.x, c.y, 2)][st], c.x, c.y, c.r / R0, Math.min(1, k * 2.5))
+        const tellTex = pitTex.tell[pick(c.x, c.y, 2)][st]
+        pitSprite(P.tell, tellTex, c.x, c.y, c.r / R0, Math.min(1, k * 2.5))
+        const dusk = macroLook?.dusk
+        if (dusk && macroDusk > 0.01) {
+          pitSprite(P.damp, macroSilhouette(tellTex, false), c.x, c.y, c.r / R0, Math.min(1, k * 2.5) * dusk.damp * macroDusk)
+          P.damp.list[P.damp.n - 1].tint = dusk.dampTint
+        }
       }
       for (const pt of pits) {
         const open = pt.open ?? C?.open ?? 0.35, fill = pt.fill ?? C?.fill ?? 1.5
@@ -12780,11 +12786,40 @@ export function createRenderer(app) {
     uVignette: { value: 0.7, type: 'f32' },
     uGrain: { value: 0.06, type: 'f32' },
     uSharpR: { value: 0.62, type: 'f32' },
+    uSunTone: { value: new Float32Array([1, 1, 1]), type: 'vec3<f32>' },
+    uSkyTone: { value: new Float32Array([1, 1, 1]), type: 'vec3<f32>' },
+    uKeyTint: { value: 0, type: 'f32' },
   })
   const lensFilter = new Filter({
     glProgram: GlProgram.from({ vertex: MACRO_VERT, fragment: MACRO.LENS_FRAG, name: 'macro-lens' }),
     resources: { macroU },
   })
+  // SUNDOWN's floor filter (MACRO.SUNDOWN_RAKE_FRAG): on macroFloor only while the dusk is up
+  const rakeU = new UniformGroup({
+    uRakeDir: { value: new Float32Array([-0.62, -0.78]), type: 'vec2<f32>' },
+    uRake: { value: 0, type: 'f32' },
+    uRakeLen: { value: 10, type: 'f32' },
+    uRakeSlope: { value: 0.1, type: 'f32' },
+    uFace: { value: 0, type: 'f32' },
+    uRakeSky: { value: new Float32Array([1, 1, 1]), type: 'vec3<f32>' },
+    uRakeSun: { value: new Float32Array([1, 1, 1]), type: 'vec3<f32>' },
+  })
+  const rakeFilter = new Filter({
+    glProgram: GlProgram.from({ vertex: MACRO_VERT, fragment: MACRO.SUNDOWN_RAKE_FRAG.replaceAll('RAKE_TAPS', '8'), name: 'macro-sundown-rake' }),
+    resources: { rakeU },
+  })
+  // A canvas-baked texture's white silhouette (MACRO.paintSundownSilhouette), made once per texture
+  const macroSilhouettes = [new Map(), new Map()]
+  function macroSilhouette(tex, solid) {
+    const cache = macroSilhouettes[solid ? 1 : 0]
+    let r = cache.get(tex)
+    if (r !== undefined) return r
+    const src = tex.source?.resource
+    if (!src || !src.getContext) { cache.set(tex, null); return null }
+    r = new Texture({ source: new CanvasSource({ resource: MACRO.paintSundownSilhouette(src, solid), resolution: tex.source.resolution }) })
+    cache.set(tex, r)
+    return r
+  }
   const hexTone = (h, out) => { out[0] = ((h >> 16) & 255) / 255; out[1] = ((h >> 8) & 255) / 255; out[2] = (h & 255) / 255 }
   let macroLook = null          // CHAPTERS[id].render.macro, latched in setMacro (from reset)
   const macroTiles = {}         // floor kind -> Texture, painted the first time a run needs it
@@ -12932,6 +12967,8 @@ export function createRenderer(app) {
   }
   function setMacro(run) {
     const ch = run && CHAPTERS[run.chapter]
+    macroDustMul = 1
+    for (const pool of [macroRims, macroPickRims, macroCoinGlints]) for (const r of pool) r.visible = false
     if (ch && (ch.signature?.caveIns || ch.weapons?.includes('furrow'))) bakePits()
     if (ch?.weapons?.includes('furrow')) bakeFurrow()   // elsewhere (The Blank deals it too) on its first furrow
     if (pixelLook) { pixelLook = null; pixelRig.disable(); pixelRig.player.tint = 0xffffff; if (pixelHotSprite) pixelHotSprite.visible = false; pixelHitT = pixelLastInvuln = 0; bodyC.visible = true; pShadow.visible = true }
@@ -12978,6 +13015,15 @@ export function createRenderer(app) {
     hexTone(macroLook.shadowTone ?? 0x8090b0, u.uShadowTone)
     hexTone(macroLook.lightTone ?? 0xffe8c0, u.uLightTone)
     hexTone(macroLook.lightTone ?? 0xffe8c0, macroDayTone)
+    hexTone(macroLook.shadowTone ?? 0x8090b0, macroDayShadow)
+    macroDayKey = u.uKey
+    const dusk = macroLook.dusk
+    if (dusk) {
+      hexTone(dusk.lightTone, macroDuskTone)
+      hexTone(dusk.shadowTone, macroDuskShadow)
+      for (let i = 0; i < 3; i++) { u.uSunTone[i] = rakeU.uniforms.uRakeSun[i] = dusk.sun[i]; u.uSkyTone[i] = rakeU.uniforms.uRakeSky[i] = dusk.sky[i] }
+    }
+    u.uKeyTint = 0
     macroDusk = run.anomalies?.sundown ? 1 : 0   // a reloaded run is already dark
     for (const s of macroShafts) s.tint = macroLook.shaft ?? 0xffe0b0
     for (const s of macroBokeh) s.tint = macroLook.bokeh ?? 0xffd8a0
@@ -12997,6 +13043,7 @@ export function createRenderer(app) {
       sh.texture = st
       sh.anchor.copyFrom(s.anchor)
       sh.rotation = s.rotation
+      sh.skew.set(0, 0)
       sh.scale.copyFrom(s.scale)
       const d = (Math.abs(s.scale.y) * 22 + 5) * reach
       sh.position.set(s.x - LX * d, s.y - LY * d)
@@ -13058,6 +13105,37 @@ export function createRenderer(app) {
   // less light, a redder key, no shafts. macroDusk runs 0 (day) to 1 (dusk).
   let macroDusk = 0
   const macroDayTone = new Float32Array(3), DUSK_TONE = [1, 0.5, 0.32], DUSK_EXPOSURE = 0.45
+  // A chapter whose macro look carries a `dusk` block (Topsoil) gets the golden hour instead of the
+  // plain dim: every piece below is OFF (filter detached, sprites hidden, branches skipped) while
+  // macroDusk is 0, so a run that never takes Sundown draws exactly the day.
+  const macroDayShadow = new Float32Array(3), macroDuskTone = new Float32Array(3), macroDuskShadow = new Float32Array(3)
+  let macroDayKey = 0.4, macroDustMul = 1
+  const macroRims = [], macroPickRims = [], macroCoinGlints = []
+  const castM = new Matrix()
+  // a cast shadow offset down-light by d and stretched k times along it, the near end held at the body
+  function placeStretchedCast(sh, x, y, rot, scx, scy, d, k) {
+    const ux = 0.62, uy = 0.78, e = k - 1
+    const c = Math.cos(rot), sn = Math.sin(rot)
+    const a0 = c * scx, b0 = sn * scx, c0 = -sn * scy, d0 = c * scy
+    const e11 = 1 + e * ux * ux, e12 = e * ux * uy, e22 = 1 + e * uy * uy
+    const off = d + e * 0.375 * Math.min(sh.texture.width * Math.abs(scx), sh.texture.height * Math.abs(scy))
+    castM.set(e11 * a0 + e12 * b0, e12 * a0 + e22 * b0, e11 * c0 + e12 * d0, e12 * c0 + e22 * d0, x + ux * off, y + uy * off)
+    sh.setFromMatrix(castM)
+  }
+  // a rim sprite: the body's solid silhouette, under it, nudged toward the sun so only its lit edge shows
+  function placeRim(pool, layer, i, tex, src, x, y, scx, scy, rot, off, tint, alpha) {
+    let rm = pool[i]
+    if (!rm) { rm = new Sprite(tex); layer.addChild(rm); pool.push(rm) }
+    rm.visible = true
+    rm.texture = tex
+    rm.anchor.copyFrom(src.anchor)
+    rm.scale.set(scx, scy)
+    rm.rotation = rot
+    rm.position.set(x - 0.62 * off, y - 0.78 * off)
+    rm.tint = tint
+    rm.alpha = alpha
+    return rm
+  }
   function updateMacro(run, dt, cx, cy) {
     if (holoLook) {
       const w = viewW(), h = viewH(), z = world.scale.x || 1
@@ -13089,14 +13167,36 @@ export function createRenderer(app) {
     const u = macroU.uniforms
     u.uTime = animT
     macroDusk += ((run.anomalies?.sundown ? 1 : 0) - macroDusk) * Math.min(1, dt * 0.6)
-    u.uExposure = 1 - (1 - DUSK_EXPOSURE) * macroDusk
-    for (let i = 0; i < 3; i++) u.uLightTone[i] = macroDayTone[i] + (DUSK_TONE[i] - macroDayTone[i]) * macroDusk
+    const dusk = macroLook.dusk
+    const k = dusk ? macroDusk : 0   // 0: every golden-hour piece below is off
+    const on = k > 0.001
+    if (dusk) {
+      u.uExposure = 1 - (1 - dusk.exposure) * k
+      for (let i = 0; i < 3; i++) {
+        u.uLightTone[i] = macroDayTone[i] + (macroDuskTone[i] - macroDayTone[i]) * k
+        u.uShadowTone[i] = macroDayShadow[i] + (macroDuskShadow[i] - macroDayShadow[i]) * k
+      }
+      u.uKey = macroDayKey + (dusk.key - macroDayKey) * k
+      u.uKeyTint = dusk.keyTint * k
+      macroDustMul = 1 + (dusk.dust - 1) * k
+      const ru = rakeU.uniforms
+      ru.uRake = dusk.rake * k
+      ru.uFace = dusk.face * k
+      ru.uRakeLen = dusk.rakeLen * z * (app.renderer.resolution || 1)
+      ru.uRakeSlope = dusk.rakeSlope
+      if (on !== !!macroFloor.filters) macroFloor.filters = on ? [rakeFilter] : null
+    } else {
+      u.uExposure = 1 - (1 - DUSK_EXPOSURE) * macroDusk
+      for (let i = 0; i < 3; i++) u.uLightTone[i] = macroDayTone[i] + (DUSK_TONE[i] - macroDayTone[i]) * macroDusk
+    }
+    const stretch = on ? 1 + (dusk.stretch - 1) * k : 1
+    const castA = on ? 0.62 + (dusk.shadowAlpha - 0.62) * k : 0.62
     // focus rides the player, held near the middle of the frame
     const sx = (run.player.x + cx) * z / app.screen.width, sy = (run.player.y + cy) * z / app.screen.height
     u.uFocus[0] = 0.5 + (sx - 0.5) * 0.6
     u.uFocus[1] = 0.5 + (sy - 0.5) * 0.6
     // the raking shadows: every creature's own silhouette, blurred, thrown away from the key
-    let n = 0
+    let n = 0, nr = 0
     const LX = -0.62, LY = -0.78
     const reach = macroLook.shadowReach ?? 0.5
     for (const [, s] of enemySprites) {
@@ -13108,11 +13208,18 @@ export function createRenderer(app) {
       sh.visible = true
       sh.texture = st
       sh.anchor.copyFrom(s.anchor)
-      sh.rotation = s.rotation
-      sh.scale.copyFrom(s.scale)
       const d = (Math.abs(s.scale.y) * 22 + 5) * reach
-      sh.position.set(s.x - LX * d, s.y - LY * d)
-      sh.alpha = 0.62 * s.alpha
+      if (on) {
+        placeStretchedCast(sh, s.x, s.y, s.rotation, s.scale.x, s.scale.y, d, stretch)
+        const wt = macroWhiteOf.get(s.texture), rt = wt && macroSilhouette(wt, true)
+        if (rt) placeRim(macroRims, macroRimLayer, nr++, rt, s, s.x, s.y, s.scale.x, s.scale.y, s.rotation, dusk.rimOff, dusk.rim, dusk.rimAlpha * k * s.alpha * s.alpha * s.alpha)
+      } else {
+        sh.rotation = s.rotation
+        sh.skew.set(0, 0)
+        sh.scale.copyFrom(s.scale)
+        sh.position.set(s.x - LX * d, s.y - LY * d)
+      }
+      sh.alpha = castA * s.alpha
       n++
     }
     // ...and the player's, off the same key, when it wears the photographed blob
@@ -13123,14 +13230,43 @@ export function createRenderer(app) {
       sh.visible = true
       sh.texture = pst
       sh.anchor.copyFrom(pBody.anchor)
-      sh.rotation = 0
-      sh.scale.set(bodyC.scale.x * playerC.scale.x, bodyC.scale.y * playerC.scale.y)
-      const d = (Math.abs(sh.scale.y) * 22 + 5) * reach
-      sh.position.set(playerC.x + bodyC.x - LX * d, playerC.y + bodyC.y - LY * d)
-      sh.alpha = 0.62 * playerC.alpha
+      const pscx = bodyC.scale.x * playerC.scale.x, pscy = bodyC.scale.y * playerC.scale.y
+      const px0 = playerC.x + bodyC.x, py0 = playerC.y + bodyC.y
+      const d = (Math.abs(pscy) * 22 + 5) * reach
+      if (on) {
+        placeStretchedCast(sh, px0, py0, 0, pscx, pscy, d, stretch)
+      } else {
+        sh.rotation = 0
+        sh.skew.set(0, 0)
+        sh.scale.set(pscx, pscy)
+        sh.position.set(px0 - LX * d, py0 - LY * d)
+      }
+      sh.alpha = castA * playerC.alpha
       n++
+      // the blob's rim only while it is solid: under an i-frame blink it would show through the body
+      const prt = on && playerC.alpha >= 0.99 && macroSilhouette(macroPlayer().flash.tex, true)
+      if (prt) placeRim(macroRims, macroRimLayer, nr++, prt, pBody, px0, py0, pscx, pscy, 0, dusk.rimOff, dusk.rim, dusk.rimAlpha * k)
     }
     for (let i = n; i < macroShadowPool.length; i++) macroShadowPool[i].visible = false
+    for (let i = nr; i < macroRims.length; i++) macroRims[i].visible = false
+    // the low sun on every pickup: a warm rim on its sunward edge, and a coin's worn metal catching it
+    let np = 0, ng = 0
+    if (on) {
+      for (const pool of [gemPool, coinPool]) {
+        for (const g of pool) {
+          if (!g.visible || !g.parent) continue
+          const rt = macroSilhouette(g.texture, true)
+          if (!rt) continue
+          placeRim(macroPickRims, macroPickRimLayer, np++, rt, g, g.x, g.y, g.scale.x, g.scale.y, g.rotation, 1.1, dusk.rim, dusk.pickRim * k)
+          if (pool === coinPool) {
+            const gl = placeRim(macroCoinGlints, macroCoinGlintLayer, ng++, g.texture, g, g.x, g.y, g.scale.x, g.scale.y, g.rotation, 0, dusk.rim, dusk.coinGlow * k)
+            gl.blendMode = 'add'
+          }
+        }
+      }
+    }
+    for (let i = np; i < macroPickRims.length; i++) macroPickRims[i].visible = false
+    for (let i = ng; i < macroCoinGlints.length; i++) macroCoinGlints[i].visible = false
     // the air: shafts sway, bokeh drifts at the edges, foreground hugs two corners
     const W = app.screen.width, H = app.screen.height, D = Math.hypot(W, H)
     const t = animT
@@ -13140,7 +13276,11 @@ export function createRenderer(app) {
       s.position.set(W * (0.05 + i * 0.3) + Math.sin(t * 0.11 + i) * W * 0.05, -H * 0.12)
       s.width = D * (0.16 + 0.08 * ((i * 37) % 3))
       s.height = D * 1.25
-      s.alpha = (macroLook.shaftAlpha ?? 0.14) * (0.7 + 0.3 * Math.sin(t * 0.3 + i * 1.7)) * (1 - macroDusk)
+      s.alpha = (macroLook.shaftAlpha ?? 0.14) * (0.7 + 0.3 * Math.sin(t * 0.3 + i * 1.7)) * (1 - macroDusk * (1 - (dusk?.shaft ?? 0)))
+      if (on) {   // the sun lower: the shafts lean flatter and go orange
+        s.tint = mixHex(macroLook.shaft ?? 0xffe0b0, dusk.shaftTint, k)
+        s.rotation -= 0.35 * k
+      }
     }
     const px = run.player.x, py = run.player.y
     for (let i = 0; i < macroBokeh.length; i++) {
@@ -13152,6 +13292,7 @@ export function createRenderer(app) {
       const size = D * (0.03 + 0.045 * ((i * 7919) % 11) / 11)
       s.width = s.height = size
       s.alpha = (macroLook.bokehAlpha ?? 0.22) * (0.5 + 0.5 * Math.sin(t * 0.4 + i * 1.3))
+      if (on) { s.alpha *= 1 + (dusk.bokeh - 1) * k; s.tint = mixHex(macroLook.bokeh ?? 0xffd8a0, dusk.bokehTint, k) }
     }
     const fgS = Math.max(W, H) / 1300
     for (let i = 0; i < macroFg.length; i++) {
@@ -13371,6 +13512,11 @@ export function createRenderer(app) {
   // The Geode (holo): each creature's two-tone outline under it, reacting to the opal cavern it
   // stands in (syncHoloHalos)
   const holoHaloLayer = new Container()
+  // Sundown (updateMacro): the warm rims on the creatures' and the blob's sunward edges, under the crowd
+  const macroRimLayer = new Container()
+  // ...the pickups' rims under the gems, and the coins' glint over them
+  const macroPickRimLayer = new Container()
+  const macroCoinGlintLayer = new Container()
   holoHaloLayer.visible = false
   const enemyLayer = new Container()
   // The Kraken's arm ring. Its OWN layer, above the enemies, because the arms shield the head and
@@ -13431,7 +13577,7 @@ export function createRenderer(app) {
   // falling stones' sprite pool.
   const burrowGroundG = new Graphics()
   const pitLayer = new Container()   // the photographed pits (syncPits), one container per pass
-  for (const k of ['trRim', 'trBed', 'tell', 'spoil', 'wall', 'inner', 'floor']) pitLayer.addChild(pitPasses[k].c)
+  for (const k of ['trRim', 'trBed', 'tell', 'damp', 'spoil', 'wall', 'inner', 'floor']) pitLayer.addChild(pitPasses[k].c)
   const burrowFxG = new Graphics()
   const burrowStoneLayer = new Container()
   const snareRootLayer = new Container()   // the Root Snare's baked roots (syncSnareSprites)
@@ -13572,11 +13718,11 @@ const spurG = new Graphics()
     // The refill circles (The Deep's anglerfish, sun shafts, pools) sit UNDER the drops: a maw is
     // a 400px body, and above gemLayer it hid every gem and coin that fell inside it.
     shaftLayer,
-    gemLayer, coinLayer, holeLayer, eddyLayer, novaLayer, mineLayer,
+    macroPickRimLayer, gemLayer, coinLayer, macroCoinGlintLayer, holeLayer, eddyLayer, novaLayer, mineLayer,
     krakenDeepG, scarLayer, bombG, shellLayer, skyLayer, voltLayer, stripG, laneG, hazardG, jetLayer, krakenSlapWakeG, teleG, krakenImpactG, strafePoolLayer, rampG, pacerG,
     rockLayer,
     orcaShadowSp, orcaG,
-    macroShadowLayer, enemyShadowLayer, holoHaloLayer, enemyLayer, pitPasses.collar.c, krakenArmLayer, enemyCrownLayer, krakenCoilBandLayer, orcaSp, netG, longlineG, snareG,
+    macroShadowLayer, enemyShadowLayer, holoHaloLayer, macroRimLayer, enemyLayer, pitPasses.collar.c, krakenArmLayer, enemyCrownLayer, krakenCoilBandLayer, orcaSp, netG, longlineG, snareG,
     bloomLayer, lureLayer, shieldG, affixLayer, crustG, deepG, lockLayer, shovelToolLayer, playerC, krakenGripFrontLayer, netHoldG, gateFrontG, breakerG, puffG, splashG, columnG, shorebreakG, burrowFxG, burrowStoneLayer, shovelAirLayer, pixelRig.air,
     bulletLayer, boomerangLayer, orbLayer, debrisLayer, homingLayer, shotLayer, beamLayer, whipLayer, arcG, breathG,
     lobLayer, carLayer, smokeLayer, particleLayer,
@@ -15532,7 +15678,7 @@ const spurG = new Graphics()
       if (m.y < -0.08) m.y += 1.16
       else if (m.y > 1.08) m.y -= 1.16
       m.s.position.set(m.x * w, m.y * h)
-      m.s.alpha = (0.2 + 0.1 * Math.sin(dustT * 2 + i)) * (dustLook?.alpha ?? 1)
+      m.s.alpha = (0.2 + 0.1 * Math.sin(dustT * 2 + i)) * (dustLook?.alpha ?? 1) * macroDustMul
     }
   }
 
