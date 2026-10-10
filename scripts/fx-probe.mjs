@@ -43,7 +43,7 @@
 //
 // Frames land at <prefix>-00.png, <prefix>-01.png, ... Stack them with ffmpeg:
 //   ffmpeg -framerate 14 -i pr-%02d.png -vf crop=440:760:340:360 -loop 0 out.gif
-import { writeFileSync, existsSync, readdirSync, readFileSync } from 'node:fs'
+import { writeFileSync, existsSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import { join } from 'node:path'
 // Node-side only, for the header print below — this file otherwise never builds a meta itself. It
@@ -159,7 +159,12 @@ const bootstrap = `(() => {
     const d = document.createElement('pre')
     // NB: plain concatenation, not a template literal — this whole function is already inside one
     // (the \`bootstrap\` string below), and a nested backtick closes it and breaks this file.
-    d.style.cssText = 'position:fixed;left:0;bottom:0;z-index:99999;margin:0;padding:6px;background:#000;font:11px monospace;white-space:pre-wrap;max-width:100%;color:' + (fatal ? '#f66' : '#0f0')
+    // The background MUST NOT be opaque. An opaque box over the WebGL canvas is taken as an occluder
+    // by the headless compositor, which then drops the canvas pixels in the VERTICALLY MIRRORED rect:
+    // a 48px note at the bottom came out as a 48px alpha-0 band across the TOP of every frame (a
+    // note at top:0 blanks the bottom instead). Measured in-scene the canvas is fully painted; the
+    // hole exists only in the capture, so it read as a renderer bug. 0.85 alpha does not occlude.
+    d.style.cssText = 'position:fixed;left:0;bottom:0;z-index:99999;margin:0;padding:6px;background:rgba(0,0,0,0.85);font:11px monospace;white-space:pre-wrap;max-width:100%;color:' + (fatal ? '#f66' : '#0f0')
     d.textContent = txt
     document.body.appendChild(d)
     if (fatal) window.__fxError = txt
@@ -309,12 +314,21 @@ async function freePort() {
   throw new Error('no free devtools port in 9333..9732')
 }
 const PORT = await freePort()
+const profileDir = `/tmp/fx-probe-${process.pid}`
 const browser = spawn(chrome, [
   '--no-sandbox', '--hide-scrollbars', `--window-size=${W},${H}`,
-  `--remote-debugging-port=${PORT}`, `--user-data-dir=/tmp/fx-probe-${process.pid}`,
+  `--remote-debugging-port=${PORT}`, `--user-data-dir=${profileDir}`,
   // FX_CHROME_ARGS='--use-angle=vulkan --enable-gpu' draws on the real GPU instead of SwiftShader
   ...(process.env.FX_CHROME_ARGS ? process.env.FX_CHROME_ARGS.split(' ') : []), 'about:blank',
-], { stdio: 'ignore' })
+], { stdio: 'ignore', detached: true })
+// Every way out (normal end, die(), a throw, Ctrl-C, a kill from a timeout) takes the browser's
+// whole process group down and deletes its profile. Without it each killed probe orphaned a
+// headless chrome and left a /tmp/fx-probe-<pid> directory behind.
+process.on('exit', () => {
+  try { process.kill(-browser.pid, 'SIGKILL') } catch { /* already gone */ }
+  try { rmSync(profileDir, { recursive: true, force: true, maxRetries: 5 }) } catch { /* best effort */ }
+})
+for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(sig, () => process.exit(130))
 
 async function target() {
   for (let i = 0; i < 80; i++) {

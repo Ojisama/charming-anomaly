@@ -643,6 +643,10 @@ const SFX_FOR_EVENT = {
   // The Wreck: a spill catching fire (2026-09-07). Rare — once per spill per lighting, never while
   // it burns — so it can bear the explode whoomp; the burn itself is silent like every other DoT.
   slickFire: 'explode',
+  // Book 3, The Mine. A firedamp blast takes `crush`, which audio.js throttles: a chain sets off
+  // several a second. A stick of dynamite is rare enough for the explode whoomp; a pickaxe blow is
+  // the light, throttled `hit`.
+  gasBlast: 'crush', dynamite: 'explode', pickaxe: 'hit',
   // v5.21 lane (beyond): the active shove reuses the hole whoosh, and a rock clipping the player
   // is an ordinary hurt — it is damage, not a special occasion.
   repulse: 'hole', rockhit: 'hurt',

@@ -1994,7 +1994,7 @@ function testAnomalySlate() {
       // owning a fixed position, so two lines read as two shapes here exactly as intended — and the
       // day it landed, its absence from this array reported "spawned nothing" for a weapon that was
       // firing correctly, which is the same bite `gnash` records against FX below.
-      const LISTS = ['bullets', 'orbs', 'mines', 'zones', 'lobs', 'blooms', 'lures', 'holes', 'beams', 'debris', 'homingShots', 'boomerangs', 'novas', 'arcs', 'longlines', 'hauls', 'snares', 'drips', 'magmaLobs']
+      const LISTS = ['bullets', 'orbs', 'mines', 'zones', 'lobs', 'blooms', 'lures', 'holes', 'beams', 'debris', 'homingShots', 'boomerangs', 'novas', 'arcs', 'longlines', 'hauls', 'snares', 'drips', 'sticks', 'carts', 'magmaLobs']
       // Same class of quoted-string list as LISTS above, and it bit for real: `gnash` (The Wreck's
       // native, v7.x) spawns no entity at all — its whole output is this event — so the day it
       // landed this fixture reported "spawned nothing — untestable here" for a weapon that was
@@ -20844,6 +20844,8 @@ run(testLeLargeWeapons)
   run(testBootLoader)
   run(testParkedRun)
   run(testBurrow)
+  run(testMine)
+  run(testMineGlyphTells)
   run(testMagma)
   // A hand-typed filter that matched nothing is the silent pass without a parent watching:
   // `node test/sim-test.js supernova` printed ALL TESTS PASSED having run no scenario at all.
@@ -38892,7 +38894,147 @@ function testBurrow() {
   console.log(`PASS run BU3 (Burrow): moles under ${under} frames, 0 hp lost under, mole dmg ${run.dmgBySrc.mole}; unarmed pit kills ${kOn} vs ${kOff} off; a crystal bounced ${on.bounced}x into ${on.bullets.length} shots, stopped it with bounce off`)
 }
 
-// ---- run MG: Book 3, The Magma — the crust, and the weapons that use it -----------------------
+// ---- run MG: Book 3, The Mine — the glyph tells (source text: render.js and ascii.js are not importable)
+// The mine hides render.js's enemy pool, damage text, telegraphs, affix badges and red vignette
+// (ascii.js `hide`), so every tell those layers carried must be re-drawn by ascii.js or it is gone:
+// (a) every status contract field render.js's tint chain reads is read by ascii.js's statusLook;
+// (b) the vignette is hidden through a key render.js knows, and skipClear does not un-hide it;
+// (c) ascii.js consumes 'hit' (damage numbers), 'hurt' (the edge flare) and 'explode' events, and
+//     draws run.bombs (the corpse-bomb warning) and the shield/pacer affixes;
+// (d) every mine roster id is drawn by ascii.js and is the mine's own (no id shared with a chapter
+//     whose look is a bake — the reason the mine's rat is `mineRat`).
+function testMineGlyphTells() {
+  const strip = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"])\/\/.*$/gm, '$1')
+  const rjs = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
+  const ajs = strip(readFileSync(new URL('../src/ascii.js', import.meta.url), 'utf8'))
+  const i0 = rjs.indexOf('Elemental status (contract fields')
+  assert.ok(i0 > 0, 'run MG: render.js status block not found')
+  const block = rjs.slice(i0, rjs.indexOf('cheap status particles', i0))
+  const fields = [...block.matchAll(/const \w+ = e\.(\w+) \|\| 0/g)].map((m) => m[1])
+  assert.ok(fields.length >= 7 && fields.includes('frozen') && fields.includes('stunT'), `run MG: status fields not parsed (${fields})`)
+  const sl = ajs.slice(ajs.indexOf('function statusLook'), ajs.indexOf('const AFFIX_GLYPH'))
+  for (const f of fields) assert.ok(sl.includes(`e.${f}`), `run MG.a: ascii.js statusLook never reads e.${f} — that status has no tell in the mine`)
+  const hide = (ajs.match(/hide: \[([^\]]*)\]/) ?? [])[1] ?? ''
+  assert.ok(/'vignette'/.test(hide), "run MG.b: ascii.js does not hide 'vignette' — render.js's red fill shows over the glyphs")
+  assert.ok(/ASCII_HIDEABLE = \{[\s\S]*?vignette: \[vignette\]/.test(rjs), 'run MG.b: ASCII_HIDEABLE has no vignette key')
+  assert.ok(/o\.renderable = o\.alpha > 0 && !o\._asciiHidden/.test(rjs), 'run MG.b: skipClear re-shows a layer the mine hid')
+  for (const ev of ['hit', 'hurt', 'explode']) assert.ok(ajs.includes(`case '${ev}'`), `run MG.c: ascii.js does not handle '${ev}'`)
+  for (const s of ['run.bombs', "'shielded'", "'pacer'"]) assert.ok(ajs.includes(s), `run MG.c: ascii.js never draws ${s}`)
+  const castSrc = ajs.slice(ajs.indexOf('const CAST = {'), ajs.indexOf('const PLAYER_LOOK'))
+  const ids = CHAPTERS.mine.roster.map((r) => r.id)
+  for (const id of ids) {
+    assert.ok(new RegExp(`^\\s+${id}: \\{`, 'm').test(castSrc), `run MG.d: ascii.js CAST has no ${id}`)
+    const other = Object.keys(CHAPTERS).filter((c) => c !== 'mine' && (CHAPTERS[c].roster ?? []).some((r) => r.id === id))
+    assert.deepStrictEqual(other, [], `run MG.d: roster id '${id}' is shared with ${other} — the mine's glyph look and their bake cannot both own it`)
+  }
+  console.log(`PASS run MG (the mine's glyph tells): ${fields.length} status fields (${fields.join(',')}) read by statusLook, vignette hidden, hit/hurt/explode handled, ${ids.length} roster ids (${ids.join(',')}) drawn and owned`)
+}
+
+// ---- run MI: Book 3, The Mine — firedamp ------------------------------------------------------------
+// Effects, not state: (a) a shot through a row of three pockets kills a body standing in the first
+// AND, through the chain alone, one standing in the third (links 0, 1, 2), and with the switch
+// (signature.firedamp) off the same shot leaves both alive and nothing blows; (b) a blast with you in
+// it costs you a little hp under src 'firedamp' — once, the chain's later links land in your invuln;
+// (c) each of the Mine's four weapons, alone, sets off a pocket a body is standing in.
+function testMine() {
+  const meta = () => { const m = makeMeta(); m.dev = true; return m }
+  assert.ok(BOOKS.burrow.chapters.includes('mine') && CHAPTERS['mine'].signature.type === 'firedamp', 'run MI: the mine is not on the Burrow ladder with its firedamp')
+  const sig = CHAPTERS['mine'].signature
+  const F0 = sig.firedamp
+  // A quiet field: no seams laid around you, no drift, no seep, so the pockets placed here are the
+  // only ones and they stay where they were put.
+  const quiet = { ...F0, count: 0, drift: 0, creep: 0 }
+  // A run with no crowd and no weapon of its own, `bodies` enemies kept and frozen in place.
+  const stage = (seed, bodies, weapons = []) => {
+    Math.random = mulberry32(seed)
+    const run = createRun(meta(), { chapter: 'mine', difficulty: 1 })
+    run.player.hp = run.player.maxHP = 1e6
+    for (let i = 0; i < 400 && run.enemies.length < bodies; i++) {
+      if (run.phase === 'levelup') { run.phase = 'playing'; run.levelUpChoices = [] }
+      run.weapons = []
+      stepSim(run, { x: 0, y: 0 }, 1 / 60)
+      run.events.length = 0
+    }
+    assert.ok(run.enemies.length >= bodies, `run MI: only ${run.enemies.length} bodies after the warm-up`)
+    run.enemies = run.enemies.slice(0, bodies)
+    for (const e of run.enemies) { e.hp = e.maxHP = 40; e.speed = 0; e.speedMul = 0; e.elite = false; e.affixes = [] }
+    run.mods.spawnMul = 0
+    run._spawnAcc = 0
+    run.gas = []; run.gasLit = []; run.bullets = []
+    run.weapons = weapons
+    return run
+  }
+  const shot = (run, x, y) => run.bullets.push({ x, y, vx: 500, vy: 0, dmg: 1, pierce: 1, life: 0.1, r: 6, speed: 500,
+    hitIds: new Set(), _shard: true, _splitDone: true, _chainsLeft: 0, weapon: 'chip' })
+  const play = (run, secs, keepWeapons = false) => {
+    const blasts = []
+    const w = run.weapons
+    for (let t = 0; t < secs * 60 && run.phase === 'playing'; t++) {
+      if (run.phase === 'levelup') { run.phase = 'playing'; run.levelUpChoices = [] }
+      run.weapons = keepWeapons ? w : []
+      for (const e of run.enemies) if (!e._dead) e.speed = 0
+      stepSim(run, { x: 0, y: 0 }, 1 / 60)
+      for (const ev of run.events) if (ev.type === 'gasBlast') blasts.push(ev)
+      run.events.length = 0
+    }
+    return blasts
+  }
+
+  // (a) the row, and the switch
+  const row = (on) => {
+    sig.firedamp = on ? quiet : null
+    try {
+      const run = stage(41001, 2)
+      const p = run.player
+      for (let k = 0; k < 3; k++) run.gas.push({ x: p.x + 200 + k * 90, y: p.y, r: 50, age: 0, seed: k })
+      const [near, far] = run.enemies
+      near.x = p.x + 200; near.y = p.y
+      far.x = p.x + 380; far.y = p.y
+      shot(run, p.x + 160, p.y)
+      const blasts = play(run, 1.5)
+      return { blasts, near: near._dead === true, far: far._dead === true, idle: run.gas.length }
+    } finally { sig.firedamp = F0 }
+  }
+  const on = row(true), off = row(false)
+  const chains = on.blasts.map((b) => b.chain).sort()
+  assert.deepStrictEqual(chains, [0, 1, 2], `run MI.a: the row should go off as links 0, 1, 2, got ${JSON.stringify(chains)}`)
+  assert.ok(on.near && on.far, `run MI.a: the blast should kill the body in the first pocket (${on.near}) and the chain the one in the third (${on.far})`)
+  assert.ok(off.blasts.length === 0 && !off.near && !off.far && off.idle === 0,
+    `run MI.a: with signature.firedamp off nothing may blow or die: ${JSON.stringify({ blasts: off.blasts.length, near: off.near, far: off.far, idle: off.idle })}`)
+
+  // (b) the sting: a pocket beside you, set off twice over (it and its neighbour)
+  sig.firedamp = quiet
+  let sting
+  try {
+    const run = stage(41002, 1)
+    const p = run.player
+    run.enemies[0].x = p.x + 900
+    run.gas.push({ x: p.x + 40, y: p.y, r: 50, age: 0, seed: 1 }, { x: p.x + 120, y: p.y, r: 50, age: 0, seed: 2 })
+    shot(run, p.x + 20, p.y)
+    const blasts = play(run, 1)
+    sting = run.dmgBySrc?.firedamp ?? 0
+    assert.ok(blasts.length === 2, `run MI.b: both pockets beside you should go off, got ${blasts.length}`)
+    assert.ok(sting > 0 && sting <= quiet.sting * 1.5, `run MI.b: a blast you stand in should sting once, a little (sting ${quiet.sting}), took ${sting}`)
+  } finally { sig.firedamp = F0 }
+
+  // (c) each of the four, alone, sets off the pocket its target stands in
+  const lit = {}
+  for (const w of CHAPTERS['mine'].weapons) {
+    sig.firedamp = quiet
+    try {
+      const run = stage(41003, 1, [{ id: w, level: 1 }])
+      const p = run.player
+      const e = run.enemies[0]
+      e.x = p.x + 140; e.y = p.y + 20
+      run.gas.push({ x: e.x, y: e.y, r: 50, age: 0, seed: 3 })
+      lit[w] = play(run, 4, true).filter((b) => b.chain === 0).length
+    } finally { sig.firedamp = F0 }
+  }
+  for (const w of ['pickaxe', 'dynamite', 'minecart', 'lantern']) assert.ok(lit[w] >= 1, `run MI.c: ${w} alone never set off the pocket its target stood in`)
+  console.log(`PASS run MI (the mine): a shot through a row of 3 pockets blew links ${chains.join(',')} and killed both bodies, nothing with the switch off; a blast beside you stung ${sting} hp; pickaxe/dynamite/minecart/lantern each set off a pocket alone (${Object.values(lit).join('/')})`)
+}
+
+// ---- run MA: Book 3, The Magma — the crust, and the weapons that use it -----------------------
 // Effects, not state: (a) a player standing still in The Magma is burned (hurt src 'lava') by the
 // crack its own weight opens, a walking one leaves a trail of footstep cracks that open into lava,
 // and with signature.crust switched off there are no cracks and no burn at all; (b) open lava kills
@@ -39016,5 +39158,5 @@ function testMagma() {
   }
   const thin = wild(['thinCrust']), plainWild = wild([])
   assert.ok(thin >= 10 && plainWild === 0, `run MG.f: Thin Crust should crack the floor away from you on its own: ${thin} vs ${plainWild}`)
-  console.log(`PASS run MG (The Magma): still burn ${stillOn.lava} vs 0 off; walking ${walk.steps} footstep lava openings, 0 off; lava killed a parked body; ${bOn.opened}/${bOn.landed} bomb landings opened lava (0/${bOff.landed} off); a killing shard burst; the bellows flared the lava; Hot Feet opens in ${hotOpen.toFixed(2)}s vs ${plainOpen.toFixed(2)}s; Thin Crust cracked ${thin} spots on its own`)
+  console.log(`PASS run MA (The Magma): still burn ${stillOn.lava} vs 0 off; walking ${walk.steps} footstep lava openings, 0 off; lava killed a parked body; ${bOn.opened}/${bOn.landed} bomb landings opened lava (0/${bOff.landed} off); a killing shard burst; the bellows flared the lava; Hot Feet opens in ${hotOpen.toFixed(2)}s vs ${plainOpen.toFixed(2)}s; Thin Crust cracked ${thin} spots on its own`)
 }

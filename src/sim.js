@@ -258,6 +258,9 @@ import {
   ENDLESS_MILESTONE_S, ENDLESS_MILESTONE_ELITES, endlessAffixChance, ENDLESS_GILDED_COINS, ENDLESS_HANDOVER_CLEAR_R, mutatorPool, MUTATORS,
   SHOVEL_LIFE, PEBBLE_FAN, PEBBLE_LIFE, PEBBLE_R, ROOT_SNARE_TICK, ROOT_SNARE_SLOW, ROOT_SNARE_HOLD_T, ROOT_SNARE_RANGE,
   PRISM_FAN, PRISM_LIFE, PRISM_R, ECHO_LIFE, STALACTITE_FUSE, STALACTITE_RANGE,
+  PICKAXE_RANGE, PICKAXE_KB, PICKAXE_CHIP_DMG, PICKAXE_CHIP_SPEED, PICKAXE_CHIP_LIFE, PICKAXE_CHIP_R,
+  DYNAMITE_RANGE, DYNAMITE_FLIGHT, DYNAMITE_FUSE, DYNAMITE_KB, MINECART_SPEED, MINECART_FAN, MINECART_KB,
+  CANARY_REACH_MUL, CANARY_LINK_DMG, LANTERN_PULSE, MINE_BOOM_KEEP,
   SLAG_RANGE, SLAG_FLIGHT, SLAG_TICK, OBSIDIAN_FAN, OBSIDIAN_LIFE, OBSIDIAN_R, SPLINTER_DMG_MUL, SPLINTER_LIFE, SPLINTER_SPEED, SPLINTER_R,
   BELLOWS_LIFE, BELLOWS_FLARE_MUL, BELLOWS_FLARE_R, BELLOWS_FLARE_T, BOMB_RANGE, BOMB_FLIGHT, BOMB_LAVA_R, BOMB_LAVA_T, HOT_FEET_OPEN_MUL, HOT_FEET_BURN_MUL,
 } from './config.js'
@@ -403,6 +406,7 @@ export function stepSim(run, input, dt) {
   stepMartyr(run)         // v7.2: resolve the anomaly's queued blasts — after every hurtPlayer caller above
   stepGravityWells(run, dt) // v5.4 beyond signature: bend every projectile in flight (damages nothing)
   stepWeapons(run, dt)
+  if (stepFiredampGrid(run, dt)) return // phase is now 'dead' (Book 3 The Mine: a firedamp blast)
   // TERRAIN SNAPS LAST AND WINS — the same rule stepObstacles states one screen up, and the reason
   // this is here rather than beside stepCaveWall (which is where the player's half lives). A body's
   // position is written by half a dozen things in a frame: its own swim, separation, the obstacle
@@ -10023,6 +10027,8 @@ function applyDamage(run, enemy, baseDmg, critBonus = 0) {
   dmg = Math.round(dmg)
   dealDamage(run, enemy, dmg, crit)
   if (!enemy._dead) applyElements(run, enemy, dmg)
+  // The Mine: a weapon hit on a body standing in firedamp sets the pocket off (stepFiredamp).
+  if (run.gas?.length) gasLightAt(run, enemy.x, enemy.y, 0)
   return dmg
 }
 
@@ -10255,6 +10261,11 @@ const WEAPON_STAT_MODS = {
   prismShard:  { keenFacet: ['dmg', 'pct'], shardSpray: ['count', 'flat'], cleave: ['pierce', 'flat'] },
   echoPulse:   { loudClick: ['dmg', 'pct'], farCall: ['radius', 'pct'], rebound: ['knockback', 'pct'] },
   stalactite:  { heavyStone: ['dmg', 'pct'], rockfall: ['count', 'flat'], wideCrash: ['r', 'pct'] },
+  // The Mine. Its rate mods (quickSwing, shortFuse, greasedAxle, quickWick) divide at the fire site.
+  pickaxe:     { sharpPick: ['dmg', 'pct'], wideSwing: ['r', 'pct'], rubble: ['count', 'flat'] },
+  dynamite:    { blastingCap: ['dmg', 'pct'], bigBang: ['r', 'pct'], bundle: ['count', 'flat'] },
+  minecart:    { heavyLoad: ['dmg', 'pct'], wideCart: ['width', 'pct'], secondCart: ['count', 'flat'] },
+  lantern:     { brightFlame: ['dmg', 'pct'], wideGlow: ['radius', 'pct'], openFlame: ['range', 'pct'] },
   // The Magma. Rate mods divide at their fire sites; flareUp and deepFissure are read there too.
   slagLadle:      { hotSlag: ['dmg', 'pct'], deepLadle: ['r', 'pct'], slowCooling: ['duration', 'pct'], secondScoop: ['count', 'flat'] },
   obsidianShards: { keenGlass: ['dmg', 'pct'], glassVolley: ['count', 'flat'], shatter: ['splinters', 'flat'], razorEdge: ['pierce', 'flat'] },
@@ -10494,6 +10505,7 @@ function stepWeapons(run, dt) {
 function stepWeaponsInner(run, dt) {
   const p = run.player
   run.orbs = []
+  run.lanternR = 0   // The Mine's Lantern republishes its glow every frame it is held
   // run.debris is NOT cleared here. v6.8: a tornado carries its own position between frames
   // because it leaves the ring to hunt, so stepTornadoWeapon resizes the list instead of
   // rebuilding it. (run.orbs above is still the rewrite-every-frame contract.)
@@ -10551,6 +10563,10 @@ function stepWeaponsInner(run, dt) {
     else if (w.id === 'prismShard') stepPrismWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'echoPulse') stepEchoWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'stalactite') stepStalactiteWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'pickaxe') stepPickaxeWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'dynamite') stepDynamiteWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'minecart') stepMinecartWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'lantern') stepLanternWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'slagLadle') stepSlagLadleWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'obsidianShards') stepObsidianWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'bellows') stepBellowsWeapon(run, w, stats, fireRateMul, dt)
@@ -10572,6 +10588,8 @@ function stepWeaponsInner(run, dt) {
   stepLobs(run, dt)
   stepSnares(run, dt)   // Book 3: Root Snare patches
   stepDrips(run, dt)    // Book 3: Stalactite drops
+  stepSticks(run, dt)   // Book 3 The Mine: dynamite on its fuse
+  stepCarts(run, dt)    // Book 3 The Mine: minecarts rolling
   stepMagmaLobs(run, dt)   // Book 3 The Magma: slag and bombs landing
   stepSlagPools(run, dt)   // ...and the slag's burning puddles
   stepLonglines(run, dt)
@@ -16542,6 +16560,280 @@ function stepDrips(run, dt) {
   run.drips = run.drips.filter((dr) => !dr._done)
 }
 
+// ==== Book 3: The Mine =============================================================================
+// FIREDAMP (The Mine's signature, CHAPTERS.mine.signature.firedamp). Pockets of gas hang in the
+// galleries around you, laid in seams (a short row of pockets). ANY player weapon that touches one
+// sets it off: a shot or a rock chip passing through (run.bullets, orbs, boomerangs, homing shots),
+// a ring reaching it (run.novas), a blow on a body standing in it (applyDamage), and the Mine's own
+// four (the pickaxe's blow, a stick of dynamite, a cart rolling through, the lantern's glow). A
+// pocket that goes off blasts everything in its reach — the crowd hard, the player a little — and
+// sets off every pocket within reach of the blast, one link later: a seam goes up as a chain.
+// Published contract fields (render reads them, state.js documents them): run.gas (the idle
+// pockets), run.gasLit (pockets already set off, waiting for their link), run.lanternR, and the
+// {type:'gasBlast', x, y, r, chain} event. Returns true when a blast killed the player.
+function firedampSpec(run) {
+  const sig = CHAPTERS[run.chapter]?.signature
+  return sig && sig.type === 'firedamp' ? (sig.firedamp ?? null) : null
+}
+// Sets off every idle pocket a circle (x, y, r) touches. A pocket set off moves from run.gas to
+// run.gasLit, so run.gas only ever holds pockets that can still be lit. `at`/`chain` default to
+// "this frame, by the player" (chain 0); a blast passes its own link's.
+function gasLightAt(run, x, y, r, at = run.time, chain = 0) {
+  const gas = run.gas
+  if (!gas || gas.length === 0) return 0
+  let n = 0
+  for (const g of gas) {
+    const dx = g.x - x, dy = g.y - y, rr = g.r + r
+    if (dx * dx + dy * dy > rr * rr) continue
+    g._lit = true
+    run.gasLit.push({ x: g.x, y: g.y, r: g.r, at, chain, seed: g.seed })
+    n++
+  }
+  if (n > 0) run.gas = gas.filter((g) => !g._lit)
+  return n
+}
+function layGasSeam(run, F) {
+  const p = run.player
+  const a = Math.random() * Math.PI * 2
+  const d = F.ring[0] + Math.random() * (F.ring[1] - F.ring[0])
+  const n = F.seam[0] + Math.floor(Math.random() * (F.seam[1] - F.seam[0] + 1))
+  const dir = Math.random() * Math.PI * 2
+  const cx = p.x + Math.cos(a) * d, cy = p.y + Math.sin(a) * d
+  for (let i = 0; i < n; i++) {
+    const k = i - (n - 1) / 2
+    const wob = (Math.random() - 0.5) * F.gap * 0.5
+    run.gas.push({
+      x: cx + Math.cos(dir) * k * F.gap - Math.sin(dir) * wob,
+      y: cy + Math.sin(dir) * k * F.gap + Math.cos(dir) * wob,
+      r: F.r[0] + Math.random() * (F.r[1] - F.r[0]),
+      age: 0, seed: Math.floor(Math.random() * 1000),
+    })
+  }
+}
+// Run with the enemy grid on, like stepWeapons: the blasts query it.
+function stepFiredampGrid(run, dt) {
+  if (!firedampSpec(run) && !run.gas?.length && !run.gasLit?.length && !run.booms?.length) return false
+  _nbOn = true
+  _nbDirty = true
+  try { return stepFiredamp(run, dt) } finally { _nbOn = false }
+}
+function stepFiredamp(run, dt) {
+  // the recent blasts, kept MINE_BOOM_KEEP s for the renderer (it draws a chain from state, so a
+  // frame that missed the event still shows the blast at its age)
+  if (run.booms?.length && run.booms[0].at < run.time - MINE_BOOM_KEEP) run.booms = run.booms.filter((b) => b.at >= run.time - MINE_BOOM_KEEP)
+  const F = firedampSpec(run)
+  if (!F) {
+    if (run.gas?.length) run.gas.length = 0
+    if (run.gasLit?.length) run.gasLit.length = 0
+    return false
+  }
+  const p = run.player
+  // 1. The field follows you: pockets left far behind are let go, and seams are laid ahead of the
+  // shortfall, one every `relay` s (at once while the field is under half full, e.g. at the start).
+  const farSq = (F.near * 1.25) ** 2
+  if (run.gas.some((g) => (g.x - p.x) ** 2 + (g.y - p.y) ** 2 > farSq)) {
+    run.gas = run.gas.filter((g) => (g.x - p.x) ** 2 + (g.y - p.y) ** 2 <= farSq)
+  }
+  const want = Math.round(F.count * (run.mods.gasCountMul ?? 1))
+  run._gasLayT = (run._gasLayT ?? 0) - dt
+  for (let guard = 0; guard < 8 && run.gas.length < want && (run._gasLayT <= 0 || run.gas.length < want * 0.5); guard++) {
+    layGasSeam(run, F)
+    run._gasLayT = F.relay
+  }
+  // 2. Drift: a slow wander on each pocket's own clock (no random draw per frame), and a seep
+  // toward you that stops short of where you stand: the gas finds the crowd you are drawing in.
+  for (const g of run.gas) {
+    g.age += dt
+    const ph = g.seed * 0.37 + run.time * 0.23
+    g.x += Math.cos(ph) * F.drift * dt
+    g.y += Math.sin(ph * 1.3 + g.seed) * F.drift * dt
+    const dx = p.x - g.x, dy = p.y - g.y, d = Math.hypot(dx, dy)
+    if (d > F.creepStop) { g.x += (dx / d) * F.creep * dt; g.y += (dy / d) * F.creep * dt }
+  }
+  // 3. What the player's weapons touched this frame sets the touched pockets off.
+  if (run.gas.length > 0) {
+    for (const b of run.bullets) if (b.life > 0) gasLightAt(run, b.x, b.y, b.r ?? 6)
+    for (const n of run.novas) if (n.life > 0 && n.r > 0) gasLightAt(run, n.x, n.y, n.r)
+    for (const key of ['orbs', 'boomerangs', 'homingShots']) {
+      for (const o of run[key] ?? []) if (Number.isFinite(o.x)) gasLightAt(run, o.x, o.y, o.r ?? 10)
+    }
+  }
+  // 4. Pockets whose link has come go off.
+  let died = false
+  if (run.gasLit.length > 0) {
+    const due = run.gasLit.filter((L) => run.time >= L.at)
+    if (due.length > 0) {
+      const canary = !!run.anomalies?.canary
+      const scale = hpScale(curveT(run))   // the enemy-side curve (run CL: only spawnEnemy takes the chapter's rate)
+      for (const L of due) {
+        L._done = true
+        const R = L.r * F.blastMul * (run.mods.gasBlastMul ?? 1)
+        run.events.push({ type: 'gasBlast', x: L.x, y: L.y, r: R, chain: L.chain })
+        run.booms.push({ x: L.x, y: L.y, r: R, chain: L.chain, kind: 'gas', at: run.time })
+        const dmg = F.dmg * scale * (canary ? 1 + CANARY_LINK_DMG * L.chain : 1)
+        for (const e of enemiesNear(run, L.x, L.y, R, true)) {
+          if (e._dead || isAlly(e) || e.burrowed) continue
+          const dx = e.x - L.x, dy = e.y - L.y, dist = Math.hypot(dx, dy)
+          if (dist > R + e.radius) continue
+          dealDamage(run, e, dmg, false, false, true)   // hazard: the gas did it, the player only lit it
+          if (!e._dead && !resistsCC(e) && claimKb(e)) {
+            const k = ccScale(run, e)
+            e.kb.x += (dist > 1e-6 ? dx / dist : 1) * F.kb * k
+            e.kb.y += (dist > 1e-6 ? dy / dist : 0) * F.kb * k
+            spendCC(run, e)
+          }
+        }
+        // THE STING: standing in a blast costs a little, through the normal hurt path (invuln after).
+        if (!died && run.phase === 'playing' && p.invuln <= 0 && Math.hypot(p.x - L.x, p.y - L.y) <= R + PLAYER.radius * 0.5) {
+          if (hurtPlayer(run, F.sting, false, 'firedamp')) died = true
+        }
+        // THE CHAIN: every idle pocket the blast reaches goes off one link later.
+        const reach = R * F.reach * (canary ? CANARY_REACH_MUL : 1)
+        gasLightAt(run, L.x, L.y, reach, run.time + F.link, L.chain + 1)
+      }
+      run.gasLit = run.gasLit.filter((L) => !L._done)
+    }
+  }
+  return died
+}
+
+// The nearest bodies within `range` of you, nearest first, distinct.
+function minePickTargets(run, n, range) {
+  const p = run.player
+  const out = []
+  for (const e of enemiesNear(run, p.x, p.y, range, true)) {
+    if (e._dead || isAlly(e) || e.burrowed || damageImmune(e)) continue
+    const d2 = (e.x - p.x) ** 2 + (e.y - p.y) ** 2
+    if (d2 > (range + e.radius) ** 2) continue
+    out.push([d2, e])
+  }
+  out.sort((a, b) => a[0] - b[0])
+  return out.slice(0, n).map((x) => x[1])
+}
+// One blow over a circle: every body touching it takes the hit and is shoved out of the middle.
+function mineAreaHit(run, x, y, r, dmg, kb) {
+  for (const e of enemiesNear(run, x, y, r, true)) {
+    if (e._dead || isAlly(e) || e.burrowed) continue
+    const dx = e.x - x, dy = e.y - y, dist = Math.hypot(dx, dy)
+    if (dist > r + e.radius) continue
+    applyDamage(run, e, dmg)
+    if (!e._dead && kb > 0 && !resistsCC(e) && claimKb(e)) {
+      const k = ccScale(run, e)
+      e.kb.x += (dist > 1e-6 ? dx / dist : 1) * kb * k
+      e.kb.y += (dist > 1e-6 ? dy / dist : 0) * kb * k
+      spendCC(run, e)
+    }
+  }
+}
+
+// -- Pickaxe (The Mine's starter) ----------------------------------------------------------------
+function stepPickaxeWeapon(run, w, stats, fireRateMul, dt) {
+  const quick = run.weaponMods.pickaxe?.quickSwing ?? 0
+  fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => {
+    const p = run.player
+    for (const t of minePickTargets(run, ipecacN(run, 1), PICKAXE_RANGE)) {
+      // the blow lands on the ground at the foe's near side
+      const dx = t.x - p.x, dy = t.y - p.y, d = Math.hypot(dx, dy) || 1
+      const off = Math.min(t.radius * 0.5, d)
+      const x = t.x - (dx / d) * off, y = t.y - (dy / d) * off
+      mineAreaHit(run, x, y, stats.r, stats.dmg, PICKAXE_KB)
+      gasLightAt(run, x, y, stats.r)
+      const a0 = Math.atan2(dy, dx) + Math.PI / stats.count
+      for (let i = 0; i < stats.count; i++) {
+        const a = a0 + (i / stats.count) * Math.PI * 2
+        run.bullets.push({
+          x, y, vx: Math.cos(a) * PICKAXE_CHIP_SPEED, vy: Math.sin(a) * PICKAXE_CHIP_SPEED,
+          dmg: stats.dmg * PICKAXE_CHIP_DMG, pierce: 1, life: PICKAXE_CHIP_LIFE, r: PICKAXE_CHIP_R, speed: PICKAXE_CHIP_SPEED,
+          hitIds: new Set([t.id]), _shard: true, _splitDone: true, _chainsLeft: 0, weapon: 'chip',
+        })
+      }
+      run.events.push({ type: 'pickaxe', x, y, r: stats.r, angle: Math.atan2(dy, dx) })
+    }
+  })
+}
+
+// -- Dynamite ------------------------------------------------------------------------------------
+function stepDynamiteWeapon(run, w, stats, fireRateMul, dt) {
+  const quick = run.weaponMods.dynamite?.shortFuse ?? 0
+  fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => {
+    const p = run.player
+    for (const sp of pickBloomSpots(run, ipecacN(run, stats.count), DYNAMITE_RANGE)) {
+      run.sticks.push({ x: sp.x, y: sp.y, fromX: p.x, fromY: p.y, t: 0, flight: DYNAMITE_FLIGHT, fuse: DYNAMITE_FUSE,
+        r: stats.r, dmg: stats.dmg, seed: Math.floor(Math.random() * 1000) })
+    }
+    run.events.push({ type: 'shoot', weapon: 'dynamite', x: p.x, y: p.y })
+  })
+}
+function stepSticks(run, dt) {
+  if (!run.sticks || run.sticks.length === 0) return
+  for (const st of run.sticks) {
+    st.t += dt
+    if (st.t < st.flight + st.fuse) continue
+    st._done = true
+    mineAreaHit(run, st.x, st.y, st.r, st.dmg, DYNAMITE_KB)
+    gasLightAt(run, st.x, st.y, st.r)
+    run.events.push({ type: 'dynamite', x: st.x, y: st.y, r: st.r })
+    run.booms.push({ x: st.x, y: st.y, r: st.r, chain: 0, kind: 'dynamite', at: run.time })
+  }
+  run.sticks = run.sticks.filter((st) => !st._done)
+}
+
+// -- Minecart ------------------------------------------------------------------------------------
+function stepMinecartWeapon(run, w, stats, fireRateMul, dt) {
+  const quick = run.weaponMods.minecart?.greasedAxle ?? 0
+  fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => {
+    const p = run.player
+    const target = nearestEnemy(run)
+    const base = target ? Math.atan2(target.y - p.y, target.x - p.x) : aimAngle(run)
+    const n = ipecacN(run, stats.count)
+    for (let i = 0; i < n; i++) {
+      const a = base + (i - (n - 1) / 2) * MINECART_FAN
+      run.carts.push({ x: p.x, y: p.y, angle: a, vx: Math.cos(a) * MINECART_SPEED, vy: Math.sin(a) * MINECART_SPEED,
+        dist: 0, range: stats.range, w: stats.width, dmg: stats.dmg, hit: new Set() })
+    }
+    run.events.push({ type: 'shoot', weapon: 'minecart', x: p.x, y: p.y, angle: base })
+  })
+}
+function stepCarts(run, dt) {
+  if (!run.carts || run.carts.length === 0) return
+  for (const c of run.carts) {
+    c.x += c.vx * dt
+    c.y += c.vy * dt
+    c.dist += MINECART_SPEED * dt
+    const ux = Math.cos(c.angle), uy = Math.sin(c.angle)
+    for (const e of enemiesNear(run, c.x, c.y, c.w, true)) {
+      if (e._dead || isAlly(e) || e.burrowed || c.hit.has(e.id)) continue
+      const dx = e.x - c.x, dy = e.y - c.y
+      if (dx * dx + dy * dy > (c.w + e.radius) ** 2) continue
+      c.hit.add(e.id)
+      applyDamage(run, e, c.dmg)
+      // shoved off the rails, to whichever side of the track it stood on
+      if (!e._dead && !resistsCC(e) && claimKb(e)) {
+        const side = ux * dy - uy * dx >= 0 ? 1 : -1
+        const k = ccScale(run, e)
+        e.kb.x += -uy * side * MINECART_KB * k
+        e.kb.y += ux * side * MINECART_KB * k
+        spendCC(run, e)
+      }
+    }
+    gasLightAt(run, c.x, c.y, c.w)
+    if (c.dist >= c.range) c._done = true
+  }
+  run.carts = run.carts.filter((c) => !c._done)
+}
+
+// -- Lantern -------------------------------------------------------------------------------------
+function stepLanternWeapon(run, w, stats, fireRateMul, dt) {
+  const p = run.player
+  run.lanternR = Math.max(run.lanternR ?? 0, stats.radius)
+  const quick = run.weaponMods.lantern?.quickWick ?? 0
+  fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => {
+    // each burn is a quick pulse of the glow (run.novas, look 'lantern'): every body inside takes the
+    // hit once, and a body burning in firedamp sets the pocket off (applyDamage)
+    for (const r of ipecacRadii(run, stats.radius)) spawnNova(run, p.x, p.y, r, stats.dmg, 0, 0, { look: 'lantern', life: LANTERN_PULSE })
+    gasLightAt(run, p.x, p.y, stats.range)
+  })
+}
 // ==== Book 3: The Magma ============================================================================
 // THE CRUST (The Magma's signature). The floor is a skin of cooled crust over lava, and the player's
 // weight cracks it: a crack every `stepEvery` px walked, or every `stillT` s stood still, at the
