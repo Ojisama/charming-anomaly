@@ -6814,7 +6814,7 @@ export function createRenderer(app) {
     const frames = b.frames.map((f) => ({ tex: macroCanvasTex(f.canvas, f.res), white: macroCanvasTex(f.white, f.res), ax: f.ax, ay: f.ay }))
     return {
       tex: frames[0].tex, white: frames[0].white, ax: frames[0].ax, ay: frames[0].ay,
-      frames: frames.length > 1 ? frames : null,
+      frames: frames.length > 1 ? frames : null, thumb: b.thumb ?? null,
       baseR: b.baseR, maxLean: (b.lean ?? 0) * DEG, upright: !!b.upright,
       poseOf: b.poseOf || null, faceDir: b.faceDir || null, turnRate: b.turnRate || null,
       spin: 0, squash: 0, shadow: null, crown: null,
@@ -32121,6 +32121,8 @@ void main() {
       try {
         // a Book 3 photographed look is already a canvas: hand that over as it is (a GPU extract of a
         // canvas-sourced texture that has never been drawn comes back black)
+        // an ascii look carries its own thumbnail canvas (the body on a dark disc): that is the card's
+        if (look.thumb) { out[id] = look.thumb.toDataURL('image/png'); continue }
         const cv = look.tex.source?.resource
         if (typeof HTMLCanvasElement !== 'undefined' && cv instanceof HTMLCanvasElement) { out[id] = cv.toDataURL('image/png'); continue }
         out[id] = await R.extract.base64(look.tex)
