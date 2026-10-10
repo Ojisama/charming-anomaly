@@ -9346,11 +9346,13 @@ CHAPTERS.mine = {
     //                near x farMul is let go
     //   refillFrac   below this fraction of `count` seams are laid at once, not one per relay;
     //                at most layPerStep seams in one step
-    //   ring         [min, max] px from you a new seam is laid; seam [min, max] pockets in a row, gap px apart
+    //   ring         [min, max] px from you a new seam's centre is laid; seam [min, max] pockets in a row, gap px apart
+    //   spawnMin     no POCKET is laid nearer than this: past the phone view's half-diagonal (465px), so
+    //                every new seam condenses off screen and seeps in from the dark
     //   r            [min, max] pocket radius; drift px/s it wanders; relay s between two seams laid
     //   creep        px/s a pocket seeps toward you (the crowd you draw in walks into it), until it
     //                is creepStop px away: 1.2x the largest sting reach, so it never seeps onto you;
-    //                no drift brings it nearer either, and no seam is laid nearer
+    //                no drift brings it nearer either
     //   blastMul     blast radius = pocket r x this (x gasBlastMul); reach = how far past its own
     //                blast a pocket sets off the next one, as a fraction of it; link s between links
     //   dmg          blast damage at t=0 (rides hpScale, like the crowd's hp); kb its shove
@@ -9360,10 +9362,12 @@ CHAPTERS.mine = {
     //                (r x blastMul): luring it in is the mechanic
     // balance_decision : seams of 2-4, hard on crowd, stings you 2026-10-09
     // balance_decision : gas parks just outside the lit-cloud sting 2026-10-10
+    // balance_decision : gas laid off screen, more of it, seeps faster 2026-10-10
+    //  - ring[1] + half a seam must stay inside near x farMul, or new seams are let go at once
     firedamp: {
-      count: 12, near: 1000, ring: [120, 620], seam: [2, 4], gap: 92, r: [44, 62], drift: 16, relay: 0.5,
+      count: 28, near: 1000, ring: [620, 860], seam: [2, 4], gap: 92, r: [44, 62], drift: 16, relay: 0.5,
       farMul: 1.25, refillFrac: 0.5, layPerStep: 8,
-      creep: 16, creepStop: 86,
+      creep: 30, creepStop: 86, spawnMin: 520,
       blastMul: 2.2, reach: 1.15, link: 0.22, dmg: 120, kb: 170, sting: 4, stingCloud: 1.15,
     },
   },

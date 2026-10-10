@@ -39120,8 +39120,9 @@ function testMine() {
   } finally { sig.firedamp = F0 }
   assert.ok(seepEnd === 8 && seepD > F0.creepStop - 0.5 && seepD < F0.creepStop + 2 && F0.creepStop > stingMax,
     `run MI.g: 8 wandering, seeping pockets should come no nearer than creepStop ${F0.creepStop}px, outside the largest sting reach ${stingMax.toFixed(1)}px; the nearest came to ${seepD.toFixed(1)}px (${seepEnd} left)`)
-  // (g2) NO SEAM IS LAID INSIDE creepStop, though a seam runs past the ring's inner edge along its
-  // length: the field is emptied every frame for 4 s so it is laid afresh, 8 seams a frame.
+  // (g2) NO POCKET IS LAID ON SCREEN: none nearer than spawnMin, which is past the phone view's
+  // half-diagonal, though a seam runs past the ring's inner edge along its length. The field is
+  // emptied every frame for 4 s so it is laid afresh, 8 seams a frame.
   sig.firedamp = F0
   let layD = Infinity, laid = 0
   try {
@@ -39135,7 +39136,9 @@ function testMine() {
       for (const g of run.gas) layD = Math.min(layD, Math.hypot(g.x - p.x, g.y - p.y))
     }
   } finally { sig.firedamp = F0 }
-  assert.ok(laid > 1000 && layD >= F0.creepStop - 0.5, `run MI.g2: of ${laid} pockets laid, the nearest was ${layD.toFixed(1)}px from you, inside creepStop ${F0.creepStop}px`)
+  const phoneHalfDiag = Math.hypot(390 / 2, 844 / 2)
+  assert.ok(F0.spawnMin > phoneHalfDiag, `run MI.g2: spawnMin ${F0.spawnMin}px is inside the phone view's half-diagonal ${phoneHalfDiag.toFixed(0)}px — a new seam can appear on screen`)
+  assert.ok(laid > 1000 && layD >= F0.spawnMin - 1, `run MI.g2: of ${laid} pockets laid, the nearest was ${layD.toFixed(1)}px from you, inside spawnMin ${F0.spawnMin}px (on screen)`)
   // (g3) A POCKET STILL CONDENSING CANNOT BE LIT: a shot through a pocket younger than the render's
   // fade (MINE_GAS_FADE_IN) sets nothing off; the same shot through one that old does.
   const youngOf = (age) => {
@@ -39214,7 +39217,7 @@ function testMine() {
     'run MI.h: ascii.js must draw the lit cloud with MINE_GAS_LIT_SHRINK and fade pockets in over MINE_GAS_FADE_IN, the numbers the sting and the lighting read')
   assert.ok(!seamA[0].dead && seamA[1].dead && Math.abs(seamA[1].r / seamA[0].r - MUTATORS.methaneSeam.effects.gasBlastMul) < 1e-6,
     `run MI.f: Methane Seam's bigger blast must kill a body just past a normal one: ${JSON.stringify(seamA)}`)
-  console.log(`PASS run MI (the mine): a shot through a row of 3 pockets blew links ${chains.join(',')} and killed both bodies, nothing with the switch off; a blast beside you stung ${sting} hp; pickaxe/dynamite/minecart/lantern each set off an empty pocket by their own reach (${Object.values(lit).join('/')}); a blow on a body in a pocket set it off (${hookIn}, ${hookOut} away); Open Flame lit a pocket at ${Math.round(far['within the modded range'])}px (${flameOf['within the modded range']}); Canary chained ${chainA.join('->')} pockets; Methane Seam's blast r ${seamA[0].r.toFixed(0)}->${seamA[1].r.toFixed(0)} killed the body just outside; wandering, seeping pockets came no nearer than ${seepD.toFixed(0)}px (sting reach ${stingMax.toFixed(0)}), no seam laid nearer than ${layD.toFixed(0)}px, a pocket fading in was not lit (${young}), a ring alone lit one (${ringA}); a cart shoved a body ${cart.shove.toFixed(0)}px and dazed it up to ${cart.stunMax.toFixed(2)}s; outside the cloud you took ${cloudOut.sting} while the body beside you was hurt, inside it ${cloudIn.sting}`)
+  console.log(`PASS run MI (the mine): a shot through a row of 3 pockets blew links ${chains.join(',')} and killed both bodies, nothing with the switch off; a blast beside you stung ${sting} hp; pickaxe/dynamite/minecart/lantern each set off an empty pocket by their own reach (${Object.values(lit).join('/')}); a blow on a body in a pocket set it off (${hookIn}, ${hookOut} away); Open Flame lit a pocket at ${Math.round(far['within the modded range'])}px (${flameOf['within the modded range']}); Canary chained ${chainA.join('->')} pockets; Methane Seam's blast r ${seamA[0].r.toFixed(0)}->${seamA[1].r.toFixed(0)} killed the body just outside; wandering, seeping pockets came no nearer than ${seepD.toFixed(0)}px (sting reach ${stingMax.toFixed(0)}), no pocket laid nearer than ${layD.toFixed(0)}px (spawnMin ${F0.spawnMin}), a pocket fading in was not lit (${young}), a ring alone lit one (${ringA}); a cart shoved a body ${cart.shove.toFixed(0)}px and dazed it up to ${cart.stunMax.toFixed(2)}s; outside the cloud you took ${cloudOut.sting} while the body beside you was hurt, inside it ${cloudIn.sting}`)
 }
 
 // ---- run MA: Book 3, The Magma — the crust, and the weapons that use it -----------------------

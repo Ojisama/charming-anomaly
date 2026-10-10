@@ -692,6 +692,7 @@ export function createAsciiRenderer(host) {
   // the thrown pick (V11): each 'pickaxe' event sends one from the miner to the blow, render-only
   const picks = []
   const PICK_FLIGHT = 0.15  // s from the '@' to the strike point: quick enough to read as the cause, long enough to catch
+  const PICK_CRACK = 0.3    // s the cracked ground shows where it landed, the size of the blow's area
   const spawn = (p) => { if (fx.length < MAX_FX) fx.push({ t: 0, vx: 0, vy: 0, rot: 0, vr: 0, add: false, a0: 1, font: 0, glow: false, grav: 0, ...p }) }
   // damage numbers: small dim digits, the floor's own thin serif, gone in half a second
   const nums = []
@@ -775,6 +776,39 @@ export function createAsciiRenderer(host) {
     }
   }
 
+  // THE PICK LANDS, THE GROUND CRACKS: c s after landing, across the blow's whole area (k.r, the
+  // sim's stats.r). A crater spray of chips thrown out to the rim (densest there), a few short radial
+  // cracks, and the pick stuck in the middle for a beat. Dull stone and steel, never white but the head.
+  const CRACK_CH = ['\'', ',', '.', ';', '*', '^', '/']
+  function crackAt(k, c, spin) {
+    const u = c / PICK_CRACK, r = k.r, s = k.seed
+    const out = 1 - Math.pow(1 - clamp01(c / 0.07), 3)   // the spray reaches its place in ~0.07 s
+    const fade = 1 - u * u * u
+    const n = Math.round(r * 0.85)
+    for (let i = 0; i < n; i++) {
+      const rim = i < n * 0.6
+      const h = hash2(i, s, 7), a = TAU * hash2(i, s, 3)
+      const dd = (rim ? 0.82 + 0.2 * h : 0.14 + 0.66 * h) * (out + u * 0.06)
+      const col = mixHex(hash2(i, s, 5) < 0.55 ? 0xb0a28c : 0x98a4b2, 0x2a2622, u * 0.6)
+      fxB.put(CRACK_CH[Math.floor(hash2(i, s, 11) * CRACK_CH.length)], k.x1 + Math.cos(a) * r * dd, k.y1 + Math.sin(a) * r * dd,
+        col, (rim ? 0.95 : 0.65) * fade, (rim ? 13 : 10) + 4 * hash2(i, s, 13), a + (hash2(i, s, 17) - 0.5), false, 2, false)
+    }
+    // the cracks: 4-6 short jagged strokes out from the hole, grown in the first 0.1 s
+    const nk = 4 + Math.floor(hash2(1, s, 19) * 3), grow = clamp01(c / 0.1)
+    for (let j = 0; j < nk; j++) {
+      let a = TAU * (j + 0.7 * hash2(j, s, 23)) / nk, x = k.x1 + Math.cos(a) * r * 0.12, y = k.y1 + Math.sin(a) * r * 0.12
+      const reach = r * (0.5 + 0.4 * hash2(j, s, 29)) * grow, step = 9
+      for (let d = r * 0.12; d < reach; d += step) {
+        a += (hash2(j, Math.round(d), s) - 0.5) * 0.7
+        x += Math.cos(a) * step; y += Math.sin(a) * step
+        const [ch, rr] = strokeGlyph(a)
+        fxB.put(ch, x, y, mixHex(0xbcae96, 0x2a2622, u * 0.6), 0.95 * fade, 14, rr, false, 2, false)
+      }
+    }
+    // the pick, stuck: its steel head the only white, for the first 0.18 s
+    if (c < 0.18) fxB.put('T', k.x1, k.y1, 0xffffff, c < 0.12 ? 1 : 1 - (c - 0.12) / 0.06, 20, spin, false, 0, false)
+  }
+
   return {
     hide: ['floor', 'dust', 'gems', 'coins', 'bullets', 'novas', 'player', 'particles', 'shadows', 'crowns', 'enemies', 'text', 'telegraphs', 'affixes', 'obstacles', 'vignette'],
     enter() { clearAll() },
@@ -820,18 +854,8 @@ export function createAsciiRenderer(host) {
         case 'dynamite': boomBurst(e.x, e.y, e.r, true); return true
         case 'pickaxe': {
           const pl = run?.player
-          if (pl && picks.length < 24) picks.push({ x0: pl.x, y0: pl.y, x1: e.x, y1: e.y, t: 0 })
-          // the swing: a steel 'T' sweeping through an arc, a trail of strokes behind it, chips flying
-          const a0 = (e.angle ?? 0) - 1.1
-          for (let i = 0; i < 7; i++) {
-            const a = a0 + i * 0.36, rr = (e.r ?? 30) * 0.9
-            spawn({ ch: i === 6 ? 'T' : (i % 2 ? '-' : '~'), x: e.x - Math.cos(e.angle ?? 0) * rr * 0.5 + Math.cos(a) * rr, y: e.y - Math.sin(e.angle ?? 0) * rr * 0.5 + Math.sin(a) * rr,
-              life: 0.16 + i * 0.035, c0: i === 6 ? 0xffffff : 0xf4f8ff, c1: i === 6 ? 0xffffff : 0xc8d0d8, size: i === 6 ? 22 : 14, rot: a + Math.PI / 2, add: i !== 6, a0: 0.55 + i * 0.075, glow: i % 2 === 0 && i !== 6 })
-          }
-          for (let i = 0; i < 6; i++) {
-            const a = (e.angle ?? 0) + (Math.random() - 0.5) * 2, sp = 60 + Math.random() * 90
-            spawn({ ch: ['.', ',', '\'', '°'][i % 4], x: e.x, y: e.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 0.35, c0: 0xe8d2b0, c1: 0x4a3a2a, size: 7, grav: 120 })
-          }
+          // the pick flies to the blow, then the ground cracks there across the whole hit area (e.r)
+          if (pl && picks.length < 24) picks.push({ x0: pl.x, y0: pl.y, x1: e.x, y1: e.y, r: e.r ?? 54, t: 0, seed: (Math.random() * 1e6) | 0 })
           return true
         }
         case 'kill': {
@@ -1393,11 +1417,12 @@ export function createAsciiRenderer(host) {
       }
       fxB.begin()
       // the thrown picks: a spinning white 'T' head and a short steel trail of strokes behind it
-      if (dt > 0) { let w = 0; for (const k of picks) { k.t += dt; if (k.t < PICK_FLIGHT) picks[w++] = k } picks.length = w }
+      if (dt > 0) { let w = 0; for (const k of picks) { k.t += dt; if (k.t < PICK_FLIGHT + PICK_CRACK) picks[w++] = k } picks.length = w }
       for (const k of picks) {
         const f = clamp01(k.t / PICK_FLIGHT)
         const dx = k.x1 - k.x0, dy = k.y1 - k.y0, len = Math.hypot(dx, dy) || 1
         const ang = Math.atan2(dy, dx)
+        if (k.t >= PICK_FLIGHT) { crackAt(k, k.t - PICK_FLIGHT, ang + 9); continue }
         const [sch, sr] = strokeGlyph(ang)
         for (let j = 1; j <= 8; j++) {
           const ff = f - j * (16 / len)

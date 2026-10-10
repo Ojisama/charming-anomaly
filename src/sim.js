@@ -16614,8 +16614,8 @@ function layGasSeam(run, F) {
       r: F.r[0] + Math.random() * (F.r[1] - F.r[0]),
       age: 0, seed: Math.floor(Math.random() * 1000),
     }
-    // a seam runs past the ring's inner edge along its length: no pocket is laid inside creepStop
-    if ((g.x - p.x) ** 2 + (g.y - p.y) ** 2 < F.creepStop * F.creepStop) continue
+    // a seam runs past the ring's inner edge along its length: no pocket is laid inside spawnMin (off screen)
+    if ((g.x - p.x) ** 2 + (g.y - p.y) ** 2 < F.spawnMin * F.spawnMin) continue
     run.gas.push(g)
   }
 }
