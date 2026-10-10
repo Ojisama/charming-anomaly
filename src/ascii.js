@@ -130,16 +130,16 @@ function vnoise(x, y, s) {
   return lerp(lerp(hash2(i, j, s), hash2(i + 1, j, s), ux), lerp(hash2(i, j + 1, s), hash2(i + 1, j + 1, s), ux), uy)
 }
 const TAU = Math.PI * 2
-const VIS = 1.35   // creatures are drawn a little larger than their hit body: an illustration needs room
+const VIS = 2.0    // creatures are drawn well larger than their hit body: a galaxy of glyphs needs room to read on a phone
 
 // ---- materials: a density ramp of characters (lit -> shadow) and a colour ramp ------------------
 const MAT = {
-  fur:   { chars: ['@', '%', '#', '&', '*', '+', '=', ':', ',', '.'], dark: 0x2a1a14, mid: 0x7a5a44, lit: 0xe6cfae },
-  pink:  { chars: ['~', '~', '-', '-', '.', '.'], dark: 0x3a2224, mid: 0x9a6a68, lit: 0xf0b4a8 },
-  chit:  { chars: ['@', '0', 'O', 'Q', 'o', '°', ':', '.'], dark: 0x140c1c, mid: 0x5a3a6a, lit: 0xc8a4e0 },
-  scale: { chars: ['M', 'W', '&', 'w', 'v', 'v', ',', '.'], dark: 0x14200e, mid: 0x5a7a2a, lit: 0xd8e08a },
-  brass: { chars: ['@', 'O', 'O', 'o', 'o', '°', '.'], dark: 0x3a2408, mid: 0xa8742a, lit: 0xffe2a0 },
-  stone: { chars: ['#', '@', '&', '%', 'X', 'x', '=', '-', '.'], dark: 0x16181c, mid: 0x5e646e, lit: 0xd2d6dc },
+  fur:   { chars: ['@', '%', '#', '&', '*', '+', '=', ':', ',', '.'], dark: 0x6a4428, mid: 0xc8945c, lit: 0xf6d09a },
+  pink:  { chars: ['~', '~', '-', '-', '.', '.'], dark: 0x6a3a34, mid: 0xd08a7c, lit: 0xffc8b8 },
+  chit:  { chars: ['@', '0', 'O', 'Q', 'o', '°', ':', '.'], dark: 0x4a2470, mid: 0xa060e8, lit: 0xeed2ff },
+  scale: { chars: ['M', 'W', '&', 'w', 'v', 'v', ',', '.'], dark: 0x2c4a14, mid: 0x7cc038, lit: 0xe0f890 },
+  brass: { chars: ['@', 'O', 'O', 'o', 'o', '°', '.'], dark: 0x7a3c08, mid: 0xf08a24, lit: 0xffd890 },
+  stone: { chars: ['#', '@', '&', '%', 'X', 'x', '=', '-', '.'], dark: 0x2e3a4c, mid: 0x6e82a0, lit: 0xb8cae4 },
   wool:  { chars: ['@', 'M', 'W', '#', '%', '*', '+', ':', '.'], dark: 0x2a2620, mid: 0x9a8c76, lit: 0xfff6e2 },
 }
 
@@ -171,19 +171,19 @@ function part(cx, cy, rx, ry, mat, sp, size, seed) {
 const CAST = {
   rat: {
     baseR: 12,
-    parts: [part(-2, 0, 13, 8.5, 'fur', 4.6, 7.5, 11), part(11, 0, 6, 4.8, 'fur', 4, 6.5, 12)],
+    parts: [part(-2, 0, 13, 8.5, 'fur', 3.3, 7, 11), part(11, 0, 6, 4.8, 'fur', 3, 6, 12)],
   },
   caveSpider: {
     baseR: 13,
-    parts: [part(-7, 0, 10, 8.5, 'chit', 4.6, 8, 21), part(6, 0, 5.5, 4.5, 'chit', 4, 6.5, 22)],
+    parts: [part(-7, 0, 10, 8.5, 'chit', 3.3, 7, 21), part(6, 0, 5.5, 4.5, 'chit', 3, 6, 22)],
   },
   kobold: {
     baseR: 22,
-    parts: [part(-3, 0, 14, 10, 'scale', 5.2, 8.5, 31), part(12, 0, 7.5, 7, 'brass', 4.6, 8, 32)],
+    parts: [part(-3, 0, 14, 10, 'scale', 3.7, 7.5, 31), part(12, 0, 7.5, 7, 'brass', 3.4, 7, 32)],
   },
   golem: {
     baseR: 28,
-    parts: [part(-2, 0, 24, 22, 'stone', 7, 12, 41), part(13, -25, 9, 8, 'stone', 5.6, 10, 42), part(13, 25, 9, 8, 'stone', 5.6, 10, 43)],
+    parts: [part(-2, 0, 24, 22, 'stone', 5, 10, 41), part(13, -25, 9, 8, 'stone', 4.2, 8.5, 42), part(13, 25, 9, 8, 'stone', 4.2, 8.5, 43)],
   },
 }
 const PLAYER_LOOK = {
@@ -208,18 +208,23 @@ function shadeParts(out, look, X, Y, cos, sin, sc, lx, ly, reach, flash, sizeMul
   const L = Math.hypot(lx * 0.8, ly * 0.8, 0.6) || 1
   const L2 = Math.hypot(lx, ly, 0.45) || 1
   const Lx = lx / L2, Ly = ly / L2, Lz = 0.45 / L2
-  const amb = 0.22 + 0.12 * (1 - reach)
+  // every creature carries a little of its own light, so it reads even at the edge of the lamp
+  const amb = 0.38 + 0.08 * (1 - reach)
+  let gi = 0
   for (const P of look.parts) {
     const m = P.mat
     for (const q of P.pts) {
       const nd = q.nx * Lx + q.ny * Ly + q.nz * Lz
-      let I = amb + Math.max(0, nd) * (0.3 + 0.55 * reach) + (q.h - 0.5) * 0.16 - (1 - q.nz) * 0.12
+      let I = amb + Math.max(0, nd) * (0.35 + 0.45 * reach) + (q.h - 0.5) * 0.16 - (1 - q.nz) * 0.1
       I = clamp01(I)
       const ch = m.chars[shadeIdx(m, I)]
       const wx = X + (q.x * cos - q.y * sin) * sc, wy = Y + (q.x * sin + q.y * cos) * sc
       let col = matColor(m, I)
       if (flash > 0) col = mixHex(col, 0xffffff, flash)
-      out(ch, wx, wy, col, 0.3 + 0.7 * I, P.size * sc * (0.62 + 0.6 * I) * sizeMul, q.rot, false, 2, false)
+      const sz = P.size * sc * (0.7 + 0.5 * I) * sizeMul
+      out(ch, wx, wy, col, 0.5 + 0.5 * I, sz, q.rot, false, 2, false)
+      // the brightest glyphs of the dome breathe a faint glow of their own colour
+      if (I > 0.7 && (gi++ % 3) === 0) out(ch, wx, wy, matColor(m, 1), 0.12 * I, sz * 1.4, q.rot, true, 0, true)
     }
   }
 }
@@ -245,30 +250,32 @@ function composeCreature(out, id, X, Y, heading, sc, lx, ly, reach, flash, st, e
   const lit = 0.4 + 0.6 * reach
   if (id === 'rat') {
     // tail: a long tapering S of '~' '-' '.', swaying from the root
+    // a long whip of a tail: '~' at the root fraying to '-' and '.', sweeping in an S
     let px = -14, py = 0
-    const n = 12
+    const n = 22
     for (let i = 1; i <= n; i++) {
       const k = i / n
-      const x = -14 - k * 26, y = Math.sin(t * 5 + ph * 0.5 - k * 3.2) * 6 * k
-      const ch = k < 0.35 ? '~' : k < 0.7 ? '-' : '.'
+      const x = -14 - k * 40, y = Math.sin(t * 5 + ph * 0.5 - k * 4) * 8 * k
+      const ch = k < 0.3 ? '~' : k < 0.7 ? '-' : '.'
       const [wx, wy] = at(X, Y, cos, sin, sc, x, y)
-      out(ch, wx, wy, mixHex(MAT.pink.mid, MAT.pink.dark, k * 0.6), (0.85 - k * 0.5) * lit + 0.15, (8 - k * 4) * sc, Math.atan2(y - py, x - px) + heading, false, 0, false)
+      out(ch, wx, wy, mixHex(MAT.pink.lit, MAT.pink.mid, k), (0.95 - k * 0.45) * (0.6 + 0.4 * lit), (7 - k * 3) * sc, Math.atan2(y - py, x - px) + heading, false, 0, false)
       px = x; py = y
     }
     // feet scurrying
     for (const [fx, fy, o] of [[7, 8, 0], [7, -8, Math.PI], [-9, 8, Math.PI], [-9, -8, 0]]) {
       const [wx, wy] = at(X, Y, cos, sin, sc, fx + Math.sin(ph + o) * 3, fy * (1 + 0.1 * Math.cos(ph + o)))
-      out(',', wx, wy, MAT.pink.mid, 0.7 * lit + 0.2, 6 * sc, heading, false, 0, false)
+      out(',', wx, wy, MAT.pink.lit, 0.8, 5.5 * sc, heading, false, 0, false)
     }
     shadeParts(out, look, X, Y, cos, sin, sc, lx, ly, reach, flash)
     // ears, snout, eyes, whiskers
     for (const s of [-1, 1]) {
       let [wx, wy] = at(X, Y, cos, sin, sc, 9, 6 * s)
-      out('o', wx, wy, mixHex(MAT.pink.mid, MAT.pink.lit, reach), 0.9, 6 * sc, heading, false, 0, false)
+      out('o', wx, wy, MAT.pink.lit, 0.95, 5.5 * sc, heading, false, 0, false)
       ;[wx, wy] = at(X, Y, cos, sin, sc, 14, 2.6 * s)
-      out('•', wx, wy, 0xff4a3a, 1, 4.5 * sc, 0, true, 0, false)
-      out('•', wx, wy, 0xff3020, 0.5, 7 * sc, 0, true, 0, true)
-      stroke(out, X, Y, cos, sin, sc, 18, 1.5 * s, 25, (5 + Math.sin(t * 9) * 0.8) * s, 3.5, 2.5, 0xd8c8b0, 0x6a5a4a, 0.8, 0.2, 2.6)
+      out('•', wx, wy, 0xff5a40, 1, 4 * sc, 0, true, 0, false)
+      out('•', wx, wy, 0xff2010, 0.85, 9 * sc, 0, true, 0, true)
+      out('·', wx, wy, 0xffffff, 0.9, 3 * sc, 0, true, 0, false)
+      stroke(out, X, Y, cos, sin, sc, 18, 1.5 * s, 26, (6 + Math.sin(t * 9) * 0.8) * s, 3, 2, 0xffecd0, 0x8a7a64, 0.9, 0.3, 2)
     }
     const [sx, sy] = at(X, Y, cos, sin, sc, 18, 0)
     out('·', sx, sy, MAT.pink.lit, 0.95, 7 * sc, 0, false, 0, false)
@@ -280,15 +287,15 @@ function composeCreature(out, id, X, Y, heading, sc, lx, ly, reach, flash, st, e
         const swing = st.pose === 'walk' ? Math.sin(ph + i * Math.PI / 2 + (s > 0 ? Math.PI : 0)) * 0.28 : 0
         const base = Math.PI / 2 - (1.5 - i) * 0.62 + swing + curl * (i < 2 ? -0.5 : 0.5)
         const th = s > 0 ? base : -base
-        const L1 = 10 * (1 - Math.abs(curl) * 0.35), L2 = 11 * (1 - Math.max(0, curl) * 0.5)
+        const L1 = 12 * (1 - Math.abs(curl) * 0.35), L2 = 14 * (1 - Math.max(0, curl) * 0.5)
         const rx = 5 - i * 2.4, ry = 2.5 * s
         const kx = rx + Math.cos(th) * L1, ky = ry + Math.sin(th) * L1
         const th2 = th - s * (1.5 - i) * 0.3 + s * 0.35
         const fx = kx + Math.cos(th2) * L2, fy = ky + Math.sin(th2) * L2
-        stroke(out, X, Y, cos, sin, sc, rx, ry, kx, ky, 7, 5.5, 0x8a6aa0, 0xb08ac8, 0.85 * lit + 0.15, 0.9 * lit + 0.1, 2.6)
+        stroke(out, X, Y, cos, sin, sc, rx, ry, kx, ky, 5, 4.2, 0xb47ae8, 0xdcb8ff, 0.95, 0.95, 1.9)
         const [jx, jy] = at(X, Y, cos, sin, sc, kx, ky)
-        out('°', jx, jy, MAT.chit.lit, 0.7 * lit + 0.2, 4.5 * sc, 0, false, 0, false)
-        stroke(out, X, Y, cos, sin, sc, kx, ky, fx, fy, 5.5, 3, 0xb08ac8, 0x4a3a5a, 0.85 * lit + 0.1, 0.3, 2.6)
+        out('°', jx, jy, 0xf4e4ff, 0.95, 4 * sc, 0, true, 0, false)
+        stroke(out, X, Y, cos, sin, sc, kx, ky, fx, fy, 4.2, 2.6, 0xdcb8ff, 0x7a4ab0, 0.95, 0.45, 1.9)
       }
     }
     shadeParts(out, look, X, Y, cos, sin, sc, lx, ly, reach, flash)
@@ -325,19 +332,21 @@ function composeCreature(out, id, X, Y, heading, sc, lx, ly, reach, flash, st, e
     shadeParts(out, look, X, Y, cos, sin, sc, lx, ly, reach, flash)
     // the pick over its shoulder: a '/' haft and a steel 'T' head
     const sw = Math.sin(ph * 0.5) * 2
-    stroke(out, X, Y, cos, sin, sc, 6, -8, -12 + sw, -18, 6, 6, 0x9a6a3a, 0x6a4422, 0.95 * lit + 0.05, 0.9 * lit + 0.05, 3)
+    stroke(out, X, Y, cos, sin, sc, 6, -8, -12 + sw, -18, 5.5, 5.5, 0xe0a060, 0xa86a34, 1, 0.95, 2.4)
     {
       const [wx, wy] = at(X, Y, cos, sin, sc, -13 + sw, -19)
-      out('T', wx, wy, mixHex(0x8a949e, 0xe4ecf2, reach), 0.95, 12 * sc, heading + Math.atan2(-10, -18) + Math.PI / 2, false, 0, false)
+      const r = heading + Math.atan2(-10, -18) + Math.PI / 2
+      out('T', wx, wy, 0xc8f0ff, 0.35, 15 * sc, r, true, 0, true)
+      out('T', wx, wy, 0xeef8ff, 1, 12 * sc, r, false, 0, false)
     }
     // the helmet lamp and its little beam of motes
     const [lpx, lpy] = at(X, Y, cos, sin, sc, 19, 0)
-    out('*', lpx, lpy, 0xfff2b0, 1, 9 * sc, t * 2, true, 0, false)
-    out('*', lpx, lpy, 0xffc050, 0.6, 16 * sc, t * 2, true, 0, true)
-    for (let i = 0; i < 6; i++) {
-      const k = ((t * 0.9 + i / 6) % 1)
-      const [wx, wy] = at(X, Y, cos, sin, sc, 22 + k * 22, (hash2(i, 3, 71) - 0.5) * k * 18)
-      out(i % 2 ? '·' : '`', wx, wy, 0xffd890, 0.45 * (1 - k), 5 * sc, 0, true, 1, false)
+    out('*', lpx, lpy, 0xfffad0, 1, 10 * sc, t * 2, true, 0, false)
+    out('*', lpx, lpy, 0xffb030, 0.85, 20 * sc, t * 2, true, 0, true)
+    for (let i = 0; i < 8; i++) {
+      const k = ((t * 0.9 + i / 8) % 1)
+      const [wx, wy] = at(X, Y, cos, sin, sc, 22 + k * 26, (hash2(i, 3, 71) - 0.5) * k * 20)
+      out(i % 2 ? '·' : '`', wx, wy, 0xffd890, 0.7 * (1 - k), 5 * sc, 0, true, 1, false)
     }
   } else if (id === 'golem') {
     // fists swing with its lumbering gait (they are parts 1 and 2: offset them before shading)
@@ -357,24 +366,34 @@ function composeCreature(out, id, X, Y, heading, sc, lx, ly, reach, flash, st, e
       for (let i = 0; i < C.length; i++) {
         const [cx, cy, ch] = C[i]
         const [wx, wy] = at(X, Y, cos, sin, sc, cx, cy)
-        const col = elite ? 0x8ff4ff : 0xffa040
-        out(ch, wx, wy, mixHex(col, 0xffffff, 0.3 * glowK), 0.6 + 0.4 * glowK, 7 * sc, heading, true, 1, false)
-        if (i % 2 === 0) out(ch, wx, wy, col, 0.35 * glowK, 12 * sc, heading, true, 1, true)
+        const col = 0x6ad8f0
+        out(ch, wx, wy, mixHex(col, 0xffffff, 0.3 * glowK), 0.45 + 0.35 * glowK, 6 * sc, heading, true, 1, false)
+        if (i % 2 === 0) out(ch, wx, wy, col, 0.25 * glowK, 10 * sc, heading, true, 1, true)
       }
     }
     for (const s of [-1, 1]) {
       const [wx, wy] = at(X, Y, cos, sin, sc, 17, 6 * s)
-      const col = elite ? 0x9cf6ff : 0xffc060
-      out('•', wx, wy, col, 1, 6 * sc, 0, true, 0, false)
-      out('•', wx, wy, col, 0.55, 13 * sc, 0, true, 0, true)
+      out('•', wx, wy, 0xc8ffff, 1, 6 * sc, 0, true, 0, false)
+      out('•', wx, wy, 0x40e8ff, 0.9, 14 * sc, 0, true, 0, true)
     }
   }
-  if (elite && id !== 'golem') {
-    // a slow halo of gold sparks: an elite reads at a glance
-    const R = (CAST[id].baseR + 9) * sc
+  if (elite) {
+    // a gold sparkle crown floating over the body (screen-up, whatever the heading): elite at a glance
+    // (a fixed size in world px: the crown is a mark, not part of the body, so it does not grow with a golem)
+    const R = CAST[id].baseR * sc * 0.9
+    const cy = Y - R - 12
+    const half = 15
+    for (let i = 0; i < 5; i++) {
+      const u = (i - 2) / 2
+      const tw = 0.7 + 0.3 * Math.sin(t * 6 + i * 1.7)
+      const big = i % 2 === 0
+      const x = X + u * half, y = cy - (big ? 6 : 0) + Math.abs(u) * 3
+      out('✦', x, y, 0xfff4c0, tw, big ? 11 : 7, 0, true, 0, false)
+      out('✦', x, y, 0xffb020, 0.65 * tw, big ? 20 : 13, 0, true, 0, true)
+    }
     for (let i = 0; i < 7; i++) {
-      const a = t * 1.3 + (i / 7) * TAU
-      out(i % 2 ? '✦' : '·', X + Math.cos(a) * R, Y + Math.sin(a) * R, 0xffd76a, 0.85, (i % 2 ? 6 : 7) * sc, a, true, 0, i % 2 === 1)
+      const u = (i - 3) / 3
+      out('·', X + u * half * 1.05, cy + 5 + Math.abs(u) * 3, 0xffd76a, 0.95, 9, 0, true, 0, false)
     }
   }
 }
@@ -509,7 +528,7 @@ export function createAsciiRenderer(host) {
           for (let i = 0; i < 7; i++) {
             const a = a0 + i * 0.36, rr = (e.r ?? 30) * 0.9
             spawn({ ch: i === 6 ? 'T' : (i % 2 ? '-' : '~'), x: e.x - Math.cos(e.angle ?? 0) * rr * 0.5 + Math.cos(a) * rr, y: e.y - Math.sin(e.angle ?? 0) * rr * 0.5 + Math.sin(a) * rr,
-              life: 0.12 + i * 0.03, c0: i === 6 ? 0xffffff : 0xe8f0f8, c1: 0x6a7480, size: i === 6 ? 18 : 10, rot: a + Math.PI / 2, add: i !== 6, a0: 0.4 + i * 0.09 })
+              life: 0.16 + i * 0.035, c0: i === 6 ? 0xffffff : 0xe8f8ff, c1: 0x3a7aa8, size: i === 6 ? 22 : 14, rot: a + Math.PI / 2, add: i !== 6, a0: 0.55 + i * 0.075, glow: i % 2 === 0 && i !== 6 })
           }
           for (let i = 0; i < 6; i++) {
             const a = (e.angle ?? 0) + (Math.random() - 0.5) * 2, sp = 60 + Math.random() * 90
@@ -583,10 +602,10 @@ export function createAsciiRenderer(host) {
             }
             continue
           }
-          const v = clamp01(Math.min(1, l) * (0.4 + 0.6 * hash2(i, j, 4)) * 0.85 + wall * 0.15)
+          const v = clamp01(Math.min(1, l * 1.2) * (0.45 + 0.55 * hash2(i, j, 4)) * 0.9 + wall * 0.15)
           let ch = FL[Math.min(FL.length - 1, Math.floor(v * FL.length))]
           if (wall > 0.3 && v > 0.25 && hash2(i, j, 6) < wall * 0.35) ch = hash2(i, j, 7) < 0.5 ? '%' : '#'
-          let col = mixHex(0x33261c, 0xd8a468, v)
+          let col = ramp3(0x4a3220, 0xb07a44, 0xffd498, v)
           if (wall > 0.3) col = mixHex(col, 0x6a6458, 0.5)
           if (gi > 0) col = mixHex(col, 0x9ad890, Math.min(0.6, gi / (li + 0.001) * 0.9))
           const isOre = hash2(i, j, 9) < 0.01
@@ -597,7 +616,7 @@ export function createAsciiRenderer(host) {
             if (v > 0.35) floor.put('*', x, y, oc, 0.35 * v * tw, 14, 0, true, 0, true)
             continue
           }
-          floor.put(ch, x, y, col, 0.15 + 0.85 * v + wall * 0.1, 7 + 8 * v + wall * 4, (hash2(i, j, 8) - 0.5) * 0.7, false, v > 0.6 ? 0 : 1, false)
+          floor.put(ch, x, y, col, 0.3 + 0.7 * v + wall * 0.1, 7 + 8 * v + wall * 4, (hash2(i, j, 8) - 0.5) * 0.7, false, v > 0.6 ? 0 : 1, false)
         }
       }
       floor.end()
@@ -686,14 +705,20 @@ export function createAsciiRenderer(host) {
 
       // ---- the creatures, composed glyph by glyph ----
       mob.begin()
-      const out = mob.put
+      // the miner stays the clearest thing on screen: creature glyphs thin out right around the '@'
+      const CLR = 40, CLR2 = CLR * CLR
+      const out = (ch, x, y, col, al, size, rot, add, font, glow) => {
+        const dx = x - p.x, dy = y - p.y, d2 = dx * dx + dy * dy
+        if (d2 < CLR2) { const k = d2 / CLR2; al *= 0.05 + 0.95 * k * k }
+        mob.put(ch, x, y, col, al, size, rot, add, font, glow)
+      }
       const AIM_T = 0.6
       for (const e of run.enemies ?? []) {
         if (e._dead) continue
         const id = CAST[e.rosterId] ? e.rosterId : null
         if (!id) continue
         const m0 = mem.get(e)
-        const sc = VIS * (e.radius ?? CAST[id].baseR) / CAST[id].baseR
+        const sc = VIS * (id === 'golem' ? 0.8 : 1) * (e.radius ?? CAST[id].baseR) / CAST[id].baseR
         const pad = 50 * sc
         if (e.x < view.left - pad || e.x > view.right + pad || e.y < view.top - pad || e.y > view.bottom + pad) { if (m0) m0.seen = frame; continue }
         let m = m0
@@ -728,9 +753,15 @@ export function createAsciiRenderer(host) {
             const f = k / nDots
             if (f > aimK * 1.15 + 0.1) break
             const last = k === nDots
-            const pulse = 0.6 + 0.4 * Math.sin(clock * 18 - k * 0.8)
-            out(last ? '×' : k % 3 === 0 ? '›' : '·', e.x + ux * L * f, e.y + uy * L * f, last ? 0xff4a3a : mixHex(0xffb070, 0xff3a2a, f),
-              (0.35 + 0.65 * aimK) * pulse, last ? 16 : 9, Math.atan2(uy, ux), true, 0, last)
+            const pulse = 0.65 + 0.35 * Math.sin(clock * 18 - k * 0.8)
+            const chev = k % 2 === 0
+            const ch = last ? '×' : chev ? '›' : '·'
+            const col = last ? 0xff4a3a : mixHex(0xffc080, 0xff3a2a, f)
+            const al = (0.45 + 0.55 * aimK) * pulse
+            const sz = last ? 26 : chev ? 15 : 11
+            // (straight to mob.put: the mark it lands on is usually the miner, and must not thin out there)
+            mob.put(ch, e.x + ux * L * f, e.y + uy * L * f, col, al, sz, Math.atan2(uy, ux), true, 0, false)
+            if (last || chev) mob.put(ch, e.x + ux * L * f, e.y + uy * L * f, 0xff2a1a, al * 0.6, sz * 1.6, Math.atan2(uy, ux), true, 0, true)
           }
         }
         composeCreature(out, id, X, Y, m.heading, sc, lx, ly, reach, flash, { phase: m.phase, t: clock + (m.phase % 7), pose, aimK }, !!e.elite)
@@ -743,17 +774,29 @@ export function createAsciiRenderer(host) {
       for (const st of run.sticks ?? []) {
         // dynamite: a red stick of '(==)' tumbling through the air, its fuse spitting sparks
         const k = Math.min(1, st.t / st.flight)
-        const x = lerp(st.fromX, st.x, k), y = lerp(st.fromY, st.y, k) - Math.sin(k * Math.PI) * 60
+        const arcAt = (kk) => [lerp(st.fromX, st.x, kk), lerp(st.fromY, st.y, kk) - Math.sin(kk * Math.PI) * 60]
+        const [x, y] = arcAt(k)
+        // its flight: a dotted arc of red-hot sparks hanging in the air behind it
+        if (k < 1) {
+          for (let i = 1; i <= 10; i++) {
+            const kk = k - i * 0.035
+            if (kk <= 0) break
+            const [tx, ty] = arcAt(kk)
+            const f = i / 10
+            obj.put(i % 3 ? '·' : '*', tx, ty, mixHex(0xfff0a0, 0xff3010, f), 1 - f * 0.8, (i % 3 ? 9 : 10) * (1 - f * 0.4), i, true, 0, i % 3 === 0)
+          }
+        }
         const rot = k < 1 ? k * 11 : 0.4
         const ux = Math.cos(rot), uy = Math.sin(rot)
-        const parts = [['(', -7], ['=', -2.5], ['=', 2.5], [')', 7]]
-        for (const [ch, o] of parts) obj.put(ch, x + ux * o, y + uy * o, 0xd8402a, 1, 12, rot, false, 0, false)
-        obj.put('~', x + ux * 11, y + uy * 11, 0xc8a878, 0.9, 8, rot, false, 0, false)
+        const parts = [['(', -9], ['=', -3], ['=', 3], [')', 9]]
+        for (const [ch, o] of parts) obj.put(ch, x + ux * o, y + uy * o, 0xff3a24, 0.4, 22, rot, true, 0, true)
+        for (const [ch, o] of parts) obj.put(ch, x + ux * o, y + uy * o, 0xff5a3a, 1, 15, rot, false, 0, false)
+        obj.put('~', x + ux * 14, y + uy * 14, 0xf0d0a0, 1, 10, rot, false, 0, false)
         const fl = 0.6 + 0.4 * Math.sin(clock * 60)
-        obj.put('*', x + ux * 14, y + uy * 14, 0xfff2a0, fl, 9 + (k >= 1 ? 4 * fl : 0), clock * 20, true, 0, false)
-        obj.put('*', x + ux * 14, y + uy * 14, 0xffa030, 0.5 * fl, 18, clock * 20, true, 0, true)
+        obj.put('*', x + ux * 18, y + uy * 18, 0xfff6c0, fl, 12 + (k >= 1 ? 6 * fl : 0), clock * 20, true, 0, false)
+        obj.put('*', x + ux * 18, y + uy * 18, 0xffa030, 0.8 * fl, 24, clock * 20, true, 0, true)
         if (dt > 0 && Math.random() < 0.6) {
-          spawn({ ch: Math.random() < 0.5 ? '`' : '\'', x: x + ux * 14, y: y + uy * 14, vx: (Math.random() - 0.5) * 90, vy: -30 - Math.random() * 50, life: 0.3, c0: 0xffe070, c1: 0xff4010, size: 6, add: true, grav: 200 })
+          spawn({ ch: Math.random() < 0.5 ? '`' : '\'', x: x + ux * 18, y: y + uy * 18, vx: (Math.random() - 0.5) * 90, vy: -30 - Math.random() * 50, life: 0.3, c0: 0xffe070, c1: 0xff4010, size: 6, add: true, grav: 200 })
         }
       }
       for (const c of run.carts ?? []) {
@@ -762,18 +805,36 @@ export function createAsciiRenderer(host) {
         const w = c.w ?? 18, L = w * 1.15
         const P = (a, b) => [c.x + ux * a + vx * b, c.y + uy * a + vy * b]
         for (const s of [-1, 1]) {
-          for (let a = -L; a <= L + 0.1; a += 5) { const [x, y] = P(a, s * w); obj.put('=', x, y, 0xb88a4a, 1, 10, c.angle, false, 0, false) }
-          for (let b = -w + 5; b <= w - 4.9; b += 5) { const [x, y] = P(s * L, b); obj.put('|', x, y, 0x9a6a34, 1, 10, c.angle, false, 0, false) }
-          for (const f of [-1, 1]) { const [x, y] = P(f * L * 0.7, s * (w + 3)); obj.put('o', x, y, 0x8a9098, 1, 9, clock * 12, false, 0, false) }
+          // plank walls of separate '#' and '=' (spaced so each reads as a character, not a line)
+          const na = Math.max(2, Math.round(2 * L / 8))
+          for (let i = 0; i <= na; i++) {
+            const [x, y] = P(-L + 2 * L * i / na, s * w)
+            const corner = i === 0 || i === na
+            obj.put(corner ? '+' : i % 2 ? '=' : '#', x, y, corner ? 0xffe0a0 : 0xf0a858, 1, corner ? 13 : 12, c.angle, false, 2, false)
+          }
+          const nb = Math.max(1, Math.round(2 * w / 8))
+          for (let i = 1; i < nb; i++) { const [x, y] = P(s * L, -w + 2 * w * i / nb); obj.put(i % 2 ? '=' : '#', x, y, 0xd88c48, 1, 12, c.angle + Math.PI / 2, false, 2, false) }
+          for (const f of [-1, 1]) {
+            const [x, y] = P(f * L * 0.7, s * (w + 3))
+            obj.put('o', x, y, 0xd8e2ec, 1, 11, clock * 12, false, 0, false)
+            // iron on iron: the wheels spit sparks
+            if (f < 0) obj.put('*', x - ux * 5, y - uy * 5, 0xfff0a0, 0.6 + 0.4 * Math.sin(clock * 50 + s), 9, clock * 30, true, 0, true)
+          }
         }
-        for (let i = 0; i < 9; i++) {
-          const [x, y] = P((hash2(i, 1, 81) - 0.5) * L * 1.5, (hash2(i, 2, 81) - 0.5) * w * 1.5)
+        // the load: a heap of ore glyphs, gold and blue, heavier toward the middle
+        const nOre = Math.min(34, Math.round(L * w / 30))
+        for (let i = 0; i < nOre; i++) {
+          const rr = Math.sqrt(hash2(i, 3, 81)), aa = hash2(i, 4, 81) * TAU
+          const [x, y] = P(Math.cos(aa) * rr * L * 0.8, Math.sin(aa) * rr * w * 0.75)
           const gold = i % 3 !== 0
-          obj.put(i % 2 ? '◇' : '*', x, y, gold ? 0xffd27a : 0x9fe0e8, 0.95, 8 + (i % 3) * 2, 0, true, 0, i % 4 === 0)
+          const ch = ['*', '◇', 'o', '%', '°', '@'][i % 6]
+          obj.put(ch, x, y, gold ? mixHex(0xffe08a, 0xb87a30, rr) : mixHex(0xc8f6ff, 0x4a8aa8, rr), 1 - rr * 0.4, (13 - rr * 5), aa, !gold || ch === '*', 0, i % 5 === 0)
         }
         if (dt > 0 && frame % 3 === 0) {
-          for (const s of [-1, 1]) { const [x, y] = P(-L - 4, s * w * 0.7); spawn({ ch: '=', x, y, life: 0.9, c0: 0x8a6a48, c1: 0x1a1410, size: 9, rot: c.angle, a0: 0.6 }) }
-          const [x, y] = P(-L - 4, 0); spawn({ ch: '|', x, y, life: 0.9, c0: 0x6a4a30, c1: 0x140e0a, size: 11, rot: c.angle, a0: 0.5 })
+          // the rails it leaves: two bright '=' lines and '#' ties, cooling to dark
+          for (const s of [-1, 1]) { const [x, y] = P(-L - 4, s * w * 0.7); spawn({ ch: '=', x, y, life: 1.1, c0: 0xffd08a, c1: 0x2a1810, size: 11, rot: c.angle, a0: 0.9 }) }
+          if (frame % 6 === 0) { const [x, y] = P(-L - 4, 0); spawn({ ch: '#', x, y, life: 1.1, c0: 0xc88a50, c1: 0x1a100a, size: 12, rot: c.angle, a0: 0.8 }) }
+          for (const s of [-1, 1]) { const [x, y] = P(-L * 0.7, s * (w + 3)); spawn({ ch: '\'', x, y, vx: -ux * 60 + (Math.random() - 0.5) * 60, vy: -uy * 60 + (Math.random() - 0.5) * 60, life: 0.3, c0: 0xfff0a0, c1: 0xff5010, size: 7, add: true }) }
         }
       }
       for (const b of run.bullets ?? []) {
@@ -781,10 +842,15 @@ export function createAsciiRenderer(host) {
         const a = Math.atan2(b.vy, b.vx)
         if (b.weapon === 'chip') {
           // pickaxe chips: tumbling flakes of rock with a two-glyph trail
+          // pickaxe chips: a tumbling flake of struck stone dragging an ice-white streak of '-'
           const sp = Math.hypot(b.vx, b.vy) || 1
-          obj.put('•', b.x, b.y, 0xf0dcb8, 1, 9, clock * 15, false, 0, false)
-          obj.put(',', b.x - b.vx / sp * 6, b.y - b.vy / sp * 6, 0xb89a70, 0.6, 7, a, false, 0, false)
-          obj.put('.', b.x - b.vx / sp * 11, b.y - b.vy / sp * 11, 0x7a6448, 0.35, 6, a, false, 0, false)
+          const ux = b.vx / sp, uy = b.vy / sp
+          for (let i = 6; i >= 1; i--) {
+            const f = i / 6
+            obj.put(i < 3 ? '=' : i < 5 ? '-' : '·', b.x - ux * i * 5, b.y - uy * i * 5, mixHex(0xe8f8ff, 0x3a7aa8, f), 0.95 * (1 - f * 0.75), 10 - f * 4, a, true, 0, false)
+          }
+          obj.put('◆', b.x, b.y, 0x9ad8ff, 0.5, 15, clock * 15, true, 0, true)
+          obj.put('◆', b.x, b.y, 0xf4fcff, 1, 10, clock * 15, false, 0, false)
         } else obj.put('*', b.x, b.y, 0xffe28a, 1, 10, a, true, 0, false)
       }
       for (const n of run.novas ?? []) {
@@ -798,12 +864,27 @@ export function createAsciiRenderer(host) {
       }
       if (lantern > 0) {
         // the lantern's reach: a slow ring of drifting motes, warm
-        const m = Math.round(lantern / 7)
+        const m = Math.round(lantern / 5)
         for (let k = 0; k < m; k++) {
           const a = (k / m) * TAU + clock * 0.35 + Math.sin(clock + k) * 0.05
           const rr = lantern * (0.96 + 0.05 * Math.sin(clock * 2 + k * 1.3))
           const big = k % 4 === 0
-          obj.put(big ? '*' : '·', p.x + Math.cos(a) * rr, p.y + Math.sin(a) * rr, big ? 0xffc860 : 0xffe0a0, big ? 0.7 : 0.5, big ? 9 : 8, a, true, 0, big)
+          const x = p.x + Math.cos(a) * rr, y = p.y + Math.sin(a) * rr
+          if (big) obj.put('✦', x, y, 0xffd070, 1, 10, 0, true, 0, false)
+          else obj.put('-', x, y, 0xffe2a0, 0.6, 9, a + Math.PI / 2, true, 0, false)
+          if (big) obj.put('✦', x, y, 0xffa030, 0.6, 20, 0, true, 0, true)
+          // each spark drags a short comet tail of '·' along the turning ring
+          if (big) for (let j = 1; j <= 4; j++) {
+            const aa = a - j * 0.045
+            obj.put('·', p.x + Math.cos(aa) * rr, p.y + Math.sin(aa) * rr, 0xffc060, 0.75 * (1 - j / 5), 8 - j, 0, true, 0, false)
+          }
+        }
+        // a second, finer ring turning the other way, half as far in
+        const m2 = Math.round(lantern / 9)
+        for (let k = 0; k < m2; k++) {
+          const a = (k / m2) * TAU - clock * 0.6
+          const rr = lantern * 0.55
+          obj.put('°', p.x + Math.cos(a) * rr, p.y + Math.sin(a) * rr, 0xffe0a0, 0.35, 7, 0, true, 0, false)
         }
       }
       obj.end()
@@ -812,7 +893,7 @@ export function createAsciiRenderer(host) {
       me.begin()
       {
         const heading = p.facingAngle ?? (p.facing < 0 ? Math.PI : 0)
-        const sc = pr / PLAYER_LOOK.baseR
+        const sc = 1.35 * pr / PLAYER_LOOK.baseR
         const cos = Math.cos(heading), sin = Math.sin(heading)
         const blink = (p.invuln ?? 0) > 0 && Math.floor(clock * 16) % 2 === 0
         const A = blink ? 0.35 : 1
@@ -833,7 +914,7 @@ export function createAsciiRenderer(host) {
             pout(':', ix, iy, 0xd8c4a0, 0.7, 7 * sc, 0, false, 2, false)
           }
         }
-        pout('@', p.x + cos * 2 * sc, p.y + sin * 2 * sc, 0xffd890, 0.45, 30 * sc, 0, true, 0, true)
+        pout('@', p.x + cos * 2 * sc, p.y + sin * 2 * sc, 0xffd890, 0.75, 34 * sc, 0, true, 0, true)
         pout('@', p.x + cos * 2 * sc, p.y + sin * 2 * sc, flash ? 0xffffff : 0xfff4d8, 1, 25 * sc, 0, false, 0, false)
         const [lx, ly] = at(p.x, p.y, cos, sin, sc, 13, 0)
         pout('✦', lx, ly, 0xffffff, 1, 10 * sc, 0, true, 0, false)
