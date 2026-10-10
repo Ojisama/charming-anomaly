@@ -176,20 +176,31 @@ export function paintCool(pc, v) {
     pc.set(x, y, d / edge > 0.8 ? P.scab0 : P.scab1)
   }
 }
-// The ladle's slag: COLD-looking grey-blue waste, flat and dull, with a few embers left in it. Its
-// harm is to the crowd, not to you — so it looks nothing like the bright lava that burns.
+// The ladle's slag: a raft of grey-blue slag broken into plates by a NET of glowing seams, still
+// burning. Nothing else on the floor looks like it: open lava is solid orange, a cooled scab is a flat
+// black pad, a crack is a black line radiating from a point. Slag is a pale crust with fire in every
+// joint.
 export function paintPuddle(pc, v) {
   const c = PUDDLE_ART / 2
+  const seeds = []
+  for (let k = 0; k < 6; k++) {
+    const a = (k / 6) * TAU + hash(k, v, 93) * 0.8, r = k === 0 ? 0 : 4 + hash(k, v, 94) * 5
+    seeds.push([c + Math.cos(a) * r, c + Math.sin(a) * r])
+  }
   for (let y = 0; y < PUDDLE_ART; y++) for (let x = 0; x < PUDDLE_ART; x++) {
     const dx = x + 0.5 - c, dy = y + 0.5 - c
     const a = Math.atan2(dy, dx), d = Math.hypot(dx, dy)
     const edge = c - 1.5 - 1.8 * (0.5 + 0.5 * Math.sin(a * 3 + v * 2.3)) - 1.2 * (0.5 + 0.5 * Math.sin(a * 5 + v * 4.1))
     if (d > edge) continue
-    pc.set(x, y, d > edge - 2 ? P.slag1 : P.slag0)
-  }
-  for (let k = 0; k < 5; k++) {
-    const x = Math.floor(c + (hash(k, v, 91) - 0.5) * 14), y = Math.floor(c + (hash(k, v, 92) - 0.5) * 14)
-    if (pc.get(x, y)) pc.set(x, y, k < 2 ? P.lava2 : P.lava1)
+    let d1 = 1e9, d2 = 1e9, k1 = 0
+    for (let k = 0; k < seeds.length; k++) {
+      const q = Math.hypot(x + 0.5 - seeds[k][0], y + 0.5 - seeds[k][1])
+      if (q < d1) { d2 = d1; d1 = q; k1 = k } else if (q < d2) d2 = q
+    }
+    let col = k1 % 2 ? P.slag1 : P.slag2
+    if (d > edge - 1.2) col = P.slag0                                   // a dark lip
+    else if (d2 - d1 < 0.9) col = d < edge * 0.35 ? P.lava2 : P.lava0   // the seams, hottest at the heart
+    pc.set(x, y, col)
   }
   pc.outline(P.ink)
 }

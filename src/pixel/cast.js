@@ -1,159 +1,286 @@
 // The Magma's four creatures and the player, painted one art pixel at a time, from directly overhead,
-// nose to +x (ROSTER_LOOKS' lean turns them to face their heading).
+// nose to +x. A Magma body never rotates (ROSTER_LOOKS lean 0): it only mirrors to face you, so every
+// art pixel stays square on the chapter's grid.
 //
-// SIMPLE SHAPES, FEW COLOURS, BOLD SILHOUETTES: each body is a flat base, one shade, one highlight and
-// an ink outline. The light is not painted in: the CRT pass (src/pixel/crt.js) lights each body from
-// the side facing the lava and gives every outline a faint cool rim in the dark. What keeps a body
-// readable far from any lava is painted HOT on purpose (emissive): its eyes, and ONE mark of its own —
-// the beetle's two cinders, the salamander's yellow blotches, the tortoise's glowing seams, the
-// drake's belly fire.
-import { PAL, PixelCanvas } from './canvas.js'
+// SIMPLE SHAPES, FEW COLOURS, BOLD SILHOUETTES: each creature is three or four FLAT colours plus an ink
+// outline, and one HOT feature of its own (the beetle's seam, the salamander's spots, the tortoise's
+// eyes, the drake's spine) that the CRT pass treats as emissive, so it glows in the dark. Every other
+// colour is kept shy of "hot" on purpose, so it is LIT rather than lit-up: by the lava and fire around
+// it, and by the creature light (CREATURE_LIGHT, src/pixel.js) that keeps every body readable away
+// from the lava.
+//
+// The creatures are character grids ('.' transparent), each with its own palette; legs, tails and
+// wings are drawn by code per frame so the walk cycles stay exact.
+import { CHAPTERS, ENEMIES } from '../config.js'
+import { PAL, PX, PixelCanvas } from './canvas.js'
 
 const P = PAL
+export const INK = PAL.ink
+export const EYE = '#ffd23a'
 
-// ---- cinder beetle ------------------------------------------------------------------------------
-// Two wing cases split down the middle, a pronotum, a small head with pincers, six legs.
-function paintBeetle(pc, f) {
-  const cy = 10
-  // legs: three per side, knee out, foot swept; alternating tripods
-  ;[[7, -1], [10, 0], [13, 1]].forEach(([x, sweep], i) => {
-    for (const side of [-1, 1]) {
-      const swing = (i + f + (side > 0 ? 1 : 0)) % 2 ? 1 : -1
-      const kx = x + sweep, ky = cy + side * 7
-      pc.line(x, cy + side * 4, kx, ky, P.bt1)
-      pc.line(kx, ky, kx + sweep + swing, cy + side * 9, P.bt1)
+const grid = (w, h) => Array.from({ length: h }, () => new Array(w).fill('.'))
+function set(g, x, y, c) { x = Math.round(x); y = Math.round(y); if (g[y] && x >= 0 && x < g[y].length) g[y][x] = c }
+// into an EMPTY cell only (limbs go under the body)
+function put(g, x, y, c) { x = Math.round(x); y = Math.round(y); if (g[y] && x >= 0 && x < g[y].length && g[y][x] === '.') g[y][x] = c }
+function line(g, x0, y0, x1, y1, c, over = false) {
+  x0 = Math.round(x0); y0 = Math.round(y0); x1 = Math.round(x1); y1 = Math.round(y1)
+  const dx = Math.abs(x1 - x0), dy = -Math.abs(y1 - y0), sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1
+  let err = dx + dy
+  for (;;) {
+    (over ? set : put)(g, x0, y0, c)
+    if (x0 === x1 && y0 === y1) break
+    const e2 = 2 * err
+    if (e2 >= dy) { err += dy; x0 += sx }
+    if (e2 <= dx) { err += dx; y0 += sy }
+  }
+}
+// Every limb is TWO pixels thick: render.js turns each body to face its heading, and a one-pixel line
+// turned to 30 degrees and re-gridded by the CRT breaks into dots. Masses survive a turn; hairs do not.
+function thick(g, x0, y0, x1, y1, c, over = false) {
+  line(g, x0, y0, x1, y1, c, over)
+  if (Math.abs(x1 - x0) >= Math.abs(y1 - y0)) line(g, x0, y0 + 1, x1, y1 + 1, c, over)
+  else line(g, x0 + 1, y0, x1 + 1, y1, c, over)
+}
+function disc(g, cx, cy, rx, ry, c, only) {
+  for (let y = Math.floor(cy - ry - 1); y <= cy + ry + 1; y++) for (let x = Math.floor(cx - rx - 1); x <= cx + rx + 1; x++) {
+    const dx = (x + 0.5 - cx) / rx, dy = (y + 0.5 - cy) / ry
+    if (dx * dx + dy * dy <= 1 && g[y] && x >= 0 && x < g[y].length && (!only || only.includes(g[y][x]))) g[y][x] = c
+  }
+}
+function tri(g, a, b, c, ch) {
+  const minX = Math.floor(Math.min(a[0], b[0], c[0])), maxX = Math.ceil(Math.max(a[0], b[0], c[0]))
+  const minY = Math.floor(Math.min(a[1], b[1], c[1])), maxY = Math.ceil(Math.max(a[1], b[1], c[1]))
+  const s = (p, q, x, y) => (q[0] - p[0]) * (y - p[1]) - (q[1] - p[1]) * (x - p[0])
+  for (let y = minY; y <= maxY; y++) for (let x = minX; x <= maxX; x++) {
+    const px = x + 0.5, py = y + 0.5
+    const u = s(a, b, px, py), v = s(b, c, px, py), w = s(c, a, px, py)
+    if ((u >= 0 && v >= 0 && w >= 0) || (u <= 0 && v <= 0 && w <= 0)) set(g, x, y, ch)
+  }
+}
+// ink round every filled cell
+function outline(g, c = 'k') {
+  const h = g.length, w = g[0].length, add = []
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    if (g[y][x] !== '.') continue
+    if ([[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]].some(([a, b]) => b >= 0 && b < h && a >= 0 && a < w && g[b][a] !== '.' && g[b][a] !== c)) add.push([x, y])
+  }
+  for (const [x, y] of add) g[y][x] = c
+}
+
+// ---- Cinder Beetle ------------------------------------------------------------------------------
+// Two domed wing cases split down the back by a glowing seam (the coal inside), a glossy spot on each
+// case, a narrower pronotum, a small head with two hot eyes and a pair of pale mandibles; six legs in
+// alternating tripods.
+export const BEETLE = {
+  w: 21, h: 17, ax: 10, ay: 8,
+  pal: { k: INK, s: '#705e68', S: '#c0acb6', p: '#4a3c44', c: '#ff7a1c', e: EYE, l: '#7a6870', m: '#e0ccb0' },
+  paint(f) {
+    const W = 21, H = 17, M = 8.5, g = grid(W, H)
+    // legs first (they sit under the body): attach x, tip dx (back legs sweep back, front ones
+    // forward), tripod; each a straight two-pixel stroke from the body's side to a tip
+    for (const [ax, dx, tp] of [[14, 3, 0], [9, 0, 1], [4, -3, 0]]) {
+      for (const side of [-1, 1]) {
+        const step = ((f + tp + (side > 0 ? 1 : 0)) % 2) ? 1 : -1
+        thick(g, ax, M + side * 4, ax + dx + step, M + side * 7.6, 'l')
+      }
     }
-  })
-  // wing cases: one round shell, a highlight band on each case, the split between them
-  pc.ellipse(8, cy, 7, 6, P.bt1)
-  pc.ellipseOn(7.5, cy - 2.6, 5, 1.7, P.bt2)
-  pc.ellipseOn(7.5, cy + 2.6, 5, 1.7, P.bt2)
-  pc.line(1, cy, 14, cy, P.ink)
-  // pronotum + head
-  pc.ellipse(15.5, cy, 2.6, 4.4, P.bt0)
-  pc.ellipse(19, cy, 2, 2.6, P.bt0)
-  // pincers
-  pc.set(21, cy - 2, P.bt2); pc.set(22, cy - 1, P.bt2)
-  pc.set(21, cy + 2, P.bt2); pc.set(22, cy + 1, P.bt2)
-  // its two cinders, at the tail end of the cases
-  pc.set(3, cy - 2, P.lava3); pc.set(3, cy + 2, P.lava3)
-  pc.outline()
-  pc.set(19, cy - 2, P.eye); pc.set(19, cy + 2, P.eye)
+    disc(g, 7.5, M, 7.2, 6.0, 's')                      // the wing cases
+    disc(g, 14.6, M, 2.6, 3.8, 'p')                     // pronotum
+    disc(g, 17.6, M, 1.8, 2.4, 'p')                     // head
+    for (let x = 1; x <= 13; x++) set(g, x, 8, 'c')     // the seam between the cases, glowing
+    disc(g, 6, 5, 3.2, 1.3, 'S', 's'); disc(g, 6, 12, 3.2, 1.3, 'S', 's')   // a glossy spot on each case
+    set(g, 18, 6, 'e'); set(g, 18, 10, 'e')
+    set(g, 19, 7, 'm'); set(g, 20, 6, 'm'); set(g, 19, 9, 'm'); set(g, 20, 10, 'm')
+    outline(g)
+    return g
+  },
 }
 
-// ---- salamander ----------------------------------------------------------------------------------
-// Long black body with yellow blotches, a wide flat head, four splayed legs, a long swinging tail.
-function paintSalamander(pc, f) {
-  const cy = 8, s = f ? 1 : -1
-  const tailY = (i) => cy + Math.sin(i * 0.4 + (f ? 1.2 : -0.2)) * (i / 12) * 3 * s
-  for (let i = 0; i <= 12; i++) pc.ellipse(11.5 - i, tailY(i) + 0.5, 0.9, Math.max(0.6, 2.3 - i * 0.15), P.sl1)
-  // legs: front pair at 21, back pair at 12; diagonal pairs step together
-  const leg = (x, side, fwd) => {
-    const ex = x + fwd * 2, ey = cy + side * 6
-    pc.line(x, cy + side * 2, x + fwd, cy + side * 4, P.sl1)
-    pc.line(x + 1, cy + side * 2, x + fwd + 1, cy + side * 4, P.sl1)
-    pc.line(x + fwd, cy + side * 4, ex, ey, P.sl1)
-    pc.set(ex - 1, ey + side, P.sl1); pc.set(ex + 1, ey + side, P.sl1)
-  }
-  leg(21, -1, s); leg(21, 1, -s); leg(12, -1, -s); leg(12, 1, s)
-  pc.ellipse(16.5, cy, 7.5, 3.2, P.sl1)
-  pc.ellipse(25.5, cy, 3.8, 3.6, P.sl1)
-  pc.ellipseOn(16.5, cy + 1.6, 7, 1.2, P.sl0)          // the belly side in shade
-  // blotches: bold, two rows, one on the head and one down the tail
-  for (const [x, y] of [[13, cy - 1], [17, cy - 2], [21, cy - 1], [15, cy + 1], [19, cy + 1], [26, cy - 1]]) {
-    pc.set(x, y, P.slSpot); pc.set(x + 1, y, P.slSpot)
-  }
-  pc.set(7, Math.floor(tailY(5) + 0.5), P.slSpot)
-  pc.outline()
-  // bulging eyes on the sides of the head
-  pc.set(26, cy - 4, P.eye); pc.set(27, cy - 4, P.eye)
-  pc.set(26, cy + 4, P.eye); pc.set(27, cy + 4, P.eye)
+// ---- Salamander ---------------------------------------------------------------------------------
+// A long low lizard: a round head with bulging hot eyes, a sausage body with a row of glowing yellow
+// spots down the back, four legs splayed sideways ending in a fat foot, and a long tail that swings.
+export const SALAMANDER = {
+  w: 29, h: 17, ax: 15, ay: 8,
+  pal: { k: INK, b: '#8a4432', B: '#6a3028', y: '#ffc23a', e: EYE, f: '#a85a40' },
+  paint(f) {
+    const W = 29, H = 17, M = 8.5, g = grid(W, H)
+    const s = f ? 1 : -1
+    // legs: shoulders at x18, hips at x10, diagonal pairs swing together. Each leg goes out
+    // sideways to an elbow, then the foot points forward (front) or back (hind): a lizard's sprawl.
+    for (const [hx, side, fw, front] of [[18, -1, f, 1], [18, 1, 1 - f, 1], [10, -1, 1 - f, 0], [10, 1, f, 0]]) {
+      const sw = fw ? 1 : -1
+      const ex = hx + (front ? -1 : 1) + sw, ey = M + side * 5
+      thick(g, hx, M + side * 2, ex, ey, 'B')
+      const fx = ex + (front ? 3 : -3)
+      thick(g, ex, ey, fx, ey + side * 1, 'f')
+    }
+    // the tail: thick at the hips, tapering to a point, swinging
+    for (let i = 0; i <= 10; i++) {
+      const x = 8 - i, y = M + s * Math.sin((i / 10) * Math.PI * 0.9) * 2.6
+      const r = i < 4 ? 1.4 : i < 8 ? 0.9 : 0.5
+      disc(g, x + 0.5, y, 0.9, r, 'b')
+    }
+    disc(g, 13.5, M, 6.6, 2.7, 'b')     // body
+    disc(g, 23, M, 3.6, 3.3, 'b')       // head
+    disc(g, 19.5, M, 2.5, 2.2, 'b')     // neck
+    // the glowing spots, 2x2 so they survive a turn
+    for (const [x, y] of [[8, 7], [12, 8], [16, 7], [21, 7]]) { set(g, x, y, 'y'); set(g, x + 1, y, 'y'); set(g, x, y + 1, 'y'); set(g, x + 1, y + 1, 'y') }
+    // eyes bulging off the sides of the head
+    set(g, 24, 5, 'e'); set(g, 24, 11, 'e'); set(g, 25, 5, 'e'); set(g, 25, 11, 'e')
+    outline(g)
+    return g
+  },
 }
 
-// ---- obsidian tortoise ---------------------------------------------------------------------------
-// A domed shell of black glass split into a central plate and six around it, magma glowing in the
-// seams; four stumpy legs, a blunt head, a stub of a tail.
-function paintTortoise(pc, f) {
-  const cx = 14, cy = 14, s = f ? 1 : -1
-  for (const [fx, fy, k] of [[21, 4, 1], [21, 24, -1], [7, 4, -1], [7, 24, 1]]) {
-    const x = fx + k * s
-    pc.ellipse(x, fy, 3.2, 3, P.sk0)
-    pc.ellipseOn(x - 0.6, fy - 0.6, 1.8, 1.5, P.sk1)
-  }
-  pc.ellipse(2.5, cy, 2, 1.3, P.sk0)
-  pc.ellipse(23.5, cy, 1.8, 2.2, P.sk0)
-  pc.ellipse(27, cy, 3.2, 3, P.sk0)
-  pc.ellipseOn(26.6, cy - 0.8, 2, 1.4, P.sk1)
-  // the shell: a high dome, its plates laid out like a real tortoise's — a row of three down the
-  // spine, two either side, a ring of marginals round the edge — the seams glowing with magma
-  pc.ellipse(cx, cy, 11, 10, P.glass0)
-  pc.ellipseOn(cx, cy, 9.4, 8.4, P.glass1)
-  pc.ellipseOn(cx - 2, cy - 2, 5, 3.6, P.glass2)
-  const seam = P.lava1
-  for (let y = 0; y < pc.h; y++) for (let x = 0; x < pc.w; x++) {
-    const dx = (x + 0.5 - cx) / 9.4, dy = (y + 0.5 - cy) / 8.4
-    const r = dx * dx + dy * dy
-    if (r > 1 || r < 0.84) continue
-    pc.set(x, y, seam)                                    // the marginal ring
-  }
-  pc.line(cx - 6, cy - 3, cx + 6, cy - 3, seam); pc.line(cx - 6, cy + 3, cx + 6, cy + 3, seam)   // spine row
-  pc.line(cx - 2, cy - 3, cx - 2, cy + 3, seam); pc.line(cx + 2, cy - 3, cx + 2, cy + 3, seam)   // its plates
-  pc.line(cx, cy - 3, cx, cy - 8, seam); pc.line(cx, cy + 3, cx, cy + 8, seam)                   // the costals
-  pc.outline()
-  pc.set(28, cy - 2, P.eye); pc.set(28, cy + 2, P.eye)
+// ---- Obsidian Tortoise --------------------------------------------------------------------------
+// A big round shell of black volcanic glass, its plates drawn as flat hexes with dark seams (three
+// down the spine, a ring around the rim) and one white glint; a blunt head with hot eyes in front,
+// four stubby feet at the corners, a stub of tail behind.
+export const TORTOISE = {
+  w: 28, h: 23, ax: 12, ay: 11,
+  pal: { k: INK, g: '#504874', G: '#7268a8', j: '#16121e', w: '#f0eeff', t: '#a08878', u: '#7a645c', e: EYE },
+  paint(f) {
+    const W = 28, H = 23, cx = 11.5, cy = 11.5, g = grid(W, H)
+    const s = f ? 1 : -1
+    // feet at the four corners, stepping diagonally; the head; the tail stub
+    for (const [fx, fy, d] of [[17, 2.5, 1], [17, 20.5, -1], [6, 2.5, -1], [6, 20.5, 1]]) disc(g, fx + s * d, fy, 2.0, 1.8, 't')
+    disc(g, 23.6, cy, 3.0, 2.6, 't')
+    disc(g, 21, cy, 2, 2, 't')
+    set(g, 0, 11, 'u'); set(g, 1, 11, 'u'); set(g, 0, 12, 'u'); set(g, 1, 12, 'u')
+    // the shell: plates labelled, a seam wherever two plates meet
+    const rx = 10.4, ry = 8.6
+    const label = (x, y) => {
+      const px = x + 0.5, py = y + 0.5
+      const dx = (px - cx) / rx, dy = (py - cy) / ry
+      if (dx * dx + dy * dy > 1) return null
+      const ix = (px - cx) / (rx - 2.6), iy = (py - cy) / (ry - 2.4)
+      if (ix * ix + iy * iy > 1) return 'M' + (Math.floor(((Math.atan2(py - cy, (px - cx) * (ry / rx)) + Math.PI) / (2 * Math.PI)) * 8 + 0.5) % 8)
+      for (let k = 0; k < 3; k++) {
+        const hx = cx - 5 + k * 5, ax = Math.abs(px - hx), ay = Math.abs(py - cy)
+        if (ay <= 2.6 && ax + ay * 0.55 <= 2.9) return 'V' + k
+      }
+      return 'C' + (py < cy ? 'a' : 'b')
+    }
+    const L = []
+    for (let y = 0; y < H; y++) { L.push([]); for (let x = 0; x < W; x++) L[y].push(label(x, y)) }
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const l = L[y][x]
+      if (!l) continue
+      const seam = (L[y][x + 1] && L[y][x + 1] !== l) || (L[y + 1]?.[x] && L[y + 1][x] !== l)
+      g[y][x] = seam ? 'j' : l[0] === 'V' ? 'G' : 'g'
+    }
+    set(g, 7, 9, 'w'); set(g, 8, 9, 'w'); set(g, 7, 10, 'w')
+    set(g, 25, 9, 'e'); set(g, 25, 14, 'e')
+    outline(g)
+    return g
+  },
 }
 
-// ---- fire drake ------------------------------------------------------------------------------------
-// A small dragon from above: bat wings spread across its heading, a long neck and horned head, a fire
-// glowing down its spine, a long tail ending in a spade.
-function paintDrake(pc, f) {
-  const cy = 17
-  const k = f ? 0.72 : 1            // wings spread, then half-folded on the downstroke
-  for (const side of [-1, 1]) {
-    const Y = (d) => cy + side * d * k
-    const sh = [17, cy + side * 3], wrist = [21, Y(9)]
-    const tips = [[16, Y(16)], [10, Y(14)], [6, Y(9)]]
-    const sag = (a, b) => [(a[0] + b[0]) / 2 + 1.5, cy + side * (Math.abs((a[1] + b[1]) / 2 - cy) - 2.4 * k)]
-    // the membrane, in two scallops, back to the flank
-    pc.poly([sh, wrist, tips[0], sag(tips[0], tips[1]), tips[1], sag(tips[1], tips[2]), tips[2], [11, cy + side * 3]], P.wing1)
-    // the arm and three finger bones, bright, so the wing reads as a wing
-    pc.line(sh[0], sh[1], wrist[0], wrist[1], P.dr2)
-    for (const t of tips) pc.line(wrist[0], wrist[1], t[0], t[1], P.dr2)
-    pc.set(wrist[0] + 1, wrist[1], P.horn)
-  }
-  // tail: a tapering wave to a spade
-  const ty = (i) => cy + Math.round(Math.sin(i * 0.55 + (f ? 1 : 0)) * (i / 8) * 2)
-  for (let i = 0; i <= 8; i++) pc.ellipse(10.5 - i, ty(i) + 0.5, 0.9, Math.max(0.6, 1.7 - i * 0.13), P.dr1)
-  pc.tri(0, ty(8) - 2.5, 3, ty(8) + 0.5, 0, ty(8) + 3.5, P.dr1)
-  // body, a long neck, the head
-  pc.ellipse(14.5, cy, 5.5, 3.6, P.dr1)
-  pc.ellipseOn(14, cy - 1, 4.4, 1.6, P.dr2)
-  pc.rect(19, cy - 1, 5, 3, P.dr1)
-  pc.ellipse(26, cy, 3, 2.8, P.dr1)
-  pc.ellipseOn(25.6, cy - 0.8, 1.8, 1.1, P.dr2)
-  pc.rect(28, cy - 1, 3, 3, P.dr1)
-  // two short horns swept back off the brow
-  pc.set(24, cy - 3, P.horn); pc.set(23, cy - 4, P.horn)
-  pc.set(24, cy + 3, P.horn); pc.set(23, cy + 4, P.horn)
-  // the fire down its spine
-  pc.line(9, cy, 18, cy, P.lava2)
-  pc.line(12, cy, 16, cy, P.lava3)
-  pc.outline()
-  pc.set(26, cy - 2, P.eye); pc.set(26, cy + 2, P.eye)
+// ---- Fire Drake ---------------------------------------------------------------------------------
+// The elite: a small dragon seen from above, the most unmistakable silhouette in the chapter. Two
+// bat wings (an arm bone to the wrist, three finger bones fanning back, the membrane scalloped
+// between them), a long neck, a horned head, a long tail ending in a spade, a hot spine. Frame 0
+// wings spread, frame 1 the downstroke, half folded.
+const DRAKE_WINGS = [
+  { S: [18, 11], E: [17, 5], W: [14, 1], F: [[7, 0], [2, 3], [3, 8]], B: [9, 11] },
+  { S: [18, 11], E: [17, 7], W: [14, 4], F: [[8, 3], [3, 6], [5, 10]], B: [9, 11] },
+]
+export const DRAKE = {
+  w: 31, h: 27, ax: 15, ay: 13,
+  pal: { k: INK, v: '#6e1e2a', b: '#c49078', o: '#a04038', y: '#ffbe3a', h: '#e8dcc8', e: EYE },
+  paint(f) {
+    const W = 31, H = 27, M = 13, g = grid(W, H)
+    const wg = DRAKE_WINGS[f]
+    const pts = [wg.W, ...wg.F, wg.B]
+    tri(g, wg.S, wg.E, wg.W, 'v'); tri(g, wg.S, wg.W, wg.B, 'v')
+    for (let i = 0; i < pts.length - 1; i++) tri(g, wg.W, pts[i], pts[i + 1], 'v')
+    for (let i = 1; i < pts.length - 1; i++) {
+      const a = pts[i], b = pts[i + 1]
+      const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2
+      const ox = mx - wg.W[0], oy = my - wg.W[1], ol = Math.hypot(ox, oy) || 1
+      disc(g, mx + (ox / ol) * 1.1, my + (oy / ol) * 1.1, 2.1, 2.1, '.', 'v')
+    }
+    line(g, wg.S[0], wg.S[1], wg.E[0], wg.E[1], 'b', true); line(g, wg.E[0], wg.E[1], wg.W[0], wg.W[1], 'b', true)
+    for (const p of wg.F) line(g, wg.W[0], wg.W[1], p[0], p[1], 'b', true)
+    // mirror the wing to the other side
+    for (let y = 0; y < M; y++) for (let x = 0; x < W; x++) if (g[y][x] !== '.') g[2 * M - y][x] = g[y][x]
+    // body, neck, head
+    disc(g, 15, M + 0.5, 5.6, 3.3, 'o')
+    for (let x = 19; x <= 24; x++) for (let dy = -1; dy <= 1; dy++) set(g, x, M + dy, 'o')
+    disc(g, 25.5, M + 0.5, 2.6, 2.3, 'o')
+    set(g, 28, M, 'o')
+    // the hot spine down the back and neck
+    for (let x = 10; x <= 23; x++) set(g, x, M, 'y')
+    // horns sweeping back, eyes on the sides of the head
+    line(g, 24, M - 2, 21, M - 4, 'h', true); line(g, 24, M + 2, 21, M + 4, 'h', true)
+    set(g, 26, M - 1, 'e'); set(g, 26, M + 1, 'e')
+    // the tail: tapering, swinging, a spade at the tip
+    const sw = f ? 1 : -1
+    let tip = null
+    for (let i = 0; i <= 9; i++) {
+      const x = 10 - i, y = M + Math.round(sw * Math.sin((i / 9) * Math.PI * 0.9) * 2.2)
+      set(g, x, y, 'o')
+      if (i < 5) { set(g, x, y - 1, 'o'); set(g, x, y + 1, 'o') }
+      tip = [x, y]
+    }
+    tri(g, [tip[0] + 1, tip[1] - 2.5], [tip[0] + 1, tip[1] + 3.5], [tip[0] - 2.5, tip[1] + 0.5], 'o')
+    outline(g)
+    return g
+  },
 }
 
-// `scale` bakes a body at other than one art pixel per PX, chosen so that at the radius it is shown
-// in play (render.js draws it at e.radius / archetype radius) its art pixels land on the chapter's
-// grid: the beetle (0.9 x a normal) a touch up, the drake (always an elite fast: 1.875 x) about half.
-// paint(pc, frame) draws one frame. `frames` is how many a walk cycle has; `crown` is [top, r] for the
-// elite crown in WORLD px relative to the centre; `light` is the glow the body throws on the floor
-// around it [radius as a multiple of the body's radius, colour, strength]. `baseR` is the radius of
-// its archetype (render.js's ROSTER_BASE_R): the body is drawn at e.radius / baseR.
+// One creature as it is drawn IN PLAY: render.js gives a body the scale e.radius / its archetype's
+// radius, i.e. the roster's radiusMul (x ELITE's 1.5 for an elite). bakeCreature bakes AT that scale
+// and hands it back, so in play one art pixel is exactly one grid pixel (PX world px).
+const ARCH_ENEMY = { normal: 'drone', fast: 'wisp', tank: 'tank' }
+const ELITE_SIZE = 1.5
+function rosterOf(id) {
+  for (const ch of Object.values(CHAPTERS)) { const r = ch.roster?.find((x) => x.id === id); if (r) return r }
+  return null
+}
+// the scale render.js draws this body at (radius / archetype radius) for a given radius
+export function castDrawScale(id, elite) {
+  const r = rosterOf(id)
+  return (r?.radiusMul ?? 1) * (elite ? ELITE_SIZE : 1)
+}
+export function castArchR(id) {
+  const r = rosterOf(id)
+  return ENEMIES[ARCH_ENEMY[r?.archetype] || 'drone'].radius
+}
+
+// art: the grid sprite. `light` is the glow the body's own heat throws on the floor round it
+// [radius as a multiple of its radius, colour, strength]. `crown` is the elite crown's gap above the
+// art, in world px.
 export const PIXEL_CAST = {
-  cinderBeetle: { baseR: 16, w: 24, h: 21, frames: 2, scale: 1.2, crown: [-24, 9], light: [2.4, 0xff8a40, 0.5], paint: paintBeetle },
-  salamander: { baseR: 12, w: 32, h: 17, frames: 2, crown: [-18, 8], light: [2.6, 0xffb848, 0.55], paint: paintSalamander },
-  obsidianTortoise: { baseR: 26, w: 31, h: 29, frames: 2, scale: 1, crown: [-34, 12], light: [2.2, 0xff7030, 0.55], paint: paintTortoise },
-  fireDrake: { baseR: 12, w: 33, h: 35, frames: 2, scale: 0.5, crown: [-20, 9], light: [3, 0xff7a28, 0.6], paint: paintDrake },
+  cinderBeetle: { art: BEETLE, frames: 2, light: [2.4, 0xff8a40, 0.5] },
+  salamander: { art: SALAMANDER, frames: 2, light: [2.6, 0xffb848, 0.55] },
+  obsidianTortoise: { art: TORTOISE, frames: 2, light: [2.2, 0xff7030, 0.55] },
+  fireDrake: { art: DRAKE, frames: 2, light: [3, 0xff7a28, 0.6] },
+}
+// the elite crown, [top, r]: render.js places it at e.y + top * k * drawScale, so top is stated in
+// the bake's own units — just above the top of the art
+for (const [id, M] of Object.entries(PIXEL_CAST)) {
+  const s = castDrawScale(id, true)
+  M.crown = [-((M.art.ay + 0.5) * PX + 3) / s, 9]
+  M.w = M.art.w; M.h = M.art.h
+}
+
+// One creature frame -> PixelCanvas
+export function paintCreature(id, frame) {
+  const A = PIXEL_CAST[id].art
+  const pc = new PixelCanvas(A.w, A.h)
+  pc.grid(A.paint(frame), A.pal)
+  return pc
+}
+// The same frame as a MASK: white where the body is (its ink outline left out), nothing elsewhere.
+// The rig draws it into the emissive map, so the creature light falls on the body and never on the
+// floor round it.
+export function paintCreatureMask(id, frame) {
+  const A = PIXEL_CAST[id].art
+  const pc = new PixelCanvas(A.w, A.h)
+  const g = A.paint(frame)
+  for (let y = 0; y < g.length; y++) for (let x = 0; x < g[y].length; x++) if (g[y][x] !== '.' && g[y][x] !== 'k') pc.set(x, y, '#ffffff')
+  return pc
 }
 
 // ---- the player ----------------------------------------------------------------------------------
@@ -172,10 +299,3 @@ export function paintPlayer(pc, f) {
 }
 export const PLAYER_ART = [19, 19]
 
-// One creature frame -> PixelCanvas
-export function paintCreature(id, frame) {
-  const M = PIXEL_CAST[id]
-  const pc = new PixelCanvas(M.w, M.h)
-  M.paint(pc, frame)
-  return pc
-}

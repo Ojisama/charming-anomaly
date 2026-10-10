@@ -23,7 +23,7 @@ export const PAL = {
   // crust that has just crusted over: a scab darker than the floor
   scab0: '#1a1012', scab1: '#26181a',
   // the ladle's slag: COLD grey-blue waste, nothing like lava
-  slag0: '#2a2c36', slag1: '#454a5c',
+  slag0: '#2a2c36', slag1: '#4a5066', slag2: '#5e667e',
   ash: '#6a6470', ashHi: '#8e8898',
   // obsidian
   glass0: '#221a3c', glass1: '#3c3466', glass2: '#625a9c', glassHi: '#a89ce8',
@@ -110,6 +110,13 @@ export class PixelCanvas {
       if (this.get(x - 1, y) || this.get(x + 1, y) || this.get(x, y - 1) || this.get(x, y + 1)) add.push([x, y])
     }
     for (const [x, y] of add) this.set(x, y, c)
+  }
+  // paint a character grid (rows of single-character cells, '.' = transparent) through a palette
+  grid(rows, pal, ox = 0, oy = 0) {
+    for (let y = 0; y < rows.length; y++) for (let x = 0; x < rows[y].length; x++) {
+      const ch = rows[y][x]
+      if (ch !== '.' && pal[ch]) this.set(ox + x, oy + y, pal[ch])
+    }
   }
   // blow up to a canvas, k texels per art pixel; `white` paints every filled pixel white (hit flash)
   toCanvas(k, white = false) {

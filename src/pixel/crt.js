@@ -28,6 +28,8 @@ in vec2 vTextureCoord;
 out vec4 finalColor;
 uniform sampler2D uTexture;
 uniform sampler2D uLightTex;
+uniform sampler2D uEmitTex;
+uniform float uBodyLight;
 uniform highp vec4 uInputSize;
 uniform highp vec4 uOutputFrame;
 uniform float uPx;
@@ -59,6 +61,8 @@ vec3 lightAt(vec2 cell) { return texture(uLightTex, (cell + uLightOff + 0.5) / u
 float hot(vec3 c) { return smoothstep(0.38, 0.68, c.r - c.b) * smoothstep(0.42, 0.72, c.r); }
 float heat(vec3 c) { return max(hot(c), smoothstep(0.84, 0.97, min(c.r, min(c.g, c.b)))); }
 float isInk(vec3 c) { return 1.0 - step(0.055, lum(c)); }
+// the player's mint (green well over red, at least as green as blue): the anomaly is its own light
+float mint(vec3 c) { return smoothstep(0.12, 0.2, c.g - c.r) * step(c.b - 0.04, c.g) * smoothstep(0.22, 0.38, c.g); }
 void main(void) {
   vec2 p = vTextureCoord * uInputSize.xy;                // screen px
   vec2 cell = floor(p / uPx);
@@ -78,6 +82,10 @@ void main(void) {
   L = lm > 0.0001 ? L * (lq / lm) : vec3(0.0);
 
   vec3 col = alb * (uAmbient + L);
+  // CREATURE LIGHT: a body (the emissive map's green, an exact mask of its sprite) is lit wherever it
+  // stands, so it reads away from the lava too. Never on the floor round it: no halo.
+  float body = texture(uEmitTex, (cell + uLightOff + 0.5) / uLightSize).g * uBodyLight;
+  col += alb * body * vec3(1.0, 0.93, 0.86);
 
   // FACING: which side of a body looks at the light
   float ink = isInk(alb);
@@ -97,11 +105,15 @@ void main(void) {
   if (ink < 0.5) {
     float up = isInk(tap(ctr + vec2(0.0, -uPx))) * isInk(tap(ctr + vec2(-uPx, 0.0)));
     float either = max(isInk(tap(ctr + vec2(0.0, -uPx))), isInk(tap(ctr + vec2(-uPx, 0.0))));
-    col += (0.35 + 0.65 * lum(alb)) * uAmbRim * (either * 0.6 + up * 0.4);
+    col += (0.35 + 0.65 * lum(alb)) * uAmbRim * (either * 0.6 + up * 0.4) * (1.0 + body * 2.5);
   }
 
   float e = heat(alb) * uHeat;
   col = mix(col, alb * (1.0 + 0.12 * min(lm, 1.5)), e);
+  // THE PLAYER IS EMISSIVE: its own colour and brightness whatever the light round it
+  float pm = mint(alb);
+  col = mix(col, alb * 1.05, pm);
+  e = max(e, pm);
 
   // bloom off hot neighbours: a short bright halo and a wide soft one (a white hit flash does not)
   vec3 g = vec3(0.0);

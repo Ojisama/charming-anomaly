@@ -18,7 +18,7 @@
 // frame to the same block size, so anything else drawn in this chapter comes out on the same grid.
 import { CanvasSource, Container, Filter, GlProgram, RenderTexture, Sprite, Texture, TilingSprite, UniformGroup } from 'pixi.js'
 import { PX, UP, TAU, PAL, PixelCanvas, hash } from './pixel/canvas.js'
-import { PIXEL_CAST, paintPlayer, paintCreature, PLAYER_ART } from './pixel/cast.js'
+import { PIXEL_CAST, paintPlayer, paintCreature, paintCreatureMask, castDrawScale, castArchR, PLAYER_ART } from './pixel/cast.js'
 import {
   TILE_ART, paintFloorTile, PIXEL_PROPS, PROP_ART, BIOME, CRACK_ART, LAVA_ART, PUDDLE_ART,
   paintCrack, paintLava, paintCool, paintPuddle, SHOT_PAINTERS, paintGem, GEM_ART, paintCoin, COIN_ART,
@@ -26,6 +26,12 @@ import {
 import { CRT_VERT, CRT_FRAG, CRT_LOOK } from './pixel/crt.js'
 
 export { PX, PAL, PixelCanvas, hash, PIXEL_CAST, paintPlayer, TILE_ART, paintFloorTile, PIXEL_PROPS, PROP_ART, BIOME, SHOT_PAINTERS, paintGem, paintCoin, CRT_FRAG }
+
+// CREATURE LIGHT: how brightly every creature's body is lit wherever it stands, on top of the lava's
+// light — 0 is pure lava light (a body far from any lava sinks into the dark), 1 lights it near its
+// own colours in full. It lights the BODY only (an exact mask of each sprite, outline excluded), never
+// the floor round it, so it can never draw a halo.
+export const CREATURE_LIGHT = 0.6
 
 export const CRACK_BAKE_R = (CRACK_ART / 2) * PX   // world radius a crack texture is drawn at, scale 1
 export const LAVA_BAKE_R = (LAVA_ART / 2 - 1.5) * PX
@@ -39,11 +45,14 @@ export function pixelTex(cv, res = UP) {
 function bakeArt(pc, ax = 0.5, ay = 0.5, white = false) {
   return { tex: pixelTex(pc.toCanvas(PX * UP, white)), ax, ay, w: pc.w * PX, h: pc.h * PX }
 }
-// One creature frame -> { body, white, ax, ay } canvases (render.js makes the textures).
-export function bakeCreature(id, frame) {
+// One creature frame -> { body, white, ax, ay, res, scale } canvases (render.js makes the textures).
+// render.js hands in the scale it will draw this body at (drawScale); baking AT it and handing it back
+// means the body is drawn at k = 1, one art pixel per grid pixel, whatever its radius.
+export function bakeCreature(id, frame, drawScale = 1) {
   const pc = paintCreature(id, frame)
+  const A = PIXEL_CAST[id].art
   const k = PX * UP
-  return { body: pc.toCanvas(k), white: pc.toCanvas(k, true), ax: 0.5, ay: 0.5, res: UP / (PIXEL_CAST[id].scale ?? 1) }
+  return { body: pc.toCanvas(k), white: pc.toCanvas(k, true), ax: (A.ax + 0.5) / A.w, ay: (A.ay + 0.5) / A.h, res: UP, scale: drawScale }
 }
 // -> { 'px_column0': { tex, ax, ay }, ... }
 export function bakeProps() {
@@ -82,7 +91,6 @@ function lightDisc() {
 // light colours
 const L_LAVA = 0xffa040, L_HOT = 0xff6a20, L_CRACK = 0xc8300c, L_SLAG = 0xffa040, L_PLAYER = 0xa8c0ff, L_GEM = 0x40d8ff
 const L_COIN = 0xffc040, L_GLASS = 0xb0a0ff
-const BODY_FILL = 0xb8b0d8, BODY_FILL_A = 0.24
 const UNDERGLOW = { cell: 420, chance: 0.55, r: 360, col: 0xc0401c, a: 0.2 }
 
 // ---- the rig: places all of it every frame from `run` ---------------------------------------------
@@ -105,13 +113,14 @@ export function createPixelRig(env) {
   T.floor = pixelTex(paintFloorTile().toCanvas(PX), 1)
   T.floor.source.style.addressMode = 'repeat'
   T.light = lightDisc()
-  // each creature's silhouette, one pixel fatter, as a LIGHT: the faint fill that keeps a body
-  // readable in the dark without lighting the floor round it (an aura would be a ring, not a body)
-  T.sil = {}
-  for (const id of Object.keys(PIXEL_CAST)) {
-    const pc = paintCreature(id, 0)
-    pc.outline()
-    T.sil[id] = { tex: pixelTex(pc.toCanvas(PX * UP, true), UP), ax: 0.5, ay: 0.5 }
+  // each creature frame's body MASK (outline excluded), for the emissive map
+  T.mask = {}
+  for (const [id, M] of Object.entries(PIXEL_CAST)) {
+    T.mask[id] = []
+    for (let f = 0; f < M.frames; f++) {
+      const A = M.art
+      T.mask[id].push({ tex: pixelTex(paintCreatureMask(id, f).toCanvas(PX * UP), UP), ax: (A.ax + 0.5) / A.w, ay: (A.ay + 0.5) / A.h })
+    }
   }
 
   const floor = new TilingSprite({ texture: T.floor, width: 1, height: 1 })
@@ -132,7 +141,16 @@ export function createPixelRig(env) {
   lightBase.tint = 0x000000
   lightRoot.addChild(lightBase)
   let lightRT = RenderTexture.create({ width: 64, height: 64, resolution: 1, scaleMode: 'nearest' })
+  // THE EMISSIVE MAP, on the light map's grid: green = this cell is a creature's body (it takes the
+  // creature light). Its own pass, so the light can never spill off a body onto the floor.
+  const emitRoot = new Container()
+  const emitBase = new Sprite(Texture.WHITE)
+  emitBase.tint = 0x000000
+  emitRoot.addChild(emitBase)
+  let emitRT = RenderTexture.create({ width: 64, height: 64, resolution: 1, scaleMode: 'nearest' })
+  const heldFrame = new WeakMap()
   const crtU = new UniformGroup({
+    uBodyLight: { value: CREATURE_LIGHT, type: 'f32' },
     uPx: { value: PX, type: 'f32' }, uScan: { value: CRT_LOOK.scan, type: 'f32' }, uMask: { value: CRT_LOOK.mask, type: 'f32' },
     uVignette: { value: CRT_LOOK.vignette, type: 'f32' }, uGlow: { value: CRT_LOOK.glow, type: 'f32' },
     uGain: { value: CRT_LOOK.gain, type: 'f32' }, uSteps: { value: CRT_LOOK.steps, type: 'f32' }, uHeat: { value: CRT_LOOK.heat, type: 'f32' },
@@ -144,7 +162,7 @@ export function createPixelRig(env) {
   })
   const filter = new Filter({
     glProgram: GlProgram.from({ vertex: CRT_VERT, fragment: CRT_FRAG, name: 'pixel-lava-crt' }),
-    resources: { crtU, uLightTex: lightRT.source },
+    resources: { crtU, uLightTex: lightRT.source, uEmitTex: emitRT.source },
   })
 
   // one growable pool of plain sprites per thing drawn
@@ -174,7 +192,7 @@ export function createPixelRig(env) {
   const gPuddle = pool(subLayer()), gCrust = pool(subLayer()), gShadow = pool(subLayer())
   const aLob = pool(air), aGust = pool(air)
   const lights = pool(lightRoot, 'add')
-  const bodyLights = pool(lightRoot, 'add')
+  const masks = pool(emitRoot)
   // lights gathered by the per-entity hooks (bullets, gems, coins) land in the NEXT frame's map
   const pending = []
   const flashes = []   // transient light from events: {x, y, r, col, a, life, max}
@@ -231,7 +249,7 @@ export function createPixelRig(env) {
       rig.clear()
     },
     clear() {
-      gCrust.hide(); gPuddle.hide(); gShadow.hide(); aLob.hide(); aGust.hide(); lights.hide(); bodyLights.hide()
+      gCrust.hide(); gPuddle.hide(); gShadow.hide(); aLob.hide(); aGust.hide(); lights.hide(); masks.hide()
       pending.length = 0
       burning = false
       for (const f of flashes) f.life = 0
@@ -369,24 +387,26 @@ export function createPixelRig(env) {
         }
       }
       aGust.end()
-      // the creatures' own glow (their embers light the floor round them), and the faint cool fill
-      // on each body that keeps it readable in the dark: its silhouette, turned to face you like the
-      // body is (render.js aims every Magma creature at the player)
-      bodyLights.begin()
+      // the creatures' own glow (their embers light the floor round them), and each body's MASK in
+      // the emissive map, placed exactly as render.js draws the body: same frame, same mirror (a
+      // Magma creature faces you, or what it fights while an ally), same scale
+      masks.begin()
       for (const e of run.enemies || []) {
         const M = PIXEL_CAST[e.rosterId]
         if (!M || !onScreen(e.x, e.y, 60)) continue
         const [mul, col, a] = M.light
         addLight(e.x, e.y, e.radius * mul * (e.elite ? 1.3 : 1), col, a * (e.elite ? 1.2 : 1))
-        const s = bodyLights.next(T.sil[e.rosterId])
+        const halted = (e.frozen || 0) > 0 || (e.stunT || 0) > 0
+        let f = heldFrame.get(e)
+        if (!halted || f === undefined) { f = Math.floor(t * 10 + e.id * 1.7) % M.frames; heldFrame.set(e, f) }
+        const s = masks.next(T.mask[e.rosterId][f])
         s.position.set(e.x, e.y)
-        const k = (e.radius / M.baseR) * (M.scale ?? 1)
-        s.scale.set(k)
-        if (p) s.rotation = Math.atan2(p.y - e.y, p.x - e.x)
-        s.tint = BODY_FILL
-        s.alpha = BODY_FILL_A
+        let tdx = p ? p.x - e.x : 1
+        if ((e.allyT || 0) > 0 && e._tgtX !== undefined) tdx = e._tgtX - e.x
+        const k = e.radius / (castArchR(e.rosterId) * castDrawScale(e.rosterId, !!e.elite))
+        s.scale.set(k * (tdx < 0 ? -1 : 1), k)
       }
-      bodyLights.end()
+      masks.end()
       // the player's own small, cool light: enough to read the nearest foes, never a torch
       if (p) { addLight(p.x, p.y, 130, L_PLAYER, 0.2); addLight(p.x, p.y, 30, 0xffffff, 0.12) }
       // ON OPEN LAVA: the lava that is burning you must read even under your own sprite — it flares
@@ -427,6 +447,12 @@ export function createPixelRig(env) {
       lightBase.position.set(-cam.cx - PX * 4, -cam.cy - PX * 4)
       lightBase.width = cam.w + PX * 12; lightBase.height = cam.h + PX * 12
       app.renderer.render({ container: lightRoot, target: lightRT, clear: true, clearColor: [0, 0, 0, 1] })
+      if (emitRT.width !== lw || emitRT.height !== lh) emitRT.resize(lw, lh)
+      emitRoot.scale.set(1 / PX)
+      emitRoot.position.set(cam.cx / PX, cam.cy / PX)
+      emitBase.position.set(lightBase.x, lightBase.y)
+      emitBase.width = lightBase.width; emitBase.height = lightBase.height
+      app.renderer.render({ container: emitRoot, target: emitRT, clear: true, clearColor: [0, 0, 0, 1] })
       const u = crtU.uniforms
       u.uPx = PX * z
       u.uLightSize[0] = lw; u.uLightSize[1] = lh
@@ -437,8 +463,9 @@ export function createPixelRig(env) {
       const lk = (flash ? T.playerWhite : T.player)[f]
       if (pSprite.texture !== lk.tex) pSprite.texture = lk.tex
       pSprite.scale.set(p.facing < 0 ? -1 : 1, 1)
-      // standing in lava: you glow hot, pulsing
-      pSprite.tint = burning && Math.floor(animT * 10) % 2 === 0 ? 0xffb070 : 0xffffff
+      // the player keeps its own colour even in lava (it is emissive, src/pixel/crt.js): the burn reads
+      // from the flames licking off its edges and the lava flaring round it
+      pSprite.tint = 0xffffff
     },
     // A sim event drawn here. Returns true when it is fully handled (render.js then skips it).
     event(e) {
