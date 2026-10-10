@@ -30383,6 +30383,8 @@ void main() {
     // plumbing (the blank's Antibody carries 'anchored' for knockback immunity), not a badge.
     const affixes = (e.elite || e.affixVisible) ? e.affixes : null
     const n = affixes ? affixes.length : 0
+    if (pixelLook) return syncPixelAffixBadges(s, e, affixes, n)
+    if (s._affixPix) for (const t of s._affixPix) t.visible = false
     if (!s._affixTexts) s._affixTexts = []
     while (s._affixTexts.length < n) {
       const t = new Text({
@@ -30408,8 +30410,73 @@ void main() {
     }
   }
   function hideAffixBadges(s) {
-    if (!s._affixTexts) return
-    for (const t of s._affixTexts) t.visible = false
+    if (s._affixTexts) for (const t of s._affixTexts) t.visible = false
+    if (s._affixPix) for (const t of s._affixPix) t.visible = false
+  }
+  // Elite affix badges in pixel art (The Magma): an emoji Text through the CRT pass smears into a
+  // teal/magenta blur, so in pixel mode each affix is a tiny icon on PIXEL's own grid and palette,
+  // drawn one art pixel at a time like the crown. src/pixel.js may own them (bakeAffix(id) -> the
+  // { body, ax, ay, res } shape bakeCrown returns, or null for this default).
+  const PIXEL_AFFIX_ART = {
+    shielded:  { rows: ['BBBBBBB', 'BWBBBBB', 'BWBBBBB', 'BBBBBBB', '.BBBBB.', '..BBB..', '...B...'], pal: { B: 'gemLo', W: 'gemHi' } },
+    splitter:  { rows: ['C.....M', '.CHHHM.', '..C.M..', '...M...', '..M.C..', '.MHHHC.', 'M.....C'], pal: { C: 'gem', M: 'blush', H: 'white' } },
+    volatile:  { rows: ['Y..O..Y', '.YOOOY.', '.OWWWO.', 'OOWWWOO', '.OWWWO.', '.YOOOY.', 'Y..O..Y'], pal: { Y: 'lava3', O: 'lava1', W: 'lava4' } },
+    pacer:     { rows: ['......W', '....WWW', '.RRWWWW', 'RRRWWWW', '.RRWWWW', '....WWW', '......W'], pal: { R: 'drake2', W: 'white' } },
+    anchored:  { rows: ['...A...', '..A.A..', '...A...', 'AAAAAAA', '...A...', 'A..A..A', '.AAAAA.'], pal: { A: 'ashHi' } },
+    frenzied:  { rows: ['.RRRRR.', 'RkRRRkR', 'RRkRkRR', 'RRRRRRR', 'RRkkkRR', 'RkRRRkR', '.RRRRR.'], pal: { R: 'lava0', k: 'pupil' } },
+    gilded:    { rows: ['.GGGGG.', 'GHHGGGG', 'GHGGGgG', 'GGGGGgG', 'GGGGGgG', 'GGgggGG', '.GGGGG.'], pal: { G: 'coin', H: 'coinHi', g: 'coinLo' } },
+  }
+  const pixelAffixTexes = new Map()
+  function pixelAffixTex(id) {
+    let t = pixelAffixTexes.get(id)
+    if (!t) {
+      let b = PIXEL.bakeAffix ? PIXEL.bakeAffix(id) : null
+      if (!b) {
+        const P = PIXEL.PAL
+        const art = PIXEL_AFFIX_ART[id] ?? { rows: ['.GGG.', 'G...G', '...G.', '..G..', '.....', '..G..'], pal: { G: 'coin' } }
+        const pal = {}
+        for (const c in art.pal) pal[c] = P[art.pal[c]] ?? art.pal[c]
+        const w = art.rows[0].length, h = art.rows.length
+        const pc = new PIXEL.PixelCanvas(w + 2, h + 2)
+        pc.grid(art.rows, pal, 1, 1)
+        pc.outline(P.ink)
+        b = { body: pc.toCanvas((PIXEL.PX ?? 3) * 2), ax: 0.5, ay: 1, res: 2 }
+      }
+      t = PIXEL.pixelTex(b.body, b.res)
+      pixelAffixTexes.set(id, t)
+    }
+    return t
+  }
+  // One row of pixel icons centred over the elite, seated one art pixel above its crown (the crown
+  // already rides the drawn body's top), every position snapped to the art grid so the CRT pass
+  // re-grids square cells instead of breaking a half-pixel edge into colour fringes.
+  function syncPixelAffixBadges(s, e, affixes, n) {
+    if (s._affixTexts) for (const t of s._affixTexts) t.visible = false
+    if (!s._affixPix) s._affixPix = []
+    while (s._affixPix.length < n) {
+      const t = new Sprite(Texture.EMPTY)
+      t.anchor.set(0.5, 1)
+      affixLayer.addChild(t)
+      s._affixPix.push(t)
+    }
+    const px = PIXEL.PX ?? 3
+    const snap = (v) => Math.round(v / px) * px
+    const cr = s._crown && s._crown.visible ? s._crown : null
+    const bottom = cr ? cr.y - cr.height - px : e.y - e.radius - px * 2
+    let total = 0
+    for (let i = 0; i < n; i++) total += pixelAffixTex(affixes[i]).width + (i ? px : 0)
+    let x = (cr ? cr.x : e.x) - total / 2
+    for (let i = 0; i < s._affixPix.length; i++) {
+      const t = s._affixPix[i]
+      if (i < n) {
+        const tex = pixelAffixTex(affixes[i])
+        if (t.texture !== tex) t.texture = tex
+        t.position.set(snap(x + tex.width / 2), snap(bottom))
+        t.alpha = s.alpha
+        t.visible = true
+        x += tex.width + px
+      } else t.visible = false
+    }
   }
 
   // The enemy's shadow and crown, which no longer ride inside its texture (see groundShadow/
