@@ -1994,7 +1994,7 @@ function testAnomalySlate() {
       // owning a fixed position, so two lines read as two shapes here exactly as intended — and the
       // day it landed, its absence from this array reported "spawned nothing" for a weapon that was
       // firing correctly, which is the same bite `gnash` records against FX below.
-      const LISTS = ['bullets', 'orbs', 'mines', 'zones', 'lobs', 'blooms', 'lures', 'holes', 'beams', 'debris', 'homingShots', 'boomerangs', 'novas', 'arcs', 'longlines', 'hauls', 'snares', 'drips', 'sticks', 'carts']
+      const LISTS = ['bullets', 'orbs', 'mines', 'zones', 'lobs', 'blooms', 'lures', 'holes', 'beams', 'debris', 'homingShots', 'boomerangs', 'novas', 'arcs', 'longlines', 'hauls', 'snares', 'drips', 'sticks', 'carts', 'magmaLobs']
       // Same class of quoted-string list as LISTS above, and it bit for real: `gnash` (The Wreck's
       // native, v7.x) spawns no entity at all — its whole output is this event — so the day it
       // landed this fixture reported "spawned nothing — untestable here" for a weapon that was
@@ -20846,6 +20846,7 @@ run(testLeLargeWeapons)
   run(testBurrow)
   run(testMine)
   run(testMineGlyphTells)
+  run(testMagma)
   // A hand-typed filter that matched nothing is the silent pass without a parent watching:
   // `node test/sim-test.js supernova` printed ALL TESTS PASSED having run no scenario at all.
   if (_ran === 0 && !EXACT_SET) {
@@ -39137,4 +39138,131 @@ function testMine() {
   assert.ok(!seamA[0].dead && seamA[1].dead && Math.abs(seamA[1].r / seamA[0].r - MUTATORS.methaneSeam.effects.gasBlastMul) < 1e-6,
     `run MI.f: Methane Seam's bigger blast must kill a body just past a normal one: ${JSON.stringify(seamA)}`)
   console.log(`PASS run MI (the mine): a shot through a row of 3 pockets blew links ${chains.join(',')} and killed both bodies, nothing with the switch off; a blast beside you stung ${sting} hp; pickaxe/dynamite/minecart/lantern each set off an empty pocket by their own reach (${Object.values(lit).join('/')}); a blow on a body in a pocket set it off (${hookIn}, ${hookOut} away); Open Flame lit a pocket at ${Math.round(far['within the modded range'])}px (${flameOf['within the modded range']}); Canary chained ${chainA.join('->')} pockets; Methane Seam's blast r ${seamA[0].r.toFixed(0)}->${seamA[1].r.toFixed(0)} killed the body just outside; a seeping pocket halted ${seepD.toFixed(0)}px from you; outside the cloud you took ${cloudOut.sting} while the body beside you was hurt, inside it ${cloudIn.sting}`)
+}
+
+// ---- run MA: Book 3, The Magma — the crust, and the weapons that use it -----------------------
+// Effects, not state: (a) a player standing still in The Magma is burned (hurt src 'lava') by the
+// crack its own weight opens, a walking one leaves a trail of footstep cracks that open into lava,
+// and with signature.crust switched off there are no cracks and no burn at all; (b) open lava kills
+// a body standing on it with no weapon equipped; (c) a Volcanic Bomb landing opens lava where it
+// lands (none with the crust off); (d) an Obsidian shard that kills bursts into splinters; (e) the
+// Bellows flares open lava in front of you (it stays open longer).
+function testMagma() {
+  const meta = () => { const m = makeMeta(); m.dev = true; return m }
+  const sig = CHAPTERS.magma.signature
+  const boot = (seed) => { Math.random = mulberry32(seed); const r = createRun(meta(), { chapter: 'magma', difficulty: 1 }); r.player.hp = r.player.maxHP = 1e6; return r }
+  const advance = (r, secs, input, onEv) => {
+    for (let i = 0; i < Math.round(secs * 60); i++) {
+      if (r.phase === 'levelup') { r.phase = 'playing'; r.levelUpChoices = [] }
+      r.player.hp = r.player.maxHP
+      stepSim(r, typeof input === 'function' ? input(r) : input, 1 / 60)
+      if (onEv) onEv(r.events)
+      r.events.length = 0
+    }
+  }
+  // (a)
+  const arm = (on, input) => {
+    const saved = sig.crust
+    if (!on) sig.crust = null
+    try {
+      const r = boot(32001)
+      let steps = 0
+      advance(r, 20, input, (evs) => { for (const e of evs) if (e.type === 'crackOpen' && e.by === 'step') steps++ })
+      return { lava: r.dmgBySrc?.lava ?? 0, steps, cracks: r.cracks.length }
+    } finally { sig.crust = saved }
+  }
+  const circle = (r) => ({ x: Math.cos(r.time * 1.3), y: Math.sin(r.time * 1.3) })
+  const stillOn = arm(true, { x: 0, y: 0 }), stillOff = arm(false, { x: 0, y: 0 }), walk = arm(true, circle), walkOff = arm(false, circle)
+  assert.ok(stillOn.lava > 0, `run MG.a: a player standing still in The Magma took no lava damage (${JSON.stringify(stillOn)})`)
+  assert.ok(walk.steps >= 40 && walk.cracks >= 5, `run MG.a: a walking player should crack the crust behind it: ${JSON.stringify(walk)}`)
+  assert.ok(stillOff.lava === 0 && stillOff.cracks === 0 && walkOff.steps === 0 && walkOff.cracks === 0, `run MG.a: with crust off there must be no cracks and no burn: ${JSON.stringify({ stillOff, walkOff })}`)
+  // (b) a body parked on fresh lava, no weapons: the ground kills it
+  {
+    const r = boot(32002)
+    r.weapons = []
+    stepSim(r, { x: 0, y: 0 }, 1 / 60)
+    r.enemies = []
+    const ex = r.player.x + 300, ey = r.player.y
+    r.cracks.push({ x: ex, y: ey, r: 40, by: 'step', state: 'lava', t: 0, tick: 0, openAt: r.time, lavaT: 3, coolT: 0.5, lavaEnd: r.time + 3, coolEnd: 0 })
+    const e = makeStatusEnemy(r, { x: ex, y: ey, hp: 60, speed: 0 })
+    r.enemies.push(e)
+    const k0 = r.kills
+    for (let i = 0; i < 120 && !e._dead; i++) { r.weapons = []; e.x = ex; e.y = ey; stepSim(r, { x: 0, y: 0 }, 1 / 60); r.events.length = 0 }
+    assert.ok(e._dead && r.kills > k0, `run MG.b: a body standing on open lava for 2s should burn to death (hp ${e.hp})`)
+  }
+  // (c) bomb landings open lava, and not with the crust off
+  const bombs = (on) => {
+    const saved = sig.crust
+    if (!on) sig.crust = null
+    try {
+      const r = boot(32003)
+      r.weapons = [{ id: 'volcanicBomb', level: 1 }]
+      let opened = 0, landed = 0
+      advance(r, 60, circle, (evs) => { for (const e of evs) { if (e.type === 'crackOpen' && e.by === 'volcanicBomb') opened++; if (e.type === 'bombLand') landed++ } })
+      return { opened, landed }
+    } finally { sig.crust = saved }
+  }
+  const bOn = bombs(true), bOff = bombs(false)
+  assert.ok(bOn.landed >= 3 && bOn.opened === bOn.landed, `run MG.c: every bomb landing should open lava: ${JSON.stringify(bOn)}`)
+  assert.ok(bOff.landed >= 3 && bOff.opened === 0, `run MG.c: with the crust off a bomb still lands but opens nothing: ${JSON.stringify(bOff)}`)
+  // (d) a killing obsidian shard bursts into splinters
+  {
+    const r = boot(32004)
+    r.weapons = [{ id: 'obsidianShards', level: 1 }]
+    stepSim(r, { x: 0, y: 0 }, 1 / 60)
+    r.enemies = []
+    r.enemies.push(makeStatusEnemy(r, { x: r.player.x + 120, y: r.player.y, hp: 1, speed: 0 }))
+    let splinters = 0
+    for (let i = 0; i < 90; i++) {
+      stepSim(r, { x: 0, y: 0 }, 1 / 60); r.events.length = 0
+      splinters = Math.max(splinters, r.bullets.filter((b) => b.weapon === 'splinter').length)
+    }
+    assert.ok(splinters >= WEAPONS.obsidianShards.levels[0].splinters, `run MG.d: a killing shard should burst into ${WEAPONS.obsidianShards.levels[0].splinters} splinters, saw ${splinters}`)
+  }
+  // (e) the bellows flares open lava in its blast
+  {
+    const r = boot(32005)
+    r.weapons = [{ id: 'bellows', level: 1 }]
+    stepSim(r, { x: 1, y: 0 }, 1 / 60)
+    const c = { x: r.player.x + 80, y: r.player.y, r: 34, by: 'step', state: 'lava', t: 0, tick: 0, openAt: r.time, lavaT: 3, coolT: 0.5, lavaEnd: r.time + 3, coolEnd: 0 }
+    r.cracks.push(c)
+    const end0 = c.lavaEnd
+    let flares = 0
+    for (let i = 0; i < 90; i++) { stepSim(r, { x: 0.001, y: 0 }, 1 / 60); for (const e of r.events) if (e.type === 'lavaFlare') flares++; r.events.length = 0 }
+    assert.ok(flares >= 1 && c.lavaEnd > end0, `run MG.e: the bellows should flare the lava ahead of you (flares ${flares}, lavaEnd +${(c.lavaEnd - end0).toFixed(2)}s)`)
+  }
+  // (f) the chapter's own anomaly and mutator, scoped to it alone and doing what their cards say
+  assert.strictEqual(BOOKS.burrow.chapters[BOOKS.burrow.chapters.length - 1], 'magma', 'run MG.f: The Magma is the last rung of Burrow')
+  assert.strictEqual(ANOMALIES.hotFeet.chapter, 'magma', 'run MG.f: Hot Feet is The Magma\'s own anomaly')
+  assert.deepStrictEqual(MUTATORS.thinCrust.chapters, ['magma'], 'run MG.f: Thin Crust is The Magma\'s own mutator')
+  const firstOpen = (hot) => {
+    Math.random = mulberry32(32006)
+    const r = createRun(meta(), { chapter: 'magma', difficulty: 1 })
+    r.player.hp = r.player.maxHP = 1e6
+    if (hot) r.anomalies = { ...(r.anomalies ?? {}), hotFeet: true }
+    let crackT = null, openT = null
+    for (let i = 0; i < 600 && openT === null; i++) {
+      r.weapons = []
+      stepSim(r, { x: 0, y: 0 }, 1 / 60)
+      for (const e of r.events) {
+        if (e.type === 'crustCrack' && e.by === 'step' && crackT === null) crackT = r.time
+        if (e.type === 'crackOpen' && e.by === 'step' && openT === null) openT = r.time
+      }
+      r.events.length = 0
+    }
+    return openT - crackT
+  }
+  const plainOpen = firstOpen(false), hotOpen = firstOpen(true)
+  assert.ok(hotOpen < plainOpen * 0.75, `run MG.f: Hot Feet should open cracks sooner: ${hotOpen.toFixed(2)}s vs ${plainOpen.toFixed(2)}s`)
+  const wild = (muts) => {
+    Math.random = mulberry32(32007)
+    const r = createRun(meta(), { chapter: 'magma', difficulty: 1, mutators: muts })
+    r.player.hp = r.player.maxHP = 1e6
+    let far = 0
+    advance(r, 10, circle, (evs) => { for (const e of evs) if (e.type === 'crustCrack' && e.by === 'thinCrust' && Math.hypot(e.x - r.player.x, e.y - r.player.y) > 100) far++ })
+    return far
+  }
+  const thin = wild(['thinCrust']), plainWild = wild([])
+  assert.ok(thin >= 10 && plainWild === 0, `run MG.f: Thin Crust should crack the floor away from you on its own: ${thin} vs ${plainWild}`)
+  console.log(`PASS run MA (The Magma): still burn ${stillOn.lava} vs 0 off; walking ${walk.steps} footstep lava openings, 0 off; lava killed a parked body; ${bOn.opened}/${bOn.landed} bomb landings opened lava (0/${bOff.landed} off); a killing shard burst; the bellows flared the lava; Hot Feet opens in ${hotOpen.toFixed(2)}s vs ${plainOpen.toFixed(2)}s; Thin Crust cracked ${thin} spots on its own`)
 }

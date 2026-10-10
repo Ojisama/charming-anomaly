@@ -936,6 +936,9 @@ export const HAIR_TRIGGER_T = 3            // s of boost per landed parry (refre
 // balance_decision : first guess, owner playtests 2026-10-09
 export const CANARY_REACH_MUL = 1.5      // x how far a blast reaches to light the next pocket
 export const CANARY_LINK_DMG = 0.3       // + this much blast damage per link down the chain
+// Hot Feet (The Magma's anomaly): cracks open this much sooner, and lava burns this much hotter.
+export const HOT_FEET_OPEN_MUL = 0.55
+export const HOT_FEET_BURN_MUL = 1.6
 export const ANOMALIES = {
   unstableCores: {
     name: 'Unstable Cores', icon: '💥',
@@ -1320,6 +1323,16 @@ export const ANOMALIES = {
     when: () => true,
     weight: 2, chapter: 'mine', kind: 'jackpot',
     minLevel: 3,
+  },
+
+  // The Magma's own: the crust turned up, both ways.
+  hotFeet: {
+    name: 'Hot Feet', icon: '🔥',
+    from: 'the crust got thinner under you',
+    desc: `Cracks open into lava ${Math.round((1 - HOT_FEET_OPEN_MUL) * 100)}% sooner, and lava burns ${Math.round((HOT_FEET_BURN_MUL - 1) * 100)}% hotter, for them and for you.`,
+    when: () => true,
+    weight: 2, chapter: 'magma', kind: 'trade',
+    minLevel: 10,
   },
 }
 
@@ -2949,6 +2962,67 @@ export const WEAPONS = {
       { dmg: 33, interval: 0.32, radius: 188, range: 215 },
     ],
   },
+
+  // ---- Book 3, The Magma's four. All auto-fire; the crust under the fight is the fifth. ----
+  // Slag Ladle: a ladle of molten slag tossed onto the nearest foe (run.magmaLobs, kind 'slag'). It
+  // splashes where it lands and leaves a burning puddle (run.slagPools) that keeps cooking the crowd.
+  slagLadle: {
+    name: 'Slag Ladle',
+    desc: 'Tosses molten slag on the nearest foe. It leaves a burning puddle.',
+    icon: '🥄', rarity: 'normal',
+    // balance_decision : starter, splash plus puddle, unplayed 2026-10-10
+    levels: [
+      { dmg: 20, interval: 0.95, count: 1, r: 50, duration: 2.4, burn: 7 },
+      { dmg: 24, interval: 0.9, count: 1, r: 54, duration: 2.6, burn: 8 },
+      { dmg: 28, interval: 0.85, count: 2, r: 56, duration: 2.8, burn: 10 },
+      { dmg: 34, interval: 0.78, count: 2, r: 60, duration: 3.0, burn: 12 },
+      { dmg: 42, interval: 0.7, count: 3, r: 64, duration: 3.2, burn: 14 },
+    ],
+  },
+  // Obsidian Shards: volcanic glass flicked at the nearest foe (run.bullets, weapon 'obsidian'). A shard
+  // that KILLS bursts into splinters (weapon 'splinter') flying out of the body.
+  obsidianShards: {
+    name: 'Obsidian Shards',
+    desc: 'Flicks volcanic glass at the nearest foe. A kill bursts it into splinters.',
+    icon: '🔪', rarity: 'normal',
+    levels: [
+      { dmg: 15, interval: 0.6, count: 1, speed: 560, pierce: 1, splinters: 4 },
+      { dmg: 18, interval: 0.56, count: 2, speed: 570, pierce: 1, splinters: 4 },
+      { dmg: 21, interval: 0.52, count: 2, speed: 590, pierce: 2, splinters: 5 },
+      { dmg: 25, interval: 0.47, count: 3, speed: 610, pierce: 2, splinters: 5 },
+      { dmg: 30, interval: 0.42, count: 3, speed: 640, pierce: 3, splinters: 6 },
+    ],
+  },
+  // Bellows: a blast of hot air the way you are walking (run.novas, look 'bellows', a sector). Open
+  // lava inside the blast FLARES: it burns longer and bursts at once (BELLOWS_FLARE_*).
+  bellows: {
+    name: 'Bellows',
+    desc: 'Blasts hot air the way you walk. Open lava in the blast flares up.',
+    icon: '🌬️', rarity: 'normal',
+    levels: [
+      // balance_decision : wide long fan so it kills alone while kiting 2026-10-10
+      //  - a narrow arc only hits what is AHEAD; a kiting player walks away from the pack
+      { dmg: 16, interval: 1.1, radius: 250, arc: 2.8, knockback: 120 },
+      { dmg: 19, interval: 1.05, radius: 260, arc: 2.9, knockback: 130 },
+      { dmg: 23, interval: 0.98, radius: 275, arc: 3.0, knockback: 140 },
+      { dmg: 28, interval: 0.9, radius: 290, arc: 3.15, knockback: 150 },
+      { dmg: 35, interval: 0.82, radius: 310, arc: 3.3, knockback: 165 },
+    ],
+  },
+  // Volcanic Bomb: a molten rock lobbed into the thickest of the crowd (run.magmaLobs, kind 'bomb'). It
+  // blasts where it lands and CRACKS THE CRUST there: the spot opens straight into lava.
+  volcanicBomb: {
+    name: 'Volcanic Bomb',
+    desc: 'Lobs a molten rock into the crowd. Where it lands, the crust breaks open into lava.',
+    icon: '🌋', rarity: 'rare',
+    levels: [
+      { dmg: 34, interval: 2.2, count: 1, r: 74 },
+      { dmg: 40, interval: 2.05, count: 1, r: 78 },
+      { dmg: 48, interval: 1.9, count: 2, r: 82 },
+      { dmg: 58, interval: 1.75, count: 2, r: 88 },
+      { dmg: 70, interval: 1.6, count: 3, r: 96 },
+    ],
+  },
 }
 export const MAX_WEAPON_LEVEL = 5
 export const MAX_WEAPONS = 4 // equipped cap; new weapons stop appearing once reached
@@ -4271,6 +4345,36 @@ export const WEAPON_MODS = {
     quickWick:   { name: 'Quick Wick',   desc: 'burn rate', icon: '⏩', base: 0.25, kind: 'pct' },
     openFlame:   { name: 'Open Flame',   desc: 'how far the glow sets off firedamp', icon: '🔥', base: 0.30, kind: 'pct' },
   },
+
+  // ---- Book 3, The Magma ----
+  slagLadle: {
+    hotSlag:     { name: 'Hot Slag',     desc: 'slag damage', icon: '💥', base: 0.30, kind: 'pct' },
+    deepLadle:   { name: 'Deep Ladle',   desc: 'splash and puddle radius', icon: '⭕', base: 0.22, kind: 'pct' },
+    slowCooling: { name: 'Slow Cooling', desc: 'how long a puddle burns', icon: '⌛', base: 0.25, kind: 'pct' },
+    quickLadle:  { name: 'Quick Ladle',  desc: 'toss rate', icon: '⏩', base: 0.25, kind: 'pct' },
+    secondScoop: { name: 'Second Scoop', desc: 'extra ladle(s) per toss', icon: '🔷', kind: 'tier' },
+  },
+  obsidianShards: {
+    keenGlass:   { name: 'Keen Glass',   desc: 'shard damage', icon: '💥', base: 0.30, kind: 'pct' },
+    glassVolley: { name: 'Glass Volley', desc: 'extra shard(s) per flick', icon: '🔷', kind: 'tier' },
+    quickKnap:   { name: 'Quick Knap',   desc: 'flick rate', icon: '⏩', base: 0.25, kind: 'pct' },
+    shatter:     { name: 'Shatter',      desc: 'splinters per kill', icon: '✴️', base: 2, kind: 'flat' },
+    razorEdge:   { name: 'Razor Edge',   desc: 'shard pierce', icon: '🎯', base: 1, kind: 'flat', maxPicks: PIERCE_MAX_PICKS },
+  },
+  bellows: {
+    forgeHeat:   { name: 'Forge Heat',   desc: 'gust damage', icon: '💥', base: 0.30, kind: 'pct' },
+    longDraft:   { name: 'Long Draft',   desc: 'gust reach', icon: '📏', base: 0.22, kind: 'pct' },
+    widePipe:    { name: 'Wide Pipe',    desc: 'gust width', icon: '🪭', base: 0.25, kind: 'pct' },
+    quickPump:   { name: 'Quick Pump',   desc: 'gust rate', icon: '⏩', base: 0.25, kind: 'pct' },
+    flareUp:     { name: 'Flare Up',     desc: 'damage of the lava it flares', icon: '🔥', base: 0.40, kind: 'pct' },
+  },
+  volcanicBomb: {
+    heavyRock:   { name: 'Heavy Rock',   desc: 'bomb damage', icon: '💥', base: 0.30, kind: 'pct' },
+    bigBlast:    { name: 'Big Blast',    desc: 'blast radius', icon: '⭕', base: 0.22, kind: 'pct' },
+    salvo:       { name: 'Salvo',        desc: 'extra bomb(s) per throw', icon: '🔷', kind: 'tier' },
+    quickFuse:   { name: 'Quick Fuse',   desc: 'throw rate', icon: '⏩', base: 0.25, kind: 'pct' },
+    deepFissure: { name: 'Deep Fissure', desc: 'how long its lava stays open', icon: '⌛', base: 0.30, kind: 'pct' },
+  },
 }
 export const MAX_WEAPON_MOD_PICKS = 5
 // Shared by every tier mod: a single pick's bonus is looked up by rolled rarity rather than
@@ -4300,6 +4404,7 @@ export const WEAPON_RATE_MODS = {
   shovel: 'quickDig', pebbleSling: 'whirl', rootSnare: 'quickSprout', prismShard: 'flickRate',
   echoPulse: 'rapidClick', stalactite: 'dripRate',
   pickaxe: 'quickSwing', dynamite: 'shortFuse', minecart: 'greasedAxle', lantern: 'quickWick',
+  slagLadle: 'quickLadle', obsidianShards: 'quickKnap', bellows: 'quickPump', volcanicBomb: 'quickFuse',
   // chum and bilge are absent DELIBERATELY: neither carries a rate mod, and this table's own
   // header says a weapon with none simply does not appear here. Naming one that does not exist
   // would put a phantom row in the pause build sheet's cadence line.
@@ -5932,7 +6037,7 @@ export const CHAPTER_LATE_RATE = {
   body: 0.005, pond: 0.010, garden: 0.015, undergrowth: 0.020,
   city: 0.028, skies: 0.036, beyond: 0.0605,
   surf: 0.010, shelf: 0.015,
-  topsoil: 0.010, geode: 0.015, mine: 0.020,
+  topsoil: 0.010, geode: 0.015, mine: 0.020, magma: 0.020,
 }
 // Unknown/absent chapter (the Blank, a test run with no chapter) keeps the shipped curve.
 export const lateRateFor = (chapterId) => CHAPTER_LATE_RATE[chapterId] ?? HP_SCALE_LATE_RATE
@@ -6308,7 +6413,7 @@ export const BOOKS = {
    // next, still gated: a dev-gated shell whose boss sim lands in a later increment. Saves key on chapter ID, never position.
    undertow: { name: 'Undertow', cloth: '#1f5c7c', chapters: ['surf', 'shelf', 'reef', 'trawl', 'wreck', 'deep'], hidden: ['kraken'], startCoins: 100 },
   // Book 3: digging down into the earth. wipFrom 0 gates the whole book behind meta.dev.
-  burrow: { name: 'Burrow', cloth: '#2b1d15', chapters: ['topsoil', 'geode', 'mine'], hidden: [], startCoins: 100, wipFrom: 0 },
+  burrow: { name: 'Burrow', cloth: '#2b1d15', chapters: ['topsoil', 'geode', 'mine', 'magma'], hidden: [], startCoins: 100, wipFrom: 0 },
 }
 // Explicit, for the same reason CHAPTER_ORDER is explicit: a sweep that means "every book, in
 // campaign order" must not depend on object key order surviving an edit. The FIRST entry is the
@@ -6375,6 +6480,25 @@ export const MINECART_FAN = 0.32         // rad between the carts of one push
 export const MINECART_KB = 120           // the sideways shove a cart gives what it hits
 export const MINE_BOOM_KEEP = 0.6        // s a blast stays in run.booms for the renderer (render-facing only)
 export const LANTERN_PULSE = 0.18        // s a Lantern burn takes to sweep out to its radius (a run.novas pulse)
+// ---- Book 3, The Magma: weapon geometry (balance lives in WEAPONS[].levels) ----------------------
+export const SLAG_RANGE = 400            // px from you the ladle reaches for a foe
+export const SLAG_FLIGHT = 0.32          // s a ladle of slag is in the air
+export const SLAG_TICK = 0.3             // s between a puddle's burns
+export const OBSIDIAN_FAN = 0.14         // rad between shards of one flick
+export const OBSIDIAN_LIFE = 0.9         // s of flight
+export const OBSIDIAN_R = 8              // px hit radius
+export const SPLINTER_DMG_MUL = 0.55     // a splinter's damage, as a fraction of the shard that burst
+export const SPLINTER_LIFE = 0.34        // s of flight
+export const SPLINTER_SPEED = 520        // px/s
+export const SPLINTER_R = 6              // px hit radius
+export const BELLOWS_LIFE = 0.26         // s for the blast to reach its reach
+export const BELLOWS_FLARE_MUL = 1.0     // a flared lava's burst, as a fraction of the blast's damage
+export const BELLOWS_FLARE_R = 1.7       // ...and its radius, as a multiple of the lava's own
+export const BELLOWS_FLARE_T = 1.2       // s a flare adds to the lava's open time
+export const BOMB_RANGE = 460            // px from you a bomb may land
+export const BOMB_FLIGHT = 0.7           // s a bomb is in the air
+export const BOMB_LAVA_R = 0.7           // the lava it opens, as a fraction of the blast radius
+export const BOMB_LAVA_T = 3.2           // s that lava stays open
 
 
 // EVERY REFILL FIELD IN BOOK 2 DRAWS DOWN, NOT JUST THE SHELF'S (owner, 2026-08-18: "in all zones of
@@ -9249,6 +9373,54 @@ CHAPTERS.mine = {
   },
 }
 
+// THE MAGMA: the book's chamber of molten rock at the bottom of the crust (the core lies deeper).
+// The floor is a thin skin of cooled crust over lava (signature.crust, run by stepCrust in sim.js):
+// every few steps your weight CRACKS it (run.cracks), a moment later the crack OPENS into lava that
+// burns whatever stands on it, and then it crusts over again. Your path is a weapon for whatever
+// chases you down it — and standing still lets the crack under your own feet open. Keep moving.
+// The look is PIXEL ART through a CRT (render.pixel; src/pixel.js owns every drawing).
+CHAPTERS.magma = {
+  name: 'The Magma', tagline: 'the floor is cracking', icon: '🌋',
+  weapons: ['slagLadle', 'obsidianShards', 'bellows', 'volcanicBomb'], starter: 'slagLadle',
+  roster: [
+    { id: 'cinderBeetle',     archetype: 'normal', name: 'Cinder Beetle',     hpMul: 0.8, speedMul: 0.9, radiusMul: 0.9, weight: 3, flags: [] },
+    { id: 'salamander',       archetype: 'fast',   name: 'Salamander',        hpMul: 0.8, speedMul: 1.0, flags: ['dashBurst'] },
+    { id: 'obsidianTortoise', archetype: 'tank',   name: 'Obsidian Tortoise', hpMul: 1.5, speedMul: 0.75, radiusMul: 1.1, flags: ['unshakeable'] },
+    // The elite. eliteOnly: every elite in this chapter is a drake, and no ordinary spawn is.
+    { id: 'fireDrake',        archetype: 'fast',   name: 'Fire Drake',        hpMul: 2.4, speedMul: 1.0, radiusMul: 1.25, flags: ['weave'], eliteOnly: true },
+  ],
+  eliteFlags: [],
+  signature: {
+    type: 'crust',
+    // The crust switch (tests turn it off with crust = null: no cracks, no lava, nothing burns).
+    // A footstep crack every stepEvery px walked, or every stillT s stood still; it opens openT s
+    // later into lava of radius r for lavaT s, then crusts over for coolT s (harmless).
+    // balance_decision : lava culls chasers, a gentle burn on you 2026-10-10
+    //  - elites take eliteMul of the burn: the drake must not melt on your path alone
+    crust: {
+      stepEvery: 50, stillT: 0.6, r: 34, openT: 0.9, lavaT: 4, coolT: 0.7, max: 110,
+      tick: 0.25, burnFlat: 18, burnPct: 1.5, eliteMul: 0.2, playerBurn: 7,
+      // THIN CRUST (the chapter's mutator): cracks appear on their own all around you, every
+      // `every` s, between near and far px away.
+      wild: { every: 0.3, near: 120, far: 560 },
+    },
+  },
+  obstacles: null,
+  balance: { spawnMul: 0.8, enemyDmgMul: 0.7, enemyHpMul: 1.25, xpMul: 1.25, maxAliveMul: 0.64 },
+  render: {
+    cast: ['cinderBeetle', 'salamander', 'obsidianTortoise', 'fireDrake'],
+    bgColor: 0x140705,     // under the pixel floor tile
+    floorTint: 0xffffff,   // the floor and its props carry their own palette
+    playerTint: 0xffffff,
+    tail: false,
+    // embers drifting up off the lava
+    dust: { tint: 0xff9a40, alpha: 0.75, speedMul: 0.1, sway: 3 },
+    // PIXEL ART THROUGH A CRT (render.js delegates everything to src/pixel.js). px is the size of one
+    // art pixel in screen px; the rest are the CRT pass's knobs.
+    pixel: { px: 3, scan: 0.32, curve: 0.06, vignette: 0.5, glow: 0.55, mask: 0.18, flicker: 0.02 },
+  },
+}
+
 // ---- The Kraken (hidden boss — the tuning block, sim.js's stepKrakenScript owns the flow) -------
 // THE PARRY OPENS, THE BUILD KILLS:
 //   - an ARM is sealed until a parry makes it limp (KRAKEN_EXPOSE_BITE tears it on that parry);
@@ -10927,7 +11099,7 @@ export const CHAPTER_SPINE = {
   body: 'Body', pond: 'Pond', garden: 'Garden', undergrowth: 'Undergrowth',
   city: 'City', skies: 'Skies', beyond: 'Beyond', blank: 'Blank',
   surf: 'Surf', shelf: 'Shelf', reef: 'Reef', wreck: 'Wreck', trawl: 'Trawl', deep: 'Deep', kraken: 'Kraken',
-  topsoil: 'Topsoil', geode: 'Geode', mine: 'Mine',
+  topsoil: 'Topsoil', geode: 'Geode', mine: 'Mine', magma: 'Magma',
 }
 // Falls back to the full name rather than throwing: a chapter added without a spine entry renders
 // with its article and looks slightly wrong, which is a far better failure than a blank spine.
@@ -13432,6 +13604,8 @@ export const DMG_SRC_NAME = {
   // reads as the card you took rather than as a mystery source of damage.
   overload: 'Overload',
   bloodMoney: 'Blood Money',
+  // The Magma: open lava (run.cracks) under your feet
+  lava: 'Lava',
   // The bucket that should always be empty — see the block comment above.
   unknown: 'Unknown',
   // Archetype fallbacks, for a spawn with no roster entry (stepContactDamage keys on
@@ -15168,6 +15342,7 @@ export const CHAPTER_ENDINGS = {
   topsoil:     { victory: 'You dug your way down! 🎉',              death: 'Buried… 🪱' },
   geode:       { victory: 'You found the way through the crystal! 🎉', death: 'Lost in the glitter… 💎' },
   mine:        { victory: 'You struck daylight! 🎉',               death: 'Lost in the old galleries… ⛏️' },
+  magma:       { victory: 'You crossed the magma! 🎉',               death: 'Melted… 🌋' },
 }
 export const CHAPTER_UNLOCK_LINES = {
   pond:        'The Pond — word of you travels downstream',
@@ -15571,6 +15746,8 @@ export const MUTATORS = {
   // The Mine's own. Both ways: more firedamp to set off, and bigger blasts to stand clear of.
   // balance_decision : first guess, owner playtests 2026-10-09
   methaneSeam:  { name: 'Methane Seam',   icon: '💨', desc: 'Far more firedamp, and every blast is bigger. Stand well clear.', chapters: ['mine'], effects: { gasCountMul: 1.7, gasBlastMul: 1.3 } },
+  // The Magma's own. The cracking half has no mods key: stepCrust reads the id (the Blank's idiom).
+  thinCrust:    { name: 'Thin Crust',     icon: '🌋', desc: 'The crust cracks everywhere on its own, under them and under you. Bonus XP.', chapters: ['magma'], effects: { xpMul: 1.2 } },
 }
 // Every key mergeMutatorMods can produce, all defaulted to 1 (neutral) before mutator effects
 // multiply in. sim.js applies each of these at one specific point — see sim.js's module doc.

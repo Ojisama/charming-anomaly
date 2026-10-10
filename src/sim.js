@@ -261,6 +261,8 @@ import {
   PICKAXE_RANGE, PICKAXE_KB, PICKAXE_CHIP_DMG, PICKAXE_CHIP_SPEED, PICKAXE_CHIP_LIFE, PICKAXE_CHIP_R,
   DYNAMITE_RANGE, DYNAMITE_FLIGHT, DYNAMITE_FUSE, DYNAMITE_KB, MINECART_SPEED, MINECART_FAN, MINECART_KB,
   CANARY_REACH_MUL, CANARY_LINK_DMG, LANTERN_PULSE, MINE_BOOM_KEEP,
+  SLAG_RANGE, SLAG_FLIGHT, SLAG_TICK, OBSIDIAN_FAN, OBSIDIAN_LIFE, OBSIDIAN_R, SPLINTER_DMG_MUL, SPLINTER_LIFE, SPLINTER_SPEED, SPLINTER_R,
+  BELLOWS_LIFE, BELLOWS_FLARE_MUL, BELLOWS_FLARE_R, BELLOWS_FLARE_T, BOMB_RANGE, BOMB_FLIGHT, BOMB_LAVA_R, BOMB_LAVA_T, HOT_FEET_OPEN_MUL, HOT_FEET_BURN_MUL,
 } from './config.js'
 
 const KB_DECAY_RATE = 6 // per-second exponential-ish decay factor for enemy knockback
@@ -399,6 +401,7 @@ export function stepSim(run, input, dt) {
   if (stepEnemyShots(run, dt)) return // phase is now 'dead' (helicopter missile — v5.4)
   if (stepPullBeams(run, dt)) return // phase is now 'dead' (UFO abduction beam DoT — v5.4)
   if (stepTunnels(run, dt)) return // phase is now 'dead' (Book 3 Topsoil: a mole erupted under you)
+  if (stepCrust(run, dt)) return // phase is now 'dead' (Book 3 The Magma: you stood in the lava)
 
   stepMartyr(run)         // v7.2: resolve the anomaly's queued blasts — after every hurtPlayer caller above
   stepGravityWells(run, dt) // v5.4 beyond signature: bend every projectile in flight (damages nothing)
@@ -10262,6 +10265,11 @@ const WEAPON_STAT_MODS = {
   dynamite:    { blastingCap: ['dmg', 'pct'], bigBang: ['r', 'pct'], bundle: ['count', 'flat'] },
   minecart:    { heavyLoad: ['dmg', 'pct'], wideCart: ['width', 'pct'], secondCart: ['count', 'flat'] },
   lantern:     { brightFlame: ['dmg', 'pct'], wideGlow: ['radius', 'pct'], openFlame: ['range', 'pct'] },
+  // The Magma. Rate mods divide at their fire sites; flareUp and deepFissure are read there too.
+  slagLadle:      { hotSlag: ['dmg', 'pct'], deepLadle: ['r', 'pct'], slowCooling: ['duration', 'pct'], secondScoop: ['count', 'flat'] },
+  obsidianShards: { keenGlass: ['dmg', 'pct'], glassVolley: ['count', 'flat'], shatter: ['splinters', 'flat'], razorEdge: ['pierce', 'flat'] },
+  bellows:        { forgeHeat: ['dmg', 'pct'], longDraft: ['radius', 'pct'], widePipe: ['arc', 'pct'] },
+  volcanicBomb:   { heavyRock: ['dmg', 'pct'], bigBlast: ['r', 'pct'], salvo: ['count', 'flat'] },
   orbit:     { extraOrb: ['orbs', 'flat'], wideRing: ['radius', 'pct'], overdrive: ['rotSpeed', 'pct'] },
   wave:      { bigWave: ['radius', 'pct'], shove: ['knockback', 'pct'], amplitude: ['dmg', 'pct'] },
   boomerang: { extraRang: ['count', 'flat'], longThrow: ['range', 'pct'], heavyBlade: ['dmg', 'pct'] },
@@ -10559,6 +10567,10 @@ function stepWeaponsInner(run, dt) {
     else if (w.id === 'dynamite') stepDynamiteWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'minecart') stepMinecartWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'lantern') stepLanternWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'slagLadle') stepSlagLadleWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'obsidianShards') stepObsidianWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'bellows') stepBellowsWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'volcanicBomb') stepVolcanicBombWeapon(run, w, stats, fireRateMul, dt)
   }
 
   stepBullets(run, dt)
@@ -10578,6 +10590,8 @@ function stepWeaponsInner(run, dt) {
   stepDrips(run, dt)    // Book 3: Stalactite drops
   stepSticks(run, dt)   // Book 3 The Mine: dynamite on its fuse
   stepCarts(run, dt)    // Book 3 The Mine: minecarts rolling
+  stepMagmaLobs(run, dt)   // Book 3 The Magma: slag and bombs landing
+  stepSlagPools(run, dt)   // ...and the slag's burning puddles
   stepLonglines(run, dt)
   stepHauls(run, dt)
   // v7.23 skies. stepDrags moves bodies, so it runs BEFORE the dead sweep below and before
@@ -10813,6 +10827,7 @@ function stepBullets(run, dt) {
       const rad = b.r + e.radius
       if (dx * dx + dy * dy <= rad * rad) {
         applyDamage(run, e, b.dmg)
+        if (b._splinters > 0 && e._dead) burstObsidian(run, b, e)   // The Magma: a killing shard bursts
         // Necrotic Tips (stinger switch mod, snapshotted as b._necrotic at fire time): the needle
         // leaves flagella's bleed behind. Reuses applyBleed verbatim rather than growing a second
         // DoT — which also means lightning can forward it, since elArc carries bleed.
@@ -10843,6 +10858,7 @@ function stepBullets(run, dt) {
   }
   run.bullets = capLive(bullets.filter((b) => b.life > 0 && b.pierce > 0), 'bullets')
   flushCrystalSplits(run)   // Book 3: prism siblings born off a crystal this frame
+  flushSplinters(run)       // Book 3 The Magma: splinters burst off a kill this frame
 }
 
 // reboundQuills (v6.6.28): turn one quill around for a return sweep. Called from BOTH ends of a
@@ -16820,4 +16836,256 @@ function stepLanternWeapon(run, w, stats, fireRateMul, dt) {
     for (const r of ipecacRadii(run, stats.radius)) spawnNova(run, p.x, p.y, r, stats.dmg, 0, 0, { look: 'lantern', life: LANTERN_PULSE })
     gasLightAt(run, p.x, p.y, stats.range)
   })
+}
+// ==== Book 3: The Magma ============================================================================
+// THE CRUST (The Magma's signature). The floor is a skin of cooled crust over lava, and the player's
+// weight cracks it: a crack every `stepEvery` px walked, or every `stillT` s stood still, at the
+// player's feet. A crack OPENS into lava `openT` s later, burns every body on it for `lavaT` s
+// (hazard damage — the ground did it, and a kill still counts), then crusts over for `coolT` s.
+// The player is burned too (hurt src 'lava') while standing in open lava, so the dodge is the same
+// as the weapon: keep moving, and lead the crowd across your own path. Published for the renderer
+// (src/pixel.js): run.cracks entries and their `state`. Returns true when the lava killed the player.
+function crustSpec(run) {
+  const sig = CHAPTERS[run.chapter].signature
+  return sig && sig.type === 'crust' && sig.crust ? sig.crust : null
+}
+function addCrack(run, C, x, y, r, by, molten = false, lavaT = null) {
+  const hot = run.anomalies?.hotFeet
+  const c = {
+    x, y, r, by, state: molten ? 'lava' : 'crack', t: 0, tick: 0,
+    openAt: run.time + (molten ? 0 : C.openT * (hot ? HOT_FEET_OPEN_MUL : 1)),
+    lavaT: lavaT ?? C.lavaT, coolT: C.coolT, lavaEnd: 0, coolEnd: 0,
+  }
+  if (molten) {
+    c.lavaEnd = run.time + c.lavaT
+    run.events.push({ type: 'crackOpen', x, y, r, by })
+  } else run.events.push({ type: 'crustCrack', x, y, r, by })
+  run.cracks.push(c)
+  if (run.cracks.length > C.max) run.cracks.splice(0, run.cracks.length - C.max)
+  return c
+}
+function stepCrust(run, dt) {
+  const C = crustSpec(run)
+  if (!C) return false
+  const p = run.player
+  const hot = run.anomalies?.hotFeet ? HOT_FEET_BURN_MUL : 1
+  // 1. Footsteps: distance walked since the last crack, or time stood still.
+  if (run._crustPX == null) { run._crustPX = p.x; run._crustPY = p.y; run._crustOdo = 0; run._crustStill = 0 }
+  const moved = Math.hypot(p.x - run._crustPX, p.y - run._crustPY)
+  run._crustPX = p.x; run._crustPY = p.y
+  run._crustOdo += moved
+  run._crustStill += dt
+  if (run._crustOdo >= C.stepEvery || run._crustStill >= C.stillT) {
+    run._crustOdo = 0; run._crustStill = 0
+    addCrack(run, C, p.x, p.y, C.r, 'step')
+  }
+  // 2. Thin Crust (the chapter's mutator): cracks open on their own all round you, for them and you.
+  if (run.mutators.includes('thinCrust') && C.wild) {
+    run._crustWildT = (run._crustWildT ?? C.wild.every) - dt
+    while (run._crustWildT <= 0) {
+      run._crustWildT += C.wild.every
+      const a = Math.random() * Math.PI * 2, d = C.wild.near + Math.random() * (C.wild.far - C.wild.near)
+      addCrack(run, C, p.x + Math.cos(a) * d, p.y + Math.sin(a) * d, C.r, 'thinCrust')
+    }
+  }
+  // 3. Every crack: open, burn, crust over.
+  let onLava = false
+  for (const c of run.cracks) {
+    c.t += dt
+    if (c.state === 'crack') {
+      if (run.time < c.openAt) continue
+      c.state = 'lava'
+      c.lavaEnd = run.time + c.lavaT
+      run.events.push({ type: 'crackOpen', x: c.x, y: c.y, r: c.r, by: c.by })
+    }
+    if (c.state === 'lava') {
+      if (run.time >= c.lavaEnd) { c.state = 'cool'; c.coolEnd = run.time + c.coolT; continue }
+      if ((p.x - c.x) ** 2 + (p.y - c.y) ** 2 <= (c.r + PLAYER.radius * 0.3) ** 2) onLava = true
+      c.tick -= dt
+      if (c.tick > 0) continue
+      c.tick += C.tick
+      for (const e of enemiesNear(run, c.x, c.y, c.r, true)) {
+        if (e._dead || isAlly(e) || damageImmune(e)) continue
+        const rr = c.r + e.radius * 0.5
+        if ((e.x - c.x) ** 2 + (e.y - c.y) ** 2 > rr * rr) continue
+        const dmg = (C.burnFlat + C.burnPct * e.maxHP) * C.tick * hot * (e.elite ? C.eliteMul : 1)
+        dealDamage(run, e, dmg, false, true, true)   // hazard: the lava did it
+      }
+    } else if (c.state === 'cool' && run.time >= c.coolEnd) c._gone = true
+  }
+  if (run.cracks.length > 0 && run.cracks.some((c) => c._gone)) run.cracks = run.cracks.filter((c) => !c._gone)
+  // 4. The player in open lava: a steady dot burn (one burn, however many cracks overlap).
+  if (onLava) {
+    run._lavaPT = (run._lavaPT ?? 0) - dt
+    if (run._lavaPT <= 0) {
+      run._lavaPT += C.tick
+      if (hurtPlayer(run, C.playerBurn * C.tick * hot * run.mods.enemyDmgMul, true, 'lava')) return true
+    }
+  } else run._lavaPT = 0
+  return false
+}
+
+// -- Slag Ladle (The Magma starter) ---------------------------------------------------------------
+function stepSlagLadleWeapon(run, w, stats, fireRateMul, dt) {
+  const p = run.player
+  const quick = run.weaponMods.slagLadle?.quickLadle ?? 0
+  fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => {
+    const n = ipecacN(run, stats.count)
+    const spots = pickBloomSpots(run, n, SLAG_RANGE, true)
+    for (const sp of spots) {
+      run.magmaLobs.push({ kind: 'slag', fromX: p.x, fromY: p.y, x: sp.x, y: sp.y, t: 0, flight: SLAG_FLIGHT,
+        r: stats.r, dmg: stats.dmg, dur: stats.duration, burn: stats.burn })
+    }
+    if (spots.length) run.events.push({ type: 'shoot', weapon: 'slagLadle', x: p.x, y: p.y })
+  })
+}
+function stepSlagPools(run, dt) {
+  if (run.slagPools.length === 0) return
+  for (const sp of run.slagPools) {
+    sp.t += dt
+    sp.tick -= dt
+    if (sp.tick > 0) continue
+    sp.tick += SLAG_TICK
+    for (const e of enemiesNear(run, sp.x, sp.y, sp.r, true)) {
+      if (e._dead || isAlly(e) || damageImmune(e)) continue
+      if (Math.hypot(e.x - sp.x, e.y - sp.y) > sp.r + e.radius * 0.5) continue
+      applyDotDamage(run, e, sp.burn)
+    }
+  }
+  run.slagPools = run.slagPools.filter((sp) => sp.t < sp.dur)
+}
+
+// -- Obsidian Shards ------------------------------------------------------------------------------
+function stepObsidianWeapon(run, w, stats, fireRateMul, dt) {
+  const quick = run.weaponMods.obsidianShards?.quickKnap ?? 0
+  fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => {
+    const p = run.player
+    const target = nearestEnemy(run)
+    const base = target ? Math.atan2(target.y - p.y, target.x - p.x) : aimAngle(run)
+    const count = ipecacN(run, stats.count)
+    for (let i = 0; i < count; i++) {
+      const a = base + (i - (count - 1) / 2) * OBSIDIAN_FAN
+      run.bullets.push({
+        x: p.x, y: p.y, vx: Math.cos(a) * stats.speed, vy: Math.sin(a) * stats.speed,
+        dmg: stats.dmg, pierce: stats.pierce, life: OBSIDIAN_LIFE, r: OBSIDIAN_R, speed: stats.speed,
+        hitIds: new Set(), _shard: true, _splitDone: true, _chainsLeft: 0, weapon: 'obsidian',
+        _splinters: Math.round(stats.splinters),
+      })
+    }
+    run.events.push({ type: 'shoot', weapon: 'obsidianShards' })
+  })
+}
+// A shard that KILLS bursts: its splinters fly out of the body, evenly spaced from a random start.
+// Queued, not pushed: stepBullets is mid-walk over run.bullets (flushed at its end).
+function burstObsidian(run, b, e) {
+  const n = b._splinters
+  const a0 = Math.random() * Math.PI * 2
+  const q = (run._splinterQ ??= [])
+  for (let i = 0; i < n; i++) {
+    const a = a0 + (i / n) * Math.PI * 2
+    q.push({
+      x: e.x, y: e.y, vx: Math.cos(a) * SPLINTER_SPEED, vy: Math.sin(a) * SPLINTER_SPEED,
+      dmg: b.dmg * SPLINTER_DMG_MUL, pierce: 1, life: SPLINTER_LIFE, r: SPLINTER_R, speed: SPLINTER_SPEED,
+      hitIds: new Set([e.id]), _shard: true, _splitDone: true, _chainsLeft: 0, weapon: 'splinter',
+    })
+  }
+}
+function flushSplinters(run) {
+  if (!run._splinterQ || run._splinterQ.length === 0) return
+  for (const nb of run._splinterQ) run.bullets.push(nb)
+  run._splinterQ.length = 0
+}
+
+// -- Bellows ---------------------------------------------------------------------------------------
+// The blast goes the way you WALK (p.facingAngle), never at a target: the auto-aim is your feet.
+function stepBellowsWeapon(run, w, stats, fireRateMul, dt) {
+  const p = run.player
+  const quick = run.weaponMods.bellows?.quickPump ?? 0
+  const flareUp = run.weaponMods.bellows?.flareUp ?? 0
+  fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => {
+    const aim = p.facingAngle ?? aimAngle(run)
+    for (const a of ipecacAngles(run, aim)) {
+      spawnNova(run, p.x, p.y, stats.radius, stats.dmg, stats.knockback, 0,
+        { look: 'bellows', arc: stats.arc, angle: a, life: BELLOWS_LIFE })
+      // OPEN LAVA IN THE BLAST FLARES: it stays open longer and bursts at once.
+      for (const c of run.cracks) {
+        if (c.state !== 'lava') continue
+        const dx = c.x - p.x, dy = c.y - p.y, d = Math.hypot(dx, dy)
+        if (d > stats.radius + c.r) continue
+        let da = Math.atan2(dy, dx) - a
+        da = Math.atan2(Math.sin(da), Math.cos(da))
+        if (d > c.r && Math.abs(da) > stats.arc / 2) continue
+        c.lavaEnd += BELLOWS_FLARE_T
+        c._flareT = run.time + 0.5
+        spawnNova(run, c.x, c.y, c.r * BELLOWS_FLARE_R, stats.dmg * BELLOWS_FLARE_MUL * (1 + flareUp), 30, 0, { look: 'flare', life: 0.22 })
+        run.events.push({ type: 'lavaFlare', x: c.x, y: c.y, r: c.r * BELLOWS_FLARE_R })
+      }
+    }
+    run.events.push({ type: 'shoot', weapon: 'bellows', x: p.x, y: p.y, angle: aim, maxR: stats.radius, arc: stats.arc })
+  })
+}
+
+// -- Volcanic Bomb ---------------------------------------------------------------------------------
+// Lands in the THICKEST of the crowd in reach: the body with the most others inside its blast.
+function bombSpots(run, n, r) {
+  const p = run.player
+  const cand = []
+  for (const e of enemiesNear(run, p.x, p.y, BOMB_RANGE)) {
+    if (e._dead || isAlly(e) || damageImmune(e)) continue
+    if ((e.x - p.x) ** 2 + (e.y - p.y) ** 2 > BOMB_RANGE * BOMB_RANGE) continue
+    cand.push(e)
+  }
+  if (cand.length === 0) return []
+  const sample = cand.length > 24 ? Array.from({ length: 24 }, () => cand[Math.floor(Math.random() * cand.length)]) : cand
+  const scored = sample.map((e) => {
+    let k = 0
+    for (const o of cand) if ((o.x - e.x) ** 2 + (o.y - e.y) ** 2 <= r * r) k++
+    return { e, k }
+  }).sort((a, b) => b.k - a.k)
+  const out = []
+  for (const s of scored) {
+    if (out.length >= n) break
+    if (out.some((o) => Math.hypot(o.x - s.e.x, o.y - s.e.y) < r)) continue
+    out.push({ x: s.e.x, y: s.e.y })
+  }
+  return out
+}
+function stepVolcanicBombWeapon(run, w, stats, fireRateMul, dt) {
+  const p = run.player
+  const quick = run.weaponMods.volcanicBomb?.quickFuse ?? 0
+  const fissure = run.weaponMods.volcanicBomb?.deepFissure ?? 0
+  fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => {
+    const spots = bombSpots(run, ipecacN(run, stats.count), stats.r)
+    for (const sp of spots) {
+      run.magmaLobs.push({ kind: 'bomb', fromX: p.x, fromY: p.y, x: sp.x, y: sp.y, t: 0, flight: BOMB_FLIGHT,
+        r: stats.r, dmg: stats.dmg, lavaT: BOMB_LAVA_T * (1 + fissure), spin: Math.random() * 6 })
+    }
+    if (spots.length) run.events.push({ type: 'shoot', weapon: 'volcanicBomb', x: p.x, y: p.y })
+  })
+}
+
+// Both lobbed weapons land here: the splash, then the slag's puddle or the bomb's lava.
+function stepMagmaLobs(run, dt) {
+  if (run.magmaLobs.length === 0) return
+  const C = crustSpec(run)
+  for (const l of run.magmaLobs) {
+    l.t += dt
+    if (l.t < l.flight) continue
+    l._done = true
+    for (const e of enemiesNear(run, l.x, l.y, l.r, true)) {
+      if (e._dead || isAlly(e)) continue
+      if (Math.hypot(e.x - l.x, e.y - l.y) > l.r + e.radius * 0.5) continue
+      applyDamage(run, e, l.dmg)
+    }
+    if (l.kind === 'slag') {
+      run.slagPools.push({ x: l.x, y: l.y, r: l.r * 0.85, t: 0, dur: l.dur, burn: l.burn, tick: SLAG_TICK * 0.5 })
+      run.events.push({ type: 'slagSplash', x: l.x, y: l.y, r: l.r })
+    } else {
+      run.events.push({ type: 'bombLand', x: l.x, y: l.y, r: l.r })
+      // THE BOMB CRACKS THE CRUST: the spot opens straight into lava (none with the crust off).
+      if (C) addCrack(run, C, l.x, l.y, l.r * BOMB_LAVA_R, 'volcanicBomb', true, l.lavaT)
+    }
+  }
+  run.magmaLobs = run.magmaLobs.filter((l) => !l._done)
+  if (run.slagPools.length > 60) run.slagPools.splice(0, run.slagPools.length - 60)
 }
