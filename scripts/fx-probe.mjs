@@ -318,7 +318,8 @@ const profileDir = `/tmp/fx-probe-${process.pid}`
 const browser = spawn(chrome, [
   '--no-sandbox', '--hide-scrollbars', `--window-size=${W},${H}`,
   `--remote-debugging-port=${PORT}`, `--user-data-dir=${profileDir}`,
-  // FX_CHROME_ARGS='--use-angle=vulkan --enable-gpu' draws on the real GPU instead of SwiftShader
+  // FX_CHROME_ARGS='--use-gl=angle --use-angle=gl --enable-gpu --ignore-gpu-blocklist' draws on the
+  // real GPU instead of SwiftShader (2x faster, ~0 CPU, same pixels on Intel). Vulkan drew garbage.
   ...(process.env.FX_CHROME_ARGS ? process.env.FX_CHROME_ARGS.split(' ') : []), 'about:blank',
 ], { stdio: 'ignore', detached: true })
 // Every way out (normal end, die(), a throw, Ctrl-C, a kill from a timeout) takes the browser's
