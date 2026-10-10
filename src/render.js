@@ -42,6 +42,7 @@ import { TRAWL_WIGGLE_ARC, KRAKEN_GRIP_FLICKS } from './config.js'
 import { DRAW_CAPS } from './config.js'
 import { ELITE, gemTier } from './config.js'
 import * as MACRO from './macro.js'
+import { IPECAC_COUNT_MUL, FURROW_PIT_OPEN, FURROW_LANE_GAP } from './config.js'
 import * as HOLO from './holo.js'
 import * as ASCII from './ascii.js'
 import * as PIXEL from './pixel.js'
@@ -6201,7 +6202,11 @@ export function createRenderer(app) {
   // pits reads as ONE trench: the cave-in tells (under everything, so no crack shows over an open
   // hole), the spoil heaps, every shaft, every shaft's inner face (which buries the lip of a
   // neighbour inside this pit), every floor. Only the chain's outer edge keeps a lip and its spoil.
-  // A filling pit shrinks back into the ground (sim's pt.r); its spoil fades with it.
+  // A filling pit shrinks back into the ground (sim's pt.r); its spoil fades with it. A FURROW pit
+  // instead keeps its size and changes depth (MACRO.PIT_DEPTHS): it opens as a shallow dish that
+  // deepens, and fills back up the same way, so no stage of it reads as a ring around a light floor.
+  // Under them all, the Furrow's TRENCH (syncTrench): the groove it cuts along run._furrow, from the
+  // player back to where its pits open.
   let pitTex = null
   function bakePits() {
     if (pitTex) return
@@ -6215,8 +6220,131 @@ export function createRenderer(app) {
       tell: [311, 324].map((v) => Array.from({ length: MACRO.PIT_TELL_STAGES }, (_, i) => tx(MACRO.paintPitTell(v, i / (MACRO.PIT_TELL_STAGES - 1))))),
     }
   }
+  // The Furrow's own bakes, on top of the pits': only a run that can deal the Furrow pays for them.
+  let furrowTex = null
+  function bakeFurrow() {
+    if (furrowTex) return
+    bakePits()
+    const tx = (c) => macroCanvasTex(c, 3)
+    furrowTex = {
+      // one seed per depth: a dish is on screen for a fraction of a second at each end of a pit's life
+      dish: MACRO.PIT_DEPTHS.map((dk) => ({ ...MACRO.paintPitDish(101, dk), floor: MACRO.paintPitFloor(101, dk) }))
+        .map((d) => ({ wall: tx(d.wall), inner: tx(d.inner), floor: tx(d.floor) })),
+      trench: Array.from({ length: MACRO.TRENCH_BINS }, (_, b) => {
+        const t = MACRO.paintTrench(b)
+        return { rim: macroCanvasTex(t.rim, MACRO.TRENCH_RES), bed: macroCanvasTex(t.bed, MACRO.TRENCH_RES) }
+      }),
+      collar: [11, 12].map((v) => tx(MACRO.paintPitCollar(v))),
+    }
+  }
   const pitPass = () => ({ c: new Container(), list: [], n: 0 })
-  const pitPasses = { tell: pitPass(), spoil: pitPass(), wall: pitPass(), inner: pitPass(), floor: pitPass() }
+  const pitPasses = { trRim: pitPass(), trBed: pitPass(), tell: pitPass(), spoil: pitPass(), wall: pitPass(), inner: pitPass(), floor: pitPass(), collar: pitPass() }
+  // THE TRENCH. A segment per pair of furrow points (and one more up to the player), one copy per
+  // IPECAC lane at the sim's own offsets. A point the sim has queued a cave-in on is SPENT: its
+  // segment goes once the pit over it has opened. A new point throws the dug soil off both sides.
+  const trenchSpent = new WeakMap(), trenchSeenCave = new WeakSet()
+  let trenchLastPt = null
+  function syncTrench(run) {
+    const tr = run._furrow
+    if (!tr || !tr.length) return
+    bakeFurrow()
+    for (const c of run.caveIns) {
+      if (c.src !== 'furrow' || trenchSeenCave.has(c)) continue
+      trenchSeenCave.add(c)
+      let best = null, bd = c.r * 0.5
+      for (const q of tr) { const d = Math.hypot(q.x - c.x, q.y - c.y); if (d < bd) { bd = d; best = q } }
+      if (best && !trenchSpent.has(best)) trenchSpent.set(best, c.at)
+    }
+    const p = run.player, nL = run.anomalies?.ipecac ? IPECAC_COUNT_MUL : 1
+    let pr = 30
+    for (const pt of run.pits) if (pt.src === 'furrow') { pr = pt.maxR; break }
+    const gap = pr * FURROW_LANE_GAP, n = tr.length, BINS = MACRO.TRENCH_BINS, L2 = MACRO.TRENCH_SEG / 2
+    for (let i = 1; i <= n; i++) {
+      const a = tr[i - 1], b = i < n ? tr[i] : p
+      let dx = b.x - a.x, dy = b.y - a.y
+      const d = Math.hypot(dx, dy)
+      if (d < 3 || d > 70) continue
+      dx /= d; dy /= d
+      let al = Math.min(1, i / 4)
+      const sp = trenchSpent.get(a)
+      if (sp !== undefined) al *= Math.max(0, Math.min(1, 1 - (run.time - sp - FURROW_PIT_OPEN) / 0.3))
+      if (al <= 0.01) continue
+      const ang = ((Math.atan2(dy, dx) % Math.PI) + Math.PI) % Math.PI
+      const t = furrowTex.trench[Math.round((ang / Math.PI) * BINS) % BINS]
+      let mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2
+      if (i === n && d < 2 * L2) { mx = b.x - dx * L2; my = b.y - dy * L2 }   // the front ends at the player
+      for (let j = 0; j < nL; j++) {
+        const off = (j - (nL - 1) / 2) * gap
+        pitSprite(pitPasses.trRim, t.rim, mx - dy * off, my + dx * off, 1, al)
+        pitSprite(pitPasses.trBed, t.bed, mx - dy * off, my + dx * off, 1, al)
+      }
+    }
+    const last = tr[n - 1]
+    if (last !== trenchLastPt) {
+      if (trenchLastPt && frameDt > 0 && n >= 2) {
+        const q = tr[n - 2], d = Math.hypot(last.x - q.x, last.y - q.y) || 1, dx = (last.x - q.x) / d, dy = (last.y - q.y) / d
+        for (let j = 0; j < nL; j++) {
+          const off = (j - (nL - 1) / 2) * gap, x = p.x - dx * 14 - dy * off, y = p.y - dy * 14 + dx * off
+          for (let side = -1; side <= 1; side += 2) for (let m = 0; m < 2; m++) {
+            const v = 45 + Math.random() * 40
+            spawnParticle(T.clayClod.tex, x, y, -dy * side * v - dx * 20, dx * side * v - dy * 20, 0.35, 0.45 + Math.random() * 0.3, m ? 0x8a6844 : 0x5a3e26, -0.6, 4)
+          }
+        }
+      }
+      trenchLastPt = last
+    }
+  }
+  // A body a Furrow pit has just hit and not killed DROPS into it: it shrinks, darkens and slides
+  // toward the pit's middle for a beat (pitSinkK), with the lip crumbling in over it (the collar,
+  // drawn over the crowd by syncPitCollars). Started off the pit's own {type:'hit'} (sim fills
+  // pt.hit[e.id] on the step it pushes the hit), once per pit per body; records are pooled.
+  const PIT_SINK_T = 0.72
+  const pitSinks = new Map(), pitSinkFree = [], pitCredited = new WeakMap()
+  function pitSinkFromHit(run, e) {
+    if (e.id == null || e.dot) return
+    for (const pt of run.pits) {
+      if (pt.src !== 'furrow' || !pt.hit[e.id]) continue
+      let cr = pitCredited.get(pt)
+      if (!cr) pitCredited.set(pt, (cr = new Set()))
+      if (cr.has(e.id)) continue
+      cr.add(e.id)
+      let r = pitSinks.get(e.id)
+      if (!r) { r = pitSinkFree.pop() || { t0: 0, x: 0, y: 0, fx: false }; pitSinks.set(e.id, r) }
+      r.t0 = animT; r.x = pt.x; r.y = pt.y; r.fx = false
+      return
+    }
+  }
+  function pitSinkK(t) {
+    const k = t < 0.07 ? t / 0.07 : t < 0.32 ? 1 : Math.max(0, 1 - (t - 0.32) / 0.4)
+    return k * k * (3 - 2 * k)
+  }
+  function syncPitCollars(run) {
+    const P = pitPasses.collar
+    P.n = 0
+    if (pitSinks.size) {
+      for (const [id, r] of pitSinks) if (animT - r.t0 > PIT_SINK_T || animT < r.t0) { pitSinks.delete(id); pitSinkFree.push(r) }
+      for (const e of run.enemies) {
+        const r = pitSinks.get(e.id)
+        if (!r) continue
+        const kk = pitSinkK(animT - r.t0)
+        if (kk > 0.02) pitSprite(P, furrowTex.collar[e.id & 1], e.x + (r.x - e.x) * 0.45 * kk, e.y + (r.y - e.y) * 0.45 * kk, (e.radius * 1.05) / MACRO.PIT_R0, Math.min(1, kk * 1.5))
+        if (!r.fx && frameDt > 0) {
+          r.fx = true
+          for (let m = 0; m < 6; m++) {
+            const a = Math.random() * Math.PI * 2, rr = e.radius * 1.5
+            spawnParticle(T.clayClod.tex, e.x + Math.cos(a) * rr, e.y + Math.sin(a) * rr, -Math.cos(a) * 50, -Math.sin(a) * 50, 0.3, 0.5 + Math.random() * 0.3, m % 2 ? 0x8a6844 : 0x4a321e, -1.0, 3)
+          }
+        }
+      }
+    }
+    for (let i = P.n; i < P.list.length; i++) P.list[i].visible = false
+  }
+  // Is (x, y) over an open pit? The light hit puff (soilPuff) is skipped there: over the dark hole it
+  // reads as a bright blob, and the pit's own drop already says the hit landed.
+  function overOpenPit(run, x, y) {
+    for (const pt of run.pits || []) if (pt.r > 4 && Math.hypot(x - pt.x, y - pt.y) < pt.r) return true
+    return false
+  }
   function pitSprite(p, tex, x, y, scale, alpha) {
     let sp = p.list[p.n]
     if (!sp) { sp = new Sprite(tex); sp.anchor.set(0.5); p.c.addChild(sp); p.list.push(sp) }
@@ -6224,10 +6352,16 @@ export function createRenderer(app) {
     sp.position.set(x, y); sp.scale.set(scale); sp.alpha = alpha
     p.n++
   }
-  function hidePits() { for (const k in pitPasses) { const p = pitPasses[k]; for (const sp of p.list) sp.visible = false; p.n = 0 } }
+  function hidePits() {
+    for (const k in pitPasses) { const p = pitPasses[k]; for (const sp of p.list) sp.visible = false; p.n = 0 }
+    for (const r of pitSinks.values()) pitSinkFree.push(r)
+    pitSinks.clear()
+    trenchLastPt = null
+  }
   function syncPits(run) {
-    for (const k in pitPasses) pitPasses[k].n = 0
+    for (const k in pitPasses) if (k !== 'collar') pitPasses[k].n = 0
     const pits = run.pits || [], caves = run.caveIns || []
+    if (run._furrow?.length) syncTrench(run)
     if (pits.length || caves.length) {
       bakePits()
       const R0 = MACRO.PIT_R0, C = CHAPTERS[run.chapter].signature?.caveIns
@@ -6243,12 +6377,22 @@ export function createRenderer(app) {
         const g = Math.max(0, Math.min(1, pt.age / open)), shut = Math.max(0, Math.min(1, (pt.life - pt.age) / fill))
         const v = pick(pt.x, pt.y, 3), sr = Math.max(0.02, pt.r) / R0
         pitSprite(P.spoil, pitTex.spoil[v], pt.x, pt.y, (pt.maxR / R0) * (0.8 + 0.2 * g), g * Math.sqrt(shut))
+        if (pt.src === 'furrow') {
+          bakeFurrow()
+          const dk = Math.min(g, shut), al = Math.min(1, shut / 0.2, g * 8)
+          const d = dk >= 0.85 ? null : furrowTex.dish[dk < 0.45 ? 0 : 1]
+          const k = (pt.maxR / R0) * (0.88 + 0.12 * Math.min(1, dk * 1.5))
+          pitSprite(P.wall, d ? d.wall : pitTex.wall[v], pt.x, pt.y, k, al)
+          pitSprite(P.inner, d ? d.inner : pitTex.inner[v], pt.x, pt.y, k, al)
+          pitSprite(P.floor, d ? d.floor : pitTex.floor[v], pt.x, pt.y, k, al)
+          continue
+        }
         pitSprite(P.wall, pitTex.wall[v], pt.x, pt.y, sr, 1)
         pitSprite(P.inner, pitTex.inner[v], pt.x, pt.y, sr, 1)
         pitSprite(P.floor, pitTex.floor[v], pt.x, pt.y, sr, g * g)
       }
     }
-    for (const k in pitPasses) { const p = pitPasses[k]; for (let i = p.n; i < p.list.length; i++) p.list[i].visible = false }
+    for (const k in pitPasses) { if (k === 'collar') continue; const p = pitPasses[k]; for (let i = p.n; i < p.list.length; i++) p.list[i].visible = false }
   }
   // The ridge over a digging mole: the ground heaving up along its run, crumbs rolling off it.
   function drawRidge(g, pts, w) {
@@ -6589,7 +6733,6 @@ export function createRenderer(app) {
           const a = Math.random() * Math.PI * 2, sp = 20 + Math.random() * 60
           spawnParticle(T.clayClod.tex, e.x + Math.cos(a) * e.r, e.y + Math.sin(a) * e.r, -Math.cos(a) * sp, -Math.sin(a) * sp, 0.35, 0.55, 0x6e4c2e, -0.6, 2)
         }
-        spawnParticle(T.dot.tex, e.x, e.y, 0, 0, 0.5, 1.6, 0x8a6a48, 1.5, 0)
         return true
       case 'pitFall':
         // the body drops out of sight: a dark shrink where it stood, and the lip crumbling in after it
@@ -12790,6 +12933,7 @@ export function createRenderer(app) {
   function setMacro(run) {
     const ch = run && CHAPTERS[run.chapter]
     if (ch && (ch.signature?.caveIns || ch.weapons?.includes('furrow'))) bakePits()
+    if (ch?.weapons?.includes('furrow')) bakeFurrow()   // elsewhere (The Blank deals it too) on its first furrow
     if (pixelLook) { pixelLook = null; pixelRig.disable(); pixelRig.player.tint = 0xffffff; if (pixelHotSprite) pixelHotSprite.visible = false; pixelHitT = pixelLastInvuln = 0; bodyC.visible = true; pShadow.visible = true }
     if (ch?.render?.pixel) { macroLook = null; holoLook = null; setPixel(ch.render.pixel); return }
     macroLook = ch?.render?.macro ?? null
@@ -13287,7 +13431,7 @@ export function createRenderer(app) {
   // falling stones' sprite pool.
   const burrowGroundG = new Graphics()
   const pitLayer = new Container()   // the photographed pits (syncPits), one container per pass
-  for (const k of ['tell', 'spoil', 'wall', 'inner', 'floor']) pitLayer.addChild(pitPasses[k].c)
+  for (const k of ['trRim', 'trBed', 'tell', 'spoil', 'wall', 'inner', 'floor']) pitLayer.addChild(pitPasses[k].c)
   const burrowFxG = new Graphics()
   const burrowStoneLayer = new Container()
   const snareRootLayer = new Container()   // the Root Snare's baked roots (syncSnareSprites)
@@ -13432,7 +13576,7 @@ const spurG = new Graphics()
     krakenDeepG, scarLayer, bombG, shellLayer, skyLayer, voltLayer, stripG, laneG, hazardG, jetLayer, krakenSlapWakeG, teleG, krakenImpactG, strafePoolLayer, rampG, pacerG,
     rockLayer,
     orcaShadowSp, orcaG,
-    macroShadowLayer, enemyShadowLayer, holoHaloLayer, enemyLayer, krakenArmLayer, enemyCrownLayer, krakenCoilBandLayer, orcaSp, netG, longlineG, snareG,
+    macroShadowLayer, enemyShadowLayer, holoHaloLayer, enemyLayer, pitPasses.collar.c, krakenArmLayer, enemyCrownLayer, krakenCoilBandLayer, orcaSp, netG, longlineG, snareG,
     bloomLayer, lureLayer, shieldG, affixLayer, crustG, deepG, lockLayer, shovelToolLayer, playerC, krakenGripFrontLayer, netHoldG, gateFrontG, breakerG, puffG, splashG, columnG, shorebreakG, burrowFxG, burrowStoneLayer, shovelAirLayer, pixelRig.air,
     bulletLayer, boomerangLayer, orbLayer, debrisLayer, homingLayer, shotLayer, beamLayer, whipLayer, arcG, breathG,
     lobLayer, carLayer, smokeLayer, particleLayer,
@@ -28431,6 +28575,7 @@ void main() {
   const SOIL_GRAINS = [0xb08e66, 0x7a5636, 0xc9aa80, 0x4e3420]
   let soilBucket = SOIL_PUFF_BURST, soilBucketT = 0
   function soilPuff(x, y, big, run) {
+    if (overOpenPit(run, x, y)) return
     soilBucket = Math.min(SOIL_PUFF_BURST, soilBucket + (animT - soilBucketT) * SOIL_PUFF_RATE); soilBucketT = animT
     if (!big && soilBucket < 3) return
     soilBucket -= big ? 8 : 3
@@ -28834,6 +28979,7 @@ void main() {
             if (d < 52) { const ux2 = d > 1 ? dx / d : 0.7, uy2 = d > 1 ? dy / d : -0.7; hx = run.player.x + ux2 * 52; hy = run.player.y + uy2 * 52 }
           }
           spawnDamage(hx, hy, e.dmg, e.crit, e.dot)
+          if (run.pits.length) pitSinkFromHit(run, e)
           if (!e.dot && macroLook?.floor === 'topsoil') soilPuff(e.x, e.y, false, run)
           break
         }
@@ -31286,7 +31432,10 @@ void main() {
       // featureless white cut-out covering half a phone screen: the fight's whole payoff, with its
       // eyes, beak and photophores erased at the instant they matter. It still takes the white TINT
       // below, which reads as a flash without deleting the art.
-      const tex = e.hitFlash > 0 && e.rosterId !== 'krakenHead' ? frame.white : frame.tex
+      // a body dropping into a Furrow pit is not flashed white: the drop is the hit's tell
+      const sink = pitSinks.size ? pitSinks.get(e.id) : undefined
+      const sinkT = sink ? animT - sink.t0 : 9
+      const tex = e.hitFlash > 0 && e.rosterId !== 'krakenHead' && !(sinkT < 0.25) ? frame.white : frame.tex
       if (s._look !== look) s._look = look
       if (!look.dirs && s.texture !== tex) {
         s.texture = tex
@@ -31460,6 +31609,12 @@ void main() {
         s.position.set(e.x + Math.sin(animT * 71 + e.id) * qk, e.y + Math.cos(animT * 83 + e.id) * qk)
       }
 
+      // DROPPED INTO A FURROW PIT (pitSinks, render-side): shrunk, slid toward the pit's middle, in its shade
+      const sinkK = sink ? pitSinkK(sinkT) : 0
+      if (sinkK > 0) {
+        s.scale.x *= 1 - 0.32 * sinkK; s.scale.y *= 1 - 0.32 * sinkK
+        s.position.x += (sink.x - e.x) * 0.45 * sinkK; s.position.y += (sink.y - e.y) * 0.45 * sinkK
+      }
       // dominant tint, one status wins (frozen > chill > venom > ignite > none). The
       // hit-flash white silhouette overrides all of these so the hit pop still reads white —
       // except on the void, where white-on-white is invisible: the all-white twin takes any tint
@@ -31514,6 +31669,7 @@ void main() {
         s.tint = mix(mix(hues[a0], hues[(a0 + 1) % hues.length], seg - Math.floor(seg)), 0xffffff, 0.5)
       }
       else s.tint = 0xffffff
+      if (sinkK > 0) s.tint = mix(s.tint, 0x2a1c10, 0.5 * sinkK)
 
       // cheap status particles, dt-gated (no spawns while frozen behind a modal)
       if (frameDt > 0) {
@@ -31861,6 +32017,7 @@ void main() {
     syncPlayer(run.player, dt, run.rampageT || 0, playerBuffs(run), deathP)
     if (pixelLook) syncPixelPlayerFlash(run.player, dt)
     syncEnemies(run)
+    syncPitCollars(run)   // after the crowd: the lip crumbling in over a body a Furrow pit dropped
     syncBlooms(run)
     syncLures(newest(run.lures || [], 'lures'))
     redrawBombs(run)

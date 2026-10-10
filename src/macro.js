@@ -2361,6 +2361,16 @@ function hfShade(g, o = {}) {
     d[k * 4 + 2] = Math.min(255, C[k * 3 + 2] * lit + sp * 0.95)
     d[k * 4 + 3] = Math.round(clamp01(A[k]) * 255)
   }
+  // o.cuts: the one shaded image under several alpha masks, one canvas each, with no read back
+  if (o.cuts) {
+    return o.cuts.map((mask) => {
+      const cc = makeCanvas(W, W), cx = cc.getContext('2d'), im = cx.createImageData(W, W), q = im.data
+      q.set(d)
+      for (let k = 0; k < W * W; k++) q[k * 4 + 3] = Math.round(q[k * 4 + 3] * clamp01(mask(k)))
+      cx.putImageData(im, 0, 0)
+      return cc
+    })
+  }
   ctx.putImageData(id, 0, 0)
   return c
 }
@@ -2373,35 +2383,46 @@ function pitClod(ctx, rnd, x, y, r, base, o = {}) {
   lump(ctx, blobPts(rnd, x, y, r, 9, 0.5, 0.7 + rnd() * 0.35, rnd() * TAU), x, y, r, base, o)
 }
 // part 'wall' is the whole shaft; 'floor' is its bottom alone, with a soft edge and no cast shadow.
+// o.depth < 1 paints the same pit part-dug (render.js steps through PIT_DEPTHS while a Furrow pit
+// opens and fills): a shallow dish the colour of the ground around it, no dark lip, no roots.
 // render.js lays every wall's inner face over every wall, then every floor over that, so a chain of
 // overlapping shafts shares ONE trench and only its outer edge keeps a lip.
-function paintPit(seed, part) {
+function paintPit(seed, part, o = {}) {
   const R = PIT_R0, E = R * 1.08, S = 3, g = hfGrid(E, S), rnd = rng(seed)
   const lip = planeFbm(seed, [[0.06, 1], [0.17, 0.5]]), band = planeFbm(seed + 3, [[0.08, 1], [0.3, 0.4]])
   const tone = planeFbm(seed + 5, [[0.12, 1], [0.5, 0.6], [1.4, 0.4]])
-  const D = 30
+  const dk = o.depth ?? 1, D = 30 * dk, U = new Float32Array(g.W * g.W)
   hfFill(g, (k, x, y) => {
     const u = Math.hypot(x, y) / (R * (0.94 + 0.12 * lip(x, y)))
     const t = Math.pow(smooth(1.0, 0.74, u), 0.85)
     g.H[k] = -D * t
     g.M[k] = t
+    U[k] = u
     g.A[k] = part === 'floor' ? smooth(0.82, 0.7, u) : part === 'inner' ? smooth(0.93, 0.86, u) : smooth(1.05, 0.97, u)
   })
   hfCrumbs(g, rnd, 2600, 0.35, 1.3, 0.9, (x, y) => (Math.hypot(x, y) < R * 1.02 ? 1 : 0), false)   // the crumbly cut face
-  hfCrumbs(g, rnd, 260, 0.8, 3.4, 2.2, (x, y) => smooth(0.7, 0.45, Math.hypot(x, y) / R))          // what fell in
+  hfCrumbs(g, rnd, dk < 1 ? 140 : 260, 0.8, 3.4, 2.2, (x, y) => smooth(0.7, 0.45, Math.hypot(x, y) / R))          // what fell in
   hfFill(g, (k, x, y) => {
     const t = g.M[k]
     let c
     if (t < 0.12) c = mixc(0x4a3422, 0x2e1e12, t / 0.12)
     else if (t < 0.85) c = mixc(mixc(0x5a3e26, 0x8c6a44, smooth(0.15, 0.45, t)), 0x6a4a2c, (Math.sin(t * 30 + band(x, y) * 9) * 0.5 + 0.5) * 0.5)
     else c = mixc(0x5a3e26, 0x3a2818, smooth(0.85, 1, t))
+    if (dk < 1) c = mixc(0x4a3422, mixc(0x3e2a1a, 0x22160c, dk), smooth(0.05, 0.95, t))
     c = mixc(c, g.T[k] < 0.5 ? 0x2a1a0e : 0x9a7a54, Math.abs(g.T[k] - 0.5) * 0.5 * smooth(0.7, 0.95, t))
     const m = 0.8 + 0.4 * tone(x, y)
     g.C[k * 3] = R_(c) * m; g.C[k * 3 + 1] = G_(c) * m; g.C[k * 3 + 2] = B_(c) * m
   })
   const floor = part === 'floor'
-  const c = hfShade(g, { amb: 0.34, maxDiff: 1.35, shadow: !floor, ao: (k) => 1 - 0.42 * Math.pow(g.M[k], 1.3) - (floor ? 0.18 : 0), gloss: (k) => 0.18 * smooth(0.8, 1, g.M[k]) })
-  if (part === 'wall') {
+  // part 'dish' (a part-dug pit, o.depth < 1): the wall and its inner face from ONE shading, with the
+  // shadow marched only as far as a hole that shallow can throw one
+  const dish = part === 'dish'
+  const c = hfShade(g, {
+    amb: 0.34, maxDiff: 1.35, shadow: !floor, march: 60 * dk, ao: (k) => 1 - 0.42 * Math.pow(g.M[k], 1.3) - (floor ? 0.18 : 0), gloss: (k) => 0.18 * smooth(0.8, 1, g.M[k]),
+    cuts: dish ? [() => 1, (k) => smooth(0.93, 0.86, U[k])] : undefined,
+  })
+  if (dish) return { wall: c[0], inner: c[1] }
+  if (part === 'wall' && dk >= 0.5) {
     // two root ends poking out of the cut, each with its shadow on the wall behind it
     const ctx = c.getContext('2d'); ctx._S = S; ctx.setTransform(S, 0, 0, S, c.width / 2, c.height / 2)
     ctx.lineCap = 'round'
@@ -2415,9 +2436,11 @@ function paintPit(seed, part) {
   }
   return c
 }
+export const PIT_DEPTHS = [0.25, 0.6]
 export const paintPitWall = (seed) => paintPit(seed, 'wall')
 export const paintPitInner = (seed) => paintPit(seed, 'inner')
-export const paintPitFloor = (seed) => paintPit(seed, 'floor')
+export const paintPitFloor = (seed, depth) => paintPit(seed, 'floor', { depth })
+export const paintPitDish = (seed, depth) => paintPit(seed, 'dish', { depth })   // { wall, inner }
 // The spoil: a ring of thrown clods, fresh pale subsoil among the dark topsoil, heaped at the lip.
 export function paintPitSpoil(seed) {
   const R = PIT_R0, { c, ctx } = pitCanvas(R * 1.75, 3), rnd = rng(seed)
@@ -2468,5 +2491,65 @@ export function paintPitTell(seed, k) {
     const a = rnd() * TAU, rr = R * (1.25 - (0.35 + 0.4 * rnd()) * k)
     pitClod(ctx, rnd, Math.cos(a) * rr, Math.sin(a) * rr, 0.8 + rnd() * 1.8, PIT_TOPSOIL[i % 5], { shadow: 0.55 })
   }
+  return c
+}
+// ==== THE FURROW'S TRENCH ========================================================================
+// The groove the Furrow cuts as you walk: a V cut in the loam with the turned clods heaped along both
+// lips, fresh pale subsoil among the dark. One bake per heading bin over a half turn, lit as a
+// heightfield in WORLD axes (the light is fixed, so a turned groove is re-lit, never rotated). The
+// profile runs the full length of the canvas and only the alpha is a capsule, so segments laid end
+// to end have no end walls between them. Each bake is one shaded image cut two ways: `rim` (the
+// whole segment) and `bed` (the groove alone, soft edge). render.js lays every rim, then every bed,
+// so a chain of segments shares one groove.
+export const TRENCH_BINS = 16
+export const TRENCH_SEG = 34
+const TRENCH_HW = 9
+export const TRENCH_RES = 2   // px per unit: the groove is narrow and soft under the lens
+const TRENCH_TOP = [0x3e2a18, 0x4a321e, 0x5a3e26, 0x34241a, 0x2e1e12]
+export function paintTrench(bin) {
+  const th = (bin / TRENCH_BINS) * Math.PI, ca = Math.cos(th), sa = Math.sin(th)
+  const hw = TRENCH_HW, outer = hw + 10, L2 = TRENCH_SEG / 2
+  const E = L2 + outer + 2, S = TRENCH_RES, g = hfGrid(E, S), rnd = rng(737 + bin * 3)
+  const tone = planeFbm(901, [[0.12, 1], [0.5, 0.6], [1.4, 0.4]])
+  const edgeN = planeFbm(951 + bin, [[0.15, 1], [0.45, 0.5]])
+  const across = (x, y) => Math.abs(-x * sa + y * ca)
+  const D = new Float32Array(g.W * g.W), CAP = new Float32Array(g.W * g.W)
+  hfFill(g, (k, x, y) => {
+    const d = across(x, y), u = x * ca + y * sa, q = d / hw
+    D[k] = d
+    CAP[k] = Math.hypot(Math.max(0, Math.abs(u) - L2), d)
+    g.H[k] = (q < 1 ? -6.5 * (1 - q * q) : 0) + 3.4 * Math.exp(-Math.pow((d - (hw + 3.5)) / 3.4, 2))
+    g.A[k] = CAP[k] < outer + 2 ? 1 : 0   // nothing outside the capsule is ever shown: skip shading it
+  })
+  hfCrumbs(g, rnd, 900, 0.5, 2.6, 2.2, (x, y) => { const d = across(x, y); return d > hw - 1 && d < hw + 9 ? 1 : 0 })
+  hfCrumbs(g, rnd, 600, 0.3, 0.9, 0.6, (x, y) => (across(x, y) < hw ? 1 : 0), false)
+  hfFill(g, (k, x, y) => {
+    const d = D[k], T = g.T[k]
+    let c = d < hw ? mixc(0x3a2818, 0x7a5a3a, smooth(hw * 0.3, hw * 0.95, d)) : mixc(0x4a321e, 0x5a3e26, tone(x, y))
+    if (d > hw - 1 && d < hw + 9 && Math.abs(T - 0.5) > 0.02) c = T > 0.62 ? PIT_SUBSOIL[Math.floor(T * 50) % 5] : TRENCH_TOP[Math.floor(T * 50) % 5]
+    const m = 0.85 + 0.3 * tone(x * 2, y * 2)
+    g.C[k * 3] = R_(c) * m; g.C[k * 3 + 1] = G_(c) * m; g.C[k * 3 + 2] = B_(c) * m
+  })
+  const N = (k) => edgeN(hfX(g, k % g.W), hfX(g, (k / g.W) | 0)) - 0.5
+  const [rim, bed] = hfShade(g, {
+    amb: 0.34, maxDiff: 1.4, march: 14, gloss: (k) => (D[k] < hw ? 0.1 : 0.03),
+    cuts: [(k) => smooth(outer, outer - 4, CAP[k] + 3 * N(k)), (k) => smooth(hw * 0.9, hw * 0.55, CAP[k])],
+  })
+  return { rim, bed }
+}
+// A body a Furrow pit has just hit, dropped into the shaft: the lip crumbling in over its edge and
+// the hole's shade on it (a ring of clods, clear in the middle). Painted for a body of radius PIT_R0.
+export function paintPitCollar(seed) {
+  const R = PIT_R0, { c, ctx } = pitCanvas(R * 1.3, 3), rnd = rng(seed)
+  const gr = ctx.createRadialGradient(0, 0, R * 0.35, 0, 0, R * 0.85)
+  gr.addColorStop(0, 'rgba(10,6,3,0)'); gr.addColorStop(0.6, 'rgba(10,6,3,0.55)'); gr.addColorStop(1, 'rgba(10,6,3,0.75)')
+  ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(0, 0, R * 0.95, 0, TAU); ctx.fill()
+  const list = []
+  for (let i = 0; i < 120; i++) {
+    const rr = R * (0.68 + 0.42 * Math.pow(rnd(), 0.8)), a = rnd() * TAU
+    list.push([Math.cos(a) * rr, Math.sin(a) * rr, 2.5 + Math.pow(rnd(), 2) * 7, rnd() < 0.45 ? PIT_SUBSOIL[i % 5] : TRENCH_TOP[i % 5]])
+  }
+  list.sort((p, q) => p[2] - q[2])
+  for (const [x, y, r, col] of list) pitClod(ctx, rnd, x, y, r, col, { shadow: 0.7 })
   return c
 }
