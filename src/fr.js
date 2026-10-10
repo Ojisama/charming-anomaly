@@ -2105,6 +2105,7 @@ const CONFIG = {
   "Soft Ground": "Terre meuble",
   "Moles burst up wider and hit harder, and their pits are bigger. Bonus XP.": "Les taupes jaillissent plus large et frappent plus fort, et leurs fosses sont plus grandes. XP bonus.",
   "mole eruptions": "jaillissements de taupes",
+  "mole pit size": "taille des fosses de taupes",
 }
 
 export const FR = { ...UI, ...CONFIG }

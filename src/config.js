@@ -2855,7 +2855,7 @@ export const WEAPONS = {
   },
   // Pebble Sling: fast stones at the nearest bodies (run.bullets, weapon 'pebble').
   // balance_decision : a spray of piercing pebbles, L1 was half the pool 2026-10-10
-  //  - extra damage per pebble buys nothing: each one already kills; count/pierce/rate are the levers.
+  //  - do not tune dmg: each pebble already kills; count/pierce/rate are the levers.
   pebbleSling: {
     name: 'Pebble Sling',
     desc: 'Slings fast pebbles at the nearest foes.',
@@ -6502,7 +6502,9 @@ export const FURROW_STAGGER = 0.05       // s between pits down the furrow, near
 export const FURROW_PIT_OPEN = 0.25      // s a furrow pit takes to open
 export const FURROW_PIT_LIFE = 2.6       // s a furrow pit stays (fill included)
 export const FURROW_PIT_FILL = 0.6       // s it takes to fill back in
-export const FURROW_PIT_MAX = 40         // furrow pits alive at once, on top of the moles' own cap
+export const FURROW_PIT_MAX = 80         // furrow pits alive at once, on top of the moles' own cap
+export const FURROW_JUMP = 4             // a gap over this many FURROW_STEPs is a jump: the furrow restarts
+export const FURROW_LANE_GAP = 2.2       // IPECAC: lanes this many pit radii apart
 export const PRISM_FAN = 0.16            // rad between shards of one throw
 export const PRISM_LIFE = 1.0            // s of flight before a bounce refreshes it
 export const PRISM_R = 8                 // px hit radius
@@ -15920,7 +15922,7 @@ export const MUTATOR_EFFECT_LABELS = {
   gasCountMul: ['firedamp pockets', true],
   gasBlastMul: ['firedamp blast size', true],
   moleBlastMul: ['mole eruptions', false],
-  pitSizeMul: ['pit size', true],
+  pitSizeMul: ['mole pit size', true],
 }
 // Pure helper: given a list of mutator ids (run.mutators), returns the full run.mods object —
 // every key above defaulted to 1, with each selected mutator's effects multiplied in. Unknown
