@@ -40,6 +40,7 @@ import { currentForce, tideForce, krakenArmInReach } from './sim.js'
 import { KRAKEN_BEATS, KRAKEN_CEREMONY, KRAKEN_OUTRO } from './config.js'
 import { TRAWL_WIGGLE_ARC, KRAKEN_GRIP_FLICKS } from './config.js'
 import { DRAW_CAPS } from './config.js'
+import { ELITE } from './config.js'
 import * as MACRO from './macro.js'
 import * as HOLO from './holo.js'
 import * as PIXEL from './pixel.js'
@@ -6568,10 +6569,13 @@ export function createRenderer(app) {
     crystalCrab: { archetype: 'tank', draw: drawCrystalCrab, macro: true, lean: 90, phases: 4 },
     bat: { archetype: 'fast', draw: drawBat, macro: true, lean: 90, phases: 4 },
     // Book 3, The Magma: PIXEL ART (`pixel: true` — painted by src/pixel.js PIXEL_CAST, not here).
-    cinderBeetle: { archetype: 'normal', pixel: true, lean: 90 },
-    salamander: { archetype: 'fast', pixel: true, lean: 90 },
-    obsidianTortoise: { archetype: 'tank', pixel: true, lean: 90 },
-    fireDrake: { archetype: 'fast', pixel: true, lean: 90 },
+    // lean 0: a pixel body only ever MIRRORS (faces left or right, nose +x), never rotates. The CRT
+    // pass re-grids whatever it is given, and a sprite turned to an arbitrary angle comes out as
+    // ragged stair-steps; a mirror keeps every art pixel square on the grid.
+    cinderBeetle: { archetype: 'normal', pixel: true, lean: 0 },
+    salamander: { archetype: 'fast', pixel: true, lean: 0 },
+    obsidianTortoise: { archetype: 'tank', pixel: true, lean: 0 },
+    fireDrake: { archetype: 'fast', pixel: true, lean: 0 },
     redcell: { archetype: 'normal', draw: drawRedcell, lean: 0 },      // biconcave disc, no forward axis — it would just tumble
     wbc: { archetype: 'tank', draw: drawWbc, lean: 0 },                // radial membrane, filopodia all round; no nose
     antibody: { archetype: 'fast', draw: drawAntibody, lean: 0 },      // 3-fold Y (Fc stem at +y), no +x front — a protein has no heading
@@ -6816,27 +6820,68 @@ export function createRenderer(app) {
   }
   // ---- Book 3, The Magma: the pixel-art cast (src/pixel.js PIXEL_CAST) ----------------------------
   // A ROSTER_LOOKS entry with `pixel: true` is painted one art pixel at a time by src/pixel.js and
-  // sampled NEAREST. No ground shadow: the CRT pass is the light. The elite wears the same body.
+  // sampled NEAREST. No ground shadow: the CRT pass is the light.
+  //   THE DRAW SCALE IS HANDED TO THE BAKE. syncEnemies draws a body at k = e.radius / baseR, which is
+  // the roster's radiusMul times ELITE.sizeMul for an elite — so an elite drawn off the plain bake has
+  // art pixels 1.5x chunkier than the world grid. bakeCreature(id, frame, drawScale) receives that
+  // scale; a bake that returns { scale } has drawn its texture AT that scale already, and the look's
+  // baseR grows by it so k comes out at 1 (art pixel = grid pixel). A bake that returns no scale
+  // (the original two-argument contract) is stretched by k exactly as before.
   const pixelFrames = new Map()
+  function pixelDrawScale(id, elite) {
+    let mul = 1
+    for (const ch of Object.values(CHAPTERS)) {
+      const r = ch.roster?.find((x) => x.id === id)
+      if (r) { mul = r.radiusMul ?? 1; break }
+    }
+    return mul * (elite ? ELITE.sizeMul : 1)
+  }
   function makePixelLook(id, entry, elite) {
     const M = PIXEL.PIXEL_CAST[id]
-    let frames = pixelFrames.get(id)
+    const drawScale = pixelDrawScale(id, elite)
+    const key = id + '@' + drawScale
+    let frames = pixelFrames.get(key)
     if (!frames) {
       frames = []
       for (let f = 0; f < (M.frames ?? 1); f++) {
-        const b = PIXEL.bakeCreature(id, f)
-        frames.push({ tex: PIXEL.pixelTex(b.body, b.res), white: PIXEL.pixelTex(b.white, b.res), ax: b.ax, ay: b.ay })
+        const b = PIXEL.bakeCreature(id, f, drawScale)
+        frames.push({ tex: PIXEL.pixelTex(b.body, b.res), white: PIXEL.pixelTex(b.white, b.res), ax: b.ax, ay: b.ay, scale: b.scale })
       }
-      pixelFrames.set(id, frames)
+      pixelFrames.set(key, frames)
     }
+    const baked = frames[0].scale > 0 ? frames[0].scale : 1
     return {
       tex: frames[0].tex, white: frames[0].white, ax: frames[0].ax, ay: frames[0].ay,
       frames: frames.length > 1 ? frames : null,
-      baseR: ROSTER_BASE_R[entry.archetype], maxLean: entry.lean * DEG,
+      baseR: ROSTER_BASE_R[entry.archetype] * baked, maxLean: entry.lean * DEG,
       poseOf: null, faceDir: null, turnRate: null, spin: 0, squash: 0,
       shadow: null,
-      crown: elite ? { top: M.crown[0], r: M.crown[1] } : null,
+      // crown.pixel: drawn at the grid size by syncEnemyDecor (pixelCrownLook), never stretched by k
+      crown: elite ? { top: M.crown[0], r: M.crown[1], pixel: true, baked } : null,
     }
+  }
+  // The elite crown in pixel art. src/pixel.js may own it (bakeCrown(r) -> the same
+  // { body, white, ax, ay, res } shape bakeCreature returns); without that hook a plain gold pixel
+  // crown is painted here on PIXEL's own canvas and palette, so it sits on the same grid.
+  const pixelCrownTexes = new Map()
+  function pixelCrownLook(r) {
+    let l = pixelCrownTexes.get(r)
+    if (!l) {
+      let b = PIXEL.bakeCrown ? PIXEL.bakeCrown(r) : null
+      if (!b) {
+        const P = PIXEL.PAL
+        const pc = new PIXEL.PixelCanvas(9, 6)
+        pc.rect(1, 3, 7, 2, P.coin)
+        for (const x of [1, 4, 7]) { pc.set(x, 1, P.coin); pc.set(x, 2, P.coin) }
+        pc.set(4, 0, P.coinHi); pc.set(4, 3, P.eye); pc.rect(2, 4, 5, 1, P.coinLo)
+        pc.outline(P.ink)
+        const k = (PIXEL.PX ?? 3) * 2
+        b = { body: pc.toCanvas(k), white: pc.toCanvas(k, true), ax: 0.5, ay: 1, res: 2 }
+      }
+      l = { tex: PIXEL.pixelTex(b.body, b.res), white: PIXEL.pixelTex(b.white, b.res), ax: b.ax, ay: b.ay }
+      pixelCrownTexes.set(r, l)
+    }
+    return l
   }
   function makeRosterLook(id, elite, child = false) {
     const entry0 = ROSTER_LOOKS[id]
@@ -12474,6 +12519,20 @@ export function createRenderer(app) {
     app.stage.filters = [foilFilter]
   }
   let pixelLook = null
+  // THE PIXEL PLAYER'S HIT FLASH IS A PALETTE FLASH OF THE SPRITE, NEVER A COVER. The generic invuln
+  // blink (playerC.alpha 0.4) and src/pixel.js's all-white twin both erased the face for most of
+  // every i-frame window — the player read as a translucent grey or a featureless white disc. Here
+  // the sprite always draws in full; a fresh hit (invuln climbing) tints it hot for a few frames.
+  const PIXEL_HIT_FLASH = { t: 0.2, hz: 20, tint: 0xff7a5c }   // seconds, blink rate, the hot palette
+  let pixelHitT = 0, pixelLastInvuln = 0
+  function syncPixelPlayerFlash(p, dt) {
+    const inv = p.invuln ?? 0
+    if (inv > pixelLastInvuln + 1e-6) pixelHitT = PIXEL_HIT_FLASH.t
+    pixelLastInvuln = inv
+    pixelHitT = Math.max(0, pixelHitT - dt)
+    pixelRig.syncPlayer(p, dt, animT, false)
+    pixelRig.player.tint = pixelHitT > 0 && Math.floor(pixelHitT * PIXEL_HIT_FLASH.hz) % 2 === 0 ? PIXEL_HIT_FLASH.tint : 0xffffff
+  }
   function setPixel(look) {
     pixelLook = look
     pixelRig.enable(look)
@@ -12490,7 +12549,7 @@ export function createRenderer(app) {
   }
   function setMacro(run) {
     const ch = run && CHAPTERS[run.chapter]
-    if (pixelLook) { pixelLook = null; pixelRig.disable(); bodyC.visible = true; pShadow.visible = true }
+    if (pixelLook) { pixelLook = null; pixelRig.disable(); pixelRig.player.tint = 0xffffff; pixelHitT = pixelLastInvuln = 0; bodyC.visible = true; pShadow.visible = true }
     if (ch?.render?.pixel) { macroLook = null; holoLook = null; setPixel(ch.render.pixel); return }
     macroLook = ch?.render?.macro ?? null
     holoLook = null
@@ -30218,7 +30277,7 @@ void main() {
     // for an ARM's hit (krakenHurtBlinkT) — the head's touch is told by the crimson touch band.
     playerC.alpha = playerC.parent === krakenFishHost
       ? (dt > 0 && krakenHurtBlinkT > 0 && Math.sin(animT * Math.PI * 2 * K_HURT_BLINK_HZ) < 0 ? 0.08 : 1)
-      : p.invuln > 0 ? (Math.sin(animT * 32) > 0 ? 1 : 0.4) : 1
+      : p.invuln > 0 && !pixelLook ? (Math.sin(animT * 32) > 0 ? 1 : 0.4) : 1
 
     // ---- the death outro's pose (v7.x, DEATH_OUTRO) ----------------------------------------------
     // A fish that has stopped swimming. Last in the function on purpose (see the deathP note on the
@@ -30310,7 +30369,7 @@ void main() {
     // multiplied a gold crown into mud anyway back when it was baked in.
     const cr = look.crown
     if (cr) {
-      const ct = crownLook(cr.r)
+      const ct = cr.pixel ? pixelCrownLook(cr.r) : crownLook(cr.r)
       if (!s._crown) {
         s._crown = new Sprite(Texture.EMPTY)
         enemyCrownLayer.addChild(s._crown)
@@ -30319,10 +30378,25 @@ void main() {
       if (s._crown.texture !== tex) s._crown.texture = tex
       s._crown.anchor.set(ct.ax, ct.ay)
       s._crown.visible = true
-      s._crown.position.set(e.x, e.y + cr.top * k)
-      s._crown.scale.set(k)
+      // a pixel crown keeps its art pixels on the grid (scale 1); it still rides the drawn body's top
+      s._crown.position.set(e.x, e.y + cr.top * k * (cr.pixel ? cr.baked : 1))
+      s._crown.scale.set(cr.pixel ? 1 : k)
       s._crown.alpha = s.alpha
     } else if (s._crown) s._crown.visible = false
+  }
+  // A ground ring in pixel art (The Magma): src/pixel.js may own it (drawRing(g, x, y, r, color,
+  // alpha)); by default it is a dashed ring of whole art pixels snapped to the world grid, so the CRT
+  // pass gets square cells to re-grid instead of an anti-aliased 2px stroke it breaks into dust.
+  function pixelRing(g, x, y, r, color, alpha) {
+    if (PIXEL.drawRing) return PIXEL.drawRing(g, x, y, r, color, alpha)
+    const px = PIXEL.PX ?? 3
+    const n = Math.max(8, Math.round((Math.PI * 2 * r) / px))
+    for (let i = 0; i < n; i++) {
+      if (i % 6 >= 4) continue   // dashes: four cells on, two off
+      const a = (i / n) * Math.PI * 2
+      g.rect(Math.floor((x + Math.cos(a) * r) / px) * px, Math.floor((y + Math.sin(a) * r) / px) * px, px, px)
+    }
+    g.fill({ color, alpha })
   }
   function hideEnemyDecor(s) {
     if (s._shadow) s._shadow.visible = false
@@ -31069,7 +31143,8 @@ void main() {
       if (e.affixes && e.affixes.includes('pacer')) {
         // subtle warm aura ring at the affix's push/pull radius, slow pulse
         const pulse = 0.5 + 0.5 * Math.sin(animT * 1.5 + e.id * 0.7)
-        pacerG.circle(e.x, e.y, PACER_RADIUS).stroke({ width: 2, color: 0xffb347, alpha: 0.18 + pulse * 0.14 })
+        if (pixelLook) pixelRing(pacerG, e.x, e.y, PACER_RADIUS, 0xffb347, 0.30 + pulse * 0.25)
+        else pacerG.circle(e.x, e.y, PACER_RADIUS).stroke({ width: 2, color: 0xffb347, alpha: 0.18 + pulse * 0.14 })
       }
 
       // SUBMISSION: the ally ring. A GROUND RING is a plan view by construction, which is the
@@ -31321,7 +31396,7 @@ void main() {
     // drift out of step with each other.
     const deathP = updateDeathOutro(run, dt)
     syncPlayer(run.player, dt, run.rampageT || 0, playerBuffs(run), deathP)
-    if (pixelLook) pixelRig.syncPlayer(run.player, dt, animT, (run.player.invuln ?? 0) > 0 && Math.floor(animT * 16) % 2 === 0)
+    if (pixelLook) syncPixelPlayerFlash(run.player, dt)
     syncEnemies(run)
     syncBlooms(run)
     syncLures(newest(run.lures || [], 'lures'))

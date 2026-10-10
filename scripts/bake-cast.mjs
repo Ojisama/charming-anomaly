@@ -15,7 +15,7 @@
 // id with no file at all; it cannot catch a file that is merely stale.) Wire it into the build if that
 // bites more than once.
 //
-//   node scripts/bake-cast.mjs
+//   node scripts/bake-cast.mjs [--port 5199]     (or BAKE_CAST_PORT=5199; default 5199)
 //
 // It starts its own vite dev server, drives chrome-headless-shell over CDP, loads the game with
 // ?debug (which exposes window.__renderer), and calls the renderer's own castThumbs().
@@ -90,12 +90,15 @@ if (!chrome) {
 // ---- vite dev server ----
 // shell: true because on Windows `npx` is npx.cmd and a bare spawn fails with ENOENT — the
 // second thing in this file that stopped it running on this machine at all, after findChrome.
-const vite = spawn('npx', ['vite', '--port', '5199', '--strictPort'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'], shell: process.platform === 'win32' })
+const portArg = process.argv.indexOf('--port')
+const VITE_PORT = String(portArg >= 0 ? process.argv[portArg + 1] : (process.env.BAKE_CAST_PORT || 5199))
+if (!/^\d+$/.test(VITE_PORT)) { console.error('bake-cast: bad port', VITE_PORT); process.exit(1) }
+const vite = spawn('npx', ['vite', '--port', VITE_PORT, '--strictPort'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'], shell: process.platform === 'win32' })
 const dead = (code) => { console.error('vite exited', code); process.exit(1) }
 vite.on('exit', dead)
 await new Promise((res, rej) => {
   const t = setTimeout(() => rej(new Error('vite never came up')), 30000)
-  vite.stdout.on('data', (b) => { if (b.toString().includes('5199')) { clearTimeout(t); res() } })
+  vite.stdout.on('data', (b) => { if (b.toString().includes(VITE_PORT)) { clearTimeout(t); res() } })
 })
 
 // ---- browser over CDP ----
@@ -134,7 +137,7 @@ const send = (method, params = {}) => new Promise((res) => {
 
 await send('Page.enable')
 await send('Runtime.enable')
-await send('Page.navigate', { url: 'http://localhost:5199/?debug' })
+await send('Page.navigate', { url: `http://localhost:${VITE_PORT}/?debug` })
 
 // Wait for boot: ?debug parks the renderer on window.__renderer once app.init and renderer.ready
 // have both resolved, which is exactly the point the textures exist.
