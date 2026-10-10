@@ -6154,8 +6154,8 @@ export function createRenderer(app) {
 
   // ==== Book 3, Burrow: per-frame drawing ======================================================
   // burrowGroundG is ON the floor, under the crowd: the ridges of turned earth over digging moles,
-  // the cracks of a coming cave-in or eruption, the open pits, the roots of a snare, the shadow of a
-  // stone about to fall. burrowFxG is over the crowd: the shovel's scoop, the echo rings, a crystal
+  // the cracks of a coming cave-in or eruption, the open pits, the shadow of a stone about to fall.
+  // The snares' roots are baked sprites on snareRootLayer, at the same depth. burrowFxG is over the crowd: the shovel's scoop, the echo rings, a crystal
   // chiming, the stone itself falling, the light-trails of prism shards (which is what shows a shot
   // turning off a crystal in a still frame). Both are cleared and redrawn every frame from `run`;
   // nothing here writes back to it.
@@ -6241,44 +6241,47 @@ export function createRenderer(app) {
       }
     }
   }
-  // A snare is a knot of gnarled clay roots bursting out of a patch of broken soil: thick at the
-  // knot, tapering, kinked, forking — roots, not legs.
-  function drawSnare(g, sn, t) {
-    const grow = Math.min(1, sn.t / 0.25), fade = Math.max(0, Math.min(1, (sn.dur - sn.t) / 0.35))
-    const R = sn.r * grow
-    const hs = sn.x * 0.31 + sn.y * 0.17
-    g.circle(sn.x, sn.y, sn.r * 1.05).fill({ color: SOIL.dark, alpha: 0.3 * fade })
-    g.circle(sn.x, sn.y, sn.r * 0.45 * grow).fill({ color: SOIL.mid, alpha: 0.6 * fade })
-    const root = (pts, w0, w1) => {
-      const n = pts.length / 2 - 1
-      for (const [k, c, al] of [[1.45, 0x22140a, 0.95], [1, 0x7a5530, 1], [0.38, 0xc89a68, 0.85]]) {
-        for (let j = 0; j < n; j++) {
-          const w = (w0 + (w1 - w0) * (j / Math.max(1, n - 1))) * k
-          g.moveTo(pts[j * 2], pts[j * 2 + 1]).lineTo(pts[j * 2 + 2], pts[j * 2 + 3]).stroke({ width: w, color: c, alpha: al * fade, cap: 'round' })
-        }
+  // A snare is a bake (MACRO.paintRootSnare): gnarled woody roots heaving out of a broken crust,
+  // their tips diving back into the soil at the snare's reach. SNARE_GROW_K frames x SNARE_SEEDS
+  // seeds, one sprite per snare on snareRootLayer (on the floor, under the crowd), scaled to its r.
+  // The roots grow in over SNARE_GROW_T and draw back in over the last SNARE_FADE_T as they fade.
+  const SNARE_GROW_T = 0.25, SNARE_FADE_T = 0.35
+  let snareFrames = null
+  const snareSprites = []
+  function bakeSnares() {
+    if (snareFrames) return snareFrames
+    snareFrames = []
+    for (let sd = 0; sd < MACRO.SNARE_SEEDS; sd++) {
+      snareFrames.push(MACRO.SNARE_GROW_K.map((k) => {
+        const bk = MACRO.paintRootSnare(sd, k)
+        return { tex: macroCanvasTex(bk.body, bk.S), ax: bk.ax, ay: bk.ay }
+      }))
+    }
+    return snareFrames
+  }
+  function syncSnareSprites(snares) {
+    let n = 0
+    if (snares.length) {
+      const frames = bakeSnares()   // already baked by reset() for a chapter that deals the card
+      const K = MACRO.SNARE_GROW_K
+      for (const sn of snares) {
+        const grow = Math.min(1, sn.t / SNARE_GROW_T), fade = Math.max(0, Math.min(1, (sn.dur - sn.t) / SNARE_FADE_T))
+        const k = Math.min(grow, 0.35 + 0.65 * fade)
+        let fi = 0
+        while (fi < K.length - 1 && K[fi] < k - 0.02) fi++
+        const fr = frames[Math.floor(hash(sn.x * 0.31 + sn.y * 0.17) * frames.length)][fi]
+        let sp = snareSprites[n]
+        if (!sp) { sp = new Sprite(fr.tex); snareRootLayer.addChild(sp); snareSprites.push(sp) }
+        n++
+        sp.visible = true
+        sp.texture = fr.tex
+        sp.anchor.set(fr.ax, fr.ay)
+        sp.position.set(sn.x, sn.y)
+        sp.scale.set(sn.r / MACRO.SNARE_R0)
+        sp.alpha = Math.pow(fade, 0.7)
       }
     }
-    const n = 7
-    for (let i = 0; i < n; i++) {
-      const a0 = (i / n) * Math.PI * 2 + hash(hs + i) * 0.6
-      const pts = [], side = []
-      let a = a0
-      for (let j = 0; j <= 5; j++) {
-        a += (hash(hs + i * 7.3 + j) - 0.5) * 0.9 + Math.sin(t * 2.5 + i + j) * 0.03
-        const d = R * (j / 5) * (0.75 + 0.25 * hash(hs + i * 3.1))
-        pts.push(sn.x + Math.cos(a) * d, sn.y + Math.sin(a) * d)
-        if (j === 2 || j === 4) side.push([pts[pts.length - 2], pts[pts.length - 1], a + (hash(hs + i + j * 9) < 0.5 ? 0.9 : -0.9), d])
-      }
-      root(pts, 9, 2.6)
-      for (const [x, y, sa, d] of side) {
-        const L = R * 0.28
-        const bp = [x, y, x + Math.cos(sa) * L * 0.55, y + Math.sin(sa) * L * 0.55, x + Math.cos(sa + 0.4) * L, y + Math.sin(sa + 0.4) * L]
-        root(bp, 4, 1.6)
-      }
-    }
-    // the knot at the middle, a clay lump with a lit top
-    g.circle(sn.x, sn.y, 9 * grow).fill({ color: 0x5a3c1e, alpha: fade })
-    g.circle(sn.x - 2, sn.y - 2, 4.5 * grow).fill({ color: 0xb08050, alpha: fade })
+    for (let i = n; i < snareSprites.length; i++) snareSprites[i].visible = false
   }
   function syncBurrow(run, dt) {
     const gG = burrowGroundG, gF = burrowFxG
@@ -6321,7 +6324,7 @@ export function createRenderer(app) {
         }
       }
     }
-    for (const sn of run.snares || []) drawSnare(gG, sn, t)
+    syncSnareSprites(run.snares || [])
     let stoneN = 0
     // stalactites: the shadow grows on the floor, the stone drops out of the ceiling onto it
     for (const dr of run.drips || []) {
@@ -13166,6 +13169,7 @@ export function createRenderer(app) {
   const burrowGroundG = new Graphics()
   const burrowFxG = new Graphics()
   const burrowStoneLayer = new Container()
+  const snareRootLayer = new Container()   // the Root Snare's baked roots (syncSnareSprites)
   // Barnacle crusts, drawn OVER the bodies they are growing on — they sit on top of the enemy
   // sprite, so this has to be added after the entity layer, not with the ground effects.
   const crustG = new Graphics()
@@ -13294,7 +13298,7 @@ const spurG = new Graphics()
   const particleLayer = new Container()
   const textLayer = new Container()
   entitiesLayer.addChild(
-    mownG, sandLayer, netWakeG, wellG, bindG, poolLayer, slickG, burrowGroundG, pixelRig.ground, trailLayer, webLayer, gateFloorG, spurG, coralLayer, gateG, burstWakeG, obstacleLayer, trapLayer,
+    mownG, sandLayer, netWakeG, wellG, bindG, poolLayer, slickG, burrowGroundG, snareRootLayer, pixelRig.ground, trailLayer, webLayer, gateFloorG, spurG, coralLayer, gateG, burstWakeG, obstacleLayer, trapLayer,
     // The refill circles (The Deep's anglerfish, sun shafts, pools) sit UNDER the drops: a maw is
     // a 400px body, and above gemLayer it hid every gem and coin that fell inside it.
     shaftLayer,
@@ -29837,6 +29841,7 @@ void main() {
     pixelRig.clear()   // The Magma (src/pixel.js): its own pools
     burrowGroundG.clear(); burrowFxG.clear(); burrowSwings.length = 0
     for (const st of burrowStones) st.visible = false
+    for (const sp of snareSprites) sp.visible = false
     for (const [id, s] of enemySprites) {
       s.visible = false
       hideAffixBadges(s)
@@ -32417,6 +32422,7 @@ void main() {
     for (const m of dustMotes) { m.s.tint = dustLook?.tint ?? 0xffffff; m.s.alpha *= dustLook?.alpha ?? 1 }
     R.background.color = chapterRender.bgColor
     setMacro(run)   // Book 3: the macro lens on or off
+    if (run && CHAPTERS[run.chapter]?.weapons?.includes('rootSnare')) bakeSnares()   // at run start, not on the first cast
     setAscii(run)   // Book 3, The Mine: the ascii look on or off (after setMacro: it may set the stage's filters)
     clearWorld()
     if (run) {
