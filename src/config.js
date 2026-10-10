@@ -9201,7 +9201,7 @@ CHAPTERS.mine = {
   name: 'The Mine', tagline: 'mind the firedamp', icon: '⛏️',
   weapons: ['pickaxe', 'dynamite', 'minecart', 'lantern'], starter: 'pickaxe',
   roster: [
-    { id: 'rat',        archetype: 'normal', name: 'Pit Rat',     hpMul: 0.75, speedMul: 1.05, radiusMul: 0.85, flags: [] },
+    { id: 'mineRat',    archetype: 'normal', name: 'Pit Rat',     hpMul: 0.75, speedMul: 1.05, radiusMul: 0.85, flags: [] },
     { id: 'caveSpider', archetype: 'fast',   name: 'Cave Spider', hpMul: 0.75, speedMul: 1.0, flags: ['pounce'], dmgMul: 0.7 },
     { id: 'kobold',     archetype: 'tank',   name: 'Kobold',      hpMul: 1.4, speedMul: 0.85, flags: ['unshakeable'] },
     // The elite. eliteOnly: every elite in this chapter is a golem, and no ordinary spawn is.
@@ -9232,7 +9232,7 @@ CHAPTERS.mine = {
   //  - maxAliveMul is the lever that lets the gas matter: with no cap the crowd dies on arrival either way
   balance: { spawnMul: 2.5, enemyDmgMul: 0.45, enemyHpMul: 1.8, xpMul: 1.25, maxAliveMul: 0.07 },
   render: {
-    cast: ['rat', 'caveSpider', 'kobold', 'golem'],
+    cast: ['mineRat', 'caveSpider', 'kobold', 'golem'],
     bgColor: 0x0a0806,     // the gallery's own dark, under the glyph floor
     floorTint: 0xffffff,
     playerTint: 0xffffff,

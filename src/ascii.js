@@ -169,7 +169,7 @@ function part(cx, cy, rx, ry, mat, sp, size, seed) {
 }
 
 const CAST = {
-  rat: {
+  mineRat: {
     baseR: 12,
     parts: [part(-2, 0, 13, 8.5, 'fur', 3.3, 7, 11), part(11, 0, 6, 4.8, 'fur', 3, 6, 12)],
   },
@@ -248,7 +248,7 @@ function composeCreature(out, id, X, Y, heading, sc, lx, ly, reach, flash, st, e
   const cos = Math.cos(heading), sin = Math.sin(heading)
   const ph = st.phase, t = st.t
   const lit = 0.4 + 0.6 * reach
-  if (id === 'rat') {
+  if (id === 'mineRat') {
     // tail: a long tapering S of '~' '-' '.', swaying from the root
     // a long whip of a tail: '~' at the root fraying to '-' and '.', sweeping in an S
     let px = -14, py = 0
@@ -405,7 +405,7 @@ const GOLEM_CRACKS = [
 
 // ---- the cast export (static bakes for render.js's pool and the title-card thumbnails) ---------
 export const ASCII_CAST = {
-  rat: { baseR: 12 },
+  mineRat: { baseR: 12 },
   caveSpider: { baseR: 13, poseOf: (e) => ({ hold: 0, aim: 1, leap: 2, land: 0 })[e._pounceState] ?? 0 },
   kobold: { baseR: 22 },
   golem: { baseR: 28 },

@@ -6559,9 +6559,8 @@ export function createRenderer(app) {
     crystalCrab: { archetype: 'tank', draw: drawCrystalCrab, macro: true, lean: 90, phases: 4 },
     bat: { archetype: 'fast', draw: drawBat, macro: true, lean: 90, phases: 4 },
     // ---- Book 3, The Mine: PRETTY COLOURED ASCII. `ascii: true` hands the whole drawing to
-    // src/ascii.js (ASCII_CAST / bakeCreature), the way `macro: true` hands it to macro.js. The
-    // mine's rat shares the id 'rat' with the city's, so its look lives in ascii.js too and is
-    // swapped in by syncEnemies while an ascii chapter is up (T.asciiRoster).
+    // src/ascii.js (ASCII_CAST / bakeCreature), the way `macro: true` hands it to macro.js.
+    mineRat: { archetype: 'normal', ascii: true },
     caveSpider: { archetype: 'fast', ascii: true },
     kobold: { archetype: 'tank', ascii: true },
     golem: { archetype: 'tank', ascii: true },
@@ -7026,14 +7025,6 @@ export function createRenderer(app) {
       // than swapped live for the same reason every other look is: syncEnemies picks a texture, it
       // never draws one.
       if (ROSTER_LOOKS[id].childDraw) T.roster[id + '_child'] = makeRosterLook(id, false, true)
-    }
-    // Book 3, The Mine: every creature src/ascii.js draws, keyed like T.roster. syncEnemies prefers
-    // these while an ascii chapter is up, so an id shared with another chapter (the rat) is drawn
-    // in glyphs in the mine and by its own bake everywhere else.
-    T.asciiRoster = {}
-    for (const id of Object.keys(ASCII.ASCII_CAST)) {
-      T.asciiRoster[id] = makeAsciiLook(id, false)
-      T.asciiRoster[id + '_elite'] = makeAsciiLook(id, true)
     }
     buildBurrowTextures()   // Book 3: photographed props, crystal pillars, shots
     {
@@ -30759,7 +30750,7 @@ void main() {
       const rkey = e.rosterId
         ? e.rosterId + (e._splitChild && T.roster[e.rosterId + '_child'] ? '_child' : (e.elite ? '_elite' : ''))
         : null
-      const look = (asciiOn && rkey && T.asciiRoster[rkey]) || (rkey && T.roster[rkey]) || T.enemies[e.elite ? e.type + '_elite' : e.type]
+      const look = (rkey && T.roster[rkey]) || T.enemies[e.elite ? e.type + '_elite' : e.type]
       // Animated looks (look.frames, e.g. the centipede's baked wave phases): flip through the
       // frames on animT, offset per enemy id so a pack doesn't slither in lockstep. Frozen/stunned
       // creatures HOLD their current pose (matching the wisp-wobble rule below) instead of
