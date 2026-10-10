@@ -852,7 +852,8 @@ function generateWells(sig) {
  *               (sim.js hasAffix() gates affix logic on e.elite || e.affixVisible).
  *               Elites roll 1 random affix at spawn, 2 distinct ones once run.time >=
  *               AFFIX_SECOND_AT. `anchored` is never in that roll: it is layered on top at
- *               ANCHORED_CHANCE, so ~half of elites carry it as well as their rolled affix(es). Render/shield contract: draw a shield bubble while `affixes`
+ *               ANCHORED_CHANCE, so ~half of elites carry it as well as their rolled affix(es). An
+ *               affix with a `chapters` list (gasbag: ['mine']) rolls only in those chapters. Render/shield contract: draw a shield bubble while `affixes`
  *               includes 'shielded' AND `hp > maxHP * SHIELD_HP_FRAC` (the shield "breaks" once
  *               hp drops under that fraction, matching the reduced-damage window in sim.js).
  *
@@ -2148,6 +2149,9 @@ function generateWells(sig) {
  *     laid in seams of a few pockets around the player, drifting slowly, let go once far behind.
  *     A plain object: copying one and moving its x/y/r gives a working pocket. Empty with the
  *     switch (signature.firedamp) null. Private on it: _lit (set the frame it is set off).
+ *     A GASBAG TRAIL pocket (ELITE_AFFIXES.gasbag) also carries trail (the laying enemy's id) and
+ *     life (s left; let go at 0). It never drifts or creeps, may sit anywhere (no spawnMin), and
+ *     does not count toward the seams' count. Otherwise it is lit, chains and stings like any other.
  *   gasLit[i]: { x, y, r, at, chain, seed } — a pocket already SET OFF, waiting for run.time >= at.
  *     chain 0 = set off by a player weapon this frame; n = the nth link of a chain. It blasts once.
  *   sticks[i]: { x, y, fromX, fromY, t, flight, fuse, r, dmg, seed } — Dynamite: in the air for
@@ -2158,7 +2162,8 @@ function generateWells(sig) {
  *     s, for the renderer alone (it draws a blast at its age run.time - at, so a chain reads from
  *     state even on a frame that missed the gasBlast/dynamite events). Nothing in sim reads it.
  *   Bullets: weapon 'chip' (the Pickaxe's rock chips).
- *   Private: _gasLayT (s until the next seam may be laid).
+ *   Private: _gasLayT (s until the next seam may be laid). On a Gasbag enemy: _gasX/_gasY (where
+ *     it laid its last trail pocket; the next one is GASBAG_TRAIL.spacing px from it).
  *   Hurt src: 'firedamp' (a blast with the player inside it; the normal hurt path, invuln after).
  *   Events: {type:'gasBlast', x, y, r, chain} a pocket went off (r = blast radius, chain as above);
  *     {type:'pickaxe', x, y, r, angle} a blow landed; {type:'dynamite', x, y, r} a stick blew up;

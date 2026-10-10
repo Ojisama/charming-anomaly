@@ -1425,6 +1425,8 @@ const CONFIG = {
   'Anchored': 'Ancré',
   'Frenzied': 'Enragé',
   'Gilded': 'Doré',
+  'Gasbag': 'Grisouteux',
+  'Leaves a trail of firedamp wherever it goes.': 'Laisse une traînée de grisou partout où il passe.',
 
   'Overtime Shift': 'Heures Sup\'',
   'Way more anomalies, way more XP.': 'Beaucoup plus d\'anomalies, beaucoup plus d\'XP.',

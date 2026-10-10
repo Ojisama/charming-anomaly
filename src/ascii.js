@@ -504,6 +504,8 @@ function statusLook(e, clock) {
 const AFFIX_GLYPH = {
   shielded: ['O', 0x6ab8ff], splitter: ['%', 0xc89aff], volatile: ['*', 0xff4a3a], pacer: ['»', 0xffb347],
   anchored: ['‡', 0x9ab0c8], frenzied: ['!', 0xff7a3a], gilded: ['≡', 0xf0a83a],
+  // a bubble of gas, brighter and yellower than the firedamp's own greens (which draw no '°')
+  gasbag: ['°', 0xc8ff4a],
 }
 
 // ---- the cast export (static bakes for render.js's pool and the title-card thumbnails) ---------
@@ -993,7 +995,8 @@ export function createAsciiRenderer(host) {
         // (the sting reaches the cloud as drawn when it goes off: sim reads the same MINE_GAS_LIT_SHRINK)
         const shrink = lit ? MINE_GAS_LIT_SHRINK + (1 - MINE_GAS_LIT_SHRINK) * left : 1
         const [pl] = lightAt(g.x, g.y)
-        const born = lit ? 1 : clamp01((g.age ?? MINE_GAS_FADE_IN) / MINE_GAS_FADE_IN)
+        // a Gasbag's trail pocket thins away over its last MINE_GAS_FADE_IN s instead of popping
+        const born = lit ? 1 : clamp01((g.age ?? MINE_GAS_FADE_IN) / MINE_GAS_FADE_IN) * (g.trail != null ? clamp01(g.life / MINE_GAS_FADE_IN) : 1)
         if (born <= 0) continue
         for (let k = 0; k < n; k++) {
           const f = (k + 0.5) / n
@@ -1195,7 +1198,8 @@ export function createAsciiRenderer(host) {
         const by = Y - R * 0.9 - (e.elite ? 13 : 6)
         for (let i = 0; i < shown.length; i++) {
           const [ch, col] = AFFIX_GLYPH[shown[i]]
-          const bx = X + (i - (shown.length - 1) / 2) * 11
+          // an odd count steps half a slot right: the crown's brightest spark sits on X and swallows a badge there
+          const bx = X + (i - (shown.length - 1) / 2) * 11 + (e.elite && shown.length % 2 ? 5.5 : 0)
           mob.put(ch, bx, by, col, 0.3, 15, 0, true, 0, true)
           mob.put(ch, bx, by, mixHex(col, 0xffffff, 0.25), 1, 11, 0, false, 2, false)
         }

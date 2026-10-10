@@ -37,7 +37,7 @@ import {
   SHIELD_HP_FRAC, SHIELD_DMG_MUL, SPLITTER_COUNT, VOLATILE_FUSE, VOLATILE_RADIUS, VOLATILE_DMG,
   MAX_PASSIVE_LEVEL, MAX_ELEMENT_PICKS, passiveTotal,
   OBSTACLE_STREAM_RADIUS, OBSTACLE_DROP_RADIUS,
-  FRENZY_HP_FRAC, PACER_RADIUS, ELITE, GILDED_COIN_MUL, NOVA_LIFE,
+  FRENZY_HP_FRAC, PACER_RADIUS, ELITE, GILDED_COIN_MUL, GASBAG_TRAIL, NOVA_LIFE,
   SUNSPEAR_FALL, SUNSPEAR_SPREAD, FOXFIRE_GLOOM, FOXFIRE_WANDER_SPEED, FOXFIRE_SWARM, FOXFIRE_CATCH_FRAC, weaponDesc, FOXFIRE_GLOW, SUNLANCE_REACH_MIN, GLINT_LIGHT_COST, GLINT_GLOW,
   WEAPONS, HOLE_SINGULARITY_FRAC, DOWNWASH_PLUNGE_N, DOWNWASH_PLUNGE_FRAC, DOWNWASH_PLUNGE_ARM,
   ORBIT_NOVA_RADIUS, WISP_NOVA_RADIUS, CRUNCH_DMG_MUL, UNDERTOW_VAC_RADIUS_PER_STACK,
@@ -19116,7 +19116,7 @@ function testFrenchDictionary() {
   }
   // ELITE_AFFIXES is shown on the elite itself and no walk above reached it, so all seven names
   // had always shipped in English — found while translating the Codex line that names one of them.
-  for (const v of Object.values(ELITE_AFFIXES ?? {})) need(v?.name)
+  for (const v of Object.values(ELITE_AFFIXES ?? {})) { need(v?.name); need(v?.desc) }
   // The anomaly EFFECT CHIP labels — the words on the brief screen's trade, e.g. '+25% coins'.
   // They lived in a bare const inside ui.js until v7.x, which is the exemption this walk documents
   // three times above: it enumerates config TABLES, so a const in a function is invisible to it and
@@ -20846,6 +20846,7 @@ run(testLeLargeWeapons)
   run(testParkedRun)
   run(testBurrow)
   run(testMine)
+  run(testMineGasbag)
   run(testMineGlyphTells)
   run(testMagma)
   run(testMagmaFloor)
@@ -38932,7 +38933,125 @@ function testMineGlyphTells() {
   // (e) a body whose rosterId has no CAST entry (another chapter's add) is drawn as the stray cloud, never skipped
   assert.ok(/^\s+stray: \{/m.test(castSrc) && /CAST\[e\.rosterId\] \? e\.rosterId : 'stray'/.test(ajs) && /id === 'stray'\) shadeParts/.test(ajs),
     'run MG.e: ascii.js has no stray fallback — an enemy whose rosterId is not in CAST is invisible in the mine')
-  console.log(`PASS run MG (the mine's glyph tells): ${fields.length} status fields (${fields.join(',')}) read by statusLook, vignette hidden, hit/hurt/explode handled, ${ids.length} roster ids (${ids.join(',')}) drawn and owned, any other id drawn as the stray cloud`)
+  // (f) every affix that can roll in the mine has a glyph badge (render.js's emoji badge is hidden here)
+  const g0 = ajs.indexOf('const AFFIX_GLYPH')
+  const glyphSrc = ajs.slice(g0, ajs.indexOf('\n}', g0))
+  const mineAffixes = Object.entries(ELITE_AFFIXES).filter(([, v]) => !v.chapters || v.chapters.includes('mine')).map(([k]) => k)
+  assert.ok(mineAffixes.includes('gasbag'), 'run MG.f: gasbag is not among the affixes that roll in the mine')
+  const badgeless = mineAffixes.filter((id) => !new RegExp(`\\b${id}: \\[`).test(glyphSrc))
+  assert.deepStrictEqual(badgeless, [], `run MG.f: affix(es) that roll in the mine with no AFFIX_GLYPH badge: [${badgeless}]`)
+  console.log(`PASS run MG (the mine's glyph tells): ${fields.length} status fields (${fields.join(',')}) read by statusLook, vignette hidden, hit/hurt/explode handled, ${ids.length} roster ids (${ids.join(',')}) drawn and owned, any other id drawn as the stray cloud, ${mineAffixes.length} mine affixes badged`)
+}
+
+// ---- run MI.g: The Mine's Gasbag elite — a trail of firedamp ---------------------------------------
+// Effects, not state, on a field with no seams (drift and seep still on) and the elite walked by hand:
+// (a) a Gasbag elite walking a line leaves pockets along it, GASBAG_TRAIL.spacing apart, and they
+//     never creep; (b) walking on, its live trail never passes GASBAG_TRAIL.max; (c) one shot at the
+//     tail sets the whole trail off as a chain; (d) the same elite without the affix leaves nothing;
+// (e) the affix rolls in the mine and in no other chapter (every CHAPTERS id, elites forced);
+// (f) walking past you, it lays its trail right beside you (no spawnMin: owner ruling).
+function testMineGasbag() {
+  const sig = CHAPTERS['mine'].signature
+  const F0 = sig.firedamp
+  const G = GASBAG_TRAIL
+  const walk = (seed, affixes, dist, at = [260, 300], step = 4) => {
+    Math.random = mulberry32(seed)
+    const m = makeMeta(); m.dev = true
+    const run = createRun(m, { chapter: 'mine', difficulty: 1 })
+    run.player.hp = run.player.maxHP = 1e6
+    for (let i = 0; i < 400 && run.enemies.length < 1; i++) { run.weapons = []; stepSim(run, { x: 0, y: 0 }, 1 / 60); run.events.length = 0 }
+    assert.ok(run.enemies.length >= 1, 'run MI.g: no body after the warm-up')
+    run.enemies = run.enemies.slice(0, 1)
+    run.mods.spawnMul = 0; run._spawnAcc = 0
+    run.gas = []; run.gasLit = []; run.bullets = []
+    const e = run.enemies[0], p = run.player
+    Object.assign(e, { elite: true, affixes, hp: 1e6, maxHP: 1e6, speed: 0, speedMul: 0, radius: 20 })
+    e.x = p.x + at[0]; e.y = p.y + at[1]
+    const x0 = e.x
+    const blasts = []
+    let peak = 0
+    const tick = (n) => {
+      for (let t = 0; t < n && run.phase === 'playing'; t++) {
+        if (run.phase === 'levelup') { run.phase = 'playing'; run.levelUpChoices = [] }
+        run.weapons = []
+        e.speed = 0; e.kb.x = e.kb.y = 0
+        stepSim(run, { x: 0, y: 0 }, 1 / 60)
+        for (const ev of run.events) if (ev.type === 'gasBlast') blasts.push(ev)
+        run.events.length = 0
+        peak = Math.max(peak, run.gas.filter((g) => g.trail === e.id).length)
+      }
+    }
+    while (e.x - x0 < dist) { e.x += step; tick(1) }
+    return { run, e, p, blasts, tick, peak: () => peak, trail: () => run.gas.filter((g) => g.trail === e.id) }
+  }
+  sig.firedamp = { ...F0, count: 0 }   // no seams; drift and creep left ON, which a trail pocket must ignore
+  let laid, gaps, peak, chainMax, lit, none, beside
+  try {
+    // (a) 6 x spacing walked at 4px a frame, well inside one pocket's life
+    const A = walk(42001, ['gasbag'], G.spacing * 6)
+    const t = A.trail()
+    laid = t.length
+    gaps = t.slice(1).map((g, i) => Math.hypot(g.x - t[i].x, g.y - t[i].y))
+    assert.ok(laid >= 6, `run MI.g.a: a Gasbag elite walking ${G.spacing * 6}px left ${laid} pockets, want >= 6`)
+    assert.ok(gaps.every((d) => d >= G.spacing && d < G.spacing + 8), `run MI.g.a: trail pockets should sit ${G.spacing}px apart, gaps ${gaps.map((d) => d.toFixed(0))}`)
+    assert.ok(t.every((g) => Math.abs(g.y - A.e.y) < 1e-6), 'run MI.g.a: a trail pocket moved off the line it was laid on (it must not creep or drift)')
+    // (b) on round a 400px circle about you (inside the field's let-go range) for 3 x max x spacing
+    for (let a = 0, s = 0; s < G.spacing * G.max * 3; s += 4, a += 4 / 400) {
+      A.e.x = A.p.x + Math.cos(a) * 400; A.e.y = A.p.y + Math.sin(a) * 400; A.tick(1)
+    }
+    peak = A.peak()
+    assert.ok(peak <= G.max && peak >= G.max - 1, `run MI.g.b: the live trail peaked at ${peak} pockets, the cap is ${G.max}`)
+    // (c) the walk stops, the pockets age past the fade-in, and one shot at the oldest pocket
+    const tr = A.trail()
+    A.e.x += 2000; A.e.affixes = []
+    A.tick(Math.ceil(MINE_GAS_FADE_IN * 60) + 2)
+    const tail = tr[0]
+    A.run.bullets.push({ x: tail.x - 4, y: tail.y, vx: 0, vy: 0, dmg: 1, pierce: 1, life: 0.05, r: 6, speed: 0,
+      hitIds: new Set(), _shard: true, _splitDone: true, _chainsLeft: 0, weapon: 'chip' })
+    A.tick(120)
+    lit = A.blasts.length
+    chainMax = Math.max(...A.blasts.map((b) => b.chain))
+    assert.ok(lit === tr.length && A.trail().length === 0, `run MI.g.c: one shot should set off all ${tr.length} trail pockets, ${lit} went off`)
+    assert.ok(chainMax >= Math.ceil((tr.length - 1) / 2), `run MI.g.c: the trail should go off as one chain, deepest link ${chainMax} of ${tr.length} pockets`)
+    // (d) the control
+    none = walk(42001, [], G.spacing * 6).trail().length + walk(42002, ['shielded'], G.spacing * 6).trail().length
+    assert.strictEqual(none, 0, `run MI.g.d: an elite without Gasbag left ${none} pockets`)
+    // (f) right past you: no spawnMin on a trail, so it is laid beside you (owner ruling)
+    const B = walk(42003, ['gasbag'], 240, [-120, 40])
+    beside = B.trail().filter((g) => Math.hypot(g.x - B.p.x, g.y - B.p.y) < 140).length
+    assert.ok(beside >= 2, `run MI.g.f: a Gasbag walking past you laid ${beside} pockets within 140px of you, want >= 2 (no spawnMin on a trail)`)
+  } finally { sig.firedamp = F0 }
+  // (e) where it rolls: every chapter, an elite at every spawn, the bodies cleared each frame
+  const rolled = {}
+  let elites = 0, mineElites = 0
+  for (const ch of Object.keys(CHAPTERS)) {
+    Math.random = mulberry32(42010)
+    const m = makeMeta(); m.dev = true
+    let run
+    try { run = createRun(m, { chapter: ch, difficulty: 1 }) } catch { continue }
+    run.player.hp = run.player.maxHP = 1e6
+    run.mods.spawnMul *= 8   // many elites in few frames
+    for (let t = 0; t < 240 && run.phase !== 'dead'; t++) {
+      if (run.phase === 'levelup') { run.phase = 'playing'; run.levelUpChoices = [] }
+      run._nextEliteAt = 0
+      stepSim(run, { x: 0, y: 0 }, 1 / 60)
+      run.events.length = 0
+      for (const e of run.enemies) {
+        if (!e.elite || e._seenG) continue
+        e._seenG = true
+        if (ch !== 'mine') elites++; else mineElites++
+        if (e.affixes.includes('gasbag')) rolled[ch] = (rolled[ch] ?? 0) + 1
+      }
+      // the counted elites are let go, so the alive cap never stops the next one spawning
+      run.enemies = run.enemies.filter((e) => !e._seenG)
+    }
+  }
+  const outside = Object.keys(rolled).filter((c) => c !== 'mine')
+  assert.ok((rolled.mine ?? 0) >= 3, `run MI.g.e: Gasbag rolled ${rolled.mine ?? 0} times on the mine's ${mineElites} forced elites`)
+  assert.ok(elites >= 150, `run MI.g.e: only ${elites} elites outside the mine — too few to see a stray roll`)
+  assert.deepStrictEqual(outside, [], `run MI.g.e: Gasbag rolled outside the mine, in ${outside} — its trail is the mine's firedamp`)
+  console.log(`PASS run MI.g (Gasbag): ${laid} pockets over ${G.spacing * 6}px (gaps ${Math.min(...gaps).toFixed(0)}-${Math.max(...gaps).toFixed(0)}), live trail peak ${peak}/${G.max}, ` +
+    `one shot lit ${lit} as a chain (deepest link ${chainMax}), none without the affix, ${beside} laid beside you; rolled on ${rolled.mine} of ${mineElites} mine elites, 0 of ${elites} elites over ${Object.keys(CHAPTERS).length - 1} other chapters`)
 }
 
 // ---- run MI: Book 3, The Mine — firedamp ------------------------------------------------------------

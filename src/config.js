@@ -15894,6 +15894,8 @@ export const ELITE_AFFIXES = {
   anchored:  { name: 'Anchored',    icon: '⚓' },
   frenzied:  { name: 'Frenzied',    icon: '😤' },
   gilded:    { name: 'Gilded',      icon: '👑' },
+  // chapters: rolled only there (rollAffixes). Its trail is the Mine's own firedamp, so it rolls nowhere else.
+  gasbag:    { name: 'Gasbag',      icon: '💨', desc: 'Leaves a trail of firedamp wherever it goes.', chapters: ['mine'] },
 }
 export const AFFIX_SECOND_AT = 150   // s; elites spawned after this roll 2 distinct affixes instead of 1
 // balance_decision : half of all elites shrug off crowd control outright 2026-08-22
@@ -15930,6 +15932,12 @@ export const FRENZY_HP_FRAC = 0.3    // frenzied: speed boost kicks in once hp d
 export const FRENZY_SPEED_MUL = 1.6  // frenzied: speed multiplier once below FRENZY_HP_FRAC
 export const GILDED_HP_MUL = 1.3     // gilded: extra maxHP/hp multiplier at spawn (stacks with ELITE.hpMul)
 export const GILDED_COIN_MUL = 2     // gilded: death coin count multiplier (on top of ELITE.coins)
+// gasbag (The Mine): ordinary firedamp pockets laid into run.gas along the elite's path.
+//   spacing  px walked between two pockets   r     [min, max] pocket radius (seams: 44-62)
+//   max      live trail pockets per elite (a new one lets the oldest go)   life  s a pocket hangs
+// balance_decision : trail laid even beside you, no creep 2026-10-10
+//  - deliberately skips firedamp's spawnMin and creepStop: owner ruling, the affix is the threat
+export const GASBAG_TRAIL = { spacing: 64, r: [34, 42], max: 8, life: 10 }
 
 // ---- The Kraken's ceremony: the name card, the two phase beats, the kill ------------------------
 // PRESENTATION ONLY. Nothing here is read by sim.js; render.js paints it, main.js holds the summary

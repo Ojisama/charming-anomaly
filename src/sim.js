@@ -81,7 +81,7 @@ import {
   EL_VALUES, EL_BURN_TICK, EL_BURN_MIN, elScale, elementCardDesc, elText,
   ELITE_AFFIXES, AFFIX_SECOND_AT, ANCHORED_CHANCE, SHIELD_HP_FRAC, SHIELD_DMG_MUL, SPLITTER_COUNT,
   VOLATILE_FUSE, VOLATILE_RADIUS, VOLATILE_DMG, CORE_BLAST_ENEMY_MUL, PACER_RADIUS, PACER_SPEED_MUL,
-  FRENZY_HP_FRAC, FRENZY_SPEED_MUL, GILDED_HP_MUL, GILDED_COIN_MUL,
+  FRENZY_HP_FRAC, FRENZY_SPEED_MUL, GILDED_HP_MUL, GILDED_COIN_MUL, GASBAG_TRAIL,
   newWeaponChance, NEW_WEAPON_MIN_RATE,
   REVIVE_HP_FRAC, REVIVE_INVULN, REVIVE_SHOVE_RADIUS, REVIVE_SHOVE_KB, HURT_CAP_FRAC,
   ARCHETYPE_TYPE, TYPE_ARCHETYPE, LATCH_SLOW_T, LATCH_SLOW_MUL, TANK_KB_REFRACTORY,
@@ -4141,11 +4141,11 @@ function stepLeaks(run) {
   return false
 }
 
-// Rolls equal-weight distinct affix ids from every ELITE_AFFIXES entry EXCEPT `anchored`: 1
-// normally, 2 once run.time >= AFFIX_SECOND_AT. Called only for elites.
+// Rolls equal-weight distinct affix ids from every ELITE_AFFIXES entry EXCEPT `anchored` (and any
+// whose `chapters` list leaves this chapter out): 1 normally, 2 once run.time >= AFFIX_SECOND_AT.
 function rollAffixes(run) {
   const count = run.time >= AFFIX_SECOND_AT ? 2 : 1
-  const pool = Object.keys(ELITE_AFFIXES).filter((id) => id !== 'anchored')
+  const pool = Object.keys(ELITE_AFFIXES).filter((id) => id !== 'anchored' && (!ELITE_AFFIXES[id].chapters || ELITE_AFFIXES[id].chapters.includes(run.chapter)))
   const picked = []
   for (let i = 0; i < count && pool.length > 0; i++) {
     const idx = Math.floor(Math.random() * pool.length)
@@ -16620,6 +16620,24 @@ function layGasSeam(run, F) {
     run.gas.push(g)
   }
 }
+// GASBAG (ELITE_AFFIXES.gasbag, Mine only): the elite lays an ordinary pocket into run.gas every
+// GASBAG_TRAIL.spacing px it walks — wherever it is, beside you too (no spawnMin, no creep). Each
+// pocket carries trail (its elite's id) and life; past GASBAG_TRAIL.max of its own, the oldest goes.
+function layGasbagTrails(run) {
+  const G = GASBAG_TRAIL
+  for (const e of run.enemies) {
+    if (e._dead || !hasAffix(e, 'gasbag')) continue
+    if (e._gasX !== undefined && (e.x - e._gasX) ** 2 + (e.y - e._gasY) ** 2 < G.spacing * G.spacing) continue
+    e._gasX = e.x; e._gasY = e.y
+    let own = 0, oldest = -1
+    for (let i = 0; i < run.gas.length; i++) if (run.gas[i].trail === e.id) { if (oldest < 0) oldest = i; own++ }
+    if (own >= G.max) run.gas.splice(oldest, 1)
+    run.gas.push({
+      x: e.x, y: e.y, r: G.r[0] + Math.random() * (G.r[1] - G.r[0]),
+      age: 0, seed: Math.floor(Math.random() * 1000), trail: e.id, life: G.life,
+    })
+  }
+}
 // Stepped inside stepWeaponsInner (the enemy grid is on there; the blasts query it).
 function firedampActive(run) {
   return !!(firedampSpec(run) || run.gas?.length || run.gasLit?.length || run.booms?.length)
@@ -16644,15 +16662,23 @@ function stepFiredamp(run, dt) {
   }
   const want = Math.round(F.count * (run.mods.gasCountMul ?? 1))
   run._gasLayT = (run._gasLayT ?? 0) - dt
-  for (let guard = 0; guard < F.layPerStep && run.gas.length < want && (run._gasLayT <= 0 || run.gas.length < want * F.refillFrac); guard++) {
+  // the field's count is the seams' own: a Gasbag's trail is extra gas, never a seam withheld
+  const seamCount = () => run.gas.reduce((n, g) => n + (g.trail == null ? 1 : 0), 0)
+  let seams = seamCount()
+  for (let guard = 0; guard < F.layPerStep && seams < want && (run._gasLayT <= 0 || seams < want * F.refillFrac); guard++) {
     layGasSeam(run, F)
     run._gasLayT = F.relay
+    seams = seamCount()
   }
+  layGasbagTrails(run)
   // 2. Drift: a slow wander on each pocket's own clock (no random draw per frame), and a seep
   // toward you that stops short of where you stand: the gas finds the crowd you are drawing in.
   // Neither moves a pocket nearer than creepStop (nor nearer than it was, if you walked into it).
+  let trailGone = false
   for (const g of run.gas) {
     g.age += dt
+    // a trail pocket stays where it was laid, and lets go when its life runs out
+    if (g.trail != null) { g.life -= dt; if (g.life <= 0) trailGone = true; continue }
     const d0 = Math.hypot(p.x - g.x, p.y - g.y)
     const ph = g.seed * 0.37 + run.time * 0.23
     g.x += Math.cos(ph) * F.drift * dt
@@ -16662,6 +16688,7 @@ function stepFiredamp(run, dt) {
     const ox = g.x - p.x, oy = g.y - p.y, d1 = Math.hypot(ox, oy), floor = Math.min(d0, F.creepStop)
     if (d1 < floor && d1 > 1e-6) { g.x = p.x + (ox / d1) * floor; g.y = p.y + (oy / d1) * floor }
   }
+  if (trailGone) run.gas = run.gas.filter((g) => g.trail == null || g.life > 0)
   // 3. What the player's weapons touched this frame sets the touched pockets off.
   if (run.gas.length > 0) {
     for (const b of run.bullets) if (b.life > 0) gasLightAt(run, b.x, b.y, b.r ?? 6)
