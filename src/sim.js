@@ -16628,14 +16628,13 @@ function stepFiredamp(run, dt) {
   }
   // 2. Drift: a slow wander on each pocket's own clock (no random draw per frame), and a seep
   // toward you that stops short of where you stand: the gas finds the crowd you are drawing in.
-  const creepStop = F.creepStop * (run.mods.gasBlastMul ?? 1)
   for (const g of run.gas) {
     g.age += dt
     const ph = g.seed * 0.37 + run.time * 0.23
     g.x += Math.cos(ph) * F.drift * dt
     g.y += Math.sin(ph * 1.3 + g.seed) * F.drift * dt
     const dx = p.x - g.x, dy = p.y - g.y, d = Math.hypot(dx, dy)
-    if (d > creepStop) { g.x += (dx / d) * F.creep * dt; g.y += (dy / d) * F.creep * dt }
+    if (d > F.creepStop) { g.x += (dx / d) * F.creep * dt; g.y += (dy / d) * F.creep * dt }
   }
   // 3. What the player's weapons touched this frame sets the touched pockets off.
   if (run.gas.length > 0) {
@@ -16670,8 +16669,9 @@ function stepFiredamp(run, dt) {
             spendCC(run, e)
           }
         }
-        // THE STING: standing in a blast costs a little, through the normal hurt path (invuln after).
-        if (!died && run.phase === 'playing' && p.invuln <= 0 && Math.hypot(p.x - L.x, p.y - L.y) <= R + PLAYER.radius * F.stingReach) {
+        // THE STING: standing in the pocket's own cloud costs a little, through the normal hurt path
+        // (invuln after). Only the cloud as drawn: the blast's wider reach is for the crowd.
+        if (!died && run.phase === 'playing' && p.invuln <= 0 && Math.hypot(p.x - L.x, p.y - L.y) <= L.r * F.stingCloud + PLAYER.radius) {
           if (hurtPlayer(run, F.sting, false, 'firedamp')) died = true
         }
         // THE CHAIN: every idle pocket the blast reaches goes off one link later.

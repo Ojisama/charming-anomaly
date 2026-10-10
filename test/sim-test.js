@@ -38926,7 +38926,10 @@ function testMineGlyphTells() {
     const other = Object.keys(CHAPTERS).filter((c) => c !== 'mine' && (CHAPTERS[c].roster ?? []).some((r) => r.id === id))
     assert.deepStrictEqual(other, [], `run MG.d: roster id '${id}' is shared with ${other} — the mine's glyph look and their bake cannot both own it`)
   }
-  console.log(`PASS run MG (the mine's glyph tells): ${fields.length} status fields (${fields.join(',')}) read by statusLook, vignette hidden, hit/hurt/explode handled, ${ids.length} roster ids (${ids.join(',')}) drawn and owned`)
+  // (e) a body whose rosterId has no CAST entry (another chapter's add) is drawn as the stray cloud, never skipped
+  assert.ok(/^\s+stray: \{/m.test(castSrc) && /CAST\[e\.rosterId\] \? e\.rosterId : 'stray'/.test(ajs) && /id === 'stray'\) shadeParts/.test(ajs),
+    'run MG.e: ascii.js has no stray fallback — an enemy whose rosterId is not in CAST is invisible in the mine')
+  console.log(`PASS run MG (the mine's glyph tells): ${fields.length} status fields (${fields.join(',')}) read by statusLook, vignette hidden, hit/hurt/explode handled, ${ids.length} roster ids (${ids.join(',')}) drawn and owned, any other id drawn as the stray cloud`)
 }
 
 // ---- run MI: Book 3, The Mine — firedamp ------------------------------------------------------------
@@ -39097,7 +39100,7 @@ function testMine() {
   }
   const seamA = [seamOf([]), seamOf(['methaneSeam'])]
   // (g) THE SEEP STOPS SHORT: a pocket left to creep for longer than it needs to reach you halts
-  // at creepStop, outside the largest blast it could make (so it is never lit under you).
+  // at creepStop, outside the largest cloud that could sting you.
   sig.firedamp = { ...F0, count: 0, drift: 0 }
   let seepD
   try {
@@ -39108,9 +39111,30 @@ function testMine() {
     play(run, (420 / F0.creep) + 4)
     seepD = run.gas[0] ? Math.hypot(run.gas[0].x - p.x, run.gas[0].y - p.y) : -1
   } finally { sig.firedamp = F0 }
-  assert.ok(Math.abs(seepD - F0.creepStop) < 2 && F0.creepStop > F0.r[1] * F0.blastMul + PLAYER.radius,
-    `run MI.g: a seeping pocket should halt at creepStop ${F0.creepStop}px, outside the largest blast ${F0.r[1] * F0.blastMul}px; it stopped at ${seepD.toFixed(1)}px`)
+  assert.ok(Math.abs(seepD - F0.creepStop) < 2 && F0.creepStop > F0.r[1] * F0.stingCloud + PLAYER.radius,
+    `run MI.g: a seeping pocket should halt at creepStop ${F0.creepStop}px, outside the largest sting reach ${F0.r[1] * F0.stingCloud + PLAYER.radius}px; it stopped at ${seepD.toFixed(1)}px`)
+  // (h) THE STING IS THE CLOUD, THE BLAST IS FOR THE CROWD: one pocket goes off with you and a body
+  // both just outside its drawn cloud but well inside its blast: the body is hurt, you are not; the
+  // same pocket with you inside the cloud stings you.
+  const cloudOf = (inside) => {
+    sig.firedamp = quiet
+    try {
+      const run = stage(41009, 1)
+      const p = run.player, e = run.enemies[0]
+      const r = 50, out = r * quiet.stingCloud + PLAYER.radius + 6
+      assert.ok(out + e.radius < r * quiet.blastMul, 'run MI.h: fixture — the spot outside the cloud must be inside the blast')
+      const gx = p.x + (inside ? r * 0.5 : out), gy = p.y
+      run.gas.push({ x: gx, y: gy, r, age: 0, seed: 1 })
+      e.x = gx + out; e.y = gy
+      shot(run, gx, gy)
+      const blasts = play(run, 0.5)
+      return { blasts: blasts.length, sting: run.dmgBySrc?.firedamp ?? 0, enemyHurt: e._dead === true || e.hp < e.maxHP }
+    } finally { sig.firedamp = F0 }
+  }
+  const cloudOut = cloudOf(false), cloudIn = cloudOf(true)
+  assert.ok(cloudOut.blasts === 1 && cloudOut.sting === 0 && cloudOut.enemyHurt, `run MI.h: outside the cloud but inside the blast, the body must be hurt and you not: ${JSON.stringify(cloudOut)}`)
+  assert.ok(cloudIn.blasts === 1 && cloudIn.sting > 0, `run MI.h: inside the cloud the blast must sting you: ${JSON.stringify(cloudIn)}`)
   assert.ok(!seamA[0].dead && seamA[1].dead && Math.abs(seamA[1].r / seamA[0].r - MUTATORS.methaneSeam.effects.gasBlastMul) < 1e-6,
     `run MI.f: Methane Seam's bigger blast must kill a body just past a normal one: ${JSON.stringify(seamA)}`)
-  console.log(`PASS run MI (the mine): a shot through a row of 3 pockets blew links ${chains.join(',')} and killed both bodies, nothing with the switch off; a blast beside you stung ${sting} hp; pickaxe/dynamite/minecart/lantern each set off an empty pocket by their own reach (${Object.values(lit).join('/')}); a blow on a body in a pocket set it off (${hookIn}, ${hookOut} away); Open Flame lit a pocket at ${Math.round(far['within the modded range'])}px (${flameOf['within the modded range']}); Canary chained ${chainA.join('->')} pockets; Methane Seam's blast r ${seamA[0].r.toFixed(0)}->${seamA[1].r.toFixed(0)} killed the body just outside; a seeping pocket halted ${seepD.toFixed(0)}px from you`)
+  console.log(`PASS run MI (the mine): a shot through a row of 3 pockets blew links ${chains.join(',')} and killed both bodies, nothing with the switch off; a blast beside you stung ${sting} hp; pickaxe/dynamite/minecart/lantern each set off an empty pocket by their own reach (${Object.values(lit).join('/')}); a blow on a body in a pocket set it off (${hookIn}, ${hookOut} away); Open Flame lit a pocket at ${Math.round(far['within the modded range'])}px (${flameOf['within the modded range']}); Canary chained ${chainA.join('->')} pockets; Methane Seam's blast r ${seamA[0].r.toFixed(0)}->${seamA[1].r.toFixed(0)} killed the body just outside; a seeping pocket halted ${seepD.toFixed(0)}px from you; outside the cloud you took ${cloudOut.sting} while the body beside you was hurt, inside it ${cloudIn.sting}`)
 }
