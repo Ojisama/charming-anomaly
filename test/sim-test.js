@@ -31,7 +31,7 @@ import {
   BLOOD_PACT_PER_ELITE, BLOOD_MONEY_HP, STILLNESS_RAMP, CHAOS_PACT_PERIOD, CHAOS_PACT_SURGE,
   ALIGNMENT_POTENCY_MUL, DEADFALL_REARM_MUL, SOY_MILK_FIRE_MUL, SOY_MILK_DMG_MUL, SOY_MILK_CC_MUL,
   ANOMALY_REROLL_MUL, ANOMALY_REROLL_PITY_REFUND, LAST_BREATH_DROWN_TAKEN_MUL,
-  LIVE_CAPS, MUTATORS, mutatorPool, ENDLESS_MILESTONE_S, ENDLESS_HANDOVER_CLEAR_R, ENDLESS_MILESTONE_ELITES, mergeMutatorMods, randomMutators, rerollMutator,
+  LIVE_CAPS, MUTATORS, CANARY_REACH_MUL, mutatorPool, ENDLESS_MILESTONE_S, ENDLESS_HANDOVER_CLEAR_R, ENDLESS_MILESTONE_ELITES, mergeMutatorMods, randomMutators, rerollMutator,
   sacrificeCost, MAX_CHOICE_SLOTS, resolveChapterId,
   SHIELD_HP_FRAC, SHIELD_DMG_MUL, SPLITTER_COUNT, VOLATILE_FUSE, VOLATILE_RADIUS, VOLATILE_DMG,
   MAX_PASSIVE_LEVEL, MAX_ELEMENT_PICKS, passiveTotal,
@@ -38934,7 +38934,10 @@ function testMineGlyphTells() {
 // AND, through the chain alone, one standing in the third (links 0, 1, 2), and with the switch
 // (signature.firedamp) off the same shot leaves both alive and nothing blows; (b) a blast with you in
 // it costs you a little hp under src 'firedamp' — once, the chain's later links land in your invuln;
-// (c) each of the Mine's four weapons, alone, sets off a pocket a body is standing in.
+// gas kills are swept the frame they land (the firedamp steps before the dead sweep);
+// (c1) each of the Mine's four weapons sets off an empty pocket by its own reach, (c2) a blow on a
+// body standing in a pocket sets it off through applyDamage alone; (d) Open Flame carries the
+// lantern's lighting reach; (e) Canary carries a chain farther; (f) Methane Seam's blasts are bigger.
 function testMine() {
   const meta = () => { const m = makeMeta(); m.dev = true; return m }
   assert.ok(BOOKS.burrow.chapters.includes('mine') && CHAPTERS['mine'].signature.type === 'firedamp', 'run MI: the mine is not on the Burrow ladder with its firedamp')
@@ -38944,9 +38947,9 @@ function testMine() {
   // only ones and they stay where they were put.
   const quiet = { ...F0, count: 0, drift: 0, creep: 0 }
   // A run with no crowd and no weapon of its own, `bodies` enemies kept and frozen in place.
-  const stage = (seed, bodies, weapons = []) => {
+  const stage = (seed, bodies, weapons = [], opts = null) => {
     Math.random = mulberry32(seed)
-    const run = createRun(meta(), { chapter: 'mine', difficulty: 1 })
+    const run = createRun(meta(), { chapter: 'mine', difficulty: 1, ...(opts ?? {}) })
     run.player.hp = run.player.maxHP = 1e6
     for (let i = 0; i < 400 && run.enemies.length < bodies; i++) {
       if (run.phase === 'levelup') { run.phase = 'playing'; run.levelUpChoices = [] }
@@ -38975,6 +38978,7 @@ function testMine() {
       stepSim(run, { x: 0, y: 0 }, 1 / 60)
       for (const ev of run.events) if (ev.type === 'gasBlast') blasts.push(ev)
       run.events.length = 0
+      blasts.corpses = (blasts.corpses ?? 0) + run.enemies.filter((e) => e._dead).length
     }
     return blasts
   }
@@ -38998,6 +39002,7 @@ function testMine() {
   const chains = on.blasts.map((b) => b.chain).sort()
   assert.deepStrictEqual(chains, [0, 1, 2], `run MI.a: the row should go off as links 0, 1, 2, got ${JSON.stringify(chains)}`)
   assert.ok(on.near && on.far, `run MI.a: the blast should kill the body in the first pocket (${on.near}) and the chain the one in the third (${on.far})`)
+  assert.strictEqual(on.blasts.corpses ?? 0, 0, 'run MI.a: a gas kill was still in run.enemies after its step — the firedamp ran after the dead sweep (SUBMISSION and Martyr miss it)')
   assert.ok(off.blasts.length === 0 && !off.near && !off.far && off.idle === 0,
     `run MI.a: with signature.firedamp off nothing may blow or die: ${JSON.stringify({ blasts: off.blasts.length, near: off.near, far: off.far, idle: off.idle })}`)
 
@@ -39016,19 +39021,96 @@ function testMine() {
     assert.ok(sting > 0 && sting <= quiet.sting * 1.5, `run MI.b: a blast you stand in should sting once, a little (sting ${quiet.sting}), took ${sting}`)
   } finally { sig.firedamp = F0 }
 
-  // (c) each of the four, alone, sets off the pocket its target stands in
-  const lit = {}
-  for (const w of CHAPTERS['mine'].weapons) {
+  // One staged pocket, one body, one weapon (weaponMods optional): how many chain-0 blasts in 4 s.
+  // `place(run, p, e)` puts the body and returns the pocket.
+  const blowsWith = (seed, weapon, place, { weaponMods = null, opts = null, secs = 4 } = {}) => {
     sig.firedamp = quiet
     try {
-      const run = stage(41003, 1, [{ id: w, level: 1 }])
-      const p = run.player
-      const e = run.enemies[0]
-      e.x = p.x + 140; e.y = p.y + 20
-      run.gas.push({ x: e.x, y: e.y, r: 50, age: 0, seed: 3 })
-      lit[w] = play(run, 4, true).filter((b) => b.chain === 0).length
+      const run = stage(seed, 1, weapon ? [{ id: weapon, level: 1 }] : [], opts)
+      if (weaponMods) run.weaponMods = { ...run.weaponMods, ...weaponMods }
+      const p = run.player, e = run.enemies[0]
+      run.gas.push({ age: 0, seed: 3, ...place(run, p, e) })
+      return play(run, secs, true).filter((b) => b.chain === 0).length
     } finally { sig.firedamp = F0 }
   }
-  for (const w of ['pickaxe', 'dynamite', 'minecart', 'lantern']) assert.ok(lit[w] >= 1, `run MI.c: ${w} alone never set off the pocket its target stood in`)
-  console.log(`PASS run MI (the mine): a shot through a row of 3 pockets blew links ${chains.join(',')} and killed both bodies, nothing with the switch off; a blast beside you stung ${sting} hp; pickaxe/dynamite/minecart/lantern each set off a pocket alone (${Object.values(lit).join('/')})`)
+  // (c1) THE WEAPONS' OWN PATHS: each of the four sets off a pocket NO body stands in (so the
+  // applyDamage hook cannot be what lit it), placed where only that weapon's own reach touches it.
+  //   pickaxe: beside the blow, square to the swing, between the rock chips' rays (they fly at
+  //            45 deg off the swing at L1's 4 chips); dynamite: beside the body, inside the blast;
+  //   minecart: on the rails halfway to the body; lantern: past the glow's ring, inside its range.
+  const own = {
+    pickaxe: (run, p, e) => { e.x = p.x + 140; e.y = p.y; const bx = e.x - e.radius * 0.5; return { x: bx, y: p.y + 52, r: 10 } },
+    dynamite: (run, p, e) => { e.x = p.x + 140; e.y = p.y; return { x: e.x, y: e.y + 55, r: 10 } },
+    minecart: (run, p, e) => { e.x = p.x + 300; e.y = p.y; return { x: p.x + 120, y: p.y, r: 10 } },
+    lantern: (run, p, e) => { e.x = p.x + 900; e.y = p.y; const L = WEAPONS.lantern.levels[0]; return { x: p.x, y: p.y + (L.radius + L.range) / 2 + 6, r: 6 } },
+  }
+  const lit = {}
+  for (const w of CHAPTERS['mine'].weapons) lit[w] = blowsWith(41003, w, own[w])
+  for (const w of ['pickaxe', 'dynamite', 'minecart', 'lantern']) assert.ok(lit[w] >= 1, `run MI.c1: ${w}'s own reach never set off a pocket beside its target (no body in it)`)
+  // (c2) THE HOOK ALONE: a body standing in a pocket, struck by a weapon with no gas path of its
+  // own (the Flagella's lash: no bullet, ring, orb or Mine weapon), sets the pocket off; with the
+  // body moved out of the pocket the same weapon never does.
+  const hookIn = blowsWith(41004, 'flagella', (run, p, e) => { e.x = p.x + 140; e.y = p.y; return { x: e.x, y: e.y, r: 30 } })
+  const hookOut = blowsWith(41004, 'flagella', (run, p, e) => { e.x = p.x + 140; e.y = p.y; return { x: e.x + 240, y: e.y + 240, r: 30 } })
+  assert.ok(hookIn >= 1 && hookOut === 0, `run MI.c2: a blow on a body standing in a pocket must set it off (${hookIn}), the same weapon away from it never (${hookOut})`)
+  // (d) OPEN FLAME: a pocket past the glow's reach (no body anywhere near it) blows only once the
+  // mod carries the lantern's range to it, and one past the modded range never does.
+  const L1 = WEAPONS.lantern.levels[0], flame = WEAPON_MODS.lantern.openFlame.base
+  const far = { 'within the modded range': L1.range * (1 + flame / 2), 'past the modded range': L1.range * (1 + flame) + 30 }
+  const flameOf = {}
+  for (const [k, d] of Object.entries(far)) {
+    const at = (run, p, e) => { e.x = p.x - 900; e.y = p.y; return { x: p.x, y: p.y + d, r: 6 } }
+    flameOf[k] = [blowsWith(41005, 'lantern', at), blowsWith(41005, 'lantern', at, { weaponMods: { lantern: { openFlame: flame } } })]
+  }
+  assert.deepStrictEqual(flameOf['within the modded range'].map((n) => n > 0), [false, true], `run MI.d: Open Flame must carry the glow to a pocket ${Math.round(far['within the modded range'])}px off (blasts without/with: ${flameOf['within the modded range']})`)
+  assert.deepStrictEqual(flameOf['past the modded range'], [0, 0], `run MI.d: a pocket past even the modded range must never blow (${flameOf['past the modded range']})`)
+  // (e) CANARY: two pockets one link apart, just past a blast's normal reach; the second goes off
+  // only with the anomaly. (f) METHANE SEAM: a body just outside a normal blast dies only with the
+  // mutator, whose blasts are gasBlastMul bigger.
+  const chainOf = (canary) => {
+    sig.firedamp = quiet
+    try {
+      const run = stage(41006, 1)
+      if (canary) run.anomalies = { ...run.anomalies, canary: true }
+      const p = run.player
+      run.enemies[0].x = p.x + 900
+      const r = 40, reach = r * quiet.blastMul * quiet.reach
+      run.gas.push({ x: p.x, y: p.y + 300, r, age: 0, seed: 1 }, { x: p.x, y: p.y + 300 + r + reach * (1 + CANARY_REACH_MUL) / 2, r, age: 0, seed: 2 })
+      shot(run, p.x, p.y + 300)
+      return play(run, 1.5).length
+    } finally { sig.firedamp = F0 }
+  }
+  const chainA = [chainOf(false), chainOf(true)]
+  assert.deepStrictEqual(chainA, [1, 2], `run MI.e: Canary must carry a blast to a pocket just past its normal reach (blasts without/with: ${chainA})`)
+  const seamOf = (mutators) => {
+    sig.firedamp = quiet
+    try {
+      const run = stage(41007, 1, [], { mutators })
+      const p = run.player, e = run.enemies[0]
+      const r = 40, R = r * quiet.blastMul
+      run.gas.push({ x: p.x, y: p.y + 300, r, age: 0, seed: 1 })
+      e.x = p.x + R * (1 + MUTATORS.methaneSeam.effects.gasBlastMul) / 2 + e.radius; e.y = p.y + 300
+      shot(run, p.x - 30, p.y + 300)
+      const blasts = play(run, 1)
+      return { dead: e._dead === true, r: blasts[0]?.r ?? 0 }
+    } finally { sig.firedamp = F0 }
+  }
+  const seamA = [seamOf([]), seamOf(['methaneSeam'])]
+  // (g) THE SEEP STOPS SHORT: a pocket left to creep for longer than it needs to reach you halts
+  // at creepStop, outside the largest blast it could make (so it is never lit under you).
+  sig.firedamp = { ...F0, count: 0, drift: 0 }
+  let seepD
+  try {
+    const run = stage(41008, 1)
+    const p = run.player
+    run.enemies[0].x = p.x + 900
+    run.gas.push({ x: p.x, y: p.y + 420, r: 50, age: 0, seed: 1 })
+    play(run, (420 / F0.creep) + 4)
+    seepD = run.gas[0] ? Math.hypot(run.gas[0].x - p.x, run.gas[0].y - p.y) : -1
+  } finally { sig.firedamp = F0 }
+  assert.ok(Math.abs(seepD - F0.creepStop) < 2 && F0.creepStop > F0.r[1] * F0.blastMul + PLAYER.radius,
+    `run MI.g: a seeping pocket should halt at creepStop ${F0.creepStop}px, outside the largest blast ${F0.r[1] * F0.blastMul}px; it stopped at ${seepD.toFixed(1)}px`)
+  assert.ok(!seamA[0].dead && seamA[1].dead && Math.abs(seamA[1].r / seamA[0].r - MUTATORS.methaneSeam.effects.gasBlastMul) < 1e-6,
+    `run MI.f: Methane Seam's bigger blast must kill a body just past a normal one: ${JSON.stringify(seamA)}`)
+  console.log(`PASS run MI (the mine): a shot through a row of 3 pockets blew links ${chains.join(',')} and killed both bodies, nothing with the switch off; a blast beside you stung ${sting} hp; pickaxe/dynamite/minecart/lantern each set off an empty pocket by their own reach (${Object.values(lit).join('/')}); a blow on a body in a pocket set it off (${hookIn}, ${hookOut} away); Open Flame lit a pocket at ${Math.round(far['within the modded range'])}px (${flameOf['within the modded range']}); Canary chained ${chainA.join('->')} pockets; Methane Seam's blast r ${seamA[0].r.toFixed(0)}->${seamA[1].r.toFixed(0)} killed the body just outside; a seeping pocket halted ${seepD.toFixed(0)}px from you`)
 }

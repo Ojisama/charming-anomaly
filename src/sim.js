@@ -402,8 +402,7 @@ export function stepSim(run, input, dt) {
 
   stepMartyr(run)         // v7.2: resolve the anomaly's queued blasts — after every hurtPlayer caller above
   stepGravityWells(run, dt) // v5.4 beyond signature: bend every projectile in flight (damages nothing)
-  stepWeapons(run, dt)
-  if (stepFiredampGrid(run, dt)) return // phase is now 'dead' (Book 3 The Mine: a firedamp blast)
+  if (stepWeapons(run, dt)) return // phase is now 'dead' (Book 3 The Mine: a firedamp blast, stepped inside)
   // TERRAIN SNAPS LAST AND WINS — the same rule stepObstacles states one screen up, and the reason
   // this is here rather than beside stepCaveWall (which is where the player's half lives). A body's
   // position is written by half a dozen things in a frame: its own swim, separation, the obstacle
@@ -10489,10 +10488,11 @@ export function buildReadout(run) {
   return { weapons, passives, elements, anomalies }
 }
 
+// Returns true when a firedamp blast killed the player (phase is 'dead').
 function stepWeapons(run, dt) {
   _nbOn = true
   _nbDirty = true
-  try { stepWeaponsInner(run, dt) } finally { _nbOn = false }
+  try { return stepWeaponsInner(run, dt) } finally { _nbOn = false }
 }
 function stepWeaponsInner(run, dt) {
   const p = run.player
@@ -10585,6 +10585,9 @@ function stepWeaponsInner(run, dt) {
   // its new spot when the breath decides where to jump.
   stepDrags(run, dt)
   stepArcs(run, dt)
+  // The Mine's firedamp: after every weapon that can light a pocket this frame, and before the
+  // barnacles, SUBMISSION and the dead sweep below, so a gas kill is seen by all three this frame.
+  const firedampKilled = firedampActive(run) && stepFiredamp(run, dt)
   // The Surf's Barnacles. LAST of the steppers on purpose — see stepBarnacles for why: it has to
   // run after everything that can kill a crusted body this frame, and before the dead sweep below
   // that removes it, or the spread narrows to "only when the crust itself lands the kill".
@@ -10592,6 +10595,7 @@ function stepWeaponsInner(run, dt) {
 
   turnDeadElites(run) // SUBMISSION: elites killed this frame get up, just before the sweep
   if (run.enemies.some((e) => e._dead)) run.enemies = run.enemies.filter((e) => !e._dead)
+  return firedampKilled
 }
 
 // SUBMISSION: THE BODY GETS UP — at the END OF THE FRAME, not inside dealDamage.
@@ -16594,14 +16598,12 @@ function layGasSeam(run, F) {
     })
   }
 }
-// Run with the enemy grid on, like stepWeapons: the blasts query it.
-function stepFiredampGrid(run, dt) {
-  if (!firedampSpec(run) && !run.gas?.length && !run.gasLit?.length && !run.booms?.length) return false
-  _nbOn = true
-  _nbDirty = true
-  try { return stepFiredamp(run, dt) } finally { _nbOn = false }
+// Stepped inside stepWeaponsInner (the enemy grid is on there; the blasts query it).
+function firedampActive(run) {
+  return !!(firedampSpec(run) || run.gas?.length || run.gasLit?.length || run.booms?.length)
 }
 function stepFiredamp(run, dt) {
+  _nbDirty = true   // the weapons above moved bodies (shoves) since the grid was last built
   // the recent blasts, kept MINE_BOOM_KEEP s for the renderer (it draws a chain from state, so a
   // frame that missed the event still shows the blast at its age)
   if (run.booms?.length && run.booms[0].at < run.time - MINE_BOOM_KEEP) run.booms = run.booms.filter((b) => b.at >= run.time - MINE_BOOM_KEEP)
@@ -16614,25 +16616,26 @@ function stepFiredamp(run, dt) {
   const p = run.player
   // 1. The field follows you: pockets left far behind are let go, and seams are laid ahead of the
   // shortfall, one every `relay` s (at once while the field is under half full, e.g. at the start).
-  const farSq = (F.near * 1.25) ** 2
+  const farSq = (F.near * F.farMul) ** 2
   if (run.gas.some((g) => (g.x - p.x) ** 2 + (g.y - p.y) ** 2 > farSq)) {
     run.gas = run.gas.filter((g) => (g.x - p.x) ** 2 + (g.y - p.y) ** 2 <= farSq)
   }
   const want = Math.round(F.count * (run.mods.gasCountMul ?? 1))
   run._gasLayT = (run._gasLayT ?? 0) - dt
-  for (let guard = 0; guard < 8 && run.gas.length < want && (run._gasLayT <= 0 || run.gas.length < want * 0.5); guard++) {
+  for (let guard = 0; guard < F.layPerStep && run.gas.length < want && (run._gasLayT <= 0 || run.gas.length < want * F.refillFrac); guard++) {
     layGasSeam(run, F)
     run._gasLayT = F.relay
   }
   // 2. Drift: a slow wander on each pocket's own clock (no random draw per frame), and a seep
   // toward you that stops short of where you stand: the gas finds the crowd you are drawing in.
+  const creepStop = F.creepStop * (run.mods.gasBlastMul ?? 1)
   for (const g of run.gas) {
     g.age += dt
     const ph = g.seed * 0.37 + run.time * 0.23
     g.x += Math.cos(ph) * F.drift * dt
     g.y += Math.sin(ph * 1.3 + g.seed) * F.drift * dt
     const dx = p.x - g.x, dy = p.y - g.y, d = Math.hypot(dx, dy)
-    if (d > F.creepStop) { g.x += (dx / d) * F.creep * dt; g.y += (dy / d) * F.creep * dt }
+    if (d > creepStop) { g.x += (dx / d) * F.creep * dt; g.y += (dy / d) * F.creep * dt }
   }
   // 3. What the player's weapons touched this frame sets the touched pockets off.
   if (run.gas.length > 0) {
@@ -16668,7 +16671,7 @@ function stepFiredamp(run, dt) {
           }
         }
         // THE STING: standing in a blast costs a little, through the normal hurt path (invuln after).
-        if (!died && run.phase === 'playing' && p.invuln <= 0 && Math.hypot(p.x - L.x, p.y - L.y) <= R + PLAYER.radius * 0.5) {
+        if (!died && run.phase === 'playing' && p.invuln <= 0 && Math.hypot(p.x - L.x, p.y - L.y) <= R + PLAYER.radius * F.stingReach) {
           if (hurtPlayer(run, F.sting, false, 'firedamp')) died = true
         }
         // THE CHAIN: every idle pocket the blast reaches goes off one link later.

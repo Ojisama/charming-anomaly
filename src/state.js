@@ -2163,7 +2163,7 @@ function generateWells(sig) {
  *   Events: {type:'gasBlast', x, y, r, chain} a pocket went off (r = blast radius, chain as above);
  *     {type:'pickaxe', x, y, r, angle} a blow landed; {type:'dynamite', x, y, r} a stick blew up;
  *     {type:'shoot', weapon:'dynamite'|'minecart', x, y[, angle]} a throw / a push.
- *     gasBlast and dynamite have a sound (SFX_FOR_EVENT); pickaxe is silent by design (see main.js).
+ *     all three have a sound in SFX_FOR_EVENT (main.js): gasBlast crush, dynamite explode, pickaxe hit.
  *
  * THE SHELF's three natives add NO run.* array either, on the same argument. Each is an existing
  * entity carrying one extra field, and that field is what the renderer branches on:
