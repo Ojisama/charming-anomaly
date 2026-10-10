@@ -72,6 +72,8 @@ const HYDRANT_PX = 36
 const GULL_DIVE_R = 34
 const GULL_DIVE_SPAN = 2.42 * 2 * GULL_DIVE_R
 const MAX_PARTICLES = 200
+// Sundown's pickup rims and coin glints (updateMacro): at most this many, so a 10k-gem pile is not 20k sprites
+const DUSK_PICK_RIM_MAX = 300
 // Topsoil's hit dust (soilPuff): particles per second it may spend on hits, and its burst; kills are
 // never metered. Keeps a dense shovel or Ipecac Furrow frame from recycling the whole ring above.
 const SOIL_PUFF_RATE = 60, SOIL_PUFF_BURST = 30
@@ -6256,8 +6258,8 @@ export function createRenderer(app) {
       if (best && !trenchSpent.has(best)) trenchSpent.set(best, c.at)
     }
     const p = run.player, nL = run.anomalies?.ipecac ? IPECAC_COUNT_MUL : 1
-    let pr = 30
-    for (const pt of run.pits) if (pt.src === 'furrow') { pr = pt.maxR; break }
+    const fw = run.weapons.find((w) => w.id === 'furrow')
+    const pr = fw ? WEAPONS.furrow.levels[Math.min(fw.level, WEAPONS.furrow.levels.length) - 1].r * (1 + (run.weaponMods.furrow?.widePits ?? 0)) : 30
     const gap = pr * FURROW_LANE_GAP, n = tr.length, BINS = MACRO.TRENCH_BINS, L2 = MACRO.TRENCH_SEG / 2
     for (let i = 1; i <= n; i++) {
       const a = tr[i - 1], b = i < n ? tr[i] : p
@@ -6301,7 +6303,7 @@ export function createRenderer(app) {
   const PIT_SINK_T = 0.72
   const pitSinks = new Map(), pitSinkFree = [], pitCredited = new WeakMap()
   function pitSinkFromHit(run, e) {
-    if (e.id == null || e.dot) return
+    if (e.id == null || e.dot || e.elite) return   // too big to go down, as the mole pits say
     for (const pt of run.pits) {
       if (pt.src !== 'furrow' || !pt.hit[e.id]) continue
       let cr = pitCredited.get(pt)
@@ -13114,7 +13116,7 @@ export function createRenderer(app) {
   const castM = new Matrix()
   // a cast shadow offset down-light by d and stretched k times along it, the near end held at the body
   function placeStretchedCast(sh, x, y, rot, scx, scy, d, k) {
-    const ux = 0.62, uy = 0.78, e = k - 1
+    const ux = SHADOW_DX, uy = SHADOW_DY, e = k - 1
     const c = Math.cos(rot), sn = Math.sin(rot)
     const a0 = c * scx, b0 = sn * scx, c0 = -sn * scy, d0 = c * scy
     const e11 = 1 + e * ux * ux, e12 = e * ux * uy, e22 = 1 + e * uy * uy
@@ -13131,7 +13133,7 @@ export function createRenderer(app) {
     rm.anchor.copyFrom(src.anchor)
     rm.scale.set(scx, scy)
     rm.rotation = rot
-    rm.position.set(x - 0.62 * off, y - 0.78 * off)
+    rm.position.set(x - SHADOW_DX * off, y - SHADOW_DY * off)
     rm.tint = tint
     rm.alpha = alpha
     return rm
@@ -13182,7 +13184,7 @@ export function createRenderer(app) {
       const ru = rakeU.uniforms
       ru.uRake = dusk.rake * k
       ru.uFace = dusk.face * k
-      ru.uRakeLen = dusk.rakeLen * z * (app.renderer.resolution || 1)
+      ru.uRakeLen = dusk.rakeLen * z   // rakeFilter runs at resolution 1: its texels are CSS px
       ru.uRakeSlope = dusk.rakeSlope
       if (on !== !!macroFloor.filters) macroFloor.filters = on ? [rakeFilter] : null
     } else {
@@ -13255,6 +13257,7 @@ export function createRenderer(app) {
       for (const pool of [gemPool, coinPool]) {
         for (const g of pool) {
           if (!g.visible || !g.parent) continue
+          if (np >= DUSK_PICK_RIM_MAX) break
           const rt = macroSilhouette(g.texture, true)
           if (!rt) continue
           placeRim(macroPickRims, macroPickRimLayer, np++, rt, g, g.x, g.y, g.scale.x, g.scale.y, g.rotation, 1.1, dusk.rim, dusk.pickRim * k)
