@@ -1,16 +1,22 @@
 // The Magma's screen pass: LAVA IS THE LIGHT, seen through a light CRT.
 //
-// One filter over the whole stage does four things, in this order:
+// Simple art, real light (owner: "SIMPLER PIXEL ART but REALISTIC LIGHTING"). The art is flat albedo
+// with few colours; everything that makes the picture is done here, once per art pixel:
 //   1. SNAP: the frame is sampled once per art pixel (uPx screen px), so everything in the chapter —
 //      including what render.js draws generically, damage numbers and dust — lands on ONE grid.
-//   2. LIGHT: the cave is dark. Each block's colour is treated as albedo and lit by a cool ambient
-//      plus the LIGHT MAP (uLightTex: one texel per block, painted by the rig from every lava pool,
-//      crack, puddle, shot, bomb, creature glow and the player's own small light). The light is
-//      quantised into dithered bands (Bayer 4x4), so its falloff is pixel art too, not a smooth blur.
-//      Anything painted HOT (lava, embers, seams, eyes) or near-white is EMISSIVE: it keeps its own
-//      colour in the dark, and spills a little glow onto its neighbours (step 3).
-//   3. GLOW: hot blocks bleed a short phosphor halo (16 taps at 2 and 4.5 blocks).
-//   4. CRT: fine scanlines (one per art-pixel row), a faint RGB aperture mask, a soft vignette. No
+//   2. LIGHT: the cave is near black. Each block's colour is albedo, lit by a faint cool ambient plus
+//      the LIGHT MAP (uLightTex: one texel per block, painted by the rig from every lava pool, crack,
+//      shot, bomb, creature glow and the player's own small light). A warm light FALLS OFF IN COLOUR as
+//      well as strength — pale gold at its heart, orange, then a deep red edge into the dark — and is
+//      quantised into dithered bands (Bayer 4x4), so the falloff is pixel art too.
+//   3. FACING: the light map's gradient says where the light comes from. A block whose neighbour
+//      TOWARD the light is an outline is an edge facing the lava: it takes a bright rim. A block whose
+//      neighbour AWAY from it is an outline is the far side: it falls into shade. So every outlined
+//      body is lit from the side facing the lava, without a normal map. In the dark, a faint cool rim
+//      on every outline's upper-left keeps silhouettes readable.
+//   4. EMISSIVE + BLOOM: anything painted HOT (lava, embers, seams, eyes) keeps its own colour in the
+//      dark and blooms onto its neighbours (24 taps at 2, 4 and 7 blocks, so a pool has a wide halo).
+//   5. CRT: fine scanlines (one per art-pixel row), a faint RGB aperture mask, a soft vignette. No
 //      curvature, no blur: the owner wants it clean on a small phone screen.
 export const CRT_VERT = 'in vec2 aPosition;\nout vec2 vTextureCoord;\nuniform vec4 uInputSize;\nuniform vec4 uOutputFrame;\nuniform vec4 uOutputTexture;\n'
   + 'vec4 filterVertexPosition(void) {\n  vec2 position = aPosition * uOutputFrame.zw + uOutputFrame.xy;\n  position.x = position.x * (2.0 / uOutputTexture.x) - 1.0;\n'
@@ -32,53 +38,82 @@ uniform float uGlow;
 uniform float uGain;
 uniform float uSteps;
 uniform float uHeat;
+uniform float uRim;
 uniform vec3 uAmbient;
+uniform vec3 uAmbRim;
 uniform vec2 uLightSize;
 uniform vec2 uLightOff;
 
 // ordered dither, 4x4 Bayer, built arithmetically (WebGL1 has no array initialisers)
 float bayer2(vec2 a) { a = floor(a); return fract(dot(a, vec2(0.5, a.y * 0.75))); }
 float bayer4(vec2 a) { return bayer2(0.5 * a) * 0.25 + bayer2(a); }
+float lum(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
 
 vec3 tap(vec2 px) {
   vec2 uv = px * uInputSize.zw;
   vec2 lim = uOutputFrame.zw * uInputSize.zw;
   return texture(uTexture, clamp(uv, vec2(0.0), lim - uInputSize.zw * 0.5)).rgb;
 }
-// how self-lit an albedo colour is: hot (red well above blue, and bright) or near-white
-float heat(vec3 c) {
-  float warm = smoothstep(0.38, 0.68, c.r - c.b) * smoothstep(0.42, 0.72, c.r);
-  float white = smoothstep(0.80, 0.96, min(c.r, min(c.g, c.b)));
-  return max(warm, white);
-}
+vec3 lightAt(vec2 cell) { return texture(uLightTex, (cell + uLightOff + 0.5) / uLightSize).rgb * uGain; }
+// how self-lit an albedo colour is: hot (red well above blue, and bright), or near-white (a hit flash)
+float hot(vec3 c) { return smoothstep(0.38, 0.68, c.r - c.b) * smoothstep(0.42, 0.72, c.r); }
+float heat(vec3 c) { return max(hot(c), smoothstep(0.84, 0.97, min(c.r, min(c.g, c.b)))); }
+float isInk(vec3 c) { return 1.0 - step(0.055, lum(c)); }
 void main(void) {
   vec2 p = vTextureCoord * uInputSize.xy;                // screen px
   vec2 cell = floor(p / uPx);
   vec2 ctr = (cell + 0.5) * uPx;
   vec3 alb = tap(ctr);
 
-  // the light map: one texel per block
-  vec3 L = texture(uLightTex, (cell + uLightOff + 0.5) / uLightSize).rgb * uGain;
-  L = L / (1.0 + 0.3 * L);            // many lamps saturate gently: the cave never washes out flat
+  // the light, and its colour falling off from gold through orange to a deep red edge
+  vec3 L = lightAt(cell);
   float lm = max(L.r, max(L.g, L.b));
+  float warm = clamp((L.r - L.b) / max(lm, 0.0001) * 1.3, 0.0, 1.0);
+  vec3 fall = mix(vec3(1.0, 0.30, 0.12), vec3(1.0, 0.90, 0.72), smoothstep(0.05, 1.6, lm));
+  L *= mix(vec3(1.0), fall * 1.12, warm);
+  L = L / (1.0 + 0.22 * L);
+  lm = max(L.r, max(L.g, L.b));
   float b = bayer4(cell) + 0.03125;
   float lq = floor(lm * uSteps + b) / uSteps;
   L = lm > 0.0001 ? L * (lq / lm) : vec3(0.0);
 
-  float e = heat(alb) * uHeat;
   vec3 col = alb * (uAmbient + L);
-  col = mix(col, alb * (0.95 + 0.12 * min(lm, 1.5)), e);
 
-  // phosphor glow off hot neighbours
+  // FACING: which side of a body looks at the light
+  float ink = isInk(alb);
+  float gx = lum(lightAt(cell + vec2(2.0, 0.0))) - lum(lightAt(cell - vec2(2.0, 0.0)));
+  float gy = lum(lightAt(cell + vec2(0.0, 2.0))) - lum(lightAt(cell - vec2(0.0, 2.0)));
+  float gl = length(vec2(gx, gy));
+  if (ink < 0.5 && gl > 0.015) {
+    vec2 d = vec2(gx, gy) / gl;
+    vec2 o = floor(d * 1.3 + 0.5);
+    float lit = isInk(tap(ctr + o * uPx));
+    float shade = isInk(tap(ctr - o * uPx));
+    float k = min(gl * 5.0, 1.0);
+    col += alb * L * lit * uRim * k + lit * k * 0.06 * L;
+    col *= 1.0 - shade * 0.45 * k;
+  }
+  // the faint cool rim on every outline's upper-left: the dark is never empty of shapes
+  if (ink < 0.5) {
+    float up = isInk(tap(ctr + vec2(0.0, -uPx))) * isInk(tap(ctr + vec2(-uPx, 0.0)));
+    float either = max(isInk(tap(ctr + vec2(0.0, -uPx))), isInk(tap(ctr + vec2(-uPx, 0.0))));
+    col += (0.35 + 0.65 * lum(alb)) * uAmbRim * (either * 0.6 + up * 0.4);
+  }
+
+  float e = heat(alb) * uHeat;
+  col = mix(col, alb * (1.0 + 0.12 * min(lm, 1.5)), e);
+
+  // bloom off hot neighbours: a short bright halo and a wide soft one (a white hit flash does not)
   vec3 g = vec3(0.0);
   for (int i = 0; i < 8; i++) {
-    float a = float(i) * 0.785398;
+    float a = float(i) * 0.785398 + 0.3927;
     vec2 d = vec2(cos(a), sin(a)) * uPx;
     vec3 t1 = tap(ctr + d * 2.0);
-    vec3 t2 = tap(ctr + d * 4.5);
-    g += t1 * heat(t1) * 0.6 + t2 * heat(t2) * 0.4;
+    vec3 t2 = tap(ctr + d * 4.0);
+    vec3 t3 = tap(ctr + d * 7.0);
+    g += t1 * hot(t1) * 0.5 + t2 * hot(t2) * 0.32 + t3 * hot(t3) * 0.2;   // only HEAT blooms
   }
-  col += g * (uGlow / 8.0) * vec3(1.0, 0.82, 0.62) * (1.0 - 0.85 * e);
+  col += g * (uGlow / 8.0) * vec3(1.0, 0.74, 0.5) * (1.0 - 0.8 * e);
 
   // CRT: a scanline at the foot of every art-pixel row, a faint aperture mask, a soft vignette
   float fy = fract(p.y / uPx);
@@ -94,6 +129,6 @@ void main(void) {
 // the pass's knobs. They live here, with the art they were tuned against: CHAPTERS.magma.render.pixel
 // only switches the look on (its numbers predate this pass and are not read).
 export const CRT_LOOK = {
-  scan: 0.22, mask: 0.07, vignette: 0.35, glow: 0.34, gain: 2.6, steps: 6, heat: 1,
-  ambient: [0.42, 0.40, 0.60],
+  scan: 0.2, mask: 0.06, vignette: 0.3, glow: 0.42, gain: 2.4, steps: 10, heat: 1, rim: 1.1,
+  ambient: [0.27, 0.25, 0.38], ambRim: [0.1, 0.12, 0.2],
 }

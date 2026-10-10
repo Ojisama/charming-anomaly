@@ -8,37 +8,41 @@ export const UP = 2          // texels per world px in the baked canvases (crisp
 export const TAU = Math.PI * 2
 
 // ---- palette ------------------------------------------------------------------------------------
-// ALBEDO, not final colour: the CRT pass lights everything (src/pixel/crt.js). Rock and creatures are
-// painted mid-bright so the lava's light has something to fall on; anything painted hot (r high, b
-// low: lava, embers, seams, eyes) or near-white is EMISSIVE there and glows in the dark on its own.
+// ALBEDO, not final colour: the CRT pass lights everything (src/pixel/crt.js). FEW colours per object
+// (owner: "simple design but very good lighting"): a flat base, one shade, one highlight, and the
+// light does the rest. Anything painted hot (r high, b low: lava, embers, seams, eyes) is EMISSIVE
+// there and glows in the dark on its own — so nothing that is not a real heat source is painted hot.
 export const PAL = {
-  ink: '#0c0608',
-  // the cave rock: plum-maroon basalt plates (Sea of Stars' kiln palette)
-  rock0: '#140a0e', rock1: '#24121a', rock2: '#36191f', rock3: '#4a2427', rock4: '#62322f', rock5: '#7c4638',
-  rockCool: '#4c4466', rockCoolHi: '#6e6a92',
-  vein: '#3a1410',
+  ink: '#0a0608',
+  // the floor: flat basalt plates, three close tones, a joint between them (never as dark as ink)
+  fl0: '#221c20', fl1: '#3e3436', fl2: '#463a38', fl3: '#3a3036',
+  // props: cool basalt
+  rk0: '#2c2430', rk1: '#463c4c', rk2: '#625670', rkS: '#352a32',
   // molten ramp, dark to white-hot
-  lava0: '#8a1206', lava1: '#d8300c', lava2: '#ff6a14', lava3: '#ffa22a', lava4: '#ffd858', lava5: '#fff4c4',
-  // crust that has just crusted over
-  cool0: '#1a0a0a', cool1: '#2c1210', cool2: '#40180f',
-  ash: '#6a6068', ashHi: '#9a90a2',
+  lava0: '#7a1004', lava1: '#d8340c', lava2: '#ff6a14', lava3: '#ffa22a', lava4: '#ffd858', lava5: '#fff4c4',
+  // crust that has just crusted over: a scab darker than the floor
+  scab0: '#1a1012', scab1: '#26181a',
+  // the ladle's slag: COLD grey-blue waste, nothing like lava
+  slag0: '#2a2c36', slag1: '#454a5c',
+  ash: '#6a6470', ashHi: '#8e8898',
   // obsidian
-  glass0: '#120e1e', glass1: '#2a2242', glass2: '#463a6c', glass3: '#6e5ea4', glassHi: '#c8c0ff', glassWhite: '#f4f0ff',
-  // cinder beetle
-  bug0: '#2a1614', bug1: '#56302a', bug2: '#844e36', bug3: '#b87a50', bugLeg: '#3a2420',
-  // salamander: charcoal with molten blotches
-  sal0: '#1e1618', sal1: '#3a2c30', sal2: '#5a464a', sal3: '#806a6a',
-  // drake: deep crimson scales (kept just shy of 'hot', so only its belly fire and eyes glow)
-  drk0: '#3a0a1a', drk1: '#6c1a2c', drk2: '#a23446', drk3: '#d8646a', drkWing0: '#36102a', drkWing1: '#5a1a3a', drkWing2: '#8a3048',
-  horn: '#e8d4a8', hornLo: '#a8906a',
-  eye: '#ffe45a', eyeHot: '#fff8d0',
+  glass0: '#221a3c', glass1: '#3c3466', glass2: '#625a9c', glassHi: '#a89ce8',
+  // cinder beetle: bronze
+  bt0: '#5a4030', bt1: '#8a6040', bt2: '#c0a070',
+  // salamander: black with yellow blotches
+  sl0: '#3e3842', sl1: '#6e6670', slSpot: '#ffc82a',
+  // tortoise skin
+  sk0: '#8a8494', sk1: '#b8b2c4',
+  // drake: crimson (kept shy of 'hot', so only its belly fire and eyes glow)
+  dr0: '#40091a', dr1: '#8a2436', dr2: '#b04454', wing0: '#3c1028', wing1: '#6a2040',
+  horn: '#e0cca0',
+  eye: '#ffe45a',
   // the player
   mint: '#7de3c3', mintHi: '#c8fff0', mintMid: '#56c4a6', mintLo: '#2a8a6e', mintDeep: '#1a5a4a',
   blush: '#ff8fa8', white: '#ffffff', pupil: '#1a0f14',
   gem: '#5ee8ff', gemHi: '#e8ffff', gemMid: '#2ab4dc', gemLo: '#16608a',
   coin: '#ffcf3a', coinHi: '#fff4a8', coinLo: '#b06a10', coinDeep: '#6a3a08',
-  heat0: '#ff8a3a', heat1: '#ffc070', heat2: '#fff0c8',
-  coolRim: '#8aa0d8',     // the cool rim light every body carries on its upper-left edge
+  heat0: '#e07a3a', heat1: '#f0a060',
 }
 
 export class PixelCanvas {
@@ -104,21 +108,6 @@ export class PixelCanvas {
     for (let y = 0; y < this.h; y++) for (let x = 0; x < this.w; x++) {
       if (this.get(x, y)) continue
       if (this.get(x - 1, y) || this.get(x + 1, y) || this.get(x, y - 1) || this.get(x, y + 1)) add.push([x, y])
-    }
-    for (const [x, y] of add) this.set(x, y, c)
-  }
-  // Sea of Stars' cool rim: inside pixels whose upper-left neighbour is the outline take `c`
-  // (only over colours in `over`, so eyes and glowing seams keep their own colour).
-  rim(c, over, ink = PAL.ink) {
-    const add = []
-    for (let y = 0; y < this.h; y++) for (let x = 0; x < this.w; x++) {
-      const v = this.get(x, y)
-      if (!v || v === ink || !over.includes(v)) continue
-      const up = this.get(x, y - 1), lf = this.get(x - 1, y)
-      const dn = this.get(x, y + 1), rt = this.get(x + 1, y), dn2 = this.get(x, y + 2), rt2 = this.get(x + 2, y)
-      // only on bodies at least three pixels thick: a leg or a tail stays its own colour
-      const thick = dn && dn !== ink && rt && rt !== ink && dn2 && dn2 !== ink && rt2 && rt2 !== ink
-      if (thick && (up === ink || up == null || ((lf === ink || lf == null) && y % 2 === 0))) add.push([x, y])
     }
     for (const [x, y] of add) this.set(x, y, c)
   }
