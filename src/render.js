@@ -46,6 +46,8 @@ import * as HOLO from './holo.js'
 import * as ASCII from './ascii.js'
 import * as PIXEL from './pixel.js'
 import { t as tr } from './i18n.js'
+// Topsoil's cast: struck, they lift warm (MACRO.paintFlashTwin) instead of going white
+const TOPSOIL_CAST = new Set(CHAPTERS.topsoil.roster.map((r) => r.id))
 
 
 const DARK = 0x3b3345
@@ -6135,6 +6137,8 @@ export function createRenderer(app) {
     }
     // the photographed replacements (src/macro.js): the crumb every dirt spray throws, the shots, the stone
     T.clayClod = { tex: macroCanvasTex(MACRO.paintCrumbParticle(), 3), ax: 0.5, ay: 0.5 }
+    T.dustPuff = { tex: macroCanvasTex(MACRO.paintDustPuff(), 3), ax: 0.5, ay: 0.5 }
+    T.soilGrain = { tex: macroCanvasTex(MACRO.paintGrain(), 4), ax: 0.5, ay: 0.5 }
     T.pebbleShot = { tex: macroCanvasTex(MACRO.paintPebbleShot(), 3), ax: 0.5, ay: 0.5 }
     T.prismShot = { tex: macroCanvasTex(MACRO.paintPrismShot(), 3), ax: 0.5, ay: 0.5 }
     { const b = MACRO.paintStalactite(); T.stalactite = { tex: macroCanvasTex(b.body, b.S), ax: b.ax, ay: b.ay } }
@@ -6902,7 +6906,13 @@ export function createRenderer(app) {
         macroShadowOf.set(white, sh)
         macroWhiteOf.set(tex, white)
         macroWhiteOf.set(white, white)
-        frames.push({ tex, white, ax: b.ax, ay: b.ay })
+        let flash = white
+        if (TOPSOIL_CAST.has(id)) {
+          flash = macroCanvasTex(MACRO.paintFlashTwin(b.body), b.S)
+          macroShadowOf.set(flash, sh)
+          macroWhiteOf.set(flash, white)
+        }
+        frames.push({ tex, white: flash, ax: b.ax, ay: b.ay })
       }
       macroFrames.set(id, frames)
     }
@@ -26429,12 +26439,22 @@ void main() {
     d.x = x + (Math.random() * 10 - 5)
     d.y = y - 10
     d.t.text = label ? label.text : String(Math.round(dmg))
-    // The Geode (holo) only: a heavy near-black ink stroke, so a number reads on the pale opal
-    // caverns as well as on the dark shards. Every other chapter keeps the brown stroke.
-    const holoInk = !!holoLook
-    if (d._holoInk !== holoInk) {
-      d._holoInk = holoInk
-      d.t.style.stroke = holoInk ? { color: 0x120a1e, width: 5, join: 'round' } : { color: 0x6b5847, width: 3.5, join: 'round' }
+    // The Geode (holo): a heavy near-black ink stroke, so a number reads on the pale opal caverns as
+    // well as on the dark shards. Topsoil: a thin dark-earth outline under the sand fill below, so a
+    // hit's number stays readable without a white glyph for the macro lens to halate. Every other
+    // chapter keeps the brown stroke.
+    const soil = !label && macroLook?.floor === 'topsoil'
+    const inkKey = holoLook ? 1 : soil ? 2 : 0
+    if (d._ink !== inkKey) {
+      d._ink = inkKey
+      d.t.style.stroke = [{ color: 0x6b5847, width: 3.5, join: 'round' }, { color: 0x120a1e, width: 5, join: 'round' }, { color: 0x1e130a, width: 3, join: 'round' }][inkKey]
+    }
+    d._pop = soil ? 0.14 : 0.35
+    if (soil) {
+      d.t.tint = crit ? 0xe8a052 : dot ? 0x9a8264 : 0xc2a47a
+      d.t.visible = true
+      d._base = (crit ? 1.15 : dot ? 0.62 : 0.85) * 0.8
+      return
     }
     // DoT ticks read as small muted numbers so a status-covered crowd doesn't flood the screen.
     // v5.24: chapterRender.ink (the blank) replaces the white base fill — white numbers vanish on
@@ -26452,7 +26472,7 @@ void main() {
       d.age += dt
       if (d.age >= 0.75) { d.live = false; d.t.visible = false; continue }
       const k = d.age / 0.75
-      const pop = 1 + 0.35 * Math.max(0, 1 - d.age * 7)
+      const pop = 1 + d._pop * Math.max(0, 1 - d.age * 7)
       d.t.position.set(d.x, d.y - 30 * k)
       d.t.scale.set(d._base * pop)
       d.t.alpha = k > 0.55 ? 1 - (k - 0.55) / 0.45 : 1
@@ -28381,7 +28401,25 @@ void main() {
   }
 
   // ------------------------------------------------------------------ events
-  function killPoof(x, y, etype, elite) {
+  // Topsoil: a puff of dry dust where a hit lands, thrown away from the player; a kill throws the
+  // bigger one in place of the white bloom. Its own RNG, so a hit never draws from Math.random.
+  let soilSeed = 1
+  const soilRnd = () => ((soilSeed = (soilSeed * 1664525 + 1013904223) >>> 0) / 4294967296)
+  const SOIL_GRAINS = [0xb08e66, 0x7a5636, 0xc9aa80, 0x4e3420]
+  function soilPuff(x, y, big, run) {
+    const R = soilRnd, a0 = Math.atan2(y - run.player.y, x - run.player.x)
+    for (let i = 0; i < (big ? 3 : 1); i++) {
+      const a = a0 + (R() - 0.5) * 2, sp = 25 + R() * 30
+      spawnParticle(T.dustPuff.tex, x, y, Math.cos(a) * sp, Math.sin(a) * sp, 0.45 + R() * 0.2,
+        (big ? 0.6 : 0.36) + R() * 0.1, i ? 0xa08262 : 0xc0a27c, big ? 1.5 : 1.0, 3)
+    }
+    for (let i = 0; i < (big ? 5 : 2); i++) {
+      const a = a0 + (R() - 0.5) * 1.6, sp = 60 + R() * 70
+      spawnParticle(T.soilGrain.tex, x, y, Math.cos(a) * sp, Math.sin(a) * sp, 0.3 + R() * 0.15, 0.7 + R() * 0.4, SOIL_GRAINS[i % 4], -0.6, 4)
+    }
+  }
+  function killPoof(x, y, etype, elite, run) {
+    if (macroLook?.floor === 'topsoil') { soilPuff(x, y, true, run); return }
     const color = elite ? 0xff9d5c : (ENEMY_LOOKS[etype]?.fill ?? 0xcccccc)
     const n = 5 + (Math.random() * 4 | 0)
     for (let i = 0; i < n; i++) {
@@ -28769,6 +28807,7 @@ void main() {
             if (d < 52) { const ux2 = d > 1 ? dx / d : 0.7, uy2 = d > 1 ? dy / d : -0.7; hx = run.player.x + ux2 * 52; hy = run.player.y + uy2 * 52 }
           }
           spawnDamage(hx, hy, e.dmg, e.crit, e.dot)
+          if (!e.dot && macroLook?.floor === 'topsoil') soilPuff(e.x, e.y, false, run)
           break
         }
         // A shot that bounced off a Shore Crab's raised claw. This exists because the alternative is
@@ -28854,7 +28893,7 @@ void main() {
           break
         }
         case 'kill':
-          killPoof(e.x, e.y, e.etype, e.elite)
+          killPoof(e.x, e.y, e.etype, e.elite, run)
           break
         // v7.x The Wreck: a fish the ORCA ate on its commit sweep. Deliberately NOT killPoof —
         // that ends on a white pop, which is this game's "you killed that", and the player gets
