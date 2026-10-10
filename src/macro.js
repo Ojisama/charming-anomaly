@@ -1575,3 +1575,150 @@ export function paintStalactite() {
     softDot(ctx, ap[0] - 2, ap[1] - 2, 2.5, 1.5, 'rgba(255,255,255,0.75)')
   }, { shadowBlur: 0.3 })
 }
+
+// ==== Root Snare: gnarled woody roots heaving out of a broken crust =============================
+// Baked at SNARE_R0 local units of radius; render.js scales each bake to the snare's own r. The
+// grow frames are SNARE_GROW_K: every random choice is drawn from a per-root rng BEFORE k is read,
+// so the frames of one seed are the same roots, longer.
+export const SNARE_R0 = 100
+export const SNARE_GROW_K = [0.15, 0.35, 0.6, 0.8, 1]
+export const SNARE_SEEDS = 2
+// A wandering path of n steps, pulled back toward heading `aim` each step.
+function walkPts(rnd, x, y, a, L, n, wob, kink, pull, aim) {
+  const pts = [[x, y]]
+  let av = 0
+  for (let i = 0; i < n; i++) {
+    av = av * 0.65 + (rnd() - 0.5) * wob
+    if (rnd() < kink) av += (rnd() - 0.5) * 1.1
+    a += av + (aim - a) * pull
+    x += Math.cos(a) * L / n; y += Math.sin(a) * L / n
+    pts.push([x, y])
+  }
+  return pts
+}
+function polySpine(pts) {
+  const n = pts.length - 1
+  return (t) => {
+    const f = Math.max(0, Math.min(n, t * n)), i = Math.min(n - 1, Math.floor(f)), u = f - i
+    return [lerp(pts[i][0], pts[i + 1][0], u), lerp(pts[i][1], pts[i + 1][1], u)]
+  }
+}
+// [normal x, normal y, tangent x, tangent y] of a spine at t
+function spineNrm(sp, t) {
+  const [ax, ay] = sp(Math.max(0, t - 0.01)), [bx, by] = sp(Math.min(1, t + 0.01))
+  const dx = bx - ax, dy = by - ay, l = Math.hypot(dx, dy) || 1
+  return [-dy / l, dx / l, dx / l, dy / l]
+}
+const shiftPts = (pts, dx, dy) => pts.map((v, i) => v + (i % 2 ? dy : dx))
+const ROOT_SOILS = [0x3e2a18, 0x5a3e26, 0x6e4c2e, 0x7a5a3a, 0x4a321e]   // heaved crumbs
+const CLING_SOILS = [0x3e2a18, 0x5a3e26, 0x6e4c2e, 0x4a321e]          // soil stuck to a root
+const CLOD_SOILS = [0x4a321e, 0x5a3e26, 0x6e4c2e, 0x7a5a3a]           // the broken crust
+// One root as ONE tapered, knobbly silhouette grown to k along its spine: a contact shadow thrown
+// away from the key, the lit flank toward it, bark fissures, root hairs, clinging soil crumbs.
+function rootBody(ctx, seed, pts, w0, k, st) {
+  const rnd = rng(seed)
+  const fiss = [], hairs = [], crumbs = []
+  for (let i = 0; i < st.fiss; i++) fiss.push([rnd(), 0.04 + rnd() * 0.14, (rnd() - 0.5) * 1.5, 0.3 + rnd() * 0.6])
+  for (let i = 0; i < st.hairs; i++) hairs.push([1 - Math.pow(rnd(), 0.35), rnd() < 0.5 ? 1 : -1, (rnd() - 0.5) * 1.2, 3.5 * (0.4 + rnd())])
+  for (let i = 0; i < st.crumbs; i++) crumbs.push([rnd() * 0.8, (rnd() - 0.5) * 1.6, 0.6 + rnd() * 1.4, rnd() * 1e6])
+  const ph1 = rnd() * TAU, ph2 = rnd() * TAU
+  if (k <= 0.02) return
+  const sp = polySpine(pts)
+  const half = (t) => {
+    const taper = w0 * (0.24 + 0.76 * Math.pow(1 - t, 0.6))
+    const knob = 1 + 0.14 * (0.6 * Math.sin(t * 19 + ph1) + 0.4 * Math.sin(t * 47 + ph2))
+    return Math.max(0.15, taper * knob * Math.sqrt(Math.min(1, Math.max(0, (k - t) / 0.1))))
+  }
+  const n = Math.max(10, Math.round(pts.length * 4 * k))
+  const sil = spineOutline(sp, half, n, 0, k)
+  withBlur(ctx, w0 * 0.45 + 0.6, 'rgba(0,0,0,0.65)', () => { trace(ctx, shiftPts(sil, -LX * w0 * 0.55, -LY * w0 * 0.55)); ctx.fill() })
+  trace(ctx, sil); ctx.fillStyle = css(BARK.base); ctx.fill()
+  ctx.save(); trace(ctx, sil); ctx.clip()
+  softFill(ctx, shiftPts(spineOutline(sp, (t) => half(t) * 0.55, n, 0, k), LX * w0 * 0.45, LY * w0 * 0.45), w0 * 0.3 + 0.3, css(BARK.lit, 0.8))
+  ctx.lineCap = 'round'
+  for (const [t0, len, lat, wd] of fiss) {
+    if (t0 > k) continue
+    ctx.beginPath()
+    for (let j = 0; j <= 6; j++) {
+      const t = Math.min(k, t0 + len * j / 6), [nx, ny] = spineNrm(sp, t), [x, y] = sp(t), h = half(t) * lat * 0.8
+      if (j) ctx.lineTo(x + nx * h, y + ny * h); else ctx.moveTo(x + nx * h, y + ny * h)
+    }
+    ctx.lineWidth = wd * Math.max(0.4, w0 * 0.12); ctx.strokeStyle = css(BARK.fiss, 0.75); ctx.stroke()
+    ctx.save(); ctx.translate(LX * 0.45, LY * 0.45); ctx.lineWidth *= 0.6; ctx.strokeStyle = css(BARK.lit, 0.35); ctx.stroke(); ctx.restore()
+  }
+  ctx.restore()
+  grain(ctx, sil, 0.6)
+  innerShadow(ctx, sil, w0 * 0.3 + 0.35, css(BARK.dark, 0.85), LX * w0 * 0.55, LY * w0 * 0.55)
+  ctx.save(); ctx.lineCap = 'round'; ctx.lineWidth = 0.28; ctx.strokeStyle = 'rgba(246,236,214,0.6)'
+  for (const [t, side, da, L] of hairs) {
+    if (t > k) continue
+    const [nx, ny, tx, ty] = spineNrm(sp, t), [x, y] = sp(t), h = half(t) * side
+    const a = Math.atan2(ny * side, nx * side) + da
+    const bx = x + nx * h, by = y + ny * h
+    ctx.beginPath(); ctx.moveTo(bx, by); ctx.quadraticCurveTo(bx + Math.cos(a) * L * 0.5 + tx * L * 0.3, by + Math.sin(a) * L * 0.5 + ty * L * 0.3, bx + Math.cos(a) * L, by + Math.sin(a) * L)
+    ctx.stroke()
+  }
+  ctx.restore()
+  for (const [t, lat, r, s] of crumbs) {
+    if (t > k * 0.9) continue
+    const [nx, ny] = spineNrm(sp, t), [x, y] = sp(t), h = half(t) * lat * 0.6
+    const rr = rng(s), cx = x + nx * h, cy = y + ny * h
+    lump(ctx, blobPts(rr, cx, cy, r, 7, 0.7, 0.8, rr() * TAU), cx, cy, r, CLING_SOILS[Math.floor(rr() * 4)], { shadow: 0.55 })
+  }
+}
+const BARK = { base: 0x664830, lit: 0xd2aa7e, dark: 0x0e0804, fiss: 0x140a04 }
+// One snare at growth k (0..1), seed 0..SNARE_SEEDS-1. The reach is stated on the ground: a disc of
+// turned loam that ends at SNARE_R0, a ring of heaved crumbs on it, and the holes the tips dive into.
+export function paintRootSnare(seed, k) {
+  const R = SNARE_R0
+  return bakeLocal(R * 1.12, 1.5, (ctx) => {
+    const rnd = rng(1013 + seed * 77)
+    const kE = Math.min(1, k * 3)
+    // the turned loam, darkest in a band at the reach
+    const g = ctx.createRadialGradient(0, 0, 0, 0, 0, R * 1.04)
+    g.addColorStop(0, `rgba(12,7,3,${0.21 * kE})`); g.addColorStop(0.86, `rgba(10,6,3,${0.3 * kE})`)
+    g.addColorStop(0.955, `rgba(6,3,1,${0.55 * kE})`); g.addColorStop(1, 'rgba(6,3,1,0)')
+    ctx.beginPath(); ctx.arc(0, 0, R * 1.04, 0, TAU); ctx.fillStyle = g; ctx.fill()
+    const roots = []
+    for (let i = 0; i < 7; i++) {
+      const a0 = (i / 7) * TAU + (rnd() - 0.5) * 0.5
+      let pts = walkPts(rnd, Math.cos(a0) * 5, Math.sin(a0) * 5, a0, R, 18, 0.22, 0.12, 0.12, a0)
+      const [ex, ey] = pts[pts.length - 1], sc = R * (0.9 + rnd() * 0.06) / Math.hypot(ex, ey)
+      pts = pts.map(([x, y]) => [x * sc, y * sc])
+      roots.push({ pts, w: 7 + rnd() * 3, s: rnd() * 1e6, br: [0, 1].map(() => ({ t: 0.25 + rnd() * 0.45, da: (rnd() < 0.5 ? 1 : -1) * (0.5 + rnd() * 0.5), L: R * (0.25 + rnd() * 0.2), s: rnd() * 1e6 })) })
+    }
+    // the holes the tips dive back into
+    if (k > 0.85) {
+      for (const r of roots) {
+        const [x, y] = r.pts[r.pts.length - 1]
+        softDot(ctx, x, y, 3, 1.44, 'rgba(0,0,0,0.55)')
+        softDot(ctx, x + LX * 0.48, y + LY * 0.48, 1.8, 0.84, 'rgba(0,0,0,0.85)')
+      }
+    }
+    // the ring of heaved crumbs at the reach
+    const ringR = rng(seed * 5 + 3)
+    for (let i = 0, n = Math.round(70 * kE); i < n; i++) {
+      const a = ringR() * TAU, d = R * 0.985 * (1 + (ringR() - 0.5) * 0.08), r = 0.8 + Math.pow(ringR(), 2) * 1.8
+      const x = Math.cos(a) * d, y = Math.sin(a) * d, rr = rng(ringR() * 1e6)
+      lump(ctx, blobPts(rr, x, y, r, 8, 0.7, 0.75, rr() * TAU), x, y, r, ROOT_SOILS[Math.floor(rr() * 5)], { shadow: 0.7, gloss: rr() < 0.15 ? 0.5 : 0 })
+    }
+    const MAIN = { fiss: 26, hairs: 30, crumbs: 5 }, BRANCH = { fiss: 8, hairs: 26, crumbs: 1 }
+    for (const r of roots) {
+      rootBody(ctx, r.s, r.pts, r.w, Math.min(1, k * 1.05), MAIN)
+      const sp = polySpine(r.pts)
+      for (const b of r.br) {
+        const [x, y] = sp(b.t), [, , tx, ty] = spineNrm(sp, b.t)
+        const bp = walkPts(rng(b.s), x, y, Math.atan2(ty, tx) + b.da, b.L, 9, 0.35, 0.15, 0.05, Math.atan2(y, x))
+          .map(([px, py]) => { const d = Math.hypot(px, py); return d > R * 0.95 ? [px * R * 0.95 / d, py * R * 0.95 / d] : [px, py] })
+        rootBody(ctx, b.s + 1, bp, r.w * 0.42, Math.max(0, (k - b.t) / (1 - b.t)), BRANCH)
+      }
+    }
+    // the heave at the middle: the crust broken into clods over the root crown
+    const cr = rng(seed * 11 + 7)
+    for (let i = 0; i < 22; i++) {
+      const a = cr() * TAU, d = Math.pow(cr(), 0.7) * 17 * (0.6 + 0.4 * kE), r = 2.5 + cr() * 4.5
+      const x = Math.cos(a) * d, y = Math.sin(a) * d, rr = rng(cr() * 1e6)
+      lump(ctx, blobPts(rr, x, y, r, 8, 0.6, 0.8, rr() * TAU), x, y, r, CLOD_SOILS[Math.floor(rr() * 4)], { shadow: 0.8, lit: 0.45 })
+    }
+  }, { shadowBlur: 0.5 })
+}
