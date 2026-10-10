@@ -6155,11 +6155,11 @@ export function createRenderer(app) {
   // ==== Book 3, Burrow: per-frame drawing ======================================================
   // burrowGroundG is ON the floor, under the crowd: the ridges of turned earth over digging moles,
   // the cracks of a coming cave-in or eruption, the open pits, the shadow of a stone about to fall.
-  // The snares' roots are baked sprites on snareRootLayer, at the same depth. burrowFxG is over the crowd: the shovel's scoop, the echo rings, a crystal
+  // The snares' roots are baked sprites on snareRootLayer, at the same depth. burrowFxG is over the crowd: the echo rings, a crystal
   // chiming, the stone itself falling, the light-trails of prism shards (which is what shows a shot
   // turning off a crystal in a still frame). Both are cleared and redrawn every frame from `run`;
   // nothing here writes back to it.
-  const burrowSwings = []          // {x, y, angle, r, arc, t, life} — shovel scoops, renderer-local
+  const burrowSwings = []          // {x, y, angle, r, arc, t, life, seed} — shovel swings, renderer-local
   const burrowTrails = new WeakMap() // bullet -> [x, y, x, y, ...] recent positions (prism shards)
   // The photographed soil's own values (src/macro.js paintTopsoilTile), so every hole, heap and crack
   // drawn over it sits in the same light: lit from the top-left, shadows thrown down-right.
@@ -6341,37 +6341,7 @@ export function createRenderer(app) {
       sp.rotation = (dr.seed || 0) * 0.01
     }
     for (let i = stoneN; i < burrowStones.length; i++) burrowStones[i].visible = false
-    // shovel scoops: a clay shovel sweeping through its arc, a crescent of thrown dirt behind it
-    const p = run.player
-    for (let i = burrowSwings.length - 1; i >= 0; i--) {
-      const sw = burrowSwings[i]
-      sw.t += dt
-      if (sw.t >= sw.life) { burrowSwings.splice(i, 1); continue }
-      const k = sw.t / sw.life
-      const a = sw.angle - sw.arc / 2 + sw.arc * Math.min(1, k * 1.3)
-      const x = p.x, y = p.y, R = sw.r
-      const fade = 1 - Math.max(0, (k - 0.6) / 0.4)
-      // the dirt crescent swept so far
-      const a0 = sw.angle - sw.arc / 2
-      gF.moveTo(x + Math.cos(a0) * R * 0.55, y + Math.sin(a0) * R * 0.55)
-      for (let s = 0; s <= 12; s++) { const aa = a0 + (a - a0) * (s / 12); gF.lineTo(x + Math.cos(aa) * R * 0.95, y + Math.sin(aa) * R * 0.95) }
-      for (let s = 12; s >= 0; s--) { const aa = a0 + (a - a0) * (s / 12); gF.lineTo(x + Math.cos(aa) * R * 0.55, y + Math.sin(aa) * R * 0.55) }
-      gF.closePath().fill({ color: SOIL.mid, alpha: 0.45 * fade })
-      for (let s = 0; s < 7; s++) {
-        const aa = a0 + (a - a0) * hash(sw.seed + s), d = R * (0.6 + 0.4 * hash(sw.seed * 2 + s))
-        gF.circle(x + Math.cos(aa) * d, y + Math.sin(aa) * d, 2 + 2 * hash(s + sw.seed)).fill({ color: s % 2 ? SOIL.crumb : SOIL.lit, alpha: fade })
-      }
-      // the shovel: handle, collar, blade
-      const ca = Math.cos(a), sa = Math.sin(a), nx = -sa, ny = ca
-      const hx = x + ca * R * 0.2, hy = y + sa * R * 0.2, bx = x + ca * R * 0.62, by = y + sa * R * 0.62
-      gF.moveTo(hx, hy).lineTo(bx, by).stroke({ width: 6, color: 0x4a2c14, alpha: fade, cap: 'round' })
-      gF.moveTo(hx, hy).lineTo(bx, by).stroke({ width: 3.2, color: 0xb07a44, alpha: fade, cap: 'round' })
-      const tip = R * 0.98, w = R * 0.16
-      const blade = [bx + nx * w, by + ny * w, x + ca * tip + nx * w * 0.55, y + sa * tip + ny * w * 0.55, x + ca * (tip + w * 0.5), y + sa * (tip + w * 0.5),
-        x + ca * tip - nx * w * 0.55, y + sa * tip - ny * w * 0.55, bx - nx * w, by - ny * w]
-      gF.poly(blade).fill({ color: 0x5a6068, alpha: fade }).stroke({ width: 1.2, color: 0x23262a, alpha: fade })
-      gF.poly([bx + nx * w * 0.5, by + ny * w * 0.5, x + ca * tip + nx * w * 0.25, y + sa * tip + ny * w * 0.25, x + ca * tip, y + sa * tip, bx, by]).fill({ color: 0xc8d0d8, alpha: 0.8 * fade })
-    }
+    drawShovel(run, dt)
     // echo rings and crystal chimes (run.novas by look; placeNova hides both)
     for (const n of run.novas || []) {
       if (n.look !== 'echo' && n.look !== 'chime') continue
@@ -6433,6 +6403,117 @@ export function createRenderer(app) {
         gF.moveTo(tr[j - 2], tr[j - 1]).lineTo(tr[j], tr[j + 1]).stroke({ width: 1.4 * u, color: 0xffffff, alpha: u, cap: 'round' })
       }
     }
+  }
+  // THE SHOVEL: a photographed long-handled shovel (MACRO.paintShovel), its grip under the blob and
+  // its blade tip landing on the swing's radius, sweeping the arc. It carries a load of soil that
+  // spills along the arc and is flung off the end, so the reach is also left lying on the floor.
+  // The key is fixed top-left in the world: the tool is baked at SHOVEL_HEADINGS headings and the
+  // nearest is drawn (turned by at most half a step); the soil is lit in the world and never turned;
+  // every cast shadow is laid in world space, away from the light, further the higher the thing is.
+  // Baked at macro run start (setMacro), drawn from pooled sprites, hidden by hideShovel().
+  const SHOVEL_SWING_LIFE = 0.62   // s, the sweep (0.18) plus the spilled soil lying until it sinks
+  const SHOVEL_SWEEP = 0.18
+  const SHOVEL_THROW = 0.62        // fraction of the sweep at which the load leaves the blade
+  const SHADOW_DX = 0.62, SHADOW_DY = 0.78   // a raised thing's shadow falls this way
+  let shovelLook = null
+  function bakeShovel() {
+    if (shovelLook) return
+    const look = (b) => ({ tex: macroCanvasTex(b.body, b.S), sh: macroCanvasTex(b.shadow, b.S), ax: b.ax, ay: b.ay })
+    const n = MACRO.SHOVEL_HEADINGS
+    shovelLook = {
+      tool: Array.from({ length: n }, (_, i) => look(MACRO.paintShovel((i / n) * Math.PI * 2))),
+      load: look(MACRO.paintShovelLoad()),
+      clods: [11, 12, 13, 14, 15, 16].map((s) => look(MACRO.paintSoilClod(s))),
+    }
+  }
+  function shovelPool(layer) {
+    const arr = []
+    let n = 0
+    return {
+      begin() { n = 0 },
+      get(L, shadow) {
+        let s = arr[n]
+        if (!s) { s = new Sprite(L.tex); layer.addChild(s); arr.push(s) }
+        const tex = shadow ? L.sh : L.tex
+        if (s.texture !== tex) s.texture = tex
+        s.anchor.set(L.ax, L.ay); s.visible = true; s.rotation = 0
+        n++
+        return s
+      },
+      end() { for (let i = n; i < arr.length; i++) arr[i].visible = false },
+    }
+  }
+  let shovelPools = null   // made on first use: the layers are declared further down
+  function shovelSprites() {
+    return shovelPools ??= {
+      toolShadow: shovelPool(shovelFloorLayer), lyingShadow: shovelPool(shovelFloorLayer), lying: shovelPool(shovelFloorLayer),
+      tool: shovelPool(shovelToolLayer), load: shovelPool(shovelToolLayer),
+      airShadow: shovelPool(shovelAirLayer), air: shovelPool(shovelAirLayer),
+    }
+  }
+  function hideShovel() { const P = shovelSprites(); for (const k in P) { P[k].begin(); P[k].end() } }
+  const unit = (v) => (v < 0 ? 0 : v > 1 ? 1 : v)
+  const easeOut3 = (v) => 1 - (1 - v) * (1 - v) * (1 - v)
+  function drawShovel(run, dt) {
+    const shovelPools = shovelSprites()
+    for (const k in shovelPools) shovelPools[k].begin()
+    const p = run.player
+    const L0 = shovelLook
+    // a clod at ground point (x, y), raised hz px toward the camera
+    const clod = (x, y, hz, sc, seed, alpha) => {
+      const L = L0.clods[Math.floor(hash(seed) * L0.clods.length) % L0.clods.length]
+      const air = hz > 0.5
+      const sh = (air ? shovelPools.airShadow : shovelPools.lyingShadow).get(L, true)
+      sh.position.set(x + SHADOW_DX * (hz + 1.2 * sc), y + SHADOW_DY * (hz + 1.2 * sc)); sh.scale.set(sc); sh.alpha = 0.75 * alpha
+      const s = (air ? shovelPools.air : shovelPools.lying).get(L, false)
+      s.position.set(x, y); s.scale.set(sc * (1 + hz * 0.012)); s.alpha = alpha
+    }
+    for (let i = burrowSwings.length - 1; i >= 0; i--) {
+      const sw = burrowSwings[i]
+      sw.t += dt
+      if (sw.t >= sw.life) { burrowSwings.splice(i, 1); continue }
+      if (!L0) continue
+      const t = sw.t, R = sw.r, a0 = sw.angle - sw.arc / 2, arc = sw.arc
+      const lvS = R / 150
+      const ts = unit(t / SHOVEL_SWEEP)
+      const a = a0 + arc * ts
+      const back = easeOut3(unit((t - 0.22) / 0.1)), alpha = 1 - unit((t - 0.29) / 0.05)
+      if (alpha > 0) {
+        const n = L0.tool.length, step = (Math.PI * 2) / n
+        const k = ((Math.round(a / step) % n) + n) % n
+        const L = L0.tool[k], turn = a - Math.round(a / step) * step
+        const sc = (R + 4) / MACRO.SHOVEL_LEN
+        const ca = Math.cos(a), sa = Math.sin(a)
+        const gx = p.x - ca * (4 + 14 * back), gy = p.y - sa * (4 + 14 * back)
+        const h = 3 + 13 * Math.sin(Math.PI * ts) * (1 - back)
+        const sh = shovelPools.toolShadow.get(L, true)
+        sh.position.set(gx + SHADOW_DX * h, gy + SHADOW_DY * h); sh.rotation = turn; sh.scale.set(sc); sh.alpha = 0.5 * alpha
+        const s = shovelPools.tool.get(L, false)
+        s.position.set(gx, gy); s.rotation = turn; s.scale.set(sc * (1 + h * 0.004)); s.alpha = alpha
+        if (ts < SHOVEL_THROW) {
+          const ld = shovelPools.load.get(L0.load, false), d = MACRO.SHOVEL_DISH * sc
+          ld.position.set(gx + ca * d, gy + sa * d); ld.scale.set(sc); ld.alpha = alpha
+        }
+      }
+      // the spill: crumbs drop off the blade as it passes and land on the reach; then the load is flung
+      const N = Math.round(arc * R / 15)
+      const fade = 1 - unit((t - (sw.life - 0.14)) / 0.14)
+      for (let j = 0; j < N + 8; j++) {
+        const spill = j < N
+        const u = spill ? (j + 0.5) / N : SHOVEL_THROW + (1 - SHOVEL_THROW) * hash(sw.seed + j * 3.1)
+        const tr = spill ? SHOVEL_SWEEP * u : SHOVEL_SWEEP * SHOVEL_THROW + 0.012 * (j - N)
+        const fl = spill ? 0.09 : 0.16
+        if (t < tr) continue
+        const f = unit((t - tr) / fl)
+        const r0 = R * 0.86, r1 = R * (spill ? 0.88 + 0.18 * hash(sw.seed + j) : 0.96 + 0.12 * hash(sw.seed + j))
+        const aa = a0 + arc * Math.min(1, u + (spill ? 0.02 : 0.06) * f)
+        const rr = r0 + (r1 - r0) * easeOut3(f)
+        const hz = (spill ? 8 : 18) * lvS * Math.sin(Math.PI * f)
+        const sc = 1.7 * (0.25 + 0.7 * Math.pow(hash(sw.seed * 1.7 + j), 2)) * lvS * (0.6 + 0.4 * fade)
+        clod(sw.x + Math.cos(aa) * rr, sw.y + Math.sin(aa) * rr, hz, sc, sw.seed + j, fade)
+      }
+    }
+    for (const k in shovelPools) shovelPools[k].end()
   }
   // The falling stones are sprites (a small pool on burrowStoneLayer), hidden past the live count.
   const burrowStones = []
@@ -6529,7 +6610,7 @@ export function createRenderer(app) {
         return true
       case 'shoot':
         if (e.weapon === 'shovel') {
-          burrowSwings.push({ angle: e.angle, r: e.maxR, arc: e.arc, t: 0, life: 0.24, seed: Math.random() * 100 })
+          burrowSwings.push({ x: e.x, y: e.y, angle: e.angle, r: e.maxR, arc: e.arc, t: 0, life: SHOVEL_SWING_LIFE, seed: Math.random() * 100 })
           if (burrowSwings.length > 8) burrowSwings.shift()
         }
         return false
@@ -12710,6 +12791,7 @@ export function createRenderer(app) {
     macroFloor.visible = true
     blotchLayer.visible = false
     buildMacroAir(kind)
+    bakeShovel()
     macroAir.visible = true
     macroShadowLayer.visible = true
     const u = macroU.uniforms
@@ -13176,6 +13258,11 @@ export function createRenderer(app) {
   const burrowFxG = new Graphics()
   const burrowStoneLayer = new Container()
   const snareRootLayer = new Container()   // the Root Snare's baked roots (syncSnareSprites)
+  // the shovel (drawShovel): its shadows and the soil lying on the floor, the tool itself (under the
+  // blob, which holds it by the grip), and the soil in flight over everything
+  const shovelFloorLayer = new Container()
+  const shovelToolLayer = new Container()
+  const shovelAirLayer = new Container()
   // Barnacle crusts, drawn OVER the bodies they are growing on — they sit on top of the enemy
   // sprite, so this has to be added after the entity layer, not with the ground effects.
   const crustG = new Graphics()
@@ -13304,7 +13391,7 @@ const spurG = new Graphics()
   const particleLayer = new Container()
   const textLayer = new Container()
   entitiesLayer.addChild(
-    mownG, sandLayer, netWakeG, wellG, bindG, poolLayer, slickG, burrowGroundG, snareRootLayer, pixelRig.ground, trailLayer, webLayer, gateFloorG, spurG, coralLayer, gateG, burstWakeG, obstacleLayer, trapLayer,
+    mownG, sandLayer, netWakeG, wellG, bindG, poolLayer, slickG, burrowGroundG, snareRootLayer, shovelFloorLayer, pixelRig.ground, trailLayer, webLayer, gateFloorG, spurG, coralLayer, gateG, burstWakeG, obstacleLayer, trapLayer,
     // The refill circles (The Deep's anglerfish, sun shafts, pools) sit UNDER the drops: a maw is
     // a 400px body, and above gemLayer it hid every gem and coin that fell inside it.
     shaftLayer,
@@ -13313,7 +13400,7 @@ const spurG = new Graphics()
     rockLayer,
     orcaShadowSp, orcaG,
     macroShadowLayer, enemyShadowLayer, holoHaloLayer, enemyLayer, krakenArmLayer, enemyCrownLayer, krakenCoilBandLayer, orcaSp, netG, longlineG, snareG,
-    bloomLayer, lureLayer, shieldG, affixLayer, crustG, deepG, lockLayer, playerC, krakenGripFrontLayer, netHoldG, gateFrontG, breakerG, puffG, splashG, columnG, shorebreakG, burrowFxG, burrowStoneLayer, pixelRig.air,
+    bloomLayer, lureLayer, shieldG, affixLayer, crustG, deepG, lockLayer, shovelToolLayer, playerC, krakenGripFrontLayer, netHoldG, gateFrontG, breakerG, puffG, splashG, columnG, shorebreakG, burrowFxG, burrowStoneLayer, shovelAirLayer, pixelRig.air,
     bulletLayer, boomerangLayer, orbLayer, debrisLayer, homingLayer, shotLayer, beamLayer, whipLayer, arcG, breathG,
     lobLayer, carLayer, smokeLayer, particleLayer,
     // v6.7.7: the refraction sits in FRONT of traffic, smoke and particles — everything except the
@@ -29846,7 +29933,7 @@ void main() {
   // ------------------------------------------------------------------- reset
   function clearWorld() {
     pixelRig.clear()   // The Magma (src/pixel.js): its own pools
-    burrowGroundG.clear(); burrowFxG.clear(); burrowSwings.length = 0
+    burrowGroundG.clear(); burrowFxG.clear(); burrowSwings.length = 0; hideShovel()
     for (const st of burrowStones) st.visible = false
     for (const sp of snareSprites) sp.visible = false
     for (const [id, s] of enemySprites) {
@@ -31689,7 +31776,7 @@ void main() {
     syncGates(run)    // ...and the circuit's checkpoints and start line (no-op unless `circuit`)
     syncTrails(run.trails || [])
     syncWebs(run.webs || [])
-    syncBurrow(run, dt)   // Book 3: tunnels, pits, quakes, snares, stones, scoops, echoes (no-op elsewhere)
+    syncBurrow(run, dt)   // Book 3: tunnels, pits, quakes, snares, stones, shovels, echoes (no-op elsewhere)
     if (pixelLook) pixelRig.sync(run, dt, { cx, cy, z: world.scale.x, w: viewW(), h: viewH(), animT, dirOf: pixelDirAt })   // The Magma (src/pixel.js)
     // v7.x surf: the dry patches. `|| []` like every field above — a save or a test run predating
     // the chapter has no run.sandbars at all.

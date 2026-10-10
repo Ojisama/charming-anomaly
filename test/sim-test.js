@@ -1,5 +1,7 @@
 // Headless self-check for src/sim.js. Plain node, no framework: `npm test`.
 import assert from 'node:assert'
+import { fileURLToPath } from 'node:url'
+import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { createRun, loadMeta, saveMeta, ensureChapterMeta, activeSlot, setActiveSlot, slotSummary, deleteSlot, SAVE_SLOTS, SCHEMA, setSaveHook, freezeSaves, exportSlot, importSlot, saveSummary, NAME_MAX, bookMeta, ensureBookMeta, grantBook, unlockBook, bookProgress, parkRun, takeParkedRun, dropParkedRun } from '../src/state.js'
 // sync.js keeps browser globals out of its module scope precisely so it can be imported here.
@@ -20851,6 +20853,7 @@ run(testLeLargeWeapons)
   run(testMineGlyphTells)
   run(testMagma)
   run(testTopsoilPolish)
+  run(testSrcParses)
   run(testGemTiers)
   run(testMagmaFloor)
   run(testMagmaRiverBank)
@@ -39667,6 +39670,18 @@ function testMagmaFloor() {
 // into three furrows — distinct pit positions, the pin-exempt sweep in run PB7 hands it here;
 // (c) SUNDOWN makes a chaser close faster and a gem pay more; (d) SOFT GROUND widens a mole's
 // eruption and its pits. Scope: both cards are Topsoil's alone.
+// run SX: every src file PARSES. render.js and macro.js are never imported here, so a duplicate
+// top-level declaration (two bakes each adding a `SOILS`) passed the whole suite and blanked the page.
+function testSrcParses() {
+  const files = readdirSync(new URL('../src/', import.meta.url)).filter((n) => n.endsWith('.js'))
+  assert.ok(files.includes('render.js') && files.includes('macro.js'), `run SX: src listing is missing render.js/macro.js: ${files}`)
+  for (const n of files) {
+    const r = spawnSync(process.execPath, ['--check', fileURLToPath(new URL('../src/' + n, import.meta.url))], { encoding: 'utf8' })
+    assert.strictEqual(r.status, 0, `run SX: src/${n} does not parse:\n${r.stderr}`)
+  }
+  console.log(`PASS run SX (src parses): ${files.length} files`)
+}
+
 function testTopsoilPolish() {
   const meta = () => { const m = makeMeta(); m.dev = true; return m }
   const dt = 1 / 60
