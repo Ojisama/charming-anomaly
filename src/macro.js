@@ -1745,7 +1745,7 @@ function pkBake(E, paint) {
 }
 const PK_L = (() => { const v = [LX, LY, 1.05], n = Math.hypot(...v); return v.map((c) => c / n) })()
 const PK_H = (() => { const v = [PK_L[0], PK_L[1], PK_L[2] + 1], n = Math.hypot(...v); return v.map((c) => c / n) })()
-const PK_RES = PK_S * PK_K * 1.5   // texels per px the shaded bakes are rastered at
+const PK_RES = PK_S * PK_K   // texels per px the shaded bakes are rastered at (cost grows with its square: it runs at run start)
 const sstep = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t) }
 function hash2(x, y) { const h = Math.sin(x * 127.1 + y * 311.7) * 43758.5453; return h - Math.floor(h) }
 function vnoise(x, y) {
