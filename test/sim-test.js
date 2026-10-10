@@ -39810,6 +39810,27 @@ function testTopsoilPolish() {
     return { erupt, pit }
   }
   const soft = ground(['softGround']), hard = ground([])
+  // ...and a hit from it costs more: the first eruption that lands on a player standing still, per
+  // point of the erupting mole's own dmg (so it does not depend on when that mole spawned)
+  const bite = (muts) => {
+    Math.random = mulberry32(33009)
+    const r = createRun(meta(), { chapter: 'topsoil', difficulty: 1, mutators: muts })
+    r.weapons = []
+    r.player.hp = r.player.maxHP = 1e9
+    for (let i = 0; i < 120 * 60; i++) {
+      if (r.phase === 'levelup') { r.phase = 'playing'; r.levelUpChoices = [] }
+      r.player.hp = r.player.maxHP; r.player.invuln = 0
+      stepSim(r, { x: 0, y: 0 }, dt)
+      const ev = r.events.find((v) => v.type === 'moleErupt' && v.hit)
+      r.events.length = 0
+      if (!ev) continue
+      const mole = r.enemies.reduce((b, e) => (!b || Math.hypot(e.x - ev.x, e.y - ev.y) < Math.hypot(b.x - ev.x, b.y - ev.y) ? e : b), null)
+      return (r.player.maxHP - r.player.hp) / mole.dmg
+    }
+    return 0
+  }
+  const biteSoft = bite(['softGround']), biteHard = bite([])
+  assert.ok(biteHard > 0 && biteSoft > biteHard * 1.25, `run TS.d: Soft Ground should make an eruption HIT harder: ${biteSoft.toFixed(2)} vs ${biteHard.toFixed(2)} per mole dmg`)
   assert.ok(hard.erupt > 0 && hard.pit > 0, `run TS.d: fixture never saw a mole erupt and cave in: ${JSON.stringify(hard)}`)
   assert.ok(soft.erupt > hard.erupt * 1.3 && soft.pit > hard.pit * 1.3, `run TS.d: Soft Ground should widen the eruption and the pits: ${JSON.stringify(soft)} vs ${JSON.stringify(hard)}`)
   // (e) DEEP ROOTS: a held body takes more from everything — on a ring that cannot die, so the gain is
