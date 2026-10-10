@@ -939,6 +939,10 @@ export const CANARY_LINK_DMG = 0.3       // + this much blast damage per link do
 // Hot Feet (The Magma's anomaly): cracks open this much sooner, and lava burns this much hotter.
 export const HOT_FEET_OPEN_MUL = 0.55
 export const HOT_FEET_BURN_MUL = 1.6
+// SUNDOWN (ANOMALIES.sundown, Topsoil): the light goes, the crowd quickens, every kill pays more XP.
+// balance_decision : first guess, owner playtests 2026-10-10
+export const SUNDOWN_SPEED_MUL = 1.2
+export const SUNDOWN_XP_MUL = 1.6
 export const ANOMALIES = {
   unstableCores: {
     name: 'Unstable Cores', icon: '💥',
@@ -1323,6 +1327,16 @@ export const ANOMALIES = {
     when: () => true,
     weight: 2, chapter: 'mine', kind: 'jackpot',
     minLevel: 3,
+  },
+
+  // Topsoil's own. The low sun the chapter is lit by goes down (render dims the macro light).
+  sundown: {
+    name: 'Sundown', icon: '🌇',
+    from: 'the sun went down behind the grass',
+    desc: `It gets dark. They move ${Math.round((SUNDOWN_SPEED_MUL - 1) * 100)}% faster, and everything you kill gives ${Math.round((SUNDOWN_XP_MUL - 1) * 100)}% more XP.`,
+    when: () => true,
+    weight: 2, chapter: 'topsoil', kind: 'trade',
+    minLevel: 10,
   },
 
   // The Magma's own: the crust turned up, both ways.
@@ -2840,16 +2854,18 @@ export const WEAPONS = {
     ],
   },
   // Pebble Sling: fast stones at the nearest bodies (run.bullets, weapon 'pebble').
+  // balance_decision : a spray of piercing pebbles, L1 was half the pool 2026-10-10
+  //  - extra damage per pebble buys nothing: each one already kills; count/pierce/rate are the levers.
   pebbleSling: {
     name: 'Pebble Sling',
     desc: 'Slings fast pebbles at the nearest foes.',
     icon: '🎯', rarity: 'normal',
     levels: [
-      { dmg: 11, interval: 0.70, count: 1, speed: 560, pierce: 1 },
-      { dmg: 13, interval: 0.64, count: 2, speed: 570, pierce: 1 },
-      { dmg: 16, interval: 0.58, count: 2, speed: 590, pierce: 2 },
-      { dmg: 19, interval: 0.52, count: 3, speed: 610, pierce: 2 },
-      { dmg: 24, interval: 0.46, count: 4, speed: 640, pierce: 3 },
+      { dmg: 9, interval: 0.45, count: 3, speed: 560, pierce: 3 },
+      { dmg: 11, interval: 0.44, count: 3, speed: 570, pierce: 3 },
+      { dmg: 14, interval: 0.42, count: 3, speed: 590, pierce: 3 },
+      { dmg: 17, interval: 0.40, count: 4, speed: 610, pierce: 3 },
+      { dmg: 21, interval: 0.38, count: 4, speed: 640, pierce: 4 },
     ],
   },
   // Root Snare: roots burst up under a foe and hold the patch (run.snares): slowed, ground down.
@@ -2863,6 +2879,20 @@ export const WEAPONS = {
       { dmg: 8, interval: 2.2, r: 74, duration: 3.0, count: 2 },
       { dmg: 10, interval: 2.0, r: 80, duration: 3.2, count: 2 },
       { dmg: 13, interval: 1.8, r: 88, duration: 3.5, count: 3 },
+    ],
+  },
+  // Furrow: you dig a furrow as you walk; every cast, the stretch behind you caves in to pits
+  // (run.caveIns -> run.pits, src 'furrow') that hit each body once as it walks in.
+  furrow: {
+    name: 'Furrow',
+    desc: 'You dig a furrow as you walk. Behind you it caves in to pits that hit whatever follows.',
+    icon: '🕳️', rarity: 'normal',
+    levels: [
+      { dmg: 30, interval: 2.4, length: 200, r: 26 },
+      { dmg: 36, interval: 2.2, length: 220, r: 28 },
+      { dmg: 45, interval: 2.0, length: 250, r: 30 },
+      { dmg: 56, interval: 1.8, length: 280, r: 32 },
+      { dmg: 70, interval: 1.6, length: 320, r: 35 },
     ],
   },
   // Prism Shard: crystal shards at the nearest body (run.bullets, weapon 'prism'). In The Geode a
@@ -4300,8 +4330,14 @@ export const WEAPON_MODS = {
   rootSnare: {
     thorns:      { name: 'Thorns',       desc: 'root damage per tick', icon: '💥', base: 0.30, kind: 'pct' },
     spreading:   { name: 'Spreading',    desc: 'snare radius', icon: '⭕', base: 0.25, kind: 'pct' },
-    deepRoots:   { name: 'Deep Roots',   desc: 'how long a snare holds', icon: '⌛', base: 0.25, kind: 'pct' },
+    deepRoots:   { name: 'Deep Roots',   desc: 'damage to held foes', icon: '🪢', base: 0.30, kind: 'pct' },
     quickSprout: { name: 'Quick Sprout', desc: 'cast rate', icon: '⏩', base: 0.25, kind: 'pct' },
+  },
+  furrow: {
+    deepCut:       { name: 'Deep Cut',       desc: 'pit damage', icon: '💥', base: 0.30, kind: 'pct' },
+    widePits:      { name: 'Wide Pits',      desc: 'pit size', icon: '⭕', base: 0.22, kind: 'pct' },
+    longFurrow:    { name: 'Long Furrow',    desc: 'furrow length', icon: '📏', base: 0.25, kind: 'pct' },
+    quickCollapse: { name: 'Quick Collapse', desc: 'cave-in rate', icon: '⏩', base: 0.25, kind: 'pct' },
   },
   prismShard: {
     keenFacet:   { name: 'Keen Facet',   desc: 'shard damage', icon: '💥', base: 0.30, kind: 'pct' },
@@ -4402,7 +4438,7 @@ export const WEAPON_RATE_MODS = {
   breaker: 'quickBreak', ballast: 'quickWinch', siltVeil: 'quickStir', downwash: 'quickPour',
   bringItIn: 'quickReel', screw: 'overspeed', glint: 'quickGlint',
   sunspear: 'quickSun', sunlance: 'quickLance',
-  shovel: 'quickDig', pebbleSling: 'whirl', rootSnare: 'quickSprout', prismShard: 'flickRate',
+  shovel: 'quickDig', pebbleSling: 'whirl', rootSnare: 'quickSprout', furrow: 'quickCollapse', prismShard: 'flickRate',
   echoPulse: 'rapidClick', stalactite: 'dripRate',
   pickaxe: 'quickSwing', dynamite: 'shortFuse', minecart: 'greasedAxle', lantern: 'quickWick',
   slagLadle: 'quickLadle', obsidianShards: 'quickKnap', bellows: 'quickPump', volcanicBomb: 'quickFuse',
@@ -6459,6 +6495,14 @@ export const ROOT_SNARE_TICK = 0.5       // s between root damage ticks
 export const ROOT_SNARE_SLOW = 0.72      // fraction of speed a held body loses
 export const ROOT_SNARE_HOLD_T = 0.25    // s a body stays held after it leaves the patch
 export const ROOT_SNARE_RANGE = 360      // px from you a snare may be cast
+export const FURROW_STEP = 30            // px between furrow points (one pit each)
+export const FURROW_KEEP = 24            // furrow points kept behind you (caps a Long Furrow)
+export const FURROW_DELAY = 0.45         // s from a cast to the first pit opening
+export const FURROW_STAGGER = 0.05       // s between pits down the furrow, nearest first
+export const FURROW_PIT_OPEN = 0.25      // s a furrow pit takes to open
+export const FURROW_PIT_LIFE = 2.6       // s a furrow pit stays (fill included)
+export const FURROW_PIT_FILL = 0.6       // s it takes to fill back in
+export const FURROW_PIT_MAX = 40         // furrow pits alive at once, on top of the moles' own cap
 export const PRISM_FAN = 0.16            // rad between shards of one throw
 export const PRISM_LIFE = 1.0            // s of flight before a bounce refreshes it
 export const PRISM_R = 8                 // px hit radius
@@ -9236,7 +9280,7 @@ CHAPTERS.kraken = {
 // one — so a player who leads the crowd across a fresh tunnel line gets a free cull.
 CHAPTERS.topsoil = {
   name: 'Topsoil', tagline: 'the ground is listening', icon: '🪱',
-  weapons: ['shovel', 'pebbleSling', 'rootSnare'], starter: 'shovel',
+  weapons: ['shovel', 'pebbleSling', 'rootSnare', 'furrow'], starter: 'shovel',
   roster: [
     { id: 'earthworm',   archetype: 'normal', name: 'Earthworm',    hpMul: 0.8, speedMul: 0.8, radiusMul: 0.9, weight: 3, flags: [] },
     { id: 'moleCricket', archetype: 'fast',   name: 'Mole Cricket', hpMul: 0.75, speedMul: 1.0, radiusMul: 1.2, flags: ['weave'], dmgMul: 0.6 },
@@ -15783,6 +15827,9 @@ export const MUTATORS = {
   // The Mine's own. Both ways: more firedamp to set off, and bigger blasts to stand clear of.
   // balance_decision : first guess, owner playtests 2026-10-09
   methaneSeam:  { name: 'Methane Seam',   icon: '💨', desc: 'Far more firedamp, and every blast is bigger. Stand well clear.', chapters: ['mine'], effects: { gasCountMul: 1.7, gasBlastMul: 1.3 } },
+  // Topsoil's own. Both ways: moles erupt wider and harder, and their pits swallow more.
+  // balance_decision : first guess, owner playtests 2026-10-10
+  softGround:   { name: 'Soft Ground',    icon: '🪨', desc: 'Moles burst up wider and hit harder, and their pits are bigger. Bonus XP.', chapters: ['topsoil'], effects: { moleBlastMul: 1.4, pitSizeMul: 1.4, xpMul: 1.15 } },
   // The Magma's own. The cracking half has no mods key: stepCrust reads the id (the Blank's idiom).
   thinCrust:    { name: 'Thin Crust',     icon: '🌋', desc: 'The crust cracks everywhere on its own, under them and under you. Bonus XP.', chapters: ['magma'], effects: { xpMul: 1.2 } },
 }
@@ -15816,6 +15863,8 @@ export const MUTATOR_MOD_KEYS = [
   'mawTimeMul',         // stepMaws (deep; seconds in a mouth before it bites, <1 = sooner)
   'gasCountMul',        // stepFiredamp (mine; how many firedamp pockets hang around you)
   'gasBlastMul',        // stepFiredamp (mine; a pocket's blast radius)
+  'moleBlastMul',       // stepTunnels (topsoil; a mole eruption's radius AND damage)
+  'pitSizeMul',         // stepTunnels (topsoil; a mole cave-in pit's radius)
 ]
 // Human label + "does a value above 1 help the player" for every MUTATOR_MOD_KEYS entry — the
 // brief/pause/summary effect chips read this (ui.js effectChipList) to word the trade and colour
@@ -15870,6 +15919,8 @@ export const MUTATOR_EFFECT_LABELS = {
   mawTimeMul: ['time before the bite', true],
   gasCountMul: ['firedamp pockets', true],
   gasBlastMul: ['firedamp blast size', true],
+  moleBlastMul: ['mole eruptions', false],
+  pitSizeMul: ['pit size', true],
 }
 // Pure helper: given a list of mutator ids (run.mutators), returns the full run.mods object —
 // every key above defaulted to 1, with each selected mutator's effects multiplied in. Unknown

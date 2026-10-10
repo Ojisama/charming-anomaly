@@ -1949,7 +1949,7 @@ const CONFIG = {
   "Spreading": "Rhizomes",
   "snare radius": "rayon du piège",
   "Deep Roots": "Racines profondes",
-  "how long a snare holds": "durée du piège",
+  "damage to held foes": "dégâts sur les ennemis retenus",
   "Quick Sprout": "Pousse rapide",
   "Keen Facet": "Facette aiguisée",
   "Shard Spray": "Gerbe d'éclats",
@@ -2089,6 +2089,22 @@ const CONFIG = {
   "Thin Crust": "Croûte fine",
   "The crust cracks everywhere on its own, under them and under you. Bonus XP.": "La croûte se fissure partout d'elle-même, sous eux comme sous toi. XP bonus.",
 
+  "Furrow": "Sillon",
+  "You dig a furrow as you walk. Behind you it caves in to pits that hit whatever follows.": "Tu creuses un sillon en marchant. Derrière toi, il s'effondre en fosses qui frappent tout ce qui te suit.",
+  "Deep Cut": "Coupe profonde",
+  "pit damage": "dégâts des fosses",
+  "Wide Pits": "Larges fosses",
+  "pit size": "taille des fosses",
+  "Long Furrow": "Long sillon",
+  "furrow length": "longueur du sillon",
+  "Quick Collapse": "Effondrement",
+  "cave-in rate": "cadence des effondrements",
+  "Sundown": "Crépuscule",
+  "the sun went down behind the grass": "le soleil s'est couché derrière l'herbe",
+  "It gets dark. They move 20% faster, and everything you kill gives 60% more XP.": "La nuit tombe. Ils vont 20 % plus vite, et tout ce que tu tues donne 60 % d'XP en plus.",
+  "Soft Ground": "Terre meuble",
+  "Moles burst up wider and hit harder, and their pits are bigger. Bonus XP.": "Les taupes jaillissent plus large et frappent plus fort, et leurs fosses sont plus grandes. XP bonus.",
+  "mole eruptions": "jaillissements de taupes",
 }
 
 export const FR = { ...UI, ...CONFIG }

@@ -2121,8 +2121,16 @@ function generateWells(sig) {
  *     .signature.caveIns.open s, swallow any ordinary body whose centre is inside r (a hazard kill,
  *     {type:'pitFall'}), and fill back in over .fill s before `life`. Elites, burrowed bodies and
  *     moles never fall. The player is never swallowed: a pit is a tool, not a trap for you.
- *   caveIns[i]: { x, y, at, r } — a pit due to open at run.time >= at (the cracks render draws first).
- *     Queued by an eruption back along its mole's tunnel; dropped unopened when caveIns is null.
+ *     A FURROW pit (the weapon, any chapter) also carries { src: 'furrow', dmg, hit, open, fill }:
+ *     it HITS each body once for dmg (hit = { [enemy id]: 1 }, JSON-safe) instead of swallowing,
+ *     elites included, and opens/fills over its own FURROW_PIT_OPEN/FILL. stepPits owns both kinds;
+ *     each kind has its own cap and evicts its own oldest.
+ *   caveIns[i]: { x, y, at, r, src?, dmg? } — a pit due to open at run.time >= at (the cracks render
+ *     draws first). Queued by an eruption back along its mole's tunnel (dropped unopened when
+ *     caveIns is null), or by a Furrow cast along the player's own path (src 'furrow', always opens).
+ *   Run: _furrow (the Furrow's trail, a point every FURROW_STEP px, at most FURROW_KEEP) and
+ *     _furrowNew (points laid since its last cast; a cast with none digs nothing).
+ *     {type:'shoot', weapon:'furrow', x, y} one Furrow cast that queued at least one cave-in.
  *   snares[i]: { x, y, r, dmg, dur, t, tick } — Root Snare patches. A body inside gets e.rootUntil
  *     (slowed by ROOT_SNARE_SLOW while run.time < it) and a dot tick every ROOT_SNARE_TICK.
  *   drips[i]: { x, y, r, dmg, t, fuse, seed } — a Stalactite: the shadow grows for `fuse` s, then it

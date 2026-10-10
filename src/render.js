@@ -6286,15 +6286,15 @@ export function createRenderer(app) {
     const ch = CHAPTERS[run.chapter]
     const sigT = ch.signature?.type
     const t = animT
+    // pits first (the deepest thing on the floor), in any chapter: the Furrow digs them too
+    if (run.pits && run.pits.length) { drawPitLips(gG, run.pits); drawPitShafts(gG, run.pits) }
+    // a tunnel or furrow about to cave in: its line cracks, harder as the moment comes
+    for (const c of run.caveIns || []) {
+      const k = Math.max(0, Math.min(1, 1 - (c.at - run.time) / 1.2))
+      gG.circle(c.x, c.y, c.r * 0.8).fill({ color: 0x000000, alpha: 0.12 + 0.18 * k })
+      burrowCracks(gG, c.x, c.y, c.r * 1.1, 0.4 + 0.6 * k, c.x * 0.1 + c.y, 0.5 + 0.5 * k)
+    }
     if (sigT === 'tunnels') {
-      // pits first (the deepest thing on the floor), then the ridges over moving moles
-      if (run.pits && run.pits.length) { drawPitLips(gG, run.pits); drawPitShafts(gG, run.pits) }
-      // a tunnel about to cave in: its line cracks, harder as the moment comes
-      for (const c of run.caveIns || []) {
-        const k = Math.max(0, Math.min(1, 1 - (c.at - run.time) / 1.2))
-        gG.circle(c.x, c.y, c.r * 0.8).fill({ color: 0x000000, alpha: 0.12 + 0.18 * k })
-        burrowCracks(gG, c.x, c.y, c.r * 1.1, 0.4 + 0.6 * k, c.x * 0.1 + c.y, 0.5 + 0.5 * k)
-      }
       const M = ch.signature.moles
       for (const e of run.enemies) {
         if (!e.burrowed || e._dead) continue
@@ -12482,6 +12482,7 @@ export function createRenderer(app) {
     uFocus: { value: new Float32Array([0.5, 0.5]), type: 'vec2<f32>' },
     uLightDir: { value: new Float32Array([-0.62, -0.78]), type: 'vec2<f32>' },
     uKey: { value: 0.4, type: 'f32' },
+    uExposure: { value: 1, type: 'f32' },
     uShadowTone: { value: new Float32Array([0.5, 0.6, 0.7]), type: 'vec3<f32>' },
     uLightTone: { value: new Float32Array([1, 0.9, 0.75]), type: 'vec3<f32>' },
     uVignette: { value: 0.7, type: 'f32' },
@@ -12674,6 +12675,8 @@ export function createRenderer(app) {
     u.uSharpR = macroLook.sharp ?? 0.62
     hexTone(macroLook.shadowTone ?? 0x8090b0, u.uShadowTone)
     hexTone(macroLook.lightTone ?? 0xffe8c0, u.uLightTone)
+    hexTone(macroLook.lightTone ?? 0xffe8c0, macroDayTone)
+    macroDusk = run.anomalies?.sundown ? 1 : 0   // a reloaded run is already dark
     for (const s of macroShafts) s.tint = macroLook.shaft ?? 0xffe0b0
     for (const s of macroBokeh) s.tint = macroLook.bokeh ?? 0xffd8a0
     app.stage.filterArea = app.screen
@@ -12749,6 +12752,10 @@ export function createRenderer(app) {
     }
     for (let i = n; i < holoHaloA.length; i++) { holoHaloA[i].visible = holoHaloB[i].visible = false }
   }
+  // SUNDOWN (ANOMALIES.sundown): the low sun the macro floor is lit by goes down over a few seconds —
+  // less light, a redder key, no shafts. macroDusk runs 0 (day) to 1 (dusk).
+  let macroDusk = 0
+  const macroDayTone = new Float32Array(3), DUSK_TONE = [1, 0.5, 0.32], DUSK_EXPOSURE = 0.45
   function updateMacro(run, dt, cx, cy) {
     if (holoLook) {
       const w = viewW(), h = viewH(), z = world.scale.x || 1
@@ -12779,6 +12786,9 @@ export function createRenderer(app) {
     macroFloor.tilePosition.set(-macroFloor.x, -macroFloor.y)
     const u = macroU.uniforms
     u.uTime = animT
+    macroDusk += ((run.anomalies?.sundown ? 1 : 0) - macroDusk) * Math.min(1, dt * 0.6)
+    u.uExposure = 1 - (1 - DUSK_EXPOSURE) * macroDusk
+    for (let i = 0; i < 3; i++) u.uLightTone[i] = macroDayTone[i] + (DUSK_TONE[i] - macroDayTone[i]) * macroDusk
     // focus rides the player, held near the middle of the frame
     const sx = (run.player.x + cx) * z / app.screen.width, sy = (run.player.y + cy) * z / app.screen.height
     u.uFocus[0] = 0.5 + (sx - 0.5) * 0.6
@@ -12813,7 +12823,7 @@ export function createRenderer(app) {
       s.position.set(W * (0.05 + i * 0.3) + Math.sin(t * 0.11 + i) * W * 0.05, -H * 0.12)
       s.width = D * (0.16 + 0.08 * ((i * 37) % 3))
       s.height = D * 1.25
-      s.alpha = (macroLook.shaftAlpha ?? 0.14) * (0.7 + 0.3 * Math.sin(t * 0.3 + i * 1.7))
+      s.alpha = (macroLook.shaftAlpha ?? 0.14) * (0.7 + 0.3 * Math.sin(t * 0.3 + i * 1.7)) * (1 - macroDusk)
     }
     const px = run.player.x, py = run.player.y
     for (let i = 0; i < macroBokeh.length; i++) {

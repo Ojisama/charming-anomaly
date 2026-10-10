@@ -293,6 +293,7 @@ uniform float uBlurPx;
 uniform vec2 uFocus;
 uniform vec2 uLightDir;
 uniform float uKey;
+uniform float uExposure;
 uniform vec3 uShadowTone;
 uniform vec3 uLightTone;
 uniform float uVignette;
@@ -349,6 +350,7 @@ void main(void) {
   // the raking key: bright along the light's side of the frame, falling into shadow across it
   float side = dot(q * vec2(aspect, 1.0) / max(aspect, 1.0), -uLightDir);
   col *= 1.0 + uKey * clamp(side * 0.55 + 0.1, -0.7, 0.8);
+  col *= uExposure;   // 1 by day; Topsoil's Sundown takes it down
 
   // grade: split tone around the mid luminance, then a soft filmic shoulder
   float L = luma(col);

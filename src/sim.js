@@ -257,6 +257,8 @@ import {
   difficultySpeedMul, difficultyCountMul, difficultyDmgMul, endlessLevel, endlessHpMul, endlessXpMul, endlessXpNeedMul, ENDLESS_COIN_HALF_LIFE_S, ENDLESS_COUNT_MUL_MAX,
   ENDLESS_MILESTONE_S, ENDLESS_MILESTONE_ELITES, endlessAffixChance, ENDLESS_GILDED_COINS, ENDLESS_HANDOVER_CLEAR_R, mutatorPool, MUTATORS,
   SHOVEL_LIFE, PEBBLE_FAN, PEBBLE_LIFE, PEBBLE_R, ROOT_SNARE_TICK, ROOT_SNARE_SLOW, ROOT_SNARE_HOLD_T, ROOT_SNARE_RANGE,
+  FURROW_STEP, FURROW_KEEP, FURROW_DELAY, FURROW_STAGGER, FURROW_PIT_OPEN, FURROW_PIT_LIFE, FURROW_PIT_FILL, FURROW_PIT_MAX,
+  SUNDOWN_SPEED_MUL, SUNDOWN_XP_MUL,
   PRISM_FAN, PRISM_LIFE, PRISM_R, ECHO_LIFE, STALACTITE_FUSE, STALACTITE_RANGE,
   PICKAXE_RANGE, PICKAXE_KB, PICKAXE_CHIP_DMG, PICKAXE_CHIP_SPEED, PICKAXE_CHIP_LIFE, PICKAXE_CHIP_R,
   DYNAMITE_RANGE, DYNAMITE_FLIGHT, DYNAMITE_FUSE, DYNAMITE_KB, MINECART_SPEED, MINECART_FAN, MINECART_KB, MINECART_STUN,
@@ -402,6 +404,7 @@ export function stepSim(run, input, dt) {
   if (stepEnemyShots(run, dt)) return // phase is now 'dead' (helicopter missile — v5.4)
   if (stepPullBeams(run, dt)) return // phase is now 'dead' (UFO abduction beam DoT — v5.4)
   if (stepTunnels(run, dt)) return // phase is now 'dead' (Book 3 Topsoil: a mole erupted under you)
+  stepPits(run, dt)
   if (stepCrust(run, dt)) return // phase is now 'dead' (Book 3 The Magma: you stood in the lava)
 
   stepMartyr(run)         // v7.2: resolve the anomaly's queued blasts — after every hurtPlayer caller above
@@ -522,6 +525,11 @@ function applyAnomalyOnTake(run, id) {
     p.damageMul *= OVERLOAD_DMG_MUL
   } else if (id === 'ipecac') {
     p.fireRateMul *= IPECAC_FIRE_MUL
+  } else if (id === 'sundown') {
+    run.mods.enemySpeedMul *= SUNDOWN_SPEED_MUL
+    if (run._endlessBase) run._endlessBase.enemySpeedMul *= SUNDOWN_SPEED_MUL   // stepEndless recomputes from it
+    for (const e of run.enemies) e.speed *= SUNDOWN_SPEED_MUL   // speed is baked at spawn: the living quicken too
+    run.mods.xpMul *= SUNDOWN_XP_MUL
   } else if (id === 'soyMilk') {
     p.fireRateMul *= SOY_MILK_FIRE_MUL
     p.damageMul *= SOY_MILK_DMG_MUL
@@ -10016,6 +10024,7 @@ function applyDamage(run, enemy, baseDmg, critBonus = 0) {
   const slickFeedMul = (enemy.oiled || 0) > 0 ? run.passives.slickFeed : 0
   let dmg = baseDmg * p.damageMul * (1 + run.passives.damage) * (1 + slickFeedMul) * run.mods.playerDmgMul * anomalyDamageMul(run)
     * (run.rampageT > 0 ? RAMPAGE_DMG_MUL : 1)   // v5.14, read-time only (see config)
+    * deepRootsMul(run, enemy)
     // v7.55 §5.3 owner ruling: Humidity only. run.chargeMax (Task 9 fix round): Deep Lungs' own
     // ceiling, not the config max — see resourceDamageMul's own note.
     * resourceDamageMul(run.charge, CHAPTERS[run.chapter].resource, run.chargeMax)
@@ -10257,7 +10266,8 @@ const WEAPON_STAT_MODS = {
   // divides the interval at its own fire site, like every other rate mod.
   shovel:      { ironEdge: ['dmg', 'pct'], longHandle: ['radius', 'pct'], wideScoop: ['arc', 'pct'] },
   pebbleSling: { flint: ['dmg', 'pct'], handful: ['count', 'flat'], sharpStone: ['pierce', 'flat'] },
-  rootSnare:   { thorns: ['dmg', 'pct'], spreading: ['r', 'pct'], deepRoots: ['duration', 'pct'] },
+  rootSnare:   { thorns: ['dmg', 'pct'], spreading: ['r', 'pct'] },
+  furrow:      { deepCut: ['dmg', 'pct'], widePits: ['r', 'pct'], longFurrow: ['length', 'pct'] },
   prismShard:  { keenFacet: ['dmg', 'pct'], shardSpray: ['count', 'flat'], cleave: ['pierce', 'flat'] },
   echoPulse:   { loudClick: ['dmg', 'pct'], farCall: ['radius', 'pct'], rebound: ['knockback', 'pct'] },
   stalactite:  { heavyStone: ['dmg', 'pct'], rockfall: ['count', 'flat'], wideCrash: ['r', 'pct'] },
@@ -10561,6 +10571,7 @@ function stepWeaponsInner(run, dt) {
     else if (w.id === 'shovel') stepShovelWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'pebbleSling') stepPebbleWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'rootSnare') stepRootSnareWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'furrow') stepFurrowWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'prismShard') stepPrismWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'echoPulse') stepEchoWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'stalactite') stepStalactiteWeapon(run, w, stats, fireRateMul, dt)
@@ -12124,6 +12135,12 @@ function pickBloomSpots(run, n, castRange, nearest = false) {
 // Player-scaled but dot-flagged damage (no crit, no white flash, no element application) — a
 // bloom tick reads as a poison DoT, not a bright weapon hit, while still benefiting from the
 // player's damage passives/shop like every other weapon.
+// DEEP ROOTS (Root Snare's mod): a body the roots are holding (e.rootUntil, stepSnares) takes more
+// from everything you deal, the roots' own ticks included.
+function deepRootsMul(run, enemy) {
+  const m = run.weaponMods.rootSnare?.deepRoots
+  return m && (enemy.rootUntil ?? 0) > run.time ? 1 + m : 1
+}
 function applyDotDamage(run, enemy, baseDmg) {
   const p = run.player
   // SLICK FEED: same conditional bonus as applyDamage, and for the same reason a bilge weapon's
@@ -12132,6 +12149,7 @@ function applyDotDamage(run, enemy, baseDmg) {
   const dmg = baseDmg * p.damageMul * (1 + run.passives.damage) * (1 + slickFeedMul) * run.mods.playerDmgMul * anomalyDamageMul(run)
     // v7.55 §5.3 owner ruling: Humidity only. run.chargeMax (Task 9 fix round), not the config max.
     * resourceDamageMul(run.charge, CHAPTERS[run.chapter].resource, run.chargeMax)
+    * deepRootsMul(run, enemy)
   dealDamage(run, enemy, dmg, false, true)
   return dmg
 }
@@ -16300,20 +16318,22 @@ function stepTunnels(run, dt) {
         e._tun = 'up'; e._tunT = 0
         e.burrowed = false
         e.x = e.quakeX; e.y = e.quakeY
-        const reach = M.eruptR + PLAYER.radius * 0.5
+        const blast = run.mods.moleBlastMul ?? 1   // Soft Ground
+        const reach = M.eruptR * blast + PLAYER.radius * 0.5
         const hit = Math.hypot(p.x - e.x, p.y - e.y) <= reach && p.invuln <= 0
-        run.events.push({ type: 'moleErupt', x: e.x, y: e.y, r: M.eruptR, hit })
-        if (hit && hurtPlayer(run, e.dmg * M.eruptDmgMul, false, 'mole')) died = true
+        run.events.push({ type: 'moleErupt', x: e.x, y: e.y, r: M.eruptR * blast, hit })
+        if (hit && hurtPlayer(run, e.dmg * M.eruptDmgMul * blast, false, 'mole')) died = true
         // The tunnel caves in behind it, newest end first, back along the last `span` px.
         if (C) {
           let acc = 0, k2 = 0
-          run.caveIns.push({ x: e.x, y: e.y, at: run.time + C.delay, r: C.crater })
+          const big = run.mods.pitSizeMul ?? 1   // Soft Ground
+          run.caveIns.push({ x: e.x, y: e.y, at: run.time + C.delay, r: C.crater * big })
           for (let i = e.tunnel.length - 1; i > 0 && acc <= C.span; i--) {
             const a = e.tunnel[i], b = e.tunnel[i - 1]
             acc += Math.hypot(a.x - b.x, a.y - b.y)
             if (Math.hypot(a.x - e.x, a.y - e.y) < C.crater) continue
             k2++
-            run.caveIns.push({ x: a.x, y: a.y, at: run.time + C.delay + k2 * C.stagger, r: C.r })
+            run.caveIns.push({ x: a.x, y: a.y, at: run.time + C.delay + k2 * C.stagger, r: C.r * big })
           }
         }
         e.tunnel = []
@@ -16326,28 +16346,55 @@ function stepTunnels(run, dt) {
     }
   }
 
-  // 3. Cave-ins come due and open into pits.
+  return died
+}
+
+// THE PITS. A cave-in comes due and opens into a pit, which opens, takes what walks in, and fills
+// back in. Two authors: a mole's tunnel (signature caveIns: a pit SWALLOWS any ordinary body) and
+// the Furrow (src 'furrow': a pit HITS each body once for its dmg). Runs in every chapter, because
+// The Blank's pool holds the Furrow. pt.hit is a plain object of enemy ids so a saved run survives JSON.
+function stepPits(run, dt) {
+  const C = tunnelSpec(run)?.caveIns
   if (run.caveIns.length > 0) {
     for (const c of run.caveIns) {
       if (run.time < c.at) continue
       c._done = true
-      if (!C) continue
-      run.pits.push({ x: c.x, y: c.y, maxR: c.r, r: 0, age: 0, life: C.life })
+      if (c.src === 'furrow') {
+        run.pits.push({ x: c.x, y: c.y, maxR: c.r, r: 0, age: 0, life: FURROW_PIT_LIFE, open: FURROW_PIT_OPEN, fill: FURROW_PIT_FILL, src: 'furrow', dmg: c.dmg, hit: {} })
+      } else if (C) {
+        run.pits.push({ x: c.x, y: c.y, maxR: c.r, r: 0, age: 0, life: C.life })
+      } else continue
       run.events.push({ type: 'caveIn', x: c.x, y: c.y, r: c.r })
     }
     run.caveIns = run.caveIns.filter((c) => !c._done)
-    if (C && run.pits.length > C.max) run.pits.splice(0, run.pits.length - C.max)
+    // Each author has its own cap and loses its own oldest pits: a Furrow under IPECAC digs three
+    // lanes, and must never push a mole's pit out (nor its own before they open).
+    const fMax = FURROW_PIT_MAX * (run.anomalies?.ipecac ? 3 : 1), mMax = C ? C.max : 0
+    let nf = 0, nm = 0
+    for (const pt of run.pits) if (pt.src === 'furrow') nf++; else nm++
+    if (nf > fMax || nm > mMax) {
+      run.pits = run.pits.filter((pt) => pt.src === 'furrow' ? nf-- <= fMax : nm-- <= mMax)
+    }
   }
-
-  // 4. Pits: open, swallow, fill back in.
-  if (run.pits.length > 0) {
-    for (const pt of run.pits) {
-      pt.age += dt
-      const open = C ? C.open : 0.35, fill = C ? C.fill : 1.5
-      const grow = Math.min(1, pt.age / open)
-      const shut = Math.max(0, Math.min(1, (pt.life - pt.age) / fill))
-      pt.r = pt.maxR * Math.min(grow, shut)
-      if (pt.age < open * 0.5 || pt.age > pt.life - fill) continue
+  if (run.pits.length === 0) return
+  for (const pt of run.pits) {
+    pt.age += dt
+    const open = pt.open ?? (C ? C.open : 0.35), fill = pt.fill ?? (C ? C.fill : 1.5)
+    const grow = Math.min(1, pt.age / open)
+    const shut = Math.max(0, Math.min(1, (pt.life - pt.age) / fill))
+    pt.r = pt.maxR * Math.min(grow, shut)
+    if (pt.age < open * 0.5 || pt.age > pt.life - fill) continue
+    if (pt.src === 'furrow') {
+      for (const e of enemiesNear(run, pt.x, pt.y, pt.r + 30)) {
+        if (e._dead || e.burrowed || isAlly(e) || pt.hit[e.id]) continue
+        if (Math.hypot(e.x - pt.x, e.y - pt.y) > pt.r + e.radius * 0.5) continue
+        pt.hit[e.id] = 1
+        applyDamage(run, e, pt.dmg)
+        if (e._dead) run.events.push({ type: 'pitFall', x: e.x, y: e.y, r: e.radius, rosterId: e.rosterId })
+      }
+      continue
+    }
+    {
       for (const e of enemiesNear(run, pt.x, pt.y, pt.r + 30)) {
         // Elites are too big to go down, and a mole lives down there.
         if (e._dead || e.burrowed || e.elite || isAlly(e) || (e.flags && e.flags.includes('tunnel'))) continue
@@ -16356,9 +16403,8 @@ function stepTunnels(run, dt) {
         dealDamage(run, e, e.hp + e.maxHP, false, false, true)   // hazard: the ground did it
       }
     }
-    run.pits = run.pits.filter((pt) => pt.age < pt.life)
   }
-  return died
+  run.pits = run.pits.filter((pt) => pt.age < pt.life)
 }
 
 // THE CRYSTALS (The Geode's signature). A player shot meeting a crystal pillar either bounces
@@ -16490,6 +16536,40 @@ function stepRootSnareWeapon(run, w, stats, fireRateMul, dt) {
       run.snares.push({ x: sp.x, y: sp.y, r: stats.r, dmg: stats.dmg, dur: stats.duration, t: 0, tick: 0 })
       run.events.push({ type: 'rootSnare', x: sp.x, y: sp.y, r: stats.r })
     }
+  })
+}
+// -- Furrow (Topsoil) ---------------------------------------------------------------------------
+// The furrow is your own path: a point every FURROW_STEP px. Each cast caves the last `length` px of
+// it in (nearest you first, never under you). A cast with no new step since the last one digs
+// nothing, so standing still digs nothing; walking on, the same ground can cave in again.
+function stepFurrowWeapon(run, w, stats, fireRateMul, dt) {
+  const p = run.player
+  const tr = (run._furrow ??= [])
+  const last = tr[tr.length - 1]
+  if (last && Math.hypot(p.x - last.x, p.y - last.y) > FURROW_STEP * 4) tr.length = 0   // a jump, not a walk
+  if (!tr.length || Math.hypot(p.x - tr[tr.length - 1].x, p.y - tr[tr.length - 1].y) >= FURROW_STEP) {
+    tr.push({ x: p.x, y: p.y })
+    if (tr.length > FURROW_KEEP) tr.shift()
+    run._furrowNew = (run._furrowNew ?? 0) + 1
+  }
+  const quick = run.weaponMods.furrow?.quickCollapse ?? 0
+  fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => {
+    if (!run._furrowNew) return
+    run._furrowNew = 0
+    const clear = PLAYER.radius + stats.r
+    const lanes = run.anomalies?.ipecac ? [-1, 0, 1] : [0]   // IPECAC: three furrows side by side
+    let acc = 0, k = 0
+    for (let i = tr.length - 1; i > 0 && acc <= stats.length; i--) {
+      const a = tr[i - 1], dx = tr[i].x - a.x, dy = tr[i].y - a.y, d = Math.hypot(dx, dy) || 1
+      acc += d
+      if (Math.hypot(a.x - p.x, a.y - p.y) < clear) continue
+      const at = run.time + FURROW_DELAY + k++ * FURROW_STAGGER
+      for (const l of lanes) {
+        const off = l * stats.r * 2.2
+        run.caveIns.push({ x: a.x - (dy / d) * off, y: a.y + (dx / d) * off, at, r: stats.r, dmg: stats.dmg, src: 'furrow' })
+      }
+    }
+    if (k) run.events.push({ type: 'shoot', weapon: 'furrow', x: p.x, y: p.y })
   })
 }
 function stepSnares(run, dt) {
