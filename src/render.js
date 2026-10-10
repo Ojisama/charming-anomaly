@@ -12325,8 +12325,8 @@ export function createRenderer(app) {
   // full-screen fade below (and the ceremony's) cost a whole screen of blending on every frame of
   // every chapter while showing nothing: measured, the Coil's frame went over budget on top of them.
   // Just before each draw, a fade at 0 is left out. `renderable`, not `visible`: nothing else here
-  // writes it, so this can never fight code that hides a layer on purpose.
-  const skipClear = (list) => R.runners.prerender.add({ prerender() { for (const o of list) o.renderable = o.alpha > 0 } })
+  // writes it except setAscii, which hides a layer for a whole chapter and marks it _asciiHidden.
+  const skipClear = (list) => R.runners.prerender.add({ prerender() { for (const o of list) o.renderable = o.alpha > 0 && !o._asciiHidden } })
   skipClear([waterWash, oilStain, inkStain, lightningFlash, vignette, deathFlat, deathIris])
   // The Kraken's ceremony: screen-space and ABOVE everything, the death dark included, because the
   // name card and the kill banner are the only things on screen at those moments that must be read.
@@ -13081,14 +13081,14 @@ const spurG = new Graphics()
     floor: [floorLayer], dust: [dustLayer], gems: [gemLayer], coins: [coinLayer], bullets: [bulletLayer],
     player: [playerC], particles: [particleLayer], novas: [novaLayer], shadows: [enemyShadowLayer, macroShadowLayer],
     crowns: [enemyCrownLayer], enemies: [enemyLayer], text: [textLayer], telegraphs: [teleG, bombG, pacerG],
-    affixes: [affixLayer, shieldG], obstacles: [obstacleLayer],
+    affixes: [affixLayer, shieldG], obstacles: [obstacleLayer], vignette: [vignette],
   }
   let asciiR = null       // the module's renderer, created the first time an ascii chapter starts
   let asciiOn = false
   let asciiHidden = []
   function setAscii(run) {
     const look = run ? CHAPTERS[run.chapter]?.render?.ascii : null
-    for (const o of asciiHidden) o.renderable = true
+    for (const o of asciiHidden) { o.renderable = true; o._asciiHidden = false }
     asciiHidden = []
     if (!look) {
       if (asciiOn && asciiR) asciiR.exit()
@@ -13102,7 +13102,7 @@ const spurG = new Graphics()
     }
     asciiOn = true
     asciiUnder.visible = asciiOver.visible = asciiScreen.visible = true
-    for (const name of asciiR.hide ?? []) for (const o of ASCII_HIDEABLE[name] ?? []) { o.renderable = false; asciiHidden.push(o) }
+    for (const name of asciiR.hide ?? []) for (const o of ASCII_HIDEABLE[name] ?? []) { o.renderable = false; o._asciiHidden = true; asciiHidden.push(o) }
     asciiR.enter(run, look)
     const f = asciiR.filters?.()
     if (f && f.length) { app.stage.filterArea = app.screen; app.stage.filters = f }

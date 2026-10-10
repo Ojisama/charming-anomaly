@@ -20845,6 +20845,7 @@ run(testLeLargeWeapons)
   run(testParkedRun)
   run(testBurrow)
   run(testMine)
+  run(testMineGlyphTells)
   // A hand-typed filter that matched nothing is the silent pass without a parent watching:
   // `node test/sim-test.js supernova` printed ALL TESTS PASSED having run no scenario at all.
   if (_ran === 0 && !EXACT_SET) {
@@ -38890,6 +38891,42 @@ function testBurrow() {
   assert.ok(!unlockBook(player, 'burrow') && !player.chapters?.topsoil?.unlocked, 'run BU3.d: a non-dev save opened Burrow')
   assert.ok(titleBookshelf(meta()).some((sh) => sh.book === 'burrow'), 'run BU3.d: a dev save does not shelve Burrow')
   console.log(`PASS run BU3 (Burrow): moles under ${under} frames, 0 hp lost under, mole dmg ${run.dmgBySrc.mole}; unarmed pit kills ${kOn} vs ${kOff} off; a crystal bounced ${on.bounced}x into ${on.bullets.length} shots, stopped it with bounce off`)
+}
+
+// ---- run MG: Book 3, The Mine — the glyph tells (source text: render.js and ascii.js are not importable)
+// The mine hides render.js's enemy pool, damage text, telegraphs, affix badges and red vignette
+// (ascii.js `hide`), so every tell those layers carried must be re-drawn by ascii.js or it is gone:
+// (a) every status contract field render.js's tint chain reads is read by ascii.js's statusLook;
+// (b) the vignette is hidden through a key render.js knows, and skipClear does not un-hide it;
+// (c) ascii.js consumes 'hit' (damage numbers), 'hurt' (the edge flare) and 'explode' events, and
+//     draws run.bombs (the corpse-bomb warning) and the shield/pacer affixes;
+// (d) every mine roster id is drawn by ascii.js and is the mine's own (no id shared with a chapter
+//     whose look is a bake — the reason the mine's rat is `mineRat`).
+function testMineGlyphTells() {
+  const strip = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"])\/\/.*$/gm, '$1')
+  const rjs = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
+  const ajs = strip(readFileSync(new URL('../src/ascii.js', import.meta.url), 'utf8'))
+  const i0 = rjs.indexOf('Elemental status (contract fields')
+  assert.ok(i0 > 0, 'run MG: render.js status block not found')
+  const block = rjs.slice(i0, rjs.indexOf('cheap status particles', i0))
+  const fields = [...block.matchAll(/const \w+ = e\.(\w+) \|\| 0/g)].map((m) => m[1])
+  assert.ok(fields.length >= 7 && fields.includes('frozen') && fields.includes('stunT'), `run MG: status fields not parsed (${fields})`)
+  const sl = ajs.slice(ajs.indexOf('function statusLook'), ajs.indexOf('const AFFIX_GLYPH'))
+  for (const f of fields) assert.ok(sl.includes(`e.${f}`), `run MG.a: ascii.js statusLook never reads e.${f} — that status has no tell in the mine`)
+  const hide = (ajs.match(/hide: \[([^\]]*)\]/) ?? [])[1] ?? ''
+  assert.ok(/'vignette'/.test(hide), "run MG.b: ascii.js does not hide 'vignette' — render.js's red fill shows over the glyphs")
+  assert.ok(/ASCII_HIDEABLE = \{[\s\S]*?vignette: \[vignette\]/.test(rjs), 'run MG.b: ASCII_HIDEABLE has no vignette key')
+  assert.ok(/o\.renderable = o\.alpha > 0 && !o\._asciiHidden/.test(rjs), 'run MG.b: skipClear re-shows a layer the mine hid')
+  for (const ev of ['hit', 'hurt', 'explode']) assert.ok(ajs.includes(`case '${ev}'`), `run MG.c: ascii.js does not handle '${ev}'`)
+  for (const s of ['run.bombs', "'shielded'", "'pacer'"]) assert.ok(ajs.includes(s), `run MG.c: ascii.js never draws ${s}`)
+  const castSrc = ajs.slice(ajs.indexOf('const CAST = {'), ajs.indexOf('const PLAYER_LOOK'))
+  const ids = CHAPTERS.mine.roster.map((r) => r.id)
+  for (const id of ids) {
+    assert.ok(new RegExp(`^\\s+${id}: \\{`, 'm').test(castSrc), `run MG.d: ascii.js CAST has no ${id}`)
+    const other = Object.keys(CHAPTERS).filter((c) => c !== 'mine' && (CHAPTERS[c].roster ?? []).some((r) => r.id === id))
+    assert.deepStrictEqual(other, [], `run MG.d: roster id '${id}' is shared with ${other} — the mine's glyph look and their bake cannot both own it`)
+  }
+  console.log(`PASS run MG (the mine's glyph tells): ${fields.length} status fields (${fields.join(',')}) read by statusLook, vignette hidden, hit/hurt/explode handled, ${ids.length} roster ids (${ids.join(',')}) drawn and owned`)
 }
 
 // ---- run MI: Book 3, The Mine — firedamp ------------------------------------------------------------

@@ -28,6 +28,7 @@
 // ('-' '\' '|' '/') so a leg is drawn the way an ASCII artist would draw it. Light on the floor is
 // character density and warmth, never a fill. Darkness is black.
 import { CanvasSource, Container, Rectangle, Sprite, Texture } from 'pixi.js'
+import { PACER_RADIUS, SHIELD_HP_FRAC } from './config.js'
 
 // ---- glyph atlas -------------------------------------------------------------------------------
 // One canvas, one texture source: every glyph sprite in the mine batches into the same draw call.
@@ -403,6 +404,25 @@ const GOLEM_CRACKS = [
   [[8, 6, '\\'], [10, 10, '\''], [7, 14, ','], [3, 16, '`']],
 ]
 
+// ---- statuses: render.js's "Elemental status (contract fields)" tells, re-published on the glyphs.
+// Same fields, same ranking as its tint chain (frozen > chill > venom > ignite > enrage > stun > fear);
+// `hold` freezes the creature's pose the way render.js holds a frozen or stunned sprite's animation.
+function statusLook(e, clock) {
+  if ((e.frozen || 0) > 0) return { kind: 'frozen', tint: 0x9fd8ff, k: 0.72, hold: true }
+  if ((e.chill || 0) > 0) return { kind: 'chill', tint: 0xc4e4ff, k: 0.45 }
+  if ((e.venom || 0) > 0) return { kind: 'venom', tint: mixHex(0xa8e6a0, 0x46a52f, clamp01(e.venom)), k: 0.62 }
+  if ((e.ignite || 0) > 0) return { kind: 'ignite', tint: 0xff9440, k: 0.42 + 0.22 * Math.sin(clock * 23 + (e.id ?? 0)) }
+  if ((e.enrageT || 0) > 0) return { kind: 'enrage', tint: 0xff8a5c, k: 0.5 }
+  if ((e.stunT || 0) > 0) return { kind: 'stun', tint: 0xb9b0a2, k: 0.6, hold: true }
+  if ((e.fearT || 0) > 0) return { kind: 'fear', tint: 0xcfc2ff, k: 0.5 }
+  return null
+}
+// Elite affixes, one glyph each, in a row over the crown (render.js's emoji badges are hidden here).
+const AFFIX_GLYPH = {
+  shielded: ['O', 0x6ab8ff], splitter: ['%', 0xc89aff], volatile: ['*', 0xff4a3a], pacer: ['»', 0xffb347],
+  anchored: ['‡', 0x9ab0c8], frenzied: ['!', 0xff7a3a], gilded: ['$', 0xffd24a],
+}
+
 // ---- the cast export (static bakes for render.js's pool and the title-card thumbnails) ---------
 export const ASCII_CAST = {
   mineRat: { baseR: 12 },
@@ -461,18 +481,19 @@ export function paintHazard(src) {
 }
 
 // ---- the renderer ------------------------------------------------------------------------------
-const PRE = '@%#&*+=:-.,`\'·•°~≈∿oO0Q◇◆✦$!|/\\_TvwWM▓X^<>()[]{}"' + "'"
+const PRE = '@%#&*+=:-.,`\'·•°~≈∿oO0Q◇◆✦$!|/\\_TvwWM▓X^<>()[]{}"»‡0123456789' + "'"
 export function createAsciiRenderer(host) {
-  const floorC = new Container(), gasC = new Container(), dropC = new Container(), mobC = new Container()
-  const objC = new Container(), meC = new Container(), fxC = new Container()
+  const floorC = new Container(), gasC = new Container(), warnC = new Container(), dropC = new Container(), mobC = new Container()
+  const objC = new Container(), meC = new Container(), fxC = new Container(), numC = new Container(), scrC = new Container()
   // labelled so a probe scene can show one layer at a time (background vs foreground luminance)
-  floorC.label = 'ascii-floor'; gasC.label = 'ascii-gas'; dropC.label = 'ascii-drops'; mobC.label = 'ascii-mob'
-  objC.label = 'ascii-obj'; meC.label = 'ascii-me'; fxC.label = 'ascii-fx'
-  host.under.addChild(floorC, gasC, dropC, mobC)
-  host.over.addChild(objC, meC, fxC)
-  const floor = makeBatch(floorC), gas = makeBatch(gasC), drops = makeBatch(dropC), mob = makeBatch(mobC)
-  const obj = makeBatch(objC), me = makeBatch(meC), fxB = makeBatch(fxC)
-  const all = [floor, gas, drops, mob, obj, me, fxB]
+  floorC.label = 'ascii-floor'; gasC.label = 'ascii-gas'; warnC.label = 'ascii-warn'; dropC.label = 'ascii-drops'; mobC.label = 'ascii-mob'
+  objC.label = 'ascii-obj'; meC.label = 'ascii-me'; fxC.label = 'ascii-fx'; numC.label = 'ascii-num'; scrC.label = 'ascii-screen'
+  host.under.addChild(floorC, gasC, warnC, dropC, mobC)
+  host.over.addChild(objC, meC, fxC, numC)
+  host.screen.addChild(scrC)
+  const floor = makeBatch(floorC), gas = makeBatch(gasC), warn = makeBatch(warnC), drops = makeBatch(dropC), mob = makeBatch(mobC)
+  const obj = makeBatch(objC), me = makeBatch(meC), fxB = makeBatch(fxC), numB = makeBatch(numC), scr = makeBatch(scrC)
+  const all = [floor, gas, warn, drops, mob, obj, me, fxB, numB, scr]
   for (const ch of PRE) { glyphTex(ch, 0); glyphTex(ch, 1); glyphTex(ch, 2); glyphTex(ch, 0, true) }
   let clock = 0
   let frame = 0
@@ -482,7 +503,12 @@ export function createAsciiRenderer(host) {
   const fx = []
   const MAX_FX = 1400
   const spawn = (p) => { if (fx.length < MAX_FX) fx.push({ t: 0, vx: 0, vy: 0, rot: 0, vr: 0, add: false, a0: 1, font: 0, glow: false, grav: 0, ...p }) }
-  const clearAll = () => { fx.length = 0; mem.clear(); for (const b of all) b.clear() }
+  // damage numbers: small dim digits, the floor's own thin serif, gone in half a second
+  const nums = []
+  const MAX_NUMS = 90
+  // the hurt tell: red glyphs flaring in from the screen edge (hurtT counts down from hurt0)
+  let hurtT = 0, hurt0 = 1, hurtK = 0
+  const clearAll = () => { fx.length = 0; nums.length = 0; hurtT = 0; mem.clear(); for (const b of all) b.clear() }
   let bgSaved = null
 
   function scatter(m) {
@@ -513,7 +539,7 @@ export function createAsciiRenderer(host) {
   }
 
   return {
-    hide: ['floor', 'dust', 'gems', 'coins', 'bullets', 'novas', 'player', 'particles', 'shadows', 'crowns', 'enemies', 'text', 'telegraphs', 'affixes', 'obstacles'],
+    hide: ['floor', 'dust', 'gems', 'coins', 'bullets', 'novas', 'player', 'particles', 'shadows', 'crowns', 'enemies', 'text', 'telegraphs', 'affixes', 'obstacles', 'vignette'],
     enter() { clearAll() },
     exit() {
       clearAll()
@@ -521,8 +547,40 @@ export function createAsciiRenderer(host) {
       bgSaved = null
     },
     filters() { return null },
-    event(e) {
+    // 'hit' and 'hurt' return false: render.js still shakes the camera for them, and everything it
+    // would DRAW for them (the text layer, the red vignette) is hidden above.
+    event(e, run) {
       switch (e.type) {
+        case 'hit': {
+          if (!(e.dmg > 0)) return false
+          if (nums.length >= MAX_NUMS) nums.shift()
+          nums.push({ s: String(Math.round(e.dmg)), x: e.x + (Math.random() - 0.5) * 10, y: e.y - 8, t: 0, crit: !!e.crit, dot: !!e.dot })
+          return false
+        }
+        case 'hurt': {
+          const p = run?.player
+          const k = e.src === 'overload' ? 0.2 : 0.45 + 0.55 * Math.min(1, ((e.dmg ?? 0) / Math.max(1, p?.maxHP ?? 100)) * 5)
+          if (k >= hurtK * (hurtT / hurt0)) { hurt0 = 0.2 + 0.35 * k; hurtT = hurt0; hurtK = k }
+          if (p && e.src !== 'overload') {
+            // a spray of red chips off the miner
+            for (let i = 0; i < 10; i++) {
+              const a = (i / 10) * TAU + Math.random() * 0.5, sp = 90 + Math.random() * 70
+              spawn({ ch: i % 3 ? '*' : '+', x: p.x + Math.cos(a) * 10, y: p.y + Math.sin(a) * 10, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+                life: 0.3 + 0.12 * k, c0: 0xff5a40, c1: 0x6a0806, size: 9 + 4 * k, add: true, rot: a, a0: 0.95 })
+            }
+          }
+          return false
+        }
+        case 'explode': {
+          // a corpse bomb going off: a ring of '*' '+' racing out to its reach, and the grit after it
+          const r = e.radius ?? 100
+          for (let i = 0; i < 28; i++) {
+            const a = (i / 28) * TAU
+            spawn({ ch: i % 2 ? '*' : '+', x: e.x, y: e.y, vx: Math.cos(a) * r * 4.2, vy: Math.sin(a) * r * 4.2, life: 0.4, c0: 0xfff0c0, c1: 0xff3a10, size: 12, add: true, rot: a })
+          }
+          boomBurst(e.x, e.y, r, true)
+          return false
+        }
         case 'gasBlast': boomBurst(e.x, e.y, e.r, false); return true
         case 'dynamite': boomBurst(e.x, e.y, e.r, true); return true
         case 'pickaxe': {
@@ -716,6 +774,7 @@ export function createAsciiRenderer(host) {
         mob.put(ch, x, y, col, al, size, rot, add, font, glow)
       }
       const AIM_T = 0.6
+      const marks = []   // elites / affixed bodies on screen: their affix tells are drawn after the crowd
       for (const e of run.enemies ?? []) {
         if (e._dead) continue
         const id = CAST[e.rosterId] ? e.rosterId : null
@@ -734,10 +793,14 @@ export function createAsciiRenderer(host) {
           if (e._pounceDirX != null) want = Math.atan2(e._pounceDirY, e._pounceDirX)
           if (pose === 'aim') aimK = clamp01(1 - (e._pounceT ?? 0) / AIM_T)
         }
+        const stat = statusLook(e, clock)
+        const hold = !!stat?.hold
         let dA = ((want - m.heading + Math.PI) % TAU + TAU) % TAU - Math.PI
         const turn = pose === 'aim' ? 14 : id === 'golem' ? 3 : 7
-        if (dt > 0) m.heading += dA * Math.min(1, dt * turn)
-        m.phase += mv / (id === 'golem' ? 14 : id === 'kobold' ? 8 : 5) * 1.2
+        if (dt > 0 && !hold) m.heading += dA * Math.min(1, dt * turn)
+        if (!hold) m.phase += mv / (id === 'golem' ? 14 : id === 'kobold' ? 8 : 5) * 1.2
+        // a held pose keeps the clock it was caught at (a frozen tail stops mid-swish)
+        if (hold) { if (m.tHold == null) m.tHold = clock + (m.phase % 7) } else m.tHold = null
         m.x = e.x; m.y = e.y; m.sc = sc; m.elite = !!e.elite; m.seen = frame
         // the lamp, seen from the body
         const dx = p.x - e.x, dy = p.y - e.y, d = Math.hypot(dx, dy) || 1
@@ -748,6 +811,25 @@ export function createAsciiRenderer(host) {
         const flash = (e.hitFlash ?? 0) > 0 ? clamp01(e.hitFlash / 0.12) * 0.85 : 0
         let X = e.x, Y = e.y
         if (pose === 'aim') { X += (Math.random() - 0.5) * 1.6 * aimK; Y += (Math.random() - 0.5) * 1.6 * aimK }
+        // trembling: fear, and the Burrow's quake (quakeT), harder as the moment comes
+        if (stat?.kind === 'fear') { X += Math.sin(clock * 61 + m.phase) * 1.3; Y += Math.cos(clock * 53 + m.phase) * 1.3 }
+        if ((e.quakeT || 0) > 0) {
+          const qk = 1.5 + 3.5 * (1 - Math.min(1, e.quakeT / 1.2))
+          X += Math.sin(clock * 71 + m.phase) * qk; Y += Math.cos(clock * 83 + m.phase) * qk
+        }
+        const R = CAST[id].baseR * sc
+        if (stat && dt > 0) {
+          // the status's own glyph particles, on a per-creature clock
+          m.sT = (m.sT ?? 0) + dt
+          const every = { frozen: 0.32, chill: 0.6, venom: 0.22, ignite: 0.07 }[stat.kind]
+          while (every && m.sT >= every) {
+            m.sT -= every
+            const ox = (Math.random() - 0.5) * R * 1.4, oy = (Math.random() - 0.5) * R * 1.2
+            if (stat.kind === 'frozen' || stat.kind === 'chill') spawn({ ch: Math.random() < 0.5 ? '*' : '+', x: X + ox, y: Y + oy, vy: -14, life: 0.7, c0: 0xf0fbff, c1: 0x4a8ac0, size: stat.kind === 'frozen' ? 9 : 7, add: true, a0: stat.kind === 'frozen' ? 0.95 : 0.6, rot: Math.random() })
+            else if (stat.kind === 'venom') spawn({ ch: Math.random() < 0.5 ? ',' : '.', x: X + ox, y: Y + oy, vy: 12, grav: 70, life: 0.6, c0: 0xb8f890, c1: 0x1e4a12, size: 10, a0: 0.9 })
+            else spawn({ ch: ['\'', '^', '`'][Math.floor(Math.random() * 3)], x: X + ox, y: Y + oy, vx: (Math.random() - 0.5) * 20, vy: -45 - Math.random() * 30, life: 0.4, c0: 0xfff0a0, c1: 0xff3a08, size: 9, add: true, a0: 0.95 })
+          }
+        } else m.sT = 0
         // the pounce, telegraphed in characters: a dotted line of '·' and '›' to a '×' where it lands
         if (pose === 'aim' && e._pounceDirX != null) {
           const L = 188, nDots = 14
@@ -767,9 +849,76 @@ export function createAsciiRenderer(host) {
             if (last || chev) mob.put(ch, e.x + ux * L * f, e.y + uy * L * f, 0xff2a1a, al * 0.6, sz * 1.6, Math.atan2(uy, ux), true, 0, true)
           }
         }
-        composeCreature(out, id, X, Y, m.heading, sc, lx, ly, reach, flash, { phase: m.phase, t: clock + (m.phase % 7), pose, aimK }, !!e.elite)
+        // a status tints every glyph of the body toward its colour (a hit flash still wins: white)
+        const sout = stat && !flash ? (ch, x, y, col, al, size, rot, add, font, glow) => out(ch, x, y, mixHex(col, stat.tint, stat.k), al, size, rot, add, font, glow) : out
+        composeCreature(sout, id, X, Y, m.heading, sc, lx, ly, reach, flash, { phase: m.phase, t: hold ? m.tHold : clock + (m.phase % 7), pose, aimK }, !!e.elite)
+        if (stat?.kind === 'stun') {
+          // stunned: three little stars wheeling over its head
+          for (let i = 0; i < 3; i++) {
+            const a = clock * 5 + i * TAU / 3
+            out('*', X + Math.cos(a) * R * 0.55, Y - R * 0.95 + Math.sin(a) * R * 0.18, 0xfff0a0, 0.95, 10, a, true, 0, false)
+          }
+        }
+        if (e.elite || (e.affixes && e.affixes.length)) marks.push({ e, X, Y, R })
       }
       for (const [k, m] of mem) if (frame - m.seen > 30 || m.dead) mem.delete(k)
+
+      // ---- elite affixes, in characters (render.js's badges, shield bubble and pacer ring are hidden) ----
+      warn.begin()
+      for (const { e, X, Y, R } of marks) {
+        const aff = e.affixes ?? []
+        if (aff.includes('shielded') && e.hp > e.maxHP * SHIELD_HP_FRAC) {
+          // the shield: a drawn circle of '|' '/' '-' '\' strokes hugging the body, breathing
+          const rr = R * 1.08 * (1 + 0.04 * Math.sin(clock * 5 + (e.id ?? 0)))
+          const n = Math.max(14, Math.round(TAU * rr / 7))
+          for (let i = 0; i < n; i++) {
+            const a = (i / n) * TAU
+            const [ch, r] = strokeGlyph(a + Math.PI / 2)
+            mob.put(ch, X + Math.cos(a) * rr, Y + Math.sin(a) * rr, 0x8ac8ff, 0.8, 10, r, true, 2, false)
+            if (i % 3 === 0) mob.put(ch, X + Math.cos(a) * rr, Y + Math.sin(a) * rr, 0x3a8aff, 0.3, 16, r, true, 0, true)
+          }
+        }
+        if (aff.includes('pacer')) {
+          // its reach: a slow ring of faint amber dots on the floor
+          const n = Math.round(TAU * PACER_RADIUS / 16)
+          const pulse = 0.5 + 0.5 * Math.sin(clock * 1.5 + (e.id ?? 0) * 0.7)
+          for (let i = 0; i < n; i++) {
+            const a = (i / n) * TAU + clock * 0.15
+            warn.put(i % 4 ? '·' : '»', e.x + Math.cos(a) * PACER_RADIUS, e.y + Math.sin(a) * PACER_RADIUS, 0xffb347, 0.45 + 0.25 * pulse, i % 4 ? 9 : 10, a + Math.PI / 2, true, 0, false)
+          }
+        }
+        // the badges: one glyph per affix in a row over the crown
+        const shown = aff.filter((a) => AFFIX_GLYPH[a])
+        const by = Y - R * 0.9 - 36
+        for (let i = 0; i < shown.length; i++) {
+          const [ch, col] = AFFIX_GLYPH[shown[i]]
+          const bx = X + (i - (shown.length - 1) / 2) * 14
+          mob.put(ch, bx, by, col, 0.45, 20, 0, true, 0, true)
+          mob.put(ch, bx, by, mixHex(col, 0xffffff, 0.35), 1, 14, 0, false, 2, false)
+        }
+      }
+      // corpse bombs (volatile elites, Unstable Cores): a red circle drawn in strokes at the blast's
+      // real reach, filling with sparks as the fuse burns down, a '!' swelling at its heart
+      for (const b of run.bombs ?? []) {
+        if (b.x < view.left - b.radius || b.x > view.right + b.radius || b.y < view.top - b.radius || b.y > view.bottom + b.radius) continue
+        const u = b.duration > 0 ? clamp01(1 - b.fuse / b.duration) : 1
+        const pulse = 0.5 + 0.5 * Math.sin(clock * (5 + u * 16))
+        const n = Math.max(16, Math.round(TAU * b.radius / 9))
+        for (let i = 0; i < n; i++) {
+          const a = (i / n) * TAU
+          const [ch, r] = strokeGlyph(a + Math.PI / 2)
+          warn.put(ch, b.x + Math.cos(a) * b.radius, b.y + Math.sin(a) * b.radius, mixHex(0xff7a6a, 0xff2a1a, u), 0.45 + 0.4 * u + 0.12 * pulse, 11, r, true, 2, false)
+        }
+        const seed = Math.round(b.x * 7 + b.y * 13)
+        const fill = Math.round(10 + 50 * u)
+        for (let i = 0; i < fill; i++) {
+          const rr = b.radius * 0.92 * Math.sqrt(hash2(seed, i, 1)), a = hash2(seed, i, 2) * TAU
+          warn.put(hash2(seed, i, 3) < 0.5 ? '·' : ':', b.x + Math.cos(a) * rr, b.y + Math.sin(a) * rr, 0xff5a40, (0.18 + 0.3 * u) * (0.6 + 0.4 * pulse), 9, 0, true, 1, false)
+        }
+        warn.put('!', b.x, b.y, 0xffe0c0, 0.7 + 0.3 * pulse, 16 + 14 * u, 0, true, 2, false)
+        warn.put('!', b.x, b.y, 0xff3020, 0.5 * (0.5 + pulse), 28 + 18 * u, 0, true, 0, true)
+      }
+      warn.end()
       mob.end()
 
       // ---- the Mine's weapons ----
@@ -986,6 +1135,47 @@ export function createAsciiRenderer(host) {
         if (k < 0.3) { fxB.put('*', b.x, b.y, 0xfff8e0, 0.9 * (1 - k / 0.3), 30, k * 3, true, 0, false); fxB.put('*', b.x, b.y, 0xffc060, 0.35 * (1 - k / 0.3), 40, k * 3, true, 0, true) }
       }
       fxB.end()
+
+      // ---- damage numbers: small, dim like the floor, quick to go ----
+      if (dt > 0) {
+        let w = 0
+        for (const q of nums) { q.t += dt; if (q.t < 0.5) nums[w++] = q }
+        nums.length = w
+      }
+      numB.begin()
+      for (const q of nums) {
+        const k = q.t / 0.5
+        const size = q.crit ? 15 : q.dot ? 9 : 12
+        const al = (q.crit ? 0.85 : q.dot ? 0.4 : 0.7) * (1 - k * k)
+        const col = q.crit ? 0xd0b078 : 0xaa9c86
+        const y = q.y - 14 * Math.sqrt(k)
+        const adv = size * 0.62
+        const x0 = q.x - (q.s.length - 1) * adv / 2
+        for (let i = 0; i < q.s.length; i++) numB.put(q.s[i], x0 + i * adv, y, col, al, size, 0, false, 1, false)
+      }
+      numB.end()
+
+      // ---- hurt: red glyphs flaring in from the edge of the screen, never a fill ----
+      scr.begin()
+      if (hurtT > 0) {
+        if (dt > 0) hurtT = Math.max(0, hurtT - dt)
+        const f = hurtK * Math.pow(hurtT / hurt0, 0.7)
+        const SC = 15, D = 4
+        const nx = Math.ceil(view.w / SC), ny = Math.ceil(view.h / SC)
+        const flick = Math.floor(clock * 24)
+        const HURT_CH = ['#', '%', '*', '+', ':', '.']
+        const cell = (i, j, depth) => {
+          const h = hash2(i, j, flick)
+          const dens = f * (1 - depth / D) * 1.25
+          if (h > dens) return
+          const ch = HURT_CH[Math.min(HURT_CH.length - 1, depth + Math.floor(hash2(i, j, 77) * 2.5))]
+          const x = (i + 0.5) * SC + (hash2(i, j, flick + 1) - 0.5) * 4, y = (j + 0.5) * SC + (hash2(i, j, flick + 2) - 0.5) * 4
+          scr.put(ch, x, y, mixHex(0xff4a30, 0x8a1008, depth / D), Math.min(1, f * 1.3) * (1 - depth / (D + 0.5)), 15 - depth * 1.5, 0, true, 2, false)
+        }
+        for (let i = 0; i < nx; i++) for (let d = 0; d < D; d++) { cell(i, d, d); cell(i, ny - 1 - d, d) }
+        for (let j = D; j < ny - D; j++) for (let d = 0; d < D; d++) { cell(d, j, d); cell(nx - 1 - d, j, d) }
+      }
+      scr.end()
       if (getAtlas().dirty) { getAtlas().source.update(); getAtlas().dirty = false }
     },
   }
