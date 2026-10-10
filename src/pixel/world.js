@@ -99,21 +99,23 @@ export const BIOME = {
 }
 
 // ---- the crust ----------------------------------------------------------------------------------------
-// A crack's whole life, one sprite at a time, each stage a different KIND of mark so they never blur:
-//   fresh   a black fissure in the plate, a dull red ember at its heart   (it will open)
-//   warming the fissure fills orange from the heart out
+// A crack's whole life, one sprite at a time, each stage a different KIND of mark so they never blur,
+// and in the order of their danger:
+//   fresh   a black starburst in the plate, a red thread glowing down every arm  (it will open)
+//   warming the arms fill orange from the heart out, the heart swells
 //   hot     wide and white-hot at the heart — the tell for whoever stands on it
-//   OPEN    a flat pool of bright lava ringed by broken black crust      (it burns)
-//   cooling a black scab, darker than the floor, fading back into it
-export const CRACK_ART = 40, LAVA_ART = 40, PUDDLE_ART = 30
+//   OPEN    a flat pool of bright lava ringed by broken black crust              (it burns)
+//   cooling a DEAD scab: a flat dark pad flecked with grey ash, no glow at all, fading into the floor
+// The ladle's slag is none of these: a dark glassy splat with little flames dancing on it.
+export const CRACK_ART = 48, LAVA_ART = 40, PUDDLE_ART = 34
 function crackArms(v) {
   // the fissure's shape, shared by every stage of one variant so it only heats, never jumps
   const c = CRACK_ART / 2, pts = []
-  const arms = 4
+  const arms = 5
   for (let arm = 0; arm < arms; arm++) {
-    let a = (arm / arms) * TAU + hash(v, arm, 31) * 1.1
+    let a = (arm / arms) * TAU + hash(v, arm, 31) * 0.9
     let x = c, y = c
-    const n = 11 + Math.floor(hash(v, arm, 33) * 6)
+    const n = 12 + Math.floor(hash(v, arm, 33) * 7)
     for (let i = 0; i < n; i++) {
       a += (hash(v, arm * 16 + i, 37) - 0.5) * 0.9
       x += Math.cos(a); y += Math.sin(a)
@@ -122,26 +124,26 @@ function crackArms(v) {
   }
   return pts
 }
-// stage 0 fresh, 1 warming, 2 hot. Even a fresh crack glows: a dull red thread down the middle of a
-// black fissure, the one red line on a floor that has no other.
+// stage 0 fresh, 1 warming, 2 hot
 export function paintCrack(pc, v, stage) {
   const c = CRACK_ART / 2
   const pts = crackArms(v)
-  const fill = [0.55, 0.8, 1][stage]
+  const fill = [0.75, 0.9, 1][stage]
   const core = [P.lava1, P.lava2, P.lava3][stage], hot = [P.lava2, P.lava4, P.lava5][stage]
+  // the fissure: two pixels wide all along, three near the heart
   for (const [x, y, k] of pts) {
-    pc.set(x, y, P.ink)
-    pc.set(x + 1, y, P.ink)
-    if (k < 0.3 + stage * 0.15) { pc.set(x, y + 1, P.ink); pc.set(x + 1, y + 1, P.ink) }
+    pc.set(x, y, P.ink); pc.set(x + 1, y, P.ink); pc.set(x, y + 1, P.ink); pc.set(x + 1, y + 1, P.ink)
+    if (k < 0.35 + stage * 0.15) { pc.set(x - 1, y, P.ink); pc.set(x, y - 1, P.ink) }
   }
+  // the glowing thread inside it
   for (const [x, y, k] of pts) {
     if (k < fill) pc.set(x, y, core)
-    if (k < stage * 0.2) { pc.set(x + 1, y, core); pc.set(x, y + 1, k < 0.15 ? hot : core) }
+    if (k < 0.2 + stage * 0.25) { pc.set(x + 1, y, core); pc.set(x, y + 1, k < 0.15 + stage * 0.1 ? hot : core) }
   }
-  const hr = [1.4, 2, 3][stage]
+  const hr = [2, 2.8, 3.8][stage]
   pc.ellipse(c, c, hr + 1, hr + 1, P.ink)
   pc.ellipse(c, c, hr, hr, core)
-  pc.ellipse(c, c, Math.max(0.7, hr - 1), Math.max(0.7, hr - 1), hot)
+  pc.ellipse(c, c, Math.max(0.8, hr - 1.2), Math.max(0.8, hr - 1.2), hot)
 }
 // the pool's edge: a wobbly circle, shared by the lava and the scab it cools into
 function poolEdge(v, a, R, n) {
@@ -166,6 +168,7 @@ export function paintLava(pc, v, f) {
   }
   pc.outline(P.ink)
 }
+// cooled: a flat dark pad, a dull grey lip, a scatter of ash flecks. Nothing in it is hot.
 export function paintCool(pc, v) {
   const c = LAVA_ART / 2, R = c - 1.5
   for (let y = 0; y < LAVA_ART; y++) for (let x = 0; x < LAVA_ART; x++) {
@@ -173,36 +176,43 @@ export function paintCool(pc, v) {
     const a = Math.atan2(dy, dx), d = Math.hypot(dx, dy)
     const edge = poolEdge(v, a, R, hash(x >> 1, y >> 1, v) * 0.8)
     if (d > edge) continue
-    pc.set(x, y, d / edge > 0.8 ? P.scab0 : P.scab1)
-  }
-}
-// The ladle's slag: a raft of grey-blue slag broken into plates by a NET of glowing seams, still
-// burning. Nothing else on the floor looks like it: open lava is solid orange, a cooled scab is a flat
-// black pad, a crack is a black line radiating from a point. Slag is a pale crust with fire in every
-// joint.
-export function paintPuddle(pc, v) {
-  const c = PUDDLE_ART / 2
-  const seeds = []
-  for (let k = 0; k < 6; k++) {
-    const a = (k / 6) * TAU + hash(k, v, 93) * 0.8, r = k === 0 ? 0 : 4 + hash(k, v, 94) * 5
-    seeds.push([c + Math.cos(a) * r, c + Math.sin(a) * r])
-  }
-  for (let y = 0; y < PUDDLE_ART; y++) for (let x = 0; x < PUDDLE_ART; x++) {
-    const dx = x + 0.5 - c, dy = y + 0.5 - c
-    const a = Math.atan2(dy, dx), d = Math.hypot(dx, dy)
-    const edge = c - 1.5 - 1.8 * (0.5 + 0.5 * Math.sin(a * 3 + v * 2.3)) - 1.2 * (0.5 + 0.5 * Math.sin(a * 5 + v * 4.1))
-    if (d > edge) continue
-    let d1 = 1e9, d2 = 1e9, k1 = 0
-    for (let k = 0; k < seeds.length; k++) {
-      const q = Math.hypot(x + 0.5 - seeds[k][0], y + 0.5 - seeds[k][1])
-      if (q < d1) { d2 = d1; d1 = q; k1 = k } else if (q < d2) d2 = q
-    }
-    let col = k1 % 2 ? P.slag1 : P.slag2
-    if (d > edge - 1.2) col = P.slag0                                   // a dark lip
-    else if (d2 - d1 < 0.9) col = d < edge * 0.35 ? P.lava2 : P.lava0   // the seams, hottest at the heart
+    let col = d / edge > 0.86 ? P.scab0 : P.scab1
+    if (d / edge > 0.72 && d / edge <= 0.86 && hash(x >> 1, y >> 1, v + 7) < 0.3) col = P.ash
+    else if (d / edge <= 0.72 && hash(x, y, v + 11) < 0.04) col = P.ash
     pc.set(x, y, col)
   }
+}
+// The ladle's slag: a splat of dark, glassy slag (a round body thrown out into droplets, one cold
+// glint) with small flames dancing on it, f = 0..2 the flicker. Its fire is the only hot thing in it,
+// and it is FLAME — upright tongues — never a glowing seam: open lava is a solid orange pool, a crack
+// a black starburst, a cooled scab a dead dark pad.
+export function paintPuddle(pc, v, f = 0) {
+  const c = PUDDLE_ART / 2
+  const R = c - 6
+  const blobs = [[c, c, R, R * 0.86]]
+  for (let k = 0; k < 6; k++) {
+    const a = (k / 6) * TAU + hash(k, v, 93) * 0.9, r = R * (0.8 + hash(k, v, 94) * 0.45)
+    const sz = 1.2 + hash(k, v, 95) * 1.6
+    blobs.push([c + Math.cos(a) * r, c + Math.sin(a) * r * 0.9, sz, sz])
+  }
+  for (const [x, y, rx, ry] of blobs) pc.ellipse(x, y, rx, ry, P.slag1)
+  pc.ellipseOn(c + 1, c + 1.5, R - 1.5, R * 0.86 - 1.5, P.slag0)
+  pc.ellipseOn(c - 2.5, c - 2.5, 3, 1.4, P.slag2)
   pc.outline(P.ink)
+  // the flames: a few tongues standing on the slag, each flickering on its own beat
+  for (let k = 0; k < 4; k++) {
+    const a = hash(k, v, 97) * TAU, r = (k === 0 ? 0.15 : 0.55) * R
+    const fx = Math.round(c + Math.cos(a) * r), fy = Math.round(c + Math.sin(a) * r * 0.8) + 2
+    const ph = (f + k) % 3
+    const h = 3 + ph + (k === 0 ? 1 : 0)
+    pc.rect(fx - 1, fy - 1, 3, 2, P.lava1)                 // the base
+    for (let j = 0; j < h; j++) {
+      const y = fy - 1 - j, sway = ph === 1 && j > h / 2 ? 1 : ph === 2 && j > h / 2 ? -1 : 0
+      pc.set(fx + sway, y, j < h * 0.4 ? P.lava2 : j < h * 0.75 ? P.lava3 : P.lava4)
+      if (j < h * 0.5) pc.set(fx + sway - 1, y, P.lava2)
+      if (j < h * 0.35) pc.set(fx + sway + 1, y, P.lava2)
+    }
+  }
 }
 
 // ---- shots, lobs and sparks -----------------------------------------------------------------------

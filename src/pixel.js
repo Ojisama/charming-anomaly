@@ -18,7 +18,7 @@
 // frame to the same block size, so anything else drawn in this chapter comes out on the same grid.
 import { CanvasSource, Container, Filter, GlProgram, RenderTexture, Sprite, Texture, TilingSprite, UniformGroup } from 'pixi.js'
 import { PX, UP, TAU, PAL, PixelCanvas, hash } from './pixel/canvas.js'
-import { PIXEL_CAST, paintPlayer, paintCreature, paintCreatureMask, castDrawScale, castArchR, PLAYER_ART } from './pixel/cast.js'
+import { PIXEL_CAST, paintPlayer, paintCreature, paintCreatureMask, paintCreatureFlash, castDrawScale, castArchR, castArtScale, PLAYER_ART } from './pixel/cast.js'
 import {
   TILE_ART, paintFloorTile, PIXEL_PROPS, PROP_ART, BIOME, CRACK_ART, LAVA_ART, PUDDLE_ART,
   paintCrack, paintLava, paintCool, paintPuddle, SHOT_PAINTERS, paintGem, GEM_ART, paintCoin, COIN_ART,
@@ -33,9 +33,11 @@ export { PX, PAL, PixelCanvas, hash, PIXEL_CAST, paintPlayer, TILE_ART, paintFlo
 // the floor round it, so it can never draw a halo.
 export const CREATURE_LIGHT = 0.6
 
-export const CRACK_BAKE_R = (CRACK_ART / 2) * PX   // world radius a crack texture is drawn at, scale 1
+// the crack radius a crack texture is drawn at scale 1 (one art pixel per grid pixel): its arms reach
+// a little past the lava it will open into, so a crack peeks out from under the beetle chasing you
+export const CRACK_BAKE_R = (CRACK_ART / 2) * PX * 0.7
 export const LAVA_BAKE_R = (LAVA_ART / 2 - 1.5) * PX
-export const PUDDLE_BAKE_R = (PUDDLE_ART / 2 - 1.5) * PX
+export const PUDDLE_BAKE_R = (PUDDLE_ART / 2 - 4) * PX
 
 // A canvas-backed texture, sampled NEAREST: the pixels stay square at any scale.
 export function pixelTex(cv, res = UP) {
@@ -46,13 +48,14 @@ function bakeArt(pc, ax = 0.5, ay = 0.5, white = false) {
   return { tex: pixelTex(pc.toCanvas(PX * UP, white)), ax, ay, w: pc.w * PX, h: pc.h * PX }
 }
 // One creature frame -> { body, white, ax, ay, res, scale } canvases (render.js makes the textures).
-// render.js hands in the scale it will draw this body at (drawScale); baking AT it and handing it back
-// means the body is drawn at k = 1, one art pixel per grid pixel, whatever its radius.
+// render.js hands in the scale it will draw this body at (drawScale). The art is PAINTED at that size
+// (an elite is a bigger drawing, never a stretched one: castArtScale) and the scale is handed back,
+// so render.js draws it at k = 1: one art pixel per grid pixel, whatever the body's radius.
 export function bakeCreature(id, frame, drawScale = 1) {
-  const pc = paintCreature(id, frame)
-  const A = PIXEL_CAST[id].art
+  const sc = castArtScale(id, drawScale)
+  const { pc, ax, ay } = paintCreature(id, frame, sc)
   const k = PX * UP
-  return { body: pc.toCanvas(k), white: pc.toCanvas(k, true), ax: (A.ax + 0.5) / A.w, ay: (A.ay + 0.5) / A.h, res: UP, scale: drawScale }
+  return { body: pc.toCanvas(k), white: paintCreatureFlash(id, frame, sc).toCanvas(k), ax, ay, res: UP, scale: drawScale }
 }
 // -> { 'px_column0': { tex, ax, ay }, ... }
 export function bakeProps() {
@@ -107,20 +110,24 @@ export function createPixelRig(env) {
   T.crack = [0, 1, 2].map((st) => V.map((v) => art(CRACK_ART, CRACK_ART, (pc) => paintCrack(pc, v, st))))
   T.lava = V.map((v) => [0, 1, 2].map((f) => art(LAVA_ART, LAVA_ART, (pc) => paintLava(pc, v, f))))
   T.cool = V.map((v) => art(LAVA_ART, LAVA_ART, (pc) => paintCool(pc, v)))
-  T.puddle = [0, 1, 2].map((v) => art(PUDDLE_ART, PUDDLE_ART, (pc) => paintPuddle(pc, v)))
+  T.puddle = [0, 1, 2].map((v) => [0, 1, 2].map((f) => art(PUDDLE_ART, PUDDLE_ART, (pc) => paintPuddle(pc, v, f))))
   T.player = [0, 1].map((f) => art(PLAYER_ART[0], PLAYER_ART[1], (pc) => paintPlayer(pc, f)))
   T.playerWhite = [0, 1].map((f) => { const pc = new PixelCanvas(PLAYER_ART[0], PLAYER_ART[1]); paintPlayer(pc, f); return bakeArt(pc, 0.5, 0.5, true) })
   T.floor = pixelTex(paintFloorTile().toCanvas(PX), 1)
   T.floor.source.style.addressMode = 'repeat'
   T.light = lightDisc()
-  // each creature frame's body MASK (outline excluded), for the emissive map
-  T.mask = {}
-  for (const [id, M] of Object.entries(PIXEL_CAST)) {
-    T.mask[id] = []
-    for (let f = 0; f < M.frames; f++) {
-      const A = M.art
-      T.mask[id].push({ tex: pixelTex(paintCreatureMask(id, f).toCanvas(PX * UP), UP), ax: (A.ax + 0.5) / A.w, ay: (A.ay + 0.5) / A.h })
+  // each creature frame's body MASK (outline excluded), for the emissive map, painted at the same
+  // art scale as the body it covers (plain and elite), on first sight
+  const maskCache = new Map()
+  const maskOf = (id, elite, f) => {
+    const key = id + (elite ? '*' : '') + f
+    let m = maskCache.get(key)
+    if (!m) {
+      const { pc, ax, ay } = paintCreatureMask(id, f, castArtScale(id, castDrawScale(id, elite)))
+      m = { tex: pixelTex(pc.toCanvas(PX * UP), UP), ax, ay }
+      maskCache.set(key, m)
     }
+    return m
   }
 
   const floor = new TilingSprite({ texture: T.floor, width: 1, height: 1 })
@@ -303,7 +310,7 @@ export function createPixelRig(env) {
           const s = gCrust.next(T.crack[st][v])
           s.position.set(c.x, c.y)
           s.rotation = (v * Math.PI) / 2
-          s.scale.set((c.r / CRACK_BAKE_R) * 1.2)
+          s.scale.set(c.r / CRACK_BAKE_R)
           const pulse = st === 2 ? 0.75 + 0.25 * Math.sin(t * 30) : 1
           addLight(c.x, c.y, c.r * (1.2 + k * 1.6), st === 0 ? L_CRACK : L_HOT, (0.2 + k * 0.5) * pulse)
         } else if (c.state === 'lava') {
@@ -327,20 +334,20 @@ export function createPixelRig(env) {
           s.position.set(c.x, c.y)
           s.scale.set(c.r / LAVA_BAKE_R)
           const a = Math.max(0, Math.min(1, (c.coolEnd - run.time) / (c.coolT || 1)))
-          s.alpha = a
-          addLight(c.x, c.y, c.r * 1.6, L_CRACK, 0.16 * a * a)
+          s.alpha = a   // dead crust: it throws no light at all
         }
       }
       gCrust.end()
       gPuddle.begin()
       for (const sp of run.slagPools || []) {
-        const s = gPuddle.next(T.puddle[v4(sp.x, sp.y) % 3])
+        const pv = v4(sp.x, sp.y) % 3
+        const s = gPuddle.next(T.puddle[pv][Math.floor(t * 9 + pv) % 3])
         s.position.set(sp.x, sp.y)
         const grow = Math.min(1, sp.t / 0.12)
         s.scale.set((sp.r / PUDDLE_BAKE_R) * grow)
         const a = Math.max(0, Math.min(1, (sp.dur - sp.t) / 0.5))
         s.alpha = a
-        addLight(sp.x, sp.y, sp.r * 1.6, L_HOT, 0.14 * a * grow)   // slag is nearly cold: a faint ember glow
+        addLight(sp.x, sp.y, sp.r * 2, L_HOT, (0.22 + 0.05 * Math.sin(t * 13 + pv)) * a * grow)   // its flames' flicker
       }
       gPuddle.end()
       // lobs: a shadow on the ground, the blob or rock arcing over it, its light falling round it
@@ -399,7 +406,7 @@ export function createPixelRig(env) {
         const halted = (e.frozen || 0) > 0 || (e.stunT || 0) > 0
         let f = heldFrame.get(e)
         if (!halted || f === undefined) { f = Math.floor(t * 10 + e.id * 1.7) % M.frames; heldFrame.set(e, f) }
-        const s = masks.next(T.mask[e.rosterId][f])
+        const s = masks.next(maskOf(e.rosterId, !!e.elite, f))
         s.position.set(e.x, e.y)
         let tdx = p ? p.x - e.x : 1
         if ((e.allyT || 0) > 0 && e._tgtX !== undefined) tdx = e._tgtX - e.x

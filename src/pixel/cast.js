@@ -18,43 +18,57 @@ const P = PAL
 export const INK = PAL.ink
 export const EYE = '#ffd23a'
 
-const grid = (w, h) => Array.from({ length: h }, () => new Array(w).fill('.'))
-function set(g, x, y, c) { x = Math.round(x); y = Math.round(y); if (g[y] && x >= 0 && x < g[y].length) g[y][x] = c }
+// EVERY PAINTER WORKS IN DESIGN UNITS AND IS RASTERISED AT S art pixels per unit (paintCreature sets
+// it): an elite is painted 1.5x LARGER at the same art-pixel size, never stretched, so one art pixel
+// stays one grid pixel whatever the body's size. A design pixel covers a block of 1 or 2 cells at
+// S = 1.5; a disc, a triangle or a limb is re-rasterised at the output resolution, so its edge stays
+// one-pixel clean; the ink outline is always one output pixel.
+let S = 1
+const grid = (w, h) => Array.from({ length: Math.round(h * S) }, () => new Array(Math.round(w * S)).fill('.'))
+const span = (v) => { const a = Math.floor(v * S); return [a, Math.max(a + 1, Math.floor((v + 1) * S))] }
+function cell(g, x, y, c, empty) { if (g[y] && x >= 0 && x < g[y].length && (!empty || g[y][x] === '.')) g[y][x] = c }
+function block(g, x, y, c, empty) {
+  const [x0, x1] = span(Math.round(x)), [y0, y1] = span(Math.round(y))
+  for (let yy = y0; yy < y1; yy++) for (let xx = x0; xx < x1; xx++) cell(g, xx, yy, c, empty)
+}
+function set(g, x, y, c) { block(g, x, y, c, false) }
 // into an EMPTY cell only (limbs go under the body)
-function put(g, x, y, c) { x = Math.round(x); y = Math.round(y); if (g[y] && x >= 0 && x < g[y].length && g[y][x] === '.') g[y][x] = c }
-function line(g, x0, y0, x1, y1, c, over = false) {
-  x0 = Math.round(x0); y0 = Math.round(y0); x1 = Math.round(x1); y1 = Math.round(y1)
+function put(g, x, y, c) { block(g, x, y, c, true) }
+// a stroke between two design points, rasterised at the output resolution with a square brush
+// `w` design units wide
+function stroke(g, x0, y0, x1, y1, c, over, w) {
+  const b = Math.max(1, Math.round(w * S))
+  x0 = Math.round(x0 * S); y0 = Math.round(y0 * S); x1 = Math.round(x1 * S); y1 = Math.round(y1 * S)
   const dx = Math.abs(x1 - x0), dy = -Math.abs(y1 - y0), sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1
   let err = dx + dy
   for (;;) {
-    (over ? set : put)(g, x0, y0, c)
+    for (let j = 0; j < b; j++) for (let i = 0; i < b; i++) cell(g, x0 + i, y0 + j, c, !over)
     if (x0 === x1 && y0 === y1) break
     const e2 = 2 * err
     if (e2 >= dy) { err += dy; x0 += sx }
     if (e2 <= dx) { err += dx; y0 += sy }
   }
 }
-// Every limb is TWO pixels thick: render.js turns each body to face its heading, and a one-pixel line
-// turned to 30 degrees and re-gridded by the CRT breaks into dots. Masses survive a turn; hairs do not.
-function thick(g, x0, y0, x1, y1, c, over = false) {
-  line(g, x0, y0, x1, y1, c, over)
-  if (Math.abs(x1 - x0) >= Math.abs(y1 - y0)) line(g, x0, y0 + 1, x1, y1 + 1, c, over)
-  else line(g, x0 + 1, y0, x1 + 1, y1, c, over)
-}
+function line(g, x0, y0, x1, y1, c, over = false) { stroke(g, x0, y0, x1, y1, c, over, 1) }
+// Every limb is TWO pixels thick: a one-pixel line re-gridded by the CRT breaks into dots. Masses
+// survive; hairs do not.
+function thick(g, x0, y0, x1, y1, c, over = false) { stroke(g, x0, y0, x1, y1, c, over, 2) }
 function disc(g, cx, cy, rx, ry, c, only) {
+  cx *= S; cy *= S; rx *= S; ry *= S
   for (let y = Math.floor(cy - ry - 1); y <= cy + ry + 1; y++) for (let x = Math.floor(cx - rx - 1); x <= cx + rx + 1; x++) {
     const dx = (x + 0.5 - cx) / rx, dy = (y + 0.5 - cy) / ry
     if (dx * dx + dy * dy <= 1 && g[y] && x >= 0 && x < g[y].length && (!only || only.includes(g[y][x]))) g[y][x] = c
   }
 }
 function tri(g, a, b, c, ch) {
+  a = [a[0] * S, a[1] * S]; b = [b[0] * S, b[1] * S]; c = [c[0] * S, c[1] * S]
   const minX = Math.floor(Math.min(a[0], b[0], c[0])), maxX = Math.ceil(Math.max(a[0], b[0], c[0]))
   const minY = Math.floor(Math.min(a[1], b[1], c[1])), maxY = Math.ceil(Math.max(a[1], b[1], c[1]))
   const s = (p, q, x, y) => (q[0] - p[0]) * (y - p[1]) - (q[1] - p[1]) * (x - p[0])
   for (let y = minY; y <= maxY; y++) for (let x = minX; x <= maxX; x++) {
     const px = x + 0.5, py = y + 0.5
     const u = s(a, b, px, py), v = s(b, c, px, py), w = s(c, a, px, py)
-    if ((u >= 0 && v >= 0 && w >= 0) || (u <= 0 && v <= 0 && w <= 0)) set(g, x, y, ch)
+    if ((u >= 0 && v >= 0 && w >= 0) || (u <= 0 && v <= 0 && w <= 0)) cell(g, x, y, ch)
   }
 }
 // ink round every filled cell
@@ -150,7 +164,7 @@ export const TORTOISE = {
     // the shell: plates labelled, a seam wherever two plates meet
     const rx = 10.4, ry = 8.6
     const label = (x, y) => {
-      const px = x + 0.5, py = y + 0.5
+      const px = (x + 0.5) / S, py = (y + 0.5) / S
       const dx = (px - cx) / rx, dy = (py - cy) / ry
       if (dx * dx + dy * dy > 1) return null
       const ix = (px - cx) / (rx - 2.6), iy = (py - cy) / (ry - 2.4)
@@ -162,8 +176,9 @@ export const TORTOISE = {
       return 'C' + (py < cy ? 'a' : 'b')
     }
     const L = []
-    for (let y = 0; y < H; y++) { L.push([]); for (let x = 0; x < W; x++) L[y].push(label(x, y)) }
-    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const OW = g[0].length, OH = g.length
+    for (let y = 0; y < OH; y++) { L.push([]); for (let x = 0; x < OW; x++) L[y].push(label(x, y)) }
+    for (let y = 0; y < OH; y++) for (let x = 0; x < OW; x++) {
       const l = L[y][x]
       if (!l) continue
       const seam = (L[y][x + 1] && L[y][x + 1] !== l) || (L[y + 1]?.[x] && L[y + 1][x] !== l)
@@ -177,53 +192,67 @@ export const TORTOISE = {
 }
 
 // ---- Fire Drake ---------------------------------------------------------------------------------
-// The elite: a small dragon seen from above, the most unmistakable silhouette in the chapter. Two
-// bat wings (an arm bone to the wrist, three finger bones fanning back, the membrane scalloped
-// between them), a long neck, a horned head, a long tail ending in a spade, a hot spine. Frame 0
-// wings spread, frame 1 the downstroke, half folded.
+// The elite: a small dragon seen from above, read in four parts at a glance — a HEAD with a snout,
+// two eyes and two pale horns sweeping back past it; a thin NECK, so the head stands apart as its
+// own lump; two bat WINGS held out sideways from the shoulders (an arm bone, three finger bones, the
+// membrane scalloped between them); and a long TAIL ending in a spade. The wings are a darker wine
+// than the ochre body, so neck, head and tail stay a separate shape on top of them. Only the eyes
+// are hot: anything else glowing on the back blooms into a blaze that swallows the shape. Frame 0 wings spread, frame 1 the downstroke, half folded.
 const DRAKE_WINGS = [
-  { S: [18, 11], E: [17, 5], W: [14, 1], F: [[7, 0], [2, 3], [3, 8]], B: [9, 11] },
-  { S: [18, 11], E: [17, 7], W: [14, 4], F: [[8, 3], [3, 6], [5, 10]], B: [9, 11] },
+  { S: [18, 10], W: [21, 2], F: [[15.5, 0], [10, 2], [7.5, 7]], B: [12.5, 10] },
+  { S: [18, 10], W: [21, 4], F: [[15.5, 2.5], [10.5, 4], [8.5, 8]], B: [12.5, 10] },
 ]
 export const DRAKE = {
-  w: 31, h: 27, ax: 15, ay: 13,
-  pal: { k: INK, v: '#6e1e2a', b: '#c49078', o: '#a04038', y: '#ffbe3a', h: '#e8dcc8', e: EYE },
+  w: 35, h: 25, ax: 16, ay: 12,
+  pal: { k: INK, n: INK, v: '#4e1426', b: '#84484a', o: '#a85e40', O: '#b48a64', y: '#ffbe3a', h: '#cdb48c', e: EYE },
   paint(f) {
-    const W = 31, H = 27, M = 13, g = grid(W, H)
+    const W = 35, H = 25, M = 12.5, g = grid(W, H)
     const wg = DRAKE_WINGS[f]
-    const pts = [wg.W, ...wg.F, wg.B]
-    tri(g, wg.S, wg.E, wg.W, 'v'); tri(g, wg.S, wg.W, wg.B, 'v')
-    for (let i = 0; i < pts.length - 1; i++) tri(g, wg.W, pts[i], pts[i + 1], 'v')
-    for (let i = 1; i < pts.length - 1; i++) {
-      const a = pts[i], b = pts[i + 1]
+    const tips = [wg.W, ...wg.F, wg.B]
+    // the near wing (top half): membrane, scallops bitten out of its trailing edge, bones on top
+    for (let i = 0; i < tips.length - 1; i++) tri(g, wg.S, tips[i], tips[i + 1], 'v')
+    for (let i = 1; i < tips.length - 1; i++) {
+      const a = tips[i], b = tips[i + 1]
       const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2
-      const ox = mx - wg.W[0], oy = my - wg.W[1], ol = Math.hypot(ox, oy) || 1
-      disc(g, mx + (ox / ol) * 1.1, my + (oy / ol) * 1.1, 2.1, 2.1, '.', 'v')
+      const ox = mx - wg.S[0], oy = my - wg.S[1], ol = Math.hypot(ox, oy) || 1
+      disc(g, mx + (ox / ol) * 0.9, my + (oy / ol) * 0.9, 1.6, 1.6, '.', 'v')
     }
-    line(g, wg.S[0], wg.S[1], wg.E[0], wg.E[1], 'b', true); line(g, wg.E[0], wg.E[1], wg.W[0], wg.W[1], 'b', true)
+    thick(g, wg.S[0], wg.S[1] - 1.5, wg.W[0], wg.W[1], 'b', true)
     for (const p of wg.F) line(g, wg.W[0], wg.W[1], p[0], p[1], 'b', true)
-    // mirror the wing to the other side
-    for (let y = 0; y < M; y++) for (let x = 0; x < W; x++) if (g[y][x] !== '.') g[2 * M - y][x] = g[y][x]
-    // body, neck, head
-    disc(g, 15, M + 0.5, 5.6, 3.3, 'o')
-    for (let x = 19; x <= 24; x++) for (let dy = -1; dy <= 1; dy++) set(g, x, M + dy, 'o')
-    disc(g, 25.5, M + 0.5, 2.6, 2.3, 'o')
-    set(g, 28, M, 'o')
-    // the hot spine down the back and neck
-    for (let x = 10; x <= 23; x++) set(g, x, M, 'y')
-    // horns sweeping back, eyes on the sides of the head
-    line(g, 24, M - 2, 21, M - 4, 'h', true); line(g, 24, M + 2, 21, M + 4, 'h', true)
-    set(g, 26, M - 1, 'e'); set(g, 26, M + 1, 'e')
+    // mirror it to the far side
+    const OW = g[0].length, OH = g.length
+    for (let y = 0; y < Math.floor(OH / 2); y++) for (let x = 0; x < OW; x++) if (g[y][x] !== '.') g[OH - 1 - y][x] = g[y][x]
     // the tail: tapering, swinging, a spade at the tip
     const sw = f ? 1 : -1
     let tip = null
     for (let i = 0; i <= 9; i++) {
-      const x = 10 - i, y = M + Math.round(sw * Math.sin((i / 9) * Math.PI * 0.9) * 2.2)
-      set(g, x, y, 'o')
-      if (i < 5) { set(g, x, y - 1, 'o'); set(g, x, y + 1, 'o') }
-      tip = [x, y]
+      const x = 12 - i, y = M + sw * Math.sin((i / 9) * Math.PI * 0.9) * 2.4
+      disc(g, x + 0.5, y, 0.9, i < 3 ? 1.6 : i < 7 ? 1.1 : 0.7, 'o')
+      tip = [x + 0.5, y]
     }
-    tri(g, [tip[0] + 1, tip[1] - 2.5], [tip[0] + 1, tip[1] + 3.5], [tip[0] - 2.5, tip[1] + 0.5], 'o')
+    tri(g, [tip[0] + 0.5, tip[1] - 2.4], [tip[0] + 0.5, tip[1] + 2.4], [tip[0] - 2.6, tip[1]], 'o')
+    // body, a paler belly ridge; the thin neck curving out to the head, which swings a little each
+    // frame (a creature looking about, not an arrow)
+    disc(g, 16.5, M, 5.2, 3.2, 'o')
+    disc(g, 17, M, 3.4, 1.6, 'O')
+    const hy = M + (f ? 1.2 : -1.2)
+    for (let i = 0; i <= 6; i++) {
+      const u = i / 6, x = 21 + u * 6, y = M + (hy - M) * u * u
+      disc(g, x, y, 1.1, 1.25, 'o')
+    }
+    const hx = 27.5
+    // the head: a broad skull, a rounded muzzle, a paler brow; an eye each side, two nostrils, and two
+    // horns off the back corners of the skull, swept back
+    disc(g, hx, hy, 3.5, 3.1, 'o')
+    disc(g, hx + 3.4, hy, 2.4, 1.9, 'o')
+    disc(g, hx - 0.4, hy, 1.7, 1.2, 'O')
+    for (const d of [-1, 1]) {
+      stroke(g, hx - 2.2, hy + d * 2.3 - 0.5, hx - 5, hy + d * 3.8 - 0.5, 'h', true, 1.3)
+      set(g, hx + 0.8, hy + d * 1.9 - 0.5, 'e'); set(g, hx + 1.8, hy + d * 1.9 - 0.5, 'e')
+      set(g, hx + 4.6, hy + d * 0.9 - 0.5, 'n')
+    }
+    // pale spine studs down the back (spaced, never a stripe, and cold: only the eyes glow)
+    for (const x of [12, 15, 18]) set(g, x, M - 0.5, 'h')
     outline(g)
     return g
   },
@@ -255,7 +284,7 @@ export const PIXEL_CAST = {
   cinderBeetle: { art: BEETLE, frames: 2, light: [2.4, 0xff8a40, 0.5] },
   salamander: { art: SALAMANDER, frames: 2, light: [2.6, 0xffb848, 0.55] },
   obsidianTortoise: { art: TORTOISE, frames: 2, light: [2.2, 0xff7030, 0.55] },
-  fireDrake: { art: DRAKE, frames: 2, light: [3, 0xff7a28, 0.6] },
+  fireDrake: { art: DRAKE, frames: 2, light: [2.4, 0xff7a28, 0.28] },
 }
 // the elite crown, [top, r]: render.js places it at e.y + top * k * drawScale, so top is stated in
 // the bake's own units — just above the top of the art
@@ -265,24 +294,59 @@ for (const [id, M] of Object.entries(PIXEL_CAST)) {
   M.w = M.art.w; M.h = M.art.h
 }
 
-// One creature frame -> PixelCanvas
-export function paintCreature(id, frame) {
+// THE ART SCALE of a body drawn at drawScale (= e.radius / its archetype radius): its roster size is
+// the design size, so a plain body paints at 1 and an elite (x ELITE.sizeMul) paints that much
+// LARGER, at the same art-pixel size. The always-elite drake is no exception: its design is its
+// plain size, and it is always drawn 1.5x.
+export function castArtScale(id, drawScale) {
+  return Math.max(0.5, drawScale / castDrawScale(id, false))
+}
+// one frame's character grid at an art scale
+export function paintGrid(id, frame, scale) {
+  S = scale
+  try { return PIXEL_CAST[id].art.paint(frame) } finally { S = 1 }
+}
+// the anchor (the body's centre), as a fraction of the painted grid
+export function castAnchor(id, g, scale) {
   const A = PIXEL_CAST[id].art
-  const pc = new PixelCanvas(A.w, A.h)
-  pc.grid(A.paint(frame), A.pal)
+  return [((A.ax + 0.5) * scale) / g[0].length, ((A.ay + 0.5) * scale) / g.length]
+}
+// One creature frame -> { pc, ax, ay }
+export function paintCreature(id, frame, scale = 1) {
+  const A = PIXEL_CAST[id].art
+  const g = paintGrid(id, frame, scale)
+  const pc = new PixelCanvas(g[0].length, g.length)
+  pc.grid(g, A.pal)
+  const [ax, ay] = castAnchor(id, g, scale)
+  return { pc, ax, ay }
+}
+// The HIT FLASH twin: the same frame gone pale, its ink outline and its two tones KEPT, so a struck
+// body still reads as its own shape (a flat white silhouette blooms into a shapeless blob through
+// the screen pass, swallowing its neighbours).
+const FLASH_HI = '#fff6f0', FLASH_LO = '#9c908c'
+const lumOf = (hex) => { const n = parseInt(hex.slice(1), 16); return (0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255 }
+export function paintCreatureFlash(id, frame, scale = 1) {
+  const A = PIXEL_CAST[id].art
+  const g = paintGrid(id, frame, scale)
+  const pc = new PixelCanvas(g[0].length, g.length)
+  for (let y = 0; y < g.length; y++) for (let x = 0; x < g[y].length; x++) {
+    const ch = g[y][x]
+    if (ch === '.') continue
+    const c = A.pal[ch]
+    pc.set(x, y, c === INK ? INK : lumOf(c) > 0.4 ? FLASH_HI : FLASH_LO)
+  }
   return pc
 }
 // The same frame as a MASK: white where the body is (its ink outline left out), nothing elsewhere.
 // The rig draws it into the emissive map, so the creature light falls on the body and never on the
 // floor round it.
-export function paintCreatureMask(id, frame) {
-  const A = PIXEL_CAST[id].art
-  const pc = new PixelCanvas(A.w, A.h)
-  const g = A.paint(frame)
+export function paintCreatureMask(id, frame, scale = 1) {
+  const g = paintGrid(id, frame, scale)
+  const pc = new PixelCanvas(g[0].length, g.length)
   for (let y = 0; y < g.length; y++) for (let x = 0; x < g[y].length; x++) if (g[y][x] !== '.' && g[y][x] !== 'k') pc.set(x, y, '#ffffff')
-  return pc
+  const [ax, ay] = castAnchor(id, g, scale)
+  return { pc, ax, ay }
 }
-
 // ---- the player ----------------------------------------------------------------------------------
 // The mint blob every chapter's player is, as pixel art: a dome in three tones, big eyes, blush.
 export function paintPlayer(pc, f) {
