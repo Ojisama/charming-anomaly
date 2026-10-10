@@ -39676,5 +39676,24 @@ function testTopsoilPolish() {
   }
   const roots0 = held(0), roots9 = held(0.9)
   assert.ok(roots0 > 0 && roots9 > roots0 * 1.6, `run TS.e: DEEP ROOTS (+90%) should raise damage to held bodies: ${roots9} vs ${roots0}`)
+  // (f) a mole struck as it dives: its hit flash fades underground, it does not stay white
+  {
+    Math.random = mulberry32(33005)
+    const r = createRun(meta(), { chapter: 'topsoil', difficulty: 1 })
+    r.player.hp = r.player.maxHP = 1e9
+    r.weapons = []
+    let mole = null, frames = 0
+    for (let i = 0; i < 90 * 60; i++) {
+      if (r.phase === 'levelup') { r.phase = 'playing'; r.levelUpChoices = [] }
+      r.player.hp = r.player.maxHP
+      stepSim(r, { x: 0, y: 0 }, dt)
+      r.events.length = 0
+      if (!mole) { mole = r.enemies.find((e) => e.burrowed && !e._dead) ?? null; if (mole) mole.hitFlash = 0.12; continue }
+      if (!mole.burrowed) break
+      if (++frames >= 12) break
+    }
+    assert.ok(mole && frames >= 12, `run TS.f: fixture never held a mole underground for 12 frames (${frames})`)
+    assert.strictEqual(mole.hitFlash, 0, `run TS.f: a mole's hit flash must fade underground, still ${mole.hitFlash}`)
+  }
   console.log(`PASS run TS (Topsoil polish): Deep Roots ${(roots9 / roots0).toFixed(2)}x on held bodies; Furrow ${on.pits} pits dealt ${on.dmg} off-chapter (0 unarmed, 0 pits standing still), Ipecac ${sick.pits} pits; Sundown chaser ${night.closed.toFixed(0)} vs ${day.closed.toFixed(0)} px, gem ${night.xp} vs ${day.xp} XP; Soft Ground eruption ${soft.erupt.toFixed(0)} vs ${hard.erupt.toFixed(0)}, pit ${soft.pit.toFixed(0)} vs ${hard.pit.toFixed(0)}`)
 }

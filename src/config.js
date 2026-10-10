@@ -9318,7 +9318,7 @@ CHAPTERS.topsoil = {
     dust: { tint: 0xffe2b0, alpha: 0.9, speedMul: 0.08, sway: 5 },
     // MACRO PHOTOGRAPHY (render.js setMacro / src/macro.js): the floor tile, the lens and its grade.
     macro: {
-      floor: 'topsoil', blur: 9, sharp: 0.6, key: 0.55, vignette: 0.82, grain: 0.07, shadowReach: 0.55,
+      floor: 'topsoil', blur: 5, sharp: 0.75, key: 0.55, vignette: 0.82, grain: 0.07, shadowReach: 0.55,
       shadowTone: 0x6a8a9a, lightTone: 0xffd49a, shaft: 0xffcf8a, shaftAlpha: 0.16, bokeh: 0xffc77a, bokehAlpha: 0.3, fgAlpha: 0.92,
     },
   },

@@ -4744,8 +4744,9 @@ function stepEnemyMovement(run, dt) {
   const ring = run.orca && run.orca.state === 'circling' ? run.orca : null
 
   for (const e of run.enemies) {
-    // Book 3: a mole underground is moved by stepTunnels, not by any machine below.
-    if (e.burrowed) continue
+    // Book 3: a mole underground is moved by stepTunnels, not by any machine below — but its hit
+    // flash still fades, or a mole struck as it dives stays white for the whole tunnel.
+    if (e.burrowed) { if (e.hitFlash > 0) e.hitFlash = Math.max(0, e.hitFlash - dt); continue }
     // Seek target: the player by default, or the nearest Pheromone Lure decoy (v5.3 garden) whose
     // aggro radius this enemy sits inside — lured foes path to the decoy instead of the player.
     let tx = p.x, ty = p.y
