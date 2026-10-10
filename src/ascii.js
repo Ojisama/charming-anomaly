@@ -95,7 +95,32 @@ function glyphTexSlow(ch, font, glow) {
 // update and a colour parse for each. Two ParticleContainers per batch — the normal glyphs, then the
 // additive ones (glows, sparks, eyes) over them — since one container has one blend mode.
 const PC_PROPS = { position: true, rotation: true, vertex: true, color: true, uvs: true }
-function makeBatch(parent) {
+// THE ADDITIVE CAP. Additive glyphs sum, so a pile of glowing bodies adds up to white and swallows
+// everything in it. Every world batch's additive glyphs draw from one budget per ADD_CELL px square
+// of the screen, refilled each frame: once a square has had ADD_CAP of alpha (a glow counted by its
+// area against a 16px glyph), what follows there is dimmed to what is left, so a pile stays its
+// own colours.
+const ADD_CELL = 24, ADD_CAP = 1.1
+const addCap = { x0: 0, y0: 0, cols: 1, rows: 1, buf: new Float32Array(1) }
+function addCapReset(view) {
+  const cols = Math.ceil((view.right - view.left) / ADD_CELL) + 3, rows = Math.ceil((view.bottom - view.top) / ADD_CELL) + 3
+  if (addCap.buf.length < cols * rows) addCap.buf = new Float32Array(cols * rows)
+  else addCap.buf.fill(0, 0, cols * rows)
+  addCap.x0 = view.left - ADD_CELL; addCap.y0 = view.top - ADD_CELL; addCap.cols = cols; addCap.rows = rows
+}
+function addCapTake(x, y, alpha, size) {
+  const i = Math.floor((x - addCap.x0) / ADD_CELL), j = Math.floor((y - addCap.y0) / ADD_CELL)
+  if (i < 0 || j < 0 || i >= addCap.cols || j >= addCap.rows) return alpha
+  const k = j * addCap.cols + i
+  const w = Math.min(4, (size * size) / 256)
+  const left = ADD_CAP - addCap.buf[k]
+  if (left <= 0) return 0
+  const a = Math.min(alpha, left / w)
+  addCap.buf[k] += a * w
+  return a
+}
+// glowUnder: the additive container is drawn BELOW the normal one (the miner: his glow under his '@')
+function makeBatch(parent, { glowUnder = false, capped = false } = {}) {
   const tex0 = glyphTex('.', 0)
   const side = (blendMode) => {
     const pc = new ParticleContainer({ dynamicProperties: PC_PROPS, texture: tex0 })
@@ -103,7 +128,8 @@ function makeBatch(parent) {
     parent.addChild(pc)
     return { pc, pool: [], n: 0 }
   }
-  const N = side('normal'), A = side('add')
+  let N, A
+  if (glowUnder) { A = side('add'); N = side('normal') } else { N = side('normal'); A = side('add') }
   const fin = (S) => {
     const kids = S.pc.particleChildren
     if (kids.length !== S.n) { kids.length = 0; for (let i = 0; i < S.n; i++) kids.push(S.pool[i]); S.pc.update() }
@@ -112,6 +138,7 @@ function makeBatch(parent) {
   return {
     begin() { N.n = 0; A.n = 0 },
     put(ch, x, y, color, alpha = 1, size = 16, rot = 0, add = false, font = 0, glow = false) {
+      if (add && capped) alpha = addCapTake(x, y, alpha, size)
       if (alpha <= 0.01) return
       const S = add ? A : N
       let p = S.pool[S.n]
@@ -155,13 +182,13 @@ const VIS = 2.0    // creatures are drawn well larger than their hit body: a gal
 
 // ---- materials: a density ramp of characters (lit -> shadow) and a colour ramp ------------------
 const MAT = {
-  fur:   { chars: ['@', '%', '#', '&', '*', '+', '=', ':', ',', '.'], dark: 0x6a4428, mid: 0xc8945c, lit: 0xf6d09a },
+  fur:   { chars: ['%', '#', '&', '8', '*', '+', '=', ':', ',', '.'], dark: 0x6a4428, mid: 0xc8945c, lit: 0xf6d09a },
   pink:  { chars: ['~', '~', '-', '-', '.', '.'], dark: 0x6a3a34, mid: 0xd08a7c, lit: 0xffc8b8 },
-  chit:  { chars: ['@', '0', 'O', 'Q', 'o', '°', ':', '.'], dark: 0x4a2470, mid: 0xa060e8, lit: 0xeed2ff },
+  chit:  { chars: ['0', 'O', 'Q', 'o', 'o', '°', ':', '.'], dark: 0x4a2470, mid: 0xa060e8, lit: 0xeed2ff },
   scale: { chars: ['M', 'W', '&', 'w', 'v', 'v', ',', '.'], dark: 0x2c4a14, mid: 0x7cc038, lit: 0xe0f890 },
-  brass: { chars: ['@', 'O', 'O', 'o', 'o', '°', '.'], dark: 0x7a3c08, mid: 0xf08a24, lit: 0xffd890 },
-  stone: { chars: ['#', '@', '&', '%', 'X', 'x', '=', '-', '.'], dark: 0x2e3a4c, mid: 0x6e82a0, lit: 0xb8cae4 },
-  wool:  { chars: ['@', 'M', 'W', '#', '%', '*', '+', ':', '.'], dark: 0x2a2620, mid: 0x9a8c76, lit: 0xfff6e2 },
+  brass: { chars: ['O', 'O', '0', 'o', 'o', '°', '.'], dark: 0x7a3c08, mid: 0xf08a24, lit: 0xffd890 },
+  stone: { chars: ['#', '8', '&', '%', 'X', 'x', '=', '-', '.'], dark: 0x2e3a4c, mid: 0x667a96, lit: 0xa2b2c8 },
+  wool:  { chars: ['M', 'W', '#', '%', '*', '+', ':', '.'], dark: 0x2a2620, mid: 0x9a8c76, lit: 0xfff6e2 },
   rust:  { chars: ['#', '%', '&', '*', '+', '=', ':', '.'], dark: 0x4a2418, mid: 0xb06848, lit: 0xf0b088 },
 }
 
@@ -265,10 +292,11 @@ function shadeParts(out, look, X, Y, cos, sin, sc, lx, ly, reach, flash, sizeMul
           if (q.h < 0.25 * k) continue
           col = mixHex(col, 0x05070a, 0.5 + 0.35 * k); al = 0.92; sz *= 0.9
         }
-        if (flash > 0) col = mixHex(col, 0xffffff, flash * FLASH_MIX * (q.nz < 0.45 ? 1 : 0.35))
+        // a hit lifts the glyph toward the body's own lit colour, not toward white
+        if (flash > 0) col = mixHex(col, m.lit, flash * FLASH_MIX * 2 * (q.nz < 0.45 ? 1 : 0.35))
         out(ch, wx, wy, col, al, sz, q.rot, false, 2, false)
-        // the brightest glyphs of the dome breathe a faint glow of their own colour
-        if (!inEdge && I > 0.7 && (gi++ % 3) === 0) out(ch, wx, wy, matColor(m, 1), 0.12 * I, sz * 1.4, q.rot, true, 0, true)
+        // only the lit RIM breathes a faint glow of its own colour (the dome's own glows summed to white)
+        if (!inEdge && !edge && I > 0.7 && q.nz < 0.45 && (gi++ % 3) === 0) out(ch, wx, wy, matColor(m, 1), 0.1 * I, sz * 1.3, q.rot, true, 0, true)
       }
     }
   }
@@ -286,6 +314,12 @@ function stroke(out, X, Y, cos, sin, sc, ax, ay, bx, by, s0, s1, c0, c1, a0, a1,
   }
 }
 const at = (X, Y, cos, sin, sc, x, y) => [X + (x * cos - y * sin) * sc, Y + (x * sin + y * cos) * sc]
+// a per-body cast of the material (seed 0..1: toward a, or toward b), so bodies of one kind that
+// overlap in a pile stay separate bodies; the additive glints keep their own colour
+function tinted(out, seed, a, b) {
+  const tint = seed < 0.5 ? a : b, k = 0.15 + 0.5 * Math.abs(seed - 0.5)
+  return (ch, x, y, col, al, size, rot, add, font, glow) => out(ch, x, y, add ? col : mixHex(col, tint, k), al, size, rot, add, font, glow)
+}
 
 // st = { phase (stride, rad), sway, pose ('walk'|'aim'|'leap'|'land'), aimK 0..1, t (clock) }
 function composeCreature(out, id, X, Y, heading, sc, lx, ly, reach, flash, st, elite) {
@@ -311,7 +345,7 @@ function composeCreature(out, id, X, Y, heading, sc, lx, ly, reach, flash, st, e
       const [wx, wy] = at(X, Y, cos, sin, sc, fx + Math.sin(ph + o) * 3, fy * (1 + 0.1 * Math.cos(ph + o)))
       out(',', wx, wy, MAT.pink.lit, 0.8, 5.5 * sc, heading, false, 0, false)
     }
-    shadeParts(out, look, X, Y, cos, sin, sc, lx, ly, reach, flash)
+    shadeParts(tinted(out, st.seed ?? 0.5, 0x7a5232, 0xd8c4a4), look, X, Y, cos, sin, sc, lx, ly, reach, flash, 1, ((st.seed ?? 0.5) - 0.5) * 0.3, true)
     // ears, snout, eyes, whiskers
     for (const s of [-1, 1]) {
       let [wx, wy] = at(X, Y, cos, sin, sc, 9, 6 * s)
@@ -375,14 +409,17 @@ function composeCreature(out, id, X, Y, heading, sc, lx, ly, reach, flash, st, e
       out(',', wx, wy, 0xe8dcc0, 0.7, 5 * sc, heading, false, 0, false)
     }
     shadeParts(out, look, X, Y, cos, sin, sc, lx, ly, reach, flash)
-    // the pick over its shoulder: a '/' haft and a steel 'T' head
+    // the pick over its shoulder: a '/' haft and a curved steel head across its end, a '(' laid
+    // square to the haft (the miner's thrown pick is a 'T': the two must never share a shape)
     const sw = Math.sin(ph * 0.5) * 2
     stroke(out, X, Y, cos, sin, sc, 6, -8, -12 + sw, -18, 5.5, 5.5, 0xe0a060, 0xa86a34, 1, 0.95, 2.4)
     {
-      const [wx, wy] = at(X, Y, cos, sin, sc, -13 + sw, -19)
-      const r = heading + Math.atan2(-10, -18) + Math.PI / 2
+      const [wx, wy] = at(X, Y, cos, sin, sc, -14 + sw, -18.5)
+      const r = heading + Math.atan2(-10, -18)
       // dull warm steel, unlit: pure white is the miner's own swing and nothing else's
-      out('T', wx, wy, 0x8a7c6c, 0.9, 12 * sc, r, false, 0, false)
+      out('(', wx, wy, 0x8a7c6c, 0.95, 13 * sc, r, false, 2, false)
+      const [tx, ty] = at(X, Y, cos, sin, sc, -14 + sw - 3.5, -18.5 + 6)
+      out('\'', tx, ty, 0x6a6058, 0.9, 7 * sc, r, false, 2, false)
     }
     // the helmet lamp and its little beam of motes
     const [lpx, lpy] = at(X, Y, cos, sin, sc, 19, 0)
@@ -403,7 +440,7 @@ function composeCreature(out, id, X, Y, heading, sc, lx, ly, reach, flash, st, e
       if (!p0._dx) continue
       for (const q of p0.pts) { q.x += p0._dx; }
     }
-    shadeParts(out, look, X, Y, cos, sin, sc, lx, ly, reach, flash, 1, ((st.seed ?? 0.5) - 0.5) * 0.28, true)
+    shadeParts(tinted(out, st.seed ?? 0.5, 0x7a6852, 0x4c6290), look, X, Y, cos, sin, sc, lx, ly, reach, flash, 1, ((st.seed ?? 0.5) - 0.5) * 0.36, true)
     for (let k = 1; k < 3; k++) { const p0 = P[k]; for (const q of p0.pts) q.x -= p0._dx; p0._dx = 0 }
     // the cracks: fine glyphs that glow from inside, breathing
     const glowK = 0.55 + 0.45 * Math.sin(t * 2.2 + ph * 0.3)
@@ -411,15 +448,15 @@ function composeCreature(out, id, X, Y, heading, sc, lx, ly, reach, flash, st, e
       for (let i = 0; i < C.length; i++) {
         const [cx, cy, ch] = C[i]
         const [wx, wy] = at(X, Y, cos, sin, sc, cx, cy)
-        const col = 0x6ad8f0
-        out(ch, wx, wy, mixHex(col, 0xffffff, 0.3 * glowK), 0.45 + 0.35 * glowK, 6 * sc, heading, true, 1, false)
+        const col = 0xff8a3a
+        out(ch, wx, wy, mixHex(col, 0xffe0b0, 0.3 * glowK), 0.4 + 0.3 * glowK, 6 * sc, heading, true, 1, false)
         if (i % 2 === 0) out(ch, wx, wy, col, 0.25 * glowK, 10 * sc, heading, true, 1, true)
       }
     }
     for (const s of [-1, 1]) {
       const [wx, wy] = at(X, Y, cos, sin, sc, 17, 6 * s)
-      out('•', wx, wy, 0xc8ffff, 1, 6 * sc, 0, true, 0, false)
-      out('•', wx, wy, 0x40e8ff, 0.9, 14 * sc, 0, true, 0, true)
+      out('•', wx, wy, 0xff9a40, 1, 7 * sc, 0, true, 0, false)
+      out('•', wx, wy, 0xff7a1a, 0.8, 14 * sc, 0, true, 0, true)
     }
   }
   if (id === 'stray') shadeParts(out, look, X, Y, cos, sin, sc, lx, ly, reach, flash)
@@ -512,17 +549,43 @@ export function bakeCreature(id, elite) {
     return { canvas: a.canvas, white: b.canvas, ax: a.ax, ay: a.ay, res: RES }
   })
   const M = ASCII_CAST[id]
-  return { frames, thumb: paintThumb(frames[0].canvas), baseR: M.baseR, upright: true, lean: 0, poseOf: M.poseOf ?? null, faceDir: null, turnRate: null }
+  return { frames, thumb: paintThumb(id, elite), baseR: M.baseR, upright: true, lean: 0, poseOf: M.poseOf ?? null, faceDir: null, turnRate: null }
 }
 // The title card / recap thumbnail (scripts/bake-cast.mjs): the creature on a disc of the gallery's
-// own dark, since glowing glyphs on the cards' cream circles wash out.
-function paintThumb(src) {
-  const S = Math.ceil(Math.max(src.width, src.height) * 1.08)
+// own dark, since glowing glyphs on the cards' cream circles wash out. Painted from the glyphs at
+// THUMB_RES (twice the pool bakes'). A long body (THUMB_SIDE: a tail, a lamp beam) is shown side on
+// and the disc is fitted to its BODY, so the tail runs off the disc's edge instead of shrinking the
+// creature to a sliver; the others are fitted whole.
+const THUMB_RES = 6
+const THUMB_SIDE = { mineRat: [1.5, 1.22], kobold: [1.1, 1.4] }   // [body reach x baseR, disc margin]
+function paintThumb(id, elite) {
+  const side = THUMB_SIDE[id]
+  const list = []
+  composeCreature((...g) => list.push(g), id, 0, 0, side ? 0 : -Math.PI / 2, 1, 0.3, 0.6, 0.9, 0, { phase: 0, t: 0, pose: 'walk', aimK: 1 }, elite)
+  const fit = side ? list.filter((g) => !g[7] && Math.hypot(g[1], g[2]) < CAST[id].baseR * side[0]) : list
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
+  for (const g of fit) { x0 = Math.min(x0, g[1] - g[5] / 2); x1 = Math.max(x1, g[1] + g[5] / 2); y0 = Math.min(y0, g[2] - g[5] / 2); y1 = Math.max(y1, g[2] + g[5] / 2) }
+  const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2
+  // a whole body fits its box's corners inside the disc; a side-on one fills it edge to edge
+  const D = side ? Math.max(x1 - x0, y1 - y0) * side[1] : Math.hypot(x1 - x0, y1 - y0) * 0.92
+  const S = Math.ceil(D * THUMB_RES)
   const c = mkCanvas(S, S)
   const x = c.getContext('2d')
   x.fillStyle = '#140d0a'
-  x.beginPath(); x.arc(S / 2, S / 2, S / 2, 0, TAU); x.fill()
-  x.drawImage(src, (S - src.width) / 2, (S - src.height) / 2)
+  x.beginPath(); x.arc(S / 2, S / 2, S / 2, 0, TAU); x.fill(); x.clip()
+  x.textAlign = 'center'; x.textBaseline = 'middle'
+  x.scale(THUMB_RES, THUMB_RES); x.translate(D / 2 - cx, D / 2 - cy)
+  for (const [ch, gx, gy, col, a, size, rot, add, font, glow] of list) {
+    x.save()
+    x.translate(gx, gy); x.rotate(rot)
+    x.font = FONTS[font].replace('44px', `${size}px`)
+    x.globalAlpha = glow ? a * 0.5 : a
+    x.globalCompositeOperation = add ? 'lighter' : 'source-over'
+    if (glow) { x.shadowColor = '#' + col.toString(16).padStart(6, '0'); x.shadowBlur = size * 0.3 * THUMB_RES }
+    x.fillStyle = '#' + col.toString(16).padStart(6, '0')
+    x.fillText(ch, 0, 0)
+    x.restore()
+  }
   return c
 }
 export function paintHazard(src) {
@@ -602,7 +665,7 @@ export function createAsciiRenderer(host) {
   floorC.label = 'ascii-floor'; gasC.label = 'ascii-gas'; warnC.label = 'ascii-warn'; dropC.label = 'ascii-drops'; mobC.label = 'ascii-mob'
   objC.label = 'ascii-obj'; meC.label = 'ascii-me'; fxC.label = 'ascii-fx'; numC.label = 'ascii-num'; scrC.label = 'ascii-screen'
   host.under.addChild(floorC, gasC, warnC, dropC, mobC)
-  host.over.addChild(objC, meC, fxC, numC)
+  host.over.addChild(objC, fxC, numC, meC)
   host.screen.addChild(scrC)
   // the floor: baked chunks outside the fast lights, live cells inside them (complementary stencil
   // masks of the same discs, so every pixel comes from exactly one), ore cells live on top
@@ -614,8 +677,9 @@ export function createAsciiRenderer(host) {
   const floor = makeBatch(liveC), ores = makeBatch(oreC)
   const bakeC = new Container(), bakeB = makeBatch(bakeC)
   const chunks = new Map()   // "ci,cj" -> { ci, cj, grid, ores, rt, spr, at, gas, res, seen }
-  const gas = makeBatch(gasC), warn = makeBatch(warnC), drops = makeBatch(dropC), mob = makeBatch(mobC)
-  const obj = makeBatch(objC), me = makeBatch(meC), fxB = makeBatch(fxC), numB = makeBatch(numC), scr = makeBatch(scrC)
+  const cap = { capped: true }
+  const gas = makeBatch(gasC, cap), warn = makeBatch(warnC, cap), drops = makeBatch(dropC, cap), mob = makeBatch(mobC, cap)
+  const obj = makeBatch(objC, cap), me = makeBatch(meC, { glowUnder: true }), fxB = makeBatch(fxC, cap), numB = makeBatch(numC), scr = makeBatch(scrC)
   const all = [floor, ores, gas, warn, drops, mob, obj, me, fxB, numB, scr]
   for (const ch of PRE) { glyphTex(ch, 0); glyphTex(ch, 1); glyphTex(ch, 2); glyphTex(ch, 0, true) }
   let clock = 0
@@ -627,7 +691,7 @@ export function createAsciiRenderer(host) {
   const MAX_FX = 1400
   // the thrown pick (V11): each 'pickaxe' event sends one from the miner to the blow, render-only
   const picks = []
-  const PICK_FLIGHT = 0.1   // s from the '@' to the strike point: quick enough to read as the cause
+  const PICK_FLIGHT = 0.15  // s from the '@' to the strike point: quick enough to read as the cause, long enough to catch
   const spawn = (p) => { if (fx.length < MAX_FX) fx.push({ t: 0, vx: 0, vy: 0, rot: 0, vr: 0, add: false, a0: 1, font: 0, glow: false, grav: 0, ...p }) }
   // damage numbers: small dim digits, the floor's own thin serif, gone in half a second
   const nums = []
@@ -684,12 +748,16 @@ export function createAsciiRenderer(host) {
     // a death: the creature's own glyphs fly apart and fade
     const list = []
     composeCreature((...g) => list.push(g), m.id, m.x, m.y, m.heading, m.sc, 0, 0, 0.6, 0.4, { phase: m.phase, t: clock, pose: 'walk', aimK: 0 }, m.elite)
-    const step = Math.max(1, Math.floor(list.length / 60))
-    for (let i = 0; i < list.length; i += step) {
+    // its glyphs' places and colours, but as dust: '.' ',' '\'' half-grey, small, faint and short-lived
+    // (a field of its own dense glyphs read as live bodies still standing there)
+    const DUST = ['.', ',', '\'']
+    const step = Math.max(1, Math.floor(list.length / 22))
+    for (let i = 0, n = 0; i < list.length; i += step, n++) {
       const g = list[i]
+      if (g[7]) continue
       const dx = g[1] - m.x, dy = g[2] - m.y, d = Math.hypot(dx, dy) || 1
-      const sp = 40 + Math.random() * 90
-      spawn({ ch: g[0], x: g[1], y: g[2], vx: dx / d * sp, vy: dy / d * sp, life: 0.45 + Math.random() * 0.4, c0: g[3], c1: 0x1a1210, size: g[5], rot: g[6], vr: (Math.random() - 0.5) * 8, a0: g[4] })
+      const sp = 30 + Math.random() * 60
+      spawn({ ch: DUST[n % 3], x: g[1], y: g[2], vx: dx / d * sp, vy: dy / d * sp, life: 0.22 + Math.random() * 0.18, c0: mixHex(g[3], 0x5a544c, 0.6), c1: 0x14100c, size: Math.min(7, g[5] * 0.8), rot: g[6], vr: (Math.random() - 0.5) * 6, a0: 0.45 })
     }
   }
 
@@ -784,6 +852,7 @@ export function createAsciiRenderer(host) {
       if (R?.background && R.background.color?.toNumber?.() !== 0) R.background.color = 0x000000
       if (dt > 0) clock += dt
       frame++
+      addCapReset(view)
       const p = run.player
       const pr = p.radius ?? 14
       const time = run.time ?? clock
@@ -977,10 +1046,10 @@ export function createAsciiRenderer(host) {
       // ---- the creatures, composed glyph by glyph ----
       mob.begin()
       // the miner stays the clearest thing on screen: creature glyphs thin out right around the '@'
-      const CLR = 40, CLR2 = CLR * CLR
+      const CLR = 58, CLR2 = CLR * CLR
       const out = (ch, x, y, col, al, size, rot, add, font, glow) => {
         const dx = x - p.x, dy = y - p.y, d2 = dx * dx + dy * dy
-        if (d2 < CLR2) { const k = d2 / CLR2; al *= 0.05 + 0.95 * k * k }
+        if (d2 < CLR2) { const k = d2 / CLR2; al *= add ? k * k * k : 0.03 + 0.97 * k * k }
         mob.put(ch, x, y, col, al, size, rot, add, font, glow)
       }
       const marks = []   // elites / affixed bodies on screen: their affix tells are drawn after the crowd
@@ -1096,13 +1165,15 @@ export function createAsciiRenderer(host) {
           }
         }
         // the badges: one glyph per affix in a row over the crown
+        // the badges: one small glyph per affix, sitting in the crown's own row (between its sparks),
+        // or just over the body when there is no crown
         const shown = aff.filter((a) => AFFIX_GLYPH[a])
-        const by = Y - R * 0.9 - 36
+        const by = Y - R * 0.9 - (e.elite ? 13 : 6)
         for (let i = 0; i < shown.length; i++) {
           const [ch, col] = AFFIX_GLYPH[shown[i]]
-          const bx = X + (i - (shown.length - 1) / 2) * 14
-          mob.put(ch, bx, by, col, 0.45, 20, 0, true, 0, true)
-          mob.put(ch, bx, by, mixHex(col, 0xffffff, 0.35), 1, 14, 0, false, 2, false)
+          const bx = X + (i - (shown.length - 1) / 2) * 11
+          mob.put(ch, bx, by, col, 0.3, 15, 0, true, 0, true)
+          mob.put(ch, bx, by, mixHex(col, 0xffffff, 0.25), 1, 11, 0, false, 2, false)
         }
       }
       // corpse bombs (volatile elites, Unstable Cores): a red circle drawn in strokes at the blast's
@@ -1216,12 +1287,11 @@ export function createAsciiRenderer(host) {
           const ux = b.vx / sp, uy = b.vy / sp
           for (let i = 10; i >= 1; i--) {
             const f = i / 10
-            obj.put(i < 4 ? '=' : i < 7 ? '-' : '·', b.x - ux * (3 + i * 4.2), b.y - uy * (3 + i * 4.2), mixHex(0xbff2ff, 0x1a4aa0, f), 1 - f * 0.8, 11 - f * 5, a, true, 2, false)
+            obj.put(i < 4 ? '=' : i < 7 ? '-' : '·', b.x - ux * (3 + i * 4.2), b.y - uy * (3 + i * 4.2), mixHex(0xf4ead8, 0x5a5650, f), 1 - f * 0.8, 11 - f * 5, a, true, 2, false)
           }
           const spin = clock * 14 + b.x * 0.05
-          obj.put('*', b.x, b.y, 0x30a8ff, 0.75, 26, spin, true, 2, true)
-          obj.put('*', b.x, b.y, 0x9ae8ff, 1, 17, spin, false, 2, false)
-          obj.put('·', b.x, b.y, 0xffffff, 1, 10, 0, true, 0, false)
+          obj.put('*', b.x, b.y, 0xc8a878, 0.55, 24, spin, true, 2, true)
+          obj.put('*', b.x, b.y, 0xf2e6d0, 1, 16, spin, false, 2, false)
         } else obj.put('*', b.x, b.y, 0xffe28a, 1, 10, a, true, 0, false)
       }
       for (const n of run.novas ?? []) {
@@ -1284,6 +1354,8 @@ export function createAsciiRenderer(host) {
           }
         }
         me.put('@', p.x + cos * 2 * sc, p.y + sin * 2 * sc, blink ? 0xff8a60 : 0xffd890, 0.75, 34 * sc, 0, true, 0, true)
+        // (the glow is the batch's additive half, drawn UNDER the crisp glyphs: makeBatch glowUnder)
+        me.put('@', p.x + cos * 2 * sc, p.y + sin * 2 * sc, 0x050302, 0.8, 29 * sc, 0, false, 0, false)
         me.put('@', p.x + cos * 2 * sc, p.y + sin * 2 * sc, flash ? 0xffffff : blink ? 0xffc8a8 : 0xfff4d8, 1, 25 * sc, 0, false, 0, false)
         if (lantern > 0) {
           // the lantern itself, hung at your side: '[' '*' ']' with its flame breathing
@@ -1391,20 +1463,25 @@ export function createAsciiRenderer(host) {
       if (hurtT > 0) {
         if (dt > 0) hurtT = Math.max(0, hurtT - dt)
         const f = hurtK * Math.pow(hurtT / hurt0, 0.7)
-        const SC = 15, D = 4
+        // ragged, not ruled: each glyph is thrown up to half a cell off its slot and turned, and the
+        // band's depth wanders along the edge (2 to 5 cells), so no row or column lines up
+        const SC = 15, D = 5
         const nx = Math.ceil(view.w / SC), ny = Math.ceil(view.h / SC)
         const flick = Math.floor(clock * 24)
         const HURT_CH = ['#', '%', '*', '+', ':', '.']
-        const cell = (i, j, depth) => {
+        const cell = (i, j, depth, along, side) => {
+          const Dl = 2 + 3 * vnoise(along * 0.16 + clock * 0.6, side * 7.3, 91)
+          if (depth >= Dl) return
           const h = hash2(i, j, flick)
-          const dens = f * (1 - depth / D) * 1.25
+          const dens = f * (1 - depth / Dl) * 1.25
           if (h > dens) return
           const ch = HURT_CH[Math.min(HURT_CH.length - 1, depth + Math.floor(hash2(i, j, 77) * 2.5))]
-          const x = (i + 0.5) * SC + (hash2(i, j, flick + 1) - 0.5) * 4, y = (j + 0.5) * SC + (hash2(i, j, flick + 2) - 0.5) * 4
-          scr.put(ch, x, y, mixHex(0xff4a30, 0x8a1008, depth / D), Math.min(1, f * 1.3) * (1 - depth / (D + 0.5)), 15 - depth * 1.5, 0, true, 2, false)
+          const x = (i + 0.5) * SC + (hash2(i, j, flick + 1) - 0.5) * SC, y = (j + 0.5) * SC + (hash2(i, j, flick + 2) - 0.5) * SC
+          const rot = (hash2(i, j, flick + 3) - 0.5) * 1.3
+          scr.put(ch, x, y, mixHex(0xff4a30, 0x8a1008, depth / Dl), Math.min(1, f * 1.3) * (1 - depth / (Dl + 0.5)), (15 - depth * 1.5) * (0.85 + 0.3 * hash2(i, j, 79)), rot, true, 2, false)
         }
-        for (let i = 0; i < nx; i++) for (let d = 0; d < D; d++) { cell(i, d, d); cell(i, ny - 1 - d, d) }
-        for (let j = D; j < ny - D; j++) for (let d = 0; d < D; d++) { cell(d, j, d); cell(nx - 1 - d, j, d) }
+        for (let i = 0; i < nx; i++) for (let d = 0; d < D; d++) { cell(i, d, d, i, 0); cell(i, ny - 1 - d, d, i, 1) }
+        for (let j = 2; j < ny - 2; j++) for (let d = 0; d < D; d++) { cell(d, j, d, j, 2); cell(nx - 1 - d, j, d, j, 3) }
       }
       scr.end()
       if (getAtlas().dirty) { getAtlas().source.update(); getAtlas().dirty = false }
