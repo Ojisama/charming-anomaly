@@ -6794,6 +6794,16 @@ export function createRenderer(app) {
   // tex (body or white twin) -> its white twin: the silhouette the Geode's cavern halos are cut from
   const macroWhiteOf = new Map()
   const macroFrames = new Map()
+  // The photographed player (MACRO.paintPlayerBlob), baked the first time a macro run draws it.
+  let macroPlayerLook = null
+  function macroPlayer() {
+    if (macroPlayerLook) return macroPlayerLook
+    const b = MACRO.bakeLocal(MACRO.MACRO_PLAYER_E, 3, MACRO.paintPlayerBlob, { shadowBlur: 2.5 })
+    const tex = macroCanvasTex(b.body, b.S), white = macroCanvasTex(b.white, b.S), sh = macroCanvasTex(b.shadow, b.S)
+    macroShadowOf.set(tex, sh)
+    macroPlayerLook = { body: { tex, ax: b.ax, ay: b.ay }, flash: { tex: white, ax: b.ax, ay: b.ay } }
+    return macroPlayerLook
+  }
   function makeMacroLook(id, entry, elite) {
     const M = HOLO.HOLO_CAST[id] ?? MACRO.MACRO_CAST[id]
     const n = M.poses ?? M.frames ?? 1
@@ -12642,6 +12652,7 @@ export function createRenderer(app) {
     if (pixelLook) { pixelLook = null; pixelRig.disable(); pixelRig.player.tint = 0xffffff; if (pixelHotSprite) pixelHotSprite.visible = false; pixelHitT = pixelLastInvuln = 0; bodyC.visible = true; pShadow.visible = true }
     if (ch?.render?.pixel) { macroLook = null; holoLook = null; setPixel(ch.render.pixel); return }
     macroLook = ch?.render?.macro ?? null
+    if (macroLook && !playerForm) playerSkin = null   // the photographed blob has no skin (look A)
     holoLook = null
     cavernFloor.visible = false
     holoHaloLayer.visible = false
@@ -12811,6 +12822,21 @@ export function createRenderer(app) {
       const d = (Math.abs(s.scale.y) * 22 + 5) * reach
       sh.position.set(s.x - LX * d, s.y - LY * d)
       sh.alpha = 0.62 * s.alpha
+      n++
+    }
+    // ...and the player's, off the same key, when it wears the photographed blob
+    const pst = bodyC.visible && macroShadowOf.get(pBody.texture)
+    if (pst) {
+      let sh = macroShadowPool[n]
+      if (!sh) { sh = new Sprite(pst); sh.tint = 0x000000; macroShadowLayer.addChild(sh); macroShadowPool.push(sh) }
+      sh.visible = true
+      sh.texture = pst
+      sh.anchor.copyFrom(pBody.anchor)
+      sh.rotation = 0
+      sh.scale.set(bodyC.scale.x * playerC.scale.x, bodyC.scale.y * playerC.scale.y)
+      const d = (Math.abs(sh.scale.y) * 22 + 5) * reach
+      sh.position.set(playerC.x + bodyC.x - LX * d, playerC.y + bodyC.y - LY * d)
+      sh.alpha = 0.62 * playerC.alpha
       n++
     }
     for (let i = n; i < macroShadowPool.length; i++) macroShadowPool[i].visible = false
@@ -30112,8 +30138,9 @@ void main() {
         : 0
       // The skin wins over the STILLNESS morph ladder: that ladder sharpens the FACE's own
       // silhouette toward a triangle, and there is no face here to sharpen.
-      const bodyLook = playerSkin ? T.playerButt : rung > 0 ? T.playerStill[rung] : T.playerBody
-      const flashLook = playerSkin ? T.playerButtFlash : rung > 0 ? T.playerStillFlash[rung] : T.playerFlash
+      const photo = macroLook ? macroPlayer() : null   // the macro lens: the photographed blob (look A)
+      const bodyLook = photo ? photo.body : playerSkin ? T.playerButt : rung > 0 ? T.playerStill[rung] : T.playerBody
+      const flashLook = photo ? photo.flash : playerSkin ? T.playerButtFlash : rung > 0 ? T.playerStillFlash[rung] : T.playerFlash
       cheekLook = T.playerCheeks; cheekAt = BUTT_AT.blob; cheekMask = T.playerButtFlash; cheekW = PLAYER.radius * 1.04
       if (pBody.texture !== bodyLook.tex) {
         pBody.texture = bodyLook.tex; pBody.anchor.set(bodyLook.ax, bodyLook.ay)
@@ -30125,6 +30152,7 @@ void main() {
         pShadow.texture = T.playerShadow.tex; pShadow.anchor.set(T.playerShadow.ax, T.playerShadow.ay)
       }
       pShadow.position.set(0, PLAYER.radius * 0.95)
+      pShadow.visible = !photo   // under the lens the raking cast shadow (updateMacro) replaces the puddle
     }
 
     // per-chapter blob tint (white = identity for body) + optional tail. The kaiju AND fish bakes
@@ -30134,7 +30162,7 @@ void main() {
     // playerTint (0x7ad07a for skies, 0xffffff for surf) would push the kaiju's
     // pale sclera or the fish's fin and gill highlights toward the same hue as the body fill, right
     // when that contrast matters most.
-    pBody.tint = (playerForm === 'kaiju' || playerForm === 'fish' || playerSkin) ? 0xffffff : chapterRender.playerTint
+    pBody.tint = (playerForm === 'kaiju' || playerForm === 'fish' || playerSkin || macroLook) ? 0xffffff : chapterRender.playerTint
     // OILED (The Wreck, 2026-09-07): the oil on you is on your skin — a multiply toward the film's
     // own near-black, ramped by the fouling timer, so the stain fades exactly as the slow does.
     if (buffs && buffs.foul > 0) pBody.tint = mix(pBody.tint, 0x3a2e24, buffs.foul * 0.8)
@@ -30355,8 +30383,8 @@ void main() {
       : playerForm === 'fish' ? shadowSquash * formScale : shadowSquash) * shadowHeld)
 
     // pupil tracking (local +x flips with the body toward facing)
-    if (playerSkin) {
-      pupilL.scale.set(0)   // a butt has no eyes
+    if (playerSkin || (macroLook && !playerForm)) {
+      pupilL.scale.set(0)   // a butt has no eyes; the photographed blob's are painted in
       pupilR.scale.set(0)
     } else if (playerForm === 'kaiju') {
       // bigger head, further-set eyes (drawKaijuBody's sclera circles, radius 13 at ±22,-96) — same
