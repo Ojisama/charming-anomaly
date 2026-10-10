@@ -2142,6 +2142,26 @@ function generateWells(sig) {
  *     bounce off or spent; {type:'crystalRing', x, y, r}; {type:'rootSnare', x, y, r};
  *     {type:'stalactite', x, y, r}. All drawn by render.js's burrowEvent; none has a sound.
  *
+ * BOOK 3, THE MAGMA (sim.js's Magma section; every drawing is src/pixel.js's, reached through
+ * render.js's thin pixel delegation).
+ *   cracks[i]: { x, y, r, state, t, openAt, lavaT, coolT, by, tick } — the crust (signature.crust).
+ *     state 'crack' (a hairline, harmless) until run.time >= openAt, then 'lava' for lavaT s (burns
+ *     every body on it, and the player: hurt src 'lava'), then 'cool' for coolT s (crusting over,
+ *     harmless), then gone. by = 'step' (the player's footsteps, or standing still), 'thinCrust'
+ *     (the mutator's own cracks) or a weapon id ('volcanicBomb' opens one already molten). _flareT
+ *     is the run.time until which a Bellows flare is lighting it. Empty with signature.crust null.
+ *   slagPools[i]: { x, y, r, t, dur, burn, tick } — Slag Ladle puddles: burn every SLAG_TICK s.
+ *   magmaLobs[i]: { kind: 'slag'|'bomb', fromX, fromY, x, y, t, flight, r, dmg, ... } — a ladle of
+ *     slag or a volcanic bomb in the air; lands at t >= flight.
+ *   Bullets: weapon 'obsidian' (Obsidian Shards), 'splinter' (what a killing shard bursts into).
+ *   Novas: look 'bellows' (a sector: arc, angle).
+ *   Run: _crustOdo / _crustStill (footstep clock), _crustWildT (Thin Crust's clock).
+ *   Events: {type:'crackOpen', x, y, r, by} a crack opened into lava (by as above);
+ *     {type:'crustCrack', x, y, r, by} a new crack; {type:'lavaFlare', x, y, r} Bellows lit a lava;
+ *     {type:'slagSplash', x, y, r}; {type:'bombLand', x, y, r}; {type:'lavaBurn', x, y} a body
+ *     burned on lava (throttled). Drawn by src/pixel.js (render.js's magmaEvent); none has a sound
+ *     but bombLand.
+ *
  * THE SHELF's three natives add NO run.* array either, on the same argument. Each is an existing
  * entity carrying one extra field, and that field is what the renderer branches on:
  *   - Sunspear: a run.lobs entry carrying `column: true`, whose `fromX/fromY` ARE its `tx/ty` — so
@@ -2922,6 +2942,8 @@ export function createRun(meta, opts = {}) {
     // Book 3 Burrow (see the sim.js Burrow section): Topsoil's tunnels and pits, and the weapons'
     // own entities. Empty in every other chapter.
     pits: [], caveIns: [], snares: [], drips: [], echoes: [],
+    // Book 3 The Magma (sim.js's Magma section): the crust's cracks, and the weapons' own entities.
+    cracks: [], slagPools: [], magmaLobs: [],
     sandbars: [],          // Book 2 surf: streamed dry patches (signature.bars) — see streamSandbars
     _sandCellI: null,      // streaming cursor, independent of the obstacle/eddy/trap/shaft cursors
     _sandCellJ: null,

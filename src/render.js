@@ -40,8 +40,10 @@ import { currentForce, tideForce, krakenArmInReach } from './sim.js'
 import { KRAKEN_BEATS, KRAKEN_CEREMONY, KRAKEN_OUTRO } from './config.js'
 import { TRAWL_WIGGLE_ARC, KRAKEN_GRIP_FLICKS } from './config.js'
 import { DRAW_CAPS } from './config.js'
+import { ELITE } from './config.js'
 import * as MACRO from './macro.js'
 import * as HOLO from './holo.js'
+import * as PIXEL from './pixel.js'
 import { t as tr } from './i18n.js'
 
 
@@ -6023,6 +6025,7 @@ export function createRenderer(app) {
     }
   }
   function buildBurrowTextures() {
+    Object.assign(T, PIXEL.bakeProps())   // The Magma's floor props (src/pixel.js), keyed px_<prop><v>
     // the photographed floor props (src/macro.js MACRO_PROPS), three bakes of each
     for (const name of Object.keys(MACRO.MACRO_PROPS)) {
       for (let v = 0; v < 3; v++) {
@@ -6440,6 +6443,14 @@ export function createRenderer(app) {
     s.visible = true
     return s
   }
+  // The Magma's events, all handed to src/pixel.js (which owns every drawing in that chapter).
+  function magmaEvent(e) {
+    switch (e.type) {
+      case 'crackOpen': case 'crustCrack': case 'lavaFlare': case 'slagSplash': case 'bombLand':
+        return pixelRig.event(e)
+    }
+    return false
+  }
   function burrowEvent(e) {
     switch (e.type) {
       case 'moleQuake':
@@ -6557,6 +6568,14 @@ export function createRenderer(app) {
     },
     crystalCrab: { archetype: 'tank', draw: drawCrystalCrab, macro: true, lean: 90, phases: 4 },
     bat: { archetype: 'fast', draw: drawBat, macro: true, lean: 90, phases: 4 },
+    // Book 3, The Magma: PIXEL ART (`pixel: true` — painted by src/pixel.js PIXEL_CAST, not here).
+    // lean 0: a pixel body only ever MIRRORS (faces left or right, nose +x), never rotates. The CRT
+    // pass re-grids whatever it is given, and a sprite turned to an arbitrary angle comes out as
+    // ragged stair-steps; a mirror keeps every art pixel square on the grid.
+    cinderBeetle: { archetype: 'normal', pixel: true, lean: 0 },
+    salamander: { archetype: 'fast', pixel: true, lean: 0 },
+    obsidianTortoise: { archetype: 'tank', pixel: true, lean: 0 },
+    fireDrake: { archetype: 'fast', pixel: true, lean: 0 },
     redcell: { archetype: 'normal', draw: drawRedcell, lean: 0 },      // biconcave disc, no forward axis — it would just tumble
     wbc: { archetype: 'tank', draw: drawWbc, lean: 0 },                // radial membrane, filopodia all round; no nose
     antibody: { archetype: 'fast', draw: drawAntibody, lean: 0 },      // 3-fold Y (Fc stem at +y), no +x front — a protein has no heading
@@ -6799,9 +6818,118 @@ export function createRenderer(app) {
       crown: elite ? { top: M.crown[0], r: M.crown[1] } : null,
     }
   }
+  // ---- Book 3, The Magma: the pixel-art cast (src/pixel.js PIXEL_CAST) ----------------------------
+  // A ROSTER_LOOKS entry with `pixel: true` is painted one art pixel at a time by src/pixel.js and
+  // sampled NEAREST. No ground shadow: the CRT pass is the light.
+  //   THE DRAW SCALE IS HANDED TO THE BAKE. syncEnemies draws a body at k = e.radius / baseR, which is
+  // the roster's radiusMul times ELITE.sizeMul for an elite — so an elite drawn off the plain bake has
+  // art pixels 1.5x chunkier than the world grid. bakeCreature(id, frame, drawScale) receives that
+  // scale; a bake that returns { scale } has drawn its texture AT that scale already, and the look's
+  // baseR grows by it so k comes out at 1 (art pixel = grid pixel). A bake that returns no scale
+  // (the original two-argument contract) is stretched by k exactly as before.
+  const pixelFrames = new Map()
+  // THE PIXEL CROWN SITS ON THE BODY AS DRAWN. A fixed crown offset (PIXEL_CAST.crown) cannot know
+  // the frame, the facing rotation, the elite draw scale or a restyled bake, and it floated the crown
+  // well clear of the creature. So each baked frame keeps its opaque outline (every opaque row's left
+  // and right edge, in texture-local world px from the anchor) and syncEnemyDecor puts the crown on
+  // the top of that outline after the sprite's own scale and rotation.
+  const pixelOutline = new WeakMap()   // texture -> Float32Array [x0, y0, x1, y1, ...]
+  function pixelOutlinePts(cv, res, ax, ay) {
+    let data
+    try { data = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data } catch { return null }
+    const W = cv.width, H = cv.height, ox = ax * W, oy = ay * H, out = []
+    for (let y = 0; y < H; y++) {
+      let x0 = -1, x1 = -1
+      for (let x = 0; x < W; x++) if (data[(y * W + x) * 4 + 3] > 24) { if (x0 < 0) x0 = x; x1 = x + 1 }
+      if (x0 < 0) continue
+      for (const yy of [y, y + 1]) out.push((x0 - ox) / res, (yy - oy) / res, (x1 - ox) / res, (yy - oy) / res)
+    }
+    return out.length ? new Float32Array(out) : null
+  }
+  // -> [x, y] world offset from the sprite's position of the top of its drawn outline, or null
+  function pixelCrownSeat(s) {
+    const pts = pixelOutline.get(s.texture)
+    if (!pts) return null
+    const c = Math.cos(s.rotation), sn = Math.sin(s.rotation), sx = s.scale.x, sy = s.scale.y
+    let top = Infinity
+    for (let i = 0; i < pts.length; i += 2) {
+      const X = pts[i] * sx, Y = pts[i + 1] * sy, ry = X * sn + Y * c
+      if (ry < top) top = ry
+    }
+    // the ridge: every outline point within one art pixel of the top; the crown centres on it
+    const band = top + (PIXEL.PX ?? 3) * 1.5
+    let lo = Infinity, hi = -Infinity
+    for (let i = 0; i < pts.length; i += 2) {
+      const X = pts[i] * sx, Y = pts[i + 1] * sy, ry = X * sn + Y * c
+      if (ry > band) continue
+      const rx = X * c - Y * sn
+      if (rx < lo) lo = rx
+      if (rx > hi) hi = rx
+    }
+    return [(lo + hi) / 2, top]
+  }
+  function pixelDrawScale(id, elite) {
+    let mul = 1
+    for (const ch of Object.values(CHAPTERS)) {
+      const r = ch.roster?.find((x) => x.id === id)
+      if (r) { mul = r.radiusMul ?? 1; break }
+    }
+    return mul * (elite ? ELITE.sizeMul : 1)
+  }
+  function makePixelLook(id, entry, elite) {
+    const M = PIXEL.PIXEL_CAST[id]
+    const drawScale = pixelDrawScale(id, elite)
+    const key = id + '@' + drawScale
+    let frames = pixelFrames.get(key)
+    if (!frames) {
+      frames = []
+      for (let f = 0; f < (M.frames ?? 1); f++) {
+        const b = PIXEL.bakeCreature(id, f, drawScale)
+        const fr = { tex: PIXEL.pixelTex(b.body, b.res), white: PIXEL.pixelTex(b.white, b.res), ax: b.ax, ay: b.ay, scale: b.scale }
+        const pts = pixelOutlinePts(b.body, b.res ?? 1, b.ax, b.ay)
+        if (pts) { pixelOutline.set(fr.tex, pts); pixelOutline.set(fr.white, pts) }
+        frames.push(fr)
+      }
+      pixelFrames.set(key, frames)
+    }
+    const baked = frames[0].scale > 0 ? frames[0].scale : 1
+    return {
+      tex: frames[0].tex, white: frames[0].white, ax: frames[0].ax, ay: frames[0].ay,
+      frames: frames.length > 1 ? frames : null,
+      baseR: ROSTER_BASE_R[entry.archetype] * baked, maxLean: entry.lean * DEG,
+      poseOf: null, faceDir: null, turnRate: null, spin: 0, squash: 0,
+      shadow: null,
+      // crown.pixel: drawn at the grid size by syncEnemyDecor (pixelCrownLook), never stretched by k
+      crown: elite ? { top: M.crown[0], r: M.crown[1], pixel: true, baked } : null,
+    }
+  }
+  // The elite crown in pixel art. src/pixel.js may own it (bakeCrown(r) -> the same
+  // { body, white, ax, ay, res } shape bakeCreature returns); without that hook a plain gold pixel
+  // crown is painted here on PIXEL's own canvas and palette, so it sits on the same grid.
+  const pixelCrownTexes = new Map()
+  function pixelCrownLook(r) {
+    let l = pixelCrownTexes.get(r)
+    if (!l) {
+      let b = PIXEL.bakeCrown ? PIXEL.bakeCrown(r) : null
+      if (!b) {
+        const P = PIXEL.PAL
+        const pc = new PIXEL.PixelCanvas(9, 6)
+        pc.rect(1, 3, 7, 2, P.coin)
+        for (const x of [1, 4, 7]) { pc.set(x, 1, P.coin); pc.set(x, 2, P.coin) }
+        pc.set(4, 0, P.coinHi); pc.set(4, 3, P.eye); pc.rect(2, 4, 5, 1, P.coinLo)
+        pc.outline(P.ink)
+        const k = (PIXEL.PX ?? 3) * 2
+        b = { body: pc.toCanvas(k), white: pc.toCanvas(k, true), ax: 0.5, ay: 1, res: 2 }
+      }
+      l = { tex: PIXEL.pixelTex(b.body, b.res), white: PIXEL.pixelTex(b.white, b.res), ax: b.ax, ay: b.ay }
+      pixelCrownTexes.set(r, l)
+    }
+    return l
+  }
   function makeRosterLook(id, elite, child = false) {
     const entry0 = ROSTER_LOOKS[id]
     if (entry0.macro && !child) return makeMacroLook(id, entry0, elite)
+    if (entry0.pixel && !child) return makePixelLook(id, entry0, elite)
     // A child look is the same entry wearing a different draw fn, so it inherits `lean`, `phases`
     // and everything else the parent declared — a zooid that swam on a different axis from the
     // colony it came out of would be a second bug wearing the first one's clothes.
@@ -12058,7 +12186,11 @@ export function createRenderer(app) {
     shader: Shader.from({ gl: { vertex: HOLO.CAVERN_FLOOR_VERT, fragment: HOLO.CAVERN_FLOOR_FRAG, name: 'holo-cavern-floor' }, resources: { cavernU, uDark: Texture.WHITE.source, uNacre: Texture.WHITE.source } }),
   })
   cavernFloor.visible = false
-  floorLayer.addChild(groundLayer, macroFloor, cavernFloor, hullLayer, blotchLayer, roadLayer, roadDecalLayer, junctionLayer, ruinLayer,
+  // CHAPTERS[id].render.pixel: THE MAGMA AS PIXEL ART THROUGH A CRT (src/pixel.js owns every drawing:
+  // its floor, the crust and lava, the weapons' lobs and gusts, the player, pickups, the CRT pass).
+  // render.js only places its layers and forwards the hooks below.
+  const pixelRig = PIXEL.createPixelRig({ app, addShake: (a, d) => addShake(a, d) })
+  floorLayer.addChild(groundLayer, macroFloor, cavernFloor, pixelRig.floor, hullLayer, blotchLayer, roadLayer, roadDecalLayer, junctionLayer, ruinLayer,
     bigLayer, midLayer, detailLayer, clutterLayer, edgeLayer)
 
   const entitiesLayer = new Container()
@@ -12429,8 +12561,63 @@ export function createRenderer(app) {
     app.stage.filterArea = app.screen
     app.stage.filters = [foilFilter]
   }
+  let pixelLook = null
+  // THE PIXEL PLAYER'S HIT FLASH MAKES IT BRIGHTER, NEVER DARKER, AND NEVER A COVER. The generic
+  // invuln blink (playerC.alpha 0.4) and src/pixel.js's all-white twin both erased the face for most
+  // of every i-frame window, and a sprite tint MULTIPLIES, so a hot tint turned the mint body into a
+  // dark disc. A fresh hit (invuln climbing) instead blinks an ADDITIVE twin of the player sprite —
+  // same texture, anchor and scale, so it is the body's own shape lit hot, face and all — a few times.
+  //   src/pixel.js may own it: flashPlayer(container, s) with s in 0..1 (0 = off) returning true.
+  const PIXEL_HIT_FLASH = { t: 0.24, hz: 12.5, tint: 0xffb46a, alpha: 0.85 }   // seconds, blink rate, the glow
+  let pixelHitT = 0, pixelLastInvuln = 0, pixelHotSprite = null
+  function syncPixelPlayerFlash(p, dt) {
+    const inv = p.invuln ?? 0
+    if (inv > pixelLastInvuln + 1e-6) pixelHitT = PIXEL_HIT_FLASH.t
+    pixelLastInvuln = inv
+    pixelHitT = Math.max(0, pixelHitT - dt)
+    pixelRig.syncPlayer(p, dt, animT, false)
+    const rig = pixelRig.player
+    rig.tint = 0xffffff
+    const on = pixelHitT > 0 && Math.floor((PIXEL_HIT_FLASH.t - pixelHitT) * PIXEL_HIT_FLASH.hz * 2) % 2 === 0
+    if (PIXEL.flashPlayer && PIXEL.flashPlayer(rig, on ? pixelHitT / PIXEL_HIT_FLASH.t : 0)) {
+      if (pixelHotSprite) pixelHotSprite.visible = false
+      return
+    }
+    const body = rig.children.find((c) => c !== pixelHotSprite && c.texture)
+    if (!body) return
+    if (!pixelHotSprite) {
+      pixelHotSprite = new Sprite(body.texture)
+      pixelHotSprite.blendMode = 'add'
+      pixelHotSprite.tint = PIXEL_HIT_FLASH.tint
+      pixelHotSprite.alpha = PIXEL_HIT_FLASH.alpha
+      rig.addChild(pixelHotSprite)
+    }
+    pixelHotSprite.visible = on
+    if (!on) return
+    if (pixelHotSprite.texture !== body.texture) pixelHotSprite.texture = body.texture
+    pixelHotSprite.anchor.copyFrom(body.anchor)
+    pixelHotSprite.scale.copyFrom(body.scale)
+    pixelHotSprite.position.copyFrom(body.position)
+    pixelHotSprite.rotation = body.rotation
+  }
+  function setPixel(look) {
+    pixelLook = look
+    pixelRig.enable(look)
+    macroFloor.visible = false
+    cavernFloor.visible = false
+    blotchLayer.visible = false
+    macroAir.visible = false
+    macroShadowLayer.visible = false
+    holoHaloLayer.visible = false
+    bodyC.visible = false
+    pShadow.visible = false
+    app.stage.filterArea = app.screen
+    app.stage.filters = [pixelRig.filter]
+  }
   function setMacro(run) {
     const ch = run && CHAPTERS[run.chapter]
+    if (pixelLook) { pixelLook = null; pixelRig.disable(); pixelRig.player.tint = 0xffffff; if (pixelHotSprite) pixelHotSprite.visible = false; pixelHitT = pixelLastInvuln = 0; bodyC.visible = true; pShadow.visible = true }
+    if (ch?.render?.pixel) { macroLook = null; holoLook = null; setPixel(ch.render.pixel); return }
     macroLook = ch?.render?.macro ?? null
     holoLook = null
     cavernFloor.visible = false
@@ -13024,7 +13211,7 @@ const spurG = new Graphics()
   const particleLayer = new Container()
   const textLayer = new Container()
   entitiesLayer.addChild(
-    mownG, sandLayer, netWakeG, wellG, bindG, poolLayer, slickG, burrowGroundG, trailLayer, webLayer, gateFloorG, spurG, coralLayer, gateG, burstWakeG, obstacleLayer, trapLayer,
+    mownG, sandLayer, netWakeG, wellG, bindG, poolLayer, slickG, burrowGroundG, pixelRig.ground, trailLayer, webLayer, gateFloorG, spurG, coralLayer, gateG, burstWakeG, obstacleLayer, trapLayer,
     // The refill circles (The Deep's anglerfish, sun shafts, pools) sit UNDER the drops: a maw is
     // a 400px body, and above gemLayer it hid every gem and coin that fell inside it.
     shaftLayer,
@@ -13033,7 +13220,7 @@ const spurG = new Graphics()
     rockLayer,
     orcaShadowSp, orcaG,
     macroShadowLayer, enemyShadowLayer, holoHaloLayer, enemyLayer, krakenArmLayer, enemyCrownLayer, krakenCoilBandLayer, orcaSp, netG, longlineG, snareG,
-    bloomLayer, lureLayer, shieldG, affixLayer, crustG, deepG, lockLayer, playerC, krakenGripFrontLayer, netHoldG, gateFrontG, breakerG, puffG, splashG, columnG, shorebreakG, burrowFxG, burrowStoneLayer,
+    bloomLayer, lureLayer, shieldG, affixLayer, crustG, deepG, lockLayer, playerC, krakenGripFrontLayer, netHoldG, gateFrontG, breakerG, puffG, splashG, columnG, shorebreakG, burrowFxG, burrowStoneLayer, pixelRig.air,
     bulletLayer, boomerangLayer, orbLayer, debrisLayer, homingLayer, shotLayer, beamLayer, whipLayer, arcG, breathG,
     lobLayer, carLayer, smokeLayer, particleLayer,
     // v6.7.7: the refraction sits in FRONT of traffic, smoke and particles — everything except the
@@ -14038,6 +14225,8 @@ const spurG = new Graphics()
     // Book 3. The same silent fallback the comments below warn about, twice more.
     topsoil: BIOME_TOPSOIL,
     geode: BIOME_GEODE,
+    // The Magma: every prop is src/pixel.js's (PIXEL.BIOME names its baked keys)
+    magma: { ...PIXEL.BIOME, obstacle: { clumps: OBSTACLE_CLUMPS, tint: 0xffffff, foot: 0x120604 } },
     // The Blank shares the body's decor DELIBERATELY, and this line exists so that it is a decision
     // rather than an accident. Its boss is the ANTIBODY and its fiction is reality's immune response,
     // so villi and plasma motes are the right furniture — but it was getting them by falling through
@@ -14860,6 +15049,7 @@ const spurG = new Graphics()
   const tailC = new Sprite(Texture.EMPTY)
   for (const t of [tailA, tailB, tailC]) { t.anchor.set(0.04, 0.5); pTail.addChild(t) }
   playerC.addChild(pRampageGlow, pShadow, pTail, bodyC) // glow sits furthest back, tail above the shadow, behind the body
+  playerC.addChild(pixelRig.player)   // The Magma: the pixel player (src/pixel.js), shown in place of bodyC
 
   // title-screen ambient blobs
   const idleBlobs = []
@@ -28325,6 +28515,7 @@ void main() {
     } else scrapeT = 0
 
     for (const e of events) {
+      if (magmaEvent(e)) continue    // Book 3, The Magma: its own events, drawn by src/pixel.js
       if (burrowEvent(e)) continue   // Book 3, Burrow: its own events (and the shovel's scoop)
       switch (e.type) {
         case 'hit': {
@@ -29508,6 +29699,7 @@ void main() {
 
   // ------------------------------------------------------------------- reset
   function clearWorld() {
+    pixelRig.clear()   // The Magma (src/pixel.js): its own pools
     burrowGroundG.clear(); burrowFxG.clear(); burrowSwings.length = 0
     for (const st of burrowStones) st.visible = false
     for (const [id, s] of enemySprites) {
@@ -30152,7 +30344,7 @@ void main() {
     // for an ARM's hit (krakenHurtBlinkT) — the head's touch is told by the crimson touch band.
     playerC.alpha = playerC.parent === krakenFishHost
       ? (dt > 0 && krakenHurtBlinkT > 0 && Math.sin(animT * Math.PI * 2 * K_HURT_BLINK_HZ) < 0 ? 0.08 : 1)
-      : p.invuln > 0 ? (Math.sin(animT * 32) > 0 ? 1 : 0.4) : 1
+      : p.invuln > 0 && !pixelLook ? (Math.sin(animT * 32) > 0 ? 1 : 0.4) : 1
 
     // ---- the death outro's pose (v7.x, DEATH_OUTRO) ----------------------------------------------
     // A fish that has stopped swimming. Last in the function on purpose (see the deathP note on the
@@ -30191,6 +30383,8 @@ void main() {
     // plumbing (the blank's Antibody carries 'anchored' for knockback immunity), not a badge.
     const affixes = (e.elite || e.affixVisible) ? e.affixes : null
     const n = affixes ? affixes.length : 0
+    if (pixelLook) return syncPixelAffixBadges(s, e, affixes, n)
+    if (s._affixPix) for (const t of s._affixPix) t.visible = false
     if (!s._affixTexts) s._affixTexts = []
     while (s._affixTexts.length < n) {
       const t = new Text({
@@ -30216,8 +30410,73 @@ void main() {
     }
   }
   function hideAffixBadges(s) {
-    if (!s._affixTexts) return
-    for (const t of s._affixTexts) t.visible = false
+    if (s._affixTexts) for (const t of s._affixTexts) t.visible = false
+    if (s._affixPix) for (const t of s._affixPix) t.visible = false
+  }
+  // Elite affix badges in pixel art (The Magma): an emoji Text through the CRT pass smears into a
+  // teal/magenta blur, so in pixel mode each affix is a tiny icon on PIXEL's own grid and palette,
+  // drawn one art pixel at a time like the crown. src/pixel.js may own them (bakeAffix(id) -> the
+  // { body, ax, ay, res } shape bakeCrown returns, or null for this default).
+  const PIXEL_AFFIX_ART = {
+    shielded:  { rows: ['BBBBBBB', 'BWBBBBB', 'BWBBBBB', 'BBBBBBB', '.BBBBB.', '..BBB..', '...B...'], pal: { B: 'gemLo', W: 'gemHi' } },
+    splitter:  { rows: ['C.....M', '.CHHHM.', '..C.M..', '...M...', '..M.C..', '.MHHHC.', 'M.....C'], pal: { C: 'gem', M: 'blush', H: 'white' } },
+    volatile:  { rows: ['Y..O..Y', '.YOOOY.', '.OWWWO.', 'OOWWWOO', '.OWWWO.', '.YOOOY.', 'Y..O..Y'], pal: { Y: 'lava3', O: 'lava1', W: 'lava4' } },
+    pacer:     { rows: ['......W', '....WWW', '.RRWWWW', 'RRRWWWW', '.RRWWWW', '....WWW', '......W'], pal: { R: 'drake2', W: 'white' } },
+    anchored:  { rows: ['...A...', '..A.A..', '...A...', 'AAAAAAA', '...A...', 'A..A..A', '.AAAAA.'], pal: { A: 'ashHi' } },
+    frenzied:  { rows: ['.RRRRR.', 'RkRRRkR', 'RRkRkRR', 'RRRRRRR', 'RRkkkRR', 'RkRRRkR', '.RRRRR.'], pal: { R: 'lava0', k: 'pupil' } },
+    gilded:    { rows: ['.GGGGG.', 'GHHGGGG', 'GHGGGgG', 'GGGGGgG', 'GGGGGgG', 'GGgggGG', '.GGGGG.'], pal: { G: 'coin', H: 'coinHi', g: 'coinLo' } },
+  }
+  const pixelAffixTexes = new Map()
+  function pixelAffixTex(id) {
+    let t = pixelAffixTexes.get(id)
+    if (!t) {
+      let b = PIXEL.bakeAffix ? PIXEL.bakeAffix(id) : null
+      if (!b) {
+        const P = PIXEL.PAL
+        const art = PIXEL_AFFIX_ART[id] ?? { rows: ['.GGG.', 'G...G', '...G.', '..G..', '.....', '..G..'], pal: { G: 'coin' } }
+        const pal = {}
+        for (const c in art.pal) pal[c] = P[art.pal[c]] ?? art.pal[c]
+        const w = art.rows[0].length, h = art.rows.length
+        const pc = new PIXEL.PixelCanvas(w + 2, h + 2)
+        pc.grid(art.rows, pal, 1, 1)
+        pc.outline(P.ink)
+        b = { body: pc.toCanvas((PIXEL.PX ?? 3) * 2), ax: 0.5, ay: 1, res: 2 }
+      }
+      t = PIXEL.pixelTex(b.body, b.res)
+      pixelAffixTexes.set(id, t)
+    }
+    return t
+  }
+  // One row of pixel icons centred over the elite, seated one art pixel above its crown (the crown
+  // already rides the drawn body's top), every position snapped to the art grid so the CRT pass
+  // re-grids square cells instead of breaking a half-pixel edge into colour fringes.
+  function syncPixelAffixBadges(s, e, affixes, n) {
+    if (s._affixTexts) for (const t of s._affixTexts) t.visible = false
+    if (!s._affixPix) s._affixPix = []
+    while (s._affixPix.length < n) {
+      const t = new Sprite(Texture.EMPTY)
+      t.anchor.set(0.5, 1)
+      affixLayer.addChild(t)
+      s._affixPix.push(t)
+    }
+    const px = PIXEL.PX ?? 3
+    const snap = (v) => Math.round(v / px) * px
+    const cr = s._crown && s._crown.visible ? s._crown : null
+    const bottom = cr ? cr.y - cr.height - px : e.y - e.radius - px * 2
+    let total = 0
+    for (let i = 0; i < n; i++) total += pixelAffixTex(affixes[i]).width + (i ? px : 0)
+    let x = (cr ? cr.x : e.x) - total / 2
+    for (let i = 0; i < s._affixPix.length; i++) {
+      const t = s._affixPix[i]
+      if (i < n) {
+        const tex = pixelAffixTex(affixes[i])
+        if (t.texture !== tex) t.texture = tex
+        t.position.set(snap(x + tex.width / 2), snap(bottom))
+        t.alpha = s.alpha
+        t.visible = true
+        x += tex.width + px
+      } else t.visible = false
+    }
   }
 
   // The enemy's shadow and crown, which no longer ride inside its texture (see groundShadow/
@@ -30244,7 +30503,7 @@ void main() {
     // multiplied a gold crown into mud anyway back when it was baked in.
     const cr = look.crown
     if (cr) {
-      const ct = crownLook(cr.r)
+      const ct = cr.pixel ? pixelCrownLook(cr.r) : crownLook(cr.r)
       if (!s._crown) {
         s._crown = new Sprite(Texture.EMPTY)
         enemyCrownLayer.addChild(s._crown)
@@ -30253,10 +30512,28 @@ void main() {
       if (s._crown.texture !== tex) s._crown.texture = tex
       s._crown.anchor.set(ct.ax, ct.ay)
       s._crown.visible = true
-      s._crown.position.set(e.x, e.y + cr.top * k)
-      s._crown.scale.set(k)
+      // a pixel crown keeps its art pixels on the grid (scale 1) and sits on the drawn body's top
+      // (pixelCrownSeat), sunk two art pixels — the dark outline and legs — so it rests on the body
+      const seat = cr.pixel ? pixelCrownSeat(s) : null
+      if (seat) s._crown.position.set(s.x + seat[0], s.y + seat[1] + (PIXEL.PX ?? 3) * 2)
+      else s._crown.position.set(e.x, e.y + cr.top * k * (cr.pixel ? cr.baked : 1))
+      s._crown.scale.set(cr.pixel ? 1 : k)
       s._crown.alpha = s.alpha
     } else if (s._crown) s._crown.visible = false
+  }
+  // A ground ring in pixel art (The Magma): src/pixel.js may own it (drawRing(g, x, y, r, color,
+  // alpha)); by default it is a dashed ring of whole art pixels snapped to the world grid, so the CRT
+  // pass gets square cells to re-grid instead of an anti-aliased 2px stroke it breaks into dust.
+  function pixelRing(g, x, y, r, color, alpha) {
+    if (PIXEL.drawRing) return PIXEL.drawRing(g, x, y, r, color, alpha)
+    const px = PIXEL.PX ?? 3
+    const n = Math.max(8, Math.round((Math.PI * 2 * r) / px))
+    for (let i = 0; i < n; i++) {
+      if (i % 6 >= 4) continue   // dashes: four cells on, two off
+      const a = (i / n) * Math.PI * 2
+      g.rect(Math.floor((x + Math.cos(a) * r) / px) * px, Math.floor((y + Math.sin(a) * r) / px) * px, px, px)
+    }
+    g.fill({ color, alpha })
   }
   function hideEnemyDecor(s) {
     if (s._shadow) s._shadow.visible = false
@@ -31003,7 +31280,8 @@ void main() {
       if (e.affixes && e.affixes.includes('pacer')) {
         // subtle warm aura ring at the affix's push/pull radius, slow pulse
         const pulse = 0.5 + 0.5 * Math.sin(animT * 1.5 + e.id * 0.7)
-        pacerG.circle(e.x, e.y, PACER_RADIUS).stroke({ width: 2, color: 0xffb347, alpha: 0.18 + pulse * 0.14 })
+        if (pixelLook) pixelRing(pacerG, e.x, e.y, PACER_RADIUS, 0xffb347, 0.30 + pulse * 0.25)
+        else pacerG.circle(e.x, e.y, PACER_RADIUS).stroke({ width: 2, color: 0xffb347, alpha: 0.18 + pulse * 0.14 })
       }
 
       // SUBMISSION: the ally ring. A GROUND RING is a plan view by construction, which is the
@@ -31240,6 +31518,7 @@ void main() {
     syncTrails(run.trails || [])
     syncWebs(run.webs || [])
     syncBurrow(run, dt)   // Book 3: tunnels, pits, quakes, snares, stones, scoops, echoes (no-op elsewhere)
+    if (pixelLook) pixelRig.sync(run, dt, { cx, cy, z: world.scale.x, w: viewW(), h: viewH(), animT })   // The Magma (src/pixel.js)
     // v7.x surf: the dry patches. `|| []` like every field above — a save or a test run predating
     // the chapter has no run.sandbars at all.
     // sandbarTex is a LIST now (one bake per outline) — the pool's default texture is the first, and
@@ -31254,6 +31533,7 @@ void main() {
     // drift out of step with each other.
     const deathP = updateDeathOutro(run, dt)
     syncPlayer(run.player, dt, run.rampageT || 0, playerBuffs(run), deathP)
+    if (pixelLook) syncPixelPlayerFlash(run.player, dt)
     syncEnemies(run)
     syncBlooms(run)
     syncLures(newest(run.lures || [], 'lures'))
@@ -31349,6 +31629,7 @@ void main() {
   // v6.2 per-weapon bullet tints — see placeBullet below.
   const WEAPON_BULLET_TINT = { shard: 0xb9a8f0, quill: 0xf2ead8, trash: 0xc27b4a, debris: 0x9aa0a6 }
   function placeBullet(s, b, i) {
+    if (pixelLook && pixelRig.placeBullet(s, b, animT)) return   // The Magma: every shot is src/pixel.js's
     s.position.set(b.x, b.y)
     // Book 3: a clay pebble (Pebble Sling) and a crystal splinter along its flight (Prism Shard),
     // the latter swelling and whitening with each crystal it has bounced off.
@@ -31439,6 +31720,7 @@ void main() {
     s.scale.set(1 + 0.1 * Math.sin(animT * 7 + i * 2.4)) // slight scale pulse
   }
   function placeNova(s, n) {
+    if (pixelLook && pixelRig.placeNova(s, n)) return   // The Magma: the bellows' gust and lava flares
     // A nova carrying `arc` is a Breaker crest and is drawn by drawBreakers. This pool draws FULL
     // RINGS, so leaving it in would paint a complete circle over a weapon whose entire read is that
     // it covers only the side you face — and the sector would still be correct in the sim, so the
@@ -31534,10 +31816,14 @@ void main() {
     s.scale.set(T.orbScale * sizeMul * (1 + 0.12 * Math.sin(animT * 6 + i * 2.1)))
   }
   function placeGem(s, g) {
+    if (pixelLook && pixelRig.placeGem(s, g, animT)) return   // The Magma: pixel gems
+    if (s.texture !== T.gem.tex) { s.texture = T.gem.tex; s.anchor.set(T.gem.ax, T.gem.ay) }
     s.position.set(g.x, g.y)
     s.scale.set(1 + 0.15 * Math.sin(animT * 5 + (g.x + g.y) * 0.05))
   }
   function placeCoin(s, c) {
+    if (pixelLook && pixelRig.placeCoin(s, c, animT)) return   // The Magma: pixel coins
+    if (s.texture !== T.coin.tex) { s.texture = T.coin.tex; s.anchor.set(T.coin.ax, T.coin.ay) }
     s.position.set(c.x, c.y)
     s.scale.set(1 + 0.1 * Math.sin(animT * 4 + (c.x - c.y) * 0.05))
   }
@@ -32107,6 +32393,8 @@ void main() {
     const CORAL_THUMB_BAKE = 19
 
     const build = {
+      // The Magma: open lava, straight off src/pixel.js's own lava texture
+      lava: () => [pixelRig.hazardThumb('lava'), null],
       // ---- straight off a texture the game already baked -------------------------------------
       // spriteOf keeps the bake's own anchor, so the thumbnail is framed the way the world frames it.
       trap: () => {
