@@ -1008,6 +1008,9 @@ function generateWells(sig) {
  *                 BLOOM_SLOW_T every frame stepBlooms finds the enemy inside a cloud's radius
  *                 (guarded by damageImmune — a ghosted phase flicker ignores the cloud like it
  *                 ignores everything else); decays like the other three once outside.
+ *               bankT / bankX, bankY (The Magma, s / unit vector): holdAtRiverBank kept this body
+ *                 out of a lava river within the last bankT s; bankX/Y is the way it is walking
+ *                 along the bank (0, 0 = waiting on it). render faces the body that way.
  *               feedT (v7.x The Wreck, s of a mouthful remaining): the fish reached a Chum bait,
  *                 took one serving and STOPPED for it. While > 0 stepEnemyMovement returns before
  *                 it steers, so the body sits still in open water — that hold, not the gather, is

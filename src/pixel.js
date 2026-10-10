@@ -18,7 +18,7 @@
 // frame to the same block size, so anything else drawn in this chapter comes out on the same grid.
 import { CanvasSource, Container, Filter, GlProgram, RenderTexture, Sprite, Texture, TilingSprite, UniformGroup } from 'pixi.js'
 import { PX, UP, TAU, PAL, PixelCanvas, hash } from './pixel/canvas.js'
-import { PIXEL_CAST, paintPlayer, paintCreature, paintCreatureMask, paintCreatureFlash, castDrawScale, castArchR, castArtScale, PLAYER_ART } from './pixel/cast.js'
+import { PIXEL_CAST, paintPlayer, paintCreature, paintCreatureMask, paintCreatureFlash, castDrawScale, castArchR, castArtScale, PLAYER_ART, CAST_DIRS } from './pixel/cast.js'
 import {
   TILE_ART, paintFloorTile, PIXEL_PROPS, PROP_ART, BIOME, CRACK_ART, LAVA_ART, PUDDLE_ART,
   paintCrack, paintLava, paintCool, paintPuddle, SHOT_PAINTERS, paintGem, GEM_ART, paintCoin, COIN_ART,
@@ -27,6 +27,7 @@ import { CRT_VERT, CRT_FRAG, CRT_LOOK } from './pixel/crt.js'
 import { bakeGroundChunk, CHUNK_ART, PLATE_ART, paintPlate } from './pixel/ground.js'
 import { magmaFloorOf, riverDepthAt } from './sim.js'
 
+export { CAST_DIRS }
 export { PX, PAL, PixelCanvas, hash, PIXEL_CAST, paintPlayer, TILE_ART, paintFloorTile, PIXEL_PROPS, PROP_ART, BIOME, SHOT_PAINTERS, paintGem, paintCoin, CRT_FRAG }
 
 // CREATURE LIGHT: how brightly every creature's body is lit wherever it stands, on top of the lava's
@@ -53,11 +54,12 @@ function bakeArt(pc, ax = 0.5, ay = 0.5, white = false) {
 // render.js hands in the scale it will draw this body at (drawScale). The art is PAINTED at that size
 // (an elite is a bigger drawing, never a stretched one: castArtScale) and the scale is handed back,
 // so render.js draws it at k = 1: one art pixel per grid pixel, whatever the body's radius.
-export function bakeCreature(id, frame, drawScale = 1) {
+// d: the heading (0..CAST_DIRS-1, 0 = nose +x); the turned bake is its own drawing (castPose).
+export function bakeCreature(id, frame, drawScale = 1, d = 0) {
   const sc = castArtScale(id, drawScale)
-  const { pc, ax, ay } = paintCreature(id, frame, sc)
+  const { pc, ax, ay } = paintCreature(id, frame, sc, d)
   const k = PX * UP
-  return { body: pc.toCanvas(k), white: paintCreatureFlash(id, frame, sc).toCanvas(k), ax, ay, res: UP, scale: drawScale }
+  return { body: pc.toCanvas(k), white: paintCreatureFlash(id, frame, sc, d).toCanvas(k), ax, ay, res: UP, scale: drawScale }
 }
 // -> { 'px_column0': { tex, ax, ay }, ... }
 export function bakeProps() {
@@ -97,6 +99,9 @@ function lightDisc() {
 const L_LAVA = 0xffa040, L_HOT = 0xff6a20, L_CRACK = 0xc8300c, L_SLAG = 0xffa040, L_PLAYER = 0xa8c0ff, L_GEM = 0x40d8ff
 const L_COIN = 0xffc040, L_GLASS = 0xb0a0ff, L_RIVER = 0xffa040
 // the ground (src/pixel/ground.js): river light per point, hot ground's glow, plates on the river
+// how high a lob flies at the top of its arc, in world px (sin-shaped over the flight): the ladle's
+// slag is tossed low and flat, the bomb is lobbed high
+const LOB_ARC = { slag: 23, bomb: 110 }
 const GROUND = { riverR: 92, riverA: 0.42, hotR: 70, hotA: 0.11, pulse: 2.1, plateCycle: 64, plateSpeed: 9, bakesPerFrame: 2 }
 const UNDERGLOW = { cell: 420, chance: 0.55, r: 360, col: 0xc0401c, a: 0.2 }
 
@@ -129,11 +134,11 @@ export function createPixelRig(env) {
   // each creature frame's body MASK (outline excluded), for the emissive map, painted at the same
   // art scale as the body it covers (plain and elite), on first sight
   const maskCache = new Map()
-  const maskOf = (id, elite, f) => {
-    const key = id + (elite ? '*' : '') + f
+  const maskOf = (id, elite, f, d = 0) => {
+    const key = id + (elite ? '*' : '') + f + '/' + d
     let m = maskCache.get(key)
     if (!m) {
-      const { pc, ax, ay } = paintCreatureMask(id, f, castArtScale(id, castDrawScale(id, elite)))
+      const { pc, ax, ay } = paintCreatureMask(id, f, castArtScale(id, castDrawScale(id, elite)), d)
       m = { tex: pixelTex(pc.toCanvas(PX * UP), UP), ax, ay }
       maskCache.set(key, m)
     }
@@ -453,7 +458,7 @@ export function createPixelRig(env) {
         const k = Math.min(1, l.t / l.flight)
         const x = l.fromX + (l.x - l.fromX) * k, y = l.fromY + (l.y - l.fromY) * k
         const bomb = l.kind === 'bomb'
-        const hgt = Math.sin(Math.PI * k) * (bomb ? 110 : 46)
+        const hgt = Math.sin(Math.PI * k) * (bomb ? LOB_ARC.bomb : LOB_ARC.slag)
         const sh = gShadow.next(T.shadow)
         sh.position.set(x, y)
         sh.scale.set((bomb ? 1.2 : 0.8) * (1 - 0.35 * Math.sin(Math.PI * k)))
@@ -492,8 +497,8 @@ export function createPixelRig(env) {
       }
       aGust.end()
       // the creatures' own glow (their embers light the floor round them), and each body's MASK in
-      // the emissive map, placed exactly as render.js draws the body: same frame, same mirror (a
-      // Magma creature faces you, or what it fights while an ally), same scale
+      // the emissive map, placed exactly as render.js draws the body: same frame, same heading
+      // (cam.dirOf: the turn render.js last drew it at), same scale
       masks.begin()
       for (const e of run.enemies || []) {
         const M = PIXEL_CAST[e.rosterId]
@@ -503,12 +508,10 @@ export function createPixelRig(env) {
         const halted = (e.frozen || 0) > 0 || (e.stunT || 0) > 0
         let f = heldFrame.get(e)
         if (!halted || f === undefined) { f = Math.floor(t * 10 + e.id * 1.7) % M.frames; heldFrame.set(e, f) }
-        const s = masks.next(maskOf(e.rosterId, !!e.elite, f))
+        const s = masks.next(maskOf(e.rosterId, !!e.elite, f, cam.dirOf?.(e) ?? 0))
         s.position.set(e.x, e.y)
-        let tdx = p ? p.x - e.x : 1
-        if ((e.allyT || 0) > 0 && e._tgtX !== undefined) tdx = e._tgtX - e.x
         const k = e.radius / (castArchR(e.rosterId) * castDrawScale(e.rosterId, !!e.elite))
-        s.scale.set(k * (tdx < 0 ? -1 : 1), k)
+        s.scale.set(k, k)
       }
       masks.end()
       // the player's own small, cool light: enough to read the nearest foes, never a torch
