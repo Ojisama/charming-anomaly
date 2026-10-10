@@ -31,7 +31,7 @@ import {
   BLOOD_PACT_PER_ELITE, BLOOD_MONEY_HP, STILLNESS_RAMP, CHAOS_PACT_PERIOD, CHAOS_PACT_SURGE,
   ALIGNMENT_POTENCY_MUL, DEADFALL_REARM_MUL, SOY_MILK_FIRE_MUL, SOY_MILK_DMG_MUL, SOY_MILK_CC_MUL,
   ANOMALY_REROLL_MUL, ANOMALY_REROLL_PITY_REFUND, LAST_BREATH_DROWN_TAKEN_MUL,
-  LIVE_CAPS, MUTATORS, CANARY_REACH_MUL, mutatorPool, ENDLESS_MILESTONE_S, ENDLESS_HANDOVER_CLEAR_R, ENDLESS_MILESTONE_ELITES, mergeMutatorMods, randomMutators, rerollMutator,
+  LIVE_CAPS, MUTATORS, CANARY_REACH_MUL, MINE_GAS_FADE_IN, MINE_GAS_LIT_SHRINK, mutatorPool, ENDLESS_MILESTONE_S, ENDLESS_HANDOVER_CLEAR_R, ENDLESS_MILESTONE_ELITES, mergeMutatorMods, randomMutators, rerollMutator,
   sacrificeCost, MAX_CHOICE_SLOTS, resolveChapterId,
   SHIELD_HP_FRAC, SHIELD_DMG_MUL, SPLITTER_COUNT, VOLATILE_FUSE, VOLATILE_RADIUS, VOLATILE_DMG,
   MAX_PASSIVE_LEVEL, MAX_ELEMENT_PICKS, passiveTotal,
@@ -38993,7 +38993,7 @@ function testMine() {
     try {
       const run = stage(41001, 2)
       const p = run.player
-      for (let k = 0; k < 3; k++) run.gas.push({ x: p.x + 200 + k * 90, y: p.y, r: 50, age: 0, seed: k })
+      for (let k = 0; k < 3; k++) run.gas.push({ x: p.x + 200 + k * 90, y: p.y, r: 50, age: MINE_GAS_FADE_IN, seed: k })
       const [near, far] = run.enemies
       near.x = p.x + 200; near.y = p.y
       far.x = p.x + 380; far.y = p.y
@@ -39017,7 +39017,7 @@ function testMine() {
     const run = stage(41002, 1)
     const p = run.player
     run.enemies[0].x = p.x + 900
-    run.gas.push({ x: p.x + 40, y: p.y, r: 50, age: 0, seed: 1 }, { x: p.x + 120, y: p.y, r: 50, age: 0, seed: 2 })
+    run.gas.push({ x: p.x + 40, y: p.y, r: 50, age: MINE_GAS_FADE_IN, seed: 1 }, { x: p.x + 120, y: p.y, r: 50, age: MINE_GAS_FADE_IN, seed: 2 })
     shot(run, p.x + 20, p.y)
     const blasts = play(run, 1)
     sting = run.dmgBySrc?.firedamp ?? 0
@@ -39033,7 +39033,7 @@ function testMine() {
       const run = stage(seed, 1, weapon ? [{ id: weapon, level: 1 }] : [], opts)
       if (weaponMods) run.weaponMods = { ...run.weaponMods, ...weaponMods }
       const p = run.player, e = run.enemies[0]
-      run.gas.push({ age: 0, seed: 3, ...place(run, p, e) })
+      run.gas.push({ age: MINE_GAS_FADE_IN, seed: 3, ...place(run, p, e) })
       return play(run, secs, true).filter((b) => b.chain === 0).length
     } finally { sig.firedamp = F0 }
   }
@@ -39079,7 +39079,7 @@ function testMine() {
       const p = run.player
       run.enemies[0].x = p.x + 900
       const r = 40, reach = r * quiet.blastMul * quiet.reach
-      run.gas.push({ x: p.x, y: p.y + 300, r, age: 0, seed: 1 }, { x: p.x, y: p.y + 300 + r + reach * (1 + CANARY_REACH_MUL) / 2, r, age: 0, seed: 2 })
+      run.gas.push({ x: p.x, y: p.y + 300, r, age: MINE_GAS_FADE_IN, seed: 1 }, { x: p.x, y: p.y + 300 + r + reach * (1 + CANARY_REACH_MUL) / 2, r, age: MINE_GAS_FADE_IN, seed: 2 })
       shot(run, p.x, p.y + 300)
       return play(run, 1.5).length
     } finally { sig.firedamp = F0 }
@@ -39092,7 +39092,7 @@ function testMine() {
       const run = stage(41007, 1, [], { mutators })
       const p = run.player, e = run.enemies[0]
       const r = 40, R = r * quiet.blastMul
-      run.gas.push({ x: p.x, y: p.y + 300, r, age: 0, seed: 1 })
+      run.gas.push({ x: p.x, y: p.y + 300, r, age: MINE_GAS_FADE_IN, seed: 1 })
       e.x = p.x + R * (1 + MUTATORS.methaneSeam.effects.gasBlastMul) / 2 + e.radius; e.y = p.y + 300
       shot(run, p.x - 30, p.y + 300)
       const blasts = play(run, 1)
@@ -39100,20 +39100,71 @@ function testMine() {
     } finally { sig.firedamp = F0 }
   }
   const seamA = [seamOf([]), seamOf(['methaneSeam'])]
-  // (g) THE SEEP STOPS SHORT: a pocket left to creep for longer than it needs to reach you halts
-  // at creepStop, outside the largest cloud that could sting you.
-  sig.firedamp = { ...F0, count: 0, drift: 0 }
-  let seepD
+  // (g) THE SEEP STOPS SHORT, AND THE DRIFT DOES NOT CARRY IT ON: pockets left to creep and wander
+  // (the real drift, about +-70px) for longer than they need to reach you never come nearer than
+  // creepStop, which is outside the largest cloud that could sting you.
+  const stingMax = F0.r[1] * MINE_GAS_LIT_SHRINK * F0.stingCloud + PLAYER.radius
+  sig.firedamp = { ...F0, count: 0 }
+  let seepD = Infinity, seepEnd = 0
   try {
     const run = stage(41008, 1)
     const p = run.player
     run.enemies[0].x = p.x + 900
-    run.gas.push({ x: p.x, y: p.y + 420, r: 50, age: 0, seed: 1 })
-    play(run, (420 / F0.creep) + 4)
-    seepD = run.gas[0] ? Math.hypot(run.gas[0].x - p.x, run.gas[0].y - p.y) : -1
+    for (let k = 0; k < 8; k++) run.gas.push({ x: p.x + Math.cos(k * 0.785) * 420, y: p.y + Math.sin(k * 0.785) * 420, r: 50, age: MINE_GAS_FADE_IN, seed: 100 + k * 37 })
+    for (let t = 0; t < ((420 / F0.creep) + 30) * 60; t++) {
+      play(run, 1 / 60)
+      for (const g of run.gas) seepD = Math.min(seepD, Math.hypot(g.x - p.x, g.y - p.y))
+    }
+    seepEnd = run.gas.length
   } finally { sig.firedamp = F0 }
-  assert.ok(Math.abs(seepD - F0.creepStop) < 2 && F0.creepStop > F0.r[1] * F0.stingCloud + PLAYER.radius,
-    `run MI.g: a seeping pocket should halt at creepStop ${F0.creepStop}px, outside the largest sting reach ${F0.r[1] * F0.stingCloud + PLAYER.radius}px; it stopped at ${seepD.toFixed(1)}px`)
+  assert.ok(seepEnd === 8 && seepD > F0.creepStop - 0.5 && seepD < F0.creepStop + 2 && F0.creepStop > stingMax,
+    `run MI.g: 8 wandering, seeping pockets should come no nearer than creepStop ${F0.creepStop}px, outside the largest sting reach ${stingMax.toFixed(1)}px; the nearest came to ${seepD.toFixed(1)}px (${seepEnd} left)`)
+  // (g2) NO SEAM IS LAID INSIDE creepStop, though a seam runs past the ring's inner edge along its
+  // length: the field is emptied every frame for 4 s so it is laid afresh, 8 seams a frame.
+  sig.firedamp = F0
+  let layD = Infinity, laid = 0
+  try {
+    const run = stage(41010, 1)
+    const p = run.player
+    run.enemies[0].x = p.x + 900
+    for (let t = 0; t < 240; t++) {
+      run.gas = []
+      play(run, 1 / 60)
+      laid += run.gas.length
+      for (const g of run.gas) layD = Math.min(layD, Math.hypot(g.x - p.x, g.y - p.y))
+    }
+  } finally { sig.firedamp = F0 }
+  assert.ok(laid > 1000 && layD >= F0.creepStop - 0.5, `run MI.g2: of ${laid} pockets laid, the nearest was ${layD.toFixed(1)}px from you, inside creepStop ${F0.creepStop}px`)
+  // (g3) A POCKET STILL CONDENSING CANNOT BE LIT: a shot through a pocket younger than the render's
+  // fade (MINE_GAS_FADE_IN) sets nothing off; the same shot through one that old does.
+  const youngOf = (age) => {
+    sig.firedamp = quiet
+    try {
+      const run = stage(41011, 1)
+      const p = run.player
+      run.enemies[0].x = p.x + 900
+      run.gas.push({ x: p.x + 300, y: p.y, r: 50, age, seed: 1 })
+      shot(run, p.x + 290, p.y)
+      return play(run, 0.5).length
+    } finally { sig.firedamp = F0 }
+  }
+  const young = [youngOf(0), youngOf(MINE_GAS_FADE_IN)]
+  assert.deepStrictEqual(young, [0, 1], `run MI.g3: a pocket still fading in must not be lit, a visible one must (blasts young/visible: ${young})`)
+  // (i) A RING ALONE lights a pocket: a nova (run.novas) sweeping out over an empty pocket, with no
+  // shot, body or Mine weapon anywhere near it, sets it off; with no ring nothing does.
+  const ringOf = (ring) => {
+    sig.firedamp = quiet
+    try {
+      const run = stage(41012, 1)
+      const p = run.player
+      run.enemies[0].x = p.x + 900
+      run.gas.push({ x: p.x, y: p.y + 300, r: 30, age: MINE_GAS_FADE_IN, seed: 1 })
+      if (ring) run.novas.push({ x: p.x, y: p.y + 200, r: 0, maxR: 120, dmg: 0, knockback: 0, fear: 0, hit: new Set(), arc: null, angle: 0, carry: 0, look: null, life: 0.45, lifeMax: 0.45 })
+      return play(run, 1).length
+    } finally { sig.firedamp = F0 }
+  }
+  const ringA = [ringOf(false), ringOf(true)]
+  assert.deepStrictEqual(ringA, [0, 1], `run MI.i: a ring sweeping over a pocket must set it off, and nothing else may (blasts without/with: ${ringA})`)
   // (h) THE STING IS THE CLOUD, THE BLAST IS FOR THE CROWD: one pocket goes off with you and a body
   // both just outside its drawn cloud but well inside its blast: the body is hurt, you are not; the
   // same pocket with you inside the cloud stings you.
@@ -39122,10 +39173,10 @@ function testMine() {
     try {
       const run = stage(41009, 1)
       const p = run.player, e = run.enemies[0]
-      const r = 50, out = r * quiet.stingCloud + PLAYER.radius + 6
+      const r = 50, out = r * MINE_GAS_LIT_SHRINK * quiet.stingCloud + PLAYER.radius + 6
       assert.ok(out + e.radius < r * quiet.blastMul, 'run MI.h: fixture — the spot outside the cloud must be inside the blast')
       const gx = p.x + (inside ? r * 0.5 : out), gy = p.y
-      run.gas.push({ x: gx, y: gy, r, age: 0, seed: 1 })
+      run.gas.push({ x: gx, y: gy, r, age: MINE_GAS_FADE_IN, seed: 1 })
       e.x = gx + out; e.y = gy
       shot(run, gx, gy)
       const blasts = play(run, 0.5)
@@ -39135,9 +39186,13 @@ function testMine() {
   const cloudOut = cloudOf(false), cloudIn = cloudOf(true)
   assert.ok(cloudOut.blasts === 1 && cloudOut.sting === 0 && cloudOut.enemyHurt, `run MI.h: outside the cloud but inside the blast, the body must be hurt and you not: ${JSON.stringify(cloudOut)}`)
   assert.ok(cloudIn.blasts === 1 && cloudIn.sting > 0, `run MI.h: inside the cloud the blast must sting you: ${JSON.stringify(cloudIn)}`)
+  // the cloud the sting measures is the one ascii.js draws: the same two named numbers, read there
+  const asciiSrc = readFileSync(new URL('../src/ascii.js', import.meta.url), 'utf8')
+  assert.ok(/shrink = lit \? MINE_GAS_LIT_SHRINK \+ \(1 - MINE_GAS_LIT_SHRINK\) \* left/.test(asciiSrc) && /\/ MINE_GAS_FADE_IN\)/.test(asciiSrc) && !/const GAS_FADE_IN/.test(asciiSrc),
+    'run MI.h: ascii.js must draw the lit cloud with MINE_GAS_LIT_SHRINK and fade pockets in over MINE_GAS_FADE_IN, the numbers the sting and the lighting read')
   assert.ok(!seamA[0].dead && seamA[1].dead && Math.abs(seamA[1].r / seamA[0].r - MUTATORS.methaneSeam.effects.gasBlastMul) < 1e-6,
     `run MI.f: Methane Seam's bigger blast must kill a body just past a normal one: ${JSON.stringify(seamA)}`)
-  console.log(`PASS run MI (the mine): a shot through a row of 3 pockets blew links ${chains.join(',')} and killed both bodies, nothing with the switch off; a blast beside you stung ${sting} hp; pickaxe/dynamite/minecart/lantern each set off an empty pocket by their own reach (${Object.values(lit).join('/')}); a blow on a body in a pocket set it off (${hookIn}, ${hookOut} away); Open Flame lit a pocket at ${Math.round(far['within the modded range'])}px (${flameOf['within the modded range']}); Canary chained ${chainA.join('->')} pockets; Methane Seam's blast r ${seamA[0].r.toFixed(0)}->${seamA[1].r.toFixed(0)} killed the body just outside; a seeping pocket halted ${seepD.toFixed(0)}px from you; outside the cloud you took ${cloudOut.sting} while the body beside you was hurt, inside it ${cloudIn.sting}`)
+  console.log(`PASS run MI (the mine): a shot through a row of 3 pockets blew links ${chains.join(',')} and killed both bodies, nothing with the switch off; a blast beside you stung ${sting} hp; pickaxe/dynamite/minecart/lantern each set off an empty pocket by their own reach (${Object.values(lit).join('/')}); a blow on a body in a pocket set it off (${hookIn}, ${hookOut} away); Open Flame lit a pocket at ${Math.round(far['within the modded range'])}px (${flameOf['within the modded range']}); Canary chained ${chainA.join('->')} pockets; Methane Seam's blast r ${seamA[0].r.toFixed(0)}->${seamA[1].r.toFixed(0)} killed the body just outside; wandering, seeping pockets came no nearer than ${seepD.toFixed(0)}px (sting reach ${stingMax.toFixed(0)}), no seam laid nearer than ${layD.toFixed(0)}px, a pocket fading in was not lit (${young}), a ring alone lit one (${ringA}); outside the cloud you took ${cloudOut.sting} while the body beside you was hurt, inside it ${cloudIn.sting}`)
 }
 
 // ---- run MA: Book 3, The Magma — the crust, and the weapons that use it -----------------------

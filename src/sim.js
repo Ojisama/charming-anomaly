@@ -260,7 +260,7 @@ import {
   PRISM_FAN, PRISM_LIFE, PRISM_R, ECHO_LIFE, STALACTITE_FUSE, STALACTITE_RANGE,
   PICKAXE_RANGE, PICKAXE_KB, PICKAXE_CHIP_DMG, PICKAXE_CHIP_SPEED, PICKAXE_CHIP_LIFE, PICKAXE_CHIP_R,
   DYNAMITE_RANGE, DYNAMITE_FLIGHT, DYNAMITE_FUSE, DYNAMITE_KB, MINECART_SPEED, MINECART_FAN, MINECART_KB,
-  CANARY_REACH_MUL, CANARY_LINK_DMG, LANTERN_PULSE, MINE_BOOM_KEEP,
+  CANARY_REACH_MUL, CANARY_LINK_DMG, LANTERN_PULSE, MINE_BOOM_KEEP, MINE_GAS_FADE_IN, MINE_GAS_LIT_SHRINK,
   SLAG_RANGE, SLAG_FLIGHT, SLAG_TICK, OBSIDIAN_FAN, OBSIDIAN_LIFE, OBSIDIAN_R, SPLINTER_DMG_MUL, SPLINTER_LIFE, SPLINTER_SPEED, SPLINTER_R,
   BELLOWS_LIFE, BELLOWS_FLARE_MUL, BELLOWS_FLARE_R, BELLOWS_FLARE_T, BOMB_RANGE, BOMB_FLIGHT, BOMB_LAVA_R, BOMB_LAVA_T, HOT_FEET_OPEN_MUL, HOT_FEET_BURN_MUL,
 } from './config.js'
@@ -16581,12 +16581,14 @@ function firedampSpec(run) {
 }
 // Sets off every idle pocket a circle (x, y, r) touches. A pocket set off moves from run.gas to
 // run.gasLit, so run.gas only ever holds pockets that can still be lit. `at`/`chain` default to
-// "this frame, by the player" (chain 0); a blast passes its own link's.
+// "this frame, by the player" (chain 0); a blast passes its own link's. A pocket still condensing
+// (age under MINE_GAS_FADE_IN, the render's fade) is not drawn yet, so nothing can light it.
 function gasLightAt(run, x, y, r, at = run.time, chain = 0) {
   const gas = run.gas
   if (!gas || gas.length === 0) return 0
   let n = 0
   for (const g of gas) {
+    if (g.age < MINE_GAS_FADE_IN) continue
     const dx = g.x - x, dy = g.y - y, rr = g.r + r
     if (dx * dx + dy * dy > rr * rr) continue
     g._lit = true
@@ -16606,12 +16608,15 @@ function layGasSeam(run, F) {
   for (let i = 0; i < n; i++) {
     const k = i - (n - 1) / 2
     const wob = (Math.random() - 0.5) * F.gap * 0.5
-    run.gas.push({
+    const g = {
       x: cx + Math.cos(dir) * k * F.gap - Math.sin(dir) * wob,
       y: cy + Math.sin(dir) * k * F.gap + Math.cos(dir) * wob,
       r: F.r[0] + Math.random() * (F.r[1] - F.r[0]),
       age: 0, seed: Math.floor(Math.random() * 1000),
-    })
+    }
+    // a seam runs past the ring's inner edge along its length: no pocket is laid inside creepStop
+    if ((g.x - p.x) ** 2 + (g.y - p.y) ** 2 < F.creepStop * F.creepStop) continue
+    run.gas.push(g)
   }
 }
 // Stepped inside stepWeaponsInner (the enemy grid is on there; the blasts query it).
@@ -16644,13 +16649,17 @@ function stepFiredamp(run, dt) {
   }
   // 2. Drift: a slow wander on each pocket's own clock (no random draw per frame), and a seep
   // toward you that stops short of where you stand: the gas finds the crowd you are drawing in.
+  // Neither moves a pocket nearer than creepStop (nor nearer than it was, if you walked into it).
   for (const g of run.gas) {
     g.age += dt
+    const d0 = Math.hypot(p.x - g.x, p.y - g.y)
     const ph = g.seed * 0.37 + run.time * 0.23
     g.x += Math.cos(ph) * F.drift * dt
     g.y += Math.sin(ph * 1.3 + g.seed) * F.drift * dt
     const dx = p.x - g.x, dy = p.y - g.y, d = Math.hypot(dx, dy)
     if (d > F.creepStop) { g.x += (dx / d) * F.creep * dt; g.y += (dy / d) * F.creep * dt }
+    const ox = g.x - p.x, oy = g.y - p.y, d1 = Math.hypot(ox, oy), floor = Math.min(d0, F.creepStop)
+    if (d1 < floor && d1 > 1e-6) { g.x = p.x + (ox / d1) * floor; g.y = p.y + (oy / d1) * floor }
   }
   // 3. What the player's weapons touched this frame sets the touched pockets off.
   if (run.gas.length > 0) {
@@ -16687,7 +16696,7 @@ function stepFiredamp(run, dt) {
         }
         // THE STING: standing in the pocket's own cloud costs a little, through the normal hurt path
         // (invuln after). Only the cloud as drawn: the blast's wider reach is for the crowd.
-        if (!died && run.phase === 'playing' && p.invuln <= 0 && Math.hypot(p.x - L.x, p.y - L.y) <= L.r * F.stingCloud + PLAYER.radius) {
+        if (!died && run.phase === 'playing' && p.invuln <= 0 && Math.hypot(p.x - L.x, p.y - L.y) <= L.r * MINE_GAS_LIT_SHRINK * F.stingCloud + PLAYER.radius) {
           if (hurtPlayer(run, F.sting, false, 'firedamp')) died = true
         }
         // THE CHAIN: every idle pocket the blast reaches goes off one link later.

@@ -28,7 +28,7 @@
 // ('-' '\' '|' '/') so a leg is drawn the way an ASCII artist would draw it. Light on the floor is
 // character density and warmth, never a fill. Darkness is black.
 import { CanvasSource, Container, Graphics, Particle, ParticleContainer, Rectangle, RenderTexture, Sprite, Texture } from 'pixi.js'
-import { FLASHLIGHT_SPEED_MUL, PACER_RADIUS, POUNCE_AIM_T, POUNCE_LEAP_DIST, SHIELD_HP_FRAC } from './config.js'
+import { FLASHLIGHT_SPEED_MUL, MINE_GAS_FADE_IN, MINE_GAS_LIT_SHRINK, PACER_RADIUS, POUNCE_AIM_T, POUNCE_LEAP_DIST, SHIELD_HP_FRAC } from './config.js'
 
 // ---- glyph atlas -------------------------------------------------------------------------------
 // One canvas, one texture source: every glyph sprite in the mine batches into the same draw call.
@@ -788,14 +788,13 @@ export function createAsciiRenderer(host) {
       const pr = p.radius ?? 14
       const time = run.time ?? clock
       const BOOM_T = 0.55
-      const GAS_FADE_IN = 0.6   // s a new pocket takes to condense out of the dark
       // ---- this frame's lights ----
       const lantern = run.lanternR ?? 0
       // fr = how far the light reaches ON THE FLOOR: the lamp lights the creatures far out, but the
       // floor it shows is a small, quiet pool (the background must never compete with the crowd)
       const lights = [{ x: p.x, y: p.y, r: 300 + lantern * 0.6, fr: 210 + lantern * 0.4, i: 1.05, g: 0 }]
       if (lantern > 0) lights.push({ x: p.x, y: p.y, r: lantern * 1.25, fr: lantern * 0.8, i: 0.55 + 0.05 * Math.sin(clock * 7), g: 0 })
-      for (const g of run.gas ?? []) lights.push({ x: g.x, y: g.y, r: g.r * 1.5, i: 0.22 * clamp01((g.age ?? GAS_FADE_IN) / GAS_FADE_IN), g: 1 })
+      for (const g of run.gas ?? []) lights.push({ x: g.x, y: g.y, r: g.r * 1.5, i: 0.22 * clamp01((g.age ?? MINE_GAS_FADE_IN) / MINE_GAS_FADE_IN), g: 1 })
       for (const L of run.gasLit ?? []) lights.push({ x: L.x, y: L.y, r: L.r * 1.9, i: 0.7 + 0.3 * Math.sin(clock * 40 + L.seed), g: 0 })
       for (const b of run.booms ?? []) {
         const k = (time - b.at) / BOOM_T
@@ -898,9 +897,10 @@ export function createAsciiRenderer(host) {
         const breathe = 1 + 0.06 * Math.sin(clock * 1.3 + seed)
         // a lit pocket draws in and boils, white-hot at the heart
         const left = lit ? clamp01((g.at - time) / 0.35) : 1
-        const shrink = lit ? 0.7 + 0.3 * left : 1
+        // (the sting reaches the cloud as drawn when it goes off: sim reads the same MINE_GAS_LIT_SHRINK)
+        const shrink = lit ? MINE_GAS_LIT_SHRINK + (1 - MINE_GAS_LIT_SHRINK) * left : 1
         const [pl] = lightAt(g.x, g.y)
-        const born = lit ? 1 : clamp01((g.age ?? GAS_FADE_IN) / GAS_FADE_IN)
+        const born = lit ? 1 : clamp01((g.age ?? MINE_GAS_FADE_IN) / MINE_GAS_FADE_IN)
         if (born <= 0) continue
         for (let k = 0; k < n; k++) {
           const f = (k + 0.5) / n
