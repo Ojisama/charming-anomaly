@@ -565,7 +565,7 @@ export function createAsciiRenderer(host) {
       const lantern = run.lanternR ?? 0
       // fr = how far the light reaches ON THE FLOOR: the lamp lights the creatures far out, but the
       // floor it shows is a small, quiet pool (the background must never compete with the crowd)
-      const lights = [{ x: p.x, y: p.y, r: 300 + lantern * 0.6, fr: 150 + lantern * 0.25, i: 1.05, g: 0 }]
+      const lights = [{ x: p.x, y: p.y, r: 300 + lantern * 0.6, fr: 210 + lantern * 0.4, i: 1.05, g: 0 }]
       if (lantern > 0) lights.push({ x: p.x, y: p.y, r: lantern * 1.25, fr: lantern * 0.8, i: 0.55 + 0.05 * Math.sin(clock * 7), g: 0 })
       for (const g of run.gas ?? []) lights.push({ x: g.x, y: g.y, r: g.r * 1.5, i: 0.22, g: 1 })
       for (const L of run.gasLit ?? []) lights.push({ x: L.x, y: L.y, r: L.r * 1.9, i: 0.7 + 0.3 * Math.sin(clock * 40 + L.seed), g: 0 })
@@ -602,7 +602,7 @@ export function createAsciiRenderer(host) {
           const rock = vnoise(x / 170, y / 170, 5)      // ridges of heavier rock: the gallery walls
           const wall = clamp01((rock - 0.58) * 5)
           const l = Math.min(1, li)
-          if (h > 0.3 + 0.55 * l + wall * 0.3) {
+          if (h > 0.3 + 0.65 * l + wall * 0.3) {
             // the dark: a rare dull ore fleck survives
             if (hash2(i, j, 9) < 0.004) floor.put('◇', x, y, hash2(i, j, 10) < 0.5 ? 0x6a5a3a : 0x4a6266, 0.35, 5, 0, false, 1, false)
             continue
@@ -610,7 +610,7 @@ export function createAsciiRenderer(host) {
           const v = clamp01(0.12 + l * (0.4 + 0.5 * hash2(i, j, 4)) + wall * 0.25)
           let ch = FL[Math.min(FL.length - 1, Math.floor(v * FL.length))]
           if (wall > 0.3 && hash2(i, j, 6) < wall * 0.35) ch = hash2(i, j, 7) < 0.5 ? '%' : '#'
-          let col = ramp3(0x3a3530, 0x605850, 0x847a6c, v)
+          let col = ramp3(0x403a34, 0x6e665a, 0x9a8e7c, v)
           if (gi > 0) col = mixHex(col, 0x4a6a4c, Math.min(0.5, gi / (li + 0.001) * 0.8))
           if (hash2(i, j, 9) < 0.01) {
             // ore in the lamp: a dull fleck that only just catches the light
@@ -618,7 +618,7 @@ export function createAsciiRenderer(host) {
             floor.put('◇', x, y, hash2(i, j, 10) < 0.5 ? 0x9a8458 : 0x6a8a8e, 0.3 + 0.3 * v * tw, 5 + 3 * v, 0, false, 1, false)
             continue
           }
-          floor.put(ch, x, y, col, 0.35 + 0.3 * v, 6 + 5 * v + wall * 2, (hash2(i, j, 8) - 0.5) * 0.7, false, 1, false)
+          floor.put(ch, x, y, col, 0.4 + 0.45 * v, 6 + 5.5 * v + wall * 2, (hash2(i, j, 8) - 0.5) * 0.7, false, 1, false)
         }
       }
       floor.end()
