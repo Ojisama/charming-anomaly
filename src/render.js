@@ -42,6 +42,7 @@ import { TRAWL_WIGGLE_ARC, KRAKEN_GRIP_FLICKS } from './config.js'
 import { DRAW_CAPS } from './config.js'
 import * as MACRO from './macro.js'
 import * as HOLO from './holo.js'
+import * as PIXEL from './pixel.js'
 import { t as tr } from './i18n.js'
 
 
@@ -6023,6 +6024,7 @@ export function createRenderer(app) {
     }
   }
   function buildBurrowTextures() {
+    Object.assign(T, PIXEL.bakeProps())   // The Magma's floor props (src/pixel.js), keyed px_<prop><v>
     // the photographed floor props (src/macro.js MACRO_PROPS), three bakes of each
     for (const name of Object.keys(MACRO.MACRO_PROPS)) {
       for (let v = 0; v < 3; v++) {
@@ -6440,6 +6442,14 @@ export function createRenderer(app) {
     s.visible = true
     return s
   }
+  // The Magma's events, all handed to src/pixel.js (which owns every drawing in that chapter).
+  function magmaEvent(e) {
+    switch (e.type) {
+      case 'crackOpen': case 'crustCrack': case 'lavaFlare': case 'slagSplash': case 'bombLand':
+        return pixelRig.event(e)
+    }
+    return false
+  }
   function burrowEvent(e) {
     switch (e.type) {
       case 'moleQuake':
@@ -6557,6 +6567,11 @@ export function createRenderer(app) {
     },
     crystalCrab: { archetype: 'tank', draw: drawCrystalCrab, macro: true, lean: 90, phases: 4 },
     bat: { archetype: 'fast', draw: drawBat, macro: true, lean: 90, phases: 4 },
+    // Book 3, The Magma: PIXEL ART (`pixel: true` — painted by src/pixel.js PIXEL_CAST, not here).
+    cinderBeetle: { archetype: 'normal', pixel: true, lean: 90 },
+    salamander: { archetype: 'fast', pixel: true, lean: 90 },
+    obsidianTortoise: { archetype: 'tank', pixel: true, lean: 90 },
+    fireDrake: { archetype: 'fast', pixel: true, lean: 90 },
     redcell: { archetype: 'normal', draw: drawRedcell, lean: 0 },      // biconcave disc, no forward axis — it would just tumble
     wbc: { archetype: 'tank', draw: drawWbc, lean: 0 },                // radial membrane, filopodia all round; no nose
     antibody: { archetype: 'fast', draw: drawAntibody, lean: 0 },      // 3-fold Y (Fc stem at +y), no +x front — a protein has no heading
@@ -6799,9 +6814,34 @@ export function createRenderer(app) {
       crown: elite ? { top: M.crown[0], r: M.crown[1] } : null,
     }
   }
+  // ---- Book 3, The Magma: the pixel-art cast (src/pixel.js PIXEL_CAST) ----------------------------
+  // A ROSTER_LOOKS entry with `pixel: true` is painted one art pixel at a time by src/pixel.js and
+  // sampled NEAREST. No ground shadow: the CRT pass is the light. The elite wears the same body.
+  const pixelFrames = new Map()
+  function makePixelLook(id, entry, elite) {
+    const M = PIXEL.PIXEL_CAST[id]
+    let frames = pixelFrames.get(id)
+    if (!frames) {
+      frames = []
+      for (let f = 0; f < (M.frames ?? 1); f++) {
+        const b = PIXEL.bakeCreature(id, f)
+        frames.push({ tex: PIXEL.pixelTex(b.body, b.res), white: PIXEL.pixelTex(b.white, b.res), ax: b.ax, ay: b.ay })
+      }
+      pixelFrames.set(id, frames)
+    }
+    return {
+      tex: frames[0].tex, white: frames[0].white, ax: frames[0].ax, ay: frames[0].ay,
+      frames: frames.length > 1 ? frames : null,
+      baseR: ROSTER_BASE_R[entry.archetype], maxLean: entry.lean * DEG,
+      poseOf: null, faceDir: null, turnRate: null, spin: 0, squash: 0,
+      shadow: null,
+      crown: elite ? { top: M.crown[0], r: M.crown[1] } : null,
+    }
+  }
   function makeRosterLook(id, elite, child = false) {
     const entry0 = ROSTER_LOOKS[id]
     if (entry0.macro && !child) return makeMacroLook(id, entry0, elite)
+    if (entry0.pixel && !child) return makePixelLook(id, entry0, elite)
     // A child look is the same entry wearing a different draw fn, so it inherits `lean`, `phases`
     // and everything else the parent declared — a zooid that swam on a different axis from the
     // colony it came out of would be a second bug wearing the first one's clothes.
@@ -12058,7 +12098,11 @@ export function createRenderer(app) {
     shader: Shader.from({ gl: { vertex: HOLO.CAVERN_FLOOR_VERT, fragment: HOLO.CAVERN_FLOOR_FRAG, name: 'holo-cavern-floor' }, resources: { cavernU, uDark: Texture.WHITE.source, uNacre: Texture.WHITE.source } }),
   })
   cavernFloor.visible = false
-  floorLayer.addChild(groundLayer, macroFloor, cavernFloor, hullLayer, blotchLayer, roadLayer, roadDecalLayer, junctionLayer, ruinLayer,
+  // CHAPTERS[id].render.pixel: THE MAGMA AS PIXEL ART THROUGH A CRT (src/pixel.js owns every drawing:
+  // its floor, the crust and lava, the weapons' lobs and gusts, the player, pickups, the CRT pass).
+  // render.js only places its layers and forwards the hooks below.
+  const pixelRig = PIXEL.createPixelRig({ app, addShake: (a, d) => addShake(a, d) })
+  floorLayer.addChild(groundLayer, macroFloor, cavernFloor, pixelRig.floor, hullLayer, blotchLayer, roadLayer, roadDecalLayer, junctionLayer, ruinLayer,
     bigLayer, midLayer, detailLayer, clutterLayer, edgeLayer)
 
   const entitiesLayer = new Container()
@@ -12429,8 +12473,25 @@ export function createRenderer(app) {
     app.stage.filterArea = app.screen
     app.stage.filters = [foilFilter]
   }
+  let pixelLook = null
+  function setPixel(look) {
+    pixelLook = look
+    pixelRig.enable(look)
+    macroFloor.visible = false
+    cavernFloor.visible = false
+    blotchLayer.visible = false
+    macroAir.visible = false
+    macroShadowLayer.visible = false
+    holoHaloLayer.visible = false
+    bodyC.visible = false
+    pShadow.visible = false
+    app.stage.filterArea = app.screen
+    app.stage.filters = [pixelRig.filter]
+  }
   function setMacro(run) {
     const ch = run && CHAPTERS[run.chapter]
+    if (pixelLook) { pixelLook = null; pixelRig.disable(); bodyC.visible = true; pShadow.visible = true }
+    if (ch?.render?.pixel) { macroLook = null; holoLook = null; setPixel(ch.render.pixel); return }
     macroLook = ch?.render?.macro ?? null
     holoLook = null
     cavernFloor.visible = false
@@ -13024,7 +13085,7 @@ const spurG = new Graphics()
   const particleLayer = new Container()
   const textLayer = new Container()
   entitiesLayer.addChild(
-    mownG, sandLayer, netWakeG, wellG, bindG, poolLayer, slickG, burrowGroundG, trailLayer, webLayer, gateFloorG, spurG, coralLayer, gateG, burstWakeG, obstacleLayer, trapLayer,
+    mownG, sandLayer, netWakeG, wellG, bindG, poolLayer, slickG, burrowGroundG, pixelRig.ground, trailLayer, webLayer, gateFloorG, spurG, coralLayer, gateG, burstWakeG, obstacleLayer, trapLayer,
     // The refill circles (The Deep's anglerfish, sun shafts, pools) sit UNDER the drops: a maw is
     // a 400px body, and above gemLayer it hid every gem and coin that fell inside it.
     shaftLayer,
@@ -13033,7 +13094,7 @@ const spurG = new Graphics()
     rockLayer,
     orcaShadowSp, orcaG,
     macroShadowLayer, enemyShadowLayer, holoHaloLayer, enemyLayer, krakenArmLayer, enemyCrownLayer, krakenCoilBandLayer, orcaSp, netG, longlineG, snareG,
-    bloomLayer, lureLayer, shieldG, affixLayer, crustG, deepG, lockLayer, playerC, krakenGripFrontLayer, netHoldG, gateFrontG, breakerG, puffG, splashG, columnG, shorebreakG, burrowFxG, burrowStoneLayer,
+    bloomLayer, lureLayer, shieldG, affixLayer, crustG, deepG, lockLayer, playerC, krakenGripFrontLayer, netHoldG, gateFrontG, breakerG, puffG, splashG, columnG, shorebreakG, burrowFxG, burrowStoneLayer, pixelRig.air,
     bulletLayer, boomerangLayer, orbLayer, debrisLayer, homingLayer, shotLayer, beamLayer, whipLayer, arcG, breathG,
     lobLayer, carLayer, smokeLayer, particleLayer,
     // v6.7.7: the refraction sits in FRONT of traffic, smoke and particles — everything except the
@@ -14038,6 +14099,8 @@ const spurG = new Graphics()
     // Book 3. The same silent fallback the comments below warn about, twice more.
     topsoil: BIOME_TOPSOIL,
     geode: BIOME_GEODE,
+    // The Magma: every prop is src/pixel.js's (PIXEL.BIOME names its baked keys)
+    magma: { ...PIXEL.BIOME, obstacle: { clumps: OBSTACLE_CLUMPS, tint: 0xffffff, foot: 0x120604 } },
     // The Blank shares the body's decor DELIBERATELY, and this line exists so that it is a decision
     // rather than an accident. Its boss is the ANTIBODY and its fiction is reality's immune response,
     // so villi and plasma motes are the right furniture — but it was getting them by falling through
@@ -14860,6 +14923,7 @@ const spurG = new Graphics()
   const tailC = new Sprite(Texture.EMPTY)
   for (const t of [tailA, tailB, tailC]) { t.anchor.set(0.04, 0.5); pTail.addChild(t) }
   playerC.addChild(pRampageGlow, pShadow, pTail, bodyC) // glow sits furthest back, tail above the shadow, behind the body
+  playerC.addChild(pixelRig.player)   // The Magma: the pixel player (src/pixel.js), shown in place of bodyC
 
   // title-screen ambient blobs
   const idleBlobs = []
@@ -28325,6 +28389,7 @@ void main() {
     } else scrapeT = 0
 
     for (const e of events) {
+      if (magmaEvent(e)) continue    // Book 3, The Magma: its own events, drawn by src/pixel.js
       if (burrowEvent(e)) continue   // Book 3, Burrow: its own events (and the shovel's scoop)
       switch (e.type) {
         case 'hit': {
@@ -29508,6 +29573,7 @@ void main() {
 
   // ------------------------------------------------------------------- reset
   function clearWorld() {
+    pixelRig.clear()   // The Magma (src/pixel.js): its own pools
     burrowGroundG.clear(); burrowFxG.clear(); burrowSwings.length = 0
     for (const st of burrowStones) st.visible = false
     for (const [id, s] of enemySprites) {
@@ -31240,6 +31306,7 @@ void main() {
     syncTrails(run.trails || [])
     syncWebs(run.webs || [])
     syncBurrow(run, dt)   // Book 3: tunnels, pits, quakes, snares, stones, scoops, echoes (no-op elsewhere)
+    if (pixelLook) pixelRig.sync(run, dt, { cx, cy, z: world.scale.x, w: viewW(), h: viewH(), animT })   // The Magma (src/pixel.js)
     // v7.x surf: the dry patches. `|| []` like every field above — a save or a test run predating
     // the chapter has no run.sandbars at all.
     // sandbarTex is a LIST now (one bake per outline) — the pool's default texture is the first, and
@@ -31254,6 +31321,7 @@ void main() {
     // drift out of step with each other.
     const deathP = updateDeathOutro(run, dt)
     syncPlayer(run.player, dt, run.rampageT || 0, playerBuffs(run), deathP)
+    if (pixelLook) pixelRig.syncPlayer(run.player, dt, animT, (run.player.invuln ?? 0) > 0 && Math.floor(animT * 16) % 2 === 0)
     syncEnemies(run)
     syncBlooms(run)
     syncLures(newest(run.lures || [], 'lures'))
@@ -31349,6 +31417,7 @@ void main() {
   // v6.2 per-weapon bullet tints — see placeBullet below.
   const WEAPON_BULLET_TINT = { shard: 0xb9a8f0, quill: 0xf2ead8, trash: 0xc27b4a, debris: 0x9aa0a6 }
   function placeBullet(s, b, i) {
+    if (pixelLook && pixelRig.placeBullet(s, b, animT)) return   // The Magma: every shot is src/pixel.js's
     s.position.set(b.x, b.y)
     // Book 3: a clay pebble (Pebble Sling) and a crystal splinter along its flight (Prism Shard),
     // the latter swelling and whitening with each crystal it has bounced off.
@@ -31439,6 +31508,7 @@ void main() {
     s.scale.set(1 + 0.1 * Math.sin(animT * 7 + i * 2.4)) // slight scale pulse
   }
   function placeNova(s, n) {
+    if (pixelLook && pixelRig.placeNova(s, n)) return   // The Magma: the bellows' gust and lava flares
     // A nova carrying `arc` is a Breaker crest and is drawn by drawBreakers. This pool draws FULL
     // RINGS, so leaving it in would paint a complete circle over a weapon whose entire read is that
     // it covers only the side you face — and the sector would still be correct in the sim, so the
@@ -31534,10 +31604,14 @@ void main() {
     s.scale.set(T.orbScale * sizeMul * (1 + 0.12 * Math.sin(animT * 6 + i * 2.1)))
   }
   function placeGem(s, g) {
+    if (pixelLook && pixelRig.placeGem(s, g, animT)) return   // The Magma: pixel gems
+    if (s.texture !== T.gem.tex) { s.texture = T.gem.tex; s.anchor.set(T.gem.ax, T.gem.ay) }
     s.position.set(g.x, g.y)
     s.scale.set(1 + 0.15 * Math.sin(animT * 5 + (g.x + g.y) * 0.05))
   }
   function placeCoin(s, c) {
+    if (pixelLook && pixelRig.placeCoin(s, c, animT)) return   // The Magma: pixel coins
+    if (s.texture !== T.coin.tex) { s.texture = T.coin.tex; s.anchor.set(T.coin.ax, T.coin.ay) }
     s.position.set(c.x, c.y)
     s.scale.set(1 + 0.1 * Math.sin(animT * 4 + (c.x - c.y) * 0.05))
   }
@@ -32107,6 +32181,8 @@ void main() {
     const CORAL_THUMB_BAKE = 19
 
     const build = {
+      // The Magma: open lava, straight off src/pixel.js's own lava texture
+      lava: () => [pixelRig.hazardThumb('lava'), null],
       // ---- straight off a texture the game already baked -------------------------------------
       // spriteOf keeps the bake's own anchor, so the thumbnail is framed the way the world frames it.
       trap: () => {
