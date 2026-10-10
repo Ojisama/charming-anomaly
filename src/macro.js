@@ -310,8 +310,8 @@ vec3 tap(vec2 uv) {
   return texture(uTexture, clamp(uv, uInputClamp.xy, uInputClamp.zw)).rgb;
 }
 float luma(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
-float hash12(vec2 p) {
-  vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+highp float hash12(highp vec2 p) {   // highp: in mediump (fp16 phones) this hash bands into a pattern
+  highp vec3 p3 = fract(vec3(p.xyx) * 0.1031);
   p3 += dot(p3, p3.yzx + 33.33);
   return fract((p3.x + p3.y) * p3.z);
 }
@@ -408,7 +408,7 @@ uniform float uFace;
 uniform vec3 uRakeSky;
 uniform vec3 uRakeSun;
 float rl(vec2 uv) { return dot(texture(uTexture, clamp(uv, uInputClamp.xy, uInputClamp.zw)).rgb, vec3(0.2126, 0.7152, 0.0722)); }
-float rh(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
+highp float rh(highp vec2 p) { highp vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
 void main(void) {
   vec4 c = texture(uTexture, vTextureCoord);
   vec2 px = uInputSize.zw;
