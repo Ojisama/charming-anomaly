@@ -465,6 +465,9 @@ const PRE = '@%#&*+=:-.,`\'·•°~≈∿oO0Q◇◆✦$!|/\\_TvwWM▓X^<>()[]{}"
 export function createAsciiRenderer(host) {
   const floorC = new Container(), gasC = new Container(), dropC = new Container(), mobC = new Container()
   const objC = new Container(), meC = new Container(), fxC = new Container()
+  // labelled so a probe scene can show one layer at a time (background vs foreground luminance)
+  floorC.label = 'ascii-floor'; gasC.label = 'ascii-gas'; dropC.label = 'ascii-drops'; mobC.label = 'ascii-mob'
+  objC.label = 'ascii-obj'; meC.label = 'ascii-me'; fxC.label = 'ascii-fx'
   host.under.addChild(floorC, gasC, dropC, mobC)
   host.over.addChild(objC, meC, fxC)
   const floor = makeBatch(floorC), gas = makeBatch(gasC), drops = makeBatch(dropC), mob = makeBatch(mobC)
@@ -560,63 +563,62 @@ export function createAsciiRenderer(host) {
       const BOOM_T = 0.55
       // ---- this frame's lights ----
       const lantern = run.lanternR ?? 0
-      const lights = [{ x: p.x, y: p.y, r: 300 + lantern * 0.6, i: 1.05, g: 0 }]
-      if (lantern > 0) lights.push({ x: p.x, y: p.y, r: lantern * 1.25, i: 0.55 + 0.05 * Math.sin(clock * 7), g: 0 })
+      // fr = how far the light reaches ON THE FLOOR: the lamp lights the creatures far out, but the
+      // floor it shows is a small, quiet pool (the background must never compete with the crowd)
+      const lights = [{ x: p.x, y: p.y, r: 300 + lantern * 0.6, fr: 150 + lantern * 0.25, i: 1.05, g: 0 }]
+      if (lantern > 0) lights.push({ x: p.x, y: p.y, r: lantern * 1.25, fr: lantern * 0.8, i: 0.55 + 0.05 * Math.sin(clock * 7), g: 0 })
       for (const g of run.gas ?? []) lights.push({ x: g.x, y: g.y, r: g.r * 1.5, i: 0.22, g: 1 })
       for (const L of run.gasLit ?? []) lights.push({ x: L.x, y: L.y, r: L.r * 1.9, i: 0.7 + 0.3 * Math.sin(clock * 40 + L.seed), g: 0 })
       for (const b of run.booms ?? []) {
         const k = (time - b.at) / BOOM_T
         if (k >= 0 && k < 1) lights.push({ x: b.x, y: b.y, r: b.r * 1.7, i: 0.9 * (1 - k) * (1 - k), g: 0 })
       }
-      const lightAt = (x, y) => {
+      const lightAt = (x, y, onFloor = false) => {
         let li = 0, gi = 0
         for (const L of lights) {
+          const R = onFloor ? (L.fr ?? L.r) : L.r
           const dx = x - L.x, dy = y - L.y, d2 = dx * dx + dy * dy
-          if (d2 > L.r * L.r) continue
-          const k = 1 - Math.sqrt(d2) / L.r
+          if (d2 > R * R) continue
+          const k = 1 - Math.sqrt(d2) / R
           const w = k * Math.sqrt(k) * L.i
           li += w; if (L.g) gi += w
         }
         return [li, gi]
       }
 
-      // ---- the floor: dark rock as sparse dim characters, denser and warmer where the lamp falls ----
+      // ---- the floor: THE BACKGROUND LAYER. Small thin serif glyphs in a desaturated warm grey, no glow,
+      // never brighter than about a quarter of white: it is the rock the crowd walks on, and it must
+      // never read as part of the crowd. The lamp's pool on it is small and sparse.
       floor.begin()
-      const C = 15
+      const C = 17
       const i0 = Math.floor(view.left / C) - 1, i1 = Math.ceil(view.right / C) + 1
       const j0 = Math.floor(view.top / C) - 1, j1 = Math.ceil(view.bottom / C) + 1
-      const FL = ['.', '`', ',', '·', '.', ':', '-', ',', ';', '~', ':', '=']
+      const FL = ['.', '\'', ',', '·', '.', ':', '-', ',', ';', '~', ':', '=']
       for (let j = j0; j <= j1; j++) {
         for (let i = i0; i <= i1; i++) {
           const h = hash2(i, j, 1)
           const x = (i + 0.15 + 0.7 * hash2(i, j, 2)) * C, y = (j + 0.15 + 0.7 * hash2(i, j, 3)) * C
-          const [li, gi] = lightAt(x, y)
+          const [li, gi] = lightAt(x, y, true)
           const rock = vnoise(x / 170, y / 170, 5)      // ridges of heavier rock: the gallery walls
           const wall = clamp01((rock - 0.58) * 5)
-          const l = Math.min(1.3, li)
-          if (h > 0.03 + 0.95 * Math.min(1, l * 1.2)) {
-            // the dark: a rare ore glint survives
-            if (hash2(i, j, 9) < 0.004) {
-              const tw = 0.5 + 0.5 * Math.sin(clock * 2 + h * 40)
-              floor.put('◇', x, y, hash2(i, j, 10) < 0.5 ? 0xffd27a : 0x9fe0e8, 0.12 + 0.25 * tw, 6, 0, true, 0, false)
-            }
+          const l = Math.min(1, li)
+          if (h > 0.3 + 0.55 * l + wall * 0.3) {
+            // the dark: a rare dull ore fleck survives
+            if (hash2(i, j, 9) < 0.004) floor.put('◇', x, y, hash2(i, j, 10) < 0.5 ? 0x6a5a3a : 0x4a6266, 0.35, 5, 0, false, 1, false)
             continue
           }
-          const v = clamp01(Math.min(1, l * 1.2) * (0.45 + 0.55 * hash2(i, j, 4)) * 0.9 + wall * 0.15)
+          const v = clamp01(0.12 + l * (0.4 + 0.5 * hash2(i, j, 4)) + wall * 0.25)
           let ch = FL[Math.min(FL.length - 1, Math.floor(v * FL.length))]
-          if (wall > 0.3 && v > 0.25 && hash2(i, j, 6) < wall * 0.35) ch = hash2(i, j, 7) < 0.5 ? '%' : '#'
-          let col = ramp3(0x4a3220, 0xb07a44, 0xffd498, v)
-          if (wall > 0.3) col = mixHex(col, 0x6a6458, 0.5)
-          if (gi > 0) col = mixHex(col, 0x9ad890, Math.min(0.6, gi / (li + 0.001) * 0.9))
-          const isOre = hash2(i, j, 9) < 0.01
-          if (isOre) {
+          if (wall > 0.3 && hash2(i, j, 6) < wall * 0.35) ch = hash2(i, j, 7) < 0.5 ? '%' : '#'
+          let col = ramp3(0x3a3530, 0x605850, 0x847a6c, v)
+          if (gi > 0) col = mixHex(col, 0x4a6a4c, Math.min(0.5, gi / (li + 0.001) * 0.8))
+          if (hash2(i, j, 9) < 0.01) {
+            // ore in the lamp: a dull fleck that only just catches the light
             const tw = 0.5 + 0.5 * Math.sin(clock * 2.5 + h * 40)
-            const oc = hash2(i, j, 10) < 0.5 ? 0xffd27a : 0x9fe0e8
-            floor.put(hash2(i, j, 11) < 0.5 ? '◇' : '*', x, y, oc, 0.35 + 0.6 * v * tw, 7 + 4 * v, 0, true, 0, false)
-            if (v > 0.35) floor.put('*', x, y, oc, 0.35 * v * tw, 14, 0, true, 0, true)
+            floor.put('◇', x, y, hash2(i, j, 10) < 0.5 ? 0x9a8458 : 0x6a8a8e, 0.3 + 0.3 * v * tw, 5 + 3 * v, 0, false, 1, false)
             continue
           }
-          floor.put(ch, x, y, col, 0.3 + 0.7 * v + wall * 0.1, 7 + 8 * v + wall * 4, (hash2(i, j, 8) - 0.5) * 0.7, false, v > 0.6 ? 0 : 1, false)
+          floor.put(ch, x, y, col, 0.35 + 0.3 * v, 6 + 5 * v + wall * 2, (hash2(i, j, 8) - 0.5) * 0.7, false, 1, false)
         }
       }
       floor.end()
@@ -650,12 +652,13 @@ export function createAsciiRenderer(host) {
             gas.put(ch, x + (Math.random() - 0.5) * 2, y + (Math.random() - 0.5) * 2, col, al, sz, a, true, 0, f < 0.25 && k % 4 === 0)
           } else {
             ch = f < 0.18 ? '≈' : f < 0.4 ? '∿' : f < 0.62 ? '~' : f < 0.8 ? 'o' : '.'
-            const wl = 0.45 + Math.min(0.55, pl)
-            col = mixHex(mixHex(0x2c5a3c, 0xbff0a0, 1 - f), 0xffe8b0, Math.min(0.25, pl * 0.2))
-            al = (0.95 - f * 0.65) * wl * (0.75 + 0.25 * Math.sin(clock * 1.7 + k))
+            // a hazard, so it stays clearly green and visible, but a step below the creatures in brightness
+            const wl = 0.55 + Math.min(0.45, pl)
+            col = mixHex(0x234a32, 0x8ccc7c, 1 - f)
+            al = (0.8 - f * 0.5) * wl * (0.75 + 0.25 * Math.sin(clock * 1.7 + k))
             sz = (f < 0.18 ? 15 : f < 0.4 ? 12 : f < 0.8 ? 9 : 7) * (1.05 - f * 0.25)
             gas.put(ch, x, y, col, al, sz, a + Math.PI / 2, false, f < 0.4 ? 0 : 1, false)
-            if (f < 0.12) gas.put(ch, x, y, 0x9ef090, 0.18 * wl, sz * 1.6, a + Math.PI / 2, true, 0, true)
+            if (f < 0.12) gas.put(ch, x, y, 0x6ac070, 0.12 * wl, sz * 1.6, a + Math.PI / 2, true, 0, true)
           }
         }
       }
@@ -777,13 +780,16 @@ export function createAsciiRenderer(host) {
         const arcAt = (kk) => [lerp(st.fromX, st.x, kk), lerp(st.fromY, st.y, kk) - Math.sin(kk * Math.PI) * 60]
         const [x, y] = arcAt(k)
         // its flight: a dotted arc of red-hot sparks hanging in the air behind it
+        // the whole arc back to the thrower, so the throw reads even at a glance
         if (k < 1) {
-          for (let i = 1; i <= 10; i++) {
-            const kk = k - i * 0.035
+          const N = 26
+          for (let i = 1; i <= N; i++) {
+            const kk = k - i * 0.04
             if (kk <= 0) break
             const [tx, ty] = arcAt(kk)
-            const f = i / 10
-            obj.put(i % 3 ? '·' : '*', tx, ty, mixHex(0xfff0a0, 0xff3010, f), 1 - f * 0.8, (i % 3 ? 9 : 10) * (1 - f * 0.4), i, true, 0, i % 3 === 0)
+            const f = i / N
+            const star = i % 4 === 0
+            obj.put(star ? '*' : i % 2 ? '·' : '-', tx, ty, mixHex(0xfff0a0, 0xc02008, f), 1 - f * 0.75, (star ? 12 : 10) * (1 - f * 0.45), star ? clock * 6 + i : Math.atan2(ty - arcAt(kk + 0.02)[1], tx - arcAt(kk + 0.02)[0]), true, star ? 0 : 2, star && i < 13)
           }
         }
         const rot = k < 1 ? k * 11 : 0.4
@@ -798,37 +804,43 @@ export function createAsciiRenderer(host) {
         if (dt > 0 && Math.random() < 0.6) {
           spawn({ ch: Math.random() < 0.5 ? '`' : '\'', x: x + ux * 18, y: y + uy * 18, vx: (Math.random() - 0.5) * 90, vy: -30 - Math.random() * 50, life: 0.3, c0: 0xffe070, c1: 0xff4010, size: 6, add: true, grav: 200 })
         }
+        // in flight, the fuse leaves embers hanging along its whole path: a long fading comet
+        if (dt > 0 && k < 1) {
+          for (let i = 0; i < 2; i++) spawn({ ch: i ? '·' : '*', x: x + (Math.random() - 0.5) * 4, y: y + (Math.random() - 0.5) * 4, vx: (Math.random() - 0.5) * 12, vy: (Math.random() - 0.5) * 12, life: 0.7, c0: 0xffe890, c1: 0xb02008, size: i ? 11 : 12, add: true, rot: Math.random() * TAU, a0: 0.95, glow: !i })
+        }
       }
       for (const c of run.carts ?? []) {
-        // the minecart: a box of '=' and '|' heaped with glinting ore, iron wheels, rails behind
+        // the minecart: a compact SOLID tub packed with glyphs like the creatures are, never an outline:
+        // a rim of heavy rust-orange '#' '=' planks, a heaped load of gold and blue ore glinting inside,
+        // four iron 'o' wheels, sparks off the rails
         const ux = Math.cos(c.angle), uy = Math.sin(c.angle), vx = -uy, vy = ux
-        const w = c.w ?? 18, L = w * 1.15
+        const L = Math.min(30, (c.w ?? 18) * 0.8), w = L * 0.68
         const P = (a, b) => [c.x + ux * a + vx * b, c.y + uy * a + vy * b]
-        for (const s of [-1, 1]) {
-          // plank walls of separate '#' and '=' (spaced so each reads as a character, not a line)
-          const na = Math.max(2, Math.round(2 * L / 8))
-          for (let i = 0; i <= na; i++) {
-            const [x, y] = P(-L + 2 * L * i / na, s * w)
-            const corner = i === 0 || i === na
-            obj.put(corner ? '+' : i % 2 ? '=' : '#', x, y, corner ? 0xffe0a0 : 0xf0a858, 1, corner ? 13 : 12, c.angle, false, 2, false)
-          }
-          const nb = Math.max(1, Math.round(2 * w / 8))
-          for (let i = 1; i < nb; i++) { const [x, y] = P(s * L, -w + 2 * w * i / nb); obj.put(i % 2 ? '=' : '#', x, y, 0xd88c48, 1, 12, c.angle + Math.PI / 2, false, 2, false) }
-          for (const f of [-1, 1]) {
-            const [x, y] = P(f * L * 0.7, s * (w + 3))
-            obj.put('o', x, y, 0xd8e2ec, 1, 11, clock * 12, false, 0, false)
-            // iron on iron: the wheels spit sparks
-            if (f < 0) obj.put('*', x - ux * 5, y - uy * 5, 0xfff0a0, 0.6 + 0.4 * Math.sin(clock * 50 + s), 9, clock * 30, true, 0, true)
-          }
+        for (const s2 of [-1, 1]) for (const f2 of [-1, 1]) {
+          const [x, y] = P(f2 * L * 0.62, s2 * (w + 4))
+          obj.put('o', x, y, 0xc8d4e0, 1, 11, clock * 12, false, 2, false)
+          if (f2 < 0) obj.put('*', x - ux * 6, y - uy * 6, 0xfff0a0, 0.6 + 0.4 * Math.sin(clock * 50 + s2), 9, clock * 30, true, 0, true)
         }
-        // the load: a heap of ore glyphs, gold and blue, heavier toward the middle
-        const nOre = Math.min(34, Math.round(L * w / 30))
-        for (let i = 0; i < nOre; i++) {
-          const rr = Math.sqrt(hash2(i, 3, 81)), aa = hash2(i, 4, 81) * TAU
-          const [x, y] = P(Math.cos(aa) * rr * L * 0.8, Math.sin(aa) * rr * w * 0.75)
-          const gold = i % 3 !== 0
-          const ch = ['*', '◇', 'o', '%', '°', '@'][i % 6]
-          obj.put(ch, x, y, gold ? mixHex(0xffe08a, 0xb87a30, rr) : mixHex(0xc8f6ff, 0x4a8aa8, rr), 1 - rr * 0.4, (13 - rr * 5), aa, !gold || ch === '*', 0, i % 5 === 0)
+        const sp = 4.4
+        let n = 0
+        for (let yy = -w; yy <= w + 0.01; yy += sp * 0.86) {
+          const row = Math.round((yy + w) / (sp * 0.86))
+          for (let xx = -L + (row % 2 ? sp / 2 : 0); xx <= L + 0.01; xx += sp) {
+            n++
+            const rim = Math.abs(xx) > L - sp * 0.9 || Math.abs(yy) > w - sp * 0.8
+            const [x, y] = P(xx + (hash2(n, 1, 83) - 0.5) * 1.5, yy + (hash2(n, 2, 83) - 0.5) * 1.5)
+            if (rim) {
+              obj.put(hash2(n, 3, 83) < 0.5 ? '#' : '=', x, y, mixHex(0xc06a30, 0x7a3c18, hash2(n, 4, 83)), 0.9, 8, c.angle, false, 2, false)
+            } else {
+              // the load: heaped higher (bigger, brighter) toward the middle
+              const rr = Math.min(1, Math.hypot(xx / L, yy / w))
+              const gold = hash2(n, 5, 83) < 0.68
+              const ch = ['*', '◇', 'o', '%', '@', '°'][Math.floor(hash2(n, 6, 83) * 6)]
+              const tw = 0.75 + 0.25 * Math.sin(clock * 9 + n)
+              obj.put(ch, x, y, gold ? mixHex(0xffe890, 0xc07a28, rr) : mixHex(0xc8f6ff, 0x3a8ab8, rr), tw, 13 - rr * 4, hash2(n, 7, 83) * TAU, false, 0, false)
+              if (hash2(n, 8, 83) < 0.18) obj.put(ch, x, y, gold ? 0xffc040 : 0x60d0ff, 0.35 * tw, 18, 0, true, 0, true)
+            }
+          }
         }
         if (dt > 0 && frame % 3 === 0) {
           // the rails it leaves: two bright '=' lines and '#' ties, cooling to dark
@@ -841,16 +853,18 @@ export function createAsciiRenderer(host) {
         if (b.x < view.left || b.x > view.right || b.y < view.top || b.y > view.bottom) continue
         const a = Math.atan2(b.vy, b.vx)
         if (b.weapon === 'chip') {
-          // pickaxe chips: tumbling flakes of rock with a two-glyph trail
-          // pickaxe chips: a tumbling flake of struck stone dragging an ice-white streak of '-'
+          // pickaxe chips: a spinning spark of struck blue quartz ('*'), dragging a long tapering
+          // comet of '=' '-' '·' that cools from ice to deep blue
           const sp = Math.hypot(b.vx, b.vy) || 1
           const ux = b.vx / sp, uy = b.vy / sp
-          for (let i = 6; i >= 1; i--) {
-            const f = i / 6
-            obj.put(i < 3 ? '=' : i < 5 ? '-' : '·', b.x - ux * i * 5, b.y - uy * i * 5, mixHex(0xe8f8ff, 0x3a7aa8, f), 0.95 * (1 - f * 0.75), 10 - f * 4, a, true, 0, false)
+          for (let i = 10; i >= 1; i--) {
+            const f = i / 10
+            obj.put(i < 4 ? '=' : i < 7 ? '-' : '·', b.x - ux * (3 + i * 4.2), b.y - uy * (3 + i * 4.2), mixHex(0xbff2ff, 0x1a4aa0, f), 1 - f * 0.8, 11 - f * 5, a, true, 2, false)
           }
-          obj.put('◆', b.x, b.y, 0x9ad8ff, 0.5, 15, clock * 15, true, 0, true)
-          obj.put('◆', b.x, b.y, 0xf4fcff, 1, 10, clock * 15, false, 0, false)
+          const spin = clock * 14 + b.x * 0.05
+          obj.put('*', b.x, b.y, 0x30a8ff, 0.75, 26, spin, true, 2, true)
+          obj.put('*', b.x, b.y, 0x9ae8ff, 1, 17, spin, false, 2, false)
+          obj.put('·', b.x, b.y, 0xffffff, 1, 10, 0, true, 0, false)
         } else obj.put('*', b.x, b.y, 0xffe28a, 1, 10, a, true, 0, false)
       }
       for (const n of run.novas ?? []) {
