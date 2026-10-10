@@ -40,7 +40,7 @@ import { currentForce, tideForce, krakenArmInReach } from './sim.js'
 import { KRAKEN_BEATS, KRAKEN_CEREMONY, KRAKEN_OUTRO } from './config.js'
 import { TRAWL_WIGGLE_ARC, KRAKEN_GRIP_FLICKS } from './config.js'
 import { DRAW_CAPS } from './config.js'
-import { ELITE } from './config.js'
+import { ELITE, gemTier } from './config.js'
 import * as MACRO from './macro.js'
 import * as HOLO from './holo.js'
 import * as ASCII from './ascii.js'
@@ -12534,6 +12534,7 @@ export function createRenderer(app) {
   const hexTone = (h, out) => { out[0] = ((h >> 16) & 255) / 255; out[1] = ((h >> 8) & 255) / 255; out[2] = (h & 255) / 255 }
   let macroLook = null          // CHAPTERS[id].render.macro, latched in setMacro (from reset)
   const macroTiles = {}         // floor kind -> Texture, painted the first time a run needs it
+  let macroPickups = null       // the photographed gems and coins (MACRO.paintPickups), baked by setMacro
   const macroAir = new Container()
   app.stage.addChildAt(macroAir, app.stage.getChildIndex(world) + 1)
   macroAir.visible = false
@@ -12701,6 +12702,11 @@ export function createRenderer(app) {
       macroTiles[kind].source.style.addressMode = 'repeat'
     }
     macroFloor.texture = macroTiles[kind]
+    if (!macroPickups) {
+      const P = MACRO.paintPickups()
+      const tex = (b) => ({ tex: macroCanvasTex(b.body, MACRO.PK_S), ax: b.ax, ay: b.ay })
+      macroPickups = { gem: P.gem.map((tier) => tier.map((sh) => sh.map(tex))), coin: P.coin.map((sh) => sh.map(tex)) }
+    }
     macroFloor.visible = true
     blotchLayer.visible = false
     buildMacroAir(kind)
@@ -19459,6 +19465,7 @@ const spurG = new Graphics()
   const orbPool = []
   const gemPool = []
   const coinPool = []
+  let pickRun = null   // the run being drawn, for gemTier (placeGem only gets the gem)
   const gemsShown = []
   const coinsShown = []
   const PICKUP_CULL_PAD = 32 // px, past the edge so a gem's pulse never pops in
@@ -31738,6 +31745,7 @@ void main() {
     syncScrewChain(run)
     syncPool(screwPool, orbLayer, run.screws, 'screw', T.screw, placeScrew)
     // Endless floors pile up 50k+ pickups; only the ones on screen get a sprite.
+    pickRun = run
     syncPool(gemPool, gemLayer, onScreenPickups(run.gems, gemsShown, cx, cy), 'gem', T.gem, placeGem)
     syncPool(coinPool, coinLayer, onScreenPickups(run.coins, coinsShown, cx, cy), 'coin', T.coin, placeCoin)
     syncPool(boomerangPool, boomerangLayer, run.boomerangs, 'boomerang', T.boomerang, placeBoomerang)
@@ -31981,14 +31989,26 @@ void main() {
     const sizeMul = (o.r ?? ORB_R) / ORB_R
     s.scale.set(T.orbScale * sizeMul * (1 + 0.12 * Math.sin(animT * 6 + i * 2.1)))
   }
+  // Topsoil: a photographed pickup. Each lies still (no pulse: a stone does not breathe), shows one of
+  // its two shapes by where it fell, and swaps to its glint bake for a short beat on its own clock.
+  const pickHash = (x, y) => { const h = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453; return h - Math.floor(h) }
+  function placeMacroPickup(s, set, x, y) {
+    const h = pickHash(Math.round(x), Math.round(y))
+    const t = set[h < 0.5 ? 0 : 1][((animT * 0.45 + h * 7.3) % 1) < 0.07 ? 1 : 0]
+    if (s.texture !== t.tex) { s.texture = t.tex; s.anchor.set(t.ax, t.ay) }
+    s.position.set(x, y)
+    s.scale.set(1)
+  }
   function placeGem(s, g) {
     if (pixelLook && pixelRig.placeGem(s, g, animT)) return   // The Magma: pixel gems
+    if (macroLook) { placeMacroPickup(s, macroPickups.gem[gemTier(g.xp, pickRun)], g.x, g.y); return }
     if (s.texture !== T.gem.tex) { s.texture = T.gem.tex; s.anchor.set(T.gem.ax, T.gem.ay) }
     s.position.set(g.x, g.y)
     s.scale.set(1 + 0.15 * Math.sin(animT * 5 + (g.x + g.y) * 0.05))
   }
   function placeCoin(s, c) {
     if (pixelLook && pixelRig.placeCoin(s, c, animT)) return   // The Magma: pixel coins
+    if (macroLook) { placeMacroPickup(s, macroPickups.coin, c.x, c.y); return }
     if (s.texture !== T.coin.tex) { s.texture = T.coin.tex; s.anchor.set(T.coin.ax, T.coin.ay) }
     s.position.set(c.x, c.y)
     s.scale.set(1 + 0.1 * Math.sin(animT * 4 + (c.x - c.y) * 0.05))
