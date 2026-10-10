@@ -108,7 +108,7 @@ import {
   BLANK_XREACT_READ1_MUL, BLANK_XREACT_READ3_K,
   BLANK_BAND_ANGLES, BLANK_BAND_ANGLES_MATURE, BLANK_FAN_N_MATURE,
   // v6.3.4 anti-turtle pass (Run MM)
-  ENEMIES, dmgScale, difficultyDmgMul, difficultySpeedMul, difficultyCountMul, ENDLESS_COUNT_MUL_MAX, XP_LATE_FROM, DIFFICULTY_DMG_PER_LEVEL, HURT_CAP_FRAC,
+  ENEMIES, gemTier, GEM_TIER_AT, dmgScale, difficultyDmgMul, difficultySpeedMul, difficultyCountMul, ENDLESS_COUNT_MUL_MAX, XP_LATE_FROM, DIFFICULTY_DMG_PER_LEVEL, HURT_CAP_FRAC,
   // v6.4 pond identity (Run NN)
   BLOOM_SLOW, TIDE_DMG_BONUS, TIDE_TURN, MINE_STUN, SOAP_INTERVAL,
   // v6.4.1/v6.4.3 early-calm (Run OO)
@@ -20851,6 +20851,7 @@ run(testLeLargeWeapons)
   run(testMineGlyphTells)
   run(testMagma)
   run(testTopsoilPolish)
+  run(testGemTiers)
   run(testMagmaFloor)
   run(testMagmaRiverBank)
   // A hand-typed filter that matched nothing is the silent pass without a parent watching:
@@ -39839,4 +39840,46 @@ function testTopsoilPolish() {
     assert.strictEqual(mole.hitFlash, 0, `run TS.f: a mole's hit flash must fade underground, still ${mole.hitFlash}`)
   }
   console.log(`PASS run TS (Topsoil polish): Deep Roots ${(roots9 / roots0).toFixed(2)}x on held bodies; Furrow ${on.pits} pits dealt ${on.dmg} off-chapter (0 unarmed, 0 pits standing still), Ipecac ${sick.pits} pits; Sundown chaser ${night.closed.toFixed(0)} vs ${day.closed.toFixed(0)} px, gem ${night.xp} vs ${day.xp} XP; Soft Ground eruption ${soft.erupt.toFixed(0)} vs ${hard.erupt.toFixed(0)}, pit ${soft.pit.toFixed(0)} vs ${hard.pit.toFixed(0)}`)
+}
+
+// run GT (gem tiers): Topsoil draws a floor gem by gemTier(g.xp, run). Driven by real kills, so the xp
+// a drop carries is the sim's own (roster xpMul at spawn, ELITE.xpMul in the death path): an elite's
+// drop must read a tier above an ordinary kill's, and the tiers must not drift with the endless taper.
+function testGemTiers() {
+  const meta = () => { const m = makeMeta(); m.dev = true; return m }
+  const dt = 1 / 60
+  Math.random = mulberry32(33101)
+  const r = createRun(meta(), { chapter: 'topsoil', difficulty: 1 })
+  r.player.hp = r.player.maxHP = 1e9
+  r.weapons = [{ id: 'shovel', level: 5 }]
+  const tiers = { normal: [], elite: [] }
+  let n = 0
+  for (let i = 0; i < 120 * 60 && !(tiers.normal.length >= 5 && tiers.elite.length >= 3); i++) {
+    if (r.phase === 'levelup') { r.phase = 'playing'; r.levelUpChoices = [] }
+    r.player.hp = r.player.maxHP
+    // every third ordinary body is made an elite: the death path is what multiplies ELITE.xpMul in
+    for (const e of r.enemies) if (!e._gt) { e._gt = true; if (e.type !== 'tank' && n++ % 3 === 2) e.elite = true }
+    const live = r.enemies.filter((e) => !e._dead && e.type !== 'tank')
+    const gems = r.gems, drops = []
+    gems.push = function (...g) { drops.push(...g); return Array.prototype.push.apply(this, g) }
+    stepSim(r, { x: 0, y: 0 }, dt)
+    delete gems.push
+    r.events.length = 0
+    for (const e of live) {
+      if (!e._dead) continue
+      const g = drops.find((d) => d.x === e.x && d.y === e.y)
+      if (g) tiers[e.elite ? 'elite' : 'normal'].push(gemTier(g.xp, r))
+    }
+  }
+  assert.ok(tiers.normal.length >= 5 && tiers.elite.length >= 3, `run GT: fixture killed too few bodies (${tiers.normal.length} ordinary, ${tiers.elite.length} elite)`)
+  assert.ok(tiers.normal.every((k) => k === 0), `run GT: an ordinary kill's gem must be tier 0, got ${tiers.normal}`)
+  assert.ok(tiers.elite.every((k) => k >= 1), `run GT: an elite's gem must read above an ordinary kill's, got ${tiers.elite}`)
+  // a tank's drop is tier 1 and an elite tank's tier 2; on a deep endless rung the taper shrinks every
+  // drop alike, and the tiers must hold
+  const deep = { endless: true, difficulty: 20 }, u = ENEMIES.drone.xp * endlessXpMul(20)
+  assert.strictEqual(gemTier(ENEMIES.tank.xp, r), 1, 'run GT: a tank\'s gem is tier 1')
+  assert.strictEqual(gemTier(ENEMIES.tank.xp * ELITE.xpMul, r), 2, 'run GT: an elite tank\'s gem is tier 2')
+  assert.strictEqual(gemTier(u, deep), 0, 'run GT: an ordinary kill on endless rung 20 is still tier 0')
+  assert.strictEqual(gemTier(u * ELITE.xpMul, deep), 1, 'run GT: an elite on endless rung 20 is still tier 1 (the taper divides out)')
+  console.log(`PASS run GT (gem tiers): ${tiers.normal.length} ordinary kills -> tier 0, ${tiers.elite.length} elites -> tier ${[...new Set(tiers.elite)]}; thresholds ${GEM_TIER_AT} ordinary kills`)
 }

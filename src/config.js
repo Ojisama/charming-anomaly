@@ -5964,6 +5964,15 @@ export const ENEMIES = {
   tank:  { hp: 90, speed: 55,  dmg: 15, radius: 26, xp: 4, coinChance: 0.35 },
 }
 export const ELITE = { hpMul: 5, sizeMul: 1.5, dmgMul: 1.5, coins: 8, xpMul: 4 }
+// A floor gem's look tier (render.js draws three): 0 an ordinary kill's, 1 a tank's or an elite's,
+// 2 an elite tank's. g.xp is stamped at the kill (archetype xp x roster xpMul x the endless taper x
+// ELITE.xpMul), and the chapter/difficulty pay multipliers only apply at pickup, so dividing out the
+// taper measures a drop in ordinary kills, the same on every rung.
+export const GEM_TIER_AT = [3, 12]   // ordinary kills where tier 1 and tier 2 start
+export function gemTier(xp, run) {
+  const k = xp / (ENEMIES.drone.xp * (run.endless ? endlessXpMul(run.difficulty) : 1))
+  return k >= GEM_TIER_AT[1] ? 2 : k >= GEM_TIER_AT[0] ? 1 : 0
+}
 
 // Time-bracket spawn composition: [from-second, {type: weight}]
 export const WAVE_TABLE = [

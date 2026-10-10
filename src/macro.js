@@ -1722,3 +1722,252 @@ export function paintRootSnare(seed, k) {
     }
   }, { shadowBlur: 0.5 })
 }
+
+// ==== THE FLOOR PICKUPS ===========================================================================
+// Topsoil's xp gems and coins (render.js macroPickups). A gem is a lump of rough sapphire turned out
+// of the soil (one stone, a bigger stone, a stone with two smaller ones: the three tiers), a coin is
+// an old worn coin, one edge still under the dirt. Both are heightfields shaded texel by texel:
+// facet normals, the stone's body darker and bluer where it is thick (Beer-Lambert), silk inclusions,
+// a Fresnel reflection of the key's softbox and a hard specular; the coin's rim, beaded border and
+// low head under tarnish. The soil they sit in (scuff, contact shadow, crumbs) is painted around them.
+// Every bake is in WORLD px (bakeLocal at PK_S texels per px, uploaded at PK_S) and comes as a pair,
+// [plain, glint], the glint being the same bake with the specular pushed: render.js swaps to it for a
+// beat now and then, so a still floor still catches the light.
+export const PK_S = 4
+const PK_K = 1.45   // every pickup is painted at this size over the units its painter is written in
+function pkBake(E, paint) {
+  const at = (gl) => (ctx) => { ctx.scale(PK_K, PK_K); ctx._S = PK_S * PK_K; paint(ctx, gl) }
+  const out = (b) => ({ body: b.body, ax: b.ax, ay: b.ay })
+  return [out(bakeLocal(E * PK_K, PK_S, at(false), { shadowBlur: 0.3 })), out(bakeLocal(E * PK_K, PK_S, at(true), { shadowBlur: 0.3 }))]
+}
+const PK_L = (() => { const v = [LX, LY, 1.05], n = Math.hypot(...v); return v.map((c) => c / n) })()
+const PK_H = (() => { const v = [PK_L[0], PK_L[1], PK_L[2] + 1], n = Math.hypot(...v); return v.map((c) => c / n) })()
+const PK_RES = PK_S * PK_K * 1.5   // texels per px the shaded bakes are rastered at
+const sstep = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t) }
+function hash2(x, y) { const h = Math.sin(x * 127.1 + y * 311.7) * 43758.5453; return h - Math.floor(h) }
+function vnoise(x, y) {
+  const xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi
+  const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf)
+  const a = hash2(xi, yi), b = hash2(xi + 1, yi), c = hash2(xi, yi + 1), d = hash2(xi + 1, yi + 1)
+  return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v
+}
+const fbm2 = (x, y) => vnoise(x, y) * 0.5 + vnoise(x * 2.1 + 5.2, y * 2.1 + 3.1) * 0.3 + vnoise(x * 4.3 + 11.7, y * 4.3 + 7.9) * 0.2
+// shade(x, y) -> [r, g, b, a] (0..1) or null, x/y in local px; composited over what the canvas holds
+function pkRaster(ctx, E, shade) {
+  const W = Math.ceil(E * 2 * PK_RES), c = makeCanvas(W, W), cx = c.getContext('2d'), id = cx.createImageData(W, W), d = id.data
+  for (let j = 0; j < W; j++) for (let i = 0; i < W; i++) {
+    const o = shade(-E + (i + 0.5) / PK_RES, -E + (j + 0.5) / PK_RES)
+    if (!o || o[3] <= 0) continue
+    const k = (j * W + i) * 4
+    d[k] = Math.min(255, Math.max(0, o[0] * 255)); d[k + 1] = Math.min(255, Math.max(0, o[1] * 255)); d[k + 2] = Math.min(255, Math.max(0, o[2] * 255)); d[k + 3] = Math.min(255, o[3] * 255)
+  }
+  cx.putImageData(id, 0, 0)
+  ctx.drawImage(c, -E, -E, E * 2, E * 2)
+}
+const SOILS = [0x3e2a18, 0x5a3e26, 0x6e4c2e, 0x4a321e, 0x7a5a3a]
+function pkCrumb(ctx, rnd, x, y, r) {
+  r *= 0.62
+  const pts = blobPts(rnd, x, y, r, 8, 0.6, 0.7, rnd() * TAU)
+  lump(ctx, pts, x, y, r, SOILS[Math.floor(rnd() * SOILS.length)], { shadow: 0.5, lit: 0.18, dark: 0.45 })
+}
+// a scuffed, darker patch of disturbed soil: the dirt the thing was turned out of
+function pkScuff(ctx, rnd, x, y, rx, ry, rot) {
+  softFill(ctx, ellipsePts(x, y, rx, ry, rot, 24), Math.min(rx, ry) * 0.5, 'rgba(14,8,4,0.55)')
+  for (let i = 0; i < 6; i++) { const a = rnd() * TAU, d = 0.5 + rnd() * 0.5; softDot(ctx, x + Math.cos(a) * rx * d, y + Math.sin(a) * ry * d, 0.6 + rnd() * 0.8, 0.5, 'rgba(110,80,52,0.35)') }
+}
+
+// The stone's look at one texel. n: unit normal; t: thickness under it (px); ridge 0..1 (a facet edge);
+// (gx, gy): where it sits relative to the stone's centre in units of its size, for the internal glow.
+function sapphireTexel(n, t, ridge, gx, gy, x, y, glint, dirt, brill = 0.5) {
+  const nz = n[2], ndl = n[0] * PK_L[0] + n[1] * PK_L[1] + n[2] * PK_L[2]
+  const ndh = Math.max(0, n[0] * PK_H[0] + n[1] * PK_H[1] + n[2] * PK_H[2])
+  // the body: the soil seen through blue stone, darker and bluer the deeper the path
+  const k = 0.15 + t * 0.5
+  const facing = (n[0] * PK_L[0] + n[1] * PK_L[1]) / Math.max(1e-3, Math.hypot(n[0], n[1]) * Math.hypot(PK_L[0], PK_L[1]))
+  const fv = (0.35 + 1.0 * sstep(-0.7, 0.85, facing)) * (0.55 + 0.9 * brill)
+  let r = 0.16 * fv * Math.exp(-k * 0.9), g = 0.2 * fv * Math.exp(-k * 0.65), b = 0.3 * fv * Math.exp(-k * 0.35)
+  // light that came in through the lit facets, scattered and leaving on the far side
+  const far = sstep(-0.3, 0.9, -(gx * PK_L[0] + gy * PK_L[1]) / Math.hypot(PK_L[0], PK_L[1]))
+  const glow = (far * 0.28 + brill * brill * brill * 0.3) * (0.6 + 0.4 * fbm2(x * 0.9, y * 0.9))
+  r += glow * 0.42; g += glow * 0.55; b += glow * 0.82
+  // silk: rutile needles at sixty degrees, faint and sparse
+  for (let q = 0; q < 3; q++) {
+    const a = q * 1.047 + 0.4, s = x * Math.cos(a) + y * Math.sin(a)
+    const line = Math.pow(1 - Math.abs(((s * 1.6 + vnoise(x * 0.7 + q * 9, y * 0.7)) % 1 + 1) % 1 - 0.5) * 2, 18)
+    const m = sstep(0.55, 0.8, vnoise(x * 0.45 + q * 4.1, y * 0.45 - q * 2.7)) * 0.13 * line
+    r += m * 0.75; g += m * 0.82; b += m
+  }
+  // a little diffuse from the surface, for the form
+  const dif = Math.max(0, ndl) * 0.16
+  r += dif * 0.55; g += dif * 0.65; b += dif * 0.85
+  // Fresnel reflection of the scene: the soil below, the softbox at the key
+  const F = 0.05 + 0.95 * Math.pow(1 - Math.max(0, nz), 5)
+  const R = [2 * nz * n[0], 2 * nz * n[1], 2 * nz * n[2] - 1]
+  const box = sstep(0.6, 0.97, R[0] * PK_L[0] + R[1] * PK_L[1] + R[2] * PK_L[2])
+  const env = [0.08 + box * 0.95, 0.07 + box * 0.93, 0.05 + box * 0.88]
+  const Fe = Math.min(1, F * 2.4 + 0.05)
+  r += env[0] * Fe; g += env[1] * Fe; b += env[2] * Fe
+  // the edges where two facets meet catch light as fine lines
+  const lit = 0.45 + 0.55 * Math.max(0, ndl)
+  r += ridge * 0.16 * lit; g += ridge * 0.19 * lit; b += ridge * 0.24 * lit
+  // the specular: hard and small, then a soft sheen
+  const sp = Math.pow(ndh, 420) * (glint ? 5 : 1.8) + Math.pow(ndh, 60) * 0.1
+  r += sp; g += sp; b += sp
+  // dust and a film of soil on whatever sat in the dirt
+  if (dirt > 0) { r = r + (0.24 - r) * dirt; g = g + (0.16 - g) * dirt; b = b + (0.1 - b) * dirt }
+  return [r, g, b]
+}
+// heightfield as a set of planes h = h0 + gp*p + gq*q in a frame turned by ang: min over them.
+function planesAt(planes, x, y) {
+  let h1 = Infinity, h2 = Infinity, i1 = -1
+  for (let i = 0; i < planes.length; i++) {
+    const P = planes[i], h = P[0] + P[1] * x + P[2] * y
+    if (h < h1) { h2 = h1; h1 = h; i1 = i } else if (h < h2) h2 = h
+  }
+  return [h1, h2, i1]
+}
+// Stones { cx, cy, planes, bury, size } rastered together, the highest surface on top; `bury` sinks
+// each into the soil, which covers whatever is left below zero.
+function crystalRaster(ctx, E, stones, glint) {
+  pkRaster(ctx, E, (x, y) => {
+    let best = null
+    for (const st of stones) {
+      const dx = x - st.cx, dy = y - st.cy
+      let [h1, h2, i1] = planesAt(st.planes, dx, dy)
+      const chip = (fbm2(x * 1.3 + st.cx * 3, y * 1.3 - st.cy * 3) - 0.5) * st.size * 0.32
+      h1 += chip; h2 += chip
+      if (h1 <= 0) continue
+      const z = h1 - st.bury
+      if (z <= 0) continue
+      if (best && best.z >= z) continue
+      const P = st.planes[i1]
+      const nl = Math.hypot(P[1], P[2], 1)
+      const n = [-P[1] / nl, -P[2] / nl, 1 / nl]
+      const ridge = 1 - sstep(0, st.size * 0.09, h2 - h1)
+      const cover = Math.min(sstep(0, 0.35, h1), sstep(0, 0.5, z))
+      const dirt = (1 - sstep(0, st.size * 0.45, z)) * 0.75
+      best = { z, n, h1, ridge, cover, dirt, gx: dx / st.size, gy: dy / st.size, brill: hash2(i1 * 3.1 + st.cx, i1 * 1.7 + st.cy) }
+    }
+    if (!best) return null
+    const rgb = sapphireTexel(best.n, best.h1, best.ridge, best.gx, best.gy, x, y, glint, best.dirt, best.brill)
+    return [rgb[0], rgb[1], rgb[2], best.cover]
+  })
+}
+function stoneShadow(ctx, stones, a = 0.7) {
+  for (const st of stones) withBlur(ctx, st.size * 0.35 + 0.5, `rgba(6,3,1,${a})`, () => {
+    ctx.beginPath(); ctx.ellipse(st.cx - LX * st.size * 0.5, st.cy - LY * st.size * 0.5, st.size * 1.05, st.size * 0.8, 0, 0, TAU); ctx.fill()
+  })
+}
+// the light the stone focuses, landing blue-white on the soil past it
+function stoneCaustic(ctx, stones) {
+  ctx.save(); ctx.globalCompositeOperation = 'lighter'
+  for (const st of stones) softDot(ctx, st.cx - LX * st.size * 0.95, st.cy - LY * st.size * 0.95, st.size * 0.32, st.size * 0.35, 'rgba(110,140,200,0.32)')
+  ctx.restore()
+}
+// A lump of rough corundum: a convex stone of irregular facets, each a plane h = h0 + gx*x + gy*y
+// (nine round the sides, three across the crown), stretched by `aspect` and turned by `rot`.
+function roughPlanes(rnd, R, aspect, rot) {
+  const out = [], n = 9
+  for (let k = 0; k < n + 3; k++) {
+    const top = k >= n
+    const phi = top ? rnd() * TAU : (k / n) * TAU + (rnd() - 0.5) * 0.5
+    const e = top ? 1.05 + rnd() * 0.35 : 0.35 + rnd() * 0.5
+    const a = Math.cos(phi) * Math.cos(e), b = Math.sin(phi) * Math.cos(e), c = Math.sin(e)
+    const D = R * (top ? 0.95 + rnd() * 0.15 : 0.78 + rnd() * 0.32)
+    // squash along q for the aspect, then turn by rot: the plane in the (x, y) frame
+    const a2 = a, b2 = b / aspect
+    const ar = a2 * Math.cos(rot) - b2 * Math.sin(rot), br = a2 * Math.sin(rot) + b2 * Math.cos(rot)
+    out.push([D / c, -ar / c, -br / c])
+  }
+  return out
+}
+function sapphireRough(ctx, tier, rnd, glint) {
+  const spec = [[[0, 0, 3.6]], [[0, 0, 5.2]], [[-0.8, 0.3, 5.2], [4.6, -2.6, 3.2], [-1.4, 4.8, 2.8]]][tier]
+  const stones = spec.map(([x, y, R]) => ({ cx: x, cy: y, planes: roughPlanes(rnd, R, 1.25 + rnd() * 0.35, rnd() * TAU), bury: R * 0.32, size: R }))
+  for (const st of stones) pkScuff(ctx, rnd, st.cx, st.cy, st.size * 1.35, st.size * 1.15, rnd() * TAU)
+  stoneShadow(ctx, stones)
+  stoneCaustic(ctx, stones)
+  crystalRaster(ctx, 14, stones, glint)
+  // soil fallen against the base, mostly on the side away from the light
+  for (const st of stones) for (let i = 0; i < 5; i++) {
+    const a = Math.atan2(-LY, -LX) + (rnd() - 0.5) * 3.2, d = st.size * (0.85 + rnd() * 0.25)
+    pkCrumb(ctx, rnd, st.cx + Math.cos(a) * d, st.cy + Math.sin(a) * d, 0.6 + rnd() * 0.6)
+  }
+}
+// The coin: a struck disc, worn and tarnished, leaning by `tilt`, pushed `sink` into the soil, with
+// edgeBury(u, v) sinking part of its rim further under the dirt.
+function coinRaster(ctx, E, o, glint) {
+  const { r, tilt, ang, sink, edgeBury, seed } = o, soilAmp = o.soilAmp ?? 1
+  const ct = Math.cos(tilt), st = Math.sin(tilt), c = Math.cos(ang), s = Math.sin(ang)
+  const sd = seed * 1.37
+  const relief = (u, v) => {
+    const rho = Math.hypot(u, v) / r
+    if (rho > 1) return -1
+    let h = 0.42 * sstep(0.8, 0.88, rho) * (1 - sstep(0.94, 1.0, rho))           // the raised rim
+    // the beaded border inside it
+    const phi = Math.atan2(v, u), nb = 30, bp = ((phi / TAU) * nb % 1 + 1) % 1 - 0.5
+    const bd = Math.hypot(bp * TAU * rho * r / nb, (rho - 0.73) * r)
+    h += 0.16 * (1 - sstep(0.12, 0.32, bd))
+    // a worn head in low relief
+    const hu = u / r - 0.04, hv = v / r
+    const head = Math.hypot(hu / 0.4, hv / 0.5) + (fbm2(u * 1.2 + sd, v * 1.2) - 0.5) * 0.35
+    h += 0.13 * (1 - sstep(0.8, 1.0, head))
+    h += 0.07 * (1 - sstep(0.2, 0.6, Math.hypot(hu + 0.12, hv + 0.18) * 3)) // the eye/cheek lump
+    // wear flattens the high points; pits and scratches
+    h *= 0.55 + 0.45 * vnoise(u * 0.6 + sd, v * 0.6 - sd)
+    h -= 0.05 * sstep(0.7, 0.95, vnoise(u * 3.1 + sd, v * 3.1))
+    return h
+  }
+  pkRaster(ctx, E, (x, y) => {
+    const a = x * c + y * s, b = -x * s + y * c
+    const u = a, v = b / ct
+    const rho = Math.hypot(u, v) / r
+    if (rho > 1.02) return null
+    const hr = relief(u, v)
+    // above the soil? the disc's own lean plus how deep it was pushed in
+    const z = v * st + sink + Math.max(0, hr) * 0.6 - (edgeBury ? edgeBury(u, v) : 0)
+    const soilLine = ((fbm2(x * 0.7 + sd, y * 0.7) - 0.5) * 2.4 + (vnoise(x * 2.5, y * 2.5) - 0.5) * 0.8) * soilAmp
+    if (z < soilLine) return null
+    const e = 0.18
+    const dhu = (relief(u + e, v) - relief(u - e, v)) / (2 * e), dhv = (relief(u, v + e) - relief(u, v - e)) / (2 * e)
+    // normal in (a, b): the relief's slope, plus the disc's tilt
+    const na = -dhu, nb = -(dhv / ct) - st / ct, nl = Math.hypot(na, nb, 1)
+    const n = [(na * c - nb * s) / nl, (na * s + nb * c) / nl, 1 / nl]
+    const ndl = n[0] * PK_L[0] + n[1] * PK_L[1] + n[2] * PK_L[2]
+    const ndh = Math.max(0, n[0] * PK_H[0] + n[1] * PK_H[1] + n[2] * PK_H[2])
+    const R = [2 * n[2] * n[0], 2 * n[2] * n[1], 2 * n[2] * n[2] - 1]
+    const box = sstep(0.55, 0.95, R[0] * PK_L[0] + R[1] * PK_L[1] + R[2] * PK_L[2])
+    // old gold: a dull, warm metal; tarnish creeping out of the recesses
+    const recess = 1 - sstep(0.0, 0.14, hr)
+    const tarn = Math.min(1, sstep(0.45, 0.8, fbm2(u * 0.7 - sd, v * 0.7 + sd)) * 0.4 + recess * (rho < 0.8 ? 0.35 : 0.1) + (rho < 0.7 ? 0.3 : 0))
+    const F0 = [0.68 - tarn * 0.26, 0.53 - tarn * 0.22, 0.3 - tarn * 0.13]
+    const env = rho > 0.8 ? 0.62 + box * 0.75 : 0.4 + box * 0.35
+    let rr = F0[0] * env, gg = F0[1] * env, bb = F0[2] * env
+    const dif = Math.max(0, ndl) * 0.28
+    rr += F0[0] * dif; gg += F0[1] * dif; bb += F0[2] * dif
+    const sp = Math.pow(ndh, 140) * (glint ? 2.6 : 0.9) * (1 - tarn * 0.7) * (rho > 0.8 ? 1 : 0.35)
+    rr += sp * 0.95; gg += sp * 0.8; bb += sp * 0.55
+    // soil packed into the field's grooves, and a crust of it near the buried edge
+    const soil = Math.max(recess * sstep(0.45, 0.7, vnoise(u * 1.8 + sd, v * 1.8)) * (rho < 0.78 ? 1 : 0.4), 1 - sstep(soilLine, soilLine + 0.9, z))
+    const sc = 0.55 + 0.45 * vnoise(x * 2.3, y * 2.3)
+    rr += (0.26 * sc - rr) * soil * 0.85; gg += (0.18 * sc - gg) * soil * 0.85; bb += (0.11 * sc - bb) * soil * 0.85
+    const alpha = Math.min(1 - sstep(0.985, 1.02, rho), sstep(soilLine, soilLine + 0.25, z))
+    return [rr, gg, bb, alpha]
+  })
+}
+function coinFlat(ctx, rnd, glint) {
+  const r = 6.2, ang = rnd() * TAU, seed = Math.floor(rnd() * 100)
+  pkScuff(ctx, rnd, 0, 0, r * 1.15, r * 1.05, ang)
+  withBlur(ctx, 1.1, 'rgba(6,3,1,0.65)', () => { ctx.beginPath(); ctx.ellipse(-LX * 0.9, -LY * 0.9, r, r * 0.97, ang, 0, TAU); ctx.fill() })
+  // one edge sunk under a lip of soil
+  const bdir = rnd() * TAU, bx = Math.cos(bdir), by = Math.sin(bdir)
+  coinRaster(ctx, 12, { r, tilt: 0.12, ang, sink: 1.2, seed, soilAmp: 0.4, edgeBury: (u, v) => sstep(0.45, 1.0, (u * bx + v * by) / r) * 2.2 }, glint)
+  for (let i = 0; i < 6; i++) { const a = bdir + ang + (rnd() - 0.5) * 1.6, d = r * (0.85 + rnd() * 0.3); pkCrumb(ctx, rnd, Math.cos(a) * d, Math.sin(a) * d, 0.5 + rnd() * 0.7) }
+}
+
+// { gem: [tier][shape] -> [plain, glint], coin: [shape] -> [plain, glint] }
+export function paintPickups() {
+  const gem = [0, 1, 2].map((tier) => [0, 1].map((shape) => pkBake(14, (ctx, gl) => sapphireRough(ctx, tier, rng(101 + tier * 13 + shape * 7), gl))))
+  const coin = [0, 1].map((shape) => pkBake(12, (ctx, gl) => coinFlat(ctx, rng(211 + shape * 17), gl)))
+  return { gem, coin }
+}
