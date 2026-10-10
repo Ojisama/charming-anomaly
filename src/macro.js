@@ -106,7 +106,10 @@ export function withBlur(ctx, blur, color, draw) {
   ctx.shadowBlur = Math.max(0.01, blur * S)
   ctx.shadowOffsetX = OFF
   ctx.shadowOffsetY = 0
-  ctx.translate(-OFF / S, 0)
+  // the shadow offset is in device px, so the shape is moved off in device px too: a bake painted
+  // under ctx.rotate (paintShovel) still lands its blur in place
+  const m = ctx.getTransform()
+  ctx.setTransform(m.a, m.b, m.c, m.d, m.e - OFF, m.f)
   ctx.fillStyle = '#000'
   ctx.strokeStyle = '#000'
   draw()
@@ -1970,4 +1973,132 @@ export function paintPickups() {
   const gem = [0, 1, 2].map((tier) => [0, 1].map((shape) => pkBake(14, (ctx, gl) => sapphireRough(ctx, tier, rng(101 + tier * 13 + shape * 7), gl))))
   const coin = [0, 1].map((shape) => pkBake(12, (ctx, gl) => coinFlat(ctx, rng(211 + shape * 17), gl)))
   return { gem, coin }
+}
+
+// ==== THE SHOVEL (Topsoil's starter) ===============================================================
+// A long-handled round-point shovel in plan view, +x from the D-grip (local 0) to the blade tip. The
+// key is fixed in the WORLD, so the tool is baked once per heading (paintShovel(theta) paints it
+// already turned by theta, every lit/shaded side worked out from the light in that frame) and
+// render.js picks the nearest heading instead of rotating one bake's lighting round with the swing.
+export const SHOVEL_LEN = 192        // grip centre to blade tip, in bake units
+export const SHOVEL_DISH = 170       // the middle of the blade's dish, where the load of soil sits
+export const SHOVEL_HEADINGS = 16
+const SHOVEL_SOILS = [0x34200f, 0x422a16, 0x4e341c, 0x5e4026, 0x2a1a0c]
+// A turned rod (wood or steel) lit by the local light lv: shade, body, a lit band and a glint, each
+// slid across the rod toward the light.
+function rod(ctx, pts, w, base, lv, spec = 0.5) {
+  const pass = (k, off, color) => {
+    ctx.lineWidth = w * k; ctx.strokeStyle = color
+    for (let i = 0; i < pts.length - 1; i++) {
+      const [ax, ay] = pts[i], [bx, by] = pts[i + 1]
+      const dx = bx - ax, dy = by - ay, L = Math.hypot(dx, dy) || 1
+      const nx = -dy / L, ny = dx / L, s = (nx * lv[0] + ny * lv[1]) * off * w
+      ctx.beginPath(); ctx.moveTo(ax + nx * s, ay + ny * s); ctx.lineTo(bx + nx * s, by + ny * s); ctx.stroke()
+    }
+  }
+  ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round'
+  pass(1.15, 0, css(shadeC(base, -0.7)))
+  pass(0.95, 0.04, css(base))
+  pass(0.5, 0.2, css(shadeC(base, 0.22)))
+  if (spec > 0) pass(0.16, 0.3, `rgba(255,255,255,${spec})`)
+  ctx.restore()
+}
+function bladeOutline(x0, x1, half, n = 30) {
+  const top = [], bot = []
+  for (let i = 0; i <= n; i++) {
+    const t = i / n, x = x0 + (x1 - x0) * t
+    const w = half * Math.pow(Math.max(0, 1 - Math.pow(t, 2.6)), 0.55) * (1 - 0.06 * Math.sin(t * Math.PI))
+    top.push(x, -w); bot.unshift(x, w)
+  }
+  return [...top, ...bot]
+}
+export function paintShovel(theta) {
+  const c = Math.cos(theta), s = Math.sin(theta)
+  const lv = [LX * c + LY * s, -LX * s + LY * c]   // toward the light, in the tool's own frame
+  return bakeLocal(SHOVEL_LEN + 4, 1.75, (ctx) => {
+    ctx.rotate(theta)
+    const rnd = rng(311)
+    // D-grip: black-stained ash, the cross bar polished by the palm
+    rod(ctx, [[8, -2.6], [-2, -6], [-10, -8.5], [-15, -8.2]], 3.3, 0x2a1c12, lv, 0.3)
+    rod(ctx, [[8, 2.6], [-2, 6], [-10, 8.5], [-15, 8.2]], 3.3, 0x2a1c12, lv, 0.3)
+    rod(ctx, [[-15, -9], [-16, 0], [-15, 9]], 4.2, 0x3a2818, lv, 0.55)
+    // the shaft: worn ash, its grain, darker and glossier where the hands go
+    rod(ctx, [[6, 0], [138, 0]], 6, 0x9c7244, lv, 0.3)
+    ctx.save(); ctx.lineCap = 'round'
+    for (let i = 0; i < 9; i++) {
+      const y = (rnd() - 0.5) * 3.8, x0 = 6 + rnd() * 60, L = 30 + rnd() * 80
+      ctx.beginPath(); ctx.moveTo(x0, y); ctx.bezierCurveTo(x0 + L * 0.3, y + (rnd() - 0.5) * 1.2, x0 + L * 0.6, y + (rnd() - 0.5) * 1.2, Math.min(138, x0 + L), y + (rnd() - 0.5))
+      ctx.strokeStyle = `rgba(60,34,14,${0.25 + rnd() * 0.3})`; ctx.lineWidth = 0.35 + rnd() * 0.3; ctx.stroke()
+    }
+    ctx.restore()
+    for (const [a, b] of [[8, 34], [96, 124]]) { ctx.save(); ctx.globalAlpha = 0.45; rod(ctx, [[a, 0], [b, 0]], 5.9, 0x5a3a1e, lv, 0.7); ctx.restore() }
+    softDot(ctx, 60, 1.5, 2.2, 2, 'rgba(70,46,24,0.35)')
+    // the steel socket and its rivets
+    rod(ctx, [[134, 0], [157, 0]], 8.4, 0x7a8086, lv, 0.85)
+    for (const x of [140, 149]) { softDot(ctx, x, 0, 1.1, 0.25, 'rgba(30,30,34,0.9)'); softDot(ctx, x + lv[0] * 0.4, lv[1] * 0.4, 0.45, 0.2, 'rgba(255,255,255,0.8)') }
+    // the blade, a dish: its wall nearest the light in shade, the far wall catching it
+    const x0 = 152, x1 = SHOVEL_LEN, half = 17, cx = SHOVEL_DISH
+    const bl = bladeOutline(x0, x1, half)
+    const bg = ctx.createLinearGradient(cx + lv[0] * 18, lv[1] * 18, cx - lv[0] * 18, -lv[1] * 18)
+    bg.addColorStop(0, '#2a2e32'); bg.addColorStop(0.35, '#4c5258'); bg.addColorStop(0.7, '#7c848a'); bg.addColorStop(1, '#a8b0b6')
+    trace(ctx, bl); ctx.fillStyle = bg; ctx.fill()
+    ctx.save(); trace(ctx, bl); ctx.clip()
+    const wg = ctx.createLinearGradient(x0, 0, x1, 0)   // bright steel toward the tip, scoured by the ground
+    wg.addColorStop(0, 'rgba(210,216,222,0)'); wg.addColorStop(0.62, 'rgba(210,216,222,0.08)'); wg.addColorStop(0.92, 'rgba(226,232,238,0.5)'); wg.addColorStop(1, 'rgba(240,244,248,0.75)')
+    ctx.fillStyle = wg; ctx.fillRect(x0, -half, x1 - x0, half * 2)
+    for (let i = 0; i < 7; i++) softDot(ctx, x0 + 2 + rnd() * 14, (rnd() - 0.5) * 26, 1.5 + rnd() * 3, 1.6, `rgba(112,62,28,${0.25 + rnd() * 0.25})`)   // rust at the shoulders
+    for (let i = 0; i < 5; i++) softDot(ctx, x0 + 8 + rnd() * 26, (rnd() - 0.5) * 20, 1 + rnd() * 2.4, 1, `rgba(58,38,22,${0.35 + rnd() * 0.3})`)   // soil caught in it
+    ctx.lineCap = 'round'
+    for (let i = 0; i < 46; i++) {   // scratches along the blade
+      const x = x0 + 6 + rnd() * 34, y = (rnd() - 0.5) * 24, L = 2 + rnd() * 9, a = (rnd() - 0.5) * 0.35
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + Math.cos(a) * L, y + Math.sin(a) * L)
+      ctx.strokeStyle = rnd() < 0.7 ? `rgba(236,240,244,${0.2 + rnd() * 0.35})` : `rgba(20,22,26,${0.25 + rnd() * 0.3})`
+      ctx.lineWidth = 0.18 + rnd() * 0.25; ctx.stroke()
+    }
+    ctx.beginPath(); ctx.moveTo(x0, 0); ctx.quadraticCurveTo(x0 + 14, 0.2, x0 + 22, 0.4)   // the rib pressed in from the socket
+    ctx.strokeStyle = 'rgba(230,236,240,0.4)'; ctx.lineWidth = 1.4; ctx.stroke()
+    ctx.restore()
+    grain(ctx, bl, 0.4)
+    // the rolled rim: black all round, bright where it faces the light
+    ctx.save(); trace(ctx, bl); ctx.lineWidth = 1.3; ctx.strokeStyle = 'rgba(20,22,26,0.9)'; ctx.stroke(); ctx.restore()
+    ctx.save()
+    const px = -lv[1], py = lv[0]
+    ctx.beginPath(); ctx.moveTo(cx + px * 60, py * 60); ctx.lineTo(cx + px * 60 + lv[0] * 60, py * 60 + lv[1] * 60)
+    ctx.lineTo(cx - px * 60 + lv[0] * 60, -py * 60 + lv[1] * 60); ctx.lineTo(cx - px * 60, -py * 60); ctx.closePath(); ctx.clip()
+    trace(ctx, bl); ctx.lineWidth = 0.7; ctx.strokeStyle = 'rgba(250,252,255,0.85)'; ctx.stroke(); ctx.restore()
+    rod(ctx, [[x0, -half - 0.3], [x0, half + 0.3]], 2.6, 0x50565c, lv, 0.7)   // the tread
+    specular(ctx, ellipsePts(x1 - 8 - lv[0] * 3, -lv[1] * 6, 3, 1.1, 0, 14), 0.75, 0.6)
+  }, { shadowBlur: 2.2 })
+}
+// The load of soil the blade carries, lit in the world frame: render lays it on the dish unturned.
+export function paintShovelLoad() {
+  return bakeLocal(22, 2, (ctx) => {
+    const rnd = rng(97)
+    softDot(ctx, 0, 0.5, 13, 4, 'rgba(0,0,0,0.5)')
+    for (let i = 0; i < 44; i++) {
+      const u = rnd() * TAU, d = Math.sqrt(rnd())
+      const x = Math.cos(u) * 15 * d * 0.85, y = Math.sin(u) * 12 * d * 0.85
+      const r = (1 - d * 0.5) * (2.2 + rnd() * 3.4)
+      lump(ctx, blobPts(rnd, x, y, r, 9, 0.6, 0.7 + rnd() * 0.3, rnd() * TAU), x, y, r, SHOVEL_SOILS[Math.floor(rnd() * SHOVEL_SOILS.length)], { gloss: rnd() < 0.3 ? 0.7 : 0, shadow: 0.6 })
+    }
+  }, { shadowBlur: 0.3 })
+}
+// One clod of freshly turned soil: wet, darker than the dry floor, a crumb or two stuck to it.
+// Lit in the world frame, so render never turns it.
+export function paintSoilClod(seed) {
+  return bakeLocal(14, 3, (ctx) => {
+    const rnd = rng(seed), r = 6.5
+    const base = SHOVEL_SOILS[seed % SHOVEL_SOILS.length]
+    const pts = blobPts(rnd, 0, 0, r, 11, 0.55, 0.72 + rnd() * 0.25, rnd() * TAU)
+    const g = ctx.createLinearGradient(LX * r, LY * r, -LX * r, -LY * r)
+    g.addColorStop(0, css(shadeC(base, 0.22))); g.addColorStop(0.4, css(shadeC(base, -0.2))); g.addColorStop(1, css(shadeC(base, -0.8)))
+    smoothTrace(ctx, pts); ctx.fillStyle = g; ctx.fill()
+    grain(ctx, pts, 0.1)
+    innerShadow(ctx, pts, 1.2, 'rgba(0,0,0,0.6)', 0.8, 1)
+    for (let i = 0; i < 4; i++) {
+      const u = rnd() * TAU, d = rnd() * r * 0.6, x = Math.cos(u) * d, y = Math.sin(u) * d, cr = 0.9 + rnd() * 1.6
+      lump(ctx, blobPts(rnd, x, y, cr, 8, 0.6), x, y, cr, SHOVEL_SOILS[Math.floor(rnd() * SHOVEL_SOILS.length)], { shadow: 0.5, gloss: rnd() < 0.5 ? 0.7 : 0 })
+    }
+    softDot(ctx, LX * r * 0.45, LY * r * 0.45, r * 0.12, r * 0.1, 'rgba(255,250,236,0.9)')   // the wet glint
+  }, { shadowBlur: 1.6 })
 }
