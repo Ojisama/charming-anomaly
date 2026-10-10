@@ -9452,7 +9452,9 @@ export const MAGMA_FLOOR = {
     // how far ahead of its centre (x its radius) it feels for the lava. faceT: s render keeps it
     // facing along the bank after its last held step.
     // balance_decision : foes wait at the bank unless you are just across 2026-10-10
-    avoid: { crossNear: 260, edge: 1.5, faceT: 0.3 } },
+    avoid: { crossNear: 260, edge: 1.5, faceT: 0.3 },
+    // roster ids that fly over a river: never held at the bank, never burned by it
+    flyOver: ['fireDrake'] },
   cooled: { wave: 820, thresh: 0.6, stretch: 2.2 },
   hot: { wave: 640, thresh: 0.6, openMul: 0.45, rMul: 1.45 },
 }

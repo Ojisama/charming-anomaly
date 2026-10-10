@@ -5037,7 +5037,7 @@ function stepEnemyMovement(run, dt) {
       e.y += uy * step
     }
 
-    if (rivF && !isAlly(e)) holdAtRiverBank(e, ox, oy, tx, ty, rivF, rivSeed, dt)
+    if (rivF && !isAlly(e) && !rivF.river.flyOver?.includes(e.rosterId)) holdAtRiverBank(e, ox, oy, tx, ty, rivF, rivSeed, dt)
     e.x += e.kb.x * dt
     e.y += e.kb.y * dt
     // where a body held at a bank stands after its own step and any knockback (holdBankAfterCrowd)
@@ -17196,7 +17196,7 @@ function stepCrust(run, dt) {
     if (run._riverT <= 0) {
       run._riverT += C.tick
       for (const e of run.enemies) {
-        if (e._dead || isAlly(e) || damageImmune(e)) continue
+        if (e._dead || isAlly(e) || damageImmune(e) || F.river.flyOver?.includes(e.rosterId)) continue
         if ((e.x - p.x) ** 2 + (e.y - p.y) ** 2 > F.river.reach ** 2) continue
         if (riverDepthAt(F, e.x, e.y, seed) <= 0) continue
         const dmg = (C.burnFlat + C.burnPct * e.maxHP) * C.tick * hot * F.river.burnMul * (e.elite ? C.eliteMul : 1)

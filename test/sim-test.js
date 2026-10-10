@@ -39505,7 +39505,7 @@ function testMagmaRiverBank() {
     }
     return { P, ...best }
   }
-  const trial = (seed, ang, far, slide = 0, crowd = 1) => {
+  const trial = (seed, ang, far, slide = 0, crowd = 1, rosterId = null) => {
     Math.random = mulberry32(seed)
     const r = createRun((() => { const m = makeMeta(); m.dev = true; return m })(), { chapter: 'magma', difficulty: 1 })
     r.weapons = []; r.enemies = []
@@ -39518,8 +39518,9 @@ function testMagmaRiverBank() {
     // a crowd: the rest pressed in behind the first, so the separation pass shoves the front row
     const pack = [e]
     for (let k = 1; k < crowd; k++) pack.push(makeStatusEnemy(r, { x: e.x - nx * (20 + (k % 3) * 22) + ny * ((k % 4) - 1.5) * 18, y: e.y - ny * (20 + (k % 3) * 22) - nx * ((k % 4) - 1.5) * 18, hp: 1e9, speed: 90 }))
+    if (rosterId) for (const b of pack) b.rosterId = rosterId
     r.enemies = pack.slice()
-    let inRiver = 0, frames = 0
+    let inRiver = 0, frames = 0, burn = 0
     for (let i = 0; i < 600; i++) {
       if (r.phase === 'levelup') { r.phase = 'playing'; r.levelUpChoices = [] }
       r.weapons = []
@@ -39527,24 +39528,24 @@ function testMagmaRiverBank() {
       r.enemies = pack.slice(); for (const b of pack) { b._dead = false; b.hp = b.maxHP }
       stepSim(r, { x: 0, y: 0 }, 1 / 60)
       r.events.length = 0
-      for (const b of pack) { frames++; if (magmaRiverAt(r, b.x, b.y) > 0) inRiver++ }
+      for (const b of pack) { frames++; if (magmaRiverAt(r, b.x, b.y) > 0) { inRiver++; burn += b.maxHP - b.hp } }
     }
     // across = how far past the river's middle the body ended, toward the player
     const across = (e.x - X.P.x) * nx + (e.y - X.P.y) * ny
-    return { inRiver, frames, across, bank: -X.w2, toPlayer: Math.hypot(pl.x - e.x, pl.y - e.y), along: Math.abs(-(e.x - e0.x) * ny + (e.y - e0.y) * nx) }
+    return { inRiver, frames, burn, across, bank: -X.w2, toPlayer: Math.hypot(pl.x - e.x, pl.y - e.y), along: Math.abs(-(e.x - e0.x) * ny + (e.y - e0.y) * nx) }
   }
   const spots = []
   for (const seed of [41001, 41002, 41003]) for (const ang of [0.3, 2.1, 4.0]) spots.push([seed, ang])
-  const arm = (far, avoid, slide = 0, crowd = 1) => {
+  const arm = (far, avoid, slide = 0, crowd = 1, rosterId = null) => {
     const saved = Rv.avoid
     Rv.avoid = avoid
     try {
       const out = []
-      for (const [seed, ang] of spots) { const t = trial(seed, ang, far, slide, crowd); if (t) out.push(t) }
+      for (const [seed, ang] of spots) { const t = trial(seed, ang, far, slide, crowd, rosterId); if (t) out.push(t) }
       return out
     } finally { Rv.avoid = saved }
   }
-  const farOn = arm(true, A), nearOn = arm(false, A), farOff = arm(true, null), slideOn = arm(true, A, 700), crowdOn = arm(true, A, 0, 12)
+  const flyOn = arm(true, A, 0, 1, 'fireDrake'), farOn = arm(true, A), nearOn = arm(false, A), farOff = arm(true, null), slideOn = arm(true, A, 700), crowdOn = arm(true, A, 0, 12)
   assert.ok(farOn.length >= 6, `run MR: found only ${farOn.length} river crossings of ${spots.length} tried`)
   const sum = (a, k) => a.reduce((t, x) => t + x[k], 0)
   const farIn = sum(farOn, 'inRiver'), farFrames = sum(farOn, 'frames')
@@ -39559,9 +39560,14 @@ function testMagmaRiverBank() {
   // (d) a crowd of 12 pressing on the bank: the ones behind do not shove the front row in
   const crowdIn = sum(crowdOn, 'inRiver'), crowdFrames = sum(crowdOn, 'frames')
   assert.ok(crowdIn <= crowdFrames * 0.01, `run MR.d: a crowd far across spent ${crowdIn}/${crowdFrames} body-frames in the river`)
+  // (e) a Fire Drake flies: it crosses with you far across, and the river never burns it
+  for (const t of flyOn) assert.ok(t.across > 0 && t.inRiver > 0, `run MR.e: a fire drake should fly over the river (ended ${t.across.toFixed(0)}px past the middle)`)
+  assert.ok(sum(flyOn, 'burn') === 0, `run MR.e: the river burned a flying drake for ${sum(flyOn, 'burn').toFixed(0)}`)
+  // ...while a walker in the river does burn (the same probe can see it)
+  assert.ok(sum(nearOn, 'burn') > 0, 'run MR.e control: a walker wading across should burn')
   // (b) the player just across: it wades in and reaches you
   for (const t of nearOn) assert.ok(t.across > 0 && t.toPlayer < 60, `run MR.b: with you just across, the body should cross (ended ${t.across.toFixed(0)}px past the middle, ${t.toPlayer.toFixed(0)}px from you)`)
-  console.log(`PASS run MR (The Magma river bank): far across ${farIn}/${farFrames} frames in the river over ${farOn.length} spots (avoid off: ${offIn}/${sum(farOff, 'frames')}); followed the bank ${slideOn.map((t) => t.along.toFixed(0)).join('/')}px; a crowd of 12: ${crowdIn}/${crowdFrames} body-frames in it; just across ${nearOn.length}/${nearOn.length} bodies crossed (${sum(nearOn, 'inRiver')} frames in it)`)
+  console.log(`PASS run MR (The Magma river bank): far across ${farIn}/${farFrames} frames in the river over ${farOn.length} spots (avoid off: ${offIn}/${sum(farOff, 'frames')}); followed the bank ${slideOn.map((t) => t.along.toFixed(0)).join('/')}px; a crowd of 12: ${crowdIn}/${crowdFrames} body-frames in it; just across ${nearOn.length}/${nearOn.length} bodies crossed (${sum(nearOn, 'inRiver')} frames in it); drakes flew over ${flyOn.length}/${flyOn.length}, burned 0 (walkers ${sum(nearOn, 'burn').toFixed(0)})`)
 }
 
 function testMagmaFloor() {
