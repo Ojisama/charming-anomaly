@@ -2928,11 +2928,13 @@ export const WEAPONS = {
     desc: 'Blasts hot air the way you walk. Open lava in the blast flares up.',
     icon: '🌬️', rarity: 'normal',
     levels: [
-      { dmg: 16, interval: 1.1, radius: 190, arc: 1.6, knockback: 120 },
-      { dmg: 19, interval: 1.05, radius: 200, arc: 1.7, knockback: 130 },
-      { dmg: 23, interval: 0.98, radius: 215, arc: 1.8, knockback: 140 },
-      { dmg: 28, interval: 0.9, radius: 230, arc: 1.95, knockback: 150 },
-      { dmg: 35, interval: 0.82, radius: 250, arc: 2.1, knockback: 165 },
+      // balance_decision : wide long fan so it kills alone while kiting 2026-10-10
+      //  - a narrow arc only hits what is AHEAD; a kiting player walks away from the pack
+      { dmg: 16, interval: 1.1, radius: 250, arc: 2.8, knockback: 120 },
+      { dmg: 19, interval: 1.05, radius: 260, arc: 2.9, knockback: 130 },
+      { dmg: 23, interval: 0.98, radius: 275, arc: 3.0, knockback: 140 },
+      { dmg: 28, interval: 0.9, radius: 290, arc: 3.15, knockback: 150 },
+      { dmg: 35, interval: 0.82, radius: 310, arc: 3.3, knockback: 165 },
     ],
   },
   // Volcanic Bomb: a molten rock lobbed into the thickest of the crowd (run.magmaLobs, kind 'bomb'). It
