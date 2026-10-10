@@ -1339,6 +1339,30 @@ function paintBat(ctx, phase) {
   trace(ctx, [r * 0.88, -r * 0.06, r * 1.0, 0, r * 0.88, r * 0.06]); ctx.fillStyle = '#2a1610'; ctx.fill()
 }
 
+// THE PLAYER, photographed (owner pick 2026-10-10, look A): Book 1's mint blob and its face, shaded
+// round under the same raking key as the cast — lit top-left, no ink outline, skin grain, a wet
+// specular, glass-bead eyes in soft sclera. render.js wears it in place of the vector blob (and of
+// any skin) whenever the macro lens is on. Plan view, radius PLAYER.radius (22).
+export const MACRO_PLAYER_E = 34
+export function paintPlayerBlob(ctx) {
+  const R = 22
+  const at = ovalAt(0, 0, R, R * 0.91)
+  const sil = volume(ctx, at, 0x5fc9a8, { lit: 0.32, ao: 0.62, rimBlur: 2.4, steps: 18 })
+  ctx.save(); trace(ctx, sil); ctx.clip()
+  softDot(ctx, R * 0.35, R * 0.45, R * 0.75, R * 0.5, 'rgba(10,50,40,0.35)')   // the side away from the key
+  ctx.restore()
+  grain(ctx, sil, 0.28)
+  for (const s of [-1, 1]) {
+    const ex = s * R * 0.36, ey = -R * 0.18
+    softDot(ctx, ex, ey, R * 0.25, R * 0.06, 'rgba(244,248,240,0.95)')
+    innerShadow(ctx, ellipsePts(ex, ey, R * 0.25, R * 0.25, 0, 24), 1.2, 'rgba(40,70,60,0.5)')
+    eye(ctx, ex + R * 0.03, ey + R * 0.03, R * 0.12)
+    softDot(ctx, s * R * 0.55, R * 0.16, R * 0.15, R * 0.12, 'rgba(255,150,160,0.32)')
+  }
+  withBlur(ctx, 0.5, 'rgba(25,80,64,0.85)', () => { ctx.beginPath(); ctx.arc(0, R * 0.2, R * 0.2, Math.PI * 0.15, Math.PI * 0.85); ctx.lineWidth = 2; ctx.lineCap = 'round'; ctx.stroke() })
+  specular(ctx, ellipsePts(-R * 0.38, -R * 0.55, R * 0.26, R * 0.12, -0.5, 20), 0.75, 1.4)
+}
+
 export const MACRO_CAST = {
   earthworm: { r: 20, E: 66, frames: 6, shadow: [20 * 1.35, 20 * 0.32], crown: [-20 * 0.55, 20], paint: (ctx, f) => paintEarthworm(ctx, f) },
   moleCricket: { r: 15, E: 46, frames: 4, shadow: [15 * 1.2, 15 * 0.45], crown: [-15 * 0.9, 15], paint: (ctx, f) => paintMoleCricket(ctx, f) },
