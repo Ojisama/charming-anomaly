@@ -329,10 +329,14 @@ void main(void) {
   } else {
     float rad = coc * uBlurPx;
     vec3 acc = c0; float wsum = 1.0;
+    // the spiral turned and its rings jittered per pixel: a fixed spiral copies every small bright
+    // speck to the same 16 offsets, and the speck defocuses into a star instead of a round disc
+    float spin = hash12(gl_FragCoord.xy) * 6.2832;
+    float ring = hash12(gl_FragCoord.yx + 19.7);
     for (int i = 1; i < 17; i++) {
       float fi = float(i);
-      float r = sqrt(fi / 16.0) * rad;
-      float a = fi * 2.39996;
+      float r = sqrt((fi - ring) / 16.0) * rad;
+      float a = fi * 2.39996 + spin;
       vec2 off = vec2(cos(a), sin(a)) * r * uInputSize.zw;
       vec3 s = tap(vTextureCoord + off);
       float l = luma(s);
@@ -343,8 +347,9 @@ void main(void) {
   }
   // halation: only what is already near white bleeds
   vec3 halo = vec3(0.0);
+  float hspin = hash12(gl_FragCoord.xy + 71.3) * 6.2832;
   for (int i = 0; i < 6; i++) {
-    float a = float(i) * 1.0472 + 0.5;
+    float a = float(i) * 1.0472 + hspin;
     vec3 s = tap(vTextureCoord + vec2(cos(a), sin(a)) * 3.5 * uInputSize.zw);
     halo += max(s - 0.62, 0.0);
   }
@@ -553,6 +558,141 @@ function droplet(ctx, x, y, r) {
   ctx.beginPath(); ctx.arc(x + LX * r * 0.45, y + LY * r * 0.45, r * 0.16, 0, TAU); ctx.fillStyle = 'rgba(255,255,255,0.95)'; ctx.fill()
 }
 
+// ==== DEAD LEAVES ================================================================================
+// A fragment of leaf litter painted texel by texel at its own rotation and lit as a heightfield: the
+// veins stand in relief, the margins curl up into the key, the lamina warms where light gets into
+// it, and decay eats holes and windows right through to the floor (the vein net standing in them).
+// Topsoil's tile litter and its deadLeaf prop both come from here.
+const leafHash = (x, y, s) => {
+  let h = (Math.imul(x | 0, 374761393) + Math.imul(y | 0, 668265263) + Math.imul(s | 0, 1442695041)) | 0
+  h = Math.imul(h ^ (h >>> 13), 1274126177)
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296
+}
+function leafNoise(x, y, s) {
+  const xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi
+  const sx = xf * xf * (3 - 2 * xf), sy = yf * yf * (3 - 2 * yf)
+  return lerp(lerp(leafHash(xi, yi, s), leafHash(xi + 1, yi, s), sx), lerp(leafHash(xi, yi + 1, s), leafHash(xi + 1, yi + 1, s), sx), sy)
+}
+const leafFbm = (x, y, s, o) => { let a = 0, w = 0.5, t = 0; for (let i = 0; i < o; i++) { a += leafNoise(x, y, s + i * 17) * w; t += w; x *= 2.03; y *= 2.03; w *= 0.5 } return a / t }
+// Voronoi edge distance (F2 - F1): the reticulate net of the finest veins
+function leafCell(x, y, s) {
+  const xi = Math.floor(x), yi = Math.floor(y)
+  let f1 = 9, f2 = 9
+  for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) {
+    const cx = xi + i + leafHash(xi + i, yi + j, s), cy = yi + j + leafHash(xi + i, yi + j, s + 7)
+    const d = (x - cx) * (x - cx) + (y - cy) * (y - cy)
+    if (d < f1) { f2 = f1; f1 = d } else if (d < f2) f2 = d
+  }
+  return Math.sqrt(f2) - Math.sqrt(f1)
+}
+const LEAF_LAMINA = [0xa88660, 0x86664a, 0x50392a], LEAF_VEIN = 0xb89a74
+const LEAF_SKEL = 0.42, LEAF_HOLES = 0.35, LEAF_SOIL = 0.18
+const LEAF_TILE_RES = TILE_RES * 1.5   // the litter is rastered a little denser than the tile and filtered down into it
+// The leaf over (-E, -E)..(E, E) world units at `res` texels per unit (E = 1.25 r).
+// light = [lx, ly, lz] toward the light; specK scales the wet sheen, reliefK the relief.
+function leafCanvas(r, rot, seed, res, light, specK = 1, reliefK = 1) {
+  const E = r * 1.25, W = Math.max(8, Math.ceil(E * 2 * res)), c = makeCanvas(W, W), ctx = c.getContext('2d')
+  const id = ctx.createImageData(W, W), d = id.data
+  const rr = rng(seed), s = Math.floor(rr() * 1e6)
+  const cs = Math.cos(-rot), sn = Math.sin(-rot)
+  const wm = 0.46 * (0.85 + rr() * 0.3), curl = 0.45 * (0.6 + rr() * 0.7), sideBias = (rr() < 0.5 ? -1 : 1) * 0.15
+  // a fragment: a ragged cut across the blade on a random line (sometimes none)
+  const cutA = rr() * TAU, cutD = rr() < 0.55 ? -0.15 + rr() * 0.6 : 9
+  const cutX = Math.cos(cutA), cutY = Math.sin(cutA)
+  const vSpace = 0.17 + rr() * 0.05, vCot = 1 / Math.tan(0.9 + rr() * 0.35), vBend = 0.6 + rr() * 0.8
+  const bites = []
+  for (let i = 0, nb = Math.floor(rr() * 4); i < nb; i++) { const bu = -0.6 + rr() * 1.3, sd = rr() < 0.5 ? -1 : 1; bites.push([bu, sd * wm * (0.75 + rr() * 0.3) * Math.sqrt(Math.max(0, 1 - bu * bu)), 0.08 + rr() * 0.14]) }
+  const N = W * W, H = new Float32Array(N), A = new Float32Array(N), V = new Float32Array(N), M = new Float32Array(N), SO = new Float32Array(N), EG = new Float32Array(N), DE = new Float32Array(N)
+  const wMax = wm * 1.35 * 1.12, midW = 0.9 / (r * res)
+  for (let y = 0; y < W; y++) for (let x = 0; x < W; x++) {
+    const wx = (x + 0.5) / res - E, wy = (y + 0.5) / res - E
+    const u = (wx * cs - wy * sn) / r, v = (wx * sn + wy * cs) / r, av = Math.abs(v)
+    if (u <= -1.3 || u > 1.05 || av > wMax) continue
+    const k = y * W + x
+    if (u * cutX + v * cutY - cutD + 0.06 * (leafFbm(u * 9, v * 9, s + 3, 2) - 0.5) + 0.03 * (leafNoise(u * 40, v * 40, s + 4) - 0.5) > 0) continue
+    // the petiole: a short stalk out of the base, continuous with the midrib
+    if (u < -0.9 && av < 0.026 + 0.012 * (u + 1.3)) { A[k] = 1; H[k] = 0.9; V[k] = 1; M[k] = 0.65; EG[k] = 1; continue }
+    if (u <= -1) continue
+    const uu = Math.min(1, Math.abs(u))
+    let w = wm * Math.pow(Math.max(0, 1 - uu * uu), 0.62) * (1 - 0.32 * u) * (1 - 0.45 * Math.pow(Math.max(0, u), 3))
+    w *= 1 + 0.012 * Math.sin(u * 46 + s) * (0.5 + leafNoise(u * 5, v > 0 ? 3 : 8, s)) + 0.16 * (leafFbm(u * 5, v > 0 ? 1 : 5, s, 3) - 0.5)
+    if (av > w) continue
+    const e = 1 - av / w   // 1 on the midrib, 0 at the margin
+    // insect bites out of the margin
+    let bit = false
+    for (const [bu, bv, br] of bites) { const q = Math.hypot(u - bu, v - bv); if (q < br * 1.15 && q < br * (0.8 + 0.35 * leafNoise(Math.atan2(v - bv, u - bu) * 2.5 + 9, br * 50, s + 71))) { bit = true; break } }
+    if (bit) continue
+    const dec = leafFbm(u * 3.2 + 9, v * 3.2, s + 11, 3)
+    // veins: midrib, pinnate secondaries curving to the tip, the reticulate net between
+    const mid = Math.exp(-Math.pow(v / Math.max(0.022 + 0.009 * (1 - u), midW), 2))
+    const f = u - av * vCot * (1 + vBend * av) + (v > 0 ? 0 : vSpace * 0.45) + 0.05 * (leafNoise(u * 4, v > 0 ? 2 : 7, s + 13) - 0.5)
+    const ph = f / vSpace - Math.floor(f / vSpace)
+    const sec = Math.exp(-Math.pow((Math.abs(ph - 0.5) - 0.5) * vSpace / (0.022 + 0.02 * e), 2)) * smooth(0.02, 0.3, e + 0.1)
+    const ret = Math.exp(-Math.pow(leafCell(u * 9, v * 9, s + 5) / 0.11, 2))
+    const vein = Math.max(mid, sec * 0.85, ret * 0.45)
+    let a = 1
+    // skeletonised: the vein net stands, the lamina between it thins to a brown film, then to nothing
+    const skelT = 1 - LEAF_SKEL
+    if (dec > skelT) { const q = smooth(skelT, skelT + 0.12, dec); a = vein > 0.3 ? 1 : lerp(1, ret > 0.15 ? 0.55 : 0, q) }
+    if (vein < 0.5 && leafFbm(u * 7 + 3, v * 7, s + 21, 2) > 1 - LEAF_HOLES * 0.35) a = 0
+    if (e < 0.04 && leafHash(x, y, s) < 0.5) a *= 0.5   // frayed margin
+    if (a <= 0) continue
+    // height: curled margins (one side a little more), veins raised, the lamina puckered between
+    const side = 1 + sideBias * Math.sign(v)
+    H[k] = curl * side * Math.pow(smooth(0.5, 1, 1 - e), 2) * 9 + 0.25 * curl * u * u + mid * 1.1 + sec * 0.32 + ret * 0.16 + 0.35 * leafFbm(u * 8, v * 8, s + 31, 2)
+    A[k] = a; V[k] = vein; EG[k] = e; DE[k] = dec
+    M[k] = leafFbm(u * 2.4, v * 2.4, s + 41, 2)
+    SO[k] = leafFbm(u * 5 + 2, v * 5 + 4, s + 51, 2)
+  }
+  const ll = Math.hypot(light[0], light[1], light[2]), Lx = light[0] / ll, Ly = light[1] / ll, Lz = light[2] / ll
+  const hl = Math.hypot(Lx, Ly, Lz + 1), Hx = Lx / hl, Hy = Ly / hl, Hz = (Lz + 1) / hl
+  const amp = 0.0028 * res * r * reliefK   // slope in the leaf's own units: the same relief at any bake size
+  const soilT = 1 - LEAF_SOIL * 0.6, spS = seed & 1023
+  for (let y = 1; y < W - 1; y++) for (let x = 1; x < W - 1; x++) {
+    const k = y * W + x
+    if (A[k] <= 0) continue
+    const gx = ((A[k + 1] > 0 ? H[k + 1] : H[k]) - (A[k - 1] > 0 ? H[k - 1] : H[k])) * amp
+    const gy = ((A[k + W] > 0 ? H[k + W] : H[k]) - (A[k - W] > 0 ? H[k - W] : H[k])) * amp
+    const nl = Math.hypot(gx, gy, 1), nx = -gx / nl, ny = -gy / nl, nz = 1 / nl
+    const diff = Math.max(0, nx * Lx + ny * Ly + nz * Lz) / Lz
+    const m = M[k], vn = V[k]
+    let col = m < 0.5 ? mixc(LEAF_LAMINA[0], LEAF_LAMINA[1], m * 2) : mixc(LEAF_LAMINA[1], LEAF_LAMINA[2], (m - 0.5) * 2)
+    col = mixc(col, LEAF_VEIN, vn * 0.3)
+    // browning from the margin in, and a darker rot where the decay is furthest on
+    col = mixc(col, LEAF_LAMINA[2], smooth(0.85, 1, 1 - EG[k]) * 0.5 + smooth(0.45, 0.8, DE[k]) * 0.35)
+    // fungal spotting: dark flecks with a paler halo
+    const sp = leafNoise(x * 0.35, y * 0.35, spS)
+    if (sp > 0.86) col = mixc(col, 0x1a0e06, (sp - 0.86) * 6)
+    else if (sp > 0.8) col = mixc(col, LEAF_VEIN, (sp - 0.8) * 3)
+    // soil dusted on top
+    let soilK = 0
+    if (SO[k] > soilT) soilK = Math.min(1, (SO[k] - soilT) * 9) * (0.4 + 0.6 * leafHash(x, y, 77))
+    col = mixc(col, mixc(0x2e1e10, 0x6a4e34, leafHash(x >> 1, y >> 1, 9)), soilK)
+    const shade = 0.3 + 0.7 * diff
+    // light got into the thin lamina: lit faces warm a little
+    const t = 0.25 * diff * diff * (1 - vn * 0.6) * (1 - soilK)
+    const spv = Math.pow(Math.max(0, nx * Hx + ny * Hy + nz * Hz), 30) * 0.1 * specK * 255 * (1 - soilK)
+    d[k * 4] = Math.min(255, R_(col) * shade + t * 30 + spv); d[k * 4 + 1] = Math.min(255, G_(col) * shade + t * 20 + spv); d[k * 4 + 2] = Math.min(255, B_(col) * shade + t * 9 + spv * 1.05)
+    d[k * 4 + 3] = Math.round(255 * Math.min(1, A[k]))
+  }
+  ctx.putImageData(id, 0, 0)
+  c._E = E
+  return c
+}
+// Stamp one leaf onto a world-unit ctx: its contact shadow (thrown along `shadowOff`), the leaf, and
+// a few crumbs of soil lying on it.
+function stampLeaf(ctx, px, py, r, rot, seed, res, light, shadowOff, specK, reliefK) {
+  const lc = leafCanvas(r, rot, seed, res, light, specK, reliefK), E = lc._E
+  withBlur(ctx, 0.6 + r * 0.06, 'rgba(0,0,0,0.55)', () => { ctx.drawImage(lc, px - E + shadowOff[0] * 0.5, py - E + shadowOff[1] * 0.5, E * 2, E * 2) })
+  withBlur(ctx, 1.2 + r * 0.105, 'rgba(0,0,0,0.5)', () => { ctx.drawImage(lc, px - E + shadowOff[0] * 1.45, py - E + shadowOff[1] * 1.45, E * 2, E * 2) })
+  ctx.drawImage(lc, px - E, py - E, E * 2, E * 2)
+  const rr = rng(seed + 5), n = Math.floor(LEAF_SOIL * 14)
+  for (let i = 0; i < n; i++) {
+    const a = rr() * TAU, dd = rr() * 0.7 * r, x = px + Math.cos(a) * dd, y = py + Math.sin(a) * dd * 0.6, cr = 0.5 + rr() * rr() * 1.4
+    lump(ctx, blobPts(rr, x, y, cr, 8, 0.7, 0.8, rr() * TAU), x, y, cr, [0x3e2a18, 0x5a3e26, 0x6e4c2e, 0x4a321e][Math.floor(rr() * 4)], { shadow: 0.6, lit: 0.25, dark: 0.55 })
+  }
+}
+
 export function paintTopsoilTile() {
   const S = TILE_RES, W = Math.round(TILE_WORLD * S)
   const c = makeCanvas(W, W), ctx = c.getContext('2d')
@@ -641,23 +781,10 @@ export function paintTopsoilTile() {
       ctx.restore()
     })
   }
-  // 6. litter: fragments of dead leaf with their veins, husks, a twig
+  // 6. litter: fragments of dead leaf
   for (let i = 0; i < 22; i++) {
-    const x = rnd() * TILE_WORLD, y = rnd() * TILE_WORLD, r = 6 + rnd() * 14, rot = rnd() * TAU, seed = rnd() * 1e6
-    wrapAt(x, y, r * 2, (px, py) => {
-      const rr = rng(seed)
-      const pts = blobPts(rr, px, py, r, 11, 0.6, 0.55, rot)
-      withBlur(ctx, 2, 'rgba(0,0,0,0.45)', () => { ctx.save(); ctx.translate(-LX * 2.2, -LY * 2.2); smoothTrace(ctx, pts); ctx.fill(); ctx.restore() })
-      smoothTrace(ctx, pts); ctx.fillStyle = css(mixc(0x6a3e1c, 0xa06a34, rr()), 0.92); ctx.fill()
-      ctx.save(); smoothTrace(ctx, pts); ctx.clip()
-      ctx.strokeStyle = 'rgba(232,196,140,0.45)'; ctx.lineWidth = 0.5
-      ctx.beginPath(); ctx.moveTo(px - Math.cos(rot) * r, py - Math.sin(rot) * r); ctx.lineTo(px + Math.cos(rot) * r, py + Math.sin(rot) * r); ctx.stroke()
-      for (let v = -3; v <= 3; v++) {
-        const bx = px + Math.cos(rot) * v * r * 0.25, by = py + Math.sin(rot) * v * r * 0.25
-        for (const s of [-1, 1]) { ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(bx + Math.cos(rot + s * 1.0) * r * 0.6, by + Math.sin(rot + s * 1.0) * r * 0.6); ctx.stroke() }
-      }
-      ctx.restore()
-    })
+    const x = rnd() * TILE_WORLD, y = rnd() * TILE_WORLD, r = (6 + rnd() * 14) * 1.1, rot = rnd() * TAU, seed = Math.floor(rnd() * 1e6)
+    wrapAt(x, y, r * 2, (px, py) => stampLeaf(ctx, px, py, r, rot, seed, LEAF_TILE_RES, [LX, LY, 0.62], [-LX * r * 0.12, -LY * r * 0.12], 1, 1))
   }
   // 7. dew: beads of water standing on the crumbs
   for (let i = 0; i < 40; i++) {
@@ -797,15 +924,26 @@ export function paintShaft() {
   }
   return c
 }
-// A defocused point of light: a disc with the faint bright rim and slightly busy inside of a real
-// lens's bokeh, not a gaussian dot.
+// A defocused point of light: a round disc, soft-edged, a little brighter toward its faint rim, and
+// a few specks of dust on the glass. White, the alpha carrying the light (it is an additive sprite).
 export function paintBokeh() {
-  const N = 128, c = makeCanvas(N, N), ctx = c.getContext('2d')
-  const g = ctx.createRadialGradient(64, 64, 0, 64, 64, 60)
-  g.addColorStop(0, 'rgba(255,255,255,0.55)'); g.addColorStop(0.78, 'rgba(255,255,255,0.7)'); g.addColorStop(0.92, 'rgba(255,255,255,0.95)'); g.addColorStop(1, 'rgba(255,255,255,0)')
-  ctx.fillStyle = g; ctx.beginPath()
-  for (let i = 0; i < 7; i++) { const a = (i / 7) * TAU - Math.PI / 2; ctx.lineTo(64 + Math.cos(a) * 61, 64 + Math.sin(a) * 61) }
-  ctx.closePath(); ctx.fill()
+  const N = 192, c = makeCanvas(N, N), ctx = c.getContext('2d'), C = N / 2, R = C - 3, soft = 0.07
+  const g = ctx.createRadialGradient(C, C, 0, C, C, R * (1 + soft * 0.4))
+  for (let i = 0; i <= 40; i++) {
+    const q = (i / 40) * (1 + soft * 0.4)
+    const body = 0.5 + 0.1 * q * q, rim = 0.16 * Math.exp(-Math.pow((q - (1 - soft * 0.9)) / (soft * 0.55), 2))
+    g.addColorStop(i / 40, `rgba(255,255,255,${Math.min(1, (body + rim) * (1 - smooth(1 - soft, 1 + soft * 0.4, q))).toFixed(4)})`)
+  }
+  ctx.fillStyle = g; ctx.fillRect(0, 0, N, N)
+  // dust on the glass: soft shadows in the disc
+  const rnd = rng(77)
+  ctx.globalCompositeOperation = 'destination-out'
+  for (let i = 0; i < 5; i++) {
+    const x = C + (rnd() - 0.5) * R * 1.2, y = C + (rnd() - 0.5) * R * 1.2, r = 2 + rnd() * 5, a = 0.05 + rnd() * 0.08
+    const dg = ctx.createRadialGradient(x, y, 0, x, y, r * 1.6)
+    dg.addColorStop(0, `rgba(0,0,0,${a})`); dg.addColorStop(0.375, `rgba(0,0,0,${a})`); dg.addColorStop(1, 'rgba(0,0,0,0)')
+    ctx.fillStyle = dg; ctx.fillRect(x - r * 2, y - r * 2, r * 4, r * 4)
+  }
   return c
 }
 // The out-of-focus foreground: something a centimetre from the lens. Topsoil: grass blades and a
@@ -1398,21 +1536,8 @@ export const MACRO_PROPS = {
     softDot(ctx, -r * 0.3, -r * 0.3, r * 0.08, 0.3, 'rgba(255,255,255,0.95)')
   },
   deadLeaf(ctx, seed) {
-    const rnd = rng(seed), r = 18
-    const pts = []
-    for (let i = 0; i < 24; i++) { const t = i / 24, a = t * TAU, q = r * (Math.abs(Math.cos(a / 2)) * 0.95 + 0.05) * (0.85 + rnd() * 0.25); pts.push(Math.cos(a) * r * 0.9 * (0.6 + 0.4 * Math.abs(Math.cos(a))), Math.sin(a) * q * 0.5) }
-    centredShadow(ctx, pts, 2.5, 0.6)
-    smoothTrace(ctx, pts); ctx.fillStyle = css(mixc(0x3a2614, 0x6a4a2e, rnd())); ctx.fill()
-    ctx.save(); smoothTrace(ctx, pts); ctx.clip()
-    for (let i = 0; i < 30; i++) softDot(ctx, (rnd() - 0.5) * r * 1.8, (rnd() - 0.5) * r, 1 + rnd() * 3, 1.5, rnd() < 0.5 ? 'rgba(40,18,6,0.4)' : 'rgba(200,140,70,0.3)')
-    ctx.strokeStyle = 'rgba(230,190,130,0.55)'; ctx.lineWidth = 0.6
-    ctx.beginPath(); ctx.moveTo(-r, 0); ctx.lineTo(r, 0); ctx.stroke()
-    ctx.lineWidth = 0.35
-    for (let v = -4; v <= 4; v++) for (const s of [-1, 1]) { ctx.beginPath(); ctx.moveTo(v * r * 0.2, 0); ctx.quadraticCurveTo(v * r * 0.2 + r * 0.15, s * r * 0.2, v * r * 0.2 + r * 0.3, s * r * 0.42); ctx.stroke() }
-    ctx.restore()
-    grain(ctx, pts, 0.45)
-    // holes eaten through, and the soil showing
-    for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.arc((rnd() - 0.5) * r, (rnd() - 0.5) * r * 0.4, 0.8 + rnd() * 1.5, 0, TAU); ctx.fillStyle = 'rgba(30,18,10,0.95)'; ctx.fill() }
+    // spun by the prop layer, so lit from nearly overhead with the shadow short
+    stampLeaf(ctx, 0, 0, 17, rng(seed)() * TAU, seed * 7 + 3, 4.5, [-0.55, -0.7, 1], [0.8, 1.0], 0.25, 2.4)
   },
   twig(ctx, seed) {
     const rnd = rng(seed), L = 34
