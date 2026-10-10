@@ -2145,3 +2145,203 @@ export function paintFlashTwin(body) {
   c.drawImage(sil, 0, 0)
   return out
 }
+
+// ==== THE PITS ===================================================================================
+// A pit (the Furrow's, or a mole tunnel caving in) is a steep shaft cut in damp loam, painted as a
+// lit HEIGHTFIELD under the floor tile's own key: the far wall catches the light and shows the soil
+// horizons (dark humus at the lip, paler ochre subsoil under it), the near wall and the rim's cast
+// shadow fall dark, and the floor is damp umber with the crumbs that fell in. Every bake is painted
+// for a pit of PIT_R0; render.js scales the sprite by r / PIT_R0. Never rotate one: the light is fixed.
+export const PIT_R0 = 40
+export const PIT_TELL_STAGES = 6
+const PIT_TOPSOIL = [0x3e2a18, 0x4a321e, 0x5a3e26, 0x34241a, 0x6e4c2e]
+const PIT_SUBSOIL = [0x8a6844, 0x9c7a50, 0x7a5a3a, 0xa88a60, 0x8e7048]
+const hashN = (seed) => (x, y) => {
+  let n = (Math.imul(x | 0, 374761393) + Math.imul(y | 0, 668265263) + Math.imul(seed | 0, 982451653)) | 0
+  n = Math.imul(n ^ (n >>> 13), 1274126177)
+  return ((n ^ (n >>> 16)) >>> 0) / 4294967296
+}
+// value noise on an unbounded plane (the tile's own noise is periodic over one tile)
+function planeFbm(seed, oct) {
+  const ns = oct.map((_, i) => {
+    const h = hashN(seed * 7 + i * 131)
+    return (x, y) => {
+      const xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi
+      const sx = xf * xf * (3 - 2 * xf), sy = yf * yf * (3 - 2 * yf)
+      return lerp(lerp(h(xi, yi), h(xi + 1, yi), sx), lerp(h(xi, yi + 1), h(xi + 1, yi + 1), sx), sy)
+    }
+  })
+  let tot = 0; for (const [, w] of oct) tot += w
+  return (x, y) => { let s = 0; for (let i = 0; i < ns.length; i++) s += ns[i](x * oct[i][0], y * oct[i][0]) * oct[i][1]; return s / tot }
+}
+// A square heightfield over [-E, E]^2 at S px per unit: height (units), albedo, alpha, crumb tint, depth.
+function hfGrid(E, S) {
+  const W = Math.ceil(2 * E * S)
+  return { W, E, S, H: new Float32Array(W * W), A: new Float32Array(W * W), C: new Float32Array(W * W * 3), T: new Float32Array(W * W).fill(0.5), M: new Float32Array(W * W) }
+}
+const hfX = (g, i) => (i + 0.5) / g.S - g.E
+function hfFill(g, fn) {
+  for (let j = 0; j < g.W; j++) { const y = hfX(g, j); for (let i = 0; i < g.W; i++) fn(j * g.W + i, hfX(g, i), y) }
+}
+// Domed bumps, one per crumb (stampedHeight's idea, unwrapped): `max` heaps them, else they add.
+function hfCrumbs(g, rnd, n, r0, r1, h, where, max = true) {
+  const { W, S } = g
+  for (let k = 0; k < n; k++) {
+    const x = (rnd() * 2 - 1) * g.E, y = (rnd() * 2 - 1) * g.E
+    const wgt = where(x, y)
+    if (wgt <= 0 || rnd() > wgt) continue
+    const r = r0 + Math.pow(rnd(), 2) * (r1 - r0), hh = h * (0.5 + rnd() * 0.8) * (r / r1 + 0.4), tint = rnd()
+    const cx = (x + g.E) * S, cy = (y + g.E) * S, rp = r * S, sy = 0.7 + rnd() * 0.5
+    const x0 = Math.max(0, Math.floor(cx - rp)), x1 = Math.min(W - 1, Math.ceil(cx + rp))
+    const y0 = Math.max(0, Math.floor(cy - rp * sy)), y1 = Math.min(W - 1, Math.ceil(cy + rp * sy))
+    const base = g.H[Math.min(W - 1, Math.max(0, Math.round(cy))) * W + Math.min(W - 1, Math.max(0, Math.round(cx)))]
+    for (let j = y0; j <= y1; j++) for (let i = x0; i <= x1; i++) {
+      const dx = (i - cx) / rp, dy = (j - cy) / (rp * sy), q = dx * dx + dy * dy
+      if (q >= 1) continue
+      const v = Math.sqrt(1 - q) * hh, o = j * W + i
+      if (max) { if (base + v > g.H[o]) { g.H[o] = base + v; g.T[o] = tint } } else g.H[o] += v
+    }
+  }
+}
+// Light it: lambert normalised so flat ground reads 1, a cast shadow marched toward the key, ambient
+// bounce in the shade, occlusion and a damp gloss.
+function hfShade(g, o = {}) {
+  const { W, S, H, A, C } = g
+  const LZ = 0.7, ll = Math.hypot(LX, LY, LZ), Lx = LX / ll, Ly = LY / ll, Lz = LZ / ll
+  const lxy = Math.hypot(LX, LY), DX = LX / lxy, DY = LY / lxy, TAN = LZ / lxy
+  const hl = Math.hypot(Lx, Ly, Lz + 1), Hx = Lx / hl, Hy = Ly / hl, Hz = (Lz + 1) / hl
+  const c = makeCanvas(W, W), ctx = c.getContext('2d'), id = ctx.createImageData(W, W), d = id.data
+  const amb = o.amb ?? 0.32, march = (o.march ?? 60) * S, maxDiff = o.maxDiff ?? 1.7
+  for (let j = 0; j < W; j++) for (let i = 0; i < W; i++) {
+    const k = j * W + i
+    if (A[k] <= 0.002) continue
+    const im = Math.max(0, i - 1), ip = Math.min(W - 1, i + 1), jm = Math.max(0, j - 1), jp = Math.min(W - 1, j + 1)
+    const dx = (H[j * W + ip] - H[j * W + im]) * S / (ip - im), dy = (H[jp * W + i] - H[jm * W + i]) * S / (jp - jm)
+    const nl = Math.hypot(dx, dy, 1), nx = -dx / nl, ny = -dy / nl, nz = 1 / nl
+    const diff = Math.min(maxDiff, Math.max(0, nx * Lx + ny * Ly + nz * Lz) / Lz)
+    let vis = 1
+    if (o.shadow !== false) {
+      const h0 = H[k]
+      for (let s = 1.5; s < march; s += 1.5) {
+        const qi = Math.round(i + DX * s), qj = Math.round(j + DY * s)
+        if (qi < 0 || qj < 0 || qi >= W || qj >= W) break
+        const over = H[qj * W + qi] - (h0 + (s / S) * TAN)
+        if (over > 0) { vis = Math.min(vis, 1 - smooth(0, 1.6, over)); if (vis <= 0) break }
+      }
+    }
+    const lit = (amb + (1 - amb) * diff * vis) * (o.ao ? o.ao(k) : 1)
+    const sp = o.gloss ? Math.pow(Math.max(0, nx * Hx + ny * Hy + nz * Hz), 40) * o.gloss(k) * 255 * vis : 0
+    d[k * 4] = Math.min(255, C[k * 3] * lit + sp)
+    d[k * 4 + 1] = Math.min(255, C[k * 3 + 1] * lit + sp)
+    d[k * 4 + 2] = Math.min(255, C[k * 3 + 2] * lit + sp * 0.95)
+    d[k * 4 + 3] = Math.round(clamp01(A[k]) * 255)
+  }
+  ctx.putImageData(id, 0, 0)
+  return c
+}
+function pitCanvas(E, S) {
+  const W = Math.ceil(2 * E * S), c = makeCanvas(W, W), ctx = c.getContext('2d')
+  ctx._S = S; ctx.setTransform(S, 0, 0, S, W / 2, W / 2)
+  return { c, ctx }
+}
+function pitClod(ctx, rnd, x, y, r, base, o = {}) {
+  lump(ctx, blobPts(rnd, x, y, r, 9, 0.5, 0.7 + rnd() * 0.35, rnd() * TAU), x, y, r, base, o)
+}
+// part 'wall' is the whole shaft; 'floor' is its bottom alone, with a soft edge and no cast shadow.
+// render.js lays every wall's inner face over every wall, then every floor over that, so a chain of
+// overlapping shafts shares ONE trench and only its outer edge keeps a lip.
+function paintPit(seed, part) {
+  const R = PIT_R0, E = R * 1.08, S = 3, g = hfGrid(E, S), rnd = rng(seed)
+  const lip = planeFbm(seed, [[0.06, 1], [0.17, 0.5]]), band = planeFbm(seed + 3, [[0.08, 1], [0.3, 0.4]])
+  const tone = planeFbm(seed + 5, [[0.12, 1], [0.5, 0.6], [1.4, 0.4]])
+  const D = 30
+  hfFill(g, (k, x, y) => {
+    const u = Math.hypot(x, y) / (R * (0.94 + 0.12 * lip(x, y)))
+    const t = Math.pow(smooth(1.0, 0.74, u), 0.85)
+    g.H[k] = -D * t
+    g.M[k] = t
+    g.A[k] = part === 'floor' ? smooth(0.82, 0.7, u) : part === 'inner' ? smooth(0.93, 0.86, u) : smooth(1.05, 0.97, u)
+  })
+  hfCrumbs(g, rnd, 2600, 0.35, 1.3, 0.9, (x, y) => (Math.hypot(x, y) < R * 1.02 ? 1 : 0), false)   // the crumbly cut face
+  hfCrumbs(g, rnd, 260, 0.8, 3.4, 2.2, (x, y) => smooth(0.7, 0.45, Math.hypot(x, y) / R))          // what fell in
+  hfFill(g, (k, x, y) => {
+    const t = g.M[k]
+    let c
+    if (t < 0.12) c = mixc(0x4a3422, 0x2e1e12, t / 0.12)
+    else if (t < 0.85) c = mixc(mixc(0x5a3e26, 0x8c6a44, smooth(0.15, 0.45, t)), 0x6a4a2c, (Math.sin(t * 30 + band(x, y) * 9) * 0.5 + 0.5) * 0.5)
+    else c = mixc(0x5a3e26, 0x3a2818, smooth(0.85, 1, t))
+    c = mixc(c, g.T[k] < 0.5 ? 0x2a1a0e : 0x9a7a54, Math.abs(g.T[k] - 0.5) * 0.5 * smooth(0.7, 0.95, t))
+    const m = 0.8 + 0.4 * tone(x, y)
+    g.C[k * 3] = R_(c) * m; g.C[k * 3 + 1] = G_(c) * m; g.C[k * 3 + 2] = B_(c) * m
+  })
+  const floor = part === 'floor'
+  const c = hfShade(g, { amb: 0.34, maxDiff: 1.35, shadow: !floor, ao: (k) => 1 - 0.42 * Math.pow(g.M[k], 1.3) - (floor ? 0.18 : 0), gloss: (k) => 0.18 * smooth(0.8, 1, g.M[k]) })
+  if (part === 'wall') {
+    // two root ends poking out of the cut, each with its shadow on the wall behind it
+    const ctx = c.getContext('2d'); ctx._S = S; ctx.setTransform(S, 0, 0, S, c.width / 2, c.height / 2)
+    ctx.lineCap = 'round'
+    for (let i = 0; i < 2; i++) {
+      const a = rnd() * TAU, r0 = R * 1.02, r1 = R * (0.7 + rnd() * 0.15), w = 0.6 + rnd() * 1.1
+      const x0 = Math.cos(a) * r0, y0 = Math.sin(a) * r0, x1 = Math.cos(a + (rnd() - 0.5) * 0.3) * r1, y1 = Math.sin(a + (rnd() - 0.5) * 0.3) * r1
+      withBlur(ctx, 1.2, 'rgba(0,0,0,0.55)', () => { ctx.beginPath(); ctx.moveTo(x0 - LX * 3, y0 - LY * 3); ctx.lineTo(x1 - LX * 5, y1 - LY * 5); ctx.lineWidth = w; ctx.stroke() })
+      ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.lineWidth = w; ctx.strokeStyle = '#7a5a3c'; ctx.stroke()
+      ctx.beginPath(); ctx.moveTo(x0 + LX * w * 0.25, y0 + LY * w * 0.25); ctx.lineTo(x1 + LX * w * 0.25, y1 + LY * w * 0.25); ctx.lineWidth = w * 0.35; ctx.strokeStyle = 'rgba(230,210,180,0.35)'; ctx.stroke()
+    }
+  }
+  return c
+}
+export const paintPitWall = (seed) => paintPit(seed, 'wall')
+export const paintPitInner = (seed) => paintPit(seed, 'inner')
+export const paintPitFloor = (seed) => paintPit(seed, 'floor')
+// The spoil: a ring of thrown clods, fresh pale subsoil among the dark topsoil, heaped at the lip.
+export function paintPitSpoil(seed) {
+  const R = PIT_R0, { c, ctx } = pitCanvas(R * 1.75, 3), rnd = rng(seed)
+  const gr = ctx.createRadialGradient(0, 0, R * 0.9, 0, 0, R * 1.5)
+  gr.addColorStop(0, 'rgba(10,6,3,0.42)'); gr.addColorStop(0.45, 'rgba(10,6,3,0.2)'); gr.addColorStop(1, 'rgba(10,6,3,0)')
+  ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(0, 0, R * 1.5, 0, TAU); ctx.fill()
+  const list = []
+  for (let i = 0; i < 190; i++) {
+    const q = Math.pow(rnd(), 1.7), rr = R * (0.97 + 0.62 * q), a = rnd() * TAU
+    const fresh = rnd() < 0.42
+    list.push([Math.cos(a) * rr, Math.sin(a) * rr, (0.9 + Math.pow(rnd(), 2) * 4.6) * (1.15 - 0.6 * q), fresh ? PIT_SUBSOIL[i % 5] : PIT_TOPSOIL[i % 5], fresh])
+  }
+  list.sort((p, q) => p[2] - q[2])
+  for (const [x, y, r, col, fresh] of list) pitClod(ctx, rnd, x, y, r, col, { gloss: !fresh && rnd() < 0.3 ? 0.55 : 0, shadow: 0.65 })
+  return c
+}
+// The cave-in coming, k 0..1: the patch going dark as the water in it comes up, the near side of the
+// sag in its own shade, short irregular cracks opening, crumbs drawn in toward the middle. render.js
+// draws it UNDER the pits, so nothing of it shows over a hole that is already open.
+export function paintPitTell(seed, k) {
+  const R = PIT_R0, E = R * 1.45, S = 3, { c, ctx } = pitCanvas(E, S), rnd = rng(seed)
+  const blot = planeFbm(seed + 11, [[0.05, 1], [0.13, 0.6], [0.4, 0.3]])
+  const lxy = Math.hypot(LX, LY), DX = LX / lxy, DY = LY / lxy
+  const W = c.width, id = ctx.getImageData(0, 0, W, W), d = id.data
+  for (let j = 0; j < W; j++) for (let i = 0; i < W; i++) {
+    const x = (i + 0.5) / S - E, y = (j + 0.5) / S - E, rr = Math.hypot(x, y) / R
+    const damp = smooth(1.05, 0.25, rr + 0.45 * (blot(x, y) - 0.5)) * (0.22 + 0.5 * k)
+    const sag = smooth(1.0, 0.2, rr) * k * 0.25 * clamp01(0.5 - (x * DX + y * DY) / R)
+    const o = (j * W + i) * 4
+    d[o] = 14; d[o + 1] = 8; d[o + 2] = 4; d[o + 3] = Math.round(clamp01(damp + sag) * 255)
+  }
+  ctx.putImageData(id, 0, 0)
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round'
+  const nC = 2 + Math.round(5 * k)
+  for (let q = 0; q < nC; q++) {
+    const a0 = rnd() * TAU, r0 = R * (0.25 + rnd() * 0.6)
+    const L = R * (0.12 + 0.42 * k) * (0.6 + rnd() * 0.6), w = 0.7 + 1.1 * k
+    const pts = [[Math.cos(a0) * r0, Math.sin(a0) * r0]]
+    let a = a0 + Math.PI / 2 + (rnd() - 0.5) * 1.4
+    for (let s = 1; s <= 5; s++) { a += (rnd() - 0.5) * 0.9; const [px, py] = pts[s - 1]; pts.push([px + Math.cos(a) * L / 5, py + Math.sin(a) * L / 5]) }
+    if (rnd() > k * 0.9 + 0.1) continue
+    const line = (dx, dy, width, col) => { ctx.beginPath(); ctx.moveTo(pts[0][0] + dx, pts[0][1] + dy); for (const [px, py] of pts) ctx.lineTo(px + dx, py + dy); ctx.lineWidth = width; ctx.strokeStyle = col; ctx.stroke() }
+    line(-LX * w * 0.6, -LY * w * 0.6, w * 0.9, 'rgba(170,140,100,0.45)')   // the crack's far wall, in the light
+    line(0, 0, w, 'rgba(12,7,3,0.92)')
+  }
+  const nb = 4 + Math.round(26 * k)
+  for (let i = 0; i < nb; i++) {
+    const a = rnd() * TAU, rr = R * (1.25 - (0.35 + 0.4 * rnd()) * k)
+    pitClod(ctx, rnd, Math.cos(a) * rr, Math.sin(a) * rr, 0.8 + rnd() * 1.8, PIT_TOPSOIL[i % 5], { shadow: 0.55 })
+  }
+  return c
+}
