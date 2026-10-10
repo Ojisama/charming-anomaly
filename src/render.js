@@ -6828,6 +6828,46 @@ export function createRenderer(app) {
   // baseR grows by it so k comes out at 1 (art pixel = grid pixel). A bake that returns no scale
   // (the original two-argument contract) is stretched by k exactly as before.
   const pixelFrames = new Map()
+  // THE PIXEL CROWN SITS ON THE BODY AS DRAWN. A fixed crown offset (PIXEL_CAST.crown) cannot know
+  // the frame, the facing rotation, the elite draw scale or a restyled bake, and it floated the crown
+  // well clear of the creature. So each baked frame keeps its opaque outline (every opaque row's left
+  // and right edge, in texture-local world px from the anchor) and syncEnemyDecor puts the crown on
+  // the top of that outline after the sprite's own scale and rotation.
+  const pixelOutline = new WeakMap()   // texture -> Float32Array [x0, y0, x1, y1, ...]
+  function pixelOutlinePts(cv, res, ax, ay) {
+    let data
+    try { data = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data } catch { return null }
+    const W = cv.width, H = cv.height, ox = ax * W, oy = ay * H, out = []
+    for (let y = 0; y < H; y++) {
+      let x0 = -1, x1 = -1
+      for (let x = 0; x < W; x++) if (data[(y * W + x) * 4 + 3] > 24) { if (x0 < 0) x0 = x; x1 = x + 1 }
+      if (x0 < 0) continue
+      for (const yy of [y, y + 1]) out.push((x0 - ox) / res, (yy - oy) / res, (x1 - ox) / res, (yy - oy) / res)
+    }
+    return out.length ? new Float32Array(out) : null
+  }
+  // -> [x, y] world offset from the sprite's position of the top of its drawn outline, or null
+  function pixelCrownSeat(s) {
+    const pts = pixelOutline.get(s.texture)
+    if (!pts) return null
+    const c = Math.cos(s.rotation), sn = Math.sin(s.rotation), sx = s.scale.x, sy = s.scale.y
+    let top = Infinity
+    for (let i = 0; i < pts.length; i += 2) {
+      const X = pts[i] * sx, Y = pts[i + 1] * sy, ry = X * sn + Y * c
+      if (ry < top) top = ry
+    }
+    // the ridge: every outline point within one art pixel of the top; the crown centres on it
+    const band = top + (PIXEL.PX ?? 3) * 1.5
+    let lo = Infinity, hi = -Infinity
+    for (let i = 0; i < pts.length; i += 2) {
+      const X = pts[i] * sx, Y = pts[i + 1] * sy, ry = X * sn + Y * c
+      if (ry > band) continue
+      const rx = X * c - Y * sn
+      if (rx < lo) lo = rx
+      if (rx > hi) hi = rx
+    }
+    return [(lo + hi) / 2, top]
+  }
   function pixelDrawScale(id, elite) {
     let mul = 1
     for (const ch of Object.values(CHAPTERS)) {
@@ -6845,7 +6885,10 @@ export function createRenderer(app) {
       frames = []
       for (let f = 0; f < (M.frames ?? 1); f++) {
         const b = PIXEL.bakeCreature(id, f, drawScale)
-        frames.push({ tex: PIXEL.pixelTex(b.body, b.res), white: PIXEL.pixelTex(b.white, b.res), ax: b.ax, ay: b.ay, scale: b.scale })
+        const fr = { tex: PIXEL.pixelTex(b.body, b.res), white: PIXEL.pixelTex(b.white, b.res), ax: b.ax, ay: b.ay, scale: b.scale }
+        const pts = pixelOutlinePts(b.body, b.res ?? 1, b.ax, b.ay)
+        if (pts) { pixelOutline.set(fr.tex, pts); pixelOutline.set(fr.white, pts) }
+        frames.push(fr)
       }
       pixelFrames.set(key, frames)
     }
@@ -12519,19 +12562,43 @@ export function createRenderer(app) {
     app.stage.filters = [foilFilter]
   }
   let pixelLook = null
-  // THE PIXEL PLAYER'S HIT FLASH IS A PALETTE FLASH OF THE SPRITE, NEVER A COVER. The generic invuln
-  // blink (playerC.alpha 0.4) and src/pixel.js's all-white twin both erased the face for most of
-  // every i-frame window — the player read as a translucent grey or a featureless white disc. Here
-  // the sprite always draws in full; a fresh hit (invuln climbing) tints it hot for a few frames.
-  const PIXEL_HIT_FLASH = { t: 0.2, hz: 20, tint: 0xff7a5c }   // seconds, blink rate, the hot palette
-  let pixelHitT = 0, pixelLastInvuln = 0
+  // THE PIXEL PLAYER'S HIT FLASH MAKES IT BRIGHTER, NEVER DARKER, AND NEVER A COVER. The generic
+  // invuln blink (playerC.alpha 0.4) and src/pixel.js's all-white twin both erased the face for most
+  // of every i-frame window, and a sprite tint MULTIPLIES, so a hot tint turned the mint body into a
+  // dark disc. A fresh hit (invuln climbing) instead blinks an ADDITIVE twin of the player sprite —
+  // same texture, anchor and scale, so it is the body's own shape lit hot, face and all — a few times.
+  //   src/pixel.js may own it: flashPlayer(container, s) with s in 0..1 (0 = off) returning true.
+  const PIXEL_HIT_FLASH = { t: 0.24, hz: 12.5, tint: 0xffb46a, alpha: 0.85 }   // seconds, blink rate, the glow
+  let pixelHitT = 0, pixelLastInvuln = 0, pixelHotSprite = null
   function syncPixelPlayerFlash(p, dt) {
     const inv = p.invuln ?? 0
     if (inv > pixelLastInvuln + 1e-6) pixelHitT = PIXEL_HIT_FLASH.t
     pixelLastInvuln = inv
     pixelHitT = Math.max(0, pixelHitT - dt)
     pixelRig.syncPlayer(p, dt, animT, false)
-    pixelRig.player.tint = pixelHitT > 0 && Math.floor(pixelHitT * PIXEL_HIT_FLASH.hz) % 2 === 0 ? PIXEL_HIT_FLASH.tint : 0xffffff
+    const rig = pixelRig.player
+    rig.tint = 0xffffff
+    const on = pixelHitT > 0 && Math.floor((PIXEL_HIT_FLASH.t - pixelHitT) * PIXEL_HIT_FLASH.hz * 2) % 2 === 0
+    if (PIXEL.flashPlayer && PIXEL.flashPlayer(rig, on ? pixelHitT / PIXEL_HIT_FLASH.t : 0)) {
+      if (pixelHotSprite) pixelHotSprite.visible = false
+      return
+    }
+    const body = rig.children.find((c) => c !== pixelHotSprite && c.texture)
+    if (!body) return
+    if (!pixelHotSprite) {
+      pixelHotSprite = new Sprite(body.texture)
+      pixelHotSprite.blendMode = 'add'
+      pixelHotSprite.tint = PIXEL_HIT_FLASH.tint
+      pixelHotSprite.alpha = PIXEL_HIT_FLASH.alpha
+      rig.addChild(pixelHotSprite)
+    }
+    pixelHotSprite.visible = on
+    if (!on) return
+    if (pixelHotSprite.texture !== body.texture) pixelHotSprite.texture = body.texture
+    pixelHotSprite.anchor.copyFrom(body.anchor)
+    pixelHotSprite.scale.copyFrom(body.scale)
+    pixelHotSprite.position.copyFrom(body.position)
+    pixelHotSprite.rotation = body.rotation
   }
   function setPixel(look) {
     pixelLook = look
@@ -12549,7 +12616,7 @@ export function createRenderer(app) {
   }
   function setMacro(run) {
     const ch = run && CHAPTERS[run.chapter]
-    if (pixelLook) { pixelLook = null; pixelRig.disable(); pixelRig.player.tint = 0xffffff; pixelHitT = pixelLastInvuln = 0; bodyC.visible = true; pShadow.visible = true }
+    if (pixelLook) { pixelLook = null; pixelRig.disable(); pixelRig.player.tint = 0xffffff; if (pixelHotSprite) pixelHotSprite.visible = false; pixelHitT = pixelLastInvuln = 0; bodyC.visible = true; pShadow.visible = true }
     if (ch?.render?.pixel) { macroLook = null; holoLook = null; setPixel(ch.render.pixel); return }
     macroLook = ch?.render?.macro ?? null
     holoLook = null
@@ -30378,8 +30445,11 @@ void main() {
       if (s._crown.texture !== tex) s._crown.texture = tex
       s._crown.anchor.set(ct.ax, ct.ay)
       s._crown.visible = true
-      // a pixel crown keeps its art pixels on the grid (scale 1); it still rides the drawn body's top
-      s._crown.position.set(e.x, e.y + cr.top * k * (cr.pixel ? cr.baked : 1))
+      // a pixel crown keeps its art pixels on the grid (scale 1) and sits on the drawn body's top
+      // (pixelCrownSeat), sunk two art pixels — the dark outline and legs — so it rests on the body
+      const seat = cr.pixel ? pixelCrownSeat(s) : null
+      if (seat) s._crown.position.set(s.x + seat[0], s.y + seat[1] + (PIXEL.PX ?? 3) * 2)
+      else s._crown.position.set(e.x, e.y + cr.top * k * (cr.pixel ? cr.baked : 1))
       s._crown.scale.set(cr.pixel ? 1 : k)
       s._crown.alpha = s.alpha
     } else if (s._crown) s._crown.visible = false
