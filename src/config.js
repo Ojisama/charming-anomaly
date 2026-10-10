@@ -2954,12 +2954,13 @@ export const WEAPONS = {
     name: 'Lantern',
     desc: 'A warm glow around you burns whatever comes close, and sets off the firedamp near you.',
     icon: '🏮', rarity: 'normal',
+    // balance_decision : glow +6px, the reach the smaller rat lost 2026-10-10
     levels: [
-      { dmg: 15, interval: 0.4, radius: 150, range: 165 },
-      { dmg: 18, interval: 0.38, radius: 158, range: 175 },
-      { dmg: 22, interval: 0.36, radius: 166, range: 185 },
-      { dmg: 27, interval: 0.34, radius: 176, range: 200 },
-      { dmg: 33, interval: 0.32, radius: 188, range: 215 },
+      { dmg: 15, interval: 0.4, radius: 150 + 6, range: 165 },
+      { dmg: 18, interval: 0.38, radius: 158 + 6, range: 175 },
+      { dmg: 22, interval: 0.36, radius: 166 + 6, range: 185 },
+      { dmg: 27, interval: 0.34, radius: 176 + 6, range: 200 },
+      { dmg: 33, interval: 0.32, radius: 188 + 6, range: 215 },
     ],
   },
 
@@ -6475,9 +6476,11 @@ export const DYNAMITE_RANGE = 430        // px from you a stick may be thrown
 export const DYNAMITE_FLIGHT = 0.4       // s in the air
 export const DYNAMITE_FUSE = 0.65        // s it fizzes on the ground before it goes off
 export const DYNAMITE_KB = 150
-export const MINECART_SPEED = 560        // px/s
+// balance_decision : slower cart that shoves and dazes, owner playtest 2026-10-10
+export const MINECART_SPEED = 380        // px/s
 export const MINECART_FAN = 0.32         // rad between the carts of one push
-export const MINECART_KB = 120           // the sideways shove a cart gives what it hits
+export const MINECART_KB = 180           // the sideways shove a cart gives what it hits
+export const MINECART_STUN = 0.3         // s of daze (e.stunT) a cart hit gives; a fresh hit refreshes it, never stacks
 export const MINE_BOOM_KEEP = 0.6        // s a blast stays in run.booms for the renderer (render-facing only)
 export const MINE_GAS_FADE_IN = 0.6      // s a new firedamp pocket takes to condense out of the dark (ascii.js); it cannot be lit sooner
 export const MINE_GAS_LIT_SHRINK = 0.7   // a lit pocket draws in to this x r as it goes off (ascii.js); the sting reach shrinks with it
@@ -9327,7 +9330,9 @@ CHAPTERS.mine = {
   name: 'The Mine', tagline: 'mind the firedamp', icon: '⛏️',
   weapons: ['pickaxe', 'dynamite', 'minecart', 'lantern'], starter: 'pickaxe',
   roster: [
-    { id: 'mineRat',    archetype: 'normal', name: 'Pit Rat',     hpMul: 0.75, speedMul: 1.05, radiusMul: 0.85, flags: [] },
+    // balance_decision : rats 40% smaller, owner playtest 2026-10-10
+    //  - ascii.js draws a body at its radius, so the glyph cloud shrinks with it
+    { id: 'mineRat',    archetype: 'normal', name: 'Pit Rat',     hpMul: 0.75, speedMul: 1.05, radiusMul: 0.85 * 0.6, flags: [] },
     { id: 'caveSpider', archetype: 'fast',   name: 'Cave Spider', hpMul: 0.75, speedMul: 1.0, flags: ['pounce'], dmgMul: 0.7 },
     { id: 'kobold',     archetype: 'tank',   name: 'Kobold',      hpMul: 1.4, speedMul: 0.85, flags: ['unshakeable'] },
     // The elite. eliteOnly: every elite in this chapter is a golem, and no ordinary spawn is.

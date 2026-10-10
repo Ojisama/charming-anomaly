@@ -31,7 +31,7 @@ import {
   BLOOD_PACT_PER_ELITE, BLOOD_MONEY_HP, STILLNESS_RAMP, CHAOS_PACT_PERIOD, CHAOS_PACT_SURGE,
   ALIGNMENT_POTENCY_MUL, DEADFALL_REARM_MUL, SOY_MILK_FIRE_MUL, SOY_MILK_DMG_MUL, SOY_MILK_CC_MUL,
   ANOMALY_REROLL_MUL, ANOMALY_REROLL_PITY_REFUND, LAST_BREATH_DROWN_TAKEN_MUL,
-  LIVE_CAPS, MUTATORS, CANARY_REACH_MUL, MINE_GAS_FADE_IN, MINE_GAS_LIT_SHRINK, mutatorPool, ENDLESS_MILESTONE_S, ENDLESS_HANDOVER_CLEAR_R, ENDLESS_MILESTONE_ELITES, mergeMutatorMods, randomMutators, rerollMutator,
+  LIVE_CAPS, MUTATORS, CANARY_REACH_MUL, MINECART_STUN, MINE_GAS_FADE_IN, MINE_GAS_LIT_SHRINK, mutatorPool, ENDLESS_MILESTONE_S, ENDLESS_HANDOVER_CLEAR_R, ENDLESS_MILESTONE_ELITES, mergeMutatorMods, randomMutators, rerollMutator,
   sacrificeCost, MAX_CHOICE_SLOTS, resolveChapterId,
   SHIELD_HP_FRAC, SHIELD_DMG_MUL, SPLITTER_COUNT, VOLATILE_FUSE, VOLATILE_RADIUS, VOLATILE_DMG,
   MAX_PASSIVE_LEVEL, MAX_ELEMENT_PICKS, passiveTotal,
@@ -38963,7 +38963,8 @@ function testMine() {
     }
     assert.ok(run.enemies.length >= bodies, `run MI: only ${run.enemies.length} bodies after the warm-up`)
     run.enemies = run.enemies.slice(0, bodies)
-    for (const e of run.enemies) { e.hp = e.maxHP = 40; e.speed = 0; e.speedMul = 0; e.elite = false; e.affixes = [] }
+    // one body size for every fixture, whichever roster entry happened to spawn first
+    for (const e of run.enemies) { e.hp = e.maxHP = 40; e.speed = 0; e.speedMul = 0; e.elite = false; e.affixes = []; e.radius = 14 }
     run.mods.spawnMul = 0
     run._spawnAcc = 0
     run.gas = []; run.gasLit = []; run.bullets = []
@@ -39164,6 +39165,27 @@ function testMine() {
     } finally { sig.firedamp = F0 }
   }
   const ringA = [ringOf(false), ringOf(true)]
+  // (j) THE CART SHOVES AND DAZES: a body a cart runs into is pushed off the rails and dazed
+  // (e.stunT, the glyph stun tell), never for longer than MINECART_STUN however many carts hit it.
+  sig.firedamp = quiet
+  let cart
+  try {
+    const run = stage(41013, 1, [{ id: 'minecart', level: 5 }])
+    const p = run.player, e = run.enemies[0]
+    e.x = p.x + 160; e.y = p.y; e.hp = e.maxHP = 1e9
+    const y0 = e.y
+    let stunMax = 0
+    for (let t = 0; t < 240; t++) {
+      if (run.phase === 'levelup') { run.phase = 'playing'; run.levelUpChoices = [] }
+      stepSim(run, { x: 0, y: 0 }, 1 / 60)
+      run.events.length = 0
+      e.speed = 0; e.hp = e.maxHP
+      stunMax = Math.max(stunMax, e.stunT || 0)
+    }
+    cart = { shove: Math.abs(e.y - y0), stunMax }
+  } finally { sig.firedamp = F0 }
+  assert.ok(cart.shove > 5 && cart.stunMax > 0 && cart.stunMax <= MINECART_STUN + 1e-9,
+    `run MI.j: a body a cart runs into must be shoved and dazed, never past MINECART_STUN ${MINECART_STUN}s: ${JSON.stringify(cart)}`)
   assert.deepStrictEqual(ringA, [0, 1], `run MI.i: a ring sweeping over a pocket must set it off, and nothing else may (blasts without/with: ${ringA})`)
   // (h) THE STING IS THE CLOUD, THE BLAST IS FOR THE CROWD: one pocket goes off with you and a body
   // both just outside its drawn cloud but well inside its blast: the body is hurt, you are not; the
@@ -39192,7 +39214,7 @@ function testMine() {
     'run MI.h: ascii.js must draw the lit cloud with MINE_GAS_LIT_SHRINK and fade pockets in over MINE_GAS_FADE_IN, the numbers the sting and the lighting read')
   assert.ok(!seamA[0].dead && seamA[1].dead && Math.abs(seamA[1].r / seamA[0].r - MUTATORS.methaneSeam.effects.gasBlastMul) < 1e-6,
     `run MI.f: Methane Seam's bigger blast must kill a body just past a normal one: ${JSON.stringify(seamA)}`)
-  console.log(`PASS run MI (the mine): a shot through a row of 3 pockets blew links ${chains.join(',')} and killed both bodies, nothing with the switch off; a blast beside you stung ${sting} hp; pickaxe/dynamite/minecart/lantern each set off an empty pocket by their own reach (${Object.values(lit).join('/')}); a blow on a body in a pocket set it off (${hookIn}, ${hookOut} away); Open Flame lit a pocket at ${Math.round(far['within the modded range'])}px (${flameOf['within the modded range']}); Canary chained ${chainA.join('->')} pockets; Methane Seam's blast r ${seamA[0].r.toFixed(0)}->${seamA[1].r.toFixed(0)} killed the body just outside; wandering, seeping pockets came no nearer than ${seepD.toFixed(0)}px (sting reach ${stingMax.toFixed(0)}), no seam laid nearer than ${layD.toFixed(0)}px, a pocket fading in was not lit (${young}), a ring alone lit one (${ringA}); outside the cloud you took ${cloudOut.sting} while the body beside you was hurt, inside it ${cloudIn.sting}`)
+  console.log(`PASS run MI (the mine): a shot through a row of 3 pockets blew links ${chains.join(',')} and killed both bodies, nothing with the switch off; a blast beside you stung ${sting} hp; pickaxe/dynamite/minecart/lantern each set off an empty pocket by their own reach (${Object.values(lit).join('/')}); a blow on a body in a pocket set it off (${hookIn}, ${hookOut} away); Open Flame lit a pocket at ${Math.round(far['within the modded range'])}px (${flameOf['within the modded range']}); Canary chained ${chainA.join('->')} pockets; Methane Seam's blast r ${seamA[0].r.toFixed(0)}->${seamA[1].r.toFixed(0)} killed the body just outside; wandering, seeping pockets came no nearer than ${seepD.toFixed(0)}px (sting reach ${stingMax.toFixed(0)}), no seam laid nearer than ${layD.toFixed(0)}px, a pocket fading in was not lit (${young}), a ring alone lit one (${ringA}); a cart shoved a body ${cart.shove.toFixed(0)}px and dazed it up to ${cart.stunMax.toFixed(2)}s; outside the cloud you took ${cloudOut.sting} while the body beside you was hurt, inside it ${cloudIn.sting}`)
 }
 
 // ---- run MA: Book 3, The Magma — the crust, and the weapons that use it -----------------------

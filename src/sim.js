@@ -259,7 +259,7 @@ import {
   SHOVEL_LIFE, PEBBLE_FAN, PEBBLE_LIFE, PEBBLE_R, ROOT_SNARE_TICK, ROOT_SNARE_SLOW, ROOT_SNARE_HOLD_T, ROOT_SNARE_RANGE,
   PRISM_FAN, PRISM_LIFE, PRISM_R, ECHO_LIFE, STALACTITE_FUSE, STALACTITE_RANGE,
   PICKAXE_RANGE, PICKAXE_KB, PICKAXE_CHIP_DMG, PICKAXE_CHIP_SPEED, PICKAXE_CHIP_LIFE, PICKAXE_CHIP_R,
-  DYNAMITE_RANGE, DYNAMITE_FLIGHT, DYNAMITE_FUSE, DYNAMITE_KB, MINECART_SPEED, MINECART_FAN, MINECART_KB,
+  DYNAMITE_RANGE, DYNAMITE_FLIGHT, DYNAMITE_FUSE, DYNAMITE_KB, MINECART_SPEED, MINECART_FAN, MINECART_KB, MINECART_STUN,
   CANARY_REACH_MUL, CANARY_LINK_DMG, LANTERN_PULSE, MINE_BOOM_KEEP, MINE_GAS_FADE_IN, MINE_GAS_LIT_SHRINK,
   SLAG_RANGE, SLAG_FLIGHT, SLAG_TICK, OBSIDIAN_FAN, OBSIDIAN_LIFE, OBSIDIAN_R, SPLINTER_DMG_MUL, SPLINTER_LIFE, SPLINTER_SPEED, SPLINTER_R,
   BELLOWS_LIFE, BELLOWS_FLARE_MUL, BELLOWS_FLARE_R, BELLOWS_FLARE_T, BOMB_RANGE, BOMB_FLIGHT, BOMB_LAVA_R, BOMB_LAVA_T, HOT_FEET_OPEN_MUL, HOT_FEET_BURN_MUL,
@@ -16819,12 +16819,14 @@ function stepCarts(run, dt) {
       if (dx * dx + dy * dy > (c.w + e.radius) ** 2) continue
       c.hit.add(e.id)
       applyDamage(run, e, c.dmg)
-      // shoved off the rails, to whichever side of the track it stood on
+      // shoved off the rails, to whichever side of the track it stood on, and dazed a moment
+      // (max, not +=: a second cart refreshes the daze and never stacks it)
       if (!e._dead && !resistsCC(e) && claimKb(e)) {
         const side = ux * dy - uy * dx >= 0 ? 1 : -1
         const k = ccScale(run, e)
         e.kb.x += -uy * side * MINECART_KB * k
         e.kb.y += ux * side * MINECART_KB * k
+        e.stunT = Math.max(e.stunT || 0, MINECART_STUN * k)
         spendCC(run, e)
       }
     }

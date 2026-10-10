@@ -1222,15 +1222,20 @@ export function createAsciiRenderer(host) {
         }
         const rot = k < 1 ? k * 11 : 0.4
         const ux = Math.cos(rot), uy = Math.sin(rot)
-        const parts = [['(', -9], ['=', -3], ['=', 3], [')', 9]]
-        for (const [ch, o] of parts) obj.put(ch, x + ux * o, y + uy * o, 0xff3a24, 0.4, 22, rot, true, 0, true)
-        for (const [ch, o] of parts) obj.put(ch, x + ux * o, y + uy * o, 0xff5a3a, 1, 15, rot, false, 0, false)
-        obj.put('~', x + ux * 14, y + uy * 14, 0xf0d0a0, 1, 10, rot, false, 0, false)
-        const fl = 0.6 + 0.4 * Math.sin(clock * 60)
-        obj.put('*', x + ux * 18, y + uy * 18, 0xfff6c0, fl, 12 + (k >= 1 ? 6 * fl : 0), clock * 20, true, 0, false)
-        obj.put('*', x + ux * 18, y + uy * 18, 0xffa030, 0.8 * fl, 24, clock * 20, true, 0, true)
+        // a big bright-red stick, '(' '=' '=' ')' in heavy glyphs over a red glow of the same, a fuse
+        // '~' and a white-hot spark that flickers through '*' '+' 'x' (on the ground it spits harder)
+        const parts = [['(', -14], ['=', -5], ['=', 5], [')', 14]]
+        for (const [ch, o] of parts) obj.put(ch, x + ux * o, y + uy * o, 0xff2010, 0.55, 34, rot, true, 0, true)
+        for (const [ch, o] of parts) obj.put(ch, x + ux * o, y + uy * o, 0xff3a22, 1, 24, rot, false, 2, false)
+        for (const [ch, o] of parts) obj.put(ch, x + ux * o - uy * 1.5, y + uy * o + ux * 1.5, 0xff9a80, 0.55, 14, rot, false, 2, false)
+        obj.put('~', x + ux * 21, y + uy * 21, 0xf4dcb0, 1, 13, rot, false, 0, false)
+        const fl = 0.55 + 0.45 * Math.sin(clock * 60)
+        const fch = ['*', '+', 'x'][Math.floor(clock * 30) % 3]
+        const fs = k >= 1 ? 1.35 : 1
+        obj.put(fch, x + ux * 27, y + uy * 27, 0xffffff, 0.7 + 0.3 * fl, (15 + 5 * fl) * fs, clock * 20, true, 0, false)
+        obj.put(fch, x + ux * 27, y + uy * 27, 0xffb030, 0.85 * fl, 32 * fs, clock * 20, true, 0, true)
         if (dt > 0 && Math.random() < 0.6) {
-          spawn({ ch: Math.random() < 0.5 ? '`' : '\'', x: x + ux * 18, y: y + uy * 18, vx: (Math.random() - 0.5) * 90, vy: -30 - Math.random() * 50, life: 0.3, c0: 0xffe070, c1: 0xff4010, size: 6, add: true, grav: 200 })
+          spawn({ ch: Math.random() < 0.5 ? '`' : '\'', x: x + ux * 27, y: y + uy * 27, vx: (Math.random() - 0.5) * 90, vy: -30 - Math.random() * 50, life: 0.3, c0: 0xffe070, c1: 0xff4010, size: 6, add: true, grav: 200 })
         }
         // in flight, the fuse leaves embers hanging along its whole path: a long fading comet
         if (dt > 0 && k < 1) {
