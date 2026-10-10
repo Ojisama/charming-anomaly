@@ -71,6 +71,9 @@ const HYDRANT_PX = 36
 const GULL_DIVE_R = 34
 const GULL_DIVE_SPAN = 2.42 * 2 * GULL_DIVE_R
 const MAX_PARTICLES = 200
+// Topsoil's hit dust (soilPuff): particles per second it may spend on hits, and its burst; kills are
+// never metered. Keeps a dense shovel or Ipecac Furrow frame from recycling the whole ring above.
+const SOIL_PUFF_RATE = 60, SOIL_PUFF_BURST = 30
 const MAX_DMG_TEXTS = 30
 
 // Foliage sprite sheet: white/shaded PNGs in src/props/, tinted per-instance at draw
@@ -6478,6 +6481,7 @@ export function createRenderer(app) {
     const shovelPools = shovelSprites()
     for (const k in shovelPools) shovelPools[k].begin()
     const p = run.player
+    if (!shovelLook && burrowSwings.length) bakeShovel()   // a chapter without the lens (dev menu)
     const L0 = shovelLook
     // a clod at ground point (x, y), raised hz px toward the camera
     const clod = (x, y, hz, sc, seed, alpha) => {
@@ -12810,7 +12814,7 @@ export function createRenderer(app) {
       macroTiles[kind].source.style.addressMode = 'repeat'
     }
     macroFloor.texture = macroTiles[kind]
-    if (!macroPickups) {
+    if (!macroPickups && kind === 'topsoil') {
       const P = MACRO.paintPickups()
       const tex = (b) => ({ tex: macroCanvasTex(b.body, MACRO.PK_S), ax: b.ax, ay: b.ay })
       macroPickups = { gem: P.gem.map((tier) => tier.map((sh) => sh.map(tex))), coin: P.coin.map((sh) => sh.map(tex)) }
@@ -28421,11 +28425,15 @@ void main() {
 
   // ------------------------------------------------------------------ events
   // Topsoil: a puff of dry dust where a hit lands, thrown away from the player; a kill throws the
-  // bigger one in place of the white bloom. Its own RNG, so a hit never draws from Math.random.
+  // bigger one in place of the white bloom. The puff's own randoms come from soilRnd.
   let soilSeed = 1
   const soilRnd = () => ((soilSeed = (soilSeed * 1664525 + 1013904223) >>> 0) / 4294967296)
   const SOIL_GRAINS = [0xb08e66, 0x7a5636, 0xc9aa80, 0x4e3420]
+  let soilBucket = SOIL_PUFF_BURST, soilBucketT = 0
   function soilPuff(x, y, big, run) {
+    soilBucket = Math.min(SOIL_PUFF_BURST, soilBucket + (animT - soilBucketT) * SOIL_PUFF_RATE); soilBucketT = animT
+    if (!big && soilBucket < 3) return
+    soilBucket -= big ? 8 : 3
     const R = soilRnd, a0 = Math.atan2(y - run.player.y, x - run.player.x)
     for (let i = 0; i < (big ? 3 : 1); i++) {
       const a = a0 + (R() - 0.5) * 2, sp = 25 + R() * 30
@@ -30805,7 +30813,7 @@ void main() {
         s._crown = new Sprite(Texture.EMPTY)
         enemyCrownLayer.addChild(s._crown)
       }
-      const tex = flash ? ct.white : ct.tex
+      const tex = flash && !macroLook ? ct.white : ct.tex
       if (s._crown.texture !== tex) s._crown.texture = tex
       s._crown.anchor.set(ct.ax, ct.ay)
       s._crown.visible = true
@@ -32137,9 +32145,14 @@ void main() {
   }
   // Topsoil: a photographed pickup. Each lies still (no pulse: a stone does not breathe), shows one of
   // its two shapes by where it fell, and swaps to its glint bake for a short beat on its own clock.
+  // The hash is latched per pickup at first sight: the magnet moves it every frame, and a hash of the
+  // live position would swap its stone and glint at 60 Hz all the way to the player.
   const pickHash = (x, y) => { const h = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453; return h - Math.floor(h) }
-  function placeMacroPickup(s, set, x, y) {
-    const h = pickHash(Math.round(x), Math.round(y))
+  const pickHashOf = new WeakMap()
+  function placeMacroPickup(s, set, item) {
+    const x = item.x, y = item.y
+    let h = pickHashOf.get(item)
+    if (h === undefined) { h = pickHash(Math.round(x), Math.round(y)); pickHashOf.set(item, h) }
     const t = set[h < 0.5 ? 0 : 1][((animT * 0.45 + h * 7.3) % 1) < 0.07 ? 1 : 0]
     if (s.texture !== t.tex) { s.texture = t.tex; s.anchor.set(t.ax, t.ay) }
     s.position.set(x, y)
@@ -32147,14 +32160,14 @@ void main() {
   }
   function placeGem(s, g) {
     if (pixelLook && pixelRig.placeGem(s, g, animT)) return   // The Magma: pixel gems
-    if (macroLook) { placeMacroPickup(s, macroPickups.gem[gemTier(g.xp, pickRun)], g.x, g.y); return }
+    if (macroPickups && macroLook?.floor === 'topsoil') { placeMacroPickup(s, macroPickups.gem[gemTier(g.xp, pickRun)], g); return }
     if (s.texture !== T.gem.tex) { s.texture = T.gem.tex; s.anchor.set(T.gem.ax, T.gem.ay) }
     s.position.set(g.x, g.y)
     s.scale.set(1 + 0.15 * Math.sin(animT * 5 + (g.x + g.y) * 0.05))
   }
   function placeCoin(s, c) {
     if (pixelLook && pixelRig.placeCoin(s, c, animT)) return   // The Magma: pixel coins
-    if (macroLook) { placeMacroPickup(s, macroPickups.coin, c.x, c.y); return }
+    if (macroPickups && macroLook?.floor === 'topsoil') { placeMacroPickup(s, macroPickups.coin, c); return }
     if (s.texture !== T.coin.tex) { s.texture = T.coin.tex; s.anchor.set(T.coin.ax, T.coin.ay) }
     s.position.set(c.x, c.y)
     s.scale.set(1 + 0.1 * Math.sin(animT * 4 + (c.x - c.y) * 0.05))
