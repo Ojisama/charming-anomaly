@@ -87,7 +87,7 @@ function outline(g, c = 'k') {
 // alternating tripods.
 export const BEETLE = {
   w: 21, h: 17, ax: 10, ay: 8,
-  pal: { k: INK, s: '#705e68', S: '#c0acb6', p: '#4a3c44', c: '#ff7a1c', e: EYE, l: '#7a6870', m: '#e0ccb0' },
+  pal: { k: INK, s: '#2c3c94', S: '#5a7ee0', p: '#1a2260', c: '#ffb42a', e: EYE, l: '#26306a', m: '#e0d0a8' },
   paint(f) {
     const W = 21, H = 17, M = 8.5, g = grid(W, H)
     // legs first (they sit under the body): attach x, tip dx (back legs sweep back, front ones
@@ -115,7 +115,7 @@ export const BEETLE = {
 // spots down the back, four legs splayed sideways ending in a fat foot, and a long tail that swings.
 export const SALAMANDER = {
   w: 29, h: 17, ax: 15, ay: 8,
-  pal: { k: INK, b: '#8a4432', B: '#6a3028', y: '#ffc23a', e: EYE, f: '#a85a40' },
+  pal: { k: INK, b: '#b4162e', B: '#6c0a1c', y: '#ffd23a', e: EYE, f: '#d8304a' },
   paint(f) {
     const W = 29, H = 17, M = 8.5, g = grid(W, H)
     const s = f ? 1 : -1
@@ -152,7 +152,7 @@ export const SALAMANDER = {
 // four stubby feet at the corners, a stub of tail behind.
 export const TORTOISE = {
   w: 28, h: 23, ax: 12, ay: 11,
-  pal: { k: INK, g: '#504874', G: '#7268a8', j: '#16121e', w: '#f0eeff', t: '#a08878', u: '#7a645c', e: EYE },
+  pal: { k: INK, g: '#2e2858', G: '#5a4cb0', j: '#0e0a1c', w: '#e8e4ff', t: '#7a7e2c', u: '#4e5218', e: EYE },
   paint(f) {
     const W = 28, H = 23, cx = 11.5, cy = 11.5, g = grid(W, H)
     const s = f ? 1 : -1
@@ -204,7 +204,7 @@ const DRAKE_WINGS = [
 ]
 export const DRAKE = {
   w: 35, h: 25, ax: 16, ay: 12,
-  pal: { k: INK, n: INK, v: '#4e1426', b: '#84484a', o: '#a85e40', O: '#b48a64', y: '#ffbe3a', h: '#cdb48c', e: EYE },
+  pal: { k: INK, n: INK, v: '#16404a', b: '#2a7480', o: '#d05a1a', O: '#c89052', y: '#ffbe3a', h: '#e0d0a8', e: EYE },
   paint(f) {
     const W = 35, H = 25, M = 12.5, g = grid(W, H)
     const wg = DRAKE_WINGS[f]
@@ -281,10 +281,10 @@ export function castArchR(id) {
 // [radius as a multiple of its radius, colour, strength]. `crown` is the elite crown's gap above the
 // art, in world px.
 export const PIXEL_CAST = {
-  cinderBeetle: { art: BEETLE, frames: 2, light: [2.4, 0xff8a40, 0.5] },
-  salamander: { art: SALAMANDER, frames: 2, light: [2.6, 0xffb848, 0.55] },
-  obsidianTortoise: { art: TORTOISE, frames: 2, light: [2.2, 0xff7030, 0.55] },
-  fireDrake: { art: DRAKE, frames: 2, light: [2.4, 0xff7a28, 0.28] },
+  cinderBeetle: { art: BEETLE, frames: 2, light: [1.8, 0xff8a40, 0.25] },
+  salamander: { art: SALAMANDER, frames: 2, light: [1.8, 0xffb848, 0.25] },
+  obsidianTortoise: { art: TORTOISE, frames: 2, light: [1.6, 0xff7030, 0.2] },
+  fireDrake: { art: DRAKE, frames: 2, light: [1.8, 0xff7a28, 0.2] },
 }
 // the elite crown, [top, r]: render.js places it at e.y + top * k * drawScale, so top is stated in
 // the bake's own units — just above the top of the art

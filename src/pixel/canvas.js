@@ -41,6 +41,8 @@ export const PAL = {
   mint: '#7de3c3', mintHi: '#c8fff0', mintMid: '#56c4a6', mintLo: '#2a8a6e', mintDeep: '#1a5a4a',
   blush: '#ff8fa8', white: '#ffffff', pupil: '#1a0f14',
   gem: '#5ee8ff', gemHi: '#e8ffff', gemMid: '#2ab4dc', gemLo: '#16608a',
+  // a near-white the screen pass keeps self-lit: a pickup's edge catching the light
+  shine: '#fffae6',
   coin: '#ffcf3a', coinHi: '#fff4a8', coinLo: '#b06a10', coinDeep: '#6a3a08',
   heat0: '#e07a3a', heat1: '#f0a060',
 }

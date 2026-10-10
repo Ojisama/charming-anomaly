@@ -106,8 +106,10 @@ export const BIOME = {
 //   hot     wide and white-hot at the heart — the tell for whoever stands on it
 //   OPEN    a flat pool of bright lava ringed by broken black crust              (it burns)
 //   cooling a DEAD scab: a flat dark pad flecked with grey ash, no glow at all, fading into the floor
-// The ladle's slag is none of these: a dark glassy splat with little flames dancing on it.
-export const CRACK_ART = 48, LAVA_ART = 40, PUDDLE_ART = 34
+// The ladle's slag is none of these: a SPLASH of molten slag thrown flat on the floor — a body with
+// streaks flung out from where it hit, ending in droplets — that cools from hot orange through dull
+// red to dark glassy slag.
+export const CRACK_ART = 48, LAVA_ART = 40, PUDDLE_ART = 48
 function crackArms(v) {
   // the fissure's shape, shared by every stage of one variant so it only heats, never jumps
   const c = CRACK_ART / 2, pts = []
@@ -182,37 +184,66 @@ export function paintCool(pc, v) {
     pc.set(x, y, col)
   }
 }
-// The ladle's slag: a splat of dark, glassy slag (a round body thrown out into droplets, one cold
-// glint) with small flames dancing on it, f = 0..2 the flicker. Its fire is the only hot thing in it,
-// and it is FLAME — upright tongues — never a glowing seam: open lava is a solid orange pool, a crack
-// a black starburst, a cooled scab a dead dark pad.
-export function paintPuddle(pc, v, f = 0) {
-  const c = PUDDLE_ART / 2
-  const R = c - 6
-  const blobs = [[c, c, R, R * 0.86]]
-  for (let k = 0; k < 6; k++) {
-    const a = (k / 6) * TAU + hash(k, v, 93) * 0.9, r = R * (0.8 + hash(k, v, 94) * 0.45)
-    const sz = 1.2 + hash(k, v, 95) * 1.6
-    blobs.push([c + Math.cos(a) * r, c + Math.sin(a) * r * 0.9, sz, sz])
+// The ladle's slag, splashed on the floor. stage 0 molten, 1 crusting (dull red under a dark skin),
+// 2 cold (dark glassy slag, one glint, nothing hot). The SHAPE is a splash, whatever the stage: an
+// irregular body where the load hit, tapering streaks flung outward, a droplet at the end of each and
+// a few loose ones — never round like an open pool, never a flat pad like a cooled crack.
+const SPLASH = [
+  { body: ['lava2', 'lava0', 'slag0'], core: ['lava3', 'lava1', 'glass0'], hi: ['lava4', 'lava1', 'glassHi'], skin: [null, 'scab1', 'glass1'] },
+]
+function splashShape(v) {
+  const c = PUDDLE_ART / 2, R = c - 14
+  const rot = hash(v, 0, 91) * TAU
+  const streaks = []
+  const n = 6 + (v % 2)
+  for (let k = 0; k < n; k++) {
+    const a = rot + (k / n) * TAU + (hash(k, v, 93) - 0.5) * 0.7
+    const len = R * (1.05 + hash(k, v, 94) * 0.55)
+    streaks.push({ a, len, w: 1.6 + hash(k, v, 95) * 1.2, drop: 1 + hash(k, v, 96) * 1.1 })
   }
-  for (const [x, y, rx, ry] of blobs) pc.ellipse(x, y, rx, ry, P.slag1)
-  pc.ellipseOn(c + 1, c + 1.5, R - 1.5, R * 0.86 - 1.5, P.slag0)
-  pc.ellipseOn(c - 2.5, c - 2.5, 3, 1.4, P.slag2)
-  pc.outline(P.ink)
-  // the flames: a few tongues standing on the slag, each flickering on its own beat
+  const loose = []
   for (let k = 0; k < 4; k++) {
-    const a = hash(k, v, 97) * TAU, r = (k === 0 ? 0.15 : 0.55) * R
-    const fx = Math.round(c + Math.cos(a) * r), fy = Math.round(c + Math.sin(a) * r * 0.8) + 2
-    const ph = (f + k) % 3
-    const h = 3 + ph + (k === 0 ? 1 : 0)
-    pc.rect(fx - 1, fy - 1, 3, 2, P.lava1)                 // the base
-    for (let j = 0; j < h; j++) {
-      const y = fy - 1 - j, sway = ph === 1 && j > h / 2 ? 1 : ph === 2 && j > h / 2 ? -1 : 0
-      pc.set(fx + sway, y, j < h * 0.4 ? P.lava2 : j < h * 0.75 ? P.lava3 : P.lava4)
-      if (j < h * 0.5) pc.set(fx + sway - 1, y, P.lava2)
-      if (j < h * 0.35) pc.set(fx + sway + 1, y, P.lava2)
-    }
+    const a = rot + hash(k, v, 98) * TAU, r = R * (1.9 + hash(k, v, 99) * 0.5)
+    loose.push([c + Math.cos(a) * r, c + Math.sin(a) * r * 0.9])
   }
+  return { c, R, rot, streaks, loose }
+}
+export function paintPuddle(pc, v, stage = 0) {
+  const { c, R, rot, streaks, loose } = splashShape(v)
+  const P0 = SPLASH[0]
+  const body = P[P0.body[stage]], core = P[P0.core[stage]], hi = P[P0.hi[stage]], skin = P0.skin[stage] && P[P0.skin[stage]]
+  // the body where it hit: a lumpy blob
+  pc.ellipse(c, c, R, R * 0.8, body)
+  for (let k = 0; k < 3; k++) {
+    const a = rot + k * 2.1
+    pc.ellipse(c + Math.cos(a) * R * 0.45, c + Math.sin(a) * R * 0.4, R * 0.62, R * 0.5, body)
+  }
+  // the streaks, thinning outward, a droplet at each tip
+  for (const st of streaks) {
+    const steps = Math.ceil(st.len)
+    for (let i = 0; i <= steps; i++) {
+      const u = i / steps, d = R * 0.6 + (st.len - R * 0.6) * u
+      const w = Math.max(0.5, st.w * (1 - u * 0.8))
+      pc.ellipse(c + Math.cos(st.a) * d, c + Math.sin(st.a) * d * 0.9, w, w, body)
+    }
+    const tx = c + Math.cos(st.a) * (st.len + st.drop + 1), ty = c + Math.sin(st.a) * (st.len + st.drop + 1) * 0.9
+    pc.ellipse(tx, ty, st.drop, st.drop, body)
+  }
+  for (const [x, y] of loose) pc.ellipse(x, y, 0.9, 0.9, body)
+  // where it is thickest it stays hottest (molten) or glassiest (cold)
+  pc.ellipseOn(c - 0.5, c - 0.5, R * 0.62, R * 0.48, core)
+  if (stage === 1) {
+    // crusting: a dark skin closing over it, the red still showing in the cracks of the skin
+    for (let y = 0; y < PUDDLE_ART; y++) for (let x = 0; x < PUDDLE_ART; x++) {
+      if (!pc.get(x, y)) continue
+      if (hash(x >> 1, y >> 1, v + 41) < 0.55) pc.set(x, y, skin)
+    }
+  } else if (stage === 2) {
+    pc.ellipseOn(c + 1, c + 1, R * 0.5, R * 0.36, skin)
+  }
+  // the bright spot (molten: the hottest slag; cold: the glassy glint)
+  pc.ellipseOn(c - R * 0.3, c - R * 0.3, stage === 2 ? 1.2 : R * 0.3, stage === 2 ? 0.8 : R * 0.22, hi)
+  pc.outline(stage === 0 ? P.lava0 : P.ink)
 }
 
 // ---- shots, lobs and sparks -----------------------------------------------------------------------
@@ -232,49 +263,72 @@ export const SHOT_PAINTERS = {
     pc.ellipseOn(3.8, 3.8, 1.8, 1.6, P.lava4)
     pc.outline(P.lava0); pc.outline()
   }],
-  // a volcanic bomb: a dark rock with its molten heart showing through three cracks
+  // a volcanic bomb: a lumpy dark rock, its chilled skin split in jagged breadcrust cracks with the
+  // molten inside showing through them
   bomb: [17, 17, (pc) => {
-    pc.ellipse(8.5, 8.5, 7, 6.6, P.rk1)
-    pc.ellipseOn(7, 6.6, 3.6, 2.6, P.rk2)
+    pc.ellipse(8.5, 8.5, 7, 6.4, P.rk1)
+    pc.ellipse(10.5, 6.5, 4.4, 3.6, P.rk1)
+    pc.ellipseOn(7, 6.4, 3.6, 2.4, P.rk2)
     for (let k = 0; k < 3; k++) {
-      const a = (k / 3) * TAU + 0.4
-      pc.line(8.5, 8.5, 8.5 + Math.cos(a) * 5.5, 8.5 + Math.sin(a) * 5.5, P.lava3)
+      let a = (k / 3) * TAU + 0.4, x = 8.5, y = 8.5
+      for (let i = 0; i < 6; i++) {
+        a += (hash(k, i, 61) - 0.5) * 1.3
+        const nx = x + Math.cos(a), ny = y + Math.sin(a)
+        if (!pc.get(Math.floor(nx), Math.floor(ny))) break
+        pc.set(nx, ny, i < 2 ? P.lava4 : P.lava2)
+        x = nx; y = ny
+      }
     }
-    pc.ellipse(8.5, 8.5, 1.4, 1.4, P.lava4)
+    pc.set(8, 8, P.lava4); pc.set(9, 8, P.lava3); pc.set(8, 9, P.lava3)
     pc.outline()
   }],
   shadow: [14, 7, (pc) => { pc.ellipse(7, 3.5, 6.4, 3, 'rgba(0,0,0,0.5)') }],
-  // the bellows' blast: a ripple of hot air, two short wavy strokes
+  // the bellows' blast is AIR, which you cannot see: what you see is what it carries — ash and
+  // cinders swept off the floor and flung along it, a fleck of ash streaked by its speed, a live ember
   puff: [10, 7, (pc) => {
-    for (let x = 0; x < 9; x++) {
-      pc.set(x, 2 + Math.round(Math.sin(x * 0.9)), x < 5 ? P.heat1 : P.heat0)
-      pc.set(x + 1, 5 + Math.round(Math.sin(x * 0.9 + 1.5)) - 1, P.heat0)
-    }
+    pc.rect(0, 2, 3, 1, P.ash); pc.set(3, 2, P.ashHi)
+    pc.set(5, 5, P.rk2); pc.set(6, 5, P.ash)
+    pc.rect(6, 1, 2, 1, P.ash)
+    pc.set(8, 3, P.lava3); pc.set(9, 3, P.lava4)
   }],
+  // a pool flared by the bellows: the lava GOUTS up and falls back — a heaving molten blob seen from
+  // above, with gobs thrown off it and falling round it
   flare: [21, 21, (pc) => {
-    for (let k = 0; k < 8; k++) {
-      const a = (k / 8) * TAU, l = k % 2 ? 9.5 : 6.5
-      pc.line(10, 10, 10 + Math.cos(a) * l, 10 + Math.sin(a) * l, k % 2 ? P.lava3 : P.lava2)
+    pc.ellipse(10.5, 10.5, 5, 4.4, P.lava2)
+    pc.ellipse(12, 9, 3, 2.6, P.lava2)
+    for (let k = 0; k < 7; k++) {
+      const a = (k / 7) * TAU + hash(k, 0, 71) * 0.8, r = 6.5 + hash(k, 1, 71) * 3
+      const sz = 0.8 + hash(k, 2, 71) * 0.9
+      pc.ellipse(10.5 + Math.cos(a) * r, 10.5 + Math.sin(a) * r, sz, sz, k % 3 ? P.lava2 : P.lava3)
     }
-    pc.ellipse(10, 10, 3.6, 3.6, P.lava4); pc.ellipse(10, 10, 1.6, 1.6, P.lava5)
+    pc.ellipseOn(10, 10, 3, 2.6, P.lava3)
+    pc.ellipseOn(9.5, 9.5, 1.6, 1.3, P.lava5)
+    pc.outline(P.lava0)
   }],
   spark: [1, 1, (pc) => { pc.set(0, 0, PAL.white) }],
 }
-// an XP gem: a cut cyan crystal (it throws its own cold light, see the rig)
-export function paintGem(pc) {
-  pc.tri(3.5, 0, 0, 4, 7, 4, P.gem)
-  pc.tri(0, 4, 7, 4, 3.5, 10, P.gemMid)
-  pc.tri(3.5, 4, 7, 4, 3.5, 10, P.gemLo)
-  pc.line(3, 1, 1, 4, P.gemHi)
-  pc.set(3, 1, P.white)
+// an XP gem: a cut cyan crystal (it throws its own small cold light, see the rig). f = 1 is the moment
+// a facet catches the light: the whole upper facet flashes pale and a glint pricks out of its corner.
+export function paintGem(pc, f = 0) {
+  const ox = 2, oy = 2
+  pc.tri(ox + 3.5, oy, ox, oy + 4, ox + 7, oy + 4, f ? P.gemHi : P.gem)
+  pc.tri(ox, oy + 4, ox + 7, oy + 4, ox + 3.5, oy + 10, P.gemMid)
+  pc.tri(ox + 3.5, oy + 4, ox + 7, oy + 4, ox + 3.5, oy + 10, P.gemLo)
+  pc.line(ox + 3, oy + 1, ox + 1, oy + 4, P.gemHi)   // the lit edge: near-white, so it reads self-lit
+  pc.set(ox + 3, oy + 1, P.white)
   pc.outline()
+  if (f) { pc.set(ox + 2, oy - 1, P.white); pc.set(ox + 2, oy - 2, P.white); pc.set(ox + 1, oy - 1, P.gemHi); pc.set(ox + 3, oy - 1, P.gemHi) }
 }
-export const GEM_ART = [8, 11]
-export function paintCoin(pc) {
-  pc.ellipse(4.5, 4.5, 4, 4, P.coin)
-  pc.ellipseOn(5, 5, 3, 3, P.coinLo)
-  pc.ellipseOn(4.2, 4.2, 2.6, 2.6, P.coin)
-  pc.set(3, 3, P.coinHi); pc.set(4, 3, P.coinHi); pc.set(3, 4, P.coinHi)
+export const GEM_ART = [12, 15]
+// a gold coin: a bright rim catching the light all round its upper-left edge, a darker face inside;
+// f = 1 a glint runs across the rim
+export function paintCoin(pc, f = 0) {
+  const ox = 2, oy = 2
+  pc.ellipse(ox + 4.5, oy + 4.5, 4, 4, P.coin)
+  pc.ellipseOn(ox + 5, oy + 5, 3, 3, P.coinLo)
+  pc.ellipseOn(ox + 4.4, oy + 4.4, 2.4, 2.4, P.coin)
+  for (const [x, y] of [[1, 3], [1, 4], [2, 2], [3, 1], [4, 1]]) pc.set(ox + x, oy + y, P.shine)
   pc.outline(P.coinDeep); pc.outline()
+  if (f) { pc.set(ox + 2, oy + 2, P.white); pc.set(ox + 3, oy + 1, P.white); pc.set(ox + 1, oy + 1, P.white); pc.set(ox + 1, oy - 1, P.coinHi); pc.set(ox - 1, oy + 1, P.coinHi) }
 }
-export const COIN_ART = [11, 11]
+export const COIN_ART = [15, 15]

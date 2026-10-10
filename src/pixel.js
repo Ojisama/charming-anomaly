@@ -37,7 +37,7 @@ export const CREATURE_LIGHT = 0.6
 // a little past the lava it will open into, so a crack peeks out from under the beetle chasing you
 export const CRACK_BAKE_R = (CRACK_ART / 2) * PX * 0.7
 export const LAVA_BAKE_R = (LAVA_ART / 2 - 1.5) * PX
-export const PUDDLE_BAKE_R = (PUDDLE_ART / 2 - 4) * PX
+export const PUDDLE_BAKE_R = (PUDDLE_ART / 2 - 5) * PX
 
 // A canvas-backed texture, sampled NEAREST: the pixels stay square at any scale.
 export function pixelTex(cv, res = UP) {
@@ -104,8 +104,8 @@ export function createPixelRig(env) {
   const T = {}
   const art = (w, h, paint, ax = 0.5, ay = 0.5) => { const pc = new PixelCanvas(w, h); paint(pc); return bakeArt(pc, ax, ay) }
   for (const [k, [w, h, paint]] of Object.entries(SHOT_PAINTERS)) T[k] = art(w, h, paint)
-  T.gem = art(GEM_ART[0], GEM_ART[1], paintGem)
-  T.coin = art(COIN_ART[0], COIN_ART[1], paintCoin)
+  T.gem = [0, 1].map((f) => art(GEM_ART[0], GEM_ART[1], (pc) => paintGem(pc, f)))
+  T.coin = [0, 1].map((f) => art(COIN_ART[0], COIN_ART[1], (pc) => paintCoin(pc, f)))
   const V = [0, 1, 2, 3]
   T.crack = [0, 1, 2].map((st) => V.map((v) => art(CRACK_ART, CRACK_ART, (pc) => paintCrack(pc, v, st))))
   T.lava = V.map((v) => [0, 1, 2].map((f) => art(LAVA_ART, LAVA_ART, (pc) => paintLava(pc, v, f))))
@@ -230,6 +230,8 @@ export function createPixelRig(env) {
   const GLASS = [hex(PAL.glassHi), hex(PAL.glass2)]
   const FLAME = [hex(PAL.lava3), hex(PAL.lava4), hex(PAL.lava2)]
 
+  // a pickup's glint: on for about a sixth of a 1.2s cycle, phased by where it lies
+  const glintOn = (t, x, y) => ((t / 1.2 + hash(Math.round(x), Math.round(y), 17)) % 1) < 0.16
   let look = null
   let burning = false, flameT = 0
   const v4 = (x, y) => Math.floor(hash(Math.round(x), Math.round(y), 5) * 4)
@@ -341,13 +343,17 @@ export function createPixelRig(env) {
       gPuddle.begin()
       for (const sp of run.slagPools || []) {
         const pv = v4(sp.x, sp.y) % 3
-        const s = gPuddle.next(T.puddle[pv][Math.floor(t * 9 + pv) % 3])
+      // it cools as it lies: molten, then crusting dull red, then (as it fades) dark glassy slag
+        const left = sp.dur - sp.t
+        const st = sp.t < 0.9 ? 0 : left > 0.6 ? 1 : 2
+        const s = gPuddle.next(T.puddle[pv][st])
         s.position.set(sp.x, sp.y)
+        s.rotation = (v4(sp.x, sp.y) * Math.PI) / 2
         const grow = Math.min(1, sp.t / 0.12)
         s.scale.set((sp.r / PUDDLE_BAKE_R) * grow)
-        const a = Math.max(0, Math.min(1, (sp.dur - sp.t) / 0.5))
+        const a = Math.max(0, Math.min(1, left / 0.5))
         s.alpha = a
-        addLight(sp.x, sp.y, sp.r * 2, L_HOT, (0.22 + 0.05 * Math.sin(t * 13 + pv)) * a * grow)   // its flames' flicker
+        addLight(sp.x, sp.y, sp.r * (st === 0 ? 2 : 1.4), st === 0 ? L_HOT : L_CRACK, [0.3, 0.16, 0][st] * a * grow)
       }
       gPuddle.end()
       // lobs: a shadow on the ground, the blob or rock arcing over it, its light falling round it
@@ -524,15 +530,18 @@ export function createPixelRig(env) {
     },
     placeGem(s, g, animT) {
       if (!look) return false
-      if (s.texture !== T.gem.tex) { s.texture = T.gem.tex; s.anchor.set(T.gem.ax, T.gem.ay) }
+      // now and then a facet catches the light: a short glint, each gem on its own beat
+      const gk = T.gem[glintOn(animT, g.x, g.y) ? 1 : 0]
+      if (s.texture !== gk.tex) { s.texture = gk.tex; s.anchor.set(gk.ax, gk.ay) }
       s.position.set(g.x, g.y - (Math.floor(animT * 4 + (g.x + g.y) * 0.01) % 2) * PX)
       s.scale.set(1)
-      if (pending.length < 200) pending.push([g.x, g.y, 22, L_GEM, 0.3])
+      if (pending.length < 200) pending.push([g.x, g.y, 24, L_GEM, 0.45])
       return true
     },
     placeCoin(s, c, animT) {
       if (!look) return false
-      if (s.texture !== T.coin.tex) { s.texture = T.coin.tex; s.anchor.set(T.coin.ax, T.coin.ay) }
+      const ck = T.coin[glintOn(animT * 1.3, c.x + 7, c.y) ? 1 : 0]
+      if (s.texture !== ck.tex) { s.texture = ck.tex; s.anchor.set(ck.ax, ck.ay) }
       s.position.set(c.x, c.y)
       s.scale.set(Math.floor(animT * 3 + (c.x - c.y) * 0.01) % 3 === 0 ? 0.5 : 1, 1)   // a coin spinning, in three frames
       if (pending.length < 200) pending.push([c.x, c.y, 22, L_COIN, 0.3])

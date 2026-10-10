@@ -51,8 +51,12 @@ float bayer2(vec2 a) { a = floor(a); return fract(dot(a, vec2(0.5, a.y * 0.75)))
 float bayer4(vec2 a) { return bayer2(0.5 * a) * 0.25 + bayer2(a); }
 float lum(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
 
+// ONE TEXEL, NEVER A BLEND: a block centre lands exactly on a texel corner (uPx is even), and the
+// input is sampled linearly, so sampling there mixed the two art pixels either side of it — every
+// sprite off the camera's grid (every creature; the camera-locked player never) came out as a 50/50
+// smear of neighbouring colours. Sampling the texel's own centre keeps every block one art pixel.
 vec3 tap(vec2 px) {
-  vec2 uv = px * uInputSize.zw;
+  vec2 uv = (floor(px) + 0.5) * uInputSize.zw;
   vec2 lim = uOutputFrame.zw * uInputSize.zw;
   return texture(uTexture, clamp(uv, vec2(0.0), lim - uInputSize.zw * 0.5)).rgb;
 }
@@ -61,6 +65,8 @@ vec3 lightAt(vec2 cell) { return texture(uLightTex, (cell + uLightOff + 0.5) / u
 float hot(vec3 c) { return smoothstep(0.38, 0.68, c.r - c.b) * smoothstep(0.42, 0.72, c.r); }
 float heat(vec3 c) { return max(hot(c), smoothstep(0.84, 0.97, min(c.r, min(c.g, c.b)))); }
 float isInk(vec3 c) { return 1.0 - step(0.055, lum(c)); }
+// the emissive map's body mask at a screen position (1 = a creature's body, outline excluded)
+float bodyAt(vec2 px) { return texture(uEmitTex, (floor(px / uPx) + uLightOff + 0.5) / uLightSize).g; }
 // the player's mint (green well over red, at least as green as blue): the anomaly is its own light
 float mint(vec3 c) { return smoothstep(0.12, 0.2, c.g - c.r) * step(c.b - 0.04, c.g) * smoothstep(0.22, 0.38, c.g); }
 void main(void) {
@@ -77,7 +83,10 @@ void main(void) {
   L *= mix(vec3(1.0), fall * 1.12, warm);
   L = L / (1.0 + 0.22 * L);
   lm = max(L.r, max(L.g, L.b));
-  float b = bayer4(cell) + 0.03125;
+  // a creature's body is shaded in FLAT bands, never dithered: a dither checker inside a small body
+  // breaks its colour fields into noise and reads as blur next to the flat emissive player
+  float onBody = step(0.5, bodyAt(ctr));
+  float b = mix(bayer4(cell) + 0.03125, 0.5, onBody);
   float lq = floor(lm * uSteps + b) / uSteps;
   L = lm > 0.0001 ? L * (lq / lm) : vec3(0.0);
 
@@ -108,7 +117,9 @@ void main(void) {
     col += (0.35 + 0.65 * lum(alb)) * uAmbRim * (either * 0.6 + up * 0.4) * (1.0 + body * 2.5);
   }
 
-  float e = heat(alb) * uHeat;
+  // on a body only a YELLOW-hot accent (an eye, a seam, a spot) is self-lit: a creature's reds and
+  // oranges are lit like any other colour, so they can be bold without glowing
+  float e = mix(heat(alb), max(hot(alb) * smoothstep(0.45, 0.6, alb.g), smoothstep(0.84, 0.97, min(alb.r, min(alb.g, alb.b)))), onBody) * uHeat;
   col = mix(col, alb * (1.0 + 0.12 * min(lm, 1.5)), e);
   // THE PLAYER IS EMISSIVE: its own colour and brightness whatever the light round it
   float pm = mint(alb);
@@ -123,9 +134,15 @@ void main(void) {
     vec3 t1 = tap(ctr + d * 2.0);
     vec3 t2 = tap(ctr + d * 4.0);
     vec3 t3 = tap(ctr + d * 7.0);
-    g += t1 * hot(t1) * 0.5 + t2 * hot(t2) * 0.32 + t3 * hot(t3) * 0.2;   // only HEAT blooms
+    // only HEAT blooms, and never a creature's own accent: a body's glow stays inside its outline
+    g += t1 * hot(t1) * 0.5 * (1.0 - bodyAt(ctr + d * 2.0)) + t2 * hot(t2) * 0.32 * (1.0 - bodyAt(ctr + d * 4.0))
+       + t3 * hot(t3) * 0.2 * (1.0 - bodyAt(ctr + d * 7.0));
   }
-  col += g * (uGlow / 8.0) * vec3(1.0, 0.74, 0.5) * (1.0 - 0.8 * e);
+  // A CREATURE'S INK OUTLINE STAYS INK: no halo, no bloom over it, so every body has the same hard
+  // one-art-pixel edge the player has. Its body takes only a little of the lava's bloom.
+  float rimOfBody = ink * max(max(bodyAt(ctr + vec2(uPx, 0.0)), bodyAt(ctr - vec2(uPx, 0.0))), max(bodyAt(ctr + vec2(0.0, uPx)), bodyAt(ctr - vec2(0.0, uPx))));
+  col += g * (uGlow / 8.0) * vec3(1.0, 0.74, 0.5) * (1.0 - 0.8 * e) * (1.0 - rimOfBody) * (1.0 - 0.7 * onBody);
+  col = mix(col, alb, step(0.5, rimOfBody));
 
   // CRT: a scanline at the foot of every art-pixel row, a faint aperture mask, a soft vignette
   float fy = fract(p.y / uPx);
