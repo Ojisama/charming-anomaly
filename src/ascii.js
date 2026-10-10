@@ -27,7 +27,7 @@
 // cracks are strokes: glyphs laid along a segment, chosen by the segment's on-screen angle
 // ('-' '\' '|' '/') so a leg is drawn the way an ASCII artist would draw it. Light on the floor is
 // character density and warmth, never a fill. Darkness is black.
-import { CanvasSource, Container, Rectangle, Sprite, Texture } from 'pixi.js'
+import { CanvasSource, Container, Graphics, Particle, ParticleContainer, Rectangle, RenderTexture, Sprite, Texture } from 'pixi.js'
 import { PACER_RADIUS, SHIELD_HP_FRAC } from './config.js'
 
 // ---- glyph atlas -------------------------------------------------------------------------------
@@ -53,7 +53,15 @@ function getAtlas() {
   return atlas
 }
 // glow = the same glyph, blurred and translucent (drawn additively BEHIND the crisp one)
+// per (font, glow) a plain object keyed by the character: thousands of lookups a frame, no string building
+const texFast = [{}, {}, {}, {}, {}, {}]
 function glyphTex(ch, font = 0, glow = false) {
+  const F = texFast[font * 2 + (glow ? 1 : 0)]
+  const hit = F[ch]
+  if (hit) return hit
+  return (F[ch] = glyphTexSlow(ch, font, glow))
+}
+function glyphTexSlow(ch, font, glow) {
   const A = getAtlas()
   const key = ch + '|' + font + (glow ? 'g' : '')
   let t = A.map.get(key)
@@ -82,30 +90,42 @@ function glyphTex(ch, font = 0, glow = false) {
   return t
 }
 
-// Immediate-mode sprite batch: begin(), put() as many glyphs as this frame needs, end() hides the rest.
+// Immediate-mode glyph batch: begin(), put() as many glyphs as this frame needs, end() drops the rest.
+// Particles, not Sprites: thousands of glyphs a frame, and a Sprite pays a transform, a scene-graph
+// update and a colour parse for each. Two ParticleContainers per batch — the normal glyphs, then the
+// additive ones (glows, sparks, eyes) over them — since one container has one blend mode.
+const PC_PROPS = { position: true, rotation: true, vertex: true, color: true, uvs: true }
 function makeBatch(parent) {
-  const sprites = []
-  let n = 0
+  const tex0 = glyphTex('.', 0)
+  const side = (blendMode) => {
+    const pc = new ParticleContainer({ dynamicProperties: PC_PROPS, texture: tex0 })
+    pc.blendMode = blendMode
+    parent.addChild(pc)
+    return { pc, pool: [], n: 0 }
+  }
+  const N = side('normal'), A = side('add')
+  const fin = (S) => {
+    const kids = S.pc.particleChildren
+    if (kids.length !== S.n) { kids.length = 0; for (let i = 0; i < S.n; i++) kids.push(S.pool[i]); S.pc.update() }
+    S.n = 0
+  }
   return {
-    begin() { n = 0 },
+    begin() { N.n = 0; A.n = 0 },
     put(ch, x, y, color, alpha = 1, size = 16, rot = 0, add = false, font = 0, glow = false) {
       if (alpha <= 0.01) return
-      let s = sprites[n]
-      if (!s) { s = new Sprite(); s.anchor.set(0.5); parent.addChild(s); sprites.push(s) }
-      n++
-      const t = glyphTex(ch, font, glow)
-      if (s.texture !== t) s.texture = t
-      s.visible = true
-      s.position.set(x, y)
-      s.tint = color
-      s.alpha = alpha > 1 ? 1 : alpha
-      s.scale.set(size / EM)
-      s.rotation = rot
-      const bm = add ? 'add' : 'normal'
-      if (s.blendMode !== bm) s.blendMode = bm
+      const S = add ? A : N
+      let p = S.pool[S.n]
+      if (!p) { p = new Particle({ texture: tex0, anchorX: 0.5, anchorY: 0.5 }); S.pool.push(p) }
+      S.n++
+      p.texture = glyphTex(ch, font, glow)
+      p.x = x; p.y = y
+      p.scaleX = p.scaleY = size / EM
+      p.rotation = rot
+      // Particle's own tint/alpha setters parse a Color each call; write the packed bgr + alpha directly
+      p.color = (((color & 0xff) << 16) | (color & 0xff00) | ((color >> 16) & 0xff)) + (((alpha > 1 ? 1 : alpha) * 255 | 0) << 24)
     },
-    end() { for (let i = n; i < sprites.length; i++) sprites[i].visible = false; n = 0 },
-    clear() { n = 0; for (const s of sprites) s.visible = false },
+    end() { fin(N); fin(A) },
+    clear() { N.n = 0; A.n = 0; fin(N); fin(A) },
   }
 }
 
@@ -480,6 +500,62 @@ export function paintHazard(src) {
   return paintGlyphs(list, false).canvas
 }
 
+// ---- the floor's cells ---------------------------------------------------------------------------
+// One glyph per 12px cell, everything about it but its light fixed by the cell's hashes. The floor is
+// drawn three ways (see sync): BAKED into world-anchored chunk textures under the slow lights (the
+// gas pockets), LIVE for the cells a fast light reaches (the lamp, the lantern, a lit pocket, a blast),
+// and the ORE cells live always (they twinkle). Same rule for all three: floorCell.
+const FC = 12, FCH = 16, FCPX = FC * FCH
+const FL = ['.', ',', '\'', ':', '-', '~', ';', '=', '^', '~', '"', '+']
+function cellStatics(i, j) {
+  const x = (i + 0.15 + 0.7 * hash2(i, j, 2)) * FC, y = (j + 0.15 + 0.7 * hash2(i, j, 3)) * FC
+  const rock = vnoise(x / 170, y / 170, 5)      // ridges of heavier rock: the gallery walls
+  return {
+    x, y, h: hash2(i, j, 1), h4: hash2(i, j, 4), h6: hash2(i, j, 6), h7: hash2(i, j, 7), h8: hash2(i, j, 8),
+    h9: hash2(i, j, 9), h10: hash2(i, j, 10), h12: hash2(i, j, 12), wall: clamp01((rock - 0.58) * 5),
+  }
+}
+// li, gi: the light (and the gas's share of it) on the floor at the cell
+function floorCell(put, c, li, gi, clock) {
+  const l = Math.min(1, li)
+  if (c.h > 0.9 + 0.1 * l) {
+    // the dark: a rare dull ore fleck survives
+    if (c.h9 < 0.004) put('◇', c.x, c.y, c.h10 < 0.5 ? 0x6a5a3a : 0x4a6266, 0.35, 5, 0, false, 1, false)
+    return
+  }
+  const wall = c.wall
+  const v = clamp01(0.3 + l * (0.35 + 0.5 * c.h4) + wall * 0.25)
+  if (c.h9 < 0.01) {
+    // ore in the lamp: a dull fleck that only just catches the light
+    const tw = 0.5 + 0.5 * Math.sin(clock * 2.5 + c.h * 40)
+    put('◇', c.x, c.y, c.h10 < 0.5 ? 0x9a8458 : 0x6a8a8e, 0.3 + 0.3 * v * tw, 5 + 3 * v, 0, false, 1, false)
+    return
+  }
+  let ch = FL[Math.min(FL.length - 1, Math.floor((0.75 * c.h12 + 0.3 * v) * FL.length))]
+  if (wall > 0.3 && c.h6 < wall * 0.35) ch = c.h7 < 0.5 ? '%' : '#'
+  let col = ramp3(0x4e473e, 0x766c5e, 0x9a8e7c, v)
+  if (gi > 0) col = mixHex(col, 0x4a6a4c, Math.min(0.5, gi / (li + 0.001) * 0.8))
+  put(ch, c.x, c.y, col, 0.5 + 0.25 * v, 12 + 4 * v + wall * 2, (c.h8 - 0.5) * 0.7, false, 1, false)
+}
+// floorCell's output for one live cell, memoised on the cell (mch null = it draws nothing)
+let memoCell = null
+const memoPut = (ch, x, y, col, al, size, rot) => { const s = memoCell; s.mch = ch; s.mcol = col; s.mal = al; s.msz = size; s.mrot = rot }
+// sum of the floor light at (x, y) over a list of lights; the gas's share lands in lightGi
+let lightGi = 0
+function floorLight(list, x, y) {
+  let li = 0, gi = 0
+  for (let n = 0; n < list.length; n++) {
+    const L = list[n], R = L.fr
+    const dx = x - L.x, dy = y - L.y, d2 = dx * dx + dy * dy
+    if (d2 > R * R) continue
+    const k = 1 - Math.sqrt(d2) / R
+    const w = k * Math.sqrt(k) * L.i
+    li += w; if (L.g) gi += w
+  }
+  lightGi = gi
+  return li
+}
+
 // ---- the renderer ------------------------------------------------------------------------------
 const PRE = '@%#&*+=:-.,`\'·•°~≈∿oO0Q◇◆✦$!|/\\_TvwWM▓X^<>()[]{}"»‡0123456789' + "'"
 export function createAsciiRenderer(host) {
@@ -491,9 +567,19 @@ export function createAsciiRenderer(host) {
   host.under.addChild(floorC, gasC, warnC, dropC, mobC)
   host.over.addChild(objC, meC, fxC, numC)
   host.screen.addChild(scrC)
-  const floor = makeBatch(floorC), gas = makeBatch(gasC), warn = makeBatch(warnC), drops = makeBatch(dropC), mob = makeBatch(mobC)
+  // the floor: baked chunks outside the fast lights, live cells inside them (complementary stencil
+  // masks of the same discs, so every pixel comes from exactly one), ore cells live on top
+  const bakedC = new Container(), liveC = new Container(), oreC = new Container()
+  const maskOut = new Graphics(), maskIn = new Graphics()
+  floorC.addChild(bakedC, liveC, oreC, maskOut, maskIn)
+  bakedC.setMask({ mask: maskOut, inverse: true })
+  liveC.setMask({ mask: maskIn })
+  const floor = makeBatch(liveC), ores = makeBatch(oreC)
+  const bakeC = new Container(), bakeB = makeBatch(bakeC)
+  const chunks = new Map()   // "ci,cj" -> { ci, cj, grid, ores, rt, spr, at, gas, res, seen }
+  const gas = makeBatch(gasC), warn = makeBatch(warnC), drops = makeBatch(dropC), mob = makeBatch(mobC)
   const obj = makeBatch(objC), me = makeBatch(meC), fxB = makeBatch(fxC), numB = makeBatch(numC), scr = makeBatch(scrC)
-  const all = [floor, gas, warn, drops, mob, obj, me, fxB, numB, scr]
+  const all = [floor, ores, gas, warn, drops, mob, obj, me, fxB, numB, scr]
   for (const ch of PRE) { glyphTex(ch, 0); glyphTex(ch, 1); glyphTex(ch, 2); glyphTex(ch, 0, true) }
   let clock = 0
   let frame = 0
@@ -508,8 +594,51 @@ export function createAsciiRenderer(host) {
   const MAX_NUMS = 90
   // the hurt tell: red glyphs flaring in from the screen edge (hurtT counts down from hurt0)
   let hurtT = 0, hurt0 = 1, hurtK = 0
-  const clearAll = () => { fx.length = 0; nums.length = 0; hurtT = 0; mem.clear(); for (const b of all) b.clear() }
-  let bgSaved = null
+  const dropChunk = (k, c) => { if (c.spr) { bakedC.removeChild(c.spr); c.spr.destroy(); c.rt.destroy(true) } chunks.delete(k) }
+  const clearAll = () => {
+    fx.length = 0; nums.length = 0; hurtT = 0; mem.clear(); for (const b of all) b.clear()
+    for (const [k, c] of chunks) dropChunk(k, c)
+  }
+  // a chunk's cells (its own 16x16, plus a one-cell rim of its neighbours whose glyphs reach into it)
+  function chunkAt(ci, cj) {
+    const key = ci + ',' + cj
+    let c = chunks.get(key)
+    if (c) return c
+    // grid: (FCH + 2)^2 cells row-major from (ci*FCH - 1, cj*FCH - 1); ores: this chunk's own ore cells
+    const grid = [], oreCells = []
+    for (let j = cj * FCH - 1; j <= (cj + 1) * FCH; j++) {
+      for (let i = ci * FCH - 1; i <= (ci + 1) * FCH; i++) {
+        const s = cellStatics(i, j)
+        const own = i >= ci * FCH && i < (ci + 1) * FCH && j >= cj * FCH && j < (cj + 1) * FCH
+        if (own && s.h9 < 0.01) oreCells.push(s)
+        grid.push(s)
+      }
+    }
+    c = { ci, cj, grid, ores: oreCells, rt: null, spr: null, at: -1e9, gas: false, res: 0, seen: frame }
+    chunks.set(key, c)
+    return c
+  }
+  // bake a chunk under the slow lights only (outside every fast light, that is the whole light)
+  function bakeChunk(c, slow, res, R) {
+    if (!c.rt || c.res !== res) {
+      if (c.rt) { bakedC.removeChild(c.spr); c.spr.destroy(); c.rt.destroy(true) }
+      c.rt = RenderTexture.create({ width: FCPX, height: FCPX, resolution: res })
+      c.spr = new Sprite(c.rt)
+      c.spr.position.set(c.ci * FCPX, c.cj * FCPX)
+      bakedC.addChild(c.spr)
+      c.res = res
+    }
+    const ox = c.ci * FCPX, oy = c.cj * FCPX
+    // only the gas pockets that can reach this chunk
+    const near = slow.filter((L) => L.x + L.fr > ox - FC && L.x - L.fr < ox + FCPX + FC && L.y + L.fr > oy - FC && L.y - L.fr < oy + FCPX + FC)
+    bakeB.begin()
+    const put = (ch, x, y, col, al, size, rot, add, font, glow) => bakeB.put(ch, x - ox, y - oy, col, al, size, rot, add, font, glow)
+    for (const s of c.grid) if (s.h9 >= 0.01) floorCell(put, s, near.length ? floorLight(near, s.x, s.y) : 0, near.length ? lightGi : 0, 0)
+    bakeB.end()
+    if (getAtlas().dirty) { getAtlas().source.update(); getAtlas().dirty = false }
+    R.render({ container: bakeC, target: c.rt, clear: true })
+    c.gas = near.length > 0
+  }
 
   function scatter(m) {
     // a death: the creature's own glyphs fly apart and fade
@@ -541,11 +670,9 @@ export function createAsciiRenderer(host) {
   return {
     hide: ['floor', 'dust', 'gems', 'coins', 'bullets', 'novas', 'player', 'particles', 'shadows', 'crowns', 'enemies', 'text', 'telegraphs', 'affixes', 'obstacles', 'vignette'],
     enter() { clearAll() },
-    exit() {
-      clearAll()
-      if (bgSaved != null && host.app?.renderer?.background) host.app.renderer.background.color = bgSaved
-      bgSaved = null
-    },
+    // nothing to restore on the way out: render.js's reset() has already set the next chapter's
+    // background before it calls setAscii, and the black below is re-asserted on every mine frame
+    exit() { clearAll() },
     filters() { return null },
     // 'hit' and 'hurt' return false: render.js still shakes the camera for them, and everything it
     // would DRAW for them (the text layer, the red vignette) is hidden above.
@@ -612,7 +739,7 @@ export function createAsciiRenderer(host) {
     },
     sync(run, dt, view) {
       const R = host.app?.renderer
-      if (R?.background) { if (bgSaved == null) bgSaved = R.background.color?.toNumber?.() ?? 0x0a0806; R.background.color = 0x000000 }
+      if (R?.background && R.background.color?.toNumber?.() !== 0) R.background.color = 0x000000
       if (dt > 0) clock += dt
       frame++
       const p = run.player
@@ -647,39 +774,74 @@ export function createAsciiRenderer(host) {
       // ---- the floor: THE BACKGROUND LAYER. Small thin serif glyphs in a desaturated warm grey, no glow,
       // never brighter than about a quarter of white: it is the rock the crowd walks on, and it must
       // never read as part of the crowd. The lamp's pool on it is small and sparse.
+      // Slow lights (the gas pockets, drifting at 16px/s) are baked into the chunks and re-baked every
+      // REBAKE_T; fast lights are live. A light's floor reach is `fr`.
+      const slow = [], fast = []
+      for (const L of lights) { if (L.fr == null) L.fr = L.r; (L.g ? slow : fast).push(L) }
+      const res = (R?.resolution ?? 1) * (view.zoom || 1)
+      const ci0 = Math.floor(view.left / FCPX), ci1 = Math.floor(view.right / FCPX)
+      const cj0 = Math.floor(view.top / FCPX), cj1 = Math.floor(view.bottom / FCPX)
+      // bake every chunk new to the view now; refresh at most two gas-touched chunks a frame
+      const REBAKE_T = 0.4
+      const vis = []
+      for (let cj = cj0; cj <= cj1; cj++) for (let ci = ci0; ci <= ci1; ci++) {
+        const c = chunkAt(ci, cj)
+        c.seen = frame
+        if (c.res !== res || c.at < -1e8) { bakeChunk(c, slow, res, R); c.at = clock } else vis.push(c)
+        c.spr.visible = true
+      }
+      let rebakes = 0
+      vis.sort((a, b) => a.at - b.at)
+      for (const c of vis) {
+        if (rebakes >= 2 || clock - c.at < REBAKE_T) break
+        const ox = c.ci * FCPX, oy = c.cj * FCPX
+        const gasNear = slow.some((L) => L.x + L.fr > ox - FC && L.x - L.fr < ox + FCPX + FC && L.y + L.fr > oy - FC && L.y - L.fr < oy + FCPX + FC)
+        if (gasNear || c.gas) { bakeChunk(c, slow, res, R); rebakes++ }
+        c.at = clock
+      }
+      for (const [k, c] of chunks) {
+        if (c.seen !== frame) { if (c.spr) c.spr.visible = false; if (frame - c.seen > 120) dropChunk(k, c) }
+      }
+      // the fast lights' discs: the live cells inside, the baked chunks outside
+      maskIn.clear(); maskOut.clear()
+      for (const L of fast) { maskIn.circle(L.x, L.y, L.fr); maskOut.circle(L.x, L.y, L.fr) }
+      if (fast.length) { maskIn.fill(0xffffff); maskOut.fill(0xffffff) }
       floor.begin()
-      const C = 12
-      const i0 = Math.floor(view.left / C) - 1, i1 = Math.ceil(view.right / C) + 1
-      const j0 = Math.floor(view.top / C) - 1, j1 = Math.ceil(view.bottom / C) + 1
-      const FL = ['.', ',', '\'', ':', '-', '~', ';', '=', '^', '~', '"', '+']
-      for (let j = j0; j <= j1; j++) {
-        for (let i = i0; i <= i1; i++) {
-          const h = hash2(i, j, 1)
-          const x = (i + 0.15 + 0.7 * hash2(i, j, 2)) * C, y = (j + 0.15 + 0.7 * hash2(i, j, 3)) * C
-          const [li, gi] = lightAt(x, y, true)
-          const rock = vnoise(x / 170, y / 170, 5)      // ridges of heavier rock: the gallery walls
-          const wall = clamp01((rock - 0.58) * 5)
-          const l = Math.min(1, li)
-          if (h > 0.9 + 0.1 * l) {
-            // the dark: a rare dull ore fleck survives
-            if (hash2(i, j, 9) < 0.004) floor.put('◇', x, y, hash2(i, j, 10) < 0.5 ? 0x6a5a3a : 0x4a6266, 0.35, 5, 0, false, 1, false)
-            continue
+      const E = 1   // cells whose ink can reach into a disc: centre within fr + E cells (a glyph's ink reaches < 10px)
+      for (const L of fast) {
+        const rr = L.fr + E * FC
+        // only the lights that reach this disc can light a cell in it
+        const near = lights.filter((M) => Math.abs(M.x - L.x) < M.fr + rr && Math.abs(M.y - L.y) < M.fr + rr)
+        const a0 = Math.floor((L.x - rr) / FC), a1 = Math.floor((L.x + rr) / FC)
+        const b0 = Math.floor((L.y - rr) / FC), b1 = Math.floor((L.y + rr) / FC)
+        for (let cj = Math.floor(b0 / FCH); cj <= Math.floor(b1 / FCH); cj++) for (let ci = Math.floor(a0 / FCH); ci <= Math.floor(a1 / FCH); ci++) {
+          const c = chunkAt(ci, cj), g = c.grid
+          const ja = Math.max(b0, cj * FCH), jb = Math.min(b1, cj * FCH + FCH - 1)
+          const ia = Math.max(a0, ci * FCH), ib = Math.min(a1, ci * FCH + FCH - 1)
+          for (let j = ja; j <= jb; j++) {
+            const row = (j - cj * FCH + 1) * (FCH + 2) + 1 - ci * FCH
+            for (let i = ia; i <= ib; i++) {
+              const s = g[row + i]
+              if (s.stamp === frame || s.h9 < 0.01) continue
+              const dx = s.x - L.x, dy = s.y - L.y
+              if (dx * dx + dy * dy > rr * rr) continue
+              s.stamp = frame
+              // the cell's glyph is a function of its light alone: recompute only when that moved
+              // by more than 1/256 (a lamp walking past changes a fraction of the pool per frame)
+              const qi = Math.round(floorLight(near, s.x, s.y) * 256), qg = Math.round(lightGi * 256)
+              if (s.qi !== qi || s.qg !== qg) { s.qi = qi; s.qg = qg; memoCell = s; s.mch = null; floorCell(memoPut, s, qi / 256, qg / 256, clock) }
+              if (s.mch !== null) floor.put(s.mch, s.x, s.y, s.mcol, s.mal, s.msz, s.mrot, false, 1, false)
+            }
           }
-          const v = clamp01(0.3 + l * (0.35 + 0.5 * hash2(i, j, 4)) + wall * 0.25)
-          let ch = FL[Math.min(FL.length - 1, Math.floor((0.75 * hash2(i, j, 12) + 0.3 * v) * FL.length))]
-          if (wall > 0.3 && hash2(i, j, 6) < wall * 0.35) ch = hash2(i, j, 7) < 0.5 ? '%' : '#'
-          let col = ramp3(0x4e473e, 0x766c5e, 0x9a8e7c, v)
-          if (gi > 0) col = mixHex(col, 0x4a6a4c, Math.min(0.5, gi / (li + 0.001) * 0.8))
-          if (hash2(i, j, 9) < 0.01) {
-            // ore in the lamp: a dull fleck that only just catches the light
-            const tw = 0.5 + 0.5 * Math.sin(clock * 2.5 + h * 40)
-            floor.put('◇', x, y, hash2(i, j, 10) < 0.5 ? 0x9a8458 : 0x6a8a8e, 0.3 + 0.3 * v * tw, 5 + 3 * v, 0, false, 1, false)
-            continue
-          }
-          floor.put(ch, x, y, col, 0.5 + 0.25 * v, 12 + 4 * v + wall * 2, (hash2(i, j, 8) - 0.5) * 0.7, false, 1, false)
         }
       }
       floor.end()
+      // the ore cells twinkle, so they are never baked
+      ores.begin()
+      for (let cj = cj0; cj <= cj1; cj++) for (let ci = ci0; ci <= ci1; ci++) {
+        for (const s of chunkAt(ci, cj).ores) floorCell(ores.put, s, floorLight(lights, s.x, s.y), lightGi, clock)
+      }
+      ores.end()
 
       // ---- firedamp: soft clouds shaded with '≈' '∿' '~' 'o' '.', slowly turning ----
       gas.begin()
