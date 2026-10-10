@@ -77,6 +77,12 @@ function fbm(x, y, seed, octaves, wavelength) {
   return sum / norm
 }
 
+// The same fractal value noise, exposed for fields that are not terrain (The Magma's floor: its
+// lava rivers and its cooled/hot patches in sim.js). Pure in (x, y, seed) like everything here.
+export function noiseAt(x, y, seed, octaves, wavelength) {
+  return fbm(x, y, seed | 0, octaves, wavelength)
+}
+
 // ---- the two scalar fields ----------------------------------------------------------------------
 // Wavelengths are chosen against what the player can actually see: the viewport is ~1900px wide and
 // OBSTACLE_STREAM_RADIUS is 1400, so a feature has to be several thousand px across to read as

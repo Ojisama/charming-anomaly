@@ -24,6 +24,8 @@ import {
   paintCrack, paintLava, paintCool, paintPuddle, SHOT_PAINTERS, paintGem, GEM_ART, paintCoin, COIN_ART,
 } from './pixel/world.js'
 import { CRT_VERT, CRT_FRAG, CRT_LOOK } from './pixel/crt.js'
+import { bakeGroundChunk, CHUNK_ART, PLATE_ART, paintPlate } from './pixel/ground.js'
+import { magmaFloorOf, riverDepthAt } from './sim.js'
 
 export { PX, PAL, PixelCanvas, hash, PIXEL_CAST, paintPlayer, TILE_ART, paintFloorTile, PIXEL_PROPS, PROP_ART, BIOME, SHOT_PAINTERS, paintGem, paintCoin, CRT_FRAG }
 
@@ -93,7 +95,9 @@ function lightDisc() {
 
 // light colours
 const L_LAVA = 0xffa040, L_HOT = 0xff6a20, L_CRACK = 0xc8300c, L_SLAG = 0xffa040, L_PLAYER = 0xa8c0ff, L_GEM = 0x40d8ff
-const L_COIN = 0xffc040, L_GLASS = 0xb0a0ff
+const L_COIN = 0xffc040, L_GLASS = 0xb0a0ff, L_RIVER = 0xffa040
+// the ground (src/pixel/ground.js): river light per point, hot ground's glow, plates on the river
+const GROUND = { riverR: 92, riverA: 0.42, hotR: 70, hotA: 0.11, pulse: 2.1, plateCycle: 64, plateSpeed: 9, bakesPerFrame: 2 }
 const UNDERGLOW = { cell: 420, chance: 0.55, r: 360, col: 0xc0401c, a: 0.2 }
 
 // ---- the rig: places all of it every frame from `run` ---------------------------------------------
@@ -104,6 +108,11 @@ export function createPixelRig(env) {
   const T = {}
   const art = (w, h, paint, ax = 0.5, ay = 0.5) => { const pc = new PixelCanvas(w, h); paint(pc); return bakeArt(pc, ax, ay) }
   for (const [k, [w, h, paint]] of Object.entries(SHOT_PAINTERS)) T[k] = art(w, h, paint)
+  // the obsidian shards' four turning frames (src/pixel/world.js)
+  T.obsidianF = [0, 1, 2, 3].map((f) => art(SHOT_PAINTERS.obsidian[0], SHOT_PAINTERS.obsidian[1], (pc) => SHOT_PAINTERS.obsidian[2](pc, f)))
+  T.splinterF = [0, 1, 2, 3].map((f) => art(SHOT_PAINTERS.splinter[0], SHOT_PAINTERS.splinter[1], (pc) => SHOT_PAINTERS.splinter[2](pc, f)))
+  const shardPhase = new WeakMap()
+  let shardN = 0
   T.gem = [0, 1].map((f) => art(GEM_ART[0], GEM_ART[1], (pc) => paintGem(pc, f)))
   T.coin = [0, 1].map((f) => art(COIN_ART[0], COIN_ART[1], (pc) => paintCoin(pc, f)))
   const V = [0, 1, 2, 3]
@@ -114,6 +123,7 @@ export function createPixelRig(env) {
   T.player = [0, 1].map((f) => art(PLAYER_ART[0], PLAYER_ART[1], (pc) => paintPlayer(pc, f)))
   T.playerWhite = [0, 1].map((f) => { const pc = new PixelCanvas(PLAYER_ART[0], PLAYER_ART[1]); paintPlayer(pc, f); return bakeArt(pc, 0.5, 0.5, true) })
   T.floor = pixelTex(paintFloorTile().toCanvas(PX), 1)
+  T.plate = [0, 1, 2].map((v) => [0, 1, 2].map((sz) => art(PLATE_ART[sz][0], PLATE_ART[sz][1], (pc) => paintPlate(pc, v, sz))))
   T.floor.source.style.addressMode = 'repeat'
   T.light = lightDisc()
   // each creature frame's body MASK (outline excluded), for the emissive map, painted at the same
@@ -130,8 +140,29 @@ export function createPixelRig(env) {
     return m
   }
 
-  const floor = new TilingSprite({ texture: T.floor, width: 1, height: 1 })
+  // the floor: the basalt tile, then the ground over it (rivers, cooled flows, hot ground's
+  // fissures), then the crust plates riding the rivers — all under the cracks and the crowd
+  const floorTile = new TilingSprite({ texture: T.floor, width: 1, height: 1 })
+  const chunkLayer = new Container(), fissLayer = new Container(), plateLayer = new Container()
+  const floor = new Container()
+  floor.addChild(floorTile, chunkLayer, fissLayer, plateLayer)
   floor.visible = false
+  // baked ground chunks, keyed 'ci,cj' (null = plain crust there), for the floor of one seed
+  const chunks = new Map()
+  let chunkSeed = null, chunkF = null
+  const dropChunk = (k) => {
+    const c = chunks.get(k)
+    if (c) for (const s of [c.base, c.fiss]) if (s) s.destroy({ texture: true, textureSource: true })
+    chunks.delete(k)
+  }
+  const chunkSprite = (cv, layer, x, y) => {
+    if (!cv) return null
+    const s = new Sprite(pixelTex(cv, 1))
+    s.position.set(x, y)
+    s.scale.set(PX)
+    layer.addChild(s)
+    return s
+  }
   const ground = new Container()
   const air = new Container()
   const player = new Container()
@@ -197,6 +228,7 @@ export function createPixelRig(env) {
   // slag lies UNDER the crust (the lava that burns must always read), shadows over both
   const subLayer = () => { const c = new Container(); ground.addChild(c); return c }
   const gPuddle = pool(subLayer()), gCrust = pool(subLayer()), gShadow = pool(subLayer())
+  const gPlate = pool(plateLayer)
   const aLob = pool(air), aGust = pool(air)
   const lights = pool(lightRoot, 'add')
   const masks = pool(emitRoot)
@@ -258,7 +290,7 @@ export function createPixelRig(env) {
       rig.clear()
     },
     clear() {
-      gCrust.hide(); gPuddle.hide(); gShadow.hide(); aLob.hide(); aGust.hide(); lights.hide(); masks.hide()
+      gCrust.hide(); gPuddle.hide(); gPlate.hide(); gShadow.hide(); aLob.hide(); aGust.hide(); lights.hide(); masks.hide()
       pending.length = 0
       burning = false
       for (const f of flashes) f.life = 0
@@ -271,10 +303,10 @@ export function createPixelRig(env) {
       const z = cam.z || 1
       // the floor, nailed to the world
       const M = 128
-      floor.position.set(Math.round(-cam.cx - M), Math.round(-cam.cy - M))
-      floor.width = cam.w + M * 2
-      floor.height = cam.h + M * 2
-      floor.tilePosition.set(-floor.x, -floor.y)
+      floorTile.position.set(Math.round(-cam.cx - M), Math.round(-cam.cy - M))
+      floorTile.width = cam.w + M * 2
+      floorTile.height = cam.h + M * 2
+      floorTile.tilePosition.set(-floorTile.x, -floorTile.y)
       const x0 = -cam.cx - 80, y0 = -cam.cy - 80, x1 = -cam.cx + cam.w + 80, y1 = -cam.cy + cam.h + 80
       const onScreen = (x, y, r = 0) => x + r > x0 && x - r < x1 && y + r > y0 && y - r < y1
 
@@ -282,6 +314,63 @@ export function createPixelRig(env) {
       // the light the hooks gathered last frame
       for (const L of pending) addLight(L[0], L[1], L[2], L[3], L[4])
       pending.length = 0
+
+      // THE GROUND (src/pixel/ground.js): bake the chunks the view needs, nearest first (every one
+      // on screen now, a few of the margin's a frame); then light the rivers and the hot ground and
+      // drift the rivers' crust plates
+      const FL = magmaFloorOf(run)
+      gPlate.begin()
+      if (FL) {
+        if (chunkSeed !== FL.seed || chunkF !== FL.F) { for (const k of [...chunks.keys()]) dropChunk(k); chunkSeed = FL.seed; chunkF = FL.F }
+        const CW = CHUNK_ART * PX
+        const vi0 = Math.floor(-cam.cx / CW), vi1 = Math.floor((-cam.cx + cam.w) / CW)
+        const vj0 = Math.floor(-cam.cy / CW), vj1 = Math.floor((-cam.cy + cam.h) / CW)
+        const i0 = vi0 - 1, i1 = vi1 + 1, j0 = vj0 - 1, j1 = vj1 + 1
+        const pcx = -cam.cx + cam.w / 2, pcy = -cam.cy + cam.h / 2
+        const todo = []
+        for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+          if (!chunks.has(i + ',' + j)) todo.push([i, j, ((i + 0.5) * CW - pcx) ** 2 + ((j + 0.5) * CW - pcy) ** 2])
+        }
+        todo.sort((a, b) => a[2] - b[2])
+        let budget = GROUND.bakesPerFrame
+        for (const [i, j] of todo) {
+          const inView = i >= vi0 && i <= vi1 && j >= vj0 && j <= vj1
+          if (!inView && budget <= 0) continue
+          if (!inView) budget--
+          const g = bakeGroundChunk(FL.F, FL.seed, i, j, PX)
+          chunks.set(i + ',' + j, g && { ...g, base: chunkSprite(g.base, chunkLayer, i * CW, j * CW), fiss: chunkSprite(g.fiss, fissLayer, i * CW, j * CW) })
+        }
+        const far = []
+        for (const [k, c] of chunks) {
+          const [a, b] = k.split(',').map(Number)
+          const near = a >= i0 && a <= i1 && b >= j0 && b <= j1
+          if (!near && (a < i0 - 3 || a > i1 + 3 || b < j0 - 3 || b > j1 + 3)) far.push(k)
+          if (!c) continue
+          if (c.base) c.base.visible = near
+          if (c.fiss) c.fiss.visible = near
+          if (!near) continue
+          for (const [x, y, d] of c.riverLights) {
+            if (onScreen(x, y, GROUND.riverR)) addLight(x, y, GROUND.riverR, L_RIVER, GROUND.riverA * (0.6 + 0.4 * d) * (0.9 + 0.1 * Math.sin(t * 3 + x * 0.05 + y * 0.03)))
+          }
+          const pulse = 0.7 + 0.3 * Math.sin(t * GROUND.pulse)
+          for (const [x, y, d] of c.hotLights) {
+            if (onScreen(x, y, GROUND.hotR)) addLight(x, y, GROUND.hotR * (0.7 + 0.5 * d), L_CRACK, GROUND.hotA * d * pulse)
+          }
+          for (const [x, y, ph] of c.plates) {
+            const k = (t * GROUND.plateSpeed / GROUND.plateCycle + ph) % 1
+            const off = (k - 0.5) * GROUND.plateCycle
+            const px = x + c.flow[0] * off, py = y + c.flow[1] * off
+            if (!onScreen(px, py, 20) || riverDepthAt(FL.F, px, py, FL.seed) < 0.4) continue
+            // a plate crusts over, rides the flow and melts back in: small, grown, small again
+            const sz = k < 0.12 || k > 0.88 ? 0 : k < 0.26 || k > 0.74 ? 1 : 2
+            const s = gPlate.next(T.plate[Math.floor(ph * 3)][sz])
+            s.position.set(Math.round(px / PX) * PX, Math.round(py / PX) * PX)
+          }
+        }
+        for (const k of far) dropChunk(k)
+        fissLayer.alpha = 0.72 + 0.28 * Math.sin(t * GROUND.pulse)
+      }
+      gPlate.end()
 
       // HEAT FROM BELOW: the magma chamber glows faintly up through the crust in broad, slow pools
       // hundreds of px across — no shape, no edge, nothing that could pass for a crack, just warm
@@ -340,6 +429,8 @@ export function createPixelRig(env) {
         }
       }
       gCrust.end()
+      // a lava river under you burns as open lava does, so it shows as open lava does
+      if (!onLava && FL && p && riverDepthAt(FL.F, p.x, p.y, FL.seed) > 0) onLava = true
       gPuddle.begin()
       for (const sp of run.slagPools || []) {
         const pv = v4(sp.x, sp.y) % 3
@@ -509,10 +600,14 @@ export function createPixelRig(env) {
       return false
     },
     // Pool hooks: return true when the sprite is drawn here.
-    placeBullet(s, b) {
+    placeBullet(s, b, animT = 0) {
       if (!look) return false
       const glass = b.weapon === 'obsidian' || b.weapon === 'splinter'
-      const t = b.weapon === 'obsidian' ? T.obsidian : b.weapon === 'splinter' ? T.splinter : T.ember
+      // glass turns as it flies, each shard on its own beat, and catches the light on every turn
+      let ph = 0
+      if (glass) { ph = shardPhase.get(b); if (ph === undefined) { ph = (shardN++ * 0.37) % 1; shardPhase.set(b, ph) } }
+      const gf = Math.floor(animT * 9 + ph * 4) % 4
+      const t = b.weapon === 'obsidian' ? T.obsidianF[gf] : b.weapon === 'splinter' ? T.splinterF[gf] : T.ember
       if (s.texture !== t.tex) { s.texture = t.tex; s.anchor.set(t.ax, t.ay) }
       s.tint = 0xffffff
       s.position.set(b.x, b.y)

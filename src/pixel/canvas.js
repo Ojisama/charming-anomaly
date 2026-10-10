@@ -27,6 +27,9 @@ export const PAL = {
   ash: '#6a6470', ashHi: '#8e8898',
   // obsidian
   glass0: '#221a3c', glass1: '#3c3466', glass2: '#625a9c', glassHi: '#a89ce8',
+  // a facet of glass throwing the light straight back: near-white, so the screen pass keeps it lit
+  // (it never blooms: only heat does)
+  glassSpec: '#eef2ff',
   // cinder beetle: bronze
   bt0: '#5a4030', bt1: '#8a6040', bt2: '#c0a070',
   // salamander: black with yellow blotches

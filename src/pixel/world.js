@@ -248,14 +248,24 @@ export function paintPuddle(pc, v, stage = 0) {
 
 // ---- shots, lobs and sparks -----------------------------------------------------------------------
 export const SHOT_PAINTERS = {
-  // a dagger of black glass, its upper edge catching light
-  obsidian: [13, 7, (pc) => {
+  // a dagger of black glass, dark at heart, its ridge a hard bright edge. f = 0..3 is the shard
+  // turning on its long axis as it flies: the glint runs down the ridge from butt to point, and on
+  // f = 2 the whole upper facet throws the light back at once
+  obsidian: [13, 7, (pc, f = 0) => {
     pc.tri(0, 3.5, 12, 1.5, 12, 5.5, P.glass1)
-    pc.tri(2, 3.5, 12, 1.5, 12, 3.5, P.glass2)
-    pc.line(5, 2.6, 12, 2, P.glassHi)
+    pc.tri(3, 4.2, 12, 4, 12, 5.5, P.glass0)
+    pc.tri(2, 3.5, 12, 1.5, 12, 3.5, f === 2 ? P.glassHi : P.glass2)
+    pc.line(3, 3, 12, 2, f === 2 ? P.white : P.glassSpec)
+    if (f !== 2) { const gx = [5, 8, 0, 11][f]; pc.set(gx, gx < 7 ? 3 : 2, P.white); pc.set(gx + 1, 2, P.white) }
     pc.outline()
   }],
-  splinter: [7, 4, (pc) => { pc.rect(0, 1, 5, 2, P.glass2); pc.line(1, 1, 5, 1, P.glassHi); pc.outline() }],
+  // a kill's splinter: a sliver of the same glass, one bright edge, a glint that comes and goes
+  splinter: [7, 4, (pc, f = 0) => {
+    pc.rect(0, 1, 5, 2, P.glass1); pc.rect(1, 2, 4, 1, P.glass0)
+    pc.line(0, 1, 5, 1, f === 2 ? P.white : P.glassSpec)
+    if (f === 1 || f === 3) pc.set(f === 1 ? 1 : 4, 1, P.white)
+    pc.outline()
+  }],
   ember: [5, 5, (pc) => { pc.rect(1, 1, 3, 3, P.lava3); pc.set(2, 2, P.lava5); pc.outline(P.lava0) }],
   // a ladle-load of slag in flight: still molten, it greys as it lands
   slag: [9, 9, (pc) => {
