@@ -2036,7 +2036,7 @@ const CONFIG = {
   "Obsidian Tortoise": "Tortue d'obsidienne",
   "Fire Drake": "Dragon de feu",
   "Lava": "Lave",
-  "Slag Ladle": "Louche de scories",
+  "Slag Ladle": "Goutte de lave",
   "Tosses molten slag on the nearest foe. It leaves a burning puddle.": "Verse des scories en fusion sur l'ennemi le plus proche. Elles laissent une flaque brûlante.",
   "Obsidian Shards": "Éclats d'obsidienne",
   "Flicks volcanic glass at the nearest foe. A kill bursts it into splinters.": "Projette du verre volcanique sur l'ennemi le plus proche. S'il tue, il éclate en esquilles.",

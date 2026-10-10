@@ -1079,7 +1079,7 @@ body {
 }
 .lv-card-icon { font-size: 1.9rem; line-height: 1; }
 .lv-card-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-.lv-card-title { display: flex; align-items: center; gap: 8px; font-weight: 800; font-size: 1.02rem; }
+.lv-card-title { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; font-weight: 800; font-size: 1.02rem; }
 .lv-card-desc { font-size: 0.82rem; font-weight: 600; color: var(--ink-soft); }
 /* The figure an element pick replaces (see elDescHtml). Quieter than the new one so the eye lands
    on what you WILL have, with the old value there only as the reference point. */
