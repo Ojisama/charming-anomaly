@@ -1143,6 +1143,28 @@ void main(void) {
 }
 `
 
+// Cut a layer at the cavern wall, per pixel: uInside 1 keeps only what lies over a cavern, 0 only
+// what lies outside (the creatures' pearl sheen and their dark outline, so a body half in a cavern
+// is half pearl).
+export const CAVERN_CUT_FRAG = `precision highp float;
+in vec2 vTextureCoord;
+out vec4 finalColor;
+uniform sampler2D uTexture;
+uniform highp vec4 uInputSize;
+uniform highp vec4 uOutputFrame;
+uniform vec2 uCam;
+uniform float uZoom;
+uniform float uInside;
+${CAVERN_GLSL}
+void main(void) {
+  vec2 frameUV = vTextureCoord * uInputSize.xy / uOutputFrame.zw;
+  vec2 sp = frameUV * uOutputFrame.zw + uOutputFrame.xy;
+  vec2 wp = sp / uZoom - uCam;
+  float wC = 1.0 - smoothstep(0.98, 1.0, cavern(wp).x);
+  finalColor = texture(uTexture, vTextureCoord) * mix(1.0 - wC, wC, uInside);
+}
+`
+
 // The cavern field on the CPU, line for line the GLSL cavern() above (render.js samples it at each
 // creature's position so the creature can react to the cavern it stands in). Returns the distance in
 // chamber radii: < 1 inside.
