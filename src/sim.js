@@ -17524,7 +17524,11 @@ function stepCrust(run, dt) {
     run._lavaPT = (run._lavaPT ?? 0) - dt
     if (run._lavaPT <= 0) {
       run._lavaPT += C.tick
-      if (hurtPlayer(run, C.playerBurn * C.tick * hot * run.mods.enemyDmgMul, true, 'lava')) return true
+      // Firefighter Boots scale the tick; the fraction is banked so a small resist is never rounded away
+      run._lavaCarry = (run._lavaCarry ?? 0) + C.playerBurn * C.tick * hot * run.mods.enemyDmgMul * (1 - resistFrac(run.passives.fireBoots))
+      const whole = Math.floor(run._lavaCarry)
+      run._lavaCarry -= whole
+      if (whole > 0 && hurtPlayer(run, whole, true, 'lava')) return true
     }
   } else run._lavaPT = 0
   return false
