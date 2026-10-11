@@ -2906,12 +2906,13 @@ export const WEAPONS = {
     name: 'Shovel',
     desc: 'Scoops a wide arc of dirt at the nearest foe, shoving it back.',
     icon: '⛏️', rarity: 'normal',
+    // balance_decision : owner: reach -30% on every level 2026-10-11
     levels: [
-      { dmg: 16, interval: 0.80, radius: 150, arc: 2.0, knockback: 80 },
-      { dmg: 19, interval: 0.75, radius: 158, arc: 2.1, knockback: 88 },
-      { dmg: 24, interval: 0.70, radius: 168, arc: 2.2, knockback: 96 },
-      { dmg: 30, interval: 0.64, radius: 180, arc: 2.35, knockback: 105 },
-      { dmg: 38, interval: 0.58, radius: 195, arc: 2.5, knockback: 115 },
+      { dmg: 16, interval: 0.80, radius: 105, arc: 2.0, knockback: 80 },
+      { dmg: 19, interval: 0.75, radius: 111, arc: 2.1, knockback: 88 },
+      { dmg: 24, interval: 0.70, radius: 118, arc: 2.2, knockback: 96 },
+      { dmg: 30, interval: 0.64, radius: 126, arc: 2.35, knockback: 105 },
+      { dmg: 38, interval: 0.58, radius: 137, arc: 2.5, knockback: 115 },
     ],
   },
   // Pebble Sling: a handful of small stones flung at the nearest body (run.bullets, weapon 'pebble').
