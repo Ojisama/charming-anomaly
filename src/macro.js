@@ -2773,6 +2773,102 @@ export function paintVenomDrop() {
     ctx.restore()
   }, { shadowBlur: 0.3 }).body
 }
+// ==== THE ELITES, PHOTOGRAPHED ===================================================================
+// Topsoil's elite affixes (render.js topsoilEliteFx): what the creature wears or carries, never an
+// icon. Each bake is in world px at scale 1 (bakeLocal at S texels per px).
+const PLATE_SOILS = [0x6a6258, 0x7a7064, 0x5a544c, 0x8a8070, 0x6e6052]
+// Shielded: a carapace of flat pebbles stuck over its back, two rings round a crown stone.
+export function paintPebblePlates(seed) {
+  return bakeLocal(16, 3, (ctx) => {
+    const rnd = rng(901 + seed * 7), list = []
+    list.push([0, 0, 3.6])
+    for (let i = 0; i < 7; i++) { const a = (i / 7) * TAU + rnd() * 0.4, d = 6.2 + rnd() * 1.2; list.push([Math.cos(a) * d, Math.sin(a) * d * 0.85, 2.9 + rnd() * 0.9]) }
+    for (let i = 0; i < 9; i++) { const a = (i / 9) * TAU + 0.3 + rnd() * 0.3, d = 10.5 + rnd() * 1.2; list.push([Math.cos(a) * d, Math.sin(a) * d * 0.8, 2.3 + rnd() * 0.8]) }
+    list.sort((p, q) => q[2] - p[2] || p[1] - q[1])
+    for (const [x, y, r] of list.reverse()) {
+      const rr = rng(rnd() * 1e6)
+      lump(ctx, blobPts(rr, x, y, r, 10, 0.3, 0.72, rr() * TAU), x, y, r, PLATE_SOILS[Math.floor(rr() * 5)], { shadow: 0.85, lit: 0.55, gloss: 0.35 })
+    }
+  }, { shadowBlur: 0.6 }).body
+}
+// Volatile: cracks glowing white-hot through its shell, for an additive blend over the body.
+export function paintGlowCracks(seed) {
+  return bakeLocal(16, 3, (ctx) => {
+    const rnd = rng(611 + seed * 3)
+    const paths = []
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * TAU + rnd() * 0.6
+      paths.push(walkPts(rnd, Math.cos(a) * 2.5, Math.sin(a) * 2.5, a, 9 + rnd() * 5, 8, 0.9, 0.35, 0.1, a))
+    }
+    const stroke = (pts) => { ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]); for (const p of pts) ctx.lineTo(p[0], p[1]) }
+    ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.lineCap = 'round'; ctx.lineJoin = 'round'
+    for (const p of paths) withBlur(ctx, 1.2, 'rgba(255,80,10,0.8)', () => { stroke(p); ctx.lineWidth = 0.9; ctx.stroke() })
+    for (const p of paths) { stroke(p); ctx.lineWidth = 0.45; ctx.strokeStyle = 'rgba(255,200,90,0.95)'; ctx.stroke() }
+    for (const p of paths) { stroke(p.slice(0, 4)); ctx.lineWidth = 0.35; ctx.strokeStyle = 'rgba(255,250,220,1)'; ctx.stroke() }
+    ctx.restore()
+  }, { shadowBlur: 0.6 }).body
+}
+// Splitter, carried: an egg sac in a wisp of silk, the eggs pale and translucent.
+export function paintEggSac() {
+  return bakeLocal(9, 4, (ctx) => {
+    const rnd = rng(17)
+    softDot(ctx, -LX, -LY, 5.5, 1.4, 'rgba(0,0,0,0.5)')
+    softDot(ctx, 0, 0, 5.8, 1.2, 'rgba(236,228,214,0.45)')
+    const eggs = [[0, 0]]; for (let i = 0; i < 6; i++) { const a = (i / 6) * TAU + rnd() * 0.3; eggs.push([Math.cos(a) * 2.9, Math.sin(a) * 2.9]) }
+    for (const [x, y] of eggs) {
+      const r = 1.5 + rnd() * 0.3
+      const g = ctx.createRadialGradient(x + LX * r * 0.4, y + LY * r * 0.4, 0, x, y, r)
+      g.addColorStop(0, 'rgba(255,250,236,0.98)'); g.addColorStop(0.7, 'rgba(226,212,184,0.95)'); g.addColorStop(1, 'rgba(150,130,100,0.95)')
+      ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fillStyle = g; ctx.fill()
+      softDot(ctx, x + LX * r * 0.45, y + LY * r * 0.45, r * 0.2, 0.15, 'rgba(255,255,255,0.95)')
+    }
+    ctx.save(); ctx.strokeStyle = 'rgba(245,240,230,0.5)'; ctx.lineWidth = 0.18
+    for (let i = 0; i < 14; i++) { const a = rnd() * TAU, b = a + 1 + rnd(); ctx.beginPath(); ctx.moveTo(Math.cos(a) * 5, Math.sin(a) * 5); ctx.quadraticCurveTo(0, 0, Math.cos(b) * 5, Math.sin(b) * 5); ctx.stroke() }
+    ctx.restore()
+  }, { shadowBlur: 0.4 }).body
+}
+// Gilded, carried: a gold nugget, lumpy, with a hard glint.
+export function paintNugget() {
+  return bakeLocal(8, 4, (ctx) => {
+    const rnd = rng(41), r = 4.4, pts = blobPts(rnd, 0, 0, r, 12, 0.4, 0.82)
+    lump(ctx, pts, 0, 0, r, 0xc89a30, { shadow: 0.85, lit: 0.8, dark: 0.55, gloss: 0.9 })
+    ctx.save(); ctx.globalCompositeOperation = 'lighter'
+    softDot(ctx, LX * r * 0.35, LY * r * 0.35, r * 0.4, 0.8, 'rgba(255,220,120,0.55)')
+    softDot(ctx, LX * r * 0.4, LY * r * 0.4, r * 0.12, 0.15, 'rgba(255,255,240,1)')
+    ctx.restore()
+  }, { shadowBlur: 0.4 }).body
+}
+// Anchored, carried: the stone it drags on a root strand (the strand is drawn live).
+export function paintDragStone() {
+  return bakeLocal(8, 4, (ctx) => {
+    const rnd = rng(59), r = 4.6
+    lump(ctx, blobPts(rnd, 0, 0, r, 11, 0.3, 0.8), 0, 0, r, 0x6e665c, { shadow: 0.9, lit: 0.5, gloss: 0.25 })
+  }, { shadowBlur: 0.5 }).body
+}
+// Cheerleader: a ripple of disturbed dust running out through the soil, scaled to its radius by
+// render.js (baked at r = 60).
+export function paintDustRing() {
+  return bakeLocal(66, 1, (ctx) => {
+    const rnd = rng(71)
+    ctx.save()
+    withBlur(ctx, 2.2, 'rgba(8,4,2,0.6)', () => { ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(0, 0, 56, 0, TAU); ctx.stroke() })
+    withBlur(ctx, 1.4, 'rgba(196,156,110,0.6)', () => { ctx.lineWidth = 2.4; ctx.beginPath(); ctx.arc(0, 0, 60, 0, TAU); ctx.stroke() })
+    ctx.restore()
+    for (let i = 0; i < 160; i++) {
+      const a = rnd() * TAU, d = 60 + (rnd() - 0.3) * 4, r = 0.7 + rnd() * 1.1
+      softDot(ctx, Math.cos(a) * d, Math.sin(a) * d, r, 0.35, rnd() < 0.6 ? 'rgba(186,146,104,0.85)' : 'rgba(50,32,18,0.8)')
+    }
+  }, { shadowBlur: 0.3 }).body
+}
+// Frenzied: a fleck of froth.
+export function paintBubble() {
+  return bakeLocal(3, 6, (ctx) => {
+    ctx.beginPath(); ctx.arc(0, 0, 1.6, 0, TAU); ctx.fillStyle = 'rgba(240,236,228,0.35)'; ctx.fill()
+    ctx.strokeStyle = 'rgba(255,255,255,0.75)'; ctx.lineWidth = 0.25; ctx.stroke()
+    softDot(ctx, LX * 0.7, LY * 0.7, 0.35, 0.1, 'rgba(255,255,255,1)')
+  }, { shadowBlur: 0.2 }).body
+}
+
 // Where a drop fell: the soil darkened wet, a faint oily green at the stain's edge.
 export function paintVenomStain(seed) {
   return bakeLocal(9, 3, (ctx) => {
