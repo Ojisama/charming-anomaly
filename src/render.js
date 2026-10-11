@@ -12973,6 +12973,45 @@ export function createRenderer(app) {
     app.stage.filterArea = app.screen
     app.stage.filters = [pixelRig.filter]
   }
+  function bakeMacroTile(kind) {
+    if (!macroTiles[kind]) {
+      const c = kind === 'geode' ? MACRO.paintGeodeTile() : MACRO.paintTopsoilTile()
+      macroTiles[kind] = macroCanvasTex(c, MACRO.TILE_RES)
+      macroTiles[kind].source.style.addressMode = 'repeat'
+    }
+    return macroTiles[kind]
+  }
+  function bakeMacroPickups() {
+    if (macroPickups) return
+    const P = MACRO.paintPickups()
+    const lift = (c, k) => {
+      if (k === 1) return c
+      const x = c.getContext('2d'), im = x.getImageData(0, 0, c.width, c.height), d = im.data
+      for (let i = 0; i < d.length; i += 4) { d[i] = Math.min(255, d[i] * k); d[i + 1] = Math.min(255, d[i + 1] * k); d[i + 2] = Math.min(255, d[i + 2] * k) }
+      x.putImageData(im, 0, 0)
+      return c
+    }
+    const tex = (k) => (b) => ({ tex: macroCanvasTex(lift(b.body, k), MACRO.PK_S), ax: b.ax, ay: b.ay })
+    macroPickups = { gem: P.gem.map((tier) => tier.map((sh) => sh.map(tex(PICK_LIFT[0])))), coin: P.coin.map((sh) => sh.map(tex(PICK_LIFT[1]))) }
+  }
+  // A run's photo bakes take seconds all together (Topsoil: ~2 s on a laptop). main.js calls this
+  // when the brief opens, so they are made one at a time, between frames, while the player reads it:
+  // each is cached, so reset() then finds them done, and bakes whatever is still missing itself.
+  let prewarmQ = []
+  function prewarm(chapterId) {
+    const ch = CHAPTERS[chapterId], kind = ch?.render?.macro?.floor
+    if (!ch) return
+    const q = []
+    if (kind) q.push(() => bakeMacroTile(kind), () => macroPlayer())
+    if (kind === 'topsoil') q.push(bakeMacroPickups, bakeShovel)
+    if (ch.signature?.caveIns || ch.weapons?.includes('furrow')) q.push(bakePits)
+    if (ch.weapons?.includes('furrow')) q.push(bakeFurrow)
+    if (ch.weapons?.includes('rootSnare')) q.push(bakeSnares)
+    const idle = !prewarmQ.length
+    prewarmQ = q
+    const next = () => { const job = prewarmQ.shift(); if (!job) return; job(); setTimeout(next, 30) }
+    if (idle) setTimeout(next, 30)
+  }
   function setMacro(run) {
     const ch = run && CHAPTERS[run.chapter]
     macroDustMul = 1
@@ -12997,24 +13036,8 @@ export function createRenderer(app) {
       return
     }
     const kind = macroLook.floor
-    if (!macroTiles[kind]) {
-      const c = kind === 'geode' ? MACRO.paintGeodeTile() : MACRO.paintTopsoilTile()
-      macroTiles[kind] = macroCanvasTex(c, MACRO.TILE_RES)
-      macroTiles[kind].source.style.addressMode = 'repeat'
-    }
-    macroFloor.texture = macroTiles[kind]
-    if (!macroPickups && kind === 'topsoil') {
-      const P = MACRO.paintPickups()
-      const lift = (c, k) => {
-        if (k === 1) return c
-        const x = c.getContext('2d'), im = x.getImageData(0, 0, c.width, c.height), d = im.data
-        for (let i = 0; i < d.length; i += 4) { d[i] = Math.min(255, d[i] * k); d[i + 1] = Math.min(255, d[i + 1] * k); d[i + 2] = Math.min(255, d[i + 2] * k) }
-        x.putImageData(im, 0, 0)
-        return c
-      }
-      const tex = (k) => (b) => ({ tex: macroCanvasTex(lift(b.body, k), MACRO.PK_S), ax: b.ax, ay: b.ay })
-      macroPickups = { gem: P.gem.map((tier) => tier.map((sh) => sh.map(tex(PICK_LIFT[0])))), coin: P.coin.map((sh) => sh.map(tex(PICK_LIFT[1]))) }
-    }
+    macroFloor.texture = bakeMacroTile(kind)
+    if (kind === 'topsoil') bakeMacroPickups()
     macroFloor.visible = true
     blotchLayer.visible = false
     buildMacroAir(kind)
@@ -33336,5 +33359,5 @@ void main() {
     return out
   }
 
-  return { reset, sync, idle, ready, setMapMode, castThumbs, hazardThumbs, playerScreen }
+  return { reset, sync, idle, ready, setMapMode, castThumbs, hazardThumbs, playerScreen, prewarm }
 }
