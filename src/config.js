@@ -2853,19 +2853,18 @@ export const WEAPONS = {
       { dmg: 38, interval: 0.58, radius: 195, arc: 2.5, knockback: 115 },
     ],
   },
-  // Pebble Sling: fast stones at the nearest bodies (run.bullets, weapon 'pebble').
-  // balance_decision : a spray of piercing pebbles, L1 was half the pool 2026-10-10
-  //  - do not tune dmg: each pebble already kills; count/pierce/rate are the levers.
+  // Pebble Sling: a handful of small stones flung at the nearest body (run.bullets, weapon 'pebble').
+  // balance_decision : owner: half the rate, 5 small 2-3 dmg stones 2026-10-11
   pebbleSling: {
     name: 'Pebble Sling',
-    desc: 'Slings fast pebbles at the nearest foes.',
+    desc: 'Flings a handful of small stones at the nearest foe.',
     icon: '🎯', rarity: 'normal',
     levels: [
-      { dmg: 9, interval: 0.45, count: 3, speed: 560, pierce: 3 },
-      { dmg: 11, interval: 0.44, count: 3, speed: 570, pierce: 3 },
-      { dmg: 14, interval: 0.42, count: 3, speed: 590, pierce: 3 },
-      { dmg: 17, interval: 0.40, count: 4, speed: 610, pierce: 3 },
-      { dmg: 21, interval: 0.38, count: 4, speed: 640, pierce: 4 },
+      { dmg: 2, interval: 0.9, count: 5, speed: 560, pierce: 3 },
+      { dmg: 2, interval: 0.88, count: 6, speed: 570, pierce: 3 },
+      { dmg: 3, interval: 0.84, count: 6, speed: 590, pierce: 3 },
+      { dmg: 3, interval: 0.8, count: 7, speed: 610, pierce: 3 },
+      { dmg: 3, interval: 0.76, count: 7, speed: 640, pierce: 4 },
     ],
   },
   // Root Snare: roots burst up under a foe and hold the patch (run.snares): slowed, ground down.
@@ -3429,6 +3428,12 @@ export const REBOUND_MAX_PICKS = 2
 // exists as part of a template string reads to it as a translation nobody can produce. Its own
 // comment offers an exemption list for that case; a literal costs less and keeps the sweep honest.
 const PRISM_DESC = 'sub-beams where the beam lands'
+// Pebble Sling's Wide Throw card phrases, literals for the same reason
+const WIDE_THROW_DESC = 'throw spread'
+const WIDE_THROW_DESC_1 = 'throw spread, and 1 more pebble'
+const WIDE_THROW_DESC_3 = 'throw spread, and 3 more pebbles'
+// the stones a banked Wide Throw adds: its legendary card +1, its mythic card +3
+export const pebbleSpreadStones = (b) => (b >= 1.5 ? 3 : b >= 1 ? 1 : 0)
 const PRISM_DESC_DEEP = 'sub-beams where the beam lands, each splitting again'
 // ICON CONVENTION, and what the icon audit deliberately did NOT fix.
 // Mod icons are a vocabulary, not decoration: 📏 range, ⏩ rate, 🪭 cone width, 📡 radius,
@@ -4323,9 +4328,14 @@ export const WEAPON_MODS = {
   },
   pebbleSling: {
     flint:       { name: 'Flint',        desc: 'pebble damage', icon: '💥', base: 0.30, kind: 'pct' },
-    handful:     { name: 'Handful',      desc: 'extra pebble(s) per throw', icon: '🔷', kind: 'tier' },
+    handful:     { name: 'Handful',      desc: 'extra pebble(s) per throw', icon: '🔷', kind: 'tier', values: { normal: 1, rare: 2, epic: 3, legendary: 4, mythic: 5 } },
     whirl:       { name: 'Whirl',        desc: 'throw rate', icon: '⏩', base: 0.25, kind: 'pct' },
     sharpStone:  { name: 'Sharp Stone',  desc: 'pebble pierce', icon: '🎯', base: 1, kind: 'flat', maxPicks: PIERCE_MAX_PICKS },
+    // the rarity you roll IS the card (one pick): a wider cone spreads the hits thinner, so the top
+    // two tiers throw extra stones too (pebbleSpreadStones)
+    wideThrow:   { name: 'Wide Throw',   desc: WIDE_THROW_DESC, icon: '↔️', kind: 'pct', maxPicks: 1,
+                   values: { normal: 0.4, rare: 0.6, epic: 0.8, legendary: 1, mythic: 1.5 },
+                   descFor: (b) => `+${Math.round(b * 100)}% ${[WIDE_THROW_DESC, WIDE_THROW_DESC_1, WIDE_THROW_DESC_3][[0, 1, 3].indexOf(pebbleSpreadStones(b))]}` },
   },
   rootSnare: {
     thorns:      { name: 'Thorns',       desc: 'root damage per tick', icon: '💥', base: 0.30, kind: 'pct' },
@@ -6497,9 +6507,10 @@ export const ALL_CHAPTER_IDS = Object.values(BOOKS).flatMap((b) => b.chapters)
 export const HUMIDITY_DMG_FLOOR = 0.7
 // ---- Book 3, Burrow: weapon geometry (balance lives in WEAPONS[].levels) ---------------------------
 export const SHOVEL_LIFE = 0.2           // s, how long the scoop's sector takes to sweep out to its radius
-export const PEBBLE_FAN = 0.13           // rad between pebbles of one throw
+export const PEBBLE_CONE = 0.35          // rad, the whole width a handful scatters over (Wide Throw widens it)
+export const PEBBLE_SPEED_JITTER = 0.18  // each stone's speed varies +- this fraction, so a throw is a cloud
 export const PEBBLE_LIFE = 0.85          // s of flight
-export const PEBBLE_R = 7                // px hit radius
+export const PEBBLE_R = 5                // px hit radius
 export const ROOT_SNARE_TICK = 0.5       // s between root damage ticks
 export const ROOT_SNARE_SLOW = 0.72      // fraction of speed a held body loses
 export const ROOT_SNARE_HOLD_T = 0.25    // s a body stays held after it leaves the patch

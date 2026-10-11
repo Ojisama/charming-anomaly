@@ -32312,7 +32312,7 @@ void main() {
       if (s.texture !== T.pebbleShot.tex) { s.texture = T.pebbleShot.tex; s.anchor.set(T.pebbleShot.ax, T.pebbleShot.ay) }
       s.tint = 0xffffff
       s.rotation = (b.x + b.y) * 0.05
-      s.scale.set(0.9)
+      s.scale.set(0.7)   // one small stone of a handful
       return
     }
     if (b.weapon === 'prism') {
