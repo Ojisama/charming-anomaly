@@ -9467,7 +9467,7 @@ CHAPTERS.geode = {
     // balance_decision : crystal splits deal half damage [2026-10-11]
     // balance_decision : bounces steer to a nearby crystal first [2026-10-11]
     //  - hop: face-to-face px to the next crystal; hopCrowdR: bodies counted round it to choose
-    bounce: { refill: true, max: 3, dmgMul: 1.25, splitDmgMul: 0.5, life: 1.1, steer: 560, split: 2, splitFan: 0.45, chimeR: 90, chimeDmg: 0.8, chimeKb: 40, chimeCd: 0.25, chimeVac: 200, hop: 250, hopCrowdR: 160 },
+    bounce: { refill: true, max: 3, dmgMul: 1.25, splitDmgMul: 0.5, life: 1.1, steer: 560, split: 2, splitFan: 0.45, chimeR: 90, chimeDmg: 0.8, chimeKb: 40, chimeCd: 0.25, chimeVac: 200, hop: 400, hopCrowdR: 160 },
     // Echo Pulse: a crystal the ring reaches rings back at this fraction of its radius and damage.
     resonance: { radiusMul: 0.6, dmgMul: 0.6 },
   },

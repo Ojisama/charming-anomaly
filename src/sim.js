@@ -16600,10 +16600,20 @@ function stepCrystalShot(run, b, spec) {
   // BOUNCES ARE FREE (B.refill): a bounce gives the shard back the pierce it was thrown with, so
   // the bodies it went through on the way in do not stop it chaining off the next crystal.
   if (B.refill && b._pierce0 != null) b.pierce = Math.max(b.pierce, b._pierce0)
-  // SPECTRUM: the body the bounce turned the shard onto takes the next colour.
-  if (best && pm.spectrum > 0 && Math.random() < CRYSTAL_CARDS.spectrum.chance) {
+  // SPECTRUM: every bounce colours a body: the one the bounce turned the shard onto, else (a hop to
+  // the next crystal, or no body to turn onto) the body nearest this crystal within its chime reach.
+  let mark = best
+  if (!mark && pm.spectrum > 0) {
+    let md = Infinity
+    for (const e of enemiesNear(run, o.x, o.y, o.r + B.chimeR)) {
+      if (e._dead || isAlly(e) || e.burrowed) continue
+      const d = Math.hypot(e.x - o.x, e.y - o.y)
+      if (d <= o.r + B.chimeR + e.radius && d < md) { md = d; mark = e }
+    }
+  }
+  if (mark && pm.spectrum > 0 && Math.random() < CRYSTAL_CARDS.spectrum.chance) {
     b._specN = (b._specN ?? 0) + 1
-    spectrumMark(run, best, b._specN, b.dmg)
+    spectrumMark(run, mark, b._specN, b.dmg)
   }
   // THE PRISM: the first `split` bounces of a shot also split it, one sibling fanned off the new
   // heading. Queued, not pushed: stepBullets is mid-walk over run.bullets (see flushCrystalSplits).

@@ -39031,6 +39031,27 @@ function testGeodeCrystals() {
     assert.ok(fire.ignite > 0, `run GC.c: a shard's first Spectrum mark must set its target burning: ${JSON.stringify(fire)}`)
     assert.ok(cold.chill > 0 && cold.ignite === 0, `run GC.c: a shard's second mark must chill (not burn) its target: ${JSON.stringify(cold)}`)
     notes.push(`Spectrum ignite ${fire.ignite.toFixed(1)}s, chill ${cold.chill.toFixed(2)}, venom ${ven.venom.toFixed(2)}`)
+    // (c2) a HOP is a bounce too: a shard that bounces off crystal 1 on to crystal 2 lights the
+    // body standing by crystal 1 (chance pinned to 1), before it ever reaches crystal 2.
+    const S = CRYSTAL_CARDS.spectrum, savedChance = S.chance
+    S.chance = 1
+    try {
+      const hopMark = (spec) => {
+        const r = boot(41014, { mods: { prismShard: { spectrum: spec } } })
+        const c1 = crystal(r, P(r).x - 200, P(r).y - 400), c2 = crystal(r, c1.x + 250, c1.y)
+        const e = makeStatusEnemy(r, { x: c1.x, y: c1.y + c1.r + 50, hp: 1e9, speed: 0 })
+        r.enemies.push(e)
+        const s = shardAt(c1, Math.PI)
+        r.bullets.push(s)
+        let lit = false
+        for (let i = 0; i < 60 && s._fromCrystal !== c2; i++) { steps(r, 1); if (s._fromCrystal === c1 && e.ignite > 0) lit = true }
+        return { lit, arrived: s._fromCrystal === c2 }
+      }
+      const noSpec = hopMark(0), spec = hopMark(1)
+      assert.ok(spec.arrived && spec.lit, `run GC.c2: a hop bounce must mark the body by the crystal it left: ${JSON.stringify(spec)}`)
+      assert.ok(!noSpec.lit, `run GC.c2: without Spectrum the body was lit: ${JSON.stringify(noSpec)}`)
+      notes.push('Spectrum marks on a hop')
+    } finally { S.chance = savedChance }
   }
 
   // (d) CHARGED FACET
@@ -39225,8 +39246,8 @@ function testGeodeCrystals() {
     try {
       const r = boot(41013)
       const y = P(r).y - 400, x0 = P(r).x - 300
-      const row = [0, 1, 2].map((k) => crystal(r, x0 + k * 200, y))
-      assert.ok(200 - 80 <= B.hop && 400 - 80 > B.hop, `run GC.m: the fixture needs neighbours in hop reach and the ends out of it (hop ${B.hop})`)
+      const row = [0, 1, 2].map((k) => crystal(r, x0 + k * 250, y))
+      assert.ok(250 - 80 <= B.hop && 500 - 80 > B.hop, `run GC.m: the fixture needs neighbours in hop reach and the ends out of it (hop ${B.hop})`)
       const crowd = [-30, 0, 30].map((dx) => makeStatusEnemy(r, { x: row[0].x + dx, y: y - 160, hp: 1e9, speed: 0 }))
       r.enemies.push(...crowd)
       const s = shardAt(row[0], Math.PI, { dmg: 10, life: 1.5 })
