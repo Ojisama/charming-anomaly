@@ -1974,12 +1974,12 @@ const CONFIG = {
   "extra stone(s) per cast": "pierre(s) en plus par lancer",
   "Wide Crash": "Grand fracas",
   "Quick Drip": "Goutte à goutte",
-  // ---- The Geode: the crystal cards (DRAFT French, the owner picks the names) ----
+  // ---- The Geode: the crystal cards (names are the owner's picks, 2026-10-11) ----
   "Ricochet": "Carambolage",
   "crystal bounce(s) per shard": "rebond(s) sur cristal en plus par éclat",
   "Kaleidoscope": "Kaléidoscope",
   "After its second crystal bounce, each bounce has a {pct}% chance to split the shard again.": "Après son deuxième rebond sur un cristal, chaque rebond a {pct}% de chances de diviser encore l'éclat.",
-  "Spectrum": "Spectre",
+  "Spectrum": "Prisme irisé",
   "Each crystal bounce has a {pct}% chance to mark the shard's target with the next colour in turn: it burns, then it is chilled, then it takes venom.": "Chaque rebond sur un cristal a {pct}% de chances de marquer la cible de l'éclat de la couleur suivante : elle brûle, puis elle gèle, puis elle prend du venin.",
   "Charged Facet": "Facette chargée",
   "A crystal counts the shards it bounces. Every {hits}th sets off a big ring and a spray of shards.": "Un cristal compte les éclats qu'il renvoie. Tous les {hits}, il lâche un grand anneau et une gerbe d'éclats.",

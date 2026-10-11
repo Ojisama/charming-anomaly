@@ -38926,7 +38926,9 @@ function testBurrow() {
 // (i) Lodestone: a struck crystal drags a body toward its face and tugs you, but never while a body
 //     is at your side;
 // (j) Cracked Glass: a streamed crystal is gone after its 8th bounced shard (with a shatter of
-//     shards), and its cell grows a crystal back, somewhere else in the cell, after the regrow.
+//     shards), and its cell grows a crystal back, somewhere else in the cell, after the regrow;
+// (k) a bounce does not spend pierce: a shard on its last pierce goes through three bodies after it;
+// (l) a crystal split deals half its parent's damage (signature.bounce.splitDmgMul).
 function testGeodeCrystals() {
   const dt = 1 / 60
   const meta = () => { const m = makeMeta(); m.dev = true; return m }
@@ -39171,7 +39173,40 @@ function testGeodeCrystals() {
     assert.ok(on.back && on.moved > 1, `run GC.j: the cell must grow a crystal back elsewhere after ${G.regrow}s: ${JSON.stringify(on)}`)
     notes.push(`Cracked Glass broke on ${G.hits}, ${on.shattered} shards, regrew ${on.moved.toFixed(0)}px off`)
   }
-  console.log(`PASS run GC (The Geode's crystal cards, 10 arms): ${notes.join('; ')}`)
+  // (k) BOUNCES ARE FREE: a shard down to its last pierce bounces with the pierce it was thrown with,
+  // so it goes through three bodies lined up on its way back out (one without the refill).
+  {
+    const through = (refill) => {
+      const saved = B.refill
+      B.refill = refill
+      try {
+        const r = boot(41011)
+        const o = crystal(r, P(r).x - 600, P(r).y)
+        const line = [1, 2, 3].map((k) => makeStatusEnemy(r, { x: o.x + o.r + 40 + k * 60, y: o.y, hp: 1e9, speed: 0 }))
+        r.enemies.push(...line)
+        r.bullets.push(shardAt(o, 0, { x: o.x + o.r + 9, pierce: 1, _pierce0: 3 }))
+        steps(r, 40)
+        return line.filter((e) => e.hp < e.maxHP).length
+      } finally { B.refill = saved }
+    }
+    const off = through(false), on = through(true)
+    assert.ok(off === 1 && on === 3, `run GC.k: after a bounce a 1-pierce shard thrown with 3 hit ${on} of 3 bodies in a row (want 3), ${off} without the refill (want 1)`)
+    notes.push(`free bounce: ${off} -> ${on} bodies`)
+  }
+  // (l) A CRYSTAL SPLIT DEALS HALF: the sibling a bounce splits off carries splitDmgMul of the
+  // parent's damage at that moment, and the parent keeps its whole bounce-boosted damage.
+  {
+    const r = boot(41012)
+    const o = crystal(r, P(r).x, P(r).y - 400)
+    r.bullets.push(shardAt(o, 0, { dmg: 40 }))
+    steps(r, 1)
+    const parent = r.bullets.find((b) => b.dmg === 40 * B.dmgMul)
+    const sib = r.bullets.find((b) => b !== parent)
+    assert.ok(parent && sib && Math.abs(sib.dmg - parent.dmg * B.splitDmgMul) < 1e-9 && B.splitDmgMul === 0.5,
+      `run GC.l: a split must deal half its parent's damage: ${JSON.stringify(r.bullets.map((b) => b.dmg))}`)
+    notes.push(`split ${sib.dmg} vs parent ${parent.dmg}`)
+  }
+  console.log(`PASS run GC (The Geode's crystal cards, 10 cards + free bounces + half splits): ${notes.join('; ')}`)
 }
 
 // ---- run MG: Book 3, The Mine — the glyph tells (source text: render.js and ascii.js are not importable)

@@ -16575,6 +16575,9 @@ function stepCrystalShot(run, b, spec) {
   b.dmg *= B.dmgMul
   b.life = Math.max(b.life, B.life)
   b.hitIds.clear()
+  // BOUNCES ARE FREE (B.refill): a bounce gives the shard back the pierce it was thrown with, so
+  // the bodies it went through on the way in do not stop it chaining off the next crystal.
+  if (B.refill && b._pierce0 != null) b.pierce = Math.max(b.pierce, b._pierce0)
   // SPECTRUM: the body the bounce turned the shard onto takes the next colour.
   if (best && pm.spectrum > 0 && Math.random() < CRYSTAL_CARDS.spectrum.chance) {
     b._specN = (b._specN ?? 0) + 1
@@ -16595,9 +16598,9 @@ function stepCrystalShot(run, b, spec) {
   if (split) {
     const a = Math.atan2(b.vy, b.vx) + (b._bounces % 2 ? 1 : -1) * B.splitFan
     ;(run._crystalSplits ??= []).push({
-      x: b.x, y: b.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, dmg: b.dmg, pierce: Math.max(1, b.pierce),
+      x: b.x, y: b.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, dmg: b.dmg * (B.splitDmgMul ?? 1), pierce: Math.max(1, b.pierce),
       life: b.life, r: b.r, speed: b.speed, hitIds: new Set(), _shard: true, _splitDone: true, _chainsLeft: 0,
-      weapon: b.weapon, _bounces: b._bounces, _fam: b._fam,
+      weapon: b.weapon, _bounces: b._bounces, _fam: b._fam, _pierce0: b._pierce0,
     })
   }
   run.events.push({ type: 'crystalBounce', x: b.x, y: b.y, n: b._bounces })
@@ -16768,7 +16771,7 @@ function fireVolley(run, stats, weapon, fan, life, r) {
     const a = base + (i - (count - 1) / 2) * fan
     run.bullets.push({
       x: p.x, y: p.y, vx: Math.cos(a) * stats.speed, vy: Math.sin(a) * stats.speed,
-      dmg: stats.dmg, pierce: stats.pierce, life, r, speed: stats.speed,
+      dmg: stats.dmg, pierce: stats.pierce, _pierce0: stats.pierce, life, r, speed: stats.speed,
       hitIds: new Set(), _shard: true, _splitDone: true, _chainsLeft: 0, weapon,
     })
   }

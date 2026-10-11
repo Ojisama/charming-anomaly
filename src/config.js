@@ -9460,7 +9460,10 @@ CHAPTERS.geode = {
     type: 'crystals',
     // The bounce switch (tests turn it off with bounce = false). Off, a crystal simply stops a shot.
     // balance_decision : bounce +25% dmg, splits twice, 3 per shot 2026-10-03
-    bounce: { max: 3, dmgMul: 1.25, life: 1.1, steer: 560, split: 2, splitFan: 0.45, chimeR: 90, chimeDmg: 0.8, chimeKb: 40, chimeCd: 0.25, chimeVac: 200 },
+    // balance_decision : bounces no longer spend pierce [2026-10-11]
+    //  - refill: a bounce restores the pierce the shard was thrown with (fireVolley's _pierce0)
+    // balance_decision : crystal splits deal half damage [2026-10-11]
+    bounce: { refill: true, max: 3, dmgMul: 1.25, splitDmgMul: 0.5, life: 1.1, steer: 560, split: 2, splitFan: 0.45, chimeR: 90, chimeDmg: 0.8, chimeKb: 40, chimeCd: 0.25, chimeVac: 200 },
     // Echo Pulse: a crystal the ring reaches rings back at this fraction of its radius and damage.
     resonance: { radiusMul: 0.6, dmgMul: 0.6 },
   },

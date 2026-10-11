@@ -2152,7 +2152,8 @@ function generateWells(sig) {
  *     running until), _rungAt (last ring, for Fault Line). Run: _crystalRegrow (Map cell ->
  *     time a broken cell may re-roll), _crystalRegrown (Set, re-rolled cells render grows in),
  *     _crystalGen (Map cell -> times it broke; salts where it grows back), _regrowScanAt,
- *     _crystalSeq, _lastRung (Fault Line). Bullet: _fam (Kaleidoscope's family {n}), _specN
+ *     _crystalSeq, _lastRung (Fault Line). Bullet: _pierce0 (the pierce a prism shard was thrown
+ *     with; a bounce restores it, signature.bounce.refill), _fam (Kaleidoscope's family {n}), _specN
  *     (Spectrum marks made), _spent (a burst shard: stops on a crystal, never bounces). Enemy:
  *     _specChill / _specVenom (Spectrum, run.time until; folded into the `chill` / `venom`
  *     contract fields by elSlow / elVenomAmp).
