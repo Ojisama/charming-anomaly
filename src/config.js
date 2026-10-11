@@ -9445,8 +9445,9 @@ CHAPTERS.topsoil = {
 }
 // THE GEODE: the book's second chapter, a little richer. Crystal pillars stand on the cave floor
 // (run.obstacles, kind 'crystal') and every player shot that meets one BOUNCES (signature.bounce):
-// reflected off the face and steered toward the nearest body on the open side, a little harder each
-// time. Standing beside a crystal with the crowd around you turns a starter into a pinball machine.
+// on to another crystal within signature.bounce.hop while it has bounces left, else steered toward
+// the nearest body on the open side, a little harder each time. Standing beside a crystal with the
+// crowd around you turns a starter into a pinball machine.
 CHAPTERS.geode = {
   name: 'The Geode', tagline: 'everything rings in here', icon: '💎',
   weapons: ['prismShard', 'echoPulse', 'stalactite'], starter: 'prismShard',
@@ -9464,7 +9465,9 @@ CHAPTERS.geode = {
     // balance_decision : bounces no longer spend pierce [2026-10-11]
     //  - refill: a bounce restores the pierce the shard was thrown with (fireVolley's _pierce0)
     // balance_decision : crystal splits deal half damage [2026-10-11]
-    bounce: { refill: true, max: 3, dmgMul: 1.25, splitDmgMul: 0.5, life: 1.1, steer: 560, split: 2, splitFan: 0.45, chimeR: 90, chimeDmg: 0.8, chimeKb: 40, chimeCd: 0.25, chimeVac: 200 },
+    // balance_decision : bounces steer to a nearby crystal first [2026-10-11]
+    //  - hop: face-to-face px to the next crystal; hopCrowdR: bodies counted round it to choose
+    bounce: { refill: true, max: 3, dmgMul: 1.25, splitDmgMul: 0.5, life: 1.1, steer: 560, split: 2, splitFan: 0.45, chimeR: 90, chimeDmg: 0.8, chimeKb: 40, chimeCd: 0.25, chimeVac: 200, hop: 250, hopCrowdR: 160 },
     // Echo Pulse: a crystal the ring reaches rings back at this fraction of its radius and damage.
     resonance: { radiusMul: 0.6, dmgMul: 0.6 },
   },

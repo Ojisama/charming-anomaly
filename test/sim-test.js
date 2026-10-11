@@ -38935,7 +38935,9 @@ function testBurrow() {
 // (j) Cracked Glass: a streamed crystal is gone after its 8th bounced shard (with a shatter of
 //     shards), and its cell grows a crystal back, somewhere else in the cell, after the regrow;
 // (k) a bounce does not spend pierce: a shard on its last pierce goes through three bodies after it;
-// (l) a crystal split deals half its parent's damage (signature.bounce.splitDmgMul).
+// (l) a crystal split deals half its parent's damage (signature.bounce.splitDmgMul);
+// (m) pinball: a shard visits three crystals in a row in turn, never back to the one it just left,
+//     and only then turns onto the crowd.
 function testGeodeCrystals() {
   const dt = 1 / 60
   const meta = () => { const m = makeMeta(); m.dev = true; return m }
@@ -39067,8 +39069,9 @@ function testGeodeCrystals() {
 
   // (f) SYMPATHY — chance pinned to 1 so the chain is a certainty to assert on
   {
-    const S = CRYSTAL_CARDS.sympathy, saved = S.chance
+    const S = CRYSTAL_CARDS.sympathy, saved = S.chance, savedHop = B.hop
     S.chance = 1
+    B.hop = 0   // the shard must strike crystal 1 alone: a pinball on to 2 and 3 would ring them itself
     try {
       const rings = (sym) => {
         const r = boot(41006, { mods: { echoPulse: { sympathy: sym } } })
@@ -39084,7 +39087,7 @@ function testGeodeCrystals() {
       assert.deepStrictEqual(off, [0, 0, 0], `run GC.f: without Sympathy crystals rang: ${off}`)
       assert.deepStrictEqual(on, [0, 1, 1], `run GC.f: the ring from crystal 1 must reach crystal 2 and then 3, each once: ${on}`)
       notes.push(`Sympathy rang [${on}]`)
-    } finally { S.chance = saved }
+    } finally { S.chance = saved; B.hop = savedHop }
   }
 
   // (g) FAULT LINE
@@ -39213,7 +39216,36 @@ function testGeodeCrystals() {
       `run GC.l: a split must deal half its parent's damage: ${JSON.stringify(r.bullets.map((b) => b.dmg))}`)
     notes.push(`split ${sib.dmg} vs parent ${parent.dmg}`)
   }
-  console.log(`PASS run GC (The Geode's crystal cards, 10 cards + free bounces + half splits): ${notes.join('; ')}`)
+  // (m) PINBALL: three crystals in a row, a crowd sitting by the FIRST. A shard thrown into the first
+  // goes on to the second and then the third (never back to the crowded first it just left), and
+  // only from the third, its last bounce, turns onto the crowd.
+  {
+    const saved = B.split
+    B.split = 0   // no siblings: the one shard under watch is the only thing bouncing
+    try {
+      const r = boot(41013)
+      const y = P(r).y - 400, x0 = P(r).x - 300
+      const row = [0, 1, 2].map((k) => crystal(r, x0 + k * 200, y))
+      assert.ok(200 - 80 <= B.hop && 400 - 80 > B.hop, `run GC.m: the fixture needs neighbours in hop reach and the ends out of it (hop ${B.hop})`)
+      const crowd = [-30, 0, 30].map((dx) => makeStatusEnemy(r, { x: row[0].x + dx, y: y - 160, hp: 1e9, speed: 0 }))
+      r.enemies.push(...crowd)
+      const s = shardAt(row[0], Math.PI, { dmg: 10, life: 1.5 })
+      r.bullets.push(s)
+      const visits = []
+      let hurtAt = -1
+      for (let i = 0; i < 120 && s.life > 0; i++) {
+        steps(r, 1)
+        if (s._fromCrystal && s._fromCrystal !== visits[visits.length - 1]) visits.push(s._fromCrystal)
+        if (hurtAt < 0 && crowd.some((e) => e.hp < e.maxHP)) hurtAt = visits.length
+      }
+      const seq = visits.map((o) => row.indexOf(o)).join(',')
+      assert.strictEqual(seq, '0,1,2', `run GC.m: the shard must visit crystals 0,1,2 in turn (visited ${seq})`)
+      assert.ok(visits.every((o, i) => i < 2 || o !== visits[i - 2]), `run GC.m: the shard went back to the crystal it had just left (${seq})`)
+      assert.strictEqual(hurtAt, 3, `run GC.m: the crowd must be hit only after the third crystal (hit after ${hurtAt} crystals)`)
+      notes.push(`pinball ${seq} then the crowd`)
+    } finally { B.split = saved }
+  }
+  console.log(`PASS run GC (The Geode's crystal cards, 10 cards + free bounces + half splits + pinball): ${notes.join('; ')}`)
 }
 
 // ---- run MG: Book 3, The Mine — the glyph tells (source text: render.js and ascii.js are not importable)

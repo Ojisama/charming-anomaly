@@ -16554,13 +16554,35 @@ function stepCrystalShot(run, b, spec) {
   b.y = o.y + ny * (o.r + b.r + 1)
   const vd = b.vx * nx + b.vy * ny
   if (vd < 0) { b.vx -= 2 * vd * nx; b.vy -= 2 * vd * ny }
-  // ...then it picks a body on the OPEN side of the face: a pinball, not a mirror. The one closest to
-  // YOU, so a crystal at your shoulder turns your missed shots onto whatever is about to reach you.
   const sp = Math.hypot(b.vx, b.vy) || b.speed || 1
   const p = run.player
+  // PINBALL: with a bounce still left after this one, the shard heads for another crystal whose face
+  // is within B.hop of this one's: never this crystal, never the one it came from, the one with the
+  // most bodies around it first. It leaves this crystal from the face that looks at the next one.
+  const prev = b._fromCrystal
+  b._fromCrystal = o
+  let hop = null
+  if (B.hop > 0 && (b._bounces ?? 0) + 1 < B.max + (pm.ricochet ?? 0)) {
+    let bestN = -1, bestD = Infinity
+    for (const o2 of run.obstacles) {
+      if (o2.kind !== 'crystal' || o2 === o || o2 === prev) continue
+      const d = Math.hypot(o2.x - o.x, o2.y - o.y)
+      if (d - o.r - o2.r > B.hop) continue
+      let n = 0
+      for (const e of enemiesNear(run, o2.x, o2.y, o2.r + B.hopCrowdR)) if (!e._dead && !isAlly(e) && !e.burrowed) n++
+      if (n > bestN || (n === bestN && d < bestD)) { bestN = n; bestD = d; hop = o2 }
+    }
+    if (hop) {
+      const ux = (hop.x - o.x) / (bestD || 1), uy = (hop.y - o.y) / (bestD || 1)
+      b.x = o.x + ux * (o.r + b.r + 1); b.y = o.y + uy * (o.r + b.r + 1)
+      b.vx = ux * sp; b.vy = uy * sp
+    }
+  }
+  // ...else it picks a body on the OPEN side of the face: a pinball, not a mirror. The one closest to
+  // YOU, so a crystal at your shoulder turns your missed shots onto whatever is about to reach you.
   let best = null, bestSq = Infinity
   const steerSq = B.steer * B.steer
-  for (const e of enemiesNear(run, b.x, b.y, B.steer)) {
+  if (!hop) for (const e of enemiesNear(run, b.x, b.y, B.steer)) {
     if (e._dead || isAlly(e) || e.burrowed || b.hitIds.has(e.id)) continue
     const ex = e.x - b.x, ey = e.y - b.y
     if (ex * nx + ey * ny <= 0 || ex * ex + ey * ey > steerSq) continue
@@ -16600,7 +16622,7 @@ function stepCrystalShot(run, b, spec) {
     ;(run._crystalSplits ??= []).push({
       x: b.x, y: b.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, dmg: b.dmg * (B.splitDmgMul ?? 1), pierce: Math.max(1, b.pierce),
       life: b.life, r: b.r, speed: b.speed, hitIds: new Set(), _shard: true, _splitDone: true, _chainsLeft: 0,
-      weapon: b.weapon, _bounces: b._bounces, _fam: b._fam, _pierce0: b._pierce0,
+      weapon: b.weapon, _bounces: b._bounces, _fam: b._fam, _pierce0: b._pierce0, _fromCrystal: o,
     })
   }
   run.events.push({ type: 'crystalBounce', x: b.x, y: b.y, n: b._bounces })
