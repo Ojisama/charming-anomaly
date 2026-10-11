@@ -231,6 +231,7 @@ const ui = initUI({
     // later, on onBriefStart (see the ui.js contract).
     pendingPlay = { chapter: chapterId, difficulty: chMeta.difficulty, mutators, endless, speedrun: endless && speedrun === true }
     ui.showScreen('brief', { chapterId, difficulty: chMeta.difficulty, mutators, reroll: !CHAPTERS[chapterId].scripted && !endless, endless })
+    renderer.prewarm(chapterId)   // the chapter's bakes, while the brief is read, not on Start
   },
   async onBriefStart(consumableIds = []) {
     if (!pendingPlay) return
@@ -1253,6 +1254,7 @@ if (resumeBrief && !run && CHAPTERS[resumeBrief.chapter]) {
   p.mutators = p.mutators.filter((id) => CFG.MUTATORS[id]) // an anomaly the new build dropped
   pendingPlay = p
   ui.showScreen('brief', briefData(p, { picks }))
+  renderer.prewarm(p.chapter)
 }
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') leaving()
