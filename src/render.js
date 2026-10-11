@@ -13031,6 +13031,12 @@ export function createRenderer(app) {
   const foilU = mkFoilU()
   const foilProgram = GlProgram.from({ vertex: MACRO_VERT, fragment: HOLO.FOIL_FRAG, name: 'holo-foil' })
   const foilFilter = new Filter({ glProgram: foilProgram, resources: { foilU } })
+  // the creatures' sheen (inside) and dark outline (outside), each cut at the cavern wall per pixel
+  const cutProgram = GlProgram.from({ vertex: MACRO_VERT, fragment: HOLO.CAVERN_CUT_FRAG, name: 'holo-cut' })
+  const mkCut = (inside) => new Filter({ glProgram: cutProgram, resources: { cutU: new UniformGroup({
+    uCam: { value: new Float32Array([0, 0]), type: 'vec2<f32>' }, uZoom: { value: 1, type: 'f32' }, uInside: { value: inside, type: 'f32' },
+  }) } })
+  const sheenCut = mkCut(1), haloCut = mkCut(0)
   let holoLook = null
   function setHolo(look) {
     holoLook = look
@@ -13047,7 +13053,8 @@ export function createRenderer(app) {
     cavernFloor.shader.resources.uDark = macroTiles.holo.source
     cavernFloor.shader.resources.uNacre = macroTiles.nacre.source
     cavernFloor.visible = true
-    holoHaloLayer.visible = true
+    holoHaloLayer.visible = true; holoSheenLayer.visible = true
+    holoSheenLayer.filters = [sheenCut]; holoHaloLayer.filters = [haloCut]
     blotchLayer.visible = false
     macroAir.visible = false
     macroShadowLayer.visible = true
@@ -13109,7 +13116,7 @@ export function createRenderer(app) {
     blotchLayer.visible = false
     macroAir.visible = false
     macroShadowLayer.visible = false
-    holoHaloLayer.visible = false
+    holoHaloLayer.visible = false; holoSheenLayer.visible = false
     bodyC.visible = false
     pShadow.visible = false
     app.stage.filterArea = app.screen
@@ -13184,7 +13191,7 @@ export function createRenderer(app) {
     if (macroLook && !playerForm) playerSkin = null   // the photographed blob has no skin (look A)
     holoLook = null
     cavernFloor.visible = false
-    holoHaloLayer.visible = false
+    holoHaloLayer.visible = false; holoSheenLayer.visible = false
     if (!macroLook && ch?.render?.holo) { setHolo(ch.render.holo); return }
     macroFloor.filters = null
     if (!macroLook) {
@@ -13277,7 +13284,7 @@ export function createRenderer(app) {
   // into a two-tone RAINBOW fringe whose hues slide with time and with where it stands. Blended across
   // the wall, so a creature crossing it changes as it goes. Two sprites per creature off its own white
   // twin, UNDER the crowd (an overlay above it washed a dense pile to white); no filter.
-  const holoHaloA = [], holoHaloB = []
+  const holoHaloA = [], holoHaloB = [], holoSheen = []
   const rainbow = (t) => {
     const f = (o) => Math.round(255 * Math.max(0, Math.min(1, 0.5 + 0.62 * Math.cos(Math.PI * 2 * (t + o)))))
     return (f(0) << 16) | (f(0.33) << 8) | f(0.67)
@@ -13292,34 +13299,41 @@ export function createRenderer(app) {
       if (!s.visible || !s.parent) continue
       const wt = macroWhiteOf.get(s.texture)
       if (!wt) continue
-      const f = HOLO.cavernAt(s.x, s.y)
-      const w = 1 - Math.max(0, Math.min(1, (f - 0.95) / 0.08))
-      const ws = w * w * (3 - 2 * w)
-      let a = holoHaloA[n], b = holoHaloB[n]
+      let a = holoHaloA[n], b = holoHaloB[n], c = holoSheen[n]
       if (!a) {
-        a = new Sprite(wt); b = new Sprite(wt)
-        holoHaloLayer.addChild(a, b)
-        holoHaloA.push(a); holoHaloB.push(b)
+        a = new Sprite(wt); b = new Sprite(wt); c = new Sprite(wt)
+        holoHaloLayer.addChild(a, b); holoSheenLayer.addChild(c)
+        holoHaloA.push(a); holoHaloB.push(b); holoSheen.push(c)
+        c.blendMode = 'add'
       }
+      // the sheen: the body's own silhouette laid over it, near-white and added, so the foil pass
+      // paints the pale crystal's iridescence across it. sheenCut keeps only the part over a cavern.
+      c.visible = true
+      c.texture = wt
+      c.anchor.copyFrom(s.anchor)
+      c.rotation = s.rotation
+      c.scale.copyFrom(s.scale)
+      c.position.set(s.x, s.y)
+      c.tint = mixHex(rainbow(animT * 0.3 + s.x * 0.0021 + s.y * 0.0017), 0xffffff, 0.85)
+      c.alpha = s.alpha * 0.25
       // outline thickness: ~2.6 world px whatever the creature's size
       const sz = Math.max(8, Math.min(wt.width, wt.height) * Math.abs(s.scale.y))
       const k = 1 + 5.2 / sz
-      const hue = animT * 0.3 + s.x * 0.0021 + s.y * 0.0017
-      const o = 1.4 + ws * 0.6
-      for (const [sp, dx, dark, rb] of [[a, -o, 0x9ec4ff, hue], [b, o, 0x05030a, hue + 0.45]]) {
+      // the dark-floor outline; haloCut drops the part over a cavern (owner: it read as double vision)
+      const o = 1.4
+      for (const [sp, dx, tint] of [[a, -o, 0x9ec4ff], [b, o, 0x05030a]]) {
         sp.visible = true
         sp.texture = wt
         sp.anchor.copyFrom(s.anchor)
         sp.rotation = s.rotation
         sp.scale.set(s.scale.x * k, s.scale.y * k)
         sp.position.set(s.x + dx, s.y + dx)
-        sp.tint = mixHex(dark, mixHex(rainbow(rb), 0xffffff, 0.5), ws)   // on pale crystal: the rainbow in pastel
-        // on the pale crystal a soft pastel ring, not a neon one (owner: "pastel and soft")
-        sp.alpha = s.alpha * (sp === a ? 0.55 + 0.2 * ws : 0.8 - 0.1 * ws)
+        sp.tint = tint
+        sp.alpha = s.alpha * (sp === a ? 0.55 : 0.8)
       }
       n++
     }
-    for (let i = n; i < holoHaloA.length; i++) { holoHaloA[i].visible = holoHaloB[i].visible = false }
+    for (let i = n; i < holoHaloA.length; i++) { holoHaloA[i].visible = holoHaloB[i].visible = holoSheen[i].visible = false }
   }
   // SUNDOWN (ANOMALIES.sundown): the low sun the macro floor is lit by goes down over a few seconds —
   // less light, a redder key, no shafts. macroDusk runs 0 (day) to 1 (dusk).
@@ -13370,6 +13384,7 @@ export function createRenderer(app) {
       u.uTime = animT
       u.uCam[0] = cx; u.uCam[1] = cy
       u.uZoom = z
+      for (const k of [sheenCut, haloCut]) { const cu = k.resources.cutU.uniforms; cu.uCam[0] = cx; cu.uCam[1] = cy; cu.uZoom = z }
       u.uScreen[0] = app.screen.width; u.uScreen[1] = app.screen.height
       syncCastShadows(-0.45, -0.75, holoLook.shadowReach ?? 0.3, holoLook.shadowAlpha ?? 0.8)
       syncHoloHalos()
@@ -13733,6 +13748,8 @@ export function createRenderer(app) {
   // The Geode (holo): each creature's two-tone outline under it, reacting to the opal cavern it
   // stands in (syncHoloHalos)
   const holoHaloLayer = new Container()
+  // ...and, over each creature on the pale crystal, a pearly sheen across its body instead
+  const holoSheenLayer = new Container()
   // Sundown (updateMacro): the warm rims on the creatures' and the blob's sunward edges, under the crowd
   const macroRimLayer = new Container()
   // ...the pickups' rims under the gems, and the coins' glint over them
@@ -13948,7 +13965,7 @@ const spurG = new Graphics()
     krakenDeepG, scarLayer, bombG, shellLayer, skyLayer, voltLayer, stripG, laneG, hazardG, jetLayer, krakenSlapWakeG, teleG, krakenImpactG, strafePoolLayer, rampG, pacerG,
     rockLayer,
     orcaShadowSp, orcaG,
-    macroShadowLayer, enemyShadowLayer, holoHaloLayer, macroRimLayer, elBackLayer, enemyLayer, statusOvLayer, pitPasses.collar.c, krakenArmLayer, enemyCrownLayer, krakenCoilBandLayer, orcaSp, netG, longlineG, snareG,
+    macroShadowLayer, enemyShadowLayer, holoHaloLayer, macroRimLayer, elBackLayer, enemyLayer, holoSheenLayer, statusOvLayer, pitPasses.collar.c, krakenArmLayer, enemyCrownLayer, krakenCoilBandLayer, orcaSp, netG, longlineG, snareG,
     bloomLayer, lureLayer, shieldG, affixLayer, crustG, deepG, lockLayer, shovelToolLayer, playerC, krakenGripFrontLayer, netHoldG, gateFrontG, breakerG, puffG, splashG, columnG, shorebreakG, burrowFxG, burrowStoneLayer, shovelAirLayer, pixelRig.air,
     bulletLayer, boomerangLayer, orbLayer, debrisLayer, homingLayer, shotLayer, beamLayer, whipLayer, arcG, realArcG, breathG,
     lobLayer, carLayer, smokeLayer, particleLayer,
