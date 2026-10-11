@@ -402,6 +402,7 @@ function formatShopBonus(bookId, id, levels) {
  *   ui.updateHUD(run, events)   called every frame while playing — renders run.mutators as HUD
  *     chips. events is this frame's drained run.events array. v6.9 removed its only consumer
  *     (the "pest control dispatched" banner); the parameter stays for the next one.
+ *   ui.briefLoad(k)   moves the brief's loader bar (brief data { loading: true }) to k of 0..1.
  *   ui.activeScreen()   the name last passed to showScreen. One caller: main.js's pause hook,
  *     which needs to know whether ⏸ during a level-up means "open the sheet" or "go back".
  */
@@ -3195,7 +3196,9 @@ export function initUI(hooks) {
         ${boosterSlotsHtml()}
         ${d.updating
           ? `<p class="brief-note">${t('A new version of the game is out. Updating now — you will be back on this screen in a moment.')}</p>`
-          : `<button class="btn btn--big" data-act="brief-start">▶&nbsp; ${t('Start')}</button>`}
+          : d.loading
+            ? `<div class="brief-load"><div class="boot-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100"><i class="boot-fill"></i></div><p class="brief-note">${t('Getting the level ready…')}</p></div>`
+            : `<button class="btn btn--big" data-act="brief-start">▶&nbsp; ${t('Start')}</button>`}
       </div>
       ${boosterSheetHtml(briefBookId)}
     `)
@@ -4504,5 +4507,10 @@ export function initUI(hooks) {
   // rather than a re-render of a screen the player is mid-way through.
   function syncChanged() { if (active === 'title') renderTitle() }
 
-  return { showScreen, updateHUD, activeScreen: () => active, setPodiumResult, forgetBoard, syncChanged }
+  // the brief's loader bar (d.loading): k = 0..1 of the chapter's art baked
+  function briefLoad(k) {
+    const fill = root.querySelector('.brief-load .boot-fill')
+    if (fill) fill.style.width = `${Math.round(k * 100)}%`
+  }
+  return { showScreen, updateHUD, activeScreen: () => active, setPodiumResult, forgetBoard, syncChanged, briefLoad }
 }

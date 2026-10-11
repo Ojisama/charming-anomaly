@@ -13097,10 +13097,12 @@ export function createRenderer(app) {
   // A run's photo bakes take seconds all together (Topsoil: ~2 s on a laptop). main.js calls this
   // when the brief opens, so they are made one at a time, between frames, while the player reads it:
   // each is cached, so reset() then finds them done, and bakes whatever is still missing itself.
-  let prewarmQ = []
-  function prewarm(chapterId) {
+  // Returns a promise that settles once the queue is empty; onStep(fraction) reports progress. A job
+  // that is already cached returns at once, so a warm queue drains in one tick.
+  let prewarmQ = [], prewarmTotal = 0, prewarmBusy = false, prewarmWaiters = []
+  function prewarm(chapterId, onStep) {
     const ch = CHAPTERS[chapterId], kind = ch?.render?.macro?.floor
-    if (!ch) return
+    if (!ch) return Promise.resolve()
     const q = []
     if (kind) q.push(() => bakeMacroTile(kind), () => macroPlayer())
     if (ch.render?.holo) q.push(holoPlayer)
@@ -13108,10 +13110,22 @@ export function createRenderer(app) {
     if (ch.signature?.caveIns || ch.weapons?.includes('furrow')) q.push(bakePits)
     if (ch.weapons?.includes('furrow')) q.push(bakeFurrow)
     if (ch.weapons?.includes('rootSnare')) q.push(bakeSnares)
-    const idle = !prewarmQ.length
-    prewarmQ = q
-    const next = () => { const job = prewarmQ.shift(); if (!job) return; job(); setTimeout(next, 30) }
-    if (idle) setTimeout(next, 30)
+    prewarmQ = q; prewarmTotal = q.length
+    const done = new Promise((resolve) => prewarmWaiters.push({ resolve, onStep }))
+    const step = () => { for (const w of prewarmWaiters) w.onStep?.(1 - prewarmQ.length / Math.max(1, prewarmTotal)) }
+    const next = () => {
+      for (let job; (job = prewarmQ.shift());) {
+        const t0 = performance.now()
+        job()
+        if (performance.now() - t0 > 8) { step(); setTimeout(next, 30); return }   // a real bake: let a frame through
+      }
+      prewarmBusy = false
+      step()
+      const ws = prewarmWaiters; prewarmWaiters = []
+      for (const w of ws) w.resolve()
+    }
+    if (!prewarmBusy) { prewarmBusy = true; setTimeout(next, 0) }
+    return done
   }
   function setMacro(run) {
     const ch = run && CHAPTERS[run.chapter]
