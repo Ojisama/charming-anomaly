@@ -13047,7 +13047,7 @@ export function createRenderer(app) {
     cavernFloor.shader.resources.uDark = macroTiles.holo.source
     cavernFloor.shader.resources.uNacre = macroTiles.nacre.source
     cavernFloor.visible = true
-    holoHaloLayer.visible = true
+    holoHaloLayer.visible = true; holoSheenLayer.visible = true
     blotchLayer.visible = false
     macroAir.visible = false
     macroShadowLayer.visible = true
@@ -13109,7 +13109,7 @@ export function createRenderer(app) {
     blotchLayer.visible = false
     macroAir.visible = false
     macroShadowLayer.visible = false
-    holoHaloLayer.visible = false
+    holoHaloLayer.visible = false; holoSheenLayer.visible = false
     bodyC.visible = false
     pShadow.visible = false
     app.stage.filterArea = app.screen
@@ -13148,7 +13148,7 @@ export function createRenderer(app) {
     const q = []
     if (kind) q.push(() => bakeMacroTile(kind), () => macroPlayer())
     if (ch.render?.holo) q.push(holoPlayer)
-    if (kind === 'topsoil') q.push(bakeMacroPickups, bakeShovel)
+    if (kind === 'topsoil') q.push(bakeMacroPickups, bakeShovel, elFx)
     if (ch.signature?.caveIns || ch.weapons?.includes('furrow')) q.push(bakePits)
     if (ch.weapons?.includes('furrow')) q.push(bakeFurrow)
     if (ch.weapons?.includes('rootSnare')) q.push(bakeSnares)
@@ -13184,7 +13184,7 @@ export function createRenderer(app) {
     if (macroLook && !playerForm) playerSkin = null   // the photographed blob has no skin (look A)
     holoLook = null
     cavernFloor.visible = false
-    holoHaloLayer.visible = false
+    holoHaloLayer.visible = false; holoSheenLayer.visible = false
     if (!macroLook && ch?.render?.holo) { setHolo(ch.render.holo); return }
     macroFloor.filters = null
     if (!macroLook) {
@@ -13277,7 +13277,7 @@ export function createRenderer(app) {
   // into a two-tone RAINBOW fringe whose hues slide with time and with where it stands. Blended across
   // the wall, so a creature crossing it changes as it goes. Two sprites per creature off its own white
   // twin, UNDER the crowd (an overlay above it washed a dense pile to white); no filter.
-  const holoHaloA = [], holoHaloB = []
+  const holoHaloA = [], holoHaloB = [], holoSheen = []
   const rainbow = (t) => {
     const f = (o) => Math.round(255 * Math.max(0, Math.min(1, 0.5 + 0.62 * Math.cos(Math.PI * 2 * (t + o)))))
     return (f(0) << 16) | (f(0.33) << 8) | f(0.67)
@@ -13295,12 +13295,23 @@ export function createRenderer(app) {
       const f = HOLO.cavernAt(s.x, s.y)
       const w = 1 - Math.max(0, Math.min(1, (f - 0.95) / 0.08))
       const ws = w * w * (3 - 2 * w)
-      let a = holoHaloA[n], b = holoHaloB[n]
+      let a = holoHaloA[n], b = holoHaloB[n], c = holoSheen[n]
       if (!a) {
-        a = new Sprite(wt); b = new Sprite(wt)
-        holoHaloLayer.addChild(a, b)
-        holoHaloA.push(a); holoHaloB.push(b)
+        a = new Sprite(wt); b = new Sprite(wt); c = new Sprite(wt)
+        holoHaloLayer.addChild(a, b); holoSheenLayer.addChild(c)
+        holoHaloA.push(a); holoHaloB.push(b); holoSheen.push(c)
+        c.blendMode = 'add'
       }
+      // the sheen: the body's own silhouette laid over it, near-white and added, so the foil pass
+      // paints the pale crystal's iridescence across the body (owner: no halo, nacre on the bodies)
+      c.visible = ws > 0.01
+      c.texture = wt
+      c.anchor.copyFrom(s.anchor)
+      c.rotation = s.rotation
+      c.scale.copyFrom(s.scale)
+      c.position.set(s.x, s.y)
+      c.tint = mixHex(rainbow(animT * 0.3 + s.x * 0.0021 + s.y * 0.0017), 0xffffff, 0.85)
+      c.alpha = s.alpha * ws * 0.25
       // outline thickness: ~2.6 world px whatever the creature's size
       const sz = Math.max(8, Math.min(wt.width, wt.height) * Math.abs(s.scale.y))
       const k = 1 + 5.2 / sz
@@ -13315,11 +13326,11 @@ export function createRenderer(app) {
         sp.position.set(s.x + dx, s.y + dx)
         sp.tint = mixHex(dark, mixHex(rainbow(rb), 0xffffff, 0.5), ws)   // on pale crystal: the rainbow in pastel
         // on the pale crystal a soft pastel ring, not a neon one (owner: "pastel and soft")
-        sp.alpha = s.alpha * (sp === a ? 0.55 + 0.2 * ws : 0.8 - 0.1 * ws)
+        sp.alpha = s.alpha * (sp === a ? 0.55 : 0.8) * (1 - ws)
       }
       n++
     }
-    for (let i = n; i < holoHaloA.length; i++) { holoHaloA[i].visible = holoHaloB[i].visible = false }
+    for (let i = n; i < holoHaloA.length; i++) { holoHaloA[i].visible = holoHaloB[i].visible = holoSheen[i].visible = false }
   }
   // SUNDOWN (ANOMALIES.sundown): the low sun the macro floor is lit by goes down over a few seconds —
   // less light, a redder key, no shafts. macroDusk runs 0 (day) to 1 (dusk).
@@ -13733,6 +13744,8 @@ export function createRenderer(app) {
   // The Geode (holo): each creature's two-tone outline under it, reacting to the opal cavern it
   // stands in (syncHoloHalos)
   const holoHaloLayer = new Container()
+  // ...and, over each creature on the pale crystal, a pearly sheen across its body instead
+  const holoSheenLayer = new Container()
   // Sundown (updateMacro): the warm rims on the creatures' and the blob's sunward edges, under the crowd
   const macroRimLayer = new Container()
   // ...the pickups' rims under the gems, and the coins' glint over them
@@ -13817,6 +13830,11 @@ export function createRenderer(app) {
   const homingLayer = new Container()
   const beamLayer = new Container()
   const arcG = new Graphics() // elemental shock arcs (shockarc/frostarc/conduct)
+  const realArcG = new Graphics() // Topsoil's photographed arcs (an arc with `real`), additive
+  realArcG.blendMode = 'add'
+  const statusOvLayer = new Container() // Topsoil: an element's coat over a body (topsoilStatusFx)
+  const elFloorLayer = new Container()  // Topsoil: venom stains on the soil
+  const elBackLayer = new Container()   // Topsoil: fire behind a burning body (elSpawn back)
   // v7.23 skies: the Atomic Breath's live forks (run.arcs) and the Tail Lash's drag tethers
   // (run.drags). Its own Graphics rather than arcG because those are one-shot fading procs on a
   // render-local pool, while these are PERSISTING sim entities redrawn from run state every frame.
@@ -13935,7 +13953,7 @@ const spurG = new Graphics()
   const particleLayer = new Container()
   const textLayer = new Container()
   entitiesLayer.addChild(
-    mownG, sandLayer, netWakeG, wellG, bindG, poolLayer, slickG, pitLayer, burrowGroundG, snareRootLayer, shovelFloorLayer, pixelRig.ground, trailLayer, webLayer, gateFloorG, spurG, coralLayer, gateG, burstWakeG, obstacleLayer, trapLayer,
+    mownG, sandLayer, netWakeG, wellG, bindG, poolLayer, slickG, pitLayer, burrowGroundG, snareRootLayer, elFloorLayer, shovelFloorLayer, pixelRig.ground, trailLayer, webLayer, gateFloorG, spurG, coralLayer, gateG, burstWakeG, obstacleLayer, trapLayer,
     // The refill circles (The Deep's anglerfish, sun shafts, pools) sit UNDER the drops: a maw is
     // a 400px body, and above gemLayer it hid every gem and coin that fell inside it.
     shaftLayer,
@@ -13943,9 +13961,9 @@ const spurG = new Graphics()
     krakenDeepG, scarLayer, bombG, shellLayer, skyLayer, voltLayer, stripG, laneG, hazardG, jetLayer, krakenSlapWakeG, teleG, krakenImpactG, strafePoolLayer, rampG, pacerG,
     rockLayer,
     orcaShadowSp, orcaG,
-    macroShadowLayer, enemyShadowLayer, holoHaloLayer, macroRimLayer, enemyLayer, pitPasses.collar.c, krakenArmLayer, enemyCrownLayer, krakenCoilBandLayer, orcaSp, netG, longlineG, snareG,
+    macroShadowLayer, enemyShadowLayer, holoHaloLayer, macroRimLayer, elBackLayer, enemyLayer, holoSheenLayer, statusOvLayer, pitPasses.collar.c, krakenArmLayer, enemyCrownLayer, krakenCoilBandLayer, orcaSp, netG, longlineG, snareG,
     bloomLayer, lureLayer, shieldG, affixLayer, crustG, deepG, lockLayer, shovelToolLayer, playerC, krakenGripFrontLayer, netHoldG, gateFrontG, breakerG, puffG, splashG, columnG, shorebreakG, burrowFxG, burrowStoneLayer, shovelAirLayer, pixelRig.air,
-    bulletLayer, boomerangLayer, orbLayer, debrisLayer, homingLayer, shotLayer, beamLayer, whipLayer, arcG, breathG,
+    bulletLayer, boomerangLayer, orbLayer, debrisLayer, homingLayer, shotLayer, beamLayer, whipLayer, arcG, realArcG, breathG,
     lobLayer, carLayer, smokeLayer, particleLayer,
     // v6.7.7: the refraction sits in FRONT of traffic, smoke and particles — everything except the
     // damage numbers. A taxi crossing a split used to paint over it, which on the one layer whose
@@ -26841,6 +26859,7 @@ void main() {
       particleLayer.addChild(p.s)
     }
     if (p.s.texture !== tex) p.s.texture = tex
+    if (p.s.parent !== particleLayer) particleLayer.addChild(p.s)
     p.live = true
     p.spiral = false
     p.x = x
@@ -26856,6 +26875,8 @@ void main() {
     p.s.visible = true
     p.s.tint = tint
     p.s.rotation = Math.random() * Math.PI * 2
+    p.s.blendMode = 'normal'
+    return p.s
   }
 
   // Black-hole suction particles: orbit (cx,cy) at shrinking radius instead of flying in
@@ -29130,10 +29151,11 @@ void main() {
   }
   let arcCursor = 0
 
-  function spawnArc(points, outer, inner = 0xffffff, dur = 0.25, width = 7, peak = 1) {
+  function spawnArc(points, outer, inner = 0xffffff, dur = 0.25, width = 7, peak = 1, real = false) {
     const a = arcs[arcCursor]
     arcCursor = (arcCursor + 1) % MAX_ARCS
     a.live = true
+    a.real = real
     a.points = points
     a.life = dur
     a.dur = dur
@@ -29154,7 +29176,7 @@ void main() {
 
   function clearArcs() {
     for (const a of arcs) a.live = false
-    arcG.clear()
+    arcG.clear(); realArcG.clear()
   }
 
   // Jagged-jitter builder used by redrawArcs: deterministic-hash trick (stable frame-to-frame,
@@ -29231,13 +29253,14 @@ void main() {
   }
 
   function redrawArcs() {
-    arcG.clear()
+    arcG.clear(); realArcG.clear()
     for (let ai = 0; ai < arcs.length; ai++) {
       const a = arcs[ai]
       if (!a.live) continue
       const pts = a.points
       if (!pts || pts.length < 2) continue
       const alpha = Math.max(0, Math.min(1, a.life / a.dur)) * a.peak
+      if (a.real) { drawRealArc(a, ai, alpha); continue }
       const path = jitterPath(pts, ai * 3.7)
       strokePath(arcG, path, a.width, a.outer, alpha * 0.35)
       strokePath(arcG, path, Math.max(1, a.width * 2 / 7), a.inner, alpha)
@@ -30081,7 +30104,7 @@ void main() {
           break
         case 'shockarc':
           // the lightning infusion's arc: violet outer, bright yellow core
-          if (e.points && e.points.length > 1) {
+          if (e.points && e.points.length > 1 && !topsoilElementEvent(e)) {
             spawnArc(e.points, 0x8a7bff, 0xffe94d, 0.2)
             const [lx, ly] = e.points[e.points.length - 1]
             spawnParticle(T.fx.flare_01, lx, ly, 0, 0, 0.18, 0.08, 0xffe94d, -0.1, 0)
@@ -30093,6 +30116,7 @@ void main() {
           // simply began burning for no visible reason. Unlike the arcs above it emits a PAIR of
           // points rather than a chain, so build the two-point path here. Palette is the ignite
           // one already used by the per-frame flame particle (0xff7a30), not a new colour.
+          if (topsoilElementEvent(e)) break
           spawnArc([[e.x, e.y], [e.tx, e.ty]], 0xff7a30, 0xffd8a0, 0.18)
           spawnParticle(T.fx.flame_05, e.tx, e.ty, 0, -34, 0.35, 0.09, 0xff7a30, 0.15, 0.5)
           break
@@ -30712,6 +30736,7 @@ void main() {
     clearParticles()
     clearRings()
     clearArcs()
+    for (const st of stains) { st.t = 0; st.s.visible = false }
     clearDamage()
     clearFloorLayer()
     // the colour field is keyed to the run's world seed, so it has to go too
@@ -31396,6 +31421,7 @@ void main() {
   function hideEnemyDecor(s) {
     if (s._shadow) s._shadow.visible = false
     if (s._crown) s._crown.visible = false
+    if (s._stOv) s._stOv.visible = false
   }
 
   // Volatile bomb telegraphs (run.bombs): danger circles under enemies/player, urgency
@@ -31775,6 +31801,177 @@ void main() {
     }
   }
 
+  // ==== Topsoil's elements, photographed (src/macro.js THE ELEMENTS) ==============================
+  // The same contract fields as everywhere (frozen, chill, venom, ignite); in Topsoil they wear the
+  // chapter's realism instead of a flat tint and a Kenney sprite: a coat over the body (its white
+  // twin, ridden on statusOvLayer), real flame, frost, venom beads and stains, and lit arcs.
+  let EL = null
+  function elFx() {
+    if (EL) return EL
+    const t = (c, s) => macroCanvasTex(c, s)
+    EL = {
+      flame: [0, 1, 2, 3].map((i) => t(MACRO.paintFlameTongue(i), 3)), ember: t(MACRO.paintEmber(), 4),
+      glow: t(MACRO.paintGlow(), 1.5), spark: t(MACRO.paintSpark(), 4), ice: [0, 1, 2].map((i) => t(MACRO.paintIceGlint(i), 4)),
+      drop: t(MACRO.paintVenomDrop(), 5), stain: [0, 1, 2].map((i) => t(MACRO.paintVenomStain(i), 3)),
+    }
+    return EL
+  }
+  const elTopsoil = () => macroLook?.floor === 'topsoil'
+  const elPick = (a) => a[Math.floor(Math.random() * a.length)]
+  // back: behind the body (elBackLayer), so a burning body stays visible inside its own fire
+  function elSpawn(tex, x, y, vx, vy, life, scale, add, grow = 0, drag = 0, grav = 0, rot = 0, back = false) {
+    const sp = spawnParticle(tex, x, y, vx, vy, life, scale, 0xffffff, grow, drag, grav)
+    sp.rotation = rot
+    if (add) sp.blendMode = 'add'
+    if (back) elBackLayer.addChild(sp)
+    return sp
+  }
+  // a venom drop's stain on the soil: a ring of sprites under the crowd, fading over STAIN_T
+  const STAIN_T = 3, MAX_STAINS = 48, stains = []
+  let stainCur = 0
+  function spawnStain(x, y, sc) {
+    let st = stains[stainCur]
+    if (!st) { st = { s: new Sprite(Texture.EMPTY), t: 0 }; st.s.anchor.set(0.5); elFloorLayer.addChild(st.s); stains.push(st) }
+    stainCur = (stainCur + 1) % MAX_STAINS
+    st.s.texture = elPick(elFx().stain); st.s.position.set(x, y); st.s.scale.set(sc); st.s.rotation = Math.random() * 6.28
+    st.t = STAIN_T; st.s.visible = true; st.s.alpha = 1
+  }
+  function updateStains(dt) {
+    for (const st of stains) {
+      if (st.t <= 0) continue
+      st.t -= dt
+      if (st.t <= 0) st.s.visible = false
+      else st.s.alpha = Math.min(1, st.t / (STAIN_T * 0.4))
+    }
+  }
+  // The body takes a coat, the element comes off it, and fire and frost light the soil around it.
+  function topsoilStatusTint(s, frozen, chill, venomK, venom, ignite) {
+    if (frozen > 0) s.tint = 0xb4c8d8
+    else if (chill > 0) s.tint = 0xd6e2ea
+    else if (venom > 0) s.tint = mix(0xdde4c4, 0xa8b878, venomK)
+    else if (ignite > 0) s.tint = 0xb08a78
+  }
+  function topsoilStatusFx(s, e, frame, frozen, chill, venomK, venom, ignite) {
+    const F = elFx(), R = e.radius || 16
+    // the coat: the body's own silhouette, frost-white / venom-green / ember-lit, riding the sprite
+    let ov = s._stOv
+    const want = e.hitFlash <= 0 && (frozen > 0 || chill > 0 || venom > 0 || ignite > 0)
+    if (want) {
+      if (!ov) { ov = s._stOv = new Sprite(frame.white); statusOvLayer.addChild(ov) }
+      if (ov.texture !== frame.white) ov.texture = frame.white
+      ov.anchor.set(frame.ax, frame.ay); ov.position.copyFrom(s.position); ov.scale.copyFrom(s.scale); ov.rotation = s.rotation
+      ov.visible = true
+      if (frozen > 0 || chill > 0) { ov.blendMode = 'normal'; ov.tint = 0xe6f2ff; ov.alpha = frozen > 0 ? 0.42 : 0.16 }
+      else if (venom > 0) { ov.blendMode = 'normal'; ov.tint = 0x6f9a1c; ov.alpha = 0.2 + 0.25 * venomK }
+      else { ov.blendMode = 'add'; ov.tint = 0xff5a14; ov.alpha = 0.22 + 0.14 * Math.sin(animT * 13 + e.id) + 0.06 * Math.sin(animT * 31 + e.id * 2) }
+    } else if (ov) ov.visible = false
+    if (frameDt <= 0) return
+    const rx = () => e.x + (Math.random() - 0.5) * R * 1.2, ry = () => e.y + (Math.random() - 0.5) * R * 0.9
+    const k = R / 16
+    if (ignite > 0) {
+      s._elFireT = (s._elFireT || 0) + frameDt
+      // the flames burn BEHIND the body and lick up past it: in front of it they hid the creature
+      const every = 0.06
+      while (s._elFireT >= every) {
+        s._elFireT -= every
+        elSpawn(elPick(F.flame), rx(), ry() - R * 0.15, (Math.random() - 0.5) * 8, -38 - Math.random() * 26, 0.38 + Math.random() * 0.15, (1.3 + Math.random() * 0.9) * k, true, -2, 0, 0, 0, true)
+        if (Math.random() < 0.5) elSpawn(F.ember, rx(), ry(), (Math.random() - 0.5) * 50, -50 - Math.random() * 40, 0.6 + Math.random() * 0.5, 0.6 + Math.random() * 0.6, true, -0.6, 1.5, -20)
+        if (Math.random() < 0.3) spawnParticle(T.dustPuff.tex, rx(), e.y - R * 0.9, (Math.random() - 0.5) * 10, -26, 1.1, 0.4 * k, 0x2a2420, 0.9, 1.2)
+        elSpawn(F.glow, e.x, e.y, 0, 0, every * 2.2, R * 3.4 / 64, true, 0, 0, 0, 0, true).tint = 0x6a2a08
+      }
+    } else s._elFireT = 0
+    if (frozen > 0 || chill > 0) {
+      s._elIceT = (s._elIceT || 0) + frameDt
+      const every = frozen > 0 ? 0.14 : 0.5
+      while (s._elIceT >= every) {
+        s._elIceT -= every
+        elSpawn(elPick(F.ice), rx(), ry(), 0, 0, 0.5 + Math.random() * 0.4, (1.0 + Math.random() * 0.6) * k, false, 0, 0, 0, Math.random() * 6.28)
+        if (frozen > 0 && Math.random() < 0.3) spawnParticle(T.dustPuff.tex, e.x + (Math.random() - 0.5) * R * 2, e.y + R * (0.4 + Math.random() * 0.4), (Math.random() - 0.5) * 12, 9, 1.1, 0.22 * k, 0x9aaab8, 0.5, 1)
+        if (frozen > 0) elSpawn(F.glow, e.x, e.y, 0, 0, every * 2.2, R * 3 / 64, true, 0, 0, 0, 0, true).tint = 0x1a2a3a
+      }
+    } else s._elIceT = 0
+    if (venom > 0) {
+      s._elVenT = (s._elVenT || 0) + frameDt
+      const every = 0.32 - 0.18 * venomK
+      while (s._elVenT >= every) {
+        s._elVenT -= every
+        elSpawn(F.drop, rx(), ry(), 0, 0, 0.5 + Math.random() * 0.4, (1.2 + Math.random() * 0.8) * k, false)
+        if (Math.random() < 0.6) {
+          // a drip runs off the body and lands as a wet stain on the soil
+          const a = Math.random() * 6.28, d = R * (0.7 + Math.random() * 0.4)
+          elSpawn(F.drop, e.x + Math.cos(a) * d * 0.5, e.y + Math.sin(a) * d * 0.5, Math.cos(a) * 40, Math.sin(a) * 40, 0.25, 1.3 * k, false, -1, 8)
+          spawnStain(e.x + Math.cos(a) * d, e.y + Math.sin(a) * d, (0.7 + Math.random() * 0.6) * k)
+        }
+      }
+    } else s._elVenT = 0
+  }
+  // A photographed arc: a white-hot core in a blue-violet glow, forks off its bends, re-struck a few
+  // times over its life so it flickers like a discharge.
+  // midpoint displacement: each segment split at a point pushed off its line by a fraction of its
+  // own length, five times over, so the path is crooked at every scale like a real discharge
+  function boltPath(a, b, rnd, rough = 0.22, depth = 5) {
+    let pts = [a, b]
+    for (let d = 0; d < depth; d++) {
+      const out = [pts[0]]
+      for (let i = 1; i < pts.length; i++) {
+        const [x1, y1] = pts[i - 1], [x2, y2] = pts[i], dx = x2 - x1, dy = y2 - y1
+        const o = (rnd() - 0.5) * 2 * rough
+        out.push([(x1 + x2) / 2 - dy * o, (y1 + y2) / 2 + dx * o], pts[i])
+      }
+      pts = out
+    }
+    return pts
+  }
+  function drawRealArc(a, ai, alpha) {
+    // re-struck about 25 times a second: a new crooked path each time, the same ends
+    let seed = ai * 7919 + Math.floor(a.life * 25) * 104729
+    const rnd = () => { seed = (seed * 16807 + 11) % 2147483647; return seed / 2147483647 }
+    const fl = 0.7 + 0.3 * rnd(), g = realArcG
+    for (let i = 1; i < a.points.length; i++) {
+      const path = boltPath(a.points[i - 1], a.points[i], rnd)
+      strokePath(g, path, 14, a.outer, 0.06 * alpha * fl)
+      strokePath(g, path, 5, a.outer, 0.2 * alpha * fl)
+      strokePath(g, path, 2, a.inner, 0.7 * alpha)
+      strokePath(g, path, 0.9, 0xffffff, alpha)
+      // forks: thinner, dimmer offshoots dying out a short way from the channel
+      for (let f = 0; f < 3; f++) {
+        if (rnd() > 0.7) continue
+        const j = 4 + Math.floor(rnd() * (path.length - 8)), [x, y] = path[j], [nx, ny] = path[j + 1]
+        const ang = Math.atan2(ny - y, nx - x) + (rnd() < 0.5 ? -1 : 1) * (0.4 + rnd() * 0.6), L = 10 + rnd() * 24
+        const fork = boltPath([x, y], [x + Math.cos(ang) * L, y + Math.sin(ang) * L], rnd, 0.3, 3)
+        strokePath(g, fork, 3, a.outer, 0.12 * alpha * fl)
+        strokePath(g, fork, 0.6, 0xffffff, 0.6 * alpha)
+      }
+    }
+  }
+  // the shock's and the fire jump's bursts, Topsoil's way. Returns false off Topsoil.
+  function topsoilElementEvent(e) {
+    if (!elTopsoil()) return false
+    const F = elFx()
+    if (e.type === 'shockarc') {
+      spawnArc(e.points, 0x6f80ff, 0xd8e0ff, 0.22, 7, 1, true)
+      for (const [x, y] of e.points) {
+        for (let i = 0; i < 4; i++) {
+          const a = Math.random() * 6.28, sp = 80 + Math.random() * 120
+          elSpawn(F.spark, x, y, Math.cos(a) * sp, Math.sin(a) * sp, 0.18 + Math.random() * 0.12, 0.6 + Math.random() * 0.4, true, -1, 5, 0, a)
+        }
+        elSpawn(F.glow, x, y, 0, 0, 0.16, 1.1, true).tint = 0x8090ff
+      }
+      return true
+    }
+    if (e.type === 'ignitejump') {
+      const dx = e.tx - e.x, dy = e.ty - e.y, n = 9
+      for (let i = 0; i < n; i++) {
+        const u = Math.random() * 0.3, t = 0.22 + Math.random() * 0.1
+        elSpawn(F.ember, e.x + dx * u, e.y + dy * u, dx / t * (0.8 + Math.random() * 0.3) + (Math.random() - 0.5) * 30, dy / t * (0.8 + Math.random() * 0.3) + (Math.random() - 0.5) * 30, t, 0.8 + Math.random() * 0.6, true, -1)
+      }
+      for (let i = 0; i < 3; i++) elSpawn(elPick(F.flame), e.tx + (Math.random() - 0.5) * 10, e.ty, 0, -40, 0.45, 0.9, true, -1)
+      elSpawn(F.glow, e.tx, e.ty, 0, 0, 0.3, 1.2, true).tint = 0x803010
+      return true
+    }
+    return false
+  }
+
   function syncEnemies(run) {
     const px = run.player.x
     shieldG.clear()
@@ -32076,10 +32273,14 @@ void main() {
         s.tint = mix(mix(hues[a0], hues[(a0 + 1) % hues.length], seg - Math.floor(seg)), 0xffffff, 0.5)
       }
       else s.tint = 0xffffff
+      const elTop = elTopsoil()
+      if (elTop && e.hitFlash <= 0) topsoilStatusTint(s, frozen, chill, venomK, venom, ignite)
       if (sinkK > 0) s.tint = mix(s.tint, 0x2a1c10, 0.5 * sinkK)
+      if (elTop) topsoilStatusFx(s, e, frame, frozen, chill, venomK, venom, ignite)
 
       // cheap status particles, dt-gated (no spawns while frozen behind a modal)
       if (frameDt > 0) {
+        if (!elTop) { // in Topsoil the four elements are drawn by topsoilStatusFx
         if (frozen > 0) {
           s._frostT += frameDt
           if (s._frostT >= 0.4) {
@@ -32107,6 +32308,7 @@ void main() {
               0.45, 0.05 + stacks * 0.006, 0x4fae4f, 0.06, 0.35)
           }
         } else s._venomT = 0
+        }
 
         // stun: dazed sparks circling overhead — the classic "it can't act" read
         if (stun > 0) {
@@ -32483,6 +32685,7 @@ void main() {
     redrawPrisms(run)
     updateArcs(dt)
     redrawArcs()
+    if (dt > 0 && stains.length) updateStains(dt)
     redrawBreath(run) // v7.23 skies: Atomic Breath forks + Tail Lash drag tethers
 
     updateWhips(dt)
