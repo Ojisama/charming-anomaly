@@ -1919,10 +1919,9 @@ export function paintRootSnare(seed, k) {
 // ==== THE FLOOR PICKUPS ===========================================================================
 // Topsoil's xp gems and coins (render.js macroPickups). A gem is a lump of rough sapphire turned out
 // of the soil (one stone, a bigger stone, a stone with two smaller ones: the three tiers), a coin is
-// an old worn coin, one edge still under the dirt. Both are heightfields shaded texel by texel:
+// a little spill of three gold coins, one over the other. Both are heightfields shaded texel by texel:
 // facet normals, the stone's body darker and bluer where it is thick (Beer-Lambert), silk inclusions,
-// a Fresnel reflection of the key's softbox and a hard specular; the coin's rim, beaded border and
-// low head under tarnish. The soil they sit in (scuff, contact shadow, crumbs) is painted around them.
+// a Fresnel reflection of the key's softbox and a hard specular; each coin's rim, beaded border and cross, and the shadows they cast on each other. The soil they sit in (scuff, contact shadow, crumbs) is painted around them.
 // Every bake is in WORLD px (bakeLocal at PK_S texels per px, uploaded at PK_S) and comes as a pair,
 // [plain, glint], the glint being the same bake with the specular pushed: render.js swaps to it for a
 // beat now and then, so a still floor still catches the light.
@@ -2087,81 +2086,138 @@ function sapphireRough(ctx, tier, rnd, glint) {
     pkCrumb(ctx, rnd, st.cx + Math.cos(a) * d, st.cy + Math.sin(a) * d, 0.6 + rnd() * 0.6)
   }
 }
-// The coin: a struck disc, worn and tarnished, leaning by `tilt`, pushed `sink` into the soil, with
-// edgeBury(u, v) sinking part of its rim further under the dirt.
-function coinRaster(ctx, E, o, glint) {
-  const { r, tilt, ang, sink, edgeBury, seed } = o, soilAmp = o.soilAmp ?? 1
-  const ct = Math.cos(tilt), st = Math.sin(tilt), c = Math.cos(ang), s = Math.sin(ang)
-  const sd = seed * 1.37
-  const relief = (u, v) => {
-    const rho = Math.hypot(u, v) / r
-    if (rho > 1) return -1
-    let h = 0.42 * sstep(0.8, 0.88, rho) * (1 - sstep(0.94, 1.0, rho))           // the raised rim
-    // the beaded border inside it
-    const phi = Math.atan2(v, u), nb = 30, bp = ((phi / TAU) * nb % 1 + 1) % 1 - 0.5
-    const bd = Math.hypot(bp * TAU * rho * r / nb, (rho - 0.73) * r)
-    h += 0.16 * (1 - sstep(0.12, 0.32, bd))
-    // a worn head in low relief
-    const hu = u / r - 0.04, hv = v / r
-    const head = Math.hypot(hu / 0.4, hv / 0.5) + (fbm2(u * 1.2 + sd, v * 1.2) - 0.5) * 0.35
-    h += 0.13 * (1 - sstep(0.8, 1.0, head))
-    h += 0.07 * (1 - sstep(0.2, 0.6, Math.hypot(hu + 0.12, hv + 0.18) * 3)) // the eye/cheek lump
-    // wear flattens the high points; pits and scratches
-    h *= 0.55 + 0.45 * vnoise(u * 0.6 + sd, v * 0.6 - sd)
-    h -= 0.05 * sstep(0.7, 0.95, vnoise(u * 3.1 + sd, v * 3.1))
-    return h
-  }
+// Metal discs { cx, cy, r, ang, tilt, z0, T, relief(u, v) -> h, metal, reeds } rastered together, the
+// highest surface on top. A disc rises along its own +v by `tilt`; its milled edge shows on the high
+// side as a band. The soil covers whatever falls below the soil line; higher discs shadow lower ones.
+const PK_LH = Math.hypot(PK_L[0], PK_L[1]), PK_LT = PK_L[2] / PK_LH
+function discGeom(D, x, y) {
+  const c = Math.cos(D.ang), s = Math.sin(D.ang), ct = Math.cos(D.tilt), st = Math.sin(D.tilt)
+  const a = (x - D.cx) * c + (y - D.cy) * s, b = -(x - D.cx) * s + (y - D.cy) * c
+  const v = b / ct, rho = Math.hypot(a, v) / D.r
+  if (rho <= 1) return { face: true, a, b, u: a, v, rho, z: D.z0 + v * st, c, s, ct, st }
+  // the edge: inside the face swept down by T along the disc's normal
+  const sw = D.T * st, h = D.r * D.r - a * a
+  if (sw <= 0 || h <= 0) return null
+  const sq = ct * Math.sqrt(h), sd = b - sq
+  if (sd < 0 || sd > sw) return null
+  const k = sd / sw, phi = Math.atan2(Math.sqrt(h), a)
+  return { face: false, a, b, phi, k, z: D.z0 + (sq / ct) * st - k * D.T * ct, c, s, ct, st }
+}
+function metalTexel(n, M, glint, occl) {
+  const ndh = Math.max(0, n[0] * PK_H[0] + n[1] * PK_H[1] + n[2] * PK_H[2])
+  const ndl = n[0] * PK_L[0] + n[1] * PK_L[1] + n[2] * PK_L[2]
+  const R = [2 * n[2] * n[0], 2 * n[2] * n[1], 2 * n[2] * n[2] - 1]
+  const rl = R[0] * PK_L[0] + R[1] * PK_L[1] + R[2] * PK_L[2]
+  // what the metal mirrors: the softbox at the key, a dim studio overhead, the soil at the horizon
+  const box = sstep(M.boxLo, 0.97, rl)
+  const sky = M.sky + 0.12 * sstep(-0.2, 1, R[2])
+  const ground = sstep(0.35, -0.1, R[2])
+  let env = sky * (1 - ground) + 0.08 * ground + box * M.box
+  env *= occl
+  let r = M.F0[0] * env, g = M.F0[1] * env, b = M.F0[2] * env
+  const dif = Math.max(0, ndl) * M.dif * occl
+  r += M.F0[0] * dif; g += M.F0[1] * dif; b += M.F0[2] * dif
+  const sp = (Math.pow(ndh, M.pow) * (glint ? M.spec * 2.6 : M.spec) + Math.pow(ndh, 24) * M.sheen) * occl
+  r += sp * (0.6 + 0.4 * M.F0[0]); g += sp * (0.6 + 0.4 * M.F0[1]); b += sp * (0.6 + 0.4 * M.F0[2])
+  return [r, g, b]
+}
+// a shoulder on the highlights: the lens lifts pickups near the player, and a clipped channel turns the metal flat
+const pkKnee = (c) => c < 0.42 ? c : 0.42 + (c - 0.42) * 0.5
+function discRaster(ctx, E, discs, glint, o = {}) {
+  const soilAmp = o.soilAmp ?? 0.5, sd = o.seed ?? 0
   pkRaster(ctx, E, (x, y) => {
-    const a = x * c + y * s, b = -x * s + y * c
-    const u = a, v = b / ct
-    const rho = Math.hypot(u, v) / r
-    if (rho > 1.02) return null
-    const hr = relief(u, v)
-    // above the soil? the disc's own lean plus how deep it was pushed in
-    const z = v * st + sink + Math.max(0, hr) * 0.6 - (edgeBury ? edgeBury(u, v) : 0)
+    let best = null, bi = -1
+    for (let i = 0; i < discs.length; i++) {
+      const g = discGeom(discs[i], x, y)
+      if (g && (!best || g.z > best.z)) { best = g; bi = i }
+    }
+    if (!best) return null
+    const D = discs[bi], M = D.metal
     const soilLine = ((fbm2(x * 0.7 + sd, y * 0.7) - 0.5) * 2.4 + (vnoise(x * 2.5, y * 2.5) - 0.5) * 0.8) * soilAmp
+    let n, hr = 0, z = best.z
+    if (best.face) {
+      const { u, v } = best, e = 0.16
+      hr = D.relief(u, v, best.rho)
+      const dhu = (D.relief(u + e, v) - D.relief(u - e, v)) / (2 * e), dhv = (D.relief(u, v + e) - D.relief(u, v - e)) / (2 * e)
+      const na = -dhu, nb = -(dhv / best.ct) - best.st / best.ct, nl = Math.hypot(na, nb, 1)
+      n = [(na * best.c - nb * best.s) / nl, (na * best.s + nb * best.c) / nl, 1 / nl]
+      z += Math.max(0, hr) * 0.6
+    } else {
+      // the milled edge: radial in the disc's plane, the reeds turning it
+      const ph = best.phi + (D.reeds ? Math.sin(best.phi * D.reeds) * 0.35 : 0)
+      const na = Math.cos(ph), nv = Math.sin(ph)
+      const nA = na, nB = nv * best.ct, nZ = nv * best.st
+      n = [nA * best.c - nB * best.s, nA * best.s + nB * best.c, nZ]
+    }
     if (z < soilLine) return null
-    const e = 0.18
-    const dhu = (relief(u + e, v) - relief(u - e, v)) / (2 * e), dhv = (relief(u, v + e) - relief(u, v - e)) / (2 * e)
-    // normal in (a, b): the relief's slope, plus the disc's tilt
-    const na = -dhu, nb = -(dhv / ct) - st / ct, nl = Math.hypot(na, nb, 1)
-    const n = [(na * c - nb * s) / nl, (na * s + nb * c) / nl, 1 / nl]
-    const ndl = n[0] * PK_L[0] + n[1] * PK_L[1] + n[2] * PK_L[2]
-    const ndh = Math.max(0, n[0] * PK_H[0] + n[1] * PK_H[1] + n[2] * PK_H[2])
-    const R = [2 * n[2] * n[0], 2 * n[2] * n[1], 2 * n[2] * n[2] - 1]
-    const box = sstep(0.55, 0.95, R[0] * PK_L[0] + R[1] * PK_L[1] + R[2] * PK_L[2])
-    // old gold: a dull, warm metal; tarnish creeping out of the recesses
-    const recess = 1 - sstep(0.0, 0.14, hr)
-    const tarn = Math.min(1, sstep(0.45, 0.8, fbm2(u * 0.7 - sd, v * 0.7 + sd)) * 0.4 + recess * (rho < 0.8 ? 0.35 : 0.1) + (rho < 0.7 ? 0.3 : 0))
-    const F0 = [0.68 - tarn * 0.26, 0.53 - tarn * 0.22, 0.3 - tarn * 0.13]
-    const env = rho > 0.8 ? 0.62 + box * 0.75 : 0.4 + box * 0.35
-    let rr = F0[0] * env, gg = F0[1] * env, bb = F0[2] * env
-    const dif = Math.max(0, ndl) * 0.28
-    rr += F0[0] * dif; gg += F0[1] * dif; bb += F0[2] * dif
-    const sp = Math.pow(ndh, 140) * (glint ? 2.6 : 0.9) * (1 - tarn * 0.7) * (rho > 0.8 ? 1 : 0.35)
-    rr += sp * 0.95; gg += sp * 0.8; bb += sp * 0.55
-    // soil packed into the field's grooves, and a crust of it near the buried edge
-    const soil = Math.max(recess * sstep(0.45, 0.7, vnoise(u * 1.8 + sd, v * 1.8)) * (rho < 0.78 ? 1 : 0.4), 1 - sstep(soilLine, soilLine + 0.9, z))
+    // the shadow of any higher disc, cast toward the soil away from the key
+    let occl = 1
+    for (let j = 0; j < discs.length; j++) {
+      if (j === bi) continue
+      const Dj = discs[j], lift = Dj.z0 + Dj.T * 0.5 - z
+      if (lift <= 0) continue
+      const t = lift / PK_LT, gj = discGeom(Dj, x + PK_L[0] / PK_LH * t, y + PK_L[1] / PK_LH * t)
+      if (gj && gj.face) occl = Math.min(occl, 0.35 + 0.65 * sstep(0.9, 1.0, gj.rho))
+    }
+    // ambient occlusion where a higher disc's rim overhangs this one
+    for (let j = 0; j < discs.length; j++) {
+      if (j === bi || discs[j].z0 <= D.z0) continue
+      const gj = discGeom(discs[j], x, y)
+      if (gj) continue
+      const Dj = discs[j], dd = Math.hypot(x - Dj.cx, y - Dj.cy) - Dj.r
+      occl *= 0.55 + 0.45 * sstep(0, 1.4, dd)
+    }
+    let [rr, gg, bb] = metalTexel(n, M, glint, best.face ? occl : occl * 0.85)
+    if (!best.face) { const dk = 0.75 + 0.25 * (1 - best.k); rr *= dk; gg *= dk; bb *= dk }
+    // a little dust in the recesses and a crust of soil at the buried line
+    const recess = best.face ? (1 - sstep(0, 0.12, hr)) * (best.rho < 0.85 ? 1 : 0.2) : 0
+    const soil = Math.max(recess * M.grime * sstep(0.5, 0.75, vnoise(x * 1.8 + sd, y * 1.8)), 1 - sstep(soilLine, soilLine + 0.8, z))
     const sc = 0.55 + 0.45 * vnoise(x * 2.3, y * 2.3)
     rr += (0.26 * sc - rr) * soil * 0.85; gg += (0.18 * sc - gg) * soil * 0.85; bb += (0.11 * sc - bb) * soil * 0.85
-    const alpha = Math.min(1 - sstep(0.985, 1.02, rho), sstep(soilLine, soilLine + 0.25, z))
-    return [rr, gg, bb, alpha]
+    const alpha = sstep(soilLine, soilLine + 0.25, z)
+    return [pkKnee(rr), pkKnee(gg), pkKnee(bb), alpha]
   })
 }
-function coinFlat(ctx, rnd, glint) {
-  const r = 6.2, ang = rnd() * TAU, seed = Math.floor(rnd() * 100)
-  pkScuff(ctx, rnd, 0, 0, r * 1.15, r * 1.05, ang)
-  withBlur(ctx, 1.1, 'rgba(6,3,1,0.65)', () => { ctx.beginPath(); ctx.ellipse(-LX * 0.9, -LY * 0.9, r, r * 0.97, ang, 0, TAU); ctx.fill() })
-  // one edge sunk under a lip of soil
-  const bdir = rnd() * TAU, bx = Math.cos(bdir), by = Math.sin(bdir)
-  coinRaster(ctx, 12, { r, tilt: 0.12, ang, sink: 1.2, seed, soilAmp: 0.4, edgeBury: (u, v) => sstep(0.45, 1.0, (u * bx + v * by) / r) * 2.2 }, glint)
-  for (let i = 0; i < 6; i++) { const a = bdir + ang + (rnd() - 0.5) * 1.6, d = r * (0.85 + rnd() * 0.3); pkCrumb(ctx, rnd, Math.cos(a) * d, Math.sin(a) * d, 0.5 + rnd() * 0.7) }
+const discShadow = (ctx, discs, a, blur) => { for (const D of discs) withBlur(ctx, blur, `rgba(6,3,1,${a})`, () => {
+  const off = (D.z0 + D.T + 0.6) / PK_LT
+  ctx.beginPath(); ctx.ellipse(D.cx - PK_L[0] / PK_LH * off, D.cy - PK_L[1] / PK_LH * off, D.r * 1.02, D.r * Math.cos(D.tilt) * 1.02, D.ang, 0, TAU); ctx.fill()
+}) }
+// the struck design, shared parts
+const rimH = (rho, a = 0.86, h = 0.5) => h * sstep(a, a + 0.05, rho) * (1 - sstep(0.97, 1.0, rho))
+const ringDash = (u, v, rho, r0, r1, n, duty, h) => {
+  if (rho < r0 || rho > r1) return 0
+  const f = ((Math.atan2(v, u) / TAU) * n % 1 + 1) % 1
+  return h * (f < duty ? 1 : 0) * sstep(r0, r0 + 0.02, rho) * (1 - sstep(r1 - 0.02, r1, rho))
+}
+// The coins: three small gold coins spilled in a fan, each overlapping the one below, a cross struck on each
+function coinSpill(ctx, rnd, glint) {
+  const sd = Math.floor(rnd() * 100), base = rnd() * TAU, r = 4.3
+  const relief = (u, v, rho = Math.hypot(u, v) / r) => {
+    if (rho > 1) return -1
+    let h = rimH(rho, 0.82, 0.45)
+    const phi = Math.atan2(v, u), nb = 22, bp = ((phi / TAU) * nb % 1 + 1) % 1 - 0.5
+    h += 0.16 * (1 - sstep(0.1, 0.28, Math.hypot(bp * TAU * rho * r / nb, (rho - 0.7) * r)))
+    const au = Math.abs(u / r), av = Math.abs(v / r)
+    h += 0.24 * (1 - sstep(0.09, 0.15, Math.min(au, av))) * (1 - sstep(0.5, 0.58, rho))   // the cross
+    h *= 0.75 + 0.25 * vnoise(u * 0.8 + sd, v * 0.8)
+    return h
+  }
+  const M = { F0: [0.9, 0.66, 0.24], sky: 0.22, box: 1.1, boxLo: 0.62, dif: 0.14, pow: 180, spec: 1.5, sheen: 0.12, grime: 0.25 }
+  const discs = []
+  for (let k = 0; k < 3; k++) {
+    const a = base + k * 2.2, d = 2.6
+    discs.push({ cx: Math.cos(a) * d, cy: Math.sin(a) * d, r: r * (1 - k * 0.03), ang: rnd() * TAU, tilt: 0.05 + k * 0.08, z0: 0.6 + k * 0.9, T: 0.8, relief, metal: M, reeds: 0 })
+  }
+  pkScuff(ctx, rnd, 0, 0, 8, 7.4, base)
+  discShadow(ctx, discs, 0.6, 0.8)
+  discRaster(ctx, 12, discs, glint, { soilAmp: 0.3, seed: sd })
+  for (let i = 0; i < 4; i++) { const a = rnd() * TAU, d = 6.5 + rnd() * 1.2; pkCrumb(ctx, rnd, Math.cos(a) * d, Math.sin(a) * d, 0.5 + rnd() * 0.6) }
 }
 
 // { gem: [tier][shape] -> [plain, glint], coin: [shape] -> [plain, glint] }
 export function paintPickups() {
   const gem = [0, 1, 2].map((tier) => [0, 1].map((shape) => pkBake(14, (ctx, gl) => sapphireRough(ctx, tier, rng(101 + tier * 13 + shape * 7), gl))))
-  const coin = [0, 1].map((shape) => pkBake(12, (ctx, gl) => coinFlat(ctx, rng(211 + shape * 17), gl)))
+  const coin = [0, 1].map((shape) => pkBake(12, (ctx, gl) => coinSpill(ctx, rng(211 + shape * 17), gl)))
   return { gem, coin }
 }
 
