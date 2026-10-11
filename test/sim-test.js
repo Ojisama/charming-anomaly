@@ -39737,18 +39737,71 @@ function testMine() {
     const p = run.player, e = run.enemies[0]
     e.x = p.x + 160; e.y = p.y; e.hp = e.maxHP = 1e9
     const y0 = e.y
-    let stunMax = 0
+    // the FARTHEST it was shoved: the next push aims at it again and may shove it back
+    let stunMax = 0, shove = 0
     for (let t = 0; t < 240; t++) {
       if (run.phase === 'levelup') { run.phase = 'playing'; run.levelUpChoices = [] }
       stepSim(run, { x: 0, y: 0 }, 1 / 60)
       run.events.length = 0
       e.speed = 0; e.hp = e.maxHP
       stunMax = Math.max(stunMax, e.stunT || 0)
+      shove = Math.max(shove, Math.abs(e.y - y0))
     }
-    cart = { shove: Math.abs(e.y - y0), stunMax }
+    cart = { shove, stunMax }
   } finally { sig.firedamp = F0 }
   assert.ok(cart.shove > 5 && cart.stunMax > 0 && cart.stunMax <= MINECART_STUN + 1e-9,
     `run MI.j: a body a cart runs into must be shoved and dazed, never past MINECART_STUN ${MINECART_STUN}s: ${JSON.stringify(cart)}`)
+  // (k) FAST FUSE: the same stick goes off sooner after it lands (s from throw to blast, without/with)
+  const fuseOf = (cut) => {
+    sig.firedamp = quiet
+    try {
+      const run = stage(41014, 1, [{ id: 'dynamite', level: 1 }])
+      const p = run.player, e = run.enemies[0]
+      e.x = p.x + 200; e.y = p.y; e.hp = e.maxHP = 1e9
+      if (cut) run.weaponMods.dynamite = { fastFuse: cut }
+      let thrown = -1
+      for (let t = 0; t < 600; t++) {
+        if (run.phase === 'levelup') { run.phase = 'playing'; run.levelUpChoices = [] }
+        stepSim(run, { x: 0, y: 0 }, 1 / 60)
+        e.speed = 0; e.hp = e.maxHP
+        for (const ev of run.events) {
+          if (ev.type === 'shoot' && ev.weapon === 'dynamite' && thrown < 0) thrown = t
+          if (ev.type === 'dynamite' && thrown >= 0) return (t - thrown) / 60
+        }
+        run.events.length = 0
+      }
+      return Infinity
+    } finally { sig.firedamp = F0 }
+  }
+  const fuse = [fuseOf(0), fuseOf(0.8)]
+  assert.ok(fuse[0] - fuse[1] > 0.45 && fuse[1] < Infinity,
+    `run MI.k: Fast Fuse 80% must cut ~0.52s off the wait to the blast (throw->blast without/with: ${fuse})`)
+  // (l) RETURN TRIP: the cart rolls back to you, hits the same body a second time, and the gem it
+  // rolls over on the way out comes home (without/with: [hits on the body, gem collected])
+  const tripOf = (on) => {
+    sig.firedamp = quiet
+    try {
+      const run = stage(41015, 1, [{ id: 'minecart', level: 1 }])
+      const p = run.player, e = run.enemies[0]
+      e.x = p.x + 160; e.y = p.y; e.hp = e.maxHP = 1e9
+      if (on) run.weaponMods.minecart = { returnTrip: 1 }
+      run.gems = [{ x: p.x + 700, y: p.y, xp: 1 }]
+      let hits = 0
+      for (let t = 0; t < 60 * 7; t++) {
+        if (run.phase === 'levelup') { run.phase = 'playing'; run.levelUpChoices = [] }
+        // one push only: the weapon is taken away once its cart is out
+        if (run.carts.length) run.weapons = []
+        stepSim(run, { x: 0, y: 0 }, 1 / 60)
+        run.events.length = 0
+        if (e.hp < e.maxHP) hits++
+        e.speed = 0; e.hp = e.maxHP; e.x = p.x + 160; e.y = p.y
+      }
+      return [hits, run.gems.length === 0 ? 1 : 0]
+    } finally { sig.firedamp = F0 }
+  }
+  const trip = [tripOf(false), tripOf(true)]
+  assert.deepStrictEqual(trip, [[1, 0], [2, 1]],
+    `run MI.l: Return Trip must hit the body again on the way back and bring the gem home ([hits, gem home] without/with: ${JSON.stringify(trip)})`)
   assert.deepStrictEqual(ringA, [0, 1], `run MI.i: a ring sweeping over a pocket must set it off, and nothing else may (blasts without/with: ${ringA})`)
   // (h) THE STING IS THE CLOUD, THE BLAST IS FOR THE CROWD: one pocket goes off with you and a body
   // both just outside its drawn cloud but well inside its blast: the body is hurt, you are not; the

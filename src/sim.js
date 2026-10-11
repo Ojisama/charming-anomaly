@@ -261,7 +261,7 @@ import {
   SUNDOWN_SPEED_MUL, SUNDOWN_XP_MUL,
   PRISM_FAN, PRISM_LIFE, PRISM_R, ECHO_LIFE, STALACTITE_FUSE, STALACTITE_RANGE, CRYSTAL_CARDS, fillModDesc,
   PICKAXE_RANGE, PICKAXE_KB, PICKAXE_FLIGHT, PICKAXE_CHIP_DMG, PICKAXE_CHIP_SPEED, PICKAXE_CHIP_LIFE, PICKAXE_CHIP_R,
-  DYNAMITE_RANGE, DYNAMITE_FLIGHT, DYNAMITE_FUSE, DYNAMITE_KB, MINECART_SPEED, MINECART_FAN, MINECART_KB, MINECART_STUN,
+  DYNAMITE_RANGE, DYNAMITE_FLIGHT, DYNAMITE_FUSE, DYNAMITE_KB, MINECART_SPEED, MINECART_FAN, MINECART_KB, MINECART_STUN, MINECART_LOOT_R, MINECART_HOME_R,
   CANARY_REACH_MUL, CANARY_LINK_DMG, LANTERN_PULSE, MINE_BOOM_KEEP, MINE_GAS_FADE_IN, MINE_GAS_LIT_SHRINK,
   SLAG_RANGE, SLAG_FLIGHT, SLAG_TICK, OBSIDIAN_FAN, OBSIDIAN_LIFE, OBSIDIAN_R, SPLINTER_DMG_MUL, SPLINTER_LIFE, SPLINTER_SPEED, SPLINTER_R,
   BELLOWS_LIFE, BELLOWS_FLARE_MUL, BELLOWS_FLARE_R, BELLOWS_FLARE_T, BOMB_RANGE, BOMB_FLIGHT, BOMB_LAVA_R, BOMB_LAVA_T, HOT_FEET_OPEN_MUL, HOT_FEET_BURN_MUL,
@@ -15505,7 +15505,7 @@ function makeWeaponModCard(run, weaponId, modId, rarity) {
     if (!(rarity in cfg.values)) return null
     const bonus = cfg.values[rarity]
     return { kind: 'mod', id: modId, weapon: weaponId, title: cfg.name,
-      desc: cfg.descFor ? cfg.descFor(bonus) : cfg.args ? fillModDesc(cfg.desc, { n: bonus, ...cfg.args }) : cfg.desc.includes('{n}') ? cfg.desc.replaceAll('{n}', `${bonus}`) : `+${bonus} ${cfg.desc}`,
+      desc: cfg.descFor ? cfg.descFor(bonus) : cfg.args ? fillModDesc(cfg.desc, { n: bonus, ...cfg.args }) : cfg.desc.includes('{n}') ? cfg.desc.replaceAll('{n}', cfg.kind === 'pct' ? modPct(bonus) : `${bonus}`) : `+${cfg.kind === 'pct' ? modPct(bonus) : bonus} ${cfg.desc}`,
       tag: `${WEAPONS[weaponId].name} upgrade`, rarity, icon: cfg.icon, bonus }
   }
   const mult = RARITIES[rarity].mult
@@ -17194,6 +17194,7 @@ function stepPickaxeWeapon(run, w, stats, fireRateMul, dt) {
 // -- Dynamite ------------------------------------------------------------------------------------
 function stepDynamiteWeapon(run, w, stats, fireRateMul, dt) {
   const quick = run.weaponMods.dynamite?.shortFuse ?? 0
+  const fuse = DYNAMITE_FUSE * Math.max(0, 1 - (run.weaponMods.dynamite?.fastFuse ?? 0))
   fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => {
     const p = run.player
     // each stick goes to the nearest foe; more sticks than foes cycle back to the nearest
@@ -17201,7 +17202,7 @@ function stepDynamiteWeapon(run, w, stats, fireRateMul, dt) {
     if (!tg.length) return
     for (let i = 0; i < n; i++) {
       const sp = tg[i % tg.length]
-      run.sticks.push({ x: sp.x, y: sp.y, fromX: p.x, fromY: p.y, t: 0, flight: DYNAMITE_FLIGHT, fuse: DYNAMITE_FUSE,
+      run.sticks.push({ x: sp.x, y: sp.y, fromX: p.x, fromY: p.y, t: 0, flight: DYNAMITE_FLIGHT, fuse,
         r: stats.r, dmg: stats.dmg, seed: Math.floor(Math.random() * 1000) })
     }
     run.events.push({ type: 'shoot', weapon: 'dynamite', x: p.x, y: p.y })
@@ -17239,7 +17240,14 @@ function stepMinecartWeapon(run, w, stats, fireRateMul, dt) {
 }
 function stepCarts(run, dt) {
   if (!run.carts || run.carts.length === 0) return
+  const returnTrip = (run.weaponMods.minecart?.returnTrip ?? 0) > 0
+  const p = run.player
   for (const c of run.carts) {
+    if (c.back) {
+      // Return Trip: rolling home to wherever you are now
+      c.angle = Math.atan2(p.y - c.y, p.x - c.x)
+      c.vx = Math.cos(c.angle) * MINECART_SPEED; c.vy = Math.sin(c.angle) * MINECART_SPEED
+    }
     c.x += c.vx * dt
     c.y += c.vy * dt
     c.dist += MINECART_SPEED * dt
@@ -17262,7 +17270,17 @@ function stepCarts(run, dt) {
       }
     }
     gasLightAt(run, c.x, c.y, c.w)
-    if (c.dist >= c.range) c._done = true
+    if (returnTrip) {
+      // the gems and coins it rolls over are reeled home (_vac, the Street Sweeper idiom)
+      const rSq = (c.w + MINECART_LOOT_R) ** 2
+      for (const it of run.gems) if ((it.x - c.x) ** 2 + (it.y - c.y) ** 2 <= rSq) it._vac = true
+      for (const it of run.coins) if ((it.x - c.x) ** 2 + (it.y - c.y) ** 2 <= rSq) it._vac = true
+    }
+    if (c.back) {
+      if ((p.x - c.x) ** 2 + (p.y - c.y) ** 2 <= MINECART_HOME_R ** 2 || c.dist >= c.range * 3) c._done = true
+    } else if (c.dist >= c.range) {
+      if (returnTrip) { c.back = true; c.hit.clear() } else c._done = true
+    }
   }
   run.carts = run.carts.filter((c) => !c._done)
 }
