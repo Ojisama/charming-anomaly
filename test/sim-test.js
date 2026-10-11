@@ -39012,13 +39012,14 @@ function testGeodeCrystals() {
       r.enemies.push(e)
       for (let i = 0; i < 24; i++) r.bullets.push(shardAt(o, -Math.PI / 2 + (i - 12) * 0.02, specN ? { _specN: specN } : {}))
       steps(r, 2)
-      return { ignite: e.ignite, chill: e.chill }
+      return { ignite: e.ignite, chill: e.chill, venom: e.venom }
     }
-    const off = marks(0, 0), fire = marks(1, 0), cold = marks(1, 1)
+    const off = marks(0, 0), fire = marks(1, 0), cold = marks(1, 1), ven = marks(1, 2)
+    assert.ok(ven.venom > 0 && ven.chill === 0 && ven.ignite === 0, `run GC.c: a shard's third mark must envenom (only) its target: ${JSON.stringify(ven)}`)
     assert.ok(off.ignite === 0 && off.chill === 0, `run GC.c: without Spectrum the target was marked: ${JSON.stringify(off)}`)
     assert.ok(fire.ignite > 0, `run GC.c: a shard's first Spectrum mark must set its target burning: ${JSON.stringify(fire)}`)
     assert.ok(cold.chill > 0 && cold.ignite === 0, `run GC.c: a shard's second mark must chill (not burn) its target: ${JSON.stringify(cold)}`)
-    notes.push(`Spectrum ignite ${fire.ignite.toFixed(1)}s, chill ${cold.chill.toFixed(2)}`)
+    notes.push(`Spectrum ignite ${fire.ignite.toFixed(1)}s, chill ${cold.chill.toFixed(2)}, venom ${ven.venom.toFixed(2)}`)
   }
 
   // (d) CHARGED FACET

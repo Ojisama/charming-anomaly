@@ -6587,7 +6587,8 @@ function streamObstacles(run) {
       let y = (j + 0.5) * cs + (obstacleCellHash(i, j, xySeed, 3) - 0.5) * 2 * slack
       // a grown-back spot that cannot stand (the spawn ring, or on you) tries another next scan
       const regrowing = gen > 0 && run._crystalRegrown?.has(key)
-      if (regrowing && (Math.hypot(x, y) < cfg.minDist || Math.hypot(x - p.x, y - p.y) < cfg.maxR + PLAYER.radius + 60)) { run._crystalGen.set(key, gen + 1); continue }
+      if (regrowing && (Math.hypot(x, y) < cfg.minDist || Math.hypot(x - p.x, y - p.y) < cfg.maxR + PLAYER.radius + 60
+        || crystalAt(run, x, y, cfg.maxR + 12))) { run._crystalGen.set(key, gen + 1); continue }
       if (Math.hypot(x, y) < cfg.minDist) continue                      // spawn ring stays clear
       if (Math.hypot(x - p.x, y - p.y) > OBSTACLE_STREAM_RADIUS) continue
       // v5.9 top-down region overhaul: keep structures off the streets. roadAt is a pure hash (see
@@ -16496,9 +16497,14 @@ function stepCrystals(run, dt) {
   }
   // A grown-back cell waits for a re-scan (the scan only runs on a cell crossing, and skips a spot
   // you are standing on), so ask for one twice a second while any is waiting.
+  // Only for a waiting cell within streaming reach: one left far behind waits for the walk back.
   if (run._crystalRegrown?.size && run.time >= (run._regrowScanAt ?? 0)) {
     run._regrowScanAt = run.time + 0.5
-    run._obCellI = null
+    const cs = CHAPTERS[run.chapter].obstacles?.cell ?? OBSTACLE_CELL, p = run.player
+    for (const key of run._crystalRegrown) {
+      const [i, j] = key.split(',').map(Number)
+      if (Math.hypot((i + 0.5) * cs - p.x, (j + 0.5) * cs - p.y) <= OBSTACLE_STREAM_RADIUS) { run._obCellI = null; break }
+    }
   }
   // LODESTONE: a crystal with a pull running draws every body near its face onto the face.
   const L = CRYSTAL_CARDS.lodestone
