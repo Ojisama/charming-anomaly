@@ -2168,6 +2168,7 @@ function generateWells(sig) {
  *     chain 0 = set off by a player weapon this frame; n = the nth link of a chain. It blasts once.
  *   sticks[i]: { x, y, fromX, fromY, t, flight, fuse, r, dmg, seed } — Dynamite: in the air for
  *     `flight` s from (fromX, fromY) to (x, y), then fizzing for `fuse` s, then {type:'dynamite'}.
+ *   picks[i]: { x, y, r, dmg, count, angle, tid, t } — a thrown Pickaxe: its blow lands at (x, y) in t s.
  *   carts[i]: { x, y, angle, vx, vy, dist, range, w, dmg, hit } — a Minecart rolling (w = half-width).
  *   lanternR: the Lantern's glow radius this frame (0 = no lantern held). Republished every step.
  *   booms[i]: { x, y, r, chain, kind: 'gas'|'dynamite', at } — the blasts of the last MINE_BOOM_KEEP
@@ -2178,7 +2179,7 @@ function generateWells(sig) {
  *     it laid its last trail pocket; the next one is GASBAG_TRAIL.spacing px from it).
  *   Hurt src: 'firedamp' (a blast with the player inside it; the normal hurt path, invuln after).
  *   Events: {type:'gasBlast', x, y, r, chain} a pocket went off (r = blast radius, chain as above);
- *     {type:'pickaxe', x, y, r, angle} a blow landed; {type:'dynamite', x, y, r} a stick blew up;
+ *     {type:'pickaxe', x, y, r, angle, flight} a pick thrown, its blow lands at (x, y) in flight s; {type:'dynamite', x, y, r} a stick blew up;
  *     {type:'shoot', weapon:'dynamite'|'minecart', x, y[, angle]} a throw / a push.
  *     all three have a sound in SFX_FOR_EVENT (main.js): gasBlast crush, dynamite explode, pickaxe hit.
  * BOOK 3, THE MAGMA (sim.js's Magma section; every drawing is src/pixel.js's, reached through
@@ -2988,7 +2989,7 @@ export function createRun(meta, opts = {}) {
     // own entities. Empty in every other chapter.
     pits: [], caveIns: [], snares: [], drips: [], echoes: [],
     // Book 3, The Mine (sim.js's Mine section): the firedamp field and the Mine's weapons' entities.
-    gas: [], gasLit: [], sticks: [], carts: [], lanternR: 0, booms: [],
+    gas: [], gasLit: [], sticks: [], picks: [], carts: [], lanternR: 0, booms: [],
     // Book 3 The Magma (sim.js's Magma section): the crust's cracks, and the weapons' own entities.
     cracks: [], slagPools: [], magmaLobs: [],
     sandbars: [],          // Book 2 surf: streamed dry patches (signature.bars) — see streamSandbars

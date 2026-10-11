@@ -20859,6 +20859,7 @@ run(testLeLargeWeapons)
   run(testMagmaFloor)
   run(testMagmaRiverBank)
   run(testFlyersSkipFloor)
+  run(testPickLandsLate)
   // A hand-typed filter that matched nothing is the silent pass without a parent watching:
   // `node test/sim-test.js supernova` printed ALL TESTS PASSED having run no scenario at all.
   if (_ran === 0 && !EXACT_SET) {
@@ -40008,4 +40009,29 @@ function testFlyersSkipFloor() {
   assert(lost[1] === 0, 'FL.c a flyer over open lava takes ' + lost[1])
   assert(lost[3] === 0, 'FL.d a flyer over a slag pool takes ' + lost[3])
   console.log('PASS run FL (flyers skip the floor): walkers lost ' + lost[0].toFixed(0) + ' / ' + lost[2].toFixed(0) + ' hp, flyers 0 / 0')
+}
+
+// the Pickaxe's blow lands when the thrown pick does, not on the throw
+function testPickLandsLate() {
+  Math.random = mulberry32(42002)
+  const r = createRun((() => { const m = makeMeta(); m.dev = true; return m })(), { chapter: 'mine', difficulty: 1 })
+  r.weapons = r.weapons.filter((w) => w.id === 'pickaxe')
+  assert(r.weapons.length === 1, 'PL setup: the Mine starts with the Pickaxe')
+  const e = makeStatusEnemy(r, { x: 200, y: 0, hp: 1e9, speed: 0 })
+  let thrownAt = -1, hpAtThrow = 0, hpLate = 0, hpLanded = 0
+  for (let i = 0; i < 600; i++) {
+    if (r.phase === 'levelup') { r.phase = 'playing'; r.levelUpChoices = [] }
+    r.player.x = 0; r.player.y = 0; r.player.hp = r.player.maxHP; r.player.invuln = 1
+    r.gas = []; r.enemies = [e]; e._dead = false; e.x = 200; e.y = 0
+    stepSim(r, { x: 0, y: 0 }, 1 / 60)
+    if (thrownAt < 0 && r.events.some((v) => v.type === 'pickaxe')) { thrownAt = i; hpAtThrow = e.hp }
+    if (thrownAt >= 0 && i === thrownAt + 7) hpLate = e.hp
+    if (thrownAt >= 0 && i === thrownAt + 10) { hpLanded = e.hp; break }
+    r.events.length = 0
+  }
+  assert(thrownAt >= 0, 'PL setup: the pick was never thrown')
+  assert(hpAtThrow === e.maxHP, 'PL.a the blow hit on the throw: ' + (e.maxHP - hpAtThrow))
+  assert(hpLate === e.maxHP, 'PL.b the blow hit while the pick was still in the air')
+  assert(hpLanded < e.maxHP, 'PL.c the blow never landed after the flight')
+  console.log('PASS run PL (pick lands late): 0 damage on the throw and 0.12s later, ' + (e.maxHP - hpLanded).toFixed(0) + ' once it landed')
 }
