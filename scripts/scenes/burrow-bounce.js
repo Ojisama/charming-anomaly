@@ -1,6 +1,6 @@
 // Book 3 The Geode: prism shards bouncing off a crystal. The player stands just right of the nearest
 // crystal pillar with a pack beyond it on the far side; the starter's shots strike the crystal and
-// turn (light-trails show the bend), the crystal chimes. 0.1s per frame, events forwarded.
+// turn (light-trails show the bend). 0.1s per frame, events forwarded.
 //   node scripts/fx-probe.mjs --scene scripts/scenes/burrow-bounce.js --chapter geode --url http://127.0.0.1:5912/ --out /tmp/bounce --frames 12
 H.breed(8)
 const cast = H.keep(8)
