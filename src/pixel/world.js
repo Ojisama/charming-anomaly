@@ -295,11 +295,10 @@ export const SHOT_PAINTERS = {
   shadow: [14, 7, (pc) => { pc.ellipse(7, 3.5, 6.4, 3, 'rgba(0,0,0,0.5)') }],
   // the bellows' blast is AIR, which you cannot see: what you see is what it carries — ash and
   // cinders swept off the floor and flung along it, a fleck of ash streaked by its speed, a live ember
-  puff: [10, 7, (pc) => {
-    pc.rect(0, 2, 3, 1, P.ash); pc.set(3, 2, P.ashHi)
-    pc.set(5, 5, P.rk2); pc.set(6, 5, P.ash)
-    pc.rect(6, 1, 2, 1, P.ash)
-    pc.set(8, 3, P.lava3); pc.set(9, 3, P.lava4)
+  puff: [10, 3, (pc) => {
+    pc.rect(0, 1, 3, 1, P.ash); pc.set(3, 1, P.ashHi)
+    pc.rect(4, 1, 2, 1, P.lava2); pc.rect(6, 1, 2, 1, P.lava3)
+    pc.set(8, 1, P.lava4); pc.set(9, 1, P.lava5); pc.set(8, 0, P.lava3); pc.set(8, 2, P.lava3)
   }],
   // a pool flared by the bellows: the lava GOUTS up and falls back — a heaving molten blob seen from
   // above, with gobs thrown off it and falling round it
