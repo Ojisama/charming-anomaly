@@ -2154,7 +2154,8 @@ function generateWells(sig) {
  *     _crystalGen (Map cell -> times it broke; salts where it grows back), _regrowScanAt,
  *     _crystalSeq, _lastRung (Fault Line). Bullet: _pierce0 (the pierce a prism shard was thrown
  *     with; a bounce restores it, signature.bounce.refill), _fam (Kaleidoscope's family {n}), _specN
- *     (Spectrum marks made), _spent (a burst shard: stops on a crystal, never bounces). Enemy:
+ *     (Spectrum marks made), _spent (a burst shard: stops on a crystal, never bounces), _from (the
+ *     shard a sub-shard split off; render continues its streak from it). Enemy:
  *     _specChill / _specVenom (Spectrum, run.time until; folded into the `chill` / `venom`
  *     contract fields by elSlow / elVenomAmp).
  *     Events: {type:'crystalGrow', x, y, r}; {type:'crystalFade', x, y, r} a seeded crystal ran
@@ -2165,9 +2166,10 @@ function generateWells(sig) {
  *     untouchable and harmless, and skipped by aiming and separation), quakeT/quakeX/quakeY (the
  *     eruption spot and the seconds until it erupts), tunnel ([{x,y}] the live trail of a digging
  *     mole), digVX/digVY (its heading). Private: _tun ('dig'|'quake'|'up'), _tunT. Run: _moleT.
- *   Bullets: weapon 'pebble' (Pebble Sling), 'prism' (Prism Shard, _bounces = crystals struck).
- *   Novas: look 'shovel' (a sector, `arc`), 'echo', 'chime' (a struck crystal's ring).
- *   Obstacles: kind 'crystal' (CHAPTERS.geode.obstacles.kind); o._chimeAt is its chime cooldown.
+ *   Bullets: weapon 'pebble' (Pebble Sling), 'prism' (Prism Shard, _bounces = its generation:
+ *     crystals its line has struck; a bounce removes the shard and queues its sub-shards).
+ *   Novas: look 'shovel' (a sector, `arc`), 'echo', 'chime' (a crystal going off: Charged Facet, Cracked Glass).
+ *   Obstacles: kind 'crystal' (CHAPTERS.geode.obstacles.kind); o._rungCdAt is when a shard bounce may ring it again.
  *   Events: {type:'moleQuake', x, y, r, t} the ground starts shaking where an eruption will land;
  *     {type:'moleErupt', x, y, r, hit} it came up (hit = it caught the player, hurt src 'mole');
  *     {type:'moleDive', x, y}; {type:'caveIn', x, y, r}; {type:'pitFall', x, y, r, rosterId};

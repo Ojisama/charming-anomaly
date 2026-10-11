@@ -473,17 +473,16 @@ export function createPixelRig(env) {
       for (const n of run.novas || []) {
         if (n.look === 'bellows') {
           const k = 1 - Math.max(0, n.life / (n.lifeMax || 1))
-          // a fan of hot-air ripples streaming out along the blast, thinning as it goes
-          const puffs = 5
-          for (let i = 0; i < puffs; i++) {
-            const a = n.angle - n.arc / 2 + (n.arc * (i + 0.5)) / puffs
-            for (const rr of [0.35, 0.65, 0.95]) {
-              const s = aGust.next(T.puff)
-              const d = n.r * (rr * (0.6 + 0.4 * k))
-              s.position.set(n.x + Math.cos(a) * d, n.y + Math.sin(a) * d)
-              s.rotation = Math.round(a / (Math.PI / 4)) * (Math.PI / 4)
-              s.alpha = 0.55 * (1 - k) * (1.1 - rr * 0.5)
-            }
+          // embers flung out along the blast: each its own ray and head start, racing to the reach
+          const seed = Math.round(n.x * 7 + n.y * 13)
+          for (let i = 0; i < 40; i++) {
+            const a = n.angle + n.arc * (hash(i, seed, 41) - 0.5)
+            const d = (n.maxR || n.r) * Math.min(1, 0.08 + 0.12 * hash(i, seed, 43) + k * (0.6 + 0.5 * hash(i, seed, 47)))
+            const s = aGust.next(T.puff)
+            s.position.set(n.x + Math.cos(a) * d, n.y + Math.sin(a) * d)
+            s.rotation = Math.round(a / (Math.PI / 4)) * (Math.PI / 4)
+            s.alpha = 1 - k * k
+            if (i % 8 === 0) addLight(s.position.x, s.position.y, 40, L_SLAG, 0.35 * (1 - k))
           }
           addLight(n.x + Math.cos(n.angle) * n.r * 0.6, n.y + Math.sin(n.angle) * n.r * 0.6, n.r * 0.9, L_SLAG, 0.25 * (1 - k))
         } else if (n.look === 'flare') {

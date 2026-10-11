@@ -949,8 +949,8 @@ export const SUNDOWN_XP_MUL = 1.6
 // reads that number from here through a {placeholder}, so a retune cannot leave the card stale.
 // balance_decision : one brake per crystal card, owner's numbers 2026-10-11
 export const CRYSTAL_CARDS = {
-  // Kaleidoscope (epic): a bounce past signature.bounce.split splits the shard on `chance` (the
-  // brake). `maxSplits` is a safety cap only: siblings one original shard's family may make.
+  // Kaleidoscope (epic): a bounce splits the shard into three sub-shards instead of two on `chance`
+  // (the brake). `maxSplits` is a safety cap only: third sub-shards one original shard's family may make.
   kaleidoscope: { chance: 0.35, maxSplits: 8 },
   // Spectrum (rare): each bounce, on `chance` (the brake), the shard's target takes the next colour
   // in turn: fire (applyIgnite at `ignitePotency`), chill (slowed by `chill`), venom (takes `venom`
@@ -2956,10 +2956,10 @@ export const WEAPONS = {
     ],
   },
   // Prism Shard: crystal shards at the nearest body (run.bullets, weapon 'prism'). In The Geode a
-  // shard that meets a crystal bounces off it, brighter (see CHAPTERS.geode.signature.bounce).
+  // shard that meets a crystal splits into two half shards (see CHAPTERS.geode.signature.bounce).
   prismShard: {
     name: 'Prism Shard',
-    desc: 'Flicks crystal shards at the nearest foe. Crystals bounce them back, brighter.',
+    desc: 'Flicks crystal shards at the nearest foe. A crystal splits a shard into two halves.',
     icon: '🔹', rarity: 'normal',
     levels: [
       { dmg: 13, interval: 0.50, count: 1, speed: 500, pierce: 2 },
@@ -3016,12 +3016,13 @@ export const WEAPONS = {
     name: 'Dynamite',
     desc: 'Throws a lit stick at a foe. It blows up a moment later and sets off any firedamp it reaches.',
     icon: '🧨', rarity: 'normal',
+    // balance_decision : owner: base damage +50% [2026-10-11]
     levels: [
-      { dmg: 48, interval: 2.3, r: 92, count: 1 },
-      { dmg: 56, interval: 2.15, r: 98, count: 1 },
-      { dmg: 66, interval: 2.0, r: 104, count: 2 },
-      { dmg: 78, interval: 1.85, r: 110, count: 2 },
-      { dmg: 94, interval: 1.7, r: 120, count: 3 },
+      { dmg: 48 * 1.5, interval: 2.3, r: 92, count: 1 },
+      { dmg: 56 * 1.5, interval: 2.15, r: 98, count: 1 },
+      { dmg: 66 * 1.5, interval: 2.0, r: 104, count: 2 },
+      { dmg: 78 * 1.5, interval: 1.85, r: 110, count: 2 },
+      { dmg: 94 * 1.5, interval: 1.7, r: 120, count: 3 },
     ],
   },
   // Minecart: a cart rolls out of you in a straight line (run.carts), hitting each body it passes
@@ -4419,7 +4420,7 @@ export const WEAPON_MODS = {
     // card says its limiter in the number the sim uses.
     ricochet:    { name: 'Ricochet',     desc: 'crystal bounce(s) per shard', icon: '↩️', kind: 'tier', maxPicks: 2 },
     kaleidoscope: { name: 'Kaleidoscope', icon: '🔶', kind: 'flat', maxPicks: 1, values: { epic: 1 },
-                   desc: 'After its second crystal bounce, each bounce has a {pct}% chance to split the shard again.',
+                   desc: 'Each crystal bounce has a {pct}% chance to split the shard into three instead of two.',
                    args: { pct: Math.round(CRYSTAL_CARDS.kaleidoscope.chance * 100) } },
     spectrum:    { name: 'Spectrum',     icon: '🌈', kind: 'flat', maxPicks: 1, values: { rare: 1 },
                    desc: 'Each crystal bounce has a {pct}% chance to mark the shard\'s target with the next colour in turn: it burns, then it is chilled, then it takes venom.',
@@ -4433,7 +4434,7 @@ export const WEAPON_MODS = {
     farCall:     { name: 'Far Call',     desc: 'pulse radius', icon: '⭕', base: 0.22, kind: 'pct' },
     rapidClick:  { name: 'Rapid Click',  desc: 'pulse rate', icon: '⏩', base: 0.25, kind: 'pct' },
     rebound:     { name: 'Rebound',      desc: 'pulse push', icon: '💨', base: 0.30, kind: 'pct' },
-    wideChime:   { name: 'Wide Chime',   desc: 'radius of a crystal\'s ring', icon: '🔔', base: 0.25, kind: 'pct' },
+    wideChime:   { name: 'Wide Chime',   desc: 'radius of the ring a crystal gives back to Echo Pulse', icon: '🔔', base: 0.25, kind: 'pct' },
     sympathy:    { name: 'Sympathy',     icon: '🎐', kind: 'flat', maxPicks: 1, values: { epic: 1 },
                    desc: 'A ringing crystal has a {pct}% chance to set each crystal near it ringing too, and each of those passes it on the same way.',
                    args: { pct: Math.round(CRYSTAL_CARDS.sympathy.chance * 100) } },
@@ -5058,7 +5059,8 @@ export const HYDRANT_JET_PUSH = 300    // px/s^2 outward on enemies inside a liv
 //  - blooms counts only soft clouds: enemy ink and every bilge slick are never evicted or counted
 export const LIVE_CAPS = { blooms: 600, bullets: 3000, homingShots: 1000, lures: 200, holes: 150 }
 // RENDER-ONLY: render.js draws at most this many (the newest); the rest still hit, unseen.
-export const DRAW_CAPS = { blooms: 120, bullets: 500, homingShots: 150, lures: 40, holes: 30, novas: 50 }
+export const DRAW_CAPS = { blooms: 120, bullets: 500, homingShots: 150, lures: 40, holes: 30, novas: 50, shardTrails: 200 }
+//  - shardTrails is the prism shards given a light-trail (render.js drawShardTrails)
 //  - novas is PER LOOK (breaker, bubble): each is ~25-30 shapes redrawn every frame
 export const ZONE_MAX_LIVE = 12     // cap on simultaneous zones. A fast cast rate plus count can
                                       // otherwise carpet the street with live hydrants.
@@ -9446,10 +9448,10 @@ CHAPTERS.topsoil = {
   },
 }
 // THE GEODE: the book's second chapter, a little richer. Crystal pillars stand on the cave floor
-// (run.obstacles, kind 'crystal') and every player shot that meets one BOUNCES (signature.bounce):
-// on to another crystal within signature.bounce.hop while it has bounces left, else steered toward
-// the nearest body on the open side, a little harder each time. Standing beside a crystal with the
-// crowd around you turns a starter into a pinball machine.
+// (run.obstacles, kind 'crystal') and every player shot that meets one SPLITS (signature.bounce)
+// into two sub-shards at half its damage: one on to another crystal within signature.bounce.hop
+// while it has bounces left, the other steered toward the nearest body on the open side. Standing
+// beside a crystal with the crowd around you turns a starter into a pinball machine.
 CHAPTERS.geode = {
   name: 'The Geode', tagline: 'everything rings in here', icon: '💎',
   weapons: ['prismShard', 'echoPulse', 'stalactite'], starter: 'prismShard',
@@ -9463,13 +9465,15 @@ CHAPTERS.geode = {
   signature: {
     type: 'crystals',
     // The bounce switch (tests turn it off with bounce = false). Off, a crystal simply stops a shot.
-    // balance_decision : bounce +25% dmg, splits twice, 3 per shot 2026-10-03
     // balance_decision : bounces no longer spend pierce [2026-10-11]
-    //  - refill: a bounce restores the pierce the shard was thrown with (fireVolley's _pierce0)
-    // balance_decision : crystal splits deal half damage [2026-10-11]
+    //  - refill: each sub-shard gets the pierce the shard was thrown with (fireVolley's _pierce0)
     // balance_decision : bounces steer to a nearby crystal first [2026-10-11]
     //  - hop: face-to-face px to the next crystal; hopCrowdR: bodies counted round it to choose
-    bounce: { refill: true, max: 3, dmgMul: 1.25, splitDmgMul: 0.5, life: 1.1, steer: 560, split: 2, splitFan: 0.45, chimeR: 90, chimeDmg: 0.8, chimeKb: 40, chimeCd: 0.25, chimeVac: 200, hop: 400, hopCrowdR: 160 },
+    // balance_decision : bounce splits shard into two half shards [2026-10-11]
+    //  - max: sub-shard generations (Ricochet adds one); each generation is subDmgMul of the last
+    // balance_decision : no chime on shard hits, owner [2026-10-11]
+    //  - a bounce still RINGS the crystal (Fault Line, Sympathy): rung* is that ring, once per rungCd
+    bounce: { refill: true, max: 3, subShards: 2, subDmgMul: 0.5, life: 1.1, steer: 560, splitFan: 0.45, rungR: 90, rungDmg: 0.8, rungKb: 40, rungCd: 0.25, hop: 400, hopCrowdR: 160 },
     // Echo Pulse: a crystal the ring reaches rings back at this fraction of its radius and damage.
     resonance: { radiusMul: 0.6, dmgMul: 0.6 },
   },
