@@ -2961,12 +2961,13 @@ export const WEAPONS = {
     name: 'Prism Shard',
     desc: 'Flicks crystal shards at the nearest foe. A crystal splits a shard into two halves.',
     icon: '🔹', rarity: 'normal',
+    // balance_decision : owner: a new shard only at levels 3 and 5 [2026-10-11]
     levels: [
       { dmg: 13, interval: 0.50, count: 1, speed: 500, pierce: 2 },
-      { dmg: 15, interval: 0.48, count: 2, speed: 510, pierce: 2 },
+      { dmg: 15, interval: 0.48, count: 1, speed: 510, pierce: 2 },
       { dmg: 17, interval: 0.47, count: 2, speed: 530, pierce: 2 },
-      { dmg: 20, interval: 0.42, count: 3, speed: 550, pierce: 2 },
-      { dmg: 25, interval: 0.36, count: 4, speed: 580, pierce: 3 },
+      { dmg: 20, interval: 0.42, count: 2, speed: 550, pierce: 2 },
+      { dmg: 25, interval: 0.36, count: 3, speed: 580, pierce: 3 },
     ],
   },
   // Echo Pulse: a ring of sound around you (run.novas, look 'echo'). Any crystal it reaches rings
