@@ -20853,6 +20853,7 @@ run(testLeLargeWeapons)
   run(testParkedRun)
   run(testBurrow)
   run(testGeodeCrystals)
+  run(testCrystalsWeapon)
   run(testMine)
   run(testMineGasbag)
   run(testMineGlyphTells)
@@ -22814,8 +22815,10 @@ function testDescPlaceholder() {
 
   Math.random = mulberry32(20260810)
   const seen = new Map()
-  const r = createRun(makeMeta(), { chapter: 'body' })
-  r.weapons = [...new Set([...want].map((k) => k.split(':')[0]))].map((id) => ({ id, level: 3 }))
+  // in The Geode, whose environment weapon (the crystals) is held without a slot
+  const dm = makeMeta(); dm.dev = true
+  const r = createRun(dm, { chapter: 'geode' })
+  r.weapons = [...new Set([...want].map((k) => k.split(':')[0]))].filter((id) => WEAPONS[id]).map((id) => ({ id, level: 3 }))
   for (let i = 0; i < 4000 && seen.size < want.size; i++) {
     r._screenRerolls = -1
     for (const c of buildLevelUpChoices(r)) {
@@ -38945,6 +38948,55 @@ function testBurrow() {
 //     it just left, while the first bounce already sends a sub-shard into the crowd;
 // (n) no chime (owner, 2026-10-11): shards bouncing off a crystal make no ring, hurt and push none
 //     of the bodies round it and reel in none of the gems, yet still RING it for Fault Line.
+// run CW: THE CRYSTALS ARE THE GEODE'S FOURTH WEAPON (owner, 2026-10-11). Their cards are offered in
+// The Geode whatever you hold, tagged as their own; a card that pays out through Echo Pulse or
+// Stalactite (`holds`) waits until you hold it; Crystal Bloom grows crystals round you; the build
+// sheet carries a Crystals row; and outside The Geode no crystal card is ever offered.
+function testCrystalsWeapon() {
+  const meta = () => { const m = makeMeta(); m.dev = true; return m }
+  const offered = (chapter, weapons, screens = 600) => {
+    Math.random = mulberry32(42001)
+    const r = createRun(meta(), { chapter })
+    r.weapons = weapons.map((id) => ({ id, level: 5 }))
+    const seen = new Map()
+    for (let i = 0; i < screens; i++) {
+      r._screenRerolls = -1
+      for (const c of buildLevelUpChoices(r)) if (c.kind === 'mod' && c.weapon === 'crystals') seen.set(c.id, c.tag)
+    }
+    return seen
+  }
+  const bare = offered('geode', ['prismShard'])
+  const all = offered('geode', ['prismShard', 'echoPulse', 'stalactite'])
+  const away = offered('mine', ['pickaxe'])
+  assert.ok(bare.has('ricochet') && bare.has('crystalBloom') && bare.get('ricochet') === 'Crystals upgrade',
+    `run CW.a: holding only the starter, the crystal cards must be offered as "Crystals upgrade" (saw ${JSON.stringify([...bare])})`)
+  assert.ok(!bare.has('wideChime') && !bare.has('seedCrystal') && all.has('wideChime') && all.has('seedCrystal'),
+    `run CW.b: Wide Chime and Seed Crystal wait for Echo Pulse / Stalactite (bare: ${[...bare.keys()]}, all: ${[...all.keys()]})`)
+  assert.strictEqual(away.size, 0, `run CW.c: no crystal card outside The Geode (saw ${[...away.keys()]})`)
+  // (d) CRYSTAL BLOOM: n crystals grow round you every `every` s, inside `near`, and fade after `secs`
+  const B = CRYSTAL_CARDS.crystalBloom
+  const grown = (n) => {
+    Math.random = mulberry32(42002)
+    const r = createRun(meta(), { chapter: 'geode', difficulty: 1 })
+    r.weapons = []; r.mods.spawnMul = 0; r.player.hp = r.player.maxHP = 1e6
+    if (n) { r.levelUpChoices = [{ kind: 'mod', weapon: 'crystals', id: 'crystalBloom', bonus: n }]; applyChoice(r, 0) }
+    const p = r.player, grew = []
+    for (let t = 0; t < (B.every + 0.5) * 60; t++) {
+      if (r.phase === 'levelup') { r.phase = 'playing'; r.levelUpChoices = [] }
+      r.weapons = []
+      stepSim(r, { x: 0, y: 0 }, 1 / 60)
+      for (const ev of r.events) if (ev.type === 'crystalGrow') grew.push(Math.round(Math.hypot(ev.x - p.x, ev.y - p.y)))
+      r.events.length = 0
+    }
+    const row = buildReadout(r).weapons.find((w) => w.id === 'crystals')
+    return { grew, row: row ? row.mods.map((m) => m.id).join() : null }
+  }
+  const g0 = grown(0), g3 = grown(3)
+  assert.ok(g0.grew.length === 0 && g3.grew.length === 3 && g3.grew.every((d) => d >= B.near[0] - 1 && d <= B.near[1] + 1),
+    `run CW.d: Crystal Bloom x3 must grow 3 crystals ${B.near[0]}-${B.near[1]}px from you after ${B.every}s, none without it (without: ${g0.grew}, with: ${g3.grew})`)
+  assert.ok(g0.row === null && g3.row === 'crystalBloom', `run CW.e: the build sheet carries a Crystals row once a crystal card is picked (without: ${g0.row}, with: ${g3.row})`)
+  console.log(`PASS run CW (crystals weapon): starter-only offers ${bare.size} crystal cards, all weapons ${all.size}, The Mine 0; Bloom x3 grew at ${g3.grew}px`)
+}
 function testGeodeCrystals() {
   const dt = 1 / 60
   const meta = () => { const m = makeMeta(); m.dev = true; return m }
@@ -38987,7 +39039,7 @@ function testGeodeCrystals() {
   // (a) RICOCHET
   {
     const bounces = (ric) => {
-      const r = boot(41001, { mods: { prismShard: { ricochet: ric } } })
+      const r = boot(41001, { mods: { crystals: { ricochet: ric } } })
       const o = crystal(r, P(r).x - 220, P(r).y)
       r.bullets.push(shardAt(o, 0, { _bounces: B.max }))
       return steps(r, 3).filter((e) => e.type === 'crystalBounce').length
@@ -39003,7 +39055,7 @@ function testGeodeCrystals() {
     K.chance = 1
     try {
       const split = (k) => {
-        const r = boot(41002, { mods: { prismShard: { kaleidoscope: k } } })
+        const r = boot(41002, { mods: { crystals: { kaleidoscope: k } } })
         const o = crystal(r, P(r).x, P(r).y - 400)
         const s0 = shardAt(o, 0.4, { dmg: 40 })
         r.bullets.push(s0)
@@ -39024,7 +39076,7 @@ function testGeodeCrystals() {
   // (c) SPECTRUM
   {
     const marks = (spec, specN) => {
-      const r = boot(41003, { mods: { prismShard: { spectrum: spec } } })
+      const r = boot(41003, { mods: { crystals: { spectrum: spec } } })
       const o = crystal(r, P(r).x + 300, P(r).y)
       const e = makeStatusEnemy(r, { x: o.x, y: o.y - 260, hp: 1e9, speed: 0 })
       r.enemies.push(e)
@@ -39044,7 +39096,7 @@ function testGeodeCrystals() {
     S.chance = 1
     try {
       const hopMark = (spec) => {
-        const r = boot(41014, { mods: { prismShard: { spectrum: spec } } })
+        const r = boot(41014, { mods: { crystals: { spectrum: spec } } })
         const c1 = crystal(r, P(r).x - 200, P(r).y - 400), c2 = crystal(r, c1.x + 250, c1.y)
         const e = makeStatusEnemy(r, { x: c1.x, y: c1.y + c1.r + 50, hp: 1e9, speed: 0 })
         r.enemies.push(e)
@@ -39064,7 +39116,7 @@ function testGeodeCrystals() {
   // (d) CHARGED FACET
   {
     const C = CRYSTAL_CARDS.chargedFacet
-    const r = boot(41004, { mods: { prismShard: { chargedFacet: 1 } } })
+    const r = boot(41004, { mods: { crystals: { chargedFacet: 1 } } })
     const o = crystal(r, P(r).x, P(r).y - 400)
     for (let i = 0; i < C.hits - 1; i++) r.bullets.push(shardAt(o, (i / C.hits) * Math.PI * 2))
     const first = steps(r, 2).filter((e) => e.type === 'crystalBurst').length
@@ -39084,7 +39136,7 @@ function testGeodeCrystals() {
   // (e) WIDE CHIME: Echo Pulse's own ring reaches a crystal, which rings back; the card widens that
   {
     const ringR = (w) => {
-      const r = boot(41005, { mods: { echoPulse: { wideChime: w } } })
+      const r = boot(41005, { mods: { crystals: { wideChime: w } } })
       const o = crystal(r, P(r).x + 120, P(r).y)
       const ev = []
       for (let i = 0; i < 200; i++) {
@@ -39107,7 +39159,7 @@ function testGeodeCrystals() {
     B.hop = 0   // the shard must strike crystal 1 alone: a pinball on to 2 and 3 would ring them itself
     try {
       const rings = (sym) => {
-        const r = boot(41006, { mods: { echoPulse: { sympathy: sym } } })
+        const r = boot(41006, { mods: { crystals: { sympathy: sym } } })
         const y = P(r).y - 500
         const c1 = crystal(r, P(r).x - 260, y), c2 = crystal(r, P(r).x, y), c3 = crystal(r, P(r).x + 260, y)
         assert.ok(Math.hypot(c3.x - c1.x, c3.y - c1.y) - c1.r - c3.r > S.reach, 'precondition: crystal 3 is out of crystal 1\'s reach')
@@ -39126,7 +39178,7 @@ function testGeodeCrystals() {
   // (g) FAULT LINE
   {
     const hurt = (fl) => {
-      const r = boot(41007, { mods: { echoPulse: { faultLine: fl } } })
+      const r = boot(41007, { mods: { crystals: { faultLine: fl } } })
       const y = P(r).y - 600
       const a = crystal(r, P(r).x - 300, y), b = crystal(r, P(r).x + 300, y)
       const on = makeStatusEnemy(r, { x: P(r).x, y, hp: 1e9, speed: 0 })
@@ -39149,7 +39201,7 @@ function testGeodeCrystals() {
     S.chance = 1
     try {
       const land = (sc) => {
-        const r = boot(41008, { mods: { stalactite: { seedCrystal: sc } } })
+        const r = boot(41008, { mods: { crystals: { seedCrystal: sc } } })
         const x = P(r).x + 260, y = P(r).y
         r.drips.push({ x, y, r: 50, dmg: 1, t: 0, fuse: 0.01, seed: 1 })
         steps(r, 2)
@@ -39310,7 +39362,7 @@ function testGeodeCrystals() {
   // (n) NO CHIME: three shards strike one crystal ringed by bodies and gems. Nothing but the shards
   // may touch them: no nova, no hp lost, no push, no gem reeled in. Fault Line still sees the ring.
   {
-    const r = boot(41014, { mods: { echoPulse: { faultLine: 1 } } })
+    const r = boot(41014, { mods: { crystals: { faultLine: 1 } } })
     const o = crystal(r, P(r).x, P(r).y - 500)
     const ring = [0, 1, 2, 3, 4, 5].map((k) => {
       const a = Math.PI / 6 + (k / 6) * Math.PI * 2

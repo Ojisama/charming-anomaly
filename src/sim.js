@@ -259,7 +259,7 @@ import {
   SHOVEL_LIFE, PEBBLE_CONE, PEBBLE_SPEED_JITTER, pebbleSpreadStones, PEBBLE_LIFE, PEBBLE_R, ROOT_SNARE_TICK, ROOT_SNARE_SLOW, ROOT_SNARE_HOLD_T, ROOT_SNARE_RANGE,
   FURROW_STEP, FURROW_KEEP, FURROW_DELAY, FURROW_STAGGER, FURROW_PIT_OPEN, FURROW_PIT_LIFE, FURROW_PIT_FILL, FURROW_PIT_MAX, FURROW_JUMP, FURROW_LANE_GAP,
   SUNDOWN_SPEED_MUL, SUNDOWN_XP_MUL,
-  PRISM_FAN, PRISM_LIFE, PRISM_R, ECHO_LIFE, STALACTITE_FUSE, STALACTITE_RANGE, CRYSTAL_CARDS, fillModDesc,
+  PRISM_FAN, PRISM_LIFE, PRISM_R, ECHO_LIFE, STALACTITE_FUSE, STALACTITE_RANGE, CRYSTAL_CARDS, ENV_WEAPONS, fillModDesc,
   PICKAXE_RANGE, PICKAXE_KB, PICKAXE_FLIGHT, PICKAXE_CHIP_DMG, PICKAXE_CHIP_SPEED, PICKAXE_CHIP_LIFE, PICKAXE_CHIP_R,
   DYNAMITE_RANGE, DYNAMITE_FLIGHT, DYNAMITE_FUSE, DYNAMITE_KB, MINECART_SPEED, MINECART_FAN, MINECART_KB, MINECART_STUN, MINECART_LOOT_R, MINECART_HOME_R,
   CANARY_REACH_MUL, CANARY_LINK_DMG, LANTERN_PULSE, MINE_BOOM_KEEP, MINE_GAS_FADE_IN, MINE_GAS_LIT_SHRINK,
@@ -474,8 +474,8 @@ export function applyChoice(run, i, subject = null) {
       run.charge = Math.min(run.chargeMax, run.charge + grew)
     }
   } else if (choice.kind === 'mod') {
-    const mods = run.weaponMods[choice.weapon]
-    const picks = run.weaponModPicks[choice.weapon]
+    const mods = (run.weaponMods[choice.weapon] ??= {})
+    const picks = (run.weaponModPicks[choice.weapon] ??= {})
     mods[choice.id] = (mods[choice.id] ?? 0) + choice.bonus
     picks[choice.id] = (picks[choice.id] ?? 0) + 1
   } else if (choice.kind === 'element') {
@@ -4561,10 +4561,11 @@ export function endlessHandover(run) {
 const LEGENDARY_RANK = RARITY_ORDER.indexOf('legendary')
 export function autopilotPick(run, choices) {
   const owned = new Set(run.weapons.map((w) => w.id))
+  const env = CHAPTERS[run.chapter]?.envWeapon
   const tier = (c) => {
     if (c.kind !== 'anomaly' && RARITY_ORDER.indexOf(c.rarity) >= LEGENDARY_RANK) return 6
     if (c.kind === 'weapon') return owned.has(c.id) ? 5 : owned.size <= 1 ? 3 : 0
-    if (c.kind === 'mod') return owned.has(c.weapon) ? 4 : 0
+    if (c.kind === 'mod') return owned.has(c.weapon) || c.weapon === env ? 4 : 0
     if (c.kind === 'passive') return 2
     if (c.kind === 'element') return 1
     return 0
@@ -10509,6 +10510,14 @@ export function buildReadout(run) {
       .map((id) => ({ id, bonus: mods[id] ?? 0, picks: picks[id] ?? 0, kind: WEAPON_MODS[w.id][id].kind }))
     return { id: w.id, level: w.level, maxLevel: cfg.levels.length, stats, mods: modList }
   })
+  const env = CHAPTERS[run.chapter]?.envWeapon
+  if (env) {
+    const picks = run.weaponModPicks[env] ?? {}, mods = run.weaponMods[env] ?? {}
+    const modList = Object.keys(WEAPON_MODS[env] ?? {})
+      .filter((id) => (picks[id] ?? 0) > 0)
+      .map((id) => ({ id, bonus: mods[id] ?? 0, picks: picks[id] ?? 0, kind: WEAPON_MODS[env][id].kind }))
+    if (modList.length) weapons.push({ id: env, level: 0, maxLevel: 0, stats: [], mods: modList, env: true })
+  }
   const passives = Object.keys(run.passives)
     .filter((id) => (run.passivePicks[id] ?? 0) > 0)
     .map((id) => ({ id, bonus: run.passives[id], picks: run.passivePicks[id] }))
@@ -15356,7 +15365,8 @@ export function eligibleWeaponModCandidates(run) {
   // The three numbers have to move together or the card is a rate the player cannot see.
   const focus = specialistFocus(run)
   const blind = !!run.anomalies?.blindFaith
-  for (const w of run.weapons) {
+  const env = CHAPTERS[run.chapter]?.envWeapon
+  for (const w of env ? [...run.weapons, { id: env }] : run.weapons) {
     const modCfgs = WEAPON_MODS[w.id]
     if (!modCfgs) continue
     const picks = run.weaponModPicks[w.id]
@@ -15380,7 +15390,9 @@ export function eligibleWeaponModCandidates(run) {
       // reserved slot below places it. Excluding the whole class rather than filtering it in is
       // what keeps that gate authored once: devCards still ignores eligibility by design, and the
       // fire sites still fall back to the veil's level-1 numbers.
-      && !modCfgs[modId].needs)
+      && !modCfgs[modId].needs
+      // `holds`: a card that pays out only through another weapon waits until the run holds it
+      && (!modCfgs[modId].holds || run.weapons.some((o) => o.id === modCfgs[modId].holds)))
     shuffleInPlace(owned)
     // SPECIALIST's price: every weapon that is NOT the focus puts one fewer mod in the pool. Only
     // charged when a focus actually exists, and floored at 1 so a weapon is never silenced.
@@ -15506,7 +15518,7 @@ function makeWeaponModCard(run, weaponId, modId, rarity) {
     const bonus = cfg.values[rarity]
     return { kind: 'mod', id: modId, weapon: weaponId, title: cfg.name,
       desc: cfg.descFor ? cfg.descFor(bonus) : cfg.args ? fillModDesc(cfg.desc, { n: bonus, ...cfg.args }) : cfg.desc.includes('{n}') ? cfg.desc.replaceAll('{n}', cfg.kind === 'pct' ? modPct(bonus) : `${bonus}`) : `+${cfg.kind === 'pct' ? modPct(bonus) : bonus} ${cfg.desc}`,
-      tag: `${WEAPONS[weaponId].name} upgrade`, rarity, icon: cfg.icon, bonus }
+      tag: `${(WEAPONS[weaponId] ?? ENV_WEAPONS[weaponId]).name} upgrade`, rarity, icon: cfg.icon, bonus }
   }
   const mult = RARITIES[rarity].mult
   let bonus
@@ -15538,7 +15550,7 @@ function makeWeaponModCard(run, weaponId, modId, rarity) {
     : cfg.desc.includes('{n}')
       ? cfg.desc.replaceAll('{n}', nStr)
       : `+${nStr} ${cfg.desc}`
-  return { kind: 'mod', id: modId, weapon: weaponId, title: cfg.name, desc, tag: `${WEAPONS[weaponId].name} upgrade`, rarity, icon: cfg.icon, bonus }
+  return { kind: 'mod', id: modId, weapon: weaponId, title: cfg.name, desc, tag: `${(WEAPONS[weaponId] ?? ENV_WEAPONS[weaponId]).name} upgrade`, rarity, icon: cfg.icon, bonus }
 }
 
 // An element card adopts whatever rarity was rolled for its slot, same as passives.
@@ -16481,9 +16493,14 @@ function removeCrystal(run, o, broke, regrow) {
   run.events.push({ type: broke ? 'crystalBreak' : 'crystalFade', x: o.x, y: o.y, r: o.r })
   return true
 }
-// Per step, Geode only: seeded crystals run out, broken cells grow back, Lodestone pulls.
+// Per step, Geode only: seeded crystals run out, broken cells grow back, Crystal Bloom grows, Lodestone pulls.
 function stepCrystals(run, dt) {
   if (!crystalSpec(run)) return
+  const bloom = run.weaponMods.crystals?.crystalBloom ?? 0
+  if (bloom > 0 && (run._bloomT = (run._bloomT ?? 0) + dt) >= CRYSTAL_CARDS.crystalBloom.every) {
+    run._bloomT = 0
+    crystalBloom(run, bloom)
+  }
   for (let k = run.obstacles.length - 1; k >= 0; k--) {
     const o = run.obstacles[k]
     if (o.kind === 'crystal' && o.ttl != null && run.time - o.born >= o.ttl) removeCrystal(run, o, false, 0)
@@ -16541,7 +16558,7 @@ function stepCrystalShot(run, b, spec) {
   if (!o) return
   const B = spec.bounce
   const prism = b.weapon === 'prism'
-  const pm = prism ? (run.weaponMods.prismShard ?? {}) : {}
+  const pm = prism ? (run.weaponMods.crystals ?? {}) : {}
   // A shard's _bounces is its generation: how many crystals its line has struck. The original is 0.
   const gen = b._bounces ?? 0
   const limit = B ? B.max + (pm.ricochet ?? 0) : 0
@@ -16702,7 +16719,7 @@ function spectrumMark(run, e, n, dmg) {
 // Every time a crystal RINGS (a shard bouncing off it, an Echo Pulse ring-back, a burst): Fault
 // Line looks for a partner rung just before it, and Sympathy rings its neighbours.
 function crystalRang(run, o, dmg, reach, kb, wave) {
-  const em = run.weaponMods.echoPulse
+  const em = run.weaponMods.crystals
   if (em?.faultLine > 0) faultFrom(run, o, dmg)
   o._rungAt = run.time
   if (em?.sympathy > 0) sympathyFrom(run, o, dmg, reach, kb, wave)
@@ -16764,6 +16781,21 @@ function trySeedCrystal(run, x, y) {
   if (crystalAt(run, x, y, S.r + 12)) return
   if (Math.random() >= S.chance) return
   addCrystal(run, x, y, S.r, S.secs)
+}
+// CRYSTAL BLOOM: `n` crystals grow round you, each on its own bearing, never on another crystal.
+function crystalBloom(run, n) {
+  const B = CRYSTAL_CARDS.crystalBloom, p = run.player
+  const a0 = Math.random() * Math.PI * 2
+  for (let i = 0; i < n; i++) {
+    for (let tries = 0; tries < 6; tries++) {
+      const a = a0 + (i / n) * Math.PI * 2 + (Math.random() - 0.5) * 0.6
+      const d = B.near[0] + Math.random() * (B.near[1] - B.near[0])
+      const x = p.x + Math.cos(a) * d, y = p.y + Math.sin(a) * d
+      if (crystalAt(run, x, y, B.r + 12)) continue
+      addCrystal(run, x, y, B.r, B.secs)
+      break
+    }
+  }
 }
 function flushCrystalSplits(run) {
   if (!run._crystalSplits || run._crystalSplits.length === 0) return
@@ -16900,7 +16932,7 @@ function stepEchoWeapon(run, w, stats, fireRateMul, dt) {
     // Every crystal the ring will reach rings back when it gets there.
     const res = crystalSpec(run)?.resonance
     if (!res) return
-    const em = run.weaponMods.echoPulse
+    const em = run.weaponMods.crystals
     const wide = 1 + (em?.wideChime ?? 0)   // Wide Chime
     // SYMPATHY: one cast is one wave, holding every crystal the click itself reaches.
     const wave = em?.sympathy > 0 ? { rung: new Set() } : null
@@ -16950,7 +16982,7 @@ function stepDrips(run, dt) {
       applyDamage(run, e, dr.dmg)
     }
     run.events.push({ type: 'stalactite', x: dr.x, y: dr.y, r: dr.r })
-    if ((run.weaponMods.stalactite?.seedCrystal ?? 0) > 0 && crystalSpec(run)) trySeedCrystal(run, dr.x, dr.y)
+    if ((run.weaponMods.crystals?.seedCrystal ?? 0) > 0 && crystalSpec(run)) trySeedCrystal(run, dr.x, dr.y)
   }
   run.drips = run.drips.filter((dr) => !dr._done)
 }

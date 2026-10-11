@@ -970,6 +970,9 @@ export const CRYSTAL_CARDS = {
   // Seed Crystal (rare): a landed stone leaves a crystal of radius `r` for `secs` s on `chance`
   // (the brake). Never within `clear` px of you, and never on another crystal.
   seedCrystal: { chance: 0.2, secs: 8, r: 34, clear: 90 },
+  // Crystal Bloom (rare+): every `every` s, (the card's count) crystals of radius `r` grow `near` px
+  // from you, for `secs` s (the brake). Never on another crystal.
+  crystalBloom: { every: 6, secs: 10, r: 34, near: [170, 320] },
   // Lodestone (anomaly, a malus): a struck crystal pulls the bodies within `reach` px of its face
   // onto it at `pull` px/s for `secs` s, and tugs YOU at `playerPull` px/s (the cost). The tug
   // stops while any body is within `playerGuard` px of your edge, so it never drags you into one.
@@ -981,6 +984,11 @@ export const CRYSTAL_CARDS = {
 }
 // A mod desc's {placeholders} filled for the plain-English consumers (the card's own desc, the dev
 // menu, tests); ui.js sends the same desc and args through tt() for the screen.
+// A chapter's ENVIRONMENT WEAPON: no level, no slot, never offered as a weapon card, but it owns a
+// WEAPON_MODS entry the level-up pool offers in its chapter (CHAPTERS[id].envWeapon) whatever you hold.
+export const ENV_WEAPONS = {
+  crystals: { name: 'Crystals', icon: '💎' },
+}
 export function fillModDesc(desc, params) { return desc.replace(/\{(\w+)\}/g, (m, k) => (k in params ? String(params[k]) : m)) }
 export const ANOMALIES = {
   unstableCores: {
@@ -4423,8 +4431,23 @@ export const WEAPON_MODS = {
     shardSpray:  { name: 'Shard Spray',  desc: 'extra shard(s) per throw', icon: '🔷', kind: 'tier' },
     flickRate:   { name: 'Quick Flick',  desc: 'throw rate', icon: '⏩', base: 0.25, kind: 'pct' },
     cleave:      { name: 'Cleave',       desc: 'shard pierce', icon: '🎯', base: 1, kind: 'flat', maxPicks: PIERCE_MAX_PICKS },
-    // The crystal cards (CRYSTAL_CARDS). `args` fills a desc's {placeholders} (modDescArgs), so the
-    // card says its limiter in the number the sim uses.
+  },
+  echoPulse: {
+    loudClick:   { name: 'Loud Click',   desc: 'pulse damage', icon: '💥', base: 0.30, kind: 'pct' },
+    farCall:     { name: 'Far Call',     desc: 'pulse radius', icon: '⭕', base: 0.22, kind: 'pct' },
+    rapidClick:  { name: 'Rapid Click',  desc: 'pulse rate', icon: '⏩', base: 0.25, kind: 'pct' },
+    rebound:     { name: 'Rebound',      desc: 'pulse push', icon: '💨', base: 0.30, kind: 'pct' },
+  },
+  stalactite: {
+    heavyStone:  { name: 'Heavy Stone',  desc: 'drop damage', icon: '💥', base: 0.30, kind: 'pct' },
+    rockfall:    { name: 'Rockfall',     desc: 'extra stone(s) per cast', icon: '🔷', kind: 'tier' },
+    wideCrash:   { name: 'Wide Crash',   desc: 'impact radius', icon: '⭕', base: 0.25, kind: 'pct' },
+    dripRate:    { name: 'Quick Drip',   desc: 'cast rate', icon: '⏩', base: 0.25, kind: 'pct' },
+  },
+  // THE CRYSTALS: The Geode's fourth weapon is the field itself (ENV_WEAPONS.crystals), so its cards
+  // are offered whatever you hold. `holds` keeps a card out of the pool until the run holds the weapon
+  // it pays out through. `args` fills a desc's {placeholders}, so the card says its limiter.
+  crystals: {
     ricochet:    { name: 'Ricochet',     desc: 'crystal bounce(s) per shard', icon: '↩️', kind: 'tier', maxPicks: 2 },
     kaleidoscope: { name: 'Kaleidoscope', icon: '🔶', kind: 'flat', maxPicks: 1, values: { epic: 1 },
                    desc: 'Each crystal bounce has a {pct}% chance to split the shard into three instead of two.',
@@ -4435,28 +4458,20 @@ export const WEAPON_MODS = {
     chargedFacet: { name: 'Charged Facet', icon: '✴️', kind: 'flat', maxPicks: 1, values: { epic: 1 },
                    desc: 'A crystal counts the shards it bounces. Every {hits}th sets off a big ring and a spray of shards.',
                    args: { hits: CRYSTAL_CARDS.chargedFacet.hits } },
-  },
-  echoPulse: {
-    loudClick:   { name: 'Loud Click',   desc: 'pulse damage', icon: '💥', base: 0.30, kind: 'pct' },
-    farCall:     { name: 'Far Call',     desc: 'pulse radius', icon: '⭕', base: 0.22, kind: 'pct' },
-    rapidClick:  { name: 'Rapid Click',  desc: 'pulse rate', icon: '⏩', base: 0.25, kind: 'pct' },
-    rebound:     { name: 'Rebound',      desc: 'pulse push', icon: '💨', base: 0.30, kind: 'pct' },
-    wideChime:   { name: 'Wide Chime',   desc: 'radius of the ring a crystal gives back to Echo Pulse', icon: '🔔', base: 0.25, kind: 'pct' },
+    wideChime:   { name: 'Wide Chime',   desc: 'radius of the ring a crystal gives back to Echo Pulse', icon: '🔔', base: 0.25, kind: 'pct', holds: 'echoPulse' },
     sympathy:    { name: 'Sympathy',     icon: '🎐', kind: 'flat', maxPicks: 1, values: { epic: 1 },
                    desc: 'A ringing crystal has a {pct}% chance to set each crystal near it ringing too, and each of those passes it on the same way.',
                    args: { pct: Math.round(CRYSTAL_CARDS.sympathy.chance * 100) } },
     faultLine:   { name: 'Fault Line',   icon: '⚡', kind: 'flat', maxPicks: 1, values: { epic: 1 },
                    desc: 'When two crystals ring within {win}s of each other, a beam joins them for {secs}s and hurts whatever crosses it. Only one beam at a time: the newest pair takes it.',
                    args: { win: CRYSTAL_CARDS.faultLine.window, secs: CRYSTAL_CARDS.faultLine.secs } },
-  },
-  stalactite: {
-    heavyStone:  { name: 'Heavy Stone',  desc: 'drop damage', icon: '💥', base: 0.30, kind: 'pct' },
-    rockfall:    { name: 'Rockfall',     desc: 'extra stone(s) per cast', icon: '🔷', kind: 'tier' },
-    wideCrash:   { name: 'Wide Crash',   desc: 'impact radius', icon: '⭕', base: 0.25, kind: 'pct' },
-    dripRate:    { name: 'Quick Drip',   desc: 'cast rate', icon: '⏩', base: 0.25, kind: 'pct' },
-    seedCrystal: { name: 'Seed Crystal', icon: '💎', kind: 'flat', maxPicks: 1, values: { rare: 1 },
+    seedCrystal: { name: 'Seed Crystal', icon: '💎', kind: 'flat', maxPicks: 1, values: { rare: 1 }, holds: 'stalactite',
                    desc: 'A falling stone has a {pct}% chance to leave a crystal where it lands, for {secs}s.',
                    args: { pct: Math.round(CRYSTAL_CARDS.seedCrystal.chance * 100), secs: CRYSTAL_CARDS.seedCrystal.secs } },
+    crystalBloom: { name: 'Crystal Bloom', icon: '🌱', kind: 'flat', maxPicks: 2,
+                   values: { rare: 1, epic: 2, legendary: 3, mythic: 4 },
+                   desc: 'Every {every}s, {n} crystal(s) grow near you. Each lasts {secs}s.',
+                   args: { every: CRYSTAL_CARDS.crystalBloom.every, secs: CRYSTAL_CARDS.crystalBloom.secs } },
   },
   // ---- The Mine ----
   pickaxe: {
@@ -9472,7 +9487,7 @@ CHAPTERS.topsoil = {
 // beside a crystal with the crowd around you turns a starter into a pinball machine.
 CHAPTERS.geode = {
   name: 'The Geode', tagline: 'everything rings in here', icon: '💎',
-  weapons: ['prismShard', 'echoPulse', 'stalactite'], starter: 'prismShard',
+  weapons: ['prismShard', 'echoPulse', 'stalactite'], starter: 'prismShard', envWeapon: 'crystals',
   roster: [
     { id: 'olm',         archetype: 'normal', name: 'Olm',          hpMul: 0.9, speedMul: 0.9, flags: ['weave'] },
     { id: 'caveCricket', archetype: 'fast',   name: 'Cave Cricket', hpMul: 0.7, speedMul: 1.0, flags: ['pounce'], dmgMul: 0.7 },
