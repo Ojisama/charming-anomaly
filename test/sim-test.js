@@ -32861,9 +32861,9 @@ function testTheDeep() {
     const code2 = rsrc2.replace(/^\s*\/\/.*$/gm, '')
     assert.ok(/siphonophore: \{[^}]*childDraw:/.test(code2),
       'run DP.m: ROSTER_LOOKS.siphonophore declares no childDraw — its swarm is drawn as a field of tiny complete colonies')
-    assert.ok(/childDraw\) T\.roster\[id \+ '_child'\]/.test(code2),
+    assert.ok(/childDraw\) rosterBakers\[id \+ '_child'\]/.test(code2),
       "run DP.m: nothing bakes the '_child' look, so the key syncEnemies asks for can never exist and the fallback is silent")
-    assert.ok(/_splitChild && T\.roster\[e\.rosterId \+ '_child'\]/.test(code2),
+    assert.ok(/_splitChild && rosterBakers\[e\.rosterId \+ '_child'\]/.test(code2),
       'run DP.m: syncEnemies no longer prefers the child look for a split child — the bake exists and nothing reads it')
     console.log(`PASS run DP.m (the colony comes apart): ${sp.count} zooids at ${sp.hpFrac} hp and ${sp.radiusFrac} radius, x${sp.speedMul} speed and x${sp.dmgMul} contact, carrying ${xpShare.toFixed(2)} of the colony's xp, drawn from their own bake`)
   }
