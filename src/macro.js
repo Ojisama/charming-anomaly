@@ -1777,7 +1777,7 @@ export function paintStalactite() {
 // so the frames of one seed are the same roots, longer.
 export const SNARE_R0 = 100
 export const SNARE_GROW_K = [0.15, 0.35, 0.6, 0.8, 1]
-export const SNARE_SEEDS = 2
+export const SNARE_SEEDS = 6
 // A wandering path of n steps, pulled back toward heading `aim` each step.
 function walkPts(rnd, x, y, a, L, n, wob, kink, pull, aim) {
   const pts = [[x, y]]
@@ -1874,13 +1874,15 @@ export function paintRootSnare(seed, k) {
     g.addColorStop(0, `rgba(12,7,3,${0.21 * kE})`); g.addColorStop(0.86, `rgba(10,6,3,${0.3 * kE})`)
     g.addColorStop(0.955, `rgba(6,3,1,${0.55 * kE})`); g.addColorStop(1, 'rgba(6,3,1,0)')
     ctx.beginPath(); ctx.arc(0, 0, R * 1.04, 0, TAU); ctx.fillStyle = g; ctx.fill()
-    const roots = []
-    for (let i = 0; i < 7; i++) {
-      const a0 = (i / 7) * TAU + (rnd() - 0.5) * 0.5
-      let pts = walkPts(rnd, Math.cos(a0) * 5, Math.sin(a0) * 5, a0, R, 18, 0.22, 0.12, 0.12, a0)
-      const [ex, ey] = pts[pts.length - 1], sc = R * (0.9 + rnd() * 0.06) / hypot(ex, ey)
+    // every seed its own layout: how many roots, uneven gaps, each root's reach, girth and branching
+    const roots = [], nR = 4 + Math.floor(rnd() * 5), spin = rnd() * TAU
+    for (let i = 0; i < nR; i++) {
+      const a0 = spin + ((i + (rnd() - 0.5) * 0.8) / nR) * TAU
+      let pts = walkPts(rnd, Math.cos(a0) * 5, Math.sin(a0) * 5, a0, R, 18, 0.18 + rnd() * 0.16, 0.06 + rnd() * 0.14, 0.12, a0)
+      const [ex, ey] = pts[pts.length - 1], sc = R * (0.62 + rnd() * 0.34) / hypot(ex, ey)
       pts = pts.map(([x, y]) => [x * sc, y * sc])
-      roots.push({ pts, w: 7 + rnd() * 3, s: rnd() * 1e6, br: [0, 1].map(() => ({ t: 0.25 + rnd() * 0.45, da: (rnd() < 0.5 ? 1 : -1) * (0.5 + rnd() * 0.5), L: R * (0.25 + rnd() * 0.2), s: rnd() * 1e6 })) })
+      const nB = Math.floor(rnd() * 4)
+      roots.push({ pts, w: 5 + rnd() * 6, s: rnd() * 1e6, br: Array.from({ length: nB }, () => ({ t: 0.2 + rnd() * 0.55, da: (rnd() < 0.5 ? 1 : -1) * (0.4 + rnd() * 0.7), L: R * (0.18 + rnd() * 0.3), s: rnd() * 1e6 })) })
     }
     // the holes the tips dive back into
     if (k > 0.85) {
