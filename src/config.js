@@ -3016,12 +3016,13 @@ export const WEAPONS = {
     name: 'Dynamite',
     desc: 'Throws a lit stick at a foe. It blows up a moment later and sets off any firedamp it reaches.',
     icon: '🧨', rarity: 'normal',
+    // balance_decision : owner: base damage +50% [2026-10-11]
     levels: [
-      { dmg: 48, interval: 2.3, r: 92, count: 1 },
-      { dmg: 56, interval: 2.15, r: 98, count: 1 },
-      { dmg: 66, interval: 2.0, r: 104, count: 2 },
-      { dmg: 78, interval: 1.85, r: 110, count: 2 },
-      { dmg: 94, interval: 1.7, r: 120, count: 3 },
+      { dmg: 48 * 1.5, interval: 2.3, r: 92, count: 1 },
+      { dmg: 56 * 1.5, interval: 2.15, r: 98, count: 1 },
+      { dmg: 66 * 1.5, interval: 2.0, r: 104, count: 2 },
+      { dmg: 78 * 1.5, interval: 1.85, r: 110, count: 2 },
+      { dmg: 94 * 1.5, interval: 1.7, r: 120, count: 3 },
     ],
   },
   // Minecart: a cart rolls out of you in a straight line (run.carts), hitting each body it passes
