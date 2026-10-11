@@ -437,6 +437,149 @@ export const HOLO_CAST = {
   bat: { r: 14, E: 48, frames: 4, shadowBlur: 0.6, shadow: [14 * 2.4, 14 * 0.3], crown: [-14 * 0.5, 14], paint: (ctx, f) => paintBat(ctx, f) },
 }
 
+// ==== THE PLAYER ==================================================================================
+// The player as Geode card art, plan view, drawn in render.js's own px about the body's centre (so
+// every part bakes into the same space and render.js's rig stacks them with no offsets). Its colours
+// are SATURATED on purpose: the foil pass leaves saturated paint and the ink exactly as drawn, so the
+// mint body (and the cheeks' peach) stays the one solid colour on a shimmering floor, while the pearl
+// rim and the white facet ridges are what the pass lights.
+//   look — 'gem' (a brilliant cut: facets round a table, the face on the table), 'sticker' (one cel
+//   body with a foil sheen), 'diecut' (the sticker inside a thick pearl die-cut border).
+export const HOLO_PLAYER_E = 40
+const MINT = 0x1fcf9c, MINT_LIT = 0x8ff5d2, MINT_DARK = 0x0e8a72
+const PEACH = 0xf49a6c, PEACH_LIT = 0xffd2b2, PEACH_DARK = 0xb85a3a
+// a brilliant cut seen from above, inside a closed outline: an octagonal table, star facets between
+// its corners and the girdle, each facet shaded by how it faces the key light (upper left)
+function gemCut(ctx, cx, cy, rx, ry, base, lit, dark, tableK = 0.52, rot = 0) {
+  const n = 8, G = [], Tb = []
+  for (let i = 0; i < n * 2; i++) {
+    const a = rot + (i / (n * 2)) * TAU
+    G.push([cx + Math.cos(a) * rx, cy + Math.sin(a) * ry])
+  }
+  for (let i = 0; i < n; i++) {
+    const a = rot + ((i + 0.5) / n) * TAU
+    Tb.push([cx + Math.cos(a) * rx * tableK, cy + Math.sin(a) * ry * tableK])
+  }
+  const shade = (a) => { const k = Math.cos(a - (-2.36)); return k > 0 ? mixc(base, lit, k * 0.95) : mixc(base, dark, -k * 0.9) }
+  for (let i = 0; i < n; i++) {
+    const t0 = Tb[i], t1 = Tb[(i + 1) % n]
+    const g0 = G[(2 * i + 1) % (n * 2)], g1 = G[(2 * i + 2) % (n * 2)], g2 = G[(2 * i + 3) % (n * 2)]
+    const am = rot + ((i + 1) / n) * TAU
+    // the kite under each table edge, split into its two halves, each its own tilt
+    // the kite halves alternate a step lighter and darker than the star between them: the sparkle
+    // pattern of a brilliant, which is what reads as CUT rather than cracked
+    fillPts(ctx, [...t0, ...g0, ...g1], css(mixc(shade(am - 0.4), dark, 0.4)))
+    fillPts(ctx, [...t0, ...g1, ...t1], css(shade(am)))
+    fillPts(ctx, [...t1, ...g1, ...g2], css(mixc(shade(am + 0.4), lit, 0.45)))
+  }
+  const T = Tb.flat()
+  fillPts(ctx, T, css(mixc(base, lit, 0.4)))
+  // the facet edges: fine lines in the stone's own deep colour (saturated, so the pass leaves them be;
+  // white lines came out as stray foil cracks on the dark floor)
+  ctx.save(); ctx.lineJoin = 'round'; ctx.lineWidth = 0.6; ctx.strokeStyle = css(mixc(dark, 0x000000, 0.25), 0.8)
+  for (let i = 0; i < n; i++) {
+    const t0 = Tb[i], t1 = Tb[(i + 1) % n], g1 = G[(2 * i + 2) % (n * 2)], g0 = G[(2 * i + 1) % (n * 2)]
+    ctx.beginPath(); ctx.moveTo(...g0); ctx.lineTo(...t0); ctx.lineTo(...g1); ctx.lineTo(...t1); ctx.stroke()
+  }
+  trace(ctx, T); ctx.stroke()
+  ctx.restore()
+  return { G, T }
+}
+function playerFace(ctx, R) {
+  for (const s of [-1, 1]) {
+    const ex = s * R * 0.36, ey = -R * 0.18
+    // card eyes: an ink disc and a hard window of light (a white sclera would be foiled by the pass)
+    cardEye(ctx, ex, ey, R * 0.17)
+    ctx.beginPath(); ctx.ellipse(s * R * 0.56, R * 0.15, R * 0.13, R * 0.09, 0, 0, TAU); ctx.fillStyle = 'rgba(255,110,150,0.85)'; ctx.fill()
+  }
+  ctx.save(); ctx.lineCap = 'round'
+  ctx.beginPath(); ctx.arc(0, R * 0.2, R * 0.2, Math.PI * 0.15, Math.PI * 0.85); ctx.lineWidth = 1.7 * INK_K; ctx.strokeStyle = INK; ctx.stroke()
+  ctx.restore()
+}
+// a pearl die-cut border round a silhouette: the band the pass turns to running foil
+function dieCut(ctx, pts, w) {
+  ctx.save(); trace(ctx, pts)
+  ctx.lineJoin = 'round'; ctx.lineWidth = w * 2 + 1.6 * INK_K * 2; ctx.strokeStyle = INK; ctx.stroke()
+  ctx.lineWidth = w * 2; ctx.strokeStyle = '#ecebf6'; ctx.stroke()
+  ctx.restore()
+  // a few flecks of fire caught in the border
+  const rnd = rng(77)
+  for (let i = 0; i < 9; i++) {
+    const k = Math.floor(rnd() * (pts.length / 2)) * 2
+    ctx.beginPath(); ctx.arc(pts[k], pts[k + 1], 0.7 + rnd() * 0.7, 0, TAU); ctx.fillStyle = css(fire(rnd())); ctx.fill()
+  }
+}
+export function paintHoloPlayer(ctx, look = 'gem') {
+  const R = 22
+  const sil = oval(0, 0, R, R * 0.91, 0, 48)
+  if (look === 'diecut') dieCut(ctx, sil, 3.2)
+  if (look === 'gem') {
+    fillPts(ctx, sil, css(MINT))
+    ctx.save(); trace(ctx, sil); ctx.clip()
+    gemCut(ctx, 0, 0, R * 1.02, R * 0.93, MINT, MINT_LIT, MINT_DARK, 0.6, TAU / 32)
+    ctx.restore()
+    rim(ctx, sil, 1.1, 0.9)
+    // white ridges where two lit facets meet, and one hard window of light
+    ctx.save(); trace(ctx, sil); ctx.clip()
+    fillPts(ctx, [-R * 0.78, -R * 0.42, -R * 0.52, -R * 0.62, -R * 0.62, -R * 0.36], 'rgba(255,255,255,0.75)')
+    ctx.restore()
+  } else {
+    fillPts(ctx, sil, css(MINT))
+    ctx.save(); trace(ctx, sil); ctx.clip()
+    fillPts(ctx, oval(R * 0.22, R * 0.3, R * 0.95, R * 0.7, -0.4), css(MINT_DARK))
+    fillPts(ctx, oval(-R * 0.3, -R * 0.42, R * 0.6, R * 0.32, -0.5), css(MINT_LIT))
+    ctx.restore()
+    rim(ctx, sil, 1.4, 0.9)
+    foil(ctx, sil, -0.7, 0.5, 0.15)
+  }
+  playerFace(ctx, R)
+  ink(ctx, sil, 1.6)
+}
+// The cheeks skin in the same look. g is the butt's geometry from render.js (its own drawButt, so
+// the silhouette, the jiggle's pivot and the mask all stay render.js's): g.shell the outline,
+// g.cheeks the two cheek ellipses [x, y, rx, ry, rot], g.cleft the deepest point of the cleft.
+//   part 'body' — the whole silhouette in shade with the cleft (and the die-cut border);
+//   part 'cheeks' — the two cheeks only, the layer that jiggles.
+export function paintHoloButt(ctx, look, part, g) {
+  if (part === 'body') {
+    if (look === 'diecut') dieCut(ctx, g.shell, 3.2)
+    fillPts(ctx, g.shell, css(PEACH_DARK))
+    const [x, y, rx, ry] = g.cleft
+    fillPts(ctx, oval(x, y, rx, ry), css(0x7a3424))
+    ink(ctx, g.shell, 1.6)
+    return
+  }
+  g.cheeks.forEach(([x, y, rx, ry, rot], i) => {
+    const sil = oval(x, y, rx, ry, rot, 40)
+    if (look === 'gem') {
+      fillPts(ctx, sil, css(PEACH))
+      ctx.save(); trace(ctx, sil); ctx.clip()
+      gemCut(ctx, x, y, rx * 1.02, ry * 1.02, PEACH, PEACH_LIT, PEACH_DARK, 0.55, rot)
+      fillPts(ctx, oval(x - rx * 0.1, y - ry * 0.55, rx * 0.4, ry * 0.12, -0.3), 'rgba(255,255,255,0.7)')
+      ctx.restore()
+      rim(ctx, sil, 1, 0.85)
+    } else {
+      fillPts(ctx, sil, css(PEACH))
+      ctx.save(); trace(ctx, sil); ctx.clip()
+      fillPts(ctx, oval(x + rx * 0.05, y + ry * 0.45, rx * 1.1, ry * 0.6, rot), css(PEACH_DARK))
+      fillPts(ctx, oval(x - rx * 0.1, y - ry * 0.45, rx * 0.55, ry * 0.3, rot), css(PEACH_LIT))
+      ctx.restore()
+      rim(ctx, sil, 1.2, 0.85)
+      foil(ctx, sil, -0.7, 0.28, 0.2 + i * 0.3)
+    }
+    ctx.beginPath(); ctx.ellipse(x + (i ? 1 : -1) * rx * 0.1, y + ry * 0.5, rx * 0.22, ry * 0.14, 0, 0, TAU); ctx.fillStyle = 'rgba(255,90,130,0.8)'; ctx.fill()
+    ink(ctx, sil, 1.2)
+  })
+}
+// one foot of the cheeks skin, about its own centre
+export function paintHoloFoot(ctx, look, rx, ry) {
+  const sil = oval(0, 0, rx, ry, 0, 24)
+  fillPts(ctx, sil, css(PEACH))
+  if (look === 'gem') { ctx.save(); trace(ctx, sil); ctx.clip(); gemCut(ctx, 0, 0, rx, ry, PEACH, PEACH_LIT, PEACH_DARK, 0.5); ctx.restore() }
+  else fillPts(ctx, oval(0, -ry * 0.3, rx * 0.5, ry * 0.34), css(PEACH_LIT))
+  ink(ctx, sil, 1.1)
+}
+
 // ==== GLINTS ======================================================================================
 // A star of opal fire: four long spikes and four short ones, each running white -> pure spectral
 // colour -> clear. Drawn normally, not added, so it still shows on the pale pearl floor.
@@ -791,8 +934,11 @@ void main() {
   gl_Position = vec4((mvp * vec3(aPosition, 1.0)).xy, 0.0, 1.0);
   vWorld = uRect.xy + aUV * uRect.zw;
 }`
-export const CAVERN_FLOOR_FRAG = `
-precision highp float;
+// Both shaders that evaluate cavern() open with `precision highp float` AT CHARACTER 0: Pixi honours a
+// declaration only there and otherwise prepends mediump, which phones run as fp16. In fp16 cavern()'s
+// hashes come out different, so the pass's caverns no longer sit on the floor's, and the foil cuts
+// across a pale cavern along one of its straight facet walls.
+export const CAVERN_FLOOR_FRAG = `precision highp float;
 in vec2 vWorld;
 uniform sampler2D uDark;
 uniform sampler2D uNacre;
@@ -854,7 +1000,7 @@ void main() {
 //   colour; a lustre band deepens it; flecks and harlequin flushes of pure opal FIRE, nailed to the
 //   world, flash on and off with the tilt; stars of fire twinkle.
 // Then, everywhere, a dark vignette, the card's edge.
-export const FOIL_FRAG = `
+export const FOIL_FRAG = `precision highp float;
 in vec2 vTextureCoord;
 out vec4 finalColor;
 uniform sampler2D uTexture;

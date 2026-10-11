@@ -13,6 +13,10 @@ import { validNick, podiumRank, NICK_MIN, NICK_MAX } from '../src/scores.js'
 import { steerFromAnchor } from '../src/input.js'
 // fr.js is pure data (no Pixi, no DOM), so run XX can check it here — see testFrenchDictionary.
 import { FR } from '../src/fr.js'
+// holo.js's shader strings are plain data, and Pixi's precision preprocessor is a pure function:
+// run GP feeds the one through the other, exactly as a phone's GlProgram does.
+import { FOIL_FRAG as HOLO_FOIL_FRAG, CAVERN_FLOOR_FRAG as HOLO_CAVERN_FRAG } from '../src/holo.js'
+import { ensurePrecision as pixiEnsurePrecision } from '../node_modules/pixi.js/lib/rendering/renderers/gl/shader/program/preprocessors/ensurePrecision.mjs'
 import { magmaGroundAt, magmaRiverAt, magmaCooledAt, magmaHotAt } from '../src/sim.js'
 import {
   SHOP, shopCost, refundValue, REFUND_RATE, MAX_SHOP_LEVEL, lineMax, CURRENT_RESIST_FLOOR, SHOP_FAMILY, SHOP_COST_CAP, SHOP_COST_CAP_DEFAULT,
@@ -20856,6 +20860,7 @@ run(testLeLargeWeapons)
   run(testSrcParses)
   run(testGemTiers)
   run(testMagmaFloor)
+  run(testGeodeShaderPrecision)
   run(testMagmaRiverBank)
   run(testFlyersSkipFloor)
   // A hand-typed filter that matched nothing is the silent pass without a parent watching:
@@ -39573,6 +39578,22 @@ function testMagmaRiverBank() {
   // (b) the player just across: it wades in and reaches you
   for (const t of nearOn) assert.ok(t.across > 0 && t.toPlayer < 60, `run MR.b: with you just across, the body should cross (ended ${t.across.toFixed(0)}px past the middle, ${t.toPlayer.toFixed(0)}px from you)`)
   console.log(`PASS run MR (The Magma river bank): far across ${farIn}/${farFrames} frames in the river over ${farOn.length} spots (avoid off: ${offIn}/${sum(farOff, 'frames')}); followed the bank ${slideOn.map((t) => t.along.toFixed(0)).join('/')}px; a crowd of 12: ${crowdIn}/${crowdFrames} body-frames in it; just across ${nearOn.length}/${nearOn.length} bodies crossed (${sum(nearOn, 'inRiver')} frames in it); drakes flew over ${flyOn.length}/${flyOn.length}, burned 0 (walkers ${sum(nearOn, 'burn').toFixed(0)})`)
+}
+
+// run GP: THE GEODE'S TWO SHADERS THAT EVALUATE cavern() COMPILE AT highp ON A PHONE. The floor
+// mesh paints the caverns and the stage's foil pass re-derives them to pick foil or pearl per pixel;
+// at mediump (fp16 on phones) the pass's hashes differ, its caverns drift off the floor's, and the
+// rainbow foil cuts across a pale cavern on a straight facet wall. Desktop GPUs run mediump as fp32,
+// so no desktop shot can show it: this is the guard.
+function testGeodeShaderPrecision() {
+  const opts = { requestedFragmentPrecision: 'mediump', maxSupportedFragmentPrecision: 'highp' }
+  for (const [name, src] of [['FOIL_FRAG', HOLO_FOIL_FRAG], ['CAVERN_FLOOR_FRAG', HOLO_CAVERN_FRAG]]) {
+    assert.ok(src.includes('cavern('), `run GP: ${name} no longer evaluates cavern() — is this guard still pointed at the right shader?`)
+    const out = pixiEnsurePrecision(src, opts, true)
+    const decl = [...out.matchAll(/precision\s+(\w+)\s+float\s*;/g)].map((m) => m[1])
+    assert.deepStrictEqual(decl, ['highp'], `run GP: ${name} compiles with float precision ${JSON.stringify(decl)} — it must open with "precision highp float;" at character 0`)
+  }
+  console.log('PASS run GP: the Geode foil pass and cavern floor both compile at highp (2 shaders)')
 }
 
 function testMagmaFloor() {
