@@ -6534,6 +6534,7 @@ export const STALACTITE_RANGE = 400      // px from you a stone may be dropped
 // ---- Book 3, The Mine: weapon geometry (balance lives in WEAPONS[].levels) --------------------------
 export const PICKAXE_RANGE = 420         // px from you the nearest foe must be for a blow to land
 export const PICKAXE_KB = 70             // knockback of the blow itself
+export const PICKAXE_FLIGHT = 0.15       // s the thrown pick is in the air before the blow lands
 export const PICKAXE_CHIP_DMG = 0.45     // a rock chip's damage, as a fraction of the blow's
 export const PICKAXE_CHIP_SPEED = 430    // px/s
 export const PICKAXE_CHIP_LIFE = 0.32    // s of flight

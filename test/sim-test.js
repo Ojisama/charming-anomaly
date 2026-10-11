@@ -13,6 +13,10 @@ import { validNick, podiumRank, NICK_MIN, NICK_MAX } from '../src/scores.js'
 import { steerFromAnchor } from '../src/input.js'
 // fr.js is pure data (no Pixi, no DOM), so run XX can check it here — see testFrenchDictionary.
 import { FR } from '../src/fr.js'
+// holo.js's shader strings are plain data, and Pixi's precision preprocessor is a pure function:
+// run GP feeds the one through the other, exactly as a phone's GlProgram does.
+import { FOIL_FRAG as HOLO_FOIL_FRAG, CAVERN_FLOOR_FRAG as HOLO_CAVERN_FRAG } from '../src/holo.js'
+import { ensurePrecision as pixiEnsurePrecision } from '../node_modules/pixi.js/lib/rendering/renderers/gl/shader/program/preprocessors/ensurePrecision.mjs'
 import { magmaGroundAt, magmaRiverAt, magmaCooledAt, magmaHotAt } from '../src/sim.js'
 import {
   SHOP, shopCost, refundValue, REFUND_RATE, MAX_SHOP_LEVEL, lineMax, CURRENT_RESIST_FLOOR, SHOP_FAMILY, SHOP_COST_CAP, SHOP_COST_CAP_DEFAULT,
@@ -20857,8 +20861,10 @@ run(testLeLargeWeapons)
   run(testSrcParses)
   run(testGemTiers)
   run(testMagmaFloor)
+  run(testGeodeShaderPrecision)
   run(testMagmaRiverBank)
   run(testFlyersSkipFloor)
+  run(testPickLandsLate)
   // A hand-typed filter that matched nothing is the silent pass without a parent watching:
   // `node test/sim-test.js supernova` printed ALL TESTS PASSED having run no scenario at all.
   if (_ran === 0 && !EXACT_SET) {
@@ -39576,6 +39582,22 @@ function testMagmaRiverBank() {
   console.log(`PASS run MR (The Magma river bank): far across ${farIn}/${farFrames} frames in the river over ${farOn.length} spots (avoid off: ${offIn}/${sum(farOff, 'frames')}); followed the bank ${slideOn.map((t) => t.along.toFixed(0)).join('/')}px; a crowd of 12: ${crowdIn}/${crowdFrames} body-frames in it; just across ${nearOn.length}/${nearOn.length} bodies crossed (${sum(nearOn, 'inRiver')} frames in it); drakes flew over ${flyOn.length}/${flyOn.length}, burned 0 (walkers ${sum(nearOn, 'burn').toFixed(0)})`)
 }
 
+// run GP: THE GEODE'S TWO SHADERS THAT EVALUATE cavern() COMPILE AT highp ON A PHONE. The floor
+// mesh paints the caverns and the stage's foil pass re-derives them to pick foil or pearl per pixel;
+// at mediump (fp16 on phones) the pass's hashes differ, its caverns drift off the floor's, and the
+// rainbow foil cuts across a pale cavern on a straight facet wall. Desktop GPUs run mediump as fp32,
+// so no desktop shot can show it: this is the guard.
+function testGeodeShaderPrecision() {
+  const opts = { requestedFragmentPrecision: 'mediump', maxSupportedFragmentPrecision: 'highp' }
+  for (const [name, src] of [['FOIL_FRAG', HOLO_FOIL_FRAG], ['CAVERN_FLOOR_FRAG', HOLO_CAVERN_FRAG]]) {
+    assert.ok(src.includes('cavern('), `run GP: ${name} no longer evaluates cavern() — is this guard still pointed at the right shader?`)
+    const out = pixiEnsurePrecision(src, opts, true)
+    const decl = [...out.matchAll(/precision\s+(\w+)\s+float\s*;/g)].map((m) => m[1])
+    assert.deepStrictEqual(decl, ['highp'], `run GP: ${name} compiles with float precision ${JSON.stringify(decl)} — it must open with "precision highp float;" at character 0`)
+  }
+  console.log('PASS run GP: the Geode foil pass and cavern floor both compile at highp (2 shaders)')
+}
+
 function testMagmaFloor() {
   const meta = () => { const m = makeMeta(); m.dev = true; return m }
   const C = CHAPTERS.magma.signature.crust
@@ -40012,4 +40034,29 @@ function testFlyersSkipFloor() {
   assert(lost[1] === 0, 'FL.c a flyer over open lava takes ' + lost[1])
   assert(lost[3] === 0, 'FL.d a flyer over a slag pool takes ' + lost[3])
   console.log('PASS run FL (flyers skip the floor): walkers lost ' + lost[0].toFixed(0) + ' / ' + lost[2].toFixed(0) + ' hp, flyers 0 / 0')
+}
+
+// the Pickaxe's blow lands when the thrown pick does, not on the throw
+function testPickLandsLate() {
+  Math.random = mulberry32(42002)
+  const r = createRun((() => { const m = makeMeta(); m.dev = true; return m })(), { chapter: 'mine', difficulty: 1 })
+  r.weapons = r.weapons.filter((w) => w.id === 'pickaxe')
+  assert(r.weapons.length === 1, 'PL setup: the Mine starts with the Pickaxe')
+  const e = makeStatusEnemy(r, { x: 200, y: 0, hp: 1e9, speed: 0 })
+  let thrownAt = -1, hpAtThrow = 0, hpLate = 0, hpLanded = 0
+  for (let i = 0; i < 600; i++) {
+    if (r.phase === 'levelup') { r.phase = 'playing'; r.levelUpChoices = [] }
+    r.player.x = 0; r.player.y = 0; r.player.hp = r.player.maxHP; r.player.invuln = 1
+    r.gas = []; r.enemies = [e]; e._dead = false; e.x = 200; e.y = 0
+    stepSim(r, { x: 0, y: 0 }, 1 / 60)
+    if (thrownAt < 0 && r.events.some((v) => v.type === 'pickaxe')) { thrownAt = i; hpAtThrow = e.hp }
+    if (thrownAt >= 0 && i === thrownAt + 7) hpLate = e.hp
+    if (thrownAt >= 0 && i === thrownAt + 10) { hpLanded = e.hp; break }
+    r.events.length = 0
+  }
+  assert(thrownAt >= 0, 'PL setup: the pick was never thrown')
+  assert(hpAtThrow === e.maxHP, 'PL.a the blow hit on the throw: ' + (e.maxHP - hpAtThrow))
+  assert(hpLate === e.maxHP, 'PL.b the blow hit while the pick was still in the air')
+  assert(hpLanded < e.maxHP, 'PL.c the blow never landed after the flight')
+  console.log('PASS run PL (pick lands late): 0 damage on the throw and 0.12s later, ' + (e.maxHP - hpLanded).toFixed(0) + ' once it landed')
 }

@@ -260,7 +260,7 @@ import {
   FURROW_STEP, FURROW_KEEP, FURROW_DELAY, FURROW_STAGGER, FURROW_PIT_OPEN, FURROW_PIT_LIFE, FURROW_PIT_FILL, FURROW_PIT_MAX, FURROW_JUMP, FURROW_LANE_GAP,
   SUNDOWN_SPEED_MUL, SUNDOWN_XP_MUL,
   PRISM_FAN, PRISM_LIFE, PRISM_R, ECHO_LIFE, STALACTITE_FUSE, STALACTITE_RANGE,
-  PICKAXE_RANGE, PICKAXE_KB, PICKAXE_CHIP_DMG, PICKAXE_CHIP_SPEED, PICKAXE_CHIP_LIFE, PICKAXE_CHIP_R,
+  PICKAXE_RANGE, PICKAXE_KB, PICKAXE_FLIGHT, PICKAXE_CHIP_DMG, PICKAXE_CHIP_SPEED, PICKAXE_CHIP_LIFE, PICKAXE_CHIP_R,
   DYNAMITE_RANGE, DYNAMITE_FLIGHT, DYNAMITE_FUSE, DYNAMITE_KB, MINECART_SPEED, MINECART_FAN, MINECART_KB, MINECART_STUN,
   CANARY_REACH_MUL, CANARY_LINK_DMG, LANTERN_PULSE, MINE_BOOM_KEEP, MINE_GAS_FADE_IN, MINE_GAS_LIT_SHRINK,
   SLAG_RANGE, SLAG_FLIGHT, SLAG_TICK, OBSIDIAN_FAN, OBSIDIAN_LIFE, OBSIDIAN_R, SPLINTER_DMG_MUL, SPLINTER_LIFE, SPLINTER_SPEED, SPLINTER_R,
@@ -16877,6 +16877,24 @@ function mineAreaHit(run, x, y, r, dmg, kb) {
 // -- Pickaxe (The Mine's starter) ----------------------------------------------------------------
 function stepPickaxeWeapon(run, w, stats, fireRateMul, dt) {
   const quick = run.weaponMods.pickaxe?.quickSwing ?? 0
+  // the picks in the air: each blow lands PICKAXE_FLIGHT s after its throw, where it was aimed
+  let w2 = 0
+  for (const k of run.picks) {
+    k.t -= dt
+    if (k.t > 0) { run.picks[w2++] = k; continue }
+    mineAreaHit(run, k.x, k.y, k.r, k.dmg, PICKAXE_KB)
+    gasLightAt(run, k.x, k.y, k.r)
+    const a0 = k.angle + Math.PI / k.count
+    for (let i = 0; i < k.count; i++) {
+      const a = a0 + (i / k.count) * Math.PI * 2
+      run.bullets.push({
+        x: k.x, y: k.y, vx: Math.cos(a) * PICKAXE_CHIP_SPEED, vy: Math.sin(a) * PICKAXE_CHIP_SPEED,
+        dmg: k.dmg * PICKAXE_CHIP_DMG, pierce: 1, life: PICKAXE_CHIP_LIFE, r: PICKAXE_CHIP_R, speed: PICKAXE_CHIP_SPEED,
+        hitIds: new Set([k.tid]), _shard: true, _splitDone: true, _chainsLeft: 0, weapon: 'chip',
+      })
+    }
+  }
+  run.picks.length = w2
   fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => {
     const p = run.player
     for (const t of minePickTargets(run, ipecacN(run, 1), PICKAXE_RANGE)) {
@@ -16884,18 +16902,9 @@ function stepPickaxeWeapon(run, w, stats, fireRateMul, dt) {
       const dx = t.x - p.x, dy = t.y - p.y, d = Math.hypot(dx, dy) || 1
       const off = Math.min(t.radius * 0.5, d)
       const x = t.x - (dx / d) * off, y = t.y - (dy / d) * off
-      mineAreaHit(run, x, y, stats.r, stats.dmg, PICKAXE_KB)
-      gasLightAt(run, x, y, stats.r)
-      const a0 = Math.atan2(dy, dx) + Math.PI / stats.count
-      for (let i = 0; i < stats.count; i++) {
-        const a = a0 + (i / stats.count) * Math.PI * 2
-        run.bullets.push({
-          x, y, vx: Math.cos(a) * PICKAXE_CHIP_SPEED, vy: Math.sin(a) * PICKAXE_CHIP_SPEED,
-          dmg: stats.dmg * PICKAXE_CHIP_DMG, pierce: 1, life: PICKAXE_CHIP_LIFE, r: PICKAXE_CHIP_R, speed: PICKAXE_CHIP_SPEED,
-          hitIds: new Set([t.id]), _shard: true, _splitDone: true, _chainsLeft: 0, weapon: 'chip',
-        })
-      }
-      run.events.push({ type: 'pickaxe', x, y, r: stats.r, angle: Math.atan2(dy, dx) })
+      const angle = Math.atan2(dy, dx)
+      run.picks.push({ x, y, r: stats.r, dmg: stats.dmg, count: stats.count, angle, tid: t.id, t: PICKAXE_FLIGHT })
+      run.events.push({ type: 'pickaxe', x, y, r: stats.r, angle, flight: PICKAXE_FLIGHT })
     }
   })
 }

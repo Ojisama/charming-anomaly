@@ -753,6 +753,20 @@ export function createRenderer(app) {
   function drawBlobButt(g, white, part = 'all') {
     drawButt(g, 3, PLAYER.radius * 1.04, PLAYER.radius, Math.PI / 2, 0, 0, BUTT_PEACH, white, part)
   }
+  // The same butt as plain geometry, for a chapter that paints it in its own medium (The Geode,
+  // HOLO.paintHoloButt): drawBlobButt's shell, its two cheeks and the cleft, at drawButt's own numbers
+  // turned by its rot (PI/2: local (x, y) lands at (-y, x)).
+  function blobButtGeom() {
+    const W = PLAYER.radius * 1.04, H = PLAYER.radius
+    const sh = buttOutline(3, W, H), shell = []
+    for (let i = 0; i < sh.length; i += 2) shell.push(-sh[i + 1], sh[i])
+    const cdx = -W * 0.04, coff = H * 0.47, cra = W * 0.63, crb = H * 0.47
+    return {
+      shell,
+      cheeks: [-1, 1].map((sg) => [-sg * coff, cdx, cra, crb, Math.PI / 2 - sg * 0.20]),
+      cleft: [0, -W * 0.42, H * 0.11, W * 0.15],
+    }
+  }
   // One little foot for the skin to run on (BUTT_FEET), drawn about its own centre so the sprite
   // that carries it can be scaled per step without sliding.
   function drawButtFoot(g, white) {
@@ -7069,6 +7083,31 @@ export function createRenderer(app) {
     macroPlayerLook = { body: { tex, ax: b.ax, ay: b.ay }, flash: { tex: white, ax: b.ax, ay: b.ay } }
     return macroPlayerLook
   }
+  // The Geode's player (HOLO.paintHoloPlayer / paintHoloButt / paintHoloFoot): the same parts the
+  // Book 1 rig wears — blob, butt body, jiggling cheeks, a foot — each with its white twin, painted as
+  // card art. The blob and the butt body carry the hard sticker shadow (syncCastShadows).
+  // which of holo.js's three looks the player wears: 'gem' | 'sticker' | 'diecut' (owner's pick pending)
+  const HOLO_PLAYER_LOOK = 'gem'
+  let holoPlayerLook = null
+  function holoPlayer() {
+    if (holoPlayerLook) return holoPlayerLook
+    const look = HOLO_PLAYER_LOOK
+    const mk = (paint, shadow) => {
+      const b = MACRO.bakeLocal(HOLO.HOLO_PLAYER_E, 3, paint, { shadowBlur: 0.7 })
+      const tex = macroCanvasTex(b.body, b.S), white = macroCanvasTex(b.white, b.S)
+      if (shadow) macroShadowOf.set(tex, macroCanvasTex(b.shadow, b.S))
+      return { body: { tex, ax: b.ax, ay: b.ay }, flash: { tex: white, ax: b.ax, ay: b.ay } }
+    }
+    const g = blobButtGeom()
+    const fx = PLAYER.radius * BUTT_FEET.rx, fy = PLAYER.radius * BUTT_FEET.ry
+    holoPlayerLook = {
+      blob: mk((ctx) => HOLO.paintHoloPlayer(ctx, look), true),
+      butt: mk((ctx) => HOLO.paintHoloButt(ctx, look, 'body', g), true),
+      cheeks: mk((ctx) => HOLO.paintHoloButt(ctx, look, 'cheeks', g), false),
+      foot: mk((ctx) => HOLO.paintHoloFoot(ctx, look, fx, fy), false),
+    }
+    return holoPlayerLook
+  }
   function makeMacroLook(id, entry, elite) {
     const M = HOLO.HOLO_CAST[id] ?? MACRO.MACRO_CAST[id]
     const n = M.poses ?? M.frames ?? 1
@@ -13003,6 +13042,7 @@ export function createRenderer(app) {
     if (!ch) return
     const q = []
     if (kind) q.push(() => bakeMacroTile(kind), () => macroPlayer())
+    if (ch.render?.holo) q.push(holoPlayer)
     if (kind === 'topsoil') q.push(bakeMacroPickups, bakeShovel)
     if (ch.signature?.caveIns || ch.weapons?.includes('furrow')) q.push(bakePits)
     if (ch.weapons?.includes('furrow')) q.push(bakeFurrow)
@@ -13090,6 +13130,23 @@ export function createRenderer(app) {
       const d = (Math.abs(s.scale.y) * 22 + 5) * reach
       sh.position.set(s.x - LX * d, s.y - LY * d)
       sh.alpha = alpha * s.alpha
+      n++
+    }
+    // ...and the player's, when it wears the card-art body (holoPlayer)
+    const pst = bodyC.visible && macroShadowOf.get(pBody.texture)
+    if (pst) {
+      let sh = macroShadowPool[n]
+      if (!sh) { sh = new Sprite(pst); sh.tint = 0x000000; macroShadowLayer.addChild(sh); macroShadowPool.push(sh) }
+      sh.visible = true
+      sh.texture = pst
+      sh.anchor.copyFrom(pBody.anchor)
+      const pscx = bodyC.scale.x * playerC.scale.x, pscy = bodyC.scale.y * playerC.scale.y
+      const d = (Math.abs(pscy) * 22 + 5) * reach
+      sh.rotation = 0
+      sh.skew.set(0, 0)
+      sh.scale.set(pscx, pscy)
+      sh.position.set(playerC.x - LX * d, playerC.y + bodyC.y - LY * d)
+      sh.alpha = alpha * playerC.alpha
       n++
     }
     for (let i = n; i < macroShadowPool.length; i++) macroShadowPool[i].visible = false
@@ -30667,10 +30724,12 @@ void main() {
         : 0
       // The skin wins over the STILLNESS morph ladder: that ladder sharpens the FACE's own
       // silhouette toward a triangle, and there is no face here to sharpen.
-      const photo = macroLook ? macroPlayer() : null   // the macro lens: the photographed blob (look A)
+      // the macro lens: the photographed blob (look A), which has no skin. The Geode: card art, skin and all.
+      const holo = holoLook ? holoPlayer() : null
+      const photo = macroLook ? macroPlayer() : holo ? (playerSkin ? holo.butt : holo.blob) : null
       const bodyLook = photo ? photo.body : playerSkin ? T.playerButt : rung > 0 ? T.playerStill[rung] : T.playerBody
       const flashLook = photo ? photo.flash : playerSkin ? T.playerButtFlash : rung > 0 ? T.playerStillFlash[rung] : T.playerFlash
-      cheekLook = T.playerCheeks; cheekAt = BUTT_AT.blob; cheekMask = T.playerButtFlash; cheekW = PLAYER.radius * 1.04
+      cheekLook = holo ? holo.cheeks.body : T.playerCheeks; cheekAt = BUTT_AT.blob; cheekMask = holo ? holo.butt.flash : T.playerButtFlash; cheekW = PLAYER.radius * 1.04
       if (pBody.texture !== bodyLook.tex) {
         pBody.texture = bodyLook.tex; pBody.anchor.set(bodyLook.ax, bodyLook.ay)
       }
@@ -30691,7 +30750,7 @@ void main() {
     // playerTint (0x7ad07a for skies, 0xffffff for surf) would push the kaiju's
     // pale sclera or the fish's fin and gill highlights toward the same hue as the body fill, right
     // when that contrast matters most.
-    pBody.tint = (playerForm === 'kaiju' || playerForm === 'fish' || playerSkin || macroLook) ? 0xffffff : chapterRender.playerTint
+    pBody.tint = (playerForm === 'kaiju' || playerForm === 'fish' || playerSkin || macroLook || holoLook) ? 0xffffff : chapterRender.playerTint
     // OILED (The Wreck, 2026-09-07): the oil on you is on your skin — a multiply toward the film's
     // own near-black, ramped by the fouling timer, so the stain fades exactly as the slow does.
     if (buffs && buffs.foul > 0) pBody.tint = mix(pBody.tint, 0x3a2e24, buffs.foul * 0.8)
@@ -30912,7 +30971,7 @@ void main() {
       : playerForm === 'fish' ? shadowSquash * formScale : shadowSquash) * shadowHeld)
 
     // pupil tracking (local +x flips with the body toward facing)
-    if (playerSkin || (macroLook && !playerForm)) {
+    if (playerSkin || ((macroLook || holoLook) && !playerForm)) {
       pupilL.scale.set(0)   // a butt has no eyes; the photographed blob's are painted in
       pupilR.scale.set(0)
     } else if (playerForm === 'kaiju') {
@@ -30945,7 +31004,9 @@ void main() {
     if (flashT > 0) {
       if (dt > 0) flashT = Math.max(0, flashT - dt)
       if (flashT > 0.2) {
-        pFlash.tint = 0xffffff
+        // The Geode's foil pass recolours every pale neutral, so a white pop came out as pearl on the
+        // caverns (invisible) and as foil on the dark: there it pops a saturated hot coral the pass leaves be
+        pFlash.tint = holoLook ? 0xff5a6e : 0xffffff
         pFlash.alpha = 0.9
       } else {
         pFlash.tint = 0xff4d5e
@@ -30962,6 +31023,12 @@ void main() {
     // one mid-stride. Sits after the hurt flash because the white twins read pFlash.
     if (playerSkin && !playerForm) {
       pFeet.visible = true
+      const ft = holoLook ? holoPlayer().foot : null
+      const fb = ft ? ft.body : T.buttFoot, ff0 = ft ? ft.flash : T.buttFootFlash
+      if (footL.texture !== fb.tex) {
+        for (const s of [footL, footR]) { s.texture = fb.tex; s.anchor.set(fb.ax, fb.ay) }
+        for (const s of [footLF, footRF]) { s.texture = ff0.tex; s.anchor.set(ff0.ax, ff0.ay) }
+      }
       const r = PLAYER.radius
       for (let i = 0; i < 2; i++) {
         const w = p.moving ? Math.sin(hop + i * Math.PI) : 0
