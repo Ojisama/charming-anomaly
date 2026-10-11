@@ -9505,7 +9505,8 @@ CHAPTERS.geode = {
     // inked card-art creatures, thin-film colour over every light neutral surface, diffraction sparkle.
     // DARK HOLO: a calm dark floor; the foil lives on the pillars and the creatures' rims (maskLo/Hi
     // pick which brightness goes foil, glare is the sweeping band's strength).
-    holo: { strength: 0.95, sparkle: 1.0, vignette: 0.5, shadowReach: 0.3, shadowAlpha: 0.85, maskLo: 0.34, maskHi: 0.78, glare: 0.14 },
+    // balance_decision : foil 30% softer, owner "too much on the screen" 2026-10-11
+    holo: { strength: 0.665, sparkle: 0.7, vignette: 0.5, shadowReach: 0.3, shadowAlpha: 0.85, maskLo: 0.34, maskHi: 0.78, glare: 0.098 },
   },
 }
 
