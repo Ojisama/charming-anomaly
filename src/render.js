@@ -42,7 +42,7 @@ import { TRAWL_WIGGLE_ARC, KRAKEN_GRIP_FLICKS } from './config.js'
 import { DRAW_CAPS } from './config.js'
 import { ELITE, gemTier } from './config.js'
 import * as MACRO from './macro.js'
-import { IPECAC_COUNT_MUL, FURROW_PIT_OPEN, FURROW_LANE_GAP } from './config.js'
+import { IPECAC_COUNT_MUL, FURROW_PIT_OPEN, FURROW_LANE_GAP, CRYSTAL_CARDS } from './config.js'
 import * as HOLO from './holo.js'
 import * as ASCII from './ascii.js'
 import * as PIXEL from './pixel.js'
@@ -6563,6 +6563,29 @@ export function createRenderer(app) {
         }
       }
     }
+    // FAULT LINE: a crack of foil light between two rung crystals, jittering, fading over its life
+    for (const f of run.faults || []) {
+      const fade = Math.max(0, 1 - f.t / f.secs), dx = f.bx - f.ax, dy = f.by - f.ay, len = Math.hypot(dx, dy) || 1
+      const nx = -dy / len, ny = dx / len, n = Math.max(4, Math.round(len / 34))
+      const pts = [f.ax, f.ay]
+      for (let j = 1; j < n; j++) {
+        const u = j / n, off = (hash(j * 3.7 + Math.floor(t * 18)) - 0.5) * 22
+        pts.push(f.ax + dx * u + nx * off, f.ay + dy * u + ny * off)
+      }
+      pts.push(f.bx, f.by)
+      gF.poly(pts, false).stroke({ width: 12, color: 0x0b0714, alpha: 0.55 * fade, join: 'round', cap: 'round' })
+      gF.poly(pts, false).stroke({ width: 7, color: HOLO.film(t * 1.3), alpha: 0.9 * fade, join: 'round', cap: 'round' })
+      gF.poly(pts, false).stroke({ width: 2.2, color: 0xffffff, alpha: fade, join: 'round', cap: 'round' })
+    }
+    // LODESTONE: a crystal pulling — rings of foil drawn in toward its face, over its reach
+    for (const o of run.obstacles || []) {
+      if (o.kind !== 'crystal' || !(o._lodeUntil > run.time)) continue
+      const reach = CRYSTAL_CARDS.lodestone.reach
+      for (let j = 0; j < 3; j++) {
+        const u = 1 - ((t * 1.6 + j / 3) % 1), R = o.r + reach * u
+        gF.circle(o.x, o.y, R).stroke({ width: 2.4, color: HOLO.film(0.55 + j * 0.15), alpha: 0.55 * (1 - u) + 0.15 })
+      }
+    }
     // prism shard light-trails: a shard that turned off a crystal leaves a bent streak
     for (const b of run.bullets || []) {
       if (b.weapon !== 'prism') continue
@@ -6785,6 +6808,48 @@ export function createRenderer(app) {
         return true
       case 'crystalRing':
         spawnParticle(T.holoGlint.tex, e.x, e.y, 0, 0, 0.32, 0.9, 0xffffff, -1, 0)
+        return true
+      // The Geode's crystal cards. A crystal pushing up out of the floor: grit thrown off its rim and a
+      // glint (the pillar itself grows in, tickCrystalLife).
+      case 'crystalGrow':
+        spawnParticle(T.holoGlint.tex, e.x, e.y, 0, 0, 0.3, 0.7, 0xffffff, -1, 0)
+        for (let i = 0; i < 8; i++) {
+          const a = (i / 8) * Math.PI * 2 + Math.random() * 0.4, sp = 50 + Math.random() * 60
+          spawnParticle(T.clayClod.tex, e.x + Math.cos(a) * e.r, e.y + Math.sin(a) * e.r, Math.cos(a) * sp, Math.sin(a) * sp, 0.35, 0.4, 0x3a3450, -0.5, 2)
+        }
+        return true
+      // ...running out (Seed Crystal): it has already sunk away; a little foil dust where it stood
+      case 'crystalFade':
+        for (let i = 0; i < 6; i++) {
+          const a = Math.random() * Math.PI * 2, sp = 20 + Math.random() * 40
+          spawnParticle(T.fx.spark_04, e.x + Math.cos(a) * e.r * 0.6, e.y + Math.sin(a) * e.r * 0.6, Math.cos(a) * sp, Math.sin(a) * sp, 0.4, 0.03, HOLO.film(Math.random()), -0.3, 2)
+        }
+        return true
+      // ...breaking (Cracked Glass): the pillar shatters into flying facets and a flash
+      case 'crystalBreak':
+        spawnParticle(T.holoRing.tex, e.x, e.y, 0, 0, 0.3, 0.2 * (e.r / 40), 0xffffff, 3.2, 0)
+        spawnParticle(T.holoGlint.tex, e.x, e.y, 0, 0, 0.35, 1.3, 0xffffff, -1.5, 0)
+        for (let i = 0; i < 18; i++) {
+          const a = (i / 18) * Math.PI * 2 + Math.random() * 0.3, sp = 120 + Math.random() * 200
+          spawnParticle(i % 2 ? T.fx.spark_04 : T.holoGlint.tex, e.x + Math.cos(a) * e.r * 0.5, e.y + Math.sin(a) * e.r * 0.5,
+            Math.cos(a) * sp, Math.sin(a) * sp, 0.45 + Math.random() * 0.2, i % 2 ? 0.05 : 0.28, HOLO.film(i / 18), -0.6, 2)
+        }
+        addShake(3, 0.14)
+        return true
+      // ...going off (Charged Facet): a bright flash and a thin-film shock ring
+      case 'crystalBurst':
+        spawnParticle(T.holoGlint.tex, e.x, e.y, 0, 0, 0.32, 1.2, 0xffffff, -1.4, 0)
+        spawnParticle(T.holoRing.tex, e.x, e.y, 0, 0, 0.32, 0.18 * (e.r / 40), 0xffffff, 4.5, 0)
+        addShake(2, 0.1)
+        return true
+      // Lodestone's pull is drawn by syncBurrow while it runs; its start gets a glint
+      case 'crystalPull':
+        spawnParticle(T.holoGlint.tex, e.x, e.y, 0, 0, 0.22, 0.6, 0xffffff, -1, 0)
+        return true
+      // Fault Line's beam is drawn by syncBurrow (run.faults); its opening gets a glint at both ends
+      case 'faultLine':
+        spawnParticle(T.holoGlint.tex, e.ax, e.ay, 0, 0, 0.22, 0.6, 0xffffff, -1, 0)
+        spawnParticle(T.holoGlint.tex, e.bx, e.by, 0, 0, 0.22, 0.6, 0xffffff, -1, 0)
         return true
       case 'rootSnare':
         for (let i = 0; i < 8; i++) {
@@ -20272,11 +20337,13 @@ const spurG = new Graphics()
     const liveCells = new Set() // this rebuild's obstacle set, for the cache prune below
     planetSpinners.length = 0   // rebuilt below; stale sprite refs would spin a released pool slot
     planetMoons.length = 0
+    crystalLife.length = 0      // same rule: a crystal that left the field must not keep a slot animating
     for (let i = 0; i < obstacleSprites.length; i++) {
       const ov = obstacleSprites[i]
       if (i >= list.length) { ov.root.visible = false; continue }
       const o = list[i]
       ov.root.visible = true
+      ov.root.alpha = 1         // tickCrystalLife fades a slot; the next owner of the slot starts whole
       if (ov.mesh) ov.mesh.visible = false   // pool slots are reused across chapters; only the planet branch re-enables it
       if (ov.moons) for (const m of ov.moons) m.visible = false   // same rule — a moon must not outlive its planet
       ov.root.position.set(o.x, o.y)
@@ -20375,6 +20442,9 @@ const spurG = new Graphics()
         ov.clumpA.scale.set(o.r / a.R); ov.clumpA.rotation = 0; ov.clumpA.position.set(0, 0)
         ov.clumpB.texture = Texture.EMPTY; ov.clumpB.scale.set(1)
         ov.ring.alpha = 0.5
+        // a crystal that grew this run (Seed Crystal, or grown back after Cracked Glass) grows in,
+        // and one with a lifetime shrinks away at its end: tickCrystalLife, every frame
+        if (o.born != null) crystalLife.push({ ov, o, s: o.r / a.R, rs: o.r / foot.ref })
         continue
       }
       if (shape.baked) {
@@ -20519,7 +20589,25 @@ const spurG = new Graphics()
       for (const key of obstacleSkinCache.keys()) if (!liveCells.has(key)) obstacleSkinCache.delete(key)
     }
   }
+  // The Geode's crystals that come and go (sim.js addCrystal / removeCrystal): a crystal with `born`
+  // pops up out of the floor over CRYSTAL_GROW_T, and one with a `ttl` sinks away over its last
+  // CRYSTAL_FADE_T. Removal itself is a rebuild (run._obstacleRev), which hides the freed slot;
+  // the shatter is burrowEvent's 'crystalBreak' / 'crystalFade' particles.
+  const CRYSTAL_GROW_T = 0.35, CRYSTAL_FADE_T = 0.5
+  const crystalLife = []
+  function tickCrystalLife(run) {
+    for (const c of crystalLife) {
+      const age = run.time - c.o.born
+      const u = Math.min(1, Math.max(0, age / CRYSTAL_GROW_T))
+      let k = 1 + 2.2 * (u - 1) ** 3 + 1.2 * (u - 1) ** 2   // back-out: overshoots a little, settles
+      if (c.o.ttl != null) k *= Math.min(1, Math.max(0, (c.o.ttl - age) / CRYSTAL_FADE_T))
+      c.ov.clumpA.scale.set(c.s * Math.max(0.02, k))
+      c.ov.ring.scale.set(c.rs * Math.max(0.02, Math.min(1, k)))
+      c.ov.root.alpha = Math.min(1, u * 3) * (c.o.ttl != null ? Math.min(1, Math.max(0, (c.o.ttl - age) / CRYSTAL_FADE_T) * 1.5) : 1)
+    }
+  }
   function clearObstacles() {
+    crystalLife.length = 0
     obstacleToken = null
     obstacleRev = -1
     obstacleSkinCache.clear()
@@ -32249,6 +32337,7 @@ void main() {
 
     syncObstacles(run)
     tickPlanetSpin()   // must follow syncObstacles: a rebuild repopulates the spinner list
+    tickCrystalLife(run)   // same: the Geode's growing / expiring crystals
     syncWells(run)
     syncBinds(run)
     syncPools(run.pools || [])

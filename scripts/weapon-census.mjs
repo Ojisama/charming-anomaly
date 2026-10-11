@@ -62,7 +62,7 @@
 
 import { createRun, ensureBookMeta, ensureChapterMeta } from '../src/state.js'
 import { stepSim } from '../src/sim.js'
-import { WEAPONS, CHAPTERS, PLAYER, bookOf, shopLines, BOOK_ORDER } from '../src/config.js'
+import { WEAPONS, CHAPTERS, PLAYER, ANOMALIES, bookOf, shopLines, BOOK_ORDER } from '../src/config.js'
 import os from 'node:os'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
@@ -81,6 +81,10 @@ const LEVELS = arg('level', null) ? [Number(arg('level'))] : [1, 5]
 const WEAPON_IDS = arg('weapons', null)?.split(',') ?? CHAPTERS[CHAPTER]?.weapons ?? []
 const MODS = Object.fromEntries((arg('mods', '') || '').split(',').filter(Boolean)
   .map((kv) => { const [k, v] = kv.split('='); return [k, Number(v)] }))
+// --anomalies a,b: anomaly ids held from t=0 (a chapter anomaly like The Geode's Lodestone changes
+// what a weapon does). An unknown id aborts rather than measuring the plain weapon under its name.
+const ANOMALY_IDS = (arg('anomalies', '') || '').split(',').filter(Boolean)
+for (const id of ANOMALY_IDS) if (!ANOMALIES[id]) { console.error(`ABORT: unknown anomaly ${id}`); process.exit(1) }
 // --stick <0..1>: the MAGNITUDE of the fixed input this rig walks with. The default reproduces the
 // historical (0.4, 0.2) exactly, so every number this script has ever printed is unchanged.
 //
@@ -136,6 +140,7 @@ function census(id, level, seed) {
   run.player.maxHP = run.player.hp = 1e9
   run.weapons = [{ id, level }]
   if (Object.keys(MODS).length) run.weaponMods[id] = Object.assign(run.weaponMods[id] ?? {}, MODS)
+  for (const a of ANOMALY_IDS) run.anomalies = { ...(run.anomalies ?? {}), [a]: true }
 
   let raw = 0, eff = 0, hits = 0
   // Dud tracking (see the cast-detection block in the step loop below).
@@ -320,6 +325,7 @@ const RESULTS = await runAll()
 const pad = (s, n) => String(s).padStart(n)
 
 console.log(`chapter ${CHAPTER} (book ${BOOK_ID}), difficulty ${DIFFICULTY}, ${SECS}s x ${SEEDS.length} seeds, one weapon equipped, all offers refused`)
+if (Object.keys(MODS).length || ANOMALY_IDS.length) console.log(`mods ${JSON.stringify(MODS)}, anomalies [${ANOMALY_IDS.join(', ')}]`)
 // Printed unconditionally, because a rig property that changes a number has to appear beside the
 // number. A reader comparing two tables with different --stick values and no label would attribute
 // the whole difference to the code under test.

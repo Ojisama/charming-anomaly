@@ -38,7 +38,7 @@ import {
   BLOOD_PACT_PER_ELITE, BLOOD_MONEY_HP, STILLNESS_RAMP, CHAOS_PACT_PERIOD, CHAOS_PACT_SURGE,
   ALIGNMENT_POTENCY_MUL, DEADFALL_REARM_MUL, SOY_MILK_FIRE_MUL, SOY_MILK_DMG_MUL, SOY_MILK_CC_MUL,
   ANOMALY_REROLL_MUL, ANOMALY_REROLL_PITY_REFUND, LAST_BREATH_DROWN_TAKEN_MUL,
-  LIVE_CAPS, MUTATORS, CANARY_REACH_MUL, MINECART_STUN, MINE_GAS_FADE_IN, MINE_GAS_LIT_SHRINK, mutatorPool, ENDLESS_MILESTONE_S, ENDLESS_HANDOVER_CLEAR_R, ENDLESS_MILESTONE_ELITES, mergeMutatorMods, randomMutators, rerollMutator,
+  LIVE_CAPS, MUTATORS, CRYSTAL_CARDS, CANARY_REACH_MUL, MINECART_STUN, MINE_GAS_FADE_IN, MINE_GAS_LIT_SHRINK, mutatorPool, ENDLESS_MILESTONE_S, ENDLESS_HANDOVER_CLEAR_R, ENDLESS_MILESTONE_ELITES, mergeMutatorMods, randomMutators, rerollMutator,
   sacrificeCost, MAX_CHOICE_SLOTS, resolveChapterId,
   SHIELD_HP_FRAC, SHIELD_DMG_MUL, SPLITTER_COUNT, VOLATILE_FUSE, VOLATILE_RADIUS, VOLATILE_DMG,
   MAX_PASSIVE_LEVEL, MAX_ELEMENT_PICKS, passiveTotal,
@@ -20852,6 +20852,7 @@ run(testLeLargeWeapons)
   run(testBootLoader)
   run(testParkedRun)
   run(testBurrow)
+  run(testGeodeCrystals)
   run(testMine)
   run(testMineGasbag)
   run(testMineGlyphTells)
@@ -38910,6 +38911,308 @@ function testBurrow() {
   assert.ok(!unlockBook(player, 'burrow') && !player.chapters?.topsoil?.unlocked, 'run BU3.d: a non-dev save opened Burrow')
   assert.ok(titleBookshelf(meta()).some((sh) => sh.book === 'burrow'), 'run BU3.d: a dev save does not shelve Burrow')
   console.log(`PASS run BU3 (Burrow): moles under ${under} frames, 0 hp lost under, mole dmg ${run.dmgBySrc.mole}; unarmed pit kills ${kOn} vs ${kOff} off; a crystal bounced ${on.bounced}x into ${on.bullets.length} shots, stopped it with bounce off`)
+}
+
+// ---- run GC: The Geode's crystal cards ----------------------------------------------------------
+// One arm per card, each asserting what the card DOES on the floor, never a counter moving:
+// (a) Ricochet: a shard already at the bounce limit bounces again instead of chipping;
+// (b) Kaleidoscope: shards on their third bounce (past signature.bounce.split) split, and every
+//     shard on the field is at its own spot (a sibling stacked on its parent would look like one);
+// (c) Spectrum: the body a bounce turns the shard onto burns on its first mark and is chilled on
+//     its second (the `ignite` and `chill` contract fields render reads);
+// (d) Charged Facet: nothing on a crystal's 7th bounced shard, a burst on the 8th — one big ring
+//     and a ring of spent shards, each heading its own way;
+// (e) Wide Chime: the ring a struck crystal chimes reaches farther;
+// (f) Sympathy: crystal 1 rings, and the ring reaches crystal 2 and then crystal 3 (out of 1's
+//     reach), each once;
+// (g) Fault Line: two crystals rung in a row hurt a body standing on the line between them and
+//     not one standing off it;
+// (h) Seed Crystal: a landed stone leaves a crystal, solid enough to bounce a shard, and it is
+//     gone after its time;
+// (i) Lodestone: a struck crystal drags a body toward its face and tugs you, but never while a body
+//     is at your side;
+// (j) Cracked Glass: a streamed crystal is gone after its 8th bounced shard (with a shatter of
+//     shards), and its cell grows a crystal back, somewhere else in the cell, after the regrow;
+// (k) a bounce does not spend pierce: a shard on its last pierce goes through three bodies after it;
+// (l) a crystal split deals half its parent's damage (signature.bounce.splitDmgMul).
+function testGeodeCrystals() {
+  const dt = 1 / 60
+  const meta = () => { const m = makeMeta(); m.dev = true; return m }
+  const B = CHAPTERS.geode.signature.bounce
+  const boot = (seed, { mods = {}, anomalies = {}, keepField = false } = {}) => {
+    Math.random = mulberry32(seed)
+    const r = createRun(meta(), { chapter: 'geode', difficulty: 1 })
+    assert.strictEqual(r.chapter, 'geode', 'run GC: the fixture must be in The Geode')
+    r.weapons = []
+    r.mods.spawnMul = 0
+    r.player.hp = r.player.maxHP = 1e6
+    stepSim(r, { x: 0, y: 0 }, dt)
+    r.enemies = []; r.bullets = []; r.novas = []; r.echoes = []
+    if (!keepField) r.obstacles = []
+    for (const [w, m] of Object.entries(mods)) Object.assign(r.weaponMods[w], m)
+    r.anomalies = { ...(r.anomalies ?? {}), ...anomalies }
+    r._obCellI = Math.floor(r.player.x / CHAPTERS.geode.obstacles.cell); r._obCellJ = Math.floor(r.player.y / CHAPTERS.geode.obstacles.cell)   // no re-stream
+    r.events.length = 0
+    return r
+  }
+  const crystal = (r, x, y, rad = 40, cell) => { const o = { x, y, r: rad, kind: 'crystal', rot: 0, _cell: cell ?? `t${x},${y}` }; r.obstacles.push(o); return o }
+  // a shard just outside crystal o on side `a` (radians), flying straight into it
+  const shardAt = (o, a, extra = {}) => ({
+    x: o.x + Math.cos(a) * (o.r + 12), y: o.y + Math.sin(a) * (o.r + 12), vx: -Math.cos(a) * 500, vy: -Math.sin(a) * 500,
+    dmg: 10, pierce: 1, life: 1, r: 8, speed: 500, hitIds: new Set(), _shard: true, _splitDone: true, _chainsLeft: 0, weapon: 'prism', ...extra,
+  })
+  const steps = (r, n, each) => {
+    const ev = []
+    for (let i = 0; i < n; i++) {
+      r.weapons = []
+      if (each) each(r)
+      stepSim(r, { x: 0, y: 0 }, dt)
+      ev.push(...r.events); r.events.length = 0
+    }
+    return ev
+  }
+  const P = (r) => r.player
+  const notes = []
+
+  // (a) RICOCHET
+  {
+    const bounces = (ric) => {
+      const r = boot(41001, { mods: { prismShard: { ricochet: ric } } })
+      const o = crystal(r, P(r).x - 220, P(r).y)
+      r.bullets.push(shardAt(o, 0, { _bounces: B.max }))
+      return steps(r, 3).filter((e) => e.type === 'crystalBounce').length
+    }
+    const off = bounces(0), on = bounces(1)
+    assert.ok(off === 0 && on === 1, `run GC.a: a shard at the bounce limit bounced ${off}x without Ricochet and ${on}x with it (want 0 and 1)`)
+    notes.push(`Ricochet ${off}->${on} bounce at the limit`)
+  }
+
+  // (b) KALEIDOSCOPE
+  {
+    const field = (k) => {
+      const r = boot(41002, { mods: { prismShard: { kaleidoscope: k } } })
+      const o = crystal(r, P(r).x, P(r).y - 400)
+      for (let i = 0; i < 20; i++) r.bullets.push(shardAt(o, (i / 20) * Math.PI * 2, { _bounces: B.split }))
+      steps(r, 1)
+      const born = r.bullets.length - 20
+      steps(r, 12)
+      return { born, pts: r.bullets.map((b) => [b.x, b.y, b._fam]) }
+    }
+    const off = field(0), on = field(1)
+    assert.strictEqual(off.born, 0, `run GC.b: with no Kaleidoscope a third bounce must not split (${off.born} siblings)`)
+    assert.ok(on.born >= 3, `run GC.b: 20 shards on their third bounce made only ${on.born} siblings`)
+    let minGap = Infinity
+    // within one family (a shard and what split off it): shards of different throws may cross
+    for (let i = 0; i < on.pts.length; i++) for (let j = i + 1; j < on.pts.length; j++) {
+      if (!on.pts[i][2] || on.pts[i][2] !== on.pts[j][2]) continue
+      minGap = Math.min(minGap, Math.hypot(on.pts[i][0] - on.pts[j][0], on.pts[i][1] - on.pts[j][1]))
+    }
+    assert.ok(minGap > 20 && minGap < Infinity, `run GC.b: a split shard sits ${minGap.toFixed(1)}px from its own family — stacked on its parent`)
+    notes.push(`Kaleidoscope ${on.born} splits off 20 third bounces, closest pair ${minGap.toFixed(0)}px`)
+  }
+
+  // (c) SPECTRUM
+  {
+    const marks = (spec, specN) => {
+      const r = boot(41003, { mods: { prismShard: { spectrum: spec } } })
+      const o = crystal(r, P(r).x + 300, P(r).y)
+      const e = makeStatusEnemy(r, { x: o.x, y: o.y - 260, hp: 1e9, speed: 0 })
+      r.enemies.push(e)
+      for (let i = 0; i < 24; i++) r.bullets.push(shardAt(o, -Math.PI / 2 + (i - 12) * 0.02, specN ? { _specN: specN } : {}))
+      steps(r, 2)
+      return { ignite: e.ignite, chill: e.chill, venom: e.venom }
+    }
+    const off = marks(0, 0), fire = marks(1, 0), cold = marks(1, 1), ven = marks(1, 2)
+    assert.ok(ven.venom > 0 && ven.chill === 0 && ven.ignite === 0, `run GC.c: a shard's third mark must envenom (only) its target: ${JSON.stringify(ven)}`)
+    assert.ok(off.ignite === 0 && off.chill === 0, `run GC.c: without Spectrum the target was marked: ${JSON.stringify(off)}`)
+    assert.ok(fire.ignite > 0, `run GC.c: a shard's first Spectrum mark must set its target burning: ${JSON.stringify(fire)}`)
+    assert.ok(cold.chill > 0 && cold.ignite === 0, `run GC.c: a shard's second mark must chill (not burn) its target: ${JSON.stringify(cold)}`)
+    notes.push(`Spectrum ignite ${fire.ignite.toFixed(1)}s, chill ${cold.chill.toFixed(2)}, venom ${ven.venom.toFixed(2)}`)
+  }
+
+  // (d) CHARGED FACET
+  {
+    const C = CRYSTAL_CARDS.chargedFacet
+    const r = boot(41004, { mods: { prismShard: { chargedFacet: 1 } } })
+    const o = crystal(r, P(r).x, P(r).y - 400)
+    for (let i = 0; i < C.hits - 1; i++) r.bullets.push(shardAt(o, (i / C.hits) * Math.PI * 2))
+    const first = steps(r, 2).filter((e) => e.type === 'crystalBurst').length
+    r.bullets = []; r.novas = []
+    r.bullets.push(shardAt(o, 0.3))
+    const ev = steps(r, 1)
+    const bursts = ev.filter((e) => e.type === 'crystalBurst').length
+    const spent = r.bullets.filter((b) => b._spent)
+    const big = r.novas.filter((n) => n.maxR >= o.r + C.ringR - 1).length
+    assert.ok(first === 0 && bursts === 1, `run GC.d: bursts after ${C.hits - 1} shards ${first}, after the ${C.hits}th ${bursts} (want 0 then 1)`)
+    assert.ok(big === 1, `run GC.d: the burst must ring one big ring (${big})`)
+    const angs = spent.map((b) => Math.round((Math.atan2(b.vy, b.vx) * 180) / Math.PI))
+    assert.ok(spent.length === C.shards && new Set(angs).size === C.shards, `run GC.d: the burst fired ${spent.length} shards in ${new Set(angs).size} directions (want ${C.shards})`)
+    notes.push(`Charged Facet 0 then 1 burst, ${spent.length} shards`)
+  }
+
+  // (e) WIDE CHIME
+  {
+    const chimeR = (w) => {
+      const r = boot(41005, { mods: { echoPulse: { wideChime: w } } })
+      const o = crystal(r, P(r).x, P(r).y - 400)
+      r.bullets.push(shardAt(o, 0))
+      steps(r, 1)
+      return Math.max(0, ...r.novas.filter((n) => n.look === 'chime').map((n) => n.maxR))
+    }
+    const a = chimeR(0), b = chimeR(0.5)
+    assert.ok(a > 0 && Math.abs(b - (a - B.chimeR + B.chimeR * 1.5)) < 1e-6, `run GC.e: chime reach ${a} -> ${b} with Wide Chime +50%`)
+    notes.push(`Wide Chime ${a}->${b}px`)
+  }
+
+  // (f) SYMPATHY — chance pinned to 1 so the chain is a certainty to assert on
+  {
+    const S = CRYSTAL_CARDS.sympathy, saved = S.chance
+    S.chance = 1
+    try {
+      const rings = (sym) => {
+        const r = boot(41006, { mods: { echoPulse: { sympathy: sym } } })
+        const y = P(r).y - 500
+        const c1 = crystal(r, P(r).x - 260, y), c2 = crystal(r, P(r).x, y), c3 = crystal(r, P(r).x + 260, y)
+        assert.ok(Math.hypot(c3.x - c1.x, c3.y - c1.y) - c1.r - c3.r > S.reach, 'precondition: crystal 3 is out of crystal 1\'s reach')
+        r.bullets.push(shardAt(c1, Math.PI))
+        const ev = steps(r, 60).filter((e) => e.type === 'crystalRing')
+        const at = (c) => ev.filter((e) => Math.abs(e.x - c.x) < 1 && Math.abs(e.y - c.y) < 1).length
+        return [at(c1), at(c2), at(c3)]
+      }
+      const off = rings(0), on = rings(1)
+      assert.deepStrictEqual(off, [0, 0, 0], `run GC.f: without Sympathy crystals rang: ${off}`)
+      assert.deepStrictEqual(on, [0, 1, 1], `run GC.f: the ring from crystal 1 must reach crystal 2 and then 3, each once: ${on}`)
+      notes.push(`Sympathy rang [${on}]`)
+    } finally { S.chance = saved }
+  }
+
+  // (g) FAULT LINE
+  {
+    const hurt = (fl) => {
+      const r = boot(41007, { mods: { echoPulse: { faultLine: fl } } })
+      const y = P(r).y - 600
+      const a = crystal(r, P(r).x - 300, y), b = crystal(r, P(r).x + 300, y)
+      const on = makeStatusEnemy(r, { x: P(r).x, y, hp: 1e9, speed: 0 })
+      const off = makeStatusEnemy(r, { x: P(r).x, y: y + 150, hp: 1e9, speed: 0 })
+      r.enemies.push(on, off)
+      r.bullets.push(shardAt(a, Math.PI)); steps(r, 1); r.bullets = []
+      r.bullets.push(shardAt(b, 0)); steps(r, 1); r.bullets = []
+      steps(r, 60)
+      return { on: on.maxHP - on.hp, off: off.maxHP - off.hp, beams: r.faults.length }
+    }
+    const no = hurt(0), yes = hurt(1)
+    assert.ok(no.on === 0 && no.off === 0, `run GC.g: without Fault Line the bodies were hurt: ${JSON.stringify(no)}`)
+    assert.ok(yes.on > 0 && yes.off === 0, `run GC.g: the beam must hurt the body on the line and not the one off it: ${JSON.stringify(yes)}`)
+    notes.push(`Fault Line on ${yes.on} / off ${yes.off}`)
+  }
+
+  // (h) SEED CRYSTAL — chance pinned to 1
+  {
+    const S = CRYSTAL_CARDS.seedCrystal, saved = S.chance
+    S.chance = 1
+    try {
+      const land = (sc) => {
+        const r = boot(41008, { mods: { stalactite: { seedCrystal: sc } } })
+        const x = P(r).x + 260, y = P(r).y
+        r.drips.push({ x, y, r: 50, dmg: 1, t: 0, fuse: 0.01, seed: 1 })
+        steps(r, 2)
+        const seeded = r.obstacles.find((o) => o.kind === 'crystal' && Math.hypot(o.x - x, o.y - y) < 1)
+        let bounced = 0
+        if (seeded) { r.bullets.push(shardAt(seeded, 0)); bounced = steps(r, 2).filter((e) => e.type === 'crystalBounce').length }
+        const ev = steps(r, Math.round((S.secs + 0.2) / dt))
+        const gone = !r.obstacles.some((o) => Math.hypot(o.x - x, o.y - y) < 1)
+        return { seeded: !!seeded, bounced, gone, faded: ev.filter((e) => e.type === 'crystalFade').length }
+      }
+      const off = land(0), on = land(1)
+      assert.ok(!off.seeded, 'run GC.h: without Seed Crystal a stone left a crystal')
+      assert.ok(on.seeded && on.bounced === 1, `run GC.h: the stone must leave a crystal that bounces a shard: ${JSON.stringify(on)}`)
+      assert.ok(on.gone && on.faded === 1, `run GC.h: the seeded crystal must be gone after ${S.secs}s: ${JSON.stringify(on)}`)
+      notes.push(`Seed Crystal seeded, bounced, gone after ${S.secs}s`)
+    } finally { S.chance = saved }
+  }
+
+  // (i) LODESTONE
+  {
+    const pull = (lode, crowdYou) => {
+      const r = boot(41009, { anomalies: lode ? { lodestone: true } : {} })
+      const o = crystal(r, P(r).x + 260, P(r).y)
+      const e = makeStatusEnemy(r, { x: o.x, y: o.y + o.r + 150, hp: 1e9, speed: 0 })
+      r.enemies.push(e)
+      if (crowdYou) r.enemies.push(makeStatusEnemy(r, { x: P(r).x - 70, y: P(r).y, hp: 1e9, speed: 0 }))
+      const d0 = Math.hypot(e.x - o.x, e.y - o.y), p0 = Math.hypot(P(r).x - o.x, P(r).y - o.y)
+      r.bullets.push(shardAt(o, -Math.PI / 2)); steps(r, 1); r.bullets = []
+      steps(r, 30, (rr) => { rr.bullets = [] })
+      return { body: d0 - Math.hypot(e.x - o.x, e.y - o.y), you: p0 - Math.hypot(P(r).x - o.x, P(r).y - o.y) }
+    }
+    const off = pull(false, false), on = pull(true, false), crowded = pull(true, true)
+    assert.ok(Math.abs(off.body) < 1 && Math.abs(off.you) < 1, `run GC.i: without Lodestone something moved: ${JSON.stringify(off)}`)
+    assert.ok(on.body > 50, `run GC.i: the struck crystal must drag the body toward its face: ${JSON.stringify(on)}`)
+    assert.ok(on.you > 5 && on.you < on.body, `run GC.i: it must tug you, and less than the body: ${JSON.stringify(on)}`)
+    assert.ok(Math.abs(crowded.you) < 1, `run GC.i: with a body at your side it must not tug you: ${JSON.stringify(crowded)}`)
+    notes.push(`Lodestone body ${on.body.toFixed(0)}px, you ${on.you.toFixed(0)}px, crowded ${crowded.you.toFixed(0)}px`)
+  }
+
+  // (j) CRACKED GLASS — on a STREAMED crystal, so its cell's refill is the real one
+  {
+    const G = CRYSTAL_CARDS.crackedGlass
+    const crack = (on) => {
+      const r = boot(41010, { anomalies: on ? { crackedGlass: true } : {}, keepField: true })
+      const o = r.obstacles.filter((q) => q.kind === 'crystal' && !String(q._cell).startsWith('t'))
+        .sort((p, q) => Math.hypot(p.x - P(r).x, p.y - P(r).y) - Math.hypot(q.x - P(r).x, q.y - P(r).y))[0]
+      assert.ok(o, 'precondition: the streamed field holds a crystal')
+      const cell = o._cell, x0 = o.x, y0 = o.y
+      for (let i = 0; i < G.hits - 1; i++) r.bullets.push(shardAt(o, (i / G.hits) * Math.PI * 2))
+      steps(r, 1); r.bullets = []
+      const before = r.obstacles.includes(o)
+      r.bullets.push(shardAt(o, 0.2))
+      const ev = steps(r, 1)
+      const shattered = r.bullets.filter((b) => b._spent).length
+      const after = r.obstacles.includes(o)
+      r.bullets = []
+      steps(r, Math.round((G.regrow + 1.5) / dt), (rr) => { rr.bullets = [] })
+      const back = r.obstacles.find((q) => q._cell === cell)
+      return { before, after, shattered, broke: ev.filter((e) => e.type === 'crystalBreak').length, back: !!back, moved: back ? Math.hypot(back.x - x0, back.y - y0) : 0 }
+    }
+    const off = crack(false), on = crack(true)
+    assert.ok(off.before && off.after && off.broke === 0, `run GC.j: without Cracked Glass a crystal broke: ${JSON.stringify(off)}`)
+    assert.ok(on.before && !on.after && on.broke === 1 && on.shattered === G.shards, `run GC.j: the crystal must survive ${G.hits - 1} shards and break on the ${G.hits}th into ${G.shards} shards: ${JSON.stringify(on)}`)
+    assert.ok(on.back && on.moved > 1, `run GC.j: the cell must grow a crystal back elsewhere after ${G.regrow}s: ${JSON.stringify(on)}`)
+    notes.push(`Cracked Glass broke on ${G.hits}, ${on.shattered} shards, regrew ${on.moved.toFixed(0)}px off`)
+  }
+  // (k) BOUNCES ARE FREE: a shard down to its last pierce bounces with the pierce it was thrown with,
+  // so it goes through three bodies lined up on its way back out (one without the refill).
+  {
+    const through = (refill) => {
+      const saved = B.refill
+      B.refill = refill
+      try {
+        const r = boot(41011)
+        const o = crystal(r, P(r).x - 600, P(r).y)
+        const line = [1, 2, 3].map((k) => makeStatusEnemy(r, { x: o.x + o.r + 40 + k * 60, y: o.y, hp: 1e9, speed: 0 }))
+        r.enemies.push(...line)
+        r.bullets.push(shardAt(o, 0, { x: o.x + o.r + 9, pierce: 1, _pierce0: 3 }))
+        steps(r, 40)
+        return line.filter((e) => e.hp < e.maxHP).length
+      } finally { B.refill = saved }
+    }
+    const off = through(false), on = through(true)
+    assert.ok(off === 1 && on === 3, `run GC.k: after a bounce a 1-pierce shard thrown with 3 hit ${on} of 3 bodies in a row (want 3), ${off} without the refill (want 1)`)
+    notes.push(`free bounce: ${off} -> ${on} bodies`)
+  }
+  // (l) A CRYSTAL SPLIT DEALS HALF: the sibling a bounce splits off carries splitDmgMul of the
+  // parent's damage at that moment, and the parent keeps its whole bounce-boosted damage.
+  {
+    const r = boot(41012)
+    const o = crystal(r, P(r).x, P(r).y - 400)
+    r.bullets.push(shardAt(o, 0, { dmg: 40 }))
+    steps(r, 1)
+    const parent = r.bullets.find((b) => b.dmg === 40 * B.dmgMul)
+    const sib = r.bullets.find((b) => b !== parent)
+    assert.ok(parent && sib && Math.abs(sib.dmg - parent.dmg * B.splitDmgMul) < 1e-9 && B.splitDmgMul === 0.5,
+      `run GC.l: a split must deal half its parent's damage: ${JSON.stringify(r.bullets.map((b) => b.dmg))}`)
+    notes.push(`split ${sib.dmg} vs parent ${parent.dmg}`)
+  }
+  console.log(`PASS run GC (The Geode's crystal cards, 10 cards + free bounces + half splits): ${notes.join('; ')}`)
 }
 
 // ---- run MG: Book 3, The Mine — the glyph tells (source text: render.js and ascii.js are not importable)

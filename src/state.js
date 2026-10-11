@@ -2139,8 +2139,28 @@ function generateWells(sig) {
  *     (slowed by ROOT_SNARE_SLOW while run.time < it) and a dot tick every ROOT_SNARE_TICK.
  *   drips[i]: { x, y, r, dmg, t, fuse, seed } — a Stalactite: the shadow grows for `fuse` s, then it
  *     lands ({type:'stalactite'}) and hits everything in r.
- *   echoes[i]: { x, y, at, r, dmg, kb } — a crystal's queued ring-back from an Echo Pulse; it becomes a
- *     run.novas entry (look 'echo') at run.time >= at.
+ *   echoes[i]: { x, y, at, r, dmg, kb, o, wave } — a crystal's queued ring-back from an Echo Pulse
+ *     (or a Sympathy link); it becomes a run.novas entry (look 'echo') at run.time >= at. `o` is
+ *     the crystal (a ring for one that broke meanwhile is dropped), `wave` the Sympathy wave
+ *     ({ rung: Set of crystals }) or null.
+ *   faults[i]: { ax, ay, bx, by, t, secs, tick, dmg } — a Fault Line beam between two crystals
+ *     (CRYSTAL_CARDS.faultLine); at most one, a new pair replaces it.
+ *   THE CRYSTAL CARDS (config CRYSTAL_CARDS). Crystals are mutable: addCrystal / removeCrystal
+ *     (sim.js) are the only way one joins or leaves after streamObstacles. A seeded crystal has
+ *     _cell 'seed:N', `born` (run.time) and `ttl` (s); a grown-back one has `born`. Per crystal:
+ *     _facet (Charged Facet count), _cracks (Cracked Glass count), _lodeUntil (Lodestone pull
+ *     running until), _rungAt (last ring, for Fault Line). Run: _crystalRegrow (Map cell ->
+ *     time a broken cell may re-roll), _crystalRegrown (Set, re-rolled cells render grows in),
+ *     _crystalGen (Map cell -> times it broke; salts where it grows back), _regrowScanAt,
+ *     _crystalSeq, _lastRung (Fault Line). Bullet: _pierce0 (the pierce a prism shard was thrown
+ *     with; a bounce restores it, signature.bounce.refill), _fam (Kaleidoscope's family {n}), _specN
+ *     (Spectrum marks made), _spent (a burst shard: stops on a crystal, never bounces). Enemy:
+ *     _specChill / _specVenom (Spectrum, run.time until; folded into the `chill` / `venom`
+ *     contract fields by elSlow / elVenomAmp).
+ *     Events: {type:'crystalGrow', x, y, r}; {type:'crystalFade', x, y, r} a seeded crystal ran
+ *     out; {type:'crystalBreak', x, y, r} Cracked Glass; {type:'crystalBurst', x, y, r, ringR}
+ *     Charged Facet; {type:'crystalPull', x, y, r, reach, secs} Lodestone; {type:'faultLine',
+ *     ax, ay, bx, by}. All drawn by render.js's burrowEvent; none has a sound.
  *   Enemy contract fields (render reads them): burrowed (a mole underground — damageImmune, so
  *     untouchable and harmless, and skipped by aiming and separation), quakeT/quakeX/quakeY (the
  *     eruption spot and the seconds until it erupts), tunnel ([{x,y}] the live trail of a digging
@@ -2987,7 +3007,7 @@ export function createRun(meta, opts = {}) {
     _rushN: 0,             // bites stacked on it, capped at RUSH_MAX_STACKS
     // Book 3 Burrow (see the sim.js Burrow section): Topsoil's tunnels and pits, and the weapons'
     // own entities. Empty in every other chapter.
-    pits: [], caveIns: [], snares: [], drips: [], echoes: [],
+    pits: [], caveIns: [], snares: [], drips: [], echoes: [], faults: [],
     // Book 3, The Mine (sim.js's Mine section): the firedamp field and the Mine's weapons' entities.
     gas: [], gasLit: [], sticks: [], picks: [], carts: [], lanternR: 0, booms: [],
     // Book 3 The Magma (sim.js's Magma section): the crust's cracks, and the weapons' own entities.
