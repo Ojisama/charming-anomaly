@@ -20867,6 +20867,7 @@ run(testLeLargeWeapons)
   run(testFlyersSkipFloor)
   run(testPickLandsLate)
   run(testDynamiteNearest)
+  run(testFireBoots)
   // A hand-typed filter that matched nothing is the silent pass without a parent watching:
   // `node test/sim-test.js supernova` printed ALL TESTS PASSED having run no scenario at all.
   if (_ran === 0 && !EXACT_SET) {
@@ -28743,7 +28744,7 @@ function testWreckDefense() {
   // -- WD.j: THE OTHER TEN PASSIVES ARE UNTOUCHED — no descT, additive "+N%"/"+N " desc as before. --
   {
     const run = mk('wreck', 19)
-    const legacy = devCards(run, 'rare').filter((c) => c.kind === 'passive' && c.id !== 'sleek' && c.id !== 'oilskin')
+    const legacy = devCards(run, 'rare').filter((c) => c.kind === 'passive' && PASSIVES[c.id].kind !== 'resist')
     assert.ok(legacy.length >= 8, `expected most of the ${Object.keys(PASSIVES).length} passives to be the untouched ten; only found ${legacy.length}`)
     for (const c of legacy) {
       assert.strictEqual(c.descT, undefined, `${c.id} unexpectedly carries a descT — the resist branch has leaked into a non-resist passive`)
@@ -40505,4 +40506,28 @@ function testDynamiteNearest() {
   const d = Math.hypot(st.x - near.x, st.y - near.y)
   assert(d < 1, 'DN.a the stick went to (' + st.x.toFixed(0) + ',' + st.y.toFixed(0) + '), not the nearest foe at (150,0)')
   console.log('PASS run DN (dynamite aims nearest): the first stick landed ' + d.toFixed(1) + 'px from the nearest foe, a crowd of 5 sat 360px the other way')
+}
+
+// Firefighter Boots cut the lava's burn on the player, and every pick keeps cutting it
+function testFireBoots() {
+  const soak = (res) => {
+    Math.random = mulberry32(42004)
+    const r = createRun((() => { const m = makeMeta(); m.dev = true; return m })(), { chapter: 'magma', difficulty: 1 })
+    r.weapons = []
+    r.passives.fireBoots = res
+    r.cracks.push({ x: 0, y: 0, r: 60, by: 'step', state: 'lava', t: 0, tick: 0, openAt: 0, lavaT: 99, coolT: 1, lavaEnd: 1e9, coolEnd: 0 })
+    for (let i = 0; i < 240; i++) {
+      if (r.phase === 'levelup') { r.phase = 'playing'; r.levelUpChoices = [] }
+      r.enemies = []; r.player.x = 0; r.player.y = 0; r.player.hp = r.player.maxHP; r.player.invuln = 0
+      stepSim(r, { x: 0, y: 0 }, 1 / 60)
+      r.events.length = 0
+    }
+    return r.dmgBySrc.lava ?? 0
+  }
+  const b = PASSIVES.fireBoots.base
+  const lost = [0, b, 2 * b, 5 * b].map(soak)
+  assert(lost[0] > 0, 'FC setup: 4s in open lava cost nothing unresisted')
+  assert(lost[1] < lost[0] * 0.95, 'FC.a one pick did not cut the burn: ' + lost.join('/'))
+  assert(lost[2] < lost[1] && lost[3] < lost[2], 'FC.b a further pick was inert: ' + lost.join('/'))
+  console.log('PASS run FC (Firefighter Boots): 4s in lava cost ' + lost.join(' / ') + ' hp at 0 / 1 / 2 / 5 picks')
 }

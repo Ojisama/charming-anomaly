@@ -1851,6 +1851,8 @@ const CONFIG = {
   '{pct}% resistance to slows': '{pct}% de résistance aux ralentissements',
   'Oilskin': 'Ciré',
   "{pct}% resistance to the oil's damage": "{pct}% de résistance aux dégâts du mazout",
+  'Firefighter Boots': 'Bottes de pompier',
+  "{pct}% resistance to the lava's burn": '{pct}% de résistance à la brûlure de la lave',
   'Slick Feed': 'Proie Tachée',
   'damage to oil-stained prey': 'dégâts aux proies tachées de mazout',
 

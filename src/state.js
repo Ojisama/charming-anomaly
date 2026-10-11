@@ -3003,6 +3003,7 @@ export function createRun(meta, opts = {}) {
     _crushAcc: 0,          // the crush's part-tick accumulator, LANE_CRUSH_TICK's twin of _spurAcc
     _slickAcc: 0,          // part-tick accumulator, the exact twin of _drownAcc
     _slickDmgCarry: 0,     // Oilskin's resisted-damage remainder, spent once it clears a whole point
+    _lavaCarry: 0,         // the lava burn's remainder (Firefighter Boots), spent once it clears a whole point
     _foulT: 0,             // s of oil still on you — lingers SLICK_SLOW_T past the rim (see sim.js)
     _inkT: 0,              // s of the squid's ink on the SCREEN — render-facing, see stepPlayerMovement
     _rushT: 0,             // s left on BLOODRUSH's window (gnash's bloodrush mod)

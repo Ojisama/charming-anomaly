@@ -181,7 +181,7 @@ export const REROLL_RARITY_CAP = 3       // rerolls of one screen past which the
 //     far more (the ladder starts at rare and there are only four of them), so at 18 the slate
 //     was routine; at 7.5 an element is a FIND, and the freed weight goes to the base attributes.
 export const BUCKET_WEIGHTS = { defense: 19, utility: 21, mod: 25, weapon: 17, element: 7.5 }
-export const DEFENSIVE_PASSIVES = ['armor', 'regen', 'maxHP', 'sleek', 'oilskin']
+export const DEFENSIVE_PASSIVES = ['armor', 'regen', 'maxHP', 'sleek', 'oilskin', 'fireBoots']
 // Inside the weapon bucket, an UPGRADE of an owned weapon competes at this flat weight while a
 // `New!` card competes at its weapon's inherent rarity weight (times newWeaponChance — see
 // NEW_WEAPON_FADE below). Rarity TILTS acquisition; it must never touch LEVELLING. Weighting
@@ -3228,6 +3228,8 @@ export const PASSIVES = {
   // the Leak" would be claiming half of Sleek's job. It also said "burn" until 2026-09-06, in a
   // chapter that is underwater.
   oilskin:    { name: 'Oilskin', desc: "{pct}% resistance to the oil's damage", base: 0.20, kind: 'resist', icon: '🧥', chapter: 'wreck' },
+  // balance_decision : lava resist, Oilskin numbers, unswept 2026-10-11
+  fireBoots:   { name: 'Firefighter Boots', desc: "{pct}% resistance to the lava's burn", base: 0.20, kind: 'resist', icon: '🥾', chapter: 'magma' },
   // Utility, not DEFENSIVE_PASSIVES: this is a damage card, not a reduce-harm one (§4.3 ruling).
   // `pct` kind, not `resist` — there is no diminishing-returns curve to hide, so the printed
   // number is honest additively, same as `damage`/`critChance` above.
@@ -9491,7 +9493,8 @@ CHAPTERS.geode = {
     // inked card-art creatures, thin-film colour over every light neutral surface, diffraction sparkle.
     // DARK HOLO: a calm dark floor; the foil lives on the pillars and the creatures' rims (maskLo/Hi
     // pick which brightness goes foil, glare is the sweeping band's strength).
-    holo: { strength: 0.95, sparkle: 1.0, vignette: 0.5, shadowReach: 0.3, shadowAlpha: 0.85, maskLo: 0.34, maskHi: 0.78, glare: 0.14 },
+    // balance_decision : foil 30% softer, owner "too much on the screen" 2026-10-11
+    holo: { strength: 0.665, sparkle: 0.7, vignette: 0.5, shadowReach: 0.3, shadowAlpha: 0.85, maskLo: 0.34, maskHi: 0.78, glare: 0.098 },
   },
 }
 
