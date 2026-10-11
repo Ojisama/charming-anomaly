@@ -4433,7 +4433,7 @@ export const WEAPON_MODS = {
     farCall:     { name: 'Far Call',     desc: 'pulse radius', icon: '⭕', base: 0.22, kind: 'pct' },
     rapidClick:  { name: 'Rapid Click',  desc: 'pulse rate', icon: '⏩', base: 0.25, kind: 'pct' },
     rebound:     { name: 'Rebound',      desc: 'pulse push', icon: '💨', base: 0.30, kind: 'pct' },
-    wideChime:   { name: 'Wide Chime',   desc: 'radius of a crystal\'s ring', icon: '🔔', base: 0.25, kind: 'pct' },
+    wideChime:   { name: 'Wide Chime',   desc: 'radius of the ring a crystal gives back to Echo Pulse', icon: '🔔', base: 0.25, kind: 'pct' },
     sympathy:    { name: 'Sympathy',     icon: '🎐', kind: 'flat', maxPicks: 1, values: { epic: 1 },
                    desc: 'A ringing crystal has a {pct}% chance to set each crystal near it ringing too, and each of those passes it on the same way.',
                    args: { pct: Math.round(CRYSTAL_CARDS.sympathy.chance * 100) } },
@@ -5058,7 +5058,8 @@ export const HYDRANT_JET_PUSH = 300    // px/s^2 outward on enemies inside a liv
 //  - blooms counts only soft clouds: enemy ink and every bilge slick are never evicted or counted
 export const LIVE_CAPS = { blooms: 600, bullets: 3000, homingShots: 1000, lures: 200, holes: 150 }
 // RENDER-ONLY: render.js draws at most this many (the newest); the rest still hit, unseen.
-export const DRAW_CAPS = { blooms: 120, bullets: 500, homingShots: 150, lures: 40, holes: 30, novas: 50 }
+export const DRAW_CAPS = { blooms: 120, bullets: 500, homingShots: 150, lures: 40, holes: 30, novas: 50, shardTrails: 200 }
+//  - shardTrails is the prism shards given a light-trail (render.js drawShardTrails)
 //  - novas is PER LOOK (breaker, bubble): each is ~25-30 shapes redrawn every frame
 export const ZONE_MAX_LIVE = 12     // cap on simultaneous zones. A fast cast rate plus count can
                                       // otherwise carpet the street with live hydrants.
@@ -9469,7 +9470,9 @@ CHAPTERS.geode = {
     //  - hop: face-to-face px to the next crystal; hopCrowdR: bodies counted round it to choose
     // balance_decision : bounce splits shard into two half shards [2026-10-11]
     //  - max: sub-shard generations (Ricochet adds one); each generation is subDmgMul of the last
-    bounce: { refill: true, max: 3, subShards: 2, subDmgMul: 0.5, life: 1.1, steer: 560, splitFan: 0.45, chimeR: 90, chimeDmg: 0.8, chimeKb: 40, chimeCd: 0.25, chimeVac: 200, hop: 400, hopCrowdR: 160 },
+    // balance_decision : no chime on shard hits, owner [2026-10-11]
+    //  - a bounce still RINGS the crystal (Fault Line, Sympathy): rung* is that ring, once per rungCd
+    bounce: { refill: true, max: 3, subShards: 2, subDmgMul: 0.5, life: 1.1, steer: 560, splitFan: 0.45, rungR: 90, rungDmg: 0.8, rungKb: 40, rungCd: 0.25, hop: 400, hopCrowdR: 160 },
     // Echo Pulse: a crystal the ring reaches rings back at this fraction of its radius and damage.
     resonance: { radiusMul: 0.6, dmgMul: 0.6 },
   },

@@ -1985,7 +1985,7 @@ const CONFIG = {
   "Charged Facet": "Facette chargée",
   "A crystal counts the shards it bounces. Every {hits}th sets off a big ring and a spray of shards.": "Un cristal compte les éclats qu'il renvoie. Tous les {hits}, il lâche un grand anneau et une gerbe d'éclats.",
   "Wide Chime": "Grand carillon",
-  "radius of a crystal's ring": "rayon de l'anneau d'un cristal",
+  "radius of the ring a crystal gives back to Echo Pulse": "rayon de l'anneau qu'un cristal renvoie à Écho",
   "Sympathy": "Sympathie",
   "A ringing crystal has a {pct}% chance to set each crystal near it ringing too, and each of those passes it on the same way.": "Un cristal qui résonne a {pct}% de chances de faire résonner chaque cristal proche, et chacun le transmet à son tour.",
   "Fault Line": "Ligne de faille",

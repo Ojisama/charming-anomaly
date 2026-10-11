@@ -16605,14 +16605,14 @@ function stepCrystalShot(run, b, spec) {
     if (fam.n < K.maxSplits && Math.random() < K.chance) { fam.n++; heads.push(fanOff(crowdA)) }
   }
   // SPECTRUM: every bounce colours a body: the one the crowd sub-shard turns onto, else (no body to
-  // turn onto) the body nearest this crystal within its chime reach.
+  // turn onto) the body nearest this crystal within B.rungR.
   let mark = best
   if (!mark && pm.spectrum > 0) {
     let md = Infinity
-    for (const e of enemiesNear(run, o.x, o.y, o.r + B.chimeR)) {
+    for (const e of enemiesNear(run, o.x, o.y, o.r + B.rungR)) {
       if (e._dead || isAlly(e) || e.burrowed) continue
       const d = Math.hypot(e.x - o.x, e.y - o.y)
-      if (d <= o.r + B.chimeR + e.radius && d < md) { md = d; mark = e }
+      if (d <= o.r + B.rungR + e.radius && d < md) { md = d; mark = e }
     }
   }
   if (mark && pm.spectrum > 0 && Math.random() < CRYSTAL_CARDS.spectrum.chance) {
@@ -16633,19 +16633,12 @@ function stepCrystalShot(run, b, spec) {
   }
   b._from = null   // a sub-shard keeps its parent (render's streak), never the whole line
   run.events.push({ type: 'crystalBounce', x: b.x, y: b.y, n: gen + 1 })
-  // ...AND THE CRYSTAL RINGS: a struck pillar chimes a short ring around itself, at most once per
-  // B.chimeCd. This is what makes standing beside one WITH the crowd pay: the bodies pressing in on
-  // you are the bodies pressing on the crystal.
-  if (B.chimeR > 0 && run.time >= (o._chimeAt ?? 0)) {
-    o._chimeAt = run.time + B.chimeCd
-    const reach = B.chimeR * (1 + (run.weaponMods.echoPulse?.wideChime ?? 0))   // Wide Chime
-    spawnNova(run, o.x, o.y, o.r + reach, b.dmg * B.chimeDmg, B.chimeKb, 0, { look: 'chime', life: 0.3 })
-    // The ring also shakes loose what lies around the pillar: gems and coins in reach are reeled in
-    // to you (the same _vac flag Chemotaxis sets), so a crystal fight pays where you stand.
-    const vr = o.r + B.chimeVac, vrSq = vr * vr
-    for (const it of run.gems) { const dx = it.x - o.x, dy = it.y - o.y; if (dx * dx + dy * dy <= vrSq) it._vac = true }
-    for (const it of run.coins) { const dx = it.x - o.x, dy = it.y - o.y; if (dx * dx + dy * dy <= vrSq) it._vac = true }
-    crystalRang(run, o, b.dmg * B.chimeDmg, reach, B.chimeKb, null)
+  // ...AND THE CRYSTAL IS RUNG, silently: no ring, no damage, no push of its own. It counts for
+  // Fault Line and Sympathy, at most once per B.rungCd.
+  // balance_decision : no chime on shard hits, owner [2026-10-11]
+  if (run.time >= (o._rungCdAt ?? 0)) {
+    o._rungCdAt = run.time + B.rungCd
+    crystalRang(run, o, b.dmg * B.rungDmg, B.rungR, B.rungKb, null)
   }
   // LODESTONE: every shard a crystal bounces (re)starts its pull. The event only marks a pull that
   // was not already running, so a crystal under fire does not flash every frame.
@@ -16680,7 +16673,7 @@ function stepCrystalShot(run, b, spec) {
 // on the next crystal they meet instead of bouncing, so a burst can never charge another burst.
 function crystalBurst(run, o, b, C, evType) {
   const B = crystalSpec(run)?.bounce
-  const kb = B ? B.chimeKb : 40
+  const kb = B ? B.rungKb : 40
   spawnNova(run, o.x, o.y, o.r + C.ringR, b.dmg * C.ringDmg, kb * 2, 0, { look: 'chime', life: 0.45 })
   const n = C.shards
   const a0 = Math.atan2(b.vy, b.vx)
@@ -16706,7 +16699,7 @@ function spectrumMark(run, e, n, dmg) {
   else if (k === 1) e._specChill = run.time + S.secs
   else e._specVenom = run.time + S.secs
 }
-// Every time a crystal RINGS (a struck crystal's chime, an Echo Pulse ring-back, a burst): Fault
+// Every time a crystal RINGS (a shard bouncing off it, an Echo Pulse ring-back, a burst): Fault
 // Line looks for a partner rung just before it, and Sympathy rings its neighbours.
 function crystalRang(run, o, dmg, reach, kb, wave) {
   const em = run.weaponMods.echoPulse

@@ -2168,8 +2168,8 @@ function generateWells(sig) {
  *     mole), digVX/digVY (its heading). Private: _tun ('dig'|'quake'|'up'), _tunT. Run: _moleT.
  *   Bullets: weapon 'pebble' (Pebble Sling), 'prism' (Prism Shard, _bounces = its generation:
  *     crystals its line has struck; a bounce removes the shard and queues its sub-shards).
- *   Novas: look 'shovel' (a sector, `arc`), 'echo', 'chime' (a struck crystal's ring).
- *   Obstacles: kind 'crystal' (CHAPTERS.geode.obstacles.kind); o._chimeAt is its chime cooldown.
+ *   Novas: look 'shovel' (a sector, `arc`), 'echo', 'chime' (a crystal going off: Charged Facet, Cracked Glass).
+ *   Obstacles: kind 'crystal' (CHAPTERS.geode.obstacles.kind); o._rungCdAt is when a shard bounce may ring it again.
  *   Events: {type:'moleQuake', x, y, r, t} the ground starts shaking where an eruption will land;
  *     {type:'moleErupt', x, y, r, hit} it came up (hit = it caught the player, hurt src 'mole');
  *     {type:'moleDive', x, y}; {type:'caveIn', x, y, r}; {type:'pitFall', x, y, r, rosterId};

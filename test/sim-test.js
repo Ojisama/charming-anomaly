@@ -38924,7 +38924,7 @@ function testBurrow() {
 //     its second (the `ignite` and `chill` contract fields render reads);
 // (d) Charged Facet: nothing on a crystal's 7th bounced shard, a burst on the 8th — one big ring
 //     and a ring of spent shards, each heading its own way;
-// (e) Wide Chime: the ring a struck crystal chimes reaches farther;
+// (e) Wide Chime: the ring a crystal gives back to Echo Pulse reaches farther;
 // (f) Sympathy: crystal 1 rings, and the ring reaches crystal 2 and then crystal 3 (out of 1's
 //     reach), each once;
 // (g) Fault Line: two crystals rung in a row hurt a body standing on the line between them and
@@ -38941,7 +38941,9 @@ function testBurrow() {
 //     no crystal in reach, both leave for the crowd at distinct angles); generations stop at B.max,
 //     each one half the last;
 // (m) pinball: the hopping sub-shard visits three crystals in a row in turn, never back to the one
-//     it just left, while the first bounce already sends a sub-shard into the crowd.
+//     it just left, while the first bounce already sends a sub-shard into the crowd;
+// (n) no chime (owner, 2026-10-11): shards bouncing off a crystal make no ring, hurt and push none
+//     of the bodies round it and reel in none of the gems, yet still RING it for Fault Line.
 function testGeodeCrystals() {
   const dt = 1 / 60
   const meta = () => { const m = makeMeta(); m.dev = true; return m }
@@ -39078,18 +39080,23 @@ function testGeodeCrystals() {
     notes.push(`Charged Facet 0 then 1 burst, ${spent.length} shards`)
   }
 
-  // (e) WIDE CHIME
+  // (e) WIDE CHIME: Echo Pulse's own ring reaches a crystal, which rings back; the card widens that
   {
-    const chimeR = (w) => {
+    const ringR = (w) => {
       const r = boot(41005, { mods: { echoPulse: { wideChime: w } } })
-      const o = crystal(r, P(r).x, P(r).y - 400)
-      r.bullets.push(shardAt(o, 0))
-      steps(r, 1)
-      return Math.max(0, ...r.novas.filter((n) => n.look === 'chime').map((n) => n.maxR))
+      const o = crystal(r, P(r).x + 120, P(r).y)
+      const ev = []
+      for (let i = 0; i < 200; i++) {
+        r.weapons = [{ id: 'echoPulse', level: 1 }]
+        stepSim(r, { x: 0, y: 0 }, dt)
+        ev.push(...r.events); r.events.length = 0
+      }
+      const ring = ev.find((e) => e.type === 'crystalRing' && Math.abs(e.x - o.x) < 1)
+      return ring ? ring.r - o.r : 0
     }
-    const a = chimeR(0), b = chimeR(0.5)
-    assert.ok(a > 0 && Math.abs(b - (a - B.chimeR + B.chimeR * 1.5)) < 1e-6, `run GC.e: chime reach ${a} -> ${b} with Wide Chime +50%`)
-    notes.push(`Wide Chime ${a}->${b}px`)
+    const a = ringR(0), b = ringR(0.5)
+    assert.ok(a > 0 && Math.abs(b - a * 1.5) < 1e-6, `run GC.e: the ring a crystal gives back to Echo Pulse ${a} -> ${b}px with Wide Chime +50% (want x1.5)`)
+    notes.push(`Wide Chime ${a.toFixed(0)}->${b.toFixed(0)}px`)
   }
 
   // (f) SYMPATHY — chance pinned to 1 so the chain is a certainty to assert on
@@ -39299,7 +39306,33 @@ function testGeodeCrystals() {
     assert.strictEqual(hurtAt, 1, `run GC.m: the first bounce must already send a sub-shard into the crowd (hit after ${hurtAt} crystals)`)
     notes.push(`pinball ${seq}, crowd hit after the first`)
   }
-  console.log(`PASS run GC (The Geode's crystal cards, 10 cards + free bounces + the split + pinball): ${notes.join('; ')}`)
+  // (n) NO CHIME: three shards strike one crystal ringed by bodies and gems. Nothing but the shards
+  // may touch them: no nova, no hp lost, no push, no gem reeled in. Fault Line still sees the ring.
+  {
+    const r = boot(41014, { mods: { echoPulse: { faultLine: 1 } } })
+    const o = crystal(r, P(r).x, P(r).y - 500)
+    const ring = [0, 1, 2, 3, 4, 5].map((k) => {
+      const a = Math.PI / 6 + (k / 6) * Math.PI * 2
+      return makeStatusEnemy(r, { x: o.x + Math.cos(a) * (o.r + 60), y: o.y + Math.sin(a) * (o.r + 60), hp: 1e9, speed: 0 })
+    })
+    r.enemies.push(...ring)
+    const at0 = ring.map((e) => [e.x, e.y])
+    r.gems.push({ x: o.x + o.r + 120, y: o.y, value: 1 })
+    for (const a of [0, Math.PI / 2, Math.PI]) r.bullets.push(shardAt(o, a, { life: 0.08 }))
+    // the sub-shards are taken off the floor as they appear: only the bounce itself may act
+    const ev = steps(r, 4, (rr) => { rr.bullets = rr.bullets.filter((q) => !q._bounces) })
+    r.bullets = []
+    const bounced = ev.filter((e) => e.type === 'crystalBounce').length
+    const hurt = ring.filter((e) => e.hp < e.maxHP).length
+    const moved = Math.max(...ring.map((e, i) => Math.hypot(e.x - at0[i][0], e.y - at0[i][1])))
+    assert.ok(bounced >= 3, `run GC.n: the shards must bounce off the crystal (${bounced})`)
+    assert.strictEqual(r.novas.length, 0, `run GC.n: a shard bounce made ${r.novas.length} nova(s): ${JSON.stringify(r.novas.map((n) => n.look))}`)
+    assert.ok(hurt === 0 && moved < 1, `run GC.n: the bodies round a struck crystal were hurt (${hurt}) or pushed (${moved.toFixed(1)}px)`)
+    assert.ok(!r.gems.some((g) => g._vac), 'run GC.n: a shard bounce reeled in a gem')
+    assert.strictEqual(r._lastRung, o, 'run GC.n: a shard bounce must still ring the crystal (Fault Line)')
+    notes.push(`no chime: ${bounced} bounces, 0 novas, 0 hurt, rung`)
+  }
+  console.log(`PASS run GC (The Geode's crystal cards, 10 cards + free bounces + the split + pinball + no chime): ${notes.join('; ')}`)
 }
 
 // ---- run MG: Book 3, The Mine — the glyph tells (source text: render.js and ascii.js are not importable)

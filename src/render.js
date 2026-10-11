@@ -6185,7 +6185,7 @@ export function createRenderer(app) {
   // burrowGroundG is ON the floor, under the crowd: the ridges of turned earth over digging moles,
   // the cracks of a coming cave-in or eruption, the open pits, the shadow of a stone about to fall.
   // The snares' roots are baked sprites on snareRootLayer, at the same depth. burrowFxG is over the crowd: the echo rings, a crystal
-  // chiming, the stone itself falling, the light-trails of prism shards (which is what shows a shot
+  // going off, the stone itself falling, the light-trails of prism shards (which is what shows a shot
   // turning off a crystal in a still frame). Both are cleared and redrawn every frame from `run`;
   // nothing here writes back to it.
   const burrowSwings = []          // {x, y, angle, r, arc, t, life, seed} — shovel swings, renderer-local
@@ -6536,7 +6536,7 @@ export function createRenderer(app) {
     }
     for (let i = stoneN; i < burrowStones.length; i++) burrowStones[i].visible = false
     drawShovel(run, dt)
-    // echo rings and crystal chimes (run.novas by look; placeNova hides both)
+    // echo rings and a crystal going off (run.novas by look; placeNova hides both)
     for (const n of run.novas || []) {
       if (n.look !== 'echo' && n.look !== 'chime') continue
       const k = 1 - Math.max(0, n.life) / (n.lifeMax || 0.5)
@@ -6554,7 +6554,7 @@ export function createRenderer(app) {
           gF.circle(n.x, n.y, n.r + 0.5).stroke({ width: 1.2, color: 0xffffff, alpha: 0.9 * fade })
         }
       } else {
-        // a crystal chiming: an inked ring of foil, spectrum bands, and its points of light
+        // a crystal going off (Charged Facet, Cracked Glass): an inked ring of foil, spectrum bands, and its points of light
         const R = Math.max(1, n.r)
         gF.circle(n.x, n.y, R + 2.5).stroke({ width: 2, color: 0x0b0714, alpha: 0.6 * fade })
         for (let j = 0; j < 4; j++) gF.circle(n.x, n.y, Math.max(1, R - j * 2.6)).stroke({ width: 2.4, color: HOLO.film(0.3 + j / 4 - k * 0.5), alpha: 0.8 * fade })
@@ -6588,37 +6588,66 @@ export function createRenderer(app) {
         gF.circle(o.x, o.y, R).stroke({ width: 2.4, color: HOLO.film(0.55 + j * 0.15), alpha: 0.55 * (1 - u) + 0.15 })
       }
     }
-    // prism shard light-trails: a shard that turned off a crystal leaves a bent streak
-    for (const b of run.bullets || []) {
+    drawShardTrails(run, dt, t, gF)
+  }
+  // PRISM SHARD LIGHT-TRAILS: a shard that turned off a crystal leaves a bent streak. A trail keeps
+  // SHARD_TRAIL_PTS points at least SHARD_TRAIL_STEP px apart, plus the shard itself as its head.
+  // Segment s (1 = the tail) of an m-segment trail is drawn at u = s / (m + 1) on every shard, so
+  // all the shards' segments that share (bounced, m, s) go into ONE path and each pass is one
+  // stroke per bucket, whatever the shard count. Butt caps: round ones cost ~45ms a frame on a
+  // maxed build. DRAW_CAPS.shardTrails: only the newest shards are streaked; the rest still hit.
+  function drawShardTrails(run, dt, t, gF) {
+    const K = SHARD_TRAIL_PTS, half = shardSegs.length / 2
+    for (const sg of shardSegs) sg.length = 0
+    let left = DRAW_CAPS.shardTrails
+    const bs = run.bullets || []
+    for (let i = bs.length - 1; i >= 0 && left > 0; i--) {
+      const b = bs[i]
       if (b.weapon !== 'prism') continue
+      left--
       let tr = burrowTrails.get(b)
       if (!tr) {
-        tr = []
         // a sub-shard is born on its parent's bounce point: it inherits the parent's incoming
         // streak (b._from), so every branch of the split is drawn from the first frame
         const ot = b._from && burrowTrails.get(b._from)
-        if (ot && ot.length >= 4) tr = ot.slice()
+        tr = ot ? ot.slice() : []
         burrowTrails.set(b, tr)
       }
-      if (dt > 0) { tr.push(b.x, b.y); if (tr.length > 40) tr.splice(0, 2) }
-      if (tr.length < 4) continue
-      // a foil streak: the spectrum laid along the path over an ink sleeve (so it reads on the pale
-      // pearl floor), brighter and wider once it has bounced
-      const bright = (b._bounces || 0) > 0
-      for (let j = 2; j < tr.length; j += 2) {
-        const u = j / tr.length
-        gF.moveTo(tr[j - 2], tr[j - 1]).lineTo(tr[j], tr[j + 1]).stroke({ width: (bright ? 9 : 6) * u, color: 0x120a1e, alpha: (bright ? 0.8 : 0.5) * u, cap: 'round' })
+      const n = tr.length
+      if (dt > 0 && (n < 2 || (b.x - tr[n - 2]) ** 2 + (b.y - tr[n - 1]) ** 2 >= SHARD_TRAIL_STEP * SHARD_TRAIL_STEP)) {
+        tr.push(b.x, b.y)
+        if (tr.length > K * 2) tr.splice(0, 2)
       }
-      for (let j = 2; j < tr.length; j += 2) {
-        const u = j / tr.length
-        gF.moveTo(tr[j - 2], tr[j - 1]).lineTo(tr[j], tr[j + 1]).stroke({ width: (bright ? 6 : 3.8) * u, color: HOLO.film(u * 0.9 + t * 0.8), alpha: (bright ? 0.95 : 0.7) * u, cap: 'round' })
+      const m = tr.length / 2   // segments: every stored point to the next, the last one to the shard
+      if (m < 1) continue
+      const base = ((b._bounces || 0) > 0 ? half : 0) + (m * (m - 1)) / 2
+      for (let j = 0; j < m; j++) {
+        const nx = j + 1 < m ? tr[2 * j + 2] : b.x, ny = j + 1 < m ? tr[2 * j + 3] : b.y
+        shardSegs[base + j].push(tr[2 * j], tr[2 * j + 1], nx, ny)
       }
-      if (bright) for (let j = 2; j < tr.length; j += 2) {
-        const u = j / tr.length
-        gF.moveTo(tr[j - 2], tr[j - 1]).lineTo(tr[j], tr[j + 1]).stroke({ width: 1.4 * u, color: 0xffffff, alpha: u, cap: 'round' })
+    }
+    // a foil streak: the spectrum laid along the path over an ink sleeve (so it reads on the pale
+    // pearl floor), brighter and wider once it has bounced
+    for (let pass = 0; pass < 3; pass++) {
+      for (let m = 1, q = 0; m <= K; m++) {
+        for (let j = 0; j < m; j++, q++) {
+          for (let h = 0; h < 2; h++) {
+            const sg = shardSegs[h * half + q]
+            if (sg.length === 0) continue
+            const bright = h === 1
+            if (pass === 2 && !bright) continue
+            const u = (j + 1) / (m + 1)
+            for (let i = 0; i < sg.length; i += 4) gF.moveTo(sg[i], sg[i + 1]).lineTo(sg[i + 2], sg[i + 3])
+            if (pass === 0) gF.stroke({ width: (bright ? 9 : 6) * u, color: 0x120a1e, alpha: (bright ? 0.8 : 0.5) * u })
+            else if (pass === 1) gF.stroke({ width: (bright ? 6 : 3.8) * u, color: HOLO.film(u * 0.9 + t * 0.8), alpha: (bright ? 0.95 : 0.7) * u })
+            else gF.stroke({ width: 1.4 * u, color: 0xffffff, alpha: u })
+          }
+        }
       }
     }
   }
+  const SHARD_TRAIL_PTS = 8, SHARD_TRAIL_STEP = 22
+  const shardSegs = Array.from({ length: SHARD_TRAIL_PTS * (SHARD_TRAIL_PTS + 1) }, () => [])   // (bounced, m, s) buckets
   // THE SHOVEL: a photographed long-handled shovel (MACRO.paintShovel), its grip under the blob and
   // its blade tip landing on the swing's radius, sweeping the arc. It carries a load of soil that
   // spills along the arc and is flung off the end, so the reach is also left lying on the floor.
@@ -6790,10 +6819,9 @@ export function createRenderer(app) {
           spawnParticle(T.clayClod.tex, e.x + Math.cos(a) * 16, e.y + Math.sin(a) * 16, -Math.cos(a) * 40, -Math.sin(a) * 40, 0.3, 0.5, 0x8a6440, -1.2, 3)
         }
         return true
-      // the foil glints: a diffraction star and a thin-film ring flash where a shot turns
+      // the foil glints: a diffraction star and sparks where a shot turns, and no ring (owner, 2026-10-11)
       case 'crystalBounce':
         spawnParticle(T.holoGlint.tex, e.x, e.y, 0, 0, 0.26, 0.62, 0xffffff, -1.2, 0)
-        spawnParticle(T.holoRing.tex, e.x, e.y, 0, 0, 0.24, 0.12, 0xffffff, 2.6, 0)
         for (let i = 0; i < 5; i++) {
           const a = Math.random() * Math.PI * 2, sp = 70 + Math.random() * 110
           spawnParticle(T.fx.spark_04, e.x, e.y, Math.cos(a) * sp, Math.sin(a) * sp, 0.22, 0.035, HOLO.film(Math.random()), -0.2, 2)
