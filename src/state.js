@@ -1857,7 +1857,8 @@ function generateWells(sig) {
  * 'strafe' (jet — bank -> telegraph -> run; fires {type:'strafeLock'} once per pass, see below),
  * 'missileVolley' (helicopter -> run.enemyShots), 'artillery' (tank columns AND AA
  * elites -> run.bombs), 'flyover' (city pigeon — passes straight through run.obstacles and nothing
- * else; see stepObstacles), 'phase' (phase flicker), 'pullBeam' (UFO elites),
+ * else; see stepObstacles), 'flying' (above the floor: no floor hazard touches it — see flies() in
+ * sim.js), 'phase' (phase flicker), 'pullBeam' (UFO elites),
  * 'guard' (The Surf's Shore Crab: alternates guarded <-> open, refusing DIRECT damage inside a
  * 120-degree arc while guarded — see stepCrabGuard/guardBlocks in sim.js and the CRAB_GUARD_*
  * block in config.js),

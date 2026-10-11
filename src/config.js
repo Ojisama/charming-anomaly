@@ -6703,7 +6703,7 @@ export const CHAPTERS = {
       // multiplier on the archetype's base radius, so it re-sizes one creature without touching
       // the archetype every other chapter shares.
       { id: 'ant',    archetype: 'normal', name: 'Ant',    hpMul: 0.85, speedMul: 1.1, radiusMul: 0.75, flags: ['trailFollow'] },
-      { id: 'wasp',   archetype: 'fast',   name: 'Wasp',   hpMul: 1.3,  speedMul: 0.8, radiusMul: 1.25, flags: ['diveBomb'] },
+      { id: 'wasp',   archetype: 'fast',   name: 'Wasp',   hpMul: 1.3,  speedMul: 0.8, radiusMul: 1.25, flags: ['diveBomb', 'flying'] },
       // v6.6.15 (owner): spiders -20% hp. This is the ROSTER multiplier, so it thins the spider
       // alone; garden's chapter-wide enemyHpMul below still applies on top of it.
       { id: 'spider', archetype: 'tank',   name: 'Spider', hpMul: 1.2,  speedMul: 0.9, radiusMul: 0.75, flags: ['webZone', 'unshakeable'] },
@@ -6829,14 +6829,14 @@ export const CHAPTERS = {
     weapons: ['rainbow', 'trashTornado', 'burstHydrant'], starter: 'rainbow',
     roster: [
       { id: 'vacuum',   archetype: 'tank',   name: 'Robot Vacuum',    hpMul: 1.5,  speedMul: 0.85, flags: ['lineCharge', 'unshakeable'] },
-      { id: 'ratDrone', archetype: 'normal', name: 'Rat-Catcher Drone', hpMul: 1,  speedMul: 1.05, flags: [] },
+      { id: 'ratDrone', archetype: 'normal', name: 'Rat-Catcher Drone', hpMul: 1,  speedMul: 1.05, flags: ['flying'] },
       // Patrol Drone. v6.10.3 (owner: "some drones circle and dash, remove that") — it has lost
       // `aerialStrike` (circle -> mark -> strike -> climb, see stepAerialStrike in sim.js) and is
       // now a plain committed chaser. The flag itself stays in the codebase; skies still uses it.
       // What is left is a reskin of ratDrone at 0.85 hp with its own name and silhouette, which is
       // fine — but the weight/minT gating below is now guarding nothing dangerous and could go if
       // the opening minute ever wants the extra body.
-      { id: 'patrolDrone', archetype: 'normal', name: 'Patrol Drone', hpMul: 0.85, speedMul: 1.0, flags: [], weight: 0.3, minT: 60 },
+      { id: 'patrolDrone', archetype: 'normal', name: 'Patrol Drone', hpMul: 0.85, speedMul: 1.0, flags: ['flying'], weight: 0.3, minT: 60 },
       // Street Rat (v6.3): the fast PRESSURE lane (plain committed chaser). Pigeon is the lane's spice.
       // v6.9 (owner: "pigeons are still dashing/teleporting. just make them move normally, but they
       // can go through (fly over) obstacles. make them 15% slower and rats too"). The pigeon drops
@@ -6844,7 +6844,7 @@ export const CHAPTERS = {
       // read as one, because a 686 px/s hop between crawls is a discontinuity in speed even when it
       // is not a discontinuity in position. Both speeds are the old ones x0.85.
       { id: 'rat',      archetype: 'fast',   name: 'Street Rat',     hpMul: 0.8,  speedMul: 0.98, flags: [] },
-      { id: 'pigeon',   archetype: 'fast',   name: 'Pigeon',          hpMul: 0.7,  speedMul: 1.02, flags: ['flyover'] },
+      { id: 'pigeon',   archetype: 'fast',   name: 'Pigeon',          hpMul: 0.7,  speedMul: 1.02, flags: ['flyover', 'flying'] },
     ],
     eliteFlags: ['spawner'],              // exterminator-van elites periodically disgorge minions
     // Signature: traffic lanes (run.lanes) — a marked band is telegraphed, then a vehicle sweeps
@@ -6928,11 +6928,11 @@ export const CHAPTERS = {
       // hurt one by hitting it — the aircraft's threat is its STRAFE RUN (a telegraphed, dodgeable
       // attack), not its airframe. Aircraft only: the tank column below is ground armour and
       // survives being brushed, so walking into one still costs you.
-      { id: 'jet',        archetype: 'fast',   name: 'Fighter Jet', hpMul: 0.8, speedMul: 1.1,  flags: ['strafe', 'crushable'] },
+      { id: 'jet',        archetype: 'fast',   name: 'Fighter Jet', hpMul: 0.8, speedMul: 1.1,  flags: ['strafe', 'crushable', 'flying'] },
       // v5.6.15: hpMul 1.2 -> 0.75 — aircraft are FRAGILE; the tank column is this chapter's
       // armor. At 1.2 the roar cone cleared ~0.7 helis/s against ~1.6/s spawning, so they
       // accumulated into a missile hell (217 alive at t=180) regardless of standoff.
-      { id: 'helicopter', archetype: 'normal', name: 'Helicopter',  hpMul: 0.75, speedMul: 0.9,  flags: ['missileVolley', 'crushable'] },
+      { id: 'helicopter', archetype: 'normal', name: 'Helicopter',  hpMul: 0.75, speedMul: 0.9,  flags: ['missileVolley', 'crushable', 'flying'] },
       // v5.13: hpMul 1.8 -> 1.25 ("tanks are a bit too tanky"). The tank column is still the
       // chapter's armour — every other skies spawn sits at or below 0.8 — but at 1.8 it outlived
       // the roar cone long enough that columns stacked up and their artillery telegraphs became a
@@ -7078,7 +7078,7 @@ export const CHAPTERS = {
     // entries: seekers spawn on the ring as in every other chapter, marchers arrive only in rank.
     roster: [
       { id: 'drifter',    archetype: 'normal', name: 'Drifter',       hpMul: 0.9,  speedMul: 1,    flags: [] },
-      { id: 'swarmDrone', archetype: 'fast',   name: 'Swarm Drone',   hpMul: 0.75, speedMul: 1.25, flags: [] },
+      { id: 'swarmDrone', archetype: 'fast',   name: 'Swarm Drone',   hpMul: 0.75, speedMul: 1.25, flags: ['flying'] },
       { id: 'warden',     archetype: 'tank',   name: 'Warden',        hpMul: 1.25, speedMul: 0.7,  flags: ['unshakeable'] },
       { id: 'invader',    archetype: 'normal', name: 'Invader',       hpMul: 0.6,  speedMul: 1,    flags: ['march'], formationOnly: true },  // rank fodder: dies fast, arrives six at a time
       { id: 'hulk',       archetype: 'tank',   name: 'Siege Hulk',    hpMul: 1.4,  speedMul: 0.55, flags: ['march'], formationOnly: true },
@@ -9359,7 +9359,7 @@ CHAPTERS.geode = {
     { id: 'olm',         archetype: 'normal', name: 'Olm',          hpMul: 0.9, speedMul: 0.9, flags: ['weave'] },
     { id: 'caveCricket', archetype: 'fast',   name: 'Cave Cricket', hpMul: 0.7, speedMul: 1.0, flags: ['pounce'], dmgMul: 0.7 },
     { id: 'crystalCrab', archetype: 'tank',   name: 'Crystal Crab', hpMul: 1.6, speedMul: 0.8, flags: ['unshakeable'] },
-    { id: 'bat',         archetype: 'fast',   name: 'Cave Bat',     hpMul: 2.6, speedMul: 1.0, radiusMul: 1.1, flags: ['weave'], eliteOnly: true },
+    { id: 'bat',         archetype: 'fast',   name: 'Cave Bat',     hpMul: 2.6, speedMul: 1.0, radiusMul: 1.1, flags: ['weave', 'flying'], eliteOnly: true },
   ],
   eliteFlags: [],
   signature: {
@@ -9477,9 +9477,7 @@ export const MAGMA_FLOOR = {
     // how far ahead of its centre (x its radius) it feels for the lava. faceT: s render keeps it
     // facing along the bank after its last held step.
     // balance_decision : foes wait at the bank unless you are just across 2026-10-10
-    avoid: { crossNear: 260, edge: 1.5, faceT: 0.3 },
-    // roster ids that fly over a river: never held at the bank, never burned by it
-    flyOver: ['fireDrake'] },
+    avoid: { crossNear: 260, edge: 1.5, faceT: 0.3 } },
   cooled: { wave: 820, thresh: 0.6, stretch: 2.2 },
   hot: { wave: 640, thresh: 0.6, openMul: 0.45, rMul: 1.45 },
 }
@@ -9498,7 +9496,7 @@ CHAPTERS.magma = {
     { id: 'salamander',       archetype: 'fast',   name: 'Salamander',        hpMul: 0.8, speedMul: 1.0, flags: ['dashBurst'] },
     { id: 'obsidianTortoise', archetype: 'tank',   name: 'Obsidian Tortoise', hpMul: 1.5, speedMul: 0.75, radiusMul: 1.1, flags: ['unshakeable'] },
     // The elite. eliteOnly: every elite in this chapter is a drake, and no ordinary spawn is.
-    { id: 'fireDrake',        archetype: 'fast',   name: 'Fire Drake',        hpMul: 2.4, speedMul: 1.0, radiusMul: 1.25, flags: ['weave'], eliteOnly: true },
+    { id: 'fireDrake',        archetype: 'fast',   name: 'Fire Drake',        hpMul: 2.4, speedMul: 1.0, radiusMul: 1.25, flags: ['weave', 'flying'], eliteOnly: true },
   ],
   eliteFlags: [],
   signature: {
