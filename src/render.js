@@ -6050,7 +6050,12 @@ export function createRenderer(app) {
       g.moveTo(x, y - 3).lineTo(x, y + 3).stroke({ width: 0.8, color: 0xffffff, alpha: 0.8 })
     }
   }
-  function buildBurrowTextures() {
+  // Book 3's floor props: baked on first use (applyPropKind) or by prewarm, not at boot, where they
+  // cost every player ~0.4 s for chapters most never reach.
+  let floorPropsBaked = false
+  function bakeFloorProps() {
+    if (floorPropsBaked) return
+    floorPropsBaked = true
     Object.assign(T, PIXEL.bakeProps())   // The Magma's floor props (src/pixel.js), keyed px_<prop><v>
     // the photographed floor props (src/macro.js MACRO_PROPS), three bakes of each
     for (const name of Object.keys(MACRO.MACRO_PROPS)) {
@@ -6059,6 +6064,12 @@ export function createRenderer(app) {
         T['macro_' + name + v] = { tex: macroCanvasTex(c, 3), ax: 0.5, ay: 0.5 }
       }
     }
+    for (let v = 0; v < 3; v++) {   // The Geode's
+      T['holo_druse' + v] = { tex: macroCanvasTex(HOLO.paintHoloProp('druse', 41 + v * 17), 3), ax: 0.5, ay: 0.5 }
+      T['holo_flake' + v] = { tex: macroCanvasTex(HOLO.paintHoloProp('flake', 83 + v * 19), 3), ax: 0.5, ay: 0.5 }
+    }
+  }
+  function buildBurrowTextures() {
     // crystal pillars (The Geode's obstacles), baked at R = 64 and scaled to each collider
     // a crumb of turned earth, for every dirt spray in the book
     {
@@ -6171,10 +6182,6 @@ export function createRenderer(app) {
     T.crystalPillars = [0, 1, 2, 3, 4, 5].map((v) => { const b = HOLO.paintHoloPillar(v); return { tex: macroCanvasTex(b.body, b.S), ax: b.ax, ay: b.ay, R: 64 } })
     T.prismShot = { tex: macroCanvasTex(HOLO.paintHoloShard(), 3), ax: 0.5, ay: 0.5 }
     { const b = HOLO.paintHoloStalactite(); T.stalactite = { tex: macroCanvasTex(b.body, b.S), ax: b.ax, ay: b.ay } }
-    for (let v = 0; v < 3; v++) {
-      T['holo_druse' + v] = { tex: macroCanvasTex(HOLO.paintHoloProp('druse', 41 + v * 17), 3), ax: 0.5, ay: 0.5 }
-      T['holo_flake' + v] = { tex: macroCanvasTex(HOLO.paintHoloProp('flake', 83 + v * 19), 3), ax: 0.5, ay: 0.5 }
-    }
     T.holoGlint = { tex: macroCanvasTex(HOLO.paintGlint()), ax: 0.5, ay: 0.5 }
     T.holoRing = { tex: macroCanvasTex(HOLO.paintFilmRing()), ax: 0.5, ay: 0.5 }
   }
@@ -7169,6 +7176,12 @@ export function createRenderer(app) {
     }
     return holoPlayerLook
   }
+  const rosterBakers = {}, rosterLooks = {}
+  // a creature's look, baked the first time anything asks for it; undefined for a key with no look
+  function rosterLook(key) {
+    if (!(key in rosterLooks)) rosterLooks[key] = rosterBakers[key]?.()
+    return rosterLooks[key]
+  }
   function makeMacroLook(id, entry, elite) {
     const M = HOLO.HOLO_CAST[id] ?? MACRO.MACRO_CAST[id]
     const n = M.poses ?? M.frames ?? 1
@@ -7547,18 +7560,19 @@ export function createRenderer(app) {
       T.enemies[type + '_elite'] = makeEnemyLook(type, true)
     }
 
-    // Per-rosterId themed creature silhouettes (v5.4). Keyed by rosterId (+ '_elite'); syncEnemies
-    // prefers these over the archetype T.enemies fallback whenever e.rosterId names one.
-    T.roster = {}
+    // Per-rosterId themed creature silhouettes (v5.4), keyed by rosterId (+ '_elite' / '_child');
+    // syncEnemies prefers these over the archetype T.enemies fallback. Baked on first ask (rosterLook),
+    // not here: every chapter's creatures together cost ~1 s of boot, and prewarm bakes a chapter's
+    // own while its brief is open.
     for (const id of Object.keys(ROSTER_LOOKS)) {
-      T.roster[id] = makeRosterLook(id, false)
+      rosterBakers[id] = () => makeRosterLook(id, false)
       // noElite (the blank's bosses): alias the elite key instead of baking a second giant twin
       // pair — the blank's script spawns everything forceNormal, so it's unreachable anyway
-      T.roster[id + '_elite'] = ROSTER_LOOKS[id].noElite ? T.roster[id] : makeRosterLook(id, true)
-      // ...and the split child's own silhouette, where the entry declares one. Baked here rather
-      // than swapped live for the same reason every other look is: syncEnemies picks a texture, it
-      // never draws one.
-      if (ROSTER_LOOKS[id].childDraw) T.roster[id + '_child'] = makeRosterLook(id, false, true)
+      rosterBakers[id + '_elite'] = () => ROSTER_LOOKS[id].noElite ? rosterLook(id) : makeRosterLook(id, true)
+      // ...and the split child's own silhouette, where the entry declares one. Baked rather than
+      // swapped live for the same reason every other look is: syncEnemies picks a texture, it never
+      // draws one.
+      if (ROSTER_LOOKS[id].childDraw) rosterBakers[id + '_child'] = () => makeRosterLook(id, false, true)
     }
     buildBurrowTextures()   // Book 3: photographed props, crystal pillars, shots
     {
@@ -13110,6 +13124,9 @@ export function createRenderer(app) {
     if (ch.signature?.caveIns || ch.weapons?.includes('furrow')) q.push(bakePits)
     if (ch.weapons?.includes('furrow')) q.push(bakeFurrow)
     if (ch.weapons?.includes('rootSnare')) q.push(bakeSnares)
+    if (kind || ch.render?.holo || ch.render?.pixel) q.push(bakeFloorProps)
+    const ids = new Set([...(ch.roster ?? []).map((r) => r.id), ...(ch.render?.cast ?? [])])
+    for (const id of ids) for (const k of [id, id + '_elite', id + '_child']) if (rosterBakers[k]) q.unshift(() => rosterLook(k))
     prewarmQ = q; prewarmTotal = q.length
     const done = new Promise((resolve) => prewarmWaiters.push({ resolve, onStep }))
     const step = () => { for (const w of prewarmWaiters) w.onStep?.(1 - prewarmQ.length / Math.max(1, prewarmTotal)) }
@@ -14299,6 +14316,7 @@ const spurG = new Graphics()
   function applyPropKind(s, kind, i, j, wx, wy) {
     const floorTint = floorTintAt(wx, wy)
     if (kind.baked) {
+      if (!T[kind.name]) bakeFloorProps()
       const look = T[kind.name]
       s.texture = look.tex
       s.anchor.set(look.ax, look.ay)
@@ -31763,9 +31781,9 @@ void main() {
       // — The Deep's zooid). Children are never elite (spawnSplitChildren sets elite: false), so
       // the two suffixes cannot both apply and this needs no ordering rule.
       const rkey = e.rosterId
-        ? e.rosterId + (e._splitChild && T.roster[e.rosterId + '_child'] ? '_child' : (e.elite ? '_elite' : ''))
+        ? e.rosterId + (e._splitChild && rosterBakers[e.rosterId + '_child'] ? '_child' : (e.elite ? '_elite' : ''))
         : null
-      const look = (rkey && T.roster[rkey]) || T.enemies[e.elite ? e.type + '_elite' : e.type]
+      const look = (rkey && rosterLook(rkey)) || T.enemies[e.elite ? e.type + '_elite' : e.type]
       // Animated looks (look.frames, e.g. the centipede's baked wave phases): flip through the
       // frames on animT, offset per enemy id so a pack doesn't slither in lockstep. Frozen/stunned
       // creatures HOLD their current pose (matching the wisp-wobble rule below) instead of
@@ -33189,7 +33207,7 @@ void main() {
   async function castThumbs(ids) {
     const out = {}
     for (const id of ids) {
-      const look = T.roster[id]
+      const look = rosterLook(id)
       if (!look) continue
       try {
         // a Book 3 photographed look is already a canvas: hand that over as it is (a GPU extract of a

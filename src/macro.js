@@ -17,6 +17,8 @@
 
 const TAU = Math.PI * 2
 const lerp = (a, b, t) => a + (b - a) * t
+// Math.hypot is several times slower in V8 and runs per texel in every raster here; nothing overflows
+const hypot = (a, b, c = 0) => Math.sqrt(a * a + b * b + c * c)
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v)
 const smooth = (a, b, v) => { const t = clamp01((v - a) / (b - a)); return t * t * (3 - 2 * t) }
 
@@ -61,7 +63,7 @@ export function spineOutline(spine, halfW, n = 36, t0 = 0, t1 = 1) {
     const t = t0 + (t1 - t0) * (i / n)
     const [x, y] = spine(t)
     const [ax, ay] = spine(Math.max(0, t - 0.008)), [bx, by] = spine(Math.min(1, t + 0.008))
-    const dx = bx - ax, dy = by - ay, len = Math.hypot(dx, dy) || 1
+    const dx = bx - ax, dy = by - ay, len = hypot(dx, dy) || 1
     const nx = -dy / len, ny = dx / len, w = halfW(t)
     top.push(x + nx * w, y + ny * w)
     bot.unshift(x - nx * w, y - ny * w)
@@ -519,15 +521,15 @@ function reliefField(ctx, height, colour, o) {
   const H = height instanceof Float32Array ? height : new Float32Array(W * W)
   if (H !== height) for (let y = 0; y < W; y++) for (let x = 0; x < W; x++) H[y * W + x] = height(x / W, y / W)
   const id = ctx.createImageData(W, W), d = id.data
-  const lz = o.lightZ ?? 0.55, ll = Math.hypot(LX, LY, lz), Lx = LX / ll, Ly = LY / ll, Lz = lz / ll
-  const hx0 = Lx, hy0 = Ly, hz0 = Lz + 1, hl = Math.hypot(hx0, hy0, hz0), Hx = hx0 / hl, Hy = hy0 / hl, Hz = hz0 / hl
+  const lz = o.lightZ ?? 0.55, ll = hypot(LX, LY, lz), Lx = LX / ll, Ly = LY / ll, Lz = lz / ll
+  const hx0 = Lx, hy0 = Ly, hz0 = Lz + 1, hl = hypot(hx0, hy0, hz0), Hx = hx0 / hl, Hy = hy0 / hl, Hz = hz0 / hl
   const amp = o.amp ?? 40, amb = o.ambient ?? 0.35, flat = Lz
   for (let y = 0; y < W; y++) {
     const ym = ((y - 1 + W) % W) * W, yp = ((y + 1) % W) * W, yr = y * W
     for (let x = 0; x < W; x++) {
       const xm = (x - 1 + W) % W, xp = (x + 1) % W
       const dx = (H[yr + xp] - H[yr + xm]) * amp, dy = (H[yp + x] - H[ym + x]) * amp
-      const nl = Math.hypot(dx, dy, 1), nx = -dx / nl, ny = -dy / nl, nz = 1 / nl
+      const nl = hypot(dx, dy, 1), nx = -dx / nl, ny = -dy / nl, nz = 1 / nl
       const diff = Math.max(0, nx * Lx + ny * Ly + nz * Lz) / flat
       const shade = amb + (1 - amb) * diff
       const u = x / W, v = y / W, h = H[yr + x]
@@ -685,7 +687,7 @@ function leafCanvas(r, rot, seed, res, light, specK = 1, reliefK = 1) {
     const e = 1 - av / w   // 1 on the midrib, 0 at the margin
     // insect bites out of the margin
     let bit = false
-    for (const [bu, bv, br] of bites) { const q = Math.hypot(u - bu, v - bv); if (q < br * 1.15 && q < br * (0.8 + 0.35 * leafNoise(Math.atan2(v - bv, u - bu) * 2.5 + 9, br * 50, s + 71))) { bit = true; break } }
+    for (const [bu, bv, br] of bites) { const q = hypot(u - bu, v - bv); if (q < br * 1.15 && q < br * (0.8 + 0.35 * leafNoise(Math.atan2(v - bv, u - bu) * 2.5 + 9, br * 50, s + 71))) { bit = true; break } }
     if (bit) continue
     const dec = leafFbm(u * 3.2 + 9, v * 3.2, s + 11, 3)
     // veins: midrib, pinnate secondaries curving to the tip, the reticulate net between
@@ -709,8 +711,8 @@ function leafCanvas(r, rot, seed, res, light, specK = 1, reliefK = 1) {
     M[k] = leafFbm(u * 2.4, v * 2.4, s + 41, 2)
     SO[k] = leafFbm(u * 5 + 2, v * 5 + 4, s + 51, 2)
   }
-  const ll = Math.hypot(light[0], light[1], light[2]), Lx = light[0] / ll, Ly = light[1] / ll, Lz = light[2] / ll
-  const hl = Math.hypot(Lx, Ly, Lz + 1), Hx = Lx / hl, Hy = Ly / hl, Hz = (Lz + 1) / hl
+  const ll = hypot(light[0], light[1], light[2]), Lx = light[0] / ll, Ly = light[1] / ll, Lz = light[2] / ll
+  const hl = hypot(Lx, Ly, Lz + 1), Hx = Lx / hl, Hy = Ly / hl, Hz = (Lz + 1) / hl
   const amp = 0.0028 * res * r * reliefK   // slope in the leaf's own units: the same relief at any bake size
   const soilT = 1 - LEAF_SOIL * 0.6, spS = seed & 1023
   for (let y = 1; y < W - 1; y++) for (let x = 1; x < W - 1; x++) {
@@ -718,7 +720,7 @@ function leafCanvas(r, rot, seed, res, light, specK = 1, reliefK = 1) {
     if (A[k] <= 0) continue
     const gx = ((A[k + 1] > 0 ? H[k + 1] : H[k]) - (A[k - 1] > 0 ? H[k - 1] : H[k])) * amp
     const gy = ((A[k + W] > 0 ? H[k + W] : H[k]) - (A[k - W] > 0 ? H[k - W] : H[k])) * amp
-    const nl = Math.hypot(gx, gy, 1), nx = -gx / nl, ny = -gy / nl, nz = 1 / nl
+    const nl = hypot(gx, gy, 1), nx = -gx / nl, ny = -gy / nl, nz = 1 / nl
     const diff = Math.max(0, nx * Lx + ny * Ly + nz * Lz) / Lz
     const m = M[k], vn = V[k]
     let col = m < 0.5 ? mixc(LEAF_LAMINA[0], LEAF_LAMINA[1], m * 2) : mixc(LEAF_LAMINA[1], LEAF_LAMINA[2], (m - 0.5) * 2)
@@ -1079,7 +1081,7 @@ function wetDashes(ctx, spine, half, t0, t1, n, a = 0.75) {
 }
 function across(spine, t, k) {
   const [x, y] = spine(t), [x2, y2] = spine(Math.min(1, t + 0.01))
-  const dx = x2 - x, dy = y2 - y, d = Math.hypot(dx, dy) || 1
+  const dx = x2 - x, dy = y2 - y, d = hypot(dx, dy) || 1
   return [x, y, -dy / d * k, dx / d * k]
 }
 
@@ -1799,7 +1801,7 @@ function polySpine(pts) {
 // [normal x, normal y, tangent x, tangent y] of a spine at t
 function spineNrm(sp, t) {
   const [ax, ay] = sp(Math.max(0, t - 0.01)), [bx, by] = sp(Math.min(1, t + 0.01))
-  const dx = bx - ax, dy = by - ay, l = Math.hypot(dx, dy) || 1
+  const dx = bx - ax, dy = by - ay, l = hypot(dx, dy) || 1
   return [-dy / l, dx / l, dx / l, dy / l]
 }
 const shiftPts = (pts, dx, dy) => pts.map((v, i) => v + (i % 2 ? dy : dx))
@@ -1876,7 +1878,7 @@ export function paintRootSnare(seed, k) {
     for (let i = 0; i < 7; i++) {
       const a0 = (i / 7) * TAU + (rnd() - 0.5) * 0.5
       let pts = walkPts(rnd, Math.cos(a0) * 5, Math.sin(a0) * 5, a0, R, 18, 0.22, 0.12, 0.12, a0)
-      const [ex, ey] = pts[pts.length - 1], sc = R * (0.9 + rnd() * 0.06) / Math.hypot(ex, ey)
+      const [ex, ey] = pts[pts.length - 1], sc = R * (0.9 + rnd() * 0.06) / hypot(ex, ey)
       pts = pts.map(([x, y]) => [x * sc, y * sc])
       roots.push({ pts, w: 7 + rnd() * 3, s: rnd() * 1e6, br: [0, 1].map(() => ({ t: 0.25 + rnd() * 0.45, da: (rnd() < 0.5 ? 1 : -1) * (0.5 + rnd() * 0.5), L: R * (0.25 + rnd() * 0.2), s: rnd() * 1e6 })) })
     }
@@ -1902,7 +1904,7 @@ export function paintRootSnare(seed, k) {
       for (const b of r.br) {
         const [x, y] = sp(b.t), [, , tx, ty] = spineNrm(sp, b.t)
         const bp = walkPts(rng(b.s), x, y, Math.atan2(ty, tx) + b.da, b.L, 9, 0.35, 0.15, 0.05, Math.atan2(y, x))
-          .map(([px, py]) => { const d = Math.hypot(px, py); return d > R * 0.95 ? [px * R * 0.95 / d, py * R * 0.95 / d] : [px, py] })
+          .map(([px, py]) => { const d = hypot(px, py); return d > R * 0.95 ? [px * R * 0.95 / d, py * R * 0.95 / d] : [px, py] })
         rootBody(ctx, b.s + 1, bp, r.w * 0.42, Math.max(0, (k - b.t) / (1 - b.t)), BRANCH)
       }
     }
@@ -1932,8 +1934,8 @@ function pkBake(E, paint) {
   const out = (b) => ({ body: b.body, ax: b.ax, ay: b.ay })
   return [out(bakeLocal(E * PK_K, PK_S, at(false), { shadowBlur: 0.3 })), out(bakeLocal(E * PK_K, PK_S, at(true), { shadowBlur: 0.3 }))]
 }
-const PK_L = (() => { const v = [LX, LY, 1.05], n = Math.hypot(...v); return v.map((c) => c / n) })()
-const PK_H = (() => { const v = [PK_L[0], PK_L[1], PK_L[2] + 1], n = Math.hypot(...v); return v.map((c) => c / n) })()
+const PK_L = (() => { const v = [LX, LY, 1.05], n = hypot(...v); return v.map((c) => c / n) })()
+const PK_H = (() => { const v = [PK_L[0], PK_L[1], PK_L[2] + 1], n = hypot(...v); return v.map((c) => c / n) })()
 const PK_RES = PK_S * PK_K   // texels per px the shaded bakes are rastered at (cost grows with its square: it runs at run start)
 const sstep = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t) }
 function hash2(x, y) { const h = Math.sin(x * 127.1 + y * 311.7) * 43758.5453; return h - Math.floor(h) }
@@ -1975,11 +1977,11 @@ function sapphireTexel(n, t, ridge, gx, gy, x, y, glint, dirt, brill = 0.5) {
   const ndh = Math.max(0, n[0] * PK_H[0] + n[1] * PK_H[1] + n[2] * PK_H[2])
   // the body: the soil seen through blue stone, darker and bluer the deeper the path
   const k = 0.15 + t * 0.5
-  const facing = (n[0] * PK_L[0] + n[1] * PK_L[1]) / Math.max(1e-3, Math.hypot(n[0], n[1]) * Math.hypot(PK_L[0], PK_L[1]))
+  const facing = (n[0] * PK_L[0] + n[1] * PK_L[1]) / Math.max(1e-3, hypot(n[0], n[1]) * hypot(PK_L[0], PK_L[1]))
   const fv = (0.35 + 1.0 * sstep(-0.7, 0.85, facing)) * (0.55 + 0.9 * brill)
   let r = 0.16 * fv * Math.exp(-k * 0.9), g = 0.2 * fv * Math.exp(-k * 0.65), b = 0.3 * fv * Math.exp(-k * 0.35)
   // light that came in through the lit facets, scattered and leaving on the far side
-  const far = sstep(-0.3, 0.9, -(gx * PK_L[0] + gy * PK_L[1]) / Math.hypot(PK_L[0], PK_L[1]))
+  const far = sstep(-0.3, 0.9, -(gx * PK_L[0] + gy * PK_L[1]) / hypot(PK_L[0], PK_L[1]))
   const glow = (far * 0.28 + brill * brill * brill * 0.3) * (0.6 + 0.4 * fbm2(x * 0.9, y * 0.9))
   r += glow * 0.42; g += glow * 0.55; b += glow * 0.82
   // silk: rutile needles at sixty degrees, faint and sparse
@@ -2033,7 +2035,7 @@ function crystalRaster(ctx, E, stones, glint) {
       if (z <= 0) continue
       if (best && best.z >= z) continue
       const P = st.planes[i1]
-      const nl = Math.hypot(P[1], P[2], 1)
+      const nl = hypot(P[1], P[2], 1)
       const n = [-P[1] / nl, -P[2] / nl, 1 / nl]
       const ridge = 1 - sstep(0, st.size * 0.09, h2 - h1)
       const cover = Math.min(sstep(0, 0.35, h1), sstep(0, 0.5, z))
@@ -2089,11 +2091,11 @@ function sapphireRough(ctx, tier, rnd, glint) {
 // Metal discs { cx, cy, r, ang, tilt, z0, T, relief(u, v) -> h, metal, reeds } rastered together, the
 // highest surface on top. A disc rises along its own +v by `tilt`; its milled edge shows on the high
 // side as a band. The soil covers whatever falls below the soil line; higher discs shadow lower ones.
-const PK_LH = Math.hypot(PK_L[0], PK_L[1]), PK_LT = PK_L[2] / PK_LH
+const PK_LH = hypot(PK_L[0], PK_L[1]), PK_LT = PK_L[2] / PK_LH
 function discGeom(D, x, y) {
   const c = Math.cos(D.ang), s = Math.sin(D.ang), ct = Math.cos(D.tilt), st = Math.sin(D.tilt)
   const a = (x - D.cx) * c + (y - D.cy) * s, b = -(x - D.cx) * s + (y - D.cy) * c
-  const v = b / ct, rho = Math.hypot(a, v) / D.r
+  const v = b / ct, rho = hypot(a, v) / D.r
   if (rho <= 1) return { face: true, a, b, u: a, v, rho, z: D.z0 + v * st, c, s, ct, st }
   // the edge: inside the face swept down by T along the disc's normal
   const sw = D.T * st, h = D.r * D.r - a * a
@@ -2139,7 +2141,7 @@ function discRaster(ctx, E, discs, glint, o = {}) {
       const { u, v } = best, e = 0.16
       hr = D.relief(u, v, best.rho)
       const dhu = (D.relief(u + e, v) - D.relief(u - e, v)) / (2 * e), dhv = (D.relief(u, v + e) - D.relief(u, v - e)) / (2 * e)
-      const na = -dhu, nb = -(dhv / best.ct) - best.st / best.ct, nl = Math.hypot(na, nb, 1)
+      const na = -dhu, nb = -(dhv / best.ct) - best.st / best.ct, nl = hypot(na, nb, 1)
       n = [(na * best.c - nb * best.s) / nl, (na * best.s + nb * best.c) / nl, 1 / nl]
       z += Math.max(0, hr) * 0.6
     } else {
@@ -2164,7 +2166,7 @@ function discRaster(ctx, E, discs, glint, o = {}) {
       if (j === bi || discs[j].z0 <= D.z0) continue
       const gj = discGeom(discs[j], x, y)
       if (gj) continue
-      const Dj = discs[j], dd = Math.hypot(x - Dj.cx, y - Dj.cy) - Dj.r
+      const Dj = discs[j], dd = hypot(x - Dj.cx, y - Dj.cy) - Dj.r
       occl *= 0.55 + 0.45 * sstep(0, 1.4, dd)
     }
     let [rr, gg, bb] = metalTexel(n, M, glint, best.face ? occl : occl * 0.85)
@@ -2192,11 +2194,11 @@ const ringDash = (u, v, rho, r0, r1, n, duty, h) => {
 // The coins: three small gold coins spilled in a fan, each overlapping the one below, a cross struck on each
 function coinSpill(ctx, rnd, glint) {
   const sd = Math.floor(rnd() * 100), base = rnd() * TAU, r = 4.3
-  const relief = (u, v, rho = Math.hypot(u, v) / r) => {
+  const relief = (u, v, rho = hypot(u, v) / r) => {
     if (rho > 1) return -1
     let h = rimH(rho, 0.82, 0.45)
     const phi = Math.atan2(v, u), nb = 22, bp = ((phi / TAU) * nb % 1 + 1) % 1 - 0.5
-    h += 0.16 * (1 - sstep(0.1, 0.28, Math.hypot(bp * TAU * rho * r / nb, (rho - 0.7) * r)))
+    h += 0.16 * (1 - sstep(0.1, 0.28, hypot(bp * TAU * rho * r / nb, (rho - 0.7) * r)))
     const au = Math.abs(u / r), av = Math.abs(v / r)
     h += 0.24 * (1 - sstep(0.09, 0.15, Math.min(au, av))) * (1 - sstep(0.5, 0.58, rho))   // the cross
     h *= 0.75 + 0.25 * vnoise(u * 0.8 + sd, v * 0.8)
@@ -2237,7 +2239,7 @@ function rod(ctx, pts, w, base, lv, spec = 0.5) {
     ctx.lineWidth = w * k; ctx.strokeStyle = color
     for (let i = 0; i < pts.length - 1; i++) {
       const [ax, ay] = pts[i], [bx, by] = pts[i + 1]
-      const dx = bx - ax, dy = by - ay, L = Math.hypot(dx, dy) || 1
+      const dx = bx - ax, dy = by - ay, L = hypot(dx, dy) || 1
       const nx = -dy / L, ny = dx / L, s = (nx * lv[0] + ny * lv[1]) * off * w
       ctx.beginPath(); ctx.moveTo(ax + nx * s, ay + ny * s); ctx.lineTo(bx + nx * s, by + ny * s); ctx.stroke()
     }
@@ -2453,9 +2455,9 @@ function hfCrumbs(g, rnd, n, r0, r1, h, where, max = true) {
 // bounce in the shade, occlusion and a damp gloss.
 function hfShade(g, o = {}) {
   const { W, S, H, A, C } = g
-  const LZ = 0.7, ll = Math.hypot(LX, LY, LZ), Lx = LX / ll, Ly = LY / ll, Lz = LZ / ll
-  const lxy = Math.hypot(LX, LY), DX = LX / lxy, DY = LY / lxy, TAN = LZ / lxy
-  const hl = Math.hypot(Lx, Ly, Lz + 1), Hx = Lx / hl, Hy = Ly / hl, Hz = (Lz + 1) / hl
+  const LZ = 0.7, ll = hypot(LX, LY, LZ), Lx = LX / ll, Ly = LY / ll, Lz = LZ / ll
+  const lxy = hypot(LX, LY), DX = LX / lxy, DY = LY / lxy, TAN = LZ / lxy
+  const hl = hypot(Lx, Ly, Lz + 1), Hx = Lx / hl, Hy = Ly / hl, Hz = (Lz + 1) / hl
   const c = makeCanvas(W, W), ctx = c.getContext('2d'), id = ctx.createImageData(W, W), d = id.data
   const amb = o.amb ?? 0.32, march = (o.march ?? 60) * S, maxDiff = o.maxDiff ?? 1.7
   for (let j = 0; j < W; j++) for (let i = 0; i < W; i++) {
@@ -2463,7 +2465,7 @@ function hfShade(g, o = {}) {
     if (A[k] <= 0.002) continue
     const im = Math.max(0, i - 1), ip = Math.min(W - 1, i + 1), jm = Math.max(0, j - 1), jp = Math.min(W - 1, j + 1)
     const dx = (H[j * W + ip] - H[j * W + im]) * S / (ip - im), dy = (H[jp * W + i] - H[jm * W + i]) * S / (jp - jm)
-    const nl = Math.hypot(dx, dy, 1), nx = -dx / nl, ny = -dy / nl, nz = 1 / nl
+    const nl = hypot(dx, dy, 1), nx = -dx / nl, ny = -dy / nl, nz = 1 / nl
     const diff = Math.min(maxDiff, Math.max(0, nx * Lx + ny * Ly + nz * Lz) / Lz)
     let vis = 1
     if (o.shadow !== false) {
@@ -2514,15 +2516,15 @@ function paintPit(seed, part, o = {}) {
   const tone = planeFbm(seed + 5, [[0.12, 1], [0.5, 0.6], [1.4, 0.4]])
   const dk = o.depth ?? 1, D = 30 * dk, U = new Float32Array(g.W * g.W)
   hfFill(g, (k, x, y) => {
-    const u = Math.hypot(x, y) / (R * (0.94 + 0.12 * lip(x, y)))
+    const u = hypot(x, y) / (R * (0.94 + 0.12 * lip(x, y)))
     const t = Math.pow(smooth(1.0, 0.74, u), 0.85)
     g.H[k] = -D * t
     g.M[k] = t
     U[k] = u
     g.A[k] = part === 'floor' ? smooth(0.82, 0.7, u) : part === 'inner' ? smooth(0.93, 0.86, u) : smooth(1.05, 0.97, u)
   })
-  hfCrumbs(g, rnd, 2600, 0.35, 1.3, 0.9, (x, y) => (Math.hypot(x, y) < R * 1.02 ? 1 : 0), false)   // the crumbly cut face
-  hfCrumbs(g, rnd, dk < 1 ? 140 : 260, 0.8, 3.4, 2.2, (x, y) => smooth(0.7, 0.45, Math.hypot(x, y) / R))          // what fell in
+  hfCrumbs(g, rnd, 2600, 0.35, 1.3, 0.9, (x, y) => (hypot(x, y) < R * 1.02 ? 1 : 0), false)   // the crumbly cut face
+  hfCrumbs(g, rnd, dk < 1 ? 140 : 260, 0.8, 3.4, 2.2, (x, y) => smooth(0.7, 0.45, hypot(x, y) / R))          // what fell in
   hfFill(g, (k, x, y) => {
     const t = g.M[k]
     let c
@@ -2584,10 +2586,10 @@ export function paintPitSpoil(seed) {
 export function paintPitTell(seed, k) {
   const R = PIT_R0, E = R * 1.45, S = 3, { c, ctx } = pitCanvas(E, S), rnd = rng(seed)
   const blot = planeFbm(seed + 11, [[0.05, 1], [0.13, 0.6], [0.4, 0.3]])
-  const lxy = Math.hypot(LX, LY), DX = LX / lxy, DY = LY / lxy
+  const lxy = hypot(LX, LY), DX = LX / lxy, DY = LY / lxy
   const W = c.width, id = ctx.getImageData(0, 0, W, W), d = id.data
   for (let j = 0; j < W; j++) for (let i = 0; i < W; i++) {
-    const x = (i + 0.5) / S - E, y = (j + 0.5) / S - E, rr = Math.hypot(x, y) / R
+    const x = (i + 0.5) / S - E, y = (j + 0.5) / S - E, rr = hypot(x, y) / R
     const damp = smooth(1.05, 0.25, rr + 0.45 * (blot(x, y) - 0.5)) * (0.22 + 0.5 * k)
     const sag = smooth(1.0, 0.2, rr) * k * 0.25 * clamp01(0.5 - (x * DX + y * DY) / R)
     const o = (j * W + i) * 4
@@ -2638,7 +2640,7 @@ export function paintTrench(bin) {
   hfFill(g, (k, x, y) => {
     const d = across(x, y), u = x * ca + y * sa, q = d / hw
     D[k] = d
-    CAP[k] = Math.hypot(Math.max(0, Math.abs(u) - L2), d)
+    CAP[k] = hypot(Math.max(0, Math.abs(u) - L2), d)
     g.H[k] = (q < 1 ? -6.5 * (1 - q * q) : 0) + 3.4 * Math.exp(-Math.pow((d - (hw + 3.5)) / 3.4, 2))
     g.A[k] = CAP[k] < outer + 2 ? 1 : 0   // nothing outside the capsule is ever shown: skip shading it
   })
