@@ -75,6 +75,7 @@ const MAX_PARTICLES = 200
 // Topsoil pickups: drawn this much bigger than their bake, lifted this much brighter at bake time
 // (gem, coin), and showing their glint bake this fraction of the time — dark sapphires on dark soil
 // otherwise read as nothing at phone size
+const HOLO_PICK_SCALE = 1.2   // The Geode's crystals and coins, sized against its large card-art creatures
 const PICK_SCALE = 1.3, PICK_LIFT = [1.35, 1.25], PICK_GLINT = 0.25
 // a Topsoil hit number stays solid for this fraction of its life before it fades
 const SOIL_DMG_HOLD = 0.75
@@ -6186,6 +6187,8 @@ export function createRenderer(app) {
     { const b = HOLO.paintHoloStalactite(); T.stalactite = { tex: macroCanvasTex(b.body, b.S), ax: b.ax, ay: b.ay } }
     T.holoGlint = { tex: macroCanvasTex(HOLO.paintGlint()), ax: 0.5, ay: 0.5 }
     T.holoRing = { tex: macroCanvasTex(HOLO.paintFilmRing()), ax: 0.5, ay: 0.5 }
+    { const P = HOLO.paintHoloPickups(), t = (b) => ({ tex: macroCanvasTex(b.body, b.S), ax: b.ax, ay: b.ay })
+      T.holoGem = P.gem.map(t); T.holoCoin = t(P.coin) }
   }
 
   // ==== Book 3, Burrow: per-frame drawing ======================================================
@@ -33059,6 +33062,11 @@ void main() {
   function placeGem(s, g) {
     if (pixelLook && pixelRig.placeGem(s, g, animT)) return   // The Magma: pixel gems
     if (macroPickups && macroLook?.floor === 'topsoil') { placeMacroPickup(s, macroPickups.gem[gemTier(g.xp, pickRun)], g); return }
+    if (holoLook && T.holoGem) {   // The Geode: its own crystals, bobbing
+      const t = T.holoGem[gemTier(g.xp, pickRun)]
+      if (s.texture !== t.tex) { s.texture = t.tex; s.anchor.set(t.ax, t.ay) }
+      s.position.set(g.x, g.y - 2 * Math.sin(animT * 3 + (g.x + g.y) * 0.05)); s.scale.set(HOLO_PICK_SCALE); return
+    }
     if (s.texture !== T.gem.tex) { s.texture = T.gem.tex; s.anchor.set(T.gem.ax, T.gem.ay) }
     s.position.set(g.x, g.y)
     s.scale.set(1 + 0.15 * Math.sin(animT * 5 + (g.x + g.y) * 0.05))
@@ -33066,6 +33074,11 @@ void main() {
   function placeCoin(s, c) {
     if (pixelLook && pixelRig.placeCoin(s, c, animT)) return   // The Magma: pixel coins
     if (macroPickups && macroLook?.floor === 'topsoil') { placeMacroPickup(s, macroPickups.coin, c); return }
+    if (holoLook && T.holoCoin) {   // The Geode: its own coin, turning
+      const t = T.holoCoin
+      if (s.texture !== t.tex) { s.texture = t.tex; s.anchor.set(t.ax, t.ay) }
+      s.position.set(c.x, c.y); s.scale.set(HOLO_PICK_SCALE * (0.35 + 0.65 * Math.abs(Math.cos(animT * 2.2 + (c.x - c.y) * 0.05))), HOLO_PICK_SCALE); return
+    }
     if (s.texture !== T.coin.tex) { s.texture = T.coin.tex; s.anchor.set(T.coin.ax, T.coin.ay) }
     s.position.set(c.x, c.y)
     s.scale.set(1 + 0.1 * Math.sin(animT * 4 + (c.x - c.y) * 0.05))
