@@ -31254,6 +31254,8 @@ void main() {
     const affixes = (e.elite || e.affixVisible) ? e.affixes : null
     const n = affixes ? affixes.length : 0
     if (pixelLook) return syncPixelAffixBadges(s, e, affixes, n)
+    // Topsoil wears its affixes instead (topsoilEliteFx)
+    if (afxTopsoil()) { hideAffixBadges(s); return }
     if (s._affixPix) for (const t of s._affixPix) t.visible = false
     if (!s._affixTexts) s._affixTexts = []
     while (s._affixTexts.length < n) {
@@ -31409,6 +31411,7 @@ void main() {
     if (s._shadow) s._shadow.visible = false
     if (s._crown) s._crown.visible = false
     if (s._stOv) s._stOv.visible = false
+    hideAfx(s)
   }
 
   // Volatile bomb telegraphs (run.bombs): danger circles under enemies/player, urgency
@@ -31813,22 +31816,26 @@ void main() {
     if (back) elBackLayer.addChild(sp)
     return sp
   }
-  // a venom drop's stain on the soil: a ring of sprites under the crowd, fading over STAIN_T
-  const STAIN_T = 3, MAX_STAINS = 48, stains = []
+  // marks on the soil, under the crowd: a venom drop's stain (fades out over its last 40%) and a
+  // Cheerleader's dust ripple (`ring`: grows from s0 to s1 and fades the whole way)
+  const STAIN_T = 3, MAX_STAINS = 64, stains = []
   let stainCur = 0
-  function spawnStain(x, y, sc) {
+  function spawnFloor(tex, x, y, s0, s1, life, ring) {
     let st = stains[stainCur]
     if (!st) { st = { s: new Sprite(Texture.EMPTY), t: 0 }; st.s.anchor.set(0.5); elFloorLayer.addChild(st.s); stains.push(st) }
     stainCur = (stainCur + 1) % MAX_STAINS
-    st.s.texture = elPick(elFx().stain); st.s.position.set(x, y); st.s.scale.set(sc); st.s.rotation = Math.random() * 6.28
-    st.t = STAIN_T; st.s.visible = true; st.s.alpha = 1
+    st.s.texture = tex; st.s.position.set(x, y); st.s.scale.set(s0); st.s.rotation = Math.random() * 6.28
+    Object.assign(st, { s0, s1, T: life, t: life, ring }); st.s.visible = true; st.s.alpha = 1
   }
+  const spawnStain = (x, y, sc) => spawnFloor(elPick(elFx().stain), x, y, sc, sc, STAIN_T, false)
   function updateStains(dt) {
     for (const st of stains) {
       if (st.t <= 0) continue
       st.t -= dt
-      if (st.t <= 0) st.s.visible = false
-      else st.s.alpha = Math.min(1, st.t / (STAIN_T * 0.4))
+      if (st.t <= 0) { st.s.visible = false; continue }
+      const u = 1 - st.t / st.T
+      if (st.ring) { st.s.scale.set(st.s0 + (st.s1 - st.s0) * (1 - (1 - u) * (1 - u))); st.s.alpha = (1 - u) * 0.9 }
+      else st.s.alpha = Math.min(1, st.t / (st.T * 0.4))
     }
   }
   // The body takes a coat, the element comes off it, and fire and frost light the soil around it.
@@ -31957,6 +31964,123 @@ void main() {
       return true
     }
     return false
+  }
+
+  // ==== Topsoil's elites, photographed (src/macro.js THE ELITES) ===================================
+  // No icon, no ring, no crown: an elite's affixes are what it wears or carries, and the elite itself
+  // is a glossier body. Shielded wears pebble plates (shed when the shield breaks), Splitter carries
+  // an egg sac, Volatile glows through cracks and smokes, a Cheerleader's dust ripples run out to the
+  // reach it speeds the crowd in, Anchored drags a stone on a root, Frenzied flushes red, twitches,
+  // froths and steams, Gilded carries a gold nugget.
+  const afxTopsoil = () => macroLook?.floor === 'topsoil'
+  let EF = null
+  function eliteFx() {
+    if (EF) return EF
+    const t = (c, s) => macroCanvasTex(c, s)
+    EF = {
+      plates: [0, 1].map((i) => t(MACRO.paintPebblePlates(i), 3)), cracks: [0, 1].map((i) => t(MACRO.paintGlowCracks(i), 3)),
+      egg: t(MACRO.paintEggSac(), 4), nugget: t(MACRO.paintNugget(), 4), stone: t(MACRO.paintDragStone(), 4),
+      ring: t(MACRO.paintDustRing(), 1), bubble: t(MACRO.paintBubble(), 6),
+    }
+    return EF
+  }
+  // one sprite per slot and key, shown only on the frames it is put
+  function afxPut(s, key, layer, tex, x, y, rot, sc, alpha = 1, blend = 'normal', tint = 0xffffff) {
+    const m = s._afx || (s._afx = {})
+    let sp = m[key]
+    if (!sp) { sp = m[key] = new Sprite(tex); layer.addChild(sp) }
+    if (sp.texture !== tex) sp.texture = tex
+    sp.anchor.set(0.5); sp.position.set(x, y); sp.rotation = rot; sp.scale.set(sc)
+    sp.alpha = alpha; sp.blendMode = blend; sp.tint = tint; sp.visible = true; sp._used = true
+    return sp
+  }
+  // a coat over the body: its white twin riding the sprite's transform
+  function afxCoat(s, key, frame, tint, alpha, blend) {
+    const sp = afxPut(s, key, statusOvLayer, frame.white, 0, 0, 0, 1, alpha, blend, tint)
+    sp.anchor.set(frame.ax, frame.ay); sp.position.copyFrom(s.position); sp.scale.copyFrom(s.scale); sp.rotation = s.rotation
+  }
+  function hideAfx(s) { if (s._afx) for (const k in s._afx) s._afx[k].visible = false }
+  // a timer on the slot that fires every `every` s of real frame time
+  function afxEvery(s, key, every) {
+    if (frameDt <= 0) return false
+    s[key] = (s[key] || 0) + frameDt
+    if (s[key] < every) return false
+    s[key] = 0
+    return true
+  }
+  function topsoilEliteFx(s, e, frame) {
+    const m = s._afx
+    if (m) for (const k in m) m[k]._used = false
+    const aff = (e.elite || e.affixVisible) && e.affixes ? e.affixes : null
+    if (aff && aff.length && e.hitFlash <= 0) {
+      const F = eliteFx(), R = e.radius || 16, k = R / 16, id = e.id
+      // the body's frame: +x is its nose, the back is -x
+      const fl = s.scale.x < 0 ? -1 : 1, c = Math.cos(s.rotation), sn = Math.sin(s.rotation)
+      const W = (lx, ly) => [s.position.x + lx * fl * c - ly * sn, s.position.y + lx * fl * sn + ly * c]
+      const slots = [[-R * 0.3, 0], [-R * 0.05, -R * 0.55], [-R * 0.05, R * 0.55]]
+      let slot = 0
+      const back = () => W(...slots[Math.min(slot++, slots.length - 1)])
+      // where it is heading, for the stone it drags
+      const hx = e.x - (s._afxPx ?? e.x), hy = e.y - (s._afxPy ?? e.y)
+      s._afxPx = e.x; s._afxPy = e.y
+      if (hx * hx + hy * hy > 0.01) s._afxHd = Math.atan2(hy, hx)
+      const hd = s._afxHd ?? s.rotation
+      if (aff.includes('frenzied')) {
+        // it twitches: the body and everything on it
+        const j = 1.8 * k
+        s.position.x += Math.sin(animT * 61 + id) * j; s.position.y += Math.cos(animT * 47 + id * 2) * j
+      }
+      for (const a of aff) {
+        if (a === 'shielded') {
+          const up = e.hp > e.maxHP * SHIELD_HP_FRAC
+          // the shield breaks: the plates scatter
+          if (s._afxShield && !up) for (let i = 0; i < 12; i++) { const q = Math.random() * 6.28, v = 70 + Math.random() * 90; spawnParticle(T.clayClod.tex, e.x + Math.cos(q) * R * 0.5, e.y + Math.sin(q) * R * 0.5, Math.cos(q) * v, Math.sin(q) * v, 0.6, 1 + Math.random() * 0.6, 0x6a6258, -0.4, 4) }
+          s._afxShield = up
+          if (up) afxPut(s, 'plates', statusOvLayer, F.plates[id % 2], s.position.x, s.position.y, s.rotation, R / 11)
+        } else if (a === 'splitter') {
+          const [x, y] = back()
+          afxPut(s, 'egg', statusOvLayer, F.egg, x, y, s.rotation, k * (1.8 + 0.08 * Math.sin(animT * 4 + id)))
+        } else if (a === 'volatile') {
+          afxPut(s, 'cracks', statusOvLayer, F.cracks[id % 2], s.position.x, s.position.y, s.rotation, R / 12, 0.8 + 0.2 * Math.sin(animT * 7 + id), 'add')
+          if (afxEvery(s, '_afxSmokeT', 0.18)) {
+            spawnParticle(T.dustPuff.tex, e.x + (Math.random() - 0.5) * R, e.y - R * 0.3, (Math.random() - 0.5) * 8, -24, 1.3, 0.45 * k, 0x2a2420, 0.9, 1)
+            elSpawn(elFx().ember, e.x + (Math.random() - 0.5) * R, e.y, (Math.random() - 0.5) * 40, -50, 0.6, 0.9, true, -0.8)
+          }
+        } else if (a === 'pacer') {
+          // the dust ripples it sends through the soil run out to the reach it speeds the crowd in
+          if (afxEvery(s, '_afxRipT', 0.6)) spawnFloor(F.ring, e.x, e.y, R / 60, PACER_RADIUS / 60, 1.5, true)
+        } else if (a === 'anchored') {
+          // a stone on a root strand, dragged behind it
+          const L = R * 2.4
+          let st = s._afxStone
+          if (!st) st = s._afxStone = { x: e.x - Math.cos(hd) * L, y: e.y - Math.sin(hd) * L }
+          const dx = st.x - e.x, dy = st.y - e.y, d = Math.hypot(dx, dy) || 1
+          if (d > L * 4) { st.x = e.x - Math.cos(hd) * L; st.y = e.y - Math.sin(hd) * L }
+          else if (d > L) {
+            st.x = e.x + dx / d * L; st.y = e.y + dy / d * L
+            // the furrow it ploughs
+            if (afxEvery(s, '_afxDragT', 0.08)) spawnFloor(elPick(elFx().stain), st.x, st.y, k * 0.9, k * 0.9, 2.5, false)
+          }
+          afxPut(s, 'stone', elFloorLayer, F.stone, st.x, st.y, 0, k * 2)
+          const [bx, by] = W(-R * 0.5, 0), mx = (bx + st.x) / 2 + 3, my = (by + st.y) / 2 + 3
+          shieldG.moveTo(bx, by).quadraticCurveTo(mx, my, st.x, st.y).stroke({ width: 3.4 * k, color: 0x2a1c10, alpha: 0.95 })
+          shieldG.moveTo(bx, by).quadraticCurveTo(mx, my, st.x, st.y).stroke({ width: 1.2 * k, color: 0xc49a6a, alpha: 0.8 })
+        } else if (a === 'frenzied') {
+          afxCoat(s, 'flush', frame, 0xd02a10, 0.32 + 0.12 * Math.sin(animT * 22 + id), 'normal')
+          // froth at its mouth, and its breath steaming
+          if (afxEvery(s, '_afxFrothT', 0.08)) { const [x, y] = W(R * 0.75, (Math.random() - 0.5) * R * 0.5); elSpawn(F.bubble, x, y, (Math.random() - 0.5) * 14, (Math.random() - 0.5) * 14, 0.7, k * (1.3 + Math.random() * 0.9), false, -0.6, 2) }
+          if (afxEvery(s, '_afxSteamT', 0.2)) { const [x, y] = W(R * 0.9, 0); spawnParticle(T.dustPuff.tex, x, y, Math.cos(s.rotation) * fl * 20, -18, 0.9, 0.35 * k, 0xd8d0c8, 1.1, 1.5) }
+        } else if (a === 'gilded') {
+          const [x, y] = back()
+          afxPut(s, 'nugget', statusOvLayer, F.nugget, x, y, 0, k * 1.9)
+          if (afxEvery(s, '_afxGoldT', 0.3)) elSpawn(elPick(elFx().ice), x + (Math.random() - 0.5) * R * 0.4, y + (Math.random() - 0.5) * R * 0.4, 0, 0, 0.45, k * (0.9 + Math.random() * 0.5), true, 0, 0, 0, Math.random() * 6.28).tint = 0xffc860
+        }
+      }
+      // an elite is a glossier body, not a crown
+      if (s._crown) s._crown.visible = false
+      afxCoat(s, 'gloss', frame, 0x2a2420, 1, 'add')
+    }
+    if (m) for (const kk in m) if (!m[kk]._used) m[kk].visible = false
   }
 
   function syncEnemies(run) {
@@ -32344,8 +32468,10 @@ void main() {
 
       // ---- v4 elite affixes (contract fields, guarded — sim half may not have landed yet)
       syncAffixBadges(s, e)
+      const afxTop = afxTopsoil()
+      if (afxTop) topsoilEliteFx(s, e, frame)
 
-      if (e.affixes && e.affixes.includes('shielded') && e.hp > e.maxHP * SHIELD_HP_FRAC) {
+      if (!afxTop && e.affixes && e.affixes.includes('shielded') && e.hp > e.maxHP * SHIELD_HP_FRAC) {
         // soap-bubble shield: low-alpha fill + saturated rim, gentle scale pulse.
         // Vanishes the instant hp crosses the threshold (redrawn fresh every frame,
         // nothing persists once this branch stops running for the enemy).
@@ -32355,7 +32481,7 @@ void main() {
         shieldG.circle(e.x, e.y, r).stroke({ width: 3, color: 0x4da3ff, alpha: 0.7 })
       }
 
-      if (e.affixes && e.affixes.includes('pacer')) {
+      if (!afxTop && e.affixes && e.affixes.includes('pacer')) {
         // subtle warm aura ring at the affix's push/pull radius, slow pulse
         const pulse = 0.5 + 0.5 * Math.sin(animT * 1.5 + e.id * 0.7)
         if (pixelLook) pixelRing(pacerG, e.x, e.y, PACER_RADIUS, 0xffb347, 0.30 + pulse * 0.25)
