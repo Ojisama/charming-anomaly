@@ -38890,8 +38890,9 @@ function testBurrow() {
       r.enemies = []
       r.obstacles = [{ x: r.player.x - 200, y: r.player.y, r: 40, kind: 'crystal', _cell: 'test' }]
       r._obCellI = Math.floor(r.player.x / 430); r._obCellJ = Math.floor(r.player.y / 430)   // no re-stream
-      r.bullets = [{ x: r.player.x - 100, y: r.player.y, vx: -500, vy: 0, dmg: 10, pierce: 1, life: 1, r: 8, speed: 500,
-        hitIds: new Set(), _shard: true, _splitDone: true, _chainsLeft: 0, weapon: 'prism' }]
+      const shot = { x: r.player.x - 100, y: r.player.y, vx: -500, vy: 0, dmg: 10, pierce: 1, life: 1, r: 8, speed: 500,
+        hitIds: new Set(), _shard: true, _splitDone: true, _chainsLeft: 0, weapon: 'prism' }
+      r.bullets = [shot]
       let bounced = 0
       for (let i = 0; i < 20; i++) {
         r.weapons = []
@@ -38899,12 +38900,12 @@ function testBurrow() {
         for (const e of r.events) if (e.type === 'crystalBounce') bounced++
         r.events.length = 0
       }
-      return { bounced, bullets: r.bullets.map((b) => ({ vx: b.vx })) }
+      return { bounced, parentLeft: r.bullets.includes(shot), bullets: r.bullets.map((b) => ({ vx: b.vx })) }
     } finally { sig.bounce = saved }
   }
   const on = shoot(true), off = shoot(false)
   assert.ok(on.bounced >= 1, 'run BU3.c: a shot into a crystal did not bounce')
-  assert.ok(on.bullets.length >= 2 && on.bullets.every((b) => b.vx > 0), `run BU3.c: the bounce should send the shot back out, split: ${JSON.stringify(on.bullets)}`)
+  assert.ok(!on.parentLeft && on.bullets.length === 2 && on.bullets.every((b) => b.vx > 0), `run BU3.c: the bounce should replace the shot with two sub-shards heading back out: ${JSON.stringify(on)}`)
   assert.ok(off.bounced === 0 && off.bullets.length === 0, `run BU3.c: with bounce off the crystal must stop the shot: ${JSON.stringify(off)}`)
   // (d) Burrow ships DEV-only: a player save neither shelves the book nor opens it.
   const player = makeMeta()
@@ -38917,8 +38918,8 @@ function testBurrow() {
 // ---- run GC: The Geode's crystal cards ----------------------------------------------------------
 // One arm per card, each asserting what the card DOES on the floor, never a counter moving:
 // (a) Ricochet: a shard already at the bounce limit bounces again instead of chipping;
-// (b) Kaleidoscope: shards on their third bounce (past signature.bounce.split) split, and every
-//     shard on the field is at its own spot (a sibling stacked on its parent would look like one);
+// (b) Kaleidoscope: on a forced roll a bounce makes three sub-shards instead of two, each at half
+//     the parent's damage and each at its own spot (one stacked on another would look like one);
 // (c) Spectrum: the body a bounce turns the shard onto burns on its first mark and is chilled on
 //     its second (the `ignite` and `chill` contract fields render reads);
 // (d) Charged Facet: nothing on a crystal's 7th bounced shard, a burst on the 8th — one big ring
@@ -38935,9 +38936,12 @@ function testBurrow() {
 // (j) Cracked Glass: a streamed crystal is gone after its 8th bounced shard (with a shatter of
 //     shards), and its cell grows a crystal back, somewhere else in the cell, after the regrow;
 // (k) a bounce does not spend pierce: a shard on its last pierce goes through three bodies after it;
-// (l) a crystal split deals half its parent's damage (signature.bounce.splitDmgMul);
-// (m) pinball: a shard visits three crystals in a row in turn, never back to the one it just left,
-//     and only then turns onto the crowd.
+// (l) THE SPLIT: a bounce removes the shard and leaves exactly two sub-shards, each at half its
+//     damage, at their own spots and headings: one aimed at the next crystal, one at the crowd (with
+//     no crystal in reach, both leave for the crowd at distinct angles); generations stop at B.max,
+//     each one half the last;
+// (m) pinball: the hopping sub-shard visits three crystals in a row in turn, never back to the one
+//     it just left, while the first bounce already sends a sub-shard into the crowd.
 function testGeodeCrystals() {
   const dt = 1 / 60
   const meta = () => { const m = makeMeta(); m.dev = true; return m }
@@ -38990,28 +38994,28 @@ function testGeodeCrystals() {
     notes.push(`Ricochet ${off}->${on} bounce at the limit`)
   }
 
-  // (b) KALEIDOSCOPE
+  // (b) KALEIDOSCOPE: the roll forced to 1, one shard into one crystal, no body and no other crystal.
   {
-    const field = (k) => {
-      const r = boot(41002, { mods: { prismShard: { kaleidoscope: k } } })
-      const o = crystal(r, P(r).x, P(r).y - 400)
-      for (let i = 0; i < 20; i++) r.bullets.push(shardAt(o, (i / 20) * Math.PI * 2, { _bounces: B.split }))
-      steps(r, 1)
-      const born = r.bullets.length - 20
-      steps(r, 12)
-      return { born, pts: r.bullets.map((b) => [b.x, b.y, b._fam]) }
-    }
-    const off = field(0), on = field(1)
-    assert.strictEqual(off.born, 0, `run GC.b: with no Kaleidoscope a third bounce must not split (${off.born} siblings)`)
-    assert.ok(on.born >= 3, `run GC.b: 20 shards on their third bounce made only ${on.born} siblings`)
-    let minGap = Infinity
-    // within one family (a shard and what split off it): shards of different throws may cross
-    for (let i = 0; i < on.pts.length; i++) for (let j = i + 1; j < on.pts.length; j++) {
-      if (!on.pts[i][2] || on.pts[i][2] !== on.pts[j][2]) continue
-      minGap = Math.min(minGap, Math.hypot(on.pts[i][0] - on.pts[j][0], on.pts[i][1] - on.pts[j][1]))
-    }
-    assert.ok(minGap > 20 && minGap < Infinity, `run GC.b: a split shard sits ${minGap.toFixed(1)}px from its own family — stacked on its parent`)
-    notes.push(`Kaleidoscope ${on.born} splits off 20 third bounces, closest pair ${minGap.toFixed(0)}px`)
+    const K = CRYSTAL_CARDS.kaleidoscope, savedChance = K.chance
+    K.chance = 1
+    try {
+      const split = (k) => {
+        const r = boot(41002, { mods: { prismShard: { kaleidoscope: k } } })
+        const o = crystal(r, P(r).x, P(r).y - 400)
+        const s0 = shardAt(o, 0.4, { dmg: 40 })
+        r.bullets.push(s0)
+        steps(r, 1)
+        return { parentLeft: r.bullets.includes(s0), subs: r.bullets.map((b) => ({ x: b.x, y: b.y, a: Math.atan2(b.vy, b.vx), dmg: b.dmg })) }
+      }
+      const off = split(0), on = split(1)
+      assert.ok(!off.parentLeft && off.subs.length === 2, `run GC.b: with no Kaleidoscope a bounce must make 2 sub-shards: ${JSON.stringify(off)}`)
+      assert.ok(!on.parentLeft && on.subs.length === 3, `run GC.b: Kaleidoscope on a forced roll must make 3 sub-shards: ${JSON.stringify(on)}`)
+      assert.ok(on.subs.every((q) => Math.abs(q.dmg - 40 * B.subDmgMul) < 1e-9), `run GC.b: each Kaleidoscope sub-shard must deal half the parent: ${on.subs.map((q) => q.dmg)}`)
+      let minGap = Infinity
+      for (let i = 0; i < on.subs.length; i++) for (let j = i + 1; j < on.subs.length; j++) minGap = Math.min(minGap, Math.hypot(on.subs[i].x - on.subs[j].x, on.subs[i].y - on.subs[j].y))
+      assert.ok(minGap > 10, `run GC.b: two Kaleidoscope sub-shards sit ${minGap.toFixed(1)}px apart — stacked`)
+      notes.push(`Kaleidoscope ${off.subs.length} -> ${on.subs.length} sub-shards, closest pair ${minGap.toFixed(0)}px`)
+    } finally { K.chance = savedChance }
   }
 
   // (c) SPECTRUM
@@ -39041,11 +39045,11 @@ function testGeodeCrystals() {
         const c1 = crystal(r, P(r).x - 200, P(r).y - 400), c2 = crystal(r, c1.x + 250, c1.y)
         const e = makeStatusEnemy(r, { x: c1.x, y: c1.y + c1.r + 50, hp: 1e9, speed: 0 })
         r.enemies.push(e)
-        const s = shardAt(c1, Math.PI)
-        r.bullets.push(s)
+        r.bullets.push(shardAt(c1, Math.PI))
         let lit = false
-        for (let i = 0; i < 60 && s._fromCrystal !== c2; i++) { steps(r, 1); if (s._fromCrystal === c1 && e.ignite > 0) lit = true }
-        return { lit, arrived: s._fromCrystal === c2 }
+        const arrived = () => r.bullets.some((b) => b._fromCrystal === c2)
+        for (let i = 0; i < 60 && !arrived(); i++) { steps(r, 1); if (!arrived() && e.ignite > 0) lit = true }
+        return { lit, arrived: arrived() }
       }
       const noSpec = hopMark(0), spec = hopMark(1)
       assert.ok(spec.arrived && spec.lit, `run GC.c2: a hop bounce must mark the body by the crystal it left: ${JSON.stringify(spec)}`)
@@ -39224,49 +39228,78 @@ function testGeodeCrystals() {
     assert.ok(off === 1 && on === 3, `run GC.k: after a bounce a 1-pierce shard thrown with 3 hit ${on} of 3 bodies in a row (want 3), ${off} without the refill (want 1)`)
     notes.push(`free bounce: ${off} -> ${on} bodies`)
   }
-  // (l) A CRYSTAL SPLIT DEALS HALF: the sibling a bounce splits off carries splitDmgMul of the
-  // parent's damage at that moment, and the parent keeps its whole bounce-boosted damage.
+  // (l) THE SPLIT. Crystal 1 with crystal 2 in hop reach and one body on the open side.
   {
-    const r = boot(41012)
-    const o = crystal(r, P(r).x, P(r).y - 400)
-    r.bullets.push(shardAt(o, 0, { dmg: 40 }))
-    steps(r, 1)
-    const parent = r.bullets.find((b) => b.dmg === 40 * B.dmgMul)
-    const sib = r.bullets.find((b) => b !== parent)
-    assert.ok(parent && sib && Math.abs(sib.dmg - parent.dmg * B.splitDmgMul) < 1e-9 && B.splitDmgMul === 0.5,
-      `run GC.l: a split must deal half its parent's damage: ${JSON.stringify(r.bullets.map((b) => b.dmg))}`)
-    notes.push(`split ${sib.dmg} vs parent ${parent.dmg}`)
+    const angDiff = (u, v) => Math.abs(Math.atan2(Math.sin(u - v), Math.cos(u - v)))
+    const split = (withC2, extra = {}) => {
+      const r = boot(41012)
+      const o = crystal(r, P(r).x, P(r).y - 400)
+      const c2 = withC2 ? crystal(r, o.x - 260, o.y) : null
+      const body = makeStatusEnemy(r, { x: o.x + 30, y: o.y + 220, hp: 1e9, speed: 0 })
+      r.enemies.push(body)
+      const s0 = shardAt(o, Math.PI / 2, { dmg: 40, ...extra })
+      r.bullets.push(s0)
+      const ev = steps(r, 1)
+      const subs = r.bullets.map((b) => ({ x: b.x, y: b.y, a: Math.atan2(b.vy, b.vx), dmg: b.dmg, gen: b._bounces }))
+      const at = (t) => Math.atan2(t.y - o.y, t.x - o.x)
+      return { parentLeft: r.bullets.includes(s0), subs, toC2: c2 ? subs.filter((q) => angDiff(q.a, at(c2)) < 0.02).length : 0,
+        toBody: subs.filter((q) => angDiff(q.a, at(body)) < 0.02).length, chips: ev.filter((e) => e.type === 'crystalChip').length }
+    }
+    const hop = split(true)
+    assert.ok(!hop.parentLeft, 'run GC.l: the shard that struck the crystal is still flying')
+    assert.strictEqual(hop.subs.length, 2, `run GC.l: a bounce must leave exactly 2 sub-shards (${hop.subs.length})`)
+    const [s1, s2] = hop.subs
+    assert.ok(Math.hypot(s1.x - s2.x, s1.y - s2.y) > 10 && angDiff(s1.a, s2.a) > 0.1, `run GC.l: the two sub-shards share a spot or a heading: ${JSON.stringify(hop.subs)}`)
+    assert.ok(hop.subs.every((q) => Math.abs(q.dmg - 40 * 0.5) < 1e-9 && q.gen === 1), `run GC.l: each sub-shard must deal half the parent (20): ${JSON.stringify(hop.subs)}`)
+    assert.ok(hop.toC2 === 1 && hop.toBody === 1, `run GC.l: one sub-shard must head for crystal 2 and the other for the body (to crystal ${hop.toC2}, to body ${hop.toBody})`)
+    const none = split(false)
+    assert.ok(!none.parentLeft && none.subs.length === 2 && none.toBody === 1 && angDiff(none.subs[0].a, none.subs[1].a) > 0.1,
+      `run GC.l: with no crystal in reach one sub-shard must take the body and the other fan off it: ${JSON.stringify(none)}`)
+    // the generations: one short of the limit still splits, at the limit the shard chips and is gone
+    const last = split(false, { _bounces: B.max - 1 }), over = split(false, { _bounces: B.max })
+    assert.ok(last.subs.length === 2 && last.subs.every((q) => q.gen === B.max), `run GC.l: generation ${B.max - 1} must split into 2 of generation ${B.max}: ${JSON.stringify(last.subs)}`)
+    assert.ok(over.subs.length === 0 && over.chips === 1, `run GC.l: a generation-${B.max} shard must stop on the crystal: ${JSON.stringify(over)}`)
+    // ...and a shard thrown into a ring of crystals never splits past B.max, each generation half the last
+    const r = boot(41015)
+    const cx = P(r).x, cy = P(r).y - 500
+    for (let k = 0; k < 6; k++) crystal(r, cx + Math.cos((k / 6) * Math.PI * 2) * 200, cy + Math.sin((k / 6) * Math.PI * 2) * 200)
+    r.bullets.push({ ...shardAt(r.obstacles[0], Math.PI, { dmg: 64, life: 3 }) })
+    let maxGen = 0, peak = 0, wrongDmg = 0
+    for (let i = 0; i < 240 && r.bullets.length; i++) {
+      steps(r, 1)
+      peak = Math.max(peak, r.bullets.length)
+      for (const q of r.bullets) { maxGen = Math.max(maxGen, q._bounces ?? 0); if (Math.abs(q.dmg - 64 * 0.5 ** (q._bounces ?? 0)) > 1e-9) wrongDmg++ }
+    }
+    assert.ok(maxGen === B.max && peak <= 2 ** B.max && wrongDmg === 0, `run GC.l: in a ring of crystals the line reached generation ${maxGen} (want ${B.max}), ${peak} live at once (max ${2 ** B.max}), ${wrongDmg} shard-frames off half-per-generation`)
+    notes.push(`split: parent gone, 2 x ${s1.dmg} (one to crystal, one to body), generations stop at ${maxGen}, peak ${peak}`)
   }
   // (m) PINBALL: three crystals in a row, a crowd sitting by the FIRST. A shard thrown into the first
-  // goes on to the second and then the third (never back to the crowded first it just left), and
-  // only from the third, its last bounce, turns onto the crowd.
+  // splits; the hopping sub-shard goes on to the second and then the third (never back to the one it
+  // just left), while the other sub-shard of the first bounce is already in the crowd.
   {
-    const saved = B.split
-    B.split = 0   // no siblings: the one shard under watch is the only thing bouncing
-    try {
-      const r = boot(41013)
-      const y = P(r).y - 400, x0 = P(r).x - 300
-      const row = [0, 1, 2].map((k) => crystal(r, x0 + k * 250, y))
-      assert.ok(250 - 80 <= B.hop && 500 - 80 > B.hop, `run GC.m: the fixture needs neighbours in hop reach and the ends out of it (hop ${B.hop})`)
-      const crowd = [-30, 0, 30].map((dx) => makeStatusEnemy(r, { x: row[0].x + dx, y: y - 160, hp: 1e9, speed: 0 }))
-      r.enemies.push(...crowd)
-      const s = shardAt(row[0], Math.PI, { dmg: 10, life: 1.5 })
-      r.bullets.push(s)
-      const visits = []
-      let hurtAt = -1
-      for (let i = 0; i < 120 && s.life > 0; i++) {
-        steps(r, 1)
-        if (s._fromCrystal && s._fromCrystal !== visits[visits.length - 1]) visits.push(s._fromCrystal)
-        if (hurtAt < 0 && crowd.some((e) => e.hp < e.maxHP)) hurtAt = visits.length
+    const r = boot(41013)
+    const y = P(r).y - 400, x0 = P(r).x - 300
+    const row = [0, 1, 2].map((k) => crystal(r, x0 + k * 250, y))
+    assert.ok(250 - 80 <= B.hop && 500 - 80 > B.hop, `run GC.m: the fixture needs neighbours in hop reach and the ends out of it (hop ${B.hop})`)
+    const crowd = [-30, 0, 30].map((dx) => makeStatusEnemy(r, { x: row[0].x - 110 + dx, y: y - 100, hp: 1e9, speed: 0 }))
+    r.enemies.push(...crowd)
+    r.bullets.push(shardAt(row[0], Math.PI, { dmg: 10, life: 1.5 }))
+    const visits = []
+    let hurtAt = -1
+    for (let i = 0; i < 120 && r.bullets.length; i++) {
+      for (const e of steps(r, 1)) {
+        if (e.type !== 'crystalBounce') continue
+        const k = row.findIndex((o) => Math.hypot(e.x - o.x, e.y - o.y) < o.r + 20)
+        if (k >= 0 && visits[visits.length - 1] !== k) visits.push(k)
       }
-      const seq = visits.map((o) => row.indexOf(o)).join(',')
-      assert.strictEqual(seq, '0,1,2', `run GC.m: the shard must visit crystals 0,1,2 in turn (visited ${seq})`)
-      assert.ok(visits.every((o, i) => i < 2 || o !== visits[i - 2]), `run GC.m: the shard went back to the crystal it had just left (${seq})`)
-      assert.strictEqual(hurtAt, 3, `run GC.m: the crowd must be hit only after the third crystal (hit after ${hurtAt} crystals)`)
-      notes.push(`pinball ${seq} then the crowd`)
-    } finally { B.split = saved }
+      if (hurtAt < 0 && crowd.some((e) => e.hp < e.maxHP)) hurtAt = visits.length
+    }
+    const seq = visits.join(',')
+    assert.strictEqual(seq, '0,1,2', `run GC.m: the hopping sub-shard must visit crystals 0,1,2 in turn (visited ${seq})`)
+    assert.strictEqual(hurtAt, 1, `run GC.m: the first bounce must already send a sub-shard into the crowd (hit after ${hurtAt} crystals)`)
+    notes.push(`pinball ${seq}, crowd hit after the first`)
   }
-  console.log(`PASS run GC (The Geode's crystal cards, 10 cards + free bounces + half splits + pinball): ${notes.join('; ')}`)
+  console.log(`PASS run GC (The Geode's crystal cards, 10 cards + free bounces + the split + pinball): ${notes.join('; ')}`)
 }
 
 // ---- run MG: Book 3, The Mine — the glyph tells (source text: render.js and ascii.js are not importable)

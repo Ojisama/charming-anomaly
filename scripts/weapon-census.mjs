@@ -100,8 +100,15 @@ const STICK = Number(arg('stick', '0.4472135955'))
 // behind it, and the rig reads 6 kills/min for a card that reads 100+ when driven at the crowd.
 // A weapon you have to AIM must be censused by a rig that aims it. Say which rig you quote.
 const AIM = arg('aim', '') === 'nearest'
-const IN_X = 0.4 / 0.4472135955 * STICK
-const IN_Y = 0.2 / 0.4472135955 * STICK
+// --rig cluster: The Geode only. The player STANDS STILL inside a ring of CLUSTER_N crystals
+// (CLUSTER_R px out, CLUSTER_CR px each) laid at t=0, so a crystal card is measured where it is
+// meant to be played. The default walk leaves every crystal behind within seconds of meeting it.
+const RIG = arg('rig', 'walk')
+if (RIG !== 'walk' && RIG !== 'cluster') { console.error(`ABORT: unknown --rig ${RIG} (walk|cluster)`); process.exit(1) }
+if (RIG === 'cluster' && CHAPTERS[CHAPTER]?.signature?.type !== 'crystals') { console.error(`ABORT: --rig cluster needs a crystal chapter, not ${CHAPTER}`); process.exit(1) }
+const CLUSTER_N = 6, CLUSTER_R = 170, CLUSTER_CR = 40
+const IN_X = RIG === 'cluster' ? 0 : 0.4 / 0.4472135955 * STICK
+const IN_Y = RIG === 'cluster' ? 0 : 0.2 / 0.4472135955 * STICK
 
 const DT = 1 / 60
 
@@ -141,6 +148,14 @@ function census(id, level, seed) {
   run.weapons = [{ id, level }]
   if (Object.keys(MODS).length) run.weaponMods[id] = Object.assign(run.weaponMods[id] ?? {}, MODS)
   for (const a of ANOMALY_IDS) run.anomalies = { ...(run.anomalies ?? {}), [a]: true }
+  if (RIG === 'cluster') {
+    const p = run.player
+    for (let k = 0; k < CLUSTER_N; k++) {
+      const a = (k / CLUSTER_N) * Math.PI * 2
+      run.obstacles.push({ x: p.x + Math.cos(a) * CLUSTER_R, y: p.y + Math.sin(a) * CLUSTER_R, r: CLUSTER_CR, kind: 'crystal', rot: 0, _cell: 'census:' + k })
+    }
+    run._obstacleRev = (run._obstacleRev || 0) + 1
+  }
 
   let raw = 0, eff = 0, hits = 0
   // Dud tracking (see the cast-detection block in the step loop below).
@@ -329,7 +344,8 @@ if (Object.keys(MODS).length || ANOMALY_IDS.length) console.log(`mods ${JSON.str
 // Printed unconditionally, because a rig property that changes a number has to appear beside the
 // number. A reader comparing two tables with different --stick values and no label would attribute
 // the whole difference to the code under test.
-console.log(`walk: ${AIM ? 'AIMED at the nearest enemy, ' : ''}stick ${STICK.toFixed(3)} = ${(STICK * PLAYER.baseSpeed).toFixed(0)} px/s ` +
+if (RIG === 'cluster') console.log(`rig: CRYSTAL CLUSTER — standing still inside ${CLUSTER_N} crystals of ${CLUSTER_CR}px, ${CLUSTER_R}px out (the walk line below does not apply)`)
+else console.log(`walk: ${AIM ? 'AIMED at the nearest enemy, ' : ''}stick ${STICK.toFixed(3)} = ${(STICK * PLAYER.baseSpeed).toFixed(0)} px/s ` +
   `(${(STICK * 100).toFixed(0)}% of base) — MOVEMENT-COUPLED weapons read this directly; pass --stick 1 for a full-speed player`)
 if (CHAPTERS[CHAPTER]?.resource) {
   const res = CHAPTERS[CHAPTER].resource

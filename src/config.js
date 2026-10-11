@@ -949,8 +949,8 @@ export const SUNDOWN_XP_MUL = 1.6
 // reads that number from here through a {placeholder}, so a retune cannot leave the card stale.
 // balance_decision : one brake per crystal card, owner's numbers 2026-10-11
 export const CRYSTAL_CARDS = {
-  // Kaleidoscope (epic): a bounce past signature.bounce.split splits the shard on `chance` (the
-  // brake). `maxSplits` is a safety cap only: siblings one original shard's family may make.
+  // Kaleidoscope (epic): a bounce splits the shard into three sub-shards instead of two on `chance`
+  // (the brake). `maxSplits` is a safety cap only: third sub-shards one original shard's family may make.
   kaleidoscope: { chance: 0.35, maxSplits: 8 },
   // Spectrum (rare): each bounce, on `chance` (the brake), the shard's target takes the next colour
   // in turn: fire (applyIgnite at `ignitePotency`), chill (slowed by `chill`), venom (takes `venom`
@@ -2956,10 +2956,10 @@ export const WEAPONS = {
     ],
   },
   // Prism Shard: crystal shards at the nearest body (run.bullets, weapon 'prism'). In The Geode a
-  // shard that meets a crystal bounces off it, brighter (see CHAPTERS.geode.signature.bounce).
+  // shard that meets a crystal splits into two half shards (see CHAPTERS.geode.signature.bounce).
   prismShard: {
     name: 'Prism Shard',
-    desc: 'Flicks crystal shards at the nearest foe. Crystals bounce them back, brighter.',
+    desc: 'Flicks crystal shards at the nearest foe. A crystal splits a shard into two halves.',
     icon: '🔹', rarity: 'normal',
     levels: [
       { dmg: 13, interval: 0.50, count: 1, speed: 500, pierce: 2 },
@@ -4419,7 +4419,7 @@ export const WEAPON_MODS = {
     // card says its limiter in the number the sim uses.
     ricochet:    { name: 'Ricochet',     desc: 'crystal bounce(s) per shard', icon: '↩️', kind: 'tier', maxPicks: 2 },
     kaleidoscope: { name: 'Kaleidoscope', icon: '🔶', kind: 'flat', maxPicks: 1, values: { epic: 1 },
-                   desc: 'After its second crystal bounce, each bounce has a {pct}% chance to split the shard again.',
+                   desc: 'Each crystal bounce has a {pct}% chance to split the shard into three instead of two.',
                    args: { pct: Math.round(CRYSTAL_CARDS.kaleidoscope.chance * 100) } },
     spectrum:    { name: 'Spectrum',     icon: '🌈', kind: 'flat', maxPicks: 1, values: { rare: 1 },
                    desc: 'Each crystal bounce has a {pct}% chance to mark the shard\'s target with the next colour in turn: it burns, then it is chilled, then it takes venom.',
@@ -9446,10 +9446,10 @@ CHAPTERS.topsoil = {
   },
 }
 // THE GEODE: the book's second chapter, a little richer. Crystal pillars stand on the cave floor
-// (run.obstacles, kind 'crystal') and every player shot that meets one BOUNCES (signature.bounce):
-// on to another crystal within signature.bounce.hop while it has bounces left, else steered toward
-// the nearest body on the open side, a little harder each time. Standing beside a crystal with the
-// crowd around you turns a starter into a pinball machine.
+// (run.obstacles, kind 'crystal') and every player shot that meets one SPLITS (signature.bounce)
+// into two sub-shards at half its damage: one on to another crystal within signature.bounce.hop
+// while it has bounces left, the other steered toward the nearest body on the open side. Standing
+// beside a crystal with the crowd around you turns a starter into a pinball machine.
 CHAPTERS.geode = {
   name: 'The Geode', tagline: 'everything rings in here', icon: '💎',
   weapons: ['prismShard', 'echoPulse', 'stalactite'], starter: 'prismShard',
@@ -9463,13 +9463,13 @@ CHAPTERS.geode = {
   signature: {
     type: 'crystals',
     // The bounce switch (tests turn it off with bounce = false). Off, a crystal simply stops a shot.
-    // balance_decision : bounce +25% dmg, splits twice, 3 per shot 2026-10-03
     // balance_decision : bounces no longer spend pierce [2026-10-11]
-    //  - refill: a bounce restores the pierce the shard was thrown with (fireVolley's _pierce0)
-    // balance_decision : crystal splits deal half damage [2026-10-11]
+    //  - refill: each sub-shard gets the pierce the shard was thrown with (fireVolley's _pierce0)
     // balance_decision : bounces steer to a nearby crystal first [2026-10-11]
     //  - hop: face-to-face px to the next crystal; hopCrowdR: bodies counted round it to choose
-    bounce: { refill: true, max: 3, dmgMul: 1.25, splitDmgMul: 0.5, life: 1.1, steer: 560, split: 2, splitFan: 0.45, chimeR: 90, chimeDmg: 0.8, chimeKb: 40, chimeCd: 0.25, chimeVac: 200, hop: 400, hopCrowdR: 160 },
+    // balance_decision : bounce splits shard into two half shards [2026-10-11]
+    //  - max: sub-shard generations (Ricochet adds one); each generation is subDmgMul of the last
+    bounce: { refill: true, max: 3, subShards: 2, subDmgMul: 0.5, life: 1.1, steer: 560, splitFan: 0.45, chimeR: 90, chimeDmg: 0.8, chimeKb: 40, chimeCd: 0.25, chimeVac: 200, hop: 400, hopCrowdR: 160 },
     // Echo Pulse: a crystal the ring reaches rings back at this fraction of its radius and damage.
     resonance: { radiusMul: 0.6, dmgMul: 0.6 },
   },

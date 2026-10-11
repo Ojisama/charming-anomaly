@@ -16542,7 +16542,10 @@ function stepCrystalShot(run, b, spec) {
   const B = spec.bounce
   const prism = b.weapon === 'prism'
   const pm = prism ? (run.weaponMods.prismShard ?? {}) : {}
-  if (!B || b._spent || (b._bounces ?? 0) >= B.max + (pm.ricochet ?? 0)) {
+  // A shard's _bounces is its generation: how many crystals its line has struck. The original is 0.
+  const gen = b._bounces ?? 0
+  const limit = B ? B.max + (pm.ricochet ?? 0) : 0
+  if (!B || b._spent || gen >= limit) {
     b.life = 0
     run.events.push({ type: 'crystalChip', x: b.x, y: b.y })
     return
@@ -16550,19 +16553,21 @@ function stepCrystalShot(run, b, spec) {
   let nx = b.x - o.x, ny = b.y - o.y
   const nd = Math.hypot(nx, ny) || 1
   nx /= nd; ny /= nd
-  b.x = o.x + nx * (o.r + b.r + 1)
-  b.y = o.y + ny * (o.r + b.r + 1)
+  const face = o.r + b.r + 1
+  b.x = o.x + nx * face
+  b.y = o.y + ny * face
   const vd = b.vx * nx + b.vy * ny
   if (vd < 0) { b.vx -= 2 * vd * nx; b.vy -= 2 * vd * ny }
   const sp = Math.hypot(b.vx, b.vy) || b.speed || 1
   const p = run.player
-  // PINBALL: with a bounce still left after this one, the shard heads for another crystal whose face
-  // is within B.hop of this one's: never this crystal, never the one it came from, the one with the
-  // most bodies around it first. It leaves this crystal from the face that looks at the next one.
+  // THE SPLIT: a bounce breaks the shard into B.subShards sub-shards at B.subDmgMul of its damage
+  // each. One leaves for the next crystal, if one is in reach; the other turns onto the crowd.
+  // PINBALL: while a sub-shard will still have a bounce left, one of them heads for another crystal
+  // whose face is within B.hop of this one's: never this crystal, never the one it came from, the
+  // one with the most bodies around it first. It leaves from the face that looks at the next one.
   const prev = b._fromCrystal
-  b._fromCrystal = o
   let hop = null
-  if (B.hop > 0 && (b._bounces ?? 0) + 1 < B.max + (pm.ricochet ?? 0)) {
+  if (B.hop > 0 && gen + 1 < limit) {
     let bestN = -1, bestD = Infinity
     for (const o2 of run.obstacles) {
       if (o2.kind !== 'crystal' || o2 === o || o2 === prev) continue
@@ -16572,36 +16577,35 @@ function stepCrystalShot(run, b, spec) {
       for (const e of enemiesNear(run, o2.x, o2.y, o2.r + B.hopCrowdR)) if (!e._dead && !isAlly(e) && !e.burrowed) n++
       if (n > bestN || (n === bestN && d < bestD)) { bestN = n; bestD = d; hop = o2 }
     }
-    if (hop) {
-      const ux = (hop.x - o.x) / (bestD || 1), uy = (hop.y - o.y) / (bestD || 1)
-      b.x = o.x + ux * (o.r + b.r + 1); b.y = o.y + uy * (o.r + b.r + 1)
-      b.vx = ux * sp; b.vy = uy * sp
-    }
   }
-  // ...else it picks a body on the OPEN side of the face: a pinball, not a mirror. The one closest to
-  // YOU, so a crystal at your shoulder turns your missed shots onto whatever is about to reach you.
+  // THE CROWD: a body on the OPEN side of the face: a pinball, not a mirror. The one closest to YOU,
+  // so a crystal at your shoulder turns your missed shots onto whatever is about to reach you.
   let best = null, bestSq = Infinity
   const steerSq = B.steer * B.steer
-  if (!hop) for (const e of enemiesNear(run, b.x, b.y, B.steer)) {
+  for (const e of enemiesNear(run, b.x, b.y, B.steer)) {
     if (e._dead || isAlly(e) || e.burrowed || b.hitIds.has(e.id)) continue
     const ex = e.x - b.x, ey = e.y - b.y
     if (ex * nx + ey * ny <= 0 || ex * ex + ey * ey > steerSq) continue
     const d2 = (e.x - p.x) ** 2 + (e.y - p.y) ** 2
     if (d2 < bestSq) { bestSq = d2; best = e }
   }
-  if (best) {
-    const ex = best.x - b.x, ey = best.y - b.y, ed = Math.hypot(ex, ey) || 1
-    b.vx = (ex / ed) * sp; b.vy = (ey / ed) * sp
+  // Headings, from the crystal's centre: each sub-shard leaves from the face it heads out of, so no
+  // two share a spot. With no crystal to hop to, the second fans splitFan off the first.
+  const side = gen % 2 ? 1 : -1
+  const crowdA = best ? Math.atan2(best.y - o.y, best.x - o.x) : Math.atan2(b.vy, b.vx)
+  const heads = [hop ? Math.atan2(hop.y - o.y, hop.x - o.x) : crowdA]
+  const fanOff = (a0) => { for (const k of [1, -1, 2, -2]) { const a = a0 + k * side * B.splitFan; if (heads.every((h) => Math.abs(Math.atan2(Math.sin(a - h), Math.cos(a - h))) >= B.splitFan / 2)) return a } return a0 }
+  if (B.subShards > 1) heads.push(hop && heads.every((h) => Math.abs(Math.atan2(Math.sin(crowdA - h), Math.cos(crowdA - h))) >= B.splitFan / 2) ? crowdA : fanOff(crowdA))
+  while (heads.length < B.subShards) heads.push(fanOff(crowdA))
+  // KALEIDOSCOPE: on a chance, a third sub-shard (at the same share), fanned to the other side. A
+  // shard's whole family (it and every sub-shard of it) makes at most maxSplits of these.
+  if (pm.kaleidoscope > 0) {
+    const K = CRYSTAL_CARDS.kaleidoscope
+    const fam = (b._fam ??= { n: 0 })
+    if (fam.n < K.maxSplits && Math.random() < K.chance) { fam.n++; heads.push(fanOff(crowdA)) }
   }
-  b._bounces = (b._bounces ?? 0) + 1
-  b.dmg *= B.dmgMul
-  b.life = Math.max(b.life, B.life)
-  b.hitIds.clear()
-  // BOUNCES ARE FREE (B.refill): a bounce gives the shard back the pierce it was thrown with, so
-  // the bodies it went through on the way in do not stop it chaining off the next crystal.
-  if (B.refill && b._pierce0 != null) b.pierce = Math.max(b.pierce, b._pierce0)
-  // SPECTRUM: every bounce colours a body: the one the bounce turned the shard onto, else (a hop to
-  // the next crystal, or no body to turn onto) the body nearest this crystal within its chime reach.
+  // SPECTRUM: every bounce colours a body: the one the crowd sub-shard turns onto, else (no body to
+  // turn onto) the body nearest this crystal within its chime reach.
   let mark = best
   if (!mark && pm.spectrum > 0) {
     let md = Infinity
@@ -16615,27 +16619,20 @@ function stepCrystalShot(run, b, spec) {
     b._specN = (b._specN ?? 0) + 1
     spectrumMark(run, mark, b._specN, b.dmg)
   }
-  // THE PRISM: the first `split` bounces of a shot also split it, one sibling fanned off the new
-  // heading. Queued, not pushed: stepBullets is mid-walk over run.bullets (see flushCrystalSplits).
-  // KALEIDOSCOPE: a later bounce splits on a chance, and a shard's whole family (it and every
-  // sibling split off it) makes at most maxSplits siblings.
-  let split = b._bounces <= B.split
-  if (pm.kaleidoscope > 0) {
-    const K = CRYSTAL_CARDS.kaleidoscope
-    const fam = (b._fam ??= { n: 0 })
-    if (!split && Math.random() < K.chance) split = true
-    if (split && fam.n >= K.maxSplits) split = false
-    if (split) fam.n++
-  }
-  if (split) {
-    const a = Math.atan2(b.vy, b.vx) + (b._bounces % 2 ? 1 : -1) * B.splitFan
+  // BOUNCES ARE FREE (B.refill): each sub-shard gets back the pierce the shard was thrown with, so
+  // the bodies it went through on the way in do not stop it chaining off the next crystal.
+  // Queued, not pushed: stepBullets is mid-walk over run.bullets (see flushCrystalSplits).
+  const pierce = B.refill && b._pierce0 != null ? Math.max(b.pierce, b._pierce0) : Math.max(1, b.pierce)
+  const life = Math.max(b.life, B.life)
+  for (const a of heads) {
+    const ux = Math.cos(a), uy = Math.sin(a)
     ;(run._crystalSplits ??= []).push({
-      x: b.x, y: b.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, dmg: b.dmg * (B.splitDmgMul ?? 1), pierce: Math.max(1, b.pierce),
-      life: b.life, r: b.r, speed: b.speed, hitIds: new Set(), _shard: true, _splitDone: true, _chainsLeft: 0,
-      weapon: b.weapon, _bounces: b._bounces, _fam: b._fam, _pierce0: b._pierce0, _fromCrystal: o,
+      ...b, x: o.x + ux * face, y: o.y + uy * face, vx: ux * sp, vy: uy * sp, dmg: b.dmg * B.subDmgMul, pierce, life,
+      hitIds: new Set(), _shard: true, _splitDone: true, _bounces: gen + 1, _fromCrystal: o, _from: b,
     })
   }
-  run.events.push({ type: 'crystalBounce', x: b.x, y: b.y, n: b._bounces })
+  b._from = null   // a sub-shard keeps its parent (render's streak), never the whole line
+  run.events.push({ type: 'crystalBounce', x: b.x, y: b.y, n: gen + 1 })
   // ...AND THE CRYSTAL RINGS: a struck pillar chimes a short ring around itself, at most once per
   // B.chimeCd. This is what makes standing beside one WITH the crowd pay: the bodies pressing in on
   // you are the bodies pressing on the crystal.
@@ -16675,6 +16672,8 @@ function stepCrystalShot(run, b, spec) {
       removeCrystal(run, o, true, G.regrow)
     }
   }
+  // the shard itself is gone: its sub-shards carry on
+  b.life = 0; b.pierce = 0
 }
 // A crystal going off (Charged Facet, Cracked Glass): one big ring past its face, and a ring of
 // shards fired straight out of it, one per direction, evenly round. The shards are SPENT: they stop

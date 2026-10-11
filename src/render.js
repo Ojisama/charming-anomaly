@@ -84,6 +84,8 @@ const DUSK_PICK_RIM_MAX = 300
 // never metered. Keeps a dense shovel or Ipecac Furrow frame from recycling the whole ring above.
 const SOIL_PUFF_RATE = 60, SOIL_PUFF_BURST = 30
 const MAX_DMG_TEXTS = 30
+// The Geode: a prism sub-shard is drawn this much smaller than the shard it split off.
+const PRISM_SUB_SCALE = 0.8
 
 // Foliage sprite sheet: white/shaded PNGs in src/props/, tinted per-instance at draw
 // time. `eager: true` + `query: '?url'` resolves to plain URL strings at build time
@@ -6592,12 +6594,10 @@ export function createRenderer(app) {
       let tr = burrowTrails.get(b)
       if (!tr) {
         tr = []
-        // a split sibling is born on its parent's bounce point: it inherits the parent's incoming
-        // streak, so both halves of the turn are drawn from the first frame
-        if (b._bounces > 0) for (const o of run.bullets) {
-          const ot = o !== b && o.weapon === 'prism' && burrowTrails.get(o)
-          if (ot && ot.length >= 4 && Math.abs(ot[ot.length - 2] - b.x) + Math.abs(ot[ot.length - 1] - b.y) < 40) { tr = ot.slice(0, -2); break }
-        }
+        // a sub-shard is born on its parent's bounce point: it inherits the parent's incoming
+        // streak (b._from), so every branch of the split is drawn from the first frame
+        const ot = b._from && burrowTrails.get(b._from)
+        if (ot && ot.length >= 4) tr = ot.slice()
         burrowTrails.set(b, tr)
       }
       if (dt > 0) { tr.push(b.x, b.y); if (tr.length > 40) tr.splice(0, 2) }
@@ -32478,7 +32478,7 @@ void main() {
     if (pixelLook && pixelRig.placeBullet(s, b, animT)) return   // The Magma: every shot is src/pixel.js's
     s.position.set(b.x, b.y)
     // Book 3: a clay pebble (Pebble Sling) and a crystal splinter along its flight (Prism Shard),
-    // the latter swelling and whitening with each crystal it has bounced off.
+    // the latter whitening once it has split off a crystal, and smaller each generation.
     if (b.weapon === 'pebble') {
       if (s.texture !== T.pebbleShot.tex) { s.texture = T.pebbleShot.tex; s.anchor.set(T.pebbleShot.ax, T.pebbleShot.ay) }
       s.tint = 0xffffff
@@ -32491,7 +32491,7 @@ void main() {
       const nb = b._bounces || 0
       s.tint = nb > 0 ? 0xffffff : 0xe6dcff
       s.rotation = Math.atan2(b.vy, b.vx)
-      s.scale.set(1.15 + 0.2 * nb)
+      s.scale.set(1.15 * Math.pow(PRISM_SUB_SCALE, nb))
       return
     }
     // Stinger needles (v5.3 garden) share run.bullets with star shots but render as thin amber
