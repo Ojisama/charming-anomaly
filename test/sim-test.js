@@ -39716,6 +39716,10 @@ function testPebbleHandful() {
   assert.ok(ang.every((a) => Math.abs(a) <= PEBBLE_CONE / 2 + 1e-9), `run PS.a: every stone inside the narrow cone toward the foe: ${ang.map((a) => a.toFixed(2))}`)
   const sp = h.map((b) => Math.hypot(b.vx, b.vy))
   assert.ok(Math.max(...sp) - Math.min(...sp) > 10, `run PS.a: the stones fly at different speeds (a cloud, not a line)`)
+  for (let lv = 2; lv <= 5; lv++) {
+    const t = throwOnce({}, lv)[0]
+    assert.ok(t.length === 4 + lv && t.every((b) => b.dmg === 1 + lv), `run PS.a: each level adds a stone and a point of damage — L${lv} threw ${t.length} of ${t[0].dmg}`)
+  }
   const rate = throwOnce({}, 1, 9).length
   assert.ok(rate >= 9 && rate <= 11, `run PS.b: L1 throws about once per 0.9 s, got ${rate} in 9 s`)
   const hf = WEAPON_MODS.pebbleSling.handful.values

@@ -2854,17 +2854,17 @@ export const WEAPONS = {
     ],
   },
   // Pebble Sling: a handful of small stones flung at the nearest body (run.bullets, weapon 'pebble').
-  // balance_decision : owner: half the rate, 5 small 2-3 dmg stones 2026-10-11
+  // balance_decision : owner: half the rate, 5 stones of 2, +1 stone +1 dmg a level 2026-10-11
   pebbleSling: {
     name: 'Pebble Sling',
     desc: 'Flings a handful of small stones at the nearest foe.',
     icon: '🎯', rarity: 'normal',
     levels: [
       { dmg: 2, interval: 0.9, count: 5, speed: 560, pierce: 3 },
-      { dmg: 2, interval: 0.88, count: 6, speed: 570, pierce: 3 },
-      { dmg: 3, interval: 0.84, count: 6, speed: 590, pierce: 3 },
-      { dmg: 3, interval: 0.8, count: 7, speed: 610, pierce: 3 },
-      { dmg: 3, interval: 0.76, count: 7, speed: 640, pierce: 4 },
+      { dmg: 3, interval: 0.88, count: 6, speed: 570, pierce: 3 },
+      { dmg: 4, interval: 0.84, count: 7, speed: 590, pierce: 3 },
+      { dmg: 5, interval: 0.8, count: 8, speed: 610, pierce: 3 },
+      { dmg: 6, interval: 0.76, count: 9, speed: 640, pierce: 4 },
     ],
   },
   // Root Snare: roots burst up under a foe and hold the patch (run.snares): slowed, ground down.
