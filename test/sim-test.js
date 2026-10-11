@@ -16792,7 +16792,7 @@ function testCityTerrainWiring() {
     const pigeonCfg = fast.find((r) => r.id === 'pigeon')
     const ratCfg = fast.find((r) => r.id === 'rat')
     assert(pigeonCfg && ratCfg, 'expected city to keep both fast-lane entries')
-    assert.deepStrictEqual(pigeonCfg.flags, ['flyover'], `expected the pigeon to carry only flyover, got ${JSON.stringify(pigeonCfg.flags)}`)
+    assert.deepStrictEqual(pigeonCfg.flags, ['flyover', 'flying'], `expected the pigeon to carry only flyover + flying, got ${JSON.stringify(pigeonCfg.flags)}`)
     for (const r of CHAPTERS.city.roster) {
       assert(!r.flags.includes('blink'), `expected no city roster entry to still carry the retired blink flag (${r.id})`)
     }
@@ -20857,6 +20857,7 @@ run(testLeLargeWeapons)
   run(testGemTiers)
   run(testMagmaFloor)
   run(testMagmaRiverBank)
+  run(testFlyersSkipFloor)
   // A hand-typed filter that matched nothing is the silent pass without a parent watching:
   // `node test/sim-test.js supernova` printed ALL TESTS PASSED having run no scenario at all.
   if (_ran === 0 && !EXACT_SET) {
@@ -39522,7 +39523,7 @@ function testMagmaRiverBank() {
     // a crowd: the rest pressed in behind the first, so the separation pass shoves the front row
     const pack = [e]
     for (let k = 1; k < crowd; k++) pack.push(makeStatusEnemy(r, { x: e.x - nx * (20 + (k % 3) * 22) + ny * ((k % 4) - 1.5) * 18, y: e.y - ny * (20 + (k % 3) * 22) - nx * ((k % 4) - 1.5) * 18, hp: 1e9, speed: 90 }))
-    if (rosterId) for (const b of pack) b.rosterId = rosterId
+    if (rosterId) for (const b of pack) b.flags = ['flying']
     r.enemies = pack.slice()
     let inRiver = 0, frames = 0, burn = 0
     for (let i = 0; i < 600; i++) {
@@ -39918,4 +39919,31 @@ function testGemTiers() {
   assert.strictEqual(gemTier(u, deep), 0, 'run GT: an ordinary kill on endless rung 20 is still tier 0')
   assert.strictEqual(gemTier(u * ELITE.xpMul, deep), 1, 'run GT: an elite on endless rung 20 is still tier 1 (the taper divides out)')
   console.log(`PASS run GT (gem tiers): ${tiers.normal.length} ordinary kills -> tier 0, ${tiers.elite.length} elites -> tier ${[...new Set(tiers.elite)]}; thresholds ${GEM_TIER_AT} ordinary kills`)
+}
+
+// run FL: a 'flying' body is above the floor. Standing in open lava and in a slag pool, a flyer
+// takes nothing while a walker beside it burns (the control).
+function testFlyersSkipFloor() {
+  Math.random = mulberry32(42001)
+  const r = createRun((() => { const m = makeMeta(); m.dev = true; return m })(), { chapter: 'magma', difficulty: 1 })
+  r.weapons = []
+  r.cracks.push({ x: 300, y: 0, r: 40, by: 'step', state: 'lava', t: 0, tick: 0, openAt: 0, lavaT: 99, coolT: 1, lavaEnd: 1e9, coolEnd: 0 })
+  r.slagPools.push({ x: -300, y: 0, r: 40, t: 0, dur: 1e9, burn: 5, tick: 0 })
+  const spots = [[300, 0], [300, 0], [-300, 0], [-300, 0]]
+  const pack = spots.map(([x, y], i) => { const e = makeStatusEnemy(r, { x, y, hp: 1e9, speed: 0 }); if (i % 2) e.flags = ['flying']; return e })
+  for (let i = 0; i < 180; i++) {
+    if (r.phase === 'levelup') { r.phase = 'playing'; r.levelUpChoices = [] }
+    r.weapons = []
+    r.player.x = 0; r.player.y = 600; r.player.hp = r.player.maxHP; r.player.invuln = 1
+    r.enemies = pack.slice()
+    pack.forEach((e, k) => { e._dead = false; e.x = spots[k][0]; e.y = spots[k][1] })
+    stepSim(r, { x: 0, y: 0 }, 1 / 60)
+    r.events.length = 0
+  }
+  const lost = pack.map((e) => e.maxHP - e.hp)
+  assert(lost[0] > 0, 'FL.a control: a walker in open lava burns')
+  assert(lost[2] > 0, 'FL.b control: a walker in a slag pool burns')
+  assert(lost[1] === 0, 'FL.c a flyer over open lava takes ' + lost[1])
+  assert(lost[3] === 0, 'FL.d a flyer over a slag pool takes ' + lost[3])
+  console.log('PASS run FL (flyers skip the floor): walkers lost ' + lost[0].toFixed(0) + ' / ' + lost[2].toFixed(0) + ' hp, flyers 0 / 0')
 }

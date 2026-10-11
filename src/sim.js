@@ -5038,7 +5038,7 @@ function stepEnemyMovement(run, dt) {
       e.y += uy * step
     }
 
-    if (rivF && !isAlly(e) && !rivF.river.flyOver?.includes(e.rosterId)) holdAtRiverBank(e, ox, oy, tx, ty, rivF, rivSeed, dt)
+    if (rivF && !isAlly(e) && !flies(e)) holdAtRiverBank(e, ox, oy, tx, ty, rivF, rivSeed, dt)
     e.x += e.kb.x * dt
     e.y += e.kb.y * dt
     // where a body held at a bank stands after its own step and any knockback (holdBankAfterCrowd)
@@ -5989,6 +5989,8 @@ function hurtPlayer(run, rawDmg, dot = false, src = null, parryable = false) {
 // `e.elite` deliberately STAYS TRUE. Clearing it to disable elite-only logic silently swaps the
 // texture (render.js swaps ant_elite -> ant) and pops the gold crown off mid-life.
 export function isAlly(e) { return (e.allyT ?? 0) > 0 }
+// a 'flying' body is above the floor: no floor hazard (lava, pools, pits, traps, snares, oil) touches it
+export function flies(e) { return !!(e.flags && e.flags.includes('flying')) }
 
 // How many of run.enemies are yours. Cheap and only ever non-zero under the anomaly, so the scan
 // costs nothing in a normal run.
@@ -7393,7 +7395,7 @@ function stepSlick(run, dt) {
   // out unchanged, so the map's most obvious terrain feature was terrain for one participant.
   // Same `oiled` field and same cap as the player's own bilge: it is the same oil.
   for (const e of run.enemies) {
-    if (e._dead || damageImmune(e) || (e.oiled || 0) >= OIL_STAIN_MAX) continue
+    if (e._dead || damageImmune(e) || flies(e) || (e.oiled || 0) >= OIL_STAIN_MAX) continue
     for (const sl of run.slicks) {
       if (!inLobe(sl, e.x, e.y)) continue
       e.oiled = Math.min(OIL_STAIN_MAX, (e.oiled || 0) + OIL_STAIN_RATE * dt)
@@ -7454,7 +7456,7 @@ function stepSlickFire(run, dt) {
   // pass over the crowd rather than crowd x oils (measured +21% of the sim before this line).
   if (!lit && !run.enemies.some((e) => e.ignite > 0 && !e._dead)) return
   for (const e of run.enemies) {
-    if (e._dead || damageImmune(e)) continue
+    if (e._dead || damageImmune(e) || flies(e)) continue
     for (const sl of oils) {
       if (!(sl.r > 0) || !inLobe(sl, e.x, e.y)) continue
       if (sl.burn == null && e.ignite > 0) {
@@ -9146,7 +9148,7 @@ function stepTraps(run, dt) {
     }
     for (const e of run.enemies) {
       if (e._dead) continue
-      if (e._pounceState === 'leap') continue // airborne — the landing owns the interaction (Task 2)
+      if (e._pounceState === 'leap' || flies(e)) continue // airborne — the landing owns the interaction (Task 2)
       const dx = e.x - tr.x, dy = e.y - tr.y
       if (dx * dx + dy * dy > rSq) continue
       springTrap(run, tr)
@@ -16395,7 +16397,7 @@ function stepPits(run, dt) {
     if (pt.age < open * 0.5 || pt.age > pt.life - fill) continue
     if (pt.src === 'furrow') {
       for (const e of enemiesNear(run, pt.x, pt.y, pt.r + 30)) {
-        if (e._dead || isAlly(e) || damageImmune(e) || pt.hit[e.id]) continue
+        if (e._dead || isAlly(e) || damageImmune(e) || flies(e) || pt.hit[e.id]) continue
         if (Math.hypot(e.x - pt.x, e.y - pt.y) > pt.r + e.radius * 0.5) continue
         pt.hit[e.id] = 1
         applyDamage(run, e, pt.dmg)
@@ -16405,7 +16407,7 @@ function stepPits(run, dt) {
     }
     for (const e of enemiesNear(run, pt.x, pt.y, pt.r + 30)) {
       // Elites are too big to go down, and a mole lives down there.
-      if (e._dead || e.burrowed || e.elite || isAlly(e) || (e.flags && e.flags.includes('tunnel'))) continue
+      if (e._dead || e.burrowed || e.elite || isAlly(e) || flies(e) || (e.flags && e.flags.includes('tunnel'))) continue
       if (Math.hypot(e.x - pt.x, e.y - pt.y) > pt.r - e.radius * 0.25) continue
       run.events.push({ type: 'pitFall', x: e.x, y: e.y, r: e.radius, rosterId: e.rosterId })
       dealDamage(run, e, e.hp + e.maxHP, false, false, true)   // hazard: the ground did it
@@ -16587,7 +16589,7 @@ function stepSnares(run, dt) {
     const tick = sn.tick <= 0
     if (tick) sn.tick += ROOT_SNARE_TICK
     for (const e of enemiesNear(run, sn.x, sn.y, sn.r, true)) {
-      if (e._dead || isAlly(e) || damageImmune(e)) continue
+      if (e._dead || isAlly(e) || damageImmune(e) || flies(e)) continue
       if (Math.hypot(e.x - sn.x, e.y - sn.y) > sn.r + e.radius * 0.5) continue
       e.rootUntil = run.time + ROOT_SNARE_HOLD_T
       if (tick) applyDotDamage(run, e, sn.dmg)
@@ -17176,7 +17178,7 @@ function stepCrust(run, dt) {
       if (c.tick > 0) continue
       c.tick += C.tick
       for (const e of enemiesNear(run, c.x, c.y, c.r, true)) {
-        if (e._dead || isAlly(e) || damageImmune(e)) continue
+        if (e._dead || isAlly(e) || damageImmune(e) || flies(e)) continue
         const rr = c.r + e.radius * 0.5
         if ((e.x - c.x) ** 2 + (e.y - c.y) ** 2 > rr * rr) continue
         const dmg = (C.burnFlat + C.burnPct * e.maxHP) * C.tick * hot * (e.elite ? C.eliteMul : 1)
@@ -17195,7 +17197,7 @@ function stepCrust(run, dt) {
     if (run._riverT <= 0) {
       run._riverT += C.tick
       for (const e of run.enemies) {
-        if (e._dead || isAlly(e) || damageImmune(e) || F.river.flyOver?.includes(e.rosterId)) continue
+        if (e._dead || isAlly(e) || damageImmune(e) || flies(e)) continue
         if ((e.x - p.x) ** 2 + (e.y - p.y) ** 2 > F.river.reach ** 2) continue
         if (riverDepthAt(F, e.x, e.y, seed) <= 0) continue
         const dmg = (C.burnFlat + C.burnPct * e.maxHP) * C.tick * hot * F.river.burnMul * (e.elite ? C.eliteMul : 1)
@@ -17236,7 +17238,7 @@ function stepSlagPools(run, dt) {
     if (sp.tick > 0) continue
     sp.tick += SLAG_TICK
     for (const e of enemiesNear(run, sp.x, sp.y, sp.r, true)) {
-      if (e._dead || isAlly(e) || damageImmune(e)) continue
+      if (e._dead || isAlly(e) || damageImmune(e) || flies(e)) continue
       if (Math.hypot(e.x - sp.x, e.y - sp.y) > sp.r + e.radius * 0.5) continue
       applyDotDamage(run, e, sp.burn)
     }
