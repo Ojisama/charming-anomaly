@@ -3254,6 +3254,8 @@ export function initUI(hooks) {
     // is keyed on the SENTENCE and survives the value being re-tuned (gorge, 2026-09-06).
     if (cfg.kind === 'switch') return cfg.desc.includes('{n}') ? tt(cfg.desc, { n: cfg.base }) : t(cfg.desc)
     const n = cfg.kind === 'pct' ? modPct(bonus) : fmtNum(bonus)
+    // A desc with `args` (the Geode's crystal cards) is a whole sentence carrying its own limiters.
+    if (cfg.args) return tt(cfg.desc, { n, ...cfg.args })
     return cfg.desc.includes('{n}') ? tt(cfg.desc, { n }) : `+${n} ${t(cfg.desc)}`
   }
   // The level-up card's desc line. A mod recomposes from its config so it gets {n} support and
@@ -3384,7 +3386,7 @@ export function initUI(hooks) {
       const aName = (a) => a.subject && WEAPONS[a.subject]
         ? tt('{name}: {sub}', { name: t(a.name), sub: t(WEAPONS[a.subject].name) })
         : t(a.name)
-      const body = build.anomalies.map((a) => `<div class="bd-eff"><span class="bd-eff-i">${a.icon ?? '💠'}</span><span class="bd-eff-t"><b>${esc(aName(a))} </b>${esc(t(a.desc))}</span></div>`).join('')
+      const body = build.anomalies.map((a) => `<div class="bd-eff"><span class="bd-eff-i">${a.icon ?? '💠'}</span><span class="bd-eff-t"><b>${esc(aName(a))} </b>${esc(a.args ? tt(a.desc, a.args) : t(a.desc))}</span></div>`).join('')
       const head = build.anomalies.map((a) => aName(a)).join(', ')
       secs.push(sectionHtml('anomalies', '💠', t(RARITIES.anomaly.name), head, body))
     }

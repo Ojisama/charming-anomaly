@@ -259,7 +259,7 @@ import {
   SHOVEL_LIFE, PEBBLE_CONE, PEBBLE_SPEED_JITTER, pebbleSpreadStones, PEBBLE_LIFE, PEBBLE_R, ROOT_SNARE_TICK, ROOT_SNARE_SLOW, ROOT_SNARE_HOLD_T, ROOT_SNARE_RANGE,
   FURROW_STEP, FURROW_KEEP, FURROW_DELAY, FURROW_STAGGER, FURROW_PIT_OPEN, FURROW_PIT_LIFE, FURROW_PIT_FILL, FURROW_PIT_MAX, FURROW_JUMP, FURROW_LANE_GAP,
   SUNDOWN_SPEED_MUL, SUNDOWN_XP_MUL,
-  PRISM_FAN, PRISM_LIFE, PRISM_R, ECHO_LIFE, STALACTITE_FUSE, STALACTITE_RANGE,
+  PRISM_FAN, PRISM_LIFE, PRISM_R, ECHO_LIFE, STALACTITE_FUSE, STALACTITE_RANGE, CRYSTAL_CARDS, fillModDesc,
   PICKAXE_RANGE, PICKAXE_KB, PICKAXE_FLIGHT, PICKAXE_CHIP_DMG, PICKAXE_CHIP_SPEED, PICKAXE_CHIP_LIFE, PICKAXE_CHIP_R,
   DYNAMITE_RANGE, DYNAMITE_FLIGHT, DYNAMITE_FUSE, DYNAMITE_KB, MINECART_SPEED, MINECART_FAN, MINECART_KB, MINECART_STUN,
   CANARY_REACH_MUL, CANARY_LINK_DMG, LANTERN_PULSE, MINE_BOOM_KEEP, MINE_GAS_FADE_IN, MINE_GAS_LIT_SHRINK,
@@ -4255,16 +4255,19 @@ const elP = (run, id) => (run.elements?.[id] ?? 0)
 /** Cold's slow, 0..1. 1 IS frozen — there is no separate threshold. */
 function elSlow(run, e) {
   if ((e._elFrozen ?? 0) > 0) return 1
+  // The Geode's Spectrum card: a timed floor under the element's own slow.
+  const spec = (e._specChill ?? 0) > run.time ? CRYSTAL_CARDS.spectrum.chill : 0
   const P = elP(run, 'cold')
-  if (P <= 0) return 0
-  return Math.min(1, (e._elCold?.total ?? 0) * EL_COLD_MUL * elScale(P * alignmentMul(run)))
+  if (P <= 0) return spec
+  return Math.max(spec, Math.min(1, (e._elCold?.total ?? 0) * EL_COLD_MUL * elScale(P * alignmentMul(run))))
 }
 
 /** Venom's damage-taken amp. Venom deals no damage of its own; this is the whole card. */
 function elVenomAmp(run, e) {
+  const spec = (e._specVenom ?? 0) > run.time ? CRYSTAL_CARDS.spectrum.venom : 0   // Spectrum's floor
   const P = elP(run, 'venom')
-  if (P <= 0) return 0
-  return (e._elVenom?.total ?? 0) * EL_VENOM_MUL * elScale(P * alignmentMul(run))
+  if (P <= 0) return spec
+  return Math.max(spec, (e._elVenom?.total ?? 0) * EL_VENOM_MUL * elScale(P * alignmentMul(run)))
 }
 
 // Only ANCHORED elites can never be frozen (owner ruling 2026-08-13). `unshakeable` tanks are
@@ -6559,6 +6562,7 @@ function streamObstacles(run) {
       // OBSTACLE_DROP_RADIUS/distance, which is why walking away and back was never required to
       // see it happen.
       if (run._crushed.has(key)) continue
+      if (run._crystalRegrow?.has(key)) continue   // a broken crystal's place, still empty (removeCrystal)
       // v5.9.2 ("the fuck is this?" bug report): a chapter with a district map picks its structure's
       // RADIUS per-kind (STRUCTURE_RADIUS, config.js) instead of one chapter-wide cfg.minR/maxR band
       // — see that table's doc for why (draw size used to be divorced from the collider entirely).
@@ -6576,8 +6580,15 @@ function streamObstacles(run) {
       // possible structure, as a conservative worst case: every kind's real r <= this, so nothing
       // can end up more tightly packed than the jitter assumed.
       const slack = Math.max(0, cs / 2 - (perKindRadius ? cfg.maxR : r) - 20)
-      let x = (i + 0.5) * cs + (obstacleCellHash(i, j, seed, 2) - 0.5) * 2 * slack
-      let y = (j + 0.5) * cs + (obstacleCellHash(i, j, seed, 3) - 0.5) * 2 * slack
+      // Cracked Glass: a crystal that broke grows back elsewhere in its cell (its generation salts x/y)
+      const gen = run._crystalGen?.get(key) ?? 0
+      const xySeed = gen ? seed + Math.imul(gen, 7919) : seed
+      let x = (i + 0.5) * cs + (obstacleCellHash(i, j, xySeed, 2) - 0.5) * 2 * slack
+      let y = (j + 0.5) * cs + (obstacleCellHash(i, j, xySeed, 3) - 0.5) * 2 * slack
+      // a grown-back spot that cannot stand (the spawn ring, or on you) tries another next scan
+      const regrowing = gen > 0 && run._crystalRegrown?.has(key)
+      if (regrowing && (Math.hypot(x, y) < cfg.minDist || Math.hypot(x - p.x, y - p.y) < cfg.maxR + PLAYER.radius + 60
+        || crystalAt(run, x, y, cfg.maxR + 12))) { run._crystalGen.set(key, gen + 1); continue }
       if (Math.hypot(x, y) < cfg.minDist) continue                      // spawn ring stays clear
       if (Math.hypot(x - p.x, y - p.y) > OBSTACLE_STREAM_RADIUS) continue
       // v5.9 top-down region overhaul: keep structures off the streets. roadAt is a pure hash (see
@@ -6695,7 +6706,9 @@ function streamObstacles(run) {
       // above is: a structure that was moved has to be judged where it ended up. Full clearance
       // (`r`, not 0), so a rock never crosses the rim either: half in the jaws still reads as in.
       if (clearSpec && inRefillCircle(x, y, r, seed, clearSpec)) continue
-      run.obstacles.push({ x, y, r, _cell: key, kind, rot })
+      const ob = { x, y, r, _cell: key, kind, rot }
+      if (run._crystalRegrown?.delete(key)) ob.born = run.time   // grown back: render grows it in
+      run.obstacles.push(ob)
       changed = true
     }
   }
@@ -10513,7 +10526,7 @@ export function buildReadout(run) {
     // Its upgrades come up ×2.5 as often" with no way at all to learn WHICH weapon "its" is, which
     // is the same hidden-rule failure this whole section exists to close.
     .map((id) => ({
-      id, name: ANOMALIES[id].name, desc: ANOMALIES[id].desc, icon: ANOMALIES[id].icon,
+      id, name: ANOMALIES[id].name, desc: ANOMALIES[id].desc, args: ANOMALIES[id].args, icon: ANOMALIES[id].icon,
       subject: typeof run.anomalies[id] === 'string' ? run.anomalies[id] : null,
     }))
   return { weapons, passives, elements, anomalies }
@@ -10599,6 +10612,8 @@ function stepWeaponsInner(run, dt) {
 
   stepBullets(run, dt)
   stepEchoes(run, dt)   // Book 3: crystals ringing back (queued by Echo Pulse) join run.novas here
+  stepCrystals(run, dt) // Book 3, The Geode: seeded crystals expire, broken ones grow back, Lodestone pulls
+  stepFaults(run, dt)   // Book 3, The Geode: Fault Line beams between two rung crystals
   stepNovas(run, dt)
   stepBoomerangs(run, dt)
   stepMines(run, dt)
@@ -15464,6 +15479,11 @@ function makePassiveCard(run, id, rarity) {
   return { kind: 'passive', id, title: cfg.name, desc, was, tag: `Lv ${picks + 1}`, rarity, icon: cfg.icon ?? '💪', bonus }
 }
 
+// An anomaly whose desc carries {placeholders} (`args`, the Geode's two): the plain English for
+// every string consumer, and the template + numbers ui.js's cardDescHtml sends through tt().
+function anomalyDesc(a) { return a.args ? fillModDesc(a.desc, a.args) : a.desc }
+function anomalyDescT(a) { return a.args ? { s: a.desc, p: a.args } : undefined }
+
 // A weapon-mod card adopts whatever rarity was rolled for its slot, same as passives.
 // flat mods round to a whole extra unit (min 1); pct mods are additive %; tier mods look up a
 // per-rarity bonus instead of rarityMult (see WEAPON_MOD_TIER_BONUS in config.js — keeps
@@ -15485,7 +15505,7 @@ function makeWeaponModCard(run, weaponId, modId, rarity) {
     if (!(rarity in cfg.values)) return null
     const bonus = cfg.values[rarity]
     return { kind: 'mod', id: modId, weapon: weaponId, title: cfg.name,
-      desc: cfg.descFor ? cfg.descFor(bonus) : cfg.desc.includes('{n}') ? cfg.desc.replaceAll('{n}', `${bonus}`) : `+${bonus} ${cfg.desc}`,
+      desc: cfg.descFor ? cfg.descFor(bonus) : cfg.args ? fillModDesc(cfg.desc, { n: bonus, ...cfg.args }) : cfg.desc.includes('{n}') ? cfg.desc.replaceAll('{n}', `${bonus}`) : `+${bonus} ${cfg.desc}`,
       tag: `${WEAPONS[weaponId].name} upgrade`, rarity, icon: cfg.icon, bonus }
   }
   const mult = RARITIES[rarity].mult
@@ -15648,7 +15668,7 @@ function rollAnomalyCard(run) {
   // see refundPityOnReroll. Without the stash the credit is unrecoverable the instant it is spent.
   run._pityBeforeAnomaly = run._screensSinceAnomaly
   run._screensSinceAnomaly = 0
-  return { kind: 'anomaly', id, title: a.name, desc: a.desc, from: a.from, tag: '', rarity: 'anomaly', icon: a.icon, subjects, subjectPicks }
+  return { kind: 'anomaly', id, title: a.name, desc: anomalyDesc(a), descT: anomalyDescT(a), from: a.from, tag: '', rarity: 'anomaly', icon: a.icon, subjects, subjectPicks }
 }
 
 // ---- dev menu (v7.12) --------------------------------------------------------------------
@@ -15705,7 +15725,7 @@ export function devCards(run, rarity = 'rare') {
     // dev menu turns out to matter.
     const subj = a.subjects?.(run)
     const subjects = subj ? (subj.length ? subj : run.weapons.map((w) => w.id)) : null
-    out.push({ kind: 'anomaly', id, title: a.name, desc: a.desc, from: a.from, tag: '',
+    out.push({ kind: 'anomaly', id, title: a.name, desc: anomalyDesc(a), descT: anomalyDescT(a), from: a.from, tag: '',
       rarity: 'anomaly', icon: a.icon, subjects,
       subjectPicks: subjects ? Object.fromEntries(subjects.map((w) => [w, weaponModPickCount(run, w)])) : null })
   }
@@ -16431,11 +16451,98 @@ function crystalAt(run, x, y, pad) {
   }
   return null
 }
+// THE ONE WAY a crystal joins or leaves the field after streamObstacles laid it: Seed Crystal adds
+// one, its own `ttl` and Cracked Glass take one away. streamObstacles knows which cells are filled
+// only through o._cell (its `live` set), so:
+//   - a seeded crystal carries a key no grid cell can have ('seed:N'), and never fills a cell;
+//   - a streamed crystal taken away leaves its key in run._crystalRegrow until `regrow` s have
+//     passed, and streamObstacles will not re-roll a cell while its key is there. stepCrystals
+//     then asks for a re-scan (the scan only runs on a cell crossing), which re-rolls the same
+//     crystal from the same hash, and run._crystalRegrown marks it so render grows it in.
+// Every change bumps run._obstacleRev, which is what makes render's syncObstacles rebuild.
+function addCrystal(run, x, y, r, secs) {
+  run._crystalSeq = (run._crystalSeq ?? 0) + 1
+  const o = { x, y, r, kind: 'crystal', rot: 0, _cell: 'seed:' + run._crystalSeq, born: run.time, ttl: secs }
+  run.obstacles.push(o)
+  run._obstacleRev = (run._obstacleRev || 0) + 1
+  run.events.push({ type: 'crystalGrow', x, y, r })
+  return o
+}
+function removeCrystal(run, o, broke, regrow) {
+  const k = run.obstacles.indexOf(o)
+  if (k < 0) return false
+  run.obstacles.splice(k, 1)
+  run._obstacleRev = (run._obstacleRev || 0) + 1
+  if (!String(o._cell).startsWith('seed:')) {
+    ;(run._crystalRegrow ??= new Map()).set(o._cell, run.time + regrow)
+    // it grows back somewhere else in its cell: streamObstacles salts its x/y with the generation
+    ;(run._crystalGen ??= new Map()).set(o._cell, (run._crystalGen.get(o._cell) ?? 0) + 1)
+  }
+  run.events.push({ type: broke ? 'crystalBreak' : 'crystalFade', x: o.x, y: o.y, r: o.r })
+  return true
+}
+// Per step, Geode only: seeded crystals run out, broken cells grow back, Lodestone pulls.
+function stepCrystals(run, dt) {
+  if (!crystalSpec(run)) return
+  for (let k = run.obstacles.length - 1; k >= 0; k--) {
+    const o = run.obstacles[k]
+    if (o.kind === 'crystal' && o.ttl != null && run.time - o.born >= o.ttl) removeCrystal(run, o, false, 0)
+  }
+  if (run._crystalRegrow?.size) {
+    for (const [key, at] of run._crystalRegrow) {
+      if (run.time < at) continue
+      run._crystalRegrow.delete(key)
+      ;(run._crystalRegrown ??= new Set()).add(key)
+    }
+  }
+  // A grown-back cell waits for a re-scan (the scan only runs on a cell crossing, and skips a spot
+  // you are standing on), so ask for one twice a second while any is waiting.
+  // Only for a waiting cell within streaming reach: one left far behind waits for the walk back.
+  if (run._crystalRegrown?.size && run.time >= (run._regrowScanAt ?? 0)) {
+    run._regrowScanAt = run.time + 0.5
+    const cs = CHAPTERS[run.chapter].obstacles?.cell ?? OBSTACLE_CELL, p = run.player
+    for (const key of run._crystalRegrown) {
+      const [i, j] = key.split(',').map(Number)
+      if (Math.hypot((i + 0.5) * cs - p.x, (j + 0.5) * cs - p.y) <= OBSTACLE_STREAM_RADIUS) { run._obCellI = null; break }
+    }
+  }
+  // LODESTONE: a crystal with a pull running draws every body near its face onto the face.
+  const L = CRYSTAL_CARDS.lodestone
+  for (const o of run.obstacles) {
+    if (o.kind !== 'crystal' || !(o._lodeUntil > run.time)) continue
+    for (const e of enemiesNear(run, o.x, o.y, o.r + L.reach + 40)) {
+      if (e._dead || isAlly(e) || e.burrowed || (e.affixes && e.affixes.includes('anchored'))) continue
+      const dx = o.x - e.x, dy = o.y - e.y, d = Math.hypot(dx, dy) || 1
+      const face = o.r + e.radius
+      if (d <= face + 1 || d - o.r > L.reach + e.radius) continue
+      // heavier bodies come slower, as they do into a Black Hole (HOLE_RESIST_CAP's rule)
+      const sp = L.pull * (e.elite || e.type === 'tank' ? HOLE_RESIST_CAP : 1)
+      const step = Math.min(d - face, sp * dt)
+      e.x += (dx / d) * step; e.y += (dy / d) * step
+      nbDirty()
+    }
+    // ...and it tugs you, gently, unless a body is already close: never into one.
+    const p = run.player
+    const dx = o.x - p.x, dy = o.y - p.y, d = Math.hypot(dx, dy) || 1
+    const face = o.r + PLAYER.radius
+    if (d <= face + 1 || d - o.r > L.reach + PLAYER.radius) continue
+    const nx = p.x + (dx / d) * Math.min(d - face, L.playerPull * dt), ny = p.y + (dy / d) * Math.min(d - face, L.playerPull * dt)
+    let crowded = false
+    for (const e of enemiesNear(run, nx, ny, PLAYER.radius + L.playerGuard + 60)) {
+      if (e._dead || isAlly(e) || e.burrowed) continue
+      const g = PLAYER.radius + e.radius + L.playerGuard
+      if ((e.x - nx) ** 2 + (e.y - ny) ** 2 < g * g) { crowded = true; break }
+    }
+    if (!crowded) { p.x = nx; p.y = ny }
+  }
+}
 function stepCrystalShot(run, b, spec) {
   const o = crystalAt(run, b.x, b.y, b.r)
   if (!o) return
   const B = spec.bounce
-  if (!B || (b._bounces ?? 0) >= B.max) {
+  const prism = b.weapon === 'prism'
+  const pm = prism ? (run.weaponMods.prismShard ?? {}) : {}
+  if (!B || b._spent || (b._bounces ?? 0) >= B.max + (pm.ricochet ?? 0)) {
     b.life = 0
     run.events.push({ type: 'crystalChip', x: b.x, y: b.y })
     return
@@ -16468,14 +16575,32 @@ function stepCrystalShot(run, b, spec) {
   b.dmg *= B.dmgMul
   b.life = Math.max(b.life, B.life)
   b.hitIds.clear()
+  // BOUNCES ARE FREE (B.refill): a bounce gives the shard back the pierce it was thrown with, so
+  // the bodies it went through on the way in do not stop it chaining off the next crystal.
+  if (B.refill && b._pierce0 != null) b.pierce = Math.max(b.pierce, b._pierce0)
+  // SPECTRUM: the body the bounce turned the shard onto takes the next colour.
+  if (best && pm.spectrum > 0 && Math.random() < CRYSTAL_CARDS.spectrum.chance) {
+    b._specN = (b._specN ?? 0) + 1
+    spectrumMark(run, best, b._specN, b.dmg)
+  }
   // THE PRISM: the first `split` bounces of a shot also split it, one sibling fanned off the new
   // heading. Queued, not pushed: stepBullets is mid-walk over run.bullets (see flushCrystalSplits).
-  if (b._bounces <= B.split) {
+  // KALEIDOSCOPE: a later bounce splits on a chance, and a shard's whole family (it and every
+  // sibling split off it) makes at most maxSplits siblings.
+  let split = b._bounces <= B.split
+  if (pm.kaleidoscope > 0) {
+    const K = CRYSTAL_CARDS.kaleidoscope
+    const fam = (b._fam ??= { n: 0 })
+    if (!split && Math.random() < K.chance) split = true
+    if (split && fam.n >= K.maxSplits) split = false
+    if (split) fam.n++
+  }
+  if (split) {
     const a = Math.atan2(b.vy, b.vx) + (b._bounces % 2 ? 1 : -1) * B.splitFan
     ;(run._crystalSplits ??= []).push({
-      x: b.x, y: b.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, dmg: b.dmg, pierce: Math.max(1, b.pierce),
+      x: b.x, y: b.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, dmg: b.dmg * (B.splitDmgMul ?? 1), pierce: Math.max(1, b.pierce),
       life: b.life, r: b.r, speed: b.speed, hitIds: new Set(), _shard: true, _splitDone: true, _chainsLeft: 0,
-      weapon: b.weapon, _bounces: b._bounces,
+      weapon: b.weapon, _bounces: b._bounces, _fam: b._fam, _pierce0: b._pierce0,
     })
   }
   run.events.push({ type: 'crystalBounce', x: b.x, y: b.y, n: b._bounces })
@@ -16484,13 +16609,137 @@ function stepCrystalShot(run, b, spec) {
   // you are the bodies pressing on the crystal.
   if (B.chimeR > 0 && run.time >= (o._chimeAt ?? 0)) {
     o._chimeAt = run.time + B.chimeCd
-    spawnNova(run, o.x, o.y, o.r + B.chimeR, b.dmg * B.chimeDmg, B.chimeKb, 0, { look: 'chime', life: 0.3 })
+    const reach = B.chimeR * (1 + (run.weaponMods.echoPulse?.wideChime ?? 0))   // Wide Chime
+    spawnNova(run, o.x, o.y, o.r + reach, b.dmg * B.chimeDmg, B.chimeKb, 0, { look: 'chime', life: 0.3 })
     // The ring also shakes loose what lies around the pillar: gems and coins in reach are reeled in
     // to you (the same _vac flag Chemotaxis sets), so a crystal fight pays where you stand.
     const vr = o.r + B.chimeVac, vrSq = vr * vr
     for (const it of run.gems) { const dx = it.x - o.x, dy = it.y - o.y; if (dx * dx + dy * dy <= vrSq) it._vac = true }
     for (const it of run.coins) { const dx = it.x - o.x, dy = it.y - o.y; if (dx * dx + dy * dy <= vrSq) it._vac = true }
+    crystalRang(run, o, b.dmg * B.chimeDmg, reach, B.chimeKb, null)
   }
+  // LODESTONE: every shard a crystal bounces (re)starts its pull. The event only marks a pull that
+  // was not already running, so a crystal under fire does not flash every frame.
+  if (run.anomalies?.lodestone) {
+    const L = CRYSTAL_CARDS.lodestone
+    if (!(o._lodeUntil > run.time)) run.events.push({ type: 'crystalPull', x: o.x, y: o.y, r: o.r, reach: L.reach, secs: L.secs })
+    o._lodeUntil = run.time + L.secs
+  }
+  // CHARGED FACET: every `hits`th shard a crystal bounces sets it off.
+  if (pm.chargedFacet > 0) {
+    const C = CRYSTAL_CARDS.chargedFacet
+    o._facet = (o._facet ?? 0) + 1
+    if (o._facet >= C.hits) {
+      o._facet = 0
+      crystalBurst(run, o, b, C, 'crystalBurst')
+    }
+  }
+  // CRACKED GLASS: the `hits`th shard a crystal bounces breaks it.
+  if (run.anomalies?.crackedGlass) {
+    const G = CRYSTAL_CARDS.crackedGlass
+    o._cracks = (o._cracks ?? 0) + 1
+    if (o._cracks >= G.hits) {
+      crystalBurst(run, o, b, G, null)
+      removeCrystal(run, o, true, G.regrow)
+    }
+  }
+}
+// A crystal going off (Charged Facet, Cracked Glass): one big ring past its face, and a ring of
+// shards fired straight out of it, one per direction, evenly round. The shards are SPENT: they stop
+// on the next crystal they meet instead of bouncing, so a burst can never charge another burst.
+function crystalBurst(run, o, b, C, evType) {
+  const B = crystalSpec(run)?.bounce
+  const kb = B ? B.chimeKb : 40
+  spawnNova(run, o.x, o.y, o.r + C.ringR, b.dmg * C.ringDmg, kb * 2, 0, { look: 'chime', life: 0.45 })
+  const n = C.shards
+  const a0 = Math.atan2(b.vy, b.vx)
+  for (let i = 0; i < n; i++) {
+    const a = a0 + (i / n) * Math.PI * 2
+    const d = o.r + b.r + 2
+    ;(run._crystalSplits ??= []).push({
+      x: o.x + Math.cos(a) * d, y: o.y + Math.sin(a) * d, vx: Math.cos(a) * C.shardSpeed, vy: Math.sin(a) * C.shardSpeed,
+      dmg: b.dmg * C.shardDmg, pierce: Math.max(1, b.pierce), life: C.shardLife, r: b.r, speed: C.shardSpeed,
+      hitIds: new Set(), _shard: true, _splitDone: true, _chainsLeft: 0, weapon: b.weapon, _bounces: 1, _spent: true,
+    })
+  }
+  if (evType) run.events.push({ type: evType, x: o.x, y: o.y, r: o.r, ringR: o.r + C.ringR })
+  crystalRang(run, o, b.dmg * C.ringDmg, C.ringR, kb * 2, null)
+}
+// SPECTRUM: a shard's 1st mark lights the body, its 2nd chills it, its 3rd envenoms it, then round again.
+// Fire goes through applyIgnite (the `ignite` field render already burns); chill and venom are a
+// timed floor under elSlow / elVenomAmp, so they publish into `chill` / `venom` like the elements.
+function spectrumMark(run, e, n, dmg) {
+  const S = CRYSTAL_CARDS.spectrum
+  const k = (n - 1) % 3
+  if (k === 0) applyIgnite(run, e, S.ignitePotency, dmg)
+  else if (k === 1) e._specChill = run.time + S.secs
+  else e._specVenom = run.time + S.secs
+}
+// Every time a crystal RINGS (a struck crystal's chime, an Echo Pulse ring-back, a burst): Fault
+// Line looks for a partner rung just before it, and Sympathy rings its neighbours.
+function crystalRang(run, o, dmg, reach, kb, wave) {
+  const em = run.weaponMods.echoPulse
+  if (em?.faultLine > 0) faultFrom(run, o, dmg)
+  o._rungAt = run.time
+  if (em?.sympathy > 0) sympathyFrom(run, o, dmg, reach, kb, wave)
+}
+// SYMPATHY: a ringing crystal passes the ring to each neighbour on a chance, a link later, and the
+// neighbour passes it on the same way. A wave rings each crystal once (wave.rung), so it cannot loop;
+// a crystal that loses the roll is not marked, so another link of the same wave may still reach it.
+function sympathyFrom(run, o, dmg, reach, kb, wave) {
+  const S = CRYSTAL_CARDS.sympathy
+  wave ??= { rung: new Set() }
+  wave.rung.add(o)
+  for (const o2 of run.obstacles) {
+    if (o2.kind !== 'crystal' || wave.rung.has(o2)) continue
+    if (Math.hypot(o2.x - o.x, o2.y - o.y) - o.r - o2.r > S.reach) continue
+    if (Math.random() >= S.chance) continue
+    wave.rung.add(o2)
+    run.echoes.push({ x: o2.x, y: o2.y, at: run.time + S.link, r: o2.r + reach, dmg: dmg * S.dmgMul, kb: kb * S.dmgMul, o: o2, wave })
+  }
+}
+// FAULT LINE: a crystal ringing within `window` s of the crystal rung LAST before it (and near
+// enough) opens a beam between the two. One beam only: a new pair takes it over.
+function faultFrom(run, o, dmg) {
+  const F = CRYSTAL_CARDS.faultLine
+  const prev = run._lastRung
+  run._lastRung = o
+  if (!prev || prev === o || prev._rungAt == null || run.time - prev._rungAt > F.window) return
+  if (!run.obstacles.includes(prev)) return
+  if (Math.hypot(prev.x - o.x, prev.y - o.y) - o.r - prev.r > F.maxLen) return
+  run.faults = [{ ax: prev.x, ay: prev.y, bx: o.x, by: o.y, t: 0, secs: F.secs, tick: 0, dmg: dmg * F.dmg }]
+  run.events.push({ type: 'faultLine', ax: prev.x, ay: prev.y, bx: o.x, by: o.y })
+}
+function stepFaults(run, dt) {
+  if (!run.faults || run.faults.length === 0) return
+  const F = CRYSTAL_CARDS.faultLine
+  for (const f of run.faults) {
+    f.t += dt
+    f.tick -= dt
+    if (f.tick > 0) continue
+    f.tick += F.tick
+    const mx = (f.ax + f.bx) / 2, my = (f.ay + f.by) / 2
+    const vx = f.bx - f.ax, vy = f.by - f.ay, len2 = vx * vx + vy * vy || 1
+    for (const e of enemiesNear(run, mx, my, Math.sqrt(len2) / 2 + F.width + 40)) {
+      if (e._dead || isAlly(e) || e.burrowed) continue
+      const u = Math.max(0, Math.min(1, ((e.x - f.ax) * vx + (e.y - f.ay) * vy) / len2))
+      const px = f.ax + vx * u - e.x, py = f.ay + vy * u - e.y
+      const w = F.width + e.radius
+      if (px * px + py * py > w * w) continue
+      applyDamage(run, e, f.dmg)
+    }
+  }
+  run.faults = run.faults.filter((f) => f.t < f.secs)
+}
+// SEED CRYSTAL: a landed stone may leave a crystal. Never on you and never on another crystal; the
+// chance is drawn last, so a stone that could not seed draws nothing.
+function trySeedCrystal(run, x, y) {
+  const S = CRYSTAL_CARDS.seedCrystal
+  const p = run.player
+  if (Math.hypot(x - p.x, y - p.y) < S.clear + S.r) return
+  if (crystalAt(run, x, y, S.r + 12)) return
+  if (Math.random() >= S.chance) return
+  addCrystal(run, x, y, S.r, S.secs)
 }
 function flushCrystalSplits(run) {
   if (!run._crystalSplits || run._crystalSplits.length === 0) return
@@ -16522,7 +16771,7 @@ function fireVolley(run, stats, weapon, fan, life, r) {
     const a = base + (i - (count - 1) / 2) * fan
     run.bullets.push({
       x: p.x, y: p.y, vx: Math.cos(a) * stats.speed, vy: Math.sin(a) * stats.speed,
-      dmg: stats.dmg, pierce: stats.pierce, life, r, speed: stats.speed,
+      dmg: stats.dmg, pierce: stats.pierce, _pierce0: stats.pierce, life, r, speed: stats.speed,
       hitIds: new Set(), _shard: true, _splitDone: true, _chainsLeft: 0, weapon,
     })
   }
@@ -16627,12 +16876,17 @@ function stepEchoWeapon(run, w, stats, fireRateMul, dt) {
     // Every crystal the ring will reach rings back when it gets there.
     const res = crystalSpec(run)?.resonance
     if (!res) return
+    const em = run.weaponMods.echoPulse
+    const wide = 1 + (em?.wideChime ?? 0)   // Wide Chime
+    // SYMPATHY: one cast is one wave, holding every crystal the click itself reaches.
+    const wave = em?.sympathy > 0 ? { rung: new Set() } : null
     for (const o of run.obstacles) {
       if (o.kind !== 'crystal') continue
       const d = Math.hypot(o.x - p.x, o.y - p.y) - o.r
       if (d > stats.radius) continue
+      if (wave) wave.rung.add(o)
       run.echoes.push({ x: o.x, y: o.y, at: run.time + ECHO_LIFE * Math.max(0, d) / stats.radius,
-        r: stats.radius * res.radiusMul + o.r, dmg: stats.dmg * res.dmgMul, kb: stats.knockback * res.dmgMul })
+        r: stats.radius * res.radiusMul * wide + o.r, dmg: stats.dmg * res.dmgMul, kb: stats.knockback * res.dmgMul, o, wave })
     }
   })
 }
@@ -16641,8 +16895,11 @@ function stepEchoes(run, dt) {
   for (const ec of run.echoes) {
     if (run.time < ec.at) continue
     ec._done = true
+    // a crystal that broke or ran out before its ring arrived stays silent
+    if (ec.o && !run.obstacles.includes(ec.o)) continue
     spawnNova(run, ec.x, ec.y, ec.r, ec.dmg, ec.kb, 0, { look: 'echo', life: ECHO_LIFE * 0.8 })
     run.events.push({ type: 'crystalRing', x: ec.x, y: ec.y, r: ec.r })
+    if (ec.o) crystalRang(run, ec.o, ec.dmg, ec.r - ec.o.r, ec.kb, ec.wave ?? null)
   }
   run.echoes = run.echoes.filter((ec) => !ec._done)
 }
@@ -16669,6 +16926,7 @@ function stepDrips(run, dt) {
       applyDamage(run, e, dr.dmg)
     }
     run.events.push({ type: 'stalactite', x: dr.x, y: dr.y, r: dr.r })
+    if ((run.weaponMods.stalactite?.seedCrystal ?? 0) > 0 && crystalSpec(run)) trySeedCrystal(run, dr.x, dr.y)
   }
   run.drips = run.drips.filter((dr) => !dr._done)
 }
@@ -16914,7 +17172,11 @@ function stepDynamiteWeapon(run, w, stats, fireRateMul, dt) {
   const quick = run.weaponMods.dynamite?.shortFuse ?? 0
   fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => {
     const p = run.player
-    for (const sp of pickBloomSpots(run, ipecacN(run, stats.count), DYNAMITE_RANGE)) {
+    // each stick goes to the nearest foe; more sticks than foes cycle back to the nearest
+    const n = ipecacN(run, stats.count), tg = minePickTargets(run, n, DYNAMITE_RANGE)
+    if (!tg.length) return
+    for (let i = 0; i < n; i++) {
+      const sp = tg[i % tg.length]
       run.sticks.push({ x: sp.x, y: sp.y, fromX: p.x, fromY: p.y, t: 0, flight: DYNAMITE_FLIGHT, fuse: DYNAMITE_FUSE,
         r: stats.r, dmg: stats.dmg, seed: Math.floor(Math.random() * 1000) })
     }

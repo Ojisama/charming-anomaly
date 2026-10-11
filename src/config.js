@@ -943,6 +943,45 @@ export const HOT_FEET_BURN_MUL = 1.6
 // balance_decision : first guess, owner playtests 2026-10-10
 export const SUNDOWN_SPEED_MUL = 1.2
 export const SUNDOWN_XP_MUL = 1.6
+// THE GEODE'S CRYSTAL CARDS: four Prism Shard mods, three Echo Pulse mods, one Stalactite mod and
+// the chapter's two anomalies, all of which read or change the crystal pillars (run.obstacles,
+// kind 'crystal'). Each card has ONE brake (owner ruling: "not two brakes at once"), and its desc
+// reads that number from here through a {placeholder}, so a retune cannot leave the card stale.
+// balance_decision : one brake per crystal card, owner's numbers 2026-10-11
+export const CRYSTAL_CARDS = {
+  // Kaleidoscope (epic): a bounce past signature.bounce.split splits the shard on `chance` (the
+  // brake). `maxSplits` is a safety cap only: siblings one original shard's family may make.
+  kaleidoscope: { chance: 0.35, maxSplits: 8 },
+  // Spectrum (rare): each bounce, on `chance` (the brake), the shard's target takes the next colour
+  // in turn: fire (applyIgnite at `ignitePotency`), chill (slowed by `chill`), venom (takes `venom`
+  // more damage). Chill and venom last `secs`.
+  spectrum: { chance: 0.33, ignitePotency: 1, chill: 0.35, venom: 0.25, secs: 3 },
+  // Charged Facet (epic): every `hits`th shard a crystal bounces (the brake) sets off a ring
+  // `ringR` past its face at `ringDmg` x the shot, and `shards` shards outward at `shardDmg` x it.
+  chargedFacet: { hits: 8, ringR: 150, ringDmg: 3, shards: 8, shardDmg: 1, shardSpeed: 520, shardLife: 0.7 },
+  // Sympathy (epic): a ringing crystal passes the ring on to each crystal whose face is within
+  // `reach` px of its own on `chance` (the brake), `link` s later, at `dmgMul` x the ring. A wave
+  // rings each crystal once, so it cannot loop; it tapers off by chance alone.
+  sympathy: { chance: 0.5, reach: 300, link: 0.15, dmgMul: 0.8 },
+  // Fault Line (epic): the LAST two crystals rung within `window` s of each other (the brake: one
+  // beam, a new pair takes it), faces at most `maxLen` px apart, are joined by a beam for `secs` s.
+  // Every `tick` s it hits whatever is within `width` px of it for `dmg` x the ring that opened it.
+  faultLine: { window: 1, maxLen: 700, secs: 1.5, tick: 0.25, width: 18, dmg: 0.45 },
+  // Seed Crystal (rare): a landed stone leaves a crystal of radius `r` for `secs` s on `chance`
+  // (the brake). Never within `clear` px of you, and never on another crystal.
+  seedCrystal: { chance: 0.2, secs: 8, r: 34, clear: 90 },
+  // Lodestone (anomaly, a malus): a struck crystal pulls the bodies within `reach` px of its face
+  // onto it at `pull` px/s for `secs` s, and tugs YOU at `playerPull` px/s (the cost). The tug
+  // stops while any body is within `playerGuard` px of your edge, so it never drags you into one.
+  lodestone: { reach: 200, pull: 240, secs: 0.8, playerPull: 55, playerGuard: 70 },
+  // Cracked Glass (anomaly, a malus): the `hits`th shard a crystal bounces breaks it: `shards`
+  // shards out at `shardDmg` x the shot and a ring `ringR` past its face at `ringDmg` x the shot.
+  // A crystal grows back `regrow` s later somewhere else in its cell.
+  crackedGlass: { hits: 8, regrow: 15, ringR: 170, ringDmg: 3, shards: 10, shardDmg: 1, shardSpeed: 520, shardLife: 0.7 },
+}
+// A mod desc's {placeholders} filled for the plain-English consumers (the card's own desc, the dev
+// menu, tests); ui.js sends the same desc and args through tt() for the screen.
+export function fillModDesc(desc, params) { return desc.replace(/\{(\w+)\}/g, (m, k) => (k in params ? String(params[k]) : m)) }
 export const ANOMALIES = {
   unstableCores: {
     name: 'Unstable Cores', icon: '💥',
@@ -1346,6 +1385,28 @@ export const ANOMALIES = {
     desc: `Cracks open into lava ${Math.round((1 - HOT_FEET_OPEN_MUL) * 100)}% sooner, and lava burns ${Math.round((HOT_FEET_BURN_MUL - 1) * 100)}% hotter, for them and for you.`,
     when: () => true,
     weight: 2, chapter: 'magma', kind: 'trade',
+    minLevel: 10,
+  },
+
+  // The Geode's own two. Both name the crystals, the one thing on the floor the chapter is about.
+  // A trade: struck crystals drag the crowd onto their faces, and tug you a little too.
+  lodestone: {
+    name: 'Lodestone', icon: '🧲',
+    from: 'the crystals have iron in them',
+    desc: 'A crystal your shards bounce off pulls the crowd around it against its face for {secs}s, but it tugs you too.',
+    args: { secs: CRYSTAL_CARDS.lodestone.secs },
+    when: () => true,
+    weight: 2, chapter: 'geode', kind: 'trade',
+    minLevel: 10,
+  },
+  // A trade: crystals break into a burst of shards, and their place stays bare for a while.
+  crackedGlass: {
+    name: 'Cracked Glass', icon: '🪟',
+    from: 'one of the crystals rang wrong',
+    desc: 'A crystal breaks on the {hits}th shard it bounces, in a spray of shards and a great ring. Another grows near it {secs}s later, so fewer stand around you.',
+    args: { hits: CRYSTAL_CARDS.crackedGlass.hits, secs: CRYSTAL_CARDS.crackedGlass.regrow },
+    when: () => true,
+    weight: 2, chapter: 'geode', kind: 'trade',
     minLevel: 10,
   },
 }
@@ -4354,18 +4415,40 @@ export const WEAPON_MODS = {
     shardSpray:  { name: 'Shard Spray',  desc: 'extra shard(s) per throw', icon: '🔷', kind: 'tier' },
     flickRate:   { name: 'Quick Flick',  desc: 'throw rate', icon: '⏩', base: 0.25, kind: 'pct' },
     cleave:      { name: 'Cleave',       desc: 'shard pierce', icon: '🎯', base: 1, kind: 'flat', maxPicks: PIERCE_MAX_PICKS },
+    // The crystal cards (CRYSTAL_CARDS). `args` fills a desc's {placeholders} (modDescArgs), so the
+    // card says its limiter in the number the sim uses.
+    ricochet:    { name: 'Ricochet',     desc: 'crystal bounce(s) per shard', icon: '↩️', kind: 'tier', maxPicks: 2 },
+    kaleidoscope: { name: 'Kaleidoscope', icon: '🔶', kind: 'flat', maxPicks: 1, values: { epic: 1 },
+                   desc: 'After its second crystal bounce, each bounce has a {pct}% chance to split the shard again.',
+                   args: { pct: Math.round(CRYSTAL_CARDS.kaleidoscope.chance * 100) } },
+    spectrum:    { name: 'Spectrum',     icon: '🌈', kind: 'flat', maxPicks: 1, values: { rare: 1 },
+                   desc: 'Each crystal bounce has a {pct}% chance to mark the shard\'s target with the next colour in turn: it burns, then it is chilled, then it takes venom.',
+                   args: { pct: Math.round(CRYSTAL_CARDS.spectrum.chance * 100) } },
+    chargedFacet: { name: 'Charged Facet', icon: '✴️', kind: 'flat', maxPicks: 1, values: { epic: 1 },
+                   desc: 'A crystal counts the shards it bounces. Every {hits}th sets off a big ring and a spray of shards.',
+                   args: { hits: CRYSTAL_CARDS.chargedFacet.hits } },
   },
   echoPulse: {
     loudClick:   { name: 'Loud Click',   desc: 'pulse damage', icon: '💥', base: 0.30, kind: 'pct' },
     farCall:     { name: 'Far Call',     desc: 'pulse radius', icon: '⭕', base: 0.22, kind: 'pct' },
     rapidClick:  { name: 'Rapid Click',  desc: 'pulse rate', icon: '⏩', base: 0.25, kind: 'pct' },
     rebound:     { name: 'Rebound',      desc: 'pulse push', icon: '💨', base: 0.30, kind: 'pct' },
+    wideChime:   { name: 'Wide Chime',   desc: 'radius of a crystal\'s ring', icon: '🔔', base: 0.25, kind: 'pct' },
+    sympathy:    { name: 'Sympathy',     icon: '🎐', kind: 'flat', maxPicks: 1, values: { epic: 1 },
+                   desc: 'A ringing crystal has a {pct}% chance to set each crystal near it ringing too, and each of those passes it on the same way.',
+                   args: { pct: Math.round(CRYSTAL_CARDS.sympathy.chance * 100) } },
+    faultLine:   { name: 'Fault Line',   icon: '⚡', kind: 'flat', maxPicks: 1, values: { epic: 1 },
+                   desc: 'When two crystals ring within {win}s of each other, a beam joins them for {secs}s and hurts whatever crosses it. Only one beam at a time: the newest pair takes it.',
+                   args: { win: CRYSTAL_CARDS.faultLine.window, secs: CRYSTAL_CARDS.faultLine.secs } },
   },
   stalactite: {
     heavyStone:  { name: 'Heavy Stone',  desc: 'drop damage', icon: '💥', base: 0.30, kind: 'pct' },
     rockfall:    { name: 'Rockfall',     desc: 'extra stone(s) per cast', icon: '🔷', kind: 'tier' },
     wideCrash:   { name: 'Wide Crash',   desc: 'impact radius', icon: '⭕', base: 0.25, kind: 'pct' },
     dripRate:    { name: 'Quick Drip',   desc: 'cast rate', icon: '⏩', base: 0.25, kind: 'pct' },
+    seedCrystal: { name: 'Seed Crystal', icon: '💎', kind: 'flat', maxPicks: 1, values: { rare: 1 },
+                   desc: 'A falling stone has a {pct}% chance to leave a crystal where it lands, for {secs}s.',
+                   args: { pct: Math.round(CRYSTAL_CARDS.seedCrystal.chance * 100), secs: CRYSTAL_CARDS.seedCrystal.secs } },
   },
   // ---- The Mine ----
   pickaxe: {
@@ -9380,7 +9463,10 @@ CHAPTERS.geode = {
     type: 'crystals',
     // The bounce switch (tests turn it off with bounce = false). Off, a crystal simply stops a shot.
     // balance_decision : bounce +25% dmg, splits twice, 3 per shot 2026-10-03
-    bounce: { max: 3, dmgMul: 1.25, life: 1.1, steer: 560, split: 2, splitFan: 0.45, chimeR: 90, chimeDmg: 0.8, chimeKb: 40, chimeCd: 0.25, chimeVac: 200 },
+    // balance_decision : bounces no longer spend pierce [2026-10-11]
+    //  - refill: a bounce restores the pierce the shard was thrown with (fireVolley's _pierce0)
+    // balance_decision : crystal splits deal half damage [2026-10-11]
+    bounce: { refill: true, max: 3, dmgMul: 1.25, splitDmgMul: 0.5, life: 1.1, steer: 560, split: 2, splitFan: 0.45, chimeR: 90, chimeDmg: 0.8, chimeKb: 40, chimeCd: 0.25, chimeVac: 200 },
     // Echo Pulse: a crystal the ring reaches rings back at this fraction of its radius and damage.
     resonance: { radiusMul: 0.6, dmgMul: 0.6 },
   },
