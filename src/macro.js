@@ -106,7 +106,10 @@ export function withBlur(ctx, blur, color, draw) {
   ctx.shadowBlur = Math.max(0.01, blur * S)
   ctx.shadowOffsetX = OFF
   ctx.shadowOffsetY = 0
-  ctx.translate(-OFF / S, 0)
+  // the shadow offset is in device px, so the shape is moved off in device px too: a bake painted
+  // under ctx.rotate (paintShovel) still lands its blur in place
+  const m = ctx.getTransform()
+  ctx.setTransform(m.a, m.b, m.c, m.d, m.e - OFF, m.f)
   ctx.fillStyle = '#000'
   ctx.strokeStyle = '#000'
   draw()
@@ -293,18 +296,22 @@ uniform float uBlurPx;
 uniform vec2 uFocus;
 uniform vec2 uLightDir;
 uniform float uKey;
+uniform float uExposure;
 uniform vec3 uShadowTone;
 uniform vec3 uLightTone;
 uniform float uVignette;
 uniform float uGrain;
 uniform float uSharpR;
+uniform vec3 uSunTone;
+uniform vec3 uSkyTone;
+uniform float uKeyTint;
 
 vec3 tap(vec2 uv) {
   return texture(uTexture, clamp(uv, uInputClamp.xy, uInputClamp.zw)).rgb;
 }
 float luma(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
-float hash12(vec2 p) {
-  vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+highp float hash12(highp vec2 p) {   // highp: in mediump (fp16 phones) this hash bands into a pattern
+  highp vec3 p3 = fract(vec3(p.xyx) * 0.1031);
   p3 += dot(p3, p3.yzx + 33.33);
   return fract((p3.x + p3.y) * p3.z);
 }
@@ -325,10 +332,14 @@ void main(void) {
   } else {
     float rad = coc * uBlurPx;
     vec3 acc = c0; float wsum = 1.0;
+    // the spiral turned and its rings jittered per pixel: a fixed spiral copies every small bright
+    // speck to the same 16 offsets, and the speck defocuses into a star instead of a round disc
+    float spin = hash12(gl_FragCoord.xy) * 6.2832;
+    float ring = hash12(gl_FragCoord.yx + 19.7);
     for (int i = 1; i < 17; i++) {
       float fi = float(i);
-      float r = sqrt(fi / 16.0) * rad;
-      float a = fi * 2.39996;
+      float r = sqrt((fi - ring) / 16.0) * rad;
+      float a = fi * 2.39996 + spin;
       vec2 off = vec2(cos(a), sin(a)) * r * uInputSize.zw;
       vec3 s = tap(vTextureCoord + off);
       float l = luma(s);
@@ -339,8 +350,9 @@ void main(void) {
   }
   // halation: only what is already near white bleeds
   vec3 halo = vec3(0.0);
+  float hspin = hash12(gl_FragCoord.xy + 71.3) * 6.2832;
   for (int i = 0; i < 6; i++) {
-    float a = float(i) * 1.0472 + 0.5;
+    float a = float(i) * 1.0472 + hspin;
     vec3 s = tap(vTextureCoord + vec2(cos(a), sin(a)) * 3.5 * uInputSize.zw);
     halo += max(s - 0.62, 0.0);
   }
@@ -349,6 +361,12 @@ void main(void) {
   // the raking key: bright along the light's side of the frame, falling into shadow across it
   float side = dot(q * vec2(aspect, 1.0) / max(aspect, 1.0), -uLightDir);
   col *= 1.0 + uKey * clamp(side * 0.55 + 0.1, -0.7, 0.8);
+  col *= uExposure;   // 1 by day; Topsoil's Sundown takes it down
+  // Sundown's key colour: warm sun on the frame's sunward side, cool sky across the far side (0 by day)
+  if (uKeyTint > 0.001) {
+    float sl = dot(q * vec2(aspect, 1.0) / max(aspect, 1.0), uLightDir);
+    col *= mix(vec3(1.0), mix(uSkyTone, uSunTone, smoothstep(-0.9, 0.9, sl)), uKeyTint);
+  }
 
   // grade: split tone around the mid luminance, then a soft filmic shoulder
   float L = luma(col);
@@ -370,6 +388,63 @@ void main(void) {
   finalColor = vec4(clamp(col, 0.0, 1.0), 1.0);
 }
 `
+
+// SUNDOWN ON THE FLOOR: a filter on the floor tile alone (render.js), on only while the sun is going.
+// The tile's own luminance is read as relief and marched toward the low sun: a texel with something
+// brighter (taller) between it and the light falls into a long, slightly cool shadow, and a
+// grain brighter than the soil around it is turned to the sun and goes warm. The floor only, because
+// a sprite's highlight (the blob's specular) read as relief throws a shadow across its own face.
+export const SUNDOWN_RAKE_FRAG = `
+in vec2 vTextureCoord;
+out vec4 finalColor;
+uniform sampler2D uTexture;
+uniform highp vec4 uInputSize;
+uniform vec4 uInputClamp;
+uniform vec2 uRakeDir;
+uniform float uRake;
+uniform float uRakeLen;
+uniform float uRakeSlope;
+uniform float uFace;
+uniform vec3 uRakeSky;
+uniform vec3 uRakeSun;
+float rl(vec2 uv) { return dot(texture(uTexture, clamp(uv, uInputClamp.xy, uInputClamp.zw)).rgb, vec3(0.2126, 0.7152, 0.0722)); }
+highp float rh(highp vec2 p) { highp vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
+void main(void) {
+  vec4 c = texture(uTexture, vTextureCoord);
+  vec2 px = uInputSize.zw;
+  float h0 = dot(c.rgb, vec3(0.2126, 0.7152, 0.0722));
+  float j = rh(gl_FragCoord.xy);
+  float occ = 0.0, avg = 0.0;
+  for (int i = 0; i < RAKE_TAPS; i++) {
+    float f = (float(i) + j) / float(RAKE_TAPS);
+    vec2 o = uRakeDir * (1.5 + f * uRakeLen) * px;
+    avg += rl(vTextureCoord - o * 0.5);
+    occ = max(occ, rl(vTextureCoord + o) - h0 - f * uRakeSlope);
+  }
+  avg /= float(RAKE_TAPS);
+  float sh = smoothstep(0.02, 0.17, occ) * uRake;
+  float lit = smoothstep(-0.06, 0.08, h0 - avg);
+  vec3 col = c.rgb * mix(vec3(1.0), mix(uRakeSky * 0.9, uRakeSun * 1.15, lit), uFace);
+  col = mix(col, col * uRakeSky * 0.55, sh);
+  finalColor = vec4(col, c.a);
+}
+`
+
+// A baked canvas's silhouette in white, for Sundown (render.js macroSilhouette): solid (alpha
+// thresholded, for a rim, so a bake's faint wash cannot tint into a disc) or soft (alpha kept, for a
+// cave-in's damp, which a tint can colour and the tell's own near-black bake cannot take).
+export function paintSundownSilhouette(src, solid) {
+  const cv = makeCanvas(src.width, src.height), c = cv.getContext('2d')
+  c.drawImage(src, 0, 0)
+  if (solid) {
+    const id = c.getImageData(0, 0, cv.width, cv.height), d = id.data
+    for (let i = 3; i < d.length; i += 4) { const a = d[i]; d[i] = a > 200 ? 255 : a > 140 ? (a - 140) * 4 : 0; d[i - 1] = d[i - 2] = d[i - 3] = 255 }
+    c.putImageData(id, 0, 0)
+  } else {
+    c.globalCompositeOperation = 'source-in'; c.fillStyle = '#fff'; c.fillRect(0, 0, cv.width, cv.height)
+  }
+  return cv
+}
 
 // ==== THE FLOORS =================================================================================
 // One seamless tile per chapter, painted once (lazily, the first time a run enters the chapter) at
@@ -548,6 +623,141 @@ function droplet(ctx, x, y, r) {
   ctx.beginPath(); ctx.arc(x + LX * r * 0.45, y + LY * r * 0.45, r * 0.16, 0, TAU); ctx.fillStyle = 'rgba(255,255,255,0.95)'; ctx.fill()
 }
 
+// ==== DEAD LEAVES ================================================================================
+// A fragment of leaf litter painted texel by texel at its own rotation and lit as a heightfield: the
+// veins stand in relief, the margins curl up into the key, the lamina warms where light gets into
+// it, and decay eats holes and windows right through to the floor (the vein net standing in them).
+// Topsoil's tile litter and its deadLeaf prop both come from here.
+const leafHash = (x, y, s) => {
+  let h = (Math.imul(x | 0, 374761393) + Math.imul(y | 0, 668265263) + Math.imul(s | 0, 1442695041)) | 0
+  h = Math.imul(h ^ (h >>> 13), 1274126177)
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296
+}
+function leafNoise(x, y, s) {
+  const xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi
+  const sx = xf * xf * (3 - 2 * xf), sy = yf * yf * (3 - 2 * yf)
+  return lerp(lerp(leafHash(xi, yi, s), leafHash(xi + 1, yi, s), sx), lerp(leafHash(xi, yi + 1, s), leafHash(xi + 1, yi + 1, s), sx), sy)
+}
+const leafFbm = (x, y, s, o) => { let a = 0, w = 0.5, t = 0; for (let i = 0; i < o; i++) { a += leafNoise(x, y, s + i * 17) * w; t += w; x *= 2.03; y *= 2.03; w *= 0.5 } return a / t }
+// Voronoi edge distance (F2 - F1): the reticulate net of the finest veins
+function leafCell(x, y, s) {
+  const xi = Math.floor(x), yi = Math.floor(y)
+  let f1 = 9, f2 = 9
+  for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) {
+    const cx = xi + i + leafHash(xi + i, yi + j, s), cy = yi + j + leafHash(xi + i, yi + j, s + 7)
+    const d = (x - cx) * (x - cx) + (y - cy) * (y - cy)
+    if (d < f1) { f2 = f1; f1 = d } else if (d < f2) f2 = d
+  }
+  return Math.sqrt(f2) - Math.sqrt(f1)
+}
+const LEAF_LAMINA = [0xa88660, 0x86664a, 0x50392a], LEAF_VEIN = 0xb89a74
+const LEAF_SKEL = 0.42, LEAF_HOLES = 0.35, LEAF_SOIL = 0.18
+const LEAF_TILE_RES = TILE_RES * 1.5   // the litter is rastered a little denser than the tile and filtered down into it
+// The leaf over (-E, -E)..(E, E) world units at `res` texels per unit (E = 1.25 r).
+// light = [lx, ly, lz] toward the light; specK scales the wet sheen, reliefK the relief.
+function leafCanvas(r, rot, seed, res, light, specK = 1, reliefK = 1) {
+  const E = r * 1.25, W = Math.max(8, Math.ceil(E * 2 * res)), c = makeCanvas(W, W), ctx = c.getContext('2d')
+  const id = ctx.createImageData(W, W), d = id.data
+  const rr = rng(seed), s = Math.floor(rr() * 1e6)
+  const cs = Math.cos(-rot), sn = Math.sin(-rot)
+  const wm = 0.46 * (0.85 + rr() * 0.3), curl = 0.45 * (0.6 + rr() * 0.7), sideBias = (rr() < 0.5 ? -1 : 1) * 0.15
+  // a fragment: a ragged cut across the blade on a random line (sometimes none)
+  const cutA = rr() * TAU, cutD = rr() < 0.55 ? -0.15 + rr() * 0.6 : 9
+  const cutX = Math.cos(cutA), cutY = Math.sin(cutA)
+  const vSpace = 0.17 + rr() * 0.05, vCot = 1 / Math.tan(0.9 + rr() * 0.35), vBend = 0.6 + rr() * 0.8
+  const bites = []
+  for (let i = 0, nb = Math.floor(rr() * 4); i < nb; i++) { const bu = -0.6 + rr() * 1.3, sd = rr() < 0.5 ? -1 : 1; bites.push([bu, sd * wm * (0.75 + rr() * 0.3) * Math.sqrt(Math.max(0, 1 - bu * bu)), 0.08 + rr() * 0.14]) }
+  const N = W * W, H = new Float32Array(N), A = new Float32Array(N), V = new Float32Array(N), M = new Float32Array(N), SO = new Float32Array(N), EG = new Float32Array(N), DE = new Float32Array(N)
+  const wMax = wm * 1.35 * 1.12, midW = 0.9 / (r * res)
+  for (let y = 0; y < W; y++) for (let x = 0; x < W; x++) {
+    const wx = (x + 0.5) / res - E, wy = (y + 0.5) / res - E
+    const u = (wx * cs - wy * sn) / r, v = (wx * sn + wy * cs) / r, av = Math.abs(v)
+    if (u <= -1.3 || u > 1.05 || av > wMax) continue
+    const k = y * W + x
+    if (u * cutX + v * cutY - cutD + 0.06 * (leafFbm(u * 9, v * 9, s + 3, 2) - 0.5) + 0.03 * (leafNoise(u * 40, v * 40, s + 4) - 0.5) > 0) continue
+    // the petiole: a short stalk out of the base, continuous with the midrib
+    if (u < -0.9 && av < 0.026 + 0.012 * (u + 1.3)) { A[k] = 1; H[k] = 0.9; V[k] = 1; M[k] = 0.65; EG[k] = 1; continue }
+    if (u <= -1) continue
+    const uu = Math.min(1, Math.abs(u))
+    let w = wm * Math.pow(Math.max(0, 1 - uu * uu), 0.62) * (1 - 0.32 * u) * (1 - 0.45 * Math.pow(Math.max(0, u), 3))
+    w *= 1 + 0.012 * Math.sin(u * 46 + s) * (0.5 + leafNoise(u * 5, v > 0 ? 3 : 8, s)) + 0.16 * (leafFbm(u * 5, v > 0 ? 1 : 5, s, 3) - 0.5)
+    if (av > w) continue
+    const e = 1 - av / w   // 1 on the midrib, 0 at the margin
+    // insect bites out of the margin
+    let bit = false
+    for (const [bu, bv, br] of bites) { const q = Math.hypot(u - bu, v - bv); if (q < br * 1.15 && q < br * (0.8 + 0.35 * leafNoise(Math.atan2(v - bv, u - bu) * 2.5 + 9, br * 50, s + 71))) { bit = true; break } }
+    if (bit) continue
+    const dec = leafFbm(u * 3.2 + 9, v * 3.2, s + 11, 3)
+    // veins: midrib, pinnate secondaries curving to the tip, the reticulate net between
+    const mid = Math.exp(-Math.pow(v / Math.max(0.022 + 0.009 * (1 - u), midW), 2))
+    const f = u - av * vCot * (1 + vBend * av) + (v > 0 ? 0 : vSpace * 0.45) + 0.05 * (leafNoise(u * 4, v > 0 ? 2 : 7, s + 13) - 0.5)
+    const ph = f / vSpace - Math.floor(f / vSpace)
+    const sec = Math.exp(-Math.pow((Math.abs(ph - 0.5) - 0.5) * vSpace / (0.022 + 0.02 * e), 2)) * smooth(0.02, 0.3, e + 0.1)
+    const ret = Math.exp(-Math.pow(leafCell(u * 9, v * 9, s + 5) / 0.11, 2))
+    const vein = Math.max(mid, sec * 0.85, ret * 0.45)
+    let a = 1
+    // skeletonised: the vein net stands, the lamina between it thins to a brown film, then to nothing
+    const skelT = 1 - LEAF_SKEL
+    if (dec > skelT) { const q = smooth(skelT, skelT + 0.12, dec); a = vein > 0.3 ? 1 : lerp(1, ret > 0.15 ? 0.55 : 0, q) }
+    if (vein < 0.5 && leafFbm(u * 7 + 3, v * 7, s + 21, 2) > 1 - LEAF_HOLES * 0.35) a = 0
+    if (e < 0.04 && leafHash(x, y, s) < 0.5) a *= 0.5   // frayed margin
+    if (a <= 0) continue
+    // height: curled margins (one side a little more), veins raised, the lamina puckered between
+    const side = 1 + sideBias * Math.sign(v)
+    H[k] = curl * side * Math.pow(smooth(0.5, 1, 1 - e), 2) * 9 + 0.25 * curl * u * u + mid * 1.1 + sec * 0.32 + ret * 0.16 + 0.35 * leafFbm(u * 8, v * 8, s + 31, 2)
+    A[k] = a; V[k] = vein; EG[k] = e; DE[k] = dec
+    M[k] = leafFbm(u * 2.4, v * 2.4, s + 41, 2)
+    SO[k] = leafFbm(u * 5 + 2, v * 5 + 4, s + 51, 2)
+  }
+  const ll = Math.hypot(light[0], light[1], light[2]), Lx = light[0] / ll, Ly = light[1] / ll, Lz = light[2] / ll
+  const hl = Math.hypot(Lx, Ly, Lz + 1), Hx = Lx / hl, Hy = Ly / hl, Hz = (Lz + 1) / hl
+  const amp = 0.0028 * res * r * reliefK   // slope in the leaf's own units: the same relief at any bake size
+  const soilT = 1 - LEAF_SOIL * 0.6, spS = seed & 1023
+  for (let y = 1; y < W - 1; y++) for (let x = 1; x < W - 1; x++) {
+    const k = y * W + x
+    if (A[k] <= 0) continue
+    const gx = ((A[k + 1] > 0 ? H[k + 1] : H[k]) - (A[k - 1] > 0 ? H[k - 1] : H[k])) * amp
+    const gy = ((A[k + W] > 0 ? H[k + W] : H[k]) - (A[k - W] > 0 ? H[k - W] : H[k])) * amp
+    const nl = Math.hypot(gx, gy, 1), nx = -gx / nl, ny = -gy / nl, nz = 1 / nl
+    const diff = Math.max(0, nx * Lx + ny * Ly + nz * Lz) / Lz
+    const m = M[k], vn = V[k]
+    let col = m < 0.5 ? mixc(LEAF_LAMINA[0], LEAF_LAMINA[1], m * 2) : mixc(LEAF_LAMINA[1], LEAF_LAMINA[2], (m - 0.5) * 2)
+    col = mixc(col, LEAF_VEIN, vn * 0.3)
+    // browning from the margin in, and a darker rot where the decay is furthest on
+    col = mixc(col, LEAF_LAMINA[2], smooth(0.85, 1, 1 - EG[k]) * 0.5 + smooth(0.45, 0.8, DE[k]) * 0.35)
+    // fungal spotting: dark flecks with a paler halo
+    const sp = leafNoise(x * 0.35, y * 0.35, spS)
+    if (sp > 0.86) col = mixc(col, 0x1a0e06, (sp - 0.86) * 6)
+    else if (sp > 0.8) col = mixc(col, LEAF_VEIN, (sp - 0.8) * 3)
+    // soil dusted on top
+    let soilK = 0
+    if (SO[k] > soilT) soilK = Math.min(1, (SO[k] - soilT) * 9) * (0.4 + 0.6 * leafHash(x, y, 77))
+    col = mixc(col, mixc(0x2e1e10, 0x6a4e34, leafHash(x >> 1, y >> 1, 9)), soilK)
+    const shade = 0.3 + 0.7 * diff
+    // light got into the thin lamina: lit faces warm a little
+    const t = 0.25 * diff * diff * (1 - vn * 0.6) * (1 - soilK)
+    const spv = Math.pow(Math.max(0, nx * Hx + ny * Hy + nz * Hz), 30) * 0.1 * specK * 255 * (1 - soilK)
+    d[k * 4] = Math.min(255, R_(col) * shade + t * 30 + spv); d[k * 4 + 1] = Math.min(255, G_(col) * shade + t * 20 + spv); d[k * 4 + 2] = Math.min(255, B_(col) * shade + t * 9 + spv * 1.05)
+    d[k * 4 + 3] = Math.round(255 * Math.min(1, A[k]))
+  }
+  ctx.putImageData(id, 0, 0)
+  c._E = E
+  return c
+}
+// Stamp one leaf onto a world-unit ctx: its contact shadow (thrown along `shadowOff`), the leaf, and
+// a few crumbs of soil lying on it.
+function stampLeaf(ctx, px, py, r, rot, seed, res, light, shadowOff, specK, reliefK) {
+  const lc = leafCanvas(r, rot, seed, res, light, specK, reliefK), E = lc._E
+  withBlur(ctx, 0.6 + r * 0.06, 'rgba(0,0,0,0.55)', () => { ctx.drawImage(lc, px - E + shadowOff[0] * 0.5, py - E + shadowOff[1] * 0.5, E * 2, E * 2) })
+  withBlur(ctx, 1.2 + r * 0.105, 'rgba(0,0,0,0.5)', () => { ctx.drawImage(lc, px - E + shadowOff[0] * 1.45, py - E + shadowOff[1] * 1.45, E * 2, E * 2) })
+  ctx.drawImage(lc, px - E, py - E, E * 2, E * 2)
+  const rr = rng(seed + 5), n = Math.floor(LEAF_SOIL * 14)
+  for (let i = 0; i < n; i++) {
+    const a = rr() * TAU, dd = rr() * 0.7 * r, x = px + Math.cos(a) * dd, y = py + Math.sin(a) * dd * 0.6, cr = 0.5 + rr() * rr() * 1.4
+    lump(ctx, blobPts(rr, x, y, cr, 8, 0.7, 0.8, rr() * TAU), x, y, cr, [0x3e2a18, 0x5a3e26, 0x6e4c2e, 0x4a321e][Math.floor(rr() * 4)], { shadow: 0.6, lit: 0.25, dark: 0.55 })
+  }
+}
+
 export function paintTopsoilTile() {
   const S = TILE_RES, W = Math.round(TILE_WORLD * S)
   const c = makeCanvas(W, W), ctx = c.getContext('2d')
@@ -636,23 +846,10 @@ export function paintTopsoilTile() {
       ctx.restore()
     })
   }
-  // 6. litter: fragments of dead leaf with their veins, husks, a twig
+  // 6. litter: fragments of dead leaf
   for (let i = 0; i < 22; i++) {
-    const x = rnd() * TILE_WORLD, y = rnd() * TILE_WORLD, r = 6 + rnd() * 14, rot = rnd() * TAU, seed = rnd() * 1e6
-    wrapAt(x, y, r * 2, (px, py) => {
-      const rr = rng(seed)
-      const pts = blobPts(rr, px, py, r, 11, 0.6, 0.55, rot)
-      withBlur(ctx, 2, 'rgba(0,0,0,0.45)', () => { ctx.save(); ctx.translate(-LX * 2.2, -LY * 2.2); smoothTrace(ctx, pts); ctx.fill(); ctx.restore() })
-      smoothTrace(ctx, pts); ctx.fillStyle = css(mixc(0x6a3e1c, 0xa06a34, rr()), 0.92); ctx.fill()
-      ctx.save(); smoothTrace(ctx, pts); ctx.clip()
-      ctx.strokeStyle = 'rgba(232,196,140,0.45)'; ctx.lineWidth = 0.5
-      ctx.beginPath(); ctx.moveTo(px - Math.cos(rot) * r, py - Math.sin(rot) * r); ctx.lineTo(px + Math.cos(rot) * r, py + Math.sin(rot) * r); ctx.stroke()
-      for (let v = -3; v <= 3; v++) {
-        const bx = px + Math.cos(rot) * v * r * 0.25, by = py + Math.sin(rot) * v * r * 0.25
-        for (const s of [-1, 1]) { ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(bx + Math.cos(rot + s * 1.0) * r * 0.6, by + Math.sin(rot + s * 1.0) * r * 0.6); ctx.stroke() }
-      }
-      ctx.restore()
-    })
+    const x = rnd() * TILE_WORLD, y = rnd() * TILE_WORLD, r = (6 + rnd() * 14) * 1.1, rot = rnd() * TAU, seed = Math.floor(rnd() * 1e6)
+    wrapAt(x, y, r * 2, (px, py) => stampLeaf(ctx, px, py, r, rot, seed, LEAF_TILE_RES, [LX, LY, 0.62], [-LX * r * 0.12, -LY * r * 0.12], 1, 1))
   }
   // 7. dew: beads of water standing on the crumbs
   for (let i = 0; i < 40; i++) {
@@ -792,15 +989,26 @@ export function paintShaft() {
   }
   return c
 }
-// A defocused point of light: a disc with the faint bright rim and slightly busy inside of a real
-// lens's bokeh, not a gaussian dot.
+// A defocused point of light: a round disc, soft-edged, a little brighter toward its faint rim, and
+// a few specks of dust on the glass. White, the alpha carrying the light (it is an additive sprite).
 export function paintBokeh() {
-  const N = 128, c = makeCanvas(N, N), ctx = c.getContext('2d')
-  const g = ctx.createRadialGradient(64, 64, 0, 64, 64, 60)
-  g.addColorStop(0, 'rgba(255,255,255,0.55)'); g.addColorStop(0.78, 'rgba(255,255,255,0.7)'); g.addColorStop(0.92, 'rgba(255,255,255,0.95)'); g.addColorStop(1, 'rgba(255,255,255,0)')
-  ctx.fillStyle = g; ctx.beginPath()
-  for (let i = 0; i < 7; i++) { const a = (i / 7) * TAU - Math.PI / 2; ctx.lineTo(64 + Math.cos(a) * 61, 64 + Math.sin(a) * 61) }
-  ctx.closePath(); ctx.fill()
+  const N = 192, c = makeCanvas(N, N), ctx = c.getContext('2d'), C = N / 2, R = C - 3, soft = 0.07
+  const g = ctx.createRadialGradient(C, C, 0, C, C, R * (1 + soft * 0.4))
+  for (let i = 0; i <= 40; i++) {
+    const q = (i / 40) * (1 + soft * 0.4)
+    const body = 0.5 + 0.1 * q * q, rim = 0.16 * Math.exp(-Math.pow((q - (1 - soft * 0.9)) / (soft * 0.55), 2))
+    g.addColorStop(i / 40, `rgba(255,255,255,${Math.min(1, (body + rim) * (1 - smooth(1 - soft, 1 + soft * 0.4, q))).toFixed(4)})`)
+  }
+  ctx.fillStyle = g; ctx.fillRect(0, 0, N, N)
+  // dust on the glass: soft shadows in the disc
+  const rnd = rng(77)
+  ctx.globalCompositeOperation = 'destination-out'
+  for (let i = 0; i < 5; i++) {
+    const x = C + (rnd() - 0.5) * R * 1.2, y = C + (rnd() - 0.5) * R * 1.2, r = 2 + rnd() * 5, a = 0.05 + rnd() * 0.08
+    const dg = ctx.createRadialGradient(x, y, 0, x, y, r * 1.6)
+    dg.addColorStop(0, `rgba(0,0,0,${a})`); dg.addColorStop(0.375, `rgba(0,0,0,${a})`); dg.addColorStop(1, 'rgba(0,0,0,0)')
+    ctx.fillStyle = dg; ctx.fillRect(x - r * 2, y - r * 2, r * 4, r * 4)
+  }
   return c
 }
 // The out-of-focus foreground: something a centimetre from the lens. Topsoil: grass blades and a
@@ -1337,6 +1545,30 @@ function paintBat(ctx, phase) {
   trace(ctx, [r * 0.88, -r * 0.06, r * 1.0, 0, r * 0.88, r * 0.06]); ctx.fillStyle = '#2a1610'; ctx.fill()
 }
 
+// THE PLAYER, photographed (owner pick 2026-10-10, look A): Book 1's mint blob and its face, shaded
+// round under the same raking key as the cast — lit top-left, no ink outline, skin grain, a wet
+// specular, glass-bead eyes in soft sclera. render.js wears it in place of the vector blob (and of
+// any skin) whenever the macro lens is on. Plan view, radius PLAYER.radius (22).
+export const MACRO_PLAYER_E = 34
+export function paintPlayerBlob(ctx) {
+  const R = 22
+  const at = ovalAt(0, 0, R, R * 0.91)
+  const sil = volume(ctx, at, 0x5fc9a8, { lit: 0.32, ao: 0.62, rimBlur: 2.4, steps: 18 })
+  ctx.save(); trace(ctx, sil); ctx.clip()
+  softDot(ctx, R * 0.35, R * 0.45, R * 0.75, R * 0.5, 'rgba(10,50,40,0.35)')   // the side away from the key
+  ctx.restore()
+  grain(ctx, sil, 0.28)
+  for (const s of [-1, 1]) {
+    const ex = s * R * 0.36, ey = -R * 0.18
+    softDot(ctx, ex, ey, R * 0.25, R * 0.06, 'rgba(244,248,240,0.95)')
+    innerShadow(ctx, ellipsePts(ex, ey, R * 0.25, R * 0.25, 0, 24), 1.2, 'rgba(40,70,60,0.5)')
+    eye(ctx, ex + R * 0.03, ey + R * 0.03, R * 0.12)
+    softDot(ctx, s * R * 0.55, R * 0.16, R * 0.15, R * 0.12, 'rgba(255,150,160,0.32)')
+  }
+  withBlur(ctx, 0.5, 'rgba(25,80,64,0.85)', () => { ctx.beginPath(); ctx.arc(0, R * 0.2, R * 0.2, Math.PI * 0.15, Math.PI * 0.85); ctx.lineWidth = 2; ctx.lineCap = 'round'; ctx.stroke() })
+  specular(ctx, ellipsePts(-R * 0.38, -R * 0.55, R * 0.26, R * 0.12, -0.5, 20), 0.75, 1.4)
+}
+
 export const MACRO_CAST = {
   earthworm: { r: 20, E: 66, frames: 6, shadow: [20 * 1.35, 20 * 0.32], crown: [-20 * 0.55, 20], paint: (ctx, f) => paintEarthworm(ctx, f) },
   moleCricket: { r: 15, E: 46, frames: 4, shadow: [15 * 1.2, 15 * 0.45], crown: [-15 * 0.9, 15], paint: (ctx, f) => paintMoleCricket(ctx, f) },
@@ -1369,21 +1601,8 @@ export const MACRO_PROPS = {
     softDot(ctx, -r * 0.3, -r * 0.3, r * 0.08, 0.3, 'rgba(255,255,255,0.95)')
   },
   deadLeaf(ctx, seed) {
-    const rnd = rng(seed), r = 18
-    const pts = []
-    for (let i = 0; i < 24; i++) { const t = i / 24, a = t * TAU, q = r * (Math.abs(Math.cos(a / 2)) * 0.95 + 0.05) * (0.85 + rnd() * 0.25); pts.push(Math.cos(a) * r * 0.9 * (0.6 + 0.4 * Math.abs(Math.cos(a))), Math.sin(a) * q * 0.5) }
-    centredShadow(ctx, pts, 2.5, 0.6)
-    smoothTrace(ctx, pts); ctx.fillStyle = css(mixc(0x3a2614, 0x6a4a2e, rnd())); ctx.fill()
-    ctx.save(); smoothTrace(ctx, pts); ctx.clip()
-    for (let i = 0; i < 30; i++) softDot(ctx, (rnd() - 0.5) * r * 1.8, (rnd() - 0.5) * r, 1 + rnd() * 3, 1.5, rnd() < 0.5 ? 'rgba(40,18,6,0.4)' : 'rgba(200,140,70,0.3)')
-    ctx.strokeStyle = 'rgba(230,190,130,0.55)'; ctx.lineWidth = 0.6
-    ctx.beginPath(); ctx.moveTo(-r, 0); ctx.lineTo(r, 0); ctx.stroke()
-    ctx.lineWidth = 0.35
-    for (let v = -4; v <= 4; v++) for (const s of [-1, 1]) { ctx.beginPath(); ctx.moveTo(v * r * 0.2, 0); ctx.quadraticCurveTo(v * r * 0.2 + r * 0.15, s * r * 0.2, v * r * 0.2 + r * 0.3, s * r * 0.42); ctx.stroke() }
-    ctx.restore()
-    grain(ctx, pts, 0.45)
-    // holes eaten through, and the soil showing
-    for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.arc((rnd() - 0.5) * r, (rnd() - 0.5) * r * 0.4, 0.8 + rnd() * 1.5, 0, TAU); ctx.fillStyle = 'rgba(30,18,10,0.95)'; ctx.fill() }
+    // spun by the prop layer, so lit from nearly overhead with the shadow short
+    stampLeaf(ctx, 0, 0, 17, rng(seed)() * TAU, seed * 7 + 3, 4.5, [-0.55, -0.7, 1], [0.8, 1.0], 0.25, 2.4)
   },
   twig(ctx, seed) {
     const rnd = rng(seed), L = 34
@@ -1548,4 +1767,910 @@ export function paintStalactite() {
     for (let i = 0; i < 18; i++) { const a = rnd() * TAU, d = rnd() * R * 0.8; ctx.fillStyle = 'rgba(220,230,255,0.85)'; ctx.fillRect(Math.cos(a) * d, Math.sin(a) * d, 0.5, 0.5) }
     softDot(ctx, ap[0] - 2, ap[1] - 2, 2.5, 1.5, 'rgba(255,255,255,0.75)')
   }, { shadowBlur: 0.3 })
+}
+
+// ==== Root Snare: gnarled woody roots heaving out of a broken crust =============================
+// Baked at SNARE_R0 local units of radius; render.js scales each bake to the snare's own r. The
+// grow frames are SNARE_GROW_K: every random choice is drawn from a per-root rng BEFORE k is read,
+// so the frames of one seed are the same roots, longer.
+export const SNARE_R0 = 100
+export const SNARE_GROW_K = [0.15, 0.35, 0.6, 0.8, 1]
+export const SNARE_SEEDS = 2
+// A wandering path of n steps, pulled back toward heading `aim` each step.
+function walkPts(rnd, x, y, a, L, n, wob, kink, pull, aim) {
+  const pts = [[x, y]]
+  let av = 0
+  for (let i = 0; i < n; i++) {
+    av = av * 0.65 + (rnd() - 0.5) * wob
+    if (rnd() < kink) av += (rnd() - 0.5) * 1.1
+    a += av + (aim - a) * pull
+    x += Math.cos(a) * L / n; y += Math.sin(a) * L / n
+    pts.push([x, y])
+  }
+  return pts
+}
+function polySpine(pts) {
+  const n = pts.length - 1
+  return (t) => {
+    const f = Math.max(0, Math.min(n, t * n)), i = Math.min(n - 1, Math.floor(f)), u = f - i
+    return [lerp(pts[i][0], pts[i + 1][0], u), lerp(pts[i][1], pts[i + 1][1], u)]
+  }
+}
+// [normal x, normal y, tangent x, tangent y] of a spine at t
+function spineNrm(sp, t) {
+  const [ax, ay] = sp(Math.max(0, t - 0.01)), [bx, by] = sp(Math.min(1, t + 0.01))
+  const dx = bx - ax, dy = by - ay, l = Math.hypot(dx, dy) || 1
+  return [-dy / l, dx / l, dx / l, dy / l]
+}
+const shiftPts = (pts, dx, dy) => pts.map((v, i) => v + (i % 2 ? dy : dx))
+const ROOT_SOILS = [0x3e2a18, 0x5a3e26, 0x6e4c2e, 0x7a5a3a, 0x4a321e]   // heaved crumbs
+const CLING_SOILS = [0x3e2a18, 0x5a3e26, 0x6e4c2e, 0x4a321e]          // soil stuck to a root
+const CLOD_SOILS = [0x4a321e, 0x5a3e26, 0x6e4c2e, 0x7a5a3a]           // the broken crust
+// One root as ONE tapered, knobbly silhouette grown to k along its spine: a contact shadow thrown
+// away from the key, the lit flank toward it, bark fissures, root hairs, clinging soil crumbs.
+function rootBody(ctx, seed, pts, w0, k, st) {
+  const rnd = rng(seed)
+  const fiss = [], hairs = [], crumbs = []
+  for (let i = 0; i < st.fiss; i++) fiss.push([rnd(), 0.04 + rnd() * 0.14, (rnd() - 0.5) * 1.5, 0.3 + rnd() * 0.6])
+  for (let i = 0; i < st.hairs; i++) hairs.push([1 - Math.pow(rnd(), 0.35), rnd() < 0.5 ? 1 : -1, (rnd() - 0.5) * 1.2, 3.5 * (0.4 + rnd())])
+  for (let i = 0; i < st.crumbs; i++) crumbs.push([rnd() * 0.8, (rnd() - 0.5) * 1.6, 0.6 + rnd() * 1.4, rnd() * 1e6])
+  const ph1 = rnd() * TAU, ph2 = rnd() * TAU
+  if (k <= 0.02) return
+  const sp = polySpine(pts)
+  const half = (t) => {
+    const taper = w0 * (0.24 + 0.76 * Math.pow(1 - t, 0.6))
+    const knob = 1 + 0.14 * (0.6 * Math.sin(t * 19 + ph1) + 0.4 * Math.sin(t * 47 + ph2))
+    return Math.max(0.15, taper * knob * Math.sqrt(Math.min(1, Math.max(0, (k - t) / 0.1))))
+  }
+  const n = Math.max(10, Math.round(pts.length * 4 * k))
+  const sil = spineOutline(sp, half, n, 0, k)
+  withBlur(ctx, w0 * 0.45 + 0.6, 'rgba(0,0,0,0.65)', () => { trace(ctx, shiftPts(sil, -LX * w0 * 0.55, -LY * w0 * 0.55)); ctx.fill() })
+  trace(ctx, sil); ctx.fillStyle = css(BARK.base); ctx.fill()
+  ctx.save(); trace(ctx, sil); ctx.clip()
+  softFill(ctx, shiftPts(spineOutline(sp, (t) => half(t) * 0.55, n, 0, k), LX * w0 * 0.45, LY * w0 * 0.45), w0 * 0.3 + 0.3, css(BARK.lit, 0.8))
+  ctx.lineCap = 'round'
+  for (const [t0, len, lat, wd] of fiss) {
+    if (t0 > k) continue
+    ctx.beginPath()
+    for (let j = 0; j <= 6; j++) {
+      const t = Math.min(k, t0 + len * j / 6), [nx, ny] = spineNrm(sp, t), [x, y] = sp(t), h = half(t) * lat * 0.8
+      if (j) ctx.lineTo(x + nx * h, y + ny * h); else ctx.moveTo(x + nx * h, y + ny * h)
+    }
+    ctx.lineWidth = wd * Math.max(0.4, w0 * 0.12); ctx.strokeStyle = css(BARK.fiss, 0.75); ctx.stroke()
+    ctx.save(); ctx.translate(LX * 0.45, LY * 0.45); ctx.lineWidth *= 0.6; ctx.strokeStyle = css(BARK.lit, 0.35); ctx.stroke(); ctx.restore()
+  }
+  ctx.restore()
+  grain(ctx, sil, 0.6)
+  innerShadow(ctx, sil, w0 * 0.3 + 0.35, css(BARK.dark, 0.85), LX * w0 * 0.55, LY * w0 * 0.55)
+  ctx.save(); ctx.lineCap = 'round'; ctx.lineWidth = 0.28; ctx.strokeStyle = 'rgba(246,236,214,0.6)'
+  for (const [t, side, da, L] of hairs) {
+    if (t > k) continue
+    const [nx, ny, tx, ty] = spineNrm(sp, t), [x, y] = sp(t), h = half(t) * side
+    const a = Math.atan2(ny * side, nx * side) + da
+    const bx = x + nx * h, by = y + ny * h
+    ctx.beginPath(); ctx.moveTo(bx, by); ctx.quadraticCurveTo(bx + Math.cos(a) * L * 0.5 + tx * L * 0.3, by + Math.sin(a) * L * 0.5 + ty * L * 0.3, bx + Math.cos(a) * L, by + Math.sin(a) * L)
+    ctx.stroke()
+  }
+  ctx.restore()
+  for (const [t, lat, r, s] of crumbs) {
+    if (t > k * 0.9) continue
+    const [nx, ny] = spineNrm(sp, t), [x, y] = sp(t), h = half(t) * lat * 0.6
+    const rr = rng(s), cx = x + nx * h, cy = y + ny * h
+    lump(ctx, blobPts(rr, cx, cy, r, 7, 0.7, 0.8, rr() * TAU), cx, cy, r, CLING_SOILS[Math.floor(rr() * 4)], { shadow: 0.55 })
+  }
+}
+const BARK = { base: 0x664830, lit: 0xd2aa7e, dark: 0x0e0804, fiss: 0x140a04 }
+// One snare at growth k (0..1), seed 0..SNARE_SEEDS-1. The reach is stated on the ground: a disc of
+// turned loam that ends at SNARE_R0, a ring of heaved crumbs on it, and the holes the tips dive into.
+export function paintRootSnare(seed, k) {
+  const R = SNARE_R0
+  return bakeLocal(R * 1.12, 1.5, (ctx) => {
+    const rnd = rng(1013 + seed * 77)
+    const kE = Math.min(1, k * 3)
+    // the turned loam, darkest in a band at the reach
+    const g = ctx.createRadialGradient(0, 0, 0, 0, 0, R * 1.04)
+    g.addColorStop(0, `rgba(12,7,3,${0.21 * kE})`); g.addColorStop(0.86, `rgba(10,6,3,${0.3 * kE})`)
+    g.addColorStop(0.955, `rgba(6,3,1,${0.55 * kE})`); g.addColorStop(1, 'rgba(6,3,1,0)')
+    ctx.beginPath(); ctx.arc(0, 0, R * 1.04, 0, TAU); ctx.fillStyle = g; ctx.fill()
+    const roots = []
+    for (let i = 0; i < 7; i++) {
+      const a0 = (i / 7) * TAU + (rnd() - 0.5) * 0.5
+      let pts = walkPts(rnd, Math.cos(a0) * 5, Math.sin(a0) * 5, a0, R, 18, 0.22, 0.12, 0.12, a0)
+      const [ex, ey] = pts[pts.length - 1], sc = R * (0.9 + rnd() * 0.06) / Math.hypot(ex, ey)
+      pts = pts.map(([x, y]) => [x * sc, y * sc])
+      roots.push({ pts, w: 7 + rnd() * 3, s: rnd() * 1e6, br: [0, 1].map(() => ({ t: 0.25 + rnd() * 0.45, da: (rnd() < 0.5 ? 1 : -1) * (0.5 + rnd() * 0.5), L: R * (0.25 + rnd() * 0.2), s: rnd() * 1e6 })) })
+    }
+    // the holes the tips dive back into
+    if (k > 0.85) {
+      for (const r of roots) {
+        const [x, y] = r.pts[r.pts.length - 1]
+        softDot(ctx, x, y, 3, 1.44, 'rgba(0,0,0,0.55)')
+        softDot(ctx, x + LX * 0.48, y + LY * 0.48, 1.8, 0.84, 'rgba(0,0,0,0.85)')
+      }
+    }
+    // the ring of heaved crumbs at the reach
+    const ringR = rng(seed * 5 + 3)
+    for (let i = 0, n = Math.round(70 * kE); i < n; i++) {
+      const a = ringR() * TAU, d = R * 0.985 * (1 + (ringR() - 0.5) * 0.08), r = 0.8 + Math.pow(ringR(), 2) * 1.8
+      const x = Math.cos(a) * d, y = Math.sin(a) * d, rr = rng(ringR() * 1e6)
+      lump(ctx, blobPts(rr, x, y, r, 8, 0.7, 0.75, rr() * TAU), x, y, r, ROOT_SOILS[Math.floor(rr() * 5)], { shadow: 0.7, gloss: rr() < 0.15 ? 0.5 : 0 })
+    }
+    const MAIN = { fiss: 26, hairs: 30, crumbs: 5 }, BRANCH = { fiss: 8, hairs: 26, crumbs: 1 }
+    for (const r of roots) {
+      rootBody(ctx, r.s, r.pts, r.w, Math.min(1, k * 1.05), MAIN)
+      const sp = polySpine(r.pts)
+      for (const b of r.br) {
+        const [x, y] = sp(b.t), [, , tx, ty] = spineNrm(sp, b.t)
+        const bp = walkPts(rng(b.s), x, y, Math.atan2(ty, tx) + b.da, b.L, 9, 0.35, 0.15, 0.05, Math.atan2(y, x))
+          .map(([px, py]) => { const d = Math.hypot(px, py); return d > R * 0.95 ? [px * R * 0.95 / d, py * R * 0.95 / d] : [px, py] })
+        rootBody(ctx, b.s + 1, bp, r.w * 0.42, Math.max(0, (k - b.t) / (1 - b.t)), BRANCH)
+      }
+    }
+    // the heave at the middle: the crust broken into clods over the root crown
+    const cr = rng(seed * 11 + 7)
+    for (let i = 0; i < 22; i++) {
+      const a = cr() * TAU, d = Math.pow(cr(), 0.7) * 17 * (0.6 + 0.4 * kE), r = 2.5 + cr() * 4.5
+      const x = Math.cos(a) * d, y = Math.sin(a) * d, rr = rng(cr() * 1e6)
+      lump(ctx, blobPts(rr, x, y, r, 8, 0.6, 0.8, rr() * TAU), x, y, r, CLOD_SOILS[Math.floor(rr() * 4)], { shadow: 0.8, lit: 0.45 })
+    }
+  }, { shadowBlur: 0.5 })
+}
+
+// ==== THE FLOOR PICKUPS ===========================================================================
+// Topsoil's xp gems and coins (render.js macroPickups). A gem is a lump of rough sapphire turned out
+// of the soil (one stone, a bigger stone, a stone with two smaller ones: the three tiers), a coin is
+// a little spill of three gold coins, one over the other. Both are heightfields shaded texel by texel:
+// facet normals, the stone's body darker and bluer where it is thick (Beer-Lambert), silk inclusions,
+// a Fresnel reflection of the key's softbox and a hard specular; each coin's rim, beaded border and cross, and the shadows they cast on each other. The soil they sit in (scuff, contact shadow, crumbs) is painted around them.
+// Every bake is in WORLD px (bakeLocal at PK_S texels per px, uploaded at PK_S) and comes as a pair,
+// [plain, glint], the glint being the same bake with the specular pushed: render.js swaps to it for a
+// beat now and then, so a still floor still catches the light.
+export const PK_S = 4
+const PK_K = 1.45   // every pickup is painted at this size over the units its painter is written in
+function pkBake(E, paint) {
+  const at = (gl) => (ctx) => { ctx.scale(PK_K, PK_K); ctx._S = PK_S * PK_K; paint(ctx, gl) }
+  const out = (b) => ({ body: b.body, ax: b.ax, ay: b.ay })
+  return [out(bakeLocal(E * PK_K, PK_S, at(false), { shadowBlur: 0.3 })), out(bakeLocal(E * PK_K, PK_S, at(true), { shadowBlur: 0.3 }))]
+}
+const PK_L = (() => { const v = [LX, LY, 1.05], n = Math.hypot(...v); return v.map((c) => c / n) })()
+const PK_H = (() => { const v = [PK_L[0], PK_L[1], PK_L[2] + 1], n = Math.hypot(...v); return v.map((c) => c / n) })()
+const PK_RES = PK_S * PK_K   // texels per px the shaded bakes are rastered at (cost grows with its square: it runs at run start)
+const sstep = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t) }
+function hash2(x, y) { const h = Math.sin(x * 127.1 + y * 311.7) * 43758.5453; return h - Math.floor(h) }
+function vnoise(x, y) {
+  const xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi
+  const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf)
+  const a = hash2(xi, yi), b = hash2(xi + 1, yi), c = hash2(xi, yi + 1), d = hash2(xi + 1, yi + 1)
+  return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v
+}
+const fbm2 = (x, y) => vnoise(x, y) * 0.5 + vnoise(x * 2.1 + 5.2, y * 2.1 + 3.1) * 0.3 + vnoise(x * 4.3 + 11.7, y * 4.3 + 7.9) * 0.2
+// shade(x, y) -> [r, g, b, a] (0..1) or null, x/y in local px; composited over what the canvas holds
+function pkRaster(ctx, E, shade) {
+  const W = Math.ceil(E * 2 * PK_RES), c = makeCanvas(W, W), cx = c.getContext('2d'), id = cx.createImageData(W, W), d = id.data
+  for (let j = 0; j < W; j++) for (let i = 0; i < W; i++) {
+    const o = shade(-E + (i + 0.5) / PK_RES, -E + (j + 0.5) / PK_RES)
+    if (!o || o[3] <= 0) continue
+    const k = (j * W + i) * 4
+    d[k] = Math.min(255, Math.max(0, o[0] * 255)); d[k + 1] = Math.min(255, Math.max(0, o[1] * 255)); d[k + 2] = Math.min(255, Math.max(0, o[2] * 255)); d[k + 3] = Math.min(255, o[3] * 255)
+  }
+  cx.putImageData(id, 0, 0)
+  ctx.drawImage(c, -E, -E, E * 2, E * 2)
+}
+const SOILS = [0x3e2a18, 0x5a3e26, 0x6e4c2e, 0x4a321e, 0x7a5a3a]
+function pkCrumb(ctx, rnd, x, y, r) {
+  r *= 0.62
+  const pts = blobPts(rnd, x, y, r, 8, 0.6, 0.7, rnd() * TAU)
+  lump(ctx, pts, x, y, r, SOILS[Math.floor(rnd() * SOILS.length)], { shadow: 0.5, lit: 0.18, dark: 0.45 })
+}
+// a scuffed, darker patch of disturbed soil: the dirt the thing was turned out of
+function pkScuff(ctx, rnd, x, y, rx, ry, rot) {
+  softFill(ctx, ellipsePts(x, y, rx, ry, rot, 24), Math.min(rx, ry) * 0.5, 'rgba(14,8,4,0.55)')
+  for (let i = 0; i < 6; i++) { const a = rnd() * TAU, d = 0.5 + rnd() * 0.5; softDot(ctx, x + Math.cos(a) * rx * d, y + Math.sin(a) * ry * d, 0.6 + rnd() * 0.8, 0.5, 'rgba(110,80,52,0.35)') }
+}
+
+// The stone's look at one texel. n: unit normal; t: thickness under it (px); ridge 0..1 (a facet edge);
+// (gx, gy): where it sits relative to the stone's centre in units of its size, for the internal glow.
+function sapphireTexel(n, t, ridge, gx, gy, x, y, glint, dirt, brill = 0.5) {
+  const nz = n[2], ndl = n[0] * PK_L[0] + n[1] * PK_L[1] + n[2] * PK_L[2]
+  const ndh = Math.max(0, n[0] * PK_H[0] + n[1] * PK_H[1] + n[2] * PK_H[2])
+  // the body: the soil seen through blue stone, darker and bluer the deeper the path
+  const k = 0.15 + t * 0.5
+  const facing = (n[0] * PK_L[0] + n[1] * PK_L[1]) / Math.max(1e-3, Math.hypot(n[0], n[1]) * Math.hypot(PK_L[0], PK_L[1]))
+  const fv = (0.35 + 1.0 * sstep(-0.7, 0.85, facing)) * (0.55 + 0.9 * brill)
+  let r = 0.16 * fv * Math.exp(-k * 0.9), g = 0.2 * fv * Math.exp(-k * 0.65), b = 0.3 * fv * Math.exp(-k * 0.35)
+  // light that came in through the lit facets, scattered and leaving on the far side
+  const far = sstep(-0.3, 0.9, -(gx * PK_L[0] + gy * PK_L[1]) / Math.hypot(PK_L[0], PK_L[1]))
+  const glow = (far * 0.28 + brill * brill * brill * 0.3) * (0.6 + 0.4 * fbm2(x * 0.9, y * 0.9))
+  r += glow * 0.42; g += glow * 0.55; b += glow * 0.82
+  // silk: rutile needles at sixty degrees, faint and sparse
+  for (let q = 0; q < 3; q++) {
+    const a = q * 1.047 + 0.4, s = x * Math.cos(a) + y * Math.sin(a)
+    const line = Math.pow(1 - Math.abs(((s * 1.6 + vnoise(x * 0.7 + q * 9, y * 0.7)) % 1 + 1) % 1 - 0.5) * 2, 18)
+    const m = sstep(0.55, 0.8, vnoise(x * 0.45 + q * 4.1, y * 0.45 - q * 2.7)) * 0.13 * line
+    r += m * 0.75; g += m * 0.82; b += m
+  }
+  // a little diffuse from the surface, for the form
+  const dif = Math.max(0, ndl) * 0.16
+  r += dif * 0.55; g += dif * 0.65; b += dif * 0.85
+  // Fresnel reflection of the scene: the soil below, the softbox at the key
+  const F = 0.05 + 0.95 * Math.pow(1 - Math.max(0, nz), 5)
+  const R = [2 * nz * n[0], 2 * nz * n[1], 2 * nz * n[2] - 1]
+  const box = sstep(0.6, 0.97, R[0] * PK_L[0] + R[1] * PK_L[1] + R[2] * PK_L[2])
+  const env = [0.08 + box * 0.95, 0.07 + box * 0.93, 0.05 + box * 0.88]
+  const Fe = Math.min(1, F * 2.4 + 0.05)
+  r += env[0] * Fe; g += env[1] * Fe; b += env[2] * Fe
+  // the edges where two facets meet catch light as fine lines
+  const lit = 0.45 + 0.55 * Math.max(0, ndl)
+  r += ridge * 0.16 * lit; g += ridge * 0.19 * lit; b += ridge * 0.24 * lit
+  // the specular: hard and small, then a soft sheen
+  const sp = Math.pow(ndh, 420) * (glint ? 5 : 1.8) + Math.pow(ndh, 60) * 0.1
+  r += sp; g += sp; b += sp
+  // dust and a film of soil on whatever sat in the dirt
+  if (dirt > 0) { r = r + (0.24 - r) * dirt; g = g + (0.16 - g) * dirt; b = b + (0.1 - b) * dirt }
+  return [r, g, b]
+}
+// heightfield as a set of planes h = h0 + gp*p + gq*q in a frame turned by ang: min over them.
+function planesAt(planes, x, y) {
+  let h1 = Infinity, h2 = Infinity, i1 = -1
+  for (let i = 0; i < planes.length; i++) {
+    const P = planes[i], h = P[0] + P[1] * x + P[2] * y
+    if (h < h1) { h2 = h1; h1 = h; i1 = i } else if (h < h2) h2 = h
+  }
+  return [h1, h2, i1]
+}
+// Stones { cx, cy, planes, bury, size } rastered together, the highest surface on top; `bury` sinks
+// each into the soil, which covers whatever is left below zero.
+function crystalRaster(ctx, E, stones, glint) {
+  pkRaster(ctx, E, (x, y) => {
+    let best = null
+    for (const st of stones) {
+      const dx = x - st.cx, dy = y - st.cy
+      let [h1, h2, i1] = planesAt(st.planes, dx, dy)
+      const chip = (fbm2(x * 1.3 + st.cx * 3, y * 1.3 - st.cy * 3) - 0.5) * st.size * 0.32
+      h1 += chip; h2 += chip
+      if (h1 <= 0) continue
+      const z = h1 - st.bury
+      if (z <= 0) continue
+      if (best && best.z >= z) continue
+      const P = st.planes[i1]
+      const nl = Math.hypot(P[1], P[2], 1)
+      const n = [-P[1] / nl, -P[2] / nl, 1 / nl]
+      const ridge = 1 - sstep(0, st.size * 0.09, h2 - h1)
+      const cover = Math.min(sstep(0, 0.35, h1), sstep(0, 0.5, z))
+      const dirt = (1 - sstep(0, st.size * 0.45, z)) * 0.75
+      best = { z, n, h1, ridge, cover, dirt, gx: dx / st.size, gy: dy / st.size, brill: hash2(i1 * 3.1 + st.cx, i1 * 1.7 + st.cy) }
+    }
+    if (!best) return null
+    const rgb = sapphireTexel(best.n, best.h1, best.ridge, best.gx, best.gy, x, y, glint, best.dirt, best.brill)
+    return [rgb[0], rgb[1], rgb[2], best.cover]
+  })
+}
+function stoneShadow(ctx, stones, a = 0.7) {
+  for (const st of stones) withBlur(ctx, st.size * 0.35 + 0.5, `rgba(6,3,1,${a})`, () => {
+    ctx.beginPath(); ctx.ellipse(st.cx - LX * st.size * 0.5, st.cy - LY * st.size * 0.5, st.size * 1.05, st.size * 0.8, 0, 0, TAU); ctx.fill()
+  })
+}
+// the light the stone focuses, landing blue-white on the soil past it
+function stoneCaustic(ctx, stones) {
+  ctx.save(); ctx.globalCompositeOperation = 'lighter'
+  for (const st of stones) softDot(ctx, st.cx - LX * st.size * 0.95, st.cy - LY * st.size * 0.95, st.size * 0.32, st.size * 0.35, 'rgba(110,140,200,0.32)')
+  ctx.restore()
+}
+// A lump of rough corundum: a convex stone of irregular facets, each a plane h = h0 + gx*x + gy*y
+// (nine round the sides, three across the crown), stretched by `aspect` and turned by `rot`.
+function roughPlanes(rnd, R, aspect, rot) {
+  const out = [], n = 9
+  for (let k = 0; k < n + 3; k++) {
+    const top = k >= n
+    const phi = top ? rnd() * TAU : (k / n) * TAU + (rnd() - 0.5) * 0.5
+    const e = top ? 1.05 + rnd() * 0.35 : 0.35 + rnd() * 0.5
+    const a = Math.cos(phi) * Math.cos(e), b = Math.sin(phi) * Math.cos(e), c = Math.sin(e)
+    const D = R * (top ? 0.95 + rnd() * 0.15 : 0.78 + rnd() * 0.32)
+    // squash along q for the aspect, then turn by rot: the plane in the (x, y) frame
+    const a2 = a, b2 = b / aspect
+    const ar = a2 * Math.cos(rot) - b2 * Math.sin(rot), br = a2 * Math.sin(rot) + b2 * Math.cos(rot)
+    out.push([D / c, -ar / c, -br / c])
+  }
+  return out
+}
+function sapphireRough(ctx, tier, rnd, glint) {
+  const spec = [[[0, 0, 3.6]], [[0, 0, 5.2]], [[-0.8, 0.3, 5.2], [4.6, -2.6, 3.2], [-1.4, 4.8, 2.8]]][tier]
+  const stones = spec.map(([x, y, R]) => ({ cx: x, cy: y, planes: roughPlanes(rnd, R, 1.25 + rnd() * 0.35, rnd() * TAU), bury: R * 0.32, size: R }))
+  for (const st of stones) pkScuff(ctx, rnd, st.cx, st.cy, st.size * 1.35, st.size * 1.15, rnd() * TAU)
+  stoneShadow(ctx, stones)
+  stoneCaustic(ctx, stones)
+  crystalRaster(ctx, 14, stones, glint)
+  // soil fallen against the base, mostly on the side away from the light
+  for (const st of stones) for (let i = 0; i < 5; i++) {
+    const a = Math.atan2(-LY, -LX) + (rnd() - 0.5) * 3.2, d = st.size * (0.85 + rnd() * 0.25)
+    pkCrumb(ctx, rnd, st.cx + Math.cos(a) * d, st.cy + Math.sin(a) * d, 0.6 + rnd() * 0.6)
+  }
+}
+// Metal discs { cx, cy, r, ang, tilt, z0, T, relief(u, v) -> h, metal, reeds } rastered together, the
+// highest surface on top. A disc rises along its own +v by `tilt`; its milled edge shows on the high
+// side as a band. The soil covers whatever falls below the soil line; higher discs shadow lower ones.
+const PK_LH = Math.hypot(PK_L[0], PK_L[1]), PK_LT = PK_L[2] / PK_LH
+function discGeom(D, x, y) {
+  const c = Math.cos(D.ang), s = Math.sin(D.ang), ct = Math.cos(D.tilt), st = Math.sin(D.tilt)
+  const a = (x - D.cx) * c + (y - D.cy) * s, b = -(x - D.cx) * s + (y - D.cy) * c
+  const v = b / ct, rho = Math.hypot(a, v) / D.r
+  if (rho <= 1) return { face: true, a, b, u: a, v, rho, z: D.z0 + v * st, c, s, ct, st }
+  // the edge: inside the face swept down by T along the disc's normal
+  const sw = D.T * st, h = D.r * D.r - a * a
+  if (sw <= 0 || h <= 0) return null
+  const sq = ct * Math.sqrt(h), sd = b - sq
+  if (sd < 0 || sd > sw) return null
+  const k = sd / sw, phi = Math.atan2(Math.sqrt(h), a)
+  return { face: false, a, b, phi, k, z: D.z0 + (sq / ct) * st - k * D.T * ct, c, s, ct, st }
+}
+function metalTexel(n, M, glint, occl) {
+  const ndh = Math.max(0, n[0] * PK_H[0] + n[1] * PK_H[1] + n[2] * PK_H[2])
+  const ndl = n[0] * PK_L[0] + n[1] * PK_L[1] + n[2] * PK_L[2]
+  const R = [2 * n[2] * n[0], 2 * n[2] * n[1], 2 * n[2] * n[2] - 1]
+  const rl = R[0] * PK_L[0] + R[1] * PK_L[1] + R[2] * PK_L[2]
+  // what the metal mirrors: the softbox at the key, a dim studio overhead, the soil at the horizon
+  const box = sstep(M.boxLo, 0.97, rl)
+  const sky = M.sky + 0.12 * sstep(-0.2, 1, R[2])
+  const ground = sstep(0.35, -0.1, R[2])
+  let env = sky * (1 - ground) + 0.08 * ground + box * M.box
+  env *= occl
+  let r = M.F0[0] * env, g = M.F0[1] * env, b = M.F0[2] * env
+  const dif = Math.max(0, ndl) * M.dif * occl
+  r += M.F0[0] * dif; g += M.F0[1] * dif; b += M.F0[2] * dif
+  const sp = (Math.pow(ndh, M.pow) * (glint ? M.spec * 2.6 : M.spec) + Math.pow(ndh, 24) * M.sheen) * occl
+  r += sp * (0.6 + 0.4 * M.F0[0]); g += sp * (0.6 + 0.4 * M.F0[1]); b += sp * (0.6 + 0.4 * M.F0[2])
+  return [r, g, b]
+}
+// a shoulder on the highlights: the lens lifts pickups near the player, and a clipped channel turns the metal flat
+const pkKnee = (c) => c < 0.42 ? c : 0.42 + (c - 0.42) * 0.5
+function discRaster(ctx, E, discs, glint, o = {}) {
+  const soilAmp = o.soilAmp ?? 0.5, sd = o.seed ?? 0
+  pkRaster(ctx, E, (x, y) => {
+    let best = null, bi = -1
+    for (let i = 0; i < discs.length; i++) {
+      const g = discGeom(discs[i], x, y)
+      if (g && (!best || g.z > best.z)) { best = g; bi = i }
+    }
+    if (!best) return null
+    const D = discs[bi], M = D.metal
+    const soilLine = ((fbm2(x * 0.7 + sd, y * 0.7) - 0.5) * 2.4 + (vnoise(x * 2.5, y * 2.5) - 0.5) * 0.8) * soilAmp
+    let n, hr = 0, z = best.z
+    if (best.face) {
+      const { u, v } = best, e = 0.16
+      hr = D.relief(u, v, best.rho)
+      const dhu = (D.relief(u + e, v) - D.relief(u - e, v)) / (2 * e), dhv = (D.relief(u, v + e) - D.relief(u, v - e)) / (2 * e)
+      const na = -dhu, nb = -(dhv / best.ct) - best.st / best.ct, nl = Math.hypot(na, nb, 1)
+      n = [(na * best.c - nb * best.s) / nl, (na * best.s + nb * best.c) / nl, 1 / nl]
+      z += Math.max(0, hr) * 0.6
+    } else {
+      // the milled edge: radial in the disc's plane, the reeds turning it
+      const ph = best.phi + (D.reeds ? Math.sin(best.phi * D.reeds) * 0.35 : 0)
+      const na = Math.cos(ph), nv = Math.sin(ph)
+      const nA = na, nB = nv * best.ct, nZ = nv * best.st
+      n = [nA * best.c - nB * best.s, nA * best.s + nB * best.c, nZ]
+    }
+    if (z < soilLine) return null
+    // the shadow of any higher disc, cast toward the soil away from the key
+    let occl = 1
+    for (let j = 0; j < discs.length; j++) {
+      if (j === bi) continue
+      const Dj = discs[j], lift = Dj.z0 + Dj.T * 0.5 - z
+      if (lift <= 0) continue
+      const t = lift / PK_LT, gj = discGeom(Dj, x + PK_L[0] / PK_LH * t, y + PK_L[1] / PK_LH * t)
+      if (gj && gj.face) occl = Math.min(occl, 0.35 + 0.65 * sstep(0.9, 1.0, gj.rho))
+    }
+    // ambient occlusion where a higher disc's rim overhangs this one
+    for (let j = 0; j < discs.length; j++) {
+      if (j === bi || discs[j].z0 <= D.z0) continue
+      const gj = discGeom(discs[j], x, y)
+      if (gj) continue
+      const Dj = discs[j], dd = Math.hypot(x - Dj.cx, y - Dj.cy) - Dj.r
+      occl *= 0.55 + 0.45 * sstep(0, 1.4, dd)
+    }
+    let [rr, gg, bb] = metalTexel(n, M, glint, best.face ? occl : occl * 0.85)
+    if (!best.face) { const dk = 0.75 + 0.25 * (1 - best.k); rr *= dk; gg *= dk; bb *= dk }
+    // a little dust in the recesses and a crust of soil at the buried line
+    const recess = best.face ? (1 - sstep(0, 0.12, hr)) * (best.rho < 0.85 ? 1 : 0.2) : 0
+    const soil = Math.max(recess * M.grime * sstep(0.5, 0.75, vnoise(x * 1.8 + sd, y * 1.8)), 1 - sstep(soilLine, soilLine + 0.8, z))
+    const sc = 0.55 + 0.45 * vnoise(x * 2.3, y * 2.3)
+    rr += (0.26 * sc - rr) * soil * 0.85; gg += (0.18 * sc - gg) * soil * 0.85; bb += (0.11 * sc - bb) * soil * 0.85
+    const alpha = sstep(soilLine, soilLine + 0.25, z)
+    return [pkKnee(rr), pkKnee(gg), pkKnee(bb), alpha]
+  })
+}
+const discShadow = (ctx, discs, a, blur) => { for (const D of discs) withBlur(ctx, blur, `rgba(6,3,1,${a})`, () => {
+  const off = (D.z0 + D.T + 0.6) / PK_LT
+  ctx.beginPath(); ctx.ellipse(D.cx - PK_L[0] / PK_LH * off, D.cy - PK_L[1] / PK_LH * off, D.r * 1.02, D.r * Math.cos(D.tilt) * 1.02, D.ang, 0, TAU); ctx.fill()
+}) }
+// the struck design, shared parts
+const rimH = (rho, a = 0.86, h = 0.5) => h * sstep(a, a + 0.05, rho) * (1 - sstep(0.97, 1.0, rho))
+const ringDash = (u, v, rho, r0, r1, n, duty, h) => {
+  if (rho < r0 || rho > r1) return 0
+  const f = ((Math.atan2(v, u) / TAU) * n % 1 + 1) % 1
+  return h * (f < duty ? 1 : 0) * sstep(r0, r0 + 0.02, rho) * (1 - sstep(r1 - 0.02, r1, rho))
+}
+// The coins: three small gold coins spilled in a fan, each overlapping the one below, a cross struck on each
+function coinSpill(ctx, rnd, glint) {
+  const sd = Math.floor(rnd() * 100), base = rnd() * TAU, r = 4.3
+  const relief = (u, v, rho = Math.hypot(u, v) / r) => {
+    if (rho > 1) return -1
+    let h = rimH(rho, 0.82, 0.45)
+    const phi = Math.atan2(v, u), nb = 22, bp = ((phi / TAU) * nb % 1 + 1) % 1 - 0.5
+    h += 0.16 * (1 - sstep(0.1, 0.28, Math.hypot(bp * TAU * rho * r / nb, (rho - 0.7) * r)))
+    const au = Math.abs(u / r), av = Math.abs(v / r)
+    h += 0.24 * (1 - sstep(0.09, 0.15, Math.min(au, av))) * (1 - sstep(0.5, 0.58, rho))   // the cross
+    h *= 0.75 + 0.25 * vnoise(u * 0.8 + sd, v * 0.8)
+    return h
+  }
+  const M = { F0: [0.9, 0.66, 0.24], sky: 0.22, box: 1.1, boxLo: 0.62, dif: 0.14, pow: 180, spec: 1.5, sheen: 0.12, grime: 0.25 }
+  const discs = []
+  for (let k = 0; k < 3; k++) {
+    const a = base + k * 2.2, d = 2.6
+    discs.push({ cx: Math.cos(a) * d, cy: Math.sin(a) * d, r: r * (1 - k * 0.03), ang: rnd() * TAU, tilt: 0.05 + k * 0.08, z0: 0.6 + k * 0.9, T: 0.8, relief, metal: M, reeds: 0 })
+  }
+  pkScuff(ctx, rnd, 0, 0, 8, 7.4, base)
+  discShadow(ctx, discs, 0.6, 0.8)
+  discRaster(ctx, 12, discs, glint, { soilAmp: 0.3, seed: sd })
+  for (let i = 0; i < 4; i++) { const a = rnd() * TAU, d = 6.5 + rnd() * 1.2; pkCrumb(ctx, rnd, Math.cos(a) * d, Math.sin(a) * d, 0.5 + rnd() * 0.6) }
+}
+
+// { gem: [tier][shape] -> [plain, glint], coin: [shape] -> [plain, glint] }
+export function paintPickups() {
+  const gem = [0, 1, 2].map((tier) => [0, 1].map((shape) => pkBake(14, (ctx, gl) => sapphireRough(ctx, tier, rng(101 + tier * 13 + shape * 7), gl))))
+  const coin = [0, 1].map((shape) => pkBake(12, (ctx, gl) => coinSpill(ctx, rng(211 + shape * 17), gl)))
+  return { gem, coin }
+}
+
+// ==== THE SHOVEL (Topsoil's starter) ===============================================================
+// A long-handled round-point shovel in plan view, +x from the D-grip (local 0) to the blade tip. The
+// key is fixed in the WORLD, so the tool is baked once per heading (paintShovel(theta) paints it
+// already turned by theta, every lit/shaded side worked out from the light in that frame) and
+// render.js picks the nearest heading instead of rotating one bake's lighting round with the swing.
+export const SHOVEL_LEN = 192        // grip centre to blade tip, in bake units
+export const SHOVEL_DISH = 170       // the middle of the blade's dish, where the load of soil sits
+export const SHOVEL_HEADINGS = 16
+const SHOVEL_SOILS = [0x34200f, 0x422a16, 0x4e341c, 0x5e4026, 0x2a1a0c]
+// A turned rod (wood or steel) lit by the local light lv: shade, body, a lit band and a glint, each
+// slid across the rod toward the light.
+function rod(ctx, pts, w, base, lv, spec = 0.5) {
+  const pass = (k, off, color) => {
+    ctx.lineWidth = w * k; ctx.strokeStyle = color
+    for (let i = 0; i < pts.length - 1; i++) {
+      const [ax, ay] = pts[i], [bx, by] = pts[i + 1]
+      const dx = bx - ax, dy = by - ay, L = Math.hypot(dx, dy) || 1
+      const nx = -dy / L, ny = dx / L, s = (nx * lv[0] + ny * lv[1]) * off * w
+      ctx.beginPath(); ctx.moveTo(ax + nx * s, ay + ny * s); ctx.lineTo(bx + nx * s, by + ny * s); ctx.stroke()
+    }
+  }
+  ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round'
+  pass(1.15, 0, css(shadeC(base, -0.7)))
+  pass(0.95, 0.04, css(base))
+  pass(0.5, 0.2, css(shadeC(base, 0.22)))
+  if (spec > 0) pass(0.16, 0.3, `rgba(255,255,255,${spec})`)
+  ctx.restore()
+}
+function bladeOutline(x0, x1, half, n = 30) {
+  const top = [], bot = []
+  for (let i = 0; i <= n; i++) {
+    const t = i / n, x = x0 + (x1 - x0) * t
+    const w = half * Math.pow(Math.max(0, 1 - Math.pow(t, 2.6)), 0.55) * (1 - 0.06 * Math.sin(t * Math.PI))
+    top.push(x, -w); bot.unshift(x, w)
+  }
+  return [...top, ...bot]
+}
+export function paintShovel(theta) {
+  const c = Math.cos(theta), s = Math.sin(theta)
+  const lv = [LX * c + LY * s, -LX * s + LY * c]   // toward the light, in the tool's own frame
+  return bakeLocal(SHOVEL_LEN + 4, 1.75, (ctx) => {
+    ctx.rotate(theta)
+    const rnd = rng(311)
+    // D-grip: black-stained ash, the cross bar polished by the palm
+    rod(ctx, [[8, -2.6], [-2, -6], [-10, -8.5], [-15, -8.2]], 3.3, 0x2a1c12, lv, 0.3)
+    rod(ctx, [[8, 2.6], [-2, 6], [-10, 8.5], [-15, 8.2]], 3.3, 0x2a1c12, lv, 0.3)
+    rod(ctx, [[-15, -9], [-16, 0], [-15, 9]], 4.2, 0x3a2818, lv, 0.55)
+    // the shaft: worn ash, its grain, darker and glossier where the hands go
+    rod(ctx, [[6, 0], [138, 0]], 6, 0x9c7244, lv, 0.3)
+    ctx.save(); ctx.lineCap = 'round'
+    for (let i = 0; i < 9; i++) {
+      const y = (rnd() - 0.5) * 3.8, x0 = 6 + rnd() * 60, L = 30 + rnd() * 80
+      ctx.beginPath(); ctx.moveTo(x0, y); ctx.bezierCurveTo(x0 + L * 0.3, y + (rnd() - 0.5) * 1.2, x0 + L * 0.6, y + (rnd() - 0.5) * 1.2, Math.min(138, x0 + L), y + (rnd() - 0.5))
+      ctx.strokeStyle = `rgba(60,34,14,${0.25 + rnd() * 0.3})`; ctx.lineWidth = 0.35 + rnd() * 0.3; ctx.stroke()
+    }
+    ctx.restore()
+    for (const [a, b] of [[8, 34], [96, 124]]) { ctx.save(); ctx.globalAlpha = 0.45; rod(ctx, [[a, 0], [b, 0]], 5.9, 0x5a3a1e, lv, 0.7); ctx.restore() }
+    softDot(ctx, 60, 1.5, 2.2, 2, 'rgba(70,46,24,0.35)')
+    // the steel socket and its rivets
+    rod(ctx, [[134, 0], [157, 0]], 8.4, 0x7a8086, lv, 0.85)
+    for (const x of [140, 149]) { softDot(ctx, x, 0, 1.1, 0.25, 'rgba(30,30,34,0.9)'); softDot(ctx, x + lv[0] * 0.4, lv[1] * 0.4, 0.45, 0.2, 'rgba(255,255,255,0.8)') }
+    // the blade, a dish: its wall nearest the light in shade, the far wall catching it
+    const x0 = 152, x1 = SHOVEL_LEN, half = 17, cx = SHOVEL_DISH
+    const bl = bladeOutline(x0, x1, half)
+    const bg = ctx.createLinearGradient(cx + lv[0] * 18, lv[1] * 18, cx - lv[0] * 18, -lv[1] * 18)
+    bg.addColorStop(0, '#2a2e32'); bg.addColorStop(0.35, '#4c5258'); bg.addColorStop(0.7, '#7c848a'); bg.addColorStop(1, '#a8b0b6')
+    trace(ctx, bl); ctx.fillStyle = bg; ctx.fill()
+    ctx.save(); trace(ctx, bl); ctx.clip()
+    const wg = ctx.createLinearGradient(x0, 0, x1, 0)   // bright steel toward the tip, scoured by the ground
+    wg.addColorStop(0, 'rgba(210,216,222,0)'); wg.addColorStop(0.62, 'rgba(210,216,222,0.08)'); wg.addColorStop(0.92, 'rgba(226,232,238,0.5)'); wg.addColorStop(1, 'rgba(240,244,248,0.75)')
+    ctx.fillStyle = wg; ctx.fillRect(x0, -half, x1 - x0, half * 2)
+    for (let i = 0; i < 7; i++) softDot(ctx, x0 + 2 + rnd() * 14, (rnd() - 0.5) * 26, 1.5 + rnd() * 3, 1.6, `rgba(112,62,28,${0.25 + rnd() * 0.25})`)   // rust at the shoulders
+    for (let i = 0; i < 5; i++) softDot(ctx, x0 + 8 + rnd() * 26, (rnd() - 0.5) * 20, 1 + rnd() * 2.4, 1, `rgba(58,38,22,${0.35 + rnd() * 0.3})`)   // soil caught in it
+    ctx.lineCap = 'round'
+    for (let i = 0; i < 46; i++) {   // scratches along the blade
+      const x = x0 + 6 + rnd() * 34, y = (rnd() - 0.5) * 24, L = 2 + rnd() * 9, a = (rnd() - 0.5) * 0.35
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + Math.cos(a) * L, y + Math.sin(a) * L)
+      ctx.strokeStyle = rnd() < 0.7 ? `rgba(236,240,244,${0.2 + rnd() * 0.35})` : `rgba(20,22,26,${0.25 + rnd() * 0.3})`
+      ctx.lineWidth = 0.18 + rnd() * 0.25; ctx.stroke()
+    }
+    ctx.beginPath(); ctx.moveTo(x0, 0); ctx.quadraticCurveTo(x0 + 14, 0.2, x0 + 22, 0.4)   // the rib pressed in from the socket
+    ctx.strokeStyle = 'rgba(230,236,240,0.4)'; ctx.lineWidth = 1.4; ctx.stroke()
+    ctx.restore()
+    grain(ctx, bl, 0.4)
+    // the rolled rim: black all round, bright where it faces the light
+    ctx.save(); trace(ctx, bl); ctx.lineWidth = 1.3; ctx.strokeStyle = 'rgba(20,22,26,0.9)'; ctx.stroke(); ctx.restore()
+    ctx.save()
+    const px = -lv[1], py = lv[0]
+    ctx.beginPath(); ctx.moveTo(cx + px * 60, py * 60); ctx.lineTo(cx + px * 60 + lv[0] * 60, py * 60 + lv[1] * 60)
+    ctx.lineTo(cx - px * 60 + lv[0] * 60, -py * 60 + lv[1] * 60); ctx.lineTo(cx - px * 60, -py * 60); ctx.closePath(); ctx.clip()
+    trace(ctx, bl); ctx.lineWidth = 0.7; ctx.strokeStyle = 'rgba(250,252,255,0.85)'; ctx.stroke(); ctx.restore()
+    rod(ctx, [[x0, -half - 0.3], [x0, half + 0.3]], 2.6, 0x50565c, lv, 0.7)   // the tread
+    specular(ctx, ellipsePts(x1 - 8 - lv[0] * 3, -lv[1] * 6, 3, 1.1, 0, 14), 0.75, 0.6)
+  }, { shadowBlur: 2.2 })
+}
+// The load of soil the blade carries, lit in the world frame: render lays it on the dish unturned.
+export function paintShovelLoad() {
+  return bakeLocal(22, 2, (ctx) => {
+    const rnd = rng(97)
+    softDot(ctx, 0, 0.5, 13, 4, 'rgba(0,0,0,0.5)')
+    for (let i = 0; i < 44; i++) {
+      const u = rnd() * TAU, d = Math.sqrt(rnd())
+      const x = Math.cos(u) * 15 * d * 0.85, y = Math.sin(u) * 12 * d * 0.85
+      const r = (1 - d * 0.5) * (2.2 + rnd() * 3.4)
+      lump(ctx, blobPts(rnd, x, y, r, 9, 0.6, 0.7 + rnd() * 0.3, rnd() * TAU), x, y, r, SHOVEL_SOILS[Math.floor(rnd() * SHOVEL_SOILS.length)], { gloss: rnd() < 0.3 ? 0.7 : 0, shadow: 0.6 })
+    }
+  }, { shadowBlur: 0.3 })
+}
+// One clod of freshly turned soil: wet, darker than the dry floor, a crumb or two stuck to it.
+// Lit in the world frame, so render never turns it.
+export function paintSoilClod(seed) {
+  return bakeLocal(14, 3, (ctx) => {
+    const rnd = rng(seed), r = 6.5
+    const base = SHOVEL_SOILS[seed % SHOVEL_SOILS.length]
+    const pts = blobPts(rnd, 0, 0, r, 11, 0.55, 0.72 + rnd() * 0.25, rnd() * TAU)
+    const g = ctx.createLinearGradient(LX * r, LY * r, -LX * r, -LY * r)
+    g.addColorStop(0, css(shadeC(base, 0.22))); g.addColorStop(0.4, css(shadeC(base, -0.2))); g.addColorStop(1, css(shadeC(base, -0.8)))
+    smoothTrace(ctx, pts); ctx.fillStyle = g; ctx.fill()
+    grain(ctx, pts, 0.1)
+    innerShadow(ctx, pts, 1.2, 'rgba(0,0,0,0.6)', 0.8, 1)
+    for (let i = 0; i < 4; i++) {
+      const u = rnd() * TAU, d = rnd() * r * 0.6, x = Math.cos(u) * d, y = Math.sin(u) * d, cr = 0.9 + rnd() * 1.6
+      lump(ctx, blobPts(rnd, x, y, cr, 8, 0.6), x, y, cr, SHOVEL_SOILS[Math.floor(rnd() * SHOVEL_SOILS.length)], { shadow: 0.5, gloss: rnd() < 0.5 ? 0.7 : 0 })
+    }
+    softDot(ctx, LX * r * 0.45, LY * r * 0.45, r * 0.12, r * 0.1, 'rgba(255,250,236,0.9)')   // the wet glint
+  }, { shadowBlur: 1.6 })
+}
+
+// ==== HIT FEEDBACK (Topsoil) =====================================================================
+// A puff of fine dry dust for the particle system: soft lobes and a few specks, painted near-white
+// so each spawn's tint colours it, and kept faint so it never reaches the lens's halation threshold.
+export function paintDustPuff() {
+  return bakeLocal(22, 3, (ctx) => {
+    const rnd = rng(3)
+    for (let i = 0; i < 9; i++) {
+      const a = rnd() * TAU, d = rnd() * 7, r = 4 + rnd() * 4
+      softDot(ctx, Math.cos(a) * d, Math.sin(a) * d, r, 3.5, `rgba(255,255,255,${0.3 + rnd() * 0.18})`)
+    }
+    for (let i = 0; i < 26; i++) {
+      const a = rnd() * TAU, d = rnd() * 11
+      ctx.fillStyle = `rgba(255,255,255,${0.25 + rnd() * 0.35})`
+      ctx.fillRect(Math.cos(a) * d, Math.sin(a) * d, 0.6 + rnd() * 0.6, 0.6 + rnd() * 0.6)
+    }
+  }, { shadowBlur: 0.3 }).body
+}
+// One grain of soil, lit from the top-left, near-white so the tint colours it.
+export function paintGrain() {
+  return bakeLocal(4, 4, (ctx) => {
+    const rnd = rng(11), pts = blobPts(rnd, 0, 0, 1.6, 7, 0.45, 0.8)
+    withBlur(ctx, 0.5, 'rgba(0,0,0,0.6)', () => { ctx.save(); ctx.translate(0.5, 0.6); smoothTrace(ctx, pts); ctx.fill(); ctx.restore() })
+    const g = ctx.createRadialGradient(-0.5, -0.5, 0, 0, 0, 2)
+    g.addColorStop(0, '#ffffff'); g.addColorStop(0.6, '#bdbdbd'); g.addColorStop(1, '#5a5a5a')
+    smoothTrace(ctx, pts); ctx.fillStyle = g; ctx.fill()
+  }, { shadowBlur: 0.2 }).body
+}
+// A struck body's flash twin: the body itself, brightened warm (screen) — a flash of light with the
+// art still there, where the white silhouette would be a blown-out cut-out under the macro lens.
+export function paintFlashTwin(body) {
+  const w = body.width, h = body.height
+  const out = makeCanvas(w, h), c = out.getContext('2d')
+  c.drawImage(body, 0, 0)
+  const sil = makeCanvas(w, h), s = sil.getContext('2d')
+  s.drawImage(body, 0, 0)
+  s.globalCompositeOperation = 'source-in'
+  s.fillStyle = 'rgba(236,214,178,0.62)'
+  s.fillRect(0, 0, w, h)
+  c.globalCompositeOperation = 'screen'
+  c.drawImage(sil, 0, 0)
+  return out
+}
+
+// ==== THE PITS ===================================================================================
+// A pit (the Furrow's, or a mole tunnel caving in) is a steep shaft cut in damp loam, painted as a
+// lit HEIGHTFIELD under the floor tile's own key: the far wall catches the light and shows the soil
+// horizons (dark humus at the lip, paler ochre subsoil under it), the near wall and the rim's cast
+// shadow fall dark, and the floor is damp umber with the crumbs that fell in. Every bake is painted
+// for a pit of PIT_R0; render.js scales the sprite by r / PIT_R0. Never rotate one: the light is fixed.
+export const PIT_R0 = 40
+export const PIT_TELL_STAGES = 6
+const PIT_TOPSOIL = [0x3e2a18, 0x4a321e, 0x5a3e26, 0x34241a, 0x6e4c2e]
+const PIT_SUBSOIL = [0x8a6844, 0x9c7a50, 0x7a5a3a, 0xa88a60, 0x8e7048]
+const hashN = (seed) => (x, y) => {
+  let n = (Math.imul(x | 0, 374761393) + Math.imul(y | 0, 668265263) + Math.imul(seed | 0, 982451653)) | 0
+  n = Math.imul(n ^ (n >>> 13), 1274126177)
+  return ((n ^ (n >>> 16)) >>> 0) / 4294967296
+}
+// value noise on an unbounded plane (the tile's own noise is periodic over one tile)
+function planeFbm(seed, oct) {
+  const ns = oct.map((_, i) => {
+    const h = hashN(seed * 7 + i * 131)
+    return (x, y) => {
+      const xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi
+      const sx = xf * xf * (3 - 2 * xf), sy = yf * yf * (3 - 2 * yf)
+      return lerp(lerp(h(xi, yi), h(xi + 1, yi), sx), lerp(h(xi, yi + 1), h(xi + 1, yi + 1), sx), sy)
+    }
+  })
+  let tot = 0; for (const [, w] of oct) tot += w
+  return (x, y) => { let s = 0; for (let i = 0; i < ns.length; i++) s += ns[i](x * oct[i][0], y * oct[i][0]) * oct[i][1]; return s / tot }
+}
+// A square heightfield over [-E, E]^2 at S px per unit: height (units), albedo, alpha, crumb tint, depth.
+function hfGrid(E, S) {
+  const W = Math.ceil(2 * E * S)
+  return { W, E, S, H: new Float32Array(W * W), A: new Float32Array(W * W), C: new Float32Array(W * W * 3), T: new Float32Array(W * W).fill(0.5), M: new Float32Array(W * W) }
+}
+const hfX = (g, i) => (i + 0.5) / g.S - g.E
+function hfFill(g, fn) {
+  for (let j = 0; j < g.W; j++) { const y = hfX(g, j); for (let i = 0; i < g.W; i++) fn(j * g.W + i, hfX(g, i), y) }
+}
+// Domed bumps, one per crumb (stampedHeight's idea, unwrapped): `max` heaps them, else they add.
+function hfCrumbs(g, rnd, n, r0, r1, h, where, max = true) {
+  const { W, S } = g
+  for (let k = 0; k < n; k++) {
+    const x = (rnd() * 2 - 1) * g.E, y = (rnd() * 2 - 1) * g.E
+    const wgt = where(x, y)
+    if (wgt <= 0 || rnd() > wgt) continue
+    const r = r0 + Math.pow(rnd(), 2) * (r1 - r0), hh = h * (0.5 + rnd() * 0.8) * (r / r1 + 0.4), tint = rnd()
+    const cx = (x + g.E) * S, cy = (y + g.E) * S, rp = r * S, sy = 0.7 + rnd() * 0.5
+    const x0 = Math.max(0, Math.floor(cx - rp)), x1 = Math.min(W - 1, Math.ceil(cx + rp))
+    const y0 = Math.max(0, Math.floor(cy - rp * sy)), y1 = Math.min(W - 1, Math.ceil(cy + rp * sy))
+    const base = g.H[Math.min(W - 1, Math.max(0, Math.round(cy))) * W + Math.min(W - 1, Math.max(0, Math.round(cx)))]
+    for (let j = y0; j <= y1; j++) for (let i = x0; i <= x1; i++) {
+      const dx = (i - cx) / rp, dy = (j - cy) / (rp * sy), q = dx * dx + dy * dy
+      if (q >= 1) continue
+      const v = Math.sqrt(1 - q) * hh, o = j * W + i
+      if (max) { if (base + v > g.H[o]) { g.H[o] = base + v; g.T[o] = tint } } else g.H[o] += v
+    }
+  }
+}
+// Light it: lambert normalised so flat ground reads 1, a cast shadow marched toward the key, ambient
+// bounce in the shade, occlusion and a damp gloss.
+function hfShade(g, o = {}) {
+  const { W, S, H, A, C } = g
+  const LZ = 0.7, ll = Math.hypot(LX, LY, LZ), Lx = LX / ll, Ly = LY / ll, Lz = LZ / ll
+  const lxy = Math.hypot(LX, LY), DX = LX / lxy, DY = LY / lxy, TAN = LZ / lxy
+  const hl = Math.hypot(Lx, Ly, Lz + 1), Hx = Lx / hl, Hy = Ly / hl, Hz = (Lz + 1) / hl
+  const c = makeCanvas(W, W), ctx = c.getContext('2d'), id = ctx.createImageData(W, W), d = id.data
+  const amb = o.amb ?? 0.32, march = (o.march ?? 60) * S, maxDiff = o.maxDiff ?? 1.7
+  for (let j = 0; j < W; j++) for (let i = 0; i < W; i++) {
+    const k = j * W + i
+    if (A[k] <= 0.002) continue
+    const im = Math.max(0, i - 1), ip = Math.min(W - 1, i + 1), jm = Math.max(0, j - 1), jp = Math.min(W - 1, j + 1)
+    const dx = (H[j * W + ip] - H[j * W + im]) * S / (ip - im), dy = (H[jp * W + i] - H[jm * W + i]) * S / (jp - jm)
+    const nl = Math.hypot(dx, dy, 1), nx = -dx / nl, ny = -dy / nl, nz = 1 / nl
+    const diff = Math.min(maxDiff, Math.max(0, nx * Lx + ny * Ly + nz * Lz) / Lz)
+    let vis = 1
+    if (o.shadow !== false) {
+      const h0 = H[k]
+      for (let s = 1.5; s < march; s += 1.5) {
+        const qi = Math.round(i + DX * s), qj = Math.round(j + DY * s)
+        if (qi < 0 || qj < 0 || qi >= W || qj >= W) break
+        const over = H[qj * W + qi] - (h0 + (s / S) * TAN)
+        if (over > 0) { vis = Math.min(vis, 1 - smooth(0, 1.6, over)); if (vis <= 0) break }
+      }
+    }
+    const lit = (amb + (1 - amb) * diff * vis) * (o.ao ? o.ao(k) : 1)
+    const sp = o.gloss ? Math.pow(Math.max(0, nx * Hx + ny * Hy + nz * Hz), 40) * o.gloss(k) * 255 * vis : 0
+    d[k * 4] = Math.min(255, C[k * 3] * lit + sp)
+    d[k * 4 + 1] = Math.min(255, C[k * 3 + 1] * lit + sp)
+    d[k * 4 + 2] = Math.min(255, C[k * 3 + 2] * lit + sp * 0.95)
+    d[k * 4 + 3] = Math.round(clamp01(A[k]) * 255)
+  }
+  // o.cuts: the one shaded image under several alpha masks, one canvas each, with no read back
+  if (o.cuts) {
+    return o.cuts.map((mask) => {
+      const cc = makeCanvas(W, W), cx = cc.getContext('2d'), im = cx.createImageData(W, W), q = im.data
+      q.set(d)
+      for (let k = 0; k < W * W; k++) q[k * 4 + 3] = Math.round(q[k * 4 + 3] * clamp01(mask(k)))
+      cx.putImageData(im, 0, 0)
+      return cc
+    })
+  }
+  ctx.putImageData(id, 0, 0)
+  return c
+}
+function pitCanvas(E, S) {
+  const W = Math.ceil(2 * E * S), c = makeCanvas(W, W), ctx = c.getContext('2d')
+  ctx._S = S; ctx.setTransform(S, 0, 0, S, W / 2, W / 2)
+  return { c, ctx }
+}
+function pitClod(ctx, rnd, x, y, r, base, o = {}) {
+  lump(ctx, blobPts(rnd, x, y, r, 9, 0.5, 0.7 + rnd() * 0.35, rnd() * TAU), x, y, r, base, o)
+}
+// part 'wall' is the whole shaft; 'floor' is its bottom alone, with a soft edge and no cast shadow.
+// o.depth < 1 paints the same pit part-dug (render.js steps through PIT_DEPTHS while a Furrow pit
+// opens and fills): a shallow dish the colour of the ground around it, no dark lip, no roots.
+// render.js lays every wall's inner face over every wall, then every floor over that, so a chain of
+// overlapping shafts shares ONE trench and only its outer edge keeps a lip.
+function paintPit(seed, part, o = {}) {
+  const R = PIT_R0, E = R * 1.08, S = 3, g = hfGrid(E, S), rnd = rng(seed)
+  const lip = planeFbm(seed, [[0.06, 1], [0.17, 0.5]]), band = planeFbm(seed + 3, [[0.08, 1], [0.3, 0.4]])
+  const tone = planeFbm(seed + 5, [[0.12, 1], [0.5, 0.6], [1.4, 0.4]])
+  const dk = o.depth ?? 1, D = 30 * dk, U = new Float32Array(g.W * g.W)
+  hfFill(g, (k, x, y) => {
+    const u = Math.hypot(x, y) / (R * (0.94 + 0.12 * lip(x, y)))
+    const t = Math.pow(smooth(1.0, 0.74, u), 0.85)
+    g.H[k] = -D * t
+    g.M[k] = t
+    U[k] = u
+    g.A[k] = part === 'floor' ? smooth(0.82, 0.7, u) : part === 'inner' ? smooth(0.93, 0.86, u) : smooth(1.05, 0.97, u)
+  })
+  hfCrumbs(g, rnd, 2600, 0.35, 1.3, 0.9, (x, y) => (Math.hypot(x, y) < R * 1.02 ? 1 : 0), false)   // the crumbly cut face
+  hfCrumbs(g, rnd, dk < 1 ? 140 : 260, 0.8, 3.4, 2.2, (x, y) => smooth(0.7, 0.45, Math.hypot(x, y) / R))          // what fell in
+  hfFill(g, (k, x, y) => {
+    const t = g.M[k]
+    let c
+    if (t < 0.12) c = mixc(0x4a3422, 0x2e1e12, t / 0.12)
+    else if (t < 0.85) c = mixc(mixc(0x5a3e26, 0x8c6a44, smooth(0.15, 0.45, t)), 0x6a4a2c, (Math.sin(t * 30 + band(x, y) * 9) * 0.5 + 0.5) * 0.5)
+    else c = mixc(0x5a3e26, 0x3a2818, smooth(0.85, 1, t))
+    if (dk < 1) c = mixc(0x4a3422, mixc(0x3e2a1a, 0x22160c, dk), smooth(0.05, 0.95, t))
+    c = mixc(c, g.T[k] < 0.5 ? 0x2a1a0e : 0x9a7a54, Math.abs(g.T[k] - 0.5) * 0.5 * smooth(0.7, 0.95, t))
+    const m = 0.8 + 0.4 * tone(x, y)
+    g.C[k * 3] = R_(c) * m; g.C[k * 3 + 1] = G_(c) * m; g.C[k * 3 + 2] = B_(c) * m
+  })
+  const floor = part === 'floor'
+  // part 'dish' (a part-dug pit, o.depth < 1): the wall and its inner face from ONE shading, with the
+  // shadow marched only as far as a hole that shallow can throw one
+  const dish = part === 'dish'
+  const c = hfShade(g, {
+    amb: 0.34, maxDiff: 1.35, shadow: !floor, march: 60 * dk, ao: (k) => 1 - 0.42 * Math.pow(g.M[k], 1.3) - (floor ? 0.18 : 0), gloss: (k) => 0.18 * smooth(0.8, 1, g.M[k]),
+    cuts: dish ? [() => 1, (k) => smooth(0.93, 0.86, U[k])] : undefined,
+  })
+  if (dish) return { wall: c[0], inner: c[1] }
+  if (part === 'wall' && dk >= 0.5) {
+    // two root ends poking out of the cut, each with its shadow on the wall behind it
+    const ctx = c.getContext('2d'); ctx._S = S; ctx.setTransform(S, 0, 0, S, c.width / 2, c.height / 2)
+    ctx.lineCap = 'round'
+    for (let i = 0; i < 2; i++) {
+      const a = rnd() * TAU, r0 = R * 1.02, r1 = R * (0.7 + rnd() * 0.15), w = 0.6 + rnd() * 1.1
+      const x0 = Math.cos(a) * r0, y0 = Math.sin(a) * r0, x1 = Math.cos(a + (rnd() - 0.5) * 0.3) * r1, y1 = Math.sin(a + (rnd() - 0.5) * 0.3) * r1
+      withBlur(ctx, 1.2, 'rgba(0,0,0,0.55)', () => { ctx.beginPath(); ctx.moveTo(x0 - LX * 3, y0 - LY * 3); ctx.lineTo(x1 - LX * 5, y1 - LY * 5); ctx.lineWidth = w; ctx.stroke() })
+      ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.lineWidth = w; ctx.strokeStyle = '#7a5a3c'; ctx.stroke()
+      ctx.beginPath(); ctx.moveTo(x0 + LX * w * 0.25, y0 + LY * w * 0.25); ctx.lineTo(x1 + LX * w * 0.25, y1 + LY * w * 0.25); ctx.lineWidth = w * 0.35; ctx.strokeStyle = 'rgba(230,210,180,0.35)'; ctx.stroke()
+    }
+  }
+  return c
+}
+export const PIT_DEPTHS = [0.25, 0.6]
+export const paintPitWall = (seed) => paintPit(seed, 'wall')
+export const paintPitInner = (seed) => paintPit(seed, 'inner')
+export const paintPitFloor = (seed, depth) => paintPit(seed, 'floor', { depth })
+export const paintPitDish = (seed, depth) => paintPit(seed, 'dish', { depth })   // { wall, inner }
+// The spoil: a ring of thrown clods, fresh pale subsoil among the dark topsoil, heaped at the lip.
+export function paintPitSpoil(seed) {
+  const R = PIT_R0, { c, ctx } = pitCanvas(R * 1.75, 3), rnd = rng(seed)
+  const gr = ctx.createRadialGradient(0, 0, R * 0.9, 0, 0, R * 1.5)
+  gr.addColorStop(0, 'rgba(10,6,3,0.42)'); gr.addColorStop(0.45, 'rgba(10,6,3,0.2)'); gr.addColorStop(1, 'rgba(10,6,3,0)')
+  ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(0, 0, R * 1.5, 0, TAU); ctx.fill()
+  const list = []
+  for (let i = 0; i < 190; i++) {
+    const q = Math.pow(rnd(), 1.7), rr = R * (0.97 + 0.62 * q), a = rnd() * TAU
+    const fresh = rnd() < 0.42
+    list.push([Math.cos(a) * rr, Math.sin(a) * rr, (0.9 + Math.pow(rnd(), 2) * 4.6) * (1.15 - 0.6 * q), fresh ? PIT_SUBSOIL[i % 5] : PIT_TOPSOIL[i % 5], fresh])
+  }
+  list.sort((p, q) => p[2] - q[2])
+  for (const [x, y, r, col, fresh] of list) pitClod(ctx, rnd, x, y, r, col, { gloss: !fresh && rnd() < 0.3 ? 0.55 : 0, shadow: 0.65 })
+  return c
+}
+// The cave-in coming, k 0..1: the patch going dark as the water in it comes up, the near side of the
+// sag in its own shade, short irregular cracks opening, crumbs drawn in toward the middle. render.js
+// draws it UNDER the pits, so nothing of it shows over a hole that is already open.
+export function paintPitTell(seed, k) {
+  const R = PIT_R0, E = R * 1.45, S = 3, { c, ctx } = pitCanvas(E, S), rnd = rng(seed)
+  const blot = planeFbm(seed + 11, [[0.05, 1], [0.13, 0.6], [0.4, 0.3]])
+  const lxy = Math.hypot(LX, LY), DX = LX / lxy, DY = LY / lxy
+  const W = c.width, id = ctx.getImageData(0, 0, W, W), d = id.data
+  for (let j = 0; j < W; j++) for (let i = 0; i < W; i++) {
+    const x = (i + 0.5) / S - E, y = (j + 0.5) / S - E, rr = Math.hypot(x, y) / R
+    const damp = smooth(1.05, 0.25, rr + 0.45 * (blot(x, y) - 0.5)) * (0.22 + 0.5 * k)
+    const sag = smooth(1.0, 0.2, rr) * k * 0.25 * clamp01(0.5 - (x * DX + y * DY) / R)
+    const o = (j * W + i) * 4
+    d[o] = 14; d[o + 1] = 8; d[o + 2] = 4; d[o + 3] = Math.round(clamp01(damp + sag) * 255)
+  }
+  ctx.putImageData(id, 0, 0)
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round'
+  const nC = 2 + Math.round(5 * k)
+  for (let q = 0; q < nC; q++) {
+    const a0 = rnd() * TAU, r0 = R * (0.25 + rnd() * 0.6)
+    const L = R * (0.12 + 0.42 * k) * (0.6 + rnd() * 0.6), w = 0.7 + 1.1 * k
+    const pts = [[Math.cos(a0) * r0, Math.sin(a0) * r0]]
+    let a = a0 + Math.PI / 2 + (rnd() - 0.5) * 1.4
+    for (let s = 1; s <= 5; s++) { a += (rnd() - 0.5) * 0.9; const [px, py] = pts[s - 1]; pts.push([px + Math.cos(a) * L / 5, py + Math.sin(a) * L / 5]) }
+    if (rnd() > k * 0.9 + 0.1) continue
+    const line = (dx, dy, width, col) => { ctx.beginPath(); ctx.moveTo(pts[0][0] + dx, pts[0][1] + dy); for (const [px, py] of pts) ctx.lineTo(px + dx, py + dy); ctx.lineWidth = width; ctx.strokeStyle = col; ctx.stroke() }
+    line(-LX * w * 0.6, -LY * w * 0.6, w * 0.9, 'rgba(170,140,100,0.45)')   // the crack's far wall, in the light
+    line(0, 0, w, 'rgba(12,7,3,0.92)')
+  }
+  const nb = 4 + Math.round(26 * k)
+  for (let i = 0; i < nb; i++) {
+    const a = rnd() * TAU, rr = R * (1.25 - (0.35 + 0.4 * rnd()) * k)
+    pitClod(ctx, rnd, Math.cos(a) * rr, Math.sin(a) * rr, 0.8 + rnd() * 1.8, PIT_TOPSOIL[i % 5], { shadow: 0.55 })
+  }
+  return c
+}
+// ==== THE FURROW'S TRENCH ========================================================================
+// The groove the Furrow cuts as you walk: a V cut in the loam with the turned clods heaped along both
+// lips, fresh pale subsoil among the dark. One bake per heading bin over a half turn, lit as a
+// heightfield in WORLD axes (the light is fixed, so a turned groove is re-lit, never rotated). The
+// profile runs the full length of the canvas and only the alpha is a capsule, so segments laid end
+// to end have no end walls between them. Each bake is one shaded image cut two ways: `rim` (the
+// whole segment) and `bed` (the groove alone, soft edge). render.js lays every rim, then every bed,
+// so a chain of segments shares one groove.
+export const TRENCH_BINS = 16
+export const TRENCH_SEG = 34
+const TRENCH_HW = 9
+export const TRENCH_RES = 2   // px per unit: the groove is narrow and soft under the lens
+const TRENCH_TOP = [0x3e2a18, 0x4a321e, 0x5a3e26, 0x34241a, 0x2e1e12]
+export function paintTrench(bin) {
+  const th = (bin / TRENCH_BINS) * Math.PI, ca = Math.cos(th), sa = Math.sin(th)
+  const hw = TRENCH_HW, outer = hw + 10, L2 = TRENCH_SEG / 2
+  const E = L2 + outer + 2, S = TRENCH_RES, g = hfGrid(E, S), rnd = rng(737 + bin * 3)
+  const tone = planeFbm(901, [[0.12, 1], [0.5, 0.6], [1.4, 0.4]])
+  const edgeN = planeFbm(951 + bin, [[0.15, 1], [0.45, 0.5]])
+  const across = (x, y) => Math.abs(-x * sa + y * ca)
+  const D = new Float32Array(g.W * g.W), CAP = new Float32Array(g.W * g.W)
+  hfFill(g, (k, x, y) => {
+    const d = across(x, y), u = x * ca + y * sa, q = d / hw
+    D[k] = d
+    CAP[k] = Math.hypot(Math.max(0, Math.abs(u) - L2), d)
+    g.H[k] = (q < 1 ? -6.5 * (1 - q * q) : 0) + 3.4 * Math.exp(-Math.pow((d - (hw + 3.5)) / 3.4, 2))
+    g.A[k] = CAP[k] < outer + 2 ? 1 : 0   // nothing outside the capsule is ever shown: skip shading it
+  })
+  hfCrumbs(g, rnd, 900, 0.5, 2.6, 2.2, (x, y) => { const d = across(x, y); return d > hw - 1 && d < hw + 9 ? 1 : 0 })
+  hfCrumbs(g, rnd, 600, 0.3, 0.9, 0.6, (x, y) => (across(x, y) < hw ? 1 : 0), false)
+  hfFill(g, (k, x, y) => {
+    const d = D[k], T = g.T[k]
+    let c = d < hw ? mixc(0x3a2818, 0x7a5a3a, smooth(hw * 0.3, hw * 0.95, d)) : mixc(0x4a321e, 0x5a3e26, tone(x, y))
+    if (d > hw - 1 && d < hw + 9 && Math.abs(T - 0.5) > 0.02) c = T > 0.62 ? PIT_SUBSOIL[Math.floor(T * 50) % 5] : TRENCH_TOP[Math.floor(T * 50) % 5]
+    const m = 0.85 + 0.3 * tone(x * 2, y * 2)
+    g.C[k * 3] = R_(c) * m; g.C[k * 3 + 1] = G_(c) * m; g.C[k * 3 + 2] = B_(c) * m
+  })
+  const N = (k) => edgeN(hfX(g, k % g.W), hfX(g, (k / g.W) | 0)) - 0.5
+  const [rim, bed] = hfShade(g, {
+    amb: 0.34, maxDiff: 1.4, march: 14, gloss: (k) => (D[k] < hw ? 0.1 : 0.03),
+    cuts: [(k) => smooth(outer, outer - 4, CAP[k] + 3 * N(k)), (k) => smooth(hw * 0.9, hw * 0.55, CAP[k])],
+  })
+  return { rim, bed }
+}
+// A body a Furrow pit has just hit, dropped into the shaft: the lip crumbling in over its edge and
+// the hole's shade on it (a ring of clods, clear in the middle). Painted for a body of radius PIT_R0.
+export function paintPitCollar(seed) {
+  const R = PIT_R0, { c, ctx } = pitCanvas(R * 1.3, 3), rnd = rng(seed)
+  const gr = ctx.createRadialGradient(0, 0, R * 0.35, 0, 0, R * 0.85)
+  gr.addColorStop(0, 'rgba(10,6,3,0)'); gr.addColorStop(0.6, 'rgba(10,6,3,0.55)'); gr.addColorStop(1, 'rgba(10,6,3,0.75)')
+  ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(0, 0, R * 0.95, 0, TAU); ctx.fill()
+  const list = []
+  for (let i = 0; i < 120; i++) {
+    const rr = R * (0.68 + 0.42 * Math.pow(rnd(), 0.8)), a = rnd() * TAU
+    list.push([Math.cos(a) * rr, Math.sin(a) * rr, 2.5 + Math.pow(rnd(), 2) * 7, rnd() < 0.45 ? PIT_SUBSOIL[i % 5] : TRENCH_TOP[i % 5]])
+  }
+  list.sort((p, q) => p[2] - q[2])
+  for (const [x, y, r, col] of list) pitClod(ctx, rnd, x, y, r, col, { shadow: 0.7 })
+  return c
 }

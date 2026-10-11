@@ -939,6 +939,10 @@ export const CANARY_LINK_DMG = 0.3       // + this much blast damage per link do
 // Hot Feet (The Magma's anomaly): cracks open this much sooner, and lava burns this much hotter.
 export const HOT_FEET_OPEN_MUL = 0.55
 export const HOT_FEET_BURN_MUL = 1.6
+// SUNDOWN (ANOMALIES.sundown, Topsoil): the light goes, the crowd quickens, every kill pays more XP.
+// balance_decision : first guess, owner playtests 2026-10-10
+export const SUNDOWN_SPEED_MUL = 1.2
+export const SUNDOWN_XP_MUL = 1.6
 export const ANOMALIES = {
   unstableCores: {
     name: 'Unstable Cores', icon: '💥',
@@ -1323,6 +1327,16 @@ export const ANOMALIES = {
     when: () => true,
     weight: 2, chapter: 'mine', kind: 'jackpot',
     minLevel: 3,
+  },
+
+  // Topsoil's own. The low sun the chapter is lit by goes down (render dims the macro light).
+  sundown: {
+    name: 'Sundown', icon: '🌇',
+    from: 'the sun went down behind the grass',
+    desc: `It gets dark. They move ${Math.round((SUNDOWN_SPEED_MUL - 1) * 100)}% faster, and everything you kill gives ${Math.round((SUNDOWN_XP_MUL - 1) * 100)}% more XP.`,
+    when: () => true,
+    weight: 2, chapter: 'topsoil', kind: 'trade',
+    minLevel: 10,
   },
 
   // The Magma's own: the crust turned up, both ways.
@@ -2840,16 +2854,18 @@ export const WEAPONS = {
     ],
   },
   // Pebble Sling: fast stones at the nearest bodies (run.bullets, weapon 'pebble').
+  // balance_decision : a spray of piercing pebbles, L1 was half the pool 2026-10-10
+  //  - do not tune dmg: each pebble already kills; count/pierce/rate are the levers.
   pebbleSling: {
     name: 'Pebble Sling',
     desc: 'Slings fast pebbles at the nearest foes.',
     icon: '🎯', rarity: 'normal',
     levels: [
-      { dmg: 11, interval: 0.70, count: 1, speed: 560, pierce: 1 },
-      { dmg: 13, interval: 0.64, count: 2, speed: 570, pierce: 1 },
-      { dmg: 16, interval: 0.58, count: 2, speed: 590, pierce: 2 },
-      { dmg: 19, interval: 0.52, count: 3, speed: 610, pierce: 2 },
-      { dmg: 24, interval: 0.46, count: 4, speed: 640, pierce: 3 },
+      { dmg: 9, interval: 0.45, count: 3, speed: 560, pierce: 3 },
+      { dmg: 11, interval: 0.44, count: 3, speed: 570, pierce: 3 },
+      { dmg: 14, interval: 0.42, count: 3, speed: 590, pierce: 3 },
+      { dmg: 17, interval: 0.40, count: 4, speed: 610, pierce: 3 },
+      { dmg: 21, interval: 0.38, count: 4, speed: 640, pierce: 4 },
     ],
   },
   // Root Snare: roots burst up under a foe and hold the patch (run.snares): slowed, ground down.
@@ -2863,6 +2879,20 @@ export const WEAPONS = {
       { dmg: 8, interval: 2.2, r: 74, duration: 3.0, count: 2 },
       { dmg: 10, interval: 2.0, r: 80, duration: 3.2, count: 2 },
       { dmg: 13, interval: 1.8, r: 88, duration: 3.5, count: 3 },
+    ],
+  },
+  // Furrow: you dig a furrow as you walk; every cast, the stretch behind you caves in to pits
+  // (run.caveIns -> run.pits, src 'furrow') that hit each body once as it walks in.
+  furrow: {
+    name: 'Furrow',
+    desc: 'You dig a furrow as you walk. Behind you it caves in to pits that hit whatever follows.',
+    icon: '🕳️', rarity: 'normal',
+    levels: [
+      { dmg: 30, interval: 2.4, length: 200, r: 26 },
+      { dmg: 36, interval: 2.2, length: 220, r: 28 },
+      { dmg: 45, interval: 2.0, length: 250, r: 30 },
+      { dmg: 56, interval: 1.8, length: 280, r: 32 },
+      { dmg: 70, interval: 1.6, length: 320, r: 35 },
     ],
   },
   // Prism Shard: crystal shards at the nearest body (run.bullets, weapon 'prism'). In The Geode a
@@ -4300,8 +4330,14 @@ export const WEAPON_MODS = {
   rootSnare: {
     thorns:      { name: 'Thorns',       desc: 'root damage per tick', icon: '💥', base: 0.30, kind: 'pct' },
     spreading:   { name: 'Spreading',    desc: 'snare radius', icon: '⭕', base: 0.25, kind: 'pct' },
-    deepRoots:   { name: 'Deep Roots',   desc: 'how long a snare holds', icon: '⌛', base: 0.25, kind: 'pct' },
+    deepRoots:   { name: 'Deep Roots',   desc: 'damage to held foes', icon: '🪢', base: 0.30, kind: 'pct' },
     quickSprout: { name: 'Quick Sprout', desc: 'cast rate', icon: '⏩', base: 0.25, kind: 'pct' },
+  },
+  furrow: {
+    deepCut:       { name: 'Deep Cut',       desc: 'pit damage', icon: '💥', base: 0.30, kind: 'pct' },
+    widePits:      { name: 'Wide Pits',      desc: 'pit size', icon: '⭕', base: 0.22, kind: 'pct' },
+    longFurrow:    { name: 'Long Furrow',    desc: 'furrow length', icon: '📏', base: 0.25, kind: 'pct' },
+    quickCollapse: { name: 'Quick Collapse', desc: 'cave-in rate', icon: '⏩', base: 0.25, kind: 'pct' },
   },
   prismShard: {
     keenFacet:   { name: 'Keen Facet',   desc: 'shard damage', icon: '💥', base: 0.30, kind: 'pct' },
@@ -4402,7 +4438,7 @@ export const WEAPON_RATE_MODS = {
   breaker: 'quickBreak', ballast: 'quickWinch', siltVeil: 'quickStir', downwash: 'quickPour',
   bringItIn: 'quickReel', screw: 'overspeed', glint: 'quickGlint',
   sunspear: 'quickSun', sunlance: 'quickLance',
-  shovel: 'quickDig', pebbleSling: 'whirl', rootSnare: 'quickSprout', prismShard: 'flickRate',
+  shovel: 'quickDig', pebbleSling: 'whirl', rootSnare: 'quickSprout', furrow: 'quickCollapse', prismShard: 'flickRate',
   echoPulse: 'rapidClick', stalactite: 'dripRate',
   pickaxe: 'quickSwing', dynamite: 'shortFuse', minecart: 'greasedAxle', lantern: 'quickWick',
   slagLadle: 'quickLadle', obsidianShards: 'quickKnap', bellows: 'quickPump', volcanicBomb: 'quickFuse',
@@ -5928,6 +5964,15 @@ export const ENEMIES = {
   tank:  { hp: 90, speed: 55,  dmg: 15, radius: 26, xp: 4, coinChance: 0.35 },
 }
 export const ELITE = { hpMul: 5, sizeMul: 1.5, dmgMul: 1.5, coins: 8, xpMul: 4 }
+// A floor gem's look tier (render.js draws three): 0 an ordinary kill's, 1 a tank's or an elite's,
+// 2 an elite tank's. g.xp is stamped at the kill (archetype xp x roster xpMul x the endless taper x
+// ELITE.xpMul), and the chapter/difficulty pay multipliers only apply at pickup, so dividing out the
+// taper measures a drop in ordinary kills, the same on every rung.
+export const GEM_TIER_AT = [3, 12]   // ordinary kills where tier 1 and tier 2 start
+export function gemTier(xp, run) {
+  const k = xp / (ENEMIES.drone.xp * (run.endless ? endlessXpMul(run.difficulty) : 1))
+  return k >= GEM_TIER_AT[1] ? 2 : k >= GEM_TIER_AT[0] ? 1 : 0
+}
 
 // Time-bracket spawn composition: [from-second, {type: weight}]
 export const WAVE_TABLE = [
@@ -6459,6 +6504,16 @@ export const ROOT_SNARE_TICK = 0.5       // s between root damage ticks
 export const ROOT_SNARE_SLOW = 0.72      // fraction of speed a held body loses
 export const ROOT_SNARE_HOLD_T = 0.25    // s a body stays held after it leaves the patch
 export const ROOT_SNARE_RANGE = 360      // px from you a snare may be cast
+export const FURROW_STEP = 30            // px between furrow points (one pit each)
+export const FURROW_KEEP = 24            // furrow points kept behind you (caps a Long Furrow)
+export const FURROW_DELAY = 0.45         // s from a cast to the first pit opening
+export const FURROW_STAGGER = 0.05       // s between pits down the furrow, nearest first
+export const FURROW_PIT_OPEN = 0.25      // s a furrow pit takes to open
+export const FURROW_PIT_LIFE = 2.6       // s a furrow pit stays (fill included)
+export const FURROW_PIT_FILL = 0.6       // s it takes to fill back in
+export const FURROW_PIT_MAX = 80         // furrow pits alive at once, on top of the moles' own cap
+export const FURROW_JUMP = 4             // a gap over this many FURROW_STEPs is a jump: the furrow restarts
+export const FURROW_LANE_GAP = 2.2       // IPECAC: lanes this many pit radii apart
 export const PRISM_FAN = 0.16            // rad between shards of one throw
 export const PRISM_LIFE = 1.0            // s of flight before a bounce refreshes it
 export const PRISM_R = 8                 // px hit radius
@@ -6648,7 +6703,7 @@ export const CHAPTERS = {
       // multiplier on the archetype's base radius, so it re-sizes one creature without touching
       // the archetype every other chapter shares.
       { id: 'ant',    archetype: 'normal', name: 'Ant',    hpMul: 0.85, speedMul: 1.1, radiusMul: 0.75, flags: ['trailFollow'] },
-      { id: 'wasp',   archetype: 'fast',   name: 'Wasp',   hpMul: 1.3,  speedMul: 0.8, radiusMul: 1.25, flags: ['diveBomb'] },
+      { id: 'wasp',   archetype: 'fast',   name: 'Wasp',   hpMul: 1.3,  speedMul: 0.8, radiusMul: 1.25, flags: ['diveBomb', 'flying'] },
       // v6.6.15 (owner): spiders -20% hp. This is the ROSTER multiplier, so it thins the spider
       // alone; garden's chapter-wide enemyHpMul below still applies on top of it.
       { id: 'spider', archetype: 'tank',   name: 'Spider', hpMul: 1.2,  speedMul: 0.9, radiusMul: 0.75, flags: ['webZone', 'unshakeable'] },
@@ -6774,14 +6829,14 @@ export const CHAPTERS = {
     weapons: ['rainbow', 'trashTornado', 'burstHydrant'], starter: 'rainbow',
     roster: [
       { id: 'vacuum',   archetype: 'tank',   name: 'Robot Vacuum',    hpMul: 1.5,  speedMul: 0.85, flags: ['lineCharge', 'unshakeable'] },
-      { id: 'ratDrone', archetype: 'normal', name: 'Rat-Catcher Drone', hpMul: 1,  speedMul: 1.05, flags: [] },
+      { id: 'ratDrone', archetype: 'normal', name: 'Rat-Catcher Drone', hpMul: 1,  speedMul: 1.05, flags: ['flying'] },
       // Patrol Drone. v6.10.3 (owner: "some drones circle and dash, remove that") — it has lost
       // `aerialStrike` (circle -> mark -> strike -> climb, see stepAerialStrike in sim.js) and is
       // now a plain committed chaser. The flag itself stays in the codebase; skies still uses it.
       // What is left is a reskin of ratDrone at 0.85 hp with its own name and silhouette, which is
       // fine — but the weight/minT gating below is now guarding nothing dangerous and could go if
       // the opening minute ever wants the extra body.
-      { id: 'patrolDrone', archetype: 'normal', name: 'Patrol Drone', hpMul: 0.85, speedMul: 1.0, flags: [], weight: 0.3, minT: 60 },
+      { id: 'patrolDrone', archetype: 'normal', name: 'Patrol Drone', hpMul: 0.85, speedMul: 1.0, flags: ['flying'], weight: 0.3, minT: 60 },
       // Street Rat (v6.3): the fast PRESSURE lane (plain committed chaser). Pigeon is the lane's spice.
       // v6.9 (owner: "pigeons are still dashing/teleporting. just make them move normally, but they
       // can go through (fly over) obstacles. make them 15% slower and rats too"). The pigeon drops
@@ -6789,7 +6844,7 @@ export const CHAPTERS = {
       // read as one, because a 686 px/s hop between crawls is a discontinuity in speed even when it
       // is not a discontinuity in position. Both speeds are the old ones x0.85.
       { id: 'rat',      archetype: 'fast',   name: 'Street Rat',     hpMul: 0.8,  speedMul: 0.98, flags: [] },
-      { id: 'pigeon',   archetype: 'fast',   name: 'Pigeon',          hpMul: 0.7,  speedMul: 1.02, flags: ['flyover'] },
+      { id: 'pigeon',   archetype: 'fast',   name: 'Pigeon',          hpMul: 0.7,  speedMul: 1.02, flags: ['flyover', 'flying'] },
     ],
     eliteFlags: ['spawner'],              // exterminator-van elites periodically disgorge minions
     // Signature: traffic lanes (run.lanes) — a marked band is telegraphed, then a vehicle sweeps
@@ -6873,11 +6928,11 @@ export const CHAPTERS = {
       // hurt one by hitting it — the aircraft's threat is its STRAFE RUN (a telegraphed, dodgeable
       // attack), not its airframe. Aircraft only: the tank column below is ground armour and
       // survives being brushed, so walking into one still costs you.
-      { id: 'jet',        archetype: 'fast',   name: 'Fighter Jet', hpMul: 0.8, speedMul: 1.1,  flags: ['strafe', 'crushable'] },
+      { id: 'jet',        archetype: 'fast',   name: 'Fighter Jet', hpMul: 0.8, speedMul: 1.1,  flags: ['strafe', 'crushable', 'flying'] },
       // v5.6.15: hpMul 1.2 -> 0.75 — aircraft are FRAGILE; the tank column is this chapter's
       // armor. At 1.2 the roar cone cleared ~0.7 helis/s against ~1.6/s spawning, so they
       // accumulated into a missile hell (217 alive at t=180) regardless of standoff.
-      { id: 'helicopter', archetype: 'normal', name: 'Helicopter',  hpMul: 0.75, speedMul: 0.9,  flags: ['missileVolley', 'crushable'] },
+      { id: 'helicopter', archetype: 'normal', name: 'Helicopter',  hpMul: 0.75, speedMul: 0.9,  flags: ['missileVolley', 'crushable', 'flying'] },
       // v5.13: hpMul 1.8 -> 1.25 ("tanks are a bit too tanky"). The tank column is still the
       // chapter's armour — every other skies spawn sits at or below 0.8 — but at 1.8 it outlived
       // the roar cone long enough that columns stacked up and their artillery telegraphs became a
@@ -7023,7 +7078,7 @@ export const CHAPTERS = {
     // entries: seekers spawn on the ring as in every other chapter, marchers arrive only in rank.
     roster: [
       { id: 'drifter',    archetype: 'normal', name: 'Drifter',       hpMul: 0.9,  speedMul: 1,    flags: [] },
-      { id: 'swarmDrone', archetype: 'fast',   name: 'Swarm Drone',   hpMul: 0.75, speedMul: 1.25, flags: [] },
+      { id: 'swarmDrone', archetype: 'fast',   name: 'Swarm Drone',   hpMul: 0.75, speedMul: 1.25, flags: ['flying'] },
       { id: 'warden',     archetype: 'tank',   name: 'Warden',        hpMul: 1.25, speedMul: 0.7,  flags: ['unshakeable'] },
       { id: 'invader',    archetype: 'normal', name: 'Invader',       hpMul: 0.6,  speedMul: 1,    flags: ['march'], formationOnly: true },  // rank fodder: dies fast, arrives six at a time
       { id: 'hulk',       archetype: 'tank',   name: 'Siege Hulk',    hpMul: 1.4,  speedMul: 0.55, flags: ['march'], formationOnly: true },
@@ -9236,7 +9291,7 @@ CHAPTERS.kraken = {
 // one — so a player who leads the crowd across a fresh tunnel line gets a free cull.
 CHAPTERS.topsoil = {
   name: 'Topsoil', tagline: 'the ground is listening', icon: '🪱',
-  weapons: ['shovel', 'pebbleSling', 'rootSnare'], starter: 'shovel',
+  weapons: ['shovel', 'pebbleSling', 'rootSnare', 'furrow'], starter: 'shovel',
   roster: [
     { id: 'earthworm',   archetype: 'normal', name: 'Earthworm',    hpMul: 0.8, speedMul: 0.8, radiusMul: 0.9, weight: 3, flags: [] },
     { id: 'moleCricket', archetype: 'fast',   name: 'Mole Cricket', hpMul: 0.75, speedMul: 1.0, radiusMul: 1.2, flags: ['weave'], dmgMul: 0.6 },
@@ -9274,8 +9329,22 @@ CHAPTERS.topsoil = {
     dust: { tint: 0xffe2b0, alpha: 0.9, speedMul: 0.08, sway: 5 },
     // MACRO PHOTOGRAPHY (render.js setMacro / src/macro.js): the floor tile, the lens and its grade.
     macro: {
-      floor: 'topsoil', blur: 9, sharp: 0.6, key: 0.55, vignette: 0.82, grain: 0.07, shadowReach: 0.55,
+      floor: 'topsoil', blur: 5, sharp: 0.75, key: 0.55, vignette: 0.82, grain: 0.07, shadowReach: 0.55,
       shadowTone: 0x6a8a9a, lightTone: 0xffd49a, shaft: 0xffcf8a, shaftAlpha: 0.16, bokeh: 0xffc77a, bokehAlpha: 0.3, fgAlpha: 0.92,
+      // SUNDOWN's golden hour (render.js updateMacro), every value the full-dusk target: a low warm key
+      // from the top-left (key < 0 flips the lens's side light onto the floor's own), sun/sky tint the
+      // frame's lit and far sides, the floor's grains throw long cool shadows (face/rake*), the cast
+      // shadows stretch along the light, a warm rim lights every body's and pickup's sunward edge, and
+      // the soil of a coming cave-in goes darker still with the water in it (damp), so the tell reads.
+      //  - shadowTone x1.6 (the lens grade) must stay <= 1 per channel: above it the shade LIFTS into a blue fog
+      dusk: {
+        exposure: 0.8, lightTone: 0xffc27a, shadowTone: 0x5c7090, key: -0.8,
+        sun: [1.24, 0.9, 0.56], sky: [0.6, 0.72, 1.12], keyTint: 0.6,
+        face: 0.7, rake: 0.6, rakeLen: 14, rakeSlope: 0.09,
+        stretch: 2.4, shadowAlpha: 0.7,
+        rim: 0xffb060, rimAlpha: 0.55, rimOff: 1.3, pickRim: 0.85, coinGlow: 0.3, damp: 0.45, dampTint: 0x0b0d12,
+        shaft: 0.7, shaftTint: 0xff9a50, dust: 0.5, bokeh: 0.6, bokehTint: 0xffa060,
+      },
     },
   },
 }
@@ -9290,7 +9359,7 @@ CHAPTERS.geode = {
     { id: 'olm',         archetype: 'normal', name: 'Olm',          hpMul: 0.9, speedMul: 0.9, flags: ['weave'] },
     { id: 'caveCricket', archetype: 'fast',   name: 'Cave Cricket', hpMul: 0.7, speedMul: 1.0, flags: ['pounce'], dmgMul: 0.7 },
     { id: 'crystalCrab', archetype: 'tank',   name: 'Crystal Crab', hpMul: 1.6, speedMul: 0.8, flags: ['unshakeable'] },
-    { id: 'bat',         archetype: 'fast',   name: 'Cave Bat',     hpMul: 2.6, speedMul: 1.0, radiusMul: 1.1, flags: ['weave'], eliteOnly: true },
+    { id: 'bat',         archetype: 'fast',   name: 'Cave Bat',     hpMul: 2.6, speedMul: 1.0, radiusMul: 1.1, flags: ['weave', 'flying'], eliteOnly: true },
   ],
   eliteFlags: [],
   signature: {
@@ -9403,7 +9472,12 @@ CHAPTERS.mine = {
 //  - spawnClear keeps the start on plain crust: run MA's still-player checks stand there
 export const MAGMA_FLOOR = {
   spawnClear: 520,
-  river: { spacing: 12000, warp: 900, warpWave: 2600, width: 96, widthWave: 1400, burnMul: 1, reach: 2400 },
+  river: { spacing: 12000, warp: 900, warpWave: 2600, width: 96, widthWave: 1400, burnMul: 1, reach: 2400,
+    // A body keeps to the bank unless what it hunts is within crossNear px: then it wades in. edge:
+    // how far ahead of its centre (x its radius) it feels for the lava. faceT: s render keeps it
+    // facing along the bank after its last held step.
+    // balance_decision : foes wait at the bank unless you are just across 2026-10-10
+    avoid: { crossNear: 260, edge: 1.5, faceT: 0.3 } },
   cooled: { wave: 820, thresh: 0.6, stretch: 2.2 },
   hot: { wave: 640, thresh: 0.6, openMul: 0.45, rMul: 1.45 },
 }
@@ -9422,7 +9496,7 @@ CHAPTERS.magma = {
     { id: 'salamander',       archetype: 'fast',   name: 'Salamander',        hpMul: 0.8, speedMul: 1.0, flags: ['dashBurst'] },
     { id: 'obsidianTortoise', archetype: 'tank',   name: 'Obsidian Tortoise', hpMul: 1.5, speedMul: 0.75, radiusMul: 1.1, flags: ['unshakeable'] },
     // The elite. eliteOnly: every elite in this chapter is a drake, and no ordinary spawn is.
-    { id: 'fireDrake',        archetype: 'fast',   name: 'Fire Drake',        hpMul: 2.4, speedMul: 1.0, radiusMul: 1.25, flags: ['weave'], eliteOnly: true },
+    { id: 'fireDrake',        archetype: 'fast',   name: 'Fire Drake',        hpMul: 2.4, speedMul: 1.0, radiusMul: 1.25, flags: ['weave', 'flying'], eliteOnly: true },
   ],
   eliteFlags: [],
   signature: {
@@ -15783,6 +15857,9 @@ export const MUTATORS = {
   // The Mine's own. Both ways: more firedamp to set off, and bigger blasts to stand clear of.
   // balance_decision : first guess, owner playtests 2026-10-09
   methaneSeam:  { name: 'Methane Seam',   icon: '💨', desc: 'Far more firedamp, and every blast is bigger. Stand well clear.', chapters: ['mine'], effects: { gasCountMul: 1.7, gasBlastMul: 1.3 } },
+  // Topsoil's own. Both ways: moles erupt wider and harder, and their pits swallow more.
+  // balance_decision : first guess, owner playtests 2026-10-10
+  softGround:   { name: 'Soft Ground',    icon: '🪨', desc: 'Moles burst up wider and hit harder, and their pits are bigger. Bonus XP.', chapters: ['topsoil'], effects: { moleBlastMul: 1.4, pitSizeMul: 1.4, xpMul: 1.15 } },
   // The Magma's own. The cracking half has no mods key: stepCrust reads the id (the Blank's idiom).
   thinCrust:    { name: 'Thin Crust',     icon: '🌋', desc: 'The crust cracks everywhere on its own, under them and under you. Bonus XP.', chapters: ['magma'], effects: { xpMul: 1.2 } },
 }
@@ -15816,6 +15893,8 @@ export const MUTATOR_MOD_KEYS = [
   'mawTimeMul',         // stepMaws (deep; seconds in a mouth before it bites, <1 = sooner)
   'gasCountMul',        // stepFiredamp (mine; how many firedamp pockets hang around you)
   'gasBlastMul',        // stepFiredamp (mine; a pocket's blast radius)
+  'moleBlastMul',       // stepTunnels (topsoil; a mole eruption's radius AND damage)
+  'pitSizeMul',         // stepTunnels (topsoil; a mole cave-in pit's radius)
 ]
 // Human label + "does a value above 1 help the player" for every MUTATOR_MOD_KEYS entry — the
 // brief/pause/summary effect chips read this (ui.js effectChipList) to word the trade and colour
@@ -15870,6 +15949,8 @@ export const MUTATOR_EFFECT_LABELS = {
   mawTimeMul: ['time before the bite', true],
   gasCountMul: ['firedamp pockets', true],
   gasBlastMul: ['firedamp blast size', true],
+  moleBlastMul: ['mole eruptions', false],
+  pitSizeMul: ['mole pit size', true],
 }
 // Pure helper: given a list of mutator ids (run.mutators), returns the full run.mods object —
 // every key above defaulted to 1, with each selected mutator's effects multiplied in. Unknown

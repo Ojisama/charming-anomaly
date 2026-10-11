@@ -1008,6 +1008,9 @@ function generateWells(sig) {
  *                 BLOOM_SLOW_T every frame stepBlooms finds the enemy inside a cloud's radius
  *                 (guarded by damageImmune — a ghosted phase flicker ignores the cloud like it
  *                 ignores everything else); decays like the other three once outside.
+ *               bankT / bankX, bankY (The Magma, s / unit vector): holdAtRiverBank kept this body
+ *                 out of a lava river within the last bankT s; bankX/Y is the way it is walking
+ *                 along the bank (0, 0 = waiting on it). render faces the body that way.
  *               feedT (v7.x The Wreck, s of a mouthful remaining): the fish reached a Chum bait,
  *                 took one serving and STOPPED for it. While > 0 stepEnemyMovement returns before
  *                 it steers, so the body sits still in open water — that hold, not the gather, is
@@ -1854,7 +1857,8 @@ function generateWells(sig) {
  * 'strafe' (jet — bank -> telegraph -> run; fires {type:'strafeLock'} once per pass, see below),
  * 'missileVolley' (helicopter -> run.enemyShots), 'artillery' (tank columns AND AA
  * elites -> run.bombs), 'flyover' (city pigeon — passes straight through run.obstacles and nothing
- * else; see stepObstacles), 'phase' (phase flicker), 'pullBeam' (UFO elites),
+ * else; see stepObstacles), 'flying' (above the floor: no floor hazard touches it — see flies() in
+ * sim.js), 'phase' (phase flicker), 'pullBeam' (UFO elites),
  * 'guard' (The Surf's Shore Crab: alternates guarded <-> open, refusing DIRECT damage inside a
  * 120-degree arc while guarded — see stepCrabGuard/guardBlocks in sim.js and the CRAB_GUARD_*
  * block in config.js),
@@ -2121,8 +2125,16 @@ function generateWells(sig) {
  *     .signature.caveIns.open s, swallow any ordinary body whose centre is inside r (a hazard kill,
  *     {type:'pitFall'}), and fill back in over .fill s before `life`. Elites, burrowed bodies and
  *     moles never fall. The player is never swallowed: a pit is a tool, not a trap for you.
- *   caveIns[i]: { x, y, at, r } — a pit due to open at run.time >= at (the cracks render draws first).
- *     Queued by an eruption back along its mole's tunnel; dropped unopened when caveIns is null.
+ *     A FURROW pit (the weapon, any chapter) also carries { src: 'furrow', dmg, hit, open, fill }:
+ *     it HITS each body once for dmg (hit = { [enemy id]: 1 }, JSON-safe) instead of swallowing,
+ *     elites included, and opens/fills over its own FURROW_PIT_OPEN/FILL. stepPits owns both kinds;
+ *     each kind has its own cap and evicts its own oldest.
+ *   caveIns[i]: { x, y, at, r, src?, dmg? } — a pit due to open at run.time >= at (the cracks render
+ *     draws first). Queued by an eruption back along its mole's tunnel (dropped unopened when
+ *     caveIns is null), or by a Furrow cast along the player's own path (src 'furrow', always opens).
+ *   Run: _furrow (the Furrow's trail, a point every FURROW_STEP px, at most FURROW_KEEP) and
+ *     _furrowNew (points laid since its last cast; a cast with none digs nothing).
+ *     {type:'shoot', weapon:'furrow', x, y} one Furrow cast that queued at least one cave-in.
  *   snares[i]: { x, y, r, dmg, dur, t, tick } — Root Snare patches. A body inside gets e.rootUntil
  *     (slowed by ROOT_SNARE_SLOW while run.time < it) and a dot tick every ROOT_SNARE_TICK.
  *   drips[i]: { x, y, r, dmg, t, fuse, seed } — a Stalactite: the shadow grows for `fuse` s, then it

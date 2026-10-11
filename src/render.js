@@ -6,7 +6,7 @@
 //   r.reset(run|null)          new run started (build world) or back to title (clear)
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
-import { Assets, BlurFilter, Buffer as PixiBuffer, BufferUsage, CanvasSource, Container, FillGradient, Filter, GlProgram, Graphics, Mesh, MeshGeometry, MeshPlane, MeshRope, Point, Rectangle, RenderTexture, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
+import { Assets, BlurFilter, Buffer as PixiBuffer, BufferUsage, CanvasSource, Container, FillGradient, Filter, GlProgram, Graphics, Matrix, Mesh, MeshGeometry, MeshPlane, MeshRope, Point, Rectangle, RenderTexture, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
 import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, HAIR_TRIGGER_T, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, BEAM_ENVELOPE, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, CIRCUIT_CAM_LEAD, CIRCUIT_CAM_EASE, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, drawdownSecsFor, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPUR_VIS, LANE_HALF_W, UPWELLING_VIS, FOUL_SPRING_VIS, FOUL_SPRING_FOUL_T, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, BRING_SNAP_T, SHOREBREAK_RADIUS, BURST_WAKE, burstWakeAt, DUST, dustVel, laneScrollFor, BALLAST_THROW_R, BALLAST_RING, ORCA_LEN, ORCA_CIRCLE_DUR, ORCA_RING_BAND, ORCA_FEAR_TELL, ORCA_HERD_GAP, CHUM_VIS, BILGE_TRAIL_VIS, OIL_STAIN_MAX, SLICK_FIRE_SPREAD_T, caveAt, laneHalfWidth, laneDrawSpan, CIRCUIT_GATE_VIS, ringXY, ringFU, ringRot, ringHeading, gateAnchorF, caveSpecOf, ORCA_RISE_DUR, ORCA_SPLASH_R, ORCA_AIM_W, ORCA_AIM_TELL, ORCA_WAKE_R, ORCA_OVERSHOOT,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
@@ -40,12 +40,15 @@ import { currentForce, tideForce, krakenArmInReach } from './sim.js'
 import { KRAKEN_BEATS, KRAKEN_CEREMONY, KRAKEN_OUTRO } from './config.js'
 import { TRAWL_WIGGLE_ARC, KRAKEN_GRIP_FLICKS } from './config.js'
 import { DRAW_CAPS } from './config.js'
-import { ELITE } from './config.js'
+import { ELITE, gemTier } from './config.js'
 import * as MACRO from './macro.js'
+import { IPECAC_COUNT_MUL, FURROW_PIT_OPEN, FURROW_LANE_GAP } from './config.js'
 import * as HOLO from './holo.js'
 import * as ASCII from './ascii.js'
 import * as PIXEL from './pixel.js'
 import { t as tr } from './i18n.js'
+// Topsoil's cast: struck, they lift warm (MACRO.paintFlashTwin) instead of going white
+const TOPSOIL_CAST = new Set(CHAPTERS.topsoil.roster.map((r) => r.id))
 
 
 const DARK = 0x3b3345
@@ -69,6 +72,17 @@ const HYDRANT_PX = 36
 const GULL_DIVE_R = 34
 const GULL_DIVE_SPAN = 2.42 * 2 * GULL_DIVE_R
 const MAX_PARTICLES = 200
+// Topsoil pickups: drawn this much bigger than their bake, lifted this much brighter at bake time
+// (gem, coin), and showing their glint bake this fraction of the time — dark sapphires on dark soil
+// otherwise read as nothing at phone size
+const PICK_SCALE = 1.3, PICK_LIFT = [1.35, 1.25], PICK_GLINT = 0.25
+// a Topsoil hit number stays solid for this fraction of its life before it fades
+const SOIL_DMG_HOLD = 0.75
+// Sundown's pickup rims and coin glints (updateMacro): at most this many, so a 10k-gem pile is not 20k sprites
+const DUSK_PICK_RIM_MAX = 300
+// Topsoil's hit dust (soilPuff): particles per second it may spend on hits, and its burst; kills are
+// never metered. Keeps a dense shovel or Ipecac Furrow frame from recycling the whole ring above.
+const SOIL_PUFF_RATE = 60, SOIL_PUFF_BURST = 30
 const MAX_DMG_TEXTS = 30
 
 // Foliage sprite sheet: white/shaded PNGs in src/props/, tinted per-instance at draw
@@ -6135,6 +6149,8 @@ export function createRenderer(app) {
     }
     // the photographed replacements (src/macro.js): the crumb every dirt spray throws, the shots, the stone
     T.clayClod = { tex: macroCanvasTex(MACRO.paintCrumbParticle(), 3), ax: 0.5, ay: 0.5 }
+    T.dustPuff = { tex: macroCanvasTex(MACRO.paintDustPuff(), 3), ax: 0.5, ay: 0.5 }
+    T.soilGrain = { tex: macroCanvasTex(MACRO.paintGrain(), 4), ax: 0.5, ay: 0.5 }
     T.pebbleShot = { tex: macroCanvasTex(MACRO.paintPebbleShot(), 3), ax: 0.5, ay: 0.5 }
     T.prismShot = { tex: macroCanvasTex(MACRO.paintPrismShot(), 3), ax: 0.5, ay: 0.5 }
     { const b = MACRO.paintStalactite(); T.stalactite = { tex: macroCanvasTex(b.body, b.S), ax: b.ax, ay: b.ay } }
@@ -6154,12 +6170,12 @@ export function createRenderer(app) {
 
   // ==== Book 3, Burrow: per-frame drawing ======================================================
   // burrowGroundG is ON the floor, under the crowd: the ridges of turned earth over digging moles,
-  // the cracks of a coming cave-in or eruption, the open pits, the roots of a snare, the shadow of a
-  // stone about to fall. burrowFxG is over the crowd: the shovel's scoop, the echo rings, a crystal
+  // the cracks of a coming cave-in or eruption, the open pits, the shadow of a stone about to fall.
+  // The snares' roots are baked sprites on snareRootLayer, at the same depth. burrowFxG is over the crowd: the echo rings, a crystal
   // chiming, the stone itself falling, the light-trails of prism shards (which is what shows a shot
   // turning off a crystal in a still frame). Both are cleared and redrawn every frame from `run`;
   // nothing here writes back to it.
-  const burrowSwings = []          // {x, y, angle, r, arc, t, life} — shovel scoops, renderer-local
+  const burrowSwings = []          // {x, y, angle, r, arc, t, life, seed} — shovel swings, renderer-local
   const burrowTrails = new WeakMap() // bullet -> [x, y, x, y, ...] recent positions (prism shards)
   // The photographed soil's own values (src/macro.js paintTopsoilTile), so every hole, heap and crack
   // drawn over it sits in the same light: lit from the top-left, shadows thrown down-right.
@@ -6189,37 +6205,208 @@ export function createRenderer(app) {
       line(0, 0, 3.2 - 0.8 * k, SOIL.deep, alpha * 0.95)
     }
   }
-  // Pits draw in two passes over the whole list — every lip, then every shaft — so a tunnel's chain
-  // of overlapping pits merges into ONE trench instead of a stack of rings. The lip is not a ring: it
-  // is the ground slumping in, a soft darkening, and the crumbs of the collapse heaped round it.
-  function drawPitLips(g, pits) {
-    for (let k = 0; k < 4; k++) {
-      for (const pt of pits) {
-        if (pt.r < 1) continue
-        g.circle(pt.x + pt.r * 0.08, pt.y + pt.r * 0.1, pt.r * (1.55 - k * 0.1)).fill({ color: 0x000000, alpha: 0.07 })
-      }
-    }
-    for (const pt of pits) {
-      const r = pt.r
-      if (r < 1) continue
-      for (let i = 0; i < 16; i++) {
-        const a = hash(pt.x * 0.37 + pt.y * 0.11 + i * 2.7) * Math.PI * 2
-        const d = r * (1.0 + hash(pt.x * 0.13 + i) * 0.32)
-        soilCrumb(g, pt.x + Math.cos(a) * d, pt.y + Math.sin(a) * d, 1.6 + hash(pt.y * 0.7 + i) * 3.2, SOIL_CRUMBS[i % SOIL_CRUMBS.length])
-      }
+  // THE PITS, photographed (MACRO.paintPit*): sprites on pitLayer, under burrowGroundG. Drawn as five
+  // passes over the whole list, every pass for every pit before the next, so a chain of overlapping
+  // pits reads as ONE trench: the cave-in tells (under everything, so no crack shows over an open
+  // hole), the spoil heaps, every shaft, every shaft's inner face (which buries the lip of a
+  // neighbour inside this pit), every floor. Only the chain's outer edge keeps a lip and its spoil.
+  // A filling pit shrinks back into the ground (sim's pt.r); its spoil fades with it. A FURROW pit
+  // instead keeps its size and changes depth (MACRO.PIT_DEPTHS): it opens as a shallow dish that
+  // deepens, and fills back up the same way, so no stage of it reads as a ring around a light floor.
+  // Under them all, the Furrow's TRENCH (syncTrench): the groove it cuts along run._furrow, from the
+  // player back to where its pits open.
+  let pitTex = null
+  function bakePits() {
+    if (pitTex) return
+    const tx = (c) => macroCanvasTex(c, 3)
+    const seeds = [101, 138, 175]
+    pitTex = {
+      wall: seeds.map((v) => tx(MACRO.paintPitWall(v))),
+      inner: seeds.map((v) => tx(MACRO.paintPitInner(v))),
+      floor: seeds.map((v) => tx(MACRO.paintPitFloor(v))),
+      spoil: seeds.map((v) => tx(MACRO.paintPitSpoil(v + 110))),
+      tell: [311, 324].map((v) => Array.from({ length: MACRO.PIT_TELL_STAGES }, (_, i) => tx(MACRO.paintPitTell(v, i / (MACRO.PIT_TELL_STAGES - 1))))),
     }
   }
-  function drawPitShafts(g, pits) {
-    for (let i = 0; i <= 9; i++) {
-      const k = 1 - i / 10
-      const c = mix(i < 2 ? SOIL.mid : SOIL.dark, 0x000000, Math.pow(i / 9, 0.7))
-      for (const pt of pits) {
-        const r = pt.r
-        if (r < 1) continue
-        // the far (lower-right) wall catches the light from the top-left; the near wall is in shadow
-        g.circle(pt.x + r * 0.12 * (1 - k), pt.y + r * 0.14 * (1 - k), r * k).fill(c)
+  // The Furrow's own bakes, on top of the pits': only a run that can deal the Furrow pays for them.
+  let furrowTex = null
+  function bakeFurrow() {
+    if (furrowTex) return
+    bakePits()
+    const tx = (c) => macroCanvasTex(c, 3)
+    furrowTex = {
+      // one seed per depth: a dish is on screen for a fraction of a second at each end of a pit's life
+      dish: MACRO.PIT_DEPTHS.map((dk) => ({ ...MACRO.paintPitDish(101, dk), floor: MACRO.paintPitFloor(101, dk) }))
+        .map((d) => ({ wall: tx(d.wall), inner: tx(d.inner), floor: tx(d.floor) })),
+      trench: Array.from({ length: MACRO.TRENCH_BINS }, (_, b) => {
+        const t = MACRO.paintTrench(b)
+        return { rim: macroCanvasTex(t.rim, MACRO.TRENCH_RES), bed: macroCanvasTex(t.bed, MACRO.TRENCH_RES) }
+      }),
+      collar: [11, 12].map((v) => tx(MACRO.paintPitCollar(v))),
+    }
+  }
+  const pitPass = () => ({ c: new Container(), list: [], n: 0 })
+  const pitPasses = { trRim: pitPass(), trBed: pitPass(), tell: pitPass(), damp: pitPass(), spoil: pitPass(), wall: pitPass(), inner: pitPass(), floor: pitPass(), collar: pitPass() }
+  // THE TRENCH. A segment per pair of furrow points (and one more up to the player), one copy per
+  // IPECAC lane at the sim's own offsets. A point the sim has queued a cave-in on is SPENT: its
+  // segment goes once the pit over it has opened. A new point throws the dug soil off both sides.
+  const trenchSpent = new WeakMap(), trenchSeenCave = new WeakSet()
+  let trenchLastPt = null
+  function syncTrench(run) {
+    const tr = run._furrow
+    if (!tr || !tr.length) return
+    bakeFurrow()
+    for (const c of run.caveIns) {
+      if (c.src !== 'furrow' || trenchSeenCave.has(c)) continue
+      trenchSeenCave.add(c)
+      let best = null, bd = c.r * 0.5
+      for (const q of tr) { const d = Math.hypot(q.x - c.x, q.y - c.y); if (d < bd) { bd = d; best = q } }
+      if (best && !trenchSpent.has(best)) trenchSpent.set(best, c.at)
+    }
+    const p = run.player, nL = run.anomalies?.ipecac ? IPECAC_COUNT_MUL : 1
+    const fw = run.weapons.find((w) => w.id === 'furrow')
+    const pr = fw ? WEAPONS.furrow.levels[Math.min(fw.level, WEAPONS.furrow.levels.length) - 1].r * (1 + (run.weaponMods.furrow?.widePits ?? 0)) : 30
+    const gap = pr * FURROW_LANE_GAP, n = tr.length, BINS = MACRO.TRENCH_BINS, L2 = MACRO.TRENCH_SEG / 2
+    for (let i = 1; i <= n; i++) {
+      const a = tr[i - 1], b = i < n ? tr[i] : p
+      let dx = b.x - a.x, dy = b.y - a.y
+      const d = Math.hypot(dx, dy)
+      if (d < 3 || d > 70) continue
+      dx /= d; dy /= d
+      let al = Math.min(1, i / 4)
+      const sp = trenchSpent.get(a)
+      if (sp !== undefined) al *= Math.max(0, Math.min(1, 1 - (run.time - sp - FURROW_PIT_OPEN) / 0.3))
+      if (al <= 0.01) continue
+      const ang = ((Math.atan2(dy, dx) % Math.PI) + Math.PI) % Math.PI
+      const t = furrowTex.trench[Math.round((ang / Math.PI) * BINS) % BINS]
+      let mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2
+      if (i === n && d < 2 * L2) { mx = b.x - dx * L2; my = b.y - dy * L2 }   // the front ends at the player
+      for (let j = 0; j < nL; j++) {
+        const off = (j - (nL - 1) / 2) * gap
+        pitSprite(pitPasses.trRim, t.rim, mx - dy * off, my + dx * off, 1, al)
+        pitSprite(pitPasses.trBed, t.bed, mx - dy * off, my + dx * off, 1, al)
       }
     }
+    const last = tr[n - 1]
+    if (last !== trenchLastPt) {
+      if (trenchLastPt && frameDt > 0 && n >= 2) {
+        const q = tr[n - 2], d = Math.hypot(last.x - q.x, last.y - q.y) || 1, dx = (last.x - q.x) / d, dy = (last.y - q.y) / d
+        for (let j = 0; j < nL; j++) {
+          const off = (j - (nL - 1) / 2) * gap, x = p.x - dx * 14 - dy * off, y = p.y - dy * 14 + dx * off
+          for (let side = -1; side <= 1; side += 2) for (let m = 0; m < 2; m++) {
+            const v = 45 + Math.random() * 40
+            spawnParticle(T.clayClod.tex, x, y, -dy * side * v - dx * 20, dx * side * v - dy * 20, 0.35, 0.45 + Math.random() * 0.3, m ? 0x8a6844 : 0x5a3e26, -0.6, 4)
+          }
+        }
+      }
+      trenchLastPt = last
+    }
+  }
+  // A body a Furrow pit has just hit and not killed DROPS into it: it shrinks, darkens and slides
+  // toward the pit's middle for a beat (pitSinkK), with the lip crumbling in over it (the collar,
+  // drawn over the crowd by syncPitCollars). Started off the pit's own {type:'hit'} (sim fills
+  // pt.hit[e.id] on the step it pushes the hit), once per pit per body; records are pooled.
+  const PIT_SINK_T = 0.72
+  const pitSinks = new Map(), pitSinkFree = [], pitCredited = new WeakMap()
+  function pitSinkFromHit(run, e) {
+    if (e.id == null || e.dot || e.elite) return   // too big to go down, as the mole pits say
+    for (const pt of run.pits) {
+      if (pt.src !== 'furrow' || !pt.hit[e.id]) continue
+      let cr = pitCredited.get(pt)
+      if (!cr) pitCredited.set(pt, (cr = new Set()))
+      if (cr.has(e.id)) continue
+      cr.add(e.id)
+      let r = pitSinks.get(e.id)
+      if (!r) { r = pitSinkFree.pop() || { t0: 0, x: 0, y: 0, fx: false }; pitSinks.set(e.id, r) }
+      r.t0 = animT; r.x = pt.x; r.y = pt.y; r.fx = false
+      return
+    }
+  }
+  function pitSinkK(t) {
+    const k = t < 0.07 ? t / 0.07 : t < 0.32 ? 1 : Math.max(0, 1 - (t - 0.32) / 0.4)
+    return k * k * (3 - 2 * k)
+  }
+  function syncPitCollars(run) {
+    const P = pitPasses.collar
+    P.n = 0
+    if (pitSinks.size) {
+      for (const [id, r] of pitSinks) if (animT - r.t0 > PIT_SINK_T || animT < r.t0) { pitSinks.delete(id); pitSinkFree.push(r) }
+      for (const e of run.enemies) {
+        const r = pitSinks.get(e.id)
+        if (!r) continue
+        const kk = pitSinkK(animT - r.t0)
+        if (kk > 0.02) pitSprite(P, furrowTex.collar[e.id & 1], e.x + (r.x - e.x) * 0.45 * kk, e.y + (r.y - e.y) * 0.45 * kk, (e.radius * 1.05) / MACRO.PIT_R0, Math.min(1, kk * 1.5))
+        if (!r.fx && frameDt > 0) {
+          r.fx = true
+          for (let m = 0; m < 6; m++) {
+            const a = Math.random() * Math.PI * 2, rr = e.radius * 1.5
+            spawnParticle(T.clayClod.tex, e.x + Math.cos(a) * rr, e.y + Math.sin(a) * rr, -Math.cos(a) * 50, -Math.sin(a) * 50, 0.3, 0.5 + Math.random() * 0.3, m % 2 ? 0x8a6844 : 0x4a321e, -1.0, 3)
+          }
+        }
+      }
+    }
+    for (let i = P.n; i < P.list.length; i++) P.list[i].visible = false
+  }
+  // Is (x, y) over an open pit? The light hit puff (soilPuff) is skipped there: over the dark hole it
+  // reads as a bright blob, and the pit's own drop already says the hit landed.
+  function overOpenPit(run, x, y) {
+    for (const pt of run.pits || []) if (pt.r > 4 && Math.hypot(x - pt.x, y - pt.y) < pt.r) return true
+    return false
+  }
+  function pitSprite(p, tex, x, y, scale, alpha) {
+    let sp = p.list[p.n]
+    if (!sp) { sp = new Sprite(tex); sp.anchor.set(0.5); p.c.addChild(sp); p.list.push(sp) }
+    sp.texture = tex; sp.visible = true
+    sp.position.set(x, y); sp.scale.set(scale); sp.alpha = alpha
+    p.n++
+  }
+  function hidePits() {
+    for (const k in pitPasses) { const p = pitPasses[k]; for (const sp of p.list) sp.visible = false; p.n = 0 }
+    for (const r of pitSinks.values()) pitSinkFree.push(r)
+    pitSinks.clear()
+    trenchLastPt = null
+  }
+  function syncPits(run) {
+    for (const k in pitPasses) if (k !== 'collar') pitPasses[k].n = 0
+    const pits = run.pits || [], caves = run.caveIns || []
+    if (run._furrow?.length) syncTrench(run)
+    if (pits.length || caves.length) {
+      bakePits()
+      const R0 = MACRO.PIT_R0, C = CHAPTERS[run.chapter].signature?.caveIns
+      const pick = (x, y, n) => Math.floor(hash(x * 0.137 + y * 0.311) * n) % n
+      const P = pitPasses
+      for (const c of caves) {
+        const k = Math.max(0, Math.min(1, 1 - (c.at - run.time) / 1.2))
+        const st = Math.min(MACRO.PIT_TELL_STAGES - 1, Math.floor(k * MACRO.PIT_TELL_STAGES))
+        const tellTex = pitTex.tell[pick(c.x, c.y, 2)][st]
+        pitSprite(P.tell, tellTex, c.x, c.y, c.r / R0, Math.min(1, k * 2.5))
+        const dusk = macroLook?.dusk
+        if (dusk && macroDusk > 0.01) {
+          pitSprite(P.damp, macroSilhouette(tellTex, false), c.x, c.y, c.r / R0, Math.min(1, k * 2.5) * dusk.damp * macroDusk)
+          P.damp.list[P.damp.n - 1].tint = dusk.dampTint
+        }
+      }
+      for (const pt of pits) {
+        const open = pt.open ?? C?.open ?? 0.35, fill = pt.fill ?? C?.fill ?? 1.5
+        const g = Math.max(0, Math.min(1, pt.age / open)), shut = Math.max(0, Math.min(1, (pt.life - pt.age) / fill))
+        const v = pick(pt.x, pt.y, 3), sr = Math.max(0.02, pt.r) / R0
+        pitSprite(P.spoil, pitTex.spoil[v], pt.x, pt.y, (pt.maxR / R0) * (0.8 + 0.2 * g), g * Math.sqrt(shut))
+        if (pt.src === 'furrow') {
+          bakeFurrow()
+          const dk = Math.min(g, shut), al = Math.min(1, shut / 0.2, g * 8)
+          const d = dk >= 0.85 ? null : furrowTex.dish[dk < 0.45 ? 0 : 1]
+          const k = (pt.maxR / R0) * (0.88 + 0.12 * Math.min(1, dk * 1.5))
+          pitSprite(P.wall, d ? d.wall : pitTex.wall[v], pt.x, pt.y, k, al)
+          pitSprite(P.inner, d ? d.inner : pitTex.inner[v], pt.x, pt.y, k, al)
+          pitSprite(P.floor, d ? d.floor : pitTex.floor[v], pt.x, pt.y, k, al)
+          continue
+        }
+        pitSprite(P.wall, pitTex.wall[v], pt.x, pt.y, sr, 1)
+        pitSprite(P.inner, pitTex.inner[v], pt.x, pt.y, sr, 1)
+        pitSprite(P.floor, pitTex.floor[v], pt.x, pt.y, sr, g * g)
+      }
+    }
+    for (const k in pitPasses) { if (k === 'collar') continue; const p = pitPasses[k]; for (let i = p.n; i < p.list.length; i++) p.list[i].visible = false }
   }
   // The ridge over a digging mole: the ground heaving up along its run, crumbs rolling off it.
   function drawRidge(g, pts, w) {
@@ -6241,44 +6428,47 @@ export function createRenderer(app) {
       }
     }
   }
-  // A snare is a knot of gnarled clay roots bursting out of a patch of broken soil: thick at the
-  // knot, tapering, kinked, forking — roots, not legs.
-  function drawSnare(g, sn, t) {
-    const grow = Math.min(1, sn.t / 0.25), fade = Math.max(0, Math.min(1, (sn.dur - sn.t) / 0.35))
-    const R = sn.r * grow
-    const hs = sn.x * 0.31 + sn.y * 0.17
-    g.circle(sn.x, sn.y, sn.r * 1.05).fill({ color: SOIL.dark, alpha: 0.3 * fade })
-    g.circle(sn.x, sn.y, sn.r * 0.45 * grow).fill({ color: SOIL.mid, alpha: 0.6 * fade })
-    const root = (pts, w0, w1) => {
-      const n = pts.length / 2 - 1
-      for (const [k, c, al] of [[1.45, 0x22140a, 0.95], [1, 0x7a5530, 1], [0.38, 0xc89a68, 0.85]]) {
-        for (let j = 0; j < n; j++) {
-          const w = (w0 + (w1 - w0) * (j / Math.max(1, n - 1))) * k
-          g.moveTo(pts[j * 2], pts[j * 2 + 1]).lineTo(pts[j * 2 + 2], pts[j * 2 + 3]).stroke({ width: w, color: c, alpha: al * fade, cap: 'round' })
-        }
+  // A snare is a bake (MACRO.paintRootSnare): gnarled woody roots heaving out of a broken crust,
+  // their tips diving back into the soil at the snare's reach. SNARE_GROW_K frames x SNARE_SEEDS
+  // seeds, one sprite per snare on snareRootLayer (on the floor, under the crowd), scaled to its r.
+  // The roots grow in over SNARE_GROW_T and draw back in over the last SNARE_FADE_T as they fade.
+  const SNARE_GROW_T = 0.25, SNARE_FADE_T = 0.35
+  let snareFrames = null
+  const snareSprites = []
+  function bakeSnares() {
+    if (snareFrames) return snareFrames
+    snareFrames = []
+    for (let sd = 0; sd < MACRO.SNARE_SEEDS; sd++) {
+      snareFrames.push(MACRO.SNARE_GROW_K.map((k) => {
+        const bk = MACRO.paintRootSnare(sd, k)
+        return { tex: macroCanvasTex(bk.body, bk.S), ax: bk.ax, ay: bk.ay }
+      }))
+    }
+    return snareFrames
+  }
+  function syncSnareSprites(snares) {
+    let n = 0
+    if (snares.length) {
+      const frames = bakeSnares()   // already baked by reset() for a chapter that deals the card
+      const K = MACRO.SNARE_GROW_K
+      for (const sn of snares) {
+        const grow = Math.min(1, sn.t / SNARE_GROW_T), fade = Math.max(0, Math.min(1, (sn.dur - sn.t) / SNARE_FADE_T))
+        const k = Math.min(grow, 0.35 + 0.65 * fade)
+        let fi = 0
+        while (fi < K.length - 1 && K[fi] < k - 0.02) fi++
+        const fr = frames[Math.floor(hash(sn.x * 0.31 + sn.y * 0.17) * frames.length)][fi]
+        let sp = snareSprites[n]
+        if (!sp) { sp = new Sprite(fr.tex); snareRootLayer.addChild(sp); snareSprites.push(sp) }
+        n++
+        sp.visible = true
+        sp.texture = fr.tex
+        sp.anchor.set(fr.ax, fr.ay)
+        sp.position.set(sn.x, sn.y)
+        sp.scale.set(sn.r / MACRO.SNARE_R0)
+        sp.alpha = Math.pow(fade, 0.7)
       }
     }
-    const n = 7
-    for (let i = 0; i < n; i++) {
-      const a0 = (i / n) * Math.PI * 2 + hash(hs + i) * 0.6
-      const pts = [], side = []
-      let a = a0
-      for (let j = 0; j <= 5; j++) {
-        a += (hash(hs + i * 7.3 + j) - 0.5) * 0.9 + Math.sin(t * 2.5 + i + j) * 0.03
-        const d = R * (j / 5) * (0.75 + 0.25 * hash(hs + i * 3.1))
-        pts.push(sn.x + Math.cos(a) * d, sn.y + Math.sin(a) * d)
-        if (j === 2 || j === 4) side.push([pts[pts.length - 2], pts[pts.length - 1], a + (hash(hs + i + j * 9) < 0.5 ? 0.9 : -0.9), d])
-      }
-      root(pts, 9, 2.6)
-      for (const [x, y, sa, d] of side) {
-        const L = R * 0.28
-        const bp = [x, y, x + Math.cos(sa) * L * 0.55, y + Math.sin(sa) * L * 0.55, x + Math.cos(sa + 0.4) * L, y + Math.sin(sa + 0.4) * L]
-        root(bp, 4, 1.6)
-      }
-    }
-    // the knot at the middle, a clay lump with a lit top
-    g.circle(sn.x, sn.y, 9 * grow).fill({ color: 0x5a3c1e, alpha: fade })
-    g.circle(sn.x - 2, sn.y - 2, 4.5 * grow).fill({ color: 0xb08050, alpha: fade })
+    for (let i = n; i < snareSprites.length; i++) snareSprites[i].visible = false
   }
   function syncBurrow(run, dt) {
     const gG = burrowGroundG, gF = burrowFxG
@@ -6286,15 +6476,9 @@ export function createRenderer(app) {
     const ch = CHAPTERS[run.chapter]
     const sigT = ch.signature?.type
     const t = animT
+    // pits and the cave-ins coming (the deepest things on the floor), in any chapter: the Furrow digs them too
+    syncPits(run)
     if (sigT === 'tunnels') {
-      // pits first (the deepest thing on the floor), then the ridges over moving moles
-      if (run.pits && run.pits.length) { drawPitLips(gG, run.pits); drawPitShafts(gG, run.pits) }
-      // a tunnel about to cave in: its line cracks, harder as the moment comes
-      for (const c of run.caveIns || []) {
-        const k = Math.max(0, Math.min(1, 1 - (c.at - run.time) / 1.2))
-        gG.circle(c.x, c.y, c.r * 0.8).fill({ color: 0x000000, alpha: 0.12 + 0.18 * k })
-        burrowCracks(gG, c.x, c.y, c.r * 1.1, 0.4 + 0.6 * k, c.x * 0.1 + c.y, 0.5 + 0.5 * k)
-      }
       const M = ch.signature.moles
       for (const e of run.enemies) {
         if (!e.burrowed || e._dead) continue
@@ -6321,7 +6505,7 @@ export function createRenderer(app) {
         }
       }
     }
-    for (const sn of run.snares || []) drawSnare(gG, sn, t)
+    syncSnareSprites(run.snares || [])
     let stoneN = 0
     // stalactites: the shadow grows on the floor, the stone drops out of the ceiling onto it
     for (const dr of run.drips || []) {
@@ -6338,37 +6522,7 @@ export function createRenderer(app) {
       sp.rotation = (dr.seed || 0) * 0.01
     }
     for (let i = stoneN; i < burrowStones.length; i++) burrowStones[i].visible = false
-    // shovel scoops: a clay shovel sweeping through its arc, a crescent of thrown dirt behind it
-    const p = run.player
-    for (let i = burrowSwings.length - 1; i >= 0; i--) {
-      const sw = burrowSwings[i]
-      sw.t += dt
-      if (sw.t >= sw.life) { burrowSwings.splice(i, 1); continue }
-      const k = sw.t / sw.life
-      const a = sw.angle - sw.arc / 2 + sw.arc * Math.min(1, k * 1.3)
-      const x = p.x, y = p.y, R = sw.r
-      const fade = 1 - Math.max(0, (k - 0.6) / 0.4)
-      // the dirt crescent swept so far
-      const a0 = sw.angle - sw.arc / 2
-      gF.moveTo(x + Math.cos(a0) * R * 0.55, y + Math.sin(a0) * R * 0.55)
-      for (let s = 0; s <= 12; s++) { const aa = a0 + (a - a0) * (s / 12); gF.lineTo(x + Math.cos(aa) * R * 0.95, y + Math.sin(aa) * R * 0.95) }
-      for (let s = 12; s >= 0; s--) { const aa = a0 + (a - a0) * (s / 12); gF.lineTo(x + Math.cos(aa) * R * 0.55, y + Math.sin(aa) * R * 0.55) }
-      gF.closePath().fill({ color: SOIL.mid, alpha: 0.45 * fade })
-      for (let s = 0; s < 7; s++) {
-        const aa = a0 + (a - a0) * hash(sw.seed + s), d = R * (0.6 + 0.4 * hash(sw.seed * 2 + s))
-        gF.circle(x + Math.cos(aa) * d, y + Math.sin(aa) * d, 2 + 2 * hash(s + sw.seed)).fill({ color: s % 2 ? SOIL.crumb : SOIL.lit, alpha: fade })
-      }
-      // the shovel: handle, collar, blade
-      const ca = Math.cos(a), sa = Math.sin(a), nx = -sa, ny = ca
-      const hx = x + ca * R * 0.2, hy = y + sa * R * 0.2, bx = x + ca * R * 0.62, by = y + sa * R * 0.62
-      gF.moveTo(hx, hy).lineTo(bx, by).stroke({ width: 6, color: 0x4a2c14, alpha: fade, cap: 'round' })
-      gF.moveTo(hx, hy).lineTo(bx, by).stroke({ width: 3.2, color: 0xb07a44, alpha: fade, cap: 'round' })
-      const tip = R * 0.98, w = R * 0.16
-      const blade = [bx + nx * w, by + ny * w, x + ca * tip + nx * w * 0.55, y + sa * tip + ny * w * 0.55, x + ca * (tip + w * 0.5), y + sa * (tip + w * 0.5),
-        x + ca * tip - nx * w * 0.55, y + sa * tip - ny * w * 0.55, bx - nx * w, by - ny * w]
-      gF.poly(blade).fill({ color: 0x5a6068, alpha: fade }).stroke({ width: 1.2, color: 0x23262a, alpha: fade })
-      gF.poly([bx + nx * w * 0.5, by + ny * w * 0.5, x + ca * tip + nx * w * 0.25, y + sa * tip + ny * w * 0.25, x + ca * tip, y + sa * tip, bx, by]).fill({ color: 0xc8d0d8, alpha: 0.8 * fade })
-    }
+    drawShovel(run, dt)
     // echo rings and crystal chimes (run.novas by look; placeNova hides both)
     for (const n of run.novas || []) {
       if (n.look !== 'echo' && n.look !== 'chime') continue
@@ -6431,6 +6585,118 @@ export function createRenderer(app) {
       }
     }
   }
+  // THE SHOVEL: a photographed long-handled shovel (MACRO.paintShovel), its grip under the blob and
+  // its blade tip landing on the swing's radius, sweeping the arc. It carries a load of soil that
+  // spills along the arc and is flung off the end, so the reach is also left lying on the floor.
+  // The key is fixed top-left in the world: the tool is baked at SHOVEL_HEADINGS headings and the
+  // nearest is drawn (turned by at most half a step); the soil is lit in the world and never turned;
+  // every cast shadow is laid in world space, away from the light, further the higher the thing is.
+  // Baked at macro run start (setMacro), drawn from pooled sprites, hidden by hideShovel().
+  const SHOVEL_SWING_LIFE = 0.62   // s, the sweep (0.18) plus the spilled soil lying until it sinks
+  const SHOVEL_SWEEP = 0.18
+  const SHOVEL_THROW = 0.62        // fraction of the sweep at which the load leaves the blade
+  const SHADOW_DX = 0.62, SHADOW_DY = 0.78   // a raised thing's shadow falls this way
+  let shovelLook = null
+  function bakeShovel() {
+    if (shovelLook) return
+    const look = (b) => ({ tex: macroCanvasTex(b.body, b.S), sh: macroCanvasTex(b.shadow, b.S), ax: b.ax, ay: b.ay })
+    const n = MACRO.SHOVEL_HEADINGS
+    shovelLook = {
+      tool: Array.from({ length: n }, (_, i) => look(MACRO.paintShovel((i / n) * Math.PI * 2))),
+      load: look(MACRO.paintShovelLoad()),
+      clods: [11, 12, 13, 14, 15, 16].map((s) => look(MACRO.paintSoilClod(s))),
+    }
+  }
+  function shovelPool(layer) {
+    const arr = []
+    let n = 0
+    return {
+      begin() { n = 0 },
+      get(L, shadow) {
+        let s = arr[n]
+        if (!s) { s = new Sprite(L.tex); layer.addChild(s); arr.push(s) }
+        const tex = shadow ? L.sh : L.tex
+        if (s.texture !== tex) s.texture = tex
+        s.anchor.set(L.ax, L.ay); s.visible = true; s.rotation = 0
+        n++
+        return s
+      },
+      end() { for (let i = n; i < arr.length; i++) arr[i].visible = false },
+    }
+  }
+  let shovelPools = null   // made on first use: the layers are declared further down
+  function shovelSprites() {
+    return shovelPools ??= {
+      toolShadow: shovelPool(shovelFloorLayer), lyingShadow: shovelPool(shovelFloorLayer), lying: shovelPool(shovelFloorLayer),
+      tool: shovelPool(shovelToolLayer), load: shovelPool(shovelToolLayer),
+      airShadow: shovelPool(shovelAirLayer), air: shovelPool(shovelAirLayer),
+    }
+  }
+  function hideShovel() { const P = shovelSprites(); for (const k in P) { P[k].begin(); P[k].end() } }
+  const unit = (v) => (v < 0 ? 0 : v > 1 ? 1 : v)
+  const easeOut3 = (v) => 1 - (1 - v) * (1 - v) * (1 - v)
+  function drawShovel(run, dt) {
+    const shovelPools = shovelSprites()
+    for (const k in shovelPools) shovelPools[k].begin()
+    const p = run.player
+    if (!shovelLook && burrowSwings.length) bakeShovel()   // a chapter without the lens (dev menu)
+    const L0 = shovelLook
+    // a clod at ground point (x, y), raised hz px toward the camera
+    const clod = (x, y, hz, sc, seed, alpha) => {
+      const L = L0.clods[Math.floor(hash(seed) * L0.clods.length) % L0.clods.length]
+      const air = hz > 0.5
+      const sh = (air ? shovelPools.airShadow : shovelPools.lyingShadow).get(L, true)
+      sh.position.set(x + SHADOW_DX * (hz + 1.2 * sc), y + SHADOW_DY * (hz + 1.2 * sc)); sh.scale.set(sc); sh.alpha = 0.75 * alpha
+      const s = (air ? shovelPools.air : shovelPools.lying).get(L, false)
+      s.position.set(x, y); s.scale.set(sc * (1 + hz * 0.012)); s.alpha = alpha
+    }
+    for (let i = burrowSwings.length - 1; i >= 0; i--) {
+      const sw = burrowSwings[i]
+      sw.t += dt
+      if (sw.t >= sw.life) { burrowSwings.splice(i, 1); continue }
+      if (!L0) continue
+      const t = sw.t, R = sw.r, a0 = sw.angle - sw.arc / 2, arc = sw.arc
+      const lvS = R / 150
+      const ts = unit(t / SHOVEL_SWEEP)
+      const a = a0 + arc * ts
+      const back = easeOut3(unit((t - 0.22) / 0.1)), alpha = 1 - unit((t - 0.29) / 0.05)
+      if (alpha > 0) {
+        const n = L0.tool.length, step = (Math.PI * 2) / n
+        const k = ((Math.round(a / step) % n) + n) % n
+        const L = L0.tool[k], turn = a - Math.round(a / step) * step
+        const sc = (R + 4) / MACRO.SHOVEL_LEN
+        const ca = Math.cos(a), sa = Math.sin(a)
+        const gx = p.x - ca * (4 + 14 * back), gy = p.y - sa * (4 + 14 * back)
+        const h = 3 + 13 * Math.sin(Math.PI * ts) * (1 - back)
+        const sh = shovelPools.toolShadow.get(L, true)
+        sh.position.set(gx + SHADOW_DX * h, gy + SHADOW_DY * h); sh.rotation = turn; sh.scale.set(sc); sh.alpha = 0.5 * alpha
+        const s = shovelPools.tool.get(L, false)
+        s.position.set(gx, gy); s.rotation = turn; s.scale.set(sc * (1 + h * 0.004)); s.alpha = alpha
+        if (ts < SHOVEL_THROW) {
+          const ld = shovelPools.load.get(L0.load, false), d = MACRO.SHOVEL_DISH * sc
+          ld.position.set(gx + ca * d, gy + sa * d); ld.scale.set(sc); ld.alpha = alpha
+        }
+      }
+      // the spill: crumbs drop off the blade as it passes and land on the reach; then the load is flung
+      const N = Math.round(arc * R / 15)
+      const fade = 1 - unit((t - (sw.life - 0.14)) / 0.14)
+      for (let j = 0; j < N + 8; j++) {
+        const spill = j < N
+        const u = spill ? (j + 0.5) / N : SHOVEL_THROW + (1 - SHOVEL_THROW) * hash(sw.seed + j * 3.1)
+        const tr = spill ? SHOVEL_SWEEP * u : SHOVEL_SWEEP * SHOVEL_THROW + 0.012 * (j - N)
+        const fl = spill ? 0.09 : 0.16
+        if (t < tr) continue
+        const f = unit((t - tr) / fl)
+        const r0 = R * 0.86, r1 = R * (spill ? 0.88 + 0.18 * hash(sw.seed + j) : 0.96 + 0.12 * hash(sw.seed + j))
+        const aa = a0 + arc * Math.min(1, u + (spill ? 0.02 : 0.06) * f)
+        const rr = r0 + (r1 - r0) * easeOut3(f)
+        const hz = (spill ? 8 : 18) * lvS * Math.sin(Math.PI * f)
+        const sc = 1.7 * (0.25 + 0.7 * Math.pow(hash(sw.seed * 1.7 + j), 2)) * lvS * (0.6 + 0.4 * fade)
+        clod(sw.x + Math.cos(aa) * rr, sw.y + Math.sin(aa) * rr, hz, sc, sw.seed + j, fade)
+      }
+    }
+    for (const k in shovelPools) shovelPools[k].end()
+  }
   // The falling stones are sprites (a small pool on burrowStoneLayer), hidden past the live count.
   const burrowStones = []
   function stoneSprite(i) {
@@ -6481,7 +6747,6 @@ export function createRenderer(app) {
           const a = Math.random() * Math.PI * 2, sp = 20 + Math.random() * 60
           spawnParticle(T.clayClod.tex, e.x + Math.cos(a) * e.r, e.y + Math.sin(a) * e.r, -Math.cos(a) * sp, -Math.sin(a) * sp, 0.35, 0.55, 0x6e4c2e, -0.6, 2)
         }
-        spawnParticle(T.dot.tex, e.x, e.y, 0, 0, 0.5, 1.6, 0x8a6a48, 1.5, 0)
         return true
       case 'pitFall':
         // the body drops out of sight: a dark shrink where it stood, and the lip crumbling in after it
@@ -6526,7 +6791,7 @@ export function createRenderer(app) {
         return true
       case 'shoot':
         if (e.weapon === 'shovel') {
-          burrowSwings.push({ angle: e.angle, r: e.maxR, arc: e.arc, t: 0, life: 0.24, seed: Math.random() * 100 })
+          burrowSwings.push({ x: e.x, y: e.y, angle: e.angle, r: e.maxR, arc: e.arc, t: 0, life: SHOVEL_SWING_LIFE, seed: Math.random() * 100 })
           if (burrowSwings.length > 8) burrowSwings.shift()
         }
         return false
@@ -6576,9 +6841,9 @@ export function createRenderer(app) {
     kobold: { archetype: 'tank', ascii: true },
     golem: { archetype: 'tank', ascii: true },
     // Book 3, The Magma: PIXEL ART (`pixel: true` — painted by src/pixel.js PIXEL_CAST, not here).
-    // lean 0: a pixel body only ever MIRRORS (faces left or right, nose +x), never rotates. The CRT
-    // pass re-grids whatever it is given, and a sprite turned to an arbitrary angle comes out as
-    // ragged stair-steps; a mirror keeps every art pixel square on the grid.
+    // A pixel body TURNS to its heading by swapping pre-turned bakes (makePixelLook's dirs), never by
+    // rotating the sprite: the CRT pass re-grids whatever it is given, and a sprite turned to an
+    // arbitrary angle comes out as ragged stair-steps. lean is unused on that path.
     cinderBeetle: { archetype: 'normal', pixel: true, lean: 0 },
     salamander: { archetype: 'fast', pixel: true, lean: 0 },
     obsidianTortoise: { archetype: 'tank', pixel: true, lean: 0 },
@@ -6794,6 +7059,16 @@ export function createRenderer(app) {
   // tex (body or white twin) -> its white twin: the silhouette the Geode's cavern halos are cut from
   const macroWhiteOf = new Map()
   const macroFrames = new Map()
+  // The photographed player (MACRO.paintPlayerBlob), baked the first time a macro run draws it.
+  let macroPlayerLook = null
+  function macroPlayer() {
+    if (macroPlayerLook) return macroPlayerLook
+    const b = MACRO.bakeLocal(MACRO.MACRO_PLAYER_E, 3, MACRO.paintPlayerBlob, { shadowBlur: 2.5 })
+    const tex = macroCanvasTex(b.body, b.S), white = macroCanvasTex(b.white, b.S), sh = macroCanvasTex(b.shadow, b.S)
+    macroShadowOf.set(tex, sh)
+    macroPlayerLook = { body: { tex, ax: b.ax, ay: b.ay }, flash: { tex: white, ax: b.ax, ay: b.ay } }
+    return macroPlayerLook
+  }
   function makeMacroLook(id, entry, elite) {
     const M = HOLO.HOLO_CAST[id] ?? MACRO.MACRO_CAST[id]
     const n = M.poses ?? M.frames ?? 1
@@ -6808,7 +7083,13 @@ export function createRenderer(app) {
         macroShadowOf.set(white, sh)
         macroWhiteOf.set(tex, white)
         macroWhiteOf.set(white, white)
-        frames.push({ tex, white, ax: b.ax, ay: b.ay })
+        let flash = white
+        if (TOPSOIL_CAST.has(id)) {
+          flash = macroCanvasTex(MACRO.paintFlashTwin(b.body), b.S)
+          macroShadowOf.set(flash, sh)
+          macroWhiteOf.set(flash, white)
+        }
+        frames.push({ tex, white: flash, ax: b.ax, ay: b.ay })
       }
       macroFrames.set(id, frames)
     }
@@ -6849,6 +7130,12 @@ export function createRenderer(app) {
   // baseR grows by it so k comes out at 1 (art pixel = grid pixel). A bake that returns no scale
   // (the original two-argument contract) is stretched by k exactly as before.
   const pixelFrames = new Map()
+  // enemy -> the heading (0..CAST_DIRS-1) syncEnemies last drew it at; the pixel rig's emissive mask
+  // reads it so the creature light lands on the body as turned
+  const pixelDirOf = new WeakMap()
+  const pixelDirAt = (e) => pixelDirOf.get(e)
+  // rad/s a pixel body turns at: a turn reads as a turn, not a snap between bakes
+  const PIXEL_TURN_RATE = 8
   // THE PIXEL CROWN SITS ON THE BODY AS DRAWN. A fixed crown offset (PIXEL_CAST.crown) cannot know
   // the frame, the facing rotation, the elite draw scale or a restyled bake, and it floated the crown
   // well clear of the creature. So each baked frame keeps its opaque outline (every opaque row's left
@@ -6911,14 +7198,33 @@ export function createRenderer(app) {
         if (pts) { pixelOutline.set(fr.tex, pts); pixelOutline.set(fr.white, pts) }
         frames.push(fr)
       }
+      frames.dirCache = new Map()
       pixelFrames.set(key, frames)
+    }
+    // heading d of frame fi, baked on first sight (d 0 is the frame itself)
+    const dirTex = (fi, d) => {
+      if (!d) return frames[fi] ?? frames[0]
+      const dk = fi * 64 + d
+      let fr = frames.dirCache.get(dk)
+      if (!fr) {
+        const b = PIXEL.bakeCreature(id, fi, drawScale, d)
+        fr = { tex: PIXEL.pixelTex(b.body, b.res), white: PIXEL.pixelTex(b.white, b.res), ax: b.ax, ay: b.ay }
+        const pts = pixelOutlinePts(b.body, b.res ?? 1, b.ax, b.ay)
+        if (pts) { pixelOutline.set(fr.tex, pts); pixelOutline.set(fr.white, pts) }
+        frames.dirCache.set(dk, fr)
+      }
+      return fr
     }
     const baked = frames[0].scale > 0 ? frames[0].scale : 1
     return {
       tex: frames[0].tex, white: frames[0].white, ax: frames[0].ax, ay: frames[0].ay,
       frames: frames.length > 1 ? frames : null,
       baseR: ROSTER_BASE_R[entry.archetype] * baked, maxLean: entry.lean * DEG,
-      poseOf: null, faceDir: null, turnRate: null, spin: 0, squash: 0,
+      poseOf: null, spin: 0, squash: 0,
+      // turns: dirs headings, smoothed; along a lava river's bank it faces the way it walks
+      dirs: PIXEL.CAST_DIRS, dirTex,
+      faceDir: (e) => ((e.bankT || 0) > 0 && (e.bankX || e.bankY) ? [e.bankX, e.bankY] : null),
+      turnRate: () => PIXEL_TURN_RATE,
       shadow: null,
       // crown.pixel: drawn at the grid size by syncEnemyDecor (pixelCrownLook), never stretched by k
       crown: elite ? { top: M.crown[0], r: M.crown[1], pixel: true, baked } : null,
@@ -12482,19 +12788,50 @@ export function createRenderer(app) {
     uFocus: { value: new Float32Array([0.5, 0.5]), type: 'vec2<f32>' },
     uLightDir: { value: new Float32Array([-0.62, -0.78]), type: 'vec2<f32>' },
     uKey: { value: 0.4, type: 'f32' },
+    uExposure: { value: 1, type: 'f32' },
     uShadowTone: { value: new Float32Array([0.5, 0.6, 0.7]), type: 'vec3<f32>' },
     uLightTone: { value: new Float32Array([1, 0.9, 0.75]), type: 'vec3<f32>' },
     uVignette: { value: 0.7, type: 'f32' },
     uGrain: { value: 0.06, type: 'f32' },
     uSharpR: { value: 0.62, type: 'f32' },
+    uSunTone: { value: new Float32Array([1, 1, 1]), type: 'vec3<f32>' },
+    uSkyTone: { value: new Float32Array([1, 1, 1]), type: 'vec3<f32>' },
+    uKeyTint: { value: 0, type: 'f32' },
   })
   const lensFilter = new Filter({
     glProgram: GlProgram.from({ vertex: MACRO_VERT, fragment: MACRO.LENS_FRAG, name: 'macro-lens' }),
     resources: { macroU },
   })
+  // SUNDOWN's floor filter (MACRO.SUNDOWN_RAKE_FRAG): on macroFloor only while the dusk is up
+  const rakeU = new UniformGroup({
+    uRakeDir: { value: new Float32Array([-0.62, -0.78]), type: 'vec2<f32>' },
+    uRake: { value: 0, type: 'f32' },
+    uRakeLen: { value: 10, type: 'f32' },
+    uRakeSlope: { value: 0.1, type: 'f32' },
+    uFace: { value: 0, type: 'f32' },
+    uRakeSky: { value: new Float32Array([1, 1, 1]), type: 'vec3<f32>' },
+    uRakeSun: { value: new Float32Array([1, 1, 1]), type: 'vec3<f32>' },
+  })
+  const rakeFilter = new Filter({
+    glProgram: GlProgram.from({ vertex: MACRO_VERT, fragment: MACRO.SUNDOWN_RAKE_FRAG.replaceAll('RAKE_TAPS', '8'), name: 'macro-sundown-rake' }),
+    resources: { rakeU },
+  })
+  // A canvas-baked texture's white silhouette (MACRO.paintSundownSilhouette), made once per texture
+  const macroSilhouettes = [new Map(), new Map()]
+  function macroSilhouette(tex, solid) {
+    const cache = macroSilhouettes[solid ? 1 : 0]
+    let r = cache.get(tex)
+    if (r !== undefined) return r
+    const src = tex.source?.resource
+    if (!src || !src.getContext) { cache.set(tex, null); return null }
+    r = new Texture({ source: new CanvasSource({ resource: MACRO.paintSundownSilhouette(src, solid), resolution: tex.source.resolution }) })
+    cache.set(tex, r)
+    return r
+  }
   const hexTone = (h, out) => { out[0] = ((h >> 16) & 255) / 255; out[1] = ((h >> 8) & 255) / 255; out[2] = (h & 255) / 255 }
   let macroLook = null          // CHAPTERS[id].render.macro, latched in setMacro (from reset)
   const macroTiles = {}         // floor kind -> Texture, painted the first time a run needs it
+  let macroPickups = null       // the photographed gems and coins (MACRO.paintPickups), baked by setMacro
   const macroAir = new Container()
   app.stage.addChildAt(macroAir, app.stage.getChildIndex(world) + 1)
   macroAir.visible = false
@@ -12636,11 +12973,55 @@ export function createRenderer(app) {
     app.stage.filterArea = app.screen
     app.stage.filters = [pixelRig.filter]
   }
+  function bakeMacroTile(kind) {
+    if (!macroTiles[kind]) {
+      const c = kind === 'geode' ? MACRO.paintGeodeTile() : MACRO.paintTopsoilTile()
+      macroTiles[kind] = macroCanvasTex(c, MACRO.TILE_RES)
+      macroTiles[kind].source.style.addressMode = 'repeat'
+    }
+    return macroTiles[kind]
+  }
+  function bakeMacroPickups() {
+    if (macroPickups) return
+    const P = MACRO.paintPickups()
+    const lift = (c, k) => {
+      if (k === 1) return c
+      const x = c.getContext('2d'), im = x.getImageData(0, 0, c.width, c.height), d = im.data
+      for (let i = 0; i < d.length; i += 4) { d[i] = Math.min(255, d[i] * k); d[i + 1] = Math.min(255, d[i + 1] * k); d[i + 2] = Math.min(255, d[i + 2] * k) }
+      x.putImageData(im, 0, 0)
+      return c
+    }
+    const tex = (k) => (b) => ({ tex: macroCanvasTex(lift(b.body, k), MACRO.PK_S), ax: b.ax, ay: b.ay })
+    macroPickups = { gem: P.gem.map((tier) => tier.map((sh) => sh.map(tex(PICK_LIFT[0])))), coin: P.coin.map((sh) => sh.map(tex(PICK_LIFT[1]))) }
+  }
+  // A run's photo bakes take seconds all together (Topsoil: ~2 s on a laptop). main.js calls this
+  // when the brief opens, so they are made one at a time, between frames, while the player reads it:
+  // each is cached, so reset() then finds them done, and bakes whatever is still missing itself.
+  let prewarmQ = []
+  function prewarm(chapterId) {
+    const ch = CHAPTERS[chapterId], kind = ch?.render?.macro?.floor
+    if (!ch) return
+    const q = []
+    if (kind) q.push(() => bakeMacroTile(kind), () => macroPlayer())
+    if (kind === 'topsoil') q.push(bakeMacroPickups, bakeShovel)
+    if (ch.signature?.caveIns || ch.weapons?.includes('furrow')) q.push(bakePits)
+    if (ch.weapons?.includes('furrow')) q.push(bakeFurrow)
+    if (ch.weapons?.includes('rootSnare')) q.push(bakeSnares)
+    const idle = !prewarmQ.length
+    prewarmQ = q
+    const next = () => { const job = prewarmQ.shift(); if (!job) return; job(); setTimeout(next, 30) }
+    if (idle) setTimeout(next, 30)
+  }
   function setMacro(run) {
     const ch = run && CHAPTERS[run.chapter]
+    macroDustMul = 1
+    for (const pool of [macroRims, macroPickRims, macroCoinGlints]) for (const r of pool) r.visible = false
+    if (ch && (ch.signature?.caveIns || ch.weapons?.includes('furrow'))) bakePits()
+    if (ch?.weapons?.includes('furrow')) bakeFurrow()   // elsewhere (The Blank deals it too) on its first furrow
     if (pixelLook) { pixelLook = null; pixelRig.disable(); pixelRig.player.tint = 0xffffff; if (pixelHotSprite) pixelHotSprite.visible = false; pixelHitT = pixelLastInvuln = 0; bodyC.visible = true; pShadow.visible = true }
     if (ch?.render?.pixel) { macroLook = null; holoLook = null; setPixel(ch.render.pixel); return }
     macroLook = ch?.render?.macro ?? null
+    if (macroLook && !playerForm) playerSkin = null   // the photographed blob has no skin (look A)
     holoLook = null
     cavernFloor.visible = false
     holoHaloLayer.visible = false
@@ -12655,25 +13036,37 @@ export function createRenderer(app) {
       return
     }
     const kind = macroLook.floor
-    if (!macroTiles[kind]) {
-      const c = kind === 'geode' ? MACRO.paintGeodeTile() : MACRO.paintTopsoilTile()
-      macroTiles[kind] = macroCanvasTex(c, MACRO.TILE_RES)
-      macroTiles[kind].source.style.addressMode = 'repeat'
-    }
-    macroFloor.texture = macroTiles[kind]
+    macroFloor.texture = bakeMacroTile(kind)
+    if (kind === 'topsoil') bakeMacroPickups()
     macroFloor.visible = true
     blotchLayer.visible = false
     buildMacroAir(kind)
+    bakeShovel()
     macroAir.visible = true
     macroShadowLayer.visible = true
     const u = macroU.uniforms
-    u.uBlurPx = macroLook.blur ?? 7
+    // the lens above Pixi's default resolution 1, where a phone sees the whole frame at half sharpness
+    // and small hit numbers smear into the soil. Capped at 1.5: 2 cost +3-4 ms a frame. Blur is in texels.
+    const lensRes = Math.min(1.5, app.renderer.resolution || 1)
+    lensFilter.resolution = lensRes
+    u.uBlurPx = (macroLook.blur ?? 7) * lensRes
     u.uKey = macroLook.key ?? 0.4
     u.uVignette = macroLook.vignette ?? 0.7
     u.uGrain = macroLook.grain ?? 0.06
     u.uSharpR = macroLook.sharp ?? 0.62
     hexTone(macroLook.shadowTone ?? 0x8090b0, u.uShadowTone)
     hexTone(macroLook.lightTone ?? 0xffe8c0, u.uLightTone)
+    hexTone(macroLook.lightTone ?? 0xffe8c0, macroDayTone)
+    hexTone(macroLook.shadowTone ?? 0x8090b0, macroDayShadow)
+    macroDayKey = u.uKey
+    const dusk = macroLook.dusk
+    if (dusk) {
+      hexTone(dusk.lightTone, macroDuskTone)
+      hexTone(dusk.shadowTone, macroDuskShadow)
+      for (let i = 0; i < 3; i++) { u.uSunTone[i] = rakeU.uniforms.uRakeSun[i] = dusk.sun[i]; u.uSkyTone[i] = rakeU.uniforms.uRakeSky[i] = dusk.sky[i] }
+    }
+    u.uKeyTint = 0
+    macroDusk = run.anomalies?.sundown ? 1 : 0   // a reloaded run is already dark
     for (const s of macroShafts) s.tint = macroLook.shaft ?? 0xffe0b0
     for (const s of macroBokeh) s.tint = macroLook.bokeh ?? 0xffd8a0
     app.stage.filterArea = app.screen
@@ -12692,6 +13085,7 @@ export function createRenderer(app) {
       sh.texture = st
       sh.anchor.copyFrom(s.anchor)
       sh.rotation = s.rotation
+      sh.skew.set(0, 0)
       sh.scale.copyFrom(s.scale)
       const d = (Math.abs(s.scale.y) * 22 + 5) * reach
       sh.position.set(s.x - LX * d, s.y - LY * d)
@@ -12749,6 +13143,41 @@ export function createRenderer(app) {
     }
     for (let i = n; i < holoHaloA.length; i++) { holoHaloA[i].visible = holoHaloB[i].visible = false }
   }
+  // SUNDOWN (ANOMALIES.sundown): the low sun the macro floor is lit by goes down over a few seconds —
+  // less light, a redder key, no shafts. macroDusk runs 0 (day) to 1 (dusk).
+  let macroDusk = 0
+  const macroDayTone = new Float32Array(3), DUSK_TONE = [1, 0.5, 0.32], DUSK_EXPOSURE = 0.45
+  // A chapter whose macro look carries a `dusk` block (Topsoil) gets the golden hour instead of the
+  // plain dim: every piece below is OFF (filter detached, sprites hidden, branches skipped) while
+  // macroDusk is 0, so a run that never takes Sundown draws exactly the day.
+  const macroDayShadow = new Float32Array(3), macroDuskTone = new Float32Array(3), macroDuskShadow = new Float32Array(3)
+  let macroDayKey = 0.4, macroDustMul = 1
+  const macroRims = [], macroPickRims = [], macroCoinGlints = []
+  const castM = new Matrix()
+  // a cast shadow offset down-light by d and stretched k times along it, the near end held at the body
+  function placeStretchedCast(sh, x, y, rot, scx, scy, d, k) {
+    const ux = SHADOW_DX, uy = SHADOW_DY, e = k - 1
+    const c = Math.cos(rot), sn = Math.sin(rot)
+    const a0 = c * scx, b0 = sn * scx, c0 = -sn * scy, d0 = c * scy
+    const e11 = 1 + e * ux * ux, e12 = e * ux * uy, e22 = 1 + e * uy * uy
+    const off = d + e * 0.375 * Math.min(sh.texture.width * Math.abs(scx), sh.texture.height * Math.abs(scy))
+    castM.set(e11 * a0 + e12 * b0, e12 * a0 + e22 * b0, e11 * c0 + e12 * d0, e12 * c0 + e22 * d0, x + ux * off, y + uy * off)
+    sh.setFromMatrix(castM)
+  }
+  // a rim sprite: the body's solid silhouette, under it, nudged toward the sun so only its lit edge shows
+  function placeRim(pool, layer, i, tex, src, x, y, scx, scy, rot, off, tint, alpha) {
+    let rm = pool[i]
+    if (!rm) { rm = new Sprite(tex); layer.addChild(rm); pool.push(rm) }
+    rm.visible = true
+    rm.texture = tex
+    rm.anchor.copyFrom(src.anchor)
+    rm.scale.set(scx, scy)
+    rm.rotation = rot
+    rm.position.set(x - SHADOW_DX * off, y - SHADOW_DY * off)
+    rm.tint = tint
+    rm.alpha = alpha
+    return rm
+  }
   function updateMacro(run, dt, cx, cy) {
     if (holoLook) {
       const w = viewW(), h = viewH(), z = world.scale.x || 1
@@ -12779,12 +13208,37 @@ export function createRenderer(app) {
     macroFloor.tilePosition.set(-macroFloor.x, -macroFloor.y)
     const u = macroU.uniforms
     u.uTime = animT
+    macroDusk += ((run.anomalies?.sundown ? 1 : 0) - macroDusk) * Math.min(1, dt * 0.6)
+    const dusk = macroLook.dusk
+    const k = dusk ? macroDusk : 0   // 0: every golden-hour piece below is off
+    const on = k > 0.001
+    if (dusk) {
+      u.uExposure = 1 - (1 - dusk.exposure) * k
+      for (let i = 0; i < 3; i++) {
+        u.uLightTone[i] = macroDayTone[i] + (macroDuskTone[i] - macroDayTone[i]) * k
+        u.uShadowTone[i] = macroDayShadow[i] + (macroDuskShadow[i] - macroDayShadow[i]) * k
+      }
+      u.uKey = macroDayKey + (dusk.key - macroDayKey) * k
+      u.uKeyTint = dusk.keyTint * k
+      macroDustMul = 1 + (dusk.dust - 1) * k
+      const ru = rakeU.uniforms
+      ru.uRake = dusk.rake * k
+      ru.uFace = dusk.face * k
+      ru.uRakeLen = dusk.rakeLen * z   // rakeFilter runs at resolution 1: its texels are CSS px
+      ru.uRakeSlope = dusk.rakeSlope
+      if (on !== !!macroFloor.filters) macroFloor.filters = on ? [rakeFilter] : null
+    } else {
+      u.uExposure = 1 - (1 - DUSK_EXPOSURE) * macroDusk
+      for (let i = 0; i < 3; i++) u.uLightTone[i] = macroDayTone[i] + (DUSK_TONE[i] - macroDayTone[i]) * macroDusk
+    }
+    const stretch = on ? 1 + (dusk.stretch - 1) * k : 1
+    const castA = on ? 0.62 + (dusk.shadowAlpha - 0.62) * k : 0.62
     // focus rides the player, held near the middle of the frame
     const sx = (run.player.x + cx) * z / app.screen.width, sy = (run.player.y + cy) * z / app.screen.height
     u.uFocus[0] = 0.5 + (sx - 0.5) * 0.6
     u.uFocus[1] = 0.5 + (sy - 0.5) * 0.6
     // the raking shadows: every creature's own silhouette, blurred, thrown away from the key
-    let n = 0
+    let n = 0, nr = 0
     const LX = -0.62, LY = -0.78
     const reach = macroLook.shadowReach ?? 0.5
     for (const [, s] of enemySprites) {
@@ -12796,14 +13250,66 @@ export function createRenderer(app) {
       sh.visible = true
       sh.texture = st
       sh.anchor.copyFrom(s.anchor)
-      sh.rotation = s.rotation
-      sh.scale.copyFrom(s.scale)
       const d = (Math.abs(s.scale.y) * 22 + 5) * reach
-      sh.position.set(s.x - LX * d, s.y - LY * d)
-      sh.alpha = 0.62 * s.alpha
+      if (on) {
+        placeStretchedCast(sh, s.x, s.y, s.rotation, s.scale.x, s.scale.y, d, stretch)
+        const wt = macroWhiteOf.get(s.texture), rt = wt && macroSilhouette(wt, true)
+        if (rt) placeRim(macroRims, macroRimLayer, nr++, rt, s, s.x, s.y, s.scale.x, s.scale.y, s.rotation, dusk.rimOff, dusk.rim, dusk.rimAlpha * k * s.alpha * s.alpha * s.alpha)
+      } else {
+        sh.rotation = s.rotation
+        sh.skew.set(0, 0)
+        sh.scale.copyFrom(s.scale)
+        sh.position.set(s.x - LX * d, s.y - LY * d)
+      }
+      sh.alpha = castA * s.alpha
       n++
     }
+    // ...and the player's, off the same key, when it wears the photographed blob
+    const pst = bodyC.visible && macroShadowOf.get(pBody.texture)
+    if (pst) {
+      let sh = macroShadowPool[n]
+      if (!sh) { sh = new Sprite(pst); sh.tint = 0x000000; macroShadowLayer.addChild(sh); macroShadowPool.push(sh) }
+      sh.visible = true
+      sh.texture = pst
+      sh.anchor.copyFrom(pBody.anchor)
+      const pscx = bodyC.scale.x * playerC.scale.x, pscy = bodyC.scale.y * playerC.scale.y
+      const px0 = playerC.x + bodyC.x, py0 = playerC.y + bodyC.y
+      const d = (Math.abs(pscy) * 22 + 5) * reach
+      if (on) {
+        placeStretchedCast(sh, px0, py0, 0, pscx, pscy, d, stretch)
+      } else {
+        sh.rotation = 0
+        sh.skew.set(0, 0)
+        sh.scale.set(pscx, pscy)
+        sh.position.set(px0 - LX * d, py0 - LY * d)
+      }
+      sh.alpha = castA * playerC.alpha
+      n++
+      // the blob's rim only while it is solid: under an i-frame blink it would show through the body
+      const prt = on && playerC.alpha >= 0.99 && macroSilhouette(macroPlayer().flash.tex, true)
+      if (prt) placeRim(macroRims, macroRimLayer, nr++, prt, pBody, px0, py0, pscx, pscy, 0, dusk.rimOff, dusk.rim, dusk.rimAlpha * k)
+    }
     for (let i = n; i < macroShadowPool.length; i++) macroShadowPool[i].visible = false
+    for (let i = nr; i < macroRims.length; i++) macroRims[i].visible = false
+    // the low sun on every pickup: a warm rim on its sunward edge, and a coin's worn metal catching it
+    let np = 0, ng = 0
+    if (on) {
+      for (const pool of [gemPool, coinPool]) {
+        for (const g of pool) {
+          if (!g.visible || !g.parent) continue
+          if (np >= DUSK_PICK_RIM_MAX) break
+          const rt = macroSilhouette(g.texture, true)
+          if (!rt) continue
+          placeRim(macroPickRims, macroPickRimLayer, np++, rt, g, g.x, g.y, g.scale.x, g.scale.y, g.rotation, 1.1, dusk.rim, dusk.pickRim * k)
+          if (pool === coinPool) {
+            const gl = placeRim(macroCoinGlints, macroCoinGlintLayer, ng++, g.texture, g, g.x, g.y, g.scale.x, g.scale.y, g.rotation, 0, dusk.rim, dusk.coinGlow * k)
+            gl.blendMode = 'add'
+          }
+        }
+      }
+    }
+    for (let i = np; i < macroPickRims.length; i++) macroPickRims[i].visible = false
+    for (let i = ng; i < macroCoinGlints.length; i++) macroCoinGlints[i].visible = false
     // the air: shafts sway, bokeh drifts at the edges, foreground hugs two corners
     const W = app.screen.width, H = app.screen.height, D = Math.hypot(W, H)
     const t = animT
@@ -12813,7 +13319,11 @@ export function createRenderer(app) {
       s.position.set(W * (0.05 + i * 0.3) + Math.sin(t * 0.11 + i) * W * 0.05, -H * 0.12)
       s.width = D * (0.16 + 0.08 * ((i * 37) % 3))
       s.height = D * 1.25
-      s.alpha = (macroLook.shaftAlpha ?? 0.14) * (0.7 + 0.3 * Math.sin(t * 0.3 + i * 1.7))
+      s.alpha = (macroLook.shaftAlpha ?? 0.14) * (0.7 + 0.3 * Math.sin(t * 0.3 + i * 1.7)) * (1 - macroDusk * (1 - (dusk?.shaft ?? 0)))
+      if (on) {   // the sun lower: the shafts lean flatter and go orange
+        s.tint = mixHex(macroLook.shaft ?? 0xffe0b0, dusk.shaftTint, k)
+        s.rotation -= 0.35 * k
+      }
     }
     const px = run.player.x, py = run.player.y
     for (let i = 0; i < macroBokeh.length; i++) {
@@ -12825,6 +13335,7 @@ export function createRenderer(app) {
       const size = D * (0.03 + 0.045 * ((i * 7919) % 11) / 11)
       s.width = s.height = size
       s.alpha = (macroLook.bokehAlpha ?? 0.22) * (0.5 + 0.5 * Math.sin(t * 0.4 + i * 1.3))
+      if (on) { s.alpha *= 1 + (dusk.bokeh - 1) * k; s.tint = mixHex(macroLook.bokeh ?? 0xffd8a0, dusk.bokehTint, k) }
     }
     const fgS = Math.max(W, H) / 1300
     for (let i = 0; i < macroFg.length; i++) {
@@ -13044,6 +13555,11 @@ export function createRenderer(app) {
   // The Geode (holo): each creature's two-tone outline under it, reacting to the opal cavern it
   // stands in (syncHoloHalos)
   const holoHaloLayer = new Container()
+  // Sundown (updateMacro): the warm rims on the creatures' and the blob's sunward edges, under the crowd
+  const macroRimLayer = new Container()
+  // ...the pickups' rims under the gems, and the coins' glint over them
+  const macroPickRimLayer = new Container()
+  const macroCoinGlintLayer = new Container()
   holoHaloLayer.visible = false
   const enemyLayer = new Container()
   // The Kraken's arm ring. Its OWN layer, above the enemies, because the arms shield the head and
@@ -13103,8 +13619,16 @@ export function createRenderer(app) {
   // Book 3, Burrow (see syncBurrow): the floor layer under the crowd, the fx layer over it, and the
   // falling stones' sprite pool.
   const burrowGroundG = new Graphics()
+  const pitLayer = new Container()   // the photographed pits (syncPits), one container per pass
+  for (const k of ['trRim', 'trBed', 'tell', 'damp', 'spoil', 'wall', 'inner', 'floor']) pitLayer.addChild(pitPasses[k].c)
   const burrowFxG = new Graphics()
   const burrowStoneLayer = new Container()
+  const snareRootLayer = new Container()   // the Root Snare's baked roots (syncSnareSprites)
+  // the shovel (drawShovel): its shadows and the soil lying on the floor, the tool itself (under the
+  // blob, which holds it by the grip), and the soil in flight over everything
+  const shovelFloorLayer = new Container()
+  const shovelToolLayer = new Container()
+  const shovelAirLayer = new Container()
   // Barnacle crusts, drawn OVER the bodies they are growing on — they sit on top of the enemy
   // sprite, so this has to be added after the entity layer, not with the ground effects.
   const crustG = new Graphics()
@@ -13233,16 +13757,16 @@ const spurG = new Graphics()
   const particleLayer = new Container()
   const textLayer = new Container()
   entitiesLayer.addChild(
-    mownG, sandLayer, netWakeG, wellG, bindG, poolLayer, slickG, burrowGroundG, pixelRig.ground, trailLayer, webLayer, gateFloorG, spurG, coralLayer, gateG, burstWakeG, obstacleLayer, trapLayer,
+    mownG, sandLayer, netWakeG, wellG, bindG, poolLayer, slickG, pitLayer, burrowGroundG, snareRootLayer, shovelFloorLayer, pixelRig.ground, trailLayer, webLayer, gateFloorG, spurG, coralLayer, gateG, burstWakeG, obstacleLayer, trapLayer,
     // The refill circles (The Deep's anglerfish, sun shafts, pools) sit UNDER the drops: a maw is
     // a 400px body, and above gemLayer it hid every gem and coin that fell inside it.
     shaftLayer,
-    gemLayer, coinLayer, holeLayer, eddyLayer, novaLayer, mineLayer,
+    macroPickRimLayer, gemLayer, coinLayer, macroCoinGlintLayer, holeLayer, eddyLayer, novaLayer, mineLayer,
     krakenDeepG, scarLayer, bombG, shellLayer, skyLayer, voltLayer, stripG, laneG, hazardG, jetLayer, krakenSlapWakeG, teleG, krakenImpactG, strafePoolLayer, rampG, pacerG,
     rockLayer,
     orcaShadowSp, orcaG,
-    macroShadowLayer, enemyShadowLayer, holoHaloLayer, enemyLayer, krakenArmLayer, enemyCrownLayer, krakenCoilBandLayer, orcaSp, netG, longlineG, snareG,
-    bloomLayer, lureLayer, shieldG, affixLayer, crustG, deepG, lockLayer, playerC, krakenGripFrontLayer, netHoldG, gateFrontG, breakerG, puffG, splashG, columnG, shorebreakG, burrowFxG, burrowStoneLayer, pixelRig.air,
+    macroShadowLayer, enemyShadowLayer, holoHaloLayer, macroRimLayer, enemyLayer, pitPasses.collar.c, krakenArmLayer, enemyCrownLayer, krakenCoilBandLayer, orcaSp, netG, longlineG, snareG,
+    bloomLayer, lureLayer, shieldG, affixLayer, crustG, deepG, lockLayer, shovelToolLayer, playerC, krakenGripFrontLayer, netHoldG, gateFrontG, breakerG, puffG, splashG, columnG, shorebreakG, burrowFxG, burrowStoneLayer, shovelAirLayer, pixelRig.air,
     bulletLayer, boomerangLayer, orbLayer, debrisLayer, homingLayer, shotLayer, beamLayer, whipLayer, arcG, breathG,
     lobLayer, carLayer, smokeLayer, particleLayer,
     // v6.7.7: the refraction sits in FRONT of traffic, smoke and particles — everything except the
@@ -15197,7 +15721,7 @@ const spurG = new Graphics()
       if (m.y < -0.08) m.y += 1.16
       else if (m.y > 1.08) m.y -= 1.16
       m.s.position.set(m.x * w, m.y * h)
-      m.s.alpha = (0.2 + 0.1 * Math.sin(dustT * 2 + i)) * (dustLook?.alpha ?? 1)
+      m.s.alpha = (0.2 + 0.1 * Math.sin(dustT * 2 + i)) * (dustLook?.alpha ?? 1) * macroDustMul
     }
   }
 
@@ -19394,6 +19918,7 @@ const spurG = new Graphics()
   const orbPool = []
   const gemPool = []
   const coinPool = []
+  let pickRun = null   // the run being drawn, for gemTier (placeGem only gets the gem)
   const gemsShown = []
   const coinsShown = []
   const PICKUP_CULL_PAD = 32 // px, past the edge so a gem's pulse never pops in
@@ -26270,12 +26795,23 @@ void main() {
     d.x = x + (Math.random() * 10 - 5)
     d.y = y - 10
     d.t.text = label ? label.text : String(Math.round(dmg))
-    // The Geode (holo) only: a heavy near-black ink stroke, so a number reads on the pale opal
-    // caverns as well as on the dark shards. Every other chapter keeps the brown stroke.
-    const holoInk = !!holoLook
-    if (d._holoInk !== holoInk) {
-      d._holoInk = holoInk
-      d.t.style.stroke = holoInk ? { color: 0x120a1e, width: 5, join: 'round' } : { color: 0x6b5847, width: 3.5, join: 'round' }
+    // The Geode (holo): a heavy near-black ink stroke, so a number reads on the pale opal caverns as
+    // well as on the dark shards. Topsoil: a thin dark-earth outline under the sand fill below, so a
+    // hit's number stays readable without a white glyph for the macro lens to halate. Every other
+    // chapter keeps the brown stroke.
+    const soil = !label && macroLook?.floor === 'topsoil'
+    const inkKey = holoLook ? 1 : soil ? 2 : 0
+    if (d._ink !== inkKey) {
+      d._ink = inkKey
+      d.t.style.stroke = [{ color: 0x6b5847, width: 3.5, join: 'round' }, { color: 0x120a1e, width: 5, join: 'round' }, { color: 0x1e130a, width: 4, join: 'round' }][inkKey]
+    }
+    d._pop = soil ? 0.14 : 0.35
+    d._hold = soil ? SOIL_DMG_HOLD : 0.55
+    if (soil) {
+      d.t.tint = crit ? 0xffb868 : dot ? 0xcdb898 : 0xf2e2c4
+      d.t.visible = true
+      d._base = crit ? 1.15 : dot ? 0.62 : 0.85
+      return
     }
     // DoT ticks read as small muted numbers so a status-covered crowd doesn't flood the screen.
     // v5.24: chapterRender.ink (the blank) replaces the white base fill — white numbers vanish on
@@ -26293,10 +26829,10 @@ void main() {
       d.age += dt
       if (d.age >= 0.75) { d.live = false; d.t.visible = false; continue }
       const k = d.age / 0.75
-      const pop = 1 + 0.35 * Math.max(0, 1 - d.age * 7)
+      const pop = 1 + d._pop * Math.max(0, 1 - d.age * 7)
       d.t.position.set(d.x, d.y - 30 * k)
       d.t.scale.set(d._base * pop)
-      d.t.alpha = k > 0.55 ? 1 - (k - 0.55) / 0.45 : 1
+      d.t.alpha = k > d._hold ? 1 - (k - d._hold) / (1 - d._hold) : 1
     }
   }
 
@@ -28222,7 +28758,30 @@ void main() {
   }
 
   // ------------------------------------------------------------------ events
-  function killPoof(x, y, etype, elite) {
+  // Topsoil: a puff of dry dust where a hit lands, thrown away from the player; a kill throws the
+  // bigger one in place of the white bloom. The puff's own randoms come from soilRnd.
+  let soilSeed = 1
+  const soilRnd = () => ((soilSeed = (soilSeed * 1664525 + 1013904223) >>> 0) / 4294967296)
+  const SOIL_GRAINS = [0xb08e66, 0x7a5636, 0xc9aa80, 0x4e3420]
+  let soilBucket = SOIL_PUFF_BURST, soilBucketT = 0
+  function soilPuff(x, y, big, run) {
+    if (overOpenPit(run, x, y)) return
+    soilBucket = Math.min(SOIL_PUFF_BURST, soilBucket + (animT - soilBucketT) * SOIL_PUFF_RATE); soilBucketT = animT
+    if (!big && soilBucket < 3) return
+    soilBucket -= big ? 8 : 3
+    const R = soilRnd, a0 = Math.atan2(y - run.player.y, x - run.player.x)
+    for (let i = 0; i < (big ? 3 : 1); i++) {
+      const a = a0 + (R() - 0.5) * 2, sp = 25 + R() * 30
+      spawnParticle(T.dustPuff.tex, x, y, Math.cos(a) * sp, Math.sin(a) * sp, 0.45 + R() * 0.2,
+        (big ? 0.6 : 0.36) + R() * 0.1, i ? 0xa08262 : 0xc0a27c, big ? 1.5 : 1.0, 3)
+    }
+    for (let i = 0; i < (big ? 5 : 2); i++) {
+      const a = a0 + (R() - 0.5) * 1.6, sp = 60 + R() * 70
+      spawnParticle(T.soilGrain.tex, x, y, Math.cos(a) * sp, Math.sin(a) * sp, 0.3 + R() * 0.15, 0.7 + R() * 0.4, SOIL_GRAINS[i % 4], -0.6, 4)
+    }
+  }
+  function killPoof(x, y, etype, elite, run) {
+    if (macroLook?.floor === 'topsoil') { soilPuff(x, y, true, run); return }
     const color = elite ? 0xff9d5c : (ENEMY_LOOKS[etype]?.fill ?? 0xcccccc)
     const n = 5 + (Math.random() * 4 | 0)
     for (let i = 0; i < n; i++) {
@@ -28610,6 +29169,8 @@ void main() {
             if (d < 52) { const ux2 = d > 1 ? dx / d : 0.7, uy2 = d > 1 ? dy / d : -0.7; hx = run.player.x + ux2 * 52; hy = run.player.y + uy2 * 52 }
           }
           spawnDamage(hx, hy, e.dmg, e.crit, e.dot)
+          if (run.pits.length) pitSinkFromHit(run, e)
+          if (!e.dot && macroLook?.floor === 'topsoil') soilPuff(e.x, e.y, false, run)
           break
         }
         // A shot that bounced off a Shore Crab's raised claw. This exists because the alternative is
@@ -28695,7 +29256,7 @@ void main() {
           break
         }
         case 'kill':
-          killPoof(e.x, e.y, e.etype, e.elite)
+          killPoof(e.x, e.y, e.etype, e.elite, run)
           break
         // v7.x The Wreck: a fish the ORCA ate on its commit sweep. Deliberately NOT killPoof —
         // that ends on a white pop, which is this game's "you killed that", and the player gets
@@ -29774,8 +30335,10 @@ void main() {
   // ------------------------------------------------------------------- reset
   function clearWorld() {
     pixelRig.clear()   // The Magma (src/pixel.js): its own pools
-    burrowGroundG.clear(); burrowFxG.clear(); burrowSwings.length = 0
+    burrowGroundG.clear(); burrowFxG.clear(); burrowSwings.length = 0; hideShovel()
+    hidePits()
     for (const st of burrowStones) st.visible = false
+    for (const sp of snareSprites) sp.visible = false
     for (const [id, s] of enemySprites) {
       s.visible = false
       hideAffixBadges(s)
@@ -30071,6 +30634,7 @@ void main() {
       // creature's mass rather than dead-centre.
       const shOff = SKIES_KAIJU.shadowRx * SKIES_KAIJU.bodyScale
       pShadow.position.set(SKIES_SHADOW.dx * shOff, SKIES_SHADOW.dy * shOff + 20 * SKIES_KAIJU.bodyScale)
+      pShadow.visible = !pixelLook
     } else if (playerForm === 'fish') {
       // Book 2's fish (drawFish, near drawKaijuBody above): FISH_PHASES baked swim frames, flipped
       // through on animT — the same speed (`animT * 10`) syncEnemies uses for the centipede's
@@ -30092,6 +30656,7 @@ void main() {
         pShadow.texture = T.fishShadow.tex; pShadow.anchor.set(T.fishShadow.ax, T.fishShadow.ay)
       }
       pShadow.position.set(0, PLAYER.radius * 0.95)
+      pShadow.visible = !pixelLook
     } else {
       // STILLNESS picks a rung of the morph ladder; rung 0 IS the plain body, so a run without the
       // card takes exactly the old texture. Compared against the CHOSEN look rather than against
@@ -30102,8 +30667,9 @@ void main() {
         : 0
       // The skin wins over the STILLNESS morph ladder: that ladder sharpens the FACE's own
       // silhouette toward a triangle, and there is no face here to sharpen.
-      const bodyLook = playerSkin ? T.playerButt : rung > 0 ? T.playerStill[rung] : T.playerBody
-      const flashLook = playerSkin ? T.playerButtFlash : rung > 0 ? T.playerStillFlash[rung] : T.playerFlash
+      const photo = macroLook ? macroPlayer() : null   // the macro lens: the photographed blob (look A)
+      const bodyLook = photo ? photo.body : playerSkin ? T.playerButt : rung > 0 ? T.playerStill[rung] : T.playerBody
+      const flashLook = photo ? photo.flash : playerSkin ? T.playerButtFlash : rung > 0 ? T.playerStillFlash[rung] : T.playerFlash
       cheekLook = T.playerCheeks; cheekAt = BUTT_AT.blob; cheekMask = T.playerButtFlash; cheekW = PLAYER.radius * 1.04
       if (pBody.texture !== bodyLook.tex) {
         pBody.texture = bodyLook.tex; pBody.anchor.set(bodyLook.ax, bodyLook.ay)
@@ -30115,6 +30681,7 @@ void main() {
         pShadow.texture = T.playerShadow.tex; pShadow.anchor.set(T.playerShadow.ax, T.playerShadow.ay)
       }
       pShadow.position.set(0, PLAYER.radius * 0.95)
+      pShadow.visible = !photo && !pixelLook   // under the lens the raking cast shadow (updateMacro) replaces the puddle
     }
 
     // per-chapter blob tint (white = identity for body) + optional tail. The kaiju AND fish bakes
@@ -30124,7 +30691,7 @@ void main() {
     // playerTint (0x7ad07a for skies, 0xffffff for surf) would push the kaiju's
     // pale sclera or the fish's fin and gill highlights toward the same hue as the body fill, right
     // when that contrast matters most.
-    pBody.tint = (playerForm === 'kaiju' || playerForm === 'fish' || playerSkin) ? 0xffffff : chapterRender.playerTint
+    pBody.tint = (playerForm === 'kaiju' || playerForm === 'fish' || playerSkin || macroLook) ? 0xffffff : chapterRender.playerTint
     // OILED (The Wreck, 2026-09-07): the oil on you is on your skin — a multiply toward the film's
     // own near-black, ramped by the fouling timer, so the stain fades exactly as the slow does.
     if (buffs && buffs.foul > 0) pBody.tint = mix(pBody.tint, 0x3a2e24, buffs.foul * 0.8)
@@ -30345,8 +30912,8 @@ void main() {
       : playerForm === 'fish' ? shadowSquash * formScale : shadowSquash) * shadowHeld)
 
     // pupil tracking (local +x flips with the body toward facing)
-    if (playerSkin) {
-      pupilL.scale.set(0)   // a butt has no eyes
+    if (playerSkin || (macroLook && !playerForm)) {
+      pupilL.scale.set(0)   // a butt has no eyes; the photographed blob's are painted in
       pupilR.scale.set(0)
     } else if (playerForm === 'kaiju') {
       // bigger head, further-set eyes (drawKaijuBody's sclera circles, radius 13 at ±22,-96) — same
@@ -30582,7 +31149,7 @@ void main() {
         s._crown = new Sprite(Texture.EMPTY)
         enemyCrownLayer.addChild(s._crown)
       }
-      const tex = flash ? ct.white : ct.tex
+      const tex = flash && !macroLook ? ct.white : ct.tex
       if (s._crown.texture !== tex) s._crown.texture = tex
       s._crown.anchor.set(ct.ax, ct.ay)
       s._crown.visible = true
@@ -31016,6 +31583,7 @@ void main() {
         // v6.4 phase (tardigrade cryptobiosis flicker): last-seen solid/ghost state, so the flip
         // particle below fires on a real transition and not on a recycled slot's first frame.
         s._lastPhaseSolid = undefined
+        s._pxDir = undefined
         enemySprites.set(e.id, s)
       }
       s._seen = true
@@ -31054,9 +31622,12 @@ void main() {
       // featureless white cut-out covering half a phone screen: the fight's whole payoff, with its
       // eyes, beak and photophores erased at the instant they matter. It still takes the white TINT
       // below, which reads as a flash without deleting the art.
-      const tex = e.hitFlash > 0 && e.rosterId !== 'krakenHead' ? frame.white : frame.tex
+      // a body dropping into a Furrow pit is not flashed white: the drop is the hit's tell
+      const sink = pitSinks.size ? pitSinks.get(e.id) : undefined
+      const sinkT = sink ? animT - sink.t0 : 9
+      const tex = e.hitFlash > 0 && e.rosterId !== 'krakenHead' && !(sinkT < 0.25) ? frame.white : frame.tex
       if (s._look !== look) s._look = look
-      if (s.texture !== tex) {
+      if (!look.dirs && s.texture !== tex) {
         s.texture = tex
         s.anchor.set(frame.ax, frame.ay)
       }
@@ -31134,10 +31705,26 @@ void main() {
         s._dirY = Math.sin(cur + step)
       }
       const dx = s._dirX
-      const flip = dx < 0 ? -1 : 1
+      const flip = look.dirs ? 1 : dx < 0 ? -1 : 1
       const maxLean = look.maxLean
       const lean = Math.atan2(s._dirY, Math.abs(dx))
-      const face = flip * Math.max(-maxLean, Math.min(maxLean, lean))
+      const face = look.dirs ? 0 : flip * Math.max(-maxLean, Math.min(maxLean, lean))
+      // A PIXEL BODY TURNS BY SWAPPING BAKES (look.dirs: src/pixel/cast.js castPose), never by rotating
+      // the sprite. The heading picks the nearest of look.dirs drawings, held until it is well past
+      // the boundary so a heading sitting on one does not flicker between two.
+      if (look.dirs) {
+        const N = look.dirs, stp = (Math.PI * 2) / N
+        const ang = Math.atan2(s._dirY, s._dirX)
+        let di = s._pxDir
+        if (di === undefined || Math.abs(Math.atan2(Math.sin(ang - di * stp), Math.cos(ang - di * stp))) > stp * 0.62) {
+          di = ((Math.round(ang / stp) % N) + N) % N
+        }
+        s._pxDir = di
+        pixelDirOf.set(e, di)
+        const df = look.dirTex(s._animFrame ?? 0, di)
+        const t2 = e.hitFlash > 0 ? df.white : df.tex
+        if (s.texture !== t2) { s.texture = t2; s.anchor.set(df.ax, df.ay) }
+      }
       // holePull (0..1, set by sim while an enemy is being sucked into a black hole) may
       // not exist on older/other enemies — guard it. Shrinks + spins the sprite as it nears.
       const pull = e.holePull || 0
@@ -31200,6 +31787,8 @@ void main() {
         s._spinT = animT
       }
       s.rotation = face + wobble + currentWobble + pull * animT * 5 + (look.spin ? s._spinA : 0)
+      // a pixel body is never turned off its own grid (see look.dirs above)
+      if (look.dirs) s.rotation = 0
       // an `upright` look (src/ascii.js's text) is never mirrored or turned: a glyph must stay readable
       if (look.upright) { s.scale.x = Math.abs(s.scale.x); s.rotation = 0 }
       s.position.set(e.x, e.y)
@@ -31210,6 +31799,12 @@ void main() {
         s.position.set(e.x + Math.sin(animT * 71 + e.id) * qk, e.y + Math.cos(animT * 83 + e.id) * qk)
       }
 
+      // DROPPED INTO A FURROW PIT (pitSinks, render-side): shrunk, slid toward the pit's middle, in its shade
+      const sinkK = sink ? pitSinkK(sinkT) : 0
+      if (sinkK > 0) {
+        s.scale.x *= 1 - 0.32 * sinkK; s.scale.y *= 1 - 0.32 * sinkK
+        s.position.x += (sink.x - e.x) * 0.45 * sinkK; s.position.y += (sink.y - e.y) * 0.45 * sinkK
+      }
       // dominant tint, one status wins (frozen > chill > venom > ignite > none). The
       // hit-flash white silhouette overrides all of these so the hit pop still reads white —
       // except on the void, where white-on-white is invisible: the all-white twin takes any tint
@@ -31264,6 +31859,7 @@ void main() {
         s.tint = mix(mix(hues[a0], hues[(a0 + 1) % hues.length], seg - Math.floor(seg)), 0xffffff, 0.5)
       }
       else s.tint = 0xffffff
+      if (sinkK > 0) s.tint = mix(s.tint, 0x2a1c10, 0.5 * sinkK)
 
       // cheap status particles, dt-gated (no spawns while frozen behind a modal)
       if (frameDt > 0) {
@@ -31593,8 +32189,8 @@ void main() {
     syncGates(run)    // ...and the circuit's checkpoints and start line (no-op unless `circuit`)
     syncTrails(run.trails || [])
     syncWebs(run.webs || [])
-    syncBurrow(run, dt)   // Book 3: tunnels, pits, quakes, snares, stones, scoops, echoes (no-op elsewhere)
-    if (pixelLook) pixelRig.sync(run, dt, { cx, cy, z: world.scale.x, w: viewW(), h: viewH(), animT })   // The Magma (src/pixel.js)
+    syncBurrow(run, dt)   // Book 3: tunnels, pits, quakes, snares, stones, shovels, echoes (no-op elsewhere)
+    if (pixelLook) pixelRig.sync(run, dt, { cx, cy, z: world.scale.x, w: viewW(), h: viewH(), animT, dirOf: pixelDirAt })   // The Magma (src/pixel.js)
     // v7.x surf: the dry patches. `|| []` like every field above — a save or a test run predating
     // the chapter has no run.sandbars at all.
     // sandbarTex is a LIST now (one bake per outline) — the pool's default texture is the first, and
@@ -31611,6 +32207,7 @@ void main() {
     syncPlayer(run.player, dt, run.rampageT || 0, playerBuffs(run), deathP)
     if (pixelLook) syncPixelPlayerFlash(run.player, dt)
     syncEnemies(run)
+    syncPitCollars(run)   // after the crowd: the lip crumbling in over a body a Furrow pit dropped
     syncBlooms(run)
     syncLures(newest(run.lures || [], 'lures'))
     redrawBombs(run)
@@ -31649,6 +32246,7 @@ void main() {
     syncScrewChain(run)
     syncPool(screwPool, orbLayer, run.screws, 'screw', T.screw, placeScrew)
     // Endless floors pile up 50k+ pickups; only the ones on screen get a sprite.
+    pickRun = run
     syncPool(gemPool, gemLayer, onScreenPickups(run.gems, gemsShown, cx, cy), 'gem', T.gem, placeGem)
     syncPool(coinPool, coinLayer, onScreenPickups(run.coins, coinsShown, cx, cy), 'coin', T.coin, placeCoin)
     syncPool(boomerangPool, boomerangLayer, run.boomerangs, 'boomerang', T.boomerang, placeBoomerang)
@@ -31892,14 +32490,31 @@ void main() {
     const sizeMul = (o.r ?? ORB_R) / ORB_R
     s.scale.set(T.orbScale * sizeMul * (1 + 0.12 * Math.sin(animT * 6 + i * 2.1)))
   }
+  // Topsoil: a photographed pickup. Each lies still (no pulse: a stone does not breathe), shows one of
+  // its two shapes by where it fell, and swaps to its glint bake for a short beat on its own clock.
+  // The hash is latched per pickup at first sight: the magnet moves it every frame, and a hash of the
+  // live position would swap its stone and glint at 60 Hz all the way to the player.
+  const pickHash = (x, y) => { const h = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453; return h - Math.floor(h) }
+  const pickHashOf = new WeakMap()
+  function placeMacroPickup(s, set, item) {
+    const x = item.x, y = item.y
+    let h = pickHashOf.get(item)
+    if (h === undefined) { h = pickHash(Math.round(x), Math.round(y)); pickHashOf.set(item, h) }
+    const t = set[h < 0.5 ? 0 : 1][((animT * 0.45 + h * 7.3) % 1) < PICK_GLINT ? 1 : 0]
+    if (s.texture !== t.tex) { s.texture = t.tex; s.anchor.set(t.ax, t.ay) }
+    s.position.set(x, y)
+    s.scale.set(PICK_SCALE)
+  }
   function placeGem(s, g) {
     if (pixelLook && pixelRig.placeGem(s, g, animT)) return   // The Magma: pixel gems
+    if (macroPickups && macroLook?.floor === 'topsoil') { placeMacroPickup(s, macroPickups.gem[gemTier(g.xp, pickRun)], g); return }
     if (s.texture !== T.gem.tex) { s.texture = T.gem.tex; s.anchor.set(T.gem.ax, T.gem.ay) }
     s.position.set(g.x, g.y)
     s.scale.set(1 + 0.15 * Math.sin(animT * 5 + (g.x + g.y) * 0.05))
   }
   function placeCoin(s, c) {
     if (pixelLook && pixelRig.placeCoin(s, c, animT)) return   // The Magma: pixel coins
+    if (macroPickups && macroLook?.floor === 'topsoil') { placeMacroPickup(s, macroPickups.coin, c); return }
     if (s.texture !== T.coin.tex) { s.texture = T.coin.tex; s.anchor.set(T.coin.ax, T.coin.ay) }
     s.position.set(c.x, c.y)
     s.scale.set(1 + 0.1 * Math.sin(animT * 4 + (c.x - c.y) * 0.05))
@@ -32333,6 +32948,7 @@ void main() {
     for (const m of dustMotes) { m.s.tint = dustLook?.tint ?? 0xffffff; m.s.alpha *= dustLook?.alpha ?? 1 }
     R.background.color = chapterRender.bgColor
     setMacro(run)   // Book 3: the macro lens on or off
+    if (run && CHAPTERS[run.chapter]?.weapons?.includes('rootSnare')) bakeSnares()   // at run start, not on the first cast
     setAscii(run)   // Book 3, The Mine: the ascii look on or off (after setMacro: it may set the stage's filters)
     clearWorld()
     if (run) {
@@ -32743,5 +33359,5 @@ void main() {
     return out
   }
 
-  return { reset, sync, idle, ready, setMapMode, castThumbs, hazardThumbs, playerScreen }
+  return { reset, sync, idle, ready, setMapMode, castThumbs, hazardThumbs, playerScreen, prewarm }
 }

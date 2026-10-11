@@ -1,6 +1,7 @@
 // The Magma's four creatures and the player, painted one art pixel at a time, from directly overhead,
-// nose to +x. A Magma body never rotates (ROSTER_LOOKS lean 0): it only mirrors to face you, so every
-// art pixel stays square on the chapter's grid.
+// nose to +x. A body TURNS to face its heading in CAST_DIRS steps, each one its own bake: the grid is
+// turned art pixel by art pixel (castPose), never the sprite, so every art pixel stays square on the
+// chapter's grid at every heading.
 //
 // SIMPLE SHAPES, FEW COLOURS, BOLD SILHOUETTES: each creature is three or four FLAT colours plus an ink
 // outline, and one HOT feature of its own (the beetle's seam, the salamander's spots, the tortoise's
@@ -311,13 +312,66 @@ export function castAnchor(id, g, scale) {
   const A = PIXEL_CAST[id].art
   return [((A.ax + 0.5) * scale) / g[0].length, ((A.ay + 0.5) * scale) / g.length]
 }
-// One creature frame -> { pc, ax, ay }
-export function paintCreature(id, frame, scale = 1) {
+
+// ---- turning ------------------------------------------------------------------------------------
+// How many headings a body is baked at (direction d faces d * 360 / CAST_DIRS degrees, 0 = +x).
+export const CAST_DIRS = 16
+// Scale2x on a character grid: doubles it, rounding a staircase into a diagonal instead of blocks,
+// so a grid turned at 4x and sampled back keeps its edges clean (the RotSprite idea).
+function scale2x(g) {
+  const h = g.length, w = g[0].length, o = Array.from({ length: h * 2 }, () => new Array(w * 2))
+  const at = (x, y) => g[Math.min(h - 1, Math.max(0, y))][Math.min(w - 1, Math.max(0, x))]
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const E = g[y][x], B = at(x, y - 1), D = at(x - 1, y), F = at(x + 1, y), Hh = at(x, y + 1)
+    let e0 = E, e1 = E, e2 = E, e3 = E
+    if (B !== Hh && D !== F) {
+      if (D === B) e0 = D
+      if (B === F) e1 = F
+      if (D === Hh) e2 = D
+      if (Hh === F) e3 = F
+    }
+    o[2 * y][2 * x] = e0; o[2 * y][2 * x + 1] = e1; o[2 * y + 1][2 * x] = e2; o[2 * y + 1][2 * x + 1] = e3
+  }
+  return o
+}
+// One frame turned to heading d, as { g, ax, ay } (anchor as a fraction of g). The outline is taken
+// off, the body turned on its own art grid (nearest cell of a Scale2x-x4 copy, around the anchor),
+// trimmed to what it covers, and outlined again, so the ink is one clean pixel at every heading.
+export function castPose(id, frame, scale, d) {
+  const g0 = paintGrid(id, frame, scale)
+  const [fx, fy] = castAnchor(id, g0, scale)
+  if (!(d % CAST_DIRS)) return { g: g0, ax: fx, ay: fy }
+  const w = g0[0].length, h = g0.length
+  const Ax = fx * w, Ay = fy * h
+  let U = g0.map((r) => r.map((c) => (c === 'k' ? '.' : c)))
+  U = scale2x(scale2x(U))
+  const a = (d / CAST_DIRS) * Math.PI * 2, c = Math.cos(a), sn = Math.sin(a)
+  const R = Math.ceil(Math.max(Math.hypot(Ax, Ay), Math.hypot(w - Ax, Ay), Math.hypot(Ax, h - Ay), Math.hypot(w - Ax, h - Ay))) + 2
+  // the out grid's anchor keeps the source anchor's fraction of a cell, so heading 0 maps cell to cell
+  const Ox = R + (Ax - Math.floor(Ax)), Oy = R + (Ay - Math.floor(Ay)), N = 2 * R + 1
+  const out = Array.from({ length: N }, () => new Array(N).fill('.'))
+  let x0 = N, y0 = N, x1 = -1, y1 = -1
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    const px = x + 0.5 - Ox, py = y + 0.5 - Oy
+    const sx = Math.floor((Ax + px * c + py * sn) * 4), sy = Math.floor((Ay - px * sn + py * c) * 4)
+    if (sy < 0 || sx < 0 || sy >= U.length || sx >= U[0].length) continue
+    const ch = U[sy][sx]
+    if (ch === '.') continue
+    out[y][x] = ch
+    if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y
+  }
+  // trim, keeping one empty cell all round for the outline
+  x0 = Math.max(0, x0 - 1); y0 = Math.max(0, y0 - 1); x1 = Math.min(N - 1, x1 + 1); y1 = Math.min(N - 1, y1 + 1)
+  const g = out.slice(y0, y1 + 1).map((r) => r.slice(x0, x1 + 1))
+  outline(g)
+  return { g, ax: (Ox - x0) / g[0].length, ay: (Oy - y0) / g.length }
+}
+// One creature frame -> { pc, ax, ay }, at heading d (0 = nose +x)
+export function paintCreature(id, frame, scale = 1, d = 0) {
   const A = PIXEL_CAST[id].art
-  const g = paintGrid(id, frame, scale)
+  const { g, ax, ay } = castPose(id, frame, scale, d)
   const pc = new PixelCanvas(g[0].length, g.length)
   pc.grid(g, A.pal)
-  const [ax, ay] = castAnchor(id, g, scale)
   return { pc, ax, ay }
 }
 // The HIT FLASH twin: the same frame gone pale, its ink outline and its two tones KEPT, so a struck
@@ -325,9 +379,9 @@ export function paintCreature(id, frame, scale = 1) {
 // the screen pass, swallowing its neighbours).
 const FLASH_HI = '#fff6f0', FLASH_LO = '#9c908c'
 const lumOf = (hex) => { const n = parseInt(hex.slice(1), 16); return (0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255 }
-export function paintCreatureFlash(id, frame, scale = 1) {
+export function paintCreatureFlash(id, frame, scale = 1, d = 0) {
   const A = PIXEL_CAST[id].art
-  const g = paintGrid(id, frame, scale)
+  const { g } = castPose(id, frame, scale, d)
   const pc = new PixelCanvas(g[0].length, g.length)
   for (let y = 0; y < g.length; y++) for (let x = 0; x < g[y].length; x++) {
     const ch = g[y][x]
@@ -340,11 +394,10 @@ export function paintCreatureFlash(id, frame, scale = 1) {
 // The same frame as a MASK: white where the body is (its ink outline left out), nothing elsewhere.
 // The rig draws it into the emissive map, so the creature light falls on the body and never on the
 // floor round it.
-export function paintCreatureMask(id, frame, scale = 1) {
-  const g = paintGrid(id, frame, scale)
+export function paintCreatureMask(id, frame, scale = 1, d = 0) {
+  const { g, ax, ay } = castPose(id, frame, scale, d)
   const pc = new PixelCanvas(g[0].length, g.length)
   for (let y = 0; y < g.length; y++) for (let x = 0; x < g[y].length; x++) if (g[y][x] !== '.' && g[y][x] !== 'k') pc.set(x, y, '#ffffff')
-  const [ax, ay] = castAnchor(id, g, scale)
   return { pc, ax, ay }
 }
 // ---- the player ----------------------------------------------------------------------------------

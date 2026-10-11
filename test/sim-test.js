@@ -1,5 +1,7 @@
 // Headless self-check for src/sim.js. Plain node, no framework: `npm test`.
 import assert from 'node:assert'
+import { fileURLToPath } from 'node:url'
+import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { createRun, loadMeta, saveMeta, ensureChapterMeta, activeSlot, setActiveSlot, slotSummary, deleteSlot, SAVE_SLOTS, SCHEMA, setSaveHook, freezeSaves, exportSlot, importSlot, saveSummary, NAME_MAX, bookMeta, ensureBookMeta, grantBook, unlockBook, bookProgress, parkRun, takeParkedRun, dropParkedRun } from '../src/state.js'
 // sync.js keeps browser globals out of its module scope precisely so it can be imported here.
@@ -108,7 +110,7 @@ import {
   BLANK_XREACT_READ1_MUL, BLANK_XREACT_READ3_K,
   BLANK_BAND_ANGLES, BLANK_BAND_ANGLES_MATURE, BLANK_FAN_N_MATURE,
   // v6.3.4 anti-turtle pass (Run MM)
-  ENEMIES, dmgScale, difficultyDmgMul, difficultySpeedMul, difficultyCountMul, ENDLESS_COUNT_MUL_MAX, XP_LATE_FROM, DIFFICULTY_DMG_PER_LEVEL, HURT_CAP_FRAC,
+  ENEMIES, gemTier, GEM_TIER_AT, dmgScale, difficultyDmgMul, difficultySpeedMul, difficultyCountMul, ENDLESS_COUNT_MUL_MAX, XP_LATE_FROM, DIFFICULTY_DMG_PER_LEVEL, HURT_CAP_FRAC,
   // v6.4 pond identity (Run NN)
   BLOOM_SLOW, TIDE_DMG_BONUS, TIDE_TURN, MINE_STUN, SOAP_INTERVAL,
   // v6.4.1/v6.4.3 early-calm (Run OO)
@@ -2012,7 +2014,8 @@ function testAnomalySlate() {
       // named, not inferred, so the next card like it has to be listed here rather than failing
       // with a message about the wrong thing. THE CLAIM IS NOT DROPPED — run PY.c asserts Ipecac
       // spreads this weapon over distinct points, with a player that is actually allowed to move.
-      const NEEDS_TRAVEL = new Set(['screw'])
+      // The Furrow is the same case: it digs only where the player WALKED. run TS.b asserts its spread.
+      const NEEDS_TRAVEL = new Set(['screw', 'furrow'])
       const spread = (id, weaponId) => {
         const r = withCard(id, (x) => { x.player.hp = 1e9; x.player.maxHP = 1e9 })
         r.weapons = [{ id: weaponId, level: 3 }]
@@ -2074,8 +2077,8 @@ function testAnomalySlate() {
       // The hand-off is asserted, not trusted: an override that quietly stopped naming a real
       // weapon would silently shrink this sweep's denominator, which is the failure the
       // print-the-denominator rule exists for.
-      assert.deepStrictEqual(handedOff, ['screw'],
-        `the pin-exempt list must name exactly the weapons run PY.c covers instead; it named ${JSON.stringify(handedOff)}`)
+      assert.deepStrictEqual(handedOff, ['screw', 'furrow'],
+        `the pin-exempt list must name exactly the weapons run PY.c (screw) and run TS.b (furrow) cover instead; it named ${JSON.stringify(handedOff)}`)
     }
 
     // THE FIRE RATE, which is the entire cost and is applied once on take.
@@ -16789,7 +16792,7 @@ function testCityTerrainWiring() {
     const pigeonCfg = fast.find((r) => r.id === 'pigeon')
     const ratCfg = fast.find((r) => r.id === 'rat')
     assert(pigeonCfg && ratCfg, 'expected city to keep both fast-lane entries')
-    assert.deepStrictEqual(pigeonCfg.flags, ['flyover'], `expected the pigeon to carry only flyover, got ${JSON.stringify(pigeonCfg.flags)}`)
+    assert.deepStrictEqual(pigeonCfg.flags, ['flyover', 'flying'], `expected the pigeon to carry only flyover + flying, got ${JSON.stringify(pigeonCfg.flags)}`)
     for (const r of CHAPTERS.city.roster) {
       assert(!r.flags.includes('blink'), `expected no city roster entry to still carry the retired blink flag (${r.id})`)
     }
@@ -20849,7 +20852,12 @@ run(testLeLargeWeapons)
   run(testMineGasbag)
   run(testMineGlyphTells)
   run(testMagma)
+  run(testTopsoilPolish)
+  run(testSrcParses)
+  run(testGemTiers)
   run(testMagmaFloor)
+  run(testMagmaRiverBank)
+  run(testFlyersSkipFloor)
   // A hand-typed filter that matched nothing is the silent pass without a parent watching:
   // `node test/sim-test.js supernova` printed ALL TESTS PASSED having run no scenario at all.
   if (_ran === 0 && !EXACT_SET) {
@@ -39475,6 +39483,98 @@ function testMagma() {
 // on plain crust every stillT; (c) HOT GROUND opens a footstep crack sooner and wider than plain
 // crust; (d) rivers are RARE (under 5% of a wide sample of floor), the start is plain crust, the floor
 // draws nothing from Math.random, and no other chapter has one.
+// ---- run MR: The Magma's lava rivers are a bank, not a road -----------------------------------
+// A body hunting you does not walk into a river unless you are just across it (river.avoid); then it
+// wades in. Rig: one plain seeker 250px off one bank, the player pinned across the river, far
+// (400px past the far bank) or near (40px past it), no weapons, no crowd. Several spots on several
+// seeds, so the river's own bends are in the sample. Control arm: avoid switched off.
+function testMagmaRiverBank() {
+  const Rv = CHAPTERS.magma.signature.crust.floor.river
+  const A = Rv.avoid
+  // the deepest point of the nearest channel along a ray from the start, and the river's local
+  // normal there (the direction across it that is shortest to both banks)
+  const crossing = (r, ang) => {
+    let P = null
+    for (let d = 0; d < 30000 && !P; d += 8) {
+      const x = Math.cos(ang) * d, y = Math.sin(ang) * d
+      if (magmaRiverAt(r, x, y) > 0.95) P = { x, y }
+    }
+    if (!P) return null
+    let best = null
+    for (let a = 0; a < Math.PI; a += Math.PI / 180) {
+      const c = Math.cos(a), sn = Math.sin(a)
+      let w1 = 0, w2 = 0
+      while (w1 < 400 && magmaRiverAt(r, P.x + c * w1, P.y + sn * w1) > 0) w1 += 2
+      while (w2 < 400 && magmaRiverAt(r, P.x - c * w2, P.y - sn * w2) > 0) w2 += 2
+      if (!best || w1 + w2 < best.w) best = { w: w1 + w2, n: [c, sn], w1, w2 }
+    }
+    return { P, ...best }
+  }
+  const trial = (seed, ang, far, slide = 0, crowd = 1, rosterId = null) => {
+    Math.random = mulberry32(seed)
+    const r = createRun((() => { const m = makeMeta(); m.dev = true; return m })(), { chapter: 'magma', difficulty: 1 })
+    r.weapons = []; r.enemies = []
+    const X = crossing(r, ang)
+    if (!X) return null
+    const [nx, ny] = X.n
+    const pl = { x: X.P.x + nx * (X.w1 + (far ? 400 : 40)) - ny * slide, y: X.P.y + ny * (X.w1 + (far ? 400 : 40)) + nx * slide }
+    const e = makeStatusEnemy(r, { x: X.P.x - nx * (X.w2 + 250), y: X.P.y - ny * (X.w2 + 250), hp: 1e9, speed: 90 })
+    const e0 = { x: e.x, y: e.y }
+    // a crowd: the rest pressed in behind the first, so the separation pass shoves the front row
+    const pack = [e]
+    for (let k = 1; k < crowd; k++) pack.push(makeStatusEnemy(r, { x: e.x - nx * (20 + (k % 3) * 22) + ny * ((k % 4) - 1.5) * 18, y: e.y - ny * (20 + (k % 3) * 22) - nx * ((k % 4) - 1.5) * 18, hp: 1e9, speed: 90 }))
+    if (rosterId) for (const b of pack) b.flags = ['flying']
+    r.enemies = pack.slice()
+    let inRiver = 0, frames = 0, burn = 0
+    for (let i = 0; i < 600; i++) {
+      if (r.phase === 'levelup') { r.phase = 'playing'; r.levelUpChoices = [] }
+      r.weapons = []
+      r.player.x = pl.x; r.player.y = pl.y; r.player.hp = r.player.maxHP; r.player.invuln = 1
+      r.enemies = pack.slice(); for (const b of pack) { b._dead = false; b.hp = b.maxHP }
+      stepSim(r, { x: 0, y: 0 }, 1 / 60)
+      r.events.length = 0
+      for (const b of pack) { frames++; if (magmaRiverAt(r, b.x, b.y) > 0) { inRiver++; burn += b.maxHP - b.hp } }
+    }
+    // across = how far past the river's middle the body ended, toward the player
+    const across = (e.x - X.P.x) * nx + (e.y - X.P.y) * ny
+    return { inRiver, frames, burn, across, bank: -X.w2, toPlayer: Math.hypot(pl.x - e.x, pl.y - e.y), along: Math.abs(-(e.x - e0.x) * ny + (e.y - e0.y) * nx) }
+  }
+  const spots = []
+  for (const seed of [41001, 41002, 41003]) for (const ang of [0.3, 2.1, 4.0]) spots.push([seed, ang])
+  const arm = (far, avoid, slide = 0, crowd = 1, rosterId = null) => {
+    const saved = Rv.avoid
+    Rv.avoid = avoid
+    try {
+      const out = []
+      for (const [seed, ang] of spots) { const t = trial(seed, ang, far, slide, crowd, rosterId); if (t) out.push(t) }
+      return out
+    } finally { Rv.avoid = saved }
+  }
+  const flyOn = arm(true, A, 0, 1, 'fireDrake'), farOn = arm(true, A), nearOn = arm(false, A), farOff = arm(true, null), slideOn = arm(true, A, 700), crowdOn = arm(true, A, 0, 12)
+  assert.ok(farOn.length >= 6, `run MR: found only ${farOn.length} river crossings of ${spots.length} tried`)
+  const sum = (a, k) => a.reduce((t, x) => t + x[k], 0)
+  const farIn = sum(farOn, 'inRiver'), farFrames = sum(farOn, 'frames')
+  // (a) the player far across: the body walks up to the bank and stays out of the lava
+  assert.ok(farIn <= farFrames * 0.01, `run MR.a: with you far across, a body spent ${farIn}/${farFrames} frames in the river`)
+  for (const t of farOn) assert.ok(t.across > t.bank - 60 && t.across < 0, `run MR.a: a body should wait at its own bank (ended ${t.across.toFixed(0)}px from the middle, bank at ${t.bank})`)
+  // control: without the rule, the same bodies walk straight in
+  const offIn = sum(farOff, 'inRiver')
+  assert.ok(offIn > sum(farOff, 'frames') * 0.1, `run MR.a control: with avoid off the bodies should wade in (${offIn} frames in the river)`)
+  // (c) you far across but well down the river: the body follows its bank toward you, still dry
+  for (const t of slideOn) assert.ok(t.along > 250 && t.inRiver <= 6, `run MR.c: a body should follow the bank toward you (moved ${t.along.toFixed(0)}px along it, ${t.inRiver} frames in the river)`)
+  // (d) a crowd of 12 pressing on the bank: the ones behind do not shove the front row in
+  const crowdIn = sum(crowdOn, 'inRiver'), crowdFrames = sum(crowdOn, 'frames')
+  assert.ok(crowdIn <= crowdFrames * 0.01, `run MR.d: a crowd far across spent ${crowdIn}/${crowdFrames} body-frames in the river`)
+  // (e) a Fire Drake flies: it crosses with you far across, and the river never burns it
+  for (const t of flyOn) assert.ok(t.across > 0 && t.inRiver > 0, `run MR.e: a fire drake should fly over the river (ended ${t.across.toFixed(0)}px past the middle)`)
+  assert.ok(sum(flyOn, 'burn') === 0, `run MR.e: the river burned a flying drake for ${sum(flyOn, 'burn').toFixed(0)}`)
+  // ...while a walker in the river does burn (the same probe can see it)
+  assert.ok(sum(nearOn, 'burn') > 0, 'run MR.e control: a walker wading across should burn')
+  // (b) the player just across: it wades in and reaches you
+  for (const t of nearOn) assert.ok(t.across > 0 && t.toPlayer < 60, `run MR.b: with you just across, the body should cross (ended ${t.across.toFixed(0)}px past the middle, ${t.toPlayer.toFixed(0)}px from you)`)
+  console.log(`PASS run MR (The Magma river bank): far across ${farIn}/${farFrames} frames in the river over ${farOn.length} spots (avoid off: ${offIn}/${sum(farOff, 'frames')}); followed the bank ${slideOn.map((t) => t.along.toFixed(0)).join('/')}px; a crowd of 12: ${crowdIn}/${crowdFrames} body-frames in it; just across ${nearOn.length}/${nearOn.length} bodies crossed (${sum(nearOn, 'inRiver')} frames in it); drakes flew over ${flyOn.length}/${flyOn.length}, burned 0 (walkers ${sum(nearOn, 'burn').toFixed(0)})`)
+}
+
 function testMagmaFloor() {
   const meta = () => { const m = makeMeta(); m.dev = true; return m }
   const C = CHAPTERS.magma.signature.crust
@@ -39563,4 +39663,287 @@ function testMagmaFloor() {
   const city = createRun(meta(), { chapter: 'city', difficulty: 1 })
   assert.strictEqual(magmaGroundAt(city, 0, 0), null, 'run MF.d: no other chapter has a magma floor')
   console.log(`PASS run MF (The Magma floor): a river burned a parked body and the player; still cracks ${plainN} plain vs ${cooledN} cooled; hot opens ${hotC.delay.toFixed(2)}s r${hotC.r} vs ${plainC.delay.toFixed(2)}s r${plainC.r}; river ${(share * 100).toFixed(2)}% of ${sampled} sampled points over 6 seeds`)
+}
+
+// ---- run TS: Topsoil's fourth weapon, own anomaly and own mutator -------------------------------
+// Effects, not state: (a) the FURROW hurts bodies standing where you walked, in a chapter that is not
+// Topsoil (The Blank's pool holds it), and digs nothing while you stand still; (b) IPECAC spreads it
+// into three furrows — distinct pit positions, the pin-exempt sweep in run PB7 hands it here;
+// (c) SUNDOWN makes a chaser close faster and a gem pay more; (d) SOFT GROUND widens a mole's
+// eruption and its pits. Scope: both cards are Topsoil's alone.
+// run SX: every src file PARSES. render.js and macro.js are never imported here, so a duplicate
+// top-level declaration (two bakes each adding a `SOILS`) passed the whole suite and blanked the page.
+function testSrcParses() {
+  const files = readdirSync(new URL('../src/', import.meta.url)).filter((n) => n.endsWith('.js'))
+  assert.ok(files.includes('render.js') && files.includes('macro.js'), `run SX: src listing is missing render.js/macro.js: ${files}`)
+  for (const n of files) {
+    const r = spawnSync(process.execPath, ['--check', fileURLToPath(new URL('../src/' + n, import.meta.url))], { encoding: 'utf8' })
+    assert.strictEqual(r.status, 0, `run SX: src/${n} does not parse:\n${r.stderr}`)
+  }
+  console.log(`PASS run SX (src parses): ${files.length} files`)
+}
+
+function testTopsoilPolish() {
+  const meta = () => { const m = makeMeta(); m.dev = true; return m }
+  const dt = 1 / 60
+  // (a) + (b): walk east through a line of parked, unkillable bodies.
+  const walk = (opts) => {
+    Math.random = mulberry32(33001)
+    const r = createRun(meta(), { chapter: opts.chapter ?? 'body', difficulty: 1 })
+    r.player.hp = r.player.maxHP = 1e9
+    r.weapons = opts.weapon ? [{ id: 'furrow', level: opts.level ?? 3 }] : []
+    r.player.x = 0; r.player.y = 70
+    if (opts.ipecac) r.anomalies = { ...(r.anomalies ?? {}), ipecac: true }
+    const line = []
+    for (let i = 0; i < 8; i++) { const e = makeStatusEnemy(r, { x: 80 + i * 60, y: 70, hp: 1e6, speed: 0 }); line.push(e); r.enemies.push(e) }
+    if (opts.roots) { r.weaponMods.rootSnare = { deepRoots: opts.roots }; for (const e of line) e.rootUntil = 1e9 }
+    const pits = new Set()
+    let prev = [], evicted = 0
+    for (let i = 0; i < (opts.secs ?? 6) * 60; i++) {
+      if (r.phase === 'levelup') { r.phase = 'playing'; r.levelUpChoices = [] }
+      r.player.hp = r.player.maxHP
+      stepSim(r, opts.still ? { x: 0, y: 0 } : { x: 1, y: 0 }, dt)
+      r.player.y = 70   // walk the line itself, whatever shoves the player off it
+      for (const pt of r.pits) if (pt.src === 'furrow') pits.add(`${Math.round(pt.x)},${Math.round(pt.y)}`)
+      const now = new Set(r.pits)
+      for (const pt of prev) if (!now.has(pt) && pt.age < pt.life - dt) evicted++
+      prev = r.pits.filter((pt) => pt.src === 'furrow')
+      r.events.length = 0
+    }
+    return { dmg: line.reduce((s, e) => s + (e.maxHP - e.hp), 0), pits: pits.size, evicted }
+  }
+  const on = walk({ weapon: true }), off = walk({ weapon: false }), still = walk({ weapon: true, still: true })
+  assert.ok(on.dmg > 0 && on.pits >= 8, `run TS.a: the Furrow should pit the ground you walked and hurt what stands on it: ${JSON.stringify(on)}`)
+  assert.strictEqual(off.dmg, 0, `run TS.a: control — the line took ${off.dmg} with no weapon`)
+  const perPit = WEAPONS.furrow.levels[2].dmg
+  assert.ok(on.dmg <= on.pits * 4 * perPit, `run TS.a: a pit hits each body ONCE — ${on.dmg} dmg from ${on.pits} pits of ${perPit}`)
+  const rooted = walk({ weapon: true, roots: 0.9 })
+  assert.ok(rooted.dmg > on.dmg * 1.6, `run TS.e: DEEP ROOTS raises EVERY weapon's damage to held bodies (Furrow): ${rooted.dmg} vs ${on.dmg}`)
+  assert.strictEqual(still.pits, 0, `run TS.a: standing still digs no furrow, got ${still.pits} pits`)
+  const sick = walk({ weapon: true, ipecac: true })
+  assert.ok(sick.pits >= on.pits * 2.5, `run TS.b: IPECAC should spread the Furrow over three times the pits: ${sick.pits} vs ${on.pits}`)
+  const sick5 = walk({ weapon: true, ipecac: true, level: 5, secs: 20 })
+  assert.strictEqual(sick5.evicted, 0, `run TS.b: an L5 Furrow under IPECAC lost ${sick5.evicted} pits to the cap before they filled in`)
+  {
+    Math.random = mulberry32(33006)
+    const r = createRun(meta(), { chapter: 'body', difficulty: 1 })
+    r.weapons = []
+    r.enemies.length = 0
+    for (let i = 0; i < 200; i++) r.pits.push({ x: 5000 + i, y: 5000, maxR: 20, r: 0, age: 0, life: 99, open: 0.25, fill: 0.6, src: 'furrow', dmg: 1, hit: {}, _k: i })
+    r.caveIns.push({ x: 5000, y: 5100, at: 0, r: 20, dmg: 1, src: 'furrow' })
+    stepSim(r, { x: 0, y: 0 }, dt)
+    const kept = r.pits.filter((pt) => pt.src === 'furrow' && pt._k != null).map((pt) => pt._k)
+    assert.ok(kept.length > 0 && kept.length < 200, `run TS.b: the furrow pit cap never bit: ${kept.length} of 200 kept`)
+    assert.ok(Math.min(...kept) === 200 - kept.length, `run TS.b: the cap must evict the OLDEST pits, kept from #${Math.min(...kept)}`)
+  }
+  {
+    Math.random = mulberry32(33007)
+    const r = createRun(meta(), { chapter: 'body', difficulty: 1 })
+    r.player.hp = r.player.maxHP = 1e9
+    r.weapons = [{ id: 'furrow', level: 3 }]
+    r.enemies.length = 0
+    r.player.x = 0; r.player.y = 0
+    for (let i = 0; i < 60; i++) { stepSim(r, { x: 1, y: 0 }, dt); r.events.length = 0 }
+    r.player.x += 2000
+    r.caveIns.length = 0; r.pits.length = 0
+    for (let i = 0; i < 4 * 60; i++) { if (r.phase === 'levelup') { r.phase = 'playing'; r.levelUpChoices = [] }; stepSim(r, { x: 1, y: 0 }, dt); r.events.length = 0 }
+    const back = [...r.caveIns, ...r.pits].filter((c) => c.x < 1500)
+    assert.strictEqual(back.length, 0, `run TS.b: a jump is not a walk — ${back.length} pits dug back where you jumped from`)
+  }
+
+  // (c) Sundown
+  assert.strictEqual(ANOMALIES.sundown.chapter, 'topsoil', 'run TS.c: Sundown is Topsoil\'s own anomaly')
+  const dusk = (take) => {
+    Math.random = mulberry32(33002)
+    const r = createRun(meta(), { chapter: 'topsoil', difficulty: 1 })
+    r.weapons = []
+    r.player.hp = r.player.maxHP = 1e9
+    r.enemies.length = 0
+    const e = makeStatusEnemy(r, { x: r.player.x + 400, y: r.player.y, hp: 1e6, speed: 90 })
+    r.enemies.push(e)
+    if (take) { r.levelUpChoices = [{ kind: 'anomaly', id: 'sundown' }]; applyChoice(r, 0); r.phase = 'playing' }
+    const d0 = Math.hypot(e.x - r.player.x, e.y - r.player.y)
+    for (let i = 0; i < 60; i++) { stepSim(r, { x: 0, y: 0 }, dt); r.events.length = 0 }
+    const closed = d0 - Math.hypot(e.x - r.player.x, e.y - r.player.y)
+    const xp0 = r.player.xp
+    r.gems.push({ x: r.player.x, y: r.player.y, xp: 1 })
+    stepSim(r, { x: 0, y: 0 }, dt)
+    return { closed, xp: r.player.xp - xp0 }
+  }
+  const fresh = (take) => {
+    Math.random = mulberry32(33008)
+    const r = createRun(meta(), { chapter: 'topsoil', difficulty: 1 })
+    r.weapons = []
+    r.player.hp = r.player.maxHP = 1e9
+    if (take) { r.levelUpChoices = [{ kind: 'anomaly', id: 'sundown' }]; applyChoice(r, 0); r.phase = 'playing' }
+    const seen = new Map()
+    for (let i = 0; i < 20 * 60; i++) {
+      if (r.phase === 'levelup') { r.phase = 'playing'; r.levelUpChoices = [] }
+      r.player.hp = r.player.maxHP
+      stepSim(r, { x: 0, y: 0 }, dt)
+      for (const e of r.enemies) if (!e.elite && !seen.has(e.rosterId)) seen.set(e.rosterId, e.speed)
+      r.events.length = 0
+    }
+    return seen
+  }
+  const daySp = fresh(false), nightSp = fresh(true)
+  const ratios = [...daySp].filter(([id]) => nightSp.has(id)).map(([id, v]) => nightSp.get(id) / v)
+  assert.ok(ratios.length > 0 && ratios.every((q) => q > 1.15), `run TS.c: under Sundown a body spawned AFTER the take should be faster too: ${ratios.map((q) => q.toFixed(2))}`)
+  const day = dusk(false), night = dusk(true)
+  assert.ok(night.closed > day.closed * 1.12, `run TS.c: under Sundown a chaser should close faster: ${night.closed.toFixed(1)} vs ${day.closed.toFixed(1)} px`)
+  assert.ok(day.xp > 0 && night.xp > day.xp * 1.4, `run TS.c: under Sundown a gem should pay more XP: ${night.xp} vs ${day.xp}`)
+
+  // (d) Soft Ground
+  assert.deepStrictEqual(MUTATORS.softGround.chapters, ['topsoil'], 'run TS.d: Soft Ground is Topsoil\'s own mutator')
+  const ground = (muts) => {
+    Math.random = mulberry32(33003)
+    const r = createRun(meta(), { chapter: 'topsoil', difficulty: 1, mutators: muts })
+    r.player.hp = r.player.maxHP = 1e9
+    let erupt = 0, pit = 0
+    for (let i = 0; i < 90 * 60 && !(erupt && pit); i++) {
+      if (r.phase === 'levelup') { r.phase = 'playing'; r.levelUpChoices = [] }
+      r.player.hp = r.player.maxHP
+      stepSim(r, { x: Math.cos(r.time * 0.7), y: Math.sin(r.time * 0.7) }, dt)
+      for (const ev of r.events) if (ev.type === 'moleErupt' && !erupt) erupt = ev.r
+      for (const pt of r.pits) if (pt.src !== 'furrow') pit = Math.max(pit, pt.maxR)
+      r.events.length = 0
+    }
+    return { erupt, pit }
+  }
+  const soft = ground(['softGround']), hard = ground([])
+  // ...and a hit from it costs more: the first eruption that lands on a player standing still, per
+  // point of the erupting mole's own dmg (so it does not depend on when that mole spawned)
+  const bite = (muts) => {
+    Math.random = mulberry32(33009)
+    const r = createRun(meta(), { chapter: 'topsoil', difficulty: 1, mutators: muts })
+    r.weapons = []
+    r.player.hp = r.player.maxHP = 1e9
+    for (let i = 0; i < 120 * 60; i++) {
+      if (r.phase === 'levelup') { r.phase = 'playing'; r.levelUpChoices = [] }
+      r.player.hp = r.player.maxHP; r.player.invuln = 0
+      stepSim(r, { x: 0, y: 0 }, dt)
+      const ev = r.events.find((v) => v.type === 'moleErupt' && v.hit)
+      r.events.length = 0
+      if (!ev) continue
+      const mole = r.enemies.reduce((b, e) => (!b || Math.hypot(e.x - ev.x, e.y - ev.y) < Math.hypot(b.x - ev.x, b.y - ev.y) ? e : b), null)
+      return (r.player.maxHP - r.player.hp) / mole.dmg
+    }
+    return 0
+  }
+  const biteSoft = bite(['softGround']), biteHard = bite([])
+  assert.ok(biteHard > 0 && biteSoft > biteHard * 1.25, `run TS.d: Soft Ground should make an eruption HIT harder: ${biteSoft.toFixed(2)} vs ${biteHard.toFixed(2)} per mole dmg`)
+  assert.ok(hard.erupt > 0 && hard.pit > 0, `run TS.d: fixture never saw a mole erupt and cave in: ${JSON.stringify(hard)}`)
+  assert.ok(soft.erupt > hard.erupt * 1.3 && soft.pit > hard.pit * 1.3, `run TS.d: Soft Ground should widen the eruption and the pits: ${JSON.stringify(soft)} vs ${JSON.stringify(hard)}`)
+  // (e) DEEP ROOTS: a held body takes more from everything — on a ring that cannot die, so the gain is
+  // not hidden by the crowd running out (the census reads +3-5% only because Root Snare already
+  // kills almost every body Topsoil spawns).
+  const held = (m) => {
+    Math.random = mulberry32(33004)
+    const r = createRun(meta(), { chapter: 'body', difficulty: 1 })
+    r.player.hp = r.player.maxHP = 1e9
+    r.weapons = [{ id: 'rootSnare', level: 3 }]
+    if (m) r.weaponMods.rootSnare = { ...(r.weaponMods.rootSnare ?? {}), deepRoots: m }
+    r.enemies.length = 0
+    const ring = []
+    for (let i = 0; i < 10; i++) { const a = (i / 10) * Math.PI * 2; const e = makeStatusEnemy(r, { x: Math.cos(a) * 120, y: Math.sin(a) * 120, hp: 1e9, speed: 0 }); ring.push(e); r.enemies.push(e) }
+    for (let i = 0; i < 10 * 60; i++) {
+      if (r.phase === 'levelup') { r.phase = 'playing'; r.levelUpChoices = [] }
+      r.player.hp = r.player.maxHP
+      if (r.enemies.length !== ring.length) r.enemies = r.enemies.filter((e) => ring.includes(e))
+      stepSim(r, { x: 0, y: 0 }, dt)
+      r.events.length = 0
+    }
+    return ring.reduce((s, e) => s + (e.maxHP - e.hp), 0)
+  }
+  const roots0 = held(0), roots9 = held(0.9)
+  assert.ok(roots0 > 0 && roots9 > roots0 * 1.6, `run TS.e: DEEP ROOTS (+90%) should raise damage to held bodies: ${roots9} vs ${roots0}`)
+  // (f) a mole struck as it dives: its hit flash fades underground, it does not stay white
+  {
+    Math.random = mulberry32(33005)
+    const r = createRun(meta(), { chapter: 'topsoil', difficulty: 1 })
+    r.player.hp = r.player.maxHP = 1e9
+    r.weapons = []
+    let mole = null, frames = 0
+    for (let i = 0; i < 90 * 60; i++) {
+      if (r.phase === 'levelup') { r.phase = 'playing'; r.levelUpChoices = [] }
+      r.player.hp = r.player.maxHP
+      stepSim(r, { x: 0, y: 0 }, dt)
+      r.events.length = 0
+      if (!mole) { mole = r.enemies.find((e) => e.burrowed && !e._dead) ?? null; if (mole) mole.hitFlash = 0.12; continue }
+      if (!mole.burrowed) break
+      if (++frames >= 12) break
+    }
+    assert.ok(mole && frames >= 12, `run TS.f: fixture never held a mole underground for 12 frames (${frames})`)
+    assert.strictEqual(mole.hitFlash, 0, `run TS.f: a mole's hit flash must fade underground, still ${mole.hitFlash}`)
+  }
+  console.log(`PASS run TS (Topsoil polish): Deep Roots ${(roots9 / roots0).toFixed(2)}x on held bodies; Furrow ${on.pits} pits dealt ${on.dmg} off-chapter (0 unarmed, 0 pits standing still), Ipecac ${sick.pits} pits; Sundown chaser ${night.closed.toFixed(0)} vs ${day.closed.toFixed(0)} px, gem ${night.xp} vs ${day.xp} XP; Soft Ground eruption ${soft.erupt.toFixed(0)} vs ${hard.erupt.toFixed(0)}, pit ${soft.pit.toFixed(0)} vs ${hard.pit.toFixed(0)}`)
+}
+
+// run GT (gem tiers): Topsoil draws a floor gem by gemTier(g.xp, run). Driven by real kills, so the xp
+// a drop carries is the sim's own (roster xpMul at spawn, ELITE.xpMul in the death path): an elite's
+// drop must read a tier above an ordinary kill's, and the tiers must not drift with the endless taper.
+function testGemTiers() {
+  const meta = () => { const m = makeMeta(); m.dev = true; return m }
+  const dt = 1 / 60
+  Math.random = mulberry32(33101)
+  const r = createRun(meta(), { chapter: 'topsoil', difficulty: 1 })
+  r.player.hp = r.player.maxHP = 1e9
+  r.weapons = [{ id: 'shovel', level: 5 }]
+  const tiers = { normal: [], elite: [] }
+  let n = 0
+  for (let i = 0; i < 120 * 60 && !(tiers.normal.length >= 5 && tiers.elite.length >= 3); i++) {
+    if (r.phase === 'levelup') { r.phase = 'playing'; r.levelUpChoices = [] }
+    r.player.hp = r.player.maxHP
+    // every third ordinary body is made an elite: the death path is what multiplies ELITE.xpMul in
+    for (const e of r.enemies) if (!e._gt) { e._gt = true; if (e.type !== 'tank' && n++ % 3 === 2) e.elite = true }
+    const live = r.enemies.filter((e) => !e._dead && e.type !== 'tank')
+    const gems = r.gems, drops = []
+    gems.push = function (...g) { drops.push(...g); return Array.prototype.push.apply(this, g) }
+    stepSim(r, { x: 0, y: 0 }, dt)
+    delete gems.push
+    r.events.length = 0
+    for (const e of live) {
+      if (!e._dead) continue
+      const g = drops.find((d) => d.x === e.x && d.y === e.y)
+      if (g) tiers[e.elite ? 'elite' : 'normal'].push(gemTier(g.xp, r))
+    }
+  }
+  assert.ok(tiers.normal.length >= 5 && tiers.elite.length >= 3, `run GT: fixture killed too few bodies (${tiers.normal.length} ordinary, ${tiers.elite.length} elite)`)
+  assert.ok(tiers.normal.every((k) => k === 0), `run GT: an ordinary kill's gem must be tier 0, got ${tiers.normal}`)
+  assert.ok(tiers.elite.every((k) => k >= 1), `run GT: an elite's gem must read above an ordinary kill's, got ${tiers.elite}`)
+  // a tank's drop is tier 1 and an elite tank's tier 2; on a deep endless rung the taper shrinks every
+  // drop alike, and the tiers must hold
+  const deep = { endless: true, difficulty: 20 }, u = ENEMIES.drone.xp * endlessXpMul(20)
+  assert.strictEqual(gemTier(ENEMIES.tank.xp, r), 1, 'run GT: a tank\'s gem is tier 1')
+  assert.strictEqual(gemTier(ENEMIES.tank.xp * ELITE.xpMul, r), 2, 'run GT: an elite tank\'s gem is tier 2')
+  assert.strictEqual(gemTier(u, deep), 0, 'run GT: an ordinary kill on endless rung 20 is still tier 0')
+  assert.strictEqual(gemTier(u * ELITE.xpMul, deep), 1, 'run GT: an elite on endless rung 20 is still tier 1 (the taper divides out)')
+  console.log(`PASS run GT (gem tiers): ${tiers.normal.length} ordinary kills -> tier 0, ${tiers.elite.length} elites -> tier ${[...new Set(tiers.elite)]}; thresholds ${GEM_TIER_AT} ordinary kills`)
+}
+
+// run FL: a 'flying' body is above the floor. Standing in open lava and in a slag pool, a flyer
+// takes nothing while a walker beside it burns (the control).
+function testFlyersSkipFloor() {
+  Math.random = mulberry32(42001)
+  const r = createRun((() => { const m = makeMeta(); m.dev = true; return m })(), { chapter: 'magma', difficulty: 1 })
+  r.weapons = []
+  r.cracks.push({ x: 300, y: 0, r: 40, by: 'step', state: 'lava', t: 0, tick: 0, openAt: 0, lavaT: 99, coolT: 1, lavaEnd: 1e9, coolEnd: 0 })
+  r.slagPools.push({ x: -300, y: 0, r: 40, t: 0, dur: 1e9, burn: 5, tick: 0 })
+  const spots = [[300, 0], [300, 0], [-300, 0], [-300, 0]]
+  const pack = spots.map(([x, y], i) => { const e = makeStatusEnemy(r, { x, y, hp: 1e9, speed: 0 }); if (i % 2) e.flags = ['flying']; return e })
+  for (let i = 0; i < 180; i++) {
+    if (r.phase === 'levelup') { r.phase = 'playing'; r.levelUpChoices = [] }
+    r.weapons = []
+    r.player.x = 0; r.player.y = 600; r.player.hp = r.player.maxHP; r.player.invuln = 1
+    r.enemies = pack.slice()
+    pack.forEach((e, k) => { e._dead = false; e.x = spots[k][0]; e.y = spots[k][1] })
+    stepSim(r, { x: 0, y: 0 }, 1 / 60)
+    r.events.length = 0
+  }
+  const lost = pack.map((e) => e.maxHP - e.hp)
+  assert(lost[0] > 0, 'FL.a control: a walker in open lava burns')
+  assert(lost[2] > 0, 'FL.b control: a walker in a slag pool burns')
+  assert(lost[1] === 0, 'FL.c a flyer over open lava takes ' + lost[1])
+  assert(lost[3] === 0, 'FL.d a flyer over a slag pool takes ' + lost[3])
+  console.log('PASS run FL (flyers skip the floor): walkers lost ' + lost[0].toFixed(0) + ' / ' + lost[2].toFixed(0) + ' hp, flyers 0 / 0')
 }
