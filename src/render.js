@@ -72,6 +72,12 @@ const HYDRANT_PX = 36
 const GULL_DIVE_R = 34
 const GULL_DIVE_SPAN = 2.42 * 2 * GULL_DIVE_R
 const MAX_PARTICLES = 200
+// Topsoil pickups: drawn this much bigger than their bake, lifted this much brighter at bake time
+// (gem, coin), and showing their glint bake this fraction of the time — dark sapphires on dark soil
+// otherwise read as nothing at phone size
+const PICK_SCALE = 1.3, PICK_LIFT = [1.35, 1.25], PICK_GLINT = 0.25
+// a Topsoil hit number stays solid for this fraction of its life before it fades
+const SOIL_DMG_HOLD = 0.75
 // Sundown's pickup rims and coin glints (updateMacro): at most this many, so a 10k-gem pile is not 20k sprites
 const DUSK_PICK_RIM_MAX = 300
 // Topsoil's hit dust (soilPuff): particles per second it may spend on hits, and its burst; kills are
@@ -12999,8 +13005,15 @@ export function createRenderer(app) {
     macroFloor.texture = macroTiles[kind]
     if (!macroPickups && kind === 'topsoil') {
       const P = MACRO.paintPickups()
-      const tex = (b) => ({ tex: macroCanvasTex(b.body, MACRO.PK_S), ax: b.ax, ay: b.ay })
-      macroPickups = { gem: P.gem.map((tier) => tier.map((sh) => sh.map(tex))), coin: P.coin.map((sh) => sh.map(tex)) }
+      const lift = (c, k) => {
+        if (k === 1) return c
+        const x = c.getContext('2d'), im = x.getImageData(0, 0, c.width, c.height), d = im.data
+        for (let i = 0; i < d.length; i += 4) { d[i] = Math.min(255, d[i] * k); d[i + 1] = Math.min(255, d[i + 1] * k); d[i + 2] = Math.min(255, d[i + 2] * k) }
+        x.putImageData(im, 0, 0)
+        return c
+      }
+      const tex = (k) => (b) => ({ tex: macroCanvasTex(lift(b.body, k), MACRO.PK_S), ax: b.ax, ay: b.ay })
+      macroPickups = { gem: P.gem.map((tier) => tier.map((sh) => sh.map(tex(PICK_LIFT[0])))), coin: P.coin.map((sh) => sh.map(tex(PICK_LIFT[1]))) }
     }
     macroFloor.visible = true
     blotchLayer.visible = false
@@ -13009,7 +13022,11 @@ export function createRenderer(app) {
     macroAir.visible = true
     macroShadowLayer.visible = true
     const u = macroU.uniforms
-    u.uBlurPx = macroLook.blur ?? 7
+    // the lens above Pixi's default resolution 1, where a phone sees the whole frame at half sharpness
+    // and small hit numbers smear into the soil. Capped at 1.5: 2 cost +3-4 ms a frame. Blur is in texels.
+    const lensRes = Math.min(1.5, app.renderer.resolution || 1)
+    lensFilter.resolution = lensRes
+    u.uBlurPx = (macroLook.blur ?? 7) * lensRes
     u.uKey = macroLook.key ?? 0.4
     u.uVignette = macroLook.vignette ?? 0.7
     u.uGrain = macroLook.grain ?? 0.06
@@ -26763,13 +26780,14 @@ void main() {
     const inkKey = holoLook ? 1 : soil ? 2 : 0
     if (d._ink !== inkKey) {
       d._ink = inkKey
-      d.t.style.stroke = [{ color: 0x6b5847, width: 3.5, join: 'round' }, { color: 0x120a1e, width: 5, join: 'round' }, { color: 0x1e130a, width: 3, join: 'round' }][inkKey]
+      d.t.style.stroke = [{ color: 0x6b5847, width: 3.5, join: 'round' }, { color: 0x120a1e, width: 5, join: 'round' }, { color: 0x1e130a, width: 4, join: 'round' }][inkKey]
     }
     d._pop = soil ? 0.14 : 0.35
+    d._hold = soil ? SOIL_DMG_HOLD : 0.55
     if (soil) {
-      d.t.tint = crit ? 0xe8a052 : dot ? 0x9a8264 : 0xc2a47a
+      d.t.tint = crit ? 0xffb868 : dot ? 0xcdb898 : 0xf2e2c4
       d.t.visible = true
-      d._base = (crit ? 1.15 : dot ? 0.62 : 0.85) * 0.8
+      d._base = crit ? 1.15 : dot ? 0.62 : 0.85
       return
     }
     // DoT ticks read as small muted numbers so a status-covered crowd doesn't flood the screen.
@@ -26791,7 +26809,7 @@ void main() {
       const pop = 1 + d._pop * Math.max(0, 1 - d.age * 7)
       d.t.position.set(d.x, d.y - 30 * k)
       d.t.scale.set(d._base * pop)
-      d.t.alpha = k > 0.55 ? 1 - (k - 0.55) / 0.45 : 1
+      d.t.alpha = k > d._hold ? 1 - (k - d._hold) / (1 - d._hold) : 1
     }
   }
 
@@ -32459,10 +32477,10 @@ void main() {
     const x = item.x, y = item.y
     let h = pickHashOf.get(item)
     if (h === undefined) { h = pickHash(Math.round(x), Math.round(y)); pickHashOf.set(item, h) }
-    const t = set[h < 0.5 ? 0 : 1][((animT * 0.45 + h * 7.3) % 1) < 0.07 ? 1 : 0]
+    const t = set[h < 0.5 ? 0 : 1][((animT * 0.45 + h * 7.3) % 1) < PICK_GLINT ? 1 : 0]
     if (s.texture !== t.tex) { s.texture = t.tex; s.anchor.set(t.ax, t.ay) }
     s.position.set(x, y)
-    s.scale.set(1)
+    s.scale.set(PICK_SCALE)
   }
   function placeGem(s, g) {
     if (pixelLook && pixelRig.placeGem(s, g, animT)) return   // The Magma: pixel gems
