@@ -17172,7 +17172,11 @@ function stepDynamiteWeapon(run, w, stats, fireRateMul, dt) {
   const quick = run.weaponMods.dynamite?.shortFuse ?? 0
   fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => {
     const p = run.player
-    for (const sp of pickBloomSpots(run, ipecacN(run, stats.count), DYNAMITE_RANGE)) {
+    // each stick goes to the nearest foe; more sticks than foes cycle back to the nearest
+    const n = ipecacN(run, stats.count), tg = minePickTargets(run, n, DYNAMITE_RANGE)
+    if (!tg.length) return
+    for (let i = 0; i < n; i++) {
+      const sp = tg[i % tg.length]
       run.sticks.push({ x: sp.x, y: sp.y, fromX: p.x, fromY: p.y, t: 0, flight: DYNAMITE_FLIGHT, fuse: DYNAMITE_FUSE,
         r: stats.r, dmg: stats.dmg, seed: Math.floor(Math.random() * 1000) })
     }

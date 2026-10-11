@@ -20866,6 +20866,7 @@ run(testLeLargeWeapons)
   run(testMagmaRiverBank)
   run(testFlyersSkipFloor)
   run(testPickLandsLate)
+  run(testDynamiteNearest)
   // A hand-typed filter that matched nothing is the silent pass without a parent watching:
   // `node test/sim-test.js supernova` printed ALL TESTS PASSED having run no scenario at all.
   if (_ran === 0 && !EXACT_SET) {
@@ -40362,4 +40363,27 @@ function testPickLandsLate() {
   assert(hpLate === e.maxHP, 'PL.b the blow hit while the pick was still in the air')
   assert(hpLanded < e.maxHP, 'PL.c the blow never landed after the flight')
   console.log('PASS run PL (pick lands late): 0 damage on the throw and 0.12s later, ' + (e.maxHP - hpLanded).toFixed(0) + ' once it landed')
+}
+
+// Dynamite is thrown at the nearest foe, not at the thickest crowd
+function testDynamiteNearest() {
+  Math.random = mulberry32(42003)
+  const r = createRun((() => { const m = makeMeta(); m.dev = true; return m })(), { chapter: 'mine', difficulty: 1 })
+  r.weapons = [{ id: 'dynamite', level: 1 }]
+  const near = makeStatusEnemy(r, { x: 150, y: 0, hp: 1e9, speed: 0 })
+  const crowd = [0, 1, 2, 3, 4].map((k) => makeStatusEnemy(r, { x: -360, y: (k - 2) * 20, hp: 1e9, speed: 0 }))
+  let st = null
+  for (let i = 0; i < 900 && !st; i++) {
+    if (r.phase === 'levelup') { r.phase = 'playing'; r.levelUpChoices = [] }
+    r.player.x = 0; r.player.y = 0; r.player.hp = r.player.maxHP; r.player.invuln = 1
+    r.gas = []; r.enemies = [near, ...crowd]
+    near.x = 150; near.y = 0; crowd.forEach((e, k) => { e.x = -360; e.y = (k - 2) * 20 })
+    stepSim(r, { x: 0, y: 0 }, 1 / 60)
+    st = r.sticks[0] || null
+    r.events.length = 0
+  }
+  assert(st, 'DN setup: no stick was ever thrown')
+  const d = Math.hypot(st.x - near.x, st.y - near.y)
+  assert(d < 1, 'DN.a the stick went to (' + st.x.toFixed(0) + ',' + st.y.toFixed(0) + '), not the nearest foe at (150,0)')
+  console.log('PASS run DN (dynamite aims nearest): the first stick landed ' + d.toFixed(1) + 'px from the nearest foe, a crowd of 5 sat 360px the other way')
 }
