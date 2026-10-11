@@ -13305,7 +13305,7 @@ export function createRenderer(app) {
       const sz = Math.max(8, Math.min(wt.width, wt.height) * Math.abs(s.scale.y))
       const k = 1 + 5.2 / sz
       const hue = animT * 0.3 + s.x * 0.0021 + s.y * 0.0017
-      const o = 1.4 + ws * 0.6
+      const o = 1.4 - ws * 0.4
       for (const [sp, dx, dark, rb] of [[a, -o, 0x9ec4ff, hue], [b, o, 0x05030a, hue + 0.45]]) {
         sp.visible = true
         sp.texture = wt
@@ -13314,7 +13314,8 @@ export function createRenderer(app) {
         sp.scale.set(s.scale.x * k, s.scale.y * k)
         sp.position.set(s.x + dx, s.y + dx)
         sp.tint = mixHex(dark, rainbow(rb), ws)
-        sp.alpha = s.alpha * (sp === a ? 0.55 + 0.45 * ws : 0.8 + 0.2 * ws)
+        // on the pale crystal the rainbow is a faint fringe, not a ring (owner: "too strong")
+        sp.alpha = s.alpha * (sp === a ? 0.55 - 0.2 * ws : 0.8 - 0.45 * ws)
       }
       n++
     }
