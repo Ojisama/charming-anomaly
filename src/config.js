@@ -6172,11 +6172,12 @@ export const HP_SCALE_LATE_RATE = 0.005
 // balance_decision : The Shelf takes the Garden's rung as Book 2's second 2026-08-22
 //  - the book is offset one rung UP from Book 1 (surf = pond, not body); keep the offset when
 //    writing the next one, or The Reef inherits a curve gentler than the chapter above it
+// balance_decision : owner: Topsoil HP growth -25% (0.010 -> 0.0075) 2026-10-11
 export const CHAPTER_LATE_RATE = {
   body: 0.005, pond: 0.010, garden: 0.015, undergrowth: 0.020,
   city: 0.028, skies: 0.036, beyond: 0.0605,
   surf: 0.010, shelf: 0.015,
-  topsoil: 0.010, geode: 0.015, mine: 0.020, magma: 0.020,
+  topsoil: 0.0075, geode: 0.015, mine: 0.020, magma: 0.020,
 }
 // Unknown/absent chapter (the Blank, a test run with no chapter) keeps the shipped curve.
 export const lateRateFor = (chapterId) => CHAPTER_LATE_RATE[chapterId] ?? HP_SCALE_LATE_RATE
@@ -9413,7 +9414,8 @@ CHAPTERS.topsoil = {
     caveIns: { delay: 1.1, stagger: 0.08, span: 330, r: 30, crater: 42, open: 0.35, life: 11, fill: 1.5, max: 40 },
   },
   obstacles: null,
-  balance: { spawnMul: 0.75, enemyDmgMul: 0.5, enemyHpMul: 0.85, xpMul: 1.25, maxAliveMul: 0.55 },
+  // balance_decision : owner: crowd density -25% 2026-10-11
+  balance: { spawnMul: 0.5625, enemyDmgMul: 0.5, enemyHpMul: 0.85, xpMul: 1.25, maxAliveMul: 0.4125 },
   render: {
     cast: ['earthworm', 'moleCricket', 'mole', 'badger'],
     bgColor: 0x1a110a,     // under the photographed floor tile; shows nowhere but a frame's edge
