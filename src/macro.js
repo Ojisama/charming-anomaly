@@ -2678,3 +2678,107 @@ export function paintPitCollar(seed) {
   for (const [x, y, r, col] of list) pitClod(ctx, rnd, x, y, r, col, { shadow: 0.7 })
   return c
 }
+
+// ==== THE ELEMENTS, PHOTOGRAPHED =================================================================
+// Topsoil's element statuses and procs (render.js topsoilStatusFx). Painted in their own colours and
+// spawned untinted. The glowing ones (flame, ember, glow, spark) are drawn for an additive blend:
+// colour on transparent, brightest at the core.
+// A flame tongue pointing up (-y): a white-hot root, a yellow body, orange then red at the tip.
+export function paintFlameTongue(seed) {
+  return bakeLocal(16, 3, (ctx) => {
+    const rnd = rng(301 + seed * 13), lean = (rnd() - 0.5) * 0.6, H = 11 + rnd() * 4
+    // a teardrop: round at the root, drawn up to a licking point that leans and wavers
+    const tongue = (w, h, wob) => {
+      const pts = []
+      for (let i = 0; i < 28; i++) {
+        const a = (i / 28) * TAU, u = Math.cos(a), v = Math.sin(a)
+        const py = v < 0 ? v * h : v * w * 0.9
+        const px = u * w * (v < 0 ? Math.pow(1 + v, 0.65) : 1) - lean * py * 0.5 + Math.sin(py * 0.7 + wob) * Math.max(0, -py) * 0.08
+        pts.push(px, py + 3)
+      }
+      return pts
+    }
+    ctx.save(); ctx.globalCompositeOperation = 'lighter'
+    softFill(ctx, tongue(5.2, H, rnd() * 6), 2.4, 'rgba(200,40,8,0.55)')
+    softFill(ctx, tongue(4, H * 0.8, rnd() * 6), 1.6, 'rgba(255,120,24,0.7)')
+    softFill(ctx, tongue(2.8, H * 0.55, rnd() * 6), 1.1, 'rgba(255,200,70,0.85)')
+    softFill(ctx, tongue(1.6, H * 0.3, 0), 0.8, 'rgba(255,248,220,0.95)')
+    softDot(ctx, 0, 4, 1.4, 1.2, 'rgba(150,170,255,0.5)')
+    ctx.restore()
+  }, { shadowBlur: 0.6 }).body
+}
+// An ember: a speck of white heat in an orange halo.
+export function paintEmber() {
+  return bakeLocal(5, 4, (ctx) => {
+    ctx.save(); ctx.globalCompositeOperation = 'lighter'
+    softDot(ctx, 0, 0, 2.2, 1.6, 'rgba(255,90,20,0.6)')
+    softDot(ctx, 0, 0, 0.9, 0.5, 'rgba(255,214,140,1)')
+    softDot(ctx, 0, 0, 0.4, 0.2, 'rgba(255,255,240,1)')
+    ctx.restore()
+  }, { shadowBlur: 0.3 }).body
+}
+// A soft round light, white (tinted per use): the glow a fire throws on the soil, an arc's flash.
+export function paintGlow() {
+  return bakeLocal(32, 1.5, (ctx) => {
+    const g = ctx.createRadialGradient(0, 0, 0, 0, 0, 30)
+    g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(0.25, 'rgba(255,255,255,0.55)')
+    g.addColorStop(0.6, 'rgba(255,255,255,0.15)'); g.addColorStop(1, 'rgba(255,255,255,0)')
+    ctx.beginPath(); ctx.arc(0, 0, 30, 0, TAU); ctx.fillStyle = g; ctx.fill()
+  }, { shadowBlur: 0.1 }).body
+}
+// A spark flying off an arc: a short white-hot streak along +x.
+export function paintSpark() {
+  return bakeLocal(9, 4, (ctx) => {
+    ctx.save(); ctx.globalCompositeOperation = 'lighter'
+    softFill(ctx, ellipsePts(0, 0, 7, 1.4, 0, 20), 1.2, 'rgba(150,180,255,0.6)')
+    softFill(ctx, ellipsePts(1, 0, 5, 0.5, 0, 20), 0.4, 'rgba(255,255,255,1)')
+    ctx.restore()
+  }, { shadowBlur: 0.3 }).body
+}
+// A hoar-frost crystal: a little six-armed plate of ice, a hard specular star on it.
+export function paintIceGlint(seed) {
+  return bakeLocal(7, 4, (ctx) => {
+    const rnd = rng(77 + seed * 5), rot = rnd() * TAU
+    ctx.save(); ctx.lineCap = 'round'
+    for (let i = 0; i < 6; i++) {
+      const a = rot + (i / 6) * TAU, L = 3.4 + rnd() * 1.6
+      ctx.strokeStyle = 'rgba(40,70,100,0.35)'; ctx.lineWidth = 1.1
+      ctx.beginPath(); ctx.moveTo(0.3, 0.4); ctx.lineTo(Math.cos(a) * L + 0.3, Math.sin(a) * L + 0.4); ctx.stroke()
+      ctx.strokeStyle = 'rgba(226,244,255,0.95)'; ctx.lineWidth = 0.6
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(Math.cos(a) * L, Math.sin(a) * L); ctx.stroke()
+      for (const f of [0.45, 0.72]) {
+        const bx = Math.cos(a) * L * f, by = Math.sin(a) * L * f, l = L * 0.32 * (1.1 - f)
+        for (const s of [-1, 1]) { const b = a + s; ctx.lineWidth = 0.35; ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(bx + Math.cos(b) * l, by + Math.sin(b) * l); ctx.stroke() }
+      }
+    }
+    ctx.globalCompositeOperation = 'lighter'
+    softDot(ctx, -0.6, -0.8, 1.4, 1, 'rgba(200,230,255,0.6)')
+    ctx.fillStyle = 'rgba(255,255,255,0.95)'
+    ctx.fillRect(-2.6, -0.95, 4, 0.3); ctx.fillRect(-0.75, -2.8, 0.3, 4)
+    ctx.restore()
+  }, { shadowBlur: 0.3 }).body
+}
+// A bead of venom: a translucent green-yellow drop, darker at its rim, a window highlight toward the
+// key and the light it focuses on the far side, a contact shadow under it.
+export function paintVenomDrop() {
+  return bakeLocal(6, 5, (ctx) => {
+    const r = 2.6
+    softDot(ctx, -LX * 0.7, -LY * 0.7, r * 0.95, 0.7, 'rgba(0,0,0,0.6)')
+    const g = ctx.createRadialGradient(-LX * r * 0.6, -LY * r * 0.6, 0, 0, 0, r)
+    g.addColorStop(0, 'rgba(220,255,120,0.95)'); g.addColorStop(0.55, 'rgba(110,170,30,0.92)'); g.addColorStop(1, 'rgba(26,58,8,0.95)')
+    ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU); ctx.fillStyle = g; ctx.fill()
+    softDot(ctx, LX * r * 0.45, LY * r * 0.45, r * 0.32, 0.25, 'rgba(255,255,255,0.95)')
+    ctx.save(); ctx.globalCompositeOperation = 'lighter'
+    softDot(ctx, -LX * r * 0.5, -LY * r * 0.5, r * 0.4, 0.5, 'rgba(190,255,80,0.5)')
+    ctx.restore()
+  }, { shadowBlur: 0.3 }).body
+}
+// Where a drop fell: the soil darkened wet, a faint oily green at the stain's edge.
+export function paintVenomStain(seed) {
+  return bakeLocal(9, 3, (ctx) => {
+    const rnd = rng(55 + seed * 3), pts = blobPts(rnd, 0, 0, 4.2, 10, 0.4, 0.75, rnd() * TAU)
+    softFill(ctx, pts, 0.9, 'rgba(10,14,4,0.55)')
+    ctx.save(); ctx.strokeStyle = 'rgba(140,190,60,0.25)'; ctx.lineWidth = 0.4; smoothTrace(ctx, pts); ctx.stroke(); ctx.restore()
+    softDot(ctx, LX * 1.4, LY * 1.4, 0.6, 0.3, 'rgba(255,255,255,0.45)')
+  }, { shadowBlur: 0.3 }).body
+}
