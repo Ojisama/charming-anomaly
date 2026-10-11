@@ -2962,12 +2962,13 @@ export const WEAPONS = {
     name: 'Prism Shard',
     desc: 'Flicks crystal shards at the nearest foe. A crystal splits a shard into two halves.',
     icon: '🔹', rarity: 'normal',
+    // balance_decision : owner: a new shard only at levels 3 and 5 [2026-10-11]
     levels: [
       { dmg: 13, interval: 0.50, count: 1, speed: 500, pierce: 2 },
-      { dmg: 15, interval: 0.48, count: 2, speed: 510, pierce: 2 },
+      { dmg: 15, interval: 0.48, count: 1, speed: 510, pierce: 2 },
       { dmg: 17, interval: 0.47, count: 2, speed: 530, pierce: 2 },
-      { dmg: 20, interval: 0.42, count: 3, speed: 550, pierce: 2 },
-      { dmg: 25, interval: 0.36, count: 4, speed: 580, pierce: 3 },
+      { dmg: 20, interval: 0.42, count: 2, speed: 550, pierce: 2 },
+      { dmg: 25, interval: 0.36, count: 3, speed: 580, pierce: 3 },
     ],
   },
   // Echo Pulse: a ring of sound around you (run.novas, look 'echo'). Any crystal it reaches rings
@@ -2989,12 +2990,13 @@ export const WEAPONS = {
     name: 'Stalactite',
     desc: 'A shadow grows over a foe, then stone falls from the ceiling.',
     icon: '🗡️', rarity: 'rare',
+    // balance_decision : owner: a new copy only at levels 3 and 5 [2026-10-11]
     levels: [
       { dmg: 30, interval: 2.4, count: 1, r: 52 },
-      { dmg: 36, interval: 2.25, count: 2, r: 56 },
+      { dmg: 36, interval: 2.25, count: 1, r: 56 },
       { dmg: 44, interval: 2.1, count: 2, r: 60 },
-      { dmg: 54, interval: 1.95, count: 3, r: 64 },
-      { dmg: 66, interval: 1.8, count: 4, r: 70 },
+      { dmg: 54, interval: 1.95, count: 2, r: 64 },
+      { dmg: 66, interval: 1.8, count: 3, r: 70 },
     ],
   },
   // ---- Book 3, Burrow: The Mine's four. Every one of them lights the firedamp it touches. ----
@@ -3079,11 +3081,12 @@ export const WEAPONS = {
     name: 'Obsidian Shards',
     desc: 'Flicks volcanic glass at the nearest foe. A kill bursts it into splinters.',
     icon: '🔪', rarity: 'normal',
+    // balance_decision : owner: a new copy only at levels 3 and 5 [2026-10-11]
     levels: [
       { dmg: 15, interval: 0.6, count: 1, speed: 560, pierce: 1, splinters: 4 },
-      { dmg: 18, interval: 0.56, count: 2, speed: 570, pierce: 1, splinters: 4 },
+      { dmg: 18, interval: 0.56, count: 1, speed: 570, pierce: 1, splinters: 4 },
       { dmg: 21, interval: 0.52, count: 2, speed: 590, pierce: 2, splinters: 5 },
-      { dmg: 25, interval: 0.47, count: 3, speed: 610, pierce: 2, splinters: 5 },
+      { dmg: 25, interval: 0.47, count: 2, speed: 610, pierce: 2, splinters: 5 },
       { dmg: 30, interval: 0.42, count: 3, speed: 640, pierce: 3, splinters: 6 },
     ],
   },
@@ -9506,8 +9509,7 @@ CHAPTERS.geode = {
     // inked card-art creatures, thin-film colour over every light neutral surface, diffraction sparkle.
     // DARK HOLO: a calm dark floor; the foil lives on the pillars and the creatures' rims (maskLo/Hi
     // pick which brightness goes foil, glare is the sweeping band's strength).
-    // balance_decision : foil 30% softer, owner "too much on the screen" 2026-10-11
-    holo: { strength: 0.665, sparkle: 0.7, vignette: 0.5, shadowReach: 0.3, shadowAlpha: 0.85, maskLo: 0.34, maskHi: 0.78, glare: 0.098 },
+    holo: { strength: 0.95, sparkle: 1.0, vignette: 0.5, shadowReach: 0.3, shadowAlpha: 0.85, maskLo: 0.34, maskHi: 0.78, glare: 0.14 },
   },
 }
 

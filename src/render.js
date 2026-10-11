@@ -13313,8 +13313,9 @@ export function createRenderer(app) {
         sp.rotation = s.rotation
         sp.scale.set(s.scale.x * k, s.scale.y * k)
         sp.position.set(s.x + dx, s.y + dx)
-        sp.tint = mixHex(dark, rainbow(rb), ws)
-        sp.alpha = s.alpha * (sp === a ? 0.55 + 0.45 * ws : 0.8 + 0.2 * ws)
+        sp.tint = mixHex(dark, mixHex(rainbow(rb), 0xffffff, 0.5), ws)   // on pale crystal: the rainbow in pastel
+        // on the pale crystal a soft pastel ring, not a neon one (owner: "pastel and soft")
+        sp.alpha = s.alpha * (sp === a ? 0.55 + 0.2 * ws : 0.8 - 0.1 * ws)
       }
       n++
     }
