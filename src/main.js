@@ -244,6 +244,10 @@ const ui = initUI({
       return
     }
     if (ui.activeScreen() !== 'brief') return // backed out while the check was in flight
+    // the chapter's art still baking (Start tapped early): the brief shows a loader until it is done
+    ui.showScreen('brief', briefData(p, { picks: consumableIds, loading: true }))
+    await renderer.prewarm(p.chapter, (k) => ui.briefLoad(k))
+    if (ui.activeScreen() !== 'brief') return // backed out while it baked
     startClassic(p.chapter, p.difficulty, p.mutators, consumableIds, p.endless, p.speedrun)
   },
   // v6.0.4/v6.6.19: reroll ONE staged anomaly (by index) for ANOMALY_REROLL_COST, repeatable while
