@@ -256,11 +256,11 @@ import {
   rerollCost,
   difficultySpeedMul, difficultyCountMul, difficultyDmgMul, endlessLevel, endlessHpMul, endlessXpMul, endlessXpNeedMul, ENDLESS_COIN_HALF_LIFE_S, ENDLESS_COUNT_MUL_MAX,
   ENDLESS_MILESTONE_S, ENDLESS_MILESTONE_ELITES, endlessAffixChance, ENDLESS_GILDED_COINS, ENDLESS_HANDOVER_CLEAR_R, mutatorPool, MUTATORS,
-  SHOVEL_LIFE, PEBBLE_FAN, PEBBLE_LIFE, PEBBLE_R, ROOT_SNARE_TICK, ROOT_SNARE_SLOW, ROOT_SNARE_HOLD_T, ROOT_SNARE_RANGE,
+  SHOVEL_LIFE, PEBBLE_CONE, PEBBLE_SPEED_JITTER, pebbleSpreadStones, PEBBLE_LIFE, PEBBLE_R, ROOT_SNARE_TICK, ROOT_SNARE_SLOW, ROOT_SNARE_HOLD_T, ROOT_SNARE_RANGE,
   FURROW_STEP, FURROW_KEEP, FURROW_DELAY, FURROW_STAGGER, FURROW_PIT_OPEN, FURROW_PIT_LIFE, FURROW_PIT_FILL, FURROW_PIT_MAX, FURROW_JUMP, FURROW_LANE_GAP,
   SUNDOWN_SPEED_MUL, SUNDOWN_XP_MUL,
   PRISM_FAN, PRISM_LIFE, PRISM_R, ECHO_LIFE, STALACTITE_FUSE, STALACTITE_RANGE,
-  PICKAXE_RANGE, PICKAXE_KB, PICKAXE_CHIP_DMG, PICKAXE_CHIP_SPEED, PICKAXE_CHIP_LIFE, PICKAXE_CHIP_R,
+  PICKAXE_RANGE, PICKAXE_KB, PICKAXE_FLIGHT, PICKAXE_CHIP_DMG, PICKAXE_CHIP_SPEED, PICKAXE_CHIP_LIFE, PICKAXE_CHIP_R,
   DYNAMITE_RANGE, DYNAMITE_FLIGHT, DYNAMITE_FUSE, DYNAMITE_KB, MINECART_SPEED, MINECART_FAN, MINECART_KB, MINECART_STUN,
   CANARY_REACH_MUL, CANARY_LINK_DMG, LANTERN_PULSE, MINE_BOOM_KEEP, MINE_GAS_FADE_IN, MINE_GAS_LIT_SHRINK,
   SLAG_RANGE, SLAG_FLIGHT, SLAG_TICK, OBSIDIAN_FAN, OBSIDIAN_LIFE, OBSIDIAN_R, SPLINTER_DMG_MUL, SPLINTER_LIFE, SPLINTER_SPEED, SPLINTER_R,
@@ -10468,6 +10468,7 @@ export function buildReadout(run) {
     const countMod = WEAPON_COUNT_MODS[w.id]
     const countKey = WEAPON_COUNT_KEYS[w.id] ?? 'count'
     if (countMod && eff[countKey] != null) eff[countKey] += mods[countMod] ?? 0
+    if (w.id === 'pebbleSling') eff.count += pebbleSpreadStones(mods.wideThrow ?? 0)   // fireHandful's extra stones
     const rateMod = WEAPON_RATE_MODS[w.id]
     const rateDiv = globalRate * chapterWeaponRate(run, w.id) * (1 + (rateMod ? (mods[rateMod] ?? 0) : 0))
     const stats = []
@@ -16527,9 +16528,27 @@ function fireVolley(run, stats, weapon, fan, life, r) {
   }
   run.events.push({ type: 'shoot', weapon })
 }
+// A handful: each stone at a random angle inside the cone and its own speed, so a throw lands as a cloud
+function fireHandful(run, stats) {
+  const p = run.player
+  const target = nearestEnemy(run)
+  const base = target ? Math.atan2(target.y - p.y, target.x - p.x) : aimAngle(run)
+  const wide = run.weaponMods.pebbleSling?.wideThrow ?? 0
+  const count = ipecacN(run, stats.count + pebbleSpreadStones(wide)), cone = PEBBLE_CONE * (1 + wide)
+  for (let i = 0; i < count; i++) {
+    const a = base + (Math.random() - 0.5) * cone
+    const sp = stats.speed * (1 + (Math.random() - 0.5) * 2 * PEBBLE_SPEED_JITTER)
+    run.bullets.push({
+      x: p.x, y: p.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+      dmg: stats.dmg, pierce: stats.pierce, life: PEBBLE_LIFE, r: PEBBLE_R, speed: sp,
+      hitIds: new Set(), _shard: true, _splitDone: true, _chainsLeft: 0, weapon: 'pebble',
+    })
+  }
+  run.events.push({ type: 'shoot', weapon: 'pebble' })
+}
 function stepPebbleWeapon(run, w, stats, fireRateMul, dt) {
   const quick = run.weaponMods.pebbleSling?.whirl ?? 0
-  fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => fireVolley(run, stats, 'pebble', PEBBLE_FAN, PEBBLE_LIFE, PEBBLE_R))
+  fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => fireHandful(run, stats))
 }
 function stepPrismWeapon(run, w, stats, fireRateMul, dt) {
   const quick = run.weaponMods.prismShard?.flickRate ?? 0
@@ -16858,6 +16877,24 @@ function mineAreaHit(run, x, y, r, dmg, kb) {
 // -- Pickaxe (The Mine's starter) ----------------------------------------------------------------
 function stepPickaxeWeapon(run, w, stats, fireRateMul, dt) {
   const quick = run.weaponMods.pickaxe?.quickSwing ?? 0
+  // the picks in the air: each blow lands PICKAXE_FLIGHT s after its throw, where it was aimed
+  let w2 = 0
+  for (const k of run.picks) {
+    k.t -= dt
+    if (k.t > 0) { run.picks[w2++] = k; continue }
+    mineAreaHit(run, k.x, k.y, k.r, k.dmg, PICKAXE_KB)
+    gasLightAt(run, k.x, k.y, k.r)
+    const a0 = k.angle + Math.PI / k.count
+    for (let i = 0; i < k.count; i++) {
+      const a = a0 + (i / k.count) * Math.PI * 2
+      run.bullets.push({
+        x: k.x, y: k.y, vx: Math.cos(a) * PICKAXE_CHIP_SPEED, vy: Math.sin(a) * PICKAXE_CHIP_SPEED,
+        dmg: k.dmg * PICKAXE_CHIP_DMG, pierce: 1, life: PICKAXE_CHIP_LIFE, r: PICKAXE_CHIP_R, speed: PICKAXE_CHIP_SPEED,
+        hitIds: new Set([k.tid]), _shard: true, _splitDone: true, _chainsLeft: 0, weapon: 'chip',
+      })
+    }
+  }
+  run.picks.length = w2
   fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => {
     const p = run.player
     for (const t of minePickTargets(run, ipecacN(run, 1), PICKAXE_RANGE)) {
@@ -16865,18 +16902,9 @@ function stepPickaxeWeapon(run, w, stats, fireRateMul, dt) {
       const dx = t.x - p.x, dy = t.y - p.y, d = Math.hypot(dx, dy) || 1
       const off = Math.min(t.radius * 0.5, d)
       const x = t.x - (dx / d) * off, y = t.y - (dy / d) * off
-      mineAreaHit(run, x, y, stats.r, stats.dmg, PICKAXE_KB)
-      gasLightAt(run, x, y, stats.r)
-      const a0 = Math.atan2(dy, dx) + Math.PI / stats.count
-      for (let i = 0; i < stats.count; i++) {
-        const a = a0 + (i / stats.count) * Math.PI * 2
-        run.bullets.push({
-          x, y, vx: Math.cos(a) * PICKAXE_CHIP_SPEED, vy: Math.sin(a) * PICKAXE_CHIP_SPEED,
-          dmg: stats.dmg * PICKAXE_CHIP_DMG, pierce: 1, life: PICKAXE_CHIP_LIFE, r: PICKAXE_CHIP_R, speed: PICKAXE_CHIP_SPEED,
-          hitIds: new Set([t.id]), _shard: true, _splitDone: true, _chainsLeft: 0, weapon: 'chip',
-        })
-      }
-      run.events.push({ type: 'pickaxe', x, y, r: stats.r, angle: Math.atan2(dy, dx) })
+      const angle = Math.atan2(dy, dx)
+      run.picks.push({ x, y, r: stats.r, dmg: stats.dmg, count: stats.count, angle, tid: t.id, t: PICKAXE_FLIGHT })
+      run.events.push({ type: 'pickaxe', x, y, r: stats.r, angle, flight: PICKAXE_FLIGHT })
     }
   })
 }

@@ -47,7 +47,7 @@ import {
   SUNSPEAR_FALL, SUNSPEAR_SPREAD, FOXFIRE_GLOOM, FOXFIRE_WANDER_SPEED, FOXFIRE_SWARM, FOXFIRE_CATCH_FRAC, weaponDesc, FOXFIRE_GLOW, SUNLANCE_REACH_MIN, GLINT_LIGHT_COST, GLINT_GLOW,
   WEAPONS, HOLE_SINGULARITY_FRAC, DOWNWASH_PLUNGE_N, DOWNWASH_PLUNGE_FRAC, DOWNWASH_PLUNGE_ARM,
   ORBIT_NOVA_RADIUS, WISP_NOVA_RADIUS, CRUNCH_DMG_MUL, UNDERTOW_VAC_RADIUS_PER_STACK,
-  WEAPON_MODS, WEAPON_MOD_TIER_BONUS, MAX_WEAPON_MOD_PICKS, maxModsPerWeaponPerPool, PIERCE_MAX_PICKS,
+  WEAPON_MODS, WEAPON_MOD_TIER_BONUS, PEBBLE_CONE, MAX_WEAPON_MOD_PICKS, maxModsPerWeaponPerPool, PIERCE_MAX_PICKS,
   MOD_CANDIDATES_PER_WEAPON, MOD_POOL_MAX, DUO_PITY_SCREENS,
   WEAPON_RATE_MODS, WEAPON_COUNT_MODS,
   xpForLevel, REVIVE_HP_FRAC, REVIVE_INVULN, rerollCost,
@@ -20857,12 +20857,14 @@ run(testLeLargeWeapons)
   run(testMineGlyphTells)
   run(testMagma)
   run(testTopsoilPolish)
+  run(testPebbleHandful)
   run(testSrcParses)
   run(testGemTiers)
   run(testMagmaFloor)
   run(testGeodeShaderPrecision)
   run(testMagmaRiverBank)
   run(testFlyersSkipFloor)
+  run(testPickLandsLate)
   // A hand-typed filter that matched nothing is the silent pass without a parent watching:
   // `node test/sim-test.js supernova` printed ALL TESTS PASSED having run no scenario at all.
   if (_ran === 0 && !EXACT_SET) {
@@ -39704,6 +39706,67 @@ function testSrcParses() {
   console.log(`PASS run SX (src parses): ${files.length} files`)
 }
 
+// run PS: the Pebble Sling throws a handful of small stones, scattered in a narrow cone, at half its old
+// rate. Handful adds +1..+5 stones by rarity; Wide Throw widens the cone and, at legendary/mythic,
+// throws +1/+3 stones.
+function testPebbleHandful() {
+  const throwOnce = (mods = {}, level = 1, secs = 3) => {
+    Math.random = mulberry32(44017)
+    const r = createRun(makeMeta(), { chapter: 'body', difficulty: 1 })
+    r.player.hp = r.player.maxHP = 1e9
+    r.player.x = 0; r.player.y = 0
+    r.weapons = [{ id: 'pebbleSling', level }]
+    r.weaponMods.pebbleSling = { ...mods }
+    r.enemies.push(makeStatusEnemy(r, { x: 300, y: 0, hp: 1e9, speed: 0 }))
+    const throws = []
+    for (let i = 0; i < secs * 60; i++) {
+      if (r.phase === 'levelup') { r.phase = 'playing'; r.levelUpChoices = [] }
+      r.player.hp = r.player.maxHP
+      const before = new Set(r.bullets)
+      stepSim(r, { x: 0, y: 0 }, 1 / 60)
+      const fresh = r.bullets.filter((b) => b.weapon === 'pebble' && !before.has(b))
+      if (fresh.length) throws.push(fresh)
+      r.events.length = 0
+    }
+    return throws
+  }
+  const t1 = throwOnce()
+  const h = t1[0], ang = h.map((b) => Math.atan2(b.vy, b.vx))
+  assert.strictEqual(h.length, 5, `run PS.a: an L1 throw is 5 stones, got ${h.length}`)
+  assert.ok(h.every((b) => b.dmg >= 2 && b.dmg <= 3), `run PS.a: each stone deals 2-3, got ${h.map((b) => b.dmg)}`)
+  assert.strictEqual(new Set(ang.map((a) => a.toFixed(4))).size, 5, `run PS.a: the stones fly in 5 different directions`)
+  assert.ok(ang.every((a) => Math.abs(a) <= PEBBLE_CONE / 2 + 1e-9), `run PS.a: every stone inside the narrow cone toward the foe: ${ang.map((a) => a.toFixed(2))}`)
+  const sp = h.map((b) => Math.hypot(b.vx, b.vy))
+  assert.ok(Math.max(...sp) - Math.min(...sp) > 10, `run PS.a: the stones fly at different speeds (a cloud, not a line)`)
+  const rate = throwOnce({}, 1, 9).length
+  assert.ok(rate >= 9 && rate <= 11, `run PS.b: L1 throws about once per 0.9 s, got ${rate} in 9 s`)
+  const hf = WEAPON_MODS.pebbleSling.handful.values
+  assert.deepStrictEqual([hf.normal, hf.rare, hf.epic, hf.legendary, hf.mythic], [1, 2, 3, 4, 5], 'run PS.c: Handful is +1..+5 stones, normal..mythic')
+  assert.strictEqual(throwOnce({ handful: 5 })[0].length, 10, 'run PS.c: a mythic Handful throws 10 stones')
+  const wt = WEAPON_MODS.pebbleSling.wideThrow.values
+  // around the throw's own centre: spawns arriving mid-probe can become the nearest foe
+  const spread = (t) => {
+    const c = Math.atan2(t.reduce((s, b) => s + b.vy, 0), t.reduce((s, b) => s + b.vx, 0))
+    const a = t.map((b) => Math.atan2(Math.sin(Math.atan2(b.vy, b.vx) - c), Math.cos(Math.atan2(b.vy, b.vx) - c)))
+    return Math.max(...a) - Math.min(...a)
+  }
+  const plain = throwOnce({}, 1, 6), epic = throwOnce({ wideThrow: wt.epic }, 1, 6)
+  const leg = throwOnce({ wideThrow: wt.legendary }), myth = throwOnce({ wideThrow: wt.mythic })
+  assert.strictEqual(epic[0].length, 5, 'run PS.d: an epic Wide Throw adds no stone')
+  assert.strictEqual(leg[0].length, 6, `run PS.d: a legendary Wide Throw throws +1 stone, got ${leg[0].length}`)
+  assert.strictEqual(myth[0].length, 8, `run PS.d: a mythic Wide Throw throws +3 stones, got ${myth[0].length}`)
+  const wPlain = Math.max(...plain.map(spread)), wEpic = Math.max(...epic.map(spread))
+  assert.ok(wEpic > PEBBLE_CONE && wPlain <= PEBBLE_CONE, `run PS.d: Wide Throw widens the cone past ${PEBBLE_CONE} rad: plain ${wPlain.toFixed(2)}, epic ${wEpic.toFixed(2)}`)
+  {
+    Math.random = mulberry32(44018)
+    const r = createRun(makeMeta(), { chapter: 'body', difficulty: 1 })
+    r.weapons = [{ id: 'pebbleSling', level: 1 }]
+    r.weaponMods.pebbleSling = { wideThrow: wt.mythic }
+    const row = buildReadout(r).weapons[0].stats.find((st) => st.key === 'count')
+    assert.strictEqual(row?.value, 8, `run PS.e: the build sheet counts a mythic Wide Throw's stones: ${row?.value}`)
+  }
+  console.log(`PASS run PS (pebble handful): L1 5 stones of ${h[0].dmg}, ${rate} throws in 9 s, cone ${wPlain.toFixed(2)} -> ${wEpic.toFixed(2)} rad with Wide Throw, +1/+3 stones at legendary/mythic`)
+}
 function testTopsoilPolish() {
   const meta = () => { const m = makeMeta(); m.dev = true; return m }
   const dt = 1 / 60
@@ -39967,4 +40030,29 @@ function testFlyersSkipFloor() {
   assert(lost[1] === 0, 'FL.c a flyer over open lava takes ' + lost[1])
   assert(lost[3] === 0, 'FL.d a flyer over a slag pool takes ' + lost[3])
   console.log('PASS run FL (flyers skip the floor): walkers lost ' + lost[0].toFixed(0) + ' / ' + lost[2].toFixed(0) + ' hp, flyers 0 / 0')
+}
+
+// the Pickaxe's blow lands when the thrown pick does, not on the throw
+function testPickLandsLate() {
+  Math.random = mulberry32(42002)
+  const r = createRun((() => { const m = makeMeta(); m.dev = true; return m })(), { chapter: 'mine', difficulty: 1 })
+  r.weapons = r.weapons.filter((w) => w.id === 'pickaxe')
+  assert(r.weapons.length === 1, 'PL setup: the Mine starts with the Pickaxe')
+  const e = makeStatusEnemy(r, { x: 200, y: 0, hp: 1e9, speed: 0 })
+  let thrownAt = -1, hpAtThrow = 0, hpLate = 0, hpLanded = 0
+  for (let i = 0; i < 600; i++) {
+    if (r.phase === 'levelup') { r.phase = 'playing'; r.levelUpChoices = [] }
+    r.player.x = 0; r.player.y = 0; r.player.hp = r.player.maxHP; r.player.invuln = 1
+    r.gas = []; r.enemies = [e]; e._dead = false; e.x = 200; e.y = 0
+    stepSim(r, { x: 0, y: 0 }, 1 / 60)
+    if (thrownAt < 0 && r.events.some((v) => v.type === 'pickaxe')) { thrownAt = i; hpAtThrow = e.hp }
+    if (thrownAt >= 0 && i === thrownAt + 7) hpLate = e.hp
+    if (thrownAt >= 0 && i === thrownAt + 10) { hpLanded = e.hp; break }
+    r.events.length = 0
+  }
+  assert(thrownAt >= 0, 'PL setup: the pick was never thrown')
+  assert(hpAtThrow === e.maxHP, 'PL.a the blow hit on the throw: ' + (e.maxHP - hpAtThrow))
+  assert(hpLate === e.maxHP, 'PL.b the blow hit while the pick was still in the air')
+  assert(hpLanded < e.maxHP, 'PL.c the blow never landed after the flight')
+  console.log('PASS run PL (pick lands late): 0 damage on the throw and 0.12s later, ' + (e.maxHP - hpLanded).toFixed(0) + ' once it landed')
 }

@@ -28,7 +28,7 @@
 // ('-' '\' '|' '/') so a leg is drawn the way an ASCII artist would draw it. Light on the floor is
 // character density and warmth, never a fill. Darkness is black.
 import { CanvasSource, Container, Graphics, Particle, ParticleContainer, Rectangle, RenderTexture, Sprite, Texture } from 'pixi.js'
-import { FLASHLIGHT_SPEED_MUL, MINE_GAS_FADE_IN, MINE_GAS_LIT_SHRINK, PACER_RADIUS, POUNCE_AIM_T, POUNCE_LEAP_DIST, SHIELD_HP_FRAC } from './config.js'
+import { FLASHLIGHT_SPEED_MUL, PICKAXE_FLIGHT as PICK_FLIGHT, MINE_GAS_FADE_IN, MINE_GAS_LIT_SHRINK, PACER_RADIUS, POUNCE_AIM_T, POUNCE_LEAP_DIST, SHIELD_HP_FRAC } from './config.js'
 
 // ---- glyph atlas -------------------------------------------------------------------------------
 // One canvas, one texture source: every glyph sprite in the mine batches into the same draw call.
@@ -693,7 +693,6 @@ export function createAsciiRenderer(host) {
   const MAX_FX = 1400
   // the thrown pick (V11): each 'pickaxe' event sends one from the miner to the blow, render-only
   const picks = []
-  const PICK_FLIGHT = 0.15  // s from the '@' to the strike point: quick enough to read as the cause, long enough to catch
   const PICK_CRACK = 0.3    // s the cracked ground shows where it landed, the size of the blow's area
   const spawn = (p) => { if (fx.length < MAX_FX) fx.push({ t: 0, vx: 0, vy: 0, rot: 0, vr: 0, add: false, a0: 1, font: 0, glow: false, grav: 0, ...p }) }
   // damage numbers: small dim digits, the floor's own thin serif, gone in half a second
@@ -1072,13 +1071,7 @@ export function createAsciiRenderer(host) {
 
       // ---- the creatures, composed glyph by glyph ----
       mob.begin()
-      // the miner stays the clearest thing on screen: creature glyphs thin out right around the '@'
-      const CLR = 58, CLR2 = CLR * CLR
-      const out = (ch, x, y, col, al, size, rot, add, font, glow) => {
-        const dx = x - p.x, dy = y - p.y, d2 = dx * dx + dy * dy
-        if (d2 < CLR2) { const k = d2 / CLR2; al *= add ? k * k * k : 0.03 + 0.97 * k * k }
-        mob.put(ch, x, y, col, al, size, rot, add, font, glow)
-      }
+      const out = (ch, x, y, col, al, size, rot, add, font, glow) => mob.put(ch, x, y, col, al, size, rot, add, font, glow)
       const marks = []   // elites / affixed bodies on screen: their affix tells are drawn after the crowd
       for (const e of run.enemies ?? []) {
         if (e._dead) continue
