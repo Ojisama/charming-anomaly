@@ -3003,12 +3003,13 @@ export const WEAPONS = {
     name: 'Pickaxe',
     desc: 'Strikes the ground beside the nearest foe. Rock chips burst out around the blow.',
     icon: '⛏️', rarity: 'normal',
+    // balance_decision : owner: base damage -15% [2026-10-11]
     levels: [
-      { dmg: 20, interval: 0.85, r: 54, count: 4 },
-      { dmg: 24, interval: 0.80, r: 58, count: 5 },
-      { dmg: 29, interval: 0.75, r: 62, count: 6 },
-      { dmg: 35, interval: 0.70, r: 66, count: 7 },
-      { dmg: 44, interval: 0.62, r: 72, count: 8 },
+      { dmg: 20 * 0.85, interval: 0.85, r: 54, count: 4 },
+      { dmg: 24 * 0.85, interval: 0.80, r: 58, count: 5 },
+      { dmg: 29 * 0.85, interval: 0.75, r: 62, count: 6 },
+      { dmg: 35 * 0.85, interval: 0.70, r: 66, count: 7 },
+      { dmg: 44 * 0.85, interval: 0.62, r: 72, count: 8 },
     ],
   },
   // Dynamite: a lit stick thrown at a foe (run.sticks); it lands, fizzes, and blows up (all in r).
@@ -3045,13 +3046,13 @@ export const WEAPONS = {
     name: 'Lantern',
     desc: 'A warm glow around you burns whatever comes close, and sets off the firedamp near you.',
     icon: '🏮', rarity: 'normal',
-    // balance_decision : glow +6px, the reach the smaller rat lost 2026-10-10
+    // balance_decision : owner: glow radius halved, Wide Glow grows it [2026-10-11]
     levels: [
-      { dmg: 15, interval: 0.4, radius: 150 + 6, range: 165 },
-      { dmg: 18, interval: 0.38, radius: 158 + 6, range: 175 },
-      { dmg: 22, interval: 0.36, radius: 166 + 6, range: 185 },
-      { dmg: 27, interval: 0.34, radius: 176 + 6, range: 200 },
-      { dmg: 33, interval: 0.32, radius: 188 + 6, range: 215 },
+      { dmg: 15, interval: 0.4, radius: (150 + 6) * 0.5, range: 165 },
+      { dmg: 18, interval: 0.38, radius: (158 + 6) * 0.5, range: 175 },
+      { dmg: 22, interval: 0.36, radius: (166 + 6) * 0.5, range: 185 },
+      { dmg: 27, interval: 0.34, radius: (176 + 6) * 0.5, range: 200 },
+      { dmg: 33, interval: 0.32, radius: (188 + 6) * 0.5, range: 215 },
     ],
   },
 
@@ -4465,16 +4466,24 @@ export const WEAPON_MODS = {
     bigBang:     { name: 'Big Bang',     desc: 'dynamite blast radius', icon: '⭕', base: 0.22, kind: 'pct' },
     bundle:      { name: 'Bundle',       desc: 'extra stick(s) per throw', icon: '🔷', kind: 'tier' },
     shortFuse:   { name: 'Short Fuse',   desc: 'throw rate', icon: '⏩', base: 0.25, kind: 'pct' },
+    // balance_decision : owner: epic+ only [2026-10-11]
+    fastFuse:    { name: 'Fast Fuse',    desc: 'A stick blows up {n} sooner after it lands.', icon: '⏱️', kind: 'pct', maxPicks: 1,
+                   values: { epic: 0.4, legendary: 0.6, mythic: 0.8 } },
   },
   minecart: {
     heavyLoad:   { name: 'Heavy Load',   desc: 'cart damage', icon: '💥', base: 0.30, kind: 'pct' },
     wideCart:    { name: 'Wide Cart',    desc: 'cart width', icon: '↔️', base: 0.25, kind: 'pct' },
     secondCart:  { name: 'Second Cart',  desc: 'extra cart(s) per push', icon: '🔷', kind: 'tier' },
     greasedAxle: { name: 'Greased Axle', desc: 'push rate', icon: '⏩', base: 0.25, kind: 'pct' },
+    returnTrip:  { name: 'Return Trip',  icon: '🔁', kind: 'flat', maxPicks: 1, values: { rare: 1 },
+                   desc: 'Carts roll back to you, hitting again and picking up the gems and coins they pass.',
+                   descFor: () => 'Carts roll back to you, hitting again and picking up the gems and coins they pass.' },
   },
   lantern: {
     brightFlame: { name: 'Bright Flame', desc: 'glow damage', icon: '💥', base: 0.30, kind: 'pct' },
-    wideGlow:    { name: 'Wide Glow',    desc: 'glow radius', icon: '⭕', base: 0.18, kind: 'pct' },
+    // balance_decision : owner: rare+ only, +10/20/35/50% [2026-10-11]
+    wideGlow:    { name: 'Wide Glow',    desc: 'glow radius', icon: '⭕', kind: 'pct',
+                   values: { rare: 0.10, epic: 0.20, legendary: 0.35, mythic: 0.50 } },
     quickWick:   { name: 'Quick Wick',   desc: 'burn rate', icon: '⏩', base: 0.25, kind: 'pct' },
     openFlame:   { name: 'Open Flame',   desc: 'how far the glow sets off firedamp', icon: '🔥', base: 0.30, kind: 'pct' },
   },
@@ -6634,7 +6643,10 @@ export const DYNAMITE_KB = 150
 // balance_decision : slower cart that shoves and dazes, owner playtest 2026-10-10
 export const MINECART_SPEED = 380        // px/s
 export const MINECART_FAN = 0.32         // rad between the carts of one push
-export const MINECART_KB = 180           // the sideways shove a cart gives what it hits
+// balance_decision : owner: shove clears the track (~80px) [2026-10-11]
+export const MINECART_KB = 480           // the sideways shove a cart gives what it hits (travels ~KB/6 px)
+export const MINECART_LOOT_R = 24        // px past the cart's half-width that Return Trip picks up gems and coins
+export const MINECART_HOME_R = 30        // px from you a returning cart is caught and gone
 export const MINECART_STUN = 0.3         // s of daze (e.stunT) a cart hit gives; a fresh hit refreshes it, never stacks
 export const MINE_BOOM_KEEP = 0.6        // s a blast stays in run.booms for the renderer (render-facing only)
 export const MINE_GAS_FADE_IN = 0.6      // s a new firedamp pocket takes to condense out of the dark (ascii.js); it cannot be lit sooner

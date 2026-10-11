@@ -1275,24 +1275,28 @@ export function createAsciiRenderer(host) {
           obj.put('o', x, y, 0xc8d4e0, 1, 11, clock * 12, false, 2, false)
           if (f2 < 0) obj.put('*', x - ux * 6, y - uy * 6, 0xfff0a0, 0.6 + 0.4 * Math.sin(clock * 50 + s2), 9, clock * 30, true, 0, true)
         }
-        const sp = 4.4
+        // dense packing (owner, 2026-10-11): same footprint, more and crisper glyphs
+        const sp = 3.1
         let n = 0
         for (let yy = -w; yy <= w + 0.01; yy += sp * 0.86) {
           const row = Math.round((yy + w) / (sp * 0.86))
           for (let xx = -L + (row % 2 ? sp / 2 : 0); xx <= L + 0.01; xx += sp) {
             n++
-            const rim = Math.abs(xx) > L - sp * 0.9 || Math.abs(yy) > w - sp * 0.8
-            const [x, y] = P(xx + (hash2(n, 1, 83) - 0.5) * 1.5, yy + (hash2(n, 2, 83) - 0.5) * 1.5)
+            const edge = Math.max(Math.abs(xx) - (L - sp * 1.9), (Math.abs(yy) - (w - sp * 1.8)) * L / w)
+            const rim = edge > 0
+            const [x, y] = P(xx + (hash2(n, 1, 83) - 0.5) * 0.8, yy + (hash2(n, 2, 83) - 0.5) * 0.8)
             if (rim) {
-              obj.put(hash2(n, 3, 83) < 0.5 ? '#' : '=', x, y, mixHex(0xc06a30, 0x7a3c18, hash2(n, 4, 83)), 0.9, 8, c.angle, false, 2, false)
+              // two rows of planks: a bright inner lip, a dark outer edge that draws the tub's outline
+              const outer = Math.abs(xx) > L - sp * 0.9 || Math.abs(yy) > w - sp * 0.8
+              obj.put(hash2(n, 3, 83) < 0.5 ? '#' : '=', x, y, outer ? 0x5a2a10 : mixHex(0xe08a40, 0xb05a20, hash2(n, 4, 83)), 1, 8, c.angle, false, 2, false)
             } else {
               // the load: heaped higher (bigger, brighter) toward the middle
               const rr = Math.min(1, Math.hypot(xx / L, yy / w))
               const gold = hash2(n, 5, 83) < 0.68
               const ch = ['*', '◇', 'o', '%', '@', '°'][Math.floor(hash2(n, 6, 83) * 6)]
               const tw = 0.75 + 0.25 * Math.sin(clock * 9 + n)
-              obj.put(ch, x, y, gold ? mixHex(0xffe890, 0xc07a28, rr) : mixHex(0xc8f6ff, 0x3a8ab8, rr), tw, 13 - rr * 4, hash2(n, 7, 83) * TAU, false, 0, false)
-              if (hash2(n, 8, 83) < 0.18) obj.put(ch, x, y, gold ? 0xffc040 : 0x60d0ff, 0.35 * tw, 18, 0, true, 0, true)
+              obj.put(ch, x, y, gold ? mixHex(0xffe890, 0xc07a28, rr) : mixHex(0xc8f6ff, 0x3a8ab8, rr), 0.85 + 0.15 * tw, 9 - rr * 2, hash2(n, 7, 83) * TAU, false, 0, false)
+              if (hash2(n, 8, 83) < 0.05) obj.put(ch, x, y, gold ? 0xffc040 : 0x60d0ff, 0.3 * tw, 14, 0, true, 0, true)
             }
           }
         }
