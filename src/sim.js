@@ -256,7 +256,7 @@ import {
   rerollCost,
   difficultySpeedMul, difficultyCountMul, difficultyDmgMul, endlessLevel, endlessHpMul, endlessXpMul, endlessXpNeedMul, ENDLESS_COIN_HALF_LIFE_S, ENDLESS_COUNT_MUL_MAX,
   ENDLESS_MILESTONE_S, ENDLESS_MILESTONE_ELITES, endlessAffixChance, ENDLESS_GILDED_COINS, ENDLESS_HANDOVER_CLEAR_R, mutatorPool, MUTATORS,
-  SHOVEL_LIFE, PEBBLE_FAN, PEBBLE_LIFE, PEBBLE_R, ROOT_SNARE_TICK, ROOT_SNARE_SLOW, ROOT_SNARE_HOLD_T, ROOT_SNARE_RANGE,
+  SHOVEL_LIFE, PEBBLE_CONE, PEBBLE_SPEED_JITTER, pebbleSpreadStones, PEBBLE_LIFE, PEBBLE_R, ROOT_SNARE_TICK, ROOT_SNARE_SLOW, ROOT_SNARE_HOLD_T, ROOT_SNARE_RANGE,
   FURROW_STEP, FURROW_KEEP, FURROW_DELAY, FURROW_STAGGER, FURROW_PIT_OPEN, FURROW_PIT_LIFE, FURROW_PIT_FILL, FURROW_PIT_MAX, FURROW_JUMP, FURROW_LANE_GAP,
   SUNDOWN_SPEED_MUL, SUNDOWN_XP_MUL,
   PRISM_FAN, PRISM_LIFE, PRISM_R, ECHO_LIFE, STALACTITE_FUSE, STALACTITE_RANGE,
@@ -10468,6 +10468,7 @@ export function buildReadout(run) {
     const countMod = WEAPON_COUNT_MODS[w.id]
     const countKey = WEAPON_COUNT_KEYS[w.id] ?? 'count'
     if (countMod && eff[countKey] != null) eff[countKey] += mods[countMod] ?? 0
+    if (w.id === 'pebbleSling') eff.count += pebbleSpreadStones(mods.wideThrow ?? 0)   // fireHandful's extra stones
     const rateMod = WEAPON_RATE_MODS[w.id]
     const rateDiv = globalRate * chapterWeaponRate(run, w.id) * (1 + (rateMod ? (mods[rateMod] ?? 0) : 0))
     const stats = []
@@ -16527,9 +16528,27 @@ function fireVolley(run, stats, weapon, fan, life, r) {
   }
   run.events.push({ type: 'shoot', weapon })
 }
+// A handful: each stone at a random angle inside the cone and its own speed, so a throw lands as a cloud
+function fireHandful(run, stats) {
+  const p = run.player
+  const target = nearestEnemy(run)
+  const base = target ? Math.atan2(target.y - p.y, target.x - p.x) : aimAngle(run)
+  const wide = run.weaponMods.pebbleSling?.wideThrow ?? 0
+  const count = ipecacN(run, stats.count + pebbleSpreadStones(wide)), cone = PEBBLE_CONE * (1 + wide)
+  for (let i = 0; i < count; i++) {
+    const a = base + (Math.random() - 0.5) * cone
+    const sp = stats.speed * (1 + (Math.random() - 0.5) * 2 * PEBBLE_SPEED_JITTER)
+    run.bullets.push({
+      x: p.x, y: p.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+      dmg: stats.dmg, pierce: stats.pierce, life: PEBBLE_LIFE, r: PEBBLE_R, speed: sp,
+      hitIds: new Set(), _shard: true, _splitDone: true, _chainsLeft: 0, weapon: 'pebble',
+    })
+  }
+  run.events.push({ type: 'shoot', weapon: 'pebble' })
+}
 function stepPebbleWeapon(run, w, stats, fireRateMul, dt) {
   const quick = run.weaponMods.pebbleSling?.whirl ?? 0
-  fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => fireVolley(run, stats, 'pebble', PEBBLE_FAN, PEBBLE_LIFE, PEBBLE_R))
+  fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => fireHandful(run, stats))
 }
 function stepPrismWeapon(run, w, stats, fireRateMul, dt) {
   const quick = run.weaponMods.prismShard?.flickRate ?? 0
