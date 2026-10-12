@@ -37,7 +37,7 @@
 // (the moored boats), run.quenchCrusts, run.lavaPools, run.novas (look 'lavaWave'), and the events
 // tideTurn, melt, crumble and boatSink. The habitat, boat and weapon-ground tells live in src/toon/mantle-fx.js.
 import { AlphaFilter, BufferImageSource, CanvasSource, Container, Filter, GlProgram, Mesh, MeshGeometry, Shader, Sprite, Texture, UniformGroup } from 'pixi.js'
-import { PAL, TAU, mkCanvas, hash, whiteTwin } from './toon/palette.js'
+import { PAL, TAU, mkCanvas, freeCanvas, hash, whiteTwin } from './toon/palette.js'
 import { setPass } from './toon/brush.js'
 import { TOON_CAST, paintPlayer, PLAYER_BOX } from './toon/cast.js'
 import {
@@ -99,6 +99,7 @@ function paintBody(id, f, elite, res = RES) {
   }
   const ctx = cv.getContext('2d')
   ctx.drawImage(piece, 0, 0)
+  freeCanvas(piece); freeCanvas(bare)
   if (M.over) paintPass(M, f, elite, res, 'all', M.over, cv)
   return { canvas: cv, ax: -x0 / (x1 - x0), ay: -y0 / (y1 - y0) }
 }
@@ -113,6 +114,7 @@ function paintThumb(id, elite) {
   x.save(); x.beginPath(); x.arc(S / 2, S / 2, S / 2 - 5, 0, TAU); x.clip()
   x.drawImage(b.canvas, (S - b.canvas.width) / 2, (S - b.canvas.height) / 2)
   x.restore()
+  freeCanvas(b.canvas)
   return cv
 }
 export function bakeCreature(id, elite) {
@@ -165,7 +167,9 @@ function cutout(bare, f, res, seed, o = {}) {
   // the ink: a thick-thin brush contour hugging the silhouette
   const cv = mkCanvas(bare.width, bare.height), c = cv.getContext('2d')
   c.globalAlpha = 0.9; c.drawImage(margin, 0, 0); c.globalAlpha = 1
-  c.drawImage(grow(o.ink ?? 1.0, o.inkSide ?? 1.6, PAL.ink ?? '#1e1513', 0.0 + seed * 0.007), 0, 0)
+  const ink = grow(o.ink ?? 1.0, o.inkSide ?? 1.6, PAL.ink ?? '#1e1513', 0.0 + seed * 0.007)
+  c.drawImage(ink, 0, 0)
+  freeCanvas(margin); freeCanvas(ink)
   return cv
 }
 // THE PLAYER'S KEYLINE: the cut of its bare silhouette (no ground shadow), with the player's numbers.
@@ -173,7 +177,9 @@ function keyline(f) {
   const [x0, y0, x1, y1] = PLAYER_BOX
   const bare = mkCanvas((x1 - x0) * RES, (y1 - y0) * RES), bx = bare.getContext('2d')
   bx.scale(RES, RES); bx.translate(-x0, -y0); paintPlayer(bx, f, true)
-  return cutout(bare, f, RES, 0)
+  const cut = cutout(bare, f, RES, 0)
+  freeCanvas(bare)
+  return cut
 }
 // ---- the renderer --------------------------------------------------------------------------------
 export function createToonRenderer(host) {

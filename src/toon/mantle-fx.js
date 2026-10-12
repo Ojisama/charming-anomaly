@@ -23,7 +23,7 @@
 // 3 shapes of slabs holding per texel the distance to the nearest seam (r), the relief (g), the depth
 // into the shape from its edge (b) and the slab's sinking order (a: edge slabs first).
 import { Container, Graphics, Mesh, MeshGeometry, Shader, UniformGroup, BufferImageSource, CanvasSource, Texture, Sprite } from 'pixi.js'
-import { PAL, TAU, hexNum, mkCanvas } from './palette.js'
+import { PAL, TAU, hexNum, mkCanvas, freeCanvas } from './palette.js'
 import { resetXf, ell, polar, tube, qb, line, cel, eye, drop, spline, setPaper } from './brush.js'
 import { mantleHeightAt } from '../sim.js'
 import { MANTLE_STRAND_STUCK_T, MANTLE_STRAND_DIE_T, MANTLE_MELT_T, DRAW_CAPS } from '../config.js'
@@ -216,6 +216,7 @@ function paperEdge(cv, w) {
   for (let i = 0; i < 20; i++) { const a = (i / 20) * TAU; c.drawImage(cv, Math.cos(a) * w, Math.sin(a) * w) }
   c.globalCompositeOperation = 'source-in'; c.fillStyle = PAL.paper; c.fillRect(0, 0, g.width, g.height)
   c.globalCompositeOperation = 'source-over'; c.drawImage(cv, 0, 0)
+  freeCanvas(cv)
   return g
 }
 function bake(w, h, ax, ay, paint, paper = 1.5) {

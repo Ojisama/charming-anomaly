@@ -1,4 +1,4 @@
-import { mkCanvas } from './palette.js'
+import { mkCanvas, freeCanvas } from './palette.js'
 // The Mantle's brush: how every inked thing in the chapter is drawn (render-only).
 //
 // THE CEL ITSELF. A shape is a list of points (local units), mapped through a small transform stack
@@ -322,7 +322,7 @@ export function cel(c, ptsLocal, fill, o = {}) {
     pathOf(c, B); c.fillStyle = 'rgba(255,248,228,0.88)'; c.fill()
   }
   c.restore()
-  if (layer) { dst.save(); dst.setTransform(1, 0, 0, 1, 0, 0); dst.drawImage(layer, 0, 0); dst.restore(); return }
+  if (layer) { dst.save(); dst.setTransform(1, 0, 0, 1, 0, 0); dst.drawImage(layer, 0, 0); dst.restore(); freeCanvas(layer); return }
   if (o.ink !== 0) brush(c, ptsLocal, true, o.ink ?? 1.6, o)
 }
 // a pie-cut eye: a white oval, a black pupil with the wedge notch cut out of it toward the upper right
