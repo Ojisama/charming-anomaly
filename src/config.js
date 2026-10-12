@@ -9868,7 +9868,7 @@ CHAPTERS.mantle = {
   obstacles: null,
   balance: { spawnMul: 0.8, enemyDmgMul: 0.7, enemyHpMul: 1.15, xpMul: 1.2, maxAliveMul: 0.66 },
   render: {
-    cast: ['emberImp', 'magmaToad', 'basaltGolem', 'brimstoneDragon'],
+    cast: ['emberImp', 'magmaToad', 'basaltGolem', 'magmaEel', 'brimstoneDragon'],
     bgColor: 0x2b1a12,     // under the toon floor (never seen: the floor covers the view)
     floorTint: 0xffffff,   // the floor and its props carry their own palette
     playerTint: 0xffffff,
