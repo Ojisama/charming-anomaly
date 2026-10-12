@@ -7284,7 +7284,7 @@ export function createRenderer(app) {
     const frames = b.frames.map((f) => ({ tex: macroCanvasTex(f.canvas, f.res), white: macroCanvasTex(f.white, f.res), ax: f.ax, ay: f.ay }))
     return {
       tex: frames[0].tex, white: frames[0].white, ax: frames[0].ax, ay: frames[0].ay,
-      frames: frames.length > 1 ? frames : null, thumb: b.thumb ?? null,
+      frames: frames.length > 1 ? frames : null, thumb: b.thumb ?? null, fps: b.fps || null,
       baseR: b.baseR, maxLean: (b.lean ?? 0) * DEG, upright: !!b.upright,
       poseOf: b.poseOf || null, faceDir: b.faceDir || null, turnRate: b.turnRate || null,
       spin: 0, squash: 0, shadow: null, crown: null,
@@ -32269,7 +32269,8 @@ void main() {
         } else {
           const halted = (e.frozen || 0) > 0 || (e.stunT || 0) > 0
           if (!halted || s._animFrame === undefined || s._animFrame >= look.frames.length) {
-            s._animFrame = Math.floor(animT * 10 + e.id * 1.7) % look.frames.length
+            // look.fps: a look whose cycle has more frames plays them faster (toon.js), 10 otherwise
+            s._animFrame = Math.floor(animT * (look.fps || 10) + e.id * 1.7) % look.frames.length
           }
         }
         frame = look.frames[s._animFrame]
