@@ -759,6 +759,40 @@ function testEndlessCoins() {
   console.log(`PASS run EN.e (endless coins): x${want.toFixed(2)} at t=${run.time.toFixed(0)}s, earned -> ${after}`)
 }
 
+// run NA: a roster entry with noAffix (Topsoil's earthworm) never rolls an endless crowd affix,
+// while the chapter's other crowd still does at the top of the ramp (the control).
+function testNoAffixRoster() {
+  Math.random = mulberry32(20261012)
+  const m = makeMeta(); m.dev = true
+  const run = createRun(m, { chapter: 'topsoil', endless: true })
+  assert.strictEqual(run.chapter, 'topsoil', 'run NA: fixture must be a Topsoil run')
+  run.player.hp = run.player.maxHP = 1e12
+  run._nextEliteAt = 1e9
+  run._endlessNextMilestone = Infinity
+  run.time = 60 * 30
+  advance(run, 40, 1 / 30, { x: 1, y: 0 })
+  const crowd = run.enemies.filter((e) => !e.elite)
+  const worms = crowd.filter((e) => e.rosterId === 'earthworm'), others = crowd.filter((e) => e.rosterId !== 'earthworm')
+  const others_ = others.filter((e) => e.affixVisible).length
+  assert.ok(worms.length >= 30 && others.length >= 10, `run NA: denominator too small (${worms.length} worms, ${others.length} others)`)
+  assert.ok(worms.every((e) => !e.affixVisible && e.affixes.length === 0), 'run NA: an earthworm rolled an endless affix')
+  assert.ok(others_ > 0, 'run NA: control - the rest of the crowd must still roll affixes')
+  // the elites: a badger (eliteOnly), a mole cricket or a mole (alsoElite), never a worm
+  const el = createRun(m, { chapter: 'topsoil', difficulty: 1 })
+  el.player.hp = el.player.maxHP = 1e12
+  el.mods.eliteEveryMul = 0.02
+  const seen = {}
+  for (let i = 0; i < 90 * 30; i++) {
+    if (el.phase === 'levelup') { el.phase = 'playing'; el.levelUpChoices = [] }
+    stepSim(el, { x: 1, y: 0 }, 1 / 30)
+    el.events.length = 0
+    for (const e of el.enemies) if (e.elite && !e._naSeen) { e._naSeen = true; seen[e.rosterId] = (seen[e.rosterId] || 0) + 1 }
+  }
+  assert.ok(!seen.earthworm, `run NA: an earthworm became an elite (${JSON.stringify(seen)})`)
+  for (const id of ['badger', 'moleCricket', 'mole']) assert.ok(seen[id] > 0, `run NA: no ${id} elite in ${JSON.stringify(seen)}`)
+  console.log(`PASS run NA (noAffix roster): 0/${worms.length} earthworms wear an affix, ${others_}/${others.length} of the rest do; elites ${JSON.stringify(seen)}`)
+}
+
 function testEndlessCrowdAffixes() {
   Math.random = mulberry32(20261003)
   const mk = (t) => {
@@ -20693,6 +20727,7 @@ try {
   run(testEndlessXpTaper)
   run(testEndlessCoins)
   run(testEndlessCrowdAffixes)
+  run(testNoAffixRoster)
   run(testEndlessMilestones)
   run(testEndlessMeta)
   run(testEndlessAccess)

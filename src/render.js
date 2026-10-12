@@ -32029,7 +32029,7 @@ void main() {
     const m = s._afx
     if (m) for (const k in m) m[k]._used = false
     const aff = (e.elite || e.affixVisible) && e.affixes ? e.affixes : null
-    if (aff && aff.length && e.hitFlash <= 0) {
+    if (aff && aff.length && e.hitFlash <= 0 && !e.burrowed) {
       const F = eliteFx(), R = e.radius || 16, k = R / 16, id = e.id
       // the body's frame: +x is its nose, the back is -x
       const fl = s.scale.x < 0 ? -1 : 1, c = Math.cos(s.rotation), sn = Math.sin(s.rotation)
@@ -32043,9 +32043,9 @@ void main() {
       if (hx * hx + hy * hy > 0.01) s._afxHd = Math.atan2(hy, hx)
       const hd = s._afxHd ?? s.rotation
       if (aff.includes('frenzied')) {
-        // it twitches: the body and everything on it
-        const j = 1.8 * k
-        s.position.x += Math.sin(animT * 61 + id) * j; s.position.y += Math.cos(animT * 47 + id * 2) * j
+        // it twitches in short jerks, the body and everything on it (a steady shake read as a vibration)
+        const j = 1.1 * k * Math.pow(Math.max(0, Math.sin(animT * 2.3 + id)), 8)
+        s.position.x += Math.sin(animT * 29 + id) * j; s.position.y += Math.cos(animT * 23 + id * 2) * j
       }
       for (const a of aff) {
         if (a === 'shielded') {
