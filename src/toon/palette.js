@@ -36,12 +36,15 @@ export const PAL = {
 }
 export const hexNum = (h) => parseInt(h.slice(1), 16)
 
-// a scratch canvas is released at once: a phone that waits for the GC to free the bake's hundreds
-// of MB of them runs out of canvas memory and paints some frames with only their ink
+// a scratch canvas is released at once, not left for the GC (the bake makes hundreds of MB of them)
 export function freeCanvas(cv) { cv.width = 0; cv.height = 0 }
+// willReadFrequently keeps every bake canvas on the browser's software rasteriser: Firefox
+// Nightly's GPU canvas on Android dropped clips mid-bake, so shades filled whole rectangles and
+// some of the digger's walk frames came out as black blocks (later getContext('2d') calls get this context)
 export function mkCanvas(w, h) {
   const c = document.createElement('canvas')
   c.width = Math.max(1, Math.ceil(w)); c.height = Math.max(1, Math.ceil(h))
+  c.getContext('2d', { willReadFrequently: true })
   return c
 }
 
