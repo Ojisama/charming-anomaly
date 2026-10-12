@@ -41,7 +41,7 @@ import { PAL, TAU, mkCanvas, hash, whiteTwin } from './toon/palette.js'
 import { setPass } from './toon/brush.js'
 import { TOON_CAST, paintPlayer, PLAYER_BOX } from './toon/cast.js'
 import {
-  CHUNK, CHUNK_STEP, CHUNK_N, FLOOR_VERT, FLOOR_FRAG, FILM_VERT, FILM_FRAG, NOISE_N, bakeNoise, paintBubbleAtlas,
+  CHUNK, CHUNK_STEP, CHUNK_N, FX_N, FX_GHOSTS, FX_GHOST_T, FLOOR_VERT, FLOOR_FRAG, FILM_VERT, FILM_FRAG, NOISE_N, bakeNoise, paintBubbleAtlas,
   paintCoal, paintPuff, paintGem, paintCoin, paintLick, paintDot, paintSweat, paintWade, paintDaze,
 } from './toon/world.js'
 import { lavaTideOf, mantleHeightAt, lavaLineFor } from './sim.js'
@@ -246,6 +246,12 @@ export function createToonRenderer(host) {
     uPulse: { value: 0, type: 'f32' }, uTexel: { value: 1 / CHUNK_N, type: 'f32' }, uStep: { value: CHUNK_STEP, type: 'f32' },
     uUVW: { value: (1 - 1 / CHUNK_N) / CHUNK, type: 'f32' }, uLo: { value: 0.3, type: 'f32' }, uHi: { value: 0.8, type: 'f32' },
     uFlood: { value: -1, type: 'f32' }, uWet: { value: -1, type: 'f32' }, uWetK: { value: 0, type: 'f32' },
+    // the weapons' ground (FX_N of each, the newest on screen): Quench crusts and Crack Hammer pools as
+    // (x, y, r, t) + (dur, 0, 0, 0), and the pools that just closed, still cooling, as (x, y, r, age)
+    uNC: { value: 0, type: 'f32' }, uNP: { value: 0, type: 'f32' }, uNG: { value: 0, type: 'f32' },
+    uCr: { value: new Float32Array(4 * FX_N), type: 'vec4<f32>', size: FX_N }, uCrE: { value: new Float32Array(4 * FX_N), type: 'vec4<f32>', size: FX_N },
+    uPo: { value: new Float32Array(4 * FX_N), type: 'vec4<f32>', size: FX_N }, uPoE: { value: new Float32Array(4 * FX_N), type: 'vec4<f32>', size: FX_N },
+    uGh: { value: new Float32Array(4 * FX_GHOSTS), type: 'vec4<f32>', size: FX_GHOSTS },
   })
   const noiseSrc = new BufferImageSource({ resource: bakeNoise(), width: NOISE_N, height: NOISE_N, format: 'rgba8unorm', scaleMode: 'linear', addressMode: 'repeat', alphaMode: 'no-premultiply-alpha' })
   const bubSrc = new CanvasSource({ resource: paintBubbleAtlas(), scaleMode: 'linear', mipmapFilter: 'linear', autoGenerateMipmaps: true })
@@ -297,11 +303,24 @@ export function createToonRenderer(host) {
   // cast sharp
   const floorPass = new AlphaFilter({ alpha: 1, resolution: 1 })
   // ?debug: the floor's and the film's uniforms and the baked chunks, for a probe scene to read or tweak
-  if (typeof window !== 'undefined' && /[?&]debug/.test(window.location?.search ?? '')) window.__toon = { floorU, filmU, chunks }
+  if (typeof window !== 'undefined' && /[?&]debug/.test(window.location?.search ?? '')) window.__toon = { floorU, filmU, chunks, mfxGround }
   let floodLine = -1
   let look = null, pulse = 0, t = 0, prevX = null, prevY = 0
   // the tide's memory: the highest line the last flood reached, and how fresh the rock it left is
   let wetLine = -1, wetK = 0, maxLine = -1, levelsKey = null
+  // the pools that just closed: rock again (the sim's), still cooling on screen for FX_GHOST_T s
+  let prevPools = [], ghosts = []
+  // the newest n of list that are on screen and alive, packed into the floor's uniform arrays
+  function packFx(list, n, A, E, onScreen) {
+    let k = 0
+    for (let i = list.length - 1; i >= 0 && k < n; i--) {
+      const c = list[i]
+      if (!(c.t < c.dur) || !onScreen(c.x, c.y, c.r + 150)) continue
+      A[k * 4] = c.x; A[k * 4 + 1] = c.y; A[k * 4 + 2] = c.r; A[k * 4 + 3] = c.t; E[k * 4] = c.dur
+      k++
+    }
+    return k
+  }
   const r = {
     // render.js layers this chapter draws itself (render.js's TOON_HIDEABLE names)
     hide: ['floor', 'dust', 'gems', 'coins', 'bullets', 'boomerangs', 'novas', 'player', 'obstacles', 'vignette', 'shadows'],
@@ -311,7 +330,7 @@ export function createToonRenderer(host) {
       filmU.uniforms.uVignette = lk.vignette ?? 0.55
       filmU.uniforms.uFlicker = lk.flicker ?? 0.035
       filmU.uniforms.uSepia = lk.sepia ?? 0.22
-      wetLine = -1; wetK = 0; maxLine = -1; levelsKey = null
+      wetLine = -1; wetK = 0; maxLine = -1; levelsKey = null; prevPools = []; ghosts = []
       for (const k of [...chunks.keys()]) dropChunk(k)
       chunkKey = null
       floor.visible = under.visible = over.visible = true
@@ -373,6 +392,16 @@ export function createToonRenderer(host) {
         u.uLine = TD.line; u.uSwell = TD.swell; u.uTime = clock; u.uPulse = pulse
         u.uFlood = run.lavaTide ? Math.max(floodLine, maxLine) : -1
         u.uWet = wetLine; u.uWetK = wetK
+        // the weapons' ground, painted by the floor itself
+        const pools = run.lavaPools ?? []
+        for (const q of prevPools) if (!pools.includes(q) && q.t + dt >= q.dur) ghosts.push({ x: q.x, y: q.y, r: q.r, born: clock })
+        prevPools = pools.slice()
+        ghosts = ghosts.filter((g) => clock - g.born < FX_GHOST_T && clock >= g.born).slice(-FX_GHOSTS)
+        u.uNC = packFx(run.quenchCrusts ?? [], FX_N, u.uCr, u.uCrE, onScreen)
+        u.uNP = packFx(pools, FX_N, u.uPo, u.uPoE, onScreen)
+        let ng = 0
+        for (const g of ghosts) { if (!onScreen(g.x, g.y, g.r)) continue; u.uGh.set([g.x, g.y, g.r, clock - g.born], ng * 4); ng++ }
+        u.uNG = ng
       }
       // pickups: gems bob, coins spin
       gems.begin()
