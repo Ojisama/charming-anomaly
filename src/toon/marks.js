@@ -15,13 +15,18 @@ const LA = Math.atan2(0.83, 0.55)   // the shadow side of every contour (the lig
 // a stable per-ring phase, so a ring keeps its brush from frame to frame instead of crawling
 const ph = (x, y, r) => { const v = Math.sin(x * 0.0123 + y * 0.0371 + r * 0.71) * 43758.5453; return v - Math.floor(v) }
 
-function ringPoly(x, y, r, a0, span, wAt, n) {
+// 1-D value noise round the ring: the hand wavers, it never draws a sine
+function hn(i, s) { let h = (i * 374761393 + s * 668265263) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); h ^= h >>> 16; return (h >>> 0) / 4294967296 }
+function n1(x, s) { const i = Math.floor(x), f = x - i, u = f * f * (3 - 2 * f); return (hn(i, s) + (hn(i + 1, s) - hn(i, s)) * u) * 2 - 1 }
+function ringPoly(x, y, r, a0, span, wAt, n, sd = 0) {
   const out = [], inn = []
   for (let i = 0; i <= n; i++) {
     const u = i / n, a = a0 + span * u, w = wAt(a, u)
     const c = Math.cos(a), s = Math.sin(a)
-    out.push(x + c * (r + w / 2), y + s * (r + w / 2))
-    inn.push(x + c * (r - w / 2), y + s * (r - w / 2))
+    // the brush does not run on a compass: the ring's own path wanders in and out a little
+    const rr = r * (1 + 0.035 * n1(u * 7, sd) + 0.012 * n1(u * 23, sd + 5))
+    out.push(x + c * (rr + w / 2), y + s * (rr + w / 2))
+    inn.push(x + c * (rr - w / 2), y + s * (rr - w / 2))
   }
   for (let i = inn.length - 2; i >= 0; i -= 2) out.push(inn[i], inn[i + 1])
   return out
@@ -32,12 +37,14 @@ export function inkRing(g, x, y, r, color, alpha = 1, width = 2, fill = 0) {
   const n = Math.max(28, Math.min(120, Math.round(r * 0.6)))
   if (fill > 0) g.circle(x, y, r).fill({ color, alpha: fill })
   const gap = 0.16 + 0.1 * p, a0 = p * TAU, span = TAU - gap
-  const press = (a) => 0.55 + 0.75 * Math.max(0, Math.cos(a - LA)) + 0.12 * Math.sin(a * 3 + p * 9)
-  const taper = (u) => Math.min(1, Math.min(u, 1 - u) / 0.07)
+  const sd = (p * 1e6) | 0
+  const press = (a) => 0.45 + 0.95 * Math.max(0, Math.cos(a - LA)) + 0.25 * n1(a * 2.2, sd + 9)
+  const tA = 0.05 + 0.08 * hn(sd, 1), tB = 0.05 + 0.08 * hn(sd, 2)
+  const taper = (u) => Math.min(1, u / tA, (1 - u) / tB)
   const wb = Math.max(1.6, width * 1.15)
   // the ink contour first, then the flat colour band laid inside it
-  g.poly(ringPoly(x, y, r, a0, span, (a, u) => (wb * press(a) + 2.4) * (0.35 + 0.65 * taper(u)), n)).fill({ color: INK, alpha: Math.min(1, alpha * 1.05) })
-  g.poly(ringPoly(x, y, r, a0 + 0.05, span - 0.1, (a, u) => wb * press(a) * (0.3 + 0.7 * taper(u)), n)).fill({ color, alpha: Math.min(1, alpha * 1.15) })
+  g.poly(ringPoly(x, y, r, a0, span, (a, u) => (wb * press(a) * 0.95 + 3.0) * (0.3 + 0.7 * taper(u)), n, sd)).fill({ color: INK, alpha: Math.min(0.95, 0.3 + alpha * 1.1) })
+  g.poly(ringPoly(x, y, r, a0 + 0.06, span - 0.12, (a, u) => wb * 0.95 * press(a) * (0.25 + 0.75 * taper(u)), n, sd)).fill({ color, alpha: Math.min(1, 0.35 + alpha) })
 }
 export function inkLine(g, x0, y0, x1, y1, color, alpha = 1, width = 1.5) {
   const dx = x1 - x0, dy = y1 - y0, L = Math.hypot(dx, dy)
@@ -55,8 +62,24 @@ export function inkLine(g, x0, y0, x1, y1, color, alpha = 1, width = 1.5) {
   }
   // a stroke that starts fat where it leaves the body and tapers away along the lane
   const wf = (u) => Math.max(0.2, width * 1.6 * (1 - u) * Math.min(1, u / 0.06 + 0.3))
-  g.poly(strip((u) => wf(u) + 1.6 * (1 - u))).fill({ color: INK, alpha: alpha * 0.9 })
-  g.poly(strip(wf)).fill({ color, alpha: Math.min(1, alpha * 1.1) })
+  g.poly(strip((u) => wf(u) + 2.2 * (1 - u))).fill({ color: INK, alpha: Math.min(0.9, 0.2 + alpha) })
+  g.poly(strip(wf)).fill({ color, alpha: Math.min(1, 0.3 + alpha) })
+}
+
+// THE ONE-OFF RING (render.js's spawnRing, while the chapter is toon): a canvas of radius 64 px (the
+// size spawnRing scales from), a cream band inside a thick-thin ink contour, hand-wavered, its ends not
+// meeting. Cream, so spawnRing's own tint colours it; the ink stays ink under any tint.
+export function bakeRingCanvas() {
+  const S = 160, R = 64, cv = mkCanvas(S * 2, S * 2), c = cv.getContext('2d')
+  c.scale(2, 2)
+  const g = { _p: null, poly(pts) { this._p = pts; return this }, fill({ color, alpha }) {
+    const P = this._p
+    c.beginPath(); c.moveTo(P[0], P[1]); for (let i = 2; i < P.length; i += 2) c.lineTo(P[i], P[i + 1]); c.closePath()
+    c.fillStyle = '#' + color.toString(16).padStart(6, '0'); c.globalAlpha = alpha; c.fill(); c.globalAlpha = 1
+    return this
+  }, circle() { return this } }
+  inkRing(g, S / 2, S / 2, R, 0xfff4d6, 1, 5)
+  return { canvas: cv, ax: 0.5, ay: 0.5, res: 2 }
 }
 
 // ---- the affix badges (units: a badge about 12 world px across) ----------------------------------

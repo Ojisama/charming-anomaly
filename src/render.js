@@ -27040,7 +27040,9 @@ void main() {
   // on top (defaults to white = baked colors as-is). Both optional/backward-compatible —
   // existing explosionBurst() calls are untouched; tinted bursts pass
   // T.novaRing (neutral white) + a saturated tint so the same geometry can be recolored.
+  let toonRingLook = null
   function spawnRing(x, y, maxR = 90, dur = 0.35, look = T.novaWarm, tint = 0xffffff) {
+    if (toonOn) look = toonRingLook ??= ((b) => ({ tex: macroCanvasTex(b.canvas, b.res), ax: b.ax, ay: b.ay }))(TOON.bakeRingCanvas())   // The Mantle: inked
     const rg = rings[ringCursor]
     ringCursor = (ringCursor + 1) % MAX_RINGS
     if (!rg.s) {
@@ -31580,7 +31582,7 @@ void main() {
         continue
       }
       const color = b.src === 'trail' ? 0x8a5fe0 : 0xff6b81
-      if (toonOn) { TOON.inkRing(bombG, b.x, b.y, b.radius, color, rimA, 1.5 + urgency * 1.5, fillA); continue }   // The Mantle: inked
+      if (toonOn) { TOON.inkRing(bombG, b.x, b.y, b.radius, color, Math.max(0.55, rimA), 3 + urgency * 2, fillA); continue }   // The Mantle: inked
       bombG.circle(b.x, b.y, b.radius).fill({ color, alpha: fillA })
       bombG.circle(b.x, b.y, b.radius).stroke({ width: 1.5 + urgency * 1.5, color, alpha: rimA })
     }
@@ -32615,7 +32617,7 @@ void main() {
         // subtle warm aura ring at the affix's push/pull radius, slow pulse
         const pulse = 0.5 + 0.5 * Math.sin(animT * 1.5 + e.id * 0.7)
         if (pixelLook) pixelRing(pacerG, e.x, e.y, PACER_RADIUS, 0xffb347, 0.30 + pulse * 0.25)
-        else if (toonOn) TOON.inkRing(pacerG, e.x, e.y, PACER_RADIUS, 0xffb347, 0.3 + pulse * 0.2, 2)   // The Mantle: inked
+        else if (toonOn) TOON.inkRing(pacerG, e.x, e.y, PACER_RADIUS, 0xffb347, 0.38 + pulse * 0.2, 3)   // The Mantle: inked
         else pacerG.circle(e.x, e.y, PACER_RADIUS).stroke({ width: 2, color: 0xffb347, alpha: 0.18 + pulse * 0.14 })
       }
 

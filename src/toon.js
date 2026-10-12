@@ -16,7 +16,7 @@
 //                             upright, poseOf, faceDir, turnRate } — render.js's enemy pool draws the
 //                             creatures from these (mirrored to face their way, never turned), and
 //                             scripts/bake-cast.mjs writes `thumb` to src/cast/<id>.png.
-//   inkRing / inkLine / bakeAffix   (src/toon/marks.js) render.js's own overlays — telegraph and aura
+//   inkRing / inkLine / bakeAffix / bakeRingCanvas   (src/toon/marks.js) render.js's own overlays — telegraph and aura
 //                             rings, a pounce lane's edges, the elite affix badges — drawn in the
 //                             cast's ink instead of as flat vector strokes and emoji (render.js's
 //                             toonOn hooks).
@@ -34,7 +34,7 @@
 // height and the lava on it), run.bullets (weapon 'match', 'coal'), run.novas (look 'steam'),
 // run.boomerangs (weapon 'pitchfork'), the elemental contract fields on enemies (ignite), and the
 // event tideTurn.
-import { BufferImageSource, CanvasSource, Container, Filter, GlProgram, Mesh, MeshGeometry, Shader, Sprite, Texture, UniformGroup } from 'pixi.js'
+import { AlphaFilter, BufferImageSource, CanvasSource, Container, Filter, GlProgram, Mesh, MeshGeometry, Shader, Sprite, Texture, UniformGroup } from 'pixi.js'
 import { PAL, TAU, mkCanvas, hash, whiteTwin } from './toon/palette.js'
 import { TOON_CAST, paintPlayer, PLAYER_BOX } from './toon/cast.js'
 import {
@@ -45,7 +45,7 @@ import { lavaTideOf, mantleHeightAt, lavaLineFor } from './sim.js'
 import { gemTier } from './config.js'
 
 export { TOON_CAST, PAL }
-export { inkRing, inkLine, bakeAffix } from './toon/marks.js'
+export { inkRing, inkLine, bakeAffix, bakeRingCanvas } from './toon/marks.js'
 
 const RES = 3   // canvas px per world px, for every bake
 // the ground drawn with the tide switched off (signature.lavaTide = null): the same kind of hills, dry
@@ -95,8 +95,11 @@ function keyline(f) {
   const bare = mkCanvas((x1 - x0) * RES, (y1 - y0) * RES), bx = bare.getContext('2d')
   bx.scale(RES, RES); bx.translate(-x0, -y0); paintPlayer(bx, f, true)
   const cv = mkCanvas(bare.width, bare.height), c = cv.getContext('2d')
-  const R = 2.2 * RES
-  for (let i = 0; i < 16; i++) { const a = (i / 16) * TAU; c.drawImage(bare, Math.cos(a) * R, Math.sin(a) * R) }
+  // fat on the shadow side (lower right), thin toward the light, and a little uneven all round: a brush
+  for (let i = 0; i < 24; i++) {
+    const a = (i / 24) * TAU, R = RES * (1.3 + 1.6 * Math.max(0, Math.cos(a - 0.98)) + 0.35 * Math.sin(a * 5 + f * 1.7))
+    c.drawImage(bare, Math.cos(a) * R, Math.sin(a) * R)
+  }
   c.globalCompositeOperation = 'source-in'
   c.fillStyle = PAL.ink ?? '#1e1513'; c.fillRect(0, 0, cv.width, cv.height)
   return cv
@@ -208,8 +211,15 @@ export function createToonRenderer(host) {
     uFlicker: { value: 0.035, type: 'f32' }, uSepia: { value: 0.22, type: 'f32' }, uWeave: { value: new Float32Array([0, 0]), type: 'vec2<f32>' },
     uPx: { value: 1, type: 'f32' },
   })
-  const film = new Filter({ glProgram: GlProgram.from({ vertex: FILM_VERT, fragment: FILM_FRAG, name: 'toon-film' }), resources: { filmU } })
+  // at the screen's own resolution and antialiasing: a filter otherwise draws the whole stage at 1x into
+  // a plain texture, which blurs the cast on a 2x phone and steps every inked ring into jaggies
+  const film = new Filter({ glProgram: GlProgram.from({ vertex: FILM_VERT, fragment: FILM_FRAG, name: 'toon-film' }), resources: { filmU }, resolution: 'inherit', antialias: 'inherit' })
 
+  // THE WORLD IS PAINTED AT 1x, THE CAST AT THE SCREEN'S OWN RESOLUTION: the floor (a soft watercolour,
+  // the costliest shader here) goes through a plain pass at resolution 1, so a 2x phone pays for its
+  // pixels once and the cast keeps its crisp ink over it, the way mock f has the world soft and the
+  // cast sharp
+  const floorPass = new AlphaFilter({ alpha: 1, resolution: 1 })
   // ?debug: the floor's and the film's uniforms and the baked chunks, for a probe scene to read or tweak
   if (typeof window !== 'undefined' && /[?&]debug/.test(window.location?.search ?? '')) window.__toon = { floorU, filmU, chunks }
   let floodLine = -1
@@ -229,9 +239,11 @@ export function createToonRenderer(host) {
       for (const k of [...chunks.keys()]) dropChunk(k)
       chunkKey = null
       floor.visible = under.visible = over.visible = true
+      floor.filters = [floorPass]
     },
     exit() {
       look = null
+      floor.filters = null
       for (const k of [...chunks.keys()]) dropChunk(k)
       for (const p of [dazes, gems, coins, shots, forks, puffs, wades, pwade, licks, sweats]) p.hide()
       wetLine = -1; wetK = 0; maxLine = -1

@@ -2,12 +2,16 @@
 //
 // THE CEL ITSELF. A shape is a list of points (local units), mapped through a small transform stack
 // (push/pop/tr/rot/sc) before it is drawn, so a contour can be resampled and inked as a polygon:
-//   brush(c, pts, closed, w)   a pressure ink line: fat where the contour faces away from the light
-//                              (the light comes from the upper left), tapering to points, with a slow
-//                              hand wobble; a closed contour starts and ends at a random point with a
-//                              thin overlapping taper, so its closure is slightly imperfect.
-//   cel(c, pts, fill, o)       FLAT paint + ONE soft airbrushed shadow from the lower right + (o.spec)
-//                              a small cream specular, then the brush round it.
+//   brush(c, pts, closed, w)   a pressure ink line drawn by a HAND, not a vector: fat where the contour
+//                              faces away from the light (upper left), its width and its path both
+//                              wavering unevenly along the stroke (value noise on the arc length, never
+//                              a sine), the two ends tapering by different amounts, and a closed contour
+//                              starting at a random point and overlapping (or just missing) its start.
+//   cel(c, pts, fill, o)       PAINT, laid by a brush: the colour slightly off the line (it overshoots
+//                              the ink here, falls short of it there), gouache dabs dragged through it,
+//                              ONE shadow brushed in as a hard-edged wobbly shape on the lower right (a
+//                              painted crescent, not a gradient), an optional cream highlight blob, then
+//                              the ink round it.
 //   eye / glove / tube / flame the cartoon parts: pie-cut eyes, white four-finger gloves, rubber-hose
 //                              tubes with no elbows, an S-curled flame.
 // Only the cast, its shots, its pickups and the bubbles that peek out of the swell are drawn with
@@ -20,6 +24,9 @@ export function rng(seed) {
 }
 const clamp = (v, a = 0, b = 1) => (v < a ? a : v > b ? b : v)
 const mix = (a, b, t) => a + (b - a) * t
+// 1-D value noise (smooth, irregular) for the hand: a wavering that never repeats like a sine
+function hn(i, s) { let h = (i * 374761393 + s * 668265263) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); h ^= h >>> 16; return (h >>> 0) / 4294967296 }
+function n1(x, s) { const i = Math.floor(x), f = x - i, u = f * f * (3 - 2 * f); return mix(hn(i, s), hn(i + 1, s), u) * 2 - 1 }
 
 // ---------------------------------------------------------------- transform stack (points are mapped before drawing)
 let M = [1, 0, 0, 1, 0, 0]
@@ -128,11 +135,14 @@ export function brush(c, ptsLocal, closed, w, o = {}) {
   if (closed) {
     sign = area(P) > 0 ? 1 : -1
     const start = Math.floor((Math.sin(seed) * 0.5 + 0.5) * n)
-    const over = Math.max(3, Math.floor(n * (o.over ?? 0.07)))
+    const over = Math.max(2, Math.floor(n * (o.over ?? (0.02 + 0.09 * (Math.sin(seed * 3.7) * 0.5 + 0.5)))))
     seq = []; for (let i = 0; i < n + over; i++) seq.push(P[(start + i) % n])
   } else seq = P
   const m = seq.length, Lp = [], Rp = []
   const taper = o.taper ?? (closed ? 0.09 : 0.3)
+  // the two ends of a stroke lift off unevenly: one quick, one dragged
+  const si = (seed * 1000) | 0
+  const tA = taper * (0.6 + 0.8 * hn(si, 3)), tB = taper * (0.6 + 0.8 * hn(si, 5))
   for (let i = 0; i < m; i++) {
     const a = seq[Math.max(0, i - 2)], b = seq[Math.min(m - 1, i + 2)]
     let tx = b[0] - a[0], ty = b[1] - a[1]; const l = Math.hypot(tx, ty) || 1; tx /= l; ty /= l
@@ -141,11 +151,13 @@ export function brush(c, ptsLocal, closed, w, o = {}) {
     const face = closed ? clamp(nx * LX + ny * LY, -1, 1) : Math.abs(nx * LX + ny * LY) * 0.6
     let p = 0.42 + 0.9 * Math.pow(clamp(face * 0.5 + 0.5), 1.4)
     if (o.flat) p = 0.85
-    p *= 1 + 0.16 * Math.sin(i * 0.19 + seed) + 0.09 * Math.sin(i * 0.053 + seed * 3)
-    const e = Math.min(t, 1 - t) / taper
+    // the hand's pressure wavers along the stroke (arc length = i * 0.4 world px)
+    const ln = i * 0.4
+    p *= 1 + 0.2 * n1(ln / 2.2, si) + 0.12 * n1(ln / 0.8, si + 7)
+    const e = Math.min(t / tA, (1 - t) / tB)
     const tp = e >= 1 ? 1 : Math.pow(Math.max(0, e), 0.65)
     const wi = Math.max(0.05, w * p * (closed ? mix(0.2, 1, tp) : tp) * (o.belly ? (0.6 + 0.6 * Math.sin(t * Math.PI)) : 1))
-    const wob = w * 0.22 * Math.sin(i * 0.07 + seed * 1.7)
+    const wob = (w * 0.2 + 0.12) * n1(ln / 3.5, si + 11) + 0.06 * n1(ln / 1.1, si + 13)
     const cx = seq[i][0] + nx * wob, cy = seq[i][1] + ny * wob
     Lp.push([cx + (nx * wi) / 2, cy + (ny * wi) / 2]); Rp.push([cx - (nx * wi) / 2, cy - (ny * wi) / 2])
   }
@@ -160,22 +172,61 @@ export function line(c, pts, w, o = {}) { brush(c, pts, false, w, o) }
 // ---------------------------------------------------------------- THE CEL
 // flat paint, ONE soft airbrushed shadow from the lower right, an optional small cream specular.
 // The shadow is the fill's own darker hue (never a grey wash): a Cuphead cel stays clean.
+let celSeed = 1
+// a polygon pushed in and out along its own normals by value noise: the paint's edge, by hand
+function waver(P, amp, s, scale = 2.4) {
+  const n = P.length, out = []
+  let len = 0
+  for (let i = 0; i < n; i++) {
+    const a = P[(i - 1 + n) % n], b = P[(i + 1) % n]
+    let tx = b[0] - a[0], ty = b[1] - a[1]; const l = Math.hypot(tx, ty) || 1; tx /= l; ty /= l
+    if (i) len += Math.hypot(P[i][0] - P[i - 1][0], P[i][1] - P[i - 1][1])
+    const d = amp * (0.7 * n1(len / scale, s) + 0.3 * n1(len / (scale * 0.35), s + 3))
+    out.push([P[i][0] + ty * d, P[i][1] - tx * d])
+  }
+  return out
+}
 export function cel(c, ptsLocal, fill, o = {}) {
   const P = T(ptsLocal)
   const [x0, y0, x1, y1] = bbox(P), cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, R = Math.max(x1 - x0, y1 - y0) / 2
-  pathOf(c, P); c.fillStyle = fill; c.fill()
-  c.save(); pathOf(c, P); c.clip()
+  const cs = (celSeed++) * 131 + 7
+  const k = clamp(R / 5, 0.25, 1)                       // small parts get a steadier hand
+  // the paint, laid slightly off the line: where it overshoots, the colour peeks past the ink
+  const Pp = o.ink === 0 ? P : waver(P, 0.45 * k, cs)
+  pathOf(c, Pp); c.fillStyle = fill; c.fill()
+  c.save(); pathOf(c, Pp); c.clip()
+  const r = rng(cs)
+  // gouache: short dabs dragged on the brush's diagonal, a shade lighter and a shade darker
+  if (R > 1.6 && o.dabs !== 0) {
+    const N = Math.min(70, Math.round(((x1 - x0) * (y1 - y0)) / 7))
+    for (let i = 0; i < N; i++) {
+      const x = x0 + r() * (x1 - x0), y = y0 + r() * (y1 - y0)
+      const a = -0.65 + (r() - 0.5) * 0.7, L = 1.2 + r() * 2.8, wd = 0.35 + r() * 0.7
+      c.fillStyle = r() < 0.5 ? 'rgba(255,244,220,' + (0.06 + r() * 0.07).toFixed(3) + ')' : 'rgba(50,14,24,' + (0.05 + r() * 0.07).toFixed(3) + ')'
+      c.beginPath(); c.ellipse(x, y, L, wd, a, 0, 7); c.fill()
+    }
+  }
+  // ONE shadow, brushed in: the shape minus itself nudged to the upper left, so it lies as a crescent
+  // on the lower right with a hard but wobbly painted edge
   if (o.shade !== null) {
-    const g = c.createRadialGradient(cx - R * 0.35, cy - R * 0.45, R * 0.15, cx - R * 0.2, cy - R * 0.3, R * 1.45)
     const sh = o.shade || 'rgba(70,10,30,0.4)'
-    g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(0.62, 'rgba(0,0,0,0)'); g.addColorStop(1, sh)
-    c.fillStyle = g; c.fillRect(x0 - 2, y0 - 2, x1 - x0 + 4, y1 - y0 + 4)
+    const d = R * 0.3 + 0.4
+    const S = waver(P.map(([x, y]) => [cx + (x - cx) * 1.02 - d * 0.5, cy + (y - cy) * 1.02 - d * 0.78]), 0.9 * k, cs + 17, 3.2)
+    c.beginPath(); c.rect(x0 - 4, y0 - 4, x1 - x0 + 8, y1 - y0 + 8)
+    c.moveTo(S[0][0], S[0][1]); for (let i = 1; i < S.length; i++) c.lineTo(S[i][0], S[i][1]); c.closePath()
+    c.fillStyle = sh; c.fill('evenodd')
+    // a few dry strokes where the shadow brush ran out
+    for (let i = 0; i < 4 && R > 2.5; i++) {
+      const a = -0.65 + (r() - 0.5) * 0.5, j = r()
+      const bx = cx + R * (0.15 + 0.5 * j), by = cy + R * (0.6 - 0.5 * j) * (r() < 0.5 ? 1 : -0.2)
+      c.beginPath(); c.ellipse(bx, by, 1 + r() * 2, 0.25 + r() * 0.3, a, 0, 7); c.fill()
+    }
   }
   if (o.spec) {
     const sx = cx - R * 0.42, sy = cy - R * 0.48, sr = R * (o.spec === true ? 0.22 : o.spec)
-    const g2 = c.createRadialGradient(sx, sy, 0, sx, sy, sr)
-    g2.addColorStop(0, 'rgba(255,248,228,0.95)'); g2.addColorStop(0.6, 'rgba(255,248,228,0.85)'); g2.addColorStop(1, 'rgba(255,248,228,0)')
-    c.fillStyle = g2; c.beginPath(); c.ellipse(sx, sy, sr * 1.25, sr * 0.8, -0.6, 0, 7); c.fill()
+    // a flat cream blob, brushed (no gradient): a fat comma along the light
+    const B = waver(ell(sx, sy, sr * 1.25, sr * 0.75, -0.6, 18), sr * 0.18, cs + 29, Math.max(0.6, sr))
+    pathOf(c, B); c.fillStyle = 'rgba(255,248,228,0.88)'; c.fill()
   }
   c.restore()
   if (o.ink !== 0) brush(c, ptsLocal, true, o.ink ?? 1.6, o)

@@ -192,8 +192,6 @@ void main() {
   vec4 F = nz(W, 40.0);                                   // fine: froth, ragged shore
   float d = (h - uLine) / gl;                              // px from the shore, + on the dry rock
   d += (F.g - 0.5) * 4.0;                                  // a watercolour-ragged edge
-  float sw = uSwell;
-  float throb = 0.5 + 0.5 * sin(uTime * 5.5);
 
   // ---- ROCK: slate-violet watercolour -----------------------------------------------------------
   vec4 B0 = nz(W, 512.0);
@@ -217,17 +215,21 @@ void main() {
   rc *= 1.0 + (P.a - 0.5) * 0.09;                                        // paper tooth
   float gran = step(0.9, h12(floor(W / 1.6)));                          // granulation specks
   rc *= 1.0 - gran * 0.08 * (0.5 + C0.g);
-  float stp = B0.a * 5.0 + h * 14.0, sf = fract(stp);                    // soft painted terraces
-  rc *= 1.0 - bell(sf, 0.5, 0.12) * 0.08 + bell(sf, 0.15, 0.08) * 0.06;
   float shd = clamp((g.x * 0.6 + g.y * 0.8) * 1800.0, -0.45, 0.45);       // hillshade, lit from the upper left
-  rc *= 1.0 - shd * 0.6;
-  // scorched: the basins the flood fills every cycle are darker, warmer, stained
-  float sc0 = smoothstep(0.004, -0.03, h - uFlood);
-  rc = mix(rc, rc * vec3(0.8, 0.62, 0.66) + vec3(0.05, 0.01, 0.0), sc0 * (0.6 + 0.3 * C0.b));
-  // the high-water mark: a ragged rusty crust left where the flood stops, ringing the high ground
-  float dfl = (h - uFlood) / gl + (F.g - 0.5) * 6.0;
-  float hwm = (bell(dfl, 2.0, 2.2) * 0.8 + bell(dfl, 8.0, 1.6) * 0.35) * smoothstep(0.3, 0.55, F.r + C0.b * 0.4) * step(0.0, uFlood);
-  rc = mix(rc, rc * vec3(0.92, 0.7, 0.72) + vec3(0.05, 0.012, 0.0), hwm * 0.45);
+  rc *= 1.0 - shd * 0.75;
+  // THE HIGH GROUND, IN PAINT (no line anywhere): the flood mark splits the rock into two washes.
+  // Above it (the hills and ridges the flood never reaches) a pale, cool lilac, lit; below it (the
+  // basins it fills every cycle) a darker, warmer, burnt wash. Where the two meet the burnt wash dried
+  // with its pigment pooled into a broad soft dark edge on the low side, ragged, the way a watercolour
+  // wash stops: a band some 20 px wide, never a contour line.
+  float hasF = step(0.0, uFlood);
+  float dfl = (h - uFlood) / gl + (F.g - 0.5) * 10.0 + (C0.b - 0.5) * 18.0;   // px above the flood mark
+  float safe = smoothstep(-6.0, 26.0, dfl) * hasF;
+  float sc0 = (1.0 - safe) * hasF;
+  rc = mix(rc, rc * vec3(0.78, 0.6, 0.64) + vec3(0.045, 0.01, 0.0), sc0 * (0.62 + 0.25 * C0.b));
+  rc = mix(rc, rc * vec3(1.16, 1.14, 1.12) + vec3(0.06, 0.06, 0.1), safe * (0.55 + 0.25 * B0.r));
+  float pool = exp(-pow((dfl + 9.0) / 12.0, 2.0)) * hasF * (0.7 + 0.6 * F.b);
+  rc = mix(rc, rc * vec3(0.62, 0.5, 0.58), clamp(pool, 0.0, 1.0) * 0.55);
   // pebbles: soft painted blots, no ink
   {
     vec2 pc = floor(W / 46.0);
@@ -247,18 +249,53 @@ void main() {
   }
   // rock the lava has just left: a damp, warm wash still drying (darker, a little rosier), with a
   // soft glistening sheen; it fades as the rock dries. A wash, never a crust.
-  float wetb = step(0.0, d) * smoothstep(0.004, -0.004, h - uWet) * uWetK;
-  if (wetb > 0.0) {
-    rc = mix(rc, rc * vec3(0.86, 0.72, 0.8) + vec3(0.035, 0.008, 0.0), wetb * 0.55);
-    rc += vec3(0.1, 0.08, 0.12) * smoothstep(0.62, 0.8, C0.b) * wetb * 0.35;   // the wet sheen
-  }
-  // the lip, lit from the lava below, and the heat climbing the bank as the shores swell
+  // CRACKS: one network of thin jagged fissures (two noise iso-lines, crossed), which the heat lights
+  vec4 K = nz(W + vec2(311.0, 97.0), 150.0), K2 = nz(W * 1.7 + vec2(53.0, 211.0), 150.0);
+  float crk = max(bell(K.r + (F.b - 0.5) * 0.05, 0.5, 0.012), 0.8 * bell(K2.g + (F.r - 0.5) * 0.05, 0.5, 0.01));
+  crk *= smoothstep(0.32, 0.5, K.b);
+  float crkHalo = max(bell(K.r, 0.5, 0.05), 0.7 * bell(K2.g, 0.5, 0.04)) * smoothstep(0.32, 0.5, K.b);
   float dp = max(d, 0.0);
+  // rock the lava has just left: a dark burnt crust (plum, not mud), its veins still glowing as they cool
+  float wetb = step(0.0, d) * smoothstep(0.004, -0.004, h - uWet) * uWetK;
+  vec3 glowK = vec3(0.0);
+  if (wetb > 0.0) {
+    rc = mix(rc, vec3(0.15, 0.085, 0.13) + rc * 0.25, wetb * 0.6);
+    rc += vec3(0.1, 0.08, 0.12) * smoothstep(0.62, 0.8, C0.b) * wetb * 0.3;   // the wet sheen
+    glowK += vec3(1.0, 0.42, 0.12) * crk * wetb * uWetK * 0.9 + vec3(0.5, 0.12, 0.04) * crkHalo * wetb * uWetK * 0.25;
+  }
+  // THE TIDE COMING: the ground itself heats before the lava climbs it.
+  //  - ahead of every shore, a scorched band: the rock blackens and its cracks glow red, wider and
+  //    hotter the closer the climb is (uSwell), and throbbing;
+  //  - and over ALL the low ground the flood will take, even with no shore in sight, the cracks
+  //    redden, embers wink up and steam drifts off it, hottest just above the lava's line.
+  float sw = uSwell;
+  float throb = 0.5 + 0.5 * sin(uTime * 5.5);
+  float scorch = exp(-dp / (24.0 + 90.0 * sw)) * sw * step(0.0, d);
+  float lowF = hasF * (1.0 - safe) * smoothstep(uFlood, uLine + 0.004, h);   // 1 at the lava's line, 0 at the flood mark
+  float heatB = max(sw * mix(0.35, 1.0, lowF) * (1.0 - safe) * hasF, scorch) * step(0.0, d);
+  rc = mix(rc, vec3(0.12, 0.05, 0.06), scorch * 0.55);
+  rc = mix(rc, rc * vec3(1.05, 0.78, 0.74) + vec3(0.06, 0.012, 0.0), heatB * 0.4);
+  glowK += vec3(1.0, 0.36, 0.1) * crk * heatB * (0.65 + 0.35 * throb) * 1.1;
+  glowK += vec3(0.6, 0.14, 0.04) * crkHalo * heatB * 0.35;
+  // embers winking up off the hot ground (a speck per 34 px cell, rising and fading)
+  {
+    vec2 ec = floor(W / 34.0);
+    float e0 = h12(ec + 1.9), eph = fract(uTime * (0.35 + 0.3 * h12(ec + 3.3)) + e0 * 5.0);
+    vec2 ep = (ec + vec2(0.2 + 0.6 * h12(ec + 4.7), 0.9 - eph * 0.8)) * 34.0;
+    float ed = length(W - ep);
+    float eon = step(0.55, e0) * (1.0 - smoothstep(0.7, 1.6, ed)) * sin(3.14159 * eph);
+    glowK += vec3(1.0, 0.62, 0.22) * eon * heatB * 1.4;
+  }
+  // steam: soft pale wisps lifting off the low ground
+  float stm = smoothstep(0.55, 0.85, nz(W + vec2(0.0, uTime * 18.0), 220.0).g * 0.7 + nz(W + vec2(uTime * 6.0, uTime * 30.0), 70.0).r * 0.45);
+  rc = mix(rc, vec3(0.62, 0.55, 0.62), stm * heatB * lowF * 0.22);
+  // the lip, lit from the lava below, and the heat climbing the bank as the shores swell
   rc *= 1.0 - 0.3 * exp(-dp / 45.0);                                      // the wash pooled dark at the shore
   rc = mix(rc, vec3(0.42, 0.18, 0.2), (1.0 - smoothstep(0.0, 6.0, dp)) * 0.65);
   rc = mix(rc, vec3(0.93, 0.5, 0.27), exp(-dp / 16.0) * 0.42);
   float heat = exp(-dp / (14.0 + 40.0 * sw)) * sw * (0.65 + 0.35 * throb);
   rc = mix(rc, vec3(1.0, 0.56, 0.18), heat * 0.55);
+  rc += glowK;
 
   // ---- LAVA: swirled gouache marbling (mock f's own recipe, laid on the moving melt) --------------
   // A domain-warped mottle (hot gold crests, dark red troughs), marbled swirl lines along the warp,
@@ -304,7 +341,8 @@ void main() {
   float froth = F.r * 0.6 + P.r * 0.4;
   float fw = 12.0 + 22.0 * sw;
   lc = mix(lc, vec3(1.0, 0.933, 0.659), smoothstep(0.62 - 0.1 * sw, 0.74 - 0.1 * sw, froth) * max(0.0, 1.0 - Dd / fw) * 0.8);
-  lc = mix(lc, vec3(0.659, 0.157, 0.094), bell(Dd, 17.0 + 22.0 * sw, 4.5 + 3.0 * sw) * (0.38 + 0.2 * sw));   // the bulge beyond
+  // the bulge beyond: a broad soft swell of darker melt, never narrow enough to read as an old shoreline
+  lc = mix(lc, vec3(0.659, 0.157, 0.094), bell(Dd, 22.0 + 18.0 * sw, 16.0 + 6.0 * sw) * (0.18 + 0.12 * sw) * (0.6 + 0.8 * fb(nz(lw, 300.0).g)));
   lc *= 1.0 + (P.g - 0.5) * 0.06;
   // bubbles: big pie-eyed faces crowding the shores when the tide is gathering, the odd pop out deep
   // two grids of them, so they crowd and overlap along the shore instead of standing in a row
@@ -321,10 +359,11 @@ void main() {
   // ---- the soft edge between them (no outline) and the print's grade --------------------------
   vec3 col = mix(lc, rc, smoothstep(-1.3, 1.3, d));
   float L = dot(col, vec3(0.3, 0.59, 0.11));
-  float sat = 0.76 + 0.22 * clamp((col.r - col.b) / 0.63, 0.0, 1.0);
+  // a faded 1930s Technicolor print: the colour sunk a little, warm, the blacks lifted to a plum brown
+  float sat = 0.7 + 0.18 * clamp((col.r - col.b) / 0.63, 0.0, 1.0);
   col = L + (col - L) * sat;
-  col = col * vec3(1.02, 0.99, 0.9) + vec3(0.031, 0.008, 0.016);
-  col = vec3(0.157, 0.106, 0.125) + col * vec3(0.82, 0.82, 0.8);
+  col = col * vec3(1.03, 0.99, 0.88) + vec3(0.034, 0.012, 0.012);
+  col = vec3(0.175, 0.12, 0.13) + col * vec3(0.8, 0.79, 0.76);
   col = min(col, vec3(0.98, 0.933, 0.808));
   // the print's grain sits on the painted world at full strength (the cast keeps only the film's light
   // grain, so it stays crisp): clumped, a fresh frame 24 times a second, heaviest in the mid-tones
@@ -373,7 +412,7 @@ void main() {
   float fr = floor(uTime * 24.0), fr12 = floor(uTime * 12.0);
   // a light fade: a little desaturation, warm, lifted blacks, cream whites
   float l = dot(c.rgb, vec3(0.3, 0.59, 0.11));
-  c.rgb = mix(c.rgb, vec3(l), uSepia * 0.3);
+  c.rgb = mix(c.rgb, vec3(l), uSepia * 0.42);
   c.rgb = c.rgb * vec3(0.97, 0.95, 0.9) + vec3(0.022, 0.014, 0.01);
   // the projector's flicker
   c.rgb *= 1.0 + uFlicker * (h12(vec2(fr, 3.7)) - 0.5) * 2.0;
@@ -391,7 +430,7 @@ void main() {
   // dust on the print: dark and cream specks, a new handful every twelfth of a second
   vec2 dc = floor(px / 9.0);
   float dh = h12(dc + fr12 * 13.7);
-  if (dh > 0.9965) {
+  if (dh > 0.995) {
     vec2 dpos = (dc + vec2(h12(dc + fr12), h12(dc - fr12))) * 9.0;
     float ds = 0.6 + 1.8 * h12(dc * 1.3 + fr12);
     float dd = length(px - dpos) / ds;
@@ -399,13 +438,21 @@ void main() {
     c.rgb = mix(c.rgb, dark > 0.5 ? vec3(0.11, 0.07, 0.05) : vec3(1.0, 0.96, 0.86), (1.0 - smoothstep(0.7, 1.0, dd)) * 0.75);
   }
   // a hair caught in the gate, now and then
-  float hs = floor(uTime * 0.7);
-  if (h12(vec2(hs, 9.1)) < 0.35) {
-    vec2 hp = vec2(h12(vec2(hs, 1.3)), h12(vec2(hs, 2.7))) * sz;
-    vec2 r = px - hp;
-    float along = r.x, off = r.y - sin(r.x / 9.0 + hs) * 6.0 - r.x * 0.4;
-    float hl = (1.0 - smoothstep(0.35, 0.9, abs(off))) * step(abs(along), 22.0);
-    c.rgb = mix(c.rgb, vec3(0.12, 0.07, 0.05), hl * 0.6);
+  // hairs and curled lint caught in the gate: one or two at a time, each for a fraction of a second
+  for (int k = 0; k < 2; k++) {
+    float hs = floor(uTime * (0.9 + 0.5 * float(k))) + float(k) * 17.0;
+    if (h12(vec2(hs, 9.1)) < 0.45) {
+      vec2 hp = vec2(h12(vec2(hs, 1.3)), h12(vec2(hs, 2.7))) * sz;
+      vec2 r = px - hp;
+      // a curl: a spiral arm that winds round on itself
+      float ang = atan(r.y, r.x) + h12(vec2(hs, 3.1)) * 6.28, rad = length(r);
+      float sp = 3.0 + ang * 2.2 + h12(vec2(hs, 4.2)) * 4.0;
+      float curl = (1.0 - smoothstep(0.3, 0.85, abs(rad - sp))) * step(rad, 15.0 + 9.0 * h12(vec2(hs, 5.4)));
+      float along = r.x, off = r.y - sin(r.x / 9.0 + hs) * 6.0 - r.x * 0.4;
+      float strand = (1.0 - smoothstep(0.35, 0.9, abs(off))) * step(abs(along), 24.0);
+      float hl = h12(vec2(hs, 6.6)) < 0.5 ? curl : strand;
+      c.rgb = mix(c.rgb, vec3(0.12, 0.07, 0.05), hl * 0.55);
+    }
   }
   // now and then an emulsion scratch: it comes in short bursts (a third of a second, about one in six),
   // somewhere new each time, jittering sideways from frame to frame, running down part of the frame
