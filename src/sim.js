@@ -265,10 +265,12 @@ import {
   CANARY_REACH_MUL, CANARY_LINK_DMG, LANTERN_PULSE, MINE_BOOM_KEEP, MINE_GAS_FADE_IN, MINE_GAS_LIT_SHRINK,
   SLAG_RANGE, SLAG_FLIGHT, SLAG_TICK, OBSIDIAN_FAN, OBSIDIAN_LIFE, OBSIDIAN_R, SPLINTER_DMG_MUL, SPLINTER_LIFE, SPLINTER_SPEED, SPLINTER_R,
   BELLOWS_LIFE, BELLOWS_FLARE_MUL, BELLOWS_FLARE_R, BELLOWS_FLARE_T, BOMB_RANGE, BOMB_FLIGHT, BOMB_LAVA_R, BOMB_LAVA_T, HOT_FEET_OPEN_MUL, HOT_FEET_BURN_MUL,
-  FLOOD_TIDE_COVER_ADD, FLOOD_TIDE_SPEED_MUL, FLOOD_TIDE_BURN_MUL, MATCH_FAN, MATCH_LIFE, MATCH_R, COAL_FAN, COAL_LIFE, COAL_R, COAL_IGNITE,
-  STEAM_LIFE, PITCHFORK_HIT_R, PITCHFORK_FAN,
+  FLOOD_TIDE_COVER_ADD, FLOOD_TIDE_SPEED_MUL, FLOOD_TIDE_BURN_MUL, COAL_FAN, COAL_LIFE, COAL_R, COAL_IGNITE,
+  HAMMER_RANGE, HAMMER_POOL_DPS, HAMMER_POOL_TICK, HAMMER_POOL_PLAYER_DPS, HAMMER_POOL_MIRE, LAVA_WAVE_LIFE, LAVA_WAVE_SHOVE_MUL,
+  MANTLE_COLD_VS_LAVA, MANTLE_FIRE_VS_ROCK,
   noiseAt,
-  MANTLE_GROUND_STEP, MANTLE_START_DRY,
+  MANTLE_GROUND_STEP, MANTLE_START_DRY, MANTLE_STRAND_STUCK_T, MANTLE_STRAND_SLOW, MANTLE_STRAND_DIE_T, MANTLE_STRAND_DMG_MUL,
+  MANTLE_MELT_T, MANTLE_BOAT_FLOAT, MANTLE_BOAT_REFILL, MANTLE_SPAWN_TRIES,
 } from './config.js'
 
 const KB_DECAY_RATE = 6 // per-second exponential-ish decay factor for enemy knockback
@@ -350,6 +352,7 @@ export function stepSim(run, input, dt) {
   // AFTER the arms have advanced, so it describes exactly the state the NEXT press will be judged on
   run.parryReady = CHAPTERS[run.chapter].parry === true && krakenParryReady(run)
   stepFormations(run, dt) // v5.18 beyond lane: ranks of marchers, alongside the seeking swarm above
+  markHabitat(run)        // Book 3 The Mantle: where each habitat creature stands before anything moves
   stepEnemyMovement(run, dt)
   stepSubmission(run, dt) // SUBMISSION: the loan's clock, and the ally's contact attack
   stepFlashlightCones(run, dt) // v5.4 undergrowth: elite cones that enrage the swarm (damages nothing)
@@ -378,6 +381,7 @@ export function stepSim(run, input, dt) {
   stepEnemySeparation(run) // v6.5.1: push overlapping enemies apart (owner directive: no 100% stacks)
   holdBankAfterCrowd(run) // The Magma: the crowd behind does not shove a body waiting at a lava bank in
   stepObstacles(run)      // v5.0: push player/enemies out of this chapter's obstacle field (if any) — terrain snaps last and wins
+  holdHabitat(run)        // Book 3 The Mantle: a creature that stepped off its own ground (lava or rock) is held at the shore
 
   stepRam(run)            // v7.x The Reef: the Burst ploughs the crowd, the bite's own slot
   stepCrush(run)          // v5.8 skies kaiju: destroy any structure overlapping the crush radius
@@ -411,6 +415,7 @@ export function stepSim(run, input, dt) {
   stepPits(run, dt)
   if (stepCrust(run, dt)) return // phase is now 'dead' (Book 3 The Magma: you stood in the lava)
   if (stepLavaTide(run, dt)) return // phase is now 'dead' (Book 3 The Mantle: you stood in the lava tide)
+  if (stepMantleGround(run, dt)) return // phase is now 'dead' (Book 3 The Mantle: you stood in a hammer's lava pool)
 
   stepMartyr(run)         // v7.2: resolve the anomaly's queued blasts — after every hurtPlayer caller above
   stepGravityWells(run, dt) // v5.4 beyond signature: bend every projectile in flight (damages nothing)
@@ -4413,6 +4418,17 @@ function spawnEnemy(run, opts = {}) {
     }
   }
 
+  // THE MANTLE: a habitat creature is seated on its own ground (lava or rock) on the ring, or swapped
+  // for one of the other habitat when the ground offers none (mantleSeat). Before the stats, which
+  // a swap re-derives from the new entry's archetype.
+  if (roster?.habitat && opts.x === undefined && !opts.rosterId && habitatOn(run)) {
+    const seat = mantleSeat(run, roster, x, y)
+    if (seat) {
+      x = seat.x; y = seat.y
+      if (seat.swapped) { roster = seat.roster; type = ARCHETYPE_TYPE[roster.archetype] ?? type; base = ENEMIES[type] }
+    }
+  }
+
   // v6.9.2 BUGFIX — enemy HP IS AN INTEGER. Every factor here is fractional (hpScale, the difficulty
   // and mutator muls, roster hpMul), so maxHP used to come out at e.g. 21.00388888888889, while the
   // ONLY thing that ever subtracts from hp is dealDamage, which rounds. The fractional part is
@@ -4487,6 +4503,9 @@ function spawnEnemy(run, opts = {}) {
     // The Deep's siphonophore, which comes apart into a swarm rather than into two halves.
     split: roster?.split ?? null,
     bite: roster?.bite ?? 0,   // s per 1 HP while a `latch` body holds you; 0 = the latch spends the fish instead
+    // roster.habitat (Book 3, The Mantle): 'rock' | 'lava' | null. A contract field render reads, with
+    // ground / strandT / meltT, which the habitat section of sim.js publishes on it.
+    habitat: roster?.habitat ?? null,
     // xpMul is the roster's third stat lever, alongside hpMul/speedMul above: what a kill of
     // this creature is WORTH, independent of how much health it has. They are separate on
     // purpose — a chapter can make something cheaper to kill and still pay well for it.
@@ -4540,8 +4559,12 @@ function stepStragglers(run) {
     const dx = e.x - p.x, dy = e.y - p.y
     if (dx * dx + dy * dy < dropSq) continue
     const a = heading + (Math.random() - 0.5) * KITE_AHEAD_ARC
-    e.x = p.x + Math.cos(a) * spawnD
-    e.y = p.y + Math.sin(a) * spawnD
+    // The Mantle: a habitat creature is recycled onto its own ground ahead, or left where it is
+    const seat = e.habitat && habitatOn(run) ? findHabitatSpot(run, a, spawnD, e.habitat === 'lava') : null
+    if (e.habitat && habitatOn(run) && !seat) continue
+    e.x = seat ? seat.x : p.x + Math.cos(a) * spawnD
+    e.y = seat ? seat.y : p.y + Math.sin(a) * spawnD
+    if (seat) { e.ground = undefined; e.strandT = 0; e.meltT = 0 }
     e.kb.x = 0
     e.kb.y = 0
   }
@@ -9816,6 +9839,8 @@ function dealDamage(run, enemy, dmg, crit, dot = false, hazard = false, carried 
   // hits would quietly exclude burns, arcs and hazards, i.e. exactly the damage a player who just
   // spent their whole bar is relying on.
   if ((enemy.scentT || 0) > 0) dmg *= SCENT_DMG_MUL
+  // STRANDED (The Mantle): a lava creature the ebb left on dry rock takes more from every source.
+  if ((enemy.strandT || 0) > 0) dmg *= MANTLE_STRAND_DMG_MUL
   dmg = Math.round(dmg)
 
   // THE SHORE CRAB'S GUARD. Only the HP removal is refused; everything below still runs, and that
@@ -10311,11 +10336,11 @@ const WEAPON_STAT_MODS = {
   obsidianShards: { keenGlass: ['dmg', 'pct'], glassVolley: ['count', 'flat'], shatter: ['splinters', 'flat'], razorEdge: ['pierce', 'flat'] },
   bellows:        { forgeHeat: ['dmg', 'pct'], longDraft: ['radius', 'pct'], widePipe: ['arc', 'pct'] },
   volcanicBomb:   { heavyRock: ['dmg', 'pct'], bigBlast: ['r', 'pct'], salvo: ['count', 'flat'] },
-  // The Mantle. Rate mods divide at their fire sites; slowBurn, cinders and wideTines are read there too.
-  matchFlick:     { strikeAnywhere: ['dmg', 'pct'], matchbook: ['count', 'flat'], longMatch: ['pierce', 'flat'] },
+  // The Mantle. Rate mods divide at their fire sites; cinders is read there too.
+  quenchKettle:   { bigKettle: ['radius', 'pct'], thickCrust: ['crustDur', 'pct'], iceWater: ['dmg', 'pct'] },
   hotCoals:       { whiteHot: ['dmg', 'pct'], coalScuttle: ['count', 'flat'], skipping: ['bounces', 'flat'] },
-  steamWhistle:   { shrill: ['dmg', 'pct'], farWhistle: ['radius', 'pct'], fullSteam: ['knockback', 'pct'] },
-  pitchfork:      { sharpTines: ['dmg', 'pct'], longHaft: ['range', 'pct'], twoForks: ['count', 'flat'] },
+  crackHammer:    { heavyHead: ['dmg', 'pct'], aftershock: ['pools', 'flat'], wideCrack: ['r', 'pct'], deepCrack: ['duration', 'pct'] },
+  lavaBellows:    { moltenCrest: ['dmg', 'pct'], longRoll: ['radius', 'pct'], broadWave: ['arc', 'pct'], heavySurge: ['knockback', 'pct'] },
   orbit:     { extraOrb: ['orbs', 'flat'], wideRing: ['radius', 'pct'], overdrive: ['rotSpeed', 'pct'] },
   wave:      { bigWave: ['radius', 'pct'], shove: ['knockback', 'pct'], amplitude: ['dmg', 'pct'] },
   boomerang: { extraRang: ['count', 'flat'], longThrow: ['range', 'pct'], heavyBlade: ['dmg', 'pct'] },
@@ -10627,10 +10652,10 @@ function stepWeaponsInner(run, dt) {
     else if (w.id === 'obsidianShards') stepObsidianWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'bellows') stepBellowsWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'volcanicBomb') stepVolcanicBombWeapon(run, w, stats, fireRateMul, dt)
-    else if (w.id === 'matchFlick') stepMatchFlickWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'quenchKettle') stepQuenchKettleWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'hotCoals') stepHotCoalsWeapon(run, w, stats, fireRateMul, dt)
-    else if (w.id === 'steamWhistle') stepSteamWhistleWeapon(run, w, stats, fireRateMul, dt)
-    else if (w.id === 'pitchfork') stepPitchforkWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'crackHammer') stepCrackHammerWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'lavaBellows') stepLavaBellowsWeapon(run, w, stats, fireRateMul, dt)
   }
 
   stepBullets(run, dt)
@@ -10888,9 +10913,9 @@ function stepBullets(run, dt) {
       const dx = e.x - b.x, dy = e.y - b.y
       const rad = b.r + e.radius
       if (dx * dx + dy * dy <= rad * rad) {
-        applyDamage(run, e, b.dmg)
+        applyDamage(run, e, b._heat ? b.dmg * heatMul(e, b._heat) : b.dmg)   // _heat: The Mantle's type rule
         if (b._splinters > 0 && e._dead) burstObsidian(run, b, e)   // The Magma: a killing shard bursts
-        if (b._ignite > 0 && !e._dead) applyIgnite(run, e, b._ignite, b.dmg)   // The Mantle: a match or a coal sets it alight
+        if (b._ignite > 0 && !e._dead) applyIgnite(run, e, b._ignite, b.dmg)   // The Mantle: a coal sets it alight
         // Necrotic Tips (stinger switch mod, snapshotted as b._necrotic at fire time): the needle
         // leaves flagella's bleed behind. Reuses applyBleed verbatim rather than growing a second
         // DoT — which also means lightning can forward it, since elArc carries bleed.
@@ -11045,6 +11070,9 @@ function spawnNova(run, x, y, maxR, dmg, knockback, fear = 0, opts = null) {
     // Shell's splash from a Cytokine Burst without inferring it from the radius, which is the kind
     // of guess that silently starts being wrong the first time either weapon is retuned.
     look: opts?.look ?? null,
+    // The Mantle: `heat` ('fire' | 'cold') is the type rule (heatMul); `habitatSplit` (Lava Bellows'
+    // wave) leaves a lava creature unhurt and shoves it LAVA_WAVE_SHOVE_MUL as hard instead.
+    heat: opts?.heat ?? null, habitatSplit: !!opts?.habitatSplit,
     // `lifeMax` beside `life` so a ring can expand over something other than NOVA_LIFE, and so
     // stepNovas can still work out how far along it is. The Skipping Shell's splash needs it: a
     // 46px ring on the default 0.45s life deals its damage nearly half a second after the shell
@@ -11164,7 +11192,8 @@ function stepNovas(run, dt) {
         continue
       }
       if (dist <= n.r + e.radius) {
-        applyDamage(run, e, n.dmg)
+        const shoveOnly = n.habitatSplit && e.habitat === 'lava'
+        if (!shoveOnly) applyDamage(run, e, n.heat ? n.dmg * heatMul(e, n.heat) : n.dmg)
         n.hit.add(e.id)
         // Chitter Shriek: the ring panics what it hits (see FEAR_SPEED_MUL / stepEnemyMovement).
         // FEAR IS NO LONGER REFRESHABLE (v7.16). It runs its full duration, then FEAR_REFRACTORY of
@@ -11183,8 +11212,9 @@ function stepNovas(run, dt) {
         if (!resistsCC(e) && claimKb(e)) {
           const kdx = dist > 1e-6 ? dx / dist : 1
           const kdy = dist > 1e-6 ? dy / dist : 0
-          e.kb.x += kdx * n.knockback * k
-          e.kb.y += kdy * n.knockback * k
+          const kbm = shoveOnly ? LAVA_WAVE_SHOVE_MUL : 1
+          e.kb.x += kdx * n.knockback * k * kbm
+          e.kb.y += kdy * n.knockback * k * kbm
           spendCC(run, e)
         }
       }
@@ -17701,12 +17731,13 @@ function stepBellowsWeapon(run, w, stats, fireRateMul, dt) {
 
 // -- Volcanic Bomb ---------------------------------------------------------------------------------
 // Lands in the THICKEST of the crowd in reach: the body with the most others inside its blast.
-function bombSpots(run, n, r) {
+// `range` and `keep` (a filter) for the Crack Hammer, which cracks under walking non-lava bodies only.
+function bombSpots(run, n, r, range = BOMB_RANGE, keep = null) {
   const p = run.player
   const cand = []
-  for (const e of enemiesNear(run, p.x, p.y, BOMB_RANGE)) {
-    if (e._dead || isAlly(e) || damageImmune(e)) continue
-    if ((e.x - p.x) ** 2 + (e.y - p.y) ** 2 > BOMB_RANGE * BOMB_RANGE) continue
+  for (const e of enemiesNear(run, p.x, p.y, range)) {
+    if (e._dead || isAlly(e) || damageImmune(e) || (keep && !keep(e))) continue
+    if ((e.x - p.x) ** 2 + (e.y - p.y) ** 2 > range * range) continue
     cand.push(e)
   }
   if (cand.length === 0) return []
@@ -17861,6 +17892,7 @@ function stepLavaTide(run, dt) {
     const dry = lavaLineFor(L, MANTLE_START_DRY)
     for (let k = 1; k <= 64 && mantleHeightAt(L, T.seed, p.x, p.y) < dry; k++) T.seed = (lavaGroundSeed(run) + Math.imul(k, 0x9e3779b1)) | 0
     T.dur = tidePhaseDur(L, T, 'ebb', run)
+    p.boatMax = MANTLE_BOAT_FLOAT; p.boatT = p.boatMax; p.afloat = false
   }
   // 1. the beat: advance the phase clock, turning the tide when a phase runs out
   T.t += dt
@@ -17883,58 +17915,233 @@ function stepLavaTide(run, dt) {
   const flood = L.floodCover + (run.anomalies?.floodTide ? FLOOD_TIDE_COVER_ADD : 0)
   T.cover = L.ebbCover + (flood - L.ebbCover) * T.level
   T.line = lavaLineFor(L, T.cover)
-  // 3. the burn, on the tide's own tick: every walking body in the lava near you
+  // 3. the burn, on the tide's own tick: every walking body with NO habitat in the lava near you. A
+  // habitat creature lives by its own rules instead (4.): a lava one is at home, a rock one melts.
   const hot = run.anomalies?.floodTide ? FLOOD_TIDE_BURN_MUL : 1
   T._tick -= dt
   if (T._tick <= 0) {
     T._tick += L.tick
     for (const e of run.enemies) {
-      if (e._dead || isAlly(e) || damageImmune(e) || flies(e)) continue
+      if (e._dead || e.habitat || isAlly(e) || damageImmune(e) || flies(e)) continue
       if ((e.x - p.x) ** 2 + (e.y - p.y) ** 2 > L.reach * L.reach) continue
-      if (mantleHeightAt(L, T.seed, e.x, e.y) >= T.line) continue
+      if (mantleGroundAt(run, e.x, e.y) !== 2) continue
       const dmg = (L.burnFlat + L.burnPct * e.maxHP) * L.tick * hot * (e.elite ? L.eliteMul : 1)
       dealDamage(run, e, dmg, false, true, true)   // hazard: the lava did it
     }
   }
-  // 4. the player in the lava: a steady dot burn, the fraction banked so a gentle burn is never rounded away
-  if (mantleHeightAt(L, T.seed, p.x, p.y) < T.line) {
-    T._pT -= dt
-    if (T._pT <= 0) {
-      T._pT += L.tick
-      T._carry += L.playerBurn * L.tick * run.mods.enemyDmgMul * (1 - resistFrac(run.passives.fireBoots))
-      const whole = Math.floor(T._carry)
-      T._carry -= whole
-      if (whole > 0 && hurtPlayer(run, whole, true, 'lava')) return true
+  // 4. the habitat clocks: a stranded lava creature crumbles, a rock one under the tide melts
+  stepHabitatClocks(run, dt)
+  // 5. the player in the lava: the basalt boat floats you first, and sinks as it does; once it has
+  // gone under, a steady dot burn (the fraction banked so a gentle burn is never rounded away). Rock
+  // and Quench crust refill the boat.
+  p.boatMax = MANTLE_BOAT_FLOAT
+  if (mantleGroundAt(run, p.x, p.y) === 2) {
+    if (p.boatT > 0) {
+      p.boatT = Math.max(0, p.boatT - dt)
+      p.afloat = true
+      T._pT = 0
+    } else {
+      p.afloat = false
+      T._pT -= dt
+      if (T._pT <= 0) {
+        T._pT += L.tick
+        T._carry += L.playerBurn * L.tick * run.mods.enemyDmgMul * (1 - resistFrac(run.passives.fireBoots))
+        const whole = Math.floor(T._carry)
+        T._carry -= whole
+        if (whole > 0 && hurtPlayer(run, whole, true, 'lava')) return true
+      }
     }
-  } else T._pT = 0
+  } else {
+    p.afloat = false
+    p.boatT = Math.min(p.boatMax, (p.boatT ?? p.boatMax) + MANTLE_BOAT_REFILL * dt)
+    T._pT = 0
+  }
   return false
 }
 
-// -- Match Flick (The Mantle starter) --------------------------------------------------------------
-// A lit match at the nearest foe; it sets what it hits alight (applyIgnite, in stepBullets).
-function stepMatchFlickWeapon(run, w, stats, fireRateMul, dt) {
-  const quick = run.weaponMods.matchFlick?.quickStrike ?? 0
-  const slowBurn = run.weaponMods.matchFlick?.slowBurn ?? 0
+// ---- THE TWO HABITATS ---------------------------------------------------------------------------
+// THE GROUND under (x, y): 0 dry rock (a Quench crust is rock, over a pool or the tide alike), 1 a
+// Crack Hammer pool, 2 the tide. Everything habitat-shaped asks this one function: the creatures'
+// confinement, their stranding and melting, the boat and the player's burn, the spawn seat.
+export function mantleGroundAt(run, x, y) {
+  for (const c of run.quenchCrusts) if ((x - c.x) ** 2 + (y - c.y) ** 2 <= c.r * c.r) return 0
+  for (const q of run.lavaPools) if (q.t < q.dur && (x - q.x) ** 2 + (y - q.y) ** 2 <= q.r * q.r) return 1
+  return lavaFloodedAt(run, x, y) ? 2 : 0
+}
+// Habitat rules run only with the tide on: with signature.lavaTide off there is no lava to live in.
+const habitatOn = (run) => !!(run.lavaTide && lavaTideSpec(run))
+const atHome = (e, g) => (g > 0) === (e.habitat === 'lava')
+const habitatBody = (e) => !e._dead && !!e.habitat && !isAlly(e) && !flies(e)
+// A toad leaping out of the lava is in the air: no shore holds it and no strand clock runs, until it
+// lands. Once stranded, a leap is just a stranded body moving (it crawls like any other step).
+const leapingFree = (e) => e._pounceState === 'leap' && !(e.strandT > 0)
+// THE TYPE RULE: water hurts a lava creature more, fire a rock one (MANTLE_COLD_VS_LAVA / _FIRE_VS_ROCK).
+function heatMul(e, heat) {
+  if (heat === 'fire') return e.habitat === 'rock' ? MANTLE_FIRE_VS_ROCK : 1
+  if (heat === 'cold') return e.habitat === 'lava' ? MANTLE_COLD_VS_LAVA : 1
+  return 1
+}
+// Before anything moves this step: where each habitat creature stands, and whether that is home.
+function markHabitat(run) {
+  if (!habitatOn(run)) return
+  for (const e of run.enemies) {
+    if (!habitatBody(e)) continue
+    e._hx = e.x; e._hy = e.y
+    e._hg = e.ground ?? mantleGroundAt(run, e.x, e.y)
+    e._hin = atHome(e, e._hg)
+  }
+}
+// After every mover this step (its own machine, separation, knockback, the obstacle push): a creature
+// that started at home and stepped off it slides along the shore (one axis kept) or stays put; a
+// stranded lava creature crawls, then sticks; a rock one in a hammer pool wades through it slowly.
+// Publishes e.ground (0 rock, 1 pool, 2 tide) for the clocks and for render.
+function holdHabitat(run) {
+  if (!habitatOn(run)) return
+  for (const e of run.enemies) {
+    if (!habitatBody(e) || e._hx === undefined) continue
+    let g = mantleGroundAt(run, e.x, e.y)
+    if (e._hin && !atHome(e, g) && !leapingFree(e)) {
+      const gx = mantleGroundAt(run, e.x, e._hy)
+      if (atHome(e, gx)) { e.y = e._hy; g = gx }
+      else {
+        const gy = mantleGroundAt(run, e._hx, e.y)
+        if (atHome(e, gy)) { e.x = e._hx; g = gy }
+        else {
+          // where it started is still home: it stays there. The ground may have turned under it since
+          // (the tide moved, a crust or a pool came or went): then nothing holds it, it is caught.
+          const gs = mantleGroundAt(run, e._hx, e._hy)
+          if (atHome(e, gs)) { e.x = e._hx; e.y = e._hy; g = gs }
+        }
+      }
+    }
+    let k = 1
+    if (e.habitat === 'lava' && e.strandT > 0) k = MANTLE_STRAND_SLOW * Math.max(0, 1 - e.strandT / MANTLE_STRAND_STUCK_T)
+    else if (e.habitat === 'rock' && g === 1) k = HAMMER_POOL_MIRE
+    if (k < 1) {
+      e.x = e._hx + (e.x - e._hx) * k; e.y = e._hy + (e.y - e._hy) * k
+      g = mantleGroundAt(run, e.x, e.y)
+    }
+    e.ground = g
+  }
+}
+// The clocks (inside stepLavaTide, after the line moved): e.strandT (s a lava creature has been on
+// dry rock; 0 at home) crumbles it at MANTLE_STRAND_DIE_T; e.meltT (s a rock creature has been under
+// the TIDE; a pool burns it instead) melts it at MANTLE_MELT_T. Both deaths pay the body's xp.
+function stepHabitatClocks(run, dt) {
+  for (const e of run.enemies) {
+    if (!habitatBody(e)) continue
+    const g = e.ground ?? mantleGroundAt(run, e.x, e.y)
+    if (e.habitat === 'lava') {
+      if (g > 0) e.strandT = 0
+      else if (!leapingFree(e)) {
+        e.strandT = (e.strandT ?? 0) + dt
+        if (e.strandT >= MANTLE_STRAND_DIE_T && !damageImmune(e)) {
+          run.events.push({ type: 'crumble', x: e.x, y: e.y, r: e.radius, rosterId: e.rosterId })
+          habitatKill(run, e)
+        }
+      }
+    } else if (g === 2) {
+      e.meltT = (e.meltT ?? 0) + dt
+      if (e.meltT >= MANTLE_MELT_T && !damageImmune(e)) {
+        run.events.push({ type: 'melt', x: e.x, y: e.y, r: e.radius, rosterId: e.rosterId })
+        habitatKill(run, e)
+      }
+    } else e.meltT = 0
+  }
+}
+// the ground kills it: a hazard kill, so it counts and drops its gem like any other
+function habitatKill(run, e) {
+  dealDamage(run, e, e.hp * 10 + 1e5, false, true, true)
+}
+// A spot on the ring round the player (dist, starting at bearing a0 and fanning out both ways, then
+// on two wider rings) whose ground is lava (wantLava) or rock. null when the ground offers none.
+function findHabitatSpot(run, a0, dist, wantLava) {
+  const p = run.player, N = MANTLE_SPAWN_TRIES
+  for (const k of [1, 1.3, 1.7]) for (let i = 0; i < N; i++) {
+    const a = a0 + (i % 2 ? 1 : -1) * Math.ceil(i / 2) * (2 * Math.PI / N)
+    const x = p.x + Math.cos(a) * dist * k, y = p.y + Math.sin(a) * dist * k
+    if ((mantleGroundAt(run, x, y) > 0) === wantLava) return { x, y }
+  }
+  return null
+}
+// spawnEnemy's seat for a habitat creature: its own ground on the spawn ring; failing that, one of
+// the OTHER habitat, on its ground (the flood brings lava creatures, the ebb rock ones). null = leave it.
+function mantleSeat(run, roster, x, y) {
+  const p = run.player
+  const dist = Math.max(Math.hypot(x - p.x, y - p.y), run.viewRadius + SPAWN_RING)
+  const a0 = Math.atan2(y - p.y, x - p.x)
+  const at = findHabitatSpot(run, a0, dist, roster.habitat === 'lava')
+  if (at) return { roster, swapped: false, ...at }
+  const others = CHAPTERS[run.chapter].roster.filter((r) => r.habitat && r.habitat !== roster.habitat && !r.eliteOnly && !r.formationOnly && (r.minT ?? 0) <= run.time)
+  if (others.length === 0) return null
+  let t = Math.random() * others.reduce((s, r) => s + (r.weight ?? 1), 0)
+  const alt = others.find((r) => (t -= r.weight ?? 1) <= 0) ?? others[others.length - 1]
+  const at2 = findHabitatSpot(run, a0, dist, alt.habitat === 'lava')
+  return at2 ? { roster: alt, swapped: true, ...at2 } : null
+}
+
+// ---- the lava pools and the crusts (the weapons' ground) ----------------------------------------
+// run.quenchCrusts [{ x, y, r, t, dur }]: Quench Kettle's crusts, dry rock while t < dur.
+// run.lavaPools [{ x, y, r, t, dur, dps, _tick }]: Crack Hammer's pools, lava while t < dur. A pool
+// burns every walking body in it that is not a lava creature (fire: x MANTLE_FIRE_VS_ROCK on a rock
+// one) and burns YOU (HAMMER_POOL_PLAYER_DPS, hurt src 'lava'; the boat is the tide's, not the pool's).
+// Runs in every chapter (an empty no-op off The Mantle's weapons). Returns true when a pool killed you.
+function stepMantleGround(run, dt) {
+  if (run.quenchCrusts.length) {
+    for (const c of run.quenchCrusts) c.t += dt
+    run.quenchCrusts = run.quenchCrusts.filter((c) => c.t < c.dur)
+  }
+  if (run.lavaPools.length === 0) return false
+  const p = run.player
+  let inPool = false
+  for (const q of run.lavaPools) {
+    q.t += dt
+    if (q.t >= q.dur) continue
+    q._tick -= dt
+    if (q._tick <= 0) {
+      q._tick += HAMMER_POOL_TICK
+      for (const e of enemiesNear(run, q.x, q.y, q.r, true)) {
+        if (e._dead || isAlly(e) || damageImmune(e) || flies(e) || e.habitat === 'lava') continue
+        if ((e.x - q.x) ** 2 + (e.y - q.y) ** 2 > q.r * q.r) continue
+        if (mantleGroundAt(run, e.x, e.y) !== 1) continue   // a crust over the pool has quenched it there
+        applyDotDamage(run, e, q.dps * HAMMER_POOL_TICK * heatMul(e, 'fire'))
+      }
+    }
+    if ((p.x - q.x) ** 2 + (p.y - q.y) ** 2 <= q.r * q.r) inPool = true
+  }
+  run.lavaPools = run.lavaPools.filter((q) => q.t < q.dur)
+  if (inPool && mantleGroundAt(run, p.x, p.y) === 1) {
+    run._poolCarry = (run._poolCarry ?? 0) + HAMMER_POOL_PLAYER_DPS * dt * run.mods.enemyDmgMul * (1 - resistFrac(run.passives.fireBoots))
+    const whole = Math.floor(run._poolCarry)
+    run._poolCarry -= whole
+    if (whole > 0 && hurtPlayer(run, whole, true, 'lava')) return true
+  }
+  return false
+}
+
+// -- Quench Kettle (The Mantle starter) ------------------------------------------------------------
+// Pours water round you: a crust of radius `radius` at your feet for crustDur s (lava under it is
+// rock), and the splash hits everything in it (water: x MANTLE_COLD_VS_LAVA on a lava creature).
+function stepQuenchKettleWeapon(run, w, stats, fireRateMul, dt) {
+  const quick = run.weaponMods.quenchKettle?.quickBoil ?? 0
   fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => {
     const p = run.player
-    const target = nearestEnemy(run)
-    const base = target ? Math.atan2(target.y - p.y, target.x - p.x) : aimAngle(run)
-    const count = ipecacN(run, stats.count)
-    for (let i = 0; i < count; i++) {
-      const a = base + (i - (count - 1) / 2) * MATCH_FAN
-      run.bullets.push({
-        x: p.x, y: p.y, vx: Math.cos(a) * stats.speed, vy: Math.sin(a) * stats.speed,
-        dmg: stats.dmg, pierce: stats.pierce, life: MATCH_LIFE, r: MATCH_R, speed: stats.speed,
-        hitIds: new Set(), _shard: true, _splitDone: true, _chainsLeft: 0, weapon: 'match',
-        _ignite: stats.burn * (1 + slowBurn),
-      })
+    for (const r of ipecacRadii(run, stats.radius)) {
+      run.quenchCrusts.push({ x: p.x, y: p.y, r, t: 0, dur: stats.crustDur })
+      for (const e of enemiesNear(run, p.x, p.y, r, true)) {
+        if (e._dead || isAlly(e)) continue
+        if ((e.x - p.x) ** 2 + (e.y - p.y) ** 2 > (r + e.radius) ** 2) continue
+        applyDamage(run, e, stats.dmg * heatMul(e, 'cold'))
+      }
     }
-    run.events.push({ type: 'shoot', weapon: 'matchFlick' })
+    run.quenchCrusts = capLive(run.quenchCrusts, 'quenchCrusts')
+    run.events.push({ type: 'shoot', weapon: 'quenchKettle', x: p.x, y: p.y, maxR: stats.radius })
   })
 }
 
 // -- Hot Coals ---------------------------------------------------------------------------------------
 // A red-hot coal at the nearest foe that bounces on to the next (the chain idiom, tryChainBullet).
+// Fire: x MANTLE_FIRE_VS_ROCK on a rock creature (b._heat, read in stepBullets).
 function stepHotCoalsWeapon(run, w, stats, fireRateMul, dt) {
   const quick = run.weaponMods.hotCoals?.quickStoke ?? 0
   const cinders = run.weaponMods.hotCoals?.cinders ?? 0
@@ -17949,44 +18156,49 @@ function stepHotCoalsWeapon(run, w, stats, fireRateMul, dt) {
         x: p.x, y: p.y, vx: Math.cos(a) * stats.speed, vy: Math.sin(a) * stats.speed,
         dmg: stats.dmg, pierce: 1, life: COAL_LIFE, r: COAL_R, speed: stats.speed,
         hitIds: new Set(), _shard: true, _splitDone: true, _chainsLeft: Math.round(stats.bounces), weapon: 'coal',
-        _ignite: cinders > 0 ? COAL_IGNITE * cinders : 0,
+        _ignite: cinders > 0 ? COAL_IGNITE * cinders : 0, _heat: 'fire',
       })
     }
     run.events.push({ type: 'shoot', weapon: 'hotCoals' })
   })
 }
 
-// -- Steam Whistle -----------------------------------------------------------------------------------
-// A ring round you that shoves the crowd OUTWARD (run.novas, look 'steam') — off your hill, into the lava.
-function stepSteamWhistleWeapon(run, w, stats, fireRateMul, dt) {
-  const quick = run.weaponMods.steamWhistle?.quickWhistle ?? 0
+// -- Crack Hammer ------------------------------------------------------------------------------------
+// Stamps the ground open under the thickest knots of non-lava walkers in HAMMER_RANGE (bombSpots,
+// distinct spots): the stamp hits what stands there (fire), and a lava pool opens for `duration` s.
+const hammerTarget = (e) => !flies(e) && e.habitat !== 'lava'
+function stepCrackHammerWeapon(run, w, stats, fireRateMul, dt) {
+  const quick = run.weaponMods.crackHammer?.quickStamp ?? 0
   fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => {
     const p = run.player
-    for (const r of ipecacRadii(run, stats.radius)) spawnNova(run, p.x, p.y, r, stats.dmg, stats.knockback, 0, { look: 'steam', life: STEAM_LIFE })
-    run.events.push({ type: 'shoot', weapon: 'steamWhistle', x: p.x, y: p.y, maxR: stats.radius })
+    const spots = bombSpots(run, ipecacN(run, Math.round(stats.pools)), stats.r, HAMMER_RANGE, hammerTarget)
+    for (const sp of spots) {
+      run.lavaPools.push({ x: sp.x, y: sp.y, r: stats.r, t: 0, dur: stats.duration, dps: stats.dmg * HAMMER_POOL_DPS, _tick: HAMMER_POOL_TICK })
+      for (const e of enemiesNear(run, sp.x, sp.y, stats.r, true)) {
+        if (e._dead || isAlly(e) || flies(e)) continue
+        if ((e.x - sp.x) ** 2 + (e.y - sp.y) ** 2 > (stats.r + e.radius * 0.5) ** 2) continue
+        applyDamage(run, e, stats.dmg * heatMul(e, 'fire'))
+      }
+    }
+    if (spots.length) {
+      run.lavaPools = capLive(run.lavaPools, 'lavaPools')
+      run.events.push({ type: 'shoot', weapon: 'crackHammer', x: p.x, y: p.y })
+    }
   })
 }
 
-// -- Pitchfork ---------------------------------------------------------------------------------------
-// Thrown at the nearest foe, flies out and comes back (run.boomerangs, weapon 'pitchfork': the
-// boomerang's own flight and hits, stepBoomerangs).
-function stepPitchforkWeapon(run, w, stats, fireRateMul, dt) {
-  const quick = run.weaponMods.pitchfork?.quickToss ?? 0
-  const wide = run.weaponMods.pitchfork?.wideTines ?? 0
+// -- Lava Bellows ------------------------------------------------------------------------------------
+// A rolling lava wave the way you walk: a sector nova (look 'lavaWave') whose habitatSplit makes a lava
+// creature take no damage and a LAVA_WAVE_SHOVE_MUL shove instead; everything else takes fire.
+function stepLavaBellowsWeapon(run, w, stats, fireRateMul, dt) {
+  const quick = run.weaponMods.lavaBellows?.quickBellows ?? 0
   fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => {
     const p = run.player
-    const target = nearestEnemy(run)
-    const base = target ? Math.atan2(target.y - p.y, target.x - p.x) : aimAngle(run)
-    const count = ipecacN(run, stats.count)
-    const step = count > 1 ? (2 * PITCHFORK_FAN) / (count - 1) : 0
-    for (let i = 0; i < count; i++) {
-      const angle = count > 1 ? base - PITCHFORK_FAN + i * step : base
-      run.boomerangs.push({
-        x: p.x, y: p.y, ox: p.x, oy: p.y, angle, phase: 'out',
-        dmg: stats.dmg, hit: new Set(), speed: stats.speed, range: stats.range,
-        hitR: PITCHFORK_HIT_R * (1 + wide), backhandMul: 1, weapon: 'pitchfork',
-      })
+    const aim = p.facingAngle ?? aimAngle(run)
+    for (const a of ipecacAngles(run, aim)) {
+      spawnNova(run, p.x, p.y, stats.radius, stats.dmg, stats.knockback, 0,
+        { look: 'lavaWave', arc: stats.arc, angle: a, life: LAVA_WAVE_LIFE, heat: 'fire', habitatSplit: true })
     }
-    run.events.push({ type: 'shoot', weapon: 'pitchfork' })
+    run.events.push({ type: 'shoot', weapon: 'lavaBellows', x: p.x, y: p.y, angle: aim, maxR: stats.radius, arc: stats.arc })
   })
 }

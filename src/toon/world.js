@@ -510,19 +510,6 @@ function bakeArt(w, h, ax, ay, paint) {
   return { canvas: cv, ax, ay, res: RES }
 }
 const SH_RED = 'rgba(96,6,24,0.42)'
-// a lit match in flight, nose +x: its stick, its red head, the flame streaming back, speed lines
-export function paintMatch(f) {
-  return bakeArt(56, 26, 0.6, 0.5, (c) => {
-    sc(1.15)
-    for (const [yy, l] of [[-3, 12], [0, 17], [3, 10]]) line(c, [[-8 - l, yy], [-8 - l * 0.5, yy], [-8, yy]], 0.9, { taper: 0.5 })
-    cel(c, tube([[-7, 0], [3, 0]], 1.9), '#ecd6a4', { ink: 0.9, shade: 'rgba(120,80,40,0.4)' })
-    push(); tr(6.5, 0); rot(-Math.PI / 2 - 0.12 + (f - 1) * 0.12)
-    cel(c, drop(0, -4.5, 3.6, 15, -0.5 + (f - 1) * 0.2), '#f5861e', { ink: 1.0, shade: 'rgba(170,50,10,0.42)' })
-    cel(c, drop(0, -3.2, 2.0, 8.5, -0.4), '#fbe28a', { ink: 0, shade: null })
-    pop()
-    cel(c, ell(4.2, 0, 2.6, 2.2, 0, 18), '#c83b33', { ink: 1.0, shade: SH_RED, spec: 0.3 })
-  })
-}
 // a red-hot coal: a lumpy glowing ember with a hot core
 export function paintCoal(f) {
   return bakeArt(30, 30, 0.5, 0.5, (c) => {
@@ -533,18 +520,7 @@ export function paintCoal(f) {
     line(c, [[-2.5, 1.6], [0, 2.4], [2.5, 1.2]], 0.6, { color: '#5a0a08' })
   })
 }
-// a pitchfork, tines +x
-export function paintPitchfork() {
-  return bakeArt(60, 30, 0.5, 0.5, (c) => {
-    cel(c, tube([[-25, 0], [8, 0]], 2.6), '#b98a4a', { ink: 1.1, shade: 'rgba(80,40,10,0.45)' })
-    cel(c, tube(qb([9, -8], [6, 0], [9, 8]), 2.4), '#8e8a98', { ink: 1.1, shade: 'rgba(30,30,60,0.45)' })
-    for (const y of [-8, 0, 8]) {
-      cel(c, tube([[8.5, y], [22, y * 0.85]], 2.0, 1.4), '#c9c5d2', { ink: 1.0, shade: 'rgba(30,30,60,0.4)' })
-      cel(c, [[21, y * 0.85 - 1.8], [26, y * 0.85], [21, y * 0.85 + 1.8]], '#c9c5d2', { ink: 0.9, shade: null })
-    }
-  })
-}
-// one puff of the whistle's steam ring
+// one puff of a ring (any nova this chapter does not draw itself)
 export function paintPuff(v) {
   return bakeArt(30, 26, 0.5, 0.5, (c) => {
     const s = 0.9 + v * 0.15

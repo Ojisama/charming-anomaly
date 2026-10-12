@@ -18,8 +18,8 @@ import { FR } from '../src/fr.js'
 import { FOIL_FRAG as HOLO_FOIL_FRAG, CAVERN_FLOOR_FRAG as HOLO_CAVERN_FRAG } from '../src/holo.js'
 import { ensurePrecision as pixiEnsurePrecision } from '../node_modules/pixi.js/lib/rendering/renderers/gl/shader/program/preprocessors/ensurePrecision.mjs'
 import { magmaGroundAt, magmaRiverAt, magmaCooledAt, magmaHotAt } from '../src/sim.js'
-import { lavaFloodedAt, mantleHeightAt, lavaLineFor } from '../src/sim.js'
-import { MANTLE_GROUND_STEP, MANTLE_START_DRY } from '../src/config.js'
+import { lavaFloodedAt, mantleHeightAt, lavaLineFor, mantleGroundAt } from '../src/sim.js'
+import { MANTLE_GROUND_STEP, MANTLE_START_DRY, MANTLE_COLD_VS_LAVA, MANTLE_FIRE_VS_ROCK, MANTLE_STRAND_DIE_T, MANTLE_STRAND_STUCK_T, MANTLE_STRAND_DMG_MUL, MANTLE_MELT_T, MANTLE_BOAT_FLOAT, MANTLE_BOAT_REFILL } from '../src/config.js'
 import {
   SHOP, shopCost, refundValue, REFUND_RATE, MAX_SHOP_LEVEL, lineMax, CURRENT_RESIST_FLOOR, SHOP_FAMILY, SHOP_COST_CAP, SHOP_COST_CAP_DEFAULT,
   PASSIVES, RARITIES, RARITY_ORDER, RARITY_WEIGHTS, UPGRADE_RARITY, resistFrac, PASSIVE_RESIST_K, passiveEffectText,
@@ -476,7 +476,14 @@ function testLiveCaps() {
     lures: () => ({ x: p.x, y: p.y, t: 0, dur: 100, aggro: 0, burstR: 0, burstDmg: 0 }),
     holes: () => ({ x: p.x, y: p.y, radius: 10, coreRadius: 3, life: 100, duration: 100, dmg: 0, tick: 1, pull: 0, acc: 0, spawnRadius: 10 }),
     blooms: () => ({ x: p.x, y: p.y, r: 0, maxR: 10, t: 0, dur: 100, dmgPerTick: 0, look: 'silt', slow: 0 }),
+    // The Mantle's weapon ground: capped at the cast, so the cast has to happen for the cap to bite
+    quenchCrusts: () => ({ x: p.x + 5000, y: p.y, r: 10, t: 0, dur: 100 }),
+    lavaPools: () => ({ x: p.x + 5000, y: p.y, r: 10, t: 0, dur: 100, dps: 0, _tick: 100 }),
   }
+  // one cast of each Mantle weapon this step, so their capLive runs (a hammer needs a body to crack under)
+  run.weapons = [{ id: 'quenchKettle', level: 1 }, { id: 'crackHammer', level: 1 }]
+  run.weaponTimers.quenchKettle = 0; run.weaponTimers.crackHammer = 0
+  run.enemies.push(makeStatusEnemy(run, { x: p.x + 120, y: p.y, hp: 1e9, speed: 0 }))
   const ink = [{ x: p.x, y: p.y, r: 0, maxR: 10, t: 0, dur: 100, dmgPerTick: 0, tick: 0, look: 'inkjet', slow: 0 },
     { x: p.x, y: p.y, r: 0, maxR: 10, t: 0, dur: 100, dmgPerTick: 0, tick: 0, look: 'bilge' }]
   run.blooms.push(...ink)   // OLDEST of all: a naive slice(-cap) would drop exactly these
@@ -2037,7 +2044,8 @@ function testAnomalySlate() {
       // owning a fixed position, so two lines read as two shapes here exactly as intended — and the
       // day it landed, its absence from this array reported "spawned nothing" for a weapon that was
       // firing correctly, which is the same bite `gnash` records against FX below.
-      const LISTS = ['bullets', 'orbs', 'mines', 'zones', 'lobs', 'blooms', 'lures', 'holes', 'beams', 'debris', 'homingShots', 'boomerangs', 'novas', 'arcs', 'longlines', 'hauls', 'snares', 'drips', 'sticks', 'carts', 'magmaLobs']
+      // `quenchCrusts` and `lavaPools` are The Mantle's Quench Kettle and Crack Hammer (2026-10-12).
+      const LISTS = ['bullets', 'orbs', 'mines', 'zones', 'lobs', 'blooms', 'lures', 'holes', 'beams', 'debris', 'homingShots', 'boomerangs', 'novas', 'arcs', 'longlines', 'hauls', 'snares', 'drips', 'sticks', 'carts', 'magmaLobs', 'quenchCrusts', 'lavaPools']
       // Same class of quoted-string list as LISTS above, and it bit for real: `gnash` (The Wreck's
       // native, v7.x) spawns no entity at all — its whole output is this event — so the day it
       // landed this fixture reported "spawned nothing — untestable here" for a weapon that was
@@ -20907,6 +20915,7 @@ run(testLeLargeWeapons)
   run(testDynamiteNearest)
   run(testFireBoots)
   run(testMantle)
+  run(testMantleHabitat)
   // A hand-typed filter that matched nothing is the silent pass without a parent watching:
   // `node test/sim-test.js supernova` printed ALL TESTS PASSED having run no scenario at all.
   if (_ran === 0 && !EXACT_SET) {
@@ -35084,6 +35093,8 @@ function testEventConsumers() {
     freeze: 'the tell is the `frozen` contract field render already reads (run EL.j), and CLAUDE.md forbids a sound on something that fires dozens of times a minute',
     leak: 'stepLeaks calls hurtPlayer(LANE_LEAK_DMG) on the very next line, and `hurt` has both a render case and an sfx entry — the player already sees and hears a marcher getting past them',
     netHaul: 'has a render case (the rising spray); NO sfx on purpose — a haul is the whole crowd at once, and each body dies through dealDamage, whose kill already sounds',
+    melt: 'drawn by src/toon/mantle-fx.js through the toon renderer\'s event hook (not a render.js case); NO sfx: a flood melts a whole hillside of rock creatures at once, and each dies through dealDamage, whose kill already sounds',
+    crumble: 'drawn by src/toon/mantle-fx.js through the toon renderer\'s event hook; NO sfx: an ebb strands a crowd of lava creatures together, and each dies through dealDamage, whose kill already sounds',
   }
 
   const orphans = types.filter((t) => !hasRender(t) && !hasSfx(t) && !SILENT_BY_DESIGN[t])
@@ -40766,7 +40777,7 @@ function testMantle() {
   // (d) the chapter's own anomaly and mutator
   assert.deepStrictEqual(MUTATORS.highWater.chapters, ['mantle'], 'run MT.d: High Water is The Mantle\'s own mutator')
   assert.strictEqual(BOOKS.burrow.chapters[BOOKS.burrow.chapters.length - 1], 'mantle', 'run MT.d: The Mantle is the last rung of Burrow')
-  assert.strictEqual(CHAPTERS['mantle'].starter, 'matchFlick', 'run MT.d: The Mantle starts you on the Match Flick')
+  assert.strictEqual(CHAPTERS['mantle'].starter, 'quenchKettle', 'run MT.d: The Mantle starts you on the Quench Kettle')
   assert.strictEqual(ANOMALIES.floodTide.chapter, 'mantle', 'run MT.d: Flood Tide is The Mantle\'s own anomaly')
   const tideRange = (opts, anomalies) => {
     const r = boot(41004, opts)
@@ -40792,11 +40803,22 @@ function testMantle() {
       r.enemies.push(...bodies)
       return { r, bodies }
     }
+    // THE TYPE RULE, on one cast each: no crits, so a ratio is the multiplier and nothing else
+    const noCrit = (r) => { r.player.critChance = 0; r.passives.critChance = 0 }
+    const taken = (bodies) => bodies.map((b) => 1e6 - b.hp)
     {
-      const { r, bodies } = arena('matchFlick', () => [[150, 0]])
-      let lit = 0
-      for (let i = 0; i < 120; i++) { step(r, 1); lit = Math.max(lit, bodies[0].ignite || 0) }
-      assert.ok(lit > 0 && bodies[0].hp < 1e6, `run MT.e: a match sets its target alight (ignite ${lit})`)
+      // MT.e1: Quench Kettle splashes round you (water: x MANTLE_COLD_VS_LAVA on a lava creature) and
+      // lays a crust at your feet
+      const { r, bodies } = arena('quenchKettle', () => [[60, 0], [-60, 0], [0, 60]])
+      noCrit(r)
+      bodies[0].habitat = 'lava'; bodies[1].habitat = 'rock'
+      r.weaponTimers.quenchKettle = 0
+      step(r, 1)
+      const [lava, rock, none] = taken(bodies)
+      assert.ok(rock > 0 && Math.abs(lava / rock - MANTLE_COLD_VS_LAVA) < 0.05 && none === rock,
+        `run MT.e1: the kettle's splash should hurt a lava creature x${MANTLE_COLD_VS_LAVA} a rock one (and a habitat-less body like a rock one): ${lava} / ${rock} / ${none}`)
+      const c = r.quenchCrusts[0]
+      assert.ok(c && Math.hypot(c.x - r.player.x, c.y - r.player.y) < 1 && c.r > 0, 'run MT.e1: the kettle lays a crust at your feet')
     }
     {
       const { r, bodies } = arena('hotCoals', () => [[150, 0], [230, 40], [300, -30]])
@@ -40805,21 +40827,39 @@ function testMantle() {
       assert.ok(hit >= 2, `run MT.e: a coal should bounce on to a second body: ${hit} hit`)
     }
     {
-      const { r, bodies } = arena('steamWhistle', () => [[90, 0]])
-      const x0 = bodies[0].x - r.player.x
-      step(r, 120)
-      assert.ok(bodies[0].x - r.player.x > x0 + 20, `run MT.e: the whistle shoves a body outward: ${x0} -> ${(bodies[0].x - r.player.x).toFixed(0)}`)
+      // MT.e2: Crack Hammer opens its pool under the non-lava bodies, never under a lava creature, and
+      // its fire hurts a rock creature x MANTLE_FIRE_VS_ROCK
+      const { r, bodies } = arena('crackHammer', () => [[200, 0], [200, 30], [-200, 0]])
+      noCrit(r)
+      bodies[0].habitat = 'rock'; bodies[2].habitat = 'lava'
+      r.weaponTimers.crackHammer = 0
+      step(r, 1)
+      const [rock, none, lava] = taken(bodies)
+      const near = (b) => r.lavaPools.some((q) => Math.hypot(q.x - b.x, q.y - b.y) <= q.r)
+      assert.ok(r.lavaPools.length >= 1 && near(bodies[0]) && !near(bodies[2]),
+        `run MT.e2: the hammer cracks the ground under the rock creature and not the lava one: ${JSON.stringify(r.lavaPools.map((q) => [Math.round(q.x - r.player.x), Math.round(q.y - r.player.y)]))}`)
+      assert.ok(none > 0 && lava === 0 && Math.abs(rock / none - MANTLE_FIRE_VS_ROCK) < 0.05,
+        `run MT.e2: the stamp's fire hurts a rock creature x${MANTLE_FIRE_VS_ROCK} a habitat-less one, and reaches no lava creature 400px off: ${rock} / ${none} / ${lava}`)
+      const before = taken(bodies)[0]
+      step(r, 60)
+      assert.ok(taken(bodies)[0] > before, 'run MT.e2: the open pool keeps burning the rock creature standing in it')
     }
     {
-      const { r, bodies } = arena('pitchfork', () => [[120, 0]])
-      let back = 0, hits = 0
-      for (let i = 0; i < 180; i++) {
-        const hp0 = bodies[0].hp
-        step(r, 1)
-        bodies[0].x = r.player.x + 120; bodies[0].y = r.player.y
-        if (bodies[0].hp < hp0) { hits++; if (r.boomerangs.some((b) => b.weapon === 'pitchfork' && b.phase === 'back')) back++ }
-      }
-      assert.ok(hits >= 2 && back >= 1, `run MT.e: the pitchfork comes back and hits on the way home: ${hits} hits, ${back} on the return`)
+      // MT.e3: Lava Bellows rolls its wave the way you walk: fire on a rock creature (x
+      // MANTLE_FIRE_VS_ROCK), nothing on a lava one, which it shoves LAVA_WAVE_SHOVE_MUL as hard instead
+      const { r, bodies } = arena('lavaBellows', () => [[100, 0], [100, 40], [100, -40], [-100, 0]])
+      noCrit(r)
+      r.player.facingAngle = 0
+      bodies[0].habitat = 'rock'; bodies[2].habitat = 'lava'
+      const x0 = bodies.map((b) => b.x)
+      r.weaponTimers.lavaBellows = 0
+      step(r, 30)
+      const [rock, none, lava, behind] = taken(bodies)
+      assert.ok(none > 0 && Math.abs(rock / none - MANTLE_FIRE_VS_ROCK) < 0.05 && lava === 0 && behind === 0,
+        `run MT.e3: the wave hurts rock x${MANTLE_FIRE_VS_ROCK}, a lava creature not at all, and nothing behind you: ${rock} / ${none} / ${lava} / ${behind}`)
+      const shove = bodies.map((b, i) => b.x - x0[i])
+      assert.ok(shove[1] > 5 && shove[2] > shove[1] * 1.8,
+        `run MT.e3: the wave shoves a lava creature harder than anything else: ${shove.map((v) => v.toFixed(1)).join(' / ')}`)
     }
   } finally { sig.lavaTide = saved }
   // MT.g: THE LAVA THAT BURNS IS THE LAVA THAT IS DRAWN. The painter (src/toon/world.js) stores the
@@ -40846,5 +40886,208 @@ function testMantle() {
       assert(h >= dryLine, `MT.h: seed ${sd} starts the player at height ${h.toFixed(3)}, under the ${MANTLE_START_DRY} flood line ${dryLine.toFixed(3)}`)
     }
   }
-  console.log(`PASS run MT (The Mantle): the tide cycled and the lava swung across the ground; a parked body burned in a flooding basin, a flyer did not, nothing with the tide off; you burn ${pOn} in the lava, 0 off; High Water ebbs to ${high.lo}, Flood Tide covers ${flood.cover.toFixed(2)} vs ${plain.cover.toFixed(2)}; match lights, coal bounces, whistle shoves, fork returns`)
+  console.log(`PASS run MT (The Mantle): the tide cycled and the lava swung across the ground; a parked body burned in a flooding basin, a flyer did not, nothing with the tide off; you burn ${pOn} in the lava, 0 off; High Water ebbs to ${high.lo}, Flood Tide covers ${flood.cover.toFixed(2)} vs ${plain.cover.toFixed(2)}; kettle splashes and crusts, coal bounces, hammer cracks under rock, bellows burns rock and shoves lava`)
+}
+
+// run HB: THE MANTLE'S TWO HABITATS, the basalt boat, and the weapons' ground (owner rulings
+// 2026-10-12). Rock creatures stay on rock and melt under the tide; lava creatures stay in lava and
+// strand on rock; the boat floats you for MANTLE_BOAT_FLOAT s on the tide; a Quench crust is rock and
+// a Crack Hammer pool is lava for every one of those rules.
+function testMantleHabitat() {
+  const meta = () => { const m = makeMeta(); m.dev = true; return m }
+  const L = CHAPTERS.mantle.signature.lavaTide
+  const boot = (seed) => { Math.random = mulberry32(seed); const r = createRun(meta(), { chapter: 'mantle', difficulty: 1 }); r.player.hp = r.player.maxHP = 1e6; return r }
+  const tick = (r, input = { x: 0, y: 0 }) => {
+    if (r.phase === 'levelup') { r.phase = 'playing'; r.levelUpChoices = [] }
+    r.player.hp = r.player.maxHP
+    stepSim(r, input, 1 / 60)
+    const ev = r.events.slice()
+    r.events.length = 0
+    return ev
+  }
+  const body = (r, x, y, habitat, extra = {}) => Object.assign(makeStatusEnemy(r, { x, y, hp: 400, speed: 0 }), { habitat, xp: 3 }, extra)
+  // a basin (under the 30% line: flooded at every flood, dry at the ebb) near the start of a run
+  const basinOf = (r) => {
+    const line = lavaLineFor(L, 0.3)
+    for (let d = 300; d < 6000; d += 40) for (let a = 0; a < 24; a++) {
+      const x = r.player.x + Math.cos(a * Math.PI / 12) * d, y = r.player.y + Math.sin(a * Math.PI / 12) * d
+      if (mantleHeightAt(L, r.lavaTide.seed, x, y) < line) return { x, y }
+    }
+    return null
+  }
+  // (a) CONFINEMENT, in a real run (spawner, chasers, the tide cycling), on a kiting rig: no creature
+  // that started a step on its own ground ends it on the other one while its start is still home.
+  // Counted per body-step; a toad's leap out of the lava is the one licensed exit (it strands).
+  {
+    const r = boot(52001)
+    r.weapons = []
+    let checked = 0, broke = 0, lavaSeen = 0, rockSeen = 0, seatedLava = 0, seatedRock = 0
+    const seen = new Set()
+    let ang = 0
+    for (let i = 0; i < 60 * 200; i++) {
+      const before = new Map()
+      for (const e of r.enemies) if (e.habitat && !e._dead) before.set(e, { x: e.x, y: e.y, home: (mantleGroundAt(r, e.x, e.y) > 0) === (e.habitat === 'lava'), leap: e._pounceState === 'leap' })
+      ang += 0.004
+      tick(r, { x: Math.cos(ang), y: Math.sin(ang) })
+      for (const e of r.enemies) {
+        if (!e.habitat || e._dead) continue
+        if (!seen.has(e.id)) {
+          seen.add(e.id)
+          const atHome = (mantleGroundAt(r, e.x, e.y) > 0) === (e.habitat === 'lava')
+          if (e.habitat === 'lava') { lavaSeen++; if (atHome) seatedLava++ } else { rockSeen++; if (atHome) seatedRock++ }
+        }
+        const b = before.get(e)
+        if (!b || !b.home || b.leap || e._pounceState === 'leap') continue
+        if (Math.hypot(e.x - b.x, e.y - b.y) < 1e-6) continue
+        checked++
+        const startHome = (mantleGroundAt(r, b.x, b.y) > 0) === (e.habitat === 'lava')
+        const endHome = (mantleGroundAt(r, e.x, e.y) > 0) === (e.habitat === 'lava')
+        if (startHome && !endHome) broke++
+      }
+    }
+    assert.ok(checked > 20000 && lavaSeen >= 20 && rockSeen >= 20, `run HB.a precondition: the rig must see both habitats move: ${checked} body-steps, ${lavaSeen} lava / ${rockSeen} rock creatures`)
+    assert.ok(broke / checked < 0.002, `run HB.a: ${broke} of ${checked} moving body-steps walked a creature off its own ground (lava or rock) while its start was still home`)
+    assert.ok(seatedLava / lavaSeen > 0.9 && seatedRock / rockSeen > 0.9,
+      `run HB.a: a creature is born on its own ground: ${seatedLava}/${lavaSeen} lava creatures in lava, ${seatedRock}/${rockSeen} rock ones on rock`)
+    console.log(`PASS run HB.a (confinement): ${broke} of ${checked} moving body-steps left home; born at home ${seatedLava}/${lavaSeen} lava, ${seatedRock}/${rockSeen} rock`)
+  }
+  // (b) MELT DROPS XP: a rock creature pinned in a basin melts within MANTLE_MELT_T of the tide
+  // covering it, drops a gem worth its xp, and the melt event says so
+  {
+    const r = boot(52002)
+    tick(r)
+    r.weapons = []; r.mods.spawnMul = 0; r.enemies = []
+    const spot = basinOf(r)
+    assert.ok(spot, 'run HB.b precondition: a basin near the start')
+    const e = body(r, spot.x, spot.y, 'rock')
+    r.enemies.push(e)
+    let coveredAt = null, diedAt = null, melts = 0, gem = null
+    for (let i = 0; i < 60 * 90 && !e._dead; i++) {
+      e.x = spot.x; e.y = spot.y
+      const g0 = r.gems.length
+      const ev = tick(r)
+      if (coveredAt === null && lavaFloodedAt(r, spot.x, spot.y)) coveredAt = r.time
+      melts += ev.filter((v) => v.type === 'melt').length
+      if (e._dead) { diedAt = r.time; gem = r.gems.slice(g0).find((g) => Math.hypot(g.x - spot.x, g.y - spot.y) < 1) }
+    }
+    assert.ok(coveredAt !== null && diedAt !== null && diedAt - coveredAt <= MANTLE_MELT_T + 0.1 && diedAt - coveredAt >= MANTLE_MELT_T - 0.1,
+      `run HB.b: a rock creature under the tide melts after ${MANTLE_MELT_T}s: covered at ${coveredAt}, dead at ${diedAt}`)
+    assert.ok(melts === 1 && gem && gem.xp === 3, `run HB.b: the melt is announced once and drops the body's own xp: ${melts} melt events, gem ${JSON.stringify(gem)}`)
+    console.log(`PASS run HB.b (melt): covered at ${coveredAt.toFixed(2)}s, melted ${(diedAt - coveredAt).toFixed(2)}s later, a ${gem.xp} xp gem where it stood`)
+  }
+  // (c) STRANDING: a lava creature on dry rock slows to a stop, takes MANTLE_STRAND_DMG_MUL x damage,
+  // and crumbles at MANTLE_STRAND_DIE_T paying its xp. The start of a Mantle run is always dry.
+  {
+    const r = boot(52003)
+    tick(r)
+    r.weapons = []; r.mods.spawnMul = 0; r.enemies = []
+    const p = r.player
+    const e = body(r, p.x + 150, p.y, 'lava', { speed: 120 })
+    r.enemies.push(e)
+    const moved = []
+    let crumbled = 0, gem = null, last = { x: e.x, y: e.y }
+    for (let i = 0; i < 60 * (MANTLE_STRAND_DIE_T + 1) && !e._dead; i++) {
+      p.x = r.player.x; const g0 = r.gems.length
+      const ev = tick(r)
+      crumbled += ev.filter((v) => v.type === 'crumble').length
+      moved.push(Math.hypot(e.x - last.x, e.y - last.y)); last = { x: e.x, y: e.y }
+      if (e._dead) gem = r.gems.slice(g0)[0]
+    }
+    const early = moved.slice(2, 20).reduce((s, v) => s + v, 0), late = moved.slice(Math.ceil(60 * MANTLE_STRAND_STUCK_T) + 2, Math.ceil(60 * MANTLE_STRAND_STUCK_T) + 60).reduce((s, v) => s + v, 0)
+    assert.ok(early > 0.5 && late < 1e-6, `run HB.c: a stranded lava creature crawls, then sticks after ${MANTLE_STRAND_STUCK_T}s: ${early.toFixed(2)}px early, ${late.toFixed(4)}px late`)
+    assert.ok(e._dead && crumbled === 1 && gem && gem.xp === 3, `run HB.c: it crumbles after ${MANTLE_STRAND_DIE_T}s and pays its xp: dead ${!!e._dead}, ${crumbled} crumble events, gem ${JSON.stringify(gem)}`)
+    // the amp, as an effect: two bodies under one kettle splash, one stranded, the tide off so the
+    // stranded clock is the fixture's own
+    const saved = CHAPTERS.mantle.signature.lavaTide
+    CHAPTERS.mantle.signature.lavaTide = null
+    try {
+      const r2 = boot(52004)
+      r2.weapons = [{ id: 'quenchKettle', level: 1 }]
+      r2.player.critChance = 0; r2.passives.critChance = 0
+      tick(r2)
+      r2.enemies = []
+      const a = makeStatusEnemy(r2, { x: r2.player.x + 50, y: r2.player.y, hp: 1e6, speed: 0 })
+      const b = Object.assign(makeStatusEnemy(r2, { x: r2.player.x - 50, y: r2.player.y, hp: 1e6, speed: 0 }), { strandT: 1 })
+      r2.enemies.push(a, b)
+      r2.weaponTimers.quenchKettle = 0
+      tick(r2)
+      const ratio = (1e6 - b.hp) / (1e6 - a.hp)
+      assert.ok(a.hp < 1e6 && Math.abs(ratio - MANTLE_STRAND_DMG_MUL) < 0.1, `run HB.c: a stranded body takes x${MANTLE_STRAND_DMG_MUL} damage: ratio ${ratio}`)
+    } finally { CHAPTERS.mantle.signature.lavaTide = saved }
+    console.log(`PASS run HB.c (stranding): crawled ${early.toFixed(1)}px, stuck after ${MANTLE_STRAND_STUCK_T}s, crumbled at ${MANTLE_STRAND_DIE_T}s for its xp, x${MANTLE_STRAND_DMG_MUL} damage while stranded`)
+  }
+  // (d) THE BOAT: parked in a basin as the tide covers you, no lava damage for MANTLE_BOAT_FLOAT s,
+  // then the burn; back on rock the float refills at MANTLE_BOAT_REFILL s per s
+  {
+    const r = boot(52005)
+    tick(r)
+    r.weapons = []; r.mods.spawnMul = 0; r.enemies = []
+    const spot = basinOf(r)
+    const home = { x: r.player.x, y: r.player.y }
+    let coveredAt = null, burntAt = null, floatSeen = false
+    for (let i = 0; i < 60 * 90 && burntAt === null; i++) {
+      r.enemies = []; r.player.x = spot.x; r.player.y = spot.y
+      const dmg0 = r.dmgBySrc?.lava ?? 0
+      tick(r)
+      if (coveredAt === null && lavaFloodedAt(r, spot.x, spot.y)) coveredAt = r.time
+      if (r.player.afloat) floatSeen = true
+      if ((r.dmgBySrc?.lava ?? 0) > dmg0) burntAt = r.time
+    }
+    assert.ok(coveredAt !== null && burntAt !== null && floatSeen, `run HB.d precondition: the tide covered the spot (${coveredAt}) and burned you in the end (${burntAt})`)
+    const floated = burntAt - coveredAt
+    // the burn banks its fraction (a gentle dot), so the first whole point lands up to ~1s after the sinking
+    assert.ok(floated >= MANTLE_BOAT_FLOAT - 0.1 && floated <= MANTLE_BOAT_FLOAT + 1.2, `run HB.d: the boat floats you unburned for ${MANTLE_BOAT_FLOAT}s on the tide: first burn ${floated.toFixed(2)}s after it covered you`)
+    for (let i = 0; i < 60 * 3; i++) { r.player.x = home.x; r.player.y = home.y; tick(r) }
+    assert.ok(Math.abs(r.player.boatT - 3 * MANTLE_BOAT_REFILL) < 0.1 && !r.player.afloat, `run HB.d: 3s on rock refills ${3 * MANTLE_BOAT_REFILL}s of float: ${r.player.boatT}`)
+    console.log(`PASS run HB.d (boat): ${floated.toFixed(2)}s afloat before the first burn, ${r.player.boatT.toFixed(2)}s of float back after 3s on rock`)
+  }
+  // (e) A QUENCH CRUST IS ROCK: with the boat gone, a crust under you stops the burn; a lava creature
+  // under one strands; a rock creature on one over the tide does not melt
+  // (f) A HAMMER POOL IS LAVA: a lava creature on dry rock inside a pool is at home; a rock creature in
+  // one burns; you burn in one even with a full boat
+  {
+    const r = boot(52006)
+    tick(r)
+    r.weapons = []; r.mods.spawnMul = 0; r.enemies = []
+    const spot = basinOf(r)
+    for (let i = 0; i < 60 * 90 && !lavaFloodedAt(r, spot.x, spot.y); i++) tick(r)
+    assert.ok(lavaFloodedAt(r, spot.x, spot.y), 'run HB.e precondition: the basin floods')
+    const burnFor = (crust, s) => {
+      r.quenchCrusts = crust ? [{ x: spot.x, y: spot.y, r: 120, t: 0, dur: 99 }] : []
+      r.player.boatT = 0
+      const d0 = r.dmgBySrc?.lava ?? 0
+      for (let i = 0; i < 60 * s; i++) { r.player.x = spot.x; r.player.y = spot.y; r.player.boatT = 0; tick(r) }
+      return (r.dmgBySrc?.lava ?? 0) - d0
+    }
+    const bare = burnFor(false, 2), crusted = burnFor(true, 2)
+    assert.ok(lavaFloodedAt(r, spot.x, spot.y) && bare > 0 && crusted === 0, `run HB.e: a crust under you is rock (no burn): ${bare} bare vs ${crusted} on a crust`)
+    const eel = body(r, spot.x + 30, spot.y, 'lava'), imp = body(r, spot.x - 30, spot.y, 'rock')
+    r.enemies.push(eel, imp)
+    for (let i = 0; i < 60; i++) { eel.x = spot.x + 30; eel.y = spot.y; imp.x = spot.x - 30; imp.y = spot.y; r.player.boatT = MANTLE_BOAT_FLOAT; tick(r) }
+    assert.ok(lavaFloodedAt(r, spot.x - 30, spot.y) && lavaFloodedAt(r, spot.x + 30, spot.y), 'run HB.e precondition: both bodies stand over the tide')
+    assert.ok(eel.strandT > 0.9 && !imp._dead && !(imp.meltT > 0), `run HB.e: under a crust a lava creature strands (${eel.strandT}) and a rock one stands dry (dead ${!!imp._dead}, meltT ${imp.meltT})`)
+    console.log(`PASS run HB.e (a crust is rock): burn ${bare} bare vs ${crusted} crusted; under it a lava creature stranded ${eel.strandT.toFixed(2)}s and a rock one did not melt`)
+  }
+  {
+    // (f) a fresh run at its first ebb, a pool on its dry start
+    const r = boot(52007)
+    tick(r)
+    r.weapons = []; r.mods.spawnMul = 0; r.enemies = []
+    const dry = { x: r.player.x, y: r.player.y }
+    assert.ok(r.lavaTide.phase === 'ebb' && mantleGroundAt(r, dry.x, dry.y) === 0 && mantleGroundAt(r, dry.x + 160, dry.y) === 0, 'run HB.f precondition: dry rock at the start, at the ebb')
+    r.lavaPools = [{ x: dry.x, y: dry.y, r: 80, t: 0, dur: 99, dps: 40, _tick: 0 }]
+    const inPool = body(r, dry.x, dry.y, 'lava'), outPool = body(r, dry.x + 160, dry.y, 'lava'), burner = body(r, dry.x + 20, dry.y + 20, 'rock')
+    r.enemies.push(inPool, outPool, burner)
+    r.player.boatT = MANTLE_BOAT_FLOAT
+    const d0 = r.dmgBySrc?.lava ?? 0
+    for (let i = 0; i < 60 * 2; i++) {
+      inPool.x = dry.x; inPool.y = dry.y; outPool.x = dry.x + 160; outPool.y = dry.y; burner.x = dry.x + 20; burner.y = dry.y + 20
+      r.player.x = dry.x - 20; r.player.y = dry.y
+      tick(r)
+    }
+    const poolBurn = (r.dmgBySrc?.lava ?? 0) - d0
+    assert.ok(!(inPool.strandT > 0) && outPool.strandT > 1.5, `run HB.f: a pool is lava to a lava creature (strandT ${inPool.strandT} in it, ${outPool.strandT} beside it)`)
+    assert.ok(burner.hp < 400 && poolBurn > 0, `run HB.f: a pool burns a rock creature in it (${400 - burner.hp}) and you, boat or not (${poolBurn})`)
+    console.log(`PASS run HB.f (a pool is lava): it kept its lava creature home, burned a rock one ${400 - burner.hp} and you ${poolBurn}`)
+  }
 }

@@ -30,7 +30,7 @@ export const PAL = {
   // pickups and shots
   gem: '#4fb3a8', gemShade: '#2c7a74', gemHi: '#c9f2e8',
   coin: '#e6b53a', coinShade: '#a77a1e', coinHi: '#fff0a8',
-  wood: '#c9a066', woodShade: '#8a6438', matchHead: '#c8322a',
+  wood: '#c9a066', woodShade: '#8a6438',
   iron: '#6e6a72', ironHi: '#c9c4cc', steam: '#f7f1e3', steamShade: '#c9bfae',
   white: '#ffffff',
 }

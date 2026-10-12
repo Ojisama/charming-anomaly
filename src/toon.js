@@ -31,18 +31,20 @@
 //
 // What the sim publishes for this chapter (state.js's doc block is the authority): run.lavaTide
 // (level, phase, swell, line, ...), sim.js's lavaTideOf / mantleHeightAt / lavaFloodedAt (the ground's
-// height and the lava on it), run.bullets (weapon 'match', 'coal'), run.novas (look 'steam'),
-// run.boomerangs (weapon 'pitchfork'), the elemental contract fields on enemies (ignite), and the
-// event tideTurn.
+// height and the lava on it), run.bullets (weapon 'coal'), the elemental contract fields on enemies
+// (ignite), the habitat contract fields (habitat, ground, strandT, meltT), the player's boat (boatT,
+// boatMax, afloat), run.quenchCrusts, run.lavaPools, run.novas (look 'lavaWave'), and the events
+// tideTurn, melt and crumble. The habitat, boat and weapon-ground tells live in src/toon/mantle-fx.js.
 import { AlphaFilter, BufferImageSource, CanvasSource, Container, Filter, GlProgram, Mesh, MeshGeometry, Shader, Sprite, Texture, UniformGroup } from 'pixi.js'
 import { PAL, TAU, mkCanvas, hash, whiteTwin } from './toon/palette.js'
 import { TOON_CAST, paintPlayer, PLAYER_BOX } from './toon/cast.js'
 import {
   CHUNK, CHUNK_STEP, CHUNK_N, FLOOR_VERT, FLOOR_FRAG, FILM_VERT, FILM_FRAG, NOISE_N, bakeNoise, paintBubbleAtlas,
-  paintMatch, paintCoal, paintPitchfork, paintPuff, paintGem, paintCoin, paintLick, paintDot, paintSweat, paintWade, paintDaze,
+  paintCoal, paintPuff, paintGem, paintCoin, paintLick, paintDot, paintSweat, paintWade, paintDaze,
 } from './toon/world.js'
 import { lavaTideOf, mantleHeightAt, lavaLineFor } from './sim.js'
 import { gemTier } from './config.js'
+import { createMantleFx } from './toon/mantle-fx.js'
 
 export { TOON_CAST, PAL }
 export { inkRing, inkLine, bakeAffix, bakeRingCanvas } from './toon/marks.js'
@@ -129,15 +131,18 @@ function keyline(f) {
   c.drawImage(grow(1.0, 1.6, PAL.ink ?? '#1e1513', 0.0), 0, 0)
   return cv
 }
+// a Quench crust under (x, y): rock, so nothing there wades or burns
+function inCrust(run, x, y) {
+  for (const c of run.quenchCrusts ?? []) if (c.t < c.dur && (x - c.x) ** 2 + (y - c.y) ** 2 <= c.r * c.r) return true
+  return false
+}
 // ---- the renderer --------------------------------------------------------------------------------
 export function createToonRenderer(host) {
   const { app, floor, under, over } = host
   // textures, baked once
   const art = (b) => ({ tex: canvasTex(b.canvas, b.res), ax: b.ax, ay: b.ay })
   const T = {
-    match: [0, 1, 2].map((f) => art(paintMatch(f))),
     coal: [0, 1].map((f) => art(paintCoal(f))),
-    fork: art(paintPitchfork()),
     puff: [0, 1, 2].map((v) => art(paintPuff(v))),
     gem: [0, 1, 2].map((t) => [0, 1].map((f) => art(paintGem(t, f)))),
     coin: [0, 1, 2, 3].map((f) => art(paintCoin(f))),
@@ -177,10 +182,13 @@ export function createToonRenderer(host) {
   under.addChild(pickLayer)
   const playerLayer = new Container(), shotLayer = new Container(), fxLayer = new Container()
   const playerFx = new Container()
-  over.addChild(fxLayer, playerLayer, playerFx, shotLayer)
+  const mfxGround = new Container(), mfxBoat = new Container(), mfxTop = new Container()
+  under.addChildAt(mfxGround, 0)
+  over.addChild(fxLayer, mfxBoat, playerLayer, playerFx, mfxTop, shotLayer)
+  const mfx = createMantleFx({ ground: mfxGround, boat: mfxBoat, top: mfxTop })
   const gems = pool(pickLayer), coins = pool(pickLayer)
   const dazes = pool(playerFx)
-  const shots = pool(shotLayer), forks = pool(shotLayer), puffs = pool(shotLayer), wades = pool(fxLayer), pwade = pool(playerFx), licks = pool(fxLayer), sweats = pool(fxLayer)
+  const shots = pool(shotLayer), puffs = pool(shotLayer), wades = pool(fxLayer), pwade = pool(playerFx), licks = pool(fxLayer), sweats = pool(fxLayer)
   const playerKey = new Sprite(T.player[0].key)
   playerKey.anchor.set(T.player[0].ax, T.player[0].ay)
   playerKey.alpha = 1
@@ -270,7 +278,8 @@ export function createToonRenderer(host) {
       look = null
       floor.filters = null
       for (const k of [...chunks.keys()]) dropChunk(k)
-      for (const p of [dazes, gems, coins, shots, forks, puffs, wades, pwade, licks, sweats]) p.hide()
+      for (const p of [dazes, gems, coins, shots, puffs, wades, pwade, licks, sweats]) p.hide()
+      mfx.reset()
       wetLine = -1; wetK = 0; maxLine = -1
     },
     filters() { return [film] },
@@ -346,11 +355,15 @@ export function createToonRenderer(host) {
         const { L, T: TD } = tide
         for (const e of run.enemies) {
           if (e._dead || (e.flags && e.flags.includes('flying')) || !onScreen(e.x, e.y, 40)) continue
-          if (mantleHeightAt(L, TD.seed, e.x, e.y) >= TD.line) continue
+          // a habitat creature publishes its ground (sim.js holdHabitat: 1 a pool, 2 the tide, 0 rock
+          // or a crust); anything else is asked the height field
+          if (e.habitat ? !(e.ground > 0) : mantleHeightAt(L, TD.seed, e.x, e.y) >= TD.line) continue
           // it wades: the lava closes over its legs
           const wd = wades.next(T.wade[fi(t * 3 + e.id * 0.5, 2)])
           wd.position.set(e.x, e.y + e.radius * 0.62)
           wd.scale.set(e.radius / 11.5)
+          // a lava creature LIVES in it: it wades, it never burns (its strand and melt tells are mantle-fx's)
+          if (e.habitat === 'lava') continue
           const n = e.radius > 20 ? 3 : 2
           for (let k = 0; k < n; k++) {
             const s = licks.next(T.lick[fi(t * 9 + e.id + k, 3)])
@@ -367,7 +380,8 @@ export function createToonRenderer(host) {
             s.rotation = sg * 0.6; s.alpha = 1 - ph2
           }
         }
-        if (mantleHeightAt(L, TD.seed, p.x, p.y) < TD.line) {
+        // afloat: the basalt boat carries you (mantle-fx draws it); only once it has sunk do you wade and burn
+        if (!p.afloat && mantleHeightAt(L, TD.seed, p.x, p.y) < TD.line && !inCrust(run, p.x, p.y)) {
           const wd = pwade.next(T.wade[fi(t * 3, 2)])
           wd.position.set(p.x, p.y + 17)
           wd.scale.set(1.45)
@@ -406,44 +420,34 @@ export function createToonRenderer(host) {
         s.position.set(p.x, p.y)
         s.scale.set(p.facing < 0 ? -1 : 1, 1)
       }
-      // shots: matches and coals, and a plain inked bead for anything else
+      // shots: coals, and a plain inked bead for anything else (a boomerang from another chapter's
+      // card, in a run that carries one, draws as a bead too)
       shots.begin()
-      for (const b of run.bullets ?? []) {
+      for (const b of [...(run.bullets ?? []), ...(run.boomerangs ?? [])]) {
         if (!onScreen(b.x, b.y)) continue
-        const tk = b.weapon === 'match' ? T.match[fi(t * 12 + b.x, 3)] : b.weapon === 'coal' ? T.coal[fi(t * 8, 2)] : T.dot
-        const s = shots.next(tk)
+        const s = shots.next(b.weapon === 'coal' ? T.coal[fi(t * 8, 2)] : T.dot)
         s.position.set(b.x, b.y)
-        if (b.weapon === 'match') s.rotation = Math.atan2(b.vy, b.vx)
-        else if (b.weapon === 'coal') s.rotation = t * 9 + (b.x + b.y) * 0.01
+        if (b.weapon === 'coal') s.rotation = t * 9 + (b.x + b.y) * 0.01
       }
       shots.end()
-      forks.begin()
-      for (const b of run.boomerangs ?? []) {
-        if (!onScreen(b.x, b.y)) continue
-        const s = forks.next(T.fork)
-        s.position.set(b.x, b.y)
-        // it tumbles as it flies
-        s.rotation = (b.angle ?? 0) + t * 14
-        s.scale.set((b.hitR ?? 18) / 18)
-      }
-      forks.end()
-      // novas: the whistle's steam ring is a ring of puffs; any other ring is a thinner one
+      // novas: the lava wave is mantle-fx's; any other ring is a thin ring of puffs
       puffs.begin()
       for (const n of run.novas ?? []) {
-        if (!onScreen(n.x, n.y, n.maxR)) continue
+        if (n.look === 'lavaWave' || !onScreen(n.x, n.y, n.maxR)) continue
         const k = 1 - Math.max(0, n.life / (n.lifeMax || 1))
         const R = Math.max(6, n.r || n.maxR * k)
-        const steam = n.look === 'steam'
-        const cnt = Math.max(8, Math.min(40, Math.round((R * TAU) / (steam ? 26 : 40))))
+        const cnt = Math.max(8, Math.min(40, Math.round((R * TAU) / 40)))
         for (let i = 0; i < cnt; i++) {
           const a = (i / cnt) * TAU + (n.x * 0.01)
           const s = puffs.next(T.puff[i % 3])
           s.position.set(n.x + Math.cos(a) * R, n.y + Math.sin(a) * R)
-          s.alpha = steam ? 1 - k * k : 0.6 * (1 - k)
-          s.scale.set(steam ? 0.9 + 0.5 * k : 0.6)
+          s.alpha = 0.6 * (1 - k)
+          s.scale.set(0.6)
         }
       }
       puffs.end()
+      // the habitat, boat and weapon-ground tells (src/toon/mantle-fx.js)
+      mfx.sync(run, dt, tide, onScreen, t)
       // the film's clock and its gate weave
       filmU.uniforms.uTime = clock
       const wv = filmU.uniforms.uWeave
@@ -453,6 +457,7 @@ export function createToonRenderer(host) {
     event(e) {
       if (!look) return false
       if (e.type === 'tideTurn') { pulse = 1; return true }
+      if (mfx.event(e)) return true
       return false
     },
   }
