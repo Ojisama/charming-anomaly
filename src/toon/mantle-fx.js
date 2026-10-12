@@ -90,7 +90,7 @@ export function createMantleFx({ ground, boat, top }) {
         for (const k of cells) {
           if (!(k.h < line || inPool(run, k.x, k.y))) continue
           const v = hash(Math.round(k.x / CELL), Math.round(k.y / CELL), 3)
-          groundG.rect(k.x - CELL / 2 - 0.5, k.y - CELL / 2 - 0.5, CELL + 1, CELL + 1).fill({ color: v < 0.3 ? C.basaltLo : v > 0.8 ? C.basaltHi : C.basalt })
+          groundG.circle(k.x + (v - 0.5) * 3, k.y + (hash(k.x, k.y, 5) - 0.5) * 3, CELL * 0.9).fill({ color: v > 0.85 ? C.basaltHi : C.basalt })
           if (v > 0.62) {
             // a crack: a short ink stroke, glowing as the crust runs out
             const a = v * 40
@@ -172,13 +172,13 @@ export function createMantleFx({ ground, boat, top }) {
       if (p.afloat && p.boatMax > 0) {
         const f = Math.max(0, Math.min(1, p.boatT / p.boatMax))   // 1 fresh, 0 gone under
         const wob = f < 0.3 ? Math.sin(t * 22) * (0.3 - f) * 6 : 0
-        const x = p.x + wob, y = p.y + 13, rx = 25, ry = 13
+        const x = p.x + wob, y = p.y + 12, rx = 31, ry = 17
         boatG.ellipse(x, y, rx + 3, ry + 3).fill({ color: C.ink })
         boatG.ellipse(x, y, rx, ry).fill({ color: C.basalt })
-        boatG.ellipse(x - 4, y - 3, rx * 0.6, ry * 0.4).fill({ color: C.basaltHi, alpha: 0.6 })
+        boatG.ellipse(x, y - 1, rx - 6, ry - 5).fill({ color: C.basaltLo })   // the hollow of the hull
         // the lava coming in over the rim: a pool inside the hull growing as it sinks
         const s = 1 - f
-        if (s > 0.02) boatG.ellipse(x, y + 1, rx * (0.35 + 0.6 * s), ry * (0.3 + 0.6 * s)).fill({ color: s > 0.7 ? C.lavaHot : C.lava, alpha: 0.9 })
+        if (s > 0.02) boatG.ellipse(x, y + 1, (rx - 6) * (0.3 + 0.7 * s), (ry - 5) * (0.3 + 0.7 * s)).fill({ color: s > 0.7 ? C.lavaHot : C.lava, alpha: 0.9 })
       }
     },
   }
