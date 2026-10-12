@@ -15,7 +15,7 @@
 // id with no file at all; it cannot catch a file that is merely stale.) Wire it into the build if that
 // bites more than once.
 //
-//   node scripts/bake-cast.mjs [--port 5199]     (or BAKE_CAST_PORT=5199; default 5199)
+//   node scripts/bake-cast.mjs [--port 5199] [--only id,id]     (or BAKE_CAST_PORT=5199; default 5199)
 //
 // It starts its own vite dev server, drives chrome-headless-shell over CDP, loads the game with
 // ?debug (which exposes window.__renderer), and calls the renderer's own castThumbs().
@@ -64,10 +64,13 @@ const { CHAPTERS, DMG_SRC_NAME, DMG_SRC_ART, DMG_SRC_NO_ART } = await import('..
 // title cards, which still read their own `render.cast`.
 // Object.values(CHAPTERS), never CHAPTER_ORDER — that is Book 1 only, and ALL_CHAPTER_IDS still drops
 // every `hidden` id, which is exactly where four of those seven live (The Blank's boss parts).
+// --only id,id,... bakes just those (cast ids or hazard srcs), leaving every other file on disk as it is
+const onlyArg = process.argv.indexOf('--only')
+const only = onlyArg >= 0 ? new Set(process.argv[onlyArg + 1].split(',')) : null
 const ids = [...new Set([
   ...Object.values(CHAPTERS).flatMap((c) => c.render?.cast ?? []),
   ...Object.values(CHAPTERS).flatMap((c) => (c.roster ?? []).map((r) => r.id)),
-])]
+])].filter((id) => !only || only.has(id))
 console.log(`baking ${ids.length} cast thumbnails across ${Object.keys(CHAPTERS).length} chapters:`, ids.join(', '))
 
 // HAZARD thumbnails, for the summary's damage recap. Derived, never hand-listed: every DMG_SRC_NAME
@@ -77,6 +80,7 @@ console.log(`baking ${ids.length} cast thumbnails across ${Object.keys(CHAPTERS)
 // absence made 12 blank slots read as a working feature for a whole release.
 const hazardIds = Object.keys(DMG_SRC_NAME)
   .filter((k) => !DMG_SRC_ART[k] && !DMG_SRC_NO_ART[k])
+  .filter((k) => !only || only.has(k))
 console.log(`baking ${hazardIds.length} hazard thumbnails of ${Object.keys(DMG_SRC_NAME).length} damage sources:`, hazardIds.join(', '))
 console.log(`  aliased to a creature: ${Object.entries(DMG_SRC_ART).map(([k, v]) => `${k}->${v}`).join(', ')}`)
 console.log(`  deliberately no art:   ${Object.keys(DMG_SRC_NO_ART).join(', ')}`)

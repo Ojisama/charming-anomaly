@@ -45,6 +45,7 @@ import * as MACRO from './macro.js'
 import { IPECAC_COUNT_MUL, FURROW_PIT_OPEN, FURROW_LANE_GAP, CRYSTAL_CARDS } from './config.js'
 import * as HOLO from './holo.js'
 import * as ASCII from './ascii.js'
+import * as TOON from './toon.js'
 import * as PIXEL from './pixel.js'
 import { t as tr } from './i18n.js'
 // Topsoil's cast: struck, they lift warm (MACRO.paintFlashTwin) instead of going white
@@ -6962,6 +6963,13 @@ export function createRenderer(app) {
     salamander: { archetype: 'fast', pixel: true, lean: 0 },
     obsidianTortoise: { archetype: 'tank', pixel: true, lean: 0 },
     fireDrake: { archetype: 'fast', pixel: true, lean: 0 },
+    // Book 3, The Mantle: A 1930s RUBBER-HOSE CARTOON. `toon: true` hands the whole drawing to
+    // src/toon.js (TOON_CAST / bakeCreature), the way `ascii: true` hands it to ascii.js. Upright
+    // bodies: mirrored to face their way, never turned.
+    emberImp: { archetype: 'normal', toon: true },
+    magmaToad: { archetype: 'fast', toon: true },
+    basaltGolem: { archetype: 'tank', toon: true },
+    brimstoneDragon: { archetype: 'fast', toon: true },
     redcell: { archetype: 'normal', draw: drawRedcell, lean: 0 },      // biconcave disc, no forward axis — it would just tumble
     wbc: { archetype: 'tank', draw: drawWbc, lean: 0 },                // radial membrane, filopodia all round; no nose
     antibody: { archetype: 'fast', draw: drawAntibody, lean: 0 },      // 3-fold Y (Fc stem at +y), no +x front — a protein has no heading
@@ -7264,6 +7272,20 @@ export function createRenderer(app) {
       spin: 0, squash: 0, shadow: null, crown: null,
     }
   }
+  // ---- Book 3, The Mantle: a creature drawn by src/toon.js. Its canvases become the body and the
+  // hit-flash twin; everything about HOW it looks is toon.js's.
+  function makeToonLook(id, elite) {
+    const b = TOON.bakeCreature(id, elite)
+    if (!b) return null
+    const frames = b.frames.map((f) => ({ tex: macroCanvasTex(f.canvas, f.res), white: macroCanvasTex(f.white, f.res), ax: f.ax, ay: f.ay }))
+    return {
+      tex: frames[0].tex, white: frames[0].white, ax: frames[0].ax, ay: frames[0].ay,
+      frames: frames.length > 1 ? frames : null, thumb: b.thumb ?? null,
+      baseR: b.baseR, maxLean: (b.lean ?? 0) * DEG, upright: !!b.upright,
+      poseOf: b.poseOf || null, faceDir: b.faceDir || null, turnRate: b.turnRate || null,
+      spin: 0, squash: 0, shadow: null, crown: null,
+    }
+  }
   // ---- Book 3, The Magma: the pixel-art cast (src/pixel.js PIXEL_CAST) ----------------------------
   // A ROSTER_LOOKS entry with `pixel: true` is painted one art pixel at a time by src/pixel.js and
   // sampled NEAREST. No ground shadow: the CRT pass is the light.
@@ -7400,6 +7422,7 @@ export function createRenderer(app) {
   function makeRosterLook(id, elite, child = false) {
     const entry0 = ROSTER_LOOKS[id]
     if (entry0.ascii && !child) return makeAsciiLook(id, elite)
+    if (entry0.toon && !child) return makeToonLook(id, elite)
     if (entry0.macro && !child) return makeMacroLook(id, entry0, elite)
     if (entry0.pixel && !child) return makePixelLook(id, entry0, elite)
     // A child look is the same entry wearing a different draw fn, so it inherits `lean`, `phases`
@@ -14027,6 +14050,53 @@ const spurG = new Graphics()
     asciiR.sync(run, dt, { left: -cx, top: -cy, right: -cx + w, bottom: -cy + h, zoom: world.scale.x || 1, w: app.screen.width, h: app.screen.height, animT })
   }
 
+  // ==== Book 3, THE MANTLE: A 1930s RUBBER-HOSE CARTOON (src/toon.js) =============================
+  // CHAPTERS[id].render.toon hands the WHOLE look of a chapter to src/toon.js, the ascii way: render.js
+  // keeps its camera, its enemy pool (driven with toon.js's own creature looks), the crowns, affixes,
+  // particles and damage numbers; gives the module four containers — its floor (over render.js's own
+  // floor, under every entity), world-space under and over the creatures, and screen-space over the
+  // world — switches off the layers the module names (renderer.hide), sets its filters on the stage,
+  // and forwards every frame and every event. Nothing about what the chapter looks like is decided here.
+  const toonFloor = new Container()
+  const toonUnder = new Container()
+  const toonOver = new Container()
+  const toonScreen = new Container()
+  world.addChildAt(toonFloor, world.getChildIndex(floorLayer) + 1)
+  entitiesLayer.addChildAt(toonUnder, entitiesLayer.getChildIndex(gemLayer))
+  entitiesLayer.addChildAt(toonOver, entitiesLayer.getChildIndex(bulletLayer))
+  toonFloor.visible = toonUnder.visible = toonOver.visible = toonScreen.visible = false
+  const TOON_HIDEABLE = { ...ASCII_HIDEABLE, boomerangs: [boomerangLayer], orbs: [orbLayer] }
+  let toonR = null       // the module's renderer, created the first time a toon chapter starts
+  let toonOn = false
+  let toonHidden = []
+  // Runs AFTER setAscii: it un-hides only what it hid itself and the ascii look is not holding.
+  function setToon(run) {
+    const look = run ? CHAPTERS[run.chapter]?.render?.toon : null
+    for (const o of toonHidden) if (!asciiHidden.includes(o)) { o.renderable = true; o._asciiHidden = false }
+    toonHidden = []
+    if (!look) {
+      if (toonOn && toonR) toonR.exit()
+      toonOn = false
+      toonFloor.visible = toonUnder.visible = toonOver.visible = toonScreen.visible = false
+      return
+    }
+    if (!toonR) {
+      if (!toonScreen.parent) app.stage.addChildAt(toonScreen, app.stage.getChildIndex(world) + 1)
+      toonR = TOON.createToonRenderer({ app, world, floor: toonFloor, under: toonUnder, over: toonOver, screen: toonScreen })
+    }
+    toonOn = true
+    toonFloor.visible = toonUnder.visible = toonOver.visible = toonScreen.visible = true
+    for (const name of toonR.hide ?? []) for (const o of TOON_HIDEABLE[name] ?? []) { o.renderable = false; o._asciiHidden = true; toonHidden.push(o) }
+    toonR.enter(run, look)
+    const f = toonR.filters?.()
+    if (f && f.length) { app.stage.filterArea = app.screen; app.stage.filters = f }
+  }
+  function syncToon(run, dt, cx, cy) {
+    if (!toonOn) return
+    const w = viewW(), h = viewH()
+    toonR.sync(run, dt, { left: -cx, top: -cy, right: -cx + w, bottom: -cy + h, zoom: world.scale.x || 1, w: app.screen.width, h: app.screen.height, animT })
+  }
+
   // ---------------------------------------------------------- organic floor
   // Ground blotches + scattered foliage: one sprite per occupied world-space cell,
   // picked/tinted/rotated/scaled by cellHash(i, j, salt) so a cell's look never
@@ -15028,6 +15098,9 @@ const spurG = new Graphics()
     mine: BIOME_TOPSOIL,
     // The Magma: every prop is src/pixel.js's (PIXEL.BIOME names its baked keys)
     magma: { ...PIXEL.BIOME, obstacle: { clumps: OBSTACLE_CLUMPS, tint: 0xffffff, foot: 0x120604 } },
+    // The Mantle never shows this: a toon chapter switches the whole floor layer off (src/toon.js's
+    // renderer.hide) and draws its own. The line is here so the fallback is a decision.
+    mantle: BIOME_TOPSOIL,
     // The Blank shares the body's decor DELIBERATELY, and this line exists so that it is a decision
     // rather than an accident. Its boss is the ANTIBODY and its fiction is reality's immune response,
     // so villi and plasma motes are the right furniture — but it was getting them by falling through
@@ -29385,6 +29458,7 @@ void main() {
 
     for (const e of events) {
       if (asciiOn && asciiR.event(e, run)) continue   // Book 3, The Mine: src/ascii.js draws its own
+      if (toonOn && toonR.event(e, run)) continue     // Book 3, The Mantle: src/toon.js draws its own
       if (magmaEvent(e)) continue    // Book 3, The Magma: its own events, drawn by src/pixel.js
       if (burrowEvent(e)) continue   // Book 3, Burrow: its own events (and the shovel's scoop)
       switch (e.type) {
@@ -32832,6 +32906,7 @@ void main() {
     updateDustMotes(dt)
     updateMacro(run, dt, cx, cy)   // Book 3: the macro lens (no-op elsewhere)
     syncAscii(run, dt, cx, cy)     // Book 3, The Mine: src/ascii.js draws the chapter (no-op elsewhere)
+    syncToon(run, dt, cx, cy)      // Book 3, The Mantle: src/toon.js draws the chapter (no-op elsewhere)
     updateLeaves(dt)
     updateCurrents(run, dt, cx, cy)
     updateEddies(run, dt)
@@ -33514,6 +33589,7 @@ void main() {
     setMacro(run)   // Book 3: the macro lens on or off
     if (run && CHAPTERS[run.chapter]?.weapons?.includes('rootSnare')) bakeSnares()   // at run start, not on the first cast
     setAscii(run)   // Book 3, The Mine: the ascii look on or off (after setMacro: it may set the stage's filters)
+    setToon(run)    // Book 3, The Mantle: the toon look on or off (after setAscii: see setToon)
     clearWorld()
     if (run) {
       entitiesLayer.visible = true
