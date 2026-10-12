@@ -127,6 +127,8 @@ float hh(vec2 uv) { vec2 t = texture(uHeight, uv).rg; return (t.r * 65280.0 + t.
 vec4 nz(vec2 w, float s) { return texture(uNoise, w / s); }
 float h12(vec2 p) { p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
 float bell(float x, float c, float w) { float q = (x - c) / w; return exp(-q * q); }
+// the noise texture is stretched to 0..1; this puts a sample back on a plain fbm scale (mean 0.5, sd 0.13)
+float fb(float n) { return 0.5 + (n - 0.43) * 0.76; }
 
 // one bubble per cell of a grid in the lava, between minD and maxD px from the shore; faces is the
 // chance a bubble is one of the four with a face. Returns premultiplied colour.
@@ -142,7 +144,9 @@ vec4 bubbles(float cellS, float minD, float maxD, float dens, float faces, float
   float ph = fract(uTime * rate * (0.6 + 0.8 * r1) + r2 * 7.0);
   float popping = step(0.86, ph);
   float face = step(r3, faces);
-  float k = face > 0.5 ? floor(h12(cell + 5.5) * 3.99) : (popping > 0.5 ? 6.0 : (r1 > 0.5 ? 4.0 : 5.0));
+  float kf = floor(h12(cell + 5.5) * 3.99);
+  if (kf == 2.0 && h12(cell + 6.6) > 0.3) kf = 0.0;   // most of them are awake, peeking
+  float k = face > 0.5 ? kf : (popping > 0.5 ? 6.0 : (r1 > 0.5 ? 4.0 : 5.0));
   if (popping > 0.5 && k < 4.0) k = 6.0;
   if (fixK >= 0.0) k = fixK;
   float s = mix(smoothstep(0.0, 0.18, ph), 0.8 + (ph - 0.86) * 3.0, popping);
@@ -223,7 +227,7 @@ void main() {
   // the high-water mark: a ragged rusty crust left where the flood stops, ringing the high ground
   float dfl = (h - uFlood) / gl + (F.g - 0.5) * 6.0;
   float hwm = (bell(dfl, 2.0, 2.2) * 0.8 + bell(dfl, 8.0, 1.6) * 0.35) * smoothstep(0.3, 0.55, F.r + C0.b * 0.4) * step(0.0, uFlood);
-  rc = mix(rc, vec3(0.38, 0.15, 0.12), hwm * 0.75);
+  rc = mix(rc, rc * vec3(0.92, 0.7, 0.72) + vec3(0.05, 0.012, 0.0), hwm * 0.45);
   // pebbles: soft painted blots, no ink
   {
     vec2 pc = floor(W / 46.0);
@@ -241,13 +245,12 @@ void main() {
       rc = mix(rc, pcol, 1.0 - smoothstep(0.85, 1.05, bd));
     }
   }
-  // rock the lava has just left: dark, wet, its cracks still glowing as they cool
+  // rock the lava has just left: a damp, warm wash still drying (darker, a little rosier), with a
+  // soft glistening sheen; it fades as the rock dries. A wash, never a crust.
   float wetb = step(0.0, d) * smoothstep(0.004, -0.004, h - uWet) * uWetK;
   if (wetb > 0.0) {
-    rc = mix(rc, vec3(0.13, 0.08, 0.12) + vec3(0.06, 0.02, 0.0) * C0.g, wetb * 0.7);
-    float crack = bell(C0.g, 0.5, 0.018) * smoothstep(0.3, 0.6, B0.r);
-    rc = mix(rc, vec3(0.95, 0.38, 0.12), crack * wetb * uWetK * 0.8);
-    rc += vec3(0.2, 0.18, 0.26) * smoothstep(0.6, 0.85, C0.b) * wetb * 0.35;   // the wet sheen
+    rc = mix(rc, rc * vec3(0.86, 0.72, 0.8) + vec3(0.035, 0.008, 0.0), wetb * 0.55);
+    rc += vec3(0.1, 0.08, 0.12) * smoothstep(0.62, 0.8, C0.b) * wetb * 0.35;   // the wet sheen
   }
   // the lip, lit from the lava below, and the heat climbing the bank as the shores swell
   float dp = max(d, 0.0);
@@ -257,67 +260,68 @@ void main() {
   float heat = exp(-dp / (14.0 + 40.0 * sw)) * sw * (0.65 + 0.35 * throb);
   rc = mix(rc, vec3(1.0, 0.56, 0.18), heat * 0.55);
 
-  // ---- LAVA: churning gouache -------------------------------------------------------------------
+  // ---- LAVA: swirled gouache marbling (mock f's own recipe, laid on the moving melt) --------------
+  // A domain-warped mottle (hot gold crests, dark red troughs), marbled swirl lines along the warp,
+  // gouache strokes traced along the flow, darker pools far from shore. All of it drifts slowly.
   float Dd = -d;
-  vec2 drift = vec2(uTime * 5.0, -uTime * 3.0);
-  vec4 A = nz(W + drift, 880.0);
-  vec2 wq = W + (A.rg - 0.5) * 2.6 * 64.0 * 2.0;
-  vec4 B1 = nz(wq - drift * 0.6, 512.0);
-  float m = B1.r;
-  vec3 lc = vec3(0.95, 0.48, 0.13);
-  lc = mix(lc, vec3(0.77, 0.2, 0.09), smoothstep(0.54, 0.3, m) * 0.8);
-  lc = mix(lc, vec3(0.99, 0.72, 0.2), smoothstep(0.6, 0.78, m) * 0.8);
-  float swl = B1.g * 3.0 + A.b * 1.5, fr = fract(swl);                   // swirl strokes along the flow
-  float smask = smoothstep(0.38, 0.66, nz(wq + 77.0, 300.0).r);
-  lc = mix(lc, vec3(1.0, 0.82, 0.43), bell(fr, 0.1, 0.045) * 0.6 * smask);
-  lc = mix(lc, vec3(0.63, 0.13, 0.08), bell(fr, 0.55, 0.07) * 0.3 * smask);
-  float deep = smoothstep(30.0, 110.0, Dd);
-  lc = mix(lc, vec3(0.62, 0.13, 0.1), deep * 0.42 * (0.6 + 0.8 * (A.a - 0.3)));
-  // gouache comma strokes laid along the flow, cream and dark red, drifting with it
+  vec2 drift = vec2(uTime * 4.0, -uTime * 2.6);
+  vec2 lw = W + drift;
+  float wx = fb(nz(lw, 880.0).r) - 0.5, wy = fb(nz(lw + vec2(97.0, 31.0), 880.0).g) - 0.5;
+  float mm = fb(nz(lw + vec2(wx, wy) * 166.0 + vec2(uTime * -1.5, uTime * 1.1), 512.0).r);
+  vec3 lc = vec3(0.941, 0.494, 0.141);
+  lc = mix(lc, vec3(0.769, 0.204, 0.094), smoothstep(0.5, 0.3, mm) * 0.85);
+  lc = mix(lc, vec3(0.988, 0.729, 0.212), smoothstep(0.55, 0.7, mm) * 0.9);
+  float swv = fb(nz(lw + vec2(wx, wy) * 224.0 + 140.0, 560.0).b) * 4.2, fr = fract(swv);
+  lc = mix(lc, vec3(1.0, 0.824, 0.431), bell(fr, 0.1, 0.07) * 0.5);
+  lc = mix(lc, vec3(0.627, 0.133, 0.078), bell(fr, 0.55, 0.09) * 0.3);
+  // gouache strokes traced along the flow: each a soft tapered streak bending the way the melt bends
   {
-    vec2 fw = W - drift * 1.4;
-    vec2 cs = floor(fw / 58.0);
-    float q = h12(cs + 4.1);
-    if (q < 0.75) {
-      vec2 sc0 = (cs + 0.5) * 58.0 + (vec2(h12(cs + 1.7), h12(cs + 2.9)) - 0.5) * 20.0;
-      float ang = nz(sc0, 1400.0).r * 9.0;
-      vec2 r0 = fw - sc0;
-      vec2 r1 = vec2(dot(r0, vec2(cos(ang), sin(ang))), dot(r0, vec2(-sin(ang), cos(ang))));
-      float Ls = 9.0 + 14.0 * h12(cs + 5.3), bend = (h12(cs + 6.1) - 0.5) * 0.06;
-      r1.y -= bend * r1.x * r1.x;
-      float u = r1.x / Ls;
-      float wd = (1.2 + 2.0 * h12(cs + 7.7)) * max(0.0, 1.0 - u * u) * (0.6 + 0.4 * (u + 1.0));
-      float k = (1.0 - smoothstep(0.7, 1.0, abs(u))) * (1.0 - smoothstep(wd * 0.5, wd + 0.8, abs(r1.y)));
-      vec3 scol = q < 0.55 ? vec3(1.0, 0.86, 0.52) : vec3(0.5, 0.08, 0.06);
-      lc = mix(lc, scol, k * (q < 0.55 ? 0.55 : 0.3) * smoothstep(8.0, 24.0, Dd));
+    vec2 sbase = floor(lw / 64.0 - 0.5);
+    for (int i = 0; i < 4; i++) {
+      vec2 cs = sbase + vec2(mod(float(i), 2.0), floor(float(i) / 2.0));
+      float q = h12(cs + 4.1);
+      vec2 c0 = (cs + 0.5) * 64.0 + (vec2(h12(cs + 1.7), h12(cs + 2.9)) - 0.5) * 40.0;
+      float a0 = fb(nz(c0, 1200.0).a) * 11.0;
+      float Ls = 7.0 + 17.0 * h12(cs + 5.3);
+      vec2 dir = vec2(cos(a0), sin(a0));
+      float a1 = fb(nz(c0 + dir * Ls, 1200.0).a) * 11.0;
+      float kc = clamp((a1 - a0) / Ls, -0.05, 0.05);
+      vec2 r0 = lw - c0;
+      float u = dot(r0, dir), v = dot(r0, vec2(-dir.y, dir.x)) - 0.5 * kc * u * u;
+      float t = u / Ls;
+      float wd = (1.6 + 3.2 * h12(cs + 7.7)) * sin(3.14159 * clamp(t * 0.5 + 0.5, 0.0, 1.0)) * 0.5 + 0.3;
+      float k = (1.0 - smoothstep(0.7, 1.0, abs(t))) * (1.0 - smoothstep(wd * 0.2, wd + 2.2, abs(v)));
+      vec3 scol = q < 0.31 ? vec3(1.0, 0.886, 0.549) : q < 0.62 ? vec3(1.0, 0.745, 0.275) : vec3(0.47, 0.07, 0.055);
+      lc = mix(lc, scol, k * (q < 0.62 ? 0.5 : 0.32) * step(q, 0.9) * smoothstep(6.0, 20.0, Dd));
     }
   }
-  float cdeep = smoothstep(60.0, 160.0, Dd);                                   // cooled crust drifting
-  float crust = smoothstep(0.66, 0.78, B1.b) * cdeep;
-  lc = mix(lc, vec3(0.5, 0.15, 0.1), crust * 0.5);
-  lc = mix(lc, vec3(0.4, 0.1, 0.08), bell(B1.b, 0.67, 0.02) * cdeep * 0.35);   // its edge, pooled darker
+  float dpk = smoothstep(30.0, 90.0, Dd);
+  lc = mix(lc, vec3(0.588, 0.118, 0.102), dpk * 0.45 * clamp(0.6 + 0.8 * (fb(nz(lw, 480.0).a) - 0.3), 0.0, 1.0));
   // THE SWELL: a bright band hugging every shore, wider and throbbing while the tide gathers
   float bw = 9.0 + 16.0 * sw;
   float band = exp(-max(Dd, 0.0) / bw);
-  lc = mix(lc, vec3(1.0, 0.8, 0.27), band * (0.8 + 0.2 * sw * throb));
+  lc = mix(lc, vec3(1.0, 0.8, 0.275), band * (0.8 + 0.2 * sw * throb));
   float froth = F.r * 0.6 + P.r * 0.4;
   float fw = 12.0 + 22.0 * sw;
-  lc = mix(lc, vec3(1.0, 0.93, 0.66), smoothstep(0.62 - 0.1 * sw, 0.74 - 0.1 * sw, froth) * max(0.0, 1.0 - Dd / fw) * 0.8);
-  lc = mix(lc, vec3(0.66, 0.16, 0.094), bell(Dd, 17.0 + 22.0 * sw, 4.5 + 3.0 * sw) * (0.38 + 0.2 * sw));   // the bulge beyond
+  lc = mix(lc, vec3(1.0, 0.933, 0.659), smoothstep(0.62 - 0.1 * sw, 0.74 - 0.1 * sw, froth) * max(0.0, 1.0 - Dd / fw) * 0.8);
+  lc = mix(lc, vec3(0.659, 0.157, 0.094), bell(Dd, 17.0 + 22.0 * sw, 4.5 + 3.0 * sw) * (0.38 + 0.2 * sw));   // the bulge beyond
   lc *= 1.0 + (P.g - 0.5) * 0.06;
-  // bubbles: a crowd of faces along the shores when the tide is gathering, the odd pop out deep
-  vec4 b1 = bubbles(32.0, 0.0, 12.0 + 22.0 * sw, 0.3 + 0.55 * sw, 0.25 + 0.55 * sw, 6.0, 7.6 + 1.6 * sw, gl, 0.2 + 0.25 * sw, -1.0);
+  // bubbles: big pie-eyed faces crowding the shores when the tide is gathering, the odd pop out deep
+  // two grids of them, so they crowd and overlap along the shore instead of standing in a row
+  vec4 b1 = bubbles(40.0, -6.0, 7.0 + 18.0 * sw, 0.62 + 0.38 * sw, 0.6 + 0.35 * sw, 8.0, 10.2 + 1.6 * sw, gl, 0.2 + 0.25 * sw, -1.0);
   lc = lc * (1.0 - b1.a) + b1.rgb;
+  vec4 b3 = bubbles(56.0, -7.0, 6.0 + 16.0 * sw, 0.5 + 0.45 * sw, 0.55 + 0.4 * sw, 9.4, 12.6 + 2.0 * sw, gl, 0.17 + 0.2 * sw, -1.0);
+  lc = lc * (1.0 - b3.a) + b3.rgb;
   vec4 b0 = beads(17.0, 3.5 + 3.0 * sw, 2.9, 4.4 + 1.0 * sw, 0.9, gl, gn2);
   lc = mix(lc, b0.rgb, b0.a);
-  vec4 b2 = bubbles(128.0, 50.0, 1.0e5, 0.5, 0.0, 6.0, 11.0, gl, 0.35, -1.0);
+  vec4 b2 = bubbles(72.0, 40.0, 1.0e5, 0.55, 0.0, 3.0, 7.0, gl, 0.3, -1.0);
   lc = lc * (1.0 - b2.a) + b2.rgb;
   lc *= 1.0 + 0.35 * uPulse;
 
   // ---- the soft edge between them (no outline) and the print's grade --------------------------
   vec3 col = mix(lc, rc, smoothstep(-1.3, 1.3, d));
   float L = dot(col, vec3(0.3, 0.59, 0.11));
-  float sat = 0.76 + 0.16 * clamp((col.r - col.b) / 0.63, 0.0, 1.0);
+  float sat = 0.76 + 0.22 * clamp((col.r - col.b) / 0.63, 0.0, 1.0);
   col = L + (col - L) * sat;
   col = col * vec3(1.02, 0.99, 0.9) + vec3(0.031, 0.008, 0.016);
   col = vec3(0.157, 0.106, 0.125) + col * vec3(0.82, 0.82, 0.8);
@@ -328,7 +332,7 @@ void main() {
   vec2 go = vec2(h12(vec2(gf, 1.0)), h12(vec2(gf, 2.0))) * 3000.0;
   float gn = (h12(floor((W + go) / 1.1)) - 0.5) * 0.55 + (nz(W + go, 9.0).r - 0.5) * 0.9 + (nz(W + go, 30.0).g - 0.5) * 0.3;
   float Lg = dot(col, vec3(0.3, 0.59, 0.11));
-  col += gn * 0.13 * (0.55 + 1.8 * Lg * (1.0 - Lg));
+  col += gn * 0.13 * mix(0.45, 1.0, smoothstep(-1.3, 1.3, d)) * (0.55 + 1.8 * Lg * (1.0 - Lg));   // the melt is smoother gouache
   finalColor = vec4(col, 1.0);
 }`
 
@@ -369,7 +373,7 @@ void main() {
   float fr = floor(uTime * 24.0), fr12 = floor(uTime * 12.0);
   // a light fade: a little desaturation, warm, lifted blacks, cream whites
   float l = dot(c.rgb, vec3(0.3, 0.59, 0.11));
-  c.rgb = mix(c.rgb, vec3(l), uSepia * 0.5);
+  c.rgb = mix(c.rgb, vec3(l), uSepia * 0.3);
   c.rgb = c.rgb * vec3(0.97, 0.95, 0.9) + vec3(0.022, 0.014, 0.01);
   // the projector's flicker
   c.rgb *= 1.0 + uFlicker * (h12(vec2(fr, 3.7)) - 0.5) * 2.0;
@@ -403,9 +407,17 @@ void main() {
     float hl = (1.0 - smoothstep(0.35, 0.9, abs(off))) * step(abs(along), 22.0);
     c.rgb = mix(c.rgb, vec3(0.12, 0.07, 0.05), hl * 0.6);
   }
-  // one long faint emulsion scratch, wandering
-  float sx = sz.x * (0.25 + 0.5 * h12(vec2(floor(uTime * 0.4), 5.0))) + sin(px.y / 97.0 + uTime) * 1.6;
-  c.rgb += vec3(1.0, 0.95, 0.84) * (1.0 - smoothstep(0.2, 0.8, abs(px.x - sx))) * 0.16;
+  // now and then an emulsion scratch: it comes in short bursts (a third of a second, about one in six),
+  // somewhere new each time, jittering sideways from frame to frame, running down part of the frame
+  float sb = floor(uTime * 3.0);
+  if (h12(vec2(sb, 5.3)) < 0.16) {
+    float sx = sz.x * (0.12 + 0.76 * h12(vec2(sb, 5.0))) + (h12(vec2(fr, 6.1)) - 0.5) * 5.0 + sin(px.y / 97.0 + sb) * 2.0;
+    float y0 = sz.y * h12(vec2(sb, 7.7)) * 0.6, y1 = y0 + sz.y * (0.25 + 0.5 * h12(vec2(sb, 8.3)));
+    float on = smoothstep(y0, y0 + 40.0, px.y) * (1.0 - smoothstep(y1 - 40.0, y1, px.y)) * (0.6 + 0.4 * h12(vec2(fr, 9.4)));
+    float dark = step(0.6, h12(vec2(sb, 4.4)));
+    vec3 scol = dark > 0.5 ? vec3(0.12, 0.07, 0.05) : vec3(1.0, 0.95, 0.84);
+    c.rgb = mix(c.rgb, scol, (1.0 - smoothstep(0.2, 0.9, abs(px.x - sx))) * on * 0.22);
+  }
   finalColor = vec4(c.rgb, c.a);
 }`
 
@@ -463,18 +475,30 @@ export function paintPuff(v) {
     puff(c, 0, -3, 6.2 * s, '#f9f2e2', 'rgba(120,96,110,0.32)', 1.0)
   })
 }
-// an XP gem: a cut stone with a shine (tier by colour: teal, violet, red)
+// an XP gem: a chunky cartoon cut stone, inked like the cast: flat body colour, a flat pale crown facet
+// and a flat dark pavilion facet (no gradients), a thick-thin ink contour and facet lines, and a cream
+// twinkle on the blink frame. Tier by colour: teal, violet, red.
 export function paintGem(tier, f) {
-  const s = [1.05, 1.35, 1.7][tier] ?? 1
-  const col = ['#5cc6c0', '#8a6ad4', '#e0483e'][tier] ?? '#5cc6c0'
-  return bakeArt(22 * s, 26 * s, 0.5, 0.5, (c) => {
+  const s = [1.25, 1.55, 1.9][tier] ?? 1.25
+  const col = ['#4fc2b4', '#8f6ad8', '#e2483c'][tier] ?? '#4fc2b4'
+  const hi = ['#bff0e2', '#d9c8f6', '#ffc0a8'][tier] ?? '#bff0e2'
+  const lo = ['#23786e', '#4f3592', '#8e1e22'][tier] ?? '#23786e'
+  return bakeArt(24 * s, 28 * s, 0.5, 0.5, (c) => {
     sc(s * 1.5)
-    const P = [[0, -4.4], [3.3, 0], [0, 4.4], [-3.3, 0]]
-    cel(c, P, col, { ink: 0, shade: 'rgba(10,30,60,0.5)' })
-    cel(c, [[0, -4.4], [3.3, 0], [0, 0]], 'rgba(255,255,255,0.45)', { ink: 0, shade: null })
-    cel(c, [[0, 4.4], [-3.3, 0], [0, 0]], 'rgba(20,20,60,0.28)', { ink: 0, shade: null })
-    brush(c, P, true, 0.9)
-    if (f) cel(c, ell(-1.2, -1.8, 0.9, 0.6, -0.6, 10), '#fffbe8', { ink: 0, shade: null })
+    const P = [[-2.2, -4.6], [2.2, -4.6], [4.2, -1.6], [0, 5.2], [-4.2, -1.6]]
+    cel(c, P, col, { ink: 0, shade: null })
+    cel(c, [[-2.2, -4.6], [2.2, -4.6], [4.2, -1.6], [-4.2, -1.6]], hi, { ink: 0, shade: null })
+    cel(c, [[1.2, -1.6], [4.2, -1.6], [0, 5.2]], lo, { ink: 0, shade: null })
+    line(c, [[-4.0, -1.6], [4.0, -1.6]], 0.55, { taper: 0.2 })
+    line(c, [[-1.2, -1.6], [0, 4.6]], 0.45, { taper: 0.3 })
+    line(c, [[1.2, -1.6], [0, 4.6]], 0.45, { taper: 0.3 })
+    brush(c, P, true, 1.15)
+    cel(c, ell(-1.6, -3.1, 0.8, 0.5, -0.3, 10), '#fffbe8', { ink: 0, shade: null })
+    if (f) {
+      const st = []
+      for (let i = 0; i < 8; i++) { const r = i % 2 ? 0.5 : 2.4, t = (i / 8) * Math.PI * 2 - Math.PI / 2; st.push([3.4 + Math.cos(t) * r, -4.4 + Math.sin(t) * r]) }
+      cel(c, st, '#fff6d6', { ink: 0.5, shade: null })
+    }
   })
 }
 // a gold coin, spinning (frame = how edge-on it is)
@@ -491,6 +515,14 @@ export function paintLick(f) {
   return bakeArt(22, 28, 0.5, 0.85, (c) => {
     cel(c, flame(0, -1, 3.4, 9 + f, 0.5 - f * 0.3), '#f39a2a', { ink: 1.0, shade: 'rgba(170,50,10,0.4)' })
     cel(c, flame(0.3, -0.5, 1.9, 5 + f * 0.5, 0.4 - f * 0.2), '#fde08a', { ink: 0, shade: null })
+  })
+}
+// a little cartoon star, the kind that spins round a head that has just been hit
+export function paintDaze() {
+  return bakeArt(14, 14, 0.5, 0.5, (c) => {
+    const st = []
+    for (let i = 0; i < 10; i++) { const r = i % 2 ? 1.5 : 3.8, t = (i / 10) * TAU - Math.PI / 2; st.push([Math.cos(t) * r, Math.sin(t) * r]) }
+    cel(c, st, '#ffd94a', { ink: 1.0, shade: null })
   })
 }
 export function paintDot() {

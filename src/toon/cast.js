@@ -131,23 +131,27 @@ function golem(c, o = {}) {
   const lk = o.look || [0, 0], a = o.step || 0, bob = o.bob || 0
   shadow(c, 3, 10, 36, 16, 0.42)
   push(); tr(0, -bob)
-  const st = o.col || '#574446', st2 = '#433238', sh = 'rgba(26,6,20,0.5)'
-  const rock = (cx, cy, r, sd, col = st, ink = 1.8) => cel(c, polar(cx, cy, (t) => r * (1 + 0.08 * Math.sin(t * 3 + sd) + 0.05 * Math.sin(t * 5 + sd * 2)), 50), col, { ink, shade: sh, spec: 0.12 })
+  // flat cel stone: one colour per stone, one soft shadow, no modelling (a cartoon boulder, not a ball)
+  const st = o.col || '#5e4b4e', st2 = '#463439', sh = 'rgba(26,6,20,0.3)'
+  const rock = (cx, cy, r, sd, col = st, ink = 1.8) => cel(c, polar(cx, cy, (t) => r * (1 + 0.1 * Math.sin(t * 3 + sd) + 0.06 * Math.sin(t * 5 + sd * 2) + 0.03 * Math.sin(t * 9 + sd)), 50), col, { ink, shade: sh })
   // fists, forward on the ground (knuckle-walking: one forward, one back)
   const fl = [-25, 6 + a * 3 + bob], fr = [25, 4 - a * 3 + bob]
   rock(fl[0], fl[1], 10.5, 1, st2); rock(fr[0], fr[1], 11, 2, st2)
   for (const [k, F] of [[-1, fl], [1, fr]]) { line(c, qb([F[0] - 5, F[1] - 7], [F[0] - 3, F[1] - 4], [F[0] - 5, F[1] - 1]), 1.0); line(c, qb([F[0] + 1, F[1] - 7 - (k > 0 ? 2 : 0)], [F[0] + 3, F[1] - 4], [F[0] + 1, F[1] - 1]), 1.0) }
   // arms (stacked stones)
   rock(-17, -5 + a, 6.5, 3, st2, 1.4); rock(17, -6 - a, 6.5, 4, st2, 1.4)
-  // the hulking back
+  // the hulking back, a flat stone with a paler cap (a flat cel tone, hard-edged) and chipped facets
   rock(0, -7, 20, 5)
-  // cracks with magma light
-  for (const P of [[[-10, -19], [-6, -13], [-9, -7], [-4, -1]], [[8, -21], [5, -15], [10, -10]], [[1, -5], [6, -1]]]) cel(c, tube(P, 2.6, 1.4), '#ffbb4a', { ink: 0.8, shade: null })
-  glow(c, -7, -10, 14, '255,130,40', 0.5); glow(c, 7, -15, 10, '255,130,40', 0.45)
+  cel(c, polar(-3, -12, (t) => 12 * (1 + 0.12 * Math.sin(t * 3 + 2) + 0.05 * Math.sin(t * 7)), 40), '#6e5a5c', { ink: 0, shade: null })
+  line(c, qb([-16, -2], [-12, 2], [-6, 4]), 1.0); line(c, qb([16, -4], [13, 1], [8, 3]), 1.0)
+  // cracks with magma light: a flat warm halo round each, then the hot crack, inked
+  const CR = [[[-10, -19], [-6, -13], [-9, -7], [-4, -1]], [[8, -21], [5, -15], [10, -10]], [[1, -5], [6, -1]]]
+  for (const P of CR) cel(c, tube(P, 5.6, 4.0), 'rgba(236,120,52,0.55)', { ink: 0, shade: null })
+  for (const P of CR) cel(c, tube(P, 2.6, 1.4), '#ffbb4a', { ink: 0.8, shade: null })
   // shoulder pebbles
   rock(-11, -21, 3.2, 6, st2, 1.1); rock(13, -18, 2.6, 7, st2, 1.0)
   // the head: small, low, forward, a boulder brow
-  rock(0, 9, 9.5, 8, '#6c5a5e', 1.8)
+  rock(0, 9, 9.5, 8, '#776466', 1.8)
   eye(c, -3.6, 8.4, 2.9, 3.2, lk[0], lk[1], { white: '#f8d66a' })
   eye(c, 3.6, 8.4, 2.9, 3.2, lk[0], lk[1], { white: '#f8d66a' })
   cel(c, [...qb([-7.4, 4.6], [0, 1.4], [7.4, 4.6], 12), ...qb([7.4, 4.6], [0, 6.6], [-7.4, 4.6], 12).slice(1, -1)], st2, { ink: 1.3, shade: null })
@@ -178,21 +182,22 @@ function dragon(c, o = {}) {
     const memPts = [sh0, elbow, tips[0], ...qb(tips[0], [k * 44, -12 - up], tips[1], 8).slice(1), ...qb(tips[1], [k * 36, -22 - up], tips[2], 8).slice(1), ...qb(tips[2], [k * 18, -18], [k * 5, -14], 8).slice(1)]
     cel(c, memPts, mem, { ink: 1.5, shade: 'rgba(110,70,20,0.42)' })
     for (const tp of tips) { const m = mix2(elbow, tp, 0.5); line(c, qb(elbow, [m[0] + 2, m[1] + 3], tp, 14), 1.7, { taper: 0.35 }) }
-    cel(c, tube([sh0, [k * 16, 6], elbow], 4.6, 3.4), g, { ink: 1.3, shade: sh })
-    cel(c, tube([elbow, tips[0]], 3.0, 1.2), g, { ink: 1.1, shade: sh })
+    cel(c, tube([sh0, [k * 16, 7], elbow], 7.0, 4.6), g, { ink: 1.4, shade: sh })
+    cel(c, tube([elbow, tips[0]], 4.0, 1.8), g, { ink: 1.2, shade: sh })
     cel(c, [[elbow[0], elbow[1] - 1.5], [elbow[0] + k * 4, elbow[1] + 3.5], [elbow[0] - k * 0.5, elbow[1] + 2]], '#f1e8d2', { ink: 0.7, shade: null })
     pop()
   }
   // the tail, whipping behind (toward -y), with a red spade
-  cel(c, tube([[0, -10], [-6, -24], [4, -36], [12, -44]], 7, 1.4), g, { ink: 1.4, shade: sh })
+  cel(c, tube([[0, -10], [-6, -24], [4, -36], [12, -44]], 10, 2.2), g, { ink: 1.5, shade: sh })
   push(); tr(13, -45); rot(-2.4); cel(c, drop(0, 0, 3.6, 6.4), '#dc4a38', { ink: 1.1, shade: SH_RED }); pop()
-  for (const k of [-1, 1]) cel(c, ell(k * 7.5, -9, 3, 2.2, 0, 18), g2, { ink: 1.0, shade: sh })
-  // the body, spine spikes down its back
-  cel(c, ell(0, -1, 10, 14, 0, 44), g, { ink: 1.9, shade: sh, spec: 0.14 })
+  for (const k of [-1, 1]) cel(c, ell(k * 9.5, -8, 4.4, 3.2, 0, 18), g2, { ink: 1.1, shade: sh })
+  // the body, a plump bean, its pale belly showing at the sides, spine spikes down its back
+  cel(c, ell(0, -1, 13.5, 15, 0, 44), g, { ink: 2.0, shade: sh })
+  for (const k of [-1, 1]) cel(c, ell(k * 9.2, 1, 3.2, 8.5, k * 0.15, 24), '#b4cc6a', { ink: 0, shade: null })
   for (let i = 0; i < 6; i++) { const yy = -12 + i * 4.4, w = 2.0 - i * 0.12; cel(c, [[-w, yy + 1.6], [w, yy + 1.6], [0, yy - 2.6]], '#f4eedb', { ink: 0.8, shade: null }) }
   // neck and the big head, toward you
-  cel(c, tube([[0, 10], [-1, 16], [1, 20]], 8, 6.5), g, { ink: 1.5, shade: sh })
-  push(); tr(1, 25); sc(1.25)
+  cel(c, tube([[0, 10], [-1, 16], [1, 21]], 10, 8.5), g, { ink: 1.6, shade: sh })
+  push(); tr(1, 28); sc(1.62)
   cel(c, ell(0, 6.4, 5.4, 5.6, 0, 30), '#94b956', { ink: 1.4, shade: sh })
   cel(c, ell(0, 0, 9.2, 7.4, 0, 40), g, { ink: 1.8, shade: sh, spec: 0.16 })
   for (const k of [-1, 1]) cel(c, tube(qb([k * 5.5, -4], [k * 10, -8], [k * 9, -13]), 3.0, 0.6), '#f1e5c4', { ink: 1.0, shade: 'rgba(120,80,60,0.4)' })
@@ -224,10 +229,10 @@ export const TOON_CAST = {
 // dungarees, white gloves, a pick over the shoulder. Units = world px / PLAYER_SCALE.
 export const PLAYER_SCALE = 1.35
 export const PLAYER_BOX = [-30, -32, 30, 30]   // world px round the player's centre
-function digger(c, f) {
+function digger(c, f, bare) {
   const ph = (f / 4) * Math.PI * 2, sw = Math.sin(ph), bob = Math.abs(Math.cos(ph)) * 0.9
   const lk = [0.3, 0.2]
-  shadow(c, 1.5, 13.5, 13, 5, 0.42)
+  if (!bare) shadow(c, 1.5, 13.5, 13, 5, 0.42)
   // boots, stepping
   cel(c, ell(-4.5, 13 - Math.max(0, sw) * 1.4, 3.4, 2.4, 0.2, 22), '#6b4128', { ink: 1.1, shade: 'rgba(40,16,30,0.45)' })
   cel(c, ell(4.8, 13.2 - Math.max(0, -sw) * 1.4, 3.4, 2.4, -0.2, 22), '#6b4128', { ink: 1.1, shade: 'rgba(40,16,30,0.45)' })
@@ -259,13 +264,14 @@ function digger(c, f) {
   cel(c, ell(0, 6.2, 1.6, 0.8, 0, 12), '#e0564f', { ink: 0, shade: null })
   pop()
 }
-export function paintPlayer(ctx, f) { resetXf(); sc(PLAYER_SCALE); digger(ctx, f); resetXf() }
+// bare: without its ground shadow (the silhouette its keyline is cut from)
+export function paintPlayer(ctx, f, bare = false) { resetXf(); sc(PLAYER_SCALE); digger(ctx, f, bare); resetXf() }
 
 // a bubble with a face, peeking out of the swelling lava at the shore (the tide's tell); painted into
 // the floor shader's atlas (world.js), so it rides the shore wherever the shader puts it
 export function peekBubble(c, x, y, r, mood = 'peek', lk = [0, 0]) {
-  glow(c, x, y, r * 1.5, '255,200,110', 0.3)
-  cel(c, ell(x, y, r, r * 0.86, 0, 30), '#ec7c2c', { ink: 1.25, shade: 'rgba(150,30,14,0.5)', spec: 0.25 })
+  glow(c, x, y, r * 1.6, '255,210,120', 0.28)
+  cel(c, ell(x, y, r, r * 0.88, 0, 30), '#ffb03a', { ink: 1.0, shade: 'rgba(170,40,10,0.5)', spec: 0.22 })
   const er = r * 0.38
   if (mood === 'doze') {
     for (const sg of [-1, 1]) line(c, qb([x + sg * r * 0.36 - er, y - r * 0.05], [x + sg * r * 0.36, y + er * 0.6], [x + sg * r * 0.36 + er, y - r * 0.05]), 0.8)

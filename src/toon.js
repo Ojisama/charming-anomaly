@@ -16,6 +16,10 @@
 //                             upright, poseOf, faceDir, turnRate } — render.js's enemy pool draws the
 //                             creatures from these (mirrored to face their way, never turned), and
 //                             scripts/bake-cast.mjs writes `thumb` to src/cast/<id>.png.
+//   inkRing / inkLine / bakeAffix   (src/toon/marks.js) render.js's own overlays — telegraph and aura
+//                             rings, a pounce lane's edges, the elite affix badges — drawn in the
+//                             cast's ink instead of as flat vector strokes and emoji (render.js's
+//                             toonOn hooks).
 //   createToonRenderer(host)  -> renderer { hide, enter, exit, sync, event, filters }
 //     host = { app, world, floor, under, over, screen } (see render.js's setToon / syncToon):
 //       floor  world-space, over render.js's (hidden) floor and under every entity layer
@@ -35,12 +39,13 @@ import { PAL, TAU, mkCanvas, hash, whiteTwin } from './toon/palette.js'
 import { TOON_CAST, paintPlayer, PLAYER_BOX } from './toon/cast.js'
 import {
   CHUNK, CHUNK_STEP, CHUNK_N, FLOOR_VERT, FLOOR_FRAG, FILM_VERT, FILM_FRAG, NOISE_N, bakeNoise, paintBubbleAtlas,
-  paintMatch, paintCoal, paintPitchfork, paintPuff, paintGem, paintCoin, paintLick, paintDot, paintSweat, paintWade,
+  paintMatch, paintCoal, paintPitchfork, paintPuff, paintGem, paintCoin, paintLick, paintDot, paintSweat, paintWade, paintDaze,
 } from './toon/world.js'
 import { lavaTideOf, mantleHeightAt, lavaLineFor } from './sim.js'
-import { gemTier, PLAYER } from './config.js'
+import { gemTier } from './config.js'
 
 export { TOON_CAST, PAL }
+export { inkRing, inkLine, bakeAffix } from './toon/marks.js'
 
 const RES = 3   // canvas px per world px, for every bake
 // the ground drawn with the tide switched off (signature.lavaTide = null): the same kind of hills, dry
@@ -82,6 +87,20 @@ export function bakeCreature(id, elite) {
   }
   return { frames, thumb: paintThumb(id, elite || id === 'brimstoneDragon'), baseR: M.baseR, lean: 0, upright: false, poseOf: M.poseOf ?? null, faceDir: null, turnRate: null }
 }
+// THE PLAYER'S KEYLINE: its silhouette (no ground shadow) grown by a couple of px and filled with ink,
+// drawn under it. A fat outer contour, the way a cel character is cut out from the crowd round it, so
+// the digger reads at a glance over a dragon's wing or a pile of imps.
+function keyline(f) {
+  const [x0, y0, x1, y1] = PLAYER_BOX
+  const bare = mkCanvas((x1 - x0) * RES, (y1 - y0) * RES), bx = bare.getContext('2d')
+  bx.scale(RES, RES); bx.translate(-x0, -y0); paintPlayer(bx, f, true)
+  const cv = mkCanvas(bare.width, bare.height), c = cv.getContext('2d')
+  const R = 2.2 * RES
+  for (let i = 0; i < 16; i++) { const a = (i / 16) * TAU; c.drawImage(bare, Math.cos(a) * R, Math.sin(a) * R) }
+  c.globalCompositeOperation = 'source-in'
+  c.fillStyle = PAL.ink ?? '#1e1513'; c.fillRect(0, 0, cv.width, cv.height)
+  return cv
+}
 // ---- the renderer --------------------------------------------------------------------------------
 export function createToonRenderer(host) {
   const { app, floor, under, over } = host
@@ -96,13 +115,14 @@ export function createToonRenderer(host) {
     coin: [0, 1, 2, 3].map((f) => art(paintCoin(f))),
     lick: [0, 1, 2].map((f) => art(paintLick(f))),
     dot: art(paintDot()),
+    daze: art(paintDaze()),
     sweat: art(paintSweat()),
     wade: [0, 1].map((f) => art(paintWade(f))),
     player: [0, 1, 2, 3].map((f) => {
       const [x0, y0, x1, y1] = PLAYER_BOX
       const cv = mkCanvas((x1 - x0) * RES, (y1 - y0) * RES), ctx = cv.getContext('2d')
       ctx.scale(RES, RES); ctx.translate(-x0, -y0); paintPlayer(ctx, f)
-      return { tex: canvasTex(cv), white: canvasTex(whiteTwin(cv)), ax: -x0 / (x1 - x0), ay: -y0 / (y1 - y0) }
+      return { tex: canvasTex(cv), key: canvasTex(keyline(f)), ax: -x0 / (x1 - x0), ay: -y0 / (y1 - y0) }
     }),
   }
 
@@ -131,10 +151,14 @@ export function createToonRenderer(host) {
   const playerFx = new Container()
   over.addChild(fxLayer, playerLayer, playerFx, shotLayer)
   const gems = pool(pickLayer), coins = pool(pickLayer)
+  const dazes = pool(playerFx)
   const shots = pool(shotLayer), forks = pool(shotLayer), puffs = pool(shotLayer), wades = pool(fxLayer), pwade = pool(playerFx), licks = pool(fxLayer), sweats = pool(fxLayer)
+  const playerKey = new Sprite(T.player[0].key)
+  playerKey.anchor.set(T.player[0].ax, T.player[0].ay)
+  playerKey.alpha = 0.9
   const playerSprite = new Sprite(T.player[0].tex)
   playerSprite.anchor.set(T.player[0].ax, T.player[0].ay)
-  playerLayer.addChild(playerSprite)
+  playerLayer.addChild(playerKey, playerSprite)
 
   // THE FLOOR: chunk meshes, each with its own height texture, sharing one uniform group, the noise
   // texture the watercolour is painted with, and the atlas of the shore's bubbles
@@ -209,7 +233,7 @@ export function createToonRenderer(host) {
     exit() {
       look = null
       for (const k of [...chunks.keys()]) dropChunk(k)
-      for (const p of [gems, coins, shots, forks, puffs, wades, pwade, licks, sweats]) p.hide()
+      for (const p of [dazes, gems, coins, shots, forks, puffs, wades, pwade, licks, sweats]) p.hide()
       wetLine = -1; wetK = 0; maxLine = -1
     },
     filters() { return [film] },
@@ -321,14 +345,26 @@ export function createToonRenderer(host) {
       prevX = p.x; prevY = p.y
       const inv = p.invuln ?? 0
       const pf = T.player[moving ? fi(t * 8, 4) : 0]
-      // white for the instant after a hit (read off the sim's own invulnerability clock, so it is right
-      // however rarely the frame is drawn)
-      const white = inv > (PLAYER.invulnTime ?? 0.75) - 0.06 && inv <= (PLAYER.invulnTime ?? 0.75) + 1e-6
-      const pt = white ? pf.white : pf.tex
-      if (playerSprite.texture !== pt) playerSprite.texture = pt
-      playerSprite.anchor.set(pf.ax, pf.ay)
-      playerSprite.position.set(p.x, p.y)
-      playerSprite.scale.set(p.facing < 0 ? -1 : 1, 1)
+      // hurt: the old cartoon way, never a fade. For the first moment of the sim's invulnerability
+      // clock the digger blinks red-hot (a tint, at full opacity), and for all of it a ring of little
+      // inked stars spins round its hat — solid and readable over the crowd, and plainly "hit"
+      const hurt = inv > 0.4 && Math.floor(inv * 14) % 2 === 0
+      if (playerSprite.texture !== pf.tex) playerSprite.texture = pf.tex
+      if (playerKey.texture !== pf.key) playerKey.texture = pf.key
+      playerSprite.tint = hurt ? 0xffa088 : 0xffffff
+      dazes.begin()
+      if (inv > 0) for (let k = 0; k < 3; k++) {
+        const a = t * 7 + (k / 3) * TAU
+        const s = dazes.next(T.daze)
+        s.position.set(p.x + Math.cos(a) * 15, p.y - 22 + Math.sin(a) * 5)
+        s.rotation = t * 5 + k
+      }
+      dazes.end()
+      for (const s of [playerKey, playerSprite]) {
+        s.anchor.set(pf.ax, pf.ay)
+        s.position.set(p.x, p.y)
+        s.scale.set(p.facing < 0 ? -1 : 1, 1)
+      }
       // shots: matches and coals, and a plain inked bead for anything else
       shots.begin()
       for (const b of run.bullets ?? []) {

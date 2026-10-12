@@ -26130,6 +26130,11 @@ void main() {
         const ny = ux * hw
         // lane EDGES only — two hairlines that fade out along the leap, so the near end (where the
         // cat is, and where you are looking) reads and the far end does not stripe the whole screen
+        if (toonOn) {
+          // The Mantle: the same lane and ring, hand-inked (src/toon/marks.js)
+          for (const s of [1, -1]) TOON.inkLine(teleG, e.x + nx * s, e.y + ny * s, ex + nx * s, ey + ny * s, 0xffd24a, 0.25 + urgency * 0.3, 1.2)
+          TOON.inkRing(teleG, ex, ey, hw * (1.9 - urgency * 0.8), 0xffe37a, Math.min(1, 0.45 + urgency * 0.4 + pulse * 0.1), 1.5 + urgency * 1.5)
+        } else {
         for (const s of [1, -1]) {
           teleG.moveTo(e.x + nx * s, e.y + ny * s)
           teleG.lineTo(ex + nx * s, ey + ny * s)
@@ -26139,6 +26144,7 @@ void main() {
         // "something is arriving here", which is exactly what is about to happen
         teleG.circle(ex, ey, hw * (1.9 - urgency * 0.8))
           .stroke({ width: 1.5 + urgency * 1.5, color: 0xffe37a, alpha: Math.min(1, 0.22 + urgency * 0.36 + pulse * 0.08) })
+        }
       }
 
       // aerialStrike 'mark' (undergrowth's owl): the owl is overhead and untouchable, so the shadow
@@ -31348,6 +31354,7 @@ void main() {
     const affixes = (e.elite || e.affixVisible) ? e.affixes : null
     const n = affixes ? affixes.length : 0
     if (pixelLook) return syncPixelAffixBadges(s, e, affixes, n)
+    if (toonOn) return syncToonAffixBadges(s, e, affixes, n)   // The Mantle: inked badges (src/toon/marks.js)
     // Topsoil wears its affixes instead (topsoilEliteFx)
     if (afxTopsoil()) { hideAffixBadges(s); return }
     if (s._affixPix) for (const t of s._affixPix) t.visible = false
@@ -31412,6 +31419,31 @@ void main() {
       pixelAffixTexes.set(id, t)
     }
     return t
+  }
+  // The Mantle (src/toon.js): each affix a little inked cel badge, one row of them over the elite
+  const toonAffixTexes = new Map()
+  function syncToonAffixBadges(s, e, affixes, n) {
+    if (s._affixTexts) for (const t of s._affixTexts) t.visible = false
+    if (!s._affixPix) s._affixPix = []
+    while (s._affixPix.length < n) {
+      const t = new Sprite(Texture.EMPTY)
+      t.anchor.set(0.5)
+      affixLayer.addChild(t)
+      s._affixPix.push(t)
+    }
+    const y = e.y - e.radius * 1.2 - 14
+    for (let i = 0; i < s._affixPix.length; i++) {
+      const t = s._affixPix[i]
+      if (i < n) {
+        let tex = toonAffixTexes.get(affixes[i])
+        if (!tex) { const b = TOON.bakeAffix(affixes[i]); tex = macroCanvasTex(b.canvas, b.res); toonAffixTexes.set(affixes[i], tex) }
+        if (t.texture !== tex) t.texture = tex
+        t.position.set(e.x + (i - (n - 1) / 2) * 20, y + Math.sin(animT * 3 + e.id + i) * 1.2)
+        t.scale.set(1.35)
+        t.alpha = s.alpha
+        t.visible = true
+      } else t.visible = false
+    }
   }
   // One row of pixel icons centred over the elite, seated one art pixel above its crown (the crown
   // already rides the drawn body's top), every position snapped to the art grid so the CRT pass
@@ -31548,6 +31580,7 @@ void main() {
         continue
       }
       const color = b.src === 'trail' ? 0x8a5fe0 : 0xff6b81
+      if (toonOn) { TOON.inkRing(bombG, b.x, b.y, b.radius, color, rimA, 1.5 + urgency * 1.5, fillA); continue }   // The Mantle: inked
       bombG.circle(b.x, b.y, b.radius).fill({ color, alpha: fillA })
       bombG.circle(b.x, b.y, b.radius).stroke({ width: 1.5 + urgency * 1.5, color, alpha: rimA })
     }
@@ -32571,14 +32604,18 @@ void main() {
         // nothing persists once this branch stops running for the enemy).
         const pulse = 1 + 0.04 * Math.sin(animT * 5 + e.id * 1.3)
         const r = (e.radius + 6) * pulse
+        if (toonOn) TOON.inkRing(shieldG, e.x, e.y, r, 0x4da3ff, 0.8, 3, 0.12)   // The Mantle: inked
+        else {
         shieldG.circle(e.x, e.y, r).fill({ color: 0x4da3ff, alpha: 0.10 })
         shieldG.circle(e.x, e.y, r).stroke({ width: 3, color: 0x4da3ff, alpha: 0.7 })
+        }
       }
 
       if (!afxTop && e.affixes && e.affixes.includes('pacer')) {
         // subtle warm aura ring at the affix's push/pull radius, slow pulse
         const pulse = 0.5 + 0.5 * Math.sin(animT * 1.5 + e.id * 0.7)
         if (pixelLook) pixelRing(pacerG, e.x, e.y, PACER_RADIUS, 0xffb347, 0.30 + pulse * 0.25)
+        else if (toonOn) TOON.inkRing(pacerG, e.x, e.y, PACER_RADIUS, 0xffb347, 0.3 + pulse * 0.2, 2)   // The Mantle: inked
         else pacerG.circle(e.x, e.y, PACER_RADIUS).stroke({ width: 2, color: 0xffb347, alpha: 0.18 + pulse * 0.14 })
       }
 
@@ -32599,7 +32636,8 @@ void main() {
       if ((e.allyT || 0) > 0) {
         const frac = Math.max(0, Math.min(1, e.allyT / SUBMISSION_DURATION))
         const r = (s.height ? s.height * 0.5 : e.radius) + 7
-        shieldG.circle(e.x, e.y, r).stroke({ width: 3, color: ALLY_RING, alpha: 0.85 })
+        if (toonOn) TOON.inkRing(shieldG, e.x, e.y, r, ALLY_RING, 0.85, 3)   // The Mantle: inked
+        else shieldG.circle(e.x, e.y, r).stroke({ width: 3, color: ALLY_RING, alpha: 0.85 })
         // the inner arc drains with the loan — a clock you read at a glance, in plan view.
         // beginPath() IS LOAD-BEARING: Pixi v8's arc() CONTINUES the current path, so without it
         // the arc is joined to whatever was last drawn on shieldG — and shieldG is shared with
