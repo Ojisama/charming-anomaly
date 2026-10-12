@@ -2248,8 +2248,9 @@ function generateWells(sig) {
  *     is rock (0) only where it is lava now AND was lava at its pour (see quenchCrusts); NEWEST WINS
  *     between a crust and a pool by seq (a stamp cracks an older crust open, a pour quenches an older
  *     pool). A stranded lava creature standing in a pool on dry rock is HOME (a pool is lava, 1).
- *   THE EDGES (src/mantle-shape.js, pure, imported by sim.js and the renderers): a crust is inside
- *     r * crustEdgeR(bearing - rot, shape), a pool inside r * poolRimR(bearing, ph); never a circle.
+ *   THE EDGES (src/mantle-shape.js, pure, imported by sim.js and the renderers): a crust is a SPLASH
+ *     (crustSdf <= 0: a blot, fingers and droplets seeded by shape/rot, eaten back from the rim over
+ *     its last CRUST_EAT_T s), a pool inside r * poolRimR(bearing, ph); never a circle.
  *     What is drawn is what is solid: draw from these, never from r alone. DRAW_CAPS.quenchCrusts /
  *     lavaPools equal their LIVE_CAPS, so every live one is drawn.
  *   quenchCrusts: [{ x, y, r, t, dur, line, under, seq, shape, rot, gnaw }] — Quench Kettle's basalt

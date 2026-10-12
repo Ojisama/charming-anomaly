@@ -41,12 +41,13 @@ import { PAL, TAU, mkCanvas, hash, whiteTwin } from './toon/palette.js'
 import { setPass } from './toon/brush.js'
 import { TOON_CAST, paintPlayer, PLAYER_BOX } from './toon/cast.js'
 import {
-  CHUNK, CHUNK_STEP, CHUNK_N, FX_N, FX_GHOSTS, FX_GHOST_T, FLOOR_VERT, FLOOR_FRAG, FILM_VERT, FILM_FRAG, NOISE_N, bakeNoise, paintBubbleAtlas,
+  CHUNK, CHUNK_STEP, CHUNK_N, FX_N, FX_GHOSTS, FX_GHOST_T, CRUST_LIP, FLOOR_VERT, FLOOR_FRAG, FILM_VERT, FILM_FRAG, NOISE_N, bakeNoise, paintBubbleAtlas,
   paintCoal, paintPuff, paintGem, paintCoin, paintLick, paintDot, paintSweat, paintWade, paintDaze,
 } from './toon/world.js'
 import { lavaTideOf, mantleHeightAt, lavaLineFor, mantleGroundAt } from './sim.js'
 import { gemTier } from './config.js'
 import { createMantleFx } from './toon/mantle-fx.js'
+import { splashOf, splashReach, SPLASH_FINGERS, SPLASH_DROPS, SPLASH_DROP_V4, CRUST_EDGE_MAX } from './mantle-shape.js'
 
 export { TOON_CAST, PAL }
 export { inkRing, inkLine, bakeAffix, bakeRingCanvas } from './toon/marks.js'
@@ -245,6 +246,10 @@ export function createToonRenderer(host) {
     // (x, y, r, t) + (dur, 0, 0, 0), and the pools that just closed, still cooling, as (x, y, r, age)
     uNC: { value: 0, type: 'f32' }, uNP: { value: 0, type: 'f32' }, uNG: { value: 0, type: 'f32' },
     uCr: { value: new Float32Array(4 * FX_N), type: 'vec4<f32>', size: FX_N }, uCrE: { value: new Float32Array(4 * FX_N), type: 'vec4<f32>', size: FX_N },
+    // each crust's splash (src/mantle-shape.js crustSplash), the floats exactly as the sim's: blot, fingers, droplets
+    uCrB: { value: new Float32Array(4 * FX_N), type: 'vec4<f32>', size: FX_N },
+    uCrF: { value: new Float32Array(4 * FX_N * SPLASH_FINGERS), type: 'vec4<f32>', size: FX_N * SPLASH_FINGERS },
+    uCrS: { value: new Float32Array(4 * FX_N * SPLASH_DROP_V4), type: 'vec4<f32>', size: FX_N * SPLASH_DROP_V4 },
     uPo: { value: new Float32Array(4 * FX_N), type: 'vec4<f32>', size: FX_N }, uPoE: { value: new Float32Array(4 * FX_N), type: 'vec4<f32>', size: FX_N },
     uGh: { value: new Float32Array(4 * FX_GHOSTS), type: 'vec4<f32>', size: FX_GHOSTS },
   })
@@ -306,13 +311,20 @@ export function createToonRenderer(host) {
   // the pools that just closed: rock again (the sim's), still cooling on screen for FX_GHOST_T s
   let prevPools = [], ghosts = []
   // the newest n of list that are on screen and alive, packed into the floor's uniform arrays
-  function packFx(list, n, A, E, onScreen) {
+  function packFx(list, n, A, E, onScreen, S) {
     let k = 0
     for (let i = list.length - 1; i >= 0 && k < n; i--) {
       const c = list[i]
-      if (!(c.t < c.dur) || !onScreen(c.x, c.y, c.r + 150)) continue
+      if (!(c.t < c.dur) || !onScreen(c.x, c.y, c.r * (S ? CRUST_EDGE_MAX : 1) + 150)) continue   // a crust: its splash reaches out to CRUST_EDGE_MAX r
       A[k * 4] = c.x; A[k * 4 + 1] = c.y; A[k * 4 + 2] = c.r; A[k * 4 + 3] = c.t; E[k * 4] = c.dur
       E[k * 4 + 1] = c.line ?? 2   // a crust: the tide's line when it was poured (2: above every height)
+      if (S) {                     // a crust: its splash, split into the blot, the fingers and the droplets
+        const P = splashOf(c), nf = 4 * SPLASH_FINGERS, nd = 3 * SPLASH_DROPS
+        for (let j = 0; j < 4; j++) S.uCrB[k * 4 + j] = P[j]
+        E[k * 4 + 2] = c.r * splashReach(P) + CRUST_LIP + 4   // px: past this the splash has nothing (the shader's bound)
+        for (let j = 0; j < nf; j++) S.uCrF[k * nf + j] = P[4 + j]
+        for (let j = 0; j < nd; j++) S.uCrS[k * 4 * SPLASH_DROP_V4 + j] = P[4 + nf + j]
+      }
       k++
     }
     return k
@@ -393,7 +405,7 @@ export function createToonRenderer(host) {
         for (const q of prevPools) if (!pools.includes(q) && q.t + dt >= q.dur) ghosts.push({ x: q.x, y: q.y, r: q.r, born: clock })
         prevPools = pools.slice()
         ghosts = ghosts.filter((g) => clock - g.born < FX_GHOST_T && clock >= g.born).slice(-FX_GHOSTS)
-        u.uNC = packFx(run.quenchCrusts ?? [], FX_N, u.uCr, u.uCrE, onScreen)
+        u.uNC = packFx(run.quenchCrusts ?? [], FX_N, u.uCr, u.uCrE, onScreen, u)
         u.uNP = packFx(pools, FX_N, u.uPo, u.uPoE, onScreen)
         let ng = 0
         for (const g of ghosts) { if (!onScreen(g.x, g.y, g.r)) continue; u.uGh.set([g.x, g.y, g.r, clock - g.born], ng * 4); ng++ }
