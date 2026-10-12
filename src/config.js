@@ -3149,7 +3149,7 @@ export const WEAPONS = {
   // splash cools into a basalt CRUST for crustDur s: dry rock for your burn, your boat and the crowd.
   quenchKettle: {
     name: 'Quench Kettle',
-    desc: 'Pours water around you. The lava it splashes cools into a crust you can stand on.',
+    desc: 'Throws water at the nearest lava creature. The lava it splashes cools into a crust you can stand on.',
     icon: '🫖', rarity: 'normal',
     // balance_decision : starter AoE round you, unplayed 2026-10-12
     levels: [
@@ -3179,7 +3179,7 @@ export const WEAPONS = {
   // in it, and it burns you too.
   crackHammer: {
     name: 'Crack Hammer',
-    desc: 'Cracks the ground open under the rock creatures. Its lava melts them, and burns you too.',
+    desc: 'Cracks the ground open under the nearest enemy. Its lava melts rock creatures, and burns you too.',
     icon: '🔨', rarity: 'normal',
     // balance_decision : pools under the crowd, unplayed 2026-10-12
     levels: [
