@@ -4,7 +4,7 @@
 // (brush.js: flat gouache with the sheet's tooth showing through it, one flat hard-edged shade, no
 // gloss, a steady ink line, each big part a separate paper piece throwing its own thin shadow on the
 // piece under it), then cut out by toon.js with an uneven margin of bare paper round its ink that
-// shifts a little from frame to frame. Pie-cut eyes, white gloves, rubber-hose limbs. Designed the
+// shifts a little every other frame. Pie-cut eyes, white gloves, rubber-hose limbs. Designed the
 // Cuphead way: a big head on a
 // small body, huge pie-cut eyes, a face with ATTITUDE (brows, teeth, a tongue), one clear gesture per
 // creature and a silhouette nothing else in the chapter shares:
@@ -67,28 +67,35 @@ function blush(c, pts, col = '#f59a78', a = 0.45) { c.save(); c.globalAlpha = a;
 
 // ---- EMBER IMP: a devil's head on legs. Gold horns, a flame tuft, V brows, a wide toothy grin ------
 function imp(c, o = {}) {
-  const st = o.stretch || 1, lk = o.look || [0, 0], arms = o.arms || 'swing', lift = o.lift || 0
-  shadow(c, 1.5, 10, 8 * (lift > 1 ? 0.78 : 1), 3.6, lift > 1 ? 0.24 : 0.36)
+  const st = o.stretch || 1, lk = o.look || [0, 0], arms = o.arms || 'swing', lift = o.lift || 0, lean = o.lean || 0, lg = o.legs || 0
+  shadow(c, 1.5, 10, 8 * (1 - lift * 0.05), 3.6, 0.36 - lift * 0.025)
   push(); tr(0, -lift)
-  tr(0, 9); sc(1 / Math.sqrt(st), st); tr(0, -9)
+  tr(0, 9); sc(1 / Math.sqrt(st), st); rot(lean); tr(0, -9)
   const body = o.col || '#d8382a'
-  // tail with a spade tip, little hooves
+  // tail with a spade tip
   cel(c, tube(qb([2, 6], [11, 10], [12, 1]), 2.0, 1.3), body, { ink: 1.0, shade: SH_RED })
   push(); tr(12, 0); rot(0.25); cel(c, drop(0, 0, 2.6, 4.4), body, { ink: 1.0, shade: SH_RED }); pop()
-  cel(c, ell(-3, 8.4, 2.5, 1.7, 0.2, 20), '#3e1716', { ink: 1.0, shade: null })
-  cel(c, ell(3.2, 8.6, 2.5, 1.7, -0.2, 20), '#3e1716', { ink: 1.0, shade: null })
-  // rubber-hose arms and gloves: the gesture (fists up for the bounce, grabbing out on the way down)
-  const L = arms === 'up' ? [[-5, 4], [-14, 2], [-13, -8]] : arms === 'reach' ? [[-5, 4], [-12, 6], [-15, 0]] : [[-5, 4], [-11, 9], [-14, 5]]
-  const R = arms === 'up' ? [[5, 4], [14, 2], [14, -8]] : arms === 'reach' ? [[5, 4], [13, 2], [15, -5]] : [[5, 4], [11, 2], [14, -3]]
-  for (const A of [L, R]) cel(c, tube(qb(A[0], A[1], A[2]), 2.0, 1.7), body, { ink: 0.95, shade: SH_RED })
-  glove(c, L[2][0], L[2][1], 3.0, Math.atan2(L[2][1] - L[1][1], L[2][0] - L[1][0]))
-  glove(c, R[2][0], R[2][1], 3.0, Math.atan2(R[2][1] - R[1][1], R[2][0] - R[1][0]))
+  // two stubby legs and hooves: together in the air, splayed on the landing
+  cel(c, tube([[-2.4, 6], [-3.2 - lg, 8.4]], 2.4, 2.2), body, { ink: 0.9, shade: SH_RED, piece: false })
+  cel(c, tube([[2.4, 6], [3.2 + lg, 8.4]], 2.4, 2.2), body, { ink: 0.9, shade: SH_RED, piece: false })
+  cel(c, ell(-3.4 - lg, 9.0, 2.6, 1.7, 0.2, 20), '#3e1716', { ink: 1.0, shade: null })
+  cel(c, ell(3.4 + lg, 9.0, 2.6, 1.7, -0.2, 20), '#3e1716', { ink: 1.0, shade: null })
+  // rubber-hose arms and gloves: the gesture (flung up on the spring, reaching out on the way down
+  // and the landing, wound back down by its sides before the next one)
+  const A = {
+    up: [[[-5, 3.5], [-12, 3], [-12.5, -7]], [[5, 3.5], [12, 3], [12.5, -7]]],
+    reach: [[[-5, 3.5], [-12, 5], [-16, 0]], [[5, 3.5], [12, 5], [16, 0]]],
+    swing: [[[-5, 3.5], [-11, 9], [-14, 5.5]], [[5, 3.5], [11, 1], [13.5, -5]]],
+    wind: [[[-5, 3.5], [-9, 9], [-6.5, 12]], [[5, 3.5], [9, 9], [6.5, 12]]],
+  }[arms]
+  for (const S of A) cel(c, tube(qb(S[0], S[1], S[2]), 2.0, 1.7), body, { ink: 0.95, shade: SH_RED })
+  for (const S of A) glove(c, S[2][0], S[2][1], arms === 'up' ? 3.2 : 3.0, Math.atan2(S[2][1] - S[1][1], S[2][0] - S[1][0]))
   // the little body under the head
   cel(c, ell(0, 5.6, 4.4, 3.6, 0, 30), body, { ink: 1.2, shade: SH_RED })
-  // the flame tuft, behind the head
-  const fl = o.big ? 1.25 : 1
-  cel(c, flame(0.3, -9.2, 5.6 * Math.sqrt(fl), 12.5 * fl, o.curl ?? 0.7), '#f07a20', { ink: 1.2, shade: 'rgba(160,36,10,0.45)' })
-  cel(c, flame(0.5, -8.9, 3.1 * Math.sqrt(fl), 7.8 * fl, (o.curl ?? 0.7) - 0.1), '#ffd95e', { ink: 0, shade: null })
+  // the flame tuft, behind the head: streams tall on the spring, flattens on the landing
+  const fl = o.big ? 1.25 : 1, fh = (o.flameH ?? 1) * fl
+  cel(c, flame(0.3, -9.2, 5.6 * Math.sqrt(fl), 12.5 * fh, o.curl ?? 0.7), '#f07a20', { ink: 1.2, shade: 'rgba(160,36,10,0.45)' })
+  cel(c, flame(0.5, -8.9, 3.1 * Math.sqrt(fl), 7.8 * fh, (o.curl ?? 0.7) - 0.1), '#ffd95e', { ink: 0, shade: null })
   // gold devil horns, ringed
   for (const k of [-1, 1]) {
     cel(c, tube(qb([k * 4.6, -6.4], [k * 7.8, -8.6], [k * 6.6, -12.4]), 3.0, 0.7), '#f4c34a', { ink: 1.0, shade: 'rgba(150,70,10,0.45)' })
@@ -99,21 +106,25 @@ function imp(c, o = {}) {
   // the head: the big round
   cel(c, ell(0, -1.4, 9.4, 8.4, 0, 48), body, { ink: 1.8, shade: SH_RED, spec: 0.18 })
   blush(c, [[-6.2, 1.6, 1.7, 1.0], [6.2, 1.6, 1.7, 1.0]])
-  // the face: tall pie eyes crowded together, a V of brows, a cheek-to-cheek toothy grin
-  const sq = o.squint ? 0.82 : 1
+  // the face: tall pie eyes crowded together, a V of brows, a cheek-to-cheek toothy grin (a yell on
+  // the spring)
+  const sq = o.squint ? 0.78 : 1
   eye(c, -2.75, -2.6, 2.75, 3.9 * sq, lk[0], lk[1], { pr: 0.55, pry: 0.74 })
   eye(c, 2.75, -2.6, 2.75, 3.9 * sq, lk[0], lk[1], { pr: 0.55, pry: 0.74 })
-  brow(c, [-6.4, -7.6], [-3.6, -7.6], [-0.5, -5.6], 1.9)
-  brow(c, [6.4, -7.6], [3.6, -7.6], [0.5, -5.6], 1.9)
-  mouth(c, [-6.8, 1.0], [6.8, 1.0], [0, 3.4], [0, 10.6], { teeth: 1.9, n: 7, tongue: [1.2, 8.6, 2.6] })
+  const bl = o.yell ? -0.8 : 0
+  brow(c, [-6.4, -7.6 + bl], [-3.6, -7.6 + bl * 1.4], [-0.5, -5.6], 1.9)
+  brow(c, [6.4, -7.6 + bl], [3.6, -7.6 + bl * 1.4], [0.5, -5.6], 1.9)
+  if (o.yell) mouth(c, [-4.8, 1.6], [4.8, 1.6], [0, 2.8], [0, 10.8], { teeth: 1.6, n: 4, tongue: [0.4, 9.0, 2.6] })
+  else mouth(c, [-6.8, 1.0], [6.8, 1.0], [0, 3.4], [0, o.squint ? 8.4 : 10.6], { teeth: 1.9, n: 7, tongue: [1.2, o.squint ? 7.2 : 8.6, 2.6] })
   pop()
 }
-// IMP frames: a bounce. 0 up and stretched, 1 coming down, 2 landed and squashed (dust), 3 springing
+// IMP frames: a bounce. 0 sprung up and stretched (arms flung up, yelling), 1 coming down reaching
+// out, 2 landed and squashed (dust, legs splayed, squinting), 3 winding up for the next spring
 const IMP_POSE = [
-  { stretch: 1.16, arms: 'reach', lift: 4, look: [0.4, 0.3], curl: 0.9, lines: true },
-  { stretch: 1.04, arms: 'swing', lift: 2, look: [0.5, 0.4], curl: 0.6 },
-  { stretch: 0.82, arms: 'up', lift: 0, look: [0.4, 0.5], curl: 0.3, dust: true, squint: true },
-  { stretch: 1.0, arms: 'swing', lift: 1, look: [0.5, 0.4], curl: 0.5 },
+  { stretch: 1.22, arms: 'up', lift: 5, look: [0.3, -0.2], curl: 0.95, flameH: 1.2, lines: true, yell: true },
+  { stretch: 1.06, arms: 'reach', lift: 2.6, look: [0.5, 0.4], curl: 0.55, lean: -0.1 },
+  { stretch: 0.76, arms: 'reach', lift: 0, look: [0.4, 0.6], curl: 0.2, flameH: 0.78, dust: true, squint: true, legs: 1.4 },
+  { stretch: 0.9, arms: 'wind', lift: 0, look: [0.5, 0.5], curl: 0.45, lean: 0.1, legs: 0.5 },
 ]
 function paintImp(c, f, elite) {
   const P = IMP_POSE[f % 4]
@@ -162,8 +173,9 @@ function toad(c, o = {}) {
   if (!o.leap) {
     // heavy smug lids, drooping over the top half of each eye, with an ink lash line
     for (const k of [-1, 1]) {
-      cel(c, [...qb([k * 10.2, -7.6], [k * 6, -13.6], [k * 1.8, -7.6], 12), ...qb([k * 1.8, -7.6], [k * 6, -6.4], [k * 10.2, -7.6], 10).slice(1, -1)], skin, { ink: 0, shade: null })
-      line(c, qb([k * 10.4, -7.4], [k * 6, -6.2], [k * 1.6, -7.8]), 1.3, { belly: true })
+      const lid = o.wide ? 0.55 : 1
+      cel(c, [...qb([k * 10.2, -7.6], [k * 6, -13.6], [k * 1.8, -7.6], 12), ...qb([k * 1.8, -7.6], [k * 6, -7.6 + 1.2 * lid], [k * 10.2, -7.6], 10).slice(1, -1)], skin, { ink: 0, shade: null })
+      line(c, qb([k * 10.4, -7.4], [k * 6, -7.4 + 1.2 * lid - (1 - lid) * 2.4], [k * 1.6, -7.8]), 1.3, { belly: true })
     }
     // one brow cocked up: the smug look
     brow(c, [-10, -12.6], [-6.5, -14.6], [-2.6, -13.2], 1.3)
@@ -171,7 +183,10 @@ function toad(c, o = {}) {
   blush(c, [[-9.6, 1.4, 2.2, 1.2], [9.6, 1.4, 2.2, 1.2]], '#f08a64', 0.4)
   // the grin: a wide slab of a smile from cheek to cheek, the tongue lolling out of one corner
   if (o.leap) { mouth(c, [-3, 2.4], [3, 2.4], [0, 0.6], [0, 7.6], { tongue: [0, 6.4, 2.0] }) } else {
-    mouth(c, [-12, -0.2], [12, -0.2], [0, 4.2], [0, 9.8], { teeth: 1.5, n: 9, tongue: [4.6, 7.4, 3.0] })
+    const gp = o.gulp ? 0.62 : 1
+    mouth(c, [-12, -0.2], [12, -0.2], [0, 4.2 * gp], [0, 9.8 * gp], { teeth: 1.5, n: 9, tongue: [4.6, 7.4 * gp, 3.0] })
+    // the gulp: its throat swells out under the grin
+    if (o.gulp) cel(c, [...qb([-7, 6.6], [0, 13.4], [7, 6.6], 14), ...qb([7, 6.6], [0, 8.4], [-7, 6.6], 10).slice(1, -1)], '#f6cf7a', { ink: 1.0, shade: 'rgba(150,60,20,0.4)', piece: false })
     line(c, qb([-12.6, -1.6], [-11.6, -0.4], [-11.8, 1.0]), 0.9)
     line(c, qb([12.6, -1.6], [11.6, -0.4], [11.8, 1.0]), 0.9)
   }
@@ -184,9 +199,9 @@ function toad(c, o = {}) {
 // TOAD frames: 0/1 sat and breathing, 2 pancaked ready to spring (aim / land), 3 the leap
 const TOAD_POSE = [
   { sx: 1, sy: 1, look: [0.4, 0.2] },
-  { sx: 0.97, sy: 1.05, look: [0.4, 0.2] },
-  { sx: 1.14, sy: 0.82, look: [0.5, 0.1], dust: true },
-  { sx: 0.92, sy: 1.1, lift: 6, leap: true, look: [0.3, -0.3] },
+  { sx: 0.94, sy: 1.08, look: [0.4, 0.2], gulp: true },
+  { sx: 1.2, sy: 0.76, look: [0.5, 0.1], dust: true, wide: true },
+  { sx: 0.84, sy: 1.2, lift: 7.5, leap: true, look: [0.3, -0.4] },
 ]
 function paintToad(c, f, elite) { toad(c, { ...TOAD_POSE[f % 4], col: elite ? '#a23c28' : '#c4562c' }) }
 function toadPose(e) {
@@ -197,40 +212,55 @@ function toadPose(e) {
 }
 
 // ---- BASALT GOLEM: a boulder that IS its face. A heavy brow, a lumpy nose, a proud underbite, -------
-// stone hose arms ending in big white-gloved fists, knuckle-walking; a little ember smouldering on top
+// stone hose arms ending in big white-gloved fists, knuckle-walking; a little ember smouldering on top.
+// The walk: it rocks from foot to foot (the boulder tilts over the planted foot, the other lifts),
+// one fist swings forward as the other plants back, and it sinks between steps, gritting its teeth.
 function golem(c, o = {}) {
-  const lk = o.look || [0, 0], a = o.step || 0, bob = o.bob || 0
+  const lk = o.look || [0, 0], a = o.step || 0, bob = o.bob || 0, sw = o.sway || 0
   shadow(c, 3, 13, 36, 14, 0.42)
-  push(); tr(0, -bob)
   const st = o.col || '#7d6a66', st2 = '#5b4a4f', pale = '#a08d86', sh = 'rgba(30,8,24,0.32)'
   const rock = (cx, cy, r, sd, col = st, ink = 1.8, ry = 1) => cel(c, polar(cx, cy, (t) => r * (1 + 0.08 * Math.sin(t * 3 + sd) + 0.05 * Math.sin(t * 5 + sd * 2) + 0.025 * Math.sin(t * 9 + sd)) * (1 - (1 - ry) * Math.abs(Math.sin(t))), 54), col, { ink, shade: sh })
-  // stubby feet under the boulder
-  rock(-10, 17, 5.4, 9, st2, 1.4, 0.7); rock(10, 17.4, 5.4, 10, st2, 1.4, 0.7)
+  // stubby feet under the boulder: the one it rocks off lifts
+  rock(-10, 17 - Math.max(0, -a) * 3, 5.4, 9, st2, 1.4, 0.7); rock(10, 17.4 - Math.max(0, a) * 3, 5.4, 10, st2, 1.4, 0.7)
+  // the upper body rocks about its hips (the shoulders ride the tilt), the fists stay on the ground
+  const PV = [0, 14], cs = Math.cos(sw), sn = Math.sin(sw)
+  const rp = (p) => [PV[0] + (p[0] - PV[0]) * cs - (p[1] - PV[1]) * sn, PV[1] + (p[0] - PV[0]) * sn + (p[1] - PV[1]) * cs - bob]
   // stone hose arms swinging out and down to the fists on the ground (one forward, one back)
-  const fl = [-28, 9 + a * 3 + bob], fr = [28, 7 - a * 3 + bob]
-  cel(c, tube(qb([-15, -6], [-27, -6 + a * 2], fl), 8.8, 7.4), st2, { ink: 1.5, shade: sh })
-  cel(c, tube(qb([15, -6], [27, -6 - a * 2], fr), 8.8, 7.4), st2, { ink: 1.5, shade: sh })
+  const fl = [-28 + a * 1.5, 9 + a * 5.5], fr = [28 + a * 1.5, 9 - a * 5.5]
+  const sl = rp([-15, -6]), sr = rp([15, -6])
+  cel(c, tube(qb(sl, [(sl[0] + fl[0]) / 2 - 7, -6 + a * 3 - bob], fl), 8.8, 7.4), st2, { ink: 1.5, shade: sh })
+  cel(c, tube(qb(sr, [(sr[0] + fr[0]) / 2 + 7, -6 - a * 3 - bob], fr), 8.8, 7.4), st2, { ink: 1.5, shade: sh })
   for (const [k, F] of [[-1, fl], [1, fr]]) glove(c, F[0], F[1] + 1, 6.4, Math.PI / 2 - k * 0.35)
+  push(); tr(0, -bob); tr(PV[0], PV[1]); rot(sw); tr(-PV[0], -PV[1])
   // the boulder: one big lumpy stone, a paler cap where the light lands, a few chips and pebbles
   rock(0, -2, 20.5, 5, st, 2.1, 0.92)
   cel(c, polar(-5, -10, (t) => 11 * (1 + 0.12 * Math.sin(t * 3 + 2) + 0.05 * Math.sin(t * 7)), 40), pale, { ink: 0, shade: null })
   line(c, qb([-17, 4], [-15, 9], [-10, 12]), 1.0); line(c, qb([17, 2], [16, 7], [12, 11]), 1.0)
   line(c, qb([10, -17], [12, -14], [15, -14]), 0.9)
   rock(-12, -16, 3.2, 6, st2, 1.1); rock(13.5, -11.5, 2.4, 7, st2, 1.0)
-  // the ember smouldering on its crown, like a lit cigar's tip: its one warm spot
-  cel(c, flame(2, -21, 3.0, 6.2, 0.6), '#f07a20', { ink: 1.0, shade: 'rgba(160,36,10,0.45)' })
-  cel(c, flame(2.1, -20.8, 1.6, 3.6, 0.5), '#ffd95e', { ink: 0, shade: null })
+  // the ember smouldering on its crown, like a lit cigar's tip: its one warm spot, flaring on the step
+  const eh = o.grit ? 0.8 : 1.15
+  cel(c, flame(2, -21, 3.0, 6.2 * eh, 0.6 - sw * 4), '#f07a20', { ink: 1.0, shade: 'rgba(160,36,10,0.45)' })
+  cel(c, flame(2.1, -20.8, 1.6, 3.6 * eh, 0.5 - sw * 4), '#ffd95e', { ink: 0, shade: null })
   rock(2, -19, 3.2, 3, st2, 1.1, 0.75)
-  // the face: big pie eyes under one heavy stone brow (knitted, grumpy), a lumpy nose, the underbite
-  eye(c, -5.4, -4.4, 3.8, 4.6, lk[0], lk[1], { pr: 0.6, pry: 0.66 })
-  eye(c, 5.4, -4.4, 3.8, 4.6, lk[0], lk[1], { pr: 0.6, pry: 0.66 })
-  for (const k of [-1, 1]) cel(c, tube(qb([k * 10.8, -9.4], [k * 6, -11.8], [k * 0.6, -7.8]), 3.6, 2.6), '#4a3b40', { ink: 1.4, shade: null })
+  // the face: big pie eyes under one heavy stone brow (knitted, grumpy, lower when it grits), a lumpy
+  // nose, the underbite
+  const gb = o.grit ? 1.2 : 0, ey = o.grit ? 0.86 : 1
+  eye(c, -5.4, -4.4, 3.8, 4.6 * ey, lk[0] - sw * 3, lk[1], { pr: 0.6, pry: 0.66 })
+  eye(c, 5.4, -4.4, 3.8, 4.6 * ey, lk[0] - sw * 3, lk[1], { pr: 0.6, pry: 0.66 })
+  for (const k of [-1, 1]) cel(c, tube(qb([k * 10.8, -9.4 + gb * 0.4], [k * 6, -11.8 + gb], [k * 0.6, -7.8 + gb]), 3.6, 2.6), '#4a3b40', { ink: 1.4, shade: null })
   cel(c, ell(0, 1.4, 3.0, 2.4, 0, 26, 0.08, 4), pale, { ink: 1.3, shade: sh })
   blush(c, [[-9.6, 2.0, 2.4, 1.3], [9.6, 2.0, 2.4, 1.3]], '#e58a72', 0.35)
-  mouth(c, [-8.6, 5.4], [8.6, 5.4], [0, 7.2], [0, 13.6], { tongue: [0, 12.6, 2.6], lowTeeth: [[-4.2, 11.4, 1.9, 4.2], [4.2, 11.4, 1.9, 4.2]] })
+  if (o.grit) mouth(c, [-8.6, 5.6], [8.6, 5.6], [0, 6.6], [0, 11.6], { lowTeeth: [[-4.2, 10.4, 1.9, 4.4], [0, 10.6, 1.9, 4.4], [4.2, 10.4, 1.9, 4.4]] })
+  else mouth(c, [-8.6, 5.4], [8.6, 5.4], [0, 7.2], [0, 13.6], { tongue: [0, 12.6, 2.6], lowTeeth: [[-4.2, 11.4, 1.9, 4.2], [4.2, 11.4, 1.9, 4.2]] })
   pop()
 }
-const GOLEM_POSE = [{ step: 1, bob: 0 }, { step: 0, bob: 1.4 }, { step: -1, bob: 0 }, { step: 0, bob: 1.4 }]
+const GOLEM_POSE = [
+  { step: 1, bob: 0, sway: -0.13 },
+  { step: 0, bob: 2.6, sway: 0, grit: true },
+  { step: -1, bob: 0, sway: 0.13 },
+  { step: 0, bob: 2.6, sway: 0, grit: true },
+]
 function paintGolem(c, f, elite) { golem(c, { ...GOLEM_POSE[f % 4], look: [0, 0.5], col: elite ? '#6a5560' : '#7d6a66' }) }
 
 // ---- BRIMSTONE DRAGON (the elite): a chubby baby dragon on spread bat wings, flying high (its shadow
@@ -238,7 +268,7 @@ function paintGolem(c, f, elite) { golem(c, { ...GOLEM_POSE[f % 4], look: [0, 0.
 // face toward you), so it reads the same from any side it comes at you (render.js only mirrors it).
 // A head bigger than its belly, a cream snout always trailing a drift of brimstone smoke (.over), a
 // fanged grin, V brows, gold horns, gloved fists, stubby feet, a spade tail curling out behind. The
-// wings flap in a small, even beat.
+// wings beat in a wide, even arc about the shoulders, the body riding it.
 const mix2 = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]
 const DRAGON_SC = 1.18, DRAGON_HEAD = [0, -15]
 function dragon(c, o = {}) {
@@ -249,8 +279,8 @@ function dragon(c, o = {}) {
   // wings, behind everything: arm, three finger spars, a scalloped membrane. The beat swings the
   // spars up a little and draws the span in a little (never a big breath)
   for (const k of [-1, 1]) {
-    push(); sc(0.86 + 0.14 * fl, 1)
-    const up = (1 - fl) * 7
+    push(); tr(k * 6, -6); rot(k * (fl - 0.8) * 1.5); tr(-k * 6, 6); sc(0.86 + 0.14 * fl, 1)
+    const up = (1 - fl) * 4
     const sh0 = [k * 6, -6]
     const tips = [[k * 50, -12 + up * 0.6], [k * 46, -32 - up], [k * 28, -40 - up * 0.7]]
     const elbow = [k * 25, -8 - up * 0.3]
@@ -275,8 +305,9 @@ function dragon(c, o = {}) {
   for (const y of [1, 4.6, 8.2]) line(c, qb([-4.2, y], [0, y + 1.2], [4.2, y]), 0.55, { taper: 0.3 })
   // rubber-hose arms, white-gloved fists balled at its sides (the bully's pose)
   for (const k of [-1, 1]) {
-    cel(c, tube(qb([k * 8, 0], [k * 14, -1], [k * 16.5, 4]), 3.0, 2.6), g, { ink: 1.1, shade: sh })
-    glove(c, k * 17, 5, 3.4, k > 0 ? 1.0 : Math.PI - 1.0)
+    const hy = (1 - fl) * 7
+    cel(c, tube(qb([k * 8, 0], [k * 14.5, -1 - hy], [k * 16.5, 4 - hy * 0.8]), 3.0, 2.6), g, { ink: 1.1, shade: sh })
+    glove(c, k * 17, 5 - hy * 0.8, 3.4, (k > 0 ? 1.0 : Math.PI - 1.0) - k * hy * 0.12)
   }
   // the big head on top, face on
   push(); tr(DRAGON_HEAD[0], DRAGON_HEAD[1])
@@ -294,7 +325,7 @@ function dragon(c, o = {}) {
   brow(c, [-10, -10], [-5.2, -10.4], [-0.6, -7.8], 2.0)
   brow(c, [10, -10], [5.2, -10.4], [0.6, -7.8], 2.0)
   blush(c, [[-8.8, 2.0, 1.8, 1.1], [8.8, 2.0, 1.8, 1.1]], '#f0886a', 0.4)
-  mouth(c, [-8.8, 5.0], [8.8, 5.0], [0, 7.2], [0, 13.4], { fangs: [[-4.6, 2.8, 1.6], [4.6, 2.8, 1.6]], tongue: [0.6, 12.0, 2.8] })
+  mouth(c, [-8.8, 5.0], [8.8, 5.0], [0, 7.2], [0, o.roar ? 15.4 : 13.4], { fangs: [[-4.6, 2.8, 1.6], [4.6, 2.8, 1.6]], tongue: [0.6, 12.0, 2.8] })
   pop()
   pop()
 }
@@ -311,7 +342,7 @@ function dragonSmoke(c, f, bob) {
     }
   }
 }
-const DRAGON_POSE = [{ flap: 1, bob: 0 }, { flap: 0.84, bob: 1.2 }, { flap: 0.7, bob: 2.2 }, { flap: 0.84, bob: 1.2 }]
+const DRAGON_POSE = [{ flap: 1, bob: 0 }, { flap: 0.8, bob: 1.6 }, { flap: 0.6, bob: 3, roar: true }, { flap: 0.8, bob: 1.6 }]
 function paintDragon(c, f) { dragon(c, DRAGON_POSE[f % 4]) }
 function paintDragonOver(c, f) { dragonSmoke(c, f, DRAGON_POSE[f % 4].bob) }
 
@@ -319,21 +350,31 @@ function paintDragonOver(c, f) { dragonSmoke(c, f, DRAGON_POSE[f % 4].bob) }
 // a big grinning head on a neck rising out of a ring of ripples, one round hump of back with a red
 // sail fin along it, the flick of a tail fin further back. Everything under the waterline is cut off
 // the paper piece (TOON_CAST.magmaEel.sink), then a lava collar is laid round each place it breaks the
-// surface (.over), so it reads as swimming, not standing. The swim: the head bobs, the coil rolls
-// forward and swells, the tail flicks, the ripples spread.
+// surface (.over), so it reads as swimming, not standing. The swim: the coil and the tail rise and
+// sink in turn (the coil rolling forward as it swells), the head rears up and tips from side to side,
+// gaping wider at the top of its rise, its frills flaring, and the ripples spread.
 const TAU_ = Math.PI * 2
 const EEL_SURF = 8   // the lava's surface, in units below the body's centre
-function eelPose(ph) {
+// the head's pose per frame: how far it rears (rise), its tip (tilt), how wide it gapes, its frills' flare
+const EEL_HEAD = [
+  { rise: 0, tilt: -0.12, gape: 0, flare: 0 },
+  { rise: 2.6, tilt: 0, gape: 0.45, flare: 0.18 },
+  { rise: 4.2, tilt: 0.12, gape: 1, flare: 0.4 },
+  { rise: 1.6, tilt: 0, gape: 0.45, flare: 0.18 },
+]
+function eelPose(f) {
+  const ph = ((f % 4) / 4) * TAU_, H = EEL_HEAD[f % 4]
   return {
-    hx: 12 + 0.6 * Math.sin(ph), hy: -10 + 1.4 * Math.sin(ph),                     // the head
-    cx: -11 + 1.8 * Math.cos(ph), hw: 11, hh: 12 + 1.6 * Math.sin(ph + 1.6),        // the coil
-    tx: -27 + 0.6 * Math.sin(ph + 3), flick: Math.sin(ph + 3),                        // the tail
+    ph, ...H,
+    hx: 12 + 1.2 * Math.sin(ph), hy: -10 - H.rise,                                              // the head
+    cx: -11 + 3 * Math.cos(ph), hw: 11 - 1.4 * Math.sin(ph), hh: 12 + 4.5 * Math.sin(ph),        // the coil
+    tx: -27 + 1.2 * Math.sin(ph + 3), flick: -Math.sin(ph),                                      // the tail
   }
 }
 // where it breaks the surface: [x, half width] of each part going under
 const eelBreaks = (E) => [[12.6, 4.6], [E.cx - E.hw, 4.2], [E.cx + E.hw, 4.2], [E.tx, 2.6]]
 function eel(c, o = {}) {
-  const ph = o.ph || 0, lk = o.look || [0.4, 0.3], S = EEL_SURF, E = eelPose(ph)
+  const E = eelPose(o.f || 0), ph = E.ph, lk = o.look || [0.4, 0.3 - E.gape * 0.3], S = EEL_SURF
   const skin = o.col || '#4b3447', belly = '#f2a03c', fin = o.fin || '#e2502e', sh = 'rgba(20,6,24,0.45)', fsh = 'rgba(120,10,10,0.42)'
   // the ripples it leaves on the lava, spreading out of each place it breaks the surface
   ground(() => {
@@ -344,9 +385,9 @@ function eel(c, o = {}) {
     }
   })
   // the tail: a fin flicking up out of the lava behind the coil
-  const tt = [E.tx - 3 - 1.6 * E.flick, S - 9 + E.flick]
+  const tt = [E.tx - 3 - 2.4 * E.flick, S - 9 - 3 * E.flick]
   cel(c, tube(qb([E.tx, S + 3], [E.tx + 0.5, S - 4], tt, 10), 5.0, 1.8), skin, { ink: 1.3, shade: sh })
-  push(); tr(tt[0], tt[1]); rot(-0.7 + 0.3 * E.flick); cel(c, [[0, 0.6], ...qb([-3.4, -5], [0.4, -8.4], [4, -6], 8), [1.2, -0.6]], fin, { ink: 1.1, shade: fsh }); pop()
+  push(); tr(tt[0], tt[1]); rot(-0.7 - 0.45 * E.flick); cel(c, [[0, 0.6], ...qb([-3.4, -5], [0.4, -8.4], [4, -6], 8), [1.2, -0.6]], fin, { ink: 1.1, shade: fsh }); pop()
   // the coil: one round hump of back out of the lava, a scalloped sail fin fanned off its crest
   const arch = [], sail = []
   for (let i = 0; i <= 28; i++) {
@@ -374,12 +415,12 @@ function eel(c, o = {}) {
   cel(c, tube(qb([13.2, S + 3], [14.4, (S + E.hy) / 2 + 1], [E.hx + 0.6, E.hy + 6], 12), 4.0, 3.2), belly, { ink: 0.8, shade: null, piece: false })
   for (const y of [S - 2.5, S - 6]) line(c, qb([11.6, y], [13.8, y + 1], [15.8, y - 0.2]), 0.55, { taper: 0.3 })
   // the head
-  push(); tr(E.hx, E.hy); rot(0.07 * Math.sin(ph))
+  push(); tr(E.hx, E.hy); rot(E.tilt)
   // the crest: a spiky red fin swept back off its crown
   cel(c, [[-9, -2], ...qb([-15, -8], [-12, -11], [-8.6, -9.4], 6), ...qb([-8.6, -9.4], [-6.4, -14.2], [-3, -10.8], 6).slice(1), ...qb([-3, -10.8], [0, -14.4], [2.6, -9], 6).slice(1), [2, -6]], fin, { ink: 1.2, shade: fsh })
   for (const [a, b] of [[[-7, -5], [-12.4, -9]], [[-4, -7], [-6.4, -13]], [[-0.5, -7], [0, -13.4]]]) line(c, [a, b], 0.7, { taper: 0.45 })
   // gill frills at its cheeks
-  for (const k of [-1, 1]) { push(); tr(k * 11.6, 3.2); rot(k * 2.05); cel(c, drop(0, 0, 2.6, 6.0, -k * 0.5), fin, { ink: 1.0, shade: null }); pop() }
+  for (const k of [-1, 1]) { push(); tr(k * 11.6, 3.2); rot(k * (2.05 - E.flare)); cel(c, drop(0, 0, 2.6, 6.0, -k * 0.5), fin, { ink: 1.0, shade: null }); pop() }
   cel(c, ell(0, -0.6, 12.2, 8.8, 0, 48, 0.02, 2), skin, { ink: 2.0, shade: sh })
   // a long grinning jaw: a wide pale muzzle, two nostrils
   cel(c, ell(0.8, 3.8, 11.0, 4.4, 0, 36), '#6d5068', { ink: 1.3, shade: null, piece: false })
@@ -388,7 +429,7 @@ function eel(c, o = {}) {
   eye(c, 4.0, -4.8, 3.7, 4.6, lk[0], lk[1], { white: '#f8e88a', pr: 0.56, pry: 0.7 })
   brow(c, [-8.6, -10.4], [-4.4, -11.4], [-0.6, -8.4], 2.0)
   brow(c, [8.8, -10.4], [4.6, -11.4], [0.8, -8.4], 2.0)
-  mouth(c, [-10, 3.0], [10.6, 2.6], [0.4, 5.6], [0.4, 10.6], { teeth: 1.7, n: 8, fangs: [[-5.2, 2.6, 1.1], [5.6, 2.6, 1.1]], tongue: [2.6, 9.2, 2.4] })
+  mouth(c, [-10, 3.0], [10.6, 2.6], [0.4, 5.6 - E.gape * 0.6], [0.4, 10.6 + E.gape * 4.4], { teeth: 1.7, n: 8, fangs: [[-5.2, 2.6, 1.1], [5.6, 2.6, 1.1]], tongue: [2.6, 9.2 + E.gape * 2.6, 2.4 + E.gape * 0.6] })
   pop()
 }
 // what goes under: everything below the waterline (painted as the region to take away)
@@ -397,8 +438,8 @@ function eelSink(c) {
 }
 // the lava closing round each place it breaks the surface: a hot collar hugging the waterline, its
 // near edge lit (drawn OVER the cut piece)
-function eelLips(c, ph) {
-  const S = EEL_SURF, E = eelPose(ph)
+function eelLips(c, f) {
+  const S = EEL_SURF, E = eelPose(f)
   for (const [x, w0] of eelBreaks(E)) {
     const w = w0 + 1.8
     const top = qb([x - w, S + 0.8], [x, S - 1.6], [x + w, S + 0.8], 14), bot = qb([x + w, S + 0.8], [x, S + 3.4], [x - w, S + 0.8], 14).slice(1, -1)
@@ -406,16 +447,16 @@ function eelLips(c, ph) {
     line(c, qb([x - w * 0.85, S + 0.5], [x, S - 1.2], [x + w * 0.85, S + 0.5], 14), 0.8, { color: '#ffe38e', taper: 0.5 })
   }
 }
-function paintEel(c, f, elite) { eel(c, { ph: (f / 4) * TAU_, col: elite ? '#3d2638' : '#4b3447', fin: elite ? '#f0682e' : '#e2502e', big: elite }) }
-function paintEelOver(c, f) { eelLips(c, (f / 4) * TAU_) }
+function paintEel(c, f, elite) { eel(c, { f, col: elite ? '#3d2638' : '#4b3447', fin: elite ? '#f0682e' : '#e2502e', big: elite }) }
+function paintEelOver(c, f) { eelLips(c, f) }
 
 // every cast body is painted in the brush's PAPER mode (flat paint with the sheet's tooth, separate
 // pieces); the player is not, it keeps the plain brush
 const wrap = (fn) => (ctx, f, elite) => { resetXf(); setPaper(true); try { fn(ctx, f, elite) } finally { setPaper(false); resetXf() } }
 export const TOON_CAST = {
-  emberImp: { baseR: 10, frames: 4, box: [-24, -38, 24, 22], paint: wrap(paintImp) },
-  magmaToad: { baseR: 11, frames: 4, box: [-31, -24, 31, 27], paint: wrap(paintToad), poseOf: toadPose },
-  basaltGolem: { baseR: 27, frames: 4, box: [-41, -33, 41, 32], paint: wrap(paintGolem) },
+  emberImp: { baseR: 10, frames: 4, box: [-28, -48, 28, 22], paint: wrap(paintImp) },
+  magmaToad: { baseR: 11, frames: 4, box: [-32, -30, 32, 28], paint: wrap(paintToad), poseOf: toadPose },
+  basaltGolem: { baseR: 27, frames: 4, box: [-45, -35, 45, 32], paint: wrap(paintGolem) },
   brimstoneDragon: { baseR: 26, frames: 4, box: [-70, -62, 76, 70], paint: wrap(paintDragon), over: wrap(paintDragonOver) },
   magmaEel: { baseR: 12, frames: 4, box: [-40, -36, 34, 22], paint: wrap(paintEel), sink: wrap(eelSink), over: wrap(paintEelOver) },
 }
