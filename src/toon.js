@@ -44,7 +44,7 @@ import {
   CHUNK, CHUNK_STEP, CHUNK_N, FLOOR_VERT, FLOOR_FRAG, FILM_VERT, FILM_FRAG, NOISE_N, bakeNoise, paintBubbleAtlas,
   paintCoal, paintPuff, paintGem, paintCoin, paintLick, paintDot, paintSweat, paintWade, paintDaze,
 } from './toon/world.js'
-import { lavaTideOf, mantleHeightAt, lavaLineFor } from './sim.js'
+import { lavaTideOf, mantleHeightAt, lavaLineFor, mantleGroundAt } from './sim.js'
 import { gemTier } from './config.js'
 import { createMantleFx } from './toon/mantle-fx.js'
 
@@ -173,11 +173,6 @@ function keyline(f) {
   const bare = mkCanvas((x1 - x0) * RES, (y1 - y0) * RES), bx = bare.getContext('2d')
   bx.scale(RES, RES); bx.translate(-x0, -y0); paintPlayer(bx, f, true)
   return cutout(bare, f, RES, 0)
-}
-// a Quench crust under (x, y): rock, so nothing there wades or burns
-function inCrust(run, x, y) {
-  for (const c of run.quenchCrusts ?? []) if (c.t < c.dur && (x - c.x) ** 2 + (y - c.y) ** 2 <= c.r * c.r) return true
-  return false
 }
 // ---- the renderer --------------------------------------------------------------------------------
 export function createToonRenderer(host) {
@@ -394,13 +389,13 @@ export function createToonRenderer(host) {
       coins.end()
       // flames licking off every walking body standing in the lava (the lava burns it)
       wades.begin(); pwade.begin(); licks.begin(); sweats.begin()
-      if (tide.T.line > 0) {
-        const { L, T: TD } = tide
+      // the ground is sim.js mantleGroundAt's (0 rock or a crust, 1 a hammer pool, 2 the tide), so a
+      // body burning in a pool on dry rock shows its flames too
+      if (tide.T.line > 0 || run.lavaPools?.length) {
         for (const e of run.enemies) {
           if (e._dead || (e.flags && e.flags.includes('flying')) || !onScreen(e.x, e.y, 40)) continue
-          // a habitat creature publishes its ground (sim.js holdHabitat: 1 a pool, 2 the tide, 0 rock
-          // or a crust); anything else is asked the height field
-          if (e.habitat ? !(e.ground > 0) : mantleHeightAt(L, TD.seed, e.x, e.y) >= TD.line) continue
+          // a habitat creature publishes its ground (sim.js holdHabitat); anything else is asked
+          if (!((e.habitat ? e.ground : mantleGroundAt(run, e.x, e.y)) > 0)) continue
           // it wades: the lava closes over its legs
           const wd = wades.next(T.wade[fi(t * 3 + e.id * 0.5, 2)])
           wd.position.set(e.x, e.y + e.radius * 0.62)
@@ -424,7 +419,7 @@ export function createToonRenderer(host) {
           }
         }
         // afloat: the basalt boat carries you (mantle-fx draws it); only once it has sunk do you wade and burn
-        if (!p.afloat && mantleHeightAt(L, TD.seed, p.x, p.y) < TD.line && !inCrust(run, p.x, p.y)) {
+        if (!p.afloat && mantleGroundAt(run, p.x, p.y) > 0) {
           const wd = pwade.next(T.wade[fi(t * 3, 2)])
           wd.position.set(p.x, p.y + 17)
           wd.scale.set(1.45)

@@ -30,6 +30,8 @@ import { PAL, TAU, hexNum, mkCanvas } from './palette.js'
 import { resetXf, ell, polar, tube, qb, line, cel, eye, drop } from './brush.js'
 import { mantleHeightAt } from '../sim.js'
 import { MANTLE_STRAND_STUCK_T, MANTLE_STRAND_DIE_T, MANTLE_MELT_T, DRAW_CAPS } from '../config.js'
+// the crust's and the pool's edges are the sim's own (what is drawn is what is solid)
+import { rh, crustEdgeR as edgeR, poolRimR as poolRim, poolRimDepth, crustShapeOf, poolPhaseOf, CRUST_SHAPES as SHAPES } from '../mantle-shape.js'
 
 const C = {
   ink: hexNum(PAL.ink), paper: hexNum(PAL.paper), basalt: hexNum(PAL.basalt),
@@ -45,19 +47,11 @@ const SEAMS = { a: [0.007, 0.024], c: [0.012, 0.034] }
 
 const ART_N = 256          // texels per shape side
 const ART_A = 1.2          // the art quad's half-size, in crust radii
-const SHAPES = 3
 const MASK_N = 24          // nodes per side of a crust's lava mask
 const MASK_SOFT = 6        // px: how soft the crust's edge is where the lava meets the shore
 const SINK_T = 1.0         // s: a crust's last second, when its plates break off
 const HOT_T = 1.6          // s: the cracks start to brighten
 
-// a hash in [0, 1) of three integers, well mixed even for small neighbouring inputs (palette.js's
-// hash is not: hash(0..4, s, k) for one s lands all five in one quarter of a turn)
-function rh(a, b, c) {
-  let h = Math.imul(a | 0, 0x9e3779b1) ^ Math.imul((b | 0) + 0x632be5ab, 0x85ebca77) ^ Math.imul((c | 0) + 0x1b873593, 0xc2b2ae3d)
-  h ^= h >>> 15; h = Math.imul(h, 0x2c1b3c6d); h ^= h >>> 12; h = Math.imul(h, 0x297a2d39); h ^= h >>> 15
-  return (h >>> 0) / 4294967296
-}
 // ---------------------------------------------------------------- noise (bake time only)
 // value noise off a 256^2 lattice of hashes, made once (a hash per corner per sample was most of the bake)
 let LAT = null
@@ -74,11 +68,6 @@ const hyp = (x, y) => Math.sqrt(x * x + y * y)
 const smooth = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t) }
 const clamp01 = (x) => Math.max(0, Math.min(1, x))
 
-// a shape's edge: radius (in crust radii) at angle a, lobed and seeded, never a circle
-function edgeR(a, k) {
-  const p = k * 2.399
-  return 0.93 + 0.075 * Math.sin(2 * a + p) + 0.05 * Math.sin(3 * a + p * 1.7 + 1) + 0.03 * Math.sin(5 * a + p * 2.3 + 2) + 0.02 * Math.sin(8 * a + p * 3.1)
-}
 // distance to the nearest Voronoi bisector of a jittered grid of spacing sp (by cells: cheap at any density)
 function worley(x, y, sp, s) {
   const gx = Math.floor(x / sp), gy = Math.floor(y / sp)
@@ -254,7 +243,6 @@ function bakeNoise() {
   return new BufferImageSource({ resource: data, width: N, height: N, format: 'rgba8unorm', scaleMode: 'linear', addressMode: 'repeat', alphaMode: 'no-premultiply-alpha' })
 }
 const POOL_A = 1.5   // the pool quad's half-size, in pool radii (room for its lip and scorch)
-const poolRim = (a, p) => 0.92 + 0.07 * Math.sin(3 * a + p[0]) + 0.05 * Math.sin(5 * a + p[1]) + 0.035 * Math.sin(7 * a + p[2])
 const POOL_FRAG = `precision highp float;
 in vec2 vUV;
 out vec4 finalColor;
@@ -584,7 +572,9 @@ export function createMantleFx({ ground, boat, top }) {
     return { mesh, U: U.uniforms }
   }
 
-  // where the ground under a crust is lava: its mask nodes, the heights sampled once per crust
+  // where a crust holds (sim.js mantleGroundAt): lava under it now (the tide's line, a pool older than
+  // it) AND lava when it was poured (c.line, c.under), less where a NEWER pool has cracked it open.
+  // Its mask nodes; the heights sampled once per crust.
   function layMask(sk, c, rotA, L, seed, line, pools) {
     const M = MASK_N, cs = Math.cos(rotA), sn = Math.sin(rotA), st = (2 * ART_A) / (M - 1)
     if (!sk.heights) {
@@ -596,18 +586,28 @@ export function createMantleFx({ ground, boat, top }) {
     }
     const h = sk.heights, wst = st * c.r
     for (let j = 0; j < M; j++) for (let i = 0; i < M; i++) {
-      let a = 0
+      let a = 0, then = 0
       if (h) {
         const o = j * M + i
         const gx = (h[j * M + Math.min(M - 1, i + 1)] - h[j * M + Math.max(0, i - 1)]) / ((Math.min(M - 1, i + 1) - Math.max(0, i - 1)) * wst)
         const gy = (h[Math.min(M - 1, j + 1) * M + i] - h[Math.max(0, j - 1) * M + i]) / ((Math.min(M - 1, j + 1) - Math.max(0, j - 1)) * wst)
-        a = clamp01(0.5 + (line - h[o]) / (Math.max(1e-7, hyp(gx, gy)) * MASK_SOFT))
+        const gs = Math.max(1e-7, hyp(gx, gy)) * MASK_SOFT
+        a = clamp01(0.5 + (line - h[o]) / gs)
+        then = clamp01(0.5 + ((c.line ?? line) - h[o]) / gs)
       }
-      if (a < 1 && pools.length) {
+      if (pools.length || c.under?.length) {
         const lx = -ART_A + i * st, ly = -ART_A + j * st
         const wx = c.x + c.r * (lx * cs - ly * sn), wy = c.y + c.r * (lx * sn + ly * cs)
-        for (const q of pools) a = Math.max(a, clamp01(0.5 + (q.r - hyp(wx - q.x, wy - q.y)) / MASK_SOFT))
+        let crack = 0
+        for (const q of pools) {
+          const k = clamp01(0.5 + poolRimDepth(q, wx, wy) / MASK_SOFT)
+          if ((q.seq ?? 0) > (c.seq ?? 0)) crack = Math.max(crack, k)
+          else a = Math.max(a, k)
+        }
+        for (const q of c.under ?? []) then = Math.max(then, clamp01(0.5 + poolRimDepth(q, wx, wy) / MASK_SOFT))
+        a *= 1 - crack
       }
+      a = Math.min(a, then)
       const v = Math.round(a * 255), w = (j * M + i) * 4
       sk.maskData[w] = sk.maskData[w + 1] = sk.maskData[w + 2] = sk.maskData[w + 3] = v
     }
@@ -660,11 +660,11 @@ export function createMantleFx({ ground, boat, top }) {
       // ---- the hammer's pools: the stamp, the cracks, the pool ----
       let np = 0
       for (const q of livePools) {
-        if (np >= 24 || !onScreen(q.x, q.y, q.r * 2.2)) continue
+        if (np >= DRAW_CAPS.lavaPools || !onScreen(q.x, q.y, q.r * 2.2)) continue
         const pm = poolMeshes[np] ?? (poolMeshes.push(makePool()), poolMeshes[np])
         np++
         const sd = Math.floor(Math.abs(q.x * 3 + q.y * 5))
-        const ph = [rh(sd, 1, 1) * TAU, rh(sd, 2, 1) * TAU, rh(sd, 3, 1) * TAU]
+        const ph = q.ph ?? poolPhaseOf(q.x, q.y)
         const open = smooth(0.1, 0.36, q.t), close = smooth(0.9, 0, q.dur - q.t)
         pm.mesh.visible = open > 0.001
         pm.mesh.position.set(q.x, q.y); pm.mesh.scale.set(q.r)
@@ -755,7 +755,7 @@ export function createMantleFx({ ground, boat, top }) {
       for (const c of draw) { const s = crustSkins.find((k) => k.owner === c); if (s) s.used = true }
       for (const s of crustSkins) if (!s.used) { s.owner = null; s.mesh.visible = false }
       const Lc = run.lavaTide ? L : null
-      const lavaAt = (x, y, under) => !Lc || mantleHeightAt(Lc, T.seed, x, y) < line || under.some((q) => (q.x - x) ** 2 + (q.y - y) ** 2 < q.r * q.r)
+      const lavaAt = (x, y, c) => (Lc && mantleHeightAt(Lc, T.seed, x, y) < c.line) || (c.under ?? []).some((q) => poolRimDepth(q, x, y) > 0)
       for (const c of draw) {
         let sk = crustSkins.find((k) => k.owner === c)
         if (!sk) {
@@ -763,14 +763,14 @@ export function createMantleFx({ ground, boat, top }) {
           sk.owner = c; sk.heights = null; sk.key = null
         }
         const sd = Math.floor(Math.abs(c.x * 0.37 + c.y * 0.61))
-        const rotA = rh(sd, 3, 1) * TAU
+        const shp = c.shape === undefined ? crustShapeOf(c.x, c.y) : c, rotA = shp.rot
         const under = livePools.filter((q) => (q.x - c.x) ** 2 + (q.y - c.y) ** 2 < (q.r + c.r * ART_A * 1.42) ** 2)
         const key = (Lc ? Math.round(line / 0.0004) : 'dry') + '/' + under.length + '/' + under.reduce((a, q) => a + q.x * 3 + q.y, 0).toFixed(0)
         if (key !== sk.key) { layMask(sk, c, rotA, Lc, T.seed, line, under); sk.key = key }
         const rem = c.dur - c.t
         const ramp = smooth(Math.min(HOT_T, c.dur * 0.4), 0, rem), last = smooth(SINK_T, 0, rem)
         const pulse = last > 0 ? 0.5 + 0.5 * Math.sin(clock * 16) : 0
-        skinLook(sk, c.x, c.y, c.r, 1, rotA, sd % SHAPES, {
+        skinLook(sk, c.x, c.y, c.r, 1, rotA, shp.shape, {
           quench: 1 - smooth(0, 0.3, c.t),
           heat: Math.max(0.06, ramp * 0.75 + last * 0.25 * pulse),
           sink: last * 1.15, bob: last,
@@ -785,7 +785,7 @@ export function createMantleFx({ ground, boat, top }) {
             if (a <= 0 || a >= 1) continue
             const ang = rh(i, sd, 21) * TAU, rr = c.r * (big ? 0.2 + 0.6 * rh(i, sd, 22) : 0.15 + 0.55 * rh(i, sd, 22))
             const x0 = c.x + Math.cos(ang) * rr, y0 = c.y + Math.sin(ang) * rr
-            if (!lavaAt(x0, y0, under)) continue   // no steam off dry rock
+            if (!lavaAt(x0, y0, c)) continue   // no steam off what was dry rock when it was poured
             const s = low.next(P.steam[i % 3])
             const rise = 1 - (1 - a) * (1 - a)
             s.position.set(x0 + Math.cos(ang) * rise * 14 * s0, y0 - rise * (big ? 62 : 44) * s0)
