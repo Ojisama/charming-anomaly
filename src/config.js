@@ -9424,12 +9424,13 @@ CHAPTERS.topsoil = {
   name: 'Topsoil', tagline: 'the ground is listening', icon: '🪱',
   weapons: ['shovel', 'pebbleSling', 'rootSnare', 'furrow'], starter: 'shovel',
   roster: [
-    { id: 'earthworm',   archetype: 'normal', name: 'Earthworm',    hpMul: 0.8, speedMul: 0.8, radiusMul: 0.9, weight: 3, flags: [] },
-    { id: 'moleCricket', archetype: 'fast',   name: 'Mole Cricket', hpMul: 0.75, speedMul: 1.0, radiusMul: 1.2, flags: ['weave'], dmgMul: 0.6 },
+    // noAffix: never rolls an endless crowd affix (sim spawnEnemy): a worm wearing one did not read
+    { id: 'earthworm',   archetype: 'normal', name: 'Earthworm',    hpMul: 0.8, speedMul: 0.8, radiusMul: 0.9, weight: 3, flags: [], noAffix: true },
+    { id: 'moleCricket', archetype: 'fast',   name: 'Mole Cricket', hpMul: 0.75, speedMul: 1.0, radiusMul: 1.2, flags: ['weave'], dmgMul: 0.6, alsoElite: true },
     // Spawned by stepTunnels on its own clock: archetypeSwap below turns every ring tank into a worm,
     // so the mole is not formationOnly only so that any other tank spawn path still lands on it.
-    { id: 'mole',        archetype: 'tank',   name: 'Mole',         hpMul: 1.1, speedMul: 0.95, flags: ['tunnel', 'unshakeable'] },
-    // The elite. eliteOnly: every elite in this chapter is a badger, and no ordinary spawn is.
+    { id: 'mole',        archetype: 'tank',   name: 'Mole',         hpMul: 1.1, speedMul: 0.95, flags: ['tunnel', 'unshakeable'], alsoElite: true },
+    // An elite is a badger, a mole cricket or a mole (alsoElite), never a worm; no ordinary spawn is a badger.
     { id: 'badger',      archetype: 'normal', name: 'Badger',       hpMul: 2.0, speedMul: 1.0, radiusMul: 1.25, flags: ['unshakeable'], eliteOnly: true },
   ],
   eliteFlags: [],

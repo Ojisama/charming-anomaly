@@ -280,7 +280,7 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
   of them captioned "the flush moves to the BOTTOM"; it was caught by re-reading the harness, not by
   running it. Diff the entries, and prefer a mutation that expresses the pathology (move the call)
   over one that merely removes the code.
-- `.gitignore` covers `node_modules/`, `dist/`, `.claude/worktrees/`, `.wrangler/` and `/*.png` — **and no other scratch artifact**. The last one is the trap: only a `.png` at the repo ROOT is ignored. A PNG in a subdirectory is not; neither is a `.json` dump, nor a screenshot in any other format. Delete every scratch file explicitly before committing, and check `git status --short` rather than trusting the ignore rule.
+- `.gitignore` covers `node_modules` (no slash, so a worktree's symlink to the main checkout's is ignored too), `dist/`, `.claude/worktrees/`, `.wrangler/` and `/*.png` — **and no other scratch artifact**. The last one is the trap: only a `.png` at the repo ROOT is ignored. A PNG in a subdirectory is not; neither is a `.json` dump, nor a screenshot in any other format. Delete every scratch file explicitly before committing, and check `git status --short` rather than trusting the ignore rule.
 - **`public/` is tracked PWA assets, not scratch** (`sw.js` is registered by `main.js`). Do not "clean up" anything in it. If you need the dev server to serve a probe artifact, put it somewhere you will delete and verify with `git status --short`.
 - Deploy is automatic: pushing to `main` triggers `.github/workflows/deploy.yml` (build → GitHub Pages).
 - **A MULTI-ANCHOR REWRITE OF A BIG FILE SILENTLY SWALLOWS ITS NEIGHBOURS. DIFF THE FUNCTION SET

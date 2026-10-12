@@ -4340,7 +4340,8 @@ function spawnEnemy(run, opts = {}) {
   const pool = capped.length > 0 ? capped : (eligiblePool.length > 0 ? eligiblePool : rosterPool)
   let roster = forced
   if (!roster && isElite) {
-    const eo = chapterRoster.filter((r) => r.eliteOnly)
+    // `alsoElite`: an ordinary spawn that may be picked as an elite too, alongside the eliteOnly ones
+    const eo = chapterRoster.filter((r) => r.eliteOnly || r.alsoElite)
     if (eo.length > 0) {
       roster = eo.length === 1 ? eo[0] : eo[Math.floor(Math.random() * eo.length)]
       // An elite-only body brings its own archetype: its base stats are that archetype's.
@@ -4439,7 +4440,7 @@ function spawnEnemy(run, opts = {}) {
 
   let affixes = isElite ? rollAffixes(run) : []
   let affixVisible = false
-  if (!isElite && run.endless && !opts.forceNormal && !opts.deferred && Math.random() < endlessAffixChance(run.difficulty)) {
+  if (!isElite && run.endless && !opts.forceNormal && !opts.deferred && Math.random() < endlessAffixChance(run.difficulty) && !roster?.noAffix) {
     affixes = rollAffixes(run).filter((a) => a !== 'anchored').slice(0, 1)
     affixVisible = affixes.length > 0
   }
