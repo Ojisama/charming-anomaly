@@ -13,7 +13,7 @@
 //
 // ==== THE SURFACE render.js USES ===================================================================
 //   TOON_CAST                 { [rosterId]: entry } — the creatures this module draws.
-//   bakeCreature(id, elite)   -> { frames: [{ canvas, white, ax, ay, res }], thumb, baseR, lean,
+//   bakeCreature(id, elite)   -> { frames: [{ canvas, white, ax, ay, res }], fps, thumb, baseR, lean,
 //                             upright, poseOf, faceDir, turnRate } — render.js's enemy pool draws the
 //                             creatures from these (mirrored to face their way, never turned), and
 //                             scripts/bake-cast.mjs writes `thumb` to src/cast/<id>.png.
@@ -61,14 +61,16 @@ const canvasTex = (cv, res = RES) => new Texture({ source: new CanvasSource({ re
 // ---- the creatures -------------------------------------------------------------------------------
 // EVERY BODY IS A PAPER CUT-OUT, the way the player is: painted flat on paper (brush.js's paper mode,
 // set by cast.js), then cut out with scissors leaving an uneven margin of bare paper round its ink,
-// a margin that shifts a little from frame to frame (less than the player's, and only every other
-// frame: the pose is what moves, not the border). Three passes per frame:
+// a margin that shifts a little from frame to frame (less than the player's, and only twice a
+// cycle: the pose is what moves, not the border). Three passes per frame:
 //   the body with its ground marks (its shadow, a ripple), then the CUT (cutout(): ink and paper
 //   grown from the bare silhouette, painted with no ground marks), then the bare body on top of it,
 //   then M.over (what lies in front of the body: the lava a swimmer is half under).
-// a creature's cut: a wider paper margin than the player's and a thinner ink round it (each of its
-// pieces is inked already), whose edge holds still for two frames at a time and wanders less between them
-const CAST_CUT = { paper: 2.3, paperSide: 1.0, ink: 0.45, inkSide: 0.9, fWob: 0.1, fStep: 2 }
+// a creature's cut: a thin paper margin and a thinner ink round it (each of its pieces is inked
+// already), whose edge holds still for half its cycle at a time and wanders less between them.
+// paperWob scales the paper edge's wander so the band (paper minus ink, ~1.3 units) stays as uneven
+// for its width as it was at 1.86
+const CAST_CUT = { paper: 1.75, paperSide: 0.97, paperWob: 0.5, ink: 0.45, inkSide: 0.9, fWob: 0.1 }
 function paintPass(M, f, elite, res, pass, fn = M.paint, cv = null) {
   const [x0, y0, x1, y1] = M.box
   cv = cv || mkCanvas((x1 - x0) * res, (y1 - y0) * res)
@@ -84,7 +86,8 @@ function paintBody(id, f, elite, res = RES) {
   const cv = paintPass(M, f, elite, res, 'ground')
   const bare = paintPass(M, f, elite, res, 'bare')
   // the cut-out piece: its paper and ink cut, the body on it
-  const piece = cutout(bare, f, res, hash(id.length, id.charCodeAt(0), id.charCodeAt(1)) * 1000, M.cut ?? CAST_CUT)
+  // the edge holds for half the cycle, however many frames the cycle has (two edges a cycle)
+  const piece = cutout(bare, f, res, hash(id.length, id.charCodeAt(0), id.charCodeAt(1)) * 1000, M.cut ?? { ...CAST_CUT, fStep: M.frames / 2 })
   piece.getContext('2d').drawImage(bare, 0, 0)
   // a swimmer's piece is cut off where it goes under (M.sink paints what to take away)
   if (M.sink) {
@@ -119,7 +122,7 @@ export function bakeCreature(id, elite) {
     const b = paintBody(id, f, elite)
     frames.push({ canvas: b.canvas, white: whiteTwin(b.canvas), ax: b.ax, ay: b.ay, res: RES })
   }
-  return { frames, thumb: paintThumb(id, elite || id === 'brimstoneDragon'), baseR: M.baseR, lean: 0, upright: false, poseOf: M.poseOf ?? null, faceDir: null, turnRate: null }
+  return { frames, fps: M.fps ?? null, thumb: paintThumb(id, elite || id === 'brimstoneDragon'), baseR: M.baseR, lean: 0, upright: false, poseOf: M.poseOf ?? null, faceDir: null, turnRate: null }
 }
 // THE CUT: a silhouette (a canvas painted with no ground marks) grown by a couple of px and filled
 // with ink, over a wider grown margin of paper: a thick-thin brush contour with a thin, broken margin
@@ -127,15 +130,16 @@ export function bakeCreature(id, elite) {
 // shadow side, lower right, thin toward the light, uneven everywhere) and moves with the frame f, so
 // the paper edge shifts a little as the body animates. The player's keyline is this cut with its own
 // numbers; a creature's (o = TOON_CAST[id].cut) may widen or thin it. fWob: how much of the edge's
-// 0.3 broad wander changes with the frame (all of it by default); fStep: frames the edge holds for.
+// 0.3 broad wander changes with the frame (all of it by default); fStep: frames the edge holds for;
+// paperWob: how much of the wander the paper edge takes (all of it by default).
 function cutout(bare, f, res, seed, o = {}) {
   const fw = o.fWob ?? 0.3, ff = Math.floor(f / (o.fStep ?? 1))
-  const grow = (k0, k1, col, ph) => {
+  const grow = (k0, k1, col, ph, wk = 1) => {
     const g = mkCanvas(bare.width, bare.height), c = g.getContext('2d')
     for (let i = 0; i < 40; i++) {
       const a = (i / 40) * TAU
       const wob = (0.3 - fw) * Math.sin(a * 3 + ph) + fw * Math.sin(a * 3 + ph + ff * 1.7) + 0.22 * Math.sin(a * 7 + ph * 2.3) + 0.12 * Math.sin(a * 13 + ph * 0.7)
-      const R = res * Math.max(0.3, k0 + k1 * Math.max(0, Math.cos(a - 0.98)) + wob)
+      const R = res * Math.max(0.3, k0 + k1 * Math.max(0, Math.cos(a - 0.98)) + wob * wk)
       c.drawImage(bare, Math.cos(a) * R, Math.sin(a) * R)
     }
     c.globalCompositeOperation = 'source-in'
@@ -144,7 +148,7 @@ function cutout(bare, f, res, seed, o = {}) {
   }
   // the margin of paper the scissors left round the cel: thin, uneven, and broken in places where
   // the brush of the background paint came right up to the ink
-  const margin = grow(o.paper ?? 2.0, o.paperSide ?? 1.1, PAL.paper ?? '#f3e6c4', 4.1 + seed * 0.013)
+  const margin = grow(o.paper ?? 2.0, o.paperSide ?? 1.1, PAL.paper ?? '#f3e6c4', 4.1 + seed * 0.013, o.paperWob ?? 1)
   {
     const m = margin.getContext('2d'), w = margin.width, h = margin.height
     m.globalCompositeOperation = 'destination-out'

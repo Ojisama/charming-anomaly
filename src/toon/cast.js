@@ -4,7 +4,7 @@
 // (brush.js: flat gouache with the sheet's tooth showing through it, one flat hard-edged shade, no
 // gloss, a steady ink line, each big part a separate paper piece throwing its own thin shadow on the
 // piece under it), then cut out by toon.js with an uneven margin of bare paper round its ink that
-// shifts a little every other frame. Pie-cut eyes, white gloves, rubber-hose limbs. Designed the
+// shifts a little twice a cycle. Pie-cut eyes, white gloves, rubber-hose limbs. Designed the
 // Cuphead way: a big head on a
 // small body, huge pie-cut eyes, a face with ATTITUDE (brows, teeth, a tongue), one clear gesture per
 // creature and a silhouette nothing else in the chapter shares:
@@ -20,7 +20,7 @@
 // the toad pancakes before it hops and stretches out when it leaps, the golem knuckle-walks, the dragon
 // flaps, the eel swims. Every body faces the camera, the way a cartoon overworld shows its characters from above
 // (render.js mirrors it to face its way; it is never turned), standing on its own soft shadow.
-//   TOON_CAST[id] = { baseR, frames, box: [x0, y0, x1, y1] (units round the body's centre, room for the paper cut), paint, poseOf?, over?, sink?, cut? }
+//   TOON_CAST[id] = { baseR, frames, fps? (frames a second its cycle plays at; render.js's 10 by default), box: [x0, y0, x1, y1] (units round the body's centre, room for the paper cut), paint, poseOf?, over?, sink?, cut? }
 //   over(ctx, f): painted on top of the cut piece (smoke, the lava a swimmer is half under); sink(ctx, f): what to take away from the piece
 //   (where it goes under); cut: the paper margin's numbers (toon.js's CAST_CUT by default).
 //   paint(ctx, frame, elite) draws in units (the caller has scaled the context). render.js scales the
@@ -28,6 +28,7 @@
 import { resetXf, push, pop, tr, rot, sc, ell, polar, drop, tube, qb, line, cel, eye, glove, shadow, glow, puff, flame, brush, mp, INK, setPaper, ground } from './brush.js'
 
 const SH_RED = 'rgba(96,6,24,0.42)'
+const TAU_ = Math.PI * 2
 const MOUTH = '#3a0d12', TONGUE = '#e0564f', TOOTH = '#f8f1de'
 
 // A cartoon mouth: the opening between an upper and a lower curve (x0,y0 -> x1,y1), painted dark, a
@@ -84,6 +85,8 @@ function imp(c, o = {}) {
   // and the landing, wound back down by its sides before the next one)
   const A = {
     up: [[[-5, 3.5], [-12, 3], [-12.5, -7]], [[5, 3.5], [12, 3], [12.5, -7]]],
+    high: [[[-5, 3.5], [-12.5, 4], [-15, -4]], [[5, 3.5], [12.5, 4], [15, -4]]],
+    rise: [[[-5, 3.5], [-11, 7], [-11.5, -1.5]], [[5, 3.5], [11, 7], [11.5, -1.5]]],
     reach: [[[-5, 3.5], [-12, 5], [-16, 0]], [[5, 3.5], [12, 5], [16, 0]]],
     swing: [[[-5, 3.5], [-11, 9], [-14, 5.5]], [[5, 3.5], [11, 1], [13.5, -5]]],
     wind: [[[-5, 3.5], [-9, 9], [-6.5, 12]], [[5, 3.5], [9, 9], [6.5, 12]]],
@@ -118,16 +121,19 @@ function imp(c, o = {}) {
   else mouth(c, [-6.8, 1.0], [6.8, 1.0], [0, 3.4], [0, o.squint ? 8.4 : 10.6], { teeth: 1.9, n: 7, tongue: [1.2, o.squint ? 7.2 : 8.6, 2.6] })
   pop()
 }
-// IMP frames: a bounce. 0 sprung up and stretched (arms flung up, yelling), 1 coming down reaching
-// out, 2 landed and squashed (dust, legs splayed, squinting), 3 winding up for the next spring
+// IMP frames: a bounce. 0 sprung up and stretched (arms flung up, yelling), 1 tipping over the top,
+// arms coming out, 2 coming down reaching out, 3 landed and squashed (dust, legs splayed, squinting),
+// 4 winding up for the next spring, 5 springing off (arms swinging up, stretching)
 const IMP_POSE = [
   { stretch: 1.22, arms: 'up', lift: 5, look: [0.3, -0.2], curl: 0.95, flameH: 1.2, lines: true, yell: true },
+  { stretch: 1.14, arms: 'high', lift: 4.2, look: [0.4, 0.1], curl: 0.75, flameH: 1.1, lean: -0.05, yell: true },
   { stretch: 1.06, arms: 'reach', lift: 2.6, look: [0.5, 0.4], curl: 0.55, lean: -0.1 },
   { stretch: 0.76, arms: 'reach', lift: 0, look: [0.4, 0.6], curl: 0.2, flameH: 0.78, dust: true, squint: true, legs: 1.4 },
   { stretch: 0.9, arms: 'wind', lift: 0, look: [0.5, 0.5], curl: 0.45, lean: 0.1, legs: 0.5 },
+  { stretch: 1.12, arms: 'rise', lift: 2, look: [0.4, 0.1], curl: 0.75, flameH: 1.1, lean: 0.04, legs: 0.1 },
 ]
 function paintImp(c, f, elite) {
-  const P = IMP_POSE[f % 4]
+  const P = IMP_POSE[f % IMP_POSE.length]
   imp(c, { ...P, col: elite ? '#b92a30' : '#d8382a', big: elite })
   // the bounce lines and the landing dust lie on the ground, outside the cut-out
   ground(() => {
@@ -196,19 +202,26 @@ function toad(c, o = {}) {
     if (o.leap) { line(c, qb([-7, 17], [0, 19], [7, 17]), 0.9); line(c, qb([-4, 20], [0, 21.2], [4, 20]), 0.8) }
   })
 }
-// TOAD frames: 0/1 sat and breathing, 2 pancaked ready to spring (aim / land), 3 the leap
+// TOAD frames: 0/1/2 sat and breathing (2 the gulp), 3 sinking into the crouch, 4 pancaked ready to
+// spring (aim / land), 5 kicking off (and touching down), 6 the leap
 const TOAD_POSE = [
   { sx: 1, sy: 1, look: [0.4, 0.2] },
+  { sx: 0.97, sy: 1.04, look: [0.4, 0.2] },
   { sx: 0.94, sy: 1.08, look: [0.4, 0.2], gulp: true },
+  { sx: 1.1, sy: 0.88, look: [0.45, 0.15], wide: true },
   { sx: 1.2, sy: 0.76, look: [0.5, 0.1], dust: true, wide: true },
+  { sx: 0.92, sy: 1.12, lift: 3.2, leap: true, look: [0.35, -0.2] },
   { sx: 0.84, sy: 1.2, lift: 7.5, leap: true, look: [0.3, -0.4] },
 ]
-function paintToad(c, f, elite) { toad(c, { ...TOAD_POSE[f % 4], col: elite ? '#a23c28' : '#c4562c' }) }
+function paintToad(c, f, elite) { toad(c, { ...TOAD_POSE[f % TOAD_POSE.length], col: elite ? '#a23c28' : '#c4562c' }) }
+// the pose IS the pounce state (sim.js: aim counts down from POUNCE_AIM_T 0.6s, leap from
+// POUNCE_LEAP_T 0.3s, land from POUNCE_LAND_T 0.5s; hold counts down from 0); breathing loops 0 1 2 1
 function toadPose(e) {
-  const s = e._pounceState
-  if (s === 'leap') return 3
-  if (s === 'aim' || s === 'land') return 2
-  return Math.floor(-(e._pounceT || 0) * 3 + (e.id || 0) * 0.37) & 1
+  const s = e._pounceState, t = e._pounceT || 0
+  if (s === 'leap') return t > 0.22 || t < 0.06 ? 5 : 6
+  if (s === 'aim') return t > 0.48 ? 3 : 4
+  if (s === 'land') return t > 0.3 ? 4 : 3
+  return [0, 1, 2, 1][Math.floor(-t * 6 + (e.id || 0) * 0.37) & 3]
 }
 
 // ---- BASALT GOLEM: a boulder that IS its face. A heavy brow, a lumpy nose, a proud underbite, -------
@@ -255,13 +268,13 @@ function golem(c, o = {}) {
   else mouth(c, [-8.6, 5.4], [8.6, 5.4], [0, 7.2], [0, 13.6], { tongue: [0, 12.6, 2.6], lowTeeth: [[-4.2, 11.4, 1.9, 4.2], [4.2, 11.4, 1.9, 4.2]] })
   pop()
 }
-const GOLEM_POSE = [
-  { step: 1, bob: 0, sway: -0.13 },
-  { step: 0, bob: 2.6, sway: 0, grit: true },
-  { step: -1, bob: 0, sway: 0.13 },
-  { step: 0, bob: 2.6, sway: 0, grit: true },
-]
-function paintGolem(c, f, elite) { golem(c, { ...GOLEM_POSE[f % 4], look: [0, 0.5], col: elite ? '#6a5560' : '#7d6a66' }) }
+// GOLEM frames: one rock from foot to foot, the four keys (0 right planted, 2 sunk between steps,
+// gritting, 4 left planted, 6 sunk again) with an in-between after each
+const GOLEM_POSE = Array.from({ length: 8 }, (_, f) => {
+  const c = Math.cos((f / 8) * TAU_)
+  return { step: c, bob: 2.6 * (1 - c * c), sway: -0.13 * c, grit: Math.abs(c) < 0.5 }
+})
+function paintGolem(c, f, elite) { golem(c, { ...GOLEM_POSE[f % GOLEM_POSE.length], look: [0, 0.5], col: elite ? '#6a5560' : '#7d6a66' }) }
 
 // ---- BRIMSTONE DRAGON (the elite): a chubby baby dragon on spread bat wings, flying high (its shadow
 // far below). Drawn UPRIGHT and face-on like the rest of the cast (the head on top of the belly, the
@@ -333,7 +346,7 @@ function dragon(c, o = {}) {
 // small and dense, drifting up and out, growing and thinning (drawn over the cut piece, never cut)
 function dragonSmoke(c, f, bob) {
   for (let k = 0; k < 3; k++) {
-    const u = ((f / 4) + k / 3) % 1
+    const u = ((f / DRAGON_POSE.length) + k / 3) % 1
     for (const side of [-1, 1]) {
       const x = (DRAGON_HEAD[0] + side * (10.5 + u * 11)) * DRAGON_SC, y = (DRAGON_HEAD[1] + 4.5 - u * 7 - u * u * 4) * DRAGON_SC - bob
       c.save(); c.globalAlpha = 0.95 * (1 - u * u)
@@ -342,9 +355,14 @@ function dragonSmoke(c, f, bob) {
     }
   }
 }
-const DRAGON_POSE = [{ flap: 1, bob: 0 }, { flap: 0.8, bob: 1.6 }, { flap: 0.6, bob: 3, roar: true }, { flap: 0.8, bob: 1.6 }]
-function paintDragon(c, f) { dragon(c, DRAGON_POSE[f % 4]) }
-function paintDragonOver(c, f) { dragonSmoke(c, f, DRAGON_POSE[f % 4].bob) }
+// DRAGON frames: one wing beat, the four keys (0 spread, 2 and 6 half, 4 the downbeat with its roar)
+// with an in-between after each
+const DRAGON_POSE = Array.from({ length: 8 }, (_, f) => {
+  const c = Math.cos((f / 8) * TAU_)
+  return { flap: 0.8 + 0.2 * c, bob: 1.5 - 1.5 * c, roar: c < -0.6 }
+})
+function paintDragon(c, f) { dragon(c, DRAGON_POSE[f % DRAGON_POSE.length]) }
+function paintDragonOver(c, f) { dragonSmoke(c, f, DRAGON_POSE[f % DRAGON_POSE.length].bob) }
 
 // ---- MAGMA EEL: lives IN the lava. Only its head and one coil of its back ever break the surface: --
 // a big grinning head on a neck rising out of a ring of ripples, one round hump of back with a red
@@ -353,17 +371,24 @@ function paintDragonOver(c, f) { dragonSmoke(c, f, DRAGON_POSE[f % 4].bob) }
 // surface (.over), so it reads as swimming, not standing. The swim: the coil and the tail rise and
 // sink in turn (the coil rolling forward as it swells), the head rears up and tips from side to side,
 // gaping wider at the top of its rise, its frills flaring, and the ripples spread.
-const TAU_ = Math.PI * 2
 const EEL_SURF = 8   // the lava's surface, in units below the body's centre
-// the head's pose per frame: how far it rears (rise), its tip (tilt), how wide it gapes, its frills' flare
-const EEL_HEAD = [
+// the head's key poses round the swim: how far it rears (rise), its tip (tilt), how wide it gapes,
+// its frills' flare; the EEL_FRAMES frames go round them, an in-between halfway from key to key
+const EEL_KEYS = [
   { rise: 0, tilt: -0.12, gape: 0, flare: 0 },
   { rise: 2.6, tilt: 0, gape: 0.45, flare: 0.18 },
   { rise: 4.2, tilt: 0.12, gape: 1, flare: 0.4 },
   { rise: 1.6, tilt: 0, gape: 0.45, flare: 0.18 },
 ]
+const EEL_FRAMES = 8
+const EEL_HEAD = Array.from({ length: EEL_FRAMES }, (_, f) => {
+  const u = (f / EEL_FRAMES) * EEL_KEYS.length, i = Math.floor(u), t = u - i
+  const a = EEL_KEYS[i], b = EEL_KEYS[(i + 1) % EEL_KEYS.length], H = {}
+  for (const k in a) H[k] = a[k] + (b[k] - a[k]) * t
+  return H
+})
 function eelPose(f) {
-  const ph = ((f % 4) / 4) * TAU_, H = EEL_HEAD[f % 4]
+  const ph = ((f % EEL_FRAMES) / EEL_FRAMES) * TAU_, H = EEL_HEAD[f % EEL_FRAMES]
   return {
     ph, ...H,
     hx: 12 + 1.2 * Math.sin(ph), hy: -10 - H.rise,                                              // the head
@@ -454,11 +479,11 @@ function paintEelOver(c, f) { eelLips(c, f) }
 // pieces); the player is not, it keeps the plain brush
 const wrap = (fn) => (ctx, f, elite) => { resetXf(); setPaper(true); try { fn(ctx, f, elite) } finally { setPaper(false); resetXf() } }
 export const TOON_CAST = {
-  emberImp: { baseR: 10, frames: 4, box: [-28, -48, 28, 22], paint: wrap(paintImp) },
-  magmaToad: { baseR: 11, frames: 4, box: [-32, -30, 32, 28], paint: wrap(paintToad), poseOf: toadPose },
-  basaltGolem: { baseR: 27, frames: 4, box: [-45, -35, 45, 32], paint: wrap(paintGolem) },
-  brimstoneDragon: { baseR: 26, frames: 4, box: [-70, -62, 76, 70], paint: wrap(paintDragon), over: wrap(paintDragonOver) },
-  magmaEel: { baseR: 12, frames: 4, box: [-40, -36, 34, 22], paint: wrap(paintEel), sink: wrap(eelSink), over: wrap(paintEelOver) },
+  emberImp: { baseR: 10, frames: IMP_POSE.length, fps: 13, box: [-28, -48, 28, 22], paint: wrap(paintImp) },
+  magmaToad: { baseR: 11, frames: TOAD_POSE.length, box: [-32, -30, 32, 28], paint: wrap(paintToad), poseOf: toadPose },
+  basaltGolem: { baseR: 27, frames: GOLEM_POSE.length, fps: 16, box: [-45, -35, 45, 32], paint: wrap(paintGolem) },
+  brimstoneDragon: { baseR: 26, frames: DRAGON_POSE.length, fps: 16, box: [-70, -62, 76, 70], paint: wrap(paintDragon), over: wrap(paintDragonOver) },
+  magmaEel: { baseR: 12, frames: EEL_FRAMES, fps: 16, box: [-40, -36, 34, 22], paint: wrap(paintEel), sink: wrap(eelSink), over: wrap(paintEelOver) },
 }
 
 // ---- THE PLAYER: the digger. A big head under a yellow hard hat with its lamp, red shirt, blue -----
