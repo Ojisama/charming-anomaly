@@ -24,6 +24,8 @@ import { PAL, TAU, hexNum, mkCanvas } from './palette.js'
 import { resetXf, ell, polar, tube, qb, line, cel, eye, drop, spline } from './brush.js'
 import { mantleHeightAt } from '../sim.js'
 import { MANTLE_STRAND_STUCK_T, MANTLE_STRAND_DIE_T, MANTLE_MELT_T, DRAW_CAPS } from '../config.js'
+// the crust's and the pool's edges are the sim's own (what is drawn is what is solid)
+import { rh, crustEdgeR as edgeR, poolRimDepth, CRUST_SHAPES as SHAPES } from '../mantle-shape.js'
 
 const C = {
   ink: hexNum(PAL.ink), paper: hexNum(PAL.paper), basalt: hexNum(PAL.basalt),
@@ -36,15 +38,7 @@ const SEAM0 = 0.012, SEAM_GROW = 0.034
 
 const ART_N = 256          // texels per shape side
 const ART_A = 1.2          // the art quad's half-size, in crust radii
-const SHAPES = 3
 
-// a hash in [0, 1) of three integers, well mixed even for small neighbouring inputs (palette.js's
-// hash is not: hash(0..4, s, k) for one s lands all five in one quarter of a turn)
-function rh(a, b, c) {
-  let h = Math.imul(a | 0, 0x9e3779b1) ^ Math.imul((b | 0) + 0x632be5ab, 0x85ebca77) ^ Math.imul((c | 0) + 0x1b873593, 0xc2b2ae3d)
-  h ^= h >>> 15; h = Math.imul(h, 0x2c1b3c6d); h ^= h >>> 12; h = Math.imul(h, 0x297a2d39); h ^= h >>> 15
-  return (h >>> 0) / 4294967296
-}
 // ---------------------------------------------------------------- noise (bake time only)
 // value noise off a 256^2 lattice of hashes, made once (a hash per corner per sample was most of the bake)
 let LAT = null
@@ -61,11 +55,6 @@ const hyp = (x, y) => Math.sqrt(x * x + y * y)
 const smooth = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t) }
 const clamp01 = (x) => Math.max(0, Math.min(1, x))
 
-// a shape's edge: radius (in crust radii) at angle a, lobed and seeded, never a circle
-function edgeR(a, k) {
-  const p = k * 2.399
-  return 0.93 + 0.075 * Math.sin(2 * a + p) + 0.05 * Math.sin(3 * a + p * 1.7 + 1) + 0.03 * Math.sin(5 * a + p * 2.3 + 2) + 0.02 * Math.sin(8 * a + p * 3.1)
-}
 // distance to the nearest Voronoi bisector of a jittered grid of spacing sp (by cells: cheap at any density)
 function worley(x, y, sp, s) {
   const gx = Math.floor(x / sp), gy = Math.floor(y / sp)
@@ -583,10 +572,9 @@ export function createMantleFx({ ground, boat, top }) {
         if (c.t < c.dur && onScreen(c.x, c.y, c.r * 1.2)) draw.push(c)
       }
       const Lc = run.lavaTide ? L : null
-      const lavaAt = (x, y, under) => !Lc || mantleHeightAt(Lc, T.seed, x, y) < line || under.some((q) => (q.x - x) ** 2 + (q.y - y) ** 2 < q.r * q.r)
+      const lavaAt = (x, y, c) => (Lc && mantleHeightAt(Lc, T.seed, x, y) < c.line) || (c.under ?? []).some((q) => poolRimDepth(q, x, y) > 0)
       for (const c of draw) {
         const sd = Math.floor(Math.abs(c.x * 0.37 + c.y * 0.61))
-        const under = livePools.filter((q) => (q.x - c.x) ** 2 + (q.y - c.y) ** 2 < (q.r + c.r * 1.7) ** 2)
         // the pour: steam boiling up off the splash in two-tone puffs that rise, swell, split into smaller
         // ones and are gone in under a second
         if (c.t < 1.6) {
@@ -596,7 +584,7 @@ export function createMantleFx({ ground, boat, top }) {
             if (a <= 0 || a >= 1) continue
             const ang = rh(i, sd, 21) * TAU, rr = c.r * (0.15 + 0.6 * rh(i, sd, 22))
             const x0 = c.x + Math.cos(ang) * rr, y0 = c.y + Math.sin(ang) * rr
-            if (!lavaAt(x0, y0, under)) continue   // no steam off dry rock
+            if (!lavaAt(x0, y0, c)) continue   // no steam off what was dry rock when it was poured
             const rise = 1 - (1 - a) * (1 - a), base = (0.8 + 0.5 * rh(i, sd, 23)) * s0
             const x = x0 + Math.cos(ang) * rise * 12 * s0, y = y0 - rise * 70 * s0
             if (a < 0.55) {

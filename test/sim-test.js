@@ -19,7 +19,8 @@ import { FOIL_FRAG as HOLO_FOIL_FRAG, CAVERN_FLOOR_FRAG as HOLO_CAVERN_FRAG } fr
 import { ensurePrecision as pixiEnsurePrecision } from '../node_modules/pixi.js/lib/rendering/renderers/gl/shader/program/preprocessors/ensurePrecision.mjs'
 import { magmaGroundAt, magmaRiverAt, magmaCooledAt, magmaHotAt } from '../src/sim.js'
 import { lavaFloodedAt, mantleHeightAt, lavaLineFor, mantleGroundAt } from '../src/sim.js'
-import { MANTLE_GROUND_STEP, MANTLE_START_DRY, MANTLE_COLD_VS_LAVA, MANTLE_FIRE_VS_ROCK, MANTLE_STRAND_DIE_T, MANTLE_STRAND_STUCK_T, MANTLE_STRAND_DMG_MUL, MANTLE_STRAND_SLOW, MANTLE_MELT_T, MANTLE_BOAT_FLOAT, MANTLE_BOAT_REFILL } from '../src/config.js'
+import { MANTLE_GROUND_STEP, MANTLE_START_DRY, MANTLE_COLD_VS_LAVA, MANTLE_FIRE_VS_ROCK, MANTLE_STRAND_DIE_T, MANTLE_STRAND_STUCK_T, MANTLE_STRAND_DMG_MUL, MANTLE_STRAND_SLOW, MANTLE_MELT_T, MANTLE_BOAT_FLOAT, MANTLE_BOAT_REFILL, KETTLE_CRUST_GNAW, KETTLE_CRUST_GNAW_MAX, DRAW_CAPS } from '../src/config.js'
+import { crustEdgeR, poolRimR, crustShapeOf, poolPhaseOf } from '../src/mantle-shape.js'
 import {
   SHOP, shopCost, refundValue, REFUND_RATE, MAX_SHOP_LEVEL, lineMax, CURRENT_RESIST_FLOOR, SHOP_FAMILY, SHOP_COST_CAP, SHOP_COST_CAP_DEFAULT,
   PASSIVES, RARITIES, RARITY_ORDER, RARITY_WEIGHTS, UPGRADE_RARITY, resistFrac, PASSIVE_RESIST_K, passiveEffectText,
@@ -2064,6 +2065,10 @@ function testAnomalySlate() {
       // spreads this weapon over distinct points, with a player that is actually allowed to move.
       // The Furrow is the same case: it digs only where the player WALKED. run TS.b asserts its spread.
       const NEEDS_TRAVEL = new Set(['screw', 'furrow'])
+      // The Quench Kettle lays a crust only on lava, and this fixture boots a chapter without any:
+      // its ring is made of LAVA CREATURES (the kettle pours on the closest one), named here for the
+      // same reason as the two overrides above.
+      const RING_HABITAT = { quenchKettle: 'lava' }
       const spread = (id, weaponId) => {
         const r = withCard(id, (x) => { x.player.hp = 1e9; x.player.maxHP = 1e9 })
         r.weapons = [{ id: weaponId, level: 3 }]
@@ -2073,7 +2078,7 @@ function testAnomalySlate() {
         // or lock onto — and nothing dies to change the picture mid-cast.
         for (let i = 0; i < 12; i++) {
           const a = (i / 12) * Math.PI * 2
-          r.enemies.push(makeStatusEnemy(r, { x: Math.cos(a) * 140, y: Math.sin(a) * 140, hp: 1e9, speed: 0 }))
+          r.enemies.push(Object.assign(makeStatusEnemy(r, { x: Math.cos(a) * 140, y: Math.sin(a) * 140, hp: 1e9, speed: 0 }), { habitat: RING_HABITAT[weaponId] ?? null }))
         }
         let best = 0
         for (let i = 0; i < 900; i++) {
@@ -20925,6 +20930,7 @@ run(testLeLargeWeapons)
   run(testFireBoots)
   run(testMantle)
   run(testMantleHabitat)
+  run(testMantleGround)
   run(testMantleLavaCrew)
   // A hand-typed filter that matched nothing is the silent pass without a parent watching:
   // `node test/sim-test.js supernova` printed ALL TESTS PASSED having run no scenario at all.
@@ -41094,7 +41100,7 @@ function testMantleHabitat() {
     for (let i = 0; i < 60 * 90 && !lavaFloodedAt(r, spot.x, spot.y); i++) tick(r)
     assert.ok(lavaFloodedAt(r, spot.x, spot.y), 'run HB.e precondition: the basin floods')
     const burnFor = (crust, s) => {
-      r.quenchCrusts = crust ? [{ x: spot.x, y: spot.y, r: 120, t: 0, dur: 99 }] : []
+      r.quenchCrusts = crust ? [{ x: spot.x, y: spot.y, r: 120, t: 0, dur: 99, line: r.lavaTide.line, under: [] }] : []
       r.player.boatT = 0
       const d0 = r.dmgBySrc?.lava ?? 0
       for (let i = 0; i < 60 * s; i++) { r.player.x = spot.x; r.player.y = spot.y; r.player.boatT = 0; tick(r) }
@@ -41137,6 +41143,252 @@ function testMantleHabitat() {
     for (let i = 0; i < 10; i++) { const x0 = wader.x, y0 = wader.y; r.player.x = dry.x - 20; r.player.y = dry.y + 300; tick(r); waded += Math.hypot(wader.x - x0, wader.y - y0) }
     assert.ok(waded > 0.5 && waded <= 20 * 0.4 + 1, `run HB.f: a rock creature wades through a pool slowly: ${waded.toFixed(1)}px in 10 frames (20 free)`)
     console.log(`PASS run HB.f (a pool is lava): it kept its lava creature home, burned a rock one ${400 - burner.hp} and you ${poolBurn}`)
+  }
+}
+
+// run MG: THE MANTLE'S GROUND RULES between the tide, the Quench crusts and the Crack Hammer pools
+// (sim.js mantleGroundAt, src/mantle-shape.js). Each part lays its ground with the real weapon where
+// one exists, and asserts what that ground then does to a body, the boat or the brood.
+function testMantleGround() {
+  const meta = () => { const m = makeMeta(); m.dev = true; return m }
+  const sig = CHAPTERS.mantle.signature, L = sig.lavaTide
+  const boot = (seed) => { Math.random = mulberry32(seed); const r = createRun(meta(), { chapter: 'mantle', difficulty: 1 }); r.player.hp = r.player.maxHP = 1e6; return r }
+  const tick = (r, input = { x: 0, y: 0 }) => {
+    if (r.phase === 'levelup') { r.phase = 'playing'; r.levelUpChoices = [] }
+    r.player.hp = r.player.maxHP
+    stepSim(r, input, 1 / 60)
+    const ev = r.events.slice()
+    r.events.length = 0
+    return ev
+  }
+  const body = (r, x, y, habitat, extra = {}) => Object.assign(makeStatusEnemy(r, { x, y, hp: 1e6, speed: 0 }), { habitat }, extra)
+  const H = (r, x, y) => mantleHeightAt(L, r.lavaTide.seed, x, y)
+  const quiet = (r) => { r.weapons = []; r.mods.spawnMul = 0; r.enemies = [] }
+  const fire = (r, id) => { for (const w of r.weapons) r.weaponTimers[w.id] = w.id === id ? 0 : 999; tick(r) }
+  const g = (r, at) => mantleGroundAt(r, at.x, at.y)
+  // a point under the given cover line near the start (deep in a basin: flooded at every flood)
+  const basinOf = (r, cover) => {
+    const line = lavaLineFor(L, cover)
+    for (let d = 300; d < 8000; d += 40) for (let a = 0; a < 24; a++) {
+      const x = r.player.x + Math.cos(a * Math.PI / 12) * d, y = r.player.y + Math.sin(a * Math.PI / 12) * d
+      if (H(r, x, y) < line) return { x, y }
+    }
+    return null
+  }
+  // run the tide until (x, y) is under it with the flood just begun (11 s of hold ahead)
+  const toFlood = (r, at) => {
+    for (let i = 0; i < 60 * 90 && !(r.lavaTide.phase === 'flood' && lavaFloodedAt(r, at.x, at.y)); i++) { r.enemies = []; tick(r) }
+    assert.ok(r.lavaTide.phase === 'flood' && lavaFloodedAt(r, at.x, at.y), 'run MG precondition: the basin floods')
+  }
+
+  // (a) A CRUST IS CRUST ONLY WHERE IT WAS LAVA AT THE POUR. A kettle poured on a shore at the ebb; then
+  // the flood: the part that was lava stays rock, the part that was dry rock is ordinary lava (2), not
+  // a cooled patch left standing in the tide.
+  {
+    const r = boot(53001)
+    tick(r); quiet(r)
+    const line0 = r.lavaTide.line, flood = lavaLineFor(L, L.floodCover), p = r.player
+    assert.ok(r.lavaTide.phase === 'ebb', 'run MG.a precondition: the ebb')
+    let A = null, B = null
+    search: for (let d = 200; d < 8000; d += 25) for (let k = 0; k < 48; k++) {
+      const x = p.x + Math.cos(k * Math.PI / 24) * d, y = p.y + Math.sin(k * Math.PI / 24) * d
+      if (H(r, x, y) >= line0) continue
+      for (let j = 0; j < 8; j++) {
+        const bx = x + Math.cos(j * Math.PI / 4) * 50, by = y + Math.sin(j * Math.PI / 4) * 50, hb = H(r, bx, by)
+        if (hb > line0 + 1e-4 && hb < flood - 1e-4) { A = { x, y }; B = { x: bx, y: by }; break search }
+      }
+    }
+    assert.ok(A && B, 'run MG.a precondition: a shore')
+    r.weapons = [{ id: 'quenchKettle', level: 1 }]
+    p.x = A.x + 150; p.y = A.y
+    r.enemies.push(body(r, A.x, A.y, 'lava'))
+    fire(r, 'quenchKettle')
+    const c = r.quenchCrusts[r.quenchCrusts.length - 1]
+    assert.ok(c && Math.hypot(c.x - A.x, c.y - A.y) < 1 && c.line === line0, `run MG.a: the kettle pours on the lava creature and freezes the tide's line: ${JSON.stringify(c && { x: c.x - A.x, line: c.line, line0 })}`)
+    const atPour = [g(r, A), g(r, B)]
+    r.lavaTide.line = flood   // the flood comes (read, not stepped: the crust lives 4s and the climb takes 15)
+    const atFlood = [g(r, A), g(r, B)]
+    r.lavaTide.line = line0
+    assert.ok(atPour[0] === 0 && atPour[1] === 0 && atFlood[0] === 0 && atFlood[1] === 2,
+      `run MG.a: under the flood the crust holds where it was poured on lava (0) and the rock it was poured on is lava (2): at the pour ${atPour}, at the flood ${atFlood}`)
+    console.log(`PASS run MG.a (a crust is crust where it was lava): poured on a shore, the flood covers its dry half as lava (${atFlood})`)
+  }
+
+  // (b) THE BOAT REFILLS ONLY ON REAL ROCK: a crust over the tide stops the burn and the sinking, but
+  // it is not ground to beach the boat on
+  {
+    const r = boot(53002)
+    tick(r); quiet(r)
+    const spot = basinOf(r, 0.3)
+    toFlood(r, spot)
+    r.weapons = [{ id: 'quenchKettle', level: 1 }]
+    const lava = body(r, spot.x + 20, spot.y, 'lava')
+    r.enemies = [lava]
+    r.player.x = spot.x; r.player.y = spot.y
+    fire(r, 'quenchKettle')
+    r.weapons = []; r.enemies = []
+    assert.ok(r.quenchCrusts.length === 1 && g(r, spot) === 0, `run MG.b precondition: a crust under you over the tide: ${g(r, spot)}`)
+    r.player.boatT = 2
+    const d0 = r.dmgBySrc?.lava ?? 0
+    for (let i = 0; i < 60; i++) { r.enemies = []; r.player.x = spot.x; r.player.y = spot.y; tick(r) }
+    const burnt = (r.dmgBySrc?.lava ?? 0) - d0
+    assert.ok(lavaFloodedAt(r, spot.x, spot.y) && Math.abs(r.player.boatT - 2) < 1e-9 && !r.player.afloat && burnt === 0,
+      `run MG.b: on a crust over the tide the boat neither sinks nor refills, and nothing burns: boatT ${r.player.boatT} (from 2), afloat ${r.player.afloat}, burn ${burnt}`)
+    console.log(`PASS run MG.b (the boat beaches on real rock only): 1s on a crust over the tide, boatT ${r.player.boatT}, burn ${burnt}`)
+  }
+
+  // (c) LAVA CREATURES GNAW A CRUST: each one touching it ages it KETTLE_CRUST_GNAW s more per s, at
+  // most KETTLE_CRUST_GNAW_MAX of them, so even a swarm leaves it a refuge for over 1.5s; a rock
+  // creature on it gnaws nothing. The tide off so only the crust's own clock acts.
+  {
+    const saved = sig.lavaTide
+    sig.lavaTide = null
+    try {
+      const life = (n, habitat) => {
+        const r = boot(53003)
+        tick(r); quiet(r)
+        const c = { x: r.player.x + 400, y: r.player.y, r: 100, t: 0, dur: 4, line: -Infinity, under: [], seq: 1 }
+        r.quenchCrusts = [c]
+        const at = []
+        for (let i = 0; i < n; i++) at.push([c.x + Math.cos(i * 2 * Math.PI / n) * 70, c.y + Math.sin(i * 2 * Math.PI / n) * 70])
+        const bodies = at.map(([x, y]) => body(r, x, y, habitat))
+        r.enemies.push(...bodies)
+        let t = 0
+        while (r.quenchCrusts.includes(c) && t < 10) { bodies.forEach((b, i) => { b.x = at[i][0]; b.y = at[i][1] }); tick(r); t += 1 / 60 }
+        return t
+      }
+      const bare = life(0, 'lava'), two = life(2, 'lava'), swarm = life(10, 'lava'), rock = life(3, 'rock')
+      const want2 = 4 / (1 + 2 * KETTLE_CRUST_GNAW), wantMax = 4 / (1 + KETTLE_CRUST_GNAW_MAX * KETTLE_CRUST_GNAW)
+      assert.ok(Math.abs(bare - 4) < 0.05 && Math.abs(rock - 4) < 0.05, `run MG.c: an ungnawed crust lasts its 4s, a rock creature on it gnaws nothing: ${bare.toFixed(2)} / ${rock.toFixed(2)}`)
+      assert.ok(Math.abs(two - want2) < 0.05, `run MG.c: two lava creatures age it x${1 + 2 * KETTLE_CRUST_GNAW}: ${two.toFixed(2)}s, want ${want2.toFixed(2)}`)
+      assert.ok(Math.abs(swarm - wantMax) < 0.05 && swarm >= 1.5, `run MG.c: a swarm of 10 counts as ${KETTLE_CRUST_GNAW_MAX}, the crust still a refuge for ${wantMax.toFixed(2)}s: ${swarm.toFixed(2)}s`)
+      console.log(`PASS run MG.c (lava creatures gnaw a crust): 4s crust lasts ${bare.toFixed(2)}s bare, ${two.toFixed(2)}s with 2, ${swarm.toFixed(2)}s with 10, ${rock.toFixed(2)}s with 3 rock creatures`)
+    } finally { sig.lavaTide = saved }
+  }
+
+  // (d) A POOL ON THE TIDE IS THE TIDE: a rock creature in it melts, your boat floats, the pool burns
+  // no one. (A lava creature stranded on dry rock that stands in a pool IS home, a pool being lava:
+  // run HB.f.)
+  {
+    const r = boot(53004)
+    tick(r); quiet(r)
+    const spot = basinOf(r, 0.3)
+    toFlood(r, spot)
+    r.lavaPools = [{ x: spot.x, y: spot.y, r: 90, t: 0, dur: 99, dps: 40, _tick: 0, seq: 1 }]
+    const imp = body(r, spot.x - 20, spot.y, 'rock', { hp: 1e5, maxHP: 1e5 })
+    r.enemies = [imp]
+    r.player.boatT = MANTLE_BOAT_FLOAT
+    const d0 = r.dmgBySrc?.lava ?? 0
+    let melts = 0
+    for (let i = 0; i < 60; i++) { if (!imp._dead) { imp.x = spot.x - 20; imp.y = spot.y }; r.player.x = spot.x + 20; r.player.y = spot.y; melts += tick(r).filter((v) => v.type === 'melt').length }
+    const burnt = (r.dmgBySrc?.lava ?? 0) - d0
+    assert.ok(g(r, spot) === 2 && imp._dead && melts === 1, `run MG.d: a rock creature in a pool on the tide melts like any under the tide: ground ${g(r, spot)}, dead ${!!imp._dead}, ${melts} melt events`)
+    assert.ok(r.player.afloat && Math.abs(r.player.boatT - (MANTLE_BOAT_FLOAT - 1)) < 0.05 && burnt === 0,
+      `run MG.d: in a pool on the tide your boat floats you, unburned: afloat ${r.player.afloat}, boatT ${r.player.boatT}, burn ${burnt}`)
+    console.log(`PASS run MG.d (the tide wins over a pool): the rock creature melted, the boat floated (${r.player.boatT.toFixed(2)}s left), burn ${burnt}`)
+  }
+
+  // (e) NEWEST WINS between a crust and a pool, laid by the weapons themselves on dry rock (the tide
+  // off): a stamp opens a pool, a pour quenches it, a second stamp cracks the crust open again, and a
+  // rock creature standing there burns only while the newest is a pool
+  {
+    const saved = sig.lavaTide
+    sig.lavaTide = null
+    try {
+      const r = boot(53005)
+      tick(r); quiet(r)
+      r.weapons = [{ id: 'crackHammer', level: 1 }, { id: 'quenchKettle', level: 1 }]
+      const P = { x: r.player.x + 200, y: r.player.y }
+      const eel = body(r, P.x, P.y, 'lava'), imp = body(r, P.x, P.y + 12, 'rock')
+      r.enemies.push(eel, imp)
+      const pin = () => { eel.x = P.x; eel.y = P.y; imp.x = P.x; imp.y = P.y + 12 }
+      const burnOver = () => { const h0 = imp.hp; for (let i = 0; i < 30; i++) { pin(); tick(r) } return h0 - imp.hp }
+      const seen = []
+      for (const id of ['crackHammer', 'quenchKettle', 'crackHammer']) { pin(); fire(r, id); seen.push(g(r, P)) }
+      const opened = burnOver()
+      pin(); fire(r, 'quenchKettle'); seen.push(g(r, P))
+      const quenched = burnOver()
+      assert.ok(r.lavaPools.length === 2 && r.quenchCrusts.length === 2, `run MG.e precondition: two stamps and two pours on one spot: ${r.lavaPools.length} pools, ${r.quenchCrusts.length} crusts`)
+      assert.ok(seen.join() === '1,0,1,0' && opened > 0 && quenched === 0,
+        `run MG.e: newest wins, stamp / pour / stamp / pour reads ${seen} (want 1,0,1,0); the rock creature burned ${opened} under the newest pool, ${quenched} under the newest crust`)
+      console.log(`PASS run MG.e (newest wins): stamp / pour / stamp / pour = ${seen}; the pool burned ${opened}, the crust over it ${quenched}`)
+    } finally { sig.lavaTide = saved }
+  }
+
+  // (f) THE HAMMER NEVER OPENS A POOL UNDER YOU: the closest foe hugging you is skipped for the next
+  // closest, and you are not standing in lava after the stamp
+  {
+    const saved = sig.lavaTide
+    sig.lavaTide = null
+    try {
+      const r = boot(53006)
+      tick(r); quiet(r)
+      r.weapons = [{ id: 'crackHammer', level: 1 }]
+      const p = r.player
+      const hug = body(r, p.x + 30, p.y, 'rock'), far = body(r, p.x - 250, p.y, 'rock')
+      r.enemies.push(hug, far)
+      fire(r, 'crackHammer')
+      const q = r.lavaPools[0]
+      assert.ok(r.lavaPools.length === 1 && Math.hypot(q.x - far.x, q.y - far.y) < 1 && mantleGroundAt(r, p.x, p.y) === 0,
+        `run MG.f: the stamp skips the foe hugging you for the next closest, never under you: ${JSON.stringify(r.lavaPools.map((v) => [Math.round(v.x - p.x), Math.round(v.y - p.y)]))}, your ground ${mantleGroundAt(r, p.x, p.y)}`)
+      console.log(`PASS run MG.f (no pool under you): the stamp went to the foe 250px off, not the one 30px off`)
+    } finally { sig.lavaTide = saved }
+  }
+
+  // (g) A BROOD AT A FIXED SPOT OFF ITS GROUND IS DROPPED: a Splitter killed on dry rock hatches no
+  // lava creatures and no rock ones in their place; killed in the lava, its whole brood comes, in it
+  {
+    const brood = (inLava) => {
+      const r = boot(inLava ? 53008 : 53007)
+      tick(r); quiet(r)
+      let at = { x: r.player.x + 150, y: r.player.y }
+      if (inLava) { at = basinOf(r, 0.2); toFlood(r, at); r.player.x = at.x - 150; r.player.y = at.y }
+      assert.ok((g(r, at) > 0) === inLava, `run MG.g precondition: the corpse lies on ${inLava ? 'lava' : 'rock'}`)
+      r.weapons = [{ id: 'hotCoals', level: 1 }]
+      const sp = Object.assign(body(r, at.x, at.y, inLava ? 'lava' : 'rock', { hp: 1, maxHP: 1 }), { elite: true, affixes: ['splitter'] })
+      r.enemies = [sp]
+      for (let i = 0; i < 180 && !sp._dead; i++) { sp.x = at.x; sp.y = at.y; tick(r) }
+      assert.ok(sp._dead, 'run MG.g precondition: the coal kills the splitter')
+      r.weapons = []
+      for (let i = 0; i < 3; i++) tick(r)
+      return r.enemies.filter((e) => e !== sp && !e._dead).map((e) => [e.habitat, mantleGroundAt(r, e.x, e.y)])
+    }
+    const dry = brood(false), wet = brood(true)
+    assert.ok(dry.length === 0, `run MG.g: a splitter killed on dry rock hatches nothing (no lava creatures, no rock ones swapped in): ${JSON.stringify(dry)}`)
+    assert.ok(wet.length === SPLITTER_COUNT && wet.every(([h, gr]) => h === 'lava' && gr > 0), `run MG.g: killed in the lava its ${SPLITTER_COUNT} come, lava creatures in lava: ${JSON.stringify(wet)}`)
+    console.log(`PASS run MG.g (a brood off its ground is dropped): ${dry.length} hatched on rock, ${wet.length} in the lava`)
+  }
+
+  // (h) WHAT IS DRAWN IS WHAT IS SOLID: every live crust and pool is drawn (DRAW_CAPS >= LIVE_CAPS);
+  // the sim's edges are the lobed ones the renderer draws (src/mantle-shape.js), so a point inside
+  // r but past the lobe is outside, and render imports those edges instead of its own; and the
+  // player's wade tell asks mantleGroundAt (a pool on dry rock burns too)
+  {
+    for (const k of ['quenchCrusts', 'lavaPools']) assert.ok(DRAW_CAPS[k] >= LIVE_CAPS[k], `run MG.h: every live ${k} is drawn: draw cap ${DRAW_CAPS[k]} vs live cap ${LIVE_CAPS[k]}`)
+    const r = boot(53009)
+    tick(r); quiet(r)
+    const X = { x: r.player.x + 600, y: r.player.y }
+    assert.ok(g(r, X) === 0 && !lavaFloodedAt(r, X.x, X.y), 'run MG.h precondition: dry rock')
+    const q = { x: X.x, y: X.y, r: 100, t: 0, dur: 99, dps: 0, _tick: 99, seq: 1, ph: poolPhaseOf(X.x, X.y) }
+    r.lavaPools = [q]
+    const span = (f) => { let lo = [9, 0], hi = [0, 0]; for (let i = 0; i < 360; i++) { const a = i * Math.PI / 180, v = f(a); if (v < lo[0]) lo = [v, a]; if (v > hi[0]) hi = [v, a] } return [lo, hi] }
+    const [pLo, pHi] = span((a) => poolRimR(a, q.ph))
+    const at = (a, k, c = q) => ({ x: c.x + Math.cos(a) * c.r * k, y: c.y + Math.sin(a) * c.r * k })
+    const poolIn = g(r, at(pHi[1], pHi[0] - 0.02)), poolOut = g(r, at(pLo[1], pLo[0] + 0.02))
+    // a crust over the pool, newer: rock inside its lobed edge, the pool's lava just past it
+    const big = Object.assign({}, q, { r: 400 })
+    r.lavaPools = [big]
+    const c = { x: X.x, y: X.y, r: 100, t: 0, dur: 99, line: -Infinity, under: [big], seq: 2, ...crustShapeOf(X.x, X.y) }
+    r.quenchCrusts = [c]
+    const [cLo, cHi] = span((a) => crustEdgeR(a - c.rot, c.shape))
+    const crustIn = g(r, at(cHi[1], cHi[0] - 0.02, c)), crustOut = g(r, at(cLo[1], cLo[0] + 0.02, c))
+    assert.ok(pHi[0] > 1.02 && pLo[0] < 0.9 && poolIn === 1 && poolOut === 0, `run MG.h: a pool's edge is its lobed rim (${pLo[0].toFixed(2)}..${pHi[0].toFixed(2)} r): inside the widest lobe ${poolIn}, past the narrowest ${poolOut}`)
+    assert.ok(cHi[0] > 1.02 && cLo[0] < 0.9 && crustIn === 0 && crustOut === 1, `run MG.h: a crust's edge is its lobed shape (${cLo[0].toFixed(2)}..${cHi[0].toFixed(2)} r): inside the widest lobe ${crustIn}, past the narrowest ${crustOut}`)
+    const fx = readFileSync(new URL('../src/toon/mantle-fx.js', import.meta.url), 'utf8')
+    assert.ok(/from '\.\.\/mantle-shape\.js'/.test(fx) && !/function edgeR\(|const poolRim =/.test(fx), 'run MG.h: mantle-fx draws the sim edges (imports src/mantle-shape.js, defines none of its own)')
+    const toon = readFileSync(new URL('../src/toon.js', import.meta.url), 'utf8')
+    assert.ok(/!p\.afloat && mantleGroundAt\(run, p\.x, p\.y\) > 0/.test(toon), "run MG.h: the player's wade tell in src/toon.js asks mantleGroundAt")
+    console.log(`PASS run MG.h (drawn = solid): caps ${DRAW_CAPS.quenchCrusts}/${LIVE_CAPS.quenchCrusts} crusts and ${DRAW_CAPS.lavaPools}/${LIVE_CAPS.lavaPools} pools; lobed edges pool ${pLo[0].toFixed(2)}..${pHi[0].toFixed(2)} r, crust ${cLo[0].toFixed(2)}..${cHi[0].toFixed(2)} r`)
   }
 }
 
