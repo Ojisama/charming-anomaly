@@ -19,7 +19,7 @@ import { FOIL_FRAG as HOLO_FOIL_FRAG, CAVERN_FLOOR_FRAG as HOLO_CAVERN_FRAG } fr
 import { ensurePrecision as pixiEnsurePrecision } from '../node_modules/pixi.js/lib/rendering/renderers/gl/shader/program/preprocessors/ensurePrecision.mjs'
 import { magmaGroundAt, magmaRiverAt, magmaCooledAt, magmaHotAt } from '../src/sim.js'
 import { lavaFloodedAt, mantleHeightAt, lavaLineFor, mantleGroundAt } from '../src/sim.js'
-import { MANTLE_GROUND_STEP, MANTLE_START_DRY, MANTLE_COLD_VS_LAVA, MANTLE_FIRE_VS_ROCK, MANTLE_STRAND_DIE_T, MANTLE_STRAND_STUCK_T, MANTLE_STRAND_DMG_MUL, MANTLE_MELT_T, MANTLE_BOAT_FLOAT, MANTLE_BOAT_REFILL } from '../src/config.js'
+import { MANTLE_GROUND_STEP, MANTLE_START_DRY, MANTLE_COLD_VS_LAVA, MANTLE_FIRE_VS_ROCK, MANTLE_STRAND_DIE_T, MANTLE_STRAND_STUCK_T, MANTLE_STRAND_DMG_MUL, MANTLE_STRAND_SLOW, MANTLE_MELT_T, MANTLE_BOAT_FLOAT, MANTLE_BOAT_REFILL } from '../src/config.js'
 import {
   SHOP, shopCost, refundValue, REFUND_RATE, MAX_SHOP_LEVEL, lineMax, CURRENT_RESIST_FLOOR, SHOP_FAMILY, SHOP_COST_CAP, SHOP_COST_CAP_DEFAULT,
   PASSIVES, RARITIES, RARITY_ORDER, RARITY_WEIGHTS, UPGRADE_RARITY, resistFrac, PASSIVE_RESIST_K, passiveEffectText,
@@ -40999,7 +40999,8 @@ function testMantleHabitat() {
       if (e._dead) gem = r.gems.slice(g0)[0]
     }
     const early = moved.slice(2, 20).reduce((s, v) => s + v, 0), late = moved.slice(Math.ceil(60 * MANTLE_STRAND_STUCK_T) + 2, Math.ceil(60 * MANTLE_STRAND_STUCK_T) + 60).reduce((s, v) => s + v, 0)
-    assert.ok(early > 0.5 && late < 1e-6, `run HB.c: a stranded lava creature crawls, then sticks after ${MANTLE_STRAND_STUCK_T}s: ${early.toFixed(2)}px early, ${late.toFixed(4)}px late`)
+    // free, it would cover 18 frames x 120/60 px = 36px; stranded it crawls at MANTLE_STRAND_SLOW at most
+    assert.ok(early > 0.5 && early <= 36 * MANTLE_STRAND_SLOW + 0.5 && late < 1e-6, `run HB.c: a stranded lava creature crawls (at most x${MANTLE_STRAND_SLOW}), then sticks after ${MANTLE_STRAND_STUCK_T}s: ${early.toFixed(2)}px early (36 free), ${late.toFixed(4)}px late`)
     assert.ok(e._dead && crumbled === 1 && gem && gem.xp === 3, `run HB.c: it crumbles after ${MANTLE_STRAND_DIE_T}s and pays its xp: dead ${!!e._dead}, ${crumbled} crumble events, gem ${JSON.stringify(gem)}`)
     // the amp, as an effect: two bodies under one kettle splash, one stranded, the tide off so the
     // stranded clock is the fixture's own
