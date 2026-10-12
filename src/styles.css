@@ -1892,6 +1892,10 @@ body {
 .page--verso .detail-name { align-items: center; text-align: center; }
 .page--verso .detail-name b { font-size: 0.95rem; white-space: normal; }
 .page--verso .detail-name small { white-space: normal; }
+/* half a spread is ~160px and The Mantle's nine faces at 25px are 225: overlap them like stacked
+   avatars, and wrap if a cast ever outgrows even that */
+.page--verso .detail-cast { max-width: 100%; flex-wrap: wrap; justify-content: center; gap: 2px 0; padding-left: 6px; }
+.page--verso .detail-face { margin-left: -6px; }
 /* Half the width means the pips must DIVIDE that width rather than be sized in px: a fixed 34px
    pip is 170px of a 168px page, so five of them wrapped a sixth line onto the spread and the panel
    came out TALLER than the stack it replaced (measured 273px vs 255px). `flex: 1 1 0` cannot wrap
