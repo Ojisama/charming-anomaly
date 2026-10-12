@@ -3144,20 +3144,20 @@ export const WEAPONS = {
       { dmg: 70, interval: 1.6, count: 3, r: 96 },
     ],
   },
-  // ---- Book 3, The Mantle's four. All auto-fire; the lava tide under the fight is the fifth. ----
-  // Match Flick: a lit match flicked at the nearest foe (run.bullets, weapon 'match'). It sets what it
-  // hits ALIGHT: the ignite contract field (e.ignite / igniteDps), burn = the ignite's potency.
-  matchFlick: {
-    name: 'Match Flick',
-    desc: 'Flicks a lit match at the nearest foe. It sets them alight.',
-    icon: '🔥', rarity: 'normal',
-    // balance_decision : starter, a hit plus a burn, unplayed 2026-10-12
+  // ---- Book 3, The Mantle's four. All auto-fire, none aimed: each one is a way to use the lava. ----
+  // Quench Kettle (the starter): pours water round you on a timer (run.quenchCrusts). Lava inside the
+  // splash cools into a basalt CRUST for crustDur s: dry rock for your burn, your boat and the crowd.
+  quenchKettle: {
+    name: 'Quench Kettle',
+    desc: 'Pours water around you. The lava it splashes cools into a crust you can stand on.',
+    icon: '🫖', rarity: 'normal',
+    // balance_decision : starter AoE round you, unplayed 2026-10-12
     levels: [
-      { dmg: 13, interval: 0.6, count: 1, speed: 540, pierce: 1, burn: 1.2 },
-      { dmg: 15, interval: 0.56, count: 2, speed: 550, pierce: 1, burn: 1.3 },
-      { dmg: 18, interval: 0.52, count: 2, speed: 570, pierce: 2, burn: 1.4 },
-      { dmg: 22, interval: 0.47, count: 3, speed: 590, pierce: 2, burn: 1.6 },
-      { dmg: 27, interval: 0.42, count: 3, speed: 620, pierce: 3, burn: 1.8 },
+      { dmg: 16, interval: 1.7, radius: 105, crustDur: 4.0 },
+      { dmg: 19, interval: 1.6, radius: 112, crustDur: 4.3 },
+      { dmg: 23, interval: 1.5, radius: 120, crustDur: 4.6 },
+      { dmg: 28, interval: 1.4, radius: 130, crustDur: 5.0 },
+      { dmg: 34, interval: 1.3, radius: 142, crustDur: 5.5 },
     ],
   },
   // Hot Coals: a red-hot coal tossed at the nearest foe (run.bullets, weapon 'coal'). It BOUNCES on
@@ -3174,33 +3174,35 @@ export const WEAPONS = {
       { dmg: 31, interval: 0.68, count: 3, speed: 520, bounces: 6 },
     ],
   },
-  // Steam Whistle: a whistle blast rings out round you (run.novas, look 'steam') and SHOVES the crowd
-  // outward — off the dry hill you stand on and into the lava round it.
-  steamWhistle: {
-    name: 'Steam Whistle',
-    desc: 'A whistle blast rings out around you and shoves them away, into the lava.',
-    icon: '📯', rarity: 'normal',
-    // balance_decision : big shove so it reads, unplayed 2026-10-12
+  // Crack Hammer: stamps the ground open under the thickest knot of ROCK creatures in reach
+  // (run.lavaPools). Each pool is lava for duration s: it melts rock creatures (fire), lava ones swim
+  // in it, and it burns you too.
+  crackHammer: {
+    name: 'Crack Hammer',
+    desc: 'Cracks the ground open under the rock creatures. Its lava melts them, and burns you too.',
+    icon: '🔨', rarity: 'normal',
+    // balance_decision : pools under the crowd, unplayed 2026-10-12
     levels: [
-      { dmg: 12, interval: 1.5, radius: 190, knockback: 420 },
-      { dmg: 15, interval: 1.42, radius: 205, knockback: 450 },
-      { dmg: 18, interval: 1.34, radius: 220, knockback: 480 },
-      { dmg: 22, interval: 1.25, radius: 240, knockback: 520 },
-      { dmg: 28, interval: 1.15, radius: 265, knockback: 560 },
+      { dmg: 22, interval: 2.4, pools: 1, r: 60, duration: 3.0 },
+      { dmg: 26, interval: 2.25, pools: 1, r: 64, duration: 3.3 },
+      { dmg: 31, interval: 2.1, pools: 2, r: 68, duration: 3.6 },
+      { dmg: 37, interval: 1.95, pools: 2, r: 74, duration: 4.0 },
+      { dmg: 45, interval: 1.8, pools: 3, r: 80, duration: 4.5 },
     ],
   },
-  // Pitchfork: thrown at the nearest foe, it flies out and comes back to you (run.boomerangs, weapon
-  // 'pitchfork': the boomerang's own flight), skewering whatever it crosses both ways.
-  pitchfork: {
-    name: 'Pitchfork',
-    desc: 'Throws a pitchfork that flies out and comes back to you.',
-    icon: '🔱', rarity: 'rare',
+  // Lava Bellows: a rolling LAVA WAVE pumped the way you walk (run.novas, a sector with look
+  // 'lavaWave' and habitatSplit). It splashes rock creatures with fire and shoves lava ones back.
+  lavaBellows: {
+    name: 'Lava Bellows',
+    desc: 'Rolls a wave of lava the way you walk. It burns rock creatures and shoves lava ones back.',
+    icon: '🌊', rarity: 'normal',
+    // balance_decision : a wide wave so it lands while kiting, unplayed 2026-10-12
     levels: [
-      { dmg: 20, interval: 1.25, count: 1, speed: 460, range: 290 },
-      { dmg: 24, interval: 1.15, count: 1, speed: 480, range: 310 },
-      { dmg: 28, interval: 1.05, count: 2, speed: 500, range: 330 },
-      { dmg: 34, interval: 0.95, count: 2, speed: 520, range: 350 },
-      { dmg: 42, interval: 0.85, count: 3, speed: 540, range: 380 },
+      { dmg: 15, interval: 1.25, radius: 240, arc: 2.0, knockback: 160 },
+      { dmg: 18, interval: 1.18, radius: 252, arc: 2.1, knockback: 170 },
+      { dmg: 22, interval: 1.1, radius: 266, arc: 2.2, knockback: 185 },
+      { dmg: 27, interval: 1.0, radius: 282, arc: 2.3, knockback: 200 },
+      { dmg: 33, interval: 0.9, radius: 300, arc: 2.45, knockback: 220 },
     ],
   },
 }
@@ -4612,12 +4614,11 @@ export const WEAPON_MODS = {
     deepFissure: { name: 'Deep Fissure', desc: 'how long its lava stays open', icon: '⌛', base: 0.30, kind: 'pct' },
   },
   // ---- Book 3, The Mantle ----
-  matchFlick: {
-    strikeAnywhere: { name: 'Strike Anywhere', desc: 'match damage', icon: '💥', base: 0.30, kind: 'pct' },
-    matchbook:      { name: 'Matchbook',       desc: 'extra match(es) per flick', icon: '🔷', kind: 'tier' },
-    slowBurn:       { name: 'Slow Burn',       desc: 'how hard a lit foe burns', icon: '🔥', base: 0.40, kind: 'pct' },
-    quickStrike:    { name: 'Quick Strike',    desc: 'match rate', icon: '⏩', base: 0.25, kind: 'pct' },
-    longMatch:      { name: 'Long Match',      desc: 'match pierce', icon: '🎯', base: 1, kind: 'flat', maxPicks: PIERCE_MAX_PICKS },
+  quenchKettle: {
+    bigKettle:  { name: 'Big Kettle',  desc: 'splash size', icon: '📏', base: 0.20, kind: 'pct' },
+    thickCrust: { name: 'Thick Crust', desc: 'how long its crust holds', icon: '⌛', base: 0.30, kind: 'pct' },
+    iceWater:   { name: 'Ice Water',   desc: 'splash damage', icon: '💥', base: 0.30, kind: 'pct' },
+    quickBoil:  { name: 'Quick Boil',  desc: 'pour rate', icon: '⏩', base: 0.25, kind: 'pct' },
   },
   hotCoals: {
     whiteHot:    { name: 'White Hot',    desc: 'coal damage', icon: '💥', base: 0.30, kind: 'pct' },
@@ -4626,18 +4627,19 @@ export const WEAPON_MODS = {
     quickStoke:  { name: 'Quick Stoke',  desc: 'coal rate', icon: '⏩', base: 0.25, kind: 'pct' },
     cinders:     { name: 'Cinders',      desc: 'a coal sets what it hits alight', icon: '🔥', base: 0.5, kind: 'pct' },
   },
-  steamWhistle: {
-    shrill:       { name: 'Shrill Note',   desc: 'whistle damage', icon: '💥', base: 0.30, kind: 'pct' },
-    farWhistle:   { name: 'Far Whistle',   desc: 'whistle reach', icon: '📏', base: 0.20, kind: 'pct' },
-    fullSteam:    { name: 'Full Steam',    desc: 'how far it shoves', icon: '💨', base: 0.30, kind: 'pct' },
-    quickWhistle: { name: 'Quick Whistle', desc: 'whistle rate', icon: '⏩', base: 0.25, kind: 'pct' },
+  crackHammer: {
+    heavyHead:  { name: 'Heavy Head',  desc: 'hammer damage', icon: '💥', base: 0.30, kind: 'pct' },
+    aftershock: { name: 'Aftershock',  desc: 'extra pool(s) per stamp', icon: '🔷', kind: 'tier' },
+    wideCrack:  { name: 'Wide Crack',  desc: 'lava pool size', icon: '📏', base: 0.20, kind: 'pct' },
+    deepCrack:  { name: 'Deep Crack',  desc: 'how long its lava pools stay open', icon: '⌛', base: 0.30, kind: 'pct' },
+    quickStamp: { name: 'Quick Stamp', desc: 'stamp rate', icon: '⏩', base: 0.25, kind: 'pct' },
   },
-  pitchfork: {
-    sharpTines: { name: 'Sharp Tines',  desc: 'pitchfork damage', icon: '💥', base: 0.30, kind: 'pct' },
-    longHaft:   { name: 'Long Haft',    desc: 'how far it flies', icon: '📏', base: 0.20, kind: 'pct' },
-    twoForks:   { name: 'Spare Fork',   desc: 'extra pitchfork(s) per throw', icon: '🔷', kind: 'tier' },
-    quickToss:  { name: 'Quick Toss',   desc: 'throw rate', icon: '⏩', base: 0.25, kind: 'pct' },
-    wideTines:  { name: 'Wide Tines',   desc: 'how wide it skewers', icon: '🔱', base: 0.30, kind: 'pct' },
+  lavaBellows: {
+    moltenCrest:  { name: 'Molten Crest',  desc: 'wave damage', icon: '💥', base: 0.30, kind: 'pct' },
+    longRoll:     { name: 'Long Roll',     desc: 'how far the wave rolls', icon: '📏', base: 0.20, kind: 'pct' },
+    broadWave:    { name: 'Broad Wave',    desc: 'wave width', icon: '🪭', base: 0.25, kind: 'pct' },
+    heavySurge:   { name: 'Heavy Surge',   desc: 'how hard it shoves lava creatures', icon: '💨', base: 0.30, kind: 'pct' },
+    quickBellows: { name: 'Quick Bellows', desc: 'wave rate', icon: '⏩', base: 0.25, kind: 'pct' },
   },
 }
 export const MAX_WEAPON_MOD_PICKS = 5
@@ -4669,7 +4671,7 @@ export const WEAPON_RATE_MODS = {
   echoPulse: 'rapidClick', stalactite: 'dripRate',
   pickaxe: 'quickSwing', dynamite: 'shortFuse', minecart: 'greasedAxle', lantern: 'quickWick',
   slagLadle: 'quickLadle', obsidianShards: 'quickKnap', bellows: 'quickPump', volcanicBomb: 'quickFuse',
-  matchFlick: 'quickStrike', hotCoals: 'quickStoke', steamWhistle: 'quickWhistle', pitchfork: 'quickToss',
+  quenchKettle: 'quickBoil', hotCoals: 'quickStoke', crackHammer: 'quickStamp', lavaBellows: 'quickBellows',
   // chum and bilge are absent DELIBERATELY: neither carries a rate mod, and this table's own
   // header says a weapon with none simply does not appear here. Naming one that does not exist
   // would put a phantom row in the pause build sheet's cadence line.
@@ -4738,6 +4740,8 @@ export const STAT_KEYS = [
   // Silt Veil then emits clouds + radius + every = 3; Ballast dmg + r + weights + every = 4.
   { key: 'clouds', label: 'Clouds' },
   { key: 'weights', label: 'Weights' },
+  // Crack Hammer's lava pools per stamp: the shared `count` reads 'Projectiles', the wrong noun.
+  { key: 'pools', label: 'Pools' },
   { key: 'jetDur', label: 'Runs for' },
   // Deliberately NOT the shared `duration` key: that one reads 'Burns for' for the beam weapons,
   // and a shell crust does not burn. Barnacles emit dmg, count, jumps, crustDur + every = 5,
@@ -5191,11 +5195,12 @@ export const HYDRANT_JET_PUSH = 300    // px/s^2 outward on enemies inside a liv
                                       // would defeat itself; this is a soft wall, not a repulsor.
 // balance_decision : sim safety net on player entities, oldest go past it (lag) 2026-10-02
 //  - blooms counts only soft clouds: enemy ink and every bilge slick are never evicted or counted
-export const LIVE_CAPS = { blooms: 600, bullets: 3000, homingShots: 1000, lures: 200, holes: 150 }
+export const LIVE_CAPS = { blooms: 600, bullets: 3000, homingShots: 1000, lures: 200, holes: 150, quenchCrusts: 40, lavaPools: 60 }
 // RENDER-ONLY: render.js draws at most this many (the newest); the rest still hit, unseen.
-export const DRAW_CAPS = { blooms: 120, bullets: 500, homingShots: 150, lures: 40, holes: 30, novas: 50, shardTrails: 200 }
+export const DRAW_CAPS = { blooms: 120, bullets: 500, homingShots: 150, lures: 40, holes: 30, novas: 50, shardTrails: 200, quenchCrusts: 8 }
 //  - shardTrails is the prism shards given a light-trail (render.js drawShardTrails)
 //  - novas is PER LOOK (breaker, bubble): each is ~25-30 shapes redrawn every frame
+//  - quenchCrusts (src/toon/mantle-fx.js): each crust is a few hundred basalt cells redrawn every frame
 export const ZONE_MAX_LIVE = 12     // cap on simultaneous zones. A fast cast rate plus count can
                                       // otherwise carpet the street with live hydrants.
 // Hard ceiling on streams per hydrant. The render rig allocates this many stream sprites per
@@ -6795,16 +6800,21 @@ export const BOMB_FLIGHT = 0.7           // s a bomb is in the air
 export const BOMB_LAVA_R = 0.7           // the lava it opens, as a fraction of the blast radius
 export const BOMB_LAVA_T = 3.2           // s that lava stays open
 // ---- Book 3, The Mantle: weapon geometry (balance lives in WEAPONS[].levels) ----------------------
-export const MATCH_FAN = 0.16            // rad between matches of one flick
-export const MATCH_LIFE = 0.95           // s of flight
-export const MATCH_R = 8                 // px hit radius
 export const COAL_FAN = 0.3              // rad between coals of one toss
 export const COAL_LIFE = 1.0             // s of flight (a bounce grants at least STAR_CHAIN_EXTRA_LIFE more)
 export const COAL_R = 9                  // px hit radius
 export const COAL_IGNITE = 1             // ignite potency of a coal at one full pick of Cinders
-export const STEAM_LIFE = 0.32           // s for the whistle's ring to reach its reach
-export const PITCHFORK_HIT_R = 18        // px, the tines' hit radius added to a body's
-export const PITCHFORK_FAN = 0.3         // rad, half-spread when several forks are thrown
+export const HAMMER_RANGE = 380          // px from you the hammer cracks the ground open
+export const HAMMER_POOL_DPS = 0.6       // a pool's burn per s on a rock creature, as a fraction of the stamp's dmg
+export const HAMMER_POOL_TICK = 0.25     // s between a pool's burn ticks
+export const HAMMER_POOL_PLAYER_DPS = 3  // hp per s a pool burns YOU (x the chapter's enemy damage)
+export const HAMMER_POOL_MIRE = 0.4      // x a rock creature's movement while it stands in a pool
+export const LAVA_WAVE_LIFE = 0.5        // s for the bellows' wave to roll out to its reach
+export const LAVA_WAVE_SHOVE_MUL = 2.5   // x the wave's knockback on a lava creature (which it never hurts)
+// THE TYPE RULE: water hurts lava creatures more, fire hurts rock creatures more (sim.js heatMul).
+// balance_decision : one multiplier each way, unplayed 2026-10-12
+export const MANTLE_COLD_VS_LAVA = 1.5   // x Quench Kettle's damage on a lava creature
+export const MANTLE_FIRE_VS_ROCK = 1.5   // x fire damage (Crack Hammer, Lava Bellows, Hot Coals) on a rock creature
 
 
 // EVERY REFILL FIELD IN BOOK 2 DRAWS DOWN, NOT JUST THE SHELF'S (owner, 2026-08-18: "in all zones of
@@ -9792,8 +9802,16 @@ CHAPTERS.magma = {
 // ridges and basins (a pure height field of (x, y, the run's seed)), and the lava lies in it at a
 // LEVEL that breathes (signature.lavaTide, run by stepLavaTide in sim.js): it ebbs to a few pools,
 // swells at its shores, then floods the basins until only the hills and ridges stand dry, and ebbs
-// again, on a slow beat. Lava burns whatever stands in it: you a little (hurt src 'lava'), the crowd
-// hard — lead the chasers into a basin as it floods. Flyers pass over it. It never stops you moving.
+// again, on a slow beat. It never stops you moving.
+// THE TWO HABITATS (roster `habitat`, sim.js's habitat section): rock creatures walk the dry ground
+// only, steer round every lava edge and MELT when the tide covers them (they die and pay their xp);
+// lava creatures swim the lava only, reach you only when you are in it or at its shore, and when the
+// ebb leaves one on dry rock it is STRANDED: it crusts over, slows to a stop, takes more damage and
+// crumbles after a while. Low tide, the rock creatures hunt you; high tide, the lava ones do. A body
+// with no habitat (another chapter's, a test's) just burns in the lava.
+// THE BASALT BOAT: when the tide covers you a boat of basalt forms under you and floats you unburned
+// for a while, sinking as it goes; reach rock (or a Quench crust) before it goes under, or the lava
+// burns you (hurt src 'lava'). It refills on rock. Flyers pass over everything.
 // The look is a 1930s rubber-hose cartoon seen from above (render.toon; src/toon.js owns every drawing).
 // THE MANTLE'S GROUND GRID: the ground height is sampled every MANTLE_GROUND_STEP world px and blended
 // in between, by the sim (sim.js mantleHeightAt) AND by the painter (src/toon/world.js CHUNK_STEP), so
@@ -9801,14 +9819,28 @@ CHAPTERS.magma = {
 export const MANTLE_GROUND_STEP = 8
 // The run starts on ground that stays dry until the lava covers this share of the map (any flood, Flood Tide included).
 export const MANTLE_START_DRY = 0.9
+// balance_decision : first habitat and boat numbers, unplayed 2026-10-12
+//  - the strand clock waits while a toad is mid-leap out of the lava: it starts at the landing
+export const MANTLE_STRAND_STUCK_T = 1.5   // s stranded on rock until a lava creature cannot move at all
+export const MANTLE_STRAND_SLOW = 0.35     // x its movement the moment it is stranded (falls to 0 by STUCK_T)
+export const MANTLE_STRAND_DIE_T = 5       // s stranded until it crumbles (it dies and pays its xp)
+export const MANTLE_STRAND_DMG_MUL = 2     // x every damage a stranded lava creature takes
+export const MANTLE_MELT_T = 0.6           // s a rock creature lasts under the tide before it melts
+export const MANTLE_BOAT_FLOAT = 6         // s the basalt boat floats you on the tide
+export const MANTLE_BOAT_REFILL = 1        // s of float the boat regains per s on rock or crust
+export const MANTLE_SPAWN_TRIES = 24       // bearings tried per ring when seating a creature in its habitat
 
 CHAPTERS.mantle = {
   name: 'The Mantle', tagline: 'the lava breathes', icon: '🌋',
-  weapons: ['matchFlick', 'hotCoals', 'steamWhistle', 'pitchfork'], starter: 'matchFlick',
+  weapons: ['quenchKettle', 'hotCoals', 'crackHammer', 'lavaBellows'], starter: 'quenchKettle',
+  // habitat: 'rock' | 'lava' (THE TWO HABITATS above). A spawn the ground cannot seat (no lava on the
+  // ring for a lava creature, no dry rock for a rock one) comes in as one of the other habitat.
   roster: [
-    { id: 'emberImp',        archetype: 'normal', name: 'Ember Imp',        hpMul: 0.75, speedMul: 0.95, radiusMul: 0.85, weight: 3, flags: [] },
-    { id: 'magmaToad',       archetype: 'fast',   name: 'Magma Toad',       hpMul: 0.85, speedMul: 1.0, flags: ['pounce'], dmgMul: 0.75 },
-    { id: 'basaltGolem',     archetype: 'tank',   name: 'Basalt Golem',     hpMul: 1.6, speedMul: 0.7, radiusMul: 1.15, flags: ['unshakeable'] },
+    { id: 'emberImp',        archetype: 'normal', name: 'Ember Imp',        hpMul: 0.75, speedMul: 0.95, radiusMul: 0.85, weight: 3, flags: [], habitat: 'rock' },
+    // the toad may LEAP out of the lava at the shore; a landing on rock strands it
+    { id: 'magmaToad',       archetype: 'fast',   name: 'Magma Toad',       hpMul: 0.85, speedMul: 1.0, flags: ['pounce'], dmgMul: 0.75, habitat: 'lava' },
+    { id: 'magmaEel',        archetype: 'fast',   name: 'Magma Eel',        hpMul: 0.8, speedMul: 1.15, radiusMul: 0.9, flags: ['weave'], habitat: 'lava' },
+    { id: 'basaltGolem',     archetype: 'tank',   name: 'Basalt Golem',     hpMul: 1.6, speedMul: 0.7, radiusMul: 1.15, flags: ['unshakeable'], habitat: 'rock' },
     // The elite. eliteOnly: every elite in this chapter is a dragon, and it flies over the lava.
     { id: 'brimstoneDragon', archetype: 'fast',   name: 'Brimstone Dragon', hpMul: 2.5, speedMul: 1.0, radiusMul: 1.25, flags: ['weave', 'flying'], eliteOnly: true },
   ],

@@ -2240,13 +2240,36 @@ function generateWells(sig) {
  *     the ground under lava; line = the height under which ground is lava (sim.js mantleHeightAt /
  *     lavaFloodedAt / lavaLineFor — the ground's height is a pure function of (x, y, seed), not
  *     stored). turnIn = s until the phase changes. Private: _tick, _pT, _carry (the burn clocks).
- *     Lava burns the player (hurt src 'lava', a dot) and every walking body (hazard damage); a
- *     'flying' body takes none.
- *   Bullets: weapon 'match' (Match Flick) and 'coal' (Hot Coals, chains via _chainsLeft); either may
- *     carry _ignite (a potency: applyIgnite on a hit, so the burn is the e.ignite contract field).
- *   Novas: look 'steam' (Steam Whistle's ring; it shoves outward). Boomerangs: weapon 'pitchfork'.
+ *     Lava burns the player (hurt src 'lava', a dot, once the boat below has sunk) and every walking
+ *     body WITH NO HABITAT (hazard damage); a 'flying' body takes none.
+ *   THE GROUND (sim.js mantleGroundAt(run, x, y)): 0 dry rock, 1 a Crack Hammer pool, 2 the tide. A
+ *     Quench crust is rock over either. Every habitat rule, the boat and the player's burn read it.
+ *   quenchCrusts: [{ x, y, r, t, dur }] — Quench Kettle's basalt crusts, rock while t < dur (capped by
+ *     LIVE_CAPS.quenchCrusts). lavaPools: [{ x, y, r, t, dur, dps, _tick }] — Crack Hammer's lava
+ *     pools, lava while t < dur (LIVE_CAPS.lavaPools): they burn every walking non-lava body in them
+ *     (dps per s, fire) and the player (HAMMER_POOL_PLAYER_DPS, hurt src 'lava'; the boat does not
+ *     float on a pool). Both are new arrays because they are GROUND, read by every habitat query,
+ *     not hazards on the player (run.pools) nor weapon zones. _poolCarry: the pool burn's fraction.
+ *   player.boatT / boatMax / afloat: THE BASALT BOAT. boatT s of float left (boatMax =
+ *     MANTLE_BOAT_FLOAT); while the tide covers you it drains and you are not burned (afloat true);
+ *     at 0 the boat has gone under and the lava burns. On rock or crust it refills at
+ *     MANTLE_BOAT_REFILL s per s. Undefined until the tide's first step.
+ *   Enemy contract fields (render reads them): habitat 'rock' | 'lava' | null (the roster's; null =
+ *     the old rule, it burns in lava); ground 0 | 1 | 2 (mantleGroundAt where it stands, published
+ *     after it moved); strandT s a lava creature has lain on dry rock (0 at home: it crawls at
+ *     MANTLE_STRAND_SLOW falling to a stop at MANTLE_STRAND_STUCK_T, takes MANTLE_STRAND_DMG_MUL x
+ *     damage, crumbles at MANTLE_STRAND_DIE_T); meltT s a rock creature has stood under the TIDE
+ *     (melts at MANTLE_MELT_T; a pool burns it instead). Private: _hx, _hy, _hg, _hin (where it stood
+ *     before this step's moves, and whether that was home).
+ *   Bullets: weapon 'coal' (Hot Coals, chains via _chainsLeft; may carry _ignite, a potency for
+ *     applyIgnite, so the burn is the e.ignite contract field; _heat 'fire' is the type rule).
+ *   Novas: look 'lavaWave' (Lava Bellows' sector; heat 'fire', habitatSplit: a lava creature is
+ *     shoved, never hurt). Any nova may carry heat 'fire' | 'cold' (sim.js heatMul).
  *   Events: {type:'tideTurn', rising, level, x, y} the tide turned (rising = it starts to climb, else
  *     to drain). Drawn by src/toon.js; sounded in SFX_FOR_EVENT (twice a cycle).
+ *     {type:'melt', x, y, r, rosterId} a rock creature melted under the tide; {type:'crumble', x, y,
+ *     r, rosterId} a stranded lava creature crumbled. Both drawn by src/toon/mantle-fx.js; no sound of
+ *     their own (each is a kill, and the kill sounds).
  *
  * THE SHELF's three natives add NO run.* array either, on the same argument. Each is an existing
  * entity carrying one extra field, and that field is what the renderer branches on:
@@ -3035,6 +3058,7 @@ export function createRun(meta, opts = {}) {
     cracks: [], slagPools: [], magmaLobs: [],
     // Book 3 The Mantle (sim.js's Mantle section): the lava tide's state, made on the first step.
     lavaTide: null,
+    quenchCrusts: [], lavaPools: [],   // the Mantle weapons' ground (Quench Kettle, Crack Hammer)
     sandbars: [],          // Book 2 surf: streamed dry patches (signature.bars) — see streamSandbars
     _sandCellI: null,      // streaming cursor, independent of the obstacle/eddy/trap/shaft cursors
     _sandCellJ: null,
