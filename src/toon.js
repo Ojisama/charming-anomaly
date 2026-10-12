@@ -88,29 +88,45 @@ export function bakeCreature(id, elite) {
   return { frames, thumb: paintThumb(id, elite || id === 'brimstoneDragon'), baseR: M.baseR, lean: 0, upright: false, poseOf: M.poseOf ?? null, faceDir: null, turnRate: null }
 }
 // THE PLAYER'S KEYLINE: its silhouette (no ground shadow) grown by a couple of px and filled with ink,
-// drawn under it. A fat outer contour, the way a cel character is cut out from the crowd round it, so
-// the digger reads at a glance over a dragon's wing or a pile of imps.
+// drawn under it: a thick-thin brush contour with a thin, broken margin of paper round it, so the
+// digger reads at a glance over a dragon's wing or a pile of imps without looking cut out.
 function keyline(f) {
   const [x0, y0, x1, y1] = PLAYER_BOX
   const bare = mkCanvas((x1 - x0) * RES, (y1 - y0) * RES), bx = bare.getContext('2d')
   bx.scale(RES, RES); bx.translate(-x0, -y0); paintPlayer(bx, f, true)
-  // grown silhouette of the bare body by radius k (in world px), filled with one colour
-  const grow = (k0, k1, col) => {
+  // grown silhouette of the bare body by radius k (in world px), filled with one colour. The radius
+  // wanders round the body the way a brush's pressure does (thick on the shadow side, lower right,
+  // thin toward the light, and uneven everywhere), so it reads as hand ink, never as a cut-out.
+  const grow = (k0, k1, col, ph) => {
     const g = mkCanvas(bare.width, bare.height), c = g.getContext('2d')
-    // fat on the shadow side (lower right), thin toward the light, and a little uneven all round: a brush
-    for (let i = 0; i < 32; i++) {
-      const a = (i / 32) * TAU, R = RES * (k0 + k1 * Math.max(0, Math.cos(a - 0.98)) + 0.35 * Math.sin(a * 5 + f * 1.7))
+    for (let i = 0; i < 40; i++) {
+      const a = (i / 40) * TAU
+      const wob = 0.3 * Math.sin(a * 3 + ph + f * 1.7) + 0.22 * Math.sin(a * 7 + ph * 2.3) + 0.12 * Math.sin(a * 13 + ph * 0.7)
+      const R = RES * Math.max(0.3, k0 + k1 * Math.max(0, Math.cos(a - 0.98)) + wob)
       c.drawImage(bare, Math.cos(a) * R, Math.sin(a) * R)
     }
     c.globalCompositeOperation = 'source-in'
     c.fillStyle = col; c.fillRect(0, 0, g.width, g.height)
     return g
   }
-  // a cel cut out of the crowd: a fat ink contour, and round it a thin cream paper margin (the colour
-  // no creature of this chapter wears), so the digger reads at a glance even inside a clump of imps
+  // the margin of paper the inker left round the cel: thin, uneven, and broken in places where the
+  // brush of the background paint came right up to the ink
+  const margin = grow(2.0, 1.1, PAL.paper ?? '#f3e6c4', 4.1)
+  {
+    const m = margin.getContext('2d'), w = margin.width, h = margin.height
+    m.globalCompositeOperation = 'destination-out'
+    let sd = 977 + f * 131
+    const rnd = () => { sd = (sd * 16807) % 2147483647; return sd / 2147483647 }
+    for (let i = 0; i < 9; i++) {
+      m.globalAlpha = 0.55 + 0.45 * rnd()
+      m.beginPath(); m.ellipse(rnd() * w, rnd() * h, RES * (2 + 4 * rnd()), RES * (1.5 + 3 * rnd()), rnd() * TAU, 0, TAU); m.fill()
+    }
+    m.globalAlpha = 1
+  }
+  // the ink: a thick-thin brush contour hugging the silhouette
   const cv = mkCanvas(bare.width, bare.height), c = cv.getContext('2d')
-  c.drawImage(grow(3.4, 1.8, PAL.paper ?? '#f3e6c4'), 0, 0)
-  c.drawImage(grow(1.9, 1.7, PAL.ink ?? '#1e1513'), 0, 0)
+  c.globalAlpha = 0.9; c.drawImage(margin, 0, 0); c.globalAlpha = 1
+  c.drawImage(grow(1.0, 1.6, PAL.ink ?? '#1e1513', 0.0), 0, 0)
   return cv
 }
 // ---- the renderer --------------------------------------------------------------------------------
