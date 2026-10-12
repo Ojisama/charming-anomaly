@@ -18102,6 +18102,8 @@ function stepBoats(run, L, pg, dt) {
   for (const b of run.boats) {
     if (b.ridden) { ride = b; continue }
     b.vx = 0; b.vy = 0
+    // an empty boat floats slowly back up
+    if (b.floatT < B.float) b.floatT = Math.min(B.float, b.floatT + dt * B.float / B.rise)
     if ((b.x - p.x) ** 2 + (b.y - p.y) ** 2 > 1800 * 1800) continue
     if (!b.moved) {
       // on its rope: it rides the tide at the shore, or lies beached at its post

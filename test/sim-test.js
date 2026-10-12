@@ -41229,8 +41229,8 @@ function testMantleGround() {
     const burnt = (r.dmgBySrc?.lava ?? 0) - d0
     assert.ok(g(r, r.player) === 0 && lavaFloodedAt(r, r.player.x, r.player.y) && !r.player.afloat && !boat.ridden && burnt === 0,
       `run MG.b: on a crust over the tide you have stepped off and nothing burns: ground ${g(r, r.player)}, afloat ${r.player.afloat}, ridden ${boat.ridden}, burn ${burnt}`)
-    assert.ok(r.boats.includes(boat) && g(r, boat) === 2 && Math.hypot(boat.x - lastLava.x, boat.y - lastLava.y) < 4 && boat.floatT === float0,
-      `run MG.b: the boat stays moored on the lava where you stepped off, sinking no further: ground ${g(r, boat)}, ${Math.hypot(boat.x - lastLava.x, boat.y - lastLava.y).toFixed(1)}px from your last lava step, floatT ${boat.floatT} (from ${float0})`)
+    assert.ok(r.boats.includes(boat) && g(r, boat) === 2 && Math.hypot(boat.x - lastLava.x, boat.y - lastLava.y) < 4 && boat.floatT >= float0,
+      `run MG.b: the boat stays moored on the lava where you stepped off, sinking no further (it floats back up): ground ${g(r, boat)}, ${Math.hypot(boat.x - lastLava.x, boat.y - lastLava.y).toFixed(1)}px from your last lava step, floatT ${boat.floatT} (from ${float0})`)
     console.log(`PASS run MG.b (a crust is rock to a boat): stepped off onto the crust, burn ${burnt}, the boat moored on the lava with ${boat.floatT.toFixed(2)}s of float`)
   }
 
@@ -41560,7 +41560,7 @@ function testMantleBoats() {
     console.log(`PASS run MO.b (boarding stops the burn): 3s in the lava burns ${bare} bare, ${aboard} aboard; the boat under you every frame`)
 
     // (c) ROCK PUTS YOU OFF IT: stepping onto dry rock leaves the boat moored where you stepped off,
-    // and an empty boat stops sinking
+    // and an empty boat floats slowly back up (boats.rise s from gone under to full)
     {
       const r = rB, boat = boatB
       let dry = null
@@ -41571,8 +41571,8 @@ function testMantleBoats() {
       const float0 = boat.floatT
       for (let i = 0; i < 60; i++) { tick(r) }
       assert.ok(!r.player.afloat && !boat.ridden && r.boats.includes(boat), `run MO.c: on rock you are off the boat: afloat ${r.player.afloat}, ridden ${boat.ridden}`)
-      assert.ok(Math.hypot(boat.x - last.x, boat.y - last.y) < 1e-9 && mantleGroundAt(r, boat.x, boat.y) === 2 && boat.floatT === float0,
-        `run MO.c: it stays moored on the lava where you stepped off and sinks no further: ${Math.hypot(boat.x - last.x, boat.y - last.y).toFixed(2)}px off, floatT ${boat.floatT} (${float0})`)
+      assert.ok(Math.hypot(boat.x - last.x, boat.y - last.y) < 1e-9 && mantleGroundAt(r, boat.x, boat.y) === 2 && Math.abs(boat.floatT - Math.min(B.float, float0 + B.float / B.rise)) < 0.02 && boat.floatT > float0,
+        `run MO.c: it stays moored on the lava where you stepped off and floats back up at float/rise a second: ${Math.hypot(boat.x - last.x, boat.y - last.y).toFixed(2)}px off, floatT ${boat.floatT} (${float0})`)
       console.log(`PASS run MO.c (rock puts you off): the boat moored at the shore with ${boat.floatT.toFixed(2)}s of float, ${Math.hypot(r.player.x - boat.x, r.player.y - boat.y).toFixed(0)}px from you`)
     }
 

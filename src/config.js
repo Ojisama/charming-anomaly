@@ -9842,18 +9842,19 @@ CHAPTERS.mantle = {
   // habitat: 'rock' | 'lava' (THE TWO HABITATS above). A spawn the ground cannot seat (no lava on the
   // ring for a lava creature, no dry rock for a rock one) comes in as one of the other habitat; a brood at a fixed spot off its ground is dropped.
   // balance_decision : roster 20% tankier, dragon untouched 2026-10-12
+  // balance_decision : more lava creatures: imp 3->2, ray 1->2, jelly 0.6->1.5 2026-10-12
   roster: [
-    { id: 'emberImp',        archetype: 'normal', name: 'Ember Imp',        hpMul: 0.9, speedMul: 0.95, radiusMul: 0.85, weight: 3, flags: [], habitat: 'rock' },
+    { id: 'emberImp',        archetype: 'normal', name: 'Ember Imp',        hpMul: 0.9, speedMul: 0.95, radiusMul: 0.85, weight: 2, flags: [], habitat: 'rock' },
     // the toad may LEAP out of the lava at the shore; a landing on rock strands it
     { id: 'magmaToad',       archetype: 'fast',   name: 'Magma Toad',       hpMul: 1.02, speedMul: 1.0, flags: ['pounce'], dmgMul: 0.75, habitat: 'lava' },
     { id: 'magmaEel',        archetype: 'fast',   name: 'Magma Eel',        hpMul: 0.96, speedMul: 1.15, radiusMul: 0.9, flags: ['weave'], habitat: 'lava' },
     // balance_decision : first guess, the lava's tank, unplayed 2026-10-12
     //  - minT matches the tank gate: a swap from a rock spawn (mantleSeat) would bring it early
-    { id: 'lavaRay',         archetype: 'tank',   name: 'Lava Ray',         hpMul: 1.68, speedMul: 0.75, radiusMul: 1.25, flags: [], habitat: 'lava', minT: 140 },
+    { id: 'lavaRay',         archetype: 'tank',   name: 'Lava Ray',         hpMul: 1.68, speedMul: 0.75, radiusMul: 1.25, weight: 2, flags: [], habitat: 'lava', minT: 140 },
     // group [min, max]: an ordinary spawn of it brings that many, side by side in the same lava
     // balance_decision : cheap stinging swarm, three or four at a time 2026-10-12
     //  - xpMul is per jelly: a group of four pays 2.4 drones' xp
-    { id: 'emberJelly',      archetype: 'normal', name: 'Ember Jelly',      hpMul: 0.48, speedMul: 0.9, radiusMul: 0.7, xpMul: 0.6, dmgMul: 0.6, weight: 0.6, flags: [], habitat: 'lava', group: [3, 4] },
+    { id: 'emberJelly',      archetype: 'normal', name: 'Ember Jelly',      hpMul: 0.48, speedMul: 0.9, radiusMul: 0.7, xpMul: 0.6, dmgMul: 0.6, weight: 1.5, flags: [], habitat: 'lava', group: [3, 4] },
     { id: 'basaltGolem',     archetype: 'tank',   name: 'Basalt Golem',     hpMul: 1.92, speedMul: 0.7, radiusMul: 1.15, flags: ['unshakeable'], habitat: 'rock' },
     // The elite. eliteOnly: every elite in this chapter is a dragon, and it flies over the lava.
     { id: 'brimstoneDragon', archetype: 'fast',   name: 'Brimstone Dragon', hpMul: 2.5, speedMul: 1.0, radiusMul: 1.25, flags: ['weave', 'flying'], eliteOnly: true },
@@ -9884,6 +9885,7 @@ CHAPTERS.mantle = {
         chance: 0.85,    // share of cells holding a mooring (if its ground has a shore at its tide)
         r: 30,           // px, you board a floating boat within this of its middle
         float: 7,        // s a ridden boat floats before it goes under (it only sinks while ridden)
+        rise: 10,        // s an empty boat takes to float all the way back up from going under
         respawn: 45,     // s until a sunk boat's mooring holds a fresh one
         rescan: 4,       // s between re-scans of the moorings round you (so a respawn shows up)
         bump: 0.5,       // share of a lava creature's overlap that shoves an empty boat loose of its rope

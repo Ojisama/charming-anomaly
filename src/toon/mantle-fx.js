@@ -501,6 +501,7 @@ export function createMantleFx({ ground, boat, top }) {
   boat.addChild(boatUnderG, backL, boatInG, frontL, boatBandG)
   top.addChild(bootG, frontTopL, boatBandTop, strandLayer, topG, toolLayer, topG2)
   const boatFace = new WeakMap()   // boat -> the way it faces (1 bow right, -1 left), kept between frames
+  const boatVis = new WeakMap()    // boat -> { ph / st: its smoke's and its boil's own clocks, bk: 0 afloat .. 1 beached, eased }
   const bursts = []   // { kind: 'melt' | 'crumble' | 'boatSink', x, y, r, t, seed }
   // the kettle's newest throw, off its shoot event: it is drawn on every throw, crust or no crust
   let pour = null      // { x, y, r, t }
@@ -1066,14 +1067,17 @@ export function createMantleFx({ ground, boat, top }) {
         else if (face === undefined) face = Math.cos(b.heading || 0) >= 0 ? 1 : -1
         boatFace.set(b, face)
         const s = clamp01(1 - b.floatT / fullFloat)   // 0 fresh, 1 gone under
+        let vis = boatVis.get(b)
+        if (!vis) { vis = { ph: 0, st: 0, bk: b.afloat ? 0 : 1 }; boatVis.set(b, vis) }
+        vis.ph += dt * (0.55 + 0.9 * s)   // the smoke chugs faster as it goes under, on its own clock so it never jumps
+        vis.bk = b.afloat ? Math.max(0, vis.bk - dt / 0.6) : Math.min(1, vis.bk + dt / 0.6)
+        const bk = vis.bk
         const ph = (b.seed % 997) * 0.37
         const X = b.x, Y0 = b.y + BOAT_DY
-        let bob = 0, rot, sq = 0
-        if (b.afloat) {
-          const w = Math.sin(t * 2.6 + ph)
-          bob = w * (1.4 + 1.6 * s); sq = w * 0.035
-          rot = Math.sin(t * 1.7 + ph) * (0.035 + 0.08 * s) + face * s * 0.12 + (s > 0.8 ? Math.sin(t * 19) * (s - 0.8) * 0.12 : 0)
-        } else rot = face * 0.16   // beached: listing over on the rock
+        // afloat it bobs and lists as it sinks; beached it leans over on the rock (eased between the two)
+        const w = Math.sin(t * 2.6 + ph)
+        const bob = w * (1.4 + 1.6 * s) * (1 - bk), sq = w * 0.035 * (1 - bk)
+        const rot = (Math.sin(t * 1.7 + ph) * (0.035 + 0.08 * s) + face * s * 0.12 + (s > 0.8 ? Math.sin(t * 19) * (s - 0.8) * 0.12 : 0)) * (1 - bk) + face * 0.16 * bk
         const Y = Y0 + bob, sx = face * (1 + sq), sy = 1 - sq, cr = Math.cos(rot), sr = Math.sin(rot)
         const W = (lx, ly) => [X + lx * sx * cr - ly * sy * sr, Y + lx * sx * sr + ly * sy * cr]
         const Wf = (pts) => { const o = []; for (const [lx, ly] of pts) { const q = W(lx, ly); o.push(q[0], q[1]) } return o }
@@ -1108,7 +1112,6 @@ export function createMantleFx({ ground, boat, top }) {
         // the two pieces: the back always under you, the front over your legs when you ride it
         const back = boatBack.next(P.boatBack), front = (ridden ? boatFrontTop : boatFront).next(P.boatFront)
         for (const sp of [back, front]) { sp.position.set(X, Y); sp.scale.set(sx, sy); sp.rotation = rot }
-        if (!b.afloat) continue
         // the lava in the hold once it pours in over the rim, rising to a full tub
         if (s > 0.4) {
           const k = 0.35 + 0.65 * smooth(0.4, 0.95, s), cx = 2, cy = -1.5
@@ -1119,7 +1122,7 @@ export function createMantleFx({ ground, boat, top }) {
         }
         // the lava up its near side, to the waterline (a little higher the lower it sits)
         const wl = 21 - 9 * s
-        const band = clipBelow(BOAT_WET, wl, (x) => Math.sin(x * 0.17 + t * 5 + ph) * 1.3)
+        const band = bk < 1 ? clipBelow(BOAT_WET, wl, (x) => Math.sin(x * 0.17 + t * 5 + ph) * 1.3) : []
         if (band.length > 2) {
           const G = ridden ? boatBandTop : boatBandG
           G.poly(Wf(band)).fill({ color: C.lava })
@@ -1134,9 +1137,9 @@ export function createMantleFx({ ground, boat, top }) {
           }
         }
         // smoke off its stack while it floats, chugging faster as it goes under
-        if (s < 0.92) {
+        if (s < 0.92 && bk < 1) {
           for (let i = 0; i < 2; i++) {
-            const u = (clock * (0.55 + 0.9 * s) + i / 2 + ph) % 1
+            const u = (vis.ph + i / 2 + ph) % 1
             const [mx, my] = W(BOAT_STACK[0], BOAT_STACK[1])
             const sm = tools.next(P.smoke[(i + (b.seed & 1)) % 3])
             sm.position.set(mx + Math.sin(u * 5 + i) * 3 - face * u * 8, my - u * 30)
@@ -1144,10 +1147,12 @@ export function createMantleFx({ ground, boat, top }) {
           }
         }
         // near the end: steam and open bubbles boiling up round it, faster and faster
-        if (s > 0.6) {
-          const u2 = clamp01((s - 0.6) / 0.4), rate = 0.7 + 2.3 * u2, nb = 3 + Math.round(5 * u2)
+        const u2 = clamp01((s - 0.6) / 0.4)
+        vis.st += dt * (0.7 + 2.3 * u2)
+        if (s > 0.6 && bk < 1) {
+          const nb = 3 + Math.round(5 * u2)
           for (let i = 0; i < nb; i++) {
-            const q = (clock * rate + i / nb) % 1, a = rh(i, 3, 1) * TAU, rr = 34 + 16 * rh(i, 3, 2)
+            const q = (vis.st + i / nb) % 1, a = rh(i, 3, 1) * TAU, rr = 34 + 16 * rh(i, 3, 2)
             const bx = X + Math.cos(a) * rr, by = Y0 + 12 + Math.sin(a) * rr * 0.45 - q * 46
             if (i % 3 === 0) { const st = tools.next(P.steam[i % 6]); st.position.set(bx, by - 10); st.scale.set(0.32 * (0.5 + q) * (1 - smooth(0.7, 1, q))) }
             else { const bb = tools.next(P.bubble); bb.position.set(bx, by); bb.scale.set(0.7 + 0.6 * rh(i, 3, 3)); bb.alpha = 1 - smooth(0.75, 1, q) }
