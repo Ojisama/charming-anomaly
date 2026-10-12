@@ -3145,7 +3145,7 @@ export const WEAPONS = {
     ],
   },
   // ---- Book 3, The Mantle's four. All auto-fire, none aimed: each one is a way to use the lava. ----
-  // Quench Kettle (the starter): pours water round you on a timer (run.quenchCrusts). Lava inside the
+  // Quench Kettle: throws water at the nearest lava creature (else the nearest lava) on a timer (run.quenchCrusts). Lava inside the
   // splash cools into a basalt CRUST for crustDur s: dry rock for your burn, your boat and the crowd.
   quenchKettle: {
     name: 'Quench Kettle',
@@ -9837,7 +9837,7 @@ export const MANTLE_SPAWN_TRIES = 24       // bearings tried per ring when seati
 
 CHAPTERS.mantle = {
   name: 'The Mantle', tagline: 'the lava breathes', icon: '🌋',
-  weapons: ['quenchKettle', 'hotCoals', 'crackHammer', 'lavaBellows'], starter: 'quenchKettle',
+  weapons: ['quenchKettle', 'hotCoals', 'crackHammer', 'lavaBellows'], starter: 'hotCoals',
   // habitat: 'rock' | 'lava' (THE TWO HABITATS above). A spawn the ground cannot seat (no lava on the
   // ring for a lava creature, no dry rock for a rock one) comes in as one of the other habitat; a brood at a fixed spot off its ground is dropped.
   roster: [

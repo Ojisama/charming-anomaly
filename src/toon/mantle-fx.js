@@ -399,6 +399,8 @@ export function createMantleFx({ ground, boat, top }) {
   boat.addChild(boatUnderG, boatLayer)
   top.addChild(strandLayer, topG, toolLayer, topG2)
   const bursts = []   // { kind: 'melt' | 'crumble', x, y, r, t, seed }
+  // the kettle's newest throw, off its shoot event: it is drawn on every throw, crust or no crust
+  let pour = null      // { x, y, r, t }
   const waves = new Map()   // nova -> its trail { x, y, angle, arc, maxR, life, k, endAt, seed }
   let clock = 0
 
@@ -471,8 +473,9 @@ export function createMantleFx({ ground, boat, top }) {
     low.begin(); low.end(); tools.begin(); tools.end()
   }
   return {
-    reset() { bursts.length = 0; waves.clear(); for (const g of [groundG, boatUnderG, topG, topG2]) g.clear(); hideAll() },
+    reset() { pour = null; bursts.length = 0; waves.clear(); for (const g of [groundG, boatUnderG, topG, topG2]) g.clear(); hideAll() },
     event(e) {
+      if (e.type === 'shoot' && e.weapon === 'quenchKettle') { pour = { x: e.tx ?? e.x, y: e.ty ?? e.y, r: e.maxR || 100, t: 0 }; return false }
       if (e.type !== 'melt' && e.type !== 'crumble') return false
       bursts.push({ kind: e.type, x: e.x, y: e.y, r: e.r || 14, t: 0, seed: Math.floor(Math.abs(e.x * 7 + e.y * 13)) })
       if (bursts.length > 80) bursts.shift()
@@ -481,6 +484,7 @@ export function createMantleFx({ ground, boat, top }) {
     // tide = { L, T } (lavaTideOf, or the dry fallback with line -1); onScreen(x, y, r); t = animT
     sync(run, dt, tide, onScreen, t) {
       clock += dt
+      if (pour) pour.t += dt
       for (const g of [groundG, boatUnderG, topG, topG2]) g.clear()
       const P = art()
       low.begin(); tools.begin()
@@ -606,7 +610,6 @@ export function createMantleFx({ ground, boat, top }) {
       // tips, the pour held, a squash back. The water is THROWN: an arc from the spout to the target
       // point (here the crust's centre, which is under the digger), landing in a splash crown that
       // flings many small drops; it works for any target out to ~200px.
-      const pour = draw.length ? draw[draw.length - 1] : null
       if (pour && pour.t < 0.72) {
         const k = pour.t, tx = pour.x, ty = pour.y + 6
         // the kettle leans toward its target: it holds on the side of the digger the throw goes to

@@ -18191,7 +18191,7 @@ function stepMantleGround(run, dt) {
   return false
 }
 
-// -- Quench Kettle (The Mantle starter) ------------------------------------------------------------
+// -- Quench Kettle ------------------------------------------------------------------------------------
 // Throws water at the closest lava creature in KETTLE_RANGE, else at the nearest lava (under you
 // first): a crust of radius `radius` there for crustDur s (lava under it is rock), and the splash
 // hits everything in it (water: x MANTLE_COLD_VS_LAVA on a lava creature). No lava in range: it

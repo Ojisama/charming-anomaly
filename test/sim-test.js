@@ -40793,7 +40793,7 @@ function testMantle() {
   // (d) the chapter's own anomaly and mutator
   assert.deepStrictEqual(MUTATORS.highWater.chapters, ['mantle'], 'run MT.d: High Water is The Mantle\'s own mutator')
   assert.strictEqual(BOOKS.burrow.chapters[BOOKS.burrow.chapters.length - 1], 'mantle', 'run MT.d: The Mantle is the last rung of Burrow')
-  assert.strictEqual(CHAPTERS['mantle'].starter, 'quenchKettle', 'run MT.d: The Mantle starts you on the Quench Kettle')
+  assert.strictEqual(CHAPTERS['mantle'].starter, 'hotCoals', 'run MT.d: The Mantle starts you on Hot Coals')
   assert.strictEqual(ANOMALIES.floodTide.chapter, 'mantle', 'run MT.d: Flood Tide is The Mantle\'s own anomaly')
   const tideRange = (opts, anomalies) => {
     const r = boot(41004, opts)
