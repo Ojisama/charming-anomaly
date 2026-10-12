@@ -40829,16 +40829,17 @@ function testMantle() {
     {
       // MT.e2: Crack Hammer opens its pool under the non-lava bodies, never under a lava creature, and
       // its fire hurts a rock creature x MANTLE_FIRE_VS_ROCK
-      const { r, bodies } = arena('crackHammer', () => [[200, 0], [200, 30], [-200, 0]])
+      // the lava knot is the DENSER one (three against two), so a hammer that ignored habitat would crack there
+      const { r, bodies } = arena('crackHammer', () => [[200, 0], [200, 30], [-200, 0], [-200, 25], [-225, 0]])
       noCrit(r)
-      bodies[0].habitat = 'rock'; bodies[2].habitat = 'lava'
+      bodies[0].habitat = 'rock'; for (const b of bodies.slice(2)) b.habitat = 'lava'
       r.weaponTimers.crackHammer = 0
       step(r, 1)
-      const [rock, none, lava] = taken(bodies)
+      const [rock, none, lava, lava2, lava3] = taken(bodies)
       const near = (b) => r.lavaPools.some((q) => Math.hypot(q.x - b.x, q.y - b.y) <= q.r)
       assert.ok(r.lavaPools.length >= 1 && near(bodies[0]) && !near(bodies[2]),
         `run MT.e2: the hammer cracks the ground under the rock creature and not the lava one: ${JSON.stringify(r.lavaPools.map((q) => [Math.round(q.x - r.player.x), Math.round(q.y - r.player.y)]))}`)
-      assert.ok(none > 0 && lava === 0 && Math.abs(rock / none - MANTLE_FIRE_VS_ROCK) < 0.05,
+      assert.ok(none > 0 && lava + lava2 + lava3 === 0 && Math.abs(rock / none - MANTLE_FIRE_VS_ROCK) < 0.05,
         `run MT.e2: the stamp's fire hurts a rock creature x${MANTLE_FIRE_VS_ROCK} a habitat-less one, and reaches no lava creature 400px off: ${rock} / ${none} / ${lava}`)
       const before = taken(bodies)[0]
       step(r, 60)
@@ -40960,16 +40961,20 @@ function testMantleHabitat() {
     const spot = basinOf(r)
     assert.ok(spot, 'run HB.b precondition: a basin near the start')
     const e = body(r, spot.x, spot.y, 'rock')
+    // ...and a lava creature beside it, at home in the same lava: the tide never burns it
+    const swim = body(r, spot.x + 40, spot.y, 'lava')
     r.enemies.push(e)
     let coveredAt = null, diedAt = null, melts = 0, gem = null
-    for (let i = 0; i < 60 * 90 && !e._dead; i++) {
-      e.x = spot.x; e.y = spot.y
+    for (let i = 0; i < 60 * 90 && (!e._dead || r.time < diedAt + 3); i++) {
+      e.x = spot.x; e.y = spot.y; swim.x = spot.x + 40; swim.y = spot.y
       const g0 = r.gems.length
       const ev = tick(r)
       if (coveredAt === null && lavaFloodedAt(r, spot.x, spot.y)) coveredAt = r.time
+      if (coveredAt !== null && !r.enemies.includes(swim)) r.enemies.push(swim)
       melts += ev.filter((v) => v.type === 'melt').length
-      if (e._dead) { diedAt = r.time; gem = r.gems.slice(g0).find((g) => Math.hypot(g.x - spot.x, g.y - spot.y) < 1) }
+      if (e._dead && diedAt === null) { diedAt = r.time; gem = r.gems.slice(g0).find((g) => Math.hypot(g.x - spot.x, g.y - spot.y) < 1) }
     }
+    assert.ok(!swim._dead && swim.hp === 400 && !(swim.strandT > 0), `run HB.b: a lava creature in the same lava is at home, never burned: hp ${swim.hp}, strandT ${swim.strandT}`)
     assert.ok(coveredAt !== null && diedAt !== null && diedAt - coveredAt <= MANTLE_MELT_T + 0.1 && diedAt - coveredAt >= MANTLE_MELT_T - 0.1,
       `run HB.b: a rock creature under the tide melts after ${MANTLE_MELT_T}s: covered at ${coveredAt}, dead at ${diedAt}`)
     assert.ok(melts === 1 && gem && gem.xp === 3, `run HB.b: the melt is announced once and drops the body's own xp: ${melts} melt events, gem ${JSON.stringify(gem)}`)
