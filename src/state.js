@@ -2230,6 +2230,24 @@ function generateWells(sig) {
  *     burned on lava (throttled). Drawn by src/pixel.js (render.js's magmaEvent); none has a sound
  *     but bombLand.
  *
+ * BOOK 3, THE MANTLE (sim.js's Mantle section; every drawing is src/toon.js's, reached through
+ * render.js's thin toon delegation — CHAPTERS.mantle.render.toon).
+ *   lavaTide: null until the first step of a Mantle run with signature.lavaTide on (null again with it
+ *     off), then { level, phase, t, dur, cycle, swell, line, cover, rising, turnIn, seed } — THE LAVA
+ *     TIDE. level 0 = the ebb, 1 = the flood (High Water never lets it below its ebb). phase 'ebb' |
+ *     'rising' | 'flood' | 'falling', t s into it of dur. swell 0..1: the shores swelling, the tell
+ *     before a climb (ramps over the last swellT s of the ebb, 1 while it rises). cover = the share of
+ *     the ground under lava; line = the height under which ground is lava (sim.js mantleHeightAt /
+ *     lavaFloodedAt / lavaLineFor — the ground's height is a pure function of (x, y, seed), not
+ *     stored). turnIn = s until the phase changes. Private: _tick, _pT, _carry (the burn clocks).
+ *     Lava burns the player (hurt src 'lava', a dot) and every walking body (hazard damage); a
+ *     'flying' body takes none.
+ *   Bullets: weapon 'match' (Match Flick) and 'coal' (Hot Coals, chains via _chainsLeft); either may
+ *     carry _ignite (a potency: applyIgnite on a hit, so the burn is the e.ignite contract field).
+ *   Novas: look 'steam' (Steam Whistle's ring; it shoves outward). Boomerangs: weapon 'pitchfork'.
+ *   Events: {type:'tideTurn', rising, level, x, y} the tide turned (rising = it starts to climb, else
+ *     to drain). Drawn by src/toon.js; sounded in SFX_FOR_EVENT (twice a cycle).
+ *
  * THE SHELF's three natives add NO run.* array either, on the same argument. Each is an existing
  * entity carrying one extra field, and that field is what the renderer branches on:
  *   - Sunspear: a run.lobs entry carrying `column: true`, whose `fromX/fromY` ARE its `tx/ty` — so
@@ -3015,6 +3033,8 @@ export function createRun(meta, opts = {}) {
     gas: [], gasLit: [], sticks: [], picks: [], carts: [], lanternR: 0, booms: [],
     // Book 3 The Magma (sim.js's Magma section): the crust's cracks, and the weapons' own entities.
     cracks: [], slagPools: [], magmaLobs: [],
+    // Book 3 The Mantle (sim.js's Mantle section): the lava tide's state, made on the first step.
+    lavaTide: null,
     sandbars: [],          // Book 2 surf: streamed dry patches (signature.bars) — see streamSandbars
     _sandCellI: null,      // streaming cursor, independent of the obstacle/eddy/trap/shaft cursors
     _sandCellJ: null,
