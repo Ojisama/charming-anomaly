@@ -4421,9 +4421,13 @@ function spawnEnemy(run, opts = {}) {
   // THE MANTLE: a habitat creature is seated on its own ground (lava or rock) on the ring, or swapped
   // for one of the other habitat when the ground offers none (mantleSeat). Before the stats, which
   // a swap re-derives from the new entry's archetype.
-  if (roster?.habitat && opts.x === undefined && !opts.rosterId && habitatOn(run)) {
-    const seat = mantleSeat(run, roster, x, y)
-    if (seat) {
+  // A spawn at a FIXED spot (a Splitter's or a spawner's brood) keeps its spot, and comes in as one
+  // of the other habitat when that spot is not its ground.
+  if (roster?.habitat && !opts.rosterId && habitatOn(run)) {
+    const seat = opts.x === undefined ? mantleSeat(run, roster, x, y)
+      : (mantleGroundAt(run, x, y) > 0) === (roster.habitat === 'lava') ? null
+      : { roster: otherHabitatEntry(run, roster), swapped: true, x, y }
+    if (seat && seat.roster) {
       x = seat.x; y = seat.y
       if (seat.swapped) { roster = seat.roster; type = ARCHETYPE_TYPE[roster.archetype] ?? type; base = ENEMIES[type] }
     }
@@ -4560,7 +4564,7 @@ function stepStragglers(run) {
     if (dx * dx + dy * dy < dropSq) continue
     const a = heading + (Math.random() - 0.5) * KITE_AHEAD_ARC
     // The Mantle: a habitat creature is recycled onto its own ground ahead, or left where it is
-    const seat = e.habitat && habitatOn(run) ? findHabitatSpot(run, a, spawnD, e.habitat === 'lava') : null
+    const seat = e.habitat && habitatOn(run) ? findHabitatSpot(run, a, spawnD, e.habitat === 'lava', [1, 1.15, 1.3]) : null
     if (e.habitat && habitatOn(run) && !seat) continue
     e.x = seat ? seat.x : p.x + Math.cos(a) * spawnD
     e.y = seat ? seat.y : p.y + Math.sin(a) * spawnD
@@ -17883,7 +17887,7 @@ function tidePhaseDur(L, T, phase, run) {
 }
 function stepLavaTide(run, dt) {
   const L = lavaTideSpec(run)
-  if (!L) { if (run.lavaTide) run.lavaTide = null; return false }
+  if (!L) { if (run.lavaTide) { run.lavaTide = null; run.player.afloat = false } return false }
   const p = run.player
   let T = run.lavaTide
   if (!T) {
@@ -17935,7 +17939,9 @@ function stepLavaTide(run, dt) {
   // gone under, a steady dot burn (the fraction banked so a gentle burn is never rounded away). Rock
   // and Quench crust refill the boat.
   p.boatMax = MANTLE_BOAT_FLOAT
-  if (mantleGroundAt(run, p.x, p.y) === 2) {
+  if (!(p.boatT >= 0)) p.boatT = p.boatMax   // a run whose tide was laid before the boat existed
+  const pg = mantleGroundAt(run, p.x, p.y)
+  if (pg === 2) {
     if (p.boatT > 0) {
       p.boatT = Math.max(0, p.boatT - dt)
       p.afloat = true
@@ -17952,8 +17958,9 @@ function stepLavaTide(run, dt) {
       }
     }
   } else {
+    // only rock (or a crust) refills it: a hammer's pool is lava, it just never carries the boat
     p.afloat = false
-    p.boatT = Math.min(p.boatMax, (p.boatT ?? p.boatMax) + MANTLE_BOAT_REFILL * dt)
+    if (pg === 0) p.boatT = Math.min(p.boatMax, p.boatT + MANTLE_BOAT_REFILL * dt)
     T._pT = 0
   }
   return false
@@ -18055,9 +18062,11 @@ function habitatKill(run, e) {
 }
 // A spot on the ring round the player (dist, starting at bearing a0 and fanning out both ways, then
 // on two wider rings) whose ground is lava (wantLava) or rock. null when the ground offers none.
-function findHabitatSpot(run, a0, dist, wantLava) {
+// `rings`: the distance multiples tried. The recycler stays inside KITE_DROP_MUL, or the body it
+// re-seats would be a straggler again the moment you move.
+function findHabitatSpot(run, a0, dist, wantLava, rings = [1, 1.3, 1.7]) {
   const p = run.player, N = MANTLE_SPAWN_TRIES
-  for (const k of [1, 1.3, 1.7]) for (let i = 0; i < N; i++) {
+  for (const k of rings) for (let i = 0; i < N; i++) {
     const a = a0 + (i % 2 ? 1 : -1) * Math.ceil(i / 2) * (2 * Math.PI / N)
     const x = p.x + Math.cos(a) * dist * k, y = p.y + Math.sin(a) * dist * k
     if ((mantleGroundAt(run, x, y) > 0) === wantLava) return { x, y }
@@ -18072,12 +18081,17 @@ function mantleSeat(run, roster, x, y) {
   const a0 = Math.atan2(y - p.y, x - p.x)
   const at = findHabitatSpot(run, a0, dist, roster.habitat === 'lava')
   if (at) return { roster, swapped: false, ...at }
+  const alt = otherHabitatEntry(run, roster)
+  if (!alt) return null
+  const at2 = findHabitatSpot(run, a0, dist, alt.habitat === 'lava')
+  return at2 ? { roster: alt, swapped: true, ...at2 } : null
+}
+// one ordinary roster entry of the OTHER habitat (weighted), or null when the chapter has none
+function otherHabitatEntry(run, roster) {
   const others = CHAPTERS[run.chapter].roster.filter((r) => r.habitat && r.habitat !== roster.habitat && !r.eliteOnly && !r.formationOnly && (r.minT ?? 0) <= run.time)
   if (others.length === 0) return null
   let t = Math.random() * others.reduce((s, r) => s + (r.weight ?? 1), 0)
-  const alt = others.find((r) => (t -= r.weight ?? 1) <= 0) ?? others[others.length - 1]
-  const at2 = findHabitatSpot(run, a0, dist, alt.habitat === 'lava')
-  return at2 ? { roster: alt, swapped: true, ...at2 } : null
+  return others.find((r) => (t -= r.weight ?? 1) <= 0) ?? others[others.length - 1]
 }
 
 // ---- the lava pools and the crusts (the weapons' ground) ----------------------------------------

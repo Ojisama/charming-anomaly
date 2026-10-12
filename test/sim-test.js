@@ -40918,7 +40918,9 @@ function testMantleHabitat() {
   }
   // (a) CONFINEMENT, in a real run (spawner, chasers, the tide cycling), on a kiting rig: no creature
   // that started a step on its own ground ends it on the other one while its start is still home.
-  // Counted per body-step; a toad's leap out of the lava is the one licensed exit (it strands).
+  // Counted per body-step, on the steps the tide line stood still (ebb and flood holds): while it
+  // moves, it sweeps the shore under a creature after the hold has run, which is the tide catching
+  // it and not the creature walking. A toad's leap out of the lava is the one licensed exit.
   {
     const r = boot(52001)
     r.weapons = []
@@ -40929,7 +40931,9 @@ function testMantleHabitat() {
       const before = new Map()
       for (const e of r.enemies) if (e.habitat && !e._dead) before.set(e, { x: e.x, y: e.y, home: (mantleGroundAt(r, e.x, e.y) > 0) === (e.habitat === 'lava'), leap: e._pounceState === 'leap' })
       ang += 0.004
+      const line0 = r.lavaTide?.line
       tick(r, { x: Math.cos(ang), y: Math.sin(ang) })
+      const still = r.lavaTide && r.lavaTide.line === line0
       for (const e of r.enemies) {
         if (!e.habitat || e._dead) continue
         if (!seen.has(e.id)) {
@@ -40938,7 +40942,7 @@ function testMantleHabitat() {
           if (e.habitat === 'lava') { lavaSeen++; if (atHome) seatedLava++ } else { rockSeen++; if (atHome) seatedRock++ }
         }
         const b = before.get(e)
-        if (!b || !b.home || b.leap || e._pounceState === 'leap') continue
+        if (!still || !b || !b.home || b.leap || e._pounceState === 'leap') continue
         if (Math.hypot(e.x - b.x, e.y - b.y) < 1e-6) continue
         checked++
         const startHome = (mantleGroundAt(r, b.x, b.y) > 0) === (e.habitat === 'lava')
@@ -40946,11 +40950,30 @@ function testMantleHabitat() {
         if (startHome && !endHome) broke++
       }
     }
-    assert.ok(checked > 20000 && lavaSeen >= 20 && rockSeen >= 20, `run HB.a precondition: the rig must see both habitats move: ${checked} body-steps, ${lavaSeen} lava / ${rockSeen} rock creatures`)
-    assert.ok(broke / checked < 0.002, `run HB.a: ${broke} of ${checked} moving body-steps walked a creature off its own ground (lava or rock) while its start was still home`)
+    assert.ok(checked > 10000 && lavaSeen >= 20 && rockSeen >= 20, `run HB.a precondition: the rig must see both habitats move: ${checked} body-steps, ${lavaSeen} lava / ${rockSeen} rock creatures`)
+    assert.ok(broke === 0, `run HB.a: ${broke} of ${checked} moving body-steps walked a creature off its own ground (lava or rock) while its start was still home`)
     assert.ok(seatedLava / lavaSeen > 0.9 && seatedRock / rockSeen > 0.9,
       `run HB.a: a creature is born on its own ground: ${seatedLava}/${lavaSeen} lava creatures in lava, ${seatedRock}/${rockSeen} rock ones on rock`)
     console.log(`PASS run HB.a (confinement): ${broke} of ${checked} moving body-steps left home; born at home ${seatedLava}/${lavaSeen} lava, ${seatedRock}/${rockSeen} rock`)
+  }
+  // (a2) THE GROUND DECIDES WHO COMES: with no lava anywhere (ebbCover 0, at the first ebb) a lava
+  // spawn has nowhere to go and comes in as a rock creature instead, on rock
+  {
+    const saved = L.ebbCover
+    L.ebbCover = 0
+    try {
+      const r = boot(52008)
+      tick(r)
+      r.weapons = []
+      r.time = 120   // past WAVE_TABLE's fast gate, so the roll does draw lava creatures
+      const seen = new Set(), by = { lava: 0, rock: 0 }
+      for (let i = 0; i < 60 * 8; i++) {
+        tick(r)
+        for (const e of r.enemies) if (!seen.has(e.id) && e.habitat) { seen.add(e.id); by[e.habitat]++ }
+      }
+      assert.ok(r.lavaTide.phase === 'ebb' && by.rock >= 10 && by.lava === 0, `run HB.a2: with no lava on the map every spawn comes in as a rock creature: ${JSON.stringify(by)}`)
+      console.log(`PASS run HB.a2 (the ground decides who comes): ${by.rock} rock creatures and ${by.lava} lava ones with no lava on the map`)
+    } finally { L.ebbCover = saved }
   }
   // (b) MELT DROPS XP: a rock creature pinned in a basin melts within MANTLE_MELT_T of the tide
   // covering it, drops a gem worth its xp, and the melt event says so
@@ -41084,7 +41107,7 @@ function testMantleHabitat() {
     r.lavaPools = [{ x: dry.x, y: dry.y, r: 80, t: 0, dur: 99, dps: 40, _tick: 0 }]
     const inPool = body(r, dry.x, dry.y, 'lava'), outPool = body(r, dry.x + 160, dry.y, 'lava'), burner = body(r, dry.x + 20, dry.y + 20, 'rock')
     r.enemies.push(inPool, outPool, burner)
-    r.player.boatT = MANTLE_BOAT_FLOAT
+    r.player.boatT = 2   // part-sunk: a pool must not refill it (only rock or a crust does)
     const d0 = r.dmgBySrc?.lava ?? 0
     for (let i = 0; i < 60 * 2; i++) {
       inPool.x = dry.x; inPool.y = dry.y; outPool.x = dry.x + 160; outPool.y = dry.y; burner.x = dry.x + 20; burner.y = dry.y + 20
@@ -41092,8 +41115,15 @@ function testMantleHabitat() {
       tick(r)
     }
     const poolBurn = (r.dmgBySrc?.lava ?? 0) - d0
+    assert.ok(Math.abs(r.player.boatT - 2) < 1e-9, `run HB.f: standing in a pool neither sinks nor refills the boat: ${r.player.boatT}`)
     assert.ok(!(inPool.strandT > 0) && outPool.strandT > 1.5, `run HB.f: a pool is lava to a lava creature (strandT ${inPool.strandT} in it, ${outPool.strandT} beside it)`)
     assert.ok(burner.hp < 400 && poolBurn > 0, `run HB.f: a pool burns a rock creature in it (${400 - burner.hp}) and you, boat or not (${poolBurn})`)
+    // a rock creature walking in a pool wades: at most HAMMER_POOL_MIRE of its 2px a frame
+    const wader = body(r, dry.x, dry.y + 10, 'rock', { speed: 120 })
+    r.enemies = [wader]   // alone: no neighbour's shove in the measure
+    let waded = 0
+    for (let i = 0; i < 10; i++) { const x0 = wader.x, y0 = wader.y; r.player.x = dry.x - 20; r.player.y = dry.y + 300; tick(r); waded += Math.hypot(wader.x - x0, wader.y - y0) }
+    assert.ok(waded > 0.5 && waded <= 20 * 0.4 + 1, `run HB.f: a rock creature wades through a pool slowly: ${waded.toFixed(1)}px in 10 frames (20 free)`)
     console.log(`PASS run HB.f (a pool is lava): it kept its lava creature home, burned a rock one ${400 - burner.hp} and you ${poolBurn}`)
   }
 }

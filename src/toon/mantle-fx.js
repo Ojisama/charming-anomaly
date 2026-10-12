@@ -13,7 +13,7 @@
 import { Graphics } from 'pixi.js'
 import { PAL, TAU, hexNum, hash } from './palette.js'
 import { mantleHeightAt } from '../sim.js'
-import { MANTLE_STRAND_STUCK_T, MANTLE_STRAND_DIE_T, MANTLE_MELT_T } from '../config.js'
+import { MANTLE_STRAND_STUCK_T, MANTLE_STRAND_DIE_T, MANTLE_MELT_T, DRAW_CAPS } from '../config.js'
 
 const C = {
   ink: hexNum(PAL.ink), basalt: hexNum(PAL.basalt), basaltHi: hexNum(PAL.basaltHi), basaltLo: hexNum(PAL.basaltLo),
@@ -21,6 +21,7 @@ const C = {
   steam: hexNum(PAL.steam),
 }
 const CELL = 12   // px: the grid a crust is laid on (its cells over lava are drawn, the rest are not)
+
 
 // a closed blobby outline round (x, y): radius r wobbling by `jag`, seeded so it never crawls
 function blob(x, y, r, jag, seed, n = 18) {
@@ -82,13 +83,18 @@ export function createMantleFx({ ground, boat, top }) {
         groundG.poly(blob(q.x + Math.sin(t * 2 + sd) * r * 0.1, q.y, r * (0.35 + 0.08 * pulse), 0.25, sd + 2, 12)).fill({ color: C.lavaGlow, alpha: 0.85 })
       }
       // ---- the kettle's crusts: basalt only over lava (the tide's or a pool's) ----
-      for (const c of run.quenchCrusts ?? []) {
+      // the newest DRAW_CAPS.quenchCrusts only (a stacked kettle can hold LIVE_CAPS.quenchCrusts of them, and
+      // each is a few hundred cells): the older ones still hold the ground, unseen under the new
+      const crusts = run.quenchCrusts ?? []
+      const anyPool = (run.lavaPools ?? []).length > 0
+      for (let ci = Math.max(0, crusts.length - DRAW_CAPS.quenchCrusts); ci < crusts.length; ci++) {
+        const c = crusts[ci]
         if (c.t >= c.dur || !onScreen(c.x, c.y, c.r)) continue
         const cells = cellsOf(c, run.lavaTide ? L : null, T.seed)
         const rem = c.dur - c.t
         const glow = rem < 1 ? 1 - rem : 0   // the lava coming back through its cracks
         for (const k of cells) {
-          if (!(k.h < line || inPool(run, k.x, k.y))) continue
+          if (!(k.h < line || (anyPool && inPool(run, k.x, k.y)))) continue
           const v = hash(Math.round(k.x / CELL), Math.round(k.y / CELL), 3)
           groundG.circle(k.x + (v - 0.5) * 3, k.y + (hash(k.x, k.y, 5) - 0.5) * 3, CELL * 0.9).fill({ color: v > 0.85 ? C.basaltHi : C.basalt })
           if (v > 0.62) {
