@@ -2261,6 +2261,8 @@ function generateWells(sig) {
  *     damage, crumbles at MANTLE_STRAND_DIE_T); meltT s a rock creature has stood under the TIDE
  *     (melts at MANTLE_MELT_T; a pool burns it instead). Private: _hx, _hy, _hg, _hin (where it stood
  *     before this step's moves, and whether that was home).
+ *   roster.group [min, max] (the Ember Jelly): an ordinary ring spawn of it brings min..max bodies,
+ *     the rest seated round the first on the same ground (spawnEnemy; no new field on the enemy).
  *   Bullets: weapon 'coal' (Hot Coals, chains via _chainsLeft; may carry _ignite, a potency for
  *     applyIgnite, so the burn is the e.ignite contract field; _heat 'fire' is the type rule).
  *   Novas: look 'lavaWave' (Lava Bellows' sector; heat 'fire', habitatSplit: a lava creature is

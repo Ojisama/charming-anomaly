@@ -1190,6 +1190,9 @@ function stepSpawning(run, dt) {
   // one gate also kills the elite cadence: spawnEnemy's elite roll only ever runs from here, and
   // every script spawn passes forceNormal (eliteFlags: [] alone would NOT prevent elites).
   if (CHAPTERS[run.chapter].scripted) return
+  // The Mantle: nothing spawns before the tide's first step has laid its lava, so a habitat creature
+  // is never born on a ground nobody has measured yet
+  if (lavaTideSpec(run) && !run.lavaTide) return
   // v6.4.3 opening credit (see SPAWN_OPENING_CREDIT in config.js): bank the first few spawns so
   // the run opens with enemies walking in, not dead air. One-time; spawnMul 0 = stay quiet.
   if (!run._openingSpawned) {
@@ -4524,6 +4527,18 @@ function spawnEnemy(run, opts = {}) {
   // to index run.enemies to find what it just made.
   if (opts.deferred) (run._spawnQueue ??= []).push(born)
   else { run.enemies.push(born); nbDirty() }
+  // roster.group [min, max] (The Mantle's Ember Jelly): an ordinary ring spawn brings the rest of its
+  // group beside it, each on the leader's own ground (a spot that is not its habitat is skipped)
+  if (roster?.group && !isElite && !opts.rosterId && opts.x === undefined) {
+    const [gMin, gMax] = roster.group
+    const n = gMin + Math.floor(Math.random() * (gMax - gMin + 1))
+    for (let k = 1; k < n; k++) {
+      const a = Math.random() * Math.PI * 2, d = radius * (2.2 + Math.random() * 2)
+      const gx = x + Math.cos(a) * d, gy = y + Math.sin(a) * d
+      if (born.habitat && habitatOn(run) && !atHome(born, mantleGroundAt(run, gx, gy))) continue
+      spawnEnemy(run, { rosterId: roster.id, type, x: gx, y: gy, forceNormal: true, deferred: opts.deferred })
+    }
+  }
   // v6.3 dispatch beat (CHAPTERS[].dispatch, currently city only): a REAL elite birth here — never
   // a spawner's minions, which always pass forceNormal and so never reach isElite — fires the
   // "pest control has been reported" fiction beat. render.js draws the strobe, main.js plays the

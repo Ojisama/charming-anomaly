@@ -6974,6 +6974,8 @@ export function createRenderer(app) {
     basaltGolem: { archetype: 'tank', toon: true },
     brimstoneDragon: { archetype: 'fast', toon: true },
     magmaEel: { archetype: 'normal', toon: true },   // its art comes from src/toon/cast.js (TOON_CAST); until then bakeCreature returns null and the archetype look stands in
+    lavaRay: { archetype: 'tank', toon: true },
+    emberJelly: { archetype: 'normal', toon: true },
     redcell: { archetype: 'normal', draw: drawRedcell, lean: 0 },      // biconcave disc, no forward axis — it would just tumble
     wbc: { archetype: 'tank', draw: drawWbc, lean: 0 },                // radial membrane, filopodia all round; no nose
     antibody: { archetype: 'fast', draw: drawAntibody, lean: 0 },      // 3-fold Y (Fc stem at +y), no +x front — a protein has no heading

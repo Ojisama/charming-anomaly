@@ -15,7 +15,11 @@
 //   the dragon  a chubby baby dragon, upright and face-on: a head bigger than its belly, a snout
 //               trailing smoke, gloved hands, stubby feet, bat wings (the only thing in the air)
 //   the eel     lives IN the lava: a grinning head on a neck and one sail-finned coil of back above
-//               the surface, the rest under it (the one body that is cut off at a waterline)
+//               the surface, the rest under it (cut off at a waterline)
+//   the ray     a devil ray gliding under the lava: a smug head, rolled horns and two wing tips break the
+//               surface, its dark diamond of wings shows through (wide, flat, half of it under)
+//   the jelly   a little fire jellyfish bobbing in a gang: a glowing bell with a cross face and a flame
+//               wisp, two stinging tentacles curled up out of the lava (small, round, crowned)
 // The charm is in the squash and stretch: the imps BOUNCE (stretched in the air, squashed on landing),
 // the toad pancakes before it hops and stretches out when it leaps, the golem knuckle-walks, the dragon
 // flaps, the eel swims. Every body faces the camera, the way a cartoon overworld shows its characters from above
@@ -475,6 +479,146 @@ function eelLips(c, f) {
 function paintEel(c, f, elite) { eel(c, { f, col: elite ? '#3d2638' : '#4b3447', fin: elite ? '#f0682e' : '#e2502e', big: elite }) }
 function paintEelOver(c, f) { eelLips(c, f) }
 
+// ---- LAVA RAY: a big flat devil ray gliding just under the lava. Only the top of its head (heavy-
+// lidded pie eyes, a grin of upper teeth at the waterline, two rolled devil horns) and its two wing
+// tips break the surface; the rest of it shows as a dark shape under the lava (.over). The glide: the
+// wing tips rise out of the lava and dip back under together, the head lifting a little on the
+// downstroke, the horns unrolling as it rises, the ripples spreading from every place it breaks out.
+const RAY_SURF = 6
+const RAY_FRAMES = 8
+function rayPose(f) {
+  const ph = ((f % RAY_FRAMES) / RAY_FRAMES) * TAU_, s = Math.sin(ph)
+  return { ph, tip: 7 + 6.5 * s, spread: 34 + 2 * Math.cos(ph), bob: 1.4 - 1.4 * s, unroll: 0.5 + 0.5 * s }
+}
+const rayBreaks = (R) => [[0, 15], [-R.spread + 2, 4.2], [R.spread - 2, 4.2]]
+function ray(c, o = {}) {
+  const R = rayPose(o.f || 0), S = RAY_SURF, lk = o.look || [0.5, 0.45]
+  const back = o.col || '#3b2a40', back2 = '#54395a', horn = o.horn || '#e2502e', sh = 'rgba(20,6,24,0.45)', fsh = 'rgba(120,10,10,0.42)'
+  ground(() => {
+    for (const [x, w] of rayBreaks(R)) for (let k = 0; k < 2; k++) {
+      const g = ((R.ph / TAU_) + k * 0.5 + x * 0.011 + 1) % 1
+      const rx = w * (1.3 + 1.0 * g)
+      brush(c, ell(x, S + 0.6, rx, rx * 0.26, 0, 40), true, 1.1 * (1 - g) + 0.25, { color: 'rgba(255,220,130,' + (0.85 * (1 - g)).toFixed(2) + ')', flat: true })
+    }
+  })
+  // the wing tips: two pointed fins curling up out of the lava, out at its sides
+  for (const k of [-1, 1]) {
+    const x0 = k * (R.spread - 2), h = Math.max(1, R.tip)
+    const tipP = [x0 + k * (2 + h * 0.35), S - h]
+    cel(c, [[x0 - k * 3.8, S + 3], ...qb([x0 - k * 3.2, S - h * 0.4], [x0 - k * 0.6, S - h * 0.95], tipP, 10), ...qb(tipP, [x0 + k * 2.4, S - h * 0.3], [x0 + k * 3.6, S + 3], 10).slice(1)], back, { ink: 1.3, shade: sh })
+    line(c, qb([x0 - k * 1.6, S], [x0 - k * 0.2, S - h * 0.5], [tipP[0] - k * 0.8, tipP[1] + 1.4]), 0.6, { taper: 0.4, color: '#f2a03c' })
+  }
+  push(); tr(0, -R.bob)
+  // the devil horns (cephalic fins): rolled up beside its face, unrolling as it rises
+  for (const k of [-1, 1]) {
+    const u = R.unroll
+    const P = qb([k * 10, S - 4], [k * (17 + 2 * u), S - 10 - 3 * u], [k * (11 + 4 * u), S - 17 - 3 * u], 12)
+    cel(c, tube(P, 4.4, 1.6), horn, { ink: 1.2, shade: fsh })
+    const e = P[P.length - 1]
+    cel(c, ell(e[0] - k * 1.2 * (1 - u), e[1] + 1.4 * (1 - u), 1.6, 1.6, 0, 14), horn, { ink: 1.0, shade: null })
+  }
+  // the head: a wide low dome of back breaking the surface, ember freckles along its ridge
+  cel(c, ell(0, S - 1, 15.5, 10.5, 0, 48), back, { ink: 2.0, shade: sh })
+  cel(c, ell(0, S - 6.5, 9, 3.4, 0, 30), back2, { ink: 0, shade: null })
+  for (const [x, y] of [[-11, S - 4.5], [11, S - 4.5], [-7, S - 9.2], [7, S - 9.2]]) cel(c, ell(x, y, 1.1, 0.8, 0, 12), '#f2a03c', { ink: 0, shade: null })
+  // the face: big pie eyes on top under heavy smug lids, a cocked brow, a grin of upper teeth at the waterline
+  for (const k of [-1, 1]) {
+    eye(c, k * 4.6, S - 7.6, 3.6, 4.2, lk[0], lk[1], { white: '#f8e88a', pr: 0.58, pry: 0.72 })
+    const lid = 0.55 + 0.25 * (1 - R.unroll)
+    cel(c, [...qb([k * 8.4, S - 7.6], [k * 4.6, S - 13.6], [k * 0.8, S - 7.6], 12), ...qb([k * 0.8, S - 7.6], [k * 4.6, S - 11.6 + 4 * lid], [k * 8.4, S - 7.6], 10).slice(1, -1)], back, { ink: 0, shade: null })
+    line(c, qb([k * 8.6, S - 7.5], [k * 4.6, S - 11.6 + 4 * lid], [k * 0.6, S - 7.8]), 1.2, { belly: true })
+  }
+  brow(c, [-9.4, S - 12.6], [-5, S - 14.2], [-1, S - 11.6], 1.9)
+  brow(c, [9.6, S - 14.4], [5, S - 13.6], [1, S - 11.2], 1.9)
+  mouth(c, [-10, S - 2.6], [10, S - 2.6], [0, S - 0.8], [0, S + 7], { teeth: 2.0, n: 9, fangs: [[-6.4, 2.4, 1.1], [6.4, 2.4, 1.1]] })
+  pop()
+}
+function raySink(c) { c.fillStyle = '#000'; c.fillRect(-60, RAY_SURF + 0.4, 120, 40) }
+// the rest of it, under the lava: a dark diamond of wings in front of where it breaks out, and the
+// lava's collar round every place it does
+function rayOver(c, f) {
+  const R = rayPose(f), S = RAY_SURF, sp = R.spread, dip = (R.tip - 7) * 0.25
+  const W = [[-sp, S + 1.2], ...qb([-sp, S + 1.2], [-sp * 0.62, S + 8.5 + dip], [-5, S + 9.5], 10).slice(1), ...qb([-5, S + 9.5], [0, S + 10.6], [5, S + 9.5], 6).slice(1), ...qb([5, S + 9.5], [sp * 0.62, S + 8.5 + dip], [sp, S + 1.2], 10).slice(1), ...qb([sp, S + 1.2], [0, S + 3.4], [-sp, S + 1.2], 14).slice(1, -1)]
+  cel(c, W, 'rgba(60,12,30,0.3)', { ink: 0, shade: null })
+  brush(c, W, true, 0.6, { color: 'rgba(255,200,120,0.4)', flat: true })
+  line(c, qb([0, S + 10], [2.4, S + 13], [-1.6, S + 16]), 0.8, { color: 'rgba(60,12,30,0.42)', taper: 0.6 })
+  for (const [x, w0] of rayBreaks(R)) {
+    const w = w0 + 1.8
+    const top = qb([x - w, S + 0.8], [x, S - 1.6], [x + w, S + 0.8], 14), bot = qb([x + w, S + 0.8], [x, S + 3.4], [x - w, S + 0.8], 14).slice(1, -1)
+    cel(c, [...top, ...bot], '#f2742a', { ink: 0, shade: null })
+    line(c, qb([x - w * 0.85, S + 0.5], [x, S - 1.2], [x + w * 0.85, S + 0.5], 14), 0.8, { color: '#ffe38e', taper: 0.5 })
+  }
+}
+function paintRay(c, f, elite) { ray(c, { f, col: elite ? '#2f2034' : '#3b2a40', horn: elite ? '#f0682e' : '#e2502e' }) }
+
+// ---- EMBER JELLY: a little fire jellyfish bobbing in the lava, in a gang. A glowing bell with a cross
+// face (V brows, a fanged pout) and a flame wisp on its crown, a frilled skirt at the waterline, two
+// stinging tentacles curled up out of the lava, the rest trailing under it (.over). The pulse: the
+// bell squeezes tall and narrow and kicks up, then relaxes wide and low, its tentacles whipping out
+// and back.
+const JELLY_SURF = 5
+const JELLY_FRAMES = 8
+function jellyPose(f) {
+  const ph = ((f % JELLY_FRAMES) / JELLY_FRAMES) * TAU_, s = Math.sin(ph)
+  return { ph, wx: 1 - 0.13 * s, hy: 1 + 0.16 * s, bob: 1.6 + 1.6 * s, whip: Math.sin(ph - 1.1) }
+}
+const JELLY_BREAKS = [[0, 10.4], [-9, 2], [9, 2]]
+function jelly(c, o = {}) {
+  const J = jellyPose(o.f || 0), S = JELLY_SURF, lk = o.look || [0.4, 0.4]
+  const bell = o.col || '#f2662a', bell2 = '#ffb24a', core = '#ffe08a', sh = 'rgba(150,36,10,0.3)'
+  ground(() => {
+    for (const [x, w] of JELLY_BREAKS) for (let k = 0; k < 2; k++) {
+      const g = ((J.ph / TAU_) + k * 0.5 + x * 0.02 + 1) % 1
+      const rx = w * (1.3 + 1.1 * g)
+      brush(c, ell(x, S + 0.5, rx, rx * 0.3, 0, 32), true, 0.9 * (1 - g) + 0.2, { color: 'rgba(255,225,140,' + (0.85 * (1 - g)).toFixed(2) + ')', flat: true })
+    }
+  })
+  // the two stinging tentacles, curled up out of the lava, a spark at each tip
+  for (const k of [-1, 1]) {
+    const w = J.whip * k
+    const tp = [k * (13 + 1.5 * J.whip), S - 7 - 2 * w]
+    cel(c, tube(qb([k * 9, S + 2], [k * (14 + 2 * J.whip), S - 1], tp, 12), 2.2, 1.0), bell2, { ink: 1.0, shade: sh })
+    cel(c, flame(tp[0], tp[1] + 0.6, 1.8, 3.6, k * 0.4), '#ffd95e', { ink: 0.8, shade: null })
+  }
+  push(); tr(0, -J.bob)
+  // the bell: a round dome wider than it is tall, its rim just over the lava, a glowing core, a flame
+  // wisp on its crown, a scalloped frill hanging off the rim into the lava
+  const rx = 10.6 * J.wx, ry = 8.6 * J.hy, rim = S - 4.6, cy = rim - ry * 0.72
+  cel(c, flame(0.4, rim - ry * 1.42, 3.0, 6.5 + 2.5 * J.hy, 0.5 + 0.3 * J.whip), '#ffd95e', { ink: 1.0, shade: 'rgba(170,60,10,0.4)' })
+  cel(c, [...qb([-rx, rim], [-rx * 1.08, rim - ry * 1.62], [0, rim - ry * 1.55], 18), ...qb([0, rim - ry * 1.55], [rx * 1.08, rim - ry * 1.62], [rx, rim], 18).slice(1), ...qb([rx, rim], [0, rim + 1.6], [-rx, rim], 12).slice(1, -1)], bell, { ink: 1.5, shade: sh })
+  cel(c, ell(0, rim - ry * 1.05, rx * 0.5, ry * 0.3, 0, 24), core, { ink: 0, shade: null })
+  for (const [x, y] of [[-rx * 0.7, rim - ry * 0.5], [rx * 0.7, rim - ry * 0.5], [-rx * 0.4, rim - ry * 1.25], [rx * 0.4, rim - ry * 1.25]]) cel(c, ell(x, y, 0.9, 0.7, 0, 10), core, { ink: 0, shade: null })
+  const frill = []
+  const nS = 5
+  for (let i = 0; i <= nS * 4; i++) { const t = i / (nS * 4), x = -rx * 0.98 + t * rx * 1.96; frill.push([x, rim + 1.2 + 2.4 * Math.sqrt(Math.abs(Math.sin(t * nS * Math.PI))) + 0.5 * J.whip * Math.sin(t * 9)]) }
+  cel(c, [...qb([rx * 0.98, rim + 0.6], [0, rim - 0.6], [-rx * 0.98, rim + 0.6], 12), ...frill.slice(1, -1)], bell2, { ink: 0.8, shade: null })
+  // the face: big pie eyes, a hard V of brows, a fanged pout
+  eye(c, -3.3, cy - 1.2, 3.0, 3.8, lk[0], lk[1], { pr: 0.6, pry: 0.74 })
+  eye(c, 3.3, cy - 1.2, 3.0, 3.8, lk[0], lk[1], { pr: 0.6, pry: 0.74 })
+  brow(c, [-7.2, cy - 6.6], [-3.8, cy - 6.4], [-0.4, cy - 4.0], 1.7)
+  brow(c, [7.2, cy - 6.6], [3.8, cy - 6.4], [0.4, cy - 4.0], 1.7)
+  blush(c, [[-6.8, cy + 2.0, 1.5, 0.85], [6.8, cy + 2.0, 1.5, 0.85]], '#ff9a6a', 0.5)
+  mouth(c, [-3.0, cy + 3.2], [3.0, cy + 3.2], [0, cy + 2.2 - J.whip * 0.4], [0, cy + 6.0 + J.whip * 0.8], { fangs: [[-1.5, 1.5, 0.75], [1.5, 1.5, 0.75]], tongue: [0.3, cy + 5.4, 1.3], ink: 0.9 })
+  pop()
+}
+function jellySink(c) { c.fillStyle = '#000'; c.fillRect(-40, JELLY_SURF + 0.4, 80, 30) }
+// the tentacles trailing under the lava, glowing through it, and the lava's collar round it
+function jellyOver(c, f) {
+  const J = jellyPose(f), S = JELLY_SURF
+  for (const x0 of [-5, -1.8, 1.8, 5]) {
+    const P = []
+    for (let i = 0; i <= 10; i++) { const t = i / 10; P.push([x0 * (1 + t * 0.35) + Math.sin(J.ph + t * 5 + x0) * 1.4 * t, S + 1 + t * 11]) }
+    line(c, P, 0.9, { color: 'rgba(255,214,120,0.55)', taper: 0.7 })
+  }
+  for (const [x, w0] of JELLY_BREAKS) {
+    const w = w0 + 1.4
+    const top = qb([x - w, S + 0.8], [x, S - 1.4], [x + w, S + 0.8], 12), bot = qb([x + w, S + 0.8], [x, S + 3], [x - w, S + 0.8], 12).slice(1, -1)
+    cel(c, [...top, ...bot], '#f2742a', { ink: 0, shade: null })
+    line(c, qb([x - w * 0.85, S + 0.5], [x, S - 1.1], [x + w * 0.85, S + 0.5], 12), 0.7, { color: '#ffe38e', taper: 0.5 })
+  }
+}
+function paintJelly(c, f, elite) { jelly(c, { f, col: elite ? '#d8452a' : '#f2662a' }) }
+
 // every cast body is painted in the brush's PAPER mode (flat paint with the sheet's tooth, separate
 // pieces); the player is not, it keeps the plain brush
 const wrap = (fn) => (ctx, f, elite) => { resetXf(); setPaper(true); try { fn(ctx, f, elite) } finally { setPaper(false); resetXf() } }
@@ -484,6 +628,8 @@ export const TOON_CAST = {
   basaltGolem: { baseR: 27, frames: GOLEM_POSE.length, fps: 16, box: [-45, -35, 45, 32], paint: wrap(paintGolem) },
   brimstoneDragon: { baseR: 26, frames: DRAGON_POSE.length, fps: 16, box: [-70, -62, 76, 70], paint: wrap(paintDragon), over: wrap(paintDragonOver) },
   magmaEel: { baseR: 12, frames: EEL_FRAMES, fps: 16, box: [-40, -36, 34, 22], paint: wrap(paintEel), sink: wrap(eelSink), over: wrap(paintEelOver) },
+  lavaRay: { baseR: 24, frames: RAY_FRAMES, fps: 9, box: [-48, -34, 48, 32], paint: wrap(paintRay), sink: wrap(raySink), over: wrap(rayOver) },
+  emberJelly: { baseR: 9, frames: JELLY_FRAMES, fps: 12, box: [-22, -34, 22, 22], paint: wrap(paintJelly), sink: wrap(jellySink), over: wrap(jellyOver) },
 }
 
 // ---- THE PLAYER: the digger. A big head under a yellow hard hat with its lamp, red shirt, blue -----

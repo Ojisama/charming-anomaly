@@ -11864,6 +11864,15 @@ function runRosterArt() {
   }
   assert.ok(rosters >= 20, `expected every chapter's roster, counted only ${rosters}`)
 
+  // A `toon: true` look hands the drawing to src/toon.js, and bakeCreature returns null (the archetype
+  // blob stands in, silently) for an id TOON_CAST does not key. Read as text: cast.js paints on canvases.
+  const castSrc = readFileSync(new URL('../src/toon/cast.js', import.meta.url), 'utf8')
+  const castBlock = castSrc.slice(castSrc.indexOf('export const TOON_CAST = {'), castSrc.indexOf('\n}\n', castSrc.indexOf('export const TOON_CAST = {')))
+  const toonCast = new Set([...castBlock.matchAll(/^ {2}(\w+):\s*\{/gm)].map((m) => m[1]))
+  const toonLooks = [...block.matchAll(/^ {4}(\w+):\s*\{[^\n]*\btoon: true/gm)].map((m) => m[1])
+  assert.ok(toonLooks.includes('lavaRay') && toonLooks.includes('emberJelly'), `run RA: the toon looks parsed must include the Mantle's newest: ${toonLooks}`)
+  for (const id of toonLooks) assert.ok(toonCast.has(id), `ROSTER_LOOKS.${id} is toon: true but src/toon/cast.js's TOON_CAST has no ${id} entry — it would render as a generic archetype blob, silently`)
+
   let thumbs = 0
   for (const id of ALL_IDS) {
     for (const cid of CHAPTERS[id].render?.cast ?? []) {
@@ -11913,7 +11922,7 @@ function runRosterArt() {
   assert.ok(lanternfish && /glow:\s*\{[^}]*frac:\s*[\d.]+[^}]*\}/.test(lanternfish[0]),
     'ROSTER_LOOKS.lanternfish must still declare glow: { ... frac: <number> ... } — without it the lanternfish renders as a dark body like any other and updateDark has nothing to read')
 
-  console.log(`PASS run RA (roster art): ${looks.size} baked looks cover all ${rosters} roster entries across ${ALL_IDS.length} chapters, all ${thumbs} title-card thumbnails exist on disk, and the side-on jelly is lean 90 with its apex forward`)
+  console.log(`PASS run RA (roster art): ${looks.size} baked looks cover all ${rosters} roster entries across ${ALL_IDS.length} chapters, all ${thumbs} title-card thumbnails exist on disk, ${toonLooks.length} toon looks all painted by TOON_CAST, and the side-on jelly is lean 90 with its apex forward`)
 }
 run(runRosterArt)
 
@@ -20916,6 +20925,7 @@ run(testLeLargeWeapons)
   run(testFireBoots)
   run(testMantle)
   run(testMantleHabitat)
+  run(testMantleLavaCrew)
   // A hand-typed filter that matched nothing is the silent pass without a parent watching:
   // `node test/sim-test.js supernova` printed ALL TESTS PASSED having run no scenario at all.
   if (_ran === 0 && !EXACT_SET) {
@@ -41126,4 +41136,57 @@ function testMantleHabitat() {
     assert.ok(waded > 0.5 && waded <= 20 * 0.4 + 1, `run HB.f: a rock creature wades through a pool slowly: ${waded.toFixed(1)}px in 10 frames (20 free)`)
     console.log(`PASS run HB.f (a pool is lava): it kept its lava creature home, burned a rock one ${400 - burner.hp} and you ${poolBurn}`)
   }
+}
+
+// run HB.g: THE LAVA'S WHOLE CREW comes, each on its own ground. In a real run past the tank gate
+// (spawner, the tide cycling, a kiting rig) every lava roster entry is born, the Lava Ray (the
+// lava's tank) and the Ember Jelly among them, nearly all in lava; and the jelly comes in GROUPS
+// (roster.group): its births land in clusters of its own kind, born the same step a few bodies apart.
+function testMantleLavaCrew() {
+  const meta = makeMeta(); meta.dev = true
+  Math.random = mulberry32(52101)
+  const r = createRun(meta, { chapter: 'mantle', difficulty: 1 })
+  r.player.hp = r.player.maxHP = 1e6
+  r.weapons = []
+  r.time = 150   // past WAVE_TABLE's tank gate and the ray's minT
+  const lavaIds = CHAPTERS.mantle.roster.filter((e) => e.habitat === 'lava').map((e) => e.id)
+  assert.ok(lavaIds.includes('lavaRay') && lavaIds.includes('emberJelly'), `run HB.g precondition: the new lava creatures are in the roster: ${lavaIds}`)
+  const born = {}, home = {}, seen = new Set()
+  const jellyGroups = []
+  let ang = 0, mates = 0, matesAway = 0
+  for (let i = 0; i < 60 * 180; i++) {
+    if (r.phase === 'levelup') { r.phase = 'playing'; r.levelUpChoices = [] }
+    r.player.hp = r.player.maxHP
+    ang += 0.004
+    stepSim(r, { x: Math.cos(ang), y: Math.sin(ang) }, 1 / 60)
+    r.events.length = 0
+    const fresh = []
+    for (const e of r.enemies) {
+      if (seen.has(e.id) || !e.rosterId) continue
+      seen.add(e.id)
+      born[e.rosterId] = (born[e.rosterId] ?? 0) + 1
+      if (e.habitat && (mantleGroundAt(r, e.x, e.y) > 0) === (e.habitat === 'lava')) home[e.rosterId] = (home[e.rosterId] ?? 0) + 1
+      if (e.rosterId === 'emberJelly') fresh.push(e)
+    }
+    // this step's jellies, clustered: each joins the first cluster it lies within 6 radii of
+    const cl = []
+    for (const e of fresh) {
+      const c = cl.find((g) => Math.hypot(g[0].x - e.x, g[0].y - e.y) < e.radius * 6)
+      if (c) c.push(e); else cl.push([e])
+    }
+    for (const g of cl) {
+      jellyGroups.push(g.length)
+      // the rest of a group is seated on the leader's ground, never beside it on rock
+      for (const e of g.slice(1)) { mates++; if (mantleGroundAt(r, e.x, e.y) === 0) matesAway++ }
+    }
+  }
+  for (const id of lavaIds) {
+    assert.ok((born[id] ?? 0) >= 5, `run HB.g: every lava creature spawns: ${id} born ${born[id] ?? 0} (${JSON.stringify(born)})`)
+    assert.ok((home[id] ?? 0) / born[id] > 0.9, `run HB.g: ${id} is born in lava: ${home[id] ?? 0}/${born[id]}`)
+  }
+  const mean = jellyGroups.reduce((a, b) => a + b, 0) / jellyGroups.length
+  const [gMin, gMax] = CHAPTERS.mantle.roster.find((e) => e.id === 'emberJelly').group
+  assert.ok(jellyGroups.length >= 5 && mean >= gMin - 0.6 && mean <= gMax, `run HB.g: the jelly comes in groups of ${gMin}-${gMax}: mean ${mean.toFixed(2)} over ${jellyGroups.length} arrivals (${jellyGroups.join(',')})`)
+  assert.ok(mates >= 20 && matesAway <= 1, `run HB.g: a jelly's group is born in its lava: ${matesAway} of ${mates} group-mates born on rock`)
+  console.log(`PASS run HB.g (the lava's crew): born ${lavaIds.map((id) => `${id} ${born[id]} (${home[id]} in lava)`).join(', ')}; jellies arrive ${mean.toFixed(2)} at a time over ${jellyGroups.length} arrivals, ${matesAway} of ${mates} group-mates on rock`)
 }

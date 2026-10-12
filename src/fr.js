@@ -2201,6 +2201,8 @@ const CONFIG = {
   "how hard it shoves lava creatures": "force de la poussée sur les créatures de lave",
   "Quick Bellows": "Soufflet rapide",
   "Magma Eel": "Anguille de magma",
+  "Lava Ray": "Raie de lave",
+  "Ember Jelly": "Méduse de braise",
   "Pools": "Flaques",
 }
 
