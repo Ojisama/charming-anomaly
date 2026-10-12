@@ -128,12 +128,13 @@ export function groundShadow(ctx, x, y, rx, ry, a = 0.35) {
   ctx.save(); ctx.translate(x, y); ctx.scale(1, ry / rx); ctx.translate(-x, -y)
   ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, rx, 0, TAU); ctx.fill(); ctx.restore()
 }
-// the hit-flash twin of a painted canvas: the same silhouette, flat cream-white
+// the hit-flash twin of a painted canvas: the same drawing washed to cream, its ink still showing, so
+// a body flashing on every hit still reads as itself
 export function whiteTwin(cv) {
   const w = mkCanvas(cv.width, cv.height)
   const x = w.getContext('2d')
   x.drawImage(cv, 0, 0)
-  x.globalCompositeOperation = 'source-in'
-  x.fillStyle = '#fffaf0'; x.fillRect(0, 0, w.width, w.height)
+  x.globalCompositeOperation = 'source-atop'
+  x.fillStyle = 'rgba(255,250,236,0.68)'; x.fillRect(0, 0, w.width, w.height)
   return w
 }

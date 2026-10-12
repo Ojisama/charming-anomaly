@@ -3,10 +3,12 @@
 //
 // EVERY VISUAL OF THE MANTLE IS DECIDED IN THIS FILE AND IN src/toon/*. render.js only calls in while
 // CHAPTERS[run.chapter].render.toon is set, and draws nothing of the chapter's own:
-//   src/toon/palette.js   PAL (the palette), the brush (inkShape, hose, pieEye, flame, ...)
-//   src/toon/cast.js      TOON_CAST (the four creatures) and paintPlayer
-//   src/toon/world.js     the floor shader (height, lava, shore, swell), the film pass, props, shots,
-//                         pickups
+//   src/toon/palette.js   PAL (the palette), mkCanvas, hash, whiteTwin
+//   src/toon/brush.js     the brush: pressure ink, cel fills, pie-cut eyes, gloves, rubber hose
+//   src/toon/cast.js      TOON_CAST (the four creatures), paintPlayer, the shore's peeking bubbles
+//   src/toon/world.js     the floor shader (a GPU watercolour of rock and gouache lava, driven by the
+//                         height field and the tide), its noise and bubble atlas, the film pass, the
+//                         shots and the pickups
 //
 // ==== THE SURFACE render.js USES ===================================================================
 //   TOON_CAST                 { [rosterId]: entry } — the creatures this module draws.
@@ -32,11 +34,11 @@ import { BufferImageSource, CanvasSource, Container, Filter, GlProgram, Mesh, Me
 import { PAL, TAU, mkCanvas, hash, whiteTwin } from './toon/palette.js'
 import { TOON_CAST, paintPlayer, PLAYER_BOX } from './toon/cast.js'
 import {
-  CHUNK, CHUNK_STEP, CHUNK_N, FLOOR_VERT, FLOOR_FRAG, FILM_VERT, FILM_FRAG, PROP_KINDS, paintProp,
-  paintMatch, paintCoal, paintPitchfork, paintPuff, paintGem, paintCoin, paintLick, paintDot,
+  CHUNK, CHUNK_STEP, CHUNK_N, FLOOR_VERT, FLOOR_FRAG, FILM_VERT, FILM_FRAG, NOISE_N, bakeNoise, paintBubbleAtlas,
+  paintMatch, paintCoal, paintPitchfork, paintPuff, paintGem, paintCoin, paintLick, paintDot, paintSweat, paintWade,
 } from './toon/world.js'
 import { lavaTideOf, mantleHeightAt, lavaLineFor } from './sim.js'
-import { gemTier } from './config.js'
+import { gemTier, PLAYER } from './config.js'
 
 export { TOON_CAST, PAL }
 
@@ -78,7 +80,7 @@ export function bakeCreature(id, elite) {
     const b = paintBody(id, f, elite)
     frames.push({ canvas: b.canvas, white: whiteTwin(b.canvas), ax: b.ax, ay: b.ay, res: RES })
   }
-  return { frames, thumb: paintThumb(id, elite || id === 'brimstoneDragon'), baseR: M.baseR, lean: 0, upright: false, poseOf: null, faceDir: null, turnRate: null }
+  return { frames, thumb: paintThumb(id, elite || id === 'brimstoneDragon'), baseR: M.baseR, lean: 0, upright: false, poseOf: M.poseOf ?? null, faceDir: null, turnRate: null }
 }
 // ---- the renderer --------------------------------------------------------------------------------
 export function createToonRenderer(host) {
@@ -94,11 +96,12 @@ export function createToonRenderer(host) {
     coin: [0, 1, 2, 3].map((f) => art(paintCoin(f))),
     lick: [0, 1, 2].map((f) => art(paintLick(f))),
     dot: art(paintDot()),
-    props: Object.fromEntries(PROP_KINDS.map((k) => [k, [0, 1, 2].map((v) => art(paintProp(k, v)))])),
+    sweat: art(paintSweat()),
+    wade: [0, 1].map((f) => art(paintWade(f))),
     player: [0, 1, 2, 3].map((f) => {
       const [x0, y0, x1, y1] = PLAYER_BOX
       const cv = mkCanvas((x1 - x0) * RES, (y1 - y0) * RES), ctx = cv.getContext('2d')
-      ctx.scale(RES, RES); ctx.translate(-x0, -y0); paintPlayer(ctx, f, true)
+      ctx.scale(RES, RES); ctx.translate(-x0, -y0); paintPlayer(ctx, f)
       return { tex: canvasTex(cv), white: canvasTex(whiteTwin(cv)), ax: -x0 / (x1 - x0), ay: -y0 / (y1 - y0) }
     }),
   }
@@ -122,22 +125,27 @@ export function createToonRenderer(host) {
       hide() { n = 0; this.end() },
     }
   }
-  const propLayer = new Container(), pickLayer = new Container()
-  under.addChild(propLayer, pickLayer)
+  const pickLayer = new Container()
+  under.addChild(pickLayer)
   const playerLayer = new Container(), shotLayer = new Container(), fxLayer = new Container()
-  over.addChild(fxLayer, playerLayer, shotLayer)
-  const props = pool(propLayer), gems = pool(pickLayer), coins = pool(pickLayer)
-  const shots = pool(shotLayer), forks = pool(shotLayer), puffs = pool(shotLayer), licks = pool(fxLayer)
+  const playerFx = new Container()
+  over.addChild(fxLayer, playerLayer, playerFx, shotLayer)
+  const gems = pool(pickLayer), coins = pool(pickLayer)
+  const shots = pool(shotLayer), forks = pool(shotLayer), puffs = pool(shotLayer), wades = pool(fxLayer), pwade = pool(playerFx), licks = pool(fxLayer), sweats = pool(fxLayer)
   const playerSprite = new Sprite(T.player[0].tex)
   playerSprite.anchor.set(T.player[0].ax, T.player[0].ay)
   playerLayer.addChild(playerSprite)
 
-  // THE FLOOR: chunk meshes, each with its own height texture, sharing one uniform group
+  // THE FLOOR: chunk meshes, each with its own height texture, sharing one uniform group, the noise
+  // texture the watercolour is painted with, and the atlas of the shore's bubbles
   const floorU = new UniformGroup({
     uLine: { value: 0, type: 'f32' }, uSwell: { value: 0, type: 'f32' }, uTime: { value: 0, type: 'f32' },
     uPulse: { value: 0, type: 'f32' }, uTexel: { value: 1 / CHUNK_N, type: 'f32' }, uStep: { value: CHUNK_STEP, type: 'f32' },
-    uInk: { value: 4, type: 'f32' },
+    uUVW: { value: (1 - 1 / CHUNK_N) / CHUNK, type: 'f32' }, uLo: { value: 0.3, type: 'f32' }, uHi: { value: 0.8, type: 'f32' },
+    uFlood: { value: -1, type: 'f32' }, uWet: { value: -1, type: 'f32' }, uWetK: { value: 0, type: 'f32' },
   })
+  const noiseSrc = new BufferImageSource({ resource: bakeNoise(), width: NOISE_N, height: NOISE_N, format: 'rgba8unorm', scaleMode: 'linear', addressMode: 'repeat', alphaMode: 'no-premultiply-alpha' })
+  const bubSrc = new CanvasSource({ resource: paintBubbleAtlas(), scaleMode: 'linear', mipmapFilter: 'linear', autoGenerateMipmaps: true })
   const chunks = new Map()   // 'i,j' -> { mesh, tex, props: [...] }
   let chunkKey = null
   function dropChunk(k) {
@@ -150,9 +158,10 @@ export function createToonRenderer(host) {
     const data = new Uint8Array(CHUNK_N * CHUNK_N * 4)
     const x0 = i * CHUNK, y0 = j * CHUNK
     for (let b = 0; b < CHUNK_N; b++) for (let a = 0; a < CHUNK_N; a++) {
-      const v = Math.max(0, Math.min(255, Math.round(mantleHeightAt(L, seed, x0 + a * CHUNK_STEP, y0 + b * CHUNK_STEP) * 255)))
+      // 16 bits of height: high byte in r, low byte in g (linear in both, so it interpolates exactly)
+      const v = Math.max(0, Math.min(65535, Math.round(mantleHeightAt(L, seed, x0 + a * CHUNK_STEP, y0 + b * CHUNK_STEP) * 65535)))
       const o = (b * CHUNK_N + a) * 4
-      data[o] = data[o + 1] = data[o + 2] = v; data[o + 3] = 255
+      data[o] = v >> 8; data[o + 1] = v & 255; data[o + 2] = 0; data[o + 3] = 255
     }
     const tex = new Texture({ source: new BufferImageSource({ resource: data, width: CHUNK_N, height: CHUNK_N, format: 'rgba8unorm', scaleMode: 'linear', alphaMode: 'no-premultiply-alpha' }) })
     // texel centres: sample a lands exactly on world x0 + a * CHUNK_STEP, so neighbours share an edge
@@ -163,30 +172,26 @@ export function createToonRenderer(host) {
         uvs: new Float32Array([u0, u0, u1, u0, u1, u1, u0, u1]),
         indices: new Uint32Array([0, 1, 2, 0, 2, 3]),
       }),
-      shader: Shader.from({ gl: { vertex: FLOOR_VERT, fragment: FLOOR_FRAG, name: 'toon-floor' }, resources: { floorU, uHeight: tex.source } }),
+      shader: Shader.from({ gl: { vertex: FLOOR_VERT, fragment: FLOOR_FRAG, name: 'toon-floor' }, resources: { floorU, uHeight: tex.source, uNoise: noiseSrc, uBub: bubSrc } }),
     })
     floor.addChild(mesh)
-    // props: a few per chunk, on ground the flood never reaches
-    const dryLine = lavaLineFor(L, Math.min(0.97, L.floodCover + 0.14))
-    const P = []
-    for (let k = 0; k < 9; k++) {
-      const px = x0 + hash(i, j, 31 + k) * CHUNK, py = y0 + hash(i, j, 57 + k) * CHUNK
-      if (mantleHeightAt(L, seed, px, py) < dryLine) continue
-      P.push({ x: px, y: py, kind: PROP_KINDS[Math.floor(hash(i, j, 91 + k) * PROP_KINDS.length)], v: Math.floor(hash(i, j, 13 + k) * 3), flip: hash(i, j, 7 + k) < 0.5 })
-    }
-    chunks.set(i + ',' + j, { mesh, tex, props: P })
+    chunks.set(i + ',' + j, { mesh, tex })
   }
 
   // THE FILM: one filter over the stage
   const filmU = new UniformGroup({
     uTime: { value: 0, type: 'f32' }, uGrain: { value: 0.08, type: 'f32' }, uVignette: { value: 0.55, type: 'f32' },
     uFlicker: { value: 0.035, type: 'f32' }, uSepia: { value: 0.22, type: 'f32' }, uWeave: { value: new Float32Array([0, 0]), type: 'vec2<f32>' },
+    uPx: { value: 1, type: 'f32' },
   })
   const film = new Filter({ glProgram: GlProgram.from({ vertex: FILM_VERT, fragment: FILM_FRAG, name: 'toon-film' }), resources: { filmU } })
 
   // ?debug: the floor's and the film's uniforms and the baked chunks, for a probe scene to read or tweak
   if (typeof window !== 'undefined' && /[?&]debug/.test(window.location?.search ?? '')) window.__toon = { floorU, filmU, chunks }
-  let look = null, pulse = 0, t = 0, lastInvuln = 0, hitT = 0, prevX = null, prevY = 0
+  let floodLine = -1
+  let look = null, pulse = 0, t = 0, prevX = null, prevY = 0
+  // the tide's memory: the highest line the last flood reached, and how fresh the rock it left is
+  let wetLine = -1, wetK = 0, maxLine = -1, levelsKey = null
   const r = {
     // render.js layers this chapter draws itself (render.js's TOON_HIDEABLE names)
     hide: ['floor', 'dust', 'gems', 'coins', 'bullets', 'boomerangs', 'novas', 'player', 'obstacles', 'vignette', 'shadows'],
@@ -196,6 +201,7 @@ export function createToonRenderer(host) {
       filmU.uniforms.uVignette = lk.vignette ?? 0.55
       filmU.uniforms.uFlicker = lk.flicker ?? 0.035
       filmU.uniforms.uSepia = lk.sepia ?? 0.22
+      wetLine = -1; wetK = 0; maxLine = -1; levelsKey = null
       for (const k of [...chunks.keys()]) dropChunk(k)
       chunkKey = null
       floor.visible = under.visible = over.visible = true
@@ -203,7 +209,8 @@ export function createToonRenderer(host) {
     exit() {
       look = null
       for (const k of [...chunks.keys()]) dropChunk(k)
-      for (const p of [props, gems, coins, shots, forks, puffs, licks]) p.hide()
+      for (const p of [gems, coins, shots, forks, puffs, wades, pwade, licks, sweats]) p.hide()
+      wetLine = -1; wetK = 0; maxLine = -1
     },
     filters() { return [film] },
     // view = { left, top, right, bottom, zoom, w, h, animT }
@@ -235,21 +242,22 @@ export function createToonRenderer(host) {
         }
         pulse = Math.max(0, pulse - dt * 1.6)
         const u = floorU.uniforms
-        u.uLine = TD.line; u.uSwell = TD.swell; u.uTime = t; u.uPulse = pulse
-        u.uInk = 3.2 / Math.max(0.4, view.zoom)
-      }
-      // props on the dry ground, back to front
-      props.begin()
-      for (const [, c] of chunks) {
-        if (!c.mesh.visible) continue
-        for (const pr of c.props) {
-          if (!onScreen(pr.x, pr.y, 60)) continue
-          const s = props.next(T.props[pr.kind][pr.v])
-          s.position.set(pr.x, pr.y)
-          if (pr.flip) s.scale.x = -1
+        // the ground's tones are absolute (pale hills, dark basins): its quantiles, once per spec
+        const lk2 = L.wave + '/' + L.ridgeWave + '/' + L.ridgeMix + '/' + L.floodCover
+        if (lk2 !== levelsKey) {
+          levelsKey = lk2
+          u.uLo = lavaLineFor(L, L.ebbCover ?? 0.1); u.uHi = lavaLineFor(L, 0.985)
+          floodLine = TD.line < 0 && !run.lavaTide ? -1 : lavaLineFor(L, L.floodCover)
         }
+        if (TD.line > maxLine) maxLine = TD.line
+        // the drain: rock the lava has just left stays wet for a while after the flood
+        const ph = run.lavaTide?.phase
+        if (ph === 'flood' || ph === 'falling') { wetLine = Math.max(wetLine, TD.line); wetK = 1 }
+        else { wetK = Math.max(0, wetK - dt / 9); if (wetK === 0) wetLine = -1 }
+        u.uLine = TD.line; u.uSwell = TD.swell; u.uTime = t; u.uPulse = pulse
+        u.uFlood = run.lavaTide ? Math.max(floodLine, maxLine) : -1
+        u.uWet = wetLine; u.uWetK = wetK
       }
-      props.end()
       // pickups: gems bob, coins spin
       gems.begin()
       let ng = 0
@@ -269,12 +277,16 @@ export function createToonRenderer(host) {
       }
       coins.end()
       // flames licking off every walking body standing in the lava (the lava burns it)
-      licks.begin()
+      wades.begin(); pwade.begin(); licks.begin(); sweats.begin()
       if (tide.T.line > 0) {
         const { L, T: TD } = tide
         for (const e of run.enemies) {
           if (e._dead || (e.flags && e.flags.includes('flying')) || !onScreen(e.x, e.y, 40)) continue
           if (mantleHeightAt(L, TD.seed, e.x, e.y) >= TD.line) continue
+          // it wades: the lava closes over its legs
+          const wd = wades.next(T.wade[fi(t * 3 + e.id * 0.5, 2)])
+          wd.position.set(e.x, e.y + e.radius * 0.62)
+          wd.scale.set(e.radius / 11.5)
           const n = e.radius > 20 ? 3 : 2
           for (let k = 0; k < n; k++) {
             const s = licks.next(T.lick[fi(t * 9 + e.id + k, 3)])
@@ -282,8 +294,19 @@ export function createToonRenderer(host) {
             s.position.set(e.x + Math.cos(a) * e.radius * 0.7, e.y + e.radius * 0.6 + Math.sin(a) * e.radius * 0.3)
             s.scale.set(Math.max(0.7, e.radius / 16))
           }
+          // and it sweats: two drops flying off, the panic of a body in the lava
+          for (let k = 0; k < 2; k++) {
+            const ph2 = (t * 1.6 + e.id * 0.37 + k * 0.5) % 1
+            const s = sweats.next(T.sweat)
+            const sg = k ? 1 : -1
+            s.position.set(e.x + sg * e.radius * (0.8 + ph2 * 0.6), e.y - e.radius * (0.9 + ph2 * 0.5) + ph2 * ph2 * 10)
+            s.rotation = sg * 0.6; s.alpha = 1 - ph2
+          }
         }
         if (mantleHeightAt(L, TD.seed, p.x, p.y) < TD.line) {
+          const wd = pwade.next(T.wade[fi(t * 3, 2)])
+          wd.position.set(p.x, p.y + 17)
+          wd.scale.set(1.45)
           for (let k = 0; k < 4; k++) {
             const s = licks.next(T.lick[fi(t * 9 + k, 3)])
             const a = (k / 4) * TAU + t * 2
@@ -292,16 +315,15 @@ export function createToonRenderer(host) {
           }
         }
       }
-      licks.end()
+      wades.end(); pwade.end(); licks.end(); sweats.end()
       // the player: walks while moving, blinks white for the moment after a hit
       const moving = prevX !== null && Math.hypot(p.x - prevX, p.y - prevY) > 0.2
       prevX = p.x; prevY = p.y
       const inv = p.invuln ?? 0
-      if (inv > lastInvuln + 1e-6) hitT = 0.2
-      lastInvuln = inv
-      hitT = Math.max(0, hitT - dt)
       const pf = T.player[moving ? fi(t * 8, 4) : 0]
-      const white = hitT > 0.1
+      // white for the instant after a hit (read off the sim's own invulnerability clock, so it is right
+      // however rarely the frame is drawn)
+      const white = inv > (PLAYER.invulnTime ?? 0.75) - 0.06 && inv <= (PLAYER.invulnTime ?? 0.75) + 1e-6
       const pt = white ? pf.white : pf.tex
       if (playerSprite.texture !== pt) playerSprite.texture = pt
       playerSprite.anchor.set(pf.ax, pf.ay)
