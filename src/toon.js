@@ -4,8 +4,9 @@
 // EVERY VISUAL OF THE MANTLE IS DECIDED IN THIS FILE AND IN src/toon/*. render.js only calls in while
 // CHAPTERS[run.chapter].render.toon is set, and draws nothing of the chapter's own:
 //   src/toon/palette.js   PAL (the palette), mkCanvas, hash, whiteTwin
-//   src/toon/brush.js     the brush: pressure ink, cel fills, pie-cut eyes, gloves, rubber hose
-//   src/toon/cast.js      TOON_CAST (the four creatures), paintPlayer, the shore's peeking bubbles
+//   src/toon/brush.js     the brush: pressure ink, cel fills (and the cast's paper mode), pie-cut eyes,
+//                         gloves, rubber hose
+//   src/toon/cast.js      TOON_CAST (the creatures), paintPlayer, the shore's peeking bubbles
 //   src/toon/world.js     the floor shader (a GPU watercolour of rock and gouache lava, driven by the
 //                         height field and the tide), its noise and bubble atlas, the film pass, the
 //                         shots and the pickups
@@ -37,6 +38,7 @@
 // tideTurn, melt and crumble. The habitat, boat and weapon-ground tells live in src/toon/mantle-fx.js.
 import { AlphaFilter, BufferImageSource, CanvasSource, Container, Filter, GlProgram, Mesh, MeshGeometry, Shader, Sprite, Texture, UniformGroup } from 'pixi.js'
 import { PAL, TAU, mkCanvas, hash, whiteTwin } from './toon/palette.js'
+import { setPass } from './toon/brush.js'
 import { TOON_CAST, paintPlayer, PLAYER_BOX } from './toon/cast.js'
 import {
   CHUNK, CHUNK_STEP, CHUNK_N, FLOOR_VERT, FLOOR_FRAG, FILM_VERT, FILM_FRAG, NOISE_N, bakeNoise, paintBubbleAtlas,
@@ -57,13 +59,42 @@ const fi = (v, n) => ((Math.floor(v) % n) + n) % n
 const canvasTex = (cv, res = RES) => new Texture({ source: new CanvasSource({ resource: cv, resolution: res }) })
 
 // ---- the creatures -------------------------------------------------------------------------------
+// EVERY BODY IS A PAPER CUT-OUT, the way the player is: painted flat on paper (brush.js's paper mode,
+// set by cast.js), then cut out with scissors leaving an uneven margin of bare paper round its ink,
+// a margin that shifts a little from frame to frame. Three passes per frame:
+//   the body with its ground marks (its shadow, a ripple), then the CUT (cutout(): ink and paper
+//   grown from the bare silhouette, painted with no ground marks), then the bare body on top of it,
+//   then M.over (what lies in front of the body: the lava a swimmer is half under).
+// a creature's cut: a wider paper margin than the player's and a thinner ink round it (each of its
+// pieces is inked already)
+const CAST_CUT = { paper: 2.3, paperSide: 1.0, ink: 0.45, inkSide: 0.9 }
+function paintPass(M, f, elite, res, pass, fn = M.paint, cv = null) {
+  const [x0, y0, x1, y1] = M.box
+  cv = cv || mkCanvas((x1 - x0) * res, (y1 - y0) * res)
+  const ctx = cv.getContext('2d')
+  ctx.save(); ctx.scale(res, res); ctx.translate(-x0, -y0)
+  setPass(pass)
+  try { fn(ctx, f, elite) } finally { setPass('all'); ctx.restore() }
+  return cv
+}
 function paintBody(id, f, elite, res = RES) {
   const M = TOON_CAST[id]
   const [x0, y0, x1, y1] = M.box
-  const cv = mkCanvas((x1 - x0) * res, (y1 - y0) * res)
+  const cv = paintPass(M, f, elite, res, 'ground')
+  const bare = paintPass(M, f, elite, res, 'bare')
+  // the cut-out piece: its paper and ink cut, the body on it
+  const piece = cutout(bare, f, res, hash(id.length, id.charCodeAt(0), id.charCodeAt(1)) * 1000, M.cut ?? CAST_CUT)
+  piece.getContext('2d').drawImage(bare, 0, 0)
+  // a swimmer's piece is cut off where it goes under (M.sink paints what to take away)
+  if (M.sink) {
+    const pc = piece.getContext('2d')
+    pc.save(); pc.globalCompositeOperation = 'destination-out'
+    paintPass(M, f, elite, res, 'all', M.sink, piece)
+    pc.restore()
+  }
   const ctx = cv.getContext('2d')
-  ctx.scale(res, res); ctx.translate(-x0, -y0)
-  M.paint(ctx, f, elite)
+  ctx.drawImage(piece, 0, 0)
+  if (M.over) paintPass(M, f, elite, res, 'all', M.over, cv)
   return { canvas: cv, ax: -x0 / (x1 - x0), ay: -y0 / (y1 - y0) }
 }
 // The title card / recap thumbnail: the creature on a cream paper disc with an ink rim.
@@ -89,47 +120,52 @@ export function bakeCreature(id, elite) {
   }
   return { frames, thumb: paintThumb(id, elite || id === 'brimstoneDragon'), baseR: M.baseR, lean: 0, upright: false, poseOf: M.poseOf ?? null, faceDir: null, turnRate: null }
 }
-// THE PLAYER'S KEYLINE: its silhouette (no ground shadow) grown by a couple of px and filled with ink,
-// drawn under it: a thick-thin brush contour with a thin, broken margin of paper round it, so the
-// digger reads at a glance over a dragon's wing or a pile of imps without looking cut out.
-function keyline(f) {
-  const [x0, y0, x1, y1] = PLAYER_BOX
-  const bare = mkCanvas((x1 - x0) * RES, (y1 - y0) * RES), bx = bare.getContext('2d')
-  bx.scale(RES, RES); bx.translate(-x0, -y0); paintPlayer(bx, f, true)
-  // grown silhouette of the bare body by radius k (in world px), filled with one colour. The radius
-  // wanders round the body the way a brush's pressure does (thick on the shadow side, lower right,
-  // thin toward the light, and uneven everywhere), so it reads as hand ink, never as a cut-out.
+// THE CUT: a silhouette (a canvas painted with no ground marks) grown by a couple of px and filled
+// with ink, over a wider grown margin of paper: a thick-thin brush contour with a thin, broken margin
+// of paper round it. The radius wanders round the body the way a brush's pressure does (thick on the
+// shadow side, lower right, thin toward the light, uneven everywhere) and moves with the frame f, so
+// the paper edge shifts a little as the body animates. The player's keyline is this cut with its own
+// numbers; a creature's (o = TOON_CAST[id].cut) may widen or thin it.
+function cutout(bare, f, res, seed, o = {}) {
   const grow = (k0, k1, col, ph) => {
     const g = mkCanvas(bare.width, bare.height), c = g.getContext('2d')
     for (let i = 0; i < 40; i++) {
       const a = (i / 40) * TAU
       const wob = 0.3 * Math.sin(a * 3 + ph + f * 1.7) + 0.22 * Math.sin(a * 7 + ph * 2.3) + 0.12 * Math.sin(a * 13 + ph * 0.7)
-      const R = RES * Math.max(0.3, k0 + k1 * Math.max(0, Math.cos(a - 0.98)) + wob)
+      const R = res * Math.max(0.3, k0 + k1 * Math.max(0, Math.cos(a - 0.98)) + wob)
       c.drawImage(bare, Math.cos(a) * R, Math.sin(a) * R)
     }
     c.globalCompositeOperation = 'source-in'
     c.fillStyle = col; c.fillRect(0, 0, g.width, g.height)
     return g
   }
-  // the margin of paper the inker left round the cel: thin, uneven, and broken in places where the
-  // brush of the background paint came right up to the ink
-  const margin = grow(2.0, 1.1, PAL.paper ?? '#f3e6c4', 4.1)
+  // the margin of paper the scissors left round the cel: thin, uneven, and broken in places where
+  // the brush of the background paint came right up to the ink
+  const margin = grow(o.paper ?? 2.0, o.paperSide ?? 1.1, PAL.paper ?? '#f3e6c4', 4.1 + seed * 0.013)
   {
     const m = margin.getContext('2d'), w = margin.width, h = margin.height
     m.globalCompositeOperation = 'destination-out'
-    let sd = 977 + f * 131
+    let sd = 977 + Math.floor(seed) * 7 + f * 131
     const rnd = () => { sd = (sd * 16807) % 2147483647; return sd / 2147483647 }
-    for (let i = 0; i < 9; i++) {
+    const holes = o.holes ?? 9
+    for (let i = 0; i < holes; i++) {
       m.globalAlpha = 0.55 + 0.45 * rnd()
-      m.beginPath(); m.ellipse(rnd() * w, rnd() * h, RES * (2 + 4 * rnd()), RES * (1.5 + 3 * rnd()), rnd() * TAU, 0, TAU); m.fill()
+      m.beginPath(); m.ellipse(rnd() * w, rnd() * h, res * (2 + 4 * rnd()), res * (1.5 + 3 * rnd()), rnd() * TAU, 0, TAU); m.fill()
     }
     m.globalAlpha = 1
   }
   // the ink: a thick-thin brush contour hugging the silhouette
   const cv = mkCanvas(bare.width, bare.height), c = cv.getContext('2d')
   c.globalAlpha = 0.9; c.drawImage(margin, 0, 0); c.globalAlpha = 1
-  c.drawImage(grow(1.0, 1.6, PAL.ink ?? '#1e1513', 0.0), 0, 0)
+  c.drawImage(grow(o.ink ?? 1.0, o.inkSide ?? 1.6, PAL.ink ?? '#1e1513', 0.0 + seed * 0.007), 0, 0)
   return cv
+}
+// THE PLAYER'S KEYLINE: the cut of its bare silhouette (no ground shadow), with the player's numbers.
+function keyline(f) {
+  const [x0, y0, x1, y1] = PLAYER_BOX
+  const bare = mkCanvas((x1 - x0) * RES, (y1 - y0) * RES), bx = bare.getContext('2d')
+  bx.scale(RES, RES); bx.translate(-x0, -y0); paintPlayer(bx, f, true)
+  return cutout(bare, f, RES, 0)
 }
 // a Quench crust under (x, y): rock, so nothing there wades or burns
 function inCrust(run, x, y) {
