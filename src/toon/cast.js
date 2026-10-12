@@ -106,8 +106,8 @@ function imp(c, o = {}) {
 // springs off stretched tall, floats at the top, and drops stretched with speed lines into the next
 // squash. Its flame tuft lags the body: flattened on the landing, streaming up on the way down.
 const IMP_POSE = [
-  { stretch: 0.74, arms: 'up', lift: 0, look: [0.4, 0.55], curl: 0.15, dust: true, squint: true },   // SPLAT
-  { stretch: 0.86, arms: 'up', lift: 0, look: [0.4, 0.4], curl: 0.3, squint: true },                // wind-up
+  { stretch: 0.86, arms: 'up', lift: 0, look: [0.4, 0.55], curl: 0.25, dust: true },               // SPLAT
+  { stretch: 0.93, arms: 'up', lift: 0, look: [0.4, 0.4], curl: 0.35 },                             // wind-up
   { stretch: 1.24, arms: 'reach', lift: 2.5, look: [0.4, 0.2], curl: 0.35 },                          // launch
   { stretch: 1.12, arms: 'reach', lift: 5.5, look: [0.4, 0.2], curl: 0.5 },                           // rising
   { stretch: 1.0, arms: 'swing', lift: 7, look: [0.5, 0.3], curl: 0.7 },                              // apex

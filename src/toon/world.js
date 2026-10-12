@@ -28,6 +28,11 @@ import { peekBubble } from './cast.js'
 export const CHUNK = 1024          // world px per floor chunk
 export const CHUNK_STEP = 8        // world px between the height samples a chunk's texture holds
 export const CHUNK_N = CHUNK / CHUNK_STEP + 1   // samples a side (the last one is the next chunk's first)
+// each chunk's texture also holds APRON samples of its neighbours' ground on every side: the shader
+// reads the height round a pixel (its slope, the bubbles' centres, the painted wobble of the shore),
+// and a read past a bare chunk's edge would clamp to it and draw the chunk's square into the paint
+export const CHUNK_APRON = 16
+export const CHUNK_TEX = CHUNK_N + 2 * CHUNK_APRON
 
 // ---- the noise the floor paints with: one tileable texture, four independent fields --------------
 // 256 texels a side, 4 octaves of value noise on a lattice of period 8..64 (so it tiles), a different
@@ -130,6 +135,15 @@ float h12(vec2 p) { p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32);
 float bell(float x, float c, float w) { float q = (x - c) / w; return exp(-q * q); }
 // the noise texture is stretched to 0..1; this puts a sample back on a plain fbm scale (mean 0.5, sd 0.13)
 float fb(float n) { return 0.5 + (n - 0.43) * 0.76; }
+// THE PAINTER'S HAND: the ground is painted a few px off its own contour, wandering. The height field
+// is value noise on a square lattice, so along a lattice line (the world's axes above all, where every
+// octave's lattice meets) its contours run ruler-straight for hundreds of px; read straight, the shore
+// and the washes would draw those lines and corners as tiles. A slow wander (~10 px, at most ~25: the size
+// of a body, so a body in the painted lava is in the sim's) and a quick small one.
+vec2 wobC(vec2 w) { return (texture(uNoise, w / 360.0).rg - 0.45) * 56.0; }
+vec2 wob(vec2 w) { return wobC(w) + (texture(uNoise, w / 130.0 + 0.37).ba - 0.45) * 12.0; }
+// the ground's height at world point w as the painter drew it
+float hAt(vec2 w) { return hh(vUV + (w + wobC(w) - vWorld) * uUVW); }
 
 // one bubble per cell of a grid in the lava, between minD and maxD px from the shore; faces is the
 // chance a bubble is one of the four with a face. Returns premultiplied colour.
@@ -140,7 +154,7 @@ vec4 bubbles(float cellS, float minD, float maxD, float dens, float faces, float
   float rad = mix(rMin, rMax, r1);
   float jit = max(0.0, cellS * 0.5 - rad * 1.7 - 1.0);
   vec2 cc = (cell + 0.5) * cellS + (vec2(r2, r3) - 0.5) * 2.0 * jit;
-  float hc = hh(vUV + (cc - vWorld) * uUVW);
+  float hc = hAt(cc);
   float dc = (uLine - hc) / gl;                 // px into the lava at the bubble's centre
   float ph = fract(uTime * rate * (0.6 + 0.8 * r1) + r2 * 7.0);
   float popping = step(0.86, ph);
@@ -166,7 +180,7 @@ vec4 beads(float cs, float tgt, float rMin, float rMax, float dens, float gl, ve
     vec2 cell = base + vec2(mod(float(i), 2.0), floor(float(i) / 2.0));
     float r0 = h12(cell + 2.3), r1 = h12(cell + 5.9);
     vec2 cc = (cell + 0.5) * cs + (vec2(h12(cell + 8.1), r1) - 0.5) * cs * 0.4;
-    float hc = hh(vUV + (cc - vWorld) * uUVW);
+    float hc = hAt(cc);
     float dc = (uLine - hc) / gl;
     float mv = clamp(dc - tgt, -cs, cs);
     cc += gdir * mv;
@@ -184,9 +198,10 @@ vec4 beads(float cs, float tgt, float rMin, float rMax, float dens, float gl, ve
 
 void main() {
   vec2 W = vWorld;
-  float h = hh(vUV);
-  float hx = hh(vUV + vec2(uTexel, 0.0)) - hh(vUV - vec2(uTexel, 0.0));
-  float hy = hh(vUV + vec2(0.0, uTexel)) - hh(vUV - vec2(0.0, uTexel));
+  vec2 uvq = vUV + wob(W) * uUVW;                          // the painter's hand
+  float h = hh(uvq);
+  float hx = hh(uvq + vec2(uTexel, 0.0)) - hh(uvq - vec2(uTexel, 0.0));
+  float hy = hh(uvq + vec2(0.0, uTexel)) - hh(uvq - vec2(0.0, uTexel));
   vec2 g = vec2(hx, hy) / (2.0 * uStep);
   float gl = max(length(g), 0.00003);
   vec2 gn2 = g / gl;                                       // uphill: toward the dry ground
@@ -224,7 +239,8 @@ void main() {
   // with its pigment pooled into a broad soft dark edge on the low side, ragged, the way a watercolour
   // wash stops: a band some 20 px wide, never a contour line.
   float hasF = step(0.0, uFlood);
-  float dfl = (h - uFlood) / gl + (F.g - 0.5) * 10.0 + (C0.b - 0.5) * 18.0;   // px above the flood mark
+  // px above the flood mark, drawn freehand: it is only paint, so it wanders far off the contour
+  float dfl = (h - uFlood) / gl + (F.g - 0.5) * 10.0 + (C0.b - 0.5) * 18.0 + (nz(W, 700.0).r - 0.45) * 90.0;
   float safe = smoothstep(-6.0, 26.0, dfl) * hasF;
   float sc0 = (1.0 - safe) * hasF;
   rc = mix(rc, rc * vec3(0.78, 0.6, 0.64) + vec3(0.045, 0.01, 0.0), sc0 * (0.62 + 0.25 * C0.b));
@@ -314,7 +330,7 @@ void main() {
     rc = mix(rc, vec3(0.6, 0.55, 0.62), clamp(son, 0.0, 1.0) * 0.24);
   }
   // the lip, lit from the lava below, and the heat climbing the bank as the shores swell
-  rc *= 1.0 - 0.3 * exp(-dp / 45.0);                                      // the wash pooled dark at the shore
+  rc *= 1.0 - 0.3 * exp(-dp / (45.0 * (0.4 + 1.4 * nz(W, 380.0).b)));       // the wash pooled dark at the shore, unevenly
   rc = mix(rc, vec3(0.42, 0.18, 0.2), (1.0 - smoothstep(0.0, 6.0, dp)) * 0.65);
   rc = mix(rc, vec3(0.93, 0.5, 0.27), exp(-dp / 16.0) * 0.42);
   float heat = exp(-dp / (14.0 + 40.0 * sw)) * sw * (0.65 + 0.35 * throb);
@@ -360,7 +376,7 @@ void main() {
   float dpk = smoothstep(30.0, 90.0, Dd);
   lc = mix(lc, vec3(0.588, 0.118, 0.102), dpk * 0.45 * clamp(0.6 + 0.8 * (fb(nz(lw, 480.0).a) - 0.3), 0.0, 1.0));
   // THE SWELL: a bright band hugging every shore, wider and throbbing while the tide gathers
-  float bw = 9.0 + 16.0 * sw;
+  float bw = (9.0 + 16.0 * sw) * (0.55 + 1.0 * nz(W, 310.0).a);   // swelling unevenly along the shore
   float band = exp(-max(Dd, 0.0) / bw);
   lc = mix(lc, vec3(1.0, 0.8, 0.275), band * (0.8 + 0.2 * sw * throb));
   float froth = F.r * 0.6 + P.r * 0.4;

@@ -38,7 +38,7 @@ import { AlphaFilter, BufferImageSource, CanvasSource, Container, Filter, GlProg
 import { PAL, TAU, mkCanvas, hash, whiteTwin, CLOCK } from './toon/palette.js'
 import { TOON_CAST, paintPlayer, PLAYER_BOX } from './toon/cast.js'
 import {
-  CHUNK, CHUNK_STEP, CHUNK_N, FLOOR_VERT, FLOOR_FRAG, FILM_VERT, FILM_FRAG, NOISE_N, bakeNoise, paintBubbleAtlas,
+  CHUNK, CHUNK_STEP, CHUNK_N, CHUNK_APRON, CHUNK_TEX, FLOOR_VERT, FLOOR_FRAG, FILM_VERT, FILM_FRAG, NOISE_N, bakeNoise, paintBubbleAtlas,
   paintMatch, paintCoal, paintPitchfork, paintPuff, paintGem, paintCoin, paintLick, paintDot, paintSweat, paintWade, paintDaze,
 } from './toon/world.js'
 import { lavaTideOf, mantleHeightAt, lavaLineFor } from './sim.js'
@@ -192,8 +192,8 @@ export function createToonRenderer(host) {
   // texture the watercolour is painted with, and the atlas of the shore's bubbles
   const floorU = new UniformGroup({
     uLine: { value: 0, type: 'f32' }, uSwell: { value: 0, type: 'f32' }, uTime: { value: 0, type: 'f32' },
-    uPulse: { value: 0, type: 'f32' }, uTexel: { value: 1 / CHUNK_N, type: 'f32' }, uStep: { value: CHUNK_STEP, type: 'f32' },
-    uUVW: { value: (1 - 1 / CHUNK_N) / CHUNK, type: 'f32' }, uLo: { value: 0.3, type: 'f32' }, uHi: { value: 0.8, type: 'f32' },
+    uPulse: { value: 0, type: 'f32' }, uTexel: { value: 1 / CHUNK_TEX, type: 'f32' }, uStep: { value: CHUNK_STEP, type: 'f32' },
+    uUVW: { value: 1 / (CHUNK_STEP * CHUNK_TEX), type: 'f32' }, uLo: { value: 0.3, type: 'f32' }, uHi: { value: 0.8, type: 'f32' },
     uFlood: { value: -1, type: 'f32' }, uWet: { value: -1, type: 'f32' }, uWetK: { value: 0, type: 'f32' },
   })
   const noiseSrc = new BufferImageSource({ resource: bakeNoise(), width: NOISE_N, height: NOISE_N, format: 'rgba8unorm', scaleMode: 'linear', addressMode: 'repeat', alphaMode: 'no-premultiply-alpha' })
@@ -207,17 +207,18 @@ export function createToonRenderer(host) {
   }
   function bakeChunk(L, seed, i, j) {
     // raw bytes, never a canvas: a canvas upload may be colour-managed, which bends the heights
-    const data = new Uint8Array(CHUNK_N * CHUNK_N * 4)
+    const NT = CHUNK_TEX, A = CHUNK_APRON
+    const data = new Uint8Array(NT * NT * 4)
     const x0 = i * CHUNK, y0 = j * CHUNK
-    for (let b = 0; b < CHUNK_N; b++) for (let a = 0; a < CHUNK_N; a++) {
+    for (let b = 0; b < NT; b++) for (let a = 0; a < NT; a++) {
       // 16 bits of height: high byte in r, low byte in g (linear in both, so it interpolates exactly)
-      const v = Math.max(0, Math.min(65535, Math.round(mantleHeightAt(L, seed, x0 + a * CHUNK_STEP, y0 + b * CHUNK_STEP) * 65535)))
-      const o = (b * CHUNK_N + a) * 4
+      const v = Math.max(0, Math.min(65535, Math.round(mantleHeightAt(L, seed, x0 + (a - A) * CHUNK_STEP, y0 + (b - A) * CHUNK_STEP) * 65535)))
+      const o = (b * NT + a) * 4
       data[o] = v >> 8; data[o + 1] = v & 255; data[o + 2] = 0; data[o + 3] = 255
     }
-    const tex = new Texture({ source: new BufferImageSource({ resource: data, width: CHUNK_N, height: CHUNK_N, format: 'rgba8unorm', scaleMode: 'linear', alphaMode: 'no-premultiply-alpha' }) })
-    // texel centres: sample a lands exactly on world x0 + a * CHUNK_STEP, so neighbours share an edge
-    const u0 = 0.5 / CHUNK_N, u1 = 1 - 0.5 / CHUNK_N
+    const tex = new Texture({ source: new BufferImageSource({ resource: data, width: NT, height: NT, format: 'rgba8unorm', scaleMode: 'linear', alphaMode: 'no-premultiply-alpha' }) })
+    // texel centres: sample A + a lands exactly on world x0 + a * CHUNK_STEP, so neighbours share an edge
+    const u0 = (A + 0.5) / NT, u1 = (A + CHUNK_N - 0.5) / NT
     const mesh = new Mesh({
       geometry: new MeshGeometry({
         positions: new Float32Array([x0, y0, x0 + CHUNK, y0, x0 + CHUNK, y0 + CHUNK, x0, y0 + CHUNK]),
@@ -352,12 +353,13 @@ export function createToonRenderer(host) {
           const wd = wades.next(T.wade[fi(t * 3 + e.id * 0.5, 2)])
           wd.position.set(e.x, e.y + e.radius * 0.62)
           wd.scale.set(e.radius / 11.5)
-          const n = e.radius > 20 ? 3 : 2
+          // one small lick at its feet (two on a big body): a crowd in the lava stays a crowd of faces
+          const n = e.radius > 20 ? 2 : 1
           for (let k = 0; k < n; k++) {
             const s = licks.next(T.lick[fi(t * 9 + e.id + k, 3)])
             const a = (k / n) * TAU + e.id
-            s.position.set(e.x + Math.cos(a) * e.radius * 0.7, e.y + e.radius * 0.6 + Math.sin(a) * e.radius * 0.3)
-            s.scale.set(Math.max(0.7, e.radius / 16))
+            s.position.set(e.x + Math.cos(a) * e.radius * 0.75, e.y + e.radius * 0.75 + Math.sin(a) * e.radius * 0.2)
+            s.scale.set(Math.max(0.5, e.radius / 22))
           }
           // and it sweats: two drops flying off, the panic of a body in the lava
           for (let k = 0; k < 2; k++) {
@@ -381,16 +383,16 @@ export function createToonRenderer(host) {
         }
       }
       wades.end(); pwade.end(); licks.end(); sweats.end()
-      // a body set alight (the elemental contract field ignite): inked flames lick up off its two
-      // flanks, never over its face
+      // a body set alight (the elemental contract field ignite): a little inked flame on a shoulder
       burns.begin()
       for (const e of run.enemies) {
         if (e._dead || !((e.ignite || 0) > 0) || !onScreen(e.x, e.y, 40)) continue
-        for (const k of [-1, 1]) {
-          const s = burns.next(T.lick[fi(t * 10 + e.id + (k > 0 ? 1 : 0), 3)])
-          s.position.set(e.x + k * e.radius * 1.15, e.y + e.radius * 0.5)
-          s.scale.set(Math.max(0.75, e.radius / 13) * (k > 0 ? -1 : 1), Math.max(0.75, e.radius / 13))
-        }
+        // ONE small flame on one shoulder, clear of the hands and the face, so a burning crowd keeps
+        // its silhouettes
+        const k = (e.id & 1) ? 1 : -1
+        const s = burns.next(T.lick[fi(t * 10 + e.id, 3)])
+        s.position.set(e.x + k * e.radius * 0.62, e.y - e.radius * 0.3)
+        s.scale.set(Math.max(0.45, e.radius / 24) * -k, Math.max(0.45, e.radius / 24))
       }
       burns.end()
       // the player: walks while moving, blinks white for the moment after a hit
