@@ -27083,6 +27083,30 @@ void main() {
   // damage numbers: pooled Text objects, reuse the oldest when full
   const dmgTexts = []
   let dmgMuted = false
+  // The Mantle (src/toon.js): the number hand-lettered, one inked cel sprite per glyph
+  let toonDigitTex = null
+  function toonDigits(d, str) {
+    if (!toonOn || !/^[0-9+-]{1,6}$/.test(str)) { if (d.tc) d.tc.visible = false; return false }
+    toonDigitTex ??= Object.fromEntries(Object.entries(TOON.bakeDigits()).map(([ch, b]) => [ch, { tex: macroCanvasTex(b.canvas, b.res), ax: b.ax, ay: b.ay, adv: b.adv }]))
+    if (!d.tc) { d.tc = new Container(); textLayer.addChild(d.tc) }
+    while (d.tc.children.length < str.length) d.tc.addChild(new Sprite(Texture.EMPTY))
+    let w = 0
+    for (const ch of str) w += toonDigitTex[ch].adv
+    let x = -w / 2, i = 0
+    const sd = Math.random() * 6
+    for (const sp of d.tc.children) {
+      if (i >= str.length) { sp.visible = false; continue }
+      const g = toonDigitTex[str[i]]
+      sp.texture = g.tex; sp.anchor.set(g.ax, g.ay); sp.visible = true
+      // bouncy lettering: every glyph on its own baseline and its own lean
+      sp.position.set(x + g.adv / 2, Math.sin(sd + i * 2.1) * 1.3)
+      sp.rotation = Math.sin(sd * 1.7 + i * 2.9) * 0.12
+      x += g.adv; i++
+    }
+    d.tc.visible = true
+    d.t.visible = false
+    return true
+  }
   function spawnDamage(x, y, dmg, crit, dot, label = null) {
     if (dmgMuted) return // the Kraken's kill outro: a number over the dying face reads as one more hit
     let d = dmgTexts.find((t) => !t.live)
@@ -27137,18 +27161,20 @@ void main() {
     d.t.tint = label ? label.tint : crit ? 0xff8c42 : dot ? (ink === 0xffffff ? 0xd8cbbd : mix(ink, 0xffffff, 0.45)) : ink
     d.t.visible = true
     d._base = label ? (label.scale ?? 0.95) : crit ? 1.25 : dot ? 0.6 : 0.85
+    if (toonDigits(d, d.t.text)) { d.tc.children.forEach((sp) => { sp.tint = d.t.tint }); d._base *= 1.12 }
   }
 
   function updateDamage(dt) {
     for (const d of dmgTexts) {
       if (!d.live) continue
       d.age += dt
-      if (d.age >= 0.75) { d.live = false; d.t.visible = false; continue }
+      if (d.age >= 0.75) { d.live = false; d.t.visible = false; if (d.tc) d.tc.visible = false; continue }
       const k = d.age / 0.75
       const pop = 1 + d._pop * Math.max(0, 1 - d.age * 7)
       d.t.position.set(d.x, d.y - 30 * k)
       d.t.scale.set(d._base * pop)
       d.t.alpha = k > d._hold ? 1 - (k - d._hold) / (1 - d._hold) : 1
+      if (d.tc?.visible) { d.tc.position.copyFrom(d.t.position); d.tc.scale.copyFrom(d.t.scale); d.tc.alpha = d.t.alpha }
     }
   }
 
@@ -27156,6 +27182,7 @@ void main() {
     for (const d of dmgTexts) {
       d.live = false
       d.t.visible = false
+      if (d.tc) d.tc.visible = false
     }
   }
 
@@ -32530,7 +32557,7 @@ void main() {
           }
         } else s._frostT = 0
 
-        if (ignite > 0) {
+        if (ignite > 0 && !toonOn) {   // The Mantle: src/toon.js licks inked flames off the body's sides
           s._igniteT += frameDt
           if (s._igniteT >= 0.25) {
             s._igniteT -= 0.25

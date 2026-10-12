@@ -14,9 +14,11 @@
 // the toad pancakes before it hops and stretches out when it leaps, the golem knuckle-walks, the dragon
 // flaps. Every body faces the camera, the way a cartoon overworld shows its characters from above
 // (render.js mirrors it to face its way; it is never turned), standing on its own soft shadow.
-//   TOON_CAST[id] = { baseR, frames, box: [x0, y0, x1, y1] (units round the body's centre), paint, poseOf? }
+//   TOON_CAST[id] = { baseR, frames, box: [x0, y0, x1, y1] (units round the body's centre), paint, poseOf?,
+//   thumbFrame? (the frame the title card's thumbnail is painted from) }
 //   paint(ctx, frame, elite) draws in units (the caller has scaled the context). render.js scales the
 //   sprite by e.radius / baseR, so baseR sets how many world px one unit is drawn at.
+import { CLOCK } from './palette.js'
 import { resetXf, push, pop, tr, rot, sc, ell, polar, drop, tube, qb, line, cel, eye, glove, shadow, glow, puff, flame, brush, mp, INK } from './brush.js'
 
 const SH_RED = 'rgba(96,6,24,0.42)'
@@ -100,15 +102,29 @@ function imp(c, o = {}) {
   mouth(c, [-6.8, 1.0], [6.8, 1.0], [0, 3.4], [0, 10.6], { teeth: 1.9, n: 7, tongue: [1.2, 8.6, 2.6] })
   pop()
 }
-// IMP frames: a bounce. 0 up and stretched, 1 coming down, 2 landed and squashed (dust), 3 springing
+// IMP frames: one bounce, timed like a cartoon (impPose): it lands and squashes flat (held), winds up,
+// springs off stretched tall, floats at the top, and drops stretched with speed lines into the next
+// squash. Its flame tuft lags the body: flattened on the landing, streaming up on the way down.
 const IMP_POSE = [
-  { stretch: 1.16, arms: 'reach', lift: 4, look: [0.4, 0.3], curl: 0.9, lines: true },
-  { stretch: 1.04, arms: 'swing', lift: 2, look: [0.5, 0.4], curl: 0.6 },
-  { stretch: 0.82, arms: 'up', lift: 0, look: [0.4, 0.5], curl: 0.3, dust: true, squint: true },
-  { stretch: 1.0, arms: 'swing', lift: 1, look: [0.5, 0.4], curl: 0.5 },
+  { stretch: 0.74, arms: 'up', lift: 0, look: [0.4, 0.55], curl: 0.15, dust: true, squint: true },   // SPLAT
+  { stretch: 0.86, arms: 'up', lift: 0, look: [0.4, 0.4], curl: 0.3, squint: true },                // wind-up
+  { stretch: 1.24, arms: 'reach', lift: 2.5, look: [0.4, 0.2], curl: 0.35 },                          // launch
+  { stretch: 1.12, arms: 'reach', lift: 5.5, look: [0.4, 0.2], curl: 0.5 },                           // rising
+  { stretch: 1.0, arms: 'swing', lift: 7, look: [0.5, 0.3], curl: 0.7 },                              // apex
+  { stretch: 1.06, arms: 'swing', lift: 5.5, look: [0.5, 0.45], curl: 0.85 },                         // falling
+  { stretch: 1.2, arms: 'up', lift: 2.5, look: [0.4, 0.55], curl: 1.0, lines: true },                 // dropping fast
+  { stretch: 0.92, arms: 'up', lift: 0.4, look: [0.4, 0.55], curl: 0.9 },                             // contact
 ]
+// how long each frame is held, in parts of a bounce: the squash and the apex hang, the fall snaps
+const IMP_HOLD = [0.17, 0.09, 0.08, 0.11, 0.17, 0.12, 0.1, 0.06]
+const IMP_AT = IMP_HOLD.reduce((a, h) => (a.push(a[a.length - 1] + h), a), [0])
+const impPose = (e) => {
+  const u = (CLOCK.t * 1.7 + (e.id || 0) * 0.137) % 1
+  let f = 0; while (f < 7 && u >= IMP_AT[f + 1]) f++
+  return f
+}
 function paintImp(c, f, elite) {
-  const P = IMP_POSE[f % 4]
+  const P = IMP_POSE[f % 8]
   imp(c, { ...P, col: elite ? '#b92a30' : '#d8382a', big: elite })
   if (P.lines) { line(c, qb([-5, 13.5], [0, 15], [5, 13.5]), 0.9); line(c, qb([-3, 16], [0, 17], [3, 16]), 0.8) }
   if (P.dust) { puff(c, -10, 10, 2.2); puff(c, 10.5, 10.5, 2.5) }
@@ -168,36 +184,45 @@ function toad(c, o = {}) {
   if (o.dust) { puff(c, -19, 9, 2.4); puff(c, 19.5, 8, 2.8); puff(c, 15, 12, 1.8) }
   if (o.leap) { line(c, qb([-7, 17], [0, 19], [7, 17]), 0.9); line(c, qb([-4, 20], [0, 21.2], [4, 20]), 0.8) }
 }
-// TOAD frames: 0/1 sat and breathing, 2 pancaked ready to spring (aim / land), 3 the leap
+// TOAD frames (toadPose, off the sim's pounce state): 0/1 sat and breathing, 2 crouching into the
+// aim, 3 the leap (stretched long), 4 the second half of the aim (pancaked flat, wound tight: the
+// anticipation), 5 the landing splat (flattened wider still, dust thrown out)
 const TOAD_POSE = [
   { sx: 1, sy: 1, look: [0.4, 0.2] },
-  { sx: 0.97, sy: 1.05, look: [0.4, 0.2] },
-  { sx: 1.14, sy: 0.82, look: [0.5, 0.1], dust: true },
-  { sx: 0.92, sy: 1.1, lift: 6, leap: true, look: [0.3, -0.3] },
+  { sx: 0.96, sy: 1.06, look: [0.4, 0.2] },
+  { sx: 1.12, sy: 0.84, look: [0.5, 0.1] },
+  { sx: 0.88, sy: 1.16, lift: 7, leap: true, look: [0.3, -0.3] },
+  { sx: 1.24, sy: 0.72, look: [0.5, 0], dust: true },
+  { sx: 1.28, sy: 0.7, look: [0.4, 0.3], dust: true },
 ]
-function paintToad(c, f, elite) { toad(c, { ...TOAD_POSE[f % 4], col: elite ? '#a23c28' : '#c4562c' }) }
+function paintToad(c, f, elite) { toad(c, { ...TOAD_POSE[f % 6], col: elite ? '#a23c28' : '#c4562c' }) }
 function toadPose(e) {
   const s = e._pounceState
   if (s === 'leap') return 3
-  if (s === 'aim' || s === 'land') return 2
-  return Math.floor(-(e._pounceT || 0) * 3 + (e.id || 0) * 0.37) & 1
+  if (s === 'land') return 5
+  // the aim winds tighter as it runs out (POUNCE_AIM_T 0.6s): crouch, then pancaked flat and quivering
+  if (s === 'aim') return (e._pounceT || 0) > 0.3 ? 2 : 4
+  return Math.floor(CLOCK.t * 2.2 + (e.id || 0) * 0.37) & 1
 }
 
 // ---- BASALT GOLEM: a boulder that IS its face. A heavy brow, a lumpy nose, a proud underbite, -------
 // stone hose arms ending in big white-gloved fists, knuckle-walking; a little ember smouldering on top
 function golem(c, o = {}) {
-  const lk = o.look || [0, 0], a = o.step || 0, bob = o.bob || 0
+  const lk = o.look || [0, 0], a = o.step || 0, bob = o.bob || 0, sq = o.sq || 1, liftL = o.liftL || 0, liftR = o.liftR || 0
   shadow(c, 3, 13, 36, 14, 0.42)
-  push(); tr(0, -bob)
+  push(); tr(0, -bob); tr(0, 16); rot((o.step || 0) * -0.07); sc(1 / Math.sqrt(sq), sq); tr(0, -16)
   const st = o.col || '#7d6a66', st2 = '#5b4a4f', pale = '#a08d86', sh = 'rgba(30,8,24,0.32)'
   const rock = (cx, cy, r, sd, col = st, ink = 1.8, ry = 1) => cel(c, polar(cx, cy, (t) => r * (1 + 0.08 * Math.sin(t * 3 + sd) + 0.05 * Math.sin(t * 5 + sd * 2) + 0.025 * Math.sin(t * 9 + sd)) * (1 - (1 - ry) * Math.abs(Math.sin(t))), 54), col, { ink, shade: sh })
   // stubby feet under the boulder
   rock(-10, 17, 5.4, 9, st2, 1.4, 0.7); rock(10, 17.4, 5.4, 10, st2, 1.4, 0.7)
   // stone hose arms swinging out and down to the fists on the ground (one forward, one back)
-  const fl = [-28, 9 + a * 3 + bob], fr = [28, 7 - a * 3 + bob]
-  cel(c, tube(qb([-15, -6], [-27, -6 + a * 2], fl), 8.8, 7.4), st2, { ink: 1.5, shade: sh })
-  cel(c, tube(qb([15, -6], [27, -6 - a * 2], fr), 8.8, 7.4), st2, { ink: 1.5, shade: sh })
-  for (const [k, F] of [[-1, fl], [1, fr]]) glove(c, F[0], F[1] + 1, 6.4, Math.PI / 2 - k * 0.35)
+  // a swinging fist is lifted off the ground (higher, so drawn a touch bigger and further out); a
+  // planted one is pressed flat, with a puff of dust where it slammed down
+  const fl = [-28 - liftL * 1.6, 9 + a * 6 + bob - liftL * 4.5], fr = [28 + liftR * 1.6, 7 - a * 6 + bob - liftR * 4.5]
+  cel(c, tube(qb([-15, -6], [-27, -6 + a * 2 - liftL * 2], fl), 8.8, 7.4), st2, { ink: 1.5, shade: sh })
+  cel(c, tube(qb([15, -6], [27, -6 - a * 2 - liftR * 2], fr), 8.8, 7.4), st2, { ink: 1.5, shade: sh })
+  for (const [k, F, lf] of [[-1, fl, liftL], [1, fr, liftR]]) glove(c, F[0], F[1] + 1, 6.4 * (1 + lf * 0.05), Math.PI / 2 - k * (0.35 + lf * 0.12))
+  if (o.slam) { const F = o.slam < 0 ? fl : fr; puff(c, F[0] - 6, F[1] + 7, 2.6); puff(c, F[0] + 6, F[1] + 7.5, 2.2) }
   // the boulder: one big lumpy stone, a paler cap where the light lands, a few chips and pebbles
   rock(0, -2, 20.5, 5, st, 2.1, 0.92)
   cel(c, polar(-5, -10, (t) => 11 * (1 + 0.12 * Math.sin(t * 3 + 2) + 0.05 * Math.sin(t * 7)), 40), pale, { ink: 0, shade: null })
@@ -217,8 +242,27 @@ function golem(c, o = {}) {
   mouth(c, [-8.6, 5.4], [8.6, 5.4], [0, 7.2], [0, 13.6], { tongue: [0, 12.6, 2.6], lowTeeth: [[-4.2, 11.4, 1.9, 4.2], [4.2, 11.4, 1.9, 4.2]] })
   pop()
 }
-const GOLEM_POSE = [{ step: 1, bob: 0 }, { step: 0, bob: 1.4 }, { step: -1, bob: 0 }, { step: 0, bob: 1.4 }]
-function paintGolem(c, f, elite) { golem(c, { ...GOLEM_POSE[f % 4], look: [0, 0.5], col: elite ? '#6a5560' : '#7d6a66' }) }
+// GOLEM frames: a heavy knuckle-walk (golemPose, slow). A fist SLAMS down and the whole boulder sinks
+// onto it (squashed, dust), the body heaves up and over (stretched, the other fist swinging up off the
+// ground), then the other fist slams. Four beats a side, the slam held longest: weight.
+const GOLEM_POSE = [
+  { step: 1, bob: -1.2, sq: 0.86, slam: -1 },
+  { step: 0.7, bob: 0.8, sq: 0.96, liftR: 0.8 },
+  { step: 0.1, bob: 3.6, sq: 1.08, liftR: 2.0 },
+  { step: -0.6, bob: 2.4, sq: 1.03, liftR: 1.2 },
+  { step: -1, bob: -1.2, sq: 0.86, slam: 1 },
+  { step: -0.7, bob: 0.8, sq: 0.96, liftL: 0.8 },
+  { step: -0.1, bob: 3.6, sq: 1.08, liftL: 2.0 },
+  { step: 0.6, bob: 2.4, sq: 1.03, liftL: 1.2 },
+]
+const GOLEM_HOLD = [0.2, 0.08, 0.1, 0.12, 0.2, 0.08, 0.1, 0.12]
+const GOLEM_AT = GOLEM_HOLD.reduce((a, h) => (a.push(a[a.length - 1] + h), a), [0])
+const golemPose = (e) => {
+  const u = (CLOCK.t * 0.55 + (e.id || 0) * 0.211) % 1
+  let f = 0; while (f < 7 && u >= GOLEM_AT[f + 1]) f++
+  return f
+}
+function paintGolem(c, f, elite) { const P = GOLEM_POSE[f % 8]; golem(c, { ...P, look: [P.step * 0.25, 0.5], col: elite ? '#6a5560' : '#7d6a66' }) }
 
 // ---- BRIMSTONE DRAGON (the elite): a chubby baby dragon on spread bat wings, flying high (its shadow
 // far below). A head bigger than its belly, a cream snout puffing brimstone, a fanged grin, V brows,
@@ -234,9 +278,9 @@ function dragon(c, o = {}) {
     push(); sc(0.55 + 0.45 * fl, 1)
     const up = (1 - fl) * 10
     const sh0 = [k * 7, -4]
-    const tips = [[k * 52, -6 - up], [k * 50, -24 - up], [k * 34, -32 - up * 0.6]]
-    const elbow = [k * 28, 0 - up * 0.4]
-    const memPts = [sh0, elbow, tips[0], ...qb(tips[0], [k * 42, -10 - up], tips[1], 8).slice(1), ...qb(tips[1], [k * 36, -20 - up], tips[2], 8).slice(1), ...qb(tips[2], [k * 18, -16], [k * 6, -14], 8).slice(1)]
+    const tips = [[k * 47, -6 - up], [k * 45, -23 - up], [k * 31, -31 - up * 0.6]]
+    const elbow = [k * 25, 0 - up * 0.4]
+    const memPts = [sh0, elbow, tips[0], ...qb(tips[0], [k * 38, -10 - up], tips[1], 8).slice(1), ...qb(tips[1], [k * 32, -19 - up], tips[2], 8).slice(1), ...qb(tips[2], [k * 18, -16], [k * 6, -14], 8).slice(1)]
     cel(c, memPts, mem, { ink: 1.5, shade: 'rgba(120,50,10,0.42)' })
     for (const tp of tips) { const m = mix2(elbow, tp, 0.5); line(c, qb(elbow, [m[0] + 2, m[1] + 3], tp, 14), 1.6, { taper: 0.35 }) }
     cel(c, tube([sh0, [k * 16, 2], elbow], 6.4, 4.2), g, { ink: 1.4, shade: sh })
@@ -262,7 +306,7 @@ function dragon(c, o = {}) {
   }
   // the big head on a short neck, toward you
   cel(c, tube([[0, 8], [0, 13]], 9, 9), g, { ink: 1.5, shade: sh })
-  push(); tr(0, 22)
+  push(); tr(0, 22); sc(1.14)
   // horns, swept back, and frills
   for (const k of [-1, 1]) {
     cel(c, tube(qb([k * 8, -7], [k * 15, -9], [k * 16.5, -16]), 4.0, 0.8), '#f4c34a', { ink: 1.1, shade: 'rgba(150,70,10,0.45)' })
@@ -284,15 +328,28 @@ function dragon(c, o = {}) {
   pop()
   pop()
 }
-const DRAGON_POSE = [{ flap: 1, bob: 0 }, { flap: 0.7, bob: 1.5, smoke: true }, { flap: 0.4, bob: 3, smoke: true }, { flap: 0.7, bob: 1.5 }]
-function paintDragon(c, f) { dragon(c, DRAGON_POSE[f % 4]) }
+// DRAGON frames: a flap (dragonPose). The downstroke snaps (wings from high and wide to folded under,
+// the body thrown up by it, a puff of brimstone), the upstroke lifts them slowly back, the body sinking.
+const DRAGON_POSE = [
+  { flap: 1.0, bob: 0 }, { flap: 0.66, bob: 1.8 }, { flap: 0.3, bob: 4.2, smoke: true },
+  { flap: 0.42, bob: 3.4, smoke: true }, { flap: 0.62, bob: 2.2 }, { flap: 0.84, bob: 1.0 },
+]
+const DRAGON_HOLD = [0.12, 0.08, 0.14, 0.2, 0.22, 0.24]
+const DRAGON_AT = DRAGON_HOLD.reduce((a, h) => (a.push(a[a.length - 1] + h), a), [0])
+const dragonPose = (e) => {
+  const u = (CLOCK.t * 1.3 + (e.id || 0) * 0.173) % 1
+  let f = 0; while (f < 5 && u >= DRAGON_AT[f + 1]) f++
+  return f
+}
+function paintDragon(c, f) { dragon(c, DRAGON_POSE[f % 6]) }
 
 const wrap = (fn) => (ctx, f, elite) => { resetXf(); fn(ctx, f, elite); resetXf() }
 export const TOON_CAST = {
-  emberImp: { baseR: 10, frames: 4, box: [-22, -30, 22, 20], paint: wrap(paintImp) },
-  magmaToad: { baseR: 11, frames: 4, box: [-26, -22, 26, 25], paint: wrap(paintToad), poseOf: toadPose },
-  basaltGolem: { baseR: 27, frames: 4, box: [-41, -33, 41, 32], paint: wrap(paintGolem) },
-  brimstoneDragon: { baseR: 26, frames: 4, box: [-70, -62, 76, 70], paint: wrap(paintDragon) },
+  emberImp: { baseR: 10, frames: 8, box: [-22, -32, 22, 20], paint: wrap(paintImp), poseOf: impPose, thumbFrame: 4 },
+  magmaToad: { baseR: 11, frames: 6, box: [-26, -22, 26, 25], paint: wrap(paintToad), poseOf: toadPose },
+  basaltGolem: { baseR: 27, frames: 8, box: [-43, -36, 43, 34], paint: wrap(paintGolem), poseOf: golemPose, thumbFrame: 1 },
+  // drawn bigger than its hit radius (baseR under its radius): it flies, and a dragon must read as big
+  brimstoneDragon: { baseR: 23, frames: 6, box: [-70, -64, 76, 74], paint: wrap(paintDragon), poseOf: dragonPose },
 }
 
 // ---- THE PLAYER: the digger. A big head under a yellow hard hat with its lamp, red shirt, blue -----

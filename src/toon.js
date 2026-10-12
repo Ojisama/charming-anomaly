@@ -35,7 +35,7 @@
 // run.boomerangs (weapon 'pitchfork'), the elemental contract fields on enemies (ignite), and the
 // event tideTurn.
 import { AlphaFilter, BufferImageSource, CanvasSource, Container, Filter, GlProgram, Mesh, MeshGeometry, Shader, Sprite, Texture, UniformGroup } from 'pixi.js'
-import { PAL, TAU, mkCanvas, hash, whiteTwin } from './toon/palette.js'
+import { PAL, TAU, mkCanvas, hash, whiteTwin, CLOCK } from './toon/palette.js'
 import { TOON_CAST, paintPlayer, PLAYER_BOX } from './toon/cast.js'
 import {
   CHUNK, CHUNK_STEP, CHUNK_N, FLOOR_VERT, FLOOR_FRAG, FILM_VERT, FILM_FRAG, NOISE_N, bakeNoise, paintBubbleAtlas,
@@ -45,7 +45,7 @@ import { lavaTideOf, mantleHeightAt, lavaLineFor } from './sim.js'
 import { gemTier } from './config.js'
 
 export { TOON_CAST, PAL }
-export { inkRing, inkLine, bakeAffix, bakeRingCanvas } from './toon/marks.js'
+export { inkRing, inkLine, bakeAffix, bakeRingCanvas, bakeDigits } from './toon/marks.js'
 
 const RES = 3   // canvas px per world px, for every bake
 // the ground drawn with the tide switched off (signature.lavaTide = null): the same kind of hills, dry
@@ -66,7 +66,7 @@ function paintBody(id, f, elite, res = RES) {
 }
 // The title card / recap thumbnail: the creature on a cream paper disc with an ink rim.
 function paintThumb(id, elite) {
-  const b = paintBody(id, 0, elite, 4)
+  const b = paintBody(id, TOON_CAST[id].thumbFrame ?? 0, elite, 4)
   const S = Math.max(b.canvas.width, b.canvas.height) + 16
   const cv = mkCanvas(S, S)
   const x = cv.getContext('2d')
@@ -180,7 +180,7 @@ export function createToonRenderer(host) {
   over.addChild(fxLayer, playerLayer, playerFx, shotLayer)
   const gems = pool(pickLayer), coins = pool(pickLayer)
   const dazes = pool(playerFx)
-  const shots = pool(shotLayer), forks = pool(shotLayer), puffs = pool(shotLayer), wades = pool(fxLayer), pwade = pool(playerFx), licks = pool(fxLayer), sweats = pool(fxLayer)
+  const shots = pool(shotLayer), forks = pool(shotLayer), puffs = pool(shotLayer), wades = pool(fxLayer), pwade = pool(playerFx), licks = pool(fxLayer), sweats = pool(fxLayer), burns = pool(fxLayer)
   const playerKey = new Sprite(T.player[0].key)
   playerKey.anchor.set(T.player[0].ax, T.player[0].ay)
   playerKey.alpha = 1
@@ -270,7 +270,7 @@ export function createToonRenderer(host) {
       look = null
       floor.filters = null
       for (const k of [...chunks.keys()]) dropChunk(k)
-      for (const p of [dazes, gems, coins, shots, forks, puffs, wades, pwade, licks, sweats]) p.hide()
+      for (const p of [dazes, gems, coins, shots, forks, puffs, wades, pwade, licks, sweats, burns]) p.hide()
       wetLine = -1; wetK = 0; maxLine = -1
     },
     filters() { return [film] },
@@ -278,6 +278,7 @@ export function createToonRenderer(host) {
     sync(run, dt, view) {
       if (!look) return
       t = view.animT
+      CLOCK.t = t
       // the world's and the film's clock: the sim's own time (it runs with the game, stops when it is
       // paused), so the lava churns and every speck of dust, hair and scratch lands somewhere new
       const clock = run.time ?? t
@@ -380,6 +381,18 @@ export function createToonRenderer(host) {
         }
       }
       wades.end(); pwade.end(); licks.end(); sweats.end()
+      // a body set alight (the elemental contract field ignite): inked flames lick up off its two
+      // flanks, never over its face
+      burns.begin()
+      for (const e of run.enemies) {
+        if (e._dead || !((e.ignite || 0) > 0) || !onScreen(e.x, e.y, 40)) continue
+        for (const k of [-1, 1]) {
+          const s = burns.next(T.lick[fi(t * 10 + e.id + (k > 0 ? 1 : 0), 3)])
+          s.position.set(e.x + k * e.radius * 1.15, e.y + e.radius * 0.5)
+          s.scale.set(Math.max(0.75, e.radius / 13) * (k > 0 ? -1 : 1), Math.max(0.75, e.radius / 13))
+        }
+      }
+      burns.end()
       // the player: walks while moving, blinks white for the moment after a hit
       const moving = prevX !== null && Math.hypot(p.x - prevX, p.y - prevY) > 0.2
       prevX = p.x; prevY = p.y

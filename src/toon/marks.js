@@ -46,24 +46,40 @@ export function inkRing(g, x, y, r, color, alpha = 1, width = 2, fill = 0) {
   g.poly(ringPoly(x, y, r, a0, span, (a, u) => (wb * press(a) * 0.95 + 3.0) * (0.3 + 0.7 * taper(u)), n, sd)).fill({ color: INK, alpha: Math.min(0.95, 0.3 + alpha * 1.1) })
   g.poly(ringPoly(x, y, r, a0 + 0.06, span - 0.12, (a, u) => wb * 0.95 * press(a) * (0.25 + 0.75 * taper(u)), n, sd)).fill({ color, alpha: Math.min(1, 0.35 + alpha) })
 }
+// the lane drawn as a cartoon animator's ZIP LINES: a run of fat brush dashes along it, each bellied in
+// the middle and tapering at both ends, its path wavering by hand, a colour core inside a full ink
+// stroke, shrinking and thinning away from the body so the near end (where you look) reads first
 export function inkLine(g, x0, y0, x1, y1, color, alpha = 1, width = 1.5) {
   const dx = x1 - x0, dy = y1 - y0, L = Math.hypot(dx, dy)
   if (L < 2) return
-  const nx = -dy / L, ny = dx / L, n = Math.max(8, Math.round(L / 10))
-  const strip = (wf) => {
-    const a = [], b = []
+  const ux = dx / L, uy = dy / L, nx = -uy, ny = ux
+  const sd = (ph(x0, y0, L) * 1e6) | 0
+  const W = Math.max(2.2, width * 2.6)
+  const dashes = Math.max(2, Math.min(5, Math.round(L / 46)))
+  const span = L / dashes
+  const strip = (s0, s1, wf, off) => {
+    const n = Math.max(6, Math.round((s1 - s0) / 4)), A = [], B = []
     for (let i = 0; i <= n; i++) {
-      const u = i / n, w = wf(u) / 2
-      const px = x0 + dx * u, py = y0 + dy * u
-      a.push(px + nx * w, py + ny * w); b.push(px - nx * w, py - ny * w)
+      const u = i / n, d = s0 + (s1 - s0) * u
+      const w = wf(u) / 2
+      // the hand drifts off the ruler a little, never a sine
+      const wob = 1.1 * n1(d / 22, sd) + 0.35 * n1(d / 6, sd + 3)
+      const px = x0 + ux * d + nx * (wob + off), py = y0 + uy * d + ny * (wob + off)
+      A.push(px + nx * w, py + ny * w); B.push(px - nx * w, py - ny * w)
     }
-    for (let i = b.length - 2; i >= 0; i -= 2) a.push(b[i], b[i + 1])
-    return a
+    for (let i = B.length - 2; i >= 0; i -= 2) A.push(B[i], B[i + 1])
+    return A
   }
-  // a stroke that starts fat where it leaves the body and tapers away along the lane
-  const wf = (u) => Math.max(0.2, width * 1.6 * (1 - u) * Math.min(1, u / 0.06 + 0.3))
-  g.poly(strip((u) => wf(u) + 2.2 * (1 - u))).fill({ color: INK, alpha: Math.min(0.9, 0.2 + alpha) })
-  g.poly(strip(wf)).fill({ color, alpha: Math.min(1, 0.3 + alpha) })
+  for (let k = 0; k < dashes; k++) {
+    const fade = 1 - (k / dashes) * 0.6
+    const s0 = k * span + span * (0.06 + 0.08 * hn(sd, k)), s1 = (k + 1) * span - span * (0.14 + 0.1 * hn(sd, k + 9))
+    // pressure: fat in the belly, one end dragged longer than the other
+    const skew = 0.35 + 0.3 * hn(sd, k + 20)
+    const press = (u) => Math.pow(Math.sin(Math.PI * Math.pow(u, skew / 0.5)), 0.7)
+    const wf = (u) => W * fade * (0.15 + 0.85 * press(u)) * (1 + 0.18 * n1(u * 5, sd + k))
+    g.poly(strip(s0 - 1.2, s1 + 1.2, (u) => wf(u) + 2.6 * fade, 0.5)).fill({ color: INK, alpha: Math.min(0.92, 0.45 + alpha) })
+    g.poly(strip(s0, s1, (u) => wf(u) * 0.62, 0)).fill({ color, alpha: Math.min(1, 0.45 + alpha) })
+  }
 }
 
 // THE ONE-OFF RING (render.js's spawnRing, while the chapter is toon): a canvas of radius 64 px (the
@@ -153,4 +169,50 @@ export function bakeAffix(id) {
   c.scale(RES, RES); c.translate(W / 2, W / 2)
   resetXf(); (BADGE[id] ?? STAR)(c); resetXf()
   return { canvas: cv, ax: 0.5, ay: 0.5, res: RES }
+}
+
+// ---- THE DAMAGE NUMBERS: hand-lettered 1930s cartoon digits (render.js's spawnDamage, toonOn) ------
+// Each glyph is a skeleton of brush strokes (units: a digit 8 wide, 12 tall), laid three times: a dark
+// drop of ink offset to the lower right (the lettering's shadow), the ink contour round every stroke,
+// then a cream paint fill dragged through the strokes so they merge into one letter, a dry highlight
+// along the lit side. bakeDigits() -> { [char]: { canvas, ax, ay, res, adv } } for '0'-'9', '+', '-'.
+const arc = (cx, cy, r, a0, a1, ry = r, n = 22) => { const o = []; for (let i = 0; i <= n; i++) { const a = a0 + (a1 - a0) * (i / n); o.push([cx + Math.cos(a) * r, cy + Math.sin(a) * ry]) } return o }
+// a closed loop as two overlapping halves (a ribbon that crosses itself would cancel its own fill)
+const loop = (cx, cy, r, ry, a0 = -1.6) => [arc(cx, cy, r, a0, a0 + 3.5, ry), arc(cx, cy, r, a0 + 3.1, a0 + 6.5, ry)]
+const GLYPH = {
+  0: loop(4, 6, 3.3, 5.3),
+  1: [[[1.8, 3.0], [4.6, 0.4], [4.3, 11.8]], [[1.6, 11.9], [7.0, 11.7]]],
+  2: [[...qb([0.9, 3.4], [3.6, -1.6], [6.8, 2.6], 10), ...qb([6.8, 2.6], [7.6, 6.2], [0.9, 11.6], 12).slice(1)], [[0.9, 11.6], [7.6, 11.2]]],
+  3: [arc(3.8, 3.3, 3.0, -2.7, 1.6, 2.9), arc(3.8, 8.7, 3.5, -1.6, 2.7, 3.3)],
+  4: [[[5.7, 11.9], [5.6, 0.4], [0.5, 8.4], [7.9, 8.2]]],
+  5: [[[7.1, 0.7], [1.8, 0.9], [1.2, 5.6]], arc(3.9, 8.2, 3.6, -2.4, 2.65, 3.6)],
+  6: [qb([6.7, 0.6], [0.7, 2.0], [0.8, 8.4], 14), ...loop(4.0, 8.4, 3.2, 3.3)],
+  7: [[[0.6, 0.9], [7.5, 0.7], [3.0, 11.9]]],
+  8: [...loop(4, 3.2, 2.7, 2.7), ...loop(4, 8.7, 3.4, 3.2)],
+  9: [...loop(4, 3.8, 3.2, 3.2), qb([7.2, 3.6], [7.4, 10.4], [1.4, 11.6], 14)],
+  '+': [[[4, 3.2], [4, 10.2]], [[0.6, 6.7], [7.4, 6.5]]],
+  '-': [[[0.8, 6.6], [7.2, 6.4]]],
+}
+const DG_RES = 4
+export function bakeDigits() {
+  const out = {}
+  for (const ch of Object.keys(GLYPH)) {
+    const W = 15, H = 19, ox = 3.5, oy = 3.5
+    const cv = mkCanvas(W * DG_RES, H * DG_RES), c = cv.getContext('2d')
+    c.scale(DG_RES, DG_RES)
+    resetXf()
+    const strokes = GLYPH[ch]
+    const fat = (d, w0 = 3.4, w1 = 3.0) => strokes.map((s) => tube(s.map(([x, y]) => [x + ox + d[0], y + oy + d[1]]), w0, w1))
+    // the drop shadow and the contour: the strokes grown by the ink, in one dark colour, the contour
+    // nudged to the lower right so it lies fat on the shadow side and thin toward the light
+    for (const T of fat([1.2, 1.4], 6.4, 6.0)) cel(c, T, 'rgba(30,21,19,0.8)', { ink: 0, shade: null, dabs: 0 })
+    for (const T of fat([0.32, 0.42], 6.0, 5.5)) cel(c, T, '#1e1513', { ink: 0, shade: null, dabs: 0 })
+    // the paint, once per stroke with no ink between them: one merged letter
+    for (const T of fat([0, 0])) cel(c, T, '#fbe7a2', { ink: 0, shade: 'rgba(214,120,40,0.55)' })
+    // a dry cream highlight along each stroke's lit edge
+    for (const s of strokes) line(c, s.map(([x, y]) => [x + ox - 0.55, y + oy - 0.55]).slice(1, -1), 0.55, { color: 'rgba(255,252,236,0.85)', taper: 0.4 })
+    resetXf()
+    out[ch] = { canvas: cv, ax: (ox + 4) / W, ay: (oy + 6) / H, res: DG_RES, adv: ch === '1' ? 7.6 : ch === '-' ? 8.4 : 9.4 }
+  }
+  return out
 }

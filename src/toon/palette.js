@@ -138,3 +138,8 @@ export function whiteTwin(cv) {
   x.fillStyle = 'rgba(255,250,236,0.68)'; x.fillRect(0, 0, w.width, w.height)
   return w
 }
+
+// THE CAST'S CLOCK: the renderer's animation time (src/toon.js sets it every frame), so a creature's
+// pose can be timed per creature (an imp's bounce, a golem's heavy stride) instead of render.js's one
+// fixed frame rate for every body
+export const CLOCK = { t: 0 }
