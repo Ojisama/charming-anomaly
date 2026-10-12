@@ -18,6 +18,8 @@ import { FR } from '../src/fr.js'
 import { FOIL_FRAG as HOLO_FOIL_FRAG, CAVERN_FLOOR_FRAG as HOLO_CAVERN_FRAG } from '../src/holo.js'
 import { ensurePrecision as pixiEnsurePrecision } from '../node_modules/pixi.js/lib/rendering/renderers/gl/shader/program/preprocessors/ensurePrecision.mjs'
 import { magmaGroundAt, magmaRiverAt, magmaCooledAt, magmaHotAt } from '../src/sim.js'
+import { lavaFloodedAt, mantleHeightAt, lavaLineFor } from '../src/sim.js'
+import { MANTLE_GROUND_STEP, MANTLE_START_DRY } from '../src/config.js'
 import {
   SHOP, shopCost, refundValue, REFUND_RATE, MAX_SHOP_LEVEL, lineMax, CURRENT_RESIST_FLOOR, SHOP_FAMILY, SHOP_COST_CAP, SHOP_COST_CAP_DEFAULT,
   PASSIVES, RARITIES, RARITY_ORDER, RARITY_WEIGHTS, UPGRADE_RARITY, resistFrac, PASSIVE_RESIST_K, passiveEffectText,
@@ -20904,6 +20906,7 @@ run(testLeLargeWeapons)
   run(testPickLandsLate)
   run(testDynamiteNearest)
   run(testFireBoots)
+  run(testMantle)
   // A hand-typed filter that matched nothing is the silent pass without a parent watching:
   // `node test/sim-test.js supernova` printed ALL TESTS PASSED having run no scenario at all.
   if (_ran === 0 && !EXACT_SET) {
@@ -40012,7 +40015,7 @@ function testMagma() {
     assert.ok(flares >= 1 && c.lavaEnd > end0, `run MG.e: the bellows should flare the lava ahead of you (flares ${flares}, lavaEnd +${(c.lavaEnd - end0).toFixed(2)}s)`)
   }
   // (f) the chapter's own anomaly and mutator, scoped to it alone and doing what their cards say
-  assert.strictEqual(BOOKS.burrow.chapters[BOOKS.burrow.chapters.length - 1], 'magma', 'run MG.f: The Magma is the last rung of Burrow')
+  assert.ok(BOOKS.burrow.chapters.indexOf('magma') >= 0 && BOOKS.burrow.chapters.indexOf('magma') < BOOKS.burrow.chapters.indexOf('mantle'), 'run MG.f: The Magma sits on Burrow\'s ladder, above The Mantle')
   assert.strictEqual(ANOMALIES.hotFeet.chapter, 'magma', 'run MG.f: Hot Feet is The Magma\'s own anomaly')
   assert.deepStrictEqual(MUTATORS.thinCrust.chapters, ['magma'], 'run MG.f: Thin Crust is The Magma\'s own mutator')
   const firstOpen = (hot) => {
@@ -40670,4 +40673,178 @@ function testFireBoots() {
   assert(lost[1] < lost[0] * 0.95, 'FC.a one pick did not cut the burn: ' + lost.join('/'))
   assert(lost[2] < lost[1] && lost[3] < lost[2], 'FC.b a further pick was inert: ' + lost.join('/'))
   console.log('PASS run FC (Firefighter Boots): 4s in lava cost ' + lost.join(' / ') + ' hp at 0 / 1 / 2 / 5 picks')
+}
+
+// ---- run MT: The Mantle's lava tide ---------------------------------------------------------------
+// Effects, not state: (a) the tide cycles — the level reaches the ebb and the flood and turns
+// (tideTurn) at least four times in 180s, and the share of the ground lavaFloodedAt calls lava swings
+// from a few pools to most of it; (b) a walking body parked in a basin that floods burns to death
+// with no weapon, a FLYING one in the same spot takes nothing, and with signature.lavaTide switched
+// off neither burns and nothing is lava; (c) the player standing in lava is burned (hurt src 'lava');
+// (d) High Water holds the ebb up, Flood Tide floods more ground; (e) the four weapons do what their
+// cards say: a match lights its target (ignite), a coal hits more than one body, the whistle shoves
+// a body outward, the pitchfork comes back and hits on the way home.
+function testMantle() {
+  const meta = () => { const m = makeMeta(); m.dev = true; return m }
+  const sig = CHAPTERS.mantle.signature, L = sig.lavaTide
+  const boot = (seed, opts = {}) => { Math.random = mulberry32(seed); const r = createRun(meta(), { chapter: 'mantle', difficulty: 1, ...opts }); r.player.hp = r.player.maxHP = 1e6; return r }
+  const step = (r, n, input = { x: 0, y: 0 }, onEv) => {
+    for (let i = 0; i < n; i++) {
+      if (r.phase === 'levelup') { r.phase = 'playing'; r.levelUpChoices = [] }
+      r.player.hp = r.player.maxHP
+      stepSim(r, input, 1 / 60)
+      if (onEv) onEv(r.events)
+      r.events.length = 0
+    }
+  }
+  const share = (r) => { let n = 0, f = 0; for (let i = -10; i <= 10; i++) for (let j = -10; j <= 10; j++) { n++; if (lavaFloodedAt(r, r.player.x + i * 150, r.player.y + j * 150)) f++ } return f / n }
+  // (a)
+  {
+    const r = boot(41001)
+    r.weapons = []
+    let lo = 1, hi = 0, turns = 0, sLo = 1, sHi = 0
+    for (let k = 0; k < 180 * 4; k++) {
+      step(r, 15, { x: 0, y: 0 }, (evs) => { for (const e of evs) if (e.type === 'tideTurn') turns++ })
+      r.enemies = []
+      lo = Math.min(lo, r.lavaTide.level); hi = Math.max(hi, r.lavaTide.level)
+      if (k % 8 === 0) { const f = share(r); sLo = Math.min(sLo, f); sHi = Math.max(sHi, f) }
+    }
+    assert.ok(lo <= 0.02 && hi >= 0.98 && turns >= 4, `run MT.a: the tide should ebb and flood and turn 4+ times in 180s: lo ${lo} hi ${hi} turns ${turns}`)
+    assert.ok(sLo <= 0.3 && sHi >= 0.55, `run MT.a: the lava should swing from pools to most of the ground: ${sLo.toFixed(2)} .. ${sHi.toFixed(2)}`)
+  }
+  // (b) a basin that floods at the flood: a spot under the 40% line, the nearest one to the start
+  const r0 = boot(41002)
+  stepSim(r0, { x: 0, y: 0 }, 1 / 60)
+  const deepLine = lavaLineFor(L, 0.4)
+  let spot = null
+  for (let d = 200; d < 6000 && !spot; d += 40) for (let a = 0; a < 24 && !spot; a++) {
+    const x = Math.cos(a * Math.PI / 12) * d, y = Math.sin(a * Math.PI / 12) * d
+    if (mantleHeightAt(L, r0.lavaTide.seed, x, y) < deepLine) spot = { x, y }
+  }
+  assert.ok(spot, 'run MT.b precondition: a basin within 6000px of the start')
+  const parked = (on, flying) => {
+    const saved = sig.lavaTide
+    if (!on) sig.lavaTide = null
+    try {
+      const r = boot(41002)
+      stepSim(r, { x: 0, y: 0 }, 1 / 60)
+      r.enemies = []
+      r.player.x = spot.x + 700; r.player.y = spot.y
+      const e = makeStatusEnemy(r, { x: spot.x, y: spot.y, hp: 400, speed: 0 })
+      if (flying) e.flags = ['flying']
+      r.enemies.push(e)
+      let wet = 0
+      for (let i = 0; i < 60 * 90 && !e._dead; i++) {
+        r.weapons = []; e.x = spot.x; e.y = spot.y
+        if (lavaFloodedAt(r, spot.x, spot.y)) wet++
+        r.player.hp = r.player.maxHP
+        if (r.phase === 'levelup') r.phase = 'playing'
+        stepSim(r, { x: 0, y: 0 }, 1 / 60); r.events.length = 0
+        r.enemies = r.enemies.filter((o) => o === e)
+      }
+      return { dead: !!e._dead, hp: e.hp, wet }
+    } finally { sig.lavaTide = saved }
+  }
+  const walk = parked(true, false), fly = parked(true, true), off = parked(false, false)
+  assert.ok(walk.dead && walk.wet > 0, `run MT.b: a body parked in a basin should burn to death as it floods: ${JSON.stringify(walk)}`)
+  assert.ok(!fly.dead && fly.hp === 400, `run MT.b: a flying body passes over the lava unburned: ${JSON.stringify(fly)}`)
+  assert.ok(!off.dead && off.hp === 400 && off.wet === 0, `run MT.b: with signature.lavaTide off nothing is lava and nothing burns: ${JSON.stringify(off)}`)
+  // (c) the player parked in the basin is burned; with the switch off, not
+  const burnt = (on) => {
+    const saved = sig.lavaTide
+    if (!on) sig.lavaTide = null
+    try {
+      const r = boot(41002)   // the run whose ground the basin was found on
+      stepSim(r, { x: 0, y: 0 }, 1 / 60)   // the ground is laid at the first step, under the start
+      r.weapons = []
+      for (let i = 0; i < 60 * 90; i++) { r.enemies = []; r.player.x = spot.x; r.player.y = spot.y; step(r, 1) }
+      return r.dmgBySrc?.lava ?? 0
+    } finally { sig.lavaTide = saved }
+  }
+  const pOn = burnt(true), pOff = burnt(false)
+  assert.ok(pOn > 0 && pOff === 0, `run MT.c: standing in the lava burns you (src lava), and not with the tide off: ${pOn} vs ${pOff}`)
+  // (d) the chapter's own anomaly and mutator
+  assert.deepStrictEqual(MUTATORS.highWater.chapters, ['mantle'], 'run MT.d: High Water is The Mantle\'s own mutator')
+  assert.strictEqual(BOOKS.burrow.chapters[BOOKS.burrow.chapters.length - 1], 'mantle', 'run MT.d: The Mantle is the last rung of Burrow')
+  assert.strictEqual(CHAPTERS['mantle'].starter, 'matchFlick', 'run MT.d: The Mantle starts you on the Match Flick')
+  assert.strictEqual(ANOMALIES.floodTide.chapter, 'mantle', 'run MT.d: Flood Tide is The Mantle\'s own anomaly')
+  const tideRange = (opts, anomalies) => {
+    const r = boot(41004, opts)
+    if (anomalies) r.anomalies = { ...(r.anomalies ?? {}), ...anomalies }
+    r.weapons = []
+    let lo = 1, cover = 0
+    for (let k = 0; k < 120 * 4; k++) { step(r, 15); r.enemies = []; lo = Math.min(lo, r.lavaTide.level); cover = Math.max(cover, r.lavaTide.cover) }
+    return { lo, cover }
+  }
+  const plain = tideRange({}), high = tideRange({ mutators: ['highWater'] }), flood = tideRange({}, { floodTide: true })
+  assert.ok(plain.lo < 0.05 && high.lo >= L.highWater.ebb - 1e-9, `run MT.d: High Water never lets the tide ebb: ${plain.lo} vs ${high.lo}`)
+  assert.ok(flood.cover > plain.cover + 0.04, `run MT.d: Flood Tide floods more of the ground: ${flood.cover} vs ${plain.cover}`)
+  // (e) the weapons, one at a time, the tide off so only the weapon acts
+  const saved = sig.lavaTide
+  sig.lavaTide = null
+  try {
+    const arena = (w, place) => {
+      const r = boot(41005)
+      r.weapons = [{ id: w, level: 1 }]
+      stepSim(r, { x: 0, y: 0 }, 1 / 60)
+      r.enemies = []
+      const bodies = place(r).map((p) => makeStatusEnemy(r, { x: r.player.x + p[0], y: r.player.y + p[1], hp: 1e6, speed: 0 }))
+      r.enemies.push(...bodies)
+      return { r, bodies }
+    }
+    {
+      const { r, bodies } = arena('matchFlick', () => [[150, 0]])
+      let lit = 0
+      for (let i = 0; i < 120; i++) { step(r, 1); lit = Math.max(lit, bodies[0].ignite || 0) }
+      assert.ok(lit > 0 && bodies[0].hp < 1e6, `run MT.e: a match sets its target alight (ignite ${lit})`)
+    }
+    {
+      const { r, bodies } = arena('hotCoals', () => [[150, 0], [230, 40], [300, -30]])
+      for (let i = 0; i < 90; i++) { step(r, 1); for (const b of bodies) { b.x = b._x ?? (b._x = b.x); b.y = b._y ?? (b._y = b.y) } }
+      const hit = bodies.filter((b) => b.hp < 1e6).length
+      assert.ok(hit >= 2, `run MT.e: a coal should bounce on to a second body: ${hit} hit`)
+    }
+    {
+      const { r, bodies } = arena('steamWhistle', () => [[90, 0]])
+      const x0 = bodies[0].x - r.player.x
+      step(r, 120)
+      assert.ok(bodies[0].x - r.player.x > x0 + 20, `run MT.e: the whistle shoves a body outward: ${x0} -> ${(bodies[0].x - r.player.x).toFixed(0)}`)
+    }
+    {
+      const { r, bodies } = arena('pitchfork', () => [[120, 0]])
+      let back = 0, hits = 0
+      for (let i = 0; i < 180; i++) {
+        const hp0 = bodies[0].hp
+        step(r, 1)
+        bodies[0].x = r.player.x + 120; bodies[0].y = r.player.y
+        if (bodies[0].hp < hp0) { hits++; if (r.boomerangs.some((b) => b.weapon === 'pitchfork' && b.phase === 'back')) back++ }
+      }
+      assert.ok(hits >= 2 && back >= 1, `run MT.e: the pitchfork comes back and hits on the way home: ${hits} hits, ${back} on the return`)
+    }
+  } finally { sig.lavaTide = saved }
+  // MT.g: THE LAVA THAT BURNS IS THE LAVA THAT IS DRAWN. The painter (src/toon/world.js) stores the
+  // ground's height every CHUNK_STEP px and its texture filter blends linearly in between; sim's
+  // mantleHeightAt must be that same blend of its own grid values, or a sliver of lava the paint
+  // smooths away burns a body standing on painted dry rock (found by a grader, 2026-10-12).
+  {
+    const L = CHAPTERS.mantle.signature.lavaTide, S = MANTLE_GROUND_STEP, seed = 0x51a7
+    let worst = 0, n = 0
+    for (let k = 0; k < 400; k++) {
+      const x = (k * 977.31) % 20000 - 10000, y = (k * 613.77) % 20000 - 10000
+      const i = Math.floor(x / S), j = Math.floor(y / S), fx = x / S - i, fy = y / S - j
+      const at = (a, b) => mantleHeightAt(L, seed, a * S, b * S)
+      const want = (at(i, j) * (1 - fx) + at(i + 1, j) * fx) * (1 - fy) + (at(i, j + 1) * (1 - fx) + at(i + 1, j + 1) * fx) * fy
+      worst = Math.max(worst, Math.abs(mantleHeightAt(L, seed, x, y) - want)); n++
+    }
+    assert(worst < 1e-9, `MT.g: mantleHeightAt is not the painter's bilinear blend of its ${S}px grid (worst gap ${worst} over ${n} points)`)
+    // MT.h: the run starts on HIGH ground (dry until MANTLE_START_DRY of the map is lava)
+    const dryLine = lavaLineFor(L, MANTLE_START_DRY)
+    for (const sd of [3, 17, 29, 41, 53]) {
+      const r = boot(sd)
+      stepSim(r, { x: 0, y: 0 }, 1 / 60)
+      const h = mantleHeightAt(L, r.lavaTide.seed, r.player.x, r.player.y)
+      assert(h >= dryLine, `MT.h: seed ${sd} starts the player at height ${h.toFixed(3)}, under the ${MANTLE_START_DRY} flood line ${dryLine.toFixed(3)}`)
+    }
+  }
+  console.log(`PASS run MT (The Mantle): the tide cycled and the lava swung across the ground; a parked body burned in a flooding basin, a flyer did not, nothing with the tide off; you burn ${pOn} in the lava, 0 off; High Water ebbs to ${high.lo}, Flood Tide covers ${flood.cover.toFixed(2)} vs ${plain.cover.toFixed(2)}; match lights, coal bounces, whistle shoves, fork returns`)
 }

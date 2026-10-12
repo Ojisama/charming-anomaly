@@ -265,7 +265,10 @@ import {
   CANARY_REACH_MUL, CANARY_LINK_DMG, LANTERN_PULSE, MINE_BOOM_KEEP, MINE_GAS_FADE_IN, MINE_GAS_LIT_SHRINK,
   SLAG_RANGE, SLAG_FLIGHT, SLAG_TICK, OBSIDIAN_FAN, OBSIDIAN_LIFE, OBSIDIAN_R, SPLINTER_DMG_MUL, SPLINTER_LIFE, SPLINTER_SPEED, SPLINTER_R,
   BELLOWS_LIFE, BELLOWS_FLARE_MUL, BELLOWS_FLARE_R, BELLOWS_FLARE_T, BOMB_RANGE, BOMB_FLIGHT, BOMB_LAVA_R, BOMB_LAVA_T, HOT_FEET_OPEN_MUL, HOT_FEET_BURN_MUL,
+  FLOOD_TIDE_COVER_ADD, FLOOD_TIDE_SPEED_MUL, FLOOD_TIDE_BURN_MUL, MATCH_FAN, MATCH_LIFE, MATCH_R, COAL_FAN, COAL_LIFE, COAL_R, COAL_IGNITE,
+  STEAM_LIFE, PITCHFORK_HIT_R, PITCHFORK_FAN,
   noiseAt,
+  MANTLE_GROUND_STEP, MANTLE_START_DRY,
 } from './config.js'
 
 const KB_DECAY_RATE = 6 // per-second exponential-ish decay factor for enemy knockback
@@ -407,6 +410,7 @@ export function stepSim(run, input, dt) {
   if (stepTunnels(run, dt)) return // phase is now 'dead' (Book 3 Topsoil: a mole erupted under you)
   stepPits(run, dt)
   if (stepCrust(run, dt)) return // phase is now 'dead' (Book 3 The Magma: you stood in the lava)
+  if (stepLavaTide(run, dt)) return // phase is now 'dead' (Book 3 The Mantle: you stood in the lava tide)
 
   stepMartyr(run)         // v7.2: resolve the anomaly's queued blasts — after every hurtPlayer caller above
   stepGravityWells(run, dt) // v5.4 beyond signature: bend every projectile in flight (damages nothing)
@@ -10307,6 +10311,11 @@ const WEAPON_STAT_MODS = {
   obsidianShards: { keenGlass: ['dmg', 'pct'], glassVolley: ['count', 'flat'], shatter: ['splinters', 'flat'], razorEdge: ['pierce', 'flat'] },
   bellows:        { forgeHeat: ['dmg', 'pct'], longDraft: ['radius', 'pct'], widePipe: ['arc', 'pct'] },
   volcanicBomb:   { heavyRock: ['dmg', 'pct'], bigBlast: ['r', 'pct'], salvo: ['count', 'flat'] },
+  // The Mantle. Rate mods divide at their fire sites; slowBurn, cinders and wideTines are read there too.
+  matchFlick:     { strikeAnywhere: ['dmg', 'pct'], matchbook: ['count', 'flat'], longMatch: ['pierce', 'flat'] },
+  hotCoals:       { whiteHot: ['dmg', 'pct'], coalScuttle: ['count', 'flat'], skipping: ['bounces', 'flat'] },
+  steamWhistle:   { shrill: ['dmg', 'pct'], farWhistle: ['radius', 'pct'], fullSteam: ['knockback', 'pct'] },
+  pitchfork:      { sharpTines: ['dmg', 'pct'], longHaft: ['range', 'pct'], twoForks: ['count', 'flat'] },
   orbit:     { extraOrb: ['orbs', 'flat'], wideRing: ['radius', 'pct'], overdrive: ['rotSpeed', 'pct'] },
   wave:      { bigWave: ['radius', 'pct'], shove: ['knockback', 'pct'], amplitude: ['dmg', 'pct'] },
   boomerang: { extraRang: ['count', 'flat'], longThrow: ['range', 'pct'], heavyBlade: ['dmg', 'pct'] },
@@ -10618,6 +10627,10 @@ function stepWeaponsInner(run, dt) {
     else if (w.id === 'obsidianShards') stepObsidianWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'bellows') stepBellowsWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'volcanicBomb') stepVolcanicBombWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'matchFlick') stepMatchFlickWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'hotCoals') stepHotCoalsWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'steamWhistle') stepSteamWhistleWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'pitchfork') stepPitchforkWeapon(run, w, stats, fireRateMul, dt)
   }
 
   stepBullets(run, dt)
@@ -10877,6 +10890,7 @@ function stepBullets(run, dt) {
       if (dx * dx + dy * dy <= rad * rad) {
         applyDamage(run, e, b.dmg)
         if (b._splinters > 0 && e._dead) burstObsidian(run, b, e)   // The Magma: a killing shard bursts
+        if (b._ignite > 0 && !e._dead) applyIgnite(run, e, b._ignite, b.dmg)   // The Mantle: a match or a coal sets it alight
         // Necrotic Tips (stinger switch mod, snapshotted as b._necrotic at fire time): the needle
         // leaves flagella's bleed behind. Reuses applyBleed verbatim rather than growing a second
         // DoT — which also means lightning can forward it, since elArc carries bleed.
@@ -17748,4 +17762,231 @@ function stepMagmaLobs(run, dt) {
   }
   run.magmaLobs = run.magmaLobs.filter((l) => !l._done)
   if (run.slagPools.length > 60) run.slagPools.splice(0, run.slagPools.length - 60)
+}
+
+// ==== Book 3: The Mantle ===========================================================================
+// THE LAVA TIDE (The Mantle's signature, signature.lavaTide). The ground has HEIGHT — a pure function
+// of (x, y, a seed derived from _driftSeed): rolling hills plus ridge lines (mantleHeightAt) — and the
+// lava lies in it at a LEVEL that breathes on a slow beat: an ebb (a few pools), the shores swelling,
+// a climb in four surges, a hold at the flood (only hills and ridges dry), a drain in four surges.
+// Lava covers every point whose height is under the current line (lavaFloodedAt). It burns: the
+// player a little (hurt src 'lava'), every walking body hard (hazard damage, a kill still counts);
+// a 'flying' body passes over it. It never blocks or slows anything.
+// Published for the renderer (src/toon.js): run.lavaTide = { level, phase, t, dur, swell, line,
+// cover, rising, turnIn, cycle, seed } and the event {type:'tideTurn', rising, level, x, y}.
+// Returns true when the lava killed the player.
+function lavaTideSpec(run) {
+  const sig = CHAPTERS[run.chapter]?.signature
+  return sig && sig.type === 'lavaTide' && sig.lavaTide ? sig.lavaTide : null
+}
+// the run's ground seed: derived, never drawn, so the ground costs the random stream nothing
+const lavaGroundSeed = (run) => (Math.floor((run._driftSeed ?? 0) * 1e8) ^ 0x1a7a) | 0
+// THE GROUND'S FIELD in [0, 1): hills (fbm at L.wave px) blended with ridges (the mid contour of a
+// second field at L.ridgeWave px, so ridges run in long lines and stay dry the longest). Each field
+// reads a ROTATED, offset copy of the plane: noiseAt is value noise on a square lattice, and read
+// straight its contours run ruler-straight along the lattice lines (the world axes above all).
+const MANTLE_HILL_ROT = [Math.cos(0.61), Math.sin(0.61)], MANTLE_RIDGE_ROT = [Math.cos(1.13), Math.sin(1.13)]
+function mantleFieldAt(L, seed, x, y) {
+  const [hc, hs] = MANTLE_HILL_ROT, [rc, rs] = MANTLE_RIDGE_ROT
+  const hill = noiseAt(x * hc - y * hs + 1733.1, x * hs + y * hc - 911.7, seed, 3, L.wave)
+  const ridge = 1 - Math.abs(2 * noiseAt(x * rc - y * rs - 517.3, x * rs + y * rc + 2281.9, seed ^ 0x2d9e, 2, L.ridgeWave) - 1)
+  return hill * (1 - L.ridgeMix) + ridge * L.ridgeMix
+}
+// THE GROUND'S HEIGHT, exactly as it is painted: the field sampled on the MANTLE_GROUND_STEP grid,
+// quantised to the painter's 16 bits, and blended bilinearly in between (what the floor texture's
+// linear filter does). Everything that asks "is this lava?" reads this, so nothing burns on ground the
+// player sees dry, and nothing drawn as lava is safe.
+const q16 = (v) => Math.max(0, Math.min(65535, Math.round(v * 65535))) / 65535
+export function mantleHeightAt(L, seed, x, y) {
+  const S = MANTLE_GROUND_STEP, gx = x / S, gy = y / S, i = Math.floor(gx), j = Math.floor(gy)
+  const fx = gx - i, fy = gy - j, x0 = i * S, y0 = j * S
+  const a = q16(mantleFieldAt(L, seed, x0, y0)), b = q16(mantleFieldAt(L, seed, x0 + S, y0))
+  const c = q16(mantleFieldAt(L, seed, x0, y0 + S)), d = q16(mantleFieldAt(L, seed, x0 + S, y0 + S))
+  return (a + (b - a) * fx) * (1 - fy) + (c + (d - c) * fx) * fy
+}
+// The height under which a given SHARE of the ground lies (a quantile of the field). The field's
+// statistics do not depend on the seed, so the table is sampled once per shape of spec (memoised:
+// it changes timing, never a result).
+let lavaQuantMemo = null
+function lavaQuantiles(L) {
+  const key = L.wave + '/' + L.ridgeWave + '/' + L.ridgeMix
+  if (lavaQuantMemo && lavaQuantMemo.key === key) return lavaQuantMemo.q
+  const hs = []
+  const N = 160, span = 90000
+  for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) {
+    const x = (i + 0.37 * ((j * 7) % 11) / 11) * (span / N) - span / 2
+    const y = (j + 0.41 * ((i * 5) % 13) / 13) * (span / N) - span / 2
+    hs.push(mantleFieldAt(L, 0x5eed, x, y))
+  }
+  hs.sort((a, b) => a - b)
+  const q = []
+  for (let k = 0; k <= 100; k++) q.push(hs[Math.min(hs.length - 1, Math.round((k / 100) * (hs.length - 1)))])
+  lavaQuantMemo = { key, q }
+  return q
+}
+export function lavaLineFor(L, cover) {
+  const q = lavaQuantiles(L)
+  const c = Math.max(0, Math.min(1, cover)) * 100, k = Math.min(99, Math.floor(c))
+  return q[k] + (q[k + 1] - q[k]) * (c - k)
+}
+// Is the ground at (x, y) under the lava right now? false with the tide switched off.
+export function lavaFloodedAt(run, x, y) {
+  const L = lavaTideSpec(run), T = run.lavaTide
+  if (!L || !T) return false
+  return mantleHeightAt(L, T.seed, x, y) < T.line
+}
+// what render needs to paint the same ground (src/toon.js): null off The Mantle or with the tide off
+export function lavaTideOf(run) {
+  const L = lavaTideSpec(run)
+  return L && run.lavaTide ? { L, T: run.lavaTide } : null
+}
+const TIDE_PHASES = ['ebb', 'rising', 'flood', 'falling']
+// a climb or a drain in four surges, each eased (the beat the level moves on)
+const surge = (u) => { const b = Math.min(3, Math.floor(u * 4)), f = u * 4 - b; return (b + f * f * (3 - 2 * f)) / 4 }
+function tidePhaseDur(L, T, phase, run) {
+  const stretch = 1 + L.jitter * (2 * noiseAt(T.cycle * 3.71 + 0.5, 1.5, T.seed ^ 0x71de, 1, 1) - 1)
+  if (phase === 'ebb') return (T.cycle === 0 ? L.firstEbb : L.holdEbb * stretch)
+  if (phase === 'rising') return L.rise * stretch / (run.anomalies?.floodTide ? FLOOD_TIDE_SPEED_MUL : 1)
+  if (phase === 'flood') return L.holdFlood * stretch
+  return L.fall * stretch
+}
+function stepLavaTide(run, dt) {
+  const L = lavaTideSpec(run)
+  if (!L) { if (run.lavaTide) run.lavaTide = null; return false }
+  const p = run.player
+  let T = run.lavaTide
+  if (!T) {
+    T = run.lavaTide = { level: 0, phase: 'ebb', t: 0, dur: 0, cycle: 0, swell: 0, line: 0, cover: 0, rising: false, turnIn: 0, seed: lavaGroundSeed(run), _tick: 0, _pT: 0, _carry: 0 }
+    // the run starts on HIGH ground: re-derive the seed until the player's spot stays dry at any flood
+    const dry = lavaLineFor(L, MANTLE_START_DRY)
+    for (let k = 1; k <= 64 && mantleHeightAt(L, T.seed, p.x, p.y) < dry; k++) T.seed = (lavaGroundSeed(run) + Math.imul(k, 0x9e3779b1)) | 0
+    T.dur = tidePhaseDur(L, T, 'ebb', run)
+  }
+  // 1. the beat: advance the phase clock, turning the tide when a phase runs out
+  T.t += dt
+  while (T.t >= T.dur) {
+    T.t -= T.dur
+    const next = TIDE_PHASES[(TIDE_PHASES.indexOf(T.phase) + 1) % 4]
+    if (next === 'ebb') T.cycle++
+    T.phase = next
+    T.dur = tidePhaseDur(L, T, next, run)
+    if (next === 'rising' || next === 'falling') run.events.push({ type: 'tideTurn', rising: next === 'rising', level: T.level, x: p.x, y: p.y })
+  }
+  // 2. the level: High Water (the mutator) never lets it ebb below highWater.ebb
+  const lo = run.mutators?.includes('highWater') && L.highWater ? L.highWater.ebb : 0
+  const u = Math.min(1, T.t / T.dur)
+  T.level = T.phase === 'ebb' ? lo : T.phase === 'rising' ? lo + (1 - lo) * surge(u) : T.phase === 'flood' ? 1 : 1 - (1 - lo) * surge(u)
+  T.rising = T.phase === 'rising'
+  T.turnIn = T.dur - T.t
+  // THE TELL: the shores swell for the last swellT s of the ebb, and stay swollen while it climbs
+  T.swell = T.phase === 'ebb' ? Math.max(0, 1 - T.turnIn / L.swellT) : T.phase === 'rising' ? 1 : 0
+  const flood = L.floodCover + (run.anomalies?.floodTide ? FLOOD_TIDE_COVER_ADD : 0)
+  T.cover = L.ebbCover + (flood - L.ebbCover) * T.level
+  T.line = lavaLineFor(L, T.cover)
+  // 3. the burn, on the tide's own tick: every walking body in the lava near you
+  const hot = run.anomalies?.floodTide ? FLOOD_TIDE_BURN_MUL : 1
+  T._tick -= dt
+  if (T._tick <= 0) {
+    T._tick += L.tick
+    for (const e of run.enemies) {
+      if (e._dead || isAlly(e) || damageImmune(e) || flies(e)) continue
+      if ((e.x - p.x) ** 2 + (e.y - p.y) ** 2 > L.reach * L.reach) continue
+      if (mantleHeightAt(L, T.seed, e.x, e.y) >= T.line) continue
+      const dmg = (L.burnFlat + L.burnPct * e.maxHP) * L.tick * hot * (e.elite ? L.eliteMul : 1)
+      dealDamage(run, e, dmg, false, true, true)   // hazard: the lava did it
+    }
+  }
+  // 4. the player in the lava: a steady dot burn, the fraction banked so a gentle burn is never rounded away
+  if (mantleHeightAt(L, T.seed, p.x, p.y) < T.line) {
+    T._pT -= dt
+    if (T._pT <= 0) {
+      T._pT += L.tick
+      T._carry += L.playerBurn * L.tick * run.mods.enemyDmgMul * (1 - resistFrac(run.passives.fireBoots))
+      const whole = Math.floor(T._carry)
+      T._carry -= whole
+      if (whole > 0 && hurtPlayer(run, whole, true, 'lava')) return true
+    }
+  } else T._pT = 0
+  return false
+}
+
+// -- Match Flick (The Mantle starter) --------------------------------------------------------------
+// A lit match at the nearest foe; it sets what it hits alight (applyIgnite, in stepBullets).
+function stepMatchFlickWeapon(run, w, stats, fireRateMul, dt) {
+  const quick = run.weaponMods.matchFlick?.quickStrike ?? 0
+  const slowBurn = run.weaponMods.matchFlick?.slowBurn ?? 0
+  fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => {
+    const p = run.player
+    const target = nearestEnemy(run)
+    const base = target ? Math.atan2(target.y - p.y, target.x - p.x) : aimAngle(run)
+    const count = ipecacN(run, stats.count)
+    for (let i = 0; i < count; i++) {
+      const a = base + (i - (count - 1) / 2) * MATCH_FAN
+      run.bullets.push({
+        x: p.x, y: p.y, vx: Math.cos(a) * stats.speed, vy: Math.sin(a) * stats.speed,
+        dmg: stats.dmg, pierce: stats.pierce, life: MATCH_LIFE, r: MATCH_R, speed: stats.speed,
+        hitIds: new Set(), _shard: true, _splitDone: true, _chainsLeft: 0, weapon: 'match',
+        _ignite: stats.burn * (1 + slowBurn),
+      })
+    }
+    run.events.push({ type: 'shoot', weapon: 'matchFlick' })
+  })
+}
+
+// -- Hot Coals ---------------------------------------------------------------------------------------
+// A red-hot coal at the nearest foe that bounces on to the next (the chain idiom, tryChainBullet).
+function stepHotCoalsWeapon(run, w, stats, fireRateMul, dt) {
+  const quick = run.weaponMods.hotCoals?.quickStoke ?? 0
+  const cinders = run.weaponMods.hotCoals?.cinders ?? 0
+  fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => {
+    const p = run.player
+    const target = nearestEnemy(run)
+    const base = target ? Math.atan2(target.y - p.y, target.x - p.x) : aimAngle(run)
+    const count = ipecacN(run, stats.count)
+    for (let i = 0; i < count; i++) {
+      const a = base + (i - (count - 1) / 2) * COAL_FAN
+      run.bullets.push({
+        x: p.x, y: p.y, vx: Math.cos(a) * stats.speed, vy: Math.sin(a) * stats.speed,
+        dmg: stats.dmg, pierce: 1, life: COAL_LIFE, r: COAL_R, speed: stats.speed,
+        hitIds: new Set(), _shard: true, _splitDone: true, _chainsLeft: Math.round(stats.bounces), weapon: 'coal',
+        _ignite: cinders > 0 ? COAL_IGNITE * cinders : 0,
+      })
+    }
+    run.events.push({ type: 'shoot', weapon: 'hotCoals' })
+  })
+}
+
+// -- Steam Whistle -----------------------------------------------------------------------------------
+// A ring round you that shoves the crowd OUTWARD (run.novas, look 'steam') — off your hill, into the lava.
+function stepSteamWhistleWeapon(run, w, stats, fireRateMul, dt) {
+  const quick = run.weaponMods.steamWhistle?.quickWhistle ?? 0
+  fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => {
+    const p = run.player
+    for (const r of ipecacRadii(run, stats.radius)) spawnNova(run, p.x, p.y, r, stats.dmg, stats.knockback, 0, { look: 'steam', life: STEAM_LIFE })
+    run.events.push({ type: 'shoot', weapon: 'steamWhistle', x: p.x, y: p.y, maxR: stats.radius })
+  })
+}
+
+// -- Pitchfork ---------------------------------------------------------------------------------------
+// Thrown at the nearest foe, flies out and comes back (run.boomerangs, weapon 'pitchfork': the
+// boomerang's own flight and hits, stepBoomerangs).
+function stepPitchforkWeapon(run, w, stats, fireRateMul, dt) {
+  const quick = run.weaponMods.pitchfork?.quickToss ?? 0
+  const wide = run.weaponMods.pitchfork?.wideTines ?? 0
+  fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => {
+    const p = run.player
+    const target = nearestEnemy(run)
+    const base = target ? Math.atan2(target.y - p.y, target.x - p.x) : aimAngle(run)
+    const count = ipecacN(run, stats.count)
+    const step = count > 1 ? (2 * PITCHFORK_FAN) / (count - 1) : 0
+    for (let i = 0; i < count; i++) {
+      const angle = count > 1 ? base - PITCHFORK_FAN + i * step : base
+      run.boomerangs.push({
+        x: p.x, y: p.y, ox: p.x, oy: p.y, angle, phase: 'out',
+        dmg: stats.dmg, hit: new Set(), speed: stats.speed, range: stats.range,
+        hitR: PITCHFORK_HIT_R * (1 + wide), backhandMul: 1, weapon: 'pitchfork',
+      })
+    }
+    run.events.push({ type: 'shoot', weapon: 'pitchfork' })
+  })
 }

@@ -658,6 +658,9 @@ const SFX_FOR_EVENT = {
   // several a second. A stick of dynamite is rare enough for the explode whoomp; a pickaxe blow is
   // the light, throttled `hit`.
   gasBlast: 'crush', dynamite: 'explode', pickaxe: 'hit',
+  // Book 3, The Mantle: the lava tide turning. Twice a cycle (about once every half minute), so it
+  // can bear the surge swell.
+  tideTurn: 'surge',
   // v5.21 lane (beyond): the active shove reuses the hole whoosh, and a rock clipping the player
   // is an ordinary hurt — it is damage, not a special occasion.
   repulse: 'hole', rockhit: 'hurt',

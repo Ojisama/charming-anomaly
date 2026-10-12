@@ -939,6 +939,12 @@ export const CANARY_LINK_DMG = 0.3       // + this much blast damage per link do
 // Hot Feet (The Magma's anomaly): cracks open this much sooner, and lava burns this much hotter.
 export const HOT_FEET_OPEN_MUL = 0.55
 export const HOT_FEET_BURN_MUL = 1.6
+// FLOOD TIDE (ANOMALIES.floodTide, The Mantle): the flood climbs higher and faster, and the lava
+// burns the crowd hotter. Cover is a share of the ground under lava at the top of the flood.
+// balance_decision : first guess, owner playtests 2026-10-12
+export const FLOOD_TIDE_COVER_ADD = 0.08   // + share of the ground the flood covers at its top
+export const FLOOD_TIDE_SPEED_MUL = 1.5    // x how fast the lava climbs
+export const FLOOD_TIDE_BURN_MUL = 1.5     // x how hot the lava burns the crowd (never you)
 // SUNDOWN (ANOMALIES.sundown, Topsoil): the light goes, the crowd quickens, every kill pays more XP.
 // balance_decision : first guess, owner playtests 2026-10-10
 export const SUNDOWN_SPEED_MUL = 1.2
@@ -1393,6 +1399,16 @@ export const ANOMALIES = {
     desc: `Cracks open into lava ${Math.round((1 - HOT_FEET_OPEN_MUL) * 100)}% sooner, and lava burns ${Math.round((HOT_FEET_BURN_MUL - 1) * 100)}% hotter, for them and for you.`,
     when: () => true,
     weight: 2, chapter: 'magma', kind: 'trade',
+    minLevel: 10,
+  },
+
+  // The Mantle's own: the lava tide turned up. No numbers in the copy (they would need a tt()).
+  floodTide: {
+    name: 'Flood Tide', icon: '🌋',
+    from: 'the mantle breathed in deeper',
+    desc: 'The lava floods higher and faster, and it burns them hotter.',
+    when: () => true,
+    weight: 2, chapter: 'mantle', kind: 'trade',
     minLevel: 10,
   },
 
@@ -3128,6 +3144,65 @@ export const WEAPONS = {
       { dmg: 70, interval: 1.6, count: 3, r: 96 },
     ],
   },
+  // ---- Book 3, The Mantle's four. All auto-fire; the lava tide under the fight is the fifth. ----
+  // Match Flick: a lit match flicked at the nearest foe (run.bullets, weapon 'match'). It sets what it
+  // hits ALIGHT: the ignite contract field (e.ignite / igniteDps), burn = the ignite's potency.
+  matchFlick: {
+    name: 'Match Flick',
+    desc: 'Flicks a lit match at the nearest foe. It sets them alight.',
+    icon: '🔥', rarity: 'normal',
+    // balance_decision : starter, a hit plus a burn, unplayed 2026-10-12
+    levels: [
+      { dmg: 13, interval: 0.6, count: 1, speed: 540, pierce: 1, burn: 1.2 },
+      { dmg: 15, interval: 0.56, count: 2, speed: 550, pierce: 1, burn: 1.3 },
+      { dmg: 18, interval: 0.52, count: 2, speed: 570, pierce: 2, burn: 1.4 },
+      { dmg: 22, interval: 0.47, count: 3, speed: 590, pierce: 2, burn: 1.6 },
+      { dmg: 27, interval: 0.42, count: 3, speed: 620, pierce: 3, burn: 1.8 },
+    ],
+  },
+  // Hot Coals: a red-hot coal tossed at the nearest foe (run.bullets, weapon 'coal'). It BOUNCES on
+  // to the next foe near the last one it hit (the chain idiom: _chainsLeft = bounces).
+  hotCoals: {
+    name: 'Hot Coals',
+    desc: 'Tosses a red-hot coal that bounces from foe to foe.',
+    icon: '🪨', rarity: 'normal',
+    levels: [
+      { dmg: 16, interval: 0.9, count: 1, speed: 460, bounces: 3 },
+      { dmg: 19, interval: 0.85, count: 1, speed: 470, bounces: 4 },
+      { dmg: 22, interval: 0.8, count: 2, speed: 480, bounces: 4 },
+      { dmg: 26, interval: 0.74, count: 2, speed: 500, bounces: 5 },
+      { dmg: 31, interval: 0.68, count: 3, speed: 520, bounces: 6 },
+    ],
+  },
+  // Steam Whistle: a whistle blast rings out round you (run.novas, look 'steam') and SHOVES the crowd
+  // outward — off the dry hill you stand on and into the lava round it.
+  steamWhistle: {
+    name: 'Steam Whistle',
+    desc: 'A whistle blast rings out around you and shoves them away, into the lava.',
+    icon: '📯', rarity: 'normal',
+    // balance_decision : big shove so it reads, unplayed 2026-10-12
+    levels: [
+      { dmg: 12, interval: 1.5, radius: 190, knockback: 420 },
+      { dmg: 15, interval: 1.42, radius: 205, knockback: 450 },
+      { dmg: 18, interval: 1.34, radius: 220, knockback: 480 },
+      { dmg: 22, interval: 1.25, radius: 240, knockback: 520 },
+      { dmg: 28, interval: 1.15, radius: 265, knockback: 560 },
+    ],
+  },
+  // Pitchfork: thrown at the nearest foe, it flies out and comes back to you (run.boomerangs, weapon
+  // 'pitchfork': the boomerang's own flight), skewering whatever it crosses both ways.
+  pitchfork: {
+    name: 'Pitchfork',
+    desc: 'Throws a pitchfork that flies out and comes back to you.',
+    icon: '🔱', rarity: 'rare',
+    levels: [
+      { dmg: 20, interval: 1.25, count: 1, speed: 460, range: 290 },
+      { dmg: 24, interval: 1.15, count: 1, speed: 480, range: 310 },
+      { dmg: 28, interval: 1.05, count: 2, speed: 500, range: 330 },
+      { dmg: 34, interval: 0.95, count: 2, speed: 520, range: 350 },
+      { dmg: 42, interval: 0.85, count: 3, speed: 540, range: 380 },
+    ],
+  },
 }
 export const MAX_WEAPON_LEVEL = 5
 export const MAX_WEAPONS = 4 // equipped cap; new weapons stop appearing once reached
@@ -4536,6 +4611,34 @@ export const WEAPON_MODS = {
     quickFuse:   { name: 'Quick Fuse',   desc: 'throw rate', icon: '⏩', base: 0.25, kind: 'pct' },
     deepFissure: { name: 'Deep Fissure', desc: 'how long its lava stays open', icon: '⌛', base: 0.30, kind: 'pct' },
   },
+  // ---- Book 3, The Mantle ----
+  matchFlick: {
+    strikeAnywhere: { name: 'Strike Anywhere', desc: 'match damage', icon: '💥', base: 0.30, kind: 'pct' },
+    matchbook:      { name: 'Matchbook',       desc: 'extra match(es) per flick', icon: '🔷', kind: 'tier' },
+    slowBurn:       { name: 'Slow Burn',       desc: 'how hard a lit foe burns', icon: '🔥', base: 0.40, kind: 'pct' },
+    quickStrike:    { name: 'Quick Strike',    desc: 'match rate', icon: '⏩', base: 0.25, kind: 'pct' },
+    longMatch:      { name: 'Long Match',      desc: 'match pierce', icon: '🎯', base: 1, kind: 'flat', maxPicks: PIERCE_MAX_PICKS },
+  },
+  hotCoals: {
+    whiteHot:    { name: 'White Hot',    desc: 'coal damage', icon: '💥', base: 0.30, kind: 'pct' },
+    coalScuttle: { name: 'Coal Scuttle', desc: 'extra coal(s) per toss', icon: '🔷', kind: 'tier' },
+    skipping:    { name: 'Skipping Coal', desc: 'bounces per coal', icon: '↪️', base: 1, kind: 'flat' },
+    quickStoke:  { name: 'Quick Stoke',  desc: 'coal rate', icon: '⏩', base: 0.25, kind: 'pct' },
+    cinders:     { name: 'Cinders',      desc: 'a coal sets what it hits alight', icon: '🔥', base: 0.5, kind: 'pct' },
+  },
+  steamWhistle: {
+    shrill:       { name: 'Shrill Note',   desc: 'whistle damage', icon: '💥', base: 0.30, kind: 'pct' },
+    farWhistle:   { name: 'Far Whistle',   desc: 'whistle reach', icon: '📏', base: 0.20, kind: 'pct' },
+    fullSteam:    { name: 'Full Steam',    desc: 'how far it shoves', icon: '💨', base: 0.30, kind: 'pct' },
+    quickWhistle: { name: 'Quick Whistle', desc: 'whistle rate', icon: '⏩', base: 0.25, kind: 'pct' },
+  },
+  pitchfork: {
+    sharpTines: { name: 'Sharp Tines',  desc: 'pitchfork damage', icon: '💥', base: 0.30, kind: 'pct' },
+    longHaft:   { name: 'Long Haft',    desc: 'how far it flies', icon: '📏', base: 0.20, kind: 'pct' },
+    twoForks:   { name: 'Spare Fork',   desc: 'extra pitchfork(s) per throw', icon: '🔷', kind: 'tier' },
+    quickToss:  { name: 'Quick Toss',   desc: 'throw rate', icon: '⏩', base: 0.25, kind: 'pct' },
+    wideTines:  { name: 'Wide Tines',   desc: 'how wide it skewers', icon: '🔱', base: 0.30, kind: 'pct' },
+  },
 }
 export const MAX_WEAPON_MOD_PICKS = 5
 // Shared by every tier mod: a single pick's bonus is looked up by rolled rarity rather than
@@ -4566,6 +4669,7 @@ export const WEAPON_RATE_MODS = {
   echoPulse: 'rapidClick', stalactite: 'dripRate',
   pickaxe: 'quickSwing', dynamite: 'shortFuse', minecart: 'greasedAxle', lantern: 'quickWick',
   slagLadle: 'quickLadle', obsidianShards: 'quickKnap', bellows: 'quickPump', volcanicBomb: 'quickFuse',
+  matchFlick: 'quickStrike', hotCoals: 'quickStoke', steamWhistle: 'quickWhistle', pitchfork: 'quickToss',
   // chum and bilge are absent DELIBERATELY: neither carries a rate mod, and this table's own
   // header says a weapon with none simply does not appear here. Naming one that does not exist
   // would put a phantom row in the pause build sheet's cadence line.
@@ -6209,7 +6313,7 @@ export const CHAPTER_LATE_RATE = {
   body: 0.005, pond: 0.010, garden: 0.015, undergrowth: 0.020,
   city: 0.028, skies: 0.036, beyond: 0.0605,
   surf: 0.010, shelf: 0.015,
-  topsoil: 0.0075, geode: 0.015, mine: 0.020, magma: 0.020,
+  topsoil: 0.0075, geode: 0.015, mine: 0.020, magma: 0.020, mantle: 0.022,
 }
 // Unknown/absent chapter (the Blank, a test run with no chapter) keeps the shipped curve.
 export const lateRateFor = (chapterId) => CHAPTER_LATE_RATE[chapterId] ?? HP_SCALE_LATE_RATE
@@ -6585,7 +6689,7 @@ export const BOOKS = {
    // next, still gated: a dev-gated shell whose boss sim lands in a later increment. Saves key on chapter ID, never position.
    undertow: { name: 'Undertow', cloth: '#1f5c7c', chapters: ['surf', 'shelf', 'reef', 'trawl', 'wreck', 'deep'], hidden: ['kraken'], startCoins: 100 },
   // Book 3: digging down into the earth. wipFrom 0 gates the whole book behind meta.dev.
-  burrow: { name: 'Burrow', cloth: '#2b1d15', chapters: ['topsoil', 'geode', 'mine', 'magma'], hidden: [], startCoins: 100, wipFrom: 0 },
+  burrow: { name: 'Burrow', cloth: '#2b1d15', chapters: ['topsoil', 'geode', 'mine', 'magma', 'mantle'], hidden: [], startCoins: 100, wipFrom: 0 },
 }
 // Explicit, for the same reason CHAPTER_ORDER is explicit: a sweep that means "every book, in
 // campaign order" must not depend on object key order surviving an edit. The FIRST entry is the
@@ -6690,6 +6794,17 @@ export const BOMB_RANGE = 460            // px from you a bomb may land
 export const BOMB_FLIGHT = 0.7           // s a bomb is in the air
 export const BOMB_LAVA_R = 0.7           // the lava it opens, as a fraction of the blast radius
 export const BOMB_LAVA_T = 3.2           // s that lava stays open
+// ---- Book 3, The Mantle: weapon geometry (balance lives in WEAPONS[].levels) ----------------------
+export const MATCH_FAN = 0.16            // rad between matches of one flick
+export const MATCH_LIFE = 0.95           // s of flight
+export const MATCH_R = 8                 // px hit radius
+export const COAL_FAN = 0.3              // rad between coals of one toss
+export const COAL_LIFE = 1.0             // s of flight (a bounce grants at least STAR_CHAIN_EXTRA_LIFE more)
+export const COAL_R = 9                  // px hit radius
+export const COAL_IGNITE = 1             // ignite potency of a coal at one full pick of Cinders
+export const STEAM_LIFE = 0.32           // s for the whistle's ring to reach its reach
+export const PITCHFORK_HIT_R = 18        // px, the tines' hit radius added to a body's
+export const PITCHFORK_FAN = 0.3         // rad, half-spread when several forks are thrown
 
 
 // EVERY REFILL FIELD IN BOOK 2 DRAWS DOWN, NOT JUST THE SHELF'S (owner, 2026-08-18: "in all zones of
@@ -9673,6 +9788,66 @@ CHAPTERS.magma = {
   },
 }
 
+// THE MANTLE: the book's last chapter, below the magma — a country FULL OF LAVA. Its ground has hills,
+// ridges and basins (a pure height field of (x, y, the run's seed)), and the lava lies in it at a
+// LEVEL that breathes (signature.lavaTide, run by stepLavaTide in sim.js): it ebbs to a few pools,
+// swells at its shores, then floods the basins until only the hills and ridges stand dry, and ebbs
+// again, on a slow beat. Lava burns whatever stands in it: you a little (hurt src 'lava'), the crowd
+// hard — lead the chasers into a basin as it floods. Flyers pass over it. It never stops you moving.
+// The look is a 1930s rubber-hose cartoon seen from above (render.toon; src/toon.js owns every drawing).
+// THE MANTLE'S GROUND GRID: the ground height is sampled every MANTLE_GROUND_STEP world px and blended
+// in between, by the sim (sim.js mantleHeightAt) AND by the painter (src/toon/world.js CHUNK_STEP), so
+// the lava that burns and the lava that is drawn are the same lava.
+export const MANTLE_GROUND_STEP = 8
+// The run starts on ground that stays dry until the lava covers this share of the map (any flood, Flood Tide included).
+export const MANTLE_START_DRY = 0.9
+
+CHAPTERS.mantle = {
+  name: 'The Mantle', tagline: 'the lava breathes', icon: '🌋',
+  weapons: ['matchFlick', 'hotCoals', 'steamWhistle', 'pitchfork'], starter: 'matchFlick',
+  roster: [
+    { id: 'emberImp',        archetype: 'normal', name: 'Ember Imp',        hpMul: 0.75, speedMul: 0.95, radiusMul: 0.85, weight: 3, flags: [] },
+    { id: 'magmaToad',       archetype: 'fast',   name: 'Magma Toad',       hpMul: 0.85, speedMul: 1.0, flags: ['pounce'], dmgMul: 0.75 },
+    { id: 'basaltGolem',     archetype: 'tank',   name: 'Basalt Golem',     hpMul: 1.6, speedMul: 0.7, radiusMul: 1.15, flags: ['unshakeable'] },
+    // The elite. eliteOnly: every elite in this chapter is a dragon, and it flies over the lava.
+    { id: 'brimstoneDragon', archetype: 'fast',   name: 'Brimstone Dragon', hpMul: 2.5, speedMul: 1.0, radiusMul: 1.25, flags: ['weave', 'flying'], eliteOnly: true },
+  ],
+  eliteFlags: [],
+  signature: {
+    type: 'lavaTide',
+    // The tide switch (tests turn it off with lavaTide = null: no lava anywhere, nothing burns).
+    // THE GROUND: height = a blend of rolling hills (wave px) and ridge lines (ridgeWave px).
+    // THE LEVEL: run.lavaTide.level, 0 = the ebb, 1 = the flood. Lava covers the lowest cover share
+    // of the ground, from ebbCover at level 0 to floodCover at level 1 (a quantile of the height
+    // field, so the share holds whatever the noise does). One cycle: holdEbb s at the ebb (the last
+    // swellT s of it the shores SWELL: run.lavaTide.swell), rise s climbing, holdFlood s at the flood,
+    // fall s draining; each cycle stretched by up to +-jitter. The first ebb is firstEbb s long.
+    // balance_decision : lava culls chasers, a gentle burn on you 2026-10-12
+    //  - elites take eliteMul of the burn; every elite here flies and takes none at all
+    lavaTide: {
+      wave: 640, ridgeWave: 950, ridgeMix: 0.38,
+      ebbCover: 0.1, floodCover: 0.74,
+      firstEbb: 10, holdEbb: 13, rise: 15, holdFlood: 11, fall: 15, jitter: 0.15, swellT: 4,
+      tick: 0.25, burnFlat: 3, burnPct: 0.18, eliteMul: 0.3, playerBurn: 1.5, reach: 1700,
+      // HIGH WATER (the chapter's mutator): the tide never ebbs below this level.
+      highWater: { ebb: 0.5 },
+    },
+  },
+  obstacles: null,
+  balance: { spawnMul: 0.8, enemyDmgMul: 0.7, enemyHpMul: 1.15, xpMul: 1.2, maxAliveMul: 0.66 },
+  render: {
+    cast: ['emberImp', 'magmaToad', 'basaltGolem', 'brimstoneDragon'],
+    bgColor: 0x2b1a12,     // under the toon floor (never seen: the floor covers the view)
+    floorTint: 0xffffff,   // the floor and its props carry their own palette
+    playerTint: 0xffffff,
+    tail: false,
+    dust: null,
+    // A 1930s RUBBER-HOSE CARTOON SEEN FROM ABOVE (render.js delegates everything to src/toon.js).
+    // The film pass's knobs: grain, vignette, projector flicker, sepia grade, gate weave.
+    toon: { grain: 0.08, vignette: 0.55, flicker: 0.035, sepia: 0.22, weave: 0.6 },
+  },
+}
+
 // ---- The Kraken (hidden boss — the tuning block, sim.js's stepKrakenScript owns the flow) -------
 // THE PARRY OPENS, THE BUILD KILLS:
 //   - an ARM is sealed until a parry makes it limp (KRAKEN_EXPOSE_BITE tears it on that parry);
@@ -11351,7 +11526,7 @@ export const CHAPTER_SPINE = {
   body: 'Body', pond: 'Pond', garden: 'Garden', undergrowth: 'Undergrowth',
   city: 'City', skies: 'Skies', beyond: 'Beyond', blank: 'Blank',
   surf: 'Surf', shelf: 'Shelf', reef: 'Reef', wreck: 'Wreck', trawl: 'Trawl', deep: 'Deep', kraken: 'Kraken',
-  topsoil: 'Topsoil', geode: 'Geode', mine: 'Mine', magma: 'Magma',
+  topsoil: 'Topsoil', geode: 'Geode', mine: 'Mine', magma: 'Magma', mantle: 'Mantle',
 }
 // Falls back to the full name rather than throwing: a chapter added without a spine entry renders
 // with its article and looks slightly wrong, which is a far better failure than a blank spine.
@@ -15595,6 +15770,7 @@ export const CHAPTER_ENDINGS = {
   geode:       { victory: 'You found the way through the crystal! 🎉', death: 'Lost in the glitter… 💎' },
   mine:        { victory: 'You struck daylight! 🎉',               death: 'Lost in the old galleries… ⛏️' },
   magma:       { victory: 'You crossed the magma! 🎉',               death: 'Melted… 🌋' },
+  mantle:      { victory: 'You rode out the lava tide! 🎉',        death: 'Swept under… 🌋' },
 }
 export const CHAPTER_UNLOCK_LINES = {
   pond:        'The Pond — word of you travels downstream',
@@ -16003,6 +16179,8 @@ export const MUTATORS = {
   softGround:   { name: 'Soft Ground',    icon: '🪨', desc: 'Moles burst up wider and hit harder, and their pits are bigger. Bonus XP.', chapters: ['topsoil'], effects: { moleBlastMul: 1.4, pitSizeMul: 1.4, xpMul: 1.15 } },
   // The Magma's own. The cracking half has no mods key: stepCrust reads the id (the Blank's idiom).
   thinCrust:    { name: 'Thin Crust',     icon: '🌋', desc: 'The crust cracks everywhere on its own, under them and under you. Bonus XP.', chapters: ['magma'], effects: { xpMul: 1.2 } },
+  // The Mantle's own. The tide half has no mods key: stepLavaTide reads the id (the Blank's idiom).
+  highWater:    { name: 'High Water',     icon: '🌊', desc: 'The lava tide never fully ebbs. Bonus XP.', chapters: ['mantle'], effects: { xpMul: 1.2 } },
 }
 // Every key mergeMutatorMods can produce, all defaulted to 1 (neutral) before mutator effects
 // multiply in. sim.js applies each of these at one specific point — see sim.js's module doc.
