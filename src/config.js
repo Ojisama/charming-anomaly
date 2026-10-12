@@ -9844,7 +9844,7 @@ CHAPTERS.mantle = {
     dust: null,
     // A 1930s RUBBER-HOSE CARTOON SEEN FROM ABOVE (render.js delegates everything to src/toon.js).
     // The film pass's knobs: grain, vignette, projector flicker, sepia grade, gate weave.
-    toon: { grain: 0.08, vignette: 0.55, flicker: 0.035, sepia: 0.22, weave: 0.6 },
+    toon: { grain: 0.045, vignette: 0.55, flicker: 0.035, sepia: 0.22, weave: 0.6 },
   },
 }
 

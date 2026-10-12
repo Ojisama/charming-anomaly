@@ -397,7 +397,7 @@ void main() {
   vec2 go = vec2(h12(vec2(gf, 1.0)), h12(vec2(gf, 2.0))) * 3000.0;
   float gn = (h12(floor((W + go) / 1.1)) - 0.5) * 0.55 + (nz(W + go, 9.0).r - 0.5) * 0.9 + (nz(W + go, 30.0).g - 0.5) * 0.3;
   float Lg = dot(col, vec3(0.3, 0.59, 0.11));
-  col += gn * 0.13 * mix(0.45, 1.0, smoothstep(-1.3, 1.3, d)) * (0.55 + 1.8 * Lg * (1.0 - Lg));   // the melt is smoother gouache
+  col += gn * 0.07 * mix(0.45, 1.0, smoothstep(-1.3, 1.3, d)) * (0.55 + 1.8 * Lg * (1.0 - Lg));   // the melt is smoother gouache
   finalColor = vec4(col, 1.0);
 }`
 
