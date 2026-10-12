@@ -51,6 +51,9 @@ import { t as tr } from './i18n.js'
 // Topsoil's cast: struck, they lift warm (MACRO.paintFlashTwin) instead of going white
 const TOPSOIL_CAST = new Set(CHAPTERS.topsoil.roster.map((r) => r.id))
 
+// an enemy's left/right mirror holds until the point it faces is this many of its radii over the
+// other side (syncEnemies): a body sitting on the player otherwise flips on bearing jitter
+const ENEMY_FLIP_DEADBAND = 0.5
 
 const DARK = 0x3b3345
 // THE HAUL WAKE (owner pick, 2026-09-04). Shot as four arms on one frame — no wake, the first
@@ -32238,6 +32241,7 @@ void main() {
         // particle below fires on a real transition and not on a recycled slot's first frame.
         s._lastPhaseSolid = undefined
         s._pxDir = undefined
+        s._flip = undefined
         enemySprites.set(e.id, s)
       }
       s._seen = true
@@ -32338,9 +32342,12 @@ void main() {
         tdx = e._tgtX - e.x
         tdy = e._tgtY - e.y
       }
+      // the bearing's world x offset while it is still a POINT the body faces (the player or its
+      // target), for the mirror's dead band below; a look's own faceDir is a direction, not a point
+      let pointDx = tdx
       if (look.faceDir) {
         const d = look.faceDir(e)
-        if (d && (d[0] || d[1])) { tdx = d[0]; tdy = d[1] }
+        if (d && (d[0] || d[1])) { tdx = d[0]; tdy = d[1]; pointDx = null }
       }
       const tlen = Math.hypot(tdx, tdy) || 1
       tdx /= tlen
@@ -32359,7 +32366,15 @@ void main() {
         s._dirY = Math.sin(cur + step)
       }
       const dx = s._dirX
-      const flip = look.dirs ? 1 : dx < 0 ? -1 : 1
+      // THE MIRROR HAS A DEAD BAND. A body sitting on the point it faces (a flyer hovering on the
+      // player, which nothing pushes off) has a bearing of pure jitter, and mirroring on its sign
+      // flipped a big asymmetric sprite every 2-3 frames. It turns only once it is ENEMY_FLIP_DEADBAND
+      // of its radius over on the other side.
+      let flip = look.dirs ? 1 : dx < 0 ? -1 : 1
+      if (!look.dirs) {
+        if (pointDx !== null && s._flip !== undefined && Math.abs(pointDx) < (e.radius || 16) * ENEMY_FLIP_DEADBAND) flip = s._flip
+        s._flip = flip
+      }
       const maxLean = look.maxLean
       const lean = Math.atan2(s._dirY, Math.abs(dx))
       const face = look.dirs ? 0 : flip * Math.max(-maxLean, Math.min(maxLean, lean))
