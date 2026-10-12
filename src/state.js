@@ -2242,18 +2242,35 @@ function generateWells(sig) {
  *     stored). turnIn = s until the phase changes. Private: _tick, _pT, _carry (the burn clocks).
  *     Lava burns the player (hurt src 'lava', a dot, once the boat below has sunk) and every walking
  *     body WITH NO HABITAT (hazard damage); a 'flying' body takes none.
- *   THE GROUND (sim.js mantleGroundAt(run, x, y)): 0 dry rock, 1 a Crack Hammer pool, 2 the tide. A
- *     Quench crust is rock over either. Every habitat rule, the boat and the player's burn read it.
- *   quenchCrusts: [{ x, y, r, t, dur }] — Quench Kettle's basalt crusts, rock while t < dur (capped by
- *     LIVE_CAPS.quenchCrusts). lavaPools: [{ x, y, r, t, dur, dps, _tick }] — Crack Hammer's lava
- *     pools, lava while t < dur (LIVE_CAPS.lavaPools): they burn every walking non-lava body in them
- *     (dps per s, fire) and the player (HAMMER_POOL_PLAYER_DPS, hurt src 'lava'; the boat does not
- *     float on a pool). Both are new arrays because they are GROUND, read by every habitat query,
- *     not hazards on the player (run.pools) nor weapon zones. _poolCarry: the pool burn's fraction.
+ *   THE GROUND (sim.js mantleGroundAt(run, x, y), pure, render may call it): 0 dry rock, 1 a Crack
+ *     Hammer pool, 2 the tide. Every habitat rule, the boat, the player's burn and the wade tells read
+ *     it. The rules, in order: the TIDE WINS over a pool (a pool on the tide is the tide, 2); a crust
+ *     is rock (0) only where it is lava now AND was lava at its pour (see quenchCrusts); NEWEST WINS
+ *     between a crust and a pool by seq (a stamp cracks an older crust open, a pour quenches an older
+ *     pool). A stranded lava creature standing in a pool on dry rock is HOME (a pool is lava, 1).
+ *   THE EDGES (src/mantle-shape.js, pure, imported by sim.js and the renderers): a crust is inside
+ *     r * crustEdgeR(bearing - rot, shape), a pool inside r * poolRimR(bearing, ph); never a circle.
+ *     What is drawn is what is solid: draw from these, never from r alone. DRAW_CAPS.quenchCrusts /
+ *     lavaPools equal their LIVE_CAPS, so every live one is drawn.
+ *   quenchCrusts: [{ x, y, r, t, dur, line, under, seq, shape, rot, gnaw }] — Quench Kettle's basalt
+ *     crusts, live while t < dur (capped by LIVE_CAPS.quenchCrusts). line: the tide's line frozen at
+ *     the pour (-Infinity with the tide off); under: the lavaPools objects live at the pour that
+ *     reach it (held by reference, they may have died since). A point is crust iff inside the edge
+ *     AND (height < line OR inside an under pool) AND lava now (height < run.lavaTide.line OR inside
+ *     a live pool with a smaller seq) AND no live pool with a larger seq covers it. gnaw: lava
+ *     creatures touching it this step; each ages it KETTLE_CRUST_GNAW s more per s (at most
+ *     KETTLE_CRUST_GNAW_MAX counted). lavaPools: [{ x, y, r, t, dur, dps, _tick, seq, ph }] — Crack
+ *     Hammer's lava pools, lava while t < dur (LIVE_CAPS.lavaPools): they burn every walking non-lava
+ *     body on ground 1 in them (dps per s, fire) and the player on ground 1 (HAMMER_POOL_PLAYER_DPS,
+ *     hurt src 'lava'; the boat does not float on a pool). The hammer never opens one whose widest
+ *     rim would reach your body. Both are new arrays because they are GROUND, read by every habitat
+ *     query, not hazards on the player (run.pools) nor weapon zones. _poolCarry: the pool burn's
+ *     fraction. groundSeq: the last seq handed to a crust or a pool (newest wins).
  *   player.boatT / boatMax / afloat: THE BASALT BOAT. boatT s of float left (boatMax =
  *     MANTLE_BOAT_FLOAT); while the tide covers you it drains and you are not burned (afloat true);
- *     at 0 the boat has gone under and the lava burns. On rock or crust it refills at
- *     MANTLE_BOAT_REFILL s per s. Undefined until the tide's first step.
+ *     at 0 the boat has gone under and the lava burns. Only on REAL rock (no tide and no pool under
+ *     you; a crust over lava stops the burn but does not refill) it refills at MANTLE_BOAT_REFILL s
+ *     per s. Undefined until the tide's first step.
  *   Enemy contract fields (render reads them): habitat 'rock' | 'lava' | null (the roster's; null =
  *     the old rule, it burns in lava); ground 0 | 1 | 2 (mantleGroundAt where it stands, published
  *     after it moved); strandT s a lava creature has lain on dry rock (0 at home: it crawls at
@@ -3060,7 +3077,7 @@ export function createRun(meta, opts = {}) {
     cracks: [], slagPools: [], magmaLobs: [],
     // Book 3 The Mantle (sim.js's Mantle section): the lava tide's state, made on the first step.
     lavaTide: null,
-    quenchCrusts: [], lavaPools: [],   // the Mantle weapons' ground (Quench Kettle, Crack Hammer)
+    quenchCrusts: [], lavaPools: [], groundSeq: 0,   // the Mantle weapons' ground (Quench Kettle, Crack Hammer)
     sandbars: [],          // Book 2 surf: streamed dry patches (signature.bars) — see streamSandbars
     _sandCellI: null,      // streaming cursor, independent of the obstacle/eddy/trap/shaft cursors
     _sandCellJ: null,

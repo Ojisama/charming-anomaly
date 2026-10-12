@@ -271,7 +271,9 @@ import {
   noiseAt,
   MANTLE_GROUND_STEP, MANTLE_START_DRY, MANTLE_STRAND_STUCK_T, MANTLE_STRAND_SLOW, MANTLE_STRAND_DIE_T, MANTLE_STRAND_DMG_MUL,
   MANTLE_MELT_T, MANTLE_BOAT_FLOAT, MANTLE_BOAT_REFILL, MANTLE_SPAWN_TRIES,
+  KETTLE_CRUST_GNAW, KETTLE_CRUST_GNAW_MAX,
 } from './config.js'
+import { crustShapeOf, poolPhaseOf, inCrustEdge, inPoolEdge, CRUST_EDGE_MAX, POOL_RIM_MAX } from './mantle-shape.js'
 
 const KB_DECAY_RATE = 6 // per-second exponential-ish decay factor for enemy knockback
 
@@ -4424,12 +4426,11 @@ function spawnEnemy(run, opts = {}) {
   // THE MANTLE: a habitat creature is seated on its own ground (lava or rock) on the ring, or swapped
   // for one of the other habitat when the ground offers none (mantleSeat). Before the stats, which
   // a swap re-derives from the new entry's archetype.
-  // A spawn at a FIXED spot (a Splitter's or a spawner's brood) keeps its spot, and comes in as one
-  // of the other habitat when that spot is not its ground.
+  // A spawn at a FIXED spot (a Splitter's or a spawner's brood) keeps its spot, and is DROPPED (null)
+  // when that spot is not its ground: never swapped into the other habitat there.
   if (roster?.habitat && !opts.rosterId && habitatOn(run)) {
-    const seat = opts.x === undefined ? mantleSeat(run, roster, x, y)
-      : (mantleGroundAt(run, x, y) > 0) === (roster.habitat === 'lava') ? null
-      : { roster: otherHabitatEntry(run, roster), swapped: true, x, y }
+    if (opts.x !== undefined && (mantleGroundAt(run, x, y) > 0) !== (roster.habitat === 'lava')) return null
+    const seat = opts.x === undefined ? mantleSeat(run, roster, x, y) : null
     if (seat && seat.roster) {
       x = seat.x; y = seat.y
       if (seat.swapped) { roster = seat.roster; type = ARCHETYPE_TYPE[roster.archetype] ?? type; base = ENEMIES[type] }
@@ -5285,7 +5286,7 @@ function stepEnemyMovement(run, dt) {
           const sx = e.x + Math.cos(a) * sd
           const sy = e.y + Math.sin(a) * sd
           const spawned = spawnEnemy(run, { type: ARCHETYPE_TYPE[SPAWNER_ARCHETYPE], x: sx, y: sy, forceNormal: true, deferred: true })
-          run.events.push({ type: 'explode', x: sx, y: sy, radius: spawned.radius * 2 })
+          if (spawned) run.events.push({ type: 'explode', x: sx, y: sy, radius: spawned.radius * 2 })
         }
       }
     }
@@ -17951,8 +17952,8 @@ function stepLavaTide(run, dt) {
   // 4. the habitat clocks: a stranded lava creature crumbles, a rock one under the tide melts
   stepHabitatClocks(run, dt)
   // 5. the player in the lava: the basalt boat floats you first, and sinks as it does; once it has
-  // gone under, a steady dot burn (the fraction banked so a gentle burn is never rounded away). Rock
-  // and Quench crust refill the boat.
+  // gone under, a steady dot burn (the fraction banked so a gentle burn is never rounded away). Only
+  // real rock refills the boat: a Quench crust stops the burn but is not ground to beach it on.
   p.boatMax = MANTLE_BOAT_FLOAT
   if (!(p.boatT >= 0)) p.boatT = p.boatMax   // a run whose tide was laid before the boat existed
   const pg = mantleGroundAt(run, p.x, p.y)
@@ -17973,23 +17974,54 @@ function stepLavaTide(run, dt) {
       }
     }
   } else {
-    // only rock (or a crust) refills it: a hammer's pool is lava, it just never carries the boat
+    // only real rock refills it (no tide, no pool under you, crusted or not): a hammer's pool is
+    // lava, it just never carries the boat
     p.afloat = false
-    if (pg === 0) p.boatT = Math.min(p.boatMax, p.boatT + MANTLE_BOAT_REFILL * dt)
+    if (pg === 0 && realRockAt(run, p.x, p.y)) p.boatT = Math.min(p.boatMax, p.boatT + MANTLE_BOAT_REFILL * dt)
     T._pT = 0
   }
   return false
 }
 
 // ---- THE TWO HABITATS ---------------------------------------------------------------------------
-// THE GROUND under (x, y): 0 dry rock (a Quench crust is rock, over a pool or the tide alike), 1 a
-// Crack Hammer pool, 2 the tide. Everything habitat-shaped asks this one function: the creatures'
-// confinement, their stranding and melting, the boat and the player's burn, the spawn seat.
+// THE GROUND under (x, y): 0 dry rock, 1 a Crack Hammer pool, 2 the tide. Everything habitat-shaped
+// asks this one function: the creatures' confinement, their stranding and melting, the boat and the
+// player's burn, the spawn seat, and render's wade tells. Pure: it never writes to run.
+//   - the tide wins over a pool: a pool on the tide is just the tide (2)
+//   - a Quench crust is rock (0) only where it is lava NOW and WAS lava when it was poured: c.line,
+//     the tide line frozen at the pour, and c.under, the pools live then. Poured on dry rock it is
+//     nothing; when the lava falls away under it, that part is plain rock again.
+//   - newest wins between a crust and a pool (seq): a hammer stamp cracks open an older crust, a
+//     kettle quenches an older pool
+//   - both edges are lobed (src/mantle-shape.js), the same edge the renderer draws
 export function mantleGroundAt(run, x, y) {
-  for (const c of run.quenchCrusts) if ((x - c.x) ** 2 + (y - c.y) ** 2 <= c.r * c.r) return 0
-  for (const q of run.lavaPools) if (q.t < q.dur && (x - q.x) ** 2 + (y - q.y) ** 2 <= q.r * q.r) return 1
-  return lavaFloodedAt(run, x, y) ? 2 : 0
+  const L = run.lavaTide ? lavaTideSpec(run) : null
+  const h = L ? mantleHeightAt(L, run.lavaTide.seed, x, y) : Infinity
+  const tide = h < (L ? run.lavaTide.line : -Infinity)
+  let newest = -Infinity, oldest = Infinity
+  for (const q of run.lavaPools) {
+    if (q.t >= q.dur || !inPoolEdge(q, x, y)) continue
+    const sq = q.seq ?? 0
+    if (sq > newest) newest = sq
+    if (sq < oldest) oldest = sq
+  }
+  for (const c of run.quenchCrusts) {
+    const cs = c.seq ?? 0
+    if (c.t >= c.dur || cs < newest || !inCrustEdge(c, x, y)) continue   // a newer pool cracked it open here
+    if (!tide && !(oldest <= cs)) continue                                // no lava under it now
+    if (h < c.line || c.under?.some((q) => inPoolEdge(q, x, y))) return 0   // ...and lava under it when poured
+  }
+  if (tide) return 2
+  return newest > -Infinity ? 1 : 0
 }
+// rock with no lava of any kind under it, crust or no crust: where the basalt boat beaches
+function realRockAt(run, x, y) {
+  if (lavaFloodedAt(run, x, y)) return false
+  for (const q of run.lavaPools) if (q.t < q.dur && inPoolEdge(q, x, y)) return false
+  return true
+}
+// the next stamp on The Mantle's ground (crusts and pools): newest wins between them
+const groundSeq = (run) => (run.groundSeq = (run.groundSeq ?? 0) + 1)
 // Habitat rules run only with the tide on: with signature.lavaTide off there is no lava to live in.
 const habitatOn = (run) => !!(run.lavaTide && lavaTideSpec(run))
 const atHome = (e, g) => (g > 0) === (e.habitat === 'lava')
@@ -18117,7 +18149,18 @@ function otherHabitatEntry(run, roster) {
 // Runs in every chapter (an empty no-op off The Mantle's weapons). Returns true when a pool killed you.
 function stepMantleGround(run, dt) {
   if (run.quenchCrusts.length) {
-    for (const c of run.quenchCrusts) c.t += dt
+    // lava creatures GNAW a crust: each one touching it (its body over the crust's edge) ages it
+    // KETTLE_CRUST_GNAW s more per s, counting at most KETTLE_CRUST_GNAW_MAX of them
+    for (const c of run.quenchCrusts) {
+      let n = 0
+      for (const e of enemiesNear(run, c.x, c.y, c.r * CRUST_EDGE_MAX + 60, true)) {
+        if (n >= KETTLE_CRUST_GNAW_MAX) break
+        if (e._dead || e.habitat !== 'lava' || isAlly(e) || flies(e)) continue
+        if (crustTouches(c, e)) n++
+      }
+      c.gnaw = n
+      c.t += dt * (1 + KETTLE_CRUST_GNAW * n)
+    }
     run.quenchCrusts = run.quenchCrusts.filter((c) => c.t < c.dur)
   }
   if (run.lavaPools.length === 0) return false
@@ -18129,14 +18172,14 @@ function stepMantleGround(run, dt) {
     q._tick -= dt
     if (q._tick <= 0) {
       q._tick += HAMMER_POOL_TICK
-      for (const e of enemiesNear(run, q.x, q.y, q.r, true)) {
+      for (const e of enemiesNear(run, q.x, q.y, q.r * POOL_RIM_MAX, true)) {
         if (e._dead || isAlly(e) || damageImmune(e) || flies(e) || e.habitat === 'lava') continue
-        if ((e.x - q.x) ** 2 + (e.y - q.y) ** 2 > q.r * q.r) continue
-        if (mantleGroundAt(run, e.x, e.y) !== 1) continue   // a crust over the pool has quenched it there
+        if (!inPoolEdge(q, e.x, e.y)) continue
+        if (mantleGroundAt(run, e.x, e.y) !== 1) continue   // quenched by a newer crust, or the tide's there
         applyDotDamage(run, e, q.dps * HAMMER_POOL_TICK * heatMul(e, 'fire'))
       }
     }
-    if ((p.x - q.x) ** 2 + (p.y - q.y) ** 2 <= q.r * q.r) inPool = true
+    if (inPoolEdge(q, p.x, p.y)) inPool = true
   }
   run.lavaPools = run.lavaPools.filter((q) => q.t < q.dur)
   if (inPool && mantleGroundAt(run, p.x, p.y) === 1) {
@@ -18171,13 +18214,29 @@ function kettleSpot(run) {
   }
   return { x: p.x, y: p.y, crust: false }
 }
+// A crust remembers what was lava under it when it was poured: the tide's line then (line) and the
+// pools live then (under). It is rock only there (mantleGroundAt). seq: newest wins against a pool.
+function pourCrust(run, x, y, r, dur) {
+  const T = run.lavaTide && lavaTideSpec(run) ? run.lavaTide : null
+  const reach = r * CRUST_EDGE_MAX
+  const under = run.lavaPools.filter((q) => q.t < q.dur && Math.hypot(q.x - x, q.y - y) < reach + q.r * POOL_RIM_MAX)
+  return { x, y, r, t: 0, dur, line: T ? T.line : -Infinity, under, seq: groundSeq(run), ...crustShapeOf(x, y), gnaw: 0 }
+}
+// is lava creature e touching crust c: its body reaches over the crust's edge
+function crustTouches(c, e) {
+  const dx = e.x - c.x, dy = e.y - c.y, d = Math.hypot(dx, dy)
+  if (d > c.r * CRUST_EDGE_MAX + e.radius) return false
+  if (d < 1e-6) return true
+  const k = Math.max(0, d - e.radius) / d
+  return inCrustEdge(c, c.x + dx * k, c.y + dy * k)
+}
 function stepQuenchKettleWeapon(run, w, stats, fireRateMul, dt) {
   const quick = run.weaponMods.quenchKettle?.quickBoil ?? 0
   fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => {
     const p = run.player
     const at = kettleSpot(run)
     for (const r of ipecacRadii(run, stats.radius)) {
-      if (at.crust) run.quenchCrusts.push({ x: at.x, y: at.y, r, t: 0, dur: stats.crustDur })
+      if (at.crust) run.quenchCrusts.push(pourCrust(run, at.x, at.y, r, stats.crustDur))
       for (const e of enemiesNear(run, at.x, at.y, r, true)) {
         if (e._dead || isAlly(e)) continue
         if ((e.x - at.x) ** 2 + (e.y - at.y) ** 2 > (r + e.radius) ** 2) continue
@@ -18216,11 +18275,14 @@ function stepHotCoalsWeapon(run, w, stats, fireRateMul, dt) {
 // -- Crack Hammer ------------------------------------------------------------------------------------
 // Stamps the ground open under the closest foes in HAMMER_RANGE, one pool per foe, nearest first and
 // a pool apart: the stamp hits what stands there (fire), and a lava pool opens for `duration` s.
+// Never under you: a foe whose pool's widest rim would reach your body is skipped.
 function hammerSpots(run, n, r) {
   const p = run.player
   const near = []
+  const clear = r * POOL_RIM_MAX + PLAYER.radius
   for (const e of enemiesNear(run, p.x, p.y, HAMMER_RANGE)) {
     if (e._dead || isAlly(e) || flies(e)) continue   // a flyer has no ground under it to crack
+    if ((e.x - p.x) ** 2 + (e.y - p.y) ** 2 < clear * clear) continue
     const d = (e.x - p.x) ** 2 + (e.y - p.y) ** 2
     if (d <= HAMMER_RANGE * HAMMER_RANGE) near.push([d, e])
   }
@@ -18239,7 +18301,7 @@ function stepCrackHammerWeapon(run, w, stats, fireRateMul, dt) {
     const p = run.player
     const spots = hammerSpots(run, ipecacN(run, Math.round(stats.pools)), stats.r)
     for (const sp of spots) {
-      run.lavaPools.push({ x: sp.x, y: sp.y, r: stats.r, t: 0, dur: stats.duration, dps: stats.dmg * HAMMER_POOL_DPS, _tick: HAMMER_POOL_TICK })
+      run.lavaPools.push({ x: sp.x, y: sp.y, r: stats.r, t: 0, dur: stats.duration, dps: stats.dmg * HAMMER_POOL_DPS, _tick: HAMMER_POOL_TICK, seq: groundSeq(run), ph: poolPhaseOf(sp.x, sp.y) })
       for (const e of enemiesNear(run, sp.x, sp.y, stats.r, true)) {
         if (e._dead || isAlly(e) || flies(e)) continue
         if ((e.x - sp.x) ** 2 + (e.y - sp.y) ** 2 > (stats.r + e.radius * 0.5) ** 2) continue

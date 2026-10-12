@@ -138,7 +138,7 @@ uniform float uHi;      // the hilltops
 uniform float uFlood;   // the flood's line: ground under it goes under every cycle
 uniform float uWet;     // the highest line of the last flood (rock the lava just left)
 uniform float uWetK;    // 0..1, how fresh that is
-uniform float uNC;      // Quench crusts in uCr/uCrE: (x, y, r, t) / (dur, ...)
+uniform float uNC;      // Quench crusts in uCr/uCrE: (x, y, r, t) / (dur, the tide's line when poured, ...)
 uniform float uNP;      // Crack Hammer pools in uPo/uPoE: (x, y, r, t) / (dur, ...)
 uniform float uNG;      // closed pools still cooling in uGh: (x, y, r, age)
 uniform vec4 uCr[${FX_N}];
@@ -167,14 +167,16 @@ vec2 gCk;
 float poolR(vec4 q, float en) { return q.z + 1.5 + 24.0 * smoothstep(0.3, 0.8, en); }
 // d (px from the lava, + on dry ground) with every pool cut into it and every crust laid over it.
 // Where a crust and a pool overlap the NEWEST wins (a stamp cracks a crust open, a kettle quenches a pool).
-float fxD(vec2 p, float d, float en) {
-  float pa = 1.0e9;
+// A crust holds only where it was lava when it was poured (sim.js mantleGroundAt): under the tide's line
+// then (uCrE.y), or in a pool older than it. hp = the ground's height at p.
+float fxD(vec2 p, float d, float en, float hp) {
+  float pa = 1.0e9, pOld = -1.0;
   for (int i = 0; i < ${FX_N}; i++) {
     if (float(i) >= uNP) break;
     float s = length(p - uPo[i].xy) - poolR(uPo[i], en);
-    d = min(d, s); if (s < 0.0) pa = min(pa, uPo[i].w);
+    d = min(d, s); if (s < 0.0) { pa = min(pa, uPo[i].w); pOld = max(pOld, uPo[i].w); }
   }
-  for (int i = 0; i < ${FX_N}; i++) { if (float(i) >= uNC) break; if (uCr[i].w <= pa) d = max(d, crustR(uCr[i], uCrE[i], en) - length(p - uCr[i].xy)); }
+  for (int i = 0; i < ${FX_N}; i++) { if (float(i) >= uNC) break; if (uCr[i].w <= pa && (hp < uCrE[i].y || pOld > uCr[i].w)) d = max(d, crustR(uCr[i], uCrE[i], en) - length(p - uCr[i].xy)); }
   return d;
 }
 // distance (in px, approximately) to the nearest edge of a jittered cell grid of size cs: angular plates
@@ -224,7 +226,7 @@ vec4 bubbles(float cellS, float minD, float maxD, float dens, float faces, float
   float hc = hh(vUV + (cc - vWorld) * uUVW);
   float dc = (uLine - hc) / gl;                 // px into the lava at the bubble's centre
   if (gNearL) {                                 // a pool's shore bubbles too (sparser: it is small); a crust has none
-    float dw = -fxD(cc, -dc, 0.5);
+    float dw = -fxD(cc, -dc, 0.5, hc);
     if (dw > dc + 0.5) { dens *= 0.4; faces *= 0.6; }
     dc = dw;
   }
@@ -294,6 +296,7 @@ void main() {
   float en = 0.5;                                          // the edge noise of the weapons' ground
   vec4 E = vec4(0.5);                                      // a broad noise, fetched only near them
   float pAge = 1.0e9;                                      // the newest pool over this pixel (its age)
+  float pOld = -1.0;                                       // ... and the oldest (its age)
   if (gNear) {
     E = nz(W, 120.0);
     en = F.g * 0.15 + E.r * 0.85;
@@ -303,6 +306,7 @@ void main() {
       float rr = length(W - q.xy), re = poolR(q, en), s = rr - re;
       d = min(d, s);
       if (s < 0.0 && q.w < pAge) { poK = 1.0; poA = q.w; pAge = q.w; poRem = uPoE[i].x - q.w; poR = re; poRho = rr; }
+      if (s < 0.0) pOld = max(pOld, q.w);
       // the cracks it split the rock with: red-hot as it opens, cooling to dark seams, gone at the end
       float cf = 1.0 - smoothstep(uPoE[i].x - 0.6, uPoE[i].x, q.w);
       if (s > -4.0 && rr < q.z + 60.0 && cf > 0.0) {
@@ -315,6 +319,7 @@ void main() {
       if (float(i) >= uNC) break;
       vec4 c = uCr[i];
       if (c.w > pAge) continue;                                        // an older crust: the pool cracked it open
+      if (h >= uCrE[i].y && !(pOld > c.w)) continue;                   // dry rock when it was poured: no crust there
       float s = length(W - c.xy) - crustR(c, uCrE[i], en);
       d = max(d, -s);
       float k = (1.0 - smoothstep(-1.3, 1.3, s)) * (1.0 - smoothstep(-1.3, 1.3, dPre));

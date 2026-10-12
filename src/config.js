@@ -5197,10 +5197,10 @@ export const HYDRANT_JET_PUSH = 300    // px/s^2 outward on enemies inside a liv
 //  - blooms counts only soft clouds: enemy ink and every bilge slick are never evicted or counted
 export const LIVE_CAPS = { blooms: 600, bullets: 3000, homingShots: 1000, lures: 200, holes: 150, quenchCrusts: 40, lavaPools: 60 }
 // RENDER-ONLY: render.js draws at most this many (the newest); the rest still hit, unseen.
-export const DRAW_CAPS = { blooms: 120, bullets: 500, homingShots: 150, lures: 40, holes: 30, novas: 50, shardTrails: 200, quenchCrusts: 8 }
+export const DRAW_CAPS = { blooms: 120, bullets: 500, homingShots: 150, lures: 40, holes: 30, novas: 50, shardTrails: 200, quenchCrusts: LIVE_CAPS.quenchCrusts, lavaPools: LIVE_CAPS.lavaPools }
 //  - shardTrails is the prism shards given a light-trail (render.js drawShardTrails)
 //  - novas is PER LOOK (breaker, bubble): each is ~25-30 shapes redrawn every frame
-//  - quenchCrusts (src/toon/mantle-fx.js): each crust is a few hundred basalt cells redrawn every frame
+//  - quenchCrusts and lavaPools (src/toon/mantle-fx.js) draw every live one: they are GROUND, what is drawn is what is solid
 export const ZONE_MAX_LIVE = 12     // cap on simultaneous zones. A fast cast rate plus count can
                                       // otherwise carpet the street with live hydrants.
 // Hard ceiling on streams per hydrant. The render rig allocates this many stream sprites per
@@ -6811,6 +6811,9 @@ export const HAMMER_POOL_DPS = 0.6       // a pool's burn per s on a rock creatu
 export const HAMMER_POOL_TICK = 0.25     // s between a pool's burn ticks
 export const HAMMER_POOL_PLAYER_DPS = 3  // hp per s a pool burns YOU (x the chapter's enemy damage)
 export const HAMMER_POOL_MIRE = 0.4      // x a rock creature's movement while it stands in a pool
+// balance_decision : lava creatures gnaw a crust, capped so it stays a refuge 2026-10-12
+export const KETTLE_CRUST_GNAW = 0.3     // s of extra age per s a crust takes from each lava creature touching it
+export const KETTLE_CRUST_GNAW_MAX = 4   // gnawing creatures counted at most (a crust lasts >= 1/(1 + 0.3*4) of its dur)
 export const LAVA_WAVE_LIFE = 0.5        // s for the bellows' wave to roll out to its reach
 export const LAVA_WAVE_SHOVE_MUL = 2.5   // x the wave's knockback on a lava creature (which it never hurts)
 // THE TYPE RULE: water hurts lava creatures more, fire hurts rock creatures more (sim.js heatMul).
@@ -9829,14 +9832,14 @@ export const MANTLE_STRAND_DIE_T = 5       // s stranded until it crumbles (it d
 export const MANTLE_STRAND_DMG_MUL = 2     // x every damage a stranded lava creature takes
 export const MANTLE_MELT_T = 0.6           // s a rock creature lasts under the tide before it melts
 export const MANTLE_BOAT_FLOAT = 6         // s the basalt boat floats you on the tide
-export const MANTLE_BOAT_REFILL = 1        // s of float the boat regains per s on rock or crust
+export const MANTLE_BOAT_REFILL = 1        // s of float the boat regains per s on real rock (never a crust nor a pool)
 export const MANTLE_SPAWN_TRIES = 24       // bearings tried per ring when seating a creature in its habitat
 
 CHAPTERS.mantle = {
   name: 'The Mantle', tagline: 'the lava breathes', icon: '🌋',
   weapons: ['quenchKettle', 'hotCoals', 'crackHammer', 'lavaBellows'], starter: 'quenchKettle',
   // habitat: 'rock' | 'lava' (THE TWO HABITATS above). A spawn the ground cannot seat (no lava on the
-  // ring for a lava creature, no dry rock for a rock one) comes in as one of the other habitat.
+  // ring for a lava creature, no dry rock for a rock one) comes in as one of the other habitat; a brood at a fixed spot off its ground is dropped.
   roster: [
     { id: 'emberImp',        archetype: 'normal', name: 'Ember Imp',        hpMul: 0.75, speedMul: 0.95, radiusMul: 0.85, weight: 3, flags: [], habitat: 'rock' },
     // the toad may LEAP out of the lava at the shore; a landing on rock strands it
