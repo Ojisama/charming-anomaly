@@ -20,7 +20,7 @@ import { ensurePrecision as pixiEnsurePrecision } from '../node_modules/pixi.js/
 import { magmaGroundAt, magmaRiverAt, magmaCooledAt, magmaHotAt } from '../src/sim.js'
 import { lavaFloodedAt, mantleHeightAt, lavaLineFor, mantleGroundAt } from '../src/sim.js'
 import { MANTLE_GROUND_STEP, MANTLE_START_DRY, MANTLE_COLD_VS_LAVA, MANTLE_FIRE_VS_ROCK, MANTLE_STRAND_DIE_T, MANTLE_STRAND_STUCK_T, MANTLE_STRAND_DMG_MUL, MANTLE_STRAND_SLOW, MANTLE_MELT_T, MANTLE_BOAT_FLOAT, MANTLE_BOAT_REFILL, KETTLE_CRUST_GNAW, KETTLE_CRUST_GNAW_MAX, DRAW_CAPS } from '../src/config.js'
-import { crustEdgeR, poolRimR, crustShapeOf, poolPhaseOf } from '../src/mantle-shape.js'
+import { poolRimR, crustShapeOf, poolPhaseOf, crustSplash, splashSdf, SPLASH_FINGERS, SPLASH_DROPS } from '../src/mantle-shape.js'
 import {
   SHOP, shopCost, refundValue, REFUND_RATE, MAX_SHOP_LEVEL, lineMax, CURRENT_RESIST_FLOOR, SHOP_FAMILY, SHOP_COST_CAP, SHOP_COST_CAP_DEFAULT,
   PASSIVES, RARITIES, RARITY_ORDER, RARITY_WEIGHTS, UPGRADE_RARITY, resistFrac, PASSIVE_RESIST_K, passiveEffectText,
@@ -41250,19 +41250,21 @@ function testMantleGround() {
         const c = { x: r.player.x + 400, y: r.player.y, r: 100, t: 0, dur: 4, line: -Infinity, under: [], seq: 1 }
         r.quenchCrusts = [c]
         const at = []
-        for (let i = 0; i < n; i++) at.push([c.x + Math.cos(i * 2 * Math.PI / n) * 70, c.y + Math.sin(i * 2 * Math.PI / n) * 70])
+        for (let i = 0; i < n; i++) at.push([c.x + Math.cos(i * 2 * Math.PI / n) * 10, c.y + Math.sin(i * 2 * Math.PI / n) * 10])
         const bodies = at.map(([x, y]) => body(r, x, y, habitat))
         r.enemies.push(...bodies)
-        let t = 0
-        while (r.quenchCrusts.includes(c) && t < 10) { bodies.forEach((b, i) => { b.x = at[i][0]; b.y = at[i][1] }); tick(r); t += 1 / 60 }
-        return t
+        // its age after 1 s (whole, before the lava eats it back: at the very end nothing is left to
+        // touch) and how long it lasts
+        let t = 0, age1 = 0
+        while (r.quenchCrusts.includes(c) && t < 10) { bodies.forEach((b, i) => { b.x = at[i][0]; b.y = at[i][1] }); tick(r); t += 1 / 60; if (Math.abs(t - 1) < 1e-6 || (age1 === 0 && t >= 1)) age1 = c.t }
+        return { t, age1 }
       }
       const bare = life(0, 'lava'), two = life(2, 'lava'), swarm = life(10, 'lava'), rock = life(3, 'rock')
-      const want2 = 4 / (1 + 2 * KETTLE_CRUST_GNAW), wantMax = 4 / (1 + KETTLE_CRUST_GNAW_MAX * KETTLE_CRUST_GNAW)
-      assert.ok(Math.abs(bare - 4) < 0.05 && Math.abs(rock - 4) < 0.05, `run MG.c: an ungnawed crust lasts its 4s, a rock creature on it gnaws nothing: ${bare.toFixed(2)} / ${rock.toFixed(2)}`)
-      assert.ok(Math.abs(two - want2) < 0.05, `run MG.c: two lava creatures age it x${1 + 2 * KETTLE_CRUST_GNAW}: ${two.toFixed(2)}s, want ${want2.toFixed(2)}`)
-      assert.ok(Math.abs(swarm - wantMax) < 0.05 && swarm >= 1.5, `run MG.c: a swarm of 10 counts as ${KETTLE_CRUST_GNAW_MAX}, the crust still a refuge for ${wantMax.toFixed(2)}s: ${swarm.toFixed(2)}s`)
-      console.log(`PASS run MG.c (lava creatures gnaw a crust): 4s crust lasts ${bare.toFixed(2)}s bare, ${two.toFixed(2)}s with 2, ${swarm.toFixed(2)}s with 10, ${rock.toFixed(2)}s with 3 rock creatures`)
+      const want2 = 1 + 2 * KETTLE_CRUST_GNAW, wantMax = 1 + KETTLE_CRUST_GNAW_MAX * KETTLE_CRUST_GNAW
+      assert.ok(Math.abs(bare.t - 4) < 0.05 && Math.abs(rock.t - 4) < 0.05, `run MG.c: an ungnawed crust lasts its 4s, a rock creature on it gnaws nothing: ${bare.t.toFixed(2)} / ${rock.t.toFixed(2)}`)
+      assert.ok(Math.abs(two.age1 - want2) < 0.03, `run MG.c: two lava creatures age it x${want2}: ${two.age1.toFixed(2)}s old after 1s`)
+      assert.ok(Math.abs(swarm.age1 - wantMax) < 0.03 && swarm.t >= 1.5 && swarm.t < two.t, `run MG.c: a swarm of 10 counts as ${KETTLE_CRUST_GNAW_MAX} (x${wantMax}: ${swarm.age1.toFixed(2)}s old after 1s), the crust still a refuge for ${swarm.t.toFixed(2)}s`)
+      console.log(`PASS run MG.c (lava creatures gnaw a crust): after 1s it is ${bare.age1.toFixed(2)}s old bare, ${two.age1.toFixed(2)} with 2, ${swarm.age1.toFixed(2)} with 10, ${rock.age1.toFixed(2)} with 3 rock creatures; a 4s crust lasts ${bare.t.toFixed(2)}s bare, ${two.t.toFixed(2)}s with 2, ${swarm.t.toFixed(2)}s with 10`)
     } finally { sig.lavaTide = saved }
   }
 
@@ -41360,9 +41362,11 @@ function testMantleGround() {
   }
 
   // (h) WHAT IS DRAWN IS WHAT IS SOLID: every live crust and pool is drawn (DRAW_CAPS >= LIVE_CAPS);
-  // the sim's edges are the lobed ones the renderer draws (src/mantle-shape.js), so a point inside
-  // r but past the lobe is outside, and render imports those edges instead of its own; and the
-  // player's wade tell asks mantleGroundAt (a pool on dry rock burns too)
+  // the sim's edges are the ones the renderer draws (src/mantle-shape.js): a pool's lobed rim, and a
+  // crust's SPLASH, so a point out on a finger or a droplet past r is crust, and one between two
+  // fingers inside r is not; a lava creature touching only a finger tip gnaws it; render (mantle-fx,
+  // and the floor shader's uniforms) takes those edges instead of its own; and the player's wade tell
+  // asks mantleGroundAt (a pool on dry rock burns too)
   {
     for (const k of ['quenchCrusts', 'lavaPools']) assert.ok(DRAW_CAPS[k] >= LIVE_CAPS[k], `run MG.h: every live ${k} is drawn: draw cap ${DRAW_CAPS[k]} vs live cap ${LIVE_CAPS[k]}`)
     const r = boot(53009)
@@ -41378,17 +41382,48 @@ function testMantleGround() {
     // a crust over the pool, newer: rock inside its lobed edge, the pool's lava just past it
     const big = Object.assign({}, q, { r: 400 })
     r.lavaPools = [big]
-    const c = { x: X.x, y: X.y, r: 100, t: 0, dur: 99, line: -Infinity, under: [big], seq: 2, ...crustShapeOf(X.x, X.y) }
+    const c = { x: X.x, y: X.y, r: 100, t: 0, dur: 99, line: -Infinity, under: [big], seq: 2, ...crustShapeOf(X.x, X.y, 2) }
     r.quenchCrusts = [c]
-    const [cLo, cHi] = span((a) => crustEdgeR(a - c.rot, c.shape))
-    const crustIn = g(r, at(cHi[1], cHi[0] - 0.02, c)), crustOut = g(r, at(cLo[1], cLo[0] + 0.02, c))
+    const P = crustSplash(c.shape, c.rot), sd = (k, a) => splashSdf(P, Math.cos(a) * k, Math.sin(a) * k)
+    // the longest finger: a point on it past r, and a body just off its tip
+    let fi = 0
+    for (let i = 1; i < SPLASH_FINGERS; i++) if (Math.hypot(P[4 + 4 * i], P[5 + 4 * i]) > Math.hypot(P[4 + 4 * fi], P[5 + 4 * fi])) fi = i
+    const fa = Math.atan2(P[5 + 4 * fi], P[4 + 4 * fi]), fk = Math.hypot(P[4 + 4 * fi], P[5 + 4 * fi])
+    // the farthest droplet, its centre (well clear of the blot)
+    let dj = 0
+    const dO = (j) => 4 + 4 * SPLASH_FINGERS + 3 * j
+    for (let j = 1; j < SPLASH_DROPS; j++) if (Math.hypot(P[dO(j)], P[dO(j) + 1]) > Math.hypot(P[dO(dj)], P[dO(dj) + 1])) dj = j
+    const da = Math.atan2(P[dO(dj) + 1], P[dO(dj)]), dk = Math.hypot(P[dO(dj)], P[dO(dj) + 1])
+    // a bearing between two fingers where 0.92 r is out past the blot
+    let ga = null
+    for (let i = 0; i < 720 && ga === null; i++) { const a = i * Math.PI / 360; if (sd(0.92, a) > 0.03) ga = a }
+    const crustFinger = g(r, at(fa, fk, c)), crustDrop = g(r, at(da, dk, c)), crustGap = ga === null ? -1 : g(r, at(ga, 0.92, c))
+    assert.ok(fk > 1.05 && dk > 1.05 && ga !== null, `run MG.h: the splash reaches past r on a finger (${fk.toFixed(2)} r) and a droplet (${dk.toFixed(2)} r), and has a gap inside r (${ga})`)
+    assert.ok(crustFinger === 0 && crustDrop === 0 && crustGap === 1, `run MG.h: a crust is its splash: on the finger ${crustFinger}, on the droplet ${crustDrop} (rock 0), between two fingers inside r ${crustGap} (the pool's lava, 1)`)
+    // the gnaw contact is the splash too: a lava body just off the longest finger's tip touches it, one
+    // as far out between two fingers does not
+    const gnawAt = (a, k) => {
+      c.t = 0; r.enemies = []
+      const e = body(r, 0, 0, 'lava')
+      const p = at(a, k + e.radius * 0.5 / c.r, c)
+      e.x = p.x; e.y = p.y
+      r.enemies.push(e)
+      tick(r)
+      return c.gnaw
+    }
+    const tipA = Math.atan2(P[5 + 4 * fi], P[4 + 4 * fi]), tipK = fk + P[7 + 4 * fi]
+    const gnawTip = gnawAt(tipA, tipK), gnawGap = gnawAt(ga, tipK)
+    assert.ok(gnawTip === 1 && gnawGap === 0, `run MG.h: a lava creature off the finger tip (${tipK.toFixed(2)} r) gnaws the crust (${gnawTip}); as far out between two fingers it does not (${gnawGap})`)
+    r.enemies = []; c.t = 0
     assert.ok(pHi[0] > 1.02 && pLo[0] < 0.9 && poolIn === 1 && poolOut === 0, `run MG.h: a pool's edge is its lobed rim (${pLo[0].toFixed(2)}..${pHi[0].toFixed(2)} r): inside the widest lobe ${poolIn}, past the narrowest ${poolOut}`)
-    assert.ok(cHi[0] > 1.02 && cLo[0] < 0.9 && crustIn === 0 && crustOut === 1, `run MG.h: a crust's edge is its lobed shape (${cLo[0].toFixed(2)}..${cHi[0].toFixed(2)} r): inside the widest lobe ${crustIn}, past the narrowest ${crustOut}`)
     const fx = readFileSync(new URL('../src/toon/mantle-fx.js', import.meta.url), 'utf8')
     assert.ok(/from '\.\.\/mantle-shape\.js'/.test(fx) && !/function edgeR\(|const poolRim =/.test(fx), 'run MG.h: mantle-fx draws the sim edges (imports src/mantle-shape.js, defines none of its own)')
     const toon = readFileSync(new URL('../src/toon.js', import.meta.url), 'utf8')
+    const world = readFileSync(new URL('../src/toon/world.js', import.meta.url), 'utf8')
+    assert.ok(/import \{[^}]*splashOf[^}]*\} from '\.\/mantle-shape\.js'/.test(toon) && /const P = splashOf\(c\)/.test(toon), 'run MG.h: src/toon.js packs each crust\'s splash from src/mantle-shape.js splashOf into the floor\'s uniforms')
+    assert.ok(/import \{[^}]*SPLASH_FINGERS[^}]*SPLASH_WOB[^}]*SPLASH_K[^}]*CRUST_EAT_T[^}]*\} from '\.\.\/mantle-shape\.js'/.test(world) && !/crustR\(|sin\(2\.0 \* a \+ B\.y\)/.test(world.replace(/\$\{SPLASH_WOB\[0\]\.toFixed\(4\)\} \* sin\(2\.0 \* a \+ B\.y\)/, '')), 'run MG.h: the floor shader paints the crust from src/mantle-shape.js\'s splash constants (no circle, no literal of its own)')
     assert.ok(/!p\.afloat && mantleGroundAt\(run, p\.x, p\.y\) > 0/.test(toon), "run MG.h: the player's wade tell in src/toon.js asks mantleGroundAt")
-    console.log(`PASS run MG.h (drawn = solid): caps ${DRAW_CAPS.quenchCrusts}/${LIVE_CAPS.quenchCrusts} crusts and ${DRAW_CAPS.lavaPools}/${LIVE_CAPS.lavaPools} pools; lobed edges pool ${pLo[0].toFixed(2)}..${pHi[0].toFixed(2)} r, crust ${cLo[0].toFixed(2)}..${cHi[0].toFixed(2)} r`)
+    console.log(`PASS run MG.h (drawn = solid): caps ${DRAW_CAPS.quenchCrusts}/${LIVE_CAPS.quenchCrusts} crusts and ${DRAW_CAPS.lavaPools}/${LIVE_CAPS.lavaPools} pools; lobed edges pool ${pLo[0].toFixed(2)}..${pHi[0].toFixed(2)} r, crust splash finger ${fk.toFixed(2)} r, droplet ${dk.toFixed(2)} r, gap inside r at ${ga.toFixed(2)} rad`)
   }
 }
 

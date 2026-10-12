@@ -23,7 +23,9 @@
 //             ground to the pixel (mantleGroundAt: a crust is rock, a pool is lava, a crust wins):
 //             a QUENCH CRUST (run.quenchCrusts) is freshly cooled rock laid over the lava: darker,
 //             warm, steam-dark at first, hairline cracks glowing; in its last seconds the lava eats it
-//             back from the rim inward and the cracks glow brighter. Painted only INSIDE its circle.
+//             back from the rim inward and the cracks glow brighter. Its shape is a SPLASH of water
+//             (src/mantle-shape.js crustSplash: a blot, fingers, droplets), the sim's own, painted
+//             1.3-3 px INSIDE that edge.
 //             A HAMMER POOL (run.lavaPools) is fresh lava cracked open in the rock: jagged cracks run
 //             out from it, its skin breaks into plates that melt away, then bright lava with the tide's
 //             own shore (band, froth, bubbles); at the end it crusts over from the rim inward, and once
@@ -32,13 +34,25 @@
 // Everything is graded in the shader as a faded 1930s print (desaturated, warm, lifted blacks, cream
 // whites); the film pass (FILM_FRAG) then adds grain, dust, a scratch, flicker and an uneven vignette.
 import { MANTLE_GROUND_STEP } from '../config.js'
+import { SPLASH_FINGERS, SPLASH_DROPS, SPLASH_DROP_V4, SPLASH_WOB, SPLASH_K, CRUST_EAT_T } from '../mantle-shape.js'
 import { PAL, TAU, mkCanvas } from './palette.js'
 import { resetXf, push, pop, tr, rot, sc, ell, polar, drop, tube, qb, line, cel, glove, glow, puff, flame, brush } from './brush.js'
 import { peekBubble } from './cast.js'
 
+// a crust's splash as the floor shader takes it (src/toon.js packs it): fingers F0.., droplets packed flat
+// as (x, y, r) into S0.., unrolled
+const SPLASH_FS = Array.from({ length: SPLASH_FINGERS }, (_, j) => 'F' + j)
+const SPLASH_SS = Array.from({ length: SPLASH_DROP_V4 }, (_, j) => 'S' + j)
+const SPLASH_V4S = [...SPLASH_FS.map((_, j) => `uCrF[i * ${SPLASH_FINGERS} + ${j}]`), ...SPLASH_SS.map((_, j) => `uCrS[i * ${SPLASH_DROP_V4} + ${j}]`)]
+const SPLASH_PARAMS = [...SPLASH_FS, ...SPLASH_SS].map((n) => 'vec4 ' + n).join(', ')
+const dropF = (n) => 'S' + Math.floor(n / 4) + '.' + 'xyzw'[n % 4]
+const SPLASH_DROP_LINES = Array.from({ length: SPLASH_DROPS }, (_, j) => `  d = min(d, length(q - vec2(${dropF(3 * j)}, ${dropF(3 * j + 1)})) - ${dropF(3 * j + 2)});`).join('\n')
+const SPLASH_FINGER_LINES = SPLASH_FS.map((F) => `  h = clamp(dot(q, ${F}.xy) / dot(${F}.xy, ${F}.xy), 0.0, 1.0); d = sminF(d, length(q - ${F}.xy * h) - mix(${F}.z, ${F}.w, h), ${SPLASH_K.toFixed(4)});`).join('\n')
+
 // the weapons' ground the floor paints: the newest FX_N crusts and FX_N pools on screen, and the last
 // FX_GHOSTS closed pools, cooling for FX_GHOST_T s (src/toon.js packs them into the floor's uniforms)
 export const FX_N = 8, FX_GHOSTS = 4, FX_GHOST_T = 1.6
+export const CRUST_LIP = 24        // px round a crust where the lava reads its edge as a shore (its hot lip); none beyond
 export const CHUNK = 1024          // world px per floor chunk
 export const CHUNK_STEP = MANTLE_GROUND_STEP        // world px between the height samples a chunk's texture holds
 export const CHUNK_N = CHUNK / CHUNK_STEP + 1   // samples a side (the last one is the next chunk's first)
@@ -138,11 +152,14 @@ uniform float uHi;      // the hilltops
 uniform float uFlood;   // the flood's line: ground under it goes under every cycle
 uniform float uWet;     // the highest line of the last flood (rock the lava just left)
 uniform float uWetK;    // 0..1, how fresh that is
-uniform float uNC;      // Quench crusts in uCr/uCrE: (x, y, r, t) / (dur, the tide's line when poured, ...)
+uniform float uNC;      // Quench crusts in uCr/uCrE: (x, y, r, t) / (dur, the tide's line when poured, its splash's reach px, 0)
 uniform float uNP;      // Crack Hammer pools in uPo/uPoE: (x, y, r, t) / (dur, ...)
 uniform float uNG;      // closed pools still cooling in uGh: (x, y, r, age)
 uniform vec4 uCr[${FX_N}];
 uniform vec4 uCrE[${FX_N}];
+uniform vec4 uCrB[${FX_N}];                        // each crust's splash (src/mantle-shape.js crustSplash): its blot,
+uniform vec4 uCrF[${FX_N * SPLASH_FINGERS}];       // its fingers (tip xy, half-widths), and its droplets
+uniform vec4 uCrS[${FX_N * SPLASH_DROP_V4}];       // (x, y, r) packed flat
 uniform vec4 uPo[${FX_N}];
 uniform vec4 uPoE[${FX_N}];
 uniform vec4 uGh[${FX_GHOSTS}];
@@ -155,13 +172,31 @@ float bell(float x, float c, float w) { float q = (x - c) / w; return exp(-q * q
 // the noise texture is stretched to 0..1; this puts a sample back on a plain fbm scale (mean 0.5, sd 0.13)
 float fb(float n) { return 0.5 + (n - 0.43) * 0.76; }
 
-// THE WEAPONS' GROUND, as the shape of the lava: a crust's painted edge sits INSIDE its circle (ragged
-// by up to 10 px), a pool's OUTSIDE its circle, so the sim's ground test is never contradicted.
+// THE WEAPONS' GROUND, as the shape of the lava: a crust's painted edge sits INSIDE its splash (by
+// 1.3-3 px), a pool's OUTSIDE its circle, so the sim's ground test is never contradicted.
 // en = the edge noise (0..1) at this pixel.
-float crustR(vec4 c, vec4 ce, float en) {
-  float eat = smoothstep(ce.x - 1.5, ce.x, c.w);                      // the lava eating it back, last 1.5 s
-  return c.z * (1.0 - eat * eat * 0.6 - eat * 0.4) - 1.5 - 20.0 * smoothstep(0.3, 0.8, en);
+float sminF(float a, float b, float k) { float h = max(k - abs(a - b), 0.0) / k; return min(a, b) - h * h * k * 0.25; }
+// px from a crust's edge at p, negative inside: src/mantle-shape.js crustSdf, line for line. Its
+// uniforms come in as values (CRUST_U(i)): GLSL ES 1 indexes a uniform array only by a loop index.
+#define CRUST_U(i) uCr[i], uCrE[i].x, uCrB[i], ${SPLASH_V4S.join(', ')}
+float crustD(vec4 c, float dur, vec4 B, ${SPLASH_PARAMS}, vec2 p) {
+  vec2 q = (p - c.xy) / c.z;
+  float a = atan(q.y, q.x + 1.0e-6);
+  float d0 = length(q) - B.x * (1.0 + ${SPLASH_WOB[0].toFixed(4)} * sin(2.0 * a + B.y) + ${SPLASH_WOB[1].toFixed(4)} * sin(3.0 * a + B.z) + ${SPLASH_WOB[2].toFixed(4)} * sin(5.0 * a + B.w));
+  float k = clamp((c.w - (dur - ${CRUST_EAT_T.toFixed(3)})) / ${CRUST_EAT_T.toFixed(3)}, 0.0, 1.0), e = k * k * (3.0 - 2.0 * k);   // eaten back, its last s
+  float eat = e * e * 0.6 + e * 0.4;
+  // deep in the blot the fingers and droplets cannot change what is drawn (they only deepen it): skip them
+  if ((d0 + eat) * c.z < -40.0) return (d0 + eat) * c.z;
+  float d = d0, h;
+${SPLASH_FINGER_LINES}
+${SPLASH_DROP_LINES}
+  return (d + eat) * c.z;
 }
+// the painted edge: inside the sim's by 1.3-3 px, brushy with the edge noise
+#define crustS(i, p, en) (crustD(CRUST_U(i), p) + 1.3 + 1.7 * smoothstep(0.3, 0.8, en))
+// what a crust's edge does to d (px from the lava): a shore out to CRUST_LIP px, nothing past it, so the
+// lava's look has no seam where the shader stops asking (its reach)
+float crustCut(float s) { return -s - 1000.0 * max(0.0, s - ${CRUST_LIP.toFixed(1)}); }
 // the cracked-open rock round a hole: x the red-hot core of its cracks, y their dark seam
 vec2 gCk;
 float poolR(vec4 q, float en) { return q.z + 1.5 + 24.0 * smoothstep(0.3, 0.8, en); }
@@ -176,7 +211,7 @@ float fxD(vec2 p, float d, float en, float hp) {
     float s = length(p - uPo[i].xy) - poolR(uPo[i], en);
     d = min(d, s); if (s < 0.0) { pa = min(pa, uPo[i].w); pOld = max(pOld, uPo[i].w); }
   }
-  for (int i = 0; i < ${FX_N}; i++) { if (float(i) >= uNC) break; if (uCr[i].w <= pa && (hp < uCrE[i].y || pOld > uCr[i].w)) d = max(d, crustR(uCr[i], uCrE[i], en) - length(p - uCr[i].xy)); }
+  for (int i = 0; i < ${FX_N}; i++) { if (float(i) >= uNC) break; if (length(p - uCr[i].xy) < uCrE[i].z && uCr[i].w <= pa && (hp < uCrE[i].y || pOld > uCr[i].w)) d = max(d, crustCut(crustS(i, p, en))); }
   return d;
 }
 // distance (in px, approximately) to the nearest edge of a jittered cell grid of size cs: angular plates
@@ -225,7 +260,10 @@ vec4 bubbles(float cellS, float minD, float maxD, float dens, float faces, float
   vec2 cc = (cell + 0.5) * cellS + (vec2(r2, r3) - 0.5) * 2.0 * jit;
   float hc = hh(vUV + (cc - vWorld) * uUVW);
   float dc = (uLine - hc) / gl;                 // px into the lava at the bubble's centre
-  if (gNearL) {                                 // a pool's shore bubbles too (sparser: it is small); a crust has none
+  // a pool's shore bubbles too (sparser: it is small); a crust has none. Only a pixel the bubble can cover
+  // (its quad: at most 2.1 rad from its centre) asks; the rest of the cell never shows it
+  vec2 cq = abs(vWorld - cc);
+  if (gNearL && max(cq.x, cq.y) < rad * 2.1 + 1.0) {
     float dw = -fxD(cc, -dc, 0.5, hc);
     if (dw > dc + 0.5) { dens *= 0.4; faces *= 0.6; }
     dc = dw;
@@ -290,7 +328,7 @@ void main() {
   // lip casts on the rock; everything else is evaluated within a few px of a shape (gNear).
   if (uNC + uNP + uNG > 0.0) {
     for (int i = 0; i < ${FX_N}; i++) { if (float(i) >= uNP) break; float rr = length(W - uPo[i].xy); if (rr < uPo[i].z + 50.0) gNear = true; else d = min(d, rr - poolR(uPo[i], 0.5)); }
-    for (int i = 0; i < ${FX_N}; i++) { if (float(i) >= uNC) break; if (length(W - uCr[i].xy) < uCr[i].z) gNear = true; }
+    for (int i = 0; i < ${FX_N}; i++) { if (float(i) >= uNC) break; if (length(W - uCr[i].xy) < uCrE[i].z) gNear = true; }
     for (int i = 0; i < ${FX_GHOSTS}; i++) { if (float(i) >= uNG) break; if (length(W - uGh[i].xy) < uGh[i].z + 10.0) gNear = true; }
   }
   float en = 0.5;                                          // the edge noise of the weapons' ground
@@ -320,8 +358,9 @@ void main() {
       vec4 c = uCr[i];
       if (c.w > pAge) continue;                                        // an older crust: the pool cracked it open
       if (h >= uCrE[i].y && !(pOld > c.w)) continue;                   // dry rock when it was poured: no crust there
-      float s = length(W - c.xy) - crustR(c, uCrE[i], en);
-      d = max(d, -s);
+      if (length(W - c.xy) > uCrE[i].z) continue;                        // past its splash's reach
+      float s = crustS(i, W, en);
+      d = max(d, crustCut(s));
       float k = (1.0 - smoothstep(-1.3, 1.3, s)) * (1.0 - smoothstep(-1.3, 1.3, dPre));
       if (k > crK) { crK = k; crT = c.w; crG = smoothstep(uCrE[i].x - 2.2, uCrE[i].x, c.w); }
     }

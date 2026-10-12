@@ -273,7 +273,7 @@ import {
   MANTLE_MELT_T, MANTLE_BOAT_FLOAT, MANTLE_BOAT_REFILL, MANTLE_SPAWN_TRIES,
   KETTLE_CRUST_GNAW, KETTLE_CRUST_GNAW_MAX,
 } from './config.js'
-import { crustShapeOf, poolPhaseOf, inCrustEdge, inPoolEdge, CRUST_EDGE_MAX, POOL_RIM_MAX } from './mantle-shape.js'
+import { crustShapeOf, poolPhaseOf, inCrustEdge, crustSdf, inPoolEdge, CRUST_EDGE_MAX, POOL_RIM_MAX } from './mantle-shape.js'
 
 const KB_DECAY_RATE = 6 // per-second exponential-ish decay factor for enemy knockback
 
@@ -17993,7 +17993,7 @@ function stepLavaTide(run, dt) {
 //     nothing; when the lava falls away under it, that part is plain rock again.
 //   - newest wins between a crust and a pool (seq): a hammer stamp cracks open an older crust, a
 //     kettle quenches an older pool
-//   - both edges are lobed (src/mantle-shape.js), the same edge the renderer draws
+//   - a crust is a splash, a pool a lobed rim (src/mantle-shape.js): the edges the floor paints
 export function mantleGroundAt(run, x, y) {
   const L = run.lavaTide ? lavaTideSpec(run) : null
   const h = L ? mantleHeightAt(L, run.lavaTide.seed, x, y) : Infinity
@@ -18220,15 +18220,14 @@ function pourCrust(run, x, y, r, dur) {
   const T = run.lavaTide && lavaTideSpec(run) ? run.lavaTide : null
   const reach = r * CRUST_EDGE_MAX
   const under = run.lavaPools.filter((q) => q.t < q.dur && Math.hypot(q.x - x, q.y - y) < reach + q.r * POOL_RIM_MAX)
-  return { x, y, r, t: 0, dur, line: T ? T.line : -Infinity, under, seq: groundSeq(run), ...crustShapeOf(x, y), gnaw: 0 }
+  const seq = groundSeq(run)
+  return { x, y, r, t: 0, dur, line: T ? T.line : -Infinity, under, seq, ...crustShapeOf(x, y, seq), gnaw: 0 }
 }
-// is lava creature e touching crust c: its body reaches over the crust's edge
+// is lava creature e touching crust c: its body reaches over the splash's edge (a finger, a droplet)
 function crustTouches(c, e) {
-  const dx = e.x - c.x, dy = e.y - c.y, d = Math.hypot(dx, dy)
-  if (d > c.r * CRUST_EDGE_MAX + e.radius) return false
-  if (d < 1e-6) return true
-  const k = Math.max(0, d - e.radius) / d
-  return inCrustEdge(c, c.x + dx * k, c.y + dy * k)
+  const dx = e.x - c.x, dy = e.y - c.y
+  if (dx * dx + dy * dy > (c.r * CRUST_EDGE_MAX + e.radius) ** 2) return false
+  return crustSdf(c, e.x, e.y) <= e.radius
 }
 function stepQuenchKettleWeapon(run, w, stats, fireRateMul, dt) {
   const quick = run.weaponMods.quenchKettle?.quickBoil ?? 0
