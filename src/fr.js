@@ -2152,6 +2152,7 @@ const CONFIG = {
   "Ember Imp": "Diablotin de braise",
   "Magma Toad": "Crapaud de magma",
   "Basalt Golem": "Golem de basalte",
+  "Obsidian Beetle": "Scarabée d'obsidienne",
   "Brimstone Dragon": "Dragon de soufre",
   "Slow Burn": "Combustion lente",
   "Hot Coals": "Braises",

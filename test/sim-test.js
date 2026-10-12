@@ -40958,7 +40958,8 @@ function testMantleHabitat() {
       const still = r.lavaTide && r.lavaTide.line === line0
       for (const e of r.enemies) {
         if (!e.habitat || e._dead) continue
-        if (!seen.has(e.id)) {
+        // a split child is born where its parent broke (the shore's edge included), not seated
+        if (!seen.has(e.id) && !e._splitChild) {
           seen.add(e.id)
           const atHome = (mantleGroundAt(r, e.x, e.y) > 0) === (e.habitat === 'lava')
           if (e.habitat === 'lava') { lavaSeen++; if (atHome) seatedLava++ } else { rockSeen++; if (atHome) seatedRock++ }
@@ -41335,8 +41336,13 @@ function testMantleGround() {
   }
 
   // (g) A BROOD AT A FIXED SPOT OFF ITS GROUND IS DROPPED: a Splitter killed on dry rock hatches no
-  // lava creatures and no rock ones in their place; killed in the lava, its whole brood comes, in it
-  {
+  // lava creatures and no rock ones in their place; killed in the lava, its whole brood comes, in it.
+  // The brood is the chapter's fast pool, so the rock beetle sits out (weight 0): the rule under test
+  // is the lava creatures', and run MG.i covers the beetle
+  const beetleW = CHAPTERS.mantle.roster.find((e) => e.id === 'obsidianBeetle')
+  const beetleW0 = beetleW.weight
+  beetleW.weight = 0
+  try {
     const brood = (inLava) => {
       const r = boot(inLava ? 53008 : 53007)
       tick(r); quiet(r)
@@ -41356,6 +41362,35 @@ function testMantleGround() {
     assert.ok(dry.length === 0, `run MG.g: a splitter killed on dry rock hatches nothing (no lava creatures, no rock ones swapped in): ${JSON.stringify(dry)}`)
     assert.ok(wet.length === SPLITTER_COUNT && wet.every(([h, gr]) => h === 'lava' && gr > 0), `run MG.g: killed in the lava its ${SPLITTER_COUNT} come, lava creatures in lava: ${JSON.stringify(wet)}`)
     console.log(`PASS run MG.g (a brood off its ground is dropped): ${dry.length} hatched on rock, ${wet.length} in the lava`)
+  } finally { beetleW.weight = beetleW0 }
+
+  // (i) THE OBSIDIAN BEETLE SHATTERS: killed on rock it breaks into SPLIT_CHILD_COUNT smaller rock
+  // beetles; one that dies in the tide breaks there, and its shards are rock creatures, so they melt too
+  {
+    const shatter = (inLava) => {
+      const r = boot(inLava ? 53010 : 53009)
+      tick(r); quiet(r)
+      let at = { x: r.player.x + 150, y: r.player.y }
+      if (inLava) { at = basinOf(r, 0.2); toFlood(r, at); r.player.x = at.x - 150; r.player.y = at.y }
+      const beetle = CHAPTERS.mantle.roster.find((e) => e.id === 'obsidianBeetle')
+      const b = body(r, at.x, at.y, 'rock', { rosterId: 'obsidianBeetle', flags: beetle.flags, hp: 1, maxHP: 1 })
+      r.enemies = [b]
+      if (!inLava) r.weapons = [{ id: 'hotCoals', level: 1 }]
+      let melts = 0
+      for (let i = 0; i < 180 && !b._dead; i++) { b.x = at.x; b.y = at.y; melts += tick(r).filter((e) => e.type === 'melt').length }
+      r.weapons = []
+      melts += tick(r).filter((e) => e.type === 'melt').length   // the shards are queued: they join on the next step
+      const kids = r.enemies.filter((e) => e !== b && !e._dead)
+      const born = kids.map((e) => [e.rosterId, e.habitat, +(e.radius / b.radius).toFixed(2)])
+      for (let i = 0; i < 90; i++) melts += tick(r).filter((e) => e.type === 'melt').length
+      return { dead: b._dead, born, left: r.enemies.filter((e) => e !== b && !e._dead).length, melts }
+    }
+    const dry = shatter(false), wet = shatter(true)
+    assert.ok(dry.dead && dry.born.length === SPLIT_CHILD_COUNT && dry.born.every(([id, h, k]) => id === 'obsidianBeetle' && h === 'rock' && Math.abs(k - SPLIT_RADIUS_FRAC) < 0.01) && dry.left === SPLIT_CHILD_COUNT,
+      `run MG.i: killed on rock it breaks into ${SPLIT_CHILD_COUNT} smaller rock beetles that stay: ${JSON.stringify(dry)}`)
+    assert.ok(wet.dead && wet.born.length === SPLIT_CHILD_COUNT && wet.left === 0 && wet.melts === 1 + SPLIT_CHILD_COUNT,
+      `run MG.i: melted in the tide, its shards are rock creatures and melt too: ${JSON.stringify(wet)}`)
+    console.log(`PASS run MG.i (the beetle shatters): ${dry.born.length} shards on rock that stay, ${wet.born.length} in the tide that melt (${wet.melts} melts)`)
   }
 
   // (h) WHAT IS DRAWN IS WHAT IS SOLID: every live crust and pool is drawn (DRAW_CAPS >= LIVE_CAPS);

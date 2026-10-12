@@ -4738,6 +4738,7 @@ function spawnSplitChildren(run, parent, count) {
       affixes: [],
       flags: parent.flags,
       rosterId: parent.rosterId,
+      habitat: parent.habitat ?? null,   // The Mantle: a rock creature's shards are rock creatures too
       // XP TRACKS HEALTH, exactly as hp and radius above do. Inheriting the parent's FULL xp on a
       // SPLIT_HP_FRAC body made one splitter worth 3 kills of xp for 1.9 kills of health — 1.58x
       // the xp-per-point-of-health of every other enemy in the game, and the only place that ratio

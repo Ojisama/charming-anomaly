@@ -280,6 +280,77 @@ const GOLEM_POSE = Array.from({ length: 8 }, (_, f) => {
 })
 function paintGolem(c, f, elite) { golem(c, { ...GOLEM_POSE[f % GOLEM_POSE.length], look: [0, 0.5], col: elite ? '#6a5560' : '#7d6a66' }) }
 
+// ---- OBSIDIAN BEETLE: a stag beetle of black volcanic glass, the rock's runner, and glass shatters:
+// killed, it breaks into two little ones (the split flag; render.js draws them with this same look,
+// smaller). Upright like the rest of the cast: a big glass head in a cream Felix mask, its two pincers
+// grown into a waxed handlebar moustache curling up at the tips, a toothy grin, antennae with ball
+// tips; a round black body with a belly glowing lava-orange through its segments, its wing-cases
+// flaring out behind like the tails of a coat, rubber-hose arms pumping white-gloved fists, two hose
+// legs in big round shoes.
+const GLASS = '#352d4a', GLASS2 = '#4a4062', BELLY = '#ee7a34', GLINT = '#e6e0ff', SH_GLASS = 'rgba(8,2,20,0.5)', SHOE = '#5a2a1e'
+function beetle(c, o = {}) {
+  const lk = o.look || [0, 0.35], ph = o.ph || 0
+  const sw = Math.sin(ph), bob = Math.abs(Math.cos(ph)) * 1.2
+  shadow(c, 0, 15, 13, 4.6, 0.38)
+  push(); tr(0, -bob)
+  // legs: hose from the hips to big round shoes, one stepping up as the other plants
+  for (const [hx, F] of [[-3.4, [-5 - sw * 1.2, 14 - Math.max(0, sw) * 3]], [3.4, [5 - sw * 1.2, 14 - Math.max(0, -sw) * 3]]]) {
+    cel(c, tube(qb([hx, 6], [hx * 1.4, 10], [F[0], F[1] - 1.2]), 2.3, 2.0), GLASS2, { ink: 1.0, shade: null, piece: false })
+    cel(c, ell(F[0] + (F[0] < 0 ? -1.2 : 1.2), F[1] + 0.4, 3.9, 2.4, 0, 26), SHOE, { ink: 1.2, shade: 'rgba(40,10,10,0.45)' })
+    cel(c, ell(F[0] + (F[0] < 0 ? -2.2 : 2.2), F[1] - 0.4, 1.0, 0.6, 0, 10), '#a0604a', { ink: 0, shade: null })
+  }
+  // the wing-cases: two rounded glass flaps flaring out behind the body like coat tails
+  for (const k of [-1, 1]) {
+    push(); tr(k * 8, 5.5); rot(k * 0.55)
+    cel(c, [...qb([-3.6, -6], [0, -8.4], [3.6, -6], 10), ...qb([3.6, -6], [5.4, 4], [0, 11], 12).slice(1), ...qb([0, 11], [-5.4, 4], [-3.6, -6], 12).slice(1, -1)], GLASS, { ink: 1.6, shade: SH_GLASS })
+    line(c, [[0, -7.6], [0, 10]], 0.7)
+    cel(c, [[-k * 2.4, -4.6], [-k * 1.2, -6.4], [-k * 0.6, 1]], GLINT, { ink: 0, shade: null })
+    pop()
+  }
+  // the body: a round glass barrel, its segmented belly glowing
+  cel(c, ell(0, 3.5, 7.6, 7.4, 0, 44), GLASS, { ink: 1.8, shade: SH_GLASS })
+  cel(c, ell(0, 4.6, 4.8, 5.2, 0, 34), BELLY, { ink: 1.0, shade: 'rgba(150,30,10,0.45)' })
+  cel(c, ell(-1.2, 3.2, 2.0, 1.6, 0, 18), '#ffd36a', { ink: 0, shade: null })
+  for (const yy of [2.6, 5.0, 7.2]) line(c, qb([-3.8, yy], [0, yy + 1.1], [3.8, yy]), 0.7)
+  // arms: hose out of the shoulders to gloved fists pumping at belly height as it runs
+  const A = [[[-6, -0.5], [-11.5, 2 + sw * 2], [-11 + sw, 4.5 + sw * 3.5]], [[6, -0.5], [11.5, 2 - sw * 2], [11 - sw, 4.5 - sw * 3.5]]]
+  for (const S of A) cel(c, tube(qb(S[0], S[1], S[2]), 2.1, 1.8), GLASS2, { ink: 1.0, shade: null })
+  for (const S of A) glove(c, S[2][0], S[2][1], 3.0, Math.atan2(S[2][1] - S[1][1], S[2][0] - S[1][0]))
+  // the head, antennae with ball tips bobbing on it
+  const hy = -10
+  for (const k of [-1, 1]) {
+    const tip = [k * (6 + sw * k * 0.6), hy - 13 + Math.abs(sw) * 0.8]
+    line(c, qb([k * 2.6, hy - 7.6], [k * 3.2, hy - 12], tip), 1.0)
+    cel(c, ell(tip[0], tip[1], 1.5, 1.5, 0, 14), GLASS2, { ink: 0.9, shade: null })
+  }
+  cel(c, ell(0, hy, 9.8, 8.6, 0, 46), GLASS2, { ink: 2.0, shade: SH_GLASS })
+  cel(c, [...qb([-7.8, hy - 4], [-5, hy - 8.4], [1, hy - 8.2], 12), ...qb([1, hy - 8.2], [-4.6, hy - 7.2], [-7.8, hy - 4], 12).slice(1, -1)], GLINT, { ink: 0, shade: null })
+  // the Felix mask: two round lobes for the eyes over a muzzle, inked as three pieces, then filled
+  // again a little smaller so only the outer edge keeps its ink
+  const ex = 3.5, ey = hy - 1.2, er = 4.4, my = hy + 5.0, mrx = 6.4, mry = 4.4
+  for (const d of [0, 0.5]) for (const p of [ell(-ex, ey, er - d, er * 1.08 - d, 0, 30), ell(ex, ey, er - d, er * 1.08 - d, 0, 30), ell(0, my, mrx - d, mry - d, 0, 34)]) {
+    cel(c, p, '#f3dfc2', { ink: d ? 0 : 1.1, shade: null, dabs: 0 })
+  }
+  eye(c, -3.3, hy - 0.9, 2.9, 3.8, lk[0], lk[1], { pr: 0.64, pry: 0.74 })
+  eye(c, 3.3, hy - 0.9, 2.9, 3.8, lk[0], lk[1], { pr: 0.64, pry: 0.74 })
+  // a heavy V of brows, and the grin under the moustache: a wide row of teeth
+  brow(c, [-7.4, hy - 5.6], [-4, hy - 7.2], [-0.6, hy - 5.2], 2.0)
+  brow(c, [7.4, hy - 5.6], [4, hy - 7.2], [0.6, hy - 5.2], 2.0)
+  mouth(c, [-5.4, hy + 5.0], [5.4, hy + 5.0], [0, hy + 6.6], [0, hy + 9.6], { teeth: 1.4, n: 6, tongue: [1.2, hy + 8.8, 1.6] })
+  // the pincers as a waxed handlebar moustache curling up at the tips, a shine down each, the nose
+  for (const k of [-1, 1]) {
+    const P = [[k * 0.6, hy + 3.8], [k * 5, hy + 2.8], [k * 10, hy + 4.4], [k * 14.2, hy + 2.6], [k * 15, hy - 0.8], [k * 13.2, hy - 2.4], [k * 11.8, hy - 1.2]]
+    cel(c, tube(P, 3.0, 0.7), GLASS, { ink: 1.4, shade: SH_GLASS })
+    line(c, [[k * 2.6, hy + 3.0], [k * 6.5, hy + 2.6], [k * 10.6, hy + 3.6], [k * 13.6, hy + 1.8]], 0.7, { color: GLINT, taper: 0.5 })
+    cel(c, [[k * 8.8, hy + 4.4], [k * 10.2, hy + 2.6], [k * 10.8, hy + 5.2]], GLASS, { ink: 0.9, shade: null })
+  }
+  cel(c, ell(0, hy + 2.8, 2.0, 1.5, 0, 18), '#2a2238', { ink: 0.8, shade: null })
+  pop()
+}
+// BEETLE frames: the run (fists pumping, shoes stepping, a bob)
+const BEETLE_POSE = Array.from({ length: 6 }, (_, f) => ({ ph: (f / 6) * TAU_ }))
+function paintBeetle(c, f) { beetle(c, BEETLE_POSE[f % BEETLE_POSE.length]) }
+
 // ---- BRIMSTONE DRAGON (the elite): a chubby baby dragon on spread bat wings, flying high (its shadow
 // far below). Drawn UPRIGHT and face-on like the rest of the cast (the head on top of the belly, the
 // face toward you), so it reads the same from any side it comes at you (render.js only mirrors it).
@@ -629,6 +700,7 @@ export const TOON_CAST = {
   brimstoneDragon: { baseR: 26, frames: DRAGON_POSE.length, fps: 16, box: [-70, -62, 76, 70], paint: wrap(paintDragon), over: wrap(paintDragonOver) },
   magmaEel: { baseR: 12, frames: EEL_FRAMES, fps: 16, box: [-40, -36, 34, 22], paint: wrap(paintEel), sink: wrap(eelSink), over: wrap(paintEelOver) },
   lavaRay: { baseR: 24, frames: RAY_FRAMES, fps: 9, box: [-48, -34, 48, 32], paint: wrap(paintRay), sink: wrap(raySink), over: wrap(rayOver) },
+  obsidianBeetle: { baseR: 11, frames: BEETLE_POSE.length, fps: 14, box: [-30, -38, 30, 24], paint: wrap(paintBeetle) },
   emberJelly: { baseR: 9, frames: JELLY_FRAMES, fps: 12, box: [-22, -34, 22, 22], paint: wrap(paintJelly), sink: wrap(jellySink), over: wrap(jellyOver) },
 }
 

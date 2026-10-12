@@ -9856,6 +9856,8 @@ CHAPTERS.mantle = {
     // balance_decision : cheap stinging swarm, three or four at a time 2026-10-12
     //  - xpMul is per jelly: a group of four pays 2.4 drones' xp
     { id: 'emberJelly',      archetype: 'normal', name: 'Ember Jelly',      hpMul: 0.48 * 1.3, speedMul: 0.9, radiusMul: 0.7, xpMul: 0.6, dmgMul: 0.6, weight: 1.5, flags: [], habitat: 'lava', group: [3, 4] },
+    // balance_decision : first guess, a fast rock runner that shatters in two 2026-10-12
+    { id: 'obsidianBeetle',  archetype: 'fast',   name: 'Obsidian Beetle',  hpMul: 1.2 * 1.3, speedMul: 1.0, flags: ['split'], habitat: 'rock' },
     { id: 'basaltGolem',     archetype: 'tank',   name: 'Basalt Golem',     hpMul: 1.92 * 1.3, speedMul: 0.7, radiusMul: 1.15, flags: ['unshakeable'], habitat: 'rock' },
     // The elite. eliteOnly: every elite in this chapter is a dragon, and it flies over the lava.
     { id: 'brimstoneDragon', archetype: 'fast',   name: 'Brimstone Dragon', hpMul: 2.5 * 1.3, speedMul: 1.0, radiusMul: 1.25, flags: ['weave', 'flying'], eliteOnly: true },
@@ -9898,7 +9900,7 @@ CHAPTERS.mantle = {
   obstacles: null,
   balance: { spawnMul: 0.8, enemyDmgMul: 0.7, enemyHpMul: 1.15, xpMul: 1.2, maxAliveMul: 0.66 },
   render: {
-    cast: ['emberImp', 'magmaToad', 'basaltGolem', 'magmaEel', 'lavaRay', 'emberJelly', 'brimstoneDragon'],
+    cast: ['emberImp', 'magmaToad', 'basaltGolem', 'obsidianBeetle', 'magmaEel', 'lavaRay', 'emberJelly', 'brimstoneDragon'],
     bgColor: 0x2b1a12,     // under the toon floor (never seen: the floor covers the view)
     floorTint: 0xffffff,   // the floor and its props carry their own palette
     playerTint: 0xffffff,

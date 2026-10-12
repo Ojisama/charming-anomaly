@@ -6972,6 +6972,7 @@ export function createRenderer(app) {
     emberImp: { archetype: 'normal', toon: true },
     magmaToad: { archetype: 'fast', toon: true },
     basaltGolem: { archetype: 'tank', toon: true },
+    obsidianBeetle: { archetype: 'fast', toon: true },
     brimstoneDragon: { archetype: 'fast', toon: true },
     magmaEel: { archetype: 'normal', toon: true },   // its art comes from src/toon/cast.js (TOON_CAST); until then bakeCreature returns null and the archetype look stands in
     lavaRay: { archetype: 'tank', toon: true },

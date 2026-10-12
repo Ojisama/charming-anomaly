@@ -742,10 +742,11 @@ export function createMantleFx({ ground, boat, top }) {
           const d = hyp(tx - ox, ty - oy), H = Math.max(14, d * 0.3)
           const path = (u) => [ox + (tx - ox) * u, oy + (ty - oy) * u - H * 4 * u * (1 - u)]
           const head = smooth(0.12, 0.2, k), tail = smooth(0.48, 0.57, k)
-          // the water: pale blue-white, a gloss streak and a shade line, thick at the spout tapering thin,
-          // squashed fat as it lands, gulps running down it; its last stretch breaks into blobs and drops
+          // the water: pale blue-white, a gloss streak and a shade line, thin out of the spout and swelling
+          // into a fat leading slug toward where it lands, gulps running down it; its last stretch breaks
+          // into blobs, the biggest out in front
           const fat = head < 1 ? 0.8 : 1 + 0.25 * Math.max(0, 1 - (k - 0.2) * 12)
-          const wd = (u) => (9.5 - 6.5 * u) * fat * (1 + 0.22 * Math.max(0, Math.sin((u - k * 6) * 10)))
+          const wd = (u) => (3.2 + 6.8 * u) * fat * (1 + 0.22 * Math.max(0, Math.sin((u - k * 6) * 10)))
           const BRK = 0.74, tubeEnd = Math.min(head, BRK)
           const n = 16, Lp = [], Rp = []
           for (let i = 0; i <= n; i++) {
@@ -771,9 +772,9 @@ export function createMantleFx({ ground, boat, top }) {
           if (head > BRK) for (let i = 0; i < 6; i++) {
             const u = BRK + (head - BRK) * ((i + 0.5) / 6) + 0.01 * Math.sin(k * 50 + i)
             if (u <= tail) continue
-            const [x, y] = path(u), r = wd(u) * (1 - 0.45 * (i / 6))
-            if (i < 3) celPoly(topG2, polar(x, y, (a) => r * (1 + 0.12 * Math.sin(a * 3 + i)), 14).flat(), 0xdcf1f4, { ink: 1.8 })
-            else { const dr = tools.next(P.waterDrop), [x2, y2] = path(Math.min(1, u + 0.02)); dr.position.set(x, y); dr.rotation = Math.atan2(y2 - y, x2 - x) - Math.PI / 2; dr.scale.set(0.5 + 0.1 * (6 - i)) }
+            const [x, y] = path(u), r = wd(u) * (0.7 + 0.3 * (i / 6))
+            if (i >= 3) celPoly(topG2, polar(x, y, (a) => r * (1 + 0.12 * Math.sin(a * 3 + i)), 14).flat(), 0xdcf1f4, { ink: 1.8 })
+            else { const dr = tools.next(P.waterDrop), [x2, y2] = path(Math.min(1, u + 0.02)); dr.position.set(x, y); dr.rotation = Math.atan2(y2 - y, x2 - x) - Math.PI / 2; dr.scale.set(0.5 + 0.1 * i) }
           }
           // the tail breaking into drops behind it as the pour stops
           if (tail > 0) for (let i = 0; i < 4; i++) {
