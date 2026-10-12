@@ -2171,7 +2171,7 @@ const CONFIG = {
   "The lava floods higher and faster, and it burns them hotter.": "La lave monte plus haut et plus vite, et elle les brûle plus fort.",
   "High Water": "Lave haute",
   "The lava tide never fully ebbs. Bonus XP.": "La marée de lave ne redescend jamais tout à fait. XP bonus.",
-  "Quench Kettle": "Bouilloire de trempe",
+  "Quench Kettle": "Bouilloire glacée",
   "Pours water around you. The lava it splashes cools into a crust you can stand on.": "Verse de l'eau autour de toi. La lave éclaboussée refroidit en une croûte où tu peux marcher.",
   "Big Kettle": "Grande bouilloire",
   "splash size": "taille de l'éclaboussure",
