@@ -1205,3 +1205,92 @@ export function cavernAt(x, y) {
   }
   return best
 }
+
+// ==== THE PICKUPS ==================================================================================
+// The Geode's own xp crystals and coins, in the pillars' language: faces of film colour split by white
+// ridges, glare streaks, opal flecks, ink, a diffraction halo under them and a star of light on top.
+// Xp stays a SATURATED blue (the foil pass leaves it alone, so it never reads as the cave's own
+// crystals) and coins GOLD, the two drops' rule game-wide; tiers grow the cluster.
+const SAPH = [0x2c49b8, 0x4f7cf0, 0x9cc2ff]   // dark face, lit face, ridge glow
+// one sapphire point: two faces down a white ridge, a glare streak, flecks of fire inside
+function saphSpike(ctx, x, y, len, wid, ang, rnd, lw = 0.9) {
+  const c = Math.cos(ang), s = Math.sin(ang)
+  const P = (u, v) => [x + c * u - s * v, y + s * u + c * v]
+  const tip = P(len, 0), l = P(len * 0.7, -wid), rr = P(len * 0.7, wid), bl = P(-len * 0.12, -wid * 0.85), br = P(-len * 0.12, wid * 0.85), b0 = P(-len * 0.05, 0)
+  const out = [...bl, ...l, ...tip, ...rr, ...br]
+  const A = [...bl, ...l, ...tip, ...b0], B = [...b0, ...tip, ...rr, ...br]
+  ctx.save(); trace(ctx, A); ctx.clip()
+  { const g = ctx.createLinearGradient(...P(0, -wid), ...P(len, 0)); g.addColorStop(0, css(SAPH[1])); g.addColorStop(1, css(SAPH[2])); ctx.fillStyle = g; ctx.fill() }
+  ctx.restore()
+  ctx.save(); trace(ctx, B); ctx.clip()
+  { const g = ctx.createLinearGradient(...P(0, wid), ...P(len, 0)); g.addColorStop(0, css(0x15206a)); g.addColorStop(1, css(SAPH[0])); ctx.fillStyle = g; ctx.fill() }
+  ctx.restore()
+  foil(ctx, A, ang + 0.9, 0.5, rnd(), 0.9, 0.8)
+  fireFlecks(ctx, B, 3, wid * 0.32, rnd(), rnd)
+  ctx.beginPath(); ctx.moveTo(...b0); ctx.lineTo(...tip); ctx.lineWidth = lw * 0.55; ctx.strokeStyle = '#ffffff'; ctx.stroke()
+  ink(ctx, out, lw)
+}
+// one double-pointed sapphire crystal standing up, leaning by ang: three long faces of the hexagonal
+// prism (lit, bright middle, dark), a pointed cap of three facets on each end, white ridges, a glare
+// streak, opal flecks deep in the dark face, all inked
+function saphCrystal(ctx, x, y, h, w, ang, rnd, lw = 0.8) {
+  const c = Math.cos(ang), s = Math.sin(ang)
+  const P = (u, v) => [x + c * u - s * v, y + s * u + c * v]   // u across, v along (v < 0 up)
+  const cap = w * 1.15, top = -h / 2, bot = h / 2
+  const L0 = P(-w, top + cap), L1 = P(-w, bot - cap * 0.8), M0 = P(-w * 0.2, top + cap * 1.12), M1 = P(-w * 0.2, bot - cap * 0.68)
+  const N0 = P(w * 0.45, top + cap * 1.06), N1 = P(w * 0.45, bot - cap * 0.74), R0 = P(w, top + cap), R1 = P(w, bot - cap * 0.8)
+  const T = P(-w * 0.05, top), B = P(-w * 0.05, bot)
+  const faces = [
+    [[...L0, ...M0, ...M1, ...L1], 0x2f6bff, 0x6fa4ff],   // lit long face
+    [[...M0, ...N0, ...N1, ...M1], 0x1446e0, 0x3f7cff],   // middle
+    [[...N0, ...R0, ...R1, ...N1], 0x0a1a8a, 0x1634c0],   // shade
+    [[...T, ...M0, ...L0], 0x5c96ff, 0x9cc4ff], [[...T, ...N0, ...M0], 0x2f6bff, 0x5c96ff], [[...T, ...R0, ...N0], 0x1240c8, 0x2456e6],
+    [[...B, ...L1, ...M1], 0x1440c0, 0x2a5ce0], [[...B, ...M1, ...N1], 0x0a1a8a, 0x1634c0], [[...B, ...N1, ...R1], 0x06105c, 0x0a1a8a],
+  ]
+  for (const [pts, c0, c1] of faces) {
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
+    for (let i = 0; i < pts.length; i += 2) { x0 = Math.min(x0, pts[i]); x1 = Math.max(x1, pts[i]); y0 = Math.min(y0, pts[i + 1]); y1 = Math.max(y1, pts[i + 1]) }
+    const g = ctx.createLinearGradient(x0, y1, x1, y0); g.addColorStop(0, css(c0)); g.addColorStop(1, css(c1))
+    fillPts(ctx, pts, g)
+  }
+  const sil = [...T, ...R0, ...R1, ...B, ...L1, ...L0]
+  fireFlecks(ctx, faces[2][0], 3, w * 0.28, rnd(), rnd)
+  fireFlecks(ctx, faces[1][0], 2, w * 0.22, rnd(), rnd)
+  ctx.save(); ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = lw * 0.45; ctx.lineJoin = 'round'
+  for (const [p, q] of [[M0, M1], [N0, N1], [T, M0], [T, N0], [B, M1], [B, N1], [L0, M0], [M0, N0], [N0, R0]]) { ctx.beginPath(); ctx.moveTo(...p); ctx.lineTo(...q); ctx.stroke() }
+  ctx.restore()
+  ink(ctx, sil, lw)
+  return { T, sil }
+}
+export function paintHoloPickups() {
+  const gem = [0, 1, 2].map((tier) => bakeLocal(22, 3, (ctx) => {
+    const rnd = rng(901 + tier * 17)
+    const H = [15, 18, 21][tier], W = H * 0.24
+    withBlur(ctx, 1.4, 'rgba(0,0,0,0.6)', () => { ctx.beginPath(); ctx.ellipse(1, H * 0.48, W * 1.8, W * 0.55, 0, 0, TAU); ctx.fill() })
+    // the bigger tiers grow small crystals off the root, behind and to the sides
+    if (tier >= 1) saphCrystal(ctx, -W * 1.5, H * 0.18, H * 0.55, W * 0.62, -0.5, rnd, 0.7)
+    if (tier === 2) saphCrystal(ctx, W * 1.55, H * 0.2, H * 0.62, W * 0.66, 0.45, rnd, 0.7)
+    const { T } = saphCrystal(ctx, 0, 0, H, W, 0.08, rnd)
+    glintStar(ctx, T[0] + W * 0.1, T[1] + H * 0.12, H * (0.42 + tier * 0.06), 0.95)
+  }, { shadowBlur: 0.5 }))
+  const coin = bakeLocal(16, 3, (ctx) => {
+    const rnd = rng(977)
+    const gold = (pts, c0, c1, x0, y0, x1, y1) => { const g = ctx.createLinearGradient(x0, y0, x1, y1); g.addColorStop(0, css(c0)); g.addColorStop(1, css(c1)); fillPts(ctx, pts, g) }
+    // A FACETED GOLD TOKEN: a hexagon cut like the crystals, a table on top, six bevels round it
+    withBlur(ctx, 1.2, 'rgba(0,0,0,0.6)', () => { ctx.beginPath(); ctx.arc(0.8, 1, 9, 0, TAU); ctx.fill() })
+    const R = 9, r = 5.2, O = [], I = []
+    for (let k = 0; k < 6; k++) { const an = (k / 6) * TAU - Math.PI / 2; O.push(Math.cos(an) * R, Math.sin(an) * R); I.push(Math.cos(an) * r, Math.sin(an) * r) }
+    for (let k = 0; k < 6; k++) {
+      const k1 = (k + 1) % 6, mid = (k + 0.5) / 6 * TAU - Math.PI / 2, lit = 0.5 + 0.5 * Math.cos(mid + 2.3)
+      fillPts(ctx, [O[k * 2], O[k * 2 + 1], O[k1 * 2], O[k1 * 2 + 1], I[k1 * 2], I[k1 * 2 + 1], I[k * 2], I[k * 2 + 1]], css(mixc(0x8a5410, 0xfff0a0, lit)))
+    }
+    gold(I, 0xfff6c8, 0xe0a42a, -r, -r, r, r)
+    foil(ctx, I, 0.7, 0.45, rnd(), 1, 0.8)
+    ctx.save(); ctx.strokeStyle = 'rgba(255,250,220,0.85)'; ctx.lineWidth = 0.35
+    for (let k = 0; k < 6; k++) { ctx.beginPath(); ctx.moveTo(O[k * 2], O[k * 2 + 1]); ctx.lineTo(I[k * 2], I[k * 2 + 1]); ctx.stroke() }
+    ctx.restore()
+    ink(ctx, I, 0.35); ink(ctx, O, 0.7)
+    glintStar(ctx, -3, -4, 8, 0.95)
+  }, { shadowBlur: 0.5 })
+  return { gem, coin }
+}
