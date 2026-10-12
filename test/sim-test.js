@@ -19,7 +19,7 @@ import { FOIL_FRAG as HOLO_FOIL_FRAG, CAVERN_FLOOR_FRAG as HOLO_CAVERN_FRAG } fr
 import { ensurePrecision as pixiEnsurePrecision } from '../node_modules/pixi.js/lib/rendering/renderers/gl/shader/program/preprocessors/ensurePrecision.mjs'
 import { magmaGroundAt, magmaRiverAt, magmaCooledAt, magmaHotAt } from '../src/sim.js'
 import { lavaFloodedAt, mantleHeightAt, lavaLineFor, mantleGroundAt } from '../src/sim.js'
-import { MANTLE_GROUND_STEP, MANTLE_START_DRY, MANTLE_COLD_VS_LAVA, MANTLE_FIRE_VS_ROCK, MANTLE_STRAND_DIE_T, MANTLE_STRAND_STUCK_T, MANTLE_STRAND_DMG_MUL, MANTLE_STRAND_SLOW, MANTLE_MELT_T, MANTLE_BOAT_FLOAT, MANTLE_BOAT_REFILL, KETTLE_CRUST_GNAW, KETTLE_CRUST_GNAW_MAX, DRAW_CAPS } from '../src/config.js'
+import { MANTLE_GROUND_STEP, MANTLE_START_DRY, MANTLE_COLD_VS_LAVA, MANTLE_FIRE_VS_ROCK, MANTLE_STRAND_DIE_T, MANTLE_STRAND_STUCK_T, MANTLE_STRAND_DMG_MUL, MANTLE_STRAND_SLOW, MANTLE_MELT_T, KETTLE_CRUST_GNAW, KETTLE_CRUST_GNAW_MAX, DRAW_CAPS } from '../src/config.js'
 import { crustEdgeR, poolRimR, crustShapeOf, poolPhaseOf } from '../src/mantle-shape.js'
 import {
   SHOP, shopCost, refundValue, REFUND_RATE, MAX_SHOP_LEVEL, lineMax, CURRENT_RESIST_FLOOR, SHOP_FAMILY, SHOP_COST_CAP, SHOP_COST_CAP_DEFAULT,
@@ -20931,6 +20931,7 @@ run(testLeLargeWeapons)
   run(testMantle)
   run(testMantleHabitat)
   run(testMantleGround)
+  run(testMantleBoats)
   run(testMantleLavaCrew)
   // A hand-typed filter that matched nothing is the silent pass without a parent watching:
   // `node test/sim-test.js supernova` printed ALL TESTS PASSED having run no scenario at all.
@@ -40908,13 +40909,16 @@ function testMantle() {
   console.log(`PASS run MT (The Mantle): the tide cycled and the lava swung across the ground; a parked body burned in a flooding basin, a flyer did not, nothing with the tide off; you burn ${pOn} in the lava, 0 off; High Water ebbs to ${high.lo}, Flood Tide covers ${flood.cover.toFixed(2)} vs ${plain.cover.toFixed(2)}; kettle splashes and crusts, coal bounces, hammer cracks under rock, bellows burns rock and shoves lava`)
 }
 
-// run HB: THE MANTLE'S TWO HABITATS, the basalt boat, and the weapons' ground (owner rulings
-// 2026-10-12). Rock creatures stay on rock and melt under the tide; lava creatures stay in lava and
-// strand on rock; the boat floats you for MANTLE_BOAT_FLOAT s on the tide; a Quench crust is rock and
-// a Crack Hammer pool is lava for every one of those rules.
+// run HB: THE MANTLE'S TWO HABITATS and the weapons' ground (owner rulings 2026-10-12). Rock
+// creatures stay on rock and melt under the tide; lava creatures stay in lava and strand on rock; a
+// Quench crust is rock and a Crack Hammer pool is lava for every one of those rules. No moored boats
+// here (boats.chance 0): these are the bare ground's rules, and run MO has the boats.
 function testMantleHabitat() {
   const meta = () => { const m = makeMeta(); m.dev = true; return m }
   const L = CHAPTERS.mantle.signature.lavaTide
+  const boats0 = L.boats.chance
+  L.boats.chance = 0
+  try {
   const boot = (seed) => { Math.random = mulberry32(seed); const r = createRun(meta(), { chapter: 'mantle', difficulty: 1 }); r.player.hp = r.player.maxHP = 1e6; return r }
   const tick = (r, input = { x: 0, y: 0 }) => {
     if (r.phase === 'levelup') { r.phase = 'playing'; r.levelUpChoices = [] }
@@ -41063,35 +41067,10 @@ function testMantleHabitat() {
     } finally { CHAPTERS.mantle.signature.lavaTide = saved }
     console.log(`PASS run HB.c (stranding): crawled ${early.toFixed(1)}px, stuck after ${MANTLE_STRAND_STUCK_T}s, crumbled at ${MANTLE_STRAND_DIE_T}s for its xp, x${MANTLE_STRAND_DMG_MUL} damage while stranded`)
   }
-  // (d) THE BOAT: parked in a basin as the tide covers you, no lava damage for MANTLE_BOAT_FLOAT s,
-  // then the burn; back on rock the float refills at MANTLE_BOAT_REFILL s per s
-  {
-    const r = boot(52005)
-    tick(r)
-    r.weapons = []; r.mods.spawnMul = 0; r.enemies = []
-    const spot = basinOf(r)
-    const home = { x: r.player.x, y: r.player.y }
-    let coveredAt = null, burntAt = null, floatSeen = false
-    for (let i = 0; i < 60 * 90 && burntAt === null; i++) {
-      r.enemies = []; r.player.x = spot.x; r.player.y = spot.y
-      const dmg0 = r.dmgBySrc?.lava ?? 0
-      tick(r)
-      if (coveredAt === null && lavaFloodedAt(r, spot.x, spot.y)) coveredAt = r.time
-      if (r.player.afloat) floatSeen = true
-      if ((r.dmgBySrc?.lava ?? 0) > dmg0) burntAt = r.time
-    }
-    assert.ok(coveredAt !== null && burntAt !== null && floatSeen, `run HB.d precondition: the tide covered the spot (${coveredAt}) and burned you in the end (${burntAt})`)
-    const floated = burntAt - coveredAt
-    // the burn banks its fraction (a gentle dot), so the first whole point lands up to ~1s after the sinking
-    assert.ok(floated >= MANTLE_BOAT_FLOAT - 0.1 && floated <= MANTLE_BOAT_FLOAT + 1.2, `run HB.d: the boat floats you unburned for ${MANTLE_BOAT_FLOAT}s on the tide: first burn ${floated.toFixed(2)}s after it covered you`)
-    for (let i = 0; i < 60 * 3; i++) { r.player.x = home.x; r.player.y = home.y; tick(r) }
-    assert.ok(Math.abs(r.player.boatT - 3 * MANTLE_BOAT_REFILL) < 0.1 && !r.player.afloat, `run HB.d: 3s on rock refills ${3 * MANTLE_BOAT_REFILL}s of float: ${r.player.boatT}`)
-    console.log(`PASS run HB.d (boat): ${floated.toFixed(2)}s afloat before the first burn, ${r.player.boatT.toFixed(2)}s of float back after 3s on rock`)
-  }
-  // (e) A QUENCH CRUST IS ROCK: with the boat gone, a crust under you stops the burn; a lava creature
+  // (e) A QUENCH CRUST IS ROCK: with no boat, a crust under you stops the burn; a lava creature
   // under one strands; a rock creature on one over the tide does not melt
   // (f) A HAMMER POOL IS LAVA: a lava creature on dry rock inside a pool is at home; a rock creature in
-  // one burns; you burn in one even with a full boat
+  // one burns; you burn in one
   {
     const r = boot(52006)
     tick(r)
@@ -41101,16 +41080,15 @@ function testMantleHabitat() {
     assert.ok(lavaFloodedAt(r, spot.x, spot.y), 'run HB.e precondition: the basin floods')
     const burnFor = (crust, s) => {
       r.quenchCrusts = crust ? [{ x: spot.x, y: spot.y, r: 120, t: 0, dur: 99, line: r.lavaTide.line, under: [] }] : []
-      r.player.boatT = 0
       const d0 = r.dmgBySrc?.lava ?? 0
-      for (let i = 0; i < 60 * s; i++) { r.player.x = spot.x; r.player.y = spot.y; r.player.boatT = 0; tick(r) }
+      for (let i = 0; i < 60 * s; i++) { r.player.x = spot.x; r.player.y = spot.y; tick(r) }
       return (r.dmgBySrc?.lava ?? 0) - d0
     }
     const bare = burnFor(false, 2), crusted = burnFor(true, 2)
     assert.ok(lavaFloodedAt(r, spot.x, spot.y) && bare > 0 && crusted === 0, `run HB.e: a crust under you is rock (no burn): ${bare} bare vs ${crusted} on a crust`)
     const eel = body(r, spot.x + 30, spot.y, 'lava'), imp = body(r, spot.x - 30, spot.y, 'rock')
     r.enemies.push(eel, imp)
-    for (let i = 0; i < 60; i++) { eel.x = spot.x + 30; eel.y = spot.y; imp.x = spot.x - 30; imp.y = spot.y; r.player.boatT = MANTLE_BOAT_FLOAT; tick(r) }
+    for (let i = 0; i < 60; i++) { eel.x = spot.x + 30; eel.y = spot.y; imp.x = spot.x - 30; imp.y = spot.y; tick(r) }
     assert.ok(lavaFloodedAt(r, spot.x - 30, spot.y) && lavaFloodedAt(r, spot.x + 30, spot.y), 'run HB.e precondition: both bodies stand over the tide')
     assert.ok(eel.strandT > 0.9 && !imp._dead && !(imp.meltT > 0), `run HB.e: under a crust a lava creature strands (${eel.strandT}) and a rock one stands dry (dead ${!!imp._dead}, meltT ${imp.meltT})`)
     console.log(`PASS run HB.e (a crust is rock): burn ${bare} bare vs ${crusted} crusted; under it a lava creature stranded ${eel.strandT.toFixed(2)}s and a rock one did not melt`)
@@ -41125,7 +41103,6 @@ function testMantleHabitat() {
     r.lavaPools = [{ x: dry.x, y: dry.y, r: 80, t: 0, dur: 99, dps: 40, _tick: 0 }]
     const inPool = body(r, dry.x, dry.y, 'lava'), outPool = body(r, dry.x + 160, dry.y, 'lava'), burner = body(r, dry.x + 20, dry.y + 20, 'rock')
     r.enemies.push(inPool, outPool, burner)
-    r.player.boatT = 2   // part-sunk: a pool must not refill it (only rock or a crust does)
     const d0 = r.dmgBySrc?.lava ?? 0
     for (let i = 0; i < 60 * 2; i++) {
       inPool.x = dry.x; inPool.y = dry.y; outPool.x = dry.x + 160; outPool.y = dry.y; burner.x = dry.x + 20; burner.y = dry.y + 20
@@ -41133,9 +41110,8 @@ function testMantleHabitat() {
       tick(r)
     }
     const poolBurn = (r.dmgBySrc?.lava ?? 0) - d0
-    assert.ok(Math.abs(r.player.boatT - 2) < 1e-9, `run HB.f: standing in a pool neither sinks nor refills the boat: ${r.player.boatT}`)
     assert.ok(!(inPool.strandT > 0) && outPool.strandT > 1.5, `run HB.f: a pool is lava to a lava creature (strandT ${inPool.strandT} in it, ${outPool.strandT} beside it)`)
-    assert.ok(burner.hp < 400 && poolBurn > 0, `run HB.f: a pool burns a rock creature in it (${400 - burner.hp}) and you, boat or not (${poolBurn})`)
+    assert.ok(burner.hp < 400 && poolBurn > 0, `run HB.f: a pool burns a rock creature in it (${400 - burner.hp}) and you (${poolBurn})`)
     // a rock creature walking in a pool wades: at most HAMMER_POOL_MIRE of its 2px a frame
     const wader = body(r, dry.x, dry.y + 10, 'rock', { speed: 120 })
     r.enemies = [wader]   // alone: no neighbour's shove in the measure
@@ -41144,14 +41120,20 @@ function testMantleHabitat() {
     assert.ok(waded > 0.5 && waded <= 20 * 0.4 + 1, `run HB.f: a rock creature wades through a pool slowly: ${waded.toFixed(1)}px in 10 frames (20 free)`)
     console.log(`PASS run HB.f (a pool is lava): it kept its lava creature home, burned a rock one ${400 - burner.hp} and you ${poolBurn}`)
   }
+  } finally { L.boats.chance = boats0 }
 }
 
 // run MG: THE MANTLE'S GROUND RULES between the tide, the Quench crusts and the Crack Hammer pools
 // (sim.js mantleGroundAt, src/mantle-shape.js). Each part lays its ground with the real weapon where
-// one exists, and asserts what that ground then does to a body, the boat or the brood.
+// one exists, and asserts what that ground then does to a body, a boat or the brood. No moored boats
+// stream in (boats.chance 0); a part that needs one moors its own.
 function testMantleGround() {
   const meta = () => { const m = makeMeta(); m.dev = true; return m }
   const sig = CHAPTERS.mantle.signature, L = sig.lavaTide
+  const boats0 = L.boats.chance
+  L.boats.chance = 0
+  const boatAt = (x, y) => ({ x, y, c: 0, heading: 0, cell: 'test', floatT: L.boats.float, afloat: true, ridden: false, moved: true, vx: 0, vy: 0, seed: 1 })
+  try {
   const boot = (seed) => { Math.random = mulberry32(seed); const r = createRun(meta(), { chapter: 'mantle', difficulty: 1 }); r.player.hp = r.player.maxHP = 1e6; return r }
   const tick = (r, input = { x: 0, y: 0 }) => {
     if (r.phase === 'levelup') { r.phase = 'playing'; r.levelUpChoices = [] }
@@ -41214,8 +41196,8 @@ function testMantleGround() {
     console.log(`PASS run MG.a (a crust is crust where it was lava): poured on a shore, the flood covers its dry half as lava (${atFlood})`)
   }
 
-  // (b) THE BOAT REFILLS ONLY ON REAL ROCK: a crust over the tide stops the burn and the sinking, but
-  // it is not ground to beach the boat on
+  // (b) A CRUST IS ROCK TO A BOAT: ridden from the lava onto a crust over the tide, you step off it
+  // (no burn on the crust), and it stays moored on the lava where you left it, sinking no further
   {
     const r = boot(53002)
     tick(r); quiet(r)
@@ -41227,14 +41209,29 @@ function testMantleGround() {
     r.player.x = spot.x; r.player.y = spot.y
     fire(r, 'quenchKettle')
     r.weapons = []; r.enemies = []
-    assert.ok(r.quenchCrusts.length === 1 && g(r, spot) === 0, `run MG.b precondition: a crust under you over the tide: ${g(r, spot)}`)
-    r.player.boatT = 2
+    assert.ok(r.quenchCrusts.length === 1 && g(r, spot) === 0, `run MG.b precondition: a crust over the tide: ${g(r, spot)}`)
+    // a lava point off the crust, east of it, with only lava between it and the crust's edge
+    let from = null
+    for (let d = 40; d < 400 && !from; d += 4) { const q = { x: spot.x + d, y: spot.y }; if (g(r, q) === 2) from = q }
+    assert.ok(from, 'run MG.b precondition: lava beside the crust')
+    from = { x: from.x + 40, y: from.y }
+    assert.ok(g(r, from) === 2, 'run MG.b precondition: the boat starts on the tide')
+    const boat = boatAt(from.x, from.y)
+    r.boats = [boat]
+    r.player.x = from.x; r.player.y = from.y
+    tick(r)
+    assert.ok(r.player.afloat && boat.ridden, `run MG.b precondition: you board the boat: afloat ${r.player.afloat}`)
     const d0 = r.dmgBySrc?.lava ?? 0
-    for (let i = 0; i < 60; i++) { r.enemies = []; r.player.x = spot.x; r.player.y = spot.y; tick(r) }
+    let lastLava = null
+    for (let i = 0; i < 400 && g(r, r.player) !== 0; i++) { lastLava = { x: r.player.x, y: r.player.y }; r.player.x -= 3; tick(r) }
+    const float0 = boat.floatT
+    for (let i = 0; i < 60; i++) { r.enemies = []; tick(r) }
     const burnt = (r.dmgBySrc?.lava ?? 0) - d0
-    assert.ok(lavaFloodedAt(r, spot.x, spot.y) && Math.abs(r.player.boatT - 2) < 1e-9 && !r.player.afloat && burnt === 0,
-      `run MG.b: on a crust over the tide the boat neither sinks nor refills, and nothing burns: boatT ${r.player.boatT} (from 2), afloat ${r.player.afloat}, burn ${burnt}`)
-    console.log(`PASS run MG.b (the boat beaches on real rock only): 1s on a crust over the tide, boatT ${r.player.boatT}, burn ${burnt}`)
+    assert.ok(g(r, r.player) === 0 && lavaFloodedAt(r, r.player.x, r.player.y) && !r.player.afloat && !boat.ridden && burnt === 0,
+      `run MG.b: on a crust over the tide you have stepped off and nothing burns: ground ${g(r, r.player)}, afloat ${r.player.afloat}, ridden ${boat.ridden}, burn ${burnt}`)
+    assert.ok(r.boats.includes(boat) && g(r, boat) === 2 && Math.hypot(boat.x - lastLava.x, boat.y - lastLava.y) < 4 && boat.floatT === float0,
+      `run MG.b: the boat stays moored on the lava where you stepped off, sinking no further: ground ${g(r, boat)}, ${Math.hypot(boat.x - lastLava.x, boat.y - lastLava.y).toFixed(1)}px from your last lava step, floatT ${boat.floatT} (from ${float0})`)
+    console.log(`PASS run MG.b (a crust is rock to a boat): stepped off onto the crust, burn ${burnt}, the boat moored on the lava with ${boat.floatT.toFixed(2)}s of float`)
   }
 
   // (c) LAVA CREATURES GNAW A CRUST: each one touching it ages it KETTLE_CRUST_GNAW s more per s, at
@@ -41266,7 +41263,7 @@ function testMantleGround() {
     } finally { sig.lavaTide = saved }
   }
 
-  // (d) A POOL ON THE TIDE IS THE TIDE: a rock creature in it melts, your boat floats, the pool burns
+  // (d) A POOL ON THE TIDE IS THE TIDE: a rock creature in it melts, a boat floats you, the pool burns
   // no one. (A lava creature stranded on dry rock that stands in a pool IS home, a pool being lava:
   // run HB.f.)
   {
@@ -41277,13 +41274,13 @@ function testMantleGround() {
     r.lavaPools = [{ x: spot.x, y: spot.y, r: 90, t: 0, dur: 99, dps: 40, _tick: 0, seq: 1 }]
     const imp = body(r, spot.x - 20, spot.y, 'rock', { hp: 1e5, maxHP: 1e5 })
     r.enemies = [imp]
-    r.player.boatT = MANTLE_BOAT_FLOAT
+    r.boats = [boatAt(spot.x + 20, spot.y)]
     const d0 = r.dmgBySrc?.lava ?? 0
     let melts = 0
     for (let i = 0; i < 60; i++) { if (!imp._dead) { imp.x = spot.x - 20; imp.y = spot.y }; r.player.x = spot.x + 20; r.player.y = spot.y; melts += tick(r).filter((v) => v.type === 'melt').length }
     const burnt = (r.dmgBySrc?.lava ?? 0) - d0
     assert.ok(g(r, spot) === 2 && imp._dead && melts === 1, `run MG.d: a rock creature in a pool on the tide melts like any under the tide: ground ${g(r, spot)}, dead ${!!imp._dead}, ${melts} melt events`)
-    assert.ok(r.player.afloat && Math.abs(r.player.boatT - (MANTLE_BOAT_FLOAT - 1)) < 0.05 && burnt === 0,
+    assert.ok(r.player.afloat && Math.abs(r.player.boatT - (L.boats.float - 1)) < 0.05 && burnt === 0,
       `run MG.d: in a pool on the tide your boat floats you, unburned: afloat ${r.player.afloat}, boatT ${r.player.boatT}, burn ${burnt}`)
     console.log(`PASS run MG.d (the tide wins over a pool): the rock creature melted, the boat floated (${r.player.boatT.toFixed(2)}s left), burn ${burnt}`)
   }
@@ -41390,6 +41387,210 @@ function testMantleGround() {
     assert.ok(/!p\.afloat && mantleGroundAt\(run, p\.x, p\.y\) > 0/.test(toon), "run MG.h: the player's wade tell in src/toon.js asks mantleGroundAt")
     console.log(`PASS run MG.h (drawn = solid): caps ${DRAW_CAPS.quenchCrusts}/${LIVE_CAPS.quenchCrusts} crusts and ${DRAW_CAPS.lavaPools}/${LIVE_CAPS.lavaPools} pools; lobed edges pool ${pLo[0].toFixed(2)}..${pHi[0].toFixed(2)} r, crust ${cLo[0].toFixed(2)}..${cHi[0].toFixed(2)} r`)
   }
+  } finally { L.boats.chance = boats0 }
+}
+
+// run MO: THE MOORED BOATS (owner ruling 2026-10-12, "boats moored at shores"). Iron tubs lie moored
+// on the lava's shores, each on the shore of its own share of the tide; walk onto a floating one and
+// you ride it unburned, wherever you go on the lava; rock under you puts you off it and it stays
+// moored there; it sinks after boats.float s of riding, and then the lava burns. Without a boat
+// nothing stops the burn.
+function testMantleBoats() {
+  const meta = () => { const m = makeMeta(); m.dev = true; return m }
+  const L = CHAPTERS.mantle.signature.lavaTide, B = L.boats
+  const boot = (seed) => { Math.random = mulberry32(seed); const r = createRun(meta(), { chapter: 'mantle', difficulty: 1 }); r.player.hp = r.player.maxHP = 1e6; return r }
+  const tick = (r, input = { x: 0, y: 0 }) => {
+    if (r.phase === 'levelup') { r.phase = 'playing'; r.levelUpChoices = [] }
+    r.player.hp = r.player.maxHP
+    stepSim(r, input, 1 / 60)
+    const ev = r.events.slice()
+    r.events.length = 0
+    return ev
+  }
+  const H = (r, x, y) => mantleHeightAt(L, r.lavaTide.seed, x, y)
+  const quiet = (r) => { r.weapons = []; r.mods.spawnMul = 0; r.enemies = [] }
+  const lavaBurn = (r) => r.dmgBySrc?.lava ?? 0
+  const boatAt = (x, y) => ({ x, y, c: 0, heading: 0, cell: 'test', floatT: B.float, afloat: true, ridden: false, moved: true, vx: 0, vy: 0, seed: 1 })
+  // a flooded basin near the start, the tide held at its flood
+  const floodedBasin = (r) => {
+    const line = lavaLineFor(L, 0.3)
+    let spot = null
+    for (let d = 300; d < 6000 && !spot; d += 40) for (let a = 0; a < 24; a++) {
+      const x = r.player.x + Math.cos(a * Math.PI / 12) * d, y = r.player.y + Math.sin(a * Math.PI / 12) * d
+      if (H(r, x, y) < line) { spot = { x, y }; break }
+    }
+    for (let i = 0; i < 60 * 90 && !(r.lavaTide.phase === 'flood' && lavaFloodedAt(r, spot.x, spot.y)); i++) { r.enemies = []; tick(r) }
+    assert.ok(spot && r.lavaTide.phase === 'flood' && mantleGroundAt(r, spot.x, spot.y) === 2, 'run MO precondition: a basin under the flood')
+    return spot
+  }
+
+  // (a) MOORED AT THE SHORE. Every mooring streamed round a walk has its post on the shore of its own
+  // tide (lava and rock both within the boat's reach of it at that line), across the band the tide
+  // sweeps. In a real run, kiting, whenever you stand at a shore past the ebb, a floating boat is at a
+  // shore within 900px of you (it rides the tide up from its post on its rope), and at the ebb every
+  // moored boat lies beached on the rock (bar the odd one whose bow dips into one of the ebb's own pools).
+  {
+    const r = boot(54001)
+    tick(r)
+    quiet(r)
+    const seen = new Map()
+    const home = { x: r.player.x, y: r.player.y }
+    for (let k = 0; k < 8; k++) {
+      r.player.x = home.x + Math.cos(k * 0.785) * 2600; r.player.y = home.y + Math.sin(k * 0.785) * 2600
+      tick(r)
+      for (const b of r.boats) if (!b.moved) seen.set(b.cell, { hx: b.hx, hy: b.hy, c: b.c })
+    }
+    let onShore = 0, inBand = 0
+    for (const b of seen.values()) {
+      const line = lavaLineFor(L, b.c)
+      let rock = false, lava = false
+      for (let a = 0; a < 16; a++) {
+        const h = H(r, b.hx + Math.cos(a * Math.PI / 8) * B.r, b.hy + Math.sin(a * Math.PI / 8) * B.r)
+        if (h >= line) rock = true; else lava = true
+      }
+      if (rock && lava) onShore++
+      if (b.c >= L.ebbCover && b.c <= L.floodCover) inBand++
+    }
+    assert.ok(seen.size >= 30, `run MO.a precondition: the walk streams a crowd of moorings: ${seen.size}`)
+    const posts = [...seen.values()]
+    let close = 0
+    for (let i = 0; i < posts.length; i++) for (let j = i + 1; j < posts.length; j++) if (Math.hypot(posts[i].hx - posts[j].hx, posts[i].hy - posts[j].hy) < B.gap) close++
+    assert.ok(close === 0, `run MO.a: no two posts within ${B.gap}px (two boats never lie in one heap): ${close} close pairs`)
+    assert.ok(onShore === seen.size && inBand === seen.size, `run MO.a: every mooring's post is on the shore of its own tide (lava and rock within ${B.r}px): ${onShore} of ${seen.size} (in the tide's band: ${inBand})`)
+    const r2 = boot(54002)
+    r2.weapons = []
+    let samples = 0, hit = 0, ang = 0, ebbs = 0, ebbBeached = 0, ebbMoored = 0
+    for (let i = 0; i < 60 * 150; i++) {
+      ang += 0.003
+      tick(r2, { x: Math.cos(ang), y: Math.sin(ang) })
+      if (i % 60) continue
+      const T = r2.lavaTide, p = r2.player, h = (x, y) => H(r2, x, y)
+      if (T.cover < L.ebbCover + 0.05) {
+        ebbs++
+        for (const b of r2.boats) if (!b.moved) { ebbMoored++; if (!b.afloat) ebbBeached++ }
+        continue
+      }
+      if (T.cover < L.ebbCover + 0.15) continue
+      let shore = false
+      for (let a = 0; a < 16 && !shore; a++) if (h(p.x + Math.cos(a * 0.39) * 150, p.y + Math.sin(a * 0.39) * 150) < T.line) shore = true
+      if (!shore) continue
+      samples++
+      if (r2.boats.some((b) => {
+        if (!b.afloat || Math.hypot(b.x - p.x, b.y - p.y) > 900) return false
+        for (let a = 0; a < 16; a++) if (h(b.x + Math.cos(a * 0.39) * B.r * 1.5, b.y + Math.sin(a * 0.39) * B.r * 1.5) >= T.line) return true
+        return false
+      })) hit++
+    }
+    assert.ok(samples >= 30 && hit / samples >= 0.85, `run MO.a: at a shore past the ebb, a boat floats at a shore within 900px of you: ${hit} of ${samples} samples`)
+    assert.ok(ebbs >= 5 && ebbMoored >= 20 && ebbBeached >= ebbMoored * 0.97, `run MO.a: at the ebb the moored boats lie beached (a rare one in an ebb pool): ${ebbBeached} of ${ebbMoored} over ${ebbs} samples`)
+    console.log(`PASS run MO.a (moored at the shore): ${onShore}/${seen.size} posts on their own tide's shore; a boat at a shore near you at ${hit}/${samples} shore samples; ${ebbBeached}/${ebbMoored} beached at the ebb`)
+  }
+
+  const chance0 = B.chance
+  B.chance = 0   // from here each part moors its own boat
+  try {
+    // (b) BOARDING STOPS THE BURN, AND NOTHING ELSE DOES: 3 s in a flooded basin with no boat burns;
+    // the same 3 s with a boat under you is unburned, afloat every frame, the boat under you as you move
+    let bare, aboard, frames = 0, under = 0, spotB, rB, boatB
+    {
+      const r = boot(54003)
+      tick(r); quiet(r)
+      const spot = floodedBasin(r)
+      quiet(r); r.boats = []
+      const d0 = lavaBurn(r)
+      let afl = 0
+      for (let i = 0; i < 180; i++) { r.player.x = spot.x; r.player.y = spot.y; tick(r); if (r.player.afloat) afl++ }
+      bare = lavaBurn(r) - d0
+      assert.ok(bare > 0 && afl === 0, `run MO.b: no boat, no immunity: 3s in the lava burns ${bare}, afloat on ${afl} frames`)
+    }
+    {
+      const r = boot(54003)
+      tick(r); quiet(r)
+      const spot = floodedBasin(r)
+      quiet(r)
+      const boat = boatAt(spot.x + 12, spot.y)
+      r.boats = [boat]
+      const d0 = lavaBurn(r)
+      for (let i = 0; i < 180; i++) {
+        r.player.x = spot.x + Math.sin(i / 20) * 6; r.player.y = spot.y
+        tick(r)
+        frames++
+        if (r.player.afloat && boat.ridden) under += (Math.hypot(boat.x - r.player.x, boat.y - r.player.y) < 1e-9 && mantleGroundAt(r, r.player.x, r.player.y) === 2) ? 1 : 0
+      }
+      aboard = lavaBurn(r) - d0
+      assert.ok(aboard === 0 && under === frames, `run MO.b: aboard, 3s in the lava burns ${aboard} (${bare} without), the boat under you on ${under}/${frames} frames`)
+      assert.ok(Math.abs(boat.floatT - (B.float - 3)) < 0.05 && Math.abs(r.player.boatT - boat.floatT) < 1e-9, `run MO.b: riding sinks it as you go: floatT ${boat.floatT} after 3s (from ${B.float})`)
+      spotB = spot; rB = r; boatB = boat
+    }
+    console.log(`PASS run MO.b (boarding stops the burn): 3s in the lava burns ${bare} bare, ${aboard} aboard; the boat under you every frame`)
+
+    // (c) ROCK PUTS YOU OFF IT: stepping onto dry rock leaves the boat moored where you stepped off,
+    // and an empty boat stops sinking
+    {
+      const r = rB, boat = boatB
+      let dry = null
+      for (let d = 20; d < 3000 && !dry; d += 10) { const q = { x: spotB.x + d, y: spotB.y }; if (mantleGroundAt(r, q.x, q.y) === 0) dry = q }
+      assert.ok(dry, 'run MO.c precondition: dry rock east of the basin')
+      let last = null
+      for (let i = 0; i < 2000 && mantleGroundAt(r, r.player.x, r.player.y) !== 0; i++) { last = { x: r.player.x, y: r.player.y }; r.player.x += 2; tick(r) }
+      const float0 = boat.floatT
+      for (let i = 0; i < 60; i++) { tick(r) }
+      assert.ok(!r.player.afloat && !boat.ridden && r.boats.includes(boat), `run MO.c: on rock you are off the boat: afloat ${r.player.afloat}, ridden ${boat.ridden}`)
+      assert.ok(Math.hypot(boat.x - last.x, boat.y - last.y) < 1e-9 && mantleGroundAt(r, boat.x, boat.y) === 2 && boat.floatT === float0,
+        `run MO.c: it stays moored on the lava where you stepped off and sinks no further: ${Math.hypot(boat.x - last.x, boat.y - last.y).toFixed(2)}px off, floatT ${boat.floatT} (${float0})`)
+      console.log(`PASS run MO.c (rock puts you off): the boat moored at the shore with ${boat.floatT.toFixed(2)}s of float, ${Math.hypot(r.player.x - boat.x, r.player.y - boat.y).toFixed(0)}px from you`)
+    }
+
+    // (d) IT SINKS: ridden boats.float s it goes under (once, announced), and then the lava burns you
+    {
+      const r = boot(54004)
+      tick(r); quiet(r)
+      const spot = floodedBasin(r)
+      quiet(r)
+      const boat = boatAt(spot.x, spot.y)
+      r.boats = [boat]
+      const d0 = lavaBurn(r)
+      let boardAt = null, sinkAt = null, sinks = 0, burnAt = null, burnBefore = 0
+      for (let i = 0; i < 60 * (B.float + 3); i++) {
+        r.player.x = spot.x; r.player.y = spot.y
+        const ev = tick(r)
+        if (boardAt === null && r.player.afloat) boardAt = r.time
+        for (const e of ev) if (e.type === 'boatSink') { sinks++; sinkAt = r.time }
+        if (lavaBurn(r) > d0 && burnAt === null) burnAt = r.time
+        if (sinkAt === null) burnBefore = lavaBurn(r) - d0
+      }
+      assert.ok(boardAt !== null && sinks === 1 && Math.abs(sinkAt - boardAt - B.float) < 0.05 && !r.boats.includes(boat) && r._boatSunk?.test !== undefined,
+        `run MO.d: ridden ${B.float}s the boat goes under, once: boarded ${boardAt}, sank ${sinkAt} (${sinks} boatSink), gone ${!r.boats.includes(boat)}, its mooring marked ${r._boatSunk?.test}`)
+      assert.ok(burnBefore === 0 && burnAt !== null && burnAt - sinkAt >= 0 && burnAt - sinkAt <= 1.2 && !r.player.afloat,
+        `run MO.d: no burn while it floats (${burnBefore}), the lava burns you once it has gone under: first burn ${burnAt && (burnAt - sinkAt).toFixed(2)}s after`)
+      console.log(`PASS run MO.d (it sinks): went under ${(sinkAt - boardAt).toFixed(2)}s after boarding, first burn ${(burnAt - sinkAt).toFixed(2)}s later`)
+    }
+
+    // (e) A BEACHED BOAT CARRIES NO ONE, AND A LAVA CREATURE BUMPS AN EMPTY ONE (a rock one does not):
+    // a boat on dry rock is not afloat; a lava creature swimming into a floating one shoves it, on the lava
+    {
+      const r = boot(54005)
+      tick(r); quiet(r)
+      const dryB = boatAt(r.player.x, r.player.y)
+      r.boats = [dryB]
+      tick(r)
+      assert.ok(!dryB.afloat && !dryB.ridden && !r.player.afloat, `run MO.e: a boat on dry rock lies beached: afloat ${dryB.afloat}, ridden ${dryB.ridden}`)
+      const spot = floodedBasin(r)
+      quiet(r)
+      const boat = boatAt(spot.x, spot.y), still = boatAt(spot.x, spot.y + 1)
+      r.player.x = spot.x + 600; r.player.y = spot.y
+      const lavaE = Object.assign(makeStatusEnemy(r, { x: spot.x + 10, y: spot.y, hp: 1e6, speed: 0 }), { habitat: 'lava' })
+      r.enemies = [lavaE]; r.boats = [boat]
+      tick(r)
+      const shoved = Math.hypot(boat.x - spot.x, boat.y - spot.y)
+      const rockE = Object.assign(makeStatusEnemy(r, { x: spot.x + 10, y: spot.y + 1, hp: 1e6, speed: 0 }), { habitat: 'rock' })
+      r.enemies = [rockE]; r.boats = [still]
+      tick(r)
+      const nudged = Math.hypot(still.x - spot.x, still.y - spot.y - 1)
+      assert.ok(shoved > 1 && mantleGroundAt(r, boat.x, boat.y) === 2 && nudged === 0, `run MO.e: a lava creature bumps an empty boat along the lava (${shoved.toFixed(1)}px), a rock one does not (${nudged})`)
+      console.log(`PASS run MO.e (beached, bumped): a boat on rock carried no one; a lava creature shoved one ${shoved.toFixed(1)}px, a rock one 0`)
+    }
+  } finally { B.chance = chance0 }
 }
 
 // run HB.g: THE LAVA'S WHOLE CREW comes, each on its own ground. In a real run past the tank gate

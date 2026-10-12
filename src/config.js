@@ -9814,9 +9814,12 @@ CHAPTERS.magma = {
 // ebb leaves one on dry rock it is STRANDED: it crusts over, slows to a stop, takes more damage and
 // crumbles after a while. Low tide, the rock creatures hunt you; high tide, the lava ones do. A body
 // with no habitat (another chapter's, a test's) just burns in the lava.
-// THE BASALT BOAT: when the tide covers you a boat of basalt forms under you and floats you unburned
-// for a while, sinking as it goes; reach rock (or a Quench crust) before it goes under, or the lava
-// burns you (hurt src 'lava'). It refills on rock. Flyers pass over everything.
+// THE MOORED BOATS (signature.lavaTide.boats): little iron tubs lie moored at the lava's shores, each
+// on the shore of its own height of the tide, so some float at the shore at any level and the rest lie
+// beached on the rock. Walk onto a floating one and you ride it: no burn, it goes where you go on the
+// lava, it stops at the rock (you step off, it stays moored there) and it slowly sinks while you ride.
+// When it goes under the lava burns you (hurt src 'lava') and that mooring is empty for a while.
+// Flyers pass over everything.
 // The look is a 1930s rubber-hose cartoon seen from above (render.toon; src/toon.js owns every drawing).
 // THE MANTLE'S GROUND GRID: the ground height is sampled every MANTLE_GROUND_STEP world px and blended
 // in between, by the sim (sim.js mantleHeightAt) AND by the painter (src/toon/world.js CHUNK_STEP), so
@@ -9831,8 +9834,6 @@ export const MANTLE_STRAND_SLOW = 0.35     // x its movement the moment it is st
 export const MANTLE_STRAND_DIE_T = 5       // s stranded until it crumbles (it dies and pays its xp)
 export const MANTLE_STRAND_DMG_MUL = 2     // x every damage a stranded lava creature takes
 export const MANTLE_MELT_T = 0.6           // s a rock creature lasts under the tide before it melts
-export const MANTLE_BOAT_FLOAT = 6         // s the basalt boat floats you on the tide
-export const MANTLE_BOAT_REFILL = 1        // s of float the boat regains per s on real rock (never a crust nor a pool)
 export const MANTLE_SPAWN_TRIES = 24       // bearings tried per ring when seating a creature in its habitat
 
 CHAPTERS.mantle = {
@@ -9875,6 +9876,19 @@ CHAPTERS.mantle = {
       tick: 0.25, burnFlat: 3, burnPct: 0.18, eliteMul: 0.3, playerBurn: 1.5, reach: 1700,
       // HIGH WATER (the chapter's mutator): the tide never ebbs below this level.
       highWater: { ebb: 0.5 },
+      // THE MOORED BOATS (sim.js streamBoats / stepBoats)
+      // balance_decision : moored boats replace the always-on raft, unplayed 2026-10-12
+      boats: {
+        cell: 480,       // px, one mooring cell (at most one boat in each)
+        chance: 0.85,    // share of cells holding a mooring (if its ground has a shore at its tide)
+        r: 30,           // px, you board a floating boat within this of its middle
+        float: 7,        // s a ridden boat floats before it goes under (it only sinks while ridden)
+        respawn: 45,     // s until a sunk boat's mooring holds a fresh one
+        rescan: 4,       // s between re-scans of the moorings round you (so a respawn shows up)
+        bump: 0.5,       // share of a lava creature's overlap that shoves an empty boat loose of its rope
+        rope: 600,       // px a moored boat may float up the slope from its post, riding the tide
+        gap: 130,        // px, no two posts closer (the later cell's boat is not moored)
+      },
     },
   },
   obstacles: null,

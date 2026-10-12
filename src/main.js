@@ -3,7 +3,7 @@ import { Application } from 'pixi.js'
 import { loadMeta, saveMeta, resetSave, deleteSlot, createRun, ensureChapterMeta, ensureBookMeta, unlockBook, setActiveSlot, activeSlot, setSlotName, cleanName, exportSlot, importSlot, freezeSaves, setSaveHook, SAVE_SLOTS, parkRun, dropParkedRun, takeParkedRun } from './state.js'
 import * as CFG from './config.js'
 import { shopCost, refundValue, shopLines, shopLineUnlocked, lineMax, runBonusCoins, randomMutators, rerollMutator, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, difficultyCoinMul, CONSUMABLES, ANOMALY_REROLL_COST, sacrificeCost, BOOK_UNLOCKS, CHAPTERS, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, isWipChapter, HIDDEN_UNLOCKS, COIN_CAP_PER_RUN, BOOK_ORDER, bookOf, isBookFinale, nextBook, unlockCost, unlockLevel, DEATH_OUTRO, KRAKEN_OUTRO, hasBossOutro } from './config.js'
-import { stepSim, fastForwardEndless, endlessHandover, applyChoice, rerollLevelUpChoices, rerollPrice, buildReadout, devCards, devTake } from './sim.js'
+import { stepSim, fastForwardEndless, endlessHandover, applyChoice, rerollLevelUpChoices, rerollPrice, buildReadout, devCards, devTake, mantleGroundAt } from './sim.js'
 import { createRenderer } from './render.js'
 import { initUI } from './ui.js'
 import { initInput, getInput, pressSkill } from './input.js'
@@ -156,6 +156,8 @@ if (new URLSearchParams(location.search).has('debug')) {
   // map-mode capture has to advance the sim at each tile position to stream that tile's buildings
   // in before rendering it.
   window.__stepSim = stepSim
+  // The Mantle's ground under a point (0 rock, 1 a pool, 2 the tide), for scenes that seat things on it
+  window.__mantleGround = mantleGroundAt
   // THE PURE GEOMETRY, for probe scenes (scripts/scenes/*.js run as eval'd source in the page and
   // therefore cannot import anything). A scene that restates a chapter's geometry to place its
   // camera is a second copy of the level, and it goes stale the day the spec moves — which is the
@@ -661,6 +663,8 @@ const SFX_FOR_EVENT = {
   // Book 3, The Mantle: the lava tide turning. Twice a cycle (about once every half minute), so it
   // can bear the surge swell.
   tideTurn: 'surge',
+  // ...and the boat you rode going under: once a ride, so it bears the same swell.
+  boatSink: 'surge',
   // v5.21 lane (beyond): the active shove reuses the hole whoosh, and a rock clipping the player
   // is an ordinary hurt — it is damage, not a special occasion.
   repulse: 'hole', rockhit: 'hurt',

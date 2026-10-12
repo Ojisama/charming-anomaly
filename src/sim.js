@@ -270,7 +270,7 @@ import {
   MANTLE_COLD_VS_LAVA, MANTLE_FIRE_VS_ROCK,
   noiseAt,
   MANTLE_GROUND_STEP, MANTLE_START_DRY, MANTLE_STRAND_STUCK_T, MANTLE_STRAND_SLOW, MANTLE_STRAND_DIE_T, MANTLE_STRAND_DMG_MUL,
-  MANTLE_MELT_T, MANTLE_BOAT_FLOAT, MANTLE_BOAT_REFILL, MANTLE_SPAWN_TRIES,
+  MANTLE_MELT_T, MANTLE_SPAWN_TRIES,
   KETTLE_CRUST_GNAW, KETTLE_CRUST_GNAW_MAX,
 } from './config.js'
 import { crustShapeOf, poolPhaseOf, inCrustEdge, inPoolEdge, CRUST_EDGE_MAX, POOL_RIM_MAX } from './mantle-shape.js'
@@ -6548,7 +6548,8 @@ export function stepTide(run, dt) {
 //   40-43 refill circles: The Reef's air pockets (CHAPTERS.reef.signature.pockets.salt)
 //   44-46 The Reef's spur field (CHAPTERS.reef.spurs.salt): 44/45 the two channel widths, 46 the
 //         ridge's own thickness (spurs.thickVar).
-// Next free block: 47+ (5-10, 18-19, 24-29 and 33-39 are free too, between claimed ranges).
+//   60-63 The Mantle's moored boats (boatMooring: occupancy, tide share, sample x, sample y)
+// Next free block: 47+ (5-10, 18-19, 24-29 and 33-39 are free too, between claimed ranges; 60-63 taken).
 function obstacleCellHash(i, j, seed, salt) {
   let h = (Math.imul(i, 374761393) + Math.imul(j, 668265263) + seed + Math.imul(salt, 974634923)) | 0
   h = Math.imul(h ^ (h >>> 13), 1274126177)
@@ -17912,7 +17913,7 @@ function stepLavaTide(run, dt) {
     const dry = lavaLineFor(L, MANTLE_START_DRY)
     for (let k = 1; k <= 64 && mantleHeightAt(L, T.seed, p.x, p.y) < dry; k++) T.seed = (lavaGroundSeed(run) + Math.imul(k, 0x9e3779b1)) | 0
     T.dur = tidePhaseDur(L, T, 'ebb', run)
-    p.boatMax = MANTLE_BOAT_FLOAT; p.boatT = p.boatMax; p.afloat = false
+    p.afloat = false
   }
   // 1. the beat: advance the phase clock, turning the tide when a phase runs out
   T.t += dt
@@ -17951,36 +17952,217 @@ function stepLavaTide(run, dt) {
   }
   // 4. the habitat clocks: a stranded lava creature crumbles, a rock one under the tide melts
   stepHabitatClocks(run, dt)
-  // 5. the player in the lava: the basalt boat floats you first, and sinks as it does; once it has
-  // gone under, a steady dot burn (the fraction banked so a gentle burn is never rounded away). Only
-  // real rock refills the boat: a Quench crust stops the burn but is not ground to beach it on.
-  p.boatMax = MANTLE_BOAT_FLOAT
-  if (!(p.boatT >= 0)) p.boatT = p.boatMax   // a run whose tide was laid before the boat existed
+  // 5. the player in the lava: a moored boat you walked onto carries you (stepBoats); without one, a
+  // steady dot burn (the fraction banked so a gentle burn is never rounded away)
   const pg = mantleGroundAt(run, p.x, p.y)
-  if (pg === 2) {
-    if (p.boatT > 0) {
-      p.boatT = Math.max(0, p.boatT - dt)
-      p.afloat = true
-      T._pT = 0
-    } else {
-      p.afloat = false
-      T._pT -= dt
-      if (T._pT <= 0) {
-        T._pT += L.tick
-        T._carry += L.playerBurn * L.tick * run.mods.enemyDmgMul * (1 - resistFrac(run.passives.fireBoots))
-        const whole = Math.floor(T._carry)
-        T._carry -= whole
-        if (whole > 0 && hurtPlayer(run, whole, true, 'lava')) return true
-      }
+  stepBoats(run, L, pg, dt)
+  if (pg === 2 && !p.afloat) {
+    T._pT -= dt
+    if (T._pT <= 0) {
+      T._pT += L.tick
+      T._carry += L.playerBurn * L.tick * run.mods.enemyDmgMul * (1 - resistFrac(run.passives.fireBoots))
+      const whole = Math.floor(T._carry)
+      T._carry -= whole
+      if (whole > 0 && hurtPlayer(run, whole, true, 'lava')) return true
     }
-  } else {
-    // only real rock refills it (no tide, no pool under you, crusted or not): a hammer's pool is
-    // lava, it just never carries the boat
-    p.afloat = false
-    if (pg === 0 && realRockAt(run, p.x, p.y)) p.boatT = Math.min(p.boatMax, p.boatT + MANTLE_BOAT_REFILL * dt)
-    T._pT = 0
-  }
+  } else T._pT = 0
   return false
+}
+
+// ---- THE MOORED BOATS (owner ruling 2026-10-12: "boats moored at shores") ----------------------
+// Little iron tubs lie moored at the lava's shores, at most one per mooring cell (L.boats.cell /
+// chance). A MOORING is a pure function of (cell, the ground seed), so it costs the random stream
+// nothing: a share of the tide c drawn across the band the tide sweeps, and its post (hx, hy) on THAT
+// tide's shore. The boat rides the tide on its rope (L.boats.rope px): while the lava stands under its
+// post it floats at the shore up the slope from it, nose to the rock, rising and falling with the
+// tide; once the tide has fallen past its post it lies beached there on the rock. So at any level
+// the boats moored lower float at a shore and the higher ones lie beached. Ridden once (moved), a
+// boat has slipped its rope: it stays wherever it was left. Salts 60-63 (the registry above
+// obstacleCellHash).
+const BOAT_TRIES = 10
+// Newton steps along the slope from (x, y) onto the contour at height want: { x, y, gx, gy, err }
+function onContour(L, seed, x, y, want, iters) {
+  const E = 6
+  let gx = 0, gy = 0
+  for (let it = 0; it < iters; it++) {
+    const h = mantleHeightAt(L, seed, x, y)
+    gx = (mantleHeightAt(L, seed, x + E, y) - mantleHeightAt(L, seed, x - E, y)) / (2 * E)
+    gy = (mantleHeightAt(L, seed, x, y + E) - mantleHeightAt(L, seed, x, y - E)) / (2 * E)
+    const g2 = gx * gx + gy * gy
+    if (!(g2 > 1e-14)) return null   // flat ground: no shore here
+    let sx = -(h - want) * gx / g2, sy = -(h - want) * gy / g2
+    const sl = Math.hypot(sx, sy)
+    if (sl > 120) { sx *= 120 / sl; sy *= 120 / sl }
+    x += sx; y += sy
+  }
+  return { x, y, gx, gy, err: Math.abs(mantleHeightAt(L, seed, x, y) - want) }
+}
+// A cell's mooring, or null: its post, unless a post of an EARLIER neighbouring cell (the row above,
+// or the cell to its left) stands within L.boats.gap of it, so two boats never lie in one heap.
+// Memoised (pure: it changes timing, never a result).
+const boatPostMemo = new Map()
+function boatMooring(L, seed, i, j) {
+  const post = (a, b) => {
+    const key = seed + ':' + L.boats.cell + ':' + L.boats.chance + ':' + a + ',' + b
+    let m = boatPostMemo.get(key)
+    if (m === undefined) {
+      if (boatPostMemo.size > 4000) boatPostMemo.clear()
+      m = boatPost(L, seed, a, b)
+      boatPostMemo.set(key, m)
+    }
+    return m
+  }
+  const m = post(i, j)
+  if (!m) return null
+  for (const [di, dj] of [[-1, -1], [0, -1], [1, -1], [-1, 0]]) {
+    const o = post(i + di, j + dj)
+    if (o && Math.hypot(o.hx - m.hx, o.hy - m.hy) < L.boats.gap) return null
+  }
+  return m
+}
+function boatPost(L, seed, i, j) {
+  const B = L.boats, cs = B.cell
+  if (obstacleCellHash(i, j, seed, 60) >= B.chance) return null
+  const c = L.ebbCover + (L.floodCover - L.ebbCover) * (0.1 + 0.85 * obstacleCellHash(i, j, seed, 61))
+  const want = lavaLineFor(L, c)
+  // the cell's sample nearest that tide's line, then onto it
+  let x = 0, y = 0, best = Infinity
+  for (let k = 0; k < BOAT_TRIES; k++) {
+    const sx = (i + obstacleCellHash(i * 16 + k, j, seed, 62)) * cs, sy = (j + obstacleCellHash(i * 16 + k, j, seed, 63)) * cs
+    const d = Math.abs(mantleHeightAt(L, seed, sx, sy) - want)
+    if (d < best) { best = d; x = sx; y = sy }
+  }
+  const m = onContour(L, seed, x, y, want, 5)
+  if (!m || m.err > 0.004) return null
+  return { hx: m.x, hy: m.y, c }
+}
+// where an empty moored boat lies: its middle a little in from its shore point (sx, sy) down the
+// slope, so its bow is on the rock; the rope keeps the shore point within B.rope of the post
+function seatBoat(run, L, b) {
+  const B = L.boats, T = run.lavaTide
+  const want = lavaLineFor(L, b.c)
+  let sx = b.hx, sy = b.hy, gx, gy
+  if (T.line > want) {
+    // the lava stands over the post: float at the tide's shore up the slope, from where it lay
+    const m = onContour(L, T.seed, b.sx ?? b.hx, b.sy ?? b.hy, T.line, 2)
+    if (m) {
+      sx = m.x; sy = m.y; gx = m.gx; gy = m.gy
+      const dx = sx - b.hx, dy = sy - b.hy, d = Math.hypot(dx, dy)
+      if (d > B.rope) { sx = b.hx + dx * B.rope / d; sy = b.hy + dy * B.rope / d }
+    }
+  }
+  if (gx === undefined) {
+    // the tide below its post: beached on the rock there (the slope's bearing, once)
+    if (b._bgx === undefined) {
+      const E = 6
+      b._bgx = mantleHeightAt(L, T.seed, b.hx + E, b.hy) - mantleHeightAt(L, T.seed, b.hx - E, b.hy)
+      b._bgy = mantleHeightAt(L, T.seed, b.hx, b.hy + E) - mantleHeightAt(L, T.seed, b.hx, b.hy - E)
+    }
+    gx = b._bgx; gy = b._bgy
+  }
+  const gl = Math.hypot(gx, gy) || 1
+  b.sx = sx; b.sy = sy
+  b.heading = Math.atan2(gy, gx)
+  b.x = sx - (gx / gl) * B.r * 0.6; b.y = sy - (gy / gl) * B.r * 0.6
+}
+// streamObstacles' streaming idiom, keyed on the tide's ground seed (The Mantle has no obstacle seed):
+// re-scans on a cell crossing or every B.rescan s; drops a boat past OBSTACLE_DROP_RADIUS unless it was
+// ridden (a boat stays where it was left); a sunk boat's mooring stays empty for B.respawn s.
+function streamBoats(run, L, dt) {
+  const B = L.boats, T = run.lavaTide, p = run.player
+  if (!B || !(B.chance > 0)) return
+  const cs = B.cell, ci = Math.floor(p.x / cs), cj = Math.floor(p.y / cs)
+  run._boatScan = (run._boatScan ?? 0) - dt
+  if (ci === run._boatCellI && cj === run._boatCellJ && run._boatScan > 0) return
+  run._boatCellI = ci; run._boatCellJ = cj; run._boatScan = B.rescan
+  run.boats = run.boats.filter((b) => b.moved || Math.hypot(b.x - p.x, b.y - p.y) <= OBSTACLE_DROP_RADIUS)
+  const live = new Set(run.boats.map((b) => b.cell))
+  const sunk = (run._boatSunk ??= {})
+  const span = Math.ceil(OBSTACLE_STREAM_RADIUS / cs)
+  for (let i = ci - span; i <= ci + span; i++) {
+    for (let j = cj - span; j <= cj + span; j++) {
+      const key = i + ',' + j
+      if (live.has(key)) continue
+      if (sunk[key] !== undefined) { if (run.time - sunk[key] < B.respawn) continue; delete sunk[key] }
+      const m = boatMooring(L, T.seed, i, j)
+      if (!m || Math.hypot(m.hx - p.x, m.hy - p.y) > OBSTACLE_STREAM_RADIUS) continue
+      const nb = { x: m.hx, y: m.hy, hx: m.hx, hy: m.hy, c: m.c, heading: 0, cell: key, floatT: B.float, afloat: false, ridden: false, moved: false, vx: 0, vy: 0, seed: Math.floor(obstacleCellHash(i, j, T.seed, 61) * 1e6) }
+      seatBoat(run, L, nb)
+      run.boats.push(nb)
+    }
+  }
+}
+// pg: the ground under the player this step. Publishes player.afloat (aboard a floating boat),
+// player.boatT / boatMax (the ridden boat's float left / its full float; 0 / float with none).
+function stepBoats(run, L, pg, dt) {
+  const B = L.boats, p = run.player
+  if (!B) { p.afloat = false; return }
+  streamBoats(run, L, dt)
+  let ride = null
+  for (const b of run.boats) {
+    if (b.ridden) { ride = b; continue }
+    b.vx = 0; b.vy = 0
+    if ((b.x - p.x) ** 2 + (b.y - p.y) ** 2 > 1800 * 1800) continue
+    if (!b.moved) {
+      // on its rope: it rides the tide at the shore, or lies beached at its post
+      const x0 = b.x, y0 = b.y
+      seatBoat(run, L, b)
+      b.vx = (b.x - x0) / dt; b.vy = (b.y - y0) / dt
+    }
+    b.afloat = lavaFloodedAt(run, b.x, b.y)
+    // a lava creature swimming into an empty boat that has slipped its rope bumps it along, never onto
+    // the rock (a moored one is held by its rope)
+    if (!b.afloat || !b.moved || !(B.bump > 0)) continue
+    for (const e of enemiesNear(run, b.x, b.y, B.r + 40, true)) {
+      if (e._dead || e.habitat !== 'lava' || isAlly(e) || flies(e)) continue
+      const dx = b.x - e.x, dy = b.y - e.y, d = Math.hypot(dx, dy) || 1, o = B.r * 0.7 + e.radius - d
+      if (o <= 0) continue
+      const nx = b.x + (dx / d) * o * B.bump, ny = b.y + (dy / d) * o * B.bump
+      if (lavaFloodedAt(run, nx, ny)) { b.x = nx; b.y = ny }
+    }
+  }
+  // two moored boats riding the tide up onto one stretch of shore slide apart along it (each next
+  // seat starts from its shore point, so the push settles onto the shore)
+  const D = B.gap * 0.75
+  const moored = run.boats.filter((b) => !b.moved && b.afloat && b.sx !== undefined && (b.x - p.x) ** 2 + (b.y - p.y) ** 2 < 1800 * 1800)
+  for (let i = 0; i < moored.length; i++) for (let j = i + 1; j < moored.length; j++) {
+    const a = moored[i], b = moored[j], dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy)
+    if (d >= D || d < 1e-6) continue
+    const o = (D - d) / 2 / d
+    a.x -= dx * o; a.y -= dy * o; a.sx -= dx * o; a.sy -= dy * o
+    b.x += dx * o; b.y += dy * o; b.sx += dx * o; b.sy += dy * o
+  }
+  if (ride) {
+    if (pg === 2) {
+      // it goes where you go on the lava, and sinks as it goes
+      ride.vx = (p.x - ride.x) / dt; ride.vy = (p.y - ride.y) / dt
+      if (ride.vx * ride.vx + ride.vy * ride.vy > 100) ride.heading = Math.atan2(ride.vy, ride.vx)
+      ride.x = p.x; ride.y = p.y; ride.afloat = true
+      ride.floatT = Math.max(0, ride.floatT - dt)
+      if (ride.floatT <= 0) {
+        run.boats.splice(run.boats.indexOf(ride), 1)
+        ;(run._boatSunk ??= {})[ride.cell] = run.time
+        run.events.push({ type: 'boatSink', x: ride.x, y: ride.y, heading: ride.heading })
+        ride = null
+      }
+    } else {
+      // rock (or a crust, or a hammer's pool) under you: you step off, it stays moored where it was
+      ride.ridden = false; ride.vx = 0; ride.vy = 0
+      ride = null
+    }
+  } else if (pg === 2) {
+    // walking onto a floating boat boards it
+    let best = B.r * B.r
+    for (const b of run.boats) {
+      if (!b.afloat) continue
+      const d2 = (b.x - p.x) ** 2 + (b.y - p.y) ** 2
+      if (d2 <= best) { best = d2; ride = b }
+    }
+    if (ride) { ride.ridden = true; ride.moved = true; ride.x = p.x; ride.y = p.y }
+  }
+  p.afloat = !!ride
+  p.boatMax = B.float
+  p.boatT = ride ? ride.floatT : 0
 }
 
 // ---- THE TWO HABITATS ---------------------------------------------------------------------------
@@ -18013,12 +18195,6 @@ export function mantleGroundAt(run, x, y) {
   }
   if (tide) return 2
   return newest > -Infinity ? 1 : 0
-}
-// rock with no lava of any kind under it, crust or no crust: where the basalt boat beaches
-function realRockAt(run, x, y) {
-  if (lavaFloodedAt(run, x, y)) return false
-  for (const q of run.lavaPools) if (q.t < q.dur && inPoolEdge(q, x, y)) return false
-  return true
 }
 // the next stamp on The Mantle's ground (crusts and pools): newest wins between them
 const groundSeq = (run) => (run.groundSeq = (run.groundSeq ?? 0) + 1)

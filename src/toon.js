@@ -33,9 +33,9 @@
 // What the sim publishes for this chapter (state.js's doc block is the authority): run.lavaTide
 // (level, phase, swell, line, ...), sim.js's lavaTideOf / mantleHeightAt / lavaFloodedAt (the ground's
 // height and the lava on it), run.bullets (weapon 'coal'), the elemental contract fields on enemies
-// (ignite), the habitat contract fields (habitat, ground, strandT, meltT), the player's boat (boatT,
-// boatMax, afloat), run.quenchCrusts, run.lavaPools, run.novas (look 'lavaWave'), and the events
-// tideTurn, melt and crumble. The habitat, boat and weapon-ground tells live in src/toon/mantle-fx.js.
+// (ignite), the habitat contract fields (habitat, ground, strandT, meltT), run.boats and player.afloat
+// (the moored boats), run.quenchCrusts, run.lavaPools, run.novas (look 'lavaWave'), and the events
+// tideTurn, melt, crumble and boatSink. The habitat, boat and weapon-ground tells live in src/toon/mantle-fx.js.
 import { AlphaFilter, BufferImageSource, CanvasSource, Container, Filter, GlProgram, Mesh, MeshGeometry, Shader, Sprite, Texture, UniformGroup } from 'pixi.js'
 import { PAL, TAU, mkCanvas, hash, whiteTwin } from './toon/palette.js'
 import { setPass } from './toon/brush.js'
@@ -448,7 +448,7 @@ export function createToonRenderer(host) {
             s.rotation = sg * 0.6; s.alpha = 1 - ph2
           }
         }
-        // afloat: the basalt boat carries you (mantle-fx draws it); only once it has sunk do you wade and burn
+        // afloat: a moored boat you walked onto carries you (mantle-fx draws it); without one you wade and burn
         if (!p.afloat && mantleGroundAt(run, p.x, p.y) > 0) {
           const wd = pwade.next(T.wade[fi(t * 3, 2)])
           wd.position.set(p.x, p.y + 17)

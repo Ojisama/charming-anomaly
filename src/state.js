@@ -2240,10 +2240,10 @@ function generateWells(sig) {
  *     the ground under lava; line = the height under which ground is lava (sim.js mantleHeightAt /
  *     lavaFloodedAt / lavaLineFor — the ground's height is a pure function of (x, y, seed), not
  *     stored). turnIn = s until the phase changes. Private: _tick, _pT, _carry (the burn clocks).
- *     Lava burns the player (hurt src 'lava', a dot, once the boat below has sunk) and every walking
+ *     Lava burns the player (hurt src 'lava', a dot, unless you ride a moored boat, run.boats) and every walking
  *     body WITH NO HABITAT (hazard damage); a 'flying' body takes none.
  *   THE GROUND (sim.js mantleGroundAt(run, x, y), pure, render may call it): 0 dry rock, 1 a Crack
- *     Hammer pool, 2 the tide. Every habitat rule, the boat, the player's burn and the wade tells read
+ *     Hammer pool, 2 the tide. Every habitat rule, the boats, the player's burn and the wade tells read
  *     it. The rules, in order: the TIDE WINS over a pool (a pool on the tide is the tide, 2); a crust
  *     is rock (0) only where it is lava now AND was lava at its pour (see quenchCrusts); NEWEST WINS
  *     between a crust and a pool by seq (a stamp cracks an older crust open, a pour quenches an older
@@ -2262,15 +2262,30 @@ function generateWells(sig) {
  *     KETTLE_CRUST_GNAW_MAX counted). lavaPools: [{ x, y, r, t, dur, dps, _tick, seq, ph }] — Crack
  *     Hammer's lava pools, lava while t < dur (LIVE_CAPS.lavaPools): they burn every walking non-lava
  *     body on ground 1 in them (dps per s, fire) and the player on ground 1 (HAMMER_POOL_PLAYER_DPS,
- *     hurt src 'lava'; the boat does not float on a pool). The hammer never opens one whose widest
+ *     hurt src 'lava'; no boat floats on a pool). The hammer never opens one whose widest
  *     rim would reach your body. Both are new arrays because they are GROUND, read by every habitat
  *     query, not hazards on the player (run.pools) nor weapon zones. _poolCarry: the pool burn's
  *     fraction. groundSeq: the last seq handed to a crust or a pool (newest wins).
- *   player.boatT / boatMax / afloat: THE BASALT BOAT. boatT s of float left (boatMax =
- *     MANTLE_BOAT_FLOAT); while the tide covers you it drains and you are not burned (afloat true);
- *     at 0 the boat has gone under and the lava burns. Only on REAL rock (no tide and no pool under
- *     you; a crust over lava stops the burn but does not refill) it refills at MANTLE_BOAT_REFILL s
- *     per s. Undefined until the tide's first step.
+ *   boats: [{ x, y, hx, hy, sx, sy, c, heading, cell, floatT, afloat, ridden, moved, vx, vy, seed }] —
+ *     THE MOORED BOATS (sim.js streamBoats / seatBoat / stepBoats, knobs signature.lavaTide.boats). A
+ *     MOORING is a pure function of (cell, the tide's ground seed): a tide share c across the band the
+ *     tide sweeps and its POST (hx, hy) on that tide's shore; no two posts within boats.gap (the later
+ *     cell's is dropped). Moored (moved false), a boat rides the tide on its rope: while the lava stands
+ *     over its post it floats at the current shore up the slope from it (sx, sy its shore point, at most
+ *     boats.rope from the post; x, y a little in on the lava side; heading its nose, up the slope, to
+ *     the rock); once the tide falls past its post it lies beached there (afloat false: render lists it
+ *     on the rock). Two moored boats on one stretch of shore slide apart. afloat: the tide is under
+ *     (x, y). Streamed round the player (OBSTACLE_STREAM_RADIUS, dropped past OBSTACLE_DROP_RADIUS
+ *     unless moved), at most one per cell. Walking onto a floating one (within boats.r, you on ground
+ *     2) boards it: ridden and moved true (it has slipped its rope for good), it goes where you go while
+ *     you are on the tide (vx/vy its velocity, heading its bearing), floatT drains from boats.float to 0
+ *     and it sinks (removed, event boatSink, its cell empty for boats.respawn s: _boatSunk[cell] =
+ *     run.time). Rock, a crust or a pool under you: you step off and it stays where you left it. A
+ *     loose (moved) empty one only moves when a lava creature bumps it (never onto rock); rock
+ *     creatures ignore boats. seed: per-boat look. Private: _bgx/_bgy (the slope at its post), and on
+ *     run _boatCellI/_boatCellJ/_boatScan (the stream cursor), _boatSunk.
+ *   player.afloat: aboard a floating boat this step (no lava burn). player.boatT / boatMax: the ridden
+ *     boat's float left / boats.float (boatT 0 with no boat). Undefined until the tide's first step.
  *   Enemy contract fields (render reads them): habitat 'rock' | 'lava' | null (the roster's; null =
  *     the old rule, it burns in lava); ground 0 | 1 | 2 (mantleGroundAt where it stands, published
  *     after it moved); strandT s a lava creature has lain on dry rock (0 at home: it crawls at
@@ -2289,6 +2304,8 @@ function generateWells(sig) {
  *     {type:'melt', x, y, r, rosterId} a rock creature melted under the tide; {type:'crumble', x, y,
  *     r, rosterId} a stranded lava creature crumbled. Both drawn by src/toon/mantle-fx.js; no sound of
  *     their own (each is a kill, and the kill sounds).
+ *     {type:'boatSink', x, y, heading} the boat you rode went under the lava. Drawn by
+ *     src/toon/mantle-fx.js, sounded in SFX_FOR_EVENT (once a ride).
  *
  * THE SHELF's three natives add NO run.* array either, on the same argument. Each is an existing
  * entity carrying one extra field, and that field is what the renderer branches on:
@@ -3077,7 +3094,7 @@ export function createRun(meta, opts = {}) {
     cracks: [], slagPools: [], magmaLobs: [],
     // Book 3 The Mantle (sim.js's Mantle section): the lava tide's state, made on the first step.
     lavaTide: null,
-    quenchCrusts: [], lavaPools: [], groundSeq: 0,   // the Mantle weapons' ground (Quench Kettle, Crack Hammer)
+    quenchCrusts: [], lavaPools: [], groundSeq: 0, boats: [],   // the Mantle weapons' ground (Quench Kettle, Crack Hammer)
     sandbars: [],          // Book 2 surf: streamed dry patches (signature.bars) — see streamSandbars
     _sandCellI: null,      // streaming cursor, independent of the obstacle/eddy/trap/shaft cursors
     _sandCellJ: null,

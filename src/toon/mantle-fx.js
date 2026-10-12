@@ -10,18 +10,21 @@
 //                      slam held squashed, a star, streaks, tumbling chunks, dust puffs
 //   run.novas          look 'lavaWave' (Lava Bellows): a wide inked wavefront breaking forward along its
 //                      whole lip, speed rakes, blobs that land as splats, a trough, scorch and smoke behind
-//   run.player         boatT / boatMax / afloat: the basalt raft, shrinking as it sinks, the lava up over
-//                      your boots below half, steam and bubbles below 40%, chunks breaking off at the end
+//   run.boats          the moored boats: each an iron-banded tub with a stack and a face (two paper pieces,
+//                      the front one over your legs when you ride it), bobbing afloat with the lava round its
+//                      hull and a wake while it moves, beached and listing on rock; sinking (floatT) it
+//                      lists, the lava climbs its side and pours into the hold, over your boots below half,
+//                      steam and bubbles near the end; event boatSink: it goes under in a splash of planks
 //   enemies            strandT (a lava creature on dry rock: a crust creeps in over it), meltT (a rock
 //                      creature under the tide: panic, slump, a puddle with its eyes in it)
 //   events             melt (a splat, a steam puff, drops) and crumble (chunks, dust); both return true
 //
-// THE BASALT SKIN (the raft, a stranded creature's shell): one quad and one shader over a baked atlas of
+// THE BASALT SKIN (a stranded creature's shell): one quad and one shader over a baked atlas of
 // 3 shapes of slabs holding per texel the distance to the nearest seam (r), the relief (g), the depth
 // into the shape from its edge (b) and the slab's sinking order (a: edge slabs first).
 import { Container, Graphics, Mesh, MeshGeometry, Shader, UniformGroup, BufferImageSource, CanvasSource, Texture, Sprite } from 'pixi.js'
 import { PAL, TAU, hexNum, mkCanvas } from './palette.js'
-import { resetXf, ell, polar, tube, qb, line, cel, eye, drop, spline } from './brush.js'
+import { resetXf, ell, polar, tube, qb, line, cel, eye, drop, spline, setPaper } from './brush.js'
 import { mantleHeightAt } from '../sim.js'
 import { MANTLE_STRAND_STUCK_T, MANTLE_STRAND_DIE_T, MANTLE_MELT_T, DRAW_CAPS } from '../config.js'
 // the crust's and the pool's edges are the sim's own (what is drawn is what is solid)
@@ -368,6 +371,100 @@ function paintEyes() {
     eye(c, 6, 0, 5, 6.4, 0, -0.4)
   }, 1.2)
 }
+// ---- THE MOORED BOAT: a little iron-banded tub of charred planks with a stubby smokestack and a face
+// on its bow, drawn the way the cast is (paper cut-outs in the brush's paper mode, 3/4 from above, the
+// bow at +x, mirrored to face its way and never turned). Two pieces so you can stand IN it: the BACK
+// (the gunwale's far rim, the hold, a thwart, the stack) under you, the FRONT (the hull's near side,
+// its rim, iron bands and the face) over your legs. Units are world px round the hold's middle.
+const BOAT_RIM = spline([[53, -5], [44, 3], [28, 9], [0, 12], [-28, 9], [-42, 5], [-45, -2], [-39, -9], [-20, -13], [10, -14], [36, -11]], 8)
+const BOAT_OPEN = BOAT_RIM.map(([x, y]) => [(x - 2) * 0.86 + 1, (y + 0.5) * 0.66 - 1.4])
+const BOAT_HULL = spline([[53, -5], [44, 3], [28, 9], [0, 12], [-28, 9], [-42, 5], [-45, -2], [-46, 9], [-37, 21], [-12, 27], [18, 26], [40, 16], [50, 3]], 8)
+// the hull grown past its paper edge: the lava up its side covers the cut margin too
+const BOAT_WET = BOAT_HULL.map(([x, y]) => [4 + (x - 4) * 1.06, 12 + (y - 12) * 1.12])
+const BOAT_STACK = [-25, -26]   // the stack's mouth, where its smoke leaves
+const BOAT_BOX = [-50, -36, 62, 32]
+const WOOD = '#5b3524', WOOD_LO = '#2e180f', WOOD_HI = '#8a5a3a', HOLD = '#3a2118', BRASS = '#e3bf73', IRON_D = '#2b2730'
+const pathPts = (c, P) => { c.beginPath(); c.moveTo(P[0][0], P[0][1]); for (let i = 1; i < P.length; i++) c.lineTo(P[i][0], P[i][1]); c.closePath() }
+// paint inside a shape only (a canvas clip under the bake's own transform)
+const within = (c, P, fn) => { c.save(); pathPts(c, P); c.clip(); fn(); c.restore() }
+function bakeBoat(paint) {
+  const [x0, y0, x1, y1] = BOAT_BOX, w = x1 - x0, h = y1 - y0
+  return bake(w, h, -x0 / w, -y0 / h, (c) => { setPaper(true); try { paint(c) } finally { setPaper(false) } }, 1.8)
+}
+function paintBoatBack() {
+  return bakeBoat((c) => {
+    cel(c, BOAT_RIM, BRASS, { ink: 2.4 })
+    cel(c, BOAT_OPEN, HOLD, { ink: 1.5, shade: null })
+    within(c, BOAT_OPEN, () => {
+      for (const y of [-8, -4, 0, 4]) line(c, [[-44, y], [50, y - 1]], 0.8, { color: '#1e0f0a', taper: 0.2 })
+      // the thwart, a plank across the hold
+      cel(c, [[4, -14], [12, -14], [13, 12], [5, 12]], WOOD_HI, { ink: 1.3 })
+    })
+    // the smokestack: a stubby iron funnel with a red band, rising from the stern
+    cel(c, [[-31, -6], [-31, -24], [-19, -24], [-19, -6]], IRON_D, { ink: 1.7 })
+    cel(c, [[-31, -18], [-19, -18], [-19, -14], [-31, -14]], '#c8322a', { ink: 1.1 })
+    cel(c, ell(-25, -24.5, 6.4, 2.6, 0, 24), '#4a4450', { ink: 1.4 })
+    cel(c, ell(-25, -24.6, 4.2, 1.5, 0, 20), '#120a0c', { ink: 0, shade: null })
+  })
+}
+function paintBoatFront() {
+  return bakeBoat((c) => {
+    cel(c, BOAT_HULL, WOOD, { ink: 2.6 })
+    within(c, BOAT_HULL, () => {
+      // the strakes: planks running bow to stern under the rim
+      line(c, qb([-45, 8], [0, 22], [50, 1]), 1.0, { color: WOOD_LO, taper: 0.15 })
+      line(c, qb([-41, 15], [0, 29], [46, 9]), 1.0, { color: WOOD_LO, taper: 0.15 })
+      line(c, qb([-44, 4], [0, 17], [51, -2]), 0.8, { color: WOOD_HI, taper: 0.3 })
+      // two riveted iron bands round the hull
+      for (const bx of [-27, 5]) {
+        cel(c, [[bx - 3, 0], [bx + 3, 0], [bx + 3.5, 32], [bx - 2.5, 32]], IRON_D, { ink: 1.1 })
+        for (const ry of [13, 19]) cel(c, ell(bx + 0.3, ry, 1.3, 1.2, 0, 12), BRASS, { ink: 0.6, shade: null })
+      }
+    })
+    // the near rim, a brass-capped gunwale over your legs
+    cel(c, tube(spline([[-45, -1.5], [-42, 5], [-28, 9.4], [0, 12.4], [28, 9.4], [44, 3.4], [53, -5]], 6).slice(0, -6), 4.6, 3.4), BRASS, { ink: 1.5 })
+    cel(c, ell(52, -4.5, 3.4, 2.8, 0, 18), BRASS, { ink: 1.3 })
+    // the face on its bow: pie-cut eyes and a pleased grin
+    eye(c, 25, 15.5, 3.7, 4.6, 0.7, 0.1)
+    eye(c, 34.5, 12, 3.3, 4.2, 0.7, 0.1)
+    line(c, [[22, 21.5], [28.5, 23.4], [36, 19.6]], 1.2, {})
+    line(c, [[21.5, 9.8], [26.5, 9.2]], 1.0, {})
+  })
+}
+// a broken plank off a sunk boat
+function paintPlank(v) {
+  return bake(30, 14, 0.5, 0.5, (c) => {
+    const L = 10 + v * 2
+    flat(c, [[-L, -2.6], [L - 2, -3], [L, 0.5 - v], [L - 3, 2.8], [-L + 1, 2.6], [-L - 1, 0]], WOOD, 1.4)
+    line(c, [[-L + 2, 0.3], [L - 3, -0.4]], 0.6, { color: WOOD_LO })
+  }, 1.4)
+}
+// the part of a closed local polygon below the line y = wl + wave(x) (Sutherland-Hodgman on one edge);
+// the points on the cut are flagged .cut (the waterline drawn along it)
+function clipBelow(P, wl, wave) {
+  const out = [], n = P.length
+  const inside = (q) => q[1] >= wl
+  for (let i = 0; i < n; i++) {
+    const a = P[i], b = P[(i + 1) % n]
+    if (inside(a)) out.push(a)
+    if (inside(a) !== inside(b)) {
+      const u = (wl - a[1]) / (b[1] - a[1]), q = [a[0] + (b[0] - a[0]) * u, wl]
+      q.cut = true
+      out.push(q)
+    }
+  }
+  // the cut runs along the waterline: let it ripple, with a few points along it
+  const cuts = out.map((q, i) => (q.cut ? i : -1)).filter((i) => i >= 0)
+  if (cuts.length === 2) {
+    const [i0, i1] = cuts, a = out[i0], b = out[i1], mid = []
+    for (let k = 1; k < 8; k++) { const q = [b[0] + (a[0] - b[0]) * (k / 8), wl]; q.cut = true; mid.push(q) }
+    out.splice(i1 + 1, 0, ...mid)
+  }
+  for (const q of out) if (q.cut) q[1] = wl + wave(q[0])
+  return out
+}
+const BOAT_DY = 16   // the boat is drawn this far below its sim point: you stand in its hold
+
 // a closed outline round (x, y): radius r wobbling by `jag`, seeded so it never crawls
 function blob(x, y, r, jag, seed, n = 18) {
   const pts = []
@@ -393,12 +490,17 @@ function celPoly(g, pts, fill, o = {}) {
 export function createMantleFx({ ground, boat, top }) {
   const groundG = new Graphics()
   const groundFx = new Container()
-  const boatUnderG = new Graphics(), boatLayer = new Container()
+  // the boats: under you (its shadow and wake, the back piece, the lava in its hold, an empty boat's
+  // front piece and its waterline), and over you (the front of the one you ride, its waterline, the
+  // lava over your boots)
+  const boatUnderG = new Graphics(), backL = new Container(), boatInG = new Graphics(), frontL = new Container(), boatBandG = new Graphics()
+  const bootG = new Graphics(), frontTopL = new Container(), boatBandTop = new Graphics()
   const strandLayer = new Container(), topG = new Graphics(), toolLayer = new Container(), topG2 = new Graphics()
   ground.addChild(groundG, groundFx)
-  boat.addChild(boatUnderG, boatLayer)
-  top.addChild(strandLayer, topG, toolLayer, topG2)
-  const bursts = []   // { kind: 'melt' | 'crumble', x, y, r, t, seed }
+  boat.addChild(boatUnderG, backL, boatInG, frontL, boatBandG)
+  top.addChild(bootG, frontTopL, boatBandTop, strandLayer, topG, toolLayer, topG2)
+  const boatFace = new WeakMap()   // boat -> the way it faces (1 bow right, -1 left), kept between frames
+  const bursts = []   // { kind: 'melt' | 'crumble' | 'boatSink', x, y, r, t, seed }
   // the kettle's newest throw, off its shoot event: it is drawn on every throw, crust or no crust
   let pour = null      // { x, y, r, t }
   const waves = new Map()   // nova -> its trail { x, y, angle, arc, maxR, life, k, endAt, seed }
@@ -422,6 +524,7 @@ export function createMantleFx({ ground, boat, top }) {
       basalt: [0, 1, 2, 3].map((v) => paintChunk(v + 6, '#3a3138', '#665a62')), eyes: paintEyes(),
       lavaDrop: paintDrop(PAL.lavaHot, PAL.lavaGlow), waterDrop: paintDrop('#cdeaf0', '#eef9f8'),
       splat: [0, 1].map(paintSplat), curl: [0, 1, 2].map(paintCurl),
+      boatBack: paintBoatBack(), boatFront: paintBoatFront(), plank: [0, 1, 2].map(paintPlank),
     }
     return A
   }
@@ -447,7 +550,6 @@ export function createMantleFx({ ground, boat, top }) {
     U.uCover = o.cover ?? 2; U.uQuench = o.quench ?? 0; U.uInk = o.ink ?? 0; U.uAlpha = o.alpha ?? 1; U.uTime = clock
   }
   const strandSkins = []
-  let boatSkin = null
   // growable pools of plain sprites
   const spritePool = (parent) => {
     const list = []
@@ -467,17 +569,19 @@ export function createMantleFx({ ground, boat, top }) {
     }
   }
   const low = spritePool(groundFx), tools = spritePool(toolLayer)
+  const boatBack = spritePool(backL), boatFront = spritePool(frontL), boatFrontTop = spritePool(frontTopL)
+  const boatPools = [boatBack, boatFront, boatFrontTop]
+  const GS = [groundG, boatUnderG, boatInG, boatBandG, bootG, boatBandTop, topG, topG2]
   function hideAll() {
     for (const s of strandSkins) s.mesh.visible = false
-    if (boatSkin) boatSkin.mesh.visible = false
-    low.begin(); low.end(); tools.begin(); tools.end()
+    for (const bp of [low, tools, ...boatPools]) { bp.begin(); bp.end() }
   }
   return {
-    reset() { pour = null; bursts.length = 0; waves.clear(); for (const g of [groundG, boatUnderG, topG, topG2]) g.clear(); hideAll() },
+    reset() { pour = null; bursts.length = 0; waves.clear(); for (const g of GS) g.clear(); hideAll() },
     event(e) {
       if (e.type === 'shoot' && e.weapon === 'quenchKettle') { pour = { x: e.tx ?? e.x, y: e.ty ?? e.y, r: e.maxR || 100, t: 0 }; return false }
-      if (e.type !== 'melt' && e.type !== 'crumble') return false
-      bursts.push({ kind: e.type, x: e.x, y: e.y, r: e.r || 14, t: 0, seed: Math.floor(Math.abs(e.x * 7 + e.y * 13)) })
+      if (e.type !== 'melt' && e.type !== 'crumble' && e.type !== 'boatSink') return false
+      bursts.push({ kind: e.type, x: e.x, y: e.type === 'boatSink' ? e.y + BOAT_DY : e.y, r: e.r || (e.type === 'boatSink' ? 30 : 14), t: 0, seed: Math.floor(Math.abs(e.x * 7 + e.y * 13)) })
       if (bursts.length > 80) bursts.shift()
       return true
     },
@@ -485,9 +589,9 @@ export function createMantleFx({ ground, boat, top }) {
     sync(run, dt, tide, onScreen, t) {
       clock += dt
       if (pour) pour.t += dt
-      for (const g of [groundG, boatUnderG, topG, topG2]) g.clear()
+      for (const g of GS) g.clear()
       const P = art()
-      low.begin(); tools.begin()
+      for (const bp of [low, tools, ...boatPools]) bp.begin()
       const { L, T } = tide
       const line = T.line
       const p = run.player
@@ -888,7 +992,7 @@ export function createMantleFx({ ground, boat, top }) {
         }
       }
 
-      // ---- melt and crumble bursts ----
+      // ---- melt, crumble and sink bursts ----
       for (const b of bursts) b.t += dt
       while (bursts.length && bursts[0].t > 0.9) bursts.shift()
       for (const b of bursts) {
@@ -915,6 +1019,25 @@ export function createMantleFx({ ground, boat, top }) {
             const dr = low.next(P.lavaDrop)
             dr.position.set(b.x + Math.cos(a) * d, b.y + Math.sin(a) * d * 0.6 + 40 * k * k); dr.rotation = a + Math.PI / 2 + k * 2; dr.scale.set(0.6 * (1 - 0.4 * k)); dr.alpha = 1 - smooth(0.7, 1, k)
           }
+        } else if (b.kind === 'boatSink') {
+          // gone under: a lava splash ring, planks flung up and out, a gout of steam, bubbles
+          const sp = low.next(P.splat[b.seed & 1])
+          sp.position.set(b.x, b.y); sp.scale.set(2.4 * (0.6 + 0.6 * Math.min(1, k * 4))); sp.alpha = 1 - smooth(0.55, 1, k)
+          for (let i = 0; i < 5; i++) {
+            const a = -Math.PI / 2 + (i - 2) * 0.62 + (rh(i, b.seed, 4) - 0.5) * 0.3, d = 14 + 70 * k * (0.7 + 0.5 * rh(i, b.seed, 5))
+            const pl = tools.next(P.plank[i % 3])
+            pl.position.set(b.x + Math.cos(a) * d, b.y + Math.sin(a) * d * 0.55 - 34 * Math.sin(Math.PI * Math.min(1, k * 1.3)))
+            pl.rotation = a + k * (4 + i); pl.alpha = 1 - smooth(0.7, 1, k)
+          }
+          for (let i = 0; i < 3; i++) {
+            const st = tools.next(P.steam[(b.seed + i) % 6])
+            st.position.set(b.x + (i - 1) * 18, b.y - 8 - k * (30 + 10 * i)); st.scale.set(0.55 * (0.4 + k) * (1 - smooth(0.7, 1, k)))
+          }
+          for (let i = 0; i < 6; i++) {
+            const q = (k * 1.6 + i / 6) % 1, a = rh(i, b.seed, 6) * TAU
+            const bb = tools.next(P.bubble)
+            bb.position.set(b.x + Math.cos(a) * 26, b.y + Math.sin(a) * 10 - q * 30); bb.alpha = 1 - smooth(0.7, 1, q)
+          }
         } else {
           for (let i = 0; i < 7; i++) {
             const a = (i / 7) * TAU + b.seed, d = b.r * (0.4 + 2.0 * k)
@@ -929,51 +1052,118 @@ export function createMantleFx({ ground, boat, top }) {
         }
       }
 
-      // ---- the basalt raft under the player: the lava creeping in over its rim and up over your boots ----
-      if (p.afloat && p.boatMax > 0) {
-        if (!boatSkin) boatSkin = makeSkin(boatLayer, false)
-        const f = clamp01(p.boatT / p.boatMax)   // 1 fresh, 0 gone under
-        const s = 1 - f
-        const wob = f < 0.3 ? Math.sin(t * 22) * (0.3 - f) * 5 : 0
-        const x = p.x + wob, y = p.y + 18 + Math.sin(t * 3.1) * 1.2 + s * 3
-        // the lava riding up round it
-        boatUnderG.ellipse(x, y + 4, 50 - 8 * s, 29 - 5 * s).fill({ color: C.lavaDeep, alpha: 0.35 })
-        // it tips and settles lower as it sinks: rotation grows, its outline flattens
-        // it shrinks from the first second (the lava eating its rim), tips and settles lower, its cracks
-        // brighter at every stage
-        skinLook(boatSkin, x, y + s * 5, 44 * (1 - 0.42 * s), 0.6 - 0.14 * s, Math.sin(t * 1.3) * 0.05 + s * 0.32 + s * 0.06 * Math.sin(t * 5), 1, {
-          heat: (0.12 + 0.85 * Math.pow(s, 0.75)) * (0.9 + 0.1 * Math.sin(clock * 12)), erode: 0.45 * s, ink: 1, sink: smooth(0.75, 1, s) * 0.5,
-        })
-        // below 50%: your boots go under; below 40%: steam puffs and open bubbles rise off it, faster and faster
-        if (s > 0.5) {
-          const u = (s - 0.5) / 0.5
-          const lw = 22 + 12 * u, ly = p.y + 18 - 8 * u, S = []
-          for (let i = 0; i <= 10; i++) { const v = i / 10; S.push(p.x + (v * 2 - 1) * lw, ly + Math.sin(v * 9 + t * 6) * 1.5 - Math.sin(Math.PI * v) * 3) }
-          for (let i = 0; i <= 6; i++) { const a = (i / 6) * Math.PI; S.push(p.x + Math.cos(a) * lw, ly + 4 + Math.sin(a) * (8 + 4 * u)) }
-          topG.poly(S).fill({ color: C.lava })
-          topG.moveTo(S[0], S[1]); for (let i = 2; i <= 20; i += 2) topG.lineTo(S[i], S[i + 1])
-          topG.stroke({ width: 2.2, color: C.ink, cap: 'round', join: 'round' })
-          topG.moveTo(p.x - lw * 0.7, ly + 3); for (let i = 1; i <= 8; i++) { const v = i / 8; topG.lineTo(p.x + (v * 1.4 - 0.7) * lw, ly + 3 + Math.sin(v * 9 + t * 6) * 1.5 - Math.sin(Math.PI * v) * 2.5) }
-          topG.stroke({ width: 2.4, color: C.lavaGlow, cap: 'round' })
-          const u2 = clamp01((s - 0.6) / 0.4), rate = 0.7 + 2.3 * u2, nb = s > 0.6 ? 3 + Math.round(5 * u2) : 0
+      // ---- THE MOORED BOATS (run.boats): bobbing at the shores, beached on the rock, the one you ride
+      // carrying you; sinking shows on the boat (it lists, the lava climbs its side and pours in over
+      // the rim, your boots go under below half, steam and bubbles near the end) ----
+      const fullFloat = L?.boats?.float || 7
+      for (const b of run.boats ?? []) {
+        if (!onScreen(b.x, b.y, 90)) continue
+        const ridden = b.ridden && p.afloat
+        // facing: the way it moves while ridden, else nose to the shore (remembered between frames)
+        let face = boatFace.get(b)
+        if (ridden && Math.abs(b.vx) > 15) face = b.vx > 0 ? 1 : -1
+        else if (face === undefined) face = Math.cos(b.heading || 0) >= 0 ? 1 : -1
+        boatFace.set(b, face)
+        const s = clamp01(1 - b.floatT / fullFloat)   // 0 fresh, 1 gone under
+        const ph = (b.seed % 997) * 0.37
+        const X = b.x, Y0 = b.y + BOAT_DY
+        let bob = 0, rot, sq = 0
+        if (b.afloat) {
+          const w = Math.sin(t * 2.6 + ph)
+          bob = w * (1.4 + 1.6 * s); sq = w * 0.035
+          rot = Math.sin(t * 1.7 + ph) * (0.035 + 0.08 * s) + face * s * 0.12 + (s > 0.8 ? Math.sin(t * 19) * (s - 0.8) * 0.12 : 0)
+        } else rot = face * 0.16   // beached: listing over on the rock
+        const Y = Y0 + bob, sx = face * (1 + sq), sy = 1 - sq, cr = Math.cos(rot), sr = Math.sin(rot)
+        const W = (lx, ly) => [X + lx * sx * cr - ly * sy * sr, Y + lx * sx * sr + ly * sy * cr]
+        const Wf = (pts) => { const o = []; for (const [lx, ly] of pts) { const q = W(lx, ly); o.push(q[0], q[1]) } return o }
+        const under = boatUnderG
+        if (b.afloat) {
+          // the lava heaving round its hull, and a wake behind it while it moves
+          under.ellipse(X, Y0 + 14, 56, 18).fill({ color: C.lavaDeep, alpha: 0.4 })
+          const v = Math.hypot(b.vx, b.vy)
+          if (v > 25) {
+            // the wake: scalloped puffs of churned, brighter lava boiling off the stern and falling
+            // behind, each inked, swelling then sinking back (the 1930s foam trail), and two short
+            // ripples peeling off its sides
+            const dx = -b.vx / v, dy = -b.vy / v, k = Math.min(1, v / 160)
+            const sx0 = X + dx * 36, sy0 = Y0 + 16 + dy * 10
+            for (let i = 4; i >= 0; i--) {
+              const u = (clock * 2.4 + i / 5) % 1, d = 6 + u * 58 * k, r = (5 + 7 * Math.sin(Math.PI * Math.min(1, u * 1.4))) * (0.6 + 0.4 * k)
+              const cx = sx0 + dx * d + Math.sin(i * 2.1 + u * 3) * 3, cy = sy0 + dy * d * 0.5 + Math.cos(i * 1.7) * 2
+              const lob = []
+              for (let j = 0; j < 22; j++) { const a = (j / 22) * TAU, rr = r * (1 + 0.1 * Math.sin(a * 3 + i)); lob.push(cx + Math.cos(a) * rr * 1.25, cy + Math.sin(a) * rr * 0.62) }
+              celPoly(under, lob, C.lavaHot, { ink: 1.7, alpha: (1 - u) * k })
+              under.ellipse(cx - r * 0.3, cy - r * 0.18, r * 0.42, r * 0.18).fill({ color: C.lavaWhite, alpha: (1 - u) * k * 0.9 })
+            }
+            for (const sgn of [-1, 1]) {
+              const u = (clock * 1.3 + (sgn > 0 ? 0.5 : 0)) % 1, d = 20 + u * 40, w = 16 + u * 20
+              const ax = sx0 + dx * d, ay = sy0 + dy * d * 0.5 + sgn * w * 0.5
+              under.moveTo(ax - dx * 8, ay - sgn * 3).quadraticCurveTo(ax, ay + sgn * 2, ax + dx * 10, ay + sgn * 1).stroke({ width: 2.2, color: C.ink, alpha: (1 - u) * k, cap: 'round' })
+            }
+          }
+        } else {
+          under.ellipse(X - face * 3, Y0 + 20, 48, 11).fill({ color: C.ink, alpha: 0.28 })
+        }
+        // the two pieces: the back always under you, the front over your legs when you ride it
+        const back = boatBack.next(P.boatBack), front = (ridden ? boatFrontTop : boatFront).next(P.boatFront)
+        for (const sp of [back, front]) { sp.position.set(X, Y); sp.scale.set(sx, sy); sp.rotation = rot }
+        if (!b.afloat) continue
+        // the lava in the hold once it pours in over the rim, rising to a full tub
+        if (s > 0.4) {
+          const k = 0.35 + 0.65 * smooth(0.4, 0.95, s), cx = 2, cy = -1.5
+          const lake = BOAT_OPEN.map(([x, y]) => [cx + (x - cx) * k + Math.sin(y * 0.4 + t * 4) * 0.8, cy + (y - cy) * k])
+          celPoly(boatInG, Wf(lake), C.lava, { ink: 1.6 })
+          const hi = Wf(lake.filter((_, i) => i % 3 === 0).slice(0, 6).map(([x, y]) => [x * 0.8, y * 0.7 - 0.5]))
+          boatInG.poly(hi).fill({ color: C.lavaHot, alpha: 0.9 })
+        }
+        // the lava up its near side, to the waterline (a little higher the lower it sits)
+        const wl = 21 - 9 * s
+        const band = clipBelow(BOAT_WET, wl, (x) => Math.sin(x * 0.17 + t * 5 + ph) * 1.3)
+        if (band.length > 2) {
+          const G = ridden ? boatBandTop : boatBandG
+          G.poly(Wf(band)).fill({ color: C.lava })
+          const top = band.filter((q) => q.cut)
+          if (top.length > 1) {
+            top.sort((a, b2) => a[0] - b2[0])
+            const lp = Wf(top)
+            G.moveTo(lp[0], lp[1]); for (let i = 2; i < lp.length; i += 2) G.lineTo(lp[i], lp[i + 1])
+            G.stroke({ width: 2.4, color: C.ink, cap: 'round', join: 'round' })
+            const gp = Wf(top.map(([x, y]) => [x, y + 2.6]).slice(1, -1))
+            if (gp.length > 3) { G.moveTo(gp[0], gp[1]); for (let i = 2; i < gp.length; i += 2) G.lineTo(gp[i], gp[i + 1]); G.stroke({ width: 1.8, color: C.lavaGlow, cap: 'round' }) }
+          }
+        }
+        // smoke off its stack while it floats, chugging faster as it goes under
+        if (s < 0.92) {
+          for (let i = 0; i < 2; i++) {
+            const u = (clock * (0.55 + 0.9 * s) + i / 2 + ph) % 1
+            const [mx, my] = W(BOAT_STACK[0], BOAT_STACK[1])
+            const sm = tools.next(P.smoke[(i + (b.seed & 1)) % 3])
+            sm.position.set(mx + Math.sin(u * 5 + i) * 3 - face * u * 8, my - u * 30)
+            sm.scale.set(0.2 * (0.45 + u) * (1 - smooth(0.75, 1, u)))
+          }
+        }
+        // near the end: steam and open bubbles boiling up round it, faster and faster
+        if (s > 0.6) {
+          const u2 = clamp01((s - 0.6) / 0.4), rate = 0.7 + 2.3 * u2, nb = 3 + Math.round(5 * u2)
           for (let i = 0; i < nb; i++) {
-            const ph = (clock * rate + i / nb) % 1, a = rh(i, 3, 1) * TAU, rr = 30 + 14 * rh(i, 3, 2)
-            const bx = x + Math.cos(a) * rr, by = y + Math.sin(a) * rr * 0.55 - ph * 46
-            if (i % 3 === 0) { const st = tools.next(P.steam[i % 6]); st.position.set(bx, by - 10); st.scale.set(0.32 * (0.5 + ph) * (1 - smooth(0.7, 1, ph))) }
-            else { const bb = tools.next(P.bubble); bb.position.set(bx, by); bb.scale.set(0.7 + 0.6 * rh(i, 3, 3)); bb.alpha = 1 - smooth(0.75, 1, ph) }
+            const q = (clock * rate + i / nb) % 1, a = rh(i, 3, 1) * TAU, rr = 34 + 16 * rh(i, 3, 2)
+            const bx = X + Math.cos(a) * rr, by = Y0 + 12 + Math.sin(a) * rr * 0.45 - q * 46
+            if (i % 3 === 0) { const st = tools.next(P.steam[i % 6]); st.position.set(bx, by - 10); st.scale.set(0.32 * (0.5 + q) * (1 - smooth(0.7, 1, q))) }
+            else { const bb = tools.next(P.bubble); bb.position.set(bx, by); bb.scale.set(0.7 + 0.6 * rh(i, 3, 3)); bb.alpha = 1 - smooth(0.75, 1, q) }
           }
         }
-        // chunks breaking off its rim at the end
-        if (s > 0.72) {
-          const u = (s - 0.72) / 0.28
-          for (let i = 0; i < 4; i++) {
-            const a = (i / 4) * TAU + 0.6, d = 38 + 26 * u
-            const ch = low.next(P.basalt[i % 3])
-            ch.position.set(x + Math.cos(a) * d, y + Math.sin(a) * d * 0.6 + 6 * u); ch.rotation = a + u * 2; ch.scale.set(1.1 * (1 - 0.6 * u)); ch.alpha = 1 - smooth(0.6, 1, u)
-          }
+        // below half, riding: the lava in the hold is up over your boots
+        if (ridden && s > 0.5) {
+          const u = (s - 0.5) / 0.5
+          const lw = 20 + 8 * u, ly = p.y + 20 - 6 * u, S = []
+          for (let i = 0; i <= 10; i++) { const v = i / 10; S.push(p.x + (v * 2 - 1) * lw, ly + Math.sin(v * 9 + t * 6) * 1.5 - Math.sin(Math.PI * v) * 3) }
+          for (let i = 0; i <= 6; i++) { const a = (i / 6) * Math.PI; S.push(p.x + Math.cos(a) * lw, ly + 4 + Math.sin(a) * (6 + 3 * u)) }
+          bootG.poly(S).fill({ color: C.lava })
+          bootG.moveTo(S[0], S[1]); for (let i = 2; i <= 20; i += 2) bootG.lineTo(S[i], S[i + 1])
+          bootG.stroke({ width: 2.2, color: C.ink, cap: 'round', join: 'round' })
         }
-      } else if (boatSkin) boatSkin.mesh.visible = false
-      low.end(); tools.end()
+      }
+      for (const bp of [low, tools, ...boatPools]) bp.end()
     },
   }
 }
