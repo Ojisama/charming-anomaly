@@ -19,6 +19,16 @@
 //             curls off it, little lava blisters push up through the bank and pop, and the shores
 //             crowd with pie-eyed bubbles peeking at the dry ground. No glowing cracks anywhere.
 //   THE DRAIN rock the lava has just left stays dark and wet for a while, then dries.
+//   THE WEAPONS' GROUND is painted here too, with the same rock and the same lava, so it is the sim's
+//             ground to the pixel (mantleGroundAt: a crust is rock, a pool is lava, a crust wins):
+//             a QUENCH CRUST (run.quenchCrusts) is freshly cooled rock laid over the lava: darker,
+//             warm, steam-dark at first, hairline cracks glowing; in its last seconds the lava eats it
+//             back from the rim inward and the cracks glow brighter. Painted only INSIDE its circle.
+//             A HAMMER POOL (run.lavaPools) is fresh lava cracked open in the rock: jagged cracks run
+//             out from it, its skin breaks into plates that melt away, then bright lava with the tide's
+//             own shore (band, froth, bubbles); at the end it crusts over from the rim inward, and once
+//             the sim has closed it the rock it leaves stays cooled-dark for FX_GHOST_T s. Painted
+//             at least OVER its circle, so no pixel of the sim's lava ever shows as rock.
 // Everything is graded in the shader as a faded 1930s print (desaturated, warm, lifted blacks, cream
 // whites); the film pass (FILM_FRAG) then adds grain, dust, a scratch, flicker and an uneven vignette.
 import { MANTLE_GROUND_STEP } from '../config.js'
@@ -26,6 +36,9 @@ import { PAL, TAU, mkCanvas } from './palette.js'
 import { resetXf, push, pop, tr, rot, sc, ell, polar, drop, tube, qb, line, cel, glove, glow, puff, flame, brush } from './brush.js'
 import { peekBubble } from './cast.js'
 
+// the weapons' ground the floor paints: the newest FX_N crusts and FX_N pools on screen, and the last
+// FX_GHOSTS closed pools, cooling for FX_GHOST_T s (src/toon.js packs them into the floor's uniforms)
+export const FX_N = 8, FX_GHOSTS = 4, FX_GHOST_T = 1.6
 export const CHUNK = 1024          // world px per floor chunk
 export const CHUNK_STEP = MANTLE_GROUND_STEP        // world px between the height samples a chunk's texture holds
 export const CHUNK_N = CHUNK / CHUNK_STEP + 1   // samples a side (the last one is the next chunk's first)
@@ -125,12 +138,79 @@ uniform float uHi;      // the hilltops
 uniform float uFlood;   // the flood's line: ground under it goes under every cycle
 uniform float uWet;     // the highest line of the last flood (rock the lava just left)
 uniform float uWetK;    // 0..1, how fresh that is
+uniform float uNC;      // Quench crusts in uCr/uCrE: (x, y, r, t) / (dur, ...)
+uniform float uNP;      // Crack Hammer pools in uPo/uPoE: (x, y, r, t) / (dur, ...)
+uniform float uNG;      // closed pools still cooling in uGh: (x, y, r, age)
+uniform vec4 uCr[${FX_N}];
+uniform vec4 uCrE[${FX_N}];
+uniform vec4 uPo[${FX_N}];
+uniform vec4 uPoE[${FX_N}];
+uniform vec4 uGh[${FX_GHOSTS}];
+bool gNear;             // this pixel is near some weapon's ground (else none of it is evaluated)
+bool gNearL;            // ... and it is lava there (only then can a bubble on it show)
 float hh(vec2 uv) { vec2 t = texture(uHeight, uv).rg; return (t.r * 65280.0 + t.g * 255.0) / 65535.0; }
 vec4 nz(vec2 w, float s) { return texture(uNoise, w / s); }
 float h12(vec2 p) { p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
 float bell(float x, float c, float w) { float q = (x - c) / w; return exp(-q * q); }
 // the noise texture is stretched to 0..1; this puts a sample back on a plain fbm scale (mean 0.5, sd 0.13)
 float fb(float n) { return 0.5 + (n - 0.43) * 0.76; }
+
+// THE WEAPONS' GROUND, as the shape of the lava: a crust's painted edge sits INSIDE its circle (ragged
+// by up to 10 px), a pool's OUTSIDE its circle, so the sim's ground test is never contradicted.
+// en = the edge noise (0..1) at this pixel.
+float crustR(vec4 c, vec4 ce, float en) {
+  float eat = smoothstep(ce.x - 1.5, ce.x, c.w);                      // the lava eating it back, last 1.5 s
+  return c.z * (1.0 - eat * eat * 0.6 - eat * 0.4) - 1.5 - 20.0 * smoothstep(0.3, 0.8, en);
+}
+// the cracked-open rock round a hole: x the red-hot core of its cracks, y their dark seam
+vec2 gCk;
+float poolR(vec4 q, float en) { return q.z + 1.5 + 24.0 * smoothstep(0.3, 0.8, en); }
+// d (px from the lava, + on dry ground) with every pool cut into it and every crust laid over it.
+// Where a crust and a pool overlap the NEWEST wins (a stamp cracks a crust open, a kettle quenches a pool).
+float fxD(vec2 p, float d, float en) {
+  float pa = 1.0e9;
+  for (int i = 0; i < ${FX_N}; i++) {
+    if (float(i) >= uNP) break;
+    float s = length(p - uPo[i].xy) - poolR(uPo[i], en);
+    d = min(d, s); if (s < 0.0) pa = min(pa, uPo[i].w);
+  }
+  for (int i = 0; i < ${FX_N}; i++) { if (float(i) >= uNC) break; if (uCr[i].w <= pa) d = max(d, crustR(uCr[i], uCrE[i], en) - length(p - uCr[i].xy)); }
+  return d;
+}
+// distance (in px, approximately) to the nearest edge of a jittered cell grid of size cs: angular plates
+float plates(vec2 p, float cs) {
+  vec2 g = floor(p / cs), f = p / cs - g;
+  float d1 = 8.0, d2 = 8.0;
+  for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) {
+    vec2 o = vec2(float(i), float(j));
+    vec2 r = o + 0.12 + 0.76 * vec2(h12(g + o + 1.7), h12(g + o + 4.3)) - f;
+    float dd = dot(r, r);
+    if (dd < d1) { d2 = d1; d1 = dd; } else if (dd < d2) d2 = dd;
+  }
+  return (sqrt(d2) - sqrt(d1)) * cs * 0.5;
+}
+// THE SLABS cooled lava breaks into, painted: a cell net domain-warped by two scales of noise so no edge
+// runs straight, each slab a soft gouache pillow (lit on its upper left, its paint pooled darker toward
+// its rim) and the gaps between them soft. Returns (distance into the slab in px, its light -1..1).
+vec2 slabs(vec2 p, vec4 E, vec4 F, float cs) {
+  vec2 q = p + (E.gb - 0.5) * cs * 0.9 + (F.rb - 0.5) * cs * 0.1;
+  float ce = plates(q, cs);
+  float lit = clamp((plates(q + vec2(2.4, 3.0), cs) - ce) * 0.45, -1.0, 1.0);
+  return vec2(ce, lit);
+}
+// jagged cracks running out of a hammer's hole: n rays from radius r0, each a zigzag of 10 px legs
+vec2 rays(vec2 q, float r0, float len, float sd) {
+  float rr = length(q);
+  float u = (atan(q.y, q.x) / 6.28318 + 0.5) * 7.0, k = floor(u);
+  float seg = max(rr - r0, 0.0) / 10.0, s0 = floor(seg);
+  float off = mix(h12(vec2(k, s0) + sd) - 0.5, h12(vec2(k, s0 + 1.0) + sd) - 0.5, fract(seg)) * 0.45;
+  float cen = k + 0.5 + (h12(vec2(k, sd)) - 0.5) * 0.4 + off;
+  float L = len * (0.45 + 0.55 * h12(vec2(k, sd + 3.0)));
+  float w = mix(6.5, 1.0, clamp((rr - r0) / max(L, 1.0), 0.0, 1.0));
+  float dpx = abs(u - cen) * rr * 6.28318 / 7.0;
+  float on = step(rr, r0 + L) * step(r0 - 8.0, rr);
+  return on * vec2(1.0 - smoothstep(w * 0.4, w * 0.4 + 1.0, dpx), 1.0 - smoothstep(w * 0.95, w * 0.95 + 1.4, dpx));
+}
 
 // one bubble per cell of a grid in the lava, between minD and maxD px from the shore; faces is the
 // chance a bubble is one of the four with a face. Returns premultiplied colour.
@@ -143,6 +223,11 @@ vec4 bubbles(float cellS, float minD, float maxD, float dens, float faces, float
   vec2 cc = (cell + 0.5) * cellS + (vec2(r2, r3) - 0.5) * 2.0 * jit;
   float hc = hh(vUV + (cc - vWorld) * uUVW);
   float dc = (uLine - hc) / gl;                 // px into the lava at the bubble's centre
+  if (gNearL) {                                 // a pool's shore bubbles too (sparser: it is small); a crust has none
+    float dw = -fxD(cc, -dc, 0.5);
+    if (dw > dc + 0.5) { dens *= 0.4; faces *= 0.6; }
+    dc = dw;
+  }
   float ph = fract(uTime * rate * (0.6 + 0.8 * r1) + r2 * 7.0);
   float popping = step(0.86, ph);
   float face = step(r3, faces);
@@ -194,6 +279,55 @@ void main() {
   vec4 F = nz(W, 40.0);                                   // fine: froth, ragged shore
   float d = (h - uLine) / gl;                              // px from the shore, + on the dry rock
   d += (F.g - 0.5) * 4.0;                                  // a watercolour-ragged edge
+  float dT = d;                                            // the tide's alone (its swell tells read this)
+  // ---- THE WEAPONS' GROUND: which crust or pool this pixel is in, and how far along it is ----------
+  gNear = false; gNearL = false; gCk = vec2(0.0);
+  float crK = 0.0, crT = 0.0, crG = 0.0;                   // in a crust over lava; its age; its end glow
+  float poK = 0.0, poA = 99.0, poRem = 99.0, poR = 1.0, poRho = 0.0, poCk = 0.0, ghK = 0.0;
+  // Far from every shape (the most of the screen) only a pool's distance is taken, for the glow its
+  // lip casts on the rock; everything else is evaluated within a few px of a shape (gNear).
+  if (uNC + uNP + uNG > 0.0) {
+    for (int i = 0; i < ${FX_N}; i++) { if (float(i) >= uNP) break; float rr = length(W - uPo[i].xy); if (rr < uPo[i].z + 50.0) gNear = true; else d = min(d, rr - poolR(uPo[i], 0.5)); }
+    for (int i = 0; i < ${FX_N}; i++) { if (float(i) >= uNC) break; if (length(W - uCr[i].xy) < uCr[i].z) gNear = true; }
+    for (int i = 0; i < ${FX_GHOSTS}; i++) { if (float(i) >= uNG) break; if (length(W - uGh[i].xy) < uGh[i].z + 10.0) gNear = true; }
+  }
+  float en = 0.5;                                          // the edge noise of the weapons' ground
+  vec4 E = vec4(0.5);                                      // a broad noise, fetched only near them
+  float pAge = 1.0e9;                                      // the newest pool over this pixel (its age)
+  if (gNear) {
+    E = nz(W, 120.0);
+    en = F.g * 0.15 + E.r * 0.85;
+    for (int i = 0; i < ${FX_N}; i++) {
+      if (float(i) >= uNP) break;
+      vec4 q = uPo[i];
+      float rr = length(W - q.xy), re = poolR(q, en), s = rr - re;
+      d = min(d, s);
+      if (s < 0.0 && q.w < pAge) { poK = 1.0; poA = q.w; pAge = q.w; poRem = uPoE[i].x - q.w; poR = re; poRho = rr; }
+      // the cracks it split the rock with: red-hot as it opens, cooling to dark seams, gone at the end
+      float cf = 1.0 - smoothstep(uPoE[i].x - 0.6, uPoE[i].x, q.w);
+      if (s > -4.0 && rr < q.z + 60.0 && cf > 0.0) {
+        vec2 ck = rays(W - q.xy, q.z, 48.0 * smoothstep(0.0, 0.16, q.w), floor(q.x * 0.013 + q.y * 0.007)) * cf;
+        if (ck.y > poCk) { poCk = ck.y; gCk = ck; poA = min(poA, q.w); }
+      }
+    }
+    float dPre = d;
+    for (int i = 0; i < ${FX_N}; i++) {
+      if (float(i) >= uNC) break;
+      vec4 c = uCr[i];
+      if (c.w > pAge) continue;                                        // an older crust: the pool cracked it open
+      float s = length(W - c.xy) - crustR(c, uCrE[i], en);
+      d = max(d, -s);
+      float k = (1.0 - smoothstep(-1.3, 1.3, s)) * (1.0 - smoothstep(-1.3, 1.3, dPre));
+      if (k > crK) { crK = k; crT = c.w; crG = smoothstep(uCrE[i].x - 2.2, uCrE[i].x, c.w); }
+    }
+    for (int i = 0; i < ${FX_GHOSTS}; i++) {
+      if (float(i) >= uNG) break;
+      vec4 g2 = uGh[i];
+      ghK = max(ghK, (1.0 - smoothstep(g2.z - 8.0, g2.z + 6.0 * F.g, length(W - g2.xy))) * (1.0 - g2.w / ${FX_GHOST_T.toFixed(2)}));
+    }
+    if (crK > 0.0) poK = 0.0;
+    gNearL = d < 2.0;
+  }
 
   // ---- ROCK: slate-violet watercolour -----------------------------------------------------------
   vec4 B0 = nz(W, 512.0);
@@ -266,9 +400,10 @@ void main() {
   //    swell and pop: where they rise is where the melt is coming.
   float sw = uSwell;
   float throb = 0.5 + 0.5 * sin(uTime * 5.5);
-  float scorch = exp(-dp / (24.0 + 90.0 * sw)) * sw * step(0.0, d);
+  float dpT = max(dT, 0.0);
+  float scorch = exp(-dpT / (24.0 + 90.0 * sw)) * sw * step(0.0, dT);
   float lowF = hasF * (1.0 - safe) * smoothstep(uFlood, uLine + 0.004, h);   // 1 at the lava's line, 0 at the flood mark
-  float heatB = max(sw * mix(0.35, 1.0, lowF) * (1.0 - safe) * hasF, scorch) * step(0.0, d);
+  float heatB = max(sw * mix(0.35, 1.0, lowF) * (1.0 - safe) * hasF, scorch) * step(0.0, dT) * step(0.0, d);
   rc = mix(rc, rc * vec3(0.72, 0.56, 0.6) + vec3(0.03, 0.0, 0.01), heatB * 0.55);
   // the sweat: soft glossy streaks on the damp wash, a sheen that slides as the heat throbs
   float sheen = smoothstep(0.58, 0.74, nz(W + vec2(uTime * 3.0, -uTime * 2.0), 150.0).b + (F.b - 0.5) * 0.12);
@@ -282,8 +417,8 @@ void main() {
     float br = (4.5 + 5.5 * q1) * smoothstep(0.0, 0.7, bph) * (1.0 - step(0.9, bph));
     float bd = length((W - bp) / vec2(1.0, 0.82)) / max(br, 0.01) + (F.r - 0.5) * 0.3;
     // thick on the bank, and scattered over all the low ground the flood will take, thicker near the line
-    float bandS = step(0.0, d) * (1.0 - smoothstep(10.0 + 40.0 * sw, 18.0 + 60.0 * sw, dp)) * smoothstep(0.08, 0.35, sw);
-    float bandL = step(0.0, d) * lowF * smoothstep(0.15, 0.5, sw);
+    float bandS = step(0.0, dT) * step(0.0, d) * (1.0 - smoothstep(10.0 + 40.0 * sw, 18.0 + 60.0 * sw, dpT)) * smoothstep(0.08, 0.35, sw);
+    float bandL = step(0.0, dT) * step(0.0, d) * lowF * smoothstep(0.15, 0.5, sw);
     float bon = max(step(q0, 0.55) * bandS, step(q0, 0.2 + 0.35 * lowF) * bandL) * step(0.3, br);
     vec3 bcol = mix(vec3(0.99, 0.8, 0.36), vec3(0.93, 0.42, 0.16), smoothstep(0.0, 0.85, length((W - bp + br * vec2(0.3, 0.35)) / max(br, 0.01))));
     rc = mix(rc, rc * vec3(1.25, 0.8, 0.62) + vec3(0.12, 0.03, 0.0), bon * (1.0 - smoothstep(1.0, 2.4, bd)) * 0.55);   // the rock glows warm round it
@@ -314,13 +449,48 @@ void main() {
     float son = step(s0, 0.24) * blot * sin(3.14159 * sph) * smoothstep(0.0, 0.25, heatB);
     rc = mix(rc, vec3(0.6, 0.55, 0.62), clamp(son, 0.0, 1.0) * 0.24);
   }
+  // FRESHLY COOLED ROCK (a Quench crust over the lava, and a hammer's hole just closed): the same
+  // watercolour rock sunk darker and warmer, steam-dark while it is new, with hairline cracks that
+  // glow a dull red and brighten as the lava comes back for it
+  float coolK = max(crK, ghK * step(0.0, d) * 0.85);
+  if (coolK > 0.0) {
+    float fresh = crK * (1.0 - smoothstep(0.0, 1.4, crT));
+    vec3 cooled = vec3(0.13, 0.085, 0.12) + rc * vec3(0.42, 0.36, 0.4);
+    rc = mix(rc, cooled, coolK * 0.8);
+    rc += vec3(0.07, 0.018, 0.0) * coolK;
+    rc = mix(rc, rc * vec3(0.6, 0.55, 0.62), fresh * 0.6);
+    // the steam lifting off it: soft pale wisps drifting up, thinning as it dries
+    float stv = smoothstep(0.52, 0.9, nz(W + vec2(uTime * 7.0, uTime * 30.0), 160.0).g * 0.65 + F.b * 0.35 + 0.1);
+    rc = mix(rc, vec3(0.7, 0.66, 0.72), stv * fresh * 0.42);
+    // the rim still red-hot where it meets the melt
+    rc = mix(rc, vec3(0.78, 0.3, 0.16), exp(-dp / 9.0) * crK * (0.45 + 0.4 * crG));
+    // the slabs: soft gouache pillows, the gaps between them glowing, the glow bleeding into each
+    // slab's rim like wet paint; some gaps have closed (the slabs run together into broader ones)
+    vec2 sl = slabs(W, E, F, 36.0);
+    float ce = sl.x;
+    float gk = max(crG * crK, ghK * 0.5);
+    float open = smoothstep(0.22, 0.5, E.a * 0.6 + F.a * 0.25 + P.b * 0.15 + 0.2 * gk);
+    float rimS = smoothstep(0.0, 12.0, ce);
+    rc *= mix(1.0, (0.72 + 0.28 * rimS) * (1.0 + 0.22 * sl.y), coolK * open);
+    rc = mix(rc, rc * vec3(1.18, 1.1, 1.2) + vec3(0.03, 0.02, 0.04), coolK * smoothstep(0.15, 1.0, sl.y) * rimS * 0.55);
+    float bleed = exp(-ce / (4.0 + 5.0 * gk)) * open;
+    rc = mix(rc, mix(vec3(0.52, 0.14, 0.08), vec3(0.95, 0.42, 0.16), gk), bleed * coolK * (0.45 + 0.4 * gk));
+    float cr = (1.0 - smoothstep(0.6, 2.6 + 1.0 * gk, ce)) * open;
+    rc = mix(rc, mix(vec3(0.8, 0.26, 0.1), vec3(1.0, 0.74, 0.32), gk), cr * coolK * (0.7 + 0.3 * gk));
+  }
   // the lip, lit from the lava below, and the heat climbing the bank as the shores swell
   rc *= 1.0 - 0.3 * exp(-dp / 45.0);                                      // the wash pooled dark at the shore
   rc = mix(rc, vec3(0.42, 0.18, 0.2), (1.0 - smoothstep(0.0, 6.0, dp)) * 0.65);
   rc = mix(rc, vec3(0.93, 0.5, 0.27), exp(-dp / 16.0) * 0.42);
-  float heat = exp(-dp / (14.0 + 40.0 * sw)) * sw * (0.65 + 0.35 * throb);
+  float heat = exp(-dpT / (14.0 + 40.0 * sw)) * sw * (0.65 + 0.35 * throb) * step(0.0, d);
   rc = mix(rc, vec3(1.0, 0.56, 0.18), heat * 0.55);
   rc += glowK;
+  // and the hammer's cracks running out into the rock round its hole
+  if (poCk > 0.0) {
+    float ca = smoothstep(0.15, 1.2, poA);
+    rc = mix(rc, rc * vec3(0.4, 0.33, 0.4), gCk.y * step(0.0, d) * 0.8);
+    rc = mix(rc, mix(vec3(1.0, 0.72, 0.3), vec3(0.42, 0.12, 0.08), ca), gCk.x * step(0.0, d) * (1.0 - 0.5 * ca));
+  }
 
   // ---- LAVA: swirled gouache marbling (mock f's own recipe, laid on the moving melt) --------------
   // A domain-warped mottle (hot gold crests, dark red troughs), marbled swirl lines along the warp,
@@ -362,7 +532,7 @@ void main() {
   lc = mix(lc, vec3(0.588, 0.118, 0.102), dpk * 0.45 * clamp(0.6 + 0.8 * (fb(nz(lw, 480.0).a) - 0.3), 0.0, 1.0));
   // THE SWELL: a bright band hugging every shore, wider and throbbing while the tide gathers
   float bw = 9.0 + 16.0 * sw;
-  float band = exp(-max(Dd, 0.0) / bw);
+  float band = exp(-max(Dd, 0.0) / bw) * (poK > 0.0 ? 0.6 : 1.0);   // a hammer's pool is small: its melt shows
   lc = mix(lc, vec3(1.0, 0.8, 0.275), band * (0.8 + 0.2 * sw * throb));
   float froth = F.r * 0.6 + P.r * 0.4;
   float fw = 12.0 + 22.0 * sw;
@@ -370,6 +540,29 @@ void main() {
   // the bulge beyond: a broad soft swell of darker melt, never narrow enough to read as an old shoreline
   lc = mix(lc, vec3(0.659, 0.157, 0.094), bell(Dd, 22.0 + 18.0 * sw, 16.0 + 6.0 * sw) * (0.18 + 0.12 * sw) * (0.6 + 0.8 * fb(nz(lw, 300.0).g)));
   lc *= 1.0 + (P.g - 0.5) * 0.06;
+  // A HAMMER POOL: fresh lava, brighter and hotter than the tide's; its rock skin breaks into plates
+  // that melt away in its first moments; at the end the melt crusts over from the rim inward (still
+  // lava, the plates dark and the seams bright) until the sim closes it
+  if (poK > 0.0) {
+    lc = mix(lc, vec3(1.0, 0.76, 0.3), 0.28 * (1.0 - smoothstep(-6.0, 0.0, -Dd)));
+    float oa = clamp(poA / 0.3, 0.0, 1.0);
+    float sk = 1.0 - oa;                                                  // the breaking skin
+    float cl = 1.0 - clamp(poRem / 0.9, 0.0, 1.0);                        // the crusting over
+    if (sk + cl > 0.0) {
+    vec2 psl = slabs(W, E, F, 18.0);
+    float pe = psl.x;
+    float front = poR * (1.0 - cl) - 4.0;
+    float ck2 = smoothstep(front - 4.0, front + 4.0, poRho) * step(0.001, cl);
+    float sw2 = mix(1.0, 8.0, oa);
+    float skin = (sk * smoothstep(sw2, sw2 + 1.5, pe)) ;
+    float crust = ck2 * smoothstep(mix(1.1, 0.45, cl), mix(1.1, 0.45, cl) + 0.9, pe);
+    // the plates: the skin dark red and hot; the crust going over to the rock's own cooled violet-brown
+    vec3 pcol = sk > 0.0 ? vec3(0.42, 0.13, 0.08) : mix(vec3(0.34, 0.12, 0.11), vec3(0.2, 0.13, 0.2), cl);
+    pcol *= (0.84 + 0.18 * smoothstep(0.0, 6.0, pe)) * (1.0 + 0.2 * psl.y) * (0.92 + 0.16 * F.b);
+    lc = mix(lc, mix(vec3(1.0, 0.9, 0.55), vec3(1.0, 0.56, 0.2), ck2), (1.0 - smoothstep(0.0, 2.5, pe)) * max(sk, ck2) * 0.7);
+    lc = mix(lc, pcol, max(skin, crust) * 0.92);
+    }
+  }
   // bubbles: big pie-eyed faces crowding the shores when the tide is gathering, the odd pop out deep
   // two grids of them, so they crowd and overlap along the shore instead of standing in a row
   vec4 b1 = bubbles(40.0, -6.0, 7.0 + 18.0 * sw, 0.62 + 0.38 * sw, 0.6 + 0.35 * sw, 8.0, 10.2 + 1.6 * sw, gl, 0.2 + 0.25 * sw, -1.0);
