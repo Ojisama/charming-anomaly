@@ -266,7 +266,7 @@ import {
   SLAG_RANGE, SLAG_FLIGHT, SLAG_TICK, OBSIDIAN_FAN, OBSIDIAN_LIFE, OBSIDIAN_R, SPLINTER_DMG_MUL, SPLINTER_LIFE, SPLINTER_SPEED, SPLINTER_R,
   BELLOWS_LIFE, BELLOWS_FLARE_MUL, BELLOWS_FLARE_R, BELLOWS_FLARE_T, BOMB_RANGE, BOMB_FLIGHT, BOMB_LAVA_R, BOMB_LAVA_T, HOT_FEET_OPEN_MUL, HOT_FEET_BURN_MUL,
   FLOOD_TIDE_COVER_ADD, FLOOD_TIDE_SPEED_MUL, FLOOD_TIDE_BURN_MUL, COAL_FAN, COAL_LIFE, COAL_R, COAL_IGNITE,
-  HAMMER_RANGE, HAMMER_POOL_DPS, HAMMER_POOL_TICK, HAMMER_POOL_PLAYER_DPS, HAMMER_POOL_MIRE, LAVA_WAVE_LIFE, LAVA_WAVE_SHOVE_MUL,
+  HAMMER_RANGE, KETTLE_RANGE, KETTLE_LAVA_STEP, HAMMER_POOL_DPS, HAMMER_POOL_TICK, HAMMER_POOL_PLAYER_DPS, HAMMER_POOL_MIRE, LAVA_WAVE_LIFE, LAVA_WAVE_SHOVE_MUL,
   MANTLE_COLD_VS_LAVA, MANTLE_FIRE_VS_ROCK,
   noiseAt,
   MANTLE_GROUND_STEP, MANTLE_START_DRY, MANTLE_STRAND_STUCK_T, MANTLE_STRAND_SLOW, MANTLE_STRAND_DIE_T, MANTLE_STRAND_DMG_MUL,
@@ -18149,22 +18149,43 @@ function stepMantleGround(run, dt) {
 }
 
 // -- Quench Kettle (The Mantle starter) ------------------------------------------------------------
-// Pours water round you: a crust of radius `radius` at your feet for crustDur s (lava under it is
-// rock), and the splash hits everything in it (water: x MANTLE_COLD_VS_LAVA on a lava creature).
+// Throws water at the closest lava creature in KETTLE_RANGE, else at the nearest lava (under you
+// first): a crust of radius `radius` there for crustDur s (lava under it is rock), and the splash
+// hits everything in it (water: x MANTLE_COLD_VS_LAVA on a lava creature). No lava in range: it
+// splashes round you and lays no crust.
+function kettleSpot(run) {
+  const p = run.player
+  let best = null, bd = KETTLE_RANGE * KETTLE_RANGE
+  for (const e of enemiesNear(run, p.x, p.y, KETTLE_RANGE)) {
+    if (e._dead || isAlly(e) || e.habitat !== 'lava') continue
+    const d = (e.x - p.x) ** 2 + (e.y - p.y) ** 2
+    if (d <= bd) { bd = d; best = e }
+  }
+  if (best) return { x: best.x, y: best.y, crust: true }
+  for (let d = 0; d <= KETTLE_RANGE; d += KETTLE_LAVA_STEP) {
+    const n = d === 0 ? 1 : 16
+    for (let i = 0; i < n; i++) {
+      const x = p.x + Math.cos(i * 2 * Math.PI / n) * d, y = p.y + Math.sin(i * 2 * Math.PI / n) * d
+      if (mantleGroundAt(run, x, y) > 0) return { x, y, crust: true }
+    }
+  }
+  return { x: p.x, y: p.y, crust: false }
+}
 function stepQuenchKettleWeapon(run, w, stats, fireRateMul, dt) {
   const quick = run.weaponMods.quenchKettle?.quickBoil ?? 0
   fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => {
     const p = run.player
+    const at = kettleSpot(run)
     for (const r of ipecacRadii(run, stats.radius)) {
-      run.quenchCrusts.push({ x: p.x, y: p.y, r, t: 0, dur: stats.crustDur })
-      for (const e of enemiesNear(run, p.x, p.y, r, true)) {
+      if (at.crust) run.quenchCrusts.push({ x: at.x, y: at.y, r, t: 0, dur: stats.crustDur })
+      for (const e of enemiesNear(run, at.x, at.y, r, true)) {
         if (e._dead || isAlly(e)) continue
-        if ((e.x - p.x) ** 2 + (e.y - p.y) ** 2 > (r + e.radius) ** 2) continue
+        if ((e.x - at.x) ** 2 + (e.y - at.y) ** 2 > (r + e.radius) ** 2) continue
         applyDamage(run, e, stats.dmg * heatMul(e, 'cold'))
       }
     }
     run.quenchCrusts = capLive(run.quenchCrusts, 'quenchCrusts')
-    run.events.push({ type: 'shoot', weapon: 'quenchKettle', x: p.x, y: p.y, maxR: stats.radius })
+    run.events.push({ type: 'shoot', weapon: 'quenchKettle', x: p.x, y: p.y, tx: at.x, ty: at.y, maxR: stats.radius })
   })
 }
 
@@ -18193,14 +18214,30 @@ function stepHotCoalsWeapon(run, w, stats, fireRateMul, dt) {
 }
 
 // -- Crack Hammer ------------------------------------------------------------------------------------
-// Stamps the ground open under the thickest knots of non-lava walkers in HAMMER_RANGE (bombSpots,
-// distinct spots): the stamp hits what stands there (fire), and a lava pool opens for `duration` s.
-const hammerTarget = (e) => !flies(e) && e.habitat !== 'lava'
+// Stamps the ground open under the closest foes in HAMMER_RANGE, one pool per foe, nearest first and
+// a pool apart: the stamp hits what stands there (fire), and a lava pool opens for `duration` s.
+function hammerSpots(run, n, r) {
+  const p = run.player
+  const near = []
+  for (const e of enemiesNear(run, p.x, p.y, HAMMER_RANGE)) {
+    if (e._dead || isAlly(e) || flies(e)) continue   // a flyer has no ground under it to crack
+    const d = (e.x - p.x) ** 2 + (e.y - p.y) ** 2
+    if (d <= HAMMER_RANGE * HAMMER_RANGE) near.push([d, e])
+  }
+  near.sort((a, b) => a[0] - b[0])
+  const spots = []
+  for (const [, e] of near) {
+    if (spots.length >= n) break
+    if (spots.some((s) => (s.x - e.x) ** 2 + (s.y - e.y) ** 2 < r * r)) continue
+    spots.push({ x: e.x, y: e.y })
+  }
+  return spots
+}
 function stepCrackHammerWeapon(run, w, stats, fireRateMul, dt) {
   const quick = run.weaponMods.crackHammer?.quickStamp ?? 0
   fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => {
     const p = run.player
-    const spots = bombSpots(run, ipecacN(run, Math.round(stats.pools)), stats.r, HAMMER_RANGE, hammerTarget)
+    const spots = hammerSpots(run, ipecacN(run, Math.round(stats.pools)), stats.r)
     for (const sp of spots) {
       run.lavaPools.push({ x: sp.x, y: sp.y, r: stats.r, t: 0, dur: stats.duration, dps: stats.dmg * HAMMER_POOL_DPS, _tick: HAMMER_POOL_TICK })
       for (const e of enemiesNear(run, sp.x, sp.y, stats.r, true)) {

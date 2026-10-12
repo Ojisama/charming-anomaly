@@ -40817,18 +40817,19 @@ function testMantle() {
     const noCrit = (r) => { r.player.critChance = 0; r.passives.critChance = 0 }
     const taken = (bodies) => bodies.map((b) => 1e6 - b.hp)
     {
-      // MT.e1: Quench Kettle splashes round you (water: x MANTLE_COLD_VS_LAVA on a lava creature) and
-      // lays a crust at your feet
-      const { r, bodies } = arena('quenchKettle', () => [[60, 0], [-60, 0], [0, 60]])
+      // MT.e1: Quench Kettle throws its water at the CLOSEST lava creature (not the closest body, not a
+      // farther lava one): a crust there, and the splash (water: x MANTLE_COLD_VS_LAVA on a lava
+      // creature) hits what stands round it
+      const { r, bodies } = arena('quenchKettle', () => [[150, 0], [150, 30], [150, -30], [-250, 0], [0, 70]])
       noCrit(r)
-      bodies[0].habitat = 'lava'; bodies[1].habitat = 'rock'
+      bodies[0].habitat = 'lava'; bodies[1].habitat = 'rock'; bodies[3].habitat = 'lava'; bodies[4].habitat = 'rock'
       r.weaponTimers.quenchKettle = 0
       step(r, 1)
-      const [lava, rock, none] = taken(bodies)
-      assert.ok(rock > 0 && Math.abs(lava / rock - MANTLE_COLD_VS_LAVA) < 0.05 && none === rock,
-        `run MT.e1: the kettle's splash should hurt a lava creature x${MANTLE_COLD_VS_LAVA} a rock one (and a habitat-less body like a rock one): ${lava} / ${rock} / ${none}`)
+      const [lava, rock, none, far, close] = taken(bodies)
+      assert.ok(rock > 0 && Math.abs(lava / rock - MANTLE_COLD_VS_LAVA) < 0.05 && none === rock && far === 0 && close === 0,
+        `run MT.e1: the kettle's splash should land on the closest lava creature, x${MANTLE_COLD_VS_LAVA} on it vs a rock one beside it, nothing on the far lava one or the nearer rock one: ${lava} / ${rock} / ${none} / ${far} / ${close}`)
       const c = r.quenchCrusts[0]
-      assert.ok(c && Math.hypot(c.x - r.player.x, c.y - r.player.y) < 1 && c.r > 0, 'run MT.e1: the kettle lays a crust at your feet')
+      assert.ok(c && Math.hypot(c.x - bodies[0].x, c.y - bodies[0].y) < 1 && c.r > 0, 'run MT.e1: the kettle lays its crust on the closest lava creature')
     }
     {
       const { r, bodies } = arena('hotCoals', () => [[150, 0], [230, 40], [300, -30]])
@@ -40837,20 +40838,21 @@ function testMantle() {
       assert.ok(hit >= 2, `run MT.e: a coal should bounce on to a second body: ${hit} hit`)
     }
     {
-      // MT.e2: Crack Hammer opens its pool under the non-lava bodies, never under a lava creature, and
-      // its fire hurts a rock creature x MANTLE_FIRE_VS_ROCK
-      // the lava knot is the DENSER one (three against two), so a hammer that ignored habitat would crack there
-      const { r, bodies } = arena('crackHammer', () => [[200, 0], [200, 30], [-200, 0], [-200, 25], [-225, 0]])
+      // MT.e2: Crack Hammer cracks the ground under the CLOSEST foe, and its fire hurts a rock creature
+      // x MANTLE_FIRE_VS_ROCK. The far knot is the DENSER one (three against two) and a flyer is closer
+      // still, so a hammer that went for crowds or for flyers would crack elsewhere
+      const { r, bodies } = arena('crackHammer', () => [[150, 0], [150, 30], [-250, 0], [-250, 25], [-275, 0], [0, 60]])
       noCrit(r)
-      bodies[0].habitat = 'rock'; for (const b of bodies.slice(2)) b.habitat = 'lava'
+      bodies[0].habitat = 'rock'; for (const b of bodies.slice(2, 5)) b.habitat = 'rock'
+      bodies[5].flags = ['flying']
       r.weaponTimers.crackHammer = 0
       step(r, 1)
-      const [rock, none, lava, lava2, lava3] = taken(bodies)
+      const [rock, none, far, far2, far3] = taken(bodies)
       const near = (b) => r.lavaPools.some((q) => Math.hypot(q.x - b.x, q.y - b.y) <= q.r)
-      assert.ok(r.lavaPools.length >= 1 && near(bodies[0]) && !near(bodies[2]),
-        `run MT.e2: the hammer cracks the ground under the rock creature and not the lava one: ${JSON.stringify(r.lavaPools.map((q) => [Math.round(q.x - r.player.x), Math.round(q.y - r.player.y)]))}`)
-      assert.ok(none > 0 && lava + lava2 + lava3 === 0 && Math.abs(rock / none - MANTLE_FIRE_VS_ROCK) < 0.05,
-        `run MT.e2: the stamp's fire hurts a rock creature x${MANTLE_FIRE_VS_ROCK} a habitat-less one, and reaches no lava creature 400px off: ${rock} / ${none} / ${lava}`)
+      assert.ok(r.lavaPools.length === 1 && near(bodies[1]) && !near(bodies[2]) && !near(bodies[5]),
+        `run MT.e2: the hammer cracks the ground under the closest walking foe, not the denser knot nor the flyer: ${JSON.stringify(r.lavaPools.map((q) => [Math.round(q.x - r.player.x), Math.round(q.y - r.player.y)]))}`)
+      assert.ok(none > 0 && far + far2 + far3 === 0 && Math.abs(rock / none - MANTLE_FIRE_VS_ROCK) < 0.05,
+        `run MT.e2: the stamp's fire hurts a rock creature x${MANTLE_FIRE_VS_ROCK} a habitat-less one, and reaches no far body: ${rock} / ${none} / ${far}`)
       const before = taken(bodies)[0]
       step(r, 60)
       assert.ok(taken(bodies)[0] > before, 'run MT.e2: the open pool keeps burning the rock creature standing in it')
