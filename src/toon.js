@@ -94,14 +94,23 @@ function keyline(f) {
   const [x0, y0, x1, y1] = PLAYER_BOX
   const bare = mkCanvas((x1 - x0) * RES, (y1 - y0) * RES), bx = bare.getContext('2d')
   bx.scale(RES, RES); bx.translate(-x0, -y0); paintPlayer(bx, f, true)
-  const cv = mkCanvas(bare.width, bare.height), c = cv.getContext('2d')
-  // fat on the shadow side (lower right), thin toward the light, and a little uneven all round: a brush
-  for (let i = 0; i < 24; i++) {
-    const a = (i / 24) * TAU, R = RES * (1.3 + 1.6 * Math.max(0, Math.cos(a - 0.98)) + 0.35 * Math.sin(a * 5 + f * 1.7))
-    c.drawImage(bare, Math.cos(a) * R, Math.sin(a) * R)
+  // grown silhouette of the bare body by radius k (in world px), filled with one colour
+  const grow = (k0, k1, col) => {
+    const g = mkCanvas(bare.width, bare.height), c = g.getContext('2d')
+    // fat on the shadow side (lower right), thin toward the light, and a little uneven all round: a brush
+    for (let i = 0; i < 32; i++) {
+      const a = (i / 32) * TAU, R = RES * (k0 + k1 * Math.max(0, Math.cos(a - 0.98)) + 0.35 * Math.sin(a * 5 + f * 1.7))
+      c.drawImage(bare, Math.cos(a) * R, Math.sin(a) * R)
+    }
+    c.globalCompositeOperation = 'source-in'
+    c.fillStyle = col; c.fillRect(0, 0, g.width, g.height)
+    return g
   }
-  c.globalCompositeOperation = 'source-in'
-  c.fillStyle = PAL.ink ?? '#1e1513'; c.fillRect(0, 0, cv.width, cv.height)
+  // a cel cut out of the crowd: a fat ink contour, and round it a thin cream paper margin (the colour
+  // no creature of this chapter wears), so the digger reads at a glance even inside a clump of imps
+  const cv = mkCanvas(bare.width, bare.height), c = cv.getContext('2d')
+  c.drawImage(grow(3.4, 1.8, PAL.paper ?? '#f3e6c4'), 0, 0)
+  c.drawImage(grow(1.9, 1.7, PAL.ink ?? '#1e1513'), 0, 0)
   return cv
 }
 // ---- the renderer --------------------------------------------------------------------------------
@@ -158,7 +167,7 @@ export function createToonRenderer(host) {
   const shots = pool(shotLayer), forks = pool(shotLayer), puffs = pool(shotLayer), wades = pool(fxLayer), pwade = pool(playerFx), licks = pool(fxLayer), sweats = pool(fxLayer)
   const playerKey = new Sprite(T.player[0].key)
   playerKey.anchor.set(T.player[0].ax, T.player[0].ay)
-  playerKey.alpha = 0.9
+  playerKey.alpha = 1
   const playerSprite = new Sprite(T.player[0].tex)
   playerSprite.anchor.set(T.player[0].ax, T.player[0].ay)
   playerLayer.addChild(playerKey, playerSprite)
@@ -253,6 +262,9 @@ export function createToonRenderer(host) {
     sync(run, dt, view) {
       if (!look) return
       t = view.animT
+      // the world's and the film's clock: the sim's own time (it runs with the game, stops when it is
+      // paused), so the lava churns and every speck of dust, hair and scratch lands somewhere new
+      const clock = run.time ?? t
       const tide = lavaTideOf(run) ?? { L: DRY_GROUND, T: { seed: 0, line: -1, swell: 0 } }
       const p = run.player
       const pad = 160
@@ -290,7 +302,7 @@ export function createToonRenderer(host) {
         const ph = run.lavaTide?.phase
         if (ph === 'flood' || ph === 'falling') { wetLine = Math.max(wetLine, TD.line); wetK = 1 }
         else { wetK = Math.max(0, wetK - dt / 9); if (wetK === 0) wetLine = -1 }
-        u.uLine = TD.line; u.uSwell = TD.swell; u.uTime = t; u.uPulse = pulse
+        u.uLine = TD.line; u.uSwell = TD.swell; u.uTime = clock; u.uPulse = pulse
         u.uFlood = run.lavaTide ? Math.max(floodLine, maxLine) : -1
         u.uWet = wetLine; u.uWetK = wetK
       }
@@ -358,12 +370,13 @@ export function createToonRenderer(host) {
       const inv = p.invuln ?? 0
       const pf = T.player[moving ? fi(t * 8, 4) : 0]
       // hurt: the old cartoon way, never a fade. For the first moment of the sim's invulnerability
-      // clock the digger blinks red-hot (a tint, at full opacity), and for all of it a ring of little
+      // clock the digger's paper margin blinks dark (never a tint on the body), and for all of it a ring of little
       // inked stars spins round its hat — solid and readable over the crowd, and plainly "hit"
       const hurt = inv > 0.4 && Math.floor(inv * 14) % 2 === 0
       if (playerSprite.texture !== pf.tex) playerSprite.texture = pf.tex
       if (playerKey.texture !== pf.key) playerKey.texture = pf.key
-      playerSprite.tint = hurt ? 0xffa088 : 0xffffff
+      // no tint (a red-tinted digger melts into the imps): the hit shows as the paper margin blinking
+      playerKey.tint = hurt ? 0x2a1c18 : 0xffffff
       dazes.begin()
       if (inv > 0) for (let k = 0; k < 3; k++) {
         const a = t * 7 + (k / 3) * TAU
@@ -416,7 +429,7 @@ export function createToonRenderer(host) {
       }
       puffs.end()
       // the film's clock and its gate weave
-      filmU.uniforms.uTime = t
+      filmU.uniforms.uTime = clock
       const wv = filmU.uniforms.uWeave
       wv[0] = Math.sin(t * 1.7) * (look.weave ?? 0.6) * 0.6; wv[1] = Math.sin(t * 2.3 + 1) * (look.weave ?? 0.6)
     },
