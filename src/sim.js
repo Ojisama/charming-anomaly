@@ -18193,14 +18193,30 @@ function stepHotCoalsWeapon(run, w, stats, fireRateMul, dt) {
 }
 
 // -- Crack Hammer ------------------------------------------------------------------------------------
-// Stamps the ground open under the thickest knots of non-lava walkers in HAMMER_RANGE (bombSpots,
-// distinct spots): the stamp hits what stands there (fire), and a lava pool opens for `duration` s.
-const hammerTarget = (e) => !flies(e) && e.habitat !== 'lava'
+// Stamps the ground open under the closest foes in HAMMER_RANGE, one pool per foe, nearest first and
+// a pool apart: the stamp hits what stands there (fire), and a lava pool opens for `duration` s.
+function hammerSpots(run, n, r) {
+  const p = run.player
+  const near = []
+  for (const e of enemiesNear(run, p.x, p.y, HAMMER_RANGE)) {
+    if (e._dead || isAlly(e) || flies(e)) continue   // a flyer has no ground under it to crack
+    const d = (e.x - p.x) ** 2 + (e.y - p.y) ** 2
+    if (d <= HAMMER_RANGE * HAMMER_RANGE) near.push([d, e])
+  }
+  near.sort((a, b) => a[0] - b[0])
+  const spots = []
+  for (const [, e] of near) {
+    if (spots.length >= n) break
+    if (spots.some((s) => (s.x - e.x) ** 2 + (s.y - e.y) ** 2 < r * r)) continue
+    spots.push({ x: e.x, y: e.y })
+  }
+  return spots
+}
 function stepCrackHammerWeapon(run, w, stats, fireRateMul, dt) {
   const quick = run.weaponMods.crackHammer?.quickStamp ?? 0
   fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => {
     const p = run.player
-    const spots = bombSpots(run, ipecacN(run, Math.round(stats.pools)), stats.r, HAMMER_RANGE, hammerTarget)
+    const spots = hammerSpots(run, ipecacN(run, Math.round(stats.pools)), stats.r)
     for (const sp of spots) {
       run.lavaPools.push({ x: sp.x, y: sp.y, r: stats.r, t: 0, dur: stats.duration, dps: stats.dmg * HAMMER_POOL_DPS, _tick: HAMMER_POOL_TICK })
       for (const e of enemiesNear(run, sp.x, sp.y, stats.r, true)) {
