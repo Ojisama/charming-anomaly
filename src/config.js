@@ -3145,11 +3145,12 @@ export const WEAPONS = {
     ],
   },
   // ---- Book 3, The Mantle's four. All auto-fire, none aimed: each one is a way to use the lava. ----
-  // Quench Kettle: throws water at the nearest lava creature (else the nearest lava) on a timer (run.quenchCrusts). Lava inside the
-  // splash cools into a basalt CRUST for crustDur s: dry rock for your burn, your boat and the crowd.
+  // Quench Kettle: throws water at the nearest Crack Hammer pool (a steam blast, the pool spent), else
+  // the nearest lava creature, else the nearest lava (run.quenchCrusts). Lava inside the splash cools
+  // into a basalt CRUST for crustDur s; on the boat you ride it cools the hull instead (sim.js).
   quenchKettle: {
     name: 'Quench Kettle',
-    desc: 'Throws water at the nearest lava creature. The lava it splashes cools into a crust you can stand on.',
+    desc: "Waters the lava: it hardens into a crust to walk on. On the hammer's lava, a burst of steam; on your boat, it cools the hull.",
     icon: '🫖', rarity: 'normal',
     // balance_decision : starter AoE round you, unplayed 2026-10-12
     levels: [
@@ -6814,6 +6815,12 @@ export const HAMMER_POOL_MIRE = 0.4      // x a rock creature's movement while i
 // balance_decision : lava creatures gnaw a crust, capped so it stays a refuge 2026-10-12
 export const KETTLE_CRUST_GNAW = 0.3     // s of extra age per s a crust takes from each lava creature touching it
 export const KETTLE_CRUST_GNAW_MAX = 4   // gnawing creatures counted at most (a crust lasts >= 1/(1 + 0.3*4) of its dur)
+// balance_decision : kettle combos, steam on a pool, cool hull 2026-10-13
+//  - the hull budget is per ride (reset on boarding), so a fast kettle cannot float a boat forever
+export const KETTLE_STEAM_MUL = 2.5      // x the kettle's damage, a steam blast on everything round a hammer pool it splashes
+export const KETTLE_STEAM_R = 1.6        // the blast's reach, as a multiple of the pool's radius
+export const KETTLE_HULL_COOL = 1.2      // s of float a splash on your boat gives back
+export const KETTLE_HULL_MAX = 1         // ...at most this many full floats (boats.float) per ride
 export const LAVA_WAVE_LIFE = 0.5        // s for the bellows' wave to roll out to its reach
 export const LAVA_WAVE_SHOVE_MUL = 2.5   // x the wave's knockback on a lava creature (which it never hurts)
 // THE TYPE RULE: water hurts lava creatures more, fire hurts rock creatures more (sim.js heatMul).
@@ -9876,7 +9883,8 @@ CHAPTERS.mantle = {
     //  - elites take eliteMul of the burn; every elite here flies and takes none at all
     lavaTide: {
       wave: 640, ridgeWave: 950, ridgeMix: 0.38,
-      ebbCover: 0.1, floodCover: 0.74,
+      // balance_decision : double the lava, ~41% -> ~82% of the map on average 2026-10-13
+      ebbCover: 0.74, floodCover: 0.9,
       firstEbb: 10, holdEbb: 13, rise: 15, holdFlood: 11, fall: 15, jitter: 0.15, swellT: 4,
       tick: 0.25, burnFlat: 3, burnPct: 0.18, eliteMul: 0.3, playerBurn: 1.5, reach: 1700,
       // HIGH WATER (the chapter's mutator): the tide never ebbs below this level.

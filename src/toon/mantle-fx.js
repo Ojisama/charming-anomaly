@@ -564,7 +564,7 @@ export function createMantleFx({ ground, boat, top }) {
         n++
         if (sp.texture !== a.tex) sp.texture = a.tex
         sp.anchor.set(a.ax ?? 0.5, a.ay ?? 0.5)
-        sp.visible = true; sp.alpha = 1; sp.rotation = 0; sp.scale.set(1)
+        sp.visible = true; sp.alpha = 1; sp.rotation = 0; sp.scale.set(1); sp.tint = 0xffffff
         return sp
       },
       end() { for (let i = n; i < list.length; i++) list[i].visible = false },
@@ -582,8 +582,8 @@ export function createMantleFx({ ground, boat, top }) {
     reset() { pour = null; bursts.length = 0; waves.clear(); for (const g of GS) g.clear(); hideAll() },
     event(e) {
       if (e.type === 'shoot' && e.weapon === 'quenchKettle') { pour = { x: e.tx ?? e.x, y: e.ty ?? e.y, r: e.maxR || 100, t: 0 }; return false }
-      if (e.type !== 'melt' && e.type !== 'crumble' && e.type !== 'boatSink') return false
-      bursts.push({ kind: e.type, x: e.x, y: e.type === 'boatSink' ? e.y + BOAT_DY : e.y, r: e.r || (e.type === 'boatSink' ? 30 : 14), t: 0, seed: Math.floor(Math.abs(e.x * 7 + e.y * 13)) })
+      if (e.type !== 'melt' && e.type !== 'crumble' && e.type !== 'boatSink' && e.type !== 'steamBlast' && e.type !== 'hullCool') return false
+      bursts.push({ kind: e.type, x: e.x, y: e.type === 'boatSink' || e.type === 'hullCool' ? e.y + BOAT_DY : e.y, r: e.r || (e.type === 'boatSink' ? 30 : 14), t: 0, seed: Math.floor(Math.abs(e.x * 7 + e.y * 13)) })
       if (bursts.length > 80) bursts.shift()
       return true
     },
@@ -1021,6 +1021,24 @@ export function createMantleFx({ ground, boat, top }) {
             const a = -Math.PI / 2 + (rh(i, b.seed, 1) - 0.5) * 3.4, d = b.r * (0.8 + (2.4 + 1.6 * rh(i, b.seed, 2)) * k)
             const dr = low.next(P.lavaDrop)
             dr.position.set(b.x + Math.cos(a) * d, b.y + Math.sin(a) * d * 0.6 + 40 * k * k); dr.rotation = a + Math.PI / 2 + k * 2; dr.scale.set(0.6 * (1 - 0.4 * k)); dr.alpha = 1 - smooth(0.7, 1, k)
+          }
+        } else if (b.kind === 'steamBlast') {
+          // water on the hammer's lava: a white gout of steam bursting up and out over the whole reach,
+          // a ring of puffs rolling outward, the pool's splat cooling grey under it
+          const sp = low.next(P.splat[b.seed & 1])
+          sp.position.set(b.x, b.y); sp.scale.set((b.r / 30) * (0.7 + 0.4 * Math.min(1, k * 5))); sp.alpha = 0.8 * (1 - smooth(0.4, 1, k)); sp.tint = 0x8a8a96
+          const big = tools.next(P.steam[b.seed % 6])
+          big.position.set(b.x, b.y - b.r * (0.2 + 0.7 * k)); big.scale.set((b.r / 60) * (0.5 + 1.1 * Math.min(1, k * 3)) * (1 - smooth(0.7, 1, k)))
+          for (let i = 0; i < 8; i++) {
+            const a = (i / 8) * TAU + b.seed * 0.7, d = b.r * (0.25 + 0.85 * Math.sqrt(k))
+            const st = tools.next(P.steam[(b.seed + i + 1) % 6])
+            st.position.set(b.x + Math.cos(a) * d, b.y + Math.sin(a) * d * 0.6 - 26 * k); st.scale.set((b.r / 110) * (0.4 + 0.8 * Math.min(1, k * 4)) * (1 - smooth(0.6, 1, k)))
+          }
+        } else if (b.kind === 'hullCool') {
+          // the kettle's water on your hot hull: a hiss of steam off both sides, rising
+          for (let i = 0; i < 3; i++) {
+            const st = tools.next(P.steam[(b.seed + i) % 6])
+            st.position.set(b.x + (i - 1) * 22, b.y - 14 - k * (26 + 8 * i)); st.scale.set(0.42 * (0.4 + k) * (1 - smooth(0.6, 1, k)))
           }
         } else if (b.kind === 'boatSink') {
           // gone under: a lava splash ring, planks flung up and out, a gout of steam, bubbles

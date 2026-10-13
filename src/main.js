@@ -665,6 +665,8 @@ const SFX_FOR_EVENT = {
   tideTurn: 'surge',
   // ...and the boat you rode going under: once a ride, so it bears the same swell.
   boatSink: 'surge',
+  // ...and the kettle's water on a hammer pool: a burst, at most once a pour, so the throttled crush.
+  steamBlast: 'crush',
   // v5.21 lane (beyond): the active shove reuses the hole whoosh, and a rock clipping the player
   // is an ordinary hurt — it is damage, not a special occasion.
   repulse: 'hole', rockhit: 'hurt',

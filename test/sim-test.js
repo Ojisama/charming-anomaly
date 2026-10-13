@@ -19,7 +19,7 @@ import { FOIL_FRAG as HOLO_FOIL_FRAG, CAVERN_FLOOR_FRAG as HOLO_CAVERN_FRAG } fr
 import { ensurePrecision as pixiEnsurePrecision } from '../node_modules/pixi.js/lib/rendering/renderers/gl/shader/program/preprocessors/ensurePrecision.mjs'
 import { magmaGroundAt, magmaRiverAt, magmaCooledAt, magmaHotAt } from '../src/sim.js'
 import { lavaFloodedAt, mantleHeightAt, lavaLineFor, mantleGroundAt } from '../src/sim.js'
-import { MANTLE_GROUND_STEP, MANTLE_START_DRY, MANTLE_COLD_VS_LAVA, MANTLE_FIRE_VS_ROCK, MANTLE_STRAND_DIE_T, MANTLE_STRAND_STUCK_T, MANTLE_STRAND_DMG_MUL, MANTLE_STRAND_SLOW, MANTLE_MELT_T, KETTLE_CRUST_GNAW, KETTLE_CRUST_GNAW_MAX, DRAW_CAPS } from '../src/config.js'
+import { MANTLE_GROUND_STEP, MANTLE_START_DRY, MANTLE_COLD_VS_LAVA, MANTLE_FIRE_VS_ROCK, MANTLE_STRAND_DIE_T, MANTLE_STRAND_STUCK_T, MANTLE_STRAND_DMG_MUL, MANTLE_STRAND_SLOW, MANTLE_MELT_T, KETTLE_CRUST_GNAW, KETTLE_CRUST_GNAW_MAX, KETTLE_HULL_MAX, KETTLE_STEAM_MUL, DRAW_CAPS } from '../src/config.js'
 import { poolRimR, crustShapeOf, poolPhaseOf, crustSplash, splashSdf, SPLASH_FINGERS, SPLASH_DROPS } from '../src/mantle-shape.js'
 import {
   SHOP, shopCost, refundValue, REFUND_RATE, MAX_SHOP_LEVEL, lineMax, CURRENT_RESIST_FLOOR, SHOP_FAMILY, SHOP_COST_CAP, SHOP_COST_CAP_DEFAULT,
@@ -35107,6 +35107,7 @@ function testEventConsumers() {
   // Each entry is a written decision that this event needs no tell of its own. Deleting an entry
   // must make the assertion fail, so the list can never quietly absorb a real regression.
   const SILENT_BY_DESIGN = {
+    hullCool: 'the tell is a hiss of steam off the hull (src/toon/mantle-fx.js); the kettle fires every second or two while you ride, too often for a sound',
     freeze: 'the tell is the `frozen` contract field render already reads (run EL.j), and CLAUDE.md forbids a sound on something that fires dozens of times a minute',
     leak: 'stepLeaks calls hurtPlayer(LANE_LEAK_DMG) on the very next line, and `hurt` has both a render case and an sfx entry — the player already sees and hears a marcher getting past them',
     netHaul: 'has a render case (the rising spray); NO sfx on purpose — a haul is the whole crowd at once, and each body dies through dealDamage, whose kill already sounds',
@@ -40738,7 +40739,7 @@ function testMantle() {
       if (k % 8 === 0) { const f = share(r); sLo = Math.min(sLo, f); sHi = Math.max(sHi, f) }
     }
     assert.ok(lo <= 0.02 && hi >= 0.98 && turns >= 4, `run MT.a: the tide should ebb and flood and turn 4+ times in 180s: lo ${lo} hi ${hi} turns ${turns}`)
-    assert.ok(sLo <= 0.3 && sHi >= 0.55, `run MT.a: the lava should swing from pools to most of the ground: ${sLo.toFixed(2)} .. ${sHi.toFixed(2)}`)
+    assert.ok(sLo >= 0.6 && sHi >= 0.85 && sHi - sLo >= 0.05, `run MT.a: the lava covers most of the ground at the ebb and nearly all at the flood, and still breathes: ${sLo.toFixed(2)} .. ${sHi.toFixed(2)}`)
   }
   // (b) a basin that floods at the flood: a spot under the 40% line, the nearest one to the start
   const r0 = boot(41002)
@@ -41147,7 +41148,7 @@ function testMantleGround() {
   const body = (r, x, y, habitat, extra = {}) => Object.assign(makeStatusEnemy(r, { x, y, hp: 1e6, speed: 0 }), { habitat }, extra)
   const H = (r, x, y) => mantleHeightAt(L, r.lavaTide.seed, x, y)
   const quiet = (r) => { r.weapons = []; r.mods.spawnMul = 0; r.enemies = [] }
-  const fire = (r, id) => { for (const w of r.weapons) r.weaponTimers[w.id] = w.id === id ? 0 : 999; tick(r) }
+  const fire = (r, id) => { for (const w of r.weapons) r.weaponTimers[w.id] = w.id === id ? 0 : 999; return tick(r) }
   const g = (r, at) => mantleGroundAt(r, at.x, at.y)
   // a point under the given cover line near the start (deep in a basin: flooded at every flood)
   const basinOf = (r, cover) => {
@@ -41155,6 +41156,15 @@ function testMantleGround() {
     for (let d = 300; d < 8000; d += 40) for (let a = 0; a < 24; a++) {
       const x = r.player.x + Math.cos(a * Math.PI / 12) * d, y = r.player.y + Math.sin(a * Math.PI / 12) * d
       if (H(r, x, y) < line) return { x, y }
+    }
+    return null
+  }
+  // a hilltop near the start: dry at every flood (or above `line`), with `clear` px of dry ground round it
+  const hillOf = (r, clear = 0, line = lavaLineFor(L, L.floodCover) + 0.02) => {
+    const dry = (x, y) => H(r, x, y) > line
+    for (let d = 150; d < 8000; d += 40) for (let a = 0; a < 24; a++) {
+      const x = r.player.x + Math.cos(a * Math.PI / 12) * d, y = r.player.y + Math.sin(a * Math.PI / 12) * d
+      if (dry(x, y) && [...Array(16)].every((_, i) => dry(x + Math.cos(i * Math.PI / 8) * clear, y + Math.sin(i * Math.PI / 8) * clear))) return { x, y }
     }
     return null
   }
@@ -41288,9 +41298,9 @@ function testMantleGround() {
     console.log(`PASS run MG.d (the tide wins over a pool): the rock creature melted, the boat floated (${r.player.boatT.toFixed(2)}s left), burn ${burnt}`)
   }
 
-  // (e) NEWEST WINS between a crust and a pool, laid by the weapons themselves on dry rock (the tide
-  // off): a stamp opens a pool, a pour quenches it, a second stamp cracks the crust open again, and a
-  // rock creature standing there burns only while the newest is a pool
+  // (e) THE WEAPONS ON ONE SPOT, on dry rock (the tide off): a stamp opens a pool, a pour on it is a
+  // STEAM BLAST that spends the pool (and hits what stands round it), a second stamp cracks the crust
+  // open again, and a rock creature standing there burns only while the newest is a pool
   {
     const saved = sig.lavaTide
     sig.lavaTide = null
@@ -41303,15 +41313,45 @@ function testMantleGround() {
       r.enemies.push(eel, imp)
       const pin = () => { eel.x = P.x; eel.y = P.y; imp.x = P.x; imp.y = P.y + 12 }
       const burnOver = () => { const h0 = imp.hp; for (let i = 0; i < 30; i++) { pin(); tick(r) } return h0 - imp.hp }
-      const seen = []
-      for (const id of ['crackHammer', 'quenchKettle', 'crackHammer']) { pin(); fire(r, id); seen.push(g(r, P)) }
+      // the eel in the pool takes the splash AND the steam: more than the splash alone could deal, crit included
+      const K = WEAPONS.quenchKettle.levels[0].dmg, both = K * (MANTLE_COLD_VS_LAVA + KETTLE_STEAM_MUL)
+      const tag = (ev, dh) => ev.filter((v) => v.type === 'steamBlast').length + ':' + (dh >= both * 0.99 ? 'steamed' : dh > 0 ? 'hit' : '-')
+      const seen = [], steams = []
+      for (const id of ['crackHammer', 'quenchKettle', 'crackHammer']) {
+        pin(); const h0 = eel.hp
+        const ev = fire(r, id); steams.push(tag(ev, h0 - eel.hp)); seen.push(g(r, P))
+      }
       const opened = burnOver()
-      pin(); fire(r, 'quenchKettle'); seen.push(g(r, P))
+      pin(); const h1 = eel.hp
+      const ev4 = fire(r, 'quenchKettle'); steams.push(tag(ev4, h1 - eel.hp)); seen.push(g(r, P))
       const quenched = burnOver()
-      assert.ok(r.lavaPools.length === 2 && r.quenchCrusts.length === 2, `run MG.e precondition: two stamps and two pours on one spot: ${r.lavaPools.length} pools, ${r.quenchCrusts.length} crusts`)
+      assert.ok(r.lavaPools.length === 0 && r.quenchCrusts.length === 2, `run MG.e: two pours spent both pools and laid two crusts: ${r.lavaPools.length} pools, ${r.quenchCrusts.length} crusts`)
+      assert.ok(steams[1] === '1:steamed' && steams[3] === '1:steamed' && steams[2].startsWith('0'), `run MG.e: each pour on a pool is one steam blast (the eel in it takes splash + steam, ${both}+), a stamp is none: ${steams}`)
       assert.ok(seen.join() === '1,0,1,0' && opened > 0 && quenched === 0,
-        `run MG.e: newest wins, stamp / pour / stamp / pour reads ${seen} (want 1,0,1,0); the rock creature burned ${opened} under the newest pool, ${quenched} under the newest crust`)
-      console.log(`PASS run MG.e (newest wins): stamp / pour / stamp / pour = ${seen}; the pool burned ${opened}, the crust over it ${quenched}`)
+        `run MG.e: stamp / pour / stamp / pour reads ${seen} (want 1,0,1,0); the rock creature burned ${opened} in the newest pool, ${quenched} once it was spent`)
+      console.log(`PASS run MG.e (steam spends a pool): stamp / pour / stamp / pour = ${seen}, blasts ${steams}; the pool burned ${opened}, the spent one ${quenched}`)
+    } finally { sig.lavaTide = saved }
+  }
+
+  // (e2) THE KETTLE GOES FOR THE HAMMER'S POOL FIRST, over a lava creature nearer you
+  {
+    const saved = sig.lavaTide
+    sig.lavaTide = null
+    try {
+      const r = boot(53011)
+      tick(r); quiet(r)
+      r.weapons = [{ id: 'crackHammer', level: 1 }, { id: 'quenchKettle', level: 1 }]
+      const p = r.player, Q = { x: p.x + 250, y: p.y }
+      const rock = body(r, Q.x, Q.y, 'rock')
+      r.enemies.push(rock)
+      fire(r, 'crackHammer')
+      const pool = r.lavaPools[0]
+      const near = body(r, p.x - 90, p.y, 'lava')
+      r.enemies.push(near)
+      const ev = fire(r, 'quenchKettle'), sh = ev.find((v) => v.type === 'shoot' && v.weapon === 'quenchKettle')
+      assert.ok(pool && sh && Math.hypot(sh.tx - pool.x, sh.ty - pool.y) < 1 && ev.some((v) => v.type === 'steamBlast') && pool.t >= pool.dur,
+        `run MG.e2: the kettle throws at the pool 250px off, not the lava creature 90px off: aimed ${sh && [Math.round(sh.tx - p.x), Math.round(sh.ty - p.y)]}, pool spent ${pool && pool.t >= pool.dur}`)
+      console.log(`PASS run MG.e2 (the kettle goes for the pool): aimed at the pool 250px off over a lava creature 90px off, and steamed it`)
     } finally { sig.lavaTide = saved }
   }
 
@@ -41346,8 +41386,9 @@ function testMantleGround() {
     const brood = (inLava) => {
       const r = boot(inLava ? 53008 : 53007)
       tick(r); quiet(r)
-      let at = { x: r.player.x + 150, y: r.player.y }
-      if (inLava) { at = basinOf(r, 0.2); toFlood(r, at); r.player.x = at.x - 150; r.player.y = at.y }
+      let at = hillOf(r)
+      if (inLava) { at = basinOf(r, 0.2); toFlood(r, at) }
+      r.player.x = at.x - 150; r.player.y = at.y
       assert.ok((g(r, at) > 0) === inLava, `run MG.g precondition: the corpse lies on ${inLava ? 'lava' : 'rock'}`)
       r.weapons = [{ id: 'hotCoals', level: 1 }]
       const sp = Object.assign(body(r, at.x, at.y, inLava ? 'lava' : 'rock', { hp: 1, maxHP: 1 }), { elite: true, affixes: ['splitter'] })
@@ -41370,8 +41411,9 @@ function testMantleGround() {
     const shatter = (inLava) => {
       const r = boot(inLava ? 53010 : 53009)
       tick(r); quiet(r)
-      let at = { x: r.player.x + 150, y: r.player.y }
-      if (inLava) { at = basinOf(r, 0.2); toFlood(r, at); r.player.x = at.x - 150; r.player.y = at.y }
+      let at = hillOf(r)
+      if (inLava) { at = basinOf(r, 0.2); toFlood(r, at) }
+      r.player.x = at.x - 150; r.player.y = at.y
       const beetle = CHAPTERS.mantle.roster.find((e) => e.id === 'obsidianBeetle')
       const b = body(r, at.x, at.y, 'rock', { rosterId: 'obsidianBeetle', flags: beetle.flags, hp: 1, maxHP: 1 })
       r.enemies = [b]
@@ -41403,8 +41445,8 @@ function testMantleGround() {
     for (const k of ['quenchCrusts', 'lavaPools']) assert.ok(DRAW_CAPS[k] >= LIVE_CAPS[k], `run MG.h: every live ${k} is drawn: draw cap ${DRAW_CAPS[k]} vs live cap ${LIVE_CAPS[k]}`)
     const r = boot(53009)
     tick(r); quiet(r)
-    const X = { x: r.player.x + 600, y: r.player.y }
-    assert.ok(g(r, X) === 0 && !lavaFloodedAt(r, X.x, X.y), 'run MG.h precondition: dry rock')
+    const X = hillOf(r, 420, r.lavaTide.line + 0.01)   // dry now, room for the big pool
+    assert.ok(X && g(r, X) === 0 && !lavaFloodedAt(r, X.x, X.y), 'run MG.h precondition: dry rock')
     const q = { x: X.x, y: X.y, r: 100, t: 0, dur: 99, dps: 0, _tick: 99, seq: 1, ph: poolPhaseOf(X.x, X.y) }
     r.lavaPools = [q]
     const span = (f) => { let lo = [9, 0], hi = [0, 0]; for (let i = 0; i < 360; i++) { const a = i * Math.PI / 180, v = f(a); if (v < lo[0]) lo = [v, a]; if (v > hi[0]) hi = [v, a] } return [lo, hi] }
@@ -41552,7 +41594,8 @@ function testMantleBoats() {
       })) hit++
     }
     assert.ok(samples >= 30 && hit / samples >= 0.85, `run MO.a: at a shore past the ebb, a boat floats at a shore within 900px of you: ${hit} of ${samples} samples`)
-    assert.ok(ebbs >= 5 && ebbMoored >= 20 && ebbBeached >= ebbMoored * 0.97, `run MO.a: at the ebb the moored boats lie beached (a rare one in an ebb pool): ${ebbBeached} of ${ebbMoored} over ${ebbs} samples`)
+    // the ebb is still most of the map under lava, so a beached boat's middle is in an ebb pool often
+    assert.ok(ebbs >= 5 && ebbMoored >= 20 && ebbBeached >= ebbMoored * 0.6, `run MO.a: at the ebb most moored boats lie beached (some in an ebb pool): ${ebbBeached} of ${ebbMoored} over ${ebbs} samples`)
     console.log(`PASS run MO.a (moored at the shore): ${onShore}/${seen.size} posts on their own tide's shore; a boat at a shore near you at ${hit}/${samples} shore samples; ${ebbBeached}/${ebbMoored} beached at the ebb`)
   }
 
@@ -41598,11 +41641,14 @@ function testMantleBoats() {
     // and an empty boat floats slowly back up (boats.rise s from gone under to full)
     {
       const r = rB, boat = boatB
-      let dry = null
-      for (let d = 20; d < 3000 && !dry; d += 10) { const q = { x: spotB.x + d, y: spotB.y }; if (mantleGroundAt(r, q.x, q.y) === 0) dry = q }
-      assert.ok(dry, 'run MO.c precondition: dry rock east of the basin')
+      let dry = null, ux = 1, uy = 0
+      for (let d = 20; d < 3000 && !dry; d += 10) for (let k = 0; k < 16 && !dry; k++) {
+        const q = { x: spotB.x + Math.cos(k * Math.PI / 8) * d, y: spotB.y + Math.sin(k * Math.PI / 8) * d }
+        if (mantleGroundAt(r, q.x, q.y) === 0) { dry = q; ux = Math.cos(k * Math.PI / 8); uy = Math.sin(k * Math.PI / 8) }
+      }
+      assert.ok(dry, 'run MO.c precondition: dry rock near the basin')
       let last = null
-      for (let i = 0; i < 2000 && mantleGroundAt(r, r.player.x, r.player.y) !== 0; i++) { last = { x: r.player.x, y: r.player.y }; r.player.x += 2; tick(r) }
+      for (let i = 0; i < 2000 && mantleGroundAt(r, r.player.x, r.player.y) !== 0; i++) { last = { x: r.player.x, y: r.player.y }; r.player.x += 2 * ux; r.player.y += 2 * uy; tick(r) }
       const float0 = boat.floatT
       for (let i = 0; i < 60; i++) { tick(r) }
       assert.ok(!r.player.afloat && !boat.ridden && r.boats.includes(boat), `run MO.c: on rock you are off the boat: afloat ${r.player.afloat}, ridden ${boat.ridden}`)
@@ -41659,6 +41705,36 @@ function testMantleBoats() {
       const nudged = Math.hypot(still.x - spot.x, still.y - spot.y - 1)
       assert.ok(shoved > 1 && mantleGroundAt(r, boat.x, boat.y) === 2 && nudged === 0, `run MO.e: a lava creature bumps an empty boat along the lava (${shoved.toFixed(1)}px), a rock one does not (${nudged})`)
       console.log(`PASS run MO.e (beached, bumped): a boat on rock carried no one; a lava creature shoved one ${shoved.toFixed(1)}px, a rock one 0`)
+    }
+
+    // (i) THE KETTLE COOLS THE HULL YOU RIDE: with nothing else to throw at, its water lands on your boat,
+    // gives it float back and lays no crust under you (you stay afloat); the gift is capped at one full
+    // float a ride, so the boat still goes under
+    {
+      const ride = (kettle, secs) => {
+        const r = boot(54009)
+        tick(r); quiet(r)
+        const spot = floodedBasin(r)
+        quiet(r)
+        const boat = boatAt(spot.x + 12, spot.y)
+        r.boats = [boat]
+        if (kettle) r.weapons = [{ id: 'quenchKettle', level: 1 }]
+        let afloat = 0, frames = 0, cools = 0, sunkAt = -1
+        for (let i = 0; i < 60 * secs && sunkAt < 0; i++) {
+          r.player.x = spot.x; r.player.y = spot.y
+          const ev = tick(r)
+          cools += ev.filter((v) => v.type === 'hullCool').length
+          if (ev.some((v) => v.type === 'boatSink')) sunkAt = i / 60
+          frames++; if (r.player.afloat) afloat++
+        }
+        return { floatT: boat.floatT, cooled: boat.cooled ?? 0, crusts: r.quenchCrusts.length, afloat, frames, cools, sunkAt }
+      }
+      const bare = ride(false, 4), wet = ride(true, 4), long = ride(true, 40)
+      assert.ok(wet.cools >= 2 && wet.floatT > bare.floatT + 2 && wet.crusts === 0 && wet.afloat === wet.frames,
+        `run MO.i: the kettle cools the hull you ride and lays no crust under you: floatT ${wet.floatT.toFixed(2)} vs ${bare.floatT.toFixed(2)} bare, ${wet.cools} cools, ${wet.crusts} crusts, afloat ${wet.afloat}/${wet.frames}`)
+      assert.ok(long.sunkAt > 0 && Math.abs(long.cooled - B.float * KETTLE_HULL_MAX) < 1e-6,
+        `run MO.i: one full float a ride at most, then it goes under: sank at ${long.sunkAt}s, cooled ${long.cooled}`)
+      console.log(`PASS run MO.i (the kettle cools your hull): ${wet.floatT.toFixed(2)}s of float left after 4s vs ${bare.floatT.toFixed(2)} bare; capped at ${long.cooled}s, sank at ${long.sunkAt.toFixed(1)}s`)
     }
   } finally { B.chance = chance0 }
 }

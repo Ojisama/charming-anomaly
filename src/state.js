@@ -2307,6 +2307,10 @@ function generateWells(sig) {
  *     their own (each is a kill, and the kill sounds).
  *     {type:'boatSink', x, y, heading} the boat you rode went under the lava. Drawn by
  *     src/toon/mantle-fx.js, sounded in SFX_FOR_EVENT (once a ride).
+ *     {type:'steamBlast', x, y, r} the Quench Kettle's water hit a Crack Hammer pool: the pool is
+ *     spent and a steam blast of reach r hit everything round it. Drawn by src/toon/mantle-fx.js,
+ *     sounded in SFX_FOR_EVENT. {type:'hullCool', x, y} its water cooled the hull of the boat you
+ *     ride (floatT given back, at most boats.float a ride: boat.cooled). Drawn there, silent.
  *
  * THE SHELF's three natives add NO run.* array either, on the same argument. Each is an existing
  * entity carrying one extra field, and that field is what the renderer branches on:

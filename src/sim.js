@@ -271,7 +271,7 @@ import {
   noiseAt,
   MANTLE_GROUND_STEP, MANTLE_START_DRY, MANTLE_STRAND_STUCK_T, MANTLE_STRAND_SLOW, MANTLE_STRAND_DIE_T, MANTLE_STRAND_DMG_MUL,
   MANTLE_MELT_T, MANTLE_SPAWN_TRIES,
-  KETTLE_CRUST_GNAW, KETTLE_CRUST_GNAW_MAX,
+  KETTLE_CRUST_GNAW, KETTLE_CRUST_GNAW_MAX, KETTLE_STEAM_MUL, KETTLE_STEAM_R, KETTLE_HULL_COOL, KETTLE_HULL_MAX,
 } from './config.js'
 import { crustShapeOf, poolPhaseOf, inCrustEdge, crustSdf, inPoolEdge, CRUST_EDGE_MAX, POOL_RIM_MAX } from './mantle-shape.js'
 
@@ -18035,6 +18035,13 @@ function boatPost(L, seed, i, j) {
   }
   const m = onContour(L, seed, x, y, want, 5)
   if (!m || m.err > 0.004) return null
+  // a real shore: lava and rock both within a boat's reach (on a flat top the contour's slack is wide)
+  let rock = false, lava = false
+  for (let a = 0; a < 16; a++) {
+    if (mantleHeightAt(L, seed, m.x + Math.cos(a * Math.PI / 8) * B.r, m.y + Math.sin(a * Math.PI / 8) * B.r) >= want) rock = true
+    else lava = true
+  }
+  if (!rock || !lava) return null
   return { hx: m.x, hy: m.y, c }
 }
 // where an empty moored boat lies: its middle a little in from its shore point (sx, sy) down the
@@ -18161,7 +18168,7 @@ function stepBoats(run, L, pg, dt) {
       const d2 = (b.x - p.x) ** 2 + (b.y - p.y) ** 2
       if (d2 <= best) { best = d2; ride = b }
     }
-    if (ride) { ride.ridden = true; ride.moved = true; ride.x = p.x; ride.y = p.y }
+    if (ride) { ride.ridden = true; ride.moved = true; ride.x = p.x; ride.y = p.y; ride.cooled = 0 }
   }
   p.afloat = !!ride
   p.boatMax = B.float
@@ -18371,12 +18378,20 @@ function stepMantleGround(run, dt) {
 }
 
 // -- Quench Kettle ------------------------------------------------------------------------------------
-// Throws water at the closest lava creature in KETTLE_RANGE, else at the nearest lava (under you
-// first): a crust of radius `radius` there for crustDur s (lava under it is rock), and the splash
-// hits everything in it (water: x MANTLE_COLD_VS_LAVA on a lava creature). No lava in range: it
+// Throws water at the closest Crack Hammer pool in KETTLE_RANGE (a STEAM blast round it, the pool
+// spent), else the closest lava creature, else the nearest lava (under you first: afloat, that is your
+// own boat, whose hull it cools instead of crusting the lava under you): a crust of radius `radius`
+// there for crustDur s (lava under it is rock), and the splash hits everything in it (water: x MANTLE_COLD_VS_LAVA on a lava creature). No lava in range: it
 // splashes round you and lays no crust.
 function kettleSpot(run) {
   const p = run.player
+  let pool = null, pd = KETTLE_RANGE * KETTLE_RANGE
+  for (const q of run.lavaPools) {
+    if (q.t >= q.dur) continue
+    const d = (q.x - p.x) ** 2 + (q.y - p.y) ** 2
+    if (d <= pd) { pd = d; pool = q }
+  }
+  if (pool) return { x: pool.x, y: pool.y, crust: true }
   let best = null, bd = KETTLE_RANGE * KETTLE_RANGE
   for (const e of enemiesNear(run, p.x, p.y, KETTLE_RANGE)) {
     if (e._dead || isAlly(e) || e.habitat !== 'lava') continue
@@ -18413,8 +18428,31 @@ function stepQuenchKettleWeapon(run, w, stats, fireRateMul, dt) {
   fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => {
     const p = run.player
     const at = kettleSpot(run)
+    const B = lavaTideSpec(run)?.boats
+    const hull = p.afloat ? run.boats.find((b) => b.ridden) : null
     for (const r of ipecacRadii(run, stats.radius)) {
-      if (at.crust) run.quenchCrusts.push(pourCrust(run, at.x, at.y, r, stats.crustDur))
+      // STEAM: water on a hammer pool blasts everything round it, and the pool is spent
+      for (const q of run.lavaPools) {
+        if (q.t >= q.dur || (q.x - at.x) ** 2 + (q.y - at.y) ** 2 > (r + q.r) ** 2) continue
+        q.t = q.dur
+        const R = q.r * KETTLE_STEAM_R
+        for (const e of enemiesNear(run, q.x, q.y, R, true)) {
+          if (e._dead || isAlly(e)) continue
+          if ((e.x - q.x) ** 2 + (e.y - q.y) ** 2 > (R + e.radius) ** 2) continue
+          applyDamage(run, e, stats.dmg * KETTLE_STEAM_MUL)
+        }
+        run.events.push({ type: 'steamBlast', x: q.x, y: q.y, r: R })
+      }
+      // your boat in the splash: the water cools its hull (it floats longer) and lays no crust under you
+      const onHull = hull && (hull.x - at.x) ** 2 + (hull.y - at.y) ** 2 < (r * CRUST_EDGE_MAX + PLAYER.radius) ** 2
+      if (onHull && B) {
+        const give = Math.min(KETTLE_HULL_COOL, B.float * KETTLE_HULL_MAX - (hull.cooled ?? 0), B.float - hull.floatT)
+        if (give > 0) {
+          hull.floatT += give; hull.cooled = (hull.cooled ?? 0) + give
+          run.events.push({ type: 'hullCool', x: hull.x, y: hull.y })
+        }
+      }
+      if (at.crust && !onHull) run.quenchCrusts.push(pourCrust(run, at.x, at.y, r, stats.crustDur))
       for (const e of enemiesNear(run, at.x, at.y, r, true)) {
         if (e._dead || isAlly(e)) continue
         if ((e.x - at.x) ** 2 + (e.y - at.y) ** 2 > (r + e.radius) ** 2) continue

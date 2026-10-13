@@ -2173,7 +2173,7 @@ const CONFIG = {
   "High Water": "Lave haute",
   "The lava tide never fully ebbs. Bonus XP.": "La marée de lave ne redescend jamais tout à fait. XP bonus.",
   "Quench Kettle": "Bouilloire glacée",
-  "Throws water at the nearest lava creature. The lava it splashes cools into a crust you can stand on.": "Lance de l'eau sur la créature de lave la plus proche. La lave éclaboussée refroidit en une croûte où tu peux marcher.",
+  "Waters the lava: it hardens into a crust to walk on. On the hammer's lava, a burst of steam; on your boat, it cools the hull.": "Arrose la lave : elle durcit en croûte où marcher. Sur la lave du marteau, un jet de vapeur ; sur ton bateau, la coque refroidit.",
   "Big Kettle": "Grande bouilloire",
   "splash size": "taille de l'éclaboussure",
   "Thick Crust": "Croûte épaisse",
