@@ -264,6 +264,8 @@ export function bakeLocal(E, S, paint, o = {}) {
   const w = x1 - x0 + 1, h = y1 - y0 + 1
   const body = makeCanvas(w, h)
   body.getContext('2d').drawImage(c, x0, y0, w, h, 0, 0, w, h)
+  // bodyOnly: an overlay that never flashes white nor casts a shadow skips both twins (the Geode's cracks)
+  if (o.bodyOnly) return { body, ax: (W / 2 - x0) / w, ay: (W / 2 - y0) / h, S }
   const white = makeCanvas(w, h)
   { const wc = white.getContext('2d'); wc.drawImage(body, 0, 0); wc.globalCompositeOperation = 'source-in'; wc.fillStyle = '#fff'; wc.fillRect(0, 0, w, h) }
   const shadow = makeCanvas(w, h)

@@ -818,18 +818,31 @@ export function paintHoloProp(kind, seed) {
 // A crystal cluster, the most holographic thing in the chapter: every face its own film colour, white
 // ridges, an inked outline, a diffraction halo round its foot and stars of light on it. Painted at
 // R = 64 and scaled to each collider; never rotated.
-export function paintHoloPillar(variant) {
-  const R = 64
+// A pillar's geometry, drawn by paintHoloPillar and reused by paintHoloPillarCracks so the cracks are
+// clipped to exactly the spikes they sit on. Draws from rnd in the pillar's own order (foot, spikes,
+// the top's turn), and hands rnd back so the pillar's glints keep the draws they always had.
+function pillarSpec(variant) {
+  const R = 64, rnd = rng(707 + variant * 31)
+  const foot = []
+  for (let i = 0; i < 18; i++) { const a = (i / 18) * TAU, q = R * (0.86 + rnd() * 0.16); foot.push(Math.cos(a) * q, Math.sin(a) * q) }
+  const n = 7 + (variant % 3)
+  const spikes = []
+  for (let i = 0; i < n; i++) spikes.push([(i / n) * TAU + rnd() * 0.6, R * (0.1 + rnd() * 0.14), R * (0.62 + rnd() * 0.4), R * (0.14 + rnd() * 0.07), rnd()])
+  spikes.sort((p, q) => Math.sin(q[0]) - Math.sin(p[0]))
+  const hexRot = rnd() * TAU
+  return { R, rnd, foot, spikes, hexRot }
+}
+// `noGlint`: leave out the big star of light — render.js draws it as its own sprite (paintHoloGlint) so
+// it can go out when the crystal cracks (tickCrystalCracks).
+export function paintHoloPillar(variant, noGlint = false) {
+  const { R, rnd, foot, spikes, hexRot } = pillarSpec(variant)
   return bakeLocal(R * 2.1, 2, (ctx) => {
-    const rnd = rng(707 + variant * 31)
     const t0 = variant * 0.17
     // the halo it throws on the floor: rings of interference colour
     ctx.save(); ctx.globalCompositeOperation = 'lighter'
     for (let i = 0; i < 5; i++) softDot(ctx, 0, 0, R * (1.15 - i * 0.12), R * 0.12, css(film(t0 + i * 0.2, 0.5, 0.5), 0.12))
     ctx.restore()
     // the socket: dark rock, inked
-    const foot = []
-    for (let i = 0; i < 18; i++) { const a = (i / 18) * TAU, q = R * (0.86 + rnd() * 0.16); foot.push(Math.cos(a) * q, Math.sin(a) * q) }
     withBlur(ctx, R * 0.06, 'rgba(0,0,0,0.9)', () => { ctx.save(); ctx.translate(R * 0.06, R * 0.08); trace(ctx, foot); ctx.fill(); ctx.restore() })
     fillPts(ctx, foot, css(0x1a1626))
     for (let i = 0; i < 18; i += 2) {
@@ -838,16 +851,111 @@ export function paintHoloPillar(variant) {
     }
     ink(ctx, foot, 2.4)
     // the crystals: the leaning ones first (behind), the upright core last
-    const n = 7 + (variant % 3)
-    const spikes = []
-    for (let i = 0; i < n; i++) spikes.push([(i / n) * TAU + rnd() * 0.6, R * (0.1 + rnd() * 0.14), R * (0.62 + rnd() * 0.4), R * (0.14 + rnd() * 0.07), rnd()])
-    spikes.sort((p, q) => Math.sin(q[0]) - Math.sin(p[0]))
     for (const [a, d, len, wid, t] of spikes) holoSpike(ctx, Math.cos(a) * d, Math.sin(a) * d, len, wid, a, t0 + t, 2.2)
-    hexTop(ctx, 0, 0, R * 0.36, rnd() * TAU, t0 + 0.5)
+    hexTop(ctx, 0, 0, R * 0.36, hexRot, t0 + 0.5)
     // stars of light
-    glintStar(ctx, -R * 0.08, -R * 0.1, R * 0.6, 0.95)
+    if (!noGlint) glintStar(ctx, -R * 0.08, -R * 0.1, R * 0.6, 0.95)
     for (let k = 0; k < 3; k++) glintStar(ctx, (rnd() - 0.5) * R * 1.1, (rnd() - 0.5) * R * 1.1, R * (0.18 + rnd() * 0.16), 0.85)
   }, { shadowBlur: 1 })
+}
+
+// A pillar's big star of light, alone, centred on its own origin (pillar space: it sits at -0.08R, -0.1R).
+export function paintHoloGlint() {
+  return bakeLocal(64 * 0.65, 2, (ctx) => glintStar(ctx, 0, 0, 64 * 0.6, 0.95), { shadowBlur: 0, bodyOnly: true })
+}
+// STRESS CRACKS over a pillar (sim o.stress; render.js picks the stage). One fracture tree per
+// variant, seeded, so every stage is the same cracks grown further. The strike lands part-way up the
+// pillar's LONGEST spike — never on its glint, where pale rays read as more sparkle — and the
+// fractures run along and across that spike and out into its neighbours. Mostly ink, getting WIDER
+// stage by stage rather than just more numerous; a dim lit edge sits on the upper-left side of each
+// (the fracture face catching the key light) and stays dim, because the foil pass turns anything
+// near white into neon. Stage 3 punches chips out: pieces already gone, socket-dark, inked.
+// Masked to the pillar's own spikes and top (destination-in), so no line crosses a gap.
+export function paintHoloPillarCracks(variant, stage) {
+  const { R, spikes, hexRot } = pillarSpec(variant)
+  const rnd = rng(9100 + variant * 17)
+  let lg = spikes[0]
+  for (const sp of spikes) if (sp[2] > lg[2]) lg = sp
+  const [la, ld, llen] = lg
+  const ix = Math.cos(la) * (ld + llen * 0.3), iy = Math.sin(la) * (ld + llen * 0.3)
+  const rays = []
+  for (let i = 0; i < 6; i++) {
+    // the first two run along the spike (out and back in), the rest fan across it
+    const base = i === 0 ? la : i === 1 ? la + Math.PI : la + Math.PI / 2 + (i - 2) * (Math.PI / 4) + (rnd() - 0.5) * 0.3
+    const pts = [[ix, iy]]
+    let a = base, x = ix, y = iy, run = 0
+    const total = R * (i < 2 ? 0.55 + rnd() * 0.25 : 0.4 + rnd() * 0.35)
+    while (run < total) {
+      const step = R * (0.09 + rnd() * 0.08)
+      a = base + (rnd() - 0.5) * 0.6
+      x += Math.cos(a) * step; y += Math.sin(a) * step; run += step
+      pts.push([x, y])
+    }
+    const forkAt = Math.max(1, Math.floor(pts.length / 2))
+    const fork = [pts[forkAt]]
+    let fa = base + (rnd() < 0.5 ? -1 : 1) * (0.6 + rnd() * 0.4), fx = pts[forkAt][0], fy = pts[forkAt][1]
+    for (let k = 0; k < 2; k++) { const st = R * (0.08 + rnd() * 0.06); fx += Math.cos(fa) * st; fy += Math.sin(fa) * st; fork.push([fx, fy]) }
+    rays.push({ pts, fork })
+  }
+  const shown = [4, 5, 6][stage - 1], reach = [0.65, 0.85, 1][stage - 1], w0 = R * [0.075, 0.09, 0.11][stage - 1]
+  let ctx
+  const lx = -0.7071, ly = -0.7071   // toward the upper-left key light
+  const fracture = (pts, frac, wa, wb) => {
+    const n = pts.length - 1, m = Math.max(1, Math.round(n * frac))
+    const segs = []
+    for (let k = 0; k < m; k++) segs.push([pts[k], pts[k + 1], wa + (wb - wa) * (k / Math.max(1, n - 1))])
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round'
+    for (const [p, q, w] of segs) { ctx.beginPath(); ctx.moveTo(...p); ctx.lineTo(...q); ctx.lineWidth = w * 2.6; ctx.strokeStyle = 'rgba(11,7,20,0.55)'; ctx.stroke() }
+    for (const [p, q, w] of segs) { ctx.beginPath(); ctx.moveTo(...p); ctx.lineTo(...q); ctx.lineWidth = w * 1.3; ctx.strokeStyle = INK; ctx.stroke() }
+    for (const [p, q, w] of segs) {
+      const dx = q[0] - p[0], dy = q[1] - p[1], L = Math.hypot(dx, dy) || 1
+      let nx = -dy / L, ny = dx / L
+      if (nx * lx + ny * ly < 0) { nx = -nx; ny = -ny }
+      const o = w * 0.25
+      ctx.beginPath(); ctx.moveTo(p[0] + nx * o, p[1] + ny * o); ctx.lineTo(q[0] + nx * o, q[1] + ny * o)
+      ctx.lineWidth = Math.max(0.7, w * 0.5); ctx.strokeStyle = 'rgba(214,206,245,0.85)'; ctx.stroke()
+    }
+  }
+  const b = bakeLocal(R * 2.1, 2, (c) => {
+    ctx = c
+    for (let i = 0; i < shown; i++) {
+      fracture(rays[i].pts, reach, w0, w0 * 0.3)
+      if (stage >= 2) fracture(rays[i].fork, stage === 2 ? 0.5 : 1, w0 * 0.6, w0 * 0.25)
+    }
+    if (stage >= 3) {
+      // CHIPS: four facets spalling off between the fork ends — the pale face of a fresh break,
+      // inked, nudged outward from the strike so they read as lifting away rather than as holes
+      for (let i = 0; i < 4; i++) {
+        const r1 = rays[i].pts, r2 = rays[i + 1].pts
+        const p = r1[Math.min(r1.length - 1, 2)], q = r2[Math.min(r2.length - 1, 2)]
+        let cx = (p[0] + q[0] + ix) / 3, cy = (p[1] + q[1] + iy) / 3
+        const od = Math.hypot(cx - ix, cy - iy) || 1
+        cx += ((cx - ix) / od) * R * 0.04; cy += ((cy - iy) / od) * R * 0.04
+        const s = R * 0.12, tri = []
+        for (let k = 0; k < 3; k++) { const a = rnd() * 0.5 + (k / 3) * TAU; tri.push(cx + Math.cos(a) * s * (0.7 + rnd() * 0.5), cy + Math.sin(a) * s * (0.7 + rnd() * 0.5)) }
+        fillPts(ctx, tri, 'rgba(225,220,250,0.9)')
+        ink(ctx, tri, 1.5)
+      }
+    }
+    // the struck point: a crushed pit, bigger each stage
+    const pit = []
+    for (let k = 0; k < 8; k++) { const a = (k / 8) * TAU, q = R * (0.035 + 0.015 * stage) * (k % 2 ? 0.55 : 1); pit.push(ix + Math.cos(a) * q, iy + Math.sin(a) * q) }
+    fillPts(ctx, pit, INK)
+    // mask to the crystal itself: the union of every spike and the top, in one path
+    ctx.globalCompositeOperation = 'destination-in'
+    ctx.beginPath()
+    for (const [a, d, len, wid] of spikes) {
+      const x = Math.cos(a) * d, y = Math.sin(a) * d, c2 = Math.cos(a), s2 = Math.sin(a)
+      const P = (u, v) => [x + c2 * u - s2 * v, y + s2 * u + c2 * v]
+      const out = [P(0, -wid * 0.9), P(len * 0.72, -wid), P(len, 0), P(len * 0.72, wid), P(0, wid * 0.9)]
+      ctx.moveTo(...out[0]); for (let k = 1; k < out.length; k++) ctx.lineTo(...out[k]); ctx.closePath()
+    }
+    for (let i = 0; i < 6; i++) { const a = hexRot + (i / 6) * TAU, r = R * 0.36; i ? ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r) : ctx.moveTo(Math.cos(a) * r, Math.sin(a) * r) }
+    ctx.closePath()
+    ctx.fillStyle = '#000'; ctx.fill('nonzero')
+    ctx.globalCompositeOperation = 'source-over'
+  }, { shadowBlur: 0, bodyOnly: true })
+  return b
 }
 
 // ==== SHOTS =======================================================================================

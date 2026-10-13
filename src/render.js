@@ -6186,7 +6186,9 @@ export function createRenderer(app) {
     // THE GEODE IN HOLOGRAPHIC FOIL (src/holo.js): its pillars, its three weapons' shots, its props,
     // and the glints every bounce and chime throws. The prism shard and the stone are the Geode's
     // own weapons, so they wear the Geode's look wherever they are fired.
-    T.crystalPillars = [0, 1, 2, 3, 4, 5].map((v) => { const b = HOLO.paintHoloPillar(v); return { tex: macroCanvasTex(b.body, b.S), ax: b.ax, ay: b.ay, R: 64 } })
+    // the pillars WITHOUT their big glint: it is its own sprite (ov.glint) so it can go out when one cracks
+    T.crystalPillars = [0, 1, 2, 3, 4, 5].map((v) => { const b = HOLO.paintHoloPillar(v, true); return { tex: macroCanvasTex(b.body, b.S), ax: b.ax, ay: b.ay, R: 64 } })
+    { const b = HOLO.paintHoloGlint(); T.crystalGlint = { tex: macroCanvasTex(b.body, b.S), ax: b.ax, ay: b.ay } }
     T.prismShot = { tex: macroCanvasTex(HOLO.paintHoloShard(), 3), ax: 0.5, ay: 0.5 }
     { const b = HOLO.paintHoloStalactite(); T.stalactite = { tex: macroCanvasTex(b.body, b.S), ax: b.ax, ay: b.ay } }
     T.holoGlint = { tex: macroCanvasTex(HOLO.paintGlint()), ax: 0.5, ay: 0.5 }
@@ -6602,26 +6604,7 @@ export function createRenderer(app) {
         gF.circle(o.x, o.y, R).stroke({ width: 2.4, color: HOLO.film(0.55 + j * 0.15), alpha: 0.55 * (1 - u) + 0.15 })
       }
     }
-    // STRESS CRACKS: a crystal Echo Pulse keeps ringing back (sim o.stress, 0..1) cracks before it shatters
-    for (const o of run.obstacles || []) if (o.kind === 'crystal' && o.stress > 0) drawCrystalCracks(gF, o, o.stress)
     drawShardTrails(run, dt, t, gF)
-  }
-  // Jagged inked cracks from one struck point, more and longer as the stress grows. Geometry is a
-  // hash of the crystal's position, so its cracks hold still and only grow.
-  function drawCrystalCracks(g, o, s) {
-    const R = o.r, rnd = (k) => hash(o.x * 0.37 + o.y * 0.91 + k * 13.1)
-    const ix = o.x - R * 0.25, iy = o.y - R * 0.2
-    const n = 2 + Math.round(s * 6)
-    for (let i = 0; i < n; i++) {
-      const a = rnd(i) * Math.PI * 2, len = R * (0.45 + 0.75 * s) * (0.6 + 0.4 * rnd(i + 50))
-      const pts = [ix, iy]
-      for (let j = 1; j <= 4; j++) {
-        const u = j / 4, off = (rnd(i * 7 + j) - 0.5) * R * 0.28
-        pts.push(ix + Math.cos(a) * len * u - Math.sin(a) * off, iy + Math.sin(a) * len * u + Math.cos(a) * off)
-      }
-      g.poly(pts, false).stroke({ width: 3.2, color: 0x0b0714, alpha: 0.85, join: 'round', cap: 'round' })
-      g.poly(pts, false).stroke({ width: 1.1, color: 0xffffff, alpha: 0.9, join: 'round', cap: 'round' })
-    }
   }
   // PRISM SHARD LIGHT-TRAILS: a shard that turned off a crystal leaves a bent streak. A trail keeps
   // SHARD_TRAIL_PTS points at least SHARD_TRAIL_STEP px apart, plus the shard itself as its head.
@@ -13217,6 +13200,7 @@ export function createRenderer(app) {
     if (ch.signature?.caveIns || ch.weapons?.includes('furrow')) q.push(bakePits)
     if (ch.weapons?.includes('furrow')) q.push(bakeFurrow)
     if (ch.weapons?.includes('rootSnare')) q.push(bakeSnares)
+    if (ch.signature?.type === 'crystals') q.push(bakeCrystalCracks)
     if (kind || ch.render?.holo || ch.render?.pixel) q.push(bakeFloorProps)
     const ids = new Set([...(ch.roster ?? []).map((r) => r.id), ...(ch.render?.cast ?? [])])
     for (const id of ids) for (const k of [id, id + '_elite', id + '_child', id + '_glass', id + '_glass_elite']) if (rosterBakers[k]) q.unshift(() => rosterLook(k))
@@ -20480,9 +20464,12 @@ const spurG = new Graphics()
     clumpA.anchor.set(0.5)
     const clumpB = new Sprite(Texture.EMPTY)
     clumpB.anchor.set(0.5)
-    root.addChild(ring, clumpA, clumpB)
+    // a Geode crystal's star of light, between the pillar and its cracks; hidden on every other kind
+    const glint = new Sprite(Texture.EMPTY)
+    glint.visible = false
+    root.addChild(ring, clumpA, glint, clumpB)
     obstacleLayer.addChild(root)
-    return { root, ring, clumpA, clumpB, mesh: null, x: 0, y: 0, r: 0 }
+    return { root, ring, clumpA, clumpB, glint, mesh: null, x: 0, y: 0, r: 0 }
   }
   // v5.21/v5.22/v5.23: planets that turn. Held outside syncObstacles because that function is
   // rebuild-gated and this has to run every frame.
@@ -20529,10 +20516,12 @@ const spurG = new Graphics()
     planetSpinners.length = 0   // rebuilt below; stale sprite refs would spin a released pool slot
     planetMoons.length = 0
     crystalLife.length = 0      // same rule: a crystal that left the field must not keep a slot animating
+    crystalCracks.length = 0
     for (let i = 0; i < obstacleSprites.length; i++) {
       const ov = obstacleSprites[i]
       if (i >= list.length) { ov.root.visible = false; continue }
       const o = list[i]
+      ov.glint.visible = false
       ov.root.visible = true
       ov.root.alpha = 1         // tickCrystalLife fades a slot; the next owner of the slot starts whole
       if (ov.mesh) ov.mesh.visible = false   // pool slots are reused across chapters; only the planet branch re-enables it
@@ -20627,15 +20616,19 @@ const spurG = new Graphics()
       // Book 3, The Geode: a crystal pillar is one centred plan bake scaled to its collider, lit from
       // the top-left of the SCREEN, so it is never rotated.
       if (o.kind === 'crystal') {
-        const a = T.crystalPillars[Math.floor(hash(o.x * 1.7 + o.y * 0.31) * T.crystalPillars.length)]
+        const pv = Math.floor(hash(o.x * 1.7 + o.y * 0.31) * T.crystalPillars.length)
+        const a = T.crystalPillars[pv]
         ov.root.rotation = 0
         ov.clumpA.texture = a.tex; ov.clumpA.anchor.set(a.ax, a.ay); ov.clumpA.tint = 0xffffff
         ov.clumpA.scale.set(o.r / a.R); ov.clumpA.rotation = 0; ov.clumpA.position.set(0, 0)
         ov.clumpB.texture = Texture.EMPTY; ov.clumpB.scale.set(1)
+        ov.clumpB.rotation = 0; ov.clumpB.tint = 0xffffff; ov.clumpB.alpha = 1; ov.clumpA.alpha = 1   // a reused slot may carry another kind's
+        ov.glint.texture = T.crystalGlint.tex; ov.glint.anchor.set(T.crystalGlint.ax, T.crystalGlint.ay); ov.glint.visible = true
         ov.ring.alpha = 0.5
         // a crystal that grew this run (Seed Crystal, or grown back after Cracked Glass) grows in,
         // and one with a lifetime shrinks away at its end: tickCrystalLife, every frame
         if (o.born != null) crystalLife.push({ ov, o, s: o.r / a.R, rs: o.r / foot.ref })
+        crystalCracks.push({ ov, o, pv, stage: 0 })
         continue
       }
       if (shape.baked) {
@@ -20797,7 +20790,39 @@ const spurG = new Graphics()
       c.ov.root.alpha = Math.min(1, u * 3) * (c.o.ttl != null ? Math.min(1, Math.max(0, (c.o.ttl - age) / CRYSTAL_FADE_T) * 1.5) : 1)
     }
   }
+  // STRESS CRACKS (sim o.stress, 0..1): clumpB wears the pillar's own baked crack overlay
+  // (HOLO.paintHoloPillarCracks — clipped to that pillar's spikes), three stages, baked on first use.
+  // In the last stretch before it bursts the whole pillar trembles.
+  const crystalCracks = []
+  // Baked on the Geode's prewarm (and on first need, as a fallback) — never by other chapters.
+  function bakeCrystalCracks() {
+    if (T.crystalCracks) return
+    T.crystalCracks = [0, 1, 2, 3, 4, 5].map((v) => [1, 2, 3].map((st) => { const b = HOLO.paintHoloPillarCracks(v, st); return { tex: macroCanvasTex(b.body, b.S), ax: b.ax, ay: b.ay } }))
+  }
+  function tickCrystalCracks(run) {
+    for (const c of crystalCracks) {
+      const s = c.o.stress ?? 0
+      const stage = s <= 0 ? 0 : s < 0.34 ? 1 : s < 0.67 ? 2 : 3
+      if (stage !== c.stage) {
+        c.stage = stage
+        if (stage === 0) { c.ov.clumpB.texture = Texture.EMPTY; c.ov.clumpA.position.set(0, 0); c.ov.clumpB.position.set(0, 0) }
+        else { bakeCrystalCracks(); const k = T.crystalCracks[c.pv][stage - 1]; c.ov.clumpB.texture = k.tex; c.ov.clumpB.anchor.set(k.ax, k.ay) }
+      }
+      const sc = c.ov.clumpA.scale.x
+      // the glint follows the pillar (it grows in with it) and goes out from the second stage on
+      c.ov.glint.visible = stage < 2
+      // the last stage: the cracks throb and the whole pillar trembles, harder as it nears the burst
+      const shake = stage === 3 ? 0.8 + 1.6 * Math.max(0, (s - 0.67) / 0.33) : 0
+      const jx = shake ? Math.sin(run.time * 71 + c.pv) * shake : 0, jy = shake ? Math.cos(run.time * 63 + c.pv * 2) * shake : 0
+      c.ov.glint.scale.set(sc); c.ov.glint.position.set(-0.08 * 64 * sc + jx, -0.1 * 64 * sc + jy)
+      if (stage === 0) continue
+      c.ov.clumpB.scale.set(sc)
+      c.ov.clumpA.position.set(jx, jy); c.ov.clumpB.position.set(jx, jy)
+      c.ov.clumpB.alpha = stage === 3 ? 0.875 + 0.125 * Math.sin(run.time * Math.PI * 2 * 5) : 1
+    }
+  }
   function clearObstacles() {
+    crystalCracks.length = 0
     crystalLife.length = 0
     obstacleToken = null
     obstacleRev = -1
@@ -32895,6 +32920,7 @@ void main() {
     syncObstacles(run)
     tickPlanetSpin()   // must follow syncObstacles: a rebuild repopulates the spinner list
     tickCrystalLife(run)   // same: the Geode's growing / expiring crystals
+    tickCrystalCracks(run) // and their stress cracks
     syncWells(run)
     syncBinds(run)
     syncPools(run.pools || [])
