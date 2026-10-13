@@ -6758,6 +6758,13 @@ export const PRISM_FAN = 0.16            // rad between shards of one throw
 export const PRISM_LIFE = 1.0            // s of flight before a bounce refreshes it
 export const PRISM_R = 8                 // px hit radius
 export const ECHO_LIFE = 0.5             // s for the ring to reach its radius
+// THE GEODE'S COUNTERS TO A CRYSTAL FORTRESS (owner, 2026-10-13).
+// balance_decision : crabs eat rung crystals and turn to glass 2026-10-13
+//  - seek: px from the crab; memory: s since the crystal last rang; eatT: s of gnawing at its face
+export const CRAB_EAT = { seek: 360, memory: 3, eatT: 2.5, regrow: 14 }
+// balance_decision : crystal ring-backs make noise that calls bats 2026-10-13
+//  - noise rises by perRing per ring-back and decays over tau s; over threshold, a bat every `every` s
+export const NOISE_BATS = { perRing: 1, tau: 8, threshold: 12, every: 2.5, maxAlive: 6 }
 // Dazing Click (WEAPON_MODS.echoPulse.dazingClick): a daze published into e.stunT, metered by the
 // same e.dazeCd window as Silt Veil's, so a body dazed by either is proof against both for a while.
 export const ECHO_DAZE_HOLD = 0.8        // s a Dazing Click daze holds (before CC pricing)
@@ -9635,8 +9642,10 @@ CHAPTERS.geode = {
   weapons: ['prismShard', 'echoPulse', 'stalactite'], starter: 'prismShard', envWeapon: 'crystals',
   roster: [
     { id: 'olm',         archetype: 'normal', name: 'Olm',          hpMul: 0.9, speedMul: 0.9, flags: ['weave'] },
-    { id: 'caveCricket', archetype: 'fast',   name: 'Cave Cricket', hpMul: 0.7, speedMul: 1.0, flags: ['pounce'], dmgMul: 0.7 },
-    { id: 'crystalCrab', archetype: 'tank',   name: 'Crystal Crab', hpMul: 1.6, speedMul: 0.8, flags: ['unshakeable'] },
+    // committedLeap: once its leap leaves the ground, no slow, freeze or daze stops it (stepEnemyMovement)
+    { id: 'caveCricket', archetype: 'fast',   name: 'Cave Cricket', hpMul: 0.7, speedMul: 1.0, flags: ['pounce', 'committedLeap'], dmgMul: 0.7 },
+    // crystalEater: walks to a crystal that just rang, gnaws it away and wears its glass (CRAB_EAT)
+    { id: 'crystalCrab', archetype: 'tank',   name: 'Crystal Crab', hpMul: 1.6, speedMul: 0.8, flags: ['unshakeable', 'crystalEater'] },
     { id: 'bat',         archetype: 'fast',   name: 'Cave Bat',     hpMul: 2.6, speedMul: 1.0, radiusMul: 1.1, flags: ['weave', 'flying'], eliteOnly: true },
   ],
   eliteFlags: [],
@@ -9653,7 +9662,12 @@ CHAPTERS.geode = {
     //  - a bounce still RINGS the crystal (Fault Line, Sympathy): rung* is that ring, once per rungCd
     bounce: { refill: true, max: 3, subShards: 2, subDmgMul: 0.5, life: 1.1, steer: 560, splitFan: 0.45, rungR: 90, rungDmg: 0.8, rungKb: 40, rungCd: 0.25, hop: 400, hopCrowdR: 160 },
     // Echo Pulse: a crystal the ring reaches rings back at this fraction of its radius and damage.
-    resonance: { radiusMul: 0.6, dmgMul: 0.6 },
+    // balance_decision : ring-back size ignores Far Call, owner 2026-10-13
+    //  - radiusMul reads Echo's LEVEL radius (WEAPONS.echoPulse.levels), never the modded one
+    // balance_decision : ring-backs crack a crystal until it shatters 2026-10-13
+    //  - crack: rings = direct Echo ring-backs a crystal takes before it bursts (o.stress = rings so far / rings)
+    resonance: { radiusMul: 0.6, dmgMul: 0.6,
+      crack: { rings: 10, regrow: 14, ringR: 110, ringDmg: 1.0, shards: 10, shardDmg: 0.4, shardSpeed: 520, shardLife: 0.7 } },
   },
   obstacles: { kind: 'crystal', count: 15, cell: 430, minR: 30, maxR: 56, minDist: 240 },
   balance: { spawnMul: 0.75, enemyDmgMul: 0.75, enemyHpMul: 0.9, xpMul: 1.25, maxAliveMul: 0.62 },

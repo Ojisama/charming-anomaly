@@ -6602,7 +6602,26 @@ export function createRenderer(app) {
         gF.circle(o.x, o.y, R).stroke({ width: 2.4, color: HOLO.film(0.55 + j * 0.15), alpha: 0.55 * (1 - u) + 0.15 })
       }
     }
+    // STRESS CRACKS: a crystal Echo Pulse keeps ringing back (sim o.stress, 0..1) cracks before it shatters
+    for (const o of run.obstacles || []) if (o.kind === 'crystal' && o.stress > 0) drawCrystalCracks(gF, o, o.stress)
     drawShardTrails(run, dt, t, gF)
+  }
+  // Jagged inked cracks from one struck point, more and longer as the stress grows. Geometry is a
+  // hash of the crystal's position, so its cracks hold still and only grow.
+  function drawCrystalCracks(g, o, s) {
+    const R = o.r, rnd = (k) => hash(o.x * 0.37 + o.y * 0.91 + k * 13.1)
+    const ix = o.x - R * 0.25, iy = o.y - R * 0.2
+    const n = 2 + Math.round(s * 6)
+    for (let i = 0; i < n; i++) {
+      const a = rnd(i) * Math.PI * 2, len = R * (0.45 + 0.75 * s) * (0.6 + 0.4 * rnd(i + 50))
+      const pts = [ix, iy]
+      for (let j = 1; j <= 4; j++) {
+        const u = j / 4, off = (rnd(i * 7 + j) - 0.5) * R * 0.28
+        pts.push(ix + Math.cos(a) * len * u - Math.sin(a) * off, iy + Math.sin(a) * len * u + Math.cos(a) * off)
+      }
+      g.poly(pts, false).stroke({ width: 3.2, color: 0x0b0714, alpha: 0.85, join: 'round', cap: 'round' })
+      g.poly(pts, false).stroke({ width: 1.1, color: 0xffffff, alpha: 0.9, join: 'round', cap: 'round' })
+    }
   }
   // PRISM SHARD LIGHT-TRAILS: a shard that turned off a crystal leaves a bent streak. A trail keeps
   // SHARD_TRAIL_PTS points at least SHARD_TRAIL_STEP px apart, plus the shard itself as its head.
@@ -6950,7 +6969,8 @@ export function createRenderer(app) {
       turnRate: (e) => (e._pounceState === 'leap' ? POUNCE_TURN_LEAP
         : e._pounceState === 'aim' ? POUNCE_TURN_AIM : POUNCE_TURN_IDLE),
     },
-    crystalCrab: { archetype: 'tank', draw: drawCrystalCrab, macro: true, lean: 90, phases: 4 },
+    // glassLook: the HOLO_CAST id baked as '<id>_glass' and worn while the sim's e.glassShell is set (a crab that ate a crystal)
+    crystalCrab: { archetype: 'tank', draw: drawCrystalCrab, macro: true, lean: 90, phases: 4, glassLook: 'crystalCrabGlass' },
     bat: { archetype: 'fast', draw: drawBat, macro: true, lean: 90, phases: 4 },
     // ---- Book 3, The Mine: PRETTY COLOURED ASCII. `ascii: true` hands the whole drawing to
     // src/ascii.js (ASCII_CAST / bakeCreature), the way `macro: true` hands it to macro.js.
@@ -7634,6 +7654,11 @@ export function createRenderer(app) {
       // swapped live for the same reason every other look is: syncEnemies picks a texture, it never
       // draws one.
       if (ROSTER_LOOKS[id].childDraw) rosterBakers[id + '_child'] = () => makeRosterLook(id, false, true)
+      const gl = ROSTER_LOOKS[id].glassLook
+      if (gl) {
+        rosterBakers[id + '_glass'] = () => makeMacroLook(gl, ROSTER_LOOKS[id], false)
+        rosterBakers[id + '_glass_elite'] = () => makeMacroLook(gl, ROSTER_LOOKS[id], true)
+      }
     }
     buildBurrowTextures()   // Book 3: photographed props, crystal pillars, shots
     {
@@ -13194,7 +13219,7 @@ export function createRenderer(app) {
     if (ch.weapons?.includes('rootSnare')) q.push(bakeSnares)
     if (kind || ch.render?.holo || ch.render?.pixel) q.push(bakeFloorProps)
     const ids = new Set([...(ch.roster ?? []).map((r) => r.id), ...(ch.render?.cast ?? [])])
-    for (const id of ids) for (const k of [id, id + '_elite', id + '_child']) if (rosterBakers[k]) q.unshift(() => rosterLook(k))
+    for (const id of ids) for (const k of [id, id + '_elite', id + '_child', id + '_glass', id + '_glass_elite']) if (rosterBakers[k]) q.unshift(() => rosterLook(k))
     prewarmQ = q; prewarmTotal = q.length
     const done = new Promise((resolve) => prewarmWaiters.push({ resolve, onStep }))
     const step = () => { for (const w of prewarmWaiters) w.onStep?.(1 - prewarmQ.length / Math.max(1, prewarmTotal)) }
@@ -32254,9 +32279,11 @@ void main() {
       // A split child takes its own silhouette where the look declares one (ROSTER_LOOKS.childDraw
       // — The Deep's zooid). Children are never elite (spawnSplitChildren sets elite: false), so
       // the two suffixes cannot both apply and this needs no ordering rule.
-      const rkey = e.rosterId
+      // A body wearing a glass shell (e.glassShell, a crab that ate a crystal) takes its '_glass' look.
+      const glassKey = e.rosterId && e.glassShell && rosterBakers[e.rosterId + '_glass'] ? e.rosterId + '_glass' + (e.elite ? '_elite' : '') : null
+      const rkey = glassKey ?? (e.rosterId
         ? e.rosterId + (e._splitChild && rosterBakers[e.rosterId + '_child'] ? '_child' : (e.elite ? '_elite' : ''))
-        : null
+        : null)
       const look = (rkey && rosterLook(rkey)) || T.enemies[e.elite ? e.type + '_elite' : e.type]
       // Animated looks (look.frames, e.g. the centipede's baked wave phases): flip through the
       // frames on animT, offset per enemy id so a pack doesn't slither in lockstep. Frozen/stunned

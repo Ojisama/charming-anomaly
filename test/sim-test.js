@@ -50,7 +50,7 @@ import {
   SUNSPEAR_FALL, SUNSPEAR_SPREAD, FOXFIRE_GLOOM, FOXFIRE_WANDER_SPEED, FOXFIRE_SWARM, FOXFIRE_CATCH_FRAC, weaponDesc, FOXFIRE_GLOW, SUNLANCE_REACH_MIN, GLINT_LIGHT_COST, GLINT_GLOW,
   WEAPONS, HOLE_SINGULARITY_FRAC, DOWNWASH_PLUNGE_N, DOWNWASH_PLUNGE_FRAC, DOWNWASH_PLUNGE_ARM,
   ORBIT_NOVA_RADIUS, WISP_NOVA_RADIUS, CRUNCH_DMG_MUL, UNDERTOW_VAC_RADIUS_PER_STACK,
-  WEAPON_MODS, WEAPON_MOD_TIER_BONUS, PEBBLE_CONE, ECHO_DAZE_HOLD, ECHO_DAZE_REFRACTORY, MAX_WEAPON_MOD_PICKS, maxModsPerWeaponPerPool, PIERCE_MAX_PICKS,
+  WEAPON_MODS, WEAPON_MOD_TIER_BONUS, PEBBLE_CONE, ECHO_DAZE_HOLD, ECHO_DAZE_REFRACTORY, CRAB_EAT, NOISE_BATS, MAX_WEAPON_MOD_PICKS, maxModsPerWeaponPerPool, PIERCE_MAX_PICKS,
   MOD_CANDIDATES_PER_WEAPON, MOD_POOL_MAX, DUO_PITY_SCREENS,
   WEAPON_RATE_MODS, WEAPON_COUNT_MODS,
   xpForLevel, REVIVE_HP_FRAC, REVIVE_INVULN, rerollCost,
@@ -20920,6 +20920,7 @@ run(testLeLargeWeapons)
   run(testTopsoilPolish)
   run(testPebbleHandful)
   run(testEchoDaze)
+  run(testGeodeCounters)
   run(testSrcParses)
   run(testGemTiers)
   run(testMagmaFloor)
@@ -41871,4 +41872,149 @@ function testEchoDaze() {
   assert.ok(sure.pulses >= 5 && sure.dazes.every((d) => d.length < sure.pulses), `run ED.c: the immunity window skips pulses: ${sure.pulses} pulses, dazes per body ${[...new Set(sure.dazes.map((d) => d.length))]}`)
   assert.ok(gaps.length > 0 && minGap >= ECHO_DAZE_REFRACTORY, `run ED.c: a body is never re-dazed inside the window (closest ${minGap.toFixed(2)}s, window >= ${ECHO_DAZE_REFRACTORY}s)`)
   console.log(`PASS run ED (Dazing Click): 10%..50% card reads 10% -> 50%; one 50% ring dazed ${firstHit}/60; at 100% ${sure.pulses} pulses, dazes per body ${[...new Set(sure.dazes.map((d) => d.length))]}, closest re-daze ${minGap.toFixed(2)}s apart`)
+}
+
+// run GK — THE GEODE'S COUNTERS TO A CRYSTAL FORTRESS (owner, 2026-10-13): Far Call no longer grows
+// a ring-back; Echo's ring-backs crack a crystal until it shatters and regrows elsewhere; a Crystal
+// Crab eats a crystal that just rang and turns to glass (no slow, freeze or daze); ring-backs make
+// noise that calls Cave Bats; the Cave Cricket's committed leap ignores stun, slow and freeze.
+function testGeodeCounters() {
+  const dt = 1 / 60
+  const K = CHAPTERS.geode.signature.resonance.crack
+  const boot = (seed) => {
+    Math.random = mulberry32(seed)
+    const m = makeMeta(); m.dev = true
+    const r = createRun(m, { chapter: 'geode', difficulty: 1 })
+    assert.strictEqual(r.chapter, 'geode', 'run GK: the fixture must be in The Geode')
+    r.weapons = []; r.mods.spawnMul = 0
+    r.player.hp = r.player.maxHP = 1e9
+    stepSim(r, { x: 0, y: 0 }, dt)
+    r.enemies = []; r.bullets = []; r.novas = []; r.echoes = []; r.obstacles = []
+    r._obCellI = Math.floor(r.player.x / CHAPTERS.geode.obstacles.cell); r._obCellJ = Math.floor(r.player.y / CHAPTERS.geode.obstacles.cell)
+    r.events.length = 0
+    return r
+  }
+  const crystal = (r, x, y, rad = 40) => { const o = { x, y, r: rad, kind: 'crystal', rot: 0, _cell: 'gk:' + x + ',' + y }; r.obstacles.push(o); return o }
+  const run_ = (r, secs, each) => {
+    const ev = []
+    for (let i = 0; i < secs * 60; i++) {
+      if (r.phase === 'levelup') { r.phase = 'playing'; r.levelUpChoices = [] }
+      r.player.hp = r.player.maxHP
+      if (each) each(r)
+      stepSim(r, { x: 0, y: 0 }, dt)
+      ev.push(...r.events); r.events.length = 0
+    }
+    return ev
+  }
+
+  // (a) FAR CALL NO LONGER GROWS THE RING-BACK: the same crystal rings back at the same size
+  const backR = (farCall) => {
+    const r = boot(52001)
+    const o = crystal(r, r.player.x + 120, r.player.y)
+    r.weapons = [{ id: 'echoPulse', level: 1 }]
+    r.weaponMods.echoPulse = farCall ? { farCall } : {}
+    const ring = run_(r, 3).find((e) => e.type === 'crystalRing' && Math.abs(e.x - o.x) < 1)
+    return ring ? ring.r : 0
+  }
+  const plain = backR(0), wide = backR(1)
+  assert.ok(plain > 0 && Math.abs(wide - plain) < 1e-6, `run GK.a: the ring-back is ${plain.toFixed(1)}px plain and ${wide.toFixed(1)}px with Far Call +100% (want equal)`)
+
+  // (b) STRESS CRACKS: K.rings ring-backs crack it in steps of 1/K.rings, then it bursts and is gone
+  {
+    const r = boot(52002)
+    const o = crystal(r, r.player.x + 120, r.player.y)
+    r.weapons = [{ id: 'echoPulse', level: 5 }]
+    const seen = []
+    let shards = 0, broke = 0, gone = -1
+    for (let i = 0, after = 0; i < 60 * 60 && after < 20; i++) {
+      if (gone > 0) after++
+      if (r.phase === 'levelup') { r.phase = 'playing'; r.levelUpChoices = [] }
+      r.player.hp = r.player.maxHP
+      stepSim(r, { x: 0, y: 0 }, dt)
+      if (o.stress != null && seen[seen.length - 1] !== o.stress) seen.push(o.stress)
+      broke += r.events.filter((e) => e.type === 'crystalBreak' && Math.abs(e.x - o.x) < 1).length
+      r.events.length = 0
+      shards = Math.max(shards, r.bullets.filter((b) => b._spent && b._shard).length)
+      if (gone < 0 && !r.obstacles.includes(o)) gone = r.time
+    }
+    assert.ok(gone > 0 && broke === 1, `run GK.b: the crystal shattered once (${broke}) and left the field (t=${gone.toFixed(1)}s)`)
+    assert.strictEqual(seen.length, K.rings, `run GK.b: ${K.rings} cracks before it bursts, saw stress steps ${seen.map((s) => s.toFixed(2))}`)
+    assert.ok(seen.every((s, i) => Math.abs(s - (i + 1) / K.rings) < 1e-9), `run GK.b: each ring-back adds 1/${K.rings} stress: ${seen.map((s) => s.toFixed(2))}`)
+    assert.ok(shards >= K.shards, `run GK.b: the burst fired its ${K.shards} shards (saw ${shards})`)
+    assert.ok(r._crystalRegrow?.has(o._cell) || r._crystalRegrown?.has(o._cell), 'run GK.b: the shattered crystal is queued to grow back')
+  }
+
+  // (c) THE CRAB EATS A CRYSTAL THAT RANG, THEN WEARS ITS GLASS
+  let gw = 0, nw = 0
+  {
+    const r = boot(52003)
+    const p = r.player
+    const o = crystal(r, p.x + 260, p.y)
+    const crab = makeStatusEnemy(r, { x: p.x + 260, y: p.y + 200, type: 'tank', hp: 1e9, speed: 60 })
+    crab.flags = ['unshakeable', 'crystalEater']; crab.rosterId = 'crystalCrab'; crab.radius = 26
+    r.enemies.push(crab)
+    o._rungAt = r.time
+    const d0 = Math.hypot(crab.x - o.x, crab.y - o.y)
+    let peakStress = 0
+    run_(r, 2, () => { o._rungAt = r.time })   // keep it ringing while the crab closes
+    const d1 = Math.hypot(crab.x - o.x, crab.y - o.y)
+    assert.ok(d1 < d0 - 60, `run GK.c: the crab walks to the crystal that rang (${d0.toFixed(0)} -> ${d1.toFixed(0)}px)`)
+    run_(r, CRAB_EAT.eatT + 4, () => { peakStress = Math.max(peakStress, o.stress ?? 0) })
+    assert.ok(!r.obstacles.includes(o) && crab.glassShell === true, `run GK.c: the crystal was eaten (${!r.obstacles.includes(o)}) and the crab is glass (${crab.glassShell})`)
+    assert.ok(peakStress > 0.5, `run GK.c: the crystal cracked while it was gnawed (peak stress ${peakStress.toFixed(2)})`)
+    // a crystal that did NOT ring is left alone
+    const r2 = boot(52004)
+    const o2 = crystal(r2, r2.player.x + 260, r2.player.y)
+    const crab2 = makeStatusEnemy(r2, { x: r2.player.x + 260, y: r2.player.y + 200, type: 'tank', hp: 1e9, speed: 60 })
+    crab2.flags = ['unshakeable', 'crystalEater']; crab2.rosterId = 'crystalCrab'; crab2.radius = 26
+    r2.enemies.push(crab2)
+    run_(r2, CRAB_EAT.eatT + 6)
+    assert.ok(r2.obstacles.includes(o2) && !crab2.glassShell, 'run GK.c: a crab ignores a crystal that has not rung')
+    // GLASS: a dazed, chilled glass crab still walks at you; the same crab without glass does not
+    const walked = (glass) => {
+      const r3 = boot(52005)
+      const e = makeStatusEnemy(r3, { x: r3.player.x + 400, y: r3.player.y, type: 'tank', hp: 1e9, speed: 60 })
+      e.flags = ['unshakeable']; e.rosterId = 'crystalCrab'; e.radius = 26; e.glassShell = glass
+      r3.enemies.push(e)
+      const x0 = e.x
+      run_(r3, 1, () => { e.stunT = 2; e._elFrozen = 2; e.rootUntil = r3.time + 5 })   // dazed, frozen AND rooted
+      return x0 - e.x
+    }
+    gw = walked(true); nw = walked(false)
+    assert.ok(gw > 60 * 0.95 && Math.abs(nw) < 1, `run GK.c: dazed + frozen + rooted, a glass crab walked at full speed ${gw.toFixed(0)}px, a plain one ${nw.toFixed(0)}px`)
+  }
+
+  // (d) NOISE CALLS BATS: over the threshold, an ordinary bat every `every` s, capped; quiet, none
+  const bats = (noise, secs) => {
+    const r = boot(52006)
+    run_(r, secs, () => { r.noise = noise })
+    return r.enemies.filter((e) => e._noiseBat && e.rosterId === 'bat' && !e.elite).length
+  }
+  const quiet = bats(NOISE_BATS.threshold * 0.5, 10), loud = bats(NOISE_BATS.threshold * 2, NOISE_BATS.every * 3 + 0.5), capped = bats(NOISE_BATS.threshold * 2, NOISE_BATS.every * (NOISE_BATS.maxAlive + 4))
+  assert.ok(quiet === 0 && loud === 3 && capped === NOISE_BATS.maxAlive, `run GK.d: bats quiet ${quiet} (want 0), loud for 3 calls ${loud} (want 3), held loud ${capped} (want the cap ${NOISE_BATS.maxAlive})`)
+  // and the ring-backs themselves are what makes the noise
+  {
+    const r = boot(52007)
+    crystal(r, r.player.x + 120, r.player.y); crystal(r, r.player.x - 120, r.player.y)
+    r.weapons = [{ id: 'echoPulse', level: 5 }]
+    let peak = 0
+    run_(r, 12, () => { peak = Math.max(peak, r.noise ?? 0) })
+    assert.ok(peak > 1, `run GK.d: two crystals ringing back raise the noise (peak ${peak.toFixed(1)})`)
+  }
+
+  // (e) THE CRICKET'S COMMITTED LEAP: stunned and frozen mid-leap, it still flies; a plain pouncer stops
+  const leap = (committed) => {
+    const r = boot(52008)
+    const e = makeStatusEnemy(r, { x: r.player.x + 300, y: r.player.y, type: 'wisp', hp: 1e9, speed: 60 })
+    e.flags = committed ? ['pounce', 'committedLeap'] : ['pounce']; e.rosterId = 'caveCricket'
+    e._pounceState = 'leap'; e._pounceT = 0.3; e._pounceDirX = -1; e._pounceDirY = 0
+    r.enemies.push(e)
+    const x0 = e.x
+    run_(r, 0.2, () => { e.stunT = 2; e._elFrozen = 2 })
+    return x0 - e.x
+  }
+  const cl = leap(true), pl = leap(false)
+  assert.ok(cl > 40 && Math.abs(pl) < 1, `run GK.e: stunned + frozen mid-leap, the cricket flew ${cl.toFixed(0)}px, a plain pouncer ${pl.toFixed(0)}px`)
+
+  console.log(`PASS run GK (Geode counters): ring-back ${plain.toFixed(0)}px with or without Far Call; ${K.rings} cracks then a burst; the crab ate a rung crystal and turned to glass (walked ${gw.toFixed(0)}px dazed+frozen); bats quiet/loud/capped ${quiet}/${loud}/${capped}; committed leap ${cl.toFixed(0)}px vs ${pl.toFixed(0)}px`)
 }

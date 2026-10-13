@@ -259,7 +259,7 @@ import {
   SHOVEL_LIFE, PEBBLE_CONE, PEBBLE_SPEED_JITTER, pebbleSpreadStones, PEBBLE_LIFE, PEBBLE_R, ROOT_SNARE_TICK, ROOT_SNARE_SLOW, ROOT_SNARE_HOLD_T, ROOT_SNARE_RANGE,
   FURROW_STEP, FURROW_KEEP, FURROW_DELAY, FURROW_STAGGER, FURROW_PIT_OPEN, FURROW_PIT_LIFE, FURROW_PIT_FILL, FURROW_PIT_MAX, FURROW_JUMP, FURROW_LANE_GAP,
   SUNDOWN_SPEED_MUL, SUNDOWN_XP_MUL,
-  PRISM_FAN, PRISM_LIFE, PRISM_R, ECHO_LIFE, ECHO_DAZE_HOLD, ECHO_DAZE_REFRACTORY, STALACTITE_FUSE, STALACTITE_RANGE, CRYSTAL_CARDS, ENV_WEAPONS, fillModDesc,
+  PRISM_FAN, PRISM_LIFE, PRISM_R, ECHO_LIFE, CRAB_EAT, NOISE_BATS, ECHO_DAZE_HOLD, ECHO_DAZE_REFRACTORY, STALACTITE_FUSE, STALACTITE_RANGE, CRYSTAL_CARDS, ENV_WEAPONS, fillModDesc,
   PICKAXE_RANGE, PICKAXE_KB, PICKAXE_FLIGHT, PICKAXE_CHIP_DMG, PICKAXE_CHIP_SPEED, PICKAXE_CHIP_LIFE, PICKAXE_CHIP_R,
   DYNAMITE_RANGE, DYNAMITE_FLIGHT, DYNAMITE_FUSE, DYNAMITE_KB, MINECART_SPEED, MINECART_FAN, MINECART_KB, MINECART_STUN, MINECART_LOOT_R, MINECART_HOME_R,
   CANARY_REACH_MUL, CANARY_LINK_DMG, LANTERN_PULSE, MINE_BOOM_KEEP, MINE_GAS_FADE_IN, MINE_GAS_LIT_SHRINK,
@@ -4268,6 +4268,7 @@ const elP = (run, id) => (run.elements?.[id] ?? 0)
 
 /** Cold's slow, 0..1. 1 IS frozen — there is no separate threshold. */
 function elSlow(run, e) {
+  if (e.glassShell) return 0   // a crab that ate a crystal (CRAB_EAT): glass does not chill
   if ((e._elFrozen ?? 0) > 0) return 1
   // The Geode's Spectrum card: a timed floor under the element's own slow.
   const spec = (e._specChill ?? 0) > run.time ? CRYSTAL_CARDS.spectrum.chill : 0
@@ -4290,7 +4291,7 @@ function elVenomAmp(run, e) {
 // redesign exists to delete.
 // Elite-gated affix check; an endless crowd enemy opts in with affixVisible. Never use for 'anchored'.
 function hasAffix(e, id) { return !!((e.elite || e.affixVisible) && e.affixes && e.affixes.includes(id)) }
-function elNeverFreezes(e) { return !!(e.affixes && e.affixes.includes('anchored')) }
+function elNeverFreezes(e) { return !!(e.glassShell || (e.affixes && e.affixes.includes('anchored'))) }
 
 // opts: { type, x, y, forceNormal } — lets splitter deaths spawn wisps at a fixed position
 // (never elite, but still time-scaled like any other spawn). Called with no opts by the
@@ -4875,7 +4876,8 @@ function stepEnemyMovement(run, dt) {
     const puffMul = ((e.puffT ?? 0) > 0 || (e._puffCd ?? 0) > 0) ? PUFFER_DRIFT_MUL : 1
     const scentSlow = (e.scentT || 0) > 0 ? 1 - SCENT_SLOW : 1   // The Deep's mark
     const rootMul = (e.rootUntil ?? 0) > run.time ? 1 - ROOT_SNARE_SLOW : 1   // Book 3's Root Snare hold
-    const slowMul = (1 - elSlow(run, e)) * bloomMul * dragMul * oilMul * puffMul * scentSlow * rootMul  // 1.0 slow IS the freeze; no separate branch
+    // A glass shell (CRAB_EAT) shrugs off every slow, not just cold's.
+    const slowMul = e.glassShell ? 1 : (1 - elSlow(run, e)) * bloomMul * dragMul * oilMul * puffMul * scentSlow * rootMul  // 1.0 slow IS the freeze; no separate branch
 
     // Frenzied: speeds up once badly hurt. Cheerleader (pacer): speeds up anyone else nearby.
     let affixSpeedMul = 1
@@ -4926,7 +4928,13 @@ function stepEnemyMovement(run, dt) {
     // or stunned animal doesn't run its hunting routine); the flag machines REPLACE the normal
     // seek for everyone else; the plain seek runs for the rest. slowMul (chill/freeze) applies
     // throughout. Machines take the seek target, so lured foes run their routine at the decoy.
-    if ((e.feedT || 0) > 0) {
+    if (e._pounceState === 'leap' && e.flags && e.flags.includes('committedLeap')) {
+      // A COMMITTED LEAP (The Geode's cricket): once airborne nothing stops it — no stun, fear,
+      // chill or freeze. The aim is the telegraph; the leap is the thing you sidestep.
+      stepPounce(run, e, tx, ty, dt, 1, enrageMul)
+    } else if (!e.glassShell && e.flags && e.flags.includes('crystalEater') && !(e.stunT > 0) && stepCrystalEater(run, e, dt, slowMul * flagSpeedMul)) {
+      // a crab on its way to (or gnawing) a crystal that rang: stepCrystalEater moved it
+    } else if ((e.feedT || 0) > 0) {
       // HEAD DOWN, EATING (v7.x, Chum). A body that reached a bait took a serving and stopped for
       // it; for that long it does not steer and does not close, which is the whole reason to cast
       // the card and the half that separates it from a Pheromone Lure — that one only ever changes
@@ -4938,7 +4946,7 @@ function stepEnemyMovement(run, dt) {
       // in the same chain as stun and fear, is what makes the pin real and still time-limited.
       //   `_tgtX/_tgtY` are left where they were, so the body keeps facing the way it arrived;
       // render.js draws the nose-down pose off `feedT` itself and needs nothing else.
-    } else if ((e.stunT || 0) > 0) {
+    } else if ((e.stunT || 0) > 0 && !e.glassShell) {
       // stunned (hydrant launch / roar stagger / the Vase's daze): no seek at all — knockback still
       // carries it below.
       //
@@ -10207,6 +10215,7 @@ function stepStatuses(run, dt) {
     if (e._dead || isAlly(e)) continue   // SUBMISSION: an ally next to a shocked body is the nearest thing there is
 
     if (e._shockCd > 0) e._shockCd = Math.max(0, e._shockCd - dt)
+    if (e.glassShell) e.stunT = 0   // glass does not daze (CRAB_EAT)
 
     elStep(e._elCold, dt)
     elStep(e._elVenom, dt)
@@ -16583,6 +16592,7 @@ function removeCrystal(run, o, broke, regrow) {
 // Per step, Geode only: seeded crystals run out, broken cells grow back, Crystal Bloom grows, Lodestone pulls.
 function stepCrystals(run, dt) {
   if (!crystalSpec(run)) return
+  stepNoiseBats(run, dt)
   const bloom = run.weaponMods.crystals?.crystalBloom ?? 0
   if (bloom > 0 && (run._bloomT = (run._bloomT ?? 0) + dt) >= CRYSTAL_CARDS.crystalBloom.every) {
     run._bloomT = 0
@@ -17014,6 +17024,10 @@ function stepSnares(run, dt) {
 function stepEchoWeapon(run, w, stats, fireRateMul, dt) {
   const p = run.player
   const quick = run.weaponMods.echoPulse?.rapidClick ?? 0
+  // The ring-back is sized off the LEVEL radius, so Far Call widens what the click reaches and
+  // not what each crystal gives back (CHAPTERS.geode.signature.resonance's balance_decision).
+  const levels = WEAPONS.echoPulse.levels
+  const backR = levels[Math.min(levels.length, Math.max(1, w.level)) - 1].radius
   fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => {
     const daze = run.weaponMods.echoPulse?.dazingClick ?? 0   // Dazing Click
     for (const r of ipecacRadii(run, stats.radius)) spawnNova(run, p.x, p.y, r, stats.dmg, stats.knockback, 0, { look: 'echo', life: ECHO_LIFE, daze })
@@ -17031,7 +17045,7 @@ function stepEchoWeapon(run, w, stats, fireRateMul, dt) {
       if (d > stats.radius) continue
       if (wave) wave.rung.add(o)
       run.echoes.push({ x: o.x, y: o.y, at: run.time + ECHO_LIFE * Math.max(0, d) / stats.radius,
-        r: stats.radius * res.radiusMul * wide + o.r, dmg: stats.dmg * res.dmgMul, kb: stats.knockback * res.dmgMul, daze, o, wave })
+        r: backR * res.radiusMul * wide + o.r, dmg: stats.dmg * res.dmgMul, kb: stats.knockback * res.dmgMul, daze, o, wave, direct: true })
     }
   })
 }
@@ -17044,9 +17058,77 @@ function stepEchoes(run, dt) {
     if (ec.o && !run.obstacles.includes(ec.o)) continue
     spawnNova(run, ec.x, ec.y, ec.r, ec.dmg, ec.kb, 0, { look: 'echo', life: ECHO_LIFE * 0.8, daze: ec.daze ?? 0 })
     run.events.push({ type: 'crystalRing', x: ec.x, y: ec.y, r: ec.r })
+    run.noise = (run.noise ?? 0) + NOISE_BATS.perRing   // NOISE_BATS: every ring-back is a call
     if (ec.o) crystalRang(run, ec.o, ec.dmg, ec.r - ec.o.r, ec.kb, ec.wave ?? null, ec.daze ?? 0)
+    // STRESS CRACKS: a crystal the click itself rang back cracks a little more each time, then bursts
+    const K = crystalSpec(run)?.resonance?.crack
+    if (K && ec.direct && ec.o && run.obstacles.includes(ec.o)) {
+      ec.o._echoRings = (ec.o._echoRings ?? 0) + 1
+      ec.o.stress = Math.min(1, ec.o._echoRings / K.rings)
+      if (ec.o._echoRings >= K.rings) shatterCrystal(run, ec.o, ec.dmg, K)
+    }
   }
   run.echoes = run.echoes.filter((ec) => !ec._done)
+}
+
+// A crystal that took its last crack: one ring and a spray of shards (crystalBurst, Cracked Glass's
+// payoff), then it is gone and grows back elsewhere in its cell after K.regrow s (removeCrystal).
+function shatterCrystal(run, o, dmg, K) {
+  crystalBurst(run, o, { dmg, vx: 1, vy: 0, r: 8, pierce: 1, weapon: 'prism' }, K, null)
+  removeCrystal(run, o, true, K.regrow)
+}
+// NOISE_BATS: run.noise climbs with every ring-back and decays over tau. Above the threshold the cave
+// answers: a Cave Bat (an ordinary one, not the chapter's elite) every `every` s, up to maxAlive.
+function stepNoiseBats(run, dt) {
+  const N = NOISE_BATS
+  run.noise = (run.noise ?? 0) * Math.exp(-dt / N.tau)
+  if (run.noise < N.threshold) { run._batCallT = 0; return }
+  run._batCallT = (run._batCallT ?? 0) + dt
+  if (run._batCallT < N.every) return
+  run._batCallT = 0
+  if (!CHAPTERS[run.chapter].roster.some((r) => r.id === 'bat')) return
+  let alive = 0
+  for (const e of run.enemies) if (e._noiseBat && !e._dead) alive++
+  if (alive >= N.maxAlive) return
+  const bat = spawnEnemy(run, { type: ARCHETYPE_TYPE.fast, rosterId: 'bat', forceNormal: true })
+  if (bat) bat._noiseBat = true
+}
+// CRAB_EAT: a crystalEater walks to the crystal nearest you that rang in the last `memory` s (and
+// is within `seek` of it), gnaws at its face for eatT s — the crystal cracks as it does (o.stress)
+// — then the crystal is gone and the crab wears its glass for good (e.glassShell). Returns true
+// when it moved the crab this frame, false to let the ordinary seek run.
+function stepCrystalEater(run, e, dt, spdMul) {
+  const C = CRAB_EAT, p = run.player
+  let o = e._eatO
+  if (o && !run.obstacles.includes(o)) o = e._eatO = null
+  if (!o && (e._eatScan = (e._eatScan ?? 0) - dt) <= 0) {
+    e._eatScan = 0.5
+    let best = Infinity
+    for (const c of run.obstacles) {
+      if (c.kind !== 'crystal' || c._rungAt == null || run.time - c._rungAt > C.memory) continue
+      if (Math.hypot(c.x - e.x, c.y - e.y) - c.r > C.seek) continue
+      const d = Math.hypot(c.x - p.x, c.y - p.y)
+      if (d < best) { best = d; o = c }
+    }
+    e._eatO = o ?? null
+  }
+  if (!o) return false
+  const dx = o.x - e.x, dy = o.y - e.y, d = Math.hypot(dx, dy) || 1
+  const face = o.r + e.radius + 4
+  if (d > face) {
+    const step = Math.min(d - face, e.speed * spdMul * dt)
+    e.x += (dx / d) * step; e.y += (dy / d) * step
+    e._tgtX = o.x; e._tgtY = o.y
+    return true
+  }
+  e._eatT = (e._eatT ?? 0) + dt
+  o.stress = Math.max(o.stress ?? 0, Math.min(1, e._eatT / C.eatT))
+  if (e._eatT >= C.eatT) {
+    removeCrystal(run, o, true, C.regrow)
+    e.glassShell = true
+    e._eatO = null; e._eatT = 0
+  }
+  return true
 }
 
 // -- Stalactite (The Geode) ---------------------------------------------------------------------

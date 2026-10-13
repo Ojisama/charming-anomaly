@@ -2139,10 +2139,23 @@ function generateWells(sig) {
  *     (slowed by ROOT_SNARE_SLOW while run.time < it) and a dot tick every ROOT_SNARE_TICK.
  *   drips[i]: { x, y, r, dmg, t, fuse, seed } — a Stalactite: the shadow grows for `fuse` s, then it
  *     lands ({type:'stalactite'}) and hits everything in r.
- *   echoes[i]: { x, y, at, r, dmg, kb, daze, o, wave } — a crystal's queued ring-back from an Echo Pulse
+ *   echoes[i]: { x, y, at, r, dmg, kb, daze, o, wave, direct } — a crystal's queued ring-back from an Echo Pulse
  *     (or a Sympathy link); it becomes a run.novas entry (look 'echo') at run.time >= at. `o` is
  *     the crystal (a ring for one that broke meanwhile is dropped), `wave` the Sympathy wave
- *     ({ rung: Set of crystals }) or null.
+ *     ({ rung: Set of crystals }) or null. `direct`: the click itself reached this crystal (not a
+ *     Sympathy link) — only those crack it.
+ *   THE GEODE'S COUNTERS TO A CRYSTAL FORTRESS (owner, 2026-10-13):
+ *   - o.stress (0..1) on a crystal: its cracks, published for render.js (drawCrystalCracks). Set by
+ *     direct Echo ring-backs (o._echoRings / resonance.crack.rings; at 1 it bursts and regrows
+ *     elsewhere in its cell) and by a crab gnawing it (e._eatT / CRAB_EAT.eatT).
+ *   - run.noise: +NOISE_BATS.perRing per ring-back, decaying over tau; over the threshold the cave
+ *     sends an ordinary Cave Bat (e._noiseBat) every `every` s, up to maxAlive.
+ *   - roster flag 'crystalEater' (Crystal Crab): walks to a crystal that rang in the last
+ *     CRAB_EAT.memory s, gnaws it away (e._eatO, e._eatT) and sets e.glassShell = true for good —
+ *     no slow (any source), no freeze, no daze (stunT is zeroed each step). render.js swaps in the
+ *     '<rosterId>_glass' look (ROSTER_LOOKS glassLook) off e.glassShell.
+ *   - roster flag 'committedLeap' (Cave Cricket): a pounce already in 'leap' ignores stun, fear,
+ *     chill and freeze until it lands.
  *   faults[i]: { ax, ay, bx, by, t, secs, tick, dmg } — a Fault Line beam between two crystals
  *     (CRYSTAL_CARDS.faultLine); at most one, a new pair replaces it.
  *   THE CRYSTAL CARDS (config CRYSTAL_CARDS). Crystals are mutable: addCrystal / removeCrystal

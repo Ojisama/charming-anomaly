@@ -297,7 +297,9 @@ function holoSpike(ctx, x, y, len, wid, ang, t0, lw = 1.1) {
   return out
 }
 // CRYSTAL CRAB: a deep-blue crab, two big claws, eight legs, a crown of foil crystals grown on its back.
-function paintCrystalCrab(ctx, phase) {
+// `glass`: the crab that ate a crystal (sim e.glassShell) — its shield turned to cut glass and the eaten
+// crystal breaking out through it past the rim. Baked as its own look (ROSTER_LOOKS glassLook).
+function paintCrystalCrab(ctx, phase, glass = false) {
   const r = 26, rnd = rng(113)
   const sw = Math.sin(phase), shell = 0x262a64, legC = 0x343a88
   for (const s of [-1, 1]) {
@@ -329,6 +331,22 @@ function paintCrystalCrab(ctx, phase) {
   }
   // carapace: a broad deep-blue shield, a cobalt band, a pearl rim, tubercles inked over it
   const cara = oval(0, 0, r * 0.7, r * 0.86, 0, 52)
+  if (glass) {
+    // the crown of spikes goes UNDER the shield, so it reads as breaking out from beneath it
+    for (let i = 0; i < 12; i++) {
+      const a = (i / 12) * TAU + 0.13
+      holoSpike(ctx, Math.cos(a) * r * 0.45, Math.sin(a) * r * 0.55, r * (0.85 + 0.25 * (i % 2)), r * 0.16, a, i / 12, 1.2)
+    }
+    // the shield as clear cut glass: facets radiating from the middle, foil at full
+    fillPts(ctx, cara, 'rgba(225,235,255,0.92)')
+    for (let i = 0; i < 10; i++) {
+      const a0 = (i / 10) * TAU, a1 = ((i + 1) / 10) * TAU
+      const tri = [[0, 0], [Math.cos(a0) * r * 0.7, Math.sin(a0) * r * 0.86], [Math.cos(a1) * r * 0.7, Math.sin(a1) * r * 0.86]]
+      fillPts(ctx, tri, i % 2 ? 'rgba(255,255,255,0.9)' : 'rgba(150,170,230,0.55)')
+      ink(ctx, tri, 0.7)
+    }
+    foil(ctx, cara, 1.0, 0.8, 1.0); rim(ctx, cara, 2.2); ink(ctx, cara, 2.0)
+  } else {
   fillPts(ctx, cara, css(shell))
   ctx.save(); trace(ctx, cara); ctx.clip()
   ctx.lineWidth = r * 0.12; ctx.strokeStyle = css(0x4a62d8); trace(ctx, oval(0, 0, r * 0.66, r * 0.82)); ctx.stroke()
@@ -341,6 +359,7 @@ function paintCrystalCrab(ctx, phase) {
   foil(ctx, cara, 0.5, 0.3, 0.9)
   rim(ctx, cara, 1.6)
   ink(ctx, cara, 1.8)
+  }
   // eyes on stalks at the front
   for (const s of [-1, 1]) {
     inkLimb(ctx, [[r * 0.58, s * r * 0.18], [r * 0.82, s * r * 0.26]], r * 0.07, r * 0.06, legC, { ink: 0.9 })
@@ -434,6 +453,8 @@ export const HOLO_CAST = {
   olm: { r: 18, E: 60, frames: 6, shadowBlur: 0.7, shadow: [18 * 1.5, 18 * 0.35], crown: [-18 * 0.4, 18], paint: (ctx, f) => paintOlm(ctx, f) },
   caveCricket: { r: 13, E: 48, poses: 4, shadowBlur: 0.6, shadow: [13 * 1.2, 13 * 0.5], crown: [-13 * 0.6, 13], paint: (ctx, p) => paintCaveCricket(ctx, p) },
   crystalCrab: { r: 26, E: 54, frames: 4, shadowBlur: 0.8, shadow: [26 * 1.25, 26 * 0.6], crown: [-26 * 0.95, 26], paint: (ctx, f) => paintCrystalCrab(ctx, f) },
+  // the crab after it ate a crystal; E is wider for the spikes past the rim
+  crystalCrabGlass: { r: 26, E: 68, frames: 4, shadowBlur: 0.8, shadow: [26 * 1.25, 26 * 0.6], crown: [-26 * 0.95, 26], paint: (ctx, f) => paintCrystalCrab(ctx, f, true) },
   bat: { r: 14, E: 48, frames: 4, shadowBlur: 0.6, shadow: [14 * 2.4, 14 * 0.3], crown: [-14 * 0.5, 14], paint: (ctx, f) => paintBat(ctx, f) },
 }
 
