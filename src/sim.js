@@ -259,7 +259,7 @@ import {
   SHOVEL_LIFE, PEBBLE_CONE, PEBBLE_SPEED_JITTER, pebbleSpreadStones, PEBBLE_LIFE, PEBBLE_R, ROOT_SNARE_TICK, ROOT_SNARE_SLOW, ROOT_SNARE_HOLD_T, ROOT_SNARE_RANGE,
   FURROW_STEP, FURROW_KEEP, FURROW_DELAY, FURROW_STAGGER, FURROW_PIT_OPEN, FURROW_PIT_LIFE, FURROW_PIT_FILL, FURROW_PIT_MAX, FURROW_JUMP, FURROW_LANE_GAP,
   SUNDOWN_SPEED_MUL, SUNDOWN_XP_MUL,
-  PRISM_FAN, PRISM_LIFE, PRISM_R, ECHO_LIFE, STALACTITE_FUSE, STALACTITE_RANGE, CRYSTAL_CARDS, ENV_WEAPONS, fillModDesc,
+  PRISM_FAN, PRISM_LIFE, PRISM_R, ECHO_LIFE, ECHO_DAZE_HOLD, ECHO_DAZE_REFRACTORY, STALACTITE_FUSE, STALACTITE_RANGE, CRYSTAL_CARDS, ENV_WEAPONS, fillModDesc,
   PICKAXE_RANGE, PICKAXE_KB, PICKAXE_FLIGHT, PICKAXE_CHIP_DMG, PICKAXE_CHIP_SPEED, PICKAXE_CHIP_LIFE, PICKAXE_CHIP_R,
   DYNAMITE_RANGE, DYNAMITE_FLIGHT, DYNAMITE_FUSE, DYNAMITE_KB, MINECART_SPEED, MINECART_FAN, MINECART_KB, MINECART_STUN, MINECART_LOOT_R, MINECART_HOME_R,
   CANARY_REACH_MUL, CANARY_LINK_DMG, LANTERN_PULSE, MINE_BOOM_KEEP, MINE_GAS_FADE_IN, MINE_GAS_LIT_SHRINK,
@@ -10346,7 +10346,7 @@ const WEAPON_STAT_MODS = {
   rootSnare:   { thorns: ['dmg', 'pct'], spreading: ['r', 'pct'] },
   furrow:      { deepCut: ['dmg', 'pct'], widePits: ['r', 'pct'], longFurrow: ['length', 'pct'] },
   prismShard:  { keenFacet: ['dmg', 'pct'], shardSpray: ['count', 'flat'], cleave: ['pierce', 'flat'] },
-  echoPulse:   { loudClick: ['dmg', 'pct'], farCall: ['radius', 'pct'], rebound: ['knockback', 'pct'] },
+  echoPulse:   { loudClick: ['dmg', 'pct'], farCall: ['radius', 'pct'] },
   stalactite:  { heavyStone: ['dmg', 'pct'], rockfall: ['count', 'flat'], wideCrash: ['r', 'pct'] },
   // The Mine. Its rate mods (quickSwing, shortFuse, greasedAxle, quickWick) divide at the fire site.
   pickaxe:     { sharpPick: ['dmg', 'pct'], wideSwing: ['r', 'pct'], rubble: ['count', 'flat'] },
@@ -11095,6 +11095,8 @@ function spawnNova(run, x, y, maxR, dmg, knockback, fear = 0, opts = null) {
     // The Mantle: `heat` ('fire' | 'cold') is the type rule (heatMul); `habitatSplit` (Lava Bellows'
     // wave) leaves a lava creature unhurt and shoves it LAVA_WAVE_SHOVE_MUL as hard instead.
     heat: opts?.heat ?? null, habitatSplit: !!opts?.habitatSplit,
+    // Dazing Click: the chance this ring dazes each body it reaches (rolled once per body per ring).
+    daze: opts?.daze ?? 0,
     // `lifeMax` beside `life` so a ring can expand over something other than NOVA_LIFE, and so
     // stepNovas can still work out how far along it is. The Skipping Shell's splash needs it: a
     // 46px ring on the default 0.45s life deals its damage nearly half a second after the shell
@@ -11228,6 +11230,14 @@ function stepNovas(run, dt) {
         const k = ccScale(run, e)
         if ((n.fear ?? 0) > 0 && (e.fearT ?? 0) <= 0 && (e.fearCd ?? 0) <= 0 && !resistsCC(e)) {
           e.fearT = n.fear * k
+        }
+        // DAZING CLICK, into the e.stunT contract field render.js already reads. The dazeCd window
+        // (Silt Veil's) is armed at application, so a body just dazed by either cannot be re-dazed.
+        if (n.daze > 0 && (e.dazeCd ?? 0) <= 0 && !resistsCC(e) && Math.random() < n.daze) {
+          const hold = ECHO_DAZE_HOLD * k
+          e.stunT = Math.max(e.stunT || 0, hold)
+          e.dazeCd = hold + ECHO_DAZE_REFRACTORY
+          spendCC(run, e)
         }
         // Anchored: still takes the damage above, just never gets knocked back. An `unshakeable`
         // tank IS shoved and IS feared, at ccResist's share of both (see UNSHAKEABLE_CC_MUL).
@@ -15583,6 +15593,16 @@ function makeWeaponModCard(run, weaponId, modId, rarity) {
   if (cfg.values) {
     if (!(rarity in cfg.values)) return null
     const bonus = cfg.values[rarity]
+    // `showsTotal` (Dazing Click): the card states the TOTAL it leaves you on, with the total now
+    // as `prev` — the element cards' descT shape, so ui.js strikes the old figure through.
+    if (cfg.showsTotal) {
+      const have = run.weaponMods[weaponId]?.[modId] ?? 0
+      const fmt = (v) => cfg.kind === 'pct' ? modPct(Math.min(1, v)) : `${v}`
+      const descT = { s: cfg.desc, p: { n: fmt(have + bonus) } }
+      if (have > 0) descT.prev = { n: fmt(have) }
+      return { kind: 'mod', id: modId, weapon: weaponId, title: cfg.name, desc: elText(descT), descT,
+        tag: `${(WEAPONS[weaponId] ?? ENV_WEAPONS[weaponId]).name} upgrade`, rarity, icon: cfg.icon, bonus }
+    }
     return { kind: 'mod', id: modId, weapon: weaponId, title: cfg.name,
       desc: cfg.descFor ? cfg.descFor(bonus) : cfg.args ? fillModDesc(cfg.desc, { n: bonus, ...cfg.args }) : cfg.desc.includes('{n}') ? cfg.desc.replaceAll('{n}', cfg.kind === 'pct' ? modPct(bonus) : `${bonus}`) : `+${cfg.kind === 'pct' ? modPct(bonus) : bonus} ${cfg.desc}`,
       tag: `${(WEAPONS[weaponId] ?? ENV_WEAPONS[weaponId]).name} upgrade`, rarity, icon: cfg.icon, bonus }
@@ -16785,16 +16805,17 @@ function spectrumMark(run, e, n, dmg) {
 }
 // Every time a crystal RINGS (a shard bouncing off it, an Echo Pulse ring-back, a burst): Fault
 // Line looks for a partner rung just before it, and Sympathy rings its neighbours.
-function crystalRang(run, o, dmg, reach, kb, wave) {
+function crystalRang(run, o, dmg, reach, kb, wave, daze = 0) {
   const em = run.weaponMods.crystals
   if (em?.faultLine > 0) faultFrom(run, o, dmg)
   o._rungAt = run.time
-  if (em?.sympathy > 0) sympathyFrom(run, o, dmg, reach, kb, wave)
+  if (em?.sympathy > 0) sympathyFrom(run, o, dmg, reach, kb, wave, daze)
 }
 // SYMPATHY: a ringing crystal passes the ring to each neighbour on a chance, a link later, and the
 // neighbour passes it on the same way. A wave rings each crystal once (wave.rung), so it cannot loop;
 // a crystal that loses the roll is not marked, so another link of the same wave may still reach it.
-function sympathyFrom(run, o, dmg, reach, kb, wave) {
+// `daze`: an Echo Pulse's Dazing Click chance, passed down the chain (0 for a shard's chime).
+function sympathyFrom(run, o, dmg, reach, kb, wave, daze = 0) {
   const S = CRYSTAL_CARDS.sympathy
   wave ??= { rung: new Set() }
   wave.rung.add(o)
@@ -16803,7 +16824,7 @@ function sympathyFrom(run, o, dmg, reach, kb, wave) {
     if (Math.hypot(o2.x - o.x, o2.y - o.y) - o.r - o2.r > S.reach) continue
     if (Math.random() >= S.chance) continue
     wave.rung.add(o2)
-    run.echoes.push({ x: o2.x, y: o2.y, at: run.time + S.link, r: o2.r + reach, dmg: dmg * S.dmgMul, kb: kb * S.dmgMul, o: o2, wave })
+    run.echoes.push({ x: o2.x, y: o2.y, at: run.time + S.link, r: o2.r + reach, dmg: dmg * S.dmgMul, kb: kb * S.dmgMul, daze, o: o2, wave })
   }
 }
 // FAULT LINE: a crystal ringing within `window` s of the crystal rung LAST before it (and near
@@ -16994,7 +17015,8 @@ function stepEchoWeapon(run, w, stats, fireRateMul, dt) {
   const p = run.player
   const quick = run.weaponMods.echoPulse?.rapidClick ?? 0
   fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => {
-    for (const r of ipecacRadii(run, stats.radius)) spawnNova(run, p.x, p.y, r, stats.dmg, stats.knockback, 0, { look: 'echo', life: ECHO_LIFE })
+    const daze = run.weaponMods.echoPulse?.dazingClick ?? 0   // Dazing Click
+    for (const r of ipecacRadii(run, stats.radius)) spawnNova(run, p.x, p.y, r, stats.dmg, stats.knockback, 0, { look: 'echo', life: ECHO_LIFE, daze })
     run.events.push({ type: 'shoot', weapon: 'echoPulse', x: p.x, y: p.y, maxR: stats.radius })
     // Every crystal the ring will reach rings back when it gets there.
     const res = crystalSpec(run)?.resonance
@@ -17009,7 +17031,7 @@ function stepEchoWeapon(run, w, stats, fireRateMul, dt) {
       if (d > stats.radius) continue
       if (wave) wave.rung.add(o)
       run.echoes.push({ x: o.x, y: o.y, at: run.time + ECHO_LIFE * Math.max(0, d) / stats.radius,
-        r: stats.radius * res.radiusMul * wide + o.r, dmg: stats.dmg * res.dmgMul, kb: stats.knockback * res.dmgMul, o, wave })
+        r: stats.radius * res.radiusMul * wide + o.r, dmg: stats.dmg * res.dmgMul, kb: stats.knockback * res.dmgMul, daze, o, wave })
     }
   })
 }
@@ -17020,9 +17042,9 @@ function stepEchoes(run, dt) {
     ec._done = true
     // a crystal that broke or ran out before its ring arrived stays silent
     if (ec.o && !run.obstacles.includes(ec.o)) continue
-    spawnNova(run, ec.x, ec.y, ec.r, ec.dmg, ec.kb, 0, { look: 'echo', life: ECHO_LIFE * 0.8 })
+    spawnNova(run, ec.x, ec.y, ec.r, ec.dmg, ec.kb, 0, { look: 'echo', life: ECHO_LIFE * 0.8, daze: ec.daze ?? 0 })
     run.events.push({ type: 'crystalRing', x: ec.x, y: ec.y, r: ec.r })
-    if (ec.o) crystalRang(run, ec.o, ec.dmg, ec.r - ec.o.r, ec.kb, ec.wave ?? null)
+    if (ec.o) crystalRang(run, ec.o, ec.dmg, ec.r - ec.o.r, ec.kb, ec.wave ?? null, ec.daze ?? 0)
   }
   run.echoes = run.echoes.filter((ec) => !ec._done)
 }

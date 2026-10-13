@@ -3256,7 +3256,8 @@ export function initUI(hooks) {
     // A switch with a number in it goes through tt() like every other templated line, so the French
     // is keyed on the SENTENCE and survives the value being re-tuned (gorge, 2026-09-06).
     if (cfg.kind === 'switch') return cfg.desc.includes('{n}') ? tt(cfg.desc, { n: cfg.base }) : t(cfg.desc)
-    const n = cfg.kind === 'pct' ? modPct(bonus) : fmtNum(bonus)
+    // A `showsTotal` chance (Dazing Click) is a probability: it never reads over 100%.
+    const n = cfg.kind === 'pct' ? modPct(cfg.showsTotal ? Math.min(1, bonus) : bonus) : fmtNum(bonus)
     // A desc with `args` (the Geode's crystal cards) is a whole sentence carrying its own limiters.
     if (cfg.args) return tt(cfg.desc, { n, ...cfg.args })
     return cfg.desc.includes('{n}') ? tt(cfg.desc, { n }) : `+${n} ${t(cfg.desc)}`
@@ -3265,6 +3266,8 @@ export function initUI(hooks) {
   // stays identical to the pause sheet; everything else uses the string sim.js already composed.
   function cardDescHtml(c) {
     const cfg = c.kind === 'mod' ? WEAPON_MODS[c.weapon]?.[c.id] : null
+    // A mod that `showsTotal` (Dazing Click) carries the element-style descT: total now -> after.
+    if (cfg?.showsTotal && c.descT) return elDescHtml(c.descT)
     if (cfg && !cfg.descFor) return modEffectText(cfg, c.bonus)
     // An element card under the redesign carries its TEMPLATE and numbers (see elementCardDesc in
     // config.js) rather than a finished sentence, so the dictionary has one key per card instead of

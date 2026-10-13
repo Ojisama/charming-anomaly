@@ -4514,7 +4514,10 @@ export const WEAPON_MODS = {
     loudClick:   { name: 'Loud Click',   desc: 'pulse damage', icon: '💥', base: 0.30, kind: 'pct' },
     farCall:     { name: 'Far Call',     desc: 'pulse radius', icon: '⭕', base: 0.22, kind: 'pct' },
     rapidClick:  { name: 'Rapid Click',  desc: 'pulse rate', icon: '⏩', base: 0.25, kind: 'pct' },
-    rebound:     { name: 'Rebound',      desc: 'pulse push', icon: '💨', base: 0.30, kind: 'pct' },
+    // balance_decision : push card did nothing; now a daze chance 2026-10-13
+    //  - showsTotal: the card prints the banked chance before -> after, like an element card
+    dazingClick: { name: 'Dazing Click', desc: '{n} chance the pulse dazes each foe it hits', icon: '💫', kind: 'pct',
+                   values: { normal: 0.10, rare: 0.20, epic: 0.30, legendary: 0.40, mythic: 0.50 }, showsTotal: true },
   },
   stalactite: {
     heavyStone:  { name: 'Heavy Stone',  desc: 'drop damage', icon: '💥', base: 0.30, kind: 'pct' },
@@ -6755,6 +6758,10 @@ export const PRISM_FAN = 0.16            // rad between shards of one throw
 export const PRISM_LIFE = 1.0            // s of flight before a bounce refreshes it
 export const PRISM_R = 8                 // px hit radius
 export const ECHO_LIFE = 0.5             // s for the ring to reach its radius
+// Dazing Click (WEAPON_MODS.echoPulse.dazingClick): a daze published into e.stunT, metered by the
+// same e.dazeCd window as Silt Veil's, so a body dazed by either is proof against both for a while.
+export const ECHO_DAZE_HOLD = 0.8        // s a Dazing Click daze holds (before CC pricing)
+export const ECHO_DAZE_REFRACTORY = 2.5  // s after it lands before the click can daze that body again
 export const STALACTITE_FUSE = 0.8       // s the shadow grows before the stone lands
 export const STALACTITE_RANGE = 400      // px from you a stone may be dropped
 // ---- Book 3, The Mine: weapon geometry (balance lives in WEAPONS[].levels) --------------------------

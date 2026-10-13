@@ -2139,7 +2139,7 @@ function generateWells(sig) {
  *     (slowed by ROOT_SNARE_SLOW while run.time < it) and a dot tick every ROOT_SNARE_TICK.
  *   drips[i]: { x, y, r, dmg, t, fuse, seed } — a Stalactite: the shadow grows for `fuse` s, then it
  *     lands ({type:'stalactite'}) and hits everything in r.
- *   echoes[i]: { x, y, at, r, dmg, kb, o, wave } — a crystal's queued ring-back from an Echo Pulse
+ *   echoes[i]: { x, y, at, r, dmg, kb, daze, o, wave } — a crystal's queued ring-back from an Echo Pulse
  *     (or a Sympathy link); it becomes a run.novas entry (look 'echo') at run.time >= at. `o` is
  *     the crystal (a ring for one that broke meanwhile is dropped), `wave` the Sympathy wave
  *     ({ rung: Set of crystals }) or null.
@@ -2300,6 +2300,8 @@ function generateWells(sig) {
  *     applyIgnite, so the burn is the e.ignite contract field; _heat 'fire' is the type rule).
  *   Novas: look 'lavaWave' (Lava Bellows' sector; heat 'fire', habitatSplit: a lava creature is
  *     shoved, never hurt). Any nova may carry heat 'fire' | 'cold' (sim.js heatMul).
+ *     Any nova may carry daze (0..1): the chance it dazes each body it reaches into e.stunT, gated
+ *     by e.dazeCd (Echo Pulse's Dazing Click; ECHO_DAZE_HOLD / ECHO_DAZE_REFRACTORY).
  *   Events: {type:'tideTurn', rising, level, x, y} the tide turned (rising = it starts to climb, else
  *     to drain). Drawn by src/toon.js; sounded in SFX_FOR_EVENT (twice a cycle).
  *     {type:'melt', x, y, r, rosterId} a rock creature melted under the tide; {type:'crumble', x, y,
