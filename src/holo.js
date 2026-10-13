@@ -834,7 +834,32 @@ function pillarSpec(variant) {
 }
 // `noGlint`: leave out the big star of light — render.js draws it as its own sprite (paintHoloGlint) so
 // it can go out when the crystal cracks (tickCrystalCracks).
-export function paintHoloPillar(variant, noGlint = false) {
+// THE CRACK PLAN for one spike, seeded per spike so the overlay (paintHoloPillarCracks) and the
+// broken-tip pillar (paintHoloPillar's `broken`) agree on every line. Cuts run at a slant across the
+// spike with two kinks, about half of them stopping partway; `tip` is the outer cut, and on a
+// `broken` spike everything beyond it is gone. Points are spike-local (u along, v across).
+function spikeCrackPlan(variant, si, len, wid) {
+  const rnd = rng(9100 + variant * 17 + si * 101)
+  const cut = (u0) => {
+    const slant = (rnd() < 0.5 ? -1 : 1) * (0.45 + rnd() * 0.25)   // 25-40 degrees off square
+    const v1 = rnd() < 0.5 ? wid * 1.3 : (rnd() * 0.4 - 0.1) * wid   // half stop partway
+    const at = (v) => u0 + Math.tan(slant) * v
+    const vm1 = -wid * 0.35 + (rnd() - 0.5) * wid * 0.2, vm2 = wid * 0.25 + (rnd() - 0.5) * wid * 0.2
+    const pts = [[at(-wid * 1.3), -wid * 1.3], [at(vm1) + (rnd() - 0.5) * len * 0.05, vm1], [at(vm2) + (rnd() - 0.5) * len * 0.05, vm2]]
+    if (v1 > vm2) pts.push([at(v1), v1])
+    return pts
+  }
+  const base = cut(len * (0.24 + rnd() * 0.08))
+  const tip = cut(len * (0.6 + rnd() * 0.08))
+  // the tip cut always runs edge to edge, so a broken spike is cut clean through
+  if (tip[tip.length - 1][1] < wid * 1.3) tip.push([tip[tip.length - 1][0] + (rnd() - 0.5) * len * 0.04, wid * 1.3])
+  const along = [[len * 0.3, (rnd() - 0.5) * wid * 0.5], [len * 0.45, (rnd() - 0.5) * wid * 0.6], [len * 0.58, (rnd() - 0.5) * wid * 0.5]]
+  const fork = [base[1], [len * (0.42 + rnd() * 0.06), (rnd() < 0.5 ? -1 : 1) * wid * 0.85]]
+  return { base, tip, along, fork, broken: rnd() < 0.35 }
+}
+// `broken` (stress crack stage 3): the spikes spikeCrackPlan breaks are cut off at their outer
+// fracture, the break inked — the tip is really gone, the socket and floor show where it was.
+export function paintHoloPillar(variant, noGlint = false, broken = false) {
   const { R, rnd, foot, spikes, hexRot } = pillarSpec(variant)
   return bakeLocal(R * 2.1, 2, (ctx) => {
     const t0 = variant * 0.17
@@ -851,7 +876,24 @@ export function paintHoloPillar(variant, noGlint = false) {
     }
     ink(ctx, foot, 2.4)
     // the crystals: the leaning ones first (behind), the upright core last
-    for (const [a, d, len, wid, t] of spikes) holoSpike(ctx, Math.cos(a) * d, Math.sin(a) * d, len, wid, a, t0 + t, 2.2)
+    spikes.forEach(([a, d, len, wid, t], si) => {
+      const x = Math.cos(a) * d, y = Math.sin(a) * d
+      const plan = broken ? spikeCrackPlan(variant, si, len, wid) : null
+      if (!plan?.broken) { holoSpike(ctx, x, y, len, wid, a, t0 + t, 2.2); return }
+      const ca = Math.cos(a), sa = Math.sin(a), P = ([u, v]) => [x + ca * u - sa * v, y + sa * u + ca * v]
+      // keep only the base side of the outer fracture
+      ctx.save(); ctx.beginPath()
+      ctx.moveTo(...P([-len, -wid * 3]))
+      for (const q of plan.tip) ctx.lineTo(...P([q[0], q[1] < 0 ? -wid * 3 : q[1] > wid ? wid * 3 : q[1]]))
+      ctx.lineTo(...P([-len, wid * 3])); ctx.closePath(); ctx.clip()
+      holoSpike(ctx, x, y, len, wid, a, t0 + t, 2.2)
+      ctx.restore()
+      // the break: an inked jagged end
+      ctx.save(); ctx.beginPath(); ctx.moveTo(...P([-len, -wid * 0.95])); ctx.lineTo(...P([len * 2, -wid * 0.95])); ctx.lineTo(...P([len * 2, wid * 0.95])); ctx.lineTo(...P([-len, wid * 0.95])); ctx.closePath(); ctx.clip()
+      ctx.beginPath(); plan.tip.forEach((q, k) => (k ? ctx.lineTo : ctx.moveTo).call(ctx, ...P(q)))
+      ctx.lineWidth = 2.2 * INK_K; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = INK; ctx.stroke()
+      ctx.restore()
+    })
     hexTop(ctx, 0, 0, R * 0.36, hexRot, t0 + 0.5)
     // stars of light
     if (!noGlint) glintStar(ctx, -R * 0.08, -R * 0.1, R * 0.6, 0.95)
@@ -889,35 +931,26 @@ export function paintHoloPillarCracks(variant, stage) {
     ctx.save(); ctx.globalCompositeOperation = 'destination-out'; path(poly); ctx.fillStyle = '#000'; ctx.fill(); ctx.restore()
     ctx.save(); path(poly); ctx.clip(); paint(); ctx.restore()
   }
+  // stage 2 cracks the inner spikes only (nearest the top); stage 3 every one
+  const byD = spikes.map((s, i) => [s[1], i]).sort((p, q) => p[0] - q[0]).map((p) => p[1])
+  const inner = new Set(byD.slice(0, Math.ceil(spikes.length * 0.6)))
   return bakeLocal(R * 2.1, 2, (c) => {
     ctx = c
     // THE CROWN: each spike in the pillar's back-to-front order
     spikes.forEach(([a, d, len, wid], si) => {
       const x = Math.cos(a) * d, y = Math.sin(a) * d, ca = Math.cos(a), sa = Math.sin(a)
-      const P = (u, v) => [x + ca * u - sa * v, y + sa * u + ca * v]
-      const poly = [P(0, -wid * 0.9), P(len * 0.72, -wid), P(len, 0), P(len * 0.72, wid), P(0, wid * 0.9)]
-      const rnd = rng(9100 + variant * 17 + si * 101)
-      // a fracture straight across the spike at u, with one kink at the ridge
-      const across = (u) => { const k = (rnd() - 0.5) * len * 0.08; return [P(u + (rnd() - 0.5) * len * 0.06, -wid * 1.3), P(u + k, (rnd() - 0.5) * wid * 0.3), P(u + (rnd() - 0.5) * len * 0.06, wid * 1.3)] }
-      const base = across(len * (0.26 + rnd() * 0.08))
-      const tipCut = across(len * (0.62 + rnd() * 0.08))
-      const along = [P(len * 0.3, (rnd() - 0.5) * wid * 0.5), P(len * 0.48, (rnd() - 0.5) * wid * 0.6), P(len * 0.68, (rnd() - 0.5) * wid * 0.5)]
-      const fork = [base[1], P(len * (0.42 + rnd() * 0.06), (rnd() < 0.5 ? -1 : 1) * wid * 0.85)]
-      const broken = stage >= 3 && rnd() < 0.35
+      const P = ([u, v]) => [x + ca * u - sa * v, y + sa * u + ca * v]
+      const plan = spikeCrackPlan(variant, si, len, wid)
+      // on a broken spike the outline ends at the break (the stage-3 pillar is cut there too)
+      const full = [[0, -wid * 0.9], [len * 0.72, -wid], [len, 0], [len * 0.72, wid], [0, wid * 0.9]]
+      const poly = (stage >= 3 && plan.broken ? [[0, -wid * 0.9], ...plan.tip.map((q) => [q[0], Math.max(-wid, Math.min(wid, q[1]))]), [0, wid * 0.9]] : full).map(P)
       piece(poly, () => {
-        if (stage < 2) return
-        crack(base, R * 0.03, R * 0.022)
+        if (stage < 2 || (stage === 2 && !inner.has(si))) return
+        crack(plan.base.map(P), R * 0.03, R * 0.02)
         if (stage >= 3) {
-          crack(fork, R * 0.022, R * 0.012)
-          crack(along, R * 0.022, R * 0.012)
-          crack(tipCut, R * 0.026, R * 0.02)
-          if (broken) {
-            // the tip beyond the outer fracture is gone: the socket shows through, the break inked
-            ctx.beginPath(); ctx.moveTo(...tipCut[0]); ctx.lineTo(...tipCut[1]); ctx.lineTo(...tipCut[2])
-            ctx.lineTo(...P(len * 1.2, wid * 1.5)); ctx.lineTo(...P(len * 1.2, -wid * 1.5)); ctx.closePath()
-            ctx.fillStyle = '#1a1626'; ctx.fill()
-            crack(tipCut, R * 0.03, R * 0.03)
-          }
+          crack(plan.fork.map(P), R * 0.022, R * 0.012)
+          crack(plan.along.map(P), R * 0.02, R * 0.012)
+          if (!plan.broken) crack(plan.tip.map(P), R * 0.024, R * 0.016)
         }
       })
     })
@@ -934,16 +967,16 @@ export function paintHoloPillarCracks(variant, stage) {
       for (let k = 0; k < 3; k++) { an += (rnd() - 0.5) * 0.6; const st = hr * (0.32 + rnd() * 0.2); x += Math.cos(an) * st; y += Math.sin(an) * st; pts.push([x, y]) }
       rays.push(pts)
     }
-    const nRays = [3, 5, 6][stage - 1], reachK = [2, 3, 3][stage - 1]
+    const nRays = [4, 5, 6][stage - 1], reachK = 3
     piece(hex, () => {
-      for (let i = 0; i < nRays; i++) crack(rays[i].slice(0, reachK + 1), R * [0.03, 0.036, 0.04][stage - 1], R * 0.014)
+      for (let i = 0; i < nRays; i++) crack(rays[i].slice(0, reachK + 1), R * [0.045, 0.045, 0.048][stage - 1], R * 0.02)
       if (stage >= 2) {
         // the ring a blow leaves round where it landed
         const ring = []
         for (let i = 0; i < nRays; i++) ring.push(rays[i][1])
         for (let i = 0; i < ring.length - 1; i++) if (rnd() < 0.6) crack([ring[i], ring[i + 1]], R * 0.018, R * 0.014)
       }
-      ctx.beginPath(); ctx.arc(sx, sy, R * (0.02 + 0.012 * stage), 0, TAU); ctx.fillStyle = INK; ctx.fill()
+      ctx.beginPath(); ctx.arc(sx, sy, R * (0.033 + 0.012 * stage), 0, TAU); ctx.fillStyle = INK; ctx.fill()
     })
   }, { shadowBlur: 0, bodyOnly: true })
 }
