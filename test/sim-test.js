@@ -41953,10 +41953,10 @@ function testGeodeCounters() {
     const crab = makeStatusEnemy(r, { x: p.x + 260, y: p.y + 200, type: 'tank', hp: 1e9, speed: 60 })
     crab.flags = ['unshakeable', 'crystalEater']; crab.rosterId = 'crystalCrab'; crab.radius = 26
     r.enemies.push(crab)
-    o._rungAt = r.time
+    o._echoRungAt = r.time
     const d0 = Math.hypot(crab.x - o.x, crab.y - o.y)
     let peakStress = 0
-    run_(r, 2, () => { o._rungAt = r.time })   // keep it ringing while the crab closes
+    run_(r, 2, () => { o._echoRungAt = r.time })   // keep Echo ringing it while the crab closes
     const d1 = Math.hypot(crab.x - o.x, crab.y - o.y)
     assert.ok(d1 < d0 - 60, `run GK.c: the crab walks to the crystal that rang (${d0.toFixed(0)} -> ${d1.toFixed(0)}px)`)
     run_(r, CRAB_EAT.eatT + 4, () => { peakStress = Math.max(peakStress, o.stress ?? 0) })
@@ -41968,8 +41968,8 @@ function testGeodeCounters() {
     const crab2 = makeStatusEnemy(r2, { x: r2.player.x + 260, y: r2.player.y + 200, type: 'tank', hp: 1e9, speed: 60 })
     crab2.flags = ['unshakeable', 'crystalEater']; crab2.rosterId = 'crystalCrab'; crab2.radius = 26
     r2.enemies.push(crab2)
-    run_(r2, CRAB_EAT.eatT + 6)
-    assert.ok(r2.obstacles.includes(o2) && !crab2.glassShell, 'run GK.c: a crab ignores a crystal that has not rung')
+    run_(r2, CRAB_EAT.eatT + 6, () => { o2._rungAt = r2.time })   // a Prism bounce rings it, Echo never does
+    assert.ok(r2.obstacles.includes(o2) && !crab2.glassShell, 'run GK.c: a crab ignores a crystal only a Prism bounce rang')
     // GLASS: a dazed, chilled glass crab still walks at you; the same crab without glass does not
     const walked = (glass) => {
       const r3 = boot(52005)

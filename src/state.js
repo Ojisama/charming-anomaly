@@ -2150,8 +2150,8 @@ function generateWells(sig) {
  *     elsewhere in its cell) and by a crab gnawing it (e._eatT / CRAB_EAT.eatT).
  *   - run.noise: +NOISE_BATS.perRing per ring-back, decaying over tau; over the threshold the cave
  *     sends an ordinary Cave Bat (e._noiseBat) every `every` s, up to maxAlive.
- *   - roster flag 'crystalEater' (Crystal Crab): walks to a crystal that rang in the last
- *     CRAB_EAT.memory s, gnaws it away (e._eatO, e._eatT) and sets e.glassShell = true for good —
+ *   - roster flag 'crystalEater' (Crystal Crab): walks to a crystal Echo rang back (o._echoRungAt) in the
+ *     last CRAB_EAT.memory s, gnaws it away (e._eatO, e._eatT) and sets e.glassShell = true for good —
  *     no slow (any source), no freeze, no daze (stunT is zeroed each step). render.js swaps in the
  *     '<rosterId>_glass' look (ROSTER_LOOKS glassLook) off e.glassShell.
  *   - roster flag 'committedLeap' (Cave Cricket): a pounce already in 'leap' ignores stun, fear,

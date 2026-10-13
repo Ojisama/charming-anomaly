@@ -6759,12 +6759,12 @@ export const PRISM_LIFE = 1.0            // s of flight before a bounce refreshe
 export const PRISM_R = 8                 // px hit radius
 export const ECHO_LIFE = 0.5             // s for the ring to reach its radius
 // THE GEODE'S COUNTERS TO A CRYSTAL FORTRESS (owner, 2026-10-13).
-// balance_decision : crabs eat rung crystals and turn to glass 2026-10-13
-//  - seek: px from the crab; memory: s since the crystal last rang; eatT: s of gnawing at its face
+// balance_decision : crabs eat Echo-rung crystals and turn to glass 2026-10-13
+//  - memory: s since an ECHO ring-back (o._echoRungAt), never a Prism bounce; seek: px from the crab
 export const CRAB_EAT = { seek: 360, memory: 3, eatT: 2.5, regrow: 14 }
 // balance_decision : crystal ring-backs make noise that calls bats 2026-10-13
 //  - noise rises by perRing per ring-back and decays over tau s; over threshold, a bat every `every` s
-export const NOISE_BATS = { perRing: 1, tau: 8, threshold: 12, every: 2.5, maxAlive: 6 }
+export const NOISE_BATS = { perRing: 1, tau: 8, threshold: 4, every: 2.5, maxAlive: 6 }
 // Dazing Click (WEAPON_MODS.echoPulse.dazingClick): a daze published into e.stunT, metered by the
 // same e.dazeCd window as Silt Veil's, so a body dazed by either is proof against both for a while.
 export const ECHO_DAZE_HOLD = 0.8        // s a Dazing Click daze holds (before CC pricing)

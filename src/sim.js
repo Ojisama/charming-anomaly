@@ -17062,6 +17062,7 @@ function stepEchoes(run, dt) {
     if (ec.o) crystalRang(run, ec.o, ec.dmg, ec.r - ec.o.r, ec.kb, ec.wave ?? null, ec.daze ?? 0)
     // STRESS CRACKS: a crystal the click itself rang back cracks a little more each time, then bursts
     const K = crystalSpec(run)?.resonance?.crack
+    if (ec.direct && ec.o) ec.o._echoRungAt = run.time   // what a Crystal Crab answers (CRAB_EAT)
     if (K && ec.direct && ec.o && run.obstacles.includes(ec.o)) {
       ec.o._echoRings = (ec.o._echoRings ?? 0) + 1
       ec.o.stress = Math.min(1, ec.o._echoRings / K.rings)
@@ -17093,7 +17094,7 @@ function stepNoiseBats(run, dt) {
   const bat = spawnEnemy(run, { type: ARCHETYPE_TYPE.fast, rosterId: 'bat', forceNormal: true })
   if (bat) bat._noiseBat = true
 }
-// CRAB_EAT: a crystalEater walks to the crystal nearest you that rang in the last `memory` s (and
+// CRAB_EAT: a crystalEater walks to the crystal nearest you that ECHO rang back in the last `memory` s (and
 // is within `seek` of it), gnaws at its face for eatT s — the crystal cracks as it does (o.stress)
 // — then the crystal is gone and the crab wears its glass for good (e.glassShell). Returns true
 // when it moved the crab this frame, false to let the ordinary seek run.
@@ -17105,7 +17106,7 @@ function stepCrystalEater(run, e, dt, spdMul) {
     e._eatScan = 0.5
     let best = Infinity
     for (const c of run.obstacles) {
-      if (c.kind !== 'crystal' || c._rungAt == null || run.time - c._rungAt > C.memory) continue
+      if (c.kind !== 'crystal' || c._echoRungAt == null || run.time - c._echoRungAt > C.memory) continue
       if (Math.hypot(c.x - e.x, c.y - e.y) - c.r > C.seek) continue
       const d = Math.hypot(c.x - p.x, c.y - p.y)
       if (d < best) { best = d; o = c }
