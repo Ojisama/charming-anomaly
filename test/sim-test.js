@@ -50,7 +50,7 @@ import {
   SUNSPEAR_FALL, SUNSPEAR_SPREAD, FOXFIRE_GLOOM, FOXFIRE_WANDER_SPEED, FOXFIRE_SWARM, FOXFIRE_CATCH_FRAC, weaponDesc, FOXFIRE_GLOW, SUNLANCE_REACH_MIN, GLINT_LIGHT_COST, GLINT_GLOW,
   WEAPONS, HOLE_SINGULARITY_FRAC, DOWNWASH_PLUNGE_N, DOWNWASH_PLUNGE_FRAC, DOWNWASH_PLUNGE_ARM,
   ORBIT_NOVA_RADIUS, WISP_NOVA_RADIUS, CRUNCH_DMG_MUL, UNDERTOW_VAC_RADIUS_PER_STACK,
-  WEAPON_MODS, WEAPON_MOD_TIER_BONUS, PEBBLE_CONE, ECHO_DAZE_HOLD, ECHO_DAZE_REFRACTORY, CRAB_EAT, NOISE_BATS, MAX_WEAPON_MOD_PICKS, maxModsPerWeaponPerPool, PIERCE_MAX_PICKS,
+  WEAPON_MODS, WEAPON_MOD_TIER_BONUS, PEBBLE_CONE, CRAB_EAT, NOISE_BATS, MAX_WEAPON_MOD_PICKS, maxModsPerWeaponPerPool, PIERCE_MAX_PICKS,
   MOD_CANDIDATES_PER_WEAPON, MOD_POOL_MAX, DUO_PITY_SCREENS,
   WEAPON_RATE_MODS, WEAPON_COUNT_MODS,
   xpForLevel, REVIVE_HP_FRAC, REVIVE_INVULN, rerollCost,
@@ -1019,6 +1019,13 @@ function testChapterLateRate() {
   for (let i = 1; i < order.length; i++) {
     assert.ok(CHAPTER_LATE_RATE[order[i]] > CHAPTER_LATE_RATE[order[i - 1]],
       `${order[i]} must end harder than ${order[i - 1]}`)
+  }
+
+  // The Geode (owner, 2026-10-14): +25% enemy HP at 5:00 over its old 0.015 curve, nothing before 2:30.
+  {
+    const g = CHAPTER_LATE_RATE.geode, ratio = (t) => hpScale(t, g) / hpScale(t, 0.015)
+    assert.ok(Math.abs(ratio(300) - 1.25) < 1e-9, `the Geode ends at x1.25 the old curve (got ${ratio(300).toFixed(4)})`)
+    assert.ok(ratio(HP_SCALE_LATE_START) === 1 && ratio(225) > 1 && ratio(225) < 1.25, `the Geode's extra HP starts at 2:30 and climbs (x${ratio(225).toFixed(3)} at 3:45)`)
   }
 
   // PROPERTY 1 — SELF-TARGETING. Before HP_SCALE_LATE_START the rate cannot matter at all, which
@@ -20919,7 +20926,6 @@ run(testLeLargeWeapons)
   run(testMagma)
   run(testTopsoilPolish)
   run(testPebbleHandful)
-  run(testEchoDaze)
   run(testGeodeCounters)
   run(testSrcParses)
   run(testGemTiers)
@@ -39221,26 +39227,6 @@ function testGeodeCrystals() {
     notes.push(`Wide Chime ${a.toFixed(0)}->${b.toFixed(0)}px`)
   }
 
-  // (e2) DAZING CLICK rides the ring-backs: the crystal the click reaches, AND the crystal that one
-  // sets ringing through Sympathy (chance pinned to 1), both ring with the click's daze chance.
-  {
-    const S = CRYSTAL_CARDS.sympathy, saved = S.chance
-    S.chance = 1
-    try {
-      const r = boot(41015, { mods: { echoPulse: { dazingClick: 0.3 }, crystals: { sympathy: 1 } } })
-      const near = crystal(r, P(r).x + 140, P(r).y), far = crystal(r, P(r).x + 400, P(r).y)
-      const seen = new Map()
-      for (let i = 0; i < 260; i++) {
-        r.weapons = [{ id: 'echoPulse', level: 1 }]
-        stepSim(r, { x: 0, y: 0 }, dt)
-        r.events.length = 0
-        for (const n of r.novas) for (const o of [near, far]) if (n.look === 'echo' && Math.abs(n.x - o.x) < 1 && !seen.has(o)) seen.set(o, n.daze)
-      }
-      assert.ok(seen.get(near) === 0.3 && seen.get(far) === 0.3, `run GC.e2: the ring-backs carry the click's daze chance: direct ${seen.get(near)}, via Sympathy ${seen.get(far)} (want 0.3, 0.3)`)
-      notes.push('Dazing Click rides both ring-backs')
-    } finally { S.chance = saved }
-  }
-
   // (f) SYMPATHY — chance pinned to 1 so the chain is a certainty to assert on
   {
     const S = CRYSTAL_CARDS.sympathy, saved = S.chance, savedHop = B.hop
@@ -41812,66 +41798,6 @@ function testMantleLavaCrew() {
   assert.ok(jellyGroups.length >= 5 && mean >= gMin - 0.6 && mean <= gMax, `run HB.g: the jelly comes in groups of ${gMin}-${gMax}: mean ${mean.toFixed(2)} over ${jellyGroups.length} arrivals (${jellyGroups.join(',')})`)
   assert.ok(mates >= 20 && matesAway <= 1, `run HB.g: a jelly's group is born in its lava: ${matesAway} of ${mates} group-mates born on rock`)
   console.log(`PASS run HB.g (the lava's crew): born ${lavaIds.map((id) => `${id} ${born[id]} (${home[id]} in lava)`).join(', ')}; jellies arrive ${mean.toFixed(2)} at a time over ${jellyGroups.length} arrivals, ${matesAway} of ${mates} group-mates on rock`)
-}
-
-// run ED — Echo Pulse's DAZING CLICK: each ring rolls a daze chance per body (10% normal .. 50%
-// mythic), published into e.stunT, and a dazed body is daze-proof for hold + ECHO_DAZE_REFRACTORY.
-// The card states the banked total before -> after, the element cards' descT shape.
-function testEchoDaze() {
-  const V = WEAPON_MODS.echoPulse.dazingClick.values
-  assert.deepStrictEqual(RARITY_ORDER.filter((k) => k in V).map((k) => V[k]), [0.10, 0.20, 0.30, 0.40, 0.50], 'run ED.a: Dazing Click is 10%..50%, normal..mythic')
-  assert.ok(!('rebound' in WEAPON_MODS.echoPulse), 'run ED.a: the old push card is gone')
-  const card = (r, rarity) => devCards(r, rarity).find((k) => k.kind === 'mod' && k.id === 'dazingClick')
-  Math.random = mulberry32(51013)
-  const r0 = createRun(makeMeta(), { chapter: 'geode', difficulty: 1 })
-  r0.weapons = [{ id: 'echoPulse', level: 1 }]
-  const first = card(r0, 'normal')
-  assert.ok(first && first.descT && first.descT.p.n === '10%' && !first.descT.prev, `run ED.a: a first pick reads 10% with no "before": ${JSON.stringify(first?.descT)}`)
-  r0.weaponMods.echoPulse = { dazingClick: 0.10 }
-  const second = card(r0, 'legendary')
-  assert.ok(second.descT.prev?.n === '10%' && second.descT.p.n === '50%' && second.bonus === 0.40, `run ED.a: a legendary on top of 10% reads 10% -> 50%: ${JSON.stringify(second.descT)}`)
-
-  // Effect: N stationary bodies inside the ring; count daze APPLICATIONS (stunT jumping up).
-  const ring = (chance, secs) => {
-    Math.random = mulberry32(51014)
-    const r = createRun(makeMeta(), { chapter: 'body', difficulty: 1 })
-    r.player.hp = r.player.maxHP = 1e9
-    r.player.x = 0; r.player.y = 0
-    r.weapons = [{ id: 'echoPulse', level: 1 }]
-    r.weaponMods.echoPulse = chance > 0 ? { dazingClick: chance } : {}
-    const mine = []
-    for (let i = 0; i < 60; i++) {
-      const a = (i / 60) * Math.PI * 2, d = 70 + (i % 4) * 25
-      const e = makeStatusEnemy(r, { x: Math.cos(a) * d, y: Math.sin(a) * d, hp: 1e9, speed: 0 })
-      r.enemies.push(e); mine.push(e)
-    }
-    const prev = new Map(mine.map((e) => [e, 0])), dazes = new Map(mine.map((e) => [e, []]))
-    let pulses = 0
-    for (let i = 0; i < secs * 60; i++) {
-      if (r.phase === 'levelup') { r.phase = 'playing'; r.levelUpChoices = [] }
-      r.player.hp = r.player.maxHP
-      stepSim(r, { x: 0, y: 0 }, 1 / 60)
-      pulses += r.events.filter((ev) => ev.type === 'shoot' && ev.weapon === 'echoPulse').length
-      r.events.length = 0
-      for (const e of mine) {
-        if ((e.stunT ?? 0) > prev.get(e) + 1e-9) dazes.get(e).push(r.time)
-        prev.set(e, e.stunT ?? 0)
-      }
-    }
-    return { pulses, dazes: mine.map((e) => dazes.get(e)), hold: Math.max(...mine.map((e) => e.stunT ?? 0)) }
-  }
-  const none = ring(0, 3)
-  assert.ok(none.pulses >= 1 && none.dazes.every((d) => d.length === 0), `run ED.b: without the card nothing is dazed (${none.pulses} pulses)`)
-  const half = ring(0.5, 3.2)
-  const firstHit = half.dazes.filter((d) => d.length > 0).length
-  assert.ok(half.pulses === 1 && firstHit >= 18 && firstHit <= 42, `run ED.b: one 50% ring dazed ${firstHit}/60 bodies over ${half.pulses} pulse(s) (want 18..42)`)
-  const sure = ring(1, 12)
-  const gaps = sure.dazes.flatMap((d) => d.slice(1).map((t, i) => t - d[i]))
-  const minGap = Math.min(...gaps)
-  assert.ok(sure.dazes.every((d) => d.length >= 1), 'run ED.c: at 100% every body inside the ring is dazed')
-  assert.ok(sure.pulses >= 5 && sure.dazes.every((d) => d.length < sure.pulses), `run ED.c: the immunity window skips pulses: ${sure.pulses} pulses, dazes per body ${[...new Set(sure.dazes.map((d) => d.length))]}`)
-  assert.ok(gaps.length > 0 && minGap >= ECHO_DAZE_REFRACTORY, `run ED.c: a body is never re-dazed inside the window (closest ${minGap.toFixed(2)}s, window >= ${ECHO_DAZE_REFRACTORY}s)`)
-  console.log(`PASS run ED (Dazing Click): 10%..50% card reads 10% -> 50%; one 50% ring dazed ${firstHit}/60; at 100% ${sure.pulses} pulses, dazes per body ${[...new Set(sure.dazes.map((d) => d.length))]}, closest re-daze ${minGap.toFixed(2)}s apart`)
 }
 
 // run GK — THE GEODE'S COUNTERS TO A CRYSTAL FORTRESS (owner, 2026-10-13): Far Call no longer grows

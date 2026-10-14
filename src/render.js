@@ -20815,14 +20815,16 @@ const spurG = new Graphics()
       const sc = c.ov.clumpA.scale.x
       // the glint follows the pillar (it grows in with it) and goes out with the first crack
       c.ov.glint.visible = stage < 1
-      // the last stage: the cracks throb and the whole pillar trembles, harder as it nears the burst
-      const shake = stage === 3 ? 0.8 + 1.6 * Math.max(0, (s - 0.67) / 0.33) : 0
+      // ONE RING-BACK FROM BREAKING (owner, 2026-10-14): only then does it tremble, and only a little.
+      // A gnawing crab's stress is continuous, so it trembles over the same last stretch of the meal.
+      const rings = CHAPTERS.geode.signature.resonance.crack.rings
+      const shake = s >= (rings - 1) / rings - 1e-9 ? 0.6 : 0
       const jx = shake ? Math.sin(run.time * 71 + c.pv) * shake : 0, jy = shake ? Math.cos(run.time * 63 + c.pv * 2) * shake : 0
       c.ov.glint.scale.set(sc); c.ov.glint.position.set(-0.08 * 64 * sc + jx, -0.1 * 64 * sc + jy)
       if (stage === 0) continue
       c.ov.clumpB.scale.set(sc)
       c.ov.clumpA.position.set(jx, jy); c.ov.clumpB.position.set(jx, jy)
-      c.ov.clumpB.alpha = stage === 3 ? 0.875 + 0.125 * Math.sin(run.time * Math.PI * 2 * 5) : 1
+      c.ov.clumpB.alpha = shake ? 0.9 + 0.1 * Math.sin(run.time * Math.PI * 2 * 5) : 1
     }
   }
   function clearObstacles() {
