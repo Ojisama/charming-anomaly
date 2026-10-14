@@ -2988,12 +2988,13 @@ export const WEAPONS = {
     desc: 'Flicks crystal shards at the nearest foe. A crystal splits a shard into two halves.',
     icon: '🔹', rarity: 'normal',
     // balance_decision : owner: a new shard only at levels 3 and 5 [2026-10-11]
+    // balance_decision : owner: fire rate -25% at every level 2026-10-14
     levels: [
-      { dmg: 13, interval: 0.50, count: 1, speed: 500, pierce: 2 },
-      { dmg: 15, interval: 0.48, count: 1, speed: 510, pierce: 2 },
-      { dmg: 17, interval: 0.47, count: 2, speed: 530, pierce: 2 },
-      { dmg: 20, interval: 0.42, count: 2, speed: 550, pierce: 2 },
-      { dmg: 25, interval: 0.36, count: 3, speed: 580, pierce: 3 },
+      { dmg: 13, interval: 0.50 / 0.75, count: 1, speed: 500, pierce: 2 },
+      { dmg: 15, interval: 0.48 / 0.75, count: 1, speed: 510, pierce: 2 },
+      { dmg: 17, interval: 0.47 / 0.75, count: 2, speed: 530, pierce: 2 },
+      { dmg: 20, interval: 0.42 / 0.75, count: 2, speed: 550, pierce: 2 },
+      { dmg: 25, interval: 0.36 / 0.75, count: 3, speed: 580, pierce: 3 },
     ],
   },
   // Echo Pulse: a ring of sound around you (run.novas, look 'echo'). Any crystal it reaches rings

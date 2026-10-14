@@ -40588,6 +40588,9 @@ function testGeodeStarterMods() {
     assert.ok(rar === 'normal' ? now === 1 : now <= was * 0.7 + 1e-9, `run GM: Cleave ${rar} +${now} (was +${was})`)
   }
   assert.strictEqual(modPickCap('prismShard', 'shardSpray'), 3, 'run GM: Shard Spray caps at 3 picks (was 5)')
+  // fire rate -25%: every level's interval is the pre-change one / 0.75
+  const was = [0.50, 0.48, 0.47, 0.42, 0.36]
+  WEAPONS.prismShard.levels.forEach((L, i) => assert.ok(Math.abs(L.interval - was[i] / 0.75) < 1e-9, `run GM: Prism Shard L${i + 1} interval ${L.interval}`))
   console.log(`PASS run GM (Geode starter mods): Keen Facet +${Math.round(bonus('normal', 'keenFacet') * 100)}%, Quick Flick +${Math.round(bonus('normal', 'flickRate') * 100)}% at normal; Cleave mythic +${bonus('mythic', 'cleave')}; Shard Spray ${modPickCap('prismShard', 'shardSpray')} picks`)
 }
 
