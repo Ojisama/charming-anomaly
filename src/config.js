@@ -3002,11 +3002,11 @@ export const WEAPONS = {
     desc: 'A click rings out around you. Crystals it reaches ring back.',
     icon: '🦇', rarity: 'normal',
     levels: [
-      { dmg: 14, interval: 2.2, radius: 170, knockback: 60 },
-      { dmg: 17, interval: 2.05, radius: 185, knockback: 66 },
-      { dmg: 21, interval: 1.9, radius: 200, knockback: 72 },
-      { dmg: 26, interval: 1.75, radius: 220, knockback: 80 },
-      { dmg: 33, interval: 1.6, radius: 240, knockback: 90 },
+      { dmg: 14, interval: 2.2, radius: 170 },
+      { dmg: 17, interval: 2.05, radius: 185 },
+      { dmg: 21, interval: 1.9, radius: 200 },
+      { dmg: 26, interval: 1.75, radius: 220 },
+      { dmg: 33, interval: 1.6, radius: 240 },
     ],
   },
   // Stalactite: a shadow grows over a foe, then a spike of stone drops on it (run.drips).
@@ -4514,10 +4514,7 @@ export const WEAPON_MODS = {
     loudClick:   { name: 'Loud Click',   desc: 'pulse damage', icon: '💥', base: 0.30, kind: 'pct' },
     farCall:     { name: 'Far Call',     desc: 'pulse radius', icon: '⭕', base: 0.22, kind: 'pct' },
     rapidClick:  { name: 'Rapid Click',  desc: 'pulse rate', icon: '⏩', base: 0.25, kind: 'pct' },
-    // balance_decision : push card did nothing; now a daze chance 2026-10-13
-    //  - showsTotal: the card prints the banked chance before -> after, like an element card
-    dazingClick: { name: 'Dazing Click', desc: '{n} chance the pulse dazes each foe it hits', icon: '💫', kind: 'pct',
-                   values: { normal: 0.10, rare: 0.20, epic: 0.30, legendary: 0.40, mythic: 0.50 }, showsTotal: true },
+    // balance_decision : no push and no daze card, owner 2026-10-14
   },
   stalactite: {
     heavyStone:  { name: 'Heavy Stone',  desc: 'drop damage', icon: '💥', base: 0.30, kind: 'pct' },
@@ -6318,11 +6315,14 @@ export const HP_SCALE_LATE_RATE = 0.005
 //  - the book is offset one rung UP from Book 1 (surf = pond, not body); keep the offset when
 //    writing the next one, or The Reef inherits a curve gentler than the chapter above it
 // balance_decision : owner: Topsoil HP growth -25% (0.010 -> 0.0075) 2026-10-11
+// balance_decision : owner: Geode enemies +25% HP at 5:00, none before 2:30 2026-10-14
+//  - written as the old rate's factor x1.25, so it now sits above The Mine's 0.020
 export const CHAPTER_LATE_RATE = {
   body: 0.005, pond: 0.010, garden: 0.015, undergrowth: 0.020,
   city: 0.028, skies: 0.036, beyond: 0.0605,
   surf: 0.010, shelf: 0.015,
-  topsoil: 0.0075, geode: 0.015, mine: 0.020, magma: 0.020, mantle: 0.022,
+  topsoil: 0.0075, geode: ((1 + 0.015 * (300 - HP_SCALE_LATE_START)) * 1.25 - 1) / (300 - HP_SCALE_LATE_START),
+  mine: 0.020, magma: 0.020, mantle: 0.022,
 }
 // Unknown/absent chapter (the Blank, a test run with no chapter) keeps the shipped curve.
 export const lateRateFor = (chapterId) => CHAPTER_LATE_RATE[chapterId] ?? HP_SCALE_LATE_RATE
@@ -6765,10 +6765,6 @@ export const CRAB_EAT = { seek: 360, memory: 3, eatT: 2.5, regrow: 14 }
 // balance_decision : crystal ring-backs make noise that calls bats 2026-10-13
 //  - noise rises by perRing per ring-back and decays over tau s; over threshold, a bat every `every` s
 export const NOISE_BATS = { perRing: 1, tau: 8, threshold: 4, every: 2.5, maxAlive: 6 }
-// Dazing Click (WEAPON_MODS.echoPulse.dazingClick): a daze published into e.stunT, metered by the
-// same e.dazeCd window as Silt Veil's, so a body dazed by either is proof against both for a while.
-export const ECHO_DAZE_HOLD = 0.8        // s a Dazing Click daze holds (before CC pricing)
-export const ECHO_DAZE_REFRACTORY = 2.5  // s after it lands before the click can daze that body again
 export const STALACTITE_FUSE = 0.8       // s the shadow grows before the stone lands
 export const STALACTITE_RANGE = 400      // px from you a stone may be dropped
 // ---- Book 3, The Mine: weapon geometry (balance lives in WEAPONS[].levels) --------------------------
