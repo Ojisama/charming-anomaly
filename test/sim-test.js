@@ -20926,6 +20926,7 @@ run(testLeLargeWeapons)
   run(testMagma)
   run(testTopsoilPolish)
   run(testMoleRoots)
+  run(testGeodeStarterMods)
   run(testPebbleHandful)
   run(testGeodeCounters)
   run(testSrcParses)
@@ -40570,6 +40571,24 @@ function testTopsoilPolish() {
     assert.strictEqual(mole.hitFlash, 0, `run TS.f: a mole's hit flash must fade underground, still ${mole.hitFlash}`)
   }
   console.log(`PASS run TS (Topsoil polish): Deep Roots ${(roots9 / roots0).toFixed(2)}x on held bodies; Furrow ${on.pits} pits dealt ${on.dmg} off-chapter (0 unarmed, 0 pits standing still), Ipecac ${sick.pits} pits; Sundown chaser ${night.closed.toFixed(0)} vs ${day.closed.toFixed(0)} px, gem ${night.xp} vs ${day.xp} XP; Soft Ground eruption ${soft.erupt.toFixed(0)} vs ${hard.erupt.toFixed(0)}, pit ${soft.pit.toFixed(0)} vs ${hard.pit.toFixed(0)}`)
+}
+
+// run GM (Geode starter mods): owner 2026-10-14, Prism Shard's mods at least 30% weaker. Read off the
+// cards a real roll deals, so a desc that stops reading the base still fails.
+function testGeodeStarterMods() {
+  const r = createRun(makeMeta(), { chapter: 'geode', difficulty: 1 })
+  r.weapons = [{ id: 'prismShard', level: 1 }]
+  const bonus = (rar, id) => devCards(r, rar).find((c) => c.weapon === 'prismShard' && c.id === id).bonus
+  for (const rar of ['normal', 'rare', 'epic', 'legendary', 'mythic']) {
+    const m = RARITIES[rar].mult
+    assert.ok(Math.abs(bonus(rar, 'keenFacet') - 0.30 * 0.7 * m) < 1e-9, `run GM: Keen Facet ${rar} ${bonus(rar, 'keenFacet')}`)
+    assert.ok(Math.abs(bonus(rar, 'flickRate') - 0.25 * 0.7 * m) < 1e-9, `run GM: Quick Flick ${rar} ${bonus(rar, 'flickRate')}`)
+    // Cleave is whole pierce, floored at +1: every roll above normal is at least 30% under the old max(1, round(m))
+    const was = Math.max(1, Math.round(m)), now = bonus(rar, 'cleave')
+    assert.ok(rar === 'normal' ? now === 1 : now <= was * 0.7 + 1e-9, `run GM: Cleave ${rar} +${now} (was +${was})`)
+  }
+  assert.strictEqual(modPickCap('prismShard', 'shardSpray'), 3, 'run GM: Shard Spray caps at 3 picks (was 5)')
+  console.log(`PASS run GM (Geode starter mods): Keen Facet +${Math.round(bonus('normal', 'keenFacet') * 100)}%, Quick Flick +${Math.round(bonus('normal', 'flickRate') * 100)}% at normal; Cleave mythic +${bonus('mythic', 'cleave')}; Shard Spray ${modPickCap('prismShard', 'shardSpray')} picks`)
 }
 
 // run MR (moles vs roots): a Root Snare patch is solid to a digging mole. (a) one between it and you

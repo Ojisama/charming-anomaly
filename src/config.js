@@ -4505,11 +4505,13 @@ export const WEAPON_MODS = {
     longFurrow:    { name: 'Long Furrow',    desc: 'furrow length', icon: '📏', base: 0.25, kind: 'pct' },
     quickCollapse: { name: 'Quick Collapse', desc: 'cave-in rate', icon: '⏩', base: 0.25, kind: 'pct' },
   },
+  // balance_decision : owner: Geode starter mods 30% weaker 2026-10-14
+  //  - Cleave is x0.6, not x0.7: whole pierce, and x0.7 only took a legendary +4 to +3
   prismShard: {
-    keenFacet:   { name: 'Keen Facet',   desc: 'shard damage', icon: '💥', base: 0.30, kind: 'pct' },
-    shardSpray:  { name: 'Shard Spray',  desc: 'extra shard(s) per throw', icon: '🔷', kind: 'tier' },
-    flickRate:   { name: 'Quick Flick',  desc: 'throw rate', icon: '⏩', base: 0.25, kind: 'pct' },
-    cleave:      { name: 'Cleave',       desc: 'shard pierce', icon: '🎯', base: 1, kind: 'flat', maxPicks: PIERCE_MAX_PICKS },
+    keenFacet:   { name: 'Keen Facet',   desc: 'shard damage', icon: '💥', base: 0.30 * 0.7, kind: 'pct' },
+    shardSpray:  { name: 'Shard Spray',  desc: 'extra shard(s) per throw', icon: '🔷', kind: 'tier', maxPicks: 3 },
+    flickRate:   { name: 'Quick Flick',  desc: 'throw rate', icon: '⏩', base: 0.25 * 0.7, kind: 'pct' },
+    cleave:      { name: 'Cleave',       desc: 'shard pierce', icon: '🎯', base: 1 * 0.6, kind: 'flat', maxPicks: PIERCE_MAX_PICKS },
   },
   echoPulse: {
     loudClick:   { name: 'Loud Click',   desc: 'pulse damage', icon: '💥', base: 0.30, kind: 'pct' },
