@@ -285,7 +285,7 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
 - Deploy is automatic: pushing to `main` triggers `.github/workflows/deploy.yml` (build → GitHub Pages).
 - **A MULTI-ANCHOR REWRITE OF A BIG FILE SILENTLY SWALLOWS ITS NEIGHBOURS. DIFF THE FUNCTION SET
   AFTERWARDS.** Rewriting a subsystem by bracketing regions with `indexOf(from)`/`indexOf(to)` and
-  splicing is the right technique for a 6k-line file — and each cut is one wrong anchor away from
+  splicing is the right technique for a file the size of sim.js — and each cut is one wrong anchor away from
   taking the function next door with it. The Kraken's rev-3 rewrite removed `krakenArmsToBlock`,
   `krakenPayBanked`, `krakenRaiseHead` and `krakenHide` without a single error: the scripts all
   reported success, the file still parsed, and `import()` was clean. Only running it surfaced the
@@ -301,8 +301,8 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
   Run it after any surgery with more than one cut, before running anything else. `run UR`
   (unresolved refs) catches the *call* side of this in the suite, which is how it would eventually
   have been found — but only for a function something still calls, and only after a full run.
-- **A BACKTICK BREAKS A NODE TEMPLATE LITERAL EXACTLY LIKE IT BREAKS A ZSH STRING, AND IT LOOKS
-  NOTHING LIKE THE BASH TRAP BELOW.** `scripts/fx-probe.mjs` builds its page bootstrap as one giant
+- **A BACKTICK BREAKS A NODE TEMPLATE LITERAL EXACTLY LIKE IT BREAKS A SHELL STRING, AND IT LOOKS
+  NOTHING LIKE THE SHELL TRAP BELOW.** `scripts/fx-probe.mjs` builds its page bootstrap as one giant
   \`…\` template literal; a comment added inside it containing `run.charge` terminated the literal
   and the file died with `SyntaxError: Unexpected identifier 'run'` — pointing at a line 200 above
   the edit. Before adding a comment to a file, check whether the region is inside a template
@@ -310,8 +310,8 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
   end: a heredoc `<<'EOF'` is literal and safe, but the moment the patch script itself is a
   `node -e "…"` the backticks inside it are command substitution again — which is why every patch
   in that session ended up in a `.cjs` file run from disk, and why that is the standing advice.
-- **NEVER put a backtick inside ANY double-quoted zsh argument** — `node -e "…"`, and `git commit -m
-  "…"` just as much. The shell is zsh: backticks inside a double-quoted
+- **NEVER put a backtick inside ANY double-quoted shell argument** — `node -e "…"`, and `git commit -m
+  "…"` just as much. In zsh (local) and bash (cloud sessions) alike, backticks inside a double-quoted
   argument are command substitution, so `` `swept` `` runs `swept` as a command and substitutes its
   (empty) output. The visible symptom is a `command not found` line — which reads as "the command
   failed", while node **has already run** with your string silently shortened — so a re-run then

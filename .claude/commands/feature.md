@@ -31,7 +31,8 @@ Do these in order, and do not skip to code:
    "subtler", "more readable". Three round trips have been lost to a described visual that could
    have been one sentence or one photo.
 
-4. **Only then implement.** Delegate read-only exploration to the `measure` agent or an `Explore`
-   agent rather than grepping in this session — their context dies with them, this one does not.
+4. **Only then implement.** Delegate measurements (dps, rates, A/B) to the `measure` agent and broad
+   read-only searches to an `Explore` agent rather than grepping in this session — their context
+   dies with them, this one does not. A "does X reach Y" wiring question is a two-line read: do it here.
 
 Nothing here overrides CLAUDE.md; it sequences it.
