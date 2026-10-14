@@ -2954,16 +2954,17 @@ export const WEAPONS = {
     ],
   },
   // Root Snare: roots burst up under a foe and hold the patch (run.snares): slowed, ground down.
+  // balance_decision : owner: +30% cast rate at every level 2026-10-14
   rootSnare: {
     name: 'Root Snare',
     desc: 'Roots burst out of the ground under a foe and hold everything nearby.',
     icon: '🌱', rarity: 'rare',
     levels: [
-      { dmg: 5, interval: 2.6, r: 62, duration: 2.6, count: 1 },
-      { dmg: 6, interval: 2.4, r: 68, duration: 2.8, count: 1 },
-      { dmg: 8, interval: 2.2, r: 74, duration: 3.0, count: 2 },
-      { dmg: 10, interval: 2.0, r: 80, duration: 3.2, count: 2 },
-      { dmg: 13, interval: 1.8, r: 88, duration: 3.5, count: 3 },
+      { dmg: 5, interval: 2.6 / 1.3, r: 62, duration: 2.6, count: 1 },
+      { dmg: 6, interval: 2.4 / 1.3, r: 68, duration: 2.8, count: 1 },
+      { dmg: 8, interval: 2.2 / 1.3, r: 74, duration: 3.0, count: 2 },
+      { dmg: 10, interval: 2.0 / 1.3, r: 80, duration: 3.2, count: 2 },
+      { dmg: 13, interval: 1.8 / 1.3, r: 88, duration: 3.5, count: 3 },
     ],
   },
   // Furrow: you dig a furrow as you walk; every cast, the stretch behind you caves in to pits
