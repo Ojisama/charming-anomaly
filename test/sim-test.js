@@ -20925,6 +20925,7 @@ run(testLeLargeWeapons)
   run(testMineGlyphTells)
   run(testMagma)
   run(testTopsoilPolish)
+  run(testMoleRoots)
   run(testPebbleHandful)
   run(testGeodeCounters)
   run(testSrcParses)
@@ -40569,6 +40570,124 @@ function testTopsoilPolish() {
     assert.strictEqual(mole.hitFlash, 0, `run TS.f: a mole's hit flash must fade underground, still ${mole.hitFlash}`)
   }
   console.log(`PASS run TS (Topsoil polish): Deep Roots ${(roots9 / roots0).toFixed(2)}x on held bodies; Furrow ${on.pits} pits dealt ${on.dmg} off-chapter (0 unarmed, 0 pits standing still), Ipecac ${sick.pits} pits; Sundown chaser ${night.closed.toFixed(0)} vs ${day.closed.toFixed(0)} px, gem ${night.xp} vs ${day.xp} XP; Soft Ground eruption ${soft.erupt.toFixed(0)} vs ${hard.erupt.toFixed(0)}, pit ${soft.pit.toFixed(0)} vs ${hard.pit.toFixed(0)}`)
+}
+
+// run MR (moles vs roots): a Root Snare patch is solid to a digging mole. (a) one between it and you
+// is steered round — it never enters it and still comes up at you; (b) one you stand in cannot be
+// steered round, so it is popped up at the edge, stunned, with no blast and no cave-in, and stays up
+// while the roots hold it; (c) one that blooms over it pops it at once; (d) Root Snare aims at the
+// nearest body in range.
+function testMoleRoots() {
+  const meta = () => { const m = makeMeta(); m.dev = true; return m }
+  const dt = 1 / 60
+  const M = CHAPTERS.topsoil.signature.moles
+  const boot = (seed) => {
+    Math.random = mulberry32(seed)
+    const r = createRun(meta(), { chapter: 'topsoil', difficulty: 1 })
+    r.player.hp = r.player.maxHP = 1e9
+    r.weapons = []
+    let mole = null
+    for (let i = 0; i < 90 * 60 && !mole; i++) {
+      if (r.phase === 'levelup') { r.phase = 'playing'; r.levelUpChoices = [] }
+      r.player.hp = r.player.maxHP
+      stepSim(r, { x: 0, y: 0 }, dt)
+      r.events.length = 0
+      mole = r.enemies.find((e) => e.burrowed && !e._dead && e._tun === 'dig') ?? null
+    }
+    assert.ok(mole, 'run MR: fixture never got a digging mole')
+    r.enemies = [mole]
+    r._moleT = 1e9
+    mole.hp = mole.maxHP = 1e9
+    mole.x = r.player.x + 420; mole.y = r.player.y
+    mole.tunnel = []; mole._tunT = 0
+    return { r, mole }
+  }
+  const snare = (r, x, y, rad) => { const sn = { x, y, r: rad, dmg: 0, dur: 1e9, t: 0, tick: 0 }; r.snares.push(sn); return sn }
+  const play = (r, secs, each) => {
+    const ev = {}
+    for (let i = 0; i < secs * 60; i++) {
+      if (r.phase === 'levelup') { r.phase = 'playing'; r.levelUpChoices = [] }
+      r.player.hp = r.player.maxHP
+      stepSim(r, { x: 0, y: 0 }, dt)
+      for (const e of r.events) ev[e.type] = (ev[e.type] ?? 0) + 1
+      r.events.length = 0
+      if (each && each() === false) break
+    }
+    return ev
+  }
+  const inside = (e, sn) => Math.hypot(e.x - sn.x, e.y - sn.y) <= sn.r + e.radius * 0.5
+  // (a) round it
+  {
+    const { r, mole } = boot(33201)
+    const sn = snare(r, r.player.x + 210, r.player.y + 4, 70)
+    let entered = 0
+    const ev = play(r, 8, () => { if (mole.burrowed && inside(mole, sn)) entered++; return mole._tun !== 'up' })
+    assert.strictEqual(entered, 0, `run MR.a: a digging mole went through a patch it could steer round (${entered} frames)`)
+    assert.ok(!ev.moleRooted && ev.moleErupt === 1, `run MR.a: it should come up at you by the normal eruption: ${JSON.stringify(ev)}`)
+  }
+  // control for (a): with no patch the straight line runs through that spot
+  {
+    const { r, mole } = boot(33201)
+    const ghost = { x: r.player.x + 210, y: r.player.y + 4, r: 70 }
+    let crossed = 0
+    play(r, 8, () => { if (mole.burrowed && inside(mole, ghost)) crossed++; return mole._tun !== 'up' })
+    assert.ok(crossed > 10, `run MR.a: control — the unblocked tunnel should cross the spot (${crossed} frames)`)
+  }
+  // (b) you stand in the roots
+  let stun = 0
+  {
+    const { r, mole } = boot(33202)
+    const sn = snare(r, r.player.x, r.player.y, 90)
+    const ev = play(r, 6, () => mole._tun !== 'up')
+    stun = mole.stunT
+    assert.ok(ev.moleRooted === 1 && !ev.moleErupt && !mole.burrowed, `run MR.b: a mole meeting the patch you stand in should pop up, not erupt: ${JSON.stringify(ev)}`)
+    assert.ok(Math.abs(stun - M.rootStun) < 0.05, `run MR.b: popped up stunned for ${M.rootStun}s, got ${stun}`)
+    assert.strictEqual(r.caveIns.length + r.pits.length, 0, 'run MR.b: a mole the roots stopped leaves no cave-in')
+    assert.ok(Math.hypot(mole.x - r.player.x, mole.y - r.player.y) > sn.r - 10, 'run MR.b: it comes up at the patch edge, not on you')
+    const ev2 = play(r, M.upT + M.rootStun + 2)
+    assert.ok(!ev2.moleDive && !mole.burrowed, `run MR.b: it cannot dig back down while the roots hold it: ${JSON.stringify(ev2)}`)
+    r.snares.length = 0
+    const ev3 = play(r, M.upT + 1)
+    assert.ok(ev3.moleDive === 1, `run MR.b: with the roots gone it digs again: ${JSON.stringify(ev3)}`)
+  }
+  // (c) a patch blooms over a digging mole
+  {
+    const { r, mole } = boot(33203)
+    snare(r, mole.x, mole.y, 50)
+    const ev = play(r, 0.1)
+    assert.ok(ev.moleRooted === 1 && !mole.burrowed, `run MR.c: a patch over a digging mole pops it at once: ${JSON.stringify(ev)}`)
+  }
+  // (e) roots grow over the shaking spot mid-quake: the eruption never comes
+  {
+    const { r, mole } = boot(33204)
+    play(r, 6, () => mole._tun !== 'quake')
+    assert.strictEqual(mole._tun, 'quake', 'run MR.e: fixture never reached a quake')
+    snare(r, mole.quakeX, mole.quakeY, 60)
+    const ev = play(r, M.quakeT + 0.5)
+    assert.ok(ev.moleRooted === 1 && !ev.moleErupt && r.caveIns.length === 0, `run MR.e: roots over the quake spot stop the eruption: ${JSON.stringify(ev)}`)
+  }
+  // (d) Root Snare aims at the nearest body
+  let nearHits = 0, casts = 0
+  for (let k = 0; k < 6; k++) {
+    Math.random = mulberry32(33210 + k)
+    const r = createRun(meta(), { chapter: 'topsoil', difficulty: 1 })
+    r.player.hp = r.player.maxHP = 1e9
+    r.weapons = [{ id: 'rootSnare', level: 1 }]
+    r._moleT = 1e9
+    const near = makeStatusEnemy(r, { x: r.player.x + 90, y: r.player.y, hp: 1e9, speed: 0 })
+    r.enemies = [near]
+    for (let i = 0; i < 6; i++) r.enemies.push(makeStatusEnemy(r, { x: r.player.x + Math.cos(i) * 300, y: r.player.y + Math.sin(i) * 300, hp: 1e9, speed: 0 }))
+    for (let i = 0; i < 6 * 60; i++) {
+      if (r.phase === 'levelup') { r.phase = 'playing'; r.levelUpChoices = [] }
+      r.player.hp = r.player.maxHP
+      r._spawnT = 1e9
+      stepSim(r, { x: 0, y: 0 }, dt)
+      for (const e of r.events) if (e.type === 'rootSnare') { casts++; if (Math.hypot(e.x - near.x, e.y - near.y) < 1) nearHits++ }
+      r.events.length = 0
+    }
+  }
+  assert.ok(casts >= 6 && nearHits === casts, `run MR.d: every Root Snare should bloom on the nearest body: ${nearHits}/${casts}`)
+  console.log(`PASS run MR (moles vs roots): steered round a patch, popped up stunned ${stun.toFixed(2)}s at the edge of yours (no blast, no pits, held down), popped at once by a bloom or mid-quake; Root Snare on the nearest ${nearHits}/${casts} casts over 6 seeds`)
 }
 
 // run GT (gem tiers): Topsoil draws a floor gem by gemTier(g.xp, run). Driven by real kills, so the xp

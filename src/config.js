@@ -9592,6 +9592,9 @@ CHAPTERS.topsoil = {
       firstAt: 26, every: 22, everyLate: 13, maxAlive: 1, maxAliveLate: 3, lateAt: 150,
       digSpeed: 150, quakeRange: 60, quakeT: 1.15, eruptR: 58, eruptDmgMul: 1.0,
       upT: 3.6, maxDigT: 9, trailStep: 34, trailKeep: 18,
+      // balance_decision : roots block moles: steer round, else popped up stunned 2026-10-14
+      //  - a patch you stand in is never steered round: that is how a mole gets popped up at its edge
+      rootLook: 70, rootMargin: 6, rootStun: 1.2,
     },
     // The pit switch (tests turn it off with caveIns = null). A tunnel caves in `delay` s after its
     // mole erupts, back along the last `span` px of its run, one pit per trail point.

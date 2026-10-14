@@ -6815,6 +6815,13 @@ export function createRenderer(app) {
         addShake(e.hit ? 6 : 3.5, 0.22)
         return true
       }
+      case 'moleRooted':
+        for (let i = 0; i < 14; i++) {
+          const a = Math.random() * Math.PI * 2, sp = 50 + Math.random() * 110
+          spawnParticle(T.clayClod.tex, e.x, e.y, Math.cos(a) * sp, Math.sin(a) * sp, 0.4, 0.7, [0x8a6440, 0x6e4c2e][i % 2], -0.4, 3)
+        }
+        addShake(2, 0.15)
+        return true
       case 'moleDive':
         for (let i = 0; i < 10; i++) {
           const a = Math.random() * Math.PI * 2, sp = 40 + Math.random() * 80

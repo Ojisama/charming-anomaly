@@ -16375,6 +16375,39 @@ function tunnelSpec(run) {
   const sig = CHAPTERS[run.chapter].signature
   return sig && sig.type === 'tunnels' ? sig : null
 }
+// ROOTS vs MOLES. A Root Snare patch (run.snares) is solid to a digging mole: it bends round one
+// ahead of it (moleSteerRoots), and if it ends up in one anyway — the patch bloomed over it, grew
+// over its quake spot, or you are standing inside it so there is no way round — it is popped up
+// stunned (molePopUp): no blast, no cave-in. It cannot dive back down while the roots still hold it.
+function moleInRoots(run, e) {
+  for (const sn of run.snares) if (Math.hypot(e.x - sn.x, e.y - sn.y) <= sn.r + e.radius * 0.5) return true
+  return false
+}
+function moleSteerRoots(run, e, M, ux, uy) {
+  const p = run.player
+  for (const sn of run.snares) {
+    if (Math.hypot(p.x - sn.x, p.y - sn.y) <= sn.r) continue   // you are inside: no way round
+    const cx = sn.x - e.x, cy = sn.y - e.y, d = Math.hypot(cx, cy) || 1
+    const clear = sn.r + e.radius * 0.5 + M.rootMargin
+    if (d > clear + M.rootLook || cx * ux + cy * uy <= 0) continue   // far, or already behind it
+    // the tangent of the patch on the side the heading already leans to
+    let tx = -cy / d, ty = cx / d
+    if (tx * ux + ty * uy < 0) { tx = -tx; ty = -ty }
+    const w = Math.min(1, Math.max(0, 1 - (d - clear) / M.rootLook))
+    ux = ux * (1 - w) + tx * w; uy = uy * (1 - w) + ty * w
+    const n = Math.hypot(ux, uy) || 1
+    ux /= n; uy /= n
+  }
+  return [ux, uy]
+}
+function molePopUp(run, e, M) {
+  e._tun = 'up'; e._tunT = 0
+  e.burrowed = false
+  e.quakeT = 0
+  e.tunnel = []
+  e.stunT = Math.max(e.stunT || 0, M.rootStun)
+  run.events.push({ type: 'moleRooted', x: e.x, y: e.y })
+}
 function stepTunnels(run, dt) {
   const sig = tunnelSpec(run)
   if (!sig) return false
@@ -16407,9 +16440,13 @@ function stepTunnels(run, dt) {
       // marker sliding on a rail.
       const wob = Math.sin(run.time * 2.1 + e.id * 1.7) * 0.4
       const c = Math.cos(wob), sn = Math.sin(wob)
-      const ux = (dx / d) * c - (dy / d) * sn, uy = (dx / d) * sn + (dy / d) * c
+      let ux = (dx / d) * c - (dy / d) * sn, uy = (dx / d) * sn + (dy / d) * c
+      // ROOTS ARE IN THE WAY: bend round every Root Snare patch ahead, except one you stand in.
+      const [rx, ry] = moleSteerRoots(run, e, M, ux, uy)
+      ux = rx; uy = ry
       const step = Math.min(M.digSpeed * run.mods.enemySpeedMul * dt, d)
       e.x += ux * step; e.y += uy * step
+      if (moleInRoots(run, e)) { molePopUp(run, e, M); continue }
       e.digVX = ux; e.digVY = uy
       const last = e.tunnel[e.tunnel.length - 1]
       // A recycled straggler (stepStragglers) jumps across the map: a trail across that gap would be
@@ -16434,6 +16471,8 @@ function stepTunnels(run, dt) {
       e.quakeT = Math.max(0, e.quakeT - dt)
       const k = Math.min(1, dt * 8)
       e.x += (e.quakeX - e.x) * k; e.y += (e.quakeY - e.y) * k
+      // roots grown over the shaking spot stop the eruption: no blast, no cave-in
+      if (moleInRoots(run, e)) { molePopUp(run, e, M); continue }
       if (e.quakeT <= 0) {
         e._tun = 'up'; e._tunT = 0
         e.burrowed = false
@@ -16458,7 +16497,7 @@ function stepTunnels(run, dt) {
         }
         e.tunnel = []
       }
-    } else if (e._tun === 'up' && e._tunT >= M.upT && (e.stunT || 0) <= 0 && (e.frozen || 0) <= 0) {
+    } else if (e._tun === 'up' && e._tunT >= M.upT && (e.stunT || 0) <= 0 && (e.frozen || 0) <= 0 && !moleInRoots(run, e)) {
       e._tun = 'dig'; e._tunT = 0
       e.burrowed = true
       e.tunnel = []
@@ -16942,7 +16981,7 @@ function stepRootSnareWeapon(run, w, stats, fireRateMul, dt) {
   const quick = run.weaponMods.rootSnare?.quickSprout ?? 0
   fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => {
     const n = ipecacN(run, stats.count)
-    for (const sp of pickBloomSpots(run, n, ROOT_SNARE_RANGE)) {
+    for (const sp of pickBloomSpots(run, n, ROOT_SNARE_RANGE, true)) {
       run.snares.push({ x: sp.x, y: sp.y, r: stats.r, dmg: stats.dmg, dur: stats.duration, t: 0, tick: 0 })
       run.events.push({ type: 'rootSnare', x: sp.x, y: sp.y, r: stats.r })
     }

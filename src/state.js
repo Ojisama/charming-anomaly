@@ -2185,7 +2185,8 @@ function generateWells(sig) {
  *   Obstacles: kind 'crystal' (CHAPTERS.geode.obstacles.kind); o._rungCdAt is when a shard bounce may ring it again.
  *   Events: {type:'moleQuake', x, y, r, t} the ground starts shaking where an eruption will land;
  *     {type:'moleErupt', x, y, r, hit} it came up (hit = it caught the player, hurt src 'mole');
- *     {type:'moleDive', x, y}; {type:'caveIn', x, y, r}; {type:'pitFall', x, y, r, rosterId};
+ *     {type:'moleDive', x, y}; {type:'moleRooted', x, y} a Root Snare patch popped a digging mole up
+ *     stunned (no blast, no cave-in); {type:'caveIn', x, y, r}; {type:'pitFall', x, y, r, rosterId};
  *     {type:'crystalBounce', x, y, n}; {type:'crystalChip', x, y} a shot stopped on a crystal with
  *     bounce off or spent; {type:'crystalRing', x, y, r}; {type:'rootSnare', x, y, r};
  *     {type:'stalactite', x, y, r}. All drawn by render.js's burrowEvent; none has a sound.
