@@ -67,7 +67,7 @@ playtest, your fr review and your assets check"*, not "ready to publish".
 ## The ideation bar is a backlog, not a verdict
 
 The ≥4 weapons / ≥4 mods / ≥1 unique anomaly / ≥1 unique mutator bar (owner, 2026-08-20) postdates
-most of the game: **9 of the 15 shipped chapters sit under it**, The Body included. A live
+most of the game: **most shipped chapters sit under it** (`scripts/chapter-stage.mjs` gives the current count), The Body included. A live
 chapter therefore records the shortfall as `debtN` rather than as a failure, and nothing is gated
 on it either way. That column is the list of what to go back and enrich — it is not a set of bugs,
 and a chapter does not become good by clearing it.
@@ -174,7 +174,7 @@ Every one of these produced a WRONG answer on a real chapter while the script wa
 - **`balance_decision` comments are advisory, never a gate.** Half the shipped chapters have none;
   gating on them measures the comment convention's age, not the chapter's state.
 - **`CHAPTER_ORDER` is Book 1 only.** Any sweep over "every chapter" must use
-  `Object.keys(CHAPTERS)` — 15 ids, not 7 — and print its denominator.
+  `Object.keys(CHAPTERS)` — not `CHAPTER_ORDER`'s Book 1 seven — and print its denominator.
 
 ## Changing the script
 
