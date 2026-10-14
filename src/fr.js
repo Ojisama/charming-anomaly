@@ -1929,7 +1929,7 @@ const CONFIG = {
   "Prism Shard": "Éclat de prisme",
   "Flicks crystal shards at the nearest foe. A crystal splits a shard into two halves.": "Projette des éclats de cristal sur l'ennemi le plus proche. Un cristal divise un éclat en deux moitiés.",
   "Echo Pulse": "Écho",
-  "A click rings out around you. Crystals it reaches ring back.": "Un claquement résonne autour de toi. Les cristaux qu'il atteint résonnent en retour.",
+  "A click rings out around you. Crystals it reaches ring back, and every ring cracks them until they shatter.": "Un claquement résonne autour de toi. Les cristaux qu'il atteint résonnent en retour, et chaque écho les fêle jusqu'à ce qu'ils volent en éclats.",
   "Stalactite": "Stalactite",
   "A shadow grows over a foe, then stone falls from the ceiling.": "Une ombre grandit sous un ennemi, puis la pierre tombe du plafond.",
   "Iron Edge": "Lame de fer",

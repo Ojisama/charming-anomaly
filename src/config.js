@@ -3000,7 +3000,7 @@ export const WEAPONS = {
   // back with a smaller pulse of its own.
   echoPulse: {
     name: 'Echo Pulse',
-    desc: 'A click rings out around you. Crystals it reaches ring back.',
+    desc: 'A click rings out around you. Crystals it reaches ring back, and every ring cracks them until they shatter.',
     icon: '🦇', rarity: 'normal',
     levels: [
       { dmg: 14, interval: 2.2, radius: 170 },
