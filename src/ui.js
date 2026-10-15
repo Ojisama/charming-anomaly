@@ -1082,14 +1082,15 @@ export function initUI(hooks) {
     const rewardChip = chMeta.difficulty > 1 && !endlessSel ? `<b class="diff-reward-chip">+${coinPct}% 🪙</b>` : ''
     // DEV ONLY (beta testers see the pip but not this): the bot plays the clock forward until Play now.
     const speedrunBtn = meta.dev === true && endlessOn && endlessSel ? `<button class="btn btn--soft dev-speedrun" data-act="speedrun" aria-label="Speedrun" title="Speedrun" ${heroUnlocked ? '' : 'disabled'}>⏩</button>` : ''
-    const playBlock = heroUnlocked ? `
-      <div class="diff-row">
-        <span class="diff-label">${t('Difficulty')}${rewardChip}</span>
-        ${Array.from({ length: cap }, (_, i) => {
+    const pips = `${Array.from({ length: cap }, (_, i) => {
           const d = i + 1
           if (d > chMeta.maxDifficulty) return `<button class="diff-pip diff-pip--locked" data-act="diff" data-diff="${d}" disabled>🔒</button>`
           return `<button class="diff-pip${!endlessSel && d <= chMeta.difficulty ? ' diff-pip--on' : ''}" data-act="diff" data-diff="${d}">${d}</button>`
-        }).join('')}${endlessOn ? `<button class="diff-pip diff-pip--endless${endlessSel ? ' diff-pip--on' : ''}" data-act="endless" aria-label="${t(ENDLESS_COPY.pip.name)}">${INFINITY_SVG}</button>` : ''}
+        }).join('')}${endlessOn ? `<button class="diff-pip diff-pip--endless${endlessSel ? ' diff-pip--on' : ''}" data-act="endless" aria-label="${t(ENDLESS_COPY.pip.name)}">${INFINITY_SVG}</button>` : ''}`
+    const playBlock = heroUnlocked ? `
+      <div class="diff-row">
+        <span class="diff-label">${t('Difficulty')}${rewardChip}</span>
+        ${pips}
       </div>
       <!-- IN THE RECTO'S OWN SLACK, which is why it costs the panel nothing. Measured on the live
            build: the spread is 324x168, and this page's content (label + pips) uses 112 of its 168,
@@ -1125,6 +1126,10 @@ export function initUI(hooks) {
     // boards on one wide page (owner's pick), and it is what leaves the bookcase above untouched.
     // The foot line, which normally carries the ladder hint, becomes the way back and the only
     // thing that says WHICH board you are reading: the pips are on the leaf now showing scores.
+    if (BOOK_LOOK && !podiumOpen) {
+      podiumTurn = false
+      return bookSpreadHtml({ heroUnlocked, chMeta, cap, pips, rewardChip, boardDiff, speedrunBtn, coins, pct })
+    }
     const turn = podiumTurn && !BOOK_LOOK ? ' spread--turn' : ''
     const folio = readingIndex(browseChapterId) * 2 + 2
     const ribbon = BOOK_LOOK === 1 ? '<i class="spread-ribbon" aria-hidden="true"></i>' : ''
@@ -1161,6 +1166,63 @@ export function initUI(hooks) {
         ${ribbon}
       </div>
       ${ladderHint}
+      <div class="volume-acts">
+        <button class="btn btn--big btn--play" data-act="play" ${heroUnlocked ? '' : 'disabled'}>▶&nbsp; ${t('Play')}</button>
+        ${speedrunBtn}
+        <button class="btn btn--shop" data-act="shop" style="--shop-pct:${pct}%" aria-label="${t('Shop')}">
+          <span class="shop-btn-label">🛒&nbsp; ${t('Shop')}</span>
+          <span class="shop-btn-meter"><small class="shop-btn-purse">🪙 ${coins}</small><i></i><b>${pct}%</b></span>
+        </button>
+      </div>`
+  }
+
+  // MOCKUP (?bk): the open volume's two pages laid out in three bands that line up across the
+  // gutter — an eyebrow at the head, the page's one big thing in the middle, its small print at the
+  // foot — so neither page has a crowded middle over an empty top and bottom. The ladder note moved
+  // in off the cover: it is about difficulty, so it sits under the pips it explains.
+  function bookSpreadHtml({ heroUnlocked, chMeta, cap, pips, rewardChip, boardDiff, speedrunBtn, coins, pct }) {
+    const id = browseChapterId
+    const ch = CHAPTERS[id]
+    const folio = readingIndex(id) * 2 + 2
+    const ribbon = BOOK_LOOK === 1 ? '<i class="spread-ribbon" aria-hidden="true"></i>' : ''
+    const num = chapterNumber(id)
+    const eyebrow = `<span class="pg-eyebrow">${num ? tt('Chapter {n}', { n: num }) : t('Hidden chapter')}</span>`
+    const cast = heroUnlocked
+      ? (ch.render.cast ?? []).filter((rid) => CAST_ART[rid])
+        .map((rid) => `<span class="detail-face"><img src="${CAST_ART[rid]}" alt="" draggable="false"></span>`).join('')
+      : ''
+    const verso = `
+      <div class="pg-top">${eyebrow}</div>
+      <div class="pg-mid">${heroUnlocked
+        ? `<span class="pg-ico">${ch.icon}</span><b class="pg-name">${t(ch.name)}</b><small class="pg-tag">${t(ch.tagline)}</small>`
+        : '<span class="pg-ico">🔒</span><b class="pg-name">???</b>'}</div>
+      <div class="pg-foot">${cast ? `<span class="detail-cast" aria-hidden="true">${cast}</span>` : ''}</div>`
+    let recto
+    if (heroUnlocked) {
+      const bestSecs = ch.circuit ? chMeta.bestRaceTime : chMeta.best?.time
+      const best = bestSecs > 0 ? `<span class="pg-best">${t('best')} <b>${fmtTime(bestSecs)}</b></span>` : ''
+      const hint = chMeta.maxDifficulty < cap
+        ? `<span class="pg-hint">🔒 ${tt('win level {n} to unlock {m}', { n: chMeta.maxDifficulty, m: chMeta.maxDifficulty + 1 })}</span>`
+        : ''
+      ensureBoards(id, boardDiff)
+      const top = podiumCache.get(boardKey(id, boardDiff))?.[boardsFor(id, boardDiff)[0]]?.[0]
+      const leader = top ? `<small class="pg-leader">${medalHtml(1)}${esc(top.nick)}</small>` : ''
+      recto = `
+        <div class="pg-top"><span class="pg-eyebrow">${t('Difficulty')}</span>${rewardChip}</div>
+        <div class="pg-mid"><div class="diff-row">${pips}</div>${hint}</div>
+        <div class="pg-foot">${best}<button class="spread-podium" data-act="podium-open">${ICO_PODIUM}<span>${t('Podium')}</span>${leader}<i>→</i></button></div>`
+    } else {
+      const line = HIDDEN_UNLOCKS[id]
+        ? t(HIDDEN_UNLOCKS[id].hint)
+        : tt('win {name} at difficulty 3+', { name: t(CHAPTERS[furthestUnlockedChapterId(meta)].name) })
+      recto = `<div class="pg-top"></div><div class="pg-mid"><p class="pg-lock">${line}</p></div><div class="pg-foot"></div>`
+    }
+    return `
+      <div class="spread spread--book">
+        <div class="page page--verso" data-folio="${folio}">${verso}</div>
+        <div class="page page--recto" data-folio="${folio + 1}">${recto}</div>
+        ${ribbon}
+      </div>
       <div class="volume-acts">
         <button class="btn btn--big btn--play" data-act="play" ${heroUnlocked ? '' : 'disabled'}>▶&nbsp; ${t('Play')}</button>
         ${speedrunBtn}
