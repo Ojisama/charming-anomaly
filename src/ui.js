@@ -1066,16 +1066,22 @@ export function initUI(hooks) {
     const folio = readingIndex(id) * 2 + 2
     const num = chapterNumber(id)
     const eyebrow = `<span class="pg-eyebrow">${num ? tt('Chapter {n}', { n: num }) : t('Hidden chapter')}</span>`
-    const cast = heroUnlocked
-      ? (ch.render.cast ?? []).filter((rid) => CAST_ART[rid])
-        .map((rid) => `<span class="detail-face"><img src="${CAST_ART[rid]}" alt="" draggable="false"></span>`).join('')
+    // The cast sits in QUINCUNX, two staggered rows, the second row nested in the first's gaps:
+    // eight faces in one row overran the page, and a plain wrap left a ragged orphan under a full row.
+    const faces = heroUnlocked ? (ch.render.cast ?? []).filter((rid) => CAST_ART[rid]) : []
+    const faceRow = (ids, cls) => ids.length
+      ? `<span class="cast-row${cls}">${ids.map((rid) => `<span class="detail-face"><img src="${CAST_ART[rid]}" alt="" draggable="false"></span>`).join('')}</span>`
       : ''
+    const split = Math.ceil(faces.length / 2)
+    const cast = faces.length > 1
+      ? faceRow(faces.slice(0, split), '') + faceRow(faces.slice(split), faces.length % 2 ? '' : ' cast-row--shift')
+      : faceRow(faces, '')
     const verso = `
       <div class="pg-top">${eyebrow}</div>
       <div class="pg-mid">${heroUnlocked
         ? `<span class="pg-ico">${ch.icon}</span><b class="pg-name">${t(ch.name)}</b><small class="pg-tag">${t(ch.tagline)}</small>`
         : '<span class="pg-ico">🔒</span><b class="pg-name">???</b>'}</div>
-      <div class="pg-foot">${cast ? `<span class="detail-cast" aria-hidden="true">${cast}</span>` : ''}</div>`
+      <div class="pg-foot">${cast ? `<span class="detail-cast" style="--k:${Math.ceil(faces.length / 2) + (faces.length > 1 && faces.length % 2 === 0 ? 0.5 : 0)}" aria-hidden="true">${cast}</span>` : ''}</div>`
     let recto
     if (heroUnlocked) {
       const bestSecs = ch.circuit ? chMeta.bestRaceTime : chMeta.best?.time
@@ -1089,7 +1095,7 @@ export function initUI(hooks) {
       recto = `
         <div class="pg-top"><span class="pg-eyebrow">${t('Difficulty')}</span>${rewardChip}</div>
         <div class="pg-mid"><div class="diff-row">${pips}</div>${hint}</div>
-        <div class="pg-foot">${best}<button class="spread-podium" data-act="podium-open">${ICO_PODIUM}<span>${t('Podium')}</span>${leader}<i>→</i></button></div>`
+        <div class="pg-foot">${best}<button class="spread-podium" data-act="podium-open">${ICO_PODIUM}<span class="podium-lbl"><span>${t('Podium')}</span>${leader}</span><i>›</i></button></div>`
     } else {
       const line = HIDDEN_UNLOCKS[id]
         ? t(HIDDEN_UNLOCKS[id].hint)

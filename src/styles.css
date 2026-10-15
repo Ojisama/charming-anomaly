@@ -1679,6 +1679,12 @@ body {
    makes an untouched chapter look busy, which is what the old column did. */
 .vol-stars { flex: none; display: flex; flex-direction: row; align-items: flex-end; justify-content: center; gap: 0; font-size: 0.5rem; line-height: 1; font-style: normal; }
 .vol-star { color: rgba(0, 0, 0, 0.34); font-style: normal; }
+/* A row of five is ~42px (a star is ~1.05em) and a spine on a 360px phone is ~28px, so the stars overran into the next
+   volume. Below that width they wrap, centred, into 3 over 2 — the same quincunx as the cast. */
+.vol:not(.vol--turned) { container-type: inline-size; }
+@container (max-width: 43px) {
+  .vol-stars { flex-wrap: wrap; width: 3.2em; margin-bottom: -1px; line-height: 0.92; }
+}
 .vol-star--on { color: var(--gold); text-shadow: 0 1px 1px rgba(0, 0, 0, 0.45); }
 /* the chapter you last played keeps a ribbon in it */
 .vol-rib {
@@ -1825,7 +1831,6 @@ body {
 .title-below .btn--shop { min-height: clamp(50px, 8svh, 66px); font-size: clamp(0.86rem, 2svh, 1rem); }
 /* the open volume fills what the panel is given, and its contents grow with it */
 .title-below > .spread { flex: 1 1 auto; }
-.title-below .page--verso .detail-face { width: clamp(22px, 3.6svh, 30px); height: clamp(22px, 3.6svh, 30px); }
 .title-below .page--recto .diff-pip { height: clamp(34px, 5.2svh, 42px); font-size: clamp(0.9rem, 2.1svh, 1.05rem); }
 .title-below .spread-podium { min-height: clamp(34px, 5.2svh, 42px); font-size: clamp(0.82rem, 1.9svh, 0.95rem); }
 /* the ladder note sits on the book's cloth, so it reads as printed on the cover, not on a page */
@@ -1935,8 +1940,6 @@ body {
 .page--verso .detail-name small { white-space: normal; }
 /* half a spread is ~160px and The Mantle's nine faces at 25px are 225: overlap them like stacked
    avatars, and wrap if a cast ever outgrows even that */
-.page--verso .detail-cast { max-width: 100%; flex-wrap: wrap; justify-content: center; gap: 2px 0; padding-left: 6px; }
-.page--verso .detail-face { margin-left: -6px; }
 /* Half the width means the pips must DIVIDE that width rather than be sized in px: a fixed 34px
    pip is 170px of a 168px page, so five of them wrapped a sixth line onto the spread and the panel
    came out TALLER than the stack it replaced (measured 273px vs 255px). `flex: 1 1 0` cannot wrap
@@ -3561,7 +3564,38 @@ body {
 }
 .title-below .pg-tag { font-family: Georgia, "Times New Roman", serif; font-style: italic; font-weight: 400; color: #6d5737; }
 .title-below .pg-eyebrow { font-family: Georgia, "Times New Roman", serif; font-style: italic; text-transform: none; letter-spacing: 0; font-size: clamp(0.85rem, 2svh, 1rem); color: #6d5737; }
-.title-below .spread-podium { background: transparent; border-style: dashed; border-color: #c9b07c; }
+/* The podium is a LABEL bound in the Book's cloth with a gilt double rule — the same stuff as the
+   spines above, so it reads as part of the book rather than as an app button laid on a page. */
+.title-below .spread-podium {
+  justify-content: flex-start;
+  gap: 8px;
+  padding: 5px 10px 5px 9px;
+  border: 0;
+  border-radius: 4px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(0, 0, 0, 0.18)), var(--cloth-sel, #3d5c47);
+  box-shadow:
+    inset 0 0 0 2px var(--cloth-sel, #3d5c47),
+    inset 0 0 0 3px rgba(227, 197, 132, 0.85),
+    0 2px 0 rgba(60, 40, 15, 0.35),
+    0 4px 6px -3px rgba(0, 0, 0, 0.4);
+  color: #f4dda6;
+  text-align: left;
+}
+.title-below .spread-podium .rr-ico { width: 18px; height: 18px; color: #e3c584; }
+.podium-lbl { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; line-height: 1.1; }
+.podium-lbl > span { font-family: Georgia, "Times New Roman", serif; font-weight: 700; letter-spacing: 0.06em; font-variant: small-caps; font-size: 1.02em; }
+.title-below .pg-leader { max-width: 100%; margin-top: 1px; font-size: 0.64rem; color: rgba(244, 221, 166, 0.82); }
+.title-below .spread-podium i { flex: none; font-size: 1.3em; line-height: 1; color: #e3c584; }
+
+/* THE CAST, IN QUINCUNX (bookSpreadHtml): two centred rows, the second sitting in the first's gaps.
+   An odd count staggers by itself (k over k-1); an even one needs the half-face push. */
+.title-below .page--verso { container-type: inline-size; }
+/* --k is the widest row in faces (+0.5 for an even count's push), so the faces shrink before they reach the gutter */
+.title-below .page--verso .detail-cast { --face: min(clamp(22px, 3.7svh, 32px), calc((100cqi - 24px) / var(--k, 1) - 3px)); display: flex; flex-direction: column; align-items: center; gap: 0; }
+.cast-row { display: flex; gap: 3px; }
+.cast-row + .cast-row { margin-top: calc(var(--face) * -0.24); }
+.cast-row--shift { padding-left: calc(var(--face) + 3px); }
+.title-below .page--verso .detail-face { width: var(--face); height: var(--face); }
 
 @media (prefers-reduced-motion: reduce) {
   .flip-leaf, .flip-face::after { animation: none !important; }
