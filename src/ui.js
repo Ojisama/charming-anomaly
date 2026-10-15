@@ -1092,10 +1092,35 @@ export function initUI(hooks) {
       ensureBoards(id, boardDiff)
       const top = podiumCache.get(boardKey(id, boardDiff))?.[boardsFor(id, boardDiff)[0]]?.[0]
       const leader = top ? `<small class="pg-leader">${medalHtml(1)}${esc(top.nick)}</small>` : ''
+      // MOCKUP (?pd=1|2|3, ?pdfake for sample names) — remove once the owner picks.
+      const PDQ = new URLSearchParams(location.search)
+      const PD = +(PDQ.get('pd') || 0)
+      const top3 = PDQ.has('pdfake') ? [{ nick: 'Lumi' }, { nick: 'kraken_kid' }, { nick: 'Aurel' }]
+        : (podiumCache.get(boardKey(id, boardDiff))?.[boardsFor(id, boardDiff)[0]] ?? []).slice(0, 3)
+      const nick = (i) => top3[i] ? esc(top3[i].nick) : '—'
+      const time = bestSecs > 0 ? fmtTime(bestSecs) : '—'
+      const CHEV = '<svg class="pd-chev" viewBox="0 0 8 14" aria-hidden="true"><path d="M1.5 1.5 6.5 7l-5 5.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+      const CUP = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M7 3h10v2h3v3a4 4 0 0 1-4 4h-.3A5 5 0 0 1 13 14.9V17h3v3H8v-3h3v-2.1A5 5 0 0 1 8.3 12H8a4 4 0 0 1-4-4V5h3zm0 4H6v1a2 2 0 0 0 1 1.7zm10 0v2.7A2 2 0 0 0 18 8V7z"/></svg>'
+      let foot = `${best}<button class="spread-podium" data-act="podium-open">${ICO_PODIUM}<span class="podium-lbl"><span>${t('Podium')}</span>${leader}</span><i>›</i></button>`
+      const stat = bestSecs > 0 ? `<div class="pd1-stat"><small>${t('best')}</small><b>${time}</b></div>` : ''
+      if (PD === 1) foot = `
+        ${stat}
+        <button class="pd1-row" data-act="podium-open"><span class="pd1-ico">${CUP}</span>
+          <span class="pd1-txt"><b>${t('Podium')}</b><small>${top3[0] ? `${medalHtml(1)}${nick(0)}` : '—'}</small></span>${CHEV}</button>`
+      if (PD === 2) foot = `
+        ${stat}
+        <button class="pd2" data-act="podium-open" aria-label="${t('Podium')}">
+          ${[1, 0, 2].map((i) => `<span class="pd2-col pd2-col--${i + 1}"><small>${nick(i)}</small><span class="pd2-step">${medalHtml(i + 1)}</span></span>`).join('')}
+        </button>`
+      if (PD === 3) foot = `
+        <button class="pd3" data-act="podium-open">
+          <span class="pd3-badge${bestSecs > 0 ? '' : ' pd3-badge--none'}"><small>${t('best')}</small><b>${time}</b></span>
+          <span class="pd3-txt"><b>${t('Podium')} ${CHEV}</b><small>${top3[0] ? `${medalHtml(1)}${nick(0)}` : '—'}</small></span>
+        </button>`
       recto = `
         <div class="pg-top"><span class="pg-eyebrow">${t('Difficulty')}</span>${rewardChip}</div>
         <div class="pg-mid"><div class="diff-row">${pips}</div>${hint}</div>
-        <div class="pg-foot">${best}<button class="spread-podium" data-act="podium-open">${ICO_PODIUM}<span class="podium-lbl"><span>${t('Podium')}</span>${leader}</span><i>›</i></button></div>`
+        <div class="pg-foot${PD ? ` pd-foot pd-foot--${PD}` : ''}">${foot}</div>`
     } else {
       const line = HIDDEN_UNLOCKS[id]
         ? t(HIDDEN_UNLOCKS[id].hint)

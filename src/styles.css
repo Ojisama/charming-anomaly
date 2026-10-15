@@ -3591,11 +3591,70 @@ body {
    An odd count staggers by itself (k over k-1); an even one needs the half-face push. */
 .title-below .page--verso { container-type: inline-size; }
 /* --k is the widest row in faces (+0.5 for an even count's push), so the faces shrink before they reach the gutter */
-.title-below .page--verso .detail-cast { --face: min(clamp(22px, 3.7svh, 32px), calc((100cqi - 24px) / var(--k, 1) - 3px)); display: flex; flex-direction: column; align-items: center; gap: 0; }
-.cast-row { display: flex; gap: 3px; }
-.cast-row + .cast-row { margin-top: calc(var(--face) * -0.24); }
-.cast-row--shift { padding-left: calc(var(--face) + 3px); }
-.title-below .page--verso .detail-face { width: var(--face); height: var(--face); }
+.title-below .page--verso .detail-cast { --face: min(clamp(28px, 4.4svh, 40px), calc((100cqi - 10px) / var(--k, 1) - 2px)); display: flex; flex-direction: column; align-items: center; gap: 0; }
+.cast-row { display: flex; gap: 2px; }
+/* DIAMONDS, after Path of Exile 2's Trial of Chaos afflictions: the second row drops half a
+   diamond, so its tips sit in the first row's notches and the two rows lock edge to edge. */
+.cast-row + .cast-row { margin-top: calc(var(--face) * -0.5 + 1px); }
+.cast-row--shift { padding-left: calc(var(--face) + 2px); }
+.title-below .page--verso .detail-face {
+  width: var(--face); height: var(--face);
+  padding: 2px; border: 0; border-radius: 0;
+  clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+  background: linear-gradient(160deg, #e9c06a, #8a5a1c 55%, #d8a94e);
+}
+/* the art is inset to the diamond's inscribed square, so the clip never bites a creature */
+.title-below .page--verso .detail-face img {
+  padding: 15%;
+  clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+  background: radial-gradient(circle, #fffaf0 30%, #e8d6aa);
+}
+
+/* ---- MOCKUP (?pd=1|2|3): the record + podium block. Remove the losers once the owner picks. ---- */
+.pd-foot { font-family: -apple-system, "SF Pro Text", system-ui, "Segoe UI", Roboto, sans-serif; }
+.pd-chev { width: 7px; height: 12px; flex: none; color: #b9ab90; }
+.pd1-stat { display: flex; align-items: baseline; justify-content: space-between; width: 100%; padding: 0 4px; }
+.pd1-stat small { font-size: 0.62rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8f7a58; }
+.pd1-stat b { font-size: 1.05rem; font-weight: 700; font-variant-numeric: tabular-nums; color: #2c2112; }
+/* 1 — GAME CENTER ROW: an inset grouped-list cell, app icon tile, title over subtitle, hairline chevron */
+.pd1-row {
+  display: flex; align-items: center; gap: 9px; width: 100%;
+  padding: 7px 10px 7px 7px; border: 0; border-radius: 12px;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 0 0 0.5px rgba(90, 64, 30, 0.18), 0 2px 6px -2px rgba(90, 64, 30, 0.25);
+  font: inherit; color: #2c2112; text-align: left; cursor: pointer;
+}
+.pd1-row:active { background: rgba(255, 255, 255, 0.5); }
+.pd1-ico { flex: none; display: grid; place-items: center; width: 30px; height: 30px; border-radius: 8px; background: linear-gradient(180deg, #ffd25e, #f2a516); color: #fff; box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.12); }
+.pd1-ico svg { width: 18px; height: 18px; }
+.pd1-txt { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; line-height: 1.15; }
+.pd1-txt b { font-size: 0.86rem; font-weight: 650; }
+.pd1-txt small, .pd3-txt small { display: flex; align-items: center; gap: 3px; min-width: 0; font-size: 0.68rem; font-weight: 500; color: #8f7a58; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pd-foot .podium-rank { flex: none; width: 10px; height: 13px; }
+.pd-foot .medal-n { clip-path: inset(50%); }
+/* 2 — THE PODIUM ITSELF: three steps, gold centre, the names standing on them. Tapping it turns the page. */
+.pd2 { display: grid; grid-template-columns: 1fr 1.15fr 1fr; align-items: end; gap: 3px; width: 100%; padding: 0; border: 0; background: none; font: inherit; cursor: pointer; }
+.pd2-col { display: flex; flex-direction: column; align-items: center; min-width: 0; gap: 2px; }
+.pd2-col small { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.62rem; font-weight: 600; color: #5a4628; }
+.pd2-step { display: grid; place-items: start center; width: 100%; padding-top: 4px; border-radius: 6px 6px 2px 2px; background: linear-gradient(180deg, rgba(255, 255, 255, 0.85), rgba(255, 255, 255, 0.55)); box-shadow: 0 0 0 0.5px rgba(90, 64, 30, 0.2), 0 2px 4px -2px rgba(90, 64, 30, 0.3); }
+.pd2-col--1 .pd2-step { height: 34px; }
+.pd2-col--2 .pd2-step { height: 24px; }
+.pd2-col--3 .pd2-step { height: 17px; padding-top: 2px; }
+.pd2 .podium-rank { width: 12px; height: 16px; }
+.pd2-col--1 .podium-rank { width: 15px; height: 20px; }
+.pd2:active .pd2-step { filter: brightness(0.95); }
+/* 3 — AWARD BADGE: the record as a medal you earned (Fitness-style ring), the board as a text link */
+.pd3 { display: flex; align-items: center; gap: 10px; width: 100%; padding: 0; border: 0; background: none; font: inherit; color: #2c2112; text-align: left; cursor: pointer; }
+.pd3-badge { flex: none; display: flex; flex-direction: column; align-items: center; justify-content: center; width: 58px; height: 58px; border-radius: 50%;
+  background: radial-gradient(circle at 50% 50%, #2b2216 0 60%, transparent 61%), conic-gradient(from 210deg, #f7d77a, #c8902a, #fbe6a2, #b47b1e, #f7d77a);
+  box-shadow: 0 3px 6px -2px rgba(60, 40, 10, 0.5); color: #fbe6a2; }
+.pd3-badge small { font-size: 0.48rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.8; }
+.pd3-badge b { font-size: 0.86rem; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.05; }
+.pd3-badge--none { filter: grayscale(1) opacity(0.55); }
+.pd3-txt { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.pd3-txt b { display: flex; align-items: center; gap: 6px; font-size: 0.9rem; font-weight: 650; }
+.pd-foot--1, .pd-foot--2 { gap: 6px; }
+.pd-foot--2 .pd2, .pd-foot--3 .pd3 { width: calc(100% - 14px); margin-right: 14px; }
 
 @media (prefers-reduced-motion: reduce) {
   .flip-leaf, .flip-face::after { animation: none !important; }
