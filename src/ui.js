@@ -1104,8 +1104,20 @@ export function initUI(hooks) {
     // one above (Path of Exile 2's Trial of Chaos afflictions). Three a row is what keeps a face big
     // enough to read on a 360px phone. Counts with no natural alternation push every other row by
     // half a face ('s').
-    const faces = heroUnlocked ? (ch.render.cast ?? []).filter((rid) => CAST_ART[rid]) : []
-    const CAST_ROWS = { 1: [1], 2: [1, 1, 's'], 3: [2, 1], 4: [2, 2, 's'], 5: [3, 2], 6: [3, 3, 's'], 7: [2, 3, 2], 8: [3, 2, 3], 9: [3, 3, 3, 's'] }
+    // EVERY creature of the chapter, not the curated render.cast: that list picked three faces for
+    // the old card and hid two to four real enemies on seven chapters. The curated ones lead; a
+    // name seen twice (The Antibody's three phases) is one face.
+    const faces = []
+    if (heroUnlocked) {
+      const seen = new Set()
+      for (const rid of [...(ch.render.cast ?? []), ...(ch.roster ?? []).map((r) => r.id)]) {
+        const name = ch.roster?.find((r) => r.id === rid)?.name ?? rid
+        if (!CAST_ART[rid] || seen.has(name)) continue
+        seen.add(name)
+        faces.push(rid)
+      }
+    }
+    const CAST_ROWS = { 1: [1], 2: [1, 1, 's'], 3: [2, 1], 4: [2, 2, 's'], 5: [2, 1, 2], 6: [3, 3, 's'], 7: [2, 3, 2], 8: [3, 2, 3], 9: [3, 3, 3, 's'] }
     const plan = CAST_ROWS[Math.min(faces.length, 9)] ?? []
     const shift = plan.includes('s')
     const sizes = plan.filter((x) => x !== 's')
