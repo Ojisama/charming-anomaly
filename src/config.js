@@ -3461,10 +3461,8 @@ export const passiveEffectText = (cfg, bonus, fmt = (n) => String(n)) => {
 // bonus every reader folds in directly (sim.js reads `1 + run.passives.topSpeed` and nothing else).
 // Fold it at a read site instead and the second read site drifts; fold it at both and it compounds.
 // makePassiveCard calls it only to SHOW the result, which is what the card's before/after arrow is.
-export const passiveTotal = (id, have, bonus) => {
-  const cap = PASSIVES[id]?.cap
-  return cap ? cap - (cap - have) * Math.exp(-bonus / cap) : have + bonus
-}
+export const capTotal = (cap, have, bonus) => cap ? cap - (cap - have) * Math.exp(-bonus / cap) : have + bonus
+export const passiveTotal = (id, have, bonus) => capTotal(PASSIVES[id]?.cap, have, bonus)
 
 // ---- Weapon mods (v4.1: weapon-mod parity) -------------------------------------
 // Every equipped weapon gets its own mod pool (star's original six, plus a matching set for
@@ -4518,7 +4516,11 @@ export const WEAPON_MODS = {
     loudClick:   { name: 'Loud Click',   desc: 'pulse damage', icon: '💥', base: 0.30, kind: 'pct' },
     farCall:     { name: 'Far Call',     desc: 'pulse radius', icon: '⭕', base: 0.22, kind: 'pct' },
     rapidClick:  { name: 'Rapid Click',  desc: 'pulse rate', icon: '⏩', base: 0.25, kind: 'pct' },
-    doubleClick: { name: 'Double Click', desc: 'extra click(s) a beat after each one', icon: '🔁', kind: 'tier', maxPicks: 2 },
+    // balance_decision : repeat chance, rare+ only, bank approaches 200% 2026-10-15
+    //  - values are the roll BEFORE the cap; applyChoice banks capTotal, so the bank is the chance
+    doubleClick: { name: 'Double Click', icon: '🔁', kind: 'pct', cap: 2,
+                   values: { rare: 0.15, epic: 0.25, legendary: 0.35, mythic: 0.50 },
+                   desc: '{n} chance that a click repeats a beat later. Past 100% it always does, and the rest is the chance of a third.' },
     // balance_decision : no push and no daze card, owner 2026-10-14
   },
   stalactite: {
@@ -6764,7 +6766,7 @@ export const PRISM_LIFE = 1.0            // s of flight before a bounce refreshe
 export const PRISM_R = 8                 // px hit radius
 export const ECHO_LIFE = 0.5             // s for the ring to reach its radius
 // balance_decision : Double Click repeats at reduced damage, crystals still ring 2026-10-15
-export const ECHO_DOUBLE_DELAY = 0.3     // s between a click and its Double Click repeat(s)
+export const ECHO_DOUBLE_DELAY = 0.3     // s between a click and its Double Click repeat
 export const ECHO_DOUBLE_DMG_FRAC = 0.6  // each repeat's damage (and its ring-backs'), of the click's
 // THE GEODE'S COUNTERS TO A CRYSTAL FORTRESS (owner, 2026-10-13).
 // balance_decision : crabs eat Echo-rung crystals and turn to glass 2026-10-13

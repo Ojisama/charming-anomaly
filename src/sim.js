@@ -29,7 +29,7 @@
 
 import {
   RUN_DURATION, PLAYER, WEAPONS, weaponDesc, CHAPTERS, MAX_WEAPON_LEVEL, MAX_WEAPONS,
-  PASSIVES, MAX_PASSIVE_LEVEL, passiveTotal, WEAPON_MODS, WEAPON_MOD_TIER_BONUS, MOD_POOL_MAX,
+  PASSIVES, MAX_PASSIVE_LEVEL, passiveTotal, capTotal, WEAPON_MODS, WEAPON_MOD_TIER_BONUS, MOD_POOL_MAX,
   MOD_CANDIDATES_PER_WEAPON, maxModsPerWeaponPerPool, DUO_PITY_SCREENS, WEAPON_RATE_MODS, WEAPON_COUNT_MODS, WEAPON_COUNT_KEYS, STAT_ROW_KEYS,
   ELEMENTS, MAX_ELEMENT_PICKS,
   // RARITY_ORDER came back in v7.5 for BLIND_FAITH_FLOOR, and the reason it left still stands:
@@ -487,7 +487,8 @@ export function applyChoice(run, i, subject = null) {
   } else if (choice.kind === 'mod') {
     const mods = (run.weaponMods[choice.weapon] ??= {})
     const picks = (run.weaponModPicks[choice.weapon] ??= {})
-    mods[choice.id] = (mods[choice.id] ?? 0) + choice.bonus
+    // a mod with a `cap` (Double Click) banks along passiveTotal's asymptote, here and only here
+    mods[choice.id] = capTotal(WEAPON_MODS[choice.weapon]?.[choice.id]?.cap, mods[choice.id] ?? 0, choice.bonus)
     picks[choice.id] = (picks[choice.id] ?? 0) + 1
   } else if (choice.kind === 'element') {
     run.elements[choice.id] = (run.elements[choice.id] ?? 0) + choice.bonus
@@ -15592,6 +15593,14 @@ function makeWeaponModCard(run, weaponId, modId, rarity) {
   if (cfg.values) {
     if (!(rarity in cfg.values)) return null
     const bonus = cfg.values[rarity]
+    // A CAPPED MOD states the total it leaves you on and strikes the one it moves off (makePassiveCard's rule)
+    if (cfg.cap) {
+      const have = run.weaponMods[weaponId]?.[modId] ?? 0
+      const shown = capTotal(cfg.cap, have, bonus)
+      return { kind: 'mod', id: modId, weapon: weaponId, title: cfg.name, desc: cfg.desc.replaceAll('{n}', modPct(shown)),
+        shown, was: have > 0 ? modPct(have) : null,
+        tag: `${(WEAPONS[weaponId] ?? ENV_WEAPONS[weaponId]).name} upgrade`, rarity, icon: cfg.icon, bonus }
+    }
     return { kind: 'mod', id: modId, weapon: weaponId, title: cfg.name,
       desc: cfg.descFor ? cfg.descFor(bonus) : cfg.args ? fillModDesc(cfg.desc, { n: bonus, ...cfg.args }) : cfg.desc.includes('{n}') ? cfg.desc.replaceAll('{n}', cfg.kind === 'pct' ? modPct(bonus) : `${bonus}`) : `+${cfg.kind === 'pct' ? modPct(bonus) : bonus} ${cfg.desc}`,
       tag: `${(WEAPONS[weaponId] ?? ENV_WEAPONS[weaponId]).name} upgrade`, rarity, icon: cfg.icon, bonus }
@@ -17047,8 +17056,9 @@ function stepEchoWeapon(run, w, stats, fireRateMul, dt) {
   const backR = levels[Math.min(levels.length, Math.max(1, w.level)) - 1].radius
   fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => {
     echoClick(run, stats.radius, stats.dmg, backR)
-    // DOUBLE CLICK: repeats a beat apart, each from wherever you stand when it goes off
-    const repeats = run.weaponMods.echoPulse?.doubleClick ?? 0
+    // DOUBLE CLICK: the bank is a chance, past 1 a sure repeat plus that much chance of another
+    const chance = run.weaponMods.echoPulse?.doubleClick ?? 0
+    const repeats = Math.floor(chance) + (Math.random() < chance % 1 ? 1 : 0)
     for (let i = 1; i <= repeats; i++) {
       run._echoClicks.push({ at: run.time + ECHO_DOUBLE_DELAY * i, radius: stats.radius, dmg: stats.dmg * ECHO_DOUBLE_DMG_FRAC, backR })
     }

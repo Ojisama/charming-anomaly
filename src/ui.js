@@ -3265,6 +3265,8 @@ export function initUI(hooks) {
   // stays identical to the pause sheet; everything else uses the string sim.js already composed.
   function cardDescHtml(c) {
     const cfg = c.kind === 'mod' ? WEAPON_MODS[c.weapon]?.[c.id] : null
+    // a capped mod (Double Click) shows the total it leaves you on, the one it moves off struck through
+    if (cfg?.cap) return (c.was ? `<s class="lv-was">${c.was}</s>&nbsp;→&nbsp;` : '') + esc(modEffectText(cfg, c.shown))
     if (cfg && !cfg.descFor) return modEffectText(cfg, c.bonus)
     // An element card under the redesign carries its TEMPLATE and numbers (see elementCardDesc in
     // config.js) rather than a finished sentence, so the dictionary has one key per card instead of
