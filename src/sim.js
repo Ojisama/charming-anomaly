@@ -259,7 +259,7 @@ import {
   SHOVEL_LIFE, PEBBLE_CONE, PEBBLE_SPEED_JITTER, pebbleSpreadStones, PEBBLE_LIFE, PEBBLE_R, ROOT_SNARE_TICK, ROOT_SNARE_SLOW, ROOT_SNARE_HOLD_T, ROOT_SNARE_RANGE,
   FURROW_STEP, FURROW_KEEP, FURROW_DELAY, FURROW_STAGGER, FURROW_PIT_OPEN, FURROW_PIT_LIFE, FURROW_PIT_FILL, FURROW_PIT_MAX, FURROW_JUMP, FURROW_LANE_GAP,
   SUNDOWN_SPEED_MUL, SUNDOWN_XP_MUL,
-  PRISM_FAN, PRISM_LIFE, PRISM_R, ECHO_LIFE, CRAB_EAT, NOISE_BATS, STALACTITE_FUSE, STALACTITE_RANGE, CRYSTAL_CARDS, ENV_WEAPONS, fillModDesc,
+  PRISM_FAN, PRISM_LIFE, PRISM_R, ECHO_LIFE, ECHO_DOUBLE_DELAY, ECHO_DOUBLE_DMG_FRAC, CRAB_EAT, NOISE_BATS, STALACTITE_FUSE, STALACTITE_RANGE, CRYSTAL_CARDS, ENV_WEAPONS, fillModDesc,
   PICKAXE_RANGE, PICKAXE_KB, PICKAXE_FLIGHT, PICKAXE_CHIP_DMG, PICKAXE_CHIP_SPEED, PICKAXE_CHIP_LIFE, PICKAXE_CHIP_R,
   DYNAMITE_RANGE, DYNAMITE_FLIGHT, DYNAMITE_FUSE, DYNAMITE_KB, MINECART_SPEED, MINECART_FAN, MINECART_KB, MINECART_STUN, MINECART_LOOT_R, MINECART_HOME_R,
   CANARY_REACH_MUL, CANARY_LINK_DMG, LANTERN_PULSE, MINE_BOOM_KEEP, MINE_GAS_FADE_IN, MINE_GAS_LIT_SHRINK,
@@ -17040,32 +17040,43 @@ function stepSnares(run, dt) {
 
 // -- Echo Pulse (The Geode) ---------------------------------------------------------------------
 function stepEchoWeapon(run, w, stats, fireRateMul, dt) {
-  const p = run.player
   const quick = run.weaponMods.echoPulse?.rapidClick ?? 0
   // The ring-back is sized off the LEVEL radius, so Far Call widens what the click reaches and
   // not what each crystal gives back (CHAPTERS.geode.signature.resonance's balance_decision).
   const levels = WEAPONS.echoPulse.levels
   const backR = levels[Math.min(levels.length, Math.max(1, w.level)) - 1].radius
   fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => {
-    // no push: Echo Pulse's ring and the ring-backs it calls only hurt (owner, 2026-10-14)
-    for (const r of ipecacRadii(run, stats.radius)) spawnNova(run, p.x, p.y, r, stats.dmg, 0, 0, { look: 'echo', life: ECHO_LIFE })
-    run.events.push({ type: 'shoot', weapon: 'echoPulse', x: p.x, y: p.y, maxR: stats.radius })
-    // Every crystal the ring will reach rings back when it gets there.
-    const res = crystalSpec(run)?.resonance
-    if (!res) return
-    const em = run.weaponMods.crystals
-    const wide = 1 + (em?.wideChime ?? 0)   // Wide Chime
-    // SYMPATHY: one cast is one wave, holding every crystal the click itself reaches.
-    const wave = em?.sympathy > 0 ? { rung: new Set() } : null
-    for (const o of run.obstacles) {
-      if (o.kind !== 'crystal') continue
-      const d = Math.hypot(o.x - p.x, o.y - p.y) - o.r
-      if (d > stats.radius) continue
-      if (wave) wave.rung.add(o)
-      run.echoes.push({ x: o.x, y: o.y, at: run.time + ECHO_LIFE * Math.max(0, d) / stats.radius,
-        r: backR * res.radiusMul * wide + o.r, dmg: stats.dmg * res.dmgMul, kb: 0, o, wave, direct: true })
+    echoClick(run, stats.radius, stats.dmg, backR)
+    // DOUBLE CLICK: repeats a beat apart, each from wherever you stand when it goes off
+    const repeats = run.weaponMods.echoPulse?.doubleClick ?? 0
+    for (let i = 1; i <= repeats; i++) {
+      run._echoClicks.push({ at: run.time + ECHO_DOUBLE_DELAY * i, radius: stats.radius, dmg: stats.dmg * ECHO_DOUBLE_DMG_FRAC, backR })
     }
   })
+  if (run._echoClicks.length === 0) return
+  for (const c of run._echoClicks) if (run.time >= c.at) { c._done = true; echoClick(run, c.radius, c.dmg, c.backR) }
+  run._echoClicks = run._echoClicks.filter((c) => !c._done)
+}
+// One click: the ring around you, and every crystal it will reach rings back when it gets there.
+function echoClick(run, radius, dmg, backR) {
+  const p = run.player
+  // no push: Echo Pulse's ring and the ring-backs it calls only hurt (owner, 2026-10-14)
+  for (const r of ipecacRadii(run, radius)) spawnNova(run, p.x, p.y, r, dmg, 0, 0, { look: 'echo', life: ECHO_LIFE })
+  run.events.push({ type: 'shoot', weapon: 'echoPulse', x: p.x, y: p.y, maxR: radius })
+  const res = crystalSpec(run)?.resonance
+  if (!res) return
+  const em = run.weaponMods.crystals
+  const wide = 1 + (em?.wideChime ?? 0)   // Wide Chime
+  // SYMPATHY: one cast is one wave, holding every crystal the click itself reaches.
+  const wave = em?.sympathy > 0 ? { rung: new Set() } : null
+  for (const o of run.obstacles) {
+    if (o.kind !== 'crystal') continue
+    const d = Math.hypot(o.x - p.x, o.y - p.y) - o.r
+    if (d > radius) continue
+    if (wave) wave.rung.add(o)
+    run.echoes.push({ x: o.x, y: o.y, at: run.time + ECHO_LIFE * Math.max(0, d) / radius,
+      r: backR * res.radiusMul * wide + o.r, dmg: dmg * res.dmgMul, kb: 0, o, wave, direct: true })
+  }
 }
 function stepEchoes(run, dt) {
   if (run.echoes.length === 0) return

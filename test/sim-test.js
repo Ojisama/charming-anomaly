@@ -19,6 +19,7 @@ import { FOIL_FRAG as HOLO_FOIL_FRAG, CAVERN_FLOOR_FRAG as HOLO_CAVERN_FRAG } fr
 import { ensurePrecision as pixiEnsurePrecision } from '../node_modules/pixi.js/lib/rendering/renderers/gl/shader/program/preprocessors/ensurePrecision.mjs'
 import { magmaGroundAt, magmaRiverAt, magmaCooledAt, magmaHotAt } from '../src/sim.js'
 import { lavaFloodedAt, mantleHeightAt, lavaLineFor, mantleGroundAt } from '../src/sim.js'
+import { ECHO_DOUBLE_DELAY, ECHO_DOUBLE_DMG_FRAC } from '../src/config.js'
 import { MANTLE_GROUND_STEP, MANTLE_START_DRY, MANTLE_COLD_VS_LAVA, MANTLE_FIRE_VS_ROCK, MANTLE_STRAND_DIE_T, MANTLE_STRAND_STUCK_T, MANTLE_STRAND_DMG_MUL, MANTLE_STRAND_SLOW, MANTLE_MELT_T, KETTLE_CRUST_GNAW, KETTLE_CRUST_GNAW_MAX, KETTLE_HULL_MAX, KETTLE_STEAM_MUL, DRAW_CAPS } from '../src/config.js'
 import { poolRimR, crustShapeOf, poolPhaseOf, crustSplash, splashSdf, SPLASH_FINGERS, SPLASH_DROPS } from '../src/mantle-shape.js'
 import {
@@ -20927,6 +20928,7 @@ run(testLeLargeWeapons)
   run(testTopsoilPolish)
   run(testMoleRoots)
   run(testGeodeStarterMods)
+  run(testEchoDoubleClick)
   run(testPebbleHandful)
   run(testGeodeCounters)
   run(testSrcParses)
@@ -40592,6 +40594,58 @@ function testGeodeStarterMods() {
   const was = [0.50, 0.48, 0.47, 0.42, 0.36]
   WEAPONS.prismShard.levels.forEach((L, i) => assert.ok(Math.abs(L.interval - was[i] / 0.75) < 1e-9, `run GM: Prism Shard L${i + 1} interval ${L.interval}`))
   console.log(`PASS run GM (Geode starter mods): Keen Facet +${Math.round(bonus('normal', 'keenFacet') * 100)}%, Quick Flick +${Math.round(bonus('normal', 'flickRate') * 100)}% at normal; Cleave mythic +${bonus('mythic', 'cleave')}; Shard Spray ${modPickCap('prismShard', 'shardSpray')} picks`)
+}
+
+// run ED (Double Click): Echo Pulse's count mod. (a) each pick adds one repeat ECHO_DOUBLE_DELAY after
+// the last, so one cast is 1 + picks clicks at distinct times; (b) a repeat goes off from where you
+// stand THEN, not where the cast began; (c) it hits at ECHO_DOUBLE_DMG_FRAC of the click; (d) it rings
+// the crystals it reaches, so a crystal beside you cracks once per click, not once per cast.
+function testEchoDoubleClick() {
+  const dt = 1 / 60
+  const clicks = (picks, move, nearCrystal) => {
+    Math.random = mulberry32(7)
+    const r = createRun(makeMeta(), { chapter: 'geode', difficulty: 1 })
+    r.player.hp = r.player.maxHP = 1e9
+    r.weapons = [{ id: 'echoPulse', level: 1 }]
+    if (picks) r.weaponMods.echoPulse = { doubleClick: picks }
+    let o = null
+    if (nearCrystal) {
+      stepSim(r, { x: 0, y: 0 }, dt)   // crystals stream in on the first step
+      r.events.length = 0
+      o = r.obstacles.find((c) => c.kind === 'crystal')
+      assert.ok(o, 'run ED: fixture has no crystal')
+      r.player.x = o.x + o.r + 40; r.player.y = o.y
+    }
+    const out = []
+    for (let i = 0; i < Math.round(5.5 / dt); i++) {
+      r.enemies = []
+      if (r.phase === 'levelup') { r.phase = 'playing'; r.levelUpChoices = [] }
+      const before = r.novas.length
+      stepSim(r, move ? { x: 1, y: 0 } : { x: 0, y: 0 }, dt)
+      for (const ev of r.events) if (ev.type === 'shoot' && ev.weapon === 'echoPulse') {
+        const n = r.novas.slice(before).find((nv) => nv.look === 'echo' && nv.x === ev.x && nv.y === ev.y)
+        out.push({ t: r.time, x: ev.x, dmg: n?.dmg })
+      }
+      r.events.length = 0
+    }
+    return { out, rings: o ? o._echoRings ?? 0 : 0 }
+  }
+  const base = clicks(0, false, false).out
+  const one = clicks(1, true, false).out
+  const two = clicks(2, false, false).out
+  // 5.5s at L1 (2.2s interval) is two casts and every repeat of the second
+  assert.strictEqual(base.length, 2, `run ED: control fired ${base.length} clicks in 5.5s, want 2`)
+  assert.strictEqual(one.length, 4, `run ED(a): one pick fired ${one.length} clicks, want 4`)
+  assert.strictEqual(two.length, 6, `run ED(a): two picks fired ${two.length} clicks, want 6`)
+  const gap = one[1].t - one[0].t
+  assert.ok(Math.abs(gap - ECHO_DOUBLE_DELAY) < dt * 1.5, `run ED(a): repeat ${gap.toFixed(3)}s after the click, want ${ECHO_DOUBLE_DELAY}`)
+  assert.ok(new Set(two.slice(0, 3).map((c) => c.t.toFixed(3))).size === 3, 'run ED(a): two repeats share a moment')
+  assert.ok(one[1].x - one[0].x > 20, `run ED(b): the repeat went off ${(one[1].x - one[0].x).toFixed(1)}px from the click while walking`)
+  const frac = one[1].dmg / one[0].dmg
+  assert.ok(Math.abs(frac - ECHO_DOUBLE_DMG_FRAC) < 1e-9, `run ED(c): repeat hits at ${frac} of the click`)
+  const r0 = clicks(0, false, true).rings, r1 = clicks(1, false, true).rings
+  assert.ok(r0 >= 2 && r1 === r0 * 2, `run ED(d): a crystal beside you rang ${r1} times with Double Click vs ${r0} without`)
+  console.log(`PASS run ED (Double Click): 2 / 4 / 6 clicks in 5.5s at 0 / 1 / 2 picks, repeat ${gap.toFixed(2)}s later, ${(one[1].x - one[0].x).toFixed(0)}px along the walk, at x${frac} damage; crystal rings ${r0} -> ${r1}`)
 }
 
 // run MR (moles vs roots): a Root Snare patch is solid to a digging mole. (a) one between it and you

@@ -3335,6 +3335,9 @@ export function createRun(meta, opts = {}) {
     // Sim-internal only (not a render contract): pending Echo Wave casts (see WEAPON_MODS.wave
     // in config.js and stepWaveEchoes in sim.js) — { delay, x, y, radius, dmg, knockback }[].
     _waveEchoes: [],
+    // Sim-internal only: pending Double Click repeats of Echo Pulse (stepEchoWeapon) —
+    // { at, radius, dmg, backR }[], each fired from the player's position when run.time reaches at.
+    _echoClicks: [],
     // Sim-internal only: count of wave casts so far this run (see WEAPON_MODS.wave.tsunami in
     // config.js and stepWaveWeapon in sim.js) — every TSUNAMI_EVERY-th cast is a "monster wave".
     _waveCasts: 0,

@@ -4518,6 +4518,7 @@ export const WEAPON_MODS = {
     loudClick:   { name: 'Loud Click',   desc: 'pulse damage', icon: '💥', base: 0.30, kind: 'pct' },
     farCall:     { name: 'Far Call',     desc: 'pulse radius', icon: '⭕', base: 0.22, kind: 'pct' },
     rapidClick:  { name: 'Rapid Click',  desc: 'pulse rate', icon: '⏩', base: 0.25, kind: 'pct' },
+    doubleClick: { name: 'Double Click', desc: 'extra click(s) a beat after each one', icon: '🔁', kind: 'tier', maxPicks: 2 },
     // balance_decision : no push and no daze card, owner 2026-10-14
   },
   stalactite: {
@@ -6762,6 +6763,9 @@ export const PRISM_FAN = 0.16            // rad between shards of one throw
 export const PRISM_LIFE = 1.0            // s of flight before a bounce refreshes it
 export const PRISM_R = 8                 // px hit radius
 export const ECHO_LIFE = 0.5             // s for the ring to reach its radius
+// balance_decision : Double Click repeats at reduced damage, crystals still ring 2026-10-15
+export const ECHO_DOUBLE_DELAY = 0.3     // s between a click and its Double Click repeat(s)
+export const ECHO_DOUBLE_DMG_FRAC = 0.6  // each repeat's damage (and its ring-backs'), of the click's
 // THE GEODE'S COUNTERS TO A CRYSTAL FORTRESS (owner, 2026-10-13).
 // balance_decision : crabs eat Echo-rung crystals and turn to glass 2026-10-13
 //  - memory: s since an ECHO ring-back (o._echoRungAt), never a Prism bounce; seek: px from the crab

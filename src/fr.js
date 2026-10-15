@@ -1969,6 +1969,8 @@ const CONFIG = {
   "pulse radius": "rayon de l'écho",
   "Rapid Click": "Cliquetis",
   "pulse rate": "cadence de l'écho",
+  "Double Click": "Double clic",
+  "extra click(s) a beat after each one": "clic(s) en plus juste après chacun",
   "Heavy Stone": "Pierre lourde",
   "drop damage": "dégâts de la chute",
   "Rockfall": "Éboulement",
