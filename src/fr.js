@@ -1970,7 +1970,7 @@ const CONFIG = {
   "Rapid Click": "Cliquetis",
   "pulse rate": "cadence de l'écho",
   "Double Click": "Double clic",
-  "{n} chance that a click repeats a beat later. Past 100% it always does, and the rest is the chance of a third.": "{n} de chances qu'un clic se répète un instant après. Au-delà de 100 %, il se répète toujours, et le reste est la chance d'un troisième.",
+  "{n} chance a click repeats. Over 100%: a third.": "{n} de chances qu'un clic se répète. Au-delà de 100 % : un troisième.",
   "Heavy Stone": "Pierre lourde",
   "drop damage": "dégâts de la chute",
   "Rockfall": "Éboulement",

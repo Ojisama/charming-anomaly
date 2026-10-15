@@ -4520,7 +4520,7 @@ export const WEAPON_MODS = {
     //  - values are the roll BEFORE the cap; applyChoice banks capTotal, so the bank is the chance
     doubleClick: { name: 'Double Click', icon: '🔁', kind: 'pct', cap: 2,
                    values: { rare: 0.15, epic: 0.25, legendary: 0.35, mythic: 0.50 },
-                   desc: '{n} chance that a click repeats a beat later. Past 100% it always does, and the rest is the chance of a third.' },
+                   desc: '{n} chance a click repeats. Over 100%: a third.' },
     // balance_decision : no push and no daze card, owner 2026-10-14
   },
   stalactite: {
