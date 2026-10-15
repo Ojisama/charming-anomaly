@@ -29,7 +29,7 @@
 
 import {
   RUN_DURATION, PLAYER, WEAPONS, weaponDesc, CHAPTERS, MAX_WEAPON_LEVEL, MAX_WEAPONS,
-  PASSIVES, MAX_PASSIVE_LEVEL, passiveTotal, WEAPON_MODS, WEAPON_MOD_TIER_BONUS, MOD_POOL_MAX,
+  PASSIVES, MAX_PASSIVE_LEVEL, passiveTotal, capTotal, WEAPON_MODS, WEAPON_MOD_TIER_BONUS, MOD_POOL_MAX,
   MOD_CANDIDATES_PER_WEAPON, maxModsPerWeaponPerPool, DUO_PITY_SCREENS, WEAPON_RATE_MODS, WEAPON_COUNT_MODS, WEAPON_COUNT_KEYS, STAT_ROW_KEYS,
   ELEMENTS, MAX_ELEMENT_PICKS,
   // RARITY_ORDER came back in v7.5 for BLIND_FAITH_FLOOR, and the reason it left still stands:
@@ -259,7 +259,7 @@ import {
   SHOVEL_LIFE, PEBBLE_CONE, PEBBLE_SPEED_JITTER, pebbleSpreadStones, PEBBLE_LIFE, PEBBLE_R, ROOT_SNARE_TICK, ROOT_SNARE_SLOW, ROOT_SNARE_HOLD_T, ROOT_SNARE_RANGE,
   FURROW_STEP, FURROW_KEEP, FURROW_DELAY, FURROW_STAGGER, FURROW_PIT_OPEN, FURROW_PIT_LIFE, FURROW_PIT_FILL, FURROW_PIT_MAX, FURROW_JUMP, FURROW_LANE_GAP,
   SUNDOWN_SPEED_MUL, SUNDOWN_XP_MUL,
-  PRISM_FAN, PRISM_LIFE, PRISM_R, ECHO_LIFE, CRAB_EAT, NOISE_BATS, STALACTITE_FUSE, STALACTITE_RANGE, CRYSTAL_CARDS, ENV_WEAPONS, fillModDesc,
+  PRISM_FAN, PRISM_LIFE, PRISM_R, ECHO_LIFE, ECHO_DOUBLE_DELAY, ECHO_DOUBLE_DMG_FRAC, CRAB_EAT, NOISE_BATS, STALACTITE_FUSE, STALACTITE_RANGE, CRYSTAL_CARDS, ENV_WEAPONS, fillModDesc,
   PICKAXE_RANGE, PICKAXE_KB, PICKAXE_FLIGHT, PICKAXE_CHIP_DMG, PICKAXE_CHIP_SPEED, PICKAXE_CHIP_LIFE, PICKAXE_CHIP_R,
   DYNAMITE_RANGE, DYNAMITE_FLIGHT, DYNAMITE_FUSE, DYNAMITE_KB, MINECART_SPEED, MINECART_FAN, MINECART_KB, MINECART_STUN, MINECART_LOOT_R, MINECART_HOME_R,
   CANARY_REACH_MUL, CANARY_LINK_DMG, LANTERN_PULSE, MINE_BOOM_KEEP, MINE_GAS_FADE_IN, MINE_GAS_LIT_SHRINK,
@@ -487,7 +487,8 @@ export function applyChoice(run, i, subject = null) {
   } else if (choice.kind === 'mod') {
     const mods = (run.weaponMods[choice.weapon] ??= {})
     const picks = (run.weaponModPicks[choice.weapon] ??= {})
-    mods[choice.id] = (mods[choice.id] ?? 0) + choice.bonus
+    // a mod with a `cap` (Double Click) banks along passiveTotal's asymptote, here and only here
+    mods[choice.id] = capTotal(WEAPON_MODS[choice.weapon]?.[choice.id]?.cap, mods[choice.id] ?? 0, choice.bonus)
     picks[choice.id] = (picks[choice.id] ?? 0) + 1
   } else if (choice.kind === 'element') {
     run.elements[choice.id] = (run.elements[choice.id] ?? 0) + choice.bonus
@@ -15592,6 +15593,14 @@ function makeWeaponModCard(run, weaponId, modId, rarity) {
   if (cfg.values) {
     if (!(rarity in cfg.values)) return null
     const bonus = cfg.values[rarity]
+    // A CAPPED MOD states the total it leaves you on and strikes the one it moves off (makePassiveCard's rule)
+    if (cfg.cap) {
+      const have = run.weaponMods[weaponId]?.[modId] ?? 0
+      const shown = capTotal(cfg.cap, have, bonus)
+      return { kind: 'mod', id: modId, weapon: weaponId, title: cfg.name, desc: cfg.desc.replaceAll('{n}', modPct(shown)),
+        shown, was: have > 0 ? modPct(have) : null,
+        tag: `${(WEAPONS[weaponId] ?? ENV_WEAPONS[weaponId]).name} upgrade`, rarity, icon: cfg.icon, bonus }
+    }
     return { kind: 'mod', id: modId, weapon: weaponId, title: cfg.name,
       desc: cfg.descFor ? cfg.descFor(bonus) : cfg.args ? fillModDesc(cfg.desc, { n: bonus, ...cfg.args }) : cfg.desc.includes('{n}') ? cfg.desc.replaceAll('{n}', cfg.kind === 'pct' ? modPct(bonus) : `${bonus}`) : `+${cfg.kind === 'pct' ? modPct(bonus) : bonus} ${cfg.desc}`,
       tag: `${(WEAPONS[weaponId] ?? ENV_WEAPONS[weaponId]).name} upgrade`, rarity, icon: cfg.icon, bonus }
@@ -17040,32 +17049,44 @@ function stepSnares(run, dt) {
 
 // -- Echo Pulse (The Geode) ---------------------------------------------------------------------
 function stepEchoWeapon(run, w, stats, fireRateMul, dt) {
-  const p = run.player
   const quick = run.weaponMods.echoPulse?.rapidClick ?? 0
   // The ring-back is sized off the LEVEL radius, so Far Call widens what the click reaches and
   // not what each crystal gives back (CHAPTERS.geode.signature.resonance's balance_decision).
   const levels = WEAPONS.echoPulse.levels
   const backR = levels[Math.min(levels.length, Math.max(1, w.level)) - 1].radius
   fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => {
-    // no push: Echo Pulse's ring and the ring-backs it calls only hurt (owner, 2026-10-14)
-    for (const r of ipecacRadii(run, stats.radius)) spawnNova(run, p.x, p.y, r, stats.dmg, 0, 0, { look: 'echo', life: ECHO_LIFE })
-    run.events.push({ type: 'shoot', weapon: 'echoPulse', x: p.x, y: p.y, maxR: stats.radius })
-    // Every crystal the ring will reach rings back when it gets there.
-    const res = crystalSpec(run)?.resonance
-    if (!res) return
-    const em = run.weaponMods.crystals
-    const wide = 1 + (em?.wideChime ?? 0)   // Wide Chime
-    // SYMPATHY: one cast is one wave, holding every crystal the click itself reaches.
-    const wave = em?.sympathy > 0 ? { rung: new Set() } : null
-    for (const o of run.obstacles) {
-      if (o.kind !== 'crystal') continue
-      const d = Math.hypot(o.x - p.x, o.y - p.y) - o.r
-      if (d > stats.radius) continue
-      if (wave) wave.rung.add(o)
-      run.echoes.push({ x: o.x, y: o.y, at: run.time + ECHO_LIFE * Math.max(0, d) / stats.radius,
-        r: backR * res.radiusMul * wide + o.r, dmg: stats.dmg * res.dmgMul, kb: 0, o, wave, direct: true })
+    echoClick(run, stats.radius, stats.dmg, backR)
+    // DOUBLE CLICK: the bank is a chance, past 1 a sure repeat plus that much chance of another
+    const chance = run.weaponMods.echoPulse?.doubleClick ?? 0
+    const repeats = Math.floor(chance) + (Math.random() < chance % 1 ? 1 : 0)
+    for (let i = 1; i <= repeats; i++) {
+      run._echoClicks.push({ at: run.time + ECHO_DOUBLE_DELAY * i, radius: stats.radius, dmg: stats.dmg * ECHO_DOUBLE_DMG_FRAC, backR })
     }
   })
+  if (run._echoClicks.length === 0) return
+  for (const c of run._echoClicks) if (run.time >= c.at) { c._done = true; echoClick(run, c.radius, c.dmg, c.backR) }
+  run._echoClicks = run._echoClicks.filter((c) => !c._done)
+}
+// One click: the ring around you, and every crystal it will reach rings back when it gets there.
+function echoClick(run, radius, dmg, backR) {
+  const p = run.player
+  // no push: Echo Pulse's ring and the ring-backs it calls only hurt (owner, 2026-10-14)
+  for (const r of ipecacRadii(run, radius)) spawnNova(run, p.x, p.y, r, dmg, 0, 0, { look: 'echo', life: ECHO_LIFE })
+  run.events.push({ type: 'shoot', weapon: 'echoPulse', x: p.x, y: p.y, maxR: radius })
+  const res = crystalSpec(run)?.resonance
+  if (!res) return
+  const em = run.weaponMods.crystals
+  const wide = 1 + (em?.wideChime ?? 0)   // Wide Chime
+  // SYMPATHY: one cast is one wave, holding every crystal the click itself reaches.
+  const wave = em?.sympathy > 0 ? { rung: new Set() } : null
+  for (const o of run.obstacles) {
+    if (o.kind !== 'crystal') continue
+    const d = Math.hypot(o.x - p.x, o.y - p.y) - o.r
+    if (d > radius) continue
+    if (wave) wave.rung.add(o)
+    run.echoes.push({ x: o.x, y: o.y, at: run.time + ECHO_LIFE * Math.max(0, d) / radius,
+      r: backR * res.radiusMul * wide + o.r, dmg: dmg * res.dmgMul, kb: 0, o, wave, direct: true })
+  }
 }
 function stepEchoes(run, dt) {
   if (run.echoes.length === 0) return
