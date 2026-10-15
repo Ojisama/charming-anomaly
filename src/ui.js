@@ -611,14 +611,40 @@ export function initUI(hooks) {
     let timer = 0
     bc.onscroll = () => { clearTimeout(timer); timer = setTimeout(() => settleCase(bc), 120) }
   }
-  addEventListener('resize', () => { if (active === 'title') placeCase() })
-  // The Mine and Mantle bakes are MEDALLIONS: the creature sits in the middle half of a cream disc
-  // with a dark ring at its rim, so fitted whole into a diamond it reads as a tiny creature in a
-  // circle. Those bakes are the only square ones at 200px+ (every other bake is cropped to its
-  // body), so that is the test; the class crops the disc away and lets the creature fill the face.
+  // The left page has no fixed height budget: a tagline or a chapter name that wraps adds a line,
+  // and on a 740-tall phone that pushes the whole screen into a scroll. So the page is measured once
+  // it is on screen, and only a page that does not fit gives up height — the chapter's big icon
+  // first (it is on the spine too), then the icon altogether.
+  function fitSpread() {
+    const sc = screens.title, v = sc.querySelector('.title-below .page--verso')
+    if (!v) return
+    // Read off offsetTop/offsetHeight, NOT scrollHeight: the page-turn's landing animation scales
+    // the spread, scrollHeight counts the transform, and a page measured mid-landing "fit".
+    const below = v.closest('.title-below')
+    const over = () => below.offsetTop + below.offsetHeight + parseFloat(getComputedStyle(sc).paddingBottom) > sc.clientHeight + 0.5
+    v.classList.remove('pg-tight', 'pg-tighter')
+    if (over()) v.classList.add('pg-tight')
+    if (over()) v.classList.add('pg-tighter')
+  }
+  addEventListener('resize', () => { if (active === 'title') { placeCase(); fitSpread() } })
+  // The Mine and Mantle bakes are MEDALLIONS: the creature sits in the middle of a disc (cream for
+  // the Mantle, near-black for the Mine, whose glyph creatures need the dark) with a ring at its
+  // rim. Those bakes are the only square ones at 200px+ (every other bake is cropped to its body),
+  // so that is the test. The face is filled with the disc's own colour and the image is drawn big
+  // enough that the disc's rim falls outside the diamond — no circle shows, on either colour.
   screens.title.addEventListener('load', (e) => {
     const img = e.target
-    if (img.matches?.('.face-in img') && img.naturalWidth === img.naturalHeight && img.naturalWidth >= 200) img.classList.add('face-medallion')
+    if (!(img.matches?.('.face-in img') && img.naturalWidth === img.naturalHeight && img.naturalWidth >= 200)) return
+    img.classList.add('face-medallion')
+    try {
+      const c = document.createElement('canvas')
+      c.width = c.height = 1
+      const g = c.getContext('2d')
+      // a point well inside the disc and well away from the creature: 8% down the centre line
+      g.drawImage(img, img.naturalWidth / 2, img.naturalHeight * 0.08, 1, 1, 0, 0, 1, 1)
+      const [r, gr, b] = g.getImageData(0, 0, 1, 1).data
+      img.parentElement.style.background = `rgb(${r},${gr},${b})`
+    } catch { /* the cream default stands */ }
   }, true)
   function casePageNow(bc) {
     const mid = bc.scrollLeft + bc.clientWidth / 2
@@ -1195,6 +1221,7 @@ export function initUI(hooks) {
   function updateTitleBelow() {
     const below = screens.title.querySelector('.title-below')
     if (below) below.innerHTML = titleBelowHtml()
+    fitSpread()
     flipSpread()
   }
 
@@ -1251,6 +1278,9 @@ export function initUI(hooks) {
     focusRenameField()
     armSyncNotice()
     placeCase()
+    fitSpread()
+    // again once the fonts are in: a web font landing late re-wraps the tagline
+    document.fonts?.ready.then(() => { if (active === 'title') fitSpread() })
   }
 
 

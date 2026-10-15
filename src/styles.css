@@ -3598,7 +3598,10 @@ body {
 /* DIAMONDS, after Path of Exile 2's Trial of Chaos afflictions: each row drops half a diamond, so
    its tips sit in the notches of the row above and the rows lock edge to edge. */
 .cast-row + .cast-row { margin-top: calc(var(--face) * -0.5 + 1px); }
-.cast-row--shift { padding-left: calc(var(--face) + 2px); }
+/* the stagger is half a pitch, split evenly: the shifted rows step right a quarter pitch and the
+   others step left a quarter, so the cluster as a whole stays centred on the page */
+.cast-row--shift { padding-left: calc((var(--face) + 2px) / 2); }
+.detail-cast:has(.cast-row--shift) .cast-row:not(.cast-row--shift) { padding-right: calc((var(--face) + 2px) / 2); }
 .title-below .page--verso .detail-face {
   width: var(--face); height: var(--face);
   padding: 2px; border: 0; border-radius: 0; overflow: visible;
@@ -3607,18 +3610,20 @@ body {
 }
 /* the inside matches the cream disc the Book 3 bakes are drawn on, so where that disc shows it
    reads as the same paper */
-.face-in { display: grid; place-items: center; width: 100%; height: 100%; clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); background: #f3e6c8; }
-/* The Mine and Mantle bakes carry their own dark RING at the outer 2% of the image. The circle clip
-   sits just inside it; on every other bake it only trims empty corners. The 74% keeps that circle
-   inside the diamond's inscribed circle, so the diamond never bites the creature. */
-.title-below .page--verso .detail-face img { width: 74%; height: 74%; object-fit: contain; clip-path: circle(44%); }
-/* a medallion bake (ui.js tags it on load): the creature is the middle ~58% of the disc, so the
-   image is drawn at 120% and clipped to that middle, which lands exactly on the diamond's
-   inscribed circle — the ring and the disc's edge are both outside it */
-.title-below .page--verso .detail-face img.face-medallion { width: 120%; height: 120%; max-width: none; clip-path: circle(29.5%); }
+.face-in { position: relative; display: block; width: 100%; height: 100%; clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); background: #f3e6c8; }
+/* Absolutely placed, because a percentage HEIGHT on a grid or flex child resolves against a track
+   the image itself sizes: a tall bake (the Geode's bat) grew past its face and the diamond cut it.
+   70% keeps a body's bounding box mostly inside the diamond; only the box's corners are cut. */
+.title-below .page--verso .detail-face img { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 70%; height: 70%; max-width: none; object-fit: contain; }
+/* a medallion bake (ui.js tags it on load and fills the face with the disc's colour): drawn at
+   112%, the disc's rim sits outside the diamond and the creature fills the face */
+.title-below .page--verso .detail-face img.face-medallion { width: 112%; height: 112%; }
 /* a two- or three-row cast needs the height the chapter's big icon was using */
 .title-below .page--verso:has(.detail-cast--r2) .pg-ico { font-size: clamp(1.8rem, 5.5svh, 2.8rem); }
 .title-below .page--verso:has(.detail-cast--r3) .pg-ico { font-size: clamp(1.4rem, 4svh, 2.2rem); }
+/* fitSpread (ui.js): a left page that still does not fit gives up its icon, half then whole */
+.title-below .page--verso.pg-tight .pg-ico { font-size: clamp(1.2rem, 3.4svh, 1.8rem); margin-bottom: 2px; }
+.title-below .page--verso.pg-tighter .pg-ico { display: none; }
 
 /* ---- MOCKUP (?rp=1|2|3): the right-hand page. Remove the losers once the owner picks. ---------- */
 .rp-foot { font-family: -apple-system, "SF Pro Text", system-ui, "Segoe UI", Roboto, sans-serif; }
