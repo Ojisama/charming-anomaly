@@ -1,5 +1,5 @@
 // DOM overlay inside #ui: title, shop, HUD, level-up, pause, summary. No Pixi.
-import { shopCost, refundValue, REFUND_RATE, shopLines, shopLineUnlocked, chaptersMastered, lineMax, SHOP_FAMILY, RUN_DURATION, RARITIES, modPct, WEAPONS, ENV_WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, MUTATOR_EFFECT_LABELS, CONSUMABLES, MAX_DIFFICULTY, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, SACRIFICE_COSTS, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES, chapterNumber, CHAPTERS, CHAPTER_ORDER, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, HIDDEN_UNLOCKS, titleBookshelf, spineName, chaosStatus, pulseCost, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS, bookOf, BOOK_ORDER, BOOKS, BOOK_UNLOCKS, unlockCost, unlockLevel, unlockMax, dmgSrcName, dmgSrcArt, passiveEffectText, CHAPTER_BOARDS_DEFAULT, KRAKEN_PARRY_CD, hasSkillButton, ENDLESS_COPY, ENDLESS_MILESTONE_S, endlessUnlocked, endlessAccess } from './config.js'
+import { shopCost, refundValue, REFUND_RATE, shopLines, shopLineUnlocked, chaptersMastered, lineMax, SHOP_FAMILY, RUN_DURATION, RARITIES, modPct, WEAPONS, ENV_WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, MUTATOR_EFFECT_LABELS, CONSUMABLES, MAX_DIFFICULTY, DIFFICULTY_COIN_PER_LEVEL, DIFFICULTY_COUNT_PER_LEVEL, DIFFICULTY_DMG_PER_LEVEL, sacrificeCost, SACRIFICE_COSTS, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES, chapterNumber, CHAPTERS, CHAPTER_ORDER, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, HIDDEN_UNLOCKS, titleBookshelf, spineName, chaosStatus, pulseCost, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS, bookOf, BOOK_ORDER, BOOKS, BOOK_UNLOCKS, unlockCost, unlockLevel, unlockMax, dmgSrcName, dmgSrcArt, passiveEffectText, CHAPTER_BOARDS_DEFAULT, KRAKEN_PARRY_CD, hasSkillButton, ENDLESS_COPY, ENDLESS_MILESTONE_S, endlessUnlocked, endlessAccess } from './config.js'
 import { playSfx } from './audio.js'
 import { t, tt, getLang, LANGS } from './i18n.js'
 import { SAVE_SLOTS, activeSlot, slotSummary, saveSummary, exportSlot, NAME_MAX, bookMeta, ensureBookMeta, bookProgress } from './state.js'
@@ -612,6 +612,14 @@ export function initUI(hooks) {
     bc.onscroll = () => { clearTimeout(timer); timer = setTimeout(() => settleCase(bc), 120) }
   }
   addEventListener('resize', () => { if (active === 'title') placeCase() })
+  // The Mine and Mantle bakes are MEDALLIONS: the creature sits in the middle half of a cream disc
+  // with a dark ring at its rim, so fitted whole into a diamond it reads as a tiny creature in a
+  // circle. Those bakes are the only square ones at 200px+ (every other bake is cropped to its
+  // body), so that is the test; the class crops the disc away and lets the creature fill the face.
+  screens.title.addEventListener('load', (e) => {
+    const img = e.target
+    if (img.matches?.('.face-in img') && img.naturalWidth === img.naturalHeight && img.naturalWidth >= 200) img.classList.add('face-medallion')
+  }, true)
   function casePageNow(bc) {
     const mid = bc.scrollLeft + bc.clientWidth / 2
     let best = 0, bestD = Infinity
@@ -1066,61 +1074,107 @@ export function initUI(hooks) {
     const folio = readingIndex(id) * 2 + 2
     const num = chapterNumber(id)
     const eyebrow = `<span class="pg-eyebrow">${num ? tt('Chapter {n}', { n: num }) : t('Hidden chapter')}</span>`
-    // The cast sits in QUINCUNX, two staggered rows, the second row nested in the first's gaps:
-    // eight faces in one row overran the page, and a plain wrap left a ragged orphan under a full row.
+    // THE CAST, in quincunx: rows of at most THREE, alternating so each row sits in the gaps of the
+    // one above (Path of Exile 2's Trial of Chaos afflictions). Three a row is what keeps a face big
+    // enough to read on a 360px phone. Counts with no natural alternation push every other row by
+    // half a face ('s').
     const faces = heroUnlocked ? (ch.render.cast ?? []).filter((rid) => CAST_ART[rid]) : []
-    const faceRow = (ids, cls) => ids.length
-      ? `<span class="cast-row${cls}">${ids.map((rid) => `<span class="detail-face"><img src="${CAST_ART[rid]}" alt="" draggable="false"></span>`).join('')}</span>`
-      : ''
-    const split = Math.ceil(faces.length / 2)
-    const cast = faces.length > 1
-      ? faceRow(faces.slice(0, split), '') + faceRow(faces.slice(split), faces.length % 2 ? '' : ' cast-row--shift')
-      : faceRow(faces, '')
+    const CAST_ROWS = { 1: [1], 2: [1, 1, 's'], 3: [2, 1], 4: [2, 2, 's'], 5: [3, 2], 6: [3, 3, 's'], 7: [2, 3, 2], 8: [3, 2, 3], 9: [3, 3, 3, 's'] }
+    const plan = CAST_ROWS[Math.min(faces.length, 9)] ?? []
+    const shift = plan.includes('s')
+    const sizes = plan.filter((x) => x !== 's')
+    let at = 0
+    const cast = sizes.map((n, r) => {
+      const ids = faces.slice(at, (at += n))
+      return `<span class="cast-row${shift && r % 2 ? ' cast-row--shift' : ''}">${ids.map((rid) => `<span class="detail-face"><span class="face-in"><img src="${CAST_ART[rid]}" alt="" draggable="false"></span></span>`).join('')}</span>`
+    }).join('')
+    const castK = Math.max(0, ...sizes) + (shift ? 0.5 : 0)
     const verso = `
       <div class="pg-top">${eyebrow}</div>
       <div class="pg-mid">${heroUnlocked
         ? `<span class="pg-ico">${ch.icon}</span><b class="pg-name">${t(ch.name)}</b><small class="pg-tag">${t(ch.tagline)}</small>`
         : '<span class="pg-ico">🔒</span><b class="pg-name">???</b>'}</div>
-      <div class="pg-foot">${cast ? `<span class="detail-cast" style="--k:${Math.ceil(faces.length / 2) + (faces.length > 1 && faces.length % 2 === 0 ? 0.5 : 0)}" aria-hidden="true">${cast}</span>` : ''}</div>`
+      <div class="pg-foot">${cast ? `<span class="detail-cast detail-cast--r${sizes.length}" style="--k:${castK}" aria-hidden="true">${cast}</span>` : ''}</div>`
     let recto
     if (heroUnlocked) {
-      const bestSecs = ch.circuit ? chMeta.bestRaceTime : chMeta.best?.time
-      const best = bestSecs > 0 ? `<span class="pg-best">${t('best')} <b>${fmtTime(bestSecs)}</b></span>` : ''
       const hint = chMeta.maxDifficulty < cap
         ? `<span class="pg-hint">🔒 ${tt('win level {n} to unlock {m}', { n: chMeta.maxDifficulty, m: chMeta.maxDifficulty + 1 })}</span>`
         : ''
       ensureBoards(id, boardDiff)
       const top = podiumCache.get(boardKey(id, boardDiff))?.[boardsFor(id, boardDiff)[0]]?.[0]
       const leader = top ? `<small class="pg-leader">${medalHtml(1)}${esc(top.nick)}</small>` : ''
-      // MOCKUP (?pd=1|2|3, ?pdfake for sample names) — remove once the owner picks.
-      const PDQ = new URLSearchParams(location.search)
-      const PD = +(PDQ.get('pd') || 0)
-      const top3 = PDQ.has('pdfake') ? [{ nick: 'Lumi' }, { nick: 'kraken_kid' }, { nick: 'Aurel' }]
+      // MOCKUP (?rp=1|2|3 = the right-hand page; ?pdfake = sample names for screenshots). Remove the
+      // two losers and this switch once the owner picks.
+      const Q = new URLSearchParams(location.search)
+      const RP = +(Q.get('rp') || 0)
+      const endlessOn = endlessAccess(meta) && endlessUnlocked(meta, id)
+      const endlessSel = boardDiff === 0
+      const cur = chMeta.difficulty
+      const top3 = Q.has('pdfake') ? [{ nick: 'Lumi' }, { nick: 'kraken_kid' }, { nick: 'Aurel' }]
         : (podiumCache.get(boardKey(id, boardDiff))?.[boardsFor(id, boardDiff)[0]] ?? []).slice(0, 3)
-      const nick = (i) => top3[i] ? esc(top3[i].nick) : '—'
-      const time = bestSecs > 0 ? fmtTime(bestSecs) : '—'
-      const CHEV = '<svg class="pd-chev" viewBox="0 0 8 14" aria-hidden="true"><path d="M1.5 1.5 6.5 7l-5 5.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>'
-      const CUP = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M7 3h10v2h3v3a4 4 0 0 1-4 4h-.3A5 5 0 0 1 13 14.9V17h3v3H8v-3h3v-2.1A5 5 0 0 1 8.3 12H8a4 4 0 0 1-4-4V5h3zm0 4H6v1a2 2 0 0 0 1 1.7zm10 0v2.7A2 2 0 0 0 18 8V7z"/></svg>'
-      let foot = `${best}<button class="spread-podium" data-act="podium-open">${ICO_PODIUM}<span class="podium-lbl"><span>${t('Podium')}</span>${leader}</span><i>›</i></button>`
-      const stat = bestSecs > 0 ? `<div class="pd1-stat"><small>${t('best')}</small><b>${time}</b></div>` : ''
-      if (PD === 1) foot = `
-        ${stat}
-        <button class="pd1-row" data-act="podium-open"><span class="pd1-ico">${CUP}</span>
-          <span class="pd1-txt"><b>${t('Podium')}</b><small>${top3[0] ? `${medalHtml(1)}${nick(0)}` : '—'}</small></span>${CHEV}</button>`
-      if (PD === 2) foot = `
-        ${stat}
-        <button class="pd2" data-act="podium-open" aria-label="${t('Podium')}">
-          ${[1, 0, 2].map((i) => `<span class="pd2-col pd2-col--${i + 1}"><small>${nick(i)}</small><span class="pd2-step">${medalHtml(i + 1)}</span></span>`).join('')}
+      const CHEV = '<svg class="rp-chev" viewBox="0 0 8 14" aria-hidden="true"><path d="M1.5 1.5 6.5 7l-5 5.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+      const LOCK = '<svg class="rp-lock" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M7 10V8a5 5 0 0 1 10 0v2h1a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1zm2 0h6V8a3 3 0 0 0-6 0z"/></svg>'
+      // What the picked level DOES, in the words a player already has. A classic run always lasts
+      // 5:00, so its best time says nothing; only an endless best is a record worth printing.
+      const pct = (k) => Math.round(k * (cur - 1) * 100)
+      const race = ch.circuit && chMeta.bestRaceTime > 0 ? ` · ${t('best')} <b>${fmtTime(chMeta.bestRaceTime)}</b>` : ''
+      const fx = endlessSel
+        ? ((chMeta.endlessBest ?? 0) > 0 ? `${t(ENDLESS_COPY.best.name)} <b>${fmtTime(chMeta.endlessBest / 1000)}</b>` : '')
+        : cur === 1 ? t('Base difficulty') + race
+          : `${tt('+{n}% enemies', { n: pct(DIFFICULTY_COUNT_PER_LEVEL) })} · ${tt('+{n}% damage', { n: pct(DIFFICULTY_DMG_PER_LEVEL) })}${race}`
+      const coins = !endlessSel && cur > 1 ? `<b class="rp-coins">${tt('+{n}% coins', { n: pct(DIFFICULTY_COIN_PER_LEVEL) })}</b>` : ''
+      const levelName = endlessSel ? t(ENDLESS_COPY.pip.name) : tt('Level {n}', { n: cur })
+      const levels = Array.from({ length: cap }, (_, i) => i + 1)
+      const board = `
+        <button class="rp-board" data-act="podium-open">
+          <span class="rp-board-hd">${ICO_PODIUM}<b>${t('Podium')}</b>${CHEV}</span>
+          ${top3.length ? `<span class="rp-board-list">${top3.map((r, i) => `<span>${medalHtml(i + 1)}<em>${esc(r.nick)}</em></span>`).join('')}</span>` : ''}
         </button>`
-      if (PD === 3) foot = `
-        <button class="pd3" data-act="podium-open">
-          <span class="pd3-badge${bestSecs > 0 ? '' : ' pd3-badge--none'}"><small>${t('best')}</small><b>${time}</b></span>
-          <span class="pd3-txt"><b>${t('Podium')} ${CHEV}</b><small>${top3[0] ? `${medalHtml(1)}${nick(0)}` : '—'}</small></span>
-        </button>`
+      let mid = `<div class="diff-row">${pips}</div>${hint}`
+      let foot = `<button class="spread-podium" data-act="podium-open">${ICO_PODIUM}<span class="podium-lbl"><span>${t('Podium')}</span>${leader}</span><i>›</i></button>`
+      let head = `<span class="pg-eyebrow">${t('Difficulty')}</span>${rewardChip}`
+      if (RP === 1) {
+        // BOOKMARK RIBBONS: one ribbon per level hanging from the head of the page, the chosen one
+        // pulled down furthest. Nothing new is invented: a book already has ribbons.
+        const rib = (d) => d > chMeta.maxDifficulty
+          ? `<button class="rp1-rib rp1-rib--locked" disabled aria-label="${tt('Level {n}', { n: d })}">${LOCK}</button>`
+          : `<button class="rp1-rib rp1-rib--${d}${!endlessSel && d === cur ? ' rp1-rib--on' : ''}" data-act="diff" data-diff="${d}"><b>${d}</b></button>`
+        head = `<div class="rp1-ribs">${levels.map(rib).join('')}${endlessOn ? `<button class="rp1-rib rp1-rib--inf${endlessSel ? ' rp1-rib--on' : ''}" data-act="endless" aria-label="${t(ENDLESS_COPY.pip.name)}"><b>${INFINITY_SVG}</b></button>` : ''}</div>`
+        mid = `<b class="rp-level">${levelName}</b><span class="rp-fx">${fx}</span>${coins}`
+        foot = board
+      }
+      if (RP === 2) {
+        // HADES' heat: one big number between arrows, a gauge of the ladder under it.
+        const next = endlessSel ? null : cur < cap ? (cur + 1 <= chMeta.maxDifficulty ? `data-act="diff" data-diff="${cur + 1}"` : 'disabled') : endlessOn ? 'data-act="endless"' : 'disabled'
+        const prev = endlessSel ? `data-act="diff" data-diff="${cur}"` : cur > 1 ? `data-act="diff" data-diff="${cur - 1}"` : 'disabled'
+        mid = `
+          <div class="rp2">
+            <button class="rp2-arrow" ${prev} aria-label="-">‹</button>
+            <span class="rp2-crest" style="--p:${endlessSel ? 1 : cur / cap}"><b>${endlessSel ? INFINITY_SVG : cur}</b></span>
+            <button class="rp2-arrow" ${next ?? 'disabled'} aria-label="+">${next === 'disabled' && cur < cap ? LOCK : '›'}</button>
+          </div>
+          <span class="rp2-gauge">${levels.map((d) => `<i class="${d <= cur || endlessSel ? 'on' : d > chMeta.maxDifficulty ? 'shut' : ''}"></i>`).join('')}</span>
+          <span class="rp-fx">${fx}</span>${coins}`
+        foot = board
+        head = `<span class="pg-eyebrow">${levelName}</span>`
+      }
+      if (RP === 3) {
+        // APPLE: a segmented control, then the level as a title and what it changes as a caption.
+        const segs = [...levels.map((d) => d > chMeta.maxDifficulty
+          ? `<button class="rp3-seg rp3-seg--locked" disabled>${LOCK}</button>`
+          : `<button class="rp3-seg${!endlessSel && d === cur ? ' rp3-seg--on' : ''}" data-act="diff" data-diff="${d}">${d}</button>`),
+        ...(endlessOn ? [`<button class="rp3-seg${endlessSel ? ' rp3-seg--on' : ''}" data-act="endless" aria-label="${t(ENDLESS_COPY.pip.name)}">${INFINITY_SVG}</button>`] : [])]
+        const i = endlessSel ? cap : cur - 1
+        mid = `
+          <div class="rp3" style="--n:${segs.length};--i:${i}"><span class="rp3-thumb"></span>${segs.join('')}</div>
+          <b class="rp-level">${levelName}</b><span class="rp-fx">${fx}</span>${coins}`
+        foot = board
+        head = `<span class="pg-eyebrow">${t('Difficulty')}</span>`
+      }
       recto = `
-        <div class="pg-top"><span class="pg-eyebrow">${t('Difficulty')}</span>${rewardChip}</div>
-        <div class="pg-mid"><div class="diff-row">${pips}</div>${hint}</div>
-        <div class="pg-foot${PD ? ` pd-foot pd-foot--${PD}` : ''}">${foot}</div>`
+        <div class="pg-top">${head}</div>
+        <div class="pg-mid">${mid}</div>
+        <div class="pg-foot${RP ? ` rp-foot rp-foot--${RP}` : ''}">${foot}</div>`
     } else {
       const line = HIDDEN_UNLOCKS[id]
         ? t(HIDDEN_UNLOCKS[id].hint)

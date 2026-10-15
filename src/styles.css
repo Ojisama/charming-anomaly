@@ -3591,70 +3591,105 @@ body {
    An odd count staggers by itself (k over k-1); an even one needs the half-face push. */
 .title-below .page--verso { container-type: inline-size; }
 /* --k is the widest row in faces (+0.5 for an even count's push), so the faces shrink before they reach the gutter */
-.title-below .page--verso .detail-cast { --face: min(clamp(28px, 4.4svh, 40px), calc((100cqi - 10px) / var(--k, 1) - 2px)); display: flex; flex-direction: column; align-items: center; gap: 0; }
+.title-below .page--verso .detail-cast { --face: min(clamp(36px, 6.4svh, 54px), calc((100cqi - 8px) / var(--k, 1) - 2px)); display: flex; flex-direction: column; align-items: center; gap: 0; }
+/* three rows cost two faces of height, so a tall cast trades some of the face's width for it */
+.title-below .page--verso .detail-cast--r3 { --face: min(clamp(30px, 5.2svh, 46px), calc((100cqi - 8px) / var(--k, 1) - 2px)); }
 .cast-row { display: flex; gap: 2px; }
-/* DIAMONDS, after Path of Exile 2's Trial of Chaos afflictions: the second row drops half a
-   diamond, so its tips sit in the first row's notches and the two rows lock edge to edge. */
+/* DIAMONDS, after Path of Exile 2's Trial of Chaos afflictions: each row drops half a diamond, so
+   its tips sit in the notches of the row above and the rows lock edge to edge. */
 .cast-row + .cast-row { margin-top: calc(var(--face) * -0.5 + 1px); }
 .cast-row--shift { padding-left: calc(var(--face) + 2px); }
 .title-below .page--verso .detail-face {
   width: var(--face); height: var(--face);
-  padding: 2px; border: 0; border-radius: 0;
+  padding: 2px; border: 0; border-radius: 0; overflow: visible;
   clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
   background: linear-gradient(160deg, #e9c06a, #8a5a1c 55%, #d8a94e);
 }
-/* the art is inset to the diamond's inscribed square, so the clip never bites a creature */
-.title-below .page--verso .detail-face img {
-  padding: 15%;
-  clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
-  background: radial-gradient(circle, #fffaf0 30%, #e8d6aa);
-}
+/* the inside matches the cream disc the Book 3 bakes are drawn on, so where that disc shows it
+   reads as the same paper */
+.face-in { display: grid; place-items: center; width: 100%; height: 100%; clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); background: #f3e6c8; }
+/* The Mine and Mantle bakes carry their own dark RING at the outer 2% of the image. The circle clip
+   sits just inside it; on every other bake it only trims empty corners. The 74% keeps that circle
+   inside the diamond's inscribed circle, so the diamond never bites the creature. */
+.title-below .page--verso .detail-face img { width: 74%; height: 74%; object-fit: contain; clip-path: circle(44%); }
+/* a medallion bake (ui.js tags it on load): the creature is the middle ~58% of the disc, so the
+   image is drawn at 120% and clipped to that middle, which lands exactly on the diamond's
+   inscribed circle — the ring and the disc's edge are both outside it */
+.title-below .page--verso .detail-face img.face-medallion { width: 120%; height: 120%; max-width: none; clip-path: circle(29.5%); }
+/* a two- or three-row cast needs the height the chapter's big icon was using */
+.title-below .page--verso:has(.detail-cast--r2) .pg-ico { font-size: clamp(1.8rem, 5.5svh, 2.8rem); }
+.title-below .page--verso:has(.detail-cast--r3) .pg-ico { font-size: clamp(1.4rem, 4svh, 2.2rem); }
 
-/* ---- MOCKUP (?pd=1|2|3): the record + podium block. Remove the losers once the owner picks. ---- */
-.pd-foot { font-family: -apple-system, "SF Pro Text", system-ui, "Segoe UI", Roboto, sans-serif; }
-.pd-chev { width: 7px; height: 12px; flex: none; color: #b9ab90; }
-.pd1-stat { display: flex; align-items: baseline; justify-content: space-between; width: 100%; padding: 0 4px; }
-.pd1-stat small { font-size: 0.62rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8f7a58; }
-.pd1-stat b { font-size: 1.05rem; font-weight: 700; font-variant-numeric: tabular-nums; color: #2c2112; }
-/* 1 — GAME CENTER ROW: an inset grouped-list cell, app icon tile, title over subtitle, hairline chevron */
-.pd1-row {
-  display: flex; align-items: center; gap: 9px; width: 100%;
-  padding: 7px 10px 7px 7px; border: 0; border-radius: 12px;
-  background: rgba(255, 255, 255, 0.72);
-  box-shadow: 0 0 0 0.5px rgba(90, 64, 30, 0.18), 0 2px 6px -2px rgba(90, 64, 30, 0.25);
-  font: inherit; color: #2c2112; text-align: left; cursor: pointer;
+/* ---- MOCKUP (?rp=1|2|3): the right-hand page. Remove the losers once the owner picks. ---------- */
+.rp-foot { font-family: -apple-system, "SF Pro Text", system-ui, "Segoe UI", Roboto, sans-serif; }
+.rp-level { margin-top: 2px; font: 700 clamp(0.95rem, 2.4svh, 1.15rem) Georgia, "Times New Roman", serif; color: #3b2a14; }
+.rp-fx { font-size: 0.66rem; font-weight: 700; line-height: 1.3; color: #7a6440; }
+.rp-fx b { color: #3b2a14; }
+.rp-coins { margin-top: 3px; padding: 1px 7px; border-radius: 999px; background: #f6d977; color: #5a3d06; font-size: 0.64rem; font-weight: 800; }
+.rp-lock { width: 12px; height: 12px; }
+.rp-chev { width: 6px; height: 11px; flex: none; }
+/* the podium as its top three, printed on the page — tapping anywhere on it turns to the boards */
+.rp-board { display: flex; flex-direction: column; gap: 3px; width: calc(100% - 12px); margin-right: 12px; padding: 0; border: 0; background: none; font: inherit; color: #3b2a14; text-align: left; cursor: pointer; }
+.rp-board-hd { display: flex; align-items: center; gap: 5px; padding-bottom: 3px; border-bottom: 1px solid rgba(120, 86, 40, 0.3); }
+.rp-board-hd .rr-ico { width: 15px; height: 15px; color: #8a6a3a; }
+.rp-board-hd b { flex: 1; font: 700 0.86rem Georgia, "Times New Roman", serif; }
+.rp-board-hd .rp-chev { color: #8a6a3a; }
+.rp-board-list { display: flex; flex-direction: column; gap: 1px; }
+.rp-board-list > span { display: flex; align-items: center; gap: 5px; min-width: 0; font-size: 0.68rem; font-weight: 700; }
+.rp-board-list em { font-style: normal; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rp-board .podium-rank { flex: none; width: 10px; height: 13px; }
+.rp-board .medal-n { clip-path: inset(50%); }
+.rp-board:active { opacity: 0.7; }
+
+/* 1 — BOOKMARK RIBBONS hanging from the head of the page; the chosen one is pulled down */
+.rp1-ribs { display: flex; justify-content: center; align-items: flex-start; gap: 5px; width: 100%; margin-top: -14px; }
+.rp1-rib {
+  --c: #b9a27a;
+  display: flex; align-items: flex-end; justify-content: center;
+  width: 22px; height: 28px; padding: 0 0 9px; border: 0;
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 50% calc(100% - 7px), 0 100%);
+  background: linear-gradient(90deg, rgba(0, 0, 0, 0.18), transparent 30% 70%, rgba(0, 0, 0, 0.18)), var(--c);
+  color: #fff6e0; font: 700 0.78rem/1 Georgia, "Times New Roman", serif; cursor: pointer;
+  filter: drop-shadow(0 2px 1px rgba(40, 25, 10, 0.35));
+  transition: height 0.2s cubic-bezier(0.3, 0.7, 0.2, 1);
 }
-.pd1-row:active { background: rgba(255, 255, 255, 0.5); }
-.pd1-ico { flex: none; display: grid; place-items: center; width: 30px; height: 30px; border-radius: 8px; background: linear-gradient(180deg, #ffd25e, #f2a516); color: #fff; box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.12); }
-.pd1-ico svg { width: 18px; height: 18px; }
-.pd1-txt { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; line-height: 1.15; }
-.pd1-txt b { font-size: 0.86rem; font-weight: 650; }
-.pd1-txt small, .pd3-txt small { display: flex; align-items: center; gap: 3px; min-width: 0; font-size: 0.68rem; font-weight: 500; color: #8f7a58; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.pd-foot .podium-rank { flex: none; width: 10px; height: 13px; }
-.pd-foot .medal-n { clip-path: inset(50%); }
-/* 2 — THE PODIUM ITSELF: three steps, gold centre, the names standing on them. Tapping it turns the page. */
-.pd2 { display: grid; grid-template-columns: 1fr 1.15fr 1fr; align-items: end; gap: 3px; width: 100%; padding: 0; border: 0; background: none; font: inherit; cursor: pointer; }
-.pd2-col { display: flex; flex-direction: column; align-items: center; min-width: 0; gap: 2px; }
-.pd2-col small { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.62rem; font-weight: 600; color: #5a4628; }
-.pd2-step { display: grid; place-items: start center; width: 100%; padding-top: 4px; border-radius: 6px 6px 2px 2px; background: linear-gradient(180deg, rgba(255, 255, 255, 0.85), rgba(255, 255, 255, 0.55)); box-shadow: 0 0 0 0.5px rgba(90, 64, 30, 0.2), 0 2px 4px -2px rgba(90, 64, 30, 0.3); }
-.pd2-col--1 .pd2-step { height: 34px; }
-.pd2-col--2 .pd2-step { height: 24px; }
-.pd2-col--3 .pd2-step { height: 17px; padding-top: 2px; }
-.pd2 .podium-rank { width: 12px; height: 16px; }
-.pd2-col--1 .podium-rank { width: 15px; height: 20px; }
-.pd2:active .pd2-step { filter: brightness(0.95); }
-/* 3 — AWARD BADGE: the record as a medal you earned (Fitness-style ring), the board as a text link */
-.pd3 { display: flex; align-items: center; gap: 10px; width: 100%; padding: 0; border: 0; background: none; font: inherit; color: #2c2112; text-align: left; cursor: pointer; }
-.pd3-badge { flex: none; display: flex; flex-direction: column; align-items: center; justify-content: center; width: 58px; height: 58px; border-radius: 50%;
-  background: radial-gradient(circle at 50% 50%, #2b2216 0 60%, transparent 61%), conic-gradient(from 210deg, #f7d77a, #c8902a, #fbe6a2, #b47b1e, #f7d77a);
-  box-shadow: 0 3px 6px -2px rgba(60, 40, 10, 0.5); color: #fbe6a2; }
-.pd3-badge small { font-size: 0.48rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.8; }
-.pd3-badge b { font-size: 0.86rem; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.05; }
-.pd3-badge--none { filter: grayscale(1) opacity(0.55); }
-.pd3-txt { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.pd3-txt b { display: flex; align-items: center; gap: 6px; font-size: 0.9rem; font-weight: 650; }
-.pd-foot--1, .pd-foot--2 { gap: 6px; }
-.pd-foot--2 .pd2, .pd-foot--3 .pd3 { width: calc(100% - 14px); margin-right: 14px; }
+.rp1-rib--1 { --c: #a8935f; }
+.rp1-rib--2 { --c: #b9772f; }
+.rp1-rib--3 { --c: #b04a2c; }
+.rp1-rib--4 { --c: #8c2230; }
+.rp1-rib--5 { --c: #3a1a2a; }
+.rp1-rib--inf { --c: #4a2d6e; }
+.rp1-rib--inf svg { width: 15px; height: 15px; }
+.rp1-rib--on { height: 42px; }
+.rp-foot--1 { margin-top: -4px; }
+.rp1-rib--locked { --c: #cdbf9f; color: #8a7650; cursor: default; }
+.rp1-rib--locked .rp-lock { width: 11px; height: 11px; }
+
+/* 2 — HADES' heat: a big number in a crest whose ring fills with the ladder */
+.rp2 { display: flex; align-items: center; justify-content: center; gap: 8px; }
+.rp2-arrow { display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 0; border-radius: 50%; background: rgba(120, 86, 40, 0.12); color: #6d4d1e; font: 700 1.3rem/1 system-ui, sans-serif; cursor: pointer; }
+.rp2-arrow:disabled { opacity: 0.35; cursor: default; }
+.rp2-crest {
+  display: grid; place-items: center; width: 62px; height: 62px; border-radius: 50%;
+  background:
+    radial-gradient(circle, #2a1d10 0 60%, transparent 61%),
+    conic-gradient(#ffb43b 0, #e8452c calc(var(--p) * 100%), rgba(120, 86, 40, 0.22) 0);
+  box-shadow: 0 3px 6px -2px rgba(40, 25, 10, 0.5);
+}
+.rp2-crest b { font: 800 1.7rem/1 system-ui, sans-serif; color: #ffd47a; text-shadow: 0 0 10px rgba(255, 140, 40, 0.6); }
+.rp2-crest svg { width: 28px; height: 28px; color: #ffd47a; }
+.rp2-gauge { display: flex; gap: 3px; margin: 7px 0 3px; }
+.rp2-gauge i { width: 14px; height: 4px; border-radius: 2px; background: rgba(120, 86, 40, 0.25); }
+.rp2-gauge i.on { background: linear-gradient(90deg, #ffb43b, #e8452c); }
+.rp2-gauge i.shut { background: rgba(120, 86, 40, 0.1); }
+
+/* 3 — APPLE: a segmented control with a sliding thumb */
+.rp3 { position: relative; display: grid; grid-template-columns: repeat(var(--n), 1fr); width: 100%; padding: 2px; border-radius: 9px; background: rgba(118, 90, 50, 0.16); }
+.rp3-thumb { position: absolute; top: 2px; bottom: 2px; left: 2px; width: calc((100% - 4px) / var(--n)); border-radius: 7px; background: #fffdf7; box-shadow: 0 3px 8px rgba(0, 0, 0, 0.12), 0 0 0 0.5px rgba(0, 0, 0, 0.06); transform: translateX(calc(var(--i) * 100%)); transition: transform 0.25s cubic-bezier(0.3, 0.7, 0.2, 1); }
+.rp3-seg { position: relative; display: grid; place-items: center; height: 28px; padding: 0; border: 0; background: none; font: 600 0.82rem/1 -apple-system, system-ui, sans-serif; color: #3b2a14; cursor: pointer; }
+.rp3-seg--on { font-weight: 800; }
+.rp3-seg--locked { color: rgba(59, 42, 20, 0.35); cursor: default; }
+.rp3-seg svg { width: 15px; height: 15px; }
 
 @media (prefers-reduced-motion: reduce) {
   .flip-leaf, .flip-face::after { animation: none !important; }
