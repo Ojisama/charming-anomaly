@@ -541,7 +541,7 @@ export function initUI(hooks) {
 
   // One étage: its row of volumes and the board they stand on, with the Book's brass plate.
   // The plate is a LABEL, not a control — nothing on the shelf is tappable except a volume.
-  function etageHtml(shelf, n) {
+  function etageHtml(shelf, n, cur) {
     const row = shelf.started
       ? shelf.volumes.map((v) => volHtml(v)).join('')
       : '<span class="dust-sheet" aria-hidden="true"></span>'
@@ -550,7 +550,7 @@ export function initUI(hooks) {
       : `${tt('Book {n}', { n })} · ? ? ?`
     const stars = shelf.started ? ` <b class="shelf-stars">★ ${shelf.stars}</b>` : ''
     return `
-      <section class="etage" style="--cloth:${shelf.cloth}" aria-label="${label}">
+      <section class="etage${cur ? ' etage--cur' : ''}" style="--cloth:${shelf.cloth}" aria-label="${label}">
         <div class="shelf-row">${row}</div>
         <div class="shelf-board"><span class="shelf-plate">${label}${stars}</span></div>
       </section>`
@@ -572,11 +572,77 @@ export function initUI(hooks) {
     document.documentElement.style.setProperty('--cloth-sel', BOOKS[shopBookId()]?.cloth ?? '#3d5c47')
   }
 
+  // THE CASE IS A CAROUSEL: one Book per page, the neighbours' edges peeking in at the sides, page
+  // dots underneath. Stacking every Book on one screen divided the height between them and crushed
+  // the spines more with every Book added; a page per Book keeps a full-height shelf whatever the
+  // count. Swiping is native scroll-snap (no gesture code), and settling on a page browses that Book
+  // (settleCase) so the panel and the Shop door always describe the shelf you are looking at.
+  // MOCKUP SWITCH (?cv=1|2|3) — delete with the losing looks once one is picked.
+  const CASE_LOOK = Number(new URLSearchParams(location.search).get('cv')) || 1
+  function casePageOf(shelves, id) {
+    return Math.max(0, shelves.findIndex((s) => s.volumes.some((v) => v.id === id)))
+  }
   function bookcaseHtml() {
     const shelves = titleBookshelf(meta)
-    // --shelves is the row-height DIVISOR (see .shelf-row, styles.css): the case fills the screen
-    // whatever the Book count, instead of being sized for two and leaving one standing in bare desk.
-    return `<div class="bookcase" style="--shelves:${shelves.length}">${shelves.map((s, i) => etageHtml(s, i + 1)).join('')}</div>`
+    const cur = casePageOf(shelves, browseChapterId)
+    const dots = shelves.map((s, i) =>
+      `<button class="case-dot${i === cur ? ' case-dot--on' : ''}${s.started ? '' : ' case-dot--shut'}" data-act="case-page" data-page="${i}"
+        style="--cloth:${s.cloth}" aria-label="${tt('Book {n}', { n: i + 1 })}"${i === cur ? ' aria-current="true"' : ''}></button>`).join('')
+    const prev = `<button class="case-nav case-nav--prev" data-act="case-prev" aria-label="${t('previous book')}"${cur === 0 ? ' disabled' : ''}>‹</button>`
+    const next = `<button class="case-nav case-nav--next" data-act="case-next" aria-label="${t('next book')}"${cur === shelves.length - 1 ? ' disabled' : ''}>›</button>`
+    return `
+      <div class="case-wrap case-look-${CASE_LOOK}">
+        <div class="bookcase">${shelves.map((s, i) => etageHtml(s, i + 1, i === cur)).join('')}</div>
+        ${CASE_LOOK === 1 ? prev + next : ''}
+      </div>
+      <div class="case-dots">${CASE_LOOK === 3 ? prev : ''}<span class="case-dot-row">${dots}</span>${CASE_LOOK === 3 ? next : ''}</div>`
+  }
+
+  // Put the case on the selected chapter's Book with no animation, then listen for the swipe to
+  // settle. Called after every renderTitle (the rewrite rebuilds the case at scrollLeft 0) and on
+  // resize (the page width changes with it).
+  function placeCase() {
+    const bc = screens.title.querySelector('.bookcase')
+    if (!bc) return
+    // A hidden screen measures zero wide, and placing against that parks every save on Book 1.
+    if (!bc.clientWidth) { requestAnimationFrame(placeCase); return }
+    const pages = bc.querySelectorAll('.etage')
+    const cur = casePageOf(titleBookshelf(meta), browseChapterId)
+    const page = pages[cur]
+    if (page) bc.scrollLeft = page.offsetLeft - (bc.clientWidth - page.offsetWidth) / 2
+    let timer = 0
+    bc.onscroll = () => { clearTimeout(timer); timer = setTimeout(() => settleCase(bc), 120) }
+  }
+  addEventListener('resize', () => { if (active === 'title') placeCase() })
+  function casePageNow(bc) {
+    const mid = bc.scrollLeft + bc.clientWidth / 2
+    let best = 0, bestD = Infinity
+    bc.querySelectorAll('.etage').forEach((p, i) => {
+      const d = Math.abs(p.offsetLeft + p.offsetWidth / 2 - mid)
+      if (d < bestD) { bestD = d; best = i }
+    })
+    return best
+  }
+  // A swipe that lands on another Book browses it: the chapter you last PLAYED if it is on that
+  // shelf, else the furthest one unlocked there, else its first volume (a locked Book's panel then
+  // says how to open it). Browse only — like the Shop tabs, looking at a Book must not move the
+  // ribbon; tapping a volume is what persists.
+  function settleCase(bc) {
+    const shelves = titleBookshelf(meta)
+    const i = casePageNow(bc)
+    if (i === casePageOf(shelves, browseChapterId)) return
+    const vols = shelves[i].volumes
+    const pick = vols.find((v) => v.id === meta.chapter) ?? [...vols].reverse().find((v) => v.unlocked) ?? vols[0]
+    browseChapterId = pick.id
+    podiumOpen = false
+    renderTitle()
+  }
+  function scrollCaseTo(i) {
+    const bc = screens.title.querySelector('.bookcase')
+    const page = bc?.querySelectorAll('.etage')[i]
+    if (!page) return
+    playSfx('click')
+    bc.scrollTo({ left: page.offsetLeft - (bc.clientWidth - page.offsetWidth) / 2, behavior: 'smooth' })
   }
 
   // 3 booster slots: session-selected consumables fill left-to-right, the rest show ＋. Any slot
@@ -961,7 +1027,7 @@ export function initUI(hooks) {
     const coinPct = Math.round(((chMeta.difficulty - 1) * DIFFICULTY_COIN_PER_LEVEL) * 100)
     const rewardChip = chMeta.difficulty > 1 && !endlessSel ? `<b class="diff-reward-chip">+${coinPct}% 🪙</b>` : ''
     // DEV ONLY (beta testers see the pip but not this): the bot plays the clock forward until Play now.
-    const speedrunBtn = meta.dev === true && endlessOn && endlessSel ? `<button class="btn btn--soft dev-speedrun" data-act="speedrun" ${heroUnlocked ? '' : 'disabled'}>⏩&nbsp; Speedrun</button>` : ''
+    const speedrunBtn = meta.dev === true && endlessOn && endlessSel ? `<button class="btn btn--soft dev-speedrun" data-act="speedrun" aria-label="Speedrun" title="Speedrun" ${heroUnlocked ? '' : 'disabled'}>⏩</button>` : ''
     const playBlock = heroUnlocked ? `
       <div class="diff-row">
         <span class="diff-label">${t('Difficulty')}${rewardChip}</span>
@@ -1023,13 +1089,12 @@ export function initUI(hooks) {
         <button class="diff-hint podium-foot" data-act="podium-close">
           ←&nbsp; ${tt('all players · difficulty {n}', { n: boardDiff })}
         </button>
-        ${speedrunBtn}
         <div class="volume-acts">
           <button class="btn btn--big btn--play" data-act="play" ${heroUnlocked ? '' : 'disabled'}>▶&nbsp; ${t('Play')}</button>
+          ${speedrunBtn}
           <button class="btn btn--shop" data-act="shop" style="--shop-pct:${pct}%" aria-label="${t('Shop')}">
             <span class="shop-btn-label">🛒&nbsp; ${t('Shop')}</span>
-            <small class="shop-btn-purse">🪙 ${coins}</small>
-            <span class="shop-btn-meter"><i></i><b>${pct}%</b></span>
+            <span class="shop-btn-meter"><small class="shop-btn-purse">🪙 ${coins}</small><i></i><b>${pct}%</b></span>
           </button>
         </div>`
     }
@@ -1039,13 +1104,12 @@ export function initUI(hooks) {
         <div class="page page--recto">${playBlock}</div>
       </div>
       ${ladderHint}
-      ${speedrunBtn}
       <div class="volume-acts">
         <button class="btn btn--big btn--play" data-act="play" ${heroUnlocked ? '' : 'disabled'}>▶&nbsp; ${t('Play')}</button>
+        ${speedrunBtn}
         <button class="btn btn--shop" data-act="shop" style="--shop-pct:${pct}%" aria-label="${t('Shop')}">
           <span class="shop-btn-label">🛒&nbsp; ${t('Shop')}</span>
-          <small class="shop-btn-purse">🪙 ${coins}</small>
-          <span class="shop-btn-meter"><i></i><b>${pct}%</b></span>
+          <span class="shop-btn-meter"><small class="shop-btn-purse">🪙 ${coins}</small><i></i><b>${pct}%</b></span>
         </button>
       </div>`
   }
@@ -1110,22 +1174,9 @@ export function initUI(hooks) {
     // After the wholesale innerHTML rewrite, never before it.
     focusRenameField()
     armSyncNotice()
-    markBookcaseScroll()
+    placeCase()
   }
 
-  // A clipped shelf and a short shelf look identical, and the thing that goes first is the brass
-  // plate — the only place a Book's name and star total are written. So when the case really does
-  // not fit, its bottom edge fades to say there is more below. Measured, not inferred from the
-  // number of Books: two Books overflow a 375x667 phone and three fit a tall one.
-  // rAF because the class is decided from a layout that the innerHTML rewrite one line up has not
-  // produced yet; `resize` because the answer changes on rotation with no re-render of its own.
-  function markBookcaseScroll() {
-    requestAnimationFrame(() => {
-      const bc = screens.title.querySelector('.bookcase')
-      if (bc) bc.classList.toggle('bookcase--more', bc.scrollHeight - bc.clientHeight > 2)
-    })
-  }
-  addEventListener('resize', markBookcaseScroll)
 
   // v6.7 settings sheet. The title used to float four separate things over the artwork — 🌐, 💾, the
   // coins badge and the build stamp — which is most of what "there's a lot on the page" meant, and
@@ -4272,6 +4323,15 @@ export function initUI(hooks) {
       // surgical path.
       // Also the RETRY: the error state re-uses this action, so a failed board is one tap from
       // another attempt rather than two taps and two turns.
+      case 'case-prev':
+      case 'case-next': {
+        const bc = screens.title.querySelector('.bookcase')
+        if (bc) scrollCaseTo(casePageNow(bc) + (el.dataset.act === 'case-next' ? 1 : -1))
+        break
+      }
+      case 'case-page':
+        scrollCaseTo(Number(el.dataset.page))
+        break
       case 'podium-open':
         podiumTurn = !podiumOpen // a retry redraws the page it is already on; it must not re-turn it
         podiumOpen = true

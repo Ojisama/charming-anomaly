@@ -270,8 +270,6 @@ body {
   padding-bottom: calc(12px + env(safe-area-inset-bottom));
 }
 
-/* the shadow the bookcase throws onto the desk in front of it */
-.bookcase { box-shadow: 0 10px 16px -8px rgba(30, 18, 8, 0.65); }
 /* The panel is the VOLUME YOU TAPPED, lying open on the desk. Its cover is that book's own cloth
    (--cloth-sel, published by paintRoom alongside --tint) so the shelf and the panel are visibly
    the same object; the pages inside are cream, or the text would sit on wood. */
@@ -1431,77 +1429,133 @@ body {
    Volume WIDTH is flex with a cap, never fixed px: Book 1 is seven chapters and eight once The
    Blank is earned, so the row has to absorb the extra rather than push it off the shelf. Volume
    HEIGHT rides --vh (a percentage set in ui.js from the highest difficulty won in that chapter). */
-.bookcase {
+/* THE CASE IS A CAROUSEL (bookcaseHtml/placeCase/settleCase, ui.js): one Book per page, filling the
+   height the panel leaves, with the neighbouring Books' edges peeking in at the sides. Swiping is
+   native scroll-snap. --peek is how much of each neighbour shows; each look below sets its own. */
+.case-wrap {
   /* width:100% is load-bearing: .screen--title centres its children, so without it the case
-     shrinks to its content and the volumes' `flex: 1 1 0` has nothing to expand into — seven
-     spines end up ~20px wide in the middle of an empty screen. */
+     shrinks to its content and the volumes' `flex: 1 1 0` has nothing to expand into. */
   width: 100%;
-  /* Capped like every other screen's content column (.shop-head is 540). Without it a desktop
-     shelf is 1280px of board with seven 58px volumes huddled in the middle — the volumes cap their
-     own width, so the extra all goes to empty shelf. */
+  /* capped like every other screen's content column, or a desktop shelf is 1280px of board */
   max-width: 520px;
-  /* `0 1 auto`, not `1 1 auto`: the case takes only the height its étages need and lets the desk
-     start right below the last board. With `1` a save with one Book showed a storey of empty wall.
-     It still SHRINKS (and scrolls) once there are more étages than fit, which is what a third Book
-     will want. */
-  flex: 0 1 auto;
+  flex: 1 1 auto;
   min-height: 0;
   position: relative;
   display: flex;
+  --peek: 22px;
+  --page-gap: 8px;
+}
+.bookcase {
+  /* positioned, so a page's offsetLeft is measured from the scroller itself */
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: stretch;
+  gap: var(--page-gap);
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x mandatory;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  padding: 0 var(--peek);
+  scroll-padding: 0 var(--peek);
+}
+.bookcase::-webkit-scrollbar { display: none; }
+/* One Book's compartment: its own wall, its own board. The wall is per PAGE so the peeking
+   neighbours read as separate compartments of one case rather than as more of the same shelf. */
+.etage {
+  position: relative;
+  flex: 0 0 calc(100% - 2 * var(--peek));
+  min-width: 0;
+  display: flex;
   flex-direction: column;
-  justify-content: flex-start;
-  /* 18px, not 8: a selected volume lifts out of its row and its ribbon rises above that. Any
-     less and the ribbon crosses the brass plate of the shelf ABOVE, because a later étage paints
-     over an earlier one. The gap is empty wall, so the ribbon may overlap it freely. */
-  gap: 18px;
-  overflow-y: auto;
-  /* `end`, not `start`: what a half-scrolled shelf loses is its BRASS PLATE — the only place a
-     Book's name and star total are written — so the bottom of an étage is the edge worth snapping.
-     `proximity` so a deliberate drag past a shelf is not fought. */
-  scroll-snap-type: y proximity;
-  overscroll-behavior: contain;
-  padding: 16px 0 2px;
+  justify-content: flex-end;
+  /* room above the spines for a selected volume's lift and its ribbon */
+  padding-top: 22px;
+  scroll-snap-align: center;
+  scroll-snap-stop: always;
+  border-radius: 4px 4px 0 0;
   background:
     radial-gradient(130% 60% at 50% 0%, rgba(255, 255, 255, 0.5), transparent 60%),
     linear-gradient(180deg, #e6dec9, #d2c5a8);
+  box-shadow: 0 10px 16px -8px rgba(30, 18, 8, 0.65);
+  transition: transform 0.25s ease, opacity 0.25s ease;
 }
-/* The selected chapter's own colour, washed over the room. `soft-light` keeps the wall's paper
-   texture and only shifts its hue, where a flat overlay would grey it out. --tint is set from
-   ui.js's paintRoom (transparent for a locked volume — an unseen chapter colours nothing). */
-.bookcase::before {
+/* The selected chapter's own colour, washed over its wall. `soft-light` keeps the paper texture
+   and only shifts its hue. --tint is set from ui.js's paintRoom (transparent for a locked volume). */
+.etage::before {
   content: "";
   position: absolute;
   inset: 0;
   z-index: 0;
   pointer-events: none;
+  border-radius: inherit;
   background: var(--tint, transparent);
   opacity: 0.55;
   mix-blend-mode: soft-light;
-  transition: background 0.4s ease;
 }
-.etage { position: relative; z-index: 1; flex: 0 0 auto; display: flex; flex-direction: column; scroll-snap-align: end; }
-/* Set by markBookcaseScroll (ui.js) when the case genuinely does not fit, and only then. Gating it
-   on the BOOK COUNT instead was wrong at both ends: two books overflow a 375x667 phone by 16px with
-   no fade, and three books on a tall screen would get a fade over nothing. The measurement is the
-   only thing that knows. */
-.bookcase--more {
-  -webkit-mask-image: linear-gradient(180deg, #000 calc(100% - 26px), transparent);
-  mask-image: linear-gradient(180deg, #000 calc(100% - 26px), transparent);
-}
+.etage > * { position: relative; z-index: 1; }
 .shelf-row {
   display: flex;
   align-items: flex-end;
   justify-content: center;
   gap: 4px;
-  /* Sized so every étage plus the detail panel fits a 390x844 phone without the top row clipping —
-     hence the DIVISOR. --shelves is the étage count, published by bookcaseHtml (ui.js); a flat
-     19vh sized the row for the two-Book case and left one Book standing in ~310px of bare desk,
-     with spines a third the height of the shelf they stand on. 38vh/1 caps out at 290px (a ~1:6
-     spine, which is what a hardback actually is) and 38vh/2 lands on 160px, the height two Books
-     have today. The case still scrolls past that, which is what a third Book will need anyway. */
-  height: clamp(76px, calc(38vh / var(--shelves, 1)), 290px);
-  padding: 0 14px;
+  /* The page's spare height goes to the SPINES, up to a hardback's proportions; past the cap it is
+     wall above them. The 164px floor is the longest title's need: a volume gives its name
+     row x 94% - 48px (head 34 + stars 9 + foot pad 5), and 'Undergrowth' at 0.55rem needs 105. */
+  flex: 1 1 auto;
+  min-height: 164px;
+  max-height: 250px;
+  padding: 0 10px;
 }
+
+/* ‹ › over the peeking neighbours (look 1), or beside the dots (look 3) */
+.case-nav {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  padding: 0 0 3px;
+  border: 2px solid var(--cream-edge);
+  border-radius: 999px;
+  background: var(--cream-soft);
+  color: var(--ink);
+  font: inherit;
+  font-size: 1.5rem;
+  font-weight: 900;
+  line-height: 1;
+  box-shadow: 0 3px 8px rgba(30, 18, 8, 0.35);
+  cursor: pointer;
+}
+.case-nav:disabled { visibility: hidden; }
+.case-nav:active { transform: translateY(1px); }
+.case-wrap .case-nav { position: absolute; z-index: 2; top: 45%; }
+.case-wrap .case-nav--prev { left: 2px; }
+.case-wrap .case-nav--next { right: 2px; }
+.case-dots { flex: none; display: flex; align-items: center; justify-content: center; gap: 14px; margin-top: -2px; }
+.case-dot-row { display: flex; align-items: center; gap: 7px; }
+.case-dot {
+  width: 9px;
+  height: 9px;
+  padding: 0;
+  border: 2px solid rgba(51, 36, 15, 0.45);
+  border-radius: 999px;
+  background: rgba(255, 249, 231, 0.6);
+  cursor: pointer;
+  transition: width 0.2s ease;
+}
+.case-dot--on { width: 24px; background: var(--cloth); border-color: rgba(0, 0, 0, 0.35); }
+.case-dot--shut { opacity: 0.45; }
+
+/* LOOK 2: wider peek, and the Books either side stand back — smaller and dimmed — so the one in
+   front is unmistakably the one you are choosing from. No arrows; the neighbours are the hint. */
+.case-look-2 { --peek: 44px; --page-gap: 4px; }
+.case-look-2 .etage:not(.etage--cur) { transform: scale(0.9); opacity: 0.55; }
+
+/* LOOK 3: a thin peek, and the controls in a bar under the case: ‹  ● ○ ○  ›. */
+.case-look-3 { --peek: 14px; --page-gap: 6px; }
+.case-look-3 + .case-dots { gap: 18px; margin-top: 0; }
 
 /* the board, and the brass plate naming the Book. The plate is a LABEL — nothing on the shelf is
    tappable except a volume, so it must not look like a control. */
@@ -1528,7 +1582,9 @@ body {
   text-transform: uppercase;
   color: #33240f;
 }
-.shelf-board > .shelf-plate { position: relative; z-index: 1; }
+/* block-level so the negative margin pulls the lip up BEHIND the plate: it straddles the board's
+   front edge like a real plate, and each étage is 8px shorter for it. */
+.shelf-board > .shelf-plate { position: relative; z-index: 1; display: flex; width: fit-content; margin-bottom: -8px; }
 .shelf-plate .shelf-stars { letter-spacing: 0; font-size: 0.62rem; }
 .shelf-board {
   background: linear-gradient(180deg, #c8a273, #ad8757);
@@ -1622,23 +1678,6 @@ body {
   text-transform: uppercase;
   color: #f4dda6;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
-}
-/* THE TITLE SIZE IS BOUNDED BY THE ROW, AND THE ROW IS A FRACTION OF THE VIEWPORT — so a size
-   that fits the phone is not a size that fits. 'Undergrowth' at 0.55rem needs 105px, and a volume
-   gives its title `row - 48px` (head panel 34 + star row 9 + foot pad 5), so it needs a 153px row:
-   at two Books the row is 38vh/2, which means a window 805px tall. The 390x844 phone clears that
-   by 7px and a desktop window at 800 does not — measured, after both of those shots looked
-   perfectly fine. Below the threshold, print the title SMALLER rather than clipped.
-   // ponytail: two breakpoints, not a formula. Ceiling: a THIRD Book divides the row again and no
-   // fixed size fits it (that already clipped before this design) — at which point the honest fix
-   // is to raise the icon-only cutoff below, not to add a third step here. */
-@media (max-height: 810px) {
-  .vol-nm { padding: 4px 0; font-size: 0.45rem; letter-spacing: 0.06em; }
-}
-/* Below this the spine has no room for a vertical title at all, and the chapter ICON carries the
-   volume on its own — the documented icon-only fallback, applied by height rather than by taste. */
-@media (max-height: 700px) {
-  .vol-nm { display: none; }
 }
 /* difficulty beaten, laid ACROSS the foot where a real spine carries the publisher's device.
    A row, not a column: a column costs the title the height it needs, and it is also harder to
@@ -1772,6 +1811,8 @@ body {
   /* `flex: none`, not `1 1 auto`: this panel and the bookcase would otherwise split the leftover
      height between them, and the case is the part that needs it. */
   flex: none;
+  /* spare height goes ABOVE the panel, so Play stays at the thumb end of the screen */
+  margin-top: auto;
   display: flex;
   flex-direction: column;
   gap: 7px;
@@ -1815,7 +1856,7 @@ body {
   align-items: center;
   justify-content: center;
   gap: 1px;
-  padding: 8px 13px 9px;
+  padding: 5px 12px 6px;
   border: 3px solid var(--gold-edge);
   border-radius: var(--radius);
   background: var(--gold);
@@ -1827,12 +1868,14 @@ body {
   box-shadow: 0 4px 0 var(--gold-edge);
   cursor: pointer;
 }
-.shop-btn-purse { font-size: 0.78rem; font-weight: 900; }
+.shop-btn-purse { flex: none; font-size: 0.74rem; font-weight: 900; }
 /* The completion meter: a track that is always the full width, with the fill over it — an empty
    shop reads as an empty groove, where a bare fill would read as a missing element. The number
    rides beside it because a short bar alone does not say short OF WHAT. */
-.shop-btn-meter { display: flex; align-items: center; gap: 4px; width: 100%; margin-top: 2px; }
-.shop-btn-meter i { position: relative; flex: 1 1 auto; height: 5px; border-radius: 3px; background: rgba(74, 58, 0, 0.22); }
+/* purse, groove and percentage on ONE row: a third line made the door 71px against Play's 50, and
+   the acts row is as tall as its tallest door — that was 21px the bookcase above did not get. */
+.shop-btn-meter { display: flex; align-items: center; gap: 5px; width: 100%; margin-top: 1px; }
+.shop-btn-meter i { position: relative; flex: 1 1 auto; min-width: 22px; height: 5px; border-radius: 3px; background: rgba(74, 58, 0, 0.22); }
 .shop-btn-meter i::after {
   content: "";
   position: absolute;
@@ -1888,7 +1931,10 @@ body {
 }
 /* Verso is a column, so the head's row layout has to unwind — the identity reads top-to-bottom
    like a title page: icon, name, tagline, cast, best. */
-.page--verso .detail-head { flex-direction: column; gap: 6px; text-align: center; }
+.page--verso .detail-head { flex-direction: column; gap: 5px; text-align: center; }
+/* an emblem, not a framed tile: the spine above already carries the icon ringed, and the frame was
+   18px of the verso's height — the page that sets the spread's. */
+.page--verso .detail-ico { width: auto; height: auto; border: 0; background: none; font-size: 1.45rem; line-height: 1; }
 .page--verso .detail-name { align-items: center; text-align: center; }
 .page--verso .detail-name b { font-size: 0.95rem; white-space: normal; }
 .page--verso .detail-name small { white-space: normal; }
@@ -3377,4 +3423,5 @@ body {
 
 /* DEV ONLY: speedrun exit. The HUD is pointer-events:none, so the button opts back in. */
 .hud-playnow { position: fixed; left: 50%; bottom: 120px; transform: translateX(-50%); pointer-events: auto; z-index: 5; }
-.dev-speedrun { width: 100%; margin: 0 0 8px; }
+/* dev only: a square beside Play rather than a full-width row, which cost the bookcase 64px */
+.dev-speedrun { flex: none; width: auto; min-width: 0; min-height: 50px; margin: 0; padding: 0 12px; font-size: 1.15rem; }

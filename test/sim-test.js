@@ -5774,7 +5774,7 @@ function runBookProgression() {
     // A clipped shelf and a short shelf look identical. What overflows first is a shelf-board's
     // brass plate, which is the ONLY place a Book's name and star total are written — that is the
     // bug this pair was written for (Book 2 sat unlabelled below the fold on a 410x745 phone).
-    assert.ok(/bc\.scrollHeight - bc\.clientHeight > 2/.test(uiSrc),
+    assert.ok(/bc\.scrollHeight - bc\.clientHeight - bc\.scrollTop > 2/.test(uiSrc),
       'the bookcase fade must be toggled from a MEASUREMENT — gating it on the number of books was wrong at both ends: two books overflow a 375x667 phone with no fade, three fit a tall screen and would get one over nothing')
     assert.ok(/addEventListener\('resize', markBookcaseScroll\)/.test(uiSrc),
       'the fade must be re-measured on resize — rotation changes the answer and nothing else re-renders the title')
@@ -5792,13 +5792,16 @@ function runBookProgression() {
     // them, and each has a var() FALLBACK, so a broken half is not a blank screen or a throw —
     // it is a plausible-looking screen with the wrong number in it.
     //
-    // --shelves is the shelf-row height DIVISOR. Dropped from the markup it falls back to 1, and
-    // two Books get a one-Book row height — 290px each, which overflows a 390x844 phone and parks
-    // Book 2's brass plate under the fold, the exact bug the fade assertions above exist for.
-    assert.ok(/--shelves:\$\{shelves\.length\}/.test(uiSrc),
-      'bookcaseHtml must publish --shelves from the ETAGE COUNT — a hardcoded number (or none, falling back to 1) sizes every Book count as though it were one, and two Books then overflow the phone silently')
-    assert.ok(/calc\(38vh \/ var\(--shelves, 1\)\)/.test(css),
-      '.shelf-row height must divide by var(--shelves) — a flat vh is what left ONE Book standing in ~310px of bare desk with spines a third the height of their own shelf')
+    // A shelf is ONE HEIGHT whatever the Book count, and the case scrolls. Dividing the row by the
+    // Book count (the old --shelves divisor) crushed the spines to ~98px at three Books and would
+    // crush them further at every Book after. The px floor is the longest spine title's need.
+    const rowRule = css.match(/\.shelf-row \{[^}]*\}/)?.[0] ?? ''
+    assert.ok(/height: clamp\(164px, /.test(rowRule) && !/--shelves/.test(rowRule + uiSrc),
+      '.shelf-row must have a fixed 164px floor and no Book-count divisor — a divided height crushes every spine as Books are added')
+    // The case scrolls, and renderTitle rebuilds it at scrollTop 0: without the carry, tapping a
+    // volume on a lower shelf jumps the case back to Book 1.
+    assert.ok(/const caseScroll = screens\.title\.querySelector\('\.bookcase'\)\?\.scrollTop/.test(uiSrc) && /markBookcaseScroll\(caseScroll\)/.test(uiSrc),
+      'renderTitle must carry the bookcase scroll offset across its innerHTML rewrite')
     // --shop-pct is the completion meter's fill. Missing, it falls back to 0% and every save on
     // earth reads "empty shop" next to a number saying otherwise.
     assert.ok(/style="--shop-pct:\$\{pct\}%"/.test(uiSrc),
@@ -5818,7 +5821,7 @@ function runBookProgression() {
     assert.ok(!/class="coins-badge" data-act/.test(uiSrc),
       'the title header must not carry a coins badge as well — two balances for one purse is what moving it onto the door was for')
 
-    console.log('PASS run BP.q3 (book navigation): shop book tabs gated by titleBookshelf and browse-only, bookcase fade measured not counted, 2-page spread with flex pips, --shelves + --shop-pct both authored and read')
+    console.log('PASS run BP.q3 (book navigation): shop book tabs gated by titleBookshelf and browse-only, bookcase fade measured not counted, 2-page spread with flex pips, fixed shelf height + scroll carried, --shop-pct authored and read')
   }
 
   // (q4b) EVERY CONFIG CONSTANT ui.js USES IS ACTUALLY IMPORTED. ui.js cannot be imported by this
