@@ -19,6 +19,7 @@ import { FOIL_FRAG as HOLO_FOIL_FRAG, CAVERN_FLOOR_FRAG as HOLO_CAVERN_FRAG } fr
 import { ensurePrecision as pixiEnsurePrecision } from '../node_modules/pixi.js/lib/rendering/renderers/gl/shader/program/preprocessors/ensurePrecision.mjs'
 import { magmaGroundAt, magmaRiverAt, magmaCooledAt, magmaHotAt } from '../src/sim.js'
 import { lavaFloodedAt, mantleHeightAt, lavaLineFor, mantleGroundAt } from '../src/sim.js'
+import { ECHO_DOUBLE_DELAY, ECHO_DOUBLE_DMG_FRAC, modPct } from '../src/config.js'
 import { MANTLE_GROUND_STEP, MANTLE_START_DRY, MANTLE_COLD_VS_LAVA, MANTLE_FIRE_VS_ROCK, MANTLE_STRAND_DIE_T, MANTLE_STRAND_STUCK_T, MANTLE_STRAND_DMG_MUL, MANTLE_STRAND_SLOW, MANTLE_MELT_T, KETTLE_CRUST_GNAW, KETTLE_CRUST_GNAW_MAX, KETTLE_HULL_MAX, KETTLE_STEAM_MUL, DRAW_CAPS } from '../src/config.js'
 import { poolRimR, crustShapeOf, poolPhaseOf, crustSplash, splashSdf, SPLASH_FINGERS, SPLASH_DROPS } from '../src/mantle-shape.js'
 import {
@@ -20947,6 +20948,7 @@ run(testLeLargeWeapons)
   run(testTopsoilPolish)
   run(testMoleRoots)
   run(testGeodeStarterMods)
+  run(testEchoDoubleClick)
   run(testPebbleHandful)
   run(testGeodeCounters)
   run(testSrcParses)
@@ -40612,6 +40614,90 @@ function testGeodeStarterMods() {
   const was = [0.50, 0.48, 0.47, 0.42, 0.36]
   WEAPONS.prismShard.levels.forEach((L, i) => assert.ok(Math.abs(L.interval - was[i] / 0.75) < 1e-9, `run GM: Prism Shard L${i + 1} interval ${L.interval}`))
   console.log(`PASS run GM (Geode starter mods): Keen Facet +${Math.round(bonus('normal', 'keenFacet') * 100)}%, Quick Flick +${Math.round(bonus('normal', 'flickRate') * 100)}% at normal; Cleave mythic +${bonus('mythic', 'cleave')}; Shard Spray ${modPickCap('prismShard', 'shardSpray')} picks`)
+}
+
+// run ED (Double Click): Echo Pulse's chance mod. (a) rare+ only; a pick banks along the 200%
+// asymptote (capTotal) and the card states the total it leaves you on, striking the one it moves off;
+// (b) the bank is a chance: 50% repeats about half the casts, 100% every cast, 150% one sure repeat
+// and a second about half the time; (c) a repeat goes off ECHO_DOUBLE_DELAY later, from where you
+// stand THEN, at ECHO_DOUBLE_DMG_FRAC of the click; (d) it rings crystals, so a crystal beside you
+// cracks once per click, not once per cast.
+function testEchoDoubleClick() {
+  const dt = 1 / 60
+  const cfg = WEAPON_MODS.echoPulse.doubleClick
+  // (a) the card and the bank
+  const r = createRun(makeMeta(), { chapter: 'geode', difficulty: 1 })
+  r.weapons = [{ id: 'echoPulse', level: 1 }]
+  const card = (rar) => devCards(r, rar).find((c) => c.weapon === 'echoPulse' && c.id === 'doubleClick')
+  assert.notStrictEqual(card('normal')?.rarity, 'normal', 'run ED(a): Double Click rolled at normal')
+  const first = card('rare')
+  assert.ok(Math.abs(first.shown - (2 - 2 * Math.exp(-0.15 / 2))) < 1e-9 && first.was === null, `run ED(a): first rare card shows ${first.shown}, was ${first.was}`)
+  r.levelUpChoices = [first]; applyChoice(r, 0)
+  assert.ok(Math.abs(r.weaponMods.echoPulse.doubleClick - first.shown) < 1e-12, 'run ED(a): the bank is not what the card showed')
+  const second = card('mythic')
+  assert.ok(second.was === modPct(first.shown) && second.desc.startsWith(modPct(second.shown)), `run ED(a): second card ${second.was} -> ${second.desc}`)
+  for (let i = 0; i < 30; i++) { r.levelUpChoices = [card('mythic')]; applyChoice(r, 0) }
+  const top = r.weaponMods.echoPulse.doubleClick
+  assert.ok(top > 1.9 && top < 2, `run ED(a): 31 picks bank ${top}, want just under 2`)
+  // a run that clicks with the bank set to `chance`; out = every click { t, x, dmg, cast }
+  const clicks = (chance, secs, move, nearCrystal, seed = 7) => {
+    Math.random = mulberry32(seed)
+    const r = createRun(makeMeta(), { chapter: 'geode', difficulty: 1 })
+    r.player.hp = r.player.maxHP = 1e9
+    r.weapons = [{ id: 'echoPulse', level: 1 }]
+    if (chance) r.weaponMods.echoPulse = { doubleClick: chance }
+    let o = null
+    if (nearCrystal) {
+      stepSim(r, { x: 0, y: 0 }, dt)   // crystals stream in on the first step
+      r.events.length = 0
+      o = r.obstacles.find((c) => c.kind === 'crystal')
+      assert.ok(o, 'run ED: fixture has no crystal')
+      r.player.x = o.x + o.r + 40; r.player.y = o.y
+    }
+    const out = []
+    for (let i = 0; i < Math.round(secs / dt); i++) {
+      r.enemies = []
+      if (r.phase === 'levelup') { r.phase = 'playing'; r.levelUpChoices = [] }
+      const before = r.novas.length
+      stepSim(r, move ? { x: 1, y: 0 } : { x: 0, y: 0 }, dt)
+      for (const ev of r.events) if (ev.type === 'shoot' && ev.weapon === 'echoPulse') {
+        const n = r.novas.slice(before).find((nv) => nv.look === 'echo' && nv.x === ev.x && nv.y === ev.y)
+        out.push({ t: r.time, x: ev.x, dmg: n?.dmg })
+      }
+      r.events.length = 0
+    }
+    return { out, rings: o ? o._echoRings ?? 0 : 0 }
+  }
+  // (b) 120s at L1 (2.2s interval) is 54 casts a seed, pooled over 5 seeds; a full-damage click starts each cast
+  const perCast = (chance) => {
+    let casts = 0, extra = 0
+    for (let seed = 1; seed <= 5; seed++) {
+      const { out } = clicks(chance, 120, false, false, seed)
+      const full = Math.max(...out.map((c) => c.dmg))
+      const n = out.filter((c) => c.dmg === full).length
+      casts += n; extra += out.length - n
+    }
+    return { casts, extra }
+  }
+  const p0 = perCast(0), p50 = perCast(0.5), p100 = perCast(1), p150 = perCast(1.5)
+  assert.ok(p0.casts >= 250 && p0.extra === 0, `run ED(b): no bank, ${p0.extra} repeats over ${p0.casts} casts`)
+  assert.ok(p100.extra === p100.casts, `run ED(b): 100% repeated ${p100.extra} of ${p100.casts} casts`)
+  // 270 casts at p = 0.5: 1 sigma is 8.2, so 105..165 is 3.6 sigma and still fails a 30% or 70% bug
+  assert.ok(Math.abs(p50.extra - p50.casts / 2) <= 30, `run ED(b): 50% repeated ${p50.extra} of ${p50.casts} casts`)
+  assert.ok(Math.abs(p150.extra - p150.casts * 1.5) <= 30, `run ED(b): 150% made ${p150.extra} repeats over ${p150.casts} casts`)
+  // (c) spacing, position, damage
+  const one = clicks(1, 5.5, true, false).out
+  const gap = one[1].t - one[0].t
+  assert.ok(Math.abs(gap - ECHO_DOUBLE_DELAY) < dt * 1.5, `run ED(c): repeat ${gap.toFixed(3)}s after the click, want ${ECHO_DOUBLE_DELAY}`)
+  const two = clicks(1.999, 5.5, false, false).out
+  assert.ok(two.length >= 5 && new Set(two.slice(0, 3).map((c) => c.t.toFixed(3))).size === 3, 'run ED(c): two repeats share a moment')
+  assert.ok(one[1].x - one[0].x > 20, `run ED(c): the repeat went off ${(one[1].x - one[0].x).toFixed(1)}px from the click while walking`)
+  const frac = one[1].dmg / one[0].dmg
+  assert.ok(Math.abs(frac - ECHO_DOUBLE_DMG_FRAC) < 1e-9, `run ED(c): repeat hits at ${frac} of the click`)
+  // (d) crystals
+  const r0 = clicks(0, 5.5, false, true).rings, r1 = clicks(1, 5.5, false, true).rings
+  assert.ok(r0 >= 2 && r1 === r0 * 2, `run ED(d): a crystal beside you rang ${r1} times with Double Click vs ${r0} without`)
+  console.log(`PASS run ED (Double Click): rare first pick ${modPct(first.shown)}, 31 picks bank ${modPct(top)} (cap ${cfg.cap * 100}%); repeats per cast at 0/50/100/150%: ${p0.extra}/${p50.extra}/${p100.extra}/${p150.extra} over ${p0.casts}; repeat ${gap.toFixed(2)}s later, ${(one[1].x - one[0].x).toFixed(0)}px along the walk, x${frac} damage; crystal rings ${r0} -> ${r1}`)
 }
 
 // run MR (moles vs roots): a Root Snare patch is solid to a digging mole. (a) one between it and you
