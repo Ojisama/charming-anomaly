@@ -633,6 +633,7 @@ export function initUI(hooks) {
     if (i === casePageOf(shelves, browseChapterId)) return
     const vols = shelves[i].volumes
     const pick = vols.find((v) => v.id === meta.chapter) ?? [...vols].reverse().find((v) => v.unlocked) ?? vols[0]
+    queueFlip(i > casePageOf(shelves, browseChapterId) ? 'next' : 'prev', 2)
     browseChapterId = pick.id
     podiumOpen = false
     renderTitle()
@@ -778,6 +779,59 @@ export function initUI(hooks) {
   // pip, every board arriving — and each would spin the whole panel. Set by the two turn actions,
   // consumed by the next render.
   let podiumTurn = false
+
+  // MOCKUP SWITCH (?bk=1|2|3): the open volume as a real book whose leaves turn. 0 = as shipped.
+  // Delete the losing looks once one is picked.
+  const BOOK_LOOK = Number(new URLSearchParams(location.search).get('bk')) || 0
+  // A PAGE TURN IN FLIGHT. queueFlip clones the two leaves on show BEFORE a rewrite; flipSpread,
+  // after it, lays the old leaf over the new spread and turns it across the gutter, its back face
+  // carrying the new page — so what lands is exactly the page underneath, and lifting the leaf
+  // away is seamless. riffle > 0 turns that many blank leaves first (a whole Book changing hands).
+  let pendingFlip = null
+  function spreadPages() {
+    const sp = screens.title?.querySelector('.title-below .spread')
+    return sp ? [...sp.children].filter((e) => e.classList.contains('page')) : []
+  }
+  function queueFlip(dir, riffle = 0) {
+    if (!BOOK_LOOK) return
+    const pages = spreadPages()
+    pendingFlip = pages.length === 2 ? { dir, riffle, old: pages.map((pg) => pg.cloneNode(true)) } : null
+  }
+  function flipSpread() {
+    const f = pendingFlip
+    pendingFlip = null
+    if (!f || matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    const pages = spreadPages()
+    if (pages.length !== 2) return
+    const sp = pages[0].parentElement
+    const next = f.dir === 'next'
+    const el = (cls, ...kids) => {
+      const d = document.createElement('div')
+      d.className = cls
+      d.setAttribute('aria-hidden', 'true')
+      d.append(...kids)
+      return d
+    }
+    const blank = () => el('page')
+    const under = el(`flip-under flip-under--${next ? 'l' : 'r'}`, f.old[next ? 0 : 1])
+    const n = f.riffle + 1
+    const leaves = Array.from({ length: n }, (_, i) => {
+      const front = i === 0 ? f.old[next ? 1 : 0] : blank()
+      const back = i === n - 1 ? pages[next ? 0 : 1].cloneNode(true) : blank()
+      const leaf = el(`flip-leaf flip-leaf--${f.dir}`, el('flip-face flip-face--front', front), el('flip-face flip-face--back', back))
+      leaf.style.animationDelay = `${i * 0.13}s`
+      if (n > 1) leaf.classList.add(`flip-leaf--r${i}`)
+      return leaf
+    })
+    sp.classList.add('spread--fresh')
+    sp.style.setProperty('--land', `${(n - 1) * 0.13 + 0.66}s`)
+    sp.append(under, ...leaves)
+    leaves[n - 1].addEventListener('animationend', () => { under.remove(); for (const l of leaves) l.remove() }, { once: true })
+  }
+  // where a chapter sits in reading order across every Book, for the turn's direction and folios
+  function readingIndex(id) {
+    return titleBookshelf(meta).flatMap((sh) => sh.volumes.map((v) => v.id)).indexOf(id)
+  }
 
   // A SESSION CACHE, and it exists for the LEADER LINE on the closed page, not for the podium.
   // Turning the page still always re-reads — a board that has not moved costs one small request and
@@ -1071,11 +1125,13 @@ export function initUI(hooks) {
     // boards on one wide page (owner's pick), and it is what leaves the bookcase above untouched.
     // The foot line, which normally carries the ladder hint, becomes the way back and the only
     // thing that says WHICH board you are reading: the pips are on the leaf now showing scores.
-    const turn = podiumTurn ? ' spread--turn' : ''
+    const turn = podiumTurn && !BOOK_LOOK ? ' spread--turn' : ''
+    const folio = readingIndex(browseChapterId) * 2 + 2
+    const ribbon = BOOK_LOOK === 1 ? '<i class="spread-ribbon" aria-hidden="true"></i>' : ''
     podiumTurn = false
     if (podiumOpen) {
       return `
-        <div class="spread${turn}">${podiumSpreadHtml()}</div>
+        <div class="spread${turn}">${podiumSpreadHtml()}${ribbon}</div>
         <!-- WHOSE and WHICH DIFFICULTY, because those are the two facts a turned leaf cannot imply.
              The chapter is not repeated: the bookcase directly above has this volume ringed,
              ribboned and open, so it is the one piece of context the page gets for free — and the
@@ -1100,8 +1156,9 @@ export function initUI(hooks) {
     }
     return `
       <div class="spread${turn}">
-        <div class="page page--verso">${detailHeadHtml()}</div>
-        <div class="page page--recto">${playBlock}</div>
+        <div class="page page--verso" data-folio="${folio}">${detailHeadHtml()}</div>
+        <div class="page page--recto" data-folio="${folio + 1}">${playBlock}</div>
+        ${ribbon}
       </div>
       ${ladderHint}
       <div class="volume-acts">
@@ -1121,6 +1178,7 @@ export function initUI(hooks) {
   function updateTitleBelow() {
     const below = screens.title.querySelector('.title-below')
     if (below) below.innerHTML = titleBelowHtml()
+    flipSpread()
   }
 
   // Centre the browsed card in the carousel WITHOUT animation. Must run while the title screen is
@@ -1146,7 +1204,7 @@ export function initUI(hooks) {
       </header>
       ${bookcaseHtml()}
       ${syncNoticeHtml()}
-      <div class="title-below">${titleBelowHtml()}</div>
+      <div class="title-below${BOOK_LOOK ? ` book-look-${BOOK_LOOK}` : ''}">${titleBelowHtml()}</div>
       ${settingsSheetHtml()}
       ${slotsModalHtml()}
       ${renameSheetHtml()}
@@ -1156,6 +1214,7 @@ export function initUI(hooks) {
       ${conflictSheetHtml()}
     `)
     paintRoom()
+    flipSpread()
     // THE MANDATORY SHEET, MADE ACTUALLY MANDATORY. A modal backdrop blocks the pointer and nothing
     // else — Tab order is untouched by a `position: fixed` div — so keyboard focus walked onto Play
     // behind it. The click guard stops the run starting, but focus still LANDED there and Enter did
@@ -3960,6 +4019,7 @@ export function initUI(hooks) {
     if (el.dataset.vol !== undefined) {
       const id = el.dataset.vol
       if (id === browseChapterId) return
+      queueFlip(readingIndex(id) > readingIndex(browseChapterId) ? 'next' : 'prev')
       browseChapterId = id
       // Back to the preview's front face: a different volume asks "what is this chapter?", and a
       // podium left open answers with another chapter's scores.
@@ -4334,6 +4394,7 @@ export function initUI(hooks) {
         break
       case 'podium-open':
         podiumTurn = !podiumOpen // a retry redraws the page it is already on; it must not re-turn it
+        if (!podiumOpen) queueFlip('next')
         podiumOpen = true
         loadPodium(browseChapterId, boardDiffOf(browseChapterId))
         playSfx('click')
@@ -4341,6 +4402,7 @@ export function initUI(hooks) {
         break
       case 'podium-close':
         podiumTurn = true
+        queueFlip('prev')
         podiumOpen = false
         playSfx('click')
         updateTitleBelow()

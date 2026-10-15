@@ -3434,3 +3434,215 @@ body {
 .hud-playnow { position: fixed; left: 50%; bottom: 120px; transform: translateX(-50%); pointer-events: auto; z-index: 5; }
 /* dev only: a square beside Play rather than a full-width row, which cost the bookcase 64px */
 .dev-speedrun { flex: none; width: auto; min-width: 0; min-height: 50px; margin: 0; padding: 0 12px; font-size: 1.15rem; }
+
+/* ---- MOCKUPS (?bk=1|2|3, ui.js BOOK_LOOK): the open volume as a real book ---------------------
+   Shared by all three: a turning LEAF. flipSpread (ui.js) lays the old page over the new spread and
+   rotates it across the gutter; its back face is a copy of the new page, so it lands exactly on
+   what is already underneath and lifting it away is seamless. --paper is each look's stock, so the
+   leaf and the page it covers are the same paper. */
+.title-below[class*="book-look-"] { position: relative; }
+.title-below[class*="book-look-"] .spread {
+  --paper: linear-gradient(180deg, var(--cream-soft), var(--cream));
+  position: relative;
+  overflow: visible;
+  perspective: 1600px;
+}
+.flip-under, .flip-leaf { position: absolute; top: 0; bottom: 0; width: 50%; pointer-events: none; }
+.flip-under { z-index: 2; display: flex; background: var(--paper); }
+.flip-leaf { z-index: 3; transform-style: preserve-3d; animation: 0.66s cubic-bezier(0.45, 0.05, 0.3, 1) both; }
+.flip-under--l, .flip-leaf--prev { left: 0; }
+.flip-under--r, .flip-leaf--next { left: 50%; }
+.flip-leaf--next { transform-origin: left center; animation-name: leaf-next; }
+.flip-leaf--prev { transform-origin: right center; animation-name: leaf-prev; }
+@keyframes leaf-next {
+  from { transform: rotateY(0); }
+  to { transform: rotateY(-180deg); }
+}
+@keyframes leaf-prev {
+  from { transform: rotateY(0); }
+  to { transform: rotateY(180deg); }
+}
+/* A RIFFLE STACKS THE WAY PAPER DOES: a leaf not yet turned lies under the ones before it, a turned
+   one on top of them. z-index rides the turn as a second animation on the same clock. */
+.flip-leaf--r0 { animation-name: var(--leaf), leaf-z0; }
+.flip-leaf--r1 { animation-name: var(--leaf), leaf-z1; }
+.flip-leaf--r2 { animation-name: var(--leaf), leaf-z2; }
+.flip-leaf--next { --leaf: leaf-next; }
+.flip-leaf--prev { --leaf: leaf-prev; }
+@keyframes leaf-z0 { from { z-index: 13; } to { z-index: 10; } }
+@keyframes leaf-z1 { from { z-index: 12; } to { z-index: 11; } }
+@keyframes leaf-z2 { from { z-index: 11; } to { z-index: 12; } }
+.flip-face {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  overflow: hidden;
+  background: var(--paper);
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  animation-delay: inherit;
+}
+.flip-face--back { transform: rotateY(180deg); }
+.flip-under > .page, .flip-face > .page { flex: 1 1 auto; }
+/* the leaf greys as it stands on edge, turned away from the light */
+.flip-face::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(90deg, rgba(70, 48, 24, 0.05), rgba(70, 48, 24, 0.4));
+  animation: 0.66s cubic-bezier(0.45, 0.05, 0.3, 1) both;
+  animation-delay: inherit;
+}
+.flip-leaf--prev .flip-face::after { background: linear-gradient(270deg, rgba(70, 48, 24, 0.05), rgba(70, 48, 24, 0.4)); }
+.flip-face--front::after { animation-name: shade-up; }
+.flip-face--back::after { animation-name: shade-down; transform: scaleX(-1); }
+@keyframes shade-up { from { opacity: 0; } 50%, to { opacity: 1; } }
+@keyframes shade-down { from, 50% { opacity: 1; } to { opacity: 0; } }
+
+/* LOOK 1 — HARDCOVER. Woven cloth with a stitched edge, the page block's thickness under the
+   spread, a headband at the top of the spine and a silk ribbon down the gutter. */
+.book-look-1 {
+  background-color: var(--cloth-sel, #3d5c47);
+  background-image:
+    repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.05) 0 2px, transparent 2px 4px),
+    repeating-linear-gradient(-45deg, rgba(0, 0, 0, 0.06) 0 2px, transparent 2px 4px);
+  border-radius: 7px 7px 14px 14px;
+  padding: clamp(10px, 1.6svh, 14px) clamp(10px, 1.6svh, 14px) clamp(12px, 2svh, 16px);
+}
+.book-look-1::before {
+  content: "";
+  position: absolute;
+  inset: 5px;
+  border: 1.5px dashed rgba(255, 255, 255, 0.3);
+  border-radius: 5px 5px 11px 11px;
+  pointer-events: none;
+}
+.book-look-1 > * { position: relative; }
+.book-look-1 .spread {
+  margin-bottom: 6px;
+  border-radius: 4px 4px 3px 3px;
+  box-shadow:
+    0 1px 0 #ede4cc, 0 2px 0 #d6caae, 0 3px 0 #efe6cf, 0 4px 0 #d3c6a8,
+    0 5px 0 #ece2c9, 0 6px 0 #c4b593, 0 10px 10px -3px rgba(0, 0, 0, 0.45);
+}
+.book-look-1 .spread::before {
+  content: "";
+  position: absolute;
+  z-index: 4;
+  left: 50%;
+  top: -3px;
+  width: 14px;
+  height: 5px;
+  transform: translateX(-50%);
+  border-radius: 3px 3px 0 0;
+  background: repeating-linear-gradient(90deg, #a3263a 0 2px, #f3e3b0 2px 4px);
+}
+.spread-ribbon {
+  position: absolute;
+  z-index: 1;
+  left: calc(50% - 5px);
+  top: -2px;
+  width: 10px;
+  height: calc(100% + 16px);
+  background: linear-gradient(90deg, #8f1f31, #d4495c 45%, #8f1f31);
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 50% calc(100% - 6px), 0 100%);
+  filter: drop-shadow(1px 1px 1px rgba(0, 0, 0, 0.3));
+  pointer-events: none;
+}
+
+/* LOOK 2 — STORYBOOK. Aged paper, a serif title with an illuminated initial and a fleuron, folios
+   at the foot of each page, and a dog-eared corner on the recto. */
+.book-look-2 .spread {
+  --paper:
+    radial-gradient(120% 90% at 50% 50%, transparent 55%, rgba(150, 110, 50, 0.18)),
+    linear-gradient(180deg, #f9f0d8, #efe1bd);
+  background:
+    linear-gradient(90deg, rgba(120, 86, 40, 0.3), rgba(120, 86, 40, 0) 14px),
+    linear-gradient(270deg, rgba(120, 86, 40, 0.3), rgba(120, 86, 40, 0) 14px),
+    var(--paper);
+  border-radius: 2px;
+  box-shadow: 0 1px 0 #e3d2a6, 0 3px 0 #cdb787, 0 8px 10px -4px rgba(0, 0, 0, 0.45);
+}
+.book-look-2 .page { position: relative; padding-bottom: 20px; }
+.book-look-2 .page[data-folio]::after {
+  content: attr(data-folio);
+  position: absolute;
+  bottom: 5px;
+  font: italic 0.66rem Georgia, "Times New Roman", serif;
+  color: #9a8058;
+}
+.book-look-2 .page--verso[data-folio]::after { left: 14px; }
+.book-look-2 .page--recto[data-folio]::after { right: 32px; }
+.book-look-2 .page--recto::before {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 22px;
+  height: 22px;
+  background: linear-gradient(315deg, var(--cloth-sel, #3d5c47) 0 50%, #dcc797 50% 100%);
+  box-shadow: -2px -2px 3px -1px rgba(90, 60, 20, 0.35);
+  border-top-left-radius: 3px;
+}
+.book-look-2 .detail-name b {
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: 700;
+  font-size: clamp(1.1rem, 2.9svh, 1.45rem);
+  color: #3b2a14;
+}
+.book-look-2 .detail-name b::first-letter { color: var(--cloth-sel, #3d5c47); font-size: 1.35em; }
+.book-look-2 .detail-name b::after {
+  content: "\2767";
+  display: block;
+  margin: 1px 0 -2px;
+  font-size: 0.75em;
+  font-weight: 400;
+  color: #a4825a;
+}
+.book-look-2 .detail-name small { font-family: Georgia, "Times New Roman", serif; font-style: italic; font-weight: 400; color: #6d5737; }
+.book-look-2 .diff-label { font-family: Georgia, "Times New Roman", serif; font-style: italic; text-transform: none; letter-spacing: 0; font-size: clamp(0.85rem, 2svh, 1rem); color: #6d5737; }
+.book-look-2 .spread-podium { background: transparent; border-style: dashed; border-color: #c9b07c; }
+
+/* LOOK 3 — POP-UP. Bright card stock; when the leaf lands, the chapter's emblem and cast stand up
+   off the page like a pop-up book, and the pips pop in one by one. */
+.book-look-3 .spread {
+  --paper: linear-gradient(180deg, #fffefb, #f3eee3);
+  background:
+    linear-gradient(90deg, rgba(92, 64, 40, 0.22), rgba(92, 64, 40, 0) 10px),
+    linear-gradient(270deg, rgba(92, 64, 40, 0.22), rgba(92, 64, 40, 0) 10px),
+    var(--paper);
+  border-radius: 6px;
+  box-shadow: 0 2px 0 #ddd3c0, 0 4px 0 #cbbfa7, 0 9px 12px -4px rgba(0, 0, 0, 0.4);
+}
+.book-look-3 .detail-ico {
+  position: relative;
+  transform-origin: 50% 100%;
+  filter: drop-shadow(0 5px 2px rgba(60, 40, 20, 0.25));
+}
+.book-look-3 .detail-face { transform-origin: 50% 100%; box-shadow: 0 3px 3px -1px rgba(60, 40, 20, 0.3); }
+.book-look-3 .spread--fresh > .page .detail-ico { animation: pop-up 0.6s calc(var(--land, 0.66s) + 0.00s) cubic-bezier(0.3, 1.55, 0.5, 1) both; }
+.book-look-3 .spread--fresh > .page .detail-name { animation: rise-in 0.4s calc(var(--land, 0.66s) + 0.12s) ease-out both; }
+.book-look-3 .spread--fresh > .page .detail-face { animation: pop-up 0.45s cubic-bezier(0.3, 1.6, 0.5, 1) both; }
+.book-look-3 .spread--fresh > .page .detail-face:nth-child(1) { animation-delay: calc(var(--land, 0.66s) + 0.12s); }
+.book-look-3 .spread--fresh > .page .detail-face:nth-child(2) { animation-delay: calc(var(--land, 0.66s) + 0.20s); }
+.book-look-3 .spread--fresh > .page .detail-face:nth-child(3) { animation-delay: calc(var(--land, 0.66s) + 0.28s); }
+.book-look-3 .spread--fresh > .page .detail-face:nth-child(n+4) { animation-delay: calc(var(--land, 0.66s) + 0.36s); }
+.book-look-3 .spread--fresh > .page .diff-pip { animation: pip-pop 0.35s cubic-bezier(0.3, 1.6, 0.5, 1) both; }
+.book-look-3 .spread--fresh > .page .diff-pip:nth-of-type(1) { animation-delay: calc(var(--land, 0.66s) + 0.00s); }
+.book-look-3 .spread--fresh > .page .diff-pip:nth-of-type(2) { animation-delay: calc(var(--land, 0.66s) + 0.06s); }
+.book-look-3 .spread--fresh > .page .diff-pip:nth-of-type(3) { animation-delay: calc(var(--land, 0.66s) + 0.12s); }
+.book-look-3 .spread--fresh > .page .diff-pip:nth-of-type(4) { animation-delay: calc(var(--land, 0.66s) + 0.18s); }
+.book-look-3 .spread--fresh > .page .diff-pip:nth-of-type(n+5) { animation-delay: calc(var(--land, 0.66s) + 0.24s); }
+/* the leaf's copy of the new page arrives flat: the real page underneath does the standing up */
+.book-look-3 .flip-face--back :is(.detail-ico, .detail-name, .detail-face, .diff-pip) { visibility: hidden; }
+@keyframes pop-up {
+  from { transform: perspective(240px) rotateX(-88deg); }
+  to { transform: perspective(240px) rotateX(0); }
+}
+@keyframes rise-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes pip-pop { from { transform: scale(0.4); opacity: 0; } to { transform: none; opacity: 1; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .flip-leaf, .flip-face::after, .book-look-3 .spread--fresh * { animation: none !important; }
+}
