@@ -5788,8 +5788,12 @@ function runBookProgression() {
     // and the Shop door still describe Book 1.
     assert.ok(/scroll-snap-align: center/.test(css),
       'each .etage must snap to the centre — without it a swipe parks between two Books, both half on screen')
-    assert.ok(/\n    placeCase\(\)/.test(uiSrc) && /addEventListener\('resize', \(\) => \{ if \(active === 'title'\) placeCase\(\) \}\)/.test(uiSrc),
+    assert.ok(/\n    placeCase\(\)/.test(uiSrc) && /addEventListener\('resize', \(\) => \{ if \(active === 'title'\) \{ placeCase\(\); fitSpread\(\) \} \}\)/.test(uiSrc),
       'renderTitle and resize must both re-place the case on the browsed Book')
+    // the left page gives up its icon only when it does not fit, so every path that rewrites the
+    // page has to re-measure: renderTitle, the surgical updateTitleBelow, and a resize
+    assert.ok(/placeCase\(\)\n[^]{0,200}?fitSpread\(\)/.test(uiSrc) && /below\.innerHTML = titleBelowHtml\(\)\n    fitSpread\(\)/.test(uiSrc),
+      'renderTitle and updateTitleBelow must both call fitSpread after rewriting the spread')
     assert.ok(/bc\.onscroll = [^\n]*settleCase\(bc\)/.test(uiSrc),
       'the case must settle a swipe into a browse — otherwise the panel describes a Book you are no longer looking at')
     // Swiping is not discoverable on its own (owner: "unclear that there is a 3rd book"), so the
