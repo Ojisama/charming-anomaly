@@ -276,7 +276,7 @@ body {
 .title-below {
   background: var(--cloth-sel, #3d5c47);
   border-radius: 5px 5px 12px 12px;
-  padding: 7px 7px 9px;
+  padding: clamp(7px, 1.2svh, 11px) clamp(7px, 1.2svh, 11px) clamp(9px, 1.6svh, 14px);
   box-shadow:
     0 12px 22px -10px rgba(30, 18, 8, 0.75),
     inset 0 1px 0 rgba(255, 255, 255, 0.22);
@@ -1438,8 +1438,8 @@ body {
   width: 100%;
   /* capped like every other screen's content column, or a desktop shelf is 1280px of board */
   max-width: 520px;
-  flex: 1 1 auto;
-  min-height: 0;
+  /* sized by its spines, not by the screen: the spare height goes to the panel below */
+  flex: none;
   position: relative;
   display: flex;
   --peek: 22px;
@@ -1501,12 +1501,13 @@ body {
   align-items: flex-end;
   justify-content: center;
   gap: 4px;
-  /* The page's spare height goes to the SPINES, up to a hardback's proportions; past the cap it is
-     wall above them. The 164px floor is the longest title's need: a volume gives its name
-     row x 94% - 48px (head 34 + stars 9 + foot pad 5), and 'Undergrowth' at 0.55rem needs 105. */
-  flex: 1 1 auto;
-  min-height: 164px;
-  max-height: 250px;
+  /* What the screen has left after the header and the open volume below (~490px), between a
+     floor and a hardback's proportions — so the wall above the spines is only the ribbon's room,
+     and past the cap the spare height goes to the panel instead. The 164px floor is the longest
+     title's need: a volume gives its name row x 94% - 48px (head 34 + stars 9 + foot pad 5), and
+     'Undergrowth' at 0.55rem needs 105. */
+  flex: none;
+  height: clamp(164px, calc(100svh - 490px), 340px);
   padding: 0 10px;
 }
 
@@ -1808,14 +1809,11 @@ body {
 
 /* the panel under the bookcase (chapter identity + difficulty row + Play); Play pins to the bottom */
 .title-below {
-  /* `flex: none`, not `1 1 auto`: this panel and the bookcase would otherwise split the leftover
-     height between them, and the case is the part that needs it. */
-  flex: none;
-  /* spare height goes ABOVE the panel, so Play stays at the thumb end of the screen */
-  margin-top: auto;
+  /* takes whatever the spines leave (see .shelf-row), and its spread is the part that grows */
+  flex: 1 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  gap: clamp(7px, 1.4svh, 12px);
   width: calc(100% - 20px);
   max-width: 470px;
 }
@@ -1828,10 +1826,21 @@ body {
   width: 100%;
   max-width: none;
   margin: 0;
-  min-height: 50px;
+  min-height: clamp(50px, 8svh, 66px);
   padding: 9px 20px;
-  font-size: 1.2rem;
+  font-size: clamp(1.2rem, 2.8svh, 1.45rem);
 }
+.title-below .btn--shop { min-height: clamp(50px, 8svh, 66px); font-size: clamp(0.86rem, 2svh, 1rem); }
+/* the open volume fills what the panel is given, and its contents grow with it */
+.title-below > .spread { flex: 1 1 auto; }
+.title-below .page { justify-content: center; gap: clamp(8px, 1.6svh, 14px); }
+.title-below .page--verso .detail-ico { font-size: clamp(1.45rem, 5svh, 2.6rem); }
+.title-below .page--verso .detail-name b { font-size: clamp(0.95rem, 2.5svh, 1.25rem); }
+.title-below .page--verso .detail-name small { font-size: clamp(0.7rem, 1.7svh, 0.82rem); }
+.title-below .page--verso .detail-face { width: clamp(22px, 3.6svh, 30px); height: clamp(22px, 3.6svh, 30px); }
+.title-below .page--recto .diff-pip { height: clamp(34px, 5.2svh, 42px); font-size: clamp(0.9rem, 2.1svh, 1.05rem); }
+.title-below .page--recto .diff-label { font-size: clamp(0.7rem, 1.6svh, 0.8rem); }
+.title-below .spread-podium { min-height: clamp(34px, 5.2svh, 42px); font-size: clamp(0.82rem, 1.9svh, 0.95rem); }
 /* the ladder note sits on the book's cloth, so it reads as printed on the cover, not on a page */
 .title-below > .diff-hint--locked { margin: -1px 0 0; text-align: center; color: rgba(255, 255, 255, 0.82); font-size: 0.68rem; }
 
@@ -1892,7 +1901,7 @@ body {
 .btn--shop:focus-visible { outline: 3px solid var(--mint-dark); outline-offset: 2px; }
 /* At 320px "Play"+"Shop" side by side is tight in both languages; the shop keeps its icon only.
    Its aria-label still speaks the word, so the control is not losing its name, only its type. */
-@media (max-width: 360px) {
+@media (max-width: 340px) {
   .btn--shop { padding: 8px 15px 13px; }
   .shop-btn-label { font-size: 0; }
   .shop-btn-label::first-letter { font-size: 1.15rem; }
