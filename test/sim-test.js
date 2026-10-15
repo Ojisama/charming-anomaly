@@ -5378,7 +5378,7 @@ function runBooks() {
     assert.ok(/if \(next && !isWipChapter\(next\)\) \{/.test(mainSrc),
       "main.js's chapter-unlock chain no longer skips WIP chapters — winning The Surf at 3+ would unlock The Shelf and write it to the save")
     // A VOLUME's availability is decided once, in config.js's titleBookshelf, and arrives as
-    // `vol.unlocked` — so volHtml has no gate of its own to get wrong. Five sites remain, and the
+    // `vol.unlocked` — so volHtml has no gate of its own to get wrong. Four sites remain, and the
     // last two are easy to forget: paintRoom washes the room in the selected chapter's own colour,
     // and a LOCKED chapter must tint nothing, or the shelf hands out the palette of a chapter it is
     // otherwise careful not to name; and the shop's book tab (v7.x) has to LAND on a chapter, so an
@@ -5386,8 +5386,12 @@ function runBooks() {
     // would show "???" over a dead Play button. (It was six until the Daily was deleted — its
     // briefing screen badged a locked chapter as a "preview", the one place the gate was allowed
     // to pass.)
-    assert.strictEqual((uiSrc.match(/chapterAvailable\(meta, /g) ?? []).length, 5,
-      'ui.js must gate the room tint, the detail head, the Play button, the volume tap and the shop book tab on chapterAvailable — any one left reading `unlocked` directly is a chapter you can see and cannot play')
+    // (Four since the storybook spread: its pages and the Play button now read ONE heroUnlocked,
+    // so the head and the button cannot disagree by construction.)
+    assert.strictEqual((uiSrc.match(/chapterAvailable\(meta, /g) ?? []).length, 4,
+      'ui.js must gate the room tint, the open book + Play button (one heroUnlocked), the volume tap and the shop book tab on chapterAvailable — any one left reading `unlocked` directly is a chapter you can see and cannot play')
+    assert.ok(/bookSpreadHtml\(\{ heroUnlocked,/.test(uiSrc) && /data-act="play" \$\{heroUnlocked \? '' : 'disabled'\}/.test(uiSrc),
+      'the open book and the Play button must both read the one heroUnlocked gate')
     // ...and the one that MOVED must actually be there, or every volume shelves as a playable spine.
     assert.ok(/unlocked: chapterAvailable\(meta, id\)/.test(configSrc),
       'titleBookshelf no longer decides volume availability with chapterAvailable — a WIP chapter would shelve as a playable spine')
@@ -5771,19 +5775,26 @@ function runBookProgression() {
     assert.ok(/\.book-tab\s*\{/.test(css) && /\.book-tab--on\s*\{/.test(css),
       'the book tabs need both a rule and a selected rule — with only one, every book looks equally current and the tab strip says nothing')
 
-    // A clipped shelf and a short shelf look identical. What overflows first is a shelf-board's
-    // brass plate, which is the ONLY place a Book's name and star total are written — that is the
-    // bug this pair was written for (Book 2 sat unlabelled below the fold on a 410x745 phone).
-    assert.ok(/bc\.scrollHeight - bc\.clientHeight - bc\.scrollTop > 2/.test(uiSrc),
-      'the bookcase fade must be toggled from a MEASUREMENT — gating it on the number of books was wrong at both ends: two books overflow a 375x667 phone with no fade, three fit a tall screen and would get one over nothing')
-    assert.ok(/addEventListener\('resize', markBookcaseScroll\)/.test(uiSrc),
-      'the fade must be re-measured on resize — rotation changes the answer and nothing else re-renders the title')
-    assert.ok(/\.bookcase--more\s*\{/.test(css), '.bookcase--more has no rule, so the class toggles nothing and the shelf clips silently again')
-    assert.ok(/scroll-snap-align: end/.test(css),
-      'the etage must snap on its END — a shelf snapped by its top parks its brass plate under the fold, which is the exact thing being fixed')
+    // THE CASE IS A CAROUSEL, one Book per page. Its contract lives in three places that no import
+    // joins: a page that snaps, a renderTitle that re-places the case on the browsed Book (the
+    // rewrite rebuilds it at scrollLeft 0, so without it every tap jumps back to Book 1), and a
+    // swipe that SETTLES into a browse. Lose the last and the shelf shows Book 2 while the panel
+    // and the Shop door still describe Book 1.
+    assert.ok(/scroll-snap-align: center/.test(css),
+      'each .etage must snap to the centre — without it a swipe parks between two Books, both half on screen')
+    assert.ok(/\n    placeCase\(\)/.test(uiSrc) && /addEventListener\('resize', \(\) => \{ if \(active === 'title'\) placeCase\(\) \}\)/.test(uiSrc),
+      'renderTitle and resize must both re-place the case on the browsed Book')
+    assert.ok(/bc\.onscroll = [^\n]*settleCase\(bc\)/.test(uiSrc),
+      'the case must settle a swipe into a browse — otherwise the panel describes a Book you are no longer looking at')
+    // Swiping is not discoverable on its own (owner: "unclear that there is a 3rd book"), so the
+    // arrows and the dots are the visible half of the carousel. Each is a button with a click branch.
+    for (const act of ['case-prev', 'case-next', 'case-page']) {
+      assert.ok(uiSrc.includes(`data-act="${act}"`) && uiSrc.includes(`case '${act}':`),
+        `${act} must be both rendered and handled — a rendered button with no branch does nothing`)
+    }
 
     // The panel is a SPREAD. Stacked it was 255px of a 745px phone and the case overflowed by 33.
-    assert.ok(/class="page page--verso"/.test(uiSrc) && /class="page page--recto"/.test(uiSrc),
+    assert.ok(/class="page page--verso" data-folio/.test(uiSrc) && /class="page page--recto" data-folio/.test(uiSrc),
       'titleBelowHtml must render two pages — the stacked panel is what pushed the second shelf out of the case')
     assert.ok(/\.page--recto \.diff-pip \{[^}]*flex: 1 1 0/.test(css),
       'the difficulty pips must DIVIDE the recto rather than be sized in px — a fixed 34px pip is 170px of a 168px page, and five of them wrapped the panel TALLER than the stack it replaced')
@@ -5792,16 +5803,12 @@ function runBookProgression() {
     // them, and each has a var() FALLBACK, so a broken half is not a blank screen or a throw —
     // it is a plausible-looking screen with the wrong number in it.
     //
-    // A shelf is ONE HEIGHT whatever the Book count, and the case scrolls. Dividing the row by the
+    // A shelf is ONE HEIGHT whatever the Book count: each Book has its own page. Dividing the row by the
     // Book count (the old --shelves divisor) crushed the spines to ~98px at three Books and would
     // crush them further at every Book after. The px floor is the longest spine title's need.
     const rowRule = css.match(/\.shelf-row \{[^}]*\}/)?.[0] ?? ''
     assert.ok(/height: clamp\(164px, /.test(rowRule) && !/--shelves/.test(rowRule + uiSrc),
       '.shelf-row must have a fixed 164px floor and no Book-count divisor — a divided height crushes every spine as Books are added')
-    // The case scrolls, and renderTitle rebuilds it at scrollTop 0: without the carry, tapping a
-    // volume on a lower shelf jumps the case back to Book 1.
-    assert.ok(/const caseScroll = screens\.title\.querySelector\('\.bookcase'\)\?\.scrollTop/.test(uiSrc) && /markBookcaseScroll\(caseScroll\)/.test(uiSrc),
-      'renderTitle must carry the bookcase scroll offset across its innerHTML rewrite')
     // --shop-pct is the completion meter's fill. Missing, it falls back to 0% and every save on
     // earth reads "empty shop" next to a number saying otherwise.
     assert.ok(/style="--shop-pct:\$\{pct\}%"/.test(uiSrc),
@@ -5821,7 +5828,7 @@ function runBookProgression() {
     assert.ok(!/class="coins-badge" data-act/.test(uiSrc),
       'the title header must not carry a coins badge as well — two balances for one purse is what moving it onto the door was for')
 
-    console.log('PASS run BP.q3 (book navigation): shop book tabs gated by titleBookshelf and browse-only, bookcase fade measured not counted, 2-page spread with flex pips, fixed shelf height + scroll carried, --shop-pct authored and read')
+    console.log('PASS run BP.q3 (book navigation): shop book tabs gated by titleBookshelf and browse-only, carousel snaps + re-placed + settles + arrows/dots wired, 2-page spread with flex pips, fixed shelf floor, --shop-pct authored and read')
   }
 
   // (q4b) EVERY CONFIG CONSTANT ui.js USES IS ACTUALLY IMPORTED. ui.js cannot be imported by this
@@ -11967,7 +11974,7 @@ function runStripper() {
     ['render.js', ['function drawJelly', 'const ROSTER_LOOKS', 'function clearWorld', 'function syncPool']],
     ['main.js', ['const SFX_FOR_EVENT']],
     ['sim.js', ['export function stepSim', 'function dealDamage']],
-    ['ui.js', ['function detailHeadHtml']],
+    ['ui.js', ['function bookSpreadHtml']],
   ]
   const kept = []
   for (const [file, anchors] of CASES) {

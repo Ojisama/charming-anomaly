@@ -1511,7 +1511,7 @@ body {
   padding: 0 10px;
 }
 
-/* ‹ › over the peeking neighbours (look 1), or beside the dots (look 3) */
+/* ‹ › over the peeking neighbours */
 .case-nav {
   display: grid;
   place-items: center;
@@ -1549,14 +1549,6 @@ body {
 .case-dot--on { width: 24px; background: var(--cloth); border-color: rgba(0, 0, 0, 0.35); }
 .case-dot--shut { opacity: 0.45; }
 
-/* LOOK 2: wider peek, and the Books either side stand back — smaller and dimmed — so the one in
-   front is unmistakably the one you are choosing from. No arrows; the neighbours are the hint. */
-.case-look-2 { --peek: 44px; --page-gap: 4px; }
-.case-look-2 .etage:not(.etage--cur) { transform: scale(0.9); opacity: 0.55; }
-
-/* LOOK 3: a thin peek, and the controls in a bar under the case: ‹  ● ○ ○  ›. */
-.case-look-3 { --peek: 14px; --page-gap: 6px; }
-.case-look-3 + .case-dots { gap: 18px; margin-top: 0; }
 
 /* the board, and the brass plate naming the Book. The plate is a LABEL — nothing on the shelf is
    tappable except a volume, so it must not look like a control. */
@@ -1833,16 +1825,10 @@ body {
 .title-below .btn--shop { min-height: clamp(50px, 8svh, 66px); font-size: clamp(0.86rem, 2svh, 1rem); }
 /* the open volume fills what the panel is given, and its contents grow with it */
 .title-below > .spread { flex: 1 1 auto; }
-.title-below .page { justify-content: center; gap: clamp(8px, 1.6svh, 14px); }
-.title-below .page--verso .detail-ico { font-size: clamp(1.45rem, 5svh, 2.6rem); }
-.title-below .page--verso .detail-name b { font-size: clamp(0.95rem, 2.5svh, 1.25rem); }
-.title-below .page--verso .detail-name small { font-size: clamp(0.7rem, 1.7svh, 0.82rem); }
 .title-below .page--verso .detail-face { width: clamp(22px, 3.6svh, 30px); height: clamp(22px, 3.6svh, 30px); }
 .title-below .page--recto .diff-pip { height: clamp(34px, 5.2svh, 42px); font-size: clamp(0.9rem, 2.1svh, 1.05rem); }
-.title-below .page--recto .diff-label { font-size: clamp(0.7rem, 1.6svh, 0.8rem); }
 .title-below .spread-podium { min-height: clamp(34px, 5.2svh, 42px); font-size: clamp(0.82rem, 1.9svh, 0.95rem); }
 /* the ladder note sits on the book's cloth, so it reads as printed on the cover, not on a page */
-.title-below > .diff-hint--locked { margin: -1px 0 0; text-align: center; color: rgba(255, 255, 255, 0.82); font-size: 0.68rem; }
 
 /* The volume's two doors, side by side on its cover. Play is the wide one; the Shop is a narrow
    companion rather than a row of its own, because the height a second row would cost is the height
@@ -3435,13 +3421,12 @@ body {
 /* dev only: a square beside Play rather than a full-width row, which cost the bookcase 64px */
 .dev-speedrun { flex: none; width: auto; min-width: 0; min-height: 50px; margin: 0; padding: 0 12px; font-size: 1.15rem; }
 
-/* ---- MOCKUPS (?bk=1|2|3, ui.js BOOK_LOOK): the open volume as a real book ---------------------
-   Shared by all three: a turning LEAF. flipSpread (ui.js) lays the old page over the new spread and
+/* ---- the open volume as a real book -------------------------------------------------------------
+   A turning LEAF. flipSpread (ui.js) lays the old page over the new spread and
    rotates it across the gutter; its back face is a copy of the new page, so it lands exactly on
-   what is already underneath and lifting it away is seamless. --paper is each look's stock, so the
+   what is already underneath and lifting it away is seamless. --paper is the book's stock, so the
    leaf and the page it covers are the same paper. */
-.title-below[class*="book-look-"] { position: relative; }
-.title-below[class*="book-look-"] .spread {
+.title-below .spread {
   --paper: linear-gradient(180deg, var(--cream-soft), var(--cream));
   position: relative;
   overflow: visible;
@@ -3500,7 +3485,7 @@ body {
 @keyframes shade-up { from { opacity: 0; } 50%, to { opacity: 1; } }
 @keyframes shade-down { from, 50% { opacity: 1; } to { opacity: 0; } }
 
-/* THE PAGE LAYOUT shared by the three looks (bookSpreadHtml, ui.js): three bands per page, and
+/* THE PAGE LAYOUT (bookSpreadHtml, ui.js): three bands per page, and
    both pages use the same three, so the eyebrows sit on one line across the gutter, the two big
    things (the chapter, the pips) share a middle, and the small print shares a foot line. */
 .spread--book > .page { justify-content: space-between; gap: 10px; padding: clamp(10px, 1.8svh, 16px) 10px clamp(12px, 2svh, 18px); }
@@ -3525,60 +3510,9 @@ body {
 .pg-leader .podium-rank { flex: none; width: 11px; height: 14px; }
 .pg-leader .medal-n { clip-path: inset(50%); }
 
-/* LOOK 1 — HARDCOVER. Woven cloth with a stitched edge, the page block's thickness under the
-   spread, a headband at the top of the spine and a silk ribbon down the gutter. */
-.book-look-1 {
-  background-color: var(--cloth-sel, #3d5c47);
-  background-image:
-    repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.05) 0 2px, transparent 2px 4px),
-    repeating-linear-gradient(-45deg, rgba(0, 0, 0, 0.06) 0 2px, transparent 2px 4px);
-  border-radius: 7px 7px 14px 14px;
-  padding: clamp(10px, 1.6svh, 14px) clamp(10px, 1.6svh, 14px) clamp(12px, 2svh, 16px);
-}
-.book-look-1::before {
-  content: "";
-  position: absolute;
-  inset: 5px;
-  border: 1.5px dashed rgba(255, 255, 255, 0.3);
-  border-radius: 5px 5px 11px 11px;
-  pointer-events: none;
-}
-.book-look-1 > * { position: relative; }
-.book-look-1 .spread {
-  margin-bottom: 6px;
-  border-radius: 4px 4px 3px 3px;
-  box-shadow:
-    0 1px 0 #ede4cc, 0 2px 0 #d6caae, 0 3px 0 #efe6cf, 0 4px 0 #d3c6a8,
-    0 5px 0 #ece2c9, 0 6px 0 #c4b593, 0 10px 10px -3px rgba(0, 0, 0, 0.45);
-}
-.book-look-1 .spread::before {
-  content: "";
-  position: absolute;
-  z-index: 4;
-  left: 50%;
-  top: -3px;
-  width: 14px;
-  height: 5px;
-  transform: translateX(-50%);
-  border-radius: 3px 3px 0 0;
-  background: repeating-linear-gradient(90deg, #a3263a 0 2px, #f3e3b0 2px 4px);
-}
-.spread-ribbon {
-  position: absolute;
-  z-index: 1;
-  left: calc(50% - 5px);
-  top: -2px;
-  width: 10px;
-  height: calc(100% + 16px);
-  background: linear-gradient(90deg, #8f1f31, #d4495c 45%, #8f1f31);
-  clip-path: polygon(0 0, 100% 0, 100% 100%, 50% calc(100% - 6px), 0 100%);
-  filter: drop-shadow(1px 1px 1px rgba(0, 0, 0, 0.3));
-  pointer-events: none;
-}
-
-/* LOOK 2 — STORYBOOK. Aged paper, a serif title with an illuminated initial and a fleuron, folios
-   at the foot of each page, and a dog-eared corner on the recto. */
-.book-look-2 .spread {
+/* THE STORYBOOK DRESS (owner's pick of three): aged paper, a serif title with an initial in the
+   Book's cloth and a fleuron, folios at the foot of each page, a dog-eared corner on the recto. */
+.title-below .spread {
   --paper:
     radial-gradient(120% 90% at 50% 50%, transparent 55%, rgba(150, 110, 50, 0.18)),
     linear-gradient(180deg, #f9f0d8, #efe1bd);
@@ -3589,17 +3523,17 @@ body {
   border-radius: 2px;
   box-shadow: 0 1px 0 #e3d2a6, 0 3px 0 #cdb787, 0 8px 10px -4px rgba(0, 0, 0, 0.45);
 }
-.book-look-2 .page { position: relative; padding-bottom: 20px; }
-.book-look-2 .page[data-folio]::after {
+.title-below .page { position: relative; padding-bottom: 20px; }
+.title-below .page[data-folio]::after {
   content: attr(data-folio);
   position: absolute;
   bottom: 5px;
   font: italic 0.66rem Georgia, "Times New Roman", serif;
   color: #9a8058;
 }
-.book-look-2 .page--verso[data-folio]::after { left: 14px; }
-.book-look-2 .page--recto[data-folio]::after { right: 32px; }
-.book-look-2 .page--recto::before {
+.title-below .page--verso[data-folio]::after { left: 14px; }
+.title-below .page--recto[data-folio]::after { right: 32px; }
+.title-below .page--recto::before {
   content: "";
   position: absolute;
   right: 0;
@@ -3610,14 +3544,14 @@ body {
   box-shadow: -2px -2px 3px -1px rgba(90, 60, 20, 0.35);
   border-top-left-radius: 3px;
 }
-.book-look-2 .pg-name {
+.title-below .pg-name {
   font-family: Georgia, "Times New Roman", serif;
   font-weight: 700;
   font-size: clamp(1.1rem, 2.9svh, 1.45rem);
   color: #3b2a14;
 }
-.book-look-2 .pg-name::first-letter { color: var(--cloth-sel, #3d5c47); font-size: 1.35em; }
-.book-look-2 .pg-name::after {
+.title-below .pg-name::first-letter { color: var(--cloth-sel, #3d5c47); font-size: 1.35em; }
+.title-below .pg-name::after {
   content: "\2767";
   display: block;
   margin: 1px 0 -2px;
@@ -3625,49 +3559,10 @@ body {
   font-weight: 400;
   color: #a4825a;
 }
-.book-look-2 .pg-tag { font-family: Georgia, "Times New Roman", serif; font-style: italic; font-weight: 400; color: #6d5737; }
-.book-look-2 .pg-eyebrow { font-family: Georgia, "Times New Roman", serif; font-style: italic; text-transform: none; letter-spacing: 0; font-size: clamp(0.85rem, 2svh, 1rem); color: #6d5737; }
-.book-look-2 .spread-podium { background: transparent; border-style: dashed; border-color: #c9b07c; }
-
-/* LOOK 3 — POP-UP. Bright card stock; when the leaf lands, the chapter's emblem and cast stand up
-   off the page like a pop-up book, and the pips pop in one by one. */
-.book-look-3 .spread {
-  --paper: linear-gradient(180deg, #fffefb, #f3eee3);
-  background:
-    linear-gradient(90deg, rgba(92, 64, 40, 0.22), rgba(92, 64, 40, 0) 10px),
-    linear-gradient(270deg, rgba(92, 64, 40, 0.22), rgba(92, 64, 40, 0) 10px),
-    var(--paper);
-  border-radius: 6px;
-  box-shadow: 0 2px 0 #ddd3c0, 0 4px 0 #cbbfa7, 0 9px 12px -4px rgba(0, 0, 0, 0.4);
-}
-.book-look-3 .pg-ico {
-  position: relative;
-  transform-origin: 50% 100%;
-  filter: drop-shadow(0 5px 2px rgba(60, 40, 20, 0.25));
-}
-.book-look-3 .detail-face { transform-origin: 50% 100%; box-shadow: 0 3px 3px -1px rgba(60, 40, 20, 0.3); }
-.book-look-3 .spread--fresh > .page .pg-ico { animation: pop-up 0.6s calc(var(--land, 0.66s) + 0.00s) cubic-bezier(0.3, 1.55, 0.5, 1) both; }
-.book-look-3 .spread--fresh > .page :is(.pg-name, .pg-tag) { animation: rise-in 0.4s calc(var(--land, 0.66s) + 0.12s) ease-out both; }
-.book-look-3 .spread--fresh > .page .detail-face { animation: pop-up 0.45s cubic-bezier(0.3, 1.6, 0.5, 1) both; }
-.book-look-3 .spread--fresh > .page .detail-face:nth-child(1) { animation-delay: calc(var(--land, 0.66s) + 0.12s); }
-.book-look-3 .spread--fresh > .page .detail-face:nth-child(2) { animation-delay: calc(var(--land, 0.66s) + 0.20s); }
-.book-look-3 .spread--fresh > .page .detail-face:nth-child(3) { animation-delay: calc(var(--land, 0.66s) + 0.28s); }
-.book-look-3 .spread--fresh > .page .detail-face:nth-child(n+4) { animation-delay: calc(var(--land, 0.66s) + 0.36s); }
-.book-look-3 .spread--fresh > .page .diff-pip { animation: pip-pop 0.35s cubic-bezier(0.3, 1.6, 0.5, 1) both; }
-.book-look-3 .spread--fresh > .page .diff-pip:nth-of-type(1) { animation-delay: calc(var(--land, 0.66s) + 0.00s); }
-.book-look-3 .spread--fresh > .page .diff-pip:nth-of-type(2) { animation-delay: calc(var(--land, 0.66s) + 0.06s); }
-.book-look-3 .spread--fresh > .page .diff-pip:nth-of-type(3) { animation-delay: calc(var(--land, 0.66s) + 0.12s); }
-.book-look-3 .spread--fresh > .page .diff-pip:nth-of-type(4) { animation-delay: calc(var(--land, 0.66s) + 0.18s); }
-.book-look-3 .spread--fresh > .page .diff-pip:nth-of-type(n+5) { animation-delay: calc(var(--land, 0.66s) + 0.24s); }
-/* the leaf's copy of the new page arrives flat: the real page underneath does the standing up */
-.book-look-3 .flip-face--back :is(.pg-ico, .pg-name, .pg-tag, .detail-face, .diff-pip) { visibility: hidden; }
-@keyframes pop-up {
-  from { transform: perspective(240px) rotateX(-88deg); }
-  to { transform: perspective(240px) rotateX(0); }
-}
-@keyframes rise-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
-@keyframes pip-pop { from { transform: scale(0.4); opacity: 0; } to { transform: none; opacity: 1; } }
+.title-below .pg-tag { font-family: Georgia, "Times New Roman", serif; font-style: italic; font-weight: 400; color: #6d5737; }
+.title-below .pg-eyebrow { font-family: Georgia, "Times New Roman", serif; font-style: italic; text-transform: none; letter-spacing: 0; font-size: clamp(0.85rem, 2svh, 1rem); color: #6d5737; }
+.title-below .spread-podium { background: transparent; border-style: dashed; border-color: #c9b07c; }
 
 @media (prefers-reduced-motion: reduce) {
-  .flip-leaf, .flip-face::after, .book-look-3 .spread--fresh * { animation: none !important; }
+  .flip-leaf, .flip-face::after { animation: none !important; }
 }

@@ -195,7 +195,7 @@ function selectedChapterMeta(meta) {
 // The shelf model itself lives in config.js (titleBookshelf) — a pure function of the save with no
 // DOM in it, which is what lets the suite assert the WIP gate for real rather than by grepping
 // this file.
-// A chapter's name, tagline and cast faces live in the panel BELOW the shelf (detailHeadHtml) —
+// A chapter's name, tagline and cast faces live in the panel BELOW the shelf (bookSpreadHtml) —
 // a spine has no room for them, and that panel is the only consumer of CAST_ART left, so it is
 // what keeps the scripts/bake-cast.mjs thumbnails reachable.
 
@@ -577,8 +577,6 @@ export function initUI(hooks) {
   // the spines more with every Book added; a page per Book keeps a full-height shelf whatever the
   // count. Swiping is native scroll-snap (no gesture code), and settling on a page browses that Book
   // (settleCase) so the panel and the Shop door always describe the shelf you are looking at.
-  // MOCKUP SWITCH (?cv=1|2|3) — delete with the losing looks once one is picked.
-  const CASE_LOOK = Number(new URLSearchParams(location.search).get('cv')) || 1
   function casePageOf(shelves, id) {
     return Math.max(0, shelves.findIndex((s) => s.volumes.some((v) => v.id === id)))
   }
@@ -591,11 +589,11 @@ export function initUI(hooks) {
     const prev = `<button class="case-nav case-nav--prev" data-act="case-prev" aria-label="${t('previous book')}"${cur === 0 ? ' disabled' : ''}>‹</button>`
     const next = `<button class="case-nav case-nav--next" data-act="case-next" aria-label="${t('next book')}"${cur === shelves.length - 1 ? ' disabled' : ''}>›</button>`
     return `
-      <div class="case-wrap case-look-${CASE_LOOK}">
+      <div class="case-wrap">
         <div class="bookcase">${shelves.map((s, i) => etageHtml(s, i + 1, i === cur)).join('')}</div>
-        ${CASE_LOOK === 1 ? prev + next : ''}
+        ${prev}${next}
       </div>
-      <div class="case-dots">${CASE_LOOK === 3 ? prev : ''}<span class="case-dot-row">${dots}</span>${CASE_LOOK === 3 ? next : ''}</div>`
+      <div class="case-dots"><span class="case-dot-row">${dots}</span></div>`
   }
 
   // Put the case on the selected chapter's Book with no animation, then listen for the swipe to
@@ -698,48 +696,6 @@ export function initUI(hooks) {
       </div>`
   }
 
-  // The detail panel's head — the chapter's identity, which the hero card used to carry and a 47px
-  // spine cannot. This is the only place the cast thumbnails (CAST_ART, baked by
-  // scripts/bake-cast.mjs from render.js's own creature textures) still appear, so deleting it
-  // would quietly orphan them.
-  function detailHeadHtml() {
-    const id = browseChapterId
-    if (!chapterAvailable(meta, id)) {
-      // Named neither by the volume nor here: a locked chapter's identity is the thing the turned
-      // volume exists to withhold.
-      // A hidden chapter names its OWN gate, from HIDDEN_UNLOCKS; everything else names the ladder.
-      const line = HIDDEN_UNLOCKS[id]
-        ? t(HIDDEN_UNLOCKS[id].hint)
-        : tt('win {name} at difficulty 3+', { name: t(CHAPTERS[furthestUnlockedChapterId(meta)].name) })
-      return `
-        <div class="detail-head">
-          <span class="detail-ico">🔒</span>
-          <span class="detail-name"><b>???</b><small>${line}</small></span>
-        </div>`
-    }
-    const chapter = CHAPTERS[id]
-    const chMeta = meta.chapters?.[id] ?? {}
-    // A named face with no baked file is skipped rather than drawn as an empty disc — that only
-    // happens when bake-cast.mjs has not been re-run for a newly added id, and a short row reads as
-    // a small cast where a blank disc reads as broken.
-    const cast = (chapter.render.cast ?? [])
-      .filter((rid) => CAST_ART[rid])
-      .map((rid) => `<span class="detail-face"><img src="${CAST_ART[rid]}" alt="" draggable="false"></span>`)
-      .join('')
-    // A CIRCUIT'S `best` IS A DIFFERENT FIELD AND THE OPPOSITE COMPARISON. chMeta.best.time is a
-    // MAX — "survived longest" — which on a lap race is your SLOWEST finish, printed under the word
-    // `best`. See ensureChapterMeta for why bestRaceTime is its own slot rather than a reused one.
-    const bestSecs = chapter.circuit ? chMeta.bestRaceTime : chMeta.best?.time
-    const best = bestSecs > 0 ? `<span class="detail-best">${t('best')} ${fmtTime(bestSecs)}</span>` : ''
-    return `
-      <div class="detail-head">
-        <span class="detail-ico">${chapter.icon}</span>
-        <span class="detail-name"><b>${t(chapter.name)}</b><small>${t(chapter.tagline)}</small></span>
-        ${cast ? `<span class="detail-cast" aria-hidden="true">${cast}</span>` : ''}
-        ${best}
-      </div>`
-  }
-
   // The Shop door's two numbers: the book's purse, and how far through the book's permanent upgrades
   // it is. The percentage is bookProgress (state.js), which is where the arithmetic lives and where
   // the suite can reach it — sacrifices are counted on both sides of it, see the note there.
@@ -780,9 +736,6 @@ export function initUI(hooks) {
   // consumed by the next render.
   let podiumTurn = false
 
-  // MOCKUP SWITCH (?bk=1|2|3): the open volume as a real book whose leaves turn. 0 = as shipped.
-  // Delete the losing looks once one is picked.
-  const BOOK_LOOK = Number(new URLSearchParams(location.search).get('bk')) || 0
   // A PAGE TURN IN FLIGHT. queueFlip clones the two leaves on show BEFORE a rewrite; flipSpread,
   // after it, lays the old leaf over the new spread and turns it across the gutter, its back face
   // carrying the new page — so what lands is exactly the page underneath, and lifting the leaf
@@ -793,7 +746,6 @@ export function initUI(hooks) {
     return sp ? [...sp.children].filter((e) => e.classList.contains('page')) : []
   }
   function queueFlip(dir, riffle = 0) {
-    if (!BOOK_LOOK) return
     const pages = spreadPages()
     pendingFlip = pages.length === 2 ? { dir, riffle, old: pages.map((pg) => pg.cloneNode(true)) } : null
   }
@@ -1000,37 +952,6 @@ export function initUI(hooks) {
       <div class="page page--recto page--board">${podiumPageHtml(recto)}</div>`
   }
 
-  // Who holds this board's kills record, under the Podium button on the CLOSED page — so the panel
-  // answers "is anyone ahead of me here?" without being asked, and the button below it stops being
-  // a door to an unknown room.
-  //
-  // RENDERS NOTHING when there is no answer (owner's call): no scores yet, offline, rate-limited,
-  // still loading. Every one of those is a state the player can do nothing about, and a placeholder
-  // or an error on a title screen is worse than a panel that simply looks like it did before. It
-  // also means this can never make the panel taller than the 34px of slack measured under the
-  // button, because the only thing it ever draws is one line.
-  //
-  // THE CHAPTER'S FIRST BOARD, not kills. One line has to pick, and on an ordinary chapter the pick
-  // is still kills — the two boards disagree often (they did in every screenshot of this feature)
-  // and kills is the number that chapter is about. But on The Reef there is no kills board to lead:
-  // nothing in it can die, so a hardcoded `.kills[0]` would put a name here off a table of zeroes,
-  // ranked by nothing, on the one panel whose whole job is answering "is anyone ahead of me here?".
-  // The verso is by construction the board a chapter considers its headline, so it is the one to
-  // read.
-  //
-  // The gold disc rather than a medal emoji — it is the SAME element the podium's first row uses,
-  // so the closed page and the turned page name first place with one mark. A cross-platform emoji
-  // could not do that (see the drawn shop icons, same ruling).
-  function leaderLine(chapterId, difficulty) {
-    ensureBoards(chapterId, difficulty)
-    const top = podiumCache.get(boardKey(chapterId, difficulty))?.[boardsFor(chapterId, difficulty)[0]]?.[0]
-    if (!top) return ''
-    return `<div class="spread-leader">
-      ${medalHtml(1)}
-      <span class="podium-nick">${esc(top.nick)}</span>
-    </div>`
-  }
-
   // ONE leaf of the turned spread: the metric's name, then its three rows.
   function podiumPageHtml(which) {
     // NO "top 3" CHIP HERE, and it is the layout that decided that rather than taste. The chip was
@@ -1087,30 +1008,6 @@ export function initUI(hooks) {
           if (d > chMeta.maxDifficulty) return `<button class="diff-pip diff-pip--locked" data-act="diff" data-diff="${d}" disabled>🔒</button>`
           return `<button class="diff-pip${!endlessSel && d <= chMeta.difficulty ? ' diff-pip--on' : ''}" data-act="diff" data-diff="${d}">${d}</button>`
         }).join('')}${endlessOn ? `<button class="diff-pip diff-pip--endless${endlessSel ? ' diff-pip--on' : ''}" data-act="endless" aria-label="${t(ENDLESS_COPY.pip.name)}">${INFINITY_SVG}</button>` : ''}`
-    const playBlock = heroUnlocked ? `
-      <div class="diff-row">
-        <span class="diff-label">${t('Difficulty')}${rewardChip}</span>
-        ${pips}
-      </div>
-      <!-- IN THE RECTO'S OWN SLACK, which is why it costs the panel nothing. Measured on the live
-           build: the spread is 324x168, and this page's content (label + pips) uses 112 of its 168,
-           so 56px sit empty under the pips while the VERSO — icon, name, tagline, cast, record —
-           sets the height. A row on the foot line instead would push the panel, and the bookcase
-           above has 0px of scroll headroom (the .spread comment records 33px of overflow once
-           eating the second shelf's brass plate).
-           It also belongs beside the pips on meaning, not just on space: a board is scoped to ONE
-           difficulty, and this is where difficulty is chosen. -->
-      <button class="spread-podium" data-act="podium-open">
-        ${ICO_PODIUM}<span>${t('Podium')}</span><i>→</i>
-      </button>
-      ${leaderLine(browseChapterId, boardDiff)}
-      ` : ''
-    // Across the FOOT of the spread, not on the recto: at half width this sentence wraps to two
-    // lines in both languages, and those two lines were most of why the panel still pushed the
-    // bookcase past its scroll box. Full width it is one line.
-    const ladderHint = heroUnlocked && chMeta.maxDifficulty < cap
-      ? `<p class="diff-hint diff-hint--locked">${tt('win level {n} to unlock {m}', { n: chMeta.maxDifficulty, m: chMeta.maxDifficulty + 1 })}</p>`
-      : ''
     // A two-page SPREAD, not a stack: the volume you tapped, opened. Verso carries the chapter's
     // identity, recto the run you are about to start. It exists for a measured reason as much as a
     // thematic one — stacked, this panel was 255px of a 745px phone and the bookcase overflowed by
@@ -1121,22 +1018,29 @@ export function initUI(hooks) {
     // spends, and the meter fills for this book alone. That is also why the header no longer shows
     // a coin badge — one balance, on the door it belongs to, instead of the same number twice.
     const { coins, pct } = shopDoor(shopBookId())
+    const acts = `
+      <div class="volume-acts">
+        <button class="btn btn--big btn--play" data-act="play" ${heroUnlocked ? '' : 'disabled'}>▶&nbsp; ${t('Play')}</button>
+        ${speedrunBtn}
+        <button class="btn btn--shop" data-act="shop" style="--shop-pct:${pct}%" aria-label="${t('Shop')}">
+          <span class="shop-btn-label">🛒&nbsp; ${t('Shop')}</span>
+          <span class="shop-btn-meter"><small class="shop-btn-purse">🪙 ${coins}</small><i></i><b>${pct}%</b></span>
+        </button>
+      </div>`
+    if (!podiumOpen) {
+      podiumTurn = false
+      return bookSpreadHtml({ heroUnlocked, chMeta, cap, pips, rewardChip, boardDiff }) + acts
+    }
     // TURNED: the same two leaves, carrying one board each. The spread keeps its height because the
     // pages keep their count — that is the whole reason this layout was chosen over stacking both
-    // boards on one wide page (owner's pick), and it is what leaves the bookcase above untouched.
-    // The foot line, which normally carries the ladder hint, becomes the way back and the only
-    // thing that says WHICH board you are reading: the pips are on the leaf now showing scores.
-    if (BOOK_LOOK && !podiumOpen) {
-      podiumTurn = false
-      return bookSpreadHtml({ heroUnlocked, chMeta, cap, pips, rewardChip, boardDiff, speedrunBtn, coins, pct })
-    }
-    const turn = podiumTurn && !BOOK_LOOK ? ' spread--turn' : ''
-    const folio = readingIndex(browseChapterId) * 2 + 2
-    const ribbon = BOOK_LOOK === 1 ? '<i class="spread-ribbon" aria-hidden="true"></i>' : ''
+    // boards on one wide page (owner's pick). The foot line becomes the way back and the only thing
+    // that says WHICH board you are reading: the pips are on the leaf now showing scores.
+    // The turn itself is flipSpread's leaf; the old whole-spread swing is kept only for a board that
+    // is one solo page (empty or failed), which a leaf cannot be laid over.
+    const turn = podiumTurn && !pendingFlip ? ' spread--turn' : ''
     podiumTurn = false
-    if (podiumOpen) {
-      return `
-        <div class="spread${turn}">${podiumSpreadHtml()}${ribbon}</div>
+    return `
+      <div class="spread${turn}">${podiumSpreadHtml()}</div>
         <!-- WHOSE and WHICH DIFFICULTY, because those are the two facts a turned leaf cannot imply.
              The chapter is not repeated: the bookcase directly above has this volume ringed,
              ribboned and open, so it is the one piece of context the page gets for free — and the
@@ -1147,44 +1051,19 @@ export function initUI(hooks) {
              NO BACKTICKS IN HERE. This comment is inside a template literal, so one would close it
              and the next word becomes code — which is exactly how it shipped a blank page for a
              minute, with node --check clean because the check ran before the comment was added. -->
-        <button class="diff-hint podium-foot" data-act="podium-close">
-          ←&nbsp; ${tt('all players · difficulty {n}', { n: boardDiff })}
-        </button>
-        <div class="volume-acts">
-          <button class="btn btn--big btn--play" data-act="play" ${heroUnlocked ? '' : 'disabled'}>▶&nbsp; ${t('Play')}</button>
-          ${speedrunBtn}
-          <button class="btn btn--shop" data-act="shop" style="--shop-pct:${pct}%" aria-label="${t('Shop')}">
-            <span class="shop-btn-label">🛒&nbsp; ${t('Shop')}</span>
-            <span class="shop-btn-meter"><small class="shop-btn-purse">🪙 ${coins}</small><i></i><b>${pct}%</b></span>
-          </button>
-        </div>`
-    }
-    return `
-      <div class="spread${turn}">
-        <div class="page page--verso" data-folio="${folio}">${detailHeadHtml()}</div>
-        <div class="page page--recto" data-folio="${folio + 1}">${playBlock}</div>
-        ${ribbon}
-      </div>
-      ${ladderHint}
-      <div class="volume-acts">
-        <button class="btn btn--big btn--play" data-act="play" ${heroUnlocked ? '' : 'disabled'}>▶&nbsp; ${t('Play')}</button>
-        ${speedrunBtn}
-        <button class="btn btn--shop" data-act="shop" style="--shop-pct:${pct}%" aria-label="${t('Shop')}">
-          <span class="shop-btn-label">🛒&nbsp; ${t('Shop')}</span>
-          <span class="shop-btn-meter"><small class="shop-btn-purse">🪙 ${coins}</small><i></i><b>${pct}%</b></span>
-        </button>
-      </div>`
+      <button class="diff-hint podium-foot" data-act="podium-close">
+        ←&nbsp; ${tt('all players · difficulty {n}', { n: boardDiff })}
+      </button>${acts}`
   }
 
-  // MOCKUP (?bk): the open volume's two pages laid out in three bands that line up across the
+  // THE OPEN VOLUME, laid out in three bands per page that line up across the
   // gutter — an eyebrow at the head, the page's one big thing in the middle, its small print at the
   // foot — so neither page has a crowded middle over an empty top and bottom. The ladder note moved
   // in off the cover: it is about difficulty, so it sits under the pips it explains.
-  function bookSpreadHtml({ heroUnlocked, chMeta, cap, pips, rewardChip, boardDiff, speedrunBtn, coins, pct }) {
+  function bookSpreadHtml({ heroUnlocked, chMeta, cap, pips, rewardChip, boardDiff }) {
     const id = browseChapterId
     const ch = CHAPTERS[id]
     const folio = readingIndex(id) * 2 + 2
-    const ribbon = BOOK_LOOK === 1 ? '<i class="spread-ribbon" aria-hidden="true"></i>' : ''
     const num = chapterNumber(id)
     const eyebrow = `<span class="pg-eyebrow">${num ? tt('Chapter {n}', { n: num }) : t('Hidden chapter')}</span>`
     const cast = heroUnlocked
@@ -1221,15 +1100,6 @@ export function initUI(hooks) {
       <div class="spread spread--book">
         <div class="page page--verso" data-folio="${folio}">${verso}</div>
         <div class="page page--recto" data-folio="${folio + 1}">${recto}</div>
-        ${ribbon}
-      </div>
-      <div class="volume-acts">
-        <button class="btn btn--big btn--play" data-act="play" ${heroUnlocked ? '' : 'disabled'}>▶&nbsp; ${t('Play')}</button>
-        ${speedrunBtn}
-        <button class="btn btn--shop" data-act="shop" style="--shop-pct:${pct}%" aria-label="${t('Shop')}">
-          <span class="shop-btn-label">🛒&nbsp; ${t('Shop')}</span>
-          <span class="shop-btn-meter"><small class="shop-btn-purse">🪙 ${coins}</small><i></i><b>${pct}%</b></span>
-        </button>
       </div>`
   }
 
@@ -1266,7 +1136,7 @@ export function initUI(hooks) {
       </header>
       ${bookcaseHtml()}
       ${syncNoticeHtml()}
-      <div class="title-below${BOOK_LOOK ? ` book-look-${BOOK_LOOK}` : ''}">${titleBelowHtml()}</div>
+      <div class="title-below">${titleBelowHtml()}</div>
       ${settingsSheetHtml()}
       ${slotsModalHtml()}
       ${renameSheetHtml()}

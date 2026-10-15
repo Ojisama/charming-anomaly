@@ -1502,6 +1502,8 @@ const CONFIG = {
   'Wreck': 'Épave',
   'Trawl': 'Chalut',
   'Book {n}': 'Livre {n}',
+  'previous book': 'livre précédent',
+  'next book': 'livre suivant',
   'Chapter {n}': 'Chapitre {n}',
   'Hidden chapter': 'Chapitre caché',
   'locked chapter': 'chapitre verrouillé',
