@@ -9868,7 +9868,7 @@ export const MANTLE_MELT_T = 0.6           // s a rock creature lasts under the 
 export const MANTLE_SPAWN_TRIES = 24       // bearings tried per ring when seating a creature in its habitat
 
 CHAPTERS.mantle = {
-  name: 'The Mantle', tagline: 'the lava breathes', icon: '🌋',
+  name: 'The Mantle', tagline: 'the lava breathes', icon: '🔥',
   weapons: ['quenchKettle', 'hotCoals', 'crackHammer', 'lavaBellows'], starter: 'hotCoals',
   // habitat: 'rock' | 'lava' (THE TWO HABITATS above). A spawn the ground cannot seat (no lava on the
   // ring for a lava creature, no dry rock for a rock one) comes in as one of the other habitat; a brood at a fixed spot off its ground is dropped.

@@ -5413,7 +5413,13 @@ function runBooks() {
   // day its `wip` flag comes off). Their replacement is main's own titleBookshelf coverage — do
   // not resurrect these against the deleted function.
   if (realWipFrom === undefined) delete BOOKS.undertow.wipFrom; else BOOKS.undertow.wipFrom = realWipFrom
-  console.log(`PASS run BK (books + WIP gate): nextChapter is book-local, ${wip.length} WIP chapter(s) unreachable by order/unlock, gated both ways through createRun and the bookcase`)
+  // every chapter shows its own icon on its spine and its page — two volumes sharing one read as the same book
+  const byIcon = {}
+  for (const id of Object.keys(CHAPTERS)) (byIcon[CHAPTERS[id].icon] ??= []).push(id)
+  const shared = Object.entries(byIcon).filter(([, ids]) => ids.length > 1)
+  assert.deepStrictEqual(shared, [], `chapters share an icon: ${JSON.stringify(shared)}`)
+  assert.ok(byIcon[CHAPTERS.mantle.icon]?.includes('mantle'), 'icon sweep did not see the mantle')
+  console.log(`PASS run BK (books + WIP gate): nextChapter is book-local, ${wip.length} WIP chapter(s) unreachable by order/unlock, gated both ways through createRun and the bookcase, ${Object.keys(byIcon).length} distinct icons over ${Object.keys(CHAPTERS).length} chapters`)
 }
 run(runBooks)
 
