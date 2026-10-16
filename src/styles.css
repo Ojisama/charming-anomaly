@@ -3543,8 +3543,11 @@ body {
   bottom: 0;
   width: 22px;
   height: 22px;
-  background: linear-gradient(315deg, var(--cloth-sel, #3d5c47) 0 50%, #dcc797 50% 100%);
-  box-shadow: -2px -2px 3px -1px rgba(90, 60, 20, 0.35);
+  /* the corner lifted shows the NEXT LEAF under it, paper like this one, never the cover: the
+     spread's bottom edge already draws a stack of pages, and a cloth triangle read as a hole */
+  background:
+    linear-gradient(315deg, #e8d7ac 0 calc(50% - 0.5px), rgba(120, 86, 40, 0.35) calc(50% - 0.5px) 50%, #f3e7c6 50% 100%);
+  box-shadow: -2px -2px 3px -1px rgba(90, 60, 20, 0.3);
   border-top-left-radius: 3px;
 }
 .title-below .pg-name {
@@ -3622,8 +3625,8 @@ body {
 .title-below .page--verso:has(.detail-cast--r2) .pg-ico { font-size: clamp(1.8rem, 5.5svh, 2.8rem); }
 .title-below .page--verso:has(.detail-cast--r3) .pg-ico { font-size: clamp(1.4rem, 4svh, 2.2rem); }
 /* fitSpread (ui.js): a left page that still does not fit gives up its icon, half then whole */
-.title-below .page--verso.pg-tight .pg-ico { font-size: clamp(1.2rem, 3.4svh, 1.8rem); margin-bottom: 2px; }
-.title-below .page--verso.pg-tighter .pg-ico { display: none; }
+.title-below .pg-tight .page--verso .pg-ico { font-size: clamp(1.2rem, 3.4svh, 1.8rem); margin-bottom: 2px; }
+.title-below .pg-tighter .page--verso .pg-ico { display: none; }
 
 /* ---- MOCKUP (?rp=1|2|3): the right-hand page. Remove the losers once the owner picks. ---------- */
 .rp-foot { font-family: -apple-system, "SF Pro Text", system-ui, "Segoe UI", Roboto, sans-serif; }
@@ -3699,3 +3702,71 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .flip-leaf, .flip-face::after { animation: none !important; }
 }
+
+/* ---- the difficulty as WAX SEALS (bookSpreadHtml, ui.js) -----------------------------------------
+   Numerals in an ink ring, the chosen level pressed as a seal in the Book's cloth. The rosette edge
+   is a clip-path on ::before so the drop-shadow (a filter, which clip-path would cut) sits on the
+   button around it. */
+.seals { display: flex; justify-content: center; align-items: center; gap: 4px; width: 100%; margin: 2px 0 4px; }
+.seal {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: 30px;
+  aspect-ratio: 1;
+  padding: 0;
+  border: 1.5px solid rgba(90, 62, 28, 0.5);
+  border-radius: 50%;
+  background: none;
+  font: 700 clamp(0.82rem, 2.1svh, 1rem)/1 Georgia, "Times New Roman", serif;
+  color: #5a4022;
+  cursor: pointer;
+}
+.seal b { position: relative; z-index: 1; display: grid; place-items: center; font: inherit; }
+.seal svg { width: 70%; height: auto; }
+.seal--inf svg { width: 80%; }
+.seal--locked { border-style: dashed; border-color: rgba(90, 62, 28, 0.3); color: rgba(90, 62, 28, 0.4); cursor: default; }
+.seal--locked .rp-lock { width: 45%; height: 45%; }
+.seal--on {
+  border-color: transparent;
+  color: #fbf1d6;
+  transform: rotate(-10deg) scale(1.22);
+  filter: drop-shadow(0 1.5px 1.5px rgba(50, 25, 5, 0.45));
+}
+.seal--on::before {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  clip-path: polygon(96.8% 50.0%, 98.2% 54.2%, 99.2% 58.7%, 96.8% 62.5%, 94.0% 66.0%, 93.9% 70.5%, 93.3% 75.0%, 89.6% 77.8%, 85.9% 80.1%, 84.2% 84.2%, 82.1% 88.3%, 77.8% 89.6%, 73.4% 90.5%, 70.5% 93.9%, 67.1% 97.0%, 62.5% 96.8%, 58.1% 96.1%, 54.2% 98.2%, 50.0% 100.0%, 45.8% 98.2%, 41.9% 96.1%, 37.5% 96.8%, 32.9% 97.0%, 29.5% 93.9%, 26.6% 90.5%, 22.2% 89.6%, 17.9% 88.3%, 15.8% 84.2%, 14.1% 80.1%, 10.4% 77.8%, 6.7% 75.0%, 6.1% 70.5%, 6.0% 66.0%, 3.2% 62.5%, 0.8% 58.7%, 1.8% 54.2%, 3.2% 50.0%, 1.8% 45.8%, 0.8% 41.3%, 3.2% 37.5%, 6.0% 34.0%, 6.1% 29.5%, 6.7% 25.0%, 10.4% 22.2%, 14.1% 19.9%, 15.8% 15.8%, 17.9% 11.7%, 22.2% 10.4%, 26.6% 9.5%, 29.5% 6.1%, 32.9% 3.0%, 37.5% 3.2%, 41.9% 3.9%, 45.8% 1.8%, 50.0% 0.0%, 54.2% 1.8%, 58.1% 3.9%, 62.5% 3.2%, 67.1% 3.0%, 70.5% 6.1%, 73.4% 9.5%, 77.8% 10.4%, 82.1% 11.7%, 84.2% 15.8%, 85.9% 19.9%, 89.6% 22.2%, 93.3% 25.0%, 93.9% 29.5%, 94.0% 34.0%, 96.8% 37.5%, 99.2% 41.3%, 98.2% 45.8%);
+  background:
+    radial-gradient(circle at 50% 50%, transparent 52%, rgba(255, 255, 255, 0.22) 55%, transparent 60%),
+    radial-gradient(circle at 34% 28%, rgba(255, 255, 255, 0.3), transparent 42%),
+    var(--cloth-sel, #3d5c47);
+}
+.seal:not(.seal--on):not(:disabled):active { background: rgba(120, 86, 40, 0.12); }
+.seal--stamp { animation: seal-stamp 0.34s cubic-bezier(0.25, 0.9, 0.35, 1.25) both; }
+@keyframes seal-stamp {
+  from { opacity: 0; transform: rotate(-34deg) scale(2); }
+  60% { opacity: 1; }
+  to { opacity: 1; transform: rotate(-10deg) scale(1.22); }
+}
+.title-below .pg-hint { margin-top: 3px; font-size: 0.6rem; line-height: 1.25; }
+.pg-tight .pg-hint { display: none; }
+@media (prefers-reduced-motion: reduce) { .seal--stamp { animation: none; } }
+
+/* ---- a turned leaf (the podium) in the same dress as the closed one --------------------------------
+   The eyebrow is the page's own italic one and the three rows share the page between them, instead
+   of a sans-serif list stacked at the top with half a page of nothing under it. */
+.title-below .page--board { justify-content: flex-start; gap: 6px; padding-top: clamp(10px, 1.8svh, 16px); }
+.title-below .page--board .pg-top { flex: none; }
+.title-below .page--board .podium-rows { flex: 1; justify-content: space-evenly; }
+.title-below .page--board .podium-row { border-bottom: 1px dashed rgba(120, 86, 40, 0.3); }
+.title-below .page--board .podium-row:last-child { border-bottom: none; }
+.title-below .page--board .podium-nick { font: 700 0.84rem Georgia, "Times New Roman", serif; color: #3b2a14; }
+.title-below .page--board .podium-score { color: #6d5737; }
+.title-below .podium-foot { font: italic 0.8rem Georgia, "Times New Roman", serif; color: #f0e2bf; }
+/* a reward chip beside the eyebrow: the dashes give way so the pair fits the page */
+.title-below .pg-top:has(.diff-reward-chip) .pg-eyebrow::before,
+.title-below .pg-top:has(.diff-reward-chip) .pg-eyebrow::after { display: none; }

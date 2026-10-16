@@ -622,9 +622,11 @@ export function initUI(hooks) {
     // the spread, scrollHeight counts the transform, and a page measured mid-landing "fit".
     const below = v.closest('.title-below')
     const over = () => below.offsetTop + below.offsetHeight + parseFloat(getComputedStyle(sc).paddingBottom) > sc.clientHeight + 0.5
-    v.classList.remove('pg-tight', 'pg-tighter')
-    if (over()) v.classList.add('pg-tight')
-    if (over()) v.classList.add('pg-tighter')
+    // on the SPREAD, so either page can give: the recto drops its ladder hint, the verso its icon
+    const sp = v.parentElement
+    sp.classList.remove('pg-tight', 'pg-tighter')
+    if (over()) sp.classList.add('pg-tight')
+    if (over()) sp.classList.add('pg-tighter')
   }
   addEventListener('resize', () => { if (active === 'title') { placeCase(); fitSpread() } })
   // The Mine and Mantle bakes are MEDALLIONS: the creature sits in the middle of a disc (cream for
@@ -769,12 +771,26 @@ export function initUI(hooks) {
   // pip, every board arriving — and each would spin the whole panel. Set by the two turn actions,
   // consumed by the next render.
   let podiumTurn = false
+  // ONE-SHOT, same idiom: true only for the render a difficulty pick causes, so the new seal is
+  // pressed once and not on every leader line or board that repaints the page afterwards.
+  let sealStamp = false
 
   // A PAGE TURN IN FLIGHT. queueFlip clones the two leaves on show BEFORE a rewrite; flipSpread,
   // after it, lays the old leaf over the new spread and turns it across the gutter, its back face
   // carrying the new page — so what lands is exactly the page underneath, and lifting the leaf
   // away is seamless. riffle > 0 turns that many blank leaves first (a whole Book changing hands).
   let pendingFlip = null
+  // A TURN IN FLIGHT OWNS THE PAGE. The leaves live inside .spread, so any rewrite of .title-below
+  // deletes them mid-air — and the leader line and the podium both arrive from the network a few
+  // hundred ms after the tap, which on a phone is squarely inside the 0.66s turn. That is how every
+  // turn on the live URL vanished after a frame or two. A late answer now waits for the landing
+  // (refreshBelow); a TAP still rewrites at once, which simply ends the turn early.
+  let flipDone = null
+  let belowStale = false
+  function refreshBelow() {
+    if (flipDone) belowStale = true
+    else updateTitleBelow()
+  }
   function spreadPages() {
     const sp = screens.title?.querySelector('.title-below .spread')
     return sp ? [...sp.children].filter((e) => e.classList.contains('page')) : []
@@ -812,7 +828,20 @@ export function initUI(hooks) {
     sp.classList.add('spread--fresh')
     sp.style.setProperty('--land', `${(n - 1) * 0.13 + 0.66}s`)
     sp.append(under, ...leaves)
-    leaves[n - 1].addEventListener('animationend', () => { under.remove(); for (const l of leaves) l.remove() }, { once: true })
+    // animationend, with a timer as the floor: a backgrounded tab can hold the event back forever
+    let timer = 0
+    const done = () => {
+      if (flipDone !== done) return
+      flipDone = null
+      clearTimeout(timer)
+      under.remove()
+      for (const l of leaves) l.remove()
+      if (belowStale && active === 'title') { belowStale = false; updateTitleBelow() }
+    }
+    flipDone = done
+    belowStale = false
+    timer = setTimeout(done, ((n - 1) * 0.13 + 0.66) * 1000 + 400)
+    leaves[n - 1].addEventListener('animationend', (e) => { if (e.target === leaves[n - 1]) done() })
   }
   // where a chapter sits in reading order across every Book, for the turn's direction and folios
   function readingIndex(id) {
@@ -868,7 +897,7 @@ export function initUI(hooks) {
       podiumPending.delete(key)
       if (!boards) return // an unreachable board shows NOTHING on the title, never a message
       podiumCache.set(key, boards)
-      if (active === 'title' && !podiumOpen) updateTitleBelow()
+      if (active === 'title' && !podiumOpen) refreshBelow()
     })
   }
 
@@ -884,7 +913,7 @@ export function initUI(hooks) {
       // the first settles last and failed, an already-painted board flips to the error state.
       if (podiumReq !== mine) return
       podiumState = boards ?? 'error'
-      if (active === 'title' && podiumOpen) updateTitleBelow()
+      if (active === 'title' && podiumOpen) refreshBelow()
     })
   }
 
@@ -1003,7 +1032,7 @@ export function initUI(hooks) {
     // than 'Meilleur temps', which is itself exactly as long as 'Niveau atteint', so it clears the
     // 142px the eyebrow gets with room over and cannot wrap the leaf to two lines.
     const label = { kills: 'Kills', level: 'Level reached', time: 'Best time', lap: 'Best lap', survive: 'Best time', parry: 'Parries' }[which]
-    const eyebrow = `<div class="brief-eyebrow podium-eyebrow">${t(label)}</div>`
+    const eyebrow = `<div class="pg-top"><span class="pg-eyebrow podium-eyebrow">${t(label)}</span></div>`
     if (podiumState === null) return `${eyebrow}${podiumSkeleton()}`
     // Each board is scored by its OWN metric. Passing rows through with a `score` field rather than
     // teaching podiumRowHtml which board it is drawing keeps one row renderer for all three — and
@@ -1139,8 +1168,6 @@ export function initUI(hooks) {
         ? `<span class="pg-hint">🔒 ${tt('win level {n} to unlock {m}', { n: chMeta.maxDifficulty, m: chMeta.maxDifficulty + 1 })}</span>`
         : ''
       ensureBoards(id, boardDiff)
-      const top = podiumCache.get(boardKey(id, boardDiff))?.[boardsFor(id, boardDiff)[0]]?.[0]
-      const leader = top ? `<small class="pg-leader">${medalHtml(1)}${esc(top.nick)}</small>` : ''
       // MOCKUP (?rp=1|2|3 = the right-hand page; ?pdfake = sample names for screenshots). Remove the
       // two losers and this switch once the owner picks.
       const Q = new URLSearchParams(location.search)
@@ -1168,8 +1195,18 @@ export function initUI(hooks) {
           <span class="rp-board-hd">${ICO_PODIUM}<b>${t('Podium')}</b>${CHEV}</span>
           ${top3.length ? `<span class="rp-board-list">${top3.map((r, i) => `<span>${medalHtml(i + 1)}<em>${esc(r.nick)}</em></span>`).join('')}</span>` : ''}
         </button>`
-      let mid = `<div class="diff-row">${pips}</div>${hint}`
-      let foot = `<button class="spread-podium" data-act="podium-open">${ICO_PODIUM}<span class="podium-lbl"><span>${t('Podium')}</span>${leader}</span><i>›</i></button>`
+      // WAX SEALS: the levels as numerals ringed in ink, the chosen one pressed into the Book's own
+      // cloth. A page already has ink and a seal; a pill of buttons was the one thing on it that
+      // belonged to an app. The stamp plays once, on the render a pick causes (sealStamp).
+      const stamp = sealStamp ? ' seal--stamp' : ''
+      sealStamp = false
+      const seal = (d) => d > chMeta.maxDifficulty
+        ? `<button class="seal seal--locked" disabled aria-label="${tt('Level {n}', { n: d })}">${LOCK}</button>`
+        : `<button class="seal${!endlessSel && d === cur ? ` seal--on${stamp}` : ''}" data-act="diff" data-diff="${d}" aria-label="${tt('Level {n}', { n: d })}"><b>${d}</b></button>`
+      const seals = `${levels.map(seal).join('')}${endlessOn ? `<button class="seal seal--inf${endlessSel ? ` seal--on${stamp}` : ''}" data-act="endless" aria-label="${t(ENDLESS_COPY.pip.name)}"><b>${INFINITY_SVG}</b></button>` : ''}`
+      // no coins line here: the eyebrow's reward chip already says it, one line up
+      let mid = `<div class="seals">${seals}</div><b class="rp-level">${levelName}</b><span class="rp-fx">${fx}</span>${hint}`
+      let foot = board
       let head = `<span class="pg-eyebrow">${t('Difficulty')}</span>${rewardChip}`
       if (RP === 1) {
         // BOOKMARK RIBBONS: one ribbon per level hanging from the head of the page, the chosen one
@@ -1231,6 +1268,8 @@ export function initUI(hooks) {
   // re-render to move the selection ring and the ribbon, and unlike the carousel it has no scroll
   // offset to lose, which is what forced the surgical path in the first place.
   function updateTitleBelow() {
+    flipDone = null // the rewrite below removes any leaf in flight; a fresh turn may follow
+    belowStale = false
     const below = screens.title.querySelector('.title-below')
     if (below) below.innerHTML = titleBelowHtml()
     fitSpread()
@@ -4481,12 +4520,14 @@ export function initUI(hooks) {
       case 'brief-reroll': hooks.onBriefReroll?.(Number(el.dataset.i)); break
       case 'endless':
         hooks.onEndless(!selectedChapterMeta(meta).endlessPicked)
+        sealStamp = true
         updateTitleBelow()
         break
       case 'diff': {
         const d = Number(el.dataset.diff)
         if (d > selectedChapterMeta(meta).maxDifficulty) break // belt-and-braces: locked pips are disabled already
         hooks.onDifficulty(d)
+        sealStamp = true
         updateTitleBelow() // surgical: keep the carousel's scroll position (a full renderTitle would reset it)
         break
       }
