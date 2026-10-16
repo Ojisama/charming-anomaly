@@ -1195,22 +1195,19 @@ export function initUI(hooks) {
           <span class="rp-board-hd">${ICO_PODIUM}<b>${t('Podium')}</b>${CHEV}</span>
           ${top3.length ? `<span class="rp-board-list">${top3.map((r, i) => `<span>${medalHtml(i + 1)}<em>${esc(r.nick)}</em></span>`).join('')}</span>` : ''}
         </button>`
-      // WAX SEALS: the levels as numerals ringed in ink, the chosen one pressed into the Book's own
-      // cloth. A page already has ink and a seal; a pill of buttons was the one thing on it that
-      // belonged to an app. The stamp plays once, on the render a pick causes (sealStamp).
-      // THREE STATES BEFORE THE PICK: beaten (gold, with the spine's own star — `won`, the field the
-      // ★ row reads), open (a bare ink ring), locked (dashed, a padlock).
+      // A TRAIL: the levels as stops on an ink path. Beaten stops are filled (`won`, the field the
+      // spine's ★ row reads, so the two agree), the next one ringed bolder, the road ahead dotted,
+      // a locked stop dashed with a padlock. The picked stop pops once, on the render a pick causes
+      // (sealStamp).
       const won = Math.max(0, Number(chMeta.won) || 0)
       const stamp = sealStamp ? ' seal--stamp' : ''
       sealStamp = false
       const seal = (d) => d > chMeta.maxDifficulty
-        ? `<button class="seal seal--locked" style="--d:${d}" disabled aria-label="${tt('Level {n}', { n: d })}">${LOCK}</button>`
-        : `<button class="seal${d <= won ? ' seal--won' : d === won + 1 ? ' seal--next' : ''}${!endlessSel && d === cur ? ` seal--on${stamp}` : ''}" style="--d:${d}" data-act="diff" data-diff="${d}" aria-label="${tt('Level {n}', { n: d })}"><b>${d}</b>${d <= won ? '<i class="seal-star" aria-hidden="true">★</i>' : ''}</button>`
-      const seals = `${levels.map(seal).join('')}${endlessOn ? `<button class="seal seal--inf${endlessSel ? ` seal--on${stamp}` : ''}" style="--d:${cap + 1}" data-act="endless" aria-label="${t(ENDLESS_COPY.pip.name)}"><b>${INFINITY_SVG}</b></button>` : ''}`
-      // MOCKUP (?ds=1|2|3): three other dresses for the same five states. Remove once the owner picks.
-      const DS = +(Q.get('ds') || 0)
+        ? `<button class="seal seal--locked" disabled aria-label="${tt('Level {n}', { n: d })}">${LOCK}</button>`
+        : `<button class="seal${d <= won ? ' seal--won' : d === won + 1 ? ' seal--next' : ''}${!endlessSel && d === cur ? ` seal--on${stamp}` : ''}" data-act="diff" data-diff="${d}" aria-label="${tt('Level {n}', { n: d })}"><b>${d}</b></button>`
+      const seals = `${levels.map(seal).join('')}${endlessOn ? `<button class="seal seal--inf${endlessSel ? ` seal--on${stamp}` : ''}" data-act="endless" aria-label="${t(ENDLESS_COPY.pip.name)}"><b>${INFINITY_SVG}</b></button>` : ''}`
       // no coins line here: the eyebrow's reward chip already says it, one line up
-      let mid = `<div class="seals${DS ? ` seals--ds${DS}` : ''}">${seals}</div><b class="rp-level">${levelName}</b><span class="rp-fx">${fx}</span>${hint}`
+      let mid = `<div class="seals">${seals}</div><b class="rp-level">${levelName}</b><span class="rp-fx">${fx}</span>${hint}`
       let foot = board
       let head = `<span class="pg-eyebrow">${t('Difficulty')}</span>${rewardChip}`
       if (RP === 1) {
