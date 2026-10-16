@@ -1175,6 +1175,10 @@ export function initUI(hooks) {
       const endlessOn = endlessAccess(meta) && endlessUnlocked(meta, id)
       const endlessSel = boardDiff === 0
       const cur = chMeta.difficulty
+      // ALWAYS THREE ROWS: a level's board is fetched on the tap that picks it, so drawing only the
+      // rows held made the page shrink on the tap and grow again when the names arrived. A row not
+      // yet known is a faint bar, a podium place nobody holds is a dash; both are a name's height.
+      const boardHeld = Q.has('pdfake') || podiumCache.has(boardKey(id, boardDiff))
       const top3 = Q.has('pdfake') ? [{ nick: 'Lumi' }, { nick: 'kraken_kid' }, { nick: 'Aurel' }]
         : (podiumCache.get(boardKey(id, boardDiff))?.[boardsFor(id, boardDiff)[0]] ?? []).slice(0, 3)
       const CHEV = '<svg class="rp-chev" viewBox="0 0 8 14" aria-hidden="true"><path d="M1.5 1.5 6.5 7l-5 5.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>'
@@ -1193,7 +1197,9 @@ export function initUI(hooks) {
       const board = `
         <button class="rp-board" data-act="podium-open">
           <span class="rp-board-hd">${ICO_PODIUM}<b>${t('Podium')}</b>${CHEV}</span>
-          ${top3.length ? `<span class="rp-board-list">${top3.map((r, i) => `<span>${medalHtml(i + 1)}<em>${esc(r.nick)}</em></span>`).join('')}</span>` : ''}
+          <span class="rp-board-list">${[0, 1, 2].map((i) => top3[i]
+            ? `<span>${medalHtml(i + 1)}<em>${esc(top3[i].nick)}</em></span>`
+            : `<span class="rp-board-gap">${medalHtml(i + 1)}<em>${boardHeld ? '—' : '<i class="rp-board-wait"></i>'}</em></span>`).join('')}</span>
         </button>`
       // A TRAIL: the levels as stops on an ink path. Beaten stops are filled (`won`, the field the
       // spine's ★ row reads, so the two agree), the next one ringed bolder, the road ahead dotted,
