@@ -1204,11 +1204,13 @@ export function initUI(hooks) {
       const stamp = sealStamp ? ' seal--stamp' : ''
       sealStamp = false
       const seal = (d) => d > chMeta.maxDifficulty
-        ? `<button class="seal seal--locked" disabled aria-label="${tt('Level {n}', { n: d })}">${LOCK}</button>`
-        : `<button class="seal${d <= won ? ' seal--won' : ''}${!endlessSel && d === cur ? ` seal--on${stamp}` : ''}" data-act="diff" data-diff="${d}" aria-label="${tt('Level {n}', { n: d })}"><b>${d}</b>${d <= won ? '<i class="seal-star" aria-hidden="true">★</i>' : ''}</button>`
-      const seals = `${levels.map(seal).join('')}${endlessOn ? `<button class="seal seal--inf${endlessSel ? ` seal--on${stamp}` : ''}" data-act="endless" aria-label="${t(ENDLESS_COPY.pip.name)}"><b>${INFINITY_SVG}</b></button>` : ''}`
+        ? `<button class="seal seal--locked" style="--d:${d}" disabled aria-label="${tt('Level {n}', { n: d })}">${LOCK}</button>`
+        : `<button class="seal${d <= won ? ' seal--won' : d === won + 1 ? ' seal--next' : ''}${!endlessSel && d === cur ? ` seal--on${stamp}` : ''}" style="--d:${d}" data-act="diff" data-diff="${d}" aria-label="${tt('Level {n}', { n: d })}"><b>${d}</b>${d <= won ? '<i class="seal-star" aria-hidden="true">★</i>' : ''}</button>`
+      const seals = `${levels.map(seal).join('')}${endlessOn ? `<button class="seal seal--inf${endlessSel ? ` seal--on${stamp}` : ''}" style="--d:${cap + 1}" data-act="endless" aria-label="${t(ENDLESS_COPY.pip.name)}"><b>${INFINITY_SVG}</b></button>` : ''}`
+      // MOCKUP (?ds=1|2|3): three other dresses for the same five states. Remove once the owner picks.
+      const DS = +(Q.get('ds') || 0)
       // no coins line here: the eyebrow's reward chip already says it, one line up
-      let mid = `<div class="seals">${seals}</div><b class="rp-level">${levelName}</b><span class="rp-fx">${fx}</span>${hint}`
+      let mid = `<div class="seals${DS ? ` seals--ds${DS}` : ''}">${seals}</div><b class="rp-level">${levelName}</b><span class="rp-fx">${fx}</span>${hint}`
       let foot = board
       let head = `<span class="pg-eyebrow">${t('Difficulty')}</span>${rewardChip}`
       if (RP === 1) {

@@ -3784,3 +3784,82 @@ body {
   -webkit-text-stroke: 0.6px #7a5208;
   text-shadow: 0 1px 1px rgba(60, 30, 5, 0.3);
 }
+
+/* ---- MOCKUPS ?ds=1|2|3 — three other dresses for the seals' five states (remove after the pick) ---- */
+[class*="seals--ds"] .seal--on { transform: none; filter: none; }
+[class*="seals--ds"] .seal--on::before { content: none; }
+[class*="seals--ds"] .seal--stamp { animation: ds-pop 0.3s cubic-bezier(0.3, 0.9, 0.3, 1.3) both; }
+@keyframes ds-pop { from { scale: 1.45; opacity: 0.2; } to { scale: 1; opacity: 1; } }
+
+/* 1 — THE TRAIL: an ink path across a map, walked so far in solid line, ahead in dashes */
+.seals--ds1 { gap: 7px; }
+.seals--ds1 .seal { max-width: 24px; background: #f6ecd2; }
+.seals--ds1 .seal:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  left: 100%;
+  top: 50%;
+  width: 9px;
+  margin-left: 1px;
+  border-top: 2px dotted rgba(90, 62, 28, 0.45);
+}
+.seals--ds1 .seal--won:not(:last-child)::after { border-top-style: solid; border-color: #5a4022; }
+.seals--ds1 .seal--won { border-color: #5a4022; background: #5a4022; color: #f6ecd2; }
+.seals--ds1 .seal--next { border-width: 2px; border-color: #5a4022; }
+.seals--ds1 .seal-star { display: none; }
+.seals--ds1 .seal--on { box-shadow: 0 0 0 2.5px #f6ecd2, 0 0 0 4.5px var(--cloth-sel, #3d5c47); border-color: var(--cloth-sel, #3d5c47); background: var(--cloth-sel, #3d5c47); color: #f6ecd2; }
+.seals--ds1 .seal--won.seal--on::after { border-color: #5a4022; }
+
+/* 2 — THE STAMP CARD: a loyalty card, one square per level, each win a red rubber stamp */
+.seals--ds2 { gap: 3px; }
+.seals--ds2 .seal { max-width: 27px; border-radius: 3px; border: 1.5px solid rgba(90, 62, 28, 0.55); background: #fbf4e0; overflow: visible; }
+.seals--ds2 .seal--locked { background: repeating-linear-gradient(135deg, rgba(90, 62, 28, 0.13) 0 2px, transparent 2px 5px), #efe3c4; border-style: solid; }
+.seals--ds2 .seal-star {
+  inset: 0;
+  top: auto;
+  right: auto;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  font-size: 1.55rem;
+  color: rgba(181, 46, 38, 0.78);
+  -webkit-text-stroke: 0;
+  text-shadow: none;
+  transform: rotate(-14deg);
+  mix-blend-mode: multiply;
+}
+.seals--ds2 .seal--won b { color: #fbf4e0; z-index: 3; text-shadow: 0 0 2px rgba(120, 20, 15, 0.9); }
+.seals--ds2 .seal--on { border: 2.5px solid var(--cloth-sel, #3d5c47); box-shadow: 0 2px 0 rgba(60, 30, 5, 0.25); translate: 0 -2px; }
+.seals--ds2 .seal--next { border-color: #5a4022; border-width: 2px; }
+
+/* 3 — THE LITTLE SHELF: each level a volume, taller as it gets harder; read ones bound in the
+   Book's cloth with a gold band, the one picked pulled out like the volume on the shelf above */
+.seals--ds3 { align-items: flex-end; gap: 3px; height: 54px; margin: 0 0 2px; padding-bottom: 3px; border-bottom: 3px solid #b48a58; }
+.seals--ds3 .seal {
+  max-width: 21px;
+  aspect-ratio: auto;
+  height: calc(26px + var(--d) * 3.5px);
+  border-radius: 2px 2px 0 0;
+  border: 1.5px solid rgba(90, 62, 28, 0.55);
+  background: #f3e6c3;
+  font-size: 0.78rem;
+  place-items: end center;
+  padding-bottom: 5px;
+}
+.seals--ds3 .seal svg { width: 85%; }
+.seals--ds3 .seal--won {
+  border-color: rgba(0, 0, 0, 0.35);
+  background:
+    linear-gradient(180deg, transparent 5px, #d8b04a 5px 7px, transparent 7px calc(100% - 9px), #d8b04a calc(100% - 9px) calc(100% - 7px), transparent calc(100% - 7px)),
+    linear-gradient(95deg, var(--cloth-sel, #3d5c47) 0 75%, rgba(0, 0, 0, 0.35)),
+    var(--cloth-sel, #3d5c47);
+  color: #f6e6b8;
+}
+.seals--ds3 .seal-star { top: 9px; right: auto; left: 50%; transform: translateX(-50%); font-size: 0.55rem; color: #f2c94c; -webkit-text-stroke: 0; }
+.seals--ds3 .seal--locked { background: #ddd0ae; border-style: dashed; place-items: center; padding: 0; }
+.seals--ds3 .seal--next { border-color: #5a4022; border-width: 2px; }
+.seals--ds3 .seal--on { translate: 0 -9px; box-shadow: 0 0 0 2px #7de3c3, 0 4px 5px rgba(40, 20, 5, 0.35); }
+.seals--ds2 .seal--on:not(.seal--won), .seals--ds3 .seal--on:not(.seal--won) { color: #3b2a14; }
+.seals--ds2 .seal--on:not(.seal--won) { background: #fffaf0; }
+.seals--ds3 .seal--on:not(.seal--won) { background: #fff7e2; }
