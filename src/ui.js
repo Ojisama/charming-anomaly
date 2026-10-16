@@ -1198,11 +1198,14 @@ export function initUI(hooks) {
       // WAX SEALS: the levels as numerals ringed in ink, the chosen one pressed into the Book's own
       // cloth. A page already has ink and a seal; a pill of buttons was the one thing on it that
       // belonged to an app. The stamp plays once, on the render a pick causes (sealStamp).
+      // THREE STATES BEFORE THE PICK: beaten (gold, with the spine's own star — `won`, the field the
+      // ★ row reads), open (a bare ink ring), locked (dashed, a padlock).
+      const won = Math.max(0, Number(chMeta.won) || 0)
       const stamp = sealStamp ? ' seal--stamp' : ''
       sealStamp = false
       const seal = (d) => d > chMeta.maxDifficulty
         ? `<button class="seal seal--locked" disabled aria-label="${tt('Level {n}', { n: d })}">${LOCK}</button>`
-        : `<button class="seal${!endlessSel && d === cur ? ` seal--on${stamp}` : ''}" data-act="diff" data-diff="${d}" aria-label="${tt('Level {n}', { n: d })}"><b>${d}</b></button>`
+        : `<button class="seal${d <= won ? ' seal--won' : ''}${!endlessSel && d === cur ? ` seal--on${stamp}` : ''}" data-act="diff" data-diff="${d}" aria-label="${tt('Level {n}', { n: d })}"><b>${d}</b>${d <= won ? '<i class="seal-star" aria-hidden="true">★</i>' : ''}</button>`
       const seals = `${levels.map(seal).join('')}${endlessOn ? `<button class="seal seal--inf${endlessSel ? ` seal--on${stamp}` : ''}" data-act="endless" aria-label="${t(ENDLESS_COPY.pip.name)}"><b>${INFINITY_SVG}</b></button>` : ''}`
       // no coins line here: the eyebrow's reward chip already says it, one line up
       let mid = `<div class="seals">${seals}</div><b class="rp-level">${levelName}</b><span class="rp-fx">${fx}</span>${hint}`

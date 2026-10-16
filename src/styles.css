@@ -3770,3 +3770,17 @@ body {
 /* a reward chip beside the eyebrow: the dashes give way so the pair fits the page */
 .title-below .pg-top:has(.diff-reward-chip) .pg-eyebrow::before,
 .title-below .pg-top:has(.diff-reward-chip) .pg-eyebrow::after { display: none; }
+/* beaten: a gold-leaf disc and the spine's star, so done / open / locked read before any tap */
+.seal--won:not(.seal--on) { border-color: #a8812f; background: radial-gradient(circle at 36% 30%, #fbe9a8, #e6c565 70%); color: #5a3d06; }
+.seal-star {
+  position: absolute;
+  z-index: 2;
+  top: -5px;
+  right: -5px;
+  font-style: normal;
+  font-size: 0.62rem;
+  line-height: 1;
+  color: #e9b21c;
+  -webkit-text-stroke: 0.6px #7a5208;
+  text-shadow: 0 1px 1px rgba(60, 30, 5, 0.3);
+}
