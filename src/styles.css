@@ -3764,3 +3764,10 @@ body {
 /* a reward chip beside the eyebrow: the dashes give way so the pair fits the page */
 .title-below .pg-top:has(.diff-reward-chip) .pg-eyebrow::before,
 .title-below .pg-top:has(.diff-reward-chip) .pg-eyebrow::after { display: none; }
+.rp-board-gap { opacity: 0.4; }
+.rp-board-wait { display: inline-block; width: 52px; height: 0.6em; border-radius: 3px; background: rgba(120, 86, 40, 0.35); vertical-align: middle; }
+/* the effects line holds two lines and the eyebrow the chip's height, whichever level is picked, so
+   the trail never moves under the finger that tapped it ("Base difficulty" is one line, "+n% … · +n%
+   …" two, and the coin chip only exists above level 1) */
+.title-below .page--recto .rp-fx { display: flex; align-items: center; justify-content: center; min-height: 2.6em; }
+.title-below .page--recto .pg-top { min-height: 24px; align-items: center; }
