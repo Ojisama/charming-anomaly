@@ -94,6 +94,7 @@ const UI = {
   'Mutation': 'Mutation',
   'Best': 'Record',
   'Survived': 'Survécu',
+  'all players · endless': 'tous les joueurs · sans fin',
   'No anomalies — a new one arrives every {n} seconds': 'Aucune anomalie — une nouvelle toutes les {n} secondes',
   'enemy HP': 'PV ennemis',
   'coins': 'pièces',

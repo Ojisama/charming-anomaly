@@ -1115,7 +1115,7 @@ export function initUI(hooks) {
              and the next word becomes code — which is exactly how it shipped a blank page for a
              minute, with node --check clean because the check ran before the comment was added. -->
       <button class="diff-hint podium-foot" data-act="podium-close">
-        ←&nbsp; ${tt('all players · difficulty {n}', { n: boardDiff })}
+        ←&nbsp; ${boardDiff === 0 ? t(ENDLESS_COPY.podiumFoot.name) : tt('all players · difficulty {n}', { n: boardDiff })}
       </button>${acts}`
   }
 
@@ -2757,7 +2757,7 @@ export function initUI(hooks) {
         last.endlessK = null
         hud.timerK.textContent = ''
       }
-      const remain = run.endless ? Math.floor(run._realTime ?? 0) : Math.max(0, Math.ceil(RUN_DURATION - run.time))
+      const remain = run.endless ? Math.floor(run.time) : Math.max(0, Math.ceil(RUN_DURATION - run.time))
       if (remain !== last.remain) {
         last.remain = remain
         hud.timerNum.textContent = fmtTime(remain)

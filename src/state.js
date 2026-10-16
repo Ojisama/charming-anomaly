@@ -159,7 +159,8 @@ let boundSlot = null
 //   its own field rather than a reused one.
 //   endlessPicked (endless mode): true while the title's infinity pip is selected for this chapter;
 //   cleared by onDifficulty. Read as === true. Additive, ensureChapterMeta leaves it alone.
-//   endlessBest (endless mode): longest endless run in this chapter, in MILLISECONDS, read ?? 0.
+//   endlessBest (endless mode): longest endless run in this chapter, in MILLISECONDS of run.time (so
+//   Time Debt's advanced clock), read ?? 0.
 //   Kept apart from best.time, which stays the classic record.
 // meta.best: { time, kills } — all-time aggregate across every chapter, unrelated to any
 //   single chapters[id].best; still updated by endRun (main.js) on every run.

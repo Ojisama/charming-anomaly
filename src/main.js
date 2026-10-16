@@ -874,7 +874,8 @@ function endRun(victory) {
 
   const chMeta = ensureChapterMeta(meta, run.chapter)
   if (!run.endless) chMeta.best.time = Math.max(chMeta.best.time, Math.floor(run._realTime ?? run.time))
-  else if (!skipped) chMeta.endlessBest = Math.max(chMeta.endlessBest ?? 0, Math.round((run._realTime ?? run.time) * 1000))
+  // Endless scores on run.time (owner, 2026-10-16): under Time Debt that is the ADVANCED clock, the time survived.
+  else if (!skipped) chMeta.endlessBest = Math.max(chMeta.endlessBest ?? 0, Math.round(run.time * 1000))
   if (!skipped) chMeta.best.kills = Math.max(chMeta.best.kills, run.kills)
   // A RACE'S RECORD IS THE LOWEST, so it gets the opposite comparison and its own field — the two
   // lines above are a MAX and stay one for every chapter including this one, because meta is
@@ -1070,8 +1071,9 @@ function endRun(victory) {
       timeMs, lapMs,
       // WINS ONLY, like the kill time: one parry then dying would otherwise sit at 100%
       parryPct: victory ? parryPct : null,
-      // Endless's board is longest survival, on the real clock (Time Debt runs run.time at 1.5x).
-      surviveMs: run.endless ? Math.round((run._realTime ?? run.time) * 1000) : null,
+      // Endless's board is longest survival on run.time, the same clock as endlessBest: under Time Debt
+      // (run.time at 1.5x) a player is credited the advanced time they survived (owner, 2026-10-16).
+      surviveMs: run.endless ? Math.round(run.time * 1000) : null,
       // ONLY WHERE IT IS ROLLED (owner, 2026-08-19). A chapter whose `starter` is a plain string
       // gives every player the same weapon, so recording it on every row of those boards is a
       // column of one repeated answer. `Array.isArray` is the same test createRun rolls on, so the

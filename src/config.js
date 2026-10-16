@@ -5951,6 +5951,7 @@ export const ENDLESS_COPY = {
   milestone: { name: 'Mutation' },
   best: { name: 'Best' },
   survived: { name: 'Survived' },
+  podiumFoot: { name: 'all players · endless' },
   noAnomalies: { name: 'No anomalies — a new one arrives every {n} seconds' },
 }
 export const endlessEligible = (id) => !!CHAPTERS[id] && !CHAPTERS[id].scripted && !CHAPTERS[id].circuit

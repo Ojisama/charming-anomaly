@@ -17336,7 +17336,9 @@ function stepFiredamp(run, dt) {
     const due = run.gasLit.filter((L) => run.time >= L.at)
     if (due.length > 0) {
       const canary = !!run.anomalies?.canary
-      const scale = hpScale(curveT(run))   // the enemy-side curve (run CL: only spawnEnemy takes the chapter's rate)
+      // the enemy-side curve (run CL: only spawnEnemy takes the chapter's rate); in endless also the HP
+      // growth past 300s, or the gas fades against a crowd whose HP keeps climbing (owner, 2026-10-16)
+      const scale = hpScale(curveT(run)) * (run.endless ? endlessHpMul(run.difficulty) : 1)
       for (const L of due) {
         L._done = true
         const R = L.r * F.blastMul * (run.mods.gasBlastMul ?? 1)

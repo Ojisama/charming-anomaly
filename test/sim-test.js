@@ -674,6 +674,13 @@ function testEndlessFastForward() {
   // endRun is not importable: lint that it gates the endless record on that stamp.
   const mainSrc = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
   assert.ok(/else if \(!skipped\) chMeta\.endlessBest/.test(mainSrc) && mainSrc.includes('const skipped = run._ffSkipped > 0'), 'endRun gates endlessBest on _ffSkipped')
+  // ONE clock for an endless score, and it is run.time — under Time Debt the ADVANCED time survived
+  // (owner, 2026-10-16). The record, the board row and the HUD count-up must all read it; a _realTime
+  // left in any one makes the board disagree with the summary under that card.
+  assert.ok(/chMeta\.endlessBest = Math\.max\(chMeta\.endlessBest \?\? 0, Math\.round\(run\.time \* 1000\)\)/.test(mainSrc), 'endlessBest is banked on run.time')
+  assert.ok(/surviveMs: run\.endless \? Math\.round\(run\.time \* 1000\)/.test(mainSrc), 'surviveMs is submitted on run.time')
+  const uiSrcEn = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
+  assert.ok(/const remain = run\.endless \? Math\.floor\(run\.time\)/.test(uiSrcEn), 'the endless HUD clock counts run.time')
   // The ticker's multi-step loop is reachable only through onDevSpeed, and that hook must refuse
   // outside DEV: the cycling assignment sits behind a meta.dev guard, and beginRun resets to 1.
   const main = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
@@ -768,6 +775,40 @@ function testEndlessCoins() {
   normal.player.hp = normal.player.maxHP = 1e12
   assert.ok(over(normal) <= COIN_CAP_PER_RUN, 'control: a normal run must stay capped')
   console.log(`PASS run EN.e (endless coins): x${want.toFixed(2)} at t=${run.time.toFixed(0)}s, earned -> ${after}`)
+}
+
+// run EN.g: the Mine's gas blast keeps pace with endless HP growth (owner, 2026-10-16). One lit pocket on
+// one inert enemy, same clock in every arm: endless at a pinned level hits endlessHpMul(d) times as hard
+// as endless pinned at 1; a normal run's blast does not read run.difficulty at all (the control).
+function testEndlessGasScale() {
+  const blast = (endless, level) => {
+    Math.random = mulberry32(20261016)
+    const m = makeMeta(); m.dev = true
+    const run = createRun(m, { chapter: 'mine', ...(endless ? { endless: true } : { difficulty: 1 }) })
+    assert.strictEqual(run.chapter, 'mine', 'run EN.g: fixture must be a Mine run')
+    run.player.hp = run.player.maxHP = 1e12
+    run._endlessNextMilestone = Infinity; run._nextEliteAt = 1e9
+    for (let i = 0; i < 400 && run.enemies.length < 1; i++) { run.weapons = []; stepSim(run, { x: 0, y: 0 }, 1 / 60); run.events.length = 0 }
+    assert.ok(run.enemies.length >= 1, 'run EN.g: no body after the warm-up')
+    run.enemies = run.enemies.slice(0, 1)
+    run.time = endless ? 600 : 200
+    if (endless) run._endlessPinLevel = level; else run.difficulty = level
+    run.mods.spawnMul = 0; run._spawnAcc = 0
+    run.weapons = []; run.bullets = []; run.gas = []
+    const e = run.enemies[0]
+    Object.assign(e, { affixes: [], elite: false, hp: 1e9, maxHP: 1e9, speed: 0, x: run.player.x + 300, y: run.player.y })
+    run.gasLit = [{ x: e.x, y: e.y, r: 40, at: run.time, chain: 0, seed: 1 }]
+    stepSim(run, { x: 0, y: 0 }, 1 / 60)
+    assert.ok(run.events.some((ev) => ev.type === 'gasBlast'), 'run EN.g: the pocket never went off')
+    return 1e9 - e.hp
+  }
+  const d = 11
+  const lo = blast(true, 1), hi = blast(true, d)
+  assert.ok(lo > 0, 'run EN.g: the blast did no damage')
+  assert.ok(Math.abs(hi / lo / endlessHpMul(d) - 1) < 0.01, `run EN.g: endless gas at level ${d} hit x${(hi / lo).toFixed(3)} of level 1, want x${endlessHpMul(d).toFixed(3)}`)
+  const n1 = blast(false, 1), n5 = blast(false, 5)
+  assert.ok(n1 > 0 && n1 === n5, `run EN.g: a normal run's gas must not read run.difficulty (${n1} vs ${n5})`)
+  console.log(`PASS run EN.g (endless gas scale): x${(hi / lo).toFixed(3)} at level ${d}, normal run unchanged at ${n1.toFixed(1)}`)
 }
 
 // run NA: a roster entry with noAffix (Topsoil's earthworm) never rolls an endless crowd affix,
@@ -20778,6 +20819,7 @@ try {
   run(testLiveCaps)
   run(testEndlessXpTaper)
   run(testEndlessCoins)
+  run(testEndlessGasScale)
   run(testEndlessCrowdAffixes)
   run(testNoAffixRoster)
   run(testEndlessMilestones)
