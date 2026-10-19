@@ -1557,7 +1557,82 @@ export const MACRO_PLAYER_E = 34
 // TEMP shot switch (?pv=N) — delete with the losing variants
 const PV = typeof location !== 'undefined' ? Number(new URLSearchParams(location.search).get('pv') || 0) : 0
 export function paintPlayerBlob(ctx) {
-  return [paintPlayerBlob0, paintPlayerRefined, paintPlayerDew, paintPlayerSlime, paintPlayerMarimo][PV](ctx)
+  return [paintPlayerBlob0, paintPlayerRefined, paintPlayerDew, paintPlayerSlime, paintPlayerMarimo,
+    (c) => paintPlayerGel(c, false, 'grit'), (c) => paintPlayerGel(c, true, 'grit'), (c) => paintPlayerGel(c, true, 'cell')][PV](ctx)
+}
+// 5-7 — JELLYBEAN: 1's soft body made of 2's clear mint gel, with things suspended in it.
+// bean: a kidney silhouette (a dent in the top edge) instead of a ball. stuff: 'grit' = air bubbles,
+// soil specks and a seed caught in the jelly; 'cell' = a nucleus and vacuoles (Book 1's cell, grown up).
+function paintPlayerGel(ctx, bean, stuff) {
+  const R = 22, rnd = rng(17), n = 48, pts = []
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * TAU
+    let x = Math.cos(a) * R * (bean ? 1.12 : 1), y = Math.sin(a) * R * (bean ? 0.84 : 0.91)
+    if (bean && y < 0) y += R * 0.2 * Math.exp(-((x / (R * 0.45)) ** 2))
+    pts.push(x, y)
+  }
+  const at = (k) => pts.map((v) => v * (0.15 + 0.85 * k))
+  // the gel: clear in the middle, denser toward the rim where the light travels through more of it
+  const g = ctx.createRadialGradient(-R * 0.15, -R * 0.2, 0, 0, 0, R * 1.1)
+  g.addColorStop(0, 'rgba(170,250,215,0.3)'); g.addColorStop(0.6, 'rgba(80,190,155,0.5)'); g.addColorStop(0.9, 'rgba(26,96,76,0.88)'); g.addColorStop(1, 'rgba(12,52,40,0.92)')
+  smoothTrace(ctx, pts); ctx.fillStyle = g; ctx.fill()
+  ctx.save(); smoothTrace(ctx, pts); ctx.clip()
+  // what is inside, two depths: the deep layer soft and dim, the near layer sharp
+  for (const deep of [true, false]) {
+    const blur = deep ? 0.9 : 0.15, a = deep ? 0.45 : 0.9
+    if (stuff === 'grit') {
+      for (let i = 0; i < (deep ? 12 : 8); i++) {
+        const ang = rnd() * TAU, d = Math.sqrt(rnd()) * R * 0.8, x = Math.cos(ang) * d * (bean ? 1.1 : 1), y = Math.sin(ang) * d * 0.8, r = (deep ? 1.2 : 0.9) + rnd() * (deep ? 2.2 : 1.8)
+        if (rnd() < 0.55) {   // an air bubble: dark ring, bright cap toward the lamp
+          withBlur(ctx, blur, `rgba(10,50,38,${a})`, () => { ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.lineWidth = Math.max(0.2, r * 0.3); ctx.stroke() })
+          softDot(ctx, x + LX * r * 0.4, y + LY * r * 0.4, r * 0.3, blur * 0.5, `rgba(255,255,255,${a})`)
+        } else softDot(ctx, x, y, r * 0.6, blur, `rgba(${[44, 26, 12]},${a})`)   // a speck of soil
+      }
+      if (!deep) {   // a seed hanging in it, lit and shadowed like any other object
+        const sx = R * 0.36, sy = R * 0.42
+        softFill(ctx, ellipsePts(sx + 1.2, sy + 1.2, R * 0.27, R * 0.13, 0.6, 18), 1.2, 'rgba(6,30,22,0.5)')
+        const sg = ctx.createLinearGradient(sx - 3, sy - 3, sx + 3, sy + 3)
+        sg.addColorStop(0, '#c89a5a'); sg.addColorStop(1, '#5a3a18')
+        trace(ctx, ellipsePts(sx, sy, R * 0.27, R * 0.13, 0.6, 18)); ctx.fillStyle = sg; ctx.fill()
+      }
+    } else {
+      if (deep) {   // vacuoles: clear pockets with a thin membrane
+        for (let i = 0; i < 9; i++) {
+          const ang = rnd() * TAU, d = R * (0.35 + rnd() * 0.45), x = Math.cos(ang) * d * (bean ? 1.1 : 1), y = Math.sin(ang) * d * 0.78, r = 2.4 + rnd() * 3
+          softDot(ctx, x, y, r, blur, 'rgba(200,255,230,0.25)')
+          withBlur(ctx, blur * 0.6, 'rgba(20,80,60,0.5)', () => { ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.lineWidth = 0.35; ctx.stroke() })
+        }
+        for (let i = 0; i < 40; i++) { const ang = rnd() * TAU, d = Math.sqrt(rnd()) * R * 0.85; softDot(ctx, Math.cos(ang) * d, Math.sin(ang) * d * 0.8, 0.35, 0.3, 'rgba(20,70,50,0.6)') }
+      } else {      // the nucleus, low and off-centre, under the face
+        const nx = -R * 0.42, ny = R * 0.36, nr = R * 0.3
+        softDot(ctx, nx + 1, ny + 1.2, nr, 1.4, 'rgba(6,40,30,0.45)')
+        const ng = ctx.createRadialGradient(nx - nr * 0.35, ny - nr * 0.35, 0, nx, ny, nr)
+        ng.addColorStop(0, 'rgba(90,170,120,0.95)'); ng.addColorStop(0.7, 'rgba(24,90,64,0.95)'); ng.addColorStop(1, 'rgba(6,36,26,1)')
+        ctx.beginPath(); ctx.arc(nx, ny, nr, 0, TAU); ctx.fillStyle = ng; ctx.fill()
+        ctx.lineWidth = 0.5; ctx.strokeStyle = 'rgba(190,255,220,0.5)'; ctx.stroke()
+        softDot(ctx, nx + nr * 0.15, ny + nr * 0.1, nr * 0.32, nr * 0.15, 'rgba(10,50,36,0.8)')   // nucleolus
+        softDot(ctx, nx - nr * 0.4, ny - nr * 0.4, nr * 0.14, nr * 0.08, 'rgba(255,255,255,0.7)')
+      }
+    }
+  }
+  // light through the gel lands as a bright caustic on the side away from the lamp
+  ctx.globalCompositeOperation = 'screen'
+  softFill(ctx, ellipsePts(-LX * R * 0.5, -LY * R * 0.5, R * 0.42, R * 0.2, Math.atan2(LY, LX) + Math.PI / 2, 24), R * 0.16, 'rgba(200,255,220,0.55)')
+  ctx.globalCompositeOperation = 'source-over'
+  for (let i = 0; i < 40; i++) {   // soil picked up on the belly, from 1
+    const ang = Math.PI * (0.2 + rnd() * 0.6), d = R * (0.8 + rnd() * 0.18)
+    crumb(ctx, Math.cos(ang) * d * (bean ? 1.12 : 1), Math.sin(ang) * d * (bean ? 0.84 : 0.91), 0.3 + rnd() * 0.6, [0x3a2616, 0x5a3c22, 0x2a1a0e][i % 3], rnd)
+  }
+  innerShadow(ctx, pts, R * 0.1, 'rgba(6,34,26,0.6)')
+  ctx.restore()
+  grain(ctx, pts, 0.12)
+  photoFace(ctx, R, { socket: 'rgba(4,34,26,0.4)', crease: 'rgba(4,34,26,0.8)', iris: 0x6a4a2a })
+  // the wet surface: a softbox window, a pin glint, a rim of light on the lit edge
+  softFill(ctx, [-R * 0.74, -R * 0.36, -R * 0.46, -R * 0.66, -R * 0.24, -R * 0.56, -R * 0.54, -R * 0.26].map((v, i) => (i % 2 || !bean ? v : v * 1.08)), 0.6, 'rgba(255,255,255,0.88)')
+  softDot(ctx, R * 0.52, -R * 0.44, R * 0.05, 0.2, 'rgba(255,255,255,0.8)')
+  const rim = at(0.95)
+  ctx.save(); ctx.beginPath(); for (let i = 26; i <= 38; i++) ctx.lineTo(rim[i * 2], rim[i * 2 + 1])
+  ctx.lineWidth = 0.6; ctx.lineCap = 'round'; ctx.strokeStyle = 'rgba(255,255,255,0.5)'; ctx.stroke(); ctx.restore()
 }
 // shared: two glass-bead eyes set in wet sockets, and a moist crease of a mouth
 function photoFace(ctx, R, o = {}) {
