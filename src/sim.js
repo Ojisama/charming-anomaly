@@ -15499,8 +15499,9 @@ export function eligibleWeaponModCandidates(run) {
       // eligible SPECIALIST_EXTRA_PICKS past the global ceiling. One function, so the pause sheet
       // and the pool can never disagree about what a weapon's cap is.
       && (picks?.[modId] ?? 0) < modPickCap(w.id, modId, focus)
-      // `max` (Prismatic Split, Strobe Ray): a bank at its ceiling would make the card inert
-      && !(modCfgs[modId].max != null && (run.weaponMods[w.id]?.[modId] ?? 0) >= modCfgs[modId].max)
+      // `max` (Prismatic Split, Strobe Ray): a bank at its ceiling would make the card inert.
+      // Same 0.005 rounding as makeWeaponModCard's shrink, so the pool and the card agree on full.
+      && !(modCfgs[modId].max != null && (run.weaponMods[w.id]?.[modId] ?? 0) >= modCfgs[modId].max - 0.005)
       // A DUO BOON declares the OTHER weapon it is made of (`needs`, see the WEAPON_MODS header
       // in config.js) and is not drawn here AT ALL — liveDuoMods above owns its gate, and the
       // reserved slot below places it. Excluding the whole class rather than filtering it in is
