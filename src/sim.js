@@ -489,6 +489,8 @@ export function applyChoice(run, i, subject = null) {
     const picks = (run.weaponModPicks[choice.weapon] ??= {})
     // a mod with a `cap` (Double Click) banks along passiveTotal's asymptote, here and only here
     mods[choice.id] = capTotal(WEAPON_MODS[choice.weapon]?.[choice.id]?.cap, mods[choice.id] ?? 0, choice.bonus)
+    const max = WEAPON_MODS[choice.weapon]?.[choice.id]?.max
+    if (max != null) mods[choice.id] = Math.min(max, mods[choice.id])
     picks[choice.id] = (picks[choice.id] ?? 0) + 1
   } else if (choice.kind === 'element') {
     run.elements[choice.id] = (run.elements[choice.id] ?? 0) + choice.bonus
@@ -11975,11 +11977,13 @@ function fireBeam(run, stats) {
   // v5.6.14 (user): the beam is DOUBLE-ENDED, Darth Maul style — the base cast is 2 arms 180°
   // apart, one aimed at the target and one out the back, rotating together as a staff. Prismatic
   // Split still adds arms on top (3 arms = 120°, ...), all evenly spread by the same machinery.
-  const beamCount = ipecacN(run, 2 + (run.weaponMods.rainbow?.prismatic ?? 0))
+  // Clamped here as well as at the bank: a run parked before the max existed still carries more.
+  // Ipecac still multiplies the capped count — its slower cast rate keeps the casts from overlapping.
+  const beamCount = ipecacN(run, 2 + Math.min(WEAPON_MODS.rainbow.prismatic.max, run.weaponMods.rainbow?.prismatic ?? 0))
   const angleStep = (2 * Math.PI) / beamCount
   // Strobe Ray: bake the faster tick period in at cast time (mid-run picks shouldn't retroactively
   // speed up an already-live beam). Focus Lens's ramp is recomputed every tick instead (see below).
-  const strobeBonus = run.weaponMods.rainbow?.strobe ?? 0
+  const strobeBonus = Math.min(WEAPON_MODS.rainbow.strobe.max, run.weaponMods.rainbow?.strobe ?? 0)
   const tick = stats.tick / (1 + strobeBonus)
   const focusBonus = run.weaponMods.rainbow?.focus ?? 0
   // Beam Prism: snapshot the ladder at cast time, same rule as Strobe above — a mod picked mid-run
@@ -15495,6 +15499,8 @@ export function eligibleWeaponModCandidates(run) {
       // eligible SPECIALIST_EXTRA_PICKS past the global ceiling. One function, so the pause sheet
       // and the pool can never disagree about what a weapon's cap is.
       && (picks?.[modId] ?? 0) < modPickCap(w.id, modId, focus)
+      // `max` (Prismatic Split, Strobe Ray): a bank at its ceiling would make the card inert
+      && !(modCfgs[modId].max != null && (run.weaponMods[w.id]?.[modId] ?? 0) >= modCfgs[modId].max)
       // A DUO BOON declares the OTHER weapon it is made of (`needs`, see the WEAPON_MODS header
       // in config.js) and is not drawn here AT ALL — liveDuoMods above owns its gate, and the
       // reserved slot below places it. Excluding the whole class rather than filtering it in is
@@ -15657,6 +15663,11 @@ function makeWeaponModCard(run, weaponId, modId, rarity) {
   else if (cfg.kind === 'secs') bonus = Math.round(cfg.base * mult * 100) / 100
   // A chapter's weaponTune.mods scales a PERCENT card here, so the card and the bank agree.
   else bonus = cfg.base * mult * (cfg.kind === 'pct' ? (chapterTune(run, weaponId).mods ?? 1) * (chapterTune(run, weaponId).modMul?.[modId] ?? 1) : 1)
+  // A mod with a `max` offers only what is left under it, so the card and the bank agree.
+  if (cfg.max != null) {
+    bonus = Math.min(bonus, Math.round((cfg.max - (run.weaponMods[weaponId]?.[modId] ?? 0)) * 100) / 100)
+    if (!(bonus > 0)) return null
+  }
   // A desc carrying {n} places the amount ITSELF, anywhere in the sentence, instead of taking the
   // usual "+N " head — see modEffectText in ui.js, which is what actually renders it (and which
   // each language re-places independently, the number being interpolated after translation).

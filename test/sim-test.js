@@ -780,6 +780,59 @@ function testEndlessCoins() {
 // run EN.g: the Mine's gas blast keeps pace with endless HP growth (owner, 2026-10-16). One lit pocket on
 // one inert enemy, same clock in every arm: endless at a pinned level hits endlessHpMul(d) times as hard
 // as endless pinned at 1; a normal run's blast does not read run.difficulty at all (the control).
+// run RB.c: the rainbow beam's two ceilings (owner, 2026-10-19). Prismatic Split banks at most +5
+// (7 beams per cast) and Strobe Ray at most +150% (x2.5 tick rate). A late endless build had
+// banked +7 and +492%: 27 live beams ticking 45 times a second, half of every sim step. The fire
+// site clamps a run banked before the cap; Ipecac still triples the capped count; the card offers
+// only what is left under the max and then leaves the pool, so it is never an inert card.
+function testRainbowCaps() {
+  const dt = 1 / 60
+  const cast = (mods, anomalies) => {
+    Math.random = mulberry32(20261019)
+    const run = createRun(makeMeta())
+    run.weapons = [{ id: 'rainbow', level: 5 }]
+    run.weaponMods.rainbow = { ...mods }
+    if (anomalies) run.anomalies = anomalies
+    for (let i = 0; i < Math.round(9 / dt) && run.beams.length === 0; i++) {
+      if (run.phase === 'levelup') { declineLevelUp(run); continue }
+      stepSim(run, { x: 0, y: 0 }, dt)
+    }
+    assert(run.beams.length > 0, 'run RB.c: the beam never cast')
+    return run.beams
+  }
+  const L5 = WEAPONS.rainbow.levels[4].tick
+  const parked = cast({ prismatic: 7, strobe: 4.92 })
+  assert.strictEqual(parked.length, 7, `run RB.c: a run banked at +7 prismatic must cast 7 beams, cast ${parked.length}`)
+  assert(Math.abs(parked[0].tick - L5 / 2.5) < 1e-9, `run RB.c: strobe +492% must tick at x2.5, tick ${parked[0].tick}`)
+  const ipecac = cast({ prismatic: 7 }, { ipecac: true })
+  assert.strictEqual(ipecac.length, 21, `run RB.c: Ipecac must still triple the capped 7, cast ${ipecac.length}`)
+  const under = cast({ prismatic: 2, strobe: 0.4 })
+  assert.strictEqual(under.length, 4, 'run RB.c: below the cap prismatic is unchanged')
+  assert(Math.abs(under[0].tick - L5 / 1.4) < 1e-9, 'run RB.c: below the cap strobe is unchanged')
+
+  // the card: a mythic Prismatic Split (+3) at +4 offers +1; taking it banks 5; then it is gone
+  const run = createRun(makeMeta())
+  run.weapons = [{ id: 'rainbow', level: 5 }]
+  run.weaponMods.rainbow = { prismatic: 4, strobe: 1.4 }
+  const card = (id) => devCards(run, 'mythic').find((c) => c.kind === 'mod' && c.weapon === 'rainbow' && c.id === id)
+  const pc = card('prismatic'), sc = card('strobe')
+  assert.strictEqual(pc.bonus, 1, `run RB.c: the prismatic card at +4 must offer +1, offered ${pc.bonus}`)
+  assert(Math.abs(sc.bonus - 0.1) < 1e-9, `run RB.c: the strobe card at +140% must offer +10%, offered ${sc.bonus}`)
+  const eligible = () => eligibleWeaponModCandidates(run).filter((c) => c.weapon === 'rainbow').map((c) => c.mod)
+  let seen = new Set()
+  for (let k = 0; k < 40; k++) for (const m of eligible()) seen.add(m)
+  assert(seen.has('prismatic') && seen.has('strobe'), 'run RB.c: below the max both cards stay in the pool')
+  devTake(run, pc); devTake(run, sc)
+  assert.strictEqual(run.weaponMods.rainbow.prismatic, 5, 'run RB.c: prismatic banks to exactly its max')
+  assert(Math.abs(run.weaponMods.rainbow.strobe - 1.5) < 1e-9, 'run RB.c: strobe banks to exactly its max')
+  devTake(run, { ...pc, bonus: 3 })
+  assert.strictEqual(run.weaponMods.rainbow.prismatic, 5, 'run RB.c: a stale card cannot bank past the max')
+  seen = new Set()
+  for (let k = 0; k < 40; k++) for (const m of eligible()) seen.add(m)
+  assert(!seen.has('prismatic') && !seen.has('strobe'), `run RB.c: a mod at its max must leave the pool, saw ${[...seen]}`)
+  console.log(`PASS run RB.c (rainbow caps): parked +7/+492% -> ${parked.length} beams at x2.5 tick; Ipecac ${ipecac.length}; cards +1 / +10% then out of the pool (${seen.size} rainbow mods left)`)
+}
+
 function testEndlessGasScale() {
   const blast = (endless, level) => {
     Math.random = mulberry32(20261016)
@@ -20820,6 +20873,7 @@ try {
   run(testEndlessXpTaper)
   run(testEndlessCoins)
   run(testEndlessGasScale)
+  run(testRainbowCaps)
   run(testEndlessCrowdAffixes)
   run(testNoAffixRoster)
   run(testEndlessMilestones)

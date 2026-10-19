@@ -3688,9 +3688,12 @@ export const WEAPON_MODS = {
   rainbow: {
     wideBeam:  { name: 'Big Beam',        desc: 'beam width & length',    icon: '📡', base: 0.20, kind: 'pct' },
     sustain:   { name: 'Sustain',         desc: 'beam duration',          icon: '⌛', base: 0.20, kind: 'pct' },
-    prismatic: { name: 'Prismatic Split', desc: 'extra beam(s) per cast', icon: '🎇', kind: 'tier' },
+    // balance_decision : at most 7 beams per cast (2 + 5) 2026-10-19
+    //  - `max` is a hard bank ceiling: the card shrinks to what is left, then leaves the pool
+    prismatic: { name: 'Prismatic Split', desc: 'extra beam(s) per cast', icon: '🎇', kind: 'tier', max: 5 },
     focus:     { name: 'Focus Lens', desc: 'damage climbs by {n} the longer it fires', icon: '🔎', base: 0.80, kind: 'pct' },
-    strobe:    { name: 'Strobe Ray', desc: 'beam tick rate',                             icon: '💡', base: 0.40, kind: 'pct' },
+    // balance_decision : tick rate at most x2.5 (~19/s at Lv5, was 45) 2026-10-19
+    strobe:    { name: 'Strobe Ray', desc: 'beam tick rate',                             icon: '💡', base: 0.40, kind: 'pct', max: 1.5 },
     // v6.7.6 Beam Prism (owner spec). A `values` mod — the SAME idiom PASSIVES.armor/regen use:
     // it rolls only the listed rarities at the listed exact amounts, and makeWeaponModCard returns
     // null at any other tier, so no card is offered at normal at all. That is deliberate and it is
