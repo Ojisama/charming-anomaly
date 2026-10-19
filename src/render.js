@@ -27944,6 +27944,7 @@ void main() {
       // enough to do unconditionally, and it means the outro cannot leak into the next run through
       // some path clearWorld does not cover.
       if (deathIris.alpha !== 0) { deathIris.alpha = 0; deathFlat.alpha = 0 }
+      deathIris.visible = deathFlat.visible = false   // alpha 0 is still a full-screen draw in Pixi
       deathVentAcc = 0
       return 0
     }
@@ -27994,6 +27995,7 @@ void main() {
     deathIris.position.set(ix, iy)
     deathFlat.tint = D.irisTint
     deathFlat.alpha = D.flatAlpha * irisP * irisP   // squared: lands late, so the iris reads first
+    deathIris.visible = deathFlat.visible = true
     return p
   }
 
@@ -32320,8 +32322,12 @@ void main() {
     if (m) for (const kk in m) if (!m[kk]._used) m[kk].visible = false
   }
 
-  function syncEnemies(run) {
+  // cx/cy: sync()'s world offset, as onScreenPickups. A body further off screen than its pad (4 radii
+  // of art, or a pacer's ring) is hidden with its decor and skips the rest of the loop: a late
+  // endless crowd is ~1000 bodies and about half are off screen.
+  function syncEnemies(run, cx, cy) {
     const px = run.player.x
+    const x0 = -cx, x1 = -cx + viewW(), y0 = -cy, y1 = -cy + viewH()
     shieldG.clear()
     pacerG.clear()
     for (const e of run.enemies) {
@@ -32347,9 +32353,23 @@ void main() {
         s._lastPhaseSolid = undefined
         s._pxDir = undefined
         s._flip = undefined
+        s._culled = false
         enemySprites.set(e.id, s)
       }
       s._seen = true
+      const pad = 32 + Math.max(e.affixes && e.affixes.includes('pacer') ? PACER_RADIUS : 0, e.radius * 4)
+      if (e.x < x0 - pad || e.x > x1 + pad || e.y < y0 - pad || e.y > y1 + pad) {
+        if (!s._culled) {
+          s._culled = true
+          s.visible = false
+          s._lastPhaseSolid = undefined   // no phase-flip puff on the frame it comes back
+          hideAffixBadges(s)
+          hideEnemyDecor(s)
+          hideAfx(s)
+        }
+        continue
+      }
+      if (s._culled) { s._culled = false; s.visible = true }
       // prefer the per-rosterId themed silhouette; fall back to the archetype look for enemies
       // whose rosterId has no baked creature (title/future chapters)
       // A split child takes its own silhouette where the look declares one (ROSTER_LOOKS.childDraw
@@ -32937,6 +32957,7 @@ void main() {
     // red vignette flash — keeps fading behind frozen modals/summary (dt=0)
     vignetteA = Math.max(0, vignetteA - (dt > 0 ? dt : 1 / 60) * 2.6)
     vignette.alpha = vignetteA
+    vignette.visible = vignetteA > 0   // Pixi draws an alpha-0 sprite: a whole-screen pass for nothing
     // The Wreck: the oil on you and the squid's ink, on the glass. Sim timers (both hold at their
     // ceiling while you are inside and run down after), eased so a rim crossing creeps rather
     // than pops. The ink is deliberately opaque — its job is to be in the way.
@@ -32952,11 +32973,14 @@ void main() {
       inkStainA += (Math.min(1, (run._inkT ?? 0) / INK_STAIN_T) - inkStainA) * k
       oilStain.alpha = oilStainA
       inkStain.alpha = inkStainA
+      oilStain.visible = oilStainA > 0.002
+      inkStain.visible = inkStainA > 0.002
     }
 
     // full-field lightning flash (skies) — same "keeps fading at dt=0" treatment as the vignette
     lightningFlashA = Math.max(0, lightningFlashA - (dt > 0 ? dt : 1 / 60) / LIGHTNING.flash.fadeDur)
     lightningFlash.alpha = lightningFlashA
+    lightningFlash.visible = lightningFlashA > 0
     if (dt > 0) flashCooldown = Math.max(0, flashCooldown - dt)   // the photosensitivity budget
     // v5.16: the LIGHTNING REVEAL (spec §7.3) went with the light layer — it was one alpha channel
     // on that container, and there is no longer a container to brighten.
@@ -32997,7 +33021,7 @@ void main() {
     const deathP = updateDeathOutro(run, dt)
     syncPlayer(run.player, dt, run.rampageT || 0, playerBuffs(run), deathP)
     if (pixelLook) syncPixelPlayerFlash(run.player, dt)
-    syncEnemies(run)
+    syncEnemies(run, cx, cy)
     syncPitCollars(run)   // after the crowd: the lip crumbling in over a body a Furrow pit dropped
     syncBlooms(run)
     syncLures(newest(run.lures || [], 'lures'))
@@ -33660,6 +33684,7 @@ void main() {
     const water = chapterRender.water
     waterWash.tint = water?.tint ?? 0xffffff
     waterWash.alpha = water?.alpha ?? 0
+    waterWash.visible = waterWash.alpha > 0
     waterWash.blendMode = water?.blend ?? 'normal'
     // One key says "this chapter is under water" and turns on everything that follows from it: the
     // light on the floor, and the ripples the player pushes across the surface. See CHAPTERS.surf's

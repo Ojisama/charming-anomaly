@@ -135,7 +135,7 @@ const app = new Application()
 await app.init({
   resizeTo: window,
   background: 0xf4efe6,
-  antialias: true,
+  antialias: false,   // everything is a baked texture: MSAA changed no pixel worth seeing and cost 60% of a late endless frame (desktop iGPU)
   resolution: Math.min(window.devicePixelRatio || 1, 2),
   autoDensity: true,
 })

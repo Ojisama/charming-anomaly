@@ -35507,7 +35507,7 @@ function testUnresolvedRefs() {
   // Names that are neither imported nor declared but are legitimately callable.
   const GLOBALS = new Set(['Math', 'Object', 'Array', 'JSON', 'Number', 'String', 'Boolean', 'Set', 'Map',
     'Date', 'isNaN', 'isFinite', 'parseFloat', 'parseInt', 'Symbol', 'Promise', 'Error', 'TypeError',
-    'RegExp', 'WeakMap', 'WeakSet', 'BigInt', 'structuredClone', 'Uint8Array', 'Intl',
+    'RegExp', 'WeakMap', 'WeakSet', 'BigInt', 'structuredClone', 'Uint8Array', 'Int32Array', 'Intl',
     // keywords the call-site regex cannot tell from a call, since `if (` looks exactly like `f (`
     'if', 'for', 'while', 'switch', 'catch', 'return', 'typeof', 'function', 'of', 'in', 'new', 'do',
     'else', 'try', 'await', 'yield', 'delete', 'void', 'instanceof'])
