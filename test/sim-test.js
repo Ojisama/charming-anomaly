@@ -818,6 +818,32 @@ function testRainbowCaps() {
   const pc = card('prismatic'), sc = card('strobe')
   assert.strictEqual(pc.bonus, 1, `run RB.c: the prismatic card at +4 must offer +1, offered ${pc.bonus}`)
   assert(Math.abs(sc.bonus - 0.1) < 1e-9, `run RB.c: the strobe card at +140% must offer +10%, offered ${sc.bonus}`)
+  // The 5th beam (+3) is epic-only, the 6th legendary, the 7th mythic (owner, 2026-10-19): a card
+  // below that rarity DECLINES (devCards then walks up to the first tier that accepts).
+  const ladder = []
+  for (const [have, gate] of [[2, 'epic'], [3, 'legendary'], [4, 'mythic']]) {
+    const r = createRun(makeMeta())
+    r.weapons = [{ id: 'rainbow', level: 5 }]
+    r.weaponMods.rainbow = { prismatic: have }
+    const at = (rar) => devCards(r, rar).find((c) => c.kind === 'mod' && c.weapon === 'rainbow' && c.id === 'prismatic')
+    for (const rar of RARITY_ORDER) {
+      const c = at(rar)
+      const accepts = RARITY_ORDER.indexOf(rar) >= RARITY_ORDER.indexOf(gate)
+      if (!(rar in RARITIES) || rar === 'anomaly') continue
+      if (accepts) assert(c && c.rarity === rar && c.bonus >= 1, `run RB.c: at +${have} a ${rar} Prismatic must be offered, got ${c?.rarity}/${c?.bonus}`)
+      else assert(!c || c.rarity !== rar, `run RB.c: at +${have} a ${rar} Prismatic must decline (beam ${have + 3} is ${gate}+)`)
+    }
+    ladder.push(`beam ${have + 3}: ${gate}+`)
+  }
+  { // a low card still fills the free steps: rare at +0 offers +1, epic at +0 its full +2
+    const r = createRun(makeMeta())
+    r.weapons = [{ id: 'rainbow', level: 5 }]
+    const at = (rar) => devCards(r, rar).find((c) => c.kind === 'mod' && c.weapon === 'rainbow' && c.id === 'prismatic')
+    assert.strictEqual(at('rare').bonus, 1, 'run RB.c: a rare Prismatic at +0 offers +1')
+    assert.strictEqual(at('epic').bonus, 2, 'run RB.c: an epic Prismatic at +0 offers +2')
+    r.weaponMods.rainbow = { prismatic: 2 }
+    assert.strictEqual(at('legendary').bonus, 2, 'run RB.c: a legendary Prismatic at +2 offers its full +2 (beams 5 and 6)')
+  }
   const eligible = () => eligibleWeaponModCandidates(run).filter((c) => c.weapon === 'rainbow').map((c) => c.mod)
   let seen = new Set()
   for (let k = 0; k < 40; k++) for (const m of eligible()) seen.add(m)
@@ -830,7 +856,7 @@ function testRainbowCaps() {
   seen = new Set()
   for (let k = 0; k < 40; k++) for (const m of eligible()) seen.add(m)
   assert(!seen.has('prismatic') && !seen.has('strobe'), `run RB.c: a mod at its max must leave the pool, saw ${[...seen]}`)
-  console.log(`PASS run RB.c (rainbow caps): parked +7/+492% -> ${parked.length} beams at x2.5 tick; Ipecac ${ipecac.length}; cards +1 / +10% then out of the pool (${seen.size} rainbow mods left)`)
+  console.log(`PASS run RB.c (rainbow caps): parked +7/+492% -> ${parked.length} beams at x2.5 tick; Ipecac ${ipecac.length}; cards +1 / +10% then out of the pool (${seen.size} rainbow mods left); ${ladder.join(', ')}`)
 }
 
 function testEndlessGasScale() {
