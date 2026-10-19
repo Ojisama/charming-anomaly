@@ -8779,24 +8779,33 @@ function streamTraps(run) {
 // origin before two distinct cells could collide. A 300s run at the player's 220px/s tops out
 // around 66k px, so this has ~500x headroom; SEP_KEY_SPAN is asserted against SEP_KEY_OFFSET
 // below so the two can never drift apart.
-// A bucket holds INDEX, BODY, INDEX, BODY... The index is still the coincident-pair angle's seed
-// (see resolveSeparationPair) and cannot be dropped; carrying the body beside it is what stops the
-// inner loop doing two random reads into a 400-entry array for every pair it tests, which is the
-// single hottest line in the suite.
-const _sepBuckets = new Map()  // packed cell key -> flat [i, enemy, ...] array, rebuilt every call
-const _sepCells = []           // parallel [ci, cj, bucket] triples, so pass 2 needs no key parsing
+// A cell's bodies sit contiguously in _sepIdx/_sepBody (a counting sort, so their order is the
+// enemy order, as the pushed buckets were); cells are numbered in first-seen order. The index is
+// still the coincident-pair angle's seed (see resolveSeparationPair) and cannot be dropped; carrying
+// the body beside it is what stops the inner loop doing two random reads into the enemy array for
+// every pair it tests, which is the single hottest line in the suite. Every array is reused, so a
+// step allocates nothing (_sepBody keeps last step's references until they are overwritten).
+const _sepCellOf = new Map()     // packed cell key -> cell number, rebuilt every call
+let _sepCI = new Int32Array(256), _sepCJ = new Int32Array(256)
+let _sepStart = new Int32Array(257), _sepFill = new Int32Array(257)
+let _sepCellOfE = new Int32Array(1024), _sepIdx = new Int32Array(1024)
+const _sepBody = []
 const SEP_NEIGHBOR_OFFSETS = [1, 0, -1, 1, 0, 1, 1, 1]  // flat di,dj pairs — no inner array per lookup
 const SEP_KEY_OFFSET = 1 << 19
 const SEP_KEY_SPAN = 1 << 20
 const sepKey = (ci, cj) => (ci + SEP_KEY_OFFSET) * SEP_KEY_SPAN + (cj + SEP_KEY_OFFSET)
+function sepGrow(a, len) { const b = new Int32Array(len); b.set(a); return b }
 function stepEnemySeparation(run) {
-  const buckets = _sepBuckets
-  buckets.clear()
-  _sepCells.length = 0
+  const cellOf = _sepCellOf
+  cellOf.clear()
+  const es = run.enemies, n = es.length
+  if (_sepCellOfE.length < n) { _sepCellOfE = new Int32Array(n * 2); _sepIdx = new Int32Array(n * 2) }
 
-  // Pass 1: bucket every eligible enemy by its cell.
-  for (let i = 0; i < run.enemies.length; i++) {
-    const e = run.enemies[i]
+  // Pass 1: number every eligible enemy's cell.
+  let nc = 0
+  for (let i = 0; i < n; i++) {
+    const e = es[i]
+    _sepCellOfE[i] = -1
     if (e._dead) continue
     if (e._phaseSolid === false) continue // v5.4: a ghosted phase flicker passes through everything
     if (e.burrowed) continue // Book 3: a mole underground passes beneath the crowd
@@ -8805,32 +8814,51 @@ function stepEnemySeparation(run) {
     const ci = Math.floor(e.x / ENEMY_SEP_CELL)
     const cj = Math.floor(e.y / ENEMY_SEP_CELL)
     const key = sepKey(ci, cj)
-    let bucket = buckets.get(key)
-    if (!bucket) { bucket = []; buckets.set(key, bucket); _sepCells.push(ci, cj, bucket) }
-    bucket.push(i, e)
+    let c = cellOf.get(key)
+    if (c === undefined) {
+      c = nc++
+      if (c >= _sepCI.length) {
+        _sepCI = sepGrow(_sepCI, _sepCI.length * 2); _sepCJ = sepGrow(_sepCJ, _sepCJ.length * 2)
+        _sepStart = new Int32Array(_sepCI.length + 1); _sepFill = new Int32Array(_sepCI.length + 1)
+      }
+      _sepCI[c] = ci; _sepCJ[c] = cj
+      cellOf.set(key, c)
+    }
+    _sepCellOfE[i] = c
   }
-  if (buckets.size === 0) return
+  if (nc === 0) return
+  // Pass 2: counting sort into contiguous cells, enemy order kept within each.
+  _sepStart.fill(0, 0, nc + 1)
+  for (let i = 0; i < n; i++) if (_sepCellOfE[i] >= 0) _sepStart[_sepCellOfE[i] + 1]++
+  for (let c = 0; c < nc; c++) { _sepStart[c + 1] += _sepStart[c]; _sepFill[c] = _sepStart[c] }
+  const idx = _sepIdx, body = _sepBody
+  for (let i = 0; i < n; i++) {
+    const c = _sepCellOfE[i]
+    if (c < 0) continue
+    const k = _sepFill[c]++
+    idx[k] = i
+    body[k] = es[i]
+  }
 
-  // Pass 2: within each bucket, resolve against later entries in the SAME bucket (each intra-cell
-  // pair once) and against the 4 forward neighbor buckets (each inter-cell pair once — the usual
+  // Pass 3: within each cell, resolve against later entries in the SAME cell (each intra-cell
+  // pair once) and against the 4 forward neighbor cells (each inter-cell pair once — the usual
   // half-neighborhood trick: the other 4 of the 8 neighbors are covered when THEY are the "own"
-  // bucket being processed).
-  for (let c = 0; c < _sepCells.length; c += 3) {
-    const ci = _sepCells[c]
-    const cj = _sepCells[c + 1]
-    const bucket = _sepCells[c + 2]
-
-    for (let a = 0; a < bucket.length; a += 2) {
-      for (let b = a + 2; b < bucket.length; b += 2) {
-        resolveSeparationPair(bucket[a + 1], bucket[b + 1], bucket[a], bucket[b])
+  // cell being processed).
+  for (let c = 0; c < nc; c++) {
+    const s0 = _sepStart[c], s1 = _sepStart[c + 1]
+    for (let a = s0; a < s1; a++) {
+      for (let b = a + 1; b < s1; b++) {
+        resolveSeparationPair(body[a], body[b], idx[a], idx[b])
       }
     }
-    for (let n = 0; n < SEP_NEIGHBOR_OFFSETS.length; n += 2) {
-      const nBucket = buckets.get(sepKey(ci + SEP_NEIGHBOR_OFFSETS[n], cj + SEP_NEIGHBOR_OFFSETS[n + 1]))
-      if (!nBucket) continue
-      for (let a = 0; a < bucket.length; a += 2) {
-        for (let b = 0; b < nBucket.length; b += 2) {
-          resolveSeparationPair(bucket[a + 1], nBucket[b + 1], bucket[a], nBucket[b])
+    const ci = _sepCI[c], cj = _sepCJ[c]
+    for (let o = 0; o < SEP_NEIGHBOR_OFFSETS.length; o += 2) {
+      const nb = cellOf.get(sepKey(ci + SEP_NEIGHBOR_OFFSETS[o], cj + SEP_NEIGHBOR_OFFSETS[o + 1]))
+      if (nb === undefined) continue
+      const t0 = _sepStart[nb], t1 = _sepStart[nb + 1]
+      for (let a = s0; a < s1; a++) {
+        for (let b = t0; b < t1; b++) {
+          resolveSeparationPair(body[a], body[b], idx[a], idx[b])
         }
       }
     }
