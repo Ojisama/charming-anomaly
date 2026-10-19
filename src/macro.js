@@ -1554,7 +1554,131 @@ function paintBat(ctx, phase) {
 // specular, glass-bead eyes in soft sclera. render.js wears it in place of the vector blob (and of
 // any skin) whenever the macro lens is on. Plan view, radius PLAYER.radius (22).
 export const MACRO_PLAYER_E = 34
+// TEMP shot switch (?pv=N) — delete with the losing variants
+const PV = typeof location !== 'undefined' ? Number(new URLSearchParams(location.search).get('pv') || 0) : 0
 export function paintPlayerBlob(ctx) {
+  return [paintPlayerBlob0, paintPlayerRefined, paintPlayerDew, paintPlayerSlime, paintPlayerMarimo][PV](ctx)
+}
+// shared: two glass-bead eyes set in wet sockets, and a moist crease of a mouth
+function photoFace(ctx, R, o = {}) {
+  for (const s of [-1, 1]) {
+    const ex = s * R * 0.34, ey = -R * 0.16, er = R * (o.eyeR ?? 0.21)
+    softDot(ctx, ex, ey + er * 0.25, er * 1.25, er * 0.4, o.socket ?? 'rgba(10,40,30,0.55)')   // the socket's occlusion
+    const sc = ctx.createRadialGradient(ex - er * 0.3, ey - er * 0.35, 0, ex, ey, er)
+    sc.addColorStop(0, '#fbfaf4'); sc.addColorStop(0.75, '#e6e4d8'); sc.addColorStop(1, '#a8aa9c')
+    ctx.beginPath(); ctx.arc(ex, ey, er, 0, TAU); ctx.fillStyle = sc; ctx.fill()
+    // iris with radial fibres, pupil, then the softbox window and a wet lower lid glint
+    const ix = ex + er * 0.12, iy = ey + er * 0.1, ir = er * 0.62
+    const ig = ctx.createRadialGradient(ix, iy, ir * 0.2, ix, iy, ir)
+    ig.addColorStop(0, css(o.iris ?? 0x6a4a2a)); ig.addColorStop(0.8, css(shadeC(o.iris ?? 0x6a4a2a, -0.45))); ig.addColorStop(1, '#140c06')
+    ctx.beginPath(); ctx.arc(ix, iy, ir, 0, TAU); ctx.fillStyle = ig; ctx.fill()
+    ctx.save(); ctx.beginPath(); ctx.arc(ix, iy, ir, 0, TAU); ctx.clip(); ctx.lineWidth = 0.12
+    for (let k = 0; k < 28; k++) { const a = (k / 28) * TAU; ctx.beginPath(); ctx.moveTo(ix + Math.cos(a) * ir * 0.45, iy + Math.sin(a) * ir * 0.45); ctx.lineTo(ix + Math.cos(a) * ir, iy + Math.sin(a) * ir); ctx.strokeStyle = k % 2 ? 'rgba(255,220,160,0.35)' : 'rgba(0,0,0,0.35)'; ctx.stroke() }
+    ctx.restore()
+    ctx.beginPath(); ctx.arc(ix, iy, ir * 0.42, 0, TAU); ctx.fillStyle = '#050302'; ctx.fill()
+    innerShadow(ctx, ellipsePts(ex, ey, er, er, 0, 24), er * 0.35, 'rgba(30,40,30,0.55)', 0, er * 0.25)   // the lid's shadow on the ball
+    ctx.fillStyle = 'rgba(255,255,255,0.95)'; ctx.fillRect(ix - ir * 0.62, iy - ir * 0.7, ir * 0.42, ir * 0.3)
+    softDot(ctx, ex + er * 0.2, ey + er * 0.82, er * 0.35, er * 0.12, 'rgba(255,255,255,0.5)')
+  }
+  // the mouth: a pressed crease, a shadow line under a lit lip
+  withBlur(ctx, 0.6, o.crease ?? 'rgba(10,40,30,0.8)', () => { ctx.beginPath(); ctx.arc(0, R * 0.18, R * 0.2, Math.PI * 0.18, Math.PI * 0.82); ctx.lineWidth = 1.6; ctx.lineCap = 'round'; ctx.stroke() })
+  withBlur(ctx, 0.4, 'rgba(255,255,255,0.35)', () => { ctx.beginPath(); ctx.arc(0, R * 0.12, R * 0.21, Math.PI * 0.25, Math.PI * 0.75); ctx.lineWidth = 0.5; ctx.stroke() })
+}
+// 1 — LOOK A, REFINED: the same mint blob as a soft wet body — light passing through its rim
+// (subsurface), dirt on its belly, beads of moisture, real eyes.
+function paintPlayerRefined(ctx) {
+  const R = 22, rnd = rng(31)
+  const at = ovalAt(0, 0, R, R * 0.91)
+  const sil = volume(ctx, at, 0x5cc4a2, { lit: 0.28, ao: 0.5, rimBlur: 3, steps: 20 })
+  ctx.save(); trace(ctx, sil); ctx.clip()
+  softDot(ctx, R * 0.45, R * 0.5, R * 0.8, R * 0.55, 'rgba(8,46,36,0.42)')                 // away from the key
+  ctx.globalCompositeOperation = 'screen'
+  softDot(ctx, R * 0.62, R * 0.62, R * 0.45, R * 0.35, 'rgba(150,255,190,0.35)')           // light through the far rim
+  ctx.globalCompositeOperation = 'source-over'
+  for (let i = 0; i < 70; i++) {                                                         // soil picked up on the belly
+    const a = Math.PI * (0.15 + rnd() * 0.7), d = R * (0.82 + rnd() * 0.16)
+    crumb(ctx, Math.cos(a) * d, Math.sin(a) * d * 0.91, 0.3 + rnd() * 0.7, [0x3a2616, 0x5a3c22, 0x2a1a0e][i % 3], rnd)
+  }
+  ctx.restore()
+  grain(ctx, sil, 0.22)
+  grain(ctx, sil, 0.12, 'multiply')
+  photoFace(ctx, R)
+  softDot(ctx, -R * 0.56, R * 0.18, R * 0.15, R * 0.12, 'rgba(255,140,150,0.28)')
+  softDot(ctx, R * 0.56, R * 0.18, R * 0.15, R * 0.12, 'rgba(255,140,150,0.28)')
+  for (let i = 0; i < 9; i++) { const a = rnd() * TAU, d = Math.sqrt(rnd()) * R * 0.85; if (Math.abs(Math.sin(a) * d + R * 0.16) < R * 0.3 && Math.abs(Math.cos(a) * d) < R * 0.6) continue; droplet(ctx, Math.cos(a) * d, Math.sin(a) * d, 0.6 + rnd() * 1.1) }
+  specular(ctx, ellipsePts(-R * 0.4, -R * 0.56, R * 0.24, R * 0.1, -0.5, 20), 0.85, 1.1)
+  softDot(ctx, -R * 0.62, -R * 0.2, R * 0.05, 0.25, 'rgba(255,255,255,0.9)')
+}
+// 2 — DEW BEAD: a droplet of mint water. Mostly clear, so the soil shows through it; dark at the rim
+// where it bends the light away, the lamp focused into a bright caustic on the far side.
+function paintPlayerDew(ctx) {
+  const R = 22
+  const pts = ellipsePts(0, 0, R, R * 0.93, 0, 48)
+  const g = ctx.createRadialGradient(R * 0.1, R * 0.12, 0, 0, 0, R)
+  g.addColorStop(0, 'rgba(150,240,205,0.28)'); g.addColorStop(0.7, 'rgba(60,170,140,0.42)'); g.addColorStop(0.92, 'rgba(14,60,48,0.85)'); g.addColorStop(1, 'rgba(8,30,24,0.9)')
+  trace(ctx, pts); ctx.fillStyle = g; ctx.fill()
+  ctx.save(); trace(ctx, pts); ctx.clip()
+  ctx.globalCompositeOperation = 'screen'
+  softFill(ctx, ellipsePts(R * 0.38, R * 0.48, R * 0.5, R * 0.24, -0.6, 24), R * 0.18, 'rgba(210,255,225,0.85)')   // caustic
+  ctx.globalCompositeOperation = 'source-over'
+  innerShadow(ctx, pts, R * 0.12, 'rgba(4,22,16,0.7)')
+  ctx.restore()
+  photoFace(ctx, R, { socket: 'rgba(4,30,22,0.35)', crease: 'rgba(4,34,26,0.75)', iris: 0x2a6a5a })
+  // the softbox window (a curved rectangle) and a second small one: what makes water read as water
+  softFill(ctx, [-R * 0.72, -R * 0.42, -R * 0.42, -R * 0.74, -R * 0.2, -R * 0.62, -R * 0.52, -R * 0.3], 0.5, 'rgba(255,255,255,0.92)')
+  softDot(ctx, R * 0.48, -R * 0.52, R * 0.06, 0.2, 'rgba(255,255,255,0.8)')
+  ctx.beginPath(); ctx.ellipse(0, 0, R * 0.985, R * 0.915, 0, Math.PI * 0.95, Math.PI * 1.55); ctx.lineWidth = 0.5; ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.stroke()
+}
+// 3 — SLIME MOLD: a living plasmodium (Physarum) — lobed, fanning out into veined pseudopods, the
+// colour of egg yolk, wet and glossy. The forest floor's own blob.
+function paintPlayerSlime(ctx) {
+  const R = 22, rnd = rng(9)
+  const n = 26, pts = []
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * TAU, lobe = 1 + 0.1 * Math.sin(a * 5 + 0.7) + 0.06 * Math.sin(a * 9) + (rnd() - 0.5) * 0.06
+    pts.push(Math.cos(a) * R * lobe, Math.sin(a) * R * 0.92 * lobe)
+  }
+  const at = (k) => pts.map((v, i) => v * (0.15 + 0.85 * k) * (i % 2 ? 1 : 1))
+  volume(ctx, at, 0xb88410, { lit: 0.18, ao: 0.6, rimBlur: 1.6, steps: 18 })
+  ctx.save(); smoothTrace(ctx, pts); ctx.clip()
+  // the vein net: thick channels from the middle out to every lobe, branching thinner as they go
+  ctx.lineCap = 'round'
+  const vein = (x, y, a, L, w, depth) => {
+    const ex = x + Math.cos(a) * L, ey = y + Math.sin(a) * L
+    ctx.beginPath(); ctx.moveTo(x, y); ctx.quadraticCurveTo((x + ex) / 2 + (rnd() - 0.5) * L * 0.4, (y + ey) / 2 + (rnd() - 0.5) * L * 0.4, ex, ey)
+    ctx.lineWidth = w * 1.8; ctx.strokeStyle = 'rgba(90,50,0,0.6)'; ctx.stroke()
+    ctx.lineWidth = w; ctx.strokeStyle = 'rgba(240,190,40,0.9)'; ctx.stroke()
+    ctx.lineWidth = w * 0.3; ctx.strokeStyle = 'rgba(255,250,200,0.7)'; ctx.stroke()
+    if (depth > 0) for (const da of [-0.5, 0.45]) vein(ex, ey, a + da + (rnd() - 0.5) * 0.3, L * 0.62, w * 0.62, depth - 1)
+  }
+  for (let k = 0; k < 7; k++) vein(0, R * 0.1, (k / 7) * TAU + rnd() * 0.4, R * 0.42, 1.5, 2)
+  ctx.restore()
+  grain(ctx, pts, 0.3)
+  photoFace(ctx, R, { socket: 'rgba(120,70,0,0.55)', crease: 'rgba(110,60,0,0.85)', iris: 0x3a2a14 })
+  for (let i = 0; i < 6; i++) { const a = rnd() * TAU, d = R * (0.55 + rnd() * 0.35); droplet(ctx, Math.cos(a) * d, Math.sin(a) * d, 0.5 + rnd() * 0.8) }
+  specular(ctx, ellipsePts(-R * 0.42, -R * 0.55, R * 0.22, R * 0.09, -0.5, 20), 0.8, 1)
+}
+// 4 — MARIMO: a moss ball, thousands of fine green filaments packed into a sphere, wet tips beading.
+function paintPlayerMarimo(ctx) {
+  const R = 22, rnd = rng(5)
+  const at = ovalAt(0, 0, R * 0.9, R * 0.86)
+  const sil = volume(ctx, at, 0x2f6a24, { lit: 0.25, ao: 0.7, rimBlur: 2.5, steps: 14 })
+  // filaments: radial, short, lit toward the key and dark away from it
+  ctx.save(); ctx.lineCap = 'round'
+  for (let i = 0; i < 2600; i++) {
+    const a = rnd() * TAU, d = Math.pow(rnd(), 0.6) * R * 0.98
+    const x = Math.cos(a) * d, y = Math.sin(a) * d * 0.95
+    const out = Math.atan2(y, x) + (rnd() - 0.5) * 1.6, L = 0.8 + rnd() * 1.6
+    const lit = clamp01(0.55 - (x * LX + y * LY) / R * -0.45 - (d / R) * 0.35 + (rnd() - 0.5) * 0.35)
+    ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + Math.cos(out) * L, y + Math.sin(out) * L)
+    ctx.lineWidth = 0.22 + rnd() * 0.18; ctx.strokeStyle = css(mixc(0x14320c, 0xb8e070, lit), 0.85); ctx.stroke()
+  }
+  ctx.restore()
+  innerShadow(ctx, sil, 3, 'rgba(6,20,4,0.55)')
+  photoFace(ctx, R, { socket: 'rgba(4,16,2,0.75)', crease: 'rgba(4,16,2,0.9)', iris: 0x5a3a1a })
+  for (let i = 0; i < 40; i++) { const a = rnd() * TAU, d = Math.sqrt(rnd()) * R * 0.95; softDot(ctx, Math.cos(a) * d, Math.sin(a) * d, 0.3, 0.1, 'rgba(255,255,240,0.85)') }
+}
+function paintPlayerBlob0(ctx) {
   const R = 22
   const at = ovalAt(0, 0, R, R * 0.91)
   const sil = volume(ctx, at, 0x5fc9a8, { lit: 0.32, ao: 0.62, rimBlur: 2.4, steps: 18 })
