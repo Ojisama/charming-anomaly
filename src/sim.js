@@ -5871,10 +5871,26 @@ function guardBlocks(run, e, dot) {
 // Every OTHER enemy caught in the sector gets e.enrageT refreshed. Damages NOTHING — the cone hurts
 // neither the player nor the enemies. It is pure buff + telegraph: the threat is what it turns the
 // swarm into. A no-op unless a live elite carries the flag.
+// Bodies bucketed by FLASHLIGHT_RANGE-sized cells, built once per step and only when a cone exists,
+// so each cone tests its 3x3 neighbourhood instead of the whole crowd: a late endless Undergrowth
+// carries ~50 cone elites against 1,000 bodies. Every enemy within range of a cone sits in one of
+// those 9 cells, and the exact test below is unchanged, so the enraged set is the scan's.
+const _coneCells = new Map()
 function stepFlashlightCones(run, dt) {
   const p = run.player
+  let built = false
   for (const src of run.enemies) {
     if (src._dead || !src.elite || !src.flags || !src.flags.includes('flashlightCone')) continue
+    if (!built) {
+      built = true
+      _coneCells.clear()
+      for (const e of run.enemies) {
+        const key = sepKey(Math.floor(e.x / FLASHLIGHT_RANGE), Math.floor(e.y / FLASHLIGHT_RANGE))
+        const c = _coneCells.get(key)
+        if (c) c.push(e)
+        else _coneCells.set(key, [e])
+      }
+    }
 
     src._coneDir = src._coneDir ?? 1
     src._coneOff = (src._coneOff ?? 0) + src._coneDir * FLASHLIGHT_SWEEP_SPEED * dt
@@ -5883,16 +5899,22 @@ function stepFlashlightCones(run, dt) {
     else if (src._coneOff < -halfSweep) { src._coneOff = -halfSweep; src._coneDir = 1 }
     src._coneAngle = Math.atan2(p.y - src.y, p.x - src.x) + src._coneOff
 
-    for (const e of run.enemies) {
-      if (e === src || e._dead) continue
-      const dx = e.x - src.x, dy = e.y - src.y
-      if (dx * dx + dy * dy > FLASHLIGHT_RANGE * FLASHLIGHT_RANGE) continue
-      const ea = Math.atan2(dy, dx)
-      const da = Math.atan2(Math.sin(ea - src._coneAngle), Math.cos(ea - src._coneAngle)) // signed offset
-      if (Math.abs(da) > FLASHLIGHT_ARC) continue
-      e.enrageT = FLASHLIGHT_ENRAGE_T
+    const ci = Math.floor(src.x / FLASHLIGHT_RANGE), cj = Math.floor(src.y / FLASHLIGHT_RANGE)
+    for (let di = -1; di <= 1; di++) for (let dj = -1; dj <= 1; dj++) {
+      const cell = _coneCells.get(sepKey(ci + di, cj + dj))
+      if (cell) for (const e of cell) coneTouch(src, e)
     }
   }
+  _coneCells.clear()
+}
+function coneTouch(src, e) {
+  if (e === src || e._dead) return
+  const dx = e.x - src.x, dy = e.y - src.y
+  if (dx * dx + dy * dy > FLASHLIGHT_RANGE * FLASHLIGHT_RANGE) return
+  const ea = Math.atan2(dy, dx)
+  const da = Math.atan2(Math.sin(ea - src._coneAngle), Math.cos(ea - src._coneAngle)) // signed offset
+  if (Math.abs(da) > FLASHLIGHT_ARC) return
+  e.enrageT = FLASHLIGHT_ENRAGE_T
 }
 
 // ---- Contact damage ---------------------------------------------------------------
@@ -10172,13 +10194,18 @@ function applyElements(run, enemy, dmgDealt) {
 // source is suffering. Chill and venom are deliberately NOT forwarded — the arc's own damage lands
 // in each target's window against ITS maxHP, so they spread correctly and automatically. Copying
 // them instead would carry a magnitude computed against one health bar onto a different one.
+// The arcs' nearest-first pick, kept as a running top-`arcs` list (by dSq, then array index — the
+// order the old collect-and-sort gave) instead of an object per candidate and a full sort: at a
+// late endless build that sort was a fifth of a step. Module-scope and reused; elArc copies its
+// targets out before dealing damage, because a kill can re-enter it.
+const _arcE = [], _arcD = [], _arcI = []
 function elArc(run, source, P, dmgDealt) {
   if (source._shockCd > 0) return
   const k = elScale(P)
   const arcs = 1 + Math.floor(k)
   const range = SHOCK_RANGE * (1 + EL_LIGHT_RANGE * k)
   const rangeSq = range * range
-  const near = []
+  let cnt = 0
   const es = run.enemies
   const ids = nbQuery(run, source.x - range, source.y - range, source.x + range, source.y + range)
   for (let n = 0, len = ids ? ids.length : es.length; n < len; n++) {
@@ -10187,12 +10214,18 @@ function elArc(run, source, P, dmgDealt) {
     if (e === source || e._dead || isAlly(e)) continue
     const dx = e.x - source.x, dy = e.y - source.y
     const dSq = dx * dx + dy * dy
-    if (dSq <= rangeSq) near.push({ e, dSq, i })
+    if (!(dSq <= rangeSq)) continue
+    if (cnt === arcs && (dSq > _arcD[cnt - 1] || (dSq === _arcD[cnt - 1] && i > _arcI[cnt - 1]))) continue
+    let j = cnt < arcs ? cnt++ : cnt - 1
+    while (j > 0 && (_arcD[j - 1] > dSq || (_arcD[j - 1] === dSq && _arcI[j - 1] > i))) {
+      _arcD[j] = _arcD[j - 1]; _arcI[j] = _arcI[j - 1]; _arcE[j] = _arcE[j - 1]; j--
+    }
+    _arcD[j] = dSq; _arcI[j] = i; _arcE[j] = e
   }
-  if (near.length === 0) return
+  if (cnt === 0) return
   source._shockCd = SHOCK_CD
-  near.sort((a, b) => a.dSq - b.dSq || a.i - b.i)
-  const targets = near.slice(0, arcs).map((n) => n.e)
+  const targets = _arcE.slice(0, cnt)
+  _arcE.length = 0   // drop the references: a reused slot must not keep a dead body alive
 
   const arcDmg = Math.round(EL_LIGHT_SHARE * k * dmgDealt)
   const fwd = Math.min(1, EL_LIGHT_FORWARD * k)
