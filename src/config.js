@@ -6506,6 +6506,9 @@ export const CHEEK_JIGGLE = {
   max: 0.26,     // clamp, as a fraction of the butt's half-width
   squash: 0.8,   // how much of the offset also shows as squash along the travel direction
 }
+// THE TOPSOIL JELLYBEAN's contents ride the same spring: the fraction of its offset each layer takes,
+// and an idle drift (fraction of PLAYER.radius) so they float while you stand still. Render-only.
+export const GEL_DRIFT = { deep: 0.45, near: 1, idle: 0.08 }
 
 // THE CHEEKS SKIN'S FEET. Two little ovals that stride under the butt while you move, in step with
 // the hop the body already bounces on (render.js syncPlayer's `hop`) rather than on a cadence of
