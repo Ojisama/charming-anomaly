@@ -670,7 +670,28 @@ export function initUI(hooks) {
     queueFlip(i > casePageOf(shelves, browseChapterId) ? 'next' : 'prev', 2)
     browseChapterId = pick.id
     podiumOpen = false
-    renderTitle()
+    // NOT renderTitle: that rewrites the scroller under the finger, and a tap landing on a volume
+    // in that window hits a deleted node — the swipe read as ~1s of dead shelf on a phone.
+    markCase(bc, i)
+    paintRoom()
+    updateTitleBelow()
+  }
+  const ariaCur = (e, on) => on ? e.setAttribute('aria-current', 'true') : e.removeAttribute('aria-current')
+  // bookcaseHtml's selection marks, moved in place: the page, its dots and arrows, and the ring.
+  function markCase(bc, cur) {
+    bc.querySelectorAll('.etage').forEach((p, i) => p.classList.toggle('etage--cur', i === cur))
+    for (const v of bc.querySelectorAll('.vol')) {
+      const sel = v.dataset.vol === browseChapterId
+      v.classList.toggle('vol--sel', sel)
+      if (!v.classList.contains('vol--turned')) ariaCur(v, sel)
+    }
+    screens.title.querySelectorAll('.case-dot').forEach((d, i) => {
+      d.classList.toggle('case-dot--on', i === cur)
+      ariaCur(d, i === cur)
+    })
+    const n = bc.querySelectorAll('.etage').length
+    screens.title.querySelector('.case-nav--prev')?.toggleAttribute('disabled', cur === 0)
+    screens.title.querySelector('.case-nav--next')?.toggleAttribute('disabled', cur === n - 1)
   }
   function scrollCaseTo(i) {
     const bc = screens.title.querySelector('.bookcase')
