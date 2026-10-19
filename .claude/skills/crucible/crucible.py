@@ -20,7 +20,10 @@ from pathlib import Path
 
 
 def git(*a, cwd=None):
-    return subprocess.run(['git', *a], cwd=cwd, check=True, capture_output=True, text=True).stdout.strip()
+    # crucible tags and snapshot commits are local scratch: a global tag/commit.gpgSign would make them
+    # need a message and a gpg TTY, which a background session does not have.
+    return subprocess.run(['git', '-c', 'tag.gpgSign=false', '-c', 'commit.gpgSign=false', *a], cwd=cwd, check=True,
+                          capture_output=True, text=True).stdout.strip()
 
 
 def common():
