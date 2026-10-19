@@ -5898,6 +5898,7 @@ function stepFlashlightCones(run, dt) {
     if (src._coneOff > halfSweep) { src._coneOff = halfSweep; src._coneDir = -1 }
     else if (src._coneOff < -halfSweep) { src._coneOff = -halfSweep; src._coneDir = 1 }
     src._coneAngle = Math.atan2(p.y - src.y, p.x - src.x) + src._coneOff
+    _coneUx = Math.cos(src._coneAngle); _coneUy = Math.sin(src._coneAngle)
 
     const ci = Math.floor(src.x / FLASHLIGHT_RANGE), cj = Math.floor(src.y / FLASHLIGHT_RANGE)
     for (let di = -1; di <= 1; di++) for (let dj = -1; dj <= 1; dj++) {
@@ -5907,10 +5908,20 @@ function stepFlashlightCones(run, dt) {
   }
   _coneCells.clear()
 }
+// The cone's unit vector, set per source: |angle offset| <= FLASHLIGHT_ARC is cos(offset) >= cos(ARC),
+// a dot product, so most bodies skip the trig. Within COS_EPS of the edge the exact angle test decides.
+let _coneUx = 1, _coneUy = 0
+const CONE_COS = Math.cos(FLASHLIGHT_ARC), CONE_COS_EPS = 1e-9
 function coneTouch(src, e) {
-  if (e === src || e._dead) return
+  if (e === src || e._dead || e.enrageT === FLASHLIGHT_ENRAGE_T) return  // already lit this step: the write is the same
   const dx = e.x - src.x, dy = e.y - src.y
-  if (dx * dx + dy * dy > FLASHLIGHT_RANGE * FLASHLIGHT_RANGE) return
+  const dSq = dx * dx + dy * dy
+  if (dSq > FLASHLIGHT_RANGE * FLASHLIGHT_RANGE) return
+  if (dSq > 0) {
+    const c = (dx * _coneUx + dy * _coneUy) / Math.sqrt(dSq)
+    if (c < CONE_COS - CONE_COS_EPS) return
+    if (c > CONE_COS + CONE_COS_EPS) { e.enrageT = FLASHLIGHT_ENRAGE_T; return }
+  }
   const ea = Math.atan2(dy, dx)
   const da = Math.atan2(Math.sin(ea - src._coneAngle), Math.cos(ea - src._coneAngle)) // signed offset
   if (Math.abs(da) > FLASHLIGHT_ARC) return
@@ -8931,6 +8942,39 @@ function resolveSeparationPair(a, b, i, j) {
 // distance checks/frame. Comparing squared distances skips the sqrt on every non-overlapping pair
 // (the overwhelming majority) and only pays for it on the rare branch that actually needs the unit
 // normal to push something out. Ships to phones; not optional (design doc §1).
+// Obstacle grid for stepObstacles' enemy pass: each obstacle sits in every ENEMY_QUERY_CELL its
+// circle, padded by the largest enemy radius, reaches. A body overlapping no obstacle in its own cell
+// would not move in the full scan, so it skips it; one that overlaps any runs the full scan unchanged,
+// so the push-out order (and a chain of push-outs) is exactly the old one. Holds the obstacle
+// objects, not indices: the Kraken head splices run.obstacles inside the same loop.
+const _obGrid = new Map()
+function buildObstacleGrid(run) {
+  _obGrid.clear()
+  let maxR = 0
+  for (const e of run.enemies) if (e.radius > maxR) maxR = e.radius
+  for (const o of run.obstacles) {
+    const pad = o.r + maxR
+    const i0 = Math.floor((o.x - pad) / ENEMY_QUERY_CELL), i1 = Math.floor((o.x + pad) / ENEMY_QUERY_CELL)
+    const j0 = Math.floor((o.y - pad) / ENEMY_QUERY_CELL), j1 = Math.floor((o.y + pad) / ENEMY_QUERY_CELL)
+    for (let i = i0; i <= i1; i++) {
+      for (let j = j0; j <= j1; j++) {
+        const k = sepKey(i, j), c = _obGrid.get(k)
+        if (c) c.push(o)
+        else _obGrid.set(k, [o])
+      }
+    }
+  }
+}
+function obstacleTouches(e) {
+  const c = _obGrid.get(sepKey(Math.floor(e.x / ENEMY_QUERY_CELL), Math.floor(e.y / ENEMY_QUERY_CELL)))
+  if (!c) return false
+  for (const o of c) {
+    const minSep = o.r + e.radius
+    if ((e.x - o.x) ** 2 + (e.y - o.y) ** 2 < minSep * minSep) return true
+  }
+  return false
+}
+
 function stepObstacles(run) {
   if (!run.obstacles || run.obstacles.length === 0) return
   // v5.18: in the lane (beyond) the obstacles are PLANETS — distant bodies you scroll past, not
@@ -8964,6 +9008,7 @@ function stepObstacles(run) {
       }
     }
   }
+  buildObstacleGrid(run)
   for (const e of run.enemies) {
     if (e._dead) continue
     if (e._phaseSolid === false) continue // v5.4: a ghosted phase flicker passes straight through
@@ -8987,6 +9032,7 @@ function stepObstacles(run) {
       if (smashed) run._obstacleRev = (run._obstacleRev || 0) + 1
       continue
     }
+    if (!obstacleTouches(e)) continue
     for (const o of run.obstacles) {
       const dx = e.x - o.x, dy = e.y - o.y
       const minSep = o.r + e.radius
@@ -9211,7 +9257,13 @@ function stepStrips(run, dt) {
 // spring it for plain damage before landing, which cannibalized the land-slam (Task 2 stepPounce)
 // that's supposed to own the interaction.
 // @returns true if the player died this frame (phase set to 'dead').
+// The trap pass reads the neighbour grid too (enemiesNear keeps array order, so the same body springs it).
 function stepTraps(run, dt) {
+  _nbOn = true
+  _nbDirty = true
+  try { return stepTrapsInner(run, dt) } finally { _nbOn = false }
+}
+function stepTrapsInner(run, dt) {
   if (!run.traps || run.traps.length === 0) return false
   const sig = CHAPTERS[run.chapter].signature
   if (!sig || sig.type !== 'predators') return false
@@ -9241,7 +9293,7 @@ function stepTraps(run, dt) {
         continue
       }
     }
-    for (const e of run.enemies) {
+    for (const e of enemiesNear(run, tr.x, tr.y, tr.r)) {
       if (e._dead) continue
       if (e._pounceState === 'leap' || flies(e)) continue // airborne — the landing owns the interaction (Task 2)
       const dx = e.x - tr.x, dy = e.y - tr.y
