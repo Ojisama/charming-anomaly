@@ -32245,7 +32245,9 @@ void main() {
     const m = s._afx
     if (m) for (const k in m) m[k]._used = false
     const aff = (e.elite || e.affixVisible) && e.affixes ? e.affixes : null
-    if (aff && aff.length && e.hitFlash <= 0 && !e.burrowed) {
+    // the hit flash keeps everything it wears (only the coats, which would tint the flash, sit it out)
+    if (aff && aff.length && !e.burrowed) {
+      const lit = e.hitFlash <= 0
       const F = eliteFx(), R = e.radius || 16, k = R / 16, id = e.id
       // the body's frame: +x is its nose, the back is -x
       const fl = s.scale.x < 0 ? -1 : 1, c = Math.cos(s.rotation), sn = Math.sin(s.rotation)
@@ -32299,7 +32301,7 @@ void main() {
           shieldG.moveTo(bx, by).quadraticCurveTo(mx, my, st.x, st.y).stroke({ width: 3.4 * k, color: 0x2a1c10, alpha: 0.95 })
           shieldG.moveTo(bx, by).quadraticCurveTo(mx, my, st.x, st.y).stroke({ width: 1.2 * k, color: 0xc49a6a, alpha: 0.8 })
         } else if (a === 'frenzied') {
-          afxCoat(s, 'flush', frame, 0xd02a10, 0.32 + 0.12 * Math.sin(animT * 22 + id), 'normal')
+          if (lit) afxCoat(s, 'flush', frame, 0xd02a10, 0.32 + 0.12 * Math.sin(animT * 22 + id), 'normal')
           // froth at its mouth, and its breath steaming
           if (afxEvery(s, '_afxFrothT', 0.08)) { const [x, y] = W(R * 0.75, (Math.random() - 0.5) * R * 0.5); elSpawn(F.bubble, x, y, (Math.random() - 0.5) * 14, (Math.random() - 0.5) * 14, 0.7, k * (1.3 + Math.random() * 0.9), false, -0.6, 2) }
           if (afxEvery(s, '_afxSteamT', 0.2)) { const [x, y] = W(R * 0.9, 0); spawnParticle(T.dustPuff.tex, x, y, Math.cos(s.rotation) * fl * 20, -18, 0.9, 0.35 * k, 0xd8d0c8, 1.1, 1.5) }
@@ -32309,10 +32311,10 @@ void main() {
           if (afxEvery(s, '_afxGoldT', 0.3)) elSpawn(elPick(elFx().ice), x + (Math.random() - 0.5) * R * 0.4, y + (Math.random() - 0.5) * R * 0.4, 0, 0, 0.45, k * (0.9 + Math.random() * 0.5), true, 0, 0, 0, Math.random() * 6.28).tint = 0xffc860
         }
       }
-      // an elite is a glossier body, not a crown
-      if (s._crown) s._crown.visible = false
-      afxCoat(s, 'gloss', frame, 0x2a2420, 1, 'add')
+      if (lit) afxCoat(s, 'gloss', frame, 0x2a2420, 1, 'add')
     }
+    // an elite is a glossier body, not a crown — on every frame, flashing or burrowed included
+    if (s._crown) s._crown.visible = false
     if (m) for (const kk in m) if (!m[kk]._used) m[kk].visible = false
   }
 
