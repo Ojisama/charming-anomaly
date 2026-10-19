@@ -3688,9 +3688,10 @@ export const WEAPON_MODS = {
   rainbow: {
     wideBeam:  { name: 'Big Beam',        desc: 'beam width & length',    icon: '📡', base: 0.20, kind: 'pct' },
     sustain:   { name: 'Sustain',         desc: 'beam duration',          icon: '⌛', base: 0.20, kind: 'pct' },
-    // balance_decision : at most 7 beams per cast (2 + 5) 2026-10-19
-    //  - `max` is a hard bank ceiling: the card shrinks to what is left, then leaves the pool
-    prismatic: { name: 'Prismatic Split', desc: 'extra beam(s) per cast', icon: '🎇', kind: 'tier', max: 5 },
+    // balance_decision : 7 beams max; 5th epic, 6th legendary, 7th mythic 2026-10-19
+    //  - `maxByRarity` caps the bank a card of that rarity can reach; `max` is the hard ceiling
+    prismatic: { name: 'Prismatic Split', desc: 'extra beam(s) per cast', icon: '🎇', kind: 'tier', max: 5,
+      maxByRarity: { normal: 2, rare: 2, epic: 3, legendary: 4, mythic: 5 } },
     focus:     { name: 'Focus Lens', desc: 'damage climbs by {n} the longer it fires', icon: '🔎', base: 0.80, kind: 'pct' },
     // balance_decision : tick rate at most x2.5 (~19/s at Lv5, was 45) 2026-10-19
     strobe:    { name: 'Strobe Ray', desc: 'beam tick rate',                             icon: '💡', base: 0.40, kind: 'pct', max: 1.5 },

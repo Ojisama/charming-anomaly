@@ -15665,8 +15665,11 @@ function makeWeaponModCard(run, weaponId, modId, rarity) {
   // A chapter's weaponTune.mods scales a PERCENT card here, so the card and the bank agree.
   else bonus = cfg.base * mult * (cfg.kind === 'pct' ? (chapterTune(run, weaponId).mods ?? 1) * (chapterTune(run, weaponId).modMul?.[modId] ?? 1) : 1)
   // A mod with a `max` offers only what is left under it, so the card and the bank agree.
-  if (cfg.max != null) {
-    bonus = Math.min(bonus, Math.round((cfg.max - (run.weaponMods[weaponId]?.[modId] ?? 0)) * 100) / 100)
+  // `maxByRarity` lowers that ceiling per tier (a rarity it does not list declines), so the last
+  // steps of the bank are only ever offered at the rarities that unlock them.
+  if (cfg.max != null || cfg.maxByRarity) {
+    const ceil = Math.min(cfg.max ?? Infinity, cfg.maxByRarity ? (cfg.maxByRarity[rarity] ?? 0) : Infinity)
+    bonus = Math.min(bonus, Math.round((ceil - (run.weaponMods[weaponId]?.[modId] ?? 0)) * 100) / 100)
     if (!(bonus > 0)) return null
   }
   // A desc carrying {n} places the amount ITSELF, anywhere in the sentence, instead of taking the
