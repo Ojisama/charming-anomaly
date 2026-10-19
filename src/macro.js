@@ -1549,28 +1549,99 @@ function paintBat(ctx, phase) {
   trace(ctx, [r * 0.88, -r * 0.06, r * 1.0, 0, r * 0.88, r * 0.06]); ctx.fillStyle = '#2a1610'; ctx.fill()
 }
 
-// THE PLAYER, photographed (owner pick 2026-10-10, look A): Book 1's mint blob and its face, shaded
-// round under the same raking key as the cast — lit top-left, no ink outline, skin grain, a wet
-// specular, glass-bead eyes in soft sclera. render.js wears it in place of the vector blob (and of
-// any skin) whenever the macro lens is on. Plan view, radius PLAYER.radius (22).
+// THE PLAYER, photographed (owner pick 2026-10-19): a translucent mint JELLYBEAN — a kidney of clear
+// gel, dense and dark at the rim where light travels through more of it, with soil on its belly and
+// glass-bead eyes, and things caught inside it that drift as you move. Lit top-left like the cast.
+// Painted in four parts so render.js can move the contents inside the body:
+//   'back'  the gel itself (also the silhouette every twin is cut from)
+//   'deep'  far contents: soft, dim bubbles and specks  } drift in a layer masked to the
+//   'near'  near contents: sharp bubbles and a seed     } body, near ones further (parallax)
+//   'front' the surface: rim occlusion, belly soil, face, wet highlights
+// Plan view, sized to PLAYER.radius (22).
 export const MACRO_PLAYER_E = 34
-export function paintPlayerBlob(ctx) {
-  const R = 22
-  const at = ovalAt(0, 0, R, R * 0.91)
-  const sil = volume(ctx, at, 0x5fc9a8, { lit: 0.32, ao: 0.62, rimBlur: 2.4, steps: 18 })
-  ctx.save(); trace(ctx, sil); ctx.clip()
-  softDot(ctx, R * 0.35, R * 0.45, R * 0.75, R * 0.5, 'rgba(10,50,40,0.35)')   // the side away from the key
-  ctx.restore()
-  grain(ctx, sil, 0.28)
-  for (const s of [-1, 1]) {
-    const ex = s * R * 0.36, ey = -R * 0.18
-    softDot(ctx, ex, ey, R * 0.25, R * 0.06, 'rgba(244,248,240,0.95)')
-    innerShadow(ctx, ellipsePts(ex, ey, R * 0.25, R * 0.25, 0, 24), 1.2, 'rgba(40,70,60,0.5)')
-    eye(ctx, ex + R * 0.03, ey + R * 0.03, R * 0.12)
-    softDot(ctx, s * R * 0.55, R * 0.16, R * 0.15, R * 0.12, 'rgba(255,150,160,0.32)')
+const GEL_R = 22
+const gelOutline = () => {
+  const pts = []
+  for (let i = 0; i < 48; i++) {
+    const a = (i / 48) * TAU, x = Math.cos(a) * GEL_R * 1.12
+    let y = Math.sin(a) * GEL_R * 0.84
+    if (y < 0) y += GEL_R * 0.2 * Math.exp(-((x / (GEL_R * 0.45)) ** 2))   // the bean's dent
+    pts.push(x, y)
   }
-  withBlur(ctx, 0.5, 'rgba(25,80,64,0.85)', () => { ctx.beginPath(); ctx.arc(0, R * 0.2, R * 0.2, Math.PI * 0.15, Math.PI * 0.85); ctx.lineWidth = 2; ctx.lineCap = 'round'; ctx.stroke() })
-  specular(ctx, ellipsePts(-R * 0.38, -R * 0.55, R * 0.26, R * 0.12, -0.5, 20), 0.75, 1.4)
+  return pts
+}
+export function paintPlayerBlob(ctx, part = 'back') {
+  const R = GEL_R, pts = gelOutline()
+  if (part === 'back') {
+    const g = ctx.createRadialGradient(-R * 0.15, -R * 0.2, 0, 0, 0, R * 1.1)
+    g.addColorStop(0, 'rgba(170,250,215,0.3)'); g.addColorStop(0.6, 'rgba(80,190,155,0.5)'); g.addColorStop(0.9, 'rgba(26,96,76,0.88)'); g.addColorStop(1, 'rgba(12,52,40,0.92)')
+    smoothTrace(ctx, pts); ctx.fillStyle = g; ctx.fill()
+    // light through the gel lands as a bright caustic on the side away from the lamp
+    ctx.save(); smoothTrace(ctx, pts); ctx.clip(); ctx.globalCompositeOperation = 'screen'
+    softFill(ctx, ellipsePts(-LX * R * 0.5, -LY * R * 0.5, R * 0.42, R * 0.2, Math.atan2(LY, LX) + Math.PI / 2, 24), R * 0.16, 'rgba(200,255,220,0.55)')
+    ctx.restore()
+    grain(ctx, pts, 0.12)
+    return
+  }
+  if (part === 'deep' || part === 'near') {
+    const deep = part === 'deep', rnd = rng(deep ? 17 : 18)
+    const blur = deep ? 0.9 : 0.15, a = deep ? 0.45 : 0.9
+    for (let i = 0; i < (deep ? 12 : 8); i++) {
+      const ang = rnd() * TAU, d = Math.sqrt(rnd()) * R * 0.8, x = Math.cos(ang) * d * 1.1, y = Math.sin(ang) * d * 0.8, r = (deep ? 1.2 : 0.9) + rnd() * (deep ? 2.2 : 1.8)
+      if (rnd() < 0.55) {   // an air bubble: dark ring, bright cap toward the lamp
+        withBlur(ctx, blur, `rgba(10,50,38,${a})`, () => { ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.lineWidth = Math.max(0.2, r * 0.3); ctx.stroke() })
+        softDot(ctx, x + LX * r * 0.4, y + LY * r * 0.4, r * 0.3, blur * 0.5, `rgba(255,255,255,${a})`)
+      } else softDot(ctx, x, y, r * 0.6, blur, `rgba(44,26,12,${a})`)   // a speck of soil
+    }
+    if (!deep) {   // a seed hanging in it, lit and shadowed like any other object
+      const sx = R * 0.36, sy = R * 0.42
+      softFill(ctx, ellipsePts(sx + 1.2, sy + 1.2, R * 0.27, R * 0.13, 0.6, 18), 1.2, 'rgba(6,30,22,0.5)')
+      const sg = ctx.createLinearGradient(sx - 3, sy - 3, sx + 3, sy + 3)
+      sg.addColorStop(0, '#c89a5a'); sg.addColorStop(1, '#5a3a18')
+      trace(ctx, ellipsePts(sx, sy, R * 0.27, R * 0.13, 0.6, 18)); ctx.fillStyle = sg; ctx.fill()
+    }
+    return
+  }
+  const rnd = rng(19)
+  ctx.save(); smoothTrace(ctx, pts); ctx.clip()
+  for (let i = 0; i < 40; i++) {   // soil picked up on the belly
+    const ang = Math.PI * (0.2 + rnd() * 0.6), d = R * (0.8 + rnd() * 0.18)
+    crumb(ctx, Math.cos(ang) * d * 1.12, Math.sin(ang) * d * 0.84, 0.3 + rnd() * 0.6, [0x3a2616, 0x5a3c22, 0x2a1a0e][i % 3], rnd)
+  }
+  innerShadow(ctx, pts, R * 0.1, 'rgba(6,34,26,0.6)')
+  ctx.restore()
+  photoFace(ctx, R, { socket: 'rgba(4,34,26,0.4)', crease: 'rgba(4,34,26,0.8)', iris: 0x6a4a2a })
+  // the wet surface: a softbox window, a pin glint, a rim of light on the lit edge
+  softFill(ctx, [-R * 0.8, -R * 0.36, -R * 0.5, -R * 0.66, -R * 0.26, -R * 0.56, -R * 0.58, -R * 0.26], 0.6, 'rgba(255,255,255,0.88)')
+  softDot(ctx, R * 0.52, -R * 0.44, R * 0.05, 0.2, 'rgba(255,255,255,0.8)')
+  const rim = pts.map((v) => v * 0.9575)
+  ctx.save(); ctx.beginPath(); for (let i = 26; i <= 38; i++) ctx.lineTo(rim[i * 2], rim[i * 2 + 1])
+  ctx.lineWidth = 0.6; ctx.lineCap = 'round'; ctx.strokeStyle = 'rgba(255,255,255,0.5)'; ctx.stroke(); ctx.restore()
+}
+// the face: two glass-bead eyes set in wet sockets, and a moist crease of a mouth
+function photoFace(ctx, R, o = {}) {
+  for (const s of [-1, 1]) {
+    const ex = s * R * 0.34, ey = -R * 0.16, er = R * (o.eyeR ?? 0.21)
+    softDot(ctx, ex, ey + er * 0.25, er * 1.25, er * 0.4, o.socket ?? 'rgba(10,40,30,0.55)')   // the socket's occlusion
+    const sc = ctx.createRadialGradient(ex - er * 0.3, ey - er * 0.35, 0, ex, ey, er)
+    sc.addColorStop(0, '#fbfaf4'); sc.addColorStop(0.75, '#e6e4d8'); sc.addColorStop(1, '#a8aa9c')
+    ctx.beginPath(); ctx.arc(ex, ey, er, 0, TAU); ctx.fillStyle = sc; ctx.fill()
+    // iris with radial fibres, pupil, then the softbox window and a wet lower lid glint
+    const ix = ex + er * 0.12, iy = ey + er * 0.1, ir = er * 0.62
+    const ig = ctx.createRadialGradient(ix, iy, ir * 0.2, ix, iy, ir)
+    ig.addColorStop(0, css(o.iris ?? 0x6a4a2a)); ig.addColorStop(0.8, css(shadeC(o.iris ?? 0x6a4a2a, -0.45))); ig.addColorStop(1, '#140c06')
+    ctx.beginPath(); ctx.arc(ix, iy, ir, 0, TAU); ctx.fillStyle = ig; ctx.fill()
+    ctx.save(); ctx.beginPath(); ctx.arc(ix, iy, ir, 0, TAU); ctx.clip(); ctx.lineWidth = 0.12
+    for (let k = 0; k < 28; k++) { const a = (k / 28) * TAU; ctx.beginPath(); ctx.moveTo(ix + Math.cos(a) * ir * 0.45, iy + Math.sin(a) * ir * 0.45); ctx.lineTo(ix + Math.cos(a) * ir, iy + Math.sin(a) * ir); ctx.strokeStyle = k % 2 ? 'rgba(255,220,160,0.35)' : 'rgba(0,0,0,0.35)'; ctx.stroke() }
+    ctx.restore()
+    ctx.beginPath(); ctx.arc(ix, iy, ir * 0.42, 0, TAU); ctx.fillStyle = '#050302'; ctx.fill()
+    innerShadow(ctx, ellipsePts(ex, ey, er, er, 0, 24), er * 0.35, 'rgba(30,40,30,0.55)', 0, er * 0.25)   // the lid's shadow on the ball
+    ctx.fillStyle = 'rgba(255,255,255,0.95)'; ctx.fillRect(ix - ir * 0.62, iy - ir * 0.7, ir * 0.42, ir * 0.3)
+    softDot(ctx, ex + er * 0.2, ey + er * 0.82, er * 0.35, er * 0.12, 'rgba(255,255,255,0.5)')
+  }
+  // the mouth: a pressed crease, a shadow line under a lit lip
+  withBlur(ctx, 0.6, o.crease ?? 'rgba(10,40,30,0.8)', () => { ctx.beginPath(); ctx.arc(0, R * 0.18, R * 0.2, Math.PI * 0.18, Math.PI * 0.82); ctx.lineWidth = 1.6; ctx.lineCap = 'round'; ctx.stroke() })
+  withBlur(ctx, 0.4, 'rgba(255,255,255,0.35)', () => { ctx.beginPath(); ctx.arc(0, R * 0.12, R * 0.21, Math.PI * 0.25, Math.PI * 0.75); ctx.lineWidth = 0.5; ctx.stroke() })
 }
 
 export const MACRO_CAST = {

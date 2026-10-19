@@ -21,6 +21,7 @@ import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC
   LURE_GLOW, MAW_VIS, MAW_REVEAL, MAW_GROW, mawReach,
   FISH_R, FISH_BODY,  // Book 2's fish: the bake draws the same body the sim collides with (playerTouches)
   CHEEK_JIGGLE,       // the cheeks skin's spring — see syncPlayer's jiggle block
+  GEL_DRIFT,          // the Topsoil jellybean: how far its contents drift on that spring
   BUTT_FEET,          // ...and its feet — see syncPlayer's feet block // The Deep: the anglerfish maw and its esca punched through the dark scrim
   FOXFIRE_GLOW,       // The Deep: a foxfire punched through the same scrim — a fire is a light
   FOXFIRE_SWARM,      // ...drawn as a firefly swarm whose count and reach the bloom carries
@@ -7198,14 +7199,19 @@ export function createRenderer(app) {
   // tex (body or white twin) -> its white twin: the silhouette the Geode's cavern halos are cut from
   const macroWhiteOf = new Map()
   const macroFrames = new Map()
-  // The photographed player (MACRO.paintPlayerBlob), baked the first time a macro run draws it.
+  // The photographed player (MACRO.paintPlayerBlob), baked the first time a macro run draws it: the
+  // gel body (with its twins), the two layers of contents that drift inside it, and its surface.
   let macroPlayerLook = null
   function macroPlayer() {
     if (macroPlayerLook) return macroPlayerLook
     const b = MACRO.bakeLocal(MACRO.MACRO_PLAYER_E, 3, MACRO.paintPlayerBlob, { shadowBlur: 2.5 })
     const tex = macroCanvasTex(b.body, b.S), white = macroCanvasTex(b.white, b.S), sh = macroCanvasTex(b.shadow, b.S)
     macroShadowOf.set(tex, sh)
-    macroPlayerLook = { body: { tex, ax: b.ax, ay: b.ay }, flash: { tex: white, ax: b.ax, ay: b.ay } }
+    const part = (name) => {
+      const p = MACRO.bakeLocal(MACRO.MACRO_PLAYER_E, 3, (ctx) => MACRO.paintPlayerBlob(ctx, name), { bodyOnly: true })
+      return { tex: macroCanvasTex(p.body, p.S), ax: p.ax, ay: p.ay }
+    }
+    macroPlayerLook = { body: { tex, ax: b.ax, ay: b.ay }, flash: { tex: white, ax: b.ax, ay: b.ay }, deep: part('deep'), near: part('near'), front: part('front') }
     return macroPlayerLook
   }
   // The Geode's player (HOLO.paintHoloPlayer / paintHoloButt / paintHoloFoot): the same parts the
@@ -15933,7 +15939,19 @@ const spurG = new Graphics()
   pFeet.addChild(footL, footR, footLF, footRF)
   pFeet.visible = false
   bodyC.addChild(pFeet)
-  bodyC.addChild(pBody, cheekC, pHot, pupilL, pupilR, pFlash)
+  // THE JELLYBEAN's insides (Topsoil, macroPlayer): two layers of contents drifting inside the gel,
+  // clipped to its silhouette, under the surface (face, soil, highlights) — the same shape as the
+  // cheeks above: a moving layer between the body and the washes, driven by the same spring.
+  const gelC = new Container()
+  const gelDeep = new Sprite(Texture.EMPTY)
+  const gelNear = new Sprite(Texture.EMPTY)
+  gelC.addChild(gelDeep, gelNear)
+  const gelMask = new Sprite(Texture.EMPTY)
+  bodyC.addChild(gelMask)
+  gelC.mask = gelMask
+  const pGelFront = new Sprite(Texture.EMPTY)
+  gelC.visible = pGelFront.visible = false
+  bodyC.addChild(pBody, cheekC, gelC, pGelFront, pHot, pupilL, pupilR, pFlash)
   // flagellum tail (pond/undergrowth skins): two stacked streak glyphs behind the blob, trailing
   // the player's facingAngle with a wiggle. Textures are fx sprites so they're assigned once the fx
   // sheet loads (buildFxTextures); this rig starts hidden and is revealed by chapterRender.tail.
@@ -31004,7 +31022,7 @@ void main() {
     // that body's drawing space (the jiggle's pivot), the silhouette that clips it, and the butt's
     // own half-width — which is what CHEEK_JIGGLE.max is a fraction OF, so all three bodies wobble
     // by the same proportion rather than by the same pixels.
-    let cheekLook = null, cheekAt = null, cheekMask = null, cheekW = 1
+    let cheekLook = null, cheekAt = null, cheekMask = null, cheekW = 1, gel = null
     // v5.11 kaiju redesign, generalised (undertow): swap the whole body/flash/shadow onto the
     // active chapter's dedicated bake (playerForm) and back onto the generic cross-chapter blob for
     // every chapter that declares no form — same texture-swap-if-changed idiom pRampageGlow uses
@@ -31060,9 +31078,10 @@ void main() {
         : 0
       // The skin wins over the STILLNESS morph ladder: that ladder sharpens the FACE's own
       // silhouette toward a triangle, and there is no face here to sharpen.
-      // the macro lens: the photographed blob (look A), which has no skin. The Geode: card art, skin and all.
+      // the macro lens: the photographed jellybean, which has no skin. The Geode: card art, skin and all.
       const holo = holoLook ? holoPlayer() : null
       const photo = macroLook ? macroPlayer() : holo ? (playerSkin ? holo.butt : holo.blob) : null
+      gel = photo?.front ? photo : null
       const bodyLook = photo ? photo.body : playerSkin ? T.playerButt : rung > 0 ? T.playerStill[rung] : T.playerBody
       const flashLook = photo ? photo.flash : playerSkin ? T.playerButtFlash : rung > 0 ? T.playerStillFlash[rung] : T.playerFlash
       cheekLook = holo ? holo.cheeks.body : T.playerCheeks; cheekAt = BUTT_AT.blob; cheekMask = holo ? holo.butt.flash : T.playerButtFlash; cheekW = PLAYER.radius * 1.04
@@ -31248,16 +31267,10 @@ void main() {
     // bodyC carries the facing as a rotation (kaiju/fish) or as a negative x scale (everything
     // else), so a screen-space offset handed straight to a child would flip with the sprite and
     // lag the wrong way every time the player faced left.
-    if (playerSkin && cheekLook) {
-      cheekC.visible = true
-      if (pCheeks.texture !== cheekLook.tex) {
-        pCheeks.texture = cheekLook.tex; pCheeks.anchor.set(cheekLook.ax, cheekLook.ay)
-      }
-      if (pMask.texture !== cheekMask.tex) {
-        pMask.texture = cheekMask.tex; pMask.anchor.set(cheekMask.ax, cheekMask.ay)
-      }
+    const cheeksOn = !!(playerSkin && cheekLook)
+    if (cheeksOn || gel) {
       const J = CHEEK_JIGGLE
-      const lim = J.max * cheekW
+      const lim = J.max * (gel ? PLAYER.radius : cheekW)
       if (dt > 0) {
         const ax = (p.vx - jigVX0) / dt, ay = (p.vy - jigVY0) / dt
         jigVX0 = p.vx; jigVY0 = p.vy
@@ -31275,14 +31288,35 @@ void main() {
       let lx = jigX * cr - jigY * sr
       const ly = jigX * sr + jigY * cr
       if (bodyC.scale.x < 0) lx = -lx
-      const [bcx, bcy] = cheekAt
-      cheekC.position.set(bcx + lx, bcy + ly)
-      pCheeks.position.set(-bcx, -bcy)
-      // the mass smears along whichever way it is thrown. Small, and clipped by pMask either way.
-      cheekC.scale.set(1 + (Math.abs(lx) / lim) * J.squash * 0.20, 1 + (Math.abs(ly) / lim) * J.squash * 0.20)
-    } else if (cheekC.visible) {
-      cheekC.visible = false
+      if (cheeksOn) {
+        cheekC.visible = true
+        if (pCheeks.texture !== cheekLook.tex) {
+          pCheeks.texture = cheekLook.tex; pCheeks.anchor.set(cheekLook.ax, cheekLook.ay)
+        }
+        if (pMask.texture !== cheekMask.tex) {
+          pMask.texture = cheekMask.tex; pMask.anchor.set(cheekMask.ax, cheekMask.ay)
+        }
+        const [bcx, bcy] = cheekAt
+        cheekC.position.set(bcx + lx, bcy + ly)
+        pCheeks.position.set(-bcx, -bcy)
+        // the mass smears along whichever way it is thrown. Small, and clipped by pMask either way.
+        cheekC.scale.set(1 + (Math.abs(lx) / lim) * J.squash * 0.20, 1 + (Math.abs(ly) / lim) * J.squash * 0.20)
+      }
+      if (gel) {
+        gelC.visible = pGelFront.visible = true
+        if (pGelFront.texture !== gel.front.tex) {
+          for (const [s, l] of [[gelDeep, gel.deep], [gelNear, gel.near], [pGelFront, gel.front], [gelMask, gel.flash]]) { s.texture = l.tex; s.anchor.set(l.ax, l.ay) }
+        }
+        // the contents lag the body, the near layer further than the deep one (parallax), and
+        // drift on their own slow loop so they float even while you stand still
+        gelDeep.tint = gelNear.tint = pGelFront.tint = pBody.tint   // OILED reaches the whole jelly
+        const R = PLAYER.radius, D = GEL_DRIFT
+        gelDeep.position.set(lx * D.deep + Math.sin(animT * 0.5) * R * D.idle, ly * D.deep + Math.cos(animT * 0.37) * R * D.idle)
+        gelNear.position.set(lx * D.near + Math.sin(animT * 0.41 + 2) * R * D.idle * 1.4, ly * D.near + Math.cos(animT * 0.53 + 1) * R * D.idle * 1.4)
+      }
     }
+    if (!cheeksOn && cheekC.visible) cheekC.visible = false
+    if (!gel && gelC.visible) gelC.visible = pGelFront.visible = false
     // The shadow is a sibling of bodyC, not a child, so it needs the same bodyScale applied by hand
     // — otherwise shrinking the kaiju would leave it standing on its old, much larger shadow.
     const shadowSquash = 1 - 0.12 * Math.abs(Math.sin(hop)) * (p.moving ? 1 : 0)
@@ -32213,7 +32247,9 @@ void main() {
     const m = s._afx
     if (m) for (const k in m) m[k]._used = false
     const aff = (e.elite || e.affixVisible) && e.affixes ? e.affixes : null
-    if (aff && aff.length && e.hitFlash <= 0 && !e.burrowed) {
+    // the hit flash keeps everything it wears (only the coats, which would tint the flash, sit it out)
+    if (aff && aff.length && !e.burrowed) {
+      const lit = e.hitFlash <= 0
       const F = eliteFx(), R = e.radius || 16, k = R / 16, id = e.id
       // the body's frame: +x is its nose, the back is -x
       const fl = s.scale.x < 0 ? -1 : 1, c = Math.cos(s.rotation), sn = Math.sin(s.rotation)
@@ -32267,7 +32303,7 @@ void main() {
           shieldG.moveTo(bx, by).quadraticCurveTo(mx, my, st.x, st.y).stroke({ width: 3.4 * k, color: 0x2a1c10, alpha: 0.95 })
           shieldG.moveTo(bx, by).quadraticCurveTo(mx, my, st.x, st.y).stroke({ width: 1.2 * k, color: 0xc49a6a, alpha: 0.8 })
         } else if (a === 'frenzied') {
-          afxCoat(s, 'flush', frame, 0xd02a10, 0.32 + 0.12 * Math.sin(animT * 22 + id), 'normal')
+          if (lit) afxCoat(s, 'flush', frame, 0xd02a10, 0.32 + 0.12 * Math.sin(animT * 22 + id), 'normal')
           // froth at its mouth, and its breath steaming
           if (afxEvery(s, '_afxFrothT', 0.08)) { const [x, y] = W(R * 0.75, (Math.random() - 0.5) * R * 0.5); elSpawn(F.bubble, x, y, (Math.random() - 0.5) * 14, (Math.random() - 0.5) * 14, 0.7, k * (1.3 + Math.random() * 0.9), false, -0.6, 2) }
           if (afxEvery(s, '_afxSteamT', 0.2)) { const [x, y] = W(R * 0.9, 0); spawnParticle(T.dustPuff.tex, x, y, Math.cos(s.rotation) * fl * 20, -18, 0.9, 0.35 * k, 0xd8d0c8, 1.1, 1.5) }
@@ -32277,10 +32313,10 @@ void main() {
           if (afxEvery(s, '_afxGoldT', 0.3)) elSpawn(elPick(elFx().ice), x + (Math.random() - 0.5) * R * 0.4, y + (Math.random() - 0.5) * R * 0.4, 0, 0, 0.45, k * (0.9 + Math.random() * 0.5), true, 0, 0, 0, Math.random() * 6.28).tint = 0xffc860
         }
       }
-      // an elite is a glossier body, not a crown
-      if (s._crown) s._crown.visible = false
-      afxCoat(s, 'gloss', frame, 0x2a2420, 1, 'add')
+      if (lit) afxCoat(s, 'gloss', frame, 0x2a2420, 1, 'add')
     }
+    // an elite is a glossier body, not a crown — on every frame, flashing or burrowed included
+    if (s._crown) s._crown.visible = false
     if (m) for (const kk in m) if (!m[kk]._used) m[kk].visible = false
   }
 
