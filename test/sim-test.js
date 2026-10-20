@@ -23820,7 +23820,7 @@ function testSurfFloor() {
     'the field is using too few of the shapes to read as varied')
   // THE CONTRACT: what is drawn is what is tested. render must derive its outline from lobeFactor
   // and the patch's own stored rot — not re-hash a rotation of its own, which is what it used to do.
-  assert.ok(/function lobePoly\([\s\S]{0,400}lobeFactor\(shape, a, rot\)/.test(rsrc),
+  assert.ok(/function lobeUnit\([\s\S]{0,400}lobeFactor\(shape, a, rot\)/.test(rsrc) && /function lobePoly\([\s\S]{0,200}lobeUnit\(shape, rot\)/.test(rsrc),
     'render must build its outline from the same lobeFactor the sim tests position against')
   assert.ok(/s\.rotation = b\.rot/.test(rsrc) && !/hash\(b\.x \* 0\.11/.test(rsrc),
     'the sandbar sprite must take the rotation the streamer stored, not hash one of its own')
