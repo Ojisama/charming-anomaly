@@ -13954,6 +13954,9 @@ export function createRenderer(app) {
   // One cleared-and-redrawn Graphics rather than a pool: OBSTACLE_STREAM_RADIUS and a 900px cell put
   // at most a handful on screen, and the outline is per-slick anyway (see lobePoly).
   const slickG = new Graphics()
+  // Trail pools (oilTrail elites, Bilge's slickTrail) — hundreds by a late endless minute — each
+  // keep their own Graphics under slickG, cut into triangles once and then only moved (drawTrailPool).
+  const slickTrailLayer = new Container()
   // v7.x The Wreck: THE SCREW's chain (run.screws). A redrawn Graphics rather than a pool for the
   // same reason as the spills above — there are at most a couple of links — but it sits in the
   // ENTITY layer order rather than on the floor, because a chain is above the silt and reads as
@@ -14012,7 +14015,7 @@ const spurG = new Graphics()
   const particleLayer = new Container()
   const textLayer = new Container()
   entitiesLayer.addChild(
-    mownG, sandLayer, netWakeG, wellG, bindG, poolLayer, slickG, pitLayer, burrowGroundG, snareRootLayer, elFloorLayer, shovelFloorLayer, pixelRig.ground, trailLayer, webLayer, gateFloorG, spurG, coralLayer, gateG, burstWakeG, obstacleLayer, trapLayer,
+    mownG, sandLayer, netWakeG, wellG, bindG, poolLayer, slickTrailLayer, slickG, pitLayer, burrowGroundG, snareRootLayer, elFloorLayer, shovelFloorLayer, pixelRig.ground, trailLayer, webLayer, gateFloorG, spurG, coralLayer, gateG, burstWakeG, obstacleLayer, trapLayer,
     // The refill circles (The Deep's anglerfish, sun shafts, pools) sit UNDER the drops: a maw is
     // a 400px body, and above gemLayer it hid every gem and coin that fell inside it.
     shaftLayer,
@@ -16331,13 +16334,30 @@ const spurG = new Graphics()
   // edge you can see is the edge you can feel. 64 samples: the profile's fastest harmonic is 9 per
   // turn, so this is ~7 points per lobe, well past where the polygon stops reading as faceted.
   const LOBE_SEGMENTS = 64
-  function lobePoly(r, shape, rot, ox = 0, oy = 0) {
-    const pts = []
+  // The unit outline per (shape, rot) is cached: a patch's shape and rot never change, and a late
+  // Wreck redraws hundreds of oil pools a frame (~60% of sync before the cache).
+  // ponytail: cleared whole at LOBE_CACHE_MAX entries rather than LRU — a refill costs one frame.
+  const LOBE_CACHE_MAX = 4096
+  const lobeCache = new Map()
+  function lobeUnit(shape, rot) {
+    const key = (shape ?? -1) + ':' + rot
+    let u = lobeCache.get(key)
+    if (u) return u
+    if (lobeCache.size >= LOBE_CACHE_MAX) lobeCache.clear()
+    u = new Float64Array(LOBE_SEGMENTS * 2)
     for (let i = 0; i < LOBE_SEGMENTS; i++) {
       const a = (i / LOBE_SEGMENTS) * Math.PI * 2
-      const rr = r * lobeFactor(shape, a, rot)
-      pts.push(ox + Math.cos(a) * rr, oy + Math.sin(a) * rr)
+      const f = lobeFactor(shape, a, rot)
+      u[i * 2] = Math.cos(a) * f
+      u[i * 2 + 1] = Math.sin(a) * f
     }
+    lobeCache.set(key, u)
+    return u
+  }
+  function lobePoly(r, shape, rot, ox = 0, oy = 0) {
+    const u = lobeUnit(shape, rot)
+    const pts = new Array(u.length)
+    for (let i = 0; i < u.length; i += 2) { pts[i] = ox + u[i] * r; pts[i + 1] = oy + u[i + 1] * r }
     return pts
   }
   // How far a lit oil's fire has run from the point it caught (sl.burnX/burnY, sim.js
@@ -17142,8 +17162,35 @@ const spurG = new Graphics()
   // one definition, two consumers, which is the only reason the edge you can see is the edge that
   // hurts. A rim stroke on top because a hazard's boundary is a contract the player learns by eye,
   // the same rule an obstacle footprint follows.
-  function syncSlicks(run) {
+  // A trail pool that is not burning only changes while it grows (0.22s), so its Graphics is
+  // redrawn when `r` moves and otherwise just repositioned. Its sheen does not breathe on animT
+  // (alpha 0.18, invisible); a lit one goes back to slickG for the fire.
+  const slickTrailG = new Map()   // pool -> Graphics, dropped the first frame it is not drawn
+  let slickTrailFrame = 0
+  function drawTrailPool(sl) {
+    let g = slickTrailG.get(sl)
+    if (!g) { g = new Graphics(); slickTrailLayer.addChild(g); slickTrailG.set(sl, g) }
+    if (g._r !== sl.r) {
+      g._r = sl.r
+      const r = sl.r, pts = lobePoly(r, sl.shape, sl.rot)
+      g.clear()
+      g.poly(pts).fill({ color: 0x14181a, alpha: BILGE_TRAIL_VIS.filmA })
+      g.poly(lobePoly(r * 0.72, sl.shape, sl.rot + 0.4, -r * 0.08, r * 0.05)).fill({ color: 0x6a3f7a, alpha: 0.3 * BILGE_TRAIL_VIS.sheenA })
+      g.poly(lobePoly(r * 0.46, sl.shape, sl.rot - 0.6, r * 0.1, -r * 0.06)).fill({ color: 0x3f6a5a, alpha: 0.28 * BILGE_TRAIL_VIS.sheenA })
+      g.poly(pts).stroke({ width: BILGE_TRAIL_VIS.edgeW, color: 0x14181a, alpha: BILGE_TRAIL_VIS.edgeA })
+    }
+    g.position.set(sl.x, sl.y)
+    g._frame = slickTrailFrame
+  }
+  function pruneTrailPools() {
+    for (const [sl, g] of slickTrailG) if (g._frame !== slickTrailFrame) { g.destroy(); slickTrailG.delete(sl) }
+  }
+  // cx/cy: sync()'s world offset; omitted (the dev-card icon stub) draws everything.
+  function syncSlicks(run, cx, cy) {
     slickG.clear()
+    slickTrailFrame++
+    const cull = cx !== undefined
+    const x0 = -cx, x1 = -cx + viewW(), y0 = -cy, y1 = -cy + viewH()
     // THE PLAYER'S OWN OIL IS DRAWN BY THE HAZARD'S RENDERER (v7.x). A Bilge is a run.blooms entry,
     // and through the bloom sprite pool it came out as a soft edgeless glow — unusable for a card
     // whose whole job is to be a WALL, because a barrier you cannot see the edge of is not one.
@@ -17154,7 +17201,7 @@ const spurG = new Graphics()
     // glow sitting over it, which is the run.lobs three-consumers trap in miniature.
     const oils = (run.blooms || []).filter((b) => b.look === 'bilge' && b.r > 0)
     const all = (run.slicks || []).concat(oils)
-    if (!all.length) return
+    if (!all.length) { pruneTrailPools(); return }
     //   A slickTrail POOL IS NOT DRAWN LIKE A POOL (v7.x). One pool is a wall and gets the rim; a
     // chain of them is one pour, and rimming every link draws the ribbon as a bead chain — the exact
     // "puddles, not a trail" the distance trigger exists to fix, reintroduced in the renderer.
@@ -17163,7 +17210,12 @@ const spurG = new Graphics()
     // ever needs one hard outer edge, that filter (or an offset ribbon polygon) is the upgrade.
     for (const sl of all) {
       if (!(sl.r > 0)) continue   // burnt out (stepSlickFire): nothing left to draw
+      // Off screen: an oilTrail elite crowd leaves ~500-850 pools by minute 20, ~1 in 8 in view.
+      // Pad covers the fire lobe's flicker (x1.06) and the widest stroke.
+      const pad = sl.r * 1.1 + 8
+      if (cull && (sl.x < x0 - pad || sl.x > x1 + pad || sl.y < y0 - pad || sl.y > y1 + pad)) continue
       const trail = !!sl.trail
+      if (trail && sl.burn == null) { drawTrailPool(sl); continue }
       const filmA = trail ? BILGE_TRAIL_VIS.filmA : 0.5
       const sheenA = trail ? BILGE_TRAIL_VIS.sheenA : 1
       const pts = lobePoly(sl.r, sl.shape, sl.rot, sl.x, sl.y)
@@ -17199,6 +17251,7 @@ const spurG = new Graphics()
     // The flames: a few every 0.12s per burning spill, scaled to its size, anywhere inside its lobe
     // the front has reached. Budgeted against the 200-slot particle ring: a lit spill is ~20/s,
     // and about one is lit at a time (measured over 300s hunts).
+    pruneTrailPools()
     const burning = all.filter((sl) => sl.burn != null && sl.r > 0)
     if (!burning.length) { slickFireAcc = 0; return }
     slickFireAcc += frameDt
@@ -32999,7 +33052,7 @@ void main() {
     syncWells(run)
     syncBinds(run)
     syncPools(run.pools || [])
-    syncSlicks(run)   // v7.x The Wreck: pollution spills (no-op in every other chapter)
+    syncSlicks(run, cx, cy)   // v7.x The Wreck: pollution spills (no-op in every other chapter)
     syncSpurs(run)    // v7.x The Reef: the coral ridges (no-op in every other chapter)
     syncGates(run)    // ...and the circuit's checkpoints and start line (no-op unless `circuit`)
     syncTrails(run.trails || [])
@@ -33658,6 +33711,8 @@ void main() {
     // redrawn Graphics, invisible to a sweep that sets `.visible` on sprites.
     for (const s of hullSprites) s.visible = false
     slickG.clear()
+    slickTrailFrame++
+    pruneTrailPools()
     // ...and The Wreck's third, added 2026-09-06 with The Screw. Same reason again: a redrawn
     // Graphics is invisible to a sweep that sets `.visible` on sprites, so without this the last
     // run's chain hangs in the next one.
@@ -33821,7 +33876,7 @@ void main() {
     // one ridge and a half.
     // v7.x The Wreck: slickG rides too. The Leak IS this chapter's layout, and a wide view of the
     // field without it answers nothing about how much of the floor is oil.
-    for (const child of entitiesLayer.children) child.visible = on ? (child === obstacleLayer || child === spurG || child === slickG) : true
+    for (const child of entitiesLayer.children) child.visible = on ? (child === obstacleLayer || child === spurG || child === slickG || child === slickTrailLayer) : true
     entitiesLayer.visible = true
     krakenCueLayer.visible = !on   // the Kraken's lifted fish and its cues live outside entitiesLayer
     cloudShadowLayer.visible = !on
