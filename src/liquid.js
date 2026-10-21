@@ -10,7 +10,7 @@
 //     (golem eye, eel's biting end, the top's warning ring), bullets, needles, pickups and the HUD.
 //   bakeCreature(id, elite) -> render.js's look shape with EMPTY frames (the body is the demo's), and the
 //     title-card thumb baked on the CPU from the demo's own field and chrome() maths.
-//   bakePlayer() -> the mint chrome blob with its face (render.js keeps the live pupils).
+//   bakePlayer() -> the drop's face (gl.js draws its mint chrome body; render.js keeps the live pupils).
 import { Graphics, Sprite, Texture, CanvasSource } from 'pixi.js'
 import { CHAPTERS, ENEMIES, PLAYER } from './config.js'
 import { mkCanvas } from './toon/palette.js'
@@ -163,35 +163,13 @@ export function bakeCreature(id) {
   return { frames: [empty], thumb: paintThumb(id), baseR: rosterR(id), lean: 0, upright: true, faceDir: null, turnRate: null, fps: null, poseOf: null }
 }
 
-// ---- THE PLAYER: the mint chrome drop of the demo's FS_SPRITE, with the blob's face ---------------
+// ---- THE PLAYER: src/liquid/gl.js draws the mint chrome orb (the demo's pass 4); this is its face --------------
+// the face sits where render.js's T.playerBody has it (its live pupils land on these eyes); white is the hit-flash disc
 export function bakePlayer() {
-  const pr = PLAYER.radius, R = pr / 0.84, res = 3, S = Math.ceil((R + 3) * 2 * res), c0 = S / 2
-  const cv = mkCanvas(S, S), wc = mkCanvas(S, S)
-  const img = cv.getContext('2d').createImageData(S, S), wim = wc.getContext('2d').createImageData(S, S), D = img.data, WD = wim.data
-  const ht = (x, y) => { const r = Math.hypot(x, y / 0.91); return r > 0.84 ? 0 : Math.sqrt(Math.max(0, 0.76 * 0.76 - r * r)) }
-  const col = [0, 0, 0], e = 0.01
-  for (let j = 0; j < S; j++) for (let i = 0; i < S; i++) {
-    const x = ((i + 0.5 - c0) / res) / R, y = ((j + 0.5 - c0) / res) / R, r = Math.hypot(x, y / 0.91), o = (j * S + i) * 4
-    const m = 1 - sst2(0.83, 0.86, r)
-    if (m <= 0) continue
-    const n = nrm(-(ht(x + e, y) - ht(x - e, y)) / (2 * e), -(ht(x, y + e) - ht(x, y - e)) / (2 * e), 1)
-    if (r > 0.76) { n[0] = x / r * 0.9; n[1] = y / r * 0.9; n[2] = 0.43 }
-    const dark = sst2(0.73, 0.77, r)
-    const gr = [0.2, 0.18, 0.16], gy = (gr[0] * 0.3 + gr[1] * 0.5 + gr[2] * 0.2) * 1.3 + 0.06
-    const ground = gr.map((g, c) => (g + (gy - g) * 0.7) * MINT[c] * 1.4)
-    chrome(n, MINT, ground, vnoise(x * 3 + n[0], y * 3 + n[1]), col)
-    const spec = sst2(0.9, 0.95, n[0] * LP[0] + n[1] * LP[1] + n[2] * LP[2]) * 0.85 * (1 - dark)
-    for (let c = 0; c < 3; c++) {
-      let v = col[c] + (col[c] * 0.5 + MINT[c] * (0.5 + 0.55 * n[2]) - col[c]) * 0.85 + spec
-      v = v + (v * 0.62 - v) * dark
-      D[o + c] = Math.round(Math.min(1, Math.max(0, v)) * 255)
-    }
-    D[o + 3] = Math.round(m * 255)
-    WD[o] = WD[o + 1] = WD[o + 2] = 255; WD[o + 3] = Math.round(m * 255)
-  }
+  const pr = PLAYER.radius, res = 3, S = Math.ceil((pr + 3) * 2 * res), c0 = S / 2
+  const cv = mkCanvas(S, S), wc = mkCanvas(S, S), w = wc.getContext('2d')
+  w.fillStyle = '#ffffff'; w.beginPath(); w.ellipse(c0, c0, pr * res, pr * 0.91 * res, 0, 0, TAU); w.fill()
   const x = cv.getContext('2d')
-  x.putImageData(img, 0, 0); wc.getContext('2d').putImageData(wim, 0, 0)
-  // the face, where render.js's T.playerBody has it (its live pupils land on these eyes)
   x.setTransform(res, 0, 0, res, c0, c0)
   x.fillStyle = 'rgba(255,168,184,0.55)'
   for (const s of [-1, 1]) { x.beginPath(); x.arc(s * pr * 0.55, pr * 0.14, pr * 0.14, 0, TAU); x.fill() }
@@ -201,20 +179,24 @@ export function bakePlayer() {
   x.beginPath(); x.arc(0, pr * 0.2, pr * 0.2, Math.PI * 0.15, Math.PI * 0.85); x.stroke()
   return { canvas: cv, white: wc, ax: 0.5, ay: 0.5, res }
 }
-// the pole ring round the player: a chrome torus in the pole colour over a dark line, so it reads on any floor
+// your pole round the drop: a thin chrome rim in the pole colour, lit hard from the top left so it stays apart from a
+// pillar or a field of the same colour by a thin dark gap outside it; it sits on the drop's own edge, so it adds no size
 function bakeRing(pole) {
-  const R = PLAYER.radius + 7, tr = 2.8, res = 3, S = Math.ceil((R + 6) * 2 * res), c0 = S / 2
+  const pr = PLAYER.radius, R = pr + 0.1, tr = 1.15, res = 3, S = Math.ceil((R + 4) * 2 * res), c0 = S / 2
   const cv = mkCanvas(S, S), img = cv.getContext('2d').createImageData(S, S), D = img.data
-  const tint = pole > 0 ? NC : SC, col = [0, 0, 0], ground = [0.22, 0.17, 0.14]
+  const tint = pole > 0 ? NC : SC, col = [0, 0, 0], ground = [0.22, 0.2, 0.2]
   for (let j = 0; j < S; j++) for (let i = 0; i < S; i++) {
-    const x = (i + 0.5 - c0) / res, y = (j + 0.5 - c0) / res, r = Math.hypot(x, y), d = r - R, o = (j * S + i) * 4
-    const line = 1 - sst2(tr + 1.2, tr + 2.2, Math.abs(d))
-    if (line <= 0) continue
-    const a = 1 - sst2(tr - 0.6, tr + 0.4, Math.abs(d))
+    // y stretched by the orb's 0.91: the rim follows the drop's slightly squat outline
+    const x = (i + 0.5 - c0) / res, y = (j + 0.5 - c0) / res / 0.91, r = Math.hypot(x, y), d = r - R, o = (j * S + i) * 4
+    const gap = (1 - sst2(0.5, 1.0, Math.abs(r - (pr + 1.9)) - 0.3)) * 0.5   // the dark gap, just outside the rim
+    const a = 1 - sst2(tr - 0.5, tr + 0.4, Math.abs(d))
+    if (a <= 0 && gap <= 0) continue
     const q = Math.max(-0.95, Math.min(0.95, d / tr)), n = [x / r * q, y / r * q, Math.sqrt(1 - q * q)]
     chrome(n, tint, ground, 0.55, col)
-    for (let c = 0; c < 3; c++) D[o + c] = Math.round(Math.min(1, Math.max(0, col[c] + tint[c] * 0.25 * (1 - n[2]))) * 255 * a)
-    D[o + 3] = Math.round((a + (1 - a) * 0.8 * line) * 255)
+    const lit = Math.max(0, (-x - y) / (r * 1.414)) * n[2]   // the rim light, top left
+    const al = Math.min(1, a + gap * (1 - a))   // the rim over the gap's black (ImageData is unpremultiplied)
+    for (let c = 0; c < 3; c++) D[o + c] = Math.round(Math.min(1, Math.max(0, col[c] * 0.8 + tint[c] * 0.35 + lit * 0.55)) * (a / al) * 255)
+    D[o + 3] = Math.round(al * 255)
   }
   cv.getContext('2d').putImageData(img, 0, 0)
   return cv
@@ -241,7 +223,7 @@ export function createLiquidRenderer(host) {
   const marks = new Graphics()
   over.addChild(marks, ring)
   const sparks = []
-  const S = { cam: { x: 0, y: 0 }, VW: 1, VH: 1, rt: 0, rdt: 0, warn: false, pole: 1, p: { x: 0, y: 0, r: 0.02, vx: 0, vy: 0 }, foes: [], pools: [], pillars: [], sparks }
+  const S = { cam: { x: 0, y: 0 }, VW: 1, VH: 1, rt: 0, rdt: 0, warn: false, pole: 1, p: { x: 0, y: 0, r: 0.02, R: 0.03, hurt: 0, vx: 0, vy: 0 }, foes: [], pools: [], pillars: [], sparks }
   let look = null
   // ?debug: the frame state, for a probe scene to set the clock (scripts/scenes/core-match.js)
   if (/[?&]debug/.test(window.location?.search ?? '')) window.__liquid = { S }
@@ -284,7 +266,7 @@ export function createLiquidRenderer(host) {
       S.VW = (view.right - view.left) / U; S.VH = (view.bottom - view.top) / U
       S.pole = pole
       // the chrome tucked under the player: inside the mint blob, it only shows where a mite fuses with it
-      S.p.x = p.x / U; S.p.y = p.y / U; S.p.r = (PLAYER.radius / U) * 0.87
+      S.p.x = p.x / U; S.p.y = p.y / U; S.p.r = (PLAYER.radius / U) * 0.87; S.p.R = p.dead ? 0 : PLAYER.radius / U / 0.84; S.p.hurt = (p.invuln || 0) <= PLAYER.invulnTime ? Math.min(1, Math.max(0, ((p.invuln || 0) - PLAYER.invulnTime + 0.17) * 6)) : 0   // the demo hurt flash: the first 0.17 s of a hit
       for (const s of sparks) s.age += rdt
       while (sparks.length && sparks[0].age > 0.5) sparks.shift()
       const m = 0.2 * U, vis = (x, y) => x > view.left - m && x < view.right + m && y > view.top - m && y < view.bottom + m

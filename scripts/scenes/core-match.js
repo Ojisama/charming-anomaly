@@ -54,6 +54,7 @@ const tick = (n, move) => {
     run.events.length = 0
     pin()
     if (!move) { p.x = P0.x; p.y = P0.y }
+    p.invuln = 0   // drawn unhurt, as the demo half pins its player (fx-probe syncs once more after the scene)
     window.__renderer.sync(run, 1 / 60, [])
   }
   app.renderer.render(app.stage)
