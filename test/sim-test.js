@@ -42848,7 +42848,25 @@ function testCoreRules() {
     return r.dmgBySrc?.needleUrchin ?? 0
   })
   const uO = harm(42405, true, urchin, 4, park)
-  assert.ok(bounces >= 1 && uS === 0 && uO.dmg > 0, `run CO4.e: needles of your pole bounce off (${bounces} bounces, ${uS} hp); the other pole's land (${uO.dmg} hp)`)
+  assert.ok(uS === 0 && uO.dmg > 0, `run CO4.e: needles of your pole never hurt you (${bounces} bounces, ${uS} hp); the other pole's land (${uO.dmg} hp)`)
+  // (e2) one needle by hand, 160px out, aimed 0.5 rad off you: the other pole's bends in toward you;
+  // one of yours, aimed straight at you, veers off and passes wide (owner, 2026-10-21)
+  const fly = (mine, aimOff) => noPools(() => {
+    const r = boot(42406)
+    r.weapons = []
+    step(r, 1)
+    const p = r.player, P = r.polarity.pole
+    r.enemies = []
+    const a = Math.PI + aimOff, sx = p.x + 160, sy = p.y
+    const s = { x: sx, y: sy, vx: Math.cos(a) * 200, vy: Math.sin(a) * 200, r: 5, dmg: 0, life: 3.5, turnRate: 0, needle: true, pole: mine ? P : -P, src: 'needleUrchin' }
+    r.enemyShots = [s]
+    let closest = 1e9
+    for (let i = 0; i < 60 && !s._done; i++) { step(r, 1); closest = Math.min(closest, Math.hypot(s.x - p.x, s.y - p.y)) }
+    return { closest }
+  })
+  const hO = fly(false, 0.5), hS = fly(true, 0)
+  assert.ok(hO.closest < 60, `run CO4.e2: a needle of the other pole aimed 0.5 rad off homes in (77px if it flew straight): passes ${hO.closest.toFixed(0)}px from you`)
+  assert.ok(hS.closest > PLAYER.radius + 5, `run CO4.e2: a needle of your pole aimed at you veers off: passes ${hS.closest.toFixed(0)}px from you`)
   // (f) the gauge is the live split of the creatures ON SCREEN: 3 North and 1 South inside the
   // view, 5 South outside it, and an eel (two poles) that it skips
   let split = -1

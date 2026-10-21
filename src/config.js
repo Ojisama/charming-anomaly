@@ -10107,10 +10107,13 @@ CHAPTERS.core = {
       loot: { oppMul: 3, repel: 60, repelR: 120 },
       crowd: { sameMul: 1.5, touch: 1.15 },
       // every needle carries its thrower's pole: one of YOUR pole bounces off you harmlessly
-      needle: { speed: [200, 240], dmg: 4, life: 3.5, r: 5 },
+      // balance_decision : needles home on the other pole, veer off yours, owner 2026-10-21
+      //  - home / repel are turn rates (rad/s); repel only acts within repelR px of you
+      needle: { speed: [200, 240], dmg: 4, life: 3.5, r: 5, home: 0.6, repel: 3, repelR: 150 },
       // a mite of your pole scatters to a ring at `orbit` px and never shoots (owner, Rev 2)
       mite: { rush: 667, cap: 180, orbit: 187, gain: 2.2, tan: 60, blend: 3 },
-      urchin: { hold: 253, gain: 1.5, tan: 33, range: 400, cd: 3.2, fan: [-0.4, -0.2, 0, 0.2, 0.4], needle: 200 },
+      // balance_decision : urchin fires 40% less often, half the needles, owner 2026-10-21
+      urchin: { hold: 253, gain: 1.5, tan: 33, range: 400, cd: 3.2 / 0.6, fan: [-0.2, 0.2], needle: 200 },
       // a top seeks you at `opp` on its beats of the other pole and backs off at `same` on yours
       top: { opp: 200, same: 120, wobFreq: 5, wobAmp: 0.6, strobe: 2, cd: 0.8 },
       // a blob of your pole curls up and sits still (e.curl eases to 1 at `grow`)
