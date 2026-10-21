@@ -19226,8 +19226,6 @@ function stepPolarHurt(run, dt) {
     if (!e.flags.includes('dipole') && Math.abs(e.x - p.x) <= run.viewW && Math.abs(e.y - p.y) <= run.viewH) { if (e.pole > 0) north++; else south++ }
     const ek = kd * (e.elite ? ELITE.dmgMul : 1)
     if (e.latched) {
-      // a mite turned to your pole on you lets go at once
-      if (e.pole === P.pole) { unlatchMite(e, S.eject.speed, S.eject.stun); continue }
       latched++
       e.x = p.x + e._lx; e.y = p.y + e._ly
       dot(e, S.latch.dps * ek * dt)
