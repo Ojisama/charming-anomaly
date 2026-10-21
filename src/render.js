@@ -19826,6 +19826,18 @@ const spurG = new Graphics()
         // mass-read: a screenful of shells visibly RADIATES from scattered tanks, where a screenful
         // of sky strikes is all-parallel.
         const rig = shellRigs[si++] || acquireShellRig()
+        // AN ALLY'S SHELL (SUBMISSION) cannot hurt the player, so it gets no landing telegraph:
+        // only its falling shadow, and a smaller fireball on impact (the explode case below).
+        if (b.ally) {
+          rig.box.visible = rig.fill.visible = rig.bars.visible = false
+          rig.shadow.visible = true
+          rig.shadow.tint = AF.shellShadow
+          rig.shadow.alpha = AF.shellShadowAlpha * (0.35 + 0.65 * k)
+          rig.shadow.scale.set(lerp(AF.shadowStartPx, b.radius * 0.9, k * k) / T.shellShadow.ref)
+          rig.shadow.position.set(b.x, b.y)
+          maybeSpawnMuzzleFlash(b)
+          continue
+        }
         const elite = b.radius >= ARTILLERY_ELITE_RADIUS - 1
         // ARRIVAL CLOCK, part 1: the brackets SHRINK INWARD onto the impact point...
         const boxR = b.radius * (1.55 - 0.55 * k)
@@ -30242,7 +30254,7 @@ void main() {
             const b = justStruck[struckIdx]
             justStruck.splice(struckIdx, 1)
             const bsrc = bombSrc(b)
-            if (bsrc === 'gun') artilleryDetonation(e.x, e.y, e.radius)
+            if (bsrc === 'gun') artilleryDetonation(e.x, e.y, b.ally ? e.radius * 0.6 : e.radius)
             else if (bsrc === 'volatile') volatileDetonation(e.x, e.y, e.radius)
             else skyDetonation(e.x, e.y, e.radius)
             break                                   // all three drawers set their own shake
