@@ -200,7 +200,7 @@ export function bakePlayer() {
     chrome(n, MINT, ground, vnoise(x * 3 + n[0], y * 3 + n[1]), col)
     const spec = sst2(0.9, 0.95, n[0] * LP[0] + n[1] * LP[1] + n[2] * LP[2]) * 0.85 * (1 - dark)
     for (let c = 0; c < 3; c++) {
-      let v = col[c] + (col[c] * 0.5 + MINT[c] * (0.25 + 0.62 * n[2]) - col[c]) * 0.75 + spec
+      let v = col[c] + (col[c] * 0.5 + MINT[c] * (0.5 + 0.55 * n[2]) - col[c]) * 0.85 + spec
       v = v + (v * 0.62 - v) * dark
       D[o + c] = Math.round(Math.min(1, Math.max(0, v)) * 255)
     }
@@ -474,6 +474,8 @@ export function createLiquidRenderer(host) {
       u.uGolR1 = POL.golem.dragR / U
       // your pole: the chrome ring round you
       ring.visible = !!P && !p.dead
+      // i-frames blink the RING, not the drop: render.js's 0.4 body blink turned the chrome into glass (setLiquid holds playerC opaque)
+      ring.alpha = (p.invuln || 0) > 0 && Math.sin(clock * 32) <= 0 ? 0.3 : 1
       ring.texture = ringTex[poleIx(pole)]
       ring.position.set(p.x, p.y)
     },

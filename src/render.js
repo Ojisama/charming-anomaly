@@ -31670,10 +31670,11 @@ void main() {
         // The Geode's foil pass recolours every pale neutral, so a white pop came out as pearl on the
         // caverns (invisible) and as foil on the dark: there it pops a saturated hot coral the pass leaves be
         pFlash.tint = holoLook ? 0xff5a6e : 0xffffff
-        pFlash.alpha = 0.9
+        pFlash.alpha = liquidOn ? 0.5 : 0.9
       } else {
         pFlash.tint = 0xff4d5e
-        pFlash.alpha = (flashT / 0.2) * 0.45
+        // The Core: contact DoT hurts several times a second, so a full wash kept the mint drop pink
+        pFlash.alpha = (flashT / 0.2) * (liquidOn ? 0.25 : 0.45)
       }
     } else {
       pFlash.alpha = 0
@@ -31715,7 +31716,7 @@ void main() {
     // for an ARM's hit (krakenHurtBlinkT) — the head's touch is told by the crimson touch band.
     playerC.alpha = playerC.parent === krakenFishHost
       ? (dt > 0 && krakenHurtBlinkT > 0 && Math.sin(animT * Math.PI * 2 * K_HURT_BLINK_HZ) < 0 ? 0.08 : 1)
-      : p.invuln > 0 && !pixelLook ? (Math.sin(animT * 32) > 0 ? 1 : 0.4) : 1
+      : p.invuln > 0 && !pixelLook && !liquidOn ? (Math.sin(animT * 32) > 0 ? 1 : 0.4) : 1   // The Core: src/liquid.js blinks the pole ring instead (a 0.4 chrome drop reads as glass)
 
     // ---- the death outro's pose (v7.x, DEATH_OUTRO) ----------------------------------------------
     // A fish that has stopped swimming. Last in the function on purpose (see the deathP note on the
