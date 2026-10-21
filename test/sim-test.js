@@ -42797,13 +42797,14 @@ function testCoreRules() {
       step(r, 1, (o) => o === e)
       for (const s of r.enemyShots) if (s.src === e.rosterId && !s._seen) { s._seen = true; shots++ }
     }
-    return { dmg: (r.dmgBySrc?.[e.rosterId] ?? 0) - (d0[e.rosterId] ?? 0), shots, e }
+    return { dmg: (r.dmgBySrc?.[e.rosterId] ?? 0) - (d0[e.rosterId] ?? 0), shots, e, d: Math.hypot(e.x - p.x, e.y - p.y) }
   })
   // (a) the mite: the other pole clings and bites; yours scatters and never shoots
   const mite = (r, p, pole) => body(r, { x: p.x + 70, y: p.y, pole, flags: ['poleLatch'], rosterId: 'ferriteMite', extra: { radius: 9, _pcd: 0 } })
   const mO = harm(42401, true, mite, 6), mS = harm(42401, false, mite, 6)
   assert.ok(mO.dmg > 0 && mO.e.latched, `run CO4.a: a mite of the other pole clings and bites: ${mO.dmg} hp, latched ${mO.e.latched}`)
   assert.ok(mS.dmg === 0 && mS.shots === 0 && !mS.e.latched, `run CO4.a: a mite of your pole does nothing to you and throws no needle: ${mS.dmg} hp, ${mS.shots} needles`)
+  assert.ok(mS.d > S.mite.orbit * 0.6, `run CO4.a: a mite of your pole keeps out on its orbit (${S.mite.orbit}px): ${mS.d.toFixed(0)}px`)
   // (b) the blob, held at arm's length: the other pole spikes and burns; yours curls up, harmless
   const blob = (r, p, pole) => body(r, { x: p.x + 40, y: p.y, pole, flags: ['ferroSpikes'], rosterId: 'ferroBlob', extra: { radius: 20 } })
   const near = (e, p) => { e.x = p.x + 40; e.y = p.y }
@@ -42899,6 +42900,7 @@ function testCoreSpawnMix() {
   const { boot } = coreRig()
   const r = boot(42501)
   const seen = new Set(), born = {}, most = {}
+  let firstTop = null
   for (let i = 0; i < 60 * 150; i++) {
     if (r.phase === 'levelup') { r.phase = 'playing'; r.levelUpChoices = [] }
     r.player.hp = r.player.maxHP
@@ -42911,6 +42913,7 @@ function testCoreSpawnMix() {
       alive[e.rosterId] = (alive[e.rosterId] ?? 0) + 1
       if (seen.has(e.id) || e._splitChild) continue
       seen.add(e.id); born[e.rosterId] = (born[e.rosterId] ?? 0) + 1
+      if (e.rosterId === 'spinningTop' && firstTop == null) firstTop = r.time
     }
     for (const [k, n] of Object.entries(alive)) most[k] = Math.max(most[k] ?? 0, n)
   }
@@ -42921,6 +42924,8 @@ function testCoreSpawnMix() {
   assert.ok(total > 250, `run CO5 precondition: a full 150 s of spawns (${total})`)
   assert.ok(share >= 0.01 && share <= 0.12, `run CO5: heavies are ${(share * 100).toFixed(1)}% of spawns (prototype ~5%, v8.90 32%): ${JSON.stringify(born)}`)
   assert.ok(born.dipoleEel > 0 && born.lodestoneGolem > 0 && born.ferroBlob > 0, `run CO5: every heavy still turns up: ${JSON.stringify(born)}`)
+  // the Core's own waveTable lets fast bodies in from 12 s (the generic table holds them to 40 s)
+  assert.ok(firstTop != null && firstTop < 40, `run CO5: the first top arrives before 40 s on the Core's wave table: ${firstTop}`)
   for (const id of ['dipoleEel', 'lodestoneGolem', 'ferroBlob', 'spinningTop']) {
     assert.ok((most[id] ?? 0) <= cap[id], `run CO5: never more than ${cap[id]} ${id} at once: ${most[id]}`)
   }
