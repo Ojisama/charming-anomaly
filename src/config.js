@@ -3202,7 +3202,72 @@ export const WEAPONS = {
       { dmg: 33, interval: 0.9, radius: 300, arc: 2.45, knockback: 220 },
     ],
   },
+  // ---- Book 3, The Core's four. Every hit but the Lance's obeys the pole rule (dealDamage). ----
+  // Iron Sling: one iron ball at the nearest foe within range (run.bullets, weapon 'ironBall'), or,
+  // half the time, at a mite latched on you (the ball rides the mite, so it cannot miss).
+  // balance_decision : prototype sling x10, first guess 2026-10-21
+  sling: {
+    name: 'Iron Sling',
+    desc: 'Slings an iron ball at the nearest foe, or at a mite clinging to you.',
+    icon: '🔩', rarity: 'normal',
+    levels: [
+      { dmg: 10, interval: 0.32, count: 1, speed: 633, range: 500 },
+      { dmg: 12, interval: 0.31, count: 1, speed: 640, range: 510 },
+      { dmg: 14, interval: 0.3, count: 1, speed: 650, range: 520 },
+      { dmg: 17, interval: 0.29, count: 1, speed: 660, range: 535 },
+      { dmg: 21, interval: 0.27, count: 1, speed: 680, range: 550 },
+    ],
+  },
+  // Gauss Coil: a fast slug (run.bullets, weapon 'gaussSlug') through every foe of the other pole;
+  // it stops on the first foe of YOUR pole (stepBullets).
+  gaussCoil: {
+    name: 'Gauss Coil',
+    desc: 'Fires a slug through every foe of the other pole. It stops on the first one of yours.',
+    icon: '🧲', rarity: 'normal',
+    levels: [
+      { dmg: 15, interval: 1.6, count: 1, speed: 930, life: 0.7 },
+      { dmg: 18, interval: 1.5, count: 1, speed: 950, life: 0.72 },
+      { dmg: 22, interval: 1.4, count: 1, speed: 970, life: 0.74 },
+      { dmg: 27, interval: 1.3, count: 1, speed: 1000, life: 0.76 },
+      { dmg: 33, interval: 1.2, count: 1, speed: 1040, life: 0.8 },
+    ],
+  },
+  // Dipole Lance: a short beam at the nearest foe within its length; every body on it takes a FLAT
+  // hit, the one damage in the chapter that ignores poles (applyDamage's `flat`).
+  dipoleLance: {
+    name: 'Dipole Lance',
+    desc: 'A short two-coloured beam. It ignores poles.',
+    icon: '⚡', rarity: 'normal',
+    levels: [
+      { dmg: 30, interval: 1, length: 133, width: 16 },
+      { dmg: 36, interval: 0.95, length: 140, width: 16 },
+      { dmg: 44, interval: 0.9, length: 148, width: 18 },
+      { dmg: 54, interval: 0.85, length: 156, width: 18 },
+      { dmg: 66, interval: 0.8, length: 166, width: 20 },
+    ],
+  },
+  // Reversal Pulse: a ring round you (run.novas, look 'reversal') that FLIPS the pole of everything
+  // it touches and shakes latched mites off. No damage unless Charged Ring is picked.
+  reversalPulse: {
+    name: 'Reversal Pulse',
+    desc: 'A ring that flips the pole of every foe it touches and shakes off clinging mites.',
+    icon: '🔄', rarity: 'normal',
+    levels: [
+      { dmg: 0, interval: 5, maxR: 213 },
+      { dmg: 0, interval: 4.6, maxR: 225 },
+      { dmg: 0, interval: 4.2, maxR: 240 },
+      { dmg: 0, interval: 3.8, maxR: 255 },
+      { dmg: 0, interval: 3.4, maxR: 270 },
+    ],
+  },
 }
+// The ring's growth time and the latched-mite share of the sling's targets (prototype values).
+export const REVERSAL_PULSE_LIFE = 0.5
+export const SLING_LATCH_SHARE = 0.5
+export const IRON_BALL_R = 4      // px hit radius
+export const IRON_BALL_LIFE = 1.2 // s of flight
+export const GAUSS_SLUG_R = 5     // px hit radius
+export const LANCE_BEAM_LIFE = 0.18 // s the beam stays drawn (render.js, off the 'lance' event)
 export const MAX_WEAPON_LEVEL = 5
 export const MAX_WEAPONS = 4 // equipped cap; new weapons stop appearing once reached
 
@@ -4647,6 +4712,31 @@ export const WEAPON_MODS = {
     heavySurge:   { name: 'Heavy Surge',   desc: 'how hard it shoves lava creatures', icon: '💨', base: 0.30, kind: 'pct' },
     quickBellows: { name: 'Quick Bellows', desc: 'wave rate', icon: '⏩', base: 0.25, kind: 'pct' },
   },
+  // ---- Book 3, The Core ----
+  sling: {
+    castIron:   { name: 'Cast Iron',   desc: 'ball damage', icon: '💥', base: 0.30, kind: 'pct' },
+    twinBalls:  { name: 'Twin Balls',  desc: 'extra ball(s) per throw', icon: '🔷', kind: 'tier' },
+    quickSling: { name: 'Quick Sling', desc: 'throw rate', icon: '⏩', base: 0.25, kind: 'pct' },
+    pickOff:    { name: 'Pick Off',    desc: 'aims at a mite clinging to you whenever one is', icon: '🪝', kind: 'switch' },
+  },
+  gaussCoil: {
+    heavySlug:   { name: 'Heavy Slug',   desc: 'slug damage', icon: '💥', base: 0.30, kind: 'pct' },
+    quickCharge: { name: 'Quick Charge', desc: 'slug rate', icon: '⏩', base: 0.25, kind: 'pct' },
+    twinRail:    { name: 'Twin Rail',    desc: 'extra slug(s) per shot', icon: '🔷', kind: 'tier' },
+    punchThrough: { name: 'Punch Through', desc: 'the slug no longer stops on foes of your pole', icon: '🎯', kind: 'switch' },
+  },
+  dipoleLance: {
+    hotArc:    { name: 'Hot Arc',    desc: 'beam damage', icon: '💥', base: 0.30, kind: 'pct' },
+    longLance: { name: 'Long Lance', desc: 'beam length', icon: '📏', base: 0.25, kind: 'pct' },
+    quickArc:  { name: 'Quick Arc',  desc: 'beam rate', icon: '⏩', base: 0.25, kind: 'pct' },
+    bothEnds:  { name: 'Both Ends',  desc: 'the beam strikes behind you too', icon: '↔️', kind: 'switch' },
+  },
+  reversalPulse: {
+    broadRing:   { name: 'Broad Ring',   desc: 'ring size', icon: '⭕', base: 0.20, kind: 'pct' },
+    quickPulse:  { name: 'Quick Pulse',  desc: 'ring rate', icon: '⏩', base: 0.25, kind: 'pct' },
+    chargedRing: { name: 'Charged Ring', desc: 'ring damage', icon: '💥', base: 12, kind: 'flat' },
+    dazingRing:  { name: 'Dazing Ring',  desc: 'stuns every foe it flips for {n}s', icon: '💫', base: 0.3, kind: 'secs' },
+  },
 }
 export const MAX_WEAPON_MOD_PICKS = 5
 // Shared by every tier mod: a single pick's bonus is looked up by rolled rarity rather than
@@ -4678,6 +4768,7 @@ export const WEAPON_RATE_MODS = {
   pickaxe: 'quickSwing', dynamite: 'shortFuse', minecart: 'greasedAxle', lantern: 'quickWick',
   slagLadle: 'quickLadle', obsidianShards: 'quickKnap', bellows: 'quickPump', volcanicBomb: 'quickFuse',
   quenchKettle: 'quickBoil', hotCoals: 'quickStoke', crackHammer: 'quickStamp', lavaBellows: 'quickBellows',
+  sling: 'quickSling', gaussCoil: 'quickCharge', dipoleLance: 'quickArc', reversalPulse: 'quickPulse',
   // chum and bilge are absent DELIBERATELY: neither carries a rate mod, and this table's own
   // header says a weapon with none simply does not appear here. Naming one that does not exist
   // would put a phantom row in the pause build sheet's cadence line.
@@ -6328,7 +6419,7 @@ export const CHAPTER_LATE_RATE = {
   city: 0.028, skies: 0.036, beyond: 0.0605,
   surf: 0.010, shelf: 0.015,
   topsoil: 0.0075, geode: ((1 + 0.015 * (300 - HP_SCALE_LATE_START)) * 1.25 - 1) / (300 - HP_SCALE_LATE_START),
-  mine: 0.020, magma: 0.020, mantle: 0.022,
+  mine: 0.020, magma: 0.020, mantle: 0.022, core: 0.022,
 }
 // Unknown/absent chapter (the Blank, a test run with no chapter) keeps the shipped curve.
 export const lateRateFor = (chapterId) => CHAPTER_LATE_RATE[chapterId] ?? HP_SCALE_LATE_RATE
@@ -6707,7 +6798,7 @@ export const BOOKS = {
    // next, still gated: a dev-gated shell whose boss sim lands in a later increment. Saves key on chapter ID, never position.
    undertow: { name: 'Undertow', cloth: '#1f5c7c', chapters: ['surf', 'shelf', 'reef', 'trawl', 'wreck', 'deep'], hidden: ['kraken'], startCoins: 100 },
   // Book 3: digging down into the earth. wipFrom 0 gates the whole book behind meta.dev.
-  burrow: { name: 'Burrow', cloth: '#2b1d15', chapters: ['topsoil', 'geode', 'mine', 'magma', 'mantle'], hidden: [], startCoins: 100, wipFrom: 0 },
+  burrow: { name: 'Burrow', cloth: '#2b1d15', chapters: ['topsoil', 'geode', 'mine', 'magma', 'mantle', 'core'], hidden: [], startCoins: 100, wipFrom: 0 },
 }
 // Explicit, for the same reason CHAPTER_ORDER is explicit: a sweep that means "every book, in
 // campaign order" must not depend on object key order surviving an edit. The FIRST entry is the
@@ -9950,6 +10041,75 @@ CHAPTERS.mantle = {
   },
 }
 
+// THE CORE: the book's last rung, the planet's iron heart. POLARITY (signature.polarity, run by
+// stepPolarity / stepPolarHurt in sim.js): you and every creature carry a pole, North (+1, red) or
+// South (-1, blue). Your hits do x2 to the other pole and x0.5 to your own (dealDamage). The share of
+// new spawns that are North swings on a sine (signature.polarity.mix), so the crowd's majority changes
+// side every 15 s; your own pole changes only when you walk into a pool of the other pole. Pillars
+// pull the other pole in and push your own away.
+// Port of the owner-played prototype docs/superpowers/specs/assets/core-polarity.html at 667 px per
+// prototype unit and hp x10 (spec: docs/superpowers/specs/2026-10-21-the-core-design.md).
+// The pole names on the HUD's spawn-tide gauge.
+export const POLE_NAMES = { 1: { name: 'North' }, '-1': { name: 'South' } }
+// The pole colours, one fact for render.js (bodies, gems, pools, pillars) and the HUD gauge.
+export const POLE_TINT = { 1: 0xd2452f, '-1': 0x2a5c8f }
+CHAPTERS.core = {
+  name: 'The Core', tagline: 'opposites attract', icon: '🧲',
+  weapons: ['sling', 'gaussCoil', 'dipoleLance', 'reversalPulse'], starter: 'sling',
+  // balance_decision : prototype hp x10, first guess, unplayed 2026-10-21
+  roster: [
+    { id: 'ferriteMite',    archetype: 'normal', name: 'Ferrite Mite',       hpMul: 1, speedMul: 1, radiusMul: 0.58, dmgMul: 0, weight: 5, flags: ['poleLatch'] },
+    { id: 'needleUrchin',   archetype: 'normal', name: 'Needle Urchin',      hpMul: 2.5, speedMul: 1, radiusMul: 0.83, dmgMul: 0, flags: ['needleFan'] },
+    { id: 'spinningTop',    archetype: 'fast',   name: 'Spinning Top',       hpMul: 4, speedMul: 1, radiusMul: 0.89, dmgMul: 1.6, weight: 1.8, flags: ['poleStrobe'] },
+    { id: 'dipoleEel',      archetype: 'fast',   name: 'Dipole Eel',         hpMul: 14, speedMul: 1, radiusMul: 1, dmgMul: 2, flags: ['dipole'] },
+    { id: 'ferroBlob',      archetype: 'tank',   name: 'Ferrofluid Blob',    hpMul: 1.11, speedMul: 1, radiusMul: 0.77, dmgMul: 0, weight: 2, flags: ['ferroSpikes', 'split'],
+      split: { count: 2, hpFrac: 0.4, radiusFrac: 0.6, speedMul: 1, dmgMul: 1, rosterId: 'ferroBlobSmall' } },
+    { id: 'ferroBlobSmall', archetype: 'tank',   name: 'Ferrofluid Droplet', hpMul: 0.44, speedMul: 1, radiusMul: 0.46, dmgMul: 0, formationOnly: true, flags: ['ferroSpikes'] },
+    { id: 'lodestoneGolem', archetype: 'tank',   name: 'Lodestone Golem',    hpMul: 4, speedMul: 1, radiusMul: 1.08, dmgMul: 0, flags: ['lodestone'] },
+  ],
+  eliteFlags: [],
+  signature: {
+    type: 'polarity',
+    // The polarity switch (tests turn it off with polarity = null: no poles, no flips, plain hits).
+    // Every distance is px, every speed px/s (prototype unit x667). k* are the prototype's gains.
+    // balance_decision : your pole changes only in pools; spawn mix swings, owner 2026-10-21
+    //  - mix: share of new spawns that are North = base + amp x sin(2 pi t / period)
+    polarity: {
+      mix: { base: 0.5, amp: 0.4, period: 30 }, dmgOpp: 2, dmgSame: 0.5,
+      eject: { speed: 467, stun: 0.6 },   // changing pole throws every latched mite off you
+      pulseStun: 0.5,                     // a Reversal Pulse frees a latched mite, stunned this long
+      sameGap: 20,                        // a same-pole body never comes nearer than its edge + yours + this
+      pillar: { reach: 213, player: 93, enemy: 147, enemyMul: 6 },
+      // pools: one ellipse per cell with probability `chance` (streamPolePools); you flip in one of
+      // the other pole (cd s before the next), a creature takes its pole
+      pools: { cell: 520, chance: 0.6, rx: [47, 80], ry: [33, 60], minDist: 260, cd: 1.2 },
+      latch: { dps: 1.5, slowPer: 0.08, floor: 0.4 },
+      // balance_decision : magnetic loot and a self-sorting crowd, owner picks 2026-10-21
+      //  - crowd.touch x (sum of radii) is "touching"; keep sameMul x ENEMY_SEP_FRAC x 2r under ENEMY_SEP_CELL
+      loot: { oppMul: 3, repel: 60, repelR: 120 },
+      crowd: { grind: 3, sameMul: 1.5, touch: 1.15 },
+      needle: { speed: [200, 240], dmg: 4, life: 3.5, r: 5 },
+      mite: { rush: 667, cap: 180, orbit: 187, gain: 2.2, tan: 60, blend: 3, range: 333, cd: [2, 3.2], needle: 240 },
+      urchin: { hold: 253, gain: 1.5, tan: 33, range: 400, cd: 3.2, fan: [-0.4, -0.2, 0, 0.2, 0.4], needle: 200 },
+      top: { opp: 200, same: 120, wobFreq: 5, wobAmp: 0.6, strobe: 2, cd: 0.8 },
+      blob: { speed: 40, smallSpeed: 67, near: 147, reach: 33, dps: 12, grow: 4 },
+      golem: { crawl: 33, dps: 16, hold: 240, gain: 0.6, tan: 20, cd: 3, fan: [-0.3, 0, 0.3], needle: 200, dragR: 333, pull: 107, push: 67 },
+      eel: { gap: 24, turn: 2.5, speed: 100, cd: 0.9, shove: 20 },
+    },
+  },
+  // balance_decision : one pillar per 667 px square, prototype density 2026-10-21
+  obstacles: { kind: 'pillar', count: 6, cell: 560, minR: 21, maxR: 21, minDist: 240 },
+  balance: { spawnMul: 0.85, enemyDmgMul: 1, enemyHpMul: 1, xpMul: 1.2, maxAliveMul: 0.7 },
+  render: {
+    cast: ['ferriteMite', 'needleUrchin', 'spinningTop', 'dipoleEel', 'ferroBlob', 'lodestoneGolem'],
+    bgColor: 0x15151a,     // dark iron
+    floorTint: 0x8a8a96,
+    playerTint: 0xffffff,
+    tail: false,
+    dust: { tint: 0xd0d4e0, alpha: 0.35, speedMul: 0.05, sway: 2 },
+  },
+}
+
 // ---- The Kraken (hidden boss — the tuning block, sim.js's stepKrakenScript owns the flow) -------
 // THE PARRY OPENS, THE BUILD KILLS:
 //   - an ARM is sealed until a parry makes it limp (KRAKEN_EXPOSE_BITE tears it on that parry);
@@ -11625,7 +11785,7 @@ export const CHAPTER_SPINE = {
   body: 'Body', pond: 'Pond', garden: 'Garden', undergrowth: 'Undergrowth',
   city: 'City', skies: 'Skies', beyond: 'Beyond', blank: 'Blank',
   surf: 'Surf', shelf: 'Shelf', reef: 'Reef', wreck: 'Wreck', trawl: 'Trawl', deep: 'Deep', kraken: 'Kraken',
-  topsoil: 'Topsoil', geode: 'Geode', mine: 'Mine', magma: 'Magma', mantle: 'Mantle',
+  topsoil: 'Topsoil', geode: 'Geode', mine: 'Mine', magma: 'Magma', mantle: 'Mantle', core: 'Core',
 }
 // Falls back to the full name rather than throwing: a chapter added without a spine entry renders
 // with its article and looks slightly wrong, which is a far better failure than a blank spine.
@@ -15864,6 +16024,7 @@ export const CHAPTER_ENDINGS = {
   mine:        { victory: 'You struck daylight! 🎉',               death: 'Lost in the old galleries… ⛏️' },
   magma:       { victory: 'You crossed the magma! 🎉',               death: 'Melted… 🌋' },
   mantle:      { victory: 'You rode out the lava tide! 🎉',        death: 'Swept under… 🌋' },
+  core:        { victory: 'You held your pole at the heart of the world! 🎉', death: 'Pulled apart… 🧲' },
 }
 export const CHAPTER_UNLOCK_LINES = {
   pond:        'The Pond — word of you travels downstream',

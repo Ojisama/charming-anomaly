@@ -272,6 +272,7 @@ import {
   MANTLE_GROUND_STEP, MANTLE_START_DRY, MANTLE_STRAND_STUCK_T, MANTLE_STRAND_SLOW, MANTLE_STRAND_DIE_T, MANTLE_STRAND_DMG_MUL,
   MANTLE_MELT_T, MANTLE_SPAWN_TRIES,
   KETTLE_CRUST_GNAW, KETTLE_CRUST_GNAW_MAX, KETTLE_STEAM_MUL, KETTLE_STEAM_R, KETTLE_HULL_COOL, KETTLE_HULL_MAX,
+  REVERSAL_PULSE_LIFE, SLING_LATCH_SHARE, IRON_BALL_R, IRON_BALL_LIFE, GAUSS_SLUG_R,
 } from './config.js'
 import { crustShapeOf, poolPhaseOf, inCrustEdge, crustSdf, inPoolEdge, CRUST_EDGE_MAX, POOL_RIM_MAX } from './mantle-shape.js'
 
@@ -361,6 +362,7 @@ export function stepSim(run, input, dt) {
   stepSubmission(run, dt) // SUBMISSION: the loan's clock, and the ally's contact attack
   stepFlashlightCones(run, dt) // v5.4 undergrowth: elite cones that enrage the swarm (damages nothing)
   stepCurrents(run, dt)   // v5.0 signature mechanic: drift field (no-op unless the chapter has one)
+  stepPolarity(run, dt)   // Book 3 The Core: the pole clock, pools, and the pillars' and golems' pull on you
   stepTide(run, dt)       // Book 2 surf signature: alternating surge/backwash (no-op elsewhere)
   stepBombardment(run, dt) // v5.4 skies signature: rain telegraphed bombs on the player's area
   stepGullStrike(run, dt) // Book 2 surf: gulls plunge on whatever is alive (no-op elsewhere)
@@ -382,7 +384,7 @@ export function stepSim(run, input, dt) {
   stepShorebreak(run, dt)
   streamTraps(run)        // v6.5 undergrowth identity: materialize/drop snap traps (no-op outside predators)
   streamObstacles(run)    // v5.6.13: materialize/drop obstacle cells as the player roams
-  stepEnemySeparation(run) // v6.5.1: push overlapping enemies apart (owner directive: no 100% stacks)
+  stepEnemySeparation(run, dt) // v6.5.1: push overlapping enemies apart (owner directive: no 100% stacks)
   holdBankAfterCrowd(run) // The Magma: the crowd behind does not shove a body waiting at a lava bank in
   stepObstacles(run)      // v5.0: push player/enemies out of this chapter's obstacle field (if any) — terrain snaps last and wins
   holdHabitat(run)        // Book 3 The Mantle: a creature that stepped off its own ground (lava or rock) is held at the shore
@@ -419,6 +421,7 @@ export function stepSim(run, input, dt) {
   stepPits(run, dt)
   if (stepCrust(run, dt)) return // phase is now 'dead' (Book 3 The Magma: you stood in the lava)
   if (stepLavaTide(run, dt)) return // phase is now 'dead' (Book 3 The Mantle: you stood in the lava tide)
+  if (stepPolarHurt(run, dt)) return // phase is now 'dead' (Book 3 The Core: latched mites, spikes, bites)
   if (stepMantleGround(run, dt)) return // phase is now 'dead' (Book 3 The Mantle: you stood in a hammer's lava pool)
 
   stepMartyr(run)         // v7.2: resolve the anomaly's queued blasts — after every hurtPlayer caller above
@@ -928,7 +931,10 @@ function stepPlayerMovement(run, input, dt) {
   // neighbours and for the same reason; it sits ABOVE LATCH_SLOW_MUL on purpose, so a latched moray
   // in coral is still the worst case in the chapter rather than the coral swallowing the moray.
   const scrapeMul = run._scraping ? SPUR_SLOW_MUL : 1
-  const composedSlowMul = Math.min(latchMul, dragMul, gripMul, webMul, run._bindSlow ?? 1, darkMul, sandMul, tireMul, foulMul, inkMul, scrapeMul)
+  // The Core: each mite latched on you (stepPolarHurt counts them) takes latch.slowPer off, down to latch.floor
+  const coreL = run.polarity?.latched ? polaritySpec(run)?.latch : null
+  const mitesMul = coreL ? Math.max(coreL.floor, 1 - run.polarity.latched * coreL.slowPer) : 1
+  const composedSlowMul = Math.min(latchMul, dragMul, gripMul, webMul, run._bindSlow ?? 1, darkMul, sandMul, tireMul, foulMul, inkMul, scrapeMul, mitesMul)
   // SLEEK (v7.x, The Wreck): lifts the composed floor toward 1 (no slow) by the passive's resist
   // fraction, run through resistFrac's diminishing returns (never reaches 1, so the toll never
   // reaches zero), and the `1 - (1-x)(1-y)` shape means it can never drop below the raw composed
@@ -4535,6 +4541,7 @@ function spawnEnemy(run, opts = {}) {
     xp: base.xp * (roster?.xpMul ?? 1) * (run.endless ? endlessXpMul(run.difficulty) : 1),
     ...freshEnemyFields(),
   }
+  if (polaritySpec(run)) polarSpawn(run, born)   // The Core: a pole and the prototype's per-body dice
   // `deferred` is mandatory for any caller running INSIDE a walk of run.enemies — see the long
   // measurement in spawnSplitChildren for what an immediate push does there. It is not the
   // default because three callers need the enemy to exist right now: stepSpawning's `while
@@ -4752,8 +4759,10 @@ function spawnSplitChildren(run, parent, count) {
       elite: false,
       affixes: [],
       flags: parent.flags,
-      rosterId: parent.rosterId,
+      rosterId: spec?.rosterId ?? parent.rosterId,   // The Core: a blob comes apart into droplets
       habitat: parent.habitat ?? null,   // The Mantle: a rock creature's shards are rock creatures too
+      // The Core: a droplet keeps its blob's pole (and gets its own dice, as polarSpawn would)
+      ...(parent.pole !== undefined ? { pole: parent.pole, _orbit: Math.random() < 0.5 ? 1 : -1, _pcd: 1 + Math.random() * 2, _pph: 0, spike: 0 } : null),
       // XP TRACKS HEALTH, exactly as hp and radius above do. Inheriting the parent's FULL xp on a
       // SPLIT_HP_FRAC body made one splitter worth 3 kills of xp for 1.9 kills of health — 1.58x
       // the xp-per-point-of-health of every other enemy in the game, and the only place that ratio
@@ -4813,6 +4822,7 @@ function stepEnemyMovement(run, dt) {
   // The Magma's lava rivers (holdAtRiverBank): null off that floor
   const rivF = floorSpec(run)?.river?.avoid ? floorSpec(run) : null
   const rivSeed = rivF ? floorSeed(run) : 0
+  const polar = polaritySpec(run)   // The Core: null off that chapter
 
   for (const e of run.enemies) {
     // Book 3: a mole underground is moved by stepTunnels, not by any machine below — but its hit
@@ -5058,6 +5068,9 @@ function stepEnemyMovement(run, dt) {
       // gains the flag so it knows to read it.
       e._tgtX = e.x + e._cruiseX * 100
       e._tgtY = e.y + e._cruiseY * 100
+    } else if (polar && e.pole !== undefined && !isAlly(e)) {
+      // THE CORE: every polar body runs the prototype's own step (stepPolarBody), below stun and fear
+      stepPolarBody(run, e, dt, slowMul, polar)
     } else if (e.flags && e.flags.includes('dashBurst')) {
       // affixSpeedMul is passed through (unlike the other machines, which take enrageMul alone)
       // because dashBurst used to ride the plain seek and therefore honoured pacer/frenzy. Keeping
@@ -6385,6 +6398,7 @@ function stepContactDamage(run) {
     const touching = playerTouches(run, e.x, e.y, e.radius, body)
     if (circuit && touching) bumpTraffic(run, CHAPTERS[run.chapter], e, dx, dy)
     if (!touching || hooked.has(e.id) || contactHarmless(e)) continue
+    if (e.pole !== undefined && run.polarity) continue   // The Core: a polar body's touch is stepPolarHurt's
 
     // latch flag (v5.0, e.g. body's antibody): applies a movement debuff then spends itself —
     // no normal contact damage, and unlike the plain path below, not gated behind p.invuln (the
@@ -6606,8 +6620,10 @@ export function stepTide(run, dt) {
 //   40-43 refill circles: The Reef's air pockets (CHAPTERS.reef.signature.pockets.salt)
 //   44-46 The Reef's spur field (CHAPTERS.reef.spurs.salt): 44/45 the two channel widths, 46 the
 //         ridge's own thickness (spurs.thickVar).
+//   47    The Core's pillar pole (streamObstacles)
+//   48-54 The Core's pole pools (streamPolePools: occupancy, rx, ry, x, y, rot, pole)
 //   60-63 The Mantle's moored boats (boatMooring: occupancy, tide share, sample x, sample y)
-// Next free block: 47+ (5-10, 18-19, 24-29 and 33-39 are free too, between claimed ranges; 60-63 taken).
+// Next free block: 55-59, 64+ (5-10, 18-19, 24-29 and 33-39 are free too, between claimed ranges).
 function obstacleCellHash(i, j, seed, salt) {
   let h = (Math.imul(i, 374761393) + Math.imul(j, 668265263) + seed + Math.imul(salt, 974634923)) | 0
   h = Math.imul(h ^ (h >>> 13), 1274126177)
@@ -6803,6 +6819,7 @@ function streamObstacles(run) {
       // (`r`, not 0), so a rock never crosses the rim either: half in the jaws still reads as in.
       if (clearSpec && inRefillCircle(x, y, r, seed, clearSpec)) continue
       const ob = { x, y, r, _cell: key, kind, rot }
+      if (kind === 'pillar') ob.pole = obstacleCellHash(i, j, seed, 47) < 0.5 ? 1 : -1   // The Core
       if (run._crystalRegrown?.delete(key)) ob.born = run.time   // grown back: render grows it in
       run.obstacles.push(ob)
       changed = true
@@ -8796,7 +8813,24 @@ const SEP_KEY_OFFSET = 1 << 19
 const SEP_KEY_SPAN = 1 << 20
 const sepKey = (ci, cj) => (ci + SEP_KEY_OFFSET) * SEP_KEY_SPAN + (cj + SEP_KEY_OFFSET)
 function sepGrow(a, len) { const b = new Int32Array(len); b.set(a); return b }
-function stepEnemySeparation(run) {
+let _sepPolar = null   // The Core's crowd rule for resolveSeparationPair, set per pass
+function stepEnemySeparation(run, dt) {
+  _sepPolar = polaritySpec(run)?.crowd ?? null
+  stepEnemySeparationPass(run)
+  if (!_sepPolar) return
+  // the grind: every opposite pair that stuck this frame wears each other down (a real kill, loot paid)
+  for (const e of run.enemies) {
+    if (!e._grind) continue
+    e._grind = false
+    if (e._dead) continue
+    e._grindAcc = (e._grindAcc ?? 0) + _sepPolar.grind * dt
+    if (e._grindAcc < 1) continue
+    const n = Math.floor(e._grindAcc)
+    e._grindAcc -= n
+    dealDamage(run, e, n, false, true, false, false, true)
+  }
+}
+function stepEnemySeparationPass(run) {
   const cellOf = _sepCellOf
   cellOf.clear()
   const es = run.enemies, n = es.length
@@ -8944,8 +8978,29 @@ function enemiesOnRay(run, ox, oy, angle, len, width) {
 // and are read ONLY by the coincident branch below, which needs a deterministic per-pair angle.
 function resolveSeparationPair(a, b, i, j) {
   const dx = b.x - a.x, dy = b.y - a.y
-  const minSep = ENEMY_SEP_FRAC * (a.radius + b.radius)
+  let minSep = ENEMY_SEP_FRAC * (a.radius + b.radius)
   const distSq = dx * dx + dy * dy
+  // THE CORE: the crowd sorts itself. Two polar bodies (not the eel, not a latched mite) of the same
+  // pole keep crowd.sameMul x the reach apart; two of opposite poles that touch STICK at minSep and
+  // are marked to grind (stepEnemySeparation deals it after the pass).
+  // ponytail: a pair farther apart than one ENEMY_SEP_CELL may sit two cells apart and go unseen; fine at these radii
+  const C = _sepPolar
+  if (C && a.pole !== undefined && b.pole !== undefined && !a.latched && !b.latched && !a.flags.includes('dipole') && !b.flags.includes('dipole')) {
+    if (a.pole === b.pole) minSep *= C.sameMul
+    else {
+      const touch = (a.radius + b.radius) * C.touch
+      if (distSq < touch * touch) {
+        a._grind = true; b._grind = true
+        const d = Math.sqrt(distSq)
+        if (d > minSep) {
+          const pull = (d - minSep) / 2
+          a.x += (dx / d) * pull; a.y += (dy / d) * pull
+          b.x -= (dx / d) * pull; b.y -= (dy / d) * pull
+          return
+        }
+      }
+    }
+  }
   if (distSq >= minSep * minSep) return // squared-distance early-out, like every other pair loop in the file
   const d = Math.sqrt(distSq)
   let nx, ny, push
@@ -9776,11 +9831,13 @@ function stepEnemyShots(run, dt) {
     s.vy = Math.sin(angle) * speed
     s.x += s.vx * dt
     s.y += s.vy * dt
+    // The Core's needles: a pillar stops one; a hit pricks, no blast
+    if (s.needle && needleHitsPillar(run, s)) { s._done = true; continue }
 
     if (!playerTouches(run, s.x, s.y, s.r, body)) continue
     s._done = true
-    run.events.push({ type: 'explode', x: s.x, y: s.y, radius: MISSILE_BLAST })
-    if (!playerDied && p.invuln <= 0 && hurtPlayer(run, s.dmg, false, 'missile')) playerDied = true
+    if (!s.needle) run.events.push({ type: 'explode', x: s.x, y: s.y, radius: MISSILE_BLAST })
+    if (!playerDied && p.invuln <= 0 && hurtPlayer(run, s.dmg, false, s.src ?? 'missile')) playerDied = true
   }
   run.enemyShots = run.enemyShots.filter((s) => !s._done)
   return playerDied
@@ -9917,7 +9974,7 @@ function roundHP(v) { return Math.max(1, Math.round(v)) }
 // shipped to close, re-opened by a loadout change three commits later. What the owner's ruling
 // actually says is: you may only LIGHT the head through a window, and a fire already burning on it
 // keeps burning. A cloud on the floor was never lit on anything.
-function dealDamage(run, enemy, dmg, crit, dot = false, hazard = false, carried = false) {
+function dealDamage(run, enemy, dmg, crit, dot = false, hazard = false, carried = false, flat = false) {
   // Untouchable windows (v5.4): an owl overhead / a ghosted flicker eats nothing at all — no
   // number, no flash, no status, no death. Checked before everything else, including DoT ticks.
   if (damageImmune(enemy)) return
@@ -9977,6 +10034,9 @@ function dealDamage(run, enemy, dmg, crit, dot = false, hazard = false, carried 
   if ((enemy.scentT || 0) > 0) dmg *= SCENT_DMG_MUL
   // STRANDED (The Mantle): a lava creature the ebb left on dry rock takes more from every source.
   if ((enemy.strandT || 0) > 0) dmg *= MANTLE_STRAND_DMG_MUL
+  // THE CORE's pole rule: x dmgOpp on the other pole, x dmgSame on yours. A flat hit (the Dipole
+  // Lance) and the world's own damage (hazard) skip it.
+  if (!flat && !hazard) dmg *= poleDmgMul(run, enemy)
   dmg = Math.round(dmg)
 
   // THE SHORE CRAB'S GUARD. Only the HP removal is refused; everything below still runs, and that
@@ -10061,7 +10121,8 @@ function dealDamage(run, enemy, dmg, crit, dot = false, hazard = false, carried 
     const jackpot = enemy.rosterId ? CHAPTERS[run.chapter].roster?.find((r) => r.id === enemy.rosterId)?.jackpot : null
     const paid = !jackpot || (!hazard && onScreen(run, enemy.x, enemy.y))
     const xp = enemy.xp * (enemy.elite ? ELITE.xpMul : 1)
-    if (paid) run.gems.push({ x: enemy.x, y: enemy.y, xp })
+    // The Core: the gem carries the creature's pole (magnetic loot, stepPickups)
+    if (paid) run.gems.push(enemy.pole !== undefined ? { x: enemy.x, y: enemy.y, xp, pole: enemy.pole } : { x: enemy.x, y: enemy.y, xp })
     if (jackpot && paid) {
       if (jackpot.levels > 0) run.player.xp += run.player.xpNext * jackpot.levels
       for (let i = 0; i < (jackpot.coins ?? 0); i++) {
@@ -10203,7 +10264,7 @@ function dealDamage(run, enemy, dmg, crit, dot = false, hazard = false, carried 
  *   the LAST parameter for the same reason — a 3-arg call cannot accidentally acquire one.
  * @returns the final applied damage number (post multiplier/crit), for effects like star blast.
  */
-function applyDamage(run, enemy, baseDmg, critBonus = 0) {
+function applyDamage(run, enemy, baseDmg, critBonus = 0, flat = false) {
   if (damageImmune(enemy)) return 0 // v5.4 untouchable window: no crit roll, no elements either
   const p = run.player
   // SLICK FEED (v7.x, The Wreck): the payoff for driving prey through oil, not the toll of
@@ -10225,7 +10286,7 @@ function applyDamage(run, enemy, baseDmg, critBonus = 0) {
     crit = true
   }
   dmg = Math.round(dmg)
-  dealDamage(run, enemy, dmg, crit)
+  dealDamage(run, enemy, dmg, crit, false, false, false, flat)   // flat: The Core's Dipole Lance skips the pole rule
   if (!enemy._dead) applyElements(run, enemy, dmg)
   // The Mine: a weapon hit on a body standing in firedamp sets the pocket off (stepFiredamp).
   if (run.gas?.length) gasLightAt(run, enemy.x, enemy.y, 0)
@@ -10489,6 +10550,11 @@ const WEAPON_STAT_MODS = {
   hotCoals:       { whiteHot: ['dmg', 'pct'], coalScuttle: ['count', 'flat'], skipping: ['bounces', 'flat'] },
   crackHammer:    { heavyHead: ['dmg', 'pct'], aftershock: ['pools', 'flat'], wideCrack: ['r', 'pct'], deepCrack: ['duration', 'pct'] },
   lavaBellows:    { moltenCrest: ['dmg', 'pct'], longRoll: ['radius', 'pct'], broadWave: ['arc', 'pct'], heavySurge: ['knockback', 'pct'] },
+  // The Core. Rate mods divide at their fire sites; pickOff, punchThrough, bothEnds and dazingRing are read there too.
+  sling:          { castIron: ['dmg', 'pct'], twinBalls: ['count', 'flat'] },
+  gaussCoil:      { heavySlug: ['dmg', 'pct'], twinRail: ['count', 'flat'] },
+  dipoleLance:    { hotArc: ['dmg', 'pct'], longLance: ['length', 'pct'] },
+  reversalPulse:  { broadRing: ['maxR', 'pct'], chargedRing: ['dmg', 'flat'] },
   orbit:     { extraOrb: ['orbs', 'flat'], wideRing: ['radius', 'pct'], overdrive: ['rotSpeed', 'pct'] },
   wave:      { bigWave: ['radius', 'pct'], shove: ['knockback', 'pct'], amplitude: ['dmg', 'pct'] },
   boomerang: { extraRang: ['count', 'flat'], longThrow: ['range', 'pct'], heavyBlade: ['dmg', 'pct'] },
@@ -10804,6 +10870,10 @@ function stepWeaponsInner(run, dt) {
     else if (w.id === 'hotCoals') stepHotCoalsWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'crackHammer') stepCrackHammerWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'lavaBellows') stepLavaBellowsWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'sling') stepSlingWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'gaussCoil') stepGaussWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'dipoleLance') stepLanceWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'reversalPulse') stepReversalWeapon(run, w, stats, fireRateMul, dt)
   }
 
   stepBullets(run, dt)
@@ -11027,6 +11097,8 @@ function stepBullets(run, dt) {
     b.x += b.vx * dt
     b.y += b.vy * dt
     b.life -= dt
+    // The Core: an iron ball slung at a latched mite rides it, so it lands
+    if (b._rideE) { if (b._rideE._dead) b._rideE = null; else { b.x = b._rideE.x; b.y = b._rideE.y } }
     if (crystals && b.life > 0 && b.pierce > 0 && !b._carrier) stepCrystalShot(run, b, crystals)
     // Reality Shard: every blinkEvery seconds a shard SKIPS blinkDist px along its current heading
     // (post any gravity-well curvature), passing over the gap without touching it.
@@ -11070,6 +11142,8 @@ function stepBullets(run, dt) {
         if (b._necrotic && !e._dead) applyBleed(run, e, b.dmg, NECROTIC_BLEED_FRAC)
         b.hitIds.add(e.id)
         b.pierce--
+        // The Core's Gauss Coil: through the other pole, stopped by the first body of yours
+        if (b.weapon === 'gaussSlug' && !b._punch && run.polarity && bodyPole(run, e) === run.polarity.pole) b.pierce = 0
         justHit = e
         // Split Stars: only the original star splits, and only on its first hit ever.
         if (!b._shard && !b._splitDone && splitCount > 0) {
@@ -11221,6 +11295,8 @@ function spawnNova(run, x, y, maxR, dmg, knockback, fear = 0, opts = null) {
     // The Mantle: `heat` ('fire' | 'cold') is the type rule (heatMul); `habitatSplit` (Lava Bellows'
     // wave) leaves a lava creature unhurt and shoves it LAVA_WAVE_SHOVE_MUL as hard instead.
     heat: opts?.heat ?? null, habitatSplit: !!opts?.habitatSplit,
+    // The Core: `flip` (Reversal Pulse) flips the pole of what it touches, `stun` s on each one flipped
+    flip: !!opts?.flip, stun: opts?.stun ?? 0,
     // `lifeMax` beside `life` so a ring can expand over something other than NOVA_LIFE, and so
     // stepNovas can still work out how far along it is. The Skipping Shell's splash needs it: a
     // 46px ring on the default 0.45s life deals its damage nearly half a second after the shell
@@ -11340,6 +11416,13 @@ function stepNovas(run, dt) {
         continue
       }
       if (dist <= n.r + e.radius) {
+        // The Core's Reversal Pulse: flips the body's pole and frees a latched mite; it shoves nothing
+        if (n.flip) {
+          n.hit.add(e.id)
+          polarPulseHit(run, e, n)
+          if (n.dmg > 0) applyDamage(run, e, n.dmg)
+          continue
+        }
         const shoveOnly = n.habitatSplit && e.habitat === 'lava'
         if (!shoveOnly) applyDamage(run, e, n.heat ? n.dmg * heatMul(e, n.heat) : n.dmg)
         n.hit.add(e.id)
@@ -15289,6 +15372,10 @@ function stepPickups(run, dt) {
   const magnet = (CHAPTERS[run.chapter].lane || CHAPTERS[run.chapter].circuit) ? Infinity : p.magnet * (1 + run.passives.magnet) * run.mods.magnetMul
   const magnetSq = magnet * magnet
   const pickupSq = PLAYER.pickupRadius * PLAYER.pickupRadius
+  // THE CORE's magnetic loot: a gem carries its creature's pole (g.pole). One of the other pole is
+  // pulled from loot.oppMul x the magnet; one of yours slides away at loot.repel px/s within loot.repelR.
+  const loot = run.polarity ? polaritySpec(run)?.loot : null
+  const oppMagnet = loot ? magnet * loot.oppMul : 0
 
   const collect = (list, onPickup) => {
     const kept = []
@@ -15296,6 +15383,17 @@ function stepPickups(run, dt) {
       const dx = p.x - it.x, dy = p.y - it.y
       const distSq = dx * dx + dy * dy
       if (distSq <= pickupSq) { onPickup(it); continue }
+      if (loot && it.pole !== undefined && !it._vac) {
+        const dist = Math.sqrt(distSq) || 1
+        if (it.pole === run.polarity.pole) {
+          if (dist < loot.repelR) { it.x -= (dx / dist) * loot.repel * dt; it.y -= (dy / dist) * loot.repel * dt }
+        } else if (dist <= oppMagnet) {
+          const spd = magnetSpeed(dist, oppMagnet)
+          it.x += (dx / dist) * spd * dt; it.y += (dy / dist) * spd * dt
+        }
+        kept.push(it)
+        continue
+      }
       // Chemotaxis-marked loot (_vac) homes in regardless of magnet range — it rides the same
       // speed ramp as a normal magnet pull (magnetSpeed clamps at dist >= magnet either way).
       if (it._vac || distSq <= magnetSq) {
@@ -18819,5 +18917,415 @@ function stepLavaBellowsWeapon(run, w, stats, fireRateMul, dt) {
         { look: 'lavaWave', arc: stats.arc, angle: a, life: LAVA_WAVE_LIFE, heat: 'fire', habitatSplit: true })
     }
     run.events.push({ type: 'shoot', weapon: 'lavaBellows', x: p.x, y: p.y, angle: aim, maxR: stats.radius, arc: stats.arc })
+  })
+}
+
+// ---- THE CORE: polarity (Book 3, CHAPTERS.core.signature.polarity) ------------------------------
+// A port of the owner-played prototype (docs/superpowers/specs/assets/core-polarity.html) at 667 px
+// per prototype unit, with the owner's 2026-10-21 change: your pole never changes on a clock, only
+// in a pool of the other pole, and the SPAWN MIX swings instead (polarMix). You and every creature
+// carry a pole, +1 North / -1 South: your hits do dmgOpp to the other pole and dmgSame to yours
+// (poleDmgMul, read in dealDamage). Pillars pull the other pole and push yours.
+function polaritySpec(run) {
+  const sig = CHAPTERS[run.chapter].signature
+  return sig && sig.type === 'polarity' && sig.polarity ? sig.polarity : null
+}
+// Built lazily, like the Mantle's tide: the first reader of a Core run makes it. You start North.
+function polarState(run, S) {
+  return (run.polarity ??= { pole: 1, mix: polarMix(run, S), poolCd: 0, flipT: -1e9, latched: 0, dot: {} })
+}
+// The share of new spawns that are North right now: base + amp x sin(2 pi t / period).
+function polarMix(run, S) {
+  return S.mix.base + S.mix.amp * Math.sin((2 * Math.PI * run.time) / S.mix.period)
+}
+// The pole a body shows the damage rule: its own, except the eel's, which is the pole of whichever
+// of its two segments is nearer you (head = e.pole, tail = -e.pole, eel.gap px behind the head).
+function bodyPole(run, e) {
+  if (!e.flags || !e.flags.includes('dipole')) return e.pole
+  const S = polaritySpec(run), p = run.player
+  const gap = S ? S.eel.gap : 0
+  const tx = e.x - (e.hx ?? 1) * gap, ty = e.y - (e.hy ?? 0) * gap
+  return (e.x - p.x) ** 2 + (e.y - p.y) ** 2 <= (tx - p.x) ** 2 + (ty - p.y) ** 2 ? e.pole : -e.pole
+}
+function poleDmgMul(run, e) {
+  if (!run.polarity || e.pole === undefined) return 1
+  const S = polaritySpec(run)
+  if (!S) return 1
+  return bodyPole(run, e) !== run.polarity.pole ? S.dmgOpp : S.dmgSame
+}
+// The pole a new body is born with (rolled against the spawn mix; the golem always opposite to you),
+// and the prototype's per-body dice.
+function polarSpawn(run, e) {
+  const S = polaritySpec(run), P = polarState(run, S)
+  e.pole = e.flags.includes('lodestone') ? -P.pole : (Math.random() < polarMix(run, S) ? 1 : -1)
+  e._orbit = Math.random() < 0.5 ? 1 : -1
+  e._pcd = 1 + Math.random() * 2
+  e._pph = Math.random() * 4
+  e.spike = 0
+  e.latched = false
+  e.hx = 1; e.hy = 0
+}
+// A body's pole turned over (a pool, a pulse). The top's strobe moves on half a beat instead.
+function flipBodyPole(e, S) {
+  if (e.flags.includes('poleStrobe')) e._pph = (e._pph ?? 0) + S.top.strobe
+  e.pole = -e.pole
+}
+// A latched mite thrown off: outward at `speed` (its knockback, which decays), stunned `stun` s.
+function unlatchMite(e, speed, stun) {
+  const m = Math.hypot(e._lx, e._ly) || 1
+  e.latched = false
+  e.kb.x = (e._lx / m) * speed; e.kb.y = (e._ly / m) * speed
+  e.stunT = Math.max(e.stunT || 0, stun)
+}
+// YOUR pole changes (only ever in a pool): every latched mite is thrown off.
+function setPlayerPole(run, P, S, pole) {
+  P.pole = pole
+  P.flipT = run.time
+  for (const e of run.enemies) if (e.latched) unlatchMite(e, S.eject.speed, S.eject.stun)
+  run.events.push({ type: 'poleFlip', pole })
+}
+function inPolePool(q, x, y) {
+  const dx = x - q.x, dy = y - q.y
+  if (dx * dx + dy * dy > q.rx * q.rx) return false   // rx >= ry: outside the long radius is outside
+  const c = Math.cos(-q.rot), s = Math.sin(-q.rot)
+  const lx = dx * c - dy * s, ly = dx * s + dy * c
+  return (lx / q.rx) ** 2 + (ly / q.ry) ** 2 < 1
+}
+// The sum of every pillar's pull on a body of `pole` at (x, y): k x (1 - d/reach) toward the pillar
+// for the other pole, away from it for the same. Written into _pf (no allocation per body).
+const _pf = { x: 0, y: 0 }
+function pillarForce(run, x, y, pole, k, reach) {
+  _pf.x = 0; _pf.y = 0
+  for (const o of run.obstacles) {
+    if (o.kind !== 'pillar') continue
+    const dx = o.x - x, dy = o.y - y
+    if (dx * dx + dy * dy >= reach * reach) continue
+    const d = Math.hypot(dx, dy) || 1
+    const s = (o.pole !== pole ? 1 : -1) * k * (1 - d / reach)
+    _pf.x += (dx / d) * s; _pf.y += (dy / d) * s
+  }
+  return _pf
+}
+// The pole pools: streamEddies' idiom, its own cursor, salts 48-54 (the registry above obstacleCellHash).
+function streamPolePools(run, S) {
+  if (run._obstacleSeed == null) return
+  const cfg = S.pools, p = run.player, cs = cfg.cell
+  const ci = Math.floor(p.x / cs), cj = Math.floor(p.y / cs)
+  if (ci === run._poolCellI && cj === run._poolCellJ) return
+  run._poolCellI = ci; run._poolCellJ = cj
+  for (let k = run.corePools.length - 1; k >= 0; k--) {
+    const q = run.corePools[k]
+    if (Math.hypot(q.x - p.x, q.y - p.y) > OBSTACLE_DROP_RADIUS) run.corePools.splice(k, 1)
+  }
+  const live = new Set()
+  for (const q of run.corePools) live.add(q._cell)
+  const seed = run._obstacleSeed
+  const span = Math.ceil(OBSTACLE_STREAM_RADIUS / cs)
+  for (let i = ci - span; i <= ci + span; i++) {
+    for (let j = cj - span; j <= cj + span; j++) {
+      const key = i + ',' + j
+      if (live.has(key)) continue
+      if (obstacleCellHash(i, j, seed, 48) >= cfg.chance) continue
+      const rx = cfg.rx[0] + obstacleCellHash(i, j, seed, 49) * (cfg.rx[1] - cfg.rx[0])
+      const ry = Math.min(rx, cfg.ry[0] + obstacleCellHash(i, j, seed, 50) * (cfg.ry[1] - cfg.ry[0]))
+      const slack = Math.max(0, cs / 2 - rx - 10)
+      const x = (i + 0.5) * cs + (obstacleCellHash(i, j, seed, 51) - 0.5) * 2 * slack
+      const y = (j + 0.5) * cs + (obstacleCellHash(i, j, seed, 52) - 0.5) * 2 * slack
+      if (Math.hypot(x, y) < cfg.minDist) continue   // the run's start stays clear
+      if (Math.hypot(x - p.x, y - p.y) > OBSTACLE_STREAM_RADIUS) continue
+      const rot = obstacleCellHash(i, j, seed, 53) * Math.PI
+      const pole = obstacleCellHash(i, j, seed, 54) < 0.5 ? 1 : -1
+      run.corePools.push({ x, y, rx, ry, rot, pole, _cell: key })
+    }
+  }
+}
+// The spawn mix, the pools under you, and what pulls on YOU: every pillar within reach, and every
+// golem within its drag radius (pulled in by one of the other pole, shoved off by one of yours).
+// A displacement after your own step, the currents' idiom; stepObstacles then pushes you out of a pillar.
+function stepPolarity(run, dt) {
+  const S = polaritySpec(run)
+  if (!S) return
+  const P = polarState(run, S), p = run.player
+  P.mix = polarMix(run, S)
+  P.poolCd = Math.max(0, P.poolCd - dt)
+  streamPolePools(run, S)
+  if (P.poolCd <= 0) {
+    for (const q of run.corePools) {
+      if (q.pole === P.pole || !inPolePool(q, p.x, p.y)) continue
+      setPlayerPole(run, P, S, q.pole)
+      P.poolCd = S.pools.cd
+      run.events.push({ type: 'poolFlip', x: p.x, y: p.y, pole: P.pole })
+      break
+    }
+  }
+  const f = pillarForce(run, p.x, p.y, P.pole, S.pillar.player, S.pillar.reach)
+  let vx = f.x, vy = f.y
+  const G = S.golem
+  for (const e of run.enemies) {
+    if (e._dead || isAlly(e) || !e.flags || !e.flags.includes('lodestone')) continue
+    const dx = e.x - p.x, dy = e.y - p.y, d = Math.hypot(dx, dy) || 1
+    if (d >= G.dragR) continue
+    const k = (e.pole !== P.pole ? G.pull : -G.push) * (1 - d / G.dragR)
+    vx += (dx / d) * k; vy += (dy / d) * k
+  }
+  p.x += vx * dt; p.y += vy * dt
+}
+// One needle from a body along (ux, uy): run.enemyShots, flying straight, stopped by pillars.
+function polarNeedle(run, e, ux, uy, speed, S) {
+  const N = S.needle
+  run.enemyShots.push({
+    x: e.x, y: e.y, vx: ux * speed, vy: uy * speed, r: N.r,
+    dmg: N.dmg * dmgScale(curveT(run)) * run.mods.enemyDmgMul, life: N.life, turnRate: 0, needle: true, src: e.rosterId,
+  })
+}
+function needleFan(run, e, ux, uy, fan, speed, S) {
+  for (const a of fan) {
+    const c = Math.cos(a), s = Math.sin(a)
+    polarNeedle(run, e, ux * c - uy * s, uy * c + ux * s, speed, S)
+  }
+}
+function needleHitsPillar(run, s) {
+  for (const o of run.obstacles) {
+    if (o.kind === 'pillar' && (s.x - o.x) ** 2 + (s.y - o.y) ** 2 < o.r * o.r) return true
+  }
+  return false
+}
+// The prototype's step for one polar body (stepEnemyMovement's chain, below stun and fear). Its
+// velocity persists in _pvx/_pvy (the mite accelerates, the rest set it each frame), in prototype
+// px/s; the crowd's speed creep, enemySpeedMul and every slow scale the move, never the velocity.
+function stepPolarBody(run, e, dt, slowMul, S) {
+  const P = polarState(run, S), p = run.player
+  if (e.flags.includes('poleStrobe')) e.pole = Math.floor((run.time + (e._pph ?? 0)) / S.top.strobe) % 2 ? 1 : -1
+  if (e.latched) { e.x = p.x + e._lx; e.y = p.y + e._ly; return }
+  const dx = p.x - e.x, dy = p.y - e.y, d = Math.hypot(dx, dy) || 1, ux = dx / d, uy = dy / d
+  const opp = e.pole !== P.pole
+  let vx = e._pvx ?? 0, vy = e._pvy ?? 0
+  const fixedPole = e.flags.includes('dipole') || e.flags.includes('poleStrobe')   // the eel and the top: no pillar, no pool, no keep-off
+  if (e.flags.includes('poleLatch')) {
+    const M = S.mite
+    if (opp) {
+      vx += ux * M.rush * dt; vy += uy * M.rush * dt
+      const m = Math.hypot(vx, vy)
+      if (m > M.cap) { vx *= M.cap / m; vy *= M.cap / m }
+      if (d < e.radius + PLAYER.radius) {
+        e.latched = true
+        e._lx = -ux * (PLAYER.radius + e.radius * 0.7); e._ly = -uy * (PLAYER.radius + e.radius * 0.7)
+        e._pvx = 0; e._pvy = 0
+        e.x = p.x + e._lx; e.y = p.y + e._ly
+        return
+      }
+    } else {
+      const rad = (d - M.orbit) * M.gain, tan = M.tan * e._orbit
+      vx += ((ux * rad - uy * tan) - vx) * M.blend * dt; vy += ((uy * rad + ux * tan) - vy) * M.blend * dt
+      e._pcd -= dt
+      if (e._pcd <= 0 && d < M.range) { e._pcd = M.cd[0] + Math.random() * (M.cd[1] - M.cd[0]); polarNeedle(run, e, ux, uy, M.needle, S) }
+    }
+  } else if (e.flags.includes('needleFan')) {
+    const U = S.urchin
+    const rad = (d - U.hold) * U.gain, tan = U.tan * e._orbit
+    vx = ux * rad - uy * tan; vy = uy * rad + ux * tan
+    e._pcd -= dt
+    if (e._pcd <= 0 && d < U.range) { e._pcd = U.cd; needleFan(run, e, ux, uy, U.fan, U.needle, S) }
+  } else if (e.flags.includes('poleStrobe')) {
+    const T = S.top
+    const spd = opp ? T.opp : T.same, wob = Math.sin(run.time * T.wobFreq + (e._pph ?? 0)) * T.wobAmp
+    vx = (ux - uy * wob) * spd; vy = (uy + ux * wob) * spd
+  } else if (e.flags.includes('ferroSpikes')) {
+    const B = S.blob
+    const spd = e._splitChild ? B.smallSpeed : B.speed
+    vx = ux * spd; vy = uy * spd
+    e.spike += ((opp && d < B.near ? 1 : 0) - e.spike) * Math.min(1, B.grow * dt)
+  } else if (e.flags.includes('lodestone')) {
+    const G = S.golem
+    if (opp) { vx = ux * G.crawl; vy = uy * G.crawl } else {
+      const rad = (d - G.hold) * G.gain
+      vx = ux * rad - uy * G.tan; vy = uy * rad + ux * G.tan
+      e._pcd -= dt
+      if (e._pcd <= 0) { e._pcd = G.cd; needleFan(run, e, ux, uy, G.fan, G.needle, S) }
+    }
+  } else if (e.flags.includes('dipole')) {
+    // It leads with the end of the other pole: the head (e.pole) if that is not yours, else the tail,
+    // so it turns round when your pole changes
+    const E = S.eel
+    const leadHead = e.pole !== P.pole, dir = leadHead ? 1 : -1
+    const lx0 = leadHead ? e.x : e.x - e.hx * E.gap, ly0 = leadHead ? e.y : e.y - e.hy * E.gap
+    const lx = p.x - lx0, ly = p.y - ly0, lm = Math.hypot(lx, ly) || 1
+    const t = Math.min(1, E.turn * dt)
+    e.hx += ((lx / lm) * dir - e.hx) * t; e.hy += ((ly / lm) * dir - e.hy) * t
+    const hm = Math.hypot(e.hx, e.hy) || 1
+    e.hx /= hm; e.hy /= hm
+    vx = e.hx * E.speed * dir; vy = e.hy * E.speed * dir
+  }
+  if (!fixedPole) {
+    const f = pillarForce(run, e.x, e.y, e.pole, S.pillar.enemy, S.pillar.reach)
+    vx += f.x * dt * S.pillar.enemyMul; vy += f.y * dt * S.pillar.enemyMul
+  }
+  e._pvx = vx; e._pvy = vy
+  const k = speedCreepMul(curveT(run)) * run.mods.enemySpeedMul * slowMul
+  e.x += vx * k * dt; e.y += vy * k * dt
+  if (fixedPole) return
+  // a pool of the other pole turns this body over
+  for (const q of run.corePools) {
+    if (q.pole === e.pole || !inPolePool(q, e.x, e.y)) continue
+    e.pole = q.pole
+    run.events.push({ type: 'poolFlip', x: e.x, y: e.y, pole: e.pole })
+    break
+  }
+  // ...and a body of your pole never comes nearer than sameGap past its edge and yours
+  if (e.pole === P.pole) {
+    const ex = e.x - p.x, ey = e.y - p.y, dd = Math.hypot(ex, ey) || 1, min = e.radius + PLAYER.radius + S.sameGap
+    if (dd < min) { e.x = p.x + (ex / dd) * min; e.y = p.y + (ey / dd) * min }
+  }
+}
+// Whole points of a polar DoT, banked per source until one is owed (hurtPlayer floors a dot at 1).
+function polarDot(run, P, src, amt) {
+  const acc = (P.dot[src] = (P.dot[src] ?? 0) + amt)
+  if (acc < 1) return false
+  const n = Math.floor(acc)
+  P.dot[src] = acc - n
+  return hurtPlayer(run, n, true, src)
+}
+// What the polar bodies do to YOU, after every push of the frame (separation, pillars): latched mites
+// are re-pinned and bite, spiked blobs and an opposite golem burn, a top and an eel's leading end bite.
+// @returns true if the player died this frame.
+function stepPolarHurt(run, dt) {
+  const S = polaritySpec(run)
+  if (!S) return false
+  const P = polarState(run, S), p = run.player
+  const kd = dmgScale(curveT(run)) * run.mods.enemyDmgMul
+  let latched = 0
+  for (const e of run.enemies) {
+    if (e._dead || e.pole === undefined || isAlly(e)) continue
+    const ek = kd * (e.elite ? ELITE.dmgMul : 1)
+    if (e.latched) {
+      latched++
+      e.x = p.x + e._lx; e.y = p.y + e._ly
+      if (polarDot(run, P, e.rosterId, S.latch.dps * ek * dt)) return true
+      continue
+    }
+    if ((e.stunT || 0) > 0 || damageImmune(e)) continue
+    const dx = p.x - e.x, dy = p.y - e.y, d = Math.hypot(dx, dy) || 1
+    if (e.flags.includes('poleStrobe')) {
+      e._pcd -= dt
+      if (d < e.radius + PLAYER.radius && e._pcd <= 0 && p.invuln <= 0) {
+        e._pcd = S.top.cd
+        if (hurtPlayer(run, e.dmg, false, e.rosterId)) return true
+      }
+    } else if (e.flags.includes('dipole')) {
+      const E = S.eel, leadHead = e.pole !== P.pole
+      const lx = p.x - (leadHead ? e.x : e.x - e.hx * E.gap), ly = p.y - (leadHead ? e.y : e.y - e.hy * E.gap)
+      const lm = Math.hypot(lx, ly) || 1
+      e._pcd -= dt
+      if (lm < e.radius + PLAYER.radius && e._pcd <= 0 && p.invuln <= 0) {
+        e._pcd = E.cd
+        // the prototype's shove, verbatim: it moves you eel.shove px toward the end that bit
+        p.x -= (lx / lm) * E.shove; p.y -= (ly / lm) * E.shove
+        if (hurtPlayer(run, e.dmg, false, e.rosterId)) return true
+      }
+    } else if (e.flags.includes('ferroSpikes')) {
+      if (e.spike > 0.5 && d < e.radius + PLAYER.radius + S.blob.reach * e.spike && polarDot(run, P, e.rosterId, S.blob.dps * ek * dt)) return true
+    } else if (e.flags.includes('lodestone')) {
+      if (e.pole !== P.pole && d < e.radius + PLAYER.radius && polarDot(run, P, e.rosterId, S.golem.dps * ek * dt)) return true
+    }
+  }
+  P.latched = latched   // stepPlayerMovement's slow reads it next frame
+  return false
+}
+// The Reversal Pulse's touch: frees a latched mite (stunned pulseStun), flips the pole, stuns n.stun.
+function polarPulseHit(run, e, n) {
+  const S = polaritySpec(run)
+  if (!S || e.pole === undefined) return
+  if (e.latched) unlatchMite(e, 0, S.pulseStun)
+  flipBodyPole(e, S)
+  if (n.stun > 0) e.stunT = Math.max(e.stunT || 0, n.stun)
+  run.events.push({ type: 'poolFlip', x: e.x, y: e.y, pole: e.pole })
+}
+
+// -- The Core's four weapons -------------------------------------------------------------------
+// The nearest live, hostile, unlatched body within `range` of you, or null.
+function nearestFree(run, range) {
+  const p = run.player
+  let best = null, bd = range * range
+  for (const e of enemiesNear(run, p.x, p.y, range)) {
+    if (e._dead || isAlly(e) || e.latched || e.burrowed) continue
+    const q = (e.x - p.x) ** 2 + (e.y - p.y) ** 2
+    if (q < bd) { bd = q; best = e }
+  }
+  return best
+}
+function pushCoreBullet(run, a, stats, weapon, r, life, pierce) {
+  const p = run.player
+  const b = {
+    x: p.x, y: p.y, vx: Math.cos(a) * stats.speed, vy: Math.sin(a) * stats.speed,
+    dmg: stats.dmg, pierce, _pierce0: pierce, life, r, speed: stats.speed,
+    hitIds: new Set(), _shard: true, _splitDone: true, _chainsLeft: 0, weapon,
+  }
+  run.bullets.push(b)
+  return b
+}
+function stepSlingWeapon(run, w, stats, fireRateMul, dt) {
+  const mods = run.weaponMods.sling
+  const quick = mods?.quickSling ?? 0
+  const share = (mods?.pickOff ?? 0) > 0 ? 1 : SLING_LATCH_SHARE
+  fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => {
+    const p = run.player
+    const count = ipecacN(run, stats.count)
+    let fired = false
+    for (let i = 0; i < count; i++) {
+      const latch = run.enemies.find((e) => e.latched && !e._dead)
+      const tgt = latch && Math.random() < share ? latch : nearestFree(run, stats.range)
+      if (!tgt) continue
+      const a = Math.atan2(tgt.y - p.y, tgt.x - p.x) + (i - (count - 1) / 2) * 0.12
+      const b = pushCoreBullet(run, a, stats, 'ironBall', IRON_BALL_R, IRON_BALL_LIFE, 1)
+      if (tgt.latched) b._rideE = tgt
+      fired = true
+    }
+    if (fired) run.events.push({ type: 'shoot', weapon: 'ironBall' })
+  })
+}
+function stepGaussWeapon(run, w, stats, fireRateMul, dt) {
+  const mods = run.weaponMods.gaussCoil
+  const quick = mods?.quickCharge ?? 0
+  fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => {
+    const p = run.player
+    const tgt = nearestFree(run, stats.speed * stats.life)
+    const base = tgt ? Math.atan2(tgt.y - p.y, tgt.x - p.x) : aimAngle(run)
+    const count = ipecacN(run, stats.count)
+    for (let i = 0; i < count; i++) {
+      const b = pushCoreBullet(run, base + (i - (count - 1) / 2) * 0.08, stats, 'gaussSlug', GAUSS_SLUG_R, stats.life, 999)
+      b._punch = (mods?.punchThrough ?? 0) > 0
+    }
+    run.events.push({ type: 'shoot', weapon: 'gaussSlug' })
+  })
+}
+function stepLanceWeapon(run, w, stats, fireRateMul, dt) {
+  const mods = run.weaponMods.dipoleLance
+  const quick = mods?.quickArc ?? 0
+  fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => {
+    const p = run.player
+    const tgt = nearestFree(run, stats.length * 1.1)
+    if (!tgt) return
+    const aim = Math.atan2(tgt.y - p.y, tgt.x - p.x)
+    const back = (mods?.bothEnds ?? 0) > 0
+    const struck = new Set()   // one strike per foe per cast, however many beams overlap it
+    for (const a0 of ipecacAngles(run, aim)) {
+      for (const a of back ? [a0, a0 + Math.PI] : [a0]) {
+        for (const e of enemiesOnRay(run, p.x, p.y, a, stats.length, stats.width)) {
+          if (e._dead || isAlly(e) || e.burrowed || struck.has(e)) continue
+          if (alongRay(p.x, p.y, a, stats.length, stats.width, e) >= 0) { struck.add(e); applyDamage(run, e, stats.dmg, 0, true) }
+        }
+        run.events.push({ type: 'lance', x: p.x, y: p.y, angle: a, length: stats.length, width: stats.width })
+      }
+    }
+    run.events.push({ type: 'shoot', weapon: 'dipoleLance' })
+  })
+}
+function stepReversalWeapon(run, w, stats, fireRateMul, dt) {
+  const mods = run.weaponMods.reversalPulse
+  const quick = mods?.quickPulse ?? 0
+  fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => {
+    const p = run.player
+    for (const r of ipecacRadii(run, stats.maxR)) spawnNova(run, p.x, p.y, r, stats.dmg, 0, 0, { look: 'reversal', life: REVERSAL_PULSE_LIFE, flip: true, stun: mods?.dazingRing ?? 0 })
+    run.events.push({ type: 'shoot', weapon: 'reversalPulse' })
   })
 }
