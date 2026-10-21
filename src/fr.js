@@ -2256,7 +2256,7 @@ const CONFIG = {
   "Both Ends": "Double pointe",
   "the beam strikes behind you too": "le rayon frappe aussi derrière toi",
   "Reversal Pulse": "Onde d'inversion",
-  "A ring that turns every foe it touches to the pole opposite yours and shakes off clinging mites.": "Un anneau qui donne à chaque ennemi touché le pôle opposé au tien et fait lâcher prise aux puces accrochées.",
+  "A ring that turns every foe it touches to the pole opposite yours and shakes off clinging mites.": "Un anneau repoussant qui change tous les ennemis en ton pôle opposé.",
   "Broad Ring": "Anneau large",
   "ring size": "taille de l'anneau",
   "Quick Pulse": "Onde rapide",
