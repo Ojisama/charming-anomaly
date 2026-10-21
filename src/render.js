@@ -15250,12 +15250,12 @@ const spurG = new Graphics()
     // The Mantle never shows this: a toon chapter switches the whole floor layer off (src/toon.js's
     // renderer.hide) and draws its own. The line is here so the fallback is a decision.
     mantle: BIOME_TOPSOIL,
-    // The Core: iron grit (the plain pebble bake, greyed by floorTint) and its pillars, drawn by
-    // syncObstacles' pillar branch. ponytail: stand-in floor until the Liquid Metal renderer.
+    // The Core: faint metal motes only (the owner rejects rock floors here) and its pillars, drawn
+    // by syncObstacles' pillar branch. ponytail: stand-in floor until the Liquid Metal renderer.
     core: {
-      big: [{ name: 'pebble', baked: true, scale: [1.6, 2.4] }],
-      mid: [{ name: 'pebble', baked: true, scale: [1.0, 1.6] }],
-      detail: [{ name: 'pebble', baked: true, scale: [0.5, 0.9] }],
+      big: [{ name: 'mote', baked: true, alpha: 0.3, scale: [1.2, 1.8] }],
+      mid: [{ name: 'mote', baked: true, alpha: 0.3, scale: [0.8, 1.3] }],
+      detail: [{ name: 'mote', baked: true, alpha: 0.3, scale: [0.5, 0.9] }],
       obstacle: { clumps: OBSTACLE_CLUMPS, tint: 0xffffff, foot: 0x0a0a0e },
     },
     // The Blank shares the body's decor DELIBERATELY, and this line exists so that it is a decision
@@ -31330,7 +31330,7 @@ void main() {
     // when that contrast matters most.
     pBody.tint = (playerForm === 'kaiju' || playerForm === 'fish' || playerSkin || macroLook || holoLook) ? 0xffffff : chapterRender.playerTint
     // THE CORE: you wear your pole's colour, as every body there does.
-    if (playerPole) pBody.tint = mix(POLE_TINT[playerPole], 0xffffff, 0.35)
+    if (playerPole) pBody.tint = mix(POLE_TINT[playerPole], 0xffffff, 0.12)
     // OILED (The Wreck, 2026-09-07): the oil on you is on your skin — a multiply toward the film's
     // own near-black, ramped by the fouling timer, so the stain fades exactly as the slow does.
     if (buffs && buffs.foul > 0) pBody.tint = mix(pBody.tint, 0x3a2e24, buffs.foul * 0.8)
@@ -31524,6 +31524,7 @@ void main() {
         const [bcx, bcy] = cheekAt
         cheekC.position.set(bcx + lx, bcy + ly)
         pCheeks.position.set(-bcx, -bcy)
+        pCheeks.tint = playerPole ? pBody.tint : 0xffffff   // The Core: the skin wears your pole too
         // the mass smears along whichever way it is thrown. Small, and clipped by pMask either way.
         cheekC.scale.set(1 + (Math.abs(lx) / lim) * J.squash * 0.20, 1 + (Math.abs(ly) / lim) * J.squash * 0.20)
       }
@@ -33581,9 +33582,17 @@ void main() {
       if (s.texture !== t.tex) { s.texture = t.tex; s.anchor.set(t.ax, t.ay) }
       s.position.set(g.x, g.y - 2 * Math.sin(animT * 3 + (g.x + g.y) * 0.05)); s.scale.set(HOLO_PICK_SCALE); return
     }
-    if (s.texture !== T.gem.tex) { s.texture = T.gem.tex; s.anchor.set(T.gem.ax, T.gem.ay) }
-    // THE CORE: a gem carries the pole of what dropped it (opposite poles fly to you, yours slide away)
-    s.tint = g.pole !== undefined ? mix(POLE_TINT[g.pole], 0xffffff, 0.3) : 0xffffff
+    // THE CORE: a gem carries the pole of what dropped it (opposite poles fly to you, yours slide
+    // away), drawn as the same crystal in pale grey so the pole's colour is its colour.
+    T.gemPale ??= (() => {
+      const pg = new Graphics()
+      pg.poly([0, -7, 5, 0, 0, 7, -5, 0]).fill(0xe8eaf0).stroke({ width: 1.8, color: 0x8a8e98 })
+      pg.poly([0, -7, 5, 0, 0, 0]).fill({ color: 0xffffff, alpha: 0.9 })
+      return bake(pg)
+    })()
+    const gl = g.pole !== undefined ? T.gemPale : T.gem
+    if (s.texture !== gl.tex) { s.texture = gl.tex; s.anchor.set(gl.ax, gl.ay) }
+    s.tint = g.pole !== undefined ? POLE_TINT[g.pole] : 0xffffff
     s.position.set(g.x, g.y)
     s.scale.set(1 + 0.15 * Math.sin(animT * 5 + (g.x + g.y) * 0.05))
   }
