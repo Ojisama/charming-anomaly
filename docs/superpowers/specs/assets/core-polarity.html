@@ -1,0 +1,386 @@
+<title>Core Polarity Prototype</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;700&family=IBM+Plex+Sans:wght@400;500&display=swap">
+<style>
+/* layout: the play field on the left, the rules sheet beside it; stacks on a phone with the field first */
+:root {
+  --bg: #0f0d0c; --panel: #1a1614; --line: #3a302a; --fg: #ece4da; --muted: #a8998b;
+  --north: #d2452f; --south: #3a74ad; --accent: #ff8a3d;
+  --display: "Chakra Petch", "Arial Narrow", sans-serif; --body: "IBM Plex Sans", system-ui, sans-serif;
+  color-scheme: dark;
+}
+body { background: var(--bg); color: var(--fg); font-family: var(--body); }
+.wrap { max-width: 1080px; margin: 0 auto; padding-block: 20px 40px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: grid; grid-template-columns: minmax(0, 480px) minmax(0, 1fr); gap: 28px; align-items: start; }
+@media (max-width: 760px) { .wrap { grid-template-columns: minmax(0, 1fr); } }
+canvas { display: block; width: 100%; aspect-ratio: 3 / 4; max-width: 100%; border-radius: 6px; border: 1px solid var(--line); touch-action: none; user-select: none; -webkit-user-select: none; }
+.weps { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.weps button { font-family: var(--display); font-weight: 700; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); background: transparent; border: 1px solid var(--line); border-radius: 4px; padding: 8px 12px; cursor: pointer; }
+.weps button[aria-pressed="true"] { color: var(--bg); background: var(--fg); border-color: var(--fg); }
+.weps button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.hint { font-size: 12px; color: var(--muted); margin-top: 8px; line-height: 1.5; }
+h1 { font-family: var(--display); font-weight: 700; font-size: clamp(24px, 4vw, 34px); margin: 0 0 6px; text-wrap: balance; }
+h2 { font-family: var(--display); font-size: 13px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); margin: 22px 0 8px; }
+p { line-height: 1.55; max-width: 62ch; margin: 0 0 10px; color: var(--muted); }
+ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; line-height: 1.5; }
+.n { color: var(--north); font-weight: 500; } .s { color: var(--south); font-weight: 500; }
+dl { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; margin: 0; }
+dt { font-family: var(--display); font-weight: 700; }
+dd { margin: 0; color: var(--muted); line-height: 1.45; }
+</style>
+
+<div class="wrap">
+  <div>
+    <canvas id="cv" aria-label="Polarity duel prototype, playable"></canvas>
+    <div class="weps" role="group" aria-label="Weapons on or off">
+      <button id="w-sling" aria-pressed="true">Sling</button>
+      <button id="w-gauss" aria-pressed="true">Gauss Coil</button>
+      <button id="w-lance" aria-pressed="true">Dipole Lance</button>
+      <button id="w-pulse" aria-pressed="true">Reversal Pulse</button>
+    </div>
+    <div class="hint">Move with WASD or the arrows, or drag a thumb anywhere on the field. You fire on your own. Turn weapons on and off above to feel each one. Tap or press Space to go again after you fall.</div>
+  </div>
+  <div>
+    <h1>The Core: polarity duel</h1>
+    <p>A grey-box prototype with first-guess numbers, here to judge how the level plays. Every body in the Core is magnetised <span class="n">North</span> or <span class="s">South</span>, and so are you.</p>
+    <h2>The rule</h2>
+    <ul>
+      <li><b>Opposites attract.</b> They rush you and latch on. Your shots hit them for <b>double</b>.</li>
+      <li><b>Same poles repel.</b> They hold a ring at range and shoot. Your shots hit them for <b>half</b>.</li>
+      <li><b>Every 15 seconds the Core flips your pole.</b> Whatever is latched on is blown off.</li>
+    </ul>
+    <h2>The floor</h2>
+    <dl>
+      <dt>Lodestone pillar</dt><dd>A fixed pole. Pulls opposite bodies in and pushes same ones away, you included. Herd the swarm onto it, or hold on next to one.</dd>
+      <dt>Polarity pool</dt><dd>Molten iron of one pole. Step into the other colour and you flip at once. A creature that wades through takes the pool's pole.</dd>
+      <dt>Nexus compass</dt><dd>The arrow at the edge points down to the Nexus, the boss below.</dd>
+    </dl>
+    <h2>The creatures</h2>
+    <dl>
+      <dt>Ferrite Mite</dt><dd>The swarm. Rushes and latches, or rings you and spits needles.</dd>
+      <dt>Needle Urchin</dt><dd>Keeps its distance whatever the poles, fires a fan of five needles.</dd>
+      <dt>Spinning Top</dt><dd>Its pole strobes every 2 seconds. Shoot it while it shows the other colour.</dd>
+      <dt>Ferrofluid Blob</dt><dd>Slow. When opposite it grows spikes toward you. Splits in two when it dies.</dd>
+      <dt>Dipole Eel</dt><dd>Red head, blue tail. Bites with its opposite end, turns round on a flip.</dd>
+      <dt>Lodestone Golem</dt><dd>The tank. Drags you in, or shoves you off and fires needles.</dd>
+    </dl>
+    <h2>The weapons</h2>
+    <dl>
+      <dt>Sling</dt><dd>Starter. An iron ball with your pole: double on opposites, half on same.</dd>
+      <dt>Gauss Coil</dt><dd>A slug that pierces every opposite body in its line and stops on the first same one.</dd>
+      <dt>Dipole Lance</dt><dd>A short two-coloured beam that always hits with the right end, so no penalty.</dd>
+      <dt>Reversal Pulse</dt><dd>A ring that flips the pole of everything it touches.</dd>
+    </dl>
+  </div>
+</div>
+
+<script>
+(() => {
+const H = 4 / 3, NORTH = 1, SOUTH = -1, WW = 3, WH = 4;
+const COL = { 1: '#d2452f', '-1': '#2a5c8f' }, POOL = { 1: 'rgba(210,69,47,0.32)', '-1': 'rgba(42,92,143,0.32)' };
+const INK = '#1a1410', PAPER = '#efe2c4', CREAM = '#f6efdc';
+// render-only zoom: the view is VW x VH world units; gameplay is unchanged
+const ZOOM = 1.35, VW = 1 / ZOOM, VH = H / ZOOM;
+const FLIP_EVERY = 15, FLIP_WARN = 2, NEXUS = { x: WW / 2, y: WH + 1.5 };
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+let W = 0, paper = null;
+function fit() {
+  const dpr = Math.min(2, window.devicePixelRatio || 1), w = Math.round(cv.clientWidth * dpr);
+  if (w && w !== W) {
+    W = w; cv.width = w; cv.height = Math.round(w * H);
+    paper = document.createElement('canvas'); paper.width = w; paper.height = cv.height;
+    const g = paper.getContext('2d'); g.fillStyle = PAPER; g.fillRect(0, 0, w, paper.height);
+    for (let y = 0; y < paper.height; y += 2) { g.fillStyle = `rgba(90,60,30,${0.025 + 0.035 * Math.abs(Math.sin(y * 0.05 + Math.sin(y * 0.013) * 3))})`; g.fillRect(0, y, w, 1); }
+  }
+}
+// ---------- weapons toggles ----------
+const WEP = { sling: true, gauss: true, lance: true, pulse: true };
+for (const k of Object.keys(WEP)) { const b = document.getElementById('w-' + k); b.addEventListener('click', () => { WEP[k] = !WEP[k]; b.setAttribute('aria-pressed', String(WEP[k])); }); }
+// ---------- input ----------
+const keys = new Set();
+addEventListener('keydown', e => { if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key) && document.activeElement?.tagName !== 'BUTTON') e.preventDefault(); keys.add(e.key.toLowerCase()); if (e.key === ' ' && G.over) reset(); });
+addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));
+let touch = null;
+cv.addEventListener('pointerdown', e => { if (G.over) { reset(); return; } cv.setPointerCapture(e.pointerId); touch = { ox: e.clientX, oy: e.clientY, x: e.clientX, y: e.clientY }; });
+cv.addEventListener('pointermove', e => { if (touch) { touch.x = e.clientX; touch.y = e.clientY; } });
+cv.addEventListener('pointerup', () => touch = null); cv.addEventListener('pointercancel', () => touch = null);
+function moveVec() {
+  let x = 0, y = 0;
+  if (keys.has('a') || keys.has('arrowleft') || keys.has('q')) x -= 1;
+  if (keys.has('d') || keys.has('arrowright')) x += 1;
+  if (keys.has('w') || keys.has('arrowup') || keys.has('z')) y -= 1;
+  if (keys.has('s') || keys.has('arrowdown')) y += 1;
+  if (touch) { const dx = touch.x - touch.ox, dy = touch.y - touch.oy, m = Math.hypot(dx, dy); if (m > 4) { const k = Math.min(1, m / 40); x = dx / m * k; y = dy / m * k; } }
+  const m = Math.hypot(x, y); return m > 1 ? { x: x / m, y: y / m } : { x, y };
+}
+// ---------- world (fixed layout, seeded) ----------
+let s0 = 11; const wr = () => { s0 = (s0 * 16807) % 2147483647; return s0 / 2147483647; };
+const PILLARS = [], POOLS = [], MARKS = [];
+for (let i = 0; i < 12; i++) PILLARS.push({ x: 0.2 + wr() * (WW - 0.4), y: 0.2 + wr() * (WH - 0.4), r: 0.032, pole: i % 2 ? NORTH : SOUTH });
+for (let i = 0; i < 12; i++) POOLS.push({ x: 0.2 + wr() * (WW - 0.4), y: 0.2 + wr() * (WH - 0.4), rx: 0.07 + wr() * 0.05, ry: 0.05 + wr() * 0.04, rot: wr() * 3, pole: i % 2 ? SOUTH : NORTH });
+for (let i = 0; i < 260; i++) MARKS.push({ x: wr() * WW, y: wr() * WH, a: wr() * 6, l: 0.02 + wr() * 0.03 });
+const inPool = (q, x, y) => { const c = Math.cos(-q.rot), s = Math.sin(-q.rot), dx = x - q.x, dy = y - q.y, lx = dx * c - dy * s, ly = dx * s + dy * c; return (lx / q.rx) ** 2 + (ly / q.ry) ** 2 < 1; };
+// ---------- state ----------
+let G;
+function reset() {
+  G = { t: 0, started: false, over: false, kills: 0, pole: NORTH, flipAt: FLIP_EVERY, flash: 0, poolCd: 0,
+    p: { x: WW / 2, y: WH / 2, r: 0.02, hp: 100, vx: 0, vy: 0, hurt: 0 }, cam: { x: 0, y: 0 },
+    foes: [], shots: [], slugs: [], beams: [], pulses: [], needles: [], sparks: [],
+    spawn: 1, nextGolem: 30, nextEel: 12, nextUrchin: 6, nextTop: 18, nextBlob: 24,
+    cd: { sling: 0, gauss: 1, lance: 0.5, pulse: 3 } };
+  for (let i = 0; i < 4; i++) spawn('mite');
+}
+const rr = (a, b) => a + Math.random() * (b - a);
+const KINDS = {
+  mite:   { r: 0.014, hp: 2 },  urchin: { r: 0.02, hp: 5 },  top: { r: 0.016, hp: 4 },
+  blob:   { r: 0.03, hp: 10 },  small:  { r: 0.018, hp: 4 }, eel: { r: 0.018, hp: 14 }, golem: { r: 0.042, hp: 36 } };
+function spawn(kind, at) {
+  let x, y;
+  if (at) { x = at.x; y = at.y; } else {
+    const c = G.cam, side = Math.random() * 4 | 0, f = Math.random();
+    [x, y] = [[c.x + f * VW, c.y - 0.04], [c.x + VW + 0.04, c.y + f * VH], [c.x + f * VW, c.y + VH + 0.04], [c.x - 0.04, c.y + f * VH]][side];
+    x = Math.max(0.02, Math.min(WW - 0.02, x)); y = Math.max(0.02, Math.min(WH - 0.02, y));
+  }
+  const k = KINDS[kind];
+  const f = { kind, x, y, vx: 0, vy: 0, r: k.r, hp: k.hp, max: k.hp, pole: Math.random() < 0.5 ? NORTH : SOUTH, cd: rr(1, 3), orbit: Math.random() < 0.5 ? 1 : -1, latched: null, stun: 0, sw: 1, hx: 1, hy: 0, ph: Math.random() * 4, spike: 0, pulsed: -1 };
+  if (kind === 'golem') f.pole = -G.pole;
+  G.foes.push(f); return f;
+}
+// the eel's head is N and tail S, times f.sw; its leading end is whichever is opposite your pole
+const eelHeadPole = f => NORTH * f.sw;
+const eelLeadsHead = f => eelHeadPole(f) !== G.pole;
+function eelSegs(f) { const sp = 0.036; return [{ x: f.x, y: f.y, pole: eelHeadPole(f), head: true }, { x: f.x - f.hx * sp, y: f.y - f.hy * sp, pole: -eelHeadPole(f), head: false }]; }
+function setPole(f, pole) { if (f.kind === 'eel') { f.sw = -f.sw; return; } if (f.kind === 'top') { f.ph += 2; return; } f.pole = pole; }
+function hurt(n) { if (G.over) return; G.p.hp -= n; G.p.hurt = 0.15; if (G.p.hp <= 0) { G.p.hp = 0; G.over = true; } }
+function flipPlayer() {
+  G.pole = -G.pole; G.flash = 0.45;
+  for (const f of G.foes) if (f.latched) { const m = Math.hypot(f.latched.x, f.latched.y) || 1; f.vx = f.latched.x / m * 0.7; f.vy = f.latched.y / m * 0.7; f.latched = null; f.stun = 0.6; }
+}
+// pillar force on a body of a given pole: opposite pulls, same pushes
+function pillarForce(x, y, pole, k) {
+  let fx = 0, fy = 0;
+  for (const q of PILLARS) { const dx = q.x - x, dy = q.y - y, d = Math.hypot(dx, dy) || 1; if (d < 0.32) { const s = (q.pole !== pole ? 1 : -1) * k * (1 - d / 0.32); fx += dx / d * s; fy += dy / d * s; } }
+  return { fx, fy };
+}
+function solid(o) { for (const q of PILLARS) { const dx = o.x - q.x, dy = o.y - q.y, d = Math.hypot(dx, dy) || 1, m = q.r + o.r; if (d < m) { o.x = q.x + dx / d * m; o.y = q.y + dy / d * m; } } o.x = Math.max(o.r, Math.min(WW - o.r, o.x)); o.y = Math.max(o.r, Math.min(WH - o.r, o.y)); }
+
+function step(dt) {
+  for (const s of G.sparks) s.age += dt; G.sparks = G.sparks.filter(s => s.age < 0.5);
+  if (G.over) return;
+  if (!G.started) { const m = moveVec(); if (!m.x && !m.y) return; G.started = true; }
+  G.t += dt; const p = G.p;
+  if (G.t >= G.flipAt) { flipPlayer(); G.flipAt += FLIP_EVERY; }
+  G.flash = Math.max(0, G.flash - dt); G.poolCd = Math.max(0, G.poolCd - dt);
+  for (const q of POOLS) if (q.pole !== G.pole && G.poolCd <= 0 && inPool(q, p.x, p.y)) { flipPlayer(); G.poolCd = 1.2; break; }
+  // player
+  const latchedN = G.foes.filter(f => f.latched).length, mv = moveVec(), sp = 0.33 * Math.max(0.4, 1 - latchedN * 0.08);
+  p.vx = mv.x * sp; p.vy = mv.y * sp;
+  const pf = pillarForce(p.x, p.y, G.pole, 0.14); p.vx += pf.fx; p.vy += pf.fy;
+  for (const f of G.foes) if (f.kind === 'golem') { const dx = f.x - p.x, dy = f.y - p.y, d = Math.hypot(dx, dy) || 1; if (d < 0.5) { const k = (f.pole !== G.pole ? 0.16 : -0.1) * (1 - d / 0.5); p.vx += dx / d * k; p.vy += dy / d * k; } }
+  p.x += p.vx * dt; p.y += p.vy * dt; solid(p); p.hurt = Math.max(0, p.hurt - dt);
+  G.cam.x = Math.max(0, Math.min(WW - VW, p.x - VW / 2)); G.cam.y = Math.max(0, Math.min(WH - VH, p.y - VH / 2));
+  // spawns
+  G.spawn -= dt; if (G.spawn <= 0 && G.foes.length < 80) { spawn('mite'); G.spawn = Math.max(0.3, 1.3 - G.t * 0.01); }
+  for (const [key, kind, every] of [['nextUrchin', 'urchin', 7], ['nextEel', 'eel', 16], ['nextTop', 'top', 9], ['nextBlob', 'blob', 14], ['nextGolem', 'golem', 30]]) if (G.t >= G[key]) { spawn(kind); G[key] += every; }
+  // foes
+  for (const f of G.foes) {
+    f.stun = Math.max(0, f.stun - dt);
+    if (f.kind === 'top') f.pole = Math.floor((G.t + f.ph) / 2) % 2 ? NORTH : SOUTH;
+    const dx = p.x - f.x, dy = p.y - f.y, d = Math.hypot(dx, dy) || 1, ux = dx / d, uy = dy / d, opp = f.pole !== G.pole;
+    if (f.latched) { f.x = p.x + f.latched.x; f.y = p.y + f.latched.y; hurt(1.5 * dt); continue; }
+    let vx = f.vx, vy = f.vy;
+    if (f.kind === 'mite') {
+      if (f.stun > 0) { vx *= 0.92; vy *= 0.92; }
+      else if (opp) { vx += ux * dt; vy += uy * dt; const m = Math.hypot(vx, vy); if (m > 0.27) { vx *= 0.27 / m; vy *= 0.27 / m; } if (d < f.r + p.r) { f.latched = { x: -ux * (p.r + f.r * 0.7), y: -uy * (p.r + f.r * 0.7) }; continue; } }
+      else { const rad = (d - 0.28) * 2.2, tan = 0.09 * f.orbit; vx += ((ux * rad - uy * tan) - vx) * 3 * dt; vy += ((uy * rad + ux * tan) - vy) * 3 * dt; f.cd -= dt; if (f.cd <= 0 && d < 0.5) { f.cd = rr(2, 3.2); needle(f, ux, uy, 0.36); } }
+    } else if (f.kind === 'urchin') {
+      const rad = (d - 0.38) * 1.5, tan = 0.05 * f.orbit; vx = ux * rad - uy * tan; vy = uy * rad + ux * tan;
+      f.cd -= dt; if (f.cd <= 0 && d < 0.6) { f.cd = 3.2; for (const a of [-0.4, -0.2, 0, 0.2, 0.4]) { const c = Math.cos(a), s = Math.sin(a); needle(f, ux * c - uy * s, uy * c + ux * s, 0.3); } }
+    } else if (f.kind === 'top') {
+      const spd = opp ? 0.3 : 0.18, wob = Math.sin(G.t * 5 + f.ph) * 0.6; vx = (ux - uy * wob) * spd; vy = (uy + ux * wob) * spd;
+      f.cd -= dt; if (d < f.r + p.r && f.cd <= 0) { hurt(8); f.cd = 0.8; }
+    } else if (f.kind === 'blob' || f.kind === 'small') {
+      const spd = f.kind === 'small' ? 0.1 : 0.06; vx = ux * spd; vy = uy * spd;
+      f.spike += ((opp && d < 0.22 ? 1 : 0) - f.spike) * Math.min(1, 4 * dt);
+      if (f.spike > 0.5 && d < f.r + p.r + 0.05 * f.spike) hurt(12 * dt);
+    } else if (f.kind === 'golem') {
+      if (opp) { vx = ux * 0.05; vy = uy * 0.05; if (d < f.r + p.r) hurt(16 * dt); }
+      else { const rad = (d - 0.36) * 0.6; vx = ux * rad - uy * 0.03; vy = uy * rad + ux * 0.03; f.cd -= dt; if (f.cd <= 0) { f.cd = 3; for (const a of [-0.3, 0, 0.3]) { const c = Math.cos(a), s = Math.sin(a); needle(f, ux * c - uy * s, uy * c + ux * s, 0.3); } } }
+    } else if (f.kind === 'eel') {
+      const segs = eelSegs(f), lead = eelLeadsHead(f) ? segs[0] : segs[1];
+      const lx = p.x - lead.x, ly = p.y - lead.y, lm = Math.hypot(lx, ly) || 1, dir = eelLeadsHead(f) ? 1 : -1;
+      f.hx += (lx / lm * dir - f.hx) * Math.min(1, 2.5 * dt); f.hy += (ly / lm * dir - f.hy) * Math.min(1, 2.5 * dt); const hm = Math.hypot(f.hx, f.hy) || 1; f.hx /= hm; f.hy /= hm;
+      vx = f.hx * 0.15 * dir; vy = f.hy * 0.15 * dir;
+      f.cd -= dt; if (lm < f.r + p.r && f.cd <= 0) { hurt(10); f.cd = 0.9; p.x -= lx / lm * 0.03; p.y -= ly / lm * 0.03; }
+    }
+    if (f.kind !== 'eel' && f.kind !== 'top') { const ff = pillarForce(f.x, f.y, f.pole, 0.22); vx += ff.fx * dt * 6; vy += ff.fy * dt * 6; }
+    f.vx = vx; f.vy = vy; f.x += vx * dt; f.y += vy * dt; solid(f);
+    if (f.kind !== 'top' && f.kind !== 'eel') for (const q of POOLS) if (inPool(q, f.x, f.y) && f.pole !== q.pole) { setPole(f, q.pole); G.sparks.push({ x: f.x, y: f.y, age: 0.2, flipT: true, pole: q.pole }); }
+    if (!opp && f.kind !== 'eel' && f.kind !== 'top') { const dd = Math.hypot(f.x - p.x, f.y - p.y) || 1, min = f.r + p.r + 0.03; if (dd < min) { f.x = p.x + (f.x - p.x) / dd * min; f.y = p.y + (f.y - p.y) / dd * min; } }
+  }
+  weapons(dt);
+  for (const n of G.needles) { n.x += n.vx * dt; n.y += n.vy * dt; n.life -= dt; if (Math.hypot(n.x - p.x, n.y - p.y) < p.r) { hurt(4); n.life = 0; } for (const q of PILLARS) if (Math.hypot(n.x - q.x, n.y - q.y) < q.r) n.life = 0; }
+  G.needles = G.needles.filter(n => n.life > 0);
+  const dead = G.foes.filter(f => f.hp <= 0);
+  for (const f of dead) if (f.kind === 'blob') for (const s of [-1, 1]) { const b = spawn('small', { x: f.x + s * 0.02, y: f.y }); b.pole = f.pole; }
+  G.kills += dead.length; G.foes = G.foes.filter(f => f.hp > 0);
+}
+function needle(f, ux, uy, sp) { G.needles.push({ x: f.x, y: f.y, vx: ux * sp, vy: uy * sp, life: 3.5 }); }
+function nearest(maxD, filter) { let best = null, bd = maxD; for (const f of G.foes) { if (filter && !filter(f)) continue; const d = Math.hypot(f.x - G.p.x, f.y - G.p.y); if (d < bd) { bd = d; best = f; } } return best; }
+function bodyHit(f, x, y, r) {
+  if (f.kind === 'eel') { for (const g of eelSegs(f)) if (Math.hypot(g.x - x, g.y - y) < f.r + r) return g.pole; return 0; }
+  return Math.hypot(f.x - x, f.y - y) < f.r + r ? f.pole : 0;
+}
+function hit(f, pole, base, x, y, flat) {
+  const opp = pole !== G.pole, dmg = flat ? base : base * (opp ? 2 : 0.5);
+  f.hp -= dmg; G.sparks.push({ x, y, age: 0, opp: flat || opp, dead: f.hp <= 0, big: f.kind === 'golem' || f.kind === 'blob' });
+}
+function weapons(dt) {
+  const p = G.p, cd = G.cd;
+  for (const k in cd) cd[k] -= dt;
+  if (WEP.sling && cd.sling <= 0) {
+    cd.sling = 0.32; const latch = G.foes.find(f => f.latched), tgt = latch && Math.random() < 0.5 ? latch : nearest(0.75, f => !f.latched);
+    if (tgt) { const dx = tgt.x - p.x, dy = tgt.y - p.y, m = Math.hypot(dx, dy) || 1; G.shots.push({ x: p.x, y: p.y, vx: dx / m * 0.95, vy: dy / m * 0.95, life: 1.2, tgt: tgt.latched ? tgt : null }); }
+  }
+  for (const s of G.shots) {
+    if (s.tgt) { s.x = s.tgt.x; s.y = s.tgt.y; } else { s.x += s.vx * dt; s.y += s.vy * dt; }
+    s.life -= dt;
+    for (const f of G.foes) { const pole = bodyHit(f, s.x, s.y, 0.006); if (pole) { hit(f, pole, 1, s.x, s.y); s.life = 0; break; } }
+  }
+  G.shots = G.shots.filter(s => s.life > 0);
+  if (WEP.gauss && cd.gauss <= 0) {
+    const tgt = nearest(0.8, f => !f.latched); if (tgt) { cd.gauss = 1.6; const dx = tgt.x - p.x, dy = tgt.y - p.y, m = Math.hypot(dx, dy) || 1; G.slugs.push({ x: p.x, y: p.y, vx: dx / m * 1.4, vy: dy / m * 1.4, life: 0.7, hitIds: new Set(), trail: [] }); }
+  }
+  for (const s of G.slugs) {
+    s.trail.push({ x: s.x, y: s.y }); if (s.trail.length > 8) s.trail.shift();
+    s.x += s.vx * dt; s.y += s.vy * dt; s.life -= dt;
+    for (const f of G.foes) { if (s.hitIds.has(f)) continue; const pole = bodyHit(f, s.x, s.y, 0.008); if (!pole) continue; s.hitIds.add(f); hit(f, pole, 1.5, s.x, s.y); if (pole === G.pole) { s.life = 0; break; } }
+  }
+  G.slugs = G.slugs.filter(s => s.life > 0);
+  if (WEP.lance && cd.lance <= 0) {
+    const tgt = nearest(0.22); if (tgt) {
+      cd.lance = 1; const dx = tgt.x - p.x, dy = tgt.y - p.y, m = Math.hypot(dx, dy) || 1, ux = dx / m, uy = dy / m, L = 0.2;
+      for (const f of G.foes) { const fx = f.x - p.x, fy = f.y - p.y, along = fx * ux + fy * uy, off = Math.abs(fx * uy - fy * ux); if (along > 0 && along < L && off < f.r + 0.012) hit(f, f.pole, 3, f.x, f.y, true); }
+      G.beams.push({ ux, uy, L, age: 0 });
+    }
+  }
+  for (const b of G.beams) b.age += dt; G.beams = G.beams.filter(b => b.age < 0.18);
+  if (WEP.pulse && cd.pulse <= 0) { cd.pulse = 5; G.pulses.push({ x: p.x, y: p.y, age: 0, id: Math.random() }); }
+  for (const q of G.pulses) {
+    q.age += dt; const R = q.age / 0.5 * 0.32;
+    for (const f of G.foes) { if (f.pulsed === q.id) continue; if (Math.hypot(f.x - q.x, f.y - q.y) < R) { f.pulsed = q.id; if (f.latched) { f.latched = null; f.stun = 0.5; } setPole(f, -f.pole); G.sparks.push({ x: f.x, y: f.y, age: 0.2, flipT: true, pole: f.pole }); } }
+  }
+  G.pulses = G.pulses.filter(q => q.age < 0.5);
+}
+// ---------- draw ----------
+function T(str, x, y, size, weight = 700, family = '"Chakra Petch", sans-serif') { ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.font = `${weight} ${(size * W).toFixed(1)}px ${family}`; ctx.fillText(str, x * W, y * W); ctx.restore(); }
+function star(x, y, r, n, inner, rot) { ctx.beginPath(); for (let i = 0; i < n * 2; i++) { const a = rot + i * Math.PI / n, q = i % 2 ? r * inner : r; ctx.lineTo(x + Math.cos(a) * q, y + Math.sin(a) * q); } ctx.closePath(); }
+function eyes(x, y, r, ax, ay) { ctx.fillStyle = CREAM; for (const s of [-1, 1]) { ctx.beginPath(); ctx.arc(x + ax * r * 0.3 - ay * s * r * 0.3, y + ay * r * 0.3 + ax * s * r * 0.3, r * 0.2, 0, Math.PI * 2); ctx.fill(); } }
+function draw() {
+  const u = 1 / (W * ZOOM), p = G.p, c = G.cam;
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(paper, 0, 0);
+  ctx.setTransform(W * ZOOM, 0, 0, W * ZOOM, -c.x * W * ZOOM, -c.y * W * ZOOM);
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  const vis = (x, y, m) => x > c.x - m && x < c.x + VW + m && y > c.y - m && y < c.y + VH + m;
+  // ground marks (so the floor reads as moving) and world edge
+  ctx.strokeStyle = 'rgba(26,20,16,0.16)'; ctx.lineWidth = 1.4 * u; ctx.beginPath();
+  for (const m of MARKS) if (vis(m.x, m.y, 0.05)) { ctx.moveTo(m.x, m.y); ctx.quadraticCurveTo(m.x + Math.cos(m.a + 1) * m.l, m.y + Math.sin(m.a + 1) * m.l, m.x + Math.cos(m.a) * m.l * 1.6, m.y + Math.sin(m.a) * m.l * 1.6); }
+  ctx.stroke(); ctx.strokeStyle = INK; ctx.lineWidth = 4 * u; ctx.strokeRect(0, 0, WW, WH);
+  // pools
+  for (const q of POOLS) if (vis(q.x, q.y, 0.15)) {
+    ctx.save(); ctx.translate(q.x, q.y); ctx.rotate(q.rot);
+    ctx.fillStyle = POOL[q.pole]; ctx.beginPath(); ctx.ellipse(0, 0, q.rx, q.ry, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = COL[q.pole]; ctx.lineWidth = 2 * u; ctx.stroke();
+    ctx.lineWidth = 1.2 * u; ctx.beginPath(); for (let i = 0; i < 3; i++) { const k = ((G.t * 0.3 + i / 3) % 1); ctx.ellipse(0, 0, q.rx * k, q.ry * k, 0, 0, Math.PI * 2); } ctx.globalAlpha = 0.5; ctx.stroke(); ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+  // pillar fields + pillars
+  for (const q of PILLARS) if (vis(q.x, q.y, 0.35)) {
+    const towardYou = q.pole !== G.pole; ctx.strokeStyle = COL[q.pole]; ctx.lineWidth = 1.2 * u;
+    for (let i = 0; i < 3; i++) { let k = ((G.t * 0.25 * (towardYou ? -1 : 1) + i / 3) % 1 + 1) % 1; const r = q.r + k * 0.28; ctx.globalAlpha = 0.45 * (1 - k); ctx.beginPath(); ctx.arc(q.x, q.y, r, 0, Math.PI * 2); ctx.stroke(); }
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = '#5a4c40'; ctx.strokeStyle = INK; ctx.lineWidth = 2.6 * u; ctx.beginPath(); for (let i = 0; i < 6; i++) { const a = i / 6 * Math.PI * 2 + q.x; ctx.lineTo(q.x + Math.cos(a) * q.r, q.y + Math.sin(a) * q.r); } ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = COL[q.pole]; ctx.beginPath(); ctx.arc(q.x, q.y, q.r * 0.5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  }
+  // repel ring
+  ctx.strokeStyle = COL[G.pole]; ctx.globalAlpha = 0.3; ctx.lineWidth = 1.5 * u; ctx.setLineDash([5 * u, 6 * u]); ctx.beginPath(); ctx.arc(p.x, p.y, 0.28, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1;
+  // golem fields
+  for (const f of G.foes) if (f.kind === 'golem') {
+    const opp = f.pole !== G.pole; ctx.strokeStyle = COL[f.pole]; ctx.lineWidth = 1.4 * u;
+    for (let i = 0; i < 3; i++) { const k = ((G.t * 0.15 * (opp ? -1 : 1) + i / 3) % 1 + 1) % 1, r = 0.06 + k * 0.38; ctx.globalAlpha = 0.5 * (1 - k); ctx.beginPath(); ctx.arc(f.x, f.y, r, 0, Math.PI * 2); ctx.stroke(); }
+    ctx.globalAlpha = 1;
+  }
+  // pulses
+  for (const q of G.pulses) { const R = q.age / 0.5 * 0.32; ctx.lineWidth = 5 * u * (1 - q.age * 1.5); ctx.strokeStyle = COL[1]; ctx.beginPath(); ctx.arc(q.x, q.y, R, 0, Math.PI); ctx.stroke(); ctx.strokeStyle = COL[-1]; ctx.beginPath(); ctx.arc(q.x, q.y, R, Math.PI, Math.PI * 2); ctx.stroke(); }
+  // needles
+  ctx.strokeStyle = INK; ctx.lineWidth = 1.8 * u;
+  for (const n of G.needles) { const m = Math.hypot(n.vx, n.vy); ctx.beginPath(); ctx.moveTo(n.x, n.y); ctx.lineTo(n.x - n.vx / m * 0.02, n.y - n.vy / m * 0.02); ctx.stroke(); }
+  // foes
+  for (const f of G.foes) {
+    if (!vis(f.x, f.y, 0.08)) continue;
+    const dx = p.x - f.x, dy = p.y - f.y, m = Math.hypot(dx, dy) || 1, ax = dx / m, ay = dy / m;
+    ctx.strokeStyle = INK;
+    if (f.kind === 'mite') { ctx.fillStyle = COL[f.pole]; ctx.lineWidth = 2 * u; star(f.x, f.y, f.r, 5, 0.6, G.t * (f.latched ? 6 : 2) * f.orbit); ctx.fill(); ctx.stroke(); eyes(f.x, f.y, f.r, ax, ay); }
+    else if (f.kind === 'urchin') {
+      ctx.lineWidth = 1.6 * u; ctx.beginPath(); for (let i = 0; i < 14; i++) { const a = i / 14 * Math.PI * 2 + G.t * 0.5; ctx.moveTo(f.x + Math.cos(a) * f.r * 0.8, f.y + Math.sin(a) * f.r * 0.8); ctx.lineTo(f.x + Math.cos(a) * f.r * 1.6, f.y + Math.sin(a) * f.r * 1.6); } ctx.stroke();
+      ctx.fillStyle = COL[f.pole]; ctx.lineWidth = 2 * u; ctx.beginPath(); ctx.arc(f.x, f.y, f.r, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); eyes(f.x, f.y, f.r, ax, ay);
+    } else if (f.kind === 'top') {
+      ctx.lineWidth = 2 * u; const rot = G.t * 9;
+      for (let i = 0; i < 4; i++) { ctx.fillStyle = i % 2 ? COL[f.pole] : CREAM; ctx.beginPath(); ctx.moveTo(f.x, f.y); ctx.arc(f.x, f.y, f.r, rot + i * Math.PI / 2, rot + (i + 1) * Math.PI / 2); ctx.closePath(); ctx.fill(); }
+      ctx.beginPath(); ctx.arc(f.x, f.y, f.r, 0, Math.PI * 2); ctx.stroke();
+      const left = 2 - ((G.t + f.ph) % 2); if (left < 0.4) { ctx.strokeStyle = COL[-f.pole]; ctx.lineWidth = 2 * u; ctx.beginPath(); ctx.arc(f.x, f.y, f.r * 1.5, 0, Math.PI * 2); ctx.stroke(); }
+    } else if (f.kind === 'blob' || f.kind === 'small') {
+      ctx.fillStyle = INK; ctx.beginPath(); const n = 14;
+      for (let i = 0; i <= n; i++) { const a = i / n * Math.PI * 2, toward = Math.max(0, Math.cos(a - Math.atan2(ay, ax))), sp = i % 2 ? 0 : f.spike * toward ** 3 * f.r * 1.8, q = f.r * (1 + 0.08 * Math.sin(G.t * 3 + i)) + sp; ctx.lineTo(f.x + Math.cos(a) * q, f.y + Math.sin(a) * q); }
+      ctx.fill(); ctx.fillStyle = COL[f.pole]; ctx.beginPath(); ctx.arc(f.x - f.r * 0.25, f.y - f.r * 0.3, f.r * 0.32, 0, Math.PI * 2); ctx.fill();
+    } else if (f.kind === 'golem') {
+      ctx.fillStyle = '#6b5d4f'; ctx.lineWidth = 2.6 * u; ctx.beginPath(); for (let i = 0; i < 9; i++) { const a = i / 9 * Math.PI * 2, q = f.r * (0.86 + 0.14 * Math.sin(i * 2.3)); ctx.lineTo(f.x + Math.cos(a) * q, f.y + Math.sin(a) * q); } ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = COL[f.pole]; ctx.beginPath(); ctx.arc(f.x, f.y, f.r * 0.45, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = CREAM; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; T(f.pole === NORTH ? 'N' : 'S', (f.x - c.x) * ZOOM, (f.y - c.y + 0.002) * ZOOM, 0.026 * ZOOM);
+      ctx.fillStyle = INK; ctx.fillRect(f.x - f.r, f.y - f.r - 0.016, f.r * 2, 0.007); ctx.fillStyle = '#e8c35a'; ctx.fillRect(f.x - f.r, f.y - f.r - 0.016, f.r * 2 * Math.max(0, f.hp) / f.max, 0.007);
+    } else if (f.kind === 'eel') {
+      const s = eelSegs(f); ctx.lineWidth = f.r * 1.5; ctx.beginPath(); ctx.moveTo(s[0].x, s[0].y); ctx.lineTo(s[1].x, s[1].y); ctx.stroke();
+      ctx.lineWidth = 2.2 * u; for (const g of [s[1], s[0]]) { ctx.fillStyle = COL[g.pole]; ctx.beginPath(); ctx.arc(g.x, g.y, f.r, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); }
+      const lead = eelLeadsHead(f) ? s[0] : s[1], dir = eelLeadsHead(f) ? 1 : -1; eyes(lead.x, lead.y, f.r, f.hx * dir, f.hy * dir);
+    }
+  }
+  // weapons
+  ctx.fillStyle = INK; for (const s of G.shots) { ctx.beginPath(); ctx.arc(s.x, s.y, 0.005, 0, Math.PI * 2); ctx.fill(); }
+  for (const s of G.slugs) { ctx.strokeStyle = COL[G.pole]; ctx.lineWidth = 3 * u; ctx.beginPath(); s.trail.forEach((q, i) => i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)); ctx.lineTo(s.x, s.y); ctx.stroke(); ctx.fillStyle = INK; ctx.beginPath(); ctx.arc(s.x, s.y, 0.006, 0, Math.PI * 2); ctx.fill(); }
+  for (const b of G.beams) { const a = 1 - b.age / 0.18; ctx.globalAlpha = a; ctx.lineWidth = 7 * u; for (const [from, to, col] of [[0, 0.5, COL[1]], [0.5, 1, COL[-1]]]) { ctx.strokeStyle = col; ctx.beginPath(); ctx.moveTo(p.x + b.ux * b.L * from, p.y + b.uy * b.L * from); ctx.lineTo(p.x + b.ux * b.L * to, p.y + b.uy * b.L * to); ctx.stroke(); } ctx.strokeStyle = CREAM; ctx.lineWidth = 2 * u; ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x + b.ux * b.L, p.y + b.uy * b.L); ctx.stroke(); ctx.globalAlpha = 1; }
+  for (const s of G.sparks) {
+    ctx.globalAlpha = Math.max(0, 1 - s.age * 2);
+    if (s.flipT) { ctx.strokeStyle = COL[s.pole]; ctx.lineWidth = 2 * u; ctx.beginPath(); ctx.arc(s.x, s.y, 0.02 + s.age * 0.03, 0, Math.PI * 2); ctx.stroke(); }
+    else { ctx.strokeStyle = s.opp ? '#d2452f' : '#7a7066'; ctx.lineWidth = (s.opp ? 2.2 : 1.2) * u; ctx.beginPath(); const n = s.dead ? 10 : s.opp ? 6 : 3, r0 = 0.006 + s.age * (s.dead ? 0.1 : 0.04), l = s.big || s.dead ? 0.02 : 0.01; for (let i = 0; i < n; i++) { const an = i / n * Math.PI * 2 + s.x * 9; ctx.moveTo(s.x + Math.cos(an) * r0, s.y + Math.sin(an) * r0); ctx.lineTo(s.x + Math.cos(an) * (r0 + l), s.y + Math.sin(an) * (r0 + l)); } ctx.stroke(); }
+    ctx.globalAlpha = 1;
+  }
+  // player
+  ctx.fillStyle = p.hurt > 0 ? '#ffd9c9' : CREAM; ctx.strokeStyle = INK; ctx.lineWidth = 2.6 * u; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = COL[G.pole]; ctx.beginPath(); ctx.arc(p.x, p.y, p.r * 0.62, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = CREAM; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; T(G.pole === NORTH ? 'N' : 'S', (p.x - c.x) * ZOOM, (p.y - c.y + 0.002) * ZOOM, 0.02 * ZOOM);
+  // ---- screen space ----
+  ctx.setTransform(W, 0, 0, W, 0, 0);
+  // Nexus compass at the screen edge
+  { const sx = (p.x - c.x) * ZOOM, sy = (p.y - c.y) * ZOOM, dx = NEXUS.x - p.x, dy = NEXUS.y - p.y, m = Math.hypot(dx, dy), ux = dx / m, uy = dy / m;
+    let k = 9; if (ux) k = Math.min(k, ((ux > 0 ? 1 - 0.05 : 0.05) - sx) / ux); if (uy) k = Math.min(k, ((uy > 0 ? H - 0.05 : 0.05) - sy) / uy);
+    const ex = sx + ux * k, ey = sy + uy * k, a = Math.atan2(uy, ux);
+    ctx.save(); ctx.translate(ex, ey); ctx.rotate(a); ctx.fillStyle = '#e8c35a'; ctx.strokeStyle = INK; ctx.lineWidth = 2 * u; ctx.beginPath(); ctx.moveTo(0.022, 0); ctx.lineTo(-0.012, 0.014); ctx.lineTo(-0.004, 0); ctx.lineTo(-0.012, -0.014); ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.restore();
+    ctx.fillStyle = INK; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; T('NEXUS ' + (m * 100 | 0) + ' m', Math.max(0.12, Math.min(0.88, ex - ux * 0.06)), Math.max(0.12, Math.min(H - 0.03, ey - uy * 0.05)), 0.022, 500); }
+  const left = G.flipAt - G.t, warn = left < FLIP_WARN && !G.over && G.started;
+  if (warn) { const on = Math.sin(G.t * 22) > 0; ctx.strokeStyle = on ? COL[-G.pole] : COL[G.pole]; ctx.lineWidth = 10 * u; ctx.strokeRect(0, 0, 1, H); ctx.fillStyle = INK; ctx.textAlign = 'center'; T('反転 · FLIP', 0.5, 0.17, 0.05); }
+  if (G.flash > 0) { ctx.fillStyle = COL[G.pole]; ctx.globalAlpha = G.flash * 0.5; ctx.fillRect(0, 0, 1, H); ctx.globalAlpha = 1; }
+  ctx.fillStyle = INK; ctx.fillRect(0.04, 0.035, 0.42, 0.022); ctx.fillStyle = p.hp > 30 ? '#3d6b4f' : '#d2452f'; ctx.fillRect(0.043, 0.038, 0.414 * p.hp / 100, 0.016);
+  ctx.textAlign = 'right'; ctx.textBaseline = 'middle'; ctx.fillStyle = INK; T(`${Math.floor(G.t)}s · ${G.kills} kills`, 0.96, 0.046, 0.03, 500);
+  ctx.textAlign = 'left'; T(`you are ${G.pole === NORTH ? 'N' : 'S'} · flip in ${Math.max(0, left).toFixed(1)}s`, 0.04, 0.085, 0.026, 500);
+  if (touch) { ctx.strokeStyle = INK; ctx.globalAlpha = 0.3; ctx.lineWidth = 2 * u; const r = cv.getBoundingClientRect(), k = 1 / r.width; ctx.beginPath(); ctx.arc((touch.ox - r.left) * k, (touch.oy - r.top) * k, 0.06, 0, Math.PI * 2); ctx.stroke(); ctx.globalAlpha = 1; }
+  if (!G.started) { ctx.fillStyle = 'rgba(26,20,16,0.55)'; ctx.fillRect(0, H * 0.36, 1, 0.13); ctx.fillStyle = CREAM; ctx.textAlign = 'center'; T('move to start', 0.5, H * 0.42, 0.045); }
+  if (G.over) { ctx.fillStyle = 'rgba(26,20,16,0.7)'; ctx.fillRect(0, 0, 1, H); ctx.fillStyle = CREAM; ctx.textAlign = 'center'; T('Crushed by the Core', 0.5, H / 2 - 0.05, 0.06); T(`${Math.floor(G.t)}s · ${G.kills} kills`, 0.5, H / 2 + 0.02, 0.035, 500); T('tap or Space to go again', 0.5, H / 2 + 0.08, 0.028, 500); }
+}
+reset();
+let last = performance.now();
+function frame(now) { const dt = Math.min(0.05, (now - last) / 1000); last = now; fit(); if (W) { step(dt); draw(); } requestAnimationFrame(frame); }
+requestAnimationFrame(frame);
+})();
+</script>

@@ -1,0 +1,92 @@
+# The Core — Book 3 (Burrow) chapter 6, polarity
+
+Source of truth for the GAMEPLAY: the owner-played prototype `core-polarity.html` (job tmp; copied to
+`docs/superpowers/specs/assets/core-polarity.html`). Source of truth for the LOOK: the crucible's
+Liquid Metal FINAL (`liquid/r14/play.html`, copied to `docs/superpowers/specs/assets/core-liquid-final.html`).
+Owner, 2026-10-21: "ship the level to game behind dev gate".
+
+Two ships, both DEV-only (Burrow has `wipFrom: 0`, so appending the id hides it from players):
+
+1. **Wired box** — the chapter, its signature, roster, 4 weapons, pillars and pools, HUD pole clock,
+   drawn with archetype looks tinted by pole. Goes to the owner's phone first ("play it before you dress it").
+2. **Liquid Metal** — `src/liquid.js`, a chapter renderer on the `src/toon.js` pattern
+   (`createLiquidRenderer(host)`), porting the r14 floor (mirror sea, ink-blot pools, levitator pillars)
+   and the chrome cast.
+
+## Scale
+
+1 prototype unit = **667 px** (matches speed: 0.33 u/s -> 220 px/s = `PLAYER.baseSpeed`).
+Prototype hp x10 = game hp (sling 1 dmg -> 10). Player hp is 100 in both, so enemy damage to the
+player carries over unchanged.
+
+## Signature `polarity` (`CHAPTERS.core.signature = { type: 'polarity', polarity: {...} }`)
+
+- **Owner, 2026-10-21, replacing the prototype's 15 s player flip:** "rather than the player flipping
+  polarity every 15 seconds, it could be the proportion of enemies spawning as north or south ...
+  sinusoidal, flipping also every 15 seconds, and the player has the agency to walk into a pool to
+  change its own polarity."
+- `run.polarity = { pole, mix, poolCd }`, built lazily by `stepPolarity` like `stepLavaTide`;
+  `pole` is +1 (N, red) / -1 (S, blue), starting N. **Your pole changes ONLY in a pool.**
+- **The spawn tide:** `mix` = share of new spawns that are North = `0.5 + 0.4 * sin(2*pi*t / 30)`
+  (10%..90%; the majority changes side every 15 s). Every spawn rolls its pole against `mix`;
+  the Golem still spawns opposite to you.
+- Changing pole (in a pool) ejects every latched mite (outward 467 px/s, stunned 0.6 s). Event
+  `{type:'poleFlip', pole}` on every change of YOUR pole (sound: yes).
+- **Damage rule**, in `dealDamage` (the one funnel): x2 if the enemy's pole is opposite yours, x0.5 if
+  the same. Flat hits (Dipole Lance) skip it. An eel takes the pole of its segment nearest the player.
+- **Pillars**: `obstacles: { kind: 'pillar', ... }` (solid, r 21 px), each with a hashed `pole`.
+  Within **213 px** a pillar pulls opposite-pole bodies and pushes same-pole ones:
+  player +-93 px/s x (1 - d/213); enemies (not eel/top) 0.22 u -> accel 147 x 6 px/s^2 x (1 - d/213).
+- **Pools**: streamed per cell (boats pattern) into `run.corePools` `{x, y, rx 47-80, ry 33-60, rot, pole}`.
+  You entering an opposite pool take its pole at once (1.2 s cooldown): your only way to change pole. An enemy (not eel/top) entering one takes
+  the pool's pole. Event `{type:'poolFlip', x, y, pole}` (silent).
+
+- **Magnetic loot** (owner pick, 2026-10-21): every XP gem dropped in the Core carries `g.pole`, the
+  pole of the creature that dropped it. Gems of your OPPOSITE pole are pulled from 3x the normal magnet
+  radius; gems of your SAME pole slide away from you at 60 px/s while within 120 px (walking onto one still
+  collects it). Changing pole in a pool turns the other half of the floor into a harvest. Render tints
+  each gem by its pole.
+- **The crowd sorts itself** (owner pick, 2026-10-21): in the enemy separation step, opposite-pole
+  creatures that touch attract and STICK (they cluster into knots) and grind each other for 3 hp/s
+  each; same-pole creatures repel at 1.5x the normal separation reach. The eel is exempt. A grind kill
+  counts as a kill and drops loot (no hazard credit games: it is the chapter's rule, not a weapon).
+
+## Roster (hp from prototype x10, speeds x667, damage as prototype)
+
+| id | archetype | proto hp | behaviour (prototype `step`) |
+|---|---|---|---|
+| ferriteMite | normal | 2 | opposite: rushes (cap 180 px/s) and LATCHES (pinned to you, 1.5 hp/s, each latched mite -8% speed, floor 40%); same: orbits at 187 px and spits a needle every 2-3.2 s |
+| needleUrchin | normal | 5 | holds 253 px whatever the poles, fan of 5 needles every 3.2 s |
+| spinningTop | fast | 4 | pole strobes every 2 s; seeks 200 (opp) / 120 (same) px/s with a wobble; contact 8 |
+| ferroBlob | tank | 10 | slow 40 px/s; opposite and within 147 px grows spikes (contact reach +33 px, 12 hp/s); splits into 2 ferroBlobSmall (4 hp, 67 px/s) of its pole |
+| dipoleEel | fast | 14 | head N / tail S (x sw); leads with the end opposite yours, 100 px/s; bite 10 + shove 20 px; turns round when your pole changes |
+| lodestoneGolem | tank | 36 | spawns opposite; opposite: drags you in (107 px/s at 0, radius 333 px), crawls 33 px/s, contact 16 hp/s; same: shoves you (67 px/s), orbits at 240 px, fan of 3 needles every 3 s |
+
+Needles: `run.enemyShots`, `turnRate: 0`, 200-240 px/s, 4 dmg, 3.5 s, stopped by pillars.
+Spawn cadence follows the prototype's timers (urchin 7 s, top 9 s, blob 14 s, eel 16 s, golem 30 s, mites
+continuous) through the chapter's ordinary roster weights; balance is a first guess, tuned after the playtest.
+
+## Weapons (pool: sling, gaussCoil, dipoleLance, reversalPulse; starter sling)
+
+| id | L1 | rule |
+|---|---|---|
+| sling | 10 dmg / 0.32 s, 633 px/s, range 500 | an iron ball of your pole; half the time it targets a latched mite |
+| gaussCoil | 15 dmg / 1.6 s, 930 px/s, 0.7 s life | pierces every opposite body, stops on the first same-pole one |
+| dipoleLance | 30 flat / 1 s, 133 px long | short two-coloured beam, ignores poles |
+| reversalPulse | every 5 s, ring to 213 px in 0.5 s | flips the pole of everything it touches and frees latched mites |
+
+4 mods each (damage, rate, and two that change the rule — e.g. Gauss "also stops on nothing", Pulse
+"bigger ring", Lance "longer", Sling "two balls"). Names/descs drafted in English and French; the owner
+reviews the French after the ship (dev-only).
+
+## HUD
+
+A spawn-tide gauge in the chapter-resource rail slot: how much of what spawns now is North (red) vs
+South (blue) and which way it is heading, with your own pole beside it. No flip warning is needed:
+nothing changes your pole but a pool. The player wears its pole (tint), and a pool change gets one
+short, small, local pulse (owner rule: no full-screen flash).
+
+## Not in scope (YAGNI, add when asked)
+
+The prototype's Nexus and bounded 3x4 map (the game streams an endless world and has its own victory).
+A Core anomaly and mutator (chapter-stage will show `owes`).
