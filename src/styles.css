@@ -2866,11 +2866,12 @@ body {
    down to 7px of that button. 24vh -> 21vh is the same 25px back, so every clearance this rail was
    tuned against still holds and the readout is 3vh shorter, which nothing reads off. */
 .chaos-vrail--charge .chaos-vrail-track { height: 21vh; }
-/* The Core's SPAWN TIDE (ui.js data-pole): the left battery, North red from the foot over South
-   blue. The label chip's background is your pole's colour, set by paintPole. */
+/* The Core's POLE GAUGE (ui.js data-pole): the left battery, the North share of the creatures on
+   screen in red from the foot over the South share in blue. Both colours and the label chip (your
+   pole) are POLE_TINT, set by paintPole. */
 .chaos-vrail--pole { left: 16px; right: auto; }
-.chaos-vrail--pole .chaos-vrail-track { height: 21vh; background: #2a5c8f; }
-.chaos-vrail--pole .chaos-vrail-track i { background: #d2452f; border-radius: 0; }
+.chaos-vrail--pole .chaos-vrail-track { height: 21vh; }
+.chaos-vrail--pole .chaos-vrail-track i { border-radius: 0; }
 .chaos-vrail--pole .chaos-vrail-label {
   font-size: 0.56rem;
   letter-spacing: 0.06em;

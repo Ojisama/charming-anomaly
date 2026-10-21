@@ -6558,6 +6558,10 @@ export function createRenderer(app) {
   // ---- THE CORE: pools, pillars' reach, the eel's tail end, blob spikes, Dipole Lance beams ----
   let playerPole = 0      // syncPlayer's tint reads it; 0 outside The Core
   const lanceBeams = []   // { x, y, angle, length, width, t } from the sim's 'lance' event
+  // the prototype's hit tells, from 'hit'.pm and 'needleBounce': { x, y, t, kind } with kind 'opp'
+  // (a x2 hit: a bold red star), 'same' (x0.5: a thin grey one) or 'bounce' (a needle off you)
+  const coreSparks = []
+  const CORE_SPARK_LIFE = 0.28
   function rotEll(cx, cy, rx, ry, rot, n = 28) {
     const c = Math.cos(rot), s = Math.sin(rot), pts = []
     for (let i = 0; i < n; i++) {
@@ -6565,6 +6569,16 @@ export function createRenderer(app) {
       pts.push(cx + x * c - y * s, cy + x * s + y * c)
     }
     return pts
+  }
+  // A steel needle seen from above, tip at +x: a dark outline, a pale steel shaft, a bright tip, and
+  // its tail in the pole colour. Cold and thin on purpose - the gems are fat warm crystals.
+  function bakeCoreNeedle(pole) {
+    const g = new Graphics()
+    g.moveTo(-13, 0).lineTo(12, 0).stroke({ width: 5, color: 0x101216, cap: 'round' })
+    g.moveTo(-13, 0).lineTo(-4, 0).stroke({ width: 3.4, color: pole, cap: 'round' })
+    g.moveTo(-4, 0).lineTo(12, 0).stroke({ width: 2.2, color: 0xe6ebf2, cap: 'round' })
+    g.circle(12, 0, 1.4).fill(0xffffff)
+    return bake(g)
   }
   function syncCore(run, gG, gF, dt) {
     playerPole = run.polarity?.pole ?? 0
@@ -6576,12 +6590,30 @@ export function createRenderer(app) {
         .stroke({ width: 2.5, color: mix(col, 0xffffff, 0.35), alpha: 0.7 })
     }
     const S = CHAPTERS[run.chapter].signature?.polarity
-    for (const o of run.obstacles) {
-      if (o.kind !== 'pillar' || !S) continue
-      gG.circle(o.x, o.y, S.pillar.reach).stroke({ width: 1.5, color: POLE_TINT[o.pole], alpha: 0.22 })
+    const P = run.polarity, p = run.player
+    const near = (x, y, m) => Math.abs(x - p.x) < run.viewW + m && Math.abs(y - p.y) < run.viewH + m
+    // a field's rings (the prototype's tell): three rings in the source's pole colour, running IN
+    // toward it when it pulls you (the other pole) and OUT when it pushes you (yours)
+    const field = (x, y, r0, r1, pole, speed, a0) => {
+      const dir = pole !== P.pole ? -1 : 1
+      for (let i = 0; i < 3; i++) {
+        const k = (((t * speed * dir + i / 3) % 1) + 1) % 1
+        gG.circle(x, y, r0 + k * (r1 - r0)).stroke({ width: 1.6, color: POLE_TINT[pole], alpha: a0 * (1 - k) })
+      }
     }
+    for (const o of run.obstacles) {
+      if (o.kind !== 'pillar' || !S || !near(o.x, o.y, S.pillar.reach)) continue
+      field(o.x, o.y, o.r, S.pillar.reach, o.pole, 0.25, 0.5)
+    }
+    // your pole: a ring round you, dark-edged so it reads on any floor (you stay the mint blob)
+    const pr = PLAYER.radius + 7
+    gF.circle(p.x, p.y, pr).stroke({ width: 6, color: CORE_LINE, alpha: 0.85 })
+    gF.circle(p.x, p.y, pr).stroke({ width: 3.5, color: POLE_TINT[P.pole] })
     for (const e of run.enemies) {
       if (e._dead || e.pole === undefined) continue
+      if (e.flags.includes('lodestone') && S && near(e.x, e.y, S.golem.dragR)) field(e.x, e.y, e.radius + 6, S.golem.dragR, e.pole, 0.15, 0.55)
+      // a blob of your pole curled into a ball: a tight dark shell round it
+      if ((e.curl || 0) > 0.05) gF.circle(e.x, e.y, e.radius * 0.95).stroke({ width: 3, color: CORE_LINE, alpha: e.curl })
       if (e.flags.includes('dipole') && S) {
         // the tail end: the OTHER pole, one gap behind the head along the body axis
         const tx = e.x - e.hx * S.eel.gap, ty = e.y - e.hy * S.eel.gap
@@ -6595,6 +6627,19 @@ export function createRenderer(app) {
             .lineTo(e.x + Math.cos(a) * (e.radius + len), e.y + Math.sin(a) * (e.radius + len))
             .stroke({ width: 3, color: CORE_LINE, cap: 'round' })
         }
+      }
+    }
+    for (let i = coreSparks.length - 1; i >= 0; i--) {
+      const s = coreSparks[i]
+      s.t += dt
+      if (s.t >= CORE_SPARK_LIFE) { coreSparks.splice(i, 1); continue }
+      const k = s.t / CORE_SPARK_LIFE, opp = s.kind === 'opp'
+      const n = opp ? 6 : s.kind === 'bounce' ? 4 : 3, r0 = 4 + k * (opp ? 16 : 10), len = opp ? 10 : 6
+      const col = opp ? 0xff3b2a : s.kind === 'bounce' ? 0xe6ebf2 : 0x8a8f99
+      for (let j = 0; j < n; j++) {
+        const a = (j / n) * Math.PI * 2 + s.x * 0.37
+        gF.moveTo(s.x + Math.cos(a) * r0, s.y + Math.sin(a) * r0).lineTo(s.x + Math.cos(a) * (r0 + len), s.y + Math.sin(a) * (r0 + len))
+          .stroke({ width: opp ? 3.5 : 1.5, color: col, alpha: 1 - k, cap: 'round' })
       }
     }
     // the Dipole Lance: a two-coloured bar, North half then South half, fading over LANCE_BEAM_LIFE
@@ -29788,6 +29833,8 @@ void main() {
             if (d < 52) { const ux2 = d > 1 ? dx / d : 0.7, uy2 = d > 1 ? dy / d : -0.7; hx = run.player.x + ux2 * 52; hy = run.player.y + uy2 * 52 }
           }
           spawnDamage(hx, hy, e.dmg, e.crit, e.dot)
+          // The Core: a x2 hit throws a bold red spark, a x0.5 one a thin grey spark (syncCore)
+          if (e.pm && e.pm !== 1 && !e.dot && coreSparks.length < 48) coreSparks.push({ x: e.x, y: e.y, t: 0, kind: e.pm > 1 ? 'opp' : 'same' })
           if (run.pits.length) pitSinkFromHit(run, e)
           if (!e.dot && macroLook?.floor === 'topsoil') soilPuff(e.x, e.y, false, run)
           break
@@ -30197,6 +30244,10 @@ void main() {
           break
         case 'poolFlip':
           spawnRing(e.x, e.y, 24, 0.22, T.novaRing, POLE_TINT[e.pole])
+          break
+        // a needle of your pole glancing off you: a small steel spark where it struck, no damage
+        case 'needleBounce':
+          if (coreSparks.length < 48) coreSparks.push({ x: e.x, y: e.y, t: 0, kind: 'bounce' })
           break
         case 'bloom':  spawnRing(e.x, e.y, 40, 0.35, T.nova, 0x2fb6a3); break // v6.2: cast was invisible
         case 'lure':   spawnRing(e.x, e.y, 34, 0.30, T.nova, 0x67b26f); break // v6.2: cast was invisible
@@ -30968,7 +31019,7 @@ void main() {
   // ------------------------------------------------------------------- reset
   function clearWorld() {
     pixelRig.clear()   // The Magma (src/pixel.js): its own pools
-    burrowGroundG.clear(); burrowFxG.clear(); burrowSwings.length = 0; lanceBeams.length = 0; hideShovel()
+    burrowGroundG.clear(); burrowFxG.clear(); burrowSwings.length = 0; lanceBeams.length = 0; coreSparks.length = 0; hideShovel()
     hidePits()
     for (const st of burrowStones) st.visible = false
     for (const sp of snareSprites) sp.visible = false
@@ -31329,8 +31380,7 @@ void main() {
     // pale sclera or the fish's fin and gill highlights toward the same hue as the body fill, right
     // when that contrast matters most.
     pBody.tint = (playerForm === 'kaiju' || playerForm === 'fish' || playerSkin || macroLook || holoLook) ? 0xffffff : chapterRender.playerTint
-    // THE CORE: you wear your pole's colour, as every body there does.
-    if (playerPole) pBody.tint = mix(POLE_TINT[playerPole], 0xffffff, 0.12)
+    // THE CORE: you stay the mint blob; your pole is the ring round you (syncCore), never a body tint.
     // OILED (The Wreck, 2026-09-07): the oil on you is on your skin — a multiply toward the film's
     // own near-black, ramped by the fouling timer, so the stain fades exactly as the slow does.
     if (buffs && buffs.foul > 0) pBody.tint = mix(pBody.tint, 0x3a2e24, buffs.foul * 0.8)
@@ -31524,7 +31574,6 @@ void main() {
         const [bcx, bcy] = cheekAt
         cheekC.position.set(bcx + lx, bcy + ly)
         pCheeks.position.set(-bcx, -bcy)
-        pCheeks.tint = playerPole ? pBody.tint : 0xffffff   // The Core: the skin wears your pole too
         // the mass smears along whichever way it is thrown. Small, and clipped by pMask either way.
         cheekC.scale.set(1 + (Math.abs(lx) / lim) * J.squash * 0.20, 1 + (Math.abs(ly) / lim) * J.squash * 0.20)
       }
@@ -33683,11 +33732,14 @@ void main() {
       s.scale.set(1.15)
       return
     }
-    // The Core: an iron needle (urchin, mite, golem). No smoke: it is thrown, not fired.
+    // The Core: the urchin's steel needle, its tail in its thrower's pole (one of yours bounces off
+    // you). Pointing +x, baked once per pole. No smoke: it is thrown, not fired.
     if (sh.needle) {
-      if (s.texture !== T.needle.tex) { s.texture = T.needle.tex; s.anchor.set(T.needle.ax, T.needle.ay) }
-      s.tint = 0xe4e8f0
-      s.scale.set(1.5)
+      T.coreNeedle ??= { 1: bakeCoreNeedle(POLE_TINT[1]), '-1': bakeCoreNeedle(POLE_TINT[-1]) }
+      const nb = T.coreNeedle[sh.pole] ?? T.coreNeedle[1]
+      if (s.texture !== nb.tex) { s.texture = nb.tex; s.anchor.set(nb.ax, nb.ay) }
+      s.tint = 0xffffff
+      s.scale.set(1)
       return
     }
     if (s.texture !== T.missile.tex) { s.texture = T.missile.tex; s.anchor.set(T.missile.ax, T.missile.ay) }

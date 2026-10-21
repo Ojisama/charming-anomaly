@@ -2447,15 +2447,13 @@ export function initUI(hooks) {
           <span class="chaos-vrail-track"><i data-charge-fill></i></span>
         </span>
       </div>
-      <!-- The Core's SPAWN TIDE (run.polarity): the same battery on the left (The Core has no
-           resource rail). The track is the share of new spawns that are North (red, from the foot)
-           against South (blue); the arrow is which way the tide is turning; the chip on top is
-           YOUR pole, in its colour. -->
+      <!-- The Core's POLE GAUGE (run.polarity): the same battery on the left (The Core has no
+           resource rail). The track is the live split of the creatures ON SCREEN (run.polarity.split):
+           North red from the foot against South blue; the chip on top is YOUR pole, in its colour. -->
       <div class="chaos-wrap" data-pole style="display:none;">
         <span class="chaos-vrail chaos-vrail--pole">
           <b class="chaos-vrail-num chaos-vrail-label" data-pole-label></b>
-          <b class="chaos-vrail-num" data-pole-trend></b>
-          <span class="chaos-vrail-track"><i data-pole-fill></i></span>
+          <span class="chaos-vrail-track" data-pole-track><i data-pole-fill></i></span>
         </span>
       </div>
       <!-- The Trawl's WIGGLE TO ESCAPE rail (run.net.wiggle, 2026-09-03; owner: "vertical on the
@@ -2978,30 +2976,26 @@ export function initUI(hooks) {
     // any chapter with no resource, where it is moot — this call is already gated on `res`).
     if (res) paintCharge(run.charge, run.chargeMax ?? res.max, res.name, !!res.invert, pulseCost(CHAPTERS[run.chapter]))
 
-    // ---- The Core's SPAWN TIDE (run.polarity) ------------------------------------------------
+    // ---- The Core's POLE GAUGE (run.polarity) ------------------------------------------------
     const P = run.polarity
     if (!!P !== last.poleShown) {
       last.poleShown = !!P
       hud.poleWrap.style.display = P ? '' : 'none'
     }
-    if (P) paintPole(P, CHAPTERS[run.chapter].signature.polarity.mix, run.time)
+    if (P) paintPole(P)
   }
 
   let poleRefs = null
   const hex = (c) => '#' + c.toString(16).padStart(6, '0')
-  function paintPole(P, M, time) {
+  function paintPole(P) {
     if (!poleRefs) {
       const q = (sel) => hud.poleWrap.querySelector(sel)
-      poleRefs = { label: q('[data-pole-label]'), trend: q('[data-pole-trend]'), fill: q('[data-pole-fill]') }
+      poleRefs = { label: q('[data-pole-label]'), fill: q('[data-pole-fill]') }
+      q('[data-pole-track]').style.background = hex(POLE_TINT[-1])
+      poleRefs.fill.style.background = hex(POLE_TINT[1])
     }
-    poleRefs.fill.style.height = `${Math.round(P.mix * 1000) / 10}%`
-    // the trend is the sign of the mix's derivative (it is a sine: cos tells which way it is going)
-    const rising = Math.cos((2 * Math.PI * time) / M.period) >= 0
-    if (rising !== last.poleRising) {
-      last.poleRising = rising
-      poleRefs.trend.textContent = rising ? '▲' : '▼'
-      poleRefs.trend.style.color = hex(POLE_TINT[rising ? 1 : -1])
-    }
+    const h = Math.round(P.split * 100)
+    if (h !== last.poleSplit) { last.poleSplit = h; poleRefs.fill.style.height = `${h}%` }
     if (P.pole !== last.polePole) {
       last.polePole = P.pole
       poleRefs.label.textContent = t(POLE_NAMES[P.pole].name)
