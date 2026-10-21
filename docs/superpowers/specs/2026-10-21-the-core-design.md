@@ -90,3 +90,29 @@ short, small, local pulse (owner rule: no full-screen flash).
 
 The prototype's Nexus and bounded 3x4 map (the game streams an endless world and has its own victory).
 A Core anomaly and mutator (chapter-stage will show `owes`).
+
+## Rev 2 (2026-10-21, after the adversarial review of v8.90.0) — owner rulings
+
+**THE RULE (owner): opposite ATTRACTS — it comes at you, attacks, takes x2. Same REPELS — it keeps
+away, cannot hurt you, takes x0.5.** Matching the majority is safe but slow; opposing it is risky but
+fast; the tide moves the majority every 15 s, so the pools are the decision.
+
+| creature | opposite to you | same as you |
+|---|---|---|
+| Ferrite Mite | rushes, clings (slows you, small dot) | scatters away. **No ranged attack (owner).** |
+| Needle Urchin | needle fan at you | still fires, but each needle carries the urchin's pole: a needle of YOUR pole bounces off you harmlessly (spark) |
+| Ferro Blob | spikes toward you, splits on death | balls up (curled, still), no contact damage |
+| Lodestone Golem | drags you toward it, contact damage | shoves you away, no damage, no needles |
+| Spinning Top | pole strobes every 2 s: it only hurts while opposite; hit it on the right beat | (same rule, per beat) |
+| Dipole Eel | two poles: bites with the end opposite you; RARE; its tail is a hittable segment with its own pole | |
+
+- **Grind: stick only, no damage** (owner). Opposite bodies still clump into knots.
+- **Gauge: the live N/S split of the creatures on screen** (owner), not the spawn mix.
+- **Reversal Pulse: turns every creature it touches to the pole OPPOSITE yours** (owner) — prey for
+  your x2, threat for your hull — and shakes off clinging mites.
+- Review fixes: spawn composition back near the prototype's (heavies were 5x: eels 121 vs ~19, golems
+  53 vs ~10 per 300 s) with a cap on concurrent heavies; polar damage-over-time capped and respecting
+  the hit cap; the player stays the mint blob with a pole RING (South colour lightened for contrast);
+  a steel needle (the amber dart read as loot); the prototype's tells restored (x2 = bold red spark,
+  x0.5 = thin grey spark; pillar pull/push animated rings; golem field rings); grind has no numbers;
+  pools never under pillars; eel/top/golem xp raised to match their hp.
