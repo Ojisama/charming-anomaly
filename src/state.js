@@ -2336,31 +2336,38 @@ function generateWells(sig) {
  * THE CORE (Book 3, signature.polarity — sim.js stepPolarity / stepPolarHurt / stepPolarBody):
  *   polarity: null until the first step of a Core run with signature.polarity on, then
  *     { pole: +1 (North, red) | -1 (South, blue) — YOUR pole, starts North, changes ONLY in a pool,
- *       mix: 0..1 the share of new spawns that are North (signature.polarity.mix's sine of run.time;
- *       ui's spawn-tide gauge draws it), poolCd: s before a pool can change you again,
- *       flipT: run.time of your last change, latched: mites on you,
- *       dot: { src: hp } fractions of DoT hp banked until a whole point is owed }.
+ *       mix: 0..1 the share of new spawns that are North (signature.polarity.mix's sine of run.time),
+ *       split: 0..1 the North share of the polar creatures inside run.viewW/viewH (eels skipped;
+ *       0.5 with none), counted by stepPolarHurt and drawn by ui's pole gauge,
+ *       poolCd: s before a pool can change you again, flipT: run.time of your last change,
+ *       latched: mites on you, obRev: the run._obstacleRev the pools were last cleared of pillars at,
+ *       dot: { src: hp } fractions of DoT hp banked until a whole point is owed,
+ *       dotFrame: { src: hp } this frame's DoT per source before the dotCap scale (scratch) }.
  *   corePools: [{ x, y, rx, ry, rot, pole, _cell }] the pole pools streamed per cell (streamPolePools,
- *     salts 48-52). Walking into one of the other pole flips you; a creature (not eel or top) takes its pole.
+ *     salts 48-54), never under a pillar (poolOnPillar). Walking into one of the other pole flips
+ *     you; a creature (not eel or top) takes its pole.
  *   _poolCellI/_poolCellJ: streamPolePools' own cell cursor.
  *   obstacles of kind 'pillar' carry `pole` (hash salt 47): they pull the other pole, push their own.
  *   Enemy contract fields (render tints off `pole`): pole +1 | -1 (the eel's is its HEAD's; its tail
  *     is -pole, drawn at x - hx * eel.gap), latched (true while a mite rides you; _lx/_ly its offset),
- *     hx/hy (the eel's heading), spike 0..1 (a blob's spikes), stunT (the ordinary stun field).
- *   enemyShots carry needle: true and src (the roster id that fired it): turnRate 0, stopped by pillars.
+ *     hx/hy (the eel's heading), spike 0..1 (a blob's spikes), curl 0..1 (a blob of your pole
+ *     balled up and still), stunT (the ordinary stun field).
+ *   enemyShots carry needle: true, pole (the thrower's) and src (the roster id that threw it):
+ *     turnRate 0, stopped by pillars; one of YOUR pole bounces off you (_bounced, then harmless).
  *   Bullets: weapon 'ironBall' (Iron Sling; _rideE = the latched mite it homes on) and 'gaussSlug'
  *     (Gauss Coil: stops on the first body of your pole unless _punch).
- *   Novas: look 'reversal' with flip: true (Reversal Pulse; stun s on each body it flips).
+ *   Novas: look 'reversal' with flip: true (Reversal Pulse: each body it touches takes the pole
+ *     OPPOSITE yours; stun s on each).
  *   Events: {type:'poleFlip', pole} your pole changed (only ever in a pool). Sounded in
  *     SFX_FOR_EVENT. {type:'poolFlip', x, y, pole} a pool or a Reversal Pulse flipped a
  *     body (you or a creature): drawn as a ring in the new pole's colour, silent (several a second).
  *     {type:'lance', x, y, angle, length, width} one Dipole Lance beam (one per heading: Both Ends and
  *     Ipecac add more), drawn by render.js syncCore for LANCE_BEAM_LIFE. The four weapons also push
- *     the ordinary {type:'shoot', weapon} for the sound.
+ *     the ordinary {type:'shoot', weapon} for the sound. {type:'needleBounce', x, y, angle} a needle of
+ *     your pole glanced off you: a steel spark (render syncCore), silent. Every 'hit' carries pm, the
+ *     pole multiplier it landed at (1 off The Core): render sparks x2 bold red, x0.5 thin grey.
  *   gems carry `pole` (the dropper's): an opposite-pole gem is pulled from loot.oppMul x the magnet
  *     radius, one of yours slides away at loot.repel px/s inside loot.repelR (render tints by it).
- *   _grind/_grindAcc on an enemy: stepEnemySeparation's per-step mark that it touches a body of the
- *     other pole, and its banked fraction of crowd.grind hp/s (dealt flat; a grind kill is a kill).
  *
  * THE SHELF's three natives add NO run.* array either, on the same argument. Each is an existing
  * entity carrying one extra field, and that field is what the renderer branches on:

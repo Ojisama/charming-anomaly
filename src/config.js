@@ -3246,11 +3246,12 @@ export const WEAPONS = {
       { dmg: 66, interval: 0.8, length: 166, width: 20 },
     ],
   },
-  // Reversal Pulse: a ring round you (run.novas, look 'reversal') that FLIPS the pole of everything
-  // it touches and shakes latched mites off. No damage unless Charged Ring is picked.
+  // Reversal Pulse: a ring round you (run.novas, look 'reversal') that turns everything it touches to
+  // the pole OPPOSITE yours (owner, Rev 2) and shakes latched mites off. No damage unless Charged Ring
+  // is picked, and that damage lands after the turn, so at x2.
   reversalPulse: {
     name: 'Reversal Pulse',
-    desc: 'A ring that flips the pole of every foe it touches and shakes off clinging mites.',
+    desc: 'A ring that turns every foe it touches to the pole opposite yours and shakes off clinging mites.',
     icon: '🔄', rarity: 'normal',
     levels: [
       { dmg: 0, interval: 5, maxR: 213 },
@@ -4735,7 +4736,7 @@ export const WEAPON_MODS = {
     broadRing:   { name: 'Broad Ring',   desc: 'ring size', icon: '⭕', base: 0.20, kind: 'pct' },
     quickPulse:  { name: 'Quick Pulse',  desc: 'ring rate', icon: '⏩', base: 0.25, kind: 'pct' },
     chargedRing: { name: 'Charged Ring', desc: 'ring damage', icon: '💥', base: 12, kind: 'flat' },
-    dazingRing:  { name: 'Dazing Ring',  desc: 'stuns every foe it flips for {n}s', icon: '💫', base: 0.3, kind: 'secs' },
+    dazingRing:  { name: 'Dazing Ring',  desc: 'stuns every foe it touches for {n}s', icon: '💫', base: 0.3, kind: 'secs' },
   },
 }
 export const MAX_WEAPON_MOD_PICKS = 5
@@ -10043,29 +10044,40 @@ CHAPTERS.mantle = {
 
 // THE CORE: the book's last rung, the planet's iron heart. POLARITY (signature.polarity, run by
 // stepPolarity / stepPolarHurt in sim.js): you and every creature carry a pole, North (+1, red) or
-// South (-1, blue). Your hits do x2 to the other pole and x0.5 to your own (dealDamage). The share of
-// new spawns that are North swings on a sine (signature.polarity.mix), so the crowd's majority changes
-// side every 15 s; your own pole changes only when you walk into a pool of the other pole. Pillars
-// pull the other pole in and push your own away.
+// South (-1, blue). ONE RULE for every creature (owner, Rev 2): the OTHER pole attracts - it comes at
+// you, attacks, and takes x2 from your hits; YOUR pole repels - it keeps away, cannot hurt you, and
+// takes x0.5 (dealDamage). The share of new spawns that are North swings on a sine
+// (signature.polarity.mix), so the crowd's majority changes side every 15 s; your own pole changes
+// only when you walk into a pool of the other pole. Pillars pull the other pole in and push your own.
 // Port of the owner-played prototype docs/superpowers/specs/assets/core-polarity.html at 667 px per
 // prototype unit and hp x10 (spec: docs/superpowers/specs/2026-10-21-the-core-design.md).
 // The pole names on the HUD's spawn-tide gauge.
 export const POLE_NAMES = { 1: { name: 'North' }, '-1': { name: 'South' } }
 // The pole colours, one fact for render.js (bodies, gems, pools, pillars) and the HUD gauge.
-export const POLE_TINT = { 1: 0xd2452f, '-1': 0x2a5c8f }
+export const POLE_TINT = { 1: 0xd2452f, '-1': 0x4f92dc }
 CHAPTERS.core = {
   name: 'The Core', tagline: 'opposites attract', icon: '🧲',
   weapons: ['sling', 'gaussCoil', 'dipoleLance', 'reversalPulse'], starter: 'sling',
   // balance_decision : prototype hp x10, first guess, unplayed 2026-10-21
+  // balance_decision : mix near the prototype's timers, heavies capped 2026-10-21
+  //  - every fast/tank entry has maxAlive: a spawn whose archetype is all full comes as a normal (spawnEnemy)
+  // balance_decision : eel/top/golem xp raised to fit their hp 2026-10-21
   roster: [
-    { id: 'ferriteMite',    archetype: 'normal', name: 'Ferrite Mite',       hpMul: 1, speedMul: 1, radiusMul: 0.58, dmgMul: 0, weight: 5, flags: ['poleLatch'] },
-    { id: 'needleUrchin',   archetype: 'normal', name: 'Needle Urchin',      hpMul: 2.5, speedMul: 1, radiusMul: 0.83, dmgMul: 0, flags: ['needleFan'] },
-    { id: 'spinningTop',    archetype: 'fast',   name: 'Spinning Top',       hpMul: 4, speedMul: 1, radiusMul: 0.89, dmgMul: 1.6, weight: 1.8, flags: ['poleStrobe'] },
-    { id: 'dipoleEel',      archetype: 'fast',   name: 'Dipole Eel',         hpMul: 14, speedMul: 1, radiusMul: 1, dmgMul: 2, flags: ['dipole'] },
-    { id: 'ferroBlob',      archetype: 'tank',   name: 'Ferrofluid Blob',    hpMul: 1.11, speedMul: 1, radiusMul: 0.77, dmgMul: 0, weight: 2, flags: ['ferroSpikes', 'split'],
+    { id: 'ferriteMite',    archetype: 'normal', name: 'Ferrite Mite',       hpMul: 1, speedMul: 1, radiusMul: 0.58, dmgMul: 0, weight: 18, flags: ['poleLatch'] },
+    { id: 'needleUrchin',   archetype: 'normal', name: 'Needle Urchin',      hpMul: 2.5, speedMul: 1, radiusMul: 0.83, dmgMul: 0, minT: 6, maxAlive: 12, flags: ['needleFan'] },
+    { id: 'spinningTop',    archetype: 'fast',   name: 'Spinning Top',       hpMul: 4, speedMul: 1, radiusMul: 0.89, dmgMul: 1.6, xpMul: 2, weight: 2, maxAlive: 5, flags: ['poleStrobe'] },
+    { id: 'dipoleEel',      archetype: 'fast',   name: 'Dipole Eel',         hpMul: 14, speedMul: 1, radiusMul: 1, dmgMul: 2, xpMul: 7, maxAlive: 2, flags: ['dipole'] },
+    { id: 'ferroBlob',      archetype: 'tank',   name: 'Ferrofluid Blob',    hpMul: 1.11, speedMul: 1, radiusMul: 0.77, dmgMul: 0, weight: 2, maxAlive: 6, flags: ['ferroSpikes', 'split'],
       split: { count: 2, hpFrac: 0.4, radiusFrac: 0.6, speedMul: 1, dmgMul: 1, rosterId: 'ferroBlobSmall' } },
     { id: 'ferroBlobSmall', archetype: 'tank',   name: 'Ferrofluid Droplet', hpMul: 0.44, speedMul: 1, radiusMul: 0.46, dmgMul: 0, formationOnly: true, flags: ['ferroSpikes'] },
-    { id: 'lodestoneGolem', archetype: 'tank',   name: 'Lodestone Golem',    hpMul: 4, speedMul: 1, radiusMul: 1.08, dmgMul: 0, flags: ['lodestone'] },
+    { id: 'lodestoneGolem', archetype: 'tank',   name: 'Lodestone Golem',    hpMul: 4, speedMul: 1, radiusMul: 1.08, dmgMul: 0, xpMul: 4, minT: 30, maxAlive: 3, flags: ['lodestone'] },
+  ],
+  // The Core's own spawn mix in place of WAVE_TABLE (waveWeights): the prototype's per-kind timers
+  // as shares (mites ~86%, urchins 5%, tops 4%, eels 2%, blobs 2%, golems 1% over 300 s).
+  waveTable: [
+    [0,  { drone: 1 }],
+    [12, { drone: 0.93, wisp: 0.07 }],
+    [24, { drone: 0.87, wisp: 0.075, tank: 0.055 }],
   ],
   eliteFlags: [],
   signature: {
@@ -10078,22 +10090,33 @@ CHAPTERS.core = {
       mix: { base: 0.5, amp: 0.4, period: 30 }, dmgOpp: 2, dmgSame: 0.5,
       eject: { speed: 467, stun: 0.6 },   // changing pole throws every latched mite off you
       pulseStun: 0.5,                     // a Reversal Pulse frees a latched mite, stunned this long
-      sameGap: 20,                        // a same-pole body never comes nearer than its edge + yours + this
+      // balance_decision : every polar damage-over-time together capped per second 2026-10-21
+      //  - latched mites, spiked blobs and golem contact share it; HURT_CAP_FRAC x maxHP caps it too
+      dotCap: 14,
+      sameGap: 20,                       // a same-pole body never comes nearer than its edge + yours + this
       pillar: { reach: 213, player: 93, enemy: 147, enemyMul: 6 },
       // pools: one ellipse per cell with probability `chance` (streamPolePools); you flip in one of
       // the other pole (cd s before the next), a creature takes its pole
       pools: { cell: 520, chance: 0.6, rx: [47, 80], ry: [33, 60], minDist: 260, cd: 1.2 },
-      latch: { dps: 1.5, slowPer: 0.08, floor: 0.4 },
+      // balance_decision : at most `max` mites cling at once, readability 2026-10-21
+      //  - one more that reaches you is knocked off (eject.speed, no stun) instead of latching
+      latch: { dps: 1.5, slowPer: 0.08, floor: 0.4, max: 10 },
       // balance_decision : magnetic loot and a self-sorting crowd, owner picks 2026-10-21
       //  - crowd.touch x (sum of radii) is "touching"; keep sameMul x ENEMY_SEP_FRAC x 2r under ENEMY_SEP_CELL
+      // balance_decision : the crowd sticks by pole, no grind damage, owner 2026-10-21
       loot: { oppMul: 3, repel: 60, repelR: 120 },
-      crowd: { grind: 3, sameMul: 1.5, touch: 1.15 },
+      crowd: { sameMul: 1.5, touch: 1.15 },
+      // every needle carries its thrower's pole: one of YOUR pole bounces off you harmlessly
       needle: { speed: [200, 240], dmg: 4, life: 3.5, r: 5 },
-      mite: { rush: 667, cap: 180, orbit: 187, gain: 2.2, tan: 60, blend: 3, range: 333, cd: [2, 3.2], needle: 240 },
+      // a mite of your pole scatters to a ring at `orbit` px and never shoots (owner, Rev 2)
+      mite: { rush: 667, cap: 180, orbit: 187, gain: 2.2, tan: 60, blend: 3 },
       urchin: { hold: 253, gain: 1.5, tan: 33, range: 400, cd: 3.2, fan: [-0.4, -0.2, 0, 0.2, 0.4], needle: 200 },
+      // a top seeks you at `opp` on its beats of the other pole and backs off at `same` on yours
       top: { opp: 200, same: 120, wobFreq: 5, wobAmp: 0.6, strobe: 2, cd: 0.8 },
+      // a blob of your pole curls up and sits still (e.curl eases to 1 at `grow`)
       blob: { speed: 40, smallSpeed: 67, near: 147, reach: 33, dps: 12, grow: 4 },
-      golem: { crawl: 33, dps: 16, hold: 240, gain: 0.6, tan: 20, cd: 3, fan: [-0.3, 0, 0.3], needle: 200, dragR: 333, pull: 107, push: 67 },
+      // a golem of your pole shoves you off and circles at `hold`, no needles (owner, Rev 2)
+      golem: { crawl: 33, dps: 16, hold: 240, gain: 0.6, tan: 20, dragR: 333, pull: 107, push: 67 },
       eel: { gap: 24, turn: 2.5, speed: 100, cd: 0.9, shove: 20 },
     },
   },

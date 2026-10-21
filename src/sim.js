@@ -1173,9 +1173,10 @@ function stepRegen(run, dt) {
 // `archetypeMul: { fast: 0.8 }`. That precise mistake already shipped once — see the warning above
 // TYPE_ARCHETYPE in config.js, where indexing the wrong way made every 'fast' roster entry
 // unreachable until v5.5. Run SP asserts every key is a real archetype.
-function waveWeights(t, mul) {
-  let table = WAVE_TABLE[0][1]
-  for (const [from, weights] of WAVE_TABLE) {
+// `waves` is the chapter's own CHAPTERS[].waveTable when it has one (The Core), else WAVE_TABLE.
+function waveWeights(t, mul, waves = WAVE_TABLE) {
+  let table = waves[0][1]
+  for (const [from, weights] of waves) {
     if (t >= from) table = weights
     else break
   }
@@ -1246,7 +1247,7 @@ function stepSpawning(run, dt) {
   let enemyCap = maxAliveFor(run.mods)
   if (keep) {
     let all = 0, kept = 0
-    for (const [type, w] of Object.entries(waveWeights(curveT(run), CHAPTERS[run.chapter].archetypeMul))) {
+    for (const [type, w] of Object.entries(waveWeights(curveT(run), CHAPTERS[run.chapter].archetypeMul, CHAPTERS[run.chapter].waveTable))) {
       all += w; kept += w * (keep[TYPE_ARCHETYPE[type]] ?? 1)
     }
     if (all > 0) enemyCap = Math.round(enemyCap * kept / all)
@@ -1257,7 +1258,7 @@ function stepSpawning(run, dt) {
   while (run._spawnAcc >= 1 && run.enemies.length < cap) {
     run._spawnAcc -= 1
     if (!keep && !swap) { spawnEnemy(run); continue }
-    let type = pickWeighted(waveWeights(curveT(run), CHAPTERS[run.chapter].archetypeMul))
+    let type = pickWeighted(waveWeights(curveT(run), CHAPTERS[run.chapter].archetypeMul, CHAPTERS[run.chapter].waveTable))
     const k = keep?.[TYPE_ARCHETYPE[type]]
     if (k != null && Math.random() >= k) continue
     const s = swap?.[TYPE_ARCHETYPE[type]]
@@ -4332,7 +4333,7 @@ function spawnEnemy(run, opts = {}) {
       * (eliteSurge ? ELITE_SURGE_EVERY_MUL : 1)
   }
 
-  let type = opts.type ?? pickWeighted(waveWeights(curveT(run), CHAPTERS[run.chapter].archetypeMul))
+  let type = opts.type ?? pickWeighted(waveWeights(curveT(run), CHAPTERS[run.chapter].archetypeMul, CHAPTERS[run.chapter].waveTable))
   let base = ENEMIES[type]
   const p = run.player
 
@@ -4372,6 +4373,11 @@ function spawnEnemy(run, opts = {}) {
     for (const e of run.enemies) if (!e._dead && e.rosterId === r.id && ++n >= r.maxAlive) return false
     return true
   })
+  // ...and when EVERY entry of a fast/tank archetype is at its cap (The Core's heavies), the
+  // spawn comes in as a normal instead, so the cap is a real ceiling rather than a preference.
+  if (!capped.length && eligiblePool.length && !forced && archetype !== 'normal' && rosterPool.every((r) => r.maxAlive != null)) {
+    return spawnEnemy(run, { ...opts, type: ARCHETYPE_TYPE.normal, forceNormal: true, forceElite: isElite })
+  }
   const pool = capped.length > 0 ? capped : (eligiblePool.length > 0 ? eligiblePool : rosterPool)
   let roster = forced
   if (!roster && isElite) {
@@ -8817,18 +8823,6 @@ let _sepPolar = null   // The Core's crowd rule for resolveSeparationPair, set p
 function stepEnemySeparation(run, dt) {
   _sepPolar = polaritySpec(run)?.crowd ?? null
   stepEnemySeparationPass(run)
-  if (!_sepPolar) return
-  // the grind: every opposite pair that stuck this frame wears each other down (a real kill, loot paid)
-  for (const e of run.enemies) {
-    if (!e._grind) continue
-    e._grind = false
-    if (e._dead) continue
-    e._grindAcc = (e._grindAcc ?? 0) + _sepPolar.grind * dt
-    if (e._grindAcc < _sepPolar.grind) continue   // one tick a second, so a knot does not rain "1"s
-    const n = Math.floor(e._grindAcc)
-    e._grindAcc -= n
-    dealDamage(run, e, n, false, true, false, false, true)
-  }
 }
 function stepEnemySeparationPass(run) {
   const cellOf = _sepCellOf
@@ -8981,8 +8975,8 @@ function resolveSeparationPair(a, b, i, j) {
   let minSep = ENEMY_SEP_FRAC * (a.radius + b.radius)
   const distSq = dx * dx + dy * dy
   // THE CORE: the crowd sorts itself. Two polar bodies (not the eel, not a latched mite) of the same
-  // pole keep crowd.sameMul x the reach apart; two of opposite poles that touch STICK at minSep and
-  // are marked to grind (stepEnemySeparation deals it after the pass).
+  // pole keep crowd.sameMul x the reach apart; two of opposite poles that touch STICK at minSep, and
+  // that is all: a knot does no damage to itself (owner, Rev 2).
   // ponytail: a pair farther apart than one ENEMY_SEP_CELL may sit two cells apart and go unseen; fine at these radii
   const C = _sepPolar
   if (C && a.pole !== undefined && b.pole !== undefined && !a.latched && !b.latched && !a.flags.includes('dipole') && !b.flags.includes('dipole')) {
@@ -8990,7 +8984,6 @@ function resolveSeparationPair(a, b, i, j) {
     else {
       const touch = (a.radius + b.radius) * C.touch
       if (distSq < touch * touch) {
-        a._grind = true; b._grind = true
         const d = Math.sqrt(distSq)
         if (d > minSep) {
           const pull = (d - minSep) / 2
@@ -9834,7 +9827,15 @@ function stepEnemyShots(run, dt) {
     // The Core's needles: a pillar stops one; a hit pricks, no blast
     if (s.needle && needleHitsPillar(run, s)) { s._done = true; continue }
 
-    if (!playerTouches(run, s.x, s.y, s.r, body)) continue
+    if (s._bounced || !playerTouches(run, s.x, s.y, s.r, body)) continue
+    // ...and a needle of YOUR pole bounces off you, harmless, and flies on (spark: needleBounce)
+    if (s.needle && run.polarity && s.pole === run.polarity.pole) {
+      const ux = s.x - p.x, uy = s.y - p.y, m = Math.hypot(ux, uy) || 1
+      s.vx = (ux / m) * speed; s.vy = (uy / m) * speed
+      s._bounced = true
+      run.events.push({ type: 'needleBounce', x: s.x, y: s.y, angle: Math.atan2(uy, ux) })
+      continue
+    }
     s._done = true
     if (!s.needle) run.events.push({ type: 'explode', x: s.x, y: s.y, radius: MISSILE_BLAST })
     if (!playerDied && p.invuln <= 0 && hurtPlayer(run, s.dmg, false, s.src ?? 'missile')) playerDied = true
@@ -10036,7 +10037,8 @@ function dealDamage(run, enemy, dmg, crit, dot = false, hazard = false, carried 
   if ((enemy.strandT || 0) > 0) dmg *= MANTLE_STRAND_DMG_MUL
   // THE CORE's pole rule: x dmgOpp on the other pole, x dmgSame on yours. A flat hit (the Dipole
   // Lance) and the world's own damage (hazard) skip it.
-  if (!flat && !hazard) dmg *= poleDmgMul(run, enemy)
+  const pm = !flat && !hazard ? poleDmgMul(run, enemy) : 1
+  dmg *= pm
   dmg = Math.round(dmg)
 
   // THE SHORE CRAB'S GUARD. Only the HP removal is refused; everything below still runs, and that
@@ -10085,7 +10087,7 @@ function dealDamage(run, enemy, dmg, crit, dot = false, hazard = false, carried 
   // the puffer's branch in guardBlocks sets it, and it is set on the frame of the refusal.
   if (blocked && (enemy.puffPopT ?? 0) > 0) run.events.push({ type: 'puffblock', x: enemy.x, y: enemy.y, angle: enemy.guardAngle, r: enemy.radius })
   else if (blocked) run.events.push({ type: 'guardblock', x: enemy.x, y: enemy.y, angle: enemy.guardAngle })
-  else run.events.push({ type: 'hit', x: enemy.x, y: enemy.y, dmg, crit, dot, id: enemy.id })
+  else run.events.push({ type: 'hit', x: enemy.x, y: enemy.y, dmg, crit, dot, id: enemy.id, pm })
 
   if (enemy.hp <= 0 && !enemy._dead) {
     enemy._dead = true
@@ -18932,7 +18934,7 @@ function polaritySpec(run) {
 }
 // Built lazily, like the Mantle's tide: the first reader of a Core run makes it. You start North.
 function polarState(run, S) {
-  return (run.polarity ??= { pole: 1, mix: polarMix(run, S), poolCd: 0, flipT: -1e9, latched: 0, dot: {} })
+  return (run.polarity ??= { pole: 1, mix: polarMix(run, S), split: 0.5, poolCd: 0, flipT: -1e9, latched: 0, dot: {}, dotFrame: {} })
 }
 // The share of new spawns that are North right now: base + amp x sin(2 pi t / period).
 function polarMix(run, S) {
@@ -18965,10 +18967,12 @@ function polarSpawn(run, e) {
   e.latched = false
   e.hx = 1; e.hy = 0
 }
-// A body's pole turned over (a pool, a pulse). The top's strobe moves on half a beat instead.
-function flipBodyPole(e, S) {
+// A body made to show `pole` (the Reversal Pulse). The top's strobe moves on a beat instead, so it
+// shows that pole now and keeps strobing.
+function setBodyPole(e, pole, S) {
+  if (e.pole === pole) return
   if (e.flags.includes('poleStrobe')) e._pph = (e._pph ?? 0) + S.top.strobe
-  e.pole = -e.pole
+  e.pole = pole
 }
 // A latched mite thrown off: outward at `speed` (its knockback, which decays), stunned `stun` s.
 function unlatchMite(e, speed, stun) {
@@ -19033,11 +19037,20 @@ function streamPolePools(run, S) {
       const y = (j + 0.5) * cs + (obstacleCellHash(i, j, seed, 52) - 0.5) * 2 * slack
       if (Math.hypot(x, y) < cfg.minDist) continue   // the run's start stays clear
       if (Math.hypot(x - p.x, y - p.y) > OBSTACLE_STREAM_RADIUS) continue
+      if (poolOnPillar(run, x, y, rx)) continue
       const rot = obstacleCellHash(i, j, seed, 53) * Math.PI
       const pole = obstacleCellHash(i, j, seed, 54) < 0.5 ? 1 : -1
       run.corePools.push({ x, y, rx, ry, rot, pole, _cell: key })
     }
   }
+}
+// A pool never lies under a pillar. Checked when a pool streams in, and again whenever the obstacle
+// field changes (stepPolarity), since pillars stream on their own cells. Both happen off screen.
+function poolOnPillar(run, x, y, rx) {
+  for (const o of run.obstacles) {
+    if (o.kind === 'pillar' && (o.x - x) ** 2 + (o.y - y) ** 2 < (rx + o.r + 12) ** 2) return true
+  }
+  return false
 }
 // The spawn mix, the pools under you, and what pulls on YOU: every pillar within reach, and every
 // golem within its drag radius (pulled in by one of the other pole, shoved off by one of yours).
@@ -19049,6 +19062,10 @@ function stepPolarity(run, dt) {
   P.mix = polarMix(run, S)
   P.poolCd = Math.max(0, P.poolCd - dt)
   streamPolePools(run, S)
+  if (P.obRev !== run._obstacleRev) {
+    P.obRev = run._obstacleRev
+    run.corePools = run.corePools.filter((q) => !poolOnPillar(run, q.x, q.y, q.rx))
+  }
   if (P.poolCd <= 0) {
     for (const q of run.corePools) {
       if (q.pole === P.pole || !inPolePool(q, p.x, p.y)) continue
@@ -19070,12 +19087,13 @@ function stepPolarity(run, dt) {
   }
   p.x += vx * dt; p.y += vy * dt
 }
-// One needle from a body along (ux, uy): run.enemyShots, flying straight, stopped by pillars.
+// One needle from a body along (ux, uy): run.enemyShots, flying straight, stopped by pillars. It
+// carries its thrower's pole: one of YOUR pole bounces off you harmlessly (stepEnemyShots).
 function polarNeedle(run, e, ux, uy, speed, S) {
   const N = S.needle
   run.enemyShots.push({
     x: e.x, y: e.y, vx: ux * speed, vy: uy * speed, r: N.r,
-    dmg: N.dmg * dmgScale(curveT(run)) * run.mods.enemyDmgMul, life: N.life, turnRate: 0, needle: true, src: e.rosterId,
+    dmg: N.dmg * dmgScale(curveT(run)) * run.mods.enemyDmgMul, life: N.life, turnRate: 0, needle: true, pole: e.pole, src: e.rosterId,
   })
 }
 function needleFan(run, e, ux, uy, fan, speed, S) {
@@ -19108,6 +19126,9 @@ function stepPolarBody(run, e, dt, slowMul, S) {
       const m = Math.hypot(vx, vy)
       if (m > M.cap) { vx *= M.cap / m; vy *= M.cap / m }
       if (d < e.radius + PLAYER.radius) {
+        // you are full (latch.max already on you): it bounces off and comes round again
+        if (P.latched >= S.latch.max) { vx = -ux * S.eject.speed; vy = -uy * S.eject.speed; e._pvx = vx; e._pvy = vy; return }
+        P.latched++
         e.latched = true
         e._lx = -ux * (PLAYER.radius + e.radius * 0.7); e._ly = -uy * (PLAYER.radius + e.radius * 0.7)
         e._pvx = 0; e._pvy = 0
@@ -19115,10 +19136,9 @@ function stepPolarBody(run, e, dt, slowMul, S) {
         return
       }
     } else {
+      // your pole: it scatters out to a ring round you and stays there, harmless (no ranged attack)
       const rad = (d - M.orbit) * M.gain, tan = M.tan * e._orbit
       vx += ((ux * rad - uy * tan) - vx) * M.blend * dt; vy += ((uy * rad + ux * tan) - vy) * M.blend * dt
-      e._pcd -= dt
-      if (e._pcd <= 0 && d < M.range) { e._pcd = M.cd[0] + Math.random() * (M.cd[1] - M.cd[0]); polarNeedle(run, e, ux, uy, M.needle, S) }
     }
   } else if (e.flags.includes('needleFan')) {
     const U = S.urchin
@@ -19127,21 +19147,23 @@ function stepPolarBody(run, e, dt, slowMul, S) {
     e._pcd -= dt
     if (e._pcd <= 0 && d < U.range) { e._pcd = U.cd; needleFan(run, e, ux, uy, U.fan, U.needle, S) }
   } else if (e.flags.includes('poleStrobe')) {
+    // seeks you on its beats of the other pole, backs off on beats of yours
     const T = S.top
-    const spd = opp ? T.opp : T.same, wob = Math.sin(run.time * T.wobFreq + (e._pph ?? 0)) * T.wobAmp
+    const spd = opp ? T.opp : -T.same, wob = Math.sin(run.time * T.wobFreq + (e._pph ?? 0)) * T.wobAmp
     vx = (ux - uy * wob) * spd; vy = (uy + ux * wob) * spd
   } else if (e.flags.includes('ferroSpikes')) {
-    const B = S.blob
-    const spd = e._splitChild ? B.smallSpeed : B.speed
+    // the other pole: creeps at you and spikes when near; yours: curls up into a ball and sits still
+    const B = S.blob, g = Math.min(1, B.grow * dt)
+    const spd = opp ? (e._splitChild ? B.smallSpeed : B.speed) : 0
     vx = ux * spd; vy = uy * spd
-    e.spike += ((opp && d < B.near ? 1 : 0) - e.spike) * Math.min(1, B.grow * dt)
+    e.spike += ((opp && d < B.near ? 1 : 0) - e.spike) * g
+    e.curl = (e.curl ?? 0) + ((opp ? 0 : 1) - (e.curl ?? 0)) * g
   } else if (e.flags.includes('lodestone')) {
+    // the other pole: crawls at you (stepPolarity drags you in); yours: circles at `hold`, shoving you off
     const G = S.golem
     if (opp) { vx = ux * G.crawl; vy = uy * G.crawl } else {
       const rad = (d - G.hold) * G.gain
       vx = ux * rad - uy * G.tan; vy = uy * rad + ux * G.tan
-      e._pcd -= dt
-      if (e._pcd <= 0) { e._pcd = G.cd; needleFan(run, e, ux, uy, G.fan, G.needle, S) }
     }
   } else if (e.flags.includes('dipole')) {
     // It leads with the end of the other pole: the head (e.pole) if that is not yours, else the tail,
@@ -19186,28 +19208,36 @@ function polarDot(run, P, src, amt) {
   return hurtPlayer(run, n, true, src)
 }
 // What the polar bodies do to YOU, after every push of the frame (separation, pillars): latched mites
-// are re-pinned and bite, spiked blobs and an opposite golem burn, a top and an eel's leading end bite.
+// are re-pinned and bite, spiked blobs and an opposite golem burn, a top on a beat of the other pole
+// and an eel's leading end bite. Nothing of YOUR pole hurts you. Every DoT of the frame is summed per
+// source and the total held to dotCap hp/s (and HURT_CAP_FRAC x maxHP per second), so a crowd of
+// latched mites or a knot of spiked blobs cannot stack past it. Also counts the gauge's on-screen split.
 // @returns true if the player died this frame.
 function stepPolarHurt(run, dt) {
   const S = polaritySpec(run)
   if (!S) return false
   const P = polarState(run, S), p = run.player
   const kd = dmgScale(curveT(run)) * run.mods.enemyDmgMul
-  let latched = 0
+  const dots = P.dotFrame
+  let latched = 0, north = 0, south = 0, dotSum = 0
+  const dot = (e, amt) => { dots[e.rosterId] = (dots[e.rosterId] ?? 0) + amt; dotSum += amt }
   for (const e of run.enemies) {
     if (e._dead || e.pole === undefined || isAlly(e)) continue
+    if (!e.flags.includes('dipole') && Math.abs(e.x - p.x) <= run.viewW && Math.abs(e.y - p.y) <= run.viewH) { if (e.pole > 0) north++; else south++ }
     const ek = kd * (e.elite ? ELITE.dmgMul : 1)
     if (e.latched) {
+      // a mite turned to your pole on you lets go at once
+      if (e.pole === P.pole) { unlatchMite(e, S.eject.speed, S.eject.stun); continue }
       latched++
       e.x = p.x + e._lx; e.y = p.y + e._ly
-      if (polarDot(run, P, e.rosterId, S.latch.dps * ek * dt)) return true
+      dot(e, S.latch.dps * ek * dt)
       continue
     }
     if ((e.stunT || 0) > 0 || damageImmune(e)) continue
     const dx = p.x - e.x, dy = p.y - e.y, d = Math.hypot(dx, dy) || 1
     if (e.flags.includes('poleStrobe')) {
       e._pcd -= dt
-      if (d < e.radius + PLAYER.radius && e._pcd <= 0 && p.invuln <= 0) {
+      if (e.pole !== P.pole && d < e.radius + PLAYER.radius && e._pcd <= 0 && p.invuln <= 0) {
         e._pcd = S.top.cd
         if (hurtPlayer(run, e.dmg, false, e.rosterId)) return true
       }
@@ -19223,20 +19253,30 @@ function stepPolarHurt(run, dt) {
         if (hurtPlayer(run, e.dmg, false, e.rosterId)) return true
       }
     } else if (e.flags.includes('ferroSpikes')) {
-      if (e.spike > 0.5 && d < e.radius + PLAYER.radius + S.blob.reach * e.spike && polarDot(run, P, e.rosterId, S.blob.dps * ek * dt)) return true
+      if (e.pole !== P.pole && e.spike > 0.5 && d < e.radius + PLAYER.radius + S.blob.reach * e.spike) dot(e, S.blob.dps * ek * dt)
     } else if (e.flags.includes('lodestone')) {
-      if (e.pole !== P.pole && d < e.radius + PLAYER.radius && polarDot(run, P, e.rosterId, S.golem.dps * ek * dt)) return true
+      if (e.pole !== P.pole && d < e.radius + PLAYER.radius) dot(e, S.golem.dps * ek * dt)
     }
   }
   P.latched = latched   // stepPlayerMovement's slow reads it next frame
+  P.split = north + south > 0 ? north / (north + south) : 0.5
+  const cap = Math.min(S.dotCap, p.maxHP * HURT_CAP_FRAC) * dt
+  const k = dotSum > cap ? cap / dotSum : 1
+  for (const src in dots) {
+    if (!dots[src]) continue
+    const amt = dots[src] * k
+    dots[src] = 0
+    if (polarDot(run, P, src, amt)) return true
+  }
   return false
 }
-// The Reversal Pulse's touch: frees a latched mite (stunned pulseStun), flips the pole, stuns n.stun.
+// The Reversal Pulse's touch: frees a latched mite (stunned pulseStun), turns the body to the pole
+// OPPOSITE yours (owner, Rev 2: prey for your x2, a threat to you), stuns n.stun.
 function polarPulseHit(run, e, n) {
   const S = polaritySpec(run)
   if (!S || e.pole === undefined) return
   if (e.latched) unlatchMite(e, 0, S.pulseStun)
-  flipBodyPole(e, S)
+  setBodyPole(e, -polarState(run, S).pole, S)
   if (n.stun > 0) e.stunT = Math.max(e.stunT || 0, n.stun)
   run.events.push({ type: 'poolFlip', x: e.x, y: e.y, pole: e.pole })
 }

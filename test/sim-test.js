@@ -21094,6 +21094,8 @@ run(testLeLargeWeapons)
   run(testCore)
   run(testCoreWeapons)
   run(testCoreMagnetism)
+  run(testCoreRules)
+  run(testCoreSpawnMix)
   // A hand-typed filter that matched nothing is the silent pass without a parent watching:
   // `node test/sim-test.js supernova` printed ALL TESTS PASSED having run no scenario at all.
   if (_ran === 0 && !EXACT_SET) {
@@ -42693,18 +42695,30 @@ function testCoreWeapons() {
   const allOpp = gauss(false), blocked = gauss(true)
   assert.deepStrictEqual(allOpp, [true, true, true], `run CO2.b: the slug runs through three bodies of the other pole: ${allOpp}`)
   assert.deepStrictEqual(blocked, [true, false, false], `run CO2.b: a body of your pole in front stops the slug: ${blocked}`)
-  // (c) the Reversal Pulse turns every body it touches over and shakes a latched mite off
+  // (c) the Reversal Pulse turns every body it touches to the pole OPPOSITE yours (a top's strobe
+  // included) and shakes a latched mite off; Charged Ring's damage lands after the turn, at x2
+  let ringHit = 0
   noPools(() => {
     const r = boot(42203)
     r.weapons = [{ id: 'reversalPulse', level: 1 }]
+    r.weaponMods.reversalPulse = { chargedRing: 12 }
     step(r, 1)
-    const p = r.player
-    const a = body(r, { x: p.x + 120, y: p.y, pole: 1 }), b = body(r, { x: p.x - 120, y: p.y, pole: -1 })
-    const mite = body(r, { x: p.x, y: p.y, pole: -r.polarity.pole, flags: ['poleLatch'], rosterId: 'ferriteMite', extra: { latched: true, _lx: 24, _ly: 0 } })
-    r.enemies = [a, b, mite]
+    const p = r.player, P = r.polarity.pole
+    const a = body(r, { x: p.x + 120, y: p.y, pole: P }), b = body(r, { x: p.x - 120, y: p.y, pole: -P })
+    const top = body(r, { x: p.x, y: p.y + 120, pole: P, flags: ['poleStrobe'], rosterId: 'spinningTop' })
+    const mite = body(r, { x: p.x, y: p.y, pole: -P, flags: ['poleLatch'], rosterId: 'ferriteMite', extra: { latched: true, _lx: 24, _ly: 0 } })
+    r.enemies = [a, b, top, mite]
     let n = 0
-    while ((a.pole === 1 || b.pole === -1) && n++ < 60 * 8) { a.x = p.x + 120; a.y = p.y; b.x = p.x - 120; b.y = p.y; step(r, 1, (o) => o === a || o === b || o === mite) }
-    assert.ok(a.pole === -1 && b.pole === 1 && !mite.latched, `run CO2.c: the pulse flips both poles and frees the mite: ${a.pole} ${b.pole} latched ${mite.latched}`)
+    while (a.hp === a.maxHP && n++ < 60 * 8) {
+      a.x = p.x + 120; a.y = p.y; b.x = p.x - 120; b.y = p.y; top.x = p.x; top.y = p.y + 120
+      // hold the top's strobe on YOUR beat until the ring reaches it
+      if (a.hp === a.maxHP) top._pph = Math.floor(r.time / 2) % 2 ? (P === 1 ? 0 : 2) : (P === 1 ? 2 : 0)
+      step(r, 1, (o) => o === a || o === b || o === top || o === mite)
+    }
+    ringHit = a.maxHP - a.hp
+    assert.ok(a.pole === -P && b.pole === -P && top.pole === -P && !mite.latched,
+      `run CO2.c: the pulse turns every body it touches to the pole opposite yours (${-P}): ${a.pole} ${b.pole} top ${top.pole}, mite latched ${mite.latched}`)
+    assert.strictEqual(ringHit, 24, `run CO2.c: Charged Ring's 12 lands after the turn, at x2 on a body that was your pole: ${ringHit}`)
   })
   // (d) a Ferrofluid Blob splits into droplets of its own pole
   let kids = []
@@ -42720,7 +42734,7 @@ function testCoreWeapons() {
     kids = r.enemies.filter((e) => e.rosterId === 'ferroBlobSmall')
     assert.ok(blob._dead && kids.length === 2 && kids.every((k) => k.pole === -1), `run CO2.d: the blob dies into 2 droplets that keep its pole: ${kids.map((k) => k.pole)}`)
   })
-  console.log(`PASS run CO2 (Core weapons): sling ${sOpp}/${sSame} on the other pole/yours, Lance ${lOpp}/${lSame}; gauss through 3 opposite, stopped by 1 of yours; the pulse flips and frees; the blob splits into ${kids.length} droplets of its pole`)
+  console.log(`PASS run CO2 (Core weapons): sling ${sOpp}/${sSame} on the other pole/yours, Lance ${lOpp}/${lSame}; gauss through 3 opposite, stopped by 1 of yours; the pulse turns all it touches against you and frees, Charged Ring ${ringHit} after the turn; the blob splits into ${kids.length} droplets of its pole`)
 }
 
 function testCoreMagnetism() {
@@ -42742,7 +42756,7 @@ function testCoreMagnetism() {
   const away = gem(true, 80), far = gem(false, magnet * 2.5)
   assert.ok(away.moved > 30 && !away.got, `run CO3.a: a gem of your pole slides away from you: moved ${away.moved.toFixed(1)}px`)
   assert.ok(far.got, `run CO3.a: a gem of the other pole is collected from ${(magnet * 2.5).toFixed(0)}px (2.5x the magnet)`)
-  // (b) the crowd sorts itself: opposite bodies that touch stick and grind; yours keep apart
+  // (b) the crowd sorts itself: opposite bodies that touch stick (and do each other no harm); yours keep apart
   const pair = (poles, polar = true) => noPools(() => {
     const r = boot(42302)
     r.weapons = []
@@ -42757,21 +42771,158 @@ function testCoreMagnetism() {
       return { d: Math.hypot(a.x - b.x, a.y - b.y), lost: (100 - a.hp) + (100 - b.hp) }
     } finally { sig.polarity = saved }
   })
-  const opp = pair([1, -1, 30]), same = pair([1, 1, 22]), plain = pair([1, 1, 22], false)
-  assert.ok(opp.d < 22 && opp.lost >= 10, `run CO3.b: two opposite bodies that touch stick and grind each other: ${opp.d.toFixed(1)}px apart, ${opp.lost} hp lost in 3s`)
+  const opp = pair([1, -1, 30]), same = pair([1, 1, 22]), plain = pair([1, 1, 22], false), apart = pair([1, -1, 60])
+  assert.ok(opp.d < 22 && apart.d > 50, `run CO3.b: two opposite bodies that touch stick together (${opp.d.toFixed(1)}px), two that do not touch stay put (${apart.d.toFixed(1)}px)`)
+  assert.strictEqual(opp.lost, 0, `run CO3.b: a stuck pair does each other no damage (owner: the grind only sticks): ${opp.lost} hp lost in 3s`)
   assert.ok(same.d > plain.d + 6 && same.lost === 0, `run CO3.b: two of the same pole stand farther apart than ordinary separation: ${same.d.toFixed(1)} vs ${plain.d.toFixed(1)}px`)
-  // (c) a grind kill is a kill and pays a gem of the dead body's pole
-  const kill = noPools(() => {
-    const r = boot(42303)
+  console.log(`PASS run CO3 (Core magnetism): your gem slid ${away.moved.toFixed(0)}px away, the other pole's flew in from 2.5x the magnet; opposite pair ${opp.d.toFixed(1)}px apart losing ${opp.lost}hp/3s, same pole ${same.d.toFixed(1)}px vs ${plain.d.toFixed(1)}px ordinary`)
+}
+
+// THE CORE, REV 2 (owner rulings): one rule for every creature. The OTHER pole comes at you, attacks
+// and takes x2; YOUR pole keeps away and cannot hurt you. Each pair below is the same body in the
+// same spot, once of each pole, so the only thing that differs is the pole.
+function testCoreRules() {
+  const { S, boot, body, step, noPools } = coreRig()
+  const harm = (seed, opp, make, secs, hold = null) => noPools(() => {
+    const r = boot(seed)
+    r.weapons = []
+    step(r, 1)
+    const p = r.player, P = r.polarity.pole
+    const e = make(r, p, opp ? -P : P)
+    r.enemies = [e]
+    const d0 = { ...(r.dmgBySrc ?? {}) }
+    let shots = 0
+    for (let i = 0; i < 60 * secs; i++) {
+      if (hold) hold(e, p)
+      step(r, 1, (o) => o === e)
+      for (const s of r.enemyShots) if (s.src === e.rosterId && !s._seen) { s._seen = true; shots++ }
+    }
+    return { dmg: (r.dmgBySrc?.[e.rosterId] ?? 0) - (d0[e.rosterId] ?? 0), shots, e }
+  })
+  // (a) the mite: the other pole clings and bites; yours scatters and never shoots
+  const mite = (r, p, pole) => body(r, { x: p.x + 70, y: p.y, pole, flags: ['poleLatch'], rosterId: 'ferriteMite', extra: { radius: 9, _pcd: 0 } })
+  const mO = harm(42401, true, mite, 6), mS = harm(42401, false, mite, 6)
+  assert.ok(mO.dmg > 0 && mO.e.latched, `run CO4.a: a mite of the other pole clings and bites: ${mO.dmg} hp, latched ${mO.e.latched}`)
+  assert.ok(mS.dmg === 0 && mS.shots === 0 && !mS.e.latched, `run CO4.a: a mite of your pole does nothing to you and throws no needle: ${mS.dmg} hp, ${mS.shots} needles`)
+  // (b) the blob, held at arm's length: the other pole spikes and burns; yours curls up, harmless
+  const blob = (r, p, pole) => body(r, { x: p.x + 40, y: p.y, pole, flags: ['ferroSpikes'], rosterId: 'ferroBlob', extra: { radius: 20 } })
+  const near = (e, p) => { e.x = p.x + 40; e.y = p.y }
+  const bO = harm(42402, true, blob, 5, near), bS = harm(42402, false, blob, 5, near)
+  assert.ok(bO.dmg > 0 && bS.dmg === 0 && bS.e.curl > 0.9 && bO.e.spike > 0.9,
+    `run CO4.b: an opposite blob spikes (${bO.e.spike.toFixed(2)}) and burns ${bO.dmg} hp; one of yours curls (${(bS.e.curl ?? 0).toFixed(2)}) and burns ${bS.dmg}`)
+  // (c) the golem, touching you: the other pole burns on contact; yours does no damage and no needles
+  const golem = (r, p, pole) => body(r, { x: p.x + 40, y: p.y, pole, flags: ['lodestone'], rosterId: 'lodestoneGolem', extra: { radius: 28, _pcd: 0 } })
+  const touch = (e, p) => { e.x = p.x + 40; e.y = p.y }
+  const gO = harm(42403, true, golem, 6, touch), gS = harm(42403, false, golem, 6, touch)
+  assert.ok(gO.dmg > 0 && gS.dmg === 0 && gO.shots === 0 && gS.shots === 0,
+    `run CO4.c: an opposite golem burns ${gO.dmg} hp on contact, one of yours ${gS.dmg}; needles ${gO.shots}/${gS.shots} (a golem never shoots)`)
+  // (d) the top strobes: pinned on you for 8 s it bites, and only ever on a beat of the other pole
+  let topBites = 0, wrongBeat = 0
+  noPools(() => {
+    const r = boot(42404)
     r.weapons = []
     step(r, 1)
     const p = r.player
-    const a = body(r, { x: p.x + 400, y: p.y, pole: 1, hp: 2 }), b = body(r, { x: p.x + 428, y: p.y, pole: -1, hp: 1e6 })
-    r.enemies = [a, b]
-    const k0 = r.kills
-    step(r, 120, (o) => o === a || o === b)
-    return { dead: !!a._dead, kills: r.kills - k0, gem: r.gems.some((g) => g.pole === 1) }
+    const top = body(r, { x: p.x, y: p.y, pole: 1, flags: ['poleStrobe'], rosterId: 'spinningTop', extra: { radius: 14, _pcd: 0 } })
+    r.enemies = [top]
+    for (let i = 0; i < 60 * 8; i++) {
+      top.x = p.x + 10; top.y = p.y
+      r.player.invuln = 0
+      step(r, 1, (o) => o === top, (evs) => { for (const ev of evs) if (ev.type === 'hurt' && ev.src === 'spinningTop') { topBites++; if (top.pole === r.polarity.pole) wrongBeat++ } })
+    }
   })
-  assert.ok(kill.dead && kill.kills === 1 && kill.gem, `run CO3.c: a ground-down body counts as a kill and drops its gem: ${JSON.stringify(kill)}`)
-  console.log(`PASS run CO3 (Core magnetism): your gem slid ${away.moved.toFixed(0)}px away, the other pole's flew in from 2.5x the magnet; opposite pair ${opp.d.toFixed(1)}px apart losing ${opp.lost}hp/3s, same pole ${same.d.toFixed(1)}px vs ${plain.d.toFixed(1)}px ordinary; a grind kill pays`)
+  assert.ok(topBites >= 3 && wrongBeat === 0, `run CO4.d: a top bites only on beats of the other pole: ${topBites} bites, ${wrongBeat} on your beat`)
+  // (e) the urchin fires either way; a needle of YOUR pole bounces off you harmlessly
+  const urchin = (r, p, pole) => body(r, { x: p.x + 250, y: p.y, pole, flags: ['needleFan'], rosterId: 'needleUrchin', extra: { radius: 18, _pcd: 0 } })
+  const park = (e, p) => { e.x = p.x + 250; e.y = p.y }
+  let bounces = 0
+  const uS = noPools(() => {
+    const r = boot(42405)
+    r.weapons = []
+    step(r, 1)
+    const p = r.player, P = r.polarity.pole
+    const e = urchin(r, p, P)
+    r.enemies = [e]
+    for (let i = 0; i < 60 * 4; i++) { park(e, p); step(r, 1, (o) => o === e, (evs) => { for (const ev of evs) if (ev.type === 'needleBounce') bounces++ }) }
+    return r.dmgBySrc?.needleUrchin ?? 0
+  })
+  const uO = harm(42405, true, urchin, 4, park)
+  assert.ok(bounces >= 1 && uS === 0 && uO.dmg > 0, `run CO4.e: needles of your pole bounce off (${bounces} bounces, ${uS} hp); the other pole's land (${uO.dmg} hp)`)
+  // (f) the gauge is the live split of the creatures ON SCREEN: 3 North and 1 South inside the
+  // view, 5 South outside it, and an eel (two poles) that it skips
+  let split = -1
+  noPools(() => {
+    const r = boot(42406)
+    r.weapons = []
+    step(r, 1)
+    const p = r.player, far = r.viewW + 200
+    const on = [[60, 0, 1], [-60, 0, 1], [0, 60, 1], [0, -60, -1]].map(([dx, dy, pole]) => body(r, { x: p.x + dx, y: p.y + dy, pole }))
+    const off = [0, 1, 2, 3, 4].map((k) => body(r, { x: p.x + far + k * 40, y: p.y, pole: -1 }))
+    const eel = body(r, { x: p.x + 100, y: p.y + 100, pole: -1, flags: ['dipole'], rosterId: 'dipoleEel' })
+    const all = [...on, ...off, eel]
+    r.enemies = [...all]
+    step(r, 1, (o) => all.includes(o))
+    split = r.polarity.split
+  })
+  assert.ok(Math.abs(split - 0.75) < 1e-9, `run CO4.f: the gauge reads the on-screen split, 3 North of 4 (off-screen bodies and the eel ignored): ${split}`)
+  // (g) the polar DoT is capped: 30 mites latched on you and a golem against you burn at most
+  // dotCap hp/s together (uncapped that is 30 x latch.dps + golem.dps)
+  let burnt = 0, latchedMax = 0
+  noPools(() => {
+    const r = boot(42407)
+    r.weapons = []
+    step(r, 1)
+    const p = r.player, P = r.polarity.pole
+    const mites = Array.from({ length: 30 }, (_, k) => body(r, { x: p.x, y: p.y, pole: -P, flags: ['poleLatch'], rosterId: 'ferriteMite',
+      extra: { radius: 9, latched: true, _lx: Math.cos(k) * 24, _ly: Math.sin(k) * 24 } }))
+    const g = body(r, { x: p.x + 40, y: p.y, pole: -P, flags: ['lodestone'], rosterId: 'lodestoneGolem', extra: { radius: 28 } })
+    const all = [...mites, g]
+    r.enemies = [...all]
+    const d0 = Object.values(r.dmgBySrc ?? {}).reduce((a, b) => a + b, 0)
+    for (let i = 0; i < 60 * 3; i++) { g.x = p.x + 40; g.y = p.y; step(r, 1, (o) => all.includes(o)) }
+    burnt = Object.values(r.dmgBySrc ?? {}).reduce((a, b) => a + b, 0) - d0
+    // ...and a fresh swarm of the other pole never puts more than latch.max on you
+    const swarm = Array.from({ length: 24 }, (_, k) => body(r, { x: p.x + Math.cos(k) * 90, y: p.y + Math.sin(k) * 90, pole: -P, flags: ['poleLatch'], rosterId: 'ferriteMite', extra: { radius: 9 } }))
+    r.enemies = [...swarm]
+    for (let i = 0; i < 60 * 4; i++) { step(r, 1, (o) => swarm.includes(o)); latchedMax = Math.max(latchedMax, swarm.filter((m) => m.latched).length) }
+  })
+  const capped = S.dotCap * 3
+  assert.ok(burnt <= capped + 2 && burnt >= capped * 0.8, `run CO4.g: 30 latched mites and a golem burn ${burnt} hp in 3 s against a cap of ${capped} (uncapped ${(30 * S.latch.dps + S.golem.dps) * 3})`)
+  assert.ok(latchedMax === S.latch.max, `run CO4.g: a swarm of 24 puts at most latch.max = ${S.latch.max} on you: ${latchedMax}`)
+  console.log(`PASS run CO4 (Core rule): other pole/yours: mite ${mO.dmg}/${mS.dmg} hp, blob ${bO.dmg}/${bS.dmg}, golem ${gO.dmg}/${gS.dmg} (no needles), top ${topBites} bites all on the other beat; ${bounces} needles of your pole bounced; gauge ${split}; DoT ${burnt}/${capped} hp in 3 s, ${latchedMax} latched max`)
+}
+
+// The Core's spawn mix stays near the prototype's: the heavies (eel, golem, blob) a few percent of
+// what spawns, never more than their maxAlive at once. v8.90 spawned them ~5x the prototype (fast and
+// tank took WAVE_TABLE's late weights): 32% of 300 s of spawns against the prototype's ~5%.
+function testCoreSpawnMix() {
+  const { boot } = coreRig()
+  const r = boot(42501)
+  const seen = new Set(), born = {}, most = {}
+  for (let i = 0; i < 60 * 150; i++) {
+    if (r.phase === 'levelup') { r.phase = 'playing'; r.levelUpChoices = [] }
+    r.player.hp = r.player.maxHP
+    stepSim(r, { x: Math.cos(i / 200), y: Math.sin(i / 200) }, 1 / 60)
+    r.events.length = 0
+    if (i % 15) continue
+    const alive = {}
+    for (const e of r.enemies) {
+      if (e._dead || !e.rosterId) continue
+      alive[e.rosterId] = (alive[e.rosterId] ?? 0) + 1
+      if (seen.has(e.id) || e._splitChild) continue
+      seen.add(e.id); born[e.rosterId] = (born[e.rosterId] ?? 0) + 1
+    }
+    for (const [k, n] of Object.entries(alive)) most[k] = Math.max(most[k] ?? 0, n)
+  }
+  const total = Object.values(born).reduce((a, b) => a + b, 0)
+  const heavy = (born.dipoleEel ?? 0) + (born.lodestoneGolem ?? 0) + (born.ferroBlob ?? 0)
+  const share = heavy / total
+  const cap = Object.fromEntries(CHAPTERS.core.roster.map((x) => [x.id, x.maxAlive]))
+  assert.ok(total > 250, `run CO5 precondition: a full 150 s of spawns (${total})`)
+  assert.ok(share >= 0.01 && share <= 0.12, `run CO5: heavies are ${(share * 100).toFixed(1)}% of spawns (prototype ~5%, v8.90 32%): ${JSON.stringify(born)}`)
+  assert.ok(born.dipoleEel > 0 && born.lodestoneGolem > 0 && born.ferroBlob > 0, `run CO5: every heavy still turns up: ${JSON.stringify(born)}`)
+  for (const id of ['dipoleEel', 'lodestoneGolem', 'ferroBlob', 'spinningTop']) {
+    assert.ok((most[id] ?? 0) <= cap[id], `run CO5: never more than ${cap[id]} ${id} at once: ${most[id]}`)
+  }
+  console.log(`PASS run CO5 (Core spawn mix): ${total} spawns in 150 s, heavies ${(share * 100).toFixed(1)}% (${JSON.stringify(born)}), most at once ${JSON.stringify(most)}`)
 }
