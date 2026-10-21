@@ -59,7 +59,7 @@ import {
   LONGLINE_SNAG, LONGLINE_HALF_W, LONGLINE_TWIN_GAP, LONGLINE_MAX_SETS, LONGLINE_MIN_OFFSET, CC_DR_FLOOR,
   MAW_GAPE_T, MAW_DEVOUR_FRAC, BORN_BLIND_MAX_DMG_MUL, BORN_BLIND_REFILL_MUL, MAW_VIS, MAW_REVEAL, LURE_GLOW, SCENT_R, SCENT_DMG_MUL, SCENT_SLOW, SCENT_MARK_T, spendSecs,
   BOOKS, BOOK_ORDER, BOOK_SHOP, shopLines, BOOK_UNLOCKS, playableChapterId, isWipChapter, chapterAvailable, titleBookshelf, CHAPTER_SPINE, isBookFinale, nextBook, bookOf, chapterNumber,
-  DMG_SRC_NAME, dmgSrcName, DMG_SRC_ART, dmgSrcArt, DMG_SRC_NO_ART,
+  DMG_SRC_NAME, dmgSrcName, DMG_SRC_ART, dmgSrcArt, DMG_SRC_NO_ART, POLE_NAMES,
   DEATH_OUTRO, irisCoverMul, deathProgress, LANE_CAMERA_FRAC,
   endlessLevel, ENDLESS_START_LEVEL, endlessHpMul, endlessXpNeedMul, endlessXpMul, ENDLESS_COIN_HALF_LIFE_S, endlessAffixChance, endlessEligible, endlessUnlocked, endlessAccess, ENDLESS_AFFIX_FROM, ENDLESS_AFFIX_MAX,
   CHAPTERS, CHAPTER_ORDER, nextChapter, CHAPTER_UNLOCK_DIFFICULTY, SUBMISSION_DURATION, SUBMISSION_STRIP_FLAGS,
@@ -2180,7 +2180,7 @@ function testAnomalySlate() {
       // landed this fixture reported "spawned nothing — untestable here" for a weapon that was
       // firing correctly. A melee weapon whose event type is missing from this array is invisible
       // to the assertion below.
-      const FX = ['whip', 'clawRake', 'roar', 'tail', 'gnash']
+      const FX = ['whip', 'clawRake', 'roar', 'tail', 'gnash', 'lance']
       // ⚠ ...AND ONE WEAPON THE FIXTURE'S OWN PIN MAKES UNMEASURABLE. Three lines below, a moving
       // arm teleports the player back to the origin every frame so the ring of targets stays put —
       // right for every card that reads VELOCITY, and blind to one that reads DISPLACEMENT. The
@@ -19386,6 +19386,8 @@ function testFrenchDictionary() {
   // summary screen's killer line and every row of its damage breakdown resolve through here, so a
   // missing entry is a French screen with English causes of death on it.
   for (const v of Object.values(DMG_SRC_NAME ?? {})) need(v)
+  // The Core's pole names, shown on the HUD's spawn-tide gauge (your pole).
+  for (const v of Object.values(POLE_NAMES ?? {})) need(v?.name)
   // The pause build sheet's stat labels. These were unreachable by this walk until STAT_KEYS became
   // a config TABLE: the words lived in a bare const inside ui.js, and this walk enumerates tables,
   // so five of them shipped rendering in English on the French sheet. Merging the two registries
@@ -21089,6 +21091,9 @@ run(testLeLargeWeapons)
   run(testMantleGround)
   run(testMantleBoats)
   run(testMantleLavaCrew)
+  run(testCore)
+  run(testCoreWeapons)
+  run(testCoreMagnetism)
   // A hand-typed filter that matched nothing is the silent pass without a parent watching:
   // `node test/sim-test.js supernova` printed ALL TESTS PASSED having run no scenario at all.
   if (_ran === 0 && !EXACT_SET) {
@@ -23039,7 +23044,8 @@ function testDescPlaceholder() {
   const dm = makeMeta(); dm.dev = true
   const r = createRun(dm, { chapter: 'geode' })
   r.weapons = [...new Set([...want].map((k) => k.split(':')[0]))].filter((id) => WEAPONS[id]).map((id) => ({ id, level: 3 }))
-  for (let i = 0; i < 4000 && seen.size < want.size; i++) {
+  // 16000: Fast Fuse (epic+ only) shows ~1 screen in 1000 with 12 weapons held; the loop exits early.
+  for (let i = 0; i < 16000 && seen.size < want.size; i++) {
     r._screenRerolls = -1
     for (const c of buildLevelUpChoices(r)) {
       if (c.kind === 'mod' && want.has(`${c.weapon}:${c.id}`)) seen.set(`${c.weapon}:${c.id}`, c)
@@ -41384,7 +41390,7 @@ function testMantle() {
   assert.ok(pOn > 0 && pOff === 0, `run MT.c: standing in the lava burns you (src lava), and not with the tide off: ${pOn} vs ${pOff}`)
   // (d) the chapter's own anomaly and mutator
   assert.deepStrictEqual(MUTATORS.highWater.chapters, ['mantle'], 'run MT.d: High Water is The Mantle\'s own mutator')
-  assert.strictEqual(BOOKS.burrow.chapters[BOOKS.burrow.chapters.length - 1], 'mantle', 'run MT.d: The Mantle is the last rung of Burrow')
+  assert.strictEqual(BOOKS.burrow.chapters[BOOKS.burrow.chapters.indexOf('mantle') + 1], 'core', 'run MT.d: The Mantle sits just above The Core on Burrow\'s ladder')
   assert.strictEqual(CHAPTERS['mantle'].starter, 'hotCoals', 'run MT.d: The Mantle starts you on Hot Coals')
   assert.strictEqual(ANOMALIES.floodTide.chapter, 'mantle', 'run MT.d: Flood Tide is The Mantle\'s own anomaly')
   const tideRange = (opts, anomalies) => {
@@ -42525,4 +42531,247 @@ function testGeodeCounters() {
   assert.ok(cl > 40 && Math.abs(pl) < 1, `run GK.e: stunned + frozen mid-leap, the cricket flew ${cl.toFixed(0)}px, a plain pouncer ${pl.toFixed(0)}px`)
 
   console.log(`PASS run GK (Geode counters): ring-back ${plain.toFixed(0)}px with or without Far Call; ${K.rings} cracks then a burst; the crab ate a rung crystal and turned to glass (walked ${gw.toFixed(0)}px dazed+frozen); bats quiet/loud/capped ${quiet}/${loud}/${capped}; committed leap ${cl.toFixed(0)}px vs ${pl.toFixed(0)}px`)
+}
+
+// ---- THE CORE (Book 3): the polarity signature, its weapons, magnetic loot and the self-sorting crowd.
+// Shared rig: a dev-gated Core run with an unkillable player; a polar body is a plain status enemy
+// carrying the contract fields polarSpawn gives a roster body (flags [] = no behaviour of its own).
+function coreRig() {
+  const S = CHAPTERS.core.signature.polarity
+  const boot = (seed) => {
+    Math.random = mulberry32(seed)
+    const m = makeMeta(); m.dev = true
+    const r = createRun(m, { chapter: 'core', difficulty: 1 })
+    r.player.hp = r.player.maxHP = 1e6
+    return r
+  }
+  const body = (r, { x, y, pole, hp = 1e6, flags = [], rosterId = 'needleUrchin', extra = {} }) => Object.assign(
+    makeStatusEnemy(r, { x, y, hp, speed: 0 }),
+    { rosterId, flags, pole, _orbit: 1, _pcd: 99, _pph: 0, spike: 0, latched: false, hx: 1, hy: 0 }, extra)
+  const step = (r, n, keep = null, onEv = null) => {
+    for (let i = 0; i < n; i++) {
+      if (r.phase === 'levelup') { r.phase = 'playing'; r.levelUpChoices = [] }
+      r.player.hp = r.player.maxHP
+      if (keep) r.enemies = r.enemies.filter(keep)
+      stepSim(r, { x: 0, y: 0 }, 1 / 60)
+      if (onEv) onEv(r.events)
+      r.events.length = 0
+    }
+  }
+  // no streamed pools for the length of fn (a test that wants a pool lays its own)
+  const noPools = (fn) => { const c = S.pools.chance; S.pools.chance = 0; try { return fn() } finally { S.pools.chance = c } }
+  return { S, boot, body, step, noPools }
+}
+
+function testCore() {
+  const { boot, body, step, noPools } = coreRig()
+  // (a) THE SPAWN TIDE: new bodies are North at the share run.polarity.mix says (golems excepted)
+  const hi = [0, 0], lo = [0, 0]
+  {
+    const r = boot(42101)
+    r.weapons = []
+    const seen = new Set()
+    for (let i = 0; i < 60 * 150; i++) {
+      step(r, 1)
+      for (const e of r.enemies) {
+        if (seen.has(e.id)) continue
+        seen.add(e.id)
+        if (e.pole === undefined || e.flags.includes('lodestone') || e._splitChild) continue
+        const mx = r.polarity.mix
+        if (mx > 0.75) { hi[0]++; if (e.pole === 1) hi[1]++ }
+        if (mx < 0.25) { lo[0]++; if (e.pole === 1) lo[1]++ }
+      }
+      if (r.enemies.length > 40) r.enemies.length = 0
+    }
+  }
+  const sh = hi[1] / hi[0], sl = lo[1] / lo[0]
+  assert.ok(hi[0] >= 40 && lo[0] >= 40, `run CO.a precondition: enough spawns near each peak (${hi[0]}, ${lo[0]})`)
+  assert.ok(sh > 0.7 && sl < 0.3, `run CO.a: spawns near the North peak are mostly North and near the South peak mostly South: ${sh.toFixed(2)} vs ${sl.toFixed(2)}`)
+  // (b) YOUR pole never changes without a pool: 40s walking among the crowd, then one pool flips you
+  let flips = 0
+  noPools(() => {
+    const r = boot(42102)
+    for (let i = 0; i < 60 * 40; i++) {
+      if (r.phase === 'levelup') { r.phase = 'playing'; r.levelUpChoices = [] }
+      r.player.hp = r.player.maxHP
+      stepSim(r, { x: Math.cos(i / 200), y: Math.sin(i / 200) }, 1 / 60)
+      for (const e of r.events) if (e.type === 'poleFlip') flips++
+      r.events.length = 0
+    }
+    assert.ok(r.polarity.pole === 1 && flips === 0, `run CO.b: no pool, no change: pole ${r.polarity.pole} after 40s, ${flips} poleFlip events`)
+    r.corePools.push({ x: r.player.x, y: r.player.y, rx: 60, ry: 40, rot: 0, pole: -1, _cell: 'test' })
+    step(r, 1, null, (evs) => { for (const e of evs) if (e.type === 'poleFlip') flips++ })
+    assert.ok(r.polarity.pole === -1 && flips === 1, `run CO.b: a South pool under you makes you South at once: ${r.polarity.pole}, ${flips}`)
+  })
+  // (c) the pool flip throws off every mite latched on you
+  let flung = 0
+  noPools(() => {
+    const r = boot(42103)
+    r.weapons = []
+    step(r, 1)
+    r.enemies = []
+    const p = r.player
+    const mites = [0, 1, 2].map((k) => body(r, { x: p.x, y: p.y, pole: -1, flags: ['poleLatch'], rosterId: 'ferriteMite',
+      extra: { latched: true, _lx: Math.cos(k * 2) * 24, _ly: Math.sin(k * 2) * 24 } }))
+    r.enemies.push(...mites)
+    step(r, 30, (e) => mites.includes(e))
+    assert.ok(mites.every((m) => m.latched), 'run CO.c precondition: the mites ride you while nothing happens')
+    r.corePools.push({ x: p.x, y: p.y, rx: 60, ry: 40, rot: 0, pole: -1, _cell: 'test' })
+    step(r, 20, (e) => mites.includes(e))
+    flung = mites.filter((m) => !m.latched && Math.hypot(m.x - p.x, m.y - p.y) > 40).length
+    assert.strictEqual(flung, 3, `run CO.c: a pool flip throws every latched mite off you: ${flung} of 3 flung`)
+  })
+  // (d) a body takes the pole of a pool it walks into
+  noPools(() => {
+    const r = boot(42104)
+    r.weapons = []
+    step(r, 1)
+    const e = body(r, { x: r.player.x + 400, y: r.player.y, pole: 1 })
+    r.enemies = [e]
+    r.corePools.push({ x: e.x, y: e.y, rx: 60, ry: 40, rot: 0, pole: -1, _cell: 'test' })
+    step(r, 2, (o) => o === e)
+    assert.strictEqual(e.pole, -1, 'run CO.d: a North body standing in a South pool turns South')
+  })
+  // (e) pillars pull the other pole and push your own
+  const drift = (samePole) => noPools(() => {
+    const r = boot(42105)
+    r.weapons = []
+    step(r, 1)
+    r.obstacles = r.obstacles.filter((o) => o.kind !== 'pillar')
+    r.enemies = []
+    r.player.x = 450; r.player.y = 0
+    r.obstacles.push({ kind: 'pillar', x: 600, y: 0, r: 21, pole: samePole ? r.polarity.pole : -r.polarity.pole })
+    step(r, 60, () => false)
+    return r.player.x - 450
+  })
+  const push = drift(true), pull = drift(false)
+  assert.ok(push < -10 && pull > 10, `run CO.e: a pillar of your pole pushes you off, one of the other pulls you in: ${push.toFixed(1)} / ${pull.toFixed(1)} px in 1s`)
+  console.log(`PASS run CO (The Core): spawns ${(sh * 100).toFixed(0)}% North at the N peak (n=${hi[0]}), ${(sl * 100).toFixed(0)}% at the S peak (n=${lo[0]}); 40s without a pool, 0 changes, one pool flips you; ${flung}/3 mites flung; a body takes a pool's pole; pillar ${push.toFixed(0)}px push / +${pull.toFixed(0)}px pull`)
+}
+
+function testCoreWeapons() {
+  const { boot, body, step, noPools } = coreRig()
+  // (a) x2 on the other pole, x0.5 on yours, and the Dipole Lance ignores poles
+  const perHit = (weapon, samePole) => noPools(() => {
+    const r = boot(42201)
+    r.weapons = [{ id: weapon, level: 1 }]
+    step(r, 1)
+    const e = body(r, { x: r.player.x + 100, y: r.player.y, pole: samePole ? r.polarity.pole : -r.polarity.pole })
+    r.enemies = [e]
+    const hits = []
+    for (let i = 0; i < 60 * 8 && hits.length < 4; i++) {
+      const hp0 = e.hp
+      e.x = r.player.x + 100; e.y = r.player.y
+      step(r, 1, (o) => o === e)
+      if (e.hp < hp0) hits.push(hp0 - e.hp)
+    }
+    assert.ok(hits.length >= 2, `run CO2.a precondition: ${weapon} landed hits (${hits.length})`)
+    return Math.min(...hits)
+  })
+  const sOpp = perHit('sling', false), sSame = perHit('sling', true)
+  const lOpp = perHit('dipoleLance', false), lSame = perHit('dipoleLance', true)
+  assert.ok(sOpp / sSame >= 3.5 && sOpp / sSame <= 4.5, `run CO2.a: the other pole takes 4x what yours does (x2 / x0.5): ${sOpp} vs ${sSame}`)
+  assert.strictEqual(lOpp, lSame, `run CO2.a: the Dipole Lance strikes both poles alike: ${lOpp} vs ${lSame}`)
+  // (b) the Gauss Coil's slug runs through the other pole and stops on the first body of yours
+  const gauss = (firstSame) => noPools(() => {
+    const r = boot(42202)
+    r.weapons = [{ id: 'gaussCoil', level: 1 }]
+    step(r, 1)
+    const P = r.polarity.pole, px = r.player.x, py = r.player.y
+    const line = [0, 1, 2].map((k) => body(r, { x: px + 100 + k * 60, y: py, pole: k === 0 && firstSame ? P : -P }))
+    r.enemies = [...line]
+    let t0 = -1
+    for (let i = 0; i < 60 * 4; i++) {
+      line.forEach((e, k) => { e.x = px + 100 + k * 60; e.y = py })
+      r.player.x = px; r.player.y = py
+      step(r, 1, (o) => line.includes(o))
+      if (t0 < 0 && line.some((e) => e.hp < e.maxHP)) t0 = i
+      if (t0 >= 0 && i - t0 > 20) break
+    }
+    return line.map((e) => e.hp < e.maxHP)
+  })
+  const allOpp = gauss(false), blocked = gauss(true)
+  assert.deepStrictEqual(allOpp, [true, true, true], `run CO2.b: the slug runs through three bodies of the other pole: ${allOpp}`)
+  assert.deepStrictEqual(blocked, [true, false, false], `run CO2.b: a body of your pole in front stops the slug: ${blocked}`)
+  // (c) the Reversal Pulse turns every body it touches over and shakes a latched mite off
+  noPools(() => {
+    const r = boot(42203)
+    r.weapons = [{ id: 'reversalPulse', level: 1 }]
+    step(r, 1)
+    const p = r.player
+    const a = body(r, { x: p.x + 120, y: p.y, pole: 1 }), b = body(r, { x: p.x - 120, y: p.y, pole: -1 })
+    const mite = body(r, { x: p.x, y: p.y, pole: -r.polarity.pole, flags: ['poleLatch'], rosterId: 'ferriteMite', extra: { latched: true, _lx: 24, _ly: 0 } })
+    r.enemies = [a, b, mite]
+    let n = 0
+    while ((a.pole === 1 || b.pole === -1) && n++ < 60 * 8) { a.x = p.x + 120; a.y = p.y; b.x = p.x - 120; b.y = p.y; step(r, 1, (o) => o === a || o === b || o === mite) }
+    assert.ok(a.pole === -1 && b.pole === 1 && !mite.latched, `run CO2.c: the pulse flips both poles and frees the mite: ${a.pole} ${b.pole} latched ${mite.latched}`)
+  })
+  // (d) a Ferrofluid Blob splits into droplets of its own pole
+  let kids = []
+  noPools(() => {
+    const r = boot(42204)
+    r.weapons = [{ id: 'dipoleLance', level: 1 }]
+    step(r, 1)
+    const spec = CHAPTERS.core.roster.find((x) => x.id === 'ferroBlob')
+    const blob = body(r, { x: r.player.x + 90, y: r.player.y, pole: -1, hp: 5, flags: [...spec.flags], rosterId: 'ferroBlob', extra: { split: spec.split, radius: 20 } })
+    r.enemies = [blob]
+    for (let i = 0; i < 60 * 4 && !blob._dead; i++) { blob.x = r.player.x + 90; blob.y = r.player.y; step(r, 1) }
+    step(r, 2)
+    kids = r.enemies.filter((e) => e.rosterId === 'ferroBlobSmall')
+    assert.ok(blob._dead && kids.length === 2 && kids.every((k) => k.pole === -1), `run CO2.d: the blob dies into 2 droplets that keep its pole: ${kids.map((k) => k.pole)}`)
+  })
+  console.log(`PASS run CO2 (Core weapons): sling ${sOpp}/${sSame} on the other pole/yours, Lance ${lOpp}/${lSame}; gauss through 3 opposite, stopped by 1 of yours; the pulse flips and frees; the blob splits into ${kids.length} droplets of its pole`)
+}
+
+function testCoreMagnetism() {
+  const { boot, body, step, noPools } = coreRig()
+  // (a) magnetic loot: a gem of your pole slides away, one of the other pole flies in from far
+  const gem = (samePole, dist) => noPools(() => {
+    const r = boot(42301)
+    r.weapons = []
+    step(r, 1)
+    r.enemies = []
+    const p = r.player, P = r.polarity.pole
+    const g = { x: p.x + dist, y: p.y, xp: 1, pole: samePole ? P : -P }
+    const x0 = g.x
+    r.gems = [g]
+    step(r, 60, () => false)
+    return { moved: g.x - x0, got: !r.gems.includes(g) }
+  })
+  const magnet = boot(1).player.magnet
+  const away = gem(true, 80), far = gem(false, magnet * 2.5)
+  assert.ok(away.moved > 30 && !away.got, `run CO3.a: a gem of your pole slides away from you: moved ${away.moved.toFixed(1)}px`)
+  assert.ok(far.got, `run CO3.a: a gem of the other pole is collected from ${(magnet * 2.5).toFixed(0)}px (2.5x the magnet)`)
+  // (b) the crowd sorts itself: opposite bodies that touch stick and grind; yours keep apart
+  const pair = (poles, polar = true) => noPools(() => {
+    const r = boot(42302)
+    r.weapons = []
+    step(r, 1)
+    const sig = CHAPTERS.core.signature, saved = sig.polarity
+    if (!polar) sig.polarity = null
+    try {
+      const p = r.player
+      const a = body(r, { x: p.x + 400, y: p.y, pole: poles[0], hp: 100 }), b = body(r, { x: p.x + 400 + poles[2], y: p.y, pole: poles[1], hp: 100 })
+      r.enemies = [a, b]
+      step(r, 180, (o) => o === a || o === b)
+      return { d: Math.hypot(a.x - b.x, a.y - b.y), lost: (100 - a.hp) + (100 - b.hp) }
+    } finally { sig.polarity = saved }
+  })
+  const opp = pair([1, -1, 30]), same = pair([1, 1, 22]), plain = pair([1, 1, 22], false)
+  assert.ok(opp.d < 22 && opp.lost >= 14, `run CO3.b: two opposite bodies that touch stick and grind each other: ${opp.d.toFixed(1)}px apart, ${opp.lost} hp lost in 3s`)
+  assert.ok(same.d > plain.d + 6 && same.lost === 0, `run CO3.b: two of the same pole stand farther apart than ordinary separation: ${same.d.toFixed(1)} vs ${plain.d.toFixed(1)}px`)
+  // (c) a grind kill is a kill and pays a gem of the dead body's pole
+  const kill = noPools(() => {
+    const r = boot(42303)
+    r.weapons = []
+    step(r, 1)
+    const p = r.player
+    const a = body(r, { x: p.x + 400, y: p.y, pole: 1, hp: 2 }), b = body(r, { x: p.x + 428, y: p.y, pole: -1, hp: 1e6 })
+    r.enemies = [a, b]
+    const k0 = r.kills
+    step(r, 120, (o) => o === a || o === b)
+    return { dead: !!a._dead, kills: r.kills - k0, gem: r.gems.some((g) => g.pole === 1) }
+  })
+  assert.ok(kill.dead && kill.kills === 1 && kill.gem, `run CO3.c: a ground-down body counts as a kill and drops its gem: ${JSON.stringify(kill)}`)
+  console.log(`PASS run CO3 (Core magnetism): your gem slid ${away.moved.toFixed(0)}px away, the other pole's flew in from 2.5x the magnet; opposite pair ${opp.d.toFixed(1)}px apart losing ${opp.lost}hp/3s, same pole ${same.d.toFixed(1)}px vs ${plain.d.toFixed(1)}px ordinary; a grind kill pays`)
 }
