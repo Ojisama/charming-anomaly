@@ -152,13 +152,13 @@ import {
   CRAB_GUARD_T,
   CRAB_OPEN_T,
   CRAB_GUARD_ARC, PHASE_GHOST_T, PHASE_GHOST_SPEED_MUL,
-  laneScrollFor, LANE_STRAFE_MUL, LANE_LEAK_BEHIND_PX, LANE_LEAK_DMG, LANE_CAMERA_FRAC, laneHalfWidth, laneAxes,
+  laneScrollFor, laneViewOk, LANE_STRAFE_MUL, LANE_LEAK_BEHIND_PX, LANE_LEAK_DMG, LANE_CAMERA_FRAC, laneHalfWidth, laneAxes,
   swimthroughsFor, circuitKnob, caveSpecOf,
   ringXY, ringFU, ringHeading, ringDelta,
   caveAt, CAVE_BOUNCE_PX, CAVE_HIT_DPS, CAVE_HIT_TICK, CLEAN_LINE_DELAY,
   LANE_CRUSH_DPS, LANE_CRUSH_TICK,
   MARCH_SPEED_MUL, MARCH_SWAY_PX, MARCH_SWAY_RATE, MARCH_HOME_MUL,
-  FORMATION_INTERVAL, FORMATION_COLS, FORMATION_AHEAD_MUL, FORMATION_AHEAD_MIN, FORMATION_ROW_PX, LANE_SPAWN_MUL, LANE_CONTACT_MUL, laneEarlyMul,
+  FORMATION_INTERVAL, FORMATION_COLS, LANE_HALF_W, FORMATION_AHEAD_MUL, FORMATION_AHEAD_MIN, FORMATION_ROW_PX, LANE_SPAWN_MUL, LANE_CONTACT_MUL, laneEarlyMul,
   REPULSE_CD, REPULSE_RADIUS, REPULSE_FORCE, REPULSE_STUN, PULSE_CHARGE_COST, pulseCost, pulseCd, PULSE_RADIUS_AT_FULL, PULSE_FORCE_AT_FULL, CLEAR_DUR_MIN, CLEAR_DUR_AT_FULL, CLEAR_SIGHT_FADE, CLEAR_RADIUS_AT_FULL, CLEAR_STUN, darkness, refillSpec, resourceDamageMul, refillGrantFor, pollutionFrac, RUNOFF_MAX_DMG_MUL, RUNOFF_SPEED_FLOOR, FOUL_SPRING_FOUL_T, SILT_PLUME_SPREAD, SILT_FLUSH_MUL, LOBE_SHAPES, inLobe, lobeFactor, SEPARATION_SAMPLES,
   SUNSPEAR_FALL, SUNSPEAR_SPREAD, FOXFIRE_GLOOM, FOXFIRE_WANDER_SPEED, FOXFIRE_SWARM, FOXFIRE_CATCH_FRAC, SUNLANCE_REACH_MIN, GLINT_LIGHT_COST, BUBBLE_COVER_MAX, BUBBLE_ARC_MAX, BALLAST_FLIGHT, BALLAST_BLIND_THROW, BALLAST_REACH_PAD,
   BALLAST_TANK_MUL, BALLAST_DRAG, BALLAST_DRAG_T,
@@ -313,6 +313,8 @@ export function stepSim(run, input, dt) {
     run._skillHeld = false
     if (input && !input.skill) input = { ...input, skill: true }
   }
+  // The lane is sized and timed by the screen the run STARTED on (see LANE_WARNING_SECONDS).
+  if (CHAPTERS[run.chapter].lane === true && !run._laneView && laneViewOk(run)) run._laneView = { viewW: run.viewW, viewH: run.viewH }
   // TIME DEBT (v7.2) is one line because every consumer already derives from run.time — hpScale,
   // dmgScale, spawnRate, eliteEvery and the victory check below all read it, so inflating the
   // advance compresses the WHOLE run rather than speeding one system up. CHAOS_PACT's cycle reads
@@ -946,7 +948,7 @@ function stepPlayerMovement(run, input, dt) {
   // fixed rate forever and the joystick gives you nothing but the two directions across it. Because
   // the camera already tracks the player in every chapter, advancing the player IS the auto-scroll —
   // the world slides past while you hold station on screen, for the cost of this branch and nothing
-  // else. The forward rate is LANE_SCROLL_SPEED and not `speed`, so move-speed upgrades buy a faster
+  // else. The forward rate is laneScrollFor and not `speed`, so move-speed upgrades buy a faster
   // strafe and never a faster scroll.
   // v7.x: WHICH axis is forward comes from laneAxes (config.js) — The Beyond runs -y, The Reef +x.
   // No early return: the lane only changes the three expressions below, so it is folded into them
@@ -1006,7 +1008,7 @@ function stepPlayerMovement(run, input, dt) {
     // TURBO FIN raises the ceiling the throttle reaches for; QUICK START is how fast you get there.
     // Both are folded here rather than at their card, because this is the one expression that owns
     // the player's forward speed and a second site would drift from it.
-    const want = laneScrollFor(CHAPTERS[run.chapter], run.mods) * run._laneThrottle * (1 + (run.passives.topSpeed ?? 0))
+    const want = laneScrollFor(CHAPTERS[run.chapter], run.mods, run) * run._laneThrottle * (1 + (run.passives.topSpeed ?? 0))
     if (CHAPTERS[run.chapter].circuit) {
       // SEEDED AT THE CHAPTER'S OWN SCROLL — not at 0, and not at `want`.
       //   Not 0: a run easing up from a standstill travels slower than the lane it is scored
@@ -1016,7 +1018,7 @@ function stepPlayerMovement(run, input, dt) {
       // sort of edge a time board eventually finds, and it made run RS.e green for the wrong
       // reason — the old assertion demanded x3 after a single frame and got it from this seed
       // rather than from the throttle.
-      if (run._laneSpeed == null) run._laneSpeed = laneScrollFor(CHAPTERS[run.chapter], run.mods)
+      if (run._laneSpeed == null) run._laneSpeed = laneScrollFor(CHAPTERS[run.chapter], run.mods, run)
       // Toward `want` at a fixed px/s^2, never past it — a clamped step rather than a lerp, so the
       // ramp takes the same time whatever the frame rate and cannot overshoot on a long dt. stepSim
       // clamps dt to 0.05s, so the largest single step is 21px/s.
@@ -1042,13 +1044,13 @@ function stepPlayerMovement(run, input, dt) {
     //   more of your speed the ease spends rotating instead of carrying you. That is precisely the
     //   tax the ruling forbids, arrived at from a different direction than the unit-clamp bug was.
     const cch = CHAPTERS[run.chapter]
-    const top = laneScrollFor(cch, run.mods) * (cch.laneThrottle?.max ?? 1) * (1 + (run.passives.topSpeed ?? 0))
+    const top = laneScrollFor(cch, run.mods, run) * (cch.laneThrottle?.max ?? 1) * (1 + (run.passives.topSpeed ?? 0))
     const thr = Math.min(1, len)
     const want = top * thr
     // SEEDED AT THE CHAPTER'S OWN SCROLL, not at 0 and not at `want` — the lane branch's reasoning,
     // unchanged: from 0 the opening half-second is slower than the track is scored against, and
     // from `want` a stick already pushed at t=0 is at full speed before momentum exists.
-    if (run._laneSpeed == null) run._laneSpeed = laneScrollFor(cch, run.mods)
+    if (run._laneSpeed == null) run._laneSpeed = laneScrollFor(cch, run.mods, run)
     // ⚠ QUICK START SPEEDS THE RAMP UP AND NOT THE RAMP DOWN, and applying it to both is what made
     // the card inert. `accel` is symmetric — it is the rate the speed eases toward the throttle in
     // either direction — so a card that raised it also made you SHED speed faster on every corner
@@ -1108,7 +1110,7 @@ function stepPlayerMovement(run, input, dt) {
   // spanning the lane is always fully on screen — see laneHalfWidth's doc in config.js for why that
   // is load-bearing (and for what it still only approximates).
   if (ax) {
-    const hw = laneHalfWidth(run.viewRadius, CHAPTERS[run.chapter])
+    const hw = laneHalfWidth(run, CHAPTERS[run.chapter])
     p[ax.cross] = Math.max(-hw, Math.min(hw, p[ax.cross]))
   }
   // p.vx/p.vy above ARE the snapshot the skies' artillery flag leads its shells with
@@ -1212,7 +1214,11 @@ function stepSpawning(run, dt) {
   // ...and a `circuit` reads the same multiplier, for the reason the lane does: everything spawns
   // ahead of you and streams past once, so the population on screen at any moment is a fraction of
   // what a free-roam chapter's ring holds around a player who can turn and re-meet it.
-  const laneMul = (CHAPTERS[run.chapter].lane || CHAPTERS[run.chapter].circuit) ? LANE_SPAWN_MUL * laneEarlyMul(run.time) : 1
+  // A lane narrower than LANE_HALF_W (a portrait phone) takes proportionally fewer, as its ranks
+  // take fewer columns, so the stream's density per px of frontage is the one it was tuned at.
+  const laneMul = (CHAPTERS[run.chapter].lane || CHAPTERS[run.chapter].circuit)
+    ? LANE_SPAWN_MUL * laneEarlyMul(run.time) * (CHAPTERS[run.chapter].lane ? laneHalfWidth(run, CHAPTERS[run.chapter]) / LANE_HALF_W : 1)
+    : 1
   // CHAOS PACT (v7.2): the danger half of the cycle. Read-time, never written into run.mods —
   // that table is the run's MUTATOR product, chosen before the run, and folding a per-second
   // oscillation into it would corrupt it permanently (the same reason RAMPAGE's multipliers are
@@ -1280,14 +1286,17 @@ function stepFormations(run, dt) {
   // choosing which gap to be in rather than watching a wall re-centre on you (which is what rev.1
   // did). Rows stack back up the lane, AHEAD of the player — `ahead` is that first row's distance.
   const ax = laneAxes(CHAPTERS[run.chapter])
-  const hw = laneHalfWidth(run.viewRadius, CHAPTERS[run.chapter])
-  const pitch = (hw * 2) / FORMATION_COLS
+  const hw = laneHalfWidth(run, CHAPTERS[run.chapter])
+  // FORMATION_COLS is a count for the full LANE_HALF_W lane; a narrower one (a portrait phone) gets
+  // proportionally fewer, so the gaps stay the width the chapter was tuned on, never fewer than 3.
+  const cols = Math.max(3, Math.round(FORMATION_COLS * hw / LANE_HALF_W))
+  const pitch = (hw * 2) / cols
   const ahead = Math.max(FORMATION_AHEAD_MIN, run.viewRadius * FORMATION_AHEAD_MUL)
   for (let row = 0; row < rows; row++) {
     // Alternate rows are offset by half a column — a brick pattern, so holding one gap all the way
     // through a multi-row wave never works.
     const offset = (row % 2) * pitch * 0.5
-    for (let col = 0; col < FORMATION_COLS; col++) {
+    for (let col = 0; col < cols; col++) {
       if (run.enemies.length >= maxAliveFor(run.mods)) return
       const cross = -hw + pitch * (col + 0.5) + offset
       const fwd = p[ax.fwd] + ax.dir * ahead + ax.dir * (row * FORMATION_ROW_PX)
@@ -3766,7 +3775,7 @@ function stepRocks(run, dt) {
   if (run._rockAcc <= 0) {
     run._rockAcc += ROCK_INTERVAL
     if (run.rocks.length < ROCK_MAX_LIVE) {
-      const hw = laneHalfWidth(run.viewRadius, CHAPTERS[run.chapter]) * ROCK_SPREAD_MUL
+      const hw = laneHalfWidth(run, CHAPTERS[run.chapter]) * ROCK_SPREAD_MUL
       const cross = -hw + Math.random() * hw * 2
       const fwd = p[ax.fwd] + ax.dir * Math.max(FORMATION_AHEAD_MIN, run.viewRadius * FORMATION_AHEAD_MUL)
       run.rocks.push({
@@ -3826,7 +3835,7 @@ function stepRocks(run, dt) {
 // The Beyond, a y-lane, where a portrait phone shows 169px astern -- so it sits 91px past the edge.
 // Rotate the lane onto x and the same 260 sits 182px past a 78px strip: a dead zone more than
 // twice the size of what the player can see, which is the pile-up in a smaller form. The axis
-// changes what the number MEANS, exactly as LANE_SCROLL_SPEED's own block says it does for scroll.
+// changes what the number MEANS, exactly as LANE_WARNING_SECONDS' own block says it does for scroll.
 function seekerBack(run, ax) {
   return laneBehindPx(run, ax) + SPAWN_RING
 }
@@ -4107,7 +4116,7 @@ function stepLaneFront(run, dt) {
   // leave without them.
   const rate = ch.circuit && run._laneSpeed != null
     ? run._laneSpeed
-    : laneScrollFor(ch, run.mods) * (run._laneThrottle ?? 1)
+    : laneScrollFor(ch, run.mods, run) * (run._laneThrottle ?? 1)
   let front = Math.max(along(run._laneFront ?? 0) + rate * dt, along(p[ax.fwd]))
   // A chapter with nothing that can stop the player never separates from them, so it keeps exactly
   // the old behaviour by construction rather than by a flag: The Beyond's front IS its player.
@@ -4380,7 +4389,7 @@ function spawnEnemy(run, opts = {}) {
   } else {
     // v5.18: EVERYTHING ARRIVES FROM AHEAD IN THE LANE. The ring spawn below is written for a
     // chapter you can run away from in any direction; in a strafe-only lane it is unsurvivable by
-    // construction. The player's only forward option is LANE_SCROLL_SPEED (70), every seeker in the
+    // construction. The player's only forward option is laneScrollFor (70 on a phone), every seeker in the
     // game is faster than that (drone 90, wisp 165), and sideways is the one axis you can move on —
     // so a swarm spawned BEHIND you closes forever and can never be shaken, no matter how well you
     // play. Spawning up the lane instead makes a seeker something you meet, dodge across, and leave
@@ -4410,7 +4419,7 @@ function spawnEnemy(run, opts = {}) {
       y = w.y
     } else if (CHAPTERS[run.chapter].lane) {
       const ax = laneAxes(CHAPTERS[run.chapter])
-      const hw = laneHalfWidth(run.viewRadius, CHAPTERS[run.chapter])
+      const hw = laneHalfWidth(run, CHAPTERS[run.chapter])
       const cross = -hw + Math.random() * hw * 2
       const fwd = p[ax.fwd] + ax.dir * (run.viewRadius + SPAWN_RING)
       x = ax.fwd === 'x' ? fwd : cross
@@ -5257,15 +5266,20 @@ function stepEnemyMovement(run, dt) {
       // be able to jump on you"), which is a shell just as much as a dive: a threat may be
       // impossible to ignore, never impossible to trace. The radius stays as the desktop backstop —
       // on a wide screen the rectangle alone would let a tank shell from 1000px away.
-      if ((p.x - e.x) ** 2 + (p.y - e.y) ** 2 > ARTILLERY_FIRE_RANGE * ARTILLERY_FIRE_RANGE ||
+      // A SUBMISSION ally shells the nearest hostile instead, read live from isAlly so the aim
+      // follows allyT. Its shell carries `ally`, which stepBombs reads to spare the player.
+      const ally = isAlly(e)
+      const t = ally ? nearestHostile(run, e) : p
+      if (!t || (t.x - e.x) ** 2 + (t.y - e.y) ** 2 > ARTILLERY_FIRE_RANGE * ARTILLERY_FIRE_RANGE ||
           !canCommitFrom(run, e) ||
           run.bombs.length >= SHELL_MAX_LIVE) {
         e._shellT = Math.max(e._shellT, 0.3)
       } else if (e._shellT <= 0) {
         e._shellT += interval
         run.bombs.push({
-          x: p.x + (p.vx ?? 0) * ARTILLERY_LEAD,
-          y: p.y + (p.vy ?? 0) * ARTILLERY_LEAD,
+          x: t.x + (t.vx ?? 0) * ARTILLERY_LEAD,
+          y: t.y + (t.vy ?? 0) * ARTILLERY_LEAD,
+          ally,
           radius: e.elite ? ARTILLERY_ELITE_RADIUS : ARTILLERY_RADIUS,
           fuse: ARTILLERY_FUSE, duration: ARTILLERY_FUSE,
           dmg: e.elite ? ARTILLERY_ELITE_DMG : ARTILLERY_DMG,
@@ -7046,7 +7060,7 @@ export function streamShafts(run) {
   // Inert for every non-lane chapter, and no lane chapter but this one declares a refill spec.
   const laneCh = CHAPTERS[run.chapter].lane === true
   const lax = laneCh ? laneAxes(CHAPTERS[run.chapter]) : null
-  const laneHW = laneCh ? laneHalfWidth(run.viewRadius, CHAPTERS[run.chapter]) : 0
+  const laneHW = laneCh ? laneHalfWidth(run, CHAPTERS[run.chapter]) : 0
   for (let i = ci - span; i <= ci + span; i++) {
     for (let j = cj - span; j <= cj + span; j++) {
       const key = i + ',' + j
@@ -8998,7 +9012,7 @@ function stepObstacles(run) {
   // terrain you bump into. They collide with nothing, which is both the honest reading of a star
   // system at this scale and a bug fix: the radial push-out below was shoving the player back DOWN
   // the lane on ~10% of frames when they held a strafe into a planet's belly, locally reversing the
-  // one thing this chapter guarantees is constant (LANE_SCROLL_SPEED). It also kept marchers from
+  // one thing this chapter guarantees is constant (laneScrollFor). It also kept marchers from
   // holding rank, since a rank crossing a planet was shoved apart sideways.
   // v7.x: BOTH are still true of The Reef, whose coral is the spur field (stepSpurs) rather than a
   // collider — a ridge grates and slows the strafe and never pushes, so nothing in a lane is solid
@@ -9802,7 +9816,7 @@ function stepPullBeams(run, dt) {
     const d = Math.hypot(dx, dy)
     if (d > PULL_BEAM_RANGE || d <= 1e-6) continue
     // v5.18: in a lane the lane OWNS the FORWARD axis — the player advances at exactly
-    // LANE_SCROLL_SPEED and nothing is allowed to change that, or the scroll rate stops being the
+    // laneScrollFor and nothing is allowed to change that, or the scroll rate stops being the
     // one predictable thing in the chapter. So an abduction beam drags you ACROSS the lane only,
     // which is also the only axis you can fight it on. Everywhere else it pulls in both, unchanged.
     if (!ax || ax.cross === 'x') p.x += (dx / d) * PULL_BEAM_FORCE * dt
@@ -9847,7 +9861,7 @@ function stepBombs(run, dt) {
     //  - `src === 'gull'` is load-bearing: run.bombs is shared with the skies' bombardment and
     //    every volatile elite core, which must NOT gain an immunity window. Enemy side untouched.
     const shielded = b.src === 'gull' && (run._shorebreakT ?? 0) > 0
-    if (!playerDied && p.invuln <= 0 && !shielded) {
+    if (!playerDied && p.invuln <= 0 && !shielded && !b.ally) {
       const dx = p.x - b.x, dy = p.y - b.y
       // The player side is FLAT, core or not (config.js CORE_BLAST_ENEMY_MUL): the card's cost is
       // priced against player maxHP, which does not ride hpScale.
@@ -10865,8 +10879,8 @@ function turnDeadElites(run) {
     // hand you a statue for the whole 20s loan. Clear the element state as it changes sides.
     elClear(e._elCold); elClear(e._elVenom); e._elFrozen = 0; e._elResist = 0
     // STRIP THE FLAGS THAT ONLY EVER POINT AT THE PLAYER. One line and one config list instead of a
-    // seven-row suppress-or-retarget table: every chapter's eliteFlags is in here, so without it a
-    // turned elite keeps shelling you (skies), laying soap pools under you (pond), abducting you
+    // seven-row suppress-or-retarget table: every chapter's eliteFlags is in here bar artillery
+    // (retargeted in stepEnemyMovement), so without it a turned elite keeps laying soap pools under you (pond), abducting you
     // (beyond), disgorging hostile minions (city) or enraging the swarm it should be fighting
     // (undergrowth). Contact is the whole arsenal for the rest of the roster anyway.
     //   .filter() AND NOT AN IN-PLACE SPLICE, and that is not style: spawnSplitChildren assigns
@@ -15268,7 +15282,7 @@ function stepPickups(run, dt) {
   // radius large enough to be safe is a radius that is already effectively infinite, and picking a
   // number would only invite it to be wrong on some viewport.
   // magnetSpeed() reads the radius too — at Infinity its distance ramp collapses to 0, so gems fly
-  // at the flat near-field 800px/s, comfortably above LANE_SCROLL_SPEED, and always catch up.
+  // at the flat near-field 800px/s, comfortably above laneScrollFor, and always catch up.
   // `circuit` JOINS `lane` HERE, and it is the same argument: you cannot double back for a gem you
   // flew past. The Reef dropped `lane` when its track closed into a loop, and a race at 270px/s is
   // if anything a stronger case for it than a scroller was.

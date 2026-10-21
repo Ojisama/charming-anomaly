@@ -342,6 +342,8 @@ function measure() {
     const run = createRun(makeMeta(), { chapter: CHAPTER, difficulty: DIFF })
     // createRun(meta, opts) takes an OPTIONS OBJECT — a positional call silently gives body at d1.
     if (n === 0 && run.chapter !== CHAPTER) { console.error(`ABORT: asked for ${CHAPTER}, got ${run.chapter}`); process.exit(1) }
+    // a lane is sized and timed by its screen (LANE_WARNING_SECONDS): play the phone it is tuned on
+    if (C.CHAPTERS[CHAPTER].lane) Object.assign(run, C.LANE_REF_VIEW, { viewRadius: Math.hypot(C.LANE_REF_VIEW.viewW, C.LANE_REF_VIEW.viewH) })
     run.choiceSlots = SLOTS
     // --offset=N: enemy HP multiplier applied to the PROPOSED pipeline only, to measure how much
     // clawback neutralises the pool's power gain. enemyHpMul is a live per-spawn knob

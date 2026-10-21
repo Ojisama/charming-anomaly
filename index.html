@@ -29,9 +29,6 @@
     <p class="boot-status"><span>Loading…</span> <b class="boot-pct">0%</b></p>
   </div>
   <script>
-    // ponytail: the curve is an ESTIMATE, not bytes — a <script type=module> fetch reports no
-    // progress to the page. main.js raises the floor at each real boot milestone (window.__boot),
-    // so the second half is measured; swap in a streamed fetch of the bundle if that ever misleads.
     ;(function () {
       var el = document.getElementById('boot')
       var bar = el.querySelector('.boot-bar')
