@@ -9815,10 +9815,16 @@ function stepEnemyShots(run, dt) {
     if (s.life <= 0) { s._done = true; continue } // fizzles: removed, no blast
 
     const speed = Math.hypot(s.vx, s.vy) || 1
-    const desired = Math.atan2(p.y - s.y, p.x - s.x)
+    let desired = Math.atan2(p.y - s.y, p.x - s.x), turnRate = s.turnRate
+    // The Core's needles: one of the other pole homes on you a little, one of yours veers off near you
+    if (s.needle && run.polarity) {
+      const N = polaritySpec(run).needle
+      if (s.pole !== run.polarity.pole) turnRate = N.home
+      else { turnRate = (p.x - s.x) ** 2 + (p.y - s.y) ** 2 < N.repelR * N.repelR ? N.repel : 0; desired += Math.PI }
+    }
     const cur = Math.atan2(s.vy, s.vx)
     const diff = Math.atan2(Math.sin(desired - cur), Math.cos(desired - cur))
-    const maxTurn = s.turnRate * dt
+    const maxTurn = turnRate * dt
     const angle = cur + Math.max(-maxTurn, Math.min(maxTurn, diff))
     s.vx = Math.cos(angle) * speed
     s.vy = Math.sin(angle) * speed
