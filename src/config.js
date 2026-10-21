@@ -10135,8 +10135,14 @@ CHAPTERS.core = {
     dust: { tint: 0xd0d4e0, alpha: 0.35, speedMul: 0.05, sway: 2 },
     // src/liquid.js draws the floor, pillars, pools and cast (render-only, read by render.js setLiquid)
     liquid: {},
+    // the camera frames at least this many world px across (the demo's view, 0.741 units x 667), so a
+    // phone pulls back to the approved framing; viewZoom, read by render.js and main.js's run.viewW
+    viewW: 494,
   },
 }
+// how far the camera pulls back in a chapter whose render block sets viewW (1 everywhere else and on any
+// screen already that wide); main.js widens run.viewW/viewH by it so spawns stay off the screen
+export const viewZoom = (render, screenW) => (render?.viewW ? Math.min(1, screenW / render.viewW) : 1)
 
 // ---- The Kraken (hidden boss — the tuning block, sim.js's stepKrakenScript owns the flow) -------
 // THE PARRY OPENS, THE BUILD KILLS:

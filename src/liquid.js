@@ -2,22 +2,22 @@
 // CHAPTERS.core.render.liquid hands the chapter's floor, pillars and cast to this module, the way
 // The Mantle's render.toon hands them to src/toon.js:
 //   createLiquidRenderer(host) -> renderer { hide, enter, exit, sync, event, filters }
-//     host = { app, world, floor, under, over }: floor (over render.js's floor, under every entity),
-//     under / over (world space, under and over the creatures).
-//     THE FLOOR is one view-sized mesh running the demo's sea shader (src/liquid/glsl.js FLOOR_FRAG): the
-//     mirror sea of liquid iron with the melt glowing under it, the wakes bodies drop, the ink-blot
-//     ferrofluid pools (their arms reach for you when you are of the other pole), the pillars' wakes,
-//     reflections, heat and pull streams, and the pillar and golem field rings. Drawn at resolution 1.
-//     THE PILLARS are one raymarched levitator mesh each (PIL_FRAG), plinth = the collision radius.
-//     THE PLAYER'S POLE is a chrome ring round the blob (the blob stays mint: bakePlayer).
-//     Blob and golem SPIKES are chrome cone sprites fanned out from under the body.
-//   bakeCreature(id, elite) -> { frames, poseOf, dirs?, dirTex?, baseR, thumb, ... } (toon.js's shape):
-//     chrome bodies baked once on the CPU from the demo's own field and chrome() maths, tinted by pole.
+//     host = { app, world, floor, under, over }. THE DEMO ITSELF draws the floor, the pools, the pillars and
+//     every creature's body: src/liquid/gl.js is the demo's WebGL2 renderer, on its own canvas UNDER Pixi's,
+//     fed the run in the demo's units each frame (1 unit = U world px: the sim's sizes are the demo's x U).
+//     Pixi turns transparent while The Core is on and draws everything else over it: the player's mint
+//     blob and its pole ring (the owner's one ruled difference), the demo's 2D marks on the bodies
+//     (golem eye, eel's biting end, the top's warning ring), bullets, needles, pickups and the HUD.
+//   bakeCreature(id, elite) -> render.js's look shape with EMPTY frames (the body is the demo's), and the
+//     title-card thumb baked on the CPU from the demo's own field and chrome() maths.
 //   bakePlayer() -> the mint chrome blob with its face (render.js keeps the live pupils).
-import { BufferImageSource, Container, Mesh, MeshGeometry, Shader, Sprite, Texture, UniformGroup, AlphaFilter, CanvasSource } from 'pixi.js'
+import { Graphics, Sprite, Texture, CanvasSource } from 'pixi.js'
 import { CHAPTERS, ENEMIES, PLAYER } from './config.js'
 import { mkCanvas } from './toon/palette.js'
-import { U, NPIL, NPOOL, NGOL, NWAKE, NARM, QUAD_VERT, FLOOR_FRAG, PIL_FRAG, bakeHeat, bakeNoise, HEAT_N, NOISE_N } from './liquid/glsl.js'
+import { createCoreGL } from './liquid/gl.js'
+
+// world px per demo unit: the sim's Core sizes are the demo's times this (a mite 0.014 -> 9.3 px)
+export const U = 667
 
 const TAU = Math.PI * 2
 const sst = (t) => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t))
@@ -157,28 +157,10 @@ function paintThumb(id) {
   return cv
 }
 export function bakeCreature(id) {
-  const M = LIQUID_CAST[id]
-  if (!M) return null
-  const nf = M.frames, poles = M.silver ? 3 : 2, frames = []
-  for (let pi = 0; pi < poles; pi++) for (let f = 0; f < nf; f++) frames.push(bakeField(castSplats(id, pi, f), RES, pi * 7 + f))
-  const base = { frames, thumb: paintThumb(id), baseR: rosterR(id), lean: 0, upright: true, faceDir: null, turnRate: null, fps: null }
-  if (M.eel) {
-    // the eel turns by swapping bakes (render.js look.dirs): head pole x 16 headings, baked on first sight
-    const DIRS = 16, cache = new Map()
-    return {
-      ...base, upright: false, dirs: DIRS,
-      poseOf: (e) => poleIx(e.pole),
-      faceDir: (e) => (e.hx != null ? [e.hx, e.hy] : null),
-      dirBake: (fi, d) => { const k = fi * 64 + d; let b = cache.get(k); if (!b) { b = bakeField(castSplats(id, fi, 0, (d / DIRS) * TAU), RES, fi * 7 + d); cache.set(k, b) } return b },
-    }
-  }
-  return {
-    ...base,
-    poseOf: (e) => {
-      const pi = M.silver && (e.stunT || 0) > 0 ? 2 : poleIx(e.pole)
-      return pi * nf + (nf > 1 ? Math.floor((((clock * M.spin + e.id * 1.7) / M.period) % 1 + 1) % 1 * nf) % nf : 0)
-    },
-  }
+  if (!LIQUID_CAST[id]) return null
+  // in play the body is the demo's (src/liquid/gl.js), so render.js's sprite draws nothing
+  const empty = { canvas: mkCanvas(2, 2), white: mkCanvas(2, 2), ax: 0.5, ay: 0.5, res: 1 }
+  return { frames: [empty], thumb: paintThumb(id), baseR: rosterR(id), lean: 0, upright: true, faceDir: null, turnRate: null, fps: null, poseOf: null }
 }
 
 // ---- THE PLAYER: the mint chrome drop of the demo's FS_SPRITE, with the blob's face ---------------
@@ -240,241 +222,110 @@ function bakeRing(pole) {
 
 // ---- the renderer -----------------------------------------------------------------------------
 const tex = (cv, res) => new Texture({ source: new CanvasSource({ resource: cv, resolution: res }) })
-const quadGeo = () => new MeshGeometry({ positions: new Float32Array([0, 0, 1, 0, 1, 1, 0, 1]), uvs: new Float32Array([0, 0, 1, 0, 1, 1, 0, 1]), indices: new Uint32Array([0, 1, 2, 0, 2, 3]) })
+// the game's flags -> the demo's creature kinds
+const kindOf = (e) => e.flags.includes('poleLatch') ? 'mite' : e.flags.includes('needleFan') ? 'urchin' : e.flags.includes('poleStrobe') ? 'top'
+  : e.flags.includes('ferroSpikes') ? (e._splitChild ? 'small' : 'blob') : e.flags.includes('dipole') ? 'eel' : e.flags.includes('lodestone') ? 'golem' : null
 export function createLiquidRenderer(host) {
-  const { floor, under, over } = host
-  const heatSrc = new BufferImageSource({ resource: bakeHeat(), width: HEAT_N, height: HEAT_N, format: 'rgba16float', scaleMode: 'linear', addressMode: 'repeat', alphaMode: 'no-premultiply-alpha' })
-  const noiseSrc = new BufferImageSource({ resource: bakeNoise(), width: NOISE_N, height: NOISE_N, format: 'rgba8unorm', scaleMode: 'linear', addressMode: 'repeat', alphaMode: 'no-premultiply-alpha', autoGenerateMipmaps: true, mipmapFilter: 'linear' })
-  const f32 = (v) => ({ value: v, type: 'f32' })
-  const arr = (n, w) => ({ value: new Float32Array(n * w), type: `vec${w}<f32>`, size: n })
-  const floorU = new UniformGroup({
-    uRect: { value: new Float32Array(4), type: 'vec4<f32>' }, uPl: { value: new Float32Array(2), type: 'vec2<f32>' },
-    uT: f32(0), uPole: f32(1), uPix: f32(1 / U), uPS: f32(1), uPilR0: f32(0.06), uPilR1: f32(0.32), uGolR1: f32(0.5),
-    uNP: f32(0), uNPil: f32(0), uNG: f32(0), uNW: f32(0), uNA: f32(0), uArmPool: f32(-1),
-    uPool: arr(NPOOL, 4), uPoolB: arr(NPOOL, 2), uPoolR: arr(NPOOL, 4), uPoolF: arr(NPOOL, 4),
-    uPil: arr(NPIL, 4), uGol: arr(NGOL, 4), uWk: arr(NWAKE, 4), uArmS: arr(NARM, 4), uArmW: arr(NARM, 2),
-  })
-  const sea = new Mesh({ geometry: quadGeo(), shader: Shader.from({ gl: { vertex: QUAD_VERT, fragment: FLOOR_FRAG, name: 'liquid-floor' }, resources: { floorU, uC: heatSrc, uN: noiseSrc } }) })
-  const pilLayer = new Container()
-  floor.addChild(sea, pilLayer)
-  const pilShared = new UniformGroup({ uT: f32(0), uPix: f32(1 / U) })
-  const pils = []   // { mesh, own }
-  const pilMesh = (i) => {
-    if (pils[i]) return pils[i]
-    const own = new UniformGroup({ uPS: f32(1), uP: { value: new Float32Array(4), type: 'vec4<f32>' }, uRect: { value: new Float32Array(4), type: 'vec4<f32>' } })
-    const mesh = new Mesh({ geometry: quadGeo(), shader: Shader.from({ gl: { vertex: QUAD_VERT, fragment: PIL_FRAG, name: 'liquid-pillar' }, resources: { pilShared, own, uN: noiseSrc } }) })
-    pilLayer.addChild(mesh)
-    return (pils[i] = { mesh, own })
-  }
-  const floorPass = new AlphaFilter({ alpha: 1, resolution: 1 })
-  // ?debug: the floor's uniforms, for a probe scene to read or ablate
-  if (typeof window !== 'undefined' && /[?&]debug/.test(window.location?.search ?? '')) window.__liquid = { floorU, pils }
-  // the spikes and the player's pole ring
-  const coneTex = [1, -1].map((p) => { const b = bakeField([{ x: 0, y: 0, R: 40 / 0.88, ang: 0, shape: 8, ch: poleIx(p) }], RES, 5); return { tex: tex(b.canvas, b.res), ax: b.ax, ay: b.ay } })
+  const { app, over } = host
+  let dpr = 1   // the demo canvas's device px per CSS px: its line widths are in device px
+  // the demo's canvas, under Pixi's: Pixi turns transparent while The Core is on (enter/exit)
+  const glc = document.createElement('canvas')
+  glc.setAttribute('aria-hidden', 'true')
+  glc.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;display:none'
+  app.canvas.parentNode.insertBefore(glc, app.canvas)
+  const core = createCoreGL(glc)
+  // the player's pole ring, and the demo's 2D marks on the bodies (the golem's eye, the eel's biting end, the top's warning)
   const ringTex = [1, -1].map((p) => tex(bakeRing(p), 3))
-  const spikeSprites = []
-  let nSpike = 0
-  const spike = (x, y, a, len, pole) => {
-    let s = spikeSprites[nSpike]
-    if (!s) { s = new Sprite(); under.addChild(s); spikeSprites.push(s) }
-    nSpike++
-    const t = coneTex[poleIx(pole)]
-    s.texture = t.tex; s.anchor.set(t.ax, t.ay); s.position.set(x, y); s.rotation = a; s.scale.set(len / 40); s.visible = true
-  }
-  const fan = (x, y, ang, n, L, spread, seed, pole) => {
-    for (let i = 0; i < n; i++) {
-      const h1 = ((seed * 977 + i * 131) % 97) / 97, h2 = ((seed * 571 + i * 313) % 89) / 89
-      const a = ang + (n > 1 ? (i / (n - 1) - 0.5) * 2 * spread : 0) + (h1 - 0.5) * 0.4
-      spike(x, y, a, L * (0.55 + 0.45 * h2) * (0.85 + 0.15 * Math.sin(clock * 3.3 + i * 2.1 + seed)), pole)
-    }
-  }
   const ring = new Sprite(ringTex[0])
   ring.anchor.set(0.5)
-  over.addChild(ring)
-
-  // draw-only reaction state, eased off the sim's positions (never written back)
-  const pilState = new WeakMap(), poolState = new WeakMap(), wakeLast = new WeakMap()
-  const wakes = []
-  let rt = 0, look = null, pBob = 0
+  const marks = new Graphics()
+  over.addChild(marks, ring)
+  const sparks = []
+  const S = { cam: { x: 0, y: 0 }, VW: 1, VH: 1, rt: 0, rdt: 0, warn: false, pole: 1, p: { x: 0, y: 0, r: 0.02, vx: 0, vy: 0 }, foes: [], pools: [], pillars: [], sparks }
+  let look = null
+  // ?debug: the frame state, for a probe scene to set the clock (scripts/scenes/core-match.js)
+  if (/[?&]debug/.test(window.location?.search ?? '')) window.__liquid = { S }
   const r = {
     hide: ['floor', 'dust', 'obstacles', 'shadows'],
     enter(run, lk) {
       look = lk
-      wakes.length = 0
-      floor.visible = under.visible = over.visible = true
-      floor.filters = [floorPass]
+      sparks.length = 0
+      over.visible = true
+      glc.style.display = 'block'
+      app.canvas.style.position = 'relative'   // positioned, and after the demo's canvas: it paints on top
+      // black as well as clear: Pixi clears with the colour unpremultiplied, and the page composites it as added light
+      app.renderer.background.color = 0x000000
+      app.renderer.background.alpha = 0
     },
     exit() {
       look = null
-      floor.filters = null
-      for (const s of spikeSprites) s.visible = false
-      for (const p of pils) p.mesh.visible = false
+      glc.style.display = 'none'
+      app.canvas.style.position = ''
+      app.renderer.background.alpha = 1
     },
     filters() { return null },
-    event(e) {
-      if (e.type === 'poolFlip') wakes.push({ x: e.x / U, y: e.y / U, age: 0, amp: 0.12 })
+    // hits and kills splash the demo's droplets and beads out of the body
+    event(e, run) {
+      if (e.type === 'hit' && !e.dot) {
+        const b = run.enemies.find((o) => o.id === e.id)
+        sparks.push({ x: e.x / U, y: e.y / U, age: 0, opp: (e.pm ?? 1) > 1, dead: false, big: !!b && (b.flags.includes('lodestone') || b.flags.includes('ferroSpikes')) })
+      } else if (e.type === 'kill') sparks.push({ x: e.x / U, y: e.y / U, age: 0, opp: true, dead: true, big: false })
       return false
     },
     sync(run, dt, view) {
-      if (!look) return
+      if (!look || !core) return
       const rdt = Math.min(0.05, Math.max(0, dt))
-      rt = (rt + rdt) % 400
-      clock = rt
+      S.rt = (S.rt + rdt) % 400; S.rdt = rdt
+      clock = S.rt
       const p = run.player, P = run.polarity, pole = P?.pole ?? 1
-      const px = p.x / U, py = p.y / U, u = floorU.uniforms
-      const pad = 8, vx0 = view.left - pad, vy0 = view.top - pad, vw = view.right - view.left + pad * 2, vh = view.bottom - view.top + pad * 2
-      sea.position.set(vx0, vy0); sea.scale.set(vw, vh)
-      u.uRect[0] = vx0; u.uRect[1] = vy0; u.uRect[2] = vw; u.uRect[3] = vh
-      u.uPl[0] = px; u.uPl[1] = py
-      u.uT = rt; u.uPole = pole; u.uPix = 1 / (U * (view.zoom || 1))
-      const vis = (x, y, m) => x > view.left - m && x < view.right + m && y > view.top - m && y < view.bottom + m
-      // WAKES: rings dropped in the iron sea where bodies pass
-      for (const k of wakes) k.age += rdt
-      while (wakes.length && wakes[0].age > 1.6) wakes.shift()
-      const drop = (x, y, amp) => { wakes.push({ x, y, age: 0, amp }); if (wakes.length > NWAKE) wakes.shift() }
-      for (const b of [p, ...run.enemies]) {
-        if (b !== p && (b._dead || b.latched || !vis(b.x, b.y, 130))) continue
-        const l = wakeLast.get(b)
-        if (!l) { wakeLast.set(b, { x: b.x, y: b.y }); continue }
-        if (Math.hypot(b.x - l.x, b.y - l.y) > (b === p ? 40 : 53)) { drop(b.x / U, b.y / U, b === p ? 0.12 : Math.min(0.1, (b.radius / U) * 3)); l.x = b.x; l.y = b.y }
-      }
-      pBob += rdt
-      if (pBob > 1.4) { pBob = 0; drop(px, py, 0.06) }
-      wakes.forEach((k, i) => { u.uWk[i * 4] = k.x; u.uWk[i * 4 + 1] = k.y; u.uWk[i * 4 + 2] = k.age; u.uWk[i * 4 + 3] = k.amp })
-      u.uNW = wakes.length
-      // POOLS: each eased toward you (the other pole) or away (yours), the demo's PV
-      let np = 0, armQ = null, armO = 0.02, armV = null
-      for (const q of run.corePools ?? []) {
-        if (!vis(q.x, q.y, Math.max(q.rx, q.ry) * 2.4 + 60)) continue
-        let v = poolState.get(q)
-        if (!v) { v = { x: q.x / U, y: q.y / U, o: 0, s: 0, fx: 0, fy: 0, b: 0, t: 0, seed: Math.floor(Math.abs(Math.sin(q.x * 0.013 + q.y * 0.071)) * 997) }; poolState.set(q, v) }
-        const qx = q.x / U, qy = q.y / U, rx = q.rx / U, ry = q.ry / U
-        const dx = px - qx, dy = py - qy, dm = Math.hypot(dx, dy) || 1, lim = Math.min(1, (Math.max(rx, ry) + 0.05) / dm)
-        const cs = Math.cos(q.rot), sn = Math.sin(q.rot), lx = dx * cs + dy * sn, ly = -dx * sn + dy * cs
-        const de = (Math.hypot(lx / rx, ly / ry) - 1) * Math.min(rx, ry), opp = q.pole !== pole
-        const to = opp ? sst((0.22 - de) / 0.2) : 0, ts = !opp ? sst((0.16 - de) / 0.16) : 0, ta = opp ? sst((0.12 - de) / 0.1) : 0
-        v.o += (ta - v.o) * (1 - Math.exp(-rdt / (ta > v.o ? 0.22 : 1.1)))
-        v.s += (ts - v.s) * (1 - Math.exp(-rdt / (ts > v.s ? 0.25 : 0.9)))
-        const kf = 1 - Math.exp(-rdt / 0.15)
-        v.x += (qx + dx * lim - v.x) * kf; v.y += (qy + dy * lim - v.y) * kf
-        const fa = to - 0.85 * ts, tfx = (dx / dm) * fa, tfy = (dy / dm) * fa, kv = 1 - Math.exp(-rdt / (Math.hypot(tfx, tfy) > Math.hypot(v.fx, v.fy) ? 0.6 : 1.8))
-        v.fx += (tfx - v.fx) * kv; v.fy += (tfy - v.fy) * kv
-        const B = Math.min(1, (0.16 / (Math.max(de, 0) + 0.06)) ** 2) * sst((0.45 - de) / 0.25), tb = opp ? B : 0, tt = opp ? B : -B
-        v.b += (tb - v.b) * (1 - Math.exp(-rdt / (tb > v.b ? 0.2 : 1.1)))
-        v.t += (tt - v.t) * (1 - Math.exp(-rdt / (Math.abs(tt) > Math.abs(v.t) ? 0.1 : 0.9)))
-        if (np >= NPOOL) continue
-        u.uPool.set([qx, qy, rx, ry], np * 4); u.uPoolB.set([q.rot, q.pole], np * 2)
-        u.uPoolR.set([v.x, v.y, v.b, v.s], np * 4); u.uPoolF.set([v.fx, v.fy, v.seed, v.t], np * 4)
-        if (v.o > armO) { armO = v.o; armQ = np; armV = { q, v } }
-        np++
-      }
-      u.uNP = np
-      // the pool's ARMS: three fat necks of its ink from the near shore, straining toward you, tips
-      // stopping just short of you (the demo's arm(), as capsules in the pool's rotated frame)
-      let na = 0
-      u.uArmPool = -1
-      if (armV) {
-        const { q, v } = armV, k = v.o
-        const qx = q.x / U, qy = q.y / U, rx = q.rx / U, ry = q.ry / U, cs = Math.cos(q.rot), sn = Math.sin(q.rot)
-        const ex = px - qx, ey = py - qy, lx = ex * cs + ey * sn, ly = -ex * sn + ey * cs
-        const a = Math.atan2(ly / ry, lx / rx), ar = 0.9 + 0.45 * Math.max(v.t, 0), pr = PLAYER.radius / U
-        const toL = (wx, wy) => [(wx - qx) * cs + (wy - qy) * sn, -(wx - qx) * sn + (wy - qy) * cs]
-        for (let i = -1; i <= 1; i++) {
-          const ai = a + (i * 0.034) / Math.min(rx, ry), ex2 = Math.cos(ai) * rx * ar, ey2 = Math.sin(ai) * ry * ar
-          const sx = qx + ex2 * cs - ey2 * sn, sy = qy + ex2 * sn + ey2 * cs, ddx = px - sx, ddy = py - sy, d = Math.hypot(ddx, ddy)
-          const nx = Math.cos(ai) / rx, ny = Math.sin(ai) / ry, wnx = nx * cs - ny * sn, wny = nx * sn + ny * cs
-          const ad = Math.atan2(ddy, ddx), an = Math.atan2(wny, wnx), a0 = ad + Math.atan2(Math.sin(an - ad), Math.cos(an - ad)) * 0.25
-          const seed = qx * 9 + i * 2.7, wd = 0.011 * (1 - Math.abs(i) * 0.2)
-          let L = k * Math.max(0, Math.min(0.12 * (1 - Math.abs(i) * 0.3), d - pr - 0.024))
-          const ph = (((rt * 0.5 + seed * 0.37) % 1) + 1) % 1
-          L *= 0.6 + 0.4 * (ph < 0.6 ? sst(ph / 0.6) : 1 - sst((ph - 0.6) / 0.4))
-          if (L < 0.004) continue
-          const N = 4, sl = (L * 0.72) / N
-          let an2 = a0, cx = sx, cy = sy, wa = wd * 1.7
-          for (let s = 1; s <= N && na < NARM; s++) {
-            const t = s / N
-            an2 = a0 + Math.sin(rt * 2.4 + seed * 1.7 + t * 2.5) * 0.32 * t
-            const nx2 = cx + Math.cos(an2) * sl, ny2 = cy + Math.sin(an2) * sl, wb = wd * 1.7 * (1 - 0.55 * t)
-            const A0 = toL(cx, cy), A1 = toL(nx2, ny2)
-            u.uArmS.set([A0[0], A0[1], A1[0], A1[1]], na * 4); u.uArmW.set([wa, wb], na * 2); na++
-            cx = nx2; cy = ny2; wa = wb
-          }
-          if (na < NARM) {
-            const tx = cx + Math.cos(an2) * L * 0.36, ty = cy + Math.sin(an2) * L * 0.36, A0 = toL(cx, cy), A1 = toL(tx, ty)
-            u.uArmS.set([A0[0], A0[1], A1[0], A1[1]], na * 4); u.uArmW.set([wa, 0.0015], na * 2); na++
-          }
-        }
-        if (na) u.uArmPool = armQ
-      }
-      u.uNA = na
-      // PILLARS: each reacts to the nearest opposite body (you first), the demo's pilReact
-      let npl = 0
-      const live = []
-      for (const o of run.obstacles) {
-        if (o.kind !== 'pillar') continue
-        let s = pilState.get(o)
-        if (!s) { s = { k: 0, dx: 0, dy: 1, ph: Math.abs(Math.sin(o.x * 0.37)) % 1 }; pilState.set(o, s) }
-        if (!vis(o.x, o.y, 230)) continue
-        const qx = o.x / U, qy = o.y / U, ex = px - qx, ey = py - qy, d = Math.hypot(ex, ey) || 1
-        let tk = o.pole !== pole ? sst((0.36 - d) / 0.26) : -sst((0.3 - d) / 0.22), tx = ex / d, ty = ey / d
-        if (tk < 0.3 && tk > -0.05) {
-          let bd = 0.17, bo = null
-          for (const e of run.enemies) {
-            if (e._dead || e.pole === undefined || e.pole === o.pole || e.flags.includes('dipole') || e.flags.includes('poleStrobe')) continue
-            const dd = Math.hypot(e.x / U - qx, e.y / U - qy)
-            if (dd < bd) { bd = dd; bo = e }
-          }
-          if (bo) { const kc = 0.6 * (1 - bd / 0.17); if (kc > tk) { tk = kc; tx = (bo.x / U - qx) / bd; ty = (bo.y / U - qy) / bd } }
-        }
-        s.k += (tk - s.k) * (1 - Math.exp(-rdt / (Math.abs(tk) > Math.abs(s.k) ? 0.3 : 0.7)))
-        const kd = 1 - Math.exp(-rdt / 0.25)
-        s.dx += (tx - s.dx) * kd; s.dy += (ty - s.dy) * kd
-        const spd = s.k >= 0 ? 0.11 + 0.55 * s.k : 0.11 - 0.66 * -s.k
-        s.ph = (((s.ph + rdt * spd) % 1) + 1) % 1
-        if (npl >= NPIL) continue
-        const w = Math.min(1023, Math.floor(((Math.atan2(s.dy, s.dx) + Math.PI) / TAU) * 1024)) + Math.min(0.9999, s.ph)
-        const ps = 0.035 / (o.r / U)
-        u.uPil.set([qx, qy, o.pole * (2 + s.k), w], npl * 4)
-        u.uPS = ps
-        live.push({ o, ps, w, z: o.pole * (2 + s.k) })
-        npl++
-      }
-      u.uNPil = npl
-      u.uPilR0 = live.length ? (live[0].o.r + 19) / U : 0.06
-      u.uPilR1 = (POL.pillar?.reach ?? 213) / U
-      live.sort((a, b) => a.o.y - b.o.y)
-      pilShared.uniforms.uT = rt; pilShared.uniforms.uPix = u.uPix
-      live.forEach((L, i) => {
-        const m = pilMesh(i), ou = m.own.uniforms, hw = (0.2 * U) / L.ps, top = L.o.y - (0.235 * U) / L.ps, bot = L.o.y + (0.165 * U) / L.ps
-        ou.uPS = L.ps
-        ou.uP[0] = L.o.x / U; ou.uP[1] = L.o.y / U; ou.uP[2] = L.z; ou.uP[3] = L.w
-        ou.uRect[0] = L.o.x - hw; ou.uRect[1] = top; ou.uRect[2] = hw * 2; ou.uRect[3] = bot - top
-        m.mesh.position.set(L.o.x - hw, top); m.mesh.scale.set(hw * 2, bot - top); m.mesh.visible = true
-      })
-      for (let i = live.length; i < pils.length; i++) pils[i].mesh.visible = false
-      // GOLEMS' field rings, and the creatures' spikes
-      let ng = 0
-      nSpike = 0
+      dpr = Math.min(3, window.devicePixelRatio || 1)
+      core.resize(app.screen.width, app.screen.height, dpr)
+      S.cam.x = view.left / U; S.cam.y = view.top / U
+      S.VW = (view.right - view.left) / U; S.VH = (view.bottom - view.top) / U
+      S.pole = pole
+      // the chrome tucked under the player: inside the mint blob, it only shows where a mite fuses with it
+      S.p.x = p.x / U; S.p.y = p.y / U; S.p.r = (PLAYER.radius / U) * 0.87
+      for (const s of sparks) s.age += rdt
+      while (sparks.length && sparks[0].age > 0.5) sparks.shift()
+      const m = 0.2 * U, vis = (x, y) => x > view.left - m && x < view.right + m && y > view.top - m && y < view.bottom + m
+      S.foes.length = 0
       for (const e of run.enemies) {
-        if (e._dead || e.pole === undefined) continue
-        const lode = e.flags.includes('lodestone')
-        if (lode && ng < NGOL && vis(e.x, e.y, POL.golem.dragR)) { u.uGol.set([e.x / U, e.y / U, e.pole, (e.radius + 6) / U], ng * 4); ng++ }
-        if (!vis(e.x, e.y, 80)) continue
-        const seed = (e.id * 37) % 100
-        if (e.flags.includes('ferroSpikes') && (e.spike || 0) > 0.03) fan(e.x, e.y, Math.atan2(p.y - e.y, p.x - e.x), 5, e.radius * 2.1 * e.spike, 0.75, seed, e.pole)
-        else if (lode) {
-          let tx = 0, ty = 0, td = 0
-          if (e.pole !== pole) { tx = p.x - e.x; ty = p.y - e.y; td = sst((333 - Math.hypot(tx, ty)) / 200); if (td < 0.05) td = 0 }
-          if (!td) { let bd = 267; for (const o of run.obstacles) if (o.kind === 'pillar' && o.pole !== e.pole) { const d = Math.hypot(o.x - e.x, o.y - e.y); if (d < bd) { bd = d; tx = o.x - e.x; ty = o.y - e.y; td = 1 } } }
-          if (td) fan(e.x, e.y, Math.atan2(ty, tx), 7, e.radius * 1.9 * td, 0.85, seed, e.pole)
+        if (e._dead || e.pole === undefined || !vis(e.x, e.y)) continue
+        const kind = kindOf(e)
+        if (!kind) continue
+        S.foes.push({ key: e, kind, x: e.x / U, y: e.y / U, r: e.radius / U, pole: e.pole, latched: e.latched ? { x: e._lx / U, y: e._ly / U } : null,
+          stun: e.stunT || 0, spike: e.spike || 0, ph: e._pph ?? 0, hx: e.hx ?? 1, hy: e.hy ?? 0, sw: e.pole })
+      }
+      S.pools.length = 0
+      for (const q of run.corePools ?? []) S.pools.push({ key: q, x: q.x / U, y: q.y / U, rx: q.rx / U, ry: q.ry / U, rot: q.rot, pole: q.pole, seed: q.seed ?? Math.abs(Math.floor(Math.sin(q.x * 0.013 + q.y * 0.071) * 997)) % 12 })
+      S.pillars.length = 0
+      for (const o of run.obstacles) if (o.kind === 'pillar') S.pillars.push({ key: o, x: o.x / U, y: o.y / U, r: o.r / U, pole: o.pole })
+      core.frame(S)
+      // the demo's marks drawn over the bodies
+      marks.clear()
+      const strobe = POL.top.strobe
+      for (const f of S.foes) {
+        const e = f.key, R = e.radius
+        if (f.kind === 'golem') {
+          const er = R * 0.36
+          marks.circle(e.x, e.y, er).fill(0x0c0d10)
+          marks.circle(e.x, e.y, er * (0.5 + 0.1 * Math.sin(S.rt * 6))).fill(e.pole > 0 ? 0xff5a3c : 0x4aa3ff)
+          marks.circle(e.x - er * 0.3, e.y - er * 0.3, er * 0.16).fill(0xffffff)
+          // its health bar, the demo's: a steel slot over its head, filled hot
+          const by = e.y - R - 0.018 * U, fr = Math.max(0, Math.min(1, e.hp / e.maxHP))
+          marks.rect(e.x - R, by, R * 2, 0.008 * U).fill(0x0c0d10)
+          marks.rect(e.x - R + 0.0012 * U, by + 0.0012 * U, (R * 2 - 0.0024 * U) * fr, 0.0056 * U).fill(0xff8a3d)
+        } else if (f.kind === 'eel') {
+          const lead = e.pole !== pole, dir = lead ? 1 : -1, hx = f.hx * dir, hy = f.hy * dir, g = POL.eel.gap
+          const lx = lead ? e.x : e.x - f.hx * g, ly = lead ? e.y : e.y - f.hy * g
+          for (const k of [-1, 1]) marks.circle(lx + hx * R * 0.55 - hy * k * R * 0.35, ly + hy * R * 0.55 + hx * k * R * 0.35, R * 0.17).fill(0xfff3d6)
+        } else if (f.kind === 'top') {
+          const lft = strobe - ((((run.time + (e._pph ?? 0)) % strobe) + strobe) % strobe)
+          if (lft < 0.4 && Math.sin(S.rt * 40) > -0.3) marks.circle(e.x, e.y, R * 1.6).stroke({ width: 2.4 / ((view.zoom || 1) * dpr), color: e.pole > 0 ? 0x4aa3ff : 0xff5a3c })
         }
       }
-      for (let i = nSpike; i < spikeSprites.length; i++) spikeSprites[i].visible = false
-      u.uNG = ng
-      u.uGolR1 = POL.golem.dragR / U
-      // your pole: the chrome ring round you
+      // your pole: the chrome ring round you; the i-frames blink the ring, not the drop
       ring.visible = !!P && !p.dead
-      // i-frames blink the RING, not the drop: render.js's 0.4 body blink turned the chrome into glass (setLiquid holds playerC opaque)
       ring.alpha = (p.invuln || 0) > 0 && Math.sin(clock * 32) <= 0 ? 0.3 : 1
       ring.texture = ringTex[poleIx(pole)]
       ring.position.set(p.x, p.y)
@@ -482,3 +333,4 @@ export function createLiquidRenderer(host) {
   }
   return r
 }
+

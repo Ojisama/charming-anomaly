@@ -2,7 +2,7 @@
 //
 //   node scripts/fx-probe.mjs --scene scripts/scenes/beam-prism.js --out /tmp/pr
 //   node scripts/fx-probe.mjs --scene <file> --out <prefix> [--url http://127.0.0.1:5173/]
-//                             [--frames 14] [--chapter city] [--wait 16000] [--w 390] [--h 844]
+//                             [--frames 14] [--chapter city] [--wait 16000] [--w 390] [--h 844] [--dpr 2]
 //
 // WHY THIS EXISTS: judging "the effect looks tame" needs the SAME frame under every variant, and
 // getting that is harder than it sounds. Three traps this bakes out (all of them cost real rounds
@@ -80,6 +80,7 @@ if (!Number.isFinite(difficulty) || difficulty < 1 || difficulty > 5) {
 const waitMs = +arg('wait', '16000')
 const W = +arg('w', '390')
 const H = +arg('h', '844')
+const DPR = +arg('dpr', '2')   // the device pixel ratio the page is emulated at (the Core gauntlet shoots at 3)
 // --meta '<json>': extra top-level save fields merged into the seeded save (e.g. {"krakenParried":true})
 const metaExtra = JSON.parse(arg('meta', '{}'))
 // Header states what this shot will actually measure — the createRun(meta, opts) options-object
@@ -379,7 +380,7 @@ const evaluate = async (expr) =>
 
 await send('Page.enable')
 await send('Runtime.enable')
-await send('Emulation.setDeviceMetricsOverride', { width: W, height: H, deviceScaleFactor: 2, mobile: true })
+await send('Emulation.setDeviceMetricsOverride', { width: W, height: H, deviceScaleFactor: DPR, mobile: true })
 await send('Page.addScriptToEvaluateOnNewDocument', { source: bootstrap })
 // --cpu-prof <file>: a CPU profile from navigation to scene-ready (boot included), for a measuring scene
 const cpuProf = arg('cpu-prof')

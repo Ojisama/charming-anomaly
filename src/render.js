@@ -44,7 +44,7 @@ import { DRAW_CAPS } from './config.js'
 import { ELITE, gemTier } from './config.js'
 import * as MACRO from './macro.js'
 import { IPECAC_COUNT_MUL, FURROW_PIT_OPEN, FURROW_LANE_GAP, CRYSTAL_CARDS } from './config.js'
-import { POLE_TINT, LANCE_BEAM_LIFE } from './config.js'
+import { POLE_TINT, LANCE_BEAM_LIFE, viewZoom } from './config.js'
 import * as HOLO from './holo.js'
 import * as ASCII from './ascii.js'
 import * as TOON from './toon.js'
@@ -15696,7 +15696,9 @@ const spurG = new Graphics()
   const punch = { t: 0, amp: 0, x: 0, y: 0, pan: 0.5 }
   const K_PUNCH_IN = 0.033, K_PUNCH_OUT = 0.35
   // a plain slam's punch-in frames about this many lane widths across the screen at its peak
-  const camZoom = () => mapZoom * fightZoom * cerZoom * punchZ
+  // chapterZ: a chapter with render.viewW (The Core) pulls a phone back to its approved framing; map mode sets its own
+  const chapterZ = () => (mapZoom === 1 ? viewZoom(chapterRender, app.screen.width) : 1)
+  const camZoom = () => mapZoom * fightZoom * cerZoom * punchZ * chapterZ()
   const viewW = () => app.screen.width / camZoom()
   const viewH = () => app.screen.height / camZoom()
 

@@ -138,7 +138,11 @@ await app.init({
   antialias: false,   // everything is a baked texture: MSAA changed no pixel worth seeing and cost 60% of a late endless frame (desktop iGPU)
   resolution: Math.min(window.devicePixelRatio || 1, 2),
   autoDensity: true,
+  // a canvas that CAN be transparent (Pixi picks the context's alpha here, once): The Core draws its floor and
+  // bodies on its own canvas under this one (src/liquid.js). Opaque again straight away for every other screen.
+  backgroundAlpha: 0,
 })
+app.renderer.background.alpha = 1
 document.getElementById('game').appendChild(app.canvas)
 window.__boot?.(55)
 
@@ -1168,8 +1172,10 @@ app.ticker.add((ticker) => {
     run.viewRadius = Math.hypot(app.screen.width, app.screen.height) / 2
     // v6.6.24: the rectangle, not just its diagonal — see run.viewW/viewH in state.js and
     // canCommitFrom in config.js. The camera centres the player in every chapter but the lane.
-    run.viewW = app.screen.width / 2
-    run.viewH = app.screen.height / 2
+    // a chapter that frames wider (render.viewW, The Core) widens it with the camera, so spawns stay off screen
+    const vz = CFG.viewZoom(CHAPTERS[run.chapter].render, app.screen.width)
+    run.viewW = app.screen.width / 2 / vz
+    run.viewH = app.screen.height / 2 / vz
     const input = getInput(renderer.playerScreen)
     stepSim(run, input, dt)
     let events = run.events
