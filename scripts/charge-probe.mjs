@@ -44,7 +44,7 @@
 // takes cards and kills far more than a starter-only one ever would.
 import { createRun, ensureBookMeta, ensureChapterMeta } from '../src/state.js'
 import { stepSim, applyChoice, onSandbar, inMaw } from '../src/sim.js'
-import { CHAPTERS, PULSE_CHARGE_COST, darkness, refillSpec, laneAxes, laneScrollFor, bookOf, shopLines, MAX_SHOP_LEVEL, TRAWL_WAKE_DEPTH, TRAWL_SPEED, TRAWL_INTERVAL, TRAWL_LEAD_MUL, spawnRate } from '../src/config.js'
+import { CHAPTERS, LANE_REF_VIEW, PULSE_CHARGE_COST, darkness, refillSpec, laneAxes, laneScrollFor, bookOf, shopLines, MAX_SHOP_LEVEL, TRAWL_WAKE_DEPTH, TRAWL_SPEED, TRAWL_INTERVAL, TRAWL_LEAD_MUL, spawnRate } from '../src/config.js'
 
 // --chapter <id> (v7.x, run US.c): every Book 2 chapter shares one `resource`/refill-circle
 // vocabulary (Humidity and tide pools, Clarity and upwellings, Light and sun shafts, Feed and the
@@ -263,7 +263,7 @@ const LANE_MOVES = {
       const ahead = (sh[LAX.fwd] - p[LAX.fwd]) * LAX.dir
       if (ahead < -sh.r) continue
       // Reachable: the cross gap has to close in the time the scroll leaves before it goes past.
-      const secs = Math.max(0.01, (ahead + sh.r) / laneScrollFor(CHAPTERS[CHAPTER]))
+      const secs = Math.max(0.01, (ahead + sh.r) / laneScrollFor(CHAPTERS[CHAPTER], run.mods, run))
       if (Math.abs(sh[LAX.cross] - p[LAX.cross]) > strafe * secs + sh.r) continue
       if (ahead < bd) { bd = ahead; best = sh }
     }
@@ -337,6 +337,8 @@ for (const [pname, wants] of Object.entries(POLICIES)) {
     Math.random = mulberry32(1234 + r * 7919)
     const run = createRun(probeMeta({}), { chapter: CHAPTER, difficulty: DIFFICULTY })
     if (run.chapter !== CHAPTER) { console.error(`ABORT: asked for ${CHAPTER}, got ${run.chapter}`); process.exit(1) }
+    // a lane is sized and timed by its screen (LANE_WARNING_SECONDS): play the phone it is tuned on
+    if (CHAPTERS[CHAPTER].lane) Object.assign(run, LANE_REF_VIEW, { viewRadius: Math.hypot(LANE_REF_VIEW.viewW, LANE_REF_VIEW.viewH) })
 
     let inShaft = 0, steps = 0, pulses = 0, charged = 0, atZero = 0, atMax = 0, armed = 0, bites = 0
     let dark = 0, darkSum = 0, onBar = 0

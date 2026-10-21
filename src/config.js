@@ -493,19 +493,17 @@ export const SUBMISSION_DMG_FRAC = 0.5     // the spec's "50% of your damage"; f
 // to stepContactDamage, and of the four run.enemyShots push sites three belong to The Blank's
 // scripted boss. So this cadence, not any weapon table, is what an ally's damage output IS.
 // WHAT A TURNED ELITE STOPS DOING. Every one of these points at the PLAYER by construction and
-// bypasses the retarget seam, so without stripping them your ally keeps shelling you (skies
-// artillery), laying damaging pools under you (pond soapTrail), abducting you (beyond pullBeam),
-// disgorging HOSTILE minions (city spawner) or enraging the swarm it is supposed to be fighting
-// (undergrowth flashlightCone). Derived from every chapter's `eliteFlags` plus the roster flags
-// that can land on an elite (garden's spider webZone, skies' helicopter missileVolley).
+// bypasses the retarget seam, so without stripping them your ally keeps laying damaging pools
+// under you (pond soapTrail), abducting you (beyond pullBeam), disgorging HOSTILE minions (city
+// spawner) or enraging the swarm it is supposed to be fighting (undergrowth flashlightCone).
+// Derived from every chapter's `eliteFlags` plus the roster flags that can land on an elite
+// (garden's spider webZone, skies' helicopter missileVolley).
 //   `acidPool` is deliberately NOT here: it is an on-DEATH flag and it already fired when the
 // elite died, one statement before the turn.
-// ponytail: stripping beats a per-flag suppress-or-retarget table. Contact is the whole arsenal
-// for the rest of the roster anyway (pounce, dive, charge and strafe all resolve to contact
-// damage), so the fidelity lost is one turret's aim. Upgrade path is retargeting `artillery`,
-// whose shells already damage enemies via run.bombs.
+//   `artillery` is NOT here: it is retargeted instead — an ally shells the nearest hostile, and
+// its shells (bomb.ally) never hurt the player.
 export const SUBMISSION_STRIP_FLAGS = [
-  'soapTrail', 'oilTrail', 'webZone', 'wake', 'artillery', 'missileVolley', 'spawner', 'flashlightCone', 'pullBeam',
+  'soapTrail', 'oilTrail', 'webZone', 'wake', 'missileVolley', 'spawner', 'flashlightCone', 'pullBeam',
 ]
 export const SUBMISSION_HIT_EVERY = 0.5    // seconds between an ally's contact hits on one target
 // BLOOD MONEY. Owner overruled a maxHP proposal: flat current HP, and the objection ("that is 23
@@ -7514,9 +7512,8 @@ export const TIDE_TURN = Math.PI / 300 // rad/s — 180 degrees over a full run
 // radius-of-clear-space mechanic; it does not care whether the thing outside the radius is darkness
 // or filth." So `resource.dark` here is the SAME field the light chapters use, and it keeps that
 // key deliberately — it names the RIG, not the fiction, and what sits outside the radius is already
-// per-chapter presentation via render.darkTint.
-// ponytail: one key, two fictions (this murk, The Deep's dark). If a third reading ever needs
-// different GEOMETRY rather than a different colour, that is when `dark` splits into per-chapter blocks.
+// per-chapter presentation via render.darkTint. Its geometry is per-chapter too: each chapter's
+// `resource.dark` block carries its own radii, floor and dim.
 //
 // ⚠ PHASE 1 OF 3. What is real here: the bar, the murk, the upwellings, the roster's tank, the
 // slot's balance and palette. WHAT IS A STAND-IN AND SAYS SO: all three weapons, two of three
@@ -11708,43 +11705,40 @@ export const TYPE_ARCHETYPE = Object.fromEntries(Object.entries(ARCHETYPE_TYPE).
 // has to sit UNDER the slowest chaser that matters, with room to spare.
 // It also reads better: a slow forward drift against a quick strafe is the Space Invaders feel,
 // where all your agility is sideways.
-export const LANE_SCROLL_SPEED = 70      // px/s the player advances up the lane, always
-// PER-CHAPTER OVERRIDE (CHAPTERS[].laneScroll), because the axis changed what 70 MEANS.
-//
-// What a lane chapter actually owes the player is SECONDS OF WARNING — how long between a thing
-// appearing at the leading edge and reaching them — and that is `viewport-ahead / scroll`, not the
-// scroll alone. The player sits at LANE_CAMERA_FRAC (0.8) of the viewport along the forward axis, so
-// the distance ahead is 0.8 x the screen extent ALONG THAT AXIS. Rotating the lane 90 degrees on a
-// portrait phone therefore swaps which screen dimension pays for warning, and measured on a 390x844
-// phone at zoom 1.000 (scripts/fx-probe.mjs, both chapters, same frame):
-//
-//     The Beyond (y): 675 world px ahead  -> 9.6s at 70 px/s
-//     The Reef   (x): 312 world px ahead  -> 4.5s at 70 px/s
-//
-// The ratio is exactly the screen's aspect (844/390 = 2.16 against 9.6/4.5 = 2.13), which is the
-// proof that this is a property of the DEVICE and the axis, not of the chapter's tuning. Half the
-// reaction time on the platform this game actually ships to is not a difficulty choice.
-//
-// The Reef ran at 45 for exactly that reason (312/45 = 6.9s, most of The Beyond's). It is 90 now,
-// which is 3.5s -- owner's ruling, 2026-08-23, having played it: "the level should scroll faster".
-//
-// The reasoning above is not wrong, it is answering a question the chapter no longer asks. Warning
-// time is what a lane owes you when the threat is a RANK you must shoot or dodge, and 6.9s of that
-// read as glacial. The Reef's threat is now a WALL you must find the gap in: its coral is solid
-// (spurs.solid) and being stopped by it is what kills you, so the same 3.5s buys a groove read
-// rather than a firing solution, and the chapter is a different genre problem at the same number.
-//
-// ponytail: the principled fix is to stop storing px/s at all and derive the scroll from a shared
-// LANE_WARNING_SECONDS and the live viewport, which would make every device and both axes agree by
-// construction. It is not done here because it MOVES THE BEYOND on any viewport that is not this
-// phone (640 px ahead on a 1280x800 desktop would give it 66 px/s, not 70), and The Beyond is
-// shipped and tuned. Doing it means re-capturing run LN's golden master with a stated reason.
+// What a lane owes the player is SECONDS OF WARNING — how long between a thing appearing at the
+// leading edge and reaching them — and that is `viewport-ahead / scroll`, not the scroll alone. The
+// player sits at LANE_CAMERA_FRAC (0.8) of the viewport along the forward axis, so the distance
+// ahead is 0.8 x the screen extent ALONG THAT AXIS, and a fixed px/s hands every screen a different
+// reaction time. So the lane stores the seconds and DERIVES the px/s from the live viewport: every
+// device, and either axis, gets the same warning by construction. On the 390x844 phone this ships
+// to that is 675 world px ahead at 70 px/s, the number The Beyond was tuned at.
+//   FROZEN PER RUN, as run._laneView (stepSim captures the first sane run.viewW/viewH). Live, a
+// mid-run rotation would snap the lane from ±380 to ±175 in one frame and strand every marcher
+// outside the new walls; frozen, the run keeps the screen it started on. A lane chapter's camera
+// never zooms (fightZoom/cerZoom/punchZ are the Kraken's), so those screen px ARE world px.
+// balance_decision : The Beyond keeps 9.65s, its 70px/s on the phone [2026-10-21]
+export const LANE_WARNING_SECONDS = 9.65
+// balance_decision : derived scroll capped under the drone's 90px/s [2026-10-21]
+//  - only a tall screen (portrait tablet) reaches it, and there it buys MORE warning, never less
+export const LANE_SCROLL_MAX = 80
+// The viewport a caller with no run is answered for (render's title screen, a probe holding only a
+// chapter): the 390x844 phone, as the half-extents run.viewW/viewH carry.
+export const LANE_REF_VIEW = Object.freeze({ viewW: 195, viewH: 422 })
+// A half-extent under this is not a screen (a 0x0 canvas mid-boot, a hidden tab): the lane falls
+// back to LANE_REF_VIEW rather than scrolling at 0 down a 0-wide corridor.
+export const LANE_VIEW_MIN = 100
+export const laneViewOk = (v) => !!v && v.viewW >= LANE_VIEW_MIN && v.viewH >= LANE_VIEW_MIN
+// What every lane read sizes itself by: the run's frozen view, else a sane live one, else the phone.
+const laneViewOf = (v) => v?._laneView ?? (laneViewOk(v) ? v : LANE_REF_VIEW)
+// A chapter that declares `laneScroll` keeps it as plain px/s. That is The Reef, a `circuit` whose
+// "scroll" is a car's base speed on a ring with a centred camera, so there is no edge to warn from.
+// `view` is the run (its frozen _laneView wins), or anything carrying viewW/viewH, or nothing.
 // `mods` (v7.x, MUTATORS.tidalRace) is run.mods — the merged mutator table, or undefined for a
-// caller that has none (render.js's title screen, a probe holding only a chapter). It multiplies
-// HERE and at no call site, deliberately: there are exactly two readers of this function, sim.js's
-// forward velocity and render.js's burst-wake length, and a mutator applied at one of them would
-// draw a wake for a scroll the player is not travelling at.
-export const laneScrollFor = (ch, mods) => (ch?.laneScroll ?? LANE_SCROLL_SPEED) * (mods?.laneScrollMul ?? 1)
+// caller that has none. It multiplies HERE and at no call site, deliberately: a mutator applied at
+// only one of the readers (sim.js's forward velocity, render.js's burst-wake length) would draw a
+// wake for a scroll the player is not travelling at.
+export const laneScrollFor = (ch, mods, view) => (ch?.laneScroll ?? Math.min(LANE_SCROLL_MAX, LANE_CAMERA_FRAC * 2
+  * (laneAxes(ch).fwd === 'x' ? laneViewOf(view).viewW : laneViewOf(view).viewH) / LANE_WARNING_SECONDS)) * (mods?.laneScrollMul ?? 1)
 export const LANE_STRAFE_MUL = 1.25      // strafe is a touch quicker than base speed — it is all you have
 
 // MOMENTUM, and it exists only in a `circuit` chapter. Everywhere else the throttle reaches the
@@ -12050,22 +12044,17 @@ export const caveSpecOf = (run) => run.caveSpec
 // formation spans the play area, the play area is what you can see, and every threat is therefore
 // legible. The lane is centred on world CROSS-AXIS 0 (x for The Beyond, y for The Reef) and the
 // player is clamped to it.
-// laneHalfWidth() shrinks the lane on a narrow viewport so a rank is ALWAYS fully visible: the
-// guarantee "you can see everything that can hurt you" outranks a fixed world width.
+// laneHalfWidth() shrinks the lane on a narrow viewport so a rank is never wider than the screen:
+// the guarantee "you can see everything that can hurt you" outranks a fixed world width.
 //
-// ONE NUMBER FOR BOTH AXES, and that is a decision rather than an oversight. viewRadius is the half
-// DIAGONAL (main.js), so it is orientation-blind by construction: an x-lane and a y-lane get the
-// same world-width lane on the same device, which is what keeps every constant measured against it
-// — LANE_HALF_W, FORMATION_COLS' pitch, ROCK_SPREAD_MUL — meaning the same thing in both chapters.
-// ponytail: the honest cross-axis extent is run.viewW/viewH (state.js), and feeding the lane the
-// one it is actually measured ACROSS would deliver the "fully visible" guarantee above literally
-// rather than approximately — today a portrait phone (viewRadius 465, half-width 195) gets a
-// ±418px y-lane more than twice as wide as the screen, which is a pre-existing gap this comment is
-// only now naming. Upgrade path: pass laneAxes(ch).cross's half-extent instead, and re-shoot BOTH
-// chapters at BOTH viewports (the shipped Beyond numbers move the moment you do, so it needs the
-// golden master re-captured with a stated reason).
+// MEASURED ACROSS THE CROSS AXIS, from run.viewW/viewH (state.js) — the screen's half-extent the
+// lane actually spans, not viewRadius (the half-diagonal, which handed a portrait phone a ±418px
+// lane on a ±195px screen). A lane chapter never zooms (see LANE_WARNING_SECONDS), so those screen
+// px are world px. On the phone the lane is ±175; on a 1280x800 desktop LANE_HALF_W still binds.
+//   ⚠ "NEVER WIDER THAN THE SCREEN" IS NOT "ALWAYS ON SCREEN": the camera centres the cross axis on
+// the player, so a player against one wall sees the far wall's columns leave the other edge.
 export const LANE_HALF_W = 430           // px, half the lane's width at full size
-export const LANE_VIEW_FRAC = 0.9        // lane never exceeds this fraction of the viewport radius
+export const LANE_VIEW_FRAC = 0.9        // lane never exceeds this fraction of the screen's cross half-extent
 // `ch` is OPTIONAL and is the chapter object, not an id, exactly as laneAxes takes one — a chapter
 // may narrow its own corridor with `laneHalfW`. One function rather than a second wrapper, so there
 // is no way for the width the player is CLAMPED to and the width something else believes in to
@@ -12339,7 +12328,9 @@ export const ringDelta = (spec, a, b) => {
   return d
 }
 
-export const laneHalfWidth = (viewRadius, ch) => Math.min(ch?.laneHalfW ?? LANE_HALF_W, viewRadius * LANE_VIEW_FRAC)
+// `view` is read exactly as laneScrollFor reads it — pass the run.
+export const laneHalfWidth = (view, ch) => Math.min(ch?.laneHalfW ?? LANE_HALF_W,
+  (laneAxes(ch).cross === 'x' ? laneViewOf(view).viewW : laneViewOf(view).viewH) * LANE_VIEW_FRAC)
 
 // HOW FAR ALONG THE LANE THE ART HAS TO BE BUILT — a VIEWPORT read, never a constant. `view` is the
 // screen extent on the FORWARD axis; the camera puts LANE_CAMERA_FRAC of it ahead of the player and
@@ -12467,10 +12458,11 @@ export const CIRCUIT_CAM_LEAD = 0.42     // x the distance to the screen edge al
 // diagonal — most visibly on a keyboard, whose 8 directions arrive as steps rather than as a sweep.
 export const CIRCUIT_CAM_EASE = 3.5      // per second
 export const FORMATION_INTERVAL = 4.4    // s between ranks (5.0 left visible dead air between waves)
-// ponytail: density is two knobs (this + LANE_SPAWN_MUL) tuned as a pair against one measured
-// number (LANE_EARLY_BOOST scales the pair together, not one of them). If a third source of lane
-// pressure ever lands, measure the trio, don't add a third knob.
-export const FORMATION_COLS = 6          // invaders across a rank, spread over the full lane width
+// Density is two knobs (this + LANE_SPAWN_MUL) tuned as a pair on a ±430 lane (LANE_EARLY_BOOST
+// scales the pair together). A narrower lane (laneHalfWidth: ±175 on a portrait phone) scales BOTH
+// by hw / LANE_HALF_W — fewer rank columns (stepFormations, floor 3) and a thinner ordinary stream
+// (stepSpawning). Run LV.d asserts arrivals per px of lane match across devices.
+export const FORMATION_COLS = 6          // invaders across a rank on a full LANE_HALF_W lane; fewer on a narrower one
 // Ranks enter from just beyond the TOP EDGE, derived from the viewport rather than fixed, so on
 // every device a rank appears at the edge of sight and descends the full screen. A fixed number
 // pops ranks into existence mid-screen on a tall display and wastes the warning on a short one.

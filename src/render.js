@@ -18747,7 +18747,7 @@ const spurG = new Graphics()
     // either lane, and it is a VIEW read rather than a constant: it is 78px on a phone and 256 on a
     // desktop, and a tail tuned against one of those is off screen or lost on the other.
     const behind = (1 - LANE_CAMERA_FRAC) * (ax.fwd === 'x' ? viewW() : viewH())
-    const W = burstWakeAt(left, laneScrollFor(CHAPTERS[run.chapter], run.mods), behind)
+    const W = burstWakeAt(left, laneScrollFor(CHAPTERS[run.chapter], run.mods, run), behind)
     const L = W.len
     if (L <= 1) return
     const V = BURST_WAKE
@@ -32934,7 +32934,7 @@ void main() {
       // The SAME expression stepPlayerMovement builds its own `top` from, passive included: without
       // it a maxed Turbo Fin (cap 1, i.e. 2x) pins thr at 1 for the whole race and the camera stops
       // answering the throttle at all — which is the half of this that makes it read as driving.
-      const top = laneScrollFor(CHAPTERS[run.chapter], run.mods)
+      const top = laneScrollFor(CHAPTERS[run.chapter], run.mods, run)
         * (CHAPTERS[run.chapter].laneThrottle?.max ?? 1) * (1 + (run.passives?.topSpeed ?? 0))
       const thr = Math.max(0, Math.min(1, (run._laneSpeed ?? 0) / Math.max(1, top)))
       const lead = CIRCUIT_CAM_LEAD * edge * thr

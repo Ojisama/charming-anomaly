@@ -128,7 +128,7 @@ function approach(run, sp) {
   }
   return { secs, gap, aim }
 }
-const HW = laneHalfWidth(600)
+const HW = laneHalfWidth({ viewW: 480, viewH: 360 })   // createRun's default view, i.e. LANE_HALF_W
 const clampCross = (v) => Math.max(-HW, Math.min(HW, v))
 const strafeOf = (run) => run.player.speed * 1.25 * (run._scraping ? 0.6 : 1)
 

@@ -62,7 +62,7 @@
 
 import { createRun, ensureBookMeta, ensureChapterMeta } from '../src/state.js'
 import { stepSim } from '../src/sim.js'
-import { WEAPONS, CHAPTERS, PLAYER, ANOMALIES, bookOf, shopLines, BOOK_ORDER } from '../src/config.js'
+import { WEAPONS, CHAPTERS, LANE_REF_VIEW, PLAYER, ANOMALIES, bookOf, shopLines, BOOK_ORDER } from '../src/config.js'
 import os from 'node:os'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
@@ -142,6 +142,8 @@ function census(id, level, seed) {
   const run = createRun(makeMeta(), { chapter: CHAPTER, difficulty: DIFFICULTY })
   // createRun(meta, opts) takes an OPTIONS OBJECT — a positional call silently gives body at d1.
   if (run.chapter !== CHAPTER) { console.error(`ABORT: asked for ${CHAPTER}, got ${run.chapter}`); process.exit(1) }
+  // a lane is sized and timed by its screen (LANE_WARNING_SECONDS): play the phone it is tuned on
+  if (CHAPTERS[CHAPTER].lane) Object.assign(run, LANE_REF_VIEW, { viewRadius: Math.hypot(LANE_REF_VIEW.viewW, LANE_REF_VIEW.viewH) })
   // Survival is not what is being measured — a weapon that lets the player die scores its own
   // short run, which reads as "low output" for entirely the wrong reason. (The testVictory idiom.)
   run.player.maxHP = run.player.hp = 1e9

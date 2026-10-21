@@ -18,7 +18,7 @@
 
 import { createRun, ensureBookMeta, ensureChapterMeta } from '../src/state.js'
 import { stepSim } from '../src/sim.js'
-import { CHAPTERS, bookOf, shopLines, BOOK_ORDER, DOWNWASH_PLUNGE_N, DOWNWASH_PLUNGE_FRAC, DOWNWASH_PLUNGE_ARM } from '../src/config.js'
+import { CHAPTERS, LANE_REF_VIEW, bookOf, shopLines, BOOK_ORDER, DOWNWASH_PLUNGE_N, DOWNWASH_PLUNGE_FRAC, DOWNWASH_PLUNGE_ARM } from '../src/config.js'
 
 const argv = process.argv.slice(2)
 const arg = (n, d) => { const i = argv.indexOf('--' + n); return i >= 0 && argv[i + 1] != null ? argv[i + 1] : d }
@@ -57,6 +57,8 @@ function probe(seed) {
   Math.random = mulberry32(seed)
   const run = createRun(makeMeta(), { chapter: CHAPTER, difficulty: 3 })
   if (run.chapter !== CHAPTER) { console.error(`ABORT: asked for ${CHAPTER}, got ${run.chapter}`); process.exit(1) }
+  // a lane is sized and timed by its screen (LANE_WARNING_SECONDS): play the phone it is tuned on
+  if (CHAPTERS[CHAPTER].lane) Object.assign(run, LANE_REF_VIEW, { viewRadius: Math.hypot(LANE_REF_VIEW.viewW, LANE_REF_VIEW.viewH) })
   run.player.maxHP = run.player.hp = 1e9
   run.weapons = [{ id: 'downwash', level: LEVEL }]
   if (PLUNGE) run.weaponMods.downwash = { ...(run.weaponMods.downwash ?? {}), plunge: 1 }

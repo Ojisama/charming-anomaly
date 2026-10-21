@@ -97,7 +97,7 @@ import {
   QUILL_R, QUILL_REBOUND_SPEED_MUL, REBOUND_MAX_PICKS,
   ROAR_RESONANCE_EVERY, STAGGER_STUN_PER_PICK, PULSAR_ARMS,
   DISTRICTS, districtAt, districtTintAt, DISTRICT_STRUCTURE_KINDS,
-  LANE_SCROLL_SPEED, laneScrollFor, LANE_STRAFE_MUL, circuitKnob, circuitLadder, caveSpecOf, refillGrantFor, swimthroughsFor, SWIMTHROUGHS_PER_LAP, CIRCUIT_GATE_VIS, RUN_DURATION, MARCH_SWAY_RATE, REPULSE_RADIUS, REPULSE_CD,
+  LANE_WARNING_SECONDS, LANE_REF_VIEW, laneScrollFor, LANE_STRAFE_MUL, circuitKnob, circuitLadder, caveSpecOf, refillGrantFor, swimthroughsFor, SWIMTHROUGHS_PER_LAP, CIRCUIT_GATE_VIS, RUN_DURATION, MARCH_SWAY_RATE, REPULSE_RADIUS, REPULSE_CD,
   SHOREBREAK_RADIUS, SHOREBREAK_DUR_MIN, SHOREBREAK_DUR_AT_FULL, SHOREBREAK_STAGGER, SHOREBREAK_FORCE,
   CLEAR_DUR_MIN, CLEAR_DUR_AT_FULL, CLEAR_SIGHT_FADE, CLEAR_RADIUS_AT_FULL, CLEAR_STUN, REPULSE_STUN,
   KITE_MIN_SPEED, PULSE_CHARGE_COST, SCENT_DUR_AT_FULL, PULSE_RADIUS_AT_FULL, darkness, lightRadius, unlockCost, unlockLevel, unlockMax, SACRIFICE_COSTS, LATCH_SLOW_MUL,
@@ -14102,9 +14102,9 @@ function testV54Signatures() {
     // lane's own scroll (which doubles as the lane invariant: nothing may change the scroll rate).
     assert.strictEqual(bodies.player.x, px0, 'expected a well to never move the player sideways')
     const laneDrift = py0 - bodies.player.y
-    const expectDrift = LANE_SCROLL_SPEED * Math.round(0.5 / dt) * dt
+    const expectDrift = laneScrollFor(CHAPTERS.beyond, null, bodies) * Math.round(0.5 / dt) * dt
     assert(Math.abs(laneDrift - expectDrift) < 1e-6,
-      `expected the player to advance at exactly LANE_SCROLL_SPEED and nothing else, drifted ${laneDrift.toFixed(2)} vs ${expectDrift.toFixed(2)}`)
+      `expected the player to advance at exactly the lane's scroll and nothing else, drifted ${laneDrift.toFixed(2)} vs ${expectDrift.toFixed(2)}`)
     assert(!bodies.events.some((ev) => ev.type === 'hurt' || ev.type === 'hit'), 'expected wells to damage nothing')
     console.log(`PASS run Z.d (gravity): ${seeded.wells.length} wells seeded, bullet bent to vy=${b.vy.toFixed(0)} with speed error ${maxSpeedErr.toExponential(1)}, bodies untouched`)
   }
@@ -20994,6 +20994,7 @@ try {
   run(testDetonationScaling)
   run(testDescPlaceholder)
   run(testSubmission)
+  run(testSubmissionArtillery)
   run(testSurfTide)
   run(testUndertowTide)
   run(testSurfSandbars)
@@ -21011,6 +21012,7 @@ run(testLeLargeWeapons)
   run(testMultitouchControls)
   run(testMouseSteering)
   run(testLaneGolden)
+  run(testLaneViewport)
   run(testRingTrack)
   run(testReefPassiveCrowd)
   run(testReefAirBurst)
@@ -23224,6 +23226,54 @@ function testSubmission() {
   console.log(`PASS run SB.d (converted ally lays no oil wall): 0 look:'bilge' blooms over 10s — SB.a's damage-only guard cannot see this affix class (dmgPerTick: 0)`)
 }
 
+// ---- run SB.e: an allied artillery elite shells the swarm, never you ------------------------
+// The player stands INSIDE the blast radius of the foe being shelled, outside contact reach, so a
+// friendly shell that hurt the player would show. Once allyT is 0 the same body shells the player.
+// MUTATION: put 'artillery' back in SUBMISSION_STRIP_FLAGS (foe unhurt), or drop `!b.ally` from
+// stepBombs' player check (player hurt).
+function testSubmissionArtillery() {
+  const dt = 1 / 60
+  Math.random = mulberry32(20261021)
+  const run = createRun(makeMeta(), { chapter: 'body', difficulty: 1 })
+  run.anomalies.submission = true
+  run.weapons = []
+  run.mods.spawnMul = 0
+  run.player.hp = run.player.maxHP = 5000
+  const p = run.player
+  const ally = makeStatusEnemy(run, { x: p.x - 200, y: p.y, elite: true, hp: 1e6, speed: 0 })
+  ally.flags = ['artillery']
+  ally._dead = true
+  const foe = makeStatusEnemy(run, { x: p.x + 60, y: p.y, hp: 1e6, speed: 0 })
+  run.enemies.push(ally, foe)
+  stepSim(run, { x: 0, y: 0 }, dt)
+  assert.ok(ally.allyT > 0, 'the dead elite did not turn — fixture broken, not the sim')
+  const hp0 = p.hp
+  let shells = 0
+  for (let i = 0; i < Math.round(8 / dt); i++) {
+    ally.allyT = SUBMISSION_DURATION
+    stepSim(run, { x: 0, y: 0 }, dt)
+    for (const ev of run.events) if (ev.type === 'explode' && ev.src === 'gun') shells++
+    run.events.length = 0
+    for (const s of run.bombs) {
+      if (s.src === 'gun') assert.ok(s.ally && Math.hypot(s.x - foe.x, s.y - foe.y) < 1,
+        `an allied shell must aim at the foe, landed (${s.x.toFixed(0)},${s.y.toFixed(0)}) ally=${s.ally}`)
+    }
+  }
+  assert.ok(shells >= 2, `an allied artillery elite fired ${shells} shells in 8s — its flag was stripped or it lost its target`)
+  assert.ok(foe.hp < 1e6, 'the allied shells landed on the foe but did not hurt it')
+  assert.strictEqual(p.hp, hp0, `the player took ${hp0 - p.hp} HP standing in the blast of their ally's shells`)
+
+  // the loan runs out (held here rather than retiring the body, so the aim alone is under test)
+  ally.allyT = 0
+  run.bombs.length = 0
+  ally._shellT = 0
+  stepSim(run, { x: 0, y: 0 }, dt)
+  const b = run.bombs.find((s) => s.src === 'gun')
+  assert.ok(b && !b.ally && Math.hypot(b.x - p.x, b.y - p.y) < 1,
+    `with allyT at 0 the elite's shell should target the player, got ${b ? `(${b.x.toFixed(0)},${b.y.toFixed(0)}) ally=${b.ally}` : 'no shell'}`)
+  console.log(`PASS run SB.e (allied artillery): ${shells} shells in 8s hurt the foe ${(1e6 - foe.hp).toFixed(0)} HP and the player 0; at allyT 0 it shells the player again`)
+}
+
 // ---- run US.a (v7.55): The Surf's tide — alternating lateral surge and backwash ------
 function testSurfTide() {
   Math.random = mulberry32(20260813)
@@ -25279,10 +25329,11 @@ function testLaneGolden() {
   // the clamp binds on 0.142% of enemy-frames in the beyond against 4.012% in the Kraken (3 seeds x
   // 120s each). It is near-inert outside the chapter it was written for, which is why a 9px drift
   // over 180 seconds of a chaotic system is the whole of its blast radius here.
+  // RE-CAPTURED 2026-10-21: the scroll is now LANE_WARNING_SECONDS over this 960x720 run's 576px ahead (59.69px/s, py 180x that), not a flat 70.
   const BEYOND_GOLDEN = [
-    { seed: 11, px: -104.050, py: -12600, enemies: 112, rocks: 1, kills: 415 },
-    { seed: 22, px: -189.777, py: -12600, enemies: 115, rocks: 1, kills: 386 },
-    { seed: 33, px: 34.794, py: -12600, enemies: 118, rocks: 1, kills: 395 },
+    { seed: 11, px: -223.488, py: -10744.041, enemies: 160, rocks: 1, kills: 359 },
+    { seed: 22, px: -402.763, py: -10744.041, enemies: 192, rocks: 1, kills: 327 },
+    { seed: 33, px: -236.341, py: -10744.041, enemies: 109, rocks: 1, kills: 412 },
   ]
   const meta = makeMeta()
   for (const id of ['body', 'pond', 'garden', 'undergrowth', 'city', 'skies', 'beyond']) {
@@ -25304,10 +25355,10 @@ function testLaneGolden() {
       run.player.hp = run.player.maxHP
     }
     Math.random = restore
-    // The forward axis is the load-bearing one: py is exactly 180s x LANE_SCROLL_SPEED, so any
+    // The forward axis is the load-bearing one: py is exactly 180s x laneScrollFor, so any
     // drift here means the scroll rate itself moved, which is the one thing this chapter guarantees.
     assert.strictEqual(+run.player.y.toFixed(3), g.py,
-      `seed ${g.seed}: the beyond's scroll ended at y=${run.player.y.toFixed(3)}, not ${g.py} — LANE_SCROLL_SPEED or the forward axis moved`)
+      `seed ${g.seed}: the beyond's scroll ended at y=${run.player.y.toFixed(3)}, not ${g.py} — laneScrollFor or the forward axis moved`)
     assert.strictEqual(+run.player.x.toFixed(3), g.px,
       `seed ${g.seed}: the beyond's strafe ended at x=${run.player.x.toFixed(3)}, not ${g.px} — the cross axis or the wall clamp moved`)
     for (const [k, want] of [['enemies', g.enemies], ['rocks', g.rocks], ['kills', g.kills]]) {
@@ -25317,6 +25368,134 @@ function testLaneGolden() {
     }
   }
   console.log(`PASS run LN (lane golden master): the beyond is unchanged across ${BEYOND_GOLDEN.length} seeded 180s runs — scroll, strafe, formations, rocks and kills all bit-identical`)
+}
+
+// ---- run LV: the lane is sized and timed by the VIEWPORT it is played on ----------------------
+// Two guarantees, each measured off what the sim actually did rather than read off config:
+//   (a) on a portrait phone every rank spawns inside the screen's cross extent — the lane is
+//       measured across the cross axis (viewW), not the half-diagonal that once gave it ±418px;
+//   (b) the seconds of warning (screen ahead / measured scroll) are the same on a phone and a
+//       desktop, and on the 390x844 phone the scroll is still the 70px/s The Beyond was tuned at;
+//   (c) a rank's column pitch on the phone matches the desktop's, within one column of rounding.
+//   (d) and so does everything that arrives, per px of lane.
+//   (e) a mid-run rotation moves neither the walls nor the scroll; (f) a 0x0 view plays the phone.
+function testLaneViewport() {
+  const dt = 1 / 60
+  const meta = makeMeta()
+  ensureChapterMeta(meta, 'beyond')
+  meta.chapters.beyond.unlocked = true
+  const VIEWS = [['phone', 195, 422], ['desktop', 640, 400]]
+  const warn = {}, pitches = {}
+  let ranksSeen = 0
+  for (const [name, vw, vh] of VIEWS) {
+    Math.random = mulberry32(20261021)
+    const run = createRun(meta, { chapter: 'beyond', difficulty: 1 })
+    assert.strictEqual(run.chapter, 'beyond', 'run LV did not start in The Beyond')
+    run.player.hp = run.player.maxHP = 1e9
+    run.mods.spawnMul = 0
+    run.weapons = []
+    const ax = laneAxes(CHAPTERS.beyond)
+    const seen = new Set()
+    let fwd0 = null
+    for (let i = 0; i < Math.round(20 / dt); i++) {
+      run.viewW = vw; run.viewH = vh; run.viewRadius = Math.hypot(vw, vh)
+      if (i === 60) fwd0 = run.player[ax.fwd]
+      stepSim(run, { x: 0, y: 0 }, dt)
+      run.events.length = 0
+      if (run.phase === 'levelup') run.phase = 'playing'
+      if (i === 60 + Math.round(1 / dt) - 1) {
+        const scroll = (run.player[ax.fwd] - fwd0) * ax.dir / (Math.round(1 / dt) * dt)
+        warn[name] = LANE_CAMERA_FRAC * 2 * (ax.fwd === 'x' ? vw : vh) / scroll
+        if (name === 'phone') assert.ok(Math.abs(scroll - 70) < 0.1,
+          `run LV: the 390x844 phone scrolls The Beyond at ${scroll.toFixed(2)}px/s — the chapter was tuned at 70 there`)
+      }
+      const rank = []
+      for (const e of run.enemies) {
+        if (seen.has(e) || !(e.flags && e.flags.includes('march'))) continue
+        seen.add(e)
+        rank.push(e[ax.cross])
+        const off = Math.abs(e[ax.cross] - run.player[ax.cross]) + e.radius
+        if (name === 'phone') assert.ok(off <= vw,
+          `run LV.a: a rank invader spawned ${off.toFixed(0)}px across from the player on a ${vw * 2}px-wide portrait screen — the lane is wider than what the player can see`)
+      }
+      // One rank = the marchers first seen on one step (spawnMul 0: a single row, evenly pitched).
+      if (rank.length >= 2) {
+        const pitch = (Math.max(...rank) - Math.min(...rank)) / (rank.length - 1)
+        pitches[name] = Math.min(pitches[name] ?? Infinity, pitch)
+      }
+    }
+    if (name === 'phone') ranksSeen = seen.size
+  }
+  // (c) a rank's gaps are as wide on a phone as on a desktop, give or take one whole column of
+  // rounding (and the floor of 3): fewer invaders on a narrower lane, not the same six packed in.
+  const ratio = pitches.desktop / pitches.phone
+  assert.ok(ratio >= 0.8 && ratio <= 1.25,
+    `run LV.c: rank pitch ${pitches.phone?.toFixed(0)}px on a phone vs ${pitches.desktop?.toFixed(0)}px on a desktop — a narrow lane is packing the desktop's rank into less frontage`)
+  // (d) ...and the same for EVERYTHING that arrives (ranks + the ordinary stream), per px of lane:
+  // every body first seen between t=5 (past the one-off opening credit) and t=65, nothing killed.
+  const perPx = {}
+  for (const [name, vw, vh] of VIEWS) {
+    Math.random = mulberry32(20261022)
+    const run = createRun(meta, { chapter: 'beyond', difficulty: 1 })
+    run.player.hp = run.player.maxHP = 1e9
+    run.weapons = []
+    const seen = new Set()
+    let arrived = 0
+    for (let i = 0; i < Math.round(65 / dt); i++) {
+      run.viewW = vw; run.viewH = vh; run.viewRadius = Math.hypot(vw, vh)
+      stepSim(run, { x: 0, y: 0 }, dt)
+      run.events.length = 0
+      run.player.hp = run.player.maxHP
+      if (run.phase === 'levelup') run.phase = 'playing'
+      for (const e of run.enemies) {
+        if (seen.has(e)) continue
+        seen.add(e)
+        if (i >= Math.round(5 / dt)) arrived++
+      }
+    }
+    assert.ok(arrived >= 40, `run LV.d: only ${arrived} arrivals on the ${name} in 60s — too few to compare`)
+    perPx[name] = arrived / (2 * laneHalfWidth(run, CHAPTERS.beyond))
+  }
+  // (e) a mid-run rotation moves neither the walls nor the scroll, and (f) a degenerate 0x0 view
+  // plays the reference phone instead of a 0px/s scroll down a 0px lane. Both read off the player:
+  // hold the stick into the right wall and measure where it stops and how fast it advances.
+  const wallAndScroll = (run, view, secs) => {
+    const ax = laneAxes(CHAPTERS.beyond)
+    let f0 = 0
+    const n = Math.round(secs / dt)
+    for (let i = 0; i < n; i++) {
+      run.viewW = view[0]; run.viewH = view[1]; run.viewRadius = Math.hypot(view[0], view[1])
+      if (i === n - 60) f0 = run.player[ax.fwd]
+      stepSim(run, { x: 1, y: 0 }, dt)
+      run.events.length = 0
+      run.player.hp = run.player.maxHP
+      if (run.phase === 'levelup') run.phase = 'playing'
+    }
+    return { wall: run.player[ax.cross], scroll: (run.player[ax.fwd] - f0) * ax.dir / (60 * dt) }
+  }
+  const quietBeyond = () => {
+    Math.random = mulberry32(20261023)
+    const run = createRun(meta, { chapter: 'beyond', difficulty: 1 })
+    run.player.hp = run.player.maxHP = 1e9
+    run.mods.spawnMul = 0
+    run.weapons = []
+    return run
+  }
+  const rot = quietBeyond()
+  const upright = wallAndScroll(rot, [195, 422], 4)
+  const turned = wallAndScroll(rot, [422, 195], 4)
+  assert.ok(Math.abs(upright.wall - turned.wall) < 1e-6 && Math.abs(upright.scroll - turned.scroll) < 1e-6,
+    `run LV.e: rotating the phone mid-run moved the wall ${upright.wall.toFixed(1)} -> ${turned.wall.toFixed(1)}px and the scroll ${upright.scroll.toFixed(2)} -> ${turned.scroll.toFixed(2)}px/s — the lane must keep the screen the run started on`)
+  const blank = wallAndScroll(quietBeyond(), [0, 0], 4)
+  assert.ok(Math.abs(blank.wall - upright.wall) < 1e-6 && Math.abs(blank.scroll - upright.scroll) < 1e-6,
+    `run LV.f: a 0x0 view put the wall at ${blank.wall.toFixed(1)}px and scrolled ${blank.scroll.toFixed(2)}px/s — it should play the reference phone (${upright.wall.toFixed(1)}px, ${upright.scroll.toFixed(2)}px/s)`)
+  const dens = perPx.phone / perPx.desktop
+  assert.ok(dens >= 0.8 && dens <= 1.25,
+    `run LV.d: ${(perPx.phone * 1000).toFixed(1)} arrivals per 1000px of lane on a phone vs ${(perPx.desktop * 1000).toFixed(1)} on a desktop — the narrow lane is taking the wide lane's crowd`)
+  assert.ok(ranksSeen >= 12, `run LV.a: only ${ranksSeen} rank invaders in 20s — the check above saw too little to mean anything`)
+  assert.ok(Math.abs(warn.phone - warn.desktop) < 1e-6 && Math.abs(warn.phone - LANE_WARNING_SECONDS) < 1e-6,
+    `run LV.b: warning is ${warn.phone.toFixed(3)}s on a phone and ${warn.desktop.toFixed(3)}s on a desktop — the scroll is not derived from the screen ahead`)
+  console.log(`PASS run LV (lane viewport): ${ranksSeen} rank invaders all spawned inside a 390px portrait screen; rank pitch ${pitches.phone.toFixed(0)}px phone vs ${pitches.desktop.toFixed(0)}px desktop; ${(perPx.phone * 1000).toFixed(1)} vs ${(perPx.desktop * 1000).toFixed(1)} arrivals per 1000px of lane; warning ${warn.phone.toFixed(2)}s phone = ${warn.desktop.toFixed(2)}s desktop; wall ${upright.wall.toFixed(1)}px and scroll ${upright.scroll.toFixed(2)}px/s survive a rotation and a 0x0 view`)
 }
 
 // ---- run RG: The Reef's track is a RING ---------------------------------------------------------
@@ -25526,7 +25705,7 @@ function testRingTrack() {
     run.player.hp = run.player.maxHP = 100000
     run.mods.spawnMul = 0
     const BAX = laneAxes(CHAPTERS.beyond)
-    const hw = laneHalfWidth(run.viewRadius, CHAPTERS[run.chapter])
+    const hw = laneHalfWidth(run, CHAPTERS[run.chapter])
     const seenRocks = new Set()
     let rocksChecked = 0
     for (let i = 0; i < Math.round(20 / dt); i++) {
@@ -26140,7 +26319,7 @@ function testReefSpurScrape() {
     const bRun = (() => { Math.random = mulberry32(7); const q = createRun(meta, { chapter: 'beyond', difficulty: 1 }); q.mods.spawnMul = 0; return q })()
     assert.strictEqual(bRun.chapter, 'beyond', 'run RS.e: the control run is not The Beyond, so the no-throttle-elsewhere claim is untested')
     for (let i = 0; i < 60; i++) { stepSim(bRun, bax2.cross === 'x' ? { x: 0, y: -1 } : { x: -1, y: 0 }, dt); bRun.events.length = 0 }
-    assert.ok(Math.abs(bRun.player[bax2.vFwd] * bax2.dir - laneScrollFor(CHAPTERS.beyond)) < 1e-6,
+    assert.ok(Math.abs(bRun.player[bax2.vFwd] * bax2.dir - laneScrollFor(CHAPTERS.beyond, null, bRun)) < 1e-6,
       `run RS.e: The Beyond's scroll answered the forward stick (${bRun.player[bax2.vFwd].toFixed(2)}px/s) — laneThrottle was The Reef's field and adopting it elsewhere moves a shipped chapter's golden master`)
   }
 
@@ -29685,7 +29864,7 @@ function testReefAirBurst() {
     const bax = laneAxes(CHAPTERS.beyond)
     const b0 = beyond.player[bax.fwd]
     for (let i = 0; i < Math.round(1.2 / dt); i++) { stepSim(beyond, { x: 0, y: 0, skill: i === 0 }, dt); quiet(beyond) }
-    assert.ok(Math.abs((beyond.player[bax.fwd] - b0) * bax.dir - LANE_SCROLL_SPEED * 1.2) < 1e-6,
+    assert.ok(Math.abs((beyond.player[bax.fwd] - b0) * bax.dir - laneScrollFor(CHAPTERS.beyond, null, beyond) * 1.2) < 1e-6,
       'The Beyond dashed — `burst` has leaked onto a chapter that never declared it')
     console.log(`PASS run RF.d (the dash): 1.2s advance ${none.toFixed(0)}px unpressed, ${empty.toFixed(0)}px on an EMPTY bar (+${(empty - none).toFixed(0)}), ${full.toFixed(0)}px on a full one (+${(full - none).toFixed(0)}); The Beyond's own press moves it not one pixel`)
   }

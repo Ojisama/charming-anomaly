@@ -1238,7 +1238,7 @@ function generateWells(sig) {
  * Endless enemy HP grows exponentially (enemyHpMul = base x endlessHpMul(d)), and each spawn
  *   stamps its xp x endlessXpMul(d), the per-kill taper.
  *
- * bombs[i]: { x, y, radius, fuse, duration, dmg, src?, core? }  volatile-elite death bombs
+ * bombs[i]: { x, y, radius, fuse, duration, dmg, src?, core?, ally? }  volatile-elite death bombs
  *           (v4.0). fuse counts down to 0 (duration is its starting value, kept so render can
  *           draw a growing warning telegraph from fuse/duration); when the fuse expires sim.js
  *           removes the bomb, damages the player if inside radius (same armor/
@@ -1251,6 +1251,8 @@ function generateWells(sig) {
  *           flat dmg), and every enemy it kills drops a core of its own — the cascade, uncapped.
  *           `src` stays 'volatile' on both so render.js's bombSrc keeps its drawer; a new src
  *           value falls through to the generic red telegraph (the v5.10.1 P0).
+ *           ally: fired by a SUBMISSION ally's artillery at the nearest hostile; never hurts
+ *           the player, still damages enemies in radius.
  *
  * v5.0 chapter behavior flags (see CHAPTERS in config.js and sim.js's spawnEnemy/dealDamage/
  * stepEnemyMovement/stepContactDamage/stepPools/stepCurrents/stepObstacles):
@@ -1311,6 +1313,10 @@ function generateWells(sig) {
  *   stepLaneFront; render.js anchors the lane camera to it and writes nothing.
  *   Only separates from the player where a chapter can STOP one — CHAPTERS[].spurs.solid. Without
  *   that it tracks the player exactly, which is how The Beyond keeps its pre-front behaviour.
+ * _laneView: {viewW, viewH} | undefined — the half-extents a `lane` run is sized and timed by
+ *   (laneScrollFor, laneHalfWidth), captured by stepSim from the first sane run.viewW/viewH and never
+ *   changed after, so a mid-run rotation or resize cannot move the lane's walls or scroll. Undefined
+ *   until then (and in every other chapter); readers fall back to the live view, then LANE_REF_VIEW.
  * _laneThrottle: number — the player's own hand on the scroll, off the stick's FORWARD component,
  *   which every other lane throws away. 1 at neutral, CHAPTERS[].laneThrottle.max at full push and
  *   .min at full ease-off (The Reef: 3 and 0.5) — two multipliers rather than one ± fraction,
