@@ -42758,7 +42758,7 @@ function testCoreMagnetism() {
     } finally { sig.polarity = saved }
   })
   const opp = pair([1, -1, 30]), same = pair([1, 1, 22]), plain = pair([1, 1, 22], false)
-  assert.ok(opp.d < 22 && opp.lost >= 14, `run CO3.b: two opposite bodies that touch stick and grind each other: ${opp.d.toFixed(1)}px apart, ${opp.lost} hp lost in 3s`)
+  assert.ok(opp.d < 22 && opp.lost >= 10, `run CO3.b: two opposite bodies that touch stick and grind each other: ${opp.d.toFixed(1)}px apart, ${opp.lost} hp lost in 3s`)
   assert.ok(same.d > plain.d + 6 && same.lost === 0, `run CO3.b: two of the same pole stand farther apart than ordinary separation: ${same.d.toFixed(1)} vs ${plain.d.toFixed(1)}px`)
   // (c) a grind kill is a kill and pays a gem of the dead body's pole
   const kill = noPools(() => {

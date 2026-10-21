@@ -8824,7 +8824,7 @@ function stepEnemySeparation(run, dt) {
     e._grind = false
     if (e._dead) continue
     e._grindAcc = (e._grindAcc ?? 0) + _sepPolar.grind * dt
-    if (e._grindAcc < 1) continue
+    if (e._grindAcc < _sepPolar.grind) continue   // one tick a second, so a knot does not rain "1"s
     const n = Math.floor(e._grindAcc)
     e._grindAcc -= n
     dealDamage(run, e, n, false, true, false, false, true)
