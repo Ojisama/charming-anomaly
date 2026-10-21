@@ -2339,8 +2339,8 @@ function krakenCoilShoulderAng(head, cx, cy, b) {
   const ux = Math.cos(b), uy = Math.sin(b), ox = cx - head.x, oy = cy - head.y
   const pu = ox * ux + oy * uy, disc = pu * pu - (ox * ox + oy * oy - KRAKEN_RING_R * KRAKEN_RING_R)
   // ponytail: a centre outside the ring (the chase cage reaches past it) misses it on some bands,
-  // or meets it only BEHIND the centre; those arms take the head's own bearing and their drawn lane
-  // is off the band by that much.
+  // or meets it only BEHIND the centre; those arms take the band's bearing as their ring slot round
+  // the head and their drawn lane is off the band by that much.
   const t = disc < 0 ? -1 : -pu + Math.sqrt(disc)
   if (t <= 0) return b
   return Math.atan2(oy + uy * t, ox + ux * t)
@@ -4760,9 +4760,8 @@ function spawnSplitChildren(run, parent, count) {
 
 // ---- Enemy movement -------------------------------------------------------------
 
-// ponytail: naive O(enemies) seek + O(bullets/orbs/novas × enemies) collision below.
-// Upgrade path if profiling ever demands it: bucket enemies into a spatial hash
-// (grid keyed by floor(x/cell),floor(y/cell)) and only test nearby cells/pairs.
+// One pass over run.enemies. Weapon and trap collision does not scan the list: it queries the
+// ENEMY_QUERY_CELL grid (nbQuery / enemiesNear), which is live only inside stepWeapons and stepTraps.
 function stepEnemyMovement(run, dt) {
   const p = run.player
   const kbDecay = Math.max(0, 1 - dt * KB_DECAY_RATE)
@@ -4853,10 +4852,8 @@ function stepEnemyMovement(run, dt) {
     }
     const dx = tx - e.x, dy = ty - e.y
     const d = Math.hypot(dx, dy)
-    // chill/freeze/bloom slow the seek movement only. // ponytail: movement state machines that
-    // bypass slowMul entirely (dashBurst's dash, diveBomb's dive, pounce's leap, etc.) keep full
-    // speed while bloomSlowT is up — the same ceiling chill/freeze already have here; not worth a
-    // second guard in every one of those machines for a debuff this soft.
+    // chill/freeze/bloom and every term below fold into slowMul, which the seek AND every movement
+    // state machine (stepDashBurst, stepDiveBomb, stepPounce, ...) take as an argument.
     const bloomMul = (e.bloomSlowT || 0) > 0 ? (1 - BLOOM_SLOW) : 1
     // Ballast's drag. Its OWN field rather than a magnitude on bloomSlowT: that window is refreshed
     // every frame a body stands in a cloud, so a shared field would let any bloom hold the heavier
@@ -6115,8 +6112,8 @@ function damageImmune(e) {
 
 // The ally's target picker. Deliberately NOT nearestEnemy: that one is the PLAYER's aim
 // helper and is measured from the player, while an ally hunts from where IT stands.
-// ponytail: naive O(allies x enemies) scan, same shape and same ceiling as the seek at
-// stepEnemyMovement — upgrade path is the spatial hash that note already names.
+// ponytail: naive O(allies x enemies) scan; allies are SUBMISSION's few elites. Upgrade path if
+// that grows is an expanding-ring query on the nbQuery grid (it is off outside stepWeapons/stepTraps).
 function nearestHostile(run, from) {
   let best = null, bestSq = Infinity
   for (const e of run.enemies) {
@@ -6690,20 +6687,8 @@ function streamObstacles(run) {
       // config.js) — consumes nothing from Math.random, so this can't shift a seeded test the way
       // an actual draw would (the AA.c/runStarOnly incident, twice — see this function's header
       // comment above). Gated on CHAPTERS[chapter].roads so no other chapter's obstacle field moves.
-      // // ponytail: roads key off run._obstacleSeed and districts off run._districtSeed — two
-      // independent seeds — so a road strip is NOT aware of which district it's crossing (it clears
-      // structures out of a sea district exactly as readily as downtown). Still harmless in
-      // practice (a clear channel through open water just reads as a channel) and unrelated to the
-      // v5.9.1 kind fix right below: THAT fix reads _districtSeed to pick which STRUCTURE survives
-      // in a cell, this ponytail is about the STREET GRID's own shape, and nothing depends on the
-      // two agreeing. _districtSeed being promoted to a real sim contract (see below) doesn't change
-      // this call — revisit only if roads ever need to read as district-aware (e.g. no roads carved
-      // into open sea).
-      // v5.11: roads are queried on the WORLD seed (run._districtSeed), not run._obstacleSeed. The
-      // old two-seed split is gone along with the global lattice — see config.js's roadAt re-export
-      // for the full account, and note that this retires the standing ponytail here about a street
-      // grid being unaware of the district it crosses. It is aware now, because a street only exists
-      // where a city put it, and cities are placed by consulting the terrain.
+      // Roads are queried on the WORLD seed (run._districtSeed), the same seed the districts use, so
+      // a street only exists where a city put it — see config.js's roadAt re-export.
       if (roadsOn && roadAt(x, y, worldSeed, endless).onRoad) continue
 
       // v5.11 DENSITY IS A PROPERTY OF THE PLACE. The base probability here works out to 1.06 at the
@@ -11837,7 +11822,7 @@ function stepDownwashWeapon(run, w, stats, fireRateMul, dt) {
 // straggler wastes that cast, and the waste is INVISIBLE — a column pulling one enemy looks exactly
 // like a column that is working.
 // ponytail: O(n²) over the bodies in view — tens of them, once every ~4s. If this ever runs against
-//   hundreds, bucket them on a grid; not before.
+//   hundreds, count each body's company with enemiesNear (the grid is already live here); not before.
 function pickDownwashSpot(run, radius, excludeIds) {
   const p = run.player
   // DOWNWASH_CAST_FRAC of the viewport, not the whole of it: a column placed on the densest clump
@@ -12891,8 +12876,8 @@ function stepScrewWeapon(run, stats, fireRateMul, dt) {
   // THE CLAMPS ARE THE BOUNCES. Relaxed a few passes so they agree (owner, 2026-09-07: "the blades
   // should never be on you ... the blades cannot stack on you and on each other"); the velocity
   // reflection happens on the first pass that fires, so one contact is one bounce.
-  // ponytail: 24 Gauss-Seidel passes over n <= 6 bodies, ~500 ops a frame. A real solver if the
-  // chain ever holds more.
+  // ponytail: 24 Gauss-Seidel passes, O(n²) pairs each. n is count + Twin Screw, tripled by Ipecac,
+  // so a dozen blades is ~1.6k pair tests a frame. A real solver if that ever shows in a profile.
   const e = SCREW_BOUNCE
   for (let pass = 0; pass < 24; pass++) {
     for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {

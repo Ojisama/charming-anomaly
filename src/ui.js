@@ -241,12 +241,13 @@ function fmtTime(s) {
 // and simply not look it, which is worse than being wrong, because nothing about it reads as a bug.
 // The race board keeps fmtTime: the same probe spreads a full race over 137-207s, where the minute
 // is the part that carries the meaning.
-// ponytail: seconds only, no minute field, so a lap over a minute would read '72.40' rather than
-//   '1:12.40'. Unreachable in the shipped game — the clock caps at 40s and a driver dies once the
-//   mean lap passes ~36s, and this is a MINIMUM over the run's laps, so recording one would mean
-//   every lap was that slow, which is a run that died before it banked anything. Add the branch if
-//   a chapter ever ships a lap that long.
-const fmtLap = (ms) => (Math.max(0, ms) / 1000).toFixed(2)
+// A lap over a minute gains a minute field ('1:12.40'): rare, but every gate refills the clock, so a
+// slow first lap banked just before dying can run past 60s. Rounded in centiseconds first so 59.999
+// reads '1:00.00', never '60.00'.
+const fmtLap = (ms) => {
+  const cs = Math.round(Math.max(0, ms) / 10)
+  return cs < 6000 ? (cs / 100).toFixed(2) : `${Math.floor(cs / 6000)}:${((cs % 6000) / 100).toFixed(2).padStart(5, '0')}`
+}
 
 // The LIVE race clock, in seconds, at one decimal — `2:41.6`. Not fmtTime (which floors, so the
 // number a driver watches would sit still for a whole second at a time and read as a frozen HUD)
@@ -3508,7 +3509,7 @@ export function initUI(hooks) {
     // An element card under the redesign carries its TEMPLATE and numbers (see elementCardDesc in
     // config.js) rather than a finished sentence, so the dictionary has one key per card instead of
     // one per value the numbers can take. c.desc holds the composed English for everything that
-    // wants a plain string, and is the fallback for the old element system's cards.
+    // wants a plain string, and is the fallback for any card without a template.
     if (c.descT) return elDescHtml(c.descT)
     // A CAPPED PASSIVE (makePassiveCard) carries the total it leaves you on, and `was` is the total
     // it moves off. Same arrow and same strike as an element upgrade, but composed here rather than

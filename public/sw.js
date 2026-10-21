@@ -1,5 +1,5 @@
 // ponytail: minimal offline cache, network-first. Two rules earn their keep here; everything else
-// is still deliberately not Workbox.
+// is still deliberately not Workbox — reach for it only if the game must boot offline-FIRST.
 //
 // 1. THE CACHE NAME IS VERSIONED AND OLD ONES ARE PURGED ON ACTIVATE. `anomaly-v1` was never
 //    cleaned, so it accumulated every build ever served — three bundle generations and 53 entries

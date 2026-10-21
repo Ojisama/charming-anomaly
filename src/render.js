@@ -9466,8 +9466,6 @@ export function createRenderer(app) {
       // MAP. Every archetype's surface()/emissive() already draws into a [-1,1] square, so the whole
       // conversion is one transform: that square becomes the full 360x180 map. Belts stay belts, the
       // ice world's caps land on the actual poles, and PLANET_ARCHETYPES did not change at all.
-      // ponytail: 1024x512 per archetype (~2MB) is 2x the old disc bake. Halve it if the beyond
-      // chapter ever shows memory pressure on a phone — the visible hemisphere is only half the map.
       // ONE square of art covering 180 degrees of longitude; the sampler mirrors it round the back
       // (see the uv line in PLANET_FRAG). 512 is the size the art was authored at, so this is 1:1 —
       // and at gameplay a planet is ~470px across showing exactly this one copy, which puts it
@@ -15284,8 +15282,8 @@ const spurG = new Graphics()
   const DETAIL_SEA = [
     { name: 'waveCrest', baked: true, litTint: true, tint: SEA_FOAM_TINTS[1], alpha: 0.55, size: [40, 70] },
   ]
-  // // ponytail: sea's "waves" are static per-cell foam scatter (the CURRENT_VIS/rain streak
-  // texture, reused as a floor prop), not a moving wave-advection layer — upgrade to a proper
+  // ponytail: sea's "waves" are static per-cell T.waveCrest scatter, not a moving
+  // wave-advection layer — upgrade to a proper
   // pooled foam-streak system (CURRENT_VIS idiom) if flat/static water reads badly in playtesting.
 
   // ---- farms district (skies, v5.9 top-down region overhaul) ---------------------------------
@@ -16611,8 +16609,7 @@ const spurG = new Graphics()
   // run.spurs, drawn from the SAME grooves stepSpurs tests against — one definition, two consumers,
   // which is the only reason the gap you can see is the gap you can swim through. The rounded rect
   // IS the collider on BOTH axes: c0..c1 is the groove edge and f ± half is the band stepSpurs
-  // charges over. Every lobe is inset inside it (SPUR_VIS: bumpOut + bump <= 1, cross inset a full
-  // bumpR), so there is no coral you can swim through for free and none you take damage beside.
+  // charges over, so there is no coral you can swim through for free and none you take damage beside.
   //
   // Two passes for the WHOLE field, not two per ridge: every segment of every ridge is pathed into
   // one foot fill and one body fill. A rebuild happens once per lane crossing (~4.7s), so this is
@@ -32820,7 +32817,7 @@ void main() {
       // SUBMISSION: the ally ring. A GROUND RING is a plan view by construction, which is the
       // one marker shape that cannot get the projection wrong (the camera looks straight down —
       // a badge or banner would be the v6.8 Trash Tornado error again). It rides shieldG, a SHARED
-      // Graphics cleared every frame at 11890: no pool, no bake, no lifetime and no reset site, so
+      // Graphics cleared every frame at the top of syncEnemies: no pool, no bake, no lifetime and no reset site, so
       // it is immune to the three silent-failure classes the pooled options expose (a rig left in
       // the flat clearWorld list, an unreset per-slot field, a stale recycled slot).
       //   Sized off the SPRITE, not e.radius: skies sets enemyDrawScale 0.55, which shrinks the
@@ -32830,7 +32827,8 @@ void main() {
       //   The ring closes as the loan runs down, so the timer is readable without a HUD element.
       // ponytail: a ring is a stand-in for a real "turned" treatment (a recoloured bake). It is
       // named as one in the commit — the upgrade path is a per-instance tint slot, which the
-      // strictly-ranked tint ladder at 12048 does not currently have room for.
+      // strictly-ranked status tint ladder above (hitFlash > frozen > chill > venom > ...) does not
+      // currently have room for.
       if ((e.allyT || 0) > 0) {
         const frac = Math.max(0, Math.min(1, e.allyT / SUBMISSION_DURATION))
         const r = (s.height ? s.height * 0.5 : e.radius) + 7

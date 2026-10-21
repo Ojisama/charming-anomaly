@@ -3,6 +3,7 @@
 // on screen. ?card= as kraken-flash.js.
 //   node scripts/fx-probe.mjs --scene scripts/scenes/kraken-armnum.js --out /tmp/kn --chapter kraken --frames 3
 // ponytail: the bot is copied from kraken-flash.js (scenes are eval'd bodies and cannot import).
+// Give fx-probe a shared bot prelude the first time a bot fix has to land in more than one copy.
 
 H.until(() => run.script.phase === "boss" && run.krakenArms.length > 0, 8000)
 

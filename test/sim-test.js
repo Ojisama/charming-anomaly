@@ -24998,7 +24998,7 @@ function testFoxfire() {
   const dbody = rsrc.slice(dstart, rsrc.indexOf('\n  function ', dstart + 10))
   // ponytail: a source grep proves the punch is WRITTEN, never that it RUNS — wrapping the block in
   // `if (false)` passes this and is invisible on screen. render.js is not importable, so the check
-  // that closes that gap is a picture: scripts/scenes/shelf-foxfire-dark.js, whose last frame is an
+  // that closes that gap is a picture: scripts/scenes/deep-foxfire-dark.js, whose last frame is an
   // empty bar. Shoot it if you touch the dark.
   // ...ASSERT THE LOOP, NOT THE STRING. A first cut grepped only for the 'foxfire' test and stayed
   // green when the loop was rewritten to iterate an empty array — the mutation table below it caught

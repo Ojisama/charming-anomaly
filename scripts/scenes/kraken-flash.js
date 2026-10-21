@@ -4,6 +4,7 @@
 // fight. Frame 1: a few frames after a landed parry (Hair Trigger's hot skin).
 //   node scripts/fx-probe.mjs --scene scripts/scenes/kraken-flash.js --out /tmp/kf --chapter kraken --frames 2 --url 'http://127.0.0.1:PORT/?card=openGuard'
 // ponytail: the bot is copied from kraken-live.js (scenes are eval'd bodies and cannot import).
+// Give fx-probe a shared bot prelude the first time a bot fix has to land in more than one copy.
 
 H.until(() => run.script.phase === "boss" && run.krakenArms.length > 0, 8000)
 

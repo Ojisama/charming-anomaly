@@ -1691,12 +1691,8 @@ export const WEAPONS = {
     // ponytail: 87% of that gain is this ladder, not the mod — pierce 1 -> 3 is +87% dps on its
     // own, the whole piercingNeedles line adds 14% (first pick) to 39% (theoretical max). So if
     // this ever reads as too strong, the lever is the LADDER (1,1,2,2,3 -> 1,1,1,2,2), not the mod.
-    // The mod also has hard diminishing returns: the cone's fixed spread and the needle's
-    // range/speed lifetime cap a volley at ~11 landed hits however large the pierce budget gets,
-    // so picks 3-5 are worth ~1% dps each while the card keeps being offered up to
-    // MAX_WEAPON_MOD_PICKS. Left alone deliberately — star.pierce, quillBurst.piercingQuills and
-    // realityShard.pierceShard all share that shape, so a per-mod pick cap belongs to all four at
-    // once (a `maxPicks` field read by eligibleWeaponModCandidates) and not to a one-weapon patch.
+    // The mod stops at PIERCE_MAX_PICKS: the cone's fixed spread and the needle's range/speed
+    // lifetime cap a volley at ~11 landed hits, so further picks would be worth ~1% dps each.
     levels: [
       { dmg: 8,  rate: 0.85, count: 3, speed: 620, range: 320, spread: 0.20, pierce: 1 },
       { dmg: 9,  rate: 0.78, count: 3, speed: 640, range: 340, spread: 0.20, pierce: 1 },
@@ -5515,7 +5511,7 @@ export const FOXFIRE_CATCH_FRAC = 0.6
 // RENDER-ONLY, and it is what makes the card true. A foxfire is drawn inside `world`; the dark is a
 // MULTIPLY scrim on the stage above `world` at dim 1.0 — so a cloud cast outside the player's lamp
 // is not dim, it is ABSENT, exactly as The Deep's anglerfish was before LURE_GLOW existed. Shot on
-// scripts/scenes/shelf-foxfire-dark.js: an L5 cloud at full gloom (maxR 118) staged 233px out was
+// scripts/scenes/deep-foxfire-dark.js: an L5 cloud at full gloom (maxR 118) staged 233px out was
 // clearly readable at a full bar, a ghost at a quarter bar, and gone at an empty one — i.e. the one
 // card in the game that pays you for being dark had no picture in the dark, which is where it is
 // worth taking. It also has no SFX by design (main.js), so on an empty bar it was floating damage
@@ -7519,8 +7515,8 @@ export const TIDE_TURN = Math.PI / 300 // rad/s — 180 degrees over a full run
 // or filth." So `resource.dark` here is the SAME field the light chapters use, and it keeps that
 // key deliberately — it names the RIG, not the fiction, and what sits outside the radius is already
 // per-chapter presentation via render.darkTint.
-// ponytail: one key, two fictions. If a fourth reading ever needs different GEOMETRY rather than a
-// different colour, that is when `dark` splits into per-chapter blocks.
+// ponytail: one key, two fictions (this murk, The Deep's dark). If a third reading ever needs
+// different GEOMETRY rather than a different colour, that is when `dark` splits into per-chapter blocks.
 //
 // ⚠ PHASE 1 OF 3. What is real here: the bar, the murk, the upwellings, the roster's tank, the
 // slot's balance and palette. WHAT IS A STAND-IN AND SAYS SO: all three weapons, two of three
@@ -7574,8 +7570,8 @@ CHAPTERS.shelf = {
   // (2026-08-18) made the drawdown a share of the BAR and gave it to the whole book, so every field
   // that takes one is set together from REFILL_ZONE_SPEND, below CHAPTERS.deep. 2.09s here.
   // ponytail: a spent circle is not remembered once it streams out of range, so walking far away and
-  //   back regenerates it — now true of three fields, not one. That reads as the water moving (which
-  //   it does, driftAmp 60), and the upgrade path if it ever matters is a per-cell spent-set on
+  //   back regenerates it (The Reef's `taken` vents share this, and want it: a circuit laps them).
+  //   That reads as the water moving (it does, driftAmp 60), and the upgrade path if it ever matters is a per-cell spent-set on
   //   `run`, not a field on the circle.
   // 70° — see the TIDE block for how the six bearings are spread.
   tide: tideAt(70),
@@ -7607,8 +7603,7 @@ CHAPTERS.shelf = {
     // The one bar in Book 2 that FILLS as it goes wrong: it is pollution, not a supply. The sim
     // still counts how clear the water is, exactly as the other five chapters count their resource
     // — only the rail's readout is flipped, which is what `invert` means and all it means.
-    // ponytail: display-only. If anything ever needs the pollution NUMBER (a card, an event, a
-    //   summary row), give run.charge a real inverted twin rather than flipping it a second time.
+    // Anything that needs the pollution NUMBER reads pollutionFrac(run.charge, run.chargeMax).
     name: 'Pollution', invert: true, drain: 2.2, refill: 18, max: 100,
     dark: { from: 0.5, speedFloor: 0.8, dim: 1.0, radiusFull: 1, radiusEmpty: 0.1 },
   },
@@ -10859,11 +10854,7 @@ export const AIR_POCKET_VIS = {
 // and outside the grooves spurAt returns, so the drawn extent must EQUAL that on both: a lobe past
 // the forward edge is 17px of visibly solid coral you swim through for free (it was 62.1px drawn
 // against 45 tested, 0.38s of every ridge, all chapter), and a lump past the groove edge promises a
-// channel that is not there. bumpOut + bump is therefore <= 1, which pins the lobes' outer reach to
-// exactly half the ridge thickness, and the cross inset stays a full bumpR.
-//   bump    x half THIS RIDGE's thickness: radius of the biggest lobe. `lobes` scales successive ones.
-//   bumpOut x half THIS RIDGE's thickness: how far along the lane a lobe sits off the spine. bump plus
-//           this is the lobes' reach, in the same unit as the collider — keep the sum at or under 1.
+// channel that is not there.
 //
 // ⚠ BOTH ARE FRACTIONS OF sp.thick AND NEVER OF spec.thick, because ridges no longer share a
 // thickness (spurAt, CHAPTERS.reef.spurs.thickVar). Read the mean from the spec here and the art
@@ -10882,11 +10873,6 @@ export const AIR_POCKET_VIS = {
 // because a Graphics fill has a hard edge and a hard-edged circle on a flat mass reads as a printed
 // dot, never as a rounded thing. Flat is also what every other piece of ground in this game is
 // (sandbars, spills, tide pools), so it belongs.
-// ponytail: with a hard sum of 1 every lobe is strictly inside its band and the same colour as it,
-// so the lobe pass draws nothing at all today — it is the hook, not a mark on screen. Making it
-// visible costs the rectangle: draw the spine at some fraction of sp.thick and let the lobes reach
-// the full band, which scallops the edge and buys it with coral that charges where nothing is
-// drawn. That trade is the owner's, not a refactor's.
 //
 // ⚠ NO RIM STROKE EITHER, and the reason is a Graphics fact rather than a taste. The ridge is ONE compound
 // path (a band plus its lobes) and a stroke outlines every sub-shape in it, including the lobes that
@@ -12476,7 +12462,8 @@ export const CIRCUIT_CAM_LEAD = 0.42     // x the distance to the screen edge al
 export const CIRCUIT_CAM_EASE = 3.5      // per second
 export const FORMATION_INTERVAL = 4.4    // s between ranks (5.0 left visible dead air between waves)
 // ponytail: density is two knobs (this + LANE_SPAWN_MUL) tuned as a pair against one measured
-// number. If a third source of lane pressure ever lands, measure the trio, don't add a third knob.
+// number (LANE_EARLY_BOOST scales the pair together, not one of them). If a third source of lane
+// pressure ever lands, measure the trio, don't add a third knob.
 export const FORMATION_COLS = 6          // invaders across a rank, spread over the full lane width
 // Ranks enter from just beyond the TOP EDGE, derived from the viewport rather than fixed, so on
 // every device a rank appears at the edge of sight and descends the full screen. A fixed number
@@ -13735,10 +13722,8 @@ export const resourceRateMul = (charge, res, max = res?.max) => rampOn(res?.rate
 // ---- POLLUTION (The Shelf) --------------------------------------------------------------------
 // `run.charge` counts how CLEAR the water is in every chapter, this one included; `invert: true` on
 // CHAPTERS.shelf.resource flips the RAIL'S READOUT and nothing else, which is what that block says
-// and all it says. Two weapon mods now want the pollution NUMBER, which is the case its own
-// `ponytail:` note was written for -- and its stated upgrade path, "give run.charge a real inverted
-// twin rather than flipping it a second time", is taken here as a DERIVATION rather than as a run
-// field. A stored twin is a second place the same fact lives, and it would have to be kept in step
+// and all it says. The pollution NUMBER (Scour, Foul Water, Runoff) is a DERIVATION rather than a
+// run field. A stored twin is a second place the same fact lives, and it would have to be kept in step
 // at every site that writes run.charge; one pure function cannot drift from its own input.
 // 0 in clean water, 1 in the filthiest. A chapter whose bar is not inverted has no business asking.
 export const pollutionFrac = (charge, max) => 1 - Math.min(1, Math.max(0, charge) / (max || 1))
