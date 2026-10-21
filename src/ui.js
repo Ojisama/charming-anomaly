@@ -1,5 +1,5 @@
 // DOM overlay inside #ui: title, shop, HUD, level-up, pause, summary. No Pixi.
-import { shopCost, refundValue, REFUND_RATE, shopLines, shopLineUnlocked, chaptersMastered, lineMax, SHOP_FAMILY, RUN_DURATION, RARITIES, modPct, WEAPONS, ENV_WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, MUTATOR_EFFECT_LABELS, CONSUMABLES, MAX_DIFFICULTY, DIFFICULTY_COIN_PER_LEVEL, DIFFICULTY_COUNT_PER_LEVEL, DIFFICULTY_DMG_PER_LEVEL, sacrificeCost, SACRIFICE_COSTS, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES, chapterNumber, CHAPTERS, CHAPTER_ORDER, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, HIDDEN_UNLOCKS, titleBookshelf, spineName, chaosStatus, pulseCost, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS, bookOf, BOOK_ORDER, BOOKS, BOOK_UNLOCKS, unlockCost, unlockLevel, unlockMax, dmgSrcName, dmgSrcArt, passiveEffectText, CHAPTER_BOARDS_DEFAULT, KRAKEN_PARRY_CD, hasSkillButton, ENDLESS_COPY, ENDLESS_MILESTONE_S, endlessUnlocked, endlessAccess } from './config.js'
+import { shopCost, refundValue, REFUND_RATE, shopLines, shopLineUnlocked, chaptersMastered, lineMax, SHOP_FAMILY, RUN_DURATION, RARITIES, modPct, WEAPONS, ENV_WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, MUTATOR_EFFECT_LABELS, CONSUMABLES, MAX_DIFFICULTY, DIFFICULTY_COIN_PER_LEVEL, DIFFICULTY_COUNT_PER_LEVEL, DIFFICULTY_DMG_PER_LEVEL, sacrificeCost, SACRIFICE_COSTS, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES, chapterNumber, CHAPTERS, CHAPTER_ORDER, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, HIDDEN_UNLOCKS, titleBookshelf, spineName, chaosStatus, pulseCost, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS, bookOf, BOOK_ORDER, BOOKS, BOOK_UNLOCKS, unlockCost, unlockLevel, unlockMax, dmgSrcName, dmgSrcArt, passiveEffectText, CHAPTER_BOARDS_DEFAULT, KRAKEN_PARRY_CD, hasSkillButton, ENDLESS_COPY, ENDLESS_MILESTONE_S, endlessUnlocked, endlessAccess, POLE_NAMES, POLE_TINT } from './config.js'
 import { playSfx } from './audio.js'
 import { t, tt, getLang, LANGS } from './i18n.js'
 import { SAVE_SLOTS, activeSlot, slotSummary, saveSummary, exportSlot, NAME_MAX, bookMeta, ensureBookMeta, bookProgress } from './state.js'
@@ -2447,6 +2447,17 @@ export function initUI(hooks) {
           <span class="chaos-vrail-track"><i data-charge-fill></i></span>
         </span>
       </div>
+      <!-- The Core's SPAWN TIDE (run.polarity): the same battery on the left (The Core has no
+           resource rail). The track is the share of new spawns that are North (red, from the foot)
+           against South (blue); the arrow is which way the tide is turning; the chip on top is
+           YOUR pole, in its colour. -->
+      <div class="chaos-wrap" data-pole style="display:none;">
+        <span class="chaos-vrail chaos-vrail--pole">
+          <b class="chaos-vrail-num chaos-vrail-label" data-pole-label></b>
+          <b class="chaos-vrail-num" data-pole-trend></b>
+          <span class="chaos-vrail-track"><i data-pole-fill></i></span>
+        </span>
+      </div>
       <!-- The Trawl's WIGGLE TO ESCAPE rail (run.net.wiggle, 2026-09-03; owner: "vertical on the
            right and red/orange/yellow"). The chaos rail's battery, on the RIGHT where that rail
            sits — the two never share a chapter (chaos is a Book 1 mutator readout) — filling
@@ -2541,6 +2552,7 @@ export function initUI(hooks) {
     wiggleFill: screens.hud.querySelector('[data-wiggle-fill]'),
     chaosWrap: screens.hud.querySelector('[data-chaos]'),
     chargeWrap: screens.hud.querySelector('[data-charge]'),
+    poleWrap: screens.hud.querySelector('[data-pole]'),
   }
   // The button's side is a PREFERENCE, not per-frame state, so it is applied once at boot and again
   // when the setting changes — deliberately NOT from updateHUD, which runs every frame and already
@@ -2965,6 +2977,36 @@ export function initUI(hooks) {
     // the whole band above it. Falls back to res.max for a run object that predates the field (or
     // any chapter with no resource, where it is moot — this call is already gated on `res`).
     if (res) paintCharge(run.charge, run.chargeMax ?? res.max, res.name, !!res.invert, pulseCost(CHAPTERS[run.chapter]))
+
+    // ---- The Core's SPAWN TIDE (run.polarity) ------------------------------------------------
+    const P = run.polarity
+    if (!!P !== last.poleShown) {
+      last.poleShown = !!P
+      hud.poleWrap.style.display = P ? '' : 'none'
+    }
+    if (P) paintPole(P, CHAPTERS[run.chapter].signature.polarity.mix, run.time)
+  }
+
+  let poleRefs = null
+  const hex = (c) => '#' + c.toString(16).padStart(6, '0')
+  function paintPole(P, M, time) {
+    if (!poleRefs) {
+      const q = (sel) => hud.poleWrap.querySelector(sel)
+      poleRefs = { label: q('[data-pole-label]'), trend: q('[data-pole-trend]'), fill: q('[data-pole-fill]') }
+    }
+    poleRefs.fill.style.height = `${Math.round(P.mix * 1000) / 10}%`
+    // the trend is the sign of the mix's derivative (it is a sine: cos tells which way it is going)
+    const rising = Math.cos((2 * Math.PI * time) / M.period) >= 0
+    if (rising !== last.poleRising) {
+      last.poleRising = rising
+      poleRefs.trend.textContent = rising ? '▲' : '▼'
+      poleRefs.trend.style.color = hex(POLE_TINT[rising ? 1 : -1])
+    }
+    if (P.pole !== last.polePole) {
+      last.polePole = P.pole
+      poleRefs.label.textContent = t(POLE_NAMES[P.pole].name)
+      poleRefs.label.style.background = hex(POLE_TINT[P.pole])
+    }
   }
 
   // The RESOURCE rail's per-frame paint, modelled on paintChaos below — refs looked up once (the

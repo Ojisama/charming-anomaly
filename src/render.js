@@ -44,6 +44,7 @@ import { DRAW_CAPS } from './config.js'
 import { ELITE, gemTier } from './config.js'
 import * as MACRO from './macro.js'
 import { IPECAC_COUNT_MUL, FURROW_PIT_OPEN, FURROW_LANE_GAP, CRYSTAL_CARDS } from './config.js'
+import { POLE_TINT, LANCE_BEAM_LIFE } from './config.js'
 import * as HOLO from './holo.js'
 import * as ASCII from './ascii.js'
 import * as TOON from './toon.js'
@@ -967,6 +968,60 @@ export function createRenderer(app) {
   // amoeba: one membrane whose radius is a sum of broad blunt pseudopod bumps over a low base, so
   // 4 pods reach out further than the rest, ringed on the leading side by a ragged cilia fringe.
   // Translucent ectoplasm + solid endoplasm + a much darker nucleus for internal contrast.
+  // ---- THE CORE (Book 3). Plain light-grey iron, PLAN VIEW: syncEnemies multiplies the pole's
+  // colour over the grey, so the pole is the creature's colour and the bake carries none of it.
+  // ponytail: ship-1 placeholder bodies, drawn with primitives; the Liquid Metal look replaces them.
+  const CORE_IRON = 0xd9dce4, CORE_LINE = 0x3c3f48
+  function coreInk(white) { return { fill: white ? 0xffffff : CORE_IRON, line: white ? 0xffffff : CORE_LINE } }
+  function drawFerriteMite(g, elite, white) {   // a six-legged iron filing, nose +x
+    const r = ROSTER_BASE_R.normal, k = coreInk(white)
+    groundShadow(r * 0.8, r * 0.7)
+    for (const s of [-1, 1]) for (const t of [-0.45, 0, 0.45]) {
+      g.moveTo(r * t, 0).lineTo(r * t + r * 0.25, s * r * 0.85).stroke({ width: 2.5, color: k.line, cap: 'round' })
+    }
+    g.ellipse(0, 0, r * 0.75, r * 0.45).fill(k.fill).stroke({ width: 2.5, color: k.line })
+    g.circle(r * 0.55, 0, r * 0.22).fill(k.line)
+  }
+  function drawNeedleUrchin(g, elite, white) {  // a ball of needles, no forward axis
+    const r = ROSTER_BASE_R.normal, k = coreInk(white)
+    groundShadow(r, r * 0.9)
+    for (let i = 0; i < 14; i++) {
+      const a = (i / 14) * Math.PI * 2
+      taperStroke(g, [[Math.cos(a) * r * 0.5, Math.sin(a) * r * 0.5], [Math.cos(a) * r * 1.15, Math.sin(a) * r * 1.15]], 3, 0.6, k.line, 3)
+    }
+    g.circle(0, 0, r * 0.62).fill(k.fill).stroke({ width: 2.5, color: k.line })
+  }
+  function drawSpinningTop(g, elite, white) {   // a top seen from above: rim, ridges, spindle
+    const r = ROSTER_BASE_R.fast, k = coreInk(white)
+    groundShadow(r, r * 0.9)
+    g.circle(0, 0, r).fill(k.fill).stroke({ width: 2.5, color: k.line })
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2
+      g.moveTo(Math.cos(a) * r * 0.3, Math.sin(a) * r * 0.3).lineTo(Math.cos(a + 0.5) * r * 0.9, Math.sin(a + 0.5) * r * 0.9).stroke({ width: 2, color: k.line })
+    }
+    g.circle(0, 0, r * 0.22).fill(k.line)
+  }
+  // The eel's HEAD only: its tail end (the other pole) is drawn by syncCore on the floor behind it.
+  function drawDipoleEel(g, elite, white) {
+    const r = ROSTER_BASE_R.fast, k = coreInk(white)
+    groundShadow(r, r * 0.8)
+    g.poly([r * 1.2, 0, r * 0.2, -r * 0.8, -r * 1.1, -r * 0.45, -r * 1.1, r * 0.45, r * 0.2, r * 0.8]).fill(k.fill).stroke({ width: 2.5, color: k.line })
+    for (const s of [-1, 1]) g.circle(r * 0.45, s * r * 0.35, r * 0.15).fill(k.line)
+  }
+  function drawFerroBlob(g, elite, white) {     // a lumpy drop of ferrofluid, no forward axis
+    const r = ROSTER_BASE_R.tank, k = coreInk(white)
+    groundShadow(r, r * 0.9)
+    g.poly(radialOutline((a) => r * (0.82 + 0.1 * Math.sin(a * 3) + 0.06 * Math.sin(a * 5 + 1)), 40)).fill(k.fill).stroke({ width: 3, color: k.line })
+    g.ellipse(-r * 0.3, -r * 0.3, r * 0.22, r * 0.13).fill({ color: 0xffffff, alpha: white ? 1 : 0.7 })
+  }
+  function drawLodestoneGolem(g, elite, white) { // a chunky octagon of lodestone with a horseshoe mark
+    const r = ROSTER_BASE_R.tank, k = coreInk(white)
+    groundShadow(r, r * 0.95)
+    const pts = []
+    for (let i = 0; i < 8; i++) { const a = (i / 8) * Math.PI * 2 + Math.PI / 8; pts.push(Math.cos(a) * r, Math.sin(a) * r) }
+    g.poly(pts).fill(k.fill).stroke({ width: 3.5, color: k.line })
+    g.beginPath().arc(0, r * 0.08, r * 0.42, Math.PI * 0.75, Math.PI * 2.25).stroke({ width: r * 0.16, color: k.line, cap: 'butt' })
+  }
   function drawAmoeba(g, elite, white) {
     const r = 16
     groundShadow(r, r * 1.0)
@@ -6500,12 +6555,67 @@ export function createRenderer(app) {
     }
     for (let i = n; i < snareSprites.length; i++) snareSprites[i].visible = false
   }
+  // ---- THE CORE: pools, pillars' reach, the eel's tail end, blob spikes, Dipole Lance beams ----
+  let playerPole = 0      // syncPlayer's tint reads it; 0 outside The Core
+  const lanceBeams = []   // { x, y, angle, length, width, t } from the sim's 'lance' event
+  function rotEll(cx, cy, rx, ry, rot, n = 28) {
+    const c = Math.cos(rot), s = Math.sin(rot), pts = []
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2, x = Math.cos(a) * rx, y = Math.sin(a) * ry
+      pts.push(cx + x * c - y * s, cy + x * s + y * c)
+    }
+    return pts
+  }
+  function syncCore(run, gG, gF, dt) {
+    playerPole = run.polarity?.pole ?? 0
+    if (!run.polarity) { lanceBeams.length = 0; return }
+    const t = animT
+    for (const q of run.corePools) {
+      const col = POLE_TINT[q.pole]
+      gG.poly(rotEll(q.x, q.y, q.rx, q.ry, q.rot)).fill({ color: col, alpha: 0.32 + 0.05 * Math.sin(t * 2 + q.x * 0.01) })
+        .stroke({ width: 2.5, color: mix(col, 0xffffff, 0.35), alpha: 0.7 })
+    }
+    const S = CHAPTERS[run.chapter].signature?.polarity
+    for (const o of run.obstacles) {
+      if (o.kind !== 'pillar' || !S) continue
+      gG.circle(o.x, o.y, S.pillar.reach).stroke({ width: 1.5, color: POLE_TINT[o.pole], alpha: 0.22 })
+    }
+    for (const e of run.enemies) {
+      if (e._dead || e.pole === undefined) continue
+      if (e.flags.includes('dipole') && S) {
+        // the tail end: the OTHER pole, one gap behind the head along the body axis
+        const tx = e.x - e.hx * S.eel.gap, ty = e.y - e.hy * S.eel.gap
+        gG.moveTo(e.x, e.y).lineTo(tx, ty).stroke({ width: e.radius * 1.1, color: CORE_LINE, cap: 'round' })
+        gG.circle(tx, ty, e.radius * 0.75).fill(mix(POLE_TINT[-e.pole], 0xffffff, 0.2)).stroke({ width: 2, color: CORE_LINE })
+      } else if ((e.spike || 0) > 0.05) {
+        const n = 10, len = e.radius * (0.25 + 0.6 * e.spike)
+        for (let i = 0; i < n; i++) {
+          const a = (i / n) * Math.PI * 2 + e.id
+          gF.moveTo(e.x + Math.cos(a) * e.radius * 0.8, e.y + Math.sin(a) * e.radius * 0.8)
+            .lineTo(e.x + Math.cos(a) * (e.radius + len), e.y + Math.sin(a) * (e.radius + len))
+            .stroke({ width: 3, color: CORE_LINE, cap: 'round' })
+        }
+      }
+    }
+    // the Dipole Lance: a two-coloured bar, North half then South half, fading over LANCE_BEAM_LIFE
+    for (let i = lanceBeams.length - 1; i >= 0; i--) {
+      const b = lanceBeams[i]
+      b.t += dt
+      if (b.t >= LANCE_BEAM_LIFE) { lanceBeams.splice(i, 1); continue }
+      const a = 1 - b.t / LANCE_BEAM_LIFE, ux = Math.cos(b.angle), uy = Math.sin(b.angle)
+      const mx = b.x + ux * b.length * 0.5, my = b.y + uy * b.length * 0.5
+      gF.moveTo(b.x, b.y).lineTo(mx, my).stroke({ width: b.width, color: POLE_TINT[1], alpha: a, cap: 'round' })
+      gF.moveTo(mx, my).lineTo(b.x + ux * b.length, b.y + uy * b.length).stroke({ width: b.width, color: POLE_TINT[-1], alpha: a, cap: 'round' })
+      gF.moveTo(b.x, b.y).lineTo(b.x + ux * b.length, b.y + uy * b.length).stroke({ width: b.width * 0.3, color: 0xffffff, alpha: a })
+    }
+  }
   function syncBurrow(run, dt) {
     const gG = burrowGroundG, gF = burrowFxG
     gG.clear(); gF.clear()
     const ch = CHAPTERS[run.chapter]
     const sigT = ch.signature?.type
     const t = animT
+    syncCore(run, gG, gF, dt)
     // pits and the cave-ins coming (the deepest things on the floor), in any chapter: the Furrow digs them too
     syncPits(run)
     if (sigT === 'tunnels') {
@@ -6988,6 +7098,15 @@ export function createRenderer(app) {
     magmaEel: { archetype: 'normal', toon: true },   // its art comes from src/toon/cast.js (TOON_CAST); until then bakeCreature returns null and the archetype look stands in
     lavaRay: { archetype: 'tank', toon: true },
     emberJelly: { archetype: 'normal', toon: true },
+    // Book 3, The Core: grey iron bodies the pole tints (see drawFerriteMite). The eel faces along
+    // its own body axis (hx, hy), not at you: which END leads depends on the poles.
+    ferriteMite: { archetype: 'normal', draw: drawFerriteMite, lean: 90 },
+    needleUrchin: { archetype: 'normal', draw: drawNeedleUrchin, lean: 0, spin: 0.4 },
+    spinningTop: { archetype: 'fast', draw: drawSpinningTop, lean: 0, spin: 9 },
+    dipoleEel: { archetype: 'fast', draw: drawDipoleEel, lean: 90, faceDir: (e) => (e.hx != null ? [e.hx, e.hy] : null) },
+    ferroBlob: { archetype: 'tank', draw: drawFerroBlob, lean: 0 },
+    ferroBlobSmall: { archetype: 'tank', draw: drawFerroBlob, lean: 0 },
+    lodestoneGolem: { archetype: 'tank', draw: drawLodestoneGolem, lean: 0 },
     redcell: { archetype: 'normal', draw: drawRedcell, lean: 0 },      // biconcave disc, no forward axis — it would just tumble
     wbc: { archetype: 'tank', draw: drawWbc, lean: 0 },                // radial membrane, filopodia all round; no nose
     antibody: { archetype: 'fast', draw: drawAntibody, lean: 0 },      // 3-fold Y (Fc stem at +y), no +x front — a protein has no heading
@@ -15131,6 +15250,14 @@ const spurG = new Graphics()
     // The Mantle never shows this: a toon chapter switches the whole floor layer off (src/toon.js's
     // renderer.hide) and draws its own. The line is here so the fallback is a decision.
     mantle: BIOME_TOPSOIL,
+    // The Core: iron grit (the plain pebble bake, greyed by floorTint) and its pillars, drawn by
+    // syncObstacles' pillar branch. ponytail: stand-in floor until the Liquid Metal renderer.
+    core: {
+      big: [{ name: 'pebble', baked: true, scale: [1.6, 2.4] }],
+      mid: [{ name: 'pebble', baked: true, scale: [1.0, 1.6] }],
+      detail: [{ name: 'pebble', baked: true, scale: [0.5, 0.9] }],
+      obstacle: { clumps: OBSTACLE_CLUMPS, tint: 0xffffff, foot: 0x0a0a0e },
+    },
     // The Blank shares the body's decor DELIBERATELY, and this line exists so that it is a decision
     // rather than an accident. Its boss is the ANTIBODY and its fiction is reality's immune response,
     // so villi and plasma motes are the right furniture — but it was getting them by falling through
@@ -20702,6 +20829,25 @@ const spurG = new Graphics()
       ov.ring.scale.set(o.r / foot.ref)
       // Book 3, The Geode: a crystal pillar is one centred plan bake scaled to its collider, lit from
       // the top-left of the SCREEN, so it is never rotated.
+      // Book 3, The Core: a magnetised iron pillar, seen from above, wearing its pole's colour. Its
+      // reach (where it pulls or pushes) is a faint circle drawn by syncCore.
+      if (o.kind === 'pillar') {
+        T.corePillar ??= (() => {
+          const g = new Graphics()
+          g.circle(0, 0, 32).fill(0x8e929c).stroke({ width: 4, color: CORE_LINE })
+          g.circle(0, 0, 21).fill(0xd9dce4).stroke({ width: 3, color: CORE_LINE })
+          g.circle(0, 0, 8).fill(CORE_LINE)
+          g.ellipse(-9, -11, 7, 4).fill({ color: 0xffffff, alpha: 0.6 })
+          return { ...bake(g), R: 32 }
+        })()
+        const a = T.corePillar
+        ov.root.rotation = 0
+        ov.clumpA.texture = a.tex; ov.clumpA.anchor.set(a.ax, a.ay); ov.clumpA.tint = mix(POLE_TINT[o.pole], 0xffffff, 0.25)
+        ov.clumpA.scale.set(o.r / a.R); ov.clumpA.rotation = 0; ov.clumpA.position.set(0, 0); ov.clumpA.alpha = 1
+        ov.clumpB.texture = Texture.EMPTY; ov.clumpB.scale.set(1); ov.clumpB.rotation = 0; ov.clumpB.tint = 0xffffff; ov.clumpB.alpha = 1
+        ov.ring.alpha = 0.5
+        continue
+      }
       if (o.kind === 'crystal') {
         const pv = Math.floor(hash(o.x * 1.7 + o.y * 0.31) * T.crystalPillars.length)
         const a = T.crystalPillars[pv]
@@ -30039,6 +30185,19 @@ void main() {
             }
           }
           break
+        // THE CORE. The Lance's beam is drawn by syncCore; your own pole changing is one small
+        // ring in the new colour at you (no full-screen flash, owner); a body changing pole in a
+        // pool or under the Reversal Pulse is a smaller one at it.
+        case 'lance':
+          lanceBeams.push({ x: e.x, y: e.y, angle: e.angle, length: e.length, width: e.width, t: 0 })
+          if (lanceBeams.length > 12) lanceBeams.shift()
+          break
+        case 'poleFlip':
+          spawnRing(run.player.x, run.player.y, 70, 0.32, T.novaRing, POLE_TINT[e.pole])
+          break
+        case 'poolFlip':
+          spawnRing(e.x, e.y, 24, 0.22, T.novaRing, POLE_TINT[e.pole])
+          break
         case 'bloom':  spawnRing(e.x, e.y, 40, 0.35, T.nova, 0x2fb6a3); break // v6.2: cast was invisible
         case 'lure':   spawnRing(e.x, e.y, 34, 0.30, T.nova, 0x67b26f); break // v6.2: cast was invisible
         // A chum bait gone — stripped by the shoal or aged out. Dim and small on purpose: the
@@ -30809,7 +30968,7 @@ void main() {
   // ------------------------------------------------------------------- reset
   function clearWorld() {
     pixelRig.clear()   // The Magma (src/pixel.js): its own pools
-    burrowGroundG.clear(); burrowFxG.clear(); burrowSwings.length = 0; hideShovel()
+    burrowGroundG.clear(); burrowFxG.clear(); burrowSwings.length = 0; lanceBeams.length = 0; hideShovel()
     hidePits()
     for (const st of burrowStones) st.visible = false
     for (const sp of snareSprites) sp.visible = false
@@ -31170,6 +31329,8 @@ void main() {
     // pale sclera or the fish's fin and gill highlights toward the same hue as the body fill, right
     // when that contrast matters most.
     pBody.tint = (playerForm === 'kaiju' || playerForm === 'fish' || playerSkin || macroLook || holoLook) ? 0xffffff : chapterRender.playerTint
+    // THE CORE: you wear your pole's colour, as every body there does.
+    if (playerPole) pBody.tint = mix(POLE_TINT[playerPole], 0xffffff, 0.35)
     // OILED (The Wreck, 2026-09-07): the oil on you is on your skin — a multiply toward the film's
     // own near-black, ramped by the fouling timer, so the stain fades exactly as the slow does.
     if (buffs && buffs.foul > 0) pBody.tint = mix(pBody.tint, 0x3a2e24, buffs.foul * 0.8)
@@ -32708,6 +32869,9 @@ void main() {
       // note warns about, and backwards for a status whose whole point is "this one is catchable".
       // A dulled khaki reads as grease rather than as shadow and keeps the body visible.
       else if ((e.oiled || 0) > 0) s.tint = mix(0xa79e88, 0x776f56, Math.min(1, (e.oiled || 0) / OIL_STAIN_MAX))
+      // THE CORE: the pole IS the body's colour (contract field e.pole, sim-owned). Mixed toward
+      // white so a South body stays readable on the dark floor.
+      else if (e.pole !== undefined) s.tint = mix(POLE_TINT[e.pole], 0xffffff, 0.2)
       else if (e.elite && chapterRender.eliteIridescent) {
         // pond soap-bubble elites shimmer through pale iridescent hues. Bodies are now baked
         // saturated, and tint multiplies, so mix the hue 50% toward white first — otherwise the
@@ -33195,6 +33359,22 @@ void main() {
       s.scale.set(0.7)   // one small stone of a handful
       return
     }
+    // The Core: the Iron Sling's ball (the pebble shot, greyed) and the Gauss Coil's slug (a long
+    // pale-blue needle along its flight).
+    if (b.weapon === 'ironBall') {
+      if (s.texture !== T.pebbleShot.tex) { s.texture = T.pebbleShot.tex; s.anchor.set(T.pebbleShot.ax, T.pebbleShot.ay) }
+      s.tint = 0xb8bcc8
+      s.rotation = (b.x + b.y) * 0.05
+      s.scale.set(0.6)
+      return
+    }
+    if (b.weapon === 'gaussSlug') {
+      if (s.texture !== T.needle.tex) { s.texture = T.needle.tex; s.anchor.set(T.needle.ax, T.needle.ay) }
+      s.tint = 0xbfe6ff
+      s.rotation = Math.atan2(b.vy, b.vx)
+      s.scale.set(2.2, 1.6)
+      return
+    }
     if (b.weapon === 'prism') {
       if (s.texture !== T.prismShot.tex) { s.texture = T.prismShot.tex; s.anchor.set(T.prismShot.ax, T.prismShot.ay) }
       const nb = b._bounces || 0
@@ -33308,6 +33488,14 @@ void main() {
     // value-not-hue trap Foxfire hit one chapter up and came back from a probe all but invisible.
     // Bubbles are white anyway, so the honest colour is also the legible one. Held a touch
     // brighter at the end of its life than the default so the shove and the ring end together.
+    // The Core's Reversal Pulse: a ring that turns from one pole's colour to the other's as it grows.
+    if (n.look === 'reversal') {
+      const k = Math.max(0, Math.min(1, n.r / n.maxR))
+      s.tint = mix(POLE_TINT[1], POLE_TINT[-1], k)
+      s.scale.set(Math.max(n.r, 1) / T.novaTexR)
+      s.alpha = 0.85 * (1 - k) + 0.15
+      return
+    }
     if (n.look === 'bubble') {
       s.tint = 0xeaf7ff
       s.scale.set(Math.max(n.r, 1) / T.novaTexR)
@@ -33394,6 +33582,8 @@ void main() {
       s.position.set(g.x, g.y - 2 * Math.sin(animT * 3 + (g.x + g.y) * 0.05)); s.scale.set(HOLO_PICK_SCALE); return
     }
     if (s.texture !== T.gem.tex) { s.texture = T.gem.tex; s.anchor.set(T.gem.ax, T.gem.ay) }
+    // THE CORE: a gem carries the pole of what dropped it (opposite poles fly to you, yours slide away)
+    s.tint = g.pole !== undefined ? mix(POLE_TINT[g.pole], 0xffffff, 0.3) : 0xffffff
     s.position.set(g.x, g.y)
     s.scale.set(1 + 0.15 * Math.sin(animT * 5 + (g.x + g.y) * 0.05))
   }
@@ -33482,6 +33672,13 @@ void main() {
     if (chapterHasStorm) {
       if (s.texture !== T.missileDart.tex) { s.texture = T.missileDart.tex; s.anchor.set(T.missileDart.ax, T.missileDart.ay) }
       s.scale.set(1.15)
+      return
+    }
+    // The Core: an iron needle (urchin, mite, golem). No smoke: it is thrown, not fired.
+    if (sh.needle) {
+      if (s.texture !== T.needle.tex) { s.texture = T.needle.tex; s.anchor.set(T.needle.ax, T.needle.ay) }
+      s.tint = 0xe4e8f0
+      s.scale.set(1.5)
       return
     }
     if (s.texture !== T.missile.tex) { s.texture = T.missile.tex; s.anchor.set(T.missile.ax, T.missile.ay) }

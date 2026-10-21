@@ -634,6 +634,8 @@ const SFX_FOR_EVENT = {
   // ('netFree') gets no entry on purpose — it is the end of a short hurt, carried by the hurt ticks
   // and by its own ring in render.js.
   netCatch: 'hole',
+  // The Core: your pole changing in a pool. A body's pool flip ('poolFlip') is many a second: silent.
+  poleFlip: 'surge',
   // A jackpot kill (the sea turtle): the shop's purchase chime, because what just happened is a
   // pile of coins. The level it also pays announces itself through the ordinary levelup event.
   jackpot: 'buy',
