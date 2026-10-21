@@ -10379,6 +10379,12 @@ export const KRAKEN_COIL_RAYS = 7 // also the most arms in one Coil (owner, 2026
 // how far each band runs from the head, for the hit AND the drawing: past any screen edge from anywhere
 // in the widest cage, so the player never sees a band end (owner, 2026-09-27: "the cones stop too soon")
 export const KRAKEN_COIL_STAR_R = 3000
+// THE STAR'S CENTRE STAYS INSIDE THE RING. Each band's arm rises where that band leaves the ring
+// (krakenCoilShoulderAng), and from a centre outside it most bands never do: the chase cage
+// (KRAKEN_CHASE_CAGE_R, 700) reaches past KRAKEN_RING_R (620), so the fish's spot is pulled in
+// along the head's bearing to this radius before the star is laid.
+// balance_decision : coil centre clamped 20px inside the ring 2026-10-21
+export const KRAKEN_COIL_CENTRE_MAX = KRAKEN_RING_R - 20
 // THE SHADOW IS THE HITBOX (owner, 2026-10-09: "the telegraph should always match what the actual
 // attack hits"): each band is a thin cone, half-width krakenCoilBandHalfW(s) at s px out from the
 // star's centre. Its shadow is half dark exactly on that edge, fading over +-SOFT of it, and the

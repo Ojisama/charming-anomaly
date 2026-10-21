@@ -37260,6 +37260,40 @@ function runKraken() {
         'the press defused a Coil arm — the Coil is this fight\'s one move-do-not-press beat, and a parry that works on it turns five lanes into one button')
     }
 
+    // A COIL ARMED WITH THE FISH OUTSIDE THE RING STILL PUTS EVERY ARM ON ITS BAND. The chase cage
+    // (KRAKEN_CHASE_CAGE_R) reaches past KRAKEN_RING_R, and from a centre out there most bands never
+    // leave the ring ahead of it, so their arms rose at the wrong slot and slammed across the arena
+    // off the shadow that strikes. The fish is pinned 690px out, inside the cage and past the ring.
+    {
+      const run = inBlock(3)
+      const s = run.script
+      s.bossIdx = 2; s.gripN = 1
+      s.phase = 'chase'; s.riseT = 0; s.staggerT = 0; s.stagger = 0
+      s.turnBag = ['slam', 'coil']; s.turnBagI = 0
+      const hd = run.enemies.find((e) => e.rosterId === 'krakenHead' && !e._dead)
+      const out = 690
+      assert.ok(out > KRAKEN_RING_R && out < KRAKEN_CHASE_CAGE_R, 'the pinned spot is no longer between the ring and the chase cage — this case tests nothing')
+      const b0 = run.krakenArms[0].ang + Math.PI / run.krakenArms.length
+      let guard = 0, hx = 0, hy = 0
+      while (guard++ < 60 * 30 && !(s.coilT > 0)) {
+        run.player.x = hd.x + Math.cos(b0) * out; run.player.y = hd.y + Math.sin(b0) * out
+        run.player.hp = run.player.maxHP
+        hx = hd.x; hy = hd.y
+        stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+      }
+      assert.ok(s.coilT > 0, 'no Coil fired within 30s in the chase with the fish outside the ring')
+      const armed = run.krakenArms.filter((a) => !a.dead && a.coilArm)
+      assert.ok(armed.length >= 2, `a chase Coil armed only ${armed.length} arms`)
+      // each arm's ring slot, round the head as it stood when the star was laid, lies on its band
+      // out from the star's centre: what the fish sees struck is what the arm lands along
+      for (const a of armed) {
+        const sx = hx + Math.cos(a.coilAng) * KRAKEN_RING_R, sy = hy + Math.sin(a.coilAng) * KRAKEN_RING_R
+        const la = Math.atan2(sy - s.coilCY, sx - s.coilCX)
+        const d = Math.abs(Math.atan2(Math.sin(la - a.coilBand), Math.cos(la - a.coilBand)))
+        assert.ok(d < 0.03, `with the fish ${out}px out, a coil arm rises ${(d * 180 / Math.PI).toFixed(0)}deg off its band — it slams a lane that is not the shadow`)
+      }
+    }
+
     // ...AND IT LANDS. Asserted on the player's hp, not on any arm field: for the whole life of the
     // volley rev, stepKrakenArms returned before its arm loop while the Coil ran, so no coil arm's
     // fuse ever ran out — the lanes lit, the ring shut, and nobody standing anywhere lost a point.

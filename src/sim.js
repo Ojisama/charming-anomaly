@@ -229,7 +229,7 @@ import {
   KRAKEN_EXPOSE_BITE, KRAKEN_HITSTOP_PARRY, KRAKEN_HITSTOP_BREAK, KRAKEN_HITSTOP_STAGGER,
   KRAKEN_HEAD_TOUCH_DMG, KRAKEN_HEAD_HOLD, KRAKEN_HEAD_STEER, KRAKEN_DASH_RUNUP, KRAKEN_DASH_SPEED, KRAKEN_DASH_DIST, KRAKEN_DASH_PARRY_PX,
 
-  KRAKEN_CAGE_R, KRAKEN_CHASE_CAGE_R, KRAKEN_COIL_STAR_R,
+  KRAKEN_CAGE_R, KRAKEN_CHASE_CAGE_R, KRAKEN_COIL_STAR_R, KRAKEN_COIL_CENTRE_MAX,
   KRAKEN_LASH_R, KRAKEN_LASH_DMG, KRAKEN_HAUL_R, KRAKEN_LASH_W, KRAKEN_LASH_OVER,
   KRAKEN_LIMB_HW, krakenLimbHalfW,
   KRAKEN_PARRY_MARGIN, KRAKEN_PARRY_SPIN_T, KRAKEN_PARRY_EARLY_T, KRAKEN_LIMP_CLEAR,
@@ -2338,9 +2338,8 @@ const angDiff = (u, v) => Math.abs(Math.atan2(Math.sin(u - v), Math.cos(u - v)))
 function krakenCoilShoulderAng(head, cx, cy, b) {
   const ux = Math.cos(b), uy = Math.sin(b), ox = cx - head.x, oy = cy - head.y
   const pu = ox * ux + oy * uy, disc = pu * pu - (ox * ox + oy * oy - KRAKEN_RING_R * KRAKEN_RING_R)
-  // ponytail: a centre outside the ring (the chase cage reaches past it) misses it on some bands,
-  // or meets it only BEHIND the centre; those arms take the band's bearing as their ring slot round
-  // the head and their drawn lane is off the band by that much.
+  // The arming site clamps the centre inside the ring (KRAKEN_COIL_CENTRE_MAX), so t > 0 always;
+  // the fallback only guards a caller that skips the clamp.
   const t = disc < 0 ? -1 : -pu + Math.sqrt(disc)
   if (t <= 0) return b
   return Math.atan2(oy + uy * t, ox + ux * t)
@@ -2808,9 +2807,12 @@ function stepKrakenArms(run, dt, rung, head) {
         // krakenSwingArms) and they land together along them. Fewer arms, fewer bands.
         const able = run.krakenArms.filter((c) => !c.dead && c.limpT <= 0 && !(c.gripT > 0))
         const n = Math.min(able.length, KRAKEN_COIL_RAYS)
-        // locked on the fish's spot NOW, like an aimed slam: the star does not follow after this frame
-        s.coilCX = p.x
-        s.coilCY = p.y
+        // locked on the fish's spot NOW, like an aimed slam: the star does not follow after this frame.
+        // Pulled in to KRAKEN_COIL_CENTRE_MAX from the head, so every band leaves the ring ahead of it.
+        const cdx = p.x - head.x, cdy = p.y - head.y, cd = Math.hypot(cdx, cdy)
+        const cin = cd > KRAKEN_COIL_CENTRE_MAX ? KRAKEN_COIL_CENTRE_MAX / cd : 1
+        s.coilCX = head.x + cdx * cin
+        s.coilCY = head.y + cdy * cin
         const plan = krakenCoilPlan(run, head, able, n, s.coilCX, s.coilCY)
         s.coilN = n
         s.coilStar = plan.star
