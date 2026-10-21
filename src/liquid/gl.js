@@ -7,7 +7,7 @@
 // there is no Nexus glow, the pillar and pool reaction states are keyed by the game's objects, and the
 // player's chrome orb (the demo's pass 4) is the game's mint blob, drawn by Pixi.
 // createCoreGL(canvas) -> null without WebGL2, else { resize(cssW, cssH, dpr), frame(S) }
-//   S = { cam: {x, y}, VW, VH, rt, rdt, warn, pole, p: {x, y, r}, foes, pools, pillars, sparks } (units)
+//   S = { cam: {x, y}, VW, VH, rt, rdt, warn, pole, p: {x, y, r, R, hurt}, foes, pools, pillars, sparks } (units)
 //   foes: { key, kind: mite|urchin|top|blob|small|eel|golem, x, y, r, pole, latched: {x, y} | null, stun, spike, ph, hx, hy, sw }
 //   pools: { key, x, y, rx, ry, rot, pole, seed }   pillars: { key, x, y, r, pole }
 //   sparks: { x, y, age, opp, dead, big } (hit droplets and death beads)
@@ -83,6 +83,14 @@ const FANS = [[fan(5, 0.8, 0.95, 0.12), 0.3], [fan(6, 0.75, 0.95, 0.07), 0.25], 
       d[(oy + j) * S + ox + i] = 255 * sst(0.5 - s / (wf * 1.25)) * (1 - sst((r - 0.84) / 0.14));
     } }
   tex(3, S, S, d, 1, false, true); }
+// unit 4: the player orb's normal map (the demo's atlas cell 1 alone). A: 0 outside, 0.33 dark outline, 0.66 chrome
+{ const S = 256, d = new Uint8Array(S * S * 4), hg = new Float32Array(S * S);
+  const orb = (x, y) => { const r = Math.hypot(x, y / 0.91); if (r > 0.84) return [0, 0]; return [Math.sqrt(Math.max(0, 0.76 * 0.76 - r * r)), r > 0.75 ? 0.33 : 0.66]; };
+  for (let j = 0; j < S; j++) for (let i = 0; i < S; i++) { const [h, reg] = orb((i + 0.5) / 128 - 1, (j + 0.5) / 128 - 1); hg[j * S + i] = h; d[(j * S + i) * 4 + 3] = reg * 255; }
+  const H0 = (a, b) => hg[Math.min(S - 1, Math.max(0, b)) * S + Math.min(S - 1, Math.max(0, a))];
+  for (let j = 0; j < S; j++) for (let i = 0; i < S; i++) { const dx = (H0(i + 1, j) - H0(i - 1, j)) * 64, dy = (H0(i, j + 1) - H0(i, j - 1)) * 64, k = 1 / Math.hypot(dx, dy, 1), o = (j * S + i) * 4;
+    d[o] = (0.5 - 0.5 * dx * k) * 255; d[o + 1] = (0.5 - 0.5 * dy * k) * 255; d[o + 2] = (0.5 + 0.5 * k) * 255; }
+  tex(4, S, S, d, 4, false, true); }
 // ---------- shaders ----------
 const HDR = '#version 300 es\nprecision highp float; precision highp sampler2D;\n';
 const ENV = `
@@ -527,6 +535,32 @@ void main() {
   col *= 1.0 - 0.8 * (1.0 - 0.75 * ff) * (1.0 - smoothstep(TH, TH + fw * 3.0, F));
   o = vec4(mix(fl, col, smoothstep(TH - fw, TH + fw, F)), 1.0);
 }`;
+// the demo's FS_SPRITE with only its player branch: the mint orb, lit and mirroring the floor like the chrome bodies.
+// vK.xy its rotation, vK.z the pole push (-1..1; the game passes 0: the player stays mint, its pole is the Pixi rim)
+const FS_PLAYER = HDR + ENV + `
+uniform sampler2D uNM, uF, uN; uniform vec2 uRes; uniform float uT, uWarn, uHurt, uRip;
+in vec2 vU; in vec4 vK; out vec4 o;
+void main() {
+  vec4 t = texture(uNM, vU);
+  float m = smoothstep(0.1, 0.24, t.a); if (m < 0.003) discard;
+  vec3 n = normalize(t.rgb * 2.0 - 1.0); n.xy = vec2(n.x * vK.x - n.y * vK.y, n.x * vK.y + n.y * vK.x);
+  float dark = 1.0 - smoothstep(0.36, 0.45, t.a);
+  if (uWarn > 0.0) { float l = length(n.xy) + 1e-4; n = normalize(n + vec3(n.xy / l * sin(l * 16.0 - uRip) * 0.35 * uWarn, 0.0)); }
+  float pk = smoothstep(0.0, 1.0, abs(vK.z));
+  vec3 mintP = mix(MINT, vK.z > 0.0 ? vec3(1.0, 0.3, 0.3) : vec3(0.3, 0.6, 1.0), 0.92 * pk);
+  mintP = max(mix(vec3(dot(mintP, vec3(0.3, 0.55, 0.15))), mintP, 1.0 + 0.45 * pk), 0.0);
+  vec3 r = vec3(2.0 * n.z * n.xy, 2.0 * n.z * n.z - 1.0); vec2 suv = gl_FragCoord.xy / uRes;
+  vec3 ground = textureLod(uF, suv + vec2(r.x, -r.y) * 0.05, 0.0).rgb * 1.20 + vec3(0.05, 0.04, 0.035);
+  ground = mix(ground, vec3(dot(ground, vec3(0.3, 0.5, 0.2))) * 1.3 + 0.06, 0.7);
+  ground = ground * mintP * 1.4;
+  float cloud = textureLod(uN, suv * 1.3 + n.xy * 0.2 + vec2(uT * 0.01), 0.0).b;
+  vec3 col = chrome(n, mintP, ground, cloud);
+  col = mix(col, col * 0.5 + mintP * (0.25 + 0.62 * n.z), 0.75);
+  col += vec3(1.0) * (1.0 - dark) * smoothstep(0.9, 0.95, dot(n, normalize(vec3(-0.42, -0.5, 0.76)))) * 0.85;
+  col += vec3(1.0, 0.25, 0.1) * uHurt * (1.0 - dark) * (1.0 - n.z) * 0.8;
+  col = mix(col, col * 0.62, dark);
+  o = vec4(col, m);
+}`;
 const FS_PIL = HDR + 'uniform sampler2D uN; uniform float uT, uPix; in vec2 vU; in vec4 vK; out vec4 o;\n' + ENV + PIL + `
 void main() { vec4 c = pilView(vU * 0.2 + vec2(0.0, -0.035), vK.x, vK.w, pilSeed(vK.yz), uT, uPix, 0.0); if (c.a < 0.003) discard; o = c; }`;
 function shader(type, src) { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; }
@@ -536,11 +570,12 @@ function program(vs, fs) {
   const u = {}, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS); for (let i = 0; i < n; i++) { const name = gl.getActiveUniform(p, i).name.replace('[0]', ''); u[name] = gl.getUniformLocation(p, name); }
   return { p, u, aP: gl.getAttribLocation(p, 'aP'), aU: gl.getAttribLocation(p, 'aU'), aK: gl.getAttribLocation(p, 'aK') };
 }
-const PF = program(VS_FULL, FS_FLOOR), PSP = program(VS_Q, FS_SPLAT), PC = program(VS_FULL, FS_COMP), PPL = program(VS_Q, FS_PIL);
+const PF = program(VS_FULL, FS_FLOOR), PSP = program(VS_Q, FS_SPLAT), PC = program(VS_FULL, FS_COMP), PPL = program(VS_Q, FS_PIL), PS = program(VS_Q, FS_PLAYER);
 gl.useProgram(PF.p); gl.uniform1i(PF.u.uC, 0); gl.uniform1i(PF.u.uN, 1);
 gl.useProgram(PSP.p); gl.uniform1i(PSP.u.uA, 3);
 gl.useProgram(PC.p); gl.uniform1i(PC.u.uS, 6); gl.uniform1i(PC.u.uX, 7); gl.uniform1i(PC.u.uF, 5); gl.uniform1i(PC.u.uN, 1);
 gl.useProgram(PPL.p); gl.uniform1i(PPL.u.uN, 1);
+gl.useProgram(PS.p); gl.uniform1i(PS.u.uNM, 4); gl.uniform1i(PS.u.uF, 5); gl.uniform1i(PS.u.uN, 1);
 const fullBuf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, fullBuf); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
 const QMAX = 2400, QF = 8, qbuf = new Float32Array(QMAX * 6 * QF), quadBuf = gl.createBuffer();
 gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf); gl.bufferData(gl.ARRAY_BUFFER, qbuf.byteLength, gl.DYNAMIC_DRAW);
@@ -736,6 +771,11 @@ function glFrame(c, warn) {
   gl.uniform2f(V.uRes, GW, GH); gl.uniform2f(V.uFT, 2 / FW, 2 / FH); gl.uniform2f(V.uCam, c.x, c.y); gl.uniform2f(V.uView, VW, VH); gl.uniform2f(V.uPl, p.x, p.y);
   gl.uniform1f(V.uT, rt); gl.uniform1f(V.uFP, POOLS.reduce((m, q, i) => PV[i].o > m[0] ? [PV[i].o, q.pole] : m, [0, -G.pole])[1]);   // the arms wear the pole of the pool that grows them, also while they drain after a flip gl.uniform1f(V.uWarn, warn ? 1 : 0); gl.uniform1f(V.uRip, rt * 30 % 6.2832);
   drawFull(PC);
+  // pass 4: the player orb, above every latched mite (p.R: the orb's half-size, its rim at 0.84 of it)
+  qn = 0; quad(p.x, p.y, p.R, 1, 0, 0, 0, 1, 1, 1, 0, 0, 0);
+  gl.useProgram(PS.p); const W4 = PS.u;
+  gl.uniform2f(W4.uRes, GW, GH); gl.uniform1f(W4.uT, rt); gl.uniform1f(W4.uWarn, warn ? 1 : 0); gl.uniform1f(W4.uRip, rt * 30 % 6.2832); gl.uniform1f(W4.uHurt, p.hurt || 0);
+  gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); drawQuads(PS);
 }
 return {
   // the canvas in CSS px and its device pixel ratio (the demo's own cap: 3)
