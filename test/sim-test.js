@@ -12025,6 +12025,14 @@ function runRosterArt() {
   const toonLooks = [...block.matchAll(/^ {4}(\w+):\s*\{[^\n]*\btoon: true/gm)].map((m) => m[1])
   assert.ok(toonLooks.includes('lavaRay') && toonLooks.includes('emberJelly'), `run RA: the toon looks parsed must include the Mantle's newest: ${toonLooks}`)
   for (const id of toonLooks) assert.ok(toonCast.has(id), `ROSTER_LOOKS.${id} is toon: true but src/toon/cast.js's TOON_CAST has no ${id} entry — it would render as a generic archetype blob, silently`)
+  // the same contract for `liquid: true` (The Core): src/liquid.js's LIQUID_CAST must key every one
+  const liqSrc = readFileSync(new URL('../src/liquid.js', import.meta.url), 'utf8')
+  const liqBlock = liqSrc.slice(liqSrc.indexOf('export const LIQUID_CAST = {'), liqSrc.indexOf('\n}\n', liqSrc.indexOf('export const LIQUID_CAST = {')))
+  const liqCast = new Set([...liqBlock.matchAll(/^ {2}(\w+):\s*\{/gm)].map((m) => m[1]))
+  const liqLooks = [...block.matchAll(/^ {4}(\w+):\s*\{[^\n]*\bliquid: true/gm)].map((m) => m[1])
+  const coreIds = CHAPTERS.core.roster.map((r) => r.id)
+  assert.ok(coreIds.every((id) => liqLooks.includes(id)), `run RA: every Core roster id must be a liquid look: ${coreIds} vs ${liqLooks}`)
+  for (const id of liqLooks) assert.ok(liqCast.has(id), `ROSTER_LOOKS.${id} is liquid: true but src/liquid.js's LIQUID_CAST has no ${id} entry — bakeCreature returns null and it renders as a generic archetype blob, silently`)
 
   let thumbs = 0
   for (const id of ALL_IDS) {
@@ -12075,7 +12083,7 @@ function runRosterArt() {
   assert.ok(lanternfish && /glow:\s*\{[^}]*frac:\s*[\d.]+[^}]*\}/.test(lanternfish[0]),
     'ROSTER_LOOKS.lanternfish must still declare glow: { ... frac: <number> ... } — without it the lanternfish renders as a dark body like any other and updateDark has nothing to read')
 
-  console.log(`PASS run RA (roster art): ${looks.size} baked looks cover all ${rosters} roster entries across ${ALL_IDS.length} chapters, all ${thumbs} title-card thumbnails exist on disk, ${toonLooks.length} toon looks all painted by TOON_CAST, and the side-on jelly is lean 90 with its apex forward`)
+  console.log(`PASS run RA (roster art): ${looks.size} baked looks cover all ${rosters} roster entries across ${ALL_IDS.length} chapters, all ${thumbs} title-card thumbnails exist on disk, ${toonLooks.length} toon looks all painted by TOON_CAST, ${liqLooks.length} liquid looks all baked by LIQUID_CAST, and the side-on jelly is lean 90 with its apex forward`)
 }
 run(runRosterArt)
 

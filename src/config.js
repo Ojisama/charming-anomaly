@@ -10133,6 +10133,8 @@ CHAPTERS.core = {
     playerTint: 0xffffff,
     tail: false,
     dust: { tint: 0xd0d4e0, alpha: 0.35, speedMul: 0.05, sway: 2 },
+    // src/liquid.js draws the floor, pillars, pools and cast (render-only, read by render.js setLiquid)
+    liquid: {},
   },
 }
 

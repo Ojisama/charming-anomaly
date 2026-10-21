@@ -48,6 +48,7 @@ import { POLE_TINT, LANCE_BEAM_LIFE } from './config.js'
 import * as HOLO from './holo.js'
 import * as ASCII from './ascii.js'
 import * as TOON from './toon.js'
+import * as LIQUID from './liquid.js'
 import * as PIXEL from './pixel.js'
 import { t as tr } from './i18n.js'
 // Topsoil's cast: struck, they lift warm (MACRO.paintFlashTwin) instead of going white
@@ -968,60 +969,8 @@ export function createRenderer(app) {
   // amoeba: one membrane whose radius is a sum of broad blunt pseudopod bumps over a low base, so
   // 4 pods reach out further than the rest, ringed on the leading side by a ragged cilia fringe.
   // Translucent ectoplasm + solid endoplasm + a much darker nucleus for internal contrast.
-  // ---- THE CORE (Book 3). Plain light-grey iron, PLAN VIEW: syncEnemies multiplies the pole's
-  // colour over the grey, so the pole is the creature's colour and the bake carries none of it.
-  // ponytail: ship-1 placeholder bodies, drawn with primitives; the Liquid Metal look replaces them.
-  const CORE_IRON = 0xd9dce4, CORE_LINE = 0x3c3f48
-  function coreInk(white) { return { fill: white ? 0xffffff : CORE_IRON, line: white ? 0xffffff : CORE_LINE } }
-  function drawFerriteMite(g, elite, white) {   // a six-legged iron filing, nose +x
-    const r = ROSTER_BASE_R.normal, k = coreInk(white)
-    groundShadow(r * 0.8, r * 0.7)
-    for (const s of [-1, 1]) for (const t of [-0.45, 0, 0.45]) {
-      g.moveTo(r * t, 0).lineTo(r * t + r * 0.25, s * r * 0.85).stroke({ width: 2.5, color: k.line, cap: 'round' })
-    }
-    g.ellipse(0, 0, r * 0.75, r * 0.45).fill(k.fill).stroke({ width: 2.5, color: k.line })
-    g.circle(r * 0.55, 0, r * 0.22).fill(k.line)
-  }
-  function drawNeedleUrchin(g, elite, white) {  // a ball of needles, no forward axis
-    const r = ROSTER_BASE_R.normal, k = coreInk(white)
-    groundShadow(r, r * 0.9)
-    for (let i = 0; i < 14; i++) {
-      const a = (i / 14) * Math.PI * 2
-      taperStroke(g, [[Math.cos(a) * r * 0.5, Math.sin(a) * r * 0.5], [Math.cos(a) * r * 1.15, Math.sin(a) * r * 1.15]], 3, 0.6, k.line, 3)
-    }
-    g.circle(0, 0, r * 0.62).fill(k.fill).stroke({ width: 2.5, color: k.line })
-  }
-  function drawSpinningTop(g, elite, white) {   // a top seen from above: rim, ridges, spindle
-    const r = ROSTER_BASE_R.fast, k = coreInk(white)
-    groundShadow(r, r * 0.9)
-    g.circle(0, 0, r).fill(k.fill).stroke({ width: 2.5, color: k.line })
-    for (let i = 0; i < 6; i++) {
-      const a = (i / 6) * Math.PI * 2
-      g.moveTo(Math.cos(a) * r * 0.3, Math.sin(a) * r * 0.3).lineTo(Math.cos(a + 0.5) * r * 0.9, Math.sin(a + 0.5) * r * 0.9).stroke({ width: 2, color: k.line })
-    }
-    g.circle(0, 0, r * 0.22).fill(k.line)
-  }
-  // The eel's HEAD only: its tail end (the other pole) is drawn by syncCore on the floor behind it.
-  function drawDipoleEel(g, elite, white) {
-    const r = ROSTER_BASE_R.fast, k = coreInk(white)
-    groundShadow(r, r * 0.8)
-    g.poly([r * 1.2, 0, r * 0.2, -r * 0.8, -r * 1.1, -r * 0.45, -r * 1.1, r * 0.45, r * 0.2, r * 0.8]).fill(k.fill).stroke({ width: 2.5, color: k.line })
-    for (const s of [-1, 1]) g.circle(r * 0.45, s * r * 0.35, r * 0.15).fill(k.line)
-  }
-  function drawFerroBlob(g, elite, white) {     // a lumpy drop of ferrofluid, no forward axis
-    const r = ROSTER_BASE_R.tank, k = coreInk(white)
-    groundShadow(r, r * 0.9)
-    g.poly(radialOutline((a) => r * (0.82 + 0.1 * Math.sin(a * 3) + 0.06 * Math.sin(a * 5 + 1)), 40)).fill(k.fill).stroke({ width: 3, color: k.line })
-    g.ellipse(-r * 0.3, -r * 0.3, r * 0.22, r * 0.13).fill({ color: 0xffffff, alpha: white ? 1 : 0.7 })
-  }
-  function drawLodestoneGolem(g, elite, white) { // a chunky octagon of lodestone with a horseshoe mark
-    const r = ROSTER_BASE_R.tank, k = coreInk(white)
-    groundShadow(r, r * 0.95)
-    const pts = []
-    for (let i = 0; i < 8; i++) { const a = (i / 8) * Math.PI * 2 + Math.PI / 8; pts.push(Math.cos(a) * r, Math.sin(a) * r) }
-    g.poly(pts).fill(k.fill).stroke({ width: 3.5, color: k.line })
-    g.beginPath().arc(0, r * 0.08, r * 0.42, Math.PI * 0.75, Math.PI * 2.25).stroke({ width: r * 0.16, color: k.line, cap: 'butt' })
-  }
+  // THE CORE (Book 3): the cast is src/liquid.js's chrome; CORE_LINE is syncCore's dark edge.
+  const CORE_LINE = 0x3c3f48
   function drawAmoeba(g, elite, white) {
     const r = 16
     groundShadow(r, r * 1.0)
@@ -6584,7 +6533,8 @@ export function createRenderer(app) {
     playerPole = run.polarity?.pole ?? 0
     if (!run.polarity) { lanceBeams.length = 0; return }
     const t = animT
-    for (const q of run.corePools) {
+    const liq = liquidOn   // src/liquid.js draws pools, field rings, your ring, eel tails and spikes
+    if (!liq) for (const q of run.corePools) {
       const col = POLE_TINT[q.pole]
       gG.poly(rotEll(q.x, q.y, q.rx, q.ry, q.rot)).fill({ color: col, alpha: 0.32 + 0.05 * Math.sin(t * 2 + q.x * 0.01) })
         .stroke({ width: 2.5, color: mix(col, 0xffffff, 0.35), alpha: 0.7 })
@@ -6602,18 +6552,21 @@ export function createRenderer(app) {
       }
     }
     for (const o of run.obstacles) {
-      if (o.kind !== 'pillar' || !S || !near(o.x, o.y, S.pillar.reach)) continue
+      if (liq || o.kind !== 'pillar' || !S || !near(o.x, o.y, S.pillar.reach)) continue
       field(o.x, o.y, o.r, S.pillar.reach, o.pole, 0.25, 0.5)
     }
     // your pole: a ring round you, dark-edged so it reads on any floor (you stay the mint blob)
     const pr = PLAYER.radius + 7
-    gF.circle(p.x, p.y, pr).stroke({ width: 6, color: CORE_LINE, alpha: 0.85 })
-    gF.circle(p.x, p.y, pr).stroke({ width: 3.5, color: POLE_TINT[P.pole] })
+    if (!liq) {
+      gF.circle(p.x, p.y, pr).stroke({ width: 6, color: CORE_LINE, alpha: 0.85 })
+      gF.circle(p.x, p.y, pr).stroke({ width: 3.5, color: POLE_TINT[P.pole] })
+    }
     for (const e of run.enemies) {
       if (e._dead || e.pole === undefined) continue
-      if (e.flags.includes('lodestone') && S && near(e.x, e.y, S.golem.dragR)) field(e.x, e.y, e.radius + 6, S.golem.dragR, e.pole, 0.15, 0.55)
+      if (!liq && e.flags.includes('lodestone') && S && near(e.x, e.y, S.golem.dragR)) field(e.x, e.y, e.radius + 6, S.golem.dragR, e.pole, 0.15, 0.55)
       // a blob of your pole curled into a ball: a tight dark shell round it
       if ((e.curl || 0) > 0.05) gF.circle(e.x, e.y, e.radius * 0.95).stroke({ width: 3, color: CORE_LINE, alpha: e.curl })
+      if (liq) continue
       if (e.flags.includes('dipole') && S) {
         // the tail end: the OTHER pole, one gap behind the head along the body axis
         const tx = e.x - e.hx * S.eel.gap, ty = e.y - e.hy * S.eel.gap
@@ -7143,15 +7096,14 @@ export function createRenderer(app) {
     magmaEel: { archetype: 'normal', toon: true },   // its art comes from src/toon/cast.js (TOON_CAST); until then bakeCreature returns null and the archetype look stands in
     lavaRay: { archetype: 'tank', toon: true },
     emberJelly: { archetype: 'normal', toon: true },
-    // Book 3, The Core: grey iron bodies the pole tints (see drawFerriteMite). The eel faces along
-    // its own body axis (hx, hy), not at you: which END leads depends on the poles.
-    ferriteMite: { archetype: 'normal', draw: drawFerriteMite, lean: 90 },
-    needleUrchin: { archetype: 'normal', draw: drawNeedleUrchin, lean: 0, spin: 0.4 },
-    spinningTop: { archetype: 'fast', draw: drawSpinningTop, lean: 0, spin: 9 },
-    dipoleEel: { archetype: 'fast', draw: drawDipoleEel, lean: 90, faceDir: (e) => (e.hx != null ? [e.hx, e.hy] : null) },
-    ferroBlob: { archetype: 'tank', draw: drawFerroBlob, lean: 0 },
-    ferroBlobSmall: { archetype: 'tank', draw: drawFerroBlob, lean: 0 },
-    lodestoneGolem: { archetype: 'tank', draw: drawLodestoneGolem, lean: 0 },
+    // Book 3, The Core: chrome bodies baked by src/liquid.js (LIQUID_CAST), the pole baked in
+    ferriteMite: { archetype: 'normal', liquid: true },
+    needleUrchin: { archetype: 'normal', liquid: true },
+    spinningTop: { archetype: 'fast', liquid: true },
+    dipoleEel: { archetype: 'fast', liquid: true },
+    ferroBlob: { archetype: 'tank', liquid: true },
+    ferroBlobSmall: { archetype: 'tank', liquid: true },
+    lodestoneGolem: { archetype: 'tank', liquid: true },
     redcell: { archetype: 'normal', draw: drawRedcell, lean: 0 },      // biconcave disc, no forward axis — it would just tumble
     wbc: { archetype: 'tank', draw: drawWbc, lean: 0 },                // radial membrane, filopodia all round; no nose
     antibody: { archetype: 'fast', draw: drawAntibody, lean: 0 },      // 3-fold Y (Fc stem at +y), no +x front — a protein has no heading
@@ -7473,6 +7425,24 @@ export function createRenderer(app) {
       spin: 0, squash: 0, shadow: null, crown: null,
     }
   }
+  // ---- Book 3, The Core: a chrome creature baked by src/liquid.js. Its pole is in the bake (poseOf
+  // picks the pole's frames), so the pole tint in syncEnemies skips it (look.liquid).
+  function makeLiquidLook(id, elite) {
+    const b = LIQUID.bakeCreature(id, elite)
+    if (!b) return null
+    const fr = (f) => ({ tex: macroCanvasTex(f.canvas, f.res), white: macroCanvasTex(f.white, f.res), ax: f.ax, ay: f.ay })
+    const frames = b.frames.map(fr)
+    const dirCache = new Map()
+    return {
+      tex: frames[0].tex, white: frames[0].white, ax: frames[0].ax, ay: frames[0].ay,
+      frames: frames.length > 1 ? frames : null, thumb: b.thumb ?? null, fps: null, liquid: true,
+      baseR: b.baseR, maxLean: 0, upright: !!b.upright,
+      poseOf: b.poseOf || null, faceDir: b.faceDir || null, turnRate: null,
+      dirs: b.dirs ?? null,
+      dirTex: b.dirs ? (fi, d) => { const k = fi * 64 + d; let t = dirCache.get(k); if (!t) { t = fr(b.dirBake(fi, d)); dirCache.set(k, t) } return t } : null,
+      spin: 0, squash: 0, shadow: null, crown: null,
+    }
+  }
   // ---- Book 3, The Magma: the pixel-art cast (src/pixel.js PIXEL_CAST) ----------------------------
   // A ROSTER_LOOKS entry with `pixel: true` is painted one art pixel at a time by src/pixel.js and
   // sampled NEAREST. No ground shadow: the CRT pass is the light.
@@ -7610,6 +7580,7 @@ export function createRenderer(app) {
     const entry0 = ROSTER_LOOKS[id]
     if (entry0.ascii && !child) return makeAsciiLook(id, elite)
     if (entry0.toon && !child) return makeToonLook(id, elite)
+    if (entry0.liquid && !child) return makeLiquidLook(id, elite)
     if (entry0.macro && !child) return makeMacroLook(id, entry0, elite)
     if (entry0.pixel && !child) return makePixelLook(id, entry0, elite)
     // A child look is the same entry wearing a different draw fn, so it inherits `lean`, `phases`
@@ -14289,6 +14260,52 @@ const spurG = new Graphics()
     if (!toonOn) return
     const w = viewW(), h = viewH()
     toonR.sync(run, dt, { left: -cx, top: -cy, right: -cx + w, bottom: -cy + h, zoom: world.scale.x || 1, w: app.screen.width, h: app.screen.height, animT })
+  }
+
+  // ==== Book 3, THE CORE: LIQUID METAL (src/liquid.js) ===============================================
+  // CHAPTERS[id].render.liquid hands the chapter's floor, pillars, pools and cast to src/liquid.js, the
+  // toon way (same containers, same hide list, same forwarding). render.js keeps the enemy pool (with
+  // liquid.js's chrome looks), the gems, bullets, needles, novas, sparks and every other tell.
+  const liquidFloor = new Container()
+  const liquidUnder = new Container()
+  const liquidOver = new Container()
+  world.addChildAt(liquidFloor, world.getChildIndex(floorLayer) + 1)
+  entitiesLayer.addChildAt(liquidUnder, entitiesLayer.getChildIndex(gemLayer))
+  entitiesLayer.addChildAt(liquidOver, entitiesLayer.getChildIndex(bulletLayer))
+  liquidFloor.visible = liquidUnder.visible = liquidOver.visible = false
+  let liquidR = null
+  let liquidOn = false
+  let liquidHidden = []
+  let liquidPlayerLook = null
+  // Runs AFTER setToon: it un-hides only what it hid itself and neither the ascii nor the toon look is holding.
+  function setLiquid(run) {
+    const look = run ? CHAPTERS[run.chapter]?.render?.liquid : null
+    for (const o of liquidHidden) if (!asciiHidden.includes(o) && !toonHidden.includes(o)) { o.renderable = true; o._asciiHidden = false }
+    liquidHidden = []
+    if (!look) {
+      if (liquidOn && liquidR) liquidR.exit()
+      liquidOn = false
+      liquidFloor.visible = liquidUnder.visible = liquidOver.visible = false
+      return
+    }
+    if (!playerForm) playerSkin = null   // the chrome drop has no skin (the macro rule)
+    if (!liquidR) liquidR = LIQUID.createLiquidRenderer({ app, world, floor: liquidFloor, under: liquidUnder, over: liquidOver })
+    liquidOn = true
+    liquidFloor.visible = liquidUnder.visible = liquidOver.visible = true
+    for (const name of liquidR.hide ?? []) for (const o of TOON_HIDEABLE[name] ?? []) { o.renderable = false; o._asciiHidden = true; liquidHidden.push(o) }
+    liquidR.enter(run, look)
+  }
+  function syncLiquid(run, dt, cx, cy) {
+    if (!liquidOn) return
+    const w = viewW(), h = viewH()
+    liquidR.sync(run, dt, { left: -cx, top: -cy, right: -cx + w, bottom: -cy + h, zoom: world.scale.x || 1, w: app.screen.width, h: app.screen.height, animT })
+  }
+  // the mint chrome drop the player wears in a liquid chapter (syncPlayer's photo body)
+  function liquidPlayer() {
+    if (liquidPlayerLook) return liquidPlayerLook
+    const b = LIQUID.bakePlayer()
+    liquidPlayerLook = { body: { tex: macroCanvasTex(b.canvas, b.res), ax: b.ax, ay: b.ay }, flash: { tex: macroCanvasTex(b.white, b.res), ax: b.ax, ay: b.ay } }
+    return liquidPlayerLook
   }
 
   // ---------------------------------------------------------- organic floor
@@ -29812,6 +29829,7 @@ void main() {
     for (const e of events) {
       if (asciiOn && asciiR.event(e, run)) continue   // Book 3, The Mine: src/ascii.js draws its own
       if (toonOn && toonR.event(e, run)) continue     // Book 3, The Mantle: src/toon.js draws its own
+      if (liquidOn && liquidR.event(e, run)) continue // Book 3, The Core: src/liquid.js draws its own
       if (magmaEvent(e)) continue    // Book 3, The Magma: its own events, drawn by src/pixel.js
       if (burrowEvent(e)) continue   // Book 3, Burrow: its own events (and the shovel's scoop)
       switch (e.type) {
@@ -31354,7 +31372,7 @@ void main() {
       // silhouette toward a triangle, and there is no face here to sharpen.
       // the macro lens: the photographed jellybean, which has no skin. The Geode: card art, skin and all.
       const holo = holoLook ? holoPlayer() : null
-      const photo = macroLook ? macroPlayer() : holo ? (playerSkin ? holo.butt : holo.blob) : null
+      const photo = macroLook ? macroPlayer() : holo ? (playerSkin ? holo.butt : holo.blob) : liquidOn ? liquidPlayer() : null
       gel = photo?.front ? photo : null
       const bodyLook = photo ? photo.body : playerSkin ? T.playerButt : rung > 0 ? T.playerStill[rung] : T.playerBody
       const flashLook = photo ? photo.flash : playerSkin ? T.playerButtFlash : rung > 0 ? T.playerStillFlash[rung] : T.playerFlash
@@ -31379,7 +31397,7 @@ void main() {
     // playerTint (0x7ad07a for skies, 0xffffff for surf) would push the kaiju's
     // pale sclera or the fish's fin and gill highlights toward the same hue as the body fill, right
     // when that contrast matters most.
-    pBody.tint = (playerForm === 'kaiju' || playerForm === 'fish' || playerSkin || macroLook || holoLook) ? 0xffffff : chapterRender.playerTint
+    pBody.tint = (playerForm === 'kaiju' || playerForm === 'fish' || playerSkin || macroLook || holoLook || liquidOn) ? 0xffffff : chapterRender.playerTint
     // THE CORE: you stay the mint blob; your pole is the ring round you (syncCore), never a body tint.
     // OILED (The Wreck, 2026-09-07): the oil on you is on your skin — a multiply toward the film's
     // own near-black, ramped by the fouling timer, so the stain fades exactly as the slow does.
@@ -32921,7 +32939,7 @@ void main() {
       else if ((e.oiled || 0) > 0) s.tint = mix(0xa79e88, 0x776f56, Math.min(1, (e.oiled || 0) / OIL_STAIN_MAX))
       // THE CORE: the pole IS the body's colour (contract field e.pole, sim-owned). Mixed toward
       // white so a South body stays readable on the dark floor.
-      else if (e.pole !== undefined) s.tint = mix(POLE_TINT[e.pole], 0xffffff, 0.2)
+      else if (e.pole !== undefined && !look.liquid) s.tint = mix(POLE_TINT[e.pole], 0xffffff, 0.2)
       else if (e.elite && chapterRender.eliteIridescent) {
         // pond soap-bubble elites shimmer through pale iridescent hues. Bodies are now baked
         // saturated, and tint multiplies, so mix the hue 50% toward white first — otherwise the
@@ -33372,6 +33390,7 @@ void main() {
     updateMacro(run, dt, cx, cy)   // Book 3: the macro lens (no-op elsewhere)
     syncAscii(run, dt, cx, cy)     // Book 3, The Mine: src/ascii.js draws the chapter (no-op elsewhere)
     syncToon(run, dt, cx, cy)      // Book 3, The Mantle: src/toon.js draws the chapter (no-op elsewhere)
+    syncLiquid(run, dt, cx, cy)    // Book 3, The Core: src/liquid.js draws the chapter (no-op elsewhere)
     updateLeaves(dt)
     updateCurrents(run, dt, cx, cy)
     updateEddies(run, dt)
@@ -34102,6 +34121,7 @@ void main() {
     if (run && CHAPTERS[run.chapter]?.weapons?.includes('rootSnare')) bakeSnares()   // at run start, not on the first cast
     setAscii(run)   // Book 3, The Mine: the ascii look on or off (after setMacro: it may set the stage's filters)
     setToon(run)    // Book 3, The Mantle: the toon look on or off (after setAscii: see setToon)
+    setLiquid(run)  // Book 3, The Core: the liquid look on or off (after setToon: see setLiquid)
     clearWorld()
     if (run) {
       entitiesLayer.visible = true
