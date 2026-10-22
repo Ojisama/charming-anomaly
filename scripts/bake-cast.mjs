@@ -67,10 +67,14 @@ const { CHAPTERS, DMG_SRC_NAME, DMG_SRC_ART, DMG_SRC_NO_ART } = await import('..
 // --only id,id,... bakes just those (cast ids or hazard srcs), leaving every other file on disk as it is
 const onlyArg = process.argv.indexOf('--only')
 const only = onlyArg >= 0 ? new Set(process.argv[onlyArg + 1].split(',')) : null
+// A render.liquid chapter (The Core) is drawn by WebGL, not by render.js's textures, so castThumbs()
+// cannot reach its look: its thumbnails are cut out of real frames by scripts/scenes/core-cast.js +
+// scripts/core-cast-cut.py, and this bake leaves them alone.
+const liquidIds = new Set(Object.values(CHAPTERS).filter((c) => c.render?.liquid).flatMap((c) => (c.roster ?? []).map((r) => r.id)))
 const ids = [...new Set([
   ...Object.values(CHAPTERS).flatMap((c) => c.render?.cast ?? []),
   ...Object.values(CHAPTERS).flatMap((c) => (c.roster ?? []).map((r) => r.id)),
-])].filter((id) => !only || only.has(id))
+])].filter((id) => (!only || only.has(id)) && !liquidIds.has(id))
 console.log(`baking ${ids.length} cast thumbnails across ${Object.keys(CHAPTERS).length} chapters:`, ids.join(', '))
 
 // HAZARD thumbnails, for the summary's damage recap. Derived, never hand-listed: every DMG_SRC_NAME

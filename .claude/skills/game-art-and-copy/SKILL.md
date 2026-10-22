@@ -76,6 +76,14 @@ the player has never seen — with a green suite either way.
 
 - **UI that depicts a game entity uses the game's art, not a lookalike.** render.js already draws every creature (`ROSTER_LOOKS`), every weapon and every prop; if a menu needs to show one, route the real thing out (the `src/cast/*.png` bake is the worked example) rather than reaching for an emoji or a stand-in shape. v6.7.1 shipped 🐜🐝🕷️ per chapter and the tardigrade came out as 🐻 — a bear — while `drawTardigrade` sat in render.js the whole time. Emoji only survive where the glyph *is* the thing (a coin, a lock).
 
+- **Chapter-card creature thumbnails (`src/cast/<rosterId>.png`): re-bake them whenever a creature's look changes, then SHOOT THE CARD.** Nothing warns you when they go stale. How:
+  - **render.js chapters:** `node scripts/bake-cast.mjs [--only id,id]` bakes from the renderer's own textures.
+  - **The Core (`render.liquid`, drawn by WebGL):** bake-cast skips it on purpose, because `castThumbs()` only sees a stale CPU approximation. Instead, cut the thumbnails out of real frames: with `npm run dev` up, run the `FX_CHROME_ARGS=… node scripts/fx-probe.mjs --scene scripts/scenes/core-cast.js …` line from that scene's header, then `python3 scripts/core-cast-cut.py <out prefix>` (add `--dry` to preview). For each creature the scene shoots a frame with it and an identical frozen frame without it; the difference becomes the alpha.
+  - **Check it on the real card:** `node scripts/shot.mjs` at 390×844 with a seed save of `{shop:{}, dev:true, chapter:'<id>'}`.
+  - **Two traps:**
+    - **The medallion test.** `ui.js` treats a SQUARE bake of 200 px or more as a medallion and fills the face with its corner colour. The Core's old disc bakes at 174–192 px missed that test and showed as small dark circles on the cream face. A transparent cutout must therefore not come out exactly square at 200 px or more.
+    - **In-play overlays.** Strip them from the shot: health bars, warning rings, the curl shell.
+
 - **Say when something is a stand-in.** If you do ship a placeholder or an approximation, name it as one in the commit and the report. That 🐻 shipped under a code comment calling it "the cheapest honest answer", which read as a considered decision and cost a review round-trip to undo.
 
 ## Copy — legibility first, then translatability
