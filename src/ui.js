@@ -2448,7 +2448,7 @@ export function initUI(hooks) {
         </span>
       </div>
       <!-- The Core's POLE GAUGE (run.polarity): the same battery on the left (The Core has no
-           resource rail). The track is the live split of the creatures ON SCREEN (run.polarity.split):
+           resource rail). The track is the live split of the creatures ON SCREEN, eased (run.polarity.gauge):
            North red from the foot against South blue; the chip on top is YOUR pole, in its colour. -->
       <div class="chaos-wrap" data-pole style="display:none;">
         <span class="chaos-vrail chaos-vrail--pole">
@@ -2994,7 +2994,7 @@ export function initUI(hooks) {
       q('[data-pole-track]').style.background = hex(POLE_TINT[-1])
       poleRefs.fill.style.background = hex(POLE_TINT[1])
     }
-    const h = Math.round(P.split * 100)
+    const h = Math.round((P.gauge ?? P.split) * 100)
     if (h !== last.poleSplit) { last.poleSplit = h; poleRefs.fill.style.height = `${h}%` }
     if (P.pole !== last.polePole) {
       last.polePole = P.pole

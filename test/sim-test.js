@@ -42633,7 +42633,7 @@ function testCore() {
     flung = mites.filter((m) => !m.latched && Math.hypot(m.x - p.x, m.y - p.y) > 40).length
     assert.strictEqual(flung, 3, `run CO.c: a pool flip throws every latched mite off you: ${flung} of 3 flung`)
   })
-  // (d) a body takes the pole of a pool it walks into
+  // (d) a body keeps its spawn pole in a pool (owner 2026-10-22: pools turn only you, so the tide shows)
   noPools(() => {
     const r = boot(42104)
     r.weapons = []
@@ -42642,8 +42642,26 @@ function testCore() {
     r.enemies = [e]
     r.corePools.push({ x: e.x, y: e.y, rx: 60, ry: 40, rot: 0, pole: -1, _cell: 'test' })
     step(r, 2, (o) => o === e)
-    assert.strictEqual(e.pole, -1, 'run CO.d: a North body standing in a South pool turns South')
+    assert.strictEqual(e.pole, 1, 'run CO.d: a North body standing in a South pool stays North')
   })
+  // (d2) the spawn tide holds a pole: over one period the mix sits at a full pole (>= 0.97 or <= 0.03)
+  // most of the time and crosses fast, and the HUD gauge eases toward the split instead of jumping
+  {
+    const S = CHAPTERS.core.signature.polarity
+    const r = boot(42110)
+    let held = 0, n = 0
+    for (let t = 0; t < S.mix.period; t += 0.25) {
+      r.time = t; step(r, 1); n++
+      const m = r.polarity.mix
+      if (m >= 0.97 || m <= 0.03) held++
+    }
+    assert.ok(held / n > 0.5, `run CO.d2: the tide holds a full pole most of a period: ${held}/${n}`)
+    r.polarity.gauge = 0; r.polarity.split = 1
+    r.enemies = [body(r, { x: r.player.x + 100, y: r.player.y, pole: 1 })]
+    step(r, 1)
+    const g = r.polarity.gauge
+    assert.ok(g > 0 && g < 0.1, `run CO.d2: one frame moves the gauge only a little toward an all-North screen: ${g}`)
+  }
   // (e) pillars pull the other pole and push your own
   const drift = (samePole) => noPools(() => {
     const r = boot(42105)
@@ -42658,7 +42676,7 @@ function testCore() {
   })
   const push = drift(true), pull = drift(false)
   assert.ok(push < -10 && pull > 10, `run CO.e: a pillar of your pole pushes you off, one of the other pulls you in: ${push.toFixed(1)} / ${pull.toFixed(1)} px in 1s`)
-  console.log(`PASS run CO (The Core): spawns ${(sh * 100).toFixed(0)}% North at the N peak (n=${hi[0]}), ${(sl * 100).toFixed(0)}% at the S peak (n=${lo[0]}); 40s without a pool, 0 changes, one pool flips you; ${flung}/3 mites flung; a body takes a pool's pole; pillar ${push.toFixed(0)}px push / +${pull.toFixed(0)}px pull`)
+  console.log(`PASS run CO (The Core): spawns ${(sh * 100).toFixed(0)}% North at the N peak (n=${hi[0]}), ${(sl * 100).toFixed(0)}% at the S peak (n=${lo[0]}); 40s without a pool, 0 changes, one pool flips you; ${flung}/3 mites flung; a body keeps its pole in a pool, the tide holds, the gauge eases; pillar ${push.toFixed(0)}px push / +${pull.toFixed(0)}px pull`)
 }
 
 function testCoreWeapons() {

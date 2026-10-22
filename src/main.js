@@ -638,7 +638,7 @@ const SFX_FOR_EVENT = {
   // ('netFree') gets no entry on purpose — it is the end of a short hurt, carried by the hurt ticks
   // and by its own ring in render.js.
   netCatch: 'hole',
-  // The Core: your pole changing in a pool. A body's pool flip ('poolFlip') is many a second: silent.
+  // The Core: your pole changing in a pool. Its ring ('poolFlip') stays silent: this carries the sound.
   poleFlip: 'surge',
   // ...and a Decoy Lodestone bursting: one every few seconds, so it bears the explode whoomp.
   lodestoneBlast: 'explode',

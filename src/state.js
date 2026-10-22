@@ -2336,16 +2336,17 @@ function generateWells(sig) {
  * THE CORE (Book 3, signature.polarity — sim.js stepPolarity / stepPolarHurt / stepPolarBody):
  *   polarity: null until the first step of a Core run with signature.polarity on, then
  *     { pole: +1 (North, red) | -1 (South, blue) — YOUR pole, starts North, changes ONLY in a pool,
- *       mix: 0..1 the share of new spawns that are North (signature.polarity.mix's sine of run.time),
+ *       mix: 0..1 the share of new spawns that are North (signature.polarity.mix's squared-off sine of run.time),
  *       split: 0..1 the North share of the polar creatures inside run.viewW/viewH (eels skipped;
- *       0.5 with none), counted by stepPolarHurt and drawn by ui's pole gauge,
+ *       0.5 with none), counted by stepPolarHurt,
+ *       gauge: split eased over signature.polarity.gaugeTau — what ui's pole gauge draws,
  *       poolCd: s before a pool can change you again, flipT: run.time of your last change,
  *       latched: mites on you, obRev: the run._obstacleRev the pools were last cleared of pillars at,
  *       dot: { src: hp } fractions of DoT hp banked until a whole point is owed,
  *       dotFrame: { src: hp } this frame's DoT per source before the dotCap scale (scratch) }.
  *   corePools: [{ x, y, rx, ry, rot, pole, _cell }] the pole pools streamed per cell (streamPolePools,
  *     salts 48-54), never under a pillar (poolOnPillar). Walking into one of the other pole flips
- *     you; a creature (not eel or top) takes its pole.
+ *     you; creatures keep the pole they spawned with.
  *   _poolCellI/_poolCellJ: streamPolePools' own cell cursor.
  *   obstacles of kind 'pillar' carry `pole` (hash salt 47): they pull the other pole, push their own.
  *   Enemy contract fields (render tints off `pole`): pole +1 | -1 (the eel's is its HEAD's; its tail
@@ -2361,8 +2362,8 @@ function generateWells(sig) {
  *   lodestones: [{ x, y, pole, t, fuse, dmg, r, pullR, pull }] Decoy Lodestones, persistent (stepLodestones):
  *     pole = yours when it dropped, kept; t s since the drop; at t >= fuse it bursts and is removed.
  *   Events: {type:'poleFlip', pole} your pole changed (only ever in a pool). Sounded in
- *     SFX_FOR_EVENT. {type:'poolFlip', x, y, pole} a pool flipped a
- *     body (you or a creature): drawn as a ring in the new pole's colour, silent (several a second).
+ *     SFX_FOR_EVENT. {type:'poolFlip', x, y, pole} a pool flipped
+ *     you: drawn as a ring in the new pole's colour, silent (poleFlip carries the sound).
  *     {type:'lodestoneBlast', x, y, r, pole} a Decoy Lodestone burst (drawn by src/liquid.js on The
  *     Core, a ring elsewhere; sounded 'explode'). A drop is the ordinary {type:'shoot', weapon}.
  *     {type:'lance', x, y, angle, length, width} one Dipole Lance beam (one per heading: Both Ends and

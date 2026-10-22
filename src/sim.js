@@ -18934,9 +18934,10 @@ function polaritySpec(run) {
 function polarState(run, S) {
   return (run.polarity ??= { pole: 1, mix: polarMix(run, S), split: 0.5, poolCd: 0, flipT: -1e9, latched: 0, dot: {}, dotFrame: {} })
 }
-// The share of new spawns that are North right now: base + amp x sin(2 pi t / period).
+// The share of new spawns that are North right now: a sine squared off by mix.square, so it holds a pole.
 function polarMix(run, S) {
-  return S.mix.base + S.mix.amp * Math.sin((2 * Math.PI * run.time) / S.mix.period)
+  const s = Math.sin((2 * Math.PI * run.time) / S.mix.period) * (S.mix.square ?? 1)
+  return S.mix.base + S.mix.amp * Math.max(-1, Math.min(1, s))
 }
 // The pole a body shows the damage rule: its own, except the eel's, which is the pole of whichever
 // of its two segments is nearer you (head = e.pole, tail = -e.pole, eel.gap px behind the head).
@@ -19177,14 +19178,8 @@ function stepPolarBody(run, e, dt, slowMul, S) {
   const k = speedCreepMul(curveT(run)) * run.mods.enemySpeedMul * slowMul
   e.x += vx * k * dt; e.y += vy * k * dt
   if (fixedPole) return
-  // a pool of the other pole turns this body over
-  for (const q of run.corePools) {
-    if (q.pole === e.pole || !inPolePool(q, e.x, e.y)) continue
-    e.pole = q.pole
-    run.events.push({ type: 'poolFlip', x: e.x, y: e.y, pole: e.pole })
-    break
-  }
-  // ...and a body of your pole never comes nearer than sameGap past its edge and yours
+  // a body keeps the pole it spawned with (pools turn only you)
+  // a body of your pole never comes nearer than sameGap past its edge and yours
   if (e.pole === P.pole) {
     const ex = e.x - p.x, ey = e.y - p.y, dd = Math.hypot(ex, ey) || 1, min = e.radius + PLAYER.radius + S.sameGap
     if (dd < min) { e.x = p.x + (ex / dd) * min; e.y = p.y + (ey / dd) * min }
@@ -19249,6 +19244,8 @@ function stepPolarHurt(run, dt) {
   }
   P.latched = latched   // stepPlayerMovement's slow reads it next frame
   P.split = north + south > 0 ? north / (north + south) : 0.5
+  // what the HUD gauge shows: the split eased over gaugeTau, so a churning crowd does not flicker it
+  P.gauge = P.gauge == null ? P.split : P.gauge + (P.split - P.gauge) * Math.min(1, dt / S.gaugeTau)
   const cap = Math.min(S.dotCap, p.maxHP * HURT_CAP_FRAC) * dt
   const k = dotSum > cap ? cap / dotSum : 1
   for (const src in dots) {

@@ -652,8 +652,8 @@ function drawWeapons(vis) {
     if (!vis(L.x, L.y, 0.2)) continue;
     const ch = L.pole ? chOf(L.pole) : 2, r0 = 0.021, k = L.k, late = k > 0.8 ? 0.5 + 0.5 * Math.sin(rt * (20 + 30 * (k - 0.8) / 0.2)) : 0;
     // an urchin mine spinning up and swelling as the fuse burns, six pole beads orbiting it on a tightening ring
-    sp(L.x, L.y, r0 * (2.6 + 0.5 * k + 0.35 * late), rt * (0.6 + 8 * k * k), 2, ch, 1);
-    const ring = r0 * (3.2 - 1.4 * k), sp6 = rt * (1 + 5 * k);
+    sp(L.x, L.y, r0 * (2.6 + 0.5 * k + 0.35 * late), rt * (0.3 + 1.5 * k * k), 2, ch, 1);
+    const ring = r0 * (3.2 - 1.4 * k), sp6 = rt * (0.5 + 1.5 * k);
     for (let i = 0; i < 6; i++) { const a = sp6 + i / 6 * 6.2832; sp(L.x + Math.cos(a) * ring, L.y + Math.sin(a) * ring, r0 * (0.8 + 0.3 * late), 0, 0, ch, 1); }
     for (const f of nearFoes(L.x, L.y, L.pullR, L.pole, 6)) reachArm(L.x, L.y, f, L.pullR, 0.008, L.x * 5 + f.x * 11, ch);
   }
