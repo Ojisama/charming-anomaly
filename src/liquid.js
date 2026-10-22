@@ -197,7 +197,7 @@ export function createLiquidRenderer(host) {
   over.addChild(marks)
   const sparks = []
   const blasts = []   // Decoy Lodestone bursts, aged here: the burst, then the spent puddle (gl.js drawWeapons)
-  const S = { cam: { x: 0, y: 0 }, VW: 1, VH: 1, rt: 0, rdt: 0, warn: false, pole: 1, p: { x: 0, y: 0, r: 0.02, R: 0.03, hurt: 0, tint: 1, vx: 0, vy: 0 }, foes: [], pools: [], pillars: [], sparks,
+  const S = { cam: { x: 0, y: 0 }, VW: 1, VH: 1, rt: 0, rdt: 0, visc: 1, pole: 1, p: { x: 0, y: 0, r: 0.02, R: 0.03, hurt: 0, tint: 1, vx: 0, vy: 0 }, foes: [], pools: [], pillars: [], sparks,
     moons: [], lodes: [], blasts }
   let look = null
   // ?debug: the frame state, for a probe scene to set the clock (scripts/scenes/core-match.js)
@@ -234,7 +234,7 @@ export function createLiquidRenderer(host) {
     sync(run, dt, view) {
       if (!look || !core) return
       const rdt = Math.min(0.05, Math.max(0, dt))
-      S.rt = (S.rt + rdt) % 400; S.rdt = rdt
+      S.rt = (S.rt + rdt) % 400; S.rdt = rdt; S.visc = look.viscosity ?? 1
       clock = S.rt
       const p = run.player, P = run.polarity, pole = P?.pole ?? 1
       dpr = Math.min(3, window.devicePixelRatio || 1)

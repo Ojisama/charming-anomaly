@@ -7,7 +7,7 @@
 // there is no Nexus glow, the pillar and pool reaction states are keyed by the game's objects, and the
 // player's face is drawn by Pixi over the demo's chrome orb (pass 4).
 // createCoreGL(canvas) -> null without WebGL2, else { resize(cssW, cssH, dpr), frame(S) }
-//   S = { cam: {x, y}, VW, VH, rt, rdt, warn, pole, p: {x, y, r, R, hurt, tint}, foes, pools, pillars, sparks } (units)
+//   S = { cam: {x, y}, VW, VH, rt, rdt, visc, pole, p: {x, y, r, R, hurt, tint}, foes, pools, pillars, sparks } (units)
 //   foes: { key, kind: mite|urchin|top|blob|small|eel|golem, x, y, r, pole, latched: {x, y} | null, stun, spike, ph, hx, hy, sw }
 //   pools: { key, x, y, rx, ry, rot, pole, seed }   pillars: { key, x, y, r, pole }
 //   sparks: { x, y, age, opp, dead, big } (hit droplets and death beads)
@@ -250,7 +250,7 @@ vec4 pilView(vec2 s, float plk, float ang, float sd, float t, float pix, float r
 }
 `;
 const FS_FLOOR = HDR + ENV + `
-uniform sampler2D uC, uN, uV, uNM; uniform vec2 uRes, uCam, uView, uPl; uniform float uT, uPole, uNex, uPix; uniform vec2 uSh;
+uniform sampler2D uC, uN, uV, uNM; uniform vec2 uRes, uCam, uView, uPl; uniform float uT, uPole, uNex, uPix, uVisc; uniform vec2 uSh;
 uniform vec4 uPool[8]; uniform vec2 uPoolB[8]; uniform vec4 uPoolR[8]; uniform vec4 uPoolF[8]; uniform int uNP; uniform vec4 uPil[8]; uniform int uNPil; uniform vec3 uGol[4]; uniform int uNG;
 out vec4 o;
 uniform vec4 uWk[32]; uniform int uNW;
@@ -419,11 +419,11 @@ void main() {
   // big slow swells drifting down the current, two layers crossing
   vec2 q1 = wf * 0.2 - CUR * uT * 0.011 + hz, q2 = wf.yx * 0.33 + vec2(-uT * 0.006, uT * 0.008) + hz;
   vec4 c1 = texture(uC, q1), c2 = texture(uC, q2);
-  sl += (c1.ba - 0.5) * 0.62 + (c2.ab - 0.5) * 0.3;
+  sl += ((c1.ba - 0.5) * 0.62 + (c2.ab - 0.5) * 0.3) / uVisc;
   float hgt = c1.g * 0.65 + c2.g * 0.35;
   // long rolling ripple trains: one runs down the current in packets, a fainter one crosses it
   float pk1 = smoothstep(0.35, 0.8, texture(uN, wf * 0.3 - CUR * uT * 0.03).r), pk2 = smoothstep(0.4, 0.85, nz.g);
-  sl += CUR * cos(dot(wf, CUR) * 30.0 - uT * 1.0) * 0.05 * pk1 + vec2(-0.47, 0.88) * cos(dot(wf, vec2(-0.47, 0.88)) * 47.0 + uT * 0.75) * 0.022 * pk2;
+  sl += (CUR * cos(dot(wf, CUR) * 30.0 - uT * 1.0) * 0.05 * pk1 + vec2(-0.47, 0.88) * cos(dot(wf, vec2(-0.47, 0.88)) * 47.0 + uT * 0.75) * 0.022 * pk2) / uVisc;
   for (int i = 0; i < 32; i++) { if (i >= uNW) break;
     vec4 E = uWk[i]; vec2 d = w - E.xy; float dl = length(d) + 1e-4, x = dl - (0.015 + E.z * 0.17);
     sl += d / dl * sin(x * 180.0) * exp(-x * x * 1400.0) * E.w * exp(-E.z * 2.2);
@@ -500,9 +500,10 @@ void main() {
 }`;
 const FS_SPLAT = HDR + 'uniform sampler2D uA; in vec2 vU; in vec4 vK; out vec4 o; void main(){ o = vK * texture(uA, vU).r * 0.5; }';
 const FS_COMP = HDR + ENV + `
-uniform sampler2D uS, uX, uF, uN; uniform vec2 uRes, uFT, uCam, uView, uPl; uniform float uT, uWarn, uRip, uFP;
+uniform sampler2D uS, uX, uF, uN; uniform vec2 uRes, uFT, uCam, uView, uPl; uniform float uT, uFP, uVisc;
 out vec4 o;
-const float K = 0.65, TH = 0.25, SG = 2.6;
+const float K = 0.65, SG = 2.6;
+#define TH (0.25 + 0.04 * (uVisc - 1.0))
 float fld(vec2 uv) { vec4 a = textureLod(uS, uv, 0.0), b = textureLod(uX, uv, 0.0); return max(b.r - K * (a.r - b.r), 0.0) + max(b.g - K * (a.g - b.g), 0.0) + a.b + a.a; }
 float hh(vec2 uv) { return pow(max(fld(uv) - TH, 0.0), 0.6); }
 void main() {
@@ -519,7 +520,6 @@ void main() {
   float rho = pow(1.0 - clamp((F - TH) / 0.25, 0.0, 1.0), 0.6), nzz = sqrt(max(1.0 - rho * rho, 0.0));
   vec2 gd = vec2(gx, gy); float gl = length(gd);
   vec3 n = gl > 1e-5 ? normalize(vec3(-gd / gl * sqrt(1.0 - nzz * nzz), nzz) + vec3(-gd * SG, 0.0)) : vec3(0.0, 0.0, 1.0);
-  if (uWarn > 0.0) { vec2 dp = w - uPl; float dd = length(dp) + 1e-4; n = normalize(n + vec3(dp / dd * sin(dd * 300.0 - uRip) * 0.5 * uWarn * exp(-dd * 28.0), 0.0)); }
   float nb = a.b * 0.6, tot = eN + eS + nb + 1e-4, ff = a.a / (tot + a.a);
   vec3 tint = (NC * eN + SC * eS + SILV * nb) / tot;
   // the reflection is looked up in WORLD space, so the horizon and the mirrored melt slide and warp across a body as it moves
@@ -536,14 +536,13 @@ void main() {
 // the demo's FS_SPRITE with only its player branch: the mint orb, lit and mirroring the floor like the chrome bodies.
 // vK.xy its rotation, vK.z the pole push (-1..1, eased over a pool flip through plain mint: p.tint)
 const FS_PLAYER = HDR + ENV + `
-uniform sampler2D uNM, uF, uN; uniform vec2 uRes; uniform float uT, uWarn, uHurt, uRip;
+uniform sampler2D uNM, uF, uN; uniform vec2 uRes; uniform float uT, uHurt;
 in vec2 vU; in vec4 vK; out vec4 o;
 void main() {
   vec4 t = texture(uNM, vU);
   float m = smoothstep(0.1, 0.24, t.a); if (m < 0.003) discard;
   vec3 n = normalize(t.rgb * 2.0 - 1.0); n.xy = vec2(n.x * vK.x - n.y * vK.y, n.x * vK.y + n.y * vK.x);
   float dark = 1.0 - smoothstep(0.36, 0.45, t.a);
-  if (uWarn > 0.0) { float l = length(n.xy) + 1e-4; n = normalize(n + vec3(n.xy / l * sin(l * 16.0 - uRip) * 0.35 * uWarn, 0.0)); }
   float pk = smoothstep(0.0, 1.0, abs(vK.z));
   vec3 mintP = mix(MINT, vK.z > 0.0 ? vec3(1.0, 0.3, 0.3) : vec3(0.3, 0.6, 1.0), 0.92 * pk);
   mintP = max(mix(vec3(dot(mintP, vec3(0.3, 0.55, 0.15))), mintP, 1.0 + 0.45 * pk), 0.0);
@@ -605,7 +604,7 @@ function quad(x, y, R, c, s, u0, v0, du, dv, k0, k1, k2, k3) {
 // ferrofluid cones fanned round ang: uneven lengths and angles from a per-body seed, lengths breathing
 function spikes(x, y, ang, n, L, spread, seed, w) {
   for (let i = 0; i < n; i++) { const h1 = (seed * 977 + i * 131) % 97 / 97, h2 = (seed * 571 + i * 313) % 89 / 89;
-    const a = ang + (n > 1 ? (i / (n - 1) - 0.5) * 2 * spread : 0) + (h1 - 0.5) * 0.4, len = L * (0.55 + 0.45 * h2) * (0.85 + 0.15 * Math.sin(rt * 3.3 + i * 2.1 + seed));
+    const a = ang + (n > 1 ? (i / (n - 1) - 0.5) * 2 * spread : 0) + (h1 - 0.5) * 0.4, len = L * (0.55 + 0.45 * h2) * (1 - 0.15 / VISC + 0.15 / VISC * Math.sin(rt * 3.3 / VISC + i * 2.1 + seed));
     sp(x, y, len / 0.88, a, 8, 2, w); }
 }
 // a ferrofluid ARM: a tapering neck of neutral metal (fuses with the body it grows from) that curls as it reaches,
@@ -614,18 +613,18 @@ function spikes(x, y, ang, n, L, spread, seed, w) {
 function arm(x, y, ang, L, wd, seed, pinch, ch = 2) {
   if (L < 0.004) return;
   const N = 4, path = (Lx, draw) => { const sl = Lx * 0.72 / N; let a = ang, px = x, py = y;
-    for (let i = 1; i <= N; i++) { const t = i / N; a = ang + Math.sin(rt * 2.4 + seed * 1.7 + t * 2.5) * 0.32 * t;
+    for (let i = 1; i <= N; i++) { const t = i / N; a = ang + Math.sin(rt * 2.4 / VISC + seed * 1.7 + t * 2.5) * 0.32 / VISC * t;
       px += Math.cos(a) * sl; py += Math.sin(a) * sl; if (draw) sp(px, py, wd * 2 * (1 - 0.55 * t), 0, 0, ch, 1); }
     return [px + Math.cos(a) * Lx * 0.36, py + Math.sin(a) * Lx * 0.36, a]; };
-  if (pinch) { const ph = ((rt * 0.5 + seed * 0.37) % 1 + 1) % 1;
+  if (pinch) { const ph = ((rt * 0.5 / VISC + seed * 0.37) % 1 + 1) % 1;
     if (ph > 0.6) { const v = (ph - 0.6) / 0.4, [tx, ty, ta] = path(L, false), g = wd * (0.5 + 0.9 * v), rb = wd * 1.3 * (1 - v * v);
       if (rb > 0.0008) sp(tx + Math.cos(ta) * g, ty + Math.sin(ta) * g, rb * 2, 0, 0, ch, 1); }
     L *= 0.6 + 0.4 * (ph < 0.6 ? sst(ph / 0.6) : 1 - sst((ph - 0.6) / 0.4)); }
   const [tx, ty, a] = path(L, true);
   sp(tx - Math.cos(a) * L * 0.36, ty - Math.sin(a) * L * 0.36, L * 0.36 / 0.88, a, 8, ch, 1);
 }
-// how far a body reaches for the player: 0 beyond 0.36, full by 0.12 (draw only; opposite poles only)
-const reachK = d => sst((0.36 - d) / 0.24);
+// how far a body reaches for the player: 0 beyond 0.36, full by 0.12 (draw only; opposite poles only); thicker metal reaches less far
+const reachK = d => sst((0.12 + 0.24 / VISC - d) / (0.24 / VISC));
 function sp(x, y, R, ang, cell, ch, w) { quad(x, y, R * 1.25,Math.cos(ang), Math.sin(ang), cell % 4 * 0.25, (cell / 4 | 0) * 0.25, 0.25, 0.25, ch === 0 ? w : 0, ch === 1 ? w : 0, ch === 2 ? w : 0, ch === 3 ? w : 0); }
 const chOf = pole => pole === NORTH ? 0 : 1;
 // THE CORE'S WEAPONS in the body field, so they are liquid chrome like the cast: a pole drop fuses with a
@@ -699,7 +698,9 @@ const POOLF = new Float32Array(32), POOLU = new Float32Array(32), POOLB = new Fl
 const SH = [0.05, 0.3];
 // wakes: rings dropped in the iron sea where bodies pass (draw-only: read from positions, never written to the game)
 const WAKES = [], WAKEU = new Float32Array(128), wakeLast = new WeakMap(); let pBob = 0;
-function wake(x, y, amp) { WAKES.push({ x, y, age: 0, amp }); if (WAKES.length > 32) WAKES.shift(); }
+// viscosity (CHAPTERS.core.render.liquid): 1 = the demo; thicker metal merges less, reaches and writhes less, calms the sea
+let VISC = 1;
+function wake(x, y, amp) { WAKES.push({ x, y, age: 0, amp: amp / VISC }); if (WAKES.length > 32) WAKES.shift(); }
 function wakesTick(c, p) {
   for (const k of WAKES) k.age += rdt; while (WAKES.length && WAKES[0].age > 1.6) WAKES.shift();
   const near = (x, y) => x > c.x - 0.2 && x < c.x + VW + 0.2 && y > c.y - 0.2 && y < c.y + VH + 0.2;
@@ -708,9 +709,9 @@ function wakesTick(c, p) {
     if (Math.hypot(b.x - l.x, b.y - l.y) > (b === p ? 0.06 : 0.08)) { wake(b.x, b.y, b === p ? 0.12 : Math.min(0.1, b.r * 3)); l.x = b.x; l.y = b.y; } }
   // a resting drop still breathes: one slow small ring now and then
   pBob += rdt; if (pBob > 1.4) { pBob = 0; wake(p.x, p.y, 0.06); }
-  WAKEU.fill(0); WAKES.forEach((k, i) => WAKEU.set([k.x, k.y, k.age, k.amp], i * 4));
+  WAKEU.fill(0); WAKES.forEach((k, i) => WAKEU.set([k.x, k.y, k.age, k.amp * Math.exp(-k.age * 2.2 * (VISC - 1))], i * 4));
 }
-function glFrame(c, warn) {
+function glFrame(c) {
   const p = G.p; CX = c.x; CY = c.y;
   const vis = (x, y, m) => x > c.x - m && x < c.x + VW + m && y > c.y - m && y < c.y + VH + m;
   const PILS = [...PILLARS].sort((a, b) => a.y - b.y);
@@ -741,7 +742,7 @@ function glFrame(c, warn) {
   gl.bindFramebuffer(gl.FRAMEBUFFER, floorT.fb); gl.viewport(0, 0, GW, GH); gl.disable(gl.BLEND);
   gl.useProgram(PF.p); const U = PF.u;
   gl.uniform2f(U.uRes, GW, GH); gl.uniform2f(U.uCam, c.x, c.y); gl.uniform2f(U.uView, VW, VH); gl.uniform2f(U.uPl, p.x, p.y);
-  gl.uniform1f(U.uT, rt); gl.uniform2f(U.uSh, SH[0], SH[1]); gl.uniform1f(U.uPole, G.pole); gl.uniform1f(U.uPix, VW / GW);
+  gl.uniform1f(U.uT, rt); gl.uniform1f(U.uVisc, VISC); gl.uniform2f(U.uSh, SH[0], SH[1]); gl.uniform1f(U.uPole, G.pole); gl.uniform1f(U.uPix, VW / GW);
   gl.uniform4fv(U.uPool, POOLU); gl.uniform2fv(U.uPoolB, POOLB); gl.uniform4fv(U.uPoolR, POOLR); gl.uniform4fv(U.uPoolF, POOLF); gl.uniform1i(U.uNP, np); gl.uniform4fv(U.uPil, PILU); gl.uniform1i(U.uNPil, npl); gl.uniform3fv(U.uGol, GOLU); gl.uniform1i(U.uNG, ng); gl.uniform4fv(U.uWk, WAKEU); gl.uniform1i(U.uNW, WAKES.length);
   drawFull(PF);
   gl.enable(gl.BLEND); gl.blendEquation(gl.FUNC_ADD); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
@@ -766,11 +767,11 @@ function glFrame(c, warn) {
     if (f.kind === 'mite') { sp(f.x, f.y, f.r * 2.8, 0, 0, ch, 1);
       if (f.latched) sp(p.x + f.latched.x * 0.55, p.y + f.latched.y * 0.55, f.r * 1.9, 0, 0, 2, 0.75);
       else if (f.stun > 0) { const d = Math.hypot(dx, dy); if (d < 0.11) for (let k = 1; k < 5; k++) sp(p.x - dx * k / 5, p.y - dy * k / 5, 0.0075 * (0.4 + f.stun) * (1 - Math.abs(k / 5 - 0.5)), 0, 0, 2, 1); } }
-    else if (f.kind === 'urchin') sp(f.x, f.y, f.r * 2.7, rt * 0.5, 2, ch, 1);
+    else if (f.kind === 'urchin') sp(f.x, f.y, f.r * 2.7, rt * 0.5 / VISC, 2, ch, 1);
     else if (f.kind === 'top') sp(f.x, f.y, f.r * 2.3, rt * 9, 3, ch, 1);
-    else if (f.kind === 'blob' || f.kind === 'small') { sp(f.x, f.y, f.r * 2.2, rt * 0.6 + f.ph, 5, ch, 1); if (f.spike > 0.03) spikes(f.x, f.y, Math.atan2(dy, dx), 5, f.r * 2.3 * f.spike, 0.75, (f.ph * 100) | 0, 1); }
+    else if (f.kind === 'blob' || f.kind === 'small') { sp(f.x, f.y, f.r * 2.2, rt * 0.6 / VISC + f.ph, 5, ch, 1); if (f.spike > 0.03) spikes(f.x, f.y, Math.atan2(dy, dx), 5, f.r * 2.3 * f.spike, 0.75, (f.ph * 100) | 0, 1); }
     else if (f.kind === 'golem') {
-      sp(f.x, f.y, f.r * 2.5, f.ph + rt * 0.2, 5, ch, 1);
+      sp(f.x, f.y, f.r * 2.5, f.ph + rt * 0.2 / VISC, 5, ch, 1);
       // ferrofluid spikes toward the nearest opposite pole: you, or an opposite tower
       let tx = 0, ty = 0, td = f.pole !== G.pole ? 0.5 : 0; if (td) { tx = dx; ty = dy; td = sst((0.5 - Math.hypot(dx, dy)) / 0.3); if (td < 0.05) td = 0; }
       if (!td) { let bd = 0.4; for (const q of PILLARS) if (q.pole !== f.pole) { const d = Math.hypot(q.x - f.x, q.y - f.y); if (d < bd) { bd = d; tx = q.x - f.x; ty = q.y - f.y; td = 1; } } }
@@ -782,7 +783,7 @@ function glFrame(c, warn) {
       let ox = f.x, oy = f.y, pole = f.pole;
       if (f.kind === 'eel') { const s = eelSegs(f), lead = eelLeadsHead(f) ? s[0] : s[1]; ox = lead.x; oy = lead.y; pole = lead.pole; }
       const ex = p.x - ox, ey = p.y - oy, d = Math.hypot(ex, ey), k = pole !== G.pole ? reachK(d) : 0;
-      if (k > 0.02) { const L = k * Math.min(maxL + f.r, d - p.r - 0.008), a0 = Math.atan2(ey, ex);
+      if (k > 0.02) { const L = k * Math.min(maxL / VISC + f.r, d - p.r - 0.008), a0 = Math.atan2(ey, ex);
         for (let i = 0; i < na; i++) { const c = na > 1 ? i / (na - 1) - 0.5 : 0; arm(ox, oy, a0 + c * 0.9, L * (1 - Math.abs(c) * 0.5), wd, f.ph * 10 + i * 2.3); } }
     }
   }
@@ -790,11 +791,11 @@ function glFrame(c, warn) {
   // tips stopping short so the pair reads as two bodies straining together, not one merged lump
   // ponytail: O(n^2) over on-screen foes; a grid bucket if crowds pass a few hundred visible
   { const FV = G.foes.filter(f => f.kind !== 'top' && f.kind !== 'eel' && !f.latched && f.stun <= 0 && vis(f.x, f.y, 0.1));
-    for (const f of FV) { let best = null, bd = 0.13;
+    for (const f of FV) { let best = null, bd = 0.13 / VISC;
       for (const o of FV) { if (o.pole === f.pole) continue; const d = Math.hypot(o.x - f.x, o.y - f.y); if (d < bd) { bd = d; best = o; } }
       if (!best) continue;
-      const k = sst((0.13 - bd) / 0.07), gap = bd - f.r - best.r;
-      const L = k * Math.min(0.05 + f.r, f.r + gap * 0.5 - 0.004);
+      const k = sst((0.13 / VISC - bd) / (0.07 / VISC)), gap = bd - f.r - best.r;
+      const L = k * Math.min(0.05 / VISC + f.r, f.r + gap * 0.5 - 0.004);
       if (L > f.r + 0.002) arm(f.x, f.y, Math.atan2(best.y - f.y, best.x - f.x), L, Math.min(0.009, f.r * 0.45), f.ph * 10 + 5.1); } }
   drawWeapons(vis);
   // the player's own liquid is neutral chrome tucked under the orb: its pole lives in the orb's tint, not in a ring
@@ -812,12 +813,12 @@ function glFrame(c, warn) {
   gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, GW, GH); gl.disable(gl.BLEND);
   gl.useProgram(PC.p); const V = PC.u;
   gl.uniform2f(V.uRes, GW, GH); gl.uniform2f(V.uFT, 2 / FW, 2 / FH); gl.uniform2f(V.uCam, c.x, c.y); gl.uniform2f(V.uView, VW, VH); gl.uniform2f(V.uPl, p.x, p.y);
-  gl.uniform1f(V.uT, rt); gl.uniform1f(V.uFP, POOLS.reduce((m, q, i) => PV[i].o > m[0] ? [PV[i].o, q.pole] : m, [0, -G.pole])[1]);   // the arms wear the pole of the pool that grows them, also while they drain after a flip gl.uniform1f(V.uWarn, warn ? 1 : 0); gl.uniform1f(V.uRip, rt * 30 % 6.2832);
+  gl.uniform1f(V.uT, rt); gl.uniform1f(V.uVisc, VISC); gl.uniform1f(V.uFP, POOLS.reduce((m, q, i) => PV[i].o > m[0] ? [PV[i].o, q.pole] : m, [0, -G.pole])[1]);   // uFP: the arms wear the pole of the pool that grows them, also while they drain after a flip
   drawFull(PC);
   // pass 4: the player orb, above every latched mite (p.R: the orb's half-size, its rim at 0.84 of it)
   qn = 0; quad(p.x, p.y, p.R, 1, 0, 0, 0, 1, 1, 1, 0, p.tint ?? 0, 0);
   gl.useProgram(PS.p); const W4 = PS.u;
-  gl.uniform2f(W4.uRes, GW, GH); gl.uniform1f(W4.uT, rt); gl.uniform1f(W4.uWarn, warn ? 1 : 0); gl.uniform1f(W4.uRip, rt * 30 % 6.2832); gl.uniform1f(W4.uHurt, p.hurt || 0);
+  gl.uniform2f(W4.uRes, GW, GH); gl.uniform1f(W4.uT, rt); gl.uniform1f(W4.uHurt, p.hurt || 0);
   gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); drawQuads(PS);
 }
 return {
@@ -827,8 +828,8 @@ return {
     if (W !== GW || Hh !== GH) glResize(W, Hh);
   },
   frame(S) {
-    G = S; POOLS = S.pools; PILLARS = S.pillars; VW = S.VW; VH = S.VH; rt = S.rt; rdt = S.rdt;
-    if (GW) glFrame(S.cam, S.warn);
+    G = S; POOLS = S.pools; PILLARS = S.pillars; VW = S.VW; VH = S.VH; rt = S.rt; rdt = S.rdt; VISC = S.visc ?? 1;
+    if (GW) glFrame(S.cam);
   },
 };
 }
