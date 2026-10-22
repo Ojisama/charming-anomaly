@@ -2355,7 +2355,7 @@ function generateWells(sig) {
  *   enemyShots carry needle: true, pole (the thrower's) and src (the roster id that threw it):
  *     turnRate 0, stopped by pillars; one of YOUR pole bounces off you (_bounced, then harmless).
  *   Bullets: weapon 'ironBall' (Iron Sling; _rideE = the latched mite it homes on).
- *   moons: [{ x, y, r, a, pole }] Mercury Moons' drops, REWRITTEN every frame by stepMoonWeapon (like
+ *   moons: [{ x, y, r, a, pole, tugR }] Mercury Moons' drops, REWRITTEN every frame by stepMoonWeapon (like
  *     run.orbs): a = the drop's angle round you, pole = YOUR pole that frame (0 off The Core); moonA its
  *     ring's angle. Enemy field _moonT: run.time before the drops may hit that body again.
  *   lodestones: [{ x, y, pole, t, fuse, dmg, r, pullR, pull }] Decoy Lodestones, persistent (stepLodestones):

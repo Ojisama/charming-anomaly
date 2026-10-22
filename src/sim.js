@@ -19334,7 +19334,7 @@ function stepMoonWeapon(run, stats, fireRateMul, dt) {
   for (let i = 0; i < count; i++) {
     const a = run.moonA + (i / count) * Math.PI * 2
     const mx = p.x + Math.cos(a) * stats.radius, my = p.y + Math.sin(a) * stats.radius
-    run.moons.push({ x: mx, y: my, r: MOON_R, a, pole: P?.pole ?? 0 })
+    run.moons.push({ x: mx, y: my, r: MOON_R, a, pole: P?.pole ?? 0, tugR: stats.tugR })
     if (P) {
       const tx = -Math.sin(a), ty = Math.cos(a)
       for (const e of enemiesNear(run, mx, my, stats.tugR, true)) {
