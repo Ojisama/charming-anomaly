@@ -10148,7 +10148,10 @@ CHAPTERS.core = {
     tail: false,
     dust: { tint: 0xd0d4e0, alpha: 0.35, speedMul: 0.05, sway: 2 },
     // src/liquid.js draws the floor, pillars, pools and cast (render-only, read by render.js setLiquid)
-    liquid: {},
+    //   viscosity: 1 = the demo; higher = thicker metal, creatures and floor alike (bodies merge less
+    //   and churn slower, arms reach shorter and writhe slower, the sea swells and wakes calm). gl.js VISC
+    // balance_decision : thicker metal, owner picked 1.8 from 1 / 1.5 / 2.2 2026-10-22
+    liquid: { viscosity: 1.8 },
     // the camera frames at least this many world px across (the demo's view, 0.741 units x 667), so a
     // phone pulls back to the approved framing; viewZoom, read by render.js and main.js's run.viewW
     viewW: 494,
