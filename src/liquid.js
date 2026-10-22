@@ -234,7 +234,7 @@ export function createLiquidRenderer(host) {
     sync(run, dt, view) {
       if (!look || !core) return
       const rdt = Math.min(0.05, Math.max(0, dt))
-      S.rt = (S.rt + rdt) % 400; S.rdt = rdt; S.visc = look.viscosity ?? 1
+      S.rt = (S.rt + rdt) % 400; S.rdt = rdt; S.visc = look.viscosity ?? 1; S.pilK = POL.pillar.reach / 213   // the demo drew pillar fields for a 213 px reach
       clock = S.rt
       const p = run.player, P = run.polarity, pole = P?.pole ?? 1
       dpr = Math.min(3, window.devicePixelRatio || 1)
