@@ -19,7 +19,7 @@ import { FOIL_FRAG as HOLO_FOIL_FRAG, CAVERN_FLOOR_FRAG as HOLO_CAVERN_FRAG } fr
 import { ensurePrecision as pixiEnsurePrecision } from '../node_modules/pixi.js/lib/rendering/renderers/gl/shader/program/preprocessors/ensurePrecision.mjs'
 import { magmaGroundAt, magmaRiverAt, magmaCooledAt, magmaHotAt } from '../src/sim.js'
 import { lavaFloodedAt, mantleHeightAt, lavaLineFor, mantleGroundAt } from '../src/sim.js'
-import { ECHO_DOUBLE_DELAY, ECHO_DOUBLE_DMG_FRAC, modPct } from '../src/config.js'
+import { ECHO_DOUBLE_DELAY, ECHO_DOUBLE_DMG_FRAC, modPct, LODESTONE_HOLD } from '../src/config.js'
 import { MANTLE_GROUND_STEP, MANTLE_START_DRY, MANTLE_COLD_VS_LAVA, MANTLE_FIRE_VS_ROCK, MANTLE_STRAND_DIE_T, MANTLE_STRAND_STUCK_T, MANTLE_STRAND_DMG_MUL, MANTLE_STRAND_SLOW, MANTLE_MELT_T, KETTLE_CRUST_GNAW, KETTLE_CRUST_GNAW_MAX, KETTLE_HULL_MAX, KETTLE_STEAM_MUL, DRAW_CAPS } from '../src/config.js'
 import { poolRimR, crustShapeOf, poolPhaseOf, crustSplash, splashSdf, SPLASH_FINGERS, SPLASH_DROPS } from '../src/mantle-shape.js'
 import {
@@ -42755,8 +42755,10 @@ function testCoreMoonsLodestone() {
     assert.strictEqual(nMoons, base + 2, `run CM.c: Extra Moon x2 adds two drops: ${nMoons}`)
     assert.ok(minGap > R * Math.SQRT2 * 0.95, `run CM.c: ${nMoons} drops sit at distinct, evenly spaced points (closest pair ${minGap.toFixed(1)} px, a square on r ${R} is ${(R * Math.SQRT2).toFixed(1)})`)
   })
-  // (d) a lodestone drags a chaser of the other pole onto itself, against its chase of you
-  let pulledTo = 0, stayed = 0
+  // (d) a lodestone DRIFTS foes of the other pole toward itself (owner: pull less, no snap): a still body
+  // closes at the pull rate and stops at the hold rim, a mite chasing you still out-runs it, and a body of
+  // the lodestone's pole is not pulled
+  let stayed = 0, drift = 0, rim = 0, miteToYou = 0, miteToL = 0
   noPools(() => {
     const r = boot(42304)
     r.weapons = [{ id: 'decoyLodestone', level: 1 }]
@@ -42765,15 +42767,37 @@ function testCoreMoonsLodestone() {
     const L = r.lodestones[0], P = r.polarity.pole, p = r.player
     assert.ok(L && L.pole === P, `run CM.d precondition: a lodestone of your pole dropped (${L && L.pole} vs ${P})`)
     const px = L.x + 400, py = L.y
-    // a mite of the other pole rushes you (up to the mite's cap); a static body of the lodestone's pole is the control
-    const mite = body(r, { x: L.x, y: L.y + 100, pole: -P, flags: ['poleLatch'], rosterId: 'ferriteMite' })
+    // a still body of the other pole 100 px west of it; a static body of the lodestone's pole is the control
+    const still = body(r, { x: L.x - 100, y: L.y, pole: -P })
     const ctl = body(r, { x: L.x, y: L.y - 100, pole: P })
-    r.enemies = [mite, ctl]
-    for (let i = 0; i < 60; i++) { p.x = px; p.y = py; step(r, 1, (o) => o === mite || o === ctl) }
-    pulledTo = Math.hypot(mite.x - L.x, mite.y - L.y); stayed = Math.hypot(ctl.x - L.x, ctl.y - L.y)
-    assert.ok(pulledTo < 20, `run CM.d: a chaser of the other pole ends on the lodestone, not on you 400 px off (${pulledTo.toFixed(1)} px from it)`)
+    r.enemies = [still, ctl]
+    const pull = WEAPONS.decoyLodestone.levels[0].pull
+    for (let i = 0; i < 30; i++) { p.x = px; p.y = py; step(r, 1, (o) => o === still || o === ctl) }
+    drift = 100 - Math.hypot(still.x - L.x, still.y - L.y)
+    for (let i = 0; i < 120; i++) { p.x = px; p.y = py; step(r, 1, (o) => o === still || o === ctl) }
+    rim = Math.hypot(still.x - L.x, still.y - L.y); stayed = Math.hypot(ctl.x - L.x, ctl.y - L.y)
+    assert.ok(Math.abs(drift - pull * 0.5) < pull * 0.15, `run CM.d: a still body of the other pole drifts at the pull rate (${drift.toFixed(1)} px in 0.5 s, pull ${pull} px/s)`)
+    assert.ok(Math.abs(rim - LODESTONE_HOLD) < 2, `run CM.d: it comes to rest at the hold rim, not on the lodestone (${rim.toFixed(1)} px, rim ${LODESTONE_HOLD})`)
     assert.ok(Math.abs(stayed - 100) < 1, `run CM.d: a body of the lodestone's pole is not pulled (${stayed.toFixed(1)} px from it)`)
   })
+  // a mite of the other pole rushes you, 400 px off, from 100 px south of the lodestone, against the same
+  // mite with the lodestone taken away: the drift bends its run (it closes on you less) but does not catch it
+  const miteRun = (withL) => noPools(() => {
+    const r = boot(42304)
+    r.weapons = [{ id: 'decoyLodestone', level: 1 }]
+    r._keep = []
+    dropOne(r)
+    const L = r.lodestones[0], P = r.polarity.pole, p = r.player
+    if (!withL) { r.lodestones = []; r.weapons = [] }
+    const px = L.x + 400, py = L.y
+    const mite = body(r, { x: L.x, y: L.y + 100, pole: -P, flags: ['poleLatch'], rosterId: 'ferriteMite' })
+    r.enemies = [mite]
+    for (let i = 0; i < 90; i++) { p.x = px; p.y = py; step(r, 1, (o) => o === mite) }
+    return Math.hypot(400, 100) - Math.hypot(mite.x - px, mite.y - py)   // how far it closed on you
+  })
+  miteToL = miteRun(true); miteToYou = miteRun(false)
+  assert.ok(miteToL < miteToYou - 5, `run CM.d: the drift bends a mite's run (it closed ${miteToL.toFixed(1)} px on you, ${miteToYou.toFixed(1)} with no lodestone)`)
+  assert.ok(miteToL > miteToYou * 0.5, `run CM.d: but a mite chasing you still out-runs it, not caught on the lodestone (closed ${miteToL.toFixed(1)} of ${miteToYou.toFixed(1)} px)`)
   // (e) the burst rules damage from the LODESTONE's pole even after a pool changed yours, and
   // (f) it throws off every mite clinging to you
   let dA = 0, dB = 0, wasLatched = false, freed = false
@@ -42813,7 +42837,7 @@ function testCoreMoonsLodestone() {
     assert.strictEqual(nTwin, 2, `run CM.g: Twin Lodestones drops two at once: ${nTwin}`)
     assert.ok(twinGap > 100, `run CM.g: the two lodestones sit at distinct spots round you (${twinGap.toFixed(1)} px apart)`)
   })
-  console.log(`PASS run CM (Core moons + lodestone): moon ${mOpp}/${mSame} on the other pole/yours; tug ${tugOpp.toFixed(0)} px on the other pole vs ${tugSame.toFixed(1)} on yours; ${nMoons} moons >= ${minGap.toFixed(0)} px apart; a chaser ends ${pulledTo.toFixed(0)} px from the lodestone (control ${stayed.toFixed(0)}); burst ${dA}/${dB} from the lodestone's pole after your swap; mite freed ${freed}; twins ${twinGap.toFixed(0)} px apart`)
+  console.log(`PASS run CM (Core moons + lodestone): moon ${mOpp}/${mSame} on the other pole/yours; tug ${tugOpp.toFixed(0)} px on the other pole vs ${tugSame.toFixed(1)} on yours; ${nMoons} moons >= ${minGap.toFixed(0)} px apart; a still body drifts ${drift.toFixed(0)} px in 0.5 s and rests ${rim.toFixed(0)} px out, a mite closes ${miteToL.toFixed(0)} px on you (${miteToYou.toFixed(0)} with no lodestone) (control ${stayed.toFixed(0)}); burst ${dA}/${dB} from the lodestone's pole after your swap; mite freed ${freed}; twins ${twinGap.toFixed(0)} px apart`)
 }
 
 function testCoreMagnetism() {

@@ -11,7 +11,6 @@
 //               (the burst kills them: free bodies keep their real hp), 4 spent at 0.65 s.
 //   &mode=strip six frames instead: moons every 4 ticks while tugging; decoy across its whole life.
 //   &mode=gif (decoy): one frame every 0.05 s from the drop to the end of the spent puddle, --frames 95.
-//   &dv= picks the lodestone's look variant (src/liquid.js reads it itself).
 //   __fxResult.frames[i] = the player's screen position (CSS px) in frame i, for the crop.
 const q = new URLSearchParams(location.search)
 const WEP = q.get('wep') ?? 'moons', STRIP = q.get('mode') === 'strip'
@@ -88,7 +87,7 @@ if (WEP === 'moons') {
 }
 
 // decoy: a North lodestone at P0, you walking off east; South bodies round it (pulled), North ones still
-const L = { x: P0.x, y: P0.y, pole: 1, t: 0, fuse: 3, dmg: 85, r: 140, pullR: 210, pull: 170 }
+const L = { x: P0.x, y: P0.y, pole: 1, t: 0, fuse: 3, dmg: 85, r: 140, pullR: 210, pull: 70 }   // decoyLodestone L5
 const ring = []
 for (let i = 0; i < 7; i++) {
   const a = 1.9 + i * 0.42, d = 225 + (i % 3) * 30

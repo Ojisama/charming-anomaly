@@ -125,7 +125,8 @@ fast; the tide moves the majority every 15 s, so the pools are the decision.
 - **Mercury Moons** (Gouttes orbitales): chrome drops orbit you in YOUR pole (live), hit by the pole rule,
   and tug foes of the other pole into their orbit. Mods: Heavy Mercury, Extra Moon, Fast Orbit, Strong Tug.
 - **Decoy Lodestone** (Leurre aimanté): drops at your feet with your pole and keeps it; for its fuse it
-  drags foes of the other pole (to it) onto itself, beating their chase; then it bursts, damage by the
+  draws foes of the other pole (to it) toward itself, a drift fast chasers out-run, never closer than a
+  rim (owner, rev 3b: "pull less"); then it bursts, damage by the
   pole rule from ITS pole, and throws off every mite clinging to you (the Pulse's old job).
   Mods: Heavy Charge, Strong Field, Quick Drop, Twin Lodestones.
 - The player is the demo's drop tinted toward its pole (easing through mint on a swap), no ring.

@@ -11,7 +11,7 @@
 //   foes: { key, kind: mite|urchin|top|blob|small|eel|golem, x, y, r, pole, latched: {x, y} | null, stun, spike, ph, hx, hy, sw }
 //   pools: { key, x, y, rx, ry, rot, pole, seed }   pillars: { key, x, y, r, pole }
 //   sparks: { x, y, age, opp, dead, big } (hit droplets and death beads)
-//   moons, lodes, blasts, dv: The Core's two weapons and the lodestone's look variant (drawWeapons)
+//   moons, lodes, blasts: The Core's two weapons (drawWeapons)
 const NORTH = 1;
 const eelHeadPole = f => NORTH * f.sw;
 export function createCoreGL(glc) {
@@ -629,8 +629,7 @@ const reachK = d => sst((0.36 - d) / 0.24);
 function sp(x, y, R, ang, cell, ch, w) { quad(x, y, R * 1.25,Math.cos(ang), Math.sin(ang), cell % 4 * 0.25, (cell / 4 | 0) * 0.25, 0.25, 0.25, ch === 0 ? w : 0, ch === 1 ? w : 0, ch === 2 ? w : 0, ch === 3 ? w : 0); }
 const chOf = pole => pole === NORTH ? 0 : 1;
 // THE CORE'S WEAPONS in the body field, so they are liquid chrome like the cast: a pole drop fuses with a
-// body of the other pole and holds off one of its own. G.dv picks the lodestone's look variant (src/liquid.js:
-// ?dv=, the owner picks). moons: { x, y, r, a, pole, tugR }; lodes: { x, y, pole, k (fuse 0..1), pullR };
+// body of the other pole and holds off one of its own. moons: { x, y, r, a, pole, tugR }; lodes: { x, y, pole, k (fuse 0..1), pullR };
 // blasts: { x, y, r, pole, age } (a burst, then its spent puddle)
 const BLAST_T = 0.45, SPENT_T = 1.6;   // src/liquid.js drops a blast at SPENT_T
 function reachArm(x, y, f, maxL, wd, seed, ch) {   // an arm from (x, y) toward foe f, its tip stopping short of the body
@@ -643,7 +642,6 @@ function nearFoes(x, y, R, pole, n) {   // up to n foes of the other pole within
   return out.sort((a, b) => a[0] - b[0]).slice(0, n).map(o => o[1]);
 }
 function drawWeapons(vis) {
-  const dv = G.dv | 0;
   for (const m of G.moons) {
     if (!vis(m.x, m.y, 0.1)) continue;
     const ch = m.pole ? chOf(m.pole) : 2, R = m.r * 2.8;
@@ -653,16 +651,10 @@ function drawWeapons(vis) {
   for (const L of G.lodes) {
     if (!vis(L.x, L.y, 0.2)) continue;
     const ch = L.pole ? chOf(L.pole) : 2, r0 = 0.021, k = L.k, late = k > 0.8 ? 0.5 + 0.5 * Math.sin(rt * (20 + 30 * (k - 0.8) / 0.2)) : 0;
-    if (dv === 1) {   // a silver bead held in a ring of six pole beads that tightens as the fuse burns
-      sp(L.x, L.y, r0 * 1.7, 0, 0, 2, 1);
-      const ring = r0 * (2.4 - 1.5 * k), sp6 = rt * (1 + 5 * k);
-      for (let i = 0; i < 6; i++) { const a = sp6 + i / 6 * 6.2832; sp(L.x + Math.cos(a) * ring, L.y + Math.sin(a) * ring, r0 * (0.9 + 0.35 * late), 0, 0, ch, 1); }
-    } else if (dv === 2) {   // an urchin mine: spines that spin up and swell as the fuse burns
-      sp(L.x, L.y, r0 * (2.6 + 0.5 * k + 0.35 * late), rt * (0.6 + 8 * k * k), 2, ch, 1);
-    } else {   // a lodestone nugget whose ferrofluid spikes grow out all round as the fuse burns
-      sp(L.x, L.y, r0 * (2.3 + 0.3 * late), rt * 0.3, 5, ch, 1);
-      spikes(L.x, L.y, rt * 0.4, 7, r0 * (0.6 + 2.2 * k), 2.7, (L.x * 977) | 0, 1);
-    }
+    // an urchin mine spinning up and swelling as the fuse burns, six pole beads orbiting it on a tightening ring
+    sp(L.x, L.y, r0 * (2.6 + 0.5 * k + 0.35 * late), rt * (0.6 + 8 * k * k), 2, ch, 1);
+    const ring = r0 * (3.2 - 1.4 * k), sp6 = rt * (1 + 5 * k);
+    for (let i = 0; i < 6; i++) { const a = sp6 + i / 6 * 6.2832; sp(L.x + Math.cos(a) * ring, L.y + Math.sin(a) * ring, r0 * (0.8 + 0.3 * late), 0, 0, ch, 1); }
     for (const f of nearFoes(L.x, L.y, L.pullR, L.pole, 6)) reachArm(L.x, L.y, f, L.pullR, 0.008, L.x * 5 + f.x * 11, ch);
   }
   for (const b of G.blasts) {
@@ -671,8 +663,8 @@ function drawWeapons(vis) {
     const ch = b.pole ? chOf(b.pole) : 2;
     if (b.age < BLAST_T) {   // the burst: metal thrown out to the blast's edge
       const a = b.age / BLAST_T, d = b.r * (1 - (1 - a) * (1 - a)), fade = 1 - a;
-      if (dv === 2) for (let i = 0; i < 10; i++) { const an = i / 10 * 6.2832 + b.x * 9; sp(b.x + Math.cos(an) * d, b.y + Math.sin(an) * d, 0.026 * fade + 0.005, an, 8, ch, 1); }
-      else { const n = dv === 1 ? 6 : 14; for (let i = 0; i < n; i++) { const an = i / n * 6.2832 + b.x * 9 + (i % 2) * 0.2; sp(b.x + Math.cos(an) * d * (0.8 + 0.2 * (i % 3) / 2), b.y + Math.sin(an) * d * (0.8 + 0.2 * (i % 3) / 2), (dv === 1 ? 0.022 : 0.015) * fade + 0.004, 0, 0, ch, 1); } }
+      for (let i = 0; i < 10; i++) { const an = i / 10 * 6.2832 + b.x * 9; sp(b.x + Math.cos(an) * d, b.y + Math.sin(an) * d, 0.026 * fade + 0.005, an, 8, ch, 1); }   // its needles
+      for (let i = 0; i < 6; i++) { const an = (i + 0.5) / 6 * 6.2832 + b.x * 9; sp(b.x + Math.cos(an) * d * 0.85, b.y + Math.sin(an) * d * 0.85, 0.02 * fade + 0.004, 0, 0, ch, 1); }   // and its beads
       sp(b.x, b.y, 0.05 * fade, 0, 0, 2, 1);
     } else {   // spent: a silver puddle where it stood, lingering, then drawing back into the sea
       const s = Math.min(1, 2.5 * (1 - (b.age - BLAST_T) / (SPENT_T - BLAST_T)));

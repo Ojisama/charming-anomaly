@@ -3235,20 +3235,22 @@ export const WEAPONS = {
     ],
   },
   // Decoy Lodestone: every interval a lodestone (run.lodestones) drops at your feet, taking YOUR pole
-  // then and keeping it. For its fuse it drags foes of the other pole (to it) onto itself, faster than
-  // they chase you, then bursts: r px, dmg by the pole rule from ITS pole, and every mite on you is
-  // thrown off (stepLodestones).
+  // then and keeping it. For its fuse it nudges foes of the other pole (to it) toward itself at `pull`
+  // px/s on top of their own chase, never closer than LODESTONE_HOLD, then bursts: r px, dmg by the pole
+  // rule from ITS pole, and every mite on you is thrown off (stepLodestones).
   // balance_decision : first guess, a burst every ~4 s, unplayed 2026-10-22
+  // balance_decision : pull is a drift, not a snap (owner) 2026-10-22
+  //  - fast chasers (mites) must still out-run it to you
   decoyLodestone: {
     name: 'Decoy Lodestone',
-    desc: 'Drops a lodestone of your pole at your feet. It pulls foes of the other pole onto itself, then bursts and throws off the mites clinging to you.',
+    desc: 'Drops a lodestone of your pole at your feet. It draws foes of the other pole toward itself, then bursts and throws off the mites clinging to you.',
     icon: '🧲', rarity: 'normal',
     levels: [
-      { dmg: 40, interval: 4.0, lodestones: 1, pullR: 160, pull: 140, r: 110 },
-      { dmg: 48, interval: 3.8, lodestones: 1, pullR: 170, pull: 145, r: 115 },
-      { dmg: 58, interval: 3.6, lodestones: 1, pullR: 180, pull: 150, r: 120 },
-      { dmg: 70, interval: 3.4, lodestones: 1, pullR: 195, pull: 160, r: 130 },
-      { dmg: 85, interval: 3.2, lodestones: 2, pullR: 210, pull: 170, r: 140 },
+      { dmg: 40, interval: 4.0, lodestones: 1, pullR: 160, pull: 45, r: 110 },
+      { dmg: 48, interval: 3.8, lodestones: 1, pullR: 170, pull: 50, r: 115 },
+      { dmg: 58, interval: 3.6, lodestones: 1, pullR: 180, pull: 55, r: 120 },
+      { dmg: 70, interval: 3.4, lodestones: 1, pullR: 195, pull: 60, r: 130 },
+      { dmg: 85, interval: 3.2, lodestones: 2, pullR: 210, pull: 70, r: 140 },
     ],
   },
   // Dipole Lance: a short beam at the nearest foe within its length; every body on it takes a FLAT
@@ -3274,6 +3276,7 @@ export const MOON_R = 9           // px, a Mercury Moon's hit radius
 export const MOON_TUG_SWIRL = 0.6 // the tug's push along the orbit, as a share of its pull toward the drop
 export const LODESTONE_FUSE = 3   // s from a lodestone's drop to its burst
 export const LODESTONE_SPREAD = 90 // px from you to each lodestone when more than one drops (Twin Lodestones)
+export const LODESTONE_HOLD = 40   // px: a lodestone draws foes no closer than this, so they ring it rather than stack on it
 export const LANCE_BEAM_LIFE = 0.18 // s the beam stays drawn (render.js, off the 'lance' event)
 export const MAX_WEAPON_LEVEL = 5
 export const MAX_WEAPONS = 4 // equipped cap; new weapons stop appearing once reached

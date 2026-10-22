@@ -272,7 +272,7 @@ import {
   MANTLE_GROUND_STEP, MANTLE_START_DRY, MANTLE_STRAND_STUCK_T, MANTLE_STRAND_SLOW, MANTLE_STRAND_DIE_T, MANTLE_STRAND_DMG_MUL,
   MANTLE_MELT_T, MANTLE_SPAWN_TRIES,
   KETTLE_CRUST_GNAW, KETTLE_CRUST_GNAW_MAX, KETTLE_STEAM_MUL, KETTLE_STEAM_R, KETTLE_HULL_COOL, KETTLE_HULL_MAX,
-  SLING_LATCH_SHARE, IRON_BALL_R, IRON_BALL_LIFE, MOON_R, MOON_TUG_SWIRL, LODESTONE_FUSE, LODESTONE_SPREAD,
+  SLING_LATCH_SHARE, IRON_BALL_R, IRON_BALL_LIFE, MOON_R, MOON_TUG_SWIRL, LODESTONE_FUSE, LODESTONE_SPREAD, LODESTONE_HOLD,
 } from './config.js'
 import { crustShapeOf, poolPhaseOf, inCrustEdge, crustSdf, inPoolEdge, CRUST_EDGE_MAX, POOL_RIM_MAX } from './mantle-shape.js'
 
@@ -19369,9 +19369,10 @@ function stepLodestoneWeapon(run, w, stats, fireRateMul, dt) {
     run.events.push({ type: 'shoot', weapon: 'decoyLodestone' })
   })
 }
-// Each lodestone, for its fuse: drags every foe of the other pole (to IT) within pullR onto itself at
-// that foe's own chase speed plus `pull`, so it wins against the chase. Then it bursts: r px, dmg by
-// the pole rule from the lodestone's pole, and every mite clinging to you is thrown off.
+// Each lodestone, for its fuse: nudges every foe of the other pole (to IT) within pullR toward itself at
+// `pull` px/s on top of the foe's own chase, down to LODESTONE_HOLD from it (a drift: fast chasers still
+// reach you). Then it bursts: r px, dmg by the pole rule from the lodestone's pole, and every mite
+// clinging to you is thrown off.
 function stepLodestones(run, dt) {
   if (!run.lodestones?.length) return
   const S = polaritySpec(run)
@@ -19381,9 +19382,8 @@ function stepLodestones(run, dt) {
       for (const e of enemiesNear(run, L.x, L.y, L.pullR, true)) {
         if (e._dead || isAlly(e) || e.latched || e.burrowed || e.pole === undefined || bodyPole(run, e) === L.pole) continue
         const dx = L.x - e.x, dy = L.y - e.y, d = Math.hypot(dx, dy)
-        if (d > L.pullR || d < 1) continue
-        const chase = Math.hypot(e._pvx ?? 0, e._pvy ?? 0) || e.speed || 0
-        const step = Math.min((chase + L.pull) * dt, d - 1)
+        if (d > L.pullR || d <= LODESTONE_HOLD) continue
+        const step = Math.min(L.pull * dt, d - LODESTONE_HOLD)
         e.x += (dx / d) * step; e.y += (dy / d) * step
       }
     }

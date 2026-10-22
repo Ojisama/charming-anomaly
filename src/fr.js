@@ -2256,7 +2256,7 @@ const CONFIG = {
   "Strong Tug": "Forte attraction",
   "tug reach": "portée de l'attraction",
   "Decoy Lodestone": "Leurre aimanté",
-  "Drops a lodestone of your pole at your feet. It pulls foes of the other pole onto itself, then bursts and throws off the mites clinging to you.": "Pose à tes pieds un leurre de ton pôle. Il attire sur lui les ennemis de l'autre pôle, puis éclate et arrache les puces accrochées à toi.",
+  "Drops a lodestone of your pole at your feet. It draws foes of the other pole toward itself, then bursts and throws off the mites clinging to you.": "Pose à tes pieds un leurre de ton pôle. Il attire vers lui les ennemis de l'autre pôle, puis éclate et arrache les puces accrochées à toi.",
   "blast damage": "dégâts de l'explosion",
   "Strong Field": "Champ puissant",
   "pull radius": "rayon d'attraction",
