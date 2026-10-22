@@ -10097,10 +10097,11 @@ CHAPTERS.core = {
     type: 'polarity',
     // The polarity switch (tests turn it off with polarity = null: no poles, no flips, plain hits).
     // Every distance is px, every speed px/s (prototype unit x667). k* are the prototype's gains.
-    // balance_decision : your pole changes only in pools; spawn mix swings, owner 2026-10-21
-    //  - mix: share of new spawns that are North = base + amp x sin(2 pi t / period)
+    // balance_decision : 60 s tide that holds a pole, then turns fast, owner 2026-10-22
+    //  - mix: share of new spawns that are North = base + amp x clamp(square x sin(2 pi t / period), -1, 1)
     polarity: {
-      mix: { base: 0.5, amp: 0.4, period: 30 }, dmgOpp: 2, dmgSame: 0.5,
+      mix: { base: 0.5, amp: 0.5, period: 60, square: 1.6 }, dmgOpp: 2, dmgSame: 0.5,
+      gaugeTau: 1.5,                      // s: the HUD gauge eases toward the live on-screen split
       eject: { speed: 467, stun: 0.6 },   // changing pole throws every latched mite off you
       lodeStun: 0.5,                      // a Decoy Lodestone's burst throws every mite off you, stunned this long
       // balance_decision : every polar damage-over-time together capped per second 2026-10-21
