@@ -24,11 +24,10 @@ const sst = (t) => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t))
 const sst2 = (a, b, x) => sst((x - a) / (b - a))
 const RES = 2   // canvas px per world px of every bake
 const POL = CHAPTERS.core.signature.polarity
-// THE WEAPON LOOKS UNDER OWNER REVIEW (2026-10-22): three each, picked by ?mv= (Mercury Moons: 0 beads,
-// 1 comets, 2 mercury ring) and ?dv= (Decoy Lodestone: 0 spiked nugget, 1 ring of beads, 2 urchin mine).
+// THE DECOY LODESTONE LOOK UNDER OWNER REVIEW (2026-10-22): ?dv= 0 spiked nugget, 1 ring of beads, 2 urchin mine.
 // Read once at boot. Delete the losers and this switch with the owner's pick.
 const LQ = new URLSearchParams(globalThis.location?.search ?? '')
-const MOON_LOOK = Number(LQ.get('mv') ?? 0), LODE_LOOK = Number(LQ.get('dv') ?? 0)
+const LODE_LOOK = Number(LQ.get('dv') ?? 0)
 // the module's clock (view.animT, wrapped like the demo's so a phone GPU keeps small numbers): poseOf reads it
 let clock = 0
 
@@ -203,7 +202,7 @@ export function createLiquidRenderer(host) {
   const sparks = []
   const blasts = []   // Decoy Lodestone bursts, aged here: the burst, then the spent puddle (gl.js drawWeapons)
   const S = { cam: { x: 0, y: 0 }, VW: 1, VH: 1, rt: 0, rdt: 0, warn: false, pole: 1, p: { x: 0, y: 0, r: 0.02, R: 0.03, hurt: 0, tint: 1, vx: 0, vy: 0 }, foes: [], pools: [], pillars: [], sparks,
-    moons: [], lodes: [], blasts, mv: MOON_LOOK, dv: LODE_LOOK }
+    moons: [], lodes: [], blasts, dv: LODE_LOOK }
   let look = null
   // ?debug: the frame state, for a probe scene to set the clock (scripts/scenes/core-match.js)
   if (/[?&]debug/.test(window.location?.search ?? '')) window.__liquid = { S }
@@ -254,7 +253,7 @@ export function createLiquidRenderer(host) {
       for (const s of sparks) s.age += rdt
       while (sparks.length && sparks[0].age > 0.5) sparks.shift()
       for (const b of blasts) b.age += rdt
-      while (blasts.length && blasts[0].age > 0.9) blasts.shift()
+      while (blasts.length && blasts[0].age > 1.6) blasts.shift()   // gl.js SPENT_T
       S.moons.length = 0
       for (const m of run.moons ?? []) S.moons.push({ x: m.x / U, y: m.y / U, r: m.r / U, a: m.a, pole: m.pole, tugR: m.tugR / U })
       S.lodes.length = 0
@@ -276,6 +275,13 @@ export function createLiquidRenderer(host) {
       // the demo's marks drawn over the bodies
       marks.clear()
       const strobe = POL.top.strobe
+      // each lodestone's field, over the bodies so the crowd piled on it never hides it: a ring at its pull
+      // reach and a halo round it, in its pole, the halo beating faster as the fuse burns
+      for (const L of run.lodestones ?? []) {
+        const col = L.pole > 0 ? 0xff5a3c : L.pole < 0 ? 0x4aa3ff : 0xc8ccd6, k = Math.min(1, L.t / L.fuse), lw = 1 / ((view.zoom || 1) * dpr)
+        marks.circle(L.x, L.y, L.pullR).stroke({ width: 1.6 * lw, color: col, alpha: 0.35 })
+        marks.circle(L.x, L.y, 34 + 4 * Math.sin(S.rt * (4 + 14 * k))).stroke({ width: 2.6 * lw, color: col, alpha: 0.9 })
+      }
       for (const f of S.foes) {
         const e = f.key, R = e.radius
         if (f.kind === 'golem') {

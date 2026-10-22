@@ -127,6 +127,6 @@ fast; the tide moves the majority every 15 s, so the pools are the decision.
 - **Decoy Lodestone** (Leurre aimanté): drops at your feet with your pole and keeps it; for its fuse it
   drags foes of the other pole (to it) onto itself, beating their chase; then it bursts, damage by the
   pole rule from ITS pole, and throws off every mite clinging to you (the Pulse's old job).
-  Mods: Big Bang, Strong Field, Quick Drop, Twin Lodestones.
+  Mods: Heavy Charge, Strong Field, Quick Drop, Twin Lodestones.
 - The player is the demo's drop tinted toward its pole (easing through mint on a swap), no ring.
 - The floor's molten trough glow is removed (variant B); the pillar-foot heat stays.

@@ -1,7 +1,7 @@
 // Scene: THE CORE's two pole weapons, every state on one identical frame, for the look variants.
 //
 //   node scripts/fx-probe.mjs --scene scripts/scenes/core-weapons.js --chapter core --dpr 3 --frames 4 \
-//     --url 'http://127.0.0.1:5173/?wep=moons&mv=0' --out /tmp/cw/moons0 --json /tmp/cw/moons0.json
+//     --url 'http://127.0.0.1:5173/?wep=moons' --out /tmp/cw/moons0 --json /tmp/cw/moons0.json
 //   (FX_CHROME_ARGS as scripts/core-match.mjs sets it; one invocation at a time)
 //
 //   ?wep=moons  Mercury Moons L5: frames 0 orbiting (foes out of reach), 1 tugging a South blob and mite
@@ -10,7 +10,8 @@
 //               1 pulling South bodies in (you walk 150 px off), 2 the crowd on it, 3 its burst at 0.12 s
 //               (the burst kills them: free bodies keep their real hp), 4 spent at 0.65 s.
 //   &mode=strip six frames instead: moons every 4 ticks while tugging; decoy across its whole life.
-//   &mv= / &dv= pick the look variant (src/liquid.js reads them itself).
+//   &mode=gif (decoy): one frame every 0.05 s from the drop to the end of the spent puddle, --frames 95.
+//   &dv= picks the lodestone's look variant (src/liquid.js reads it itself).
 //   __fxResult.frames[i] = the player's screen position (CSS px) in frame i, for the crop.
 const q = new URLSearchParams(location.search)
 const WEP = q.get('wep') ?? 'moons', STRIP = q.get('mode') === 'strip'
@@ -106,6 +107,7 @@ const advance = (to) => {
     tick(1); t += 1 / 60
   }
 }
-const times = STRIP ? [0.3, 0.5, 0.7, 2.85, 3.1, 3.6] : [0.2, 0.55, 2.6, 3.12, 3.65]
+const times = q.get('mode') === 'gif' ? Array.from({ length: 95 }, (_, i) => 0.05 * (i + 1))
+  : STRIP ? [0.3, 0.5, 0.7, 2.85, 3.1, 3.6] : [0.2, 0.55, 2.6, 3.12, 3.65]
 let n = 0
 return () => { advance(times[Math.min(n, times.length - 1)]); shot(); n++ }

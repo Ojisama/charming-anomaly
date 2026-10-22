@@ -10563,7 +10563,7 @@ const WEAPON_STAT_MODS = {
   sling:          { castIron: ['dmg', 'pct'], twinBalls: ['count', 'flat'] },
   dipoleLance:    { hotArc: ['dmg', 'pct'], longLance: ['length', 'pct'] },
   mercuryMoons:   { heavyMercury: ['dmg', 'pct'], extraMoon: ['moons', 'flat'], fastOrbit: ['rotSpeed', 'pct'], strongTug: ['tugR', 'pct'] },
-  decoyLodestone: { bigBang: ['dmg', 'pct'], strongField: ['pullR', 'pct'], twinLodestones: ['lodestones', 'flat'] },
+  decoyLodestone: { heavyCharge: ['dmg', 'pct'], strongField: ['pullR', 'pct'], twinLodestones: ['lodestones', 'flat'] },
   orbit:     { extraOrb: ['orbs', 'flat'], wideRing: ['radius', 'pct'], overdrive: ['rotSpeed', 'pct'] },
   wave:      { bigWave: ['radius', 'pct'], shove: ['knockback', 'pct'], amplitude: ['dmg', 'pct'] },
   boomerang: { extraRang: ['count', 'flat'], longThrow: ['range', 'pct'], heavyBlade: ['dmg', 'pct'] },

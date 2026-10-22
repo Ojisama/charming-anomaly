@@ -914,7 +914,7 @@ const CONFIG = {
   'max cysts alive': 'nombre max de kystes actifs',
   'Big Boom': 'Grand Boum',
   'cyst blast radius': 'rayon d\'explosion des kystes',
-  'Heavy Charge': 'Charge Lourde',
+  'Heavy Charge': 'Charge lourde',
   'cyst damage': 'dégâts des kystes',
   'Cluster Bombs': 'Bombes à Fragmentation',
   'bomblet(s) when a cyst pops': 'sous-munition(s) à l\'explosion d\'un kyste',

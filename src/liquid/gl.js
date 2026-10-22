@@ -11,7 +11,7 @@
 //   foes: { key, kind: mite|urchin|top|blob|small|eel|golem, x, y, r, pole, latched: {x, y} | null, stun, spike, ph, hx, hy, sw }
 //   pools: { key, x, y, rx, ry, rot, pole, seed }   pillars: { key, x, y, r, pole }
 //   sparks: { x, y, age, opp, dead, big } (hit droplets and death beads)
-//   moons, lodes, blasts, mv, dv: The Core's two weapons and their look variants (drawWeapons)
+//   moons, lodes, blasts, dv: The Core's two weapons and the lodestone's look variant (drawWeapons)
 const NORTH = 1;
 const eelHeadPole = f => NORTH * f.sw;
 export function createCoreGL(glc) {
@@ -74,9 +74,10 @@ function fan(n, spread, L, w0) {
     return s; };
 }
 const FANS = [[fan(5, 0.8, 0.95, 0.12), 0.3], [fan(6, 0.75, 0.95, 0.07), 0.25],         // 6 blob spikes, 7 golem spikes (unused)
-  [(x, y) => x < 0 ? Math.hypot(x, y) - 0.15 : x > 0.88 ? Math.hypot(x - 0.88, y) : Math.abs(y) - 0.15 * Math.pow(1 - x / 0.88, 1.4), 0.22]]; // 8 one cone
+  [(x, y) => x < 0 ? Math.hypot(x, y) - 0.15 : x > 0.88 ? Math.hypot(x - 0.88, y) : Math.abs(y) - 0.15 * Math.pow(1 - x / 0.88, 1.4), 0.22],   // 8 one cone
+  [(x, y) => Math.hypot(x, y) - (0.34 + 0.5 * Math.max(0, Math.cos(Math.atan2(y, x))) ** 16), 0.6]]; // 9 drop, its tail +x
 { const S = 1024, d = new Uint8Array(S * S);
-  for (let ci = 0; ci < 9; ci++) { const ox = ci % 4 * 256, oy = (ci / 4 | 0) * 256;
+  for (let ci = 0; ci < 10; ci++) { const ox = ci % 4 * 256, oy = (ci / 4 | 0) * 256;
     for (let j = 0; j < 256; j++) for (let i = 0; i < 256; i++) {
       const x = (i + 0.5) / 128 - 1, y = (j + 0.5) / 128 - 1, r = Math.hypot(x, y), a = Math.atan2(y, x);
       // shapes shrunk by Z inside the cell so the falloff tail reaches twice the body radius: neighbours neck and fuse early
@@ -628,10 +629,10 @@ const reachK = d => sst((0.36 - d) / 0.24);
 function sp(x, y, R, ang, cell, ch, w) { quad(x, y, R * 1.25,Math.cos(ang), Math.sin(ang), cell % 4 * 0.25, (cell / 4 | 0) * 0.25, 0.25, 0.25, ch === 0 ? w : 0, ch === 1 ? w : 0, ch === 2 ? w : 0, ch === 3 ? w : 0); }
 const chOf = pole => pole === NORTH ? 0 : 1;
 // THE CORE'S WEAPONS in the body field, so they are liquid chrome like the cast: a pole drop fuses with a
-// body of the other pole and holds off one of its own. G.mv / G.dv pick the look variant (src/liquid.js:
-// ?mv= / ?dv=, the owner picks). moons: { x, y, r, a, pole, tugR }; lodes: { x, y, pole, k (fuse 0..1), pullR };
+// body of the other pole and holds off one of its own. G.dv picks the lodestone's look variant (src/liquid.js:
+// ?dv=, the owner picks). moons: { x, y, r, a, pole, tugR }; lodes: { x, y, pole, k (fuse 0..1), pullR };
 // blasts: { x, y, r, pole, age } (a burst, then its spent puddle)
-const BLAST_T = 0.45, SPENT_T = 0.9;
+const BLAST_T = 0.45, SPENT_T = 1.6;   // src/liquid.js drops a blast at SPENT_T
 function reachArm(x, y, f, maxL, wd, seed, ch) {   // an arm from (x, y) toward foe f, its tip stopping short of the body
   const dx = f.x - x, dy = f.y - y, d = Math.hypot(dx, dy);
   arm(x, y, Math.atan2(dy, dx), Math.min(maxL, Math.max(0, d - f.r * 1.2)), wd, seed, false, ch);
@@ -642,19 +643,12 @@ function nearFoes(x, y, R, pole, n) {   // up to n foes of the other pole within
   return out.sort((a, b) => a[0] - b[0]).slice(0, n).map(o => o[1]);
 }
 function drawWeapons(vis) {
-  const mv = G.mv | 0, dv = G.dv | 0;
+  const dv = G.dv | 0;
   for (const m of G.moons) {
     if (!vis(m.x, m.y, 0.1)) continue;
-    const ch = m.pole ? chOf(m.pole) : 2, R = m.r * 2.8, tx = -Math.sin(m.a), ty = Math.cos(m.a);
-    if (mv === 1) {   // comets: a teardrop leading along the orbit, three beads shrinking behind it
-      sp(m.x, m.y, R * 1.15, m.a + Math.PI / 2, 4, ch, 1);
-      for (let k = 1; k <= 3; k++) sp(m.x - tx * m.r * 1.7 * k, m.y - ty * m.r * 1.7 * k, R * (0.62 - k * 0.12), 0, 0, ch, 1);
-    } else sp(m.x, m.y, R, 0, 0, ch, 1);   // beads (0) and the mercury ring's swellings (2)
+    const ch = m.pole ? chOf(m.pole) : 2, R = m.r * 2.8;
+    sp(m.x, m.y, R * 1.3, m.a - Math.PI / 2, 9, ch, 1);   // a drop, its tail trailing the orbit (a grows: it moves at a + pi/2)
     for (const f of nearFoes(m.x, m.y, m.tugR, m.pole, 2)) reachArm(m.x, m.y, f, m.tugR * 0.7, m.r * 0.5, m.a * 3 + f.x * 7, ch);
-  }
-  if (mv === 2 && G.moons.length) {   // the mercury ring: a thin band of neutral metal along the whole orbit
-    const p = G.p, m0 = G.moons[0], rr = Math.hypot(m0.x - p.x, m0.y - p.y), n = Math.max(24, Math.round(rr * 2 * Math.PI / (m0.r * 0.75)));
-    for (let i = 0; i < n; i++) { const a = m0.a + (i / n) * 6.2832; sp(p.x + Math.cos(a) * rr, p.y + Math.sin(a) * rr, m0.r * 1.05, 0, 0, 2, 1); }
   }
   for (const L of G.lodes) {
     if (!vis(L.x, L.y, 0.2)) continue;
@@ -680,9 +674,9 @@ function drawWeapons(vis) {
       if (dv === 2) for (let i = 0; i < 10; i++) { const an = i / 10 * 6.2832 + b.x * 9; sp(b.x + Math.cos(an) * d, b.y + Math.sin(an) * d, 0.026 * fade + 0.005, an, 8, ch, 1); }
       else { const n = dv === 1 ? 6 : 14; for (let i = 0; i < n; i++) { const an = i / n * 6.2832 + b.x * 9 + (i % 2) * 0.2; sp(b.x + Math.cos(an) * d * (0.8 + 0.2 * (i % 3) / 2), b.y + Math.sin(an) * d * (0.8 + 0.2 * (i % 3) / 2), (dv === 1 ? 0.022 : 0.015) * fade + 0.004, 0, 0, ch, 1); } }
       sp(b.x, b.y, 0.05 * fade, 0, 0, 2, 1);
-    } else {   // spent: a silver puddle where it stood, drawing back into the sea
-      const s = 1 - (b.age - BLAST_T) / (SPENT_T - BLAST_T);
-      if (s > 0) sp(b.x, b.y, 0.05 * s, b.x * 3, 5, 2, 1);
+    } else {   // spent: a silver puddle where it stood, lingering, then drawing back into the sea
+      const s = Math.min(1, 2.5 * (1 - (b.age - BLAST_T) / (SPENT_T - BLAST_T)));
+      if (s > 0) sp(b.x, b.y, 0.065 * s, b.x * 3, 5, 2, 1);
     }
   }
 }

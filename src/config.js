@@ -4733,7 +4733,7 @@ export const WEAPON_MODS = {
     strongTug:    { name: 'Strong Tug',    desc: 'tug reach', icon: '🧲', base: 0.25, kind: 'pct' },
   },
   decoyLodestone: {
-    bigBang:        { name: 'Big Bang',        desc: 'blast damage', icon: '💥', base: 0.30, kind: 'pct' },
+    heavyCharge:    { name: 'Heavy Charge',    desc: 'blast damage', icon: '💥', base: 0.30, kind: 'pct' },
     strongField:    { name: 'Strong Field',    desc: 'pull radius', icon: '📏', base: 0.20, kind: 'pct' },
     quickDrop:      { name: 'Quick Drop',      desc: 'drop rate', icon: '⏩', base: 0.25, kind: 'pct' },
     twinLodestones: { name: 'Twin Lodestones', desc: 'extra lodestone(s), dropped round you', icon: '🔷', kind: 'tier' },
