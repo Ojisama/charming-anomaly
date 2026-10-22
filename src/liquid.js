@@ -5,13 +5,13 @@
 //     host = { app, world, floor, under, over }. THE DEMO ITSELF draws the floor, the pools, the pillars and
 //     every creature's body: src/liquid/gl.js is the demo's WebGL2 renderer, on its own canvas UNDER Pixi's,
 //     fed the run in the demo's units each frame (1 unit = U world px: the sim's sizes are the demo's x U).
-//     Pixi turns transparent while The Core is on and draws everything else over it: the player's mint
-//     blob and its pole ring (the owner's one ruled difference), the demo's 2D marks on the bodies
+//     Pixi turns transparent while The Core is on and draws everything else over it: the player's face,
+//     the demo's 2D marks on the bodies
 //     (golem eye, eel's biting end, the top's warning ring), bullets, needles, pickups and the HUD.
 //   bakeCreature(id, elite) -> render.js's look shape with EMPTY frames (the body is the demo's), and the
 //     title-card thumb baked on the CPU from the demo's own field and chrome() maths.
-//   bakePlayer() -> the drop's face (gl.js draws its mint chrome body; render.js keeps the live pupils).
-import { Graphics, Sprite, Texture, CanvasSource } from 'pixi.js'
+//   bakePlayer() -> the drop's face (gl.js draws its chrome body tinted toward your pole; render.js keeps the live pupils).
+import { Graphics } from 'pixi.js'
 import { CHAPTERS, ENEMIES, PLAYER } from './config.js'
 import { mkCanvas } from './toon/palette.js'
 import { createCoreGL } from './liquid/gl.js'
@@ -163,7 +163,7 @@ export function bakeCreature(id) {
   return { frames: [empty], thumb: paintThumb(id), baseR: rosterR(id), lean: 0, upright: true, faceDir: null, turnRate: null, fps: null, poseOf: null }
 }
 
-// ---- THE PLAYER: src/liquid/gl.js draws the mint chrome orb (the demo's pass 4); this is its face --------------
+// ---- THE PLAYER: src/liquid/gl.js draws the chrome orb (the demo's pass 4), pushed toward your pole; this is its face
 // the face sits where render.js's T.playerBody has it (its live pupils land on these eyes); white is the hit-flash disc
 export function bakePlayer() {
   const pr = PLAYER.radius, res = 3, S = Math.ceil((pr + 3) * 2 * res), c0 = S / 2
@@ -179,31 +179,7 @@ export function bakePlayer() {
   x.beginPath(); x.arc(0, pr * 0.2, pr * 0.2, Math.PI * 0.15, Math.PI * 0.85); x.stroke()
   return { canvas: cv, white: wc, ax: 0.5, ay: 0.5, res }
 }
-// your pole round the drop: a thin chrome rim in the pole colour, lit hard from the top left so it stays apart from a
-// pillar or a field of the same colour by a thin dark gap outside it; it sits on the drop's own edge, so it adds no size
-function bakeRing(pole) {
-  const pr = PLAYER.radius, R = pr + 0.1, tr = 1.15, res = 3, S = Math.ceil((R + 4) * 2 * res), c0 = S / 2
-  const cv = mkCanvas(S, S), img = cv.getContext('2d').createImageData(S, S), D = img.data
-  const tint = pole > 0 ? NC : SC, col = [0, 0, 0], ground = [0.22, 0.2, 0.2]
-  for (let j = 0; j < S; j++) for (let i = 0; i < S; i++) {
-    // y stretched by the orb's 0.91: the rim follows the drop's slightly squat outline
-    const x = (i + 0.5 - c0) / res, y = (j + 0.5 - c0) / res / 0.91, r = Math.hypot(x, y), d = r - R, o = (j * S + i) * 4
-    const gap = (1 - sst2(0.5, 1.0, Math.abs(r - (pr + 1.9)) - 0.3)) * 0.5   // the dark gap, just outside the rim
-    const a = 1 - sst2(tr - 0.5, tr + 0.4, Math.abs(d))
-    if (a <= 0 && gap <= 0) continue
-    const q = Math.max(-0.95, Math.min(0.95, d / tr)), n = [x / r * q, y / r * q, Math.sqrt(1 - q * q)]
-    chrome(n, tint, ground, 0.55, col)
-    const lit = Math.max(0, (-x - y) / (r * 1.414)) * n[2]   // the rim light, top left
-    const al = Math.min(1, a + gap * (1 - a))   // the rim over the gap's black (ImageData is unpremultiplied)
-    for (let c = 0; c < 3; c++) D[o + c] = Math.round(Math.min(1, Math.max(0, col[c] * 0.8 + tint[c] * 0.35 + lit * 0.55)) * (a / al) * 255)
-    D[o + 3] = Math.round(al * 255)
-  }
-  cv.getContext('2d').putImageData(img, 0, 0)
-  return cv
-}
-
 // ---- the renderer -----------------------------------------------------------------------------
-const tex = (cv, res) => new Texture({ source: new CanvasSource({ resource: cv, resolution: res }) })
 // the game's flags -> the demo's creature kinds
 const kindOf = (e) => e.flags.includes('poleLatch') ? 'mite' : e.flags.includes('needleFan') ? 'urchin' : e.flags.includes('poleStrobe') ? 'top'
   : e.flags.includes('ferroSpikes') ? (e._splitChild ? 'small' : 'blob') : e.flags.includes('dipole') ? 'eel' : e.flags.includes('lodestone') ? 'golem' : null
@@ -216,14 +192,11 @@ export function createLiquidRenderer(host) {
   glc.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;display:none'
   app.canvas.parentNode.insertBefore(glc, app.canvas)
   const core = createCoreGL(glc)
-  // the player's pole ring, and the demo's 2D marks on the bodies (the golem's eye, the eel's biting end, the top's warning)
-  const ringTex = [1, -1].map((p) => tex(bakeRing(p), 3))
-  const ring = new Sprite(ringTex[0])
-  ring.anchor.set(0.5)
+  // the demo's 2D marks on the bodies (the golem's eye, the eel's biting end, the top's warning)
   const marks = new Graphics()
-  over.addChild(marks, ring)
+  over.addChild(marks)
   const sparks = []
-  const S = { cam: { x: 0, y: 0 }, VW: 1, VH: 1, rt: 0, rdt: 0, warn: false, pole: 1, p: { x: 0, y: 0, r: 0.02, R: 0.03, hurt: 0, vx: 0, vy: 0 }, foes: [], pools: [], pillars: [], sparks }
+  const S = { cam: { x: 0, y: 0 }, VW: 1, VH: 1, rt: 0, rdt: 0, warn: false, pole: 1, p: { x: 0, y: 0, r: 0.02, R: 0.03, hurt: 0, tint: 1, vx: 0, vy: 0 }, foes: [], pools: [], pillars: [], sparks }
   let look = null
   // ?debug: the frame state, for a probe scene to set the clock (scripts/scenes/core-match.js)
   if (/[?&]debug/.test(window.location?.search ?? '')) window.__liquid = { S }
@@ -265,7 +238,9 @@ export function createLiquidRenderer(host) {
       S.cam.x = view.left / U; S.cam.y = view.top / U
       S.VW = (view.right - view.left) / U; S.VH = (view.bottom - view.top) / U
       S.pole = pole
-      // the chrome tucked under the player: inside the mint blob, it only shows where a mite fuses with it
+      // the drop's tint eases to your pole, through plain mint, as the demo's pTint does
+      S.p.tint += (pole - S.p.tint) * Math.min(1, rdt * 6)
+      // the chrome tucked under the player: inside the drop, it only shows where a mite fuses with it
       S.p.x = p.x / U; S.p.y = p.y / U; S.p.r = (PLAYER.radius / U) * 0.87; S.p.R = p.dead ? 0 : PLAYER.radius / U / 0.84; S.p.hurt = (p.invuln || 0) <= PLAYER.invulnTime ? Math.min(1, Math.max(0, ((p.invuln || 0) - PLAYER.invulnTime + 0.17) * 6)) : 0   // the demo hurt flash: the first 0.17 s of a hit
       for (const s of sparks) s.age += rdt
       while (sparks.length && sparks[0].age > 0.5) sparks.shift()
@@ -306,11 +281,6 @@ export function createLiquidRenderer(host) {
           if (lft < 0.4 && Math.sin(S.rt * 40) > -0.3) marks.circle(e.x, e.y, R * 1.6).stroke({ width: 2.4 / ((view.zoom || 1) * dpr), color: e.pole > 0 ? 0x4aa3ff : 0xff5a3c })
         }
       }
-      // your pole: the chrome ring round you; the i-frames blink the ring, not the drop
-      ring.visible = !!P && !p.dead
-      ring.alpha = (p.invuln || 0) > 0 && Math.sin(clock * 32) <= 0 ? 0.3 : 1
-      ring.texture = ringTex[poleIx(pole)]
-      ring.position.set(p.x, p.y)
     },
   }
   return r

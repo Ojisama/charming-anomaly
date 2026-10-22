@@ -5,9 +5,9 @@
 // demo's shapes, in the demo's world units); Pixi stays transparent over it and draws everything else.
 // What differs from the demo, all in frame() and its callers: the world is endless (no arena-edge meniscus),
 // there is no Nexus glow, the pillar and pool reaction states are keyed by the game's objects, and the
-// player's chrome orb (the demo's pass 4) is the game's mint blob, drawn by Pixi.
+// player's face is drawn by Pixi over the demo's chrome orb (pass 4).
 // createCoreGL(canvas) -> null without WebGL2, else { resize(cssW, cssH, dpr), frame(S) }
-//   S = { cam: {x, y}, VW, VH, rt, rdt, warn, pole, p: {x, y, r, R, hurt}, foes, pools, pillars, sparks } (units)
+//   S = { cam: {x, y}, VW, VH, rt, rdt, warn, pole, p: {x, y, r, R, hurt, tint}, foes, pools, pillars, sparks } (units)
 //   foes: { key, kind: mite|urchin|top|blob|small|eel|golem, x, y, r, pole, latched: {x, y} | null, stun, spike, ph, hx, hy, sw }
 //   pools: { key, x, y, rx, ry, rot, pole, seed }   pillars: { key, x, y, r, pole }
 //   sparks: { x, y, age, opp, dead, big } (hit droplets and death beads)
@@ -532,7 +532,7 @@ void main() {
   o = vec4(mix(fl, col, smoothstep(TH - fw, TH + fw, F)), 1.0);
 }`;
 // the demo's FS_SPRITE with only its player branch: the mint orb, lit and mirroring the floor like the chrome bodies.
-// vK.xy its rotation, vK.z the pole push (-1..1; the game passes 0: the player stays mint, its pole is the Pixi rim)
+// vK.xy its rotation, vK.z the pole push (-1..1, eased over a pool flip through plain mint: p.tint)
 const FS_PLAYER = HDR + ENV + `
 uniform sampler2D uNM, uF, uN; uniform vec2 uRes; uniform float uT, uWarn, uHurt, uRip;
 in vec2 vU; in vec4 vK; out vec4 o;
@@ -768,7 +768,7 @@ function glFrame(c, warn) {
   gl.uniform1f(V.uT, rt); gl.uniform1f(V.uFP, POOLS.reduce((m, q, i) => PV[i].o > m[0] ? [PV[i].o, q.pole] : m, [0, -G.pole])[1]);   // the arms wear the pole of the pool that grows them, also while they drain after a flip gl.uniform1f(V.uWarn, warn ? 1 : 0); gl.uniform1f(V.uRip, rt * 30 % 6.2832);
   drawFull(PC);
   // pass 4: the player orb, above every latched mite (p.R: the orb's half-size, its rim at 0.84 of it)
-  qn = 0; quad(p.x, p.y, p.R, 1, 0, 0, 0, 1, 1, 1, 0, 0, 0);
+  qn = 0; quad(p.x, p.y, p.R, 1, 0, 0, 0, 1, 1, 1, 0, p.tint ?? 0, 0);
   gl.useProgram(PS.p); const W4 = PS.u;
   gl.uniform2f(W4.uRes, GW, GH); gl.uniform1f(W4.uT, rt); gl.uniform1f(W4.uWarn, warn ? 1 : 0); gl.uniform1f(W4.uRip, rt * 30 % 6.2832); gl.uniform1f(W4.uHurt, p.hurt || 0);
   gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); drawQuads(PS);

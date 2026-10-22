@@ -9,7 +9,7 @@
 //         (390 CSS px = its 0.741 units: 526 px per unit), its HUD, buttons and weapons off, every body pinned.
 //   game: scripts/fx-probe.mjs + scripts/scenes/core-match.js, The Core's camera at its viewW framing (the same
 //         526 px per unit on this phone), the player moved to the demo's spot so the floor is the same water.
-// The one deliberate difference is the owner's: the player is the game's mint blob with a pole ring.
+// The player is the demo's drop tinted toward its pole, with the game's face and live pupils.
 import { readFileSync, writeFileSync, existsSync, readdirSync, mkdirSync, rmSync } from 'node:fs'
 import { spawn, execFileSync } from 'node:child_process'
 import { join, dirname, resolve } from 'node:path'
@@ -46,8 +46,11 @@ const SCENES = {
   E6: { note: 'one of each creature round you: mites of both poles, urchin, top, blob, eel, golem', pillars: [], pools: [], foes: CAST, crop: [0, -10, 390, 300] },
   E7: { note: 'the full frame: a crowd of 22 mites and the cast, two pillars and two pools', ...FIELD, foes: [...crowd, ...CAST.slice(2)], crop: [0, 0, 390, 520] },
   E8: { note: 'E7 while walking east: 6 frames, 1/6 s apart', ...FIELD, foes: [...crowd, ...CAST.slice(2)], crop: [0, 0, 390, 520], move: [1, 0], frames: 6, every: 10 },
+  P1: { note: 'the player drop, North', pillars: [], pools: [], foes: [], crop: [0, 0, 110, 110] },
+  P2: { note: 'the player drop, South', pole: -1, pillars: [], pools: [], foes: [], crop: [0, 0, 110, 110] },
+  P3: { note: 'the player drop swapping North to South: 6 frames, 1/15 s apart from the swap', flip: true, pillars: [], pools: [], foes: [], crop: [0, 0, 110, 110], frames: 6, every: 4 },
 }
-const sceneJson = (s) => ({ pole: 1, pillars: s.pillars, pools: s.pools, foes: s.foes, move: s.move ?? null, warm: 180, every: s.every ?? 10 })
+const sceneJson = (s) => ({ pole: s.pole ?? 1, flip: !!s.flip, pillars: s.pillars, pools: s.pools, foes: s.foes, move: s.move ?? null, warm: 180, every: s.every ?? 10 })
 
 // ---- chrome + CDP -----------------------------------------------------------------------------------
 const base = join(process.env.HOME, '.cache/puppeteer/chrome-headless-shell')
@@ -92,7 +95,7 @@ const P=window.__PIL,Q=window.__POOLS;
 for(const q of P){q.x=-9;q.y=-9}for(const q of Q){q.x=-9;q.y=-9}
 SC.pillars.forEach(([dx,dy,pole],i)=>{P[i].x=1.5+dx;P[i].y=2+dy;P[i].pole=pole});
 SC.pools.forEach(([dx,dy,rx,ry,rot,pole,seed])=>{const q=Q[seed];q.x=1.5+dx;q.y=2+dy;q.rx=rx;q.ry=ry;q.rot=rot;q.pole=pole});
-window.__post=()=>{const G=window.__G();G.started=true;G.pole=SC.pole;G.flipAt=G.t+99;G.spawn=99;for(const k of ['nextUrchin','nextEel','nextTop','nextBlob','nextGolem'])G[k]=G.t+99;
+window.__post=()=>{const G=window.__G();G.started=true;G.pole=SC.flip&&window.__n()>180?-SC.pole:SC.pole;G.flipAt=G.t+99;G.spawn=99;for(const k of ['nextUrchin','nextEel','nextTop','nextBlob','nextGolem'])G[k]=G.t+99;
  if(!made){made=SC.foes.map(([kind,dx,dy,pole,ph])=>{const f=window.__spawn(kind,{x:1.5+dx,y:2+dy});f.ph=ph;f.pole=pole;if(kind==='eel')f.sw=pole;f._p=[1.5+dx,2+dy,pole];return f});t0=window.__n()}
  G.foes=made;for(const f of made){f.x=f._p[0];f.y=f._p[1];if(f.kind!=='top')f.pole=f._p[2];if(f.kind==='eel')f.sw=f._p[2];f.hp=f.max;f.latched=null;f.stun=0;f.cd=99}
  const n=window.__n(),mv=SC.move&&n>180?(n-180)/60*0.33:0;G.p.x=1.5+(SC.move?SC.move[0]*mv:0);G.p.y=2+(SC.move?SC.move[1]*mv:0);G.p.vx=SC.move&&n>180?SC.move[0]*0.33:0;G.p.vy=0;G.p.hp=100;G.p.hurt=0;

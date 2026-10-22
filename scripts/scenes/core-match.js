@@ -1,7 +1,7 @@
 // Scene: THE CORE laid out to MATCH a scene of the Liquid Metal FINAL demo, for the side-by-side gauntlet
 // (scripts/core-match.mjs drives both sides and crops them; run it, not this file).
 //
-//   ?scene=<base64 JSON>  { pole, pillars: [[dx, dy, pole]], pools: [[dx, dy, rx, ry, rot, pole, seed]],
+//   ?scene=<base64 JSON>  { pole, flip, pillars: [[dx, dy, pole]], pools: [[dx, dy, rx, ry, rot, pole, seed]],
 //                           foes: [[kind, dx, dy, pole, ph]], move: [mx, my] | null, warm, every, demoT }
 //   offsets and sizes in the demo's units (1 unit = 667 world px) from the player; kinds are the demo's.
 //   The player is moved to the demo's spot (1.5, 2.0) units, so the floor's world coordinates, the pillars'
@@ -16,7 +16,8 @@ const result = { frames: [] }
 window.__fxResult = result
 if (run.chapter !== 'core') throw new Error('not The Core: ' + run.chapter)
 const p = run.player
-const setPole = () => { run.polarity.pole = sc.pole; run.polarity.poolCd = 9 }
+let flipped = false   // flip: your pole turns to -pole once the warm-up is over (the drop's tint eases across)
+const setPole = () => { run.polarity.pole = flipped ? -sc.pole : sc.pole; run.polarity.poolCd = 9 }
 run.weapons = []
 H.tick()
 setPole()
@@ -68,6 +69,7 @@ p.x = P0.x; p.y = P0.y
 window.__liquid.S.rt = -0.05   // fx-probe's own H.render after the scene adds its last 0.05 s: the frame lands at the demo's 3.00 s
 tick(sc.warm ?? 180, false)
 result.frames.length = 0
+flipped = !!sc.flip
 let n = 0
 if (new URLSearchParams(location.search).has("nopixi")) app.canvas.style.opacity = "0"   // ablation: the demo canvas alone
 return () => {

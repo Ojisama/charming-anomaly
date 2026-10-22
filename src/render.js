@@ -31718,7 +31718,7 @@ void main() {
     // for an ARM's hit (krakenHurtBlinkT) — the head's touch is told by the crimson touch band.
     playerC.alpha = playerC.parent === krakenFishHost
       ? (dt > 0 && krakenHurtBlinkT > 0 && Math.sin(animT * Math.PI * 2 * K_HURT_BLINK_HZ) < 0 ? 0.08 : 1)
-      : p.invuln > 0 && !pixelLook && !liquidOn ? (Math.sin(animT * 32) > 0 ? 1 : 0.4) : 1   // The Core: src/liquid.js blinks the pole ring instead (a 0.4 chrome drop reads as glass)
+      : p.invuln > 0 && !pixelLook && !liquidOn ? (Math.sin(animT * 32) > 0 ? 1 : 0.4) : 1   // The Core: no blink, as the demo (a 0.4 chrome drop reads as glass); its 0.17 s hurt flash is gl.js's
 
     // ---- the death outro's pose (v7.x, DEATH_OUTRO) ----------------------------------------------
     // A fish that has stopped swimming. Last in the function on purpose (see the deathP note on the
