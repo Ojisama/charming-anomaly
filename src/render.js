@@ -30254,7 +30254,7 @@ void main() {
           break
         // THE CORE. The Lance's beam is drawn by syncCore; your own pole changing is one small
         // ring in the new colour at you (no full-screen flash, owner); a body changing pole in a
-        // pool or under the Reversal Pulse is a smaller one at it.
+        // pool is a smaller one at it.
         case 'lance':
           lanceBeams.push({ x: e.x, y: e.y, angle: e.angle, length: e.length, width: e.width, t: 0 })
           if (lanceBeams.length > 12) lanceBeams.shift()
@@ -30264,6 +30264,12 @@ void main() {
           break
         case 'poolFlip':
           spawnRing(e.x, e.y, 24, 0.22, T.novaRing, POLE_TINT[e.pole])
+          break
+        // a Decoy Lodestone's burst. On The Core src/liquid.js draws it in chrome and swallows the event;
+        // this ring is the look anywhere else (a dev card taken off its chapter)
+        case 'lodestoneBlast':
+          spawnRing(e.x, e.y, e.r, 0.3, T.novaRing, POLE_TINT[e.pole] ?? 0xc8ccd6)
+          addShake(2, 0.1)
           break
         // a needle of your pole glancing off you: a small steel spark where it struck, no damage
         case 'needleBounce':
@@ -33431,20 +33437,12 @@ void main() {
       s.scale.set(0.7)   // one small stone of a handful
       return
     }
-    // The Core: the Iron Sling's ball (the pebble shot, greyed) and the Gauss Coil's slug (a long
-    // pale-blue needle along its flight).
+    // The Core: the Iron Sling's ball (the pebble shot, greyed).
     if (b.weapon === 'ironBall') {
       if (s.texture !== T.pebbleShot.tex) { s.texture = T.pebbleShot.tex; s.anchor.set(T.pebbleShot.ax, T.pebbleShot.ay) }
       s.tint = 0xb8bcc8
       s.rotation = (b.x + b.y) * 0.05
       s.scale.set(0.6)
-      return
-    }
-    if (b.weapon === 'gaussSlug') {
-      if (s.texture !== T.needle.tex) { s.texture = T.needle.tex; s.anchor.set(T.needle.ax, T.needle.ay) }
-      s.tint = 0xbfe6ff
-      s.rotation = Math.atan2(b.vy, b.vx)
-      s.scale.set(2.2, 1.6)
       return
     }
     if (b.weapon === 'prism') {
@@ -33560,14 +33558,6 @@ void main() {
     // value-not-hue trap Foxfire hit one chapter up and came back from a probe all but invisible.
     // Bubbles are white anyway, so the honest colour is also the legible one. Held a touch
     // brighter at the end of its life than the default so the shove and the ring end together.
-    // The Core's Reversal Pulse: a ring that turns from one pole's colour to the other's as it grows.
-    if (n.look === 'reversal') {
-      const k = Math.max(0, Math.min(1, n.r / n.maxR))
-      s.tint = mix(POLE_TINT[1], POLE_TINT[-1], k)
-      s.scale.set(Math.max(n.r, 1) / T.novaTexR)
-      s.alpha = 0.85 * (1 - k) + 0.15
-      return
-    }
     if (n.look === 'bubble') {
       s.tint = 0xeaf7ff
       s.scale.set(Math.max(n.r, 1) / T.novaTexR)

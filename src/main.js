@@ -640,6 +640,8 @@ const SFX_FOR_EVENT = {
   netCatch: 'hole',
   // The Core: your pole changing in a pool. A body's pool flip ('poolFlip') is many a second: silent.
   poleFlip: 'surge',
+  // ...and a Decoy Lodestone bursting: one every few seconds, so it bears the explode whoomp.
+  lodestoneBlast: 'explode',
   // A jackpot kill (the sea turtle): the shop's purchase chime, because what just happened is a
   // pile of coins. The level it also pays announces itself through the ordinary levelup event.
   jackpot: 'buy',

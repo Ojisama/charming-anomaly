@@ -3218,18 +3218,37 @@ export const WEAPONS = {
       { dmg: 21, interval: 0.27, count: 1, speed: 680, range: 550 },
     ],
   },
-  // Gauss Coil: a fast slug (run.bullets, weapon 'gaussSlug') through every foe of the other pole;
-  // it stops on the first foe of YOUR pole (stepBullets).
-  gaussCoil: {
-    name: 'Gauss Coil',
-    desc: 'Fires a slug through every foe of the other pole. It stops on the first one of yours.',
+  // Mercury Moons: chrome drops orbiting you (run.moons, rewritten every frame) in YOUR pole, so they
+  // recolour when a pool changes you. Contact hits obey the pole rule; each drop also tugs foes of the
+  // other pole within tugR toward itself and along the orbit (stepMoonWeapon).
+  // balance_decision : first guess against the sling, unplayed 2026-10-22
+  mercuryMoons: {
+    name: 'Mercury Moons',
+    desc: "Chrome drops orbit you in your pole's colour. They hit what they touch and tug foes of the other pole into their path.",
+    icon: '🌘', rarity: 'normal',
+    levels: [
+      { dmg: 8, moons: 2, radius: 70, rotSpeed: 3.0, tick: 0.5, tugR: 90, tug: 110 },
+      { dmg: 10, moons: 2, radius: 74, rotSpeed: 3.2, tick: 0.5, tugR: 95, tug: 115 },
+      { dmg: 12, moons: 3, radius: 78, rotSpeed: 3.4, tick: 0.48, tugR: 100, tug: 120 },
+      { dmg: 15, moons: 3, radius: 82, rotSpeed: 3.6, tick: 0.46, tugR: 108, tug: 130 },
+      { dmg: 18, moons: 4, radius: 88, rotSpeed: 3.9, tick: 0.44, tugR: 116, tug: 140 },
+    ],
+  },
+  // Decoy Lodestone: every interval a lodestone (run.lodestones) drops at your feet, taking YOUR pole
+  // then and keeping it. For its fuse it drags foes of the other pole (to it) onto itself, faster than
+  // they chase you, then bursts: r px, dmg by the pole rule from ITS pole, and every mite on you is
+  // thrown off (stepLodestones).
+  // balance_decision : first guess, a burst every ~4 s, unplayed 2026-10-22
+  decoyLodestone: {
+    name: 'Decoy Lodestone',
+    desc: 'Drops a lodestone of your pole at your feet. It pulls foes of the other pole onto itself, then bursts and throws off the mites clinging to you.',
     icon: '🧲', rarity: 'normal',
     levels: [
-      { dmg: 15, interval: 1.6, count: 1, speed: 930, life: 0.7 },
-      { dmg: 18, interval: 1.5, count: 1, speed: 950, life: 0.72 },
-      { dmg: 22, interval: 1.4, count: 1, speed: 970, life: 0.74 },
-      { dmg: 27, interval: 1.3, count: 1, speed: 1000, life: 0.76 },
-      { dmg: 33, interval: 1.2, count: 1, speed: 1040, life: 0.8 },
+      { dmg: 40, interval: 4.0, lodestones: 1, pullR: 160, pull: 140, r: 110 },
+      { dmg: 48, interval: 3.8, lodestones: 1, pullR: 170, pull: 145, r: 115 },
+      { dmg: 58, interval: 3.6, lodestones: 1, pullR: 180, pull: 150, r: 120 },
+      { dmg: 70, interval: 3.4, lodestones: 1, pullR: 195, pull: 160, r: 130 },
+      { dmg: 85, interval: 3.2, lodestones: 2, pullR: 210, pull: 170, r: 140 },
     ],
   },
   // Dipole Lance: a short beam at the nearest foe within its length; every body on it takes a FLAT
@@ -3246,28 +3265,15 @@ export const WEAPONS = {
       { dmg: 66, interval: 0.8, length: 166, width: 20 },
     ],
   },
-  // Reversal Pulse: a ring round you (run.novas, look 'reversal') that turns everything it touches to
-  // the pole OPPOSITE yours (owner, Rev 2) and shakes latched mites off. No damage unless Charged Ring
-  // is picked, and that damage lands after the turn, so at x2.
-  reversalPulse: {
-    name: 'Reversal Pulse',
-    desc: 'A ring that turns every foe it touches to the pole opposite yours and shakes off clinging mites.',
-    icon: '🔄', rarity: 'normal',
-    levels: [
-      { dmg: 0, interval: 5, maxR: 213 },
-      { dmg: 0, interval: 4.6, maxR: 225 },
-      { dmg: 0, interval: 4.2, maxR: 240 },
-      { dmg: 0, interval: 3.8, maxR: 255 },
-      { dmg: 0, interval: 3.4, maxR: 270 },
-    ],
-  },
 }
-// The ring's growth time and the latched-mite share of the sling's targets (prototype values).
-export const REVERSAL_PULSE_LIFE = 0.5
+// The latched-mite share of the sling's targets (prototype value).
 export const SLING_LATCH_SHARE = 0.5
 export const IRON_BALL_R = 4      // px hit radius
 export const IRON_BALL_LIFE = 1.2 // s of flight
-export const GAUSS_SLUG_R = 5     // px hit radius
+export const MOON_R = 9           // px, a Mercury Moon's hit radius
+export const MOON_TUG_SWIRL = 0.6 // the tug's push along the orbit, as a share of its pull toward the drop
+export const LODESTONE_FUSE = 3   // s from a lodestone's drop to its burst
+export const LODESTONE_SPREAD = 90 // px from you to each lodestone when more than one drops (Twin Lodestones)
 export const LANCE_BEAM_LIFE = 0.18 // s the beam stays drawn (render.js, off the 'lance' event)
 export const MAX_WEAPON_LEVEL = 5
 export const MAX_WEAPONS = 4 // equipped cap; new weapons stop appearing once reached
@@ -4720,23 +4726,23 @@ export const WEAPON_MODS = {
     quickSling: { name: 'Quick Sling', desc: 'throw rate', icon: '⏩', base: 0.25, kind: 'pct' },
     pickOff:    { name: 'Pick Off',    desc: 'aims at a mite clinging to you whenever one is', icon: '🪝', kind: 'switch' },
   },
-  gaussCoil: {
-    heavySlug:   { name: 'Heavy Slug',   desc: 'slug damage', icon: '💥', base: 0.30, kind: 'pct' },
-    quickCharge: { name: 'Quick Charge', desc: 'slug rate', icon: '⏩', base: 0.25, kind: 'pct' },
-    twinRail:    { name: 'Twin Rail',    desc: 'extra slug(s) per shot', icon: '🔷', kind: 'tier' },
-    punchThrough: { name: 'Punch Through', desc: 'the slug no longer stops on foes of your pole', icon: '🎯', kind: 'switch' },
+  mercuryMoons: {
+    heavyMercury: { name: 'Heavy Mercury', desc: 'moon damage', icon: '💥', base: 0.30, kind: 'pct' },
+    extraMoon:    { name: 'Extra Moon',    desc: 'extra moon(s), evenly spaced', icon: '🔷', kind: 'tier' },
+    fastOrbit:    { name: 'Fast Orbit',    desc: 'spin rate', icon: '🌀', base: 0.25, kind: 'pct' },
+    strongTug:    { name: 'Strong Tug',    desc: 'tug reach', icon: '🧲', base: 0.25, kind: 'pct' },
+  },
+  decoyLodestone: {
+    bigBang:        { name: 'Big Bang',        desc: 'blast damage', icon: '💥', base: 0.30, kind: 'pct' },
+    strongField:    { name: 'Strong Field',    desc: 'pull radius', icon: '📏', base: 0.20, kind: 'pct' },
+    quickDrop:      { name: 'Quick Drop',      desc: 'drop rate', icon: '⏩', base: 0.25, kind: 'pct' },
+    twinLodestones: { name: 'Twin Lodestones', desc: 'extra lodestone(s), dropped round you', icon: '🔷', kind: 'tier' },
   },
   dipoleLance: {
     hotArc:    { name: 'Hot Arc',    desc: 'beam damage', icon: '💥', base: 0.30, kind: 'pct' },
     longLance: { name: 'Long Lance', desc: 'beam length', icon: '📏', base: 0.25, kind: 'pct' },
     quickArc:  { name: 'Quick Arc',  desc: 'beam rate', icon: '⏩', base: 0.25, kind: 'pct' },
     bothEnds:  { name: 'Both Ends',  desc: 'the beam strikes behind you too', icon: '↔️', kind: 'switch' },
-  },
-  reversalPulse: {
-    broadRing:   { name: 'Broad Ring',   desc: 'ring size', icon: '⭕', base: 0.20, kind: 'pct' },
-    quickPulse:  { name: 'Quick Pulse',  desc: 'ring rate', icon: '⏩', base: 0.25, kind: 'pct' },
-    chargedRing: { name: 'Charged Ring', desc: 'ring damage', icon: '💥', base: 12, kind: 'flat' },
-    dazingRing:  { name: 'Dazing Ring',  desc: 'stuns every foe it touches for {n}s', icon: '💫', base: 0.3, kind: 'secs' },
   },
 }
 export const MAX_WEAPON_MOD_PICKS = 5
@@ -4769,7 +4775,7 @@ export const WEAPON_RATE_MODS = {
   pickaxe: 'quickSwing', dynamite: 'shortFuse', minecart: 'greasedAxle', lantern: 'quickWick',
   slagLadle: 'quickLadle', obsidianShards: 'quickKnap', bellows: 'quickPump', volcanicBomb: 'quickFuse',
   quenchKettle: 'quickBoil', hotCoals: 'quickStoke', crackHammer: 'quickStamp', lavaBellows: 'quickBellows',
-  sling: 'quickSling', gaussCoil: 'quickCharge', dipoleLance: 'quickArc', reversalPulse: 'quickPulse',
+  sling: 'quickSling', dipoleLance: 'quickArc', decoyLodestone: 'quickDrop',
   // chum and bilge are absent DELIBERATELY: neither carries a rate mod, and this table's own
   // header says a weapon with none simply does not appear here. Naming one that does not exist
   // would put a phantom row in the pause build sheet's cadence line.
@@ -4823,10 +4829,14 @@ export const STAT_KEYS = [
   { key: 'lines', label: 'Lines' },
   { key: 'jumps', label: 'Forks' },
   { key: 'orbs', label: 'Orbs' },
+  { key: 'moons', label: 'Moons' },
+  { key: 'lodestones', label: 'Lodestones' },
   { key: 'chunks', label: 'Tornadoes' },
   { key: 'maxAlive', label: 'Max alive' },
   { key: 'radius', label: 'Radius' },
   { key: 'hunt', label: 'Hunt radius' },
+  { key: 'pullR', label: 'Pull radius' },
+  { key: 'tugR', label: 'Tug reach' },
   { key: 'travelSpeed', label: 'Travel speed' },
   { key: 'r', label: 'Radius' },
   // The Skipping Shell then emits dmg, r, skips + every = 4. Unique to that weapon's levels[].
@@ -10057,7 +10067,7 @@ export const POLE_NAMES = { 1: { name: 'North' }, '-1': { name: 'South' } }
 export const POLE_TINT = { 1: 0xd2452f, '-1': 0x4f92dc }
 CHAPTERS.core = {
   name: 'The Core', tagline: 'opposites attract', icon: '🧲',
-  weapons: ['sling', 'gaussCoil', 'dipoleLance', 'reversalPulse'], starter: 'sling',
+  weapons: ['sling', 'dipoleLance', 'mercuryMoons', 'decoyLodestone'], starter: 'sling',
   // balance_decision : prototype hp x10, first guess, unplayed 2026-10-21
   // balance_decision : mix near the prototype's timers, heavies capped 2026-10-21
   //  - every fast/tank entry has maxAlive: a spawn whose archetype is all full comes as a normal (spawnEnemy)
@@ -10089,7 +10099,7 @@ CHAPTERS.core = {
     polarity: {
       mix: { base: 0.5, amp: 0.4, period: 30 }, dmgOpp: 2, dmgSame: 0.5,
       eject: { speed: 467, stun: 0.6 },   // changing pole throws every latched mite off you
-      pulseStun: 0.5,                     // a Reversal Pulse frees a latched mite, stunned this long
+      lodeStun: 0.5,                      // a Decoy Lodestone's burst throws every mite off you, stunned this long
       // balance_decision : every polar damage-over-time together capped per second 2026-10-21
       //  - latched mites, spiked blobs and golem contact share it; HURT_CAP_FRAC x maxHP caps it too
       dotCap: 14,

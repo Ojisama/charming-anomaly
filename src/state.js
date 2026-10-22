@@ -2354,13 +2354,17 @@ function generateWells(sig) {
  *     balled up and still), stunT (the ordinary stun field).
  *   enemyShots carry needle: true, pole (the thrower's) and src (the roster id that threw it):
  *     turnRate 0, stopped by pillars; one of YOUR pole bounces off you (_bounced, then harmless).
- *   Bullets: weapon 'ironBall' (Iron Sling; _rideE = the latched mite it homes on) and 'gaussSlug'
- *     (Gauss Coil: stops on the first body of your pole unless _punch).
- *   Novas: look 'reversal' with flip: true (Reversal Pulse: each body it touches takes the pole
- *     OPPOSITE yours; stun s on each).
+ *   Bullets: weapon 'ironBall' (Iron Sling; _rideE = the latched mite it homes on).
+ *   moons: [{ x, y, r, a, pole }] Mercury Moons' drops, REWRITTEN every frame by stepMoonWeapon (like
+ *     run.orbs): a = the drop's angle round you, pole = YOUR pole that frame (0 off The Core); moonA its
+ *     ring's angle. Enemy field _moonT: run.time before the drops may hit that body again.
+ *   lodestones: [{ x, y, pole, t, fuse, dmg, r, pullR, pull }] Decoy Lodestones, persistent (stepLodestones):
+ *     pole = yours when it dropped, kept; t s since the drop; at t >= fuse it bursts and is removed.
  *   Events: {type:'poleFlip', pole} your pole changed (only ever in a pool). Sounded in
- *     SFX_FOR_EVENT. {type:'poolFlip', x, y, pole} a pool or a Reversal Pulse flipped a
+ *     SFX_FOR_EVENT. {type:'poolFlip', x, y, pole} a pool flipped a
  *     body (you or a creature): drawn as a ring in the new pole's colour, silent (several a second).
+ *     {type:'lodestoneBlast', x, y, r, pole} a Decoy Lodestone burst (drawn by src/liquid.js on The
+ *     Core, a ring elsewhere; sounded 'explode'). A drop is the ordinary {type:'shoot', weapon}.
  *     {type:'lance', x, y, angle, length, width} one Dipole Lance beam (one per heading: Both Ends and
  *     Ipecac add more), drawn by render.js syncCore for LANCE_BEAM_LIFE. The four weapons also push
  *     the ordinary {type:'shoot', weapon} for the sound. {type:'needleBounce', x, y, angle} a needle of
@@ -3153,6 +3157,7 @@ export function createRun(meta, opts = {}) {
     lavaTide: null,
     polarity: null,   // The Core: your pole and its clock (stepPolarity builds it)
     corePools: [],    // The Core: streamed pole pools
+    moons: [], lodestones: [],   // The Core: Mercury Moons (rewritten every frame), Decoy Lodestones
     quenchCrusts: [], lavaPools: [], groundSeq: 0, boats: [],   // the Mantle weapons' ground (Quench Kettle, Crack Hammer)
     sandbars: [],          // Book 2 surf: streamed dry patches (signature.bars) — see streamSandbars
     _sandCellI: null,      // streaming cursor, independent of the obstacle/eddy/trap/shaft cursors

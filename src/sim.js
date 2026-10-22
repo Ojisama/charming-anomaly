@@ -272,7 +272,7 @@ import {
   MANTLE_GROUND_STEP, MANTLE_START_DRY, MANTLE_STRAND_STUCK_T, MANTLE_STRAND_SLOW, MANTLE_STRAND_DIE_T, MANTLE_STRAND_DMG_MUL,
   MANTLE_MELT_T, MANTLE_SPAWN_TRIES,
   KETTLE_CRUST_GNAW, KETTLE_CRUST_GNAW_MAX, KETTLE_STEAM_MUL, KETTLE_STEAM_R, KETTLE_HULL_COOL, KETTLE_HULL_MAX,
-  REVERSAL_PULSE_LIFE, SLING_LATCH_SHARE, IRON_BALL_R, IRON_BALL_LIFE, GAUSS_SLUG_R,
+  SLING_LATCH_SHARE, IRON_BALL_R, IRON_BALL_LIFE, MOON_R, MOON_TUG_SWIRL, LODESTONE_FUSE, LODESTONE_SPREAD,
 } from './config.js'
 import { crustShapeOf, poolPhaseOf, inCrustEdge, crustSdf, inPoolEdge, CRUST_EDGE_MAX, POOL_RIM_MAX } from './mantle-shape.js'
 
@@ -10041,9 +10041,10 @@ function dealDamage(run, enemy, dmg, crit, dot = false, hazard = false, carried 
   if ((enemy.scentT || 0) > 0) dmg *= SCENT_DMG_MUL
   // STRANDED (The Mantle): a lava creature the ebb left on dry rock takes more from every source.
   if ((enemy.strandT || 0) > 0) dmg *= MANTLE_STRAND_DMG_MUL
-  // THE CORE's pole rule: x dmgOpp on the other pole, x dmgSame on yours. A flat hit (the Dipole
-  // Lance) and the world's own damage (hazard) skip it.
-  const pm = !flat && !hazard ? poleDmgMul(run, enemy) : 1
+  // THE CORE's pole rule: x dmgOpp on the other pole, x dmgSame on yours. A flat hit (flat === true,
+  // the Dipole Lance) and the world's own damage (hazard) skip it; flat as a pole (+1 | -1) rules it
+  // from that pole instead of yours (a Decoy Lodestone's burst, from the lodestone's own).
+  const pm = flat !== true && !hazard ? poleDmgMul(run, enemy, typeof flat === 'number' ? flat : undefined) : 1
   dmg *= pm
   dmg = Math.round(dmg)
 
@@ -10294,7 +10295,7 @@ function applyDamage(run, enemy, baseDmg, critBonus = 0, flat = false) {
     crit = true
   }
   dmg = Math.round(dmg)
-  dealDamage(run, enemy, dmg, crit, false, false, false, flat)   // flat: The Core's Dipole Lance skips the pole rule
+  dealDamage(run, enemy, dmg, crit, false, false, false, flat)   // flat: true skips The Core's pole rule, a pole rules it from there
   if (!enemy._dead) applyElements(run, enemy, dmg)
   // The Mine: a weapon hit on a body standing in firedamp sets the pocket off (stepFiredamp).
   if (run.gas?.length) gasLightAt(run, enemy.x, enemy.y, 0)
@@ -10558,11 +10559,11 @@ const WEAPON_STAT_MODS = {
   hotCoals:       { whiteHot: ['dmg', 'pct'], coalScuttle: ['count', 'flat'], skipping: ['bounces', 'flat'] },
   crackHammer:    { heavyHead: ['dmg', 'pct'], aftershock: ['pools', 'flat'], wideCrack: ['r', 'pct'], deepCrack: ['duration', 'pct'] },
   lavaBellows:    { moltenCrest: ['dmg', 'pct'], longRoll: ['radius', 'pct'], broadWave: ['arc', 'pct'], heavySurge: ['knockback', 'pct'] },
-  // The Core. Rate mods divide at their fire sites; pickOff, punchThrough, bothEnds and dazingRing are read there too.
+  // The Core. Rate mods divide at their fire sites; pickOff and bothEnds are read there too.
   sling:          { castIron: ['dmg', 'pct'], twinBalls: ['count', 'flat'] },
-  gaussCoil:      { heavySlug: ['dmg', 'pct'], twinRail: ['count', 'flat'] },
   dipoleLance:    { hotArc: ['dmg', 'pct'], longLance: ['length', 'pct'] },
-  reversalPulse:  { broadRing: ['maxR', 'pct'], chargedRing: ['dmg', 'flat'] },
+  mercuryMoons:   { heavyMercury: ['dmg', 'pct'], extraMoon: ['moons', 'flat'], fastOrbit: ['rotSpeed', 'pct'], strongTug: ['tugR', 'pct'] },
+  decoyLodestone: { bigBang: ['dmg', 'pct'], strongField: ['pullR', 'pct'], twinLodestones: ['lodestones', 'flat'] },
   orbit:     { extraOrb: ['orbs', 'flat'], wideRing: ['radius', 'pct'], overdrive: ['rotSpeed', 'pct'] },
   wave:      { bigWave: ['radius', 'pct'], shove: ['knockback', 'pct'], amplitude: ['dmg', 'pct'] },
   boomerang: { extraRang: ['count', 'flat'], longThrow: ['range', 'pct'], heavyBlade: ['dmg', 'pct'] },
@@ -10807,6 +10808,7 @@ function stepWeapons(run, dt) {
 function stepWeaponsInner(run, dt) {
   const p = run.player
   run.orbs = []
+  run.moons = []      // The Core's Mercury Moons republish their drops every frame they are held
   run.lanternR = 0   // The Mine's Lantern republishes its glow every frame it is held
   // run.debris is NOT cleared here. v6.8: a tornado carries its own position between frames
   // because it leaves the ring to hunt, so stepTornadoWeapon resizes the list instead of
@@ -10879,10 +10881,11 @@ function stepWeaponsInner(run, dt) {
     else if (w.id === 'crackHammer') stepCrackHammerWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'lavaBellows') stepLavaBellowsWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'sling') stepSlingWeapon(run, w, stats, fireRateMul, dt)
-    else if (w.id === 'gaussCoil') stepGaussWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'dipoleLance') stepLanceWeapon(run, w, stats, fireRateMul, dt)
-    else if (w.id === 'reversalPulse') stepReversalWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'mercuryMoons') stepMoonWeapon(run, stats, fireRateMul, dt)
+    else if (w.id === 'decoyLodestone') stepLodestoneWeapon(run, w, stats, fireRateMul, dt)
   }
+  stepLodestones(run, dt)   // The Core's Decoy Lodestone: each one's pull and fuse, held or not
 
   stepBullets(run, dt)
   stepEchoes(run, dt)   // Book 3: crystals ringing back (queued by Echo Pulse) join run.novas here
@@ -11150,8 +11153,6 @@ function stepBullets(run, dt) {
         if (b._necrotic && !e._dead) applyBleed(run, e, b.dmg, NECROTIC_BLEED_FRAC)
         b.hitIds.add(e.id)
         b.pierce--
-        // The Core's Gauss Coil: through the other pole, stopped by the first body of yours
-        if (b.weapon === 'gaussSlug' && !b._punch && run.polarity && bodyPole(run, e) === run.polarity.pole) b.pierce = 0
         justHit = e
         // Split Stars: only the original star splits, and only on its first hit ever.
         if (!b._shard && !b._splitDone && splitCount > 0) {
@@ -11303,8 +11304,6 @@ function spawnNova(run, x, y, maxR, dmg, knockback, fear = 0, opts = null) {
     // The Mantle: `heat` ('fire' | 'cold') is the type rule (heatMul); `habitatSplit` (Lava Bellows'
     // wave) leaves a lava creature unhurt and shoves it LAVA_WAVE_SHOVE_MUL as hard instead.
     heat: opts?.heat ?? null, habitatSplit: !!opts?.habitatSplit,
-    // The Core: `flip` (Reversal Pulse) flips the pole of what it touches, `stun` s on each one flipped
-    flip: !!opts?.flip, stun: opts?.stun ?? 0,
     // `lifeMax` beside `life` so a ring can expand over something other than NOVA_LIFE, and so
     // stepNovas can still work out how far along it is. The Skipping Shell's splash needs it: a
     // 46px ring on the default 0.45s life deals its damage nearly half a second after the shell
@@ -11424,13 +11423,6 @@ function stepNovas(run, dt) {
         continue
       }
       if (dist <= n.r + e.radius) {
-        // The Core's Reversal Pulse: flips the body's pole and frees a latched mite; it shoves nothing
-        if (n.flip) {
-          n.hit.add(e.id)
-          polarPulseHit(run, e, n)
-          if (n.dmg > 0) applyDamage(run, e, n.dmg)
-          continue
-        }
         const shoveOnly = n.habitatSplit && e.habitat === 'lava'
         if (!shoveOnly) applyDamage(run, e, n.heat ? n.dmg * heatMul(e, n.heat) : n.dmg)
         n.hit.add(e.id)
@@ -18955,11 +18947,11 @@ function bodyPole(run, e) {
   const tx = e.x - (e.hx ?? 1) * gap, ty = e.y - (e.hy ?? 0) * gap
   return (e.x - p.x) ** 2 + (e.y - p.y) ** 2 <= (tx - p.x) ** 2 + (ty - p.y) ** 2 ? e.pole : -e.pole
 }
-function poleDmgMul(run, e) {
+function poleDmgMul(run, e, src = run.polarity?.pole) {
   if (!run.polarity || e.pole === undefined) return 1
   const S = polaritySpec(run)
   if (!S) return 1
-  return bodyPole(run, e) !== run.polarity.pole ? S.dmgOpp : S.dmgSame
+  return bodyPole(run, e) !== src ? S.dmgOpp : S.dmgSame
 }
 // The pole a new body is born with (rolled against the spawn mix; the golem always opposite to you),
 // and the prototype's per-body dice.
@@ -18972,13 +18964,6 @@ function polarSpawn(run, e) {
   e.spike = 0
   e.latched = false
   e.hx = 1; e.hy = 0
-}
-// A body made to show `pole` (the Reversal Pulse). The top's strobe moves on a beat instead, so it
-// shows that pole now and keeps strobing.
-function setBodyPole(e, pole, S) {
-  if (e.pole === pole) return
-  if (e.flags.includes('poleStrobe')) e._pph = (e._pph ?? 0) + S.top.strobe
-  e.pole = pole
 }
 // A latched mite thrown off: outward at `speed` (its knockback, which decays), stunned `stun` s.
 function unlatchMite(e, speed, stun) {
@@ -19274,17 +19259,6 @@ function stepPolarHurt(run, dt) {
   }
   return false
 }
-// The Reversal Pulse's touch: frees a latched mite (stunned pulseStun), turns the body to the pole
-// OPPOSITE yours (owner, Rev 2: prey for your x2, a threat to you), stuns n.stun.
-function polarPulseHit(run, e, n) {
-  const S = polaritySpec(run)
-  if (!S || e.pole === undefined) return
-  if (e.latched) unlatchMite(e, 0, S.pulseStun)
-  setBodyPole(e, -polarState(run, S).pole, S)
-  if (n.stun > 0) e.stunT = Math.max(e.stunT || 0, n.stun)
-  run.events.push({ type: 'poolFlip', x: e.x, y: e.y, pole: e.pole })
-}
-
 // -- The Core's four weapons -------------------------------------------------------------------
 // The nearest live, hostile, unlatched body within `range` of you, or null.
 function nearestFree(run, range) {
@@ -19327,21 +19301,6 @@ function stepSlingWeapon(run, w, stats, fireRateMul, dt) {
     if (fired) run.events.push({ type: 'shoot', weapon: 'ironBall' })
   })
 }
-function stepGaussWeapon(run, w, stats, fireRateMul, dt) {
-  const mods = run.weaponMods.gaussCoil
-  const quick = mods?.quickCharge ?? 0
-  fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => {
-    const p = run.player
-    const tgt = nearestFree(run, stats.speed * stats.life)
-    const base = tgt ? Math.atan2(tgt.y - p.y, tgt.x - p.x) : aimAngle(run)
-    const count = ipecacN(run, stats.count)
-    for (let i = 0; i < count; i++) {
-      const b = pushCoreBullet(run, base + (i - (count - 1) / 2) * 0.08, stats, 'gaussSlug', GAUSS_SLUG_R, stats.life, 999)
-      b._punch = (mods?.punchThrough ?? 0) > 0
-    }
-    run.events.push({ type: 'shoot', weapon: 'gaussSlug' })
-  })
-}
 function stepLanceWeapon(run, w, stats, fireRateMul, dt) {
   const mods = run.weaponMods.dipoleLance
   const quick = mods?.quickArc ?? 0
@@ -19364,12 +19323,78 @@ function stepLanceWeapon(run, w, stats, fireRateMul, dt) {
     run.events.push({ type: 'shoot', weapon: 'dipoleLance' })
   })
 }
-function stepReversalWeapon(run, w, stats, fireRateMul, dt) {
-  const mods = run.weaponMods.reversalPulse
-  const quick = mods?.quickPulse ?? 0
+// Mercury Moons: `moons` chrome drops on a ring of `radius` round you, turning at rotSpeed rad/s, in
+// YOUR pole (read live, so a pool recolours them). A drop hits what it touches (the pole rule, once per
+// `tick` s per foe across all drops) and tugs every foe of the other pole within tugR toward itself,
+// and along the orbit by MOON_TUG_SWIRL of that: a small vortex round you that feeds them to the drops.
+function stepMoonWeapon(run, stats, fireRateMul, dt) {
+  const p = run.player, P = run.polarity
+  run.moonA = ((run.moonA ?? 0) + stats.rotSpeed * dt) % (Math.PI * 2)
+  const count = ipecacN(run, stats.moons)   // ONE count: the loop bound and the spacing both read it
+  for (let i = 0; i < count; i++) {
+    const a = run.moonA + (i / count) * Math.PI * 2
+    const mx = p.x + Math.cos(a) * stats.radius, my = p.y + Math.sin(a) * stats.radius
+    run.moons.push({ x: mx, y: my, r: MOON_R, a, pole: P?.pole ?? 0 })
+    if (P) {
+      const tx = -Math.sin(a), ty = Math.cos(a)
+      for (const e of enemiesNear(run, mx, my, stats.tugR, true)) {
+        if (e._dead || isAlly(e) || e.latched || e.burrowed || e.pole === undefined || bodyPole(run, e) === P.pole) continue
+        const dx = mx - e.x, dy = my - e.y, d = Math.hypot(dx, dy)
+        if (d > stats.tugR || d < 1e-3) continue
+        const v = stats.tug * (1 - d / stats.tugR) * dt
+        const step = Math.min(v, d)
+        e.x += (dx / d) * step + tx * v * MOON_TUG_SWIRL; e.y += (dy / d) * step + ty * v * MOON_TUG_SWIRL
+      }
+    }
+    for (const e of enemiesNear(run, mx, my, MOON_R, true)) {
+      if (e._dead || isAlly(e) || e.burrowed || run.time < (e._moonT ?? 0)) continue
+      if ((e.x - mx) ** 2 + (e.y - my) ** 2 > (MOON_R + e.radius) ** 2) continue
+      e._moonT = run.time + stats.tick / fireRateMul
+      applyDamage(run, e, stats.dmg)
+    }
+  }
+}
+// Decoy Lodestone: every interval `lodestones` of them drop (one at your feet; several, LODESTONE_SPREAD
+// out round you at even angles), each taking YOUR pole now and keeping it. stepLodestones runs them.
+function stepLodestoneWeapon(run, w, stats, fireRateMul, dt) {
+  const quick = run.weaponMods.decoyLodestone?.quickDrop ?? 0
   fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => {
-    const p = run.player
-    for (const r of ipecacRadii(run, stats.maxR)) spawnNova(run, p.x, p.y, r, stats.dmg, 0, 0, { look: 'reversal', life: REVERSAL_PULSE_LIFE, flip: true, stun: mods?.dazingRing ?? 0 })
-    run.events.push({ type: 'shoot', weapon: 'reversalPulse' })
+    const p = run.player, pole = run.polarity?.pole ?? 0
+    const count = ipecacN(run, stats.lodestones)   // ONE count: the loop bound and the spacing both read it
+    const base = aimAngle(run), d = count > 1 ? LODESTONE_SPREAD : 0
+    for (let i = 0; i < count; i++) {
+      const a = base + (i / count) * Math.PI * 2
+      run.lodestones.push({ x: p.x + Math.cos(a) * d, y: p.y + Math.sin(a) * d, pole, t: 0, fuse: LODESTONE_FUSE, dmg: stats.dmg, r: stats.r, pullR: stats.pullR, pull: stats.pull })
+    }
+    run.events.push({ type: 'shoot', weapon: 'decoyLodestone' })
   })
+}
+// Each lodestone, for its fuse: drags every foe of the other pole (to IT) within pullR onto itself at
+// that foe's own chase speed plus `pull`, so it wins against the chase. Then it bursts: r px, dmg by
+// the pole rule from the lodestone's pole, and every mite clinging to you is thrown off.
+function stepLodestones(run, dt) {
+  if (!run.lodestones?.length) return
+  const S = polaritySpec(run)
+  for (const L of run.lodestones.slice()) {
+    L.t += dt
+    if (L.pole) {
+      for (const e of enemiesNear(run, L.x, L.y, L.pullR, true)) {
+        if (e._dead || isAlly(e) || e.latched || e.burrowed || e.pole === undefined || bodyPole(run, e) === L.pole) continue
+        const dx = L.x - e.x, dy = L.y - e.y, d = Math.hypot(dx, dy)
+        if (d > L.pullR || d < 1) continue
+        const chase = Math.hypot(e._pvx ?? 0, e._pvy ?? 0) || e.speed || 0
+        const step = Math.min((chase + L.pull) * dt, d - 1)
+        e.x += (dx / d) * step; e.y += (dy / d) * step
+      }
+    }
+    if (L.t < L.fuse) continue
+    run.lodestones.splice(run.lodestones.indexOf(L), 1)
+    if (S) for (const e of run.enemies) if (e.latched && !e._dead) unlatchMite(e, S.eject.speed, S.lodeStun)
+    for (const e of enemiesNear(run, L.x, L.y, L.r, true)) {
+      if (e._dead || isAlly(e) || e.burrowed) continue
+      if ((e.x - L.x) ** 2 + (e.y - L.y) ** 2 > (L.r + e.radius) ** 2) continue
+      applyDamage(run, e, L.dmg, 0, L.pole || false)
+    }
+    run.events.push({ type: 'lodestoneBlast', x: L.x, y: L.y, r: L.r, pole: L.pole })
+  }
 }

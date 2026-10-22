@@ -116,3 +116,17 @@ fast; the tide moves the majority every 15 s, so the pools are the decision.
   a steel needle (the amber dart read as loot); the prototype's tells restored (x2 = bold red spark,
   x0.5 = thin grey spark; pillar pull/push animated rings; golem field rings); grind has no numbers;
   pools never under pillars; eel/top/golem xp raised to match their hp.
+
+## Rev 3 (2026-10-22) — owner rulings on the arsenal and the player
+
+- **The Reversal Pulse is gone** (owner: "the ring that inverts polarity removes the point of pools"),
+  and the **Gauss Coil** left the pool (nothing else offered it, so it is deleted too).
+- Pool: sling, dipoleLance, **mercuryMoons**, **decoyLodestone**; starter sling.
+- **Mercury Moons** (Gouttes orbitales): chrome drops orbit you in YOUR pole (live), hit by the pole rule,
+  and tug foes of the other pole into their orbit. Mods: Heavy Mercury, Extra Moon, Fast Orbit, Strong Tug.
+- **Decoy Lodestone** (Leurre aimanté): drops at your feet with your pole and keeps it; for its fuse it
+  drags foes of the other pole (to it) onto itself, beating their chase; then it bursts, damage by the
+  pole rule from ITS pole, and throws off every mite clinging to you (the Pulse's old job).
+  Mods: Big Bang, Strong Field, Quick Drop, Twin Lodestones.
+- The player is the demo's drop tinted toward its pole (easing through mint on a swap), no ring.
+- The floor's molten trough glow is removed (variant B); the pillar-foot heat stays.

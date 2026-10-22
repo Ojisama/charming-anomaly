@@ -2174,7 +2174,8 @@ function testAnomalySlate() {
       // day it landed, its absence from this array reported "spawned nothing" for a weapon that was
       // firing correctly, which is the same bite `gnash` records against FX below.
       // `quenchCrusts` and `lavaPools` are The Mantle's Quench Kettle and Crack Hammer (2026-10-12).
-      const LISTS = ['bullets', 'orbs', 'mines', 'zones', 'lobs', 'blooms', 'lures', 'holes', 'beams', 'debris', 'homingShots', 'boomerangs', 'novas', 'arcs', 'longlines', 'hauls', 'snares', 'drips', 'sticks', 'carts', 'magmaLobs', 'quenchCrusts', 'lavaPools']
+      // `moons` and `lodestones` are The Core's Mercury Moons and Decoy Lodestone (2026-10-22).
+      const LISTS = ['bullets', 'orbs', 'mines', 'zones', 'lobs', 'blooms', 'lures', 'holes', 'beams', 'debris', 'homingShots', 'boomerangs', 'novas', 'arcs', 'longlines', 'hauls', 'snares', 'drips', 'sticks', 'carts', 'magmaLobs', 'quenchCrusts', 'lavaPools', 'moons', 'lodestones']
       // Same class of quoted-string list as LISTS above, and it bit for real: `gnash` (The Wreck's
       // native, v7.x) spawns no entity at all — its whole output is this event — so the day it
       // landed this fixture reported "spawned nothing — untestable here" for a weapon that was
@@ -21101,6 +21102,7 @@ run(testLeLargeWeapons)
   run(testMantleLavaCrew)
   run(testCore)
   run(testCoreWeapons)
+  run(testCoreMoonsLodestone)
   run(testCoreMagnetism)
   run(testCoreRules)
   run(testCoreSpawnMix)
@@ -42682,53 +42684,7 @@ function testCoreWeapons() {
   const lOpp = perHit('dipoleLance', false), lSame = perHit('dipoleLance', true)
   assert.ok(sOpp / sSame >= 3.5 && sOpp / sSame <= 4.5, `run CO2.a: the other pole takes 4x what yours does (x2 / x0.5): ${sOpp} vs ${sSame}`)
   assert.strictEqual(lOpp, lSame, `run CO2.a: the Dipole Lance strikes both poles alike: ${lOpp} vs ${lSame}`)
-  // (b) the Gauss Coil's slug runs through the other pole and stops on the first body of yours
-  const gauss = (firstSame) => noPools(() => {
-    const r = boot(42202)
-    r.weapons = [{ id: 'gaussCoil', level: 1 }]
-    step(r, 1)
-    const P = r.polarity.pole, px = r.player.x, py = r.player.y
-    const line = [0, 1, 2].map((k) => body(r, { x: px + 100 + k * 60, y: py, pole: k === 0 && firstSame ? P : -P }))
-    r.enemies = [...line]
-    let t0 = -1
-    for (let i = 0; i < 60 * 4; i++) {
-      line.forEach((e, k) => { e.x = px + 100 + k * 60; e.y = py })
-      r.player.x = px; r.player.y = py
-      step(r, 1, (o) => line.includes(o))
-      if (t0 < 0 && line.some((e) => e.hp < e.maxHP)) t0 = i
-      if (t0 >= 0 && i - t0 > 20) break
-    }
-    return line.map((e) => e.hp < e.maxHP)
-  })
-  const allOpp = gauss(false), blocked = gauss(true)
-  assert.deepStrictEqual(allOpp, [true, true, true], `run CO2.b: the slug runs through three bodies of the other pole: ${allOpp}`)
-  assert.deepStrictEqual(blocked, [true, false, false], `run CO2.b: a body of your pole in front stops the slug: ${blocked}`)
-  // (c) the Reversal Pulse turns every body it touches to the pole OPPOSITE yours (a top's strobe
-  // included) and shakes a latched mite off; Charged Ring's damage lands after the turn, at x2
-  let ringHit = 0
-  noPools(() => {
-    const r = boot(42203)
-    r.weapons = [{ id: 'reversalPulse', level: 1 }]
-    r.weaponMods.reversalPulse = { chargedRing: 12 }
-    step(r, 1)
-    const p = r.player, P = r.polarity.pole
-    const a = body(r, { x: p.x + 120, y: p.y, pole: P }), b = body(r, { x: p.x - 120, y: p.y, pole: -P })
-    const top = body(r, { x: p.x, y: p.y + 120, pole: P, flags: ['poleStrobe'], rosterId: 'spinningTop' })
-    const mite = body(r, { x: p.x, y: p.y, pole: -P, flags: ['poleLatch'], rosterId: 'ferriteMite', extra: { latched: true, _lx: 24, _ly: 0 } })
-    r.enemies = [a, b, top, mite]
-    let n = 0
-    while (a.hp === a.maxHP && n++ < 60 * 8) {
-      a.x = p.x + 120; a.y = p.y; b.x = p.x - 120; b.y = p.y; top.x = p.x; top.y = p.y + 120
-      // hold the top's strobe on YOUR beat until the ring reaches it
-      if (a.hp === a.maxHP) top._pph = Math.floor(r.time / 2) % 2 ? (P === 1 ? 0 : 2) : (P === 1 ? 2 : 0)
-      step(r, 1, (o) => o === a || o === b || o === top || o === mite)
-    }
-    ringHit = a.maxHP - a.hp
-    assert.ok(a.pole === -P && b.pole === -P && top.pole === -P && !mite.latched,
-      `run CO2.c: the pulse turns every body it touches to the pole opposite yours (${-P}): ${a.pole} ${b.pole} top ${top.pole}, mite latched ${mite.latched}`)
-    assert.strictEqual(ringHit, 24, `run CO2.c: Charged Ring's 12 lands after the turn, at x2 on a body that was your pole: ${ringHit}`)
-  })
-  // (d) a Ferrofluid Blob splits into droplets of its own pole
+  // (b) a Ferrofluid Blob splits into droplets of its own pole
   let kids = []
   noPools(() => {
     const r = boot(42204)
@@ -42740,9 +42696,124 @@ function testCoreWeapons() {
     for (let i = 0; i < 60 * 4 && !blob._dead; i++) { blob.x = r.player.x + 90; blob.y = r.player.y; step(r, 1) }
     step(r, 2)
     kids = r.enemies.filter((e) => e.rosterId === 'ferroBlobSmall')
-    assert.ok(blob._dead && kids.length === 2 && kids.every((k) => k.pole === -1), `run CO2.d: the blob dies into 2 droplets that keep its pole: ${kids.map((k) => k.pole)}`)
+    assert.ok(blob._dead && kids.length === 2 && kids.every((k) => k.pole === -1), `run CO2.b: the blob dies into 2 droplets that keep its pole: ${kids.map((k) => k.pole)}`)
   })
-  console.log(`PASS run CO2 (Core weapons): sling ${sOpp}/${sSame} on the other pole/yours, Lance ${lOpp}/${lSame}; gauss through 3 opposite, stopped by 1 of yours; the pulse turns all it touches against you and frees, Charged Ring ${ringHit} after the turn; the blob splits into ${kids.length} droplets of its pole`)
+  console.log(`PASS run CO2 (Core weapons): sling ${sOpp}/${sSame} on the other pole/yours, Lance ${lOpp}/${lSame}; the blob splits into ${kids.length} droplets of its pole`)
+}
+
+// ---- run CM: The Core's Mercury Moons and Decoy Lodestone -------------------------------------
+function testCoreMoonsLodestone() {
+  const { boot, body, step, noPools } = coreRig()
+  const noCrit = (r) => { r.player.critChance = 0; r.passives.critChance = 0 }
+  const dropOne = (r) => { for (let i = 0; i < 60 * 6 && !r.lodestones.length; i++) step(r, 1, (o) => r._keep.includes(o)) }
+  // (a) a moon's hit obeys the pole rule: x2 on the other pole, x0.5 on yours
+  const moonHit = (samePole) => noPools(() => {
+    const r = boot(42301)
+    noCrit(r)
+    r.weapons = [{ id: 'mercuryMoons', level: 1 }]
+    step(r, 1)
+    const R = WEAPONS.mercuryMoons.levels[0].radius
+    const e = body(r, { x: r.player.x + R, y: r.player.y, pole: samePole ? r.polarity.pole : -r.polarity.pole })
+    r.enemies = [e]
+    const hits = []
+    for (let i = 0; i < 60 * 4 && hits.length < 3; i++) {
+      const hp0 = e.hp
+      e.x = r.player.x + R; e.y = r.player.y
+      step(r, 1, (o) => o === e)
+      if (e.hp < hp0) hits.push(hp0 - e.hp)
+    }
+    assert.ok(hits.length >= 2, `run CM.a precondition: the moons landed hits (${hits.length})`)
+    return Math.min(...hits)
+  })
+  const mOpp = moonHit(false), mSame = moonHit(true)
+  assert.strictEqual(mOpp, mSame * 4, `run CM.a: a moon does x2 to the other pole and x0.5 to yours: ${mOpp} vs ${mSame}`)
+  // (b) the tug moves foes of the other pole only (both stand in reach of the orbit, neither walks)
+  let tugOpp = 0, tugSame = 0
+  noPools(() => {
+    const r = boot(42302)
+    r.weapons = [{ id: 'mercuryMoons', level: 1 }]
+    step(r, 1)
+    const p = r.player, P = r.polarity.pole, px = p.x, py = p.y
+    const opp = body(r, { x: px + 100, y: py, pole: -P }), same = body(r, { x: px - 100, y: py, pole: P })
+    r.enemies = [opp, same]
+    for (let i = 0; i < 60; i++) { p.x = px; p.y = py; r.obstacles.length = 0; step(r, 1, (o) => o === opp || o === same) }
+    tugOpp = Math.hypot(opp.x - (px + 100), opp.y - py); tugSame = Math.hypot(same.x - (px - 100), same.y - py)
+    assert.ok(tugOpp > 20, `run CM.b: a foe of the other pole is tugged toward the orbit (${tugOpp.toFixed(1)} px in 1 s)`)
+    assert.ok(tugSame < 1, `run CM.b: a foe of your pole is not tugged (${tugSame.toFixed(1)} px in 1 s)`)
+  })
+  // (c) Extra Moon spreads the drops evenly: DISTINCT positions, not a count
+  let minGap = 0, nMoons = 0
+  noPools(() => {
+    const r = boot(42303)
+    r.weapons = [{ id: 'mercuryMoons', level: 1 }]
+    r.weaponMods.mercuryMoons = { extraMoon: 2 }
+    step(r, 1)
+    nMoons = r.moons.length
+    minGap = Infinity
+    for (let i = 0; i < nMoons; i++) for (let j = i + 1; j < nMoons; j++) minGap = Math.min(minGap, Math.hypot(r.moons[i].x - r.moons[j].x, r.moons[i].y - r.moons[j].y))
+    const R = WEAPONS.mercuryMoons.levels[0].radius, base = WEAPONS.mercuryMoons.levels[0].moons
+    assert.strictEqual(nMoons, base + 2, `run CM.c: Extra Moon x2 adds two drops: ${nMoons}`)
+    assert.ok(minGap > R * Math.SQRT2 * 0.95, `run CM.c: ${nMoons} drops sit at distinct, evenly spaced points (closest pair ${minGap.toFixed(1)} px, a square on r ${R} is ${(R * Math.SQRT2).toFixed(1)})`)
+  })
+  // (d) a lodestone drags a chaser of the other pole onto itself, against its chase of you
+  let pulledTo = 0, stayed = 0
+  noPools(() => {
+    const r = boot(42304)
+    r.weapons = [{ id: 'decoyLodestone', level: 1 }]
+    r._keep = []
+    dropOne(r)
+    const L = r.lodestones[0], P = r.polarity.pole, p = r.player
+    assert.ok(L && L.pole === P, `run CM.d precondition: a lodestone of your pole dropped (${L && L.pole} vs ${P})`)
+    const px = L.x + 400, py = L.y
+    // a mite of the other pole rushes you (up to the mite's cap); a static body of the lodestone's pole is the control
+    const mite = body(r, { x: L.x, y: L.y + 100, pole: -P, flags: ['poleLatch'], rosterId: 'ferriteMite' })
+    const ctl = body(r, { x: L.x, y: L.y - 100, pole: P })
+    r.enemies = [mite, ctl]
+    for (let i = 0; i < 60; i++) { p.x = px; p.y = py; step(r, 1, (o) => o === mite || o === ctl) }
+    pulledTo = Math.hypot(mite.x - L.x, mite.y - L.y); stayed = Math.hypot(ctl.x - L.x, ctl.y - L.y)
+    assert.ok(pulledTo < 20, `run CM.d: a chaser of the other pole ends on the lodestone, not on you 400 px off (${pulledTo.toFixed(1)} px from it)`)
+    assert.ok(Math.abs(stayed - 100) < 1, `run CM.d: a body of the lodestone's pole is not pulled (${stayed.toFixed(1)} px from it)`)
+  })
+  // (e) the burst rules damage from the LODESTONE's pole even after a pool changed yours, and
+  // (f) it throws off every mite clinging to you
+  let dA = 0, dB = 0, wasLatched = false, freed = false
+  noPools(() => {
+    const r = boot(42305)
+    noCrit(r)
+    r.weapons = [{ id: 'decoyLodestone', level: 1 }]
+    r._keep = []
+    dropOne(r)
+    const L = r.lodestones[0], P = r.polarity.pole, p = r.player
+    r.polarity.pole = -P; r.polarity.poolCd = 99   // you change pole after it dropped
+    const px = L.x + 300, py = L.y
+    const a = body(r, { x: L.x + 30, y: L.y, pole: -P }), b = body(r, { x: L.x - 30, y: L.y, pole: P })
+    const mite = body(r, { x: px + 24, y: py, pole: P, flags: ['poleLatch'], rosterId: 'ferriteMite', extra: { latched: true, _lx: 24, _ly: 0 } })
+    r.enemies = [a, b, mite]
+    for (let i = 0; i < 60 * 5 && r.lodestones.length; i++) {
+      p.x = px; p.y = py
+      wasLatched = mite.latched
+      step(r, 1, (o) => o === a || o === b || o === mite)
+    }
+    assert.ok(!r.lodestones.length, 'run CM.e precondition: the lodestone burst within its fuse')
+    dA = a.maxHP - a.hp; dB = b.maxHP - b.hp
+    freed = !mite.latched
+    assert.ok(dB > 0 && dA === dB * 4, `run CM.e: the burst does x2 to the other pole of the LODESTONE and x0.5 to its own, whatever your pole is now: ${dA} vs ${dB}`)
+    assert.ok(wasLatched && freed, `run CM.f: the burst throws off the mite clinging to you (latched up to the burst: ${wasLatched}, freed: ${freed})`)
+  })
+  // (g) Twin Lodestones drop at DISTINCT spots round you
+  let twinGap = 0, nTwin = 0
+  noPools(() => {
+    const r = boot(42306)
+    r.weapons = [{ id: 'decoyLodestone', level: 1 }]
+    r.weaponMods.decoyLodestone = { twinLodestones: 1 }
+    r._keep = []
+    dropOne(r)
+    nTwin = r.lodestones.length
+    twinGap = nTwin === 2 ? Math.hypot(r.lodestones[0].x - r.lodestones[1].x, r.lodestones[0].y - r.lodestones[1].y) : 0
+    assert.strictEqual(nTwin, 2, `run CM.g: Twin Lodestones drops two at once: ${nTwin}`)
+    assert.ok(twinGap > 100, `run CM.g: the two lodestones sit at distinct spots round you (${twinGap.toFixed(1)} px apart)`)
+  })
+  console.log(`PASS run CM (Core moons + lodestone): moon ${mOpp}/${mSame} on the other pole/yours; tug ${tugOpp.toFixed(0)} px on the other pole vs ${tugSame.toFixed(1)} on yours; ${nMoons} moons >= ${minGap.toFixed(0)} px apart; a chaser ends ${pulledTo.toFixed(0)} px from the lodestone (control ${stayed.toFixed(0)}); burst ${dA}/${dB} from the lodestone's pole after your swap; mite freed ${freed}; twins ${twinGap.toFixed(0)} px apart`)
 }
 
 function testCoreMagnetism() {
