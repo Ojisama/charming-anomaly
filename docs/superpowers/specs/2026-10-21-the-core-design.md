@@ -66,18 +66,18 @@ Needles: `run.enemyShots`, `turnRate: 0`, 200-240 px/s, 4 dmg, 3.5 s, stopped by
 Spawn cadence follows the prototype's timers (urchin 7 s, top 9 s, blob 14 s, eel 16 s, golem 30 s, mites
 continuous) through the chapter's ordinary roster weights; balance is a first guess, tuned after the playtest.
 
-## Weapons (pool: sling, gaussCoil, dipoleLance, reversalPulse; starter sling)
+## Weapons (pool: sling, dipoleLance, mercuryMoons, decoyLodestone; starter sling — Rev 3)
 
-| id | L1 | rule |
-|---|---|---|
-| sling | 10 dmg / 0.32 s, 633 px/s, range 500 | an iron ball of your pole; half the time it targets a latched mite |
-| gaussCoil | 15 dmg / 1.6 s, 930 px/s, 0.7 s life | pierces every opposite body, stops on the first same-pole one |
-| dipoleLance | 30 flat / 1 s, 133 px long | short two-coloured beam, ignores poles |
-| reversalPulse | every 5 s, ring to 213 px in 0.5 s | flips the pole of everything it touches and frees latched mites |
+| id | rule |
+|---|---|
+| sling | an iron ball of your pole; half the time it targets a latched mite |
+| dipoleLance | short two-coloured beam, ignores poles |
+| mercuryMoons | chrome drops orbit you in your pole's colour and tug foes of the other pole into their path |
+| decoyLodestone | dropped at your feet with your pole; drifts foes of the other pole toward it, bursts on a fuse with its own pole, tears latched mites off you |
 
-4 mods each (damage, rate, and two that change the rule — e.g. Gauss "also stops on nothing", Pulse
-"bigger ring", Lance "longer", Sling "two balls"). Names/descs drafted in English and French; the owner
-reviews the French after the ship (dev-only).
+Numbers live in config.js (`WEAPONS`); the Gauss Coil and the Reversal Pulse were removed in Rev 3.
+
+4 mods each (`WEAPON_MODS` in config.js). The owner approved the French for the two Rev 3 weapons.
 
 ## HUD
 
