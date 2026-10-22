@@ -4724,10 +4724,10 @@ export const WEAPON_MODS = {
   },
   // ---- Book 3, The Core ----
   // balance_decision : sling mods halved, too strong, owner 2026-10-22
-  //  - Twin Balls instead rolls epic and up only (WEAPON_MOD_TIER_BONUS values)
+  //  - Twin Balls instead rolls epic and up only: +1 / +2 / +3 balls
   sling: {
     castIron:   { name: 'Cast Iron',   desc: 'ball damage', icon: '💥', base: 0.15, kind: 'pct' },
-    twinBalls:  { name: 'Twin Balls',  desc: 'extra ball(s) per throw', icon: '🔷', kind: 'tier', values: { epic: 2, legendary: 2, mythic: 3 } },
+    twinBalls:  { name: 'Twin Balls',  desc: 'extra ball(s) per throw', icon: '🔷', kind: 'tier', values: { epic: 1, legendary: 2, mythic: 3 } },
     quickSling: { name: 'Quick Sling', desc: 'throw rate', icon: '⏩', base: 0.125, kind: 'pct' },
     pickOff:    { name: 'Pick Off',    desc: 'aims at a mite clinging to you whenever one is', icon: '🪝', kind: 'switch' },
   },
