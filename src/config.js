@@ -4723,10 +4723,12 @@ export const WEAPON_MODS = {
     quickBellows: { name: 'Quick Bellows', desc: 'wave rate', icon: '⏩', base: 0.25, kind: 'pct' },
   },
   // ---- Book 3, The Core ----
+  // balance_decision : sling mods halved, too strong, owner 2026-10-22
+  //  - Twin Balls instead rolls epic and up only (WEAPON_MOD_TIER_BONUS values)
   sling: {
-    castIron:   { name: 'Cast Iron',   desc: 'ball damage', icon: '💥', base: 0.30, kind: 'pct' },
-    twinBalls:  { name: 'Twin Balls',  desc: 'extra ball(s) per throw', icon: '🔷', kind: 'tier' },
-    quickSling: { name: 'Quick Sling', desc: 'throw rate', icon: '⏩', base: 0.25, kind: 'pct' },
+    castIron:   { name: 'Cast Iron',   desc: 'ball damage', icon: '💥', base: 0.15, kind: 'pct' },
+    twinBalls:  { name: 'Twin Balls',  desc: 'extra ball(s) per throw', icon: '🔷', kind: 'tier', values: { epic: 2, legendary: 2, mythic: 3 } },
+    quickSling: { name: 'Quick Sling', desc: 'throw rate', icon: '⏩', base: 0.125, kind: 'pct' },
     pickOff:    { name: 'Pick Off',    desc: 'aims at a mite clinging to you whenever one is', icon: '🪝', kind: 'switch' },
   },
   mercuryMoons: {
@@ -10108,7 +10110,9 @@ CHAPTERS.core = {
       //  - latched mites, spiked blobs and golem contact share it; HURT_CAP_FRAC x maxHP caps it too
       dotCap: 14,
       sameGap: 20,                       // a same-pole body never comes nearer than its edge + yours + this
-      pillar: { reach: 213, player: 93, enemy: 147, enemyMul: 6 },
+      // balance_decision : pillar pull reach doubled, owner 2026-10-22
+      //  - src/liquid/gl.js scales its field rings and lean with it (PILK = reach / 213)
+      pillar: { reach: 426, player: 93, enemy: 147, enemyMul: 6 },
       // pools: one ellipse per cell with probability `chance` (streamPolePools); you flip in one of
       // the other pole (cd s before the next), a creature takes its pole
       pools: { cell: 520, chance: 0.6, rx: [47, 80], ry: [33, 60], minDist: 260, cd: 1.2 },

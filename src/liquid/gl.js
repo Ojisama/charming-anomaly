@@ -250,7 +250,7 @@ vec4 pilView(vec2 s, float plk, float ang, float sd, float t, float pix, float r
 }
 `;
 const FS_FLOOR = HDR + ENV + `
-uniform sampler2D uC, uN, uV, uNM; uniform vec2 uRes, uCam, uView, uPl; uniform float uT, uPole, uNex, uPix, uVisc; uniform vec2 uSh;
+uniform sampler2D uC, uN, uV, uNM; uniform vec2 uRes, uCam, uView, uPl; uniform float uT, uPole, uNex, uPix, uVisc, uPilK; uniform vec2 uSh;
 uniform vec4 uPool[8]; uniform vec2 uPoolB[8]; uniform vec4 uPoolR[8]; uniform vec4 uPoolF[8]; uniform int uNP; uniform vec4 uPil[8]; uniform int uNPil; uniform vec3 uGol[4]; uniform int uNG;
 out vec4 o;
 uniform vec4 uWk[32]; uniform int uNW;
@@ -490,7 +490,7 @@ void main() {
   }
   for (int i = 0; i < 8; i++) { if (i >= uNPil) break;
     vec4 P = uPil[i]; float d = distance(w, P.xy) + (nz.r - 0.5) * 0.012;
-    col += (P.z > 0.0 ? NC : SC) * ring(d, 0.06, 0.2, 0.25, sign(P.z) != uPole ? -1.0 : 1.0) * 0.26;
+    col += (P.z > 0.0 ? NC : SC) * ring(d, 0.06, 0.2 * uPilK, 0.25, sign(P.z) != uPole ? -1.0 : 1.0) * 0.26;
   }
   for (int i = 0; i < 4; i++) { if (i >= uNG) break;
     vec3 P = uGol[i]; float d = distance(w, P.xy) + (nz.g - 0.5) * 0.015;
@@ -684,7 +684,7 @@ const PRM = new WeakMap(), prm = q => { let s = PRM.get(q.key); if (!s) PRM.set(
 const pilW = s => Math.min(1023, Math.floor((Math.atan2(s.dy, s.dx) + Math.PI) / (2 * Math.PI) * 1024)) + Math.min(0.9999, s.ph);
 function pilReact(p) {
   for (const q of PILLARS) { const s = prm(q), ex = p.x - q.x, ey = p.y - q.y, d = Math.hypot(ex, ey) || 1;
-    let tk = q.pole !== G.pole ? sst((0.36 - d) / 0.26) : -sst((0.3 - d) / 0.22), tx = ex / d, ty = ey / d;
+    let tk = q.pole !== G.pole ? sst((0.36 * PILK - d) / (0.26 * PILK)) : -sst((0.3 * PILK - d) / (0.22 * PILK)), tx = ex / d, ty = ey / d;
     if (tk < 0.3 && tk > -0.05) { let bd = 0.17, bo = null;
       for (const o of G.foes) { if (o.pole === q.pole || o.kind === 'eel' || o.kind === 'top') continue; const dd = Math.hypot(o.x - q.x, o.y - q.y); if (dd < bd) { bd = dd; bo = o; } }
       if (bo) { const kc = 0.6 * (1 - bd / 0.17); if (kc > tk) { tk = kc; tx = (bo.x - q.x) / bd; ty = (bo.y - q.y) / bd; } } }
@@ -700,6 +700,8 @@ const SH = [0.05, 0.3];
 const WAKES = [], WAKEU = new Float32Array(128), wakeLast = new WeakMap(); let pBob = 0;
 // viscosity (CHAPTERS.core.render.liquid): 1 = the demo; thicker metal merges less, reaches and writhes less, calms the sea
 let VISC = 1;
+// pillar pull reach over the demo's (polarity.pillar.reach / 213): the field rings and the towers' lean span it
+let PILK = 1;
 function wake(x, y, amp) { WAKES.push({ x, y, age: 0, amp: amp / VISC }); if (WAKES.length > 32) WAKES.shift(); }
 function wakesTick(c, p) {
   for (const k of WAKES) k.age += rdt; while (WAKES.length && WAKES[0].age > 1.6) WAKES.shift();
@@ -737,12 +739,12 @@ function glFrame(c) {
     const B = Math.min(1, (0.16 / (Math.max(de, 0) + 0.06)) ** 2) * sst((0.45 - de) / 0.25), tb = q.pole !== G.pole ? B : 0, tt = q.pole !== G.pole ? B : -B;
     v.b += (tb - v.b) * (1 - Math.exp(-rdt / (tb > v.b ? 0.2 : 1.1))); v.t += (tt - v.t) * (1 - Math.exp(-rdt / (Math.abs(tt) > Math.abs(v.t) ? 0.1 : 0.9))); });
   POOLS.forEach((q, i) => { if (np < 8 && vis(q.x, q.y, 0.3)) { const v = PV[i]; POOLU.set([q.x, q.y, q.rx, q.ry], np * 4); POOLB.set([q.rot, q.pole], np * 2); POOLR.set([v.x, v.y, v.b, v.s], np * 4); POOLF.set([v.fx, v.fy, q.seed, v.t], np * 4); np++; } });
-  pilReact(p); for (const q of PILLARS) if (npl < 8 && vis(q.x, q.y, 0.34)) { const s = prm(q); PILU.set([q.x, q.y, q.pole * (2 + s.k), pilW(s)], npl * 4); npl++; }
+  pilReact(p); for (const q of PILLARS) if (npl < 8 && vis(q.x, q.y, 0.06 + 0.28 * PILK)) { const s = prm(q); PILU.set([q.x, q.y, q.pole * (2 + s.k), pilW(s)], npl * 4); npl++; }
   for (const f of G.foes) if (f.kind === 'golem' && ng < 4 && vis(f.x, f.y, 0.46)) { GOLU.set([f.x, f.y, f.pole], ng * 3); ng++; }
   gl.bindFramebuffer(gl.FRAMEBUFFER, floorT.fb); gl.viewport(0, 0, GW, GH); gl.disable(gl.BLEND);
   gl.useProgram(PF.p); const U = PF.u;
   gl.uniform2f(U.uRes, GW, GH); gl.uniform2f(U.uCam, c.x, c.y); gl.uniform2f(U.uView, VW, VH); gl.uniform2f(U.uPl, p.x, p.y);
-  gl.uniform1f(U.uT, rt); gl.uniform1f(U.uVisc, VISC); gl.uniform2f(U.uSh, SH[0], SH[1]); gl.uniform1f(U.uPole, G.pole); gl.uniform1f(U.uPix, VW / GW);
+  gl.uniform1f(U.uT, rt); gl.uniform1f(U.uVisc, VISC); gl.uniform1f(U.uPilK, PILK); gl.uniform2f(U.uSh, SH[0], SH[1]); gl.uniform1f(U.uPole, G.pole); gl.uniform1f(U.uPix, VW / GW);
   gl.uniform4fv(U.uPool, POOLU); gl.uniform2fv(U.uPoolB, POOLB); gl.uniform4fv(U.uPoolR, POOLR); gl.uniform4fv(U.uPoolF, POOLF); gl.uniform1i(U.uNP, np); gl.uniform4fv(U.uPil, PILU); gl.uniform1i(U.uNPil, npl); gl.uniform3fv(U.uGol, GOLU); gl.uniform1i(U.uNG, ng); gl.uniform4fv(U.uWk, WAKEU); gl.uniform1i(U.uNW, WAKES.length);
   drawFull(PF);
   gl.enable(gl.BLEND); gl.blendEquation(gl.FUNC_ADD); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
@@ -828,7 +830,7 @@ return {
     if (W !== GW || Hh !== GH) glResize(W, Hh);
   },
   frame(S) {
-    G = S; POOLS = S.pools; PILLARS = S.pillars; VW = S.VW; VH = S.VH; rt = S.rt; rdt = S.rdt; VISC = S.visc ?? 1;
+    G = S; POOLS = S.pools; PILLARS = S.pillars; VW = S.VW; VH = S.VH; rt = S.rt; rdt = S.rdt; VISC = S.visc ?? 1; PILK = S.pilK ?? 1;
     if (GW) glFrame(S.cam);
   },
 };

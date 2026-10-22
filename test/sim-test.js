@@ -42721,7 +42721,9 @@ function testCoreWeapons() {
 
 // ---- run CM: The Core's Mercury Moons and Decoy Lodestone -------------------------------------
 function testCoreMoonsLodestone() {
-  const { boot, body, step, noPools } = coreRig()
+  const { boot: boot0, body, step, noPools } = coreRig()
+  // no pillars: their pull reaches 426 px and would move the bodies these checks measure
+  const boot = (seed) => { const r = boot0(seed); r.obstacles = []; r._obstacleSeed = null; return r }
   const noCrit = (r) => { r.player.critChance = 0; r.passives.critChance = 0 }
   const dropOne = (r) => { for (let i = 0; i < 60 * 6 && !r.lodestones.length; i++) step(r, 1, (o) => r._keep.includes(o)) }
   // (a) a moon's hit obeys the pole rule: x2 on the other pole, x0.5 on yours
@@ -42881,6 +42883,7 @@ function testCoreMagnetism() {
   const pair = (poles, polar = true) => noPools(() => {
     const r = boot(42302)
     r.weapons = []
+    r.obstacles = []; r._obstacleSeed = null   // no pillar pull: this measures the pair alone
     step(r, 1)
     const sig = CHAPTERS.core.signature, saved = sig.polarity
     if (!polar) sig.polarity = null
