@@ -433,10 +433,6 @@ void main() {
   // faint vault texture so the dark of the mirror is never a flat fill
   vec2 e = w * vec2(0.22, 0.12) + r.xy * 0.9 + vec2(uT * 0.004, 0.0);
   col += vec3(0.07, 0.068, 0.066) * smoothstep(0.5, 0.95, texture(uN, e * vec2(0.6, 1.9)).b);
-  // the molten core under the skin: a deep, slow, refracted glow, brightest down in the troughs of the swells
-  float hd = texture(uC, wf * 0.42 - CUR * uT * 0.008 + sl * 0.04).g;
-  float glow = smoothstep(0.42, 0.12, hd) * (0.5 + 0.5 * smoothstep(0.62, 0.25, hgt)), core = smoothstep(0.2, 0.04, hd) * (0.4 + 0.6 * smoothstep(0.55, 0.25, hgt));
-  col += (vec3(0.5, 0.17, 0.03) * glow + vec3(1.0, 0.5, 0.16) * core * 0.6) * max(1.25 - 1.5 * dot(col, vec3(0.3, 0.5, 0.2)), 0.0) * (0.75 + 0.25 * nz.b);
   // pillars in the mirror: each tower hangs upside down in the sea below its foot, wobbling on the ripples and fading
   // with depth; a soft contact shadow falls down-right (same lamp as every chrome glint); heat wells up round the foot;
   // the collar's rim is one crisp bright wetting line exactly at the iron's edge
