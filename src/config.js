@@ -10186,6 +10186,8 @@ export const OPHAN_PHASE_EASE = 0.8
 // balance_decision : attack scheduler, first guesses 2026-10-24
 export const OPHAN_ATK_CD = [2.2, 3.7]
 export const OPHAN_ATK_FIRST = 3
+// an attack's minPh opens once the eased phase is this close to it (the ease never lands exactly)
+export const OPHAN_PH_GATE = 0.1
 export const OPHAN_HIT_CD = 0.6
 // balance_decision : attack lengths and damage, first guesses 2026-10-24
 export const OPHAN_ATTACKS = {
@@ -10226,7 +10228,7 @@ CHAPTERS.ophan = {
   scripted: true, boards: ['time', 'kills'], maxDifficultyCap: 3, xpNeedMul: 1.2,
   tide: null, signature: null, obstacles: null, eliteFlags: [],
   worlds: OPHAN_WORLDS,
-  attacks: { 1: ['sword', 'blast'], 2: ['sword', 'blast'], 3: ['sword', 'blast'] },
+  attacks: { 1: ['sword', 'blast'], 2: ['sword', 'blast', 'tornado', 'laser'], 3: ['sword', 'blast', 'tornado', 'laser', 'wheel', 'recall'] },
   // The crowd reuses each world's own ids (names, French, looks and cast PNGs come with them),
   // stripped of their behaviour flags; `world` is the index of the world that sends it.
   roster: [

@@ -21115,6 +21115,8 @@ run(testLeLargeWeapons)
   run(testOphanRig)
   run(testOphanSlice)
   run(testOphanWorlds)
+  run(testOphanAttacks)
+  run(testOphanAttackPool)
   run(testOphanRenderWiring)
   // A hand-typed filter that matched nothing is the silent pass without a parent watching:
   // `node test/sim-test.js supernova` printed ALL TESTS PASSED having run no scenario at all.
@@ -43510,6 +43512,151 @@ function testOphanWorlds() {
     } finally { [globalThis.window, globalThis.document] = keep }
   }
   console.log(`PASS run OP.worlds: switch + refuse, turn in place on the wipe, 3 presses -> one world, press survives hitstop, resonance only when caught (stagger ${caught.stagger}), 120s d3: ${atkN} attacks, ${gaps.length} swap gaps >= ${Math.min(...gaps).toFixed(2)}s, phases 2 and 3`)
+}
+
+// ---- run OP.attacks: the five other attacks, live, and the pool by difficulty -----------------
+// The arena points no frame of attack k (aimed at ax, ay) ever hits, nearest the aim first: lanes
+// sweep, the tornado travels, the wheel ricochets and the blast sheet grows, so a point is safe
+// only outside the union of the whole attack.
+function ophGrid() {
+  const hw = OPHAN_ARENA.w / 2 - PLAYER.radius, hh = OPHAN_ARENA.h / 2 - PLAYER.radius, clear = OPHAN_BOSS.bodyR + PLAYER.radius
+  const pts = []
+  for (let x = -hw; x <= hw; x += 20) for (let y = -hh; y <= hh; y += 20)
+    if (Math.hypot(x - OPHAN_BOSS.x, y - OPHAN_BOSS.y) > clear) pts.push({ x, y })
+  return pts
+}
+function ophUnionFree(k, ax, ay) {
+  const { x: bx, y: by, R } = OPHAN_BOSS, geos = []
+  for (let i = 0; i <= 100; i++) geos.push(RIG.attack(k, i / 100, 3, bx, by, R, ax, ay))
+  return ophGrid().filter((q) => geos.every((g) => !ophanHits(k, g, q.x, q.y, PLAYER.radius, R, OPHAN_HIT).hit))
+    .sort((a, b) => Math.hypot(a.x - ax, a.y - ay) - Math.hypot(b.x - ax, b.y - ay))
+}
+// a d3 run at phase 3 (four skins broken by hand), no crowd, no weapons, no hand change, attack k
+// started aimed at aim; park runs ahead of every step until the attack ends
+function ophAttackRun(k, aim, park) {
+  const r = ophanRun(3), o = r.script.oph, p = r.player
+  o.crowdT = 1e9; r.weapons = []; p.hp = p.maxHP = 1e9
+  o.broken = [0, 0, 1, 1, 1, 1]; o.ph = 3; o.swapIn = 1e9; o.tell = 0; o.after = -1
+  o.atk = { k, u: 0, dur: OPHAN_ATTACKS[k].dur, ax: aim.x, ay: aim.y, hitCd: 0 }
+  ophSteps(r, Math.ceil(OPHAN_ATTACKS[k].dur * 60) + 2, { before: () => park(r), until: () => !o.atk })
+  assert.ok(!o.atk, `${k} did not finish`)
+  return r
+}
+function ophSrc(k) { return 'ophan' + k[0].toUpperCase() + k.slice(1) }
+
+function testOphanAttacks() {
+  const A = { ...OPHAN_PLAYER_START }, { x: bx, y: by, R } = OPHAN_BOSS
+  const STRIKE = { blast: 0.72, tornado: 0.7, laser: 0.72, wheel: 0.5, recall: 0.65, sword: 0.55 }
+  const rows = []
+  for (const k of Object.keys(STRIKE)) {
+    const g = RIG.attack(k, STRIKE[k], 3, bx, by, R, A.x, A.y)
+    const on = ophGrid().filter((q) => ophanHits(k, g, q.x, q.y, PLAYER.radius, R, OPHAN_HIT).hit)
+      .sort((a, b) => Math.hypot(a.x - A.x, a.y - A.y) - Math.hypot(b.x - A.x, b.y - A.y))[0]
+    const free = ophUnionFree(k, A.x, A.y)
+    assert.ok(on, `${k}: its strike frame (u=${STRIKE[k]}) hits no arena point`)
+    assert.ok(free.length > 0, `${k}: no arena point is outside the whole attack`)
+    const dOn = ophAttackRun(k, A, (r) => { r.player.x = on.x; r.player.y = on.y; r.player.invuln = 0 }).dmgBySrc[ophSrc(k)] ?? 0
+    assert.ok(dOn > 0, `${k} on: parked on its strike point (${on.x}, ${on.y}), never hurt`)
+    const f = free[0]
+    const dOff = ophAttackRun(k, A, (r) => { r.player.x = f.x; r.player.y = f.y; r.player.invuln = 0 }).dmgBySrc[ophSrc(k)] ?? 0
+    assert.strictEqual(dOff, 0, `${k} off: parked outside the whole attack at (${f.x}, ${f.y}), hurt for ${dOff}`)
+    rows.push(`${k} hit (${on.x},${on.y}) free (${f.x},${f.y}) x${free.length}`)
+  }
+  // recall off (b): a staked feather is harmless; only its flight home hurts. Stand on feather 0's
+  // stake while every feather is staked, outside the whole attack otherwise.
+  {
+    let u0 = 1, u1 = 0
+    for (let u = 0; u <= 1; u += 0.001) {
+      if (RIG.attack('recall', u, 3, bx, by, R, A.x, A.y).feathers.every((q) => q.state === 2)) { u0 = Math.min(u0, u); u1 = Math.max(u1, u) }
+    }
+    assert.ok(u1 - u0 > 0.1, `recall: every feather is staked only over u ${u0.toFixed(3)}..${u1.toFixed(3)}`)
+    const stake = RIG.attack('recall', (u0 + u1) / 2, 3, bx, by, R, A.x, A.y).feathers[0]
+    const f = ophUnionFree('recall', A.x, A.y)[0], du = 1 / 60 / OPHAN_ATTACKS.recall.dur
+    let onStake = 0
+    const r = ophAttackRun('recall', A, (r) => {
+      const u = r.script.oph.atk.u + du, at = u > u0 + 0.01 && u < u1 - 0.01 ? stake : f
+      if (at === stake) onStake++
+      r.player.x = at.x; r.player.y = at.y; r.player.invuln = 0
+    })
+    assert.ok(onStake > 30, `recall: only ${onStake} frames on the stake`)
+    assert.strictEqual(r.dmgBySrc.ophanRecall ?? 0, 0, 'recall: a staked feather hurt the player standing on it')
+  }
+  // recovery: a hit in the blast's recovery frames removes twice what one in its wind-up removes
+  {
+    const r = ophanRun(3, 11), o = r.script.oph, b = ophBoss(r)
+    o.crowdT = 1e9; r.weapons = []; r.player.hp = r.player.maxHP = 1e9; o.swapIn = 1e9; o.tell = 0; o.after = -1
+    o.atk = { k: 'blast', u: 0, dur: OPHAN_ATTACKS.blast.dur, ax: A.x, ay: A.y, hitCd: 0 }
+    stepSim(r, { x: 0, y: 0 }, 1 / 60)
+    assert.ok(!o.recov && o.atk.u < 0.1, 'recovery: the wind-up is already a recovery')
+    const h0 = b.hp; dealDamage(r, b, 40, false); const wind = h0 - b.hp
+    ophSteps(r, 200, { until: () => o.recov || !o.atk })
+    assert.ok(o.recov, 'recovery: the blast never reached its recovery frames')
+    const h1 = b.hp; dealDamage(r, b, 40, false); const rec = h1 - b.hp
+    assert.ok(wind > 0 && rec === 2 * wind, `recovery: wind-up hit took ${wind}, recovery hit ${rec}`)
+  }
+  // shove: a crest pushes the player outward even through invulnerability, into the wall, not past it
+  let shoved = 0
+  {
+    const r = ophanRun(3, 12), o = r.script.oph, p = r.player
+    o.crowdT = 1e9; r.weapons = []; p.hp = p.maxHP = 1e9; o.swapIn = 1e9; o.tell = 0; o.after = -1
+    p.x = A.x; p.y = A.y
+    o.atk = { k: 'blast', u: 0, dur: OPHAN_ATTACKS.blast.dur, ax: A.x, ay: A.y, hitCd: 0 }
+    const d0 = Math.hypot(p.x - bx, p.y - by)
+    let out = true
+    const hw = OPHAN_ARENA.w / 2 - PLAYER.radius, hh = OPHAN_ARENA.h / 2 - PLAYER.radius
+    ophSteps(r, 3 * 60, {
+      before: () => { p.invuln = 1 },
+      after: () => {
+        const m = Math.hypot(o.push.x, o.push.y)
+        if (m > shoved) { shoved = m; out = o.push.x * (p.x - bx) + o.push.y * (p.y - by) > 0 }
+        assert.ok(Math.abs(p.x) <= hw + 1e-6 && Math.abs(p.y) <= hh + 1e-6, `shove: the player left the arena at (${p.x.toFixed(1)}, ${p.y.toFixed(1)})`)
+      },
+    })
+    assert.ok(shoved > 0, 'shove: an invulnerable player in the blast crest was not shoved')
+    assert.ok(out && Math.hypot(p.x - bx, p.y - by) > d0 + 20, `shove: not pushed outward (${d0.toFixed(0)} -> ${Math.hypot(p.x - bx, p.y - by).toFixed(0)})`)
+    assert.strictEqual(r.dmgBySrc.ophanBlast ?? 0, 0, 'shove: the blast hurt an invulnerable player')
+  }
+  console.log(`PASS run OP.attacks: 6 attacks on/off [${rows.join('; ')}], a staked feather is harmless, recovery x2, invulnerable shove ${shoved.toFixed(0)}px/s outward, kept in the arena`)
+}
+
+// THE POOL by difficulty: what the scheduler starts, and the phase each one started at
+function ophPoolRec(r, secs, seen, until) {
+  const o = r.script.oph
+  return ophSteps(r, secs * 60, { until, before: () => { r.events.length = 0 }, after: () => {
+    for (const e of r.events) if (e.type === 'ophanAttack') seen.push([e.k, o.ph])
+  } }) / 60
+}
+function ophBreakN(r, m) {
+  for (let i = 0; i < m; i++) {
+    const o = r.script.oph, b = ophBoss(r)
+    o.world = o.skin; b.hp = OPHAN_BREAK_FLOOR + 1
+    dealDamage(r, b, 5, false); stepSim(r, { x: 0, y: 0 }, 1 / 60)
+  }
+}
+function ophPoolRun(diff, seed) {
+  const r = ophanRun(diff, seed)
+  r.script.oph.crowdT = 1e9; r.weapons = []; r.player.hp = r.player.maxHP = 1e9
+  return r
+}
+function testOphanAttackPool() {
+  const set = (s) => [...new Set(s.map(([k]) => k))].sort().join(',')
+  const d1 = [], d2a = [], d2b = [], d3 = []
+  ophPoolRec(ophPoolRun(1, 21), 300, d1)
+  assert.strictEqual(set(d1), 'blast,sword', `d1: 300s started ${set(d1)}`)
+  const r2 = ophPoolRun(2, 22)
+  ophPoolRec(r2, 180, d2a)
+  assert.strictEqual(set(d2a), 'blast,sword,tornado', `d2 at phase 1: 180s started ${set(d2a)}`)
+  ophBreakN(r2, 2)
+  ophPoolRec(r2, 120, d2b)
+  const las = d2b.filter(([k]) => k === 'laser')
+  assert.ok(las.length > 0, `d2 after two breaks: no laser in ${d2b.length} attacks`)
+  assert.ok(las.every(([, ph]) => ph > 1.9), `d2: a laser started at phase ${Math.min(...las.map(([, ph]) => ph)).toFixed(2)}`)
+  const r3 = ophPoolRun(3, 23)
+  ophBreakN(r3, 4)
+  // until all six have started: about 5 attacks a minute, so 600 s misses one with p < 1e-3
+  const t3 = ophPoolRec(r3, 600, d3, () => set(d3) === 'blast,laser,recall,sword,tornado,wheel')
+  assert.strictEqual(set(d3), 'blast,laser,recall,sword,tornado,wheel', `d3: ${d3.length} attacks started ${d3.map(([k]) => k).join(' ')}`)
+  console.log(`PASS run OP.pool: d1 300s ${d1.length} attacks {${set(d1)}}, d2 phase 1 180s ${d2a.length} {${set(d2a)}} then 120s ${d2b.length} with ${las.length} laser(s) all at ph > 1.9, d3 all six by ${t3.toFixed(0)}s in ${d3.length}`)
 }
 
 // run OP.wire: render.js and src/ophan/renderer.js are not importable (Pixi + DOM), so their
