@@ -7,7 +7,8 @@
 //   ?check          imports every in-game painter, calls boss() at phases 1-4 and attack() for every attack at
 //                   u 0.1/0.5/0.9 into a px2d, prints OPH-CHECK ok N or the first throw (strict-mode globals surface here)
 //   ?drift=<look>   loads scripts/ophan-drift/approved/<look>.js as a classic script wrapped into OPHAN['<look>~A'] and
-//                   exposes DRIFT(st, state, cand2d): the approved painter on Canvas2D vs the in-game one on px2d
+//                   exposes DRIFT(st, state, mode): the approved painter on Canvas2D vs the in-game one on px2d ('gt'), on Canvas2D
+//                   too ('c2d'), or the in-game one on Canvas2D vs itself on px2d ('self': the port alone)
 import { Application, Container } from 'pixi.js'
 import * as PAGE from './src/ophan/page.js'
 import { installPatches, PX2D } from './src/ophan/px2d.js'
@@ -73,12 +74,13 @@ if (st) {
     for (let k = 0; k < 3; k++) { px.begin(); call(P, px, s); app.render() }
     const g = cv.getContext('2d'); g.setTransform(1, 0, 0, 1, 0, 0); g.drawImage(app.canvas, 0, 0, D, D)
   }
-  window.DRIFT = async (st, s, cand2d) => {
+  window.DRIFT = async (st, s, mode) => {
     const A = OPHAN[st + '~A'], C = OPHAN[st]
     if (!A || !C) throw new Error('painter missing: ' + st)
-    draw2d(a2, A, s)
+    if (mode === 'self' && st === 'liquid') throw new Error('the Core painter is px2d-only: no Canvas2D side for --self')
+    draw2d(a2, mode === 'self' ? C : A, s)
     // the Core's in-game painter is px2d-only (game-legal): its control draws the approved one twice, as the artifact's does
-    if (cand2d) draw2d(b2, st === 'liquid' ? A : C, s); else { await pixi(); drawGT(b2, C, s) }
+    if (mode === 'c2d') draw2d(b2, st === 'liquid' ? A : C, s); else { await pixi(); drawGT(b2, C, s) }
     const a = a2.getContext('2d').getImageData(0, 0, D, D).data, b = b2.getContext('2d').getImageData(0, 0, D, D).data
     let x0 = D, y0 = D, x1 = -1, y1 = -1
     for (let y = 0; y < D; y++) for (let x = 0; x < D; x++) {

@@ -1,9 +1,11 @@
 // PIXEL-DRIFT GATE: is the IN-GAME boss painter (src/ophan/painters/<look>.js, on px2d into Pixi) still the one the owner
 // approved (scripts/ophan-drift/approved/<look>.js, on Canvas2D, its native target)?
-//   node scripts/ophan-drift.mjs <look> [--url http://127.0.0.1:5173/] [--c2d] [--out <dir>]
+//   node scripts/ophan-drift.mjs <look> [--url http://127.0.0.1:5173/] [--c2d | --self] [--out <dir>]
 // Needs `npm run dev` already serving --url: the page is ophan-drift.html?drift=<look> (a dev page, never built).
 // Both painters on one flat grey background, same frame (t = 2), same size: idle at phases 1-3 (pencil: 4) and every
 // attack at phase 3. --c2d draws the candidate on Canvas2D too: the do-nothing control, every state must read 0.00.
+// --self draws the CANDIDATE on both sides (Canvas2D vs game tech): the port alone, with no approval gap in it (not the
+// Core, whose painter is px2d-only).
 // Per state, over the boss box, in 4x4 device-px blocks (2 css px, so antialiasing half a pixel apart cancels): mean |diff|
 // (0-255, RGB) and % of blocks with a channel off by more than 48. Writes <out>/<look>-<state>.png = [approved | candidate
 // | heat]. Exit 1 if any state fails: mean > MEAN or % > BIG.
@@ -24,8 +26,8 @@ const LOOKS = ['toon', 'holo', 'pencil', 'ascii', 'macro', 'pixel', 'liquid']
 const ATTACKS = [['sword', 0.45], ['blast', 0.55], ['tornado', 0.6], ['laser', 0.7], ['wheel', 0.5], ['recall', 0.5]]
 const args = process.argv.slice(2), opt = (k) => { const i = args.indexOf(k); return i < 0 ? null : args.splice(i, 2)[1] }
 const flag = (k) => { const i = args.indexOf(k); if (i < 0) return false; args.splice(i, 1); return true }
-const url = opt('--url') || 'http://127.0.0.1:5173/', out = resolve(opt('--out') || '/tmp/ophan-drift'), c2d = flag('--c2d'), [st] = args
-if (!LOOKS.includes(st)) { console.error('usage: ophan-drift.mjs <' + LOOKS.join('|') + '> [--url U] [--c2d] [--out dir]'); process.exit(2) }
+const url = opt('--url') || 'http://127.0.0.1:5173/', out = resolve(opt('--out') || '/tmp/ophan-drift'), c2d = flag('--c2d'), self = flag('--self'), [st] = args
+if (!LOOKS.includes(st)) { console.error('usage: ophan-drift.mjs <' + LOOKS.join('|') + '> [--url U] [--c2d | --self] [--out dir]'); process.exit(2) }
 if (!existsSync(new URL('./ophan-drift/approved/' + st + '.js', import.meta.url))) { console.error('no approved painter: scripts/ophan-drift/approved/' + st + '.js'); process.exit(2) }
 const page = new URL('ophan-drift.html?drift=' + st, url).href
 try { await fetch(page) } catch { console.error('NOTHING IS SERVING ' + page + ': start npm run dev (or npx vite --port N --strictPort) and pass --url'); process.exit(2) }
@@ -54,11 +56,11 @@ await ev('document.fonts.ready.then(() => 1)'); await sleep(500)
 const ph3 = st === 'pencil' ? 4 : 3
 const states = (st === 'pencil' ? [4] : [1, 2, 3]).map((ph) => ['idle-ph' + ph, null, 0, ph])
 for (const [k, u] of ATTACKS) if (await ev('!!OPHAN[' + JSON.stringify(st) + '].attack')) states.push([k, k, u, ph3])
-console.log('drift ' + st + '  approved scripts/ophan-drift/approved/' + st + '.js  vs  candidate src/ophan/painters/' + (st === 'liquid' ? 'core' : st) + '.js' + (c2d ? (st === 'liquid' ? '  (control: the approved twice, Canvas2D)' : '  (both Canvas2D)') : '  on game tech'))
+console.log('drift ' + st + '  approved scripts/ophan-drift/approved/' + st + '.js  vs  candidate src/ophan/painters/' + (st === 'liquid' ? 'core' : st) + '.js' + (self ? '  (self: the candidate, Canvas2D vs game tech)' : c2d ? (st === 'liquid' ? '  (control: the approved twice, Canvas2D)' : '  (both Canvas2D)') : '  on game tech'))
 console.log('pass: mean <= ' + MEAN + ' and >48 <= ' + BIG + '%\n  state      mean   >48 %   box         result')
 let fail = 0
 for (const [name, atk, u, ph] of states) {
-  const r = await ev('DRIFT(' + JSON.stringify(st) + ', ' + JSON.stringify({ atk, u, t: 2, ph }) + ', ' + c2d + ')')
+  const r = await ev('DRIFT(' + JSON.stringify(st) + ', ' + JSON.stringify({ atk, u, t: 2, ph }) + ', ' + JSON.stringify(self ? 'self' : c2d ? 'c2d' : 'gt') + ')')
   const ok = r.mean <= MEAN && r.big <= BIG; if (!ok) fail++
   if (r.png) writeFileSync(join(out, st + '-' + name + '.png'), Buffer.from(r.png.split(',')[1], 'base64'))
   console.log('  ' + name.padEnd(9) + r.mean.toFixed(2).padStart(6) + r.big.toFixed(2).padStart(8) + '   ' + (r.box[2] + 'x' + r.box[3]).padEnd(11) + (ok ? 'pass' : 'FAIL'))

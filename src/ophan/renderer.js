@@ -80,7 +80,7 @@ export function createOphanRenderer(host) {
   const disc = mk(256, 256), dg = disc.getContext('2d'); dg.fillStyle = '#fff'; dg.beginPath(); dg.arc(128, 128, 127, 0, TAU); dg.fill()
   const wipeMask = new Sprite(Texture.from(disc)); wipeMask.anchor.set(0.5)
   const warmC = new Container(), wpx = PX2D(warmC, RES)   // the warm-up's own px2d: it never touches a live slot
-  let rt = null, jobs = [], raf = 0, saved = null, mine = null, entered = false
+  let rt = null, jobs = [], raf = 0, saved = null, mine = null, entered = false, sceneKey = '', lastA = null
   // the warm-up: worlds queued (or done) are not queued again; one promise settles when the queue drains
   const warmed = new Set()
   let warmP = null, warmDone = null
@@ -201,7 +201,9 @@ export function createOphanRenderer(host) {
       installPatches()
       entered = true
       const bg = app.renderer.background
-      saved = { alpha: bg.alpha, color: bg.color.toNumber(), pos: app.canvas.style.position }
+      // a fight entered again without an exit (the summary's Play again) keeps the page it first found, not the arena's
+      saved ??= { alpha: bg.alpha, color: bg.color.toNumber(), pos: app.canvas.style.position }
+      sceneKey = ''
       // the Core's melt canvas sits under Pixi's: Pixi clears transparent (and black: it composites as added light) and is
       // positioned so it paints over it (liquid.js enter)
       bg.color = 0x000000; bg.alpha = 0; app.canvas.style.position = 'relative'
@@ -218,7 +220,7 @@ export function createOphanRenderer(host) {
         if (app.renderer.background.color.toNumber() === mine.color) app.renderer.background.color = saved.color
         if (app.canvas.style.position === mine.pos) app.canvas.style.position = saved.pos
       }
-      saved = mine = null
+      saved = mine = null; sceneKey = ''
       for (const s of Object.values(slots)) { s.wrap.visible = false; if (s.glc) s.glc.style.display = 'none' }
       // a warm-up cut short is queued again next time; its waiters are released, not left hanging
       if (jobs.length) { jobs = []; warmed.clear() }
@@ -239,7 +241,10 @@ export function createOphanRenderer(host) {
     },
     sync(run, dt, view) {
       const oph = run.script?.oph, wi = oph ? oph.world : 0, wipe = oph?.wipe ?? null
-      const A = slot(worlds[wipe ? wipe.from : wi].look), B = wipe ? slot(worlds[wi].look) : null
+      // never a slot built mid-fight (a hitch): a world not yet warm is not drawn, the last A held, B left out of the wipe
+      // until it is (main.js awaits the prewarm, so play never meets one; the gauge's dim on a cold world is Task 9's)
+      const built = (k) => (slots[worlds[k].look]?.warm ? slots[worlds[k].look] : null)
+      const A = (lastA = built(wipe ? wipe.from : wi) ?? lastA ?? slot(worlds[0].look)), B = wipe ? built(wi) : null
       const core = slots.liquid
       // the camera: the arena's rest framing (ophanView) is what each slot's stage px are laid out in; the game camera's
       // zoom and shake off it move every slot, its floor, crowd and boss alike (zr, dx, dy), as they move render.js's world
@@ -253,12 +258,20 @@ export function createOphanRenderer(host) {
       const p = run.player, psx = (p.x - view.left) * view.zoom, psy = (p.y - view.top) * view.zoom
 
       // the scene: world A, world B inside the wipe's circle round the player, the hole the Core comes in through
-      scene.removeChildren(); scene.mask = null
-      for (const s of Object.values(slots)) { s.wrap.visible = false; s.wrap.mask = null }
-      for (const s of [A, B]) if (s) { s.wrap.visible = true; scene.addChild(s.wrap); place(s, s.wrap) }
-      if (B) { wipeMask.position.set(psx, psy); wipeMask.width = wipeMask.height = 2 * wipe.r * view.zoom; scene.addChild(wipeMask); B.wrap.mask = wipeMask }
+      // (re-parented and re-masked only when A, B or the hole change, not every frame)
+      const key = A.id + '|' + (B ? B.id : '')
+      if (key !== sceneKey) {
+        sceneKey = key
+        scene.removeChildren(); scene.mask = null
+        for (const s of Object.values(slots)) { s.wrap.visible = false; s.wrap.mask = null }
+        for (const s of [A, B]) if (s) { s.wrap.visible = true; scene.addChild(s.wrap) }
+        if (B) { scene.addChild(wipeMask); B.wrap.mask = wipeMask }
+        if (B && B === core) scene.setMask({ mask: hole, inverse: true })
+      }
+      for (const s of [A, B]) if (s) place(s, s.wrap)
+      if (B) { wipeMask.position.set(psx, psy); wipeMask.width = wipeMask.height = 2 * wipe.r * view.zoom }
       hole.clear()
-      if (B && B === core) { hole.circle(psx, psy, wipe.r * view.zoom).fill(0xffffff); scene.setMask({ mask: hole, inverse: true }) }
+      if (B && B === core) hole.circle(psx, psy, wipe.r * view.zoom).fill(0xffffff)
       ring.clear()
       if (wipe) ring.circle(psx, psy, wipe.r * view.zoom).stroke({ width: 3, color: worlds[wi].col })
       if (core?.glc) core.glc.style.display = A === core || B === core ? 'block' : 'none'
@@ -278,8 +291,9 @@ export function createOphanRenderer(host) {
       // pass when the player stands in it, pasted in over a foreign world (or a wipe) otherwise; gone once the last skin breaks
       opx.begin(); for (const s of Object.values(slots)) s.px.begin()
       const alive = run.enemies.some((e) => e.rosterId === 'ophan' && !e._dead)
-      if (alive) {
-        const S = slot(worlds[oph ? oph.skin : wi].look), inPass = !wipe && S === A, z = z0 / S.k
+      const S = slots[worlds[oph ? oph.skin : wi].look]
+      if (alive && S) {
+        const inPass = !wipe && S === A, z = z0 / S.k
         place(S, overCam)
         const bx = sx(S, OPHAN_BOSS.x), by = sy(S, OPHAN_BOSS.y) + (oph?.stagger > 0 && !a ? 6 * z : 0), R = OPHAN_BOSS.R * z
         within(S.g, () => {

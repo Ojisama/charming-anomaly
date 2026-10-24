@@ -43703,6 +43703,9 @@ function testOphanRenderWiring() {
   const looks = ['macro', 'holo', 'ascii', 'pixel', 'toon', 'liquid']
   for (const k of looks) assert.ok(new RegExp(`from '\\./stages/${k}\\.js'`).test(rend), `renderer.js does not import the ${k} stage`)
   assert.ok(/glc\.style\.display\s*=\s*'none'/.test(exitBody), 'exit() leaves the Core\'s melt canvas showing')
+  const enterBody = rend.slice(rend.indexOf('enter(run) {'), rend.indexOf('exit()', rend.indexOf('enter(run) {')))
+  assert.ok(/saved\s*\?\?=/.test(enterBody) && !/saved\s*=\s*\{/.test(enterBody),
+    'enter() re-snapshots the page on a second entry with no exit (Play again): it saves the arena\'s own background and a later chapter is left transparent')
   const ophDir = new URL('../src/ophan/', import.meta.url), ophFiles = []
   for (const d of ['', 'painters/', 'stages/']) for (const f of readdirSync(new URL(d, ophDir))) if (f.endsWith('.js')) ophFiles.push(d + f)
   for (const f of ophFiles) assert.ok(!/__liquid|createCoreBoss/.test(readFileSync(new URL(f, ophDir), 'utf8')), `src/ophan/${f} reaches for the artifact's Core debug paths (__liquid / createCoreBoss)`)

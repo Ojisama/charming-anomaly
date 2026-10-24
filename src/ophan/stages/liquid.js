@@ -50,7 +50,8 @@ export default function stage(app, { W, H }) {
   api.update(0)   // the first sync sizes the gl canvas (core.resize): the texture wraps it at that size
   if (!app.renderer.gl.getContextAttributes().alpha) {
     glc.style.display = 'none'
-    melt = new Sprite(new Texture({ source: new CanvasSource({ resource: glc, resolution: glc.width / W }) }))
+    api.glc = null   // drawn through the sprite, never shown: nothing may toggle it back on
+    melt =new Sprite(new Texture({ source: new CanvasSource({ resource: glc, resolution: glc.width / W }) }))
     app.stage.addChildAt(melt, 0)
   }
   return api
