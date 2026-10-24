@@ -10,7 +10,7 @@ import { hash, decide, isOwnLostAck, schemaOk, deriveDirty, readRecord, writeRec
 // pure functions are testable here with no network. See run LB.
 import { validNick, podiumRank, NICK_MIN, NICK_MAX } from '../src/scores.js'
 // input.js touches the DOM only inside initInput, so its pure steering math imports headlessly.
-import { steerFromAnchor, getInput, pressWorld } from '../src/input.js'
+import { steerFromAnchor, getInput, pressWorld, initInput } from '../src/input.js'
 // fr.js is pure data (no Pixi, no DOM), so run XX can check it here — see testFrenchDictionary.
 import { FR } from '../src/fr.js'
 // holo.js's shader strings are plain data, and Pixi's precision preprocessor is a pure function:
@@ -43405,6 +43405,16 @@ function testOphanWorlds() {
       e.speed === base.speed * row.speedMul * r.mods.enemySpeedMul && e.dmg === base.dmg * r.mods.enemyDmgMul * (row.dmgMul ?? 1) &&
       e.radius === base.radius * r.mods.enemyRadiusMul * (row.radiusMul ?? 1), 'h2: the turned creature kept the old row\'s stats')
     assert.ok(jump <= 1e-6, `h2: it moved ${jump.toFixed(2)}px past its own walk in one step (a respawn)`)
+    assert.strictEqual(e.xp, base.xp * (row.xpMul ?? 1), 'h2: the turned creature kept the old row\'s xp')
+    // the one crowd row with an xpMul: a mole cricket turning into a spinning top is worth 2x
+    o.world = 0
+    ophSteps(r, 600, { before: () => { o.crowdT = 0 }, until: () => crowdOf(r).some((x) => x.rosterId === 'moleCricket') })
+    const c = crowdOf(r).find((x) => x.rosterId === 'moleCricket')
+    assert.ok(c, 'h2: no mole cricket to turn')
+    o.crowdT = 1e9; stepSim(r, W(5), dt); ophSteps(r, 60)
+    const top = CHAPTERS.ophan.roster.find((x) => x.id === 'spinningTop')
+    assert.ok(c.rosterId === 'spinningTop' && c.xp === ENEMIES[ARCHETYPE_TYPE[top.archetype]].xp * top.xpMul && top.xpMul !== 1,
+      `h2: a turned spinning top is worth ${c.xp} xp`)
   }
   // h3 several presses inside one wipe: the last world wins, everyone turns, the wipe ends
   {
@@ -43485,7 +43495,20 @@ function testOphanWorlds() {
   assert.strictEqual(getInput().world, -1, 'h8: getInput without a press does not say world -1')
   pressWorld(3)
   assert.ok(getInput().world === 3 && getInput().world === -1, 'h8: a world press is not latched and cleared on read')
-  assert.ok(/Digit/.test(readFileSync(new URL('../src/input.js', import.meta.url), 'utf8')), 'h8: input.js binds no digit key')
+  // ...and the digit keys reach it: initInput on a stub DOM, then a real Digit3 keydown
+  {
+    const on = {}, el = () => ({ style: {}, classList: { add() {}, remove() {} }, querySelector: el, appendChild() {} })
+    const keep = [globalThis.window, globalThis.document]
+    globalThis.window = { addEventListener: (t, f) => { on[t] = f }, dispatchEvent() {} }
+    globalThis.document = { createElement: el, getElementById: el, addEventListener() {} }
+    try {
+      initInput({ addEventListener() {} })
+      on.keydown({ code: 'Digit3', repeat: false, target: null })
+      assert.strictEqual(getInput().world, 2, 'h8: Digit3 does not press world 2')
+      on.keydown({ code: 'Digit7', repeat: false, target: null }); on.keyup({ code: 'Digit7' })
+      assert.strictEqual(getInput().world, -1, 'h8: Digit7 pressed a world')
+    } finally { [globalThis.window, globalThis.document] = keep }
+  }
   console.log(`PASS run OP.worlds: switch + refuse, turn in place on the wipe, 3 presses -> one world, press survives hitstop, resonance only when caught (stagger ${caught.stagger}), 120s d3: ${atkN} attacks, ${gaps.length} swap gaps >= ${Math.min(...gaps).toFixed(2)}s, phases 2 and 3`)
 }
 

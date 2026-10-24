@@ -1752,7 +1752,8 @@ function ophanPin(run) {
 }
 
 // A crowd body crossed by the wipe becomes world k's creature of the same archetype, where it
-// stands, with the same share of its hp.
+// stands, with the same share of its hp. It ignores the new row's maxAlive, as the Ophan's spawner
+// does (a forced rosterId skips it): the arena's OPHAN_CROWD cap is the ceiling here.
 function ophanTurn(run, e, k) {
   const ch = CHAPTERS[run.chapter]
   const arch = ch.roster.find((r) => r.id === e.rosterId).archetype
@@ -1760,7 +1761,9 @@ function ophanTurn(run, e, k) {
   const share = e.hp / e.maxHP
   e.rosterId = roster.id; e.world = k
   pinBlankStats(run, e, roster)
-  e.radius = ENEMIES[ARCHETYPE_TYPE[arch]].radius * run.mods.enemyRadiusMul * (roster.radiusMul ?? 1)
+  const base = ENEMIES[ARCHETYPE_TYPE[arch]]
+  e.radius = base.radius * run.mods.enemyRadiusMul * (roster.radiusMul ?? 1)
+  e.xp = base.xp * (roster.xpMul ?? 1)
   e.hp = roundHP(share * e.maxHP)
 }
 

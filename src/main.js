@@ -125,6 +125,7 @@ async function staleBuild() {
 const briefData = (p, extra) => ({ chapterId: p.chapter, difficulty: p.difficulty, mutators: p.mutators, reroll: !CHAPTERS[p.chapter].scripted && !p.endless, endless: p.endless, ...extra })
 function beginRun() {
   devSpeed = 1
+  getInput(renderer.playerScreen)   // drops a skill or world press latched on the title screen
   ffTarget = 0
   if (new URLSearchParams(location.search).has('debug')) window.__run = run
   renderer.reset(run)
@@ -1188,7 +1189,7 @@ app.ticker.add((ticker) => {
     let events = run.events
     run.events = []
     // devSpeed is 1 outside DEV, so a normal run takes exactly the single step above.
-    const extra = { ...input, skill: false }   // a latched skill press fires once, not devSpeed times
+    const extra = { ...input, skill: false, world: -1 }   // a latched skill or world press fires once, not devSpeed times
     for (let i = 1; i < devSpeed && run.phase === 'playing'; i++) {
       stepSim(run, extra, dt)
       events = events.concat(run.events)
@@ -1239,6 +1240,7 @@ app.ticker.add((ticker) => {
     if (run.deathT >= DEATH_OUTRO.time) endRun(false)
   } else {
     renderer.sync(run, 0, [])   // frozen world behind modals
+    getInput(renderer.playerScreen)   // ...and a skill or world press made behind them is dropped, not carried into play
   }
 })
 
