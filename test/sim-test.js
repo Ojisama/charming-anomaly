@@ -43699,6 +43699,14 @@ function testOphanRenderWiring() {
   assert.ok(/background\.alpha/.test(exitBody) && /style\.position/.test(exitBody), 'exit() does not restore the renderer background / canvas position')
   assert.ok(!/^installPatches\(\)/m.test(strip(readFileSync(new URL('../src/ophan/px2d.js', import.meta.url), 'utf8'))), 'px2d patches at module scope')
   assert.ok(/uninstallPatches\(\)/.test(exitBody), 'exit() leaves px2d patches on every other chapter\'s bakes')
+  // the six worlds' stages, the Core's melt canvas hidden on the way out, and none of the artifact's Core debug paths
+  const looks = ['macro', 'holo', 'ascii', 'pixel', 'toon', 'liquid']
+  for (const k of looks) assert.ok(new RegExp(`from '\\./stages/${k}\\.js'`).test(rend), `renderer.js does not import the ${k} stage`)
+  assert.ok(/glc\.style\.display\s*=\s*'none'/.test(exitBody), 'exit() leaves the Core\'s melt canvas showing')
+  const ophDir = new URL('../src/ophan/', import.meta.url), ophFiles = []
+  for (const d of ['', 'painters/', 'stages/']) for (const f of readdirSync(new URL(d, ophDir))) if (f.endsWith('.js')) ophFiles.push(d + f)
+  for (const f of ophFiles) assert.ok(!/__liquid|createCoreBoss/.test(readFileSync(new URL(f, ophDir), 'utf8')), `src/ophan/${f} reaches for the artifact's Core debug paths (__liquid / createCoreBoss)`)
+  assert.ok(ophFiles.includes('painters/core.js') && ophFiles.includes('stages/liquid.js'), 'the Core painter / stage is missing from the sweep: ' + ophFiles.join(','))
   const sig = ui.match(/const pillSig = [^\n]*/)?.[0] ?? ''
   assert.ok(/\bon\b/.test(sig), 'the boss-bar pill signature ignores the current skin')
   assert.ok(/pillCols/.test(sig), 'the boss-bar pill signature ignores the skin colours')

@@ -1,0 +1,801 @@
+// The Ophan in the Core look (liquid), round 25 (geometry from OPHAN_RIG): the seraph in three phases (sealed; six wings + four eyes; the great eye opens), poured in mercury chrome. Owned by the liquid artist.
+// Contract: bg(c, w, t) paints a w x w tile floor; boss(c, x, y, R, t, ph) paints the boss centred at x,y, body radius ~R
+// (also used by the phone mock-up, over the level); post(c, w, t) is a full-res overlay after both.
+// Shape and motion come from OPHAN_RIG (cru/rig.js): this file only renders them.
+// How: each wing and the feather core is a metaball FIELD shaded as mirror chrome (src/liquid/gl.js chrome()), baked ONCE per size
+// into offscreen canvases; boss() only transforms them (each pair flexes and breathes, out of phase) and crossfades two lamp phases.
+OPHAN.liquid = (() => {
+  const SPAN = 3.2, TH = .2, DEP = .6, FW = .03;   // a tight meniscus edge: metal, not a soft filter
+  const SILV = [.6, .64, .7], NC = [1.25, .2, .22];
+  const nrm = (x, y, z) => { const l = Math.hypot(x, y, z); return [x/l, y/l, z/l]; };
+  const LE = nrm(.3, .75, .6), L1 = nrm(-.5, -.6, .62), L2 = nrm(.55, .5, .66);
+  const ss = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a)/(b - a))); return t*t*(3 - 2*t); };
+  // 64x64 tileable value noise (the shader's cloud channel)
+  const NZ = 64, noise = new Float32Array(NZ*NZ);
+  { const P = 8, g = []; for (let i=0;i<P*P;i++) g.push(hh(i, 41));
+    for (let y=0;y<NZ;y++) for (let x=0;x<NZ;x++){ const fx = x/NZ*P, fy = y/NZ*P, ix = fx|0, iy = fy|0, tx = ss(0,1,fx-ix), ty = ss(0,1,fy-iy),
+      a = g[iy%P*P + ix%P], b = g[iy%P*P + (ix+1)%P], c = g[(iy+1)%P*P + ix%P], d = g[(iy+1)%P*P + (ix+1)%P];
+      noise[y*NZ + x] = a + (b-a)*tx + (c + (d-c)*tx - a - (b-a)*tx)*ty; } }
+  const n0 = (x, y) => noise[((y%NZ + NZ)%NZ)*NZ + ((x%NZ + NZ)%NZ)];
+  const nz = (x, y) => { const ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy, a = n0(ix, iy), b = n0(ix+1, iy);
+    return a + (b - a)*fx + (n0(ix, iy+1) + (n0(ix+1, iy+1) - n0(ix, iy+1))*fx - a - (b - a)*fx)*fy; };
+  // shade one baked field (W x H texels, K texels per unit) as mirror chrome; ph slides the swells and the strip lamps
+  function shade(F, W, H, K, ph, out){
+    const o = out.data, HP = .09*K, drift = ph*.6, q = 60/K;
+    for (let y=2;y<H-2;y++) for (let x=2;x<W-2;x++){
+      const i = y*W + x, f = F[i*4+1]/255;
+      if (f < TH - FW) continue;
+      const gx = (F[i*4+9] - F[i*4-7])/1020, gy = (F[(i+2*W)*4+1] - F[(i-2*W)*4+1])/1020;
+      const u = Math.min(1, Math.max(0, (f - TH)/DEP)), dh = 2*(1 - u)/DEP*HP;
+      const sw = u*u, wx = x*.07*q + ph*.15, wy = y*.07*q - ph*.1;
+      let sx = -gx*dh + sw*(nz(wx + .5, wy) - nz(wx - .5, wy)), sy = -gy*dh + sw*(nz(wx, wy + .5) - nz(wx, wy - .5)); const sl = Math.hypot(sx, sy); if (sl > 2.2){ sx *= 2.2/sl; sy *= 2.2/sl; }
+      const [nx, ny, n3] = nrm(sx, sy, 1), lit = ss(TH, TH + FW*2.5, f);
+      const red = F[i*4]/(F[i*4+1] + 1), pale = F[i*4+2]/(F[i*4+1] + 1);
+      const pl = ss(.3, .95, pale), tr = (SILV[0] + (NC[0] - SILV[0])*red)*(1 - pl) + 1.1*pl, tg = (SILV[1] + (NC[1] - SILV[1])*red)*(1 - pl) + 1.12*pl, tb = (SILV[2] + (NC[2] - SILV[2])*red)*(1 - pl) + 1.2*pl;
+      const rx = 2*n3*nx, ry = 2*n3*ny, rz = 2*n3*n3 - 1;
+      const cloud = nz(x*.12*q + nx*3 + drift, y*.12*q + ny*3 + drift*.7);
+      const e = rx*LE[0] + ry*LE[1] + rz*LE[2] + (cloud - .5)*.32;
+      const gr = .2 + .22*nz(x*.15*q + rx*5 + 31, y*.15*q + ry*5 + 17), grd = gr*1.15 + .03;
+      const sk = ss(.08, .65, e), cm = (.45 + 1.1*cloud*cloud);
+      const sr = (tr*1.7*(1-sk) + (tr*.2 + .03)*sk)*cm, sg = (tg*1.7*(1-sk) + (tg*.2 + .034)*sk)*cm, sb = (tb*1.7*(1-sk) + (tb*.2 + .04)*sk)*cm;
+      const hz = ss(-.04, .04, e);
+      let r = grd + (sr - grd)*hz, g = grd + (sg - grd)*hz, b = grd*1.03 + (sb - grd*1.03)*hz;
+      const hot = Math.exp(-Math.abs(e)*30)*.85*lit; r += hot; g += .94*hot; b += .86*hot;
+      const k1 = Math.pow(Math.max(0, rx*L1[0] + ry*L1[1] + rz*L1[2]), 36)*2.4*lit; r += k1; g += k1; b += k1;
+      const k2 = Math.pow(Math.max(0, rx*L2[0] + ry*L2[1] + rz*L2[2]), 40)*.35; r += k2; g += .7*k2; b += .55*k2;
+      const band = Math.sin((rx*.8 + ry*.6)*7 + rz*3 + cloud*2.5 + ph*.5), bl = ss(.82, .95, band)*(1 - .55*ss(.6, 1, rz))*.6*lit;
+      r += bl; g += bl; b += bl*1.05;
+      const fr = Math.pow(1 - n3, 1.6)*.45; r += tr*fr; g += tg*fr; b += tb*fr;
+      if (pale > .3){ const w = pl*pl*.45; r += w; g += w*.97; b += w*.92; }
+      const rim = 1 - .85*(1 - ss(TH, TH + FW*3, f));
+      const j = i*4; o[j] = Math.min(1, r)*rim*255; o[j+1] = Math.min(1, g)*rim*255; o[j+2] = Math.min(1, b)*rim*255;
+      o[j+3] = 255*ss(TH - FW, TH + FW, f);
+    }
+  }
+  // bake parts (unit coords) in box [x0,y0,x1,y1]: the field is splatted, blurred (= the falloff, lobes fuse), read back and shaded
+  // at two lamp phases (crossfaded live, so the mirror keeps moving at zero per-frame shading cost), plus a soft black shadow.
+  // parts: { pts | circle | ring | lines(+lw), m: 'm' steel | 'r' red | 'p' pale, k: red share, z: depth }
+  function bake(parts, box, K, deco){
+    const [x0, y0, x1, y1] = box, W = Math.ceil((x1 - x0)*K), H = Math.ceil((y1 - y0)*K), v = 80;
+    const A = mk(W, H), ga = A.getContext('2d');
+    ga.globalCompositeOperation = 'copy'; ga.fillStyle = '#000'; ga.fillRect(0,0,W,H); ga.globalCompositeOperation = 'lighter';   // opaque: getImageData un-premultiplies
+    ga.setTransform(K,0,0,K,-x0*K,-y0*K); ga.lineCap = ga.lineJoin = 'round';
+    for (const p of parts){
+      const vv = Math.round(v*(p.z || 1));
+      ga.fillStyle = ga.strokeStyle = 'rgb(' + (p.m === 'r' ? Math.round(vv*(p.k || 1)) : 0) + ',' + vv + ',' + (p.m === 'p' ? vv : 0) + ')'; ga.beginPath();
+      if (p.lines){ ga.lineWidth = p.lw || .06; for (const [a,b,d,e] of p.lines){ ga.moveTo(a,b); ga.lineTo(d,e); } ga.stroke(); continue; }
+      if (p.ring){ ga.lineWidth = p.ring[3]; ga.arc(p.ring[0], p.ring[1], p.ring[2], 0, TAU); ga.stroke(); continue; }
+      if (p.circle) ga.arc(p.circle[0], p.circle[1], p.circle[2], 0, TAU);
+      else p.pts.forEach(([x,y], i) => i ? ga.lineTo(x,y) : ga.moveTo(x,y));
+      ga.fill();
+    }
+    const Bc = mk(W, H), gb = Bc.getContext('2d', { willReadFrequently: true });
+    gb.filter = 'blur(' + (.026*K).toFixed(2) + 'px)'; gb.drawImage(A, 0, 0); gb.filter = 'none';
+    const F = gb.getImageData(0, 0, W, H).data, out = [];
+    for (const ph of [0, 5]){
+      const C = mk(W, H), g = C.getContext('2d'), im = g.createImageData(W, H); shade(F, W, H, K, ph, im); g.putImageData(im, 0, 0);
+      if (deco){ g.setTransform(K,0,0,K,-x0*K,-y0*K); deco(g); }
+      out.push(C);
+    }
+    const Hc = mk(W, H), im0 = out[0].getContext('2d').getImageData(0, 0, W, H), d = im0.data;   // the highlight map: only the brightest chrome
+    for (let i=0;i<d.length;i+=4){ const l = (d[i] + d[i+1] + d[i+2])/765; d[i] = d[i+1] = d[i+2] = 255; d[i+3] = d[i+3]*(.5 + .5*ss(.25, .75, l)); }   // the whole wing catches the band softly, its chrome peaks fully
+    Hc.getContext('2d').putImageData(im0, 0, 0);
+    const S = mk(W, H), gs = S.getContext('2d'); gs.filter = 'brightness(0) blur(' + (.05*K).toFixed(2) + 'px)'; gs.drawImage(out[0], 0, 0);
+    return { c: out, s: S, hl: Hc, x0, y0, w: x1 - x0, h: y1 - y0 };
+  }
+  // draw a baked piece in unit space, its two lamp phases crossfaded by m
+  const put = (c, P, m) => { c.drawImage(P.c[0], P.x0, P.y0, P.w, P.h); if (m > .01){ c.globalAlpha = m; c.drawImage(P.c[1], P.x0, P.y0, P.w, P.h); c.globalAlpha = 1; } };
+  // THE SERAPH, from the rig's shape: per wing, the bake parts -- the poured sheet, the blades (each with its tip bead), the
+  // red-steel coverts, the arm ridge (the eyes sit in it)
+  const RIG = OPHAN_RIG;
+  const W = RIG.WINGS.map((Wg) => { const P = [], [rx, ry] = Wg.root;
+    for (const q of Wg.feathers){ P.push({ pts: q.l.concat(q.r.slice().reverse()), m: 'm', z: 1.05 }); if (q.bead) P.push({ circle: [q.bead.x, q.bead.y, q.bead.r], m: 'm', z: 1.15 }); }
+    P.unshift({ pts: [[rx, ry]].concat(Wg.feathers.map((q) => q.sp[Wg.pour])), m: 'm', z: .95 });
+    for (const q of Wg.coverts) P.push({ pts: q.l.concat(q.r.slice().reverse()), m: 'r', k: .3, z: 1.0 });
+    P.push({ lines: [Wg.arm], lw: .17, m: 'r', k: .35, z: 1.15 });
+    return { P, F: Wg.feathers, T: Wg.tips, root: Wg.root }; });
+  const EXT = RIG.WINGS.map((Wg) => { const [rx, ry] = Wg.root, ca = Math.cos(Wg.th), sa = Math.sin(Wg.th); return Math.max(...Wg.tips.map(([x, y]) => (x - rx)*ca + (y - ry)*sa)); });
+  const PEEL = RIG.WINGS.map((Wg) => Wg.feathers.map((_, n) => n).filter((n) => n % 2 === 1));   // every other feather of every wing
+  const PIDX = (() => { let k = 0; return PEEL.map((p) => { const o = {}; for (const n of p) o[n] = k++; return o; }); })();
+  const wingParts = (Wg, keep) => { const P = [], [rx, ry] = Wg.root, F = Wg.feathers.filter((_, n) => keep(n));
+    for (const q of F){ P.push({ pts: q.l.concat(q.r.slice().reverse()), m: 'm', z: 1.05 }); if (q.bead) P.push({ circle: [q.bead.x, q.bead.y, q.bead.r], m: 'm', z: 1.15 }); }
+    P.unshift({ pts: [[rx, ry]].concat(Wg.feathers.map((q) => q.sp[Wg.pour])), m: 'm', z: .95 });
+    for (const q of Wg.coverts) P.push({ pts: q.l.concat(q.r.slice().reverse()), m: 'r', k: .3, z: 1.0 });
+    P.push({ lines: [Wg.arm], lw: .17, m: 'r', k: .35, z: 1.15 });
+    return { P, F, root: Wg.root }; };
+  const CORE = RIG.CORE.map((q) => ({ pts: q.l.concat(q.r.slice().reverse()), m: 'm', z: 1.05 }));
+  const boxOf = (P, pad) => { let x0 = 9, y0 = 9, x1 = -9, y1 = -9;
+    for (const p of P){ const pts = p.circle ? [[p.circle[0] - p.circle[2], p.circle[1] - p.circle[2]], [p.circle[0] + p.circle[2], p.circle[1] + p.circle[2]]] : p.pts || p.lines.map(([a, b, d, e]) => [[a, b], [d, e]]).flat(); for (const [x, y] of pts){ x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); } }
+    return [x0 - pad, y0 - pad, x1 + pad, y1 + pad]; };
+  // baked over the chrome: light RUNNING down each feather like a wet sheen (a sliver that swells and thins as it flows,
+  // different on every feather), a catch-light on each tip bead, and the talons' honed points
+  const wingDeco = (Wg) => (g) => {
+    // the poured sheet: the metal runs out of the root in rivulets, one into each feather, a dark furrow beside a bright crest
+    const [rx, ry] = Wg.root; g.lineCap = 'round';
+    for (const q of Wg.F){ const [ax, ay] = q.sp[0], [bx, by] = q.sp[4], mx = (rx + ax)/2 + (q.j)*.04, my = (ry + ay)/2 - q.j*.03;
+      for (const [col, lw, o] of [['rgba(8,9,12,.45)', .026, .018], ['rgba(255,255,255,.5)', .01, -.004], ['rgba(255,255,255,.9)', .004, -.006]]){
+        g.strokeStyle = col; g.lineWidth = lw; g.beginPath(); g.moveTo(rx + o, ry + o); g.quadraticCurveTo(mx + o, my + o, ax + o, ay + o); g.quadraticCurveTo((ax + bx)/2 + o, (ay + by)/2 + o, bx + o, by + o); g.stroke(); } }
+    for (const q of Wg.F){ const k0 = 2 + Math.round(1.5 + 1.5*q.j), k1 = q.tal ? 7 : 9, ph = q.j*9, side = [], spine = [];
+      for (let k=k0;k<=k1;k++){ const [lx, ly] = q.l[k], [sx, sy] = q.sp[k], m = .12 + .3*Math.pow(Math.sin(Math.PI*(k - k0)/(k1 - k0)), 1.5)*(.7 + .3*Math.sin(k*1.9 + ph));
+        side.push([lx + (sx - lx)*.08, ly + (sy - ly)*.08]); spine.push([lx + (sx - lx)*m, ly + (sy - ly)*m]); }
+      const [ax, ay] = side[0], [bx, by] = side[side.length - 1], hg = g.createLinearGradient(ax, ay, bx, by);
+      hg.addColorStop(0, 'rgba(255,255,255,0)'); hg.addColorStop(.3 + .2*q.j, 'rgba(255,255,255,.7)'); hg.addColorStop(1, 'rgba(255,255,255,.08)');
+      g.fillStyle = hg; g.beginPath(); side.concat(spine.reverse()).forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.fill();
+      if (!q.tal && q.j > -.3){ const [tx, ty] = q.sp[10]; g.fillStyle = 'rgba(255,255,255,.85)'; g.beginPath(); g.arc(tx - .008, ty - .01, .009, 0, TAU); g.fill(); } }
+    for (const q of Wg.F){ if (!q.tal) continue;
+      const tip = q.l.slice(6).concat(q.r.slice(6).reverse()), [ax, ay] = q.sp[6], [tx, ty] = q.sp[10], gr = g.createLinearGradient(ax, ay, tx, ty);
+      gr.addColorStop(0, 'rgba(26,28,34,0)'); gr.addColorStop(.3, '#1c1e24'); gr.addColorStop(.8, '#5a0a0c'); gr.addColorStop(1, '#ff3b2f');
+      g.fillStyle = gr; g.beginPath(); tip.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.fill();
+      g.strokeStyle = 'rgba(235,240,248,.8)'; g.lineWidth = .006; g.beginPath(); q.l.slice(6).forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.stroke(); }
+  };
+  const cache = new Map();
+  function rig(K){
+    let r = cache.get(K); if (r) return r;
+    r = { wings: W.map((Wg) => bake(Wg.P, boxOf(Wg.P, .08), K, wingDeco(Wg))), core: bake(CORE, boxOf(CORE, .08), K) };
+    if (SWV === 'c'){   // the sword's feathers: each wing without them, and each of them alone, in the same chrome
+      r.rag = RIG.WINGS.map((Wg, i) => { const R2 = wingParts(Wg, (n) => !PEEL[i].includes(n)); return bake(R2.P, boxOf(W[i].P, .08), K, wingDeco(R2)); });
+      r.fe = RIG.WINGS.map((Wg, i) => Wg.feathers.map((q, n) => { if (!PEEL[i].includes(n)) return null;
+        const P1 = [{ pts: q.l.concat(q.r.slice().reverse()), m: 'm', z: 1.05 }].concat(q.bead ? [{ circle: [q.bead.x, q.bead.y, q.bead.r], m: 'm', z: 1.15 }] : []);
+        return bake(P1, boxOf(P1, .06), K, wingDeco({ F: [q], root: Wg.root })); })); }
+    // everything under the wings in ONE soft layer (fill-rate is the budget): the divine rays, the molten pool, the halo, the four wings' shadows
+    r.back = soft(K, [-1.5, -1.65, 1.5, 1.4], (g) => {
+      g.save(); g.translate(0, -.1);
+      // the world it poured: the liquid floor engraved with fine radial rays (no ring: the wings are the silhouette)
+      g.strokeStyle = 'rgba(200,208,222,.06)'; g.lineWidth = .006; g.beginPath();
+      for (let k=0;k<48;k++){ const a = k/48*TAU, r1 = k%2 ? 1 : 1.15; g.moveTo(Math.cos(a)*.7, Math.sin(a)*.7); g.lineTo(Math.cos(a)*r1, Math.sin(a)*r1); } g.stroke();
+      const rg = g.createRadialGradient(0, 0, .05, 0, 0, 1.45);
+      rg.addColorStop(0, 'rgba(235,240,255,.3)'); rg.addColorStop(.35, 'rgba(195,205,232,.11)'); rg.addColorStop(1, 'rgba(160,170,200,0)');
+      g.fillStyle = rg; g.beginPath();
+      for (let k=0;k<16;k++){ const a = k/16*TAU, w = k%2 ? .05 : .1; g.moveTo(0, 0); g.arc(0, 0, 1.45*(k%2 ? .72 : 1), a - w, a + w); g.closePath(); }
+      g.fill(); g.restore();
+      g.save(); g.translate(0, .05); g.scale(1.3, 1.1);
+      const pd = g.createRadialGradient(0, 0, 0, 0, 0, 1.1);
+      for (const [o, a] of [[0, .45], [.35, .35], [.6, .18], [.8, .07], [1, 0]]) pd.addColorStop(o, 'rgba(5,6,9,' + a + ')');
+      g.fillStyle = pd; g.beginPath(); g.arc(0, 0, 1.1, 0, TAU); g.fill(); g.restore();
+      // the halo: one thin ring of bright chrome round the centre, behind every wing (an icon's nimbus)
+      g.save(); g.translate(0, -.1); g.strokeStyle = 'rgba(210,222,250,.22)'; g.lineWidth = .08; g.beginPath(); g.arc(0, 0, .52, 0, TAU); g.stroke();
+      g.strokeStyle = '#dfe6f2'; g.lineWidth = .026; g.stroke(); g.strokeStyle = 'rgba(20,22,28,.8)'; g.lineWidth = .008; g.beginPath(); g.arc(0, .006, .508, 0, TAU); g.stroke(); g.restore();
+      shadows(g, 0); shadows(g, 1); });
+    r.heat = soft(K, [-.14, -.14, .14, .14], (g) => { const hg = g.createRadialGradient(0, 0, 0, 0, 0, .14);
+      hg.addColorStop(0, 'rgba(255,60,30,.32)'); hg.addColorStop(.5, 'rgba(230,30,20,.12)'); hg.addColorStop(1, 'rgba(200,20,10,0)'); g.fillStyle = hg; g.fillRect(-.14, -.14, .28, .28); });
+    const D = r.wings[2], dx = D.x0 + D.w + .08;
+    r.downShade = soft(K, [-dx, D.y0, dx, D.y0 + D.h + .12], (g) => shadows(g, 2));
+    // the wings' shadows at rest: blurred, so the slow flex never shows the difference
+    function shadows(g, i){ const P = r.wings[i]; g.globalAlpha = .45; for (const side of [-1, 1]){ g.save(); g.scale(side*RIG.WINGS[i].scale, RIG.WINGS[i].scale); g.drawImage(P.s, P.x0 + .03, P.y0 + .06, P.w, P.h); g.restore(); } g.globalAlpha = 1; }
+    cache.set(K, r); return r;
+  }
+  // molten in motion: the wing's own highlights, lit by slow bands of light rolling outward from the root (a scratch per pair)
+  const SCR = [];
+  // Bright r18 chrome: the crests are ADDED light over the highlight map. Only the lead crest of each band rides a thin dark
+  // trough just ahead of it (a meniscus), and the rings' focus wanders off the root, so every crest bows and pools.
+  // gl/ga: one extra broad glint racing out (the laser strike)
+  function sheen(c, P, i, t, side, gl, ga){
+    const Wd = P.hl.width, Hd = P.hl.height; let s = SCR[i]; if (!s || s.width !== Wd || s.height !== Hd) s = SCR[i] = mk(Wd, Hd);
+    const g = s.getContext('2d'), k = Wd/P.w, [rx, ry] = W[i].root, ax = (rx - P.x0)*k, ay = (ry - P.y0)*k, far = Math.hypot(Wd, Hd);
+    const wb = .22*far, fx = ax + wb*Math.sin(t*.37 + i*1.7 + side), fy = ay + wb*Math.cos(t*.29 + i*2.3 - side);
+    const c0 = (t*.16 + side*.17 + i*.31 + 10)%1, B = [[.12 + .62*c0, Math.sin(Math.PI*c0)], [.12 + .62*((c0 + .5)%1), Math.sin(Math.PI*((c0 + .5)%1))]];
+    for (const dark of [true, false]){
+      g.globalCompositeOperation = 'copy'; g.drawImage(P.hl, 0, 0); g.globalCompositeOperation = 'source-in';
+      const gr = g.createRadialGradient(fx, fy, 0, ax, ay, far);
+      for (let j=0;j<=48;j++){ const f = j/48; let a = 0;
+        if (dark){ for (const [p, e] of B){ const y = (f - p - .035)/.014; a += .45*e*Math.exp(-y*y); } gr.addColorStop(f, 'rgba(12,14,20,' + Math.min(1, a).toFixed(3) + ')'); continue; }
+        for (const [p, e] of B) for (const [o, m] of [[0, 1], [.065, .6], [.13, .35]]){ const z = (f - p + o)/.028; a += e*m*Math.exp(-z*z); }
+        if (ga > .01){ const z = (f - gl)/.07; a += 1.6*ga*Math.exp(-z*z); }
+        gr.addColorStop(f, 'rgba(255,250,244,' + Math.min(1, a).toFixed(3) + ')'); }
+      g.fillStyle = gr; g.fillRect(0, 0, Wd, Hd);
+      if (!dark) c.globalCompositeOperation = 'lighter';
+      c.drawImage(s, P.x0, P.y0, P.w, P.h); c.globalCompositeOperation = 'source-over'; }
+  }
+  // idle molten life on the tips: a few beads swell, sag outward on a neck of metal and are drawn back in
+  function sags(c, Wg, t, i, side){
+    const [rx, ry] = Wg.root;
+    Wg.T.forEach(([x, y], j) => { if (j%3 !== 1) return; const s = Math.pow(ease(t*.55 + j*1.9 + i*.7 + side*.9), 3); if (s < .03) return;
+      let dx = x - rx, dy = y - ry; const l = Math.hypot(dx, dy); dx /= l; dy /= l;
+      const z = .026*(1 + .35*s), L = .015 + .11*s, X = x + dx*L, Y = y + dy*L, nx = -dy, ny = dx, nw = z*(.55 - .25*s);
+      c.fillStyle = '#b4bcc9'; c.beginPath(); c.moveTo(x + nx*z*.9, y + ny*z*.9); c.quadraticCurveTo(x + dx*L*.5 + nx*nw, y + dy*L*.5 + ny*nw, X + nx*z, Y + ny*z);
+      c.arc(X, Y, z, Math.atan2(ny, nx), Math.atan2(-ny, -nx), true); c.quadraticCurveTo(x + dx*L*.5 - nx*nw, y + dy*L*.5 - ny*nw, x - nx*z*.9, y - ny*z*.9); c.closePath(); c.fill();
+      c.strokeStyle = 'rgba(40,44,54,.75)'; c.lineWidth = .006; c.stroke();
+      c.fillStyle = '#fff'; c.beginPath(); c.ellipse(X - z*.3, Y - z*.35, z*.36, z*.46, Math.atan2(dy, dx), 0, TAU); c.fill(); });
+  }
+  // a soft layer baked at half resolution over the box [x0,y0,x1,y1]
+  function soft(K, [x0, y0, x1, y1], draw){ const k = K/2, C = mk(Math.ceil((x1 - x0)*k), Math.ceil((y1 - y0)*k)), g = C.getContext('2d');
+    g.setTransform(k, 0, 0, k, -x0*k, -y0*k); draw(g); return { c: C, x0, y0, w: x1 - x0, h: y1 - y0 }; }
+  const lay = (c, L) => c.drawImage(L.c, L.x0, L.y0, L.w, L.h);
+  const almond = (c, a, h) => { c.beginPath(); c.moveTo(-a, 0); c.quadraticCurveTo(0, -2*h, a, 0); c.quadraticCurveTo(0, 2*h, -a, 0); };
+  // an eye sunk in the mirror: a black almond pit, a red-hot iris that tracks, a slit pupil, a chrome lid; op closes it smoothly
+  // (lx, ly) is the unit look direction in the eye's own frame
+  function eye(c, x, y, rot, a, op, lx, ly, hot){
+    if (op < .01) return;
+    const h = a*.52*Math.max(.04, op);
+    c.save(); c.translate(x, y); c.rotate(rot); c.globalAlpha = Math.min(1, op*5);
+    const gl = c.createRadialGradient(0, 0, a*.2, 0, 0, a*(1.25 + .25*hot)); gl.addColorStop(0, 'rgba(255,50,30,' + Math.min(1, .7 + .3*hot)*op + ')'); gl.addColorStop(1, 'rgba(255,20,10,0)');
+    c.globalCompositeOperation = 'lighter'; c.fillStyle = gl; c.beginPath(); c.arc(0, 0, a*(1.25 + .25*hot), 0, TAU); c.fill(); c.globalCompositeOperation = 'source-over';
+    almond(c, a*1.12, h + a*.08); c.fillStyle = 'rgba(220,228,240,.9)'; c.fill();   // the chrome lid
+    almond(c, a, h); c.fillStyle = '#040304'; c.fill();
+    c.save(); c.clip();
+    const ix = lx*a*.42, iy = ly*a*.2, ir = a*.5, g = c.createRadialGradient(ix - ir*.15, iy - ir*.15, 0, ix, iy, ir);
+    g.addColorStop(0, '#fff2c8'); g.addColorStop(.25 - .1*hot, '#ff3b2f'); g.addColorStop(.75, '#8a0c0e'); g.addColorStop(1, '#1a0203');
+    c.fillStyle = g; c.beginPath(); c.arc(ix, iy, ir, 0, TAU); c.fill();
+    c.fillStyle = '#050304'; c.beginPath(); c.ellipse(ix, iy, ir*.16, ir*.8, 0, 0, TAU); c.fill();
+    c.fillStyle = '#fff'; c.beginPath(); c.arc(ix - ir*.38, iy - ir*.32, ir*.13, 0, TAU); c.fill();
+    c.restore(); c.restore();
+  }
+  const ease = (u) => .5 - .5*Math.cos(u);   // every motion is a cosine of t: continuous, eased at both ends
+  const cl = (v) => Math.min(1, Math.max(0, v));
+  const sm = (a, b, v) => { const k = cl((v - a)/(b - a)); return k*k*(3 - 2*k); };
+  // P = OPHAN_RIG.pose(...): where everything is. Q = its raw record (the lamp, glint, flare and gape this look reads)
+  function draw(c, x, y, R, t, ph, P){
+    const Q = P.raw, SK = SWD ? SWD.A.blade.form : 0, B = SK > 0 && SWV === 'a' ? Object.assign({}, P.body, { sx: P.body.sx*(1 + .4*SK), sy: P.body.sy*(1 - .3*SK) }) : P.body;   // a: the body flattens into the guard
+    const P0 = SK > 0 && SWV !== 'a' ? RIG.pose(t, ph) : null;   // b, c: the wings that are not the blade keep their idle spread
+    const m = c.getTransform(), s = Math.hypot(m.a, m.b), K = Math.max(40, Math.min(240, Math.round(R*s/1.15/8)*8));   // texels per unit, bucketed so one bake serves a range of sizes
+    const G = rig(K), lamp = ease(t*.45);
+    const open = P.beats.open;
+    c.save(); c.translate(x, y); c.scale(R, R); c.imageSmoothingEnabled = true;
+    const M0 = c.getTransform(), iv0 = M0.inverse(), [TX, TY] = P.gaze;   // where the eyes stare: the player, below it
+    const T = M0.transformPoint({ x: TX, y: TY });
+    // the eye's look, carried back into whatever mirrored, flexing, spinning frame it sits in
+    const look = (ex, ey, er) => { const M = c.getTransform(), P = M.transformPoint({ x: ex, y: ey }), iv = M.inverse(), dx = T.x - P.x, dy = T.y - P.y;
+      const gx = iv.a*dx + iv.c*dy, gy = iv.b*dx + iv.d*dy, cr = Math.cos(er), sr = Math.sin(er), lx = gx*cr + gy*sr, ly = -gx*sr + gy*cr, l = Math.hypot(lx, ly) || 1;
+      return Number.isFinite(lx + ly) ? [lx/l, ly/l, P] : [0, 1, P]; };   // edge-on mid-spin the frame is singular
+    const [, py] = B.pivot, dn = P.wings.find((w) => w.i === 2);
+    // pool, rays, halo, the wings' shadows: on the floor, so it never lifts, and on body.ground, so it stays round while the top turns
+    const gm = B.ground || B.floor; c.save(); c.transform(gm[0], gm[1], gm[2], gm[3], gm[4], gm[5]);
+    if (SWV === 'a' && SK > 0) c.globalAlpha = 1 - .85*SK;   // a: the wings are gone from the floor too
+    if (P.halo.scale !== 1){ c.save(); c.translate(0, py); c.scale(P.halo.scale, P.halo.scale); c.translate(0, -py); lay(c, G.back); c.restore(); } else lay(c, G.back);
+    c.globalAlpha = 1;
+    if (dn){ c.globalAlpha = dn.vis; lay(c, G.downShade); c.globalAlpha = 1; }
+    c.restore();
+    c.translate(B.ox || 0, B.oy || 0); c.translate(0, py); c.scale(B.sx, B.sy); c.rotate(B.rot); c.translate(0, -py);   // ox: the top's wobble, in screen space
+    // THE TOP (tornado): the body turns about the screen's vertical axis (body.yaw; body.sx = cos(yaw) already squeezes it).
+    // Chrome motion blur: the wings smeared back along the spin in fading ghosts, each at an earlier yaw
+    const spn = P.beats.spin, yaw = B.yaw || 0;
+    const wingXf = (w) => { const [rx, ry] = W[w.i].root; c.translate(w.side*rx, ry); c.scale(w.side, 1); c.rotate(w.rot); c.scale(w.scale, w.scale); c.translate(-rx, -ry); };
+    if (spn > .02) for (let k=4;k>=1;k--){
+      c.save(); c.setTransform(M0); c.translate(B.ox || 0, B.oy || 0); c.translate(0, py); c.scale(Math.cos(yaw - k*.15*spn), B.sy); c.rotate(B.rot); c.translate(0, -py); c.translate(B.dx, B.dy);
+      for (const w of P.wings){ c.save(); wingXf(w); c.globalAlpha = w.vis*spn*(.42 - .08*k); put(c, G.wings[w.i], 0); c.restore(); }
+      c.restore(); }
+    c.globalAlpha = 1;
+    c.translate(B.dx, B.dy);
+    // each pair flexes about its root and breathes (the rig's rot and scale about the root, mirrored for the left wing);
+    // mid-spin the wings swung behind the body (depth < 0) go under the core, the ones swung toward us over it
+    // THE SWORD MORPH: a wing's transform is blended from the rig's toward its place in the blade (BL), or toward its idle spread.
+    // The blade runs from the shoulders (a: the guard) to the rig's blade tip; each wing's arm is laid along it, stretched to length
+    // and narrowed, the left one mirrored across the axis, so the wings' own outline becomes the blade's
+    const lerpM = (A, Z, k) => new DOMMatrix([A.a + (Z.a - A.a)*k, A.b + (Z.b - A.b)*k, A.c + (Z.c - A.c)*k, A.d + (Z.d - A.d)*k, A.e + (Z.e - A.e)*k, A.f + (Z.f - A.f)*k]);
+    const BL = SK > 0 ? (() => { const S = SWD.A.blade, m = P.body.m, r = SWV === 'a' ? -.1 : -.2, bx = m[2]*r + m[4], by = m[3]*r + m[5];
+      return { x: bx, y: by, a: Math.atan2(S.tip.y - by, S.tip.x - bx), L: Math.max(.3, .9*SWD.A.blade.form, Math.hypot(S.tip.x - bx, S.tip.y - by)) }; })() : null;
+    const LAY = { a: [[1, .5, .012], [.8, .52, .03], [.6, .55, .05]], b: [[1, .42, .02], null, null], c: [null, null, null] }[SWV];   // per pair: [length share, narrowing, offset off the axis]
+    const easeK = (k) => k*k*(3 - 2*k);
+    const morph = (w, M1) => { const i = w.i, Mr = c.getTransform(), ly = LAY[i];
+      if (ly){ const [lf, nc, off] = ly, nx = -Math.sin(BL.a), ny = Math.cos(BL.a);
+        c.setTransform(M0); c.translate(BL.x + nx*off*w.side, BL.y + ny*off*w.side); c.rotate(BL.a); c.scale(BL.L*lf/EXT[i], w.side*nc); c.rotate(-RIG.WINGS[i].th); c.translate(-W[i].root[0], -W[i].root[1]); }
+      else { const w0 = P0.wings.find((v) => v.i === i && v.side === w.side); c.setTransform(M1); if (w0) wingXf(w0); }
+      const Mt = c.getTransform(), k = easeK(SK); c.setTransform(lerpM(Mr, Mt, k)); return ly ? 1 - k : 1; };
+    const wing = (w) => { const i = w.i; c.save(); const M1 = c.getTransform(); wingXf(w);
+      const mg = SK > 0 ? 1 - morph(w, M1) : 0;   // mg: how far this wing has become the blade (its eyes close)
+      const rag = SWV === 'c' && SK > 0;   // c: the wing drawn without its peeled feathers, each of them drawn on its own (CF)
+      c.globalAlpha = w.vis; put(c, rag ? G.rag[i] : G.wings[i], Q.lamp ? lamp : 0);
+      if (rag){ const Mw = c.getTransform(); PEEL[i].forEach((n) => { const h = hh(n, i*3 + w.side + 5), u = SWD.u, kf = sm(.03 + .12*h, .14 + .12*h, u)*(1 - sm(.84 + .05*h, .9 + .05*h, u));
+        if (kf < .01) put(c, G.fe[i][n], 0); else CF.push({ i, n, side: w.side, Mw, k: kf, vis: w.vis }); }); }
+      // depth: a wing swung behind the body is darkened by its own chrome multiplied over it, one swung toward us lifted a touch
+      if (w.depth < -.02){ c.globalCompositeOperation = 'multiply'; c.globalAlpha = w.vis*Math.min(1, 1.2*-w.depth); put(c, G.wings[i], 0); }
+      else if (w.depth > .02){ c.globalCompositeOperation = 'screen'; c.globalAlpha = w.vis*.3*w.depth; put(c, G.wings[i], 0); }
+      c.globalCompositeOperation = 'source-over'; c.globalAlpha = w.vis*(1 - .85*mg)*(rag ? 0 : 1); sheen(c, G.wings[i], i, t, w.side, Q.glint, Q.ga); sags(c, W[i], t, i, w.side); c.globalAlpha = 1;
+      if (Math.abs(B.sx) > .05) for (const E of w.eyes){ const [lx, ly] = look(E.lx, E.ly, E.rot); eye(c, E.lx, E.ly, E.rot, E.r, E.open*(1 - mg), lx, ly, E.heat); }   // edge-on: no eyes (and no singular look)
+      c.restore(); };
+    const CF = [];
+    for (const w of P.wings) if (!(w.depth > 0)) wing(w);
+    if (CF.length){ c.save(); const N = PEEL.reduce((a, p) => a + p.length, 0), nx = -Math.sin(BL.a), ny = Math.cos(BL.a), Lf = Math.max(BL.L, .9);
+      CF.forEach((F) => { const q = RIG.WINGS[F.i].feathers[F.n], [b0, b1] = q.sp[0], [t0, t1] = q.sp[10], lq = Math.hypot(t0 - b0, t1 - b1), aq = Math.atan2(t1 - b1, t0 - b0);
+        const j = PIDX[F.i][F.n], s = j/(N - 1 || 1), sd = F.side, f = Lf*.34/lq, d = BL.L*(.04 + .62*s), o = sd*(.018 + .012*(j%2));
+        c.setTransform(M0); c.translate(BL.x + Math.cos(BL.a)*d + nx*o, BL.y + Math.sin(BL.a)*d + ny*o); c.rotate(BL.a - sd*.04); c.scale(f, sd*f); c.rotate(-aq); c.translate(-b0, -b1);
+        c.setTransform(lerpM(F.Mw, c.getTransform(), easeK(F.k))); c.globalAlpha = F.vis; put(c, G.fe[F.i][F.n], 0); c.globalAlpha = 1; });
+      c.restore(); }
+    put(c, G.core, 1 - lamp);
+    for (const w of P.wings) if (w.depth > 0) wing(w);
+    // heat at the feather roots: a slight red shimmer wavering round the core, never still, never bright
+    c.globalCompositeOperation = 'lighter';
+    for (let k=0;k<10;k++){ const a = k/10*TAU + .3*Math.sin(t*.4 + k), r = 1 + .08*Math.sin(t*2.3 + k*1.7), al = .55*(.5 + .5*Math.sin(t*1.7 + k*2.1))*(.6 + .4*Math.sin(t*3.1 + k));
+      c.globalAlpha = al; c.drawImage(G.heat.c, Math.cos(a)*r*.46 - .14, -.1 + Math.sin(a)*r*.34 - .14 - .02*Math.sin(t*2.9 + k), .28, .28); }   // an ellipse round the junction
+    c.globalAlpha = 1; c.globalCompositeOperation = 'source-over';
+    // the chest kindles as the eye opens: a white-gold heart in a red furnace glow, with slow rays of light standing out of it.
+    // The opening itself is an EVENT: one flash and a ring of light thrown out across the floor (bst, a one-off bump in ph)
+    const fc = cl(3*B.face), bst = P.beats.burst, kk = cl((ph - 2.25)/.75), glow = (open*(1 - .6*Q.gape)*(1 + .2*Q.fl) + bst)*fc;   // fc: no chest fire from behind
+    if (glow > .01){ c.globalCompositeOperation = 'lighter'; const gr = .38 + .6*bst, gg = c.createRadialGradient(0, -.1, .04, 0, -.1, gr);
+      gg.addColorStop(0, 'rgba(255,246,228,' + Math.min(1, .6*glow) + ')'); gg.addColorStop(.3, 'rgba(255,110,70,' + Math.min(1, .3*glow) + ')');
+      gg.addColorStop(.65, 'rgba(230,30,20,' + .06*glow + ')'); gg.addColorStop(1, 'rgba(200,20,10,0)'); c.fillStyle = gg; c.beginPath(); c.arc(0, -.1, gr, 0, TAU); c.fill();
+      c.fillStyle = 'rgba(255,214,190,' + Math.min(.4, .06*glow + .3*bst) + ')'; c.beginPath();
+      for (let k=0;k<14;k++){ const a = k/14*TAU + t*.05 + (k%2)*.1, r1 = (k%2 ? .5 : .7) + (k%2 ? .55 : .75)*bst, w = .03; c.moveTo(Math.cos(a - w)*.3, -.1 + Math.sin(a - w)*.3); c.lineTo(Math.cos(a)*r1, -.1 + Math.sin(a)*r1); c.lineTo(Math.cos(a + w)*.3, -.1 + Math.sin(a + w)*.3); }
+      c.fill();
+      c.globalCompositeOperation = 'source-over'; }
+    // the shockwave of the opening: a raised wave of liquid metal running out over the floor -- shadow side, red molten body,
+    // pale crest, white lip
+    if (bst > .01){ const r = .3 + 2.4*kk, w = .16*(1 - .5*kk);
+      const b = Math.min(1, 1.3*bst), W2 = w*.9, mg = c.createRadialGradient(0, -.1, Math.max(.01, r - W2), 0, -.1, r + W2);
+      c.globalCompositeOperation = 'lighter'; c.strokeStyle = 'rgba(255,36,22,' + .3*b + ')'; c.lineWidth = 1.8*W2; c.beginPath(); c.arc(0, -.1, Math.max(.01, r - W2*.6), 0, TAU); c.stroke(); c.globalCompositeOperation = 'source-over';   // the eye's fire under the wave
+      for (const [o, col, a] of [[0, '190,20,22', 0], [.18, '200,22,24', .7], [.34, '240,70,56', .85], [.46, '255,236,226', 1], [.55, '210,218,232', .9], [.7, '72,78,90', .8], [.84, '4,5,8', .55], [1, '4,5,8', 0]]) mg.addColorStop(o, 'rgba(' + col + ',' + a*b + ')');
+      c.strokeStyle = mg; c.lineWidth = 2*W2; c.beginPath(); c.arc(0, -.1, r, 0, TAU); c.stroke(); }
+    // THE eye. Before ph 3 there is no eye to see: the centre is the wings' junction (junction()), which parts as the eye opens. Ph 2 -> 3: the lids part,
+    // and the huge unblinking eye stares out: the face, the weak point, the brightest thing on it
+    const A = RIG.EYE.r;
+    c.save(); c.translate(RIG.EYE.x, RIG.EYE.y);
+    const gp = P.eye.gape, ko = Math.pow(cl(open/.95), 1.6);   // ko: how far the closed junction has parted (0 shut .. 1 gone, ph 3)
+    const socket = () => { almond(c, A*1.15, A*.62); const lg = c.createRadialGradient(-A*.3, -A*.35, 0, 0, 0, A*1.15);
+      lg.addColorStop(0, '#f4f7fc'); lg.addColorStop(.35, '#9aa3b0'); lg.addColorStop(.75, '#3a3f48'); lg.addColorStop(1, '#14161b');
+      c.fillStyle = lg; c.fill(); c.strokeStyle = 'rgba(10,11,14,.9)'; c.lineWidth = .012; c.stroke(); };
+    if (B.face < 0){ socket();
+      // THE BACK (the top turned away): no eye, a chrome back plate welded shut down a cooling red seam, two rivet beads
+      c.strokeStyle = 'rgba(10,11,14,.9)'; c.lineWidth = .05; c.beginPath(); c.moveTo(0, -A*.58); c.quadraticCurveTo(.02, 0, 0, A*.58); c.stroke();
+      c.strokeStyle = 'rgba(210,26,24,.9)'; c.lineWidth = .022; c.stroke(); c.strokeStyle = 'rgba(255,200,180,.7)'; c.lineWidth = .006; c.stroke();
+      for (const sg of [-1, 1]){ const X = sg*A*.55, z = .035; c.fillStyle = '#121418'; c.beginPath(); c.arc(X, 0, z, 0, TAU); c.fill();
+        c.fillStyle = 'rgba(240,244,252,.95)'; c.beginPath(); c.arc(X - z*.3, -z*.35, z*.4, 0, TAU); c.fill(); }
+      c.restore(); c.restore(); return; }
+    if (ko > .01){ c.globalAlpha = ko; socket(); c.globalAlpha = 1; }   // the eye's chrome socket appears only as the junction parts
+    const [gx, gy] = look(0, 0, 0);
+    // the great eye acts: it narrows in a windup (eo), flares on a strike (fl), and when spent hangs half-lidded, dim and cracked
+    eye(c, 0, 0, 0, A, P.eye.open, gx, gy, P.eye.heat);
+    if (ko < .99) junction(c, ko, gp*(1 - open), t);   // the wings' junction over it, parting as the eye opens
+    if (Q.fl > .01 && open > .01){ c.globalCompositeOperation = 'lighter'; const fg = c.createRadialGradient(0, 0, 0, 0, 0, A*(1.25 + .5*Q.fl));
+      fg.addColorStop(0, 'rgba(255,244,228,' + .75*Q.fl*open + ')'); fg.addColorStop(.3, 'rgba(255,60,30,' + .3*Q.fl*open + ')'); fg.addColorStop(1, 'rgba(255,30,10,0)');
+      c.fillStyle = fg; c.beginPath(); c.arc(0, 0, A*(1.25 + .5*Q.fl), 0, TAU); c.fill(); c.globalCompositeOperation = 'source-over'; }
+    if (gp > .01 && open > .01){ c.lineCap = 'round';   // cracks running out of the spent eye across its lid
+      for (let k=0;k<6;k++){ const a = (k < 3 ? Math.PI : 0) + (k%3 - 1)*.45 + .1*(hh(k, 13) - .5), pts = [];
+        for (let j=0;j<=4;j++){ const r = A*(1 + .26*j*gp), w = .16*(hh(k*5 + j, 14) - .5); pts.push([Math.cos(a + w)*r*1.1, Math.sin(a + w)*r*.62]); }
+        for (const [col, lw] of [['rgba(20,4,5,', .05], ['rgba(255,80,50,', .022]]){ c.strokeStyle = col + gp*open + ')'; c.lineWidth = lw; c.beginPath(); pts.forEach(([x, y], i) => i ? c.lineTo(x, y) : c.moveTo(x, y)); c.stroke(); } } }
+    c.restore();
+    c.restore();
+  }
+  // ---- THE CLOSED CENTRE (ph < 3): not an eye at all but the JUNCTION where the six wings join the body. As the eye opens
+  // (beats.open, ph 2 -> 3) it parts and the eye comes out of it; at ph 3 it is gone (k = 1 draws nothing)
+  // the angle from the centre to each of the six wing roots (both sides)
+  const ROOTS = RIG.WINGS.flatMap((Wg) => [-1, 1].map((s) => Math.atan2(Wg.root[1] - RIG.EYE.y, s*Wg.root[0] - RIG.EYE.x))).sort((a, b) => a - b);
+  // a small chrome feather: base (x, y), heading a, length L, half-width w, bent sideways by cv; lit from the upper left,
+  // a dark rim, a white spine
+  function plume(c, x, y, a, L, w, cv, al){
+    if (al < .01) return;
+    const ca = Math.cos(a), sa = Math.sin(a), nx = -sa, ny = ca, bx = nx*cv*L*.5, by = ny*cv*L*.5, tx = x + ca*L + nx*cv*L, ty = y + sa*L + ny*cv*L;
+    const mx = x + ca*L*.45, my = y + sa*L*.45, lit = (nx + ny) < 0 ? 1 : -1;
+    c.globalAlpha = al; c.beginPath(); c.moveTo(x, y);
+    c.quadraticCurveTo(mx + nx*w*2 + bx, my + ny*w*2 + by, tx, ty); c.quadraticCurveTo(mx - nx*w*2 + bx, my - ny*w*2 + by, x, y); c.closePath();
+    const g = c.createLinearGradient(mx + nx*w*lit, my + ny*w*lit, mx - nx*w*lit, my - ny*w*lit);
+    g.addColorStop(0, '#eef2f8'); g.addColorStop(.45, '#8f97a4'); g.addColorStop(1, '#1d2026');
+    c.fillStyle = g; c.fill(); c.strokeStyle = 'rgba(8,9,12,.85)'; c.lineWidth = .008; c.stroke();
+    c.strokeStyle = 'rgba(255,255,255,.7)'; c.lineWidth = .005; c.beginPath(); c.moveTo(x + ca*L*.12, y + sa*L*.12); c.quadraticCurveTo(mx + bx, my + by, tx - ca*L*.14, ty - sa*L*.14); c.stroke();
+    c.globalAlpha = 1;
+  }
+  // a quicksilver bead (dark, a white glint) and a dark molten hollow (what shows when a spent junction loosens before ph 2)
+  function bead(c, x, y, z, al){ if (al < .01 || z < .002) return; c.globalAlpha = al; c.fillStyle = '#121418'; c.beginPath(); c.arc(x, y, z, 0, TAU); c.fill();
+    c.fillStyle = 'rgba(240,244,252,.95)'; c.beginPath(); c.arc(x - z*.3, y - z*.35, z*.4, 0, TAU); c.fill(); c.globalAlpha = 1; }
+  function hollow(c, r, al){ if (al < .01) return; const g = c.createRadialGradient(0, 0, 0, 0, 0, r);
+    g.addColorStop(0, 'rgba(90,8,10,' + al + ')'); g.addColorStop(.45, 'rgba(10,6,7,' + al + ')'); g.addColorStop(1, 'rgba(10,11,14,0)');
+    c.fillStyle = g; c.beginPath(); c.arc(0, 0, r, 0, TAU); c.fill(); }
+  // A: THE FEATHER KNOT. Six fat root sheaths run from the centre out under each wing, and three layers of small coverts swirl
+  // over them into one tight knot, like the base of a bird's tail, tied off by a chrome bead. Opening: the swirl unwinds, every
+  // covert turning radial and sliding out, the sheaths drawing back, and the knot lets go of the eye
+  function junction(c, k, gx, t){
+    const kk = Math.max(k, .3*gx), f = 1 - sm(.45, .95, kk);
+    if (k < .01) hollow(c, .08 + .2*kk, Math.min(1, 3*kk));
+    ROOTS.forEach((a, j) => { const r = .03 + .16*kk; plume(c, Math.cos(a)*r, Math.sin(a)*r, a, .22*(1 - .3*kk), .055, (j%2 ? .14 : -.14)*(1 - kk), f); });
+    for (const [n, r0, L, w, off] of [[10, .15, .19, .042, 0], [8, .085, .15, .036, .4], [6, .03, .11, .03, .9]])
+      for (let i=0;i<n;i++){ const p = i/n*TAU + off + .04*Math.sin(t*.7 + i*1.3), r = r0 + .13*kk*(1 + 3*r0), a = p + 1.15*(1 - kk);
+        plume(c, Math.cos(p)*r, Math.sin(p)*r*.85, a, L*(1 - .35*kk), w, .35*(1 - kk), f); }
+    bead(c, 0, 0, .042*(1 - kk), f);
+  }
+  // ---- THE ATTACKS: attack(c, x, y, R, t, ph, atk, u, px, py) draws the boss in its attack pose AND the effect, u = 0..1 ----
+  // a ripple in the liquid floor: a dark trough, a pale crest, a white glint on its inner lip; tapered at both ends (n segments)
+  function ripple(c, cx, cy, r, a0, a1, w, al, n = 10){
+    const cap = c.lineCap; c.lineCap = 'butt';
+    for (const [col, ww, dr] of [['rgba(4,5,8,', 1.7, .045], ['rgba(200,209,224,', 1, 0], ['rgba(255,255,255,', .3, -.012]]){
+      for (let k=0;k<n;k++){ const f0 = k/n, f1 = (k + 1)/n, tp = Math.sin(Math.PI*(f0 + f1)/2);
+        c.strokeStyle = col + (al*tp*(col[5] === '4' ? .5 : .85)) + ')'; c.lineWidth = w*ww*(.35 + .65*tp);
+        c.beginPath(); c.arc(cx, cy, Math.max(.01, r + dr), a0 + (a1 - a0)*f0, a0 + (a1 - a0)*f1 + .004); c.stroke(); } }
+    c.lineCap = cap;
+  }
+  function attack(c, x, y, R, t, ph = 3, atk, u, px, py){
+    const PX = (px - x)/R, PY = (py - y)/R, P = RIG.pose(t, ph, atk, u, PX, PY), A = RIG.attackUnit(atk, u, ph, PX, PY, t, P);
+    // under the boss
+    c.save(); c.translate(x, y); c.scale(R, R); c.lineCap = 'round';
+    if (atk === 'blast'){
+      // WINDUP: loose beads of metal are sucked into the bud. STRIKE: a ripple at the burst, a wave of liquid metal rolls out in a cone
+      for (const b of A.suck){ c.fillStyle = 'rgba(14,16,20,' + b.al + ')'; c.beginPath(); c.arc(b.x, b.y, b.r, 0, TAU); c.fill();
+        c.fillStyle = 'rgba(236,240,248,' + b.al + ')'; c.beginPath(); c.arc(b.x - b.r*.3, b.y - b.r*.35, b.r*.45, 0, TAU); c.fill(); }
+      if (A.shock) ripple(c, A.shock.x, A.shock.y, A.shock.r, 0, TAU, A.shock.w, A.shock.al, 16);
+      if (A.sheet){ const { front, half: hw, dir: phi, fade } = A.sheet;
+        // the rolling sheet: a sector of molten red metal thickening toward its crest
+        const sg = c.createRadialGradient(0, 0, Math.max(.5, front - 1.3), 0, 0, front);
+        sg.addColorStop(0, 'rgba(110,6,12,0)'); sg.addColorStop(.6, 'rgba(140,10,16,' + .35*fade + ')'); sg.addColorStop(.9, 'rgba(210,26,28,' + .7*fade + ')'); sg.addColorStop(1, 'rgba(255,90,70,' + .85*fade + ')');
+        c.fillStyle = sg; c.beginPath(); c.moveTo(0, 0); c.arc(0, 0, front, phi - hw, phi + hw); c.closePath(); c.fill();
+        // flow lines of brighter metal streaming out behind the front
+        for (const { a: aa, r0, r1 } of A.sheet.flows){ const lg = c.createLinearGradient(Math.cos(aa)*r0, Math.sin(aa)*r0, Math.cos(aa)*r1, Math.sin(aa)*r1);
+          lg.addColorStop(0, 'rgba(255,80,60,0)'); lg.addColorStop(1, 'rgba(255,200,180,' + .6*fade + ')');
+          c.strokeStyle = lg; c.lineWidth = .03; c.beginPath(); c.moveTo(Math.cos(aa)*r0, Math.sin(aa)*r0); c.lineTo(Math.cos(aa)*r1, Math.sin(aa)*r1); c.stroke(); }
+        // the crest: a raised lip of red metal -- dark shadow side ahead, red body, white-hot highlight -- and older crests behind it
+        for (const { r, a0, a1, f, j } of A.sheet.crests){
+          c.lineCap = 'butt'; c.strokeStyle = 'rgba(30,3,5,' + .6*f + ')'; c.lineWidth = .14 - j*.03; c.beginPath(); c.arc(0, 0, r + .05, a0, a1); c.stroke();
+          c.strokeStyle = 'rgba(200,22,24,' + f + ')'; c.lineWidth = .11 - j*.025; c.beginPath(); c.arc(0, 0, r, a0, a1); c.stroke();
+          c.strokeStyle = 'rgba(255,232,220,' + f + ')'; c.lineWidth = .025; c.beginPath(); c.arc(0, 0, r - .03, a0 + .03, a1 - .03); c.stroke(); c.lineCap = 'round'; }
+        // the lip breaks up: droplets of red metal flung ahead of it
+        for (const { x: X, y: Y, z, a: aa, tl } of A.sheet.drops){
+          c.strokeStyle = 'rgba(190,16,20,' + .5*fade + ')'; c.lineWidth = z*1.3; c.beginPath(); c.moveTo(X, Y); c.lineTo(X - Math.cos(aa)*tl, Y - Math.sin(aa)*tl); c.stroke();
+          c.fillStyle = 'rgba(150,10,16,' + fade + ')'; c.beginPath(); c.arc(X, Y, z, 0, TAU); c.fill();
+          c.fillStyle = 'rgba(255,236,228,' + fade + ')'; c.beginPath(); c.arc(X - z*.3, Y - z*.35, z*.38, 0, TAU); c.fill(); } }
+    } else if (atk === 'laser'){
+      if (A.beams.length) laserFloor(c, A, t, u);
+    } else if (atk === 'wheel') wheelFx(c, A, t, u, true);
+    else if (atk === 'recall') recallFx(c, A, t, u, true);
+    else if (atk === 'sword') swordFx(c, A, t, u, true);
+    else if (atk === 'tornado'){
+      spinFx(c, P, t, u, true);   // the top's floor pass: far half of the spin disc, the scorch and spray ring under its tip
+      // the floor marks go under the boss (rig DRAW ORDER): the pool it ends in, the molten trail it leaves, cooling behind it
+      const L = A.alive, pk = A.pool, { x: bx, y: by } = A.pos;
+      if (pk > .01) puddle(c, bx, by, pk, t);
+      if (L > .01 && u > .45)
+        for (const [col, w0, al] of [['30,3,5', .19, .65], ['200,22,24', .12, .95], ['255,225,215', .03, .8]]) for (let k=0;k<10;k++){
+          const f = (k + 1)/10, { x: x0, y: y0 } = A.trail[k], { x: x1, y: y1 } = A.trail[k + 1];
+          c.strokeStyle = 'rgba(' + col + ',' + al*L*Math.sin(Math.PI*Math.min(1, f*1.15)) + ')'; c.lineWidth = w0*(.3 + .7*f); c.beginPath(); c.moveTo(x0, y0); c.lineTo(x1, y1); c.stroke(); }
+    }
+    c.restore();
+    SWD = atk === 'sword' ? { A, u } : null; draw(c, x, y, R, t, ph, P); SWD = null;
+    // the whip: liquid metal stretched from where each tip was a beat ago (the rig's pose at u - .06)
+    c.save(); c.translate(x, y); c.scale(R, R); if (atk !== 'tornado' && atk !== 'wheel' && atk !== 'sword') strands(c, RIG.pose(t, ph, atk, Math.max(0, u - .06), PX, PY).tips, P.tips); c.restore();
+    c.save(); c.translate(x, y); c.scale(R, R); c.lineCap = 'round';
+    if (atk === 'tornado'){
+      const L = A.alive, d = A.collapse, { x: bx, y: by } = A.pos;
+      drips(c, P.tips, u, [.45, .86]);   // the boss's own drips, so under the funnel
+      spinFx(c, P, t, u, false);
+      if (L > .01) funnel(c, bx, by, A.scale, t, L, d);   // OVER the boss at every u: its foot is on the player's side, the nearer object
+      // dizzy: a little ring of quicksilver beads orbiting over its head
+      const dz = A.dizzy;
+      if (dz > .01) for (let k=0;k<5;k++){ const a = t*3 + k*TAU/5, X = Math.cos(a)*.38, Y = -1.12 + Math.sin(a)*.12, z = .045*(.8 + .2*Math.sin(a));
+        c.fillStyle = 'rgba(16,18,22,' + dz + ')'; c.beginPath(); c.arc(X, Y, z, 0, TAU); c.fill();
+        c.fillStyle = 'rgba(240,244,252,' + dz + ')'; c.beginPath(); c.arc(X - z*.3, Y - z*.35, z*.45, 0, TAU); c.fill(); } }
+    if (atk === 'laser' && A.beams.length) beams(c, A, t, u);
+    if (atk === 'blast' || atk === 'laser') drips(c, P.tips, u, atk === 'blast' ? [.47, .72] : [.45, .82]);
+    if (atk === 'wheel') wheelFx(c, A, t, u, false);
+    if (atk === 'recall') recallFx(c, A, t, u, false);
+    if (atk === 'sword') swordFx(c, A, t, u, false);
+    c.restore();
+  }
+  // ---- r33: THE WHEEL, FEATHER RECALL, SWORD SLAM ----
+  // a blade feather of the liquid look: a chrome leaf from its quill (x,y) to its point, lit across its width, a red molten spine
+  function feather(c, x, y, a, L, w, al){
+    if (al < .01) return;
+    const ca = Math.cos(a), sa = Math.sin(a), nx = -sa, ny = ca, tx = x + ca*L, ty = y + sa*L;
+    const g = c.createLinearGradient(x + nx*w, y + ny*w, x - nx*w, y - ny*w);
+    for (const [o, col] of [[0, '#101216'], [.3, '#8a93a3'], [.48, '#f4f7fc'], [.62, '#5d6574'], [1, '#0c0e12']]) g.addColorStop(o, col);
+    c.globalAlpha = al; c.fillStyle = g;
+    c.beginPath(); c.moveTo(x, y); c.quadraticCurveTo(x + ca*L*.35 + nx*w*1.3, y + sa*L*.35 + ny*w*1.3, tx, ty);
+    c.quadraticCurveTo(x + ca*L*.35 - nx*w*1.3, y + sa*L*.35 - ny*w*1.3, x, y); c.fill();
+    c.strokeStyle = 'rgba(4,5,8,.7)'; c.lineWidth = .012; c.stroke();
+    c.strokeStyle = 'rgba(210,26,26,.95)'; c.lineWidth = .016; c.beginPath(); c.moveTo(x, y); c.lineTo(x + ca*L*.86, y + sa*L*.86); c.stroke();
+    c.strokeStyle = 'rgba(255,236,228,.8)'; c.lineWidth = .006; c.beginPath(); c.moveTo(x + ca*L*.1, y + sa*L*.1); c.lineTo(x + ca*L*.6, y + sa*L*.6); c.stroke();
+    c.globalAlpha = 1;
+  }
+  // a little splash of the liquid floor: a ripple ring and beads of metal thrown up off it (k 0..1 through it)
+  function splash(c, x, y, k, al, sz = 1, seed = 0){
+    if (al < .01) return;
+    c.save(); c.translate(x, y); c.scale(1, .4); ripple(c, 0, 0, (.06 + .3*k)*sz, 0, TAU, .05*sz, al*(1 - k), 10); c.restore();
+    for (let j=0;j<6;j++){ const b = j/6*TAU + hh(j, seed + 31)*.8, r = (.05 + .3*k)*sz*(.7 + .5*hh(j, seed + 32)), X = x + Math.cos(b)*r, Y = y + Math.sin(b)*r*.45 - .25*sz*Math.sin(Math.PI*k), z = .026*sz*(1 - .5*k), a2 = al*(1 - k);
+      c.fillStyle = (j%2 ? 'rgba(150,10,16,' : 'rgba(18,20,24,') + a2 + ')'; c.beginPath(); c.arc(X, Y, z, 0, TAU); c.fill();
+      c.fillStyle = 'rgba(255,240,236,' + a2 + ')'; c.beginPath(); c.arc(X - z*.3, Y - z*.35, z*.4, 0, TAU); c.fill(); }
+  }
+  // a molten seam poured along a polyline on the floor: char, red body, white-hot at the hot end (hot 0..1 along it)
+  function seam(c, pts, w, al, hot){
+    if (al < .01 || pts.length < 2) return;
+    const n = pts.length - 1;
+    for (const [col, ww, a0, ht] of [['8,4,5', 1.9, .6, 0], ['205,214,228', 1.25, .5, 0], ['70,8,12', 1, .9, 0], ['220,30,28', .55, .95, 1], ['255,236,226', .18, .9, 1]])
+      for (let k=0;k<n;k++){ const f = (k + 1)/n, hv = ht ? Math.pow(f, 1.5)*hot : 1;
+        c.strokeStyle = 'rgba(' + col + ',' + a0*al*hv*Math.min(1, f*3) + ')'; c.lineWidth = w*ww;
+        c.beginPath(); c.moveTo(pts[k].x, pts[k].y); c.lineTo(pts[k + 1].x, pts[k + 1].y); c.stroke(); }
+  }
+  // WHEEL. back: the floor (the scour it cuts, the rock-back's ripple, the ricochet splashes, the landing). front: the spinning
+  // disc's speed rings and the sparks and drops flung off its rim, the ricochet spray, the dizzy beads
+  function wheelFx(c, A, t, u, back){
+    const { x: X, y: Y } = A.pos, rl = A.roll, rate = A.rate;
+    if (back){
+      seam(c, A.trail, .2, rl, .9);
+      if (A.rock > .01){ c.save(); c.translate(X, Y + .2); c.scale(1, .4); ripple(c, 0, 0, .7 + .3*(1 - A.rock), 0, TAU, .05, .55*A.rock, 14); c.restore(); }
+      if (rl > .01){ c.save(); c.translate(X, Y + .25); c.scale(1, .4);   // the bow wave where the rim cuts the floor
+        for (let k=0;k<3;k++){ const f = (t*2.2 + k/3)%1; ripple(c, 0, 0, .55 + .5*f, A.dir - .9, A.dir + .9, .04, rl*(1 - f)*.8, 8); } c.restore(); }
+      A.hits.forEach((h, j) => { if (h.al > .01) splash(c, h.x, h.y + .25, 1 - h.al, h.al, 2.4, j*7); });
+      const ld = Math.sin(Math.PI*cl((u - .82)/.12));
+      if (ld > .01) splash(c, X, Y + .2, cl((u - .82)/.12), ld, 2.2, 21);
+      return;
+    }
+    if (rate > .01){   // the saw at speed: quicksilver arcs racing round the rim, a red-hot edge, sparks off the cutting side
+      c.save(); c.translate(X, Y);
+      for (let k=0;k<6;k++){ const a = A.spin + k*TAU/6, r = .62 + .1*(k%2);
+        c.strokeStyle = 'rgba(230,236,246,' + .55*rate + ')'; c.lineWidth = .03; c.beginPath(); c.arc(0, 0, r, a, a + 1.1*rate); c.stroke();
+        c.strokeStyle = 'rgba(255,255,255,' + .7*rate + ')'; c.lineWidth = .01; c.beginPath(); c.arc(0, 0, r - .01, a + .3*rate, a + 1*rate); c.stroke(); }
+      c.strokeStyle = 'rgba(220,30,28,' + .35*rate + ')'; c.lineWidth = .05; c.beginPath(); c.arc(0, 0, .78, 0, TAU); c.stroke();
+      c.restore();
+      if (rl > .01){ c.globalCompositeOperation = 'lighter';
+        for (let j=0;j<9;j++){ const f = (t*3.1 + j/9)%1, b = A.dir + Math.PI + (hh(j, 41) - .5)*1.6, v = .5 + .6*hh(j, 42), sx = X + Math.cos(A.dir + Math.PI/2)*.7*(j%2 ? 1 : -1), sy = Y + .2,
+            px = sx + Math.cos(b)*v*f, py = sy + Math.sin(b)*v*f*.5 - .35*f + .3*f*f, al = rl*(1 - f);
+          c.strokeStyle = 'rgba(255,' + Math.round(140 + 110*(1 - f)) + ',' + Math.round(110*(1 - f)) + ',' + al + ')'; c.lineWidth = .02;
+          c.beginPath(); c.moveTo(px, py); c.lineTo(px - Math.cos(b)*.09, py - Math.sin(b)*.045 + .03); c.stroke(); }
+        c.globalCompositeOperation = 'source-over'; } }
+    const dz = A.dizzy;
+    if (dz > .01) for (let k=0;k<5;k++){ const a = t*3 + k*TAU/5, bx = X + Math.cos(a)*.38, by = Y - 1.12 + Math.sin(a)*.12, z = .045*(.8 + .2*Math.sin(a));
+      c.fillStyle = 'rgba(16,18,22,' + dz + ')'; c.beginPath(); c.arc(bx, by, z, 0, TAU); c.fill();
+      c.fillStyle = 'rgba(240,244,252,' + dz + ')'; c.beginPath(); c.arc(bx - z*.3, by - z*.35, z*.45, 0, TAU); c.fill(); }
+  }
+  // RECALL. Each feather's point is (x, y); staked, it stands out of the floor leaning back along its flight (the screen-up cheat).
+  // back: shadows, the stake's splash, the hole it leaves when it tears free. front: the feathers, the tear's spray, the streak home
+  function recallFx(c, A, t, u, back){
+    A.feathers.forEach((F, i) => {
+      const ca = Math.cos(F.a), sa = Math.sin(F.a), L = F.len*.9, w = F.w*1.1;
+      if (back){
+        if (F.dust > .01) splash(c, F.plant.x, F.plant.y, 1 - F.dust, F.dust, 1.3, i*5);
+        if (F.tear > .01){ splash(c, F.plant.x, F.plant.y, 1 - F.tear, F.tear, 1.6, i*5 + 2); }
+        if (u > .2 && F.state >= 2){ const hk = F.state === 2 ? 1 : Math.max(0, 1 - (u - .72)/.2);   // the hole, a bead of red metal welling in it, closing after
+          c.save(); c.translate(F.plant.x, F.plant.y); c.scale(1, .4); c.fillStyle = 'rgba(6,4,6,' + .6*hk + ')'; c.beginPath(); c.arc(0, 0, .05, 0, TAU); c.fill();
+          c.fillStyle = 'rgba(200,24,26,' + .7*hk + ')'; c.beginPath(); c.arc(0, -.01, .025, 0, TAU); c.fill(); c.restore(); }
+        if (F.vis){ const z = F.state === 2 ? 0 : F.z, bx = F.x - ca*L, by = F.y - sa*L;   // the shadow on the floor, off by its height
+          c.strokeStyle = 'rgba(4,5,8,' + (.45 - .25*Math.min(1, z)) + ')'; c.lineWidth = w*1.2; c.beginPath(); c.moveTo(bx + z*.4, by + z*.6); c.lineTo(F.x + z*.4, F.y + z*.6); c.stroke(); }
+        return;
+      }
+      if (!F.vis) return;
+      if (F.state === 2){ const q = F.quiver*Math.sin(t*44 + i*1.7)*.12, a = F.a + q, bx = F.x - Math.cos(a)*L*.62, by = F.y - Math.sin(a)*L*.62 - L*.55;
+        feather(c, bx, by, Math.atan2(F.y - by, F.x - bx), Math.hypot(F.x - bx, F.y - by), w, 1); return; }
+      const z = F.z, bx = F.x - ca*L, by = F.y - sa*L - z;
+      if (F.state === 3){ c.strokeStyle = 'rgba(220,228,240,' + .3*Math.sin(Math.PI*F.k) + ')'; c.lineWidth = w*.9;   // the streak home
+        c.beginPath(); c.moveTo(F.x - ca*L, F.y - sa*L - z); c.lineTo(F.x - ca*(L + .22*F.k + .06), F.y - sa*(L + .22*F.k + .06) - z); c.stroke(); }
+      feather(c, bx, by, F.a, L, w, 1);
+    });
+  }
+  // SWORD. The blade is the boss's own parts (SWV, in draw): no separate blade is drawn here, only its shadow, the slam and the fire. back: its shadow to blade.ground,
+  // the slam's shock ripple and splash, the seam of molten metal the eruption leaves. front: the blade, and the eruption itself,
+  // columns of molten metal bursting up one after another along the line, beads raining off them
+  // the buried point: where the blade went into the floor it glows red-hot
+  function swordTip(c, A){
+    const B = A.blade;
+    if (B.buried > .01){ const g2 = c.createRadialGradient(B.tip.x, B.tip.y, 0, B.tip.x, B.tip.y, .3); g2.addColorStop(0, 'rgba(255,200,170,' + .8*B.buried + ')'); g2.addColorStop(.4, 'rgba(220,30,24,' + .5*B.buried + ')'); g2.addColorStop(1, 'rgba(120,0,0,0)');
+      c.globalCompositeOperation = 'lighter'; c.fillStyle = g2; c.beginPath(); c.arc(B.tip.x, B.tip.y, .3, 0, TAU); c.fill(); c.globalCompositeOperation = 'source-over'; }
+  }
+  function swordFx(c, A, t, u, back){
+    const B = A.blade, F = A.fire, fm = B.form;
+    if (back){
+      if (fm > .01){ const nx = -Math.sin(B.heading), ny = Math.cos(B.heading), gx = B.ground.x, gy = B.ground.y, w = B.w*(.5 + .5*fm);
+        c.fillStyle = 'rgba(4,5,8,' + .4*fm + ')'; c.beginPath(); c.moveTo(B.base.x + nx*w, B.base.y + ny*w*.5); c.lineTo(gx, gy); c.lineTo(B.base.x - nx*w, B.base.y - ny*w*.5); c.fill(); }
+      if (F.scorch > .01 && F.front > .01){ const pts = []; for (let k=0;k<=12;k++){ const d = F.front*k/12; pts.push({ x: F.start.x + F.dx*d, y: F.start.y + F.dy*d }); }
+        seam(c, pts, .16, F.scorch, F.on); }
+      if (A.impact){ const I = A.impact; c.save(); c.translate(I.x, I.y); c.scale(1, .4);
+        ripple(c, 0, 0, I.r, 0, TAU, .09, I.al, 16); ripple(c, 0, 0, I.r*.6, 0, TAU, .05, .7*I.al, 12); c.restore();
+        splash(c, I.x, I.y, 1 - I.al, I.al, 2.6, 3); }
+      for (const f of F.flames) if (f.al > .01){ c.save(); c.translate(f.x, f.y); c.scale(1, .45); c.globalCompositeOperation = 'lighter';
+        const g = c.createRadialGradient(0, 0, 0, 0, 0, f.sz*1.6); g.addColorStop(0, 'rgba(255,120,80,' + .55*f.al + ')'); g.addColorStop(.4, 'rgba(220,30,20,' + .3*f.al + ')'); g.addColorStop(1, 'rgba(120,0,0,0)');
+        c.fillStyle = g; c.beginPath(); c.arc(0, 0, f.sz*1.6, 0, TAU); c.fill(); c.globalCompositeOperation = 'source-over'; c.restore(); }
+      return;
+    }
+    swordTip(c, A);
+    // the eruption: each flame a column of molten red metal thrown up out of the seam, a white-hot throat, a crown of drops
+    for (const f of F.flames){ if (f.al < .01) continue;
+      const H = f.h*f.sz*(2.6 + 1.2*f.s)*(.85 + .15*Math.sin(t*11 + f.s*30)), w = f.sz*.2*(.6 + .4*f.h), x = f.x, y = f.y, wob = .03*Math.sin(t*9 + f.s*20);
+      const g = c.createLinearGradient(x - w, 0, x + w, 0);
+      for (const [o, col] of [[0, 'rgba(60,4,8,'], [.3, 'rgba(200,22,24,'], [.5, 'rgba(255,220,206,'], [.68, 'rgba(226,36,34,'], [1, 'rgba(70,6,10,']]) g.addColorStop(o, col + f.al + ')');
+      c.fillStyle = g; c.beginPath(); c.moveTo(x - w, y); c.quadraticCurveTo(x - w*.8 + wob, y - H*.6, x + wob, y - H); c.quadraticCurveTo(x + w*.8 + wob, y - H*.6, x + w, y); c.closePath(); c.fill();
+      for (let j=0;j<4;j++){ const q = (t*1.7 + j/4 + f.s)%1, b = -Math.PI/2 + (hh(j, Math.round(f.s*90)) - .5)*1.8, v = f.sz*1.4, X = x + wob + Math.cos(b)*v*q, Y = y - H + Math.sin(b)*v*q + 1.2*f.sz*q*q, z = .03*(1 - .4*q), al = f.al*(1 - q);
+        c.fillStyle = 'rgba(160,12,18,' + al + ')'; c.beginPath(); c.arc(X, Y, z, 0, TAU); c.fill();
+        c.fillStyle = 'rgba(255,236,228,' + al + ')'; c.beginPath(); c.arc(X - z*.3, Y - z*.35, z*.4, 0, TAU); c.fill(); } }
+  }
+  // liquid metal stretched behind a whipping wing: from where each tip was a beat ago to where it is, thin and dragging a bead
+  function strands(c, A, B){
+    if (!A || !B || A.length !== B.length) return;
+    for (let j=0;j<B.length;j++){ const [nx, ny] = B[j], d0 = Math.hypot(nx - A[j][0], ny - A[j][1]); if (d0 < .05) continue;
+      const d = Math.min(d0, .3), dx = (nx - A[j][0])/d0*d, dy = (ny - A[j][1])/d0*d, ox = nx - dx, oy = ny - dy;   // a strand stretches at most .3R, then snaps
+      const al = Math.min(1, (d - .05)/.1), px = -dy/d, py = dx/d;
+      for (const [col, w] of [['rgba(14,16,20,' + .6*al + ')', .05], ['rgba(226,232,242,' + .85*al + ')', .026], ['rgba(255,255,255,' + al + ')', .008]]){
+        c.fillStyle = col; c.beginPath(); c.moveTo(nx + px*w, ny + py*w); c.quadraticCurveTo((ox + nx)/2 + px*w*.4, (oy + ny)/2 + py*w*.4, ox, oy);
+        c.quadraticCurveTo((ox + nx)/2 - px*w*.4, (oy + ny)/2 - py*w*.4, nx - px*w, ny - py*w); c.closePath(); c.fill(); }
+      c.fillStyle = 'rgba(18,20,24,' + al + ')'; c.beginPath(); c.arc(ox, oy, .02, 0, TAU); c.fill();
+      c.fillStyle = 'rgba(245,248,252,' + al + ')'; c.beginPath(); c.arc(ox - .006, oy - .007, .008, 0, TAU); c.fill(); }
+  }
+  // on every strike (and again as it sags) the tip beads let go: each drop stretches, falls and lands in a ring on the floor
+  function drips(c, T, u, waves){
+    T.forEach(([x, y], j) => { for (const u0 of waves){ const st = u0 + .06*hh(j, 7), f = cl((u - st)/.16), g = cl((u - st - .16)/.14);
+      if (f > 0 && f < 1){ const z = .028 + .012*hh(j, 8), Y = y + .4*f*f, L = z*(1 + 2.2*f);
+        c.fillStyle = '#121418'; c.beginPath(); c.ellipse(x, Y, z, L, 0, 0, TAU); c.fill();
+        c.fillStyle = 'rgba(240,244,252,.95)'; c.beginPath(); c.ellipse(x - z*.3, Y - L*.35, z*.35, L*.35, 0, 0, TAU); c.fill(); }
+      if (g > 0 && g < 1){ c.save(); c.translate(x, y + .4); c.scale(1, .4); ripple(c, 0, 0, .04 + .16*g, 0, TAU, .05, 1 - g, 8); c.restore(); } } });
+  }
+  // a mercury vortex seen from the player's camera: stacked rings widening upward, quicksilver streaks racing round them,
+  // droplets sucked in and up, a ripple on the floor at its foot
+  // a puddle of the vortex's metal: a red molten pool in a chrome meniscus, its shadow side down, a hot highlight up-left, beads round it
+  // THE TOP AT SPEED (tornado, beats.spin), seen a little from above so every circle about the vertical axis reads as a flat ring
+  // (near side lower). back = the floor pass, under the boss: the far half of the spin disc, a red-hot scorch under the spinning
+  // tip and the spray ripples running out from it. Otherwise the pass over the boss: the near half of the disc with its speed
+  // streaks, quicksilver arcs trailing every tip, sparks flung off left and right, drops flung along the tips' tangent, the
+  // launch flash and shock ring (u .43) and the spin-down puffs (u .84 ->)
+  const TILT = .14;
+  function spinFx(c, P, t, u, back){
+    const B = P.body, spn = P.beats.spin, yaw = B.yaw || 0, ox = B.ox || 0, cy = -.1 + B.dy, TP = [];
+    // each shown tip in the yaw-free body frame: x0 (its signed radius about the axis) and its height y0
+    for (const w of P.wings){ if (w.vis <= .9) continue; const Wg = RIG.WINGS[w.i], [rx, ry] = Wg.root, cr = Math.cos(w.rot), sr = Math.sin(w.rot);
+      Wg.tips.forEach(([x, y], j) => { if (j%2) return; const qx = (x - rx)*w.scale, qy = (y - ry)*w.scale;
+        TP.push([w.side*(rx + cr*qx - sr*qy) + B.dx, ry + sr*qx + cr*qy + B.dy]); }); }
+    if (!TP.length) return;
+    const RX = Math.max(...TP.map(([x0]) => Math.abs(x0))), RY = RX*TILT*1.4, foot = Math.max(...TP.map(([, y0]) => y0)) + .04;
+    const at = (x0, y0, a) => [ox + x0*Math.cos(a), y0 - TILT*x0*(Math.sin(a) - Math.sin(yaw))];   // where that tip was at yaw a
+    const ring = (a) => [ox + RX*Math.cos(a), cy - RY*Math.sin(a)];   // the disc rim; near half = sin(a) < 0
+    const disc = (a0, a1) => { if (spn <= .02) return;
+      for (const [col, w, al] of [['16,18,23', .24, .22], ['200,209,224', .1, .3], ['255,255,255', .018, .6]]){
+        c.strokeStyle = 'rgba(' + col + ',' + al*spn + ')'; c.lineWidth = w; c.beginPath(); c.ellipse(ox, cy, RX, RY, 0, a0, a1); c.stroke(); }
+      // speed streaks running round the rim (4 of them: a period well over one frame's turn, so they never wagon-wheel)
+      for (let k=0;k<4;k++){ const th = yaw + k*TAU/4;
+        for (let s=0;s<6;s++){ const b1 = th - s*.17*spn, b0 = b1 - .17*spn, mid = (b0 + b1)/2, near = Math.sin(mid) < 0; if (near === (a0 === Math.PI)) continue;
+          const [X0, Y0] = ring(b0), [X1, Y1] = ring(b1); c.strokeStyle = 'rgba(255,255,255,' + .85*spn*(1 - s/6) + ')'; c.lineWidth = .04*(1 - s/8);
+          c.beginPath(); c.moveTo(X0, Y0); c.lineTo(X1, Y1); c.stroke(); } } };
+    if (back){
+      disc(Math.PI, TAU);   // the far half of the rim, behind the body
+      if (spn > .02){ c.save(); c.translate(ox, foot); c.scale(1, .3);
+        c.globalCompositeOperation = 'lighter'; const sg = c.createRadialGradient(0, 0, 0, 0, 0, .45);
+        sg.addColorStop(0, 'rgba(255,90,50,' + .6*spn + ')'); sg.addColorStop(.5, 'rgba(220,30,20,' + .25*spn + ')'); sg.addColorStop(1, 'rgba(200,20,10,0)');
+        c.fillStyle = sg; c.beginPath(); c.arc(0, 0, .45, 0, TAU); c.fill(); c.globalCompositeOperation = 'source-over';
+        for (let k=0;k<2;k++){ const q = (t*1.4 + k*.5)%1; ripple(c, 0, 0, .35 + 1.1*q, 0, TAU, .1, .8*spn*Math.sin(Math.PI*q), 16); }
+        c.restore(); }
+      return; }
+    disc(0, Math.PI);   // the near half, over the body
+    if (spn > .02){ const L = 1.3*spn, S = 8;
+      for (const [col, w, a0] of [['16,18,23', .07, .4], ['225,232,244', .035, .7], ['255,255,255', .012, .9]])
+        for (const [x0, y0] of TP) for (let s=0;s<S;s++){ const [X0, Y0] = at(x0, y0, yaw - s*L/S), [X1, Y1] = at(x0, y0, yaw - (s + 1)*L/S);
+          c.strokeStyle = 'rgba(' + col + ',' + a0*spn*(1 - s/S) + ')'; c.lineWidth = w*(1 - s/(1.5*S)); c.beginPath(); c.moveTo(X0, Y0); c.lineTo(X1, Y1); c.stroke(); }
+      // sparks off the rim's two ends, thrown out left and right, falling
+      c.globalCompositeOperation = 'lighter';
+      for (let i=0;i<18;i++){ const sd = i%2 ? 1 : -1, f = (t*2.2 + i/18 + .3*hh(i, 51))%1, X = ox + sd*(RX + 1.4*f), Y = cy + (hh(i, 52) - .5)*.24 + .5*f*f, a = spn*(1 - f);
+        for (const [col, w] of [['255,70,40', .05], ['255,236,220', .016]]){ c.strokeStyle = 'rgba(' + col + ',' + a + ')'; c.lineWidth = w;
+          c.beginPath(); c.moveTo(X, Y); c.lineTo(X - sd*.24*(1 - .4*f), Y - .12*f); c.stroke(); } }
+      c.globalCompositeOperation = 'source-over';
+      for (let i=0;i<24;i++){ const f = (t*1.6 + i/24 + .37*hh(i, 41))%1, [x0, y0] = TP[i%TP.length], ar = yaw - .9*f, sg = Math.sign(x0) || 1;
+        const [X0, Y0] = at(x0, y0, ar), tx = -Math.sin(ar)*sg, ty = -TILT*Math.cos(ar)*sg, tl = Math.hypot(tx, ty) || 1;
+        const X = X0 + tx/tl*f*1.1, Y = Y0 + ty/tl*f*1.1 + .35*f*f, al = spn*Math.sin(Math.PI*f), z = .04 - .022*f;
+        c.strokeStyle = 'rgba(225,232,244,' + .5*al + ')'; c.lineWidth = z*1.1; c.beginPath(); c.moveTo(X, Y); c.lineTo(X - tx/tl*.16, Y - ty/tl*.16 - .1*f); c.stroke();
+        c.fillStyle = (i%3 ? 'rgba(18,20,24,' : 'rgba(150,10,16,') + al + ')'; c.beginPath(); c.arc(X, Y, z, 0, TAU); c.fill();
+        c.fillStyle = 'rgba(255,240,236,' + al + ')'; c.beginPath(); c.arc(X - z*.3, Y - z*.35, z*.42, 0, TAU); c.fill(); } }
+    // the launch: a white-red flash and a shock ring thrown out flat as the vortex is flung off at peak spin
+    const k = cl((u - .43)/.15);
+    if (k > 0 && k < 1){ const b = Math.sin(Math.PI*Math.sqrt(k)), r = .3 + 1.6*k;
+      c.globalCompositeOperation = 'lighter'; const g = c.createRadialGradient(ox, cy, 0, ox, cy, r);
+      g.addColorStop(0, 'rgba(255,246,236,' + .7*b + ')'); g.addColorStop(.4, 'rgba(255,80,50,' + .35*b + ')'); g.addColorStop(1, 'rgba(230,30,20,0)');
+      c.fillStyle = g; c.beginPath(); c.arc(ox, cy, r, 0, TAU); c.fill(); c.globalCompositeOperation = 'source-over';
+      const rs = RX*(.8 + 1.6*k); c.save(); c.translate(ox, cy); c.scale(1, TILT*1.4); ripple(c, 0, 0, rs, 0, TAU, .18, 1 - k, 18); c.restore();
+      c.strokeStyle = 'rgba(255,255,255,' + .8*(1 - k) + ')'; c.lineWidth = .03*(1 - k) + .005; c.beginPath(); c.ellipse(ox, cy, rs, rs*TILT*1.4, 0, 0, TAU); c.stroke(); }
+    // the spin dies: puffs of quicksilver vapour shed off both ends of the rim
+    const pk = cl((u - .84)/.16);
+    if (pk > 0 && pk < 1) for (let j=0;j<8;j++){ const sd = j%2 ? 1 : -1, e = (j >> 1)/4, X = ox + sd*(RX*(.55 + .2*e) + .5*pk), Y = cy + (e - .4)*.5 - .25*pk, r = .08 + .26*pk;
+      const g = c.createRadialGradient(X, Y, 0, X, Y, r), a = .4*Math.sin(Math.PI*pk)*(1 - .4*e);
+      g.addColorStop(0, 'rgba(225,232,244,' + a + ')'); g.addColorStop(.6, 'rgba(150,158,172,' + .5*a + ')'); g.addColorStop(1, 'rgba(120,128,142,0)');
+      c.fillStyle = g; c.beginPath(); c.arc(X, Y, r, 0, TAU); c.fill(); }
+  }
+  function puddle(c, bx, by, k, t, sz = 1){
+    const rx = .62*sz*Math.sqrt(k)*(1 + .04*Math.sin(t*5 + bx*3)), ry = rx*.38;
+    c.fillStyle = 'rgba(4,5,8,' + .5*k + ')'; c.beginPath(); c.ellipse(bx, by + .03, rx*1.08, ry*1.2, 0, 0, TAU); c.fill();
+    c.save(); c.translate(bx, by); c.scale(1, .38); const pg = c.createRadialGradient(-rx*.25, -rx*.35, 0, 0, 0, rx);
+    for (const [o, col] of [[0, '255,226,214'], [.18, '226,38,40'], [.7, '122,8,14'], [1, '40,3,6']]) pg.addColorStop(o, 'rgba(' + col + ',' + k + ')');
+    c.fillStyle = pg; c.beginPath(); c.arc(0, 0, rx, 0, TAU); c.fill();
+    c.strokeStyle = 'rgba(214,222,236,' + .85*k + ')'; c.lineWidth = .05*sz; c.stroke();
+    c.strokeStyle = 'rgba(255,255,255,' + k + ')'; c.lineWidth = .022*sz; c.beginPath(); c.arc(0, 0, rx*.9, Math.PI*1.05, Math.PI*1.45); c.stroke(); c.restore();
+    for (let j=0;j<7;j++){ const a = j/7*TAU + .4, X = bx + Math.cos(a)*rx*1.18, Y = by + Math.sin(a)*ry*1.25, z = (.03 + .02*hh(j, 21))*k*Math.sqrt(sz);
+      c.fillStyle = j%2 ? 'rgba(150,10,16,' + k + ')' : 'rgba(18,20,24,' + k + ')'; c.beginPath(); c.arc(X, Y, z, 0, TAU); c.fill();
+      c.fillStyle = 'rgba(255,240,236,' + k + ')'; c.beginPath(); c.arc(X - z*.3, Y - z*.35, z*.4, 0, TAU); c.fill(); }
+  }
+  function funnel(c, bx, by, sc, t, L, d){
+    const N = 11, vt = t*7;
+    const ring = (h) => { const lean = .25*h*h*Math.sin(t*1.1), rx = (.16 + .78*Math.pow(h, 1.4))*sc*(1 + d*.7); return [bx + lean*(1 - d), by - h*1.4*sc*(1 - .92*d), rx, rx*.3]; };   // d: collapsing onto the floor
+    const q = (t*.8)%1; c.save(); c.translate(bx, by); c.scale(1, .32); ripple(c, 0, 0, .25*sc + q*.8*sc, 0, TAU, .1, L*Math.sin(Math.PI*q)*.8, 12); c.restore();
+    c.globalCompositeOperation = 'lighter'; const rg = c.createRadialGradient(bx, by, 0, bx, by, .45*sc); rg.addColorStop(0, 'rgba(255,50,30,' + .35*L + ')'); rg.addColorStop(1, 'rgba(255,40,20,0)');
+    c.fillStyle = rg; c.beginPath(); c.arc(bx, by, .45*sc, 0, TAU); c.fill(); c.globalCompositeOperation = 'source-over';
+    // the body: one tapered column of dark quicksilver, lit down its middle like a turning cylinder
+    const lt = [], rt = []; for (let k=0;k<=10;k++){ const [cx, cy, rx] = ring(k/10); lt.push([cx - rx, cy]); rt.push([cx + rx, cy]); }
+    const [tx0, , trx] = ring(1), bg = c.createLinearGradient(tx0 - trx, 0, tx0 + trx, 0), al0 = L*(1 - .6*d);
+    // chrome walls round a MOLTEN core: the same red metal as the beams, white-hot down its axis
+    for (const [o, col, a] of [[0, '16,18,23', .8], [.18, '120,128,142', .6], [.32, '70,8,12', .75], [.44, '220,30,26', .85], [.5, '255,214,196', .9], [.56, '220,30,26', .85], [.68, '70,8,12', .75], [.82, '120,128,142', .6], [1, '16,18,23', .8]]) bg.addColorStop(o, 'rgba(' + col + ',' + a*al0 + ')');
+    c.beginPath(); lt.forEach(([X, Y], i) => i ? c.lineTo(X, Y) : c.moveTo(X, Y)); for (let k=10;k>=0;k--) c.lineTo(rt[k][0], rt[k][1]);
+    const [, cyT, rxT, ryT] = ring(1); c.ellipse(tx0, cyT, rxT, ryT, 0, 0, Math.PI, true); c.closePath();
+    c.fillStyle = 'rgba(10,11,14,' + .92*al0 + ')'; c.fill();   // an opaque body under the glassy walls: the column hides the boss behind it
+    c.fillStyle = bg; c.fill();
+    c.save(); c.translate(tx0, cyT); c.scale(1, .45); const mg = c.createRadialGradient(0, 0, 0, 0, 0, rxT*1.25);
+    mg.addColorStop(0, 'rgba(150,158,172,' + .35*al0 + ')'); mg.addColorStop(.6, 'rgba(90,96,108,' + .25*al0 + ')'); mg.addColorStop(1, 'rgba(60,64,72,0)');
+    c.fillStyle = mg; c.beginPath(); c.arc(0, 0, rxT*1.25, 0, TAU); c.fill(); c.restore();   // the top frays into a spray of quicksilver mist, no rim
+    for (let k=0;k<N;k++){ const h = k/(N - 1), [cx, cy, rx, ry] = ring(h), al = L*(1 - d*h);
+      for (let j=0;j<2;j++){ const a = vt*(1.6 - h*.8) + k*1.3 + j*Math.PI, fr = .5 + .5*Math.sin(a + .45);   // brighter on the front of the ring
+        c.strokeStyle = 'rgba(190,20,22,' + al*(.4 + .5*fr) + ')'; c.lineWidth = (.08 + .04*h)*sc; c.beginPath(); c.ellipse(cx, cy, rx, ry, 0, a, a + 1.3); c.stroke();   // each band: red metal sheathed in chrome
+        c.strokeStyle = 'rgba(205,214,228,' + al*(.15 + .75*fr) + ')'; c.lineWidth = (.04 + .025*h)*sc; c.beginPath(); c.ellipse(cx, cy, rx*1.02, ry*1.02, 0, a, a + 1.3); c.stroke();
+        c.strokeStyle = 'rgba(255,255,255,' + al*fr*.9 + ')'; c.lineWidth = .014*sc; c.beginPath(); c.ellipse(cx, cy, rx*.985, ry*.985, 0, a + .2, a + 1); c.stroke(); } }
+    for (let i=0;i<9;i++){ const f = (t*.45 + i/9)%1, [cx, cy, rx, ry] = ring(f), a = vt*1.2*(1 + f) + i*2.4, r = 1 + (1 - f)*1.6,
+      X = cx + Math.cos(a)*rx*r, Y = cy + Math.sin(a)*ry*r, al = L*Math.sin(Math.PI*f), z = (.04 - .02*f)*sc;
+      c.fillStyle = (i%3 ? 'rgba(150,10,16,' : 'rgba(20,22,27,') + al + ')'; c.beginPath(); c.arc(X, Y, z, 0, TAU); c.fill();   // red drops among the quicksilver
+      c.fillStyle = 'rgba(255,238,232,' + al + ')'; c.beginPath(); c.arc(X - z*.3, Y - z*.35, z*.45, 0, TAU); c.fill(); }
+  }
+  // E, SEEDED LANES (after ascii's typed lanes and pixel's ember dots): the four lanes show only as a sparse row of pinpricks of
+  // red metal welling through the floor, a pulse of heat marching out along them, fading with distance. No line is drawn
+  function aimFloor(c, A, t, u){
+    const a = A.aim, T = A.track, L = T.len, st = .17;
+    A.beams.forEach(({ start: S }, i) => {
+      for (let d=0, k=0;d<=L;d+=st, k++){ const pu = Math.pow(.5 + .5*Math.sin(k*.7 - t*6 + i*.4), 3), fd = 1 - .6*d/L, X = S.x + T.dx*d, Y = S.y + T.dy*d, z = .014 + .012*pu;
+        c.fillStyle = 'rgba(8,4,5,' + .35*a*fd + ')'; c.beginPath(); c.ellipse(X, Y + .006, z*1.6, z*.8, 0, 0, TAU); c.fill();
+        c.fillStyle = 'rgba(' + Math.round(120 + 110*pu) + ',' + Math.round(14 + 30*pu) + ',20,' + (.3 + .45*pu)*a*fd + ')'; c.beginPath(); c.ellipse(X, Y, z*1.2, z*.6, 0, 0, TAU); c.fill(); } });
+  }
+  function aimAir(){}
+  // the heat ray's floor pass, under the boss: the aim telegraph's floor part, each lane's molten scorch, the burn glow, the spent pools
+  function laserFloor(c, A, t, u){
+    const { aim, fire, scorch, pool: pk } = A, s = A.sweep, T = A.track;
+    if (aim > .01) aimFloor(c, A, t, u);
+    A.beams.forEach(({ start: S, end: E }, i) => {
+      if (pk > .01) puddle(c, E.x, E.y, pk, t, .5);   // where each jet stopped, its metal pooled
+      if (s > 0 && scorch > 0){   // the scorch: a bead of red metal poured along the lane, white-hot at the burning point, cooled to dark iron behind it
+        const lg = (a0, a1, c0, c1) => { const g = c.createLinearGradient(S.x, S.y, E.x, E.y); g.addColorStop(0, 'rgba(' + c0 + ',' + a0*scorch + ')'); g.addColorStop(.7, 'rgba(' + c1 + ',' + (a0 + .6*(a1 - a0))*scorch + ')'); g.addColorStop(1, 'rgba(' + c1 + ',' + a1*scorch + ')'); return g; };
+        const ln = (w, st) => { c.strokeStyle = st; c.lineWidth = w; c.beginPath(); c.moveTo(S.x, S.y); c.lineTo(E.x, E.y); c.stroke(); };
+        ln(.17, 'rgba(8,4,5,' + .6*scorch + ')');   // the char
+        ln(.07, lg(.55, .95, '58,14,16', '220,30,28'));
+        ln(.02, lg(0, .9*(.3 + .7*fire), '255,200,180', '255,240,230')); }
+      if (fire > .01){   // the burn: a flickering red-hot glow on the floor where the ray touches it
+        const fl = fire*(.8 + .2*Math.sin(t*31 + i*2.1)*Math.sin(t*17 + i));
+        c.save(); c.translate(E.x, E.y); c.scale(1, .45); c.globalCompositeOperation = 'lighter';
+        const gg = c.createRadialGradient(0, 0, 0, 0, 0, .8); gg.addColorStop(0, 'rgba(255,140,90,' + .7*fl + ')'); gg.addColorStop(.3, 'rgba(235,35,22,' + .4*fl + ')'); gg.addColorStop(1, 'rgba(120,0,0,0)');
+        c.fillStyle = gg; c.beginPath(); c.arc(0, 0, .8, 0, TAU); c.fill(); c.globalCompositeOperation = 'source-over';
+        const pg = c.createRadialGradient(-.05, -.07, 0, 0, 0, .3);   // the molten splash it pours into
+        pg.addColorStop(0, 'rgba(255,240,230,' + fl + ')'); pg.addColorStop(.25, 'rgba(235,40,34,' + fl + ')'); pg.addColorStop(.85, 'rgba(110,8,14,' + fl + ')'); pg.addColorStop(1, 'rgba(40,3,6,0)');
+        c.fillStyle = pg; c.beginPath(); c.arc(0, 0, .3*(1 + .12*Math.sin(t*13 + i)), 0, TAU); c.fill(); c.restore(); }
+    });
+  }
+  // the heat ray over the boss: four jets of molten red metal, each a straight rope from its eye to its walking ground point,
+  // and the splash at that point: drops and white-hot sparks flung up off it, black smoke rolling up behind
+  function beams(c, A, t, u){
+    const { fire } = A;
+    if (A.aim > .01) aimAir(c, A, t, u);
+    A.beams.forEach(({ x: ex, y: ey, a }, i) => {
+      const dx = Math.cos(a), dy = Math.sin(a);
+      if (fire > .01){
+        // a JET of molten red metal, not light: a rope of liquid with a chrome sheen down one side, swelling in pulses as it pours,
+        // beads riding it, and a splash where it lands just past the player
+        const L = A.beams[i].len, nx = -dy, ny = dx, w = A.beams[i].w, hx = ex + dx*L, hy = ey + dy*L;
+        c.globalCompositeOperation = 'lighter'; c.strokeStyle = 'rgba(255,30,15,' + .16*fire + ')'; c.lineWidth = .3; c.beginPath(); c.moveTo(ex, ey); c.lineTo(hx, hy); c.stroke(); c.globalCompositeOperation = 'source-over';
+        const jg = c.createLinearGradient(ex + nx*w*1.3, ey + ny*w*1.3, ex - nx*w*1.3, ey - ny*w*1.3);
+        for (const [o, col] of [[0, '#2a0306'], [.22, '#7a080e'], [.4, '#d41c20'], [.5, '#ffe6dc'], [.57, '#e8282a'], [.8, '#8a0a10'], [1, '#2a0306']]) jg.addColorStop(o, col);
+        c.strokeStyle = jg;
+        for (let k=0;k<7;k++){ const f0 = k/7, f1 = (k + 1)/7; c.lineWidth = 2*w*(1 + .25*Math.sin(f0*14 - t*18 + i*1.7))*(1 - .3*f0);
+          c.beginPath(); c.moveTo(ex + dx*L*f0, ey + dy*L*f0); c.lineTo(ex + dx*L*f1, ey + dy*L*f1); c.stroke(); }
+        const drop = (X, Y, z, al) => { c.fillStyle = 'rgba(150,10,16,' + al + ')'; c.beginPath(); c.arc(X, Y, z, 0, TAU); c.fill();
+          c.fillStyle = 'rgba(255,235,228,' + al + ')'; c.beginPath(); c.arc(X - z*.3, Y - z*.35, z*.38, 0, TAU); c.fill(); };
+        for (let j=0;j<4;j++){ const f = (t*2.4 + j/4 + i*.29)%1, o = .07*Math.sin(t*9 + j*2.3)*fire; drop(ex + dx*L*f + nx*o, ey + dy*L*f + ny*o, .035*fire, fire*Math.sin(Math.PI*f)); }
+        // the burning point: smoke rolling up off the floor, drops of red metal thrown back, white-hot sparks spat ahead
+        for (let j=0;j<4;j++){ const f = (t*.9 + j/4 + i*.31)%1, r = .14 + .4*f, X = hx + .12*Math.sin(t*1.7 + j*2.3 + i) - A.track.dx*.35*f, Y = hy - .12 - 1.1*f, al = fire*Math.sin(Math.PI*Math.sqrt(f));
+          const sg = c.createRadialGradient(X, Y, 0, X, Y, r); sg.addColorStop(0, 'rgba(104,96,98,' + .7*al + ')'); sg.addColorStop(.6, 'rgba(70,64,68,' + .4*al + ')'); sg.addColorStop(1, 'rgba(50,48,52,0)');
+          c.fillStyle = sg; c.beginPath(); c.arc(X, Y, r, 0, TAU); c.fill(); }
+        for (let j=0;j<5;j++){ const f = (t*1.9 + j/5 + i*.37)%1, b = a + Math.PI + (hh(j, i + 3) - .5)*2.6, r = .08 + .45*f;
+          drop(hx + Math.cos(b)*r, hy + Math.sin(b)*r*.5 - .28*Math.sin(Math.PI*f), .04*(1 - .5*f)*fire, fire*Math.sin(Math.PI*f)); }
+        c.globalCompositeOperation = 'lighter';
+        for (let j=0;j<7;j++){ const f = (t*2.7 + j/7 + i*.23)%1, b = Math.atan2(A.track.dy, A.track.dx) + (hh(j, i + 9) - .5)*2.2, v = .4 + .7*hh(j, i + 11),
+          X = hx + Math.cos(b)*v*f, Y = hy + Math.sin(b)*v*f*.5 - .55*f + .5*f*f, al = fire*(1 - f);
+          c.strokeStyle = 'rgba(255,' + Math.round(150 + 100*(1 - f)) + ',' + Math.round(120*(1 - f)) + ',' + al + ')'; c.lineWidth = .025;
+          c.beginPath(); c.moveTo(X, Y); c.lineTo(X - Math.cos(b)*v*.14, Y - (Math.sin(b)*v*.5 - .55 + f)*.14); c.stroke(); }
+        const cg = c.createRadialGradient(hx, hy, 0, hx, hy, .2); cg.addColorStop(0, 'rgba(255,250,240,' + fire + ')'); cg.addColorStop(.4, 'rgba(255,110,70,' + .6*fire + ')'); cg.addColorStop(1, 'rgba(255,30,10,0)');
+        c.fillStyle = cg; c.beginPath(); c.arc(hx, hy, .2*(1 + .15*Math.sin(t*37 + i*3)), 0, TAU); c.fill(); c.globalCompositeOperation = 'source-over'; }
+      const sm2 = A.smoke;   // smoke from the spent eyes
+      if (sm2 > .01) for (let j=0;j<7;j++){ const f = (t*.6 + j/7)%1, r = .09 + .26*f, X = ex + .08*Math.sin(t*1.3 + j*2) + Math.sign(ex)*.35*f, Y = ey - .7*f, al = sm2*Math.sin(Math.PI*Math.sqrt(f));
+        const sg = c.createRadialGradient(X, Y, 0, X, Y, r); sg.addColorStop(0, 'rgba(176,180,188,' + .8*al + ')'); sg.addColorStop(.55, 'rgba(118,122,130,' + .55*al + ')'); sg.addColorStop(1, 'rgba(80,84,92,0)');
+        c.fillStyle = sg; c.beginPath(); c.arc(X, Y, r, 0, TAU); c.fill(); }
+    });
+  }
+  // the sword morph (r35 c): FEATHERS PEEL OFF: every other feather of all six wings detaches and stacks into the blade at the shoulders, the wings left ragged until they fly back
+  const SWV = 'c';
+  let SWD = null;
+  let floor = null, fw = 0;
+  return {
+    bg(c, w, t){
+      if (!floor || fw !== w){ fw = w; floor = mk(w, w); const g = floor.getContext('2d');
+        g.fillStyle = '#2e3136'; g.fillRect(0,0,w,w);
+        for (let k=0;k<22;k++){ const x = hh(k,1)*w, y = hh(k,2)*w, r = w*(.12 + hh(k,3)*.3), l = hh(k,4) < .5, gr = g.createRadialGradient(x,y,0,x,y,r);
+          gr.addColorStop(0, l ? 'rgba(120,126,136,.28)' : 'rgba(8,9,12,.4)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(0,0,w,w); }
+        g.lineWidth = w*.012; g.strokeStyle = 'rgba(200,206,214,.55)';
+        for (let k=0;k<3;k++){ g.beginPath(); g.ellipse(hh(k,8)*w, hh(k,9)*w, w*(.04 + hh(k,7)*.04), w*.03, hh(k,6)*3, 0, TAU); g.stroke(); }
+        g.lineWidth = 1; g.strokeStyle = 'rgba(200,60,70,.35)'; g.beginPath(); g.arc(w*.1, w*.95, w*.45, 0, TAU); g.stroke();
+        g.strokeStyle = 'rgba(90,140,220,.3)'; g.beginPath(); g.arc(w*.95, w*.1, w*.38, 0, TAU); g.stroke(); }
+      c.drawImage(floor, 0, 0, w, w);
+    },
+    boss(c, x, y, R, t, ph = 3){ draw(c, x, y, R, t, ph, RIG.pose(t, ph)); },
+    attack,
+    post(c, w, t){ tilePost(c, 'liquid', w, t); },
+  };
+})();

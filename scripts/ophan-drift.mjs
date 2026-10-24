@@ -54,7 +54,7 @@ await ev('document.fonts.ready.then(() => 1)'); await sleep(500)
 const ph3 = st === 'pencil' ? 4 : 3
 const states = (st === 'pencil' ? [4] : [1, 2, 3]).map((ph) => ['idle-ph' + ph, null, 0, ph])
 for (const [k, u] of ATTACKS) if (await ev('!!OPHAN[' + JSON.stringify(st) + '].attack')) states.push([k, k, u, ph3])
-console.log('drift ' + st + '  approved scripts/ophan-drift/approved/' + st + '.js  vs  candidate src/ophan/painters/' + st + '.js' + (c2d ? '  (both Canvas2D)' : '  on game tech'))
+console.log('drift ' + st + '  approved scripts/ophan-drift/approved/' + st + '.js  vs  candidate src/ophan/painters/' + (st === 'liquid' ? 'core' : st) + '.js' + (c2d ? (st === 'liquid' ? '  (control: the approved twice, Canvas2D)' : '  (both Canvas2D)') : '  on game tech'))
 console.log('pass: mean <= ' + MEAN + ' and >48 <= ' + BIG + '%\n  state      mean   >48 %   box         result')
 let fail = 0
 for (const [name, atk, u, ph] of states) {

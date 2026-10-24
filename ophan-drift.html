@@ -77,7 +77,8 @@ if (st) {
     const A = OPHAN[st + '~A'], C = OPHAN[st]
     if (!A || !C) throw new Error('painter missing: ' + st)
     draw2d(a2, A, s)
-    if (cand2d) draw2d(b2, C, s); else { await pixi(); drawGT(b2, C, s) }
+    // the Core's in-game painter is px2d-only (game-legal): its control draws the approved one twice, as the artifact's does
+    if (cand2d) draw2d(b2, st === 'liquid' ? A : C, s); else { await pixi(); drawGT(b2, C, s) }
     const a = a2.getContext('2d').getImageData(0, 0, D, D).data, b = b2.getContext('2d').getImageData(0, 0, D, D).data
     let x0 = D, y0 = D, x1 = -1, y1 = -1
     for (let y = 0; y < D; y++) for (let x = 0; x < D; x++) {
