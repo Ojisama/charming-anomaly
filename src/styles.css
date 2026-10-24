@@ -3784,23 +3784,35 @@ body {
 .title-below .page--recto .rp-fx { display: flex; align-items: center; justify-content: center; min-height: 2.6em; }
 .title-below .page--recto .pg-top { min-height: 24px; align-items: center; }
 
-/* THE OPHAN'S DEPTH GAUGE (ui.js data-ophan-gauge): a column of six world bands, surface on top. Each band is
-   >= 44 css px tall; touch-action none so a slide across the bands never scrolls the page. */
+/* THE OPHAN'S DEPTH GAUGE (ui.js data-ophan-gauge, art in ophan/gauge.js): the painted cone in canvases, its marks
+   and captions in an svg over them, and six transparent full-width buttons on top, one per world row, each >= 44 css
+   px tall and wearing its tag card. touch-action none so a slide across the rows never scrolls the page. */
 .ophan-gauge {
-  position: absolute; left: 10px; bottom: 34px; display: flex; flex-direction: column; align-items: center;
+  position: absolute; left: 0; bottom: 32px; width: 124px; height: 346px;
   touch-action: none; user-select: none; pointer-events: auto;
 }
+.ophan-paint, .ophan-art { position: absolute; left: 0; top: 0; }
+.ophan-art { width: 124px; height: 346px; overflow: visible; }
 .ophan-gauge button {
-  width: 52px; height: 44px; margin: 0; padding: 0; border: 0; border-radius: 6px;
-  font: 700 9px/1 system-ui, sans-serif; letter-spacing: 0; color: #fff; white-space: nowrap; overflow: hidden;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8); position: relative; touch-action: none;
+  position: absolute; left: 0; width: 100%; height: 44px; margin: 0; padding: 0; border: 0;
+  background: transparent; touch-action: none;
 }
-.ophan-gauge button + button { margin-top: 2px; }
-.ophan-gauge button.ophan-worn::after {
-  content: ''; position: absolute; right: -9px; top: 50%; width: 5px; height: 5px; margin-top: -2.5px;
-  border-radius: 50%; background: #fff;
+.ophan-card {
+  position: absolute; left: 67px; transform: translateY(-50%) rotate(-1.7deg); padding: 0 2.5px;
+  font: 700 6.8px/9.8px 'Comic Sans MS', 'Comic Neue', 'Chalkboard SE', 'Segoe Print', system-ui, sans-serif;
+  letter-spacing: 0.02em; color: #1f1a14; white-space: nowrap; background: #fbf8f1; border: 0.4px solid #8c8476;
+  box-shadow: 0.6px 0.8px 0 rgba(0, 0, 0, 0.35);
 }
-.ophan-cap { font: 600 9px/1.4 system-ui, sans-serif; letter-spacing: 0.12em; text-transform: uppercase; color: rgba(255, 255, 255, 0.7); text-shadow: 0 1px 2px #000; }
+.ophan-gauge button:nth-of-type(even) .ophan-card { transform: translateY(-50%) rotate(1.7deg); }
+.ophan-cap {
+  font: 700 7px system-ui, sans-serif; text-anchor: middle; dominant-baseline: middle;
+  fill: rgba(255, 255, 255, 0.88); stroke: rgba(0, 0, 0, 0.8); stroke-width: 2.5px; stroke-linejoin: round; paint-order: stroke;
+}
+/* the four state marks: current world a white outline, next skin a dashed ring, worn skin a dot, broken greyed */
+.ophan-m-cur, .ophan-m-next, .ophan-m-worn { display: none; }
+.ophan-layer.ophan-cur .ophan-m-cur, .ophan-layer.ophan-next .ophan-m-next, .ophan-layer.ophan-worn .ophan-m-worn { display: inline; }
+canvas.ophan-broken, .ophan-broken .ophan-lead, .ophan-broken .ophan-card { filter: grayscale(1); opacity: 0.35; }
+canvas.ophan-unbuilt, .ophan-unbuilt .ophan-card { opacity: 0.55; }
 /* pointer-events none is deliberate: a touch on the greyed gauge falls through to the joystick instead of dead-zoning the thumb area */
 .ophan-gauge--sketch { filter: grayscale(1); opacity: 0.5; pointer-events: none; }
 #ui.lv-open .ophan-gauge { pointer-events: none; }

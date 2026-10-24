@@ -8,6 +8,7 @@ const OPHAN_GAUGE_IDS = CHAPTERS.ophan.worlds.map((w) => w.chapter)
 // The leaderboard's read side. ui.js fetching its own boards is deliberate — see the comment on
 // loadPodium for where the line between "hook" and "direct import" is drawn.
 import { fetchBoards, validNick, NICK_MIN, NICK_MAX } from './scores.js'
+import { gaugeSvg, paintGauge, cardY, CAP_X, GY, STEP, END } from './ophan/gauge.js'
 
 // ---- Shop line icons (v7.x) --------------------------------------------------------------
 // DRAWN, NOT EMOJI (owner ruling, 2026-08-17), in the same 24px stroke idiom as ICO_REROLL and
@@ -2498,11 +2499,15 @@ export function initUI(hooks) {
          the whole Reef card pool is speed — Turbo Fin, Quick Start, Jet Puff — and nothing on
          screen moved when you took one, which is this repo's standard shape for a card that reads
          as dead in play. Outside .hud-top's grid (position:fixed, styles.css) like .chaos-wrap. -->
-    <!-- THE OPHAN'S DEPTH GAUGE: six world bands, surface at the top, core at the bottom. Hidden outside a chapter with worlds. -->
+    <!-- THE OPHAN'S DEPTH GAUGE: a painted cone cut through the earth (ophan/gauge.js), surface at the top, core at the
+         bottom; one full-width button per world row wears its tag card. Hidden outside a chapter with worlds. -->
     <div class="ophan-gauge" data-ui data-ophan-gauge style="display:none;">
-      <span class="ophan-cap">${t(OPHAN_GAUGE_COPY.top)}</span>
-      ${OPHAN_GAUGE_IDS.map((id, k) => `<button data-world="${k}" aria-label="${t(spineName(id))}">${t(OPHAN_GAUGE_COPY.tags[k])}</button>`).join('')}
-      <span class="ophan-cap">${t(OPHAN_GAUGE_COPY.bottom)}</span>
+      ${'<canvas class="ophan-paint"></canvas>'.repeat(7)}
+      <svg class="ophan-art" viewBox="0 0 124 346" aria-hidden="true">${gaugeSvg()}
+        <text class="ophan-cap" x="${CAP_X}" y="${GY - 36}">${t(OPHAN_GAUGE_COPY.top).toUpperCase()}</text>
+        <text class="ophan-cap" x="${CAP_X}" y="${END + 9}">${t(OPHAN_GAUGE_COPY.bottom).toUpperCase()}</text>
+      </svg>
+      ${OPHAN_GAUGE_IDS.map((id, k) => `<button data-world="${k}" aria-label="${t(spineName(id))}" style="top:${GY + STEP * k}px"><span class="ophan-card" style="top:${cardY(k)}px">${t(OPHAN_GAUGE_COPY.tags[k])}</span></button>`).join('')}
     </div>
     <div class="race-speed race-hidden"><b></b><span class="race-k" data-race-k="KM/H"></span></div>
     <button class="skill-btn skill-btn--hidden" data-act="skill" aria-label="Pulse">
@@ -2569,6 +2574,11 @@ export function initUI(hooks) {
   // A press on a band switches to its world and captures the pointer; sliding onto another band switches again.
   // input.js skips any [data-ui] target, so none of this starts the joystick.
   const gaugeBands = [...hud.ophanGauge.querySelectorAll('button')]
+  // each world's state classes land on its button (the card), its painted canvas and its svg marks alike
+  const gaugeCanvases = [...hud.ophanGauge.querySelectorAll('canvas')]
+  const gaugeLayers = [...hud.ophanGauge.querySelectorAll('.ophan-layer')]
+  const gaugeParts = gaugeBands.map((b, k) => [b, gaugeCanvases[1 + k], gaugeLayers[k]])
+  let gaugePainted = false
   let gaugeBand = -1
   const gaugeSwitch = (k) => { if (k !== gaugeBand) { gaugeBand = k; hooks.onWorld(k) } }
   hud.ophanGauge.addEventListener('pointerdown', (e) => {
@@ -2898,13 +2908,16 @@ export function initUI(hooks) {
       hud.ophanGauge.style.display = gaugeShown ? '' : 'none'
       if (gaugeShown) {
         hud.ophanGauge.classList.toggle('ophan-gauge--sketch', !!oph.sketch)
-        const worlds = CHAPTERS[run.chapter].worlds
-        gaugeBands.forEach((b, k) => {
-          const soon = k === oph.next && oph.tell > 0
-          b.style.background = oph.broken[k] ? '#555' : worlds[k].col
-          b.style.opacity = oph.broken[k] ? '0.35' : hooks.worldReady?.(k) ? '' : '0.55'
-          b.style.outline = k === oph.world ? '3px solid #fff' : soon ? '2px dashed #fff' : ''
-          b.classList.toggle('ophan-worn', k === oph.skin)
+        if (!gaugePainted) { gaugePainted = true; paintGauge(gaugeCanvases) }
+        gaugeParts.forEach((parts, k) => {
+          const unbuilt = !oph.broken[k] && !hooks.worldReady?.(k)
+          for (const el of parts) {
+            el.classList.toggle('ophan-cur', k === oph.world)
+            el.classList.toggle('ophan-next', k === oph.next && oph.tell > 0 && k !== oph.world)
+            el.classList.toggle('ophan-broken', !!oph.broken[k])
+            el.classList.toggle('ophan-unbuilt', unbuilt)
+            el.classList.toggle('ophan-worn', k === oph.skin)
+          }
         })
       }
     }

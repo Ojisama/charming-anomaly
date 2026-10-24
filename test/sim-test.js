@@ -43696,6 +43696,13 @@ function testOphanGauge() {
   assert.ok(/Digit5/.test(keys) && /Digit6/.test(keys), 'a level-up card lets 5 and 6 through to the world keys')
   assert.ok(/#ui\.lv-open \.ophan-gauge\s*\{[^}]*pointer-events:\s*none/.test(css), 'the gauge stays tappable behind an open level-up')
   assert.ok(/\.ophan-gauge\s*\{[^}]*touch-action:\s*none/.test(css), 'the gauge scrolls the page')
+  // the art is inline SVG built once; the six buttons still wear the tags and the sync only toggles the four state marks
+  assert.ok(/<svg[^>]*class="ophan-art"/.test(ui), 'the gauge art is not an inline <svg class="ophan-art">')
+  assert.ok(/<button data-world=[^>]*>[^`]*OPHAN_GAUGE_COPY\.tags\[k\]/.test(ui), 'a gauge button lost its tag')
+  for (const c of ['ophan-cur', 'ophan-next', 'ophan-broken', 'ophan-worn']) {
+    assert.ok(new RegExp("classList\\.toggle\\('" + c + "'").test(ui), 'the sync never toggles ' + c)
+    assert.ok(new RegExp('\\.' + c + '\\b').test(css), 'no css for ' + c)
+  }
   const h = Number(css.match(/\.ophan-gauge button\s*\{[^}]*height:\s*(\d+)px/)?.[1])
   assert.ok(h >= 44, 'a gauge band is under 44 css px: ' + h)
   console.log('PASS run OG: gauge markup, onWorld binding, state reads, level-up key guard, touch-action, band height ' + h + 'px')
