@@ -10192,7 +10192,7 @@ export const OPHAN_HIT_CD = 0.6
 //  - shove and pull are rates: sim scales both by dt * OPHAN_SHOVE_DECAY (4200 = 420 per 60 Hz frame)
 export const OPHAN_ATTACKS = {
   blast:   { dur: 1.8,  dmg: 144, shove: 4200, minPh: 1 },
-  tornado: { dur: 4.5,  dmg: 43, pull: 140, minPh: 1 },
+  tornado: { dur: 7.0,  dmg: 43, pull: 140, minPh: 1 },   // dur is RIG.ROAM base + extra: its road roams 2.5 s longer
   laser:   { dur: 3.85, dmg: 160, minPh: 2 },
   wheel:   { dur: 4.2,  dmg: 352, minPh: 1 },
   recall:  { dur: 4.4,  dmg: 192, minPh: 1 },

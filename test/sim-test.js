@@ -43559,7 +43559,7 @@ function testOphanAttacks() {
   // whole attack, and how many grid points are outside it (+-10%). The free set is computed with the
   // predicate under test, so these literals are what catch a predicate that grew or shrank.
   const GOLD = {
-    blast: [[7, 192], [7, 252], 373], tornado: [[7, 152], [7, 232], 399], laser: [[7, 192], [67, 192], 442],
+    blast: [[7, 192], [7, 252], 373], tornado: [[7, 152], [7, 232], 390], laser: [[7, 192], [67, 192], 442],
     wheel: [[7, 192], [-53, 232], 320], recall: [[7, 192], [27, 192], 380], sword: [[7, 192], [47, 192], 473],
   }
   const rows = []
@@ -43574,6 +43574,19 @@ function testOphanAttacks() {
     for (const [dx, dy, part] of [[0, 0.25 * g.foot + PLAYER.radius, 'base'], [0, -H - 0.25 * g.radius - PLAYER.radius, 'top'], [0.9 * g.radius, -H, 'rim']])
       assert.ok(ophanHits('tornado', g, g.pos.x + dx, g.pos.y + dy, PLAYER.radius, R, OPHAN_HIT).hit, `tornado: a player touching its ${part} is not hit`)
     rows.push('tornado hits the still aim and its whole funnel')
+  }
+  // the tornado roams ROAM.extra s longer on its road (u .44 .. .88); its wind-up and collapse keep their 4.5 s lengths, its spin its speed
+  {
+    const { base, extra } = RIG.ROAM, us = []
+    assert.strictEqual(OPHAN_ATTACKS.tornado.dur, base + extra, 'tornado: its dur is not RIG.ROAM base + extra')
+    ophAttackRun('tornado', A, (r) => { us.push(r.script.oph.atk.u) })
+    const secs = (lo, hi) => us.filter((u) => u >= lo && u < hi).length / 60
+    for (const [lo, hi, want, part] of [[0, 0.44, 0.44 * base, 'wind-up'], [0.44, 0.88, 0.44 * base + extra, 'roam'], [0.88, 1, 0.12 * base, 'collapse']])
+      assert.ok(Math.abs(secs(lo, hi) - want) < 0.05, `tornado: its ${part} lasts ${secs(lo, hi).toFixed(2)} s, want ${want.toFixed(2)}`)
+    const spinAt = (u) => RIG.attack('tornado', u, 3, bx, by, R, A.x, A.y).spin, du = 0.01
+    const radS = (spinAt(0.6 + du) - spinAt(0.6)) / (du * OPHAN_ATTACKS.tornado.dur / RIG.uRate('tornado', 0.6))
+    assert.ok(Math.abs(radS - 22.7 * 0.725 / base) < 0.1, `tornado: its funnel spins ${radS.toFixed(2)} rad/s on the road, want ${(22.7 * 0.725 / base).toFixed(2)}`)
+    rows.push(`tornado roams ${secs(0.44, 0.88).toFixed(2)} s at ${radS.toFixed(2)} rad/s`)
   }
   for (const k of Object.keys(STRIKE)) {
     const g = RIG.attack(k, STRIKE[k], 3, bx, by, R, A.x, A.y)

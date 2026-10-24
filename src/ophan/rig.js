@@ -137,11 +137,19 @@ const RIG = (() => {
 
   // ---- the pose record of one attack at progress u (liquid's stage(), the drawing taken out)
   const SAG = [.85, .95, .6];   // the spent pose: every pair hanging far below rest
-  const spinOf = (u) => { let a = 0; const N = 24; for (let k=0;k<N;k++){ const v = (k + .5)/N*u;   // the tornado's spin: the integral of its speed
-      a += (v < .3 ? sm(0, .3, v) : v < .9 ? 1 - .55*sm(.3, .9, v) : .45*(1 - sm(.9, 1, v)))*u/N; } return a*22.7; };
+  // THE ROAM (owner: "wander more like for 2 or 3 s more"): the tornado's u windows are written on a BASE s schedule and its
+  // road (u AT .. TO) is walked EXTRA s slower; OPHAN_ATTACKS.tornado.dur is BASE + EXTRA. Real time below is in BASE-s units
+  const ROAM = { base: 4.5, extra: 2.5, at: .44, to: .88 }, RK = 1 + ROAM.extra/((ROAM.to - ROAM.at)*ROAM.base);
+  const toReal = (u) => u < ROAM.at ? u : u < ROAM.to ? ROAM.at + (u - ROAM.at)*RK : u + (ROAM.to - ROAM.at)*(RK - 1);
+  const fromReal = (s) => s < ROAM.at ? s : s < ROAM.at + (ROAM.to - ROAM.at)*RK ? ROAM.at + (s - ROAM.at)/RK : s - (ROAM.to - ROAM.at)*(RK - 1);
+  // d(u)/d(real u) over dur = BASE + EXTRA: the sim advances an attack's u by it
+  const uRate = (atk, u) => atk !== 'tornado' ? 1 : (1 + ROAM.extra/ROAM.base)/(u >= ROAM.at && u < ROAM.to ? RK : 1);
+  // an integral over REAL time of a speed given at u, so a spin keeps its turns per second through the roam
+  const overReal = (f, u, N) => { const s1 = toReal(u); let a = 0; for (let k=0;k<N;k++) a += f(fromReal((k + .5)/N*s1))*s1/N; return a; };
+  const spinOf = (u) => 22.7*overReal((v) => v < .3 ? sm(0, .3, v) : v < .9 ? 1 - .55*sm(.3, .9, v) : .45*(1 - sm(.9, 1, v)), u, 32);   // the tornado's spin: the integral of its speed
   // the boss as a top: its spin speed (0..1; the coil turns it slowly backwards) and its angle, the integral of that speed
   const spinRate = (u) => sm(.3, .43, u)*(1 - sm(.84, 1, u));
-  const spun = (u) => { let a = 0; const N = 48; for (let k=0;k<N;k++) a += spinRate((k + .5)/N*u)*u/N; return a; };
+  const spun = (u) => overReal(spinRate, u, 64);
   // ~120 rad per unit u at full spin (about 4 turns/s; owner: faster), trimmed so coil + spin end on a WHOLE number of turns: the next pose is at
   // rest (angle 0) and the wings have no rotational symmetry, so any remainder would snap back at u = 1
   const COIL = .5, TOP =(Math.round((120*spun(1) - COIL)/TAU)*TAU + COIL)/spun(1);
@@ -294,7 +302,7 @@ const RIG = (() => {
     }
     if (atk === 'tornado'){
       // the road (u = .42 .. .88): from just off the boss to the locked aim, wandering side to side and settling onto it
-      const road = (v) => { const f = .4 + .6*sm(.44, .88, v), w = .5*Math.sin(v*9 + .5)*sm(.42, .55, v)*(1 - sm(.74, .88, v)); return { x: PX*f - Math.sin(phi)*w, y: .2 + (PY - .2)*f + Math.cos(phi)*w }; };
+      const road = (v) => { const f = .4 + .6*sm(.44, .88, v), w = .5*Math.sin(toReal(v)*9 + .5)*sm(.42, .55, v)*(1 - sm(.74, .88, v)); return { x: PX*f - Math.sin(phi)*w, y: .2 + (PY - .2)*f + Math.cos(phi)*w }; };
       const path = [], pathR = []; for (let k=0;k<10;k++){ path.push(road(.46 + .42*k/9)); pathR.push(.16 + .015*k); }
       const e = road(.88), sc = .45 + .55*sm(.43, .58, u), d = sm(.84, .91, u), v0 = Math.max(.42, u - .3), trail = [];
       for (let k=0;k<=10;k++) trail.push(road(v0 + (u - v0)*k/10));
@@ -452,6 +460,6 @@ const RIG = (() => {
     return { tip, grip, palm, ang, z, scale: sc, shadow, stroke: { pts, w: 1.15 }, paint, touch };
   }
   function attack(atk, u, ph, bx, by, R, px, py, t = 0, P = null){ return toWorld(attackUnit(atk, u, ph, (px - bx)/R, (py - by)/R, t, P), bx, by, R); }
-  return { WINGS, CORE, EYE, HALO, feather, pose, attackUnit, attack, hand, HAND_DUR, HAND_WIN, mul, apply: ap, ease, sm, cl };
+  return { WINGS, CORE, EYE, HALO, feather, pose, attackUnit, attack, hand, HAND_DUR, HAND_WIN, ROAM, uRate, mul, apply: ap, ease, sm, cl };
 })();
 export default RIG

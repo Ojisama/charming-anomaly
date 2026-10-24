@@ -30,7 +30,7 @@ const seen = new WeakMap()
 
 // the attack's danger geometry at `ahead` seconds on, or null once it would be over
 function geoAt(o, b, ahead) {
-  const a = o.atk, R = OPHAN_BOSS.R, u = a.u + ahead / a.dur
+  const a = o.atk, R = OPHAN_BOSS.R, u = a.u + ahead / a.dur * RIG.uRate(a.k, a.u)
   if (u >= 1) return null
   const t = o.t + ahead
   const pose = RIG.pose(t, o.ph, a.k, u, (a.ax - b.x) / R, (a.ay - b.y) / R)

@@ -1892,7 +1892,7 @@ function stepOphanScript(run, dt) {
   }
   if (o.atk) {
     const a = o.atk, cfg = OPHAN_ATTACKS[a.k]
-    a.u += dt / a.dur
+    a.u += dt / a.dur * RIG.uRate(a.k, a.u)
     a.hitCd -= dt
     if (a.u >= 1) {
       o.atk = null; o.recov = false
