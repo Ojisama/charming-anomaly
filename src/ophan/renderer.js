@@ -296,9 +296,11 @@ export function createOphanRenderer(host) {
         if (app.canvas.style.position === mine.pos) app.canvas.style.position = saved.pos
       }
       saved = mine = null; sceneKey = ''
-      for (const s of Object.values(slots)) { s.wrap.visible = false; if (s.glc) s.glc.style.display = 'none' }
-      // a warm-up cut short is queued again next time; its waiters are released, not left hanging
+      for (const s of Object.values(slots)) { s.wrap.visible = false; glcWarm(s, false) }
+      // a warm-up cut short is queued again next time; its waiters are released, not left hanging, and its target is
+      // made again at the screen's size then
       if (jobs.length) { jobs = []; warmed.clear() }
+      rt?.destroy(true); rt = null
       if (raf) cancelAnimationFrame(raf); raf = 0
       entered = false
       drained()

@@ -43896,14 +43896,17 @@ function testOphanRenderWiring() {
   assert.ok(hide && !/vignette/.test(hide), 'the Ophan hides the hurt flash')
   assert.ok(/\.ax\b/.test(rend) && /\.ay\b/.test(rend) && /oph\.t\b/.test(rend), 'the painters do not read the locked aim / the sim clock the hit test uses')
   assert.ok(/case 'ophanImmune'/.test(rend), 'ophanImmune has no consumer in src/ophan/renderer.js')
-  const exitBody = rend.slice(rend.indexOf('exit()'), rend.indexOf('exit()') + 800)
+  const exitBody = rend.slice(rend.indexOf('exit()'), rend.indexOf('resize()', rend.indexOf('exit()')))
   assert.ok(/background\.alpha/.test(exitBody) && /style\.position/.test(exitBody), 'exit() does not restore the renderer background / canvas position')
   assert.ok(!/^installPatches\(\)/m.test(strip(readFileSync(new URL('../src/ophan/px2d.js', import.meta.url), 'utf8'))), 'px2d patches at module scope')
   assert.ok(/uninstallPatches\(\)/.test(exitBody), 'exit() leaves px2d patches on every other chapter\'s bakes')
   // the six worlds' stages, the Core's melt canvas hidden on the way out, and none of the artifact's Core debug paths
   const looks = ['macro', 'holo', 'ascii', 'pixel', 'toon', 'liquid', 'pencil']
   for (const k of looks) assert.ok(new RegExp(`from '\\./stages/${k}\\.js'`).test(rend), `renderer.js does not import the ${k} stage`)
-  assert.ok(/glc\.style\.display\s*=\s*'none'/.test(exitBody), 'exit() leaves the Core\'s melt canvas showing')
+  // a fight left mid-warm-up: the melt canvas off and back to its own layer, the warm-up's screen-size target freed
+  const glcOff = rend.match(/const glcWarm = \(s, on\) => \{([^\n]*)\}/)?.[1] ?? ''
+  assert.ok(/display: 'none', zIndex: ''/.test(glcOff) && /glcWarm\(s, false\)/.test(exitBody), 'exit() leaves the Core\'s melt canvas showing, or at the warm-up\'s z -1')
+  assert.ok(/rt\?\.destroy\(true\);\s*rt = null/.test(exitBody), 'exit() keeps the warm-up\'s render target (a stale size on the next prewarm)')
   const enterBody = rend.slice(rend.indexOf('enter(run) {'), rend.indexOf('exit()', rend.indexOf('enter(run) {')))
   assert.ok(/saved\s*\?\?=/.test(enterBody) && !/saved\s*=\s*\{/.test(enterBody),
     'enter() re-snapshots the page on a second entry with no exit (Play again): it saves the arena\'s own background and a later chapter is left transparent')
