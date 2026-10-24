@@ -50,6 +50,7 @@ approved painters through px2d, and every boss passes a pixel-drift gate against
 | Old crowd on a switch | **Turns in place:** as the wipe circle passes a creature, it becomes the new world's equivalent at the same spot, same archetype, same health share. |
 | Hazards | **None:** each world is its floor, its look and its crowd. No signature mechanics, no obstacles. The boss's attacks are the hazards. |
 | Kit weapons | **Always fire**, in every world. |
+| Targeting | **Closest enemy, always.** The boss is an ordinary candidate, matched or not; mismatched hits bounce with the immune ring. |
 | Mismatch | The boss is immune, but **its attacks always hurt you**, matched or not. |
 | Sketch arena | **Paper floor, no crowd**, the gauge greyed out: you and the sketch alone. |
 | v9.0.0 scope | **Ships without** judgment, Isaac beams and the eraser: v9's sketch uses the six pencil attacks. The three come in a later release, after their look pass. |
