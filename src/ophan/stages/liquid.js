@@ -1,7 +1,7 @@
 // The Core (liquid): the game's own src/liquid.js renderer (createLiquidRenderer -> src/liquid/gl.js createCoreGL on its
-// own WebGL2 canvas UNDER Pixi's), driven the way render.js setLiquid / syncLiquid drive it, with a fake host and an
-// empty run: no foes, no pools, no pillars, the player's chrome drop hidden. The boss container sits on the transparent
-// Pixi stage, over the melt, where the game's entities draw. The melt runs on the dt update() is given.
+// own WebGL2 canvas UNDER Pixi's), driven the way render.js setLiquid / syncLiquid drive it, with a fake host and a run
+// holding only the crowd's Core bodies: no pools, no pillars, the player's chrome drop hidden. The boss container sits on
+// the transparent Pixi stage, over the melt, where the game's entities draw. The melt runs on the dt update() is given.
 import { Container, Sprite, Texture, CanvasSource } from 'pixi.js'
 import { createLiquidRenderer } from '../../liquid.js'
 import { coreOld, kOf } from '../painters/core.js'
@@ -27,17 +27,28 @@ export default function stage(app, { W, H }) {
   // An Application made opaque (alpha false) can never turn transparent: then the melt canvas goes INTO Pixi as the
   // bottom sprite, re-uploaded after every gl.js frame (same pixels, one texture copy per frame).
   let melt = null, last = null
+  // the crowd's Core bodies as gl.js reads them: the Core roster's flags (kindOf picks a body's shape by them; the Ophan
+  // roster strips them) and a pole, the body's own or alternating by id. One clone per body, kept while it lives
+  const FLAGS = Object.fromEntries(CHAPTERS.core.roster.map((r) => [r.id, r.flags]))
+  const clones = new WeakMap()
   const api = {
     boss,
     glc,
     // cam: the game camera's move off the arena's rest framing, in stage px (zr its zoom ratio, ex/ey its offset), so the
     // melt moves with the Pixi layers the host transforms the same way
-    update(t, { cam = null } = {}) {
+    // crowd: the bodies of this world, { e, x, y, r } in stage px
+    update(t, { cam = null, crowd = null } = {}) {
       const dt = last === null ? 0 : Math.max(0, t - last)
       last = t
       run.time = t
       const zr = cam ? cam.zr : 1, zz = z * zr, w = app.screen.width / zz, h = app.screen.height / zz
       const left = -app.screen.width / (2 * z) - (cam ? cam.ex : 0) / zz, top = -app.screen.height / (2 * z) - (cam ? cam.ey : 0) / zz
+      run.enemies = (crowd ?? []).map(({ e, x, y, r }) => {
+        let c = clones.get(e)
+        if (!c) clones.set(e, (c = { ...e, flags: FLAGS[e.rosterId] ?? [], pole: e.pole ?? (e.id % 2 ? 1 : -1) }))
+        c.x = left + x / zz; c.y = top + y / zz; c.radius = r / zz
+        return c
+      })
       R.sync(run, dt, { left, top, right: left + w, bottom: top + h, zoom: zz, w: app.screen.width, h: app.screen.height, animT: t })
       melt?.texture.source.update()
     },

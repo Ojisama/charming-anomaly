@@ -21120,6 +21120,7 @@ run(testLeLargeWeapons)
   run(testOphanSketch)
   run(testOphanRenderWiring)
   run(testOphanKitTells)
+  run(testOphanCrowdLooks)
   run(testOphanGauge)
   // A hand-typed filter that matched nothing is the silent pass without a parent watching:
   // `node test/sim-test.js supernova` printed ALL TESTS PASSED having run no scenario at all.
@@ -43828,6 +43829,29 @@ function testOphanKitTells() {
   const burrow = body('burrowEvent')
   assert.ok(/case 'pickaxe':[\s\S]*?spawnParticle\([\s\S]*?return true/.test(burrow), 'run OP.kit: burrowEvent has no draw for the pick\'s blow (src/ascii.js draws it only in the Mine)')
   console.log('PASS run OP.kit: slag puddles + lobs and the pick\'s blow drawn by render.js outside their chapter renderers; kit ' + kit.length + ' weapons')
+}
+// run OP.crowd: the crowd is each world's own creatures. render.js's syncEnemies poses every body's sprite in its chapter
+// look (ROSTER_LOOKS); its layer stays hidden and src/ophan/renderer.js copies the sprites of a slot's own world into the
+// slot, under its pass (a double draw over the pass otherwise). The Core's bodies are gl.js's, fed through its stage: the
+// Ophan roster strips flags and liquid.js kindOf shapes a body by them, so without the Core roster's flags it draws none.
+function testOphanCrowdLooks() {
+  const strip = (s) => s.replace(/(^|\s)\/\*[\s\S]*?\*\//g, '$1').replace(/\/\/.*$/gm, '')
+  const src = (p) => strip(readFileSync(new URL(p, import.meta.url), 'utf8'))
+  const render = src('../src/render.js'), rend = src('../src/ophan/renderer.js'), stage = src('../src/ophan/stages/liquid.js'), liquid = src('../src/liquid.js')
+  assert.ok(/createOphanRenderer\(\{[^}]*\bbody:\s*\(e\)\s*=>\s*enemySprites\.get\(e\.id\)/.test(render), 'run OP.crowd: render.js does not hand the Ophan its enemy sprites (host.body)')
+  const hide = rend.match(/hide:\s*\[([^\]]*)\]/)?.[1] ?? ''
+  assert.ok(/'enemies'/.test(hide) && /'shadows'/.test(hide), 'run OP.crowd: render.js draws the crowd itself, over the slot\'s pass: ' + hide)
+  assert.ok(/const o = host\.body\(e\)/.test(rend) && /\.texture = o\.texture/.test(rend), 'run OP.crowd: renderer.js does not copy a body\'s render.js sprite into its slot')
+  assert.ok(!/function (blob|mark)\(/.test(rend), 'run OP.crowd: the mock-up\'s crowd marks are back in renderer.js')
+  assert.ok(/crowd: s\.core\b/.test(rend) && /run\.enemies = \(crowd \?\? \[\]\)/.test(stage), 'run OP.crowd: the Core\'s bodies never reach its stage\'s run')
+  assert.ok(/flags: FLAGS\[e\.rosterId\]/.test(stage) && /CHAPTERS\.core\.roster/.test(stage), 'run OP.crowd: the Core stage does not give its bodies the Core roster\'s flags')
+  const k = liquid.indexOf('const kindOf'), kindOf = new Function(liquid.slice(k, liquid.indexOf('\n', liquid.indexOf('\n', k) + 1)) + '\nreturn kindOf')()
+  const core = CHAPTERS.ophan.worlds.find((w) => w.look === 'liquid'), ids = Object.values(core.crowd)
+  for (const id of ids) {
+    assert.deepStrictEqual(CHAPTERS.ophan.roster.find((r) => r.id === id).flags, [], 'run OP.crowd: the Ophan roster keeps ' + id + '\'s flags (the stage\'s restore is then moot)')
+    assert.ok(kindOf({ flags: CHAPTERS.core.roster.find((r) => r.id === id).flags }), 'run OP.crowd: liquid.js kindOf has no shape for ' + id + ' with the Core roster\'s flags')
+  }
+  console.log('PASS run OP.crowd: render.js sprites copied under each slot\'s pass, Core bodies to gl.js with their flags: ' + ids.join(','))
 }
 function testOphanRenderWiring() {
   const strip = (s) => s.replace(/(^|\s)\/\*[\s\S]*?\*\//g, '$1').replace(/\/\/.*$/gm, '')

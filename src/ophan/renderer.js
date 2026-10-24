@@ -1,11 +1,12 @@
 // THE OPHAN'S RENDERER: the approved mock-up's fight, on the game's own tech, hosted by render.js the toon/liquid way.
 // Each world the boss wears is a SLOT: its chapter's stage (stages/<look>.js: the floor and the full-screen pass) with
-// the crowd's marks under the pass and the boss painter (painters/<look>.js, on px2d) over it (art.js slot/boss and
-// art-fight.js's frame, ported). render.js keeps the camera, the player, the kit, the numbers and the hurt flash on top;
-// this module draws the arena under them, every frame, from run.script.oph and run.enemies. It never writes run.
+// the crowd under the pass (that world's own creatures, the others' ghosts) and the boss painter (painters/<look>.js, on
+// px2d) over it (art.js slot/boss and art-fight.js's frame, ported). render.js keeps the camera, the player, the kit, the
+// numbers and the hurt flash on top; this module draws the arena under them, every frame, from run.script.oph and
+// run.enemies. It never writes run.
 // Slots are built once per renderer and reused across runs; render.js makes one renderer for the page.
 import { AlphaFilter, Container, Graphics, Rectangle, RenderTexture, Sprite, Texture } from 'pixi.js'
-import { OPHAN, OPHAN_HANDS, OPHAN_RIG as RIG, STY, TAU, INK, mk, shade, mix } from './page.js'
+import { OPHAN, OPHAN_HANDS, OPHAN_RIG as RIG, STY, TAU, INK, mk } from './page.js'
 import { installPatches, uninstallPatches, PX2D } from './px2d.js'
 import macro from './stages/macro.js'
 import holo from './stages/holo.js'
@@ -77,24 +78,6 @@ export const handSeed = (oph) => oph.swaps + (oph.tell > 0 ? 1 : 0)
 // ~7 px at pr 1 where the mock-up's grows 8 -> 20 (the A/B passes by eye; a wider glow is a bigger blur and SH_PAD)
 const SH_R = 52 * 1.35, SH_K = 2, SH_S = 1.7 * SH_K, SH_PAD = 40, SH_X = 31, SH_Y = 77, SH_A = 0.6
 
-// ---- the crowd's marks: the mock-up's creatures (art-fight.js marks / src2.html blob), baked once per look and size
-// where they lean on what the game cannot do per frame (the macro one's soft shadow) ----
-const wob = (t, k) => Math.sin(t*14 + k*1.7)*.8
-function blob(c, st, x, y, r, col, t){
-  const id = STY[st].id;
-  if (id === 'ascii'){ c.fillStyle = col; c.font = `bold ${r*1.6}px JetBrains Mono, monospace`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('@', x, y); return; }
-  c.beginPath();
-  if (id === 'toon'){ for (let k=0;k<=16;k++){ const a = k/16*TAU, rr = r + wob(t,k); k ? c.lineTo(x+Math.cos(a)*rr, y+Math.sin(a)*rr) : c.moveTo(x+Math.cos(a)*rr, y+Math.sin(a)*rr); } }
-  else c.arc(x, y, r, 0, TAU);
-  if (id === 'macro'){ const g = c.createRadialGradient(x-r*.35, y-r*.4, r*.1, x, y, r); g.addColorStop(0, '#fff'); g.addColorStop(.25, col); g.addColorStop(1, shade(col,-.55)); c.save(); c.shadowColor = 'rgba(10,5,2,.6)'; c.shadowBlur = r*.9; c.shadowOffsetY = r*.35; c.fillStyle = g; c.fill(); c.restore(); }
-  else if (id === 'liquid'){ const g = c.createLinearGradient(x, y-r, x, y+r); g.addColorStop(0, '#fbfdff'); g.addColorStop(.46, mix(col,'#ffffff',.3)); g.addColorStop(.52, '#20262e'); g.addColorStop(1, col); c.fillStyle = g; c.fill(); }
-  else { c.fillStyle = id === 'pixel' ? shade(col,-.2) : col; c.fill(); if (id !== 'pixel'){ c.lineWidth = 3; c.strokeStyle = INK; c.stroke(); } else { c.lineWidth = 2; c.strokeStyle = '#1a0603'; c.stroke(); } }
-  c.fillStyle = id === 'liquid' ? '#11161c' : '#fff';
-  for (const s of [-1,1]){ c.beginPath(); c.arc(x + s*r*.32, y, r*.2, 0, TAU); c.fill(); }
-  c.fillStyle = id === 'liquid' ? '#fff' : INK;
-  for (const s of [-1,1]){ c.beginPath(); c.arc(x + s*r*.32, y - r*.04, r*.1, 0, TAU); c.fill(); }
-}
-
 export function createOphanRenderer(host) {
   const { app, root } = host
   const RES = app.renderer.resolution || 1
@@ -125,8 +108,7 @@ export function createOphanRenderer(host) {
   let warmP = null, warmDone = null
   const drained = () => { const d = warmDone; warmP = warmDone = null; d?.() }
 
-  // a mark is baked once per look and colour at MARK_R and drawn scaled, so a zoom pulse never bakes a new size; the
-  // ascii one draws text, so its key carries the font state and it is baked once more when the fonts land
+  // a ghost ring is baked once per rim colour at MARK_R and drawn scaled, so a zoom pulse never bakes a new size
   const MARK_R = 32
   const bakes = new Map()
   const bake = (key, w, f) => {
@@ -135,11 +117,15 @@ export function createOphanRenderer(host) {
     return b
   }
   const put = (c, b, x, y, w) => c.drawImage(b, x - w / 2, y - w / 2, w, w)
-  function mark(c, st, x, y, r, col, t) {
-    const id = STY[st].id
-    if (id === 'toon') return blob(c, st, x, y, r, col, t)   // its outline wobbles: plain paths
-    const key = 'b' + st + col + (id === 'ascii' ? document.fonts.status : '')
-    put(c, bake(key, MARK_R * 4, (g, m) => blob(g, st, m, m, MARK_R, col, 0)), x, y, r * 4)
+  // a body of its own world: render.js's sprite for it (host.body, posed, turned, tinted and flashed by its syncEnemies,
+  // in the chapter look ROSTER_LOOKS bakes for that id) and its ground shadow, copied into the slot under its pass; the
+  // layer render.js draws them in stays hidden. o is in world px, the copy in the slot's stage px (z = z0 / s.k)
+  function body(s, o, x, y, z) {
+    const c = s.bodies.children[s.nb] ?? s.bodies.addChild(new Sprite())
+    s.nb++
+    c.visible = true; c.texture = o.texture; c.anchor.copyFrom(o.anchor); c.rotation = o.rotation
+    c.position.set(x, y); c.scale.set(o.scale.x * z, o.scale.y * z)
+    c.alpha = o.alpha; c.tint = o.tint; c.blendMode = o.blendMode
   }
   // a body of another world: the mock-up's dashed ghost ring (r 10 in a 28 box), inked on the light-floored looks
   function ghost(c, st, x, y, r) {
@@ -180,6 +166,9 @@ export function createOphanRenderer(host) {
     s.g.SPIKE = { app: fake, px: s.px }
     const ents = new Container(); ents.position.copyFrom(st.boss.position); st.boss.parent.addChildAt(ents, st.boss.parent.getChildIndex(st.boss))
     s.ent = PX2D(ents, RES)
+    s.bodies = st.boss.parent.addChildAt(new Container(), st.boss.parent.getChildIndex(ents))
+    s.bodies.position.copyFrom(st.boss.position)
+    s.nb = 0; s.core = []
     if (s.glc) s.glc.style.display = 'none'
     wrap.visible = false
     fit(s)
@@ -334,16 +323,23 @@ export function createOphanRenderer(host) {
       if (wipe) ring.circle(psx, psy, wipe.r * view.zoom).stroke({ width: 3, color: worlds[wi].col })
       if (core?.glc) core.glc.style.display = A === core || B === core ? 'block' : 'none'
 
-      // the crowd, every live body but the boss: its own world's creature in that world, a ghost in the other
+      // the crowd, every live body but the boss: its own world's creature in that world, a ghost in the other. Each slot
+      // draws every body and the wipe's mask shows world B's inside the circle, so a body wears the world under it. The
+      // Core's bodies are the melt's own (gl.js, fed by its stage): render.js's sprite for one is empty
       for (const s of [A, B]) if (s && s !== sk) {
         const k = worlds.findIndex((w) => w.look === s.id), st = STY.findIndex((y) => y.id === s.id), z = z0 / s.k
-        s.ent.begin()
+        s.ent.begin(); s.nb = 0; s.core.length = 0
         for (const e of run.enemies) {
           if (e._dead || e.rosterId === 'ophan') continue
-          const r = Math.max(3, Math.round((e.radius ?? 12) * z))
-          if ((e.world ?? k) === k) mark(s.ent, st, sx(s, e.x), sy(s, e.y), r, worlds[k].col, t)
-          else ghost(s.ent, st, sx(s, e.x), sy(s, e.y), r)
+          const x = sx(s, e.x), y = sy(s, e.y)
+          if ((e.world ?? k) !== k) { ghost(s.ent, st, x, y, Math.max(3, Math.round((e.radius ?? 12) * z))); continue }
+          if (s === core) { s.core.push({ e, x, y, r: e.radius * z }); continue }
+          const o = host.body(e)
+          if (!o?.visible) continue
+          if (o._shadow?.visible) body(s, o._shadow, sx(s, o._shadow.x), sy(s, o._shadow.y), z)
+          body(s, o, sx(s, o.x), sy(s, o.y), z)
         }
+        for (let i = s.nb; i < s.bodies.children.length; i++) s.bodies.children[i].visible = false
       }
       // the boss in its skin's look, on the sim's own clock, an attack aimed where the sim locked it: inside its own world's
       // pass when the player stands in it, pasted in over a foreign world (or a wipe) otherwise; gone once the last skin breaks
@@ -386,7 +382,7 @@ export function createOphanRenderer(host) {
         window.OPH_PH = ph
         // the macro lens racks to the hand's tool (stage px of the boss's slot, carried into this one's)
         const f = focus && { x: (focus.x * focus.src.k + focus.src.ox - s.ox) / s.k, y: (focus.y * focus.src.k + focus.src.oy - s.oy) / s.k, k: focus.k }
-        s.st.update(t, { px: sx(s, p.x), py: sy(s, p.y), cam: { zr, ex: (s.ox * (zr - 1) + dx) / s.k, ey: (s.oy * (zr - 1) + dy) / s.k }, focus: f })
+        s.st.update(t, { px: sx(s, p.x), py: sy(s, p.y), cam: { zr, ex: (s.ox * (zr - 1) + dx) / s.k, ey: (s.oy * (zr - 1) + dy) / s.k }, focus: f, crowd: s.core })
       })
 
       // the immune sparks: a white ring off the sealed boss

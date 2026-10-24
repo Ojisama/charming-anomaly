@@ -14346,7 +14346,7 @@ const spurG = new Graphics()
   }
   // ==== Book 3, THE OPHAN: THE BOSS THAT WEARS THE WORLDS (src/ophan/renderer.js) ====================
   // A chapter with CHAPTERS[id].worlds hands its whole arena to src/ophan/renderer.js: each world's stage (floor and
-  // pass), the crowd's marks and the boss painter, drawn in ophanRoot UNDER render.js's world, so the player, the kit,
+  // pass), the crowd and the boss painter, drawn in ophanRoot UNDER render.js's world, so the player, the kit,
   // the pickups, the numbers and the hurt flash stay on top. The camera is pinned on the arena (ophanView). The
   // renderer is made once for the page (its slots and their shaders are reused across runs).
   const ophanRoot = new Container()
@@ -14358,7 +14358,8 @@ const spurG = new Graphics()
   const ophanHost = () => {
     if (!ophanR) {
       app.stage.addChildAt(ophanRoot, app.stage.getChildIndex(world))
-      ophanR = createOphanRenderer({ app, root: ophanRoot, macroVert: MACRO_VERT })
+      // body: the crowd's own sprites, posed by syncEnemies in their layer (hidden) and copied by the Ophan into each slot
+      ophanR = createOphanRenderer({ app, root: ophanRoot, macroVert: MACRO_VERT, body: (e) => enemySprites.get(e.id) })
     }
     return ophanR
   }
