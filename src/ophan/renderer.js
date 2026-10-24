@@ -175,17 +175,39 @@ export function createOphanRenderer(host) {
     fit(s)
     return (slots[id] = s)
   }
+  // the warm-up draws into a screen-sized target, so its render targets and the GPU's pipelines are the fight's own
   const shot = (c) => {
     const v0 = c.visible; c.visible = true
-    app.renderer.render({ container: c, target: (rt = rt || RenderTexture.create({ width: 64, height: 64 })) })
+    app.renderer.render({ container: c, target: (rt ??= RenderTexture.create({ width: app.screen.width, height: app.screen.height, resolution: RES })) })
     c.visible = v0
   }
+  // a world drawn the ways the fight draws it, so its first wipe in finds the GPU ready: plain (world A), inside the wipe's
+  // circle as it grows (world B), and the Core through the hole's inverse mask with its melt canvas shown (under the opaque
+  // page canvas and behind it, z -1, for these frames only)
+  const tmp = new Container(), holeW = new Graphics()
+  function gpuWarm(s, pass) {
+    const w = app.screen.width, h = app.screen.height, wp = s.wrap.parent, wi = wp ? wp.getChildIndex(s.wrap) : 0, m0 = s.wrap.mask, mp = wipeMask.parent
+    tmp.addChild(s.wrap); const v0 = s.wrap.visible; s.wrap.visible = true
+    if (pass === 0) { s.wrap.mask = null; shot(tmp) }
+    else {
+      tmp.addChild(wipeMask); s.wrap.mask = wipeMask; wipeMask.position.set(w / 2, h / 2)
+      wipeMask.width = wipeMask.height = [0.3, 1, 2.4][pass - 1] * Math.max(w, h)
+      if (s.id === 'liquid') { tmp.addChild(holeW.clear().circle(w / 2, h / 2, 0.15 * w).fill(0xffffff)); tmp.setMask({ mask: holeW, inverse: true }) }
+      shot(tmp)
+      tmp.mask = null; s.wrap.mask = null
+    }
+    tmp.removeChildren(); s.wrap.visible = v0
+    s.wrap.mask = m0
+    if (wp) wp.addChildAt(s.wrap, wi)
+    if (mp) mp.addChild(wipeMask)
+  }
+  const glcWarm = (s, on) => { if (s.glc) Object.assign(s.glc.style, on ? { display: 'block', zIndex: '-1' } : { display: 'none', zIndex: '' }) }
   const pump = () => {
     raf = 0
     const j = jobs.shift()
     if (j) try { j() } catch (e) { console.error(e) }
     if (jobs.length) raf = requestAnimationFrame(pump)
-    else { if (!entered) uninstallPatches(); drained() }
+    else { if (!entered) uninstallPatches(); rt?.destroy(true); rt = null; drained() }
   }
 
   return {
@@ -209,7 +231,10 @@ export function createOphanRenderer(host) {
         jobs.push(() => slot(id), () => { const s = slot(id); s.st.update(0); shot(s.wrap); s.warm = true })
         // a chunked floor (the Mantle's, the Magma's) bakes the chunks in view at once and its margin two a frame: WARM_UPDATES
         // more frames bake the whole margin here, not on the world's first frames in the fight
+        jobs.push(() => glcWarm(slot(id), true))
         for (let k = 0; k < WARM_UPDATES; k++) jobs.push(() => slot(id).st.update(0))
+        for (let k = 0; k < 4; k++) jobs.push(() => gpuWarm(slot(id), k))
+        jobs.push(() => glcWarm(slot(id), false))
         if (id === 'liquid') jobs.push(() => {
           const s = slot(id), step = s.st.warmBoss([OPHAN_BOSS.R * z / s.k * RES])
           const go = () => { if (!step(6)) jobs.unshift(go) }
@@ -238,6 +263,7 @@ export function createOphanRenderer(host) {
           g.beginPath(); g.ellipse(0, 0, 25, 29, 0, 0, TAU); g.fill()
           for (const [x0, y0, x1, y1] of [[-17, -24, -21, -60], [-6, -28, -6, -70], [6, -28, 8, -68], [17, -24, 21, -56], [24, 4, 46, -14]]) { g.lineWidth = 13; g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y1); g.stroke() }
           shades[k] = Texture.from(c)
+          shot(new Sprite(shades[k]))   // uploaded now, not under the hand's first arrival
         })
       })
       if (!jobs.length) return warmP ?? Promise.resolve()
