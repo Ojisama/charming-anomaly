@@ -273,8 +273,12 @@ import {
   MANTLE_MELT_T, MANTLE_SPAWN_TRIES,
   KETTLE_CRUST_GNAW, KETTLE_CRUST_GNAW_MAX, KETTLE_STEAM_MUL, KETTLE_STEAM_R, KETTLE_HULL_COOL, KETTLE_HULL_MAX,
   SLING_LATCH_SHARE, IRON_BALL_R, IRON_BALL_LIFE, MOON_R, MOON_TUG_SWIRL, LODESTONE_FUSE, LODESTONE_SPREAD, LODESTONE_HOLD,
+  OPHAN_ARENA, OPHAN_BOSS, OPHAN_PLAYER_START, OPHAN_PHASE_EASE, OPHAN_ATK_CD, OPHAN_ATK_FIRST, OPHAN_HIT_CD, OPHAN_ATTACKS, OPHAN_HIT,
+  OPHAN_SHOVE_DECAY, OPHAN_SKIN_HP, OPHAN_BREAK_FLOOR, OPHAN_IMMUNE_CD, OPHAN_CROWD, OPHAN_WINDOW_MUL, OPHAN_RECOVERY_ON, OPHAN_HAND,
 } from './config.js'
 import { crustShapeOf, poolPhaseOf, inCrustEdge, crustSdf, inPoolEdge, CRUST_EDGE_MAX, POOL_RIM_MAX } from './mantle-shape.js'
+import RIG from './ophan/rig.js'
+import { ophanHits } from './ophan/hit.js'
 
 const KB_DECAY_RATE = 6 // per-second exponential-ish decay factor for enemy knockback
 
@@ -442,6 +446,7 @@ export function stepSim(run, input, dt) {
   stepStatuses(run, dt)
   stepPickups(run, dt)
   stepLevelUp(run)
+  if (run.script?.oph) ophanPin(run)   // last: the weapons' knockback ran after the script's own pin
 }
 
 /** Apply run.levelUpChoices[i] to the run (weapon add/level, passive, heal). */
@@ -1400,8 +1405,8 @@ function stepBossScript(run, dt) {
   // The Kraken drives its own block ladder (head + arm ring), not BLANK_SCRIPT's phase table, so it
   // delegates out here and leaves The Blank's machinery untouched.
   if (run.chapter === 'kraken') return stepKrakenScript(run, dt)
-  // The Ophan: an empty arena until its own script dispatches here (keyed on the chapter's worlds)
-  if (CHAPTERS[run.chapter].worlds) return false
+  // The Ophan wears worlds instead of walking a phase table (keyed on the chapter's own field)
+  if (CHAPTERS[run.chapter].worlds) return stepOphanScript(run, dt)
   const p = run.player
   const s = run.script
   const accel = run.mutators.includes('accelResponse') ? BLANK_ACCEL_MUL : 1
@@ -1714,6 +1719,148 @@ function krakenHeadSealed(run, enemy) {
   if (!enemy || enemy.rosterId !== 'krakenHead' || !CHAPTERS[run.chapter].parry) return false
   // ...and through its rage it cannot be hurt at all (owner, 2026-10-09)
   return !(run.script?.staggerT > 0) || !!run.script?.raging
+}
+
+// ---- The Ophan (hidden Burrow boss) — docs/superpowers/specs/2026-10-24-the-ophan-final-boss-design.md
+// The boss wears one world's skin at a time; while the player stands in another world it refuses
+// every hit and every status (the sketch, after the last skin, has no world to mismatch).
+function ophanSealed(run, e) {
+  const o = run.script?.oph
+  return !!o && e?.rosterId === 'ophan' && !o.sketch && o.world !== o.skin
+}
+// Where DAMAGE or a STATUS lands. Targeting keeps krakenHeadSealed alone: the sealed Ophan is still
+// the closest enemy, and is shot at, so the immune ring is what tells the player to switch.
+function bossSealed(run, e) {
+  return krakenHeadSealed(run, e) || ophanSealed(run, e)
+}
+// the recovery pose and a resonance stagger are the damage windows
+function ophanDmgMul(run) {
+  const o = run.script.oph
+  return o.stagger > 0 || o.recov ? OPHAN_WINDOW_MUL : 1
+}
+const ophanBoss = (run) => run.enemies.find((e) => e.id === run.script.oph.bossId && !e._dead)
+// The boss never moves: separation and weapon knockback (the shovel's) are undone here, inside the
+// script and again as stepSim's last line, after the weapons.
+function ophanPin(run) {
+  const b = ophanBoss(run)
+  if (!b) return
+  b.x = OPHAN_BOSS.x; b.y = OPHAN_BOSS.y
+  b.kb.x = 0; b.kb.y = 0
+}
+
+// The whole fight, one world for now. Returns true when the ordinary step must not run.
+function stepOphanScript(run, dt) {
+  if (run.phase !== 'playing') return true
+  const ch = CHAPTERS[run.chapter], p = run.player, n = ch.worlds.length
+  let o = run.script.oph
+  if (!o) {
+    const e = spawnBlankEnemy(run, 'ophan', true, { x: OPHAN_BOSS.x, y: OPHAN_BOSS.y })
+    e.dmg = 0
+    e.hp = e.maxHP = OPHAN_SKIN_HP * run.mods.enemyHpMul
+    p.x = OPHAN_PLAYER_START.x; p.y = OPHAN_PLAYER_START.y
+    o = run.script.oph = {
+      t: 0, world: 0, skin: 0, next: -1, tell: 0, swapIn: OPHAN_HAND.first, after: -1, caught: false,
+      hp: Array(n).fill(e.maxHP), broken: Array(n).fill(0), ph: 1, atk: null, atkCd: OPHAN_ATK_FIRST, recov: false,
+      stagger: 0, wipe: null, sketch: false, bossId: e.id, crowdT: OPHAN_CROWD[run.difficulty].every, immT: 0, swaps: 0,
+      push: { x: 0, y: 0 },
+    }
+  }
+  o.t += dt
+  o.immT = Math.max(0, o.immT - dt)
+  o.stagger = Math.max(0, o.stagger - dt)
+  ophanPin(run)
+  const b = ophanBoss(run)
+  if (!b) return false   // only the kill path removes it, and dealDamage's hp floor shuts that
+  o.hp[o.skin] = b.hp
+
+  // THE BREAK: a skin at the floor is spent; the last one ends the fight
+  if (b.hp <= OPHAN_BREAK_FLOOR) {
+    o.broken[o.skin] = 1
+    run.events.push({ type: 'ophanBreak', skin: o.skin, x: b.x, y: b.y })
+    const left = o.broken.flatMap((v, k) => (v ? [] : [k]))
+    if (!left.length) {
+      b._dead = true   // taken off the field, not killed: no kill event, no gem
+      run.bossBar = null
+      run.phase = 'victory'
+      run.events.push({ type: 'bossDead', x: b.x, y: b.y })
+      run.events.push({ type: 'victory' })
+      return true
+    }
+    o.skin = left[Math.floor(Math.random() * left.length)]
+    b.hp = o.hp[o.skin]
+    o.tell = 0; o.next = -1; o.stagger = 0; o.swapIn = OPHAN_HAND.afterBreak
+  }
+  const goal = 1 + Math.min(2, Math.floor(o.broken.reduce((s, v) => s + v, 0) / 2))
+  o.ph += (goal - o.ph) * Math.min(1, dt * OPHAN_PHASE_EASE)
+
+  // THE ATTACKS: one at a time, its aim locked on the player where it started
+  const R = OPHAN_BOSS.R
+  if (!o.atk) {
+    o.recov = false
+    o.atkCd -= dt
+    if (o.atkCd <= 0) {
+      const pool = ch.attacks[run.difficulty].filter((k) => OPHAN_ATTACKS[k].minPh <= o.ph)
+      const k = pool[Math.floor(Math.random() * pool.length)]
+      o.atk = { k, u: 0, dur: OPHAN_ATTACKS[k].dur, ax: p.x, ay: p.y, hitCd: 0 }
+      run.events.push({ type: 'ophanAttack', k })
+    }
+  }
+  if (o.atk) {
+    const a = o.atk, cfg = OPHAN_ATTACKS[a.k]
+    a.u += dt / a.dur
+    a.hitCd -= dt
+    if (a.u >= 1) {
+      o.atk = null; o.recov = false
+      o.atkCd = OPHAN_ATK_CD[0] + Math.random() * (OPHAN_ATK_CD[1] - OPHAN_ATK_CD[0])
+    } else {
+      const pose = RIG.pose(o.t, o.ph, a.k, a.u, (a.ax - b.x) / R, (a.ay - b.y) / R)
+      o.recov = pose.beats.recovery > OPHAN_RECOVERY_ON
+      const geo = RIG.attack(a.k, a.u, o.ph, b.x, b.y, R, a.ax, a.ay, o.t, pose)
+      const h = ophanHits(a.k, geo, p.x, p.y, PLAYER.radius, R, OPHAN_HIT)
+      if (h.pull) { o.push.x = h.pull.x * cfg.pull; o.push.y = h.pull.y * cfg.pull }
+      if (h.hit && p.invuln <= 0 && a.hitCd <= 0) {
+        a.hitCd = OPHAN_HIT_CD
+        if (h.shove) { o.push.x = h.shove.x * cfg.shove; o.push.y = h.shove.y * cfg.shove }
+        hurtPlayer(run, cfg[h.dmgKey] * run.mods.enemyDmgMul, false, h.src)
+        if (run.phase !== 'playing') return true
+      }
+    }
+  }
+
+  // THE SHOVE, then the walls: the arena and the boss's body (stepCurrents' displacement idiom)
+  p.x += o.push.x * dt; p.y += o.push.y * dt
+  const decay = Math.exp(-OPHAN_SHOVE_DECAY * dt)
+  o.push.x *= decay; o.push.y *= decay
+  const hw = OPHAN_ARENA.w / 2 - PLAYER.radius, hh = OPHAN_ARENA.h / 2 - PLAYER.radius
+  p.x = Math.max(-hw, Math.min(hw, p.x)); p.y = Math.max(-hh, Math.min(hh, p.y))
+  const dx = p.x - b.x, dy = p.y - b.y, d = Math.hypot(dx, dy), clear = OPHAN_BOSS.bodyR + PLAYER.radius
+  if (d < clear) {
+    if (d > 0) { p.x = b.x + dx / d * clear; p.y = b.y + dy / d * clear } else p.y = b.y + clear
+  }
+
+  // THE CROWD walks in from the border, away from the player
+  // ponytail: world 0's three ids only; the worn world's once the player can switch
+  const cc = OPHAN_CROWD[run.difficulty]
+  o.crowdT -= dt
+  if (o.crowdT <= 0 && run.enemies.filter((e) => !e._dead && e.id !== o.bossId).length < cc.cap) {
+    const W = OPHAN_ARENA.w, H = OPHAN_ARENA.h
+    for (let tries = 0; tries < 8; tries++) {
+      let s = Math.random() * 2 * (W + H), x, y
+      if (s < W) { x = s - W / 2; y = -H / 2 } else if ((s -= W) < H) { x = W / 2; y = s - H / 2 }
+      else if ((s -= H) < W) { x = W / 2 - s; y = H / 2 } else { x = -W / 2; y = H / 2 - (s - W) }
+      if (Math.hypot(x - p.x, y - p.y) < OPHAN_CROWD.edgeClear) continue
+      const ids = Object.values(ch.worlds[0].crowd)
+      spawnBlankEnemy(run, ids[Math.floor(Math.random() * ids.length)], false, { x, y })
+      o.crowdT = cc.every
+      break
+    }
+  }
+
+  run.bossBar = {
+    hp: b.hp, max: b.maxHP, stage: Math.round(o.ph), ophan: true, on: o.skin,
+    pills: o.hp.map((v, k) => (o.broken[k] ? 0 : v / b.maxHP)), pillCols: ch.worlds.map((w) => w.col),
+  }
+  return false
 }
 
 function stepKrakenScript(run, dt) {
@@ -6402,6 +6549,8 @@ function stepContactDamage(run) {
   const hooked = new Set(run.hauls.filter((h) => h.snap <= 0).map((h) => h.eid))
   for (const e of run.enemies) {
     if (e._dead) continue
+    // The Ophan hurts only with its attacks. Its dmg 0 is not enough: hurtPlayer floors a hit at 1.
+    if (e.rosterId === 'ophan') continue
     const dx = e.x - p.x, dy = e.y - p.y   // the contact normal, for the circuit's bump
     const touching = playerTouches(run, e.x, e.y, e.radius, body)
     if (circuit && touching) bumpTraffic(run, CHAPTERS[run.chapter], e, dx, dy)
@@ -9983,7 +10132,7 @@ function roundHP(v) { return Math.max(1, Math.round(v)) }
 // shipped to close, re-opened by a loadout change three commits later. What the owner's ruling
 // actually says is: you may only LIGHT the head through a window, and a fire already burning on it
 // keeps burning. A cloud on the floor was never lit on anything.
-function dealDamage(run, enemy, dmg, crit, dot = false, hazard = false, carried = false, flat = false) {
+export function dealDamage(run, enemy, dmg, crit, dot = false, hazard = false, carried = false, flat = false) {
   // Untouchable windows (v5.4): an owl overhead / a ghosted flicker eats nothing at all — no
   // number, no flash, no status, no death. Checked before everything else, including DoT ticks.
   if (damageImmune(enemy)) return
@@ -10020,6 +10169,18 @@ function dealDamage(run, enemy, dmg, crit, dot = false, hazard = false, carried 
     }
     return
   }
+  // THE OPHAN IN ANOTHER WORLD refuses everything, damage over time included, and shows it (the
+  // immune ring), throttled the way the Kraken's deflect is
+  if (ophanSealed(run, enemy)) {
+    const o = run.script.oph
+    if (!(o.immT > 0)) {
+      o.immT = OPHAN_IMMUNE_CD
+      const ang = Math.atan2(run.player.y - enemy.y, run.player.x - enemy.x)
+      run.events.push({ type: 'ophanImmune', ang, x: enemy.x + Math.cos(ang) * enemy.radius, y: enemy.y + Math.sin(ang) * enemy.radius })
+    }
+    return
+  }
+  if (enemy.rosterId === 'ophan' && run.script?.oph) dmg *= ophanDmgMul(run)
   // Shielded (elite affix): while above SHIELD_HP_FRAC of maxHP, the shield absorbs part
   // of every hit. Checked before venom amp per spec (shield softens the raw hit first).
   if (hasAffix(enemy, 'shielded') && enemy.hp > enemy.maxHP * SHIELD_HP_FRAC) {
@@ -10061,6 +10222,8 @@ function dealDamage(run, enemy, dmg, crit, dot = false, hazard = false, carried 
   if (enemy.rosterId === 'krakenHead' && run.script && !run.script.enraged) enemy.hp = Math.max(enemy.hp, enemy.maxHP * KRAKEN_ENRAGE_AT)
   // ...nor the rage: on d3 it stops at KRAKEN_RAGE_AT until the first one starts
   else if (enemy.rosterId === 'krakenHead' && run.script && !run.script.rageN && krakenRungFor(run).rage) enemy.hp = Math.max(enemy.hp, enemy.maxHP * KRAKEN_RAGE_AT)
+  // A SKIN BREAKS, IT IS NOT KILLED: the Ophan's script reads the floor and takes the skin off
+  if (enemy.rosterId === 'ophan' && run.script?.oph && !run.script.oph.sketch) enemy.hp = Math.max(enemy.hp, OPHAN_BREAK_FLOOR)
   // EVERY player damage source feeds the window — weapon hits, burn ticks, arc damage, allies.
   // That is deliberate and load-bearing: feeding it only from applyDamage let a fire build kill
   // enemies without filling any window, which stopped a fire+cold build freezing anything at all.
@@ -10156,7 +10319,7 @@ function dealDamage(run, enemy, dmg, crit, dot = false, hazard = false, carried 
         let best = null, bestSq = WILDFIRE_JUMP_R * WILDFIRE_JUMP_R
         for (const e of enemiesNear(run, enemy.x, enemy.y, WILDFIRE_JUMP_R)) {
           if (e._dead || isAlly(e) || e === enemy || e.ignite > 0) continue   // already lit (or yours): spend the jump on new ground
-          if (krakenHeadSealed(run, e)) continue                              // a sealed head is not new ground either
+          if (bossSealed(run, e)) continue                                    // a sealed head is not new ground either
           const dx = e.x - enemy.x, dy = e.y - enemy.y
           const dSq = dx * dx + dy * dy
           if (dSq < bestSq) { bestSq = dSq; best = e }
@@ -10309,11 +10472,11 @@ function applyDamage(run, enemy, baseDmg, critBonus = 0, flat = false) {
 // the basis. DoT ticks and arc damage deal their damage via dealDamage directly (not
 // applyDamage) so they don't re-roll crit/player multipliers or recursively re-apply elements.
 
-// `run` is here ONLY for the Kraken's door. Lighting a fire is an application, and an application
-// the ring refused must not happen — see krakenHeadSealed. Taking it as a parameter rather than guarding
+// `run` is here ONLY for the bosses' seals. Lighting a fire is an application, and an application
+// the ring refused must not happen — see bossSealed. Taking it as a parameter rather than guarding
 // at the call sites is deliberate: a future caller cannot forget a rule that lives in the callee.
 function applyIgnite(run, enemy, potency, dmgDealt) {
-  if (krakenHeadSealed(run, enemy)) return
+  if (bossSealed(run, enemy)) return
   enemy.ignite = IGNITE_DURATION
   enemy.igniteDps = (IGNITE_DOT_FRAC * potency * dmgDealt) / IGNITE_DURATION
   // WILDFIRE's jump budget is re-armed by a real weapon hit, and only here. That is the whole
@@ -10331,7 +10494,7 @@ function applyIgnite(run, enemy, potency, dmgDealt) {
 function applyElements(run, enemy, dmgDealt) {
   // The hit that carried these elements may have been refused by the ring — applyDamage calls us
   // regardless, guarded only on `_dead`. Lighting the head is an application, not a tick.
-  if (krakenHeadSealed(run, enemy)) return
+  if (bossSealed(run, enemy)) return
   const am = alignmentMul(run)
   const fire = elP(run, 'fire')
   if (fire > 0) {
@@ -10388,7 +10551,7 @@ function elArc(run, source, P, dmgDealt) {
     if (arcDmg > 0) dealDamage(run, t, arcDmg, false)
     // Forward the DAMAGE-shaped afflictions only. Both are absolute dps, so they carry across
     // without needing to be re-derived against the target's health.
-    if (Math.random() < fwd && !krakenHeadSealed(run, t)) {
+    if (Math.random() < fwd && !bossSealed(run, t)) {
       if ((source.igniteDps ?? 0) > (t.igniteDps ?? 0)) { t.igniteDps = source.igniteDps; t.ignite = EL_WINDOW }
       if ((source.bleedDps ?? 0) > (t.bleedDps ?? 0)) { t.bleedDps = source.bleedDps; t.bleed = source.bleed }
     }
@@ -12396,7 +12559,7 @@ function fireFlagella(run, stats) {
 // `run` is here only for the Kraken's door, exactly as applyIgnite's is.
 function applyBleed(run, enemy, dmgDealt, bonus) {
   const total = dmgDealt * BARBED_DMG_MUL * bonus
-  if (total <= 0 || krakenHeadSealed(run, enemy)) return
+  if (total <= 0 || bossSealed(run, enemy)) return
   enemy.bleed = BARBED_DURATION
   enemy.bleedDps = total / BARBED_DURATION
 }

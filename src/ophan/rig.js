@@ -2,6 +2,99 @@
 const TAU = Math.PI * 2
 export const hh = (i, j) => { const s = Math.sin(i*127.1 + j*311.7)*43758.5453; return s - Math.floor(s); };
 
+// Units: R (the body radius), y DOWN, origin = the boss centre (x, y) your boss()/attack() receives. Angles in radians.
+//
+// STATIC SHAPE (wing-local frame of the RIGHT wing; the left is its mirror x -> -x)
+//   RIG.WINGS[i], i = 0 up, 1 out, 2 down: { pair, i, root:[x,y], th (rest heading, rad), A (arm length), w (blade
+//     half-width), cv (curl), scale (rest scale about root), flex (breathing phase), pour (feather index the poured sheet
+//     reaches), arm:[x0,y0,x1,y1], feathers:[F], coverts:[F], eyes:[{x,y,rot,from}] (from = phase it opens toward),
+//     tips:[[x,y]] (tip beads, drip points) }
+//   F (one blade): { base:[x,y], a, L, w, cv, tal (talon?), j (-.5..5 jitter), sp/l/r: 11 points each (spine, left and
+//     right edge, root to tip), bead: {x,y,r} | null }
+//   RIG.CORE: [F] the 12 short blades round the great eye.   RIG.feather(bx,by,a,L,w,cv,sharp) builds an F.
+//   RIG.EYE = { x:0, y:-.1, r:.27 } the great eye (body frame);  RIG.HALO = { x:0, y:-.1, r:.52 }.
+//
+// POSE  RIG.pose(t, ph, atk = null, u = 0, gx, gy)   (gx, gy) = the player in R units from the centre (attacks)
+//   ph 1..3 = the three phases (continuous: 2.65 is mid-opening); ph 4 (the pencil sketch) = exactly the ph 3 pose, and
+//   attack()/attackUnit() at ph 4 = exactly ph 3. Full shape from ph 3: 6 wings, 8 feather eyes (4 of them the out pair's
+//   laser eyes), the great eye open.
+//   body:  { pivot:[0,-.1], sx, sy, rot, dx, dy, m, floor }. Apply as: translate(pivot) scale(sx,sy) rotate(rot)
+//          translate(-pivot) = floor (the floor layer: halo, shadows); then translate(dx,dy) = m (wings, eyes).
+//          m and floor are affine [a,b,c,d,e,f] (DOMMatrix order) from body frame to boss units.
+//   wings: draw order (down, out, up; left then right), only those with vis > .01:
+//          { pair, i, side (-1 left, 1 right), vis (0..1 fade-in), rot (swing about root, in the mirrored frame), scale,
+//            flap (rot minus rest breathing), curl, root:[x,y], tip:[x,y] (arm end), angle (arm heading), len, width,
+//            m (wing-local -> boss units: m = body.m . T(side*rx,ry) . S(side,1) . R(rot) . S(scale) . T(-rx,-ry)),
+//            eyes:[E] }
+//          Phases: ph 1 = up + out (4 wings), the down pair unfolds from under the out pair over ph 1 -> 1.4 (6 wings).
+//   eyes:  all feather eyes, flat: E = { i, side, x, y (boss units), lx, ly, rot (wing-local), r, open (0..1, blinks),
+//          heat (iris heat), las (an out-pair laser eye) }.  Open from ph 1 -> 2 (up, out: 6) and ph 2 -> 3 (down: 2).
+//   eye:   the great eye { x, y, r, open (0 sealed .. 1, squints and flares), lid (1 - phase open: the seal), heat,
+//          gape (spent, forced open), seam (the sealed lid's red seam brightness) }
+//   halo:  { x, y, r, scale }   (floor layer: no dx/dy)
+//   talons:[{ side, root:[x,y], tip:[x,y], angle, len }]  (the down pair's last two primaries)
+//   tips:  [[x,y]] tip beads of the fully-shown wings (every other one): where drips and whip strands start
+//   out:   [[x,y]] the 4 laser eyes (order: left 1.0, left 1.32, right 1.0, right 1.32)
+//   gaze:  [x,y] where every eye stares
+//   SPIN (tornado only): body.yaw = the turn about the screen's VERTICAL axis, body.face = cos(yaw) (= body.sx: < 0 means
+//          the back is toward us: draw the back of the body, no eyes); w.depth = -side*sin(yaw) per wing (> 0 = in front
+//          of the body: draw wings with depth < 0 BEFORE the core and depth > 0 AFTER it). Eyes close automatically.
+//          body.ox = the top's wobble, a SCREEN-space x offset applied FIRST: translate(ox, 0), then the chain above (it is
+//          in floor and m already; 0 outside the tornado). Inside the sx squash it would vanish every time the top is edge-on.
+//          body.ground = floor without the yaw squash (= floor outside the tornado): for marks lying ON the floor (pool,
+//          floor rays, the wings' cast shadows) so they stay round while the body turns. The halo is the body's own disc:
+//          keep it on floor, it foreshortens with the turn.
+//   beats: { windup, squash (peaks ~u .4), strike (~.55), recovery (spent), flash, fire, glint, spin (tornado: the top's spin
+//          speed 0..1, drive motion blur / speed streaks from it), burst (the ph 2.25 -> 3 eye
+//          opening event, peaks at ph 2.625), unfold (ph 1 -> 2), open (ph 2 -> 3) }  all 0..1
+//   raw:   liquid's own pose record (rot/sc per pair, pin, spin, dx, dy, sx, sy, bk, gape, eo, fl, hot, lop, glint, ga, tx, ty, lamp)
+//   The wings lag the body (secondary motion): rot and scale come from u - .05, extrapolated from u - .1.
+//   A SKETCH ("wings and eyes only", ph 4 pencil) draws: wings[] (root, tip, angle, len, width, m to place the feathers of
+//   WINGS[i].feathers / coverts), eyes[] and eye (the great eye), and may use gaze. It leaves out the BODY layers: halo,
+//   CORE, talons (draw them as plain feathers or not at all) and everything on the floor layer (body.floor). It still
+//   applies body.m (squash, spin, lift) so the motion reads, and beats for timing.
+//
+// ATTACK  RIG.attack(atk, u, ph, bx, by, R, px, py, t = 0, pose) -> the danger geometry in WORLD coords (pixels);
+//   RIG.attackUnit(atk, u, ph, PX, PY, t = 0, pose) -> the same in R units from the boss centre. Points are {x,y}.
+//   blast:   { dir, suck:[{x,y,r,al}] (beads drawn in), shock:{x,y,r,w,al}|null (the ring at the burst),
+//              sheet:{ apex, dir, half (half-angle), front (radius), band (crest spacing), fade, s, kw,
+//                      crests:[{r, a0, a1, f}], flows:[{a, r0, r1}], drops:[{x,y,z,a,tl}] } | null }
+//   tornado: { path:[{x,y}] (10 telegraph rings), pathR:[r], end:{x,y,r}, tele (telegraph strength), pos:{x,y},
+//              alive, collapse, pool, scale, height, radius (top), foot (foot radius), spin, wind (streak strength),
+//              trail:[{x,y}] (11, oldest first), dizzy, road(v) }
+//            DRAW ORDER: the floor marks (path, trail, pool, foot shadow) go UNDER the boss; the funnel itself goes OVER
+//            the boss at every u. Its foot is always on the player's side of the boss, so it is the nearer object.
+//   laser:   { aim, fire, sweep, scorch, reticle:{x,y,r,al}, pool, smoke, target:{x,y}, hit:{x,y},
+//              track:{ start:{x,y} (at the boss's feet), now:{x,y} (= hit), end:{x,y} (where it ends, past the player), len, dx,dy, nx,ny (unit), lanes },
+//              beams:[{ x, y (eye), base, a0 (angle at start), a (now), sg, amp, dist, len, w, off, start:{x,y}, end:{x,y} (its ground point) }] }
+//            A HEAT RAY: every beam is a straight line from its eye to its own ground point. The ground points walk together,
+//            side by side (lanes), from the boss's feet in a straight line through the player and on past them (sweep 0..1).
+//            Scorch the ground along each lane from start to end; the floor marks go UNDER the boss, the beams OVER it.
+//   THE BOSS MOVES in wheel and sword: body.ox/oy is a screen-space offset applied FIRST (it is in floor, ground and m already).
+//   A style that builds its own transform from sx/sy/rot/dx/dy instead of using m/floor must translate(ox, oy) first.
+//   wheel:   { pos:{x,y} (the disc centre = where the body is), r (its danger radius), roll (0..1 rolling), spin (its flat
+//              spin angle = body.rot), rate (spin speed 0..1: blur, sparks), dir (heading), legs:[{x,y}] (home, two ricochet
+//              corners, home), leg, hit (0..1 at each ricochet), hits:[{x,y,al}] (the two corners' impact, decaying),
+//              trail:[{x,y}] (11, oldest first: the scour it cuts), rock (the rock back before launch: the tell), dizzy }
+//            The pose folds every wing in round the body into one disc and spins it in the floor plane (body.rot).
+//   recall:  { feathers:[{ x, y, a (heading: tip forward), len, w, z (height off the floor: offset its shadow), state
+//              (0 on the wing, not drawn; 1 flying out; 2 staked in the floor; 3 flying home; 4 home, not drawn), k (0..1
+//              within the state), vis, from, plant, home:{x,y}, quiver (0..1, staked: shake it), dust (the stake's impact),
+//              tear (ripping free) }], ret (0..1 the return volley) }
+//            The staked feathers ARE the telegraph: each one's way home is the straight line from it to the boss.
+//   sword:   { dir, blade:{ base, tip (its point, drawn), ground (the point's shadow on the floor), len (drawn length), reach
+//              (true length), w (half-width at the base), form (0..1: wings fused into it), lift (0 flat .. 1 upright),
+//              theta, heading (base -> tip on screen), buried (stuck in the floor after the slam), dissolve (0..1
+//              breaking back into feathers) }, impact:{x,y,r,al}|null (the slam's shock ring at the point),
+//              fire:{ start, end, dx,dy,nx,ny, len, front (how far the eruption has run), w (half-width), flames:[{x,y,h,
+//              al,s,sz}] (16 along the line: h 0..1 height, sz its size), on, scorch } }
+//            Upright is drawn as screen-UP (the same oblique cheat as the tornado's height): tip = ground - (0, .6*reach*lift).
+//            The raised blade is the telegraph. THE BLADE IS THE UP WINGS (owner: a blade built in front of the body read as
+//            something else in front of the boss): while blade.under > .5 it is drawn UNDER the body, its base at the
+//            converged up-wing tips (base starts at (0,-.9), the top of the boss). The up pair sweeps to vertical and
+//            stretches (wing.merge 0..1): draw those wings thinning and fading INTO the blade, so the blade reads as their
+//            continuation. No feathers fly in from the front. During the slam (under -> 0) it swings over the body to the front.
+//   wing.merge (sword only, up pair): 0..1, how far that wing has become the blade.
 const RIG = (() => {
   const RAD = Math.PI/180;
   const LAS = { lanes: [-.09, -.27, .09, .27], past: 1.6 };   // heat-ray band, in out-eye order (left inner, left outer, right inner, right outer): each beam's sideways offset from the walking hit point; how far past the player it walks

@@ -2686,11 +2686,31 @@ function generateWells(sig) {
   *       0..1 (krakenDashWindow: charging, closing, close, and in its last lungeWindow s),
   *       _kvx/_kvy its drifting velocity. Its touch is plain contact damage (head.dmg). No bite.
   *     dashWinAt — run.time the dash window was last open (or parried): the beat's "just answered".
+  *   THE OPHAN (CHAPTERS.ophan, a chapter with `worlds`) keeps its whole state in script.oph,
+  *   created by stepOphanScript on the first step (null/absent before it, and render guards that):
+  *     t — the fight clock the rig's pose breathes on. world — the world the player stands in;
+  *       skin — the world the boss wears. world !== skin = MISMATCH: the boss refuses every hit,
+  *       tick and status (ophanSealed / bossSealed, sim.js) and dealDamage pushes ophanImmune.
+  *     next / tell / swapIn / after / caught / wipe / swaps — the hand's swap cycle and the world
+  *       wipe (written by the worlds; one world has nothing to swap).
+  *     hp[n] / broken[n] — each skin's banked hp and 0|1 broken, n = worlds.length. The boss entity
+  *       (bossId, rosterId 'ophan', speed 0, dmg 0, pinned on OPHAN_BOSS) carries the worn skin's
+  *       hp; dealDamage floors it at OPHAN_BREAK_FLOOR so a skin BREAKS (ophanBreak) and is never
+  *       killed. The last skin broken ends the fight: the boss leaves, bossDead + victory.
+  *     ph — the phase, eased toward 1 + min(2, floor(broken / 2)). sketch — the post-skin pencil
+  *       fight (false until it exists; a sketch has no seal and no floor).
+  *     atk — null | { k, u (0..1), dur, ax, ay (the aim, locked on the player at the start), hitCd };
+  *       atkCd — seconds to the next one while none runs. recov — the rig's recovery pose is up.
+  *       stagger — seconds of resonance stagger left. Either doubles damage (OPHAN_WINDOW_MUL).
+  *     immT — ophanImmune's throttle. crowdT — seconds to the next crowd spawn (on the arena
+  *       border). push {x, y} — the player's shove/pull velocity from the blast and the tornado.
   * bossBar: null whenever no scripted boss is alive; while one is, { hp, max, stage } mirrors the
   *   current phase entity so ui.js can render a boss HP bar without reaching into run.enemies
   *   (rampage pattern: the field always exists, stays inert for every non-scripted chapter).
   *   The Kraken before its head rises adds `pills`: one 0..1 hp fraction per arm (0 = broken),
   *   and hp/max are then the pills' sum and count.
+  *   The Ophan's: { hp, max (the worn skin's), stage (Math.round(ph)), ophan: true, on (the worn
+  *   skin), pills (one 0..1 hp fraction per skin, 0 = broken), pillCols (each world's colour) }.
   * krakenLesson: THE PARRY LESSON (0|1|2|3), set on every run and read only by the Kraken's script.
   *   0 = none (meta.krakenParried is already true — an ADDITIVE top-level meta field; a save
   *   without it gets the lesson). 1 = pending: the fight's first plain slam becomes the LESSON ARM
@@ -2792,6 +2812,10 @@ function generateWells(sig) {
  * New events: {type:'bossSpawn', x, y, stage} (stage 1 = first arrival, 2/3 = a phase reforming),
  *   {type:'bossDead', x, y} (the final phase's kill only — this IS the win, run.phase='victory'
  *   follows), {type:'yank', x, y} (a P2 binding-node timeout dragging the player toward the boss).
+ *   The Ophan pushes bossDead (its last skin broken) and: {type:'ophanAttack', k} (an attack starts;
+ *   k = blast|tornado|laser|wheel|recall|sword), {type:'ophanImmune', x, y, ang} (a hit refused in
+ *   another world, on the body's edge toward the player, at most every OPHAN_IMMUNE_CD), and
+ *   {type:'ophanBreak', skin, x, y} (a skin broke).
  * v6.2 events: {type:'shriek', x, y, radius} (chitterShriek cast — was a generic 'shoot'; violet
  *   panic rings), {type:'blink', x, y, tx, ty} (a realityShard bullet skipped from (x,y) to (tx,ty)).
  */

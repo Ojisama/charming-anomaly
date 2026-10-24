@@ -183,14 +183,14 @@ import {
   lateSpawnMulAt, SPAWN_LATE_BLEND, SPAWN_LATE_START,
   // The Kraken (run KR): the rung table and the ring's numbers
   krakenRung, krakenRungFor, KRAKEN_TURN_BAG, KRAKEN_SLAP_EVERY, KRAKEN_SLAP_COCK, KRAKEN_SLAP_SWING, KRAKEN_SLAP_FUSE, KRAKEN_SLAP_FOLLOW_T, KRAKEN_TRICKLE_T, KRAKEN_TRICKLE_EDGE, KRAKEN_TRICKLE_CLEAR, OPEN_GUARD_WINDOW_MUL, HAIR_TRIGGER_WINDOW_MUL, HAIR_TRIGGER_DMG_MUL, KRAKEN_RUNGS, KRAKEN_ARM_REACH, KRAKEN_WAVE_TIMEOUT, KRAKEN_STAGGER_BITE,
-  KRAKEN_RISE_T, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, hiddenChapters, OPHAN_BOSS, OPHAN_HAND, OPHAN_HIT, ophanView, OPHAN_GAUGE_COPY, KRAKEN_CAGE_R, KRAKEN_PARRY_CD,
+  KRAKEN_RISE_T, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, hiddenChapters, OPHAN_BOSS, OPHAN_HAND, OPHAN_HIT, OPHAN_ARENA, OPHAN_PLAYER_START, OPHAN_ATTACKS, OPHAN_CROWD, OPHAN_BREAK_FLOOR, OPHAN_SKIN_HP, ophanView, OPHAN_GAUGE_COPY, KRAKEN_CAGE_R, KRAKEN_PARRY_CD,
   KRAKEN_OPEN_WAVES, KRAKEN_COIL_EVERY, KRAKEN_COIL_RAYS, KRAKEN_ENRAGE_AT, KRAKEN_RAGE_AT, KRAKEN_RAGE_HITS_MIN, KRAKEN_RAGE_HITS_MAX, KRAKEN_RAGE_VOLLEY, KRAKEN_RAGE_VOLLEY_SPREAD, KRAKEN_RAGE_FUSE, KRAKEN_RAGE_GAP, KRAKEN_RAGE_CALM, KRAKEN_RAGE_CHANCE, KRAKEN_NODE_BACK, KRAKEN_HEAD_HP, KRAKEN_HEAD_HP_AT, KRAKEN_HEAD_HP_PER_S, KRAKEN_ARRIVE_T, KRAKEN_RING_R, KRAKEN_LASH_R, KRAKEN_SLAM_T, KRAKEN_DEFLECT_CD,
   KRAKEN_LUNGE_T, KRAKEN_GRIP_DUR, KRAKEN_GRIP_DMG, KRAKEN_GRIP_FLICKS, KRAKEN_GRIP_STICK_MUL, TRAWL_WIGGLE_ARC,
   KRAKEN_LASH_W, KRAKEN_LASH_OVER, KRAKEN_LASH_DMG, KRAKEN_LESSON_MAX, KRAKEN_PARRY_SHOVE_R, KRAKEN_PARRY_EARLY_T, KRAKEN_LIMP_CLEAR, KRAKEN_ARRIVE_T2, KRAKEN_WAVE_GROWTH, KRAKEN_COIL_DMG, KRAKEN_COIL_SHADOW_SOFT, krakenCoilBandHalfW,
   KRAKEN_HEAD_SPEED, KRAKEN_PARRY_SPIN_T, krakenLimbHalfW, FISH_R, FISH_BODY, KRAKEN_GRIP_EVERY, KRAKEN_GRAB_FUSE, KRAKEN_GRAB_MIN_STEP, KRAKEN_PINCH_OPEN0, KRAKEN_PINCH_OPEN1,
   KRAKEN_BEAT_READ, KRAKEN_BEAT_GRAB_CLEAR, KRAKEN_BEAT_BREATH, KRAKEN_HEAD_R, KRAKEN_CHASE_CAGE_R, KRAKEN_HEAD_HOLD, KRAKEN_DASH_DIST, KRAKEN_DASH_SPEED, KRAKEN_DASH_RUNUP, KRAKEN_DASH_PARRY_PX, KRAKEN_HEAD_TOUCH_DMG, KRAKEN_LUNGE_DMG, KRAKEN_LUNGE_WINDUP_T,
 } from '../src/config.js'
-import { krakenCoilStarHits, krakenWinPending, krakenPinchProbe, krakenGrabSpot, krakenGrabTurnClear, stepSim, applyChoice, fastForwardEndless, endlessHandover, autopilotPick, buildLevelUpChoices, eligibleWeaponModCandidates, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, inRefillCircle, refillCircleAt, stepCharge, newElWindow, spurAt, inMaw } from '../src/sim.js'
+import { krakenCoilStarHits, krakenWinPending, dealDamage, krakenPinchProbe, krakenGrabSpot, krakenGrabTurnClear, stepSim, applyChoice, fastForwardEndless, endlessHandover, autopilotPick, buildLevelUpChoices, eligibleWeaponModCandidates, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, inRefillCircle, refillCircleAt, stepCharge, newElWindow, spurAt, inMaw } from '../src/sim.js'
 
 // ---- Scenario runner: one filter, and the gate's own dispatch flag ----------------------------
 // THIS FILE IS NO LONGER WHAT `npm test` RUNS. scripts/test-isolation.mjs hands one scenario to
@@ -21113,6 +21113,7 @@ run(testLeLargeWeapons)
   run(testCoreSpawnMix)
   run(testOphanShell)
   run(testOphanRig)
+  run(testOphanSlice)
   // A hand-typed filter that matched nothing is the silent pass without a parent watching:
   // `node test/sim-test.js supernova` printed ALL TESTS PASSED having run no scenario at all.
   if (_ran === 0 && !EXACT_SET) {
@@ -35471,6 +35472,7 @@ function testEventConsumers() {
     netHaul: 'has a render case (the rising spray); NO sfx on purpose — a haul is the whole crowd at once, and each body dies through dealDamage, whose kill already sounds',
     melt: 'drawn by src/toon/mantle-fx.js through the toon renderer\'s event hook (not a render.js case); NO sfx: a flood melts a whole hillside of rock creatures at once, and each dies through dealDamage, whose kill already sounds',
     crumble: 'drawn by src/toon/mantle-fx.js through the toon renderer\'s event hook; NO sfx: an ebb strands a crowd of lava creatures together, and each dies through dealDamage, whose kill already sounds',
+    ophanImmune: 'drawn by src/ophan/renderer.js (the immune ring); several a second while mismatched, too often for a sound',
   }
 
   const orphans = types.filter((t) => !hasRender(t) && !hasSfx(t) && !SILENT_BY_DESIGN[t])
@@ -43136,4 +43138,212 @@ function testOphanShell() {
   assert.strictEqual(ophanView(1440, 900).z, 900 / 700)
   assert.strictEqual(ophanView(390, 844).z, 1)
   console.log(`PASS run OP.shell: ${c.worlds.length} world(s), ${c.roster.length} roster rows, unlock core@3, WIP inherits from core`)
+}
+
+// ---- run OP.slice: The Ophan's sim vertical slice ---------------------------------------------
+// One world: the boss entity, the mismatch seal, the skin hp floor, the sword, the arena, win and
+// lose. The helpers are shared with the later Ophan scenarios.
+function ophanRun(diff = 3, seed = 7) {
+  Math.random = mulberry32(20261024 + seed)
+  const m = makeMeta(); m.dev = true
+  const r = createRun(m, { chapter: 'ophan', difficulty: diff })
+  stepSim(r, { x: 0, y: 0 }, 1 / 60)
+  return r
+}
+function ophBoss(r) { return r.enemies.find((e) => e.rosterId === 'ophan' && !e._dead) }
+// break every unbroken skin, matched, one at a time (works for 1 world or 6)
+function ophBreakAll(r) {
+  const o = r.script.oph
+  for (let k = 0; k < o.hp.length; k++) if (!o.broken[k]) {
+    o.skin = k; o.world = k; const b = ophBoss(r); b.hp = OPHAN_BREAK_FLOOR + 1
+    dealDamage(r, b, 5, false); stepSim(r, { x: 0, y: 0 }, 1 / 60)
+  }
+}
+// n frames, level-ups resolved the way main.js does; `before` runs ahead of each step, `after` behind
+// it, and the loop stops when the run ends or `until` says so
+function ophSteps(r, n, { before, after, until, input = { x: 0, y: 0 } } = {}) {
+  for (let i = 0; i < n; i++) {
+    if (r.phase === 'levelup') { applyChoice(r, pickNonElementIndex(r)); r.phase = 'playing' }
+    if (r.phase !== 'playing' || until?.()) return i
+    before?.(i)
+    stepSim(r, input, 1 / 60)
+    after?.(i)
+  }
+  return n
+}
+// start attack k through the real scheduler (its pool narrowed to k), the player standing at `at`
+function ophStart(r, k, at) {
+  const keep = CHAPTERS.ophan.attacks
+  CHAPTERS.ophan.attacks = { 1: [k], 2: [k], 3: [k] }
+  try {
+    const o = r.script.oph
+    o.atk = null; o.atkCd = 0
+    r.player.x = at.x; r.player.y = at.y
+    stepSim(r, { x: 0, y: 0 }, 1 / 60)
+    assert.strictEqual(o.atk?.k, k, `the scheduler did not start a ${k}`)
+  } finally { CHAPTERS.ophan.attacks = keep }
+}
+function ophHold(r, at) { return () => { r.player.x = at.x; r.player.y = at.y } }
+
+function testOphanSlice() {
+  const A = { ...OPHAN_PLAYER_START }, B = { x: A.x + 120, y: A.y }
+  const swordN = Math.ceil(OPHAN_ATTACKS.sword.dur * 60) + 2
+  const count = (r, t) => r.events.filter((e) => e.type === t).length
+  {
+    const r = ophanRun(1)
+    const b = ophBoss(r), o = r.script.oph
+    assert.ok(b && b.x === OPHAN_BOSS.x && b.y === OPHAN_BOSS.y && b.dmg === 0 && b.maxHP === OPHAN_SKIN_HP * r.mods.enemyHpMul, 'run OP.slice: the boss is not on its mark with its skin hp')
+    assert.ok(r.player.x === A.x && r.player.y === A.y, 'run OP.slice: the player does not start on OPHAN_PLAYER_START')
+    // a1 matched hit drains the skin; a2 x2 in a stagger
+    const hp0 = b.hp; dealDamage(r, b, 50, false); assert.strictEqual(hp0 - b.hp, 50, 'a1: a matched hit does not drain the skin')
+    o.stagger = 1; const hp1 = b.hp; dealDamage(r, b, 50, false); assert.strictEqual(hp1 - b.hp, 100, 'a2: a stagger does not double the damage')
+    // a3 mismatch refuses a hit AND a DoT tick, and says so
+    o.stagger = 0; o.world = 1; r.events.length = 0
+    const hp2 = b.hp; dealDamage(r, b, 50, false); dealDamage(r, b, 50, false, true)
+    assert.strictEqual(b.hp, hp2, 'a3: a mismatched hit or tick hurt the boss'); assert.ok(r.events.some((e) => e.type === 'ophanImmune'), 'a3: a refused hit is silent')
+    o.world = 0
+  }
+  // a4 the locked aim: a sword aimed at A misses a player who moved to B, and hits one who stayed
+  for (const [hold, want] of [[B, false], [A, true]]) {
+    const r = ophanRun(1); r.script.oph.crowdT = 1e9
+    ophStart(r, 'sword', A)
+    ophSteps(r, swordN, { before: ophHold(r, hold) })
+    const d = r.dmgBySrc.ophanSword ?? 0
+    assert.ok(want ? d > 0 : d === 0, `a4: a sword aimed at A, player held at ${hold === A ? 'A' : 'B'}, dealt ${d}`)
+  }
+  // a5 the arena holds: walking into the wall, and a big shove at it
+  {
+    const r = ophanRun(1), o = r.script.oph, p = r.player
+    o.crowdT = 1e9; p.hp = p.maxHP = 1e6
+    let maxX = -Infinity
+    ophSteps(r, 300, { input: { x: 1, y: 0 }, after: () => { maxX = Math.max(maxX, p.x) } })
+    assert.ok(maxX <= OPHAN_ARENA.w / 2 && maxX > OPHAN_ARENA.w / 2 - 2 * PLAYER.radius, `a5: walking right ends at x=${maxX.toFixed(1)}, not at the arena wall`)
+    o.push.x = 1e4
+    ophSteps(r, 30, { input: { x: 1, y: 0 }, after: () => { maxX = Math.max(maxX, p.x) } })
+    assert.ok(maxX <= OPHAN_ARENA.w / 2, `a5: a shove at the wall put the player at x=${maxX.toFixed(1)}, outside the arena`)
+  }
+  // a6 win: every skin broken (no ordinary kill), one victory
+  {
+    const r = ophanRun(1), o = r.script.oph
+    r.events.length = 0
+    ophBreakAll(r)
+    assert.ok(o.broken.every((v) => v === 1), `a6: skins left unbroken ${JSON.stringify(o.broken)}`)
+    assert.strictEqual(count(r, 'ophanBreak'), o.hp.length, 'a6: a break did not say so')
+    assert.strictEqual(count(r, 'kill'), 0, 'a6: the boss died through the ordinary kill path')
+    assert.strictEqual(count(r, 'victory'), 1, 'a6: not exactly one victory')
+    assert.ok(r.phase === 'victory' && !ophBoss(r), 'a6: the fight did not end with the boss gone')
+  }
+  // a7 lose: one hp, standing on a live sword line
+  {
+    const r = ophanRun(1), p = r.player
+    r.script.oph.crowdT = 1e9
+    ophStart(r, 'sword', A)
+    p.hp = 1
+    ophSteps(r, swordN, { before: () => { ophHold(r, A)(); p.invuln = 0 } })
+    assert.ok(r.phase === 'dead' && r.killedBy === 'ophanSword' && count(r, 'victory') === 0, `a7: phase ${r.phase}, killed by ${r.killedBy}`)
+  }
+  // a8 the crowd: world 0's ids only, born on the arena border away from the player
+  let born = 0
+  {
+    const r = ophanRun(1), p = r.player, ids = Object.values(CHAPTERS.ophan.worlds[0].crowd)
+    p.hp = p.maxHP = 1e9; r.weapons = []
+    const seen = new Set()
+    ophSteps(r, 30 * 60, { after: () => {
+      for (const e of r.enemies) if (!e._dead && e.rosterId !== 'ophan' && !seen.has(e.id)) {
+        seen.add(e.id)
+        assert.ok(ids.includes(e.rosterId), `a8: a ${e.rosterId} walked into world 0`)
+        const edge = Math.min(Math.abs(Math.abs(e.x) - OPHAN_ARENA.w / 2), Math.abs(Math.abs(e.y) - OPHAN_ARENA.h / 2))
+        assert.ok(edge < 6, `a8: a ${e.rosterId} was born ${edge.toFixed(1)}px off the border`)
+        assert.ok(Math.hypot(e.x - p.x, e.y - p.y) > OPHAN_CROWD.edgeClear - 6, 'a8: a crowd body was born on top of the player')
+      }
+    } })
+    born = seen.size
+    assert.ok(born >= 8, `a8: only ${born} crowd bodies in 30s`)
+  }
+  // a9 win and die in the same step: exactly one of them, and nothing after it
+  {
+    const r = ophanRun(1, 9), o = r.script.oph, p = r.player
+    p.hp = p.maxHP = 1e6
+    ophSteps(r, 6 * 60)   // a crowd on the field, so a step that runs on past the end has targets
+    assert.ok(r.enemies.some((e) => !e._dead && e.rosterId !== 'ophan'), 'a9: no crowd to keep the weapons busy')
+    ophStart(r, 'sword', A)
+    ophSteps(r, swordN, { before: () => { ophHold(r, A)(); p.invuln = 9 }, until: () => o.atk.u >= 0.6 })
+    const b = ophBoss(r); b.hp = OPHAN_BREAK_FLOOR + 1; dealDamage(r, b, 5, false)
+    p.hp = 1; p.invuln = 0; r.events.length = 0
+    stepSim(r, { x: 0, y: 0 }, 1 / 60)
+    assert.strictEqual(count(r, 'victory') + (r.phase === 'dead' ? 1 : 0), 1, `a9: victory x${count(r, 'victory')} and phase ${r.phase}`)
+    // the spy: no new event, and the crowd stands still (the ordinary step, which moves it, never ran)
+    const n0 = r.events.length, crowd = r.enemies.filter((e) => !e._dead).map((e) => [e, e.x, e.y])
+    for (let i = 0; i < 10; i++) stepSim(r, { x: 0, y: 0 }, 1 / 60)
+    assert.strictEqual(r.events.length, n0, `a9: the ended fight kept stepping: ${r.events.slice(n0).map((e) => e.type).join(', ')}`)
+    assert.ok(crowd.length && crowd.every(([e, x, y]) => e.x === x && e.y === y), 'a9: the ended fight kept stepping: the crowd moved')
+  }
+  // a10 invulnerability holds a live line off; it lands the moment it lapses
+  {
+    const r = ophanRun(1), o = r.script.oph, p = r.player
+    o.crowdT = 1e9
+    ophStart(r, 'sword', A)
+    ophSteps(r, swordN, { before: () => { ophHold(r, A)(); p.invuln = 9 }, until: () => o.atk.u >= 0.55 })
+    p.invuln = 1
+    ophSteps(r, 30, { before: ophHold(r, A) })
+    assert.strictEqual(r.dmgBySrc.ophanSword ?? 0, 0, 'a10: the sword hurt an invulnerable player')
+    p.invuln = 0
+    ophSteps(r, 30, { before: ophHold(r, A), until: () => (r.dmgBySrc.ophanSword ?? 0) > 0 })
+    assert.ok((r.dmgBySrc.ophanSword ?? 0) > 0, 'a10: the sword never landed once invulnerability lapsed')
+  }
+  // a11 closest enemy, always: a sealed boss is still the target when it is the nearest body
+  const reach = []
+  const spot = { x: OPHAN_BOSS.x, y: OPHAN_BOSS.y + OPHAN_BOSS.bodyR + 90 }
+  for (const id of CHAPTERS.ophan.weapons) {
+    const r = ophanRun(1), o = r.script.oph, p = r.player
+    o.world = 1; o.crowdT = 1e9; o.atkCd = 1e9; p.hp = p.maxHP = 1e9
+    r.weapons = [{ id, level: 1 }]
+    let t = -1
+    ophSteps(r, 5 * 60, { before: ophHold(r, spot), after: (i) => { if (t < 0 && count(r, 'ophanImmune')) t = i }, until: () => t >= 0 })
+    assert.ok(t >= 0, `a11: ${id} alone never reached the sealed boss 90px away in 5s`)
+    reach.push(`${id} ${(t / 60).toFixed(2)}s`)
+    // ...and a nearer crowd body takes the first shots
+    const q = ophanRun(1), qo = q.script.oph, qp = q.player
+    qo.world = 1; qo.atkCd = 1e9; qp.hp = qp.maxHP = 1e9; q.weapons = []
+    qo.crowdT = 0
+    ophSteps(q, 60, { before: ophHold(q, spot), until: () => q.enemies.some((e) => !e._dead && e.rosterId !== 'ophan') })
+    qo.crowdT = 1e9
+    const near = q.enemies.find((e) => !e._dead && e.rosterId !== 'ophan')
+    for (const e of q.enemies) if (e !== near && e.rosterId !== 'ophan') e._dead = true
+    Object.assign(near, { x: spot.x, y: spot.y + 60, speed: 0, hp: 1e9, maxHP: 1e9 })
+    q.weapons = [{ id, level: 1 }]; q.events.length = 0
+    let hitAt = -1, immAt = -1
+    ophSteps(q, 5 * 60, {
+      before: () => { ophHold(q, spot)(); near.x = spot.x; near.y = spot.y + 60 },
+      after: (i) => { if (hitAt < 0 && near.hp < 1e9) hitAt = i; if (immAt < 0 && count(q, 'ophanImmune')) immAt = i },
+      until: () => hitAt >= 0,
+    })
+    assert.ok(hitAt >= 0, `a11: ${id} never hit a crowd body 60px away`)
+    assert.ok(immAt < 0 || immAt >= Math.max(hitAt, 18), `a11: ${id} shot the sealed boss (frame ${immAt}) before the nearer crowd body (frame ${hitAt})`)
+  }
+  // the boss's body does not hurt: touching it with no attack running costs nothing
+  {
+    const r = ophanRun(1), o = r.script.oph, p = r.player, b = ophBoss(r)
+    o.crowdT = 1e9; o.atkCd = 1e9; r.weapons = []
+    const touch = { x: b.x, y: b.y + OPHAN_BOSS.bodyR + PLAYER.radius }
+    b.radius += 10   // the arena clamp parks the player just clear of the body: make that spot a touch
+    const hp0 = p.hp
+    ophSteps(r, 120, { before: () => { ophHold(r, touch)(); p.invuln = 0 } })
+    assert.strictEqual(p.hp, hp0, 'run OP.slice: touching the boss hurt')
+  }
+  // the other five attacks, live, through the same hit tests the sim calls
+  const { x: bx, y: by, R } = OPHAN_BOSS
+  const geoAt = (k, u, at) => RIG.attack(k, u, 3, bx, by, R, at.x, at.y, 2, RIG.pose(2, 3, k, u, (at.x - bx) / R, (at.y - by) / R))
+  for (const [k, u] of [['blast', 0.72], ['laser', 0.72], ['wheel', 0.5], ['recall', 0.65]]) {
+    const h = ophanHits(k, geoAt(k, u, A), A.x, A.y, PLAYER.radius, R, OPHAN_HIT)
+    assert.ok(h.hit && h.src === 'ophan' + k[0].toUpperCase() + k.slice(1), `${k} at u=${u} misses the player it was aimed at`)
+    if (k === 'blast') assert.ok(h.shove && Math.hypot(h.shove.x, h.shove.y) > 0.99, 'the blast hits without a shove')
+  }
+  let tornado = null
+  for (let u = 0; u <= 1 && !tornado; u += 0.01) {
+    const g = geoAt('tornado', u, A)
+    if (g.alive > OPHAN_HIT.tornadoAlive) tornado = ophanHits('tornado', g, g.pos.x + 4, g.pos.y - 2, PLAYER.radius, R, OPHAN_HIT)
+  }
+  assert.ok(tornado?.hit && tornado.pull, 'the live tornado neither hits nor pulls a player at its foot')
+  console.log(`PASS run OP.slice: matched x1 / stagger x2 / mismatch 0, locked aim, arena wall, ${CHAPTERS.ophan.worlds.length} skin(s) broken -> one victory, sword death, ${born} crowd births on the border, win+death resolves once, invuln holds, a11 reach [${reach.join(', ')}], no touch damage, 6/6 attacks hit live`)
 }
