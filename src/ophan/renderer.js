@@ -26,7 +26,6 @@ import './hands/ascii.js'
 import './hands/pixel.js'
 import './hands/toon.js'
 import './hands/liquid.js'
-import './hands/pencil.js'
 import { CHAPTERS, OPHAN_BOSS, OPHAN_ARENA, OPHAN_ATTACKS, OPHAN_HAND, ophanView } from '../config.js'
 
 const STAGES = { macro, holo, ascii, pixel, toon, liquid }
@@ -66,9 +65,14 @@ export function handU(oph) {
   if (oph.after >= 0) return W.paint[0] + Math.min(1, oph.after / OPHAN_HAND.after) * (W.out[1] - W.paint[0])
   return null
 }
+// the hand's path seed: the swap it belongs to, the same over the tell (swaps not yet counted) as after the swap, so its
+// arrival point never jumps on the swap frame
+export const handSeed = (oph) => oph.swaps + (oph.tell > 0 ? 1 : 0)
 // the next hand's shadow over the tell (src2.html handShadow): its shape in the mock-up's px round a boss drawn at R SH_R,
 // baked at its largest scale (1.7) times SH_K, with SH_PAD px for the blur; the box's corner sits at (-SH_X, -SH_Y). Its
-// black is baked at the mock-up's peak alpha SH_A, so the coloured glow shows through it as there, and the sprite fades it
+// black is baked at the mock-up's peak alpha SH_A, so the coloured glow shows through it as there, and the sprite fades it.
+// Canvas shadowBlur ignores the transform: the bake's 20 px is scaled with the sprite, ~11 px on screen at pr 0 down to
+// ~7 px at pr 1 where the mock-up's grows 8 -> 20 (the A/B passes by eye; a wider glow is a bigger blur and SH_PAD)
 const SH_R = 52 * 1.35, SH_K = 2, SH_S = 1.7 * SH_K, SH_PAD = 40, SH_X = 31, SH_Y = 77, SH_A = 0.6
 
 // ---- the crowd's marks: the mock-up's creatures (art-fight.js marks / src2.html blob), baked once per look and size
@@ -113,6 +117,7 @@ export function createOphanRenderer(host) {
   // the warm-up's own px2ds (a boss, a hand over it): they never touch a live slot
   const warmC = new Container(), wpx = PX2D(warmC.addChild(new Container()), RES), whpx = PX2D(warmC.addChild(new Container()), RES)
   let rt = null, jobs = [], raf = 0, saved = null, mine = null, entered = false, sceneKey = '', lastA = null
+  let afterLook = null   // the after-beat's hand, latched for its whole window
   // the warm-up: worlds queued (or done) are not queued again; one promise settles when the queue drains
   const warmed = new Set()
   let warmP = null, warmDone = null
@@ -219,9 +224,10 @@ export function createOphanRenderer(host) {
           const ph = Math.max(1, OPHAN_ATTACKS[k].minPh)
           jobs.push(at((s, R) => { window.OPH_PH = ph; boss(s, s.w / 2, s.h / 3, R, 0, ph, k, 0.5, s.w / 2, s.h * 0.72, wpx) }), () => shot(warmC))
         }
-        // its hand (a hand's first draw bakes it: the Magma one every pose it will take) through arrival, paint and lift
+        // its hand (a hand's first draw bakes it: the Magma one every pose it will take) through arrival, paint and lift, the
+        // liquid hand's cut masked by the warm boss it is drawn over
         for (const u of [0.1, 0.5, 0.9])
-          jobs.push(at((s, R) => { window.OPH_PH = 1; boss(s, s.w / 2, s.h / 3, R, 0, 1, null, 0, 0, 0, wpx); hand(whpx, id, s.w / 2, s.h / 3, R, 0, u) }), () => shot(warmC))
+          jobs.push(at((s, R) => { window.OPH_PH = 1; boss(s, s.w / 2, s.h / 3, R, 0, 1, null, 0, 0, 0, wpx); window.SPIKE.px = wpx; hand(whpx, id, s.w / 2, s.h / 3, R, 0, u) }), () => shot(warmC))
       }
       // the hand's shadow, one texture per world colour (a sprite placed per frame, never a per-frame blur)
       ch.worlds.forEach((w, k) => {
@@ -348,7 +354,7 @@ export function createOphanRenderer(host) {
           boss(S, bx, by, R, t, ph, a && a.k, Math.min(1, a ? a.u : 0), a ? sx(S, a.ax) : 0, a ? sy(S, a.ay) : 0, bpx)
         })
         // THE HAND: the next world's hand shadow slides in over the tell (src2.html handShadow, eased), tinted its colour
-        if (oph.tell > 0 && oph.next >= 0 && shades[oph.next]) {
+        if (oph?.tell > 0 && oph.next >= 0 && shades[oph.next]) {
           const pr = 1 - oph.tell / OPHAN_HAND.tell, e = pr * pr * (3 - 2 * pr), q = R / SH_R, hx = 130 - 85 * e, hy = -210 + 165 * e
           handShade.texture = shades[oph.next]
           handShade.anchor.set((SH_PAD + SH_X * SH_S) / handShade.texture.width, (SH_PAD + SH_Y * SH_S) / handShade.texture.height)
@@ -357,10 +363,13 @@ export function createOphanRenderer(host) {
         }
         // then that world's hand comes down over it and lands as the skin swaps, paints the new skin on and lifts (window
         // HAND_SEED: one path per swap, the same before and after it; OPHAN_PREV_STYLE: the old skin is still under the
-        // stroke until the swap; SPIKE.px: the boss the liquid hand's cut is masked by)
-        const u = handU(oph), H = u == null ? null : slots[worlds[oph.tell > 0 ? oph.next : oph.skin].look]
+        // stroke until the swap; SPIKE.px: the boss the liquid hand's cut is masked by). The after-beat's look is latched when
+        // it starts: a skin break mid-paint does not swap the hand for another world's
+        const u = oph ? handU(oph) : null
+        afterLook = oph?.after >= 0 ? afterLook ?? worlds[oph.skin].look : null
+        const H = u == null ? null : slots[oph.tell > 0 ? worlds[oph.next].look : afterLook]
         if (H?.warm) {
-          H.g.HAND_SEED = oph.swaps + (oph.tell > 0 ? 1 : 0); H.g.OPHAN_PREV_STYLE = oph.tell > 0 ? S.id : null; H.g.SPIKE.px = bpx
+          H.g.HAND_SEED = handSeed(oph); H.g.OPHAN_PREV_STYLE = oph.tell > 0 ? S.id : null; H.g.SPIKE.px = bpx
           hpx.id = A.id + '-hand'   // the liquid hand's rim mirrors the floor under it (hands/liquid.js floorOf)
           within(H.g, () => { window.OPH_PH = ph; focus = hand(hpx, H.id, bx, by, R, t, u) })
           focus.src = S

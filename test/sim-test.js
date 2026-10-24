@@ -43746,7 +43746,15 @@ function testOphanRenderWiring() {
   assert.ok(/shadowBlur/.test(warmBody) && syncBody.length > 100 && !/shadowBlur/.test(syncBody),
     'the hand shadow\'s blur is not baked in prewarm() (or a shadowBlur runs in sync(), per frame)')
   const handFiles = readdirSync(new URL('hands/', ophDir)).filter((f) => f.endsWith('.js')).sort()
-  assert.deepStrictEqual(handFiles, ['ascii', 'holo', 'kit', 'liquid', 'macro', 'pencil', 'pixel', 'toon'].map((k) => k + '.js'), 'src/ophan/hands/ is not the kit and the seven hands')
+  assert.deepStrictEqual(handFiles, ['ascii', 'holo', 'kit', 'liquid', 'macro', 'pixel', 'toon'].map((k) => k + '.js'), 'src/ophan/hands/ is not the kit and the six worlds\' hands')
+  assert.ok(!/import '\.\/hands\/pencil\.js'/.test(rend), 'renderer.js imports the pencil hand, whose load-time bake runs at every boot for a hand no world wears')
+  // the hand's path seed is the swap it belongs to: the same over the tell as after the swap (sim's swaps++ in between)
+  const hs = rend.match(/export const handSeed = [^\n]*/)?.[0].replace('export ', '') ?? ''
+  const handSeed = new Function(hs + '\nreturn handSeed')()
+  assert.strictEqual(handSeed({ swaps: 3, tell: 0.1, next: 2, after: -1 }), handSeed({ swaps: 4, tell: 0, next: -1, after: 0 }), 'the hand\'s path seed changes on the swap frame: its arrival point jumps')
+  assert.ok(/HAND_SEED = handSeed\(oph\)/.test(syncBody), 'sync() does not seed the hand with handSeed(oph)')
+  // a skin break mid-paint keeps the hand it started with: the after-beat's look is latched, not read from oph.skin per frame
+  assert.ok(/afterLook = oph\?\.after >= 0 \? afterLook \?\?/.test(syncBody) && /: afterLook\]/.test(syncBody), 'the after-beat\'s hand is not latched: a skin break mid-paint swaps it for another world\'s')
   for (const f of handFiles) assert.ok(!/\bGT\.|__liquid/.test(readFileSync(new URL('hands/' + f, ophDir), 'utf8')), `src/ophan/hands/${f} reaches for the artifact's globals (GT. / __liquid)`)
   const sig = ui.match(/const pillSig = [^\n]*/)?.[0] ?? ''
   assert.ok(/\bon\b/.test(sig), 'the boss-bar pill signature ignores the current skin')
