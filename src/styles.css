@@ -3786,16 +3786,17 @@ body {
 
 /* THE OPHAN'S DEPTH GAUGE (ui.js data-ophan-gauge, art in ophan/gauge.js): the painted cone in canvases, its marks
    and captions in an svg over them, and six transparent full-width buttons on top, one per world row, each >= 44 css
-   px tall and wearing its tag card. touch-action none so a slide across the rows never scrolls the page. */
+   px tall and wearing its tag card. touch-action none so a slide across the rows never scrolls the page. Only the rows
+   take a touch: the captions and the gaps between rows fall through to the joystick. */
 .ophan-gauge {
   position: absolute; left: 0; bottom: 32px; width: 124px; height: 346px;
-  touch-action: none; user-select: none; pointer-events: auto;
+  touch-action: none; user-select: none; pointer-events: none;
 }
 .ophan-paint, .ophan-art { position: absolute; left: 0; top: 0; }
 .ophan-art { width: 124px; height: 346px; overflow: visible; }
 .ophan-gauge button {
   position: absolute; left: 0; width: 100%; height: 44px; margin: 0; padding: 0; border: 0;
-  background: transparent; touch-action: none;
+  background: transparent; touch-action: none; pointer-events: auto;
 }
 .ophan-card {
   position: absolute; left: 67px; transform: translateY(-50%) rotate(-1.7deg); padding: 0 2.5px;
@@ -3816,3 +3817,5 @@ canvas.ophan-unbuilt, .ophan-unbuilt .ophan-card { opacity: 0.55; }
 /* pointer-events none is deliberate: a touch on the greyed gauge falls through to the joystick instead of dead-zoning the thumb area */
 .ophan-gauge--sketch { filter: grayscale(1); opacity: 0.5; pointer-events: none; }
 #ui.lv-open .ophan-gauge { pointer-events: none; }
+/* the rows set pointer-events auto themselves, so the two inert states must reach them too: inheritance does not */
+.ophan-gauge--sketch button, #ui.lv-open .ophan-gauge button { pointer-events: none; }

@@ -43696,6 +43696,9 @@ function testOphanGauge() {
   assert.ok(/Digit5/.test(keys) && /Digit6/.test(keys), 'a level-up card lets 5 and 6 through to the world keys')
   assert.ok(/#ui\.lv-open \.ophan-gauge\s*\{[^}]*pointer-events:\s*none/.test(css), 'the gauge stays tappable behind an open level-up')
   assert.ok(/\.ophan-gauge\s*\{[^}]*touch-action:\s*none/.test(css), 'the gauge scrolls the page')
+  // only the rows take a touch, so the sketch and level-up states must switch the ROWS off: an explicit auto beats inheritance
+  assert.ok(/\.ophan-gauge\s*\{[^}]*pointer-events:\s*none/.test(css) && /\.ophan-gauge button\s*\{[^}]*pointer-events:\s*auto/.test(css), 'the whole gauge box takes touches, not just its rows')
+  assert.ok(/\.ophan-gauge--sketch button[^{]*\{[^}]*pointer-events:\s*none/.test(css) && /#ui\.lv-open \.ophan-gauge button\s*\{[^}]*pointer-events:\s*none/.test(css), 'a row stays tappable in the sketch state or behind a level-up')
   // the art is inline SVG built once; the six buttons still wear the tags and the sync only toggles the four state marks
   assert.ok(/<svg[^>]*class="ophan-art"/.test(ui), 'the gauge art is not an inline <svg class="ophan-art">')
   assert.ok(/<button data-world=[^>]*>[^`]*OPHAN_GAUGE_COPY\.tags\[k\]/.test(ui), 'a gauge button lost its tag')
