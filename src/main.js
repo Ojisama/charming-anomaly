@@ -520,6 +520,7 @@ const ui = initUI({
     return true
   },
   onSkill() { pressSkill() },   // v5.21 lane: HUD button -> input.js latch -> stepSim's input.skill
+  worldReady: (k) => renderer.worldReady(k),   // a gauge band whose world slot is not built yet shows dimmed
   onWorld(k) { pressWorld(k) },   // The Ophan's world bands -> input.js latch -> stepSim's input.world
   onQuit() {  // from pause or summary back to title
     run = null

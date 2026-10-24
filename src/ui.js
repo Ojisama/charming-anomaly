@@ -1,8 +1,10 @@
 // DOM overlay inside #ui: title, shop, HUD, level-up, pause, summary. No Pixi.
-import { shopCost, refundValue, REFUND_RATE, shopLines, shopLineUnlocked, chaptersMastered, lineMax, SHOP_FAMILY, RUN_DURATION, RARITIES, modPct, WEAPONS, ENV_WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, MUTATOR_EFFECT_LABELS, CONSUMABLES, MAX_DIFFICULTY, DIFFICULTY_COIN_PER_LEVEL, DIFFICULTY_COUNT_PER_LEVEL, DIFFICULTY_DMG_PER_LEVEL, sacrificeCost, SACRIFICE_COSTS, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES, chapterNumber, CHAPTERS, CHAPTER_ORDER, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, HIDDEN_UNLOCKS, titleBookshelf, spineName, chaosStatus, pulseCost, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS, bookOf, BOOK_ORDER, BOOKS, BOOK_UNLOCKS, unlockCost, unlockLevel, unlockMax, dmgSrcName, dmgSrcArt, passiveEffectText, CHAPTER_BOARDS_DEFAULT, KRAKEN_PARRY_CD, hasSkillButton, ENDLESS_COPY, ENDLESS_MILESTONE_S, endlessUnlocked, endlessAccess, POLE_NAMES, POLE_TINT } from './config.js'
+import { shopCost, refundValue, REFUND_RATE, shopLines, shopLineUnlocked, chaptersMastered, lineMax, SHOP_FAMILY, RUN_DURATION, RARITIES, modPct, WEAPONS, ENV_WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, MUTATOR_EFFECT_LABELS, CONSUMABLES, MAX_DIFFICULTY, DIFFICULTY_COIN_PER_LEVEL, DIFFICULTY_COUNT_PER_LEVEL, DIFFICULTY_DMG_PER_LEVEL, sacrificeCost, SACRIFICE_COSTS, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES, chapterNumber, CHAPTERS, CHAPTER_ORDER, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, HIDDEN_UNLOCKS, titleBookshelf, spineName, chaosStatus, pulseCost, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS, bookOf, BOOK_ORDER, BOOKS, BOOK_UNLOCKS, unlockCost, unlockLevel, unlockMax, dmgSrcName, dmgSrcArt, passiveEffectText, CHAPTER_BOARDS_DEFAULT, KRAKEN_PARRY_CD, hasSkillButton, ENDLESS_COPY, ENDLESS_MILESTONE_S, endlessUnlocked, endlessAccess, POLE_NAMES, POLE_TINT, OPHAN_GAUGE_COPY } from './config.js'
 import { playSfx } from './audio.js'
 import { t, tt, getLang, LANGS } from './i18n.js'
 import { SAVE_SLOTS, activeSlot, slotSummary, saveSummary, exportSlot, NAME_MAX, bookMeta, ensureBookMeta, bookProgress } from './state.js'
+// The gauge's six bands, one per world the Ophan wears (their labels are the chapters' spine names)
+const OPHAN_GAUGE_IDS = CHAPTERS.ophan.worlds.map((w) => w.chapter)
 // The leaderboard's read side. ui.js fetching its own boards is deliberate — see the comment on
 // loadPodium for where the line between "hook" and "direct import" is drawn.
 import { fetchBoards, validNick, NICK_MIN, NICK_MAX } from './scores.js'
@@ -2496,6 +2498,12 @@ export function initUI(hooks) {
          the whole Reef card pool is speed — Turbo Fin, Quick Start, Jet Puff — and nothing on
          screen moved when you took one, which is this repo's standard shape for a card that reads
          as dead in play. Outside .hud-top's grid (position:fixed, styles.css) like .chaos-wrap. -->
+    <!-- THE OPHAN'S DEPTH GAUGE: six world bands, surface at the top, core at the bottom. Hidden outside a chapter with worlds. -->
+    <div class="ophan-gauge" data-ui data-ophan-gauge style="display:none;">
+      <span class="ophan-cap">${t(OPHAN_GAUGE_COPY.top)}</span>
+      ${OPHAN_GAUGE_IDS.map((id, k) => `<button data-world="${k}" aria-label="${t(spineName(id))}">${t(spineName(id)).slice(0, 4).toUpperCase()}</button>`).join('')}
+      <span class="ophan-cap">${t(OPHAN_GAUGE_COPY.bottom)}</span>
+    </div>
     <div class="race-speed race-hidden"><b></b><span class="race-k" data-race-k="KM/H"></span></div>
     <button class="skill-btn skill-btn--hidden" data-act="skill" aria-label="Pulse">
       <span class="skill-btn-glyph">☉</span>
@@ -2546,6 +2554,7 @@ export function initUI(hooks) {
     bossBarWrap: screens.hud.querySelector('[data-boss-bar]'),
     bossBarFill: screens.hud.querySelector('[data-boss-bar] .rampage-fill'),
     bossPills: screens.hud.querySelector('[data-boss-pills]'),
+    ophanGauge: screens.hud.querySelector('[data-ophan-gauge]'),
     wiggleWrap: screens.hud.querySelector('[data-wiggle]'),
     wiggleFill: screens.hud.querySelector('[data-wiggle-fill]'),
     chaosWrap: screens.hud.querySelector('[data-chaos]'),
@@ -2557,7 +2566,29 @@ export function initUI(hooks) {
   // caches everything it touches (see `last` below).
   const applySkillSide = () => hud.skillBtn.classList.toggle('skill-btn--right', meta.skillSide === 'right')
   applySkillSide()
+  // A press on a band switches to its world and captures the pointer; sliding onto another band switches again.
+  // input.js skips any [data-ui] target, so none of this starts the joystick.
+  const gaugeBands = [...hud.ophanGauge.querySelectorAll('button')]
+  let gaugeBand = -1
+  const gaugeSwitch = (k) => { if (k !== gaugeBand) { gaugeBand = k; hooks.onWorld(k) } }
+  hud.ophanGauge.addEventListener('pointerdown', (e) => {
+    const b = e.target.closest('button')
+    if (!b) return
+    e.preventDefault()
+    hud.ophanGauge.setPointerCapture?.(e.pointerId)
+    gaugeBand = -1
+    gaugeSwitch(Number(b.dataset.world))
+  })
+  hud.ophanGauge.addEventListener('pointermove', (e) => {
+    if (!hud.ophanGauge.hasPointerCapture?.(e.pointerId)) return
+    const b = document.elementFromPoint(e.clientX, e.clientY)?.closest?.('[data-ophan-gauge] button')
+    if (b) gaugeSwitch(Number(b.dataset.world))
+  })
+  const gaugeEnd = (e) => { gaugeBand = -1; hud.ophanGauge.releasePointerCapture?.(e.pointerId) }
+  hud.ophanGauge.addEventListener('pointerup', gaugeEnd)
+  hud.ophanGauge.addEventListener('pointercancel', gaugeEnd)
   const last = {
+    gaugeSig: '',
     hp: NaN, maxHP: NaN, remain: NaN, coins: NaN, level: NaN, xpPct: NaN, weaponsSig: '',
     // v5.8 kaiju redesign: undefined (not NaN/false) so the very first updateHUD call always
     // writes once, same trick as the rest of this cache — see the block below for why crushChapter
@@ -2857,6 +2888,26 @@ export function initUI(hooks) {
     // Boss HP bar: gated on scriptedChapter too (not just run.bossBar) so leaving the chapter mid-
     // session — Play again into a different chapter reuses this same hud object — hides it again
     // rather than leaving the last boss's bar stuck on screen.
+    const oph = run.script?.oph
+    const gaugeShown = !!CHAPTERS[run.chapter].worlds && !!oph
+    const gaugeSig = gaugeShown
+      ? [oph.world, oph.skin, oph.next, oph.tell > 0, oph.broken.join(''), oph.sketch, gaugeBands.map((_, k) => (hooks.worldReady?.(k) ? 1 : 0)).join('')].join('|')
+      : ''
+    if (gaugeSig !== last.gaugeSig) {
+      last.gaugeSig = gaugeSig
+      hud.ophanGauge.style.display = gaugeShown ? '' : 'none'
+      if (gaugeShown) {
+        hud.ophanGauge.classList.toggle('ophan-gauge--sketch', !!oph.sketch)
+        const worlds = CHAPTERS[run.chapter].worlds
+        gaugeBands.forEach((b, k) => {
+          const soon = k === oph.next && oph.tell > 0
+          b.style.background = oph.broken[k] ? '#555' : worlds[k].col
+          b.style.opacity = oph.broken[k] ? '0.35' : hooks.worldReady?.(k) ? '' : '0.55'
+          b.style.outline = k === oph.world ? '3px solid #fff' : soon ? '2px dashed #fff' : ''
+          b.classList.toggle('ophan-worn', k === oph.skin)
+        })
+      }
+    }
     const bossBarShown = scriptedChapter && !!run.bossBar
     if (bossBarShown !== last.bossBarShown) {
       last.bossBarShown = bossBarShown
@@ -3332,6 +3383,8 @@ export function initUI(hooks) {
 
   function onLevelupKeydown(e) {
     if (e.repeat) return
+    // 5 and 6 are the Ophan's world keys: swallowed here so they cannot switch worlds behind an open card
+    if (e.code === 'Digit5' || e.code === 'Digit6') { e.preventDefault(); e.stopPropagation(); return }
     const digit = { Digit1: 0, Digit2: 1, Digit3: 2, Digit4: 3 }[e.code]
     if (digit !== undefined) {
       e.preventDefault()

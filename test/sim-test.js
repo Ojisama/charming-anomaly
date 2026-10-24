@@ -21118,6 +21118,7 @@ run(testLeLargeWeapons)
   run(testOphanAttacks)
   run(testOphanAttackPool)
   run(testOphanRenderWiring)
+  run(testOphanGauge)
   // A hand-typed filter that matched nothing is the silent pass without a parent watching:
   // `node test/sim-test.js supernova` printed ALL TESTS PASSED having run no scenario at all.
   if (_ran === 0 && !EXACT_SET) {
@@ -43683,6 +43684,21 @@ function testOphanAttackPool() {
 // run OP.wire: render.js and src/ophan/renderer.js are not importable (Pixi + DOM), so their
 // contract is linted as source text, comments stripped as run MB.a does. A block comment must open after
 // whitespace: render.js's import.meta.glob('./props/*.png') otherwise opens one that swallows ~960KB of the file.
+function testOphanGauge() {
+  const strip = (x) => x.replace(/(^|\s)\/\*[\s\S]*?\*\//g, '$1').replace(/\/\/.*$/gm, '')
+  const ui = strip(readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8'))
+  const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+  assert.ok(/data-ophan-gauge/.test(ui) && /hooks\.onWorld\(/.test(ui), 'ui.js has no gauge or does not bind onWorld')
+  for (const f of ['broken', 'skin', 'next', 'sketch']) assert.ok(new RegExp('oph\\.' + f + '\\b').test(ui), 'the gauge never reads oph.' + f)
+  const keys = ui.slice(ui.indexOf('function onLevelupKeydown'), ui.indexOf('function onLevelupKeydown') + 900)
+  assert.ok(/Digit5/.test(keys) && /Digit6/.test(keys), 'a level-up card lets 5 and 6 through to the world keys')
+  assert.ok(/#ui\.lv-open \.ophan-gauge\s*\{[^}]*pointer-events:\s*none/.test(css), 'the gauge stays tappable behind an open level-up')
+  assert.ok(/\.ophan-gauge\s*\{[^}]*touch-action:\s*none/.test(css), 'the gauge scrolls the page')
+  const h = Number(css.match(/\.ophan-gauge button\s*\{[^}]*height:\s*(\d+)px/)?.[1])
+  assert.ok(h >= 44, 'a gauge band is under 44 css px: ' + h)
+  console.log('PASS run OG: gauge markup, onWorld binding, state reads, level-up key guard, touch-action, band height ' + h + 'px')
+}
+
 function testOphanRenderWiring() {
   const strip = (s) => s.replace(/(^|\s)\/\*[\s\S]*?\*\//g, '$1').replace(/\/\/.*$/gm, '')
   const render = strip(readFileSync(new URL('../src/render.js', import.meta.url), 'utf8'))

@@ -34608,5 +34608,6 @@ void main() {
     return out
   }
 
-  return { reset, sync, idle, ready, setMapMode, castThumbs, hazardThumbs, playerScreen, prewarm }
+  const worldReady = (k) => !!ophanR?.ready(k)
+  return { reset, sync, idle, ready, setMapMode, castThumbs, hazardThumbs, playerScreen, prewarm, worldReady }
 }
