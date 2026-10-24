@@ -10,8 +10,9 @@
 //    flagged: the game cannot afford that) instead of silently showing its first frame forever.
 import { Graphics, Sprite, Texture, CanvasSource, Matrix, FillGradient, Container, Color, Rectangle } from 'pixi.js'
 const F = { n: 0 }   // frames begun by any px2d: a canvas remembers the last one it was drawn in (__f)
+let orig = null   // what installPatches replaced, for uninstallPatches
 export function installPatches() {
-  if (window.Path2D.__rec) return
+  if (orig) return
   const N = window.Path2D
   class P extends N {
     constructor(a) { super(a); this.cmd = []; if (a instanceof P) this.cmd.push(['add', a, null]); else if (a) this.svg = true }
@@ -22,9 +23,18 @@ export function installPatches() {
   P.__rec = true
   window.Path2D = P
   const C = CanvasRenderingContext2D.prototype
+  orig = { Path2D: N, ctx: {} }
   for (const k of ['fill', 'stroke', 'fillRect', 'strokeRect', 'clearRect', 'drawImage', 'putImageData', 'fillText', 'strokeText']) {
-    const f = C[k]; C[k] = function (...a) { this.canvas.__v = (this.canvas.__v || 0) + 1; this.canvas.__f = F.n; return f.apply(this, a) }
+    const f = (orig.ctx[k] = C[k]); C[k] = function (...a) { this.canvas.__v = (this.canvas.__v || 0) + 1; this.canvas.__f = F.n; return f.apply(this, a) }
   }
+}
+// The page as it was, for every other chapter's bakes. A Path2D recorded while patched keeps working after: it is a
+// real Path2D subclass whose methods call the native ones, and it keeps its recorded commands for the next install.
+export function uninstallPatches() {
+  if (!orig) return
+  window.Path2D = orig.Path2D
+  Object.assign(CanvasRenderingContext2D.prototype, orig.ctx)
+  orig = null
 }
 export function makePx2D(PIXI) {
   const { Graphics, Sprite, Texture, CanvasSource, Matrix, FillGradient, Container, Color, Rectangle } = PIXI

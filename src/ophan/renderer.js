@@ -6,7 +6,7 @@
 // Slots are built once per renderer and reused across runs; render.js makes one renderer for the page.
 import { Container, Graphics, Rectangle, RenderTexture } from 'pixi.js'
 import { OPHAN, STY, TAU, INK, mk, shade, mix } from './page.js'
-import { installPatches, PX2D } from './px2d.js'
+import { installPatches, uninstallPatches, PX2D } from './px2d.js'
 import macro from './stages/macro.js'
 import './painters/macro.js'
 import { CHAPTERS, OPHAN_BOSS, OPHAN_ARENA, OPHAN_ATTACKS, ophanView } from '../config.js'
@@ -59,18 +59,27 @@ export function createOphanRenderer(host) {
   root.addChild(fx, veil)                 // slots go under both
   root.visible = false
   const warmC = new Container(), wpx = PX2D(warmC, RES)   // the warm-up's own px2d: it never touches a live slot
-  let rt = null, jobs = [], raf = 0, saved = null, mine = null
+  let rt = null, jobs = [], raf = 0, saved = null, mine = null, entered = false
+  // the warm-up: worlds queued (or done) are not queued again; one promise settles when the queue drains
+  const warmed = new Set()
+  let warmP = null, warmDone = null
+  const drained = () => { const d = warmDone; warmP = warmDone = null; d?.() }
 
+  // a mark is baked once per look and colour at MARK_R and drawn scaled, so a zoom pulse never bakes a new size; the
+  // ascii one draws text, so its key carries the font state and it is baked once more when the fonts land
+  const MARK_R = 32
   const bakes = new Map()
   const bake = (key, w, f) => {
     let b = bakes.get(key)
-    if (!b) { b = mk(w * RES, w * RES); const g = b.getContext('2d'); g.setTransform(RES, 0, 0, RES, 0, 0); f(g, w / 2); if (document.fonts.status === 'loaded') bakes.set(key, b) }
+    if (!b) { b = mk(w * RES, w * RES); const g = b.getContext('2d'); g.setTransform(RES, 0, 0, RES, 0, 0); f(g, w / 2); bakes.set(key, b) }
     return b
   }
   const put = (c, b, x, y, w) => c.drawImage(b, x - w / 2, y - w / 2, w, w)
   function mark(c, st, x, y, r, col, t) {
-    if (STY[st].id === 'toon') return blob(c, st, x, y, r, col, t)   // its outline wobbles: plain paths
-    const w = r * 4; put(c, bake('b' + st + col + r, w, (g, m) => blob(g, st, m, m, r, col, 0)), x, y, w)
+    const id = STY[st].id
+    if (id === 'toon') return blob(c, st, x, y, r, col, t)   // its outline wobbles: plain paths
+    const key = 'b' + st + col + (id === 'ascii' ? document.fonts.status : '')
+    put(c, bake(key, MARK_R * 4, (g, m) => blob(g, st, m, m, MARK_R, col, 0)), x, y, r * 4)
   }
 
   // a slot fills the screen it was built on; a later screen scales it to cover and centres it (the stage keeps its size)
@@ -108,17 +117,21 @@ export function createOphanRenderer(host) {
     const j = jobs.shift()
     if (j) try { j() } catch (e) { console.error(e) }
     if (jobs.length) raf = requestAnimationFrame(pump)
+    else { if (!entered) uninstallPatches(); drained() }
   }
 
   return {
     hide: ['floor', 'dust', 'enemies', 'shadows', 'crowns', 'affixes', 'obstacles', 'telegraphs'],
     // art-fight.js's warm-up, one job per animation frame: each world's slot built and rendered once off screen (its pass
     // compiles, its floor uploads), then its boss drawn at the fight's R through the phases and every attack the chapter
-    // can roll (the painters bake per size, phase and attack), each drawing rendered once
+    // can roll (the painters bake per size, phase and attack), each drawing rendered once. Idempotent: a world already
+    // queued or warmed is skipped. The promise settles when the queue drains, so the fight never starts under it.
     prewarm() {
       const ch = CHAPTERS.ophan, z = ophanView(app.screen.width, app.screen.height).z
       const atks = [...new Set(Object.values(ch.attacks).flat())]
       for (const { look: id } of ch.worlds) {
+        if (warmed.has(id)) continue
+        warmed.add(id)
         const at = (f) => () => { const s = slot(id), R = OPHAN_BOSS.R * z / s.k; wpx.grace = 2; within(s.g, () => f(s, R)) }
         jobs.push(() => slot(id), () => { const s = slot(id); s.st.update(0); shot(s.wrap) })
         for (const ph of id === 'pixel' ? [1, 1.25, 1.5, 1.75, 2, 2.25, 2.5, 2.75, 3] : [1, 2, 3])
@@ -128,10 +141,15 @@ export function createOphanRenderer(host) {
           jobs.push(at((s, R) => { window.OPH_PH = ph; boss(s, s.w / 2, s.h / 3, R, 0, ph, k, 0.5, s.w / 2, s.h * 0.72, wpx) }), () => shot(warmC))
         }
       }
+      if (!jobs.length) return warmP ?? Promise.resolve()
+      installPatches()   // the painters draw on px2d here too; the drain takes them off again unless a fight is on
+      warmP ??= new Promise((r) => { warmDone = r })
       if (!raf) raf = requestAnimationFrame(pump)
+      return warmP
     },
     enter(run) {
       installPatches()
+      entered = true
       const bg = app.renderer.background
       saved = { alpha: bg.alpha, color: bg.color.toNumber(), pos: app.canvas.style.position }
       for (const w of CHAPTERS[run.chapter].worlds) fit(slot(w.look))
@@ -148,7 +166,12 @@ export function createOphanRenderer(host) {
       }
       saved = mine = null
       for (const s of Object.values(slots)) { s.wrap.visible = false; if (s.glc) s.glc.style.display = 'none' }
-      jobs = []; if (raf) cancelAnimationFrame(raf); raf = 0
+      // a warm-up cut short is queued again next time; its waiters are released, not left hanging
+      if (jobs.length) { jobs = []; warmed.clear() }
+      if (raf) cancelAnimationFrame(raf); raf = 0
+      entered = false
+      drained()
+      uninstallPatches()
       rings.length = 0
       root.visible = false
     },

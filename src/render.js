@@ -13381,7 +13381,8 @@ export function createRenderer(app) {
     if (ch.weapons?.includes('rootSnare')) q.push(bakeSnares)
     if (ch.signature?.type === 'crystals') q.push(bakeCrystalCracks)
     if (kind || ch.render?.holo || ch.render?.pixel) q.push(bakeFloorProps)
-    if (ch.worlds) q.push(() => { ophanHost(); ophanR.prewarm() })   // queues its own slices, one per animation frame
+    let ophanWarm = null   // queues its own slices, one per animation frame; done waits for them
+    if (ch.worlds) q.push(() => { ophanHost(); ophanWarm = ophanR.prewarm() })
     const ids = new Set([...(ch.roster ?? []).map((r) => r.id), ...(ch.render?.cast ?? [])])
     for (const id of ids) for (const k of [id, id + '_elite', id + '_child', id + '_glass', id + '_glass_elite']) if (rosterBakers[k]) q.unshift(() => rosterLook(k))
     prewarmQ = q; prewarmTotal = q.length
@@ -13399,7 +13400,7 @@ export function createRenderer(app) {
       for (const w of ws) w.resolve()
     }
     if (!prewarmBusy) { prewarmBusy = true; setTimeout(next, 0) }
-    return done
+    return ch.worlds ? done.then(() => ophanWarm ?? ophanHost().prewarm()) : done
   }
   function setMacro(run) {
     const ch = run && CHAPTERS[run.chapter]

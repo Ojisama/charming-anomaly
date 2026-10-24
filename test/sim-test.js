@@ -43378,8 +43378,11 @@ function testOphanRenderWiring() {
   const exitBody = rend.slice(rend.indexOf('exit()'), rend.indexOf('exit()') + 800)
   assert.ok(/background\.alpha/.test(exitBody) && /style\.position/.test(exitBody), 'exit() does not restore the renderer background / canvas position')
   assert.ok(!/^installPatches\(\)/m.test(strip(readFileSync(new URL('../src/ophan/px2d.js', import.meta.url), 'utf8'))), 'px2d patches at module scope')
-  assert.ok(/bossPillSig[^\n]*\.on\b/.test(ui) || /pillSig[^\n]*pillCols/.test(ui), 'the boss-bar pill signature ignores the current skin / colours')
+  assert.ok(/uninstallPatches\(\)/.test(exitBody), 'exit() leaves px2d patches on every other chapter\'s bakes')
+  const sig = ui.match(/const pillSig = [^\n]*/)?.[0] ?? ''
+  assert.ok(/\bon\b/.test(sig), 'the boss-bar pill signature ignores the current skin')
+  assert.ok(/pillCols/.test(sig), 'the boss-bar pill signature ignores the skin colours')
   const sim = readFileSync(new URL('../src/sim.js', import.meta.url), 'utf8')
   assert.deepStrictEqual([...sim.matchAll(/from '\.\/ophan\/(\w+)\.js'/g)].map((m) => m[1]).sort(), ['hit', 'rig'], 'sim imports a render-side ophan module')
-  console.log('PASS run OP.wire: hosted once, forwarded, prewarmed, pinned, resized; exit restores; vignette kept; painters read the locked aim and sim clock')
+  console.log('PASS run OP.wire: hosted once, forwarded, prewarmed, pinned, resized; exit restores and unpatches; vignette kept; painters read the locked aim and sim clock')
 }

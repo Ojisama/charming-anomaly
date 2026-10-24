@@ -2877,7 +2877,7 @@ export function initUI(hooks) {
           pills.forEach((v, i) => {
             const bar = hud.bossPills.children[i]
             bar.firstChild.style.width = `${Math.round(v * 100)}%`
-            bar.firstChild.style.background = pillCols ? pillCols[i] : '#8a5fe0'
+            bar.firstChild.style.background = pillCols?.[i] ?? '#8a5fe0'
             bar.style.outline = pillCols && i === on ? '1.5px solid #fff' : ''
           })
         }
