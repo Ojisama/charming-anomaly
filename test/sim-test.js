@@ -43843,7 +43843,11 @@ function testOphanCrowdLooks() {
   assert.ok(/'enemies'/.test(hide) && /'shadows'/.test(hide), 'run OP.crowd: render.js draws the crowd itself, over the slot\'s pass: ' + hide)
   assert.ok(/const o = host\.body\(e\)/.test(rend) && /\.texture = o\.texture/.test(rend), 'run OP.crowd: renderer.js does not copy a body\'s render.js sprite into its slot')
   assert.ok(!/function (blob|mark)\(/.test(rend), 'run OP.crowd: the mock-up\'s crowd marks are back in renderer.js')
-  assert.ok(/crowd: s\.core\b/.test(rend) && /run\.enemies = \(crowd \?\? \[\]\)/.test(stage), 'run OP.crowd: the Core\'s bodies never reach its stage\'s run')
+  assert.ok(/if \(\(e\.world \?\? k\) !== k\) \{ ghost\(/.test(rend), 'run OP.crowd: a slot ghosts its own world\'s bodies (or draws another world\'s natively)')
+  assert.ok(/for \(let i = s\.nb; i < s\.bodies\.children\.length; i\+\+\) s\.bodies\.children\[i\]\.visible = false/.test(rend),
+    'run OP.crowd: a slot leaves the copies of bodies gone since last frame standing')
+  assert.ok(/const LIVE = \[[^\]]*'stunT'/.test(stage) && /for \(const f of LIVE\) c\[f\] = e\[f\]/.test(stage), 'run OP.crowd: the Core\'s clones never refresh a body\'s stun')
+  assert.ok(/crowd: s\.core, crowdN: s\.nc\b/.test(rend) && /run\.enemies\.push\(c\)/.test(stage), 'run OP.crowd: the Core\'s bodies never reach its stage\'s run')
   assert.ok(/flags: FLAGS\[e\.rosterId\]/.test(stage) && /CHAPTERS\.core\.roster/.test(stage), 'run OP.crowd: the Core stage does not give its bodies the Core roster\'s flags')
   const k = liquid.indexOf('const kindOf'), kindOf = new Function(liquid.slice(k, liquid.indexOf('\n', liquid.indexOf('\n', k) + 1)) + '\nreturn kindOf')()
   const core = CHAPTERS.ophan.worlds.find((w) => w.look === 'liquid'), ids = Object.values(core.crowd)

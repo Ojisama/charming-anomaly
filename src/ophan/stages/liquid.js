@@ -28,27 +28,32 @@ export default function stage(app, { W, H }) {
   // bottom sprite, re-uploaded after every gl.js frame (same pixels, one texture copy per frame).
   let melt = null, last = null
   // the crowd's Core bodies as gl.js reads them: the Core roster's flags (kindOf picks a body's shape by them; the Ophan
-  // roster strips them) and a pole, the body's own or alternating by id. One clone per body, kept while it lives
+  // roster strips them) and a pole, the body's own or alternating by id. One clone per body, kept while it lives; LIVE are
+  // the body's fields liquid.js reads for its look, refreshed every frame with its place
   const FLAGS = Object.fromEntries(CHAPTERS.core.roster.map((r) => [r.id, r.flags]))
+  const LIVE = ['stunT', 'spike', 'hx', 'hy', 'hp', 'maxHP', '_pph']
   const clones = new WeakMap()
   const api = {
     boss,
     glc,
     // cam: the game camera's move off the arena's rest framing, in stage px (zr its zoom ratio, ex/ey its offset), so the
     // melt moves with the Pixi layers the host transforms the same way
-    // crowd: the bodies of this world, { e, x, y, r } in stage px
-    update(t, { cam = null, crowd = null } = {}) {
+    // crowd: the bodies of this world, { e, x, y, r } in stage px, the first crowdN of it live
+    update(t, { cam = null, crowd = null, crowdN = 0 } = {}) {
       const dt = last === null ? 0 : Math.max(0, t - last)
       last = t
       run.time = t
       const zr = cam ? cam.zr : 1, zz = z * zr, w = app.screen.width / zz, h = app.screen.height / zz
       const left = -app.screen.width / (2 * z) - (cam ? cam.ex : 0) / zz, top = -app.screen.height / (2 * z) - (cam ? cam.ey : 0) / zz
-      run.enemies = (crowd ?? []).map(({ e, x, y, r }) => {
+      run.enemies.length = 0
+      for (let i = 0; i < crowdN; i++) {
+        const { e, x, y, r } = crowd[i]
         let c = clones.get(e)
         if (!c) clones.set(e, (c = { ...e, flags: FLAGS[e.rosterId] ?? [], pole: e.pole ?? (e.id % 2 ? 1 : -1) }))
         c.x = left + x / zz; c.y = top + y / zz; c.radius = r / zz
-        return c
-      })
+        for (const f of LIVE) c[f] = e[f]
+        run.enemies.push(c)
+      }
       R.sync(run, dt, { left, top, right: left + w, bottom: top + h, zoom: zz, w: app.screen.width, h: app.screen.height, animT: t })
       melt?.texture.source.update()
     },

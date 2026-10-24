@@ -108,8 +108,8 @@ export function createOphanRenderer(host) {
   let warmP = null, warmDone = null
   const drained = () => { const d = warmDone; warmP = warmDone = null; d?.() }
 
-  // a ghost ring is baked once per rim colour at MARK_R and drawn scaled, so a zoom pulse never bakes a new size
-  const MARK_R = 32
+  // a ghost ring is baked once per rim colour at GHOST_R and drawn scaled, so a zoom pulse never bakes a new size
+  const GHOST_R = 32
   const bakes = new Map()
   const bake = (key, w, f) => {
     let b = bakes.get(key)
@@ -129,9 +129,9 @@ export function createOphanRenderer(host) {
   }
   // a body of another world: the mock-up's dashed ghost ring (r 10 in a 28 box), inked on the light-floored looks
   function ghost(c, st, x, y, r) {
-    const rim = STY[st].id === 'holo' || STY[st].id === 'toon' ? INK : '#fff', k = MARK_R / 10
+    const rim = STY[st].id === 'holo' || STY[st].id === 'toon' ? INK : '#fff', k = GHOST_R / 10
     c.globalAlpha = 0.28
-    put(c, bake('g' + rim, 28 * k, (g, m) => { g.setLineDash([3 * k, 3 * k]); g.strokeStyle = rim; g.lineWidth = 1.5 * k; g.beginPath(); g.arc(m, m, MARK_R, 0, TAU); g.stroke() }), x, y, r * 2.8)
+    put(c, bake('g' + rim, 28 * k, (g, m) => { g.setLineDash([3 * k, 3 * k]); g.strokeStyle = rim; g.lineWidth = 1.5 * k; g.beginPath(); g.arc(m, m, GHOST_R, 0, TAU); g.stroke() }), x, y, r * 2.8)
     c.globalAlpha = 1
   }
 
@@ -168,7 +168,7 @@ export function createOphanRenderer(host) {
     s.ent = PX2D(ents, RES)
     s.bodies = st.boss.parent.addChildAt(new Container(), st.boss.parent.getChildIndex(ents))
     s.bodies.position.copyFrom(st.boss.position)
-    s.nb = 0; s.core = []
+    s.nb = 0; s.core = []; s.nc = 0   // the Core's feed: { e, x, y, r } reused, s.nc of them live
     if (s.glc) s.glc.style.display = 'none'
     wrap.visible = false
     fit(s)
@@ -328,12 +328,12 @@ export function createOphanRenderer(host) {
       // Core's bodies are the melt's own (gl.js, fed by its stage): render.js's sprite for one is empty
       for (const s of [A, B]) if (s && s !== sk) {
         const k = worlds.findIndex((w) => w.look === s.id), st = STY.findIndex((y) => y.id === s.id), z = z0 / s.k
-        s.ent.begin(); s.nb = 0; s.core.length = 0
+        s.ent.begin(); s.nb = 0; s.nc = 0
         for (const e of run.enemies) {
           if (e._dead || e.rosterId === 'ophan') continue
           const x = sx(s, e.x), y = sy(s, e.y)
           if ((e.world ?? k) !== k) { ghost(s.ent, st, x, y, Math.max(3, Math.round((e.radius ?? 12) * z))); continue }
-          if (s === core) { s.core.push({ e, x, y, r: e.radius * z }); continue }
+          if (s === core) { const c = (s.core[s.nc++] ??= {}); c.e = e; c.x = x; c.y = y; c.r = e.radius * z; continue }
           const o = host.body(e)
           if (!o?.visible) continue
           if (o._shadow?.visible) body(s, o._shadow, sx(s, o._shadow.x), sy(s, o._shadow.y), z)
@@ -382,7 +382,7 @@ export function createOphanRenderer(host) {
         window.OPH_PH = ph
         // the macro lens racks to the hand's tool (stage px of the boss's slot, carried into this one's)
         const f = focus && { x: (focus.x * focus.src.k + focus.src.ox - s.ox) / s.k, y: (focus.y * focus.src.k + focus.src.oy - s.oy) / s.k, k: focus.k }
-        s.st.update(t, { px: sx(s, p.x), py: sy(s, p.y), cam: { zr, ex: (s.ox * (zr - 1) + dx) / s.k, ey: (s.oy * (zr - 1) + dy) / s.k }, focus: f, crowd: s.core })
+        s.st.update(t, { px: sx(s, p.x), py: sy(s, p.y), cam: { zr, ex: (s.ox * (zr - 1) + dx) / s.k, ey: (s.oy * (zr - 1) + dy) / s.k }, focus: f, crowd: s.core, crowdN: s.nc })
       })
 
       // the immune sparks: a white ring off the sealed boss
