@@ -10191,12 +10191,12 @@ export const OPHAN_HIT_CD = 0.6
 // balance_decision : per-hit damage measured on the headless bot 2026-10-24
 //  - shove and pull are rates: sim scales both by dt * OPHAN_SHOVE_DECAY (4200 = 420 per 60 Hz frame)
 export const OPHAN_ATTACKS = {
-  blast:   { dur: 1.8,  dmg: 27, shove: 4200, minPh: 1 },
-  tornado: { dur: 4.5,  dmg: 8, pull: 140, minPh: 1 },
-  laser:   { dur: 3.85, dmg: 30, minPh: 2 },
-  wheel:   { dur: 4.2,  dmg: 66, minPh: 1 },
-  recall:  { dur: 4.4,  dmg: 36, minPh: 1 },
-  sword:   { dur: 3.4,  dmg: 39, fireDmg: 15, minPh: 1 },
+  blast:   { dur: 1.8,  dmg: 144, shove: 4200, minPh: 1 },
+  tornado: { dur: 4.5,  dmg: 43, pull: 140, minPh: 1 },
+  laser:   { dur: 3.85, dmg: 160, minPh: 2 },
+  wheel:   { dur: 4.2,  dmg: 352, minPh: 1 },
+  recall:  { dur: 4.4,  dmg: 192, minPh: 1 },
+  sword:   { dur: 3.4,  dmg: 208, fireDmg: 80, minPh: 1 },
 }
 // the animation-progress thresholds hit.js tests each attack's hit against
 export const OPHAN_HIT = { blastFade: 0.3, tornadoAlive: 0.5, tornadoPullR: 1.5, laserFire: 0.5, laserHitR: 0.14, wheelRoll: 0.5, impactAl: 0.7, fireOn: 0.5 }
@@ -10208,7 +10208,7 @@ export const OPHAN_SKETCH_HP = 900
 export const OPHAN_BREAK_FLOOR = 1
 export const OPHAN_IMMUNE_CD = 0.12
 // balance_decision : crowd cadence per difficulty, measured on the bot 2026-10-24
-export const OPHAN_CROWD = { 1: { every: 6.6, cap: 8 }, 2: { every: 5.7, cap: 10 }, 3: { every: 4.4, cap: 12 }, edgeClear: 120 }
+export const OPHAN_CROWD = { 1: { every: 2.2, cap: 8 }, 2: { every: 1.9, cap: 10 }, 3: { every: 1.6, cap: 12 }, edgeClear: 120 }
 // the HUD depth gauge's two ends (player-visible, walked by run XX)
 export const OPHAN_GAUGE_COPY = { top: 'surface', bottom: 'core', tags: ['SOIL', 'GEOD', 'MINE', 'MAGMA', 'MANTL', 'CORE'] }
 // The fixed camera: the whole arena fits the screen, centred on the origin.
@@ -10239,9 +10239,9 @@ CHAPTERS.ophan = {
     // radiusMul = OPHAN_BOSS.bodyR / ENEMIES.tank.radius (run OP.shell pins it)
     { id: 'ophan', archetype: 'tank', name: 'The Ophan', hpMul: 1, speedMul: 0, radiusMul: 2.15, flags: [], formationOnly: true },
   ],
-  // balance_decision : crowd touch damage, measured on the bot 2026-10-24
+  // balance_decision : a crowd touch costs 1 hp at every difficulty 2026-10-24
   //  - it scales every OPHAN_ATTACKS hit too
-  balance: { spawnMul: 1, enemyHpMul: 1, enemyDmgMul: 0.4, maxAliveMul: 1 },
+  balance: { spawnMul: 1, enemyHpMul: 1, enemyDmgMul: 0.075, maxAliveMul: 1 },
   weapons: ['shovel', 'prismShard', 'pickaxe', 'slagLadle', 'hotCoals', 'sling'], starter: 'shovel',
   render: { ophan: {}, cast: [], bgColor: 0x000000, floorTint: 0xffffff, playerTint: 0xfff2e2, tail: false },
 }
