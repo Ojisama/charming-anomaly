@@ -13384,12 +13384,13 @@ export function createRenderer(app) {
     const q = []
     if (kind) q.push(() => bakeMacroTile(kind), () => macroPlayer())
     if (ch.render?.holo) q.push(holoPlayer)
-    if (kind === 'topsoil') q.push(bakeMacroPickups, bakeShovel, elFx)
+    if (kind === 'topsoil') q.push(bakeMacroPickups, elFx)
+    if (ch.weapons?.includes('shovel')) q.push(bakeShovel)
     if (ch.signature?.caveIns || ch.weapons?.includes('furrow')) q.push(bakePits)
     if (ch.weapons?.includes('furrow')) q.push(bakeFurrow)
     if (ch.weapons?.includes('rootSnare')) q.push(bakeSnares)
     if (ch.signature?.type === 'crystals') q.push(bakeCrystalCracks)
-    if (kind || ch.render?.holo || ch.render?.pixel) q.push(bakeFloorProps)
+    if (kind || ch.render?.holo || ch.render?.pixel || ch.worlds) q.push(bakeFloorProps)
     let ophanWarm = null   // queues its own slices, one per animation frame; done waits for them
     if (ch.worlds) q.push(() => { ophanHost(); ophanWarm = ophanR.prewarm() })
     const ids = new Set([...(ch.roster ?? []).map((r) => r.id), ...(ch.render?.cast ?? [])])

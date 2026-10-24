@@ -35,6 +35,7 @@ const STAGES = { macro, holo, ascii, pixel, toon, liquid, pencil }
 const IMMUNE_T = 0.4, VEIL_A = 0.55
 // a slot is built this much bigger than the screen on every side, so the camera's shake never shows its edge
 const OVERSCAN = 24
+const WARM_UPDATES = 8
 
 // Painters and hands talk through a few window globals (the phase, the toon boss's inking u, the hand's path): each slot
 // keeps its own copy, swapped in while it draws (art.js within)
@@ -206,6 +207,9 @@ export function createOphanRenderer(host) {
         warmed.add(id)
         const at = (f) => () => { const s = slot(id), R = OPHAN_BOSS.R * z / s.k; wpx.grace = whpx.grace = 2; within(s.g, () => f(s, R)) }
         jobs.push(() => slot(id), () => { const s = slot(id); s.st.update(0); shot(s.wrap); s.warm = true })
+        // a chunked floor (the Mantle's, the Magma's) bakes the chunks in view at once and its margin two a frame: WARM_UPDATES
+        // more frames bake the whole margin here, not on the world's first frames in the fight
+        for (let k = 0; k < WARM_UPDATES; k++) jobs.push(() => slot(id).st.update(0))
         if (id === 'liquid') jobs.push(() => {
           const s = slot(id), step = s.st.warmBoss([OPHAN_BOSS.R * z / s.k * RES])
           const go = () => { if (!step(6)) jobs.unshift(go) }

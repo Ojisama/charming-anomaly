@@ -53,31 +53,39 @@ export function makePx2D(PIXI) {
     if (!c) { const k = new Color(s.replace(/(?<=[(,\s])-?[\d.]+e[-+]?\d+/gi, (n) => (+n).toFixed(6))); c = { color: k.toNumber(), alpha: k.alpha }; colOf.set(s, c) }
     return c
   }
-  // gradients: one texture per distinct stop list (and radial shape), placed per fill by a matrix
-  const gradTex = new Map()
+  // gradients: one texture per distinct stop list (and radial shape), placed per fill by a matrix. A glow that pulses fades
+  // all its stops together: the texture is baked at full strength (each stop's alpha over the strongest, in hundredths) and
+  // the fill carries the fade (this.k), so a pulse reuses one texture instead of baking one a frame. The least recently
+  // used are destroyed past GRAD_MAX
+  const gradTex = new Map(), GRAD_MAX = 256
   const mkTex = (cv) => new Texture({ source: new CanvasSource({ resource: cv, addressMode: 'clamp-to-edge' }) })
   class Grad {
     constructor(type, a) { this.type = type; this.a = a; this.stops = [] }
     addColorStop(o, c) { this.stops.push([o, c]) }
     key() {
-      const [x0, y0, r0, x1, y1, r1] = this.a
-      return this.type === 'linear' ? 'L' + this.stops.join('|')
-        : 'R' + ((x0 - x1) / r1).toFixed(3) + ',' + ((y0 - y1) / r1).toFixed(3) + ',' + (r0 / r1).toFixed(3) + '|' + this.stops.join('|')
+      const [x0, y0, r0, x1, y1, r1] = this.a, cs = this.stops.map(([o, s]) => [o, col(s)])
+      this.k = Math.max(0, ...cs.map(([, c]) => c.alpha))
+      this.st = cs.map(([o, c]) => [o, c.color, this.k ? Math.round(c.alpha / this.k * 100) / 100 : 0])
+      const s = this.st.join('|')
+      return this.type === 'linear' ? 'L' + s
+        : 'R' + ((x0 - x1) / r1).toFixed(3) + ',' + ((y0 - y1) / r1).toFixed(3) + ',' + (r0 / r1).toFixed(3) + '|' + s
     }
     texture() {
       const k = this.key()
       let t = gradTex.get(k)
-      if (t) return t
+      if (t) { gradTex.delete(k); gradTex.set(k, t); return t }
       const cv = document.createElement('canvas'), lin = this.type === 'linear', N = lin ? 256 : 128
       cv.width = N; cv.height = lin ? 1 : N
       const g = cv.getContext('2d')
       let gr
       if (lin) gr = g.createLinearGradient(0, 0, N, 0)
       else { const [x0, y0, r0, x1, y1, r1] = this.a, s = N / 2 / r1; gr = g.createRadialGradient(N / 2 + (x0 - x1) * s, N / 2 + (y0 - y1) * s, r0 * s, N / 2, N / 2, N / 2) }
-      for (const [o, c] of this.stops) gr.addColorStop(o, c)
-      if (!lin && this.stops.length) { g.fillStyle = this.stops[this.stops.length - 1][1]; g.fillRect(0, 0, N, N) }
+      const css = ([, n, a]) => 'rgba(' + (n >> 16) + ',' + ((n >> 8) & 255) + ',' + (n & 255) + ',' + a + ')'
+      for (const s of this.st) gr.addColorStop(s[0], css(s))
+      if (!lin && this.st.length) { g.fillStyle = css(this.st[this.st.length - 1]); g.fillRect(0, 0, N, N) }
       g.fillStyle = gr; g.fillRect(0, 0, N, cv.height)
       t = mkTex(cv); gradTex.set(k, t)
+      if (gradTex.size > GRAD_MAX) { const [k0, t0] = gradTex.entries().next().value; gradTex.delete(k0); t0.destroy(true) }
       return t
     }
     // texture px -> user space
@@ -200,7 +208,7 @@ export function makePx2D(PIXI) {
       if (s instanceof Grad) {   // a FillGradient carrying the cached texture: Pixi keeps a gradient's texture clamped
         const L = mul(this.m, s.local()), fg = new FillGradient({ type: 'linear', textureSpace: 'global' })
         fg.texture = s.texture(); fg.transform = new Matrix(L[0], L[1], L[2], L[3], L[4], L[5])
-        return { fill: fg, alpha }
+        return { fill: fg, alpha: alpha * s.k }
       }
       return { color: 0, alpha }
     }
