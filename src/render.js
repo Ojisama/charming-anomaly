@@ -44,7 +44,8 @@ import { DRAW_CAPS } from './config.js'
 import { ELITE, gemTier } from './config.js'
 import * as MACRO from './macro.js'
 import { IPECAC_COUNT_MUL, FURROW_PIT_OPEN, FURROW_LANE_GAP, CRYSTAL_CARDS } from './config.js'
-import { POLE_TINT, LANCE_BEAM_LIFE, viewZoom } from './config.js'
+import { POLE_TINT, LANCE_BEAM_LIFE, viewZoom, ophanView } from './config.js'
+import { createOphanRenderer } from './ophan/renderer.js'
 import * as HOLO from './holo.js'
 import * as ASCII from './ascii.js'
 import * as TOON from './toon.js'
@@ -5121,21 +5122,6 @@ export function createRenderer(app) {
     }
     if (elite) eliteCrown(-r * 0.85, r)
   }
-  // The Kraken's head — a huge mantle with two big glowing eyes and a wide gape, a crown of arms
-  // fanned across the back. Only the boss script ever places it; baked at BLANK_BOSS_R.
-  // THE BARE HEAD — the one thing this chapter withholds for its whole first half, so it has to be
-  // worth the wait. The old bake was a ball with two dots: an ellipse body, a dark smear for a
-  // mouth, two cyan circles with pupils, and six stubs on one side. Tumbling on `spin` with
-  // `lean: 0` it never faced the player, which is most of why it read as a cartoon.
-  //
-  // A cephalopod FROM DIRECTLY ABOVE — this camera's only projection — is a specific animal, and
-  // every part of it is doing work: the mantle is a pointed teardrop trailing behind, two fins at
-  // the tail, the eyes sit at the mantle's base on the sides, and in the middle of the arm crown,
-  // pointing at you, is the BEAK. The beak is the horror: it is the one hard black thing on an
-  // animal made entirely of soft parts, and it is what a kraken kills with.
-  //
-  // Drawn nose-forward along +x with `lean: 90` — bilaterally symmetric about its line of travel,
-  // exactly like the Moon Jelly, so the shipped facing code turns it to face what it is hunting.
   // The Ophan's portrait (cast PNG and death recap only — the fight draws the boss itself): two
   // feathered wing arcs cupped around one open eye, in Topsoil's tan and bone.
   function drawOphanThumb(g, elite, white) {
@@ -5167,6 +5153,21 @@ export function createRenderer(app) {
     g.circle(0, 0, ey * 0.38).fill(ink)
     g.circle(-ey * 0.25, -ey * 0.3, ey * 0.14).fill(bone)
   }
+  // The Kraken's head — a huge mantle with two big glowing eyes and a wide gape, a crown of arms
+  // fanned across the back. Only the boss script ever places it; baked at BLANK_BOSS_R.
+  // THE BARE HEAD — the one thing this chapter withholds for its whole first half, so it has to be
+  // worth the wait. The old bake was a ball with two dots: an ellipse body, a dark smear for a
+  // mouth, two cyan circles with pupils, and six stubs on one side. Tumbling on `spin` with
+  // `lean: 0` it never faced the player, which is most of why it read as a cartoon.
+  //
+  // A cephalopod FROM DIRECTLY ABOVE — this camera's only projection — is a specific animal, and
+  // every part of it is doing work: the mantle is a pointed teardrop trailing behind, two fins at
+  // the tail, the eyes sit at the mantle's base on the sides, and in the middle of the arm crown,
+  // pointing at you, is the BEAK. The beak is the horror: it is the one hard black thing on an
+  // animal made entirely of soft parts, and it is what a kraken kills with.
+  //
+  // Drawn nose-forward along +x with `lean: 90` — bilaterally symmetric about its line of travel,
+  // exactly like the Moon Jelly, so the shipped facing code turns it to face what it is hunting.
   function drawKrakenHead(g, elite, white) {
     const r = BLANK_BOSS_R
     const f = (c) => white ? 0xffffff : c
@@ -13380,6 +13381,7 @@ export function createRenderer(app) {
     if (ch.weapons?.includes('rootSnare')) q.push(bakeSnares)
     if (ch.signature?.type === 'crystals') q.push(bakeCrystalCracks)
     if (kind || ch.render?.holo || ch.render?.pixel) q.push(bakeFloorProps)
+    if (ch.worlds) q.push(() => { ophanHost(); ophanR.prewarm() })   // queues its own slices, one per animation frame
     const ids = new Set([...(ch.roster ?? []).map((r) => r.id), ...(ch.render?.cast ?? [])])
     for (const id of ids) for (const k of [id, id + '_elite', id + '_child', id + '_glass', id + '_glass_elite']) if (rosterBakers[k]) q.unshift(() => rosterLook(k))
     prewarmQ = q; prewarmTotal = q.length
@@ -14331,6 +14333,46 @@ const spurG = new Graphics()
     if (!liquidOn) return
     const w = viewW(), h = viewH()
     liquidR.sync(run, dt, { left: -cx, top: -cy, right: -cx + w, bottom: -cy + h, zoom: world.scale.x || 1, w: app.screen.width, h: app.screen.height, animT })
+  }
+  // ==== Book 3, THE OPHAN: THE BOSS THAT WEARS THE WORLDS (src/ophan/renderer.js) ====================
+  // A chapter with CHAPTERS[id].worlds hands its whole arena to src/ophan/renderer.js: each world's stage (floor and
+  // pass), the crowd's marks and the boss painter, drawn in ophanRoot UNDER render.js's world, so the player, the kit,
+  // the pickups, the numbers and the hurt flash stay on top. The camera is pinned on the arena (ophanView). The
+  // renderer is made once for the page (its slots and their shaders are reused across runs).
+  const ophanRoot = new Container()
+  ophanRoot.visible = false
+  let ophanR = null
+  let ophanOn = false
+  let ophanHidden = []
+  let ophanW = 0, ophanH = 0
+  const ophanHost = () => {
+    if (!ophanR) {
+      app.stage.addChildAt(ophanRoot, app.stage.getChildIndex(world))
+      ophanR = createOphanRenderer({ app, root: ophanRoot, macroVert: MACRO_VERT })
+    }
+    return ophanR
+  }
+  // Runs AFTER setLiquid: it un-hides only what it hid itself and no other look is holding.
+  function setOphan(run) {
+    const worlds = run ? CHAPTERS[run.chapter]?.worlds : null
+    for (const o of ophanHidden) if (!asciiHidden.includes(o) && !toonHidden.includes(o) && !liquidHidden.includes(o)) { o.renderable = true; o._asciiHidden = false }
+    ophanHidden = []
+    if (!worlds) {
+      if (ophanOn && ophanR) ophanR.exit()
+      ophanOn = false
+      return
+    }
+    const r = ophanHost()
+    ophanOn = true
+    for (const name of r.hide ?? []) for (const o of TOON_HIDEABLE[name] ?? []) { o.renderable = false; o._asciiHidden = true; ophanHidden.push(o) }
+    r.enter(run, CHAPTERS[run.chapter].render?.ophan)
+    ophanW = app.screen.width; ophanH = app.screen.height
+  }
+  function syncOphan(run, dt, cx, cy) {
+    if (!ophanOn) return
+    const w = app.screen.width, h = app.screen.height
+    if (w !== ophanW || h !== ophanH) { ophanW = w; ophanH = h; ophanR.resize(w, h) }
+    ophanR.sync(run, dt, { left: -cx, top: -cy, zoom: world.scale.x || 1, w, h, animT })
   }
   // the mint chrome drop the player wears in a liquid chapter (syncPlayer's photo body)
   function liquidPlayer() {
@@ -15731,7 +15773,8 @@ const spurG = new Graphics()
   const K_PUNCH_IN = 0.033, K_PUNCH_OUT = 0.35
   // a plain slam's punch-in frames about this many lane widths across the screen at its peak
   // chapterZ: a chapter with render.viewW (The Core) pulls a phone back to its approved framing; map mode sets its own
-  const chapterZ = () => (mapZoom === 1 ? viewZoom(chapterRender, app.screen.width) : 1)
+  // and the Ophan's arena is fitted whole to the screen
+  const chapterZ = () => (mapZoom !== 1 ? 1 : ophanOn ? ophanView(app.screen.width, app.screen.height).z : viewZoom(chapterRender, app.screen.width))
   const camZoom = () => mapZoom * fightZoom * cerZoom * punchZ * chapterZ()
   const viewW = () => app.screen.width / camZoom()
   const viewH = () => app.screen.height / camZoom()
@@ -29866,6 +29909,7 @@ void main() {
       if (asciiOn && asciiR.event(e, run)) continue   // Book 3, The Mine: src/ascii.js draws its own
       if (toonOn && toonR.event(e, run)) continue     // Book 3, The Mantle: src/toon.js draws its own
       if (liquidOn && liquidR.event(e, run)) continue // Book 3, The Core: src/liquid.js draws its own
+      if (ophanOn && ophanR.event(e, run)) continue   // Book 3, The Ophan: src/ophan/renderer.js draws its own
       if (magmaEvent(e)) continue    // Book 3, The Magma: its own events, drawn by src/pixel.js
       if (burrowEvent(e)) continue   // Book 3, Burrow: its own events (and the shovel's scoop)
       switch (e.type) {
@@ -33259,11 +33303,12 @@ void main() {
     // ...and PAN half the way to it: the ring camera leans toward the body, which can leave a
     // blow landing beside you on the screen's edge; for the punch's length the blow is the shot
     const pzk = pe > 0 ? (punch.pan >= 1 ? Math.min(1, 3 * pe) : Math.min(1, (1 - 1 / punchZ) + punch.pan * pe)) : 0
+    const ov = ophanOn ? ophanView(app.screen.width, app.screen.height) : null   // The Ophan: the arena, fixed
     const camX = (laneAheadX ? camFwd : run.player.x) + camLead.x + cerCam.x + (punch.x - run.player.x - camLead.x) * pzk
     const camY = (laneAheadY ? camFwd : run.player.y) + camLead.y + cerCam.y + (punch.y - run.player.y - camLead.y) * pzk
     if (dt > 0) { const kd = Math.exp(-dt * 14); kick.x *= kd; kick.y *= kd }
-    const cx = (laneAheadX ? laneFrac(viewW(), chapterLaneAxis.dir) : viewW() / 2) - camX + shake.ox + kick.x
-    const cy = (laneAheadY ? laneFrac(viewH(), chapterLaneAxis.dir) : viewH() / 2) - camY + shake.oy + kick.y
+    const cx = (laneAheadX ? laneFrac(viewW(), chapterLaneAxis.dir) : viewW() / 2) - (ov ? ov.camX : camX) + shake.ox + kick.x
+    const cy = (laneAheadY ? laneFrac(viewH(), chapterLaneAxis.dir) : viewH() / 2) - (ov ? ov.camY : camY) + shake.oy + kick.y
     world.scale.set(z)
     world.position.set(cx * z, cy * z)
     krakenDangerLayer.scale.set(z)
@@ -33434,6 +33479,7 @@ void main() {
     syncAscii(run, dt, cx, cy)     // Book 3, The Mine: src/ascii.js draws the chapter (no-op elsewhere)
     syncToon(run, dt, cx, cy)      // Book 3, The Mantle: src/toon.js draws the chapter (no-op elsewhere)
     syncLiquid(run, dt, cx, cy)    // Book 3, The Core: src/liquid.js draws the chapter (no-op elsewhere)
+    syncOphan(run, dt, cx, cy)     // Book 3, The Ophan: src/ophan/renderer.js draws the arena (no-op elsewhere)
     updateLeaves(dt)
     updateCurrents(run, dt, cx, cy)
     updateEddies(run, dt)
@@ -34149,6 +34195,7 @@ void main() {
     setAscii(run)   // Book 3, The Mine: the ascii look on or off (after setMacro: it may set the stage's filters)
     setToon(run)    // Book 3, The Mantle: the toon look on or off (after setAscii: see setToon)
     setLiquid(run)  // Book 3, The Core: the liquid look on or off (after setToon: see setLiquid)
+    setOphan(run)   // Book 3, The Ophan: the arena renderer on or off (after setLiquid: see setOphan)
     clearWorld()
     if (run) {
       entitiesLayer.visible = true

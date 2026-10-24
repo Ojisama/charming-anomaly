@@ -2863,18 +2863,23 @@ export function initUI(hooks) {
       hud.bossBarWrap.style.display = bossBarShown ? '' : 'none'
     }
     if (bossBarShown) {
-      const pills = run.bossBar.pills
-      const pillSig = pills ? pills.map((v) => Math.round(v * 100)).join(',') : ''
+      // The Ophan's pills are its skins: each fills in its world's colour (pillCols), the worn one ringed in white
+      const { pills, pillCols, on } = run.bossBar
+      const pillSig = pills ? pills.map((v) => Math.round(v * 100)).join(',') + '|' + (on ?? '') + '|' + (pillCols?.join(',') ?? '') : ''
       if (pillSig !== last.bossPillSig) {
-        const was = last.bossPillSig
         last.bossPillSig = pillSig
         hud.bossBarFill.parentElement.style.display = pills ? 'none' : ''
         hud.bossPills.style.display = pills ? 'flex' : 'none'
         if (pills) {
-          if (!was || was.split(',').length !== pills.length) {
+          if (hud.bossPills.children.length !== pills.length) {
             hud.bossPills.innerHTML = pills.map(() => '<div class="rampage-bar" style="height:14px; flex:1;"><div class="rampage-fill" style="background:#8a5fe0;"></div></div>').join('')
           }
-          pills.forEach((v, i) => { hud.bossPills.children[i].firstChild.style.width = `${Math.round(v * 100)}%` })
+          pills.forEach((v, i) => {
+            const bar = hud.bossPills.children[i]
+            bar.firstChild.style.width = `${Math.round(v * 100)}%`
+            bar.firstChild.style.background = pillCols ? pillCols[i] : '#8a5fe0'
+            bar.style.outline = pillCols && i === on ? '1.5px solid #fff' : ''
+          })
         }
         last.bossBarPct = -1
       }

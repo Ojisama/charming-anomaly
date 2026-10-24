@@ -21114,6 +21114,7 @@ run(testLeLargeWeapons)
   run(testOphanShell)
   run(testOphanRig)
   run(testOphanSlice)
+  run(testOphanRenderWiring)
   // A hand-typed filter that matched nothing is the silent pass without a parent watching:
   // `node test/sim-test.js supernova` printed ALL TESTS PASSED having run no scenario at all.
   if (_ran === 0 && !EXACT_SET) {
@@ -43357,4 +43358,28 @@ function testOphanSlice() {
   }
   assert.ok(tornado?.hit && tornado.pull, 'the live tornado neither hits nor pulls a player at its foot')
   console.log(`PASS run OP.slice: matched x1 / stagger x2 / mismatch 0, locked aim, arena wall, ${CHAPTERS.ophan.worlds.length} skin(s) broken -> one victory, sword death, ${born} crowd births on the border, win+death resolves once, invuln holds, a11 reach [${reach.join(", ")}] (targeting proven for shovel/prismShard/hotCoals, reach only for pickaxe/slagLadle/sling), crowd dmgMul kept, no touch damage, 6/6 attacks hit live`)
+}
+
+// run OP.wire: render.js and src/ophan/renderer.js are not importable (Pixi + DOM), so their
+// contract is linted as source text, comments stripped as run MB.a does. A block comment must open after
+// whitespace: render.js's import.meta.glob('./props/*.png') otherwise opens one that swallows ~960KB of the file.
+function testOphanRenderWiring() {
+  const strip = (s) => s.replace(/(^|\s)\/\*[\s\S]*?\*\//g, '$1').replace(/\/\/.*$/gm, '')
+  const render = strip(readFileSync(new URL('../src/render.js', import.meta.url), 'utf8'))
+  const rend = strip(readFileSync(new URL('../src/ophan/renderer.js', import.meta.url), 'utf8'))
+  const ui = strip(readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8'))
+  assert.ok(/createOphanRenderer\(/.test(render) && /ophanR\.event\(e, run\)/.test(render), 'render.js does not host/forward the Ophan renderer')
+  assert.strictEqual((render.match(/createOphanRenderer\(/g) ?? []).length, 1, 'the Ophan renderer is created more than once (a WebGL context per run)')
+  assert.ok(/ophanView\(/.test(render) && /ophanR\.prewarm\(/.test(render) && /ophanR\.resize\(/.test(render), 'render.js does not pin the camera / prewarm / resize')
+  const hide = rend.match(/hide:\s*\[([^\]]*)\]/)?.[1] ?? ''
+  assert.ok(hide && !/vignette/.test(hide), 'the Ophan hides the hurt flash')
+  assert.ok(/\.ax\b/.test(rend) && /\.ay\b/.test(rend) && /oph\.t\b/.test(rend), 'the painters do not read the locked aim / the sim clock the hit test uses')
+  assert.ok(/case 'ophanImmune'/.test(rend), 'ophanImmune has no consumer in src/ophan/renderer.js')
+  const exitBody = rend.slice(rend.indexOf('exit()'), rend.indexOf('exit()') + 800)
+  assert.ok(/background\.alpha/.test(exitBody) && /style\.position/.test(exitBody), 'exit() does not restore the renderer background / canvas position')
+  assert.ok(!/^installPatches\(\)/m.test(strip(readFileSync(new URL('../src/ophan/px2d.js', import.meta.url), 'utf8'))), 'px2d patches at module scope')
+  assert.ok(/bossPillSig[^\n]*\.on\b/.test(ui) || /pillSig[^\n]*pillCols/.test(ui), 'the boss-bar pill signature ignores the current skin / colours')
+  const sim = readFileSync(new URL('../src/sim.js', import.meta.url), 'utf8')
+  assert.deepStrictEqual([...sim.matchAll(/from '\.\/ophan\/(\w+)\.js'/g)].map((m) => m[1]).sort(), ['hit', 'rig'], 'sim imports a render-side ophan module')
+  console.log('PASS run OP.wire: hosted once, forwarded, prewarmed, pinned, resized; exit restores; vignette kept; painters read the locked aim and sim clock')
 }

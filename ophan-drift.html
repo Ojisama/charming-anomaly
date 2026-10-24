@@ -1,0 +1,111 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Ophan drift gate</title></head>
+<body style="margin:0;background:#222;color:#ddd;font:12px monospace">
+<pre id="out">loading…</pre>
+<script type="module">
+// DEV PAGE, not shipped (vite builds index.html only). Served by `npm run dev`, driven by scripts/ophan-drift.mjs.
+//   ?check          imports every in-game painter, calls boss() at phases 1-4 and attack() for every attack at
+//                   u 0.1/0.5/0.9 into a px2d, prints OPH-CHECK ok N or the first throw (strict-mode globals surface here)
+//   ?drift=<look>   loads scripts/ophan-drift/approved/<look>.js as a classic script wrapped into OPHAN['<look>~A'] and
+//                   exposes DRIFT(st, state, cand2d): the approved painter on Canvas2D vs the in-game one on px2d
+import { Application, Container } from 'pixi.js'
+import * as PAGE from './src/ophan/page.js'
+import { installPatches, PX2D } from './src/ophan/px2d.js'
+import { OPHAN_ATTACKS } from './src/config.js'
+installPatches()
+import.meta.glob('./src/ophan/painters/*.js', { eager: true })
+const { OPHAN } = PAGE, q = new URLSearchParams(location.search), out = document.getElementById('out')
+const say = (s) => { out.textContent = s; console.log(s) }
+
+if (q.has('check')) {
+  const app = new Application()
+  await app.init({ width: 400, height: 400, resolution: 2, preference: 'webgl', autoStart: false })
+  document.body.append(app.canvas)
+  const root = new Container(); app.stage.addChild(root)
+  const px = PX2D(root, 2)
+  let n = 0, at = ''
+  try {
+    for (const id of Object.keys(OPHAN)) {
+      const P = OPHAN[id]
+      for (const ph of [1, 2, 3, 4]) { at = id + ' boss ph' + ph; window.OPH_PH = ph; px.begin(); P.boss.call(P, px, 200, 200, 80, 2, ph); app.render(); n++ }
+      if (P.attack) for (const k of Object.keys(OPHAN_ATTACKS)) for (const u of [0.1, 0.5, 0.9]) {
+        at = id + ' ' + k + ' u' + u; window.OPH_PH = 3; px.begin(); P.attack.call(P, px, 200, 136, 60, 2, 3, k, u, 200, 344); app.render(); n++
+      }
+    }
+    say('OPH-CHECK ok ' + n + ' (' + Object.keys(OPHAN).join(',') + ') bad ' + JSON.stringify(px.bad))
+  } catch (e) { say('OPH-CHECK FAIL at ' + at + ': ' + (e && e.stack || e)) }
+}
+
+const st = q.get('drift')
+if (st) {
+  Object.assign(window, PAGE)   // the approved painter is the mock-up's classic script: it reads these as globals
+  const src = await (await fetch('./scripts/ophan-drift/approved/' + st + '.js')).text()
+  const tag = document.createElement('script')
+  tag.textContent = ';(() => { const keep = OPHAN.' + st + ';\n' + src + "\nOPHAN['" + st + "~A'] = OPHAN." + st + '; OPHAN.' + st + ' = keep; })();'
+  document.head.append(tag)
+  // drift-page.js, the in-page half: both painters on one flat background, same frame and size; the candidate on
+  // game tech (PX2D into Pixi), or on Canvas2D too with cand2d (the do-nothing control)
+  const S = 400, RES = 2, D = S * RES, BG = [58, 58, 58], BGS = 'rgb(58,58,58)', NOISE = 8, BIG = 48
+  const a2 = document.createElement('canvas'); a2.width = a2.height = D
+  const b2 = document.createElement('canvas'); b2.width = b2.height = D
+  const rd = document.createElement('canvas'); rd.width = rd.height = D
+  let app = null, px = null
+  const pixi = async () => {
+    if (app) return
+    app = new Application()
+    await app.init({ width: S, height: S, resolution: RES, antialias: false, backgroundColor: 0x3a3a3a, backgroundAlpha: 1, preference: 'webgl', autoStart: false, preserveDrawingBuffer: true })
+    const root = new Container(); app.stage.addChild(root)
+    px = PX2D(root, RES)
+  }
+  const call = (P, c, s) => {
+    window.OPH_PH = s.ph
+    if (s.atk && P.attack) P.attack.call(P, c, S / 2, S * 0.34, S * 0.15, s.t, s.ph, s.atk, s.u, S / 2, S * 0.86)
+    else P.boss.call(P, c, S / 2, S / 2, S * 0.22, s.t, s.ph)
+  }
+  const draw2d = (cv, P, s) => {
+    const g = cv.getContext('2d')
+    for (let k = 0; k < 3; k++) {
+      g.setTransform(1, 0, 0, 1, 0, 0); g.globalAlpha = 1; g.globalCompositeOperation = 'source-over'; g.fillStyle = BGS; g.fillRect(0, 0, D, D)
+      g.setTransform(RES, 0, 0, RES, 0, 0); g.save(); call(P, g, s); g.restore()
+    }
+  }
+  const drawGT = (cv, P, s) => {
+    for (let k = 0; k < 3; k++) { px.begin(); call(P, px, s); app.render() }
+    const g = cv.getContext('2d'); g.setTransform(1, 0, 0, 1, 0, 0); g.drawImage(app.canvas, 0, 0, D, D)
+  }
+  window.DRIFT = async (st, s, cand2d) => {
+    const A = OPHAN[st + '~A'], C = OPHAN[st]
+    if (!A || !C) throw new Error('painter missing: ' + st)
+    draw2d(a2, A, s)
+    if (cand2d) draw2d(b2, C, s); else { await pixi(); drawGT(b2, C, s) }
+    const a = a2.getContext('2d').getImageData(0, 0, D, D).data, b = b2.getContext('2d').getImageData(0, 0, D, D).data
+    let x0 = D, y0 = D, x1 = -1, y1 = -1
+    for (let y = 0; y < D; y++) for (let x = 0; x < D; x++) {
+      const i = (y * D + x) * 4
+      for (let ch = 0; ch < 3; ch++) if (Math.abs(a[i + ch] - BG[ch]) > NOISE || Math.abs(b[i + ch] - BG[ch]) > NOISE) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; break }
+    }
+    if (x1 < 0) return { mean: 0, big: 0, box: [0, 0, 0, 0], png: '' }
+    x0 = Math.max(0, x0 - 4); y0 = Math.max(0, y0 - 4); x1 = Math.min(D - 1, x1 + 4); y1 = Math.min(D - 1, y1 + 4)
+    const w = x1 - x0 + 1, h = y1 - y0 + 1, K = 4, bw = Math.ceil(w / K), bh = Math.ceil(h / K), heat = rd.getContext('2d').createImageData(bw, bh)
+    let sum = 0, big = 0
+    for (let by = 0; by < bh; by++) for (let bx = 0; bx < bw; bx++) {
+      const A3 = [0, 0, 0], B3 = [0, 0, 0]; let n = 0
+      for (let y = by * K; y < Math.min(h, by * K + K); y++) for (let x = bx * K; x < Math.min(w, bx * K + K); x++) {
+        const i = ((y + y0) * D + x + x0) * 4; n++
+        for (let ch = 0; ch < 3; ch++) { A3[ch] += a[i + ch]; B3[ch] += b[i + ch] }
+      }
+      let m = 0; for (let ch = 0; ch < 3; ch++) { const d = Math.abs(A3[ch] - B3[ch]) / n; sum += d; if (d > m) m = d }
+      if (m > BIG) big++
+      const o = (by * bw + bx) * 4, gy = (A3[0] + A3[1] + A3[2]) / n / 12
+      heat.data[o] = Math.min(255, gy + m * 3); heat.data[o + 1] = gy; heat.data[o + 2] = gy; heat.data[o + 3] = 255
+    }
+    const hc = document.createElement('canvas'); hc.width = bw; hc.height = bh; hc.getContext('2d').putImageData(heat, 0, 0)
+    const oc = document.createElement('canvas'); oc.width = w * 3; oc.height = h
+    const og = oc.getContext('2d'); og.drawImage(a2, x0, y0, w, h, 0, 0, w, h); og.drawImage(b2, x0, y0, w, h, w, 0, w, h)
+    og.imageSmoothingEnabled = false; og.drawImage(hc, 0, 0, bw, bh, 2 * w, 0, bw * K, bh * K)
+    return { mean: sum / (bw * bh * 3), big: (100 * big) / (bw * bh), box: [x0, y0, w, h], png: oc.toDataURL('image/png') }
+  }
+  say('DRIFT ready: ' + st + (OPHAN[st + '~A'] ? '' : ' (approved painter did not load)'))
+}
+</script>
+</body></html>
