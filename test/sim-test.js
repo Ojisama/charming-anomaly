@@ -183,7 +183,7 @@ import {
   lateSpawnMulAt, SPAWN_LATE_BLEND, SPAWN_LATE_START,
   // The Kraken (run KR): the rung table and the ring's numbers
   krakenRung, krakenRungFor, KRAKEN_TURN_BAG, KRAKEN_SLAP_EVERY, KRAKEN_SLAP_COCK, KRAKEN_SLAP_SWING, KRAKEN_SLAP_FUSE, KRAKEN_SLAP_FOLLOW_T, KRAKEN_TRICKLE_T, KRAKEN_TRICKLE_EDGE, KRAKEN_TRICKLE_CLEAR, OPEN_GUARD_WINDOW_MUL, HAIR_TRIGGER_WINDOW_MUL, HAIR_TRIGGER_DMG_MUL, KRAKEN_RUNGS, KRAKEN_ARM_REACH, KRAKEN_WAVE_TIMEOUT, KRAKEN_STAGGER_BITE,
-  KRAKEN_RISE_T, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, hiddenChapters, OPHAN_BOSS, OPHAN_HAND, OPHAN_HIT, OPHAN_ARENA, OPHAN_PLAYER_START, OPHAN_ATTACKS, OPHAN_CROWD, OPHAN_BREAK_FLOOR, OPHAN_SKIN_HP, OPHAN_STAGGER_T, ophanView, OPHAN_GAUGE_COPY, KRAKEN_CAGE_R, KRAKEN_PARRY_CD,
+  KRAKEN_RISE_T, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, hiddenChapters, OPHAN_BOSS, OPHAN_HAND, OPHAN_HIT, OPHAN_ARENA, OPHAN_PLAYER_START, OPHAN_ATTACKS, OPHAN_CROWD, OPHAN_BREAK_FLOOR, OPHAN_SKIN_HP, OPHAN_SKETCH_HP, OPHAN_STAGGER_T, ophanView, OPHAN_GAUGE_COPY, KRAKEN_CAGE_R, KRAKEN_PARRY_CD,
   KRAKEN_OPEN_WAVES, KRAKEN_COIL_EVERY, KRAKEN_COIL_RAYS, KRAKEN_ENRAGE_AT, KRAKEN_RAGE_AT, KRAKEN_RAGE_HITS_MIN, KRAKEN_RAGE_HITS_MAX, KRAKEN_RAGE_VOLLEY, KRAKEN_RAGE_VOLLEY_SPREAD, KRAKEN_RAGE_FUSE, KRAKEN_RAGE_GAP, KRAKEN_RAGE_CALM, KRAKEN_RAGE_CHANCE, KRAKEN_NODE_BACK, KRAKEN_HEAD_HP, KRAKEN_HEAD_HP_AT, KRAKEN_HEAD_HP_PER_S, KRAKEN_ARRIVE_T, KRAKEN_RING_R, KRAKEN_LASH_R, KRAKEN_SLAM_T, KRAKEN_DEFLECT_CD,
   KRAKEN_LUNGE_T, KRAKEN_GRIP_DUR, KRAKEN_GRIP_DMG, KRAKEN_GRIP_FLICKS, KRAKEN_GRIP_STICK_MUL, TRAWL_WIGGLE_ARC,
   KRAKEN_LASH_W, KRAKEN_LASH_OVER, KRAKEN_LASH_DMG, KRAKEN_LESSON_MAX, KRAKEN_PARRY_SHOVE_R, KRAKEN_PARRY_EARLY_T, KRAKEN_LIMP_CLEAR, KRAKEN_ARRIVE_T2, KRAKEN_WAVE_GROWTH, KRAKEN_COIL_DMG, KRAKEN_COIL_SHADOW_SOFT, krakenCoilBandHalfW,
@@ -21117,6 +21117,7 @@ run(testLeLargeWeapons)
   run(testOphanWorlds)
   run(testOphanAttacks)
   run(testOphanAttackPool)
+  run(testOphanSketch)
   run(testOphanRenderWiring)
   run(testOphanGauge)
   // A hand-typed filter that matched nothing is the silent pass without a parent watching:
@@ -43180,15 +43181,15 @@ function ophSteps(r, n, { before, after, until, input = { x: 0, y: 0 } } = {}) {
 }
 // start attack k through the real scheduler (its pool narrowed to k), the player standing at `at`
 function ophStart(r, k, at) {
-  const keep = CHAPTERS.ophan.attacks
-  CHAPTERS.ophan.attacks = { 1: [k], 2: [k], 3: [k] }
+  const keep = CHAPTERS.ophan.attacks, keepS = CHAPTERS.ophan.sketchAttacks
+  CHAPTERS.ophan.attacks = { 1: [k], 2: [k], 3: [k] }; CHAPTERS.ophan.sketchAttacks = [k]
   try {
     const o = r.script.oph
     o.atk = null; o.atkCd = 0; o.tell = 0; o.after = -1
     r.player.x = at.x; r.player.y = at.y
     stepSim(r, { x: 0, y: 0 }, 1 / 60)
     assert.strictEqual(o.atk?.k, k, `the scheduler did not start a ${k}`)
-  } finally { CHAPTERS.ophan.attacks = keep }
+  } finally { CHAPTERS.ophan.attacks = keep; CHAPTERS.ophan.sketchAttacks = keepS }
 }
 function ophHold(r, at) { return () => { r.player.x = at.x; r.player.y = at.y } }
 
@@ -43230,7 +43231,7 @@ function testOphanSlice() {
     ophSteps(r, 30, { input: { x: 1, y: 0 }, after: () => { maxX = Math.max(maxX, p.x) } })
     assert.ok(maxX <= wall + 1e-6, `a5: a shove at the wall put the player at x=${maxX.toFixed(1)}, outside the arena`)
   }
-  // a6 win: every skin broken (no ordinary kill), one victory
+  // a6 every skin broken (no ordinary kill) is the sketch, not a win (run OP.sketch carries it on)
   {
     const r = ophanRun(1), o = r.script.oph
     r.events.length = 0
@@ -43238,8 +43239,8 @@ function testOphanSlice() {
     assert.ok(o.broken.every((v) => v === 1), `a6: skins left unbroken ${JSON.stringify(o.broken)}`)
     assert.strictEqual(count(r, 'ophanBreak'), o.hp.length, 'a6: a break did not say so')
     assert.strictEqual(count(r, 'kill'), 0, 'a6: the boss died through the ordinary kill path')
-    assert.strictEqual(count(r, 'victory'), 1, 'a6: not exactly one victory')
-    assert.ok(r.phase === 'victory' && !ophBoss(r), 'a6: the fight did not end with the boss gone')
+    assert.strictEqual(count(r, 'victory'), 0, 'a6: the last break won the fight')
+    assert.ok(o.sketch && r.phase === 'playing' && ophBoss(r), 'a6: the last break did not leave the sketch standing')
   }
   // a7 lose: one hp, standing on a live sword line
   {
@@ -43274,11 +43275,13 @@ function testOphanSlice() {
     assert.ok(born >= 8, `a8: only ${born} crowd bodies in 30s`)
     assert.ok(dmgMulSeen > 0, 'a8: no crowd body with a roster dmgMul (the mole cricket) was born, so its damage went unchecked')
   }
-  // a9 win and die in the same step: exactly one of them, and nothing after it
+  // a9 win and die in the same step: exactly one of them, and nothing after it. The win is the sketch's death
   {
     const r = ophanRun(1, 9), o = r.script.oph, p = r.player
     p.hp = p.maxHP = 1e6
-    ophSteps(r, 6 * 60)   // a crowd on the field, so a step that runs on past the end has targets
+    ophBreakAll(r)
+    // the sketch sweeps the crowd: one body put back, so a step that runs on past the end has a target
+    r.enemies.push(makeStatusEnemy(r, { x: A.x + 200, y: A.y }))
     assert.ok(r.enemies.some((e) => !e._dead && e.rosterId !== 'ophan'), 'a9: no crowd to keep the weapons busy')
     ophStart(r, 'sword', A)
     ophSteps(r, swordN, { before: () => { ophHold(r, A)(); p.invuln = 9 }, until: () => o.atk.u >= 0.6 })
@@ -43363,7 +43366,7 @@ function testOphanSlice() {
     if (g.alive > OPHAN_HIT.tornadoAlive) tornado = ophanHits('tornado', g, g.pos.x + 4, g.pos.y - 2, PLAYER.radius, R, OPHAN_HIT)
   }
   assert.ok(tornado?.hit && tornado.pull, 'the live tornado neither hits nor pulls a player at its foot')
-  console.log(`PASS run OP.slice: matched x1 / stagger x2 / mismatch 0, locked aim, arena wall, ${CHAPTERS.ophan.worlds.length} skin(s) broken -> one victory, sword death, ${born} crowd births on the border, win+death resolves once, invuln holds, a11 reach [${reach.join(", ")}] (targeting proven for shovel/prismShard/hotCoals, reach only for pickaxe/slagLadle/sling), crowd dmgMul kept, no touch damage, 6/6 attacks hit live`)
+  console.log(`PASS run OP.slice: matched x1 / stagger x2 / mismatch 0, locked aim, arena wall, ${CHAPTERS.ophan.worlds.length} skin(s) broken -> the sketch, sword death, ${born} crowd births on the border, win+death resolves once, invuln holds, a11 reach [${reach.join(", ")}] (targeting proven for shovel/prismShard/hotCoals, reach only for pickaxe/slagLadle/sling), crowd dmgMul kept, no touch damage, 6/6 attacks hit live`)
 }
 
 // ---- run OP.worlds: world switching, the wipe, the crowd turning in place, the hand, phases ------
@@ -43681,6 +43684,93 @@ function testOphanAttackPool() {
   console.log(`PASS run OP.pool: d1 300s ${d1.length} attacks {${set(d1)}}, d2 phase 1 all three by ${t2a.toFixed(0)}s in ${d2a.length} {${set(d2a)}}, after two breaks the first laser by ${t2b.toFixed(0)}s in ${d2b.length}, at ph 2, d3 all six by ${t3.toFixed(0)}s in ${d3.length}`)
 }
 
+// ---- run OP.sketch: the last skin off, the pencil sketch fights on alone with its own bar ---------
+function testOphanSketch() {
+  const A = { ...OPHAN_PLAYER_START }
+  const count = (r, t) => r.events.filter((e) => e.type === t).length
+  const crowdOf = (r) => r.enemies.filter((e) => !e._dead && e.rosterId !== 'ophan')
+  const swordN = Math.ceil(OPHAN_ATTACKS.sword.dur * 60) + 2
+  // s1 the sketch, not a win: the crowd swept unpaid and never walking in again; its own bar, no pills
+  let swept = 0
+  {
+    const r = ophanRun(1, 31), o = r.script.oph, p = r.player
+    p.hp = p.maxHP = 1e9; r.weapons = []
+    ophSteps(r, 10 * 60)
+    swept = crowdOf(r).length
+    assert.ok(swept > 0, 's1: no crowd on the field to sweep')
+    const kills0 = r.kills, gems0 = r.gems.length, swaps0 = o.swaps
+    r.events.length = 0
+    ophBreakAll(r)
+    const b = ophBoss(r)
+    assert.ok(o.sketch === true && count(r, 'victory') === 0 && r.phase === 'playing' && b, `s1: sketch ${o.sketch}, victory x${count(r, 'victory')}, phase ${r.phase}`)
+    assert.strictEqual(count(r, 'ophanSketch'), 1, 's1: the sketch did not say so')
+    assert.ok(b.hp === OPHAN_SKETCH_HP * r.mods.enemyHpMul && b.maxHP === b.hp, `s1: the sketch has ${b.hp}/${b.maxHP} hp`)
+    assert.ok(r.kills === kills0 && r.gems.length === gems0 && count(r, 'kill') === 0, 's1: the sweep paid kills or xp')
+    stepSim(r, { x: 0, y: 0 }, 1 / 60)
+    assert.strictEqual(crowdOf(r).length, 0, 's1: the crowd is still on the field the step after the sketch')
+    ophSteps(r, 20 * 60, { after: () => assert.strictEqual(crowdOf(r).length, 0, `s1: a crowd body walked into the sketch at ${o.t.toFixed(1)}s`) })
+    assert.ok(r.bossBar && r.bossBar.stage === 4 && r.bossBar.ophan && !r.bossBar.pills && r.bossBar.max === b.maxHP, `s1: the boss bar is ${JSON.stringify(r.bossBar)}`)
+    assert.ok(o.swaps === swaps0 && count(r, 'ophanTell') === 0 && count(r, 'ophanSwap') === 0, 's1: the hand changed the sketch\'s skin')
+  }
+  // s2 a hit lands from every world: no seal, no immune ring; s3 a press is refused and moves nothing
+  {
+    const r = ophanRun(1, 32), o = r.script.oph
+    ophBreakAll(r)
+    const b = ophBoss(r)
+    for (let k = 0; k < o.hp.length; k++) {
+      o.world = k; o.stagger = 0; o.recov = false; r.events.length = 0
+      const hp0 = b.hp; dealDamage(r, b, 10, false)
+      assert.ok(hp0 - b.hp === 10 && count(r, 'ophanImmune') === 0, `s2: a hit from world ${k} on the sketch (worn skin ${o.skin}) took ${hp0 - b.hp}`)
+    }
+    o.world = 0; r.events.length = 0
+    stepSim(r, { x: 0, y: 0, world: 3 }, 1 / 60)
+    assert.ok(o.world === 0 && !o.wipe && count(r, 'ophanRefuse') === 1 && count(r, 'ophanWorld') === 0, `s3: a press in the sketch moved the world to ${o.world}`)
+  }
+  // s4 every attack at every difficulty: d1's sketch rolls beyond its {sword, blast}
+  const seen = []
+  {
+    const r = ophPoolRun(1, 33)
+    ophBreakAll(r)
+    ophPoolRec(r, 300, seen)
+    const ks = [...new Set(seen.map(([k]) => k))].sort()
+    assert.ok(ks.some((k) => k !== 'sword' && k !== 'blast'), `s4: 300 s of a d1 sketch started only {${ks}}`)
+  }
+  // s5 the kill-shot and a live fire line in the same step: exactly one ending, and nothing after it. The control
+  // (no kill-shot) proves the line is live
+  const s5 = (shoot) => {
+    const r = ophanRun(1, 34), o = r.script.oph, p = r.player
+    o.crowdT = 1e9; p.hp = p.maxHP = 1e6
+    ophBreakAll(r)
+    ophStart(r, 'sword', A)
+    ophSteps(r, swordN, { before: () => { ophHold(r, A)(); p.invuln = 9 }, until: () => o.atk.u >= 0.6 })
+    const b = ophBoss(r); b.hp = 1
+    p.hp = 1; p.invuln = 0; r.events.length = 0
+    if (shoot) dealDamage(r, b, 5, false)
+    stepSim(r, { x: 0, y: 0 }, 1 / 60)
+    const ends = count(r, 'victory') + (r.phase === 'dead' ? 1 : 0), n0 = r.events.length
+    for (let i = 0; i < 10; i++) stepSim(r, { x: 0, y: 0 }, 1 / 60)
+    return { r, ends, n0 }
+  }
+  {
+    const c = s5(false)
+    assert.ok(c.r.phase === 'dead' && c.r.killedBy === 'ophanSword', `s5: the control's fire line did not kill (phase ${c.r.phase})`)
+    const { r, ends, n0 } = s5(true)
+    assert.strictEqual(ends, 1, `s5: victory x${count(r, 'victory')} and phase ${r.phase}`)
+    assert.strictEqual(r.events.length, n0, `s5: the ended fight kept stepping: ${r.events.slice(n0).map((e) => e.type).join(', ')}`)
+  }
+  // s6 killing the sketch is the win
+  {
+    const r = ophanRun(1, 35), o = r.script.oph
+    o.crowdT = 1e9
+    ophBreakAll(r)
+    const b = ophBoss(r); r.events.length = 0
+    dealDamage(r, b, b.hp + 10, false)
+    for (let i = 0; i < 10; i++) stepSim(r, { x: 0, y: 0 }, 1 / 60)
+    assert.ok(count(r, 'victory') === 1 && count(r, 'bossDead') === 1 && r.phase === 'victory' && !r.bossBar, `s6: victory x${count(r, 'victory')}, phase ${r.phase}`)
+  }
+  console.log(`PASS run OP.sketch: last break -> sketch (${swept} crowd swept unpaid, none in 20s), ${OPHAN_SKETCH_HP} hp bar at stage 4, hits land from every world, presses refused, d1 rolls {${[...new Set(seen.map(([k]) => k))].sort()}}, kill-shot vs fire line ends once, the sketch's death is the one victory`)
+}
+
 // run OG: the Ophan's depth gauge is DOM built by ui.js, linted as source text. data-ui on it is what keeps input.js's
 // joystick from starting under a gauge touch.
 function testOphanGauge() {
@@ -43731,7 +43821,7 @@ function testOphanRenderWiring() {
   assert.ok(!/^installPatches\(\)/m.test(strip(readFileSync(new URL('../src/ophan/px2d.js', import.meta.url), 'utf8'))), 'px2d patches at module scope')
   assert.ok(/uninstallPatches\(\)/.test(exitBody), 'exit() leaves px2d patches on every other chapter\'s bakes')
   // the six worlds' stages, the Core's melt canvas hidden on the way out, and none of the artifact's Core debug paths
-  const looks = ['macro', 'holo', 'ascii', 'pixel', 'toon', 'liquid']
+  const looks = ['macro', 'holo', 'ascii', 'pixel', 'toon', 'liquid', 'pencil']
   for (const k of looks) assert.ok(new RegExp(`from '\\./stages/${k}\\.js'`).test(rend), `renderer.js does not import the ${k} stage`)
   assert.ok(/glc\.style\.display\s*=\s*'none'/.test(exitBody), 'exit() leaves the Core\'s melt canvas showing')
   const enterBody = rend.slice(rend.indexOf('enter(run) {'), rend.indexOf('exit()', rend.indexOf('enter(run) {')))

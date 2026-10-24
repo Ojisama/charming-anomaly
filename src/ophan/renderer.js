@@ -13,12 +13,14 @@ import ascii from './stages/ascii.js'
 import pixel from './stages/pixel.js'
 import toon from './stages/toon.js'
 import liquid from './stages/liquid.js'
+import pencil from './stages/pencil.js'
 import './painters/macro.js'
 import './painters/holo.js'
 import './painters/ascii.js'
 import './painters/pixel.js'
 import './painters/toon.js'
 import './painters/core.js'
+import './painters/pencil.js'
 import './hands/kit.js'
 import './hands/macro.js'
 import './hands/holo.js'
@@ -28,7 +30,7 @@ import './hands/toon.js'
 import './hands/liquid.js'
 import { CHAPTERS, OPHAN_BOSS, OPHAN_ARENA, OPHAN_ATTACKS, OPHAN_HAND, ophanView } from '../config.js'
 
-const STAGES = { macro, holo, ascii, pixel, toon, liquid }
+const STAGES = { macro, holo, ascii, pixel, toon, liquid, pencil }
 const IMMUNE_T = 0.4, VEIL_A = 0.55
 // a slot is built this much bigger than the screen on every side, so the camera's shake never shows its edge
 const OVERSCAN = 24
@@ -208,7 +210,9 @@ export function createOphanRenderer(host) {
     prewarm() {
       const ch = CHAPTERS.ophan, z = ophanView(app.screen.width, app.screen.height).z
       const atks = [...new Set(Object.values(ch.attacks).flat())]
-      for (const id of new Set(ch.worlds.map((w) => w.look))) {
+      // the pencil sketch after the last skin: its paper, its body and its attacks at ph 4 (its painter bakes its every
+      // wing on its first draw), and no hand
+      for (const id of new Set([...ch.worlds.map((w) => w.look), 'pencil'])) {
         if (warmed.has(id)) continue
         warmed.add(id)
         const at = (f) => () => { const s = slot(id), R = OPHAN_BOSS.R * z / s.k; wpx.grace = whpx.grace = 2; within(s.g, () => f(s, R)) }
@@ -218,15 +222,16 @@ export function createOphanRenderer(host) {
           const go = () => { if (!step(6)) jobs.unshift(go) }
           go()
         })
-        for (const ph of id === 'pixel' ? [1, 1.25, 1.5, 1.75, 2, 2.25, 2.5, 2.75, 3] : [1, 2, 3])
+        const sk = id === 'pencil'
+        for (const ph of id === 'pixel' ? [1, 1.25, 1.5, 1.75, 2, 2.25, 2.5, 2.75, 3] : sk ? [4] : [1, 2, 3])
           jobs.push(at((s, R) => { window.OPH_PH = ph; boss(s, s.w / 2, s.h / 3, R, 0, ph, null, 0, 0, 0, wpx) }), () => shot(warmC))
-        for (const k of atks) {
-          const ph = Math.max(1, OPHAN_ATTACKS[k].minPh)
+        for (const k of sk ? ch.sketchAttacks : atks) {
+          const ph = sk ? 4 : Math.max(1, OPHAN_ATTACKS[k].minPh)
           jobs.push(at((s, R) => { window.OPH_PH = ph; boss(s, s.w / 2, s.h / 3, R, 0, ph, k, 0.5, s.w / 2, s.h * 0.72, wpx) }), () => shot(warmC))
         }
         // its hand (a hand's first draw bakes it: the Magma one every pose it will take) through arrival, paint and lift, the
         // liquid hand's cut masked by the warm boss it is drawn over
-        for (const u of [0.1, 0.5, 0.9])
+        if (!sk) for (const u of [0.1, 0.5, 0.9])
           jobs.push(at((s, R) => { window.OPH_PH = 1; boss(s, s.w / 2, s.h / 3, R, 0, 1, null, 0, 0, 0, wpx); window.SPIKE.px = wpx; hand(whpx, id, s.w / 2, s.h / 3, R, 0, u) }), () => shot(warmC))
       }
       // the hand's shadow, one texture per world colour (a sprite placed per frame, never a per-frame blur)
@@ -295,7 +300,9 @@ export function createOphanRenderer(host) {
       // never a slot built mid-fight (a hitch): a world not yet warm is not drawn, the last A held, B left out of the wipe
       // until it is (main.js awaits the prewarm, so play never meets one; the gauge's dim on a cold world is Task 9's)
       const built = (k) => (slots[worlds[k].look]?.warm ? slots[worlds[k].look] : null)
-      const A = (lastA = built(wipe ? wipe.from : wi) ?? lastA ?? slot(worlds[0].look)), B = wipe ? built(wi) : null
+      // the sketch: the paper replaces every world, and the boss on it is the pencil drawing (no wipe runs in it)
+      const sk = oph?.sketch && slots.pencil?.warm ? slots.pencil : null
+      const A = (lastA = sk ?? built(wipe ? wipe.from : wi) ?? lastA ?? slot(worlds[0].look)), B = wipe ? built(wi) : null
       const core = slots.liquid
       // the camera: the arena's rest framing (ophanView) is what each slot's stage px are laid out in; the game camera's
       // zoom and shake off it move every slot, its floor, crowd and boss alike (zr, dx, dy), as they move render.js's world
@@ -328,7 +335,7 @@ export function createOphanRenderer(host) {
       if (core?.glc) core.glc.style.display = A === core || B === core ? 'block' : 'none'
 
       // the crowd, every live body but the boss: its own world's creature in that world, a ghost in the other
-      for (const s of [A, B]) if (s) {
+      for (const s of [A, B]) if (s && s !== sk) {
         const k = worlds.findIndex((w) => w.look === s.id), st = STY.findIndex((y) => y.id === s.id), z = z0 / s.k
         s.ent.begin()
         for (const e of run.enemies) {
@@ -344,14 +351,14 @@ export function createOphanRenderer(host) {
       handShade.visible = false
       let focus = null
       const alive = run.enemies.some((e) => e.rosterId === 'ophan' && !e._dead)
-      const S = slots[worlds[oph ? oph.skin : wi].look]
+      const S = sk ?? slots[worlds[oph ? oph.skin : wi].look]
       if (alive && S) {
         const inPass = !wipe && S === A, z = z0 / S.k, bpx = inPass ? S.px : opx
         place(S, overCam); place(S, handCam)
         const bx = sx(S, OPHAN_BOSS.x), by = sy(S, OPHAN_BOSS.y) + (oph?.stagger > 0 && !a ? 6 * z : 0), R = OPHAN_BOSS.R * z
         within(S.g, () => {
-          window.OPH_PH = ph
-          boss(S, bx, by, R, t, ph, a && a.k, Math.min(1, a ? a.u : 0), a ? sx(S, a.ax) : 0, a ? sy(S, a.ay) : 0, bpx)
+          window.OPH_PH = sk ? 4 : ph
+          boss(S, bx, by, R, t, sk ? 4 : ph, a && a.k, Math.min(1, a ? a.u : 0), a ? sx(S, a.ax) : 0, a ? sy(S, a.ay) : 0, bpx)
         })
         // THE HAND: the next world's hand shadow slides in over the tell (src2.html handShadow, eased), tinted its colour
         if (oph?.tell > 0 && oph.next >= 0 && shades[oph.next]) {

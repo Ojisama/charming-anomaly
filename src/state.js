@@ -2704,9 +2704,11 @@ function generateWells(sig) {
   *     hp[n] / broken[n] — each skin's banked hp and 0|1 broken, n = worlds.length. The boss entity
   *       (bossId, rosterId 'ophan', speed 0, dmg 0, pinned on OPHAN_BOSS) carries the worn skin's
   *       hp; dealDamage floors it at OPHAN_BREAK_FLOOR so a skin BREAKS (ophanBreak) and is never
-  *       killed. The last skin broken ends the fight: the boss leaves, bossDead + victory.
+  *       killed. The last skin broken leaves the sketch (ophanSketch).
   *     ph — the phase, eased toward 1 + min(2, floor(broken / 2)). sketch — the post-skin pencil
-  *       fight (false until it exists; a sketch has no seal and no floor).
+  *       fight: the same entity at OPHAN_SKETCH_HP with its own bar (bossBar stage 4, no pills), no
+  *       seal, no floor, no crowd (swept unpaid as it starts), no hand, presses refused, the attacks
+  *       from CHAPTERS.ophan.sketchAttacks at every difficulty. Killing it is the win: bossDead + victory.
   *     atk — null | { k, u (0..1), dur, ax, ay (the aim, locked on the player at the start), hitCd };
   *       atkCd — seconds to the next one while none runs. recov — the rig's recovery pose is up.
   *       stagger — seconds of resonance stagger left. Either doubles damage (OPHAN_WINDOW_MUL).
@@ -2820,11 +2822,12 @@ function generateWells(sig) {
  * New events: {type:'bossSpawn', x, y, stage} (stage 1 = first arrival, 2/3 = a phase reforming),
  *   {type:'bossDead', x, y} (the final phase's kill only — this IS the win, run.phase='victory'
  *   follows), {type:'yank', x, y} (a P2 binding-node timeout dragging the player toward the boss).
- *   The Ophan pushes bossDead (its last skin broken) and: {type:'ophanAttack', k} (an attack starts;
+ *   The Ophan pushes bossDead (its sketch killed), {type:'ophanSketch', x, y} (the last skin broke:
+ *   the sketch rises) and: {type:'ophanAttack', k} (an attack starts;
  *   k = blast|tornado|laser|wheel|recall|sword), {type:'ophanImmune', x, y, ang} (a hit refused in
  *   another world, on the body's edge toward the player, at most every OPHAN_IMMUNE_CD), and
  *   {type:'ophanBreak', skin, x, y} (a skin broke), {type:'ophanWorld', from, to, x, y} (the player
- *   switched world; x/y = the wipe's centre), {type:'ophanRefuse', k} (a press on a broken band),
+ *   switched world; x/y = the wipe's centre), {type:'ophanRefuse', k} (a press on a broken band, or any in the sketch),
  *   {type:'ophanTell', next} (the hand shows the next world), {type:'ophanSwap', skin} (the boss
  *   changed skin), {type:'ophanResonance', x, y} (a caught swap: the boss staggers).
  * v6.2 events: {type:'shriek', x, y, radius} (chitterShriek cast — was a generic 'shoot'; violet

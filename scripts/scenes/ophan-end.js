@@ -1,7 +1,7 @@
 // Scene: THE OPHAN FIGHT ENDING, both ways, through main.js's REAL ticker (app.ticker.update), so endRun and the
 // summary screen fire exactly as in play. Only the precondition is set; the ticker crosses the line:
 //   ?end=dead  the scheduler starts the sword (pool narrowed for the shot), the player stands on the locked aim at 1 hp
-//   ?end=win   the worn skin (the last one) is put at the break floor; the next step breaks it and ends the fight
+//   ?end=win   every skin broken, then the pencil sketch taken off; the next step ends the fight
 //
 //   node scripts/fx-probe.mjs --scene scripts/scenes/ophan-end.js --out /tmp/oph-dead --frames 4 --chapter ophan --url 'http://127.0.0.1:5173/?end=dead'
 //   node scripts/fx-probe.mjs --scene scripts/scenes/ophan-end.js --out /tmp/oph-win --frames 4 --chapter ophan --url 'http://127.0.0.1:5173/?end=win'
@@ -27,8 +27,11 @@ return (age) => {
       C.attacks = keep
       run.player.hp = 1
     } else {
-      const b = run.enemies.find((e) => e.rosterId === 'ophan' && !e._dead)
-      b.hp = CFG.OPHAN_BREAK_FLOOR
+      // every skin broken the real way (stood in the worn world, STAGED, put at the floor), then the sketch taken off
+      // (STAGED: the kill itself is run OP.sketch's): the next step finds it gone and ends the fight
+      const b = () => run.enemies.find((e) => e.rosterId === 'ophan' && !e._dead)
+      for (let g = 0; !o.sketch && g < 12; g++) { o.world = o.skin; b().hp = CFG.OPHAN_BREAK_FLOOR; tick() }
+      b().hp = 0; b()._dead = true
     }
     let g = 0
     while (run.phase === 'playing' && g++ < 600) tick()

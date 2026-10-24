@@ -274,7 +274,7 @@ import {
   KETTLE_CRUST_GNAW, KETTLE_CRUST_GNAW_MAX, KETTLE_STEAM_MUL, KETTLE_STEAM_R, KETTLE_HULL_COOL, KETTLE_HULL_MAX,
   SLING_LATCH_SHARE, IRON_BALL_R, IRON_BALL_LIFE, MOON_R, MOON_TUG_SWIRL, LODESTONE_FUSE, LODESTONE_SPREAD, LODESTONE_HOLD,
   OPHAN_ARENA, OPHAN_BOSS, OPHAN_PLAYER_START, OPHAN_PHASE_EASE, OPHAN_ATK_CD, OPHAN_ATK_FIRST, OPHAN_HIT_CD, OPHAN_ATTACKS, OPHAN_HIT,
-  OPHAN_SHOVE_DECAY, OPHAN_SKIN_HP, OPHAN_BREAK_FLOOR, OPHAN_IMMUNE_CD, OPHAN_CROWD, OPHAN_WINDOW_MUL, OPHAN_RECOVERY_ON, OPHAN_HAND,
+  OPHAN_SHOVE_DECAY, OPHAN_SKIN_HP, OPHAN_SKETCH_HP, OPHAN_BREAK_FLOOR, OPHAN_IMMUNE_CD, OPHAN_CROWD, OPHAN_WINDOW_MUL, OPHAN_RECOVERY_ON, OPHAN_HAND,
   OPHAN_WIPE_SPEED, OPHAN_WIPE_END, OPHAN_STAGGER_T,
 } from './config.js'
 import { crustShapeOf, poolPhaseOf, inCrustEdge, crustSdf, inPoolEdge, CRUST_EDGE_MAX, POOL_RIM_MAX } from './mantle-shape.js'
@@ -1797,7 +1797,7 @@ function stepOphanScript(run, dt) {
   o.stagger = Math.max(0, o.stagger - dt)
   ophanPin(run)
   const b = ophanBoss(run)
-  // gone without a break (the hp floor should make that impossible): end it as a win, never a bossless arena
+  // gone: the sketch killed (a skin cannot die, the hp floor holds it), the Kraken's win
   if (!b) return ophanWin(run, OPHAN_BOSS.x, OPHAN_BOSS.y)
   o.hp[o.skin] = b.hp
 
@@ -1823,19 +1823,25 @@ function stepOphanScript(run, dt) {
     if (o.wipe.r > OPHAN_WIPE_END) o.wipe = null
   }
 
-  // THE BREAK: a skin at the floor is spent; the last one ends the fight
-  if (b.hp <= OPHAN_BREAK_FLOOR) {
+  // THE BREAK: a skin at the floor is spent; the last one leaves the SKETCH, which fights on alone
+  // with its own bar: no world, no crowd, no hand, every attack
+  if (!o.sketch && b.hp <= OPHAN_BREAK_FLOOR) {
     o.broken[o.skin] = 1
     run.events.push({ type: 'ophanBreak', skin: o.skin, x: b.x, y: b.y })
     const left = o.broken.flatMap((v, k) => (v ? [] : [k]))
     if (!left.length) {
-      b._dead = true   // taken off the field, not killed: no kill event, no gem
-      return ophanWin(run, b.x, b.y)
+      o.sketch = true
+      o.tell = 0; o.next = -1; o.after = -1; o.stagger = 0; o.wipe = null; o.swapIn = Infinity
+      b.hp = b.maxHP = OPHAN_SKETCH_HP * run.mods.enemyHpMul
+      // the crowd swept off the field, not killed: no kill, no gem
+      for (const e of run.enemies) if (!e._dead && e !== b && !isAlly(e)) e._dead = true
+      run.events.push({ type: 'ophanSketch', x: b.x, y: b.y })
+    } else {
+      o.skin = left[Math.floor(Math.random() * left.length)]
+      b.hp = o.hp[o.skin]
+      o.tell = 0; o.next = -1; o.stagger = 0; o.swapIn = OPHAN_HAND.afterBreak
+      o.caught = false   // a press on an aborted tell's world must not resonate on the next one
     }
-    o.skin = left[Math.floor(Math.random() * left.length)]
-    b.hp = o.hp[o.skin]
-    o.tell = 0; o.next = -1; o.stagger = 0; o.swapIn = OPHAN_HAND.afterBreak
-    o.caught = false   // a press on an aborted tell's world must not resonate on the next one
   }
   const goal = 1 + Math.min(2, Math.floor(o.broken.reduce((s, v) => s + v, 0) / 2))
   o.ph += (goal - o.ph) * Math.min(1, dt * OPHAN_PHASE_EASE)
@@ -1878,7 +1884,7 @@ function stepOphanScript(run, dt) {
     o.recov = false
     if (o.tell <= 0 && o.after < 0) o.atkCd -= dt
     if (o.atkCd <= 0 && o.tell <= 0 && o.after < 0) {
-      const pool = ch.attacks[run.difficulty].filter((k) => OPHAN_ATTACKS[k].minPh <= o.ph)
+      const pool = (o.sketch ? ch.sketchAttacks : ch.attacks[run.difficulty]).filter((k) => OPHAN_ATTACKS[k].minPh <= o.ph)
       const k = pool[Math.floor(Math.random() * pool.length)]
       o.atk = { k, u: 0, dur: OPHAN_ATTACKS[k].dur, ax: p.x, ay: p.y, hitCd: 0 }
       run.events.push({ type: 'ophanAttack', k })
@@ -1918,10 +1924,10 @@ function stepOphanScript(run, dt) {
     if (d > 0) { p.x = b.x + dx / d * clear; p.y = b.y + dy / d * clear } else p.y = b.y + clear
   }
 
-  // THE CROWD of the player's world walks in from the border, away from the player
+  // THE CROWD of the player's world walks in from the border, away from the player (none in the sketch)
   const cc = OPHAN_CROWD[run.difficulty]
   o.crowdT -= dt
-  if (o.crowdT <= 0 && run.enemies.filter((e) => !e._dead && e.id !== o.bossId).length < cc.cap) {
+  if (!o.sketch && o.crowdT <= 0 && run.enemies.filter((e) => !e._dead && e.id !== o.bossId).length < cc.cap) {
     const W = OPHAN_ARENA.w, H = OPHAN_ARENA.h
     for (let tries = 0; tries < 8; tries++) {
       let s = Math.random() * 2 * (W + H), x, y
@@ -1936,7 +1942,7 @@ function stepOphanScript(run, dt) {
     }
   }
 
-  run.bossBar = {
+  run.bossBar = o.sketch ? { hp: b.hp, max: b.maxHP, stage: 4, ophan: true } : {
     hp: b.hp, max: b.maxHP, stage: Math.round(o.ph), ophan: true, on: o.skin,
     pills: o.hp.map((v, k) => (o.broken[k] ? 0 : v / b.maxHP)), pillCols: ch.worlds.map((w) => w.col),
   }

@@ -10228,6 +10228,7 @@ CHAPTERS.ophan = {
   tide: null, signature: null, obstacles: null, eliteFlags: [],
   worlds: OPHAN_WORLDS,
   attacks: { 1: ['sword', 'blast'], 2: ['sword', 'blast', 'tornado', 'laser'], 3: ['sword', 'blast', 'tornado', 'laser', 'wheel', 'recall'] },
+  sketchAttacks: ['sword', 'blast', 'tornado', 'laser', 'wheel', 'recall'],   // the pencil sketch's, at every difficulty
   // The crowd reuses each world's own ids (names, French, looks and cast PNGs come with them),
   // stripped of their behaviour flags; `world` is the index of the world that sends it.
   roster: [

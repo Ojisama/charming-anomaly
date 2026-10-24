@@ -860,8 +860,8 @@ const SFX_FOR_EVENT = {
   // KRAKEN_DEFLECT_CD precisely so it can carry a voice, and the voice is the answer to the
   // question that produced it ("the kraken head is invincible ?"). Nothing is going in.
   krakenArrive: 'krakenRoar', krakenDeflect: 'clang',
-  // The Ophan: an attack starting every few seconds, and a skin breaking (ophanImmune is silent: run EV)
-  ophanAttack: 'orcaAim', ophanBreak: 'crush',
+  // The Ophan: an attack starting every few seconds, a skin breaking, the sketch rising (ophanImmune is silent: run EV)
+  ophanAttack: 'orcaAim', ophanBreak: 'crush', ophanSketch: 'bossRise',
   // a world switch (or a broken band refusing one), the hand's tell and swap, and a resonance
   ophanWorld: 'surge', ophanRefuse: 'click', ophanTell: 'suck', ophanSwap: 'clang', ophanResonance: 'deflectHi',
 }
