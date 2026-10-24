@@ -7043,6 +7043,15 @@ export function createRenderer(app) {
         spawnParticle(T.holoGlint.tex, e.ax, e.ay, 0, 0, 0.22, 0.6, 0xffffff, -1, 0)
         spawnParticle(T.holoGlint.tex, e.bx, e.by, 0, 0, 0.22, 0.6, 0xffffff, -1, 0)
         return true
+      // the thrown pick's blow (src/ascii.js draws the throw in the Mine): clods and sparks kicked up across its area
+      case 'pickaxe':
+        for (let i = 0; i < 10; i++) {
+          const a = Math.random() * Math.PI * 2, sp = 60 + Math.random() * 120
+          spawnParticle(i % 2 ? T.clayClod.tex : T.fx.spark_04, e.x + Math.cos(a) * e.r * 0.3, e.y + Math.sin(a) * e.r * 0.3,
+            Math.cos(a) * sp, Math.sin(a) * sp, 0.4, i % 2 ? 0.6 : 0.08, i % 2 ? 0x8a6440 : 0xffd27a, -0.4, 2)
+        }
+        spawnParticle(T.dot.tex, e.x, e.y, 0, 0, 0.3, 1.6 * (e.r / 52), 0xffe2a0, 2, 0)
+        return true
       case 'rootSnare':
         for (let i = 0; i < 8; i++) {
           const a = Math.random() * Math.PI * 2, sp = 40 + Math.random() * 70
@@ -21231,10 +21240,12 @@ const spurG = new Graphics()
       const p = list[i]
       pv.root.visible = true
       pv.root.position.set(p.x, p.y)
-      const fade = Math.min(1, p.t / 0.6) // dissolve over the last 0.6s of life
+      // a slag puddle (run.slagPools) counts t UP to dur and burns ember; a pool counts t down
+      const slag = p.dur != null
+      const fade = Math.min(1, (slag ? p.dur - p.t : p.t) / 0.6) // dissolve over the last 0.6s of life
       const sc = fxScale(T.fx.circle_05, Math.max(p.r, 1) * 2)
-      pv.a.scale.set(sc); pv.a.tint = 0x2fbf3f; pv.a.alpha = 0.5 * fade
-      pv.b.scale.set(sc * 0.68); pv.b.tint = 0x7fe86a; pv.b.alpha = 0.55 * fade
+      pv.a.scale.set(sc); pv.a.tint = slag ? 0xd8401a : 0x2fbf3f; pv.a.alpha = 0.5 * fade
+      pv.b.scale.set(sc * 0.68); pv.b.tint = slag ? 0xffb040 : 0x7fe86a; pv.b.alpha = 0.55 * fade
     }
     for (let i = n; i < prevCount.pool; i++) poolPool[i].root.visible = false
     prevCount.pool = n
@@ -26880,7 +26891,10 @@ void main() {
     // and the ground shadow are what make a lob a thrown object, and a shaft of light is not thrown.
     // drawColumns owns them. Filtered rather than given a third payload sprite, and guarded by
     // `.some` so every chapter without the weapon keeps the original zero-allocation path.
-    const src = run.lobs || []
+    // The Magma's slag and bombs (run.magmaLobs, landing at x/y) ride this rig outside src/pixel.js's chapter: the Ophan
+    // arms the ladle in every world
+    const mag = !pixelLook && run.magmaLobs?.length ? run.magmaLobs : null
+    const src = mag ? [...(run.lobs || []), ...mag] : run.lobs || []
     const list = src.some((lo) => lo.column) ? src.filter((lo) => !lo.column) : src
     while (lobPool.length < list.length) lobPool.push(acquireLob())
     for (let i = 0; i < list.length; i++) {
@@ -26888,9 +26902,11 @@ void main() {
       const lv = lobPool[i]
       lv.root.visible = true
       const k = Math.max(0, Math.min(1, lb.t / Math.max(0.001, lb.flight)))
-      const gx = lerp(lb.fromX, lb.tx, k)
-      const gy = lerp(lb.fromY, lb.ty, k)
-      const throwLen = Math.hypot(lb.tx - lb.fromX, lb.ty - lb.fromY)
+      const slag = lb.kind != null   // a run.magmaLobs entry: a molten lump, landing at x/y
+      const tx = slag ? lb.x : lb.tx, ty = slag ? lb.y : lb.ty
+      const gx = lerp(lb.fromX, tx, k)
+      const gy = lerp(lb.fromY, ty, k)
+      const throwLen = Math.hypot(tx - lb.fromX, ty - lb.fromY)
       const hop = Math.min(160, 40 + throwLen * 0.3) * 4 * k * (1 - k) // parabola, peaks at k=0.5
       lv.root.position.set(gx, gy)
       lv.shadow.position.set(0, 0)
@@ -26899,7 +26915,7 @@ void main() {
       // numbers (a 13px bundle that opens to 142px), and using r here painted a shadow the size of
       // the whole detonation under a ball in mid-air. (The Reef's Oxygen Tank had the same problem
       // at 16 — a 30px object rupturing at 120-190px — before it was deleted.)
-      const shadowR = lb.snare > 0 ? 14 : lb.look === 'ballast' ? BALLAST_THROW_R : lb.r
+      const shadowR = lb.snare > 0 || slag ? 14 : lb.look === 'ballast' ? BALLAST_THROW_R : lb.r
       lv.shadow.scale.set((shadowR / PLAYER.radius) * 0.5 * (1 - 0.3 * (hop / 160)))
       // Which payload. A net TUMBLES more slowly than a rock and is scaled off its own bundle size
       // rather than off `r` — r is where it will OPEN, not how big the thrown ball is, and scaling
@@ -26918,13 +26934,14 @@ void main() {
       lv.chunk.visible = !isNet && !isBallast
       lv.ballast.visible = isBallast
       lv.net.visible = isNet
+      lv.chunk.tint = slag ? 0xff7a2a : 0xffffff
       body.position.set(0, -hop)
       // A ballast TUMBLES SLOWLY. A dumped block is heavy and a rock chunk spinning at k*9 reads as
       // light debris, which is most of why the two looked like the same weapon.
       body.rotation = isNet ? k * 3.4 + i : isBallast ? k * 2.2 + i : k * 9 + i
       // Scaled off its OWN size and never off `r`: r is the LANDING radius (96-134px here), and
       // using it magnified a 12px bake up to 11x. Baked at 34 and scaled DOWN, per CLAUDE.md.
-      body.scale.set(isNet ? 1 : isBallast ? BALLAST_THROW_R / 34 : (lb.r || 20) / 12)
+      body.scale.set(isNet ? 1 : isBallast ? BALLAST_THROW_R / 34 : slag ? 1.4 : (lb.r || 20) / 12)
     }
     for (let i = list.length; i < lobCount; i++) lobPool[i].root.visible = false
     lobCount = list.length
@@ -33382,7 +33399,8 @@ void main() {
     tickCrystalCracks(run) // and their stress cracks
     syncWells(run)
     syncBinds(run)
-    syncPools(run.pools || [])
+    // the ladle's puddles outside src/pixel.js's chapter (the Ophan arms the ladle in every world)
+    syncPools(!pixelLook && run.slagPools?.length ? [...(run.pools || []), ...run.slagPools] : run.pools || [])
     syncSlicks(run, cx, cy)   // v7.x The Wreck: pollution spills (no-op in every other chapter)
     syncSpurs(run)    // v7.x The Reef: the coral ridges (no-op in every other chapter)
     syncGates(run)    // ...and the circuit's checkpoints and start line (no-op unless `circuit`)

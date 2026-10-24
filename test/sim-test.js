@@ -21119,6 +21119,7 @@ run(testLeLargeWeapons)
   run(testOphanAttackPool)
   run(testOphanSketch)
   run(testOphanRenderWiring)
+  run(testOphanKitTells)
   run(testOphanGauge)
   // A hand-typed filter that matched nothing is the silent pass without a parent watching:
   // `node test/sim-test.js supernova` printed ALL TESTS PASSED having run no scenario at all.
@@ -43808,6 +43809,26 @@ function testOphanGauge() {
 // run OP.wire: render.js and src/ophan/renderer.js are not importable (Pixi + DOM), so their
 // contract is linted as source text, comments stripped as run MB.a does. A block comment must open after
 // whitespace: render.js's import.meta.glob('./props/*.png') otherwise opens one that swallows ~960KB of the file.
+// The Ophan's kit draws in every world: the ladle's lobs and puddles and the pick's blow were drawn only by a chapter
+// renderer (src/pixel.js, src/ascii.js), which no Ophan world runs. render.js now draws each outside that chapter.
+// (Hot Coals' 'coal' shot falls through to placeBullet's star, which the shots show in all six worlds: not linted.)
+function testOphanKitTells() {
+  const strip = (s) => s.replace(/(^|\s)\/\*[\s\S]*?\*\//g, '$1').replace(/\/\/.*$/gm, '')
+  const render = strip(readFileSync(new URL('../src/render.js', import.meta.url), 'utf8'))
+  const body = (name) => { const i = render.indexOf(`function ${name}(`); return i < 0 ? '' : render.slice(i, render.indexOf('\n  }\n', i)) }
+  const kit = CHAPTERS.ophan.weapons
+  assert.ok(kit.includes('slagLadle') && kit.includes('pickaxe'), 'run OP.kit: the lint guards weapons the kit no longer carries: ' + kit.join(','))
+  assert.ok(/syncPools\(!pixelLook && run\.slagPools\?\.length \? \[\.\.\.\(run\.pools \|\| \[\]\), \.\.\.run\.slagPools\]/.test(render),
+    'run OP.kit: render.js does not feed run.slagPools to syncPools outside the Magma (pixel.js draws them only there)')
+  assert.ok(/slag \? p\.dur - p\.t : p\.t/.test(body('syncPools')), 'run OP.kit: syncPools fades a slag puddle by its pool countdown (slag counts t UP to dur)')
+  const lobs = body('syncLobs')
+  assert.ok(/!pixelLook && run\.magmaLobs\?\.length \? run\.magmaLobs/.test(lobs) && /\[\.\.\.\(run\.lobs \|\| \[\]\), \.\.\.mag\]/.test(lobs),
+    'run OP.kit: syncLobs does not take run.magmaLobs outside the Magma')
+  assert.ok(/tx = slag \? lb\.x : lb\.tx/.test(lobs), 'run OP.kit: syncLobs flies a magma lob to lb.tx (it lands at lb.x/lb.y)')
+  const burrow = body('burrowEvent')
+  assert.ok(/case 'pickaxe':[\s\S]*?spawnParticle\([\s\S]*?return true/.test(burrow), 'run OP.kit: burrowEvent has no draw for the pick\'s blow (src/ascii.js draws it only in the Mine)')
+  console.log('PASS run OP.kit: slag puddles + lobs and the pick\'s blow drawn by render.js outside their chapter renderers; kit ' + kit.length + ' weapons')
+}
 function testOphanRenderWiring() {
   const strip = (s) => s.replace(/(^|\s)\/\*[\s\S]*?\*\//g, '$1').replace(/\/\/.*$/gm, '')
   const render = strip(readFileSync(new URL('../src/render.js', import.meta.url), 'utf8'))
