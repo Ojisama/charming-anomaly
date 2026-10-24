@@ -1,4 +1,4 @@
-import { OPHAN, OPHAN_RIG, hh, mk, shade, mix, sheen, INK, TAU, PX, STY, grain, paper } from '../page.js'
+import { OPHAN, OPHAN_RIG, hh, mk, shade, mix, sheen, INK, TAU, PX, STY, grain } from '../page.js'
 // The Ophan in the Topsoil look (macro): a seraph of real feathers fallen on the soil, shot under the same raking top-left
 // softbox as the mole and badger. Six barred hawk wings in three pairs (up, out, and a down pair whose long primaries hook
 // in like talons) overlap on a rosette of dark down around ONE great unblinking eye, backlit so its light combs through
@@ -491,7 +491,7 @@ OPHAN.macro = (() => {
     bg(c, w, t){
       const k = Math.hypot(c.getTransform().a, c.getTransform().b), key = w + ':' + k;
       if (!floor[key]){ const b = mk(w*k, w*k), g = b.getContext('2d'); g.setTransform(k, 0, 0, k, 0, 0); g._S = k;
-        g.fillStyle = '#3a2616'; g.fillRect(0, 0, w, w); g.fillStyle = g.createPattern(grain, 'repeat'); g.globalAlpha = .7; g.fillRect(0, 0, w, w); g.globalAlpha = 1;
+        g.fillStyle = '#3a2616'; g.fillRect(0, 0, w, w); g.fillStyle = g.createPattern(grain(), 'repeat'); g.globalAlpha = .7; g.fillRect(0, 0, w, w); g.globalAlpha = 1;
         // crumbs: every one lit top-left with a shadow down-right, the topsoil tile's clods at this scale
         for (let i = 0; i < w*w/40; i++){ const x = hh(i, 11)*w, y = hh(i, 12)*w, r = .8 + hh(i, 13)*hh(i, 14)*5, base = [0x3e2a18, 0x5a3e26, 0x6e4c2e, 0x4a321e, 0x7a5a3a][i % 5];
           const Q = []; for (let q = 0; q < 7; q++){ const a = q/7*TAU, rr = r*(.6 + hh(i, 20 + q)*.6); Q.push([x + Math.cos(a)*rr, y + Math.sin(a)*rr*.85]); }

@@ -1,4 +1,4 @@
-import { OPHAN, OPHAN_RIG, hh, mk, shade, mix, sheen, INK, TAU, PX, STY, grain, paper } from '../page.js'
+import { OPHAN, OPHAN_RIG, hh, mk, shade, mix, sheen, INK, TAU, PX, STY } from '../page.js'
 // The Ophan in the Mantle look (toon), on OPHAN_RIG: the SERAPH as a 1930s rubber-hose villain, every wing, eye, pose
 // and danger shape taken from the shared rig (cru/rig.js); only the drawing is toon's. Flat cel fills with a hatched
 // crescent shadow, a dark core band and a warm bounce rim; warm near-black ink heavier on the shadow side, boiling (the

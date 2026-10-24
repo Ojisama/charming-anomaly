@@ -1,4 +1,4 @@
-import { OPHAN, OPHAN_RIG, hh, mk, shade, mix, sheen, INK, TAU, PX, STY, grain, paper } from '../page.js'
+import { OPHAN, OPHAN_RIG, hh, mk, shade, mix, sheen, INK, TAU, PX, STY } from '../page.js'
 // Phase 4: the Sketch. The Ophan as its first graphite drawing: six feathered wings and open eyes, nothing else.
 // Shape and motion come from OPHAN_RIG (cru/rig.js) at ph 4 (= the ph 3 shape); this file only renders them in pencil.
 // Each rig wing is baked once per size (texels per unit K) into one canvas: every rig feather a paper-filled blade, hatched on

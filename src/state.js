@@ -104,8 +104,8 @@ export function saveSummary(meta) {
   // ★ row reads it, so the card and the prompt can never state two different numbers.
   let chapterId = CHAPTER_ORDER[0]
   for (const id of CHAPTER_ORDER) if (chapters[id]?.unlocked) chapterId = id
-  // ...and an unlocked HIDDEN chapter outranks the ladder, since it is the furthest thing earned.
-  for (const id of hiddenChapters()) if (chapters[id]?.unlocked) chapterId = id
+  // ...and an unlocked HIDDEN chapter outranks the ladder, since it is the furthest thing earned (a WIP one only for dev).
+  for (const id of hiddenChapters()) if (chapters[id]?.unlocked && (!isWipChapter(id) || m.dev === true)) chapterId = id
   const entry = (chapters[chapterId] && typeof chapters[chapterId] === 'object') ? chapters[chapterId] : {}
   const shop = (m.shop && typeof m.shop === 'object' && !Array.isArray(m.shop)) ? m.shop : {}
   return {
