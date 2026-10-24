@@ -10215,6 +10215,11 @@ export const ophanView = (screenW, screenH) => ({ z: Math.min(screenW / OPHAN_AR
 // the three crowd ids it borrows from that chapter's roster.
 const OPHAN_WORLDS = [
   { chapter: 'topsoil', look: 'macro', col: '#c08552', crowd: { normal: 'earthworm', fast: 'moleCricket', tank: 'mole' } },
+  { chapter: 'geode', look: 'holo', col: '#9b8cff', crowd: { normal: 'olm', fast: 'caveCricket', tank: 'crystalCrab' } },
+  { chapter: 'mine', look: 'ascii', col: '#e8b04a', crowd: { normal: 'mineRat', fast: 'caveSpider', tank: 'kobold' } },
+  { chapter: 'magma', look: 'pixel', col: '#ff6a1a', crowd: { normal: 'cinderBeetle', fast: 'salamander', tank: 'obsidianTortoise' } },
+  { chapter: 'mantle', look: 'toon', col: '#d8452a', crowd: { normal: 'emberImp', fast: 'magmaToad', tank: 'basaltGolem' } },
+  { chapter: 'core', look: 'liquid', col: '#9fb4c8', crowd: { normal: 'ferriteMite', fast: 'spinningTop', tank: 'ferroBlob' } },
 ]
 CHAPTERS.ophan = {
   name: 'The Ophan', tagline: 'it wears the world you stand in', icon: '👁',

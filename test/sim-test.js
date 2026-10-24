@@ -39889,7 +39889,7 @@ function testMineGlyphTells() {
   const ids = CHAPTERS.mine.roster.map((r) => r.id)
   for (const id of ids) {
     assert.ok(new RegExp(`^\\s+${id}: \\{`, 'm').test(castSrc), `run MG.d: ascii.js CAST has no ${id}`)
-    const other = Object.keys(CHAPTERS).filter((c) => c !== 'mine' && (CHAPTERS[c].roster ?? []).some((r) => r.id === id))
+    const other = Object.keys(CHAPTERS).filter((c) => c !== 'mine' && c !== 'ophan' && (CHAPTERS[c].roster ?? []).some((r) => r.id === id))   // ophan draws its crowd in its own looks
     assert.deepStrictEqual(other, [], `run MG.d: roster id '${id}' is shared with ${other} — the mine's glyph look and their bake cannot both own it`)
   }
   // (e) a body whose rosterId has no CAST entry (another chapter's add) is drawn as the stray cloud, never skipped
@@ -43131,6 +43131,8 @@ function testOphanShell() {
     const r = c.roster.find((x) => x.id === id)
     assert.ok(r && r.flags.length === 0 && r.world === c.worlds.indexOf(w), `crowd ${id} missing or still carries flags`)
   }
+  assert.deepStrictEqual(c.worlds.map((w) => w.chapter), BOOKS.burrow.chapters)
+  assert.deepStrictEqual(c.worlds.map((w) => w.look), ['macro', 'holo', 'ascii', 'pixel', 'toon', 'liquid'])
   const boss = c.roster.find((r) => r.id === 'ophan')
   assert.ok(Math.abs(ENEMIES.tank.radius * boss.radiusMul - OPHAN_BOSS.bodyR) < 0.5, 'the boss body radius drifted from the drawn body')
   for (const k of ['ophanBlast', 'ophanTornado', 'ophanLaser', 'ophanWheel', 'ophanRecall', 'ophanSword'])

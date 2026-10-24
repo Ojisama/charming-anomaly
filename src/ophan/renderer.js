@@ -12,6 +12,8 @@ import './painters/macro.js'
 import { CHAPTERS, OPHAN_BOSS, OPHAN_ARENA, OPHAN_ATTACKS, ophanView } from '../config.js'
 
 const STAGES = { macro }
+// ponytail: a look with no stage yet wears the Topsoil (macro) stage; Task 8 adds the rest and this goes
+const stageOf = (look) => (STAGES[look] ? look : 'macro')
 const IMMUNE_T = 0.4, VEIL_A = 0.55
 
 // Painters and hands talk through a few window globals (the phase, the toon boss's inking u, the Core's frame state, the
@@ -91,6 +93,7 @@ export function createOphanRenderer(host) {
   // art.js slot: the stage gets an app whose stage, screen and canvas are the slot's, so its floor and its pass
   // (filterArea = the slot) land in the slot; the boss is drawn OVER the pass (art.js top), the crowd under it
   function slot(id) {
+    id = stageOf(id)
     if (slots[id]) return slots[id]
     const w = app.screen.width, h = app.screen.height
     const wrap = new Container(), sroot = new Container()
@@ -129,7 +132,7 @@ export function createOphanRenderer(host) {
     prewarm() {
       const ch = CHAPTERS.ophan, z = ophanView(app.screen.width, app.screen.height).z
       const atks = [...new Set(Object.values(ch.attacks).flat())]
-      for (const { look: id } of ch.worlds) {
+      for (const id of new Set(ch.worlds.map((w) => stageOf(w.look)))) {
         if (warmed.has(id)) continue
         warmed.add(id)
         const at = (f) => () => { const s = slot(id), R = OPHAN_BOSS.R * z / s.k; wpx.grace = 2; within(s.g, () => f(s, R)) }
