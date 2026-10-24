@@ -17,6 +17,8 @@ import { FR } from '../src/fr.js'
 // run GP feeds the one through the other, exactly as a phone's GlProgram does.
 import { FOIL_FRAG as HOLO_FOIL_FRAG, CAVERN_FLOOR_FRAG as HOLO_CAVERN_FRAG } from '../src/holo.js'
 import { ensurePrecision as pixiEnsurePrecision } from '../node_modules/pixi.js/lib/rendering/renderers/gl/shader/program/preprocessors/ensurePrecision.mjs'
+import RIG from '../src/ophan/rig.js'
+import { ophanHits } from '../src/ophan/hit.js'
 import { magmaGroundAt, magmaRiverAt, magmaCooledAt, magmaHotAt } from '../src/sim.js'
 import { lavaFloodedAt, mantleHeightAt, lavaLineFor, mantleGroundAt } from '../src/sim.js'
 import { ECHO_DOUBLE_DELAY, ECHO_DOUBLE_DMG_FRAC, modPct, LODESTONE_HOLD } from '../src/config.js'
@@ -181,7 +183,7 @@ import {
   lateSpawnMulAt, SPAWN_LATE_BLEND, SPAWN_LATE_START,
   // The Kraken (run KR): the rung table and the ring's numbers
   krakenRung, krakenRungFor, KRAKEN_TURN_BAG, KRAKEN_SLAP_EVERY, KRAKEN_SLAP_COCK, KRAKEN_SLAP_SWING, KRAKEN_SLAP_FUSE, KRAKEN_SLAP_FOLLOW_T, KRAKEN_TRICKLE_T, KRAKEN_TRICKLE_EDGE, KRAKEN_TRICKLE_CLEAR, OPEN_GUARD_WINDOW_MUL, HAIR_TRIGGER_WINDOW_MUL, HAIR_TRIGGER_DMG_MUL, KRAKEN_RUNGS, KRAKEN_ARM_REACH, KRAKEN_WAVE_TIMEOUT, KRAKEN_STAGGER_BITE,
-  KRAKEN_RISE_T, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, hiddenChapters, OPHAN_BOSS, ophanView, OPHAN_GAUGE_COPY, KRAKEN_CAGE_R, KRAKEN_PARRY_CD,
+  KRAKEN_RISE_T, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, hiddenChapters, OPHAN_BOSS, OPHAN_HAND, OPHAN_HIT, ophanView, OPHAN_GAUGE_COPY, KRAKEN_CAGE_R, KRAKEN_PARRY_CD,
   KRAKEN_OPEN_WAVES, KRAKEN_COIL_EVERY, KRAKEN_COIL_RAYS, KRAKEN_ENRAGE_AT, KRAKEN_RAGE_AT, KRAKEN_RAGE_HITS_MIN, KRAKEN_RAGE_HITS_MAX, KRAKEN_RAGE_VOLLEY, KRAKEN_RAGE_VOLLEY_SPREAD, KRAKEN_RAGE_FUSE, KRAKEN_RAGE_GAP, KRAKEN_RAGE_CALM, KRAKEN_RAGE_CHANCE, KRAKEN_NODE_BACK, KRAKEN_HEAD_HP, KRAKEN_HEAD_HP_AT, KRAKEN_HEAD_HP_PER_S, KRAKEN_ARRIVE_T, KRAKEN_RING_R, KRAKEN_LASH_R, KRAKEN_SLAM_T, KRAKEN_DEFLECT_CD,
   KRAKEN_LUNGE_T, KRAKEN_GRIP_DUR, KRAKEN_GRIP_DMG, KRAKEN_GRIP_FLICKS, KRAKEN_GRIP_STICK_MUL, TRAWL_WIGGLE_ARC,
   KRAKEN_LASH_W, KRAKEN_LASH_OVER, KRAKEN_LASH_DMG, KRAKEN_LESSON_MAX, KRAKEN_PARRY_SHOVE_R, KRAKEN_PARRY_EARLY_T, KRAKEN_LIMP_CLEAR, KRAKEN_ARRIVE_T2, KRAKEN_WAVE_GROWTH, KRAKEN_COIL_DMG, KRAKEN_COIL_SHADOW_SOFT, krakenCoilBandHalfW,
@@ -21110,6 +21112,7 @@ run(testLeLargeWeapons)
   run(testCoreRules)
   run(testCoreSpawnMix)
   run(testOphanShell)
+  run(testOphanRig)
   // A hand-typed filter that matched nothing is the silent pass without a parent watching:
   // `node test/sim-test.js supernova` printed ALL TESTS PASSED having run no scenario at all.
   if (_ran === 0 && !EXACT_SET) {
@@ -43091,6 +43094,30 @@ function testCoreSpawnMix() {
 // The hidden Burrow boss: unlocked by The Core at 3, WIP for as long as The Core is, its crowd
 // borrowed (flagless) from each world's home chapter, its six damage sources named and portrayed,
 // and its fixed-arena camera fitting the arena on any screen.
+function testOphanRig() {
+  const src = readFileSync(new URL('../src/ophan/rig.js', import.meta.url), 'utf8')
+  const hit = readFileSync(new URL('../src/ophan/hit.js', import.meta.url), 'utf8')
+  assert.ok(!/^\s*import\b/m.test(src) && !/^\s*import\b/m.test(hit), 'rig.js / hit.js must import nothing (sim imports them)')
+  const W = RIG.HAND_WIN, D = RIG.HAND_DUR
+  assert.ok(Math.abs(OPHAN_HAND.inT - (W.paint[0] - W.in[0]) * D) < 1e-9 && Math.abs(OPHAN_HAND.after - (W.out[1] - W.paint[0]) * D) < 1e-9)
+  const a = JSON.stringify(RIG.attack('sword', 0.5, 3, 0, -100, 76, 0, 190, 2))
+  assert.strictEqual(a, JSON.stringify(RIG.attack('sword', 0.5, 3, 0, -100, 76, 0, 190, 2)), 'the rig is not deterministic')
+  // the sword's fire line, live: on the line hits, one fire width beside it does not
+  const g = RIG.attack('sword', 0.55, 3, 0, -100, 76, 0, 190, 2)
+  const p = { x: g.fire.start.x + g.fire.dx * g.fire.front * 0.5, y: g.fire.start.y + g.fire.dy * g.fire.front * 0.5 }
+  assert.ok(ophanHits('sword', g, p.x, p.y, 12, 76, OPHAN_HIT).hit, 'standing on the fire line is not hit')
+  const off = g.fire.w + 12 + 2, nx = -g.fire.dy, ny = g.fire.dx
+  assert.ok(!ophanHits('sword', g, p.x + nx * off, p.y + ny * off, 12, 76, OPHAN_HIT).hit, 'beside the fire line is hit')
+  // the burnt-out line: full length, fire gone — standing on it is safe
+  const z = RIG.attack('sword', 0.92, 3, 0, -100, 76, 0, 190, 2)
+  assert.ok(z.fire.on < OPHAN_HIT.fireOn && z.fire.front > 0, 'u=0.92 no longer samples a spent full-length line; re-pick u')
+  const q = { x: z.fire.start.x + z.fire.dx * z.fire.front * 0.5, y: z.fire.start.y + z.fire.dy * z.fire.front * 0.5 }
+  assert.ok(!ophanHits('sword', z, q.x, q.y, 12, 76, OPHAN_HIT).hit, 'a spent fire line still hurts')
+  for (const k of ['blast', 'tornado', 'laser', 'wheel', 'recall', 'sword'])
+    assert.ok(!ophanHits(k, RIG.attack(k, 0.05, 3, 0, -100, 76, 0, 190, 2), 0, 190, 12, 76, OPHAN_HIT).hit, `${k} hurts during its wind-up`)
+  console.log('PASS run OP.rig: rig/hit pure, sword line hits on and misses beside, a spent line and every wind-up are harmless')
+}
+
 function testOphanShell() {
   assert.deepStrictEqual([HIDDEN_UNLOCKS.ophan.from, HIDDEN_UNLOCKS.ophan.difficulty], ['core', 3])
   const c = CHAPTERS.ophan
