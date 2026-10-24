@@ -5,7 +5,7 @@
 // this module draws the arena under them, every frame, from run.script.oph and run.enemies. It never writes run.
 // Slots are built once per renderer and reused across runs; render.js makes one renderer for the page.
 import { AlphaFilter, Container, Graphics, Rectangle, RenderTexture, Sprite, Texture } from 'pixi.js'
-import { OPHAN, STY, TAU, INK, mk, shade, mix } from './page.js'
+import { OPHAN, OPHAN_HANDS, OPHAN_RIG as RIG, STY, TAU, INK, mk, shade, mix } from './page.js'
 import { installPatches, uninstallPatches, PX2D } from './px2d.js'
 import macro from './stages/macro.js'
 import holo from './stages/holo.js'
@@ -19,7 +19,15 @@ import './painters/ascii.js'
 import './painters/pixel.js'
 import './painters/toon.js'
 import './painters/core.js'
-import { CHAPTERS, OPHAN_BOSS, OPHAN_ARENA, OPHAN_ATTACKS, ophanView } from '../config.js'
+import './hands/kit.js'
+import './hands/macro.js'
+import './hands/holo.js'
+import './hands/ascii.js'
+import './hands/pixel.js'
+import './hands/toon.js'
+import './hands/liquid.js'
+import './hands/pencil.js'
+import { CHAPTERS, OPHAN_BOSS, OPHAN_ARENA, OPHAN_ATTACKS, OPHAN_HAND, ophanView } from '../config.js'
 
 const STAGES = { macro, holo, ascii, pixel, toon, liquid }
 const IMMUNE_T = 0.4, VEIL_A = 0.55
@@ -43,6 +51,25 @@ function boss(s, x, y, R, t, ph, atk, u, ppx, ppy, c = s.px) {
   if (atk && s.A) s.A.call(O, c, x, y, R, t, ph, atk, u, ppx, ppy)
   else s.B.call(O, c, x, y, R, t, ph)
 }
+// look's hand at u of the change, over the boss at (x, y, R) (art.js hand); returns where its tool is, for the macro focus
+function hand(c, look, x, y, R, t, u) {
+  const H = RIG.hand(u)
+  c.begin()
+  OPHAN_HANDS[look]?.hand(c, x, y, R, t, H)
+  return { x: x + H.tip.x * R, y: y + H.tip.y * R, k: Math.max(0, Math.min(1, (1 - H.z) / 0.6)) }
+}
+// where the hand is in its playground path (u of RIG.HAND_DUR), or null when it is off: it plays its arrival over the tell's
+// last inT and lands at the paint as the skin swaps, then paints and lifts over the after-beat
+export function handU(oph) {
+  const W = RIG.HAND_WIN
+  if (oph.tell > 0 && oph.next >= 0) return oph.tell > OPHAN_HAND.inT ? null : W.in[0] + (1 - oph.tell / OPHAN_HAND.inT) * (W.paint[0] - W.in[0])
+  if (oph.after >= 0) return W.paint[0] + Math.min(1, oph.after / OPHAN_HAND.after) * (W.out[1] - W.paint[0])
+  return null
+}
+// the next hand's shadow over the tell (src2.html handShadow): its shape in the mock-up's px round a boss drawn at R SH_R,
+// baked at its largest scale (1.7) times SH_K, with SH_PAD px for the blur; the box's corner sits at (-SH_X, -SH_Y). Its
+// black is baked at the mock-up's peak alpha SH_A, so the coloured glow shows through it as there, and the sprite fades it
+const SH_R = 52 * 1.35, SH_K = 2, SH_S = 1.7 * SH_K, SH_PAD = 40, SH_X = 31, SH_Y = 77, SH_A = 0.6
 
 // ---- the crowd's marks: the mock-up's creatures (art-fight.js marks / src2.html blob), baked once per look and size
 // where they lean on what the game cannot do per frame (the macro one's soft shadow) ----
@@ -72,14 +99,19 @@ export function createOphanRenderer(host) {
   // wipe's rim, the boss pasted in over a foreign world, then the immune sparks and the veil outside the arena
   const scene = new Container(), hole = new Graphics(), ring = new Graphics(), over = new Container()
   const fx = new Graphics(), veil = new Graphics()
-  const overCam = new Container(); overCam.addChild(over)   // the camera moves overCam: px2d owns its root's scale
-  root.addChild(scene, hole, ring, overCam, fx, veil)
+  // the camera moves overCam and handCam alike (px2d owns its roots' scale), in the boss's slot's stage px: the boss when
+  // pasted in; then, over everything (the veil too), the next hand's shadow and the hand, coming down from above the camera
+  const overCam = new Container(), handCam = new Container(), handShade = new Sprite(), handC = new Container()
+  overCam.addChild(over); handCam.addChild(handShade, handC)
+  root.addChild(scene, hole, ring, overCam, fx, veil, handCam)
   root.visible = false
-  const opx = PX2D(over, RES)
+  const opx = PX2D(over, RES), hpx = PX2D(handC, RES)
+  const shades = []   // the hand shadow's texture per world, baked in the warm-up
   // the wipe's circle is an alpha mask, not a stencil: a stencil nested under the hole's inverse stencil drops most of world B
   const disc = mk(256, 256), dg = disc.getContext('2d'); dg.fillStyle = '#fff'; dg.beginPath(); dg.arc(128, 128, 127, 0, TAU); dg.fill()
   const wipeMask = new Sprite(Texture.from(disc)); wipeMask.anchor.set(0.5)
-  const warmC = new Container(), wpx = PX2D(warmC, RES)   // the warm-up's own px2d: it never touches a live slot
+  // the warm-up's own px2ds (a boss, a hand over it): they never touch a live slot
+  const warmC = new Container(), wpx = PX2D(warmC.addChild(new Container()), RES), whpx = PX2D(warmC.addChild(new Container()), RES)
   let rt = null, jobs = [], raf = 0, saved = null, mine = null, entered = false, sceneKey = '', lastA = null
   // the warm-up: worlds queued (or done) are not queued again; one promise settles when the queue drains
   const warmed = new Set()
@@ -138,9 +170,6 @@ export function createOphanRenderer(host) {
     // the box draws them into a texture first, and that the mask does clip
     if (id === 'ascii') { sroot.filterArea = fake.screen; sroot.filters = [new AlphaFilter()] }
     s.px = PX2D(top || st.boss, RES)
-    // the hand comes down from above the camera: its own layer over the whole world and the boss
-    const hl = new Container(); if (top) wrap.addChild(hl); else { hl.position.copyFrom(st.boss.position); (st.boss.parent || sroot).addChild(hl) }
-    s.hpx = PX2D(hl, RES); s.hpx.bossRoot = s.px.root
     s.g.SPIKE = { app: fake, px: s.px }
     const ents = new Container(); ents.position.copyFrom(st.boss.position); st.boss.parent.addChildAt(ents, st.boss.parent.getChildIndex(st.boss))
     s.ent = PX2D(ents, RES)
@@ -177,7 +206,7 @@ export function createOphanRenderer(host) {
       for (const id of new Set(ch.worlds.map((w) => w.look))) {
         if (warmed.has(id)) continue
         warmed.add(id)
-        const at = (f) => () => { const s = slot(id), R = OPHAN_BOSS.R * z / s.k; wpx.grace = 2; within(s.g, () => f(s, R)) }
+        const at = (f) => () => { const s = slot(id), R = OPHAN_BOSS.R * z / s.k; wpx.grace = whpx.grace = 2; within(s.g, () => f(s, R)) }
         jobs.push(() => slot(id), () => { const s = slot(id); s.st.update(0); shot(s.wrap); s.warm = true })
         if (id === 'liquid') jobs.push(() => {
           const s = slot(id), step = s.st.warmBoss([OPHAN_BOSS.R * z / s.k * RES])
@@ -190,7 +219,23 @@ export function createOphanRenderer(host) {
           const ph = Math.max(1, OPHAN_ATTACKS[k].minPh)
           jobs.push(at((s, R) => { window.OPH_PH = ph; boss(s, s.w / 2, s.h / 3, R, 0, ph, k, 0.5, s.w / 2, s.h * 0.72, wpx) }), () => shot(warmC))
         }
+        // its hand (a hand's first draw bakes it: the Magma one every pose it will take) through arrival, paint and lift
+        for (const u of [0.1, 0.5, 0.9])
+          jobs.push(at((s, R) => { window.OPH_PH = 1; boss(s, s.w / 2, s.h / 3, R, 0, 1, null, 0, 0, 0, wpx); hand(whpx, id, s.w / 2, s.h / 3, R, 0, u) }), () => shot(warmC))
       }
+      // the hand's shadow, one texture per world colour (a sprite placed per frame, never a per-frame blur)
+      ch.worlds.forEach((w, k) => {
+        if (warmed.has('shade' + k)) return
+        warmed.add('shade' + k)
+        jobs.push(() => {
+          const c = mk((SH_X + 53) * SH_S + 2 * SH_PAD, (SH_Y + 30) * SH_S + 2 * SH_PAD), g = c.getContext('2d')
+          g.translate(SH_PAD + SH_X * SH_S, SH_PAD + SH_Y * SH_S); g.scale(SH_S, SH_S)
+          g.shadowColor = w.col; g.shadowBlur = 20; g.fillStyle = g.strokeStyle = 'rgba(0,0,0,' + SH_A + ')'; g.lineCap = 'round'
+          g.beginPath(); g.ellipse(0, 0, 25, 29, 0, 0, TAU); g.fill()
+          for (const [x0, y0, x1, y1] of [[-17, -24, -21, -60], [-6, -28, -6, -70], [6, -28, 8, -68], [17, -24, 21, -56], [24, 4, 46, -14]]) { g.lineWidth = 13; g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y1); g.stroke() }
+          shades[k] = Texture.from(c)
+        })
+      })
       if (!jobs.length) return warmP ?? Promise.resolve()
       installPatches()   // the painters draw on px2d here too; the drain takes them off again unless a fight is on
       warmP ??= new Promise((r) => { warmDone = r })
@@ -289,21 +334,43 @@ export function createOphanRenderer(host) {
       }
       // the boss in its skin's look, on the sim's own clock, an attack aimed where the sim locked it: inside its own world's
       // pass when the player stands in it, pasted in over a foreign world (or a wipe) otherwise; gone once the last skin breaks
-      opx.begin(); for (const s of Object.values(slots)) s.px.begin()
+      opx.begin(); hpx.begin(); for (const s of Object.values(slots)) s.px.begin()
+      handShade.visible = false
+      let focus = null
       const alive = run.enemies.some((e) => e.rosterId === 'ophan' && !e._dead)
       const S = slots[worlds[oph ? oph.skin : wi].look]
       if (alive && S) {
-        const inPass = !wipe && S === A, z = z0 / S.k
-        place(S, overCam)
+        const inPass = !wipe && S === A, z = z0 / S.k, bpx = inPass ? S.px : opx
+        place(S, overCam); place(S, handCam)
         const bx = sx(S, OPHAN_BOSS.x), by = sy(S, OPHAN_BOSS.y) + (oph?.stagger > 0 && !a ? 6 * z : 0), R = OPHAN_BOSS.R * z
         within(S.g, () => {
           window.OPH_PH = ph
-          boss(S, bx, by, R, t, ph, a && a.k, Math.min(1, a ? a.u : 0), a ? sx(S, a.ax) : 0, a ? sy(S, a.ay) : 0, inPass ? S.px : opx)
+          boss(S, bx, by, R, t, ph, a && a.k, Math.min(1, a ? a.u : 0), a ? sx(S, a.ax) : 0, a ? sy(S, a.ay) : 0, bpx)
         })
+        // THE HAND: the next world's hand shadow slides in over the tell (src2.html handShadow, eased), tinted its colour
+        if (oph.tell > 0 && oph.next >= 0 && shades[oph.next]) {
+          const pr = 1 - oph.tell / OPHAN_HAND.tell, e = pr * pr * (3 - 2 * pr), q = R / SH_R, hx = 130 - 85 * e, hy = -210 + 165 * e
+          handShade.texture = shades[oph.next]
+          handShade.anchor.set((SH_PAD + SH_X * SH_S) / handShade.texture.width, (SH_PAD + SH_Y * SH_S) / handShade.texture.height)
+          handShade.position.set(bx + hx * q, by + hy * q); handShade.rotation = Math.atan2(-hy, -hx) + Math.PI / 2
+          handShade.scale.set((1.7 - 0.55 * e) * q / SH_S); handShade.alpha = (0.22 + 0.38 * e) / SH_A; handShade.visible = true
+        }
+        // then that world's hand comes down over it and lands as the skin swaps, paints the new skin on and lifts (window
+        // HAND_SEED: one path per swap, the same before and after it; OPHAN_PREV_STYLE: the old skin is still under the
+        // stroke until the swap; SPIKE.px: the boss the liquid hand's cut is masked by)
+        const u = handU(oph), H = u == null ? null : slots[worlds[oph.tell > 0 ? oph.next : oph.skin].look]
+        if (H?.warm) {
+          H.g.HAND_SEED = oph.swaps + (oph.tell > 0 ? 1 : 0); H.g.OPHAN_PREV_STYLE = oph.tell > 0 ? S.id : null; H.g.SPIKE.px = bpx
+          hpx.id = A.id + '-hand'   // the liquid hand's rim mirrors the floor under it (hands/liquid.js floorOf)
+          within(H.g, () => { window.OPH_PH = ph; focus = hand(hpx, H.id, bx, by, R, t, u) })
+          focus.src = S
+        }
       }
       for (const s of [A, B]) if (s) within(s.g, () => {
         window.OPH_PH = ph
-        s.st.update(t, { px: sx(s, p.x), py: sy(s, p.y), cam: { zr, ex: (s.ox * (zr - 1) + dx) / s.k, ey: (s.oy * (zr - 1) + dy) / s.k } })
+        // the macro lens racks to the hand's tool (stage px of the boss's slot, carried into this one's)
+        const f = focus && { x: (focus.x * focus.src.k + focus.src.ox - s.ox) / s.k, y: (focus.y * focus.src.k + focus.src.oy - s.oy) / s.k, k: focus.k }
+        s.st.update(t, { px: sx(s, p.x), py: sy(s, p.y), cam: { zr, ex: (s.ox * (zr - 1) + dx) / s.k, ey: (s.oy * (zr - 1) + dy) / s.k }, focus: f })
       })
 
       // the immune sparks: a white ring off the sealed boss

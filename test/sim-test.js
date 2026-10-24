@@ -43731,6 +43731,23 @@ function testOphanRenderWiring() {
   for (const d of ['', 'painters/', 'stages/']) for (const f of readdirSync(new URL(d, ophDir))) if (f.endsWith('.js')) ophFiles.push(d + f)
   for (const f of ophFiles) assert.ok(!/__liquid|createCoreBoss/.test(readFileSync(new URL(f, ophDir), 'utf8')), `src/ophan/${f} reaches for the artifact's Core debug paths (__liquid / createCoreBoss)`)
   assert.ok(ophFiles.includes('painters/core.js') && ophFiles.includes('stages/liquid.js'), 'the Core painter / stage is missing from the sweep: ' + ophFiles.join(','))
+  // THE HAND: the swap told by a shadow baked once per world colour (a sprite, never a per-frame blur), then played by the
+  // next skin's hand over the tell's last stretch and the after-beat; the hand files are the playground's, off its globals
+  assert.ok(/OPHAN_HANDS\[/.test(rend) && /function handU\(/.test(rend), 'renderer.js does not draw the hands (OPHAN_HANDS[ / function handU()')
+  // handU run as written (renderer.js imports Pixi, so its text is evaluated against the rig and the config)
+  const hu = rend.slice(rend.indexOf('function handU('), rend.indexOf('\n}', rend.indexOf('function handU(')) + 2)
+  const handU = new Function('RIG', 'OPHAN_HAND', hu + '\nreturn handU')(RIG, OPHAN_HAND), HW = RIG.HAND_WIN, near = (a, b) => a != null && Math.abs(a - b) < 1e-6
+  const clk = (tell, next, after) => handU({ tell, next, after })
+  assert.ok(clk(0, -1, -1) === null && clk(OPHAN_HAND.inT + 0.01, 2, -1) === null, 'the hand shows outside its window (before the tell\'s last inT, or between swaps)')
+  assert.ok(near(clk(OPHAN_HAND.inT, 2, -1), HW.in[0]) && near(clk(1e-9, 2, -1), HW.paint[0]), 'the hand does not play its arrival over the tell\'s last inT, landing at the paint')
+  assert.ok(near(clk(0, -1, 0), HW.paint[0]) && near(clk(0, -1, OPHAN_HAND.after), HW.out[1]), 'the hand does not paint and lift over the after-beat')
+  const warmBody = rend.slice(rend.indexOf('prewarm() {'), rend.indexOf('enter(run) {'))
+  const syncBody = rend.slice(rend.indexOf('sync(run, dt, view) {'))
+  assert.ok(/shadowBlur/.test(warmBody) && syncBody.length > 100 && !/shadowBlur/.test(syncBody),
+    'the hand shadow\'s blur is not baked in prewarm() (or a shadowBlur runs in sync(), per frame)')
+  const handFiles = readdirSync(new URL('hands/', ophDir)).filter((f) => f.endsWith('.js')).sort()
+  assert.deepStrictEqual(handFiles, ['ascii', 'holo', 'kit', 'liquid', 'macro', 'pencil', 'pixel', 'toon'].map((k) => k + '.js'), 'src/ophan/hands/ is not the kit and the seven hands')
+  for (const f of handFiles) assert.ok(!/\bGT\.|__liquid/.test(readFileSync(new URL('hands/' + f, ophDir), 'utf8')), `src/ophan/hands/${f} reaches for the artifact's globals (GT. / __liquid)`)
   const sig = ui.match(/const pillSig = [^\n]*/)?.[0] ?? ''
   assert.ok(/\bon\b/.test(sig), 'the boss-bar pill signature ignores the current skin')
   assert.ok(/pillCols/.test(sig), 'the boss-bar pill signature ignores the skin colours')
