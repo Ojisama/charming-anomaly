@@ -5136,6 +5136,37 @@ export function createRenderer(app) {
   //
   // Drawn nose-forward along +x with `lean: 90` — bilaterally symmetric about its line of travel,
   // exactly like the Moon Jelly, so the shipped facing code turns it to face what it is hunting.
+  // The Ophan's portrait (cast PNG and death recap only — the fight draws the boss itself): two
+  // feathered wing arcs cupped around one open eye, in Topsoil's tan and bone.
+  function drawOphanThumb(g, elite, white) {
+    const r = BLANK_BOSS_R
+    const f = (c) => white ? 0xffffff : c
+    const wing = f(0xc08552), bone = f(0xf2e6d0), ink = f(0x2a1a10)
+    const lw = Math.max(3, r * 0.045)
+    const R1 = r * 0.98, R2 = r * 0.64, span = 1.05
+    for (const a0 of [0, Math.PI]) {
+      const a1 = a0 - span, a2 = a0 + span
+      g.moveTo(Math.cos(a1) * R1, Math.sin(a1) * R1)
+      g.arc(0, 0, R1, a1, a2)
+      g.lineTo(Math.cos(a2) * R2, Math.sin(a2) * R2)
+      g.arc(0, 0, R2, a2, a1, true)
+      g.closePath()
+      g.fill(wing).stroke({ width: lw, color: ink })
+      // feather splits across the crescent
+      for (let k = 1; k < 6; k++) {
+        const a = a1 + (a2 - a1) * k / 6
+        g.moveTo(Math.cos(a) * R2, Math.sin(a) * R2).lineTo(Math.cos(a) * R1, Math.sin(a) * R1)
+      }
+      g.stroke({ width: lw * 0.6, color: ink })
+    }
+    // the eye: an almond of bone, a tan iris, a dark pupil
+    const ex = r * 0.5, ey = r * 0.3
+    g.moveTo(-ex, 0).quadraticCurveTo(0, -ey * 2, ex, 0).quadraticCurveTo(0, ey * 2, -ex, 0).closePath()
+    g.fill(bone).stroke({ width: lw, color: ink })
+    g.circle(0, 0, ey * 0.85).fill(wing).stroke({ width: lw * 0.6, color: ink })
+    g.circle(0, 0, ey * 0.38).fill(ink)
+    g.circle(-ey * 0.25, -ey * 0.3, ey * 0.14).fill(bone)
+  }
   function drawKrakenHead(g, elite, white) {
     const r = BLANK_BOSS_R
     const f = (c) => white ? 0xffffff : c
@@ -7302,6 +7333,7 @@ export function createRenderer(app) {
     // lean 0 and spin 0: a torn-open section of limb has no forward axis to turn on, and a wound
     // that rotated would read as a creature. It is a place on a body.
     krakenArm: { archetype: 'boss', draw: drawKrakenArm, lean: 0, spin: 0, noElite: true },
+    ophan: { archetype: 'boss', draw: drawOphanThumb, lean: 90, spin: 0, noElite: true },
   }
   const DEG = Math.PI / 180
   // ---- Book 3, Burrow: the photographed cast (src/macro.js MACRO_CAST) ----------------------------
@@ -15360,6 +15392,8 @@ const spurG = new Graphics()
     // render block says so ("The Deep's near-black carried one more step toward the void"), and the
     // win that unlocks this chapter is a Deep win. Run RB below now makes the eighth impossible.
     kraken: BIOME_DEEP,
+    // The Ophan opens in its Topsoil world, so its fallback decor is Topsoil's.
+    ophan: BIOME_TOPSOIL,
     garden: BIOME_GARDEN,
     undergrowth: {
       big: BIG_UNDERGROWTH, mid: MID_UNDERGROWTH, detail: DETAIL_UNDERGROWTH,

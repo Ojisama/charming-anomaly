@@ -1400,6 +1400,8 @@ function stepBossScript(run, dt) {
   // The Kraken drives its own block ladder (head + arm ring), not BLANK_SCRIPT's phase table, so it
   // delegates out here and leaves The Blank's machinery untouched.
   if (run.chapter === 'kraken') return stepKrakenScript(run, dt)
+  // The Ophan: an empty arena until its own script dispatches here (keyed on the chapter's worlds)
+  if (CHAPTERS[run.chapter].worlds) return false
   const p = run.player
   const s = run.script
   const accel = run.mutators.includes('accelResponse') ? BLANK_ACCEL_MUL : 1

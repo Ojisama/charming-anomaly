@@ -1041,7 +1041,7 @@ function endRun(victory) {
   // in the meantime.
   const nick = validNick(meta.nick)
   // Endless never submits yet (owner, 2026-10-02): beta testers are not dev, so it needs its own refusal.
-  if (nick && !meta.dev && !run._devUsed && !run.endless) {
+  if (nick && !meta.dev && !run._devUsed && !run.endless && !isWipChapter(run.chapter)) {
     const chapter = run.chapter
     // ONE object, submitted and then looked up. The rank is matched on the score itself (scores.js
     // has no row ids), so a second copy of these numbers is a way for the lookup to ask about a

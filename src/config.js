@@ -6814,7 +6814,7 @@ export const BOOKS = {
    // next, still gated: a dev-gated shell whose boss sim lands in a later increment. Saves key on chapter ID, never position.
    undertow: { name: 'Undertow', cloth: '#1f5c7c', chapters: ['surf', 'shelf', 'reef', 'trawl', 'wreck', 'deep'], hidden: ['kraken'], startCoins: 100 },
   // Book 3: digging down into the earth. wipFrom 0 gates the whole book behind meta.dev.
-  burrow: { name: 'Burrow', cloth: '#2b1d15', chapters: ['topsoil', 'geode', 'mine', 'magma', 'mantle', 'core'], hidden: [], startCoins: 100, wipFrom: 0 },
+  burrow: { name: 'Burrow', cloth: '#2b1d15', chapters: ['topsoil', 'geode', 'mine', 'magma', 'mantle', 'core'], hidden: ['ophan'], startCoins: 100, wipFrom: 0 },
 }
 // Explicit, for the same reason CHAPTER_ORDER is explicit: a sweep that means "every book, in
 // campaign order" must not depend on object key order surviving an edit. The FIRST entry is the
@@ -10165,6 +10165,76 @@ CHAPTERS.core = {
 // screen already that wide); main.js widens run.viewW/viewH by it so spawns stay off the screen
 export const viewZoom = (render, screenW) => (render?.viewW ? Math.min(1, screenW / render.viewW) : 1)
 
+// ---- The Ophan (hidden Burrow boss) — the tuning block --------------------------------------------
+// A fixed arena centred on the world origin; the boss sits above centre, the player starts below.
+// docs/superpowers/specs/2026-10-24-the-ophan-final-boss-design.md
+// balance_decision : arena, boss and player start, first guesses 2026-10-24
+export const OPHAN_ARENA = { w: 390, h: 700 }
+export const OPHAN_BOSS = { x: 0, y: -100, R: 76, bodyR: 56 }
+export const OPHAN_PLAYER_START = { x: 0, y: 190 }
+// balance_decision : the world wipe crosses the arena in half a second 2026-10-24
+export const OPHAN_WIPE_SPEED = 1400
+export const OPHAN_WIPE_END = Math.hypot(OPHAN_ARENA.w, OPHAN_ARENA.h)
+// balance_decision : hand cycle timings, first guesses 2026-10-24
+//  - inT and after are derived from the hand animation's windows (HAND_WIN x HAND_DUR), not tuned
+export const OPHAN_HAND = { tell: 1.4, swapMin: 3.4, swapMax: 5.0, first: 3.2, afterBreak: 3, inT: 0.704, after: 2.208 }
+// balance_decision : damage windows, first guesses 2026-10-24
+export const OPHAN_STAGGER_T = 1.4
+export const OPHAN_WINDOW_MUL = 2
+export const OPHAN_RECOVERY_ON = 0.5
+export const OPHAN_PHASE_EASE = 0.8
+// balance_decision : attack scheduler, first guesses 2026-10-24
+export const OPHAN_ATK_CD = [2.2, 3.7]
+export const OPHAN_ATK_FIRST = 3
+export const OPHAN_HIT_CD = 0.6
+// balance_decision : attack lengths and damage, first guesses 2026-10-24
+export const OPHAN_ATTACKS = {
+  blast:   { dur: 1.8,  dmg: 18, shove: 420, minPh: 1 },
+  tornado: { dur: 4.5,  dmg: 8, pull: 140, minPh: 1 },
+  laser:   { dur: 3.85, dmg: 20, minPh: 2 },
+  wheel:   { dur: 4.2,  dmg: 22, minPh: 1 },
+  recall:  { dur: 4.4,  dmg: 12, minPh: 1 },
+  sword:   { dur: 3.4,  dmg: 26, fireDmg: 10, minPh: 1 },
+}
+// the animation-progress thresholds hit.js tests each attack's hit against
+export const OPHAN_HIT = { blastFade: 0.3, tornadoAlive: 0.5, tornadoPullR: 1.5, laserFire: 0.5, laserHitR: 0.14, wheelRoll: 0.5, impactAl: 0.7, fireOn: 0.5 }
+export const OPHAN_SHOVE_DECAY = 6   // per second
+// balance_decision : skin and sketch health, first guesses 2026-10-24
+export const OPHAN_SKIN_HP = 600
+export const OPHAN_SKETCH_HP = 900
+export const OPHAN_BREAK_FLOOR = 1
+export const OPHAN_IMMUNE_CD = 0.12
+// balance_decision : crowd cadence and cap per phase, first guesses 2026-10-24
+export const OPHAN_CROWD = { 1: { every: 2.2, cap: 8 }, 2: { every: 1.9, cap: 10 }, 3: { every: 1.6, cap: 12 }, edgeClear: 120 }
+// the HUD depth gauge's two ends (player-visible, walked by run XX)
+export const OPHAN_GAUGE_COPY = { top: 'surface', bottom: 'core' }
+// The fixed camera: the whole arena fits the screen, centred on the origin.
+export const ophanView = (screenW, screenH) => ({ z: Math.min(screenW / OPHAN_ARENA.w, screenH / OPHAN_ARENA.h), camX: 0, camY: 0 })
+
+// The worlds the Ophan wears, one per Burrow chapter: its art style (`look`), its gauge colour and
+// the three crowd ids it borrows from that chapter's roster.
+const OPHAN_WORLDS = [
+  { chapter: 'topsoil', look: 'macro', col: '#c08552', crowd: { normal: 'earthworm', fast: 'moleCricket', tank: 'mole' } },
+]
+CHAPTERS.ophan = {
+  name: 'The Ophan', tagline: 'it wears the world you stand in', icon: '👁',
+  scripted: true, boards: ['time', 'kills'], maxDifficultyCap: 3, xpNeedMul: 1.2,
+  tide: null, signature: null, obstacles: null, eliteFlags: [],
+  worlds: OPHAN_WORLDS,
+  attacks: { 1: ['sword', 'blast'], 2: ['sword', 'blast'], 3: ['sword', 'blast'] },
+  // The crowd reuses each world's own ids (names, French, looks and cast PNGs come with them),
+  // stripped of their behaviour flags; `world` is the index of the world that sends it.
+  roster: [
+    ...OPHAN_WORLDS.flatMap((w, world) => Object.values(w.crowd).map((id) =>
+      ({ ...CHAPTERS[w.chapter].roster.find((r) => r.id === id), flags: [], weight: 1, world }))),
+    // radiusMul = OPHAN_BOSS.bodyR / ENEMIES.tank.radius (run OP.shell pins it)
+    { id: 'ophan', archetype: 'tank', name: 'The Ophan', hpMul: 1, speedMul: 0, radiusMul: 2.15, flags: [], formationOnly: true },
+  ],
+  balance: { spawnMul: 1, enemyHpMul: 1, enemyDmgMul: 0.6, maxAliveMul: 1 },
+  weapons: ['shovel', 'prismShard', 'pickaxe', 'slagLadle', 'hotCoals', 'sling'], starter: 'shovel',
+  render: { ophan: {}, cast: [], bgColor: 0x000000, floorTint: 0xffffff, playerTint: 0xfff2e2, tail: false },
+}
+
 // ---- The Kraken (hidden boss — the tuning block, sim.js's stepKrakenScript owns the flow) -------
 // THE PARRY OPENS, THE BUILD KILLS:
 //   - an ARM is sealed until a parry makes it limp (KRAKEN_EXPOSE_BITE tears it on that parry);
@@ -11716,6 +11786,9 @@ export const HIDDEN_UNLOCKS = {
   // `wip: true` would hold one back: the win does not unlock it (The Kraken shipped 2026-10-09)
   kraken: { from: 'deep',   difficulty: 5, hint: 'win The Deep at level 5 — the graveyard has been waiting',
             icon: '🌊', unlocked: 'The monster below is angered by your light' },
+  // WIP for as long as The Core is (isWipChapter inherits it from the from chapter)
+  ophan:  { from: 'core',   difficulty: 3, hint: 'win The Core at level 3 — something at the centre is wearing the world',
+            icon: '👁', unlocked: 'THE OPHAN — the centre of the Earth opens its eye' },
 }
 // Every chapter that sits OUTSIDE its book's ladder, derived from the books rather than listed
 // again. `hidden` does not mean unreleased — it means off the ladder; only wipFrom hides a chapter
@@ -11747,6 +11820,8 @@ export const isWipChapter = (id) => {
   const book = BOOKS[bookOf(id)]
   if (!book) return false
   const i = book.chapters.indexOf(id)
+  // a hidden chapter is as finished as the chapter that unlocks it
+  if (i < 0 && HIDDEN_UNLOCKS[id]) return isWipChapter(HIDDEN_UNLOCKS[id].from)
   return i >= 0 && i >= (book.wipFrom ?? Infinity)
 }
 
@@ -11826,7 +11901,8 @@ export const playableChapterId = (meta) => {
 const isHiddenChapter = (id) => !!BOOKS[bookOf(id)]?.hidden?.includes(id)
 
 export const chapterAvailable = (meta, id) =>
-  !!meta?.chapters?.[id]?.unlocked || (meta?.dev === true && (isWipChapter(id) || isHiddenChapter(id)))
+  (!isWipChapter(id) || meta?.dev === true) &&
+  (!!meta?.chapters?.[id]?.unlocked || (meta?.dev === true && (isWipChapter(id) || isHiddenChapter(id))))
 
 // The name printed on a chapter's SPINE — its own name with the article dropped. A spine is about
 // 47px wide and reads its title VERTICALLY, which leaves roughly 110px of height for it: 'The
@@ -11840,7 +11916,7 @@ export const CHAPTER_SPINE = {
   body: 'Body', pond: 'Pond', garden: 'Garden', undergrowth: 'Undergrowth',
   city: 'City', skies: 'Skies', beyond: 'Beyond', blank: 'Blank',
   surf: 'Surf', shelf: 'Shelf', reef: 'Reef', wreck: 'Wreck', trawl: 'Trawl', deep: 'Deep', kraken: 'Kraken',
-  topsoil: 'Topsoil', geode: 'Geode', mine: 'Mine', magma: 'Magma', mantle: 'Mantle', core: 'Core',
+  topsoil: 'Topsoil', geode: 'Geode', mine: 'Mine', magma: 'Magma', mantle: 'Mantle', core: 'Core', ophan: 'Ophan',
 }
 // Falls back to the full name rather than throwing: a chapter added without a spine entry renders
 // with its article and looks slightly wrong, which is a far better failure than a blank spine.
@@ -14277,6 +14353,9 @@ export function burstWakeAt(left, scroll, behind) {
 // credited to the skies when pullBeam is The Beyond's elite affix, and the missile helicopter was
 // credited to the city when it flies in the skies. Re-check the producer, not the comment.
 export const DMG_SRC_NAME = {
+  // The Ophan's six attacks
+  ophanBlast: 'The Ophan’s wing blast', ophanTornado: 'The Ophan’s tornado', ophanLaser: 'The Ophan’s eyes',
+  ophanWheel: 'The Ophan’s wheel', ophanRecall: 'The Ophan’s feathers', ophanSword: 'The Ophan’s sword',
   // Book 2's hazards and resource costs
   // THE REEF ONLY, and this comment was briefly "every Book 2 chapter" until the audit checked:
   // stepDrown returns early unless the chapter's resource declares `drown`, and The Reef's Air is the
@@ -14371,10 +14450,12 @@ export function dmgSrcName(src) {
 // picture is a CREATURE the game already draws, so aliasing costs no new art at all:
 //   yank — the drag is the pull of The Blank's bind nodes, and a bindnode is an enemy with a face.
 //   leak — a rank that slipped behind you, and stepFormations forces `rosterId: 'invader'` on ranks.
-// Not a general indirection: keep it at two entries and give a hazard its own bake instead. The
+//   ophan* — every attack of The Ophan is the boss itself, so its six sources show its portrait.
+// Not a general indirection: give a hazard its own bake instead. The
 // summary must never show a creature that did not do the thing (v6.7.1's 🐻 for the tardigrade is
 // the same mistake with a different mechanism).
-export const DMG_SRC_ART = { yank: 'bindnode', leak: 'invader' }
+export const DMG_SRC_ART = { yank: 'bindnode', leak: 'invader',
+  ophanBlast: 'ophan', ophanTornado: 'ophan', ophanLaser: 'ophan', ophanWheel: 'ophan', ophanRecall: 'ophan', ophanSword: 'ophan' }
 
 /** Thumbnail id for a damage source: its alias if it has one, else the src itself. */
 export function dmgSrcArt(src) {
@@ -16080,6 +16161,7 @@ export const CHAPTER_ENDINGS = {
   magma:       { victory: 'You crossed the magma! 🎉',               death: 'Melted… 🌋' },
   mantle:      { victory: 'You rode out the lava tide! 🎉',        death: 'Swept under… 🌋' },
   core:        { victory: 'You held your pole at the heart of the world! 🎉', death: 'Pulled apart… 🧲' },
+  ophan:       { victory: 'THE OPHAN CLOSES ITS EYE.',              death: 'Painted over.' },
 }
 export const CHAPTER_UNLOCK_LINES = {
   pond:        'The Pond — word of you travels downstream',

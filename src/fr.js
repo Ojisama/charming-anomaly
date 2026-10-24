@@ -2271,6 +2271,22 @@ const CONFIG = {
   "Pulled apart… 🧲": "Écartelé… 🧲",
   "North": "Nord",
   "South": "Sud",
+  // ---- Book 3, The Ophan (drafts, owner review pending) ----
+  "The Ophan": "L'Ophan",
+  "Ophan": "Ophan",
+  "it wears the world you stand in": "il revêt le monde où tu te tiens",
+  "win The Core at level 3 — something at the centre is wearing the world": "gagne Le Noyau au niveau 3 — au centre, quelque chose revêt le monde",
+  "THE OPHAN — the centre of the Earth opens its eye": "L'OPHAN — le centre de la Terre ouvre son œil",
+  "THE OPHAN CLOSES ITS EYE.": "L'OPHAN FERME SON ŒIL.",
+  "Painted over.": "Effacé sous la peinture.",
+  "The Ophan’s wing blast": "Le souffle des ailes de l'Ophan",
+  "The Ophan’s tornado": "La tornade de l'Ophan",
+  "The Ophan’s eyes": "Les yeux de l'Ophan",
+  "The Ophan’s wheel": "La roue de l'Ophan",
+  "The Ophan’s feathers": "Les plumes de l'Ophan",
+  "The Ophan’s sword": "L'épée de l'Ophan",
+  "surface": "surface",
+  "core": "noyau",
 }
 
 export const FR = { ...UI, ...CONFIG }

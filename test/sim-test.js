@@ -181,7 +181,7 @@ import {
   lateSpawnMulAt, SPAWN_LATE_BLEND, SPAWN_LATE_START,
   // The Kraken (run KR): the rung table and the ring's numbers
   krakenRung, krakenRungFor, KRAKEN_TURN_BAG, KRAKEN_SLAP_EVERY, KRAKEN_SLAP_COCK, KRAKEN_SLAP_SWING, KRAKEN_SLAP_FUSE, KRAKEN_SLAP_FOLLOW_T, KRAKEN_TRICKLE_T, KRAKEN_TRICKLE_EDGE, KRAKEN_TRICKLE_CLEAR, OPEN_GUARD_WINDOW_MUL, HAIR_TRIGGER_WINDOW_MUL, HAIR_TRIGGER_DMG_MUL, KRAKEN_RUNGS, KRAKEN_ARM_REACH, KRAKEN_WAVE_TIMEOUT, KRAKEN_STAGGER_BITE,
-  KRAKEN_RISE_T, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, hiddenChapters, KRAKEN_CAGE_R, KRAKEN_PARRY_CD,
+  KRAKEN_RISE_T, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, hiddenChapters, OPHAN_BOSS, ophanView, OPHAN_GAUGE_COPY, KRAKEN_CAGE_R, KRAKEN_PARRY_CD,
   KRAKEN_OPEN_WAVES, KRAKEN_COIL_EVERY, KRAKEN_COIL_RAYS, KRAKEN_ENRAGE_AT, KRAKEN_RAGE_AT, KRAKEN_RAGE_HITS_MIN, KRAKEN_RAGE_HITS_MAX, KRAKEN_RAGE_VOLLEY, KRAKEN_RAGE_VOLLEY_SPREAD, KRAKEN_RAGE_FUSE, KRAKEN_RAGE_GAP, KRAKEN_RAGE_CALM, KRAKEN_RAGE_CHANCE, KRAKEN_NODE_BACK, KRAKEN_HEAD_HP, KRAKEN_HEAD_HP_AT, KRAKEN_HEAD_HP_PER_S, KRAKEN_ARRIVE_T, KRAKEN_RING_R, KRAKEN_LASH_R, KRAKEN_SLAM_T, KRAKEN_DEFLECT_CD,
   KRAKEN_LUNGE_T, KRAKEN_GRIP_DUR, KRAKEN_GRIP_DMG, KRAKEN_GRIP_FLICKS, KRAKEN_GRIP_STICK_MUL, TRAWL_WIGGLE_ARC,
   KRAKEN_LASH_W, KRAKEN_LASH_OVER, KRAKEN_LASH_DMG, KRAKEN_LESSON_MAX, KRAKEN_PARRY_SHOVE_R, KRAKEN_PARRY_EARLY_T, KRAKEN_LIMP_CLEAR, KRAKEN_ARRIVE_T2, KRAKEN_WAVE_GROWTH, KRAKEN_COIL_DMG, KRAKEN_COIL_SHADOW_SOFT, krakenCoilBandHalfW,
@@ -744,7 +744,7 @@ function testEndlessAccess() {
   // source-text contracts (main/ui are not importable)
   const main = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
   const ui = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
-  assert.match(main, /if \(nick && !meta\.dev && !run\._devUsed && !run\.endless\)/, 'endRun must refuse to submit an endless run')
+  assert.match(main, /if \(nick && !meta\.dev && !run\._devUsed && !run\.endless &&/,'endRun must refuse to submit an endless run')
   assert.match(main, /if \(endless && meta\.dev && speedrun\) ffTarget/, 'speedrun must stay dev-only')
   assert.match(ui, /const speedrunBtn = meta\.dev === true && endlessOn/, 'Speedrun button must stay dev-only')
   assert.match(ui, /endlessOn = endlessAccess\(meta\) && endlessUnlocked/, 'pip gated on endlessAccess')
@@ -14686,7 +14686,8 @@ function testV54Weapons() {
       const pairs = []
       for (const [cid, ch] of Object.entries(CHAPTERS)) {
         for (const rr of ch.roster ?? []) {
-          if (rr.archetype !== 'tank') continue
+          // a body that never walks (The Ophan, speedMul 0) has no walk back for a shove to out-run
+          if (rr.archetype !== 'tank' || rr.speedMul === 0) continue
           const speed = ENEMIES.tank.speed * (rr.speedMul ?? 1)
           const cc = (rr.flags ?? []).includes('unshakeable') ? UNSHAKEABLE_CC_MUL : 1
           for (const wid of ch.weapons ?? []) {
@@ -19397,6 +19398,8 @@ function testFrenchDictionary() {
   for (const v of Object.values(DMG_SRC_NAME ?? {})) need(v)
   // The Core's pole names, shown on the HUD's spawn-tide gauge (your pole).
   for (const v of Object.values(POLE_NAMES ?? {})) need(v?.name)
+  // The Ophan's depth gauge ends.
+  for (const v of Object.values(OPHAN_GAUGE_COPY ?? {})) need(v)
   // The pause build sheet's stat labels. These were unreachable by this walk until STAT_KEYS became
   // a config TABLE: the words lived in a bare const inside ui.js, and this walk enumerates tables,
   // so five of them shipped rendering in English on the French sheet. Merging the two registries
@@ -21106,6 +21109,7 @@ run(testLeLargeWeapons)
   run(testCoreMagnetism)
   run(testCoreRules)
   run(testCoreSpawnMix)
+  run(testOphanShell)
   // A hand-typed filter that matched nothing is the silent pass without a parent watching:
   // `node test/sim-test.js supernova` printed ALL TESTS PASSED having run no scenario at all.
   if (_ran === 0 && !EXACT_SET) {
@@ -37306,7 +37310,7 @@ function runKraken() {
     const uiSrcK = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
     assert.ok(/HIDDEN_UNLOCKS\[d\.unlockedHiddenChapter\]\.unlocked/.test(uiSrcK), 'the hidden-unlock badge no longer reads its own HIDDEN_UNLOCKS row')
     assert.ok(!uiSrcK.includes("t('THE BLANK"), 'ui.js hardcodes The Blank\'s unlock line again')
-    assert.deepStrictEqual([...hiddenChapters()].sort(), ['blank', 'kraken'], 'hiddenChapters() no longer derives both from the books')
+    assert.deepStrictEqual([...hiddenChapters()].sort(), ['blank', 'kraken', 'ophan'], 'hiddenChapters() no longer derives all three from the books')
     for (const f of ['src/main.js', 'src/ui.js', 'src/state.js']) {
       const src = readFileSync(new URL('../' + f, import.meta.url), 'utf8')
       assert.ok(!/['"]kraken['"]/.test(src), `${f} hardcodes the kraken id instead of reading HIDDEN_UNLOCKS`)
@@ -39368,6 +39372,15 @@ function testBurrow() {
   assert.ok(!titleBookshelf(player).some((sh) => sh.book === 'burrow'), 'run BU3.d: a non-dev save shelves Burrow')
   assert.ok(!unlockBook(player, 'burrow') && !player.chapters?.topsoil?.unlocked, 'run BU3.d: a non-dev save opened Burrow')
   assert.ok(titleBookshelf(meta()).some((sh) => sh.book === 'burrow'), 'run BU3.d: a dev save does not shelve Burrow')
+  assert.ok(!titleBookshelf(player).some((sh) => sh.volumes.some((v) => v.id === 'ophan')), 'run BU3.d: a non-dev save shelves The Ophan')
+  assert.ok(chapterAvailable(meta(), 'ophan') && titleBookshelf(meta()).find((s) => s.book === 'burrow').volumes.some((v) => v.id === 'ophan'), 'run BU3.d: DEV does not open The Ophan')
+  // THE GATE LEAK: a non-dev save that somehow holds the unlock still cannot reach it
+  const leak = { ...makeMeta(), dev: false, chapter: 'ophan', chapters: { ...makeMeta().chapters, ophan: { unlocked: true } } }
+  assert.ok(!chapterAvailable(leak, 'ophan'), 'run BU3.d: an unlocked flag opens a WIP hidden chapter without DEV')
+  assert.notStrictEqual(playableChapterId(leak), 'ophan', 'run BU3.d: a non-dev save starts The Ophan')
+  assert.ok(!isWipChapter('kraken') && !isWipChapter('blank'), 'run BU3.d: the inheritance gated a shipped hidden chapter')
+  const mainSrc = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
+  assert.ok(/!run\._devUsed && !run\.endless && !isWipChapter\(run\.chapter\)/.test(mainSrc), 'run BU3.d: a WIP chapter can submit a score')
   console.log(`PASS run BU3 (Burrow): moles under ${under} frames, 0 hp lost under, mole dmg ${run.dmgBySrc.mole}; unarmed pit kills ${kOn} vs ${kOff} off; a crystal bounced ${on.bounced}x into ${on.bullets.length} shots, stopped it with bounce off`)
 }
 
@@ -43072,4 +43085,28 @@ function testCoreSpawnMix() {
     assert.ok((most[id] ?? 0) <= cap[id], `run CO5: never more than ${cap[id]} ${id} at once: ${most[id]}`)
   }
   console.log(`PASS run CO5 (Core spawn mix): ${total} spawns in 150 s, heavies ${(share * 100).toFixed(1)}% (${JSON.stringify(born)}), most at once ${JSON.stringify(most)}`)
+}
+
+// ---- run OP.shell: The Ophan's chapter shell ---------------------------------------------------
+// The hidden Burrow boss: unlocked by The Core at 3, WIP for as long as The Core is, its crowd
+// borrowed (flagless) from each world's home chapter, its six damage sources named and portrayed,
+// and its fixed-arena camera fitting the arena on any screen.
+function testOphanShell() {
+  assert.deepStrictEqual([HIDDEN_UNLOCKS.ophan.from, HIDDEN_UNLOCKS.ophan.difficulty], ['core', 3])
+  const c = CHAPTERS.ophan
+  assert.ok(c.scripted && c.maxDifficultyCap === 3 && c.starter === 'shovel' && c.boards.length === 2)
+  assert.deepStrictEqual(c.weapons, ['shovel', 'prismShard', 'pickaxe', 'slagLadle', 'hotCoals', 'sling'])
+  assert.ok(isWipChapter('ophan') === isWipChapter('core') && bookOf('ophan') === 'burrow')
+  for (const w of c.worlds) for (const id of Object.values(w.crowd)) {
+    const r = c.roster.find((x) => x.id === id)
+    assert.ok(r && r.flags.length === 0 && r.world === c.worlds.indexOf(w), `crowd ${id} missing or still carries flags`)
+  }
+  const boss = c.roster.find((r) => r.id === 'ophan')
+  assert.ok(Math.abs(ENEMIES.tank.radius * boss.radiusMul - OPHAN_BOSS.bodyR) < 0.5, 'the boss body radius drifted from the drawn body')
+  for (const k of ['ophanBlast', 'ophanTornado', 'ophanLaser', 'ophanWheel', 'ophanRecall', 'ophanSword'])
+    assert.ok(DMG_SRC_NAME[k] && DMG_SRC_ART[k] === 'ophan', `${k} has no name or no portrait alias`)
+  assert.deepStrictEqual(ophanView(390, 700), { z: 1, camX: 0, camY: 0 })
+  assert.strictEqual(ophanView(1440, 900).z, 900 / 700)
+  assert.strictEqual(ophanView(390, 844).z, 1)
+  console.log(`PASS run OP.shell: ${c.worlds.length} world(s), ${c.roster.length} roster rows, unlock core@3, WIP inherits from core`)
 }
