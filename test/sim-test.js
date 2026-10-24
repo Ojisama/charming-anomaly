@@ -19401,7 +19401,7 @@ function testFrenchDictionary() {
   // The Core's pole names, shown on the HUD's spawn-tide gauge (your pole).
   for (const v of Object.values(POLE_NAMES ?? {})) need(v?.name)
   // The Ophan's depth gauge ends.
-  for (const v of Object.values(OPHAN_GAUGE_COPY ?? {})) need(v)
+  for (const v of Object.values(OPHAN_GAUGE_COPY ?? {}).flat()) need(v)
   // The pause build sheet's stat labels. These were unreachable by this walk until STAT_KEYS became
   // a config TABLE: the words lived in a bare const inside ui.js, and this walk enumerates tables,
   // so five of them shipped rendering in English on the French sheet. Merging the two registries
@@ -43681,14 +43681,16 @@ function testOphanAttackPool() {
   console.log(`PASS run OP.pool: d1 300s ${d1.length} attacks {${set(d1)}}, d2 phase 1 all three by ${t2a.toFixed(0)}s in ${d2a.length} {${set(d2a)}}, after two breaks the first laser by ${t2b.toFixed(0)}s in ${d2b.length}, at ph 2, d3 all six by ${t3.toFixed(0)}s in ${d3.length}`)
 }
 
-// run OP.wire: render.js and src/ophan/renderer.js are not importable (Pixi + DOM), so their
-// contract is linted as source text, comments stripped as run MB.a does. A block comment must open after
-// whitespace: render.js's import.meta.glob('./props/*.png') otherwise opens one that swallows ~960KB of the file.
+// run OG: the Ophan's depth gauge is DOM built by ui.js, linted as source text. data-ui on it is what keeps input.js's
+// joystick from starting under a gauge touch.
 function testOphanGauge() {
   const strip = (x) => x.replace(/(^|\s)\/\*[\s\S]*?\*\//g, '$1').replace(/\/\/.*$/gm, '')
   const ui = strip(readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8'))
   const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
   assert.ok(/data-ophan-gauge/.test(ui) && /hooks\.onWorld\(/.test(ui), 'ui.js has no gauge or does not bind onWorld')
+  assert.ok(/data-ophan-gauge[^>]*data-ui|data-ui[^>]*data-ophan-gauge/.test(ui), 'the gauge lacks data-ui: a touch on it would start the joystick')
+  assert.ok(/setPointerCapture/.test(ui) && /addEventListener\('pointermove'/.test(ui), 'the gauge lacks pointer capture or the pointermove slide')
+  assert.strictEqual(OPHAN_GAUGE_COPY.tags.length, CHAPTERS.ophan.worlds.length, 'one gauge tag per world')
   for (const f of ['broken', 'skin', 'next', 'sketch']) assert.ok(new RegExp('oph\\.' + f + '\\b').test(ui), 'the gauge never reads oph.' + f)
   const keys = ui.slice(ui.indexOf('function onLevelupKeydown'), ui.indexOf('function onLevelupKeydown') + 900)
   assert.ok(/Digit5/.test(keys) && /Digit6/.test(keys), 'a level-up card lets 5 and 6 through to the world keys')
@@ -43699,6 +43701,9 @@ function testOphanGauge() {
   console.log('PASS run OG: gauge markup, onWorld binding, state reads, level-up key guard, touch-action, band height ' + h + 'px')
 }
 
+// run OP.wire: render.js and src/ophan/renderer.js are not importable (Pixi + DOM), so their
+// contract is linted as source text, comments stripped as run MB.a does. A block comment must open after
+// whitespace: render.js's import.meta.glob('./props/*.png') otherwise opens one that swallows ~960KB of the file.
 function testOphanRenderWiring() {
   const strip = (s) => s.replace(/(^|\s)\/\*[\s\S]*?\*\//g, '$1').replace(/\/\/.*$/gm, '')
   const render = strip(readFileSync(new URL('../src/render.js', import.meta.url), 'utf8'))

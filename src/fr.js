@@ -2287,6 +2287,12 @@ const CONFIG = {
   "The Ophan’s sword": "L'épée de l'Ophan",
   "surface": "surface",
   "core": "noyau",
+  "SOIL": "SOL",
+  "GEOD": "GÉODE",
+  "MINE": "MINE",
+  "MAGMA": "MAGMA",
+  "MANTL": "MANTEAU",
+  "CORE": "NOYAU",
 }
 
 export const FR = { ...UI, ...CONFIG }

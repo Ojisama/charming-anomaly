@@ -10208,7 +10208,7 @@ export const OPHAN_IMMUNE_CD = 0.12
 // balance_decision : crowd cadence and cap per phase, first guesses 2026-10-24
 export const OPHAN_CROWD = { 1: { every: 2.2, cap: 8 }, 2: { every: 1.9, cap: 10 }, 3: { every: 1.6, cap: 12 }, edgeClear: 120 }
 // the HUD depth gauge's two ends (player-visible, walked by run XX)
-export const OPHAN_GAUGE_COPY = { top: 'surface', bottom: 'core' }
+export const OPHAN_GAUGE_COPY = { top: 'surface', bottom: 'core', tags: ['SOIL', 'GEOD', 'MINE', 'MAGMA', 'MANTL', 'CORE'] }
 // The fixed camera: the whole arena fits the screen, centred on the origin.
 export const ophanView = (screenW, screenH) => ({ z: Math.min(screenW / OPHAN_ARENA.w, screenH / OPHAN_ARENA.h), camX: 0, camY: 0 })
 

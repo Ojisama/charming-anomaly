@@ -2501,7 +2501,7 @@ export function initUI(hooks) {
     <!-- THE OPHAN'S DEPTH GAUGE: six world bands, surface at the top, core at the bottom. Hidden outside a chapter with worlds. -->
     <div class="ophan-gauge" data-ui data-ophan-gauge style="display:none;">
       <span class="ophan-cap">${t(OPHAN_GAUGE_COPY.top)}</span>
-      ${OPHAN_GAUGE_IDS.map((id, k) => `<button data-world="${k}" aria-label="${t(spineName(id))}">${t(spineName(id)).slice(0, 4).toUpperCase()}</button>`).join('')}
+      ${OPHAN_GAUGE_IDS.map((id, k) => `<button data-world="${k}" aria-label="${t(spineName(id))}">${t(OPHAN_GAUGE_COPY.tags[k])}</button>`).join('')}
       <span class="ophan-cap">${t(OPHAN_GAUGE_COPY.bottom)}</span>
     </div>
     <div class="race-speed race-hidden"><b></b><span class="race-k" data-race-k="KM/H"></span></div>
