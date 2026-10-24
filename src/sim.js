@@ -1748,6 +1748,14 @@ function ophanPin(run) {
   b.kb.x = 0; b.kb.y = 0
 }
 
+function ophanWin(run, x, y) {
+  run.bossBar = null
+  run.phase = 'victory'
+  run.events.push({ type: 'bossDead', x, y })
+  run.events.push({ type: 'victory' })
+  return true
+}
+
 // The whole fight, one world for now. Returns true when the ordinary step must not run.
 function stepOphanScript(run, dt) {
   if (run.phase !== 'playing') return true
@@ -1770,7 +1778,8 @@ function stepOphanScript(run, dt) {
   o.stagger = Math.max(0, o.stagger - dt)
   ophanPin(run)
   const b = ophanBoss(run)
-  if (!b) return false   // only the kill path removes it, and dealDamage's hp floor shuts that
+  // gone without a break (the hp floor should make that impossible): end it as a win, never a bossless arena
+  if (!b) return ophanWin(run, OPHAN_BOSS.x, OPHAN_BOSS.y)
   o.hp[o.skin] = b.hp
 
   // THE BREAK: a skin at the floor is spent; the last one ends the fight
@@ -1780,11 +1789,7 @@ function stepOphanScript(run, dt) {
     const left = o.broken.flatMap((v, k) => (v ? [] : [k]))
     if (!left.length) {
       b._dead = true   // taken off the field, not killed: no kill event, no gem
-      run.bossBar = null
-      run.phase = 'victory'
-      run.events.push({ type: 'bossDead', x: b.x, y: b.y })
-      run.events.push({ type: 'victory' })
-      return true
+      return ophanWin(run, b.x, b.y)
     }
     o.skin = left[Math.floor(Math.random() * left.length)]
     b.hp = o.hp[o.skin]
@@ -3745,7 +3750,7 @@ function spawnBlankEnemy(run, rosterId, essential = false, opts = {}) {
   const base = ENEMIES[ARCHETYPE_TYPE[roster.archetype]]
   e.hp = e.maxHP = roundHP(base.hp * (roster.hpMul ?? 1) * run.mods.enemyHpMul)
   e.speed = base.speed * (roster.speedMul ?? 1) * run.mods.enemySpeedMul
-  e.dmg = base.dmg * run.mods.enemyDmgMul
+  e.dmg = base.dmg * run.mods.enemyDmgMul * (roster.dmgMul ?? 1)
   return e
 }
 

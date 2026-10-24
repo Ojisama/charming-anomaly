@@ -43217,10 +43217,11 @@ function testOphanSlice() {
     o.crowdT = 1e9; p.hp = p.maxHP = 1e6
     let maxX = -Infinity
     ophSteps(r, 300, { input: { x: 1, y: 0 }, after: () => { maxX = Math.max(maxX, p.x) } })
-    assert.ok(maxX <= OPHAN_ARENA.w / 2 && maxX > OPHAN_ARENA.w / 2 - 2 * PLAYER.radius, `a5: walking right ends at x=${maxX.toFixed(1)}, not at the arena wall`)
+    const wall = OPHAN_ARENA.w / 2 - PLAYER.radius
+    assert.ok(maxX <= wall + 1e-6 && maxX > wall - 2, `a5: walking right ends at x=${maxX.toFixed(1)}, not at the arena wall`)
     o.push.x = 1e4
     ophSteps(r, 30, { input: { x: 1, y: 0 }, after: () => { maxX = Math.max(maxX, p.x) } })
-    assert.ok(maxX <= OPHAN_ARENA.w / 2, `a5: a shove at the wall put the player at x=${maxX.toFixed(1)}, outside the arena`)
+    assert.ok(maxX <= wall + 1e-6, `a5: a shove at the wall put the player at x=${maxX.toFixed(1)}, outside the arena`)
   }
   // a6 win: every skin broken (no ordinary kill), one victory
   {
@@ -43243,7 +43244,7 @@ function testOphanSlice() {
     assert.ok(r.phase === 'dead' && r.killedBy === 'ophanSword' && count(r, 'victory') === 0, `a7: phase ${r.phase}, killed by ${r.killedBy}`)
   }
   // a8 the crowd: world 0's ids only, born on the arena border away from the player
-  let born = 0
+  let born = 0, dmgMulSeen = 0
   {
     const r = ophanRun(1), p = r.player, ids = Object.values(CHAPTERS.ophan.worlds[0].crowd)
     p.hp = p.maxHP = 1e9; r.weapons = []
@@ -43255,10 +43256,16 @@ function testOphanSlice() {
         const edge = Math.min(Math.abs(Math.abs(e.x) - OPHAN_ARENA.w / 2), Math.abs(Math.abs(e.y) - OPHAN_ARENA.h / 2))
         assert.ok(edge < 6, `a8: a ${e.rosterId} was born ${edge.toFixed(1)}px off the border`)
         assert.ok(Math.hypot(e.x - p.x, e.y - p.y) > OPHAN_CROWD.edgeClear - 6, 'a8: a crowd body was born on top of the player')
+        // the borrowed row keeps its own damage term (spawnBlankEnemy folds roster.dmgMul)
+        const row = CHAPTERS.ophan.roster.find((x) => x.id === e.rosterId)
+        const want = ENEMIES[ARCHETYPE_TYPE[row.archetype]].dmg * r.mods.enemyDmgMul * (row.dmgMul ?? 1)
+        assert.ok(Math.abs(e.dmg - want) < 1e-9, `a8: a ${e.rosterId} hits for ${e.dmg}, its row says ${want}`)
+        if (row.dmgMul != null) dmgMulSeen++
       }
     } })
     born = seen.size
     assert.ok(born >= 8, `a8: only ${born} crowd bodies in 30s`)
+    assert.ok(dmgMulSeen > 0, 'a8: no crowd body with a roster dmgMul (the mole cricket) was born, so its damage went unchecked')
   }
   // a9 win and die in the same step: exactly one of them, and nothing after it
   {
@@ -43291,7 +43298,10 @@ function testOphanSlice() {
     ophSteps(r, 30, { before: ophHold(r, A), until: () => (r.dmgBySrc.ophanSword ?? 0) > 0 })
     assert.ok((r.dmgBySrc.ophanSword ?? 0) > 0, 'a10: the sword never landed once invulnerability lapsed')
   }
-  // a11 closest enemy, always: a sealed boss is still the target when it is the nearest body
+  // a11 closest enemy, always: a sealed boss is still the target when it is the nearest body.
+  // Only shovel, prismShard and hotCoals prove TARGETING here: with the seal added to every
+  // targeting site, pickaxe, slagLadle and sling still reach the sealed boss (they do not aim at
+  // nearestEnemy), so for those three the first half measures reach only.
   const reach = []
   const spot = { x: OPHAN_BOSS.x, y: OPHAN_BOSS.y + OPHAN_BOSS.bodyR + 90 }
   for (const id of CHAPTERS.ophan.weapons) {
@@ -43312,14 +43322,15 @@ function testOphanSlice() {
     for (const e of q.enemies) if (e !== near && e.rosterId !== 'ophan') e._dead = true
     Object.assign(near, { x: spot.x, y: spot.y + 60, speed: 0, hp: 1e9, maxHP: 1e9 })
     q.weapons = [{ id, level: 1 }]; q.events.length = 0
-    let hitAt = -1, immAt = -1
+    // until the first hit on it AND the whole first 0.3 s (18 frames) have been watched
+    let hitAt = -1, immAt = -1, n = 0
     ophSteps(q, 5 * 60, {
       before: () => { ophHold(q, spot)(); near.x = spot.x; near.y = spot.y + 60 },
-      after: (i) => { if (hitAt < 0 && near.hp < 1e9) hitAt = i; if (immAt < 0 && count(q, 'ophanImmune')) immAt = i },
-      until: () => hitAt >= 0,
+      after: (i) => { n = i + 1; if (hitAt < 0 && near.hp < 1e9) hitAt = i; if (immAt < 0 && count(q, 'ophanImmune')) immAt = i },
+      until: () => hitAt >= 0 && n >= 18,
     })
     assert.ok(hitAt >= 0, `a11: ${id} never hit a crowd body 60px away`)
-    assert.ok(immAt < 0 || immAt >= Math.max(hitAt, 18), `a11: ${id} shot the sealed boss (frame ${immAt}) before the nearer crowd body (frame ${hitAt})`)
+    assert.ok(immAt < 0 || (immAt > hitAt && immAt >= 18), `a11: ${id} shot the sealed boss (frame ${immAt}) no later than the nearer crowd body (frame ${hitAt})`)
   }
   // the boss's body does not hurt: touching it with no attack running costs nothing
   {
@@ -43345,5 +43356,5 @@ function testOphanSlice() {
     if (g.alive > OPHAN_HIT.tornadoAlive) tornado = ophanHits('tornado', g, g.pos.x + 4, g.pos.y - 2, PLAYER.radius, R, OPHAN_HIT)
   }
   assert.ok(tornado?.hit && tornado.pull, 'the live tornado neither hits nor pulls a player at its foot')
-  console.log(`PASS run OP.slice: matched x1 / stagger x2 / mismatch 0, locked aim, arena wall, ${CHAPTERS.ophan.worlds.length} skin(s) broken -> one victory, sword death, ${born} crowd births on the border, win+death resolves once, invuln holds, a11 reach [${reach.join(', ')}], no touch damage, 6/6 attacks hit live`)
+  console.log(`PASS run OP.slice: matched x1 / stagger x2 / mismatch 0, locked aim, arena wall, ${CHAPTERS.ophan.worlds.length} skin(s) broken -> one victory, sword death, ${born} crowd births on the border, win+death resolves once, invuln holds, a11 reach [${reach.join(", ")}] (targeting proven for shovel/prismShard/hotCoals, reach only for pickaxe/slagLadle/sling), crowd dmgMul kept, no touch damage, 6/6 attacks hit live`)
 }
