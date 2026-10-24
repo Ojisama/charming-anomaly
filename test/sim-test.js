@@ -43559,10 +43559,22 @@ function testOphanAttacks() {
   // whole attack, and how many grid points are outside it (+-10%). The free set is computed with the
   // predicate under test, so these literals are what catch a predicate that grew or shrank.
   const GOLD = {
-    blast: [[7, 192], [7, 252], 373], tornado: [[7, 92], [7, 192], 468], laser: [[7, 192], [67, 192], 442],
+    blast: [[7, 192], [7, 252], 373], tornado: [[7, 152], [7, 232], 399], laser: [[7, 192], [67, 192], 442],
     wheel: [[7, 192], [-53, 232], 320], recall: [[7, 192], [27, 192], 380], sword: [[7, 192], [47, 192], 473],
   }
   const rows = []
+  // the tornado reaches where you stood: a player who never moves off the locked aim is hurt
+  {
+    const still = ophAttackRun('tornado', A, (r) => { r.player.x = A.x; r.player.y = A.y; r.player.invuln = 0 }).dmgBySrc.ophanTornado ?? 0
+    assert.ok(still > 0, `tornado: a player standing still on the aim (${A.x}, ${A.y}) was never hurt`)
+    const end = RIG.attack('tornado', 0.9, 3, bx, by, R, A.x, A.y)
+    assert.ok(Math.hypot(end.pos.x - A.x, end.pos.y - A.y) < 1, `tornado: its road ends at (${end.pos.x.toFixed(1)}, ${end.pos.y.toFixed(1)}), not on the aim`)
+    // the whole drawn funnel hurts: the base ellipse below the foot and the top ellipse above the column
+    const g = RIG.attack('tornado', 0.7, 3, bx, by, R, A.x, A.y), H = g.height * (1 - 0.92 * g.collapse)
+    for (const [dx, dy, part] of [[0, 0.25 * g.foot + PLAYER.radius, 'base'], [0, -H - 0.25 * g.radius - PLAYER.radius, 'top'], [0.9 * g.radius, -H, 'rim']])
+      assert.ok(ophanHits('tornado', g, g.pos.x + dx, g.pos.y + dy, PLAYER.radius, R, OPHAN_HIT).hit, `tornado: a player touching its ${part} is not hit`)
+    rows.push('tornado hits the still aim and its whole funnel')
+  }
   for (const k of Object.keys(STRIKE)) {
     const g = RIG.attack(k, STRIKE[k], 3, bx, by, R, A.x, A.y)
     const on = ophGrid().filter((q) => ophanHits(k, g, q.x, q.y, PLAYER.radius, R, OPHAN_HIT).hit)

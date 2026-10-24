@@ -293,8 +293,8 @@ const RIG = (() => {
       return { dir: phi, suck, shock, sheet };
     }
     if (atk === 'tornado'){
-      // the road (u = .42 .. .88): from just off the boss to 70% of the way to the player, wandering side to side
-      const road = (v) => { const f = .4 + .3*sm(.44, .88, v), w = .5*Math.sin(v*9 + .5)*sm(.42, .55, v); return { x: PX*f - Math.sin(phi)*w, y: .2 + (PY - .2)*f + Math.cos(phi)*w }; };
+      // the road (u = .42 .. .88): from just off the boss to the locked aim, wandering side to side and settling onto it
+      const road = (v) => { const f = .4 + .6*sm(.44, .88, v), w = .5*Math.sin(v*9 + .5)*sm(.42, .55, v)*(1 - sm(.74, .88, v)); return { x: PX*f - Math.sin(phi)*w, y: .2 + (PY - .2)*f + Math.cos(phi)*w }; };
       const path = [], pathR = []; for (let k=0;k<10;k++){ path.push(road(.46 + .42*k/9)); pathR.push(.16 + .015*k); }
       const e = road(.88), sc = .45 + .55*sm(.43, .58, u), d = sm(.84, .91, u), v0 = Math.max(.42, u - .3), trail = [];
       for (let k=0;k<=10;k++) trail.push(road(v0 + (u - v0)*k/10));

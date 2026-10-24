@@ -23,9 +23,10 @@ export function ophanHits(atk, geo, x, y, r, R, T) {
   }
   if (atk === 'tornado') {
     if (!(geo.alive > T.tornadoAlive)) return no
-    const dy = geo.pos.y - y
-    if (dy < -r || dy > geo.height) return no
-    if (Math.abs(x - geo.pos.x) > geo.foot + (geo.radius - geo.foot) * cl(dy / geo.height) + r) return no
+    // the drawn funnel: a base ellipse at the foot, rings widening as h^1.4 up its (collapsing) height, a top ellipse
+    const H = geo.height * (1 - 0.92 * geo.collapse), dy = geo.pos.y - y
+    if (dy < -0.3 * geo.foot - r || dy > H + 0.28 * geo.radius + r) return no
+    if (Math.abs(x - geo.pos.x) > geo.foot + (geo.radius - geo.foot) * Math.pow(cl(dy / H), 1.4) + r) return no
     const px = geo.pos.x - x, py = geo.pos.y - y, d = Math.hypot(px, py)
     return yes(d && d < T.tornadoPullR * geo.radius ? { pull: { x: px / d, y: py / d } } : {})
   }
