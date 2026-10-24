@@ -43547,6 +43547,13 @@ function ophSrc(k) { return 'ophan' + k[0].toUpperCase() + k.slice(1) }
 function testOphanAttacks() {
   const A = { ...OPHAN_PLAYER_START }, { x: bx, y: by, R } = OPHAN_BOSS
   const STRIKE = { blast: 0.72, tornado: 0.7, laser: 0.72, wheel: 0.5, recall: 0.65, sword: 0.55 }
+  // golden shapes, aimed at A: the strike frame's point nearest A, the nearest point outside the
+  // whole attack, and how many grid points are outside it (+-10%). The free set is computed with the
+  // predicate under test, so these literals are what catch a predicate that grew or shrank.
+  const GOLD = {
+    blast: [[7, 192], [7, 252], 373], tornado: [[7, 92], [7, 192], 468], laser: [[7, 192], [67, 192], 442],
+    wheel: [[7, 192], [-53, 232], 320], recall: [[7, 192], [27, 192], 380], sword: [[7, 192], [47, 192], 473],
+  }
   const rows = []
   for (const k of Object.keys(STRIKE)) {
     const g = RIG.attack(k, STRIKE[k], 3, bx, by, R, A.x, A.y)
@@ -43555,6 +43562,10 @@ function testOphanAttacks() {
     const free = ophUnionFree(k, A.x, A.y)
     assert.ok(on, `${k}: its strike frame (u=${STRIKE[k]}) hits no arena point`)
     assert.ok(free.length > 0, `${k}: no arena point is outside the whole attack`)
+    const [gOn, gFree, gN] = GOLD[k]
+    assert.deepStrictEqual([on.x, on.y], gOn, `${k}: the strike point moved to (${on.x}, ${on.y})`)
+    assert.deepStrictEqual([free[0].x, free[0].y], gFree, `${k}: the nearest safe point moved to (${free[0].x}, ${free[0].y})`)
+    assert.ok(Math.abs(free.length - gN) <= 0.1 * gN, `${k}: ${free.length} safe grid points, golden ${gN} +-10%`)
     const dOn = ophAttackRun(k, A, (r) => { r.player.x = on.x; r.player.y = on.y; r.player.invuln = 0 }).dmgBySrc[ophSrc(k)] ?? 0
     assert.ok(dOn > 0, `${k} on: parked on its strike point (${on.x}, ${on.y}), never hurt`)
     const f = free[0]
@@ -43595,28 +43606,37 @@ function testOphanAttacks() {
     assert.ok(wind > 0 && rec === 2 * wind, `recovery: wind-up hit took ${wind}, recovery hit ${rec}`)
   }
   // shove: a crest pushes the player outward even through invulnerability, into the wall, not past it
-  let shoved = 0
-  {
+  const hw = OPHAN_ARENA.w / 2 - PLAYER.radius, hh = OPHAN_ARENA.h / 2 - PLAYER.radius
+  // a blast aimed at the invulnerable player standing at `at`, stepped at dt for 3 s
+  // `ride` re-parks the player on the crest front ahead of every step, so the shove acts for the
+  // whole sheet whatever it does to them; `travel` is the distance the push alone would carry them
+  const shove = (dt, ride) => {
     const r = ophanRun(3, 12), o = r.script.oph, p = r.player
     o.crowdT = 1e9; r.weapons = []; p.hp = p.maxHP = 1e9; o.swapIn = 1e9; o.tell = 0; o.after = -1
     p.x = A.x; p.y = A.y
     o.atk = { k: 'blast', u: 0, dur: OPHAN_ATTACKS.blast.dur, ax: A.x, ay: A.y, hitCd: 0 }
-    const d0 = Math.hypot(p.x - bx, p.y - by)
-    let out = true
-    const hw = OPHAN_ARENA.w / 2 - PLAYER.radius, hh = OPHAN_ARENA.h / 2 - PLAYER.radius
-    ophSteps(r, 3 * 60, {
-      before: () => { p.invuln = 1 },
-      after: () => {
-        const m = Math.hypot(o.push.x, o.push.y)
-        if (m > shoved) { shoved = m; out = o.push.x * (p.x - bx) + o.push.y * (p.y - by) > 0 }
-        assert.ok(Math.abs(p.x) <= hw + 1e-6 && Math.abs(p.y) <= hh + 1e-6, `shove: the player left the arena at (${p.x.toFixed(1)}, ${p.y.toFixed(1)})`)
-      },
-    })
-    assert.ok(shoved > 0, 'shove: an invulnerable player in the blast crest was not shoved')
-    assert.ok(out && Math.hypot(p.x - bx, p.y - by) > d0 + 20, `shove: not pushed outward (${d0.toFixed(0)} -> ${Math.hypot(p.x - bx, p.y - by).toFixed(0)})`)
+    let peak = 0, out = true, travel = 0
+    for (let i = 0; i < Math.round(3 / dt) && r.phase === 'playing'; i++) {
+      p.invuln = 1
+      const s = ride && o.atk && RIG.attack('blast', o.atk.u + dt / o.atk.dur, 3, bx, by, R, A.x, A.y).sheet
+      if (s) { p.x = s.apex.x + Math.cos(s.dir) * s.front; p.y = s.apex.y + Math.sin(s.dir) * s.front }
+      stepSim(r, { x: 0, y: 0 }, dt)
+      const m = Math.hypot(o.push.x, o.push.y)
+      travel += m * dt
+      if (m > peak) { peak = m; out = o.push.x * (p.x - bx) + o.push.y * (p.y - by) > 0 }
+      assert.ok(Math.abs(p.x) <= hw + 1e-6 && Math.abs(p.y) <= hh + 1e-6, `shove: the player left the arena at (${p.x.toFixed(1)}, ${p.y.toFixed(1)})`)
+    }
     assert.strictEqual(r.dmgBySrc.ophanBlast ?? 0, 0, 'shove: the blast hurt an invulnerable player')
+    return { peak, out, travel, from: Math.hypot(A.x - bx, A.y - by), to: Math.hypot(p.x - bx, p.y - by) }
   }
-  console.log(`PASS run OP.attacks: 6 attacks on/off [${rows.join('; ')}], a staked feather is harmless, recovery x2, invulnerable shove ${shoved.toFixed(0)}px/s outward, kept in the arena`)
+  const s0 = shove(1 / 60, false)
+  assert.ok(s0.peak > 0, 'shove: an invulnerable player in the blast crest was not shoved')
+  assert.ok(s0.out && s0.to > s0.from + 20, `shove: not pushed outward (${s0.from.toFixed(0)} -> ${s0.to.toFixed(0)})`)
+  // frame rate: the same shove at 60 and 120 Hz. Where the player ends up cannot show it: the
+  // crest carries them to its own end and the wall stops them, at any push strength.
+  const s60 = shove(1 / 60, true), s120 = shove(1 / 120, true)
+  assert.ok(s60.travel > 50 && Math.abs(s120.travel - s60.travel) <= 0.1 * s60.travel, `shove: ${s60.travel.toFixed(1)}px of push at 60 Hz vs ${s120.travel.toFixed(1)}px at 120 Hz`)
+  console.log(`PASS run OP.attacks: 6 attacks on/off, golden shapes [${rows.join('; ')}], a staked feather is harmless, recovery x2, invulnerable shove peak ${s0.peak.toFixed(0)}px/s outward, kept in the arena, crest-held push ${s60.travel.toFixed(1)}px at 60 Hz vs ${s120.travel.toFixed(1)}px at 120 Hz`)
 }
 
 // THE POOL by difficulty: what the scheduler starts, and the phase each one started at
@@ -43644,19 +43664,20 @@ function testOphanAttackPool() {
   ophPoolRec(ophPoolRun(1, 21), 300, d1)
   assert.strictEqual(set(d1), 'blast,sword', `d1: 300s started ${set(d1)}`)
   const r2 = ophPoolRun(2, 22)
-  ophPoolRec(r2, 180, d2a)
-  assert.strictEqual(set(d2a), 'blast,sword,tornado', `d2 at phase 1: 180s started ${set(d2a)}`)
+  const t2a = ophPoolRec(r2, 300, d2a, () => ['blast', 'sword', 'tornado'].every((k) => d2a.some(([q]) => q === k)))
+  assert.strictEqual(set(d2a), 'blast,sword,tornado', `d2 at phase 1: ${t2a.toFixed(0)}s started ${set(d2a)}`)
   ophBreakN(r2, 2)
-  ophPoolRec(r2, 120, d2b)
+  const t2b = ophPoolRec(r2, 300, d2b, () => d2b.some(([k]) => k === 'laser'))
   const las = d2b.filter(([k]) => k === 'laser')
   assert.ok(las.length > 0, `d2 after two breaks: no laser in ${d2b.length} attacks`)
-  assert.ok(las.every(([, ph]) => ph > 1.9), `d2: a laser started at phase ${Math.min(...las.map(([, ph]) => ph)).toFixed(2)}`)
+  // the phase snaps onto its goal, so a laser starts at exactly 2, never on the way up
+  assert.ok(las.every(([, ph]) => ph === 2), `d2: a laser started at phase ${Math.min(...las.map(([, ph]) => ph)).toFixed(4)}`)
   const r3 = ophPoolRun(3, 23)
   ophBreakN(r3, 4)
   // until all six have started: about 5 attacks a minute, so 600 s misses one with p < 1e-3
   const t3 = ophPoolRec(r3, 600, d3, () => set(d3) === 'blast,laser,recall,sword,tornado,wheel')
   assert.strictEqual(set(d3), 'blast,laser,recall,sword,tornado,wheel', `d3: ${d3.length} attacks started ${d3.map(([k]) => k).join(' ')}`)
-  console.log(`PASS run OP.pool: d1 300s ${d1.length} attacks {${set(d1)}}, d2 phase 1 180s ${d2a.length} {${set(d2a)}} then 120s ${d2b.length} with ${las.length} laser(s) all at ph > 1.9, d3 all six by ${t3.toFixed(0)}s in ${d3.length}`)
+  console.log(`PASS run OP.pool: d1 300s ${d1.length} attacks {${set(d1)}}, d2 phase 1 all three by ${t2a.toFixed(0)}s in ${d2a.length} {${set(d2a)}}, after two breaks the first laser by ${t2b.toFixed(0)}s in ${d2b.length}, at ph 2, d3 all six by ${t3.toFixed(0)}s in ${d3.length}`)
 }
 
 // run OP.wire: render.js and src/ophan/renderer.js are not importable (Pixi + DOM), so their

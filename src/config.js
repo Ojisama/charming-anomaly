@@ -10186,12 +10186,11 @@ export const OPHAN_PHASE_EASE = 0.8
 // balance_decision : attack scheduler, first guesses 2026-10-24
 export const OPHAN_ATK_CD = [2.2, 3.7]
 export const OPHAN_ATK_FIRST = 3
-// an attack's minPh opens once the eased phase is this close to it (the ease never lands exactly)
-export const OPHAN_PH_GATE = 0.1
 export const OPHAN_HIT_CD = 0.6
-// balance_decision : attack lengths and damage, first guesses 2026-10-24
+// balance_decision : attack lengths, damage and push, first guesses 2026-10-24
+//  - shove and pull are rates: sim scales both by dt * OPHAN_SHOVE_DECAY (4200 = 420 per 60 Hz frame)
 export const OPHAN_ATTACKS = {
-  blast:   { dur: 1.8,  dmg: 18, shove: 420, minPh: 1 },
+  blast:   { dur: 1.8,  dmg: 18, shove: 4200, minPh: 1 },
   tornado: { dur: 4.5,  dmg: 8, pull: 140, minPh: 1 },
   laser:   { dur: 3.85, dmg: 20, minPh: 2 },
   wheel:   { dur: 4.2,  dmg: 22, minPh: 1 },

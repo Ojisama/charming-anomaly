@@ -273,7 +273,7 @@ import {
   MANTLE_MELT_T, MANTLE_SPAWN_TRIES,
   KETTLE_CRUST_GNAW, KETTLE_CRUST_GNAW_MAX, KETTLE_STEAM_MUL, KETTLE_STEAM_R, KETTLE_HULL_COOL, KETTLE_HULL_MAX,
   SLING_LATCH_SHARE, IRON_BALL_R, IRON_BALL_LIFE, MOON_R, MOON_TUG_SWIRL, LODESTONE_FUSE, LODESTONE_SPREAD, LODESTONE_HOLD,
-  OPHAN_ARENA, OPHAN_BOSS, OPHAN_PLAYER_START, OPHAN_PHASE_EASE, OPHAN_ATK_CD, OPHAN_ATK_FIRST, OPHAN_PH_GATE, OPHAN_HIT_CD, OPHAN_ATTACKS, OPHAN_HIT,
+  OPHAN_ARENA, OPHAN_BOSS, OPHAN_PLAYER_START, OPHAN_PHASE_EASE, OPHAN_ATK_CD, OPHAN_ATK_FIRST, OPHAN_HIT_CD, OPHAN_ATTACKS, OPHAN_HIT,
   OPHAN_SHOVE_DECAY, OPHAN_SKIN_HP, OPHAN_BREAK_FLOOR, OPHAN_IMMUNE_CD, OPHAN_CROWD, OPHAN_WINDOW_MUL, OPHAN_RECOVERY_ON, OPHAN_HAND,
   OPHAN_WIPE_SPEED, OPHAN_WIPE_END, OPHAN_STAGGER_T,
 } from './config.js'
@@ -1839,6 +1839,7 @@ function stepOphanScript(run, dt) {
   }
   const goal = 1 + Math.min(2, Math.floor(o.broken.reduce((s, v) => s + v, 0) / 2))
   o.ph += (goal - o.ph) * Math.min(1, dt * OPHAN_PHASE_EASE)
+  if (Math.abs(goal - o.ph) < 1e-3) o.ph = goal   // the ease never lands on its own; every reader gets a whole phase
 
   // THE HAND: between attacks it tells the next world, then changes skin. Standing in the told
   // world from inside the tell to the swap is a RESONANCE: the boss staggers.
@@ -1877,7 +1878,7 @@ function stepOphanScript(run, dt) {
     o.recov = false
     if (o.tell <= 0 && o.after < 0) o.atkCd -= dt
     if (o.atkCd <= 0 && o.tell <= 0 && o.after < 0) {
-      const pool = ch.attacks[run.difficulty].filter((k) => OPHAN_ATTACKS[k].minPh <= o.ph + OPHAN_PH_GATE)
+      const pool = ch.attacks[run.difficulty].filter((k) => OPHAN_ATTACKS[k].minPh <= o.ph)
       const k = pool[Math.floor(Math.random() * pool.length)]
       o.atk = { k, u: 0, dur: OPHAN_ATTACKS[k].dur, ax: p.x, ay: p.y, hitCd: 0 }
       run.events.push({ type: 'ophanAttack', k })
@@ -1896,7 +1897,7 @@ function stepOphanScript(run, dt) {
       const geo = RIG.attack(a.k, a.u, o.ph, b.x, b.y, R, a.ax, a.ay, o.t, pose)
       const h = ophanHits(a.k, geo, p.x, p.y, PLAYER.radius, R, OPHAN_HIT)
       // the shape moves whoever is inside it; only the damage waits on invuln and hitCd
-      if (h.shove) { o.push.x += h.shove.x * cfg.shove; o.push.y += h.shove.y * cfg.shove }
+      if (h.shove) { const f = cfg.shove * dt * OPHAN_SHOVE_DECAY; o.push.x += h.shove.x * f; o.push.y += h.shove.y * f }
       if (h.pull) { const f = cfg.pull * dt * OPHAN_SHOVE_DECAY; o.push.x += h.pull.x * f; o.push.y += h.pull.y * f }
       if (h.hit && p.invuln <= 0 && a.hitCd <= 0) {
         a.hitCd = OPHAN_HIT_CD
