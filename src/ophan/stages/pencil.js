@@ -4,9 +4,12 @@ import { Texture, CanvasSource, TilingSprite, Container } from 'pixi.js'
 import { OPHAN } from '../page.js'
 
 export default function stage(app, { W, H }) {
-  const res = app.renderer.resolution, w = 390, cv = document.createElement('canvas')
+  // bg rules a line every 12 px from k 12 to k < w; the mock-up draws it once per tile and never repeats it. Repeated,
+  // the tile must be a whole number of rules (384) with none missing at its edge: bg is drawn 6 px up and 6 px
+  // taller, so the rules sit at 6, 18 .. 378 and the next tile's first one lands 12 px on
+  const res = app.renderer.resolution, w = 384, cv = document.createElement('canvas')
   cv.width = cv.height = w * res
-  const g = cv.getContext('2d'); g.setTransform(res, 0, 0, res, 0, 0); OPHAN.pencil.bg(g, w, 0)
+  const g = cv.getContext('2d'); g.setTransform(res, 0, 0, res, 0, -6 * res); OPHAN.pencil.bg(g, w + 6, 0)
   const tex = new Texture({ source: new CanvasSource({ resource: cv, resolution: res }) })
   tex.source.style.addressMode = 'repeat'
   const floor = new TilingSprite({ texture: tex, width: W, height: H }), boss = new Container()

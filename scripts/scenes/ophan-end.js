@@ -31,6 +31,7 @@ return (age) => {
       // (STAGED: the kill itself is run OP.sketch's): the next step finds it gone and ends the fight
       const b = () => run.enemies.find((e) => e.rosterId === 'ophan' && !e._dead)
       for (let g = 0; !o.sketch && g < 12; g++) { o.world = o.skin; b().hp = CFG.OPHAN_BREAK_FLOOR; tick() }
+      if (!o.sketch) throw new Error('the last break did not raise the sketch: ' + JSON.stringify(o.broken))
       b().hp = 0; b()._dead = true
     }
     let g = 0

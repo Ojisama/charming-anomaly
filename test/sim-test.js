@@ -43690,6 +43690,10 @@ function testOphanSketch() {
   const count = (r, t) => r.events.filter((e) => e.type === t).length
   const crowdOf = (r) => r.enemies.filter((e) => !e._dead && e.rosterId !== 'ophan')
   const swordN = Math.ceil(OPHAN_ATTACKS.sword.dur * 60) + 2
+  // s0 the sketch's pool is every attack, each one a real id (a typo would throw only once the sketch rolls it)
+  const sa = CHAPTERS.ophan.sketchAttacks
+  for (const k of sa) assert.ok(Object.hasOwn(OPHAN_ATTACKS, k), `s0: sketchAttacks names ${k}, which is no attack`)
+  assert.deepStrictEqual([...new Set(sa)].sort(), Object.keys(OPHAN_ATTACKS).sort(), 's0: sketchAttacks is not every attack')
   // s1 the sketch, not a win: the crowd swept unpaid and never walking in again; its own bar, no pills
   let swept = 0
   {
