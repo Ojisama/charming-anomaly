@@ -43259,7 +43259,9 @@ function testOphanSlice() {
     const r = ophanRun(1), p = r.player, ids = Object.values(CHAPTERS.ophan.worlds[0].crowd)
     p.hp = p.maxHP = 1e9; r.weapons = []
     const seen = new Set()
-    ophSteps(r, 30 * 60, { after: () => {
+    // nine of the cadence's periods: eight births, the d1 cap
+    const secs = 9 * OPHAN_CROWD[1].every
+    ophSteps(r, Math.ceil(secs * 60), { after: () => {
       for (const e of r.enemies) if (!e._dead && e.rosterId !== 'ophan' && !seen.has(e.id)) {
         seen.add(e.id)
         assert.ok(ids.includes(e.rosterId), `a8: a ${e.rosterId} walked into world 0`)
@@ -43274,7 +43276,7 @@ function testOphanSlice() {
       }
     } })
     born = seen.size
-    assert.ok(born >= 8, `a8: only ${born} crowd bodies in 30s`)
+    assert.ok(born >= 8, `a8: only ${born} crowd bodies in ${secs.toFixed(1)}s`)
     assert.ok(dmgMulSeen > 0, 'a8: no crowd body with a roster dmgMul (the mole cricket) was born, so its damage went unchecked')
   }
   // a9 win and die in the same step: exactly one of them, and nothing after it. The win is the sketch's death
@@ -43428,7 +43430,7 @@ function testOphanWorlds() {
   {
     const r = ophanRun(3), o = r.script.oph, p = r.player
     p.hp = p.maxHP = 1e9; o.atkCd = 1e9; o.swapIn = 1e9; r.weapons = []
-    ophSteps(r, 8 * 60)
+    ophSteps(r, Math.ceil(4 * OPHAN_CROWD[3].every * 60))   // three births
     assert.ok(crowdOf(r).length >= 3, 'h3: no crowd to turn')
     for (const k of [1, 3, 5]) stepSim(r, W(k), dt)
     ophSteps(r, 60)

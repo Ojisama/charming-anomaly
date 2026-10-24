@@ -10182,31 +10182,34 @@ export const OPHAN_HAND = { tell: 1.4, swapMin: 3.4, swapMax: 5.0, first: 3.2, a
 export const OPHAN_STAGGER_T = 1.4
 export const OPHAN_WINDOW_MUL = 2
 export const OPHAN_RECOVERY_ON = 0.5
-export const OPHAN_PHASE_EASE = 0.8
+// balance_decision : phase snaps 3.5 s after a break, not 8.6 2026-10-24
+export const OPHAN_PHASE_EASE = 2
 // balance_decision : attack scheduler, first guesses 2026-10-24
 export const OPHAN_ATK_CD = [2.2, 3.7]
 export const OPHAN_ATK_FIRST = 3
 export const OPHAN_HIT_CD = 0.6
-// balance_decision : attack lengths, damage and push, first guesses 2026-10-24
+// balance_decision : damage x1.5 against enemyDmgMul 0.4; wheel, recall x3 2026-10-24
 //  - shove and pull are rates: sim scales both by dt * OPHAN_SHOVE_DECAY (4200 = 420 per 60 Hz frame)
 export const OPHAN_ATTACKS = {
-  blast:   { dur: 1.8,  dmg: 18, shove: 4200, minPh: 1 },
-  tornado: { dur: 4.5,  dmg: 8, pull: 140, minPh: 1 },
-  laser:   { dur: 3.85, dmg: 20, minPh: 2 },
-  wheel:   { dur: 4.2,  dmg: 22, minPh: 1 },
-  recall:  { dur: 4.4,  dmg: 12, minPh: 1 },
-  sword:   { dur: 3.4,  dmg: 26, fireDmg: 10, minPh: 1 },
+  blast:   { dur: 1.8,  dmg: 27, shove: 4200, minPh: 1 },
+  tornado: { dur: 4.5,  dmg: 12, pull: 140, minPh: 1 },
+  laser:   { dur: 3.85, dmg: 30, minPh: 2 },
+  wheel:   { dur: 4.2,  dmg: 66, minPh: 1 },
+  recall:  { dur: 4.4,  dmg: 36, minPh: 1 },
+  sword:   { dur: 3.4,  dmg: 39, fireDmg: 15, minPh: 1 },
 }
 // the animation-progress thresholds hit.js tests each attack's hit against
 export const OPHAN_HIT = { blastFade: 0.3, tornadoAlive: 0.5, tornadoPullR: 1.5, laserFire: 0.5, laserHitR: 0.14, wheelRoll: 0.5, impactAl: 0.7, fireOn: 0.5 }
 export const OPHAN_SHOVE_DECAY = 6   // per second
-// balance_decision : skin and sketch health, first guesses 2026-10-24
-export const OPHAN_SKIN_HP = 600
+// balance_decision : skin hp 800, the bot's fight lasts 3.5-4 min 2026-10-24
+export const OPHAN_SKIN_HP = 800
+// balance_decision : sketch health, break floor, immune ring, first guesses 2026-10-24
 export const OPHAN_SKETCH_HP = 900
 export const OPHAN_BREAK_FLOOR = 1
 export const OPHAN_IMMUNE_CD = 0.12
-// balance_decision : crowd cadence and cap per phase, first guesses 2026-10-24
-export const OPHAN_CROWD = { 1: { every: 2.2, cap: 8 }, 2: { every: 1.9, cap: 10 }, 3: { every: 1.6, cap: 12 }, edgeClear: 120 }
+// balance_decision : crowd arrives 3x slower (2.75x at d3), caps unchanged 2026-10-24
+//  - the caps never bind at these cadences: every is the only crowd knob
+export const OPHAN_CROWD = { 1: { every: 6.6, cap: 8 }, 2: { every: 5.7, cap: 10 }, 3: { every: 4.4, cap: 12 }, edgeClear: 120 }
 // the HUD depth gauge's two ends (player-visible, walked by run XX)
 export const OPHAN_GAUGE_COPY = { top: 'surface', bottom: 'core', tags: ['SOIL', 'GEOD', 'MINE', 'MAGMA', 'MANTL', 'CORE'] }
 // The fixed camera: the whole arena fits the screen, centred on the origin.
@@ -10237,7 +10240,9 @@ CHAPTERS.ophan = {
     // radiusMul = OPHAN_BOSS.bodyR / ENEMIES.tank.radius (run OP.shell pins it)
     { id: 'ophan', archetype: 'tank', name: 'The Ophan', hpMul: 1, speedMul: 0, radiusMul: 2.15, flags: [], formationOnly: true },
   ],
-  balance: { spawnMul: 1, enemyHpMul: 1, enemyDmgMul: 0.6, maxAliveMul: 1 },
+  // balance_decision : crowd touch damage 0.6 -> 0.4 2026-10-24
+  //  - it scales every OPHAN_ATTACKS hit too: those are authored against 0.4
+  balance: { spawnMul: 1, enemyHpMul: 1, enemyDmgMul: 0.4, maxAliveMul: 1 },
   weapons: ['shovel', 'prismShard', 'pickaxe', 'slagLadle', 'hotCoals', 'sling'], starter: 'shovel',
   render: { ophan: {}, cast: [], bgColor: 0x000000, floorTint: 0xffffff, playerTint: 0xfff2e2, tail: false },
 }
