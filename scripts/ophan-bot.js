@@ -1,5 +1,7 @@
 // A headless player for The Ophan, the one scripts/ophan-probe.mjs drives. Reads the run, never
 // writes it, and never draws from Math.random (the sim's stream stays the seed's alone).
+// A CEILING ON DODGING: it reads each attack's exact future geometry through RIG on the sim's own
+// clock. Every win rate it produces is an upper bound for a human.
 //   - orbits the boss on the mock-up's 145 x 125 radii at 0.32 rad/s
 //   - steps out of the live attack's hit area: ophanHits one hit radius ahead (the player's radius
 //     doubled), at each LOOK moment along the line it would walk, on the move closest to the orbit
@@ -7,6 +9,8 @@
 //     from its u 0.55 (1 s in) and lands at the orbit's radius: a bot that cannot read the wind-up
 //     takes every blast (measured 28 of 29 at d1) and the column measures the bot
 //   - leans off crowd bodies about to touch it (SHY, below)
+//   - literal: true is the brief's bot: no SHY, and the dodge tests the CURRENT shape one hit
+//     radius ahead along the stick, nothing further
 //   - wears the boss's skin 0.45 s after the boss changes it (a reaction time)
 //   - every other tell it presses the told world inside the tell, after the same reaction time (a
 //     resonance); the rest it waits for the swap. Alternating rather than a coin keeps it off
@@ -33,7 +37,7 @@ function geoAt(o, b, ahead) {
   return RIG.attack(a.k, u, o.ph, b.x, b.y, R, a.ax, a.ay, t, pose)
 }
 
-export function ophanBot(run, { shy = true } = {}) {
+export function ophanBot(run, { literal = false } = {}) {
   const o = run.script?.oph, p = run.player
   if (!o) return { x: 0, y: 0, world: -1 }
   const b = run.enemies.find((e) => e.id === o.bossId && !e._dead) ?? OPHAN_BOSS
@@ -46,8 +50,8 @@ export function ophanBot(run, { shy = true } = {}) {
   let mx = tl > 4 ? tx / tl : 0, my = tl > 4 ? ty / tl : 0
   // SHY: leans off any crowd body within SHY px of touching. The orbit's target walks at ~43 px/s
   // and a tank at 47-55, so without this every tank sits on the bot and the crowd column measures
-  // the orbit's speed. shy: false is the brief's literal bot.
-  if (shy) {
+  // the orbit's speed.
+  if (!literal) {
     for (const e of run.enemies) {
       if (e._dead || e.id === o.bossId) continue
       const ex = p.x - e.x, ey = p.y - e.y, el = Math.hypot(ex, ey) || 1, gap = el - e.radius - PLAYER.radius
@@ -58,8 +62,9 @@ export function ophanBot(run, { shy = true } = {}) {
   }
 
   if (o.atk) {
-    const geos = LOOK.map((tau) => [tau, geoAt(o, b, tau)]).filter(([, g]) => g)
-    const r = PLAYER.radius * 2, v = PLAYER.baseSpeed
+    const v = PLAYER.baseSpeed, r = PLAYER.radius * (literal ? 1 : 2)
+    // [seconds walked, the shape at that moment]
+    const geos = (literal ? [[PLAYER.radius / v, geoAt(o, b, 0)]] : LOOK.map((tau) => [tau, geoAt(o, b, tau)])).filter(([, g]) => g)
     // how many of the look-ahead moments walking d at full stick would put the bot inside the shape
     const hits = (dx, dy) => geos.reduce((n, [tau, g]) =>
       n + (ophanHits(o.atk.k, g, p.x + dx * v * tau, p.y + dy * v * tau, r, OPHAN_BOSS.R, OPHAN_HIT).hit ? 1 : 0), 0)
