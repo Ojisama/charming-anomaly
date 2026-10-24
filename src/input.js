@@ -18,6 +18,7 @@ const HALF_STICK = 0.5
 const vec = { x: 0, y: 0 }
 const keys = new Set()
 let skillPending = false
+let worldPending = -1
 let joyId = null
 let baseX = 0
 let baseY = 0
@@ -150,6 +151,8 @@ export function initInput(rootEl) {
     // Space is the desktop binding for the active skill. e.repeat is already filtered above, so
     // holding it fires exactly once — sim.js's stepRepulse wants a press, never a held button.
     if (e.code === 'Space') { pressSkill(); return }
+    // The Ophan's six world bands, top to bottom
+    if (/^Digit[1-6]$/.test(e.code)) { pressWorld(+e.code[5] - 1); return }
     keys.add(e.code)
   })
   window.addEventListener('keyup', (e) => keys.delete(e.code))
@@ -163,6 +166,11 @@ export function initInput(rootEl) {
  */
 export function pressSkill() {
   skillPending = true
+}
+
+/** Queue a world switch (The Ophan): latched like pressSkill; the last press before a read wins. */
+export function pressWorld(k) {
+  worldPending = k
 }
 
 /**
@@ -187,9 +195,11 @@ export function steerFromAnchor(dx, dy) {
 export function getInput(anchor) {
   const skill = skillPending
   skillPending = false
+  const world = worldPending
+  worldPending = -1
   const sh = shakes
   shakes = 0
-  if (joyId !== null) return { x: vec.x, y: vec.y, skill, shakes: sh }
+  if (joyId !== null) return { x: vec.x, y: vec.y, skill, shakes: sh, world }
   let x = 0
   let y = 0
   if (keys.has('KeyA') || keys.has('ArrowLeft')) x -= 1
@@ -207,5 +217,5 @@ export function getInput(anchor) {
     x = m.x
     y = m.y
   }
-  return { x, y, skill, shakes: sh }
+  return { x, y, skill, shakes: sh, world }
 }

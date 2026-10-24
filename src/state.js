@@ -2691,8 +2691,16 @@ function generateWells(sig) {
   *     t — the fight clock the rig's pose breathes on. world — the world the player stands in;
   *       skin — the world the boss wears. world !== skin = MISMATCH: the boss refuses every hit,
   *       tick and status (ophanSealed / bossSealed, sim.js) and dealDamage pushes ophanImmune.
-  *     next / tell / swapIn / after / caught / wipe / swaps — the hand's swap cycle and the world
-  *       wipe (written by the worlds; one world has nothing to swap).
+  *     THE HAND: swapIn — attack-free, tell-free seconds to the next tell; tell — seconds left
+  *       showing next (the world it changes into, -1 outside a tell); at 0 skin = next, swaps++,
+  *       and after counts 0..OPHAN_HAND.after (-1 otherwise). No attack starts in a tell or an after.
+  *       caught — the player pressed next during the tell; still in it at the swap = a resonance
+  *       (stagger = OPHAN_STAGGER_T).
+  *     wipe — null | { from, r }: the world switch's circle, r growing at OPHAN_WIPE_SPEED around the
+  *       player to OPHAN_WIPE_END; a crowd body it crosses turns into world's creature of the same
+  *       archetype in place (ophanTurn: same hp share). A crowd body carries `world`, its world index.
+  *     The world press reaches it through run._worldPress (-1 = none), latched by stepSim from
+  *       input.world above the hitstop return and consumed here.
   *     hp[n] / broken[n] — each skin's banked hp and 0|1 broken, n = worlds.length. The boss entity
   *       (bossId, rosterId 'ophan', speed 0, dmg 0, pinned on OPHAN_BOSS) carries the worn skin's
   *       hp; dealDamage floors it at OPHAN_BREAK_FLOOR so a skin BREAKS (ophanBreak) and is never
@@ -2815,7 +2823,10 @@ function generateWells(sig) {
  *   The Ophan pushes bossDead (its last skin broken) and: {type:'ophanAttack', k} (an attack starts;
  *   k = blast|tornado|laser|wheel|recall|sword), {type:'ophanImmune', x, y, ang} (a hit refused in
  *   another world, on the body's edge toward the player, at most every OPHAN_IMMUNE_CD), and
- *   {type:'ophanBreak', skin, x, y} (a skin broke).
+ *   {type:'ophanBreak', skin, x, y} (a skin broke), {type:'ophanWorld', from, to, x, y} (the player
+ *   switched world; x/y = the wipe's centre), {type:'ophanRefuse', k} (a press on a broken band),
+ *   {type:'ophanTell', next} (the hand shows the next world), {type:'ophanSwap', skin} (the boss
+ *   changed skin), {type:'ophanResonance', x, y} (a caught swap: the boss staggers).
  * v6.2 events: {type:'shriek', x, y, radius} (chitterShriek cast — was a generic 'shoot'; violet
  *   panic rings), {type:'blink', x, y, tx, ty} (a realityShard bullet skipped from (x,y) to (tx,ty)).
  */
@@ -3313,6 +3324,8 @@ export function createRun(meta, opts = {}) {
     // and discarded — the press that caused the freeze being the likeliest victim. Declared here
     // rather than sprung on the run object ad hoc, which is what state.js's doc block is for.
     _skillHeld: false,
+    // The Ophan's world press, latched above the hitstop like _skillHeld; -1 = none (doc block above).
+    _worldPress: -1,
     krakenArms: [],
     trail: [],
     bossBar: null,

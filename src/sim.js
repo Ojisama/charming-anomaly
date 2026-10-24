@@ -275,6 +275,7 @@ import {
   SLING_LATCH_SHARE, IRON_BALL_R, IRON_BALL_LIFE, MOON_R, MOON_TUG_SWIRL, LODESTONE_FUSE, LODESTONE_SPREAD, LODESTONE_HOLD,
   OPHAN_ARENA, OPHAN_BOSS, OPHAN_PLAYER_START, OPHAN_PHASE_EASE, OPHAN_ATK_CD, OPHAN_ATK_FIRST, OPHAN_HIT_CD, OPHAN_ATTACKS, OPHAN_HIT,
   OPHAN_SHOVE_DECAY, OPHAN_SKIN_HP, OPHAN_BREAK_FLOOR, OPHAN_IMMUNE_CD, OPHAN_CROWD, OPHAN_WINDOW_MUL, OPHAN_RECOVERY_ON, OPHAN_HAND,
+  OPHAN_WIPE_SPEED, OPHAN_WIPE_END, OPHAN_STAGGER_T,
 } from './config.js'
 import { crustShapeOf, poolPhaseOf, inCrustEdge, crustSdf, inPoolEdge, CRUST_EDGE_MAX, POOL_RIM_MAX } from './mantle-shape.js'
 import RIG from './ophan/rig.js'
@@ -300,6 +301,8 @@ export function stepSim(run, input, dt) {
   //   It returns BEFORE run.time advances, so a hitstop cannot inflate the clock, cannot move
   // hpScale/dmgScale, and cannot shorten a run's recorded survival time. Everything downstream
   // derives from run.time, which is exactly why the early return goes here and not lower down.
+  // The Ophan's world press is latched above the freeze for the same reason as the skill press below.
+  if (input?.world >= 0) run._worldPress = input.world
   if (run.hitStop > 0) {
     run.hitStop = Math.max(0, run.hitStop - dt)
     // THE PRESS SURVIVES THE FREEZE. input.js latches a skill press and CLEARS IT ON READ, and
@@ -1748,6 +1751,19 @@ function ophanPin(run) {
   b.kb.x = 0; b.kb.y = 0
 }
 
+// A crowd body crossed by the wipe becomes world k's creature of the same archetype, where it
+// stands, with the same share of its hp.
+function ophanTurn(run, e, k) {
+  const ch = CHAPTERS[run.chapter]
+  const arch = ch.roster.find((r) => r.id === e.rosterId).archetype
+  const roster = ch.roster.find((r) => r.id === ch.worlds[k].crowd[arch])
+  const share = e.hp / e.maxHP
+  e.rosterId = roster.id; e.world = k
+  pinBlankStats(run, e, roster)
+  e.radius = ENEMIES[ARCHETYPE_TYPE[arch]].radius * run.mods.enemyRadiusMul * (roster.radiusMul ?? 1)
+  e.hp = roundHP(share * e.maxHP)
+}
+
 function ophanWin(run, x, y) {
   run.bossBar = null
   run.phase = 'victory'
@@ -1756,7 +1772,7 @@ function ophanWin(run, x, y) {
   return true
 }
 
-// The whole fight, one world for now. Returns true when the ordinary step must not run.
+// The whole fight. Returns true when the ordinary step must not run.
 function stepOphanScript(run, dt) {
   if (run.phase !== 'playing') return true
   const ch = CHAPTERS[run.chapter], p = run.player, n = ch.worlds.length
@@ -1782,6 +1798,28 @@ function stepOphanScript(run, dt) {
   if (!b) return ophanWin(run, OPHAN_BOSS.x, OPHAN_BOSS.y)
   o.hp[o.skin] = b.hp
 
+  // THE WORLD PRESS (latched in stepSim): a broken band refuses it; a new world restarts the wipe
+  const k = run._worldPress ?? -1
+  run._worldPress = -1
+  if (k >= 0 && k < n) {
+    if (o.broken[k] || o.sketch) run.events.push({ type: 'ophanRefuse', k })
+    else if (k !== o.world) {
+      const from = o.world
+      o.wipe = { from, r: 0 }
+      o.world = k
+      o.caught ||= o.tell > 0 && k === o.next
+      run.events.push({ type: 'ophanWorld', from, to: k, x: p.x, y: p.y })
+    }
+  }
+  // THE WIPE grows from the player; every crowd body it crosses turns into the worn world's
+  if (o.wipe) {
+    o.wipe.r += OPHAN_WIPE_SPEED * dt
+    for (const e of run.enemies) {
+      if (!e._dead && e.world != null && e.world !== o.world && Math.hypot(e.x - p.x, e.y - p.y) <= o.wipe.r) ophanTurn(run, e, o.world)
+    }
+    if (o.wipe.r > OPHAN_WIPE_END) o.wipe = null
+  }
+
   // THE BREAK: a skin at the floor is spent; the last one ends the fight
   if (b.hp <= OPHAN_BREAK_FLOOR) {
     o.broken[o.skin] = 1
@@ -1794,16 +1832,48 @@ function stepOphanScript(run, dt) {
     o.skin = left[Math.floor(Math.random() * left.length)]
     b.hp = o.hp[o.skin]
     o.tell = 0; o.next = -1; o.stagger = 0; o.swapIn = OPHAN_HAND.afterBreak
+    o.caught = false   // a press on an aborted tell's world must not resonate on the next one
   }
   const goal = 1 + Math.min(2, Math.floor(o.broken.reduce((s, v) => s + v, 0) / 2))
   o.ph += (goal - o.ph) * Math.min(1, dt * OPHAN_PHASE_EASE)
 
-  // THE ATTACKS: one at a time, its aim locked on the player where it started
+  // THE HAND: between attacks it tells the next world, then changes skin. Standing in the told
+  // world from inside the tell to the swap is a RESONANCE: the boss staggers.
+  if (o.tell > 0) {
+    o.tell -= dt
+    if (o.tell <= 0) {
+      o.tell = 0
+      o.skin = o.next; o.next = -1
+      b.hp = o.hp[o.skin]   // the worn skin's hp was banked at the top of the step
+      o.after = 0; o.swaps++
+      o.swapIn = OPHAN_HAND.swapMin + Math.random() * (OPHAN_HAND.swapMax - OPHAN_HAND.swapMin)
+      run.events.push({ type: 'ophanSwap', skin: o.skin })
+      if (o.caught && o.world === o.skin) {
+        o.stagger = OPHAN_STAGGER_T
+        run.events.push({ type: 'ophanResonance', x: b.x, y: b.y })
+      }
+      o.caught = false
+    }
+  } else if (!o.atk) {
+    o.swapIn -= dt
+    if (o.swapIn <= 0) {
+      const pool = o.broken.flatMap((v, k) => (v || k === o.skin ? [] : [k]))
+      if (pool.length) {
+        o.next = pool[Math.floor(Math.random() * pool.length)]
+        o.tell = OPHAN_HAND.tell
+        run.events.push({ type: 'ophanTell', next: o.next })
+      } else o.swapIn = Infinity   // one skin left: nothing to change into
+    }
+  }
+  if (o.after >= 0 && (o.after += dt) >= OPHAN_HAND.after) o.after = -1
+
+  // THE ATTACKS: one at a time, never in a tell or the hand's after-beat, the aim locked on the
+  // player where it started
   const R = OPHAN_BOSS.R
   if (!o.atk) {
     o.recov = false
-    o.atkCd -= dt
-    if (o.atkCd <= 0) {
+    if (o.tell <= 0 && o.after < 0) o.atkCd -= dt
+    if (o.atkCd <= 0 && o.tell <= 0 && o.after < 0) {
       const pool = ch.attacks[run.difficulty].filter((k) => OPHAN_ATTACKS[k].minPh <= o.ph)
       const k = pool[Math.floor(Math.random() * pool.length)]
       o.atk = { k, u: 0, dur: OPHAN_ATTACKS[k].dur, ax: p.x, ay: p.y, hitCd: 0 }
@@ -1843,8 +1913,7 @@ function stepOphanScript(run, dt) {
     if (d > 0) { p.x = b.x + dx / d * clear; p.y = b.y + dy / d * clear } else p.y = b.y + clear
   }
 
-  // THE CROWD walks in from the border, away from the player
-  // ponytail: world 0's three ids only; the worn world's once the player can switch
+  // THE CROWD of the player's world walks in from the border, away from the player
   const cc = OPHAN_CROWD[run.difficulty]
   o.crowdT -= dt
   if (o.crowdT <= 0 && run.enemies.filter((e) => !e._dead && e.id !== o.bossId).length < cc.cap) {
@@ -1854,8 +1923,9 @@ function stepOphanScript(run, dt) {
       if (s < W) { x = s - W / 2; y = -H / 2 } else if ((s -= W) < H) { x = W / 2; y = s - H / 2 }
       else if ((s -= H) < W) { x = W / 2 - s; y = H / 2 } else { x = -W / 2; y = H / 2 - (s - W) }
       if (Math.hypot(x - p.x, y - p.y) < OPHAN_CROWD.edgeClear) continue
-      const ids = Object.values(ch.worlds[0].crowd)
-      spawnBlankEnemy(run, ids[Math.floor(Math.random() * ids.length)], false, { x, y })
+      const ids = Object.values(ch.worlds[o.world].crowd)
+      const e = spawnBlankEnemy(run, ids[Math.floor(Math.random() * ids.length)], false, { x, y })
+      if (e) e.world = o.world
       o.crowdT = cc.every
       break
     }
@@ -3747,11 +3817,16 @@ function spawnBlankEnemy(run, rosterId, essential = false, opts = {}) {
   // job, and a slow clear must not quietly toughen wave 7 (or up-damage it) against the player
   // who most needs it not to. Blank fights routinely run past 300s, so leaving dmgScale live
   // would silently inflate late waves; the ladder-driven enemyDmgMul stays.
+  pinBlankStats(run, e, roster)
+  e.hp = e.maxHP
+  return e
+}
+// maxHP, speed and dmg of a scripted body from its roster row alone (spawnBlankEnemy, ophanTurn)
+function pinBlankStats(run, e, roster) {
   const base = ENEMIES[ARCHETYPE_TYPE[roster.archetype]]
-  e.hp = e.maxHP = roundHP(base.hp * (roster.hpMul ?? 1) * run.mods.enemyHpMul)
+  e.maxHP = roundHP(base.hp * (roster.hpMul ?? 1) * run.mods.enemyHpMul)
   e.speed = base.speed * (roster.speedMul ?? 1) * run.mods.enemySpeedMul
   e.dmg = base.dmg * run.mods.enemyDmgMul * (roster.dmgMul ?? 1)
-  return e
 }
 
 // -- The line (v5.18, The Beyond's lane) --------------------------------------------------------

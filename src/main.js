@@ -6,7 +6,7 @@ import { shopCost, refundValue, shopLines, shopLineUnlocked, lineMax, runBonusCo
 import { stepSim, fastForwardEndless, endlessHandover, applyChoice, rerollLevelUpChoices, rerollPrice, buildReadout, devCards, devTake, mantleGroundAt } from './sim.js'
 import { createRenderer } from './render.js'
 import { initUI } from './ui.js'
-import { initInput, getInput, pressSkill } from './input.js'
+import { initInput, getInput, pressSkill, pressWorld } from './input.js'
 import { initAudio, playSfx, setSfxOn } from './audio.js'
 import { setLang, t } from './i18n.js'
 import { submitScore, podiumRank, validNick, fetchBeta } from './scores.js'
@@ -519,6 +519,7 @@ const ui = initUI({
     return true
   },
   onSkill() { pressSkill() },   // v5.21 lane: HUD button -> input.js latch -> stepSim's input.skill
+  onWorld(k) { pressWorld(k) },   // The Ophan's world bands -> input.js latch -> stepSim's input.world
   onQuit() {  // from pause or summary back to title
     run = null
     dropParkedRun()
@@ -859,6 +860,8 @@ const SFX_FOR_EVENT = {
   krakenArrive: 'krakenRoar', krakenDeflect: 'clang',
   // The Ophan: an attack starting every few seconds, and a skin breaking (ophanImmune is silent: run EV)
   ophanAttack: 'orcaAim', ophanBreak: 'crush',
+  // a world switch (or a broken band refusing one), the hand's tell and swap, and a resonance
+  ophanWorld: 'surge', ophanRefuse: 'click', ophanTell: 'suck', ophanSwap: 'clang', ophanResonance: 'deflectHi',
 }
 
 function endRun(victory) {

@@ -10,7 +10,7 @@ import { hash, decide, isOwnLostAck, schemaOk, deriveDirty, readRecord, writeRec
 // pure functions are testable here with no network. See run LB.
 import { validNick, podiumRank, NICK_MIN, NICK_MAX } from '../src/scores.js'
 // input.js touches the DOM only inside initInput, so its pure steering math imports headlessly.
-import { steerFromAnchor } from '../src/input.js'
+import { steerFromAnchor, getInput, pressWorld } from '../src/input.js'
 // fr.js is pure data (no Pixi, no DOM), so run XX can check it here — see testFrenchDictionary.
 import { FR } from '../src/fr.js'
 // holo.js's shader strings are plain data, and Pixi's precision preprocessor is a pure function:
@@ -183,7 +183,7 @@ import {
   lateSpawnMulAt, SPAWN_LATE_BLEND, SPAWN_LATE_START,
   // The Kraken (run KR): the rung table and the ring's numbers
   krakenRung, krakenRungFor, KRAKEN_TURN_BAG, KRAKEN_SLAP_EVERY, KRAKEN_SLAP_COCK, KRAKEN_SLAP_SWING, KRAKEN_SLAP_FUSE, KRAKEN_SLAP_FOLLOW_T, KRAKEN_TRICKLE_T, KRAKEN_TRICKLE_EDGE, KRAKEN_TRICKLE_CLEAR, OPEN_GUARD_WINDOW_MUL, HAIR_TRIGGER_WINDOW_MUL, HAIR_TRIGGER_DMG_MUL, KRAKEN_RUNGS, KRAKEN_ARM_REACH, KRAKEN_WAVE_TIMEOUT, KRAKEN_STAGGER_BITE,
-  KRAKEN_RISE_T, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, hiddenChapters, OPHAN_BOSS, OPHAN_HAND, OPHAN_HIT, OPHAN_ARENA, OPHAN_PLAYER_START, OPHAN_ATTACKS, OPHAN_CROWD, OPHAN_BREAK_FLOOR, OPHAN_SKIN_HP, ophanView, OPHAN_GAUGE_COPY, KRAKEN_CAGE_R, KRAKEN_PARRY_CD,
+  KRAKEN_RISE_T, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, hiddenChapters, OPHAN_BOSS, OPHAN_HAND, OPHAN_HIT, OPHAN_ARENA, OPHAN_PLAYER_START, OPHAN_ATTACKS, OPHAN_CROWD, OPHAN_BREAK_FLOOR, OPHAN_SKIN_HP, OPHAN_STAGGER_T, ophanView, OPHAN_GAUGE_COPY, KRAKEN_CAGE_R, KRAKEN_PARRY_CD,
   KRAKEN_OPEN_WAVES, KRAKEN_COIL_EVERY, KRAKEN_COIL_RAYS, KRAKEN_ENRAGE_AT, KRAKEN_RAGE_AT, KRAKEN_RAGE_HITS_MIN, KRAKEN_RAGE_HITS_MAX, KRAKEN_RAGE_VOLLEY, KRAKEN_RAGE_VOLLEY_SPREAD, KRAKEN_RAGE_FUSE, KRAKEN_RAGE_GAP, KRAKEN_RAGE_CALM, KRAKEN_RAGE_CHANCE, KRAKEN_NODE_BACK, KRAKEN_HEAD_HP, KRAKEN_HEAD_HP_AT, KRAKEN_HEAD_HP_PER_S, KRAKEN_ARRIVE_T, KRAKEN_RING_R, KRAKEN_LASH_R, KRAKEN_SLAM_T, KRAKEN_DEFLECT_CD,
   KRAKEN_LUNGE_T, KRAKEN_GRIP_DUR, KRAKEN_GRIP_DMG, KRAKEN_GRIP_FLICKS, KRAKEN_GRIP_STICK_MUL, TRAWL_WIGGLE_ARC,
   KRAKEN_LASH_W, KRAKEN_LASH_OVER, KRAKEN_LASH_DMG, KRAKEN_LESSON_MAX, KRAKEN_PARRY_SHOVE_R, KRAKEN_PARRY_EARLY_T, KRAKEN_LIMP_CLEAR, KRAKEN_ARRIVE_T2, KRAKEN_WAVE_GROWTH, KRAKEN_COIL_DMG, KRAKEN_COIL_SHADOW_SOFT, krakenCoilBandHalfW,
@@ -21114,6 +21114,7 @@ run(testLeLargeWeapons)
   run(testOphanShell)
   run(testOphanRig)
   run(testOphanSlice)
+  run(testOphanWorlds)
   run(testOphanRenderWiring)
   // A hand-typed filter that matched nothing is the silent pass without a parent watching:
   // `node test/sim-test.js supernova` printed ALL TESTS PASSED having run no scenario at all.
@@ -43180,7 +43181,7 @@ function ophStart(r, k, at) {
   CHAPTERS.ophan.attacks = { 1: [k], 2: [k], 3: [k] }
   try {
     const o = r.script.oph
-    o.atk = null; o.atkCd = 0
+    o.atk = null; o.atkCd = 0; o.tell = 0; o.after = -1
     r.player.x = at.x; r.player.y = at.y
     stepSim(r, { x: 0, y: 0 }, 1 / 60)
     assert.strictEqual(o.atk?.k, k, `the scheduler did not start a ${k}`)
@@ -43360,6 +43361,132 @@ function testOphanSlice() {
   }
   assert.ok(tornado?.hit && tornado.pull, 'the live tornado neither hits nor pulls a player at its foot')
   console.log(`PASS run OP.slice: matched x1 / stagger x2 / mismatch 0, locked aim, arena wall, ${CHAPTERS.ophan.worlds.length} skin(s) broken -> one victory, sword death, ${born} crowd births on the border, win+death resolves once, invuln holds, a11 reach [${reach.join(", ")}] (targeting proven for shovel/prismShard/hotCoals, reach only for pickaxe/slagLadle/sling), crowd dmgMul kept, no touch damage, 6/6 attacks hit live`)
+}
+
+// ---- run OP.worlds: world switching, the wipe, the crowd turning in place, the hand, phases ------
+function testOphanWorlds() {
+  const W = (k) => ({ x: 0, y: 0, world: k })
+  const count = (r, t) => r.events.filter((e) => e.type === t).length
+  const crowdOf = (r) => r.enemies.filter((e) => !e._dead && e.rosterId !== 'ophan')
+  const dt = 1 / 60
+  // h1 switching, and a broken band refused
+  {
+    const r = ophanRun(3), o = r.script.oph
+    r.events.length = 0
+    stepSim(r, W(2), dt)
+    assert.ok(o.world === 2 && count(r, 'ophanWorld') === 1, `h1: pressing 2 left world ${o.world}, ${count(r, 'ophanWorld')} ophanWorld`)
+    o.broken[4] = 1; r.events.length = 0
+    stepSim(r, W(4), dt)
+    assert.ok(o.world === 2 && count(r, 'ophanRefuse') === 1 && count(r, 'ophanWorld') === 0, `h1: a broken band moved the world to ${o.world}`)
+  }
+  // h2 a creature turns where it stands, when the circle reaches it, keeping its hp share
+  {
+    const r = ophanRun(3), o = r.script.oph, p = r.player
+    o.atkCd = 1e9; o.swapIn = 1e9; r.weapons = []; p.hp = p.maxHP = 1e9
+    ophSteps(r, 600, { before: () => { o.crowdT = 0 }, until: () => crowdOf(r).some((e) => e.rosterId === 'earthworm') })
+    o.crowdT = 1e9
+    const e = crowdOf(r).find((x) => x.rosterId === 'earthworm')
+    assert.ok(e && e.world === 0, 'h2: no world-0 earthworm to plant')
+    for (const x of crowdOf(r)) if (x !== e) x._dead = true
+    e.x = p.x - 180; e.y = p.y - 240; e.hp = e.maxHP * 0.4
+    stepSim(r, W(4), dt)
+    ophSteps(r, 5)
+    assert.strictEqual(e.rosterId, 'earthworm', 'h2: the creature turned before the circle reached it')
+    let jump = 0
+    for (let i = 0; i < 12; i++) {
+      const x0 = e.x, y0 = e.y, s0 = e.speed
+      stepSim(r, { x: 0, y: 0 }, dt)
+      jump = Math.max(jump, Math.hypot(e.x - x0, e.y - y0) - Math.max(s0, e.speed) * dt)
+    }
+    const row = CHAPTERS.ophan.roster.find((x) => x.id === 'emberImp'), base = ENEMIES[ARCHETYPE_TYPE[row.archetype]]
+    assert.ok(e.rosterId === 'emberImp' && e.world === 4, `h2: after 0.3s it is a ${e.rosterId} of world ${e.world}`)
+    assert.ok(Math.abs(e.hp / e.maxHP - 0.4) <= 0.01, `h2: it kept ${(e.hp / e.maxHP).toFixed(3)} of its hp, not 0.4`)
+    assert.ok(e.maxHP === Math.max(1, Math.round(base.hp * row.hpMul * r.mods.enemyHpMul)) &&
+      e.speed === base.speed * row.speedMul * r.mods.enemySpeedMul && e.dmg === base.dmg * r.mods.enemyDmgMul * (row.dmgMul ?? 1) &&
+      e.radius === base.radius * r.mods.enemyRadiusMul * (row.radiusMul ?? 1), 'h2: the turned creature kept the old row\'s stats')
+    assert.ok(jump <= 1e-6, `h2: it moved ${jump.toFixed(2)}px past its own walk in one step (a respawn)`)
+  }
+  // h3 several presses inside one wipe: the last world wins, everyone turns, the wipe ends
+  {
+    const r = ophanRun(3), o = r.script.oph, p = r.player
+    p.hp = p.maxHP = 1e9; o.atkCd = 1e9; o.swapIn = 1e9; r.weapons = []
+    ophSteps(r, 8 * 60)
+    assert.ok(crowdOf(r).length >= 3, 'h3: no crowd to turn')
+    for (const k of [1, 3, 5]) stepSim(r, W(k), dt)
+    ophSteps(r, 60)
+    const ids = Object.values(CHAPTERS.ophan.worlds[5].crowd), c = crowdOf(r)
+    assert.ok(o.world === 5 && o.wipe === null, `h3: world ${o.world}, wipe ${JSON.stringify(o.wipe)}`)
+    assert.ok(c.length && c.every((e) => e.world === 5 && ids.includes(e.rosterId)), `h3: crowd left in other worlds: ${c.filter((e) => e.world !== 5).map((e) => e.rosterId).join(', ')}`)
+  }
+  // h4 a press made during a hitstop survives it
+  {
+    const r = ophanRun(3), o = r.script.oph
+    r.hitStop = 0.2
+    stepSim(r, W(3), dt)
+    ophSteps(r, 20)
+    assert.strictEqual(o.world, 3, 'h4: a press during the hitstop was lost')
+  }
+  // h5 resonance: only a press on the told world, during the tell, still held at the swap
+  const reso = (mode) => {
+    const r = ophanRun(3, 11), o = r.script.oph, p = r.player
+    r.weapons = []; o.atkCd = 1e9; o.crowdT = 1e9; p.hp = p.maxHP = 1e9
+    if (mode === 'before') { ophSteps(r, 120); stepSim(r, W(3), dt) }
+    ophSteps(r, 600, { until: () => o.tell > 0 })
+    assert.ok(o.tell > 0, 'h5: no tell')
+    if (mode === 'before') o.next = 3
+    else stepSim(r, W(o.next), dt)
+    if (mode === 'away') { ophSteps(r, 10); stepSim(r, W([1, 2, 3, 4, 5].find((k) => k !== o.next)), dt) }
+    r.events.length = 0
+    ophSteps(r, 600, { until: () => o.swaps >= 1 })
+    assert.strictEqual(o.swaps, 1, 'h5: the tell never swapped')
+    return { stagger: o.stagger, res: count(r, 'ophanResonance'), swap: count(r, 'ophanSwap') }
+  }
+  const caught = reso('during'), early = reso('before'), left = reso('away')
+  assert.ok(Math.abs(caught.stagger - OPHAN_STAGGER_T) < 1e-9 && caught.res === 1 && caught.swap === 1, `h5: caught swap: stagger ${caught.stagger}, resonance x${caught.res}`)
+  assert.ok(early.stagger === 0 && early.res === 0, `h5: a press before the tell staggered (${early.stagger})`)
+  assert.ok(left.stagger === 0 && left.res === 0, `h5: leaving the told world before the swap staggered (${left.stagger})`)
+  // h6 the scheduler: no attack in a tell or its after-beat, no swap mid-attack, swapMin attack-free between swaps
+  let gaps = [], atkN = 0
+  {
+    const r = ophanRun(3, 5), o = r.script.oph, p = r.player
+    p.hp = p.maxHP = 1e9
+    let free = 0, swaps = o.swaps, lastAtk = null, bad = null
+    ophSteps(r, 120 * 60, { after: () => {
+      if (o.atk && (o.tell > 0 || o.after >= 0)) bad ??= `an attack live at t=${o.t.toFixed(2)} with tell ${o.tell.toFixed(2)}, after ${o.after.toFixed(2)}`
+      if (o.atk && o.atk !== lastAtk) atkN++
+      lastAtk = o.atk
+      if (!o.atk) free += dt
+      if (o.swaps !== swaps) {
+        if (o.atk) bad ??= `a swap during a ${o.atk.k} at t=${o.t.toFixed(2)}`
+        if (swaps > 0) gaps.push(free)
+        free = 0; swaps = o.swaps
+      }
+    } })
+    assert.strictEqual(bad, null, `h6: ${bad}`)
+    assert.ok(gaps.length >= 6 && atkN >= 8, `h6: only ${gaps.length} swap gaps and ${atkN} attacks in 120s`)
+    assert.ok(Math.min(...gaps) >= OPHAN_HAND.swapMin - 2 * dt, `h6: a swap came ${Math.min(...gaps).toFixed(2)}s of attack-free time after the last`)
+  }
+  // h7 phases: two skins broken per phase
+  {
+    const r = ophanRun(3), o = r.script.oph, p = r.player
+    p.hp = p.maxHP = 1e9; r.weapons = []
+    const brk = (n) => {
+      for (let i = 0; i < n; i++) {
+        const k = o.broken.indexOf(0); o.skin = k; o.world = k
+        const b = ophBoss(r); b.hp = OPHAN_BREAK_FLOOR + 1; dealDamage(r, b, 5, false); stepSim(r, { x: 0, y: 0 }, dt)
+      }
+    }
+    brk(2); ophSteps(r, 600)
+    assert.ok(Math.abs(o.ph - 2) <= 0.05, `h7: two skins broken, phase ${o.ph.toFixed(3)}`)
+    brk(2); ophSteps(r, 600)
+    assert.ok(o.broken.reduce((s, v) => s + v, 0) === 4 && Math.abs(o.ph - 3) <= 0.05, `h7: four skins broken, phase ${o.ph.toFixed(3)}`)
+  }
+  // h8 input.js: no press reads -1, a press reads once; the digit keys are bound
+  assert.strictEqual(getInput().world, -1, 'h8: getInput without a press does not say world -1')
+  pressWorld(3)
+  assert.ok(getInput().world === 3 && getInput().world === -1, 'h8: a world press is not latched and cleared on read')
+  assert.ok(/Digit/.test(readFileSync(new URL('../src/input.js', import.meta.url), 'utf8')), 'h8: input.js binds no digit key')
+  console.log(`PASS run OP.worlds: switch + refuse, turn in place on the wipe, 3 presses -> one world, press survives hitstop, resonance only when caught (stagger ${caught.stagger}), 120s d3: ${atkN} attacks, ${gaps.length} swap gaps >= ${Math.min(...gaps).toFixed(2)}s, phases 2 and 3`)
 }
 
 // run OP.wire: render.js and src/ophan/renderer.js are not importable (Pixi + DOM), so their
