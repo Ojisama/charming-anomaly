@@ -20596,6 +20596,11 @@ function testSaveSummary() {
   const withBlank = saveSummary({ shop: {}, chapters: { [CHAPTER_ORDER[0]]: { unlocked: true }, blank: { unlocked: true, maxDifficulty: 2 } } })
   assert.strictEqual(withBlank.chapterId, 'blank', "The Blank lives outside CHAPTER_ORDER, so it can only be reached by an explicit override")
   assert.strictEqual(withBlank.beaten, 1, "and its ★ row reads its OWN ladder — the same rule the hero card uses, so the two can never disagree")
+  // a WIP hidden chapter names itself only to a dev save (an ex-dev save can hold The Ophan unlocked)
+  assert.ok(isWipChapter('ophan'), 'The Ophan is no longer WIP: pick another WIP hidden chapter for this check')
+  const wip = { shop: {}, chapters: { [CHAPTER_ORDER[0]]: { unlocked: true }, ophan: { unlocked: true } } }
+  assert.strictEqual(saveSummary(wip).chapterId, CHAPTER_ORDER[0], 'the save prompt names a WIP chapter (The Ophan) to a non-dev save')
+  assert.strictEqual(saveSummary({ ...wip, dev: true }).chapterId, 'ophan', 'a dev save no longer names the WIP chapter it reached')
   console.log('PASS run SM.b (furthest chapter): the ordered walk plus the explicit Blank override that no loop over CHAPTER_ORDER can reach')
 
   // (c) COERCION AT THE BOUNDARY. Every field here is attacker-controlled for anyone holding a
@@ -43907,6 +43912,17 @@ function testOphanRenderWiring() {
   const glcOff = rend.match(/const glcWarm = \(s, on\) => \{([^\n]*)\}/)?.[1] ?? ''
   assert.ok(/display: 'none', zIndex: ''/.test(glcOff) && /glcWarm\(s, false\)/.test(exitBody), 'exit() leaves the Core\'s melt canvas showing, or at the warm-up\'s z -1')
   assert.ok(/rt\?\.destroy\(true\);\s*rt = null/.test(exitBody), 'exit() keeps the warm-up\'s render target (a stale size on the next prewarm)')
+  // a warm-up the brief started is stopped by the next chapter even though the arena never entered (ophanOn false):
+  // its px2d patches off before that chapter's looks bake, its melt canvas hidden
+  const setOphanBody = render.slice(render.indexOf('function setOphan(run) {'), render.indexOf('function syncOphan('))
+  const offBranch = setOphanBody.slice(setOphanBody.indexOf('if (!worlds) {'), setOphanBody.indexOf('return', setOphanBody.indexOf('if (!worlds) {')))
+  assert.ok(/ophanR\?\.exit\(\)|if \(ophanR\) ophanR\.exit\(\)/.test(offBranch) && !/ophanOn\s*&&/.test(offBranch),
+    'setOphan(null) exits the Ophan renderer only once a fight entered: a warm-up the player backed out of keeps running under the next chapter')
+  assert.ok(/if \(ophanR && !CHAPTERS\[run\?\.chapter\]\?\.worlds\) setOphan\(null\)/.test(render),
+    'reset() stops the Ophan only once a fight entered: a backed-out warm-up keeps px2d\'s patches on through the next chapter\'s bakes')
+  // nothing of the Ophan runs at load: every player's bundle imports src/ophan
+  const page = strip(readFileSync(new URL('../src/ophan/page.js', import.meta.url), 'utf8'))
+  assert.ok(!/^export const \w+ = mk\(/m.test(page) && !/^\{/m.test(page), 'src/ophan/page.js bakes a canvas at module load (every player pays it)')
   const enterBody = rend.slice(rend.indexOf('enter(run) {'), rend.indexOf('exit()', rend.indexOf('enter(run) {')))
   assert.ok(/saved\s*\?\?=/.test(enterBody) && !/saved\s*=\s*\{/.test(enterBody),
     'enter() re-snapshots the page on a second entry with no exit (Play again): it saves the arena\'s own background and a later chapter is left transparent')

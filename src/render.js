@@ -14370,7 +14370,7 @@ const spurG = new Graphics()
     for (const o of ophanHidden) if (!asciiHidden.includes(o) && !toonHidden.includes(o) && !liquidHidden.includes(o)) { o.renderable = true; o._asciiHidden = false }
     ophanHidden = []
     if (!worlds) {
-      if (ophanOn && ophanR) ophanR.exit()
+      ophanR?.exit()   // also a warm-up the brief started and the player backed out of
       ophanOn = false
       return
     }
@@ -34210,8 +34210,9 @@ void main() {
     chapterBiome = (run && BIOMES[run.chapter]) || BIOMES.body
     dustLook = chapterRender.dust ?? null
     for (const m of dustMotes) { m.s.tint = dustLook?.tint ?? 0xffffff; m.s.alpha *= dustLook?.alpha ?? 1 }
-    // leaving The Ophan puts the page back BEFORE the next look sets it: the Core sets the very values the arena did
-    if (ophanOn && !CHAPTERS[run?.chapter]?.worlds) setOphan(null)
+    // leaving The Ophan, or its brief's warm-up, puts the page back BEFORE the next look sets it (the Core sets the very values
+    // the arena did) and takes px2d's patches off before the next look bakes
+    if (ophanR && !CHAPTERS[run?.chapter]?.worlds) setOphan(null)
     R.background.color = chapterRender.bgColor
     setMacro(run)   // Book 3: the macro lens on or off
     if (run && CHAPTERS[run.chapter]?.weapons?.includes('rootSnare')) bakeSnares()   // at run start, not on the first cast

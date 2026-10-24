@@ -1,4 +1,4 @@
-import { OPHAN, OPHAN_RIG, hh, mk, shade, mix, sheen, INK, TAU, PX, STY, grain, paper } from '../page.js'
+import { OPHAN, OPHAN_RIG, hh, mk, shade, mix, sheen, INK, TAU, PX, STY } from '../page.js'
 // The Ophan in the Geode look (holo), round 37: a biblically accurate SERAPH as a rare foil boss card, on the shared rig.
 // Shape and motion come from OPHAN_RIG (cru/rig.js): this file only renders them. Drawn like the Geode's own cast
 // (src/holo.js): flat cel colour under a crisp near-black ink line (heavier on every silhouette), every blade a faceted

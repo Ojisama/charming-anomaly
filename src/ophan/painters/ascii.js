@@ -1,4 +1,4 @@
-import { OPHAN, OPHAN_RIG, hh, mk, shade, mix, sheen, INK, TAU, PX, STY, grain, paper } from '../page.js'
+import { OPHAN, OPHAN_RIG, hh, mk, shade, mix, sheen, INK, TAU, PX, STY } from '../page.js'
 // The Ophan in the Mine look (ascii), round 25 (geometry from OPHAN_RIG): the seraph typed in the mine's glyphs.
 // Shape and motion come from OPHAN_RIG (cru/rig.js): this file only renders them, as a printed sigil of characters.
 // Each wing is the rig's own blade envelope typed on a character grid: a near-black backing, a calm stepped field of

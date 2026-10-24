@@ -1,4 +1,4 @@
-import { OPHAN, OPHAN_RIG, hh, mk, shade, mix, sheen, INK, TAU, PX, STY, grain, paper } from '../page.js'
+import { OPHAN, OPHAN_RIG, hh, mk, shade, mix, sheen, INK, TAU, PX, STY } from '../page.js'
 // The Ophan in the Magma look (pixel), round 29: the owner's pick, every feather resolved on a grid twice as fine as the
 // world's (the boss at PX/2, the floor and its fissures at PX). Each blade is its own shape in a five-step ramp (ink, deep,
 // the drake's wine, melt light, melt highlight), three bands across it lit from the upper left, a one-pixel ink seam where it

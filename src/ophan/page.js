@@ -16,10 +16,11 @@ export const STY = [
 
 export const TAU = Math.PI*2, W = 360, H = 600, PX = 4, INK = '#120b08';
 export const mk = (w,h) => { const c = document.createElement('canvas'); c.width = Math.max(1, w|0); c.height = Math.max(1, h|0); return c; };
-export const grain = mk(128,128); { const g = grain.getContext('2d'); g.fillStyle = '#4a2f1f'; g.fillRect(0,0,128,128);
-  for (let k=0;k<1400;k++){ const l=Math.random(); g.fillStyle = l<.5 ? `rgba(25,14,8,${.2+.5*Math.random()})` : `rgba(${150+70*l|0},${98+50*l|0},${60+30*l|0},${.1+.3*Math.random()})`; g.beginPath(); g.arc(Math.random()*128, Math.random()*128, .3+Math.random()*2, 0, TAU); g.fill(); } }
-export const paper = mk(128,128); { const g = paper.getContext('2d'); g.fillStyle = '#efe0bf'; g.fillRect(0,0,128,128);
-  for (let k=0;k<900;k++){ g.fillStyle = `rgba(90,60,30,${Math.random()*.12})`; g.fillRect(Math.random()*128, Math.random()*128, 1, 1); } }
+// baked on first use, not at load: every player's bundle imports this file
+let GRAIN = null;
+export const grain = () => { if (GRAIN) return GRAIN; GRAIN = mk(128,128); const g = GRAIN.getContext('2d'); g.fillStyle = '#4a2f1f'; g.fillRect(0,0,128,128);
+  for (let k=0;k<1400;k++){ const l=Math.random(); g.fillStyle = l<.5 ? `rgba(25,14,8,${.2+.5*Math.random()})` : `rgba(${150+70*l|0},${98+50*l|0},${60+30*l|0},${.1+.3*Math.random()})`; g.beginPath(); g.arc(Math.random()*128, Math.random()*128, .3+Math.random()*2, 0, TAU); g.fill(); }
+  return GRAIN; };
 
 // ---------- colour helpers ----------
 export const rgb = hex => { const n = parseInt(hex.slice(1),16); return [n>>16, n>>8&255, n&255]; };
