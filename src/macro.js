@@ -288,6 +288,11 @@ export function bakeLocal(E, S, paint, o = {}) {
 //   the raking key — a broad wash of light from one side of the frame, dark falling off the other;
 //   the grade — split toning (cool shadows / warm highlights, or the cave's own pair), a filmic
 //     shoulder, a heavy vignette and moving film grain.
+// the full-screen filter vertex shader every macro-style pass (the LENS, the Ophan's stages) is built on
+export const MACRO_VERT = 'in vec2 aPosition;\nout vec2 vTextureCoord;\nuniform vec4 uInputSize;\nuniform vec4 uOutputFrame;\nuniform vec4 uOutputTexture;\n'
+  + 'vec4 filterVertexPosition(void) {\n  vec2 position = aPosition * uOutputFrame.zw + uOutputFrame.xy;\n  position.x = position.x * (2.0 / uOutputTexture.x) - 1.0;\n'
+  + '  position.y = position.y * (2.0 * uOutputTexture.z / uOutputTexture.y) - uOutputTexture.z;\n  return vec4(position, 0.0, 1.0);\n}\n'
+  + 'void main(void) {\n  gl_Position = filterVertexPosition();\n  vTextureCoord = aPosition * (uOutputFrame.zw * uInputSize.zw);\n}\n'
 export const LENS_FRAG = `
 in vec2 vTextureCoord;
 out vec4 finalColor;

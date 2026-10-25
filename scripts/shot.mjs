@@ -87,7 +87,10 @@ await assertReachable(url)
 
 const browser = spawn(chrome, [
   '--no-sandbox', '--hide-scrollbars', `--window-size=${W},${H}`,
-  `--remote-debugging-port=${PORT}`, `--user-data-dir=/tmp/shot-${process.pid}`, 'about:blank',
+  `--remote-debugging-port=${PORT}`, `--user-data-dir=/tmp/shot-${process.pid}`,
+  // FX_CHROME_ARGS='--use-gl=angle --use-angle=gl --enable-gpu --ignore-gpu-blocklist': the real GPU, as fx-probe.mjs
+  // takes it (the software one draws some shader passes black)
+  ...(process.env.FX_CHROME_ARGS ? process.env.FX_CHROME_ARGS.split(' ') : []), 'about:blank',
 ], { stdio: 'ignore' })
 
 async function target() {

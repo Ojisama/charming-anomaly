@@ -30,6 +30,8 @@ import './hands/pixel.js'
 import './hands/toon.js'
 import './hands/liquid.js'
 import { CHAPTERS, OPHAN_BOSS, OPHAN_ATTACKS, OPHAN_HAND, OPHAN_BOSS_HOLD, OPHAN_BG_BAKE_MS, ophanView } from '../config.js'
+import { STAGE_DUR, lookOf, STAGING } from './staging.js'
+import './staging/looks.js'
 
 const STAGES = { macro, holo, ascii, pixel, toon, liquid, pencil }
 const IMMUNE_T = 0.4
@@ -64,14 +66,18 @@ const within = (g, f) => {
   try { f() } finally { SWAP.forEach((k, i) => { g[k] = window[k]; window[k] = keep[i] }) }
 }
 // the boss as its painter draws it (art.js boss). atk: an attack frame, the player at (ppx, ppy)
-function boss(s, x, y, R, t, ph, atk, u, ppx, ppy, c = s.px) {
+// clip: a staging look's cut (the eraser's), a path it lays on c to clip the whole boss by; opt: the painter's own (the
+// sketch's reveal)
+function boss(s, x, y, R, t, ph, atk, u, ppx, ppy, c = s.px, clip = null, opt = undefined) {
   const O = OPHAN[s.id]
   // the Magma body is a baked sheet per phase (ophan/pixel.js sheet()): a phase that eases would bake a new ~100 ms
   // sheet every frame, so it steps in quarters
   if (s.id === 'pixel') ph = Math.round(ph * 4) / 4
   c.begin()
+  if (clip) { c.save(); c.beginPath(); clip(c); c.clip() }
   if (atk && s.A) s.A.call(O, c, x, y, R, t, ph, atk, u, ppx, ppy)
-  else s.B.call(O, c, x, y, R, t, ph)
+  else s.B.call(O, c, x, y, R, t, ph, opt)
+  if (clip) c.restore()
 }
 // look's hand at u of the change, over the boss at (x, y, R) (art.js hand); returns where its tool is, for the macro focus
 function hand(c, look, x, y, R, t, u) {
@@ -116,6 +122,59 @@ export function createOphanRenderer(host) {
   // the sink and the rise fade the boss whole (a group alpha: its painter's overlapping layers do not show through each other)
   const fade = new AlphaFilter()
   let sink = null, rise = null, lastS = null, lastPh = 1
+  // THE STAGING (staging.js): the beats playing, each { kind, look, age, dur, e (its event), from (the slot the boss was last
+  // drawn in when it started), ph }; lastS0/lastXY: that slot and the boss's world point, kept through a wave and past death
+  const beats = []
+  let nsp = 0   // sprites of the layer used this frame
+  let lastS0 = null, lastXY = { x: 0, y: 0 }
+  const crowdXY = []   // the crowd's x, y, radius, world px, flat, as of the last frame
+  function beat(kind, e, from = null) {
+    const look = lookOf(kind, from?.id ?? (lastS0?.id ?? worlds[0].look))
+    if (!look) return
+    for (let i = beats.length - 1; i >= 0; i--) if (beats[i].kind === kind) beats.splice(i, 1)   // one of a kind at a time
+    beats.push({ kind, look, age: 0, dur: look.dur ?? STAGE_DUR[kind], e, from, world: lastA, ph: lastPh, x: e.x ?? lastXY.x, y: e.y ?? lastXY.y })
+  }
+  // a skin's boss as a texture, for a look that cuts it up (a break's shards): drawn once into a px2d of its own and
+  // rendered to a texture R*3 wide, centred on the boss; one per slot, phase and size, kept for the fight
+  const snapC = new Container(), snapPx = PX2D(snapC.addChild(new Container()), RES), snaps = new Map()   // a child: px2d scales its root by 1/RES, which generateTexture would not see
+  function snap(s, ph, R) {
+    const key = s.id + ':' + ph + ':' + Math.round(R)
+    let tx = snaps.get(key)
+    if (!tx) {
+      const W = Math.ceil(R * 3)
+      within(s.g, () => { window.OPH_PH = ph; boss(s, W / 2, W / 2, R, 0, ph, null, 0, 0, 0, snapPx) })
+      tx = app.renderer.generateTexture({ target: snapC, frame: new Rectangle(0, 0, W, W), resolution: RES })
+      snaps.set(key, tx)
+    }
+    return tx
+  }
+  // the look's view of a beat this frame (staging.js): its clock, the boss as the fight would draw it, and what it may draw with
+  function stageK(q, f) {
+    return {
+      kind: q.kind, u: Math.min(1, q.age / q.dur), age: q.age, dur: q.dur, e: q.e, from: q.from, ph0: q.ph,
+      S: f.S, A: f.A, B: f.B, alive: !!f.b, x: f.bx, y: f.by, R: f.R, z: f.z, t: f.t, ph: f.ph, boss: f.ov,
+      // where a world point sits in the boss's slot (stage px), e.g. the event's own x, y
+      at: (wx, wy) => ({ x: f.sx(f.S, wx), y: f.sy(f.S, wy) }),
+      px: (i) => spx[i],
+      // the floor of the world shown, under its pass and the boss (the crowd's px2d, after the crowd): a tear, a scar
+      floor: f.A.ent,
+      // spare px2d i faded whole (a group alpha, as the sink's) and scaled sc about (x, y): set before drawing into it
+      fadePx(i, a, sc = 1, x = 0, y = 0) {
+        const r = spx[i].root
+        sfade[i].alpha = a; r.filters = a < 1 ? [sfade[i]] : null
+        r.scale.set(sc / RES); r.position.set(spxK[i].x + x * (1 - sc), spxK[i].y + y * (1 - sc))
+      },
+      layer,
+      // the n-th sprite of this frame in the layer over the boss (pooled; hidden again next frame)
+      sprite(tex) { const c = layer.children[nsp] ?? layer.addChild(new Sprite()); nsp++; c.visible = true; c.texture = tex; c.anchor.set(0.5); c.alpha = 1; c.rotation = 0; c.scale.set(1); c.tint = 0xffffff; return c },
+      // a skin's boss drawn into px2d c (one boss per px2d a frame)
+      drawBoss(s, c, x, y, R, ph, clip = null, opt = undefined) { within(s.g, () => { window.OPH_PH = ph; boss(s, x, y, R, f.t, ph, null, 0, 0, 0, c, clip, opt) }) },
+      snap: (s, ph = f.ph) => snap(s, Math.round(ph), f.R),
+      slots, worlds,
+      look: (k) => slots[worlds[k].look],
+      col: (s) => s?.id === 'pencil' ? '#3a3a3a' : worlds.find((w) => w.look === s?.id)?.col ?? '#ffffff',
+    }
+  }
   let tellPx = null   // the px2d the sink or the rise scaled and faded this frame, and its root's own position, put back next frame
   // puts it back: every frame, and on enter and exit (a fight left mid-tell under a dt-0 modal leaves it scaled)
   const untell = () => { if (tellPx) { const r = tellPx.px.root; r.filters = null; r.scale.set(1 / RES); r.position.set(tellPx.x, tellPx.y); tellPx = null } }
@@ -123,6 +182,10 @@ export function createOphanRenderer(host) {
   const vel = { x: 0, y: 0 }
   root.visible = false
   const opx = PX2D(over, RES), hpx = PX2D(handC, RES)
+  // the staging's layers over the boss, in its slot's stage px like it: a sprite layer, then spare px2ds (one boss each)
+  const layer = overCam.addChild(new Container())
+  const spx = [0, 1, 2].map(() => PX2D(overCam.addChild(new Container()), RES))
+  const spxK = spx.map((p) => ({ x: p.root.x, y: p.root.y })), sfade = spx.map(() => new AlphaFilter())
   const shades = []   // the hand shadow's texture per world, baked in the warm-up
   // the wipe's circle is an alpha mask, not a stencil: a stencil nested under the hole's inverse stencil drops most of world B
   const disc = mk(256, 256), dg = disc.getContext('2d'); dg.fillStyle = '#fff'; dg.beginPath(); dg.arc(128, 128, 127, 0, TAU); dg.fill()
@@ -369,7 +432,7 @@ export function createOphanRenderer(host) {
       mine = { alpha: bg.alpha, color: bg.color.toNumber(), pos: app.canvas.style.position }
       slot(worlds[0].look)
       for (const s of Object.values(slots)) fit(s)
-      untell(); rings.length = 0; sink = rise = lastS = cam0 = null; vel.x = vel.y = 0
+      untell(); rings.length = 0; beats.length = 0; sink = rise = lastS = lastS0 = cam0 = null; vel.x = vel.y = 0
       root.visible = true
     },
     // puts back what enter() changed, unless a look entered after it (render.js resets each look in turn) changed it since
@@ -381,7 +444,7 @@ export function createOphanRenderer(host) {
       }
       saved = mine = null; sceneKey = ''
       for (const s of Object.values(slots)) { s.wrap.visible = false; glcWarm(s, false) }
-      untell(); sink = rise = lastS = null
+      untell(); beats.length = 0; sink = rise = lastS = lastS0 = null
       oph = null; credit = 0
       entered = false
       stopWarm()
@@ -389,14 +452,21 @@ export function createOphanRenderer(host) {
       root.visible = false
     },
     stopWarm,
+    beats,   // the staging playground (scripts/ophan-stage/) scrubs a beat by setting its age
     resize() { for (const s of Object.values(slots)) fit(s) },
     event(e) {
       switch (e.type) {
         case 'ophanImmune': rings.push({ x: e.x, y: e.y, life: IMMUNE_T }); return true
         // the boss sinks where it stood, in the skin it was last drawn in; its return rises where the sim put it
         // at the phase it was last drawn in: the sim's eases toward the next one as it goes, and an eased phase is a new bake
-        case 'ophanLeave': sink = lastS && { x: e.x, y: e.y, s: lastS, ph: lastPh, life: SINK_T }; rise = null; return true
-        case 'ophanEnter': rise = { life: RISE_T }; sink = null; return true
+        case 'ophanLeave': sink = lastS && { x: e.x, y: e.y, s: lastS, ph: lastPh, life: SINK_T }; rise = null; beat('leave', e, lastS0); return true
+        case 'ophanEnter': rise = { life: RISE_T }; sink = null; beat(e.stage === 'p1' ? 'arrive' : 'return', e); return true
+        // the staging's other beats: the slot the boss was last drawn in is the skin that broke, or the one that dies
+        case 'ophanBreak': beat('break', e, lastS0); return true
+        case 'ophanResonance': beat('resonance', e); return true
+        // the crowd it sweeps off is gone from the run by now: where it stood last frame, for the look to scribble out
+        case 'ophanSketch': beat('sketch', { ...e, gone: e.gone ?? crowdXY.slice() }, lastS0); return true
+        case 'bossDead': beat('death', e, lastS0); return true   // not the Blank's white-out, which render.js would draw
       }
       return false
     },
@@ -411,7 +481,16 @@ export function createOphanRenderer(host) {
       const built = (k) => (slots[worlds[k].look]?.warm ? slots[worlds[k].look] : null)
       // the sketch: the paper replaces every world, and the boss on it is the pencil drawing (no wipe runs in it)
       const sk = oph?.sketch && slots.pencil?.warm ? slots.pencil : null
-      const A = (lastA = sk ?? built(wipe ? wipe.from : wi) ?? lastA ?? slot(worlds[0].look)), B = wipe ? built(wi) : null
+      let A = (lastA = sk ?? built(wipe ? wipe.from : wi) ?? lastA ?? slot(worlds[0].look)), B = wipe ? built(wi) : null
+      // a staging beat may take the world wipe over (the paper draining in from the boss, the worlds blooming back on its
+      // death): its own A and B, its circle round a world point; null leaves the fight's
+      let sw = null
+      for (const q of beats) {
+        const o = q.look.scene?.({ u: Math.min(1, q.age / q.dur), age: q.age, dur: q.dur, x: q.x, y: q.y, world: q.world, slots, worlds, look: (k) => slots[worlds[k].look], view })
+        if (o && o.A?.warm && (!o.B || o.B.warm)) { A = o.A; B = o.B ?? null; sw = o }
+      }
+      crowdXY.length = 0
+      for (const e of run.enemies) if (!e._dead && e.rosterId !== 'ophan') crowdXY.push(e.x, e.y, e.radius ?? 12)
       const core = slots.liquid
       // the camera: each slot's stage px are laid out in a rest framing at ophanView's zoom centred where the follow camera
       // looks, so a slot always covers the screen; its stage scrolls its floor by pan, the stage px the camera has moved
@@ -440,11 +519,14 @@ export function createOphanRenderer(host) {
         if (B && B === core) scene.setMask({ mask: hole, inverse: true })
       }
       for (const s of [A, B]) if (s) place(s, s.wrap)
-      if (B) { wipeMask.position.set(psx, psy); wipeMask.width = wipeMask.height = 2 * wipe.r * view.zoom }
+      // the circle B shows through: the fight's wipe round the player, or the staging's round its own point
+      const cx = sw ? (sw.x - view.left) * view.zoom : psx, cy = sw ? (sw.y - view.top) * view.zoom : psy
+      const cr = sw ? sw.r * view.zoom : wipe ? wipe.r * view.zoom : 0
+      if (B) { wipeMask.position.set(cx, cy); wipeMask.width = wipeMask.height = 2 * cr }
       hole.clear()
-      if (B && B === core) hole.circle(psx, psy, wipe.r * view.zoom).fill(0xffffff)
+      if (B && B === core) hole.circle(cx, cy, cr).fill(0xffffff)
       ring.clear()
-      if (wipe) ring.circle(psx, psy, wipe.r * view.zoom).stroke({ width: 3, color: worlds[wi].col })
+      if (sw ? B && sw.col : wipe) ring.circle(cx, cy, cr).stroke({ width: sw?.w ?? 3, color: sw ? sw.col : worlds[wi].col, alpha: sw?.a ?? 1 })
       if (core?.glc) core.glc.style.display = A === core || B === core ? 'block' : 'none'
 
       // the crowd, every live body but the boss: its own world's creature in that world, a ghost in the other. Each slot
@@ -469,33 +551,55 @@ export function createOphanRenderer(host) {
       // inside its own world's pass when the player stands in it, pasted in over a foreign world (or a wipe) otherwise; gone
       // in a wave (after its sink) and once the last skin breaks
       opx.begin(); hpx.begin(); for (const s of Object.values(slots)) s.px.begin()
+      if (sk) sk.ent.begin()   // the paper has no crowd, but the staging may draw on its floor
       handShade.visible = false
       let focus = null
       const b = run.enemies.find((e) => e.rosterId === 'ophan' && !e._dead), a = b ? oph?.atk : null
       if (sink && (sink.life -= dt) <= 0) sink = null
       if (rise && (rise.life -= dt) <= 0) rise = null
-      const S = b ? sk ?? slots[worlds[oph ? oph.skin : wi].look] : sink?.s
+      for (let i = beats.length - 1; i >= 0; i--) if ((beats[i].age += dt) >= beats[i].dur) beats.splice(i, 1)
+      // a beat that outlives the boss (its leaving, its death) keeps drawing in the slot it started in
+      const held = b ? null : beats.find((q) => q.from && (q.kind === 'leave' || q.kind === 'death'))
+      const S = b ? sk ?? slots[worlds[oph ? oph.skin : wi].look] : sink?.s ?? held?.from
       lastS = b ? S : null
+      if (S) lastS0 = S
+      if (b) { lastXY.x = b.x; lastXY.y = b.y }
       untell()
+      for (const [i, q] of spx.entries()) { const r = q.root; r.filters = null; r.alpha = 1; r.scale.set(1 / RES); r.position.set(spxK[i].x, spxK[i].y); q.begin() }
+      for (const c of layer.children) c.visible = false
+      nsp = 0
       if (S) {
-        const inPass = !wipe && S === A, z = z0 / S.k, bpx = inPass ? S.px : opx
+        const inPass = !B && S === A, z = z0 / S.k, bpx = inPass ? S.px : opx
         place(S, overCam); place(S, handCam)
-        const bx = sx(S, b ? b.x : sink.x), by = sy(S, b ? b.y : sink.y) + (b && oph?.stagger > 0 && !a ? 6 * z : 0)
+        const wx = b ? b.x : sink ? sink.x : held.x, wy = b ? b.y : sink ? sink.y : held.y
+        let bx = sx(S, wx), by = sy(S, wy) + (b && oph?.stagger > 0 && !a ? 6 * z : 0)
         const R = OPHAN_BOSS.R * z
+        let bph = sk ? 4 : b ? ph : sink ? sink.ph : held.ph
+        // THE STAGING: each beat's look sees the boss as the fight would draw it and may change that (ov), drawing its own
+        // marks over it. A beat that owns the boss's coming and going replaces the plain rise and sink
+        const ov = { S, hide: false, scale: 1, alpha: 1, dx: 0, dy: 0, ph: bph }
+        let owns = false
+        for (const q of beats) {
+          owns ||= q.kind === 'arrive' || q.kind === 'return' || q.kind === 'leave'
+          q.look.draw(stageK(q, { S, A, B, b, bx, by, R, z, t, ph: bph, ov, sx, sy, view }))
+        }
         // the sink and the rise: k 1 is the boss whole, 0 gone under the floor. Its px2d root is scaled about the boss, not
         // its R: the painters bake per size, and a size that eases would bake every frame
-        const k = b ? (rise ? 1 - rise.life / RISE_T : 1) : sink.life / SINK_T, ke = k * k * (3 - 2 * k)
-        if (k < 1) {
-          const r = bpx.root, sc = SINK_K + (1 - SINK_K) * ke
-          tellPx = { px: bpx, x: r.x, y: r.y }
-          fade.alpha = ke; r.filters = [fade]
+        const k = owns ? 1 : b ? (rise ? 1 - rise.life / RISE_T : 1) : sink ? sink.life / SINK_T : 1, ke = k * k * (3 - 2 * k)
+        const sc = (SINK_K + (1 - SINK_K) * ke) * ov.scale, al = ke * ov.alpha
+        bx += ov.dx; by += ov.dy; bph = ov.ph
+        const BS = ov.S ?? S, bp = BS === S ? bpx : opx
+        if (BS !== S) place(BS, overCam)
+        if (sc !== 1 || al !== 1) {
+          const r = bp.root
+          tellPx = { px: bp, x: r.x, y: r.y }
+          fade.alpha = al; r.filters = al < 1 ? [fade] : null
           r.scale.set(sc / RES); r.position.set(r.x + bx * (1 - sc), r.y + by * (1 - sc))
         }
-        const bph = sk ? 4 : b ? ph : sink.ph
         lastPh = bph
-        within(S.g, () => {
+        if (!ov.hide && al > 0) within(BS.g, () => {
           window.OPH_PH = bph
-          boss(S, bx, by, R, t, bph, a && a.k, Math.min(1, a ? a.u : 0), a ? sx(S, a.ax) : 0, a ? sy(S, a.ay) : 0, bpx)
+          boss(BS, bx, by, R, t, bph, a && a.k, Math.min(1, a ? a.u : 0), a ? sx(BS, a.ax) : 0, a ? sy(BS, a.ay) : 0, bp)
         })
         // THE HAND: the next world's hand shadow slides in over the tell (src2.html handShadow, eased), tinted its colour
         if (b && oph?.tell > 0 && oph.next >= 0 && shades[oph.next]) {

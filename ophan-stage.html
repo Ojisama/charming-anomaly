@@ -1,0 +1,143 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ophan staging</title>
+<style>
+  :root { --bg: #111; --fg: #e8e2d6; --dim: #8a8478; --acc: #f0c060; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font: 13px/1.35 system-ui, sans-serif; overflow: hidden; }
+  #stage { position: fixed; inset: 0 0 132px 0; }
+  #stage canvas { display: block; }
+  #bar { position: fixed; left: 0; right: 0; bottom: 0; height: 132px; box-sizing: border-box; padding: 8px 12px; background: #1b1a18; border-top: 1px solid #333; display: grid; gap: 6px; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  select, button { background: #2a2825; color: var(--fg); border: 1px solid #444; border-radius: 6px; padding: 5px 8px; font: inherit; min-height: 32px; }
+  button.on { background: var(--acc); color: #111; }
+  input[type=range] { flex: 1; min-width: 120px; accent-color: var(--acc); }
+  #label { color: var(--acc); font-weight: 600; }
+  #t { color: var(--dim); font-variant-numeric: tabular-nums; min-width: 92px; text-align: right; }
+  #load { position: fixed; inset: 0; display: grid; place-items: center; color: var(--dim); }
+</style></head>
+<body>
+<div id="stage"></div>
+<div id="load">baking the six worlds…</div>
+<div id="bar">
+  <div class="row">
+    <select id="beat"></select><select id="look"></select><select id="world"></select><select id="ph"></select>
+  </div>
+  <div class="row"><span id="label"></span></div>
+  <div class="row">
+    <button id="play" class="on">pause</button><button id="speed">1x</button>
+    <input id="scrub" type="range" min="0" max="1000" value="0"><span id="t"></span>
+  </div>
+</div>
+<script type="module">
+// THE OPHAN'S STAGING PLAYGROUND (dev page; vite builds index.html only). The real fight renderer
+// (src/ophan/renderer.js) and the real staging looks (src/ophan/staging/), fed a staged run instead of the sim: a beat is
+// started by its own event through renderer.event, exactly as the fight starts it, and scrubbed by setting its age. What
+// shows here is what the fight draws; a pick is one entry of STAGE_PICK. The player is a stand-in dot (render.js draws
+// the real one), and the cards are render.js's (the Kraken's ceremony), not drawn here.
+import { Application, Container, Graphics } from 'pixi.js'
+import { createOphanRenderer } from './src/ophan/renderer.js'
+import { STAGING, STAGE_PICK } from './src/ophan/staging.js'
+import { CHAPTERS, OPHAN_BOSS, ophanView } from './src/config.js'
+import { MACRO_VERT } from './src/macro.js'
+
+const worlds = CHAPTERS.ophan.worlds, NAMES = ['Topsoil', 'Geode', 'Mine', 'Magma', 'Mantle', 'Core']
+const BEATS = { arrive: 'Arrival (first entry)', return: 'Return (phase 2/3)', break: 'Skin break', resonance: 'Resonance', leave: 'Leave for a wave', sketch: 'Into the sketch', death: 'Death' }
+const $ = (id) => document.getElementById(id)
+const opt = (sel, items) => { sel.innerHTML = ''; for (const [v, l] of items) sel.append(new Option(l, v)) }
+
+const app = new Application()
+const host = $('stage')
+await app.init({ resizeTo: host, resolution: Math.min(2, devicePixelRatio || 1), autoDensity: true, background: 0x000000, backgroundAlpha: 0, preference: 'webgl' })   // as main.js: the Core's melt canvas sits under Pixi's
+host.append(app.canvas)
+const root = new Container(), dot = new Graphics()
+app.stage.addChild(root, dot)
+const R = createOphanRenderer({ app, root, macroVert: MACRO_VERT, body: () => null })
+await R.prewarm((p) => { $('load').textContent = 'baking the six worlds… ' + Math.round(p * 100) + '%' })
+// every later phase's art too (the fight bakes it in its waves): the playground shows them all
+await new Promise((ok) => { const w = () => (R.readyPhase() >= 3 ? ok() : setTimeout(w, 50)); w() })
+$('load').remove()
+
+const P = { x: 0, y: 0 }, BOSS = { x: 0, y: -150 }
+// the crowd the sketch sweeps off (x, y, radius, flat): the playground draws no crowd, so only its scribbles show
+const CROWD = Array.from({ length: 18 }, (_, i) => { const a = i * 2.39996, d = 120 + (i * 37) % 260; return [Math.cos(a) * d, Math.sin(a) * d, 10 + (i % 3) * 4] }).flat()
+const oph = { t: 0, world: 0, skin: 0, ph: 1, tell: 0, next: -1, after: -1, atk: null, stagger: 0, wipe: null, sketch: false, bossId: 1, swaps: 0, held: false, broken: [0, 0, 0, 0, 0, 0] }
+const boss = { id: 1, rosterId: 'ophan', x: BOSS.x, y: BOSS.y, hp: 1, maxHP: 1, _dead: false, radius: OPHAN_BOSS.bodyR }
+const run = { chapter: 'ophan', player: { x: P.x, y: P.y, radius: 12 }, enemies: [boss], script: { oph }, events: [] }
+R.enter(run)
+const view = () => {
+  const w = app.screen.width, h = app.screen.height, z = ophanView(w, h).z
+  return { left: P.x - w / (2 * z), top: P.y - h / (2 * z), zoom: z, w, h, animT: oph.t }
+}
+
+let kind = 'arrive', B = null, T = 0, playing = true, speed = 1
+const W = () => +$('world').value, PH = () => +$('ph').value
+function looks() {
+  const set = STAGING[kind] ?? {}
+  const ids = Object.keys(set).filter((id) => kind !== 'break' || id.startsWith(worlds[W()].look + ':'))
+  opt($('look'), ids.map((id) => [id, set[id].label]))
+}
+// the beat staged from the top: the run as the fight has it the frame before the event, one frame drawn so the renderer
+// latches the boss's skin, the event, then the run as it is after
+function restage() {
+  const id = $('look').value, set = STAGING[kind] ?? {}, look = set[id]
+  if (!look) { B = null; return }
+  if (kind === 'break') STAGE_PICK.break[worlds[W()].look] = id.split(':')[1]; else STAGE_PICK[kind] = id
+  $('label').textContent = look.label
+  const w = W(), sk = kind === 'death', ph = kind === 'return' ? Math.max(2, PH()) : PH()
+  // from a fresh fight: the plain rise and sink age on dt, which the playground never passes, so a beat left one stuck
+  R.enter(run)
+  Object.assign(oph, { world: w, skin: w, ph, sketch: sk, wipe: null, tell: 0, next: -1, after: -1, stagger: 0 })
+  boss._dead = false; run.enemies = [boss]
+  R.sync(run, 0, view())
+  const E = { arrive: { type: 'ophanEnter', stage: 'p1' }, return: { type: 'ophanEnter', stage: 'p' + ph }, break: { type: 'ophanBreak', skin: w },
+    resonance: { type: 'ophanResonance' }, leave: { type: 'ophanLeave' }, sketch: { type: 'ophanSketch', gone: CROWD }, death: { type: 'bossDead' } }[kind]
+  R.event({ ...E, x: boss.x, y: boss.y }, run)
+  B = R.beats[R.beats.length - 1] ?? null
+  if (kind === 'break') oph.skin = (w + 1) % 6   // the player still stands in the broken skin's world
+  if (kind === 'sketch') { oph.sketch = true; oph.ph = 4 }
+  if (kind === 'leave' || kind === 'death') { boss._dead = true; run.enemies = [] }
+  T = 0
+}
+function frame() {
+  if (!B) return
+  const dur = B.dur, pad = 0.6
+  if (playing) { T += app.ticker.deltaMS / 1000 * speed; if (T > dur + pad) T = -pad * 0.5 }
+  const a = Math.max(0, Math.min(dur - 1e-4, T))
+  if (!R.beats.includes(B)) R.beats.push(B)
+  B.age = a
+  oph.t = 10 + T
+  R.sync(run, 0, view())
+  // the stand-in player
+  const v = view(); dot.clear().circle((P.x - v.left) * v.zoom, (P.y - v.top) * v.zoom, 12 * v.zoom).fill({ color: 0xbfffe6 }).stroke({ color: 0x1a3a30, width: 2 })
+  $('scrub').value = Math.round(1000 * Math.max(0, Math.min(1, T / dur)))
+  $('t').textContent = a.toFixed(2) + ' / ' + dur.toFixed(2) + ' s'
+}
+
+opt($('beat'), Object.entries(BEATS))
+opt($('world'), worlds.map((w, i) => [i, 'skin: ' + NAMES[i]]))
+opt($('ph'), [[1, 'phase 1'], [2, 'phase 2'], [3, 'phase 3']])
+$('beat').onchange = () => { kind = $('beat').value; looks(); restage() }
+for (const id of ['look', 'ph']) $(id).onchange = restage
+$('world').onchange = () => { looks(); restage() }
+$('play').onclick = () => { playing = !playing; $('play').textContent = playing ? 'pause' : 'play'; $('play').classList.toggle('on', playing) }
+$('speed').onclick = () => { speed = speed === 1 ? 0.25 : 1; $('speed').textContent = speed + 'x' }
+$('scrub').oninput = () => { if (B) { T = $('scrub').value / 1000 * B.dur; if (playing) $('play').click() } }
+const q = new URLSearchParams(location.search)
+if (q.has('beat')) $('beat').value = kind = q.get('beat')
+if (q.has('world')) $('world').value = q.get('world')
+if (q.has('ph')) $('ph').value = q.get('ph')
+looks()
+if (q.has('look')) $('look').value = q.get('look')
+restage()
+if (q.has('u')) { playing = false; T = +q.get('u') * B.dur }
+// scripts/ophan-stage-strip.mjs drives this: one beat, look, world and phase, held at u of the beat
+window.__stage = { R, run, oph, ready: true,
+  show(beat, look, world = 0, ph = 1, u = 0) {
+    $('beat').value = kind = beat; $('world').value = world; $('ph').value = ph; looks(); $('look').value = look; restage()
+    if (playing) $('play').click()
+    T = u * B.dur; frame()
+    return $('label').textContent
+  } }
+app.ticker.add(frame)
+</script>
+</body></html>

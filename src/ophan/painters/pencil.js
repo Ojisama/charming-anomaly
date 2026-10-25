@@ -149,23 +149,25 @@ import { OPHAN, OPHAN_RIG, hh, mk, TAU } from '../page.js'
       c.restore(); };
     const back = P.wings.filter((w) => !(w.depth > .001)), front = P.wings.filter((w) => w.depth > .001);
     if (opt && opt.ghost){ frame(); c.translate(B.dx, B.dy); for (const w of back.concat(front)) wing(w, opt.ghost); c.restore(); return; }
+    // opt.reveal 0..1 (the sketch drawing itself, src/ophan/staging): construction marks, the body, the wings one by one, the eyes open last
+    const rv = opt?.reveal ?? 1, wa = (w) => cl(rv*7 - .5 - w.i), eo = cl((rv - .85)/.15);
     const look = (ex, ey) => { const dx = P.gaze[0] - ex, dy = P.gaze[1] - ey, l = Math.hypot(dx, dy) || 1; return [dx/l, dy/l]; };
-    const eyesOf = (ws) => { for (const w of ws) for (const E of w.eyes){ if (E.open < .01) continue;
+    const eyesOf = (ws) => { for (const w of ws) for (const E of w.eyes){ if (E.open*eo < .01) continue;
       const M = w.m, ex = M[0]*Math.cos(E.rot) + M[2]*Math.sin(E.rot), ey = M[1]*Math.cos(E.rot) + M[3]*Math.sin(E.rot), [gx, gy] = look(E.x, E.y);
-      eye(c, x + E.x*R, y + E.y*R, E.r*1.15*R, Math.atan2(ey, ex), Math.min(1.1, E.open), gx, gy, false, ax); } };
-    frame(); lay(c, Gk.base); c.translate(B.dx, B.dy); for (const w of back) wing(w, 1); c.restore();
+      eye(c, x + E.x*R, y + E.y*R, E.r*1.15*R, Math.atan2(ey, ex), Math.min(1.1, E.open)*eo, gx, gy, false, ax); } };
+    frame(); c.globalAlpha = cl(rv*6); lay(c, Gk.base); c.globalAlpha = 1; c.translate(B.dx, B.dy); for (const w of back) wing(w, wa(w)); c.restore();
     eyesOf(back);
-    frame(); c.translate(B.dx, B.dy); lay(c, Gk.core);
+    frame(); c.translate(B.dx, B.dy); c.globalAlpha = cl(rv*5); lay(c, Gk.core); c.globalAlpha = 1;
     if (fc < 0){ const k = cl(-3*fc), E = RIG.EYE;   // the back of the body: a sewn seam where the great eye would be, hatched shut
       c.save(); c.beginPath(); c.ellipse(E.x, E.y, .4, .22, 0, 0, TAU); c.globalAlpha = k; c.fillStyle = PAPER; c.fill(); c.clip();
       hatch(c, E.x, E.y, .45, .8, .035, .7, .012, 170); hatch(c, E.x, E.y, .45, -.6, .05, .45, .01, 171); c.restore();
       c.globalAlpha = k; sketch(c, () => { c.beginPath(); c.ellipse(E.x, E.y, .4, .22, 0, 0, TAU); }, .9, .028, 172, .01);
       c.strokeStyle = G(.9); c.lineWidth = .03; c.beginPath(); c.moveTo(E.x, E.y - .62); c.lineTo(E.x, E.y + .55);
       for (let i = -4; i <= 4; i++){ const Y = E.y + i*.12; c.moveTo(E.x - .06, Y - .02); c.lineTo(E.x + .06, Y + .02); } c.stroke(); c.globalAlpha = 1; }
-    for (const w of front) wing(w, 1); c.restore();
+    for (const w of front) wing(w, wa(w)); c.restore();
     eyesOf(front);
     const Eg = P.eye, [gx, gy] = look(Eg.x, Eg.y);   // the great eye: sealed (a pencilled seam) until ph 2, then open, unblinking
-    if (fc > 0) eye(c, x + Eg.x*R, y + Eg.y*R, Eg.r*1.15*R, 0, Math.min(1.15, Eg.open), gx, gy, true, ax);
+    if (fc > 0 && eo > 0) eye(c, x + Eg.x*R, y + Eg.y*R, Eg.r*1.15*R, 0, Math.min(1.15, Eg.open)*eo, gx, gy, true, ax);
   }
 
   // ---- THE ATTACKS, in pencil on the rig's geometry (c in boss units, u1 = one CSS pixel)
@@ -570,7 +572,7 @@ import { OPHAN, OPHAN_RIG, hh, mk, TAU } from '../page.js'
 
   OPHAN.pencil = {
     bg(c, w){ c.fillStyle = PAPER; c.fillRect(0, 0, w, w); c.strokeStyle = 'rgba(80,110,160,.14)'; c.lineWidth = 1; c.beginPath(); for (let k=12;k<w;k+=12){ c.moveTo(0, k); c.lineTo(w, k); } c.stroke(); },
-    boss(c, x, y, R, t, ph = 4){ draw(c, x, y, R, RIG.pose(t, ph)); },
+    boss(c, x, y, R, t, ph = 4, opt){ draw(c, x, y, R, RIG.pose(t, ph), opt); },
     attack,
   };
 })();

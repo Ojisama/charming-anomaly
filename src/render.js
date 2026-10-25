@@ -13149,10 +13149,7 @@ export function createRenderer(app) {
   // ONE filter over the whole stage — depth of field, halation, the key, the grade, vignette, grain.
   // Every chapter without `macro` gets none of it: stage.filters stays null and every layer here
   // stays hidden, so Books 1 and 2 render exactly as before.
-  const MACRO_VERT = 'in vec2 aPosition;\nout vec2 vTextureCoord;\nuniform vec4 uInputSize;\nuniform vec4 uOutputFrame;\nuniform vec4 uOutputTexture;\n'
-    + 'vec4 filterVertexPosition(void) {\n  vec2 position = aPosition * uOutputFrame.zw + uOutputFrame.xy;\n  position.x = position.x * (2.0 / uOutputTexture.x) - 1.0;\n'
-    + '  position.y = position.y * (2.0 * uOutputTexture.z / uOutputTexture.y) - uOutputTexture.z;\n  return vec4(position, 0.0, 1.0);\n}\n'
-    + 'void main(void) {\n  gl_Position = filterVertexPosition();\n  vTextureCoord = aPosition * (uOutputFrame.zw * uInputSize.zw);\n}\n'
+  const MACRO_VERT = MACRO.MACRO_VERT
   const macroU = new UniformGroup({
     uTime: { value: 0, type: 'f32' },
     uBlurPx: { value: 7, type: 'f32' },
