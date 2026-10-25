@@ -51,6 +51,10 @@ const HELD_MS = 12
 const SLICE_MS = 4
 // the painters whose attack warm-up draw costs more than a wave frame affords (17-27 ms at desktop 4x): baked before the level
 const DEAR_ATK = new Set(['macro', 'ascii', 'toon', 'pixel'])
+// what a warm-up frame may bake. fight: a run started and not left for a brief. Not in a fight (the brief): jobs back to
+// back; the boss out (oph: the script the last sync saw): nothing; an entry held for the art: back to back for HELD_MS;
+// a wave: on credit
+const pumpMode = (fight, oph) => !fight ? 'brief' : oph && (oph.bossId != null || oph.sketch) ? 'boss' : oph?.held ? 'held' : 'wave'
 
 // Painters and hands talk through a few window globals (the phase, the toon boss's inking u, the hand's path): each slot
 // keeps its own copy, swapped in while it draws (art.js within)
@@ -130,7 +134,9 @@ export function createOphanRenderer(host) {
   // the warm-up: worlds queued (or done) are not queued again; one promise settles when the level can start (no job of
   // need 0 left). oph: the fight's script as the last sync saw it, which tells the pump a wave from a fight frame
   const warmed = new Set()
-  let warmP = null, warmDone = null, oph = null, credit = 0
+  // briefing: from a prewarm (the brief) to the next enter (the run's start); a fight still entered behind the brief (the
+  // summary's Play again, a resumed run the player left) is not a fight to the pump
+  let warmP = null, warmDone = null, oph = null, credit = 0, briefing = false
   const drained = () => { const d = warmDone; warmP = warmDone = null; d?.() }
 
   // a ghost ring is baked once per rim colour at GHOST_R and drawn scaled, so a zoom pulse never bakes a new size
@@ -233,17 +239,17 @@ export function createOphanRenderer(host) {
     const j = jobs.shift(), tj = performance.now()
     try { j() } catch (e) { console.error(e) }
     const ms = performance.now() - tj
-    window.__warmLog?.push([j.tag ?? '?', +ms.toFixed(1), j.need, entered, Math.round(tj)])
+    window.__warmLog?.push([j.tag ?? '?', +ms.toFixed(1), j.need, entered && !briefing, Math.round(tj)])
     return ms
   }
-  // a fight frame bakes nothing; a wave bakes on credit, OPHAN_BG_BAKE_MS a frame (a job dearer than that runs, and the
-  // frames after it bake nothing until it is paid off); the brief, and an entry held for the art, bake jobs back to back
+  // a wave bakes on credit, OPHAN_BG_BAKE_MS a frame; a job dearer than that runs, and the frames after it bake nothing until
+  // it is paid off, but never more than one frame's worth (a wave job dearer than that is mis-classed: see prewarm)
   const pump = () => {
     raf = 0
-    const t0 = performance.now(), wave = entered && !oph?.held
-    if (entered && oph && (oph.bossId != null || oph.sketch)) credit = 0
-    else if (wave) for (credit = Math.min(OPHAN_BG_BAKE_MS, credit + OPHAN_BG_BAKE_MS); jobs.length && credit > 0;) credit -= run1()
-    else for (let n = 0, b = entered ? HELD_MS : budget; jobs.length && (n === 0 || (!jobs[0].alone && performance.now() - t0 < b)); n++) { const a = jobs[0].alone; run1(); if (a) break }
+    const t0 = performance.now(), mode = pumpMode(entered && !briefing, oph)
+    if (mode === 'boss') credit = 0
+    else if (mode === 'wave') for (credit = Math.min(OPHAN_BG_BAKE_MS, Math.max(-OPHAN_BG_BAKE_MS, credit) + OPHAN_BG_BAKE_MS); jobs.length && credit > 0;) credit -= run1()
+    else for (let n = 0, b = mode === 'held' ? HELD_MS : budget; jobs.length && (n === 0 || (!jobs[0].alone && performance.now() - t0 < b)); n++) { const a = jobs[0].alone; run1(); if (a) break }
     if (!jobs.length || jobs[0].need > 0) drained()
     if (jobs.length) raf = requestAnimationFrame(pump)
     else { if (!entered) uninstallPatches(); rt?.destroy(true); rt = null }
@@ -270,7 +276,7 @@ export function createOphanRenderer(host) {
     // waves on credit (pump). Idempotent: a world already queued or warmed is skipped. The promise settles when no job of
     // need 0 is left, so the level never starts under one.
     prewarm(ms = WARM_BUDGET_MS) {
-      budget = ms
+      budget = ms; briefing = true
       const ch = CHAPTERS.ophan, z = ophanView(app.screen.width, app.screen.height).z, add = []
       const first = (k) => +Object.keys(ch.attacks).find((p) => ch.attacks[p].includes(k))
       // need n, jobs fs, tagged for the load probe (window.__warmLog)
@@ -334,7 +340,7 @@ export function createOphanRenderer(host) {
     },
     enter(run) {
       installPatches()
-      entered = true
+      entered = true; briefing = false
       const bg = app.renderer.background
       // a fight entered again without an exit (the summary's Play again) keeps the page it first found, not the arena's
       saved ??= { alpha: bg.alpha, color: bg.color.toNumber(), pos: app.canvas.style.position }
@@ -364,7 +370,7 @@ export function createOphanRenderer(host) {
       oph = null; credit = 0
       rt?.destroy(true); rt = null
       if (raf) cancelAnimationFrame(raf); raf = 0
-      entered = false
+      entered = briefing = false
       drained()
       uninstallPatches()
       rings.length = 0

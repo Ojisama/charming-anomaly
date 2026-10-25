@@ -44239,6 +44239,18 @@ function testOphanRenderWiring() {
   tell.set({ px: { root }, x: 7, y: 9 }); tell.untell()
   assert.deepStrictEqual([root.filters, root.scale.v, root.position.x, root.position.y], [null, 0.5, 7, 9], 'untell() does not put the boss\'s root back (filters, 1/RES scale, its own position)')
   assert.ok(/untell\(\)/.test(enterBody) && /untell\(\)/.test(exitBody), 'enter() or exit() leaves the sink/rise scale on the boss: Play again mid-tell keeps it shrunk for the session')
+  // the brief's warm-up runs back to back even with a fight still entered behind it (Play again, a resumed run the player
+  // left): pumpMode run as written, the pump's fight flag, and briefing's lifecycle (on at prewarm, off at enter)
+  const pm = rend.match(/const pumpMode = [^\n]*/)?.[0] ?? ''
+  const pumpMode = new Function(pm + '\nreturn pumpMode')()
+  const staleBoss = { bossId: 7, held: false }
+  assert.deepStrictEqual([pumpMode(false, staleBoss), pumpMode(false, null), pumpMode(true, staleBoss), pumpMode(true, { bossId: null, held: true }), pumpMode(true, { bossId: null })],
+    ['brief', 'brief', 'boss', 'held', 'wave'], 'pumpMode: the brief bakes back to back whatever script the last fight left; a fight frame with the boss out bakes nothing')
+  const pumpBody = rend.slice(rend.indexOf('const pump = () => {'), rend.indexOf('const sliced'))
+  const prewarmBody = rend.slice(rend.indexOf('prewarm(ms'), rend.indexOf('enter(run) {'))
+  assert.ok(/pumpMode\(entered && !briefing, oph\)/.test(pumpBody) && /briefing = true/.test(prewarmBody) && /briefing = false/.test(enterBody),
+    'the pump reads a fight from enter() alone: a brief opened over an entered fight (Play again, a resumed run) bakes on wave credit, 80 s loads on the S25')
+  assert.ok(/Math\.max\(-OPHAN_BG_BAKE_MS, credit\)/.test(pumpBody), 'a wave job\'s debt is not capped at one frame: one dear job idles the queue for seconds')
   const ophDir = new URL('../src/ophan/', import.meta.url), ophFiles = []
   for (const d of ['', 'painters/', 'stages/']) for (const f of readdirSync(new URL(d, ophDir))) if (f.endsWith('.js')) ophFiles.push(d + f)
   for (const f of ophFiles) assert.ok(!/__liquid|createCoreBoss/.test(readFileSync(new URL(f, ophDir), 'utf8')), `src/ophan/${f} reaches for the artifact's Core debug paths (__liquid / createCoreBoss)`)
