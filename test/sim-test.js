@@ -183,7 +183,7 @@ import {
   lateSpawnMulAt, SPAWN_LATE_BLEND, SPAWN_LATE_START,
   // The Kraken (run KR): the rung table and the ring's numbers
   krakenRung, krakenRungFor, KRAKEN_TURN_BAG, KRAKEN_SLAP_EVERY, KRAKEN_SLAP_COCK, KRAKEN_SLAP_SWING, KRAKEN_SLAP_FUSE, KRAKEN_SLAP_FOLLOW_T, KRAKEN_TRICKLE_T, KRAKEN_TRICKLE_EDGE, KRAKEN_TRICKLE_CLEAR, OPEN_GUARD_WINDOW_MUL, HAIR_TRIGGER_WINDOW_MUL, HAIR_TRIGGER_DMG_MUL, KRAKEN_RUNGS, KRAKEN_ARM_REACH, KRAKEN_WAVE_TIMEOUT, KRAKEN_STAGGER_BITE,
-  KRAKEN_RISE_T, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, hiddenChapters, OPHAN_BOSS, OPHAN_HAND, OPHAN_HIT, OPHAN_ARENA, OPHAN_PLAYER_START, OPHAN_ATTACKS, OPHAN_CROWD, OPHAN_BREAK_FLOOR, OPHAN_SKIN_HP, OPHAN_SKETCH_HP, OPHAN_STAGGER_T, ophanView, OPHAN_GAUGE_COPY,
+  KRAKEN_RISE_T, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, hiddenChapters, OPHAN_BOSS, OPHAN_HAND, OPHAN_HIT, OPHAN_ARENA, OPHAN_PLAYER_START, OPHAN_ATTACKS, OPHAN_CROWD, OPHAN_BREAK_FLOOR, OPHAN_SKIN_HP, OPHAN_SKETCH_HP, OPHAN_STAGGER_T, OPHAN_WINDOW_MUL, ophanView, OPHAN_GAUGE_COPY,
   OPHAN_SWORD_REACH, OPHAN_ATK_SPEED, OPHAN_BOSS_HOLD, OPHAN_BOSS_SPEED, OPHAN_ATK_CD, OPHAN_ATK_FIRST, OPHAN_WAVE_OPEN, OPHAN_WAVE_GAP, OPHAN_WAVE, KRAKEN_CAGE_R, KRAKEN_PARRY_CD,
   KRAKEN_OPEN_WAVES, KRAKEN_COIL_EVERY, KRAKEN_COIL_RAYS, KRAKEN_ENRAGE_AT, KRAKEN_RAGE_AT, KRAKEN_RAGE_HITS_MIN, KRAKEN_RAGE_HITS_MAX, KRAKEN_RAGE_VOLLEY, KRAKEN_RAGE_VOLLEY_SPREAD, KRAKEN_RAGE_FUSE, KRAKEN_RAGE_GAP, KRAKEN_RAGE_CALM, KRAKEN_RAGE_CHANCE, KRAKEN_NODE_BACK, KRAKEN_HEAD_HP, KRAKEN_HEAD_HP_AT, KRAKEN_HEAD_HP_PER_S, KRAKEN_ARRIVE_T, KRAKEN_RING_R, KRAKEN_LASH_R, KRAKEN_SLAM_T, KRAKEN_DEFLECT_CD,
   KRAKEN_LUNGE_T, KRAKEN_GRIP_DUR, KRAKEN_GRIP_DMG, KRAKEN_GRIP_FLICKS, KRAKEN_GRIP_STICK_MUL, TRAWL_WIGGLE_ARC,
@@ -21126,6 +21126,7 @@ run(testLeLargeWeapons)
   run(testOphanSketch)
   run(testOphanOpenArena)
   run(testOphanWaves)
+  run(testOphanBank)
   run(testOphanArtHold)
   run(testOphanRenderWiring)
   run(testOphanKitTells)
@@ -44080,6 +44081,87 @@ function testOphanWaves() {
   assert.ok(/const vz = CHAPTERS\[run\.chapter\]\.worlds \? CFG\.ophanView\(app\.screen\.width, app\.screen\.height\)\.z :/.test(main) &&
     /run\.viewW = app\.screen\.width \/ 2 \/ vz/.test(main), 'w3: main.js sizes run.viewW without ophanView\'s zoom')
   console.log(`PASS run OP.waves: open ${tOpen.toFixed(2)} s with ${born.size} monsters, p1, wave ${t2.toFixed(2)} s, p2 (skins' hp banked, first attack ${grace.toFixed(2)} s after the entry), wave ${t3.toFixed(2)} s, p3, sketch at once where the boss stood, the win burst there; a leave mid-tornado ended it for good; gauge, camera and view zoom linted`)
+}
+
+// run OP.bank: what a hit on the boss is worth, and what a hit from it costs. Each skin keeps the damage done to it through
+// a swap and through a wave (the hp is read off the boss, never written by hand), the skin swapped in wears its own hp, a
+// resonance's stagger ends, every attack hurts for its own number, and the boss's body is a wall
+function testOphanBank() {
+  const dt = 1 / 60
+  // the hand's swap to skin k, through the real tell (k told, the tell run out on the next step)
+  const wear = (r, k) => { const o = r.script.oph; o.next = k; o.tell = dt / 2; stepSim(r, { x: 0, y: 0 }, dt); assert.strictEqual(o.skin, k, `wear: the swap to ${k} left skin ${o.skin}`) }
+  const hit = (r, n) => { const b = ophBoss(r), h0 = b.hp; dealDamage(r, b, n, false); return h0 - b.hp }
+  // b1 banked through a swap, and restored on the swap back; the swapped-in skin wears its own (full) hp
+  const r = ophanRun(3, 51), o = r.script.oph
+  o.crowdT = 1e9; o.swapIn = 1e9; o.atkCd = 1e9; r.weapons = []; r.player.hp = r.player.maxHP = 1e9
+  const A = o.skin, B = (A + 1) % o.hp.length, full = OPHAN_SKIN_HP * r.mods.enemyHpMul
+  o.world = A; hit(r, 300); stepSim(r, { x: 0, y: 0 }, dt)
+  const hpA = ophBoss(r).hp
+  assert.ok(hpA < full - 100 && hpA > OPHAN_BREAK_FLOOR, `b1: the hit left skin ${A} at ${hpA} of ${full}`)
+  wear(r, B)
+  assert.ok(o.hp[A] === hpA && ophBoss(r).hp === o.hp[B] && o.hp[B] === full, `b1: after the swap skin ${A} banked ${o.hp[A]} (want ${hpA}), skin ${B} wears ${ophBoss(r).hp} (want ${full})`)
+  wear(r, A)
+  assert.strictEqual(ophBoss(r).hp, hpA, `b1: swapped back, skin ${A} wears ${ophBoss(r).hp}, it was left at ${hpA}`)
+  // b2 ...and through a wave: two OTHER skins broken send the boss off; back, skin A still has exactly what it was left with
+  for (const k of [B, (A + 2) % o.hp.length]) { wear(r, k); o.world = k; ophBoss(r).hp = OPHAN_BREAK_FLOOR + 1; dealDamage(r, ophBoss(r), 5, false); stepSim(r, { x: 0, y: 0 }, dt) }
+  assert.ok(o.stage === 'wave' && !o.broken[A], `b2: two breaks left stage ${o.stage}, skin ${A} broken ${o.broken[A]}`)
+  ophEnterNow(r)
+  if (o.skin !== A) wear(r, A)
+  assert.ok(o.hp[A] === hpA && ophBoss(r).hp === hpA, `b2: back from the wave skin ${A} has ${ophBoss(r).hp} (banked ${o.hp[A]}), it was left at ${hpA}`)
+  // b3 a resonance staggers the boss for OPHAN_STAGGER_T: hits are worth OPHAN_WINDOW_MUL, then x1 again
+  const C = o.broken.findIndex((v, k) => !v && k !== A)
+  o.next = C; o.tell = 0.05
+  stepSim(r, { x: 0, y: 0, world: C }, dt)
+  ophSteps(r, 10, { until: () => o.skin === C })
+  assert.ok(o.stagger > 0, `b3: standing in the told world ${C} through the swap did not stagger the boss`)
+  const inWin = hit(r, 100)
+  ophSteps(r, Math.ceil((OPHAN_STAGGER_T + 0.1) / dt))
+  const after = hit(r, 100)
+  assert.ok(o.stagger === 0 && !o.recov && Math.abs(inWin / after - OPHAN_WINDOW_MUL) < 0.02,
+    `b3: a hit was worth ${inWin} in the stagger and ${after} ${OPHAN_STAGGER_T + 0.1} s later (stagger ${o.stagger}); want x${OPHAN_WINDOW_MUL} then x1`)
+  // b4 every live hit costs its own number: the sword's slam its dmg, its fire line fireDmg, both x the difficulty's enemyDmgMul
+  {
+    const q = ophanRun(3, 52), qo = q.script.oph, p = q.player
+    qo.crowdT = 1e9; qo.swapIn = 1e9; q.weapons = []; p.hp = p.maxHP = 1e9
+    assert.ok(q.mods.enemyDmgMul !== 1, `b4: d3's enemyDmgMul is ${q.mods.enemyDmgMul}, which cannot tell a missing multiplier`)
+    const cost = (raw) => Math.max(1, Math.round((raw * q.mods.enemyDmgMul - q.passives.armor) * q.mods.contactDmgTakenMul))
+    const hold = { x: OPHAN_BOSS.x, y: OPHAN_BOSS.y + OPHAN_BOSS_HOLD }, seen = new Set()
+    ophStart(q, 'sword', hold)
+    ophSteps(q, Math.ceil(OPHAN_ATTACKS.sword.dur * 60), { before: () => { ophHold(q, hold)(); p.invuln = 0; q.events.length = 0 },
+      after: () => { for (const e of q.events) if (e.type === 'hurt' && e.src === 'ophanSword') seen.add(e.dmg) }, until: () => !qo.atk })
+    const want = [cost(OPHAN_ATTACKS.sword.dmg), cost(OPHAN_ATTACKS.sword.fireDmg)]
+    assert.ok(seen.size && [...seen].every((d) => want.includes(d)) && seen.has(want[1]),
+      `b4: the sword hurt for ${[...seen].join(', ')}; its slam costs ${want[0]} and its fire line ${want[1]}`)
+  }
+  // b5 the body is a wall: a player put inside it mid-attack (the chase is anchored then) is put back out on the next step
+  {
+    const q = ophanRun(3, 53), qo = q.script.oph, p = q.player
+    qo.crowdT = 1e9; qo.swapIn = 1e9; q.weapons = []; p.hp = p.maxHP = 1e9
+    ophStart(q, 'tornado', { ...OPHAN_PLAYER_START })
+    const b = ophBoss(q), clear = OPHAN_BOSS.bodyR + PLAYER.radius
+    p.x = b.x + clear * 0.3; p.y = b.y; p.invuln = 9
+    stepSim(q, { x: 0, y: 0 }, dt)
+    const d = Math.hypot(p.x - b.x, p.y - b.y)
+    assert.ok(qo.atk && d >= clear - 1e-6, `b5: a player put ${(clear * 0.3).toFixed(0)} px inside the boss mid-attack stands ${d.toFixed(1)} px off its centre, the wall is ${clear}`)
+  }
+  // b6 the sketch never leaves for a wave, whatever the world count: with 4 worlds the last break lands in p2, not p3
+  {
+    const keep = CHAPTERS.ophan.worlds
+    CHAPTERS.ophan.worlds = keep.slice(0, 4)
+    try {
+      const q = ophanRun(3, 54), qo = q.script.oph
+      qo.crowdT = 1e9; q.weapons = []; q.player.hp = q.player.maxHP = 1e9
+      // ophBreakAll's own re-entry after a leave would hide the sketch's: each wave is skipped only while no sketch is up
+      for (let k = 0; k < qo.hp.length; k++) {
+        if (qo.bossId == null && !qo.sketch) ophEnterNow(q)
+        if (qo.broken[k] || qo.sketch) continue
+        qo.skin = k; qo.world = k; const b = ophBoss(q); b.hp = OPHAN_BREAK_FLOOR + 1
+        dealDamage(q, b, 5, false); stepSim(q, { x: 0, y: 0 }, dt)
+      }
+      assert.ok(qo.sketch && qo.bossId != null && ophBoss(q) && qo.stage !== 'wave', `b6: with 4 worlds the sketch left: stage ${qo.stage}, boss ${qo.bossId}`)
+    } finally { CHAPTERS.ophan.worlds = keep }
+  }
+  console.log(`PASS run OP.bank: skin ${A} kept ${hpA} of ${full} through two swaps and a wave, the swapped-in skin wore its own; a stagger x${(inWin / after).toFixed(2)} then x1 after ${OPHAN_STAGGER_T} s; the sword hurt for its slam and its fire line x enemyDmgMul; the body is a wall`)
 }
 
 // run OH: the boss enters a phase only once the renderer has baked that phase's art (input.ophanReady): until then the

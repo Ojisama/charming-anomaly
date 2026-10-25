@@ -1870,7 +1870,7 @@ function stepOphanScript(run, dt) {
   }
   const goal = ophanGoal(o)
   // a phase's last skin broken: the boss leaves for a wave (the third phase's ends in the sketch instead)
-  if (b && o.stage === 'p' + (goal - 1)) { ophanLeave(run, o, b); b = null }
+  if (b && !o.sketch && o.stage === 'p' + (goal - 1)) { ophanLeave(run, o, b); b = null }
   o.ph += (goal - o.ph) * Math.min(1, dt * OPHAN_PHASE_EASE)
   if (Math.abs(goal - o.ph) < 1e-3) o.ph = goal   // the ease never lands on its own; every reader gets a whole phase
 
