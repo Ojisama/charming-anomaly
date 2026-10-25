@@ -37,6 +37,7 @@
 import { Application, Container, Graphics } from 'pixi.js'
 import { createOphanRenderer } from './src/ophan/renderer.js'
 import { STAGING, STAGE_PICK } from './src/ophan/staging.js'
+import { scribbleAt, SCRIBBLE } from './src/ophan/staging/beats.js'
 import { CHAPTERS, OPHAN_BOSS, ophanView } from './src/config.js'
 import { MACRO_VERT } from './src/macro.js'
 
@@ -109,6 +110,11 @@ function frame() {
   R.sync(run, 0, view())
   // the stand-in player
   const v = view(); dot.clear().circle((P.x - v.left) * v.zoom, (P.y - v.top) * v.zoom, 12 * v.zoom).fill({ color: 0xbfffe6 }).stroke({ color: 0x1a3a30, width: 2 })
+  // the sketch's crowd, stand-ins (render.js draws the real ones): each stands until its scribble crosses it out
+  if (kind === 'sketch') for (let i = 0; i < CROWD.length; i += 3) {
+    const x = CROWD[i], y = CROWD[i + 1], u = a / dur, s0 = scribbleAt(Math.hypot(x - BOSS.x, y - BOSS.y)), al = 1 - Math.max(0, Math.min(1, (u - s0 - SCRIBBLE) / 0.05))
+    if (al > 0) dot.circle((x - v.left) * v.zoom, (y - v.top) * v.zoom, CROWD[i + 2] * v.zoom).fill({ color: 0x8a3a2a, alpha: al }).stroke({ color: 0x2a1410, width: 2, alpha: al })
+  }
   $('scrub').value = Math.round(1000 * Math.max(0, Math.min(1, T / dur)))
   $('t').textContent = a.toFixed(2) + ' / ' + dur.toFixed(2) + ' s'
 }
@@ -116,7 +122,7 @@ function frame() {
 opt($('beat'), Object.entries(BEATS))
 opt($('world'), worlds.map((w, i) => [i, 'skin: ' + NAMES[i]]))
 opt($('ph'), [[1, 'phase 1'], [2, 'phase 2'], [3, 'phase 3']])
-$('beat').onchange = () => { kind = $('beat').value; looks(); restage() }
+$('beat').onchange = () => { kind = $('beat').value; if (kind === 'arrive') $('world').value = 5; looks(); restage() }   // the fight opens in the Core
 for (const id of ['look', 'ph']) $(id).onchange = restage
 $('world').onchange = () => { looks(); restage() }
 $('play').onclick = () => { playing = !playing; $('play').textContent = playing ? 'pause' : 'play'; $('play').classList.toggle('on', playing) }

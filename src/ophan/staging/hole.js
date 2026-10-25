@@ -412,3 +412,8 @@ export function hole(c, look, x, y, w, h, open, seed = 1) {
   c.drawImage(B.cv, x - B.W * s / 2, y - B.H * s / 2, B.W * s, B.H * s)
   c.restore()
 }
+
+// the hole under the boss: its centre HY below the boss, HW wide and HH deep, in R
+export const HY = 0.15, HW = 2.6, HH = 1.5
+// a hole in the floor round (x, y), w wide and h tall at open 1, in the shown world's medium (look: its look id); open 0..1
+export const tear = (c, x, y, w, h, open, look, seed = 1) => hole(c, look, x, y, w, h, open, seed)

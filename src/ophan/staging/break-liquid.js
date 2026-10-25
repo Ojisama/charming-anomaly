@@ -47,30 +47,64 @@ const meshless = (c) => new Proxy(c, {
 })
 const cellsOfCore = (k, P) => cellsOf({ ...k, drawBoss: (s, g, ...a) => k.drawBoss(s, meshless(g), ...a) }, P)
 
-// ---- A: the droplet shell. The skin flashes white-hot and is flung off whole as a spinning shell of molten drops: every
-// drop starts where its bit of skin was, stays round and flies out on a spiral, cooling from white-hot to mirror, gone.
+// a liquid drop in flight, its head at (x, y) going along a: a teardrop, round at the front and drawn out to a point
+// behind it (L its length, w its head's radius), chrome lit from the top left, a white-hot core while hot, a specular
+// streak along its back; bend swings its tail sideways (a fraction of its length), the drop's wobble
+function tear(c, x, y, a, w, L, heat, al, bend = 0) {
+  const ca = Math.cos(a), sa = Math.sin(a), tx = x - ca * L - sa * L * bend, ty = y - sa * L + ca * L * bend
+  const path = () => {
+    c.beginPath(); c.arc(x, y, w, a - Math.PI / 2, a + Math.PI / 2)
+    const mx = x - ca * L * 0.4 - sa * L * bend * 0.3, my = y - sa * L * 0.4 + ca * L * bend * 0.3
+    c.quadraticCurveTo(mx - sa * w * 0.55, my + ca * w * 0.55, tx, ty)
+    c.quadraticCurveTo(mx + sa * w * 0.55, my - ca * w * 0.55, x + sa * w, y - ca * w)
+    c.closePath()
+  }
+  // the mirror gradient sits on the head, so the drawn-out tail runs into the dark of the metal
+  c.globalAlpha = al; c.fillStyle = chrome(c, x, y, w * 1.5 + L * 0.35); path(); c.fill()
+  if (heat > 0.01) { c.globalCompositeOperation = 'lighter'; c.globalAlpha = al * heat * 0.4; c.fillStyle = hot(c, x, y, w * 1.3); path(); c.fill(); c.globalCompositeOperation = 'source-over' }
+  // the streak: a thin bright ellipse along the drop, on its lit side
+  c.globalAlpha = al * 0.85; c.fillStyle = '#ffffff'
+  const ox = -0.3 * w, oy = -0.35 * w
+  c.beginPath(); c.ellipse(x - ca * L * 0.22 + ox, y - sa * L * 0.22 + oy, Math.max(w * 0.3, L * 0.26), w * 0.1, a, 0, TAU); c.fill()
+  c.globalAlpha = 1
+}
+
+// ---- A: the droplet shell. The skin flashes white-hot and is flung off whole as a spinning shell of molten drops: each
+// pulls away from where its bit of skin was on a thin neck that snaps, then flies out on a spiral as a wobbling teardrop
+// drawn out along its path, flicking small satellite beads off it, cooling from white-hot to mirror, gone.
 stage('break', 'liquid:A', { world: 'liquid', label: 'A · droplet shell: the skin is flung off as a spinning ring of drops', draw(k) {
-  const { u, x, y, R } = k, c = k.px(1), P = R * 0.22
+  const { u, x, y, R } = k, c = k.px(1), P = R * 0.26
   // the skin itself for an instant, flashing hot as it lets go
   const sw = win(u, 0, 0.1)
   if (sw < 1) { k.fadePx(0, 1 - sw); k.drawBoss(k.from, k.px(0), x, y, R, k.ph0) }
   glow(c, x, y, R * (0.9 + 1.2 * out(win(u, 0, 0.35))), 0.5 * (1 - win(u, 0, 0.35)) * Math.min(1, u / 0.03))
-  const heat = 1 - win(u, 0.04, 0.55), spin = 1.1
+  const heat = 1 - win(u, 0.04, 0.45), spin = 1.1
   for (const q of cellsOfCore(k, P)) {
-    const h1 = hash(q.i, q.j), h2 = hash(q.j + 31, q.i + 7), d = Math.hypot(q.ox, q.oy)
-    const f = win(u, 0.02 + 0.04 * h1, 0.7), fo = out(f, 1.5)
-    const a = Math.atan2(q.oy, q.ox) + spin * fo, r = d + fo * (R * (2.2 + 1.2 * h2) + d)
+    const h1 = hash(q.i, q.j), h2 = hash(q.j + 31, q.i + 7), h3 = hash(q.i + 13, q.j + 5), d = Math.hypot(q.ox, q.oy), a0 = Math.atan2(q.oy, q.ox)
+    const t0 = 0.02 + 0.04 * h1, reach = R * (2.2 + 1.2 * h2) + d
+    const at = (f) => { const fo = out(f, 1.5), a = a0 + spin * fo, r = d + fo * reach; return [x + Math.cos(a) * r, y + Math.sin(a) * r] }
+    const f = win(u, t0, 0.7)
     const al = win(u, 0.02, 0.09) * (1 - win(u, 0.4 + 0.15 * h1, 0.7))
     if (al <= 0.01) continue
-    const s = P * (0.42 + 0.3 * q.a) * (0.8 + 0.4 * h2) * (1 + 0.25 * fo)
-    const px = x + Math.cos(a) * r, py = y + Math.sin(a) * r
-    // a short arc of its path behind it while it is fast, the way a spun drop smears, never a tail that hangs
-    if (f > 0 && f < 0.5) {
-      const fb = out(Math.max(0, f - 0.04), 1.5), ab = Math.atan2(q.oy, q.ox) + spin * fb, rb = d + fb * (R * (2.2 + 1.2 * h2) + d)
-      c.globalAlpha = al * 0.4 * (1 - f / 0.5); c.strokeStyle = '#c6d0dc'; c.lineCap = 'round'; c.lineWidth = s * 0.7
-      c.beginPath(); c.moveTo(x + Math.cos(ab) * rb, y + Math.sin(ab) * rb); c.lineTo(px, py); c.stroke()
+    const w = P * (0.36 + 0.26 * q.a) * (0.8 + 0.4 * h2)
+    const [px, py] = at(f), [bx, by] = at(Math.max(0, f - 0.03)), sp = Math.hypot(px - bx, py - by)
+    const dir = sp > 0.01 ? Math.atan2(py - by, px - bx) : a0
+    // drawn out by its speed, its length breathing as it wobbles
+    const wob = 1 + 0.2 * Math.sin(u * 46 + h3 * TAU), L = Math.min(R * 0.9, w * 0.8 + sp * (1.6 + 1.4 * h3)) * wob, ww = w / Math.sqrt(wob)
+    const bend = 0.22 * Math.sin(u * 31 + h2 * TAU)
+    // the neck: a thin thread back to where it tore off the skin, thinning to nothing as it stretches and snaps
+    const nk = 1 - win(f, 0, 0.16)
+    if (f > 0 && nk > 0) {
+      c.globalAlpha = al * 0.9; c.strokeStyle = '#a9b4c2'; c.lineCap = 'round'; c.lineWidth = Math.max(0.6, w * 0.45 * nk)
+      const ox = x + q.ox, oy = y + q.oy, mx = (ox + px) / 2 - Math.sin(dir) * w * 0.4, my = (oy + py) / 2 + Math.cos(dir) * w * 0.4
+      c.beginPath(); c.moveTo(ox, oy); c.quadraticCurveTo(mx, my, px - Math.cos(dir) * L * 0.8, py - Math.sin(dir) * L * 0.8); c.stroke()
     }
-    drop(c, px, py, s, s, 0, heat * (0.6 + 0.4 * q.l), al)
+    // satellites: the beads the neck leaves when it snaps, flung after the drop on the same spiral, a little behind
+    if (h1 > 0.45 && f > 0.1) for (let j = 0; j < 2; j++) {
+      const lag = 0.05 + 0.05 * j + 0.03 * hash(q.i + j, q.j), [sx, sy] = at(Math.max(0, f - lag)), bs = w * (0.28 - 0.08 * j)
+      drop(c, sx + Math.cos(dir + 1.6) * w * (j ? 0.6 : -0.5), sy + Math.sin(dir + 1.6) * w * (j ? 0.6 : -0.5), bs, bs, 0, heat, al)
+    }
+    tear(c, px, py, dir, ww, L, heat * (0.6 + 0.4 * q.l), al, bend)
   }
   c.globalAlpha = 1
 } })

@@ -3,7 +3,7 @@
 // The broken skin is read once into a grid of cells (cellsOf: its painter drawn into a real canvas, averaged per cell),
 // and each cell becomes one character, picked by its brightness on the classic ramp and typed in the skin's own inks:
 // what scatters or pours IS the skin, typed. Glyphs are baked once per (character, ink) and drawn with drawImage.
-import { stage, ease, win, hash } from '../staging.js'
+import { stage, win, hash } from '../staging.js'
 
 const FONT = '"DejaVu Sans Mono", Menlo, Consolas, "Courier New", monospace'
 // the skin's inks (painters/ascii.js TONES, bone, gild, the talons' red) and the characters for their brightness
@@ -57,15 +57,13 @@ const typeOf = (q) => {
   const ink = q.r > 180 && q.g < 140 ? 5 : Math.min(4, 1 + Math.floor(q.l * 5))
   return [ch, ink]
 }
-// the next skin settles in under the scattering text
-const under = (k, a, b) => { const r = ease(win(k.u, a, b)); k.boss.alpha = r; k.boss.scale = 0.88 + 0.12 * r }
+// the next skin is never touched (k.boss): it stands whole behind the text from the first frame
 // the broken skin whole for its first instant (u < b), fading as its characters take over
 const whole = (k, b) => { const a = 1 - win(k.u, 0, b); if (a > 0) { k.fadePx(2, a, 1, k.x, k.y); k.drawBoss(k.from, k.px(2), k.x, k.y, k.R, Math.round(k.ph0 ?? k.ph)) } }
 const put = (c, ch, ink, x, y, sz, al) => { if (al <= 0.01) return; c.globalAlpha = Math.min(1, al); c.drawImage(glyph(ch, ink), x - sz / 2, y - sz / 2, sz, sz) }
 
 stage('break', 'ascii:A', { world: 'ascii', label: 'A · glyph scatter: the skin bursts into its characters', draw(k) {
   const u = k.u, c = k.px(1), P = k.R * 0.11
-  under(k, 0.15, 0.75)
   whole(k, 0.08)
   // the text jolts as the hit lands (0-0.06), then every character flies out from the centre, slowing, dimming a step of
   // ink as it goes, and is gone by 0.95; the far ones leave first so the shape tears from its rim
@@ -86,7 +84,6 @@ stage('break', 'ascii:A', { world: 'ascii', label: 'A · glyph scatter: the skin
 
 stage('break', 'ascii:B', { world: 'ascii', label: 'B · glyph rain: the skin pours down in columns and piles', draw(k) {
   const u = k.u, c = k.px(1), P = k.R * 0.11, L = cellsOf(k, P)
-  under(k, 0.25, 0.85)
   whole(k, 0.06)
   const n = Math.ceil(k.R * 3 / P)
   for (const q of L) {
