@@ -4,6 +4,14 @@
 //   node scripts/ophan-probe.mjs --diff 3 --immortal      (the control arm)
 //   node scripts/ophan-probe.mjs --diff 1 --seeds 18 --seed0 1000 --cap 900
 //   node scripts/ophan-probe.mjs --diff 3 --literal       (the brief's bot: no look-ahead, no shyness)
+//   node scripts/ophan-probe.mjs --diff 3 --kite          (runs from the boss past its hold: the speed arm)
+//
+// WHICH ARM ANSWERS WHAT:
+//   - winnability, and any comparison with v9's numbers: --literal. It is v9-like (it now orbits a
+//     live boss and kites in waves), not v9-identical.
+//   - the default arm is an UPPER BOUND that no longer separates the difficulties: it wins 18/18 at
+//     d1-d3 and the boss lands ~0 hits, so its crowd share is not comparable with v9's.
+//   - OPHAN_BOSS_SPEED: --kite only. The default arm orbits inside the hold, so the boss never chases.
 //
 // THE RIG, stated so no number is quoted without it:
 //   - MORTAL is the only arm that may be quoted as a win rate. IMMORTAL cannot die, so its rows are
@@ -27,10 +35,10 @@ import { ophanBot } from './ophan-bot.js'
 const SRC = new URL('../src/', import.meta.url).href
 const { createRun } = await import(SRC + 'state.js')
 const { stepSim, applyChoice } = await import(SRC + 'sim.js')
-const { SHOP } = await import(SRC + 'config.js')
+const { SHOP, OPHAN_BOSS_HOLD } = await import(SRC + 'config.js')
 
 const arg = (k, d) => { const i = process.argv.indexOf('--' + k); return i < 0 ? d : process.argv[i + 1] }
-const VALUED = ['--diff', '--seeds', '--seed0', '--cap'], BARE = ['--immortal', '--literal']
+const VALUED = ['--diff', '--seeds', '--seed0', '--cap'], BARE = ['--immortal', '--literal', '--kite']
 for (let i = 2; i < process.argv.length; i++) {
   const a = process.argv[i]
   if (VALUED.includes(a)) i++
@@ -39,6 +47,7 @@ for (let i = 2; i < process.argv.length; i++) {
 const DIFF = Number(arg('diff', 3)), NSEEDS = Number(arg('seeds', 6)), SEED0 = Number(arg('seed0', 1000)), CAP = Number(arg('cap', 900))
 const IMMORTAL = process.argv.includes('--immortal')
 const LITERAL = process.argv.includes('--literal')
+const KITE = process.argv.includes('--kite')
 if (![1, 2, 3].includes(DIFF)) { console.error('ABORT: --diff must be 1, 2 or 3, got ' + arg('diff')); process.exit(1) }
 if (!(Number.isInteger(NSEEDS) && NSEEDS > 0)) { console.error('ABORT: --seeds must be a positive integer, got ' + arg('seeds')); process.exit(1) }
 if (!Number.isInteger(SEED0)) { console.error('ABORT: --seed0 must be an integer, got ' + arg('seed0')); process.exit(1) }
@@ -59,14 +68,14 @@ function fight(seed) {
   const run = createRun(meta(), { chapter: 'ophan', difficulty: DIFF })
   if (run.chapter !== 'ophan') { console.error('ABORT: createRun fell back to ' + run.chapter); process.exit(1) }
   const breaks = [], attacks = [], swaps = [], hits = {}, hurt = {}
-  let sketchAt = -1, res = 0, tells = 0, ph2At = -1, ph3At = -1, laser2 = -1, atkSecs = 0, skinSecs = 0, waveDmg = 0, waveSecs = 0
+  let sketchAt = -1, res = 0, tells = 0, ph2At = -1, ph3At = -1, laser2 = -1, atkSecs = 0, skinSecs = 0, waveDmg = 0, waveSecs = 0, chaseSecs = 0, catches = 0, chasing = false
   let t = 0
   for (; t < CAP && run.phase !== 'dead' && run.phase !== 'victory'; t += DT) {
     if (run.phase === 'levelup') {
       const c = run.levelUpChoices || [], i = c.findIndex((x) => x.kind !== 'element')
       applyChoice(run, i >= 0 ? i : 0); run.phase = 'playing'
     }
-    stepSim(run, ophanBot(run, { literal: LITERAL }), DT)
+    stepSim(run, ophanBot(run, { literal: LITERAL, kite: KITE }), DT)
     if (IMMORTAL) run.player.hp = run.player.maxHP
     const o = run.script.oph
     for (const e of run.events) {
@@ -78,7 +87,7 @@ function fight(seed) {
       else if (e.type === 'ophanResonance') res++
       else if (e.type === 'hurt') {
         if (e.dmg > 0) hurt[e.src ?? 'unknown'] = (hurt[e.src ?? 'unknown'] ?? 0) + e.dmg
-        if (e.dmg > 0 && o?.bossId == null) waveDmg += e.dmg
+        if (e.dmg > 0 && o && o.bossId == null) waveDmg += e.dmg
         if (isBoss(e.src ?? '')) hits[e.src] = (hits[e.src] ?? 0) + 1
       }
     }
@@ -87,6 +96,12 @@ function fight(seed) {
     if (o && o.bossId == null) waveSecs += DT
     else if (o && !o.sketch) { skinSecs += DT; if (o.atk) atkSecs += DT }
     if (o && ph2At < 0 && o.ph === 2) ph2At = t
+    // THE CHASE: the boss out past its hold and free to close (between attacks); a catch is a chase ending at the hold
+    const cb = o && o.bossId != null && !o.atk ? run.enemies.find((e) => e.id === o.bossId && !e._dead) : null
+    const far = !!cb && Math.hypot(run.player.x - cb.x, run.player.y - cb.y) > OPHAN_BOSS_HOLD + 1
+    if (far) chaseSecs += DT
+    else if (chasing && cb) catches++
+    chasing = far
     if (o && ph3At < 0 && o.ph === 3) ph3At = t
   }
   const dmg = { ...(run.dmgBySrc ?? {}) }
@@ -103,10 +118,10 @@ function fight(seed) {
     hits, casts: attacks.reduce((m, a) => { const k = 'ophan' + a.k[0].toUpperCase() + a.k.slice(1); m[k] = (m[k] ?? 0) + 1; return m }, {}),
     seed, end: run.phase === 'victory' ? 'win' : run.phase === 'dead' ? 'dead' : 'cap', secs: t,
     perSkin: breaks.map((b, i) => b - (i ? breaks[i - 1] : 0)), sketch: sketchAt < 0 ? -1 : t - sketchAt,
-    dmg, total, crowd, waveDmg, waveSecs, killedBy: run.killedBy ?? '-',
+    dmg, total, crowd, waveDmg, waveSecs, chaseSecs, catches, killedBy: run.killedBy ?? '-',
     diedIn: run.phase !== 'dead' ? '-' : run.script.oph.bossId == null ? 'wave' : run.script.oph.sketch ? 'sketch' : run.script.oph.stage, level: run.player.level, kills: run.kills - (run.phase === 'victory' ? 1 : 0),
     lpm: (run.player.level - 1) / (t / 60), kpm: (run.kills - (run.phase === 'victory' ? 1 : 0)) / (t / 60),
-    skinAtt, apm: skinSecs ? skinAtt / skinSecs * 60 : 0, atkShare: skinSecs ? atkSecs / skinSecs : 0, swaps: swaps.length, tells, res,
+    skinSecs, skinAtt, apm: skinSecs ? skinAtt / skinSecs * 60 : 0, atkShare: skinSecs ? atkSecs / skinSecs : 0, swaps: swaps.length, tells, res,
     laserLag: laser2 < 0 ? -1 : laser2 - breaks[1], ph2Lag: ph2At < 0 || breaks.length < 2 ? -1 : ph2At - breaks[1],
     // seconds the skin fight spent at each whole phase before the sketch
     ph2Secs: ph2At < 0 ? -1 : (ph3At < 0 ? (sketchAt < 0 ? t : sketchAt) : ph3At) - ph2At, ph3Secs: ph3At < 0 ? -1 : (sketchAt < 0 ? t : sketchAt) - ph3At,
@@ -115,14 +130,14 @@ function fight(seed) {
 
 const f0 = (v) => (v < 0 ? '-' : v.toFixed(0))
 const f1 = (v) => (v < 0 ? '-' : v.toFixed(1))
-console.log(`THE OPHAN  chapter=ophan diff=${DIFF} ${IMMORTAL ? 'IMMORTAL (a damage profile, not lethality)' : 'MORTAL'}${LITERAL ? ' LITERAL (the brief\'s bot)' : ''}  seeds=${NSEEDS} cap=${CAP}s`)
+console.log(`THE OPHAN  chapter=ophan diff=${DIFF} ${IMMORTAL ? 'IMMORTAL (a damage profile, not lethality)' : 'MORTAL'}${LITERAL ? ' LITERAL (the brief\'s bot)' : ''}${KITE ? ' KITE (runs from the boss past its hold)' : ''}  seeds=${NSEEDS} cap=${CAP}s`)
 const rows = []
 for (let i = 0; i < NSEEDS; i++) {
   const x = fight(SEED0 + i * 7919); rows.push(x)
   const src = Object.entries(x.dmg).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k.replace(/^ophan/, '')} ${f0(v)}`).join(', ')
   console.log(`seed ${x.seed}  ${x.end.padEnd(4)} ${f0(x.secs).padStart(4)}s  skins [${x.perSkin.map(f0).join(' ')}]  sketch ${f0(x.sketch)}s  lv ${x.level} (${x.lpm.toFixed(2)}/min)  crowd kills ${x.kills} (${x.kpm.toFixed(1)}/min)` +
     `  atk ${x.skinAtt} (${x.apm.toFixed(1)}/min, busy ${(x.atkShare * 100).toFixed(0)}%)  swaps ${x.swaps} res ${x.res}  ph2 +${f1(x.ph2Lag)}s laser +${f1(x.laserLag)}s  at ph2/ph3 ${f0(x.ph2Secs)}/${f0(x.ph3Secs)}s` +
-    `  dmg ${f0(x.total)}: ${src || 'none'}  in waves ${f0(x.waveDmg)} over ${f0(x.waveSecs)}s  killedBy ${x.killedBy} in ${x.diedIn}`)
+    `  dmg ${f0(x.total)}: ${src || 'none'}  in waves ${f0(x.waveDmg)} over ${f0(x.waveSecs)}s  chase ${f0(x.chaseSecs)}s of ${f0(x.skinSecs)}s, caught ${x.catches}x  killedBy ${x.killedBy} in ${x.diedIn}`)
 }
 const n = rows.length, mean = (f) => rows.reduce((a, x) => a + f(x), 0) / n
 const secs = rows.map((x) => x.secs)
@@ -137,6 +152,7 @@ console.log(`  share of all damage taken (${f0(grand)} over ${n} fights): crowd 
   boss.map(([k, v]) => `${k.replace(/^ophan/, '')} ${(v / grand * 100).toFixed(1)}%`).join('  '))
 const dead = rows.filter((x) => x.end === 'dead'), waveDmg = rows.reduce((a, x) => a + x.waveDmg, 0)
 console.log(`  crowd hp per fight ${(crowd / n).toFixed(1)} (in waves ${(waveDmg / n).toFixed(1)}, ${(waveDmg / grand * 100).toFixed(1)}% of all, over ${f0(mean((x) => x.waveSecs))}s of wave)` +
+  `  chase ${(rows.reduce((a, x) => a + x.chaseSecs, 0) / Math.max(1e-9, rows.reduce((a, x) => a + x.skinSecs, 0)) * 100).toFixed(0)}% of boss seconds, caught ${mean((x) => x.catches).toFixed(1)}x per fight` +
   `  deaths by stage {${[...new Set(dead.map((x) => x.diedIn))].map((s) => s + ' ' + dead.filter((x) => x.diedIn === s).length).join(', ')}}`)
 console.log(`  crowd share per seed [${rows.map((x) => (x.total ? (x.crowd / x.total * 100).toFixed(0) : '-')).join(', ')}]  top attack share per seed [${rows.map((x) => { const m = Math.max(0, ...Object.entries(x.dmg).filter(([k]) => isBoss(k)).map(([, v]) => v)); return x.total ? (m / x.total * 100).toFixed(0) : '-' }).join(', ')}]`)
 const casts = {}, landed = {}

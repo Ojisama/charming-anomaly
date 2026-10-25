@@ -4,6 +4,8 @@
 // clock. Every win rate it produces is an upper bound for a human.
 //   - the arena is open (rev 2). In a phase it orbits the LIVE boss on the mock-up's 145 x 125
 //     radii at 0.32 rad/s; the boss chases to OPHAN_BOSS_HOLD, so the orbit sits about at its hold
+//   - kite: true (the probe's --kite arm) runs from the boss on a KITE.r ring instead of orbiting,
+//     outside OPHAN_BOSS_HOLD, so the boss must chase: the only arm OPHAN_BOSS_SPEED acts on
 //   - in a wave (no boss) it kites: walks a KITE.r circle round where the wave found it at KITE.v
 //     of its speed, so the crowd trails it into the weapons
 //   - steps out of the live attack's hit area: ophanHits one hit radius ahead (the player's radius
@@ -43,7 +45,7 @@ function geoAt(o, b, ahead) {
   return RIG.attack(a.k, u, o.ph, b.x, b.y, R, a.ax, a.ay, t, pose)
 }
 
-export function ophanBot(run, { literal = false } = {}) {
+export function ophanBot(run, { literal = false, kite = false } = {}) {
   const o = run.script?.oph, p = run.player
   if (!o) return { x: 0, y: 0, world: -1 }
   const b = o.bossId == null ? null : run.enemies.find((e) => e.id === o.bossId && !e._dead) ?? null
@@ -52,8 +54,13 @@ export function ophanBot(run, { literal = false } = {}) {
 
   // the target: the orbit round the live boss, or the kite circle without one; the stick toward it
   let tx, ty
-  if (b) {
-    s.kite = null
+  if (b) s.kite = null
+  if (b && kite) {
+    // run from the boss on its KITE.r ring, past the hold: tangent there, outward inside it, so the
+    // boss has to chase. Holding the ring needs a radial speed equal to the boss's.
+    const ax = p.x - b.x, ay = p.y - b.y, d = Math.hypot(ax, ay) || 1, out = Math.max(-1, Math.min(1, (KITE.r - d) / 50))
+    tx = (-ay / d + out * ax / d * 2) * 100; ty = (ax / d + out * ay / d * 2) * 100
+  } else if (b) {
     const th = ORBIT.w * o.t
     tx = b.x + Math.cos(th) * ORBIT.rx - p.x; ty = b.y + Math.sin(th) * ORBIT.ry - p.y
   } else {
