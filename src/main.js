@@ -381,7 +381,7 @@ const ui = initUI({
   },
   onPlayNow: playNow,
   onPauseToggle() {
-    if (!run || ffTarget > 0) return
+    if (!run || ffTarget > 0 || resumeWarm) return   // a resumed Ophan run still warming up (the parked branch below)
     if (run.phase === 'playing') { run.phase = 'paused'; ui.showScreen('pause', pauseData()) }
     else if (run.phase === 'paused') { run.phase = 'playing'; ui.showScreen('hud') }
     // The same sheet, opened OVER a level-up — "should I reroll this?" is a question about
@@ -1281,13 +1281,23 @@ function leaving() {
 }
 // The phone killed the page while it was in the background: come back to the same run, paused.
 const parked = takeParkedRun(BUILD)
+let resumeWarm = null   // the warm-up a resumed run waits on, null once it is ready
 if (parked) {
   run = parked
   run.events = []
   beginRun()
   ui.updateHUD(run, []) // the ticker only draws the HUD while playing; behind the menu it would read 05:00
-  if (run.phase === 'levelup') ui.showScreen('levelup', levelupData())
-  else { run.phase = 'paused'; ui.showScreen('pause', { ...pauseData(), away: true }) }
+  const back = () => {
+    if (run.phase === 'levelup') ui.showScreen('levelup', levelupData())
+    else { run.phase = 'paused'; ui.showScreen('pause', { ...pauseData(), away: true }) }
+  }
+  // a fresh page has none of the chapter's art: the Ophan's worlds bake on the pause sheet's loader bar, as on the brief,
+  // and the run cannot resume until the level is ready
+  if (CHAPTERS[run.chapter]?.worlds) {
+    if (run.phase === 'playing') run.phase = 'paused'
+    ui.showScreen('pause', { ...pauseData(), away: true, loading: true })
+    resumeWarm = renderer.prewarm(run.chapter, (k) => ui.briefLoad(k)).then(() => { resumeWarm = null; if (run === parked) back() })
+  } else back()
 }
 // Start found a newer build and reloaded: put the player back on the brief they left.
 let resumeBrief = null

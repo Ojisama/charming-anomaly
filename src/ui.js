@@ -366,7 +366,7 @@ function formatShopBonus(bookId, id, levels) {
  *       rerollCurrency is 'coins' or (under the BLOOD MONEY anomaly, v7.2) 'hp', and it decides
  *       both the label's icon and which wallet the disabled check reads. Both come from sim.js's
  *       rerollPrice, never computed here — see that function for why.
- *     - 'pause' data: { mutators: string[], build: object }
+ *     - 'pause' data: { mutators: string[], build: object, away?, loading? } (loading: the brief's loader bar in place of Resume, a resumed Ophan run warming up; ui.briefLoad moves it)
  *       mutators = run.mutators (omit/empty for classic runs); mode = the run mode chip;
  *       build = buildReadout(run) — the pause sheet's weapon/passive/element/Rupture sections,
  *       and `build.anomalies` is what the Rupture section reads. See main.js's pause hook.
@@ -3777,7 +3777,9 @@ export function initUI(hooks) {
              pages print "yours" alongside the rule. data-from tells the close button which screen
              to land back on — see the 'codex-open'/'codex-close' cases. -->
         <button class="btn btn--soft" data-act="codex-open" data-from="pause">📖 ${t('Codex')}</button>
-        <button class="btn btn--big" data-act="resume">▶&nbsp; ${t('Resume')}</button>
+        ${d.loading
+          ? `<div class="brief-load"><div class="boot-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100"><i class="boot-fill"></i></div><p class="brief-note">${t('Getting the level ready…')}</p></div>`
+          : `<button class="btn btn--big" data-act="resume">▶&nbsp; ${t('Resume')}</button>`}
         ${d.devSpeed ? `<button class="btn btn--soft" data-act="dev-speed">Playtest speed ${d.devSpeed}×</button>` : ''}
         <button class="btn btn--soft" data-act="quit">${t('Quit to menu')}</button>
         ${buildStampHtml()}

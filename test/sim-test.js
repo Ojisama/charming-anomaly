@@ -672,7 +672,7 @@ function testEndlessFastForward() {
   assert.ok(/const SPEEDRUN_MAX_S = 3600/.test(tick), 'speedrun cap is a named const')
   assert.ok(/if \(endless && meta\.dev && speedrun\) ffTarget = SPEEDRUN_MAX_S/.test(tick), 'speedrun arms ffTarget only for dev + endless')
   assert.ok(/function playNow\(\) \{[^}]*ffTarget = 0/.test(tick), 'Play now clears ffTarget')
-  assert.ok(/onPauseToggle\(\) \{\s*if \(!run \|\| ffTarget > 0\) return/.test(tick), 'pause is refused mid-speedrun')
+  assert.ok(/onPauseToggle\(\) \{\s*if \(!run \|\| ffTarget > 0( \|\| resumeWarm)?\) return/.test(tick), 'pause is refused mid-speedrun')
   assert.ok(!/skipToS/.test(tick), 'the Start-at-minute plumbing is gone')
   // endRun is not importable: lint that it gates the endless record on that stamp.
   const mainSrc = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
@@ -44256,6 +44256,14 @@ function testOphanRenderWiring() {
   const preLoop = rend.slice(rend.indexOf('const tb = performance.now()'), rend.indexOf('s.st.prebake('))
   assert.ok(/for \(const s of \[A, \.\.\.Object\.values\(slots\)/.test(preLoop) && !/warming \?/.test(preLoop),
     'the hidden worlds\' floors wait while warm-up jobs are queued: a press in a wave bakes its floor in view (116 ms on the S25)')
+  // a parked Ophan run resumed on a fresh page warms up on the pause sheet (prewarm after enter: the brief's back-to-back
+  // budget until a fight frame moves), and Resume waits for it
+  const syncHead = rend.slice(rend.indexOf('sync(run, dt, view) {'), rend.indexOf('oph = run.script?.oph'))
+  assert.ok(/if \(dt > 0\) briefing = false/.test(syncHead), 'a prewarm after enter (a resumed parked run) leaves the pump on the brief\'s budget for the whole fight')
+  const main = strip(readFileSync(new URL('../src/main.js', import.meta.url), 'utf8'))
+  const parkedBr = main.slice(main.indexOf('const parked = takeParkedRun('), main.indexOf('let resumeBrief'))
+  assert.ok(/\.worlds\)/.test(parkedBr) && /resumeWarm = renderer\.prewarm\(run\.chapter/.test(parkedBr) && /if \(!run \|\| ffTarget > 0 \|\| resumeWarm\) return/.test(main),
+    'a resumed parked Ophan run plays with none of its art baked (worlds not drawn, the boss cut under frames)')
   for (const id of ['ascii', 'pixel', 'toon'])
     assert.ok(/^\s*prebake\s*[(:]/m.test(strip(readFileSync(new URL(`../src/ophan/stages/${id}.js`, import.meta.url), 'utf8'))), `stages/${id}.js has no prebake: its floor bakes in view on the frame a press shows it`)
   const ophDir = new URL('../src/ophan/', import.meta.url), ophFiles = []

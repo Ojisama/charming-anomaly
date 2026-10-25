@@ -389,6 +389,9 @@ export function createOphanRenderer(host) {
       return false
     },
     sync(run, dt, view) {
+      // a fight frame that moves ends the brief: a parked run resumed behind the pause sheet warms up back to back there
+      // (prewarm after enter), on wave credit once it plays
+      if (dt > 0) briefing = false
       oph = run.script?.oph ?? null
       const wi = oph ? oph.world : 0, wipe = oph?.wipe ?? null
       // never a slot built mid-fight (a hitch): a world not yet warm is not drawn, the last A held, B left out of the wipe
