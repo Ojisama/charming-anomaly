@@ -2,12 +2,15 @@
 // writes it, and never draws from Math.random (the sim's stream stays the seed's alone).
 // A CEILING ON DODGING: it reads each attack's exact future geometry through RIG on the sim's own
 // clock. Every win rate it produces is an upper bound for a human.
-//   - orbits the boss on the mock-up's 145 x 125 radii at 0.32 rad/s
+//   - the arena is open (rev 2). In a phase it orbits the LIVE boss on the mock-up's 145 x 125
+//     radii at 0.32 rad/s; the boss chases to OPHAN_BOSS_HOLD, so the orbit sits about at its hold
+//   - in a wave (no boss) it kites: walks a KITE.r circle round where the wave found it at KITE.v
+//     of its speed, so the crowd trails it into the weapons
 //   - steps out of the live attack's hit area: ophanHits one hit radius ahead (the player's radius
 //     doubled), at each LOOK moment along the line it would walk, on the move closest to the orbit
 //     that clears the most of them. It reads up to 1.1 s on because the blast's sheet only exists
-//     from its u 0.55 (1 s in) and lands at the orbit's radius: a bot that cannot read the wind-up
-//     takes every blast (measured 28 of 29 at d1) and the column measures the bot
+//     from its u 0.55 and lands at the orbit's radius: a bot that cannot read the wind-up takes
+//     every blast and the column measures the bot
 //   - leans off crowd bodies about to touch it (SHY, below)
 //   - literal: true is the brief's bot: no SHY, and the dodge tests the CURRENT shape one hit
 //     radius ahead along the stick, nothing further
@@ -17,20 +20,23 @@
 //     Math.random and exactly half.
 import RIG from '../src/ophan/rig.js'
 import { ophanHits } from '../src/ophan/hit.js'
-import { OPHAN_BOSS, OPHAN_HAND, OPHAN_HIT, PLAYER } from '../src/config.js'
+import { OPHAN_ATK_SPEED, OPHAN_BOSS, OPHAN_HAND, OPHAN_HIT, PLAYER } from '../src/config.js'
 
 const ORBIT = { rx: 145, ry: 125, w: 0.32 }
+const KITE = { r: 260, v: 0.7 }
 const REACT = 0.45
-const LOOK = [0.1, 0.25, 0.5, 0.8, 1.1]   // s: the wind-up is the tell, so the bot reads that far on
+// s: the wind-up is the tell, so the bot reads that far on, every 50 ms: at 1.5x the blast's band
+// sweeps past a point in ~0.2 s, between v9's sparser moments
+const LOOK = Array.from({ length: 22 }, (_, i) => 0.05 * (i + 1))
 const SHY = 40
 const DIRS = Array.from({ length: 16 }, (_, i) => ({ x: Math.cos(i * Math.PI / 8), y: Math.sin(i * Math.PI / 8) }))
 // run -> { off: when the boss's skin last stopped matching the worn world, atk + d: the escape
-// chosen against that attack }
+// chosen against that attack, kite: the wave circle's centre and start time }
 const seen = new WeakMap()
 
-// the attack's danger geometry at `ahead` seconds on, or null once it would be over
+// the attack's danger geometry `ahead` seconds on (at the sim's 1.5x progress), or null once it would be over
 function geoAt(o, b, ahead) {
-  const a = o.atk, R = OPHAN_BOSS.R, u = a.u + ahead / a.dur * RIG.uRate(a.k, a.u)
+  const a = o.atk, R = OPHAN_BOSS.R, u = a.u + ahead * OPHAN_ATK_SPEED / a.dur * RIG.uRate(a.k, a.u)
   if (u >= 1) return null
   const t = o.t + ahead
   const pose = RIG.pose(t, o.ph, a.k, u, (a.ax - b.x) / R, (a.ay - b.y) / R)
@@ -40,20 +46,28 @@ function geoAt(o, b, ahead) {
 export function ophanBot(run, { literal = false } = {}) {
   const o = run.script?.oph, p = run.player
   if (!o) return { x: 0, y: 0, world: -1 }
-  const b = run.enemies.find((e) => e.id === o.bossId && !e._dead) ?? OPHAN_BOSS
-  const s = seen.get(run) ?? { off: -1, atk: null, d: null }
+  const b = o.bossId == null ? null : run.enemies.find((e) => e.id === o.bossId && !e._dead) ?? null
+  const s = seen.get(run) ?? { off: -1, atk: null, d: null, kite: null }
   seen.set(run, s)
 
-  // the orbit target, and the stick toward it
-  const th = ORBIT.w * o.t
-  const tx = b.x + Math.cos(th) * ORBIT.rx - p.x, ty = b.y + Math.sin(th) * ORBIT.ry - p.y, tl = Math.hypot(tx, ty)
+  // the target: the orbit round the live boss, or the kite circle without one; the stick toward it
+  let tx, ty
+  if (b) {
+    s.kite = null
+    const th = ORBIT.w * o.t
+    tx = b.x + Math.cos(th) * ORBIT.rx - p.x; ty = b.y + Math.sin(th) * ORBIT.ry - p.y
+  } else {
+    s.kite ??= { x: p.x - KITE.r, y: p.y, t: o.t }
+    const th = (o.t - s.kite.t) * KITE.v * PLAYER.baseSpeed / KITE.r
+    tx = s.kite.x + Math.cos(th) * KITE.r - p.x; ty = s.kite.y + Math.sin(th) * KITE.r - p.y
+  }
+  const tl = Math.hypot(tx, ty)
   let mx = tl > 4 ? tx / tl : 0, my = tl > 4 ? ty / tl : 0
-  // SHY: leans off any crowd body within SHY px of touching. The orbit's target walks at ~43 px/s
-  // and a tank at 47-55, so without this every tank sits on the bot and the crowd column measures
-  // the orbit's speed.
+  // SHY: leans off any crowd body within SHY px of touching. Without it every tank sits on the bot
+  // and the crowd column measures the orbit's speed.
   if (!literal) {
     for (const e of run.enemies) {
-      if (e._dead || e.id === o.bossId) continue
+      if (e._dead || e === b) continue
       const ex = p.x - e.x, ey = p.y - e.y, el = Math.hypot(ex, ey) || 1, gap = el - e.radius - PLAYER.radius
       if (gap < SHY) { const w = 2 * (1 - Math.max(0, gap) / SHY); mx += ex / el * w; my += ey / el * w }
     }
@@ -61,22 +75,24 @@ export function ophanBot(run, { literal = false } = {}) {
     if (ml > 1) { mx /= ml; my /= ml }
   }
 
-  if (o.atk) {
+  if (o.atk && b) {
     const v = PLAYER.baseSpeed, r = PLAYER.radius * (literal ? 1 : 2)
     // [seconds walked, the shape at that moment]
     const geos = (literal ? [[PLAYER.radius / v, geoAt(o, b, 0)]] : LOOK.map((tau) => [tau, geoAt(o, b, tau)])).filter(([, g]) => g)
     // how many of the look-ahead moments walking d at full stick would put the bot inside the shape
     const hits = (dx, dy) => geos.reduce((n, [tau, g]) =>
       n + (ophanHits(o.atk.k, g, p.x + dx * v * tau, p.y + dy * v * tau, r, OPHAN_BOSS.R, OPHAN_HIT).hit ? 1 : 0), 0)
-    // a chosen escape is kept while it stays clear: re-choosing every frame dithers between two
-    // near-equal moves and walks nowhere
+    // a chosen escape is kept while nothing beats it: re-choosing every frame dithers between two
+    // near-equal moves and walks nowhere (measured: the open arena's blast landed 62 of 69 that way)
     if (hits(mx, my)) {
-      if (s.atk !== o.atk || !s.d || hits(s.d.x, s.d.y)) {
-        let bn = Infinity, bd = -Infinity
+      const keep = s.atk === o.atk && s.d ? hits(s.d.x, s.d.y) : Infinity
+      if (keep) {
+        let bn = Infinity, bd = -Infinity, best = null
         for (const d of DIRS) {
           const n = hits(d.x, d.y), dot = d.x * mx + d.y * my
-          if (n < bn || (n === bn && dot > bd)) { bn = n; bd = dot; s.d = d }
+          if (n < bn || (n === bn && dot > bd)) { bn = n; bd = dot; best = d }
         }
+        if (bn < keep) s.d = best
         s.atk = o.atk
       }
       mx = s.d.x; my = s.d.y

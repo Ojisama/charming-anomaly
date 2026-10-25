@@ -11,10 +11,13 @@
 //     (wreck-threat's rule). Its fight length is the fight with no death in it.
 //   - Level-ups take the first non-element card, as the suite's ophSteps does: an uncurated build,
 //     neither the best nor the worst a player would pick.
-//   - The bot orbits, dodges with a look-ahead and presses worlds with a 0.45 s reaction (its own
-//     header). It is a CEILING on dodging skill: it reads every attack's exact geometry 1.1 s
-//     ahead, so a win rate off it is an upper bound and an attack's landed share is a floor. It
-//     never hunts the crowd, so crowd damage is what an orbiting player takes, not a camper.
+//   - The bot orbits the live boss, kites a circle in the waves, dodges with a look-ahead and
+//     presses worlds with a 0.45 s reaction (its own header). It is a CEILING on dodging skill: it
+//     reads every attack's exact geometry 1.1 s ahead every 50 ms, so a win rate off it is an upper
+//     bound and an attack's landed share is a floor (it dodges nearly all of them, so its crowd
+//     SHARE is the crowd over almost nothing: read crowd hp per fight). --literal is the floor arm.
+//     It never hunts the crowd, so crowd damage is what an orbiting player takes, not a camper.
+//   - 'in waves' is damage taken with no boss on the field; atk/min counts boss-present seconds only.
 //   - The damage column is cross-checked against the hurt events: a source the tally lost or
 //     renamed aborts the run instead of printing a zero.
 //   - A fight still running at --cap seconds is printed as 'cap', never as a win or a death.
@@ -56,7 +59,7 @@ function fight(seed) {
   const run = createRun(meta(), { chapter: 'ophan', difficulty: DIFF })
   if (run.chapter !== 'ophan') { console.error('ABORT: createRun fell back to ' + run.chapter); process.exit(1) }
   const breaks = [], attacks = [], swaps = [], hits = {}, hurt = {}
-  let sketchAt = -1, res = 0, tells = 0, ph2At = -1, ph3At = -1, laser2 = -1, atkSecs = 0, skinSecs = 0
+  let sketchAt = -1, res = 0, tells = 0, ph2At = -1, ph3At = -1, laser2 = -1, atkSecs = 0, skinSecs = 0, waveDmg = 0, waveSecs = 0
   let t = 0
   for (; t < CAP && run.phase !== 'dead' && run.phase !== 'victory'; t += DT) {
     if (run.phase === 'levelup') {
@@ -75,11 +78,14 @@ function fight(seed) {
       else if (e.type === 'ophanResonance') res++
       else if (e.type === 'hurt') {
         if (e.dmg > 0) hurt[e.src ?? 'unknown'] = (hurt[e.src ?? 'unknown'] ?? 0) + e.dmg
+        if (e.dmg > 0 && o?.bossId == null) waveDmg += e.dmg
         if (isBoss(e.src ?? '')) hits[e.src] = (hits[e.src] ?? 0) + 1
       }
     }
     run.events.length = 0
-    if (o && !o.sketch) { skinSecs += DT; if (o.atk) atkSecs += DT }
+    // skin seconds are boss-present ones: a wave has no attacks to dilute atk/min with
+    if (o && o.bossId == null) waveSecs += DT
+    else if (o && !o.sketch) { skinSecs += DT; if (o.atk) atkSecs += DT }
     if (o && ph2At < 0 && o.ph === 2) ph2At = t
     if (o && ph3At < 0 && o.ph === 3) ph3At = t
   }
@@ -97,7 +103,8 @@ function fight(seed) {
     hits, casts: attacks.reduce((m, a) => { const k = 'ophan' + a.k[0].toUpperCase() + a.k.slice(1); m[k] = (m[k] ?? 0) + 1; return m }, {}),
     seed, end: run.phase === 'victory' ? 'win' : run.phase === 'dead' ? 'dead' : 'cap', secs: t,
     perSkin: breaks.map((b, i) => b - (i ? breaks[i - 1] : 0)), sketch: sketchAt < 0 ? -1 : t - sketchAt,
-    dmg, total, crowd, killedBy: run.killedBy ?? '-', level: run.player.level, kills: run.kills - (run.phase === 'victory' ? 1 : 0),
+    dmg, total, crowd, waveDmg, waveSecs, killedBy: run.killedBy ?? '-',
+    diedIn: run.phase !== 'dead' ? '-' : run.script.oph.bossId == null ? 'wave' : run.script.oph.sketch ? 'sketch' : run.script.oph.stage, level: run.player.level, kills: run.kills - (run.phase === 'victory' ? 1 : 0),
     lpm: (run.player.level - 1) / (t / 60), kpm: (run.kills - (run.phase === 'victory' ? 1 : 0)) / (t / 60),
     skinAtt, apm: skinSecs ? skinAtt / skinSecs * 60 : 0, atkShare: skinSecs ? atkSecs / skinSecs : 0, swaps: swaps.length, tells, res,
     laserLag: laser2 < 0 ? -1 : laser2 - breaks[1], ph2Lag: ph2At < 0 || breaks.length < 2 ? -1 : ph2At - breaks[1],
@@ -115,7 +122,7 @@ for (let i = 0; i < NSEEDS; i++) {
   const src = Object.entries(x.dmg).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k.replace(/^ophan/, '')} ${f0(v)}`).join(', ')
   console.log(`seed ${x.seed}  ${x.end.padEnd(4)} ${f0(x.secs).padStart(4)}s  skins [${x.perSkin.map(f0).join(' ')}]  sketch ${f0(x.sketch)}s  lv ${x.level} (${x.lpm.toFixed(2)}/min)  crowd kills ${x.kills} (${x.kpm.toFixed(1)}/min)` +
     `  atk ${x.skinAtt} (${x.apm.toFixed(1)}/min, busy ${(x.atkShare * 100).toFixed(0)}%)  swaps ${x.swaps} res ${x.res}  ph2 +${f1(x.ph2Lag)}s laser +${f1(x.laserLag)}s  at ph2/ph3 ${f0(x.ph2Secs)}/${f0(x.ph3Secs)}s` +
-    `  dmg ${f0(x.total)}: ${src || 'none'}  killedBy ${x.killedBy}`)
+    `  dmg ${f0(x.total)}: ${src || 'none'}  in waves ${f0(x.waveDmg)} over ${f0(x.waveSecs)}s  killedBy ${x.killedBy} in ${x.diedIn}`)
 }
 const n = rows.length, mean = (f) => rows.reduce((a, x) => a + f(x), 0) / n
 const secs = rows.map((x) => x.secs)
@@ -128,6 +135,9 @@ const boss = Object.entries(bySrc).filter(([k]) => isBoss(k)).sort((a, b) => b[1
 const crowd = rows.reduce((a, x) => a + x.crowd, 0)
 console.log(`  share of all damage taken (${f0(grand)} over ${n} fights): crowd ${(crowd / grand * 100).toFixed(1)}%  ` +
   boss.map(([k, v]) => `${k.replace(/^ophan/, '')} ${(v / grand * 100).toFixed(1)}%`).join('  '))
+const dead = rows.filter((x) => x.end === 'dead'), waveDmg = rows.reduce((a, x) => a + x.waveDmg, 0)
+console.log(`  crowd hp per fight ${(crowd / n).toFixed(1)} (in waves ${(waveDmg / n).toFixed(1)}, ${(waveDmg / grand * 100).toFixed(1)}% of all, over ${f0(mean((x) => x.waveSecs))}s of wave)` +
+  `  deaths by stage {${[...new Set(dead.map((x) => x.diedIn))].map((s) => s + ' ' + dead.filter((x) => x.diedIn === s).length).join(', ')}}`)
 console.log(`  crowd share per seed [${rows.map((x) => (x.total ? (x.crowd / x.total * 100).toFixed(0) : '-')).join(', ')}]  top attack share per seed [${rows.map((x) => { const m = Math.max(0, ...Object.entries(x.dmg).filter(([k]) => isBoss(k)).map(([, v]) => v)); return x.total ? (m / x.total * 100).toFixed(0) : '-' }).join(', ')}]`)
 const casts = {}, landed = {}
 for (const x of rows) { for (const [k, v] of Object.entries(x.casts)) casts[k] = (casts[k] ?? 0) + v; for (const [k, v] of Object.entries(x.hits)) landed[k] = (landed[k] ?? 0) + v }

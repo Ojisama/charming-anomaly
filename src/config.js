@@ -10194,7 +10194,7 @@ export const OPHAN_ATK_SPEED = 1.5
 // the sword blade's length in R: the slam lands .5 + this from the boss (v9's 1.8 put it at 2.3 R; this is 4x)
 //  - rig.js imports nothing: its SWORD_REACH must equal this (run OP.open pins both)
 export const OPHAN_SWORD_REACH = 8.7
-// balance_decision : boss chase speed, first guess 0.9x the player 2026-10-25
+// balance_decision : boss chase speed 0.9x the player, measured 2026-10-25
 export const OPHAN_BOSS_SPEED = 0.9 * PLAYER.baseSpeed
 // balance_decision : the boss stops closing 2 R from the player 2026-10-25
 //  - must stay < phone half-width 195
@@ -10226,9 +10226,8 @@ export const OPHAN_BREAK_FLOOR = 1
 export const OPHAN_IMMUNE_CD = 0.12
 // balance_decision : crowd cadence per difficulty, measured on the bot 2026-10-24
 export const OPHAN_CROWD = { 1: { every: 2.2, cap: 8 }, 2: { every: 1.9, cap: 10 }, 3: { every: 1.6, cap: 12 } }
-// balance_decision : wave crowd about 2.5x the in-phase cadence, first guess 2026-10-25
-//  - rev 2 plan Task 4 tunes it with the bot
-export const OPHAN_WAVE = { 1: { every: 0.9, cap: 16 }, 2: { every: 0.75, cap: 20 }, 3: { every: 0.6, cap: 24 } }
+// balance_decision : wave crowd keeps v9's level-ups per minute 2026-10-25
+export const OPHAN_WAVE = { 1: { every: 1.1, cap: 12 }, 2: { every: 0.95, cap: 15 }, 3: { every: 0.75, cap: 18 } }
 // the HUD depth gauge's two ends (player-visible, walked by run XX)
 export const OPHAN_GAUGE_COPY = { top: 'surface', bottom: 'core', tags: ['SOIL', 'GEOD', 'MINE', 'MAGMA', 'MANTL', 'CORE'] }
 // The zoom fits v9's arena box to the screen so the art keeps its size; the camera follows the player
