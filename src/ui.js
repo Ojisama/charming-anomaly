@@ -322,6 +322,7 @@ function formatShopBonus(bookId, id, levels) {
  *       that carries it (the selection is cleared as soon as it fires). The 'brief' screen
  *       (ui.showScreen('brief', { chapterId, difficulty, mutators, reroll })) is shown for every
  *       classic run now, including difficulty 1 where mutators is empty: the boosters live here.
+ *     - onBriefBack(): the brief's ← back to the title. main.js stops the chapter's warm-up there.
  *     - onBriefReroll(i): fired by an anomaly card's own 🎲 button (v6.0.4; per-card since v6.6.19,
  *       shown when data.reroll — classic non-blank only). i is that card's index in data.mutators.
  *       main.js spends ANOMALY_REROLL_COST to replace THAT ONE anomaly and re-shows the brief; the
@@ -4348,7 +4349,8 @@ export function initUI(hooks) {
       // to the shelf; the brief backs out the same way. Both go through switchTab, which is what
       // resets the shop's transient sacrifice/reset state on the way out.
       case 'shop': switchTab('shop'); break
-      case 'shop-close': case 'brief-back': switchTab('title'); break
+      case 'shop-close': switchTab('title'); break
+      case 'brief-back': switchTab('title'); hooks.onBriefBack?.(); break
       // v6.7 settings sheet — the one ⚙ that replaced the title's floating 🌐 / 💾 / build stamp.
       case 'settings':
         playSfx('click')

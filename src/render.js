@@ -13377,10 +13377,14 @@ export function createRenderer(app) {
   // each is cached, so reset() then finds them done, and bakes whatever is still missing itself.
   // Returns a promise that settles once the queue is empty; onStep(fraction) reports progress. A job
   // that is already cached returns at once, so a warm queue drains in one tick.
-  let prewarmQ = [], prewarmTotal = 0, prewarmBusy = false, prewarmWaiters = []
+  let prewarmQ = [], prewarmTotal = 0, prewarmBusy = false, prewarmWaiters = [], prewarmGen = 0
+  // The Ophan's warm-up is the long part: it gets the bar from OPHAN_BAR on, the chapter's own bakes the part before
+  const OPHAN_BAR = 0.3
   function prewarm(chapterId, onStep) {
     const ch = CHAPTERS[chapterId], kind = ch?.render?.macro?.floor
     if (!ch) return Promise.resolve()
+    const gen = ++prewarmGen   // a newer brief owns the Ophan's warm-up: an older one's continuation never starts it
+    if (!ch.worlds) ophanR?.stopWarm()
     const q = []
     if (kind) q.push(() => bakeMacroTile(kind), () => macroPlayer())
     if (ch.render?.holo) q.push(holoPlayer)
@@ -13392,12 +13396,14 @@ export function createRenderer(app) {
     if (ch.signature?.type === 'crystals') q.push(bakeCrystalCracks)
     if (kind || ch.render?.holo || ch.render?.pixel || ch.worlds) q.push(bakeFloorProps)
     let ophanWarm = null   // queues its own slices, one per animation frame; done waits for them
-    if (ch.worlds) q.push(() => { ophanHost(); ophanWarm = ophanR.prewarm() })
+    const ophanStep = onStep && ((k) => onStep(OPHAN_BAR + (1 - OPHAN_BAR) * k))
+    if (ch.worlds) q.push(() => { ophanHost(); ophanWarm = ophanR.prewarm(ophanStep) })
     const ids = new Set([...(ch.roster ?? []).map((r) => r.id), ...(ch.render?.cast ?? [])])
     for (const id of ids) for (const k of [id, id + '_elite', id + '_child', id + '_glass', id + '_glass_elite']) if (rosterBakers[k]) q.unshift(() => rosterLook(k))
     prewarmQ = q; prewarmTotal = q.length
     const done = new Promise((resolve) => prewarmWaiters.push({ resolve, onStep }))
-    const step = () => { for (const w of prewarmWaiters) w.onStep?.(1 - prewarmQ.length / Math.max(1, prewarmTotal)) }
+    const share = ch.worlds ? OPHAN_BAR : 1
+    const step = () => { for (const w of prewarmWaiters) w.onStep?.(share * (1 - prewarmQ.length / Math.max(1, prewarmTotal))) }
     const next = () => {
       for (let job; (job = prewarmQ.shift());) {
         const t0 = performance.now()
@@ -13410,8 +13416,10 @@ export function createRenderer(app) {
       for (const w of ws) w.resolve()
     }
     if (!prewarmBusy) { prewarmBusy = true; setTimeout(next, 0) }
-    return ch.worlds ? done.then(() => ophanWarm ?? ophanHost().prewarm()) : done
+    return ch.worlds ? done.then(() => gen === prewarmGen ? ophanWarm ?? ophanHost().prewarm(ophanStep) : undefined) : done
   }
+  // the brief backed out of: its warm-up stops, what it finished is kept
+  function stopWarm() { prewarmGen++; ophanR?.stopWarm() }
   function setMacro(run) {
     const ch = run && CHAPTERS[run.chapter]
     macroDustMul = 1
@@ -34632,5 +34640,5 @@ void main() {
   const worldReady = (k) => !!ophanR?.ready(k)
   // the last boss phase whose art the Ophan's warm-up has baked (main.js hands it to stepSim as input.ophanReady)
   const ophanReady = () => (ophanR ? ophanR.readyPhase() : 3)
-  return { reset, sync, idle, ready, setMapMode, castThumbs, hazardThumbs, playerScreen, prewarm, worldReady, ophanReady }
+  return { reset, sync, idle, ready, setMapMode, castThumbs, hazardThumbs, playerScreen, prewarm, stopWarm, worldReady, ophanReady }
 }

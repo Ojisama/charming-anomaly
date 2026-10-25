@@ -240,6 +240,7 @@ const ui = initUI({
     ui.showScreen('brief', { chapterId, difficulty: chMeta.difficulty, mutators, reroll: !CHAPTERS[chapterId].scripted && !endless, endless })
     renderer.prewarm(chapterId)   // the chapter's bakes, while the brief is read, not on Start
   },
+  onBriefBack() { renderer.stopWarm() },
   async onBriefStart(consumableIds = []) {
     if (!pendingPlay) return
     const p = pendingPlay

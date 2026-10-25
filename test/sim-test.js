@@ -44206,7 +44206,16 @@ function testOphanRenderWiring() {
   assert.ok(hide && !/vignette/.test(hide), 'the Ophan hides the hurt flash')
   assert.ok(/\.ax\b/.test(rend) && /\.ay\b/.test(rend) && /oph\.t\b/.test(rend), 'the painters do not read the locked aim / the sim clock the hit test uses')
   assert.ok(/case 'ophanImmune'/.test(rend), 'ophanImmune has no consumer in src/ophan/renderer.js')
-  const exitBody = rend.slice(rend.indexOf('exit()'), rend.indexOf('resize()', rend.indexOf('exit()')))
+  // exit() and the warm-up teardown it shares with a brief backed out of (stopWarm)
+  const exitOwn = rend.slice(rend.indexOf('exit()'), rend.indexOf('resize()', rend.indexOf('exit()')))
+  const stopAt = rend.indexOf('function stopWarm()'), stopBody = stopAt < 0 ? '' : rend.slice(stopAt, rend.indexOf('\n  }', stopAt))
+  assert.ok(/\bstopWarm\(\)/.test(exitOwn) && stopBody, 'exit() does not run the warm-up teardown (stopWarm)')
+  assert.ok(/jobs = \[\]/.test(stopBody) && /warmed\.delete\(/.test(stopBody) && !/warmed\.clear\(/.test(stopBody), 'stopWarm() forgets worlds it finished warming, or keeps the queue')
+  const exitBody = exitOwn + stopBody
+  // the brief's back stops its warm-up (it ran on behind the title, and into the next chapter's brief)
+  const main = strip(readFileSync(new URL('../src/main.js', import.meta.url), 'utf8'))
+  assert.ok(/case 'brief-back':[^\n]*hooks\.onBriefBack\?\.\(\)/.test(ui) && /onBriefBack\(\)\s*\{\s*renderer\.stopWarm\(\)/.test(main)
+    && /function stopWarm\(\)\s*\{\s*prewarmGen\+\+;\s*ophanR\?\.stopWarm\(\)/.test(render), 'the brief\'s back does not stop the Ophan warm-up')
   assert.ok(/background\.alpha/.test(exitBody) && /style\.position/.test(exitBody), 'exit() does not restore the renderer background / canvas position')
   assert.ok(!/^installPatches\(\)/m.test(strip(readFileSync(new URL('../src/ophan/px2d.js', import.meta.url), 'utf8'))), 'px2d patches at module scope')
   assert.ok(/uninstallPatches\(\)/.test(exitBody), 'exit() leaves px2d patches on every other chapter\'s bakes')
@@ -44247,7 +44256,7 @@ function testOphanRenderWiring() {
   assert.deepStrictEqual([pumpMode(false, staleBoss), pumpMode(false, null), pumpMode(true, staleBoss), pumpMode(true, { bossId: null, held: true }), pumpMode(true, { bossId: null })],
     ['brief', 'brief', 'boss', 'held', 'wave'], 'pumpMode: the brief bakes back to back whatever script the last fight left; a fight frame with the boss out bakes nothing')
   const pumpBody = rend.slice(rend.indexOf('const pump = () => {'), rend.indexOf('const sliced'))
-  const prewarmBody = rend.slice(rend.indexOf('prewarm(ms'), rend.indexOf('enter(run) {'))
+  const prewarmBody = rend.slice(rend.indexOf('prewarm(step'), rend.indexOf('enter(run) {'))
   assert.ok(/pumpMode\(entered && !briefing, oph\)/.test(pumpBody) && /briefing = true/.test(prewarmBody) && /briefing = false/.test(enterBody),
     'the pump reads a fight from enter() alone: a brief opened over an entered fight (Play again, a resumed run) bakes on wave credit, 80 s loads on the S25')
   assert.ok(/Math\.max\(-OPHAN_BG_BAKE_MS, credit\)/.test(pumpBody), 'a wave job\'s debt is not capped at one frame: one dear job idles the queue for seconds')
@@ -44260,7 +44269,6 @@ function testOphanRenderWiring() {
   // budget until a fight frame moves), and Resume waits for it
   const syncHead = rend.slice(rend.indexOf('sync(run, dt, view) {'), rend.indexOf('oph = run.script?.oph'))
   assert.ok(/if \(dt > 0\) briefing = false/.test(syncHead), 'a prewarm after enter (a resumed parked run) leaves the pump on the brief\'s budget for the whole fight')
-  const main = strip(readFileSync(new URL('../src/main.js', import.meta.url), 'utf8'))
   const parkedBr = main.slice(main.indexOf('const parked = takeParkedRun('), main.indexOf('let resumeBrief'))
   assert.ok(/\.worlds\)/.test(parkedBr) && /resumeWarm = renderer\.prewarm\(run\.chapter/.test(parkedBr) && /if \(!run \|\| ffTarget > 0 \|\| resumeWarm\) return/.test(main),
     'a resumed parked Ophan run plays with none of its art baked (worlds not drawn, the boss cut under frames)')

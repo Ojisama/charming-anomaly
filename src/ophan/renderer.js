@@ -137,7 +137,7 @@ export function createOphanRenderer(host) {
   // briefing: from a prewarm (the brief) to the next enter (the run's start); a fight still entered behind the brief (the
   // summary's Play again, a resumed run the player left) is not a fight to the pump
   let warmP = null, warmDone = null, oph = null, credit = 0, briefing = false
-  const drained = () => { const d = warmDone; warmP = warmDone = null; d?.() }
+  const drained = () => { const d = warmDone; warmP = warmDone = null; onStep = null; d?.() }
 
   // a ghost ring is baked once per rim colour at GHOST_R and drawn scaled, so a zoom pulse never bakes a new size
   const GHOST_R = 32
@@ -234,7 +234,9 @@ export function createOphanRenderer(host) {
   const glcWarm = (s, on) => { if (s.glc) Object.assign(s.glc.style, on ? { display: 'block', zIndex: '-1' } : { display: 'none', zIndex: '' }) }
   // a job marked alone runs as a frame's only job: the melt canvas is shown for a frame of its own, and hidden after one
   const alone = (f) => Object.assign(f, { alone: true })
-  let budget = WARM_BUDGET_MS
+  // the loader bar's share: need-0 jobs run of those queued (a sliced bake re-queues itself, so it is a floor, clamped)
+  let onStep = null, need0 = 0
+  const progress = () => { if (onStep && need0) onStep(Math.min(1, 1 - jobs.filter((j) => j.need === 0).length / need0)) }
   const run1 = () => {
     const j = jobs.shift(), tj = performance.now()
     try { j() } catch (e) { console.error(e) }
@@ -249,13 +251,27 @@ export function createOphanRenderer(host) {
     const t0 = performance.now(), mode = pumpMode(entered && !briefing, oph)
     if (mode === 'boss') credit = 0
     else if (mode === 'wave') for (credit = Math.min(OPHAN_BG_BAKE_MS, Math.max(-OPHAN_BG_BAKE_MS, credit) + OPHAN_BG_BAKE_MS); jobs.length && credit > 0;) credit -= run1()
-    else for (let n = 0, b = mode === 'held' ? HELD_MS : budget; jobs.length && (n === 0 || (!jobs[0].alone && performance.now() - t0 < b)); n++) { const a = jobs[0].alone; run1(); if (a) break }
+    else for (let n = 0, b = mode === 'held' ? HELD_MS : WARM_BUDGET_MS; jobs.length && (n === 0 || (!jobs[0].alone && performance.now() - t0 < b)); n++) { const a = jobs[0].alone; run1(); if (a) break }
+    progress()
     if (!jobs.length || jobs[0].need > 0) drained()
     if (jobs.length) raf = requestAnimationFrame(pump)
     else { if (!entered) uninstallPatches(); rt?.destroy(true); rt = null }
   }
   // a bake a hand or a stage can slice (a generator): one job a slice of SLICE_MS, of the same need, until it returns
   const sliced = (need, it) => { const go = () => { const t0 = performance.now(); while (performance.now() - t0 < SLICE_MS) if (it.next().done) return; jobs.unshift(go) }; go.need = need; return go }
+  // a warm-up cut short (the brief backed out of, the fight left): only the worlds with jobs still queued are queued
+  // again next time, a finished one is kept. Its waiters are released, not left hanging, and its target is made again
+  // at the screen's size then. A fight on keeps its warm-up
+  function stopWarm() {
+    if (entered) return
+    for (const j of jobs) warmed.delete(j.tag?.split(':')[0])
+    jobs = []
+    rt?.destroy(true); rt = null
+    if (raf) cancelAnimationFrame(raf); raf = 0
+    briefing = false
+    drained()
+    uninstallPatches()
+  }
 
   return {
     hide: ['floor', 'dust', 'enemies', 'shadows', 'crowns', 'affixes', 'obstacles', 'telegraphs'],
@@ -275,8 +291,8 @@ export function createOphanRenderer(host) {
     // Before the fight the jobs run back to back for up to ms of each animation frame (at least one a frame), then in the
     // waves on credit (pump). Idempotent: a world already queued or warmed is skipped. The promise settles when no job of
     // need 0 is left, so the level never starts under one.
-    prewarm(ms = WARM_BUDGET_MS) {
-      budget = ms; briefing = true
+    prewarm(step = null) {
+      onStep = step; briefing = true
       const ch = CHAPTERS.ophan, z = ophanView(app.screen.width, app.screen.height).z, add = []
       const first = (k) => +Object.keys(ch.attacks).find((p) => ch.attacks[p].includes(k))
       // need n, jobs fs, tagged for the load probe (window.__warmLog)
@@ -323,6 +339,7 @@ export function createOphanRenderer(host) {
         // the hand's shadow, one texture per world colour (a sprite placed per frame, never a per-frame blur)
         const k = ch.worlds.findIndex((w) => w.look === id), col = ch.worlds[k].col
         q(1, id + ':shade', () => {
+          if (shades[k]) return   // a world queued again after a cut-short warm-up keeps the one it baked
           const c = mk((SH_X + 53) * SH_S + 2 * SH_PAD, (SH_Y + 30) * SH_S + 2 * SH_PAD), g = c.getContext('2d')
           g.translate(SH_PAD + SH_X * SH_S, SH_PAD + SH_Y * SH_S); g.scale(SH_S, SH_S)
           g.shadowColor = col; g.shadowBlur = 20; g.fillStyle = g.strokeStyle = 'rgba(0,0,0,' + SH_A + ')'; g.lineCap = 'round'
@@ -333,6 +350,7 @@ export function createOphanRenderer(host) {
         })
       }
       jobs = [...jobs, ...add].sort((a, b) => a.need - b.need)   // stable: each need keeps the order it was queued in
+      need0 = jobs.filter((j) => j.need === 0).length; progress()
       if (!jobs.length) return Promise.resolve()
       installPatches()   // the painters draw on px2d here too; the drain takes them off again unless a fight is on
       if (!raf) raf = requestAnimationFrame(pump)
@@ -364,18 +382,13 @@ export function createOphanRenderer(host) {
       saved = mine = null; sceneKey = ''
       for (const s of Object.values(slots)) { s.wrap.visible = false; glcWarm(s, false) }
       untell(); sink = rise = lastS = null
-      // a warm-up cut short is queued again next time; its waiters are released, not left hanging, and its target is
-      // made again at the screen's size then
-      if (jobs.length) { jobs = []; warmed.clear() }
       oph = null; credit = 0
-      rt?.destroy(true); rt = null
-      if (raf) cancelAnimationFrame(raf); raf = 0
-      entered = briefing = false
-      drained()
-      uninstallPatches()
+      entered = false
+      stopWarm()
       rings.length = 0
       root.visible = false
     },
+    stopWarm,
     resize() { for (const s of Object.values(slots)) fit(s) },
     filters: () => null,
     event(e) {
