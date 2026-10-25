@@ -36,6 +36,8 @@ const IMMUNE_T = 0.4, VEIL_A = 0.55
 // a slot is built this much bigger than the screen on every side, so the camera's shake never shows its edge
 const OVERSCAN = 24
 const WARM_UPDATES = 8
+// the warm-up runs its jobs back to back for this much of a frame, then lets one paint (the brief's loading bar)
+const WARM_BUDGET_MS = 40
 
 // Painters and hands talk through a few window globals (the phase, the toon boss's inking u, the hand's path): each slot
 // keeps its own copy, swapped in while it draws (art.js within)
@@ -202,10 +204,16 @@ export function createOphanRenderer(host) {
     if (mp) mp.addChild(wipeMask)
   }
   const glcWarm = (s, on) => { if (s.glc) Object.assign(s.glc.style, on ? { display: 'block', zIndex: '-1' } : { display: 'none', zIndex: '' }) }
+  // a job marked alone runs as a frame's only job: the melt canvas is shown for a frame of its own, and hidden after one
+  const alone = (f) => Object.assign(f, { alone: true })
   const pump = () => {
     raf = 0
-    const j = jobs.shift()
-    if (j) try { j() } catch (e) { console.error(e) }
+    const t0 = performance.now()
+    for (let n = 0; jobs.length && (n === 0 || (!jobs[0].alone && performance.now() - t0 < WARM_BUDGET_MS)); n++) {
+      const j = jobs.shift()
+      try { j() } catch (e) { console.error(e) }
+      if (j.alone) break
+    }
     if (jobs.length) raf = requestAnimationFrame(pump)
     else { if (!entered) uninstallPatches(); rt?.destroy(true); rt = null; drained() }
   }
@@ -231,10 +239,10 @@ export function createOphanRenderer(host) {
         jobs.push(() => slot(id), () => { const s = slot(id); s.st.update(0); shot(s.wrap); s.warm = true })
         // a chunked floor (the Mantle's, the Magma's) bakes the chunks in view at once and its margin two a frame: WARM_UPDATES
         // more frames bake the whole margin here, not on the world's first frames in the fight
-        jobs.push(() => glcWarm(slot(id), true))
+        jobs.push(alone(() => glcWarm(slot(id), true)))
         for (let k = 0; k < WARM_UPDATES; k++) jobs.push(() => slot(id).st.update(0))
         for (let k = 0; k < 4; k++) jobs.push(() => gpuWarm(slot(id), k))
-        jobs.push(() => glcWarm(slot(id), false))
+        jobs.push(alone(() => glcWarm(slot(id), false)))
         if (id === 'liquid') jobs.push(() => {
           const s = slot(id), step = s.st.warmBoss([OPHAN_BOSS.R * z / s.k * RES])
           const go = () => { if (!step(6)) jobs.unshift(go) }

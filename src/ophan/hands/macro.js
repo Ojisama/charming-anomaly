@@ -22,6 +22,8 @@ import { OPHAN, OPHAN_HANDKIT, OPHAN_HANDS, OPHAN_RIG, hh } from '../page.js'
     const a = hs(xi, yi, s), b = hs(xi + 1, yi, s), c = hs(xi, yi + 1, s), d = hs(xi + 1, yi + 1, s); return a + (b - a)*ux + (c - a)*uy + (a - b - c + d)*ux*uy; };
   const fbm = (x, y, s, o) => { let v = 0, a = .5, f = 1, n = 0; for (let i = 0; i < o; i++){ v += a*vn(x*f, y*f, s + i*31); n += a; a *= .5; f *= 2; } return v/n; };
   const g3 = (d, r) => Math.exp(-(d*d)/(r*r));
+  // the brightest of a falloff round several points is the falloff at the nearest one: one exp, not one per point
+  const near = (X, Y, P) => { let m = Infinity; for (let i = 0; i < P.length; i++){ const d = Math.hypot(X - P[i][0], Y - P[i][1]); if (d < m) m = d; } return m; };
 
   // THE SKELETON (mm): [x, y, radius, height of the bone's axis]
   // the pinch is a quarter of the way up the handle: the index lies along it on top, the thumb pad presses it from the side,
@@ -63,7 +65,9 @@ import { OPHAN, OPHAN_HANDKIT, OPHAN_HANDS, OPHAN_RIG, hh } from '../page.js'
       bg.beginPath(); bg.moveTo(...mid(0)); for (let j = 1; j <= n; j++) bg.quadraticCurveTo(...BACK[j%n], ...mid(j)); bg.fill(); } const mA = alphaOf(bm), dome = boxBlur(mA, 55, 3);
     for (let py = 0; py < HH; py++) for (let px = 0; px < W; px++){ const i = py*W + px; if (mA[i] < .01) continue;
       const X = X0 + (px + .5)/k, Y = Y0 + (py + .5)/k; let z = 5 + 25*Math.sqrt(dome[i]);
-      for (const [mx, my] of MCP){ z += 4.5*g3(Math.hypot(X - mx - 3, Y - my), 7);
+      // a knuckle 45 mm off, or a tendon 17 mm off, adds under half an ulp of z (>= 5 here): skipped, z is bit for bit the same
+      for (const [mx, my] of MCP){ if (Math.abs(X - mx - 3) < 45 && Math.abs(Y - my) < 45) z += 4.5*g3(Math.hypot(X - mx - 3, Y - my), 7);
+        if (X < Math.min(mx, WRIST[0]) - 17 || X > Math.max(mx, WRIST[0]) + 17 || Y < Math.min(my, WRIST[1]) - 17 || Y > Math.max(my, WRIST[1]) + 17) continue;
         const dx = WRIST[0] - mx, dy = WRIST[1] - my, L2 = dx*dx + dy*dy, t = cl(((X - mx)*dx + (Y - my)*dy)/L2), d = Math.hypot(X - mx - dx*t, Y - my - dy*t);
         z += 1.3*g3(d, 2.6)*Math.min(1, t*5)*(1 - t); }
       z += 1.2*(fbm(X/22, Y/22, 5, 2) - .5) - 6*g3(Y, 8)*K.sm(140, 175, X);   // the web the handle rests in
@@ -133,7 +137,7 @@ import { OPHAN, OPHAN_HANDKIT, OPHAN_HANDS, OPHAN_RIG, hh } from '../page.js'
     // the height the light sees: skin minus its creases, plus the nails' lip
     const tipsSk = [IDX[0], THB[0], ...CURL.map(tipOf)];
     for (let i = 0; i < W*HH; i++) if (I[i]){ if (I[i] < ID.fer){ const X = X0 + (i%W + .5)/k, Y = Y0 + ((i/W | 0) + .5)/k;
-        let tw = 0; for (const [tx, ty] of tipsSk) tw = Math.max(tw, g3(Math.hypot(X - tx, Y - ty), 10));
+        const tw = g3(near(X, Y, tipsSk), 10);
         const wv = 1.6*fbm(X/3, Y/3, 73, 2), h1 = Math.pow(Math.abs(Math.sin((X*.8 + Y*.6)*5.2 + wv)), 6), h2 = Math.pow(Math.abs(Math.sin((X*.6 - Y*.8)*5.2 - wv)), 6);
         Z[i] += .05*(fbm(X/.4, Y/.4, 75, 2) - .5) - tw*.045*(h1 + h2)*(1 - nA[i]) - .8*cr[i]; }   // pores, the fingertips' fine crosshatch, the creases
       if (nailOwner[i] === I[i]) Z[i] += .35*nA[i]; }
@@ -150,7 +154,7 @@ import { OPHAN, OPHAN_HANDKIT, OPHAN_HANDS, OPHAN_RIG, hh } from '../page.js'
 
     const out = K.mk(W, HH), og = out.getContext('2d'), im = og.createImageData(W, HH), D = im.data;
     const Hv = (() => { const v = [LK[0], LK[1], LK[2] + 1], n = Math.hypot(...v); return v.map((q) => q/n); })();
-    const tipsAll = [IDX[0], THB[0], ...CURL.map(tipOf), ...CURL.map(preOf)];
+    const tipsAll = [IDX[0], THB[0], ...CURL.map(tipOf), ...CURL.map(preOf)], knuckles = [...MCP, IDX[1], IDX[2], THB[1], ...CURL.map((f) => f[1])];
     for (let py = 1; py < HH - 1; py++) for (let px = 1; px < W - 1; px++){ const i = py*W + px, id = I[i]; if (!id) continue;
       const X = X0 + (px + .5)/k, Y = Y0 + (py + .5)/k;
       // the normal, from neighbours of the same part only (a seam between parts is an edge, not a slope)
@@ -171,12 +175,12 @@ import { OPHAN, OPHAN_HANDKIT, OPHAN_HANDS, OPHAN_RIG, hh } from '../page.js'
         // skin: weathered, mottled down to the pores, freckled on the back, a little red over the knuckles
         const f1 = fbm(X/9, Y/9, 21, 3), f2 = fbm(X/3.5, Y/3.5, 23, 2), fp = fbm(X/.5, Y/.5, 71, 2) - .5;
         r = 170 + 18*(f1 - .5) + 9*fp; g = 138 + 15*(f1 - .5) + 8*fp; b = 108 + 12*(f1 - .5) + 7*fp;
-        let kt = 0; for (const [mx, my] of [...MCP, IDX[1], IDX[2], THB[1], ...CURL.map((f) => f[1])]) kt = Math.max(kt, g3(Math.hypot(X - mx, Y - my), 8));
+        const kt = g3(near(X, Y, knuckles), 8);
         r += 10*kt; g -= 3*kt; b -= 2*kt;
         const spot = id === ID.body ? cl((fbm(X/5, Y/5, 41, 2) - .72)*5)*cl((X - 150)/30)*.6 : 0; r -= 30*spot; g -= 32*spot; b -= 30*spot;
         const vein = id === ID.body ? vA[i]*.22 : 0; r += (118 - r)*vein; g += (122 - g)*vein; b += (130 - b)*vein;
         // soil: only in the creases right at the fingertips (the nails carry the rest), never on the knuckles
-        let tipN = 0; for (const [tx, ty] of tipsAll) tipN = Math.max(tipN, g3(Math.hypot(X - tx, Y - ty), 6));
+        const tipN = g3(near(X, Y, tipsAll), 6);
         const dirt = Math.min(.6, cr[i]*1.1*tipN);
         r += (64 - r)*dirt; g += (44 - g)*dirt; b += (30 - b)*dirt;
         const cw = 1 - .34*cr[i]; r *= cw; g *= cw; b *= cw;

@@ -155,15 +155,15 @@ OPHAN.pixel = (() => {
     const n = Math.ceil(R*2*ext/8)*8 + 6; if (n !== N){ N = n; if (!SPR.has(n)){ const cv = mk(n, n); SPR.set(n, [cv, cv.getContext('2d').createImageData(n, n)]); } [spr, img] = SPR.get(n); }   // one buffer per size, kept
     const c0 = n/2, id = buf('id', Int16Array, n).fill(-1), lit = buf('lit', Float32Array, n), kind = [];
     P.forEach((p, pi) => {
-      const Q = p.pts.map(([px,py]) => [c0 + px*R, c0 + py*R]);
+      const Q = p.pts.map(([px,py]) => [c0 + px*R, c0 + py*R]), QX = Q.map(q => q[0]), QY = Q.map(q => q[1]);   // flat for the scanline below
       let x0 = n, x1 = 0, y0 = n, y1 = 0, mx = 0, my = 0;
       for (const [x,y] of Q){ x0 = Math.min(x0,x); x1 = Math.max(x1,x); y0 = Math.min(y0,y); y1 = Math.max(y1,y); mx += x; my += y; }
       mx /= Q.length; my /= Q.length; const sz = Math.max(1.5, (x1-x0 + y1-y0)/2); kind[pi] = p.k;
       let any = false;
-      const sh = p.shade || .5, SR = p.sp && p.sp.map(([x, y, nx, ny, h]) => [c0 + x*R, c0 + y*R, nx, ny, Math.max(1, h*R), -(nx + ny) > 0 ? 1 : -1]);
+      const sh = p.shade || .5, SR = p.sp && p.sp.map(([x, y, nx, ny, h]) => [c0 + x*R, c0 + y*R, nx, ny, Math.max(1, h*R), -(nx + ny) > 0 ? 1 : -1]), SX = SR && SR.map(q => q[0]), SY = SR && SR.map(q => q[1]);   // SX, SY: the nearest-spine search reads them flat
       const set = (x, y) => { const k = y*n + x; id[k] = pi; any = true;
         if (!SR){ lit[k] = sh + .5*(-(x + .5 - mx) - (y + .5 - my))/sz; return; }
-        let j = 0, bd = 1e9; for (let m = 0; m < SR.length; m++){ const dd = (x + .5 - SR[m][0])**2 + (y + .5 - SR[m][1])**2; if (dd < bd){ bd = dd; j = m; } }
+        let j = 0, bd = 1e9; for (let m = 0; m < SR.length; m++){ const dd = (x + .5 - SX[m])**2 + (y + .5 - SY[m])**2; if (dd < bd){ bd = dd; j = m; } }
         const [qx, qy, nx, ny, h, sg] = SR[j], v = sg*((x + .5 - qx)*nx + (y + .5 - qy)*ny)/h, uu = j/(SR.length - 1);
         lit[k] = .6 + .3*v - (uu < .3 ? .16 : 0) + (uu > .7 ? .05 : 0) + (sh - .5)*.3;   // flat bands along the feather: lit edge, body, shadow edge, dark root
       };
@@ -174,7 +174,7 @@ OPHAN.pixel = (() => {
           continue;
         }
         const xs = [];                                    // scanline: even-odd spans between edge crossings
-        for (let i = 0, j = Q.length-1; i < Q.length; j = i++){ const [xi,yi] = Q[i], [xj,yj] = Q[j]; if ((yi > py) !== (yj > py)) xs.push((xj-xi)*(py-yi)/(yj-yi) + xi); }
+        for (let i = 0, j = Q.length-1; i < Q.length; j = i++){ const xi = QX[i], yi = QY[i], xj = QX[j], yj = QY[j]; if ((yi > py) !== (yj > py)) xs.push((xj-xi)*(py-yi)/(yj-yi) + xi); }
         xs.sort((u, v) => u - v);
         for (let q = 0; q + 1 < xs.length; q += 2){ const xa = Math.max(0, Math.ceil(xs[q] - .5)), xb = Math.min(n-1, Math.ceil(xs[q+1] - .5) - 1); for (let x = xa; x <= xb; x++) set(x, y); }
       }
@@ -196,7 +196,6 @@ OPHAN.pixel = (() => {
     const hm = buf('hm', Float32Array, n).fill(0);
     const put = (k, h) => { hm[k] = HOT.has(h) ? (h === '#d8340c' ? .5 : 1) : 0; const [r,g,b] = rgbOf(h); d[k*4] = r; d[k*4+1] = g; d[k*4+2] = b; d[k*4+3] = 255; };
     const ramp = (A, k) => A[Math.max(0, Math.min(A.length - 1, Math.floor(Math.max(0, Math.min(.999, lit[k] - .08))*A.length)))];
-    const isK = (k, ks) => id[k] >= 0 && ks.includes(kind[id[k]]);
     const MAT = new Set(['prim', 'cov', 'web']), fl = Lk.flash, up = fl > .2 ? 1 : Lk.dim > .5 ? -1 : 0;   // the strike frame lifts every value one step, the spent body drops one
     // a wing turned behind the body goes a step darker and, far back, to the chapter's cold basalt; one swung in front a step brighter
     const tone = (j, dp) => (dp < -.6 ? ROCK : RAMP)[Math.max(1, Math.min(4, j + up + (dp < -.25 ? -1 : dp > .6 && up === 0 && j === 2 ? 1 : 0)))];
@@ -227,7 +226,8 @@ OPHAN.pixel = (() => {
     // the great eye's ring: one near-black art pixel all round it, then one of melt
     for (const k of GL) for (const o of [0, 1, n, n + 1]) if (k + o < n*n) put(k + o, '#ffffff');   // the feather eyes' catchlight: 2x2, white
     const ringM = buf('ring', Uint8Array, n).fill(0), EYEK = ['chest', 'chestdim'], e0 = Math.max(1, Math.floor(Math.min(ecx, ecy) - .45*R)), e1 = Math.min(n - 1, Math.ceil(Math.max(ecx, ecy) + .45*R));
-    const inEye = k => isK(k, EYEK) || ((isK(k, ['pupil', 'slit'])) && Math.abs((k % n) - ecx) < .27*R && Math.abs((k/n|0) - ecy) < .16*R);
+    const EYEP = kind.map(kd => EYEK.includes(kd)), PSP = kind.map(kd => kd === 'pupil' || kd === 'slit');   // per part, not per pixel
+    const inEye = k => { const i = id[k]; return i >= 0 && (EYEP[i] || (PSP[i] && Math.abs((k % n) - ecx) < .27*R && Math.abs((k/n|0) - ecy) < .16*R)); };
     for (let y = e0; y < e1; y++) for (let x = e0; x < e1; x++){ const k = y*n + x; if (inEye(k)) continue;
       for (let j = -1; j <= 1 && !ringM[k]; j++) for (let i = -1; i <= 1; i++) if (inEye(k + j*n + i)){ ringM[k] = 1; break; } }
     for (let y = e0; y < e1; y++) for (let x = e0; x < e1; x++){ const k = y*n + x; if (ringM[k] || inEye(k) || id[k] < 0) continue;
@@ -287,11 +287,11 @@ OPHAN.pixel = (() => {
     g2.drawImage(s, 0, 0); g2.globalCompositeOperation = 'source-in'; g2.fillStyle = '#080305'; g2.fillRect(0, 0, N, N); SH.set(key, c2); return c2; }
   // THE BODY IS A SHEET OF BAKED FRAMES, like the game's cast (src/pixel/cast.js), never a per-frame raster: one run of FN
   // poses (the idle loop, or one attack at one aim) is cut once at the CRT's art pixel (PIXEL_ART_PX device px, set by the
-  // stage; 1 outside the game tech) and stepped at 10 fps. Each sheet also carries the smear's two tinted silhouettes.
+  // stage; 1 outside the game tech) and stepped at 10 fps. Each attack sheet also carries the smear's two tinted silhouettes.
   // ponytail: an attack's aim is held to 16 directions and half-radius reach steps, and its pose clock to t = 0; finer = more sheets
   const SHEETS = new Map(), FN = 41, GHOST = ['#7a1004', '#d8340c'], AP = () => globalThis.PIXEL_ART_PX || 1;
   function sheet(key, Rr, ph, poseAt, all){ let S = SHEETS.get(key); if (!S) SHEETS.set(key, S = { Rr, ph, poseAt, F: [] });
-    if (all) for (let i = 0; i < FN; i++) frame(S, i, GHOST);   // all: the warm-up (px2d's grace), the whole run at once
+    if (all) for (let i = 0; i < FN; i++) frame(S, i);   // all: the idle loop in the warm-up (px2d's grace), the whole run at once and no smear (it draws none)
     return S; }
   let BK = 0;   // frames baked so far
   function frame(S, i, cols = []){ let F = S.F[i];   // frame i, rastered when first shown (a whole sheet at once was a 100-330 ms phone frame mid-attack); cols: its smear tints too
@@ -626,7 +626,7 @@ OPHAN.pixel = (() => {
       const an = Math.round(Math.atan2(gy, gx)/(TAU/16)), dq = Math.max(.5, Math.round(Math.hypot(gx, gy)*2)/2), qx = Math.cos(an*TAU/16)*dq, qy = Math.sin(an*TAU/16)*dq;   // the aim the sheet was cut at
       const Rr = R*c.getTransform().a/AP(), mv = atk === 'wheel' || atk === 'sword';
       const S = sheet([atk, Math.round(Rr), ph, an, dq].join(), Rr, ph, (j) => { const uq = j/(FN - 1), Q = RIG.pose(0, ph, atk, uq, qx, qy);
-        if (atk === 'sword') Q.swd = { A: RIG.attackUnit(atk, uq, ph, qx, qy, 0, Q), u: uq }; return { P: Q, t: 0, o: mv ? [Q.body.ox, Q.body.oy] : [0, 0] }; }, c.grace > 0);
+        if (atk === 'sword') Q.swd = { A: RIG.attackUnit(atk, uq, ph, qx, qy, 0, Q), u: uq }; return { P: Q, t: 0, o: mv ? [Q.body.ox, Q.body.oy] : [0, 0] }; });   // never whole: its key holds the aim, which the fight almost never repeats; each frame is cut as first shown
       const fi = (v) => Math.round(Math.max(0, v)*(FN - 1)), sp = atk === 'tornado' ? b.spin : 0;
       const gh = sp > .05 ? [[fi(u - .003), .3*sp, GHOST[0]], [fi(u - .0015), .45*sp, GHOST[1]]]   // the top's smear: where it just turned
         : b.strike > .05 && atk !== 'tornado' ? [[fi(u - .07), .25*b.strike, GHOST[0]], [fi(u - .035), .4*b.strike, GHOST[1]]] : [];
