@@ -10194,8 +10194,8 @@ export const OPHAN_ATK_SPEED = 1.5
 // the sword blade's length in R: the slam lands .5 + this from the boss (v9's 1.8 put it at 2.3 R; this is 4x)
 //  - rig.js imports nothing: its SWORD_REACH must equal this (run OP.open pins both)
 export const OPHAN_SWORD_REACH = 8.7
-// balance_decision : boss chase speed 0.9x player, measured on kite arm 2026-10-25
-export const OPHAN_BOSS_SPEED = 0.9 * PLAYER.baseSpeed
+// balance_decision : matches player base; kite arm stalled at 0.9x 2026-10-25
+export const OPHAN_BOSS_SPEED = PLAYER.baseSpeed
 // balance_decision : the boss stops closing 2 R from the player 2026-10-25
 //  - must stay < phone half-width 195
 export const OPHAN_BOSS_HOLD = 2 * OPHAN_BOSS.R
