@@ -43573,7 +43573,7 @@ function testOphanAttacks() {
   // predicate under test, so these literals are what catch a predicate that grew or shrank.
   const GOLD = {
     blast: [[7, 192], [7, 252], 373], tornado: [[7, 152], [7, 232], 390], laser: [[7, 192], [67, 192], 442],
-    wheel: [[7, 192], [-53, 232], 320], recall: [[7, 192], [27, 192], 380], sword: [[7, 592], [-73, 592], 541],
+    wheel: [[7, 192], [-53, 232], 320], recall: [[7, 192], [27, 192], 380], sword: [[7, 532], [-73, 592], 448],
   }
   const rows = []
   // the tornado reaches where you stood: a player who never moves off the locked aim is hurt
@@ -43897,10 +43897,27 @@ function testOphanOpenArena() {
   const mid = (hs[0] + hs[hs.length - 1]) / 2
   assert.ok(hs.length && Math.abs(mid - 4 * 2.3) < 0.02, `o6: the slam hits ${hs[0]}..${hs[hs.length - 1]} R down the aim, centred ${mid.toFixed(2)} R; want 4 x 2.3 R`)
   assert.ok(Math.abs(slam.blade.reach - OPHAN_SWORD_REACH * R) < 1e-6, `o6: the drawn blade reaches ${(slam.blade.reach / R).toFixed(2)} R, not ${OPHAN_SWORD_REACH}`)
-  // aimed at A, much nearer than the slam: the fire line is its floor, from the slam on
+  // aimed at A, much nearer than the slam: the fire line runs along the blade, from its base (.5 R) through the slam and
+  // on by v9's 0.8 R tail x4, unbroken
   const fire = along(RIG.attack('sword', 0.75, 3, bx, by, R, A.x, A.y), 'fireDmg'), w = 0.3
-  assert.ok(fire.length && Math.abs(fire[0] - (4 * 2.3 - w)) < 0.02 && Math.abs(fire[fire.length - 1] - (4 * 2.3 + 4 * 0.8 + w)) < 0.02,
-    `o6: the fire line burns ${fire[0]}..${fire[fire.length - 1]} R down the aim; want ${4 * 2.3 - w}..${4 * 2.3 + 4 * 0.8 + w}`)
+  assert.ok(fire.length && Math.abs(fire[0] - (0.5 - w)) < 0.02 && Math.abs(fire[fire.length - 1] - (4 * 2.3 + 4 * 0.8 + w)) < 0.02 &&
+    fire.every((s, i) => i === 0 || s - fire[i - 1] < 0.011),
+    `o6: the fire line burns ${fire[0]}..${fire[fire.length - 1]} R down the aim (gaps or ends wrong); want ${0.5 - w}..${4 * 2.3 + 4 * 0.8 + w}`)
+  // o9 (lead's ruling, 2026-10-25): the quadrupled sword hits along its whole line, not only past its slam. Over the whole
+  // attack aimed at a player standing at hold: that spot is hit, so is 9 R out on the aim; hold distance 90 degrees off it is not
+  const hold = { x: bx, y: by + OPHAN_BOSS_HOLD }, swing = []
+  for (let i = 0; i <= 200; i++) swing.push(RIG.attack('sword', i / 200, 3, bx, by, R, hold.x, hold.y))
+  const ever = (x, y) => swing.some((g) => ophanHits('sword', g, x, y, PLAYER.radius, R, OPHAN_HIT).hit)
+  assert.ok(ever(hold.x, hold.y), 'o9: a sword aimed at a player standing at hold never hits them')
+  assert.ok(ever(bx, by + 9 * R), 'o9: the sword never hits 9 R out on its aim')
+  assert.ok(!ever(bx + OPHAN_BOSS_HOLD, by), 'o9: the sword hits at hold distance 90 degrees off its aim')
+  // ...and live: the scheduler's sword, the player parked at hold on the aim, is hurt
+  {
+    const r = ophanRun(1), o = calm(r)
+    ophStart(r, 'sword', hold)
+    ophSteps(r, Math.ceil(OPHAN_ATTACKS.sword.dur * 60), { before: () => { ophHold(r, hold)(); r.player.invuln = 0 }, until: () => !o.atk })
+    assert.ok((r.dmgBySrc.ophanSword ?? 0) > 0, 'o9: a live sword never hurt the player standing at hold on its aim')
+  }
   // o7 the hold is inside the blast's live reach, so the blast lands on a player the boss stands off from
   let blastR = 0
   for (let q = 0; q <= 1; q += 0.001) { const s = RIG.attack('blast', q, 3, 0, 0, 1, 0, 3).sheet; if (s && s.fade > OPHAN_HIT.blastFade) blastR = Math.max(blastR, s.front + s.band / 2) }

@@ -353,14 +353,15 @@ const RIG = (() => {
       const rs = sm(.26, .4, u)*(1 - sm(.4, .47, u)), im = Math.sin(Math.PI*cl((u - .46)/.14)), ln = -.15*rs + .3*im, k = cl((u - .4)/.07);
       const th = u < .4 ? Math.PI/2 + (1.7 - Math.PI/2)*sm(.26, .4, u) : 1.7*(1 - k*k), L = LB*sm(.02, .26, u);
       const kb = sm(.41, .46, u), base = { x: dx*(ln + .2)*kb, y: -.9*(1 - kb) + dy*(ln + .2)*kb }, ground = { x: base.x + dx*L*Math.cos(th), y: base.y + dy*L*Math.cos(th) }, tip = { x: ground.x, y: ground.y - .6*L*Math.sin(th) };
-      const q = cl((u - .47)/.14), S0 = { x: dx*(.5 + LB), y: dy*(.5 + LB) }, len = Math.max(.8*(.5 + LB)/2.3, d0 + .9 - .5 - LB), f = cl((u - .47)/.13), flames = [];
+      // the fire runs along the blade from its base (.5, the body edge) through the slam (S0) and on by v9's tail, x4
+      const q = cl((u - .47)/.14), S0 = { x: dx*(.5 + LB), y: dy*(.5 + LB) }, F0 = { x: dx*.5, y: dy*.5 }, len = LB + Math.max(.8*(.5 + LB)/2.3, d0 + .9 - .5 - LB), f = cl((u - .47)/.13), flames = [];
       for (let i=0;i<16;i++){ const di = len*(i + .5)/16, ti = .47 + .13*(i + .5)/16, life = u - ti, h = sm(0, .04, life)*(1 - sm(.16, .3, life)), j = .08*(hh(i, 81) - .5);
-        flames.push({ x: S0.x + dx*di + nx*j, y: S0.y + dy*di + ny*j, h, al: h, s: hh(i, 82), sz: .28*(.8 + .4*hh(i, 83)) }); }
+        flames.push({ x: F0.x + dx*di + nx*j, y: F0.y + dy*di + ny*j, h, al: h, s: hh(i, 82), sz: .28*(.8 + .4*hh(i, 83)) }); }
       return { dir: phi,
         blade: { base, tip, ground, len: Math.hypot(tip.x - base.x, tip.y - base.y), reach: L, w: .17*sm(.02, .26, u), form: sm(.02, .26, u)*(1 - sm(.84, .95, u)), lift: Math.sin(th), theta: th,
           heading: Math.atan2(tip.y - base.y, tip.x - base.x), buried: sm(.46, .48, u)*(1 - sm(.84, .95, u)), dissolve: sm(.84, .95, u), under: 1 - sm(.42, .45, u) },
         impact: u > .465 && q < 1 ? { x: S0.x, y: S0.y, r: .3 + 1.3*q, al: 1 - q } : null,
-        fire: { start: S0, end: { x: S0.x + dx*len, y: S0.y + dy*len }, dx, dy, nx, ny, len, front: len*f, w: .3, flames, on: sm(.47, .5, u)*(1 - sm(.8, .9, u)), scorch: sm(.47, .52, u)*(1 - sm(.9, 1, u)) } };
+        fire: { start: F0, end: { x: F0.x + dx*len, y: F0.y + dy*len }, dx, dy, nx, ny, len, front: len*f, w: .3, flames, on: sm(.47, .5, u)*(1 - sm(.8, .9, u)), scorch: sm(.47, .52, u)*(1 - sm(.9, 1, u)) } };
     }
     return {};
   }
