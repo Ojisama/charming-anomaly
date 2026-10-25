@@ -299,6 +299,9 @@ OPHAN.pixel = (() => {
   // stage; 1 outside the game tech) and stepped at 10 fps. Each attack sheet also carries the smear's two tinted silhouettes.
   // ponytail: an attack's aim is held to 16 directions and half-radius reach steps, and its pose clock to t = 0; finer = more sheets
   const SHEETS = new Map(), FN = 41, GHOST = ['#7a1004', '#d8340c'], AP = () => globalThis.PIXEL_ART_PX || 1;
+  // the tornado core's dither as a strip, pixel i '#fff4c4' when odd: a run at x of row y is the crop from (x + y) & 1
+  // ponytail: 4096 px is wider than any core run (a few hundred px); a wider screen would need a longer strip
+  const CHK = mk(4096, 1); { const g = CHK.getContext('2d'); g.fillStyle = '#ffd858'; g.fillRect(0, 0, 4096, 1); g.fillStyle = '#fff4c4'; for (let i = 1; i < 4096; i += 2) g.fillRect(i, 0, 1, 1); }
   function sheet(key, Rr, ph, poseAt, all){ let S = SHEETS.get(key); if (!S) SHEETS.set(key, S = { Rr, ph, poseAt, F: [] });
     if (all) for (let i = 0; i < FN; i++) frame(S, i);   // all: the idle loop in the warm-up (px2d's grace), the whole run at once and no smear (it draws none)
     return S; }
@@ -597,7 +600,8 @@ OPHAN.pixel = (() => {
   }
   const ss = (a, b, v) => { v = Math.max(0, Math.min(1, (v - a)/(b - a))); return v*v*(3 - 2*v); };
   // effects are stamped in whole buffer pixels, one colour per run, like the sprite
-  function dots(g, col, pts, w = 1, q = 1){ g.fillStyle = col; const h = Math.floor(w/2), seen = new Set(), sq = [];
+  function dots(g, col, pts, w = 1, q = 1){ if (g.globalAlpha < 1/512) return;   // under half a level of an 8-bit channel: draws nothing, at any size
+    g.fillStyle = col;const h = Math.floor(w/2), seen = new Set(), sq = [];
     for (const [x, y] of pts){ const X = q > 1 ? Math.floor(x/q)*q : Math.round(x), Y = q > 1 ? Math.floor(y/q)*q : Math.round(y), key = X*65536 + Y; if (seen.has(key)) continue; seen.add(key); sq.push(X/q - h, Y/q - h); }
     // squares that overlap see-through or blended paint their overlaps twice: those keep one rect each
     if (sq.length < 4 || w > 1 && !(g.globalAlpha >= 1 && g.globalCompositeOperation === 'source-over' && /^#[0-9a-f]{6}$/i.test(col)) || !rects(g, sq, w, q)) for (let i = 0; i < sq.length; i += 2) g.fillRect(sq[i]*q, sq[i + 1]*q, w*q, w*q); }   // q: the grid, 2 = the floor's PX   // each art pixel once: a faint line stays evenly faint
@@ -633,9 +637,9 @@ OPHAN.pixel = (() => {
       place(c, x, y, R, t, ph, sheet(['idle', Math.round(Rr), ph].join(), Rr, ph, (j) => ({ P: RIG.pose(j/10, ph), t: j/10, o: [0, 0] }), c.grace > 0), loopI(t)); },
     attack(c, x, y, R, t, ph = 3, atk, u, px, py){
       const gx = (px - x)/R, gy = (py - y)/R, P = RIG.pose(t, ph, atk, u, gx, gy), A = RIG.attackUnit(atk, u, ph, gx, gy, t, P), b = P.beats;
-      // the sword's body ignores the aim's distance (only the eyes' gaze read it), so its sheets are cut at the hold distance
+      // the sword's and the tornado's bodies ignore the aim's distance (only the eyes' gaze read it), so their sheets are cut at the hold distance
       // (config OPHAN_BOSS_HOLD, 2 R): one per direction, not one per direction and step of the player's range
-      const an = Math.round(Math.atan2(gy, gx)/(TAU/16)), dq = atk === 'sword' ? 2 : Math.max(.5, Math.round(Math.hypot(gx, gy)*2)/2), qx = Math.cos(an*TAU/16)*dq, qy = Math.sin(an*TAU/16)*dq;   // the aim the sheet was cut at
+      const an = Math.round(Math.atan2(gy, gx)/(TAU/16)), dq = atk === 'sword' || atk === 'tornado' ? 2 : Math.max(.5, Math.round(Math.hypot(gx, gy)*2)/2), qx = Math.cos(an*TAU/16)*dq, qy = Math.sin(an*TAU/16)*dq;   // the aim the sheet was cut at
       const Rr = R*c.getTransform().a/AP(), mv = atk === 'wheel' || atk === 'sword';
       const S = sheet([atk, Math.round(Rr), ph, an, dq].join(), Rr, ph, (j) => { const uq = j/(FN - 1), Q = RIG.pose(0, ph, atk, uq, qx, qy);
         if (atk === 'sword') Q.swd = { A: RIG.attackUnit(atk, uq, ph, qx, qy, 0, Q), u: uq }; return { P: Q, t: 0, o: mv ? [Q.body.ox, Q.body.oy] : [0, 0] }; });   // never whole: its key holds the aim, which the fight almost never repeats; each frame is cut as first shown
@@ -700,16 +704,21 @@ OPHAN.pixel = (() => {
             for (let m = 0; m < n; m++){ const th = m/n*TAU; if (Math.sin(3*th - t*9 + h*5) < -.55) continue; (Math.sin(th) > 0 ? F : K).push([rcx + Math.cos(th)*rx, rcy + Math.sin(th)*rx*.3]); }
             back.push([COL[Math.min(7, ci + 2)], K, 1]); front.push([COL[ci], F, h < .5 ? 2 : 1]); }
           for (const [col, pts, wd] of back) dots(c, col, pts, wd);
-          const BK = { '#fff4c4':[], '#ffd858':[], '#ffa22a':[], '#ff6a14':[], '#d8340c':[], '#7a1004':[] }, LC = ['#ffa22a', '#ff6a14', '#d8340c', '#7a1004'];
+          const LC = ['#ffa22a', '#ff6a14', '#d8340c', '#7a1004'], CR = [], BR = [];   // the column's runs in a row: core [x, n, y], body [x, n, y, colour]
           const [, ty] = ring(1), rows = Math.max(1, Math.ceil(by - ty));
           for (let yy = 0; yy <= rows; yy++){             // the column itself, row by row: a molten body, a white-hot dithered core
-            const h = yy/rows, [rcx, , rx] = ring(h), y2 = Math.round(by - yy), cool = Math.floor(h*1.8);
-            for (let xx = Math.round(rcx - rx); xx <= Math.round(rcx + rx); xx++){
-              const f = Math.abs(xx - rcx)/Math.max(1, rx) + .1*Math.sin(h*9 - t*7 + (xx - rcx)*.4);
-              if (f < .3 - .15*h) BK[(xx + y2) & 1 ? '#fff4c4' : '#ffd858'].push([xx, y2]);
-              else BK[LC[Math.max(0, Math.min(3, Math.floor(f*3.2) + cool - 1))]].push([xx, y2]); } }
+            const h = yy/rows, [rcx, , rx] = ring(h), y2 = Math.round(by - yy), cool = Math.floor(h*1.8), x1 = Math.round(rcx + rx);
+            let k0 = null, x0 = 0;
+            for (let xx = Math.round(rcx - rx); xx <= x1 + 1; xx++){
+              let k = null;
+              if (xx <= x1){ const f = Math.abs(xx - rcx)/Math.max(1, rx) + .1*Math.sin(h*9 - t*7 + (xx - rcx)*.4);
+                k = f < .3 - .15*h ? 0 : LC[Math.max(0, Math.min(3, Math.floor(f*3.2) + cool - 1))]; }
+              if (k !== k0){ if (k0 === 0) CR.push([x0, xx - x0, y2]); else if (k0) BR.push([x0, xx - x0, y2, k0]); k0 = k; x0 = xx; } } }
           c.globalAlpha = Math.min(1, Lv*1.4)*(1 - .6*d);
-          for (const col in BK) dots(c, col, BK[col]);
+          // one rect a run, and the core's dither one crop of the checker strip a run: per pixel it was ~14k sprites a frame on game tech
+          c.imageSmoothingEnabled = false;
+          for (const [x, n, y] of CR) c.drawImage(CHK, (x + y) & 1, 0, n, 1, x, y, n, 1);
+          for (const [x, n, y, col] of BR){ c.fillStyle = col; c.fillRect(x, y, n, 1); }
           for (let i = 0; i < 10; i++){                  // debris spiralling in and up; each fades to nothing at both ends of its lap
             const l = (t*.45 + i/10) % 1, [rcx, rcy, rx] = ring(l), an = t*4 + i*2.4 + l*7, fa = Math.sin(Math.PI*l), r = rx*(1 + (1 - l)*.6);
             c.globalAlpha = Math.min(1, Lv*1.4)*fa*fa;

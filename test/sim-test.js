@@ -44251,6 +44251,13 @@ function testOphanRenderWiring() {
   assert.ok(/pumpMode\(entered && !briefing, oph\)/.test(pumpBody) && /briefing = true/.test(prewarmBody) && /briefing = false/.test(enterBody),
     'the pump reads a fight from enter() alone: a brief opened over an entered fight (Play again, a resumed run) bakes on wave credit, 80 s loads on the S25')
   assert.ok(/Math\.max\(-OPHAN_BG_BAKE_MS, credit\)/.test(pumpBody), 'a wave job\'s debt is not capped at one frame: one dear job idles the queue for seconds')
+  // a press may show any world at any frame: every world's floor round the camera prebakes every frame, warm-up queued or
+  // not, and each world whose floor bakes in chunks as it comes into view has a prebake (the Mine's glyph chunks too)
+  const preLoop = rend.slice(rend.indexOf('const tb = performance.now()'), rend.indexOf('s.st.prebake('))
+  assert.ok(/for \(const s of \[A, \.\.\.Object\.values\(slots\)/.test(preLoop) && !/warming \?/.test(preLoop),
+    'the hidden worlds\' floors wait while warm-up jobs are queued: a press in a wave bakes its floor in view (116 ms on the S25)')
+  for (const id of ['ascii', 'pixel', 'toon'])
+    assert.ok(/^\s*prebake\s*[(:]/m.test(strip(readFileSync(new URL(`../src/ophan/stages/${id}.js`, import.meta.url), 'utf8'))), `stages/${id}.js has no prebake: its floor bakes in view on the frame a press shows it`)
   const ophDir = new URL('../src/ophan/', import.meta.url), ophFiles = []
   for (const d of ['', 'painters/', 'stages/']) for (const f of readdirSync(new URL(d, ophDir))) if (f.endsWith('.js')) ophFiles.push(d + f)
   for (const f of ophFiles) assert.ok(!/__liquid|createCoreBoss/.test(readFileSync(new URL(f, ophDir), 'utf8')), `src/ophan/${f} reaches for the artifact's Core debug paths (__liquid / createCoreBoss)`)

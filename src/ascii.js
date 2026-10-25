@@ -686,6 +686,7 @@ export function createAsciiRenderer(host) {
   for (const ch of PRE) { glyphTex(ch, 0); glyphTex(ch, 1); glyphTex(ch, 2); glyphTex(ch, 0, true) }
   let clock = 0
   let frame = 0
+  let lastRes = null, lastSlow = []   // the last sync's chunk resolution and slow lights, for prebake
   // per-creature memory: heading eases, stride phase from distance walked
   const mem = new Map()
   // transient glyph particles
@@ -872,6 +873,30 @@ export function createAsciiRenderer(host) {
           return false
       }
     },
+    // bakes the floor chunks a view (as sync's) needs and a ring round it, nearest its centre first, without drawing it, a
+    // chunk at a time until performance.now() reaches until: a host whose camera reaches a spot before this renderer draws
+    // there (the Ophan's worlds not shown, the floor ahead of a moving camera) calls it so the frame that first draws there
+    // bakes nothing. Returns true when it ran out of time, false when the view needs nothing more
+    prebake(view, until) {
+      const res = lastRes ?? (host.app?.renderer?.resolution ?? 1) * (view.zoom || 1)
+      const i0 = Math.floor(view.left / FCPX) - 1, i1 = Math.floor(view.right / FCPX) + 1
+      const j0 = Math.floor(view.top / FCPX) - 1, j1 = Math.floor(view.bottom / FCPX) + 1
+      // what the camera left behind, but never a chunk the last sync showed (the ahead view leads the shown one)
+      for (const [k, c] of chunks) if (!c.spr?.visible && (c.ci < i0 - 1 || c.ci > i1 + 1 || c.cj < j0 - 1 || c.cj > j1 + 1)) dropChunk(k, c)
+      const cx = (view.left + view.right) / 2, cy = (view.top + view.bottom) / 2, todo = []
+      for (let cj = j0; cj <= j1; cj++) for (let ci = i0; ci <= i1; ci++) {
+        const c = chunkAt(ci, cj)
+        c.seen = frame
+        if (c.res !== res || c.at < -1e8) todo.push([c, ((ci + 0.5) * FCPX - cx) ** 2 + ((cj + 0.5) * FCPX - cy) ** 2])
+      }
+      todo.sort((a, b) => a[1] - b[1])
+      for (const [c] of todo) {
+        if (performance.now() >= until) return true
+        bakeChunk(c, lastSlow, res, host.app?.renderer)
+        c.at = clock; c.spr.visible = false
+      }
+      return false
+    },
     sync(run, dt, view) {
       const R = host.app?.renderer
       if (R?.background && R.background.color?.toNumber?.() !== 0) R.background.color = 0x000000
@@ -915,6 +940,7 @@ export function createAsciiRenderer(host) {
       const slow = [], fast = []
       for (const L of lights) { if (L.fr == null) L.fr = L.r; (L.g ? slow : fast).push(L) }
       const res = (R?.resolution ?? 1) * (view.zoom || 1)
+      lastRes = res; lastSlow = slow
       const ci0 = Math.floor(view.left / FCPX), ci1 = Math.floor(view.right / FCPX)
       const cj0 = Math.floor(view.top / FCPX), cj1 = Math.floor(view.bottom / FCPX)
       // bake every chunk new to the view now; refresh at most two gas-touched chunks a frame

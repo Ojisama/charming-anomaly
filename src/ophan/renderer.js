@@ -511,13 +511,13 @@ export function createOphanRenderer(host) {
         s.st.update(t, { pan: pan(s), px: sx(s, p.x), py: sy(s, p.y), cam: { zr, ex: (s.ox * (zr - 1) + dx) / s.k, ey: (s.oy * (zr - 1) + dy) / s.k }, focus: f, crowd: s.core, crowdN: s.nc })
       })
       // the floors ahead: where the camera will look LEAD seconds on, the world shown first, then the others, a row of a
-      // chunk at a time for OPHAN_BG_BAKE_MS of the frame at most. One budget a frame: in a wave with warm-up jobs queued
-      // only the shown world's, its time taken out of the warm-up's credit; the worlds not shown wait for a frame the
-      // warm-up does not bake in
+      // chunk at a time for OPHAN_BG_BAKE_MS of the frame at most. The floors come before the warm-up: a press may show any
+      // world at any frame, the boss can wait behind its tell. One budget a frame: in a wave with warm-up jobs queued the
+      // floors' time is taken out of the warm-up's credit
       if (dt > 0 && cam0) { const e = Math.min(1, dt * 4); vel.x += ((cwx - cam0.x) / dt - vel.x) * e; vel.y += ((cwy - cam0.y) / dt - vel.y) * e }
       cam0 = { x: cwx, y: cwy }
       const tb = performance.now(), until = tb + OPHAN_BG_BAKE_MS, warming = jobs.length && !b && !sk
-      if (dt > 0) for (const s of warming ? [A] : [A, ...Object.values(slots).filter((s) => s !== A)]) {
+      if (dt > 0) for (const s of [A, ...Object.values(slots).filter((s) => s !== A)]) {
         if (!s.warm || !s.st.prebake) continue
         const q = pan(s), k = LEAD * z0 / s.k
         if (s.st.prebake({ x: q.x + vel.x * k, y: q.y + vel.y * k }, until)) break
