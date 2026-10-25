@@ -273,9 +273,10 @@ import {
   MANTLE_MELT_T, MANTLE_SPAWN_TRIES,
   KETTLE_CRUST_GNAW, KETTLE_CRUST_GNAW_MAX, KETTLE_STEAM_MUL, KETTLE_STEAM_R, KETTLE_HULL_COOL, KETTLE_HULL_MAX,
   SLING_LATCH_SHARE, IRON_BALL_R, IRON_BALL_LIFE, MOON_R, MOON_TUG_SWIRL, LODESTONE_FUSE, LODESTONE_SPREAD, LODESTONE_HOLD,
-  OPHAN_ARENA, OPHAN_BOSS, OPHAN_PLAYER_START, OPHAN_PHASE_EASE, OPHAN_ATK_CD, OPHAN_ATK_FIRST, OPHAN_HIT_CD, OPHAN_ATTACKS, OPHAN_HIT,
+  OPHAN_BOSS, OPHAN_PLAYER_START, OPHAN_PHASE_EASE, OPHAN_ATK_CD, OPHAN_ATK_FIRST, OPHAN_HIT_CD, OPHAN_ATTACKS, OPHAN_HIT,
   OPHAN_SHOVE_DECAY, OPHAN_SKIN_HP, OPHAN_SKETCH_HP, OPHAN_BREAK_FLOOR, OPHAN_IMMUNE_CD, OPHAN_CROWD, OPHAN_WINDOW_MUL, OPHAN_RECOVERY_ON, OPHAN_HAND,
-  OPHAN_WIPE_SPEED, OPHAN_WIPE_END, OPHAN_STAGGER_T,
+  OPHAN_WIPE_SPEED, OPHAN_WIPE_END, OPHAN_STAGGER_T, OPHAN_ATK_SPEED, OPHAN_BOSS_SPEED, OPHAN_BOSS_HOLD, OPHAN_ENTER,
+  OPHAN_WAVE_OPEN, OPHAN_WAVE_GAP, OPHAN_WAVE,
 } from './config.js'
 import { crustShapeOf, poolPhaseOf, inCrustEdge, crustSdf, inPoolEdge, CRUST_EDGE_MAX, POOL_RIM_MAX } from './mantle-shape.js'
 import RIG from './ophan/rig.js'
@@ -449,7 +450,6 @@ export function stepSim(run, input, dt) {
   stepStatuses(run, dt)
   stepPickups(run, dt)
   stepLevelUp(run)
-  if (run.script?.oph) ophanPin(run)   // last: the weapons' knockback ran after the script's own pin
 }
 
 /** Apply run.levelUpChoices[i] to the run (weapon add/level, passive, heal). */
@@ -1742,13 +1742,29 @@ function ophanDmgMul(run) {
   return o.stagger > 0 || o.recov ? OPHAN_WINDOW_MUL : 1
 }
 const ophanBoss = (run) => run.enemies.find((e) => e.id === run.script.oph.bossId && !e._dead)
-// The boss never moves: separation and weapon knockback (the shovel's) are undone here, inside the
-// script and again as stepSim's last line, after the weapons.
-function ophanPin(run) {
-  const b = ophanBoss(run)
-  if (!b) return
-  b.x = OPHAN_BOSS.x; b.y = OPHAN_BOSS.y
-  b.kb.x = 0; b.kb.y = 0
+// THE BOSS ENTERS a phase on screen near the player, outside the screen's centre third, wearing its
+// banked skin hp. `anchored`: weapon knockback and separation never move it; only its chase does.
+function ophanEnter(run, o, stage) {
+  const p = run.player, a = Math.random() * 2 * Math.PI
+  const e = spawnBlankEnemy(run, 'ophan', true, { x: p.x + Math.cos(a) * run.viewW * OPHAN_ENTER, y: p.y + Math.sin(a) * run.viewH * OPHAN_ENTER })
+  e.dmg = 0
+  e.affixes = ['anchored']
+  e.maxHP = OPHAN_SKIN_HP * run.mods.enemyHpMul
+  e.hp = o.hp[o.skin]
+  o.bossId = e.id; o.stage = stage; o.waveT = 0
+  o.atkCd = OPHAN_ATK_FIRST; o.swapIn = OPHAN_HAND.first
+  run.events.push({ type: 'ophanEnter', x: e.x, y: e.y })
+  return e
+}
+// THE BOSS LEAVES between phases: a silent removal (no kill, no xp), its skins' hp banked in o.hp,
+// every attack, tell and stagger in flight ended with it (Kraken's krakenHide)
+function ophanLeave(run, o, b) {
+  o.hp[o.skin] = b.hp
+  b._dead = true
+  o.bossId = null; run.bossBar = null
+  o.stage = 'wave'; o.waveT = OPHAN_WAVE_GAP
+  o.atk = null; o.recov = false; o.tell = 0; o.next = -1; o.after = -1; o.caught = false; o.stagger = 0
+  run.events.push({ type: 'ophanLeave', x: b.x, y: b.y })
 }
 
 // A crowd body crossed by the wipe becomes world k's creature of the same archetype, where it
@@ -1767,6 +1783,9 @@ function ophanTurn(run, e, k) {
   e.hp = roundHP(share * e.maxHP)
 }
 
+// the phase the broken skins buy: two per phase, 1 to 3
+const ophanGoal = (o) => 1 + Math.min(2, Math.floor(o.broken.reduce((s, v) => s + v, 0) / 2))
+
 function ophanWin(run, x, y) {
   run.bossBar = null
   run.phase = 'victory'
@@ -1781,25 +1800,23 @@ function stepOphanScript(run, dt) {
   const ch = CHAPTERS[run.chapter], p = run.player, n = ch.worlds.length
   let o = run.script.oph
   if (!o) {
-    const e = spawnBlankEnemy(run, 'ophan', true, { x: OPHAN_BOSS.x, y: OPHAN_BOSS.y })
-    e.dmg = 0
-    e.hp = e.maxHP = OPHAN_SKIN_HP * run.mods.enemyHpMul
     p.x = OPHAN_PLAYER_START.x; p.y = OPHAN_PLAYER_START.y
     o = run.script.oph = {
       t: 0, world: 0, skin: 0, next: -1, tell: 0, swapIn: OPHAN_HAND.first, after: -1, caught: false,
-      hp: Array(n).fill(e.maxHP), broken: Array(n).fill(0), ph: 1, atk: null, atkCd: OPHAN_ATK_FIRST, recov: false,
-      stagger: 0, wipe: null, sketch: false, bossId: e.id, crowdT: OPHAN_CROWD[run.difficulty].every, immT: 0, swaps: 0,
-      push: { x: 0, y: 0 },
+      hp: Array(n).fill(OPHAN_SKIN_HP * run.mods.enemyHpMul), broken: Array(n).fill(0), ph: 1, atk: null, atkCd: OPHAN_ATK_FIRST, recov: false,
+      stagger: 0, wipe: null, sketch: false, bossId: null, crowdT: OPHAN_WAVE[run.difficulty].every, immT: 0, swaps: 0,
+      push: { x: 0, y: 0 }, stage: 'open', waveT: OPHAN_WAVE_OPEN, x: 0, y: 0,
     }
   }
   o.t += dt
   o.immT = Math.max(0, o.immT - dt)
   o.stagger = Math.max(0, o.stagger - dt)
-  ophanPin(run)
-  const b = ophanBoss(run)
-  // gone: the sketch killed (a skin cannot die, the hp floor holds it), the Kraken's win
-  if (!b) return ophanWin(run, OPHAN_BOSS.x, OPHAN_BOSS.y)
-  o.hp[o.skin] = b.hp
+  // THE WAVES: the opening one and one between phases, monsters only; the boss returns at the next phase
+  if (o.waveT > 0 && (o.waveT -= dt) <= 0) ophanEnter(run, o, 'p' + ophanGoal(o))
+  let b = ophanBoss(run)
+  // gone: the sketch killed (a skin cannot die, the hp floor holds it; a wave takes it off by bossId null), the Kraken's win
+  if (o.bossId != null && !b) return ophanWin(run, o.x, o.y)
+  if (b) { o.hp[o.skin] = b.hp; o.x = b.x; o.y = b.y }
 
   // THE WORLD PRESS (latched in stepSim): a broken band refuses it; a new world restarts the wipe
   const k = run._worldPress ?? -1
@@ -1814,18 +1831,20 @@ function stepOphanScript(run, dt) {
       run.events.push({ type: 'ophanWorld', from, to: k, x: p.x, y: p.y })
     }
   }
-  // THE WIPE grows from the player; every crowd body it crosses turns into the worn world's
+  // THE WIPE grows from the player; every crowd body it crosses turns into the worn world's. Its
+  // last step takes the bodies beyond it too: the arena is open, so some are off the screen.
   if (o.wipe) {
     o.wipe.r += OPHAN_WIPE_SPEED * dt
+    const all = o.wipe.r > OPHAN_WIPE_END
     for (const e of run.enemies) {
-      if (!e._dead && e.world != null && e.world !== o.world && Math.hypot(e.x - p.x, e.y - p.y) <= o.wipe.r) ophanTurn(run, e, o.world)
+      if (!e._dead && e.world != null && e.world !== o.world && (all || Math.hypot(e.x - p.x, e.y - p.y) <= o.wipe.r)) ophanTurn(run, e, o.world)
     }
-    if (o.wipe.r > OPHAN_WIPE_END) o.wipe = null
+    if (all) o.wipe = null
   }
 
   // THE BREAK: a skin at the floor is spent; the last one leaves the SKETCH, which fights on alone
   // with its own bar: no world, no crowd, no hand, every attack
-  if (!o.sketch && b.hp <= OPHAN_BREAK_FLOOR) {
+  if (b && !o.sketch && b.hp <= OPHAN_BREAK_FLOOR) {
     o.broken[o.skin] = 1
     run.events.push({ type: 'ophanBreak', skin: o.skin, x: b.x, y: b.y })
     const left = o.broken.flatMap((v, k) => (v ? [] : [k]))
@@ -1843,10 +1862,38 @@ function stepOphanScript(run, dt) {
       o.caught = false   // a press on an aborted tell's world must not resonate on the next one
     }
   }
-  const goal = 1 + Math.min(2, Math.floor(o.broken.reduce((s, v) => s + v, 0) / 2))
+  const goal = ophanGoal(o)
+  // a phase's last skin broken: the boss leaves for a wave (the third phase's ends in the sketch instead)
+  if (b && o.stage === 'p' + (goal - 1)) { ophanLeave(run, o, b); b = null }
   o.ph += (goal - o.ph) * Math.min(1, dt * OPHAN_PHASE_EASE)
   if (Math.abs(goal - o.ph) < 1e-3) o.ph = goal   // the ease never lands on its own; every reader gets a whole phase
 
+  // THE CROWD of the player's world walks in from the ordinary off-screen ring (none in the sketch),
+  // denser in a wave
+  const cc = (b ? OPHAN_CROWD : OPHAN_WAVE)[run.difficulty]
+  o.crowdT -= dt
+  if (!o.sketch && o.crowdT <= 0 && run.enemies.filter((e) => !e._dead && e.id !== o.bossId).length < cc.cap) {
+    const ids = Object.values(ch.worlds[o.world].crowd)
+    const e = spawnBlankEnemy(run, ids[Math.floor(Math.random() * ids.length)])
+    if (e) e.world = o.world
+    o.crowdT = cc.every
+  }
+  if (b) return ophanFight(run, o, b, dt)
+  ophanShove(o, p, dt)   // a push still carries the player through a wave
+  return false
+}
+
+// THE SHOVE, after the attacks' hit tests (stepCurrents' displacement idiom)
+function ophanShove(o, p, dt) {
+  p.x += o.push.x * dt; p.y += o.push.y * dt
+  const decay = Math.exp(-OPHAN_SHOVE_DECAY * dt)
+  o.push.x *= decay; o.push.y *= decay
+}
+
+// The boss on the field: the hand, the attacks, the shove, the chase, its body, its bar. Returns true
+// when the player died.
+function ophanFight(run, o, b, dt) {
+  const ch = CHAPTERS[run.chapter], p = run.player
   // THE HAND: between attacks it tells the next world, then changes skin. Standing in the told
   // world from inside the tell to the swap is a RESONANCE: the boss staggers.
   if (o.tell > 0) {
@@ -1892,7 +1939,7 @@ function stepOphanScript(run, dt) {
   }
   if (o.atk) {
     const a = o.atk, cfg = OPHAN_ATTACKS[a.k]
-    a.u += dt / a.dur * RIG.uRate(a.k, a.u)
+    a.u += dt * OPHAN_ATK_SPEED / a.dur * RIG.uRate(a.k, a.u)
     a.hitCd -= dt
     if (a.u >= 1) {
       o.atk = null; o.recov = false
@@ -1913,34 +1960,21 @@ function stepOphanScript(run, dt) {
     }
   }
 
-  // THE SHOVE, then the walls: the arena and the boss's body (stepCurrents' displacement idiom)
-  p.x += o.push.x * dt; p.y += o.push.y * dt
-  const decay = Math.exp(-OPHAN_SHOVE_DECAY * dt)
-  o.push.x *= decay; o.push.y *= decay
-  const hw = OPHAN_ARENA.w / 2 - PLAYER.radius, hh = OPHAN_ARENA.h / 2 - PLAYER.radius
-  p.x = Math.max(-hw, Math.min(hw, p.x)); p.y = Math.max(-hh, Math.min(hh, p.y))
-  const dx = p.x - b.x, dy = p.y - b.y, d = Math.hypot(dx, dy), clear = OPHAN_BOSS.bodyR + PLAYER.radius
+  ophanShove(o, p, dt)
+  // THE CHASE: between attacks the boss closes to OPHAN_BOSS_HOLD and stands; it backs off a player
+  // inside its body. From an attack's start to its end it is anchored where it stopped.
+  let dx = p.x - b.x, dy = p.y - b.y, d = Math.hypot(dx, dy)
+  const clear = OPHAN_BOSS.bodyR + PLAYER.radius
+  if (!o.atk && d > 0 && (d > OPHAN_BOSS_HOLD || d < clear)) {
+    const step = Math.min(OPHAN_BOSS_SPEED * dt, Math.abs(d - (d < clear ? clear : OPHAN_BOSS_HOLD))) * (d < clear ? -1 : 1)
+    b.x += dx / d * step; b.y += dy / d * step
+    dx = p.x - b.x; dy = p.y - b.y; d = Math.hypot(dx, dy)
+  }
+  // ...and its body is a wall
   if (d < clear) {
     if (d > 0) { p.x = b.x + dx / d * clear; p.y = b.y + dy / d * clear } else p.y = b.y + clear
   }
-
-  // THE CROWD of the player's world walks in from the border, away from the player (none in the sketch)
-  const cc = OPHAN_CROWD[run.difficulty]
-  o.crowdT -= dt
-  if (!o.sketch && o.crowdT <= 0 && run.enemies.filter((e) => !e._dead && e.id !== o.bossId).length < cc.cap) {
-    const W = OPHAN_ARENA.w, H = OPHAN_ARENA.h
-    for (let tries = 0; tries < 8; tries++) {
-      let s = Math.random() * 2 * (W + H), x, y
-      if (s < W) { x = s - W / 2; y = -H / 2 } else if ((s -= W) < H) { x = W / 2; y = s - H / 2 }
-      else if ((s -= H) < W) { x = W / 2 - s; y = H / 2 } else { x = -W / 2; y = H / 2 - (s - W) }
-      if (Math.hypot(x - p.x, y - p.y) < OPHAN_CROWD.edgeClear) continue
-      const ids = Object.values(ch.worlds[o.world].crowd)
-      const e = spawnBlankEnemy(run, ids[Math.floor(Math.random() * ids.length)], false, { x, y })
-      if (e) e.world = o.world
-      o.crowdT = cc.every
-      break
-    }
-  }
+  o.x = b.x; o.y = b.y
 
   run.bossBar = o.sketch ? { hp: b.hp, max: b.maxHP, stage: 4, ophan: true } : {
     hp: b.hp, max: b.maxHP, stage: Math.round(o.ph), ophan: true, on: o.skin,

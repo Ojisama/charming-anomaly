@@ -183,7 +183,8 @@ import {
   lateSpawnMulAt, SPAWN_LATE_BLEND, SPAWN_LATE_START,
   // The Kraken (run KR): the rung table and the ring's numbers
   krakenRung, krakenRungFor, KRAKEN_TURN_BAG, KRAKEN_SLAP_EVERY, KRAKEN_SLAP_COCK, KRAKEN_SLAP_SWING, KRAKEN_SLAP_FUSE, KRAKEN_SLAP_FOLLOW_T, KRAKEN_TRICKLE_T, KRAKEN_TRICKLE_EDGE, KRAKEN_TRICKLE_CLEAR, OPEN_GUARD_WINDOW_MUL, HAIR_TRIGGER_WINDOW_MUL, HAIR_TRIGGER_DMG_MUL, KRAKEN_RUNGS, KRAKEN_ARM_REACH, KRAKEN_WAVE_TIMEOUT, KRAKEN_STAGGER_BITE,
-  KRAKEN_RISE_T, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, hiddenChapters, OPHAN_BOSS, OPHAN_HAND, OPHAN_HIT, OPHAN_ARENA, OPHAN_PLAYER_START, OPHAN_ATTACKS, OPHAN_CROWD, OPHAN_BREAK_FLOOR, OPHAN_SKIN_HP, OPHAN_SKETCH_HP, OPHAN_STAGGER_T, ophanView, OPHAN_GAUGE_COPY, KRAKEN_CAGE_R, KRAKEN_PARRY_CD,
+  KRAKEN_RISE_T, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, hiddenChapters, OPHAN_BOSS, OPHAN_HAND, OPHAN_HIT, OPHAN_ARENA, OPHAN_PLAYER_START, OPHAN_ATTACKS, OPHAN_CROWD, OPHAN_BREAK_FLOOR, OPHAN_SKIN_HP, OPHAN_SKETCH_HP, OPHAN_STAGGER_T, ophanView, OPHAN_GAUGE_COPY,
+  OPHAN_SWORD_REACH, OPHAN_ATK_SPEED, OPHAN_BOSS_HOLD, OPHAN_BOSS_SPEED, OPHAN_ATK_CD, OPHAN_WAVE_OPEN, OPHAN_WAVE_GAP, OPHAN_WAVE, KRAKEN_CAGE_R, KRAKEN_PARRY_CD,
   KRAKEN_OPEN_WAVES, KRAKEN_COIL_EVERY, KRAKEN_COIL_RAYS, KRAKEN_ENRAGE_AT, KRAKEN_RAGE_AT, KRAKEN_RAGE_HITS_MIN, KRAKEN_RAGE_HITS_MAX, KRAKEN_RAGE_VOLLEY, KRAKEN_RAGE_VOLLEY_SPREAD, KRAKEN_RAGE_FUSE, KRAKEN_RAGE_GAP, KRAKEN_RAGE_CALM, KRAKEN_RAGE_CHANCE, KRAKEN_NODE_BACK, KRAKEN_HEAD_HP, KRAKEN_HEAD_HP_AT, KRAKEN_HEAD_HP_PER_S, KRAKEN_ARRIVE_T, KRAKEN_RING_R, KRAKEN_LASH_R, KRAKEN_SLAM_T, KRAKEN_DEFLECT_CD,
   KRAKEN_LUNGE_T, KRAKEN_GRIP_DUR, KRAKEN_GRIP_DMG, KRAKEN_GRIP_FLICKS, KRAKEN_GRIP_STICK_MUL, TRAWL_WIGGLE_ARC,
   KRAKEN_LASH_W, KRAKEN_LASH_OVER, KRAKEN_LASH_DMG, KRAKEN_LESSON_MAX, KRAKEN_PARRY_SHOVE_R, KRAKEN_PARRY_EARLY_T, KRAKEN_LIMP_CLEAR, KRAKEN_ARRIVE_T2, KRAKEN_WAVE_GROWTH, KRAKEN_COIL_DMG, KRAKEN_COIL_SHADOW_SOFT, krakenCoilBandHalfW,
@@ -21123,6 +21124,8 @@ run(testLeLargeWeapons)
   run(testOphanAttacks)
   run(testOphanAttackPool)
   run(testOphanSketch)
+  run(testOphanOpenArena)
+  run(testOphanWaves)
   run(testOphanRenderWiring)
   run(testOphanKitTells)
   run(testOphanCrowdLooks)
@@ -35486,6 +35489,8 @@ function testEventConsumers() {
     melt: 'drawn by src/toon/mantle-fx.js through the toon renderer\'s event hook (not a render.js case); NO sfx: a flood melts a whole hillside of rock creatures at once, and each dies through dealDamage, whose kill already sounds',
     crumble: 'drawn by src/toon/mantle-fx.js through the toon renderer\'s event hook; NO sfx: an ebb strands a crowd of lava creatures together, and each dies through dealDamage, whose kill already sounds',
     ophanImmune: 'drawn by src/ophan/renderer.js (the immune ring); several a second while mismatched, too often for a sound',
+    ophanLeave: 'rev 2 Task 1: the boss simply stops being drawn (renderer.js skips a dead boss); the sink tell and its sound are Task 2',
+    ophanEnter: 'rev 2 Task 1: the boss simply appears (renderer.js draws a live boss); the rise tell and its sound are Task 2',
   }
 
   const orphans = types.filter((t) => !hasRender(t) && !hasSfx(t) && !SILENT_BY_DESIGN[t])
@@ -43163,17 +43168,29 @@ function ophanRun(diff = 3, seed = 7) {
   const m = makeMeta(); m.dev = true
   const r = createRun(m, { chapter: 'ophan', difficulty: diff })
   stepSim(r, { x: 0, y: 0 }, 1 / 60)
+  ophEnterNow(r)
   return r
 }
 function ophBoss(r) { return r.enemies.find((e) => e.rosterId === 'ophan' && !e._dead) }
-// break every unbroken skin, matched, one at a time (works for 1 world or 6)
+// end the wave in progress (the opening one, or one a leave began): the boss enters on the next step, then is planted on
+// v9's rest mark (OPHAN_BOSS) so the fixtures keep their geometry
+function ophEnterNow(r) {
+  const o = r.script.oph
+  if (o.bossId == null) { o.waveT = 1e-9; stepSim(r, { x: 0, y: 0 }, 1 / 60) }
+  const b = ophBoss(r)
+  b.x = OPHAN_BOSS.x; b.y = OPHAN_BOSS.y
+}
+// break every unbroken skin, matched, one at a time (works for 1 world or 6), skipping the waves
 function ophBreakAll(r) {
   const o = r.script.oph
   for (let k = 0; k < o.hp.length; k++) if (!o.broken[k]) {
     o.skin = k; o.world = k; const b = ophBoss(r); b.hp = OPHAN_BREAK_FLOOR + 1
     dealDamage(r, b, 5, false); stepSim(r, { x: 0, y: 0 }, 1 / 60)
+    if (o.bossId == null) ophEnterNow(r)
   }
 }
+// where the sword's slam lands, aimed straight down from the boss on its rest mark
+function ophSw() { return { x: OPHAN_BOSS.x, y: OPHAN_BOSS.y + (0.5 + OPHAN_SWORD_REACH) * OPHAN_BOSS.R } }
 // n frames, level-ups resolved the way main.js does; `before` runs ahead of each step, `after` behind
 // it, and the loop stops when the run ends or `until` says so
 function ophSteps(r, n, { before, after, until, input = { x: 0, y: 0 } } = {}) {
@@ -43201,13 +43218,14 @@ function ophStart(r, k, at) {
 function ophHold(r, at) { return () => { r.player.x = at.x; r.player.y = at.y } }
 
 function testOphanSlice() {
-  const A = { ...OPHAN_PLAYER_START }, B = { x: A.x + 120, y: A.y }
+  // A: the player's start, where the boss's other attacks are aimed; the sword lands far beyond it, at ophSw
+  const A = { ...OPHAN_PLAYER_START }, SW = ophSw(), B = { x: SW.x + 120, y: SW.y }
   const swordN = Math.ceil(OPHAN_ATTACKS.sword.dur * 60) + 2
   const count = (r, t) => r.events.filter((e) => e.type === t).length
   {
     const r = ophanRun(1)
     const b = ophBoss(r), o = r.script.oph
-    assert.ok(b && b.x === OPHAN_BOSS.x && b.y === OPHAN_BOSS.y && b.dmg === 0 && b.maxHP === OPHAN_SKIN_HP * r.mods.enemyHpMul, 'run OP.slice: the boss is not on its mark with its skin hp')
+    assert.ok(b && b.dmg === 0 && b.maxHP === OPHAN_SKIN_HP * r.mods.enemyHpMul, 'run OP.slice: the boss is not on the field with its skin hp')
     assert.ok(r.player.x === A.x && r.player.y === A.y, 'run OP.slice: the player does not start on OPHAN_PLAYER_START')
     // a1 matched hit drains the skin; a2 x2 in a stagger
     const hp0 = b.hp; dealDamage(r, b, 50, false); assert.strictEqual(hp0 - b.hp, 50, 'a1: a matched hit does not drain the skin')
@@ -43218,25 +43236,13 @@ function testOphanSlice() {
     assert.strictEqual(b.hp, hp2, 'a3: a mismatched hit or tick hurt the boss'); assert.ok(r.events.some((e) => e.type === 'ophanImmune'), 'a3: a refused hit is silent')
     o.world = 0
   }
-  // a4 the locked aim: a sword aimed at A misses a player who moved to B, and hits one who stayed
-  for (const [hold, want] of [[B, false], [A, true]]) {
+  // a4 the locked aim: a sword aimed at SW misses a player who moved to B, and hits one who stayed
+  for (const [hold, want] of [[B, false], [SW, true]]) {
     const r = ophanRun(1); r.script.oph.crowdT = 1e9
-    ophStart(r, 'sword', A)
+    ophStart(r, 'sword', SW)
     ophSteps(r, swordN, { before: ophHold(r, hold) })
     const d = r.dmgBySrc.ophanSword ?? 0
-    assert.ok(want ? d > 0 : d === 0, `a4: a sword aimed at A, player held at ${hold === A ? 'A' : 'B'}, dealt ${d}`)
-  }
-  // a5 the arena holds: walking into the wall, and a big shove at it
-  {
-    const r = ophanRun(1), o = r.script.oph, p = r.player
-    o.crowdT = 1e9; p.hp = p.maxHP = 1e6
-    let maxX = -Infinity
-    ophSteps(r, 300, { input: { x: 1, y: 0 }, after: () => { maxX = Math.max(maxX, p.x) } })
-    const wall = OPHAN_ARENA.w / 2 - PLAYER.radius
-    assert.ok(maxX <= wall + 1e-6 && maxX > wall - 2, `a5: walking right ends at x=${maxX.toFixed(1)}, not at the arena wall`)
-    o.push.x = 1e4
-    ophSteps(r, 30, { input: { x: 1, y: 0 }, after: () => { maxX = Math.max(maxX, p.x) } })
-    assert.ok(maxX <= wall + 1e-6, `a5: a shove at the wall put the player at x=${maxX.toFixed(1)}, outside the arena`)
+    assert.ok(want ? d > 0 : d === 0, `a4: a sword aimed at SW, player held at ${hold === SW ? 'SW' : 'B'}, dealt ${d}`)
   }
   // a6 every skin broken (no ordinary kill) is the sketch, not a win (run OP.sketch carries it on)
   {
@@ -43253,12 +43259,12 @@ function testOphanSlice() {
   {
     const r = ophanRun(1), p = r.player
     r.script.oph.crowdT = 1e9
-    ophStart(r, 'sword', A)
+    ophStart(r, 'sword', SW)
     p.hp = 1
-    ophSteps(r, swordN, { before: () => { ophHold(r, A)(); p.invuln = 0 } })
+    ophSteps(r, swordN, { before: () => { ophHold(r, SW)(); p.invuln = 0 } })
     assert.ok(r.phase === 'dead' && r.killedBy === 'ophanSword' && count(r, 'victory') === 0, `a7: phase ${r.phase}, killed by ${r.killedBy}`)
   }
-  // a8 the crowd: world 0's ids only, born on the arena border away from the player
+  // a8 the crowd: world 0's ids only, born on the ordinary off-screen ring round the player
   let born = 0, dmgMulSeen = 0
   {
     const r = ophanRun(1), p = r.player, ids = Object.values(CHAPTERS.ophan.worlds[0].crowd)
@@ -43270,9 +43276,9 @@ function testOphanSlice() {
       for (const e of r.enemies) if (!e._dead && e.rosterId !== 'ophan' && !seen.has(e.id)) {
         seen.add(e.id)
         assert.ok(ids.includes(e.rosterId), `a8: a ${e.rosterId} walked into world 0`)
-        const edge = Math.min(Math.abs(Math.abs(e.x) - OPHAN_ARENA.w / 2), Math.abs(Math.abs(e.y) - OPHAN_ARENA.h / 2))
-        assert.ok(edge < 6, `a8: a ${e.rosterId} was born ${edge.toFixed(1)}px off the border`)
-        assert.ok(Math.hypot(e.x - p.x, e.y - p.y) > OPHAN_CROWD.edgeClear - 6, 'a8: a crowd body was born on top of the player')
+        // born this step at viewRadius + SPAWN_RING; one walk-step of slack
+        const d = Math.hypot(e.x - p.x, e.y - p.y)
+        assert.ok(Math.abs(d - (r.viewRadius + SPAWN_RING)) < 6, `a8: a ${e.rosterId} was born ${d.toFixed(1)}px from the player, not on the off-screen ring`)
         // the borrowed row keeps its own damage term (spawnBlankEnemy folds roster.dmgMul)
         const row = CHAPTERS.ophan.roster.find((x) => x.id === e.rosterId)
         const want = ENEMIES[ARCHETYPE_TYPE[row.archetype]].dmg * r.mods.enemyDmgMul * (row.dmgMul ?? 1)
@@ -43292,8 +43298,8 @@ function testOphanSlice() {
     // the sketch sweeps the crowd: one body put back, so a step that runs on past the end has a target
     r.enemies.push(makeStatusEnemy(r, { x: A.x + 200, y: A.y }))
     assert.ok(r.enemies.some((e) => !e._dead && e.rosterId !== 'ophan'), 'a9: no crowd to keep the weapons busy')
-    ophStart(r, 'sword', A)
-    ophSteps(r, swordN, { before: () => { ophHold(r, A)(); p.invuln = 9 }, until: () => o.atk.u >= 0.6 })
+    ophStart(r, 'sword', SW)
+    ophSteps(r, swordN, { before: () => { ophHold(r, SW)(); p.invuln = 9 }, until: () => o.atk.u >= 0.6 })
     const b = ophBoss(r); b.hp = OPHAN_BREAK_FLOOR + 1; dealDamage(r, b, 5, false)
     p.hp = 1; p.invuln = 0; r.events.length = 0
     stepSim(r, { x: 0, y: 0 }, 1 / 60)
@@ -43308,13 +43314,13 @@ function testOphanSlice() {
   {
     const r = ophanRun(1), o = r.script.oph, p = r.player
     o.crowdT = 1e9
-    ophStart(r, 'sword', A)
-    ophSteps(r, swordN, { before: () => { ophHold(r, A)(); p.invuln = 9 }, until: () => o.atk.u >= 0.55 })
+    ophStart(r, 'sword', SW)
+    ophSteps(r, swordN, { before: () => { ophHold(r, SW)(); p.invuln = 9 }, until: () => o.atk.u >= 0.55 })
     p.invuln = 1
-    ophSteps(r, 30, { before: ophHold(r, A) })
+    ophSteps(r, 30, { before: ophHold(r, SW) })
     assert.strictEqual(r.dmgBySrc.ophanSword ?? 0, 0, 'a10: the sword hurt an invulnerable player')
     p.invuln = 0
-    ophSteps(r, 30, { before: ophHold(r, A), until: () => (r.dmgBySrc.ophanSword ?? 0) > 0 })
+    ophSteps(r, 30, { before: ophHold(r, SW), until: () => (r.dmgBySrc.ophanSword ?? 0) > 0 })
     assert.ok((r.dmgBySrc.ophanSword ?? 0) > 0, 'a10: the sword never landed once invulnerability lapsed')
   }
   // a11 closest enemy, always: a sealed boss is still the target when it is the nearest body.
@@ -43375,7 +43381,7 @@ function testOphanSlice() {
     if (g.alive > OPHAN_HIT.tornadoAlive) tornado = ophanHits('tornado', g, g.pos.x + 4, g.pos.y - 2, PLAYER.radius, R, OPHAN_HIT)
   }
   assert.ok(tornado?.hit && tornado.pull, 'the live tornado neither hits nor pulls a player at its foot')
-  console.log(`PASS run OP.slice: matched x1 / stagger x2 / mismatch 0, locked aim, arena wall, ${CHAPTERS.ophan.worlds.length} skin(s) broken -> the sketch, sword death, ${born} crowd births on the border, win+death resolves once, invuln holds, a11 reach [${reach.join(", ")}] (targeting proven for shovel/prismShard/hotCoals, reach only for pickaxe/slagLadle/sling), crowd dmgMul kept, no touch damage, 6/6 attacks hit live`)
+  console.log(`PASS run OP.slice: matched x1 / stagger x2 / mismatch 0, locked aim, ${CHAPTERS.ophan.worlds.length} skin(s) broken -> the sketch, sword death, ${born} crowd births on the off-screen ring, win+death resolves once, invuln holds, a11 reach [${reach.join(", ")}] (targeting proven for shovel/prismShard/hotCoals, reach only for pickaxe/slagLadle/sling), crowd dmgMul kept, no touch damage, 6/6 attacks hit live`)
 }
 
 // ---- run OP.worlds: world switching, the wipe, the crowd turning in place, the hand, phases ------
@@ -43499,6 +43505,7 @@ function testOphanWorlds() {
       for (let i = 0; i < n; i++) {
         const k = o.broken.indexOf(0); o.skin = k; o.world = k
         const b = ophBoss(r); b.hp = OPHAN_BREAK_FLOOR + 1; dealDamage(r, b, 5, false); stepSim(r, { x: 0, y: 0 }, dt)
+        if (o.bossId == null) ophEnterNow(r)
       }
     }
     brk(2); ophSteps(r, 600)
@@ -43530,18 +43537,19 @@ function testOphanWorlds() {
 // ---- run OP.attacks: the five other attacks, live, and the pool by difficulty -----------------
 // The arena points no frame of attack k (aimed at ax, ay) ever hits, nearest the aim first: lanes
 // sweep, the tornado travels, the wheel ricochets and the blast sheet grows, so a point is safe
-// only outside the union of the whole attack.
-function ophGrid() {
+// only outside the union of the whole attack. The grid is v9's arena box, slid dy down (the sword's,
+// which lands far beyond the box, is measured in a box slid as far as its aim is from A).
+function ophGrid(dy = 0) {
   const hw = OPHAN_ARENA.w / 2 - PLAYER.radius, hh = OPHAN_ARENA.h / 2 - PLAYER.radius, clear = OPHAN_BOSS.bodyR + PLAYER.radius
   const pts = []
   for (let x = -hw; x <= hw; x += 20) for (let y = -hh; y <= hh; y += 20)
-    if (Math.hypot(x - OPHAN_BOSS.x, y - OPHAN_BOSS.y) > clear) pts.push({ x, y })
+    if (Math.hypot(x - OPHAN_BOSS.x, y + dy - OPHAN_BOSS.y) > clear) pts.push({ x, y: y + dy })
   return pts
 }
-function ophUnionFree(k, ax, ay) {
+function ophUnionFree(k, ax, ay, dy = 0) {
   const { x: bx, y: by, R } = OPHAN_BOSS, geos = []
   for (let i = 0; i <= 100; i++) geos.push(RIG.attack(k, i / 100, 3, bx, by, R, ax, ay))
-  return ophGrid().filter((q) => geos.every((g) => !ophanHits(k, g, q.x, q.y, PLAYER.radius, R, OPHAN_HIT).hit))
+  return ophGrid(dy).filter((q) => geos.every((g) => !ophanHits(k, g, q.x, q.y, PLAYER.radius, R, OPHAN_HIT).hit))
     .sort((a, b) => Math.hypot(a.x - ax, a.y - ay) - Math.hypot(b.x - ax, b.y - ay))
 }
 // a d3 run at phase 3 (four skins broken by hand), no crowd, no weapons, no hand change, attack k
@@ -43565,7 +43573,7 @@ function testOphanAttacks() {
   // predicate under test, so these literals are what catch a predicate that grew or shrank.
   const GOLD = {
     blast: [[7, 192], [7, 252], 373], tornado: [[7, 152], [7, 232], 390], laser: [[7, 192], [67, 192], 442],
-    wheel: [[7, 192], [-53, 232], 320], recall: [[7, 192], [27, 192], 380], sword: [[7, 192], [47, 192], 473],
+    wheel: [[7, 192], [-53, 232], 320], recall: [[7, 192], [27, 192], 380], sword: [[7, 592], [-73, 592], 541],
   }
   const rows = []
   // the tornado reaches where you stood: a player who never moves off the locked aim is hurt
@@ -43580,34 +43588,37 @@ function testOphanAttacks() {
       assert.ok(ophanHits('tornado', g, g.pos.x + dx, g.pos.y + dy, PLAYER.radius, R, OPHAN_HIT).hit, `tornado: a player touching its ${part} is not hit`)
     rows.push('tornado hits the still aim and its whole funnel')
   }
-  // the tornado roams ROAM.extra s longer on its road (u .44 .. .88); its wind-up and collapse keep their 4.5 s lengths, its spin its speed
+  // the tornado roams ROAM.extra s longer on its road (u .44 .. .88); its wind-up and collapse keep their 4.5 s lengths, its spin its speed,
+  // all of it played OPHAN_ATK_SPEED x faster
   {
-    const { base, extra } = RIG.ROAM, us = []
+    const { base, extra } = RIG.ROAM, us = [], S = OPHAN_ATK_SPEED
     assert.strictEqual(OPHAN_ATTACKS.tornado.dur, base + extra, 'tornado: its dur is not RIG.ROAM base + extra')
     ophAttackRun('tornado', A, (r) => { us.push(r.script.oph.atk.u) })
     const secs = (lo, hi) => us.filter((u) => u >= lo && u < hi).length / 60
-    for (const [lo, hi, want, part] of [[0, 0.44, 0.44 * base, 'wind-up'], [0.44, 0.88, 0.44 * base + extra, 'roam'], [0.88, 1, 0.12 * base, 'collapse']])
+    for (const [lo, hi, want, part] of [[0, 0.44, 0.44 * base / S, 'wind-up'], [0.44, 0.88, (0.44 * base + extra) / S, 'roam'], [0.88, 1, 0.12 * base / S, 'collapse']])
       assert.ok(Math.abs(secs(lo, hi) - want) < 0.05, `tornado: its ${part} lasts ${secs(lo, hi).toFixed(2)} s, want ${want.toFixed(2)}`)
     const spinAt = (u) => RIG.attack('tornado', u, 3, bx, by, R, A.x, A.y).spin, du = 0.01
-    const radS = (spinAt(0.6 + du) - spinAt(0.6)) / (du * OPHAN_ATTACKS.tornado.dur / RIG.uRate('tornado', 0.6))
-    assert.ok(Math.abs(radS - 22.7 * 0.725 / base) < 0.1, `tornado: its funnel spins ${radS.toFixed(2)} rad/s on the road, want ${(22.7 * 0.725 / base).toFixed(2)}`)
+    const radS = (spinAt(0.6 + du) - spinAt(0.6)) / (du * OPHAN_ATTACKS.tornado.dur / (S * RIG.uRate('tornado', 0.6)))
+    assert.ok(Math.abs(radS - S * 22.7 * 0.725 / base) < 0.1, `tornado: its funnel spins ${radS.toFixed(2)} rad/s on the road, want ${(S * 22.7 * 0.725 / base).toFixed(2)}`)
     rows.push(`tornado roams ${secs(0.44, 0.88).toFixed(2)} s at ${radS.toFixed(2)} rad/s`)
   }
   for (const k of Object.keys(STRIKE)) {
-    const g = RIG.attack(k, STRIKE[k], 3, bx, by, R, A.x, A.y)
-    const on = ophGrid().filter((q) => ophanHits(k, g, q.x, q.y, PLAYER.radius, R, OPHAN_HIT).hit)
-      .sort((a, b) => Math.hypot(a.x - A.x, a.y - A.y) - Math.hypot(b.x - A.x, b.y - A.y))[0]
-    const free = ophUnionFree(k, A.x, A.y)
+    // the sword is aimed where it lands (ophSw), the rest at A
+    const aim = k === 'sword' ? ophSw() : A, dy = Math.round((aim.y - A.y) / 20) * 20
+    const g = RIG.attack(k, STRIKE[k], 3, bx, by, R, aim.x, aim.y)
+    const on = ophGrid(dy).filter((q) => ophanHits(k, g, q.x, q.y, PLAYER.radius, R, OPHAN_HIT).hit)
+      .sort((a, b) => Math.hypot(a.x - aim.x, a.y - aim.y) - Math.hypot(b.x - aim.x, b.y - aim.y))[0]
+    const free = ophUnionFree(k, aim.x, aim.y, dy)
     assert.ok(on, `${k}: its strike frame (u=${STRIKE[k]}) hits no arena point`)
     assert.ok(free.length > 0, `${k}: no arena point is outside the whole attack`)
     const [gOn, gFree, gN] = GOLD[k]
     assert.deepStrictEqual([on.x, on.y], gOn, `${k}: the strike point moved to (${on.x}, ${on.y})`)
     assert.deepStrictEqual([free[0].x, free[0].y], gFree, `${k}: the nearest safe point moved to (${free[0].x}, ${free[0].y})`)
     assert.ok(Math.abs(free.length - gN) <= 0.1 * gN, `${k}: ${free.length} safe grid points, golden ${gN} +-10%`)
-    const dOn = ophAttackRun(k, A, (r) => { r.player.x = on.x; r.player.y = on.y; r.player.invuln = 0 }).dmgBySrc[ophSrc(k)] ?? 0
+    const dOn = ophAttackRun(k, aim, (r) => { r.player.x = on.x; r.player.y = on.y; r.player.invuln = 0 }).dmgBySrc[ophSrc(k)] ?? 0
     assert.ok(dOn > 0, `${k} on: parked on its strike point (${on.x}, ${on.y}), never hurt`)
     const f = free[0]
-    const dOff = ophAttackRun(k, A, (r) => { r.player.x = f.x; r.player.y = f.y; r.player.invuln = 0 }).dmgBySrc[ophSrc(k)] ?? 0
+    const dOff = ophAttackRun(k, aim, (r) => { r.player.x = f.x; r.player.y = f.y; r.player.invuln = 0 }).dmgBySrc[ophSrc(k)] ?? 0
     assert.strictEqual(dOff, 0, `${k} off: parked outside the whole attack at (${f.x}, ${f.y}), hurt for ${dOff}`)
     rows.push(`${k} hit (${on.x},${on.y}) free (${f.x},${f.y}) x${free.length}`)
   }
@@ -43620,7 +43631,7 @@ function testOphanAttacks() {
     }
     assert.ok(u1 - u0 > 0.1, `recall: every feather is staked only over u ${u0.toFixed(3)}..${u1.toFixed(3)}`)
     const stake = RIG.attack('recall', (u0 + u1) / 2, 3, bx, by, R, A.x, A.y).feathers[0]
-    const f = ophUnionFree('recall', A.x, A.y)[0], du = 1 / 60 / OPHAN_ATTACKS.recall.dur
+    const f = ophUnionFree('recall', A.x, A.y)[0], du = OPHAN_ATK_SPEED / 60 / OPHAN_ATTACKS.recall.dur
     let onStake = 0
     const r = ophAttackRun('recall', A, (r) => {
       const u = r.script.oph.atk.u + du, at = u > u0 + 0.01 && u < u1 - 0.01 ? stake : f
@@ -43643,8 +43654,7 @@ function testOphanAttacks() {
     const h1 = b.hp; dealDamage(r, b, 40, false); const rec = h1 - b.hp
     assert.ok(wind > 0 && rec === 2 * wind, `recovery: wind-up hit took ${wind}, recovery hit ${rec}`)
   }
-  // shove: a crest pushes the player outward even through invulnerability, into the wall, not past it
-  const hw = OPHAN_ARENA.w / 2 - PLAYER.radius, hh = OPHAN_ARENA.h / 2 - PLAYER.radius
+  // shove: a crest pushes the player outward even through invulnerability
   // a blast aimed at the invulnerable player standing at `at`, stepped at dt for 3 s
   // `ride` re-parks the player on the crest front ahead of every step, so the shove acts for the
   // whole sheet whatever it does to them; `travel` is the distance the push alone would carry them
@@ -43656,13 +43666,12 @@ function testOphanAttacks() {
     let peak = 0, out = true, travel = 0
     for (let i = 0; i < Math.round(3 / dt) && r.phase === 'playing'; i++) {
       p.invuln = 1
-      const s = ride && o.atk && RIG.attack('blast', o.atk.u + dt / o.atk.dur, 3, bx, by, R, A.x, A.y).sheet
+      const s = ride && o.atk && RIG.attack('blast', o.atk.u + dt * OPHAN_ATK_SPEED / o.atk.dur, 3, bx, by, R, A.x, A.y).sheet
       if (s) { p.x = s.apex.x + Math.cos(s.dir) * s.front; p.y = s.apex.y + Math.sin(s.dir) * s.front }
       stepSim(r, { x: 0, y: 0 }, dt)
       const m = Math.hypot(o.push.x, o.push.y)
       travel += m * dt
       if (m > peak) { peak = m; out = o.push.x * (p.x - bx) + o.push.y * (p.y - by) > 0 }
-      assert.ok(Math.abs(p.x) <= hw + 1e-6 && Math.abs(p.y) <= hh + 1e-6, `shove: the player left the arena at (${p.x.toFixed(1)}, ${p.y.toFixed(1)})`)
     }
     assert.strictEqual(r.dmgBySrc.ophanBlast ?? 0, 0, 'shove: the blast hurt an invulnerable player')
     return { peak, out, travel, from: Math.hypot(A.x - bx, A.y - by), to: Math.hypot(p.x - bx, p.y - by) }
@@ -43671,10 +43680,10 @@ function testOphanAttacks() {
   assert.ok(s0.peak > 0, 'shove: an invulnerable player in the blast crest was not shoved')
   assert.ok(s0.out && s0.to > s0.from + 20, `shove: not pushed outward (${s0.from.toFixed(0)} -> ${s0.to.toFixed(0)})`)
   // frame rate: the same shove at 60 and 120 Hz. Where the player ends up cannot show it: the
-  // crest carries them to its own end and the wall stops them, at any push strength.
+  // crest carries them to its own end, at any push strength.
   const s60 = shove(1 / 60, true), s120 = shove(1 / 120, true)
   assert.ok(s60.travel > 50 && Math.abs(s120.travel - s60.travel) <= 0.1 * s60.travel, `shove: ${s60.travel.toFixed(1)}px of push at 60 Hz vs ${s120.travel.toFixed(1)}px at 120 Hz`)
-  console.log(`PASS run OP.attacks: 6 attacks on/off, golden shapes [${rows.join('; ')}], a staked feather is harmless, recovery x2, invulnerable shove peak ${s0.peak.toFixed(0)}px/s outward, kept in the arena, crest-held push ${s60.travel.toFixed(1)}px at 60 Hz vs ${s120.travel.toFixed(1)}px at 120 Hz`)
+  console.log(`PASS run OP.attacks: 6 attacks on/off, golden shapes [${rows.join('; ')}], a staked feather is harmless, recovery x2, invulnerable shove peak ${s0.peak.toFixed(0)}px/s outward, crest-held push ${s60.travel.toFixed(1)}px at 60 Hz vs ${s120.travel.toFixed(1)}px at 120 Hz`)
 }
 
 // THE POOL by difficulty: what the scheduler starts, and the phase each one started at
@@ -43689,6 +43698,7 @@ function ophBreakN(r, m) {
     const o = r.script.oph, b = ophBoss(r)
     o.world = o.skin; b.hp = OPHAN_BREAK_FLOOR + 1
     dealDamage(r, b, 5, false); stepSim(r, { x: 0, y: 0 }, 1 / 60)
+    if (o.bossId == null) ophEnterNow(r)
   }
 }
 function ophPoolRun(diff, seed) {
@@ -43779,8 +43789,8 @@ function testOphanSketch() {
     const r = ophanRun(1, 34), o = r.script.oph, p = r.player
     o.crowdT = 1e9; p.hp = p.maxHP = 1e6
     ophBreakAll(r)
-    ophStart(r, 'sword', A)
-    ophSteps(r, swordN, { before: () => { ophHold(r, A)(); p.invuln = 9 }, until: () => o.atk.u >= 0.6 })
+    ophStart(r, 'sword', ophSw())
+    ophSteps(r, swordN, { before: () => { ophHold(r, ophSw())(); p.invuln = 9 }, until: () => o.atk.u >= 0.6 })
     const b = ophBoss(r); b.hp = 1
     p.hp = 1; p.invuln = 0; r.events.length = 0
     if (shoot) dealDamage(r, b, 5, false)
@@ -43807,6 +43817,211 @@ function testOphanSketch() {
     assert.ok(count(r, 'victory') === 1 && count(r, 'bossDead') === 1 && r.phase === 'victory' && !r.bossBar, `s6: victory x${count(r, 'victory')}, phase ${r.phase}`)
   }
   console.log(`PASS run OP.sketch: last break -> sketch (${swept} crowd swept unpaid, none in 20s), ${OPHAN_SKETCH_HP} hp bar at stage 4, hits land from every world, presses refused, d1 rolls {${[...new Set(seen.map(([k]) => k))].sort()}}, kill-shot vs fire line ends once, the sketch's death is the one victory`)
+}
+
+// ---- run OP.open: rev 2's open arena (docs/superpowers/specs/2026-10-25-ophan-open-arena-design.md) -----------------
+// No wall; the boss chases to its hold distance, backs off a player in its body, stands through an attack and shrugs off
+// knockback; every attack plays OPHAN_ATK_SPEED x faster; the sword's slam lands 4x as far as v9's, its fire line with it.
+function testOphanOpenArena() {
+  const R = OPHAN_BOSS.R, A = { ...OPHAN_PLAYER_START }
+  const calm = (r) => { const o = r.script.oph; o.crowdT = 1e9; o.swapIn = 1e9; r.weapons = []; r.player.hp = r.player.maxHP = 1e9; return o }
+  const dist = (r, b) => Math.hypot(r.player.x - b.x, r.player.y - b.y)
+  // o1 no wall: five seconds walking right ends far outside v9's box
+  let walked
+  {
+    const r = ophanRun(1), o = calm(r)
+    o.atkCd = 1e9
+    ophSteps(r, 300, { input: { x: 1, y: 0 } })
+    walked = r.player.x
+    assert.ok(walked > OPHAN_ARENA.w / 2 + 300, `o1: walking right 5 s stopped at x=${walked.toFixed(0)}; v9's wall stood at ${OPHAN_ARENA.w / 2}`)
+  }
+  // o2 the chase: at OPHAN_BOSS_SPEED toward a far player, then standing at OPHAN_BOSS_HOLD, never closer
+  let closed, stood
+  {
+    const r = ophanRun(1), o = calm(r), b = ophBoss(r)
+    o.atkCd = 1e9
+    const at = { x: OPHAN_BOSS.x + 800, y: OPHAN_BOSS.y }
+    ophSteps(r, 60, { before: ophHold(r, at) })
+    closed = b.x - OPHAN_BOSS.x
+    assert.ok(Math.abs(closed - OPHAN_BOSS_SPEED) < 2 && Math.abs(b.y - OPHAN_BOSS.y) < 1e-6, `o2: in 1 s the boss moved ${closed.toFixed(1)}px at the player, want ${OPHAN_BOSS_SPEED}`)
+    let minD = Infinity
+    ophSteps(r, 600, { before: ophHold(r, at), after: () => { minD = Math.min(minD, dist(r, b)) } })
+    stood = dist(r, b)
+    assert.ok(Math.abs(stood - OPHAN_BOSS_HOLD) < 0.5 && minD > OPHAN_BOSS_HOLD - 0.5, `o2: the boss stood ${stood.toFixed(1)}px off (closest ${minD.toFixed(1)}), hold ${OPHAN_BOSS_HOLD.toFixed(1)}`)
+  }
+  // o3 a player inside its body: it backs off (the body wall alone would only move the player)
+  {
+    const r = ophanRun(1), o = calm(r), b = ophBoss(r)
+    o.atkCd = 1e9
+    const at = { x: b.x + 10, y: b.y }
+    ophSteps(r, 60, { before: ophHold(r, at) })
+    assert.ok(OPHAN_BOSS.x - b.x > 40, `o3: a player inside its body moved the boss back ${(OPHAN_BOSS.x - b.x).toFixed(1)}px`)
+  }
+  // o4 anchored for a whole attack: a far player does not drag it, and the shovel's knockback, landing, does not move it
+  let shovelled
+  {
+    const r = ophanRun(1), o = calm(r), b = ophBoss(r)
+    r.weapons = [{ id: 'shovel', level: 3 }]
+    ophStart(r, 'tornado', A)
+    const near = { x: b.x, y: b.y + OPHAN_BOSS.bodyR + 40 }, far = { x: b.x + 900, y: b.y }
+    const hp0 = b.hp, x0 = b.x, y0 = b.y
+    let moved = 0, i = 0
+    ophSteps(r, 600, { before: () => { ophHold(r, i++ % 120 < 60 ? near : far)(); o.world = o.skin; r.player.invuln = 9 }, after: () => { if (o.atk) moved = Math.max(moved, Math.hypot(b.x - x0, b.y - y0)) }, until: () => !o.atk })
+    shovelled = hp0 - b.hp
+    assert.ok(!o.atk && shovelled > 0, `o4: the shovel never hit the boss through a whole tornado (${shovelled})`)
+    assert.strictEqual(moved, 0, `o4: the boss moved ${moved.toFixed(2)}px during its own attack`)
+  }
+  // o5 attack progress: OPHAN_ATK_SPEED / dur a second, the cooldown untouched
+  let u1
+  {
+    const r = ophanRun(1), o = calm(r)
+    o.atk = { k: 'blast', u: 0, dur: OPHAN_ATTACKS.blast.dur, ax: A.x, ay: A.y, hitCd: 0 }
+    ophSteps(r, 60)
+    u1 = o.atk.u
+    assert.ok(Math.abs(u1 - OPHAN_ATK_SPEED / OPHAN_ATTACKS.blast.dur) < 1e-9, `o5: one second of a blast advanced u ${u1.toFixed(4)}, want ${(OPHAN_ATK_SPEED / OPHAN_ATTACKS.blast.dur).toFixed(4)}`)
+    ophSteps(r, 120, { until: () => !o.atk })
+    assert.ok(!o.atk && o.atkCd >= OPHAN_ATK_CD[0] - 1 / 60 && o.atkCd <= OPHAN_ATK_CD[1], `o5: the cooldown after an attack is ${o.atkCd}`)
+  }
+  // o6 the sword, in the hit predicate: the slam's live hit lands 4 x v9's 2.3 R from the boss, the drawn blade reaches as far,
+  // and the fire line runs on from the slam at least 4 x v9's 0.8 R
+  const { x: bx, y: by } = OPHAN_BOSS
+  assert.strictEqual(RIG.SWORD_REACH, OPHAN_SWORD_REACH, 'o6: rig.js SWORD_REACH and config OPHAN_SWORD_REACH disagree')
+  const along = (g, key) => {
+    const s = []
+    for (let k = 0; k <= 2000; k++) { const h = ophanHits('sword', g, bx, by + k * 0.01 * R, 0, R, OPHAN_HIT); if (h.hit && h.dmgKey === key) s.push(k * 0.01) }
+    return s
+  }
+  let u = 0.46
+  while (!(RIG.attack('sword', u, 3, bx, by, R, bx, by + 20 * R).impact?.al > OPHAN_HIT.impactAl)) u += 0.001
+  const slam = RIG.attack('sword', u + 0.002, 3, bx, by, R, bx, by + 20 * R), hs = along(slam, 'dmg')
+  const mid = (hs[0] + hs[hs.length - 1]) / 2
+  assert.ok(hs.length && Math.abs(mid - 4 * 2.3) < 0.02, `o6: the slam hits ${hs[0]}..${hs[hs.length - 1]} R down the aim, centred ${mid.toFixed(2)} R; want 4 x 2.3 R`)
+  assert.ok(Math.abs(slam.blade.reach - OPHAN_SWORD_REACH * R) < 1e-6, `o6: the drawn blade reaches ${(slam.blade.reach / R).toFixed(2)} R, not ${OPHAN_SWORD_REACH}`)
+  // aimed at A, much nearer than the slam: the fire line is its floor, from the slam on
+  const fire = along(RIG.attack('sword', 0.75, 3, bx, by, R, A.x, A.y), 'fireDmg'), w = 0.3
+  assert.ok(fire.length && Math.abs(fire[0] - (4 * 2.3 - w)) < 0.02 && Math.abs(fire[fire.length - 1] - (4 * 2.3 + 4 * 0.8 + w)) < 0.02,
+    `o6: the fire line burns ${fire[0]}..${fire[fire.length - 1]} R down the aim; want ${4 * 2.3 - w}..${4 * 2.3 + 4 * 0.8 + w}`)
+  // o7 the hold is inside the blast's live reach, so the blast lands on a player the boss stands off from
+  let blastR = 0
+  for (let q = 0; q <= 1; q += 0.001) { const s = RIG.attack('blast', q, 3, 0, 0, 1, 0, 3).sheet; if (s && s.fade > OPHAN_HIT.blastFade) blastR = Math.max(blastR, s.front + s.band / 2) }
+  assert.ok(OPHAN_BOSS_HOLD / R <= blastR, `o7: the boss holds ${(OPHAN_BOSS_HOLD / R).toFixed(2)} R off, past the blast's ${blastR.toFixed(2)} R`)
+  // o8 a world switch reaches the crowd off the screen too: the wipe's last step turns what its circle never crossed
+  {
+    const r = ophanRun(3), o = calm(r)
+    o.atkCd = 1e9
+    o.crowdT = 0; stepSim(r, { x: 0, y: 0 }, 1 / 60); o.crowdT = 1e9
+    const e = r.enemies.find((x) => !x._dead && x.rosterId !== 'ophan')
+    Object.assign(e, { x: r.player.x + 3000, y: r.player.y, speed: 0 })
+    stepSim(r, { x: 0, y: 0, world: 2 }, 1 / 60)
+    ophSteps(r, 60, { until: () => !o.wipe })
+    assert.ok(!o.wipe && e.world === 2, `o8: a body 3000px off kept world ${e.world} after the wipe to world 2`)
+  }
+  console.log(`PASS run OP.open: walked to x=${walked.toFixed(0)}, boss closed ${closed.toFixed(0)}px in 1 s and stood ${stood.toFixed(1)}px off (hold ${OPHAN_BOSS_HOLD.toFixed(1)}), backed off, held still through a tornado with the shovel landing ${shovelled}, blast u ${u1.toFixed(3)} after 1 s, slam centred ${mid.toFixed(2)} R, fire ${fire[0]}..${fire[fire.length - 1]} R, blast reach ${blastR.toFixed(2)} R`)
+}
+
+// ---- run OP.waves: rev 2's timeline — open wave 30 s, p1, wave 15 s, p2, wave 15 s, p3, then the sketch at once ------
+// In a wave: no boss, no bar, no hand, no attack, the crowd at OPHAN_WAVE rates, the world press live. Skin hp is banked
+// across a leave; a leave mid-attack takes the attack with it.
+function testOphanWaves() {
+  const dt = 1 / 60
+  const live = (r) => r.enemies.filter((e) => e.rosterId === 'ophan' && !e._dead)
+  const bossOnly = ['ophanAttack', 'ophanTell', 'ophanSwap', 'ophanImmune', 'ophanResonance']
+  // a wave from now to the next ophanEnter, every frame checked; returns its length
+  const wave = (r, label) => {
+    const o = r.script.oph, t0 = o.t
+    let entered = false
+    ophSteps(r, 60 * 60, { before: () => { r.events.length = 0 }, after: () => {
+      entered = r.events.some((e) => e.type === 'ophanEnter')
+      if (entered) return
+      assert.ok(live(r).length === 0 && o.bossId == null && r.bossBar === null, `${label}: the boss or its bar is up at ${(o.t - t0).toFixed(2)} s into the wave`)
+      const bad = r.events.find((e) => bossOnly.includes(e.type))
+      assert.ok(!bad, `${label}: a ${bad?.type} in the wave`)
+      assert.ok(!o.atk && o.tell === 0, `${label}: an attack or a tell in the wave`)
+    }, until: () => entered })
+    assert.ok(entered, `${label}: the boss never came back`)
+    return o.t - t0
+  }
+  const breakOne = (r) => {
+    const o = r.script.oph, b = live(r)[0]
+    o.world = o.skin; b.hp = OPHAN_BREAK_FLOOR + 1; dealDamage(r, b, 5, false)
+    r.events.length = 0
+    stepSim(r, { x: 0, y: 0 }, dt)
+  }
+  // w1 the whole timeline at d1, nothing hurting the boss but the breaks made by hand
+  Math.random = mulberry32(20261025)
+  const m = makeMeta(); m.dev = true
+  const r = createRun(m, { chapter: 'ophan', difficulty: 1 })
+  r.weapons = []; r.player.hp = r.player.maxHP = 1e9
+  stepSim(r, { x: 0, y: 0 }, dt)
+  const o = r.script.oph
+  assert.strictEqual(o.stage, 'open', `w1: the fight opens in stage ${o.stage}`)
+  const born = new Set()
+  const tOpen = wave(r, 'open') + dt   // the first step ran before the wave clock was read
+  for (const e of r.enemies) if (e.rosterId !== 'ophan') born.add(e.id)
+  assert.ok(Math.abs(tOpen - OPHAN_WAVE_OPEN) <= 2 * dt, `w1: the opening wave lasted ${tOpen.toFixed(3)} s`)
+  assert.strictEqual(born.size, OPHAN_WAVE[1].cap, `w1: the opening wave sent ${born.size} monsters, its cap is ${OPHAN_WAVE[1].cap}`)
+  // the entry: on screen near the player, outside the screen's centre third
+  {
+    const b = live(r)[0], dx = Math.abs(b.x - r.player.x), dy = Math.abs(b.y - r.player.y)
+    assert.ok(o.stage === 'p1' && b && r.bossBar?.ophan, `w1: after the opening wave the stage is ${o.stage}, bar ${JSON.stringify(r.bossBar)}`)
+    assert.ok(dx <= r.viewW && dy <= r.viewH && (dx > r.viewW / 3 || dy > r.viewH / 3), `w1: the boss entered at (${dx.toFixed(0)}, ${dy.toFixed(0)}) from the player; half view ${r.viewW}x${r.viewH}`)
+  }
+  // banked hp: every unbroken skin given its own hp, then the phase's two breaks
+  const want = o.hp.map((_, k) => 300 + 17 * k)
+  o.hp = [...want]; live(r)[0].hp = want[o.skin]
+  breakOne(r)
+  assert.ok(o.stage === 'p1' && live(r).length === 1, 'w1: one break sent the boss off')
+  const before = live(r)[0]
+  breakOne(r)
+  const broke = o.broken.flatMap((v, k) => (v ? [k] : []))
+  assert.ok(before._dead && live(r).length === 0 && r.bossBar === null && o.stage === 'wave' && r.events.some((e) => e.type === 'ophanLeave'),
+    `w1: the second break did not send the boss off (stage ${o.stage}, ${live(r).length} live, bar ${JSON.stringify(r.bossBar)})`)
+  assert.ok(!r.events.some((e) => e.type === 'kill'), 'w1: the boss leaving was paid as a kill')
+  // the world press is live in a wave
+  stepSim(r, { x: 0, y: 0, world: broke.includes(3) ? 4 : 3 }, dt)
+  assert.ok(o.world === (broke.includes(3) ? 4 : 3), `w1: a press in the wave left world ${o.world}`)
+  const t2 = wave(r, 'wave 2')
+  assert.ok(Math.abs(t2 - OPHAN_WAVE_GAP) <= 2 * dt + dt, `w1: the second wave lasted ${t2.toFixed(3)} s`)
+  const back = live(r)[0]
+  assert.ok(o.stage === 'p2' && o.ph === 2, `w1: the boss came back in stage ${o.stage} at phase ${o.ph}`)
+  assert.ok(o.hp.every((v, k) => o.broken[k] || v === want[k]) && back.hp === want[o.skin] && back.maxHP === OPHAN_SKIN_HP * r.mods.enemyHpMul,
+    `w1: the skins' hp did not survive the leave: ${JSON.stringify(o.hp)} vs ${JSON.stringify(want)}, worn ${back.hp}`)
+  breakOne(r); breakOne(r)
+  assert.ok(o.stage === 'wave', `w1: four breaks left stage ${o.stage}`)
+  const t3 = wave(r, 'wave 3')
+  assert.ok(Math.abs(t3 - OPHAN_WAVE_GAP) <= 2 * dt && o.stage === 'p3', `w1: the third wave lasted ${t3.toFixed(3)} s, then stage ${o.stage}`)
+  // the last two: the sketch rises at once, where the boss stands, with no wave before it
+  breakOne(r)
+  const last = live(r)[0], at = { x: last.x, y: last.y }
+  breakOne(r)
+  assert.ok(o.sketch && live(r)[0] === last && o.stage === 'p3' && !r.events.some((e) => e.type === 'ophanLeave') && r.events.some((e) => e.type === 'ophanSketch'),
+    `w1: the sixth break: sketch ${o.sketch}, stage ${o.stage}, ${r.events.map((e) => e.type).join(',')}`)
+  assert.ok(Math.hypot(at.x - OPHAN_BOSS.x, at.y - OPHAN_BOSS.y) > 1 && Math.hypot(last.x - at.x, last.y - at.y) < OPHAN_BOSS_SPEED * dt + 1e-9,
+    `w1: the sketch rose at (${last.x.toFixed(0)}, ${last.y.toFixed(0)}), the boss stood at (${at.x.toFixed(0)}, ${at.y.toFixed(0)})`)
+  // w2 a leave mid-tornado: the attack goes with the boss, and the spot it was roaming stays harmless through the wave
+  let after
+  {
+    const q = ophanRun(3, 41), qo = q.script.oph, p = q.player
+    qo.crowdT = 1e9; qo.swapIn = 1e9; q.weapons = []; p.hp = p.maxHP = 1e9
+    ophBreakN(q, 1)
+    ophStart(q, 'tornado', { ...OPHAN_PLAYER_START })
+    ophSteps(q, 600, { before: () => { p.invuln = 9 }, until: () => qo.atk.u > 0.6 })
+    const g = RIG.attack('tornado', qo.atk.u, qo.ph, OPHAN_BOSS.x, OPHAN_BOSS.y, OPHAN_BOSS.R, qo.atk.ax, qo.atk.ay)
+    breakOne(q)
+    assert.ok(qo.stage === 'wave' && qo.atk === null && !qo.recov, `w2: the leave left the tornado up: ${JSON.stringify(qo.atk)}`)
+    const d0 = q.dmgBySrc.ophanTornado ?? 0
+    ophSteps(q, 120, { before: () => { p.x = g.pos.x; p.y = g.pos.y; p.invuln = 0 } })
+    after = (q.dmgBySrc.ophanTornado ?? 0) - d0
+    assert.strictEqual(after, 0, `w2: the tornado's spot hurt for ${after} with the boss gone`)
+  }
+  // the gauge marks no worn skin while no boss wears one; the camera follows the player (source text: neither is importable)
+  const strip = (s) => s.replace(/(^|\s)\/\*[\s\S]*?\*\//g, '$1').replace(/\/\/.*$/gm, '')
+  const ui = strip(readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8'))
+  const render = strip(readFileSync(new URL('../src/render.js', import.meta.url), 'utf8'))
+  assert.ok(/classList\.toggle\('ophan-worn', k === oph\.skin && oph\.bossId != null\)/.test(ui), 'w3: the gauge marks a worn skin with no boss on the field')
+  assert.ok(!/\.cam[XY]\b/.test(render.slice(render.indexOf('const camX ='), render.indexOf('world.scale.set(z)', render.indexOf('const camX =')))),
+    'w3: render.js frames the Ophan on a fixed camX/camY again')
+  console.log(`PASS run OP.waves: open ${tOpen.toFixed(2)} s with ${born.size} monsters, p1, wave ${t2.toFixed(2)} s, p2 (skins' hp banked), wave ${t3.toFixed(2)} s, p3, sketch at once where the boss stood; a leave mid-tornado ended it (0 dmg after); gauge + camera linted`)
 }
 
 // run OG: the Ophan's depth gauge is DOM built by ui.js, linted as source text. data-ui on it is what keeps input.js's

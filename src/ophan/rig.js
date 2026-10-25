@@ -139,6 +139,8 @@ const RIG = (() => {
   const SAG = [.85, .95, .6];   // the spent pose: every pair hanging far below rest
   // THE ROAM (owner: "wander more like for 2 or 3 s more"): the tornado's u windows are written on a BASE s schedule and its
   // road (u AT .. TO) is walked EXTRA s slower; OPHAN_ATTACKS.tornado.dur is BASE + EXTRA. Real time below is in BASE-s units
+  // the sword's blade length (config OPHAN_SWORD_REACH, which this module cannot import): the slam lands .5 + it from the boss
+  const SWORD_REACH = 8.7;
   const ROAM = { base: 4.5, extra: 2.5, at: .44, to: .88 }, RK = 1 + ROAM.extra/((ROAM.to - ROAM.at)*ROAM.base);
   const toReal = (u) => u < ROAM.at ? u : u < ROAM.to ? ROAM.at + (u - ROAM.at)*RK : u + (ROAM.to - ROAM.at)*(RK - 1);
   const fromReal = (s) => s < ROAM.at ? s : s < ROAM.at + (ROAM.to - ROAM.at)*RK ? ROAM.at + (s - ROAM.at)/RK : s - (ROAM.to - ROAM.at)*(RK - 1);
@@ -347,11 +349,11 @@ const RIG = (() => {
       return { feathers: F, ret: sm(.6, .64, u)*(1 - sm(.74, .78, u)) };
     }
     if (atk === 'sword'){
-      const d0 = Math.hypot(PX, PY) || 1, dx = PX/d0, dy = PY/d0, nx = dy, ny = -dx, LB = 1.8, phi = Math.atan2(dy, dx);
+      const d0 = Math.hypot(PX, PY) || 1, dx = PX/d0, dy = PY/d0, nx = dy, ny = -dx, LB = SWORD_REACH, phi = Math.atan2(dy, dx);
       const rs = sm(.26, .4, u)*(1 - sm(.4, .47, u)), im = Math.sin(Math.PI*cl((u - .46)/.14)), ln = -.15*rs + .3*im, k = cl((u - .4)/.07);
       const th = u < .4 ? Math.PI/2 + (1.7 - Math.PI/2)*sm(.26, .4, u) : 1.7*(1 - k*k), L = LB*sm(.02, .26, u);
       const kb = sm(.41, .46, u), base = { x: dx*(ln + .2)*kb, y: -.9*(1 - kb) + dy*(ln + .2)*kb }, ground = { x: base.x + dx*L*Math.cos(th), y: base.y + dy*L*Math.cos(th) }, tip = { x: ground.x, y: ground.y - .6*L*Math.sin(th) };
-      const q = cl((u - .47)/.14), S0 = { x: dx*(.5 + LB), y: dy*(.5 + LB) }, len = Math.max(.8, d0 + .9 - .5 - LB), f = cl((u - .47)/.13), flames = [];
+      const q = cl((u - .47)/.14), S0 = { x: dx*(.5 + LB), y: dy*(.5 + LB) }, len = Math.max(.8*(.5 + LB)/2.3, d0 + .9 - .5 - LB), f = cl((u - .47)/.13), flames = [];
       for (let i=0;i<16;i++){ const di = len*(i + .5)/16, ti = .47 + .13*(i + .5)/16, life = u - ti, h = sm(0, .04, life)*(1 - sm(.16, .3, life)), j = .08*(hh(i, 81) - .5);
         flames.push({ x: S0.x + dx*di + nx*j, y: S0.y + dy*di + ny*j, h, al: h, s: hh(i, 82), sz: .28*(.8 + .4*hh(i, 83)) }); }
       return { dir: phi,
@@ -460,6 +462,6 @@ const RIG = (() => {
     return { tip, grip, palm, ang, z, scale: sc, shadow, stroke: { pts, w: 1.15 }, paint, touch };
   }
   function attack(atk, u, ph, bx, by, R, px, py, t = 0, P = null){ return toWorld(attackUnit(atk, u, ph, (px - bx)/R, (py - by)/R, t, P), bx, by, R); }
-  return { WINGS, CORE, EYE, HALO, feather, pose, attackUnit, attack, hand, HAND_DUR, HAND_WIN, ROAM, uRate, mul, apply: ap, ease, sm, cl };
+  return { WINGS, CORE, EYE, HALO, feather, pose, attackUnit, attack, hand, HAND_DUR, HAND_WIN, ROAM, SWORD_REACH, uRate, mul, apply: ap, ease, sm, cl };
 })();
 export default RIG

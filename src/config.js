@@ -10166,8 +10166,10 @@ CHAPTERS.core = {
 export const viewZoom = (render, screenW) => (render?.viewW ? Math.min(1, screenW / render.viewW) : 1)
 
 // ---- The Ophan (hidden Burrow boss) — the tuning block --------------------------------------------
-// A fixed arena centred on the world origin; the boss sits above centre, the player starts below.
-// docs/superpowers/specs/2026-10-24-the-ophan-final-boss-design.md
+// An open arena (rev 2): the player starts at OPHAN_PLAYER_START and roams free; the boss chases.
+// OPHAN_ARENA and OPHAN_BOSS's x/y are v9's box and the boss's rest mark in it: the stage layout's
+// rest framing (src/ophan/renderer.js) and the tests' fixture spot, no longer a wall or a pin.
+// docs/superpowers/specs/2026-10-24-the-ophan-final-boss-design.md, rev 2: 2026-10-25-ophan-open-arena-design.md
 // balance_decision : arena, boss and player start, first guesses 2026-10-24
 export const OPHAN_ARENA = { w: 390, h: 700 }
 export const OPHAN_BOSS = { x: 0, y: -100, R: 76, bodyR: 56 }
@@ -10187,6 +10189,20 @@ export const OPHAN_PHASE_EASE = 2
 // balance_decision : attack scheduler, first guesses 2026-10-24
 export const OPHAN_ATK_CD = [2.2, 3.7]
 export const OPHAN_ATK_FIRST = 3
+// every attack's wind-up, strike and recovery play this much faster; the cooldowns do not
+export const OPHAN_ATK_SPEED = 1.5
+// the sword blade's length in R: the slam lands .5 + this from the boss (v9's 1.8 put it at 2.3 R; this is 4x)
+//  - rig.js imports nothing: its SWORD_REACH must equal this (run OP.open pins both)
+export const OPHAN_SWORD_REACH = 8.7
+// balance_decision : boss chase speed, first guess 0.9x the player 2026-10-25
+export const OPHAN_BOSS_SPEED = 0.9 * PLAYER.baseSpeed
+// the boss stops closing at the blast's reach, its shortest-ranged attack (rig.js: the crest tops out at .9 + 3.3 R)
+export const OPHAN_BOSS_HOLD = 0.95 * (0.9 + 3.3) * OPHAN_BOSS.R
+// it enters this fraction of the half view from the player: on screen, outside the screen's centre third
+export const OPHAN_ENTER = 0.6
+// balance_decision : opening wave 30 s, 15 s between phases 2026-10-25
+export const OPHAN_WAVE_OPEN = 30
+export const OPHAN_WAVE_GAP = 15
 export const OPHAN_HIT_CD = 0.6
 // balance_decision : per-hit damage measured on the headless bot 2026-10-24
 //  - shove and pull are rates: sim scales both by dt * OPHAN_SHOVE_DECAY (4200 = 420 per 60 Hz frame)
@@ -10208,10 +10224,14 @@ export const OPHAN_SKETCH_HP = 900
 export const OPHAN_BREAK_FLOOR = 1
 export const OPHAN_IMMUNE_CD = 0.12
 // balance_decision : crowd cadence per difficulty, measured on the bot 2026-10-24
-export const OPHAN_CROWD = { 1: { every: 2.2, cap: 8 }, 2: { every: 1.9, cap: 10 }, 3: { every: 1.6, cap: 12 }, edgeClear: 120 }
+export const OPHAN_CROWD = { 1: { every: 2.2, cap: 8 }, 2: { every: 1.9, cap: 10 }, 3: { every: 1.6, cap: 12 } }
+// balance_decision : wave crowd about 2.5x the in-phase cadence, first guess 2026-10-25
+//  - rev 2 plan Task 4 tunes it with the bot
+export const OPHAN_WAVE = { 1: { every: 0.9, cap: 16 }, 2: { every: 0.75, cap: 20 }, 3: { every: 0.6, cap: 24 } }
 // the HUD depth gauge's two ends (player-visible, walked by run XX)
 export const OPHAN_GAUGE_COPY = { top: 'surface', bottom: 'core', tags: ['SOIL', 'GEOD', 'MINE', 'MAGMA', 'MANTL', 'CORE'] }
-// The fixed camera: the whole arena fits the screen, centred on the origin.
+// The zoom fits v9's arena box to the screen so the art keeps its size; the camera follows the player
+// (render.js). camX/camY are the rest framing src/ophan/renderer.js lays its stages out in, not the camera.
 export const ophanView = (screenW, screenH) => ({ z: Math.min(screenW / OPHAN_ARENA.w, screenH / OPHAN_ARENA.h), camX: 0, camY: 0 })
 
 // The worlds the Ophan wears, one per Burrow chapter: its art style (`look`), its gauge colour and

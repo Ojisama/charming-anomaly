@@ -14348,7 +14348,7 @@ const spurG = new Graphics()
   // ==== Book 3, THE OPHAN: THE BOSS THAT WEARS THE WORLDS (src/ophan/renderer.js) ====================
   // A chapter with CHAPTERS[id].worlds hands its whole arena to src/ophan/renderer.js: each world's stage (floor and
   // pass), the crowd and the boss painter, drawn in ophanRoot UNDER render.js's world, so the player, the kit,
-  // the pickups, the numbers and the hurt flash stay on top. The camera is pinned on the arena (ophanView). The
+  // the pickups, the numbers and the hurt flash stay on top. The camera follows the player at ophanView's zoom. The
   // renderer is made once for the page (its slots and their shaders are reused across runs).
   const ophanRoot = new Container()
   ophanRoot.visible = false
@@ -33323,12 +33323,11 @@ void main() {
     // ...and PAN half the way to it: the ring camera leans toward the body, which can leave a
     // blow landing beside you on the screen's edge; for the punch's length the blow is the shot
     const pzk = pe > 0 ? (punch.pan >= 1 ? Math.min(1, 3 * pe) : Math.min(1, (1 - 1 / punchZ) + punch.pan * pe)) : 0
-    const ov = ophanOn ? ophanView(app.screen.width, app.screen.height) : null   // The Ophan: the arena, fixed
     const camX = (laneAheadX ? camFwd : run.player.x) + camLead.x + cerCam.x + (punch.x - run.player.x - camLead.x) * pzk
     const camY = (laneAheadY ? camFwd : run.player.y) + camLead.y + cerCam.y + (punch.y - run.player.y - camLead.y) * pzk
     if (dt > 0) { const kd = Math.exp(-dt * 14); kick.x *= kd; kick.y *= kd }
-    const cx = (laneAheadX ? laneFrac(viewW(), chapterLaneAxis.dir) : viewW() / 2) - (ov ? ov.camX : camX) + shake.ox + kick.x
-    const cy = (laneAheadY ? laneFrac(viewH(), chapterLaneAxis.dir) : viewH() / 2) - (ov ? ov.camY : camY) + shake.oy + kick.y
+    const cx = (laneAheadX ? laneFrac(viewW(), chapterLaneAxis.dir) : viewW() / 2) - camX + shake.ox + kick.x
+    const cy = (laneAheadY ? laneFrac(viewH(), chapterLaneAxis.dir) : viewH() / 2) - camY + shake.oy + kick.y
     world.scale.set(z)
     world.position.set(cx * z, cy * z)
     krakenDangerLayer.scale.set(z)

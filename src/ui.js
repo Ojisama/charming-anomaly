@@ -2901,7 +2901,7 @@ export function initUI(hooks) {
     const oph = run.script?.oph
     const gaugeShown = !!CHAPTERS[run.chapter].worlds && !!oph
     const gaugeSig = gaugeShown
-      ? [oph.world, oph.skin, oph.next, oph.tell > 0, oph.broken.join(''), oph.sketch, gaugeBands.map((_, k) => (hooks.worldReady?.(k) ? 1 : 0)).join('')].join('|')
+      ? [oph.world, oph.bossId != null && oph.skin, oph.next, oph.tell > 0, oph.broken.join(''), oph.sketch, gaugeBands.map((_, k) => (hooks.worldReady?.(k) ? 1 : 0)).join('')].join('|')
       : ''
     if (gaugeSig !== last.gaugeSig) {
       last.gaugeSig = gaugeSig
@@ -2916,7 +2916,7 @@ export function initUI(hooks) {
             el.classList.toggle('ophan-next', k === oph.next && oph.tell > 0 && k !== oph.world)
             el.classList.toggle('ophan-broken', !!oph.broken[k])
             el.classList.toggle('ophan-unbuilt', unbuilt)
-            el.classList.toggle('ophan-worn', k === oph.skin)
+            el.classList.toggle('ophan-worn', k === oph.skin && oph.bossId != null)   // no boss on the field in a wave
           }
         })
       }
