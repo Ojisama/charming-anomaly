@@ -1,5 +1,4 @@
-import * as PIXI from 'pixi.js'
-import { OPHAN, OPHAN_HANDKIT, OPHAN_HANDS, OPHAN_RIG, hh } from '../page.js'
+import { OPHAN, OPHAN_HANDKIT, OPHAN_HANDS, OPHAN_RIG } from '../page.js'
 // The Mine painter (ascii): a hand made of characters, shaded by the miner's lamp, pinching a typewriter typebar whose
 // slug stamps the boss in letters. Seen from above: the back of a right hand, thumb and index pinching the bar, the
 // other three fingers curled. It is built the way src/ascii.js builds a creature: soft volumes (capsules for the
@@ -193,7 +192,7 @@ OPHAN_HANDS.ascii = (() => {
     B = { G, V, VL, bounce, dim, shadow, SK, PAD, slug: [s0x, s0y], rot0 }; gen = null;
   }
 
-  return Object.assign(api, { warm(){ if (!B) bake(); }, bake: baking, hand(c, x, y, R, t, H){
+  return Object.assign(api, { bake: baking, hand(c, x, y, R, t, H){
     const b = B || bake(), u = K.uOf(H), F = K.pose(H, u, t);
     if (F.al < .01) return;
     const put = (cv, X, Y, size, al) => { if (al < .01) return; const d = size*1.4; c.globalAlpha = Math.min(1, al); c.drawImage(cv, X - d/2, Y - d/2, d, d); };
@@ -203,7 +202,7 @@ OPHAN_HANDS.ascii = (() => {
     // ring or on a feather eye, never on the floor. The newest batch is red-hot, cooling to the feathers' cream.
     // The rig's path keeps within ~.8 R of the eye; the hand works it PK times larger about the eye, so its petals
     // reach out across the feather rows.
-    const OA = typeof OPHAN !== 'undefined' && OPHAN.ascii, P = (OA && OA.pose || OPHAN_RIG.pose)(t, 3);
+    const OA = OPHAN.ascii, P = OPHAN_RIG.pose(t, +(window.OPH_PH ?? 3) || 3);   // the boss's shape at its phase: a hidden wing takes no letters
     const onFeathers = (p) => Math.hypot((p.x - P.eye.x)/.64, (p.y - P.eye.y)/.5) > 1 && P.eyes.every(E => Math.hypot(p.x - E.x, p.y - E.y) > CLEAR)
       && (OA && OA.onWing ? OA.onWing(P, p.x, p.y) : Math.hypot(p.x, p.y + .1) < 1.5);
     const GX = .15, GY = .18, CLEAR = .25;   // a letter's keep-out box (the glyph is taller than wide); a feather eye's clear radius (in R)

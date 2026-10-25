@@ -1,4 +1,4 @@
-import { OPHAN, OPHAN_RIG, hh, mk, shade, mix, sheen, INK, TAU, PX, STY } from '../page.js'
+import { OPHAN, OPHAN_RIG, hh, mk, TAU } from '../page.js'
 // Phase 4: the Sketch. The Ophan as its first graphite drawing: six feathered wings and open eyes, nothing else.
 // Shape and motion come from OPHAN_RIG (cru/rig.js) at ph 4 (= the ph 3 shape); this file only renders them in pencil.
 // Each rig wing is baked once per size (texels per unit K) into one canvas: every rig feather a paper-filled blade, hatched on
@@ -43,50 +43,47 @@ import { OPHAN, OPHAN_RIG, hh, mk, shade, mix, sheen, INK, TAU, PX, STY } from '
     g.lineCap = 'round'; g.lineJoin = 'round'; blade(g, P, poly, q, K, .35, 10 + n, false);
     return { cv, x0, y0, w: x1 - x0, h: y1 - y0 };
   }
-  function bakeWing(Wg, K, gap, fin){
+  function bakeWing(Wg, K, gap){
     const [x0, y0, x1, y1] = boxOf(Wg, .06), cv = mk(Math.ceil((x1 - x0)*K), Math.ceil((y1 - y0)*K)), g = cv.getContext('2d');
     const P = ([x, y]) => [(x - x0)*K, (y - y0)*K];
     const poly = (pts, close = true) => { g.beginPath(); pts.forEach((p, i) => { const [X, Y] = P(p); i ? g.lineTo(X, Y) : g.moveTo(X, Y); }); if (close) g.closePath(); };
     g.lineCap = 'round'; g.lineJoin = 'round';
     const [rx, ry] = Wg.root, [, , ax, ay] = Wg.arm, dx = ax - rx, dy = ay - ry;
     // construction: the arm's axis, overshooting, and a loose line through the feather tips
-    if (!fin){ g.strokeStyle = G(.13); g.lineWidth = .6; poly([[rx - dx*.3, ry - dy*.3], [ax + dx*.6, ay + dy*.6]], false); g.stroke();
-    poly(Wg.feathers.map((q) => q.sp[10]), false); g.stroke(); }
+    g.strokeStyle = G(.13); g.lineWidth = .6; poly([[rx - dx*.3, ry - dy*.3], [ax + dx*.6, ay + dy*.6]], false); g.stroke();
+    poly(Wg.feathers.map((q) => q.sp[10]), false); g.stroke();
     // the inner web, where the blades join: paper and a graphite smudge
     const web = [Wg.root].concat(Wg.feathers.map((q) => q.sp[Wg.pour]));
-    poly(web); g.fillStyle = PAPER; if (!fin) g.fill();
+    poly(web); g.fillStyle = PAPER; g.fill();
     const [sx, sy] = P(Wg.feathers[Wg.pour].sp[2]), smg = g.createRadialGradient(sx, sy, 0, sx, sy, Wg.A*K*.8);
-    smg.addColorStop(0, G(fin ? .22 : .14)); smg.addColorStop(1, G(0)); g.fillStyle = smg; g.fill();
+    smg.addColorStop(0, G(.14)); smg.addColorStop(1, G(0)); g.fillStyle = smg; g.fill();
     const n = Wg.feathers.length;
     const out = gap ? PEELS(Wg) : [];
-    for (let k = n - 1; k >= 0; k--) if (!out.includes(Wg.feathers[k])) blade(g, P, poly, Wg.feathers[k], K, .2 + .3*(1 - k/(n - 1)), 10 + k, Wg.feathers[k].tal, fin);   // outer primaries under, inner on top
-    Wg.coverts.forEach((q, k) => blade(g, P, poly, q, K, .55 - .25*k/(n - 1), 50 + k, false, fin));
-    sketch(g, () => poly([Wg.root, Wg.arm.slice(2)], false), 1, (2.4 + K/80)*(fin ? 1.2 : 1), 90);   // the leading edge
+    for (let k = n - 1; k >= 0; k--) if (!out.includes(Wg.feathers[k])) blade(g, P, poly, Wg.feathers[k], K, .2 + .3*(1 - k/(n - 1)), 10 + k, Wg.feathers[k].tal);   // outer primaries under, inner on top
+    Wg.coverts.forEach((q, k) => blade(g, P, poly, q, K, .55 - .25*k/(n - 1), 50 + k, false));
+    sketch(g, () => poly([Wg.root, Wg.arm.slice(2)], false), 1, 2.4 + K/80, 90);   // the leading edge
     return { cv, x0, y0, w: x1 - x0, h: y1 - y0 };
   }
-  // fin: the FINISHED pass the hand lays over the sketch, on transparent ground (each blade still hides the lines under it):
-  // the shadow half hatched denser, crossed throughout, the contour re-traced harder
-  function blade(g, P, poly, q, K, shade, seed, talon, fin){
+  function blade(g, P, poly, q, K, shade, seed, talon){
     const out = q.l.concat(q.r.slice().reverse()), half = q.l.concat(q.sp.slice().reverse());
-    poly(out); if (fin){ g.globalCompositeOperation = 'destination-out'; g.fillStyle = '#000'; g.fill(); g.globalCompositeOperation = 'source-over'; } else { g.fillStyle = PAPER; g.fill(); }
+    poly(out); g.fillStyle = PAPER; g.fill();
     g.save(); poly(out); g.clip();
     const [cx, cy] = P(q.sp[5]), rr = q.L*K*.7;
-    g.save(); poly(half); g.clip(); hatch(g, cx, cy, rr, q.a + .7, fin ? 1.6 : 2.2, (.3 + shade*.45)*(fin ? 1.3 : 1), .9, seed); g.restore();
-    if (fin) hatch(g, cx, cy, rr, q.a - .5, 2.2, .2 + shade*.4, .8, seed + 3);
-    else if (shade > .45) hatch(g, cx, cy, rr, q.a - .5, 2.8, (shade - .3)*.5, .8, seed + 3);
+    g.save(); poly(half); g.clip(); hatch(g, cx, cy, rr, q.a + .7, 2.2, .3 + shade*.45, .9, seed); g.restore();
+    if (shade > .45) hatch(g, cx, cy, rr, q.a - .5, 2.8, (shade - .3)*.5, .8, seed + 3);
     if (talon){ const [bx, by] = P(q.sp[0]), [ex, ey] = P(q.sp[10]), gr = g.createLinearGradient(bx, by, ex, ey);
       gr.addColorStop(.55, G(0)); gr.addColorStop(.85, G(.55)); gr.addColorStop(1, G(.92)); g.fillStyle = gr; g.fillRect(cx - rr*1.6, cy - rr*1.6, rr*3.2, rr*3.2); }
     g.restore();
-    sketch(g, () => poly(out), .97, (1.3 + K/120)*(fin ? 1.3 : 1), seed);
+    sketch(g, () => poly(out), .97, 1.3 + K/120, seed);
     poly(q.sp, false); g.strokeStyle = G(.6); g.lineWidth = .7 + K/240; g.stroke();   // rachis
   }
   // the rosette of the rig's short blades ringing the great eye, as small hatched pencil feathers
-  function bakeCore(K, fin){
+  function bakeCore(K){
     const C = { feathers: RIG.CORE, coverts: [] }, [x0, y0, x1, y1] = boxOf(C, .06), cv = mk(Math.ceil((x1 - x0)*K), Math.ceil((y1 - y0)*K)), g = cv.getContext('2d');
     const P = ([x, y]) => [(x - x0)*K, (y - y0)*K];
     const poly = (pts, close = true) => { g.beginPath(); pts.forEach((p, i) => { const [X, Y] = P(p); i ? g.lineTo(X, Y) : g.moveTo(X, Y); }); if (close) g.closePath(); };
     g.lineCap = 'round'; g.lineJoin = 'round';
-    RIG.CORE.forEach((q, k) => blade(g, P, poly, q, K, .35, 100 + k, false, fin));
+    RIG.CORE.forEach((q, k) => blade(g, P, poly, q, K, .35, 100 + k, false));
     return { cv, x0, y0, w: x1 - x0, h: y1 - y0 };
   }
   // construction marks on the paper, under the wings: two loose circles, the axes, short ruled rays from the great eye
@@ -106,8 +103,8 @@ import { OPHAN, OPHAN_RIG, hh, mk, shade, mix, sheen, INK, TAU, PX, STY } from '
   // a bake's black copy (its alpha kept): drawn over it at alpha 1 - b it is the approved brightness(b) filter, which game tech drops
   const dark = (L) => { const cv = mk(L.cv.width, L.cv.height), g = cv.getContext('2d'); g.drawImage(L.cv, 0, 0); g.globalCompositeOperation = 'source-in'; g.fillStyle = '#000'; g.fillRect(0, 0, cv.width, cv.height); L.dk = { cv, x0: L.x0, y0: L.y0, w: L.w, h: L.h }; return L; };
   function rig(K){ let r = cache.get(K); if (!r){ r = { wings: RIG.WINGS.map((Wg) => dark(bakeWing(Wg, K))), base: bakeBase(K), core: bakeCore(K),
-      rag: RIG.WINGS.map((Wg) => dark(bakeWing(Wg, K, true))), fe: RIG.WINGS.map((Wg) => Wg.feathers.map((q, n) => PEELS(Wg).includes(q) ? dark(bakeFeather(q, K, n)) : null)),   // the sword's ragged wings and loose feathers
-      fw: RIG.WINGS.map((Wg) => dark(bakeWing(Wg, K, false, true))), fc: bakeCore(K, true) }; cache.set(K, r); }   // the finished pass
+      rag: RIG.WINGS.map((Wg) => dark(bakeWing(Wg, K, true))), fe: RIG.WINGS.map((Wg) => Wg.feathers.map((q, n) => PEELS(Wg).includes(q) ? dark(bakeFeather(q, K, n)) : null)) };   // the sword's ragged wings and loose feathers
+    cache.set(K, r); }
     return r; }
   const lay = (c, L) => c.drawImage(L.cv, L.x0, L.y0, L.w, L.h);
 
@@ -136,7 +133,7 @@ import { OPHAN, OPHAN_RIG, hh, mk, shade, mix, sheen, INK, TAU, PX, STY } from '
 
   // the body at a rig pose: construction marks, the six wings, then every eye on top
   function draw(c, x, y, R, P, opt){
-    const m = c.getTransform(), s = Math.hypot(m.a, m.b), K = Math.max(40, Math.min(320, Math.round(R*s/8)*8)), Gk = rig(K), FIN = !!(opt && opt.fin), B = P.body, py = B.pivot[1];
+    const m = c.getTransform(), s = Math.hypot(m.a, m.b), K = Math.max(40, Math.min(320, Math.round(R*s/8)*8)), Gk = rig(K), B = P.body, py = B.pivot[1];
     const fc = B.face ?? 1, ax = Math.abs(B.sx), frame = () => { c.save(); c.translate(x, y); c.scale(R, R); c.translate(B.ox || 0, B.oy || 0);   // the top's wobble and the body's travel (wheel, sword), screen space, first
       c.translate(0, py); c.scale(B.sx, B.sy); c.rotate(B.rot); c.translate(0, -py); };
     // a wing in the top's depth: behind the body it greys and darkens with how far back it is, in front it lifts a touch
@@ -147,7 +144,7 @@ import { OPHAN, OPHAN_RIG, hh, mk, shade, mix, sheen, INK, TAU, PX, STY } from '
       const a = w.vis*al, put = (L) => { c.globalAlpha = a; lay(c, L);
         if (dp < -.05){ c.globalAlpha = a*.4*(-dp); lay(c, L.dk); }
         else if (dp > .05){ c.globalCompositeOperation = 'lighter'; c.globalAlpha = a*.05*dp; lay(c, L); c.globalCompositeOperation = 'source-over'; } };
-      put(w.gap ? Gk.rag[w.i] : FIN ? Gk.fw[w.i] : Gk.wings[w.i]);
+      put(w.gap ? Gk.rag[w.i] : Gk.wings[w.i]);
       if (w.gap) for (const n of w.homes) put(Gk.fe[w.i][n]);   // the peeled feathers still (or back) in their place
       c.restore(); };
     const back = P.wings.filter((w) => !(w.depth > .001)), front = P.wings.filter((w) => w.depth > .001);
@@ -156,9 +153,9 @@ import { OPHAN, OPHAN_RIG, hh, mk, shade, mix, sheen, INK, TAU, PX, STY } from '
     const eyesOf = (ws) => { for (const w of ws) for (const E of w.eyes){ if (E.open < .01) continue;
       const M = w.m, ex = M[0]*Math.cos(E.rot) + M[2]*Math.sin(E.rot), ey = M[1]*Math.cos(E.rot) + M[3]*Math.sin(E.rot), [gx, gy] = look(E.x, E.y);
       eye(c, x + E.x*R, y + E.y*R, E.r*1.15*R, Math.atan2(ey, ex), Math.min(1.1, E.open), gx, gy, false, ax); } };
-    frame(); if (!FIN) lay(c, Gk.base); c.translate(B.dx, B.dy); for (const w of back) wing(w, 1); c.restore();
+    frame(); lay(c, Gk.base); c.translate(B.dx, B.dy); for (const w of back) wing(w, 1); c.restore();
     eyesOf(back);
-    frame(); c.translate(B.dx, B.dy); lay(c, FIN ? Gk.fc : Gk.core);
+    frame(); c.translate(B.dx, B.dy); lay(c, Gk.core);
     if (fc < 0){ const k = cl(-3*fc), E = RIG.EYE;   // the back of the body: a sewn seam where the great eye would be, hatched shut
       c.save(); c.beginPath(); c.ellipse(E.x, E.y, .4, .22, 0, 0, TAU); c.globalAlpha = k; c.fillStyle = PAPER; c.fill(); c.clip();
       hatch(c, E.x, E.y, .45, .8, .035, .7, .012, 170); hatch(c, E.x, E.y, .45, -.6, .05, .45, .01, 171); c.restore();
@@ -540,7 +537,7 @@ import { OPHAN, OPHAN_RIG, hh, mk, shade, mix, sheen, INK, TAU, PX, STY } from '
   function attack(c, x, y, R, t, ph = 4, atk, u, px, py){
     const PX = (px - x)/R, PY = (py - y)/R, P = RIG.pose(t, ph, atk, u, PX, PY), A = RIG.attackUnit(atk, u, ph, PX, PY, t, P), u1 = 1/R;
     const fx = { wheel: wheelFx, recall: recallFx, sword: swordFx }[atk], SW = atk === 'sword' ? swordGeo(P, A, t, u, ph) : null;
-    const Gk = SW && rig(Math.max(40, Math.min(320, Math.round(R*Math.hypot(c.getTransform().a, c.getTransform().b)/8)*8)), true);   // the same K draw() picks
+    const Gk = SW && rig(Math.max(40, Math.min(320, Math.round(R*Math.hypot(c.getTransform().a, c.getTransform().b)/8)*8)));   // the same K draw() picks
     c.save(); c.translate(x, y); c.scale(R, R); c.lineCap = 'round'; c.lineJoin = 'round';
     under(c, atk, A, t, u1, u);
     if (atk === 'laser' && A.beams.length) laserFloor(c, A, t, u, u1);
@@ -574,9 +571,6 @@ import { OPHAN, OPHAN_RIG, hh, mk, shade, mix, sheen, INK, TAU, PX, STY } from '
   OPHAN.pencil = {
     bg(c, w){ c.fillStyle = PAPER; c.fillRect(0, 0, w, w); c.strokeStyle = 'rgba(80,110,160,.14)'; c.lineWidth = 1; c.beginPath(); for (let k=12;k<w;k+=12){ c.moveTo(0, k); c.lineTo(w, k); } c.stroke(); },
     boss(c, x, y, R, t, ph = 4){ draw(c, x, y, R, RIG.pose(t, ph)); },
-    // the FINISHED drawing at the same pose (denser hatch, contours re-traced, the eyes on top): the pencil hand reveals it under its point
-    finish(c, x, y, R, t, ph = 4){ draw(c, x, y, R, RIG.pose(t, ph), { fin: true }); },
     attack,
-    post(){},   // the paper takes no overlay
   };
 })();

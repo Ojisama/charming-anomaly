@@ -11,7 +11,7 @@ run.player.xpNext = 1e9   // no level-up modal in the middle of the shot
 H.until(() => !!run.script?.oph, 50)
 const o = run.script.oph
 const hold = () => { o.atkCd = 99; o.swapIn = 99 }
-H.until(() => { hold(); return o.t > 3 }, 1200)
+H.until(() => { hold(); return o.t > 3 && o.bossId != null }, 6000)   // through the opening wave: the boss is not out before it
 if (W !== o.world) { run._worldPress = W; H.until(() => { hold(); return o.world === W && !o.wipe }, 600) }
 const boss = () => run.enemies.find((e) => e.rosterId === 'ophan' && !e._dead)
 if (W !== o.skin) { o.hp[o.skin] = boss().hp; o.skin = W; boss().hp = o.hp[W] }

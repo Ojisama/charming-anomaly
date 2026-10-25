@@ -58,7 +58,7 @@ const pumpMode = (fight, oph) => !fight ? 'brief' : oph && (oph.bossId != null |
 
 // Painters and hands talk through a few window globals (the phase, the toon boss's inking u, the hand's path): each slot
 // keeps its own copy, swapped in while it draws (art.js within)
-const SWAP = ['OPH_PH', 'OPHAN_TOON_U', 'SPIKE', 'HAND_PATH', 'HAND_SEED', 'OPHAN_PREV_STYLE']
+const SWAP = ['OPH_PH', 'SPIKE', 'HAND_PATH', 'HAND_SEED', 'OPHAN_PREV_STYLE']
 const within = (g, f) => {
   const keep = SWAP.map((k) => window[k]); for (const k of SWAP) window[k] = g[k]
   try { f() } finally { SWAP.forEach((k, i) => { g[k] = window[k]; window[k] = keep[i] }) }
@@ -390,7 +390,6 @@ export function createOphanRenderer(host) {
     },
     stopWarm,
     resize() { for (const s of Object.values(slots)) fit(s) },
-    filters: () => null,
     event(e) {
       switch (e.type) {
         case 'ophanImmune': rings.push({ x: e.x, y: e.y, life: IMMUNE_T }); return true

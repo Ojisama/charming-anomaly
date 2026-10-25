@@ -15,5 +15,5 @@ export default function stage(app, { W, H }) {
   const floor = new TilingSprite({ texture: tex, width: W, height: H }), boss = new Container()
   app.stage.addChild(floor, boss)
   // pan: the stage px the camera has moved off the world's origin; the paper is world-anchored and scrolls under it
-  return { boss, update(t, { pan = null } = {}) { if (pan) floor.tilePosition.set(-pan.x, -pan.y) }, setPass() {} }
+  return { boss, update(t, { pan = null } = {}) { if (pan) floor.tilePosition.set(-pan.x, -pan.y) } }
 }

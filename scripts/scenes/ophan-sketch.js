@@ -15,9 +15,10 @@ run.player.hp = run.player.maxHP = 1e6   // the attacks land without ending the 
 H.until(() => !!run.script?.oph, 50)
 const o = run.script.oph
 const hold = () => { o.atkCd = 99; o.swapIn = 99 }
-H.until(() => { hold(); return o.t > 3 }, 1200)
+H.until(() => { hold(); return o.t > 3 && o.bossId != null }, 6000)   // through the opening wave: the boss is not out before it
 const boss = () => run.enemies.find((e) => e.rosterId === 'ophan' && !e._dead)
-for (let g = 0; !o.sketch && g < 12; g++) { o.world = o.skin; boss().hp = CFG.OPHAN_BREAK_FLOOR; H.tick() }
+// every skin broken, played on through the wave after each phase's last one (the boss is away then)
+for (let g = 0; !o.sketch && g < 8000; g++) { const b = boss(); hold(); if (b) { o.world = o.skin; b.hp = CFG.OPHAN_BREAK_FLOOR } H.tick() }
 if (!o.sketch) throw new Error('the last break did not raise the sketch: ' + JSON.stringify(o.broken))
 H.until(() => { o.atkCd = 99; return o.ph >= 3 && o.after < 0 }, 1200)
 let a = null

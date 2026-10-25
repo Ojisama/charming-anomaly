@@ -1,5 +1,4 @@
-import * as PIXI from 'pixi.js'
-import { OPHAN, OPHAN_HANDKIT, OPHAN_HANDS, OPHAN_RIG, hh } from '../page.js'
+import { OPHAN_HANDKIT, OPHAN_HANDS, OPHAN_RIG } from '../page.js'
 // THE TOPSOIL PAINTER (macro): a real, weathered hand photographed from above in macro close-up, soil under its nails, holding
 // a fine sable brush wet with raw-sienna pigment. Shot like src/macro.js shoots its cast: one low raking key from the
 // top-left, cool ambient, warm subsurface at the terminator, a wet sheen on the crowns.
@@ -58,7 +57,6 @@ import { OPHAN, OPHAN_HANDKIT, OPHAN_HANDS, OPHAN_RIG, hh } from '../page.js'
     return a; }
   const alphaOf = (cv) => { const d = cv.getContext('2d').getImageData(0, 0, W, HH).data, o = new Float32Array(W*HH); for (let i = 0; i < o.length; i++) o[i] = d[i*4 + 3]/255; return o; };
   const mmCanvas = () => { const cv = K.mk(W, HH), g = cv.getContext('2d'); g.setTransform(k, 0, 0, k, -X0*k, -Y0*k); return [cv, g]; };
-  const poly = (g, P) => { g.beginPath(); P.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.closePath(); };
 
   function* bakeHand(){
     const Z = new Float32Array(W*HH).fill(-1e9), I = new Uint8Array(W*HH), A = new Float32Array(W*HH);

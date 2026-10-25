@@ -1,5 +1,4 @@
-import * as PIXI from 'pixi.js'
-import { OPHAN, OPHAN_HANDKIT, OPHAN_HANDS, OPHAN_RIG, hh } from '../page.js'
+import { OPHAN, OPHAN_HANDKIT, OPHAN_HANDS, OPHAN_RIG } from '../page.js'
 // THE MAGMA PAINTER (pixel): a chunky top-down pixel hand gripping the square-tipped pencil of old paint programs, lit by
 // the lava, colouring the boss one block at a time. Drawn the way src/pixel/cast.js draws a creature: simple shapes in
 // design units (one unit = one game px at the painting height), FLAT three-tone skin, a one-pixel ink outline per part, and
@@ -15,7 +14,7 @@ OPHAN_HANDS.pixel = (() => {
   const hex = (h) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
   const INK = hex('#1a100e'), INK0 = hex('#0a0608'), RIM = [hex('#ffb040'), hex('#e0602a')];   // ink just above the pass's ink threshold: the CRT adds no rim of its own, the lava rim is ours
   const SKIN = ['#34201c', '#5a3428', '#7a5040', '#966a58'].map(hex);  // brown-grey, away from the boss's crimson: dark, mid, light flat bands (the curled fingers one step up)
-  const NAIL = hex('#c89a84'), HOT = [hex('#ffd86a'), hex('#ff9a2a')];   // a pale nail; the lava's specular on a knuckle
+  const NAIL = hex('#c89a84');   // a pale nail
   const GAP = hex('#3a1a18'), THUMB = hex('#c09078');   // the thumb, clearly a step above the fingers
   const PEN = Object.fromEntries(Object.entries({            // [light side, dark side]
     nib: ['#241c26', '#241c26'], wood: ['#f8c070', '#c87a34'], shaft: ['#ffd84a', '#e08a2a'], ferrule: ['#c4bccc', '#746c84'], eraser: ['#f48e9a', '#b44c5c'],
@@ -32,7 +31,6 @@ OPHAN_HANDS.pixel = (() => {
       if (u >= a && u <= b && Math.abs(v) <= w0 + (w1 - w0)*(u - a)/(b - a)) return part;
     return null; };
   // parts: { hit(u, v) -> -1 or a param, tone(u, v, k) -> colour }
-  const skin = (base, light) => (u, v, k) => (light && light(u, v, k)) ? SKIN[2] : SKIN[base];
   const dot = (cx, cy, r) => (u, v) => Math.hypot(u - cx, v - cy) <= r ? 0 : -1;
   const KN = [[58, 9], [64, 24], [70, 38], [77, 51]];      // the knuckle row across the shaft, index (on it) to little
   // the fan: every finger points at the nib, the index along the shaft, the others turned 10/20/30 degrees in toward it, each
@@ -40,7 +38,6 @@ OPHAN_HANDS.pixel = (() => {
   const FING = KN.map(([x, y], i) => { const a = [0, 10, 20, 30][i]*Math.PI/180, L = [40, 32, 25, 18][i]; return [x, y, x - L*Math.cos(a), y - L*Math.sin(a), [7, 7.4, 7, 6.4][i]]; });
   const back = poly([[56, -12], [100, -16], [132, 8], [132, 60], [100, 64], [78, 60], [56, 24]]), knuck = KN.map(([x, y]) => dot(x, y, 7.5));
   let LU = 1, LV = 0;                                        // the lava's direction (screen right and down) in design units, set per bake
-  const spec = (u, v, x, y) => { const d = Math.hypot(u - x - 4.5*LU, v - y - 4.5*LV); return d < 2.2 ? HOT[0] : d < 3.6 ? HOT[1] : null; };
   const wrist = poly([[128, 10], [128, 56], [215, 70], [215, 4]]);   // the forearm: the hand is a wedge, wrist to nib
   const DEEP = hex('#1e1210'), FAR = hex('#2a0e0a');
   const OUT = 15;                                           // the fist sits this far up the shaft: the cone and nib stick out past the index
@@ -119,7 +116,7 @@ OPHAN_HANDS.pixel = (() => {
     x.putImageData(im, 0, 0); GREY.set(cv, g); return g; };
   const greyCtx = (c) => new Proxy(c, { get: (o, k) => k === 'drawImage' ? (cv, ...a) => o.drawImage(greyOf(cv), ...a) : typeof o[k] === 'function' ? o[k].bind(o) : o[k],
     set: (o, k, v) => { o[k] = v; return true; } });
-  const PH = +(window.OPH_PH ?? new URLSearchParams(location.search).get('ph') ?? 3) || 3;   // the boss's phase, read as the spike reads it
+  const PH = +(window.OPH_PH ?? 3) || 3;   // the boss's phase, read as the spike reads it
 
   return {
     bake: baking,

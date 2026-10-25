@@ -1,4 +1,4 @@
-import { OPHAN, OPHAN_RIG, hh, mk, shade, mix, sheen, INK, TAU, PX, STY, grain } from '../page.js'
+import { OPHAN, OPHAN_RIG, hh, mk, TAU } from '../page.js'
 // The Ophan in the Topsoil look (macro): a seraph of real feathers fallen on the soil, shot under the same raking top-left
 // softbox as the mole and badger. Six barred hawk wings in three pairs (up, out, and a down pair whose long primaries hook
 // in like talons) overlap on a rosette of dark down around ONE great unblinking eye, backlit so its light combs through
@@ -11,8 +11,6 @@ OPHAN.macro = (() => {
   const mixc = (a, b, k) => { const f = (s) => ((a >> s & 255) + ((b >> s & 255) - (a >> s & 255))*k) & 255; return f(16) << 16 | f(8) << 8 | f(0); };
   const sh = (h, k) => k >= 0 ? mixc(h, 0xffffff, k) : mixc(h, 0, -k);
   const tr = (c, P) => { c.beginPath(); c.moveTo(P[0][0], P[0][1]); for (let i = 1; i < P.length; i++) c.lineTo(P[i][0], P[i][1]); c.closePath(); };
-  const oval = (cx, cy, rx, ry, rot = 0, n = 32) => { const P = [], cr = Math.cos(rot), sr = Math.sin(rot);
-    for (let k = 0; k < n; k++){ const a = k/n*TAU, x = Math.cos(a)*rx, y = Math.sin(a)*ry; P.push([cx + x*cr - y*sr, cy + x*sr + y*cr]); } return P; };
   const almond = (rx, ry, n = 24) => { const P = [];
     for (let k = 0; k < n; k++){ const a = k/n*TAU, s = Math.sin(a); P.push([Math.cos(a)*rx, s*ry*Math.pow(Math.abs(s), .35)]); } return P; };
   const sb = (c, blur, col, draw) => { const m = c.getTransform(); c.save(); c.shadowColor = col; c.shadowBlur = Math.max(.01, blur*c._S);
@@ -241,12 +239,6 @@ OPHAN.macro = (() => {
   // ---------------- the creature, placed by OPHAN_RIG: every root, angle, size and beat is the rig's; the feathers are ours ----------------
   const RIG = OPHAN_RIG, cl = RIG.cl;
   const setM = (c, M) => c.transform(M[0], M[1], M[2], M[3], M[4], M[5]);
-  const rot = (a) => [Math.cos(a), Math.sin(a), -Math.sin(a), Math.cos(a), 0, 0], mv = (x, y) => [1, 0, 0, 1, x, y];
-  // the sword's morph: a wing's root and its farthest feather tip carried to R2 and F2 (m of the way there), squeezed to sq across
-  const FAR = RIG.WINGS.map((W) => { let b = W.root, d = 0; for (const q of W.feathers){ const p = q.sp[10], e = Math.hypot(p[0] - W.root[0], p[1] - W.root[1]); if (e > d){ d = e; b = p; } } return b; });
-  const stretch = (w, R2, F2, m, sq) => { const r = w.root, f = RIG.apply(w.m, FAR[w.i][0], FAR[w.i][1]), lp = (p, q) => [p[0] + (q[0] - p[0])*m, p[1] + (q[1] - p[1])*m], r2 = lp(r, R2), f2 = lp(f, F2);
-    const k = Math.hypot(f2[0] - r2[0], f2[1] - r2[1])/(Math.hypot(f[0] - r[0], f[1] - r[1]) || 1);
-    return RIG.mul(RIG.mul(RIG.mul(mv(r2[0], r2[1]), rot(Math.atan2(f2[1] - r2[1], f2[0] - r2[0]))), [k, 0, 0, 1 + (sq - 1)*m, 0, 0]), RIG.mul(rot(-Math.atan2(f[1] - r[1], f[0] - r[0])), mv(-r[0], -r[1]))); };
   const PEELS = (W) => W.feathers.filter((q, j) => j % 3 && !q.tal);
   // C: the feathers that peel off, in the order they leave: interleaved so both sides thin together
   const PEEL = []; for (let j = 0; j < 5; j++) for (const i of [0, 1, 2]) for (const side of [-1, 1]){ const q = PEELS(RIG.WINGS[i])[j]; if (q) PEEL.push({ i, side, q }); }
@@ -485,28 +477,7 @@ OPHAN.macro = (() => {
       c.beginPath(); c.arc(px2 + LX*pr*.3, py2 - hgt + LY*pr*.3, pr*.45, 0, TAU); c.fillStyle = 'rgba(255,236,196,.7)'; c.fill(); c.restore(); }
     c.restore(); };
 
-
-  let floor = {};
   return {
-    bg(c, w, t){
-      const k = Math.hypot(c.getTransform().a, c.getTransform().b), key = w + ':' + k;
-      if (!floor[key]){ const b = mk(w*k, w*k), g = b.getContext('2d'); g.setTransform(k, 0, 0, k, 0, 0); g._S = k;
-        g.fillStyle = '#3a2616'; g.fillRect(0, 0, w, w); g.fillStyle = g.createPattern(grain(), 'repeat'); g.globalAlpha = .7; g.fillRect(0, 0, w, w); g.globalAlpha = 1;
-        // crumbs: every one lit top-left with a shadow down-right, the topsoil tile's clods at this scale
-        for (let i = 0; i < w*w/40; i++){ const x = hh(i, 11)*w, y = hh(i, 12)*w, r = .8 + hh(i, 13)*hh(i, 14)*5, base = [0x3e2a18, 0x5a3e26, 0x6e4c2e, 0x4a321e, 0x7a5a3a][i % 5];
-          const Q = []; for (let q = 0; q < 7; q++){ const a = q/7*TAU, rr = r*(.6 + hh(i, 20 + q)*.6); Q.push([x + Math.cos(a)*rr, y + Math.sin(a)*rr*.85]); }
-          g.fillStyle = 'rgba(14,8,4,.35)'; tr(g, Q.map(([a, b]) => [a + r*.35, b + r*.45])); g.fill();
-          const gr = g.createRadialGradient(x - r*.45, y - r*.55, r*.1, x, y, r*1.1); gr.addColorStop(0, C(sh(base, .12), .95)); gr.addColorStop(1, C(sh(base, -.3), .95));
-          g.fillStyle = gr; tr(g, Q); g.fill(); }
-        for (let i = 0; i < w*w/400; i++){ g.fillStyle = 'rgba(230,220,200,.5)'; g.fillRect(hh(i, 31)*w, hh(i, 32)*w, .7, .7); }
-        g.lineCap = 'round';                                              // a pale rootlet and two pebbles
-        g.beginPath(); g.moveTo(-5, w*.2); g.bezierCurveTo(w*.3, w*.12, w*.5, w*.34, w*.95, w*.28); g.lineWidth = 1.6; g.strokeStyle = 'rgba(8,4,2,.5)'; g.stroke();
-        g.lineWidth = 1.1; g.strokeStyle = '#c9a77a'; g.stroke();
-        for (const [px, py, pr] of [[w*.82, w*.72, 4.5], [w*.14, w*.86, 3]]){ g.fillStyle = 'rgba(8,4,2,.55)'; g.beginPath(); g.arc(px + 2, py + 2.5, pr*1.1, 0, TAU); g.fill();
-          const gr = g.createRadialGradient(px - pr*.4, py - pr*.5, pr*.1, px, py, pr); gr.addColorStop(0, '#d8d4cc'); gr.addColorStop(1, '#4e4a46'); g.fillStyle = gr; g.beginPath(); g.arc(px, py, pr, 0, TAU); g.fill(); }
-        floor[key] = b; }
-      c.drawImage(floor[key], 0, 0, w, w);
-    },
     boss(c, x, y, R, t, ph = 3){
       const m = c.getTransform(), k = Math.hypot(m.a, m.b), S = Math.max(8, Math.round(R*k)), B = bakes(S), P = RIG.pose(t, ph);
       c.save(); c.translate(x, y); c.scale(R, R); scene(c, B, t, ph, P, 0); c.restore();
@@ -757,6 +728,5 @@ OPHAN.macro = (() => {
         c.save(); c.globalAlpha = rec*(1 - .4*fr); c.translate(sx + .12*Math.sin(t*1.7 + j*2)*fr, sy + .55*fr); c.rotate(.6*Math.sin(t*1.3 + j) + j*1.7); put(c, F.loose); c.restore(); }
       c.restore();
     },
-    post(c, w, t){ tilePost(c, 'macro', w, t); },
   };
 })();

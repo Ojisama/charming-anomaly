@@ -462,7 +462,7 @@ const RIG = (() => {
     const grip = { x: tip.x + d.x*HAND_TOOL*sc, y: tip.y + d.y*HAND_TOOL*sc }, palm = { x: grip.x + d.x*.55*sc, y: grip.y + d.y*.55*sc };
     const pts = []; if (u >= W.paint[0]) for (let k=0;k<=200;k++){ const q = handZZ(ps*k/200); pts.push(q); }   // q.down: a lifted move paints nothing
     const shadow = { x: palm.x - (.6 + 3*z), y: palm.y + .6 + 3.2*z, scale: 1 + .3*z, al: sm(0, .14, u)*(1 - sm(.9, 1, u))*(.6 - .3*z) };
-    return { tip, grip, palm, ang, z, scale: sc, shadow, stroke: { pts, w: 1.15 }, paint, touch };
+    return { tip, grip, palm, ang, z, scale: sc, shadow, stroke: { pts, w: 1.15 }, paint, touch, u };
   }
   function attack(atk, u, ph, bx, by, R, px, py, t = 0, P = null){ return toWorld(attackUnit(atk, u, ph, (px - bx)/R, (py - by)/R, t, P), bx, by, R); }
   return { WINGS, CORE, EYE, HALO, feather, pose, attackUnit, attack, hand, HAND_DUR, HAND_WIN, ROAM, SWORD_REACH, uRate, mul, apply: ap, ease, sm, cl };

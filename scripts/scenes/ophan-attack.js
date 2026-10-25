@@ -14,7 +14,7 @@ const C = window.__cfg.CHAPTERS.ophan, keep = C.attacks
 H.until(() => !!run.script?.oph, 50)
 const o = run.script.oph
 const hold = () => { o.atkCd = 99; o.swapIn = 99 }
-H.until(() => { hold(); return o.t > 3 }, 1200)
+H.until(() => { hold(); return o.t > 3 && o.bossId != null }, 6000)   // through the opening wave: the boss is not out before it
 if (W !== null && W !== o.world) { run._worldPress = W; H.until(() => { hold(); return o.world === W && !o.wipe }, 600) }
 const boss = () => run.enemies.find((e) => e.rosterId === 'ophan' && !e._dead)
 if (SK !== null && SK !== o.skin) { o.hp[o.skin] = boss().hp; o.skin = SK; boss().hp = o.hp[SK] }

@@ -12,7 +12,7 @@ import { CHAPTERS } from '../../config.js'
 
 // the player stands here in world px (camera centred on it), clear of spawnClear so the ground patches show
 const P0 = { x: 1400, y: 900 }
-const SEED = +(new URLSearchParams(globalThis.location?.search).get('seed') ?? 0.73)   // run._driftSeed: picks the floor (rivers, cooled flows, hot ground)
+const SEED = 0.73   // run._driftSeed: picks the floor (rivers, cooled flows, hot ground)
 
 export default function stage(app, { W, H }) {
   globalThis.PIXEL_ART_PX = PX / 2 * app.renderer.resolution   // device px per boss art pixel: the mock-up paints the Ophan on a grid twice as fine as the world (src2.html lowF)
@@ -102,6 +102,5 @@ export default function stage(app, { W, H }) {
     },
     // the ground chunks round where pan will look, baked without a draw until performance.now() reaches until (renderer.js)
     prebake(pan, until) { return rig.prebake(run, { cx: W / 2 - P0.x - pan.x, cy: H / 2 - P0.y - pan.y, w: W, h: H }, until) },
-    setPass(on) { app.stage.filters = on ? [rig.filter] : null },
   }
 }

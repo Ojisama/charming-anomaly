@@ -39,6 +39,5 @@ export default function stage(app, { W, H }) {
       macroU.uniforms.uFocus[0] = (0.5 + (px / W - 0.5) * 0.6) * (1 - k) + (focus ? focus.x / W : 0) * k
       macroU.uniforms.uFocus[1] = (0.5 + (py / H - 0.5) * 0.6) * (1 - k) + (focus ? focus.y / H : 0) * k
     },
-    setPass(on) { app.stage.filters = on ? [lens] : null },
   }
 }

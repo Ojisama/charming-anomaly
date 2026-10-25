@@ -1,5 +1,4 @@
-import * as PIXI from 'pixi.js'
-import { OPHAN, OPHAN_HANDKIT, OPHAN_HANDS, OPHAN_RIG, hh } from '../page.js'
+import { OPHAN_HANDKIT, OPHAN_HANDS, OPHAN_RIG } from '../page.js'
 // THE GEODE'S HAND (holo): a trading-card hand rolling FOIL onto the boss. Drawn, not traced: seen from above, a fist
 // round the short fat handle of a brayer (four fingers wrapped over the handle, the thumb along its top), the forearm
 // running off up-right; thick near-black ink and two cel tones like the Geode cast, under a diagonal thin-film rainbow.

@@ -69,6 +69,5 @@ export default function stage(app, { W, H }) {
       u.uZoom = z
       u.uScreen[0] = app.screen.width; u.uScreen[1] = app.screen.height
     },
-    setPass(on) { app.stage.filters = on ? [foil] : null },
   }
 }

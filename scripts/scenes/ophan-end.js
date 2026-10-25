@@ -11,7 +11,7 @@ const CFG = window.__cfg, C = CFG.CHAPTERS.ophan
 run.player.xpNext = 1e9
 H.until(() => !!run.script?.oph, 50)
 const o = run.script.oph
-H.until(() => { o.atkCd = 99; return o.t > 3 }, 600)
+H.until(() => { o.atkCd = 99; return o.t > 3 && o.bossId != null }, 6000)   // through the opening wave: the boss is not out before it
 let now = performance.now(), crossed = null, seen = []
 const tick = () => { app.ticker.update(now += 1000 / 60); if (!seen.includes(run.phase)) seen.push(run.phase) }
 const summary = () => !!document.querySelector('.screen--summary.screen--visible')
@@ -20,6 +20,9 @@ return (age) => {
   if (!crossed) {
     run.phase = 'playing'   // H.clean() already set it; stated here because the line is crossed from 'playing'
     if (mode === 'dead') {
+      // the opening wave's crowd off the field (STAGED): at 1 hp a mole's touch would take the death from the sword
+      for (const e of run.enemies) if (e.rosterId !== 'ophan') e._dead = true
+      o.crowdT = 1e9
       const keep = C.attacks
       C.attacks = { 1: ['sword'], 2: ['sword'], 3: ['sword'] }
       o.atkCd = 0
@@ -30,7 +33,9 @@ return (age) => {
       // every skin broken the real way (stood in the worn world, STAGED, put at the floor), then the sketch taken off
       // (STAGED: the kill itself is run OP.sketch's): the next step finds it gone and ends the fight
       const b = () => run.enemies.find((e) => e.rosterId === 'ophan' && !e._dead)
-      for (let g = 0; !o.sketch && g < 12; g++) { o.world = o.skin; b().hp = CFG.OPHAN_BREAK_FLOOR; tick() }
+      // played on through the wave after each phase's last break (the boss is away then)
+      run.player.hp = run.player.maxHP = 1e6
+      for (let g = 0; !o.sketch && g < 8000; g++) { const e = b(); o.atkCd = 99; if (e) { o.world = o.skin; e.hp = CFG.OPHAN_BREAK_FLOOR } tick() }
       if (!o.sketch) throw new Error('the last break did not raise the sketch: ' + JSON.stringify(o.broken))
       b().hp = 0; b()._dead = true
     }

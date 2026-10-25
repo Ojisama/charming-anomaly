@@ -20,7 +20,6 @@ export function installPatches() {
   }
   for (const k of ['moveTo', 'lineTo', 'closePath', 'rect', 'arc', 'ellipse', 'quadraticCurveTo', 'bezierCurveTo'])
     P.prototype[k] = function (...a) { N.prototype[k].apply(this, a); this.cmd.push([k, a]) }
-  P.__rec = true
   window.Path2D = P
   const C = CanvasRenderingContext2D.prototype
   orig = { Path2D: N, ctx: {} }
@@ -36,8 +35,7 @@ export function uninstallPatches() {
   Object.assign(CanvasRenderingContext2D.prototype, orig.ctx)
   orig = null
 }
-export function makePx2D(PIXI) {
-  const { Graphics, Sprite, Texture, CanvasSource, Matrix, FillGradient, Container, Color, Rectangle } = PIXI
+function makePx2D() {
   const TAU = Math.PI * 2
   const texOf = new WeakMap()
   const tex = (px, cv) => {
@@ -126,7 +124,7 @@ export function makePx2D(PIXI) {
     // the root is scaled back down, so the scene graph stays in stage px like the game's.
     constructor(root, res = 1) {
       this.root = root; this.res = res; root.scale.set(1 / res)
-      this.gPool = []; this.sPool = []; this.cPool = []; this.mPool = []
+      this.gPool = []; this.sPool = []; this.cPool = []; this.mPool = []; this.rPool = []
       this.bad = {}
       this.grace = 4   // frames whose bakes are warm-up, not per-frame work: an owner (a look switch) may set it again
       this.begin()
@@ -134,13 +132,12 @@ export function makePx2D(PIXI) {
     begin() {
       for (const c of this.cPool) { c.mask = null; c.removeChildren() }
       this.root.removeChildren()
-      this.gi = this.si = this.ci = this.mi = 0; this.grace--; F.n++; this.imageSmoothingEnabled = true
+      this.gi = this.si = this.ci = this.mi = this.ri = 0; this.grace--; F.n++; this.imageSmoothingEnabled = true
       this.out = this.root; this.g = null
       this.m = [this.res, 0, 0, this.res, 0, 0]; this.stack = []
       this.globalAlpha = 1; this.fillStyle = '#000'; this.strokeStyle = '#000'; this.lineWidth = 1; this.lineCap = 'butt'; this.lineJoin = 'miter'
       this._op = 'source-over'
       this.path = []; this.sub = null
-      this.n = { g: 0, s: 0 }
     }
     flag(k) { this.bad[k] = (this.bad[k] || 0) + 1 }
     // a bake its painter dropped: its texture (and atlas crops) leave the GPU now, not whenever Pixi's GC gets to them
@@ -162,10 +159,10 @@ export function makePx2D(PIXI) {
     createLinearGradient(x0, y0, x1, y1) { return new Grad('linear', [x0, y0, x1, y1]) }
     createRadialGradient(x0, y0, r0, x1, y1, r1) { return new Grad('radial', [x0, y0, r0, x1, y1, r1]) }
     // ---- state ----
-    save() { this.stack.push({ m: this.m.slice(), a: this.globalAlpha, f: this.fillStyle, s: this.strokeStyle, w: this.lineWidth, c: this.lineCap, j: this.lineJoin, o: this._op, out: this.out }) }
+    save() { this.stack.push({ m: this.m.slice(), a: this.globalAlpha, f: this.fillStyle, s: this.strokeStyle, w: this.lineWidth, c: this.lineCap, j: this.lineJoin, o: this._op, out: this.out, sm: this.imageSmoothingEnabled }) }
     restore() {
       const s = this.stack.pop(); if (!s) return
-      this.m = s.m; this.globalAlpha = s.a; this.fillStyle = s.f; this.strokeStyle = s.s; this.lineWidth = s.w; this.lineCap = s.c; this.lineJoin = s.j
+      this.m = s.m; this.globalAlpha = s.a; this.fillStyle = s.f; this.strokeStyle = s.s; this.lineWidth = s.w; this.lineCap = s.c; this.lineJoin = s.j; this.imageSmoothingEnabled = s.sm
       if (s.o !== this._op) this.g = null
       this._op = s.o
       if (s.out !== this.out) { this.out = s.out; this.g = null }
@@ -226,7 +223,7 @@ export function makePx2D(PIXI) {
       let g = this.gPool[this.gi]
       if (!g) { g = new Graphics(); this.gPool.push(g) }
       this.gi++; g.clear(); g.blendMode = BLEND[this._op] || 'normal'
-      this.out.addChild(g); this.n.g++
+      this.out.addChild(g)
       return (this.g = g)
     }
     style(s, alpha) {
@@ -255,7 +252,19 @@ export function makePx2D(PIXI) {
       for (const s of S) g.poly(s.p.flat(), s.closed)
       g.stroke(st)
     }
-    fillRect(x, y, w, h) { const P = this.path, s = this.sub; this.beginPath(); this.rect(x, y, w, h); this.fill(); this.path = P; this.sub = s }
+    // a solid fillRect is a pooled white Sprite, tinted, at the full transform, in draw order like drawImage (its own pool:
+    // drawImage's sprites would keep a rect's tint). The Magma painter stamps its effects as hundreds of 1-art-pixel rects a
+    // frame, and as Graphics each was tessellated every frame (12-34 ms of a phone frame in a blast). A gradient keeps the path.
+    fillRect(x, y, w, h) {
+      if (typeof this.fillStyle !== 'string') { const P = this.path, s = this.sub; this.beginPath(); this.rect(x, y, w, h); this.fill(); this.path = P; this.sub = s; return }
+      const c = col(this.fillStyle), al = c.alpha * this.globalAlpha
+      if (al <= 0 || !w || !h) return
+      let s = this.rPool[this.ri]; if (!s) { s = new Sprite(Texture.WHITE); this.rPool.push(s) }
+      this.ri++; this.g = null
+      s.tint = c.color; s.alpha = al; s.blendMode = BLEND[this._op] || 'normal'
+      const m = this.m; s.setFromMatrix(new Matrix(m[0] * w, m[1] * w, m[2] * h, m[3] * h, m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]))
+      this.out.addChild(s)
+    }
     strokeRect(x, y, w, h) { const P = this.path, s = this.sub; this.beginPath(); this.rect(x, y, w, h); this.stroke(); this.path = P; this.sub = s }
     clearRect() { this.flag('clearRect') }
     clip(p, rule) {
@@ -291,39 +300,14 @@ export function makePx2D(PIXI) {
       const base = tex(this, cv)
       if (a.length === 8) { const k = sx + ',' + sy + ',' + sw + ',' + sh, C = base.__crops || (base.__crops = new Map()); let t = C.get(k)
         if (!t) C.set(k, t = new Texture({ source: base.source, frame: new Rectangle(sx, sy, sw, sh) })); s.texture = t } else s.texture = base
-      if (!this.imageSmoothingEnabled && s.texture.source.scaleMode !== 'nearest') s.texture.source.scaleMode = 'nearest'
+      // the mode lives on the shared source, so set it both ways: a canvas drawn nearest once must not stay nearest
+      const sm = this.imageSmoothingEnabled ? 'linear' : 'nearest'; if (s.texture.source.scaleMode !== sm) s.texture.source.scaleMode = sm
       const L = mul(this.m, [dw / sw, 0, 0, dh / sh, dx, dy])
       s.setFromMatrix(new Matrix(L[0], L[1], L[2], L[3], L[4], L[5]))
       s.alpha = this.globalAlpha; s.blendMode = BLEND[this._op] || 'normal'
-      this.out.addChild(s); this.n.s++
+      this.out.addChild(s)
     }
   }
   return (root, res) => new Px(root, res)
 }
-
-// art.js PX2D: a solid fillRect is a pooled white Sprite, tinted, at the full transform, in draw order like drawImage: the Magma
-// painter stamps its effects as hundreds of 1-art-pixel rects a frame, and as Graphics each was tessellated every frame
-// (12-34 ms of a phone frame in a blast). A gradient fill keeps px2d's own path.
-const PIXI = { Graphics, Sprite, Texture, CanvasSource, Matrix, FillGradient, Container, Color, Rectangle }, PX0 = makePx2D(PIXI)
-const BLEND = { 'source-over': 'normal', lighter: 'add', multiply: 'multiply', screen: 'screen' }, cols = new Map()
-let fast = null
-export const PX2D = (root, res) => {
-  const px = PX0(root, res)
-  if (!fast) {
-    const P = Object.getPrototypeOf(px), slow = P.fillRect, begin = P.begin
-    P.begin = function () { this.ri = 0; begin.call(this) }   // its own pool: drawImage's sprites would keep a rect's tint
-    fast = P.fillRect = function (x, y, w, h) {
-      if (typeof this.fillStyle !== 'string') return slow.call(this, x, y, w, h)
-      let c = cols.get(this.fillStyle); if (!c) { const k = new PIXI.Color(this.fillStyle.replace(/(?<=[(,\s])-?[\d.]+e[-+]?\d+/gi, (n) => (+n).toFixed(6))); if (cols.size >= 4096) cols.clear(); cols.set(this.fillStyle, c = [k.toNumber(), k.alpha]) }
-      const al = c[1] * this.globalAlpha; if (al <= 0 || !w || !h) return
-      const R = this.rPool || (this.rPool = [])
-      const i = this.ri | 0   // the first context began before begin() was wrapped
-      let s = R[i]; if (!s) { s = new PIXI.Sprite(PIXI.Texture.WHITE); R.push(s) }
-      this.ri = i + 1; this.g = null
-      s.tint = c[0]; s.alpha = al; s.blendMode = BLEND[this._op] || 'normal'
-      const m = this.m; s.setFromMatrix(new PIXI.Matrix(m[0] * w, m[1] * w, m[2] * h, m[3] * h, m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]))
-      this.out.addChild(s); this.n.s++
-    }
-  }
-  return px
-}
+export const PX2D = makePx2D()
