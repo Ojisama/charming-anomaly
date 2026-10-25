@@ -44264,6 +44264,17 @@ function testOphanRenderWiring() {
   const parkedBr = main.slice(main.indexOf('const parked = takeParkedRun('), main.indexOf('let resumeBrief'))
   assert.ok(/\.worlds\)/.test(parkedBr) && /resumeWarm = renderer\.prewarm\(run\.chapter/.test(parkedBr) && /if \(!run \|\| ffTarget > 0 \|\| resumeWarm\) return/.test(main),
     'a resumed parked Ophan run plays with none of its art baked (worlds not drawn, the boss cut under frames)')
+  // ...and up to the boss phase it was parked in: a fight frame bakes nothing, so a phase's art left queued never comes
+  // (resumed in p3, the sketch fight is drawn on the last world's floor instead of paper)
+  const needSrc = /need = ([^\n]+)\n/.exec(parkedBr)?.[1]
+  assert.ok(needSrc, 'the parked branch computes no phase need for its warm-up')
+  const needOf = new Function('run', `return ${needSrc}`)
+  for (const [oph, want] of [[null, 0], [{ stage: 'open' }, 0], [{ stage: 'wave' }, 0], [{ stage: 'p1' }, 1], [{ stage: 'p2' }, 2], [{ stage: 'p3' }, 3], [{ stage: 'p3', sketch: true }, 3]])
+    assert.equal(needOf({ script: oph && { oph } }), want, `a run parked at ${JSON.stringify(oph)} resumes before its phase's art is baked`)
+  assert.ok(/while \(run === parked && renderer\.ophanReady\(\) < need\)[^\n]*\n\s*resumeWarm = null/.test(parkedBr),
+    'Resume comes back before renderer.ophanReady() reaches the parked phase')
+  assert.ok(/onCodexClose\(from\) \{\s*if \(from === 'pause' && run\) ui\.showScreen\('pause', \{[^}]*loading: !!resumeWarm/.test(main),
+    'the Codex closed over the resume loader brings back a Resume button that does nothing')
   for (const id of ['ascii', 'pixel', 'toon'])
     assert.ok(/^\s*prebake\s*[(:]/m.test(strip(readFileSync(new URL(`../src/ophan/stages/${id}.js`, import.meta.url), 'utf8'))), `stages/${id}.js has no prebake: its floor bakes in view on the frame a press shows it`)
   const ophDir = new URL('../src/ophan/', import.meta.url), ophFiles = []

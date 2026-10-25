@@ -10168,7 +10168,7 @@ export const viewZoom = (render, screenW) => (render?.viewW ? Math.min(1, screen
 // ---- The Ophan (hidden Burrow boss) — the tuning block --------------------------------------------
 // An open arena (rev 2): the player starts at OPHAN_PLAYER_START and roams free; the boss chases.
 // OPHAN_ARENA and OPHAN_BOSS's x/y are v9's box and the boss's rest mark in it: the stage layout's
-// rest framing (src/ophan/renderer.js) and the tests' fixture spot, no longer a wall or a pin.
+// rest framing (src/ophan/renderer.js) and the tests' fixture spot.
 // docs/superpowers/specs/2026-10-24-the-ophan-final-boss-design.md, rev 2: 2026-10-25-ophan-open-arena-design.md
 // balance_decision : arena, boss and player start, first guesses 2026-10-24
 export const OPHAN_ARENA = { w: 390, h: 700 }
@@ -10191,7 +10191,7 @@ export const OPHAN_ATK_CD = [2.2, 3.7]
 export const OPHAN_ATK_FIRST = 3
 // every attack's wind-up, strike and recovery play this much faster; the cooldowns do not
 export const OPHAN_ATK_SPEED = 1.5
-// the sword blade's length in R: the slam lands .5 + this from the boss (v9's 1.8 put it at 2.3 R; this is 4x)
+// the sword blade's length in R: the slam lands .5 + this from the boss, 4x v9's reach
 //  - rig.js imports nothing: its SWORD_REACH must equal this (run OP.open pins both)
 export const OPHAN_SWORD_REACH = 8.7
 // balance_decision : matches player base; kite arm stalled at 0.9x 2026-10-25

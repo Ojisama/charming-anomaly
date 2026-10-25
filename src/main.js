@@ -377,7 +377,7 @@ const ui = initUI({
   onDevSpeed() {
     if (!meta.dev) return
     devSpeed = devSpeed === 1 ? 2 : devSpeed === 2 ? 4 : 1
-    if (run) ui.showScreen('pause', pauseData())
+    if (run) ui.showScreen('pause', { ...pauseData(), away: !!resumeWarm, loading: !!resumeWarm })
   },
   onPlayNow: playNow,
   onPauseToggle() {
@@ -430,7 +430,7 @@ const ui = initUI({
     ui.showScreen('codex', { elements: from === 'pause' && run ? run.elements : null, from })
   },
   onCodexClose(from) {
-    if (from === 'pause' && run) ui.showScreen('pause', pauseData())
+    if (from === 'pause' && run) ui.showScreen('pause', { ...pauseData(), away: !!resumeWarm, loading: !!resumeWarm })
     else ui.showScreen('title')
   },
   onDifficulty(d) {
@@ -1288,15 +1288,21 @@ if (parked) {
   beginRun()
   ui.updateHUD(run, []) // the ticker only draws the HUD while playing; behind the menu it would read 05:00
   const back = () => {
+    if (ui.activeScreen() === 'codex') return   // its Close lands on the pause sheet, Resume live by then
     if (run.phase === 'levelup') ui.showScreen('levelup', levelupData())
     else { run.phase = 'paused'; ui.showScreen('pause', { ...pauseData(), away: true }) }
   }
   // a fresh page has none of the chapter's art: the Ophan's worlds bake on the pause sheet's loader bar, as on the brief,
-  // and the run cannot resume until the level is ready
+  // and the run cannot resume until the level is ready — up to the boss phase it is in (the sketch is p3's, its paper phase 3's art):
+  // a fight frame bakes nothing, so whatever is still queued for it would never come
   if (CHAPTERS[run.chapter]?.worlds) {
     if (run.phase === 'playing') run.phase = 'paused'
     ui.showScreen('pause', { ...pauseData(), away: true, loading: true })
-    resumeWarm = renderer.prewarm(run.chapter, (k) => ui.briefLoad(k)).then(() => { resumeWarm = null; if (run === parked) back() })
+    const need = ({ p1: 1, p2: 2, p3: 3 })[run.script?.oph?.stage] ?? 0
+    resumeWarm = renderer.prewarm(run.chapter, (k) => ui.briefLoad(k)).then(async () => {
+      while (run === parked && renderer.ophanReady() < need) await new Promise(requestAnimationFrame)
+      resumeWarm = null; if (run === parked) back()
+    })
   } else back()
 }
 // Start found a newer build and reloaded: put the player back on the brief they left.
