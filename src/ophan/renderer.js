@@ -206,10 +206,11 @@ export function createOphanRenderer(host) {
   const glcWarm = (s, on) => { if (s.glc) Object.assign(s.glc.style, on ? { display: 'block', zIndex: '-1' } : { display: 'none', zIndex: '' }) }
   // a job marked alone runs as a frame's only job: the melt canvas is shown for a frame of its own, and hidden after one
   const alone = (f) => Object.assign(f, { alone: true })
+  let budget = WARM_BUDGET_MS
   const pump = () => {
     raf = 0
     const t0 = performance.now()
-    for (let n = 0; jobs.length && (n === 0 || (!jobs[0].alone && performance.now() - t0 < WARM_BUDGET_MS)); n++) {
+    for (let n = 0; jobs.length && (n === 0 || (!jobs[0].alone && performance.now() - t0 < budget)); n++) {
       const j = jobs.shift()
       try { j() } catch (e) { console.error(e) }
       if (j.alone) break
@@ -222,12 +223,14 @@ export function createOphanRenderer(host) {
     hide: ['floor', 'dust', 'enemies', 'shadows', 'crowns', 'affixes', 'obstacles', 'telegraphs'],
     // a world can be pressed once its slot is built and rendered once (its pass compiled, its floor uploaded)
     ready: (k) => !!slots[worlds[k]?.look]?.warm,
-    // art-fight.js's warm-up, one job per animation frame: each world's slot built and rendered once off screen (its pass
-    // compiles, its floor uploads), then its boss drawn at the fight's R through the phases and every attack the chapter
-    // can roll (the painters bake per size, phase and attack), each drawing rendered once; the Core's boss bakes in
-    // slices. Idempotent: a world already queued or warmed is skipped. The promise settles when the queue drains, so the
-    // fight never starts under it.
-    prewarm() {
+    // art-fight.js's warm-up, jobs run back to back for up to ms of each animation frame (at least one a frame): each
+    // world's slot built and rendered once off screen (its pass compiles, its floor uploads), then its boss drawn at the
+    // fight's R through the phases and every attack the chapter can roll (the painters bake per size, phase and attack),
+    // each drawing rendered once; the Core's boss bakes in slices. Queued in the order the fight first shows them: the
+    // first world's look comes first. Idempotent: a world already queued or warmed is skipped. The promise settles when
+    // the queue drains, so the fight never starts under it.
+    prewarm(ms = WARM_BUDGET_MS) {
+      budget = ms
       const ch = CHAPTERS.ophan, z = ophanView(app.screen.width, app.screen.height).z
       const atks = [...new Set(Object.values(ch.attacks).flat())]
       // the pencil sketch after the last skin: its paper, its body and its attacks at ph 4 (its painter bakes its every

@@ -44214,7 +44214,7 @@ function testOphanRenderWiring() {
   assert.ok(clk(0, -1, -1) === null && clk(OPHAN_HAND.inT + 0.01, 2, -1) === null, 'the hand shows outside its window (before the tell\'s last inT, or between swaps)')
   assert.ok(near(clk(OPHAN_HAND.inT, 2, -1), HW.in[0]) && near(clk(1e-9, 2, -1), HW.paint[0]), 'the hand does not play its arrival over the tell\'s last inT, landing at the paint')
   assert.ok(near(clk(0, -1, 0), HW.paint[0]) && near(clk(0, -1, OPHAN_HAND.after), HW.out[1]), 'the hand does not paint and lift over the after-beat')
-  const warmBody = rend.slice(rend.indexOf('prewarm() {'), rend.indexOf('enter(run) {'))
+  const warmBody = rend.slice(rend.search(/prewarm\([^)]*\) \{/), rend.indexOf('enter(run) {'))
   const syncBody = rend.slice(rend.indexOf('sync(run, dt, view) {'))
   assert.ok(/shadowBlur/.test(warmBody) && syncBody.length > 100 && !/shadowBlur/.test(syncBody),
     'the hand shadow\'s blur is not baked in prewarm() (or a shadowBlur runs in sync(), per frame)')
