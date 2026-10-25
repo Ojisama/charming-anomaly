@@ -10196,8 +10196,9 @@ export const OPHAN_ATK_SPEED = 1.5
 export const OPHAN_SWORD_REACH = 8.7
 // balance_decision : boss chase speed, first guess 0.9x the player 2026-10-25
 export const OPHAN_BOSS_SPEED = 0.9 * PLAYER.baseSpeed
-// the boss stops closing at the blast's reach, its shortest-ranged attack (rig.js: the crest tops out at .9 + 3.3 R)
-export const OPHAN_BOSS_HOLD = 0.95 * (0.9 + 3.3) * OPHAN_BOSS.R
+// balance_decision : the boss stops closing 2 R from the player 2026-10-25
+//  - must stay < phone half-width 195
+export const OPHAN_BOSS_HOLD = 2 * OPHAN_BOSS.R
 // it enters this fraction of the half view from the player: on screen, outside the screen's centre third
 export const OPHAN_ENTER = 0.6
 // balance_decision : opening wave 30 s, 15 s between phases 2026-10-25

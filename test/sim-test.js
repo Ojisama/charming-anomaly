@@ -43918,10 +43918,18 @@ function testOphanOpenArena() {
     ophSteps(r, Math.ceil(OPHAN_ATTACKS.sword.dur * 60), { before: () => { ophHold(r, hold)(); r.player.invuln = 0 }, until: () => !o.atk })
     assert.ok((r.dmgBySrc.ophanSword ?? 0) > 0, 'o9: a live sword never hurt the player standing at hold on its aim')
   }
-  // o7 the hold is inside the blast's live reach, so the blast lands on a player the boss stands off from
+  // o7 the boss holding beside the player stays on a 390-wide phone (half-width 195), and every attack aimed at a
+  // player at hold lands on them, at three bearings
+  assert.ok(OPHAN_BOSS_HOLD < 195, `o7: the boss holds ${OPHAN_BOSS_HOLD.toFixed(1)}px off, off a phone screen beside the player`)
   let blastR = 0
   for (let q = 0; q <= 1; q += 0.001) { const s = RIG.attack('blast', q, 3, 0, 0, 1, 0, 3).sheet; if (s && s.fade > OPHAN_HIT.blastFade) blastR = Math.max(blastR, s.front + s.band / 2) }
   assert.ok(OPHAN_BOSS_HOLD / R <= blastR, `o7: the boss holds ${(OPHAN_BOSS_HOLD / R).toFixed(2)} R off, past the blast's ${blastR.toFixed(2)} R`)
+  for (const k of CHAPTERS.ophan.sketchAttacks) for (const ang of [0, Math.PI / 4, Math.PI / 2]) {
+    const px = bx + Math.cos(ang) * OPHAN_BOSS_HOLD, py = by + Math.sin(ang) * OPHAN_BOSS_HOLD
+    let hit = false
+    for (let i = 0; i <= 400 && !hit; i++) hit = ophanHits(k, RIG.attack(k, i / 400, 3, bx, by, R, px, py), px, py, PLAYER.radius, R, OPHAN_HIT).hit
+    assert.ok(hit, `o7: the ${k} aimed at a player at hold (bearing ${(ang * 180 / Math.PI).toFixed(0)} deg) never lands`)
+  }
   // o8 a world switch reaches the crowd off the screen too: the wipe's last step turns what its circle never crossed
   {
     const r = ophanRun(3), o = calm(r)
@@ -43933,7 +43941,22 @@ function testOphanOpenArena() {
     ophSteps(r, 60, { until: () => !o.wipe })
     assert.ok(!o.wipe && e.world === 2, `o8: a body 3000px off kept world ${e.world} after the wipe to world 2`)
   }
-  console.log(`PASS run OP.open: walked to x=${walked.toFixed(0)}, boss closed ${closed.toFixed(0)}px in 1 s and stood ${stood.toFixed(1)}px off (hold ${OPHAN_BOSS_HOLD.toFixed(1)}), backed off, held still through a tornado with the shovel landing ${shovelled}, blast u ${u1.toFixed(3)} after 1 s, slam centred ${mid.toFixed(2)} R, fire ${fire[0]}..${fire[fire.length - 1]} R, blast reach ${blastR.toFixed(2)} R`)
+  // o10 a crowd body shed far behind a running player is recycled onto the ring ahead of them; the boss is not
+  let recycled
+  {
+    const r = ophanRun(1), o = calm(r), b = ophBoss(r)
+    o.atkCd = 1e9
+    o.crowdT = 0; stepSim(r, { x: 0, y: 0 }, 1 / 60); o.crowdT = 1e9
+    const e = r.enemies.find((x) => !x._dead && x.rosterId !== 'ophan'), spawnD = r.viewRadius + SPAWN_RING
+    ophSteps(r, 10, { input: { x: 1, y: 0 } })
+    Object.assign(e, { x: r.player.x - 5 * spawnD, y: r.player.y })
+    const bx0 = b.x
+    stepSim(r, { x: 1, y: 0 }, 1 / 60)
+    recycled = e.x - r.player.x
+    assert.ok(recycled > 0 && Math.hypot(e.x - r.player.x, e.y - r.player.y) < spawnD + 20, `o10: a body 5 spawn rings behind a runner sits ${recycled.toFixed(0)}px ahead of them, not on the ring ahead`)
+    assert.ok(Math.abs(b.x - bx0) < OPHAN_BOSS_SPEED / 30, 'o10: the recycler moved the boss')
+  }
+  console.log(`PASS run OP.open: walked to x=${walked.toFixed(0)}, boss closed ${closed.toFixed(0)}px in 1 s and stood ${stood.toFixed(1)}px off (hold ${OPHAN_BOSS_HOLD.toFixed(1)}), backed off, held still through a tornado with the shovel landing ${shovelled}, blast u ${u1.toFixed(3)} after 1 s, slam centred ${mid.toFixed(2)} R, fire ${fire[0]}..${fire[fire.length - 1]} R, blast reach ${blastR.toFixed(2)} R, straggler recycled ${recycled.toFixed(0)}px ahead`)
 }
 
 // ---- run OP.waves: rev 2's timeline — open wave 30 s, p1, wave 15 s, p2, wave 15 s, p3, then the sketch at once ------

@@ -2721,7 +2721,8 @@ function generateWells(sig) {
   *       atkCd — seconds to the next one while none runs. recov — the rig's recovery pose is up.
   *       stagger — seconds of resonance stagger left. Either doubles damage (OPHAN_WINDOW_MUL).
   *     immT — ophanImmune's throttle. crowdT — seconds to the next crowd spawn (on the ordinary
-  *       off-screen ring). push {x, y} — the player's shove/pull velocity from the blast and the tornado.
+  *       off-screen ring; stepStragglers recycles it ahead of a kiting player, the only scripted
+  *       chapter it does). push {x, y} — the player's shove/pull velocity from the blast and the tornado.
   * bossBar: null whenever no scripted boss is alive; while one is, { hp, max, stage } mirrors the
   *   current phase entity so ui.js can render a boss HP bar without reaching into run.enemies
   *   (rampage pattern: the field always exists, stays inert for every non-scripted chapter).

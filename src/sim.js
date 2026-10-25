@@ -4864,7 +4864,8 @@ function stepStragglers(run) {
   // `circuit` joins them: the recycler exists to stop a KITER shedding chasers, and a circuit's
   // crowd never chased in the first place (passiveCrowd). Recycling it would teleport traffic onto
   // the ring ahead of a driver who simply drove past it, which is the opposite of the mechanic.
-  if (ch.lane || ch.scripted || ch.circuit) return
+  // The Ophan (keyed on its worlds) is the one scripted chapter that takes it: an open arena, a chasing crowd
+  if (ch.lane || (ch.scripted && !ch.worlds) || ch.circuit) return
   const p = run.player
   if (Math.hypot(p.vx, p.vy) < KITE_MIN_SPEED) return
   const heading = Math.atan2(p.vy, p.vx)
