@@ -263,6 +263,26 @@ stage('leave', 'A', { label: 'A · the plunge: rears up, hangs, dives through th
 // ---- B · THE DRILL: wings folded tight, it spins up and corkscrews into the floor, grinding the hole open
 const TD = 0.75, TG = 1.35   // the drill bites, it is under
 const spin = (T) => 2.2 * T * T * T + 1.5 * T * T   // radians turned by T: ever faster
+const BURST = [0.6, 0.84, 1.03, 1.03, 1.24]   // when the debris goes: the descent's steps drop at about 0.85, 1.05, 1.25 s
+// the spin's traces round the top at (x, y), radius R: flat arcs at different heights and widths, each trailing behind the
+// turn and flickering; front: the near halves (over it) or the far ones (under it). sr the spin speed 0..1
+function trails(c, M, x, y, R, z, yaw, sr, T, front) {
+  c.lineCap = 'round'
+  for (let i = 0; i < 13; i++) {
+    const rx = R * (0.5 + 1.0 * hash(i, 90)), ry = rx * (0.18 + 0.14 * hash(i, 91)), hy = R * (-0.55 + 0.75 * hash(i, 92))
+    const a0 = yaw * (0.75 + 0.5 * hash(i, 93)) + hash(i, 94) * TAU, L = (0.7 + 1.6 * hash(i, 95)) * sr
+    const fl = 0.45 + 0.55 * hash(i, Math.floor(T * 24) + 100), al = 0.75 * sr * fl
+    if (al < 0.03) continue
+    c.strokeStyle = i % 3 ? M.lit : M.ember ?? M.dust2
+    for (let m = 0; m < 6; m++) {
+      const s0 = a0 - L * m / 6, s1 = a0 - L * (m + 1) / 6
+      if ((Math.sin((s0 + s1) / 2) > 0) !== front) continue
+      c.globalAlpha = al * (1 - m / 6); c.lineWidth = (3.4 - 0.4 * m) * z * (0.6 + 0.6 * hash(i, 96))
+      c.beginPath(); c.ellipse(x, y + hy, rx, ry, 0, Math.min(s0, s1), Math.max(s0, s1)); c.stroke()
+    }
+  }
+  c.globalAlpha = 1
+}
 stage('leave', 'B', { label: 'B · the drill: folds its wings, spins up and corkscrews into the floor, debris thrown in a spiral', dur: 4, draw(k) {
   const M = matOf(k), T = k.u * k.dur, R = k.R, cx = k.x, cy = k.y + R * HY
   const th = spin(Math.min(T, TG)) * 6   // its turn: the grind, the whirl and the throw follow it
@@ -273,12 +293,13 @@ stage('leave', 'B', { label: 'B · the drill: folds its wings, spins up and cork
   const f = k.floor, cut = win(T, TD, TG + 0.1), keep = 1 - win(k.u, 0.85, 0.97)
   if (cut > 0 && keep > 0) {
     f.lineCap = 'round'
-    for (let j = 0; j < 4; j++) {
-      const a0 = j / 4 * TAU + 0.3, N = 18
+    // five grooves, none like another: where each starts, how far it runs, how fast it opens out and curls, how deep
+    for (let j = 0; j < 5; j++) {
+      const a0 = (j + 0.7 * hash(j, 95)) / 5 * TAU, N = 18, len = 0.4 + 0.6 * hash(j, 96), out = 1 + 0.9 * hash(j, 97), curl = 1.5 + 1.5 * hash(j, 98), wj = 0.55 + 0.7 * hash(j, 99)
       for (const [col, lw, dy, al] of [[M.ember ?? M.lip, 1.1, 1.6, 0.6], [M.crack, 1, 0, 0.9]]) {
-        f.globalAlpha = al * keep; f.strokeStyle = col; f.lineWidth = (3.2 * lw) * k.z; f.beginPath()
-        for (let m = 0; m <= N * cut; m++) {
-          const q = m / N, r = R * (1.15 + 1.5 * q), a = a0 - q * 2.2
+        f.globalAlpha = al * keep; f.strokeStyle = col; f.lineWidth = (3.2 * lw * wj) * k.z; f.beginPath()
+        for (let m = 0; m <= N * cut * len; m++) {
+          const q = m / N, r = R * (1.15 + out * q), a = a0 - q * curl
           const X = cx + Math.cos(a) * r, Y = cy + Math.sin(a) * r * FY + dy * k.z
           m ? f.lineTo(X, Y) : f.moveTo(X, Y)
         }
@@ -290,27 +311,47 @@ stage('leave', 'B', { label: 'B · the drill: folds its wings, spins up and cork
   // ---- the boss: the tornado's own top (rig.js), its coil and spin-up played fast, then screwed down into the hole at full
   // spin. Drawn at its full R and scaled whole by fadePx (a painter bakes per size); the player taken at the boss, so the
   // tornado's vortex stays under it instead of setting off down its road
+  // Not a machine: the descent bites, catches and drops again (three uneven steps), the spin stutters, the axis precesses
   k.boss.hide = true
-  const down = win(T, TD, TG), sc = 1 - 0.85 * down * down, c = k.px(1)
+  const d0 = win(T, TD, TG), down = d0 - 0.75 * Math.sin(TAU * 3 * d0) / (TAU * 3), sc = 1 - 0.85 * down * down, c = k.px(1)
+  const sr = ease(win(T, 0.45, TD)), op = Math.max(0.05, open)
   if (down < 1) {
-    const au = T < 0.5 ? 0.3 * T / 0.5 : T < TD ? 0.3 + 0.13 * (T - 0.5) / (TD - 0.5) : 0.43 + 0.17 * down
-    const y = k.y + (cy - k.y) * down, op = Math.max(0.05, open)
-    // the mouth, in the scaled px2d's own coordinates
-    const clip = down > 0.35 ? (g) => g.ellipse(cx, y + (cy - y) / sc, R * HW * 0.46 * op / sc, R * HH * 0.46 * op / sc, 0, 0, TAU) : null
-    k.fadePx(0, 1, sc, cx, y)
-    k.drawBoss(k.from ?? k.S, k.px(0), cx, y, R, Math.round(k.ph0 ?? k.ph), clip, { atk: 'tornado', u: au, px: cx, py: y })
-    if (down > 0.35) shade(k, c, cx, cy, op, 0.85 * ease(win(down, 0.35, 1)))
+    const lurch = 0.006 * sr * Math.sin(T * 23 + 1.3 * Math.sin(T * 7))
+    const au = (T < 0.5 ? 0.3 * T / 0.5 : T < TD ? 0.3 + 0.13 * (T - 0.5) / (TD - 0.5) : 0.43 + 0.17 * d0) + lurch
+    const pr = T * 7.5 + 2 * Math.sin(T * 3.1), x = cx + R * 0.08 * sr * Math.cos(pr), y = k.y + (cy - k.y) * down + R * 0.035 * sr * Math.sin(pr)
+    // the mouth, in a scaled px2d's own coordinates (scaled sc about x, y)
+    const clipL = (g) => g.ellipse(x + (cx - x) / sc, y + (cy - y) / sc, R * HW * 0.46 * op / sc, R * HH * 0.46 * op / sc, 0, 0, TAU)
+    const clip = down > 0.35 ? clipL : null, S = k.from ?? k.S, ph = Math.round(k.ph0 ?? k.ph)
+    // its ghost a turn-step behind, under it (px 0); the boss itself over the dust (px 2)
+    if (sr > 0.05) { k.fadePx(0, 0.4 * sr, sc, x, y); k.drawBoss(S, k.px(0), x, y, R, ph, clip, { atk: 'tornado', u: au - 0.018 - 0.01 * hash(Math.floor(T * 30), 81), px: x, py: y }) }
+    k.fadePx(2, 1, sc, x, y)
+    const b = k.px(2)
+    k.drawBoss(S, b, x, y, R, ph, clip, { atk: 'tornado', u: au, px: x, py: y })
+    // the speed arcs wrapping it: the far halves under it (px 1, stage px), the near halves over it (px 2, its own px)
+    if (sr > 0.02) {
+      const yaw = 26 * Math.max(0, T - 0.5) * (0.4 + 0.6 * sr)
+      if (clip) { c.save(); c.beginPath(); mouthClip(k, cx, cy, op)(c); c.clip() }
+      trails(c, M, x, y, R * sc, sc * k.z, yaw, sr, T, false)
+      if (clip) c.restore()
+      b.save(); if (clip) { b.beginPath(); clipL(b); b.clip() }
+      trails(b, M, x, y, R, k.z, yaw, sr, T, true)
+      b.restore()
+    }
+    // the dark of the pit over what is down in it, in px 2's own px
+    const sh = down > 0.35 ? 0.85 * ease(win(down, 0.35, 1)) : 0
+    if (sh > 0.01) { b.save(); b.beginPath(); clipL(b); b.clip(); b.globalAlpha = sh; b.fillStyle = '#050407'; b.fillRect(x - 3 * R / sc, y - 3 * R / sc, 6 * R / sc, 6 * R / sc); b.restore(); b.globalAlpha = 1 }
   }
   // a whirl of dust round it as it spins up, wound tighter and dragged into the hole
   const wh = win(T, 0.3, TG + 0.9)
   if (wh > 0 && wh < 1) for (let i = 0; i < 16; i++) {
-    const a = i / 16 * TAU - th * 0.35 - hash(i, 51), d = R * (1 + 0.6 * hash(i, 52)) * (1.2 - 0.5 * ease(wh))
+    const a = i / 16 * TAU - th * (0.25 + 0.2 * hash(i, 54)) - hash(i, 51), d = R * (1 + 0.6 * hash(i, 52)) * (1.2 - 0.5 * ease(wh))
     puff(c, M, cx + Math.cos(a) * d, cy + Math.sin(a) * d * FY, R * (0.3 + 0.35 * hash(i, 53)), i + 50, 0.5 * Math.sin(Math.PI * wh))
   }
   // what it grinds out, flung off tangentially in a spiral, landing round the hole
   const lie = 1 - win(k.u, 0.86, 0.97)
   for (let i = 0; i < 40; i++) {
-    const T0 = TD - 0.15 + (TG - TD + 0.1) * hash(i, 31), a0 = -spin(T0) * 6 + hash(i, 32), D = R * (1.3 + 2.4 * hash(i, 33))
+    // spat out in bursts: the spin-up's shove, then each time the bite catches and gives
+    const T0 = BURST[Math.floor(hash(i, 31) * BURST.length)] + 0.06 * hash(i, 38), a0 = -spin(T0) * 6 + hash(i, 32), D = R * (1.3 + 2.4 * hash(i, 33))
     const p = fly(T, T0, cx + Math.cos(a0) * R * 0.9, cy + Math.sin(a0) * R * 0.9 * FY, 0, 0, R * (0.3 + 0.6 * hash(i, 34)), 0.5 + 0.3 * hash(i, 35))
     if (!p) continue
     // the spiral: its bearing sweeps on with the turn as it flies out

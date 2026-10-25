@@ -16,41 +16,111 @@ function star(c, x, y, r, rot, lw) {
   c.closePath(); c.fillStyle = GOLD; c.fill(); c.lineJoin = 'round'; c.strokeStyle = INK; c.lineWidth = lw; c.stroke()
 }
 
-// ---- A: the quick-change. A cartoon dust cloud puffs up round the boss in a blink (round inked bubbles, stars and spark
-// ticks flying off it), hides it for a moment and thins away bubble by bubble: the boss is standing there in its new skin.
-// The old skin is only seen before the cloud closes over it.
-const PUFF = Array.from({ length: 13 }, (_, i) => {
-  const ring = i === 0 ? 0 : i < 5 ? 0.55 : 1, a = (i / (i < 5 ? 4 : 8)) * TAU + hash(i, 1) * 0.6
-  return { ox: Math.cos(a) * ring * 1.15, oy: Math.sin(a) * ring * 0.8, r: (ring === 1 ? 0.5 : 0.65) * (0.85 + 0.3 * hash(i, 2)), t: 0.22 + 0.18 * hash(i, 3) + 0.06 * ring }
-})
-stage('break', 'toon:A', { world: 'toon', label: 'A · quick-change: a cartoon dust puff hides the swap', draw(k) {
+// ---- A: the quick-change. A cartoon dust cloud bursts up round the boss in a blink and churns (bubbles swelling and
+// shrinking, puffs spitting out of its sides, wisps shooting off and popping, stars and spark ticks), a comic "POOF!"
+// pops out of it, and it clears bubble by bubble: the boss is standing there in its new skin. The old skin is only seen
+// before the cloud closes over it.
+// the word, the one place it is written: the port routes it through t() (fr "POUF !"); bakes are cached by the word
+export const POOF = 'POOF!'
+const FONT = '900 150px "Arial Black", "Arial Rounded MT Bold", Impact, sans-serif'
+const words = new Map()
+// the word as comic lettering, baked once per word: a jagged gold burst behind, chunky orange letters each jostled, inked
+function word(w) {
+  let cv = words.get(w)
+  if (cv) return cv
+  cv = document.createElement('canvas'); cv.width = 800; cv.height = 400
+  const g = cv.getContext('2d'), cx = 400, cy = 200
+  g.lineJoin = 'round'; g.lineCap = 'round'
+  g.beginPath()
+  for (let j = 0; j < 28; j++) { const a = (j / 28) * TAU, r = (j % 2 ? 0.6 : 1) * (0.9 + 0.2 * hash(j, 61)); j ? g.lineTo(cx + Math.cos(a) * r * 380, cy + Math.sin(a) * r * 185) : g.moveTo(cx + Math.cos(a) * r * 380, cy + Math.sin(a) * r * 185) }
+  g.closePath(); g.fillStyle = GOLD; g.fill(); g.strokeStyle = INK; g.lineWidth = 12; g.stroke()
+  g.font = FONT; g.textAlign = 'center'; g.textBaseline = 'middle'
+  const L = [...w], ws = L.map((ch) => g.measureText(ch).width), tot = ws.reduce((a, b) => a + b, 0) * 0.92
+  let at = cx - tot / 2
+  L.forEach((ch, i) => {
+    const lx = at + ws[i] * 0.46, ly = cy + 8 + (hash(i, 62) - 0.5) * 34, rot = (hash(i, 63) - 0.5) * 0.36
+    g.save(); g.translate(lx, ly); g.rotate(rot)
+    g.strokeStyle = INK; g.lineWidth = 26; g.strokeText(ch, 0, 0)
+    g.fillStyle = '#a8200f'; g.fillText(ch, 4, 5)
+    g.fillStyle = '#f0521c'; g.fillText(ch, 0, 0)
+    g.restore()
+    at += ws[i] * 0.92
+  })
+  words.set(w, cv)
+  return cv
+}
+word(POOF)   // baked at load: never made in a frame
+
+// the cloud's bubbles, round the boss in R: three layers, the back ones bigger and earlier
+const PUFF = [
+  ...Array.from({ length: 12 }, (_, i) => { const a = (i / 12) * TAU + hash(i, 1) * 0.4; return { ox: Math.cos(a) * 1.35, oy: Math.sin(a) * 0.95, r: 0.5 + 0.18 * hash(i, 2), t: 0.3 + 0.12 * hash(i, 3) } }),
+  ...Array.from({ length: 7 }, (_, i) => { const a = (i / 7) * TAU + 0.4 + hash(i, 11) * 0.5; return { ox: Math.cos(a) * 0.75, oy: Math.sin(a) * 0.5, r: 0.6 + 0.15 * hash(i, 12), t: 0.25 + 0.15 * hash(i, 13) } }),
+  { ox: 0, oy: 0, r: 0.75, t: 0.28 }, { ox: -0.35, oy: -0.3, r: 0.55, t: 0.26 }, { ox: 0.4, oy: -0.25, r: 0.5, t: 0.33 },
+]
+// puffs spat out of the cloud's sides, and wisps shooting off and popping: { a angle, d reach, r, t0 born }
+const SPIT = Array.from({ length: 6 }, (_, i) => ({ a: (i % 2 ? 0 : Math.PI) + (hash(i, 21) - 0.5) * 0.9, d: 1.4 + 0.5 * hash(i, 22), r: 0.32 + 0.12 * hash(i, 23), t0: 0.06 + 0.1 * hash(i, 24) }))
+const WISP = Array.from({ length: 10 }, (_, i) => ({ a: (i / 10) * TAU + hash(i, 31) * 0.5, d: 1.6 + 0.9 * hash(i, 32), r: 0.13 + 0.08 * hash(i, 33), t0: 0.04 + 0.2 * hash(i, 34) }))
+stage('break', 'toon:A', { world: 'toon', label: 'A · quick-change: a cartoon POOF cloud hides the swap', draw(k) {
   const { u, x, y, R } = k, c = k.px(1), lw = R * 0.05
   if (u < 0.06) old(k)
-  // each bubble: pops up fast (overshooting), holds, then shrinks away from its own moment, drifting a little out
-  const B = PUFF.map((b, i) => {
-    const up = win(u, 0.005 * i, 0.06 + 0.005 * i), go = win(u, b.t, b.t + 0.12)
-    const s = (up < 1 ? out(up) * (1 + 0.15 * Math.sin(Math.PI * up)) : 1) * (1 - ease(go)) * (1 + 0.04 * Math.sin(u * 30 + i))
-    return { x: x + (b.ox * (1 + 0.25 * go)) * R, y: y + (b.oy * (1 + 0.25 * go)) * R, r: b.r * R * s }
-  }).filter((b) => b.r > 0.5)
-  // inked as one cloud: every bubble's ink disc, then every bubble's fill over them, then the shading
-  c.fillStyle = INK; for (const b of B) { c.beginPath(); c.arc(b.x, b.y, b.r + lw, 0, TAU); c.fill() }
-  c.fillStyle = CREAM; for (const b of B) { c.beginPath(); c.arc(b.x, b.y, b.r, 0, TAU); c.fill() }
-  c.fillStyle = SHADE; for (const b of B) { c.beginPath(); c.arc(b.x + b.r * 0.22, b.y + b.r * 0.26, b.r * 0.62, 0, TAU); c.fill() }
-  c.fillStyle = CREAM; for (const b of B) { c.beginPath(); c.arc(b.x - b.r * 0.08, b.y - b.r * 0.1, b.r * 0.62, 0, TAU); c.fill() }
-  c.fillStyle = '#ffffff'; for (const b of B) { c.beginPath(); c.ellipse(b.x - b.r * 0.38, b.y - b.r * 0.42, b.r * 0.2, b.r * 0.1, -0.6, 0, TAU); c.fill() }
-  // spark ticks and stars flung off the puff
+  const B = []
+  // the cloud: each bubble pops up fast (overshooting, the middle ones first so it closes over the boss at once), churns (swelling and shrinking), then shrinks away at its moment
+  PUFF.forEach((b, i) => {
+    const o = PUFF.length - 1 - i, up = win(u, 0.003 * o, 0.05 + 0.003 * o), go = win(u, b.t, b.t + 0.13)
+    const churn = 1 + 0.1 * Math.sin(u * 38 + i * 1.7) * (1 - go)
+    const s = (up < 1 ? out(up) * (1 + 0.2 * Math.sin(Math.PI * up)) : 1) * (1 - ease(go)) * churn
+    const bill = 1 + 0.12 * out(win(u, 0, 0.3)) + 0.2 * go   // the cloud billows out as it goes
+    B.push({ x: x + b.ox * bill * R, y: y + b.oy * bill * R, r: b.r * R * s })
+  })
+  // spat puffs: shot out of the sides, slowing, shrinking away; wisps: small, fast, then pop
+  for (const q of SPIT) {
+    const f = win(u, q.t0, q.t0 + 0.3)
+    if (f <= 0 || f >= 1) continue
+    const d = R * (0.9 + q.d * out(f)), s = Math.sin(Math.PI * Math.min(1, f * 1.6)) * (1 - f)
+    B.push({ x: x + Math.cos(q.a) * d * 1.1, y: y + Math.sin(q.a) * d * 0.8, r: q.r * R * (0.6 + 1.2 * s) })
+  }
+  const pops = []
+  for (const q of WISP) {
+    const f = win(u, q.t0, q.t0 + 0.2)
+    if (f <= 0) continue
+    const d = R * (0.8 + q.d * out(f)), px = x + Math.cos(q.a) * d * 1.15, py = y + Math.sin(q.a) * d * 0.85
+    if (f < 0.8) B.push({ x: px, y: py, r: q.r * R * (0.5 + 0.5 * Math.sin(Math.PI * f / 0.8 * 0.7)) })
+    else pops.push({ x: px, y: py, f: (f - 0.8) / 0.2, r: q.r * R })
+  }
+  const L = B.filter((b) => b.r > 0.5)
+  // inked as one cloud: every bubble's ink disc, then every fill over them, then the shading
+  c.fillStyle = INK; for (const b of L) { c.beginPath(); c.arc(b.x, b.y, b.r + lw, 0, TAU); c.fill() }
+  c.fillStyle = CREAM; for (const b of L) { c.beginPath(); c.arc(b.x, b.y, b.r, 0, TAU); c.fill() }
+  c.fillStyle = SHADE; for (const b of L) { c.beginPath(); c.arc(b.x + b.r * 0.22, b.y + b.r * 0.26, b.r * 0.62, 0, TAU); c.fill() }
+  c.fillStyle = CREAM; for (const b of L) { c.beginPath(); c.arc(b.x - b.r * 0.08, b.y - b.r * 0.1, b.r * 0.62, 0, TAU); c.fill() }
+  c.fillStyle = '#ffffff'; for (const b of L) { c.beginPath(); c.ellipse(b.x - b.r * 0.38, b.y - b.r * 0.42, b.r * 0.2, b.r * 0.1, -0.6, 0, TAU); c.fill() }
+  // a wisp's pop: four short ink ticks bursting from where it was
+  c.strokeStyle = INK; c.lineCap = 'round'; c.lineWidth = lw * 0.7
+  for (const p of pops) {
+    c.globalAlpha = 1 - p.f
+    for (let j = 0; j < 4; j++) { const a = (j / 4) * TAU + 0.4, r0 = p.r * (0.6 + 1.2 * p.f), r1 = r0 + p.r * 0.8; c.beginPath(); c.moveTo(p.x + Math.cos(a) * r0, p.y + Math.sin(a) * r0); c.lineTo(p.x + Math.cos(a) * r1, p.y + Math.sin(a) * r1); c.stroke() }
+  }
+  c.globalAlpha = 1
+  // spark ticks and stars flung off the burst
   const sp = win(u, 0.02, 0.4)
   if (sp > 0 && sp < 1) {
-    c.strokeStyle = INK; c.lineCap = 'round'; c.lineWidth = lw * 0.9; c.globalAlpha = 1 - sp * sp
-    for (let j = 0; j < 10; j++) {
-      const a = (j / 10) * TAU + hash(j, 4) * 0.4, r0 = R * (1.3 + 1.1 * out(sp)), L = R * 0.25 * (1 - sp)
-      c.beginPath(); c.moveTo(x + Math.cos(a) * r0 * 1.15, y + Math.sin(a) * r0 * 0.85); c.lineTo(x + Math.cos(a) * (r0 + L) * 1.15, y + Math.sin(a) * (r0 + L) * 0.85); c.stroke()
+    c.strokeStyle = INK; c.lineWidth = lw * 0.9; c.globalAlpha = 1 - sp * sp
+    for (let j = 0; j < 12; j++) {
+      const a = (j / 12) * TAU + hash(j, 4) * 0.4, r0 = R * (1.6 + 1.2 * out(sp)), L2 = R * 0.3 * (1 - sp)
+      c.beginPath(); c.moveTo(x + Math.cos(a) * r0 * 1.15, y + Math.sin(a) * r0 * 0.85); c.lineTo(x + Math.cos(a) * (r0 + L2) * 1.15, y + Math.sin(a) * (r0 + L2) * 0.85); c.stroke()
     }
-    for (let j = 0; j < 3; j++) {
-      const a = -Math.PI / 2 + (j - 1) * 1.1 + hash(j, 7) * 0.3, r = R * (1 + 1.3 * out(sp))
-      star(c, x + Math.cos(a) * r * 1.2, y + Math.sin(a) * r * 0.9, R * 0.16 * (1 - 0.4 * sp), sp * 5 * (j - 1), lw * 0.7)
+    for (let j = 0; j < 4; j++) {
+      const a = -Math.PI / 2 + (j - 1.5) * 0.9 + hash(j, 7) * 0.3, r = R * (1.3 + 1.3 * out(sp))
+      star(c, x + Math.cos(a) * r * 1.25, y + Math.sin(a) * r * 0.9, R * 0.17 * (1 - 0.4 * sp), sp * 5 * (j - 1.5), lw * 0.7)
     }
     c.globalAlpha = 1
+  }
+  // POOF!: pops out of the cloud at its peak (an overshooting scale), holds, then floats up and fades as the cloud clears
+  const pin = win(u, 0.07, 0.17), pout = win(u, 0.3, 0.5)
+  if (pin > 0 && pout < 1) {
+    const cv = word(POOF), g = k.px(2), back = 1.7, s = 1 + (back + 1) * Math.pow(pin - 1, 3) + back * Math.pow(pin - 1, 2)
+    const W = R * 3.2 * s * (1 + 0.15 * pout), H = W * cv.height / cv.width, wy = y - R * 0.15 - R * 0.9 * ease(pout)
+    g.save(); g.globalAlpha = 1 - ease(pout); g.translate(x, wy); g.rotate(-0.14); g.drawImage(cv, -W / 2, -H / 2, W, H); g.restore(); g.globalAlpha = 1
   }
 } })
 
