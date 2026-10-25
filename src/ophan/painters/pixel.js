@@ -302,7 +302,13 @@ OPHAN.pixel = (() => {
   // the tornado core's dither as a strip, pixel i '#fff4c4' when odd: a run at x of row y is the crop from (x + y) & 1
   // ponytail: 4096 px is wider than any core run (a few hundred px); a wider screen would need a longer strip
   const CHK = mk(4096, 1); { const g = CHK.getContext('2d'); g.fillStyle = '#ffd858'; g.fillRect(0, 0, 4096, 1); g.fillStyle = '#fff4c4'; for (let i = 1; i < 4096; i += 2) g.fillRect(i, 0, 1, 1); }
-  function sheet(key, Rr, ph, poseAt, all){ let S = SHEETS.get(key); if (!S) SHEETS.set(key, S = { Rr, ph, poseAt, F: [] });
+  // the least recently shown sheets past SHEET_MAX are dropped: an attack's key holds the aim, which moves with the player
+  // through a cast, so a long fight would otherwise keep every aim it ever saw
+  const SHEET_MAX = 24;
+  function sheet(c, key, Rr, ph, poseAt, all){ let S = SHEETS.get(key);
+    if (S) SHEETS.delete(key); else S = { Rr, ph, poseAt, F: [] };
+    SHEETS.set(key, S);
+    if (SHEETS.size > SHEET_MAX){ const [k0, S0] = SHEETS.entries().next().value; SHEETS.delete(k0); for (const F of S0.F) if (F) for (const v of Object.values(F)) if (v instanceof HTMLCanvasElement) c.forget?.(v); }
     if (all) for (let i = 0; i < FN; i++) frame(S, i);   // all: the idle loop in the warm-up (px2d's grace), the whole run at once and no smear (it draws none)
     return S; }
   let BK = 0;   // frames baked so far
@@ -634,14 +640,14 @@ OPHAN.pixel = (() => {
       c.save(); c.setTransform(1,0,0,1,0,0); c.imageSmoothingEnabled = false; c.drawImage(floor(n), Math.round(T.e), Math.round(T.f)); c.restore();
     },
     boss(c, x, y, R, t, ph = 3){ const Rr = R*c.getTransform().a/AP();
-      place(c, x, y, R, t, ph, sheet(['idle', Math.round(Rr), ph].join(), Rr, ph, (j) => ({ P: RIG.pose(j/10, ph), t: j/10, o: [0, 0] }), c.grace > 0), loopI(t)); },
+      place(c, x, y, R, t, ph, sheet(c, ['idle', Math.round(Rr), ph].join(), Rr, ph, (j) => ({ P: RIG.pose(j/10, ph), t: j/10, o: [0, 0] }), c.grace > 0), loopI(t)); },
     attack(c, x, y, R, t, ph = 3, atk, u, px, py){
       const gx = (px - x)/R, gy = (py - y)/R, P = RIG.pose(t, ph, atk, u, gx, gy), A = RIG.attackUnit(atk, u, ph, gx, gy, t, P), b = P.beats;
       // the sword's and the tornado's bodies ignore the aim's distance (only the eyes' gaze read it), so their sheets are cut at the hold distance
       // (config OPHAN_BOSS_HOLD, 2 R): one per direction, not one per direction and step of the player's range
       const an = Math.round(Math.atan2(gy, gx)/(TAU/16)), dq = atk === 'sword' || atk === 'tornado' ? 2 : Math.max(.5, Math.round(Math.hypot(gx, gy)*2)/2), qx = Math.cos(an*TAU/16)*dq, qy = Math.sin(an*TAU/16)*dq;   // the aim the sheet was cut at
       const Rr = R*c.getTransform().a/AP(), mv = atk === 'wheel' || atk === 'sword';
-      const S = sheet([atk, Math.round(Rr), ph, an, dq].join(), Rr, ph, (j) => { const uq = j/(FN - 1), Q = RIG.pose(0, ph, atk, uq, qx, qy);
+      const S = sheet(c, [atk, Math.round(Rr), ph, an, dq].join(), Rr, ph, (j) => { const uq = j/(FN - 1), Q = RIG.pose(0, ph, atk, uq, qx, qy);
         if (atk === 'sword') Q.swd = { A: RIG.attackUnit(atk, uq, ph, qx, qy, 0, Q), u: uq }; return { P: Q, t: 0, o: mv ? [Q.body.ox, Q.body.oy] : [0, 0] }; });   // never whole: its key holds the aim, which the fight almost never repeats; each frame is cut as first shown
       const fi = (v) => Math.round(Math.max(0, v)*(FN - 1)), sp = atk === 'tornado' ? b.spin : 0;
       const gh = sp > .05 ? [[fi(u - .003), .3*sp, GHOST[0]], [fi(u - .0015), .45*sp, GHOST[1]]]   // the top's smear: where it just turned

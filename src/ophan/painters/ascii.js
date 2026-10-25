@@ -373,7 +373,7 @@ OPHAN.ascii = (() => {
     // SCORCH: each lane burnt from its start to the walking point, white-hot at the point, cooling to dull ember behind it
     if (A.sweep > 0 && sk > .01) for (const b of A.beams){
       c.globalAlpha = .8*sk; c.strokeStyle = 'rgb(30,8,5)'; c.lineWidth = .09*R; c.lineCap = 'round'; c.beginPath(); c.moveTo(b.start.x, b.start.y); c.lineTo(b.end.x, b.end.y); c.stroke();
-      for (let d=0, k=0;d<=run;d+=cs*1.4, k++){ const h = Math.exp(-(run - d)/(1.4*R))*(.35 + .65*fire), cl = h > .5 ? [lerp(220, 255, (h - .5)*2), lerp(70, 220, (h - .5)*2), lerp(30, 160, (h - .5)*2)] : [lerp(90, 220, h*2), lerp(36, 70, h*2), lerp(24, 30, h*2)];
+      for (let d=0, k=0;d<=run;d+=cs*1.4, k++){ const h = Math.round(Math.exp(-(run - d)/(1.4*R))*(.35 + .65*fire)*16)/16, cl = h > .5 ? [lerp(220, 255, (h - .5)*2), lerp(70, 220, (h - .5)*2), lerp(30, 160, (h - .5)*2)] : [lerp(90, 220, h*2), lerp(36, 70, h*2), lerp(24, 30, h*2)];
         put(c, sc, h > .6 ? '#' : h > .3 ? '%' : ':', 'rgb(' + (cl[0]|0) + ',' + (cl[1]|0) + ',' + (cl[2]|0) + ')', b.start.x + T.dx*d, b.start.y + T.dy*d, cs*(2 + .8*h), sk*(.6 + .4*h), h > .7); } }
     // the impact's glow on the floor and the molten pools it leaves
     for (const b of A.beams){
@@ -501,7 +501,7 @@ OPHAN.ascii = (() => {
     if (Fi.scorch > .01 && Fi.front > 0){
       c.globalAlpha = .75*Fi.scorch; c.strokeStyle = 'rgb(30,8,5)'; c.lineWidth = Fi.w*1.2; c.lineCap = 'round';
       c.beginPath(); c.moveTo(Fi.start.x, Fi.start.y); c.lineTo(Fi.start.x + Fi.dx*Fi.front, Fi.start.y + Fi.dy*Fi.front); c.stroke();
-      for (let d=0, k=0;d<=Fi.front;d+=cs*1.4, k++){ const h = Math.exp(-(Fi.front - d)/(1.2*R))*(.3 + .7*Fi.on), o = (hh(k, 91) - .5)*Fi.w*.9;
+      for (let d=0, k=0;d<=Fi.front;d+=cs*1.4, k++){ const h = Math.round(Math.exp(-(Fi.front - d)/(1.2*R))*(.3 + .7*Fi.on)*16)/16, o = (hh(k, 91) - .5)*Fi.w*.9;
         const cl = h > .5 ? [255, lerp(110, 220, (h - .5)*2), lerp(50, 160, (h - .5)*2)] : [lerp(90, 255, h*2), lerp(36, 110, h*2), lerp(24, 50, h*2)];
         put(c, sc, h > .6 ? '#' : h > .3 ? '%' : ':', 'rgb(' + (cl[0]|0) + ',' + (cl[1]|0) + ',' + (cl[2]|0) + ')', Fi.start.x + Fi.dx*d + Fi.nx*o, Fi.start.y + Fi.dy*d + Fi.ny*o, cs*(2 + .8*h), Fi.scorch*(.55 + .45*h), h > .75); } }
     // C: the wings held open as at rest (following the body) so the gaps show; two in three of their feathers peel off, fly

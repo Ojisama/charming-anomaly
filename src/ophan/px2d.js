@@ -50,7 +50,11 @@ export function makePx2D(PIXI) {
   const col = (s) => {
     let c = colOf.get(s)
     // Canvas2D reads 'rgba(11,7,20,1.1e-15)' (a fade's last frame); Pixi's Color throws on the exponent, which dropped the rest of the frame
-    if (!c) { const k = new Color(s.replace(/(?<=[(,\s])-?[\d.]+e[-+]?\d+/gi, (n) => (+n).toFixed(6))); c = { color: k.toNumber(), alpha: k.alpha }; colOf.set(s, c) }
+    if (!c) {
+      const k = new Color(s.replace(/(?<=[(,\s])-?[\d.]+e[-+]?\d+/gi, (n) => (+n).toFixed(6))); c = { color: k.toNumber(), alpha: k.alpha }
+      if (colOf.size >= 4096) colOf.clear()   // a fade written as a raw float is a new string every frame
+      colOf.set(s, c)
+    }
     return c
   }
   // gradients: one texture per distinct stop list (and radial shape), placed per fill by a matrix. A glow that pulses fades
@@ -67,8 +71,11 @@ export function makePx2D(PIXI) {
       this.k = Math.max(0, ...cs.map(([, c]) => c.alpha))
       this.st = cs.map(([o, c]) => [o, c.color, this.k ? Math.round(c.alpha / this.k * 100) / 100 : 0])
       const s = this.st.join('|')
-      return this.type === 'linear' ? 'L' + s
-        : 'R' + ((x0 - x1) / r1).toFixed(3) + ',' + ((y0 - y1) / r1).toFixed(3) + ',' + (r0 / r1).toFixed(3) + '|' + s
+      if (this.type === 'linear') return 'L' + s
+      // the radial shape in 32nds of r1: a ring that grows every frame (a blast front) reuses a texture instead of baking one
+      const q = (v) => Math.round(v / r1 * 32) / 32
+      this.q = [q(x0 - x1), q(y0 - y1), q(r0)]
+      return 'R' + this.q + '|' + s
     }
     texture() {
       const k = this.key()
@@ -79,7 +86,7 @@ export function makePx2D(PIXI) {
       const g = cv.getContext('2d')
       let gr
       if (lin) gr = g.createLinearGradient(0, 0, N, 0)
-      else { const [x0, y0, r0, x1, y1, r1] = this.a, s = N / 2 / r1; gr = g.createRadialGradient(N / 2 + (x0 - x1) * s, N / 2 + (y0 - y1) * s, r0 * s, N / 2, N / 2, N / 2) }
+      else { const [dx, dy, r0] = this.q, s = N / 2; gr = g.createRadialGradient(s + dx * s, s + dy * s, r0 * s, s, s, s) }
       const css = ([, n, a]) => 'rgba(' + (n >> 16) + ',' + ((n >> 8) & 255) + ',' + (n & 255) + ',' + a + ')'
       for (const s of this.st) gr.addColorStop(s[0], css(s))
       if (!lin && this.st.length) { g.fillStyle = css(this.st[this.st.length - 1]); g.fillRect(0, 0, N, N) }
@@ -101,6 +108,18 @@ export function makePx2D(PIXI) {
   const mul = (A, B) => [A[0] * B[0] + A[2] * B[1], A[1] * B[0] + A[3] * B[1], A[0] * B[2] + A[2] * B[3], A[1] * B[2] + A[3] * B[3],
     A[0] * B[4] + A[2] * B[5] + A[4], A[1] * B[4] + A[3] * B[5] + A[5]]
   const BLEND = { 'source-over': 'normal', lighter: 'add', multiply: 'multiply', screen: 'screen' }
+  // evenodd as one filled contour minus every other: Canvas does not care which subpath comes first, so the outer one is
+  // the widest (a rect drawn after the ellipse it frames is still the outside). The holes go in as ONE cut: Pixi's cut()
+  // on a fill that already has a hole walks back and punches the instruction before it, an unrelated shape.
+  // ponytail: an island inside a hole (three nested rings) fills as a hole; no painter draws one
+  const area = (p) => { let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity; for (const [x, y] of p) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y } return (x1 - x0) * (y1 - y0) }
+  const evenodd = (g, S, st) => {
+    let o = 0; for (let i = 1, a = area(S[0].p); i < S.length; i++) { const b = area(S[i].p); if (b > a) { a = b; o = i } }
+    g.poly(S[o].p.flat(), true).fill(st)
+    if (S.length < 2) return
+    for (let i = 0; i < S.length; i++) if (i !== o) g.poly(S[i].p.flat(), true)
+    g.cut()
+  }
 
   class Px {
     // res: device px per stage px. The painter works in device px (so bakes are sized for the screen they land on);
@@ -124,6 +143,13 @@ export function makePx2D(PIXI) {
       this.n = { g: 0, s: 0 }
     }
     flag(k) { this.bad[k] = (this.bad[k] || 0) + 1 }
+    // a bake its painter dropped: its texture (and atlas crops) leave the GPU now, not whenever Pixi's GC gets to them
+    forget(cv) {
+      const t = texOf.get(cv); if (!t) return
+      texOf.delete(cv)
+      if (t.__crops) for (const x of t.__crops.values()) x.destroy()
+      t.destroy(true)
+    }
     set shadowBlur(v) { if (v > 0.02) this.flag('shadowBlur') }
     get shadowBlur() { return 0 }
     set filter(v) { if (v && v !== 'none') this.flag('filter') }
@@ -217,11 +243,7 @@ export function makePx2D(PIXI) {
       if (rule && typeof rule === 'object') { const r = arguments[1]; this.withPath(rule, () => this.fill(r)); return }
       const S = this.subs(); if (!S.length || this.globalAlpha <= 0) return
       const g = this.gfx(), st = this.style(this.fillStyle, this.globalAlpha)
-      if (rule === 'evenodd') {
-        g.poly(S[0].p.flat(), true).fill(st)
-        for (let i = 1; i < S.length; i++) g.poly(S[i].p.flat(), true).cut()
-        return
-      }
+      if (rule === 'evenodd') { evenodd(g, S, st); return }
       for (const s of S) g.poly(s.p.flat(), true)
       g.fill(st)
     }
@@ -242,7 +264,7 @@ export function makePx2D(PIXI) {
       const S = this.subs()
       let mk = this.mPool[this.mi]; if (!mk) { mk = new Graphics(); this.mPool.push(mk) }
       this.mi++; mk.clear()
-      if (rule === 'evenodd' && S.length > 1) { mk.poly(S[0].p.flat(), true).fill(0xffffff); for (let i = 1; i < S.length; i++) mk.poly(S[i].p.flat(), true).cut() }
+      if (rule === 'evenodd' && S.length > 1) evenodd(mk, S, 0xffffff)
       else { for (const s of S) mk.poly(s.p.flat(), true); mk.fill(0xffffff) }
       let c = this.cPool[this.ci]; if (!c) { c = new Container(); this.cPool.push(c) }
       this.ci++
@@ -292,7 +314,7 @@ export const PX2D = (root, res) => {
     P.begin = function () { this.ri = 0; begin.call(this) }   // its own pool: drawImage's sprites would keep a rect's tint
     fast = P.fillRect = function (x, y, w, h) {
       if (typeof this.fillStyle !== 'string') return slow.call(this, x, y, w, h)
-      let c = cols.get(this.fillStyle); if (!c) { const k = new PIXI.Color(this.fillStyle.replace(/(?<=[(,\s])-?[\d.]+e[-+]?\d+/gi, (n) => (+n).toFixed(6))); cols.set(this.fillStyle, c = [k.toNumber(), k.alpha]) }
+      let c = cols.get(this.fillStyle); if (!c) { const k = new PIXI.Color(this.fillStyle.replace(/(?<=[(,\s])-?[\d.]+e[-+]?\d+/gi, (n) => (+n).toFixed(6))); if (cols.size >= 4096) cols.clear(); cols.set(this.fillStyle, c = [k.toNumber(), k.alpha]) }
       const al = c[1] * this.globalAlpha; if (al <= 0 || !w || !h) return
       const R = this.rPool || (this.rPool = [])
       const i = this.ri | 0   // the first context began before begin() was wrapped
