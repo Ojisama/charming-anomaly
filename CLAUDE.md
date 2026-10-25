@@ -10,8 +10,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 npm run dev        # vite dev server (host:true — reachable from phone on the LAN for touch testing)
-npm run build      # vite build -> dist/
-npm run preview    # serve the built dist/
 npm test           # THE SHIP GATE — scripts/test-isolation.mjs: every scenario, ONE PROCESS EACH,
                    # 8 at a time. It costs its LONGEST SINGLE SCENARIO, not the sum, so the
                    # number to watch is the "Floor is..." line it prints — splitting that
@@ -52,8 +50,6 @@ hidden layers). `probing-the-game` holds all of them; load it before you measure
 
 There is no single-test runner and no test framework: `test/sim-test.js` is one plain-node file of `assert`-based scenarios that seeds `Math.random` (mulberry32) for determinism and prints `PASS …` / `ALL TESTS PASSED`. To run a subset, pass a name (above) — do not reach for jest/vitest. To add a check, append a scenario in the same style. **Anything free of Pixi and DOM is testable this way** — the suite already imports `sim.js`, `config.js`, `state.js`, `sync.js` and `fr.js`. (`sync.js` deliberately keeps browser globals out of its module scope precisely so it can be imported here.) `render.js` and `main.js` are not importable, but the suite still asserts against them as **source text** — see run UG.k, which greps `render.js` to prove a declared hook is actually forwarded and read. Reach for that trick when a render-side contract has no other guard.
 
-**THOSE SOURCE-TEXT SCENARIOS READ FILES OUTSIDE `src/` AND `test/`** — `index.html`, `public/sw.js`, `vite.config.js`. So a scratch copy made for mutation-proofing with `cp -r src test <tmp>` is not a runnable suite: it dies partway with a missing-file throw, which the top-level `try` turns into one `FAIL:` line and `process.exit(1)`. A harness looping over mutations reads that as "caught" and a timing harness prints a total for a run that stopped partway. Extract with `git archive HEAD | tar -x -C <tmp>` (the WHOLE tree, not `HEAD src`), and make the harness require a `ALL TESTS PASSED` line on its baseline before it believes anything after it.
-
 **Six scenarios lint CROSS-FILE CONTRACTS as source text, and they are the cheapest guards here.**
 An architecture audit over 273 releases found the single largest root-cause class — 28% of every
 defect that reached the live URL — is *one fact authored in two places that drifted apart*, and
@@ -83,16 +79,6 @@ because a creature's name had no French-facing surface until the summary screen'
 invented one. **A new screen can CREATE an i18n gap, not only reveal one:** when you put an existing
 field in front of the player for the first time, check that field is in the walk, not just that its
 table is.
-
-**A PROFILER TELLS YOU WHERE TIME GOES, NEVER HOW MUCH A FIX SAVED.** `--cpu-prof` does not tax
-uniformly: it weighs allocation heavily, so optimising away allocations measures far better under
-the profiler than in reality. The separation rewrite read as 25% faster comparing a profiled
-before against an unprofiled after, and was 6.4% with neither side instrumented. Quote the A/B,
-not the profile. And when a change is meant to be behaviour-neutral, PROVE it — extract the old
-tree (`git archive <ref> src | tar -x -C <tmp>`) and diff full end state across several seeded
-runs, rather than inferring it from a green suite. Make the harness assert the old tree really
-contains the old code: pointed at the wrong ref it compares HEAD against itself and prints a
-screenful of reassuring IDENTICALs.
 
 Corollary worth stating, because it is easy to run `npm test` as a ritual: **`scripts/` and `docs/` are not in that import graph.** A harness-only or spec-only diff gets zero coverage from the suite — it will pass whatever you did. **That now includes the gate itself** (`scripts/test-isolation.mjs`): nothing tests the thing that runs the tests, and its failure mode is to pass. Its two self-checks are the only guard — it aborts unless every dispatched child reports back, and unless the union of what the children say they RAN covers the whole scenario list. If you touch it, break one assertion on purpose and confirm the exit code is 1 before believing a green run. The real check for a `scripts/*.mjs` change is running the script; `git status --short` is what tells you whether you strayed into `src/`.
 
@@ -157,9 +143,7 @@ minute, which is why SUBMISSION's expiry has no sound either).
 
 ### The chapter system
 
-`CHAPTERS[id]` (config.js, ordered per book by `BOOKS[book].chapters`) defines each biome: its `weapons` pool (scopes the level-up weapon offers), `starter` weapon, enemy `roster` (mapped to base archetypes `normal`/`fast`/`tank` via `hpMul`/`speedMul`/behavior `flags`), `eliteFlags`, a `signature` mechanic (e.g. `currents`, `pheromones`, `predators`, `gravity`, `traffic`), `obstacles`, and a **render-only** `render` block (tints/bg, zero sim effect). Enemy behavior flags (`latch`, `split`, `dashBurst`, `diveBomb`, `pounce`, `missileVolley`, …) are chapter-agnostic strings that sim.js reads — the flag vocabulary is documented inline in `state.js`'s doc block and each flag's tuning block in config.js.
-
-Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has its own difficulty ladder in `meta.chapters[id]`. `ensureChapterMeta` (state.js) repairs/creates per-chapter save entries on every load, so a save predating a newly-shipped chapter always resolves cleanly. **When adding a chapter, add it to `CHAPTERS` and to its book's `BOOKS[book].chapters` ladder** (`CHAPTER_ORDER` is just `BOOKS.book1.chapters`) and the migration/unlock logic handles the rest.
+**When adding a chapter, add it to `CHAPTERS` and to its book's `BOOKS[book].chapters` ladder** (`CHAPTER_ORDER` is just `BOOKS.book1.chapters`) and the migration/unlock logic handles the rest.
 
 ## Non-obvious constraints (breaking these produces a blank page in prod)
 
@@ -233,7 +217,7 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
   committing it. On 2026-09-13 three documentation fixes were written to the loaded path and only
   caught because `git status` showed the one file that had been edited relatively — the other two
   were invisible, which is exactly how a harness improvement gets written twice and lands never.
-- **EIGHT RULE SETS LIVE IN SKILLS, NOT HERE — load the skill BEFORE the work, not after.** They
+- **NINE RULE SETS LIVE IN SKILLS, NOT HERE — load the skill BEFORE the work, not after.** They
   were moved out because they only apply to one kind of task and this file is read on every call;
   moving them does not make them optional. If you are about to do the thing in the left column and
   you have not loaded the skill, stop.
@@ -248,6 +232,7 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
   | add or rework an enemy, elite affix, boss or hazard | `designing-an-enemy` |
   | ship, push to `main`, or reconcile a branch whose push was rejected | `shipping-a-release` |
   | say how far along a chapter is, or move one past a dev stage | `verifying-chapter-stage` |
+  | write or mutation-prove a sim-test scenario, blame a red band, quote a perf win | `writing-sim-tests` |
 
   Weapon-wiring specifics (`STAT_KEYS`, the epic-switch idiom, per-cast counts, shared entity
   arrays, chapter-conditional behaviour) live in `design-a-weapon`'s phase 4 checklist — one copy,
@@ -256,33 +241,11 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
   `position`.** Run SP in the suite lints this from `styles.css` — put the declaration on a child
   or a `::before`, never on the screen element itself.
 - Balance changes go in `config.js` and nowhere else. If you're typing a magic number into sim.js, it belongs in config.js as a named export.
-- **A red `sim-test` band is not proof your change caused it — several bands are eyeballed literals
-  under 3σ.** The suite seeds `Math.random` once per scenario, so ANY change that alters how many
-  randoms get drawn re-phases the whole stream and re-rolls every sampled statistic. Two bands were
-  measured sitting at 2.6–2.8σ: the anomaly slot-uniformity check (±0.06 on ~400 anomaly pools,
-  where 1σ = 2.2pts) and `mod > 24` in the partial-arsenal fixtures. v7.7 moved five bucket weights
-  and drew a false red on the first — slot 2 of 4 at 31.6% — for a placement that is
-  `Math.floor(random * cards.length)` and cannot read `BUCKET_WEIGHTS` at all. **Protocol:** before
-  attributing a red to your diff, ask whether the assertion's subject is even reachable from what
-  you changed, then re-run with a different seed. If it goes green, the band is under-powered — fix
-  it with a power calculation (state N, 1σ, and the size of the pathology it must still catch), and
-  mutation-prove the widened band still fails on that pathology. Do NOT retune your change to
-  satisfy a noisy test.
-- **Mutate a scratch copy, never the working tree.** Mutation-proofing an assertion means editing
-  `sim.js`, and `git checkout src/sim.js` to undo it silently discards any real edit you already had
-  in that file (v7.7 lost a comment fix this way and only caught it from `git status`). Either
-  extract a throwaway tree (`git archive <ref> | tar -x -C <tmp>`) and mutate there, or re-read
-  `git status --short` after every revert.
-  **Every mutation must be DISTINCT as well as applied.** A harness that skips on a missing anchor
-  still cannot see two entries whose `from`/`to` are the same edit under different labels — that is
-  a passing check that checks nothing, and it inflates the count you then quote as proof. v7.62
-  shipped a four-mutation table where two entries both just deleted the `flushSpawns(run)` line, one
-  of them captioned "the flush moves to the BOTTOM"; it was caught by re-reading the harness, not by
-  running it. Diff the entries, and prefer a mutation that expresses the pathology (move the call)
-  over one that merely removes the code.
+- **Mutate a scratch copy (`git archive <ref> | tar -x -C <tmp>`, the WHOLE tree), never the
+  working tree** — `git checkout src/sim.js` to undo a mutation silently discards your real edits.
+  **Do NOT retune your change to satisfy a noisy test**: several bands sit under 3σ.
 - `.gitignore` covers `node_modules` (no slash, so a worktree's symlink to the main checkout's is ignored too), `dist/`, `.claude/worktrees/`, `.wrangler/` and `/*.png` — **and no other scratch artifact**. The last one is the trap: only a `.png` at the repo ROOT is ignored. A PNG in a subdirectory is not; neither is a `.json` dump, nor a screenshot in any other format. Delete every scratch file explicitly before committing, and check `git status --short` rather than trusting the ignore rule.
 - **`public/` is tracked PWA assets, not scratch** (`sw.js` is registered by `main.js`). Do not "clean up" anything in it. If you need the dev server to serve a probe artifact, put it somewhere you will delete and verify with `git status --short`.
-- Deploy is automatic: pushing to `main` triggers `.github/workflows/deploy.yml` (build → GitHub Pages).
 - **A MULTI-ANCHOR REWRITE OF A BIG FILE SILENTLY SWALLOWS ITS NEIGHBOURS. DIFF THE FUNCTION SET
   AFTERWARDS.** Rewriting a subsystem by bracketing regions with `indexOf(from)`/`indexOf(to)` and
   splicing is the right technique for a file the size of sim.js — and each cut is one wrong anchor away from
