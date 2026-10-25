@@ -715,7 +715,7 @@ OPHAN.pixel = (() => {
                 k = f < .3 - .15*h ? 0 : LC[Math.max(0, Math.min(3, Math.floor(f*3.2) + cool - 1))]; }
               if (k !== k0){ if (k0 === 0) CR.push([x0, xx - x0, y2]); else if (k0) BR.push([x0, xx - x0, y2, k0]); k0 = k; x0 = xx; } } }
           c.globalAlpha = Math.min(1, Lv*1.4)*(1 - .6*d);
-          // one rect a run, and the core's dither one crop of the checker strip a run: per pixel it was ~14k sprites a frame on game tech
+          // one rect a run, and the core's dither one crop of the checker strip a run
           c.imageSmoothingEnabled = false;
           for (const [x, n, y] of CR) c.drawImage(CHK, (x + y) & 1, 0, n, 1, x, y, n, 1);
           for (const [x, n, y, col] of BR){ c.fillStyle = col; c.fillRect(x, y, n, 1); }

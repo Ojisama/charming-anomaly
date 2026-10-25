@@ -40,9 +40,9 @@ function handShadow(c, pr, col, BX, BY) {
   for (const [x0,y0,x1,y1] of [[-17,-24,-21,-60],[-6,-28,-6,-70],[6,-28,8,-68],[17,-24,21,-56],[24,4,46,-14]]){ c.lineWidth = 13; c.beginPath(); c.moveTo(x0,y0); c.lineTo(x1,y1); c.stroke() }
   c.restore()
 }
-// ?by=y: the boss DRAWN at world y instead (config's OPHAN_BOSS, render-side only: the sim is never stepped again), so a
-// hand that comes in over the top of the screen is whole in frame for a finger count. Labelled STAGED in the note.
-if (q.has('by')) { cfg.OPHAN_BOSS.y = +q.get('by'); H.note('STAGED boss y=' + q.get('by')) }
+// ?by=dy: the boss put dy world px below the player (above when negative; the sim is never stepped again), so a hand
+// that comes in over the top of the screen is whole in frame for a finger count. Labelled STAGED in the note.
+if (q.has('by')) { boss().x = run.player.x; boss().y = run.player.y + +q.get('by'); H.note('STAGED boss dy=' + q.get('by')) }
 const show = () => { document.getElementById('ui').style.display = ''; window.__hud(run) }
 return (age) => {
   const i = Math.round(age * 4)
@@ -53,7 +53,8 @@ return (age) => {
     o.after = -1
     if (MOCK) {
       o.tell = 0; o.next = -1
-      const v = cfg.ophanView(innerWidth, innerHeight), bx = (cfg.OPHAN_BOSS.x - v.camX) * v.z + innerWidth / 2, by = (cfg.OPHAN_BOSS.y - v.camY) * v.z + innerHeight / 2
+      // the camera follows the player, so the boss's screen point is its offset from the player, from the screen's centre
+      const v = cfg.ophanView(innerWidth, innerHeight), bx = (boss().x - run.player.x) * v.z + innerWidth / 2, by = (boss().y - run.player.y) * v.z + innerHeight / 2
       const k = cfg.OPHAN_BOSS.R * v.z / (52 * 1.35)
       C.setTransform(dpr * k, 0, 0, dpr * k, dpr * bx, dpr * by)
       handShadow(C, pr, cfg.CHAPTERS.ophan.worlds[K].col, 0, 0)
