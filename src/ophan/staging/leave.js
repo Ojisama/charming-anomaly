@@ -265,7 +265,7 @@ const TD = 0.75, TG = 1.35   // the drill bites, it is under
 const spin = (T) => 2.2 * T * T * T + 1.5 * T * T   // radians turned by T: ever faster
 stage('leave', 'B', { label: 'B · the drill: folds its wings, spins up and corkscrews into the floor, debris thrown in a spiral', dur: 4, draw(k) {
   const M = matOf(k), T = k.u * k.dur, R = k.R, cx = k.x, cy = k.y + R * HY
-  const th = spin(Math.min(T, TG)) * 6, w = (6.6 * T * T + 3 * T) * 6   // its turn and turn rate
+  const th = spin(Math.min(T, TG)) * 6   // its turn: the grind, the whirl and the throw follow it
   // the hole is ground open as it bites, wobbling with the turn
   const grind = ease(win(T, TD - 0.15, TD + 0.35)), open = T < TG ? grind * (1 + 0.04 * Math.sin(th * 2)) : scar(k, T, TG - 0.07, 1.8, 1.04, 0.74)
   tear(k.floor, cx, cy, R * HW, R * HH, open, k.A.id)
@@ -287,20 +287,20 @@ stage('leave', 'B', { label: 'B · the drill: folds its wings, spins up and cork
     }
     f.globalAlpha = 1
   }
-  // ---- the boss: folds (narrowed across its turn), spins up, screws down into the hole
+  // ---- the boss: the tornado's own top (rig.js), its coil and spin-up played fast, then screwed down into the hole at full
+  // spin. Drawn at its full R and scaled whole by fadePx (a painter bakes per size); the player taken at the boss, so the
+  // tornado's vortex stays under it instead of setting off down its road
   k.boss.hide = true
-  const fold = ease(win(T, 0, 0.35)), down = win(T, TD, TG), sc = 1 - 0.85 * down * down
+  const down = win(T, TD, TG), sc = 1 - 0.85 * down * down, c = k.px(1)
   if (down < 1) {
-    const p = k.px(0), lift = Math.sin(Math.PI * win(T, 0, TD)) * R * 0.12
-    const x = cx, y = k.y - lift + (cy - k.y) * down, clip = down > 0.35 ? mouthClip(k, cx, cy, Math.max(0.05, open)) : null
-    const sx = sc * (1 - 0.42 * fold), sy = sc * (1 + 0.06 * fold)
-    // the blur of its turn: ghosts behind the boss at the angles it just left, more of them the faster it goes
-    const n = Math.min(4, Math.floor(w / 10))
-    for (let i = n; i >= 1; i--) snapAt(k, p, i, x, y, th + i * 0.16 * Math.min(1, w / 40), sx, sy, 0.32 / i, clip)
-    snapAt(k, p, 0, x, y, th, sx, sy, 1, clip)
-    if (down > 0.35) shade(k, p, cx, cy, Math.max(0.05, open), 0.85 * ease(win(down, 0.35, 1)))
+    const au = T < 0.5 ? 0.3 * T / 0.5 : T < TD ? 0.3 + 0.13 * (T - 0.5) / (TD - 0.5) : 0.43 + 0.17 * down
+    const y = k.y + (cy - k.y) * down, op = Math.max(0.05, open)
+    // the mouth, in the scaled px2d's own coordinates
+    const clip = down > 0.35 ? (g) => g.ellipse(cx, y + (cy - y) / sc, R * HW * 0.46 * op / sc, R * HH * 0.46 * op / sc, 0, 0, TAU) : null
+    k.fadePx(0, 1, sc, cx, y)
+    k.drawBoss(k.from ?? k.S, k.px(0), cx, y, R, Math.round(k.ph0 ?? k.ph), clip, { atk: 'tornado', u: au, px: cx, py: y })
+    if (down > 0.35) shade(k, c, cx, cy, op, 0.85 * ease(win(down, 0.35, 1)))
   }
-  const c = k.px(1)
   // a whirl of dust round it as it spins up, wound tighter and dragged into the hole
   const wh = win(T, 0.3, TG + 0.9)
   if (wh > 0 && wh < 1) for (let i = 0; i < 16; i++) {

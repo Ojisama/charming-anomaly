@@ -25,7 +25,7 @@ export const STAGING = {}   // kind -> look id -> { label, dur?, draw(k), warm?(
 // a stable pseudo-random 0..1 for (i, j): the same every frame
 export const hash = (i, j = 0) => { const s = Math.sin(i * 12.9898 + j * 78.233 + 0.5) * 43758.5453; return s - Math.floor(s) }
 export const STAGE_DUR = { arrive: 3, return: 3, break: 0.8, resonance: 0.6, leave: 1.2, sketch: 3, death: 6 }
-export const STAGE_PICK = { arrive: 'C', return: 'B', break: { macro: 'A', holo: 'B', ascii: 'B', pixel: 'A', liquid: 'A' }, resonance: 'B', leave: 'A', sketch: 'A', death: 'A' }   // the owner's picks, 2026-10-25
+export const STAGE_PICK = { arrive: 'D', return: 'B', break: { macro: 'A', holo: 'B', ascii: 'B', pixel: 'A', liquid: 'A' }, resonance: 'B', leave: 'B', sketch: 'A', death: 'A' }   // the owner's picks, 2026-10-25
 export const stage = (kind, id, look) => { (STAGING[kind] ??= {})[id] = look; return look }
 // the look a beat plays: a break's is per world (its key is the broken skin's look), every other beat's is one
 export function lookOf(kind, world) {

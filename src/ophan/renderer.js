@@ -167,8 +167,9 @@ export function createOphanRenderer(host) {
       layer,
       // the n-th sprite of this frame in the layer over the boss (pooled; hidden again next frame)
       sprite(tex) { const c = layer.children[nsp] ?? layer.addChild(new Sprite()); nsp++; c.visible = true; c.texture = tex; c.anchor.set(0.5); c.alpha = 1; c.rotation = 0; c.scale.set(1); c.tint = 0xffffff; return c },
-      // a skin's boss drawn into px2d c (one boss per px2d a frame)
-      drawBoss(s, c, x, y, R, ph, clip = null, opt = undefined) { within(s.g, () => { window.OPH_PH = ph; boss(s, x, y, R, f.t, ph, null, 0, 0, 0, c, clip, opt) }) },
+      // a skin's boss drawn into px2d c (one boss per px2d a frame). opt.atk, opt.u: posed as that attack at u (its own
+      // painter's attack frame), the player taken at (opt.px, opt.py)
+      drawBoss(s, c, x, y, R, ph, clip = null, opt = undefined) { within(s.g, () => { window.OPH_PH = ph; boss(s, x, y, R, f.t, ph, opt?.atk ?? null, opt?.u ?? 0, opt?.px ?? x, opt?.py ?? y + 2.4 * R, c, clip, opt) }) },
       snap: (s, ph = f.ph) => snap(s, Math.round(ph), f.R),
       slots, worlds,
       look: (k) => slots[worlds[k].look],
