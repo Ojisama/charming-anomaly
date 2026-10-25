@@ -146,7 +146,6 @@ stage('death', 'A', { label: 'A · the eraser scrubs it off in oblique zigzag st
   // the rubbed front of stroke o at progress q, s (0..1 across the band): ragged, the zigzag the rubbing leaves
   const front = (q, s) => -L / 2 - amp + q * (L + 2 * amp) + amp * (tri(s) - 0.5) * 2
   const vOf = (j, s) => -H / 2 + (j + s) * bh
-  const on = (o, q, s) => W(dir(o) * front(q, s), vOf(order[o], s))
   const clip = (c) => order.forEach((j, o) => {
     if (p[o] >= 1) return
     const d = dir(o), M = 12
@@ -163,15 +162,17 @@ stage('death', 'A', { label: 'A · the eraser scrubs it off in oblique zigzag st
   })
   const o = Math.min(N - 1, Math.floor(win(k.u, RUB[0], RUB[1]) * N)), l = lift(k)
   if (l > 0 && k.u >= RUB[0]) {
-    // scrubbing: it rides the front, up and down the band. Carried: it glides, lifted, from the last stroke's end
-    const s = tri(k.age * 2.4 / TEETH), carry = win(k.u, t0(o), t0(o) + CARRY * du)
-    let at = on(o, p[o], s), up = 0
+    // scrubbing: a smooth sweep up and down the band (a sine, no corners) along the middle of the rubbed edge, leaning into
+    // each sweep. Carried: it glides, lifted, from the last stroke's end
+    const ph = k.age * Math.PI * 2 * 1.3, s = 0.5 - 0.5 * Math.cos(ph), carry = win(k.u, t0(o), t0(o) + CARRY * du)
+    const mid = (oo, q) => W(dir(oo) * (-L / 2 - amp + q * (L + 2 * amp)), vOf(order[oo], s))
+    let at = mid(o, p[o]), up = 0
     if (o > 0 && carry < 1) {
-      const from = on(o - 1, 1, s), e = ease(carry)
+      const from = mid(o - 1, 1), e = ease(carry)
       at = { x: from.x + (at.x - from.x) * e, y: from.y + (at.y - from.y) * e }; up = Math.sin(Math.PI * carry) * 0.25 * k.R
     }
     const dd = o > 0 && carry < 1 ? dir(o - 1) + (dir(o) - dir(o - 1)) * ease(carry) : dir(o)
-    const ang = th + Math.PI / 2 + 0.25 * dd + 0.1 * Math.sin(k.age * 9)
+    const ang = th + Math.PI / 2 + 0.25 * dd + 0.06 * Math.sin(ph)
     c.globalAlpha = l; eraser(c, at.x, at.y - up - (1 - l) * k.R, ang, k.R, k.z); c.globalAlpha = 1
   }
 } })
