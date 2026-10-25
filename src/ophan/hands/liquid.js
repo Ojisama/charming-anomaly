@@ -50,19 +50,25 @@ OPHAN_HANDS.liquid = (() => {
     const O = S.getContext('2d'); O.setTransform(1, 0, 0, 1, 0, 0); O.globalCompositeOperation = 'source-over'; O.clearRect(0, 0, S.width, S.height); O.drawImage(E, 0, 0); for (const [x, y] of dirs) O.drawImage(E, x, y);
     return { S, I };
   }
-  function prep(){
-    const K0 = KIT.ready(), TR = K0.TR, k = TR.k, { S: trS, I: trI } = grip(K0.trS, K0.trI, k), W = trS.width, H = trS.height, n = W*H;
+  // a generator: the warm-up steps it between frames (baking), a first draw that finds it unfinished finishes it
+  let gen = null;
+  const baking = () => (T ? [].values() : (gen ??= prep()));
+  function* prep(){
+    const K0 = KIT.ready(); yield;
+    const TR = K0.TR, k = TR.k, { S: trS, I: trI } = grip(K0.trS, K0.trI, k), W = trS.width, H = trS.height, n = W*H; yield;
     const ms = trS.getContext('2d').getImageData(0, 0, W, H).data, ik = trI.getContext('2d').getImageData(0, 0, W, H).data;
     const M = new Float32Array(n), I = new Float32Array(n); for (let i = 0; i < n; i++){ M[i] = ms[i*4 + 3]/255; I[i] = ik[i*4 + 3]/255; }
-    const box = (src, r) => { const a = new Float32Array(n), b = new Float32Array(n), w = 2*r + 1;
+    yield;
+    function* box(src, r){ const a = new Float32Array(n), b = new Float32Array(n), w = 2*r + 1;
       let s = src; for (let pass = 0; pass < 2; pass++){
         for (let y = 0; y < H; y++){ let acc = 0; const o = y*W; for (let x = -r; x <= r; x++) acc += s[o + Math.min(W - 1, Math.max(0, x))];
           for (let x = 0; x < W; x++){ a[o + x] = acc/w; acc += s[o + Math.min(W - 1, x + r + 1)] - s[o + Math.max(0, x - r)]; } }
+        yield;
         for (let x = 0; x < W; x++){ let acc = 0; for (let y = -r; y <= r; y++) acc += a[Math.min(H - 1, Math.max(0, y))*W + x];
           for (let y = 0; y < H; y++){ b[y*W + x] = acc/w; acc += a[Math.min(H - 1, y + r + 1)*W + x] - a[Math.max(0, y - r)*W + x]; } }
-        s = b.slice(); }
-      return s; };
-    const b1 = box(M, 2*k), b2 = box(M, 6*k), b3 = box(M, 16*k), cr = box(I, k);
+        s = b.slice(); yield; }
+      return s; }
+    const b1 = yield* box(M, 2*k), b2 = yield* box(M, 6*k), b3 = yield* box(M, 16*k), cr = yield* box(I, k);
     // RGBA16F like the reference (8 bits would band the mirror: the normals are height differences x G*K = 80)
     const f32 = new Float32Array(1), u32 = new Uint32Array(f32.buffer), half = (v) => { f32[0] = v; const x = u32[0], e = ((x >>> 23) & 255) - 112;
       return e <= 0 ? 0 : ((x >>> 16) & 0x8000) | ((e << 10) + (((x & 0x7fffff) + 0x1000) >> 13)); };
@@ -75,6 +81,7 @@ OPHAN_HANDS.liquid = (() => {
     for (const [X, Y, A = .1, sg = 4] of [...KN, ...GR, [...PEN.k, .14, 6]]){ const r = 3*sg*k;   // the knuckles, the creases, and the knob's dome
       for (let y = Math.max(0, Math.round(Y*k - r)); y < Math.min(H, Y*k + r); y++) for (let x = Math.max(0, Math.round(X*k - r)); x < Math.min(W, X*k + r); x++){
         const q = ((x - X*k)**2 + (y - Y*k)**2)/(sg*k)**2; B[y*W + x] += A*Math.exp(-q/2)*M[y*W + x]; } }
+    yield;
     for (let i = 0; i < n; i++){ D[i*4] = half(B[i]); D[i*4 + 1] = half(cr[i]*M[i]); D[i*4 + 2] = half(I[i]); D[i*4 + 3] = half(M[i]); }
     const src = new PIXI.BufferImageSource({ resource: D, width: W, height: H, format: 'rgba16float', alphaMode: 'premultiplied-alpha', scaleMode: 'linear', addressMode: 'clamp-to-edge' });
     // the quad covers the trace in mm, padded for the warp (the outline swims up to FIN.warp mm)
@@ -86,13 +93,14 @@ OPHAN_HANDS.liquid = (() => {
         uFL: { value: new Float32Array(FIN.flow), type: 'vec3<f32>' }, uFloor: { value: new Float32Array(FLOOR.liquid), type: 'vec3<f32>' }, uFloorD: { value: new Float32Array(DEEP.get(FLOOR.liquid)), type: 'vec3<f32>' } } } });
     const mesh = new PIXI.Mesh({ geometry, shader });
     // the cast shadow: the silhouette, black, blurred at five softnesses (sigma in trace px), at half resolution
-    const SG = [1, 2, 3.5, 5.5, 8].map((s) => { const pad = Math.ceil(3*s), c = KIT.mk(W/2 + 2*pad, H/2 + 2*pad), g = c.getContext('2d');
+    const SG = [];
+    for (const s of [1, 2, 3.5, 5.5, 8]){ yield; const pad = Math.ceil(3*s), c = KIT.mk(W/2 + 2*pad, H/2 + 2*pad), g = c.getContext('2d');
       g.filter = 'blur(' + s/2 + 'px)'; g.drawImage(trS, pad, pad, W/2, H/2); g.filter = 'none'; g.globalCompositeOperation = 'source-in'; g.fillStyle = '#000'; g.fillRect(0, 0, c.width, c.height);
-      return { s, c, pad: 2*pad }; });
+      SG.push({ s, c, pad: 2*pad }); }
     // the cut's layer: a container masked by a copy of the boss as drawn this frame
     const wrap = new PIXI.Container(), cutG = new PIXI.Graphics(), maskC = new PIXI.Container();
     wrap.addChild(cutG, maskC); wrap.setMask({ mask: maskC, channel: 'alpha' });
-    T = { TR, k, mesh, shader, SG, wrap, cutG, maskC, sp: [], gp: [] };
+    T = { TR, k, mesh, shader, SG, wrap, cutG, maskC, sp: [], gp: [] }; gen = null;
   }
   const HAND_VS = `in vec2 aPosition; in vec2 aUV; out vec2 vP;
 uniform mat3 uProjectionMatrix; uniform mat3 uWorldTransformMatrix; uniform mat3 uTransformMatrix;
@@ -238,8 +246,9 @@ void main(){
   }
   return {
     floor: FLOOR,   // per world id: what a caller drawing this hand over ANOTHER world sets as c.floor
+    bake: baking,
     hand(c, x, y, R, t, H){
-      if (!T) prep();
+      if (!T) for (const it = baking(); !it.next().done;);
       // what the boss drew this frame (drawn before the hand): its own px2d's root when the hand has a layer of its own
       // (c.bossRoot, or the spike's SPIKE.px), else this one's
       const bossRoot = c.bossRoot || (window.SPIKE && SPIKE.px && SPIKE.px !== c ? SPIKE.px.root : c.out), boss = bossRoot.children.slice();

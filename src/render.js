@@ -44,7 +44,7 @@ import { DRAW_CAPS } from './config.js'
 import { ELITE, gemTier } from './config.js'
 import * as MACRO from './macro.js'
 import { IPECAC_COUNT_MUL, FURROW_PIT_OPEN, FURROW_LANE_GAP, CRYSTAL_CARDS } from './config.js'
-import { POLE_TINT, LANCE_BEAM_LIFE, viewZoom, ophanView } from './config.js'
+import { POLE_TINT, LANCE_BEAM_LIFE, viewZoom, ophanView, OPHAN_HELD_SHAKE } from './config.js'
 import { createOphanRenderer } from './ophan/renderer.js'
 import * as HOLO from './holo.js'
 import * as ASCII from './ascii.js'
@@ -14384,6 +14384,7 @@ const spurG = new Graphics()
     if (!ophanOn) return
     const w = app.screen.width, h = app.screen.height
     if (w !== ophanW || h !== ophanH) { ophanW = w; ophanH = h; ophanR.resize(w, h) }
+    if (run.script?.oph?.held && dt > 0) addShakeScreen(OPHAN_HELD_SHAKE, 0.2)   // the boss, still baking, rumbles under the floor
     ophanR.sync(run, dt, { left: -cx, top: -cy, zoom: world.scale.x || 1, w, h, animT })
   }
   // the mint chrome drop the player wears in a liquid chapter (syncPlayer's photo body)
@@ -34629,5 +34630,7 @@ void main() {
   }
 
   const worldReady = (k) => !!ophanR?.ready(k)
-  return { reset, sync, idle, ready, setMapMode, castThumbs, hazardThumbs, playerScreen, prewarm, worldReady }
+  // the last boss phase whose art the Ophan's warm-up has baked (main.js hands it to stepSim as input.ophanReady)
+  const ophanReady = () => (ophanR ? ophanR.readyPhase() : 3)
+  return { reset, sync, idle, ready, setMapMode, castThumbs, hazardThumbs, playerScreen, prewarm, worldReady, ophanReady }
 }

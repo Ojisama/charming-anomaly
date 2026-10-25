@@ -10204,6 +10204,10 @@ export const OPHAN_ENTER = 0.6
 // balance_decision : opening wave 30 s, 15 s between phases 2026-10-25
 export const OPHAN_WAVE_OPEN = 30
 export const OPHAN_WAVE_GAP = 15
+// the boss's art bakes during the waves, this many ms of a frame on average (render-only; src/ophan/renderer.js); an entry
+// that finds it unbaked waits behind the floor shaking OPHAN_HELD_SHAKE of the screen's short side
+export const OPHAN_BG_BAKE_MS = 4
+export const OPHAN_HELD_SHAKE = 0.004
 export const OPHAN_HIT_CD = 0.6
 // balance_decision : per-hit damage measured on the headless bot 2026-10-24
 //  - shove and pull are rates: sim scales both by dt * OPHAN_SHOVE_DECAY (4200 = 420 per 60 Hz frame)

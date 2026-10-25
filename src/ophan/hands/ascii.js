@@ -74,12 +74,16 @@ OPHAN_HANDS.ascii = (() => {
   const contourCh = (a, nx) => { const t = ((a % Math.PI) + Math.PI) % Math.PI, k = Math.round(t/(Math.PI/4)) % 4;
     return k === 2 ? (nx < 0 ? '(' : ')') : '-\\|/'[k]; };
 
-  let B = null;
-  function bake(){
+  // a generator: the warm-up steps it between frames (baking), a first draw that finds it unfinished finishes it (bake)
+  let B = null, gen = null;
+  const baking = () => (B ? [].values() : (gen ??= bakeGen()));
+  const bake = () => { for (const it = baking(); !it.next().done;); return B; };
+  function* bakeGen(){
     const G = {};
-    for (const m in MATS){ G[m] = {}; for (const ch of new Set(MATS[m].chars + STROKES + OWN)) G[m][ch] = Array.from({ length: LV }, (_, i) => glyph(ch, ramp(MATS[m].c, i/(LV - 1)), FONT)); }
+    for (const m in MATS){ G[m] = {}; for (const ch of new Set(MATS[m].chars + STROKES + OWN)) G[m][ch] = Array.from({ length: LV }, (_, i) => glyph(ch, ramp(MATS[m].c, i/(LV - 1)), FONT)); yield; }
     G.type = {}; for (const ch of LETTERS) G.type[ch] = [glyph(ch, 'rgb(255,248,222)', TYPE), glyph(ch, 'rgb(255,70,40)', TYPE), glyph(ch, 'rgb(255,150,90)', TYPE, true), glyph(ch, 'rgb(255,226,170)', TYPE, true)];
     G.spark = {}; for (const ch of SPARK) G.spark[ch] = glyph(ch, 'rgb(255,214,150)', FONT);
+    yield;
     // the hand turns by about rot0 on screen while it paints: glyphs are baked turned back by it, so they stand upright
     const rot0 = OPHAN_RIG.hand(.55).ang + TURN, ca0 = Math.cos(rot0), sa0 = Math.sin(rot0);
     const scr = (dx, dy) => [dx*ca0 - dy*sa0, dx*sa0 + dy*ca0];          // a hand-space direction on screen
@@ -127,6 +131,7 @@ OPHAN_HANDS.ascii = (() => {
     for (let t = .05; t <= 1; t += .022){ const [x, y] = BAR(t), [x2, y2] = BAR(t + .01), a = Math.atan2(y2 - y, x2 - x);
       if (!hides.some(P => normal(P, x, y))) bar.push({ x, y, a }); }
     const [s0x, s0y] = BAR(0), [s1x, s1y] = BAR(.03), sa = Math.atan2(s1y - s0y, s1x - s0x);
+    yield;
     // the shadow: the silhouette, blurred, at a quarter of the bake's resolution
     const SK = KB/4, PAD = 14;
     const sil = (g, k, only) => {
@@ -139,8 +144,8 @@ OPHAN_HANDS.ascii = (() => {
     sg.filter = 'blur(3px)'; sg.fillStyle = '#000'; sg.translate(PAD - X0*SK, PAD - Y0*SK); sil(sg, SK);
     // the variants: one per lamp direction (in hand space), the same glyphs shaded the src/ascii.js way
     const Wc = Math.ceil((X1 - X0)*KB), Hc = Math.ceil((Y1 - Y0)*KB);
-    const VL = [], GK = KB/2;
-    const V = Array.from({ length: DIRS }, (_, vi) => {
+    const VL = [], GK = KB/2, V = [];
+    for (let vi = 0; vi < DIRS; vi++){ yield;
       const lit = K.mk(Wc/2, Hc/2), lg = lit.getContext('2d'); lg.setTransform(GK, 0, 0, GK, -X0*GK, -Y0*GK);
       const v = K.mk(Wc, Hc), g = v.getContext('2d'), phi = vi/DIRS*TAU, L2 = Math.hypot(1, .25), Lx = Math.cos(phi)/L2, Ly = Math.sin(phi)/L2, Lz = .25/L2;
       g.setTransform(KB, 0, 0, KB, -X0*KB, -Y0*KB);
@@ -172,8 +177,9 @@ OPHAN_HANDS.ascii = (() => {
       }
       // the glow: the lit glyphs blurred, the sharp ones over them (the boss eye's glyph glow), drawn additively
       const gl = K.mk(Wc/2, Hc/2), gg = gl.getContext('2d'); gg.filter = 'blur(5px)'; gg.drawImage(lit, 0, 0); gg.filter = 'none'; gg.globalAlpha = .6; gg.drawImage(lit, 0, 0);
-      VL.push(gl); return v;
-    });
+      VL.push(gl); V.push(v);
+    }
+    yield;
     // the lamp's reach, baked: a dark falloff from DARK[0] to DARK[1] (in R from the lamp, ~4.3 R below the tip) up the arm,
     // cut to the hand's own shape so it darkens only the hand, not whatever world the hand layer sits over
     const dim = K.mk(Wc, Hc), dg = dim.getContext('2d'), gx = (h) => (h - X0)*KB, lg = dg.createLinearGradient(gx(DARK[0] - 4.3), 0, gx(DARK[0] - 4.3 + (DARK[1] - DARK[0])/.7), 0);
@@ -184,11 +190,10 @@ OPHAN_HANDS.ascii = (() => {
     bl.getContext('2d').setTransform(KB/2, 0, 0, KB/2, -X0*KB/2, -Y0*KB/2); bb.fillStyle = 'rgb(255,104,56)';
     for (const q of glyphs){ const a = cl(-q.n[0]*1.6 - .2)*cl((2.8 - q.x)/1.2); if (a < .05) continue; bb.globalAlpha = a; bb.beginPath(); bb.arc(q.x, q.y, CELL*.55, 0, TAU); bb.fill(); }
     bg.filter = 'blur(4px)'; bg.drawImage(bl, 0, 0);
-    B = { G, V, VL, bounce, dim, shadow, SK, PAD, slug: [s0x, s0y], rot0 };
-    return B;
+    B = { G, V, VL, bounce, dim, shadow, SK, PAD, slug: [s0x, s0y], rot0 }; gen = null;
   }
 
-  return Object.assign(api, { warm(){ if (!B) bake(); }, hand(c, x, y, R, t, H){
+  return Object.assign(api, { warm(){ if (!B) bake(); }, bake: baking, hand(c, x, y, R, t, H){
     const b = B || bake(), u = K.uOf(H), F = K.pose(H, u, t);
     if (F.al < .01) return;
     const put = (cv, X, Y, size, al) => { if (al < .01) return; const d = size*1.4; c.globalAlpha = Math.min(1, al); c.drawImage(cv, X - d/2, Y - d/2, d, d); };

@@ -47,23 +47,25 @@ import { OPHAN, OPHAN_HANDKIT, OPHAN_HANDS, OPHAN_RIG, hh } from '../page.js'
   const LK = (() => { const a = .8, sx = -.62, sy = -.78, c = Math.cos(a), s = Math.sin(a), h = [sx*c - sy*s, sx*s + sy*c], e = .56; const n = Math.hypot(...h);
     return [h[0]/n*Math.cos(e), h[1]/n*Math.cos(e), Math.sin(e)]; })();
 
-  const boxBlur = (src, r, passes) => { let a = Float32Array.from(src), b = new Float32Array(W*HH); const n = 2*r + 1;
+  // the bake is a generator, stepped a few rows at a time (ROWS) by the warm-up between frames: it yields at row ends
+  const ROWS = 64;
+  function* boxBlur(src, r, passes){ let a = Float32Array.from(src), b = new Float32Array(W*HH); const n = 2*r + 1;
     for (let p = 0; p < passes; p++){
       for (let y = 0; y < HH; y++){ const o = y*W; let s = 0; for (let x = -r; x <= r; x++) s += a[o + Math.min(W - 1, Math.max(0, x))];
-        for (let x = 0; x < W; x++){ b[o + x] = s/n; s += a[o + Math.min(W - 1, x + r + 1)] - a[o + Math.max(0, x - r)]; } }
+        for (let x = 0; x < W; x++){ b[o + x] = s/n; s += a[o + Math.min(W - 1, x + r + 1)] - a[o + Math.max(0, x - r)]; } if (y % ROWS === 0) yield; }
       for (let x = 0; x < W; x++){ let s = 0; for (let y = -r; y <= r; y++) s += b[Math.min(HH - 1, Math.max(0, y))*W + x];
-        for (let y = 0; y < HH; y++){ a[y*W + x] = s/n; s += b[Math.min(HH - 1, y + r + 1)*W + x] - b[Math.max(0, y - r)*W + x]; } } }
-    return a; };
+        for (let y = 0; y < HH; y++){ a[y*W + x] = s/n; s += b[Math.min(HH - 1, y + r + 1)*W + x] - b[Math.max(0, y - r)*W + x]; } if (x % ROWS === 0) yield; } }
+    return a; }
   const alphaOf = (cv) => { const d = cv.getContext('2d').getImageData(0, 0, W, HH).data, o = new Float32Array(W*HH); for (let i = 0; i < o.length; i++) o[i] = d[i*4 + 3]/255; return o; };
   const mmCanvas = () => { const cv = K.mk(W, HH), g = cv.getContext('2d'); g.setTransform(k, 0, 0, k, -X0*k, -Y0*k); return [cv, g]; };
   const poly = (g, P) => { g.beginPath(); P.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.closePath(); };
 
-  function bakeHand(){
+  function* bakeHand(){
     const Z = new Float32Array(W*HH).fill(-1e9), I = new Uint8Array(W*HH), A = new Float32Array(W*HH);
     // the back of the hand and the forearm: a dome from the outline, tendons fanning to the wrist, four knuckles
     const [bm, bg] = mmCanvas(); { const n = BACK.length, mid = (j) => [(BACK[j%n][0] + BACK[(j + 1)%n][0])/2, (BACK[j%n][1] + BACK[(j + 1)%n][1])/2];   // rounded through the midpoints
-      bg.beginPath(); bg.moveTo(...mid(0)); for (let j = 1; j <= n; j++) bg.quadraticCurveTo(...BACK[j%n], ...mid(j)); bg.fill(); } const mA = alphaOf(bm), dome = boxBlur(mA, 55, 3);
-    for (let py = 0; py < HH; py++) for (let px = 0; px < W; px++){ const i = py*W + px; if (mA[i] < .01) continue;
+      bg.beginPath(); bg.moveTo(...mid(0)); for (let j = 1; j <= n; j++) bg.quadraticCurveTo(...BACK[j%n], ...mid(j)); bg.fill(); } const mA = alphaOf(bm); yield; const dome = yield* boxBlur(mA, 55, 3);
+    for (let py = 0; py < HH; py++) for (let px = 0; px < W; px++){ const i = py*W + px; if (!px && py % ROWS === 0) yield; if (mA[i] < .01) continue;
       const X = X0 + (px + .5)/k, Y = Y0 + (py + .5)/k; let z = 5 + 25*Math.sqrt(dome[i]);
       // a knuckle 45 mm off, or a tendon 17 mm off, adds under half an ulp of z (>= 5 here): skipped, z is bit for bit the same
       for (const [mx, my] of MCP){ if (Math.abs(X - mx - 3) < 45 && Math.abs(Y - my) < 45) z += 4.5*g3(Math.hypot(X - mx - 3, Y - my), 7);
@@ -81,11 +83,11 @@ import { OPHAN, OPHAN_HANDKIT, OPHAN_HANDS, OPHAN_RIG, hh } from '../page.js'
         const i = py*W + px, z = az + (bz - az)*t + Math.sqrt(Math.max(0, r*r - d*d))*sq;
         if (z > Z[i]){ Z[i] = z; I[i] = id; } if (cov > A[i]) A[i] = cov; } };
     const chain = (id, J) => { for (let s = 0; s < J.length - 1; s++) seg(id, J[s], J[s + 1]); };
-    chain(ID.lit, CURL[2]); chain(ID.ring, CURL[1]); chain(ID.mid, CURL[0]);
+    yield; chain(ID.lit, CURL[2]); chain(ID.ring, CURL[1]); chain(ID.mid, CURL[0]); yield;
     // the brush: nickel ferrule, oxblood handle rising toward the wrist, a gilt ring
     seg(ID.fer, [34, 0, 3, zBrush(34)], [58, 0, 3.5, zBrush(58)], 1); seg(ID.han, [58, 0, 3.6, zBrush(58)], [222, 0, 2.7, zBrush(222)], 1);
     for (let py = 0; py < HH; py++) for (let px = Math.floor((196 - X0)*k); px < (198.2 - X0)*k; px++){ const i = py*W + px; if (I[i] === ID.han) I[i] = ID.gilt; }
-    chain(ID.body, THM); chain(ID.idx, IDX); chain(ID.thb, THB);
+    chain(ID.body, THM); chain(ID.idx, IDX); chain(ID.thb, THB); yield;
 
     // creases, painted as soft grooves: rings at every joint across the finger, arcs round the knuckles, the back's loose skin
     const [cm, cg] = mmCanvas(); cg.lineCap = 'round'; cg.strokeStyle = '#000';
@@ -98,12 +100,12 @@ import { OPHAN, OPHAN_HANDKIT, OPHAN_HANDS, OPHAN_RIG, hh } from '../page.js'
     for (const [mx, my, r] of MCP) for (let q = 0; q < 3; q++){ cg.globalAlpha = .3; cg.lineWidth = .5; cg.beginPath(); cg.ellipse(mx + 2, my, r*(.45 + .2*q), r*(.6 + .22*q), 0, Math.PI*.55, Math.PI*1.45); cg.stroke(); }
     for (let q = 0; q < 46; q++){ const x = 170 + 70*hs(q, 1, 9), y = -88 + 80*hs(q, 2, 9), fam = q%2 ? .6 : -.5, a = Math.atan2(-.5, .86) + fam, L = 4 + 7*hs(q, 3, 9);
       cg.globalAlpha = .12 + .14*hs(q, 4, 9); cg.lineWidth = .45; cg.beginPath(); cg.moveTo(x, y); cg.quadraticCurveTo(x + Math.cos(a)*L/2 + 1, y + Math.sin(a)*L/2, x + Math.cos(a)*L, y + Math.sin(a)*L); cg.stroke(); }
-    const [cb, cbg] = mmCanvas(); cbg.setTransform(1, 0, 0, 1, 0, 0); cbg.filter = 'blur(' + .45*k + 'px)'; cbg.drawImage(cm, 0, 0); const cr = alphaOf(cb);
+    const [cb, cbg] = mmCanvas(); cbg.setTransform(1, 0, 0, 1, 0, 0); cbg.filter = 'blur(' + .45*k + 'px)'; cbg.drawImage(cm, 0, 0); yield; const cr = alphaOf(cb); yield;
     // veins over the back, bluish under the skin
     const [vm, vg] = mmCanvas(); vg.lineCap = 'round'; vg.strokeStyle = '#000'; vg.lineWidth = 2;
     for (const P of [[[166, -30], [188, -42], [215, -52], [245, -68]], [[164, -62], [182, -60], [200, -70], [230, -82]], [[180, -44], [190, -56], [198, -68]]]){
       vg.beginPath(); vg.moveTo(...P[0]); for (let j = 1; j < P.length - 1; j++) vg.quadraticCurveTo(P[j][0], P[j][1], (P[j][0] + P[j + 1][0])/2, (P[j][1] + P[j + 1][1])/2); vg.lineTo(...P[P.length - 1]); vg.stroke(); }
-    const [vb, vbg] = mmCanvas(); vbg.setTransform(1, 0, 0, 1, 0, 0); vbg.filter = 'blur(' + .9*k + 'px)'; vbg.drawImage(vm, 0, 0); const vA = alphaOf(vb);
+    const [vb, vbg] = mmCanvas(); vbg.setTransform(1, 0, 0, 1, 0, 0); vbg.filter = 'blur(' + .9*k + 'px)'; vbg.drawImage(vm, 0, 0); yield; const vA = alphaOf(vb); yield;
     // nails: plates on index and thumb, crescents on the three curled tips, each with a rim of black soil packed under its edge
     const [nm, ng] = mmCanvas(), [sm2, sg] = mmCanvas(), [em, eg] = mmCanvas();
     const nail = (cx, cy, rx, ry, rot, crescent) => {
@@ -123,11 +125,11 @@ import { OPHAN, OPHAN_HANDKIT, OPHAN_HANDS, OPHAN_RIG, hh } from '../page.js'
     CURL.forEach((f, j) => { const [ax, ay] = preOf(f), [bx, by, r] = tipOf(f), d = Math.atan2(by - ay, bx - ax);
       nail(bx + Math.cos(d)*r*.42, by + Math.sin(d)*r*.42, r*.55, r*.72, d + Math.PI, true); });
     const soft = (cv) => { const [o, og2] = mmCanvas(); og2.setTransform(1, 0, 0, 1, 0, 0); og2.filter = 'blur(' + .3*k + 'px)'; og2.drawImage(cv, 0, 0); return alphaOf(o); };
-    const nA = soft(nm), eA = soft(em), sA = soft(sm2);
+    yield; const nA = soft(nm); yield; const eA = soft(em); yield; const sA = soft(sm2); yield;
     const nailOwner = new Uint8Array(W*HH); {
       // which finger each nail mask belongs to: the nearest skeleton tip
       const tips = [[ID.idx, IDX[0]], [ID.thb, THB[0]], ...CURL.map((f, j) => [[ID.mid, ID.ring, ID.lit][j], tipOf(f)])];
-      for (let i = 0; i < W*HH; i++){ if (nA[i] + sA[i] < .01) continue; const X = X0 + (i%W + .5)/k, Y = Y0 + ((i/W | 0) + .5)/k; let best = 1e9, id = 0;
+      for (let i = 0; i < W*HH; i++){ if (i % (W*ROWS) === 0) yield; if (nA[i] + sA[i] < .01) continue; const X = X0 + (i%W + .5)/k, Y = Y0 + ((i/W | 0) + .5)/k; let best = 1e9, id = 0;
         for (const [q, [tx, ty]] of tips){ const d = Math.hypot(X - tx, Y - ty); if (d < best){ best = d; id = q; } } nailOwner[i] = id; } }
     // pigment on the fingers that hold the brush
     const [pm, pg] = mmCanvas(); pg.fillStyle = '#000';
@@ -136,26 +138,26 @@ import { OPHAN, OPHAN_HANDKIT, OPHAN_HANDS, OPHAN_RIG, hh } from '../page.js'
 
     // the height the light sees: skin minus its creases, plus the nails' lip
     const tipsSk = [IDX[0], THB[0], ...CURL.map(tipOf)];
-    for (let i = 0; i < W*HH; i++) if (I[i]){ if (I[i] < ID.fer){ const X = X0 + (i%W + .5)/k, Y = Y0 + ((i/W | 0) + .5)/k;
+    for (let i = 0; i < W*HH; i++){ if (i % (W*ROWS/4) === 0) yield; if (I[i]){ if (I[i] < ID.fer){ const X = X0 + (i%W + .5)/k, Y = Y0 + ((i/W | 0) + .5)/k;
         const tw = g3(near(X, Y, tipsSk), 10);
         const wv = 1.6*fbm(X/3, Y/3, 73, 2), h1 = Math.pow(Math.abs(Math.sin((X*.8 + Y*.6)*5.2 + wv)), 6), h2 = Math.pow(Math.abs(Math.sin((X*.6 - Y*.8)*5.2 - wv)), 6);
         Z[i] += .05*(fbm(X/.4, Y/.4, 75, 2) - .5) - tw*.045*(h1 + h2)*(1 - nA[i]) - .8*cr[i]; }   // pores, the fingertips' fine crosshatch, the creases
-      if (nailOwner[i] === I[i]) Z[i] += .35*nA[i]; }
+      if (nailOwner[i] === I[i]) Z[i] += .35*nA[i]; } }
     const Zf = new Float32Array(W*HH); for (let i = 0; i < Zf.length; i++) Zf[i] = I[i] ? Z[i] : 0;
-    const Zb = boxBlur(Zf, 18, 2);
+    const Zb = yield* boxBlur(Zf, 18, 2);
     // cast shadows: march toward the key; anything rising above the ray darkens this pixel, softly
     const tanE = LK[2]/Math.hypot(LK[0], LK[1]), lx = LK[0]/Math.hypot(LK[0], LK[1]), ly = LK[1]/Math.hypot(LK[0], LK[1]);
     const SHD = new Float32Array(W*HH);
-    for (let py = 0; py < HH; py++) for (let px = 0; px < W; px++){ const i = py*W + px; if (!I[i]) continue; let o = 0;
+    for (let py = 0; py < HH; py++) for (let px = 0; px < W; px++){ const i = py*W + px; if (!px && py % (ROWS/8) === 0) yield; if (!I[i]) continue; let o = 0;
       for (let s = 1; s <= 36; s++){ const d = s*.8, qx = Math.round(px + lx*d*k), qy = Math.round(py + ly*d*k); if (qx < 0 || qy < 0 || qx >= W || qy >= HH) break;
         const j = qy*W + qx; if (!I[j]) continue; o = Math.max(o, cl((Z[j] - Z[i] - d*tanE)/(1.2 + .12*d))); if (o >= 1) break; }
       SHD[i] = o; }
-    const SH2 = boxBlur(SHD, 2, 1);
+    const SH2 = yield* boxBlur(SHD, 2, 1);
 
     const out = K.mk(W, HH), og = out.getContext('2d'), im = og.createImageData(W, HH), D = im.data;
     const Hv = (() => { const v = [LK[0], LK[1], LK[2] + 1], n = Math.hypot(...v); return v.map((q) => q/n); })();
     const tipsAll = [IDX[0], THB[0], ...CURL.map(tipOf), ...CURL.map(preOf)], knuckles = [...MCP, IDX[1], IDX[2], THB[1], ...CURL.map((f) => f[1])];
-    for (let py = 1; py < HH - 1; py++) for (let px = 1; px < W - 1; px++){ const i = py*W + px, id = I[i]; if (!id) continue;
+    for (let py = 1; py < HH - 1; py++) for (let px = 1; px < W - 1; px++){ const i = py*W + px, id = I[i]; if (px === 1 && py % (ROWS/8) === 0) yield; if (!id) continue;
       const X = X0 + (px + .5)/k, Y = Y0 + (py + .5)/k;
       // the normal, from neighbours of the same part only (a seam between parts is an edge, not a slope)
       const nb = (j) => I[j] === id ? Z[j] : Z[i];
@@ -196,7 +198,7 @@ import { OPHAN, OPHAN_HANDKIT, OPHAN_HANDS, OPHAN_RIG, hh } from '../page.js'
         const ex = .8*ao, kh = 16*kt*key*sh; r = r*ex + kh; g = g*ex + kh*.9; b = b*ex + kh*.76;   // exposed with the scene, the knuckle tops catching the key
         const lu = .3*r + .59*g + .11*b; r += (lu - r)*.08; g += (lu - g)*.08; b += (lu - b)*.08; }
       D[i*4] = Math.min(255, r); D[i*4 + 1] = Math.min(255, g); D[i*4 + 2] = Math.min(255, b); D[i*4 + 3] = 255*A[i]; }
-    og.putImageData(im, 0, 0);
+    og.putImageData(im, 0, 0); yield;
     { const bl = K.mk(W, HH), bg = bl.getContext('2d'); bg.filter = 'blur(' + 1.6*k + 'px)'; bg.drawImage(out, 0, 0); bg.filter = 'none';
       const soft = K.mk(W, HH), sg = soft.getContext('2d'); sg.putImageData(bg.getImageData(0, 0, W, HH), 0, 0);   // a plain bitmap: the filtered canvas uploads blank
       const sharp = K.mk(W, HH), hg = sharp.getContext('2d'); hg.drawImage(out, 0, 0);
@@ -206,12 +208,14 @@ import { OPHAN, OPHAN_HANDKIT, OPHAN_HANDS, OPHAN_RIG, hh } from '../page.js'
       sg.globalCompositeOperation = 'destination-in'; sg.fillStyle = sm; sg.fillRect(0, 0, W, HH);
       og.clearRect(0, 0, W, HH); og.drawImage(soft, 0, 0); og.globalCompositeOperation = 'lighter'; og.drawImage(sharp, 0, 0); og.globalCompositeOperation = 'source-over';
       const fin = og.getImageData(0, 0, W, HH); og.putImageData(fin, 0, 0); }
+    yield;
     // the floor shadow: hand + brush + tuft, three blurs at half resolution
     const SIL = K.mk(W/2 + 60, HH/2 + 60), lg = SIL.getContext('2d'); lg.drawImage(out, 30, 30, W/2, HH/2);
     lg.setTransform(k/2, 0, 0, k/2, 30 - X0*k/2, 30 - Y0*k/2); lg.beginPath(); lg.moveTo(0, 0); lg.lineTo(TUFT*.6, -3); lg.lineTo(TUFT + 1, -3); lg.lineTo(TUFT + 1, 3); lg.lineTo(TUFT*.6, 3); lg.closePath(); lg.fill();
-    const SH = [1.5, 4, 9].map((r) => { const c = K.mk(SIL.width, SIL.height), g = c.getContext('2d'); g.filter = 'blur(' + r + 'px)'; g.drawImage(SIL, 0, 0); g.filter = 'none';
+    const SH = [];
+    for (const r of [1.5, 4, 9]){ yield; const c = K.mk(SIL.width, SIL.height), g = c.getContext('2d'); g.filter = 'blur(' + r + 'px)'; g.drawImage(SIL, 0, 0); g.filter = 'none';
       g.globalCompositeOperation = 'source-in'; g.fillStyle = '#0c0603'; g.fillRect(0, 0, c.width, c.height);
-      const o = K.mk(c.width, c.height); o.getContext('2d').putImageData(g.getImageData(0, 0, c.width, c.height), 0, 0); return o; });   // a plain bitmap: the filtered canvas uploads blank
+      const o = K.mk(c.width, c.height); o.getContext('2d').putImageData(g.getImageData(0, 0, c.width, c.height), 0, 0); SH.push(o); }   // a plain bitmap: the filtered canvas uploads blank
     return { S: out, SH };
   }
 
@@ -320,10 +324,13 @@ import { OPHAN, OPHAN_HANDKIT, OPHAN_HANDS, OPHAN_RIG, hh } from '../page.js'
       c.fillStyle = 'rgba(255,246,232,' + .85*fade + ')'; c.beginPath(); c.arc(x - r*.35, y - r*.35, r*.28, 0, TAU); c.fill(); }
   }
 
-  const bakes = () => B || (B = Object.assign(bakeHand(), bakeTuft()));
-  let B = null;
+  // the bakes, stepped by the warm-up (bake) or finished at once by a first draw that finds them unfinished (bakes)
+  function* baking(){ const h = yield* bakeHand(); yield; B = Object.assign(h, bakeTuft()); }
+  let B = null, gen = null;
+  const bake = () => (B ? [].values() : (gen ??= baking()));
+  const bakes = () => { for (const it = bake(); !it.next().done;); return B; };
   OPHAN_HANDS.macro = {
-    bakes,
+    bake,
     hand(c, x, y, R, t, H){
       if (!B){ bakes(); c.save(); c.globalAlpha = .001; for (const cv of [B.S, B.T, ...B.SH]) c.drawImage(cv, 0, 0, 1, 1); c.restore(); }   // every bake uploaded on the first frame, not on the frame it first shows
       const u = K.uOf(H), F = K.pose(H, u, t); if (F.al < .01) return;

@@ -1189,6 +1189,7 @@ app.ticker.add((ticker) => {
     run.viewW = app.screen.width / 2 / vz
     run.viewH = app.screen.height / 2 / vz
     const input = getInput(renderer.playerScreen)
+    input.ophanReady = renderer.ophanReady()   // The Ophan's boss enters a phase only once its art is baked
     stepSim(run, input, dt)
     let events = run.events
     run.events = []

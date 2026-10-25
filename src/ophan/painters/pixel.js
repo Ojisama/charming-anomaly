@@ -147,7 +147,7 @@ OPHAN.pixel = (() => {
     return out;
   }
 
-  const BUF = {}; const buf = (k, C, n) => { const b = BUF[k]; return b && b.length === n*n ? b : (BUF[k] = new C(n*n)); };   // scratch planes, kept per size
+  const BUF = {}; const buf = (k, C, n) => { let b = BUF[k]; if (!b || b.length < n*n) b = BUF[k] = new C(n*n); return b.subarray(0, n*n); };   // scratch planes, grown to the largest size, never made again for a smaller one
   function raster(R, t, ph, Pz, Lk, quick = false, o = [0, 0]){   // quick: the silhouette only (a ghost, tinted flat); o: where the body has moved to (boss units), the sprite is cut round it
     HMIN = 1.25/R; const P = build(t, ph, Pz, Lk); let ext = 1.9;
     if (o[0] || o[1]) for (const p of P){ p.pts = p.pts.map(([x, y]) => [x - o[0], y - o[1]]); if (p.sp) p.sp = p.sp.map(([x, y, ...r]) => [x - o[0], y - o[1], ...r]); if (p.ann) p.ann = [p.ann[0] - o[0], p.ann[1] - o[1], ...p.ann.slice(2)]; }   // the buffer grows to hold the rig's reach (the blast strike stretches the down pair past 3R)
@@ -615,6 +615,7 @@ OPHAN.pixel = (() => {
   function arc(cx, cy, r, a0, a1, sy = 1){ const n = Math.max(2, Math.ceil(Math.abs(a1 - a0)*r*1.3)), o = []; for (let i = 0; i <= n; i++){ const a = a0 + (a1 - a0)*i/n; o.push([cx + Math.cos(a)*r, cy + Math.sin(a)*r*sy]); } return o; }
 
   return {
+    frames: FN,   // a sheet's length: the warm-up bakes one frame per job
     bg(c, w, t){
       const T = c.getTransform(), n = Math.round(w*T.a);
       c.save(); c.setTransform(1,0,0,1,0,0); c.imageSmoothingEnabled = false; c.drawImage(floor(n), Math.round(T.e), Math.round(T.f)); c.restore();

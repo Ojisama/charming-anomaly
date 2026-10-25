@@ -304,6 +304,7 @@ export function stepSim(run, input, dt) {
   // derives from run.time, which is exactly why the early return goes here and not lower down.
   // The Ophan's world press is latched above the freeze for the same reason as the skill press below.
   if (input?.world >= 0) run._worldPress = input.world
+  run._ophanReady = input?.ophanReady ?? 3
   if (run.hitStop > 0) {
     run.hitStop = Math.max(0, run.hitStop - dt)
     // THE PRESS SURVIVES THE FREEZE. input.js latches a skill press and CLEARS IT ON READ, and
@@ -1805,14 +1806,19 @@ function stepOphanScript(run, dt) {
       t: 0, world: 0, skin: 0, next: -1, tell: 0, swapIn: OPHAN_HAND.first, after: -1, caught: false,
       hp: Array(n).fill(OPHAN_SKIN_HP * run.mods.enemyHpMul), broken: Array(n).fill(0), ph: 1, atk: null, atkCd: OPHAN_ATK_FIRST, recov: false,
       stagger: 0, wipe: null, sketch: false, bossId: null, crowdT: OPHAN_WAVE[run.difficulty].every, immT: 0, swaps: 0,
-      push: { x: 0, y: 0 }, stage: 'open', waveT: OPHAN_WAVE_OPEN, x: 0, y: 0,
+      push: { x: 0, y: 0 }, stage: 'open', waveT: OPHAN_WAVE_OPEN, held: false, x: 0, y: 0,
     }
   }
   o.t += dt
   o.immT = Math.max(0, o.immT - dt)
   o.stagger = Math.max(0, o.stagger - dt)
-  // THE WAVES: the opening one and one between phases, monsters only; the boss returns at the next phase
-  if (o.waveT > 0 && (o.waveT -= dt) <= 0) ophanEnter(run, o, 'p' + ophanGoal(o))
+  // THE WAVES: the opening one and one between phases, monsters only; the boss returns at the next
+  // phase, once the renderer has baked its art (held: the wave runs on until it has)
+  if (o.waveT > 0 && (o.waveT -= dt) <= 0) {
+    o.held = run._ophanReady < ophanGoal(o)
+    if (o.held) o.waveT = 1e-6
+    else ophanEnter(run, o, 'p' + ophanGoal(o))
+  }
   let b = ophanBoss(run)
   // gone: the sketch killed (a skin cannot die, the hp floor holds it; a wave takes it off by bossId null), the Kraken's win
   if (o.bossId != null && !b) return ophanWin(run, o.x, o.y)

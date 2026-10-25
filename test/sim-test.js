@@ -21126,6 +21126,7 @@ run(testLeLargeWeapons)
   run(testOphanSketch)
   run(testOphanOpenArena)
   run(testOphanWaves)
+  run(testOphanArtHold)
   run(testOphanRenderWiring)
   run(testOphanKitTells)
   run(testOphanCrowdLooks)
@@ -44079,6 +44080,38 @@ function testOphanWaves() {
   assert.ok(/const vz = CHAPTERS\[run\.chapter\]\.worlds \? CFG\.ophanView\(app\.screen\.width, app\.screen\.height\)\.z :/.test(main) &&
     /run\.viewW = app\.screen\.width \/ 2 \/ vz/.test(main), 'w3: main.js sizes run.viewW without ophanView\'s zoom')
   console.log(`PASS run OP.waves: open ${tOpen.toFixed(2)} s with ${born.size} monsters, p1, wave ${t2.toFixed(2)} s, p2 (skins' hp banked, first attack ${grace.toFixed(2)} s after the entry), wave ${t3.toFixed(2)} s, p3, sketch at once where the boss stood, the win burst there; a leave mid-tornado ended it for good; gauge, camera and view zoom linted`)
+}
+
+// run OH: the boss enters a phase only once the renderer has baked that phase's art (input.ophanReady): until then the
+// wave runs on, held, and the entry comes on the first step the art is ready
+function testOphanArtHold() {
+  const dt = 1 / 60
+  Math.random = mulberry32(20261026)
+  const m = makeMeta(); m.dev = true
+  const r = createRun(m, { chapter: 'ophan', difficulty: 1 })
+  r.weapons = []; r.player.hp = r.player.maxHP = 1e9
+  const o = () => r.script.oph
+  const boss = () => r.enemies.find((e) => e.rosterId === 'ophan' && !e._dead)
+  // h1 nothing baked: the opening wave outlasts its 30 s, held, the crowd still coming
+  const spawned = () => r.enemies.filter((e) => e.rosterId !== 'ophan').length
+  ophSteps(r, Math.round((OPHAN_WAVE_OPEN + 5) / dt), { input: { x: 0, y: 0, ophanReady: 0 } })
+  const n0 = spawned()
+  assert.ok(!boss() && o().stage === 'open' && o().held && o().waveT > 0 && r.bossBar === null,
+    `h1: 35 s with no art the boss is ${boss() ? 'up' : 'away'}, stage ${o().stage}, held ${o().held}, waveT ${o().waveT}`)
+  ophSteps(r, 120, { input: { x: 0, y: 0, ophanReady: 0 } })
+  assert.ok(spawned() > n0 || n0 >= OPHAN_WAVE[1].cap, `h1: the held wave stopped sending monsters (${n0} -> ${spawned()})`)
+  // h2 the phase's art baked: the entry on that very step
+  r.events.length = 0
+  stepSim(r, { x: 0, y: 0, ophanReady: 1 }, dt)
+  assert.ok(boss() && o().stage === 'p1' && !o().held && r.events.some((e) => e.type === 'ophanEnter'), `h2: art for p1 ready, the boss did not enter (stage ${o().stage})`)
+  // h3 p2 waits for p2's art, not p1's
+  for (let i = 0; i < 2; i++) { const b = boss(); o().world = o().skin; b.hp = OPHAN_BREAK_FLOOR + 1; dealDamage(r, b, 5, false); stepSim(r, { x: 0, y: 0, ophanReady: 1 }, dt) }
+  assert.ok(o().stage === 'wave', `h3: two breaks left stage ${o().stage}`)
+  ophSteps(r, Math.round((OPHAN_WAVE_GAP + 2) / dt), { input: { x: 0, y: 0, ophanReady: 1 } })
+  assert.ok(!boss() && o().held, `h3: p1's art let the boss into p2 (stage ${o().stage})`)
+  stepSim(r, { x: 0, y: 0, ophanReady: 2 }, dt)
+  assert.ok(boss() && o().stage === 'p2' && !o().held, `h3: p2's art ready, stage ${o().stage}`)
+  console.log(`PASS run OH: the boss waited ${(OPHAN_WAVE_OPEN + 7).toFixed(0)}+ s behind unbaked art with the wave still sending monsters, entered p1 on the step its art was ready, and p2 waited for p2's art`)
 }
 
 // run OG: the Ophan's depth gauge is DOM built by ui.js, linted as source text. data-ui on it is what keeps input.js's

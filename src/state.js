@@ -2701,6 +2701,11 @@ function generateWells(sig) {
   *       archetype in place (ophanTurn: same hp share). A crowd body carries `world`, its world index.
   *     The world press reaches it through run._worldPress (-1 = none), latched by stepSim from
   *       input.world above the hitstop return and consumed here.
+  *     held — the wave is over but the boss's art for the coming phase is not baked yet: waveT is
+  *       held just above 0 and the boss does not enter until it is. The renderer bakes it during the
+  *       waves and says how far it got through input.ophanReady (the last phase whose art is baked,
+  *       0..3; main.js passes it, headless runs leave it out = 3), latched every step into
+  *       run._ophanReady above the hitstop return. render.js shakes the floor while held.
   *     hp[n] / broken[n] — each skin's banked hp and 0|1 broken, n = worlds.length. The boss entity
   *       (bossId, rosterId 'ophan', speed 0, dmg 0, affixes ['anchored']) carries the worn skin's
   *       hp; dealDamage floors it at OPHAN_BREAK_FLOOR so a skin BREAKS (ophanBreak) and is never
@@ -3340,6 +3345,8 @@ export function createRun(meta, opts = {}) {
     _skillHeld: false,
     // The Ophan's world press, latched above the hitstop like _skillHeld; -1 = none (doc block above).
     _worldPress: -1,
+    // The Ophan's art: the last boss phase the renderer has baked, latched from input.ophanReady (doc block above)
+    _ophanReady: 3,
     krakenArms: [],
     trail: [],
     bossBar: null,

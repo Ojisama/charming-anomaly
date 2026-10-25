@@ -100,10 +100,14 @@ OPHAN_HANDS.pixel = (() => {
   }
   // a pose the scan stepped over (a quick pen lift): the closest baked one, never a bake mid-fight
   function nearest(aq, sq){ let b = null, e = 1e9; for (const [k, v] of BK){ const [a, s] = k.split(':'), d = Math.abs(a - aq) + Math.abs(s - sq); if (d < e){ e = d; b = v; } } return b; }
-  function bakeAll(R){
-    BK = new Map(); RB = R;
-    for (let u = 0; u <= 1; u += .0002){ const H = RIG.hand(u), [a, s] = keyOf(H, u), k = a + ':' + s; if (!BK.has(k)) BK.set(k, bake(a, s)); }
+  // every pose it will take, a pose a step: the warm-up slices it (bake), a first draw that finds it unfinished finishes it
+  let gen = null;
+  function* bakeAll(R){
+    const M = new Map();
+    for (let u = 0; u <= 1; u += .0002){ const H = RIG.hand(u), [a, s] = keyOf(H, u), k = a + ':' + s; if (!M.has(k)){ M.set(k, bake(a, s)); yield; } }
+    BK = M; RB = R; gen = null;
   }
+  const baking = (R) => BK && RB === R ? [].values() : gen?.R === R ? gen : (gen = Object.assign(bakeAll(R), { R }));
   const hh = (i, k) => { const v = Math.sin(i*127.1 + k*311.7)*43758.5453; return v - Math.floor(v); };
   const EMB = ['#fff4c4', '#ffd858', '#ffa22a', '#ff6a14', '#d8340c'];
   const snap = (v) => Math.round(v/TX)*TX;
@@ -118,14 +122,16 @@ OPHAN_HANDS.pixel = (() => {
   const PH = +(window.OPH_PH ?? new URLSearchParams(location.search).get('ph') ?? 3) || 3;   // the boss's phase, read as the spike reads it
 
   return {
+    bake: baking,
     hand(c, x, y, R, t, H){
-      if (!BK || RB !== R) bakeAll(R);   // ponytail: R is fixed per fight; a resize rebakes (and px2d flags it)
-      const u = K.uOf(H), F = K.pose(H, u, t), [aq, sq] = keyOf(H, u), B = BK.get(aq + ':' + sq) || nearest(aq, sq);
+      if (!BK || RB !== R) for (const it = baking(R); !it.next().done;);   // ponytail: R is fixed per fight; a resize rebakes (and px2d flags it)
+      // the boss it paints over is drawn at the fight's phase (window.OPH_PH, set per draw), not the one the page loaded with
+      const ph = +window.OPH_PH || PH, u = K.uOf(H), F = K.pose(H, u, t), [aq, sq] = keyOf(H, u), B = BK.get(aq + ':' + sq) || nearest(aq, sq);
       if (!warm){ warm = true; c.save(); c.globalAlpha = .002; for (const b of BK.values()){ c.drawImage(b.cv, -9999, -9999, 1, 1); c.drawImage(b.sh, -9999, -9999, 1, 1); } c.restore(); }   // upload every bake on the first frame
       // THE EYE IS ROUTED ROUND, NOT SKIPPED: every rig point (the tip and the stroke) inside an ellipse round the great eye is
       // pushed out radially to its rim, so the nib always touches paintable boss and the hand moves with the remapped tip
       const W = RIG.HAND_WIN, ps = H.paint;
-      const EZ = RIG.pose(t, PH), EC = RIG.apply(EZ.body.m, RIG.EYE.x, RIG.EYE.y), EA = .5 + 2.2*BLK/R, EB = .3 + 2.2*BLK/R;
+      const EZ = RIG.pose(t, ph), EC = RIG.apply(EZ.body.m, RIG.EYE.x, RIG.EYE.y), EA = .5 + 2.2*BLK/R, EB = .3 + 2.2*BLK/R;
       const route = (p) => { const dx = p.x - EC[0], dy = p.y - EC[1], q = (dx/EA)**2 + (dy/EB)**2; if (q >= 1 || q < 1e-9) return p; const f = 1/Math.sqrt(q); return { x: EC[0] + dx*f, y: EC[1] + dy*f, down: p.down }; };
       // THE CLOSING DAB: from DAB0 the nib leaves the rim and comes down once on the pupil; at DAB the eye lights; then the lift
       const DAB0 = .755, DAB = .79, dab = (q, uq) => { const f = sm(DAB0, DAB, uq); return f ? { x: q.x + (EC[0] - q.x)*f, y: q.y + (EC[1] - q.y)*f, down: q.down } : q; };
@@ -164,12 +170,12 @@ OPHAN_HANDS.pixel = (() => {
         c.save(); c.beginPath();   // clip to the cells still unpainted and draw the boss there once more from grey copies of its own sheets: boss-shaped, the floor untouched
         for (let j = -r; j <= r; j++) for (let i = -r; i <= r; i++) if (i*i*1.0 + j*j*1.45 <= r*r && (eye(cx0 + i, cy0 + j) ? !lit : !open.has((cx0 + i) + ',' + (cy0 + j)))) c.rect((cx0 + i)*BLK, (cy0 + j)*BLK, BLK, BLK);
         c.clip(); c.globalAlpha = cov;
-        OPHAN.pixel.boss(greyCtx(c), x, y, R, t, PH);
+        OPHAN.pixel.boss(greyCtx(c), x, y, R, t, ph);
         c.restore();
       }   // the great eye stays grey under its wash until the dab lights it in one step
       if (lit && u < .97){ const r = Math.ceil(.5*R/BLK) + 1, cx0 = Math.floor((x + EC[0]*R)/BLK), cy0 = Math.floor((y + EC[1]*R)/BLK);   // and once lit it glows through the hand's shadow
         c.save(); c.beginPath(); for (let j = -r; j <= r; j++) for (let i = -r; i <= r; i++) if (eye(cx0 + i, cy0 + j)) c.rect((cx0 + i)*BLK, (cy0 + j)*BLK, BLK, BLK);
-        c.clip(); OPHAN.pixel.boss(c, x, y, R, t, PH); c.restore(); }
+        c.clip(); OPHAN.pixel.boss(c, x, y, R, t, ph); c.restore(); }
       // the FRESH PAINT the nib deposits: squares cooling by age, white, cream, gold, amber, each with a light top-left and a
       // darker bottom-right pixel edge; then rust that dithers out (a 50% checker, then 25%) into the boss under it, never by
       // alpha; never over the central eye; one square in six leaves a slow 1px ember

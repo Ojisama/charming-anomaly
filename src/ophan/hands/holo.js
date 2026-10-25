@@ -76,18 +76,21 @@ OPHAN_HANDS.holo = (() => {
   // the bakes
   const W = Math.ceil((BOX[2] - BOX[0])*KB), Hh = Math.ceil((BOX[3] - BOX[1])*KB);
   const cv = () => { const c = K.mk(W, Hh), g = c.getContext('2d'); g.setTransform(KB, 0, 0, KB, -BOX[0]*KB, -BOX[1]*KB); return [c, g]; };
-  let ART = null, SHD = null;
-  function bake(){
-    STR = bakeStripes();
+  // a generator: the warm-up steps it between frames (baking), a first draw that finds it unfinished finishes it
+  let ART = null, SHD = null, gen = null;
+  function* bake(){
+    STR = bakeStripes(); yield;
     const [Sc, sg] = cv(); handParts(sg, true);   // the hand's silhouette (the foil's mask, and the shadow's shape)
-    const [Tc, tg] = cv(); tool(tg); handParts(tg, false);
-    const sil = Sc.getContext('2d').getImageData(0, 0, W, Hh).data, base = Tc.getContext('2d').getImageData(0, 0, W, Hh).data;
+    const [Tc, tg] = cv(); tool(tg); handParts(tg, false); yield;
+    const sil = Sc.getContext('2d').getImageData(0, 0, W, Hh).data, base = Tc.getContext('2d').getImageData(0, 0, W, Hh).data; yield;
     // the card's foil, per pixel, over ALL the skin: a soft diagonal multi-hue film at the cel tone's own lightness (ink stays ink),
     // a white specular streak across the fist, the fist's underside (the curled fingertips under the handle) darker. Two phases,
     // crossfaded with u, so the foil shifts as the hand moves. The forearm fades out before the bake's edge
     const M = [(W0[0] + W1[0])/2, (W0[1] + W1[1])/2];
-    ART = [0, .18].map((ph) => { const [F, f] = cv(); f.setTransform(1, 0, 0, 1, 0, 0); const im = f.createImageData(W, Hh), D = im.data;
+    const art = [];
+    for (const ph of [0, .18]){ const [F, f] = cv(); f.setTransform(1, 0, 0, 1, 0, 0); const im = f.createImageData(W, Hh), D = im.data;
       for (let y = 0; y < Hh; y++) for (let x = 0; x < W; x++){
+        if (!x && y % 48 === 0) yield;
         const o = (y*W + x)*4, X = x/KB + BOX[0], Y = y/KB + BOX[1], along = (X - M[0])*FORE[0] + (Y - M[1])*FORE[1];
         const fade = along < 3.1 ? 1 : Math.max(0, 1 - (along - 3.1)/1);
         D[o] = base[o]; D[o + 1] = base[o + 1]; D[o + 2] = base[o + 2]; D[o + 3] = base[o + 3]*(sil[o + 3] > 0 ? fade : 1);
@@ -96,12 +99,14 @@ OPHAN_HANDS.holo = (() => {
         for (let c = 0; c < 3; c++){ const fc = .5 + .5*Math.cos(TAU*(q + c*.33)), fo = 255*Math.min(1, fc*.62 + Lm*.18);
           D[o + c] = Math.round((D[o + c]*.5 + fo*.5)*under + (255 - D[o + c])*spec*.8); }
       }
-      f.putImageData(im, 0, 0); return F; });
-    const F = ART[0];
-    SHD = [2, 6, 14].map((b) => { const c = K.mk(W, Hh), g = c.getContext('2d'); g.filter = 'blur(' + b + 'px)'; g.drawImage(Sc, 0, 0); g.filter = 'none';
+      f.putImageData(im, 0, 0); art.push(F); }
+    const F = art[0], shd = [];
+    for (const b of [2, 6, 14]){ yield; const c = K.mk(W, Hh), g = c.getContext('2d'); g.filter = 'blur(' + b + 'px)'; g.drawImage(Sc, 0, 0); g.filter = 'none';
       g.globalCompositeOperation = 'source-in'; g.fillStyle = '#100820'; g.fillRect(0, 0, W, Hh);
-      g.globalCompositeOperation = 'destination-in'; g.drawImage(F, 0, 0); return c; });   // the shadow fades with the forearm too
+      g.globalCompositeOperation = 'destination-in'; g.drawImage(F, 0, 0); shd.push(c); }   // the shadow fades with the forearm too
+    ART = art; SHD = shd; gen = null;
   }
+  const baking = () => (ART ? [].values() : (gen ??= bake()));
   const at = (c, img) => c.drawImage(img, BOX[0], BOX[1], W/KB, Hh/KB);
 
   // THE MARK: one straight ribbon of foil the drum's width across the boss, as far each way as the drum has rolled (and, once
@@ -179,8 +184,8 @@ OPHAN_HANDS.holo = (() => {
   const onLine = (f) => ({ x: LN.x + LX*f, y: LN.y + LY*f });
   const poseTh = (F, Hc) => -.28 + .6*(F.ang - Hc.ang);
 
-  return { hand(c, x, y, R, t, H){
-    if (!ART){ bake(); DSH = c.createLinearGradient(-RD/2, 0, RD/2, 0); DSH.addColorStop(0, 'rgba(20,10,40,.6)'); DSH.addColorStop(.3, 'rgba(20,10,40,0)'); DSH.addColorStop(.55, 'rgba(20,10,40,0)'); DSH.addColorStop(1, 'rgba(20,10,40,.85)'); c.globalAlpha = .002; for (const cv of [...ART, ...SHD, STR]) c.drawImage(cv, 0, 0, .01, .01); c.globalAlpha = 1; }   // every bake registered on the bake frame
+  return { bake: baking, hand(c, x, y, R, t, H){
+    if (!ART || !DSH){ for (const it = baking(); !it.next().done;); DSH = c.createLinearGradient(-RD/2, 0, RD/2, 0); DSH.addColorStop(0, 'rgba(20,10,40,.6)'); DSH.addColorStop(.3, 'rgba(20,10,40,0)'); DSH.addColorStop(.55, 'rgba(20,10,40,0)'); DSH.addColorStop(1, 'rgba(20,10,40,.85)'); c.globalAlpha = .002; for (const cv of [...ART, ...SHD, STR]) c.drawImage(cv, 0, 0, .01, .01); c.globalAlpha = 1; }   // every bake registered on the bake frame
     const u = K.uOf(H), F = K.pose(H, u, t);
     // the pose: the drum on the rig's tool point, the handle pointing right and a little up (so the drum's axle stands across
     // the rig's sideways sweeps and it ROLLS), leaning in as it arrives and out as it lifts; bigger the higher it is
