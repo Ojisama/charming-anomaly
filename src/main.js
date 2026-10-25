@@ -1182,7 +1182,7 @@ app.ticker.add((ticker) => {
     // v6.6.24: the rectangle, not just its diagonal — see run.viewW/viewH in state.js and
     // canCommitFrom in config.js. The camera centres the player in every chapter but the lane.
     // a chapter that frames wider (render.viewW, The Core) widens it with the camera, so spawns stay off screen
-    const vz = CFG.viewZoom(CHAPTERS[run.chapter].render, app.screen.width)
+    const vz = CHAPTERS[run.chapter].worlds ? CFG.ophanView(app.screen.width, app.screen.height).z : CFG.viewZoom(CHAPTERS[run.chapter].render, app.screen.width)
     run.viewW = app.screen.width / 2 / vz
     run.viewH = app.screen.height / 2 / vz
     const input = getInput(renderer.playerScreen)

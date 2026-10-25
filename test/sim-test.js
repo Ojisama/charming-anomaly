@@ -184,7 +184,7 @@ import {
   // The Kraken (run KR): the rung table and the ring's numbers
   krakenRung, krakenRungFor, KRAKEN_TURN_BAG, KRAKEN_SLAP_EVERY, KRAKEN_SLAP_COCK, KRAKEN_SLAP_SWING, KRAKEN_SLAP_FUSE, KRAKEN_SLAP_FOLLOW_T, KRAKEN_TRICKLE_T, KRAKEN_TRICKLE_EDGE, KRAKEN_TRICKLE_CLEAR, OPEN_GUARD_WINDOW_MUL, HAIR_TRIGGER_WINDOW_MUL, HAIR_TRIGGER_DMG_MUL, KRAKEN_RUNGS, KRAKEN_ARM_REACH, KRAKEN_WAVE_TIMEOUT, KRAKEN_STAGGER_BITE,
   KRAKEN_RISE_T, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, hiddenChapters, OPHAN_BOSS, OPHAN_HAND, OPHAN_HIT, OPHAN_ARENA, OPHAN_PLAYER_START, OPHAN_ATTACKS, OPHAN_CROWD, OPHAN_BREAK_FLOOR, OPHAN_SKIN_HP, OPHAN_SKETCH_HP, OPHAN_STAGGER_T, ophanView, OPHAN_GAUGE_COPY,
-  OPHAN_SWORD_REACH, OPHAN_ATK_SPEED, OPHAN_BOSS_HOLD, OPHAN_BOSS_SPEED, OPHAN_ATK_CD, OPHAN_WAVE_OPEN, OPHAN_WAVE_GAP, OPHAN_WAVE, KRAKEN_CAGE_R, KRAKEN_PARRY_CD,
+  OPHAN_SWORD_REACH, OPHAN_ATK_SPEED, OPHAN_BOSS_HOLD, OPHAN_BOSS_SPEED, OPHAN_ATK_CD, OPHAN_ATK_FIRST, OPHAN_WAVE_OPEN, OPHAN_WAVE_GAP, OPHAN_WAVE, KRAKEN_CAGE_R, KRAKEN_PARRY_CD,
   KRAKEN_OPEN_WAVES, KRAKEN_COIL_EVERY, KRAKEN_COIL_RAYS, KRAKEN_ENRAGE_AT, KRAKEN_RAGE_AT, KRAKEN_RAGE_HITS_MIN, KRAKEN_RAGE_HITS_MAX, KRAKEN_RAGE_VOLLEY, KRAKEN_RAGE_VOLLEY_SPREAD, KRAKEN_RAGE_FUSE, KRAKEN_RAGE_GAP, KRAKEN_RAGE_CALM, KRAKEN_RAGE_CHANCE, KRAKEN_NODE_BACK, KRAKEN_HEAD_HP, KRAKEN_HEAD_HP_AT, KRAKEN_HEAD_HP_PER_S, KRAKEN_ARRIVE_T, KRAKEN_RING_R, KRAKEN_LASH_R, KRAKEN_SLAM_T, KRAKEN_DEFLECT_CD,
   KRAKEN_LUNGE_T, KRAKEN_GRIP_DUR, KRAKEN_GRIP_DMG, KRAKEN_GRIP_FLICKS, KRAKEN_GRIP_STICK_MUL, TRAWL_WIGGLE_ARC,
   KRAKEN_LASH_W, KRAKEN_LASH_OVER, KRAKEN_LASH_DMG, KRAKEN_LESSON_MAX, KRAKEN_PARRY_SHOVE_R, KRAKEN_PARRY_EARLY_T, KRAKEN_LIMP_CLEAR, KRAKEN_ARRIVE_T2, KRAKEN_WAVE_GROWTH, KRAKEN_COIL_DMG, KRAKEN_COIL_SHADOW_SOFT, krakenCoilBandHalfW,
@@ -43881,6 +43881,10 @@ function testOphanOpenArena() {
     assert.ok(Math.abs(u1 - OPHAN_ATK_SPEED / OPHAN_ATTACKS.blast.dur) < 1e-9, `o5: one second of a blast advanced u ${u1.toFixed(4)}, want ${(OPHAN_ATK_SPEED / OPHAN_ATTACKS.blast.dur).toFixed(4)}`)
     ophSteps(r, 120, { until: () => !o.atk })
     assert.ok(!o.atk && o.atkCd >= OPHAN_ATK_CD[0] - 1 / 60 && o.atkCd <= OPHAN_ATK_CD[1], `o5: the cooldown after an attack is ${o.atkCd}`)
+    // ...and it ticks at the clock's rate, not OPHAN_ATK_SPEED's
+    const cd0 = o.atkCd
+    ophSteps(r, 60)
+    assert.ok(!o.atk && Math.abs(cd0 - o.atkCd - 1) < 1 / 60 + 1e-9, `o5: one second took ${(cd0 - o.atkCd).toFixed(3)} s off the cooldown`)
   }
   // o6 the sword, in the hit predicate: the slam's live hit lands 4 x v9's 2.3 R from the boss, the drawn blade reaches as far,
   // and the fire line runs on from the slam at least 4 x v9's 0.8 R
@@ -44012,6 +44016,8 @@ function testOphanWaves() {
   breakOne(r)
   assert.ok(o.stage === 'p1' && live(r).length === 1, 'w1: one break sent the boss off')
   const before = live(r)[0]
+  // leave on the brink of an attack and inside the hand's after-beat: the entry must still give OPHAN_ATK_FIRST of grace
+  o.atkCd = 0.05; o.after = 0.1
   breakOne(r)
   const broke = o.broken.flatMap((v, k) => (v ? [k] : []))
   assert.ok(before._dead && live(r).length === 0 && r.bossBar === null && o.stage === 'wave' && r.events.some((e) => e.type === 'ophanLeave'),
@@ -44026,6 +44032,9 @@ function testOphanWaves() {
   assert.ok(o.stage === 'p2' && o.ph === 2, `w1: the boss came back in stage ${o.stage} at phase ${o.ph}`)
   assert.ok(o.hp.every((v, k) => o.broken[k] || v === want[k]) && back.hp === want[o.skin] && back.maxHP === OPHAN_SKIN_HP * r.mods.enemyHpMul,
     `w1: the skins' hp did not survive the leave: ${JSON.stringify(o.hp)} vs ${JSON.stringify(want)}, worn ${back.hp}`)
+  let grace = 0
+  ophSteps(r, 600, { before: () => { r.events.length = 0 }, after: () => { grace += dt }, until: () => r.events.some((e) => e.type === 'ophanAttack') })
+  assert.ok(Math.abs(grace - OPHAN_ATK_FIRST) <= 2 * dt, `w1: the first attack after the entry came ${grace.toFixed(3)} s in, want ${OPHAN_ATK_FIRST}`)
   breakOne(r); breakOne(r)
   assert.ok(o.stage === 'wave', `w1: four breaks left stage ${o.stage}`)
   const t3 = wave(r, 'wave 3')
@@ -44038,21 +44047,27 @@ function testOphanWaves() {
     `w1: the sixth break: sketch ${o.sketch}, stage ${o.stage}, ${r.events.map((e) => e.type).join(',')}`)
   assert.ok(Math.hypot(at.x - OPHAN_BOSS.x, at.y - OPHAN_BOSS.y) > 1 && Math.hypot(last.x - at.x, last.y - at.y) < OPHAN_BOSS_SPEED * dt + 1e-9,
     `w1: the sketch rose at (${last.x.toFixed(0)}, ${last.y.toFixed(0)}), the boss stood at (${at.x.toFixed(0)}, ${at.y.toFixed(0)})`)
-  // w2 a leave mid-tornado: the attack goes with the boss, and the spot it was roaming stays harmless through the wave
-  let after
+  // the win bursts where the sketch died, not at v9's mark
+  dealDamage(r, last, 1e9, false)
+  const died = { x: last.x, y: last.y }
+  r.events.length = 0
+  stepSim(r, { x: 0, y: 0 }, dt)
+  const burst = r.events.find((e) => e.type === 'bossDead')
+  assert.ok(r.phase === 'victory' && burst && Math.hypot(burst.x - died.x, burst.y - died.y) < 1e-6 && Math.hypot(died.x - OPHAN_BOSS.x, died.y - OPHAN_BOSS.y) > 1,
+    `w1: the win burst at ${JSON.stringify(burst)}, the sketch died at (${died.x.toFixed(0)}, ${died.y.toFixed(0)})`)
+  // w2 a leave mid-tornado: the attack goes with the boss and does not resume mid-swing when it comes back
   {
     const q = ophanRun(3, 41), qo = q.script.oph, p = q.player
     qo.crowdT = 1e9; qo.swapIn = 1e9; q.weapons = []; p.hp = p.maxHP = 1e9
     ophBreakN(q, 1)
     ophStart(q, 'tornado', { ...OPHAN_PLAYER_START })
     ophSteps(q, 600, { before: () => { p.invuln = 9 }, until: () => qo.atk.u > 0.6 })
-    const g = RIG.attack('tornado', qo.atk.u, qo.ph, OPHAN_BOSS.x, OPHAN_BOSS.y, OPHAN_BOSS.R, qo.atk.ax, qo.atk.ay)
     breakOne(q)
     assert.ok(qo.stage === 'wave' && qo.atk === null && !qo.recov, `w2: the leave left the tornado up: ${JSON.stringify(qo.atk)}`)
-    const d0 = q.dmgBySrc.ophanTornado ?? 0
-    ophSteps(q, 120, { before: () => { p.x = g.pos.x; p.y = g.pos.y; p.invuln = 0 } })
-    after = (q.dmgBySrc.ophanTornado ?? 0) - d0
-    assert.strictEqual(after, 0, `w2: the tornado's spot hurt for ${after} with the boss gone`)
+    ophEnterNow(q)
+    q.events.length = 0
+    stepSim(q, { x: 0, y: 0 }, dt)
+    assert.ok(qo.bossId != null && qo.atk === null && !q.events.some((e) => e.type === 'ophanAttack'), `w2: back from the wave the boss is mid-attack: ${JSON.stringify(qo.atk)}`)
   }
   // the gauge marks no worn skin while no boss wears one; the camera follows the player (source text: neither is importable)
   const strip = (s) => s.replace(/(^|\s)\/\*[\s\S]*?\*\//g, '$1').replace(/\/\/.*$/gm, '')
@@ -44061,7 +44076,11 @@ function testOphanWaves() {
   assert.ok(/classList\.toggle\('ophan-worn', k === oph\.skin && oph\.bossId != null\)/.test(ui), 'w3: the gauge marks a worn skin with no boss on the field')
   assert.ok(!/\.cam[XY]\b/.test(render.slice(render.indexOf('const camX ='), render.indexOf('world.scale.set(z)', render.indexOf('const camX =')))),
     'w3: render.js frames the Ophan on a fixed camX/camY again')
-  console.log(`PASS run OP.waves: open ${tOpen.toFixed(2)} s with ${born.size} monsters, p1, wave ${t2.toFixed(2)} s, p2 (skins' hp banked), wave ${t3.toFixed(2)} s, p3, sketch at once where the boss stood; a leave mid-tornado ended it (0 dmg after); gauge + camera linted`)
+  // run.viewW/viewH (the entry spot, the spawn ring) measure the half view at the zoom the renderer frames the Ophan in
+  const main = strip(readFileSync(new URL('../src/main.js', import.meta.url), 'utf8'))
+  assert.ok(/const vz = CHAPTERS\[run\.chapter\]\.worlds \? CFG\.ophanView\(app\.screen\.width, app\.screen\.height\)\.z :/.test(main) &&
+    /run\.viewW = app\.screen\.width \/ 2 \/ vz/.test(main), 'w3: main.js sizes run.viewW without ophanView\'s zoom')
+  console.log(`PASS run OP.waves: open ${tOpen.toFixed(2)} s with ${born.size} monsters, p1, wave ${t2.toFixed(2)} s, p2 (skins' hp banked, first attack ${grace.toFixed(2)} s after the entry), wave ${t3.toFixed(2)} s, p3, sketch at once where the boss stood, the win burst there; a leave mid-tornado ended it for good; gauge, camera and view zoom linted`)
 }
 
 // run OG: the Ophan's depth gauge is DOM built by ui.js, linted as source text. data-ui on it is what keeps input.js's
