@@ -43,10 +43,14 @@ const LEAD = 1
 const OVERSCAN = 24
 const WARM_UPDATES = 8
 // the warm-up runs its jobs back to back for this much of a frame, then lets one paint (the brief's loading bar), before the
-// fight and while a held entry waits for it; in a wave it gets OPHAN_BG_BAKE_MS of a frame on average
+// fight; in a wave it gets OPHAN_BG_BAKE_MS of a frame on average
 const WARM_BUDGET_MS = 40
+// a held entry's frames are still the game's (the floor shakes, the crowd moves): its back-to-back jobs stop at this
+const HELD_MS = 12
 // a sliced bake (a hand's) runs this long per job
 const SLICE_MS = 4
+// the painters whose attack warm-up draw costs more than a wave frame affords (17-27 ms at desktop 4x): baked before the level
+const DEAR_ATK = new Set(['macro', 'ascii', 'toon', 'pixel'])
 
 // Painters and hands talk through a few window globals (the phase, the toon boss's inking u, the hand's path): each slot
 // keeps its own copy, swapped in while it draws (art.js within)
@@ -239,7 +243,7 @@ export function createOphanRenderer(host) {
     const t0 = performance.now(), wave = entered && !oph?.held
     if (entered && oph && (oph.bossId != null || oph.sketch)) credit = 0
     else if (wave) for (credit = Math.min(OPHAN_BG_BAKE_MS, credit + OPHAN_BG_BAKE_MS); jobs.length && credit > 0;) credit -= run1()
-    else for (let n = 0; jobs.length && (n === 0 || (!jobs[0].alone && performance.now() - t0 < budget)); n++) { const a = jobs[0].alone; run1(); if (a) break }
+    else for (let n = 0, b = entered ? HELD_MS : budget; jobs.length && (n === 0 || (!jobs[0].alone && performance.now() - t0 < b)); n++) { const a = jobs[0].alone; run1(); if (a) break }
     if (!jobs.length || jobs[0].need > 0) drained()
     if (jobs.length) raf = requestAnimationFrame(pump)
     else { if (!entered) uninstallPatches(); rt?.destroy(true); rt = null }
@@ -254,13 +258,14 @@ export function createOphanRenderer(host) {
     // the last boss phase (0..3) whose art is all baked: the sim holds the boss's entry into a later one (input.ophanReady)
     readyPhase: () => Math.max(0, Math.min(3, jobs.length ? jobs[0].need - 1 : 3)),
     // art-fight.js's warm-up, as jobs, each with a NEED: the boss phase that first shows it (0: the level's start). The queue
-    // is kept in need order, so it drains in the order the fight first shows things:
+    // is kept in need order, so it drains in the order the fight first shows things. A wave frame runs a job whole, so only
+    // a job that stays under a frame (measured at desktop 4x CPU: ~16 ms) waits for the waves; every dearer one is need 0:
     //   0  every world's floor: its slot built and rendered once off screen (its pass compiles, its floor uploads), drawn
-    //      the ways the fight draws it (gpuWarm). The level starts on these: the opening wave shows only the floors and
-    //      the crowd (render.js's own prewarm bakes the crowd's looks), and a world pressed in a wave finds its floor;
-    //   1  the boss at phase 1 in every world (one job per frame of the Magma's sheet), the attacks phase 1 rolls, every
-    //      world's hand (a first swap can go to any of them; sliced where it can) and its shadow;
-    //   2, 3  the boss at that phase and the attacks that phase first rolls; 3 also the pencil sketch (paper, body, attacks).
+    //      the ways the fight draws it (gpuWarm), and every draw that bakes as it goes: the boss in every world and phase
+    //      (the first draw is 50-110 ms; one job per frame of the Magma's sheet, 17 ms each), the attacks the dear painters
+    //      bake (DEAR_ATK), the pencil body, and every world's hand (each has a bake step or first draw of 18-115 ms);
+    //   1  the liquid boss's sliced bake (6 ms a slice), the other attacks phase 1 rolls, the hands' shadows;
+    //   2, 3  the cheap attacks that phase first rolls; 3 also the pencil sketch's paper and attacks.
     // Before the fight the jobs run back to back for up to ms of each animation frame (at least one a frame), then in the
     // waves on credit (pump). Idempotent: a world already queued or warmed is skipped. The promise settles when no job of
     // need 0 is left, so the level never starts under one.
@@ -282,32 +287,33 @@ export function createOphanRenderer(host) {
         for (let k = 0; k < WARM_UPDATES; k++) q(fl, id + ':floor', () => slot(id).st.update(0))
         for (let k = 0; k < 4; k++) q(fl, id + ':gpu', () => gpuWarm(slot(id), k))
         q(fl, id + ':glc', alone(() => glcWarm(slot(id), false)))
-        if (id === 'liquid') q(1, id + ':boss', () => {
+        if (id === 'liquid') { const lb = () => {
           const s = slot(id), step = s.st.warmBoss([OPHAN_BOSS.R * z / s.k * RES])
           const go = () => { if (!step(6)) jobs.unshift(go) }
-          go.need = 1; go.tag = 'liquid:boss'
+          go.need = lb.need; go.tag = 'liquid:boss'
           go()
-        })
+        }; q(1, id + ':boss', lb) }
         // the boss through its phases (the painters bake per size and phase). The Magma's body is a sheet of frames, each
         // baked on its first showing: one frame a job (t picks it: the idle loop shows frame floor(10 t))
         const FN = OPHAN[id].frames
         for (const ph of sk ? [4] : [1, 2, 3]) {
-          if (FN) for (let j = 0; j < FN; j++) q(ph, id + ':frame', at((s, R) => { wpx.grace = 0; window.OPH_PH = ph; boss(s, s.w / 2, s.h / 3, R, (j + 0.5) / 10, ph, null, 0, 0, 0, wpx); shot(warmC) }))
-          else q(sk ? 3 : ph, id + ':boss', at((s, R) => { window.OPH_PH = ph; boss(s, s.w / 2, s.h / 3, R, 0, ph, null, 0, 0, 0, wpx) }), () => shot(warmC))
+          if (FN) for (let j = 0; j < FN; j++) q(0, id + ':frame', at((s, R) => { wpx.grace = 0; window.OPH_PH = ph; boss(s, s.w / 2, s.h / 3, R, (j + 0.5) / 10, ph, null, 0, 0, 0, wpx); shot(warmC) }))
+          else q(0, id + ':boss', at((s, R) => { window.OPH_PH = ph; boss(s, s.w / 2, s.h / 3, R, 0, ph, null, 0, 0, 0, wpx) }), () => shot(warmC))
         }
         for (const k of sk ? ch.sketchAttacks : [...new Set(Object.values(ch.attacks).flat())]) {
-          const ph = sk ? 4 : Math.max(1, OPHAN_ATTACKS[k].minPh)
+          const ph = sk ? 4 : Math.max(1, OPHAN_ATTACKS[k].minPh), need = DEAR_ATK.has(id) ? 0 : sk ? 3 : first(k)
           // the Magma cuts an attack's frames as the fight first shows them, at the fight's own aim: one frame warms its draw
-          if (FN) q(first(k), id + ':atk', at((s, R) => { wpx.grace = 0; window.OPH_PH = ph; boss(s, s.w / 2, s.h / 3, R, 0, ph, k, 0, s.w / 2, s.h / 3 + OPHAN_BOSS_HOLD * R / OPHAN_BOSS.R, wpx); shot(warmC) }))
-          else q(sk ? 3 : first(k), id + ':atk', at((s, R) => { window.OPH_PH = ph; boss(s, s.w / 2, s.h / 3, R, 0, ph, k, 0.5, s.w / 2, s.h * 0.72, wpx) }), () => shot(warmC))
+          if (FN) q(need, id + ':atk', at((s, R) => { wpx.grace = 0; window.OPH_PH = ph; boss(s, s.w / 2, s.h / 3, R, 0, ph, k, 0, s.w / 2, s.h / 3 + OPHAN_BOSS_HOLD * R / OPHAN_BOSS.R, wpx); shot(warmC) }))
+          else q(need, id + ':atk', at((s, R) => { window.OPH_PH = ph; boss(s, s.w / 2, s.h / 3, R, 0, ph, k, 0.5, s.w / 2, s.h * 0.72, wpx) }), () => shot(warmC))
         }
         if (sk) continue
         // its hand (a hand's first draw bakes it), its bake sliced first where the hand offers one, then drawn through
         // arrival, paint and lift, the liquid hand's cut masked by the warm boss it is drawn over
         const H = OPHAN_HANDS[id]
-        if (H?.bake) q(1, id + ':hand', () => { const s = slot(id); jobs.unshift(sliced(1, H.bake(OPHAN_BOSS.R * z / s.k))); jobs[0].tag = id + ':hand' })
+        const hb = () => { const s = slot(id); jobs.unshift(sliced(hb.need, H.bake(OPHAN_BOSS.R * z / s.k))); jobs[0].tag = id + ':hand' }
+        if (H?.bake) q(0, id + ':hand', hb)
         for (const u of [0.1, 0.5, 0.9])
-          q(1, id + ':hand', at((s, R) => { window.OPH_PH = 1; boss(s, s.w / 2, s.h / 3, R, 0, 1, null, 0, 0, 0, wpx); window.SPIKE.px = wpx; hand(whpx, id, s.w / 2, s.h / 3, R, 0, u) }), () => shot(warmC))
+          q(0, id + ':hand', at((s, R) => { window.OPH_PH = 1; boss(s, s.w / 2, s.h / 3, R, 0, 1, null, 0, 0, 0, wpx); window.SPIKE.px = wpx; hand(whpx, id, s.w / 2, s.h / 3, R, 0, u) }), () => shot(warmC))
         // the hand's shadow, one texture per world colour (a sprite placed per frame, never a per-frame blur)
         const k = ch.worlds.findIndex((w) => w.look === id), col = ch.worlds[k].col
         q(1, id + ':shade', () => {

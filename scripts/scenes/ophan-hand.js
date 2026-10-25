@@ -22,7 +22,8 @@ const o = run.script.oph
 const hold = () => { o.atkCd = 99; o.swapIn = 99 }
 H.until(() => { hold(); return o.t > 3 }, 1200)
 if (WJ !== o.world) { run._worldPress = WJ; H.until(() => { hold(); return o.world === WJ && !o.wipe }, 600) }
-H.until(() => { hold(); return o.t > 5 }, 1200)
+// the fight opens on a 30 s wave with no boss: wait for its entry (its art may hold the entry longer), then its rise
+H.until(() => { hold(); return o.t > 5 && o.bossId != null }, 6000); H.until(() => { hold(); return true }, 120)
 const boss = () => run.enemies.find((e) => e.rosterId === 'ophan' && !e._dead)
 const wear = (k) => { if (k !== o.skin) { o.hp[o.skin] = boss().hp; o.skin = k; boss().hp = o.hp[k] } }
 H.note(JSON.stringify({ mode: MODE, look: K, world: o.world, prev: PREV, mock: MOCK, t: +o.t.toFixed(2), crowd: run.enemies.filter((e) => !e._dead && e.rosterId !== 'ophan').length }))

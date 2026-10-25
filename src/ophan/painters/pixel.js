@@ -154,6 +154,7 @@ OPHAN.pixel = (() => {
     for (const p of P) for (const [x, y] of p.pts) ext = Math.max(ext, Math.abs(x) + .12, Math.abs(y) + .12);
     const n = Math.ceil(R*2*ext/8)*8 + 6; if (n !== N){ N = n; if (!SPR.has(n)){ const cv = mk(n, n); SPR.set(n, [cv, cv.getContext('2d').createImageData(n, n)]); } [spr, img] = SPR.get(n); }   // one buffer per size, kept
     const c0 = n/2, id = buf('id', Int16Array, n).fill(-1), lit = buf('lit', Float32Array, n), kind = [];
+    const RL = new Int32Array(n).fill(n), RH = new Int32Array(n).fill(-1);   // each row's filled span: every pass below walks only near it (the sword's blade is a thin diagonal across a huge square)
     P.forEach((p, pi) => {
       const Q = p.pts.map(([px,py]) => [c0 + px*R, c0 + py*R]), QX = Q.map(q => q[0]), QY = Q.map(q => q[1]);   // flat for the scanline below
       let x0 = n, x1 = 0, y0 = n, y1 = 0, mx = 0, my = 0;
@@ -161,7 +162,7 @@ OPHAN.pixel = (() => {
       mx /= Q.length; my /= Q.length; const sz = Math.max(1.5, (x1-x0 + y1-y0)/2); kind[pi] = p.k;
       let any = false;
       const sh = p.shade || .5, SR = p.sp && p.sp.map(([x, y, nx, ny, h]) => [c0 + x*R, c0 + y*R, nx, ny, Math.max(1, h*R), -(nx + ny) > 0 ? 1 : -1]), SX = SR && SR.map(q => q[0]), SY = SR && SR.map(q => q[1]);   // SX, SY: the nearest-spine search reads them flat
-      const set = (x, y) => { const k = y*n + x; id[k] = pi; any = true;
+      const set = (x, y) => { const k = y*n + x; id[k] = pi; any = true; if (x < RL[y]) RL[y] = x; if (x > RH[y]) RH[y] = x;
         if (!SR){ lit[k] = sh + .5*(-(x + .5 - mx) - (y + .5 - my))/sz; return; }
         let j = 0, bd = 1e9; for (let m = 0; m < SR.length; m++){ const dd = (x + .5 - SX[m])**2 + (y + .5 - SY[m])**2; if (dd < bd){ bd = dd; j = m; } }
         const [qx, qy, nx, ny, h, sg] = SR[j], v = sg*((x + .5 - qx)*nx + (y + .5 - qy)*ny)/h, uu = j/(SR.length - 1);
@@ -178,21 +179,29 @@ OPHAN.pixel = (() => {
         xs.sort((u, v) => u - v);
         for (let q = 0; q + 1 < xs.length; q += 2){ const xa = Math.max(0, Math.ceil(xs[q] - .5)), xb = Math.min(n-1, Math.ceil(xs[q+1] - .5) - 1); for (let x = xa; x <= xb; x++) set(x, y); }
       }
-      if (!any){ const cx = Math.floor(mx), cy = Math.floor(my); if (cx >= 0 && cy >= 0 && cx < n && cy < n){ id[cy*n + cx] = pi; lit[cy*n + cx] = p.shade || .5; } }
+      if (!any){ const cx = Math.floor(mx), cy = Math.floor(my); if (cx >= 0 && cy >= 0 && cx < n && cy < n){ id[cy*n + cx] = pi; lit[cy*n + cx] = p.shade || .5; RL[cy] = Math.min(RL[cy], cx); RH[cy] = Math.max(RH[cy], cx); } }
     });
+    // lo..hi: the filled span, M pixels wider and taller (the web reaches 4 past it, the glow bands 2 past that); empty rows lo > hi
+    const M = 8, lo = new Int32Array(n), hi = new Int32Array(n);
+    for (let y = 0; y < n; y++){ let a = n, b = -1; for (let j = Math.max(0, y - M); j <= Math.min(n - 1, y + M); j++){ if (RL[j] < a) a = RL[j]; if (RH[j] > b) b = RH[j]; }
+      lo[y] = b < 0 ? n : Math.max(0, a - M); hi[y] = b < 0 ? -1 : Math.min(n - 1, b + M); }
+    const acc = new Float64Array(n), cols = (src, r, out) => {   // the column half of a box sum, row by row: a sliding sum per column, fed and drained only where a row has content
+      acc.fill(0); for (let y = -r; y < n; y++){ const ya = y + r, yr = y - r - 1;
+        if (ya < n) for (let x = lo[ya]; x <= hi[ya]; x++) acc[x] += src[ya*n + x];
+        if (yr >= 0) for (let x = lo[yr]; x <= hi[yr]; x++) acc[x] -= src[yr*n + x];
+        if (y >= 0) for (let x = lo[y]; x <= hi[y]; x++) out(y*n + x, acc[x]); } };
     const FEATH = ['prim', 'talon', 'cov'], grp = P.map(p => p.g === undefined ? -1 : p.g), ord = {};   // a wing's depth: the index of its first part
     P.forEach((p, pi) => { if (p.g !== undefined && ord[p.g] === undefined) ord[p.g] = pi; });
     { // one mass behind the feathers: dark web between the blades (a box-majority fill, two running-sum passes), the blades stay separate shapes
       const occ = buf('occ', Uint8Array, n), rs = buf('rs', Uint16Array, n), FR = 4, fi = kind.length, need = ((2*FR + 1)**2)/2; kind.push('web'); grp.push(-1);
-      for (let k = 0; k < n*n; k++) occ[k] = id[k] >= 0 && kind[id[k]] !== 'halo' ? 1 : 0;
-      for (let y = 0; y < n; y++){ let a = 0; for (let x = -FR; x < n; x++){ if (x + FR < n) a += occ[y*n + x + FR]; if (x - FR - 1 >= 0) a -= occ[y*n + x - FR - 1]; if (x >= 0) rs[y*n + x] = a; } }
-      for (let x = 0; x < n; x++){ let a = 0; for (let y = -FR; y < n; y++){ if (y + FR < n) a += rs[(y + FR)*n + x]; if (y - FR - 1 >= 0) a -= rs[(y - FR - 1)*n + x];
-        if (y >= 0 && a > need && id[y*n + x] < 0){ id[y*n + x] = fi; lit[y*n + x] = .3; } } }
+      occ.fill(0); for (let y = 0; y < n; y++) for (let x = lo[y]; x <= hi[y]; x++){ const k = y*n + x; occ[k] = id[k] >= 0 && kind[id[k]] !== 'halo' ? 1 : 0; }
+      for (let y = 0; y < n; y++){ let a = 0; for (let x = lo[y] - FR; x <= hi[y]; x++){ if (x + FR < n) a += occ[y*n + x + FR]; if (x - FR - 1 >= 0) a -= occ[y*n + x - FR - 1]; if (x >= 0) rs[y*n + x] = a; } }
+      cols(rs, FR, (k, a) => { if (a > need && id[k] < 0){ id[k] = fi; lit[k] = .3; } });
     }
-    for (let y = 1; y < n - 1; y++) for (let x = 1; x < n - 1; x++){ const k = y*n + x; if (id[k] < 0 || kind[id[k]] === 'halo') continue;   // no lone one-pixel spur
+    for (let y = 1; y < n - 1; y++) for (let x = Math.max(1, lo[y]); x <= Math.min(n - 2, hi[y]); x++){ const k = y*n + x; if (id[k] < 0 || kind[id[k]] === 'halo') continue;   // no lone one-pixel spur
       if ((id[k-1] >= 0) + (id[k+1] >= 0) + (id[k-n] >= 0) + (id[k+n] >= 0) <= 1) id[k] = -1; }
     const d = img.data; d.fill(0);
-    if (quick){ for (let k = 0; k < n*n; k++) if (id[k] >= 0) d[k*4 + 3] = 255; spr.getContext('2d').putImageData(img, 0, 0); return spr; }
+    if (quick){ for (let y = 0; y < n; y++) for (let x = lo[y]; x <= hi[y]; x++) if (id[y*n + x] >= 0) d[(y*n + x)*4 + 3] = 255; spr.getContext('2d').putImageData(img, 0, 0); return spr; }
     const hm = buf('hm', Float32Array, n).fill(0);
     const put = (k, h) => { hm[k] = HOT.has(h) ? (h === '#d8340c' ? .5 : 1) : 0; const [r,g,b] = rgbOf(h); d[k*4] = r; d[k*4+1] = g; d[k*4+2] = b; d[k*4+3] = 255; };
     const ramp = (A, k) => A[Math.max(0, Math.min(A.length - 1, Math.floor(Math.max(0, Math.min(.999, lit[k] - .08))*A.length)))];
@@ -201,7 +210,7 @@ OPHAN.pixel = (() => {
     const tone = (j, dp) => (dp < -.6 ? ROCK : RAMP)[Math.max(1, Math.min(4, j + up + (dp < -.25 ? -1 : dp > .6 && up === 0 && j === 2 ? 1 : 0)))];
     const nb4 = k => id[k-1] !== id[k] || id[k+1] !== id[k] || id[k-n] !== id[k] || id[k+n] !== id[k];
     const GL = [], ecx = c0 + (Pz.eye.x - o[0])*R, ecy = c0 + (Pz.eye.y - o[1])*R;
-    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++){
+    for (let y = 0; y < n; y++) for (let x = lo[y]; x <= hi[y]; x++){
       const k = y*n + x, i = id[k];
       if (i < 0) continue;
       const kd = kind[i];
@@ -225,27 +234,27 @@ OPHAN.pixel = (() => {
     }
     // the great eye's ring: one near-black art pixel all round it, then one of melt
     for (const k of GL) for (const o of [0, 1, n, n + 1]) if (k + o < n*n) put(k + o, '#ffffff');   // the feather eyes' catchlight: 2x2, white
-    const ringM = buf('ring', Uint8Array, n).fill(0), EYEK = ['chest', 'chestdim'], e0 = Math.max(1, Math.floor(Math.min(ecx, ecy) - .45*R)), e1 = Math.min(n - 1, Math.ceil(Math.max(ecx, ecy) + .45*R));
+    const ringM = buf('ring', Uint8Array, n).fill(0), EYEK = ['chest', 'chestdim'], x0 = Math.max(1, Math.floor(ecx - .45*R)), x1 = Math.min(n - 1, Math.ceil(ecx + .45*R)), y0 = Math.max(1, Math.floor(ecy - .45*R)), y1 = Math.min(n - 1, Math.ceil(ecy + .45*R));
     const EYEP = kind.map(kd => EYEK.includes(kd)), PSP = kind.map(kd => kd === 'pupil' || kd === 'slit');   // per part, not per pixel
     const inEye = k => { const i = id[k]; return i >= 0 && (EYEP[i] || (PSP[i] && Math.abs((k % n) - ecx) < .27*R && Math.abs((k/n|0) - ecy) < .16*R)); };
-    for (let y = e0; y < e1; y++) for (let x = e0; x < e1; x++){ const k = y*n + x; if (inEye(k)) continue;
+    for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++){ const k = y*n + x; if (inEye(k)) continue;
       for (let j = -1; j <= 1 && !ringM[k]; j++) for (let i = -1; i <= 1; i++) if (inEye(k + j*n + i)){ ringM[k] = 1; break; } }
-    for (let y = e0; y < e1; y++) for (let x = e0; x < e1; x++){ const k = y*n + x; if (ringM[k] || inEye(k) || id[k] < 0) continue;
+    for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++){ const k = y*n + x; if (ringM[k] || inEye(k) || id[k] < 0) continue;
       if (ringM[k-1] || ringM[k+1] || ringM[k-n] || ringM[k+n]) put(k, '#ff6a14'); }
-    for (let y = e0; y < e1; y++) for (let x = e0; x < e1; x++) if (ringM[y*n + x]) put(y*n + x, '#050304');
+    for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) if (ringM[y*n + x]) put(y*n + x, '#050304');
     // the outline: the silhouette's own edge pixel in ink (the hot parts keep theirs), and the heat only OUTSIDE it, two art
     // pixels of melt glow, brighter where the body is hot nearby
     const b1 = buf('b1', Float32Array, n), r = 3, D2 = 49, heat = buf('heat', Float32Array, n);
-    for (let y = 0; y < n; y++){ let a = 0; for (let x = -r; x < n; x++){ if (x + r < n) a += hm[y*n + x + r]; if (x - r - 1 >= 0) a -= hm[y*n + x - r - 1]; if (x >= 0) b1[y*n + x] = a; } }
-    for (let x = 0; x < n; x++){ let a = 0; for (let y = -r; y < n; y++){ if (y + r < n) a += b1[(y + r)*n + x]; if (y - r - 1 >= 0) a -= b1[(y - r - 1)*n + x]; if (y >= 0) heat[y*n + x] = a/D2; } }
+    for (let y = 0; y < n; y++){ let a = 0; for (let x = lo[y] - r; x <= hi[y]; x++){ if (x + r < n) a += hm[y*n + x + r]; if (x - r - 1 >= 0) a -= hm[y*n + x - r - 1]; if (x >= 0) b1[y*n + x] = a; } }
+    cols(b1, r, (k, a) => { heat[k] = a/D2; });
     const band = buf('band', Uint8Array, n).fill(0), full = k => d[k*4 + 3] === 255, IK = rgbOf(INKC);
-    for (let y = 1; y < n-1; y++) for (let x = 1; x < n-1; x++){ const k = y*n + x; if (!full(k)) continue;
+    for (let y = 1; y < n-1; y++) for (let x = Math.max(1, lo[y]); x <= Math.min(n - 2, hi[y]); x++){ const k = y*n + x; if (!full(k)) continue;
       if (!full(k-1) || !full(k+1) || !full(k-n) || !full(k+n)){ band[k] = 1; if (hm[k] < 1){ d[k*4] = IK[0]; d[k*4+1] = IK[1]; d[k*4+2] = IK[2]; } } }
-    for (const [b0, b2] of [[1, 2], [2, 3]]) for (let y = 1; y < n-1; y++) for (let x = 1; x < n-1; x++){ const k = y*n + x; if (full(k) || band[k]) continue;
+    for (const [b0, b2] of [[1, 2], [2, 3]]) for (let y = 1; y < n-1; y++) for (let x = Math.max(1, lo[y]); x <= Math.min(n - 2, hi[y]); x++){ const k = y*n + x; if (full(k) || band[k]) continue;
       if (band[k-1] === b0 || band[k+1] === b0 || band[k-n] === b0 || band[k+n] === b0) band[k] = b2; }
     const ofl = Lk.oflash, spent = Lk.dim > .5;
     const C2 = rgbOf(ofl > .3 ? '#ffd858' : spent ? '#7a1004' : '#d8340c'), C2h = rgbOf(ofl > .3 ? '#fff4c4' : spent ? '#d8340c' : '#ff6a14'), C3 = rgbOf(ofl > .3 ? '#ff6a14' : '#7a1004');
-    for (let k = 0; k < n*n; k++){ const b = band[k]; if (b < 2) continue; const H = b === 3 ? C3 : heat[k] > .1 ? C2h : C2;
+    for (let y = 0; y < n; y++) for (let k = y*n + Math.max(0, lo[y]); k <= y*n + hi[y]; k++){ const b = band[k]; if (b < 2) continue; const H = b === 3 ? C3 : heat[k] > .1 ? C2h : C2;
       d[k*4] = H[0]; d[k*4+1] = H[1]; d[k*4+2] = H[2]; d[k*4+3] = b === 2 ? (ofl > .3 ? 220 : 170) : (ofl > .3 ? 110 : 70); }
     spr.getContext('2d').putImageData(img, 0, 0);
     return spr;
@@ -624,7 +633,9 @@ OPHAN.pixel = (() => {
       place(c, x, y, R, t, ph, sheet(['idle', Math.round(Rr), ph].join(), Rr, ph, (j) => ({ P: RIG.pose(j/10, ph), t: j/10, o: [0, 0] }), c.grace > 0), loopI(t)); },
     attack(c, x, y, R, t, ph = 3, atk, u, px, py){
       const gx = (px - x)/R, gy = (py - y)/R, P = RIG.pose(t, ph, atk, u, gx, gy), A = RIG.attackUnit(atk, u, ph, gx, gy, t, P), b = P.beats;
-      const an = Math.round(Math.atan2(gy, gx)/(TAU/16)), dq = Math.max(.5, Math.round(Math.hypot(gx, gy)*2)/2), qx = Math.cos(an*TAU/16)*dq, qy = Math.sin(an*TAU/16)*dq;   // the aim the sheet was cut at
+      // the sword's body ignores the aim's distance (only the eyes' gaze read it), so its sheets are cut at the hold distance
+      // (config OPHAN_BOSS_HOLD, 2 R): one per direction, not one per direction and step of the player's range
+      const an = Math.round(Math.atan2(gy, gx)/(TAU/16)), dq = atk === 'sword' ? 2 : Math.max(.5, Math.round(Math.hypot(gx, gy)*2)/2), qx = Math.cos(an*TAU/16)*dq, qy = Math.sin(an*TAU/16)*dq;   // the aim the sheet was cut at
       const Rr = R*c.getTransform().a/AP(), mv = atk === 'wheel' || atk === 'sword';
       const S = sheet([atk, Math.round(Rr), ph, an, dq].join(), Rr, ph, (j) => { const uq = j/(FN - 1), Q = RIG.pose(0, ph, atk, uq, qx, qy);
         if (atk === 'sword') Q.swd = { A: RIG.attackUnit(atk, uq, ph, qx, qy, 0, Q), u: uq }; return { P: Q, t: 0, o: mv ? [Q.body.ox, Q.body.oy] : [0, 0] }; });   // never whole: its key holds the aim, which the fight almost never repeats; each frame is cut as first shown
