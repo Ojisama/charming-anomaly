@@ -1,11 +1,11 @@
-import { OPHAN, OPHAN_RIG, hh, mk, shade, mix, sheen, INK, TAU, PX, STY } from '../page.js'
+import { OPHAN, OPHAN_RIG, hh, mk, TAU } from '../page.js'
 // The Ophan in the Geode look (holo), round 37: a biblically accurate SERAPH as a rare foil boss card, on the shared rig.
 // Shape and motion come from OPHAN_RIG (cru/rig.js): this file only renders them. Drawn like the Geode's own cast
 // (src/holo.js): flat cel colour under a crisp near-black ink line (heavier on every silhouette), every blade a faceted
 // thin-film foil split by a white ridge with the geode's rainbow facets along it and a holographic sheen sliding across
 // each wing; a prismatic wheel for a halo, crystal shards for every effect.
-// Contract: bg(c, w, t) paints a w x w tile floor; boss(c, x, y, R, t, ph) paints the boss centred at x,y, body radius ~R;
-// post(c, w, t) a full-res overlay; attack(c, x, y, R, t, ph, atk, u, px, py) the boss in its attack pose and the attack.
+// Contract: boss(c, x, y, R, t, ph) paints the boss centred at x,y, body radius ~R;
+// attack(c, x, y, R, t, ph, atk, u, px, py) the boss in its attack pose and the attack.
 OPHAN.holo = (() => {
   const INKC = '#0b0714';
   const cl = v => Math.max(0, Math.min(255, Math.round(v)));
@@ -13,47 +13,7 @@ OPHAN.holo = (() => {
   const filmA = (t, k = .45, b = .55) => [0, .33, .67].map(o => cl(255*(b + k*Math.cos(TAU*(t + o)))));
   const film = (t, k, b, a = 1) => { const [r, g, bl] = filmA(t, k, b); return `rgba(${r},${g},${bl},${(+a).toFixed(3)})`; };
   const lerpC = (A, B, k) => `rgb(${A.map((v, i) => cl(v + (B[i] - v)*k)).join(',')})`;
-  const DKL = [24, 18, 46], DKH = [78, 66, 132], RDL = [96, 10, 26], RDH = [236, 52, 64];
-  const floors = {};
-  function floor(w){
-    if (floors[w]) return floors[w];
-    const S = Math.round(w*2), cv = mk(S, S), g = cv.getContext('2d'), im = g.createImageData(S, S), d = im.data;
-    const G = 4, cs = S/G, P = [];
-    for (let j = 0; j < G; j++) for (let i = 0; i < G; i++)
-      P.push({ x: (i + .2 + .6*hh(i, j + 9))*cs, y: (j + .2 + .6*hh(i + 4, j))*cs, slab: (i + j) < 2 && !(i === 1 && j === 1), k: P.length, a: hh(i*3, j*7)*TAU });
-    const PAL = [[26, 24, 44], [34, 28, 58], [22, 38, 48], [40, 30, 54], [20, 22, 36], [30, 34, 56], [44, 30, 48]];
-    const SLAB = [[226, 236, 214], [240, 220, 234], [216, 226, 242], [236, 232, 212]];
-    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++){
-      let d1 = 1e9, d2 = 1e9, b1 = null, b2 = null, vx = 0, vy = 0;
-      for (const p of P){
-        let dx = x - p.x, dy = y - p.y;
-        if (dx > S/2) dx -= S; else if (dx < -S/2) dx += S;
-        if (dy > S/2) dy -= S; else if (dy < -S/2) dy += S;
-        const q = dx*dx + dy*dy;
-        if (q < d1){ d2 = d1; b2 = b1; d1 = q; b1 = p; vx = dx; vy = dy; } else if (q < d2){ d2 = q; b2 = p; }
-      }
-      const e = Math.sqrt(d2) - Math.sqrt(d1), o = (y*S + x)*4;
-      const tilt = (vx*Math.cos(b1.a) + vy*Math.sin(b1.a))/cs;
-      let c;
-      if (b1.slab){
-        const s = SLAB[b1.k % 4], sh = 1 + tilt*.08;
-        c = s.map(v => v*sh);
-        if (e < 2.4) c = b2.slab ? [150, 150, 170] : filmA((x + y)/S*1.6, .5, .55);
-        else if (e < 9 && !b2.slab) { const f = filmA((x - y)/S*2, .35, .6); c = c.map((v, i) => v*.55 + f[i]*.45); }
-      } else {
-        const s = PAL[b1.k % PAL.length], sh = 1 + tilt*.35 + (((x + y) % 7) === 0 ? .12 : 0);
-        c = s.map(v => v*sh);
-        if (e < 2.2) c = b2.slab ? filmA((x + y)/S*1.6, .5, .55) : [86, 80, 124];
-      }
-      d[o] = cl(c[0]); d[o + 1] = cl(c[1]); d[o + 2] = cl(c[2]); d[o + 3] = 255;
-    }
-    g.putImageData(im, 0, 0);
-    for (let k = 0; k < 26; k++){ g.fillStyle = `rgba(220,215,255,${(.25 + hh(k, 1)*.4).toFixed(3)})`; g.fillRect(hh(k, 2)*S, hh(k, 3)*S, 2, 2); }
-    g.strokeStyle = 'rgba(200,200,255,.6)'; g.lineWidth = 1.5;
-    for (let k = 0; k < 4; k++){ const x = hh(k, 5)*S, y = hh(k, 6)*S, r = 5 + hh(k, 7)*6; g.beginPath(); g.moveTo(x - r, y); g.lineTo(x + r, y); g.moveTo(x, y - r); g.lineTo(x, y + r); g.stroke(); }
-    return floors[w] = cv;
-  }
-
+  const DKL = [24, 18, 46], DKH = [78, 66, 132];
   const RIG = OPHAN_RIG;
   const sm = (a, b, v) => { const k = Math.min(1, Math.max(0, (v - a)/(b - a))); return k*k*(3 - 2*k); };
   const c01 = v => Math.min(1, Math.max(0, v));
@@ -766,9 +726,7 @@ OPHAN.holo = (() => {
   }
 
   return {
-    bg(c, w, t){ c.drawImage(floor(w), 0, 0, w, w); },
     boss,
     attack,
-    post(c, w, t){},   // ponytail: the level's live foil pass is not reproduced on the floor; the boss carries its own
   };
 })();

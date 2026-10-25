@@ -9,7 +9,7 @@
 // player's hp refilled every frame, the first card taken on every level-up. Every rAF delta is recorded with what was
 // on screen. The bot's own per-frame cost is recorded too: a player does not pay it, so it is reported beside the fps.
 // With --adb: forwards 9229, reverses the server's port, aborts on the lock screen, holds screen_off_timeout at 600000
-// while measuring and puts 60000 back on every exit, and closes only the tabs it opened.
+// while measuring and puts the phone's own value back on every exit, and closes only the tabs it opened.
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -28,13 +28,13 @@ const die = (msg, code = 2) => { console.error('ABORT: ' + msg); process.exit(co
 // ---- device setup and the cleanup every exit path runs (sync, so it also runs from 'exit') ----------------------------
 const adb = (...a) => execFileSync('adb', ['-s', ADB, ...a], { encoding: 'utf8', timeout: 20000, maxBuffer: 64e6 })
 const ours = new Set()
-let timeoutRaised = false
+let timeoutRaised = false, timeoutWas = '60000'
 function cleanup() {
   for (const id of ours) { try { execFileSync('curl', ['-s', '-m', '5', `${CDP}/json/close/${id}`]) } catch { /* already gone */ } }
   ours.clear()
   if (timeoutRaised) {
     timeoutRaised = false
-    try { adb('shell', 'settings', 'put', 'system', 'screen_off_timeout', '60000'); console.error('screen_off_timeout restored to 60000') } catch (e) { console.error('FAILED to restore screen_off_timeout: ' + e.message) }
+    try { adb('shell', 'settings', 'put', 'system', 'screen_off_timeout', timeoutWas); console.error('screen_off_timeout restored to ' + timeoutWas) } catch (e) { console.error('FAILED to restore screen_off_timeout: ' + e.message) }
   }
 }
 process.on('exit', cleanup)
@@ -47,6 +47,8 @@ if (ADB) {
   const locked = () => adb('shell', 'dumpsys', 'window').includes('isKeyguardShowing=true')
   try { adb('get-state') } catch { die(`no device ${ADB} on adb`) }
   if (locked()) die('the phone is on its lock screen (it needs the owner PIN). Nothing was changed.')
+  const was = String(adb('shell', 'settings', 'get', 'system', 'screen_off_timeout')).trim()
+  if (/^\d+$/.test(was)) timeoutWas = was
   adb('shell', 'settings', 'put', 'system', 'screen_off_timeout', '600000')
   timeoutRaised = true
   adb('shell', 'input', 'keyevent', 'KEYCODE_WAKEUP')

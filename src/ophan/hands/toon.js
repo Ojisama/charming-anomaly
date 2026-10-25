@@ -1,5 +1,4 @@
-import * as PIXI from 'pixi.js'
-import { OPHAN, OPHAN_HANDKIT, OPHAN_HANDS, OPHAN_RIG, hh } from '../page.js'
+import { OPHAN, OPHAN_HANDKIT, OPHAN_HANDS, OPHAN_RIG } from '../page.js'
 // THE MANTLE'S PAINTER (toon): the 1930s white cartoon glove, three fingers and a thumb, three stitch lines on its back,
 // a flared cuff and a black rubber-hose arm, pinching a red dip pen with a steel nib. It dips the nib in an ink pot on the
 // floor, then re-inks the creature's own outline: a thick bouncy contour, cream-rimmed, round each wing it sweeps.
@@ -228,7 +227,7 @@ OPHAN_HANDS.toon = (() => {
   return {
     hand(c, x, y, R, t, H){
       if (!BK) bake();
-      const u = KIT.uOf(H); if (!window.OPHAN_PREV_STYLE) window.OPHAN_TOON_U = u;   // the boss paints its not-yet-inked wings as cream cut-outs from this, unless the stage shows a previous style under the stroke
+      const u = KIT.uOf(H);
       const HW = RIG.HAND_WIN, al = sm(0, .08, u)*(1 - sm(.93, 1, u)); if (al < .01) return;
       const q = Math.floor(t*12), f = SEQ[q%SEQ.length], b = BEND[f];   // on twos
       const { pot: PT } = fullPath(), dip = sm(U_DIP - .045, U_DIP, u)*(1 - sm(U_DIP + .01, U_DIP + .05, u));   // the dip: down into the pot, a beat, out

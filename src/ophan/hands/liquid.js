@@ -1,5 +1,5 @@
 import * as PIXI from 'pixi.js'
-import { OPHAN, OPHAN_HANDKIT, OPHAN_HANDS, OPHAN_RIG, hh } from '../page.js'
+import { OPHAN_HANDKIT, OPHAN_HANDS, OPHAN_RIG, hh } from '../page.js'
 // THE CORE'S HAND (liquid): "A hand of liquid chrome. Tool: a burin, the engraver's steel point, cutting the boss into the
 // metal." A PORT of the owner's pick, finish A5 (molten + sliding beads) of cru/var/liquid-b.js, onto game tech:
 //  - the chrome is HAND_FS, the same shader, as a Pixi Mesh (c.place): the traced hand's surface (blurred heights, creases,
@@ -20,7 +20,7 @@ OPHAN_HANDS.liquid = (() => {
   // the others the median of each floor's brightest 4 % (95th-99th luminance percentile) off its spike shot, the boss left out
   const FLOOR = { liquid: [236, 170, 110], toon: [222, 137, 77], holo: [193, 223, 203], pixel: [252, 168, 42], macro: [117, 86, 56], pencil: [242, 239, 230], ascii: [104, 95, 83] };
   const DEEP = new Map([[FLOOR.liquid, [166, 60, 20]]]);   // the rim's dark end, past grazing: the Core's own; any other floor is 0.6 of its light
-  const floorOf = (c) => c.floor || FLOOR[(c.id || new URLSearchParams(location.search).get('style') || '').replace(/-hand$/, '')] || FLOOR.liquid;
+  const floorOf = (c) => c.floor || FLOOR[(c.id || '').replace(/-hand$/, '')] || FLOOR.liquid;
   // the surface, as liquid-b.js prep(): the silhouette rounded (blurred at three scales), the engraving's lines as creases
   let T = null;
   // THE BURIN GRIP, edited into copies of the kit's trace (mm): the pen's long shaft, which ran over the back of the hand and

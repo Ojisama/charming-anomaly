@@ -26,7 +26,7 @@ export default function stage(app, { W, H }) {
     lavaTide: { level: 0, phase: 'ebb', t: 0, dur: 13, cycle: 1, swell: 0, cover: L.ebbCover, line: lavaLineFor(L, L.ebbCover), rising: false, turnIn: 13, seed },
   }
   // the player has since walked off the dry start into the lava, as in the reference (?cam=x,y to move it)
-  const cam = (new URLSearchParams(location.search).get('cam') || '1800,-2400').split(',').map(Number)
+  const cam = [1800, -2400]
   p.x = cam[0]; p.y = cam[1]
   r.enter(run, look)
   over.visible = false   // the player and shots: not this stage's job
@@ -52,6 +52,5 @@ export default function stage(app, { W, H }) {
       const x = cam[0] + pan.x - W / 2, y = cam[1] + pan.y - H / 2
       return r.prebake(run, { left: x, top: y, right: x + W, bottom: y + H }, until)
     },
-    setPass(on) { app.stage.filters = on ? film : null },
   }
 }

@@ -1,4 +1,4 @@
-import { OPHAN, OPHAN_RIG, hh, mk, shade, mix, sheen, INK, TAU, PX, STY } from '../page.js'
+import { OPHAN, OPHAN_RIG, hh, mk, TAU } from '../page.js'
 // The Ophan in the Magma look (pixel), round 29: the owner's pick, every feather resolved on a grid twice as fine as the
 // world's (the boss at PX/2, the floor and its fissures at PX). Each blade is its own shape in a five-step ramp (ink, deep,
 // the drake's wine, melt light, melt highlight), three bands across it lit from the upper left, a one-pixel ink seam where it
@@ -14,15 +14,13 @@ OPHAN.pixel = (() => {
   const ROCK = [INKC, '#2c2430', '#463c4c', '#625670', '#ffa22a'];             // wings far behind the turning body: the chapter's cold basalt
   const CLAW = ['#ff6a14', '#ffa22a', '#ffd858'], WHITE = ['#ffd858', '#fff4c4'];
   const HOT = new Set(['#d8340c', '#ff6a14', '#ffa22a', '#ffd858', '#fff4c4']);
-  const BAY = [0, .5, .75, .25];                       // 2x2 Bayer: the static floor only
   const LV = ['#fff4c4', '#ffd858', '#ffa22a', '#ff6a14', '#d8340c', '#7a1004'];   // lava, white-hot to cooled
   const hex = h => [parseInt(h.slice(1,3),16), parseInt(h.slice(3,5),16), parseInt(h.slice(5,7),16)];
   const RGB = {}; const rgbOf = h => RGB[h] || (RGB[h] = hex(h));
   const circ = (cx, cy, rx, ry, m = 16) => Array.from({ length: m }, (_, k) => [cx + Math.cos(k/m*TAU)*rx, cy + Math.sin(k/m*TAU)*ry]);
   const almond = (a, h, m = 14) => { const A = [], B = []; for (let k = 0; k <= m; k++){ const s = -1 + 2*k/m, y = h*(1 - s*s); A.push([s*a, -y]); B.push([s*a, y]); } return A.concat(B.reverse()); };
   let HMIN = 0, spr = null, img = null, N = 0, SPR = new Map(), WSP = null, ECX = 0, ECY = 0;
-  const SH = new Map();   // the floor shadows, one per size and phase step: the phase walks, so one slot re-baked every step
-  const floorCache = {};
+  const SH = new Map();   // the floor shadows, one per size and phase step, each baked once and kept
 
   // an almond eye along angle a (boss units), as white + iris + slit, pupil drawn toward the target
   function eye(P, x, y, a, rx, ry, o, T, kw, pk = 'pupil', glint = false){
@@ -258,37 +256,6 @@ OPHAN.pixel = (() => {
       d[k*4] = H[0]; d[k*4+1] = H[1]; d[k*4+2] = H[2]; d[k*4+3] = b === 2 ? (ofl > .3 ? 220 : 170) : (ofl > .3 ? 110 : 70); }
     spr.getContext('2d').putImageData(img, 0, 0);
     return spr;
-  }
-  // the Magma floor: big basalt plates with a one-pixel joint (src/pixel/world.js), a lava seam in one corner,
-  // hot ground near it showing red fissures; baked once per buffer size
-  function floor(n){
-    if (floorCache[n]) return floorCache[n];
-    const cv = mk(n, n), g = cv.getContext('2d'), im = g.createImageData(n, n), d = im.data;
-    const cell = Math.max(8, Math.round(n/4)), G = Math.ceil(n/cell), S = [];
-    for (let j = 0; j < G; j++) for (let i = 0; i < G; i++) S.push([(i + .15 + .7*hh(i,j))*cell, (j + .15 + .7*hh(j+9,i))*cell, S.length]);
-    const tones = ['#2b2328', '#332a2e', '#2f262d'], joint = '#18121a';
-    const lava = ['#7a1004', '#d8340c', '#ff6a14', '#ffa22a', '#ffd858'];
-    const lx = n*.92, ly = n*.86, lr = n*.3;              // the lava seam's centre and reach
-    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++){
-      let d1 = 1e9, d2 = 1e9, k1 = 0;
-      for (const [sx, sy, k] of S) for (let oy = -n; oy <= n; oy += n) for (let ox = -n; ox <= n; ox += n){
-        const dd = Math.hypot(x + .5 - sx - ox, y + .5 - sy - oy); if (dd < d1){ d2 = d1; d1 = dd; k1 = k; } else if (dd < d2) d2 = dd; }
-      const b = BAY[(y&1)*2 + (x&1)], ld = Math.hypot(x - lx, (y - ly)*1.6) / lr + Math.sin(Math.atan2(y - ly, x - lx)*5)*.05;
-      let h;
-      if (ld < .55){ const u = 1 - ld/.55; h = lava[Math.min(4, Math.floor(u*4.2 + b*.8))]; }
-      else if (ld < .6) h = '#26181a'; else if (ld < .64) h = '#1a1012';                   // the crust lip
-      else {
-        const jt = d2 - d1 < 1.1; h = jt ? joint : tones[Math.floor(hh(k1, 3)*3)];
-        const warm = 1.4 - ld;                           // hot ground round the seam: fissures + warm plates
-        if (warm > 0 && jt) h = warm > .7 ? '#a8320e' : warm > .35 ? '#6a1c0c' : '#3a1414';
-        if (warm > 0 && !jt){
-          if (warm > .45 + b*.12) h = mix(h, '#6a2a1c', warm > .6 ? .4 : .22);
-        }
-      }
-      const [r,gg,bb] = rgbOf(h), o = (y*n + x)*4; d[o] = r; d[o+1] = gg; d[o+2] = bb; d[o+3] = 255;
-    }
-    g.putImageData(im, 0, 0);
-    return floorCache[n] = cv;
   }
   // the sprite on the floor with its heat pool; returns where its centre landed in buffer pixels and the buffer scale
   function shade(R, ph){ const key = Math.round(R) + ':' + Math.round(ph*20); if (SH.has(key)) return SH.get(key);   // baked once per size and phase
@@ -635,10 +602,6 @@ OPHAN.pixel = (() => {
 
   return {
     frames: FN,   // a sheet's length: the warm-up bakes one frame per job
-    bg(c, w, t){
-      const T = c.getTransform(), n = Math.round(w*T.a);
-      c.save(); c.setTransform(1,0,0,1,0,0); c.imageSmoothingEnabled = false; c.drawImage(floor(n), Math.round(T.e), Math.round(T.f)); c.restore();
-    },
     boss(c, x, y, R, t, ph = 3){ const Rr = R*c.getTransform().a/AP();
       place(c, x, y, R, t, ph, sheet(c, ['idle', Math.round(Rr), ph].join(), Rr, ph, (j) => ({ P: RIG.pose(j/10, ph), t: j/10, o: [0, 0] }), c.grace > 0), loopI(t)); },
     attack(c, x, y, R, t, ph = 3, atk, u, px, py){
@@ -765,11 +728,6 @@ OPHAN.pixel = (() => {
       if (TOP[atk]) TOP[atk](c, A, u, t, Rb, U);
       if (b.recovery > .01) dying(c, cx, cy, Rb, t, b.recovery);
       c.restore();
-    },
-    post(c, w, t){
-      tilePost(c, 'pixel', w, t);
-      const g = c.createRadialGradient(w/2, w/2, w*.3, w/2, w/2, w*.75); g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(6,2,4,.5)');
-      c.fillStyle = g; c.fillRect(0, 0, w, w);
     },
   };
 })();

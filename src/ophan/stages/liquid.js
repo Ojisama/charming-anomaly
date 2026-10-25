@@ -59,7 +59,6 @@ export default function stage(app, { W, H }) {
       melt?.texture.source.update()
     },
     // the Core has no Pixi full-screen pass (liquidR.filters() is null): the melt's look is all gl.js
-    setPass() {},
     // the boss's per-size bakes and sheen shader ahead of time: radii = the boss's body radius in device px, one per size it
     // is drawn at (coreOld.ks() lists the buckets built so far). Returns step(ms = 8), true once done
     warmBoss: (radii) => coreOld.warm([...new Set(radii.map(kOf))], app.renderer),

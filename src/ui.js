@@ -2902,7 +2902,7 @@ export function initUI(hooks) {
     const oph = run.script?.oph
     const gaugeShown = !!CHAPTERS[run.chapter].worlds && !!oph
     const gaugeSig = gaugeShown
-      ? [oph.world, oph.bossId != null && oph.skin, oph.next, oph.tell > 0, oph.broken.join(''), oph.sketch, gaugeBands.map((_, k) => (hooks.worldReady?.(k) ? 1 : 0)).join('')].join('|')
+      ? [oph.world, oph.bossId != null && oph.skin, oph.next, oph.tell > 0, oph.broken.join(''), oph.sketch, gaugeBands.map((_, k) => (hooks.worldReady?.(k) ? 1 : 0)).join(''), getLang()].join('|')
       : ''
     if (gaugeSig !== last.gaugeSig) {
       last.gaugeSig = gaugeSig
@@ -2910,6 +2910,13 @@ export function initUI(hooks) {
       if (gaugeShown) {
         hud.ophanGauge.classList.toggle('ophan-gauge--sketch', !!oph.sketch)
         if (!gaugePainted) { gaugePainted = true; paintGauge(gaugeCanvases) }
+        // the markup is written once at boot: a title-screen language switch re-words it here
+        if (last.gaugeLang !== getLang()) {
+          last.gaugeLang = getLang()
+          const [top, bottom] = hud.ophanGauge.querySelectorAll('.ophan-cap')
+          top.textContent = t(OPHAN_GAUGE_COPY.top).toUpperCase(); bottom.textContent = t(OPHAN_GAUGE_COPY.bottom).toUpperCase()
+          gaugeBands.forEach((b, k) => { b.setAttribute('aria-label', t(spineName(OPHAN_GAUGE_IDS[k]))); b.querySelector('.ophan-card').textContent = t(OPHAN_GAUGE_COPY.tags[k]) })
+        }
         gaugeParts.forEach((parts, k) => {
           const unbuilt = !oph.broken[k] && !hooks.worldReady?.(k)
           for (const el of parts) {

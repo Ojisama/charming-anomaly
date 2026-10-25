@@ -10235,8 +10235,8 @@ export const OPHAN_WAVE = { 1: { every: 1.1, cap: 12 }, 2: { every: 0.95, cap: 1
 // the HUD depth gauge's two ends (player-visible, walked by run XX)
 export const OPHAN_GAUGE_COPY = { top: 'surface', bottom: 'core', tags: ['SOIL', 'GEOD', 'MINE', 'MAGMA', 'MANTL', 'CORE'] }
 // The zoom fits v9's arena box to the screen so the art keeps its size; the camera follows the player
-// (render.js). camX/camY are the rest framing src/ophan/renderer.js lays its stages out in, not the camera.
-export const ophanView = (screenW, screenH) => ({ z: Math.min(screenW / OPHAN_ARENA.w, screenH / OPHAN_ARENA.h), camX: 0, camY: 0 })
+// (render.js).
+export const ophanView = (screenW, screenH) => ({ z: Math.min(screenW / OPHAN_ARENA.w, screenH / OPHAN_ARENA.h) })
 
 // The worlds the Ophan wears, one per Burrow chapter: its art style (`look`), its gauge colour and
 // the three crowd ids it borrows from that chapter's roster.

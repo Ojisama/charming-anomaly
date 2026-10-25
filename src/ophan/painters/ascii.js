@@ -1,4 +1,4 @@
-import { OPHAN, OPHAN_RIG, hh, mk, shade, mix, sheen, INK, TAU, PX, STY } from '../page.js'
+import { OPHAN, OPHAN_RIG, hh, mk, TAU } from '../page.js'
 // The Ophan in the Mine look (ascii), round 25 (geometry from OPHAN_RIG): the seraph typed in the mine's glyphs.
 // Shape and motion come from OPHAN_RIG (cru/rig.js): this file only renders them, as a printed sigil of characters.
 // Each wing is the rig's own blade envelope typed on a character grid: a near-black backing, a calm stepped field of
@@ -6,7 +6,7 @@ import { OPHAN, OPHAN_RIG, hh, mk, shade, mix, sheen, INK, TAU, PX, STY } from '
 // row along its tips; the down pair's talons are typed red-hot. The great eye is < ( @ ) > in a dark socket inside a
 // ring of bright strokes, with eight '@' feather eyes. Wings are typeset ONCE per size into cached canvases and placed by
 // the rig's wing matrices. Every motion is continuous in t, ph and u.
-// Contract: bg(c, w, t), boss(c, x, y, R, t, ph), attack(c, x, y, R, t, ph, atk, u, px, py), post(c, w, t).
+// Contract: boss(c, x, y, R, t, ph), attack(c, x, y, R, t, ph, atk, u, px, py), onWing(P, x, y).
 OPHAN.ascii = (() => {
   const RIG = OPHAN_RIG;
   const FONT = '"DejaVu Sans Mono", Menlo, Consolas, "Courier New", monospace';
@@ -149,16 +149,10 @@ OPHAN.ascii = (() => {
     const m0 = c.getTransform(), s0 = Math.hypot(m0.a, m0.b) || 1, K = R*s0, B = baked(K), sc = K, cs = CS;
     const Bm = P.body.m, Fm = P.body.floor, ap = RIG.apply, beats = P.beats, grey = beats.recovery;
     const open = clamp01(P.eye.open), flare = P.raw.fl;
-    // the reveal (the rig's burst): a ripple runs out from the eye over the floor, flooding its glyphs red behind it
-    const kk = clamp01((ph - 2.25)/.75), rv = beats.burst, rf = (.3 + 8.7*Math.pow(kk, 3))*R, band = (.6 + .3*rf/R)*R;
+    // the reveal (the rig's burst): a ripple runs out from the eye over the floor
+    const kk = clamp01((ph - 2.25)/.75), rv = beats.burst, rf = (.3 + 8.7*Math.pow(kk, 3))*R;
     const HX = x + P.halo.x*R, HY = y + P.halo.y*R;
     c.save();
-    if (floorNow){
-      const ring = (r0, r1, al) => { if (al < .01 || r1 <= 0) return; c.save(); c.beginPath(); c.arc(HX, HY, r1, 0, TAU); if (r0 > 0) c.arc(HX, HY, r0, 0, TAU, true); c.clip();
-        c.globalCompositeOperation = 'lighter'; c.globalAlpha = al; c.setTransform(m0); c.drawImage(floorNow.red, 0, 0, floorNow.w, floorNow.w); c.restore(); };
-      ring(0, 4.6*R, .08*P.beats.open*(1 - rv));
-      for (let q=0;q<3;q++) ring(Math.max(0, rf - band*(q + 1)/3), rf - band*q/3, rv*(.9 - q*.28));
-    }
     c.translate(x, y); c.scale(R, R);
     // holy light (floor layer): rays of stroke glyphs round the halo, turning very slowly, breathing
     const hs = P.halo.scale;
@@ -251,23 +245,6 @@ OPHAN.ascii = (() => {
   function arcRow(c, sc, x, y, r, a0, a1, step, f){
     const n = Math.max(1, Math.ceil(Math.abs(a1 - a0)*r/step));
     for (let k=0;k<=n;k++){ const v = k/n, a = a0 + (a1 - a0)*v; f(x + Math.cos(a)*r, y + Math.sin(a)*r, a, v*2 - 1, k); }
-  }
-  // ---- the mine floor: glyphs on a near-black ground; the red twin is the same glyphs alone, in the great eye's red ----
-  const floorCache = new Map();
-  let floorNow = null;                              // the floor bg() last laid, which the reveal floods red
-  function floorLayer(w, red){
-    const f = mk(w*2, w*2), g = f.getContext('2d'); g.scale(2,2);
-    if (!red){ g.fillStyle = '#060504'; g.fillRect(0,0,w,w); }
-    g.font = '11px ' + FONT; g.textAlign = 'center'; g.textBaseline = 'middle';
-    const CH = ['.','.',',','~','^','=','"',':','-'];
-    for (let y=7;y<w;y+=13) for (let x=7 + (y%26 ? 6 : 0);x<w;x+=13){
-      const v = hh(x, y), l = Math.max(0, 1 - Math.hypot(x - w/2, y - w*.8)/(w*.9));
-      if (v < .25) continue;
-      const rock = hh(Math.floor(x/40), Math.floor(y/40)) > .8;
-      g.fillStyle = red ? 'rgba(255,46,24,' + (.55 + .45*v) + ')' : 'rgba(' + (rock ? '150,140,120' : '200,170,120') + ',' + ((.12 + .45*l)*(.6 + .4*v)) + ')';
-      g.fillText(rock && v > .5 ? (v > .75 ? '#' : '%') : CH[(v*97|0) % CH.length], x + (hh(y, x) - .5)*4, y);
-    }
-    return f;
   }
   // ---- the attacks: the rig's pose and danger geometry, typed in the mine's glyphs ----
   // blast: the cone telegraphed in ember, beads sucked into the bud, a ring at the burst, then the rig's sheet rolling out
@@ -577,12 +554,6 @@ OPHAN.ascii = (() => {
     if (Fi.on > .01 && Fi.front < Fi.len){ const X = Fi.start.x + Fi.dx*Fi.front, Y = Fi.start.y + Fi.dy*Fi.front; put(c, sc, '*', DAMP, X, Y, cs*7, .6*Fi.on, true); }
   }
   return {
-    bg(c, w, t){
-      let f = floorCache.get(w);
-      if (!f){ f = { cv: floorLayer(w, false), red: floorLayer(w, true), w }; floorCache.set(w, f); }
-      c.drawImage(f.cv, 0, 0, w, w);
-      floorNow = f;
-    },
     boss(c, x, y, R, t, ph = 3){ draw(c, x, y, R, t, ph, RIG.pose(t, ph)); },
     // is (x, y), in boss radii, on a wing's feathers in pose P (RIG.pose)? The hand stamps letters only there
     onWing: (P, x, y) => P.wings.some(w => { const [a, b, c, d, e, f] = w.m, k = a*d - b*c, X = x - e, Y = y - f, u = (d*X - c*Y)/k, v = (a*Y - b*X)/k;
@@ -597,10 +568,6 @@ OPHAN.ascii = (() => {
       if (imp > .01) for (let k=0;k<24;k++){ const a = k/24*TAU, r0 = 1.45*R, r1 = r0 + (.5 + 1.1*imp)*R;
         ray(c, sc, edgeCh(a), k % 2 ? WARN : 'rgb(255,246,220)', x, y, a, r0, r1, cs*2.2, cs*2.6, .9*imp, false); }
       c.globalAlpha = 1;
-    },
-    post(c, w, t){
-      const g = c.createRadialGradient(w/2, w*.8, w*.2, w/2, w*.6, w*.85);
-      g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(0,0,0,.6)'); c.fillStyle = g; c.fillRect(0,0,w,w);
     },
   };
 })();

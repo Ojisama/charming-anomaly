@@ -1,9 +1,9 @@
-import { OPHAN, OPHAN_RIG, hh, mk, shade, mix, sheen, INK, TAU, PX, STY } from '../page.js'
+import { OPHAN, OPHAN_RIG, hh, mk, TAU } from '../page.js'
 // The Ophan in the Mantle look (toon), on OPHAN_RIG: the SERAPH as a 1930s rubber-hose villain, every wing, eye, pose
 // and danger shape taken from the shared rig (cru/rig.js); only the drawing is toon's. Flat cel fills with a hatched
 // crescent shadow, a dark core band and a warm bounce rim; warm near-black ink heavier on the shadow side, boiling (the
 // line redrawn 5x a second, the one stepped thing); bold white gloss marks; a lit warm rim inside the ink; rubber-hose arms.
-// Contract: bg(c, w, t), boss(c, x, y, R, t, ph), attack(c, x, y, R, t, ph, atk, u, px, py), post(c, w, t).
+// Contract: boss(c, x, y, R, t, ph), attack(c, x, y, R, t, ph, atk, u, px, py).
 OPHAN.toon = (() => {
   const P = {
     ink: '#1c120d', paper: '#f3e6c8', cream: '#f7efdc',
@@ -100,8 +100,6 @@ OPHAN.toon = (() => {
     FRESH.push(b);
     return (pool[id] = b);
   }
-  // drawn back in a frame scaled to device px / k (i.e. after scale(1/R))
-  const put = (c, b, k) => c.drawImage(b.cv, b.ox / k, b.oy / k, b.cv.width / k, b.cv.height / k);
   function fastEye(c, x, y, rx, ry, sclera, pupil, lx, ly, lw) {
     const s = ell(x, y, rx, ry);
     c.fillStyle = sclera; c.fill(s);
@@ -199,7 +197,6 @@ OPHAN.toon = (() => {
   // ---- the rig: every shape and every motion is OPHAN_RIG's (cru/rig.js); this file only inks them ---------------
   const RIG = OPHAN_RIG;
   const cl = (v) => Math.max(0, Math.min(1, v));
-  const seg = (u, a, b) => cl((u - a) / (b - a));
   const lerp = (a, b, v) => a + (b - a) * v;
   const mix = (A, B, v) => [lerp(A[0], B[0], v), lerp(A[1], B[1], v)];
   // the hand: every outline point wanders a little, differently per inking (WV) and less in the calm set (WA)
@@ -1033,35 +1030,8 @@ OPHAN.toon = (() => {
   }
 
   return {
-    bg(c, w, t) {
-      const key = 'bg' + w;
-      if (!pool[key]) {
-        // the Mantle's floor: orange marbled paper (domain-warped value noise, toned like the level's watercolour)
-        const n = Math.ceil(w / 2), cv = pool[key] = mk(w, w), lo = mk(n, n), lg = lo.getContext('2d'), im = lg.createImageData(n, n);
-        const vn = (x, y) => { const i = Math.floor(x), j = Math.floor(y), u = x - i, v = y - j, s = u * u * (3 - 2 * u), q = v * v * (3 - 2 * v);
-          const a = hh(i, j), b = hh(i + 1, j), cc = hh(i, j + 1), d = hh(i + 1, j + 1); return a + (b - a) * s + (cc - a) * q + (a - b - cc + d) * s * q; };
-        const fb = (x, y) => vn(x, y) * 0.55 + vn(x * 2.1 + 3, y * 2.1) * 0.28 + vn(x * 4.3, y * 4.3 + 5) * 0.17;
-        const C = [[156, 58, 32], [190, 82, 40], [214, 116, 58], [232, 152, 86], [240, 176, 104]];
-        for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
-          const X = x / n * 3.2, Y = y / n * 3.2, v = fb(X + 1.6 * fb(X + 5, Y), Y + 1.6 * fb(X, Y + 7));
-          const k = Math.min(3.999, Math.max(0, (v - 0.28) * 9)), i = Math.floor(k), fr = k - i;
-          const line = Math.abs(((v * 14) % 1) - 0.5) > 0.47 ? 0.82 : 1, gr = 0.94 + 0.08 * hh(x * 3, y * 7);
-          const o = (y * n + x) * 4; for (let ch = 0; ch < 3; ch++) im.data[o + ch] = (C[i][ch] + (C[i + 1][ch] - C[i][ch]) * fr) * line * gr;
-          im.data[o + 3] = 255;
-        }
-        lg.putImageData(im, 0, 0);
-        const g = cv.getContext('2d'); g.imageSmoothingEnabled = true; g.drawImage(lo, 0, 0, w, w);
-        for (let k = 0; k < 14; k++) { g.fillStyle = 'rgba(255,214,140,' + (0.35 + 0.3 * hh(k, 2)) + ')'; g.beginPath(); g.arc(hh(k, 9) * w, hh(9, k) * w, 1.2 + 3 * hh(k, 4), 0, TAU); g.fill(); }
-      }
-      c.drawImage(pool[key], 0, 0, w, w);
-    },
     boss(c, x, y, R, t, ph = 3) { draw(c, x, y, R, t, ph, RIG.pose(t, ph), {}); },
     reveal,
     attack,
-    post(c, w, t) {
-      // the film's warm sepia vignette
-      const g = c.createRadialGradient(w / 2, w / 2, w * 0.3, w / 2, w / 2, w * 0.75);
-      g.addColorStop(0, 'rgba(60,35,10,0)'); g.addColorStop(1, 'rgba(60,35,10,0.45)'); c.fillStyle = g; c.fillRect(0, 0, w, w);
-    },
   };
 })();

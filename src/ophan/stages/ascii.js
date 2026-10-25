@@ -40,6 +40,5 @@ export default function stage(app, { W, H }) {
     // the glyph floor's chunks round where pan will look, baked without a draw until performance.now() reaches until (renderer.js)
     prebake: (pan, until) => R.prebake({ left: pan.x, top: pan.y, right: pan.x + W, bottom: pan.y + H, zoom: 1 }, until),
     // there is no pass to switch: the screen layer only ever carries the hurt flare
-    setPass(on) { screen.visible = on },
   }
 }

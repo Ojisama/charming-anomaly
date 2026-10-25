@@ -43154,7 +43154,7 @@ function testOphanShell() {
   assert.ok(Math.abs(ENEMIES.tank.radius * boss.radiusMul - OPHAN_BOSS.bodyR) < 0.5, 'the boss body radius drifted from the drawn body')
   for (const k of ['ophanBlast', 'ophanTornado', 'ophanLaser', 'ophanWheel', 'ophanRecall', 'ophanSword'])
     assert.ok(DMG_SRC_NAME[k] && DMG_SRC_ART[k] === 'ophan', `${k} has no name or no portrait alias`)
-  assert.deepStrictEqual(ophanView(390, 700), { z: 1, camX: 0, camY: 0 })
+  assert.deepStrictEqual(ophanView(390, 700), { z: 1 })
   assert.strictEqual(ophanView(1440, 900).z, 900 / 700)
   assert.strictEqual(ophanView(390, 844).z, 1)
   console.log(`PASS run OP.shell: ${c.worlds.length} world(s), ${c.roster.length} roster rows, unlock core@3, WIP inherits from core`)
