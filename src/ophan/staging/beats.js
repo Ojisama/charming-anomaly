@@ -1,11 +1,11 @@
 // The Ophan's beats past its arrival (src/ophan/staging.js): its returns, its leaving, a resonance, the sketch rising and
 // its death. Owner rulings 2026-10-25; the variants are the playground's (ophan-stage.html), a pick is one STAGE_PICK entry.
 import { stage, ease, win, hash } from '../staging.js'
-import { tear } from './looks.js'
+import { tear, HY, HW, HH } from './looks.js'
 
 const TAU = Math.PI * 2
 const PENCIL = '#3a3a3a'
-const tearOf = (k, open) => tear(k.floor, k.x, k.y + k.R * 0.15, k.R * 3.2, k.R * 1.1, open, k.col(k.boss.S))
+const tearOf = (k, open) => tear(k.floor, k.x, k.y + k.R * HY, k.R * HW, k.R * HH, open, k.A.id)
 const rise = (k, a, b) => { const r = ease(win(k.u, a, b)); k.boss.scale = 0.55 + 0.45 * r; k.boss.alpha = r; return r }
 // how far (world px) the screen's farthest corner is from (x, y): a circle that wide covers it
 const reach = (v, x, y) => Math.hypot(Math.max(x - v.left, v.left + v.w / v.zoom - x), Math.max(y - v.top, v.top + v.h / v.zoom - y))
@@ -153,28 +153,36 @@ function crumbs(c, k, n, at) {
   c.globalAlpha = 1
 }
 const lift = (k) => 1 - ease(win(k.u, RUB[1], RUB[1] + 0.05))
-stage('death', 'A', { label: 'A · the eraser rubs it off band by band, the great eye\'s band last', scene: bloom, draw(k) {
+stage('death', 'A', { label: 'A · the eraser scrubs it off in oblique zigzag strokes, the great eye\'s stroke last', scene: bloom, draw(k) {
   k.boss.hide = true
-  const N = 7, order = [0, 6, 1, 5, 2, 4, 3], du = (RUB[1] - RUB[0]) / N
-  const x0 = k.x - 1.8 * k.R, W = 3.6 * k.R, y0 = k.y - 1.75 * k.R, bh = 3.4 * k.R / N
+  // a right hand's strokes: slanted bands across the sketch, rubbed back and forth, the eye's (the middle) left for last
+  const N = 7, order = [0, 1, 2, 6, 5, 4, 3], du = (RUB[1] - RUB[0]) / N
+  const th = -0.5, cu = Math.cos(th), su = Math.sin(th), L = 3.4 * k.R, H = 4 * k.R, bh = H / N, amp = 0.28 * k.R, TEETH = 3
+  const W = (u, v) => ({ x: k.x + u * cu - v * su, y: k.y + u * su + v * cu })   // band frame (u along, v across) to stage px
   const p = order.map((_, o) => win(k.u, RUB[0] + o * du, RUB[0] + (o + 1) * du)), dir = (o) => (o % 2 ? -1 : 1)
+  const tri = (s) => Math.abs((((s * TEETH) % 1) + 1) % 1 * 2 - 1)
+  // the rubbed front of stroke o at s (0..1 across the band): ragged, the zigzag the rubbing leaves
+  const front = (o, s) => -L / 2 - amp + p[o] * (L + 2 * amp) + amp * (tri(s) - 0.5) * 2
+  const vOf = (j, s) => -H / 2 + (j + s) * bh
   const clip = (c) => order.forEach((j, o) => {
     if (p[o] >= 1) return
-    const y = y0 + j * bh
-    if (dir(o) > 0) c.rect(x0 + W * p[o], y, W * (1 - p[o]), bh); else c.rect(x0, y, W * (1 - p[o]), bh)
+    const d = dir(o), M = 12
+    for (let m = 0; m <= M; m++) { const s = m / M, q = W(d * front(o, s), vOf(j, s)); m ? c.lineTo(q.x, q.y) : c.moveTo(q.x, q.y) }
+    const e1 = W(d * (L / 2 + amp), vOf(j, 1)), e0 = W(d * (L / 2 + amp), vOf(j, 0))
+    c.lineTo(e1.x, e1.y); c.lineTo(e0.x, e0.y); c.closePath()
   })
   if (p[N - 1] < 1) k.drawBoss(k.S, k.px(0), k.x, k.y, k.R, k.ph0 ?? 4, clip)
   const c = k.px(1)
-  crumbs(c, k, 70, (i) => {
+  crumbs(c, k, 80, (i) => {
     const o = i % N, q = p[o]; if (q <= hash(i, 1)) return null
     const age = (q - hash(i, 1)) * du, a = 0.8 * (1 - win(k.u, RUB[1] + 0.1, RUB[1] + 0.3)) * Math.min(1, age * 40)
-    const fx = dir(o) > 0 ? hash(i, 1) : 1 - hash(i, 1)
-    return { x: x0 + W * fx, y: y0 + order[o] * bh + bh * (0.15 + 0.7 * hash(i, 2)), a }
+    return { ...W(dir(o) * (-L / 2 + L * hash(i, 1)), vOf(order[o], 0.1 + 0.8 * hash(i, 2))), a }
   })
   const o = Math.min(N - 1, Math.floor(win(k.u, RUB[0], RUB[1]) * N)), l = lift(k)
   if (l > 0 && k.u >= RUB[0]) {
-    const q = p[o], hx = dir(o) > 0 ? x0 + W * q : x0 + W * (1 - q)
-    c.globalAlpha = l; eraser(c, hx + Math.sin(k.age * 38) * 0.05 * k.R, y0 + (order[o] + 0.5) * bh - (1 - l) * k.R, 0.15 * dir(o), k.R, k.z); c.globalAlpha = 1
+    // the eraser rides the front, scrubbing up and down the stroke as it goes
+    const s = tri(k.age * 2.4 / TEETH), at = W(dir(o) * front(o, s), vOf(order[o], s))
+    c.globalAlpha = l; eraser(c, at.x, at.y - (1 - l) * k.R, th + Math.PI / 2 + 0.25 * dir(o) + 0.1 * Math.sin(k.age * 9), k.R, k.z); c.globalAlpha = 1
   }
 } })
 stage('death', 'B', { label: 'B · rubbed in circles from the wing tips inward, the great eye last', scene: bloom, draw(k) {

@@ -1,97 +1,95 @@
-// THE BREAK, the Magma (pixel): the broken skin comes apart in this world's own medium while the next skin shows under it.
+// THE BREAK, the Magma (pixel): the broken skin is SHED, thrown off the boss in this world's own medium, while the next
+// skin stands whole under it from the first frame (never a collapse, a melt or a puddle: those read as its death).
 // Owner ruling 2026-10-25: 0.12 s hit-stop (the sim's), then 0.8 s; the looks below are the playground's candidates.
 // The broken skin is read once into chunky cells (break-ascii.js cellsOf) and every cell is one flat square in the
-// world's palette: heat walks it down the lava ramp (painters/pixel.js LV) to the chapter's basalt, never a blend.
-import { stage, ease, win, hash } from '../staging.js'
+// world's palette. Time moves in steps (a sprite sheet's frames) and a cell leaves by a 4x4 ordered dither, never a fade.
+import { stage, win, hash } from '../staging.js'
 import { cellsOf } from './break-ascii.js'
 
-// white-hot -> cooled lava -> crust (painters/pixel.js LV, then its ROCK basalt)
+// white-hot -> cooled lava (painters/pixel.js LV)
 const HEAT = ['#2c2430', '#40091a', '#7a1004', '#d8340c', '#ff6a14', '#ffa22a', '#ffd858', '#fff4c4']
-const CRUST = ['#2c2430', '#463c4c', '#3a3040']   // the chapter's basalt plates (painters/pixel.js ROCK)
 const heatCol = (h) => HEAT[Math.max(0, Math.min(HEAT.length - 1, Math.floor(h * HEAT.length)))]
 const hex = (q) => '#' + [q.r, q.g, q.b].map((v) => Math.round(v).toString(16).padStart(2, '0')).join('')
-const under = (k, a, b) => { const r = ease(win(k.u, a, b)); k.boss.alpha = r; k.boss.scale = 0.88 + 0.12 * r }
-const whole = (k, b) => { const a = 1 - win(k.u, 0, b); if (a > 0) { k.fadePx(2, a, 1, k.x, k.y); k.drawBoss(k.from, k.px(2), k.x, k.y, k.R, Math.round(k.ph0 ?? k.ph)) } }
-// the boss on the floor's px2d: k.floor is in the shown world's stage px, the boss in its own slot's
-const onFloor = (k) => { const S = k.S, A = k.A, q = S.k / A.k; return { x: (k.x * S.k + S.ox - A.ox) / A.k, y: (k.y * S.k + S.oy - A.oy) / A.k, R: k.R * q } }
 // a square snapped to the stage px grid, so a chunk stays a chunk
 const sq = (c, x, y, s) => { const w = Math.max(1, Math.round(s)); c.fillRect(Math.round(x - w / 2), Math.round(y - w / 2), w, w) }
+// the beat in sprite frames: 16 over its 0.8 s
+const step = (u) => Math.floor(u * 16) / 16
+// a 4x4 ordered dither: cell (i, j) is still drawn at coverage a
+const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5]
+const on = (i, j, a) => a > (BAYER[(i & 3) + ((j & 3) << 2)] + 0.5) / 16
+const out = (u, p = 2) => 1 - Math.pow(1 - u, p)
+const whole = (k) => k.drawBoss(k.from, k.px(2), k.x, k.y, k.R, Math.round(k.ph0 ?? k.ph))
 
-stage('break', 'pixel:A', { world: 'pixel', label: 'A · pixel burst: chunks fly out white-hot and cool dark', draw(k) {
-  const u = k.u, c = k.px(1), P = k.R * 0.1
-  under(k, 0.15, 0.75)
-  whole(k, 0.05)
-  // the heat under it: a short local glow on the floor round the body, gone by mid-beat
-  const gl = 1 - win(u, 0, 0.5)
-  if (gl > 0) {
-    const F = onFloor(k), g = k.floor.createRadialGradient(F.x, F.y, 0, F.x, F.y, F.R * 1.8)
-    g.addColorStop(0, 'rgba(255,162,42,0.55)'); g.addColorStop(0.5, 'rgba(216,52,12,0.25)'); g.addColorStop(1, 'rgba(216,52,12,0)')
-    k.floor.globalAlpha = gl; k.floor.fillStyle = g; k.floor.fillRect(F.x - F.R * 1.8, F.y - F.R * 1.8, F.R * 3.6, F.R * 3.6); k.floor.globalAlpha = 1
+// ---- A: a pixel blast. The skin flashes white-hot and every cell of it is blown radially off the boss in stepped
+// frames, a ring of hot squares leading it out, each cell leaving a one-frame afterimage and dithering away.
+stage('break', 'pixel:A', { world: 'pixel', label: 'A · pixel blast: the skin is blown off in a stepped shockwave', draw(k) {
+  const T = step(k.u), c = k.px(1), P = k.R * 0.1
+  if (T < 0.0625) { whole(k); return }
+  const pos = (q, t) => {
+    const h1 = hash(q.i, q.j), h2 = hash(q.j + 31, q.i + 7), d = Math.hypot(q.ox, q.oy)
+    const go = out(win(t, 0.06 + 0.04 * h1, 0.75), 1.6), a = Math.atan2(q.oy, q.ox) + (h2 - 0.5) * 0.35
+    const fly = go * (k.R * (1.4 + 1.2 * h2) + d * 1.6)
+    return [k.x + P * Math.round((q.ox + Math.cos(a) * fly) / P), k.y + P * Math.round((q.oy + Math.sin(a) * fly) / P)]
   }
-  const L = cellsOf(k, P)
-  for (const pass of [0, 1]) for (const q of L) {
-    const h1 = hash(q.i, q.j), h2 = hash(q.j + 31, q.i + 7), d = Math.hypot(q.ox, q.oy) || 1
-    // the whole body flashes up the ramp in place (0-0.08), then every chunk is flung out, slowing as it skids on the floor
-    const go = 1 - Math.pow(1 - win(u, 0.06 + 0.04 * h1, 0.72 + 0.1 * h2), 2.8)
-    const a = Math.atan2(q.oy, q.ox) + (h2 - 0.5) * 0.6, fly = k.R * (0.35 + 0.8 * h2 * h2 + 0.2 * d / k.R) * go
-    const x = k.x + q.ox + Math.cos(a) * fly, y = k.y + q.oy + Math.sin(a) * fly
-    const heat = win(u, 0, 0.07) * (1 - win(u, 0.12 + 0.1 * h1, 0.7 + 0.25 * h2))
-    const al = 1 - win(u, 0.78 + 0.1 * h1, 0.97)
-    if (al <= 0) continue
-    const s = P * (1.1 - 0.45 * go) * (h1 > 0.8 ? 1.4 : 1)
-    if (pass === 0) {
-      // the halo round a hot chunk, additive, only while it glows
-      if (heat > 0.45 && (q.i + q.j) % 2 === 0) { c.globalCompositeOperation = 'lighter'; c.globalAlpha = 0.35 * (heat - 0.45) * al; c.fillStyle = '#ff6a14'; sq(c, x, y, s * 2.6); c.globalCompositeOperation = 'source-over' }
-      continue
+  // the shockwave: a ring of hot squares on the grid, ahead of the cells, thinning out by dither as it widens
+  const rw = win(T, 0.06, 0.6), rr = k.R * (0.6 + 2.6 * out(rw)), ra = 1 - win(T, 0.25, 0.6)
+  if (ra > 0) {
+    const n = Math.ceil((rr * Math.PI * 2) / P)
+    for (let j = 0; j < n; j++) for (let w = 0; w < 2; w++) {
+      if (!on(j, w + Math.round(rr / P), ra)) continue
+      const a = (j / n) * Math.PI * 2, r = rr - w * P
+      c.fillStyle = heatCol(w ? 0.7 : 0.95); sq(c, k.x + P * Math.round(Math.cos(a) * r / P), k.y + P * Math.round(Math.sin(a) * r / P), P)
     }
-    c.globalAlpha = al
-    c.fillStyle = u < 0.025 ? hex(q) : heatCol(0.15 + 0.85 * heat * (0.75 + 0.25 * q.l))
-    sq(c, x, y, s)
   }
-  c.globalAlpha = 1
-} })
-
-stage('break', 'pixel:B', { world: 'pixel', label: 'B · melt-down: slumps into a lava puddle that crusts', draw(k) {
-  const u = k.u, c = k.px(1), P = k.R * 0.1, f = k.floor, F = onFloor(k), cx = F.x, cy = F.y + F.R * 0.1
-  under(k, 0.35, 0.9)
-  whole(k, 0.06)
-  // THE PUDDLE, on the floor under the new skin: spreads as the body runs into it, then crusts from its rim inward with
-  // glowing cracks, and is gone by the end
-  const spread = ease(win(u, 0.06, 0.55)), cool = win(u, 0.38, 0.9), fade = 1 - win(u, 0.82, 1)
-  const rad = F.R * (0.3 + 1.0 * spread), G = F.R * 0.11
-  if (fade > 0 && spread > 0) {
-    const g = f.createRadialGradient(cx, cy, 0, cx, cy, rad * 1.6)
-    g.addColorStop(0, 'rgba(255,106,20,0.45)'); g.addColorStop(1, 'rgba(216,52,12,0)')
-    f.globalAlpha = fade * (1 - cool * 0.8); f.fillStyle = g; f.fillRect(cx - rad * 1.6, cy - rad * 1.6, rad * 3.2, rad * 3.2)
-    f.globalAlpha = fade
-    const n = Math.ceil(rad / G) + 1
-    for (let j = -n; j <= n; j++) for (let i = -n; i <= n; i++) {
-      const x = i * G, y = j * G * 0.8, d = Math.hypot(x, y), an = Math.atan2(y, x)
-      // a lumpy rim: the edge's radius wobbles by angle, the same every frame
-      const e = rad * (0.82 + 0.12 * Math.sin(an * 3 + 1.3) + 0.08 * Math.sin(an * 5 + 4.1))
-      if (d > e) continue
-      const r = d / e, crack = hash(i + 40, j + 40) < 0.2
-      // the crust front: from the rim (r 1) in to the heart as it cools
-      const crust = r > 1 - cool * 1.15
-      let h = r < 0.35 ? 0.9 : r < 0.7 ? 0.75 : r < 0.9 ? 0.6 : 0.45
-      if (crust) { f.fillStyle = crack ? heatCol(0.45 - 0.2 * cool) : CRUST[hash(i, j + 70) * 3 | 0]; sq(f, cx + x, cy + y, G + 1); continue }
-      f.fillStyle = heatCol(h); sq(f, cx + x, cy + y, G + 1)
-    }
-    f.globalAlpha = 1
-  }
-  // THE BODY slumps: each chunk heats up the ramp and slides in toward the puddle's heart, swelling as it runs and
-  // merging into it; the rim (the wings) goes first
+  const heat = 1 - win(T, 0.06, 0.4), gone = win(T, 0.3, 0.7), prev = T - 1 / 16
   for (const q of cellsOf(k, P)) {
-    const h1 = hash(q.i, q.j), rim = Math.min(1, Math.hypot(q.ox, q.oy) / (k.R * 1.3))
-    const m = ease(win(u, 0.03 + 0.12 * (1 - rim) + 0.05 * h1, 0.42 + 0.12 * (1 - rim)))
-    const al = 1 - win(m, 0.75, 1)
-    if (al <= 0) continue
-    const x = q.ox * (1 - 0.7 * m), y = q.oy * (1 - 0.7 * m) + k.R * 0.1 * m
-    c.globalAlpha = al
-    // its own colour, then the lava ramp by its own brightness (the skin still reads, glowing), whiter as it runs
-    const hot = win(u, 0.02, 0.1)
-    c.fillStyle = hot <= 0 ? hex(q) : heatCol(0.3 + 0.4 * q.l * (0.7 + 0.3 * h1) + 0.3 * m * hot)
-    sq(c, k.x + x, k.y + y, P * (1 + 0.8 * m) + 1)
+    const h1 = hash(q.i, q.j)
+    if (!on(q.i, q.j, 1 - gone * (0.8 + 0.4 * h1))) continue
+    const [x, y] = pos(q, T)
+    // the frame before, a smear of lava behind every other cell while it is fast
+    if (prev > 0.06 && T < 0.6 && (q.i + q.j) % 2 === 0) { const [px, py] = pos(q, prev); if (px !== x || py !== y) { c.fillStyle = heatCol(0.6); sq(c, px, py, P * 0.7) } }
+    c.fillStyle = heat > 0.5 ? heatCol(0.75 + 0.25 * q.l) : hex(q)
+    sq(c, x, y, P + 1)
   }
-  c.globalAlpha = 1
 } })
+
+// the shell of the cell set: each cell's depth from the silhouette's edge (0 the outline), read once per cell list
+const depths = new WeakMap()
+function depthOf(L) {
+  let D = depths.get(L)
+  if (D) return D
+  const at = new Map(L.map((q) => [q.i + ',' + q.j, q])), N = [[1, 0], [-1, 0], [0, 1], [0, -1]]
+  D = new Map()
+  let front = L.filter((q) => N.some(([a, b]) => !at.has((q.i + a) + ',' + (q.j + b))))
+  for (let d = 0; front.length; d++) {
+    for (const q of front) D.set(q, d)
+    const next = []
+    for (const q of front) for (const [a, b] of N) { const n = at.get((q.i + a) + ',' + (q.j + b)); if (n && !D.has(n) && !next.includes(n)) next.push(n) }
+    front = next
+  }
+  depths.set(L, D)
+  return D
+}
+// ---- B: the shell pops. The skin's outline lets go of the boss as a hollow pixel shell: it pops outward in stepped,
+// ever chunkier frames (a sprite scaled up a notch a frame), hot at its rim, sparks thrown ahead of it, and dithers away.
+const SC = [1, 1.16, 1.36, 1.62, 1.94, 2.32, 2.76, 3.2]
+stage('break', 'pixel:B', { world: 'pixel', label: 'B · shell pop: a hollow pixel shell pops off and expands', draw(k) {
+  const u = k.u, c = k.px(1), P = k.R * 0.1, n = Math.min(SC.length - 1, Math.floor(win(u, 0.05, 0.8) * SC.length)), s = SC[n]
+  if (n === 0) { whole(k); return }
+  const L = cellsOf(k, P), D = depthOf(L), al = 1 - win(n, 3, SC.length - 1)
+  for (const q of L) {
+    const d = D.get(q)
+    // the first frame still has the body, its inside going by half; after it the shell alone, two cells thick
+    if (d > 1 && (n > 1 || (q.i + q.j) % 2)) continue
+    if (!on(q.i, q.j, al)) continue
+    c.fillStyle = d === 0 && n < 5 ? heatCol(0.85 + 0.15 * q.l) : hex(q)
+    sq(c, k.x + q.ox * s, k.y + q.oy * s, P * s + 1)
+  }
+  // the sparks: hot squares flung ahead of the shell, a stepped streak each
+  for (let i = 0; i < 18; i++) {
+    const a = (i / 18) * Math.PI * 2 + hash(i, 3) * 0.3, r = k.R * (1.3 + 0.4 * hash(i, 4)) * s * (1 + 0.15 * hash(i, 5))
+    if (!on(i, i * 3, 1 - win(n, 2, SC.length - 2))) continue
+    for (let j = 0; j < 3; j++) { c.fillStyle = heatCol(0.95 - 0.2 * j); sq(c, k.x + Math.cos(a) * (r - j * P * 1.2), k.y + Math.sin(a) * (r - j * P * 1.2), P * (1 - 0.2 * j)) }
+  }
+} })
+export { win, hash }
