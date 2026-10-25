@@ -17,11 +17,11 @@ function star(c, x, y, r, rot, lw) {
 }
 
 // ---- A: the quick-change. A cartoon dust cloud bursts up round the boss in a blink and churns (bubbles swelling and
-// shrinking, puffs spitting out of its sides, wisps shooting off and popping, stars and spark ticks), a comic "POOF!"
+// shrinking, puffs spitting out of its sides, wisps shooting off and popping, stars and spark ticks), a comic "SWOOSH!"
 // pops out of it, and it clears bubble by bubble: the boss is standing there in its new skin. The old skin is only seen
 // before the cloud closes over it.
-// the word, the one place it is written: the port routes it through t() (fr "POUF !"); bakes are cached by the word
-export const POOF = 'POOF!'
+// the word, the one place it is written: the port routes it through t(); bakes are cached by the word
+export const SWOOSH = 'SWOOSH!'
 const FONT = '900 150px "Arial Black", "Arial Rounded MT Bold", Impact, sans-serif'
 const words = new Map()
 // the word as comic lettering, baked once per word: a jagged gold burst behind, chunky orange letters each jostled, inked
@@ -35,11 +35,12 @@ function word(w) {
   for (let j = 0; j < 28; j++) { const a = (j / 28) * TAU, r = (j % 2 ? 0.6 : 1) * (0.9 + 0.2 * hash(j, 61)); j ? g.lineTo(cx + Math.cos(a) * r * 380, cy + Math.sin(a) * r * 185) : g.moveTo(cx + Math.cos(a) * r * 380, cy + Math.sin(a) * r * 185) }
   g.closePath(); g.fillStyle = GOLD; g.fill(); g.strokeStyle = INK; g.lineWidth = 12; g.stroke()
   g.font = FONT; g.textAlign = 'center'; g.textBaseline = 'middle'
-  const L = [...w], ws = L.map((ch) => g.measureText(ch).width), tot = ws.reduce((a, b) => a + b, 0) * 0.92
+  const L = [...w], f = Math.min(1, 600 / (L.reduce((a, ch) => a + g.measureText(ch).width, 0) * 0.92))
+  const ws = L.map((ch) => g.measureText(ch).width * f), tot = ws.reduce((a, b) => a + b, 0) * 0.92
   let at = cx - tot / 2
   L.forEach((ch, i) => {
     const lx = at + ws[i] * 0.46, ly = cy + 8 + (hash(i, 62) - 0.5) * 34, rot = (hash(i, 63) - 0.5) * 0.36
-    g.save(); g.translate(lx, ly); g.rotate(rot)
+    g.save(); g.translate(lx, ly); g.rotate(rot); g.scale(f, f)
     g.strokeStyle = INK; g.lineWidth = 26; g.strokeText(ch, 0, 0)
     g.fillStyle = '#a8200f'; g.fillText(ch, 4, 5)
     g.fillStyle = '#f0521c'; g.fillText(ch, 0, 0)
@@ -49,7 +50,7 @@ function word(w) {
   words.set(w, cv)
   return cv
 }
-word(POOF)   // baked at load: never made in a frame
+word(SWOOSH)   // baked at load: never made in a frame
 
 // the cloud's bubbles, round the boss in R: three layers, the back ones bigger and earlier
 const PUFF = [
@@ -60,7 +61,7 @@ const PUFF = [
 // puffs spat out of the cloud's sides, and wisps shooting off and popping: { a angle, d reach, r, t0 born }
 const SPIT = Array.from({ length: 6 }, (_, i) => ({ a: (i % 2 ? 0 : Math.PI) + (hash(i, 21) - 0.5) * 0.9, d: 1.4 + 0.5 * hash(i, 22), r: 0.32 + 0.12 * hash(i, 23), t0: 0.06 + 0.1 * hash(i, 24) }))
 const WISP = Array.from({ length: 10 }, (_, i) => ({ a: (i / 10) * TAU + hash(i, 31) * 0.5, d: 1.6 + 0.9 * hash(i, 32), r: 0.13 + 0.08 * hash(i, 33), t0: 0.04 + 0.2 * hash(i, 34) }))
-stage('break', 'toon:A', { world: 'toon', label: 'A · quick-change: a cartoon POOF cloud hides the swap', draw(k) {
+stage('break', 'toon:A', { world: 'toon', label: 'A · quick-change: a cartoon cloud and a SWOOSH! hide the swap', dur: 1.2, draw(k) {
   const { u, x, y, R } = k, c = k.px(1), lw = R * 0.05
   if (u < 0.06) old(k)
   const B = []
@@ -115,10 +116,10 @@ stage('break', 'toon:A', { world: 'toon', label: 'A · quick-change: a cartoon P
     }
     c.globalAlpha = 1
   }
-  // POOF!: pops out of the cloud at its peak (an overshooting scale), holds, then floats up and fades as the cloud clears
+  // SWOOSH!: pops out of the cloud at its peak (an overshooting scale), holds, then floats up and fades as the cloud clears
   const pin = win(u, 0.07, 0.17), pout = win(u, 0.3, 0.5)
   if (pin > 0 && pout < 1) {
-    const cv = word(POOF), g = k.px(2), back = 1.7, s = 1 + (back + 1) * Math.pow(pin - 1, 3) + back * Math.pow(pin - 1, 2)
+    const cv = word(SWOOSH), g = k.px(2), back = 1.7, s = 1 + (back + 1) * Math.pow(pin - 1, 3) + back * Math.pow(pin - 1, 2)
     const W = R * 3.2 * s * (1 + 0.15 * pout), H = W * cv.height / cv.width, wy = y - R * 0.15 - R * 0.9 * ease(pout)
     g.save(); g.globalAlpha = 1 - ease(pout); g.translate(x, wy); g.rotate(-0.14); g.drawImage(cv, -W / 2, -H / 2, W, H); g.restore(); g.globalAlpha = 1
   }
