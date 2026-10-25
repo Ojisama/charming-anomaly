@@ -44,11 +44,13 @@ export default function stage(app, { W, H }) {
 
   // the crust the chapter always shows round a moving player: a trail of open lava on hot ground and fresh
   // cracks warming to open (their life is pinned, so a frozen ?t= frame holds them). The set is the reference frame's,
-  // round P0; the open floor repeats it every CT px, a cell's copy left out or mirrored by its hash
-  const CT = 1100
-  const crust = (ox, oy, m) => {
-    const L = (dx, dy, r = 49) => ({ x: ox + m * dx, y: oy + dy, r, state: 'lava', openAt: -1e9, lavaEnd: 1e9 })
-    const C = (dx, dy, k, r = 34) => ({ x: ox + m * dx, y: oy + dy, r, state: 'crack', left: 0.9 * (1 - k), t: 0.9 * k })
+  // round P0; the open floor repeats it in cells of CT px, each copy left out, shifted up to CJ px, turned and mirrored by
+  // its cell's hash, so two copies in one desktop frame (CT is under a desktop stage's width) never read as the same trail
+  const CT = 1100, CJ = 200
+  const crust = (ox, oy, m, a = 0) => {
+    const cs = Math.cos(a), sn = Math.sin(a), at = (dx, dy) => ({ x: ox + cs * m * dx - sn * dy, y: oy + sn * m * dx + cs * dy })
+    const L = (dx, dy, r = 49) => ({ ...at(dx, dy), r, state: 'lava', openAt: -1e9, lavaEnd: 1e9 })
+    const C = (dx, dy, k, r = 34) => ({ ...at(dx, dy), r, state: 'crack', left: 0.9 * (1 - k), t: 0.9 * k })
     return [L(110, 0), L(135, -70), L(155, -145), L(180, -225), L(200, -300), L(220, -380),
       C(70, -195, 0.3), C(150, -385, 0.6), C(140, 255, 0.1), C(-60, 330, 0.85, 30)]
   }
@@ -68,11 +70,15 @@ export default function stage(app, { W, H }) {
     }
     for (const [c, s] of cells) if (!keep.has(c)) { s?.destroy(); cells.delete(c) }
     run.cracks.length = 0
-    for (let i = Math.floor((P.x - P0.x - W) / CT); i <= Math.ceil((P.x - P0.x + W) / CT); i++) for (let j = Math.floor((P.y - P0.y - H) / CT); j <= Math.ceil((P.y - P0.y + H) / CT); j++) {
-      const c = i + ',' + j, home = !i && !j
-      if (!crusts.has(c)) crusts.set(c, home || hash(i, j, 906) < 0.55 ? crust(P0.x + i * CT, P0.y + j * CT, home || hash(i, j, 907) < 0.5 ? 1 : -1) : [])
+    const keepC = new Set()
+    const mx = W / 2 + CJ + 500, my = H / 2 + CJ + 500   // a copy reaches CJ + ~400 px off its cell's corner
+    for (let i = Math.floor((P.x - P0.x - mx) / CT); i <= Math.ceil((P.x - P0.x + mx) / CT); i++) for (let j = Math.floor((P.y - P0.y - my) / CT); j <= Math.ceil((P.y - P0.y + my) / CT); j++) {
+      const c = i + ',' + j, home = !i && !j, jit = (s) => (home ? 0 : (hash(i, j, s) * 2 - 1) * CJ)
+      keepC.add(c)
+      if (!crusts.has(c)) crusts.set(c, home || hash(i, j, 906) < 0.55 ? crust(P0.x + i * CT + jit(908), P0.y + j * CT + jit(909), home || hash(i, j, 907) < 0.5 ? 1 : -1, home ? 0 : hash(i, j, 910) * Math.PI * 2) : [])
       run.cracks.push(...crusts.get(c))
     }
+    for (const c of crusts.keys()) if (!keepC.has(c)) crusts.delete(c)
   }
   let last = null
   return {
@@ -94,8 +100,8 @@ export default function stage(app, { W, H }) {
       for (const l of [rig.floor, props, rig.ground, rig.air]) l.position.set(-pan.x, -pan.y)
       rig.sync(run, dt, { cx, cy, z, w: W / z, h: H / z, animT: t })
     },
-    // the ground chunks round where pan will look, up to n of them, baked without a draw (renderer.js prebake)
-    prebake(pan, n) { return rig.prebake(run, { cx: W / 2 - P0.x - pan.x, cy: H / 2 - P0.y - pan.y, w: W, h: H }, n) },
+    // the ground chunks round where pan will look, baked without a draw until performance.now() reaches until (renderer.js)
+    prebake(pan, until) { return rig.prebake(run, { cx: W / 2 - P0.x - pan.x, cy: H / 2 - P0.y - pan.y, w: W, h: H }, until) },
     setPass(on) { app.stage.filters = on ? [rig.filter] : null },
   }
 }

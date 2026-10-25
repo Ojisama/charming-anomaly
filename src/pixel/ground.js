@@ -33,18 +33,26 @@ function canvasOf(img) {
 // chunk (ci, cj) -> null (plain crust) or { base, fiss, riverLights, hotLights, plates }
 // base/fiss: canvases at one texel per art pixel. Lights: [x, y, depth] in world px.
 export function bakeGroundChunk(F, seed, ci, cj, PX) {
+  const it = bakeGroundSteps(F, seed, ci, cj, PX)
+  for (;;) { const r = it.next(); if (r.done) return r.value }
+}
+// the same bake one row at a time (a yield a row): a host with a frame budget steps it across frames
+export function* bakeGroundSteps(F, seed, ci, cj, PX) {
   const n = CHUNK_ART / STEP + 1
   const X0 = ci * CHUNK_ART * PX, Y0 = cj * CHUNK_ART * PX
   const dr = new Float32Array(n * n), dc = new Float32Array(n * n), dh = new Float32Array(n * n)
   let any = false
-  for (let gj = 0; gj < n; gj++) for (let gi = 0; gi < n; gi++) {
-    const x = X0 + gi * STEP * PX, y = Y0 + gj * STEP * PX, k = gj * n + gi
-    const r = riverDepthAt(F, x, y, seed)
-    if (r > 0) { dr[k] = r; any = true; continue }
-    const c = cooledDepthAt(F, x, y, seed)
-    if (c > 0) { dc[k] = c; any = true; continue }
-    const h = hotDepthAt(F, x, y, seed)
-    if (h > 0) { dh[k] = h; any = true }
+  for (let gj = 0; gj < n; gj++) {
+    for (let gi = 0; gi < n; gi++) {
+      const x = X0 + gi * STEP * PX, y = Y0 + gj * STEP * PX, k = gj * n + gi
+      const r = riverDepthAt(F, x, y, seed)
+      if (r > 0) { dr[k] = r; any = true; continue }
+      const c = cooledDepthAt(F, x, y, seed)
+      if (c > 0) { dc[k] = c; any = true; continue }
+      const h = hotDepthAt(F, x, y, seed)
+      if (h > 0) { dh[k] = h; any = true }
+    }
+    yield
   }
   if (!any) return null
   const lerp = (A, u, v) => {
@@ -58,7 +66,7 @@ export function bakeGroundChunk(F, seed, ci, cj, PX) {
   const [rfx, rfy] = riverFlowOf(F, seed)
   const [cfx, cfy] = cooledFlowOf(F, seed)
   const AX0 = ci * CHUNK_ART, AY0 = cj * CHUNK_ART   // this chunk's first art pixel, world-wide
-  for (let ay = 0; ay < CHUNK_ART; ay++) for (let ax = 0; ax < CHUNK_ART; ax++) {
+  for (let ay = 0; ay < CHUNK_ART; ay++, yield) for (let ax = 0; ax < CHUNK_ART; ax++) {
     const u = (ax + 0.5) / STEP, v = (ay + 0.5) / STEP
     const wx = (AX0 + ax + 0.5) * PX, wy = (AY0 + ay + 0.5) * PX
     const gx = AX0 + ax, gy = AY0 + ay

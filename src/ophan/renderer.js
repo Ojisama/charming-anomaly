@@ -109,6 +109,8 @@ export function createOphanRenderer(host) {
   const fade = new AlphaFilter()
   let sink = null, rise = null, lastS = null, lastPh = 1
   let tellPx = null   // the px2d the sink or the rise scaled and faded this frame, and its root's own position, put back next frame
+  // puts it back: every frame, and on enter and exit (a fight left mid-tell under a dt-0 modal leaves it scaled)
+  const untell = () => { if (tellPx) { const r = tellPx.px.root; r.filters = null; r.scale.set(1 / RES); r.position.set(tellPx.x, tellPx.y); tellPx = null } }
   let cam0 = null   // the camera's centre last frame, world px, and its eased velocity, world px/s
   const vel = { x: 0, y: 0 }
   root.visible = false
@@ -337,7 +339,7 @@ export function createOphanRenderer(host) {
       mine = { alpha: bg.alpha, color: bg.color.toNumber(), pos: app.canvas.style.position }
       slot(worlds[0].look)
       for (const s of Object.values(slots)) fit(s)
-      rings.length = 0; sink = rise = lastS = cam0 = tellPx = null; vel.x = vel.y = 0
+      untell(); rings.length = 0; sink = rise = lastS = cam0 = null; vel.x = vel.y = 0
       root.visible = true
     },
     // puts back what enter() changed, unless a look entered after it (render.js resets each look in turn) changed it since
@@ -349,8 +351,7 @@ export function createOphanRenderer(host) {
       }
       saved = mine = null; sceneKey = ''
       for (const s of Object.values(slots)) { s.wrap.visible = false; glcWarm(s, false) }
-      if (tellPx) { const r = tellPx.px.root; r.filters = null; r.scale.set(1 / RES); r.position.set(tellPx.x, tellPx.y) }
-      sink = rise = lastS = tellPx = null
+      untell(); sink = rise = lastS = null
       // a warm-up cut short is queued again next time; its waiters are released, not left hanging, and its target is
       // made again at the screen's size then
       if (jobs.length) { jobs = []; warmed.clear() }
@@ -448,7 +449,7 @@ export function createOphanRenderer(host) {
       if (rise && (rise.life -= dt) <= 0) rise = null
       const S = b ? sk ?? slots[worlds[oph ? oph.skin : wi].look] : sink?.s
       lastS = b ? S : null
-      if (tellPx) { const r = tellPx.px.root; r.filters = null; r.scale.set(1 / RES); r.position.set(tellPx.x, tellPx.y); tellPx = null }
+      untell()
       if (S) {
         const inPass = !wipe && S === A, z = z0 / S.k, bpx = inPass ? S.px : opx
         place(S, overCam); place(S, handCam)
@@ -497,15 +498,19 @@ export function createOphanRenderer(host) {
         const f = focus && { x: (focus.x * focus.src.k + focus.src.ox - s.ox) / s.k, y: (focus.y * focus.src.k + focus.src.oy - s.oy) / s.k, k: focus.k }
         s.st.update(t, { pan: pan(s), px: sx(s, p.x), py: sy(s, p.y), cam: { zr, ex: (s.ox * (zr - 1) + dx) / s.k, ey: (s.oy * (zr - 1) + dy) / s.k }, focus: f, crowd: s.core, crowdN: s.nc })
       })
-      // the floors ahead: where the camera will look LEAD seconds on, the world shown first, then the others (one chunk a
-      // frame in all); a frame that baked none of them costs nothing
+      // the floors ahead: where the camera will look LEAD seconds on, the world shown first, then the others, a row of a
+      // chunk at a time for OPHAN_BG_BAKE_MS of the frame at most. One budget a frame: in a wave with warm-up jobs queued
+      // only the shown world's, its time taken out of the warm-up's credit; the worlds not shown wait for a frame the
+      // warm-up does not bake in
       if (dt > 0 && cam0) { const e = Math.min(1, dt * 4); vel.x += ((cwx - cam0.x) / dt - vel.x) * e; vel.y += ((cwy - cam0.y) / dt - vel.y) * e }
       cam0 = { x: cwx, y: cwy }
-      for (const s of [A, ...Object.values(slots).filter((s) => s !== A)]) {
+      const tb = performance.now(), until = tb + OPHAN_BG_BAKE_MS, warming = jobs.length && !b && !sk
+      if (dt > 0) for (const s of warming ? [A] : [A, ...Object.values(slots).filter((s) => s !== A)]) {
         if (!s.warm || !s.st.prebake) continue
         const q = pan(s), k = LEAD * z0 / s.k
-        if (s.st.prebake({ x: q.x + vel.x * k, y: q.y + vel.y * k }, 1)) break
+        if (s.st.prebake({ x: q.x + vel.x * k, y: q.y + vel.y * k }, until)) break
       }
+      if (warming) credit -= performance.now() - tb
 
       // the immune sparks: a white ring off the sealed boss
       fx.clear()

@@ -47,10 +47,10 @@ export default function stage(app, { W, H }) {
       world.position.set(cx, cy)
       r.sync(run, dt, { left: -cx, top: -cy, right: -cx + W, bottom: -cy + H, zoom: 1, w: W, h: H, animT: t })
     },
-    // the floor chunks round where pan will look, up to n of them, baked without a draw (renderer.js prebake)
-    prebake(pan, n) {
+    // the floor chunks round where pan will look, baked without a draw until performance.now() reaches until (renderer.js)
+    prebake(pan, until) {
       const x = cam[0] + pan.x - W / 2, y = cam[1] + pan.y - H / 2
-      return r.prebake(run, { left: x, top: y, right: x + W, bottom: y + H }, n)
+      return r.prebake(run, { left: x, top: y, right: x + W, bottom: y + H }, until)
     },
     setPass(on) { app.stage.filters = on ? film : null },
   }

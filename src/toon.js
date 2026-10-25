@@ -262,22 +262,28 @@ export function createToonRenderer(host) {
   const noiseSrc = new BufferImageSource({ resource: bakeNoise(), width: NOISE_N, height: NOISE_N, format: 'rgba8unorm', scaleMode: 'linear', addressMode: 'repeat', alphaMode: 'no-premultiply-alpha' })
   const bubSrc = new CanvasSource({ resource: paintBubbleAtlas(), scaleMode: 'linear', mipmapFilter: 'linear', autoGenerateMipmaps: true })
   const chunks = new Map()   // 'i,j' -> { mesh, tex, props: [...] }
-  let chunkKey = null
+  let chunkKey = null, pend = null   // pend: the chunk prebake is part-way through, { i, j, key, it } (heightSteps)
   function dropChunk(k) {
     const c = chunks.get(k)
     if (c) { c.mesh.destroy(); c.tex.destroy(true) }
     chunks.delete(k)
   }
-  function bakeChunk(L, seed, i, j) {
+  // a chunk's heights a row at a time (a yield a row), so a host with a frame budget can step it across frames
+  function* heightSteps(L, seed, i, j) {
     // raw bytes, never a canvas: a canvas upload may be colour-managed, which bends the heights
     const data = new Uint8Array(CHUNK_N * CHUNK_N * 4)
     const x0 = i * CHUNK, y0 = j * CHUNK
-    for (let b = 0; b < CHUNK_N; b++) for (let a = 0; a < CHUNK_N; a++) {
+    for (let b = 0; b < CHUNK_N; b++, yield) for (let a = 0; a < CHUNK_N; a++) {
       // 16 bits of height: high byte in r, low byte in g (linear in both, so it interpolates exactly)
       const v = Math.max(0, Math.min(65535, Math.round(mantleHeightAt(L, seed, x0 + a * CHUNK_STEP, y0 + b * CHUNK_STEP) * 65535)))
       const o = (b * CHUNK_N + a) * 4
       data[o] = v >> 8; data[o + 1] = v & 255; data[o + 2] = 0; data[o + 3] = 255
     }
+    return data
+  }
+  function bakeChunk(L, seed, i, j, data) {
+    for (const it = data ? null : heightSteps(L, seed, i, j); it;) { const r = it.next(); if (r.done) { data = r.value; break } }
+    const x0 = i * CHUNK, y0 = j * CHUNK
     const tex = new Texture({ source: new BufferImageSource({ resource: data, width: CHUNK_N, height: CHUNK_N, format: 'rgba8unorm', scaleMode: 'linear', alphaMode: 'no-premultiply-alpha' }) })
     // texel centres: sample a lands exactly on world x0 + a * CHUNK_STEP, so neighbours share an edge
     const u0 = 0.5 / CHUNK_N, u1 = 1 - 0.5 / CHUNK_N
@@ -364,10 +370,11 @@ export function createToonRenderer(host) {
       wetLine = -1; wetK = 0; maxLine = -1
     },
     filters() { return [film] },
-    // bakes up to n of the floor chunks a view (as sync's) needs, nearest its centre first, without drawing it: a host whose
-    // camera reaches a spot before this renderer draws there (the Ophan's worlds not shown, the floor ahead of a moving
-    // camera) calls it so the frame that first draws there bakes nothing. Returns how many it baked
-    prebake(run, view, n = 1) {
+    // bakes the floor chunks a view (as sync's) needs, nearest its centre first, without drawing it, a row at a time until
+    // performance.now() reaches until (a chunk left part-way carries on next call): a host whose camera reaches a spot
+    // before this renderer draws there (the Ophan's worlds not shown, the floor ahead of a moving camera) calls it so the
+    // frame that first draws there bakes nothing. Returns true when it ran out of time, false when the view needs nothing more
+    prebake(run, view, until) {
       const tide = lavaTideOf(run) ?? { L: DRY_GROUND, T: { seed: 0, line: -1, swell: 0 } }
       keyChunks(tide)
       const cx = (view.left + view.right) / 2, cy = (view.top + view.bottom) / 2, todo = []
@@ -381,8 +388,21 @@ export function createToonRenderer(host) {
         if (!chunks.has(i + ',' + j)) todo.push([i, j, ((i + 0.5) * CHUNK - cx) ** 2 + ((j + 0.5) * CHUNK - cy) ** 2])
       }
       todo.sort((a, b) => a[2] - b[2])
-      for (const [i, j] of todo.slice(0, n)) { bakeChunk(tide.L, tide.T.seed, i, j); chunks.get(i + ',' + j).mesh.visible = false }
-      return Math.min(n, todo.length)
+      if (pend && (pend.key !== chunkKey || chunks.has(pend.i + ',' + pend.j))) pend = null
+      while (performance.now() < until) {
+        if (!pend) {
+          while (todo.length && chunks.has(todo[0][0] + ',' + todo[0][1])) todo.shift()
+          if (!todo.length) return false
+          const [i, j] = todo.shift()
+          pend = { i, j, key: chunkKey, it: heightSteps(tide.L, tide.T.seed, i, j) }
+        }
+        const r = pend.it.next()
+        if (!r.done) continue
+        bakeChunk(tide.L, tide.T.seed, pend.i, pend.j, r.value)
+        chunks.get(pend.i + ',' + pend.j).mesh.visible = false
+        pend = null
+      }
+      return true
     },
     // view = { left, top, right, bottom, zoom, w, h, animT }
     sync(run, dt, view) {

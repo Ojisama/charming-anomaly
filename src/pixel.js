@@ -24,7 +24,7 @@ import {
   paintCrack, paintLava, paintCool, paintPuddle, SHOT_PAINTERS, paintGem, GEM_ART, paintCoin, COIN_ART,
 } from './pixel/world.js'
 import { CRT_VERT, CRT_FRAG, CRT_LOOK } from './pixel/crt.js'
-import { bakeGroundChunk, CHUNK_ART, PLATE_ART, paintPlate } from './pixel/ground.js'
+import { bakeGroundChunk, bakeGroundSteps, CHUNK_ART, PLATE_ART, paintPlate } from './pixel/ground.js'
 import { magmaFloorOf, riverDepthAt } from './sim.js'
 
 export { CAST_DIRS }
@@ -184,10 +184,12 @@ export function createPixelRig(env) {
     todo.sort((a, b) => a[2] - b[2])
     return { todo, vi0, vi1, vj0, vj1, i0, i1, j0, j1 }
   }
-  const bakeGround = (FL, i, j) => {
-    const CW = CHUNK_ART * PX, g = bakeGroundChunk(FL.F, FL.seed, i, j, PX)
+  const setGround = (i, j, g) => {
+    const CW = CHUNK_ART * PX
     chunks.set(i + ',' + j, g && { ...g, base: chunkSprite(g.base, chunkLayer, i * CW, j * CW), fiss: chunkSprite(g.fiss, fissLayer, i * CW, j * CW) })
   }
+  const bakeGround = (FL, i, j) => setGround(i, j, bakeGroundChunk(FL.F, FL.seed, i, j, PX))
+  let pend = null   // the chunk prebake is part-way through: { i, j, FL, it } (bakeGroundSteps)
   const ground = new Container()
   const air = new Container()
   const player = new Container()
@@ -322,25 +324,35 @@ export function createPixelRig(env) {
       for (const p of sparks) { p.life = 0; p.s.visible = false }
     },
     // cam: { cx, cy, z, w, h, animT } (w/h in world px)
-    // bakes up to n of the ground chunks a view (cam as sync's) needs, nearest its centre first, without drawing it: a host
-    // whose camera reaches a spot before the rig draws there (the Ophan's worlds not shown, the floor ahead of a moving
-    // camera) calls it so the frame that first draws there bakes nothing. Returns how many it baked
-    prebake(run, cam, n = 1) {
+    // bakes the ground chunks a view (cam as sync's) needs, nearest its centre first, without drawing it, a row at a time
+    // until performance.now() reaches until (a chunk left part-way carries on next call): a host whose camera reaches a spot
+    // before the rig draws there (the Ophan's worlds not shown, the floor ahead of a moving camera) calls it so the frame
+    // that first draws there bakes nothing. Returns true when it ran out of time, false when the view needs nothing more
+    prebake(run, cam, until) {
       const FL = magmaFloorOf(run)
-      if (!FL) return 0
+      if (!FL) return false
       const { todo, i0, i1, j0, j1 } = groundTodo(FL, cam)
       // what sync would drop, as the camera leaves it behind
       for (const k of [...chunks.keys()]) {
         const [a, b] = k.split(',').map(Number)
         if (a < i0 - 3 || a > i1 + 3 || b < j0 - 3 || b > j1 + 3) dropChunk(k)
       }
-      for (const [i, j] of todo.slice(0, n)) {
-        bakeGround(FL, i, j)
-        const c = chunks.get(i + ',' + j)
+      if (pend && (pend.FL.F !== FL.F || pend.FL.seed !== FL.seed || chunks.has(pend.i + ',' + pend.j))) pend = null
+      while (performance.now() < until) {
+        if (!pend) {
+          const t = todo.find(([i, j]) => !chunks.has(i + ',' + j))
+          if (!t) return false
+          pend = { i: t[0], j: t[1], FL, it: bakeGroundSteps(FL.F, FL.seed, t[0], t[1], PX) }
+        }
+        const r = pend.it.next()
+        if (!r.done) continue
+        setGround(pend.i, pend.j, r.value)
+        const c = chunks.get(pend.i + ',' + pend.j)
         if (c?.base) c.base.visible = false
         if (c?.fiss) c.fiss.visible = false
+        pend = null
       }
-      return Math.min(n, todo.length)
+      return true
     },
     sync(run, dt, cam) {
       if (!look) return

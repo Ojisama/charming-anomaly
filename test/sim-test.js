@@ -44231,6 +44231,14 @@ function testOphanRenderWiring() {
   const enterBody = rend.slice(rend.indexOf('enter(run) {'), rend.indexOf('exit()', rend.indexOf('enter(run) {')))
   assert.ok(/saved\s*\?\?=/.test(enterBody) && !/saved\s*=\s*\{/.test(enterBody),
     'enter() re-snapshots the page on a second entry with no exit (Play again): it saves the arena\'s own background and a later chapter is left transparent')
+  // a sink or a rise left under a dt-0 modal (the summary): Play again enters with no exit, so enter() puts the boss's
+  // px2d root back itself, untell run as written against a root the tell scaled, faded and moved
+  const ut = rend.match(/const untell = [^\n]*/)?.[0] ?? ''
+  const tell = new Function('RES', 'let tellPx = null\n' + ut + '\nreturn { untell, set: (v) => { tellPx = v } }')(2)
+  const root = { filters: ['fade'], scale: { v: 0.3, set(v) { this.v = v } }, position: { x: 50, y: 60, set(x, y) { this.x = x; this.y = y } } }
+  tell.set({ px: { root }, x: 7, y: 9 }); tell.untell()
+  assert.deepStrictEqual([root.filters, root.scale.v, root.position.x, root.position.y], [null, 0.5, 7, 9], 'untell() does not put the boss\'s root back (filters, 1/RES scale, its own position)')
+  assert.ok(/untell\(\)/.test(enterBody) && /untell\(\)/.test(exitBody), 'enter() or exit() leaves the sink/rise scale on the boss: Play again mid-tell keeps it shrunk for the session')
   const ophDir = new URL('../src/ophan/', import.meta.url), ophFiles = []
   for (const d of ['', 'painters/', 'stages/']) for (const f of readdirSync(new URL(d, ophDir))) if (f.endsWith('.js')) ophFiles.push(d + f)
   for (const f of ophFiles) assert.ok(!/__liquid|createCoreBoss/.test(readFileSync(new URL(f, ophDir), 'utf8')), `src/ophan/${f} reaches for the artifact's Core debug paths (__liquid / createCoreBoss)`)
