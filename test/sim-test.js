@@ -35489,8 +35489,6 @@ function testEventConsumers() {
     melt: 'drawn by src/toon/mantle-fx.js through the toon renderer\'s event hook (not a render.js case); NO sfx: a flood melts a whole hillside of rock creatures at once, and each dies through dealDamage, whose kill already sounds',
     crumble: 'drawn by src/toon/mantle-fx.js through the toon renderer\'s event hook; NO sfx: an ebb strands a crowd of lava creatures together, and each dies through dealDamage, whose kill already sounds',
     ophanImmune: 'drawn by src/ophan/renderer.js (the immune ring); several a second while mismatched, too often for a sound',
-    ophanLeave: 'rev 2 Task 1: the boss simply stops being drawn (renderer.js skips a dead boss); the sink tell and its sound are Task 2',
-    ophanEnter: 'rev 2 Task 1: the boss simply appears (renderer.js draws a live boss); the rise tell and its sound are Task 2',
   }
 
   const orphans = types.filter((t) => !hasRender(t) && !hasSfx(t) && !SILENT_BY_DESIGN[t])

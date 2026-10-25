@@ -51,9 +51,10 @@ export default function stage(app, { W, H }) {
 
   return {
     boss,
-    update(t) {
+    // pan: the stage px the camera has moved off the world's origin (CAM is where the origin looks)
+    update(t, { pan = { x: 0, y: 0 } } = {}) {
       // render.js: cx = viewW/2 - camX, world at (cx*z, cy*z); the floor quad covers the view plus a 96 px margin
-      const z = 1, cx = W / 2 - CAM.x, cy = H / 2 - CAM.y, M = 96
+      const z = 1, cx = W / 2 - CAM.x - pan.x, cy = H / 2 - CAM.y - pan.y, M = 96
       world.scale.set(z)
       world.position.set(cx * z, cy * z)
       const fx = -cx - M, fy = -cy - M, fw = W / z + M * 2, fh = H / z + M * 2

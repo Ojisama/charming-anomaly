@@ -39,12 +39,13 @@ export default function stage(app, { W, H }) {
     // cam: the game camera's move off the arena's rest framing, in stage px (zr its zoom ratio, ex/ey its offset), so the
     // melt moves with the Pixi layers the host transforms the same way
     // crowd: the bodies of this world, { e, x, y, r } in stage px, the first crowdN of it live
-    update(t, { cam = null, crowd = null, crowdN = 0 } = {}) {
+    // pan: the stage px the camera has moved off the world's origin; the melt is world-anchored and scrolls under it
+    update(t, { pan = { x: 0, y: 0 }, cam = null, crowd = null, crowdN = 0 } = {}) {
       const dt = last === null ? 0 : Math.max(0, t - last)
       last = t
       run.time = t
       const zr = cam ? cam.zr : 1, zz = z * zr, w = app.screen.width / zz, h = app.screen.height / zz
-      const left = -app.screen.width / (2 * z) - (cam ? cam.ex : 0) / zz, top = -app.screen.height / (2 * z) - (cam ? cam.ey : 0) / zz
+      const left = (pan.x - app.screen.width / 2) / z - (cam ? cam.ex : 0) / zz, top = (pan.y - app.screen.height / 2) / z - (cam ? cam.ey : 0) / zz
       run.enemies.length = 0
       for (let i = 0; i < crowdN; i++) {
         const { e, x, y, r } = crowd[i]

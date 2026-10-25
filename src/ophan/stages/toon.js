@@ -36,14 +36,21 @@ export default function stage(app, { W, H }) {
   let last = null
   return {
     boss,
-    // the camera centred on the player (render.js: cx = viewW/2 - player.x, world at cx * z with z 1)
-    update(t) {
+    // the camera centred on the player (render.js: cx = viewW/2 - player.x, world at cx * z with z 1), pan stage px off the
+    // reference spot as the fight's camera moves off the world's origin
+    update(t, { pan = { x: 0, y: 0 } } = {}) {
       const dt = last === null ? 0 : Math.max(0, t - last)
       last = t
       run.time = t
+      p.x = cam[0] + pan.x; p.y = cam[1] + pan.y
       const cx = W / 2 - p.x, cy = H / 2 - p.y
       world.position.set(cx, cy)
       r.sync(run, dt, { left: -cx, top: -cy, right: -cx + W, bottom: -cy + H, zoom: 1, w: W, h: H, animT: t })
+    },
+    // the floor chunks round where pan will look, up to n of them, baked without a draw (renderer.js prebake)
+    prebake(pan, n) {
+      const x = cam[0] + pan.x - W / 2, y = cam[1] + pan.y - H / 2
+      return r.prebake(run, { left: x, top: y, right: x + W, bottom: y + H }, n)
     },
     setPass(on) { app.stage.filters = on ? film : null },
   }

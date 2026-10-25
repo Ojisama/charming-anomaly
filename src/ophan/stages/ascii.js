@@ -26,11 +26,15 @@ export default function stage(app, { W, H }) {
   let last = null
   return {
     boss,
-    // the camera centres the player (render.js ~33229); here the lamp pool simply follows (px, py)
-    update(t, { px = W / 2, py = H / 2 } = {}) {
+    // the camera centres the player (render.js ~33229); here the lamp pool simply follows (px, py). pan: the stage px the
+    // camera has moved off the world's origin; the glyph floor (under, over) scrolls by it and the boss container stays
+    // in stage px
+    update(t, { pan = { x: 0, y: 0 }, px = W / 2, py = H / 2 } = {}) {
       const dt = last == null ? t : Math.max(0, t - last)
       last = t
-      run.time = t; run.player.x = px; run.player.y = py; view.animT = t
+      under.position.set(-pan.x, -pan.y); over.position.set(-pan.x, -pan.y)
+      view.left = pan.x; view.top = pan.y; view.right = pan.x + W; view.bottom = pan.y + H
+      run.time = t; run.player.x = px + pan.x; run.player.y = py + pan.y; view.animT = t
       R.sync(run, dt, view)
     },
     // there is no pass to switch: the screen layer only ever carries the hurt flare

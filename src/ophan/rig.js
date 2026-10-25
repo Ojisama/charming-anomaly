@@ -87,7 +87,7 @@ export const hh = (i, j) => { const s = Math.sin(i*127.1 + j*311.7)*43758.5453; 
 //              theta, heading (base -> tip on screen), buried (stuck in the floor after the slam), dissolve (0..1
 //              breaking back into feathers) }, impact:{x,y,r,al}|null (the slam's shock ring at the point),
 //              fire:{ start, end, dx,dy,nx,ny, len, front (how far the eruption has run), w (half-width), flames:[{x,y,h,
-//              al,s,sz}] (16 along the line: h 0..1 height, sz its size), on, scorch } }
+//              al,s,sz}] (16 to 48 along the line, spaced as v9's 16: h 0..1 height, sz its size), on, scorch } }
 //            Upright is drawn as screen-UP (the same oblique cheat as the tornado's height): tip = ground - (0, .6*reach*lift).
 //            The raised blade is the telegraph. THE BLADE IS THE UP WINGS (owner: a blade built in front of the body read as
 //            something else in front of the boss): while blade.under > .5 it is drawn UNDER the body, its base at the
@@ -355,7 +355,9 @@ const RIG = (() => {
       const kb = sm(.41, .46, u), base = { x: dx*(ln + .2)*kb, y: -.9*(1 - kb) + dy*(ln + .2)*kb }, ground = { x: base.x + dx*L*Math.cos(th), y: base.y + dy*L*Math.cos(th) }, tip = { x: ground.x, y: ground.y - .6*L*Math.sin(th) };
       // the fire runs along the blade from its base (.5, the body edge) through the slam (S0) and on by v9's tail, x4
       const q = cl((u - .47)/.14), S0 = { x: dx*(.5 + LB), y: dy*(.5 + LB) }, F0 = { x: dx*.5, y: dy*.5 }, len = LB + Math.max(.8*(.5 + LB)/2.3, d0 + .9 - .5 - LB), f = cl((u - .47)/.13), flames = [];
-      for (let i=0;i<16;i++){ const di = len*(i + .5)/16, ti = .47 + .13*(i + .5)/16, life = u - ti, h = sm(0, .04, life)*(1 - sm(.16, .3, life)), j = .08*(hh(i, 81) - .5);
+      // v9 burst 16 flames along ~2.6 R: the line keeps that spacing as it grows, to 48 (each flame is a painter draw)
+      const NF = Math.max(16, Math.min(48, Math.round(16*len/2.6)));
+      for (let i=0;i<NF;i++){ const di = len*(i + .5)/NF, ti = .47 + .13*(i + .5)/NF, life = u - ti, h = sm(0, .04, life)*(1 - sm(.16, .3, life)), j = .08*(hh(i, 81) - .5);
         flames.push({ x: F0.x + dx*di + nx*j, y: F0.y + dy*di + ny*j, h, al: h, s: hh(i, 82), sz: .28*(.8 + .4*hh(i, 83)) }); }
       return { dir: phi,
         blade: { base, tip, ground, len: Math.hypot(tip.x - base.x, tip.y - base.y), reach: L, w: .17*sm(.02, .26, u), form: sm(.02, .26, u)*(1 - sm(.84, .95, u)), lift: Math.sin(th), theta: th,

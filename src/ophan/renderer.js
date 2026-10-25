@@ -29,10 +29,16 @@ import './hands/ascii.js'
 import './hands/pixel.js'
 import './hands/toon.js'
 import './hands/liquid.js'
-import { CHAPTERS, OPHAN_BOSS, OPHAN_ARENA, OPHAN_ATTACKS, OPHAN_HAND, ophanView } from '../config.js'
+import { CHAPTERS, OPHAN_BOSS, OPHAN_ATTACKS, OPHAN_HAND, ophanView } from '../config.js'
 
 const STAGES = { macro, holo, ascii, pixel, toon, liquid, pencil }
-const IMMUNE_T = 0.4, VEIL_A = 0.55
+const IMMUNE_T = 0.4
+// the boss leaving for a wave sinks into its world's floor, and rises out of it on its return: it shrinks to SINK_K of its
+// size and fades, over SINK_T (leave) or RISE_T (enter) seconds, inside its world's pass like the creatures
+const SINK_T = 0.8, RISE_T = 0.8, SINK_K = 0.55
+// the chunked floors (the Magma's, the Mantle's) bake LEAD seconds of the camera's travel ahead, one chunk a frame between
+// them, the worlds not shown included: a world pressed far from where it was last drawn finds its floor baked
+const LEAD = 1
 // a slot is built this much bigger than the screen on every side, so the camera's shake never shows its edge
 const OVERSCAN = 24
 const WARM_UPDATES = 8
@@ -88,14 +94,20 @@ export function createOphanRenderer(host) {
   const slots = {}
   const rings = []                       // ophanImmune sparks: { x, y, life } in world px
   // bottom up (art-fight.js frame): the worlds (A, then B inside the wipe's circle), the hole the Core shows through, the
-  // wipe's rim, the boss pasted in over a foreign world, then the immune sparks and the veil outside the arena
+  // wipe's rim, the boss pasted in over a foreign world, then the immune sparks
   const scene = new Container(), hole = new Graphics(), ring = new Graphics(), over = new Container()
-  const fx = new Graphics(), veil = new Graphics()
+  const fx = new Graphics()
   // the camera moves overCam and handCam alike (px2d owns its roots' scale), in the boss's slot's stage px: the boss when
-  // pasted in; then, over everything (the veil too), the next hand's shadow and the hand, coming down from above the camera
+  // pasted in; then, over everything, the next hand's shadow and the hand, coming down from above the camera
   const overCam = new Container(), handCam = new Container(), handShade = new Sprite(), handC = new Container()
   overCam.addChild(over); handCam.addChild(handShade, handC)
-  root.addChild(scene, hole, ring, overCam, fx, veil, handCam)
+  root.addChild(scene, hole, ring, overCam, fx, handCam)
+  // the sink and the rise fade the boss whole (a group alpha: its painter's overlapping layers do not show through each other)
+  const fade = new AlphaFilter()
+  let sink = null, rise = null, lastS = null
+  let tellPx = null   // the px2d the sink or the rise scaled and faded this frame, and its root's own position, put back next frame
+  let cam0 = null   // the camera's centre last frame, world px, and its eased velocity, world px/s
+  const vel = { x: 0, y: 0 }
   root.visible = false
   const opx = PX2D(over, RES), hpx = PX2D(handC, RES)
   const shades = []   // the hand shadow's texture per world, baked in the warm-up
@@ -296,7 +308,7 @@ export function createOphanRenderer(host) {
       mine = { alpha: bg.alpha, color: bg.color.toNumber(), pos: app.canvas.style.position }
       slot(worlds[0].look)
       for (const s of Object.values(slots)) fit(s)
-      rings.length = 0
+      rings.length = 0; sink = rise = lastS = cam0 = tellPx = null; vel.x = vel.y = 0
       root.visible = true
     },
     // puts back what enter() changed, unless a look entered after it (render.js resets each look in turn) changed it since
@@ -308,6 +320,8 @@ export function createOphanRenderer(host) {
       }
       saved = mine = null; sceneKey = ''
       for (const s of Object.values(slots)) { s.wrap.visible = false; glcWarm(s, false) }
+      if (tellPx) { const r = tellPx.px.root; r.filters = null; r.scale.set(1 / RES); r.position.set(tellPx.x, tellPx.y) }
+      sink = rise = lastS = tellPx = null
       // a warm-up cut short is queued again next time; its waiters are released, not left hanging, and its target is
       // made again at the screen's size then
       if (jobs.length) { jobs = []; warmed.clear() }
@@ -324,6 +338,9 @@ export function createOphanRenderer(host) {
     event(e) {
       switch (e.type) {
         case 'ophanImmune': rings.push({ x: e.x, y: e.y, life: IMMUNE_T }); return true
+        // the boss sinks where it stood, in the skin it was last drawn in; its return rises where the sim put it
+        case 'ophanLeave': sink = lastS && { x: e.x, y: e.y, s: lastS, life: SINK_T }; rise = null; return true
+        case 'ophanEnter': rise = { life: RISE_T }; sink = null; return true
       }
       return false
     },
@@ -336,15 +353,19 @@ export function createOphanRenderer(host) {
       const sk = oph?.sketch && slots.pencil?.warm ? slots.pencil : null
       const A = (lastA = sk ?? built(wipe ? wipe.from : wi) ?? lastA ?? slot(worlds[0].look)), B = wipe ? built(wi) : null
       const core = slots.liquid
-      // the camera: the arena's rest framing (ophanView) is what each slot's stage px are laid out in; the game camera's
-      // zoom and shake off it move every slot, its floor, crowd and boss alike (zr, dx, dy), as they move render.js's world
-      const v0 = ophanView(app.screen.width, app.screen.height), z0 = v0.z
-      const left0 = v0.camX - app.screen.width / (2 * z0), top0 = v0.camY - app.screen.height / (2 * z0)
+      // the camera: each slot's stage px are laid out in a rest framing at ophanView's zoom centred where the follow camera
+      // looks, so a slot always covers the screen; its stage scrolls its floor by pan, the stage px the camera has moved
+      // off the world's origin. The game camera's zoom off that framing scales every slot about the screen's centre, its
+      // floor, crowd and boss alike (zr, dx, dy), as it scales render.js's world
+      const z0 = ophanView(app.screen.width, app.screen.height).z
+      const cwx = view.left + view.w / (2 * view.zoom), cwy = view.top + view.h / (2 * view.zoom)
+      const left0 = cwx - app.screen.width / (2 * z0), top0 = cwy - app.screen.height / (2 * z0)
       const zr = view.zoom / z0, dx = (left0 - view.left) * view.zoom, dy = (top0 - view.top) * view.zoom
       const place = (s, c) => { c.scale.set(s.k * zr); c.position.set(s.ox * zr + dx, s.oy * zr + dy) }
+      const pan = (s) => ({ x: cwx * z0 / s.k, y: cwy * z0 / s.k })
       // world px -> a slot's stage px
       const sx = (s, x) => ((x - left0) * z0 - s.ox) / s.k, sy = (s, y) => ((y - top0) * z0 - s.oy) / s.k
-      const t = oph ? oph.t : 0, ph = oph ? oph.ph : 1, a = oph?.atk
+      const t = oph ? oph.t : 0, ph = oph ? oph.ph : 1
       const p = run.player, psx = (p.x - view.left) * view.zoom, psy = (p.y - view.top) * view.zoom
 
       // the scene: world A, world B inside the wipe's circle round the player, the hole the Core comes in through
@@ -384,23 +405,38 @@ export function createOphanRenderer(host) {
         }
         for (let i = s.nb; i < s.bodies.children.length; i++) s.bodies.children[i].visible = false
       }
-      // the boss in its skin's look, on the sim's own clock, an attack aimed where the sim locked it: inside its own world's
-      // pass when the player stands in it, pasted in over a foreign world (or a wipe) otherwise; gone once the last skin breaks
+      // the boss in its skin's look, where the sim has it, on the sim's own clock, an attack aimed where the sim locked it:
+      // inside its own world's pass when the player stands in it, pasted in over a foreign world (or a wipe) otherwise; gone
+      // in a wave (after its sink) and once the last skin breaks
       opx.begin(); hpx.begin(); for (const s of Object.values(slots)) s.px.begin()
       handShade.visible = false
       let focus = null
-      const alive = run.enemies.some((e) => e.rosterId === 'ophan' && !e._dead)
-      const S = sk ?? slots[worlds[oph ? oph.skin : wi].look]
-      if (alive && S) {
+      const b = run.enemies.find((e) => e.rosterId === 'ophan' && !e._dead), a = b ? oph?.atk : null
+      if (sink && (sink.life -= dt) <= 0) sink = null
+      if (rise && (rise.life -= dt) <= 0) rise = null
+      const S = b ? sk ?? slots[worlds[oph ? oph.skin : wi].look] : sink?.s
+      lastS = b ? S : null
+      if (tellPx) { const r = tellPx.px.root; r.filters = null; r.scale.set(1 / RES); r.position.set(tellPx.x, tellPx.y); tellPx = null }
+      if (S) {
         const inPass = !wipe && S === A, z = z0 / S.k, bpx = inPass ? S.px : opx
         place(S, overCam); place(S, handCam)
-        const bx = sx(S, OPHAN_BOSS.x), by = sy(S, OPHAN_BOSS.y) + (oph?.stagger > 0 && !a ? 6 * z : 0), R = OPHAN_BOSS.R * z
+        const bx = sx(S, b ? b.x : sink.x), by = sy(S, b ? b.y : sink.y) + (b && oph?.stagger > 0 && !a ? 6 * z : 0)
+        const R = OPHAN_BOSS.R * z
+        // the sink and the rise: k 1 is the boss whole, 0 gone under the floor. Its px2d root is scaled about the boss, not
+        // its R: the painters bake per size, and a size that eases would bake every frame
+        const k = b ? (rise ? 1 - rise.life / RISE_T : 1) : sink.life / SINK_T, ke = k * k * (3 - 2 * k)
+        if (k < 1) {
+          const r = bpx.root, sc = SINK_K + (1 - SINK_K) * ke
+          tellPx = { px: bpx, x: r.x, y: r.y }
+          fade.alpha = ke; r.filters = [fade]
+          r.scale.set(sc / RES); r.position.set(r.x + bx * (1 - sc), r.y + by * (1 - sc))
+        }
         within(S.g, () => {
           window.OPH_PH = sk ? 4 : ph
           boss(S, bx, by, R, t, sk ? 4 : ph, a && a.k, Math.min(1, a ? a.u : 0), a ? sx(S, a.ax) : 0, a ? sy(S, a.ay) : 0, bpx)
         })
         // THE HAND: the next world's hand shadow slides in over the tell (src2.html handShadow, eased), tinted its colour
-        if (oph?.tell > 0 && oph.next >= 0 && shades[oph.next]) {
+        if (b && oph?.tell > 0 && oph.next >= 0 && shades[oph.next]) {
           const pr = 1 - oph.tell / OPHAN_HAND.tell, e = pr * pr * (3 - 2 * pr), q = R / SH_R, hx = 130 - 85 * e, hy = -210 + 165 * e
           handShade.texture = shades[oph.next]
           handShade.anchor.set((SH_PAD + SH_X * SH_S) / handShade.texture.width, (SH_PAD + SH_Y * SH_S) / handShade.texture.height)
@@ -411,7 +447,7 @@ export function createOphanRenderer(host) {
         // HAND_SEED: one path per swap, the same before and after it; OPHAN_PREV_STYLE: the old skin is still under the
         // stroke until the swap; SPIKE.px: the boss the liquid hand's cut is masked by). The after-beat's look is latched when
         // it starts: a skin break mid-paint does not swap the hand for another world's
-        const u = oph ? handU(oph) : null
+        const u = b && oph ? handU(oph) : null
         afterLook = oph?.after >= 0 ? afterLook ?? worlds[oph.skin].look : null
         const H = u == null ? null : slots[oph.tell > 0 ? worlds[oph.next].look : afterLook]
         if (H?.warm) {
@@ -425,8 +461,17 @@ export function createOphanRenderer(host) {
         window.OPH_PH = ph
         // the macro lens racks to the hand's tool (stage px of the boss's slot, carried into this one's)
         const f = focus && { x: (focus.x * focus.src.k + focus.src.ox - s.ox) / s.k, y: (focus.y * focus.src.k + focus.src.oy - s.oy) / s.k, k: focus.k }
-        s.st.update(t, { px: sx(s, p.x), py: sy(s, p.y), cam: { zr, ex: (s.ox * (zr - 1) + dx) / s.k, ey: (s.oy * (zr - 1) + dy) / s.k }, focus: f, crowd: s.core, crowdN: s.nc })
+        s.st.update(t, { pan: pan(s), px: sx(s, p.x), py: sy(s, p.y), cam: { zr, ex: (s.ox * (zr - 1) + dx) / s.k, ey: (s.oy * (zr - 1) + dy) / s.k }, focus: f, crowd: s.core, crowdN: s.nc })
       })
+      // the floors ahead: where the camera will look LEAD seconds on, the world shown first, then the others (one chunk a
+      // frame in all); a frame that baked none of them costs nothing
+      if (dt > 0 && cam0) { const e = Math.min(1, dt * 4); vel.x += ((cwx - cam0.x) / dt - vel.x) * e; vel.y += ((cwy - cam0.y) / dt - vel.y) * e }
+      cam0 = { x: cwx, y: cwy }
+      for (const s of [A, ...Object.values(slots).filter((s) => s !== A)]) {
+        if (!s.warm || !s.st.prebake) continue
+        const q = pan(s), k = LEAD * z0 / s.k
+        if (s.st.prebake({ x: q.x + vel.x * k, y: q.y + vel.y * k }, 1)) break
+      }
 
       // the immune sparks: a white ring off the sealed boss
       fx.clear()
@@ -435,15 +480,6 @@ export function createOphanRenderer(host) {
         fx.circle((r.x - view.left) * view.zoom, (r.y - view.top) * view.zoom, (6 + 18 * (1 - k)) * view.zoom).stroke({ width: 2.5 * view.zoom, color: 0xffffff, alpha: k })
         if ((r.life -= dt) <= 0) rings.splice(i, 1)
       }
-      // the floor beyond the arena reads as outside: a veil over everything off the arena rect
-      const x0 = (-OPHAN_ARENA.w / 2 - view.left) * view.zoom, x1 = (OPHAN_ARENA.w / 2 - view.left) * view.zoom
-      const y0 = (-OPHAN_ARENA.h / 2 - view.top) * view.zoom, y1 = (OPHAN_ARENA.h / 2 - view.top) * view.zoom
-      veil.clear()
-      if (y0 > 0) veil.rect(0, 0, view.w, y0)
-      if (y1 < view.h) veil.rect(0, y1, view.w, view.h - y1)
-      if (x0 > 0) veil.rect(0, Math.max(0, y0), x0, Math.min(view.h, y1) - Math.max(0, y0))
-      if (x1 < view.w) veil.rect(x1, Math.max(0, y0), view.w - x1, Math.min(view.h, y1) - Math.max(0, y0))
-      veil.fill({ color: 0x000000, alpha: VEIL_A })
     },
   }
 }

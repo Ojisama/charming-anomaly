@@ -864,6 +864,9 @@ const SFX_FOR_EVENT = {
   ophanAttack: 'orcaAim', ophanBreak: 'crush', ophanSketch: 'bossRise',
   // a world switch (or a broken band refusing one), the hand's tell and swap, and a resonance
   ophanWorld: 'surge', ophanRefuse: 'click', ophanTell: 'suck', ophanSwap: 'clang', ophanResonance: 'deflectHi',
+  // the boss sinking out for a wave and rising back (two leaves and three returns a fight), voiced as the Kraken's head hides
+  // and rises; the sink and the rise themselves are drawn by src/ophan/renderer.js
+  ophanLeave: 'hole', ophanEnter: 'bossRise',
 }
 
 function endRun(victory) {

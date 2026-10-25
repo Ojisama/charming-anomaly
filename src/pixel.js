@@ -168,6 +168,26 @@ export function createPixelRig(env) {
     layer.addChild(s)
     return s
   }
+  // the chunks a view (sync's cam) needs and lacks, nearest its centre first, and its chunk window (the view's, v*, and
+  // one chunk of margin round it)
+  const groundTodo = (FL, cam) => {
+    if (chunkSeed !== FL.seed || chunkF !== FL.F) { for (const k of [...chunks.keys()]) dropChunk(k); chunkSeed = FL.seed; chunkF = FL.F }
+    const CW = CHUNK_ART * PX
+    const vi0 = Math.floor(-cam.cx / CW), vi1 = Math.floor((-cam.cx + cam.w) / CW)
+    const vj0 = Math.floor(-cam.cy / CW), vj1 = Math.floor((-cam.cy + cam.h) / CW)
+    const i0 = vi0 - 1, i1 = vi1 + 1, j0 = vj0 - 1, j1 = vj1 + 1
+    const pcx = -cam.cx + cam.w / 2, pcy = -cam.cy + cam.h / 2
+    const todo = []
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+      if (!chunks.has(i + ',' + j)) todo.push([i, j, ((i + 0.5) * CW - pcx) ** 2 + ((j + 0.5) * CW - pcy) ** 2])
+    }
+    todo.sort((a, b) => a[2] - b[2])
+    return { todo, vi0, vi1, vj0, vj1, i0, i1, j0, j1 }
+  }
+  const bakeGround = (FL, i, j) => {
+    const CW = CHUNK_ART * PX, g = bakeGroundChunk(FL.F, FL.seed, i, j, PX)
+    chunks.set(i + ',' + j, g && { ...g, base: chunkSprite(g.base, chunkLayer, i * CW, j * CW), fiss: chunkSprite(g.fiss, fissLayer, i * CW, j * CW) })
+  }
   const ground = new Container()
   const air = new Container()
   const player = new Container()
@@ -302,6 +322,26 @@ export function createPixelRig(env) {
       for (const p of sparks) { p.life = 0; p.s.visible = false }
     },
     // cam: { cx, cy, z, w, h, animT } (w/h in world px)
+    // bakes up to n of the ground chunks a view (cam as sync's) needs, nearest its centre first, without drawing it: a host
+    // whose camera reaches a spot before the rig draws there (the Ophan's worlds not shown, the floor ahead of a moving
+    // camera) calls it so the frame that first draws there bakes nothing. Returns how many it baked
+    prebake(run, cam, n = 1) {
+      const FL = magmaFloorOf(run)
+      if (!FL) return 0
+      const { todo, i0, i1, j0, j1 } = groundTodo(FL, cam)
+      // what sync would drop, as the camera leaves it behind
+      for (const k of [...chunks.keys()]) {
+        const [a, b] = k.split(',').map(Number)
+        if (a < i0 - 3 || a > i1 + 3 || b < j0 - 3 || b > j1 + 3) dropChunk(k)
+      }
+      for (const [i, j] of todo.slice(0, n)) {
+        bakeGround(FL, i, j)
+        const c = chunks.get(i + ',' + j)
+        if (c?.base) c.base.visible = false
+        if (c?.fiss) c.fiss.visible = false
+      }
+      return Math.min(n, todo.length)
+    },
     sync(run, dt, cam) {
       if (!look) return
       const t = cam.animT
@@ -326,24 +366,13 @@ export function createPixelRig(env) {
       const FL = magmaFloorOf(run)
       gPlate.begin()
       if (FL) {
-        if (chunkSeed !== FL.seed || chunkF !== FL.F) { for (const k of [...chunks.keys()]) dropChunk(k); chunkSeed = FL.seed; chunkF = FL.F }
-        const CW = CHUNK_ART * PX
-        const vi0 = Math.floor(-cam.cx / CW), vi1 = Math.floor((-cam.cx + cam.w) / CW)
-        const vj0 = Math.floor(-cam.cy / CW), vj1 = Math.floor((-cam.cy + cam.h) / CW)
-        const i0 = vi0 - 1, i1 = vi1 + 1, j0 = vj0 - 1, j1 = vj1 + 1
-        const pcx = -cam.cx + cam.w / 2, pcy = -cam.cy + cam.h / 2
-        const todo = []
-        for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
-          if (!chunks.has(i + ',' + j)) todo.push([i, j, ((i + 0.5) * CW - pcx) ** 2 + ((j + 0.5) * CW - pcy) ** 2])
-        }
-        todo.sort((a, b) => a[2] - b[2])
+        const { todo, vi0, vi1, vj0, vj1, i0, i1, j0, j1 } = groundTodo(FL, cam)
         let budget = GROUND.bakesPerFrame
         for (const [i, j] of todo) {
           const inView = i >= vi0 && i <= vi1 && j >= vj0 && j <= vj1
           if (!inView && budget <= 0) continue
           if (!inView) budget--
-          const g = bakeGroundChunk(FL.F, FL.seed, i, j, PX)
-          chunks.set(i + ',' + j, g && { ...g, base: chunkSprite(g.base, chunkLayer, i * CW, j * CW), fiss: chunkSprite(g.fiss, fissLayer, i * CW, j * CW) })
+          bakeGround(FL, i, j)
         }
         const far = []
         for (const [k, c] of chunks) {

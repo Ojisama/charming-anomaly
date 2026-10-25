@@ -29,9 +29,11 @@ export default function stage(app, { W, H }) {
   app.stage.filters = [lens]
   return {
     boss,
+    // pan: the stage px the camera has moved off the world's origin, so the tile is world-anchored and scrolls under it.
     // focus rides the player, held near the middle of the frame (updateMacro)
     // and racks to the painter's tool as the hand comes down (focus.k: 0 high, 1 at the paper)
-    update(t, { px = W / 2, py = H * 0.72, focus = null } = {}) {
+    update(t, { pan = null, px = W / 2, py = H * 0.72, focus = null } = {}) {
+      if (pan) floor.tilePosition.set(-pan.x, -pan.y)
       macroU.uniforms.uTime = t
       const k = focus ? focus.k * focus.k * (3 - 2 * focus.k) : 0
       macroU.uniforms.uFocus[0] = (0.5 + (px / W - 0.5) * 0.6) * (1 - k) + (focus ? focus.x / W : 0) * k

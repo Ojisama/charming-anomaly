@@ -21,20 +21,19 @@ export default function stage(app, { W, H }) {
   rig.enable(look)
   const world = new Container()
   // render.js's floor scatter (midLayer/detailLayer) is not importable: a hash scatter of the game's own baked
-  // props (PIXEL.bakeProps + BIOME sizes) stands in for it
-  const T = bakeProps(), props = new Container()
-  const G = 150
-  for (let gx = Math.floor((P0.x - W) / G); gx <= (P0.x + W) / G; gx++) for (let gy = Math.floor((P0.y - H) / G); gy <= (P0.y + H) / G; gy++) {
+  // props (PIXEL.bakeProps + BIOME sizes) stands in for it, one cell of G px at a time round the camera
+  const T = bakeProps(), props = new Container(), G = 150
+  const prop = (gx, gy) => {
     const h = hash(gx, gy, 901)
     const set = h < 0.03 ? BIOME.big : h < 0.12 ? BIOME.mid : h < 0.32 ? BIOME.detail : null
-    if (!set) continue
+    if (!set) return null
     const d = set[Math.floor(hash(gx, gy, 902) * set.length)], t = T[d.name]
     const s = new Sprite(t.tex)
     s.anchor.set(t.ax, t.ay)
     s.position.set(Math.round((gx + hash(gx, gy, 903)) * G / 2) * 2, Math.round((gy + hash(gx, gy, 904)) * G / 2) * 2)
     const sz = d.size[0] + (d.size[1] - d.size[0]) * hash(gx, gy, 905)
     s.scale.set(sz / Math.max(t.w, t.h))
-    props.addChild(s)
+    return props.addChild(s)
   }
   const boss = new Container()
   boss.position.set(P0.x - W / 2, P0.y - H / 2)   // boss-local coords = stage px
@@ -44,26 +43,59 @@ export default function stage(app, { W, H }) {
   app.stage.filters = [rig.filter]
 
   // the crust the chapter always shows round a moving player: a trail of open lava on hot ground and fresh
-  // cracks warming to open (their life is pinned, so a frozen ?t= frame holds them)
-  const L = (dx, dy, r = 49) => ({ x: P0.x + dx, y: P0.y + dy, r, state: 'lava', openAt: -1e9, lavaEnd: 1e9 })
-  const C = (dx, dy, k, r = 34) => ({ x: P0.x + dx, y: P0.y + dy, r, state: 'crack', left: 0.9 * (1 - k), t: 0.9 * k })
-  const cracks = [L(110, 0), L(135, -70), L(155, -145), L(180, -225), L(200, -300), L(220, -380),
-    C(70, -195, 0.3), C(150, -385, 0.6), C(140, 255, 0.1), C(-60, 330, 0.85, 30)]
-  const run = { chapter: 'magma', _driftSeed: SEED, time: 0, player: { x: P0.x, y: P0.y, facing: 1 }, cracks, enemies: [], slagPools: [], magmaLobs: [], novas: [] }
+  // cracks warming to open (their life is pinned, so a frozen ?t= frame holds them). The set is the reference frame's,
+  // round P0; the open floor repeats it every CT px, a cell's copy left out or mirrored by its hash
+  const CT = 1100
+  const crust = (ox, oy, m) => {
+    const L = (dx, dy, r = 49) => ({ x: ox + m * dx, y: oy + dy, r, state: 'lava', openAt: -1e9, lavaEnd: 1e9 })
+    const C = (dx, dy, k, r = 34) => ({ x: ox + m * dx, y: oy + dy, r, state: 'crack', left: 0.9 * (1 - k), t: 0.9 * k })
+    return [L(110, 0), L(135, -70), L(155, -145), L(180, -225), L(200, -300), L(220, -380),
+      C(70, -195, 0.3), C(150, -385, 0.6), C(140, 255, 0.1), C(-60, 330, 0.85, 30)]
+  }
+  const run = { chapter: 'magma', _driftSeed: SEED, time: 0, player: { x: P0.x, y: P0.y, facing: 1 }, cracks: [], enemies: [], slagPools: [], magmaLobs: [], novas: [] }
+  // the cells round the camera, built once each: a prop per G cell, a crust copy per CT cell; win is the last window
+  const cells = new Map(), crusts = new Map()
+  let win = ''
+  const around = (P) => {
+    const k = Math.floor(P.x / G) + ',' + Math.floor(P.y / G)
+    if (k === win) return
+    win = k
+    const keep = new Set()
+    for (let gx = Math.floor((P.x - W / 2) / G) - 1; gx <= (P.x + W / 2) / G + 1; gx++) for (let gy = Math.floor((P.y - H / 2) / G) - 1; gy <= (P.y + H / 2) / G + 1; gy++) {
+      const c = gx + ',' + gy
+      keep.add(c)
+      if (!cells.has(c)) cells.set(c, prop(gx, gy))
+    }
+    for (const [c, s] of cells) if (!keep.has(c)) { s?.destroy(); cells.delete(c) }
+    run.cracks.length = 0
+    for (let i = Math.floor((P.x - P0.x - W) / CT); i <= Math.ceil((P.x - P0.x + W) / CT); i++) for (let j = Math.floor((P.y - P0.y - H) / CT); j <= Math.ceil((P.y - P0.y + H) / CT); j++) {
+      const c = i + ',' + j, home = !i && !j
+      if (!crusts.has(c)) crusts.set(c, home || hash(i, j, 906) < 0.55 ? crust(P0.x + i * CT, P0.y + j * CT, home || hash(i, j, 907) < 0.5 ? 1 : -1) : [])
+      run.cracks.push(...crusts.get(c))
+    }
+  }
   let last = null
   return {
     boss,
-    update(t) {
+    // pan: the stage px the camera has moved off the world's origin. The world stays put (the boss container in it keeps
+    // stage px) and its layers scroll by pan; the rig's camera is the panned one
+    update(t, { pan = { x: 0, y: 0 } } = {}) {
       const dt = last === null ? 1 / 60 : Math.max(0, Math.min(0.1, t - last))
       last = t
       run.time = t
-      for (const c of cracks) if (c.state === 'crack') c.openAt = t + c.left
+      const P = { x: P0.x + pan.x, y: P0.y + pan.y }
+      around(P)
+      run.player.x = P.x; run.player.y = P.y
+      for (const c of run.cracks) if (c.state === 'crack') c.openAt = t + c.left
       // render.js ~33226: z = camZoom() (magma has no viewW -> 1), cx = viewW()/2 - player.x
-      const z = 1, cx = W / 2 - P0.x, cy = H / 2 - P0.y
+      const z = 1, cx = W / 2 - P.x, cy = H / 2 - P.y
       world.scale.set(z)
-      world.position.set(cx * z, cy * z)
+      world.position.set((W / 2 - P0.x) * z, (H / 2 - P0.y) * z)
+      for (const l of [rig.floor, props, rig.ground, rig.air]) l.position.set(-pan.x, -pan.y)
       rig.sync(run, dt, { cx, cy, z, w: W / z, h: H / z, animT: t })
     },
+    // the ground chunks round where pan will look, up to n of them, baked without a draw (renderer.js prebake)
+    prebake(pan, n) { return rig.prebake(run, { cx: W / 2 - P0.x - pan.x, cy: H / 2 - P0.y - pan.y, w: W, h: H }, n) },
     setPass(on) { app.stage.filters = on ? [rig.filter] : null },
   }
 }

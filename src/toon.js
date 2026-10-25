@@ -292,6 +292,11 @@ export function createToonRenderer(host) {
     floor.addChild(mesh)
     chunks.set(i + ',' + j, { mesh, tex })
   }
+  // the chunks are one tide's ground: another seed or spec drops them all
+  function keyChunks({ L, T: TD }) {
+    const key = TD.seed + '/' + L.wave + '/' + L.ridgeWave + '/' + L.ridgeMix
+    if (key !== chunkKey) { for (const k of [...chunks.keys()]) dropChunk(k); chunkKey = key }
+  }
 
   // THE FILM: one filter over the stage
   const filmU = new UniformGroup({
@@ -359,6 +364,26 @@ export function createToonRenderer(host) {
       wetLine = -1; wetK = 0; maxLine = -1
     },
     filters() { return [film] },
+    // bakes up to n of the floor chunks a view (as sync's) needs, nearest its centre first, without drawing it: a host whose
+    // camera reaches a spot before this renderer draws there (the Ophan's worlds not shown, the floor ahead of a moving
+    // camera) calls it so the frame that first draws there bakes nothing. Returns how many it baked
+    prebake(run, view, n = 1) {
+      const tide = lavaTideOf(run) ?? { L: DRY_GROUND, T: { seed: 0, line: -1, swell: 0 } }
+      keyChunks(tide)
+      const cx = (view.left + view.right) / 2, cy = (view.top + view.bottom) / 2, todo = []
+      const vi0 = Math.floor(view.left / CHUNK), vi1 = Math.floor(view.right / CHUNK), vj0 = Math.floor(view.top / CHUNK), vj1 = Math.floor(view.bottom / CHUNK)
+      // what sync would drop, as the camera leaves it behind
+      for (const k of [...chunks.keys()]) {
+        const [a, b] = k.split(',').map(Number)
+        if (a < vi0 - 3 || a > vi1 + 3 || b < vj0 - 3 || b > vj1 + 3) dropChunk(k)
+      }
+      for (let j = vj0 - 1; j <= vj1 + 1; j++) for (let i = vi0 - 1; i <= vi1 + 1; i++) {
+        if (!chunks.has(i + ',' + j)) todo.push([i, j, ((i + 0.5) * CHUNK - cx) ** 2 + ((j + 0.5) * CHUNK - cy) ** 2])
+      }
+      todo.sort((a, b) => a[2] - b[2])
+      for (const [i, j] of todo.slice(0, n)) { bakeChunk(tide.L, tide.T.seed, i, j); chunks.get(i + ',' + j).mesh.visible = false }
+      return Math.min(n, todo.length)
+    },
     // view = { left, top, right, bottom, zoom, w, h, animT }
     sync(run, dt, view) {
       if (!look) return
@@ -373,8 +398,7 @@ export function createToonRenderer(host) {
       // the floor: bake the chunks the view needs (every one in view now, two of the margin a frame)
       {
         const { L, T: TD } = tide
-        const key = TD.seed + '/' + L.wave + '/' + L.ridgeWave + '/' + L.ridgeMix
-        if (key !== chunkKey) { for (const k of [...chunks.keys()]) dropChunk(k); chunkKey = key }
+        keyChunks(tide)
         const vi0 = Math.floor(view.left / CHUNK), vi1 = Math.floor(view.right / CHUNK)
         const vj0 = Math.floor(view.top / CHUNK), vj1 = Math.floor(view.bottom / CHUNK)
         let budget = 2
