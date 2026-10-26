@@ -119,7 +119,8 @@ export function createOphanRenderer(host) {
   // pasted in; then, over everything, the next hand's shadow and the hand, coming down from above the camera
   const overCam = new Container(), handCam = new Container(), handShade = new Sprite(), handC = new Container()
   overCam.addChild(over); handCam.addChild(handShade, handC)
-  root.addChild(scene, hole, ring, overCam, fx, handCam)
+  const coreTop = new Container()   // the Core's bodies (the player's face) while the hole cuts its slot: see sync
+  root.addChild(scene, hole, ring, coreTop, overCam, fx, handCam)
   // the sink and the rise fade the boss whole (a group alpha: its painter's overlapping layers do not show through each other)
   const fade = new AlphaFilter()
   let sink = null, rise = null, lastS = null, lastPh = 1
@@ -548,6 +549,16 @@ export function createOphanRenderer(host) {
         if (B && B === core) scene.setMask({ mask: hole, inverse: true })
       }
       for (const s of [A, B]) if (s) place(s, s.wrap)
+      // the Core wiping in shows through the hole, which cuts its slot's Pixi layer too: its bodies (only the player's face,
+      // the crowd is gl.js's) ride above the hole meanwhile, unclipped by the circle the player stands in
+      // ponytail: the face shows past the rim while the circle is still smaller than it (the wipe's first frames)
+      const lift = B && B === core && owns
+      if (core && (core.bodies.parent === coreTop) !== !!lift) {
+        const q = core.st.boss.parent
+        if (lift) coreTop.addChild(core.bodies)
+        else q.addChildAt(core.bodies, q.getChildIndex(core.st.boss) - 1)   // back under its px2d floor (ents), as slot() put it
+      }
+      if (lift) place(core, coreTop)
       // the circle B shows through: the fight's wipe round the player, or the staging's round its own point
       const cx = sw ? (sw.x - view.left) * view.zoom : psx, cy = sw ? (sw.y - view.top) * view.zoom : psy
       const cr = sw ? sw.r * view.zoom : wipe ? wipe.r * view.zoom : 0

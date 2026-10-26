@@ -14370,30 +14370,56 @@ const spurG = new Graphics()
     }
     return ophanR
   }
-  // the player in Topsoil's, the Geode's or the Core's own look (macroPlayer, holoPlayer, liquidPlayer: the Core's is the
-  // drop's face, gl.js draws its chrome), posed as syncPlayer posed its body this frame: the body, the Core's live pupils
-  // (syncPlayer's plain-blob ones; the Core has no skin) and the hurt flash, in world px, for the Ophan to copy into the slot
-  const pose = () => ({ anchor: new Point(), scale: new Point() })
-  const ophanPose = { macro: [pose(), pose()], holo: [pose(), pose()], liquid: [pose(), pose(), pose(), pose()] }
+  // the player in Topsoil's, the Geode's or the Core's own look, posed as syncPlayer posed its rig this frame, in world px,
+  // for the Ophan to copy into that world's slot (draw order):
+  //   Geode  every part the rig shows (body, the skin's cheeks and feet, the hurt flash), its bake swapped for holoPlayer's
+  //   Topsoil  macroPlayer's jellybean, which has no skin: the gel, its two drifting contents layers (at rest, unmasked: they
+  //          drift 0.08 R) and its surface (face, highlights), then the flash
+  //   Core   liquidPlayer's face (gl.js draws the chrome drop) with syncPlayer's plain-blob live pupils (no skin), the flash
+  const ophanPose = [], ophanM = new Matrix(), ophanL = new Matrix()
+  let ophanN = 0, holoOf = null
+  // n's transform into the arena (playerC's parent), times a local offset
+  function ophanArena(n, lx = 0, ly = 0) {
+    ophanM.identity().translate(lx, ly)
+    for (; n !== playerC.parent; n = n.parent) { n.updateLocalTransform(); ophanM.prepend(n.localTransform) }
+    return ophanM
+  }
+  function ophanPart(lk, m, alpha, tint = 0xffffff, blendMode = 'normal') {
+    if (!(alpha > 0)) return
+    const o = (ophanPose[ophanN++] ??= { anchor: new Point(), scale: new Point(), visible: true })
+    const sx = Math.hypot(m.a, m.b)
+    o.texture = lk.tex; o.anchor.set(lk.ax, lk.ay)
+    o.x = m.tx; o.y = m.ty; o.rotation = Math.atan2(m.b, m.a); o.scale.set(sx, (m.a * m.d - m.b * m.c) / sx)
+    o.alpha = alpha; o.tint = tint; o.blendMode = blendMode
+  }
+  function ophanHolo(c, a) {
+    if (!c.visible || c === pMask || c === gelMask || !((a *= c.alpha) > 0)) return
+    const lk = c.texture && holoOf.get(c.texture)
+    if (lk && c.scale.x && c.scale.y) ophanPart(lk, ophanArena(c), a, c === pFlash || c === footLF || c === footRF ? c.tint : 0xffffff, c.blendMode)
+    for (const k of c.children) ophanHolo(k, a)
+  }
   function ophanPlayer(look, p) {
-    const ph = look === 'macro' ? macroPlayer() : look === 'liquid' ? liquidPlayer() : playerSkin ? holoPlayer().butt : holoPlayer().blob
-    const a = playerC.alpha * bodyC.alpha, out = ophanPose[look], pr = PLAYER.radius
-    const lookX = p.moving ? pr * 0.07 : Math.sin(animT * 0.9) * pr * 0.045, lookY = pr * 0.02 + Math.sin(animT * 1.3) * pr * 0.015
-    const parts = look === 'liquid'
-      ? [[ph.body, pBody, 0, 0], [T.pupil, pupilL, -pr * 0.36 + lookX, -pr * 0.16 + lookY], [T.pupil, pupilR, pr * 0.36 + lookX, -pr * 0.16 + lookY], [ph.flash, pFlash, 0, 0]]
-      : [[ph.body, pBody, 0, 0], [ph.flash, pFlash, 0, 0]]
-    const bc = Math.cos(bodyC.rotation), bs = Math.sin(bodyC.rotation), qc = Math.cos(playerC.rotation), qs = Math.sin(playerC.rotation)
-    for (const [i, [lk, s, lx, ly]] of parts.entries()) {
-      const o = out[i], ux = bodyC.x + (bc * lx * bodyC.scale.x - bs * ly * bodyC.scale.y), uy = bodyC.y + (bs * lx * bodyC.scale.x + bc * ly * bodyC.scale.y)
-      o.texture = lk.tex; o.anchor.set(lk.ax, lk.ay)
-      o.x = playerC.x + qc * ux * playerC.scale.x - qs * uy * playerC.scale.y; o.y = playerC.y + qs * ux * playerC.scale.x + qc * uy * playerC.scale.y
-      o.rotation = playerC.rotation + bodyC.rotation
-      const k = s === pupilL || s === pupilR ? 1 : s.scale.x, ky = s === pupilL || s === pupilR ? 1 : s.scale.y
-      o.scale.set(playerC.scale.x * bodyC.scale.x * k, playerC.scale.y * bodyC.scale.y * ky)
-      o.alpha = a * s.alpha; o.tint = s === pFlash ? s.tint : 0xffffff; o.blendMode = s.blendMode
-      o.visible = (s === pFlash ? s.visible : true) && o.alpha > 0
+    ophanN = 0
+    const a = playerC.alpha * bodyC.alpha
+    if (look === 'holo') {
+      const h = holoPlayer()
+      holoOf ??= new Map([[T.playerBody, h.blob.body], [T.playerFlash, h.blob.flash], [T.playerButt, h.butt.body], [T.playerButtFlash, h.butt.flash],
+        [T.playerCheeks, h.cheeks.body], [T.buttFoot, h.foot.body], [T.buttFootFlash, h.foot.flash]].map(([t, l]) => [t.tex, l]))
+      for (const c of bodyC.children) ophanHolo(c, a)   // bodyC itself is hidden while the Ophan owns the player
+    } else {
+      const ph = look === 'macro' ? macroPlayer() : liquidPlayer(), R = PLAYER.radius, D = GEL_DRIFT
+      ophanPart(ph.body, ophanArena(pBody), a)
+      if (look === 'macro') {
+        ophanPart(ph.deep, ophanArena(bodyC, Math.sin(animT * 0.5) * R * D.idle, Math.cos(animT * 0.37) * R * D.idle), a)
+        ophanPart(ph.near, ophanArena(bodyC, Math.sin(animT * 0.41 + 2) * R * D.idle * 1.4, Math.cos(animT * 0.53 + 1) * R * D.idle * 1.4), a)
+        ophanPart(ph.front, ophanArena(bodyC), a)
+      } else {
+        const lookX = p.moving ? R * 0.07 : Math.sin(animT * 0.9) * R * 0.045, lookY = R * 0.02 + Math.sin(animT * 1.3) * R * 0.015
+        for (const sg of [-1, 1]) ophanPart(T.pupil, ophanArena(bodyC, sg * R * 0.36 + lookX, -R * 0.16 + lookY), a)
+      }
+      ophanPart(ph.flash, ophanArena(pFlash), a * pFlash.alpha, pFlash.tint, pFlash.blendMode)
     }
-    return out
+    return ophanPose.slice(0, ophanN)
   }
   let ophanOwns = false   // the Ophan's world slot draws the player: render.js's body is hidden while it does
   // Runs AFTER setLiquid: it un-hides only what it hid itself and no other look is holding.

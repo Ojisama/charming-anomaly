@@ -47,7 +47,7 @@ export default function stage(app, { W, H }) {
       run.time = t
       const zr = cam ? cam.zr : 1, zz = z * zr, w = app.screen.width / zz, h = app.screen.height / zz
       const left = (pan.x - app.screen.width / 2) / z - (cam ? cam.ex : 0) / zz, top = (pan.y - app.screen.height / 2) / z - (cam ? cam.ey : 0) / zz
-      if (player) Object.assign(run.player, player, { x: left + px / zz, y: top + py / zz, _drawR: pr / zz })
+      if (player) Object.assign(run.player, player, { x: left + px / zz, y: top + py / zz, _drawR: pr / zz, dead: !!player.dead })
       else Object.assign(run.player, { x: 0, y: 1e5, dead: true })
       run.enemies.length = 0
       for (let i = 0; i < crowdN; i++) {
