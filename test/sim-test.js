@@ -44236,7 +44236,14 @@ function testOphanStaging() {
   const back = r.events.find((x) => x.type === 'ophanEnter')
   assert.ok(back && back.stage === 'p2', `st4: the return's event is ${JSON.stringify(back)}`)
   firstThreat('the return')
-  // st5 the sketch plays harmless for its look; st6 its death is a pending win: no card screen on the kill step
+  // st5 the sketch plays harmless for its look, even when an attack was due as the last skin broke; st6 its death is a
+  // pending win: no card screen on the kill step
+  for (let k = 0; k < o.hp.length; k++) if (!o.broken[k] && o.broken.filter((v) => !v).length > 1) {
+    o.skin = k; o.world = k; const b = ophBoss(r); b.hp = OPHAN_BREAK_FLOOR + 1
+    dealDamage(r, b, 5, false); stepSim(r, still, dt); ophThaw(r)
+    if (o.bossId == null) ophEnterNow(r)
+  }
+  o.atkCd = 0; o.atk = null
   ophBreakAll(r)
   const cd0 = o.atkCd   // the breaking step ran one frame of it
   assert.ok(o.sketch && !o.atk && cd0 >= OPHAN_STAGE.sketch - 2 * dt, `st5: the sketch starts with attack ${o.atk?.k}, cooldown ${o.atkCd}`)
