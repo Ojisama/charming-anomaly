@@ -10796,6 +10796,7 @@ function nearestEnemy(run, pad = 100) {
       // hurt in is also the one window it is aimed at.
       if (krakenHeadSealed(run, e)) continue
       if (e.burrowed) continue   // Book 3: a mole underground cannot be hurt, so it is not aimed at
+      if (e._scribbleT > 0) continue   // the Ophan's sketch crowd, frozen until scribbled out: immune, so not aimed at
       const dx = e.x - p.x, dy = e.y - p.y
       const dSq = dx * dx + dy * dy
       if (dSq <= limSq && dSq < bestSq) { bestSq = dSq; target = e }

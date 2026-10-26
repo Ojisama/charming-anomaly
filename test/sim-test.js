@@ -39240,7 +39240,9 @@ function runKrakenCeremony() {
   assert.ok(/run\.bossOutroT/.test(render), 'render.js never reads run.bossOutroT')
   // the Ophan's cards: drawn before src/ophan/renderer.js consumes the event (its continue would skip a later call)
   assert.ok(/if \(ophanOn\) ophanCard\(e\)\s+if \(ophanOn && ophanR\.event\(e, run\)\) continue/.test(render), 'ophanCard is not called before the Ophan renderer consumes the event')
-  assert.ok(/ophanOn && \(run\.bossOutroT \?\? 0\) > 0\) \{\s*const O = OPHAN_OUTRO/.test(render), 'render.js does not hold the Ophan erasure on OPHAN_OUTRO')
+  assert.ok(/ophanOn && \(run\.bossOutroT \?\? 0\) > 0\) \{\s*const O = BOSS_OUTRO\[run\.chapter\]/.test(render), 'render.js holds the Ophan erasure on a clock other than main.js\'s BOSS_OUTRO')
+  assert.ok(/e\.stage === 'p2' \? 'unfold' : 'eye'/.test(render), 'ophanCard: p2 is not MORE WINGS and p3 THE GREAT EYE')
+  assert.ok(/function krakenBeat\([\s\S]{0,400}?cer\.text = cer\.tint = cer\.rule = cer\.avoidY = undefined/.test(render), 'krakenBeat does not clear the Ophan card fields: a later Kraken run would wear them')
   // no damage number over the dying face: muted from the kill frame on, and the ones in flight cleared
   {
     const sd = render.slice(render.indexOf('function spawnDamage('), render.indexOf('function updateDamage('))
@@ -43773,16 +43775,35 @@ function testOphanSketch() {
     const frozen = crowdOf(r), hp0 = frozen.map((e) => e.hp)
     assert.ok(frozen.length > 0 && frozen.every((e) => e.speed === 0 && e.dmg === 0 && e._scribbleT > 0), 's1: the crowd is not frozen and harmless waiting for its scribble')
     const last = Math.max(...frozen.map((e) => e._scribbleT)), at0 = frozen.map((e) => [e.x, e.y])
+    // each body leaves when the look (beats.js scribbleAt, on the sketch's own clock) has crossed it out, not before
+    const due = frozen.map((e) => (ophanScribbleAt(Math.hypot(e.x - b.x, e.y - b.y)) + OPHAN_STAGE.scribble.dur) * OPHAN_STAGE.sketch)
+    let sinceFreeze = 0
+    const onClock = () => { sinceFreeze += 1 / 60; frozen.forEach((e, i) => assert.ok(!!e._dead === (sinceFreeze > due[i] + 1e-6) || Math.abs(sinceFreeze - due[i]) < 2 / 60, `s1: a body scribbled out at ${sinceFreeze.toFixed(2)} s is due at ${due[i].toFixed(2)} s`)) }
     assert.ok(last <= (ophanScribbleAt(1e9) + OPHAN_STAGE.scribble.dur) * OPHAN_STAGE.sketch + 1e-9, `s1: a scribble waits ${last.toFixed(2)} s`)
-    for (const e of frozen) dealDamage(r, e, 1e6, false)
-    assert.ok(frozen.every((e, i) => !e._dead && e.hp === hp0[i]), 's1: a frozen crowd body took a hit')
+    // nothing aims at it either: a star fired with a frozen body beside the player and the sketch far off goes for the sketch
+    {
+      const e0 = frozen[due.indexOf(Math.max(...due))], x0 = e0.x, y0 = e0.y, bullets0 = r.bullets.length
+      e0.x = p.x + 40; e0.y = p.y
+      r.weapons = [{ id: 'star', level: 1 }]; r.weaponTimers = {}
+      for (let g = 0; r.bullets.length === bullets0 && g < 120; g++) { e0.x = p.x + 40; e0.y = p.y; stepSim(r, { x: 0, y: 0 }, 1 / 60); onClock() }
+      r.weapons = []
+      const s = r.bullets[bullets0]
+      assert.ok(s, 's1: the fixture star never fired')
+      const toB = Math.atan2(b.y - p.y, b.x - p.x), aim = Math.atan2(s.vy, s.vx)
+      assert.ok(Math.abs(Math.atan2(Math.sin(aim - toB), Math.cos(aim - toB))) < 0.3, `s1: a star aimed ${aim.toFixed(2)} rad at a frozen crowd body, the sketch is at ${toB.toFixed(2)}`)
+      r.bullets.length = bullets0; e0.x = x0; e0.y = y0
+    }
+    const waiting = frozen.filter((e) => !e._dead)
+    assert.ok(waiting.length > 0, 's1: every body was scribbled out before the hit check')
+    for (const e of waiting) dealDamage(r, e, 1e6, false)
+    assert.ok(waiting.every((e) => !e._dead && e.hp === hp0[frozen.indexOf(e)]), 's1: a frozen crowd body took a hit')
     p.invuln = 0; const php = p.hp
     for (const e of frozen) { e.x = p.x; e.y = p.y }
-    stepSim(r, { x: 0, y: 0 }, 1 / 60)
+    stepSim(r, { x: 0, y: 0 }, 1 / 60); onClock()
     assert.ok(p.hp === php, 's1: a frozen crowd body hurt the player')
     frozen.forEach((e, i) => { e.x = at0[i][0]; e.y = at0[i][1] })
-    ophSteps(r, 30, { after: () => assert.ok(frozen.every((e, i) => e._dead || (e.x === at0[i][0] && e.y === at0[i][1])), 's1: a frozen crowd body moved') })
-    ophSteps(r, Math.ceil(last * 60) + 2)
+    ophSteps(r, 30, { after: () => { onClock(); assert.ok(frozen.every((e, i) => e._dead || (e.x === at0[i][0] && e.y === at0[i][1])), 's1: a frozen crowd body moved') } })
+    ophSteps(r, Math.ceil(last * 60) + 2, { after: onClock })
     assert.strictEqual(crowdOf(r).length, 0, 's1: the crowd is still on the field after its scribbles')
     assert.ok(r.kills === kills0 && r.gems.length === gems0 && count(r, 'kill') === 0, 's1: the scribbled crowd paid kills or xp')
     ophSteps(r, 20 * 60, { after: () => assert.strictEqual(crowdOf(r).length, 0, `s1: a crowd body walked into the sketch at ${o.t.toFixed(1)}s`) })
@@ -44194,8 +44215,6 @@ function testOphanBank() {
   console.log(`PASS run OP.bank: skin ${A} kept ${hpA} of ${full} through two swaps and a wave, the swapped-in skin wore its own; a stagger x${(inWin / after).toFixed(2)} then x1 after ${OPHAN_STAGGER_T} s; the sword hurt for its slam and its fire line x enemyDmgMul; the body is a wall`)
 }
 
-// run OH: the boss enters a phase only once the renderer has baked that phase's art (input.ophanReady): until then the
-// wave runs on, held, and the entry comes on the first step the art is ready
 // THE STAGING's sim side (OPHAN_STAGE): each entry names its stage and plays harmless, the leave's hole sends the next
 // wave, a break holds the world, the sketch plays harmless, and the sketch's death opens no card screen
 function testOphanStaging() {
@@ -44278,6 +44297,8 @@ function testOphanStaging() {
   console.log('PASS run OP.stage: every one of ' + picks.length + ' picks is registered, entries name their stage and play harmless ' + OPHAN_STAGE.arrive + ' s, a break holds the world ' + OPHAN_STAGE.breakStop + ' s, the wave crawls out of the hole for ' + OPHAN_STAGE.hole.t + ' s, the sketch plays harmless ' + OPHAN_STAGE.sketch + ' s, its kill opens no card screen')
 }
 
+// run OH: the boss enters a phase only once the renderer has baked that phase's art (input.ophanReady): until then the
+// wave runs on, held, and the entry comes on the first step the art is ready
 function testOphanArtHold() {
   const dt = 1 / 60
   Math.random = mulberry32(20261026)
