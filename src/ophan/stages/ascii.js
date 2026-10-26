@@ -18,8 +18,8 @@ export default function stage(app, { W, H }) {
   app.stage.addChild(world, screen)
   const R = createAsciiRenderer({ app, world, under, over, screen })
   R.enter(null, look)
-  // the miner is the player: leave it out (its lamp's light on the floor stays, that is sync's light list)
-  for (const c of over.children) if (c.label === 'ascii-me') c.visible = false
+  // the miner is the player: drawn only when the fight hands one in (its lamp's light on the floor stays either way)
+  const me = over.children.find((c) => c.label === 'ascii-me')
   const run = { chapter: 'mine', time: 0, lanternR: 0, enemies: [], gas: [], gasLit: [], booms: [], gems: [], coins: [],
     player: { x: W / 2, y: H / 2, radius: 14, facingAngle: -Math.PI / 2, vx: 0, vy: 0, maxHP: 100 } }
   const view = { left: 0, top: 0, right: W, bottom: H, zoom: 1, w: W, h: H, animT: 0 }
@@ -29,9 +29,12 @@ export default function stage(app, { W, H }) {
     // the camera centres the player (render.js ~33229); here the lamp pool simply follows (px, py). pan: the stage px the
     // camera has moved off the world's origin; the glyph floor (under, over) scrolls by it and the boss container stays
     // in stage px
-    update(t, { pan = { x: 0, y: 0 }, px = W / 2, py = H / 2 } = {}) {
+    // player: the fight's own, whose facing, motion and i-frames the miner wears
+    update(t, { pan = { x: 0, y: 0 }, px = W / 2, py = H / 2, player = null } = {}) {
       const dt = last == null ? t : Math.max(0, t - last)
       last = t
+      me.visible = !!player
+      if (player) Object.assign(run.player, player)
       under.position.set(-pan.x, -pan.y); over.position.set(-pan.x, -pan.y)
       view.left = pan.x; view.top = pan.y; view.right = pan.x + W; view.bottom = pan.y + H
       run.time = t; run.player.x = px + pan.x; run.player.y = py + pan.y; view.animT = t

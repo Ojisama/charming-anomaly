@@ -1,6 +1,6 @@
 // The Core (liquid): the game's own src/liquid.js renderer (createLiquidRenderer -> src/liquid/gl.js createCoreGL on its
 // own WebGL2 canvas UNDER Pixi's), driven the way render.js setLiquid / syncLiquid drive it, with a fake host and a run
-// holding only the crowd's Core bodies: no pools, no pillars, the player's chrome drop hidden. The boss container sits on
+// holding only the crowd's Core bodies and the player's chrome drop: no pools, no pillars. The boss container sits on
 // the transparent Pixi stage, over the melt, where the game's entities draw. The melt runs on the dt update() is given.
 import { Container, Sprite, Texture, CanvasSource } from 'pixi.js'
 import { createLiquidRenderer } from '../../liquid.js'
@@ -18,8 +18,8 @@ export default function stage(app, { W, H }) {
   // createLiquidRenderer put its canvas before app.canvas: the host places and sizes it over the stage's box
   const glc = app.canvas.previousSibling
   glc.style.width = W + 'px'; glc.style.height = H + 'px'
-  // the camera sits on the world origin; the player (left out) is dead so gl.js draws no drop (S.p.R = 0) and parked far
-  // off screen, or the floor shader's dimple under it (uPl) shows as a bead in mid-screen with nothing on it. Pole North.
+  // the camera sits on the world origin; with no player handed in it is dead so gl.js draws no drop (S.p.R = 0) and parked
+  // far off screen, or the floor shader's dimple under it (uPl) shows as a bead in mid-screen with nothing on it. Pole North.
   const run = { chapter: 'core', time: 0, player: { x: 0, y: 1e5, dead: true, invuln: 0 }, polarity: { pole: 1 },
     enemies: [], obstacles: [], corePools: [], moons: [], lodestones: [] }
   R.enter(run, look)
@@ -40,12 +40,15 @@ export default function stage(app, { W, H }) {
     // melt moves with the Pixi layers the host transforms the same way
     // crowd: the bodies of this world, { e, x, y, r } in stage px, the first crowdN of it live
     // pan: the stage px the camera has moved off the world's origin; the melt is world-anchored and scrolls under it
-    update(t, { pan = { x: 0, y: 0 }, cam = null, crowd = null, crowdN = 0 } = {}) {
+    // player: the fight's own at (px, py) stage px and pr px round, gl.js's chrome drop (null: dead and parked, no drop)
+    update(t, { pan = { x: 0, y: 0 }, cam = null, crowd = null, crowdN = 0, px = 0, py = 0, pr = 0, player = null } = {}) {
       const dt = last === null ? 0 : Math.max(0, t - last)
       last = t
       run.time = t
       const zr = cam ? cam.zr : 1, zz = z * zr, w = app.screen.width / zz, h = app.screen.height / zz
       const left = (pan.x - app.screen.width / 2) / z - (cam ? cam.ex : 0) / zz, top = (pan.y - app.screen.height / 2) / z - (cam ? cam.ey : 0) / zz
+      if (player) Object.assign(run.player, player, { x: left + px / zz, y: top + py / zz, _drawR: pr / zz })
+      else Object.assign(run.player, { x: 0, y: 1e5, dead: true })
       run.enemies.length = 0
       for (let i = 0; i < crowdN; i++) {
         const { e, x, y, r } = crowd[i]

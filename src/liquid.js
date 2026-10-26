@@ -245,7 +245,8 @@ export function createLiquidRenderer(host) {
       // the drop's tint eases to your pole, through plain mint, as the demo's pTint does
       S.p.tint += (pole - S.p.tint) * Math.min(1, rdt * 6)
       // the chrome tucked under the player: inside the drop, it only shows where a mite fuses with it
-      S.p.x = p.x / U; S.p.y = p.y / U; S.p.r = (PLAYER.radius / U) * 0.87; S.p.R = p.dead ? 0 : PLAYER.radius / U / 0.84; S.p.hurt = (p.invuln || 0) <= PLAYER.invulnTime ? Math.min(1, Math.max(0, ((p.invuln || 0) - PLAYER.invulnTime + 0.17) * 6)) : 0   // the demo hurt flash: the first 0.17 s of a hit
+      const pr = p._drawR ?? PLAYER.radius   // the Ophan's Core draws you at its arena's scale (stages/liquid.js)
+      S.p.x = p.x / U; S.p.y = p.y / U; S.p.r = (pr / U) * 0.87; S.p.R = p.dead ? 0 : pr / U / 0.84; S.p.hurt = (p.invuln || 0) <= PLAYER.invulnTime ? Math.min(1, Math.max(0, ((p.invuln || 0) - PLAYER.invulnTime + 0.17) * 6)) : 0   // the demo hurt flash: the first 0.17 s of a hit
       for (const s of sparks) s.age += rdt
       while (sparks.length && sparks[0].age > 0.5) sparks.shift()
       for (const b of blasts) b.age += rdt

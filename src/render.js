@@ -13385,6 +13385,7 @@ export function createRenderer(app) {
     const q = []
     if (kind) q.push(() => bakeMacroTile(kind), () => macroPlayer())
     if (ch.render?.holo) q.push(holoPlayer)
+    if (ch.worlds) q.push(() => macroPlayer(), holoPlayer)   // the player's Topsoil and Geode looks (ophanPlayer)
     if (kind === 'topsoil') q.push(bakeMacroPickups, elFx)
     if (ch.weapons?.includes('shovel')) q.push(bakeShovel)
     if (ch.signature?.caveIns || ch.weapons?.includes('furrow')) q.push(bakePits)
@@ -14365,10 +14366,36 @@ const spurG = new Graphics()
     if (!ophanR) {
       app.stage.addChildAt(ophanRoot, app.stage.getChildIndex(world))
       // body: the crowd's own sprites, posed by syncEnemies in their layer (hidden) and copied by the Ophan into each slot
-      ophanR = createOphanRenderer({ app, root: ophanRoot, macroVert: MACRO_VERT, body: (e) => enemySprites.get(e.id) })
+      ophanR = createOphanRenderer({ app, root: ophanRoot, macroVert: MACRO_VERT, body: (e) => enemySprites.get(e.id), player: ophanPlayer })
     }
     return ophanR
   }
+  // the player in Topsoil's, the Geode's or the Core's own look (macroPlayer, holoPlayer, liquidPlayer: the Core's is the
+  // drop's face, gl.js draws its chrome), posed as syncPlayer posed its body this frame: the body, the Core's live pupils
+  // (syncPlayer's plain-blob ones; the Core has no skin) and the hurt flash, in world px, for the Ophan to copy into the slot
+  const pose = () => ({ anchor: new Point(), scale: new Point() })
+  const ophanPose = { macro: [pose(), pose()], holo: [pose(), pose()], liquid: [pose(), pose(), pose(), pose()] }
+  function ophanPlayer(look, p) {
+    const ph = look === 'macro' ? macroPlayer() : look === 'liquid' ? liquidPlayer() : playerSkin ? holoPlayer().butt : holoPlayer().blob
+    const a = playerC.alpha * bodyC.alpha, out = ophanPose[look], pr = PLAYER.radius
+    const lookX = p.moving ? pr * 0.07 : Math.sin(animT * 0.9) * pr * 0.045, lookY = pr * 0.02 + Math.sin(animT * 1.3) * pr * 0.015
+    const parts = look === 'liquid'
+      ? [[ph.body, pBody, 0, 0], [T.pupil, pupilL, -pr * 0.36 + lookX, -pr * 0.16 + lookY], [T.pupil, pupilR, pr * 0.36 + lookX, -pr * 0.16 + lookY], [ph.flash, pFlash, 0, 0]]
+      : [[ph.body, pBody, 0, 0], [ph.flash, pFlash, 0, 0]]
+    const bc = Math.cos(bodyC.rotation), bs = Math.sin(bodyC.rotation), qc = Math.cos(playerC.rotation), qs = Math.sin(playerC.rotation)
+    for (const [i, [lk, s, lx, ly]] of parts.entries()) {
+      const o = out[i], ux = bodyC.x + (bc * lx * bodyC.scale.x - bs * ly * bodyC.scale.y), uy = bodyC.y + (bs * lx * bodyC.scale.x + bc * ly * bodyC.scale.y)
+      o.texture = lk.tex; o.anchor.set(lk.ax, lk.ay)
+      o.x = playerC.x + qc * ux * playerC.scale.x - qs * uy * playerC.scale.y; o.y = playerC.y + qs * ux * playerC.scale.x + qc * uy * playerC.scale.y
+      o.rotation = playerC.rotation + bodyC.rotation
+      const k = s === pupilL || s === pupilR ? 1 : s.scale.x, ky = s === pupilL || s === pupilR ? 1 : s.scale.y
+      o.scale.set(playerC.scale.x * bodyC.scale.x * k, playerC.scale.y * bodyC.scale.y * ky)
+      o.alpha = a * s.alpha; o.tint = s === pFlash ? s.tint : 0xffffff; o.blendMode = s.blendMode
+      o.visible = (s === pFlash ? s.visible : true) && o.alpha > 0
+    }
+    return out
+  }
+  let ophanOwns = false   // the Ophan's world slot draws the player: render.js's body is hidden while it does
   // Runs AFTER setLiquid: it un-hides only what it hid itself and no other look is holding.
   function setOphan(run) {
     const worlds = run ? CHAPTERS[run.chapter]?.worlds : null
@@ -14377,6 +14404,7 @@ const spurG = new Graphics()
     if (!worlds) {
       ophanR?.exit()   // also a warm-up the brief started and the player backed out of
       ophanOn = false
+      if (ophanOwns) { ophanOwns = false; bodyC.visible = true }   // before setPixel, which may hide it for its own
       return
     }
     const r = ophanHost()
@@ -14391,6 +14419,9 @@ const spurG = new Graphics()
     if (w !== ophanW || h !== ophanH) { ophanW = w; ophanH = h; ophanR.resize(w, h) }
     if (run.script?.oph?.held && dt > 0) addShakeScreen(OPHAN_HELD_SHAKE, 0.2)   // the boss, still baking, rumbles under the floor
     ophanR.sync(run, dt, { left: -cx, top: -cy, zoom: world.scale.x || 1, w, h, animT })
+    ophanOwns = ophanR.ownsPlayer()
+    bodyC.visible = !ophanOwns
+    if (ophanOwns) pShadow.visible = pTail.visible = false
   }
   // the mint chrome drop the player wears in a liquid chapter (syncPlayer's photo body)
   function liquidPlayer() {
