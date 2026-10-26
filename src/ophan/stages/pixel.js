@@ -37,7 +37,7 @@ export default function stage(app, { W, H }) {
   }
   const boss = new Container()
   boss.position.set(P0.x - W / 2, P0.y - H / 2)   // boss-local coords = stage px
-  world.addChild(rig.floor, props, rig.ground, boss, rig.air)
+  world.addChild(rig.floor, props, rig.ground, boss, rig.player, rig.air)   // rig.player: shown when the fight hands one in
   app.stage.addChild(world)
   app.stage.filterArea = app.screen
   app.stage.filters = [rig.filter]
@@ -85,13 +85,17 @@ export default function stage(app, { W, H }) {
     boss,
     // pan: the stage px the camera has moved off the world's origin. The world stays put (the boss container in it keeps
     // stage px) and its layers scroll by pan; the rig's camera is the panned one
-    update(t, { pan = { x: 0, y: 0 } } = {}) {
+    // player: the fight's own, at (px, py) stage px, worn by the rig's pixel player (its hit flash is render.js's, left out)
+    update(t, { pan = { x: 0, y: 0 }, px = W / 2, py = H / 2, player = null } = {}) {
       const dt = last === null ? 1 / 60 : Math.max(0, Math.min(0.1, t - last))
       last = t
       run.time = t
       const P = { x: P0.x + pan.x, y: P0.y + pan.y }
       around(P)
-      run.player.x = P.x; run.player.y = P.y
+      if (player) Object.assign(run.player, player)
+      run.player.x = P.x + px - W / 2; run.player.y = P.y + py - H / 2
+      rig.player.visible = !!player
+      if (player) { rig.player.position.set(run.player.x - pan.x, run.player.y - pan.y); rig.syncPlayer(run.player, dt, t, false) }
       for (const c of run.cracks) if (c.state === 'crack') c.openAt = t + c.left
       // render.js ~33226: z = camZoom() (magma has no viewW -> 1), cx = viewW()/2 - player.x
       const z = 1, cx = W / 2 - P.x, cy = H / 2 - P.y

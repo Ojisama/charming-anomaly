@@ -29,7 +29,7 @@ import './hands/ascii.js'
 import './hands/pixel.js'
 import './hands/toon.js'
 import './hands/liquid.js'
-import { CHAPTERS, OPHAN_BOSS, OPHAN_ATTACKS, OPHAN_HAND, OPHAN_BOSS_HOLD, OPHAN_BG_BAKE_MS, ophanView } from '../config.js'
+import { CHAPTERS, PLAYER, OPHAN_BOSS, OPHAN_ATTACKS, OPHAN_HAND, OPHAN_BOSS_HOLD, OPHAN_BG_BAKE_MS, ophanView } from '../config.js'
 import { STAGE_DUR, lookOf, STAGING } from './staging.js'
 import './staging/looks.js'
 import { warmHole, HW, HH } from './staging/hole.js'
@@ -202,6 +202,7 @@ export function createOphanRenderer(host) {
   // briefing: from a prewarm (the brief) to the next enter (the run's start); a fight still entered behind the brief (the
   // summary's Play again, a resumed run the player left) is not a fight to the pump
   let warmP = null, warmDone = null, oph = null, credit = 0, briefing = false
+  let owns = false   // a world's slot draws the player in its own chapter's look (render.js hides its body then)
   const drained = () => { const d = warmDone; warmP = warmDone = null; onStep = null; d?.() }
 
   // a ghost ring is baked once per rim colour at GHOST_R and drawn scaled, so a zoom pulse never bakes a new size
@@ -472,13 +473,14 @@ export function createOphanRenderer(host) {
       for (const s of Object.values(slots)) { s.wrap.visible = false; glcWarm(s, false) }
       untell(); beats.length = 0; sink = rise = lastS = lastS0 = null
       oph = null; credit = 0
-      entered = false
+      entered = false; owns = false
       stopWarm()
       rings.length = 0
       root.visible = false
     },
     stopWarm,
-    beats,   // the staging playground (ophan-stage.html) scrubs a beat by setting its age
+    ownsPlayer: () => owns,
+    beats,  // the staging playground (ophan-stage.html) scrubs a beat by setting its age
     resize() { for (const s of Object.values(slots)) fit(s) },
     event(e) {
       switch (e.type) {
@@ -515,6 +517,7 @@ export function createOphanRenderer(host) {
         const o = q.look.scene?.({ u: Math.min(1, q.age / q.dur), age: q.age, dur: q.dur, x: q.x, y: q.y, world: q.world, slots, worlds, look: (k) => slots[worlds[k].look], view })
         if (o && o.A?.warm && (!o.B || o.B.warm)) { A = o.A; B = o.B ?? null; sw = o }
       }
+      owns = A !== slots.pencil   // the paper has no player look of its own: render.js's stays
       crowdXY.length = 0
       for (const e of run.enemies) if (!e._dead && e.rosterId !== 'ophan') crowdXY.push(e.x, e.y, e.radius ?? 12)
       const core = slots.liquid
@@ -571,6 +574,9 @@ export function createOphanRenderer(host) {
           if (o._shadow?.visible) body(s, o._shadow, sx(s, o._shadow.x), sy(s, o._shadow.y), z)
           body(s, o, sx(s, o.x), sy(s, o.y), z)
         }
+        // the player in this world's own chapter look, over its crowd: Topsoil's, the Geode's and the Core's face are
+        // render.js's bakes (host.player), the rest their stage's own renderer draws (update's player)
+        if (owns && (s.id === 'macro' || s.id === 'holo' || s.id === 'liquid')) for (const o of host.player(s.id, p)) if (o.visible) body(s, o, sx(s, o.x), sy(s, o.y), z)
         for (let i = s.nb; i < s.bodies.children.length; i++) s.bodies.children[i].visible = false
       }
       // the boss in its skin's look, where the sim has it, on the sim's own clock, an attack aimed where the sim locked it:
@@ -653,7 +659,7 @@ export function createOphanRenderer(host) {
         window.OPH_PH = ph
         // the macro lens racks to the hand's tool (stage px of the boss's slot, carried into this one's)
         const f = focus && { x: (focus.x * focus.src.k + focus.src.ox - s.ox) / s.k, y: (focus.y * focus.src.k + focus.src.oy - s.oy) / s.k, k: focus.k }
-        s.st.update(t, { pan: pan(s), px: sx(s, p.x), py: sy(s, p.y), cam: { zr, ex: (s.ox * (zr - 1) + dx) / s.k, ey: (s.oy * (zr - 1) + dy) / s.k }, focus: f, crowd: s.core, crowdN: s.nc })
+        s.st.update(t, { pan: pan(s), px: sx(s, p.x), py: sy(s, p.y), cam: { zr, ex: (s.ox * (zr - 1) + dx) / s.k, ey: (s.oy * (zr - 1) + dy) / s.k }, focus: f, crowd: s.core, crowdN: s.nc, pr: PLAYER.radius * z0 / s.k, player: owns ? p : null })
       })
       // the floors ahead: where the camera will look LEAD seconds on, the world shown first, then the others, a row of a
       // chunk at a time for OPHAN_BG_BAKE_MS of the frame at most. The floors come before the warm-up: a press may show any
