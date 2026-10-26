@@ -274,7 +274,7 @@ import {
   KETTLE_CRUST_GNAW, KETTLE_CRUST_GNAW_MAX, KETTLE_STEAM_MUL, KETTLE_STEAM_R, KETTLE_HULL_COOL, KETTLE_HULL_MAX,
   SLING_LATCH_SHARE, IRON_BALL_R, IRON_BALL_LIFE, MOON_R, MOON_TUG_SWIRL, LODESTONE_FUSE, LODESTONE_SPREAD, LODESTONE_HOLD,
   OPHAN_BOSS, OPHAN_PLAYER_START, OPHAN_PHASE_EASE, OPHAN_ATK_CD, OPHAN_ATK_FIRST, OPHAN_HIT_CD, OPHAN_ATTACKS, OPHAN_HIT,
-  OPHAN_SHOVE_DECAY, OPHAN_SKIN_HP, OPHAN_SKETCH_HP, OPHAN_BREAK_FLOOR, OPHAN_IMMUNE_CD, OPHAN_CROWD, OPHAN_WINDOW_MUL, OPHAN_RECOVERY_ON, OPHAN_HAND,
+  OPHAN_SHOVE_DECAY, OPHAN_SKIN_HP, OPHAN_SKETCH_HP, OPHAN_BREAK_FLOOR, OPHAN_IMMUNE_CD, OPHAN_CROWD, OPHAN_WINDOW_MUL, OPHAN_RECOVERY_ON, OPHAN_HAND, OPHAN_STAGE, ophanScribbleAt,
   OPHAN_WIPE_SPEED, OPHAN_WIPE_END, OPHAN_STAGGER_T, OPHAN_ATK_SPEED, OPHAN_BOSS_SPEED, OPHAN_BOSS_HOLD, OPHAN_ENTER,
   OPHAN_WAVE_OPEN, OPHAN_WAVE_GAP, OPHAN_WAVE,
 } from './config.js'
@@ -1753,8 +1753,11 @@ function ophanEnter(run, o, stage) {
   e.maxHP = OPHAN_SKIN_HP * run.mods.enemyHpMul
   e.hp = o.hp[o.skin]
   o.bossId = e.id; o.stage = stage; o.waveT = 0
-  o.atkCd = OPHAN_ATK_FIRST; o.swapIn = OPHAN_HAND.first
-  run.events.push({ type: 'ophanEnter', x: e.x, y: e.y })
+  // no attack and no tell while its entry plays (OPHAN_STAGE.arrive)
+  // (both pushed back by the same amount: the first attack still comes before the first tell)
+  const late = Math.max(0, OPHAN_STAGE.arrive - Math.min(OPHAN_ATK_FIRST, OPHAN_HAND.first))
+  o.atkCd = OPHAN_ATK_FIRST + late; o.swapIn = OPHAN_HAND.first + late
+  run.events.push({ type: 'ophanEnter', stage, x: e.x, y: e.y })
   return e
 }
 // THE BOSS LEAVES between phases: a silent removal (no kill, no xp), its skins' hp banked in o.hp,
@@ -1764,6 +1767,7 @@ function ophanLeave(run, o, b) {
   b._dead = true
   o.bossId = null; run.bossBar = null
   o.stage = 'wave'; o.waveT = OPHAN_WAVE_GAP
+  o.hole = { x: b.x, y: b.y, t: OPHAN_STAGE.hole.t }
   o.atk = null; o.recov = false; o.tell = 0; o.next = -1; o.after = -1; o.caught = false; o.stagger = 0
   run.events.push({ type: 'ophanLeave', x: b.x, y: b.y })
 }
@@ -1803,13 +1807,16 @@ function stepOphanScript(run, dt) {
   if (!o) {
     p.x = OPHAN_PLAYER_START.x; p.y = OPHAN_PLAYER_START.y
     o = run.script.oph = {
-      t: 0, world: 0, skin: 0, next: -1, tell: 0, swapIn: OPHAN_HAND.first, after: -1, caught: false,
+      t: 0, world: OPHAN_STAGE.open, skin: OPHAN_STAGE.open, next: -1, tell: 0, swapIn: OPHAN_HAND.first, after: -1, caught: false,
       hp: Array(n).fill(OPHAN_SKIN_HP * run.mods.enemyHpMul), broken: Array(n).fill(0), ph: 1, atk: null, atkCd: OPHAN_ATK_FIRST, recov: false,
       stagger: 0, wipe: null, sketch: false, bossId: null, crowdT: OPHAN_WAVE[run.difficulty].every, immT: 0, swaps: 0,
-      push: { x: 0, y: 0 }, stage: 'open', waveT: OPHAN_WAVE_OPEN, held: false, x: 0, y: 0,
+      push: { x: 0, y: 0 }, stage: 'open', waveT: OPHAN_WAVE_OPEN, held: false, x: 0, y: 0, hole: null,
     }
   }
   o.t += dt
+  if (o.hole && (o.hole.t -= dt) <= 0) o.hole = null
+  // the sketch crowd leaves as its scribble ends (no kill, no gem)
+  for (const e of run.enemies) if (e._scribbleT > 0 && (e._scribbleT -= dt) <= 0) e._dead = true
   o.immT = Math.max(0, o.immT - dt)
   o.stagger = Math.max(0, o.stagger - dt)
   // THE WAVES: the opening one and one between phases, monsters only; the boss returns at the next
@@ -1853,13 +1860,19 @@ function stepOphanScript(run, dt) {
   if (b && !o.sketch && b.hp <= OPHAN_BREAK_FLOOR) {
     o.broken[o.skin] = 1
     run.events.push({ type: 'ophanBreak', skin: o.skin, x: b.x, y: b.y })
+    run.hitStop = Math.max(run.hitStop, OPHAN_STAGE.breakStop)
     const left = o.broken.flatMap((v, k) => (v ? [] : [k]))
     if (!left.length) {
       o.sketch = true
       o.tell = 0; o.next = -1; o.after = -1; o.stagger = 0; o.wipe = null; o.swapIn = Infinity
       b.hp = b.maxHP = OPHAN_SKETCH_HP * run.mods.enemyHpMul
-      // the crowd swept off the field, not killed: no kill, no gem
-      for (const e of run.enemies) if (!e._dead && e !== b && !isAlly(e)) e._dead = true
+      // the crowd stands frozen and harmless until the paper reaches it and its scribble crosses it out (the
+      // clock above takes it off then): no kill, no gem
+      for (const e of run.enemies) if (!e._dead && e !== b && !isAlly(e)) {
+        e.speed = 0; e.dmg = 0; e.xp = 0; e.affixes = [...(e.affixes ?? []), 'anchored']   // no knockback or pull moves it
+        e._scribbleT = (ophanScribbleAt(Math.hypot(e.x - b.x, e.y - b.y)) + OPHAN_STAGE.scribble.dur) * OPHAN_STAGE.sketch
+      }
+      o.atk = null; o.recov = false; o.atkCd = OPHAN_STAGE.sketch
       run.events.push({ type: 'ophanSketch', x: b.x, y: b.y })
     } else {
       o.skin = left[Math.floor(Math.random() * left.length)]
@@ -1880,7 +1893,8 @@ function stepOphanScript(run, dt) {
   o.crowdT -= dt
   if (!o.sketch && o.crowdT <= 0 && run.enemies.filter((e) => !e._dead && e.id !== o.bossId).length < cc.cap) {
     const ids = Object.values(ch.worlds[o.world].crowd)
-    const e = spawnBlankEnemy(run, ids[Math.floor(Math.random() * ids.length)])
+    const h = o.hole, a = Math.random() * 2 * Math.PI, r = h ? OPHAN_STAGE.hole.r * Math.sqrt(Math.random()) : 0
+    const e = spawnBlankEnemy(run, ids[Math.floor(Math.random() * ids.length)], false, h ? { x: h.x + Math.cos(a) * r, y: h.y + Math.sin(a) * r } : {})
     if (e) e.world = o.world
     o.crowdT = cc.every
   }
@@ -6413,6 +6427,8 @@ function allyCount(run) {
 
 function damageImmune(e) {
   if (e._phaseSolid === false) return true
+  // the Ophan's sketch crowd, frozen until its scribble (stepOphanScript)
+  if (e._scribbleT > 0) return true
   // Book 3's mole while it is underground (stepTunnels): untouchable AND harmless — contactHarmless
   // reads this same function, so the bump on the floor can neither be hit nor hit you.
   if (e.burrowed) return true
@@ -16731,6 +16747,12 @@ function buildLevelUpChoices(run) {
 }
 
 // The Kraken's head has died this step and stepKrakenScript will call the win on the next one.
+// The Ophan's sketch has died this step and stepOphanScript will call the win on the next one.
+export function ophanWinPending(run) {
+  const o = run.script?.oph
+  return !!o && o.bossId != null && !run.enemies.some((e) => e.id === o.bossId && !e._dead)
+}
+
 export function krakenWinPending(run) {
   const s = run.script
   if (run.chapter !== 'kraken' || !s || s.headId == null) return false
@@ -16748,7 +16770,7 @@ function stepLevelUp(run) {
   p.xpNext = xpForLevel(p.level) * (run.endless ? endlessXpNeedMul(p.level) : 1) * (CHAPTERS[run.chapter]?.xpNeedMul ?? 1)
   // THE KRAKEN'S KILL. Its head is dead and the win lands on the next step, so a card screen now is
   // one the run can never use, and it froze the boss's death under a modal. The level still counts.
-  if (krakenWinPending(run)) return
+  if (krakenWinPending(run) || ophanWinPending(run)) return
   // (v7.20: the per-screen anomaly memo that used to be cleared here is gone — the tier is rolled
   // fresh on every deal, at ANOMALY_REROLL_MUL of its weight on the paid ones. The pity counter
   // below is now the only per-screen anomaly state.)

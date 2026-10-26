@@ -184,14 +184,14 @@ import {
   // The Kraken (run KR): the rung table and the ring's numbers
   krakenRung, krakenRungFor, KRAKEN_TURN_BAG, KRAKEN_SLAP_EVERY, KRAKEN_SLAP_COCK, KRAKEN_SLAP_SWING, KRAKEN_SLAP_FUSE, KRAKEN_SLAP_FOLLOW_T, KRAKEN_TRICKLE_T, KRAKEN_TRICKLE_EDGE, KRAKEN_TRICKLE_CLEAR, OPEN_GUARD_WINDOW_MUL, HAIR_TRIGGER_WINDOW_MUL, HAIR_TRIGGER_DMG_MUL, KRAKEN_RUNGS, KRAKEN_ARM_REACH, KRAKEN_WAVE_TIMEOUT, KRAKEN_STAGGER_BITE,
   KRAKEN_RISE_T, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, hiddenChapters, OPHAN_BOSS, OPHAN_HAND, OPHAN_HIT, OPHAN_ARENA, OPHAN_PLAYER_START, OPHAN_ATTACKS, OPHAN_CROWD, OPHAN_BREAK_FLOOR, OPHAN_SKIN_HP, OPHAN_SKETCH_HP, OPHAN_STAGGER_T, OPHAN_WINDOW_MUL, ophanView, OPHAN_GAUGE_COPY,
-  OPHAN_SWORD_REACH, OPHAN_ATK_SPEED, OPHAN_BOSS_HOLD, OPHAN_BOSS_SPEED, OPHAN_ATK_CD, OPHAN_ATK_FIRST, OPHAN_WAVE_OPEN, OPHAN_WAVE_GAP, OPHAN_WAVE, KRAKEN_CAGE_R, KRAKEN_PARRY_CD,
+  OPHAN_SWORD_REACH, OPHAN_ATK_SPEED, OPHAN_BOSS_HOLD, OPHAN_BOSS_SPEED, OPHAN_ATK_CD, OPHAN_ATK_FIRST, OPHAN_STAGE, ophanScribbleAt, OPHAN_WAVE_OPEN, OPHAN_WAVE_GAP, OPHAN_WAVE, KRAKEN_CAGE_R, KRAKEN_PARRY_CD,
   KRAKEN_OPEN_WAVES, KRAKEN_COIL_EVERY, KRAKEN_COIL_RAYS, KRAKEN_ENRAGE_AT, KRAKEN_RAGE_AT, KRAKEN_RAGE_HITS_MIN, KRAKEN_RAGE_HITS_MAX, KRAKEN_RAGE_VOLLEY, KRAKEN_RAGE_VOLLEY_SPREAD, KRAKEN_RAGE_FUSE, KRAKEN_RAGE_GAP, KRAKEN_RAGE_CALM, KRAKEN_RAGE_CHANCE, KRAKEN_NODE_BACK, KRAKEN_HEAD_HP, KRAKEN_HEAD_HP_AT, KRAKEN_HEAD_HP_PER_S, KRAKEN_ARRIVE_T, KRAKEN_RING_R, KRAKEN_LASH_R, KRAKEN_SLAM_T, KRAKEN_DEFLECT_CD,
   KRAKEN_LUNGE_T, KRAKEN_GRIP_DUR, KRAKEN_GRIP_DMG, KRAKEN_GRIP_FLICKS, KRAKEN_GRIP_STICK_MUL, TRAWL_WIGGLE_ARC,
   KRAKEN_LASH_W, KRAKEN_LASH_OVER, KRAKEN_LASH_DMG, KRAKEN_LESSON_MAX, KRAKEN_PARRY_SHOVE_R, KRAKEN_PARRY_EARLY_T, KRAKEN_LIMP_CLEAR, KRAKEN_ARRIVE_T2, KRAKEN_WAVE_GROWTH, KRAKEN_COIL_DMG, KRAKEN_COIL_SHADOW_SOFT, krakenCoilBandHalfW,
   KRAKEN_HEAD_SPEED, KRAKEN_PARRY_SPIN_T, krakenLimbHalfW, FISH_R, FISH_BODY, KRAKEN_GRIP_EVERY, KRAKEN_GRAB_FUSE, KRAKEN_GRAB_MIN_STEP, KRAKEN_PINCH_OPEN0, KRAKEN_PINCH_OPEN1,
   KRAKEN_BEAT_READ, KRAKEN_BEAT_GRAB_CLEAR, KRAKEN_BEAT_BREATH, KRAKEN_HEAD_R, KRAKEN_CHASE_CAGE_R, KRAKEN_HEAD_HOLD, KRAKEN_DASH_DIST, KRAKEN_DASH_SPEED, KRAKEN_DASH_RUNUP, KRAKEN_DASH_PARRY_PX, KRAKEN_HEAD_TOUCH_DMG, KRAKEN_LUNGE_DMG, KRAKEN_LUNGE_WINDUP_T,
 } from '../src/config.js'
-import { krakenCoilStarHits, krakenWinPending, dealDamage, krakenPinchProbe, krakenGrabSpot, krakenGrabTurnClear, stepSim, applyChoice, fastForwardEndless, endlessHandover, autopilotPick, buildLevelUpChoices, eligibleWeaponModCandidates, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, inRefillCircle, refillCircleAt, stepCharge, newElWindow, spurAt, inMaw } from '../src/sim.js'
+import { krakenCoilStarHits, krakenWinPending, ophanWinPending, dealDamage, krakenPinchProbe, krakenGrabSpot, krakenGrabTurnClear, stepSim, applyChoice, fastForwardEndless, endlessHandover, autopilotPick, buildLevelUpChoices, eligibleWeaponModCandidates, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, inRefillCircle, refillCircleAt, stepCharge, newElWindow, spurAt, inMaw } from '../src/sim.js'
 
 // ---- Scenario runner: one filter, and the gate's own dispatch flag ----------------------------
 // THIS FILE IS NO LONGER WHAT `npm test` RUNS. scripts/test-isolation.mjs hands one scenario to
@@ -39266,7 +39266,7 @@ function runKrakenCeremony() {
     const src = strip(readFileSync(new URL('../src/sim.js', import.meta.url), 'utf8'))
     const fnAt = src.indexOf('function stepLevelUp(run)')
     const body = src.slice(fnAt, src.indexOf("run.phase = 'levelup'", fnAt))
-    assert.ok(fnAt > 0 && /if \(krakenWinPending\(run\)\) return/.test(body) && body.indexOf('p.level += 1') < body.indexOf('krakenWinPending'),
+    assert.ok(fnAt > 0 && /if \(krakenWinPending\(run\)(?: \|\| ophanWinPending\(run\))?\) return/.test(body) && body.indexOf('p.level += 1') < body.indexOf('krakenWinPending'),
       'stepLevelUp does not skip the card screen on the Kraken kill step (after counting the level)')
     stepSim(run, { x: 0, y: 0 }, 1 / 60)
     assert.strictEqual(run.phase, 'victory', 'the step after the kill is not the win, got ' + run.phase)
@@ -43185,10 +43185,12 @@ function ophBreakAll(r) {
   const o = r.script.oph
   for (let k = 0; k < o.hp.length; k++) if (!o.broken[k]) {
     o.skin = k; o.world = k; const b = ophBoss(r); b.hp = OPHAN_BREAK_FLOOR + 1
-    dealDamage(r, b, 5, false); stepSim(r, { x: 0, y: 0 }, 1 / 60)
+    dealDamage(r, b, 5, false); stepSim(r, { x: 0, y: 0 }, 1 / 60); ophThaw(r)
     if (o.bossId == null) ophEnterNow(r)
   }
 }
+// step through a break's hitstop (OPHAN_STAGE.breakStop): the frozen steps run nothing else
+function ophThaw(r, input = { x: 0, y: 0 }) { while (r.hitStop > 0) stepSim(r, input, 1 / 60) }
 // where the sword's slam lands, aimed straight down from the boss on its rest mark
 function ophSw() { return { x: OPHAN_BOSS.x, y: OPHAN_BOSS.y + (0.5 + OPHAN_SWORD_REACH) * OPHAN_BOSS.R } }
 // n frames, level-ups resolved the way main.js does; `before` runs ahead of each step, `after` behind
@@ -43264,10 +43266,12 @@ function testOphanSlice() {
     ophSteps(r, swordN, { before: () => { ophHold(r, SW)(); p.invuln = 0 } })
     assert.ok(r.phase === 'dead' && r.killedBy === 'ophanSword' && count(r, 'victory') === 0, `a7: phase ${r.phase}, killed by ${r.killedBy}`)
   }
-  // a8 the crowd: world 0's ids only, born on the ordinary off-screen ring round the player
+  // a8 the crowd: the opening world's ids only (the fight opens in the Core), born on the ordinary off-screen ring
   let born = 0, dmgMulSeen = 0
   {
-    const r = ophanRun(1), p = r.player, ids = Object.values(CHAPTERS.ophan.worlds[0].crowd)
+    const r = ophanRun(1), p = r.player, ids = Object.values(CHAPTERS.ophan.worlds[OPHAN_STAGE.open].crowd)
+    assert.ok(r.script.oph.world === OPHAN_STAGE.open && r.script.oph.skin === OPHAN_STAGE.open && CHAPTERS.ophan.worlds[OPHAN_STAGE.open].chapter === 'core',
+      `a8: the fight opened in world ${r.script.oph.world} wearing skin ${r.script.oph.skin}, not the Core`)
     p.hp = p.maxHP = 1e9; r.weapons = []
     const seen = new Set()
     // nine of the cadence's periods: eight births, the d1 cap
@@ -43275,7 +43279,7 @@ function testOphanSlice() {
     ophSteps(r, Math.ceil(secs * 60), { after: () => {
       for (const e of r.enemies) if (!e._dead && e.rosterId !== 'ophan' && !seen.has(e.id)) {
         seen.add(e.id)
-        assert.ok(ids.includes(e.rosterId), `a8: a ${e.rosterId} walked into world 0`)
+        assert.ok(ids.includes(e.rosterId), `a8: a ${e.rosterId} walked into the opening world`)
         // born this step at viewRadius + SPAWN_RING; one walk-step of slack
         const d = Math.hypot(e.x - p.x, e.y - p.y)
         assert.ok(Math.abs(d - (r.viewRadius + SPAWN_RING)) < 6, `a8: a ${e.rosterId} was born ${d.toFixed(1)}px from the player, not on the off-screen ring`)
@@ -43403,7 +43407,8 @@ function testOphanWorlds() {
   // h2 a creature turns where it stands, when the circle reaches it, keeping its hp share
   {
     const r = ophanRun(3), o = r.script.oph, p = r.player
-    o.atkCd = 1e9; o.swapIn = 1e9; r.weapons = []; p.hp = p.maxHP = 1e9
+    o.atkCd = 1e9; o.swapIn = 1e9; r.weapons = []; p.hp = p.maxHP = 1e9; o.world = 0
+    for (const x of crowdOf(r)) x._dead = true
     ophSteps(r, 600, { before: () => { o.crowdT = 0 }, until: () => crowdOf(r).some((e) => e.rosterId === 'earthworm') })
     o.crowdT = 1e9
     const e = crowdOf(r).find((x) => x.rosterId === 'earthworm')
@@ -43504,7 +43509,7 @@ function testOphanWorlds() {
     const brk = (n) => {
       for (let i = 0; i < n; i++) {
         const k = o.broken.indexOf(0); o.skin = k; o.world = k
-        const b = ophBoss(r); b.hp = OPHAN_BREAK_FLOOR + 1; dealDamage(r, b, 5, false); stepSim(r, { x: 0, y: 0 }, dt)
+        const b = ophBoss(r); b.hp = OPHAN_BREAK_FLOOR + 1; dealDamage(r, b, 5, false); stepSim(r, { x: 0, y: 0 }, dt); ophThaw(r)
         if (o.bossId == null) ophEnterNow(r)
       }
     }
@@ -43697,7 +43702,7 @@ function ophBreakN(r, m) {
   for (let i = 0; i < m; i++) {
     const o = r.script.oph, b = ophBoss(r)
     o.world = o.skin; b.hp = OPHAN_BREAK_FLOOR + 1
-    dealDamage(r, b, 5, false); stepSim(r, { x: 0, y: 0 }, 1 / 60)
+    dealDamage(r, b, 5, false); stepSim(r, { x: 0, y: 0 }, 1 / 60); ophThaw(r)
     if (o.bossId == null) ophEnterNow(r)
   }
 }
@@ -43754,8 +43759,22 @@ function testOphanSketch() {
     assert.strictEqual(count(r, 'ophanSketch'), 1, 's1: the sketch did not say so')
     assert.ok(b.hp === OPHAN_SKETCH_HP * r.mods.enemyHpMul && b.maxHP === b.hp, `s1: the sketch has ${b.hp}/${b.maxHP} hp`)
     assert.ok(r.kills === kills0 && r.gems.length === gems0 && count(r, 'kill') === 0, 's1: the sweep paid kills or xp')
+    // the crowd stands frozen and harmless until its scribble (OPHAN_STAGE.scribble), then leaves with nothing paid
+    const frozen = crowdOf(r), hp0 = frozen.map((e) => e.hp)
+    assert.ok(frozen.length > 0 && frozen.every((e) => e.speed === 0 && e.dmg === 0 && e._scribbleT > 0), 's1: the crowd is not frozen and harmless waiting for its scribble')
+    const last = Math.max(...frozen.map((e) => e._scribbleT)), at0 = frozen.map((e) => [e.x, e.y])
+    assert.ok(last <= (ophanScribbleAt(1e9) + OPHAN_STAGE.scribble.dur) * OPHAN_STAGE.sketch + 1e-9, `s1: a scribble waits ${last.toFixed(2)} s`)
+    for (const e of frozen) dealDamage(r, e, 1e6, false)
+    assert.ok(frozen.every((e, i) => !e._dead && e.hp === hp0[i]), 's1: a frozen crowd body took a hit')
+    p.invuln = 0; const php = p.hp
+    for (const e of frozen) { e.x = p.x; e.y = p.y }
     stepSim(r, { x: 0, y: 0 }, 1 / 60)
-    assert.strictEqual(crowdOf(r).length, 0, 's1: the crowd is still on the field the step after the sketch')
+    assert.ok(p.hp === php, 's1: a frozen crowd body hurt the player')
+    frozen.forEach((e, i) => { e.x = at0[i][0]; e.y = at0[i][1] })
+    ophSteps(r, 30, { after: () => assert.ok(frozen.every((e, i) => e._dead || (e.x === at0[i][0] && e.y === at0[i][1])), 's1: a frozen crowd body moved') })
+    ophSteps(r, Math.ceil(last * 60) + 2)
+    assert.strictEqual(crowdOf(r).length, 0, 's1: the crowd is still on the field after its scribbles')
+    assert.ok(r.kills === kills0 && r.gems.length === gems0 && count(r, 'kill') === 0, 's1: the scribbled crowd paid kills or xp')
     ophSteps(r, 20 * 60, { after: () => assert.strictEqual(crowdOf(r).length, 0, `s1: a crowd body walked into the sketch at ${o.t.toFixed(1)}s`) })
     assert.ok(r.bossBar && r.bossBar.stage === 4 && r.bossBar.ophan && !r.bossBar.pills && r.bossBar.max === b.maxHP, `s1: the boss bar is ${JSON.stringify(r.bossBar)}`)
     assert.ok(o.swaps === swaps0 && count(r, 'ophanTell') === 0 && count(r, 'ophanSwap') === 0, 's1: the hand changed the sketch\'s skin')
@@ -43989,7 +44008,7 @@ function testOphanWaves() {
     const o = r.script.oph, b = live(r)[0]
     o.world = o.skin; b.hp = OPHAN_BREAK_FLOOR + 1; dealDamage(r, b, 5, false)
     r.events.length = 0
-    stepSim(r, { x: 0, y: 0 }, dt)
+    stepSim(r, { x: 0, y: 0 }, dt); ophThaw(r)
   }
   // w1 the whole timeline at d1, nothing hurting the boss but the breaks made by hand
   Math.random = mulberry32(20261025)
@@ -44034,7 +44053,8 @@ function testOphanWaves() {
     `w1: the skins' hp did not survive the leave: ${JSON.stringify(o.hp)} vs ${JSON.stringify(want)}, worn ${back.hp}`)
   let grace = 0
   ophSteps(r, 600, { before: () => { r.events.length = 0 }, after: () => { grace += dt }, until: () => r.events.some((e) => e.type === 'ophanAttack') })
-  assert.ok(Math.abs(grace - OPHAN_ATK_FIRST) <= 2 * dt, `w1: the first attack after the entry came ${grace.toFixed(3)} s in, want ${OPHAN_ATK_FIRST}`)
+  const first = Math.max(OPHAN_ATK_FIRST, OPHAN_STAGE.arrive)
+  assert.ok(Math.abs(grace - first) <= 2 * dt, `w1: the first attack after the entry came ${grace.toFixed(3)} s in, want ${first}`)
   breakOne(r); breakOne(r)
   assert.ok(o.stage === 'wave', `w1: four breaks left stage ${o.stage}`)
   const t3 = wave(r, 'wave 3')
@@ -44103,7 +44123,7 @@ function testOphanBank() {
   wear(r, A)
   assert.strictEqual(ophBoss(r).hp, hpA, `b1: swapped back, skin ${A} wears ${ophBoss(r).hp}, it was left at ${hpA}`)
   // b2 ...and through a wave: two OTHER skins broken send the boss off; back, skin A still has exactly what it was left with
-  for (const k of [B, (A + 2) % o.hp.length]) { wear(r, k); o.world = k; ophBoss(r).hp = OPHAN_BREAK_FLOOR + 1; dealDamage(r, ophBoss(r), 5, false); stepSim(r, { x: 0, y: 0 }, dt) }
+  for (const k of [B, (A + 2) % o.hp.length]) { wear(r, k); o.world = k; ophBoss(r).hp = OPHAN_BREAK_FLOOR + 1; dealDamage(r, ophBoss(r), 5, false); stepSim(r, { x: 0, y: 0 }, dt); ophThaw(r) }
   assert.ok(o.stage === 'wave' && !o.broken[A], `b2: two breaks left stage ${o.stage}, skin ${A} broken ${o.broken[A]}`)
   ophEnterNow(r)
   if (o.skin !== A) wear(r, A)
@@ -44156,7 +44176,7 @@ function testOphanBank() {
         if (qo.bossId == null && !qo.sketch) ophEnterNow(q)
         if (qo.broken[k] || qo.sketch) continue
         qo.skin = k; qo.world = k; const b = ophBoss(q); b.hp = OPHAN_BREAK_FLOOR + 1
-        dealDamage(q, b, 5, false); stepSim(q, { x: 0, y: 0 }, dt)
+        dealDamage(q, b, 5, false); stepSim(q, { x: 0, y: 0 }, dt); ophThaw(q)
       }
       assert.ok(qo.sketch && qo.bossId != null && ophBoss(q) && qo.stage !== 'wave', `b6: with 4 worlds the sketch left: stage ${qo.stage}, boss ${qo.bossId}`)
     } finally { CHAPTERS.ophan.worlds = keep }
@@ -44187,7 +44207,7 @@ function testOphanArtHold() {
   stepSim(r, { x: 0, y: 0, ophanReady: 1 }, dt)
   assert.ok(boss() && o().stage === 'p1' && !o().held && r.events.some((e) => e.type === 'ophanEnter'), `h2: art for p1 ready, the boss did not enter (stage ${o().stage})`)
   // h3 p2 waits for p2's art, not p1's
-  for (let i = 0; i < 2; i++) { const b = boss(); o().world = o().skin; b.hp = OPHAN_BREAK_FLOOR + 1; dealDamage(r, b, 5, false); stepSim(r, { x: 0, y: 0, ophanReady: 1 }, dt) }
+  for (let i = 0; i < 2; i++) { const b = boss(); o().world = o().skin; b.hp = OPHAN_BREAK_FLOOR + 1; dealDamage(r, b, 5, false); stepSim(r, { x: 0, y: 0, ophanReady: 1 }, dt); ophThaw(r, { x: 0, y: 0, ophanReady: 1 }) }
   assert.ok(o().stage === 'wave', `h3: two breaks left stage ${o().stage}`)
   ophSteps(r, Math.round((OPHAN_WAVE_GAP + 2) / dt), { input: { x: 0, y: 0, ophanReady: 1 } })
   assert.ok(!boss() && o().held, `h3: p1's art let the boss into p2 (stage ${o().stage})`)

@@ -10180,6 +10180,19 @@ export const OPHAN_WIPE_END = Math.hypot(OPHAN_ARENA.w, OPHAN_ARENA.h)
 // balance_decision : hand cycle timings, first guesses 2026-10-24
 //  - inT and after are derived from the hand animation's windows (HAND_WIN x HAND_DUR), not tuned
 export const OPHAN_HAND = { tell: 1.4, swapMin: 3.4, swapMax: 5.0, first: 3.2, afterBreak: 3, inT: 0.704, after: 2.208 }
+// THE STAGING's sim side (src/ophan/staging/ plays the looks): the world the fight opens in, the harmless windows its
+// beats play in, the leave's hole the next wave crawls out of, a break's freeze, the sketch crowd's scribble clock
+export const OPHAN_STAGE = {
+  open: 5,                 // the world and skin the fight opens in: the Core, the Ophan's nexus
+  arrive: 3.6,             // s harmless from every entry: the arrival's and the returns' looks run this long
+  sketch: 3,               // s harmless from the sketch's start, its look's length
+  hole: { t: 4, r: 60 },   // s the crowd crawls out of the leave's hole, and the radius it spawns in round it
+  breakStop: 0.12,         // s of hitstop on a skin break
+  // a sketch crowd body d world px from the boss is scribbled out at u = at + per * min(1, d / reach) of the sketch,
+  // for dur: it stands frozen and harmless until then, and leaves with no kill
+  scribble: { at: 0.03, per: 0.3, reach: 900, dur: 0.12 },
+}
+export const ophanScribbleAt = (d) => OPHAN_STAGE.scribble.at + OPHAN_STAGE.scribble.per * Math.min(1, d / OPHAN_STAGE.scribble.reach)
 // balance_decision : damage windows, first guesses 2026-10-24
 export const OPHAN_STAGGER_T = 1.4
 export const OPHAN_WINDOW_MUL = 2

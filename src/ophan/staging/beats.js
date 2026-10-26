@@ -2,6 +2,7 @@
 // its death. Owner rulings 2026-10-25; the variants are the playground's (ophan-stage.html), a pick is one STAGE_PICK entry.
 import { stage, ease, win, hash } from '../staging.js'
 import { tear, HY, HW, HH } from './hole.js'
+import { OPHAN_STAGE, ophanScribbleAt } from '../../config.js'
 
 const TAU = Math.PI * 2
 const PENCIL = '#3a3a3a'
@@ -45,7 +46,7 @@ const drain = (q) => {
   return { A: q.world, B: q.slots.pencil, x: q.x, y: q.y, r: ease(win(q.u, 0.02, SK_DRAIN)) * reach(q.view, q.x, q.y), col: PENCIL, w: 2, a: 0.7 }
 }
 // when (u of the sketch) the paper reaches a crowd body d world px from the boss and its scribble starts; it takes SCRIBBLE
-export const scribbleAt = (d) => 0.03 + 0.3 * Math.min(1, d / 900), SCRIBBLE = 0.12
+export const scribbleAt = ophanScribbleAt, SCRIBBLE = OPHAN_STAGE.scribble.dur   // the sim removes each body on the same clock
 // the crowd it swept off, scribbled over where each stood (e.gone, world px), as the paper reaches it
 function scribbles(k) {
   const g = k.e.gone ?? [], c = k.px(1)
