@@ -157,6 +157,8 @@ export function createOphanRenderer(host) {
       S: f.S, A: f.A, B: f.B, alive: !!f.b, x: f.bx, y: f.by, R: f.R, z: f.z, t: f.t, ph: f.ph, boss: f.ov,
       // where a world point sits in the boss's slot (stage px), e.g. the event's own x, y
       at: (wx, wy) => ({ x: f.sx(f.S, wx), y: f.sy(f.S, wy) }),
+      // the player there and its radius (null in the prewarm): drawn in its world's slot, under the marks drawn here
+      you: f.p ? { x: f.sx(f.S, f.p.x), y: f.sy(f.S, f.p.y), r: PLAYER.radius * f.z } : null,
       px: (i) => spx[i],
       // the floor of the world shown, under its pass and the boss (the crowd's px2d, after the crowd): a tear, a scar
       floor: f.A.ent,
@@ -264,7 +266,8 @@ export function createOphanRenderer(host) {
     s.g.SPIKE = { app: fake, px: s.px }
     const ents = new Container(); ents.position.copyFrom(st.boss.position); st.boss.parent.addChildAt(ents, st.boss.parent.getChildIndex(st.boss))
     s.ent = PX2D(ents, RES)
-    s.bodies = st.boss.parent.addChildAt(new Container(), st.boss.parent.getChildIndex(ents))
+    // under the floor's px2d, except on the paper: there it is the scribble crossing the crowd out, and its only body is you
+    s.bodies = st.boss.parent.addChildAt(new Container(), st.boss.parent.getChildIndex(id === 'pencil' ? st.boss : ents))
     s.bodies.position.copyFrom(st.boss.position)
     s.nb = 0; s.core = []; s.nc = 0   // the Core's feed: { e, x, y, r } reused, s.nc of them live
     if (s.glc) s.glc.style.display = 'none'
@@ -518,7 +521,7 @@ export function createOphanRenderer(host) {
         const o = q.look.scene?.({ u: Math.min(1, q.age / q.dur), age: q.age, dur: q.dur, x: q.x, y: q.y, world: q.world, slots, worlds, look: (k) => slots[worlds[k].look], view })
         if (o && o.A?.warm && (!o.B || o.B.warm)) { A = o.A; B = o.B ?? null; sw = o }
       }
-      owns = A !== slots.pencil   // the paper has no player look of its own: render.js's stays
+      owns = true   // from the first fight frame every world draws the player in its own look, the paper too
       crowdXY.length = 0
       for (const e of run.enemies) if (!e._dead && e.rosterId !== 'ophan') crowdXY.push(e.x, e.y, e.radius ?? 12)
       const core = slots.liquid
@@ -572,10 +575,12 @@ export function createOphanRenderer(host) {
       // the crowd, every live body but the boss: its own world's creature in that world, a ghost in the other. Each slot
       // draws every body and the wipe's mask shows world B's inside the circle, so a body wears the world under it. The
       // Core's bodies are the melt's own (gl.js, fed by its stage): render.js's sprite for one is empty
-      for (const s of [A, B]) if (s && s !== sk) {
+      for (const s of [A, B]) if (s) {
         const k = worlds.findIndex((w) => w.look === s.id), st = STY.findIndex((y) => y.id === s.id), z = z0 / s.k
-        s.ent.begin(); s.nb = 0; s.nc = 0
-        for (const e of run.enemies) {
+        s.nb = 0; s.nc = 0
+        // the paper's crowd is the staging's scribble on its floor (sk.ent, begun below): only the player is drawn on it
+        if (s !== sk) s.ent.begin()
+        if (s !== sk) for (const e of run.enemies) {
           if (e._dead || e.rosterId === 'ophan') continue
           const x = sx(s, e.x), y = sy(s, e.y)
           if ((e.world ?? k) !== k) { ghost(s.ent, st, x, y, Math.max(3, Math.round((e.radius ?? 12) * z))); continue }
@@ -585,9 +590,9 @@ export function createOphanRenderer(host) {
           if (o._shadow?.visible) body(s, o._shadow, sx(s, o._shadow.x), sy(s, o._shadow.y), z)
           body(s, o, sx(s, o.x), sy(s, o.y), z)
         }
-        // the player in this world's own chapter look, over its crowd: Topsoil's, the Geode's and the Core's face are
-        // render.js's bakes (host.player), the rest their stage's own renderer draws (update's player)
-        if (owns && (s.id === 'macro' || s.id === 'holo' || s.id === 'liquid')) for (const o of host.player(s.id, p)) if (o.visible) body(s, o, sx(s, o.x), sy(s, o.y), z)
+        // the player in this world's own chapter look, over its crowd: Topsoil's, the Geode's, the Core's face and the sketch's
+        // are render.js's bakes (host.player), the rest their stage's own renderer draws (update's player)
+        if (owns && (s.id === 'macro' || s.id === 'holo' || s.id === 'liquid' || s.id === 'pencil')) for (const o of host.player(s.id, p)) if (o.visible) body(s, o, sx(s, o.x), sy(s, o.y), z)
         for (let i = s.nb; i < s.bodies.children.length; i++) s.bodies.children[i].visible = false
       }
       // the boss in its skin's look, where the sim has it, on the sim's own clock, an attack aimed where the sim locked it:
@@ -624,7 +629,7 @@ export function createOphanRenderer(host) {
         let owns = false
         for (const q of beats) {
           owns ||= q.kind === 'arrive' || q.kind === 'return' || q.kind === 'leave'
-          q.look.draw(stageK(q, { S, A, B, b, bx, by, R, z, t, ph: bph, ov, sx, sy, view }))
+          q.look.draw(stageK(q, { S, A, B, b, bx, by, R, z, t, ph: bph, ov, sx, sy, view, p }))
         }
         // the sink and the rise: k 1 is the boss whole, 0 gone under the floor. Its px2d root is scaled about the boss, not
         // its R: the painters bake per size, and a size that eases would bake every frame

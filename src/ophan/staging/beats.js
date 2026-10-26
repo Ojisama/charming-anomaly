@@ -35,7 +35,10 @@ const drain = (q) => {
 export const scribbleAt = ophanScribbleAt, SCRIBBLE = OPHAN_STAGE.scribble.dur   // the sim removes each body on the same clock
 // the crowd it swept off, scribbled over where each stood (e.gone, world px), as the paper reaches it
 function scribbles(k) {
-  const g = k.e.gone ?? [], c = k.px(1)
+  const g = k.e.gone ?? [], c = k.px(1), you = k.you
+  if (!g.length) return
+  // the player stays clear of the cross-outs: a body touching you is scribbled round you, not across you
+  if (you) { c.save(); c.beginPath(); c.rect(-1e4, -1e4, 2e4, 2e4); c.moveTo(you.x + you.r * 1.3, you.y); c.arc(you.x, you.y, you.r * 1.3, 0, Math.PI * 2); c.clip('evenodd') }
   c.strokeStyle = PENCIL; c.lineWidth = 1.4 * k.z; c.lineCap = 'round'
   for (let i = 0; i < g.length; i += 3) {
     const p = k.at(g[i], g[i + 1]), r = g[i + 2] * k.z * 1.3, j = i / 3
@@ -54,6 +57,7 @@ function scribbles(k) {
     c.stroke()
   }
   c.globalAlpha = 1
+  if (you) c.restore()
 }
 // the skin it was wearing when the last one broke, fading off the paper
 function lastSkin(k) {

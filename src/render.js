@@ -47,6 +47,7 @@ import { IPECAC_COUNT_MUL, FURROW_PIT_OPEN, FURROW_LANE_GAP, CRYSTAL_CARDS } fro
 import { POLE_TINT, LANCE_BEAM_LIFE, viewZoom, ophanView, OPHAN_HELD_SHAKE } from './config.js'
 import { createOphanRenderer } from './ophan/renderer.js'
 import * as HOLO from './holo.js'
+import * as PENCIL from './ophan/pencil-player.js'
 import * as ASCII from './ascii.js'
 import * as TOON from './toon.js'
 import * as LIQUID from './liquid.js'
@@ -770,9 +771,12 @@ export function createRenderer(app) {
   function blobButtGeom() {
     const W = PLAYER.radius * 1.04, H = PLAYER.radius
     const cdx = -W * 0.04, coff = H * 0.47, cra = W * 0.63, crb = H * 0.47
+    const o = buttOutline(3, W, H), shell = []
+    for (let i = 0; i < o.length; i += 2) shell.push(-o[i + 1], o[i])
     return {
       cheeks: [-1, 1].map((sg) => [-sg * coff, cdx, cra, crb, Math.PI / 2 - sg * 0.20]),
       cleft: [0, -W * 0.42, H * 0.11, W * 0.15],
+      shell,   // the outline the cheeks sit in, flat [x, y, ...]
     }
   }
   // One little foot for the skin to run on (BUTT_FEET), drawn about its own centre so the sprite
@@ -7396,6 +7400,23 @@ export function createRenderer(app) {
     }
     return holoPlayerLook
   }
+  // The Ophan's sketch player (src/ophan/pencil-player.js): holoPlayer's parts, drawn by hand in graphite
+  let pencilPlayerLook = null
+  function pencilPlayer() {
+    if (pencilPlayerLook) return pencilPlayerLook
+    const mk = (paint) => {
+      const b = MACRO.bakeLocal(PENCIL.PENCIL_PLAYER_E, 3, paint, { shadowBlur: 0.7 })
+      return { body: { tex: macroCanvasTex(b.body, b.S), ax: b.ax, ay: b.ay }, flash: { tex: macroCanvasTex(b.white, b.S), ax: b.ax, ay: b.ay } }
+    }
+    const g = blobButtGeom()
+    pencilPlayerLook = {
+      blob: mk((ctx) => PENCIL.paintPencilPlayer(ctx)),
+      butt: mk((ctx) => PENCIL.paintPencilButt(ctx, 'body', g)),
+      cheeks: mk((ctx) => PENCIL.paintPencilButt(ctx, 'cheeks', g)),
+      foot: mk((ctx) => PENCIL.paintPencilFoot(ctx, PLAYER.radius * BUTT_FEET.rx, PLAYER.radius * BUTT_FEET.ry)),
+    }
+    return pencilPlayerLook
+  }
   const rosterBakers = {}, rosterLooks = {}
   // a creature's look, baked the first time anything asks for it; undefined for a key with no look
   function rosterLook(key) {
@@ -13385,7 +13406,7 @@ export function createRenderer(app) {
     const q = []
     if (kind) q.push(() => bakeMacroTile(kind), () => macroPlayer())
     if (ch.render?.holo) q.push(holoPlayer)
-    if (ch.worlds) q.push(() => macroPlayer(), holoPlayer)   // the player's Topsoil and Geode looks (ophanPlayer)
+    if (ch.worlds) q.push(() => macroPlayer(), holoPlayer, pencilPlayer)   // the player's Topsoil, Geode and sketch looks (ophanPlayer)
     if (kind === 'topsoil') q.push(bakeMacroPickups, elFx)
     if (ch.weapons?.includes('shovel')) q.push(bakeShovel)
     if (ch.signature?.caveIns || ch.weapons?.includes('furrow')) q.push(bakePits)
@@ -14370,13 +14391,14 @@ const spurG = new Graphics()
     }
     return ophanR
   }
-  // the player in Topsoil's, the Geode's or the Core's own look, posed as syncPlayer posed its rig this frame, in world px,
-  // for the Ophan to copy into that world's slot (draw order):
+  // the player in Topsoil's, the Geode's, the Core's or the sketch's own look, posed as syncPlayer posed its rig this frame,
+  // in world px, for the Ophan to copy into that world's slot (draw order):
   //   Geode  every part the rig shows (body, the skin's cheeks and feet, the hurt flash), its bake swapped for holoPlayer's
+  //   sketch the same walk with pencilPlayer's bakes
   //   Topsoil  macroPlayer's jellybean, which has no skin: the gel, its two drifting contents layers (at rest, unmasked: they
   //          drift 0.08 R) and its surface (face, highlights), then the flash
   //   Core   liquidPlayer's face (gl.js draws the chrome drop) with syncPlayer's plain-blob live pupils (no skin), the flash
-  const ophanPose = [], ophanM = new Matrix(), ophanL = new Matrix()
+  const ophanPose = [], ophanM = new Matrix(), ophanSwap = {}
   let ophanN = 0, holoOf = null
   // n's transform into the arena (playerC's parent), times a local offset
   function ophanArena(n, lx = 0, ly = 0) {
@@ -14401,9 +14423,9 @@ const spurG = new Graphics()
   function ophanPlayer(look, p) {
     ophanN = 0
     const a = playerC.alpha * bodyC.alpha
-    if (look === 'holo') {
-      const h = holoPlayer()
-      holoOf ??= new Map([[T.playerBody, h.blob.body], [T.playerFlash, h.blob.flash], [T.playerButt, h.butt.body], [T.playerButtFlash, h.butt.flash],
+    if (look === 'holo' || look === 'pencil') {
+      const h = look === 'holo' ? holoPlayer() : pencilPlayer()
+      holoOf = ophanSwap[look] ??= new Map([[T.playerBody, h.blob.body], [T.playerFlash, h.blob.flash], [T.playerButt, h.butt.body], [T.playerButtFlash, h.butt.flash],
         [T.playerCheeks, h.cheeks.body], [T.buttFoot, h.foot.body], [T.buttFootFlash, h.foot.flash]].map(([t, l]) => [t.tex, l]))
       for (const c of bodyC.children) ophanHolo(c, a)   // bodyC itself is hidden while the Ophan owns the player
     } else {
