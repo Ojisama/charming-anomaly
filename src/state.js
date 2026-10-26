@@ -2689,7 +2689,8 @@ function generateWells(sig) {
   *   THE OPHAN (CHAPTERS.ophan, a chapter with `worlds`) keeps its whole state in script.oph,
   *   created by stepOphanScript on the first step (null/absent before it, and render guards that):
   *     t — the fight clock the rig's pose breathes on. world — the world the player stands in;
-  *       skin — the world the boss wears. world !== skin = MISMATCH: the boss refuses every hit,
+  *       skin — the world the boss wears; both open at OPHAN_STAGE.open (the Core, where it arrives).
+  *       world !== skin = MISMATCH: the boss refuses every hit,
   *       tick and status (ophanSealed / bossSealed, sim.js) and dealDamage pushes ophanImmune.
   *     THE HAND: swapIn — attack-free, tell-free seconds to the next tell; tell — seconds left
   *       showing next (the world it changes into, -1 outside a tell); at 0 skin = next, swaps++,
@@ -2709,7 +2710,8 @@ function generateWells(sig) {
   *     hp[n] / broken[n] — each skin's banked hp and 0|1 broken, n = worlds.length. The boss entity
   *       (bossId, rosterId 'ophan', speed 0, dmg 0, affixes ['anchored']) carries the worn skin's
   *       hp; dealDamage floors it at OPHAN_BREAK_FLOOR so a skin BREAKS (ophanBreak) and is never
-  *       killed. The last skin broken leaves the sketch (ophanSketch). The script moves it: between
+  *       killed; a break holds the world still for OPHAN_STAGE.breakStop (run.hitStop). The last
+  *       skin broken leaves the sketch (ophanSketch). The script moves it: between
   *       attacks it closes on the player at OPHAN_BOSS_SPEED to OPHAN_BOSS_HOLD (backing off a player
   *       inside its body); during an attack it stands. x, y — its last position (the win's spot).
   *     stage — 'open' | 'p1' | 'wave' | 'p2' | 'p3': the opening wave (OPHAN_WAVE_OPEN s), a boss
@@ -2717,11 +2719,18 @@ function generateWells(sig) {
   *       phase. In a wave bossId is null, run.bossBar null, no hand, no attack, and the crowd spawns at
   *       OPHAN_WAVE rates. A phase's last skin (2 broken in p1, 4 in p2) sends the boss off
   *       (ophanLeave, a silent removal, its hp kept in hp[]); the wave's end brings it back on screen
-  *       near the player (ophanEnter) at the next stage. p3 ends in the sketch, with no wave.
+  *       near the player (ophanEnter) at the next stage. p3 ends in the sketch, with no wave. Every
+  *       entry holds its first attack and tell past OPHAN_STAGE.arrive (its card plays harmless).
+  *       hole — null | { x, y, t }: where it left; for t s (OPHAN_STAGE.hole.t) the wave's crowd
+  *       spawns within OPHAN_STAGE.hole.r of it instead of on the ring.
   *     ph — the phase, eased toward 1 + min(2, floor(broken / 2)). sketch — the post-skin pencil
   *       fight: the same entity at OPHAN_SKETCH_HP with its own bar (bossBar stage 4, no pills), no
-  *       seal, no floor, no crowd (swept unpaid as it starts), no hand, presses refused, the attacks
-  *       from CHAPTERS.ophan.sketchAttacks at every difficulty. Killing it is the win: bossDead + victory.
+  *       seal, no floor, no hand, presses refused, the attacks from CHAPTERS.ophan.sketchAttacks at
+  *       every difficulty, the first after OPHAN_STAGE.sketch s. Killing it is the win: bossDead +
+  *       victory (ophanWinPending holds the level-up off that step). The crowd standing at the sketch
+  *       is frozen (speed 0, dmg 0, xp 0, 'anchored', damageImmune) and each body carries _scribbleT,
+  *       seconds until it is crossed out (ophanScribbleAt of its distance to the boss, the renderer's
+  *       own clock), then removed unpaid.
   *     atk — null | { k, u (0..1, advancing OPHAN_ATK_SPEED / dur a second), dur, ax, ay (the aim, locked on the player at the start), hitCd };
   *       atkCd — seconds to the next one while none runs. recov — the rig's recovery pose is up.
   *       stagger — seconds of resonance stagger left. Either doubles damage (OPHAN_WINDOW_MUL).
@@ -2844,8 +2853,8 @@ function generateWells(sig) {
  *   switched world; x/y = the wipe's centre), {type:'ophanRefuse', k} (a press on a broken band, or any in the sketch),
  *   {type:'ophanTell', next} (the hand shows the next world), {type:'ophanSwap', skin} (the boss
  *   changed skin), {type:'ophanResonance', x, y} (a caught swap: the boss staggers),
- *   {type:'ophanLeave', x, y} (the boss left for a wave, from x/y) and {type:'ophanEnter', x, y}
- *   (it came back at x/y).
+ *   {type:'ophanLeave', x, y} (the boss left for a wave, from x/y) and {type:'ophanEnter', stage, x, y}
+ *   (it came up at x/y; stage 'p1' the first arrival, 'p2'/'p3' a return: render.js picks its card).
  * v6.2 events: {type:'shriek', x, y, radius} (chitterShriek cast — was a generic 'shoot'; violet
  *   panic rings), {type:'blink', x, y, tx, ty} (a realityShard bullet skipped from (x,y) to (tx,ty)).
  */
