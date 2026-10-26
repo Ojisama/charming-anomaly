@@ -276,6 +276,23 @@ export function createOphanRenderer(host) {
     app.renderer.render({ container: c, target: (rt ??= RenderTexture.create({ width: app.screen.width, height: app.screen.height, resolution: RES })) })
     c.visible = v0
   }
+  // world id's picked look for beat kind drawn at u of its clock in phase ph, the boss at rest framing (z: ophanView's zoom),
+  // rendered offscreen and cleared: the staging's layers are the fight's own, so the frame loop's own reset is made after it
+  const clearStage = (s) => {
+    for (const [i, p] of spx.entries()) { const r = p.root; r.filters = null; r.alpha = 1; r.scale.set(1 / RES); r.position.set(spxK[i].x, spxK[i].y); p.begin() }
+    for (const c of layer.children) c.visible = false
+    nsp = 0; s.ent.begin()
+  }
+  function warmBeat(kind, id, ph, u, z) {
+    const s = slot(id), look = lookOf(kind, id)
+    if (!look) return
+    const zs = z / s.k, R = OPHAN_BOSS.R * zs, x = s.w / 2, y = s.h / 3, dur = look.dur ?? STAGE_DUR[kind]
+    const ov = { S: s, hide: false, scale: 1, alpha: 1, dx: 0, dy: 0, ph }
+    clearStage(s)
+    look.draw(stageK({ kind, age: u * dur, dur, e: { x, y }, from: s, ph },{ S: s, A: s, B: null, b: true, bx: x, by: y, R, z: zs, t: 0, ph, ov, sx: (S, v) => v, sy: (S, v) => v, view: null }))
+    shot(overCam); shot(s.wrap)
+    clearStage(s)
+  }
   // a world drawn the ways the fight draws it, so its first wipe in finds the GPU ready: plain (world A), inside the wipe's
   // circle as it grows (world B), and the Core through the hole's inverse mask with its melt canvas shown (under the opaque
   // page canvas and behind it, z -1, for these frames only)
@@ -396,6 +413,11 @@ export function createOphanRenderer(host) {
         if (sk) continue
         // the hole it comes up and goes down through: 30-90 ms a bake, dearer than a wave frame, so need 0 like every dear job
         q(0, id + ':hole', () => { const R = OPHAN_BOSS.R * z / slot(id).k; warmHole(id, R * HW, R * HH) })
+        // the beats it plays in this world, offscreen: the look's own bakes and first uploads into this world's layers (the
+        // eruption's dome and smoke, the drill's debris, Topsoil's cut, the cell reads, the POOF word) land here, not on the
+        // beat. A break in every phase (the dying skin's snap is per phase); the others' cost is the phase-free uploads
+        for (const ph of [1, 2, 3]) for (const u of [0.02, 0.35, 0.7]) q(0, id + ':break', () => warmBeat('break', id, ph, u, z))
+        for (const [kind, ph] of [['return', 2], ['leave', 1], ['resonance', 1]]) for (const u of [0.1, 0.5, 0.9]) q(0, id + ':' + kind, () => warmBeat(kind, id, ph, u, z))
         // its hand (a hand's first draw bakes it), its bake sliced first where the hand offers one, then drawn through
         // arrival, paint and lift, the liquid hand's cut masked by the warm boss it is drawn over
         const H = OPHAN_HANDS[id]
