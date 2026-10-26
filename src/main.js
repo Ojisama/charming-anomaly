@@ -2,7 +2,7 @@
 import { Application } from 'pixi.js'
 import { loadMeta, saveMeta, resetSave, deleteSlot, createRun, ensureChapterMeta, ensureBookMeta, unlockBook, setActiveSlot, activeSlot, setSlotName, cleanName, exportSlot, importSlot, freezeSaves, setSaveHook, SAVE_SLOTS, parkRun, dropParkedRun, takeParkedRun } from './state.js'
 import * as CFG from './config.js'
-import { shopCost, refundValue, shopLines, shopLineUnlocked, lineMax, runBonusCoins, randomMutators, rerollMutator, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, difficultyCoinMul, CONSUMABLES, ANOMALY_REROLL_COST, sacrificeCost, BOOK_UNLOCKS, CHAPTERS, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, isWipChapter, HIDDEN_UNLOCKS, COIN_CAP_PER_RUN, BOOK_ORDER, bookOf, isBookFinale, nextBook, unlockCost, unlockLevel, DEATH_OUTRO, KRAKEN_OUTRO, hasBossOutro } from './config.js'
+import { shopCost, refundValue, shopLines, shopLineUnlocked, lineMax, runBonusCoins, randomMutators, rerollMutator, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, difficultyCoinMul, CONSUMABLES, ANOMALY_REROLL_COST, sacrificeCost, BOOK_UNLOCKS, CHAPTERS, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, isWipChapter, HIDDEN_UNLOCKS, COIN_CAP_PER_RUN, BOOK_ORDER, bookOf, isBookFinale, nextBook, unlockCost, unlockLevel, DEATH_OUTRO, BOSS_OUTRO, hasBossOutro } from './config.js'
 import { stepSim, fastForwardEndless, endlessHandover, applyChoice, rerollLevelUpChoices, rerollPrice, buildReadout, devCards, devTake, mantleGroundAt } from './sim.js'
 import { createRenderer } from './render.js'
 import { initUI } from './ui.js'
@@ -1148,7 +1148,7 @@ function beginDeathOutro(dt) {
   return true
 }
 
-// The Kraken's kill outro (KRAKEN_OUTRO), or false for every other victory, which keeps its
+// A boss's kill outro (BOSS_OUTRO: the Kraken's, the Ophan's), or false for every other victory, which keeps its
 // instant summary. Shares the death outro's skip latch: the same held thumb has to let go first.
 function beginBossOutro(dt) {
   if (!hasBossOutro(run.chapter)) return false
@@ -1213,20 +1213,20 @@ app.ticker.add((ticker) => {
       const s = SFX_FOR_EVENT[e.type]
       if (s) playSfx(s)
     }
-    if (bossOutro) playSfx('krakenSlain')
+    if (bossOutro && BOSS_OUTRO[run.chapter].sfx) playSfx(BOSS_OUTRO[run.chapter].sfx)
     ui.updateHUD(run, events)
     if (run.phase === 'levelup') ui.showScreen('levelup', levelupData())
     // The `dead` event has ALREADY reached the renderer on this frame (it was in `events` above),
     // which is what spawns the vent and the shake. All this decides is whether the summary waits.
     else if (run.phase === 'dead') { if (!beginDeathOutro(dt)) endRun(false) }
     else if (run.phase === 'victory') { if (!bossOutro) endRun(true) }
-  } else if (run.bossOutroT > 0 && run.bossOutroT < KRAKEN_OUTRO.time) {
-    // THE KRAKEN'S DEATH: the victory twin of the death outro below, on the same frozen-sim /
+  } else if (run.bossOutroT > 0 && run.bossOutroT < BOSS_OUTRO[run.chapter].time) {
+    // A BOSS'S DEATH (the Kraken's, the Ophan's erasure): the victory twin of the death outro below, on the same frozen-sim /
     // live-renderer split. stepSim is never called here (phase is already 'victory'), so nothing
     // can move, hurt the player or change the run while it plays; endRun(true) sees exactly the run
-    // the killing blow left. The first KRAKEN_OUTRO.hitstop seconds hand sync a dt of 0, which holds
+    // the killing blow left. The first O.hitstop seconds hand sync a dt of 0, which holds
     // every particle, rope and shake dead still while render.js flashes the kill off this clock.
-    const O = KRAKEN_OUTRO
+    const O = BOSS_OUTRO[run.chapter]
     const was = run.bossOutroT
     run.bossOutroT += dt
     if (run.bossOutroT >= O.skipLock && deathSkipPressed()) run.bossOutroT = O.time

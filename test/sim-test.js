@@ -111,7 +111,7 @@ import {
   BLANK_PHASE_LEVELS, BLANK_BOSS_SPEED_P3, BLANK_READ3_T, BLANK_BAND_LEN, BLANK_FAN_N,
   BLANK_BAND_W, BLANK_BAND_DPS, BLANK_BAND_GROW, STATUS_TICK,
   BLANK_RECRUIT_T, BLANK_WAVE_XP_MUL, BLANK_WAVE_GAP,
-  SPAWN_RING, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES, ENDLESS_COPY, HIDDEN_UNLOCKS, KRAKEN_BEATS, KRAKEN_OUTRO, hasBossOutro,
+  SPAWN_RING, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES, ENDLESS_COPY, HIDDEN_UNLOCKS, KRAKEN_BEATS, KRAKEN_OUTRO, OPHAN_BEATS, OPHAN_OUTRO, BOSS_OUTRO, hasBossOutro,
   CIRCUIT_CAM_LEAD, CIRCUIT_CAM_EASE,
   // v6.3.1 difficulty pass (Run LL)
   BLANK_BOSS_SPEED, BLANK_BOSS_SPEED_P1, BLANK_BOSS_HP, BLANK_MAX_ALIVE, BLANK_CATCHUP_MAX,
@@ -19372,6 +19372,8 @@ function testFrenchDictionary() {
   for (const v of Object.values(HIDDEN_UNLOCKS ?? {})) { need(v?.hint); need(v?.unlocked) }
   // The Kraken's phase cards and death banner (render.js draws them through t()).
   for (const v of Object.values(KRAKEN_BEATS ?? {})) need(v?.name)
+  // ...and the Ophan's, on the same ceremony, with the word its Mantle break pops
+  for (const v of Object.values(OPHAN_BEATS ?? {})) need(v?.name)
   for (const v of Object.values(CHAPTER_UNLOCK_LINES ?? {})) need(v)
   // Same flat id -> string shape, one book down. Joined here the day the table landed rather than
   // the day someone noticed the badge was English — the whole point of this walk.
@@ -39212,12 +39214,15 @@ function runKrakenCeremony() {
   assert.ok(O.hitstop < O.skipLock && O.skipLock < O.bannerAt && O.bannerAt < O.bannerOut && O.bannerOut <= O.time,
     'KRAKEN_OUTRO beats out of order: hit-stop, skip lock, banner in, banner out, summary')
   assert.ok(O.fadeFrom < O.time && O.sinkFrom < O.fadeFrom, 'KRAKEN_OUTRO: the dark must land after the sink starts and before the summary')
-  assert.ok(hasBossOutro('kraken') && !hasBossOutro('blank') && !hasBossOutro('body'),
-    'only The Kraken holds its kill; every other victory keeps its instant summary')
+  assert.ok(hasBossOutro('kraken') && hasBossOutro('ophan') && !hasBossOutro('blank') && !hasBossOutro('body'),
+    'only The Kraken and The Ophan hold their kill; every other victory keeps its instant summary')
+  for (const [id, B] of Object.entries(BOSS_OUTRO))
+    assert.ok(B.hitstop < B.skipLock && B.skipLock < B.bannerAt && B.bannerAt < B.bannerOut && B.bannerOut <= B.time && B.fadeFrom < B.time,
+      `BOSS_OUTRO.${id} beats out of order: hit-stop, skip lock, banner in, banner out, summary`)
   const strip = (src) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1')
   const main = strip(readFileSync(new URL('../src/main.js', import.meta.url), 'utf8'))
   // (a) the outro branch never steps the sim
-  const at = main.indexOf('run.bossOutroT > 0 && run.bossOutroT < KRAKEN_OUTRO.time')
+  const at = main.indexOf('run.bossOutroT > 0 && run.bossOutroT < BOSS_OUTRO[run.chapter].time')
   assert.ok(at > 0, 'main.js has no kill-outro branch in the frame loop')
   const branch = main.slice(at, main.indexOf('} else if (run.deathT > 0', at))
   assert.ok(branch.length > 0 && !/stepSim\s*\(/.test(branch), 'main.js steps the sim during the kill outro')
@@ -39232,6 +39237,9 @@ function runKrakenCeremony() {
   const render = strip(readFileSync(new URL('../src/render.js', import.meta.url), 'utf8'))
   assert.ok(/case 'bossDead': \{\s*if \(run\.chapter === 'kraken'\) \{ krakenDeathBegin\(\)/.test(render), 'bossDead does not start the Kraken death')
   assert.ok(/run\.bossOutroT/.test(render), 'render.js never reads run.bossOutroT')
+  // the Ophan's cards: drawn before src/ophan/renderer.js consumes the event (its continue would skip a later call)
+  assert.ok(/if \(ophanOn\) ophanCard\(e\)\s+if \(ophanOn && ophanR\.event\(e, run\)\) continue/.test(render), 'ophanCard is not called before the Ophan renderer consumes the event')
+  assert.ok(/ophanOn && \(run\.bossOutroT \?\? 0\) > 0\) \{\s*const O = OPHAN_OUTRO/.test(render), 'render.js does not hold the Ophan erasure on OPHAN_OUTRO')
   // no damage number over the dying face: muted from the kill frame on, and the ones in flight cleared
   {
     const sd = render.slice(render.indexOf('function spawnDamage('), render.indexOf('function updateDamage('))
@@ -39273,7 +39281,7 @@ function runKrakenCeremony() {
     assert.strictEqual(run.phase, 'victory', 'the step after the kill is not the win, got ' + run.phase)
     assert.ok(run.player.level >= lv, 'the level was lost')
   }
-  console.log('PASS run KC (The Kraken ceremony): the kill step opens no card screen (the level still counts), KRAKEN_OUTRO beats in order, only the kraken holds its kill, main.js never steps the sim in the kill outro and reaches endRun(true) from it alone, the clock is set before the kill frame renders, render.js starts the death on bossDead and reads the clock')
+  console.log('PASS run KC (The Kraken ceremony): the kill step opens no card screen (the level still counts), every BOSS_OUTRO in order, only the kraken and the ophan hold their kill, the Ophan cards drawn before its renderer consumes the event, main.js never steps the sim in the kill outro and reaches endRun(true) from it alone, the clock is set before the kill frame renders, render.js starts the death on bossDead and reads the clock')
 }
 
 // Run PR: a run parked on the way out (the phone may kill a hidden tab) comes back as the SAME run.

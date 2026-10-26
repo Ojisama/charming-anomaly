@@ -16808,6 +16808,7 @@ export const KRAKEN_CEREMONY = {
 // run.bossOutroT up to `time` before endRun(true), so nothing can move, hurt or score during it:
 // the same frozen-sim / live-renderer split as DEATH_OUTRO. render.js reads the clock, never writes it.
 export const KRAKEN_OUTRO = {
+  sfx: 'krakenSlain', // played on the kill frame
   time: 5.3,        // s from the killing blow to the summary
   skipLock: 0.9,    // s before input can skip (the thumb that won is still on the stick)
   hitstop: 0.16,    // s the world is held dead still on the kill frame (main.js passes sync dt 0)
@@ -16820,5 +16821,29 @@ export const KRAKEN_OUTRO = {
   dark: 0.82,       // final dim alpha
 }
 
-// Does this chapter's win hold on the boss dying (KRAKEN_OUTRO) before the summary?
-export const hasBossOutro = (chapterId) => chapterId === 'kraken'
+// ---- The Ophan's ceremony: render.js's Kraken cards, the Ophan's own words ---------------------------
+// PRESENTATION ONLY, like KRAKEN_BEATS: the arrival card is CHAPTERS.ophan.name and .tagline; a short card on each
+// return (the wings unfold, the great eye opens) and on the sketch; the banner its death holds on. poof: the word the
+// Mantle skin's break pops (src/ophan/staging/break-toon.js)
+export const OPHAN_BEATS = {
+  unfold: { name: 'MORE WINGS' },
+  eye:    { name: 'THE GREAT EYE' },
+  sketch: { name: 'IT WAS NEVER FINISHED' },
+  slain:  { name: 'OPHAN ERASED' },
+  poof:   { name: 'POOF!' },
+}
+// THE ERASURE: KRAKEN_OUTRO's clock, read by main.js and render.js the same way. The eraser and the worlds blooming
+// back are src/ophan/staging/beats.js's death look (6 s); the banner lands on the bloom
+export const OPHAN_OUTRO = {
+  sfx: null,        // the bossDead event's own sound is the kill's
+  time: 7,          // s from the killing blow to the summary
+  skipLock: 1,      // s before input can skip
+  hitstop: 0.12,    // s the world is held still on the kill frame
+  bannerAt: 4.4,    // s: the banner, as the last worlds bloom back
+  fadeFrom: 5.6,    // s: the screen darkens under the banner
+  bannerOut: 6.6,   // s: the banner leaves
+  dark: 0.82,       // final dim alpha
+}
+// A chapter whose win holds on the boss dying before the summary, and its clock
+export const BOSS_OUTRO = { kraken: KRAKEN_OUTRO, ophan: OPHAN_OUTRO }
+export const hasBossOutro = (chapterId) => !!BOSS_OUTRO[chapterId]

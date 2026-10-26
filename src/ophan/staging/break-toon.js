@@ -2,6 +2,9 @@
 // first frame. Nothing breaks, falls or flies apart (owner, 2026-10-25: plates flying off read as it being killed).
 // Owner ruling 2026-10-25: 0.12 s hit-stop (the sim's), then 0.8 s; the looks below are the playground's candidates.
 import { stage, ease, win, hash } from '../staging.js'
+import { OPHAN_BEATS } from '../../config.js'
+import { t } from '../../i18n.js'
+import { FR } from '../../fr.js'
 
 const TAU = Math.PI * 2
 // the toon painter's palette (src/ophan/painters/toon.js P)
@@ -20,8 +23,8 @@ function star(c, x, y, r, rot, lw) {
 // shrinking, puffs spitting out of its sides, wisps shooting off and popping, stars and spark ticks), a comic "POOF!"
 // pops out of it, and it clears bubble by bubble: the boss is standing there in its new skin. The old skin is only seen
 // before the cloud closes over it.
-// the word, the one place it is written: the port routes it through t(); bakes are cached by the word
-export const POOF = 'POOF!'
+// the word (OPHAN_BEATS.poof, translated where it is drawn); bakes are cached by the word
+export const POOF = OPHAN_BEATS.poof.name
 const FONT = '900 150px "Arial Black", "Arial Rounded MT Bold", Impact, sans-serif'
 const words = new Map()
 // the word as comic lettering, baked once per word: a jagged gold burst behind, chunky orange letters each jostled, inked
@@ -50,7 +53,8 @@ function word(w) {
   words.set(w, cv)
   return cv
 }
-word(POOF)   // baked at load: never made in a frame
+// ponytail: every language's word baked at load (never in a frame); a third language adds its dictionary here
+for (const w of new Set([POOF, FR[POOF] ?? POOF])) word(w)
 
 // the cloud's bubbles, round the boss in R: three layers, the back ones bigger and earlier
 const PUFF = [
@@ -119,7 +123,7 @@ stage('break', 'toon:A', { world: 'toon', label: 'A · quick-change: a cartoon c
   // POOF!: pops out of the cloud at its peak (an overshooting scale), holds, then floats up and fades as the cloud clears
   const pin = win(u, 0.07, 0.17), pout = win(u, 0.3, 0.5)
   if (pin > 0 && pout < 1) {
-    const cv = word(POOF), g = k.px(2), back = 1.7, s = 1 + (back + 1) * Math.pow(pin - 1, 3) + back * Math.pow(pin - 1, 2)
+    const cv = word(t(POOF)), g = k.px(2), back = 1.7, s = 1 + (back + 1) * Math.pow(pin - 1, 3) + back * Math.pow(pin - 1, 2)
     const W = R * 3.2 * s * (1 + 0.15 * pout), H = W * cv.height / cv.width, wy = y - R * 0.15 - R * 0.9 * ease(pout)
     g.save(); g.globalAlpha = 1 - ease(pout); g.translate(x, wy); g.rotate(-0.14); g.drawImage(cv, -W / 2, -H / 2, W, H); g.restore(); g.globalAlpha = 1
   }

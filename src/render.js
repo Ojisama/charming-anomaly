@@ -38,7 +38,7 @@ import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC
 } from './config.js'
 import { currentForce, tideForce, krakenArmInReach } from './sim.js'
 // The Kraken's ceremony (name card, phase beats, the kill). Its own import line so it merges clean.
-import { KRAKEN_BEATS, KRAKEN_CEREMONY, KRAKEN_OUTRO } from './config.js'
+import { KRAKEN_BEATS, KRAKEN_CEREMONY, KRAKEN_OUTRO, OPHAN_BEATS, OPHAN_OUTRO, OPHAN_STAGE } from './config.js'
 import { TRAWL_WIGGLE_ARC, KRAKEN_GRIP_FLICKS } from './config.js'
 import { DRAW_CAPS } from './config.js'
 import { ELITE, gemTier } from './config.js'
@@ -28944,6 +28944,7 @@ void main() {
     cer.kind = kind
     cer.t = 0
     cer.low = undefined
+    cer.text = cer.tint = cer.rule = cer.avoidY = undefined
     cer.threw = 0
     cer.bub = 0
     cer.dur = C.hold + C.out
@@ -29003,6 +29004,59 @@ void main() {
       L.tint = rig.rope.tint
       for (let k = 0; k < rig.pts.length; k++) { L.pts[k][0] = rig.pts[k].x; L.pts[k][1] = rig.pts[k].y }
     }
+  }
+
+  // THE SLAIN BANNER: a gold plate across the screen in its lower third, slammed in bT s ago on the outro clock O (the
+  // Kraken's death, the Ophan's erasure), leaving at O.bannerOut
+  function slainBanner(bT, t, O, name, w, h, U) {
+    cerTone('gold')
+    const inK = smooth01(bT / 0.12)
+    const outK = 1 - smooth01((t - O.bannerOut) / 0.3)
+    const k = inK * outK
+    const y = h * 0.7
+    const pw = w * 0.97 * (0.35 + 0.65 * smooth01(bT / 0.2)), ph = Math.min(U * 0.25, h * 0.14)
+    const cx = w / 2, x0 = cx - pw / 2, x1 = cx + pw / 2, e = ph * 0.5
+    // the light it lands with, and holds: a gold glow round the plate and slow rays fanned out
+    // behind it for as long as it is up, flaring hard as it slams in
+    const fl = Math.exp(-bT * 3)
+    const rayK = smooth01(bT / 0.15) * outK
+    for (let i = 0; i < 18; i++) {
+      const a = (i / 18) * Math.PI * 2 + 0.1 + bT * 0.12
+      const r1 = Math.hypot(w, h) * (0.45 + 0.3 * (i % 2))
+      const hw = 0.055 + 0.02 * (i % 3)
+      cerG.poly([cx, y, cx + Math.cos(a - hw) * r1, y + Math.sin(a - hw) * r1, cx + Math.cos(a + hw) * r1, y + Math.sin(a + hw) * r1])
+        .fill({ color: 0xffc860, alpha: (0.09 + 0.22 * fl) * rayK })
+    }
+    cerG.ellipse(cx, y, w * 0.78, ph * 2.2).fill({ color: 0xff9a2a, alpha: (0.1 + 0.15 * fl) * rayK })
+    cerG.ellipse(cx, y, w * 0.7, ph * 1.1).fill({ color: 0xffd27a, alpha: (0.14 + 0.3 * fl) * rayK })
+    const hex = (inset) => [x0 + inset, y, x0 + e + inset * 0.5, y - ph / 2 + inset, x1 - e - inset * 0.5, y - ph / 2 + inset,
+      x1 - inset, y, x1 - e - inset * 0.5, y + ph / 2 - inset, x0 + e + inset * 0.5, y + ph / 2 - inset]
+    cerG.poly(hex(0)).fill({ color: 0x0c0812, alpha: 0.94 * outK }).stroke({ width: 4, color: 0xd9a23a, alpha: outK, join: 'miter' })
+    cerG.poly(hex(7)).stroke({ width: 1.5, color: 0xffe6a0, alpha: 0.85 * outK, join: 'miter' })
+    // gold studs at the points and at the middle of each long edge
+    const stud = (sx, sy, r) => cerG.poly([sx, sy - r, sx + r, sy, sx, sy + r, sx - r, sy]).fill({ color: 0xffd67a, alpha: outK }).stroke({ width: 1.5, color: 0x5a3408, alpha: outK })
+    stud(x0 + 3, y, ph * 0.13); stud(x1 - 3, y, ph * 0.13)
+    stud(cx, y - ph / 2, ph * 0.11); stud(cx, y + ph / 2, ph * 0.11)
+    cerRule(cx, y - ph * 0.32, pw * 0.36, smooth01(bT / 0.5), 0xffd67a, 0.8 * outK)
+    cerRule(cx, y + ph * 0.32, pw * 0.36, smooth01(bT / 0.5), 0xffd67a, 0.8 * outK)
+    cerText(cerTitle, tr(name), Math.round(U * 0.13), pw * 0.74)
+    const slam = 1 + 0.6 * Math.pow(1 - clamp01(bT / 0.14), 2)
+    cerTitle.scale.set(cerTitle.scale.x * slam)
+    cerTitle.position.set(cx, y)
+    cerTitle.alpha = k
+  }
+
+  // THE OPHAN's cards, on the Kraken's: the arrival's name card, a short card on each return and on the sketch, kept off
+  // the half of the screen it comes up in (src/ophan/renderer.js plays the beats themselves)
+  function ophanCard(e) {
+    if (e.type === 'ophanEnter' && e.stage === 'p1') { krakenBeat('arrive', OPHAN_STAGE.arrive); cer.avoidY = e.y; return }
+    const id = e.type === 'ophanEnter' ? (e.stage === 'p2' ? 'unfold' : 'eye') : e.type === 'ophanSketch' ? 'sketch' : null
+    if (!id) return
+    krakenBeat('enrage')
+    cerTone(id === 'sketch' ? 'cold' : 'gold')
+    cer.text = OPHAN_BEATS[id].name; cer.avoidY = e.y
+    cer.tint = id === 'sketch' ? 0x2a2a2a : 0xffa21e
+    cer.rule = id === 'sketch' ? 0xd8d8d8 : 0xffd67a
   }
 
   function clearKrakenCeremony() {
@@ -29101,7 +29155,12 @@ void main() {
     cerCam.x = cerCam.y = 0
     if (!kDeath.on) krakenRemember()
 
-    if (kDeath.on && (run.bossOutroT ?? 0) > 0) {
+    if (ophanOn && (run.bossOutroT ?? 0) > 0) {
+      const O = OPHAN_OUTRO, t = run.bossOutroT
+      cer.kind = null
+      dim = O.dark * smooth01((t - O.fadeFrom) / (O.time - O.fadeFrom))
+      if (t >= O.bannerAt) slainBanner(t - O.bannerAt, t, O, OPHAN_BEATS.slain.name, w, h, U)
+    } else if (kDeath.on && (run.bossOutroT ?? 0) > 0) {
       const r = updateKrakenDeath(run, dt, w, h, U)
       dim = r.dim; bars = r.bars; flash = r.flash; edge = r.edge
       // the camera goes to the body and closes on it: the death is framed, not left at the edge
@@ -29122,10 +29181,12 @@ void main() {
         const push = t < 0.5 ? smooth01(t / 0.5) : 1 - smooth01((t - 0.5) / Math.max(0.5, cer.len - 0.5))
         cerZoom = 1 + (C.zoomFrom - 1) * push
         const k = t < C.textIn ? 0 : cardEnv(t - C.textIn, 0.45, C.hold - C.textIn, C.out)
-        const ch = CHAPTERS.kraken
+        const ch = CHAPTERS[run.chapter]
         // LOW: the face lies across the top of the view through the whole ring (drawKrakenBody holds
-        // it there), so the name goes under you and the animal it names keeps the top of the screen
-        const y = h * 0.74
+        // it there), so the name goes under you and the animal it names keeps the top of the screen.
+        // A boss that comes up anywhere (the Ophan: cer.avoidY) takes the other half from it, decided once
+        if (cer.low === undefined) cer.low = cer.avoidY === undefined || world.position.y + cer.avoidY * world.scale.y < h * 0.5
+        const y = cer.low ? h * 0.74 : cerTopY(h, U) + U * 0.06
         cerText(cerTitle, tr(ch.name).toUpperCase(), Math.round(U * 0.12), w * 0.9)
         cerTitle.position.set(w / 2, y + (1 - k) * U * 0.03)
         cerTitle.alpha = k
@@ -29210,21 +29271,21 @@ void main() {
         // pulse, a hard camera kick, and the line tucked into the top of the screen.
         const pulse = Math.exp(-t * 2.6)
         edge = C.edge * pulse
-        cerEdge.tint = cer.kind === 'rage' ? 0x48e05a : 0xff5a3c
+        cerEdge.tint = cer.tint ?? (cer.kind === 'rage' ? 0x48e05a : 0xff5a3c)
         cerZoom = 1 + (C.zoomKick - 1) * (t < 0.06 ? t / 0.06 : Math.exp(-(t - 0.06) * 6))
         const k = cardEnv(t, C.textIn, C.hold, C.out)
         // on the half of the screen the head is NOT on: this card lands mid-fight, over live arms
         // (decided once, on the beat's first frame, so the line never jumps as the head moves)
         if (cer.low === undefined) {
-          const hd = krakenHead
-          cer.low = !!hd && world.position.y + hd.y * world.scale.y < h * 0.5
+          const hy = cer.avoidY ?? krakenHead?.y
+          cer.low = hy !== undefined && world.position.y + hy * world.scale.y < h * 0.5
         }
         const y = cer.low ? h * 0.78 : cerTopY(h, U)
-        cerText(cerTitle, tr(KRAKEN_BEATS[cer.kind].name), Math.round(U * 0.075), w * 0.9)
+        cerText(cerTitle, tr(cer.text ?? KRAKEN_BEATS[cer.kind].name), Math.round(U * 0.075), w * 0.9)
         cerTitle.scale.set(cerTitle.scale.x * (1 + 0.25 * Math.exp(-t * 14)))
         cerTitle.position.set(w / 2, y)
         cerTitle.alpha = k
-        cerRule(w / 2, y + U * 0.055, Math.min(w * 0.36, U * 0.3), k, cer.kind === 'rage' ? 0x9af58a : 0xff9a7a, 0.7 * k)
+        cerRule(w / 2, y + U * 0.055, Math.min(w * 0.36, U * 0.3), k, cer.rule ?? (cer.kind === 'rage' ? 0x9af58a : 0xff9a7a), 0.7 * k)
       }
     }
     drawKrakenLessonCard(run, dt, w, h, U)
@@ -29498,43 +29559,7 @@ void main() {
     // (the camera has set the body high), clear of the HUD's side rail and the stick.
     const bT = t - O.bannerAt
     let dim = 0.3 * smooth01((t - O.sinkFrom - 0.4) / (O.bannerAt - O.sinkFrom - 0.4)) + (O.dark - 0.3) * smooth01((t - O.fadeFrom) / (O.time - O.fadeFrom))
-    if (bT >= 0) {
-      cerTone('gold')
-      const inK = smooth01(bT / 0.12)
-      const outK = 1 - smooth01((t - O.bannerOut) / 0.3)
-      const k = inK * outK
-      const y = h * 0.7
-      const pw = w * 0.97 * (0.35 + 0.65 * smooth01(bT / 0.2)), ph = Math.min(U * 0.25, h * 0.14)
-      const cx = w / 2, x0 = cx - pw / 2, x1 = cx + pw / 2, e = ph * 0.5
-      // the light it lands with, and holds: a gold glow round the plate and slow rays fanned out
-      // behind it for as long as it is up, flaring hard as it slams in
-      const fl = Math.exp(-bT * 3)
-      const rayK = smooth01(bT / 0.15) * outK
-      for (let i = 0; i < 18; i++) {
-        const a = (i / 18) * Math.PI * 2 + 0.1 + bT * 0.12
-        const r1 = Math.hypot(w, h) * (0.45 + 0.3 * (i % 2))
-        const hw = 0.055 + 0.02 * (i % 3)
-        cerG.poly([cx, y, cx + Math.cos(a - hw) * r1, y + Math.sin(a - hw) * r1, cx + Math.cos(a + hw) * r1, y + Math.sin(a + hw) * r1])
-          .fill({ color: 0xffc860, alpha: (0.09 + 0.22 * fl) * rayK })
-      }
-      cerG.ellipse(cx, y, w * 0.78, ph * 2.2).fill({ color: 0xff9a2a, alpha: (0.1 + 0.15 * fl) * rayK })
-      cerG.ellipse(cx, y, w * 0.7, ph * 1.1).fill({ color: 0xffd27a, alpha: (0.14 + 0.3 * fl) * rayK })
-      const hex = (inset) => [x0 + inset, y, x0 + e + inset * 0.5, y - ph / 2 + inset, x1 - e - inset * 0.5, y - ph / 2 + inset,
-        x1 - inset, y, x1 - e - inset * 0.5, y + ph / 2 - inset, x0 + e + inset * 0.5, y + ph / 2 - inset]
-      cerG.poly(hex(0)).fill({ color: 0x0c0812, alpha: 0.94 * outK }).stroke({ width: 4, color: 0xd9a23a, alpha: outK, join: 'miter' })
-      cerG.poly(hex(7)).stroke({ width: 1.5, color: 0xffe6a0, alpha: 0.85 * outK, join: 'miter' })
-      // gold studs at the points and at the middle of each long edge
-      const stud = (sx, sy, r) => cerG.poly([sx, sy - r, sx + r, sy, sx, sy + r, sx - r, sy]).fill({ color: 0xffd67a, alpha: outK }).stroke({ width: 1.5, color: 0x5a3408, alpha: outK })
-      stud(x0 + 3, y, ph * 0.13); stud(x1 - 3, y, ph * 0.13)
-      stud(cx, y - ph / 2, ph * 0.11); stud(cx, y + ph / 2, ph * 0.11)
-      cerRule(cx, y - ph * 0.32, pw * 0.36, smooth01(bT / 0.5), 0xffd67a, 0.8 * outK)
-      cerRule(cx, y + ph * 0.32, pw * 0.36, smooth01(bT / 0.5), 0xffd67a, 0.8 * outK)
-      cerText(cerTitle, tr(KRAKEN_BEATS.slain.name), Math.round(U * 0.13), pw * 0.74)
-      const slam = 1 + 0.6 * Math.pow(1 - clamp01(bT / 0.14), 2)
-      cerTitle.scale.set(cerTitle.scale.x * slam)
-      cerTitle.position.set(cx, y)
-      cerTitle.alpha = k
-    }
+    if (bT >= 0) slainBanner(bT, t, O, KRAKEN_BEATS.slain.name, w, h, U)
     const bars = smooth01((t - 0.2) / 0.4)
     const edge = 0.35 * smooth01((t - hs) / 0.6)
     return { dim, bars, flash: t < hs ? 0.2 : flash, edge }
@@ -29935,6 +29960,7 @@ void main() {
       if (asciiOn && asciiR.event(e, run)) continue   // Book 3, The Mine: src/ascii.js draws its own
       if (toonOn && toonR.event(e, run)) continue     // Book 3, The Mantle: src/toon.js draws its own
       if (liquidOn && liquidR.event(e, run)) continue // Book 3, The Core: src/liquid.js draws its own
+      if (ophanOn) ophanCard(e)                       // its cards are the Kraken's ceremony's, drawn here
       if (ophanOn && ophanR.event(e, run)) continue   // Book 3, The Ophan: src/ophan/renderer.js draws its own
       if (magmaEvent(e)) continue    // Book 3, The Magma: its own events, drawn by src/pixel.js
       if (burrowEvent(e)) continue   // Book 3, Burrow: its own events (and the shovel's scoop)

@@ -2278,6 +2278,12 @@ const CONFIG = {
   "win The Core at level 3 — something at the centre is wearing the world": "gagne Le Noyau au niveau 3 — au centre, quelque chose revêt le monde",
   "THE OPHAN — the centre of the Earth opens its eye": "L'OPHAN — le centre de la Terre ouvre son œil",
   "THE OPHAN CLOSES ITS EYE.": "L'OPHAN FERME SON ŒIL.",
+  // the Ophan's ceremony (OPHAN_BEATS)
+  "MORE WINGS": "IL S'ÉPLOIE",
+  "THE GREAT EYE": "L'ŒIL S'OUVRE",
+  "IT WAS NEVER FINISHED": "IL N'A JAMAIS ÉTÉ ACHEVÉ",
+  "OPHAN ERASED": "OPHAN EFFACÉ",
+  "POOF!": "POUF !",
   "Painted over.": "Effacé sous la peinture.",
   "The Ophan’s wing blast": "Le souffle des ailes de l'Ophan",
   "The Ophan’s tornado": "La tornade de l'Ophan",
