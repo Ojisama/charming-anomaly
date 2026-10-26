@@ -78,7 +78,6 @@ const PUFF = [0, 1, 2, 3].map((v) => {
 // god rays: n shafts fanned from (x, y) over the floor, additive, turning slowly; s 0..1 their strength, L their reach
 // spec: { sets: stop lists, one per ray in turn } for a soft gradient shaft, or { flat: colour } for a hard-edged one in
 // three stepped bands (the cel and pixel worlds, where a gradient would be the one smooth thing on screen)
-const RAY_CREAM = { sets: [[[0, 'rgba(255,250,236,1)'], [0.15, 'rgba(255,226,180,0.55)'], [0.45, 'rgba(220,170,120,0.14)'], [1, 'rgba(160,110,80,0)']]] }
 const RAY_HOT = { sets: [[[0, 'rgba(255,236,200,1)'], [0.15, 'rgba(255,150,90,0.6)'], [0.45, 'rgba(200,50,30,0.15)'], [1, 'rgba(120,20,10,0)']]] }
 function rays(c, x, y, L, s, t, n, spec) {
   if (s <= 0.01) return
@@ -106,7 +105,6 @@ function rays(c, x, y, L, s, t, n, spec) {
 }
 // a glow on (x, y): additive, r wide, a its strength. spec: { g: [heart, rim, edge] } soft, or { flat: [3 colours] } in
 // three hard discs
-const GLOW_CREAM = { g: ['rgba(255,252,244,1)', 'rgba(255,230,190,0.45)', 'rgba(120,40,20,0)'] }
 const GLOW_HOT = { g: ['rgba(255,244,220,1)', 'rgba(255,170,90,0.6)', 'rgba(120,40,20,0)'] }
 function glow(c, x, y, r, a, spec) {
   if (a <= 0.01) return
@@ -191,30 +189,6 @@ function ripples(c, x, y, R, s, t, n = 4) {
 }
 // the boss's scale: up from 0.55 past full size to `peak` as it crests, then settling slow and heavy to 1
 const bossScale = (u, a, b, c, peak = 1.25) => (u < b ? 0.55 + (peak - 0.55) * ease(win(u, a, b)) : peak - (peak - 1) * ease(win(u, b, c)))
-
-// ---- C: the dome ----
-stage('arrive', 'C', { label: 'C · the melt swells into a mirror dome, light breaks out of it, the boss comes up through it shedding the metal', dur: 3.6, draw(k) {
-  const x = k.x, y = k.y + k.R * HY, R = k.R, f = k.floor, u = k.u
-  const swell = ease(win(u, 0, 0.24)), split = win(u, 0.22, 0.3), crest = Math.exp(-(((u - 0.27) / 0.06) ** 2))
-  // the pool it leaves, closing as it settles
-  tear(f, x, y, R * HW, R * HH, ease(win(u, 0.24, 0.32)) * (1 - ease(win(u, 0.8, 1))) * 0.9, k.A.id)
-  // the light: a seep while it swells, a flare as it splits, the shafts turning down to calm
-  const rs = 0.35 * swell * (1 - split) + 1.3 * crest + 0.8 * win(u, 0.27, 0.32) * (1 - ease(win(u, 0.45, 0.85)))
-  rays(f, x, y, R * 6, rs, k.age, 13, RAY_CREAM)
-  glow(f, x, y, R * 1.6, 0.25 + 0.5 * rs, GLOW_CREAM)
-  ripples(f, x, y, R * (0.3 + swell), swell * (1 - split), k.age)
-  steam(f, k, x, y, 14, 0.2, 0.42, 0.55, 0.75, 0.6 * rs, 50, 2.8)
-  // the boss: hidden in the dome, then up past full size and settling
-  if (u < 0.25) k.boss.hide = true
-  k.boss.scale = bossScale(u, 0.25, 0.62, 0.88); k.boss.alpha = ease(win(u, 0.25, 0.36))
-  const bs = R * k.boss.scale, o = k.px(0), top = k.px(1)
-  // the dome swells, then is the metal it wears as it breaks through, thinning off it; what falls off it
-  skin(o, x, y, R * (0.2 + 1.15 * swell) * (1 + 0.12 * split), 1 - ease(win(u, 0.26, 0.55)))
-  drops(o, k, k.x, k.y, 22, 0.27, 0.7, 0.5, 2.2, 70)
-  glow(top, x, y, R * 2, crest * 0.55, GLOW_CREAM)
-  // the steam over it: thick round it at the split, never over its body, thinning as it settles
-  steam(top, k, x, y, 12, 0.24, 0.4, 0.6, 0.5, 0.5 * rs, 80, 2.2, 1.1)
-} })
 
 // ---- THE ERUPTION: D's geyser, in the medium of whichever world it comes up in (arrive D in the Core, return C in any) ----
 // Each world's: its rays and glow, its billows (steam or dust), its column seen from straight above (the Core's is DOME),

@@ -32,6 +32,7 @@ import './hands/liquid.js'
 import { CHAPTERS, OPHAN_BOSS, OPHAN_ATTACKS, OPHAN_HAND, OPHAN_BOSS_HOLD, OPHAN_BG_BAKE_MS, ophanView } from '../config.js'
 import { STAGE_DUR, lookOf, STAGING } from './staging.js'
 import './staging/looks.js'
+import { warmHole, HW, HH } from './staging/hole.js'
 
 const STAGES = { macro, holo, ascii, pixel, toon, liquid, pencil }
 const IMMUNE_T = 0.4
@@ -393,6 +394,8 @@ export function createOphanRenderer(host) {
           else q(need, id + ':atk', at((s, R) => { window.OPH_PH = ph; boss(s, s.w / 2, s.h / 3, R, 0, ph, k, 0.5, s.w / 2, s.h * 0.72, wpx) }), () => shot(warmC))
         }
         if (sk) continue
+        // the hole it comes up and goes down through (30-90 ms a bake): the Core's at the arrival, the rest by the first leave
+        q(id === 'liquid' ? 0 : 1, id + ':hole', () => { const R = OPHAN_BOSS.R * z / slot(id).k; warmHole(id, R * HW, R * HH) })
         // its hand (a hand's first draw bakes it), its bake sliced first where the hand offers one, then drawn through
         // arrival, paint and lift, the liquid hand's cut masked by the warm boss it is drawn over
         const H = OPHAN_HANDS[id]

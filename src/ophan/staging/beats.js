@@ -1,25 +1,12 @@
 // The Ophan's beats past its arrival (src/ophan/staging.js): its returns, its leaving, a resonance, the sketch rising and
 // its death. Owner rulings 2026-10-25; the variants are the playground's (ophan-stage.html), a pick is one STAGE_PICK entry.
 import { stage, ease, win, hash } from '../staging.js'
-import { tear, HY, HW, HH } from './hole.js'
 import { OPHAN_STAGE, ophanScribbleAt } from '../../config.js'
 
 const TAU = Math.PI * 2
 const PENCIL = '#3a3a3a'
-const tearOf = (k, open) => tear(k.floor, k.x, k.y + k.R * HY, k.R * HW, k.R * HH, open, k.A.id)
-const rise = (k, a, b) => { const r = ease(win(k.u, a, b)); k.boss.scale = 0.55 + 0.45 * r; k.boss.alpha = r; return r }
 // how far (world px) the screen's farthest corner is from (x, y): a circle that wide covers it
 const reach = (v, x, y) => Math.hypot(Math.max(x - v.left, v.left + v.w / v.zoom - x), Math.max(y - v.top, v.top + v.h / v.zoom - y))
-
-// ---- THE RETURNS (phase 2, 3): it rises from a tear already transformed, harmless 3 s
-stage('return', 'A', { label: 'A · rises from a tear in its new form', draw(k) { tearOf(k, ease(win(k.u, 0, 0.12) * (1 - win(k.u, 0.7, 1)))); rise(k, 0.05, 0.4) } })
-stage('return', 'B', { label: 'B · rises in its old form, then the new wings unfold out of it (the great eye opens)', draw(k) {
-  tearOf(k, ease(win(k.u, 0, 0.12) * (1 - win(k.u, 0.8, 1))))
-  rise(k, 0.05, 0.35)
-  // the rig's own unfold: a phase between two whole ones is the wings part-deployed, the eye part-open (rig.js pose)
-  const to = Math.round(k.ph), was = Math.max(1, to - 1)
-  k.boss.ph = was + ease(win(k.u, 0.35, 0.8)) * (to - was)
-} })
 
 // ---- THE RESONANCE: a hand pressed in the right world; it flinches and the next world's colour rings off it
 const rings = (k, n, w0, al) => {
@@ -31,7 +18,6 @@ const rings = (k, n, w0, al) => {
   }
   c.globalAlpha = 1
 }
-stage('resonance', 'A', { label: 'A · one ring in the skin\'s colour', draw(k) { rings(k, 1, 4, 1) } })
 stage('resonance', 'B', { label: 'B · the wings buckle back, two rings', draw(k) {
   const s = Math.sin(Math.PI * win(k.u, 0, 0.45))
   k.boss.scale = 1 - 0.12 * s; k.boss.dy = -8 * k.z * s
@@ -82,27 +68,6 @@ stage('sketch', 'A', { label: 'A · the paper drains in, the sketch draws itself
   const rv = win(k.u, 0.25, 0.92)
   if (rv > 0) k.drawBoss(k.S, k.px(0), k.x, k.y, k.R, 4, null, { reveal: rv })
 } })
-// a graphite pencil seen from above, its point at (x, y), lying along angle a
-function pencil(c, x, y, a, L, z) {
-  c.save(); c.translate(x, y); c.rotate(a)
-  c.fillStyle = 'rgba(0,0,0,0.18)'; c.beginPath(); c.rect(L * 0.18 + 4 * z, -L * 0.035 + 5 * z, L * 0.82, L * 0.07); c.fill()   // its shadow
-  c.fillStyle = '#d9a441'; c.beginPath(); c.rect(L * 0.18, -L * 0.035, L * 0.74, L * 0.07); c.fill()   // the painted body
-  c.fillStyle = '#b8862c'; c.beginPath(); c.rect(L * 0.18, L * 0.005, L * 0.74, L * 0.03); c.fill()
-  c.fillStyle = '#c9c9c9'; c.beginPath(); c.rect(L * 0.92, -L * 0.035, L * 0.05, L * 0.07); c.fill()   // the ferrule
-  c.fillStyle = '#e59aa8'; c.beginPath(); c.rect(L * 0.97, -L * 0.033, L * 0.04, L * 0.066); c.fill()  // its eraser
-  c.fillStyle = '#e8c9a0'; c.beginPath(); c.moveTo(L * 0.18, -L * 0.035); c.lineTo(L * 0.04, -L * 0.008); c.lineTo(L * 0.04, L * 0.008); c.lineTo(L * 0.18, L * 0.035); c.closePath(); c.fill()   // the shaved wood
-  c.fillStyle = '#2c2c2c'; c.beginPath(); c.moveTo(L * 0.04, -L * 0.008); c.lineTo(0, 0); c.lineTo(L * 0.04, L * 0.008); c.closePath(); c.fill()   // the lead
-  c.restore()
-}
-stage('sketch', 'B', { label: 'B · the paper drains in, a pencil sweeps down and the sketch is under it', scene: drain, draw(k) {
-  lastSkin(k); scribbles(k)
-  k.boss.hide = true
-  const s = ease(win(k.u, 0.25, 0.85)), top = k.y - 1.8 * k.R, h = 3.5 * k.R
-  if (s <= 0) return
-  k.drawBoss(k.S, k.px(0), k.x, k.y, k.R, 4, s < 1 ? (c) => c.rect(k.x - 2.2 * k.R, top, 4.4 * k.R, h * s) : null, { reveal: s < 1 ? 0.84 + 0.16 * s : win(k.u, 0.85, 1) * 0.15 + 0.85 })
-  if (s < 1) pencil(k.px(1), k.x + Math.sin(k.age * 22) * 1.6 * k.R, top + h * s, -0.6, 1.4 * k.R, k.z)
-} })
-
 // ---- THE DEATH (6 s, skippable after 1): the eraser rubs the sketch off the paper, the great eye last; then the six
 // worlds bloom back, the Core first. render.js lays the banner and the fade over it
 const RUB = [0.06, 0.56], BLOOM = [0.6, 0.88]
@@ -175,40 +140,5 @@ stage('death', 'A', { label: 'A · the eraser scrubs it off in oblique zigzag st
     const dd = o > 0 && carry < 1 ? dir(o - 1) + (dir(o) - dir(o - 1)) * ease(carry) : dir(o)
     const ang = th + Math.PI / 2 + 0.25 * dd + 0.06 * Math.sin(ph)
     c.globalAlpha = l; eraser(c, at.x, at.y - up - (1 - l) * k.R, ang, k.R, k.z); c.globalAlpha = 1
-  }
-} })
-stage('death', 'B', { label: 'B · rubbed in circles from the wing tips inward, the great eye last', scene: bloom, draw(k) {
-  k.boss.hide = true
-  const s = ease(win(k.u, RUB[0], RUB[1])), rr = 2.1 * k.R * (1 - s), n = 30, step = Math.floor(k.age * 14)
-  const edge = (i) => rr * (0.82 + 0.18 * hash(i, step))
-  if (rr > 1) k.drawBoss(k.S, k.px(0), k.x, k.y, k.R, k.ph0 ?? 4, (c) => {
-    for (let i = 0; i < n; i++) { const a = i / n * TAU, d = edge(i); i ? c.lineTo(k.x + Math.cos(a) * d, k.y + Math.sin(a) * d) : c.moveTo(k.x + Math.cos(a) * d, k.y + Math.sin(a) * d) }
-    c.closePath()
-  })
-  const c = k.px(1)
-  crumbs(c, k, 60, (i) => {
-    const d = (0.25 + 1.9 * hash(i, 1)) * k.R; if (d < rr) return null
-    const a = hash(i, 2) * TAU
-    return { x: k.x + Math.cos(a) * d, y: k.y + Math.sin(a) * d, a: 0.8 * (1 - win(k.u, RUB[1] + 0.1, RUB[1] + 0.3)) }
-  })
-  const l = lift(k)
-  if (l > 0 && k.u >= RUB[0]) {
-    const a = k.age * 9, d = Math.max(0.15 * k.R, rr * 0.9)
-    c.globalAlpha = l; eraser(c, k.x + Math.cos(a) * d, k.y + Math.sin(a) * d - (1 - l) * k.R, a + Math.PI / 2, k.R, k.z); c.globalAlpha = 1
-  }
-} })
-stage('death', 'C', { label: 'C · a thumb smudges it into grey, the great eye fades last', scene: bloom, draw(k) {
-  k.boss.hide = true
-  const body = 1 - ease(win(k.u, RUB[0], 0.4)), eye = 1 - ease(win(k.u, 0.35, RUB[1])), sm = ease(win(k.u, RUB[0], 0.4))
-  // the smear, the body dragged down-right and greyed; the drawing itself, fading; the great eye alone, fading last
-  if (body > 0) {
-    k.fadePx(0, 0.45 * body * (0.3 + sm), 1 + 0.08 * sm, k.x, k.y)
-    k.drawBoss(k.S, k.px(0), k.x + 0.3 * k.R * sm, k.y + 0.18 * k.R * sm, k.R, k.ph0 ?? 4)
-    k.fadePx(1, body, 1, k.x, k.y)
-    k.drawBoss(k.S, k.px(1), k.x, k.y, k.R, k.ph0 ?? 4)
-  }
-  if (eye > 0) {
-    k.fadePx(2, eye, 1, k.x, k.y)
-    k.drawBoss(k.S, k.px(2), k.x, k.y, k.R, k.ph0 ?? 4, (c) => c.arc(k.x, k.y, 0.42 * k.R, 0, TAU))
   }
 } })

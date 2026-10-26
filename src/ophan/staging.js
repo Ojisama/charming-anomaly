@@ -6,7 +6,7 @@
 // docs/superpowers/specs/2026-10-25-ophan-staging-design.md
 //
 // The looks register themselves from src/ophan/staging/*.js. STAGE_PICK is the one chosen per beat (per world for a
-// break); the playground (scripts/ophan-stage/) swaps it to show the others on the same code path the fight draws.
+// break); the playground (ophan-stage.html) shows them on the same code path the fight draws.
 //
 // k, a beat's frame (renderer.js stageK), every position in the boss's slot's stage px:
 //   u 0..1 of the beat · age, dur seconds · e its event · kind · from the slot the boss was drawn in when it started (a

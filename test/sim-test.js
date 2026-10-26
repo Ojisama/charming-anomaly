@@ -19,6 +19,7 @@ import { FOIL_FRAG as HOLO_FOIL_FRAG, CAVERN_FLOOR_FRAG as HOLO_CAVERN_FRAG } fr
 import { ensurePrecision as pixiEnsurePrecision } from '../node_modules/pixi.js/lib/rendering/renderers/gl/shader/program/preprocessors/ensurePrecision.mjs'
 import RIG from '../src/ophan/rig.js'
 import { ophanHits } from '../src/ophan/hit.js'
+import { STAGE_PICK } from '../src/ophan/staging.js'
 import { magmaGroundAt, magmaRiverAt, magmaCooledAt, magmaHotAt } from '../src/sim.js'
 import { lavaFloodedAt, mantleHeightAt, lavaLineFor, mantleGroundAt } from '../src/sim.js'
 import { ECHO_DOUBLE_DELAY, ECHO_DOUBLE_DMG_FRAC, modPct, LODESTONE_HOLD } from '../src/config.js'
@@ -44268,7 +44269,13 @@ function testOphanStaging() {
   assert.ok(/ophanWinPending\(run\)\) return/.test(body) && body.indexOf('p.level += 1') < body.indexOf('ophanWinPending'), 'st6: stepLevelUp opens a card screen on the Ophan kill step')
   stepSim(r, still, dt)
   assert.strictEqual(r.phase, 'victory', 'st6: the step after the kill is not the win')
-  console.log('PASS run OP.stage: entries name their stage and play harmless ' + OPHAN_STAGE.arrive + ' s, a break holds the world ' + OPHAN_STAGE.breakStop + ' s, the wave crawls out of the hole for ' + OPHAN_STAGE.hole.t + ' s, the sketch plays harmless ' + OPHAN_STAGE.sketch + ' s, its kill opens no card screen')
+  // st7: every pick is registered by a staging file (lookOf falls back to null, and a null beat simply never draws)
+  const stDir = new URL('../src/ophan/staging/', import.meta.url)
+  const looks = readdirSync(stDir).filter((f) => f.endsWith('.js')).map((f) => readFileSync(new URL(f, stDir), 'utf8').replace(/(^|[^:])\/\/.*$/gm, '$1')).join('\n')
+  const picks = Object.entries(STAGE_PICK).flatMap(([kind, p]) => typeof p === 'object' ? Object.entries(p).map(([w, id]) => [kind, w + ':' + id]) : [[kind, p]])
+  for (const [kind, id] of picks) assert.ok(looks.includes(`stage('${kind}', '${id}'`), `st7: STAGE_PICK ${kind} ${id} is registered by no staging file`)
+  assert.strictEqual(picks.length, 12, `st7: ${picks.length} picks, expected 6 beats + 6 world breaks`)
+  console.log('PASS run OP.stage: every one of ' + picks.length + ' picks is registered, entries name their stage and play harmless ' + OPHAN_STAGE.arrive + ' s, a break holds the world ' + OPHAN_STAGE.breakStop + ' s, the wave crawls out of the hole for ' + OPHAN_STAGE.hole.t + ' s, the sketch plays harmless ' + OPHAN_STAGE.sketch + ' s, its kill opens no card screen')
 }
 
 function testOphanArtHold() {

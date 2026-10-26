@@ -1,5 +1,5 @@
 // THE BREAK, the Mine (ascii): the broken skin comes apart in this world's own medium while the next skin shows under it.
-// Owner ruling 2026-10-25: 0.12 s hit-stop (the sim's), then 0.8 s; the looks below are the playground's candidates.
+// Owner ruling 2026-10-25: 0.12 s hit-stop (the sim's), then 0.8 s; the look below is the one STAGE_PICK picked.
 // The broken skin is read once into a grid of cells (cellsOf: its painter drawn into a real canvas, averaged per cell),
 // and each cell becomes one character, picked by its brightness on the classic ramp and typed in the skin's own inks:
 // what scatters or pours IS the skin, typed. Glyphs are baked once per (character, ink) and drawn with drawImage.
@@ -84,29 +84,3 @@ stage('break', 'ascii:A', { world: 'ascii', label: 'A · glyph scatter: the skin
   c.globalAlpha = 1
 } })
 
-stage('break', 'ascii:B', { world: 'ascii', label: 'B · glyph rain: the skin pours down in columns and piles', draw(k) {
-  const u = k.u, c = k.px(1), P = k.R * 0.11, L = cellsOf(k, P)
-  whole(k, 0.06)
-  const n = Math.ceil(k.R * 3 / P)
-  for (const q of L) {
-    // a column lets go at its own moment, its bottom character first, so it unzips upward like pouring text
-    const t0 = 0.03 + 0.28 * hash(q.i, 11) + 0.01 * (n - q.j), f = win(u, t0, t0 + 0.2 + 0.08 * hash(q.i, q.j))
-    const drop = f * f
-    // it lands in a pile on the floor at the boss's feet (a plan view: it also shrinks as it drops away from the camera)
-    const land = Math.max(0, k.R * (0.75 + 0.55 * hash(q.i, q.j + 3)) - q.oy)
-    const x = k.x + q.ox + (hash(q.j, q.i) - 0.5) * k.R * 0.6 * drop, y = k.y + q.oy + land * drop
-    let [ch, ink] = typeOf(q)
-    const falling = f > 0 && f < 1
-    if (falling) ink = Math.min(4, ink + 1)
-    else if (f >= 1) ink = Math.max(0, ink - 2)
-    const al = (0.35 + 0.65 * q.a) * win(u, 0, 0.04) * (1 - win(u, Math.min(0.88, t0 + 0.4 + 0.15 * hash(q.i, q.j + 1)), 0.97))
-    put(c, ch, ink, x, y, P * 1.6 * (1 - 0.25 * drop), al)
-    // the rain's trail: two dimmer characters streaming behind a falling one
-    if (falling && f > 0.15) {
-      const ch2 = RAMP[Math.floor(hash(q.i, q.j + 9 + Math.floor(f * 4)) * RAMP.length)]
-      put(c, ch2, 3, x, y - P * 1.1, P * 1.2, al * 0.55 * (1 - f))
-      put(c, ch2, 1, x, y - P * 2.2, P * 1.1, al * 0.3 * (1 - f))
-    }
-  }
-  c.globalAlpha = 1
-} })

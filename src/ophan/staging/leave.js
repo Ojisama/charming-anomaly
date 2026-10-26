@@ -1,7 +1,6 @@
 // THE LEAVING (src/ophan/staging.js): its looks override beats.js's. 4 s: the boss goes into the floor in the first
 // second and a bit, then the hole stays open as a scar while the wave's crowd crawls out of it, closing over the last 0.6 s.
 // Owner, of the sinks before these: "None of those leave, too soft and boring."
-import { Sprite } from 'pixi.js'
 import { stage, ease, win, hash } from '../staging.js'
 import { tear, HY, HW, HH } from './hole.js'
 
@@ -98,35 +97,6 @@ function puff(c, M, x, y, r, sd, al) {
   g.addColorStop(0, M.dust2); g.addColorStop(0.45, M.dust); g.addColorStop(1, 'rgba(0,0,0,0)')
   c.fillStyle = g; c.beginPath(); c.arc(x, y, r, 0, TAU); c.fill()
 }
-// cracks run out from the lip, lit on their far edge (the Magma's glow, the Core's are ripples instead)
-function cracks(k, M, cx, cy, grow, al, n, seed) {
-  if (al <= 0.01 || grow <= 0) return
-  const f = k.floor
-  if (M.kind === 'drop') {
-    // the melt does not crack: rings run out over it and set as ridges
-    for (let i = 0; i < 3; i++) {
-      const r = k.R * (1.4 + 0.55 * i) * (0.6 + 0.4 * grow)
-      f.globalAlpha = al * 0.7; f.strokeStyle = M.dark; f.lineWidth = 3 * k.z; f.beginPath(); f.ellipse(cx, cy + k.z, r, r * FY, 0, 0, TAU); f.stroke()
-      f.globalAlpha = al * 0.55; f.strokeStyle = M.lit; f.lineWidth = 1.2 * k.z; f.beginPath(); f.ellipse(cx, cy - k.z, r, r * FY, 0, Math.PI, TAU); f.stroke()
-    }
-    f.globalAlpha = 1
-    return
-  }
-  f.lineCap = 'round'; f.lineJoin = 'round'
-  for (let i = 0; i < n; i++) {
-    const a = (i + 0.6 * hash(i, seed)) / n * TAU, L = k.R * (0.9 + 1.4 * hash(i, seed + 1)) * grow, lw = (2.6 + 2 * hash(i, seed + 2)) * k.z
-    const x0 = cx + Math.cos(a) * k.R * HW * 0.42, y0 = cy + Math.sin(a) * k.R * HH * 0.42
-    const path = (dx, dy) => { f.beginPath(); f.moveTo(x0 + dx, y0 + dy); for (let m = 1; m <= 5; m++) { const q = m / 5, w = (hash(i * 7 + m, seed + 3) - 0.5) * 0.6; f.lineTo(x0 + dx + Math.cos(a + w) * L * q, y0 + dy + Math.sin(a + w) * L * q * FY) } }
-    f.globalAlpha = al * (M.ember ? 0.9 : 0.6); f.strokeStyle = M.ember ?? M.lip; f.lineWidth = lw * (M.ember ? 1.5 : 0.8); path(0, lw * 0.6); f.stroke()
-    f.globalAlpha = al; f.strokeStyle = M.crack; f.lineWidth = lw; path(0, 0); f.stroke()
-    // a branch off the middle of the longer ones
-    if (hash(i, seed + 4) > 0.45) {
-      const b = a + (hash(i, seed + 5) > 0.5 ? 0.7 : -0.7), q = 0.45, bx = x0 + Math.cos(a) * L * q, by = y0 + Math.sin(a) * L * q * FY
-      f.lineWidth = lw * 0.6; f.beginPath(); f.moveTo(bx, by); f.lineTo(bx + Math.cos(b) * L * 0.4, by + Math.sin(b) * L * 0.4 * FY); f.stroke()
-    }
-  }
-  f.globalAlpha = 1
-}
 // a thrown piece: launched at T0 from (x0, y0) at angle a out to distance D (floor), arcing H high over ft seconds, then
 // skidding a little and lying there. Returns its floor point, its height and whether it is down
 function fly(T, T0, x0, y0, a, D, H, ft) {
@@ -146,21 +116,6 @@ function piece(k, c, M, p, r, rot, sd, al) {
   }
   if (!p.down) { c.globalAlpha = al * 0.35 / (1 + lift); c.fillStyle = '#000'; c.beginPath(); c.ellipse(p.x + p.h * 0.3, p.y + r * 0.4, r * 1.1, r * 0.7, 0, 0, TAU); c.fill() }
   chunk(c, M, p.x, p.y - p.h, r * s, rot, sd, al)
-}
-// the snap of the boss, turned rot and scaled sx, sy about (x, y), into px2d c (sprite i of c's own), clipped by clip
-const spr = new Map()
-function snapAt(k, c, i, x, y, rot, sx, sy, al, clip) {
-  if (al <= 0.01) return
-  let L = spr.get(c); if (!L) spr.set(c, L = [])
-  const tx = k.snap(k.from ?? k.S, Math.round(k.ph0 ?? k.ph)), W = Math.ceil(k.R * 3)
-  const s = L[i] ?? (L[i] = new Sprite())
-  s.texture = tx
-  c.save()
-  if (clip) { c.beginPath(); clip(c); c.clip() }
-  c.globalAlpha = al
-  c.translate(x, y); c.rotate(rot); c.scale(sx, sy); c.translate(-W / 2, -W / 2); c.scale(W / tx.width, W / tx.width)
-  c.place(s)
-  c.restore()
 }
 // the dark of the pit over what is down in it, inside the mouth
 function shade(k, c, cx, cy, open, a) {
@@ -191,74 +146,6 @@ function breathe(k, M, c, cx, cy, open, T, from) {
   }
   c.globalAlpha = 1
 }
-
-// ---- A · THE PLUNGE: rears up toward the camera, hangs, dives into the floor; the floor takes the hit
-const TI = 0.78   // the impact, seconds in
-stage('leave', 'A', { label: 'A · the plunge: rears up, hangs, dives through the floor; shockwave, debris, cracks', dur: 4, draw(k) {
-  const M = matOf(k), T = k.u * k.dur, R = k.R
-  // the jolt: a hard shake on everything it marks, dying fast
-  const jt = T - TI, J = jt > 0 ? Math.exp(-jt * 11) * R * 0.09 : 0, ox = J * Math.sin(jt * 83), oy = J * Math.cos(jt * 61)
-  const cx = k.x + ox, cy = k.y + R * HY + oy
-  const open = scar(k, T, TI - 0.02, 1.4, 1.12, 0.78)
-  tear(k.floor, cx, cy, R * HW, R * HH, open, k.A.id)
-  cracks(k, M, cx, cy, ease(win(T, TI, TI + 0.14)), 1 - win(k.u, 0.85, 0.97), 11, 7)
-  const c = k.px(1)
-  // ---- the boss: up, held, down
-  const up = ease(win(T, 0, 0.42)), dive = win(T, 0.6, TI)
-  if (T < TI) {
-    const quiver = T > 0.42 ? Math.sin(T * 70) * 0.012 * win(T, 0.42, 0.5) : 0, d = dive * dive * dive
-    k.boss.scale = 1 + 0.32 * up + quiver - (0.32 + 0.25) * d
-    k.boss.dy = -R * 0.3 * up * (1 - d) + R * HY * d + (T > 0.42 && T < 0.6 ? Math.sin(T * 41) * R * 0.015 : 0)
-    k.boss.dx = T > 0.42 && T < 0.6 ? Math.sin(T * 57) * R * 0.012 : 0
-    // its shadow on the floor, pulled away down-right and paled as it lifts, snapping back under it as it falls
-    const h = 0.3 * up * (1 - d), f = k.floor
-    f.globalAlpha = 0.4 - 0.22 * h / 0.3; f.fillStyle = '#000'
-    f.beginPath(); f.ellipse(k.x + R * h * 0.8, k.y + R * (0.35 + h * 0.6), R * (0.9 + 0.5 * h), R * (0.9 + 0.5 * h) * FY, 0, 0, TAU); f.fill(); f.globalAlpha = 1
-    // the wingbeat that lifts it blows the dust out flat
-    const gust = win(T, 0.05, 0.6)
-    if (gust > 0 && gust < 1) for (let i = 0; i < 14; i++) {
-      const a = (i + hash(i, 41)) / 14 * TAU, d0 = R * (1 + 1.6 * ease(gust))
-      puff(c, M, k.x + Math.cos(a) * d0, k.y + R * 0.35 + Math.sin(a) * d0 * FY, R * (0.3 + 0.25 * gust), i + 40, 0.35 * Math.sin(Math.PI * gust))
-    }
-  } else {
-    k.boss.hide = true
-    // through the floor: it keeps going down the hole, smaller and darker, the near lip hiding it
-    const s = win(T, TI, TI + 0.3), sc = 0.75 * (1 - 0.7 * ease(s))
-    if (s < 1) {
-      const p = k.px(0), clip = mouthClip(k, cx, cy, Math.max(0.05, open))
-      snapAt(k, p, 0, cx, cy - R * 0.1 * (1 - s), 0, sc, sc, 1, clip)
-      shade(k, p, cx, cy, Math.max(0.05, open), 0.25 + 0.7 * s)
-    }
-  }
-  // ---- the hit: a flash, two shock rings over the floor, the dust blasted out flat
-  if (jt > 0) {
-    const fl = 1 - win(jt, 0, 0.08)
-    if (fl > 0) {
-      const g = c.createRadialGradient(cx, cy, 0, cx, cy, R * 1.8)
-      g.addColorStop(0, M.ember ?? M.lit); g.addColorStop(0.2, M.ember ?? M.dust2); g.addColorStop(1, 'rgba(0,0,0,0)')
-      c.globalAlpha = 0.8 * fl; c.fillStyle = g; c.save(); c.translate(cx, cy); c.scale(1, FY); c.translate(-cx, -cy); c.beginPath(); c.arc(cx, cy, R * 1.8, 0, TAU); c.fill(); c.restore()
-    }
-    for (let i = 0; i < 2; i++) {
-      const q = win(jt, i * 0.06, 0.5 + i * 0.12); if (q <= 0 || q >= 1) continue
-      const r = R * (1.2 + 3.6 * ease(Math.sqrt(q)))
-      c.globalAlpha = 0.75 * (1 - q); c.strokeStyle = i ? M.dust : M.dust2; c.lineWidth = (10 - 6 * q) * k.z * (i ? 0.6 : 1)
-      c.beginPath(); c.ellipse(cx, cy, r, r * FY, 0, 0, TAU); c.stroke()
-    }
-    const b = win(jt, 0, 1.8)
-    if (b < 1) for (let i = 0; i < 18; i++) {
-      const a = (i + hash(i, 43)) / 18 * TAU, d0 = R * (0.8 + (2.4 + 0.8 * hash(i, 44)) * (1 - Math.pow(1 - b, 3)))
-      puff(c, M, cx + Math.cos(a) * d0, cy + Math.sin(a) * d0 * FY - b * R * 0.2, R * (0.45 + 0.7 * b) * (0.7 + 0.5 * hash(i, 45)), i + 50, 0.7 * (1 - b) * win(jt, 0, 0.04))
-    }
-    // the floor it threw up: ballistic out of the hole, landing round it and lying there till it closes
-    const lie = 1 - win(k.u, 0.86, 0.97)
-    for (let i = 0; i < 34; i++) {
-      const a = hash(i, 31) * TAU, D = R * (1.3 + 2.6 * hash(i, 32)), p = fly(T, TI + 0.03 * hash(i, 33), cx, cy, a, D, R * (0.5 + 1.1 * hash(i, 34)), 0.45 + 0.4 * hash(i, 35))
-      if (p) piece(k, c, M, p, (3.5 + 5.5 * hash(i, 36) ** 2) * k.z, a + T * (p.down ? 0 : 6) * (hash(i, 37) - 0.5), i, lie)
-    }
-    breathe(k, M, c, cx, cy, open, T, 1.6)
-  }
-  c.globalAlpha = 1
-} })
 
 // ---- B · THE DRILL: wings folded tight, it spins up and corkscrews into the floor, grinding the hole open
 const TD = 0.75, TG = 1.35   // the drill bites, it is under

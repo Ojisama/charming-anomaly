@@ -1,5 +1,5 @@
 // THE BREAK, Topsoil (macro): the broken skin comes apart in this world's own medium while the next skin shows under it.
-// Owner ruling 2026-10-25: 0.12 s hit-stop (the sim's), then 0.8 s; the looks below are the playground's candidates.
+// Owner ruling 2026-10-25: 0.12 s hit-stop (the sim's), then 0.8 s; the look below is the one STAGE_PICK picked.
 import { Sprite } from 'pixi.js'
 import { stage, ease, win, hash, clamp01 } from '../staging.js'
 
@@ -121,30 +121,4 @@ stage('break', 'macro:A', { world: 'macro', label: 'A · bursts from the centre 
   })
 } })
 
-// ---- B: it slumps. The skin sags in on itself, its pieces sinking (shrinking, browning, going soft) one after another
-// from the middle out, while a cloud of dry soil dust billows off it, drifts down-wind and thins away.
-const SLUMP = [{ r0: 0, r1: 0.3, n: 5 }, { r0: 0.3, r1: 0.65, n: 9 }, { r0: 0.65, r1: 1, n: 13 }]
-stage('break', 'macro:B', { world: 'macro', label: 'B · slumps into a dust cloud that drifts and thins', draw(k) {
-  const tx = k.snap(k.from, k.ph0), P = cutSkin('slump', SLUMP, 7), U = k.R * 1.5, c = k.px(0), d = k.px(1)
-  k.boss.alpha = ease(win(k.u, 0.2, 0.75)); k.boss.scale = 0.92 + 0.08 * ease(win(k.u, 0.2, 0.8))
-  // the drift: down-wind (right, a little down), slowing
-  const wind = ease(win(k.u, 0, 1)), wx = U * 0.55 * wind, wy = U * 0.18 * wind
-  P.forEach((pc, i) => {
-    const t0 = 0.0 + 0.18 * pc.d + 0.06 * hash(i, 3), f = win(k.u, t0, t0 + 0.42)
-    const sc = 1 - 0.5 * ease(f), toward = 0.35 * ease(f)   // sags toward the middle
-    const tint = mixc(0xffffff, 0x8c6a48, ease(clamp01(f * 1.4)))
-    drawPiece(c, k, tx, pc, i, -pc.c[0] * U * toward + wx * 0.3 * f, -pc.c[1] * U * toward + U * 0.08 * f, 0, sc, 1 - ease(win(f, 0.35, 1)), tint)
-  })
-  // the dust: puffs born round the skin's body as it gives, swelling, drifting and thinning by the end
-  for (let i = 0; i < 26; i++) {
-    const t0 = 0.04 + 0.3 * hash(i, 11), f = win(k.u, t0, 1)
-    if (f <= 0) continue
-    const a = hash(i, 12) * TAU, r0 = U * (0.15 + 0.6 * Math.sqrt(hash(i, 13)))
-    const x = k.x + Math.cos(a) * r0 * (1 + 0.5 * ease(f)) + wx * (0.6 + 0.6 * hash(i, 14))
-    const y = k.y + Math.sin(a) * r0 * (1 + 0.5 * ease(f)) + wy * (0.6 + 0.6 * hash(i, 14))
-    const r = U * (0.22 + 0.2 * hash(i, 15)) * (0.6 + 0.9 * ease(f))
-    const al = 0.55 * win(f, 0, 0.12) * (1 - ease(win(f, 0.25, 1)))
-    puff(d, x, y, r, al, hash(i, 16) < 0.5 ? 'rgba(150,118,84,' : 'rgba(186,156,118,')
-  }
-} })
 export { win, hash }
