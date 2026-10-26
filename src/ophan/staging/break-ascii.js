@@ -72,12 +72,14 @@ stage('break', 'ascii:A', { world: 'ascii', label: 'A · glyph scatter: the skin
     const t0 = 0.04 + 0.1 * (1 - rim) + 0.05 * h1, go = 1 - Math.pow(1 - win(u, t0, 0.8), 2.6)
     const a = Math.atan2(q.oy, q.ox) + (h2 - 0.5) * 0.7, fly = k.R * (0.3 + 0.75 * h2 + 0.3 * rim) * go
     const jolt = (1 - win(u, 0, 0.06)) * k.R * 0.03
+    // tossed up a little, then gravity takes it down past where it started
+    const s = Math.max(0, u - t0), fall = k.R * (5 * s * s - (0.6 + 0.4 * h1) * s)
     let [ch, ink] = typeOf(q)
     // a step down the inks as it slows; a few throw sparks of gild early
     if (go > 0.7 && ink < 5) ink = Math.max(0, ink - 1 - (go > 0.9 ? 1 : 0))
     if (go > 0.02 && go < 0.45 && h1 > 0.7) ink = 4
-    const al = (0.35 + 0.65 * q.a) * win(u, 0, 0.04) * (1 - win(u, 0.5 + 0.3 * h1, 0.95))
-    put(c, ch, ink, k.x + q.ox + Math.cos(a) * fly + (h2 - 0.5) * jolt, k.y + q.oy + Math.sin(a) * fly, P * 1.6, al)
+    const al = (0.35 + 0.65 * q.a) * win(u, 0, 0.04) * (1 - win(u, 0.65 + 0.2 * h1, 1))
+    put(c, ch, ink, k.x + q.ox + Math.cos(a) * fly + (h2 - 0.5) * jolt, k.y + q.oy + Math.sin(a) * fly + fall, P * 1.6, al)
   }
   c.globalAlpha = 1
 } })

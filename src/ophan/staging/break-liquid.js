@@ -131,12 +131,12 @@ stage('break', 'liquid:A', { world: 'liquid', label: 'A · morph: the chrome pla
   g.globalAlpha = 1
 } })
 
-// ---- B: the ripple. A ring wave of molten metal bursts out of the boss and peels the skin off with it: the skin's pieces
-// ride the crest outward, stretched along it and thrown up toward the lens, a white-hot lip on the wave, all gone by the end.
+// ---- B: the ripple. An unseen wave bursts out of the boss and peels the skin off with it: the skin's pieces ride it
+// outward, stretched and thrown up toward the lens, white-hot as they let go, all gone by the end. No ring is drawn.
 const RIPPLE = [{ r0: 0, r1: 0.3, n: 5 }, { r0: 0.3, r1: 0.62, n: 10 }, { r0: 0.62, r1: 1, n: 16 }]
-stage('break', 'liquid:B', { world: 'liquid', label: 'B · ripple: a molten ring wave peels the skin outward', draw(k) {
+stage('break', 'liquid:B', { world: 'liquid', label: 'B · ripple: a wave peels the skin outward, no ring', draw(k) {
   const { u, x, y, R } = k, tx = k.snap(k.from, k.ph0), Pc = cutSkin('ripple', RIPPLE, 6), U = R * 1.5, c = k.px(0), g = k.px(1)
-  const w = win(u, 0.02, 0.75), wr = R * (0.3 + 2.6 * out(w, 2.2)), wa = 1 - win(u, 0.4, 0.8), heat = 1 - win(u, 0.05, 0.5)
+  const w = win(u, 0.02, 0.75), heat = 1 - win(u, 0.05, 0.5)
   Pc.forEach((pc, i) => {
     // a piece lets go when the crest reaches it, then rides it out
     const t0 = 0.02 + 0.12 * pc.d, f = win(u, t0, 0.8), fo = out(f, 2.2)
@@ -146,15 +146,6 @@ stage('break', 'liquid:B', { world: 'liquid', label: 'B · ripple: a molten ring
     drawPiece(c, k, tx, pc, i, Math.cos(a) * dist, Math.sin(a) * dist, (hash(i, 5) - 0.5) * 0.7 * fo, 1 + 0.45 * fo, al)
     if (heat > 0.02 && f > 0) { c.globalCompositeOperation = 'lighter'; drawPiece(c, k, tx, pc, i + 60, Math.cos(a) * dist, Math.sin(a) * dist, (hash(i, 5) - 0.5) * 0.7 * fo, 1 + 0.45 * fo, al * heat * 0.6, 0xffb060); c.globalCompositeOperation = 'source-over' }
   })
-  // the wave: a chrome ring (dark trough inside, the lit crest, a white-hot lip) leading the skin out
-  if (wa > 0 && w > 0) {
-    g.lineCap = 'round'
-    g.globalAlpha = 0.45 * wa; g.strokeStyle = '#1b1e23'; g.lineWidth = R * 0.22 * (1 - 0.5 * w); g.beginPath(); g.arc(x, y, wr - R * 0.12, 0, TAU); g.stroke()
-    g.globalAlpha = 0.9 * wa; g.strokeStyle = '#8b97a6'; g.lineWidth = R * 0.12 * (1 - 0.5 * w); g.beginPath(); g.arc(x, y, wr, 0, TAU); g.stroke()
-    g.strokeStyle = '#eef2f7'; g.lineWidth = R * 0.04; g.beginPath(); g.arc(x, y, wr + R * 0.03, Math.PI * 0.85, Math.PI * 1.65); g.stroke()
-    g.globalAlpha = 1
-    if (heat > 0.02) { g.globalCompositeOperation = 'lighter'; g.globalAlpha = 0.7 * heat * wa; g.strokeStyle = '#ffcf8a'; g.lineWidth = R * 0.06; g.beginPath(); g.arc(x, y, wr + R * 0.05, 0, TAU); g.stroke(); g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1 }
-  }
   glow(g, x, y, R * (0.8 + 0.8 * w), 0.45 * (1 - win(u, 0, 0.3)) * Math.min(1, u / 0.03))
 } })
 export { win, hash }

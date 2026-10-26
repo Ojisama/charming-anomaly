@@ -90,17 +90,17 @@ function puff(c, x, y, r, a, col = 'rgba(150,118,84,') {
   c.globalAlpha = a; c.fillStyle = g; c.beginPath(); c.arc(x, y, r, 0, TAU); c.fill(); c.globalAlpha = 1
 }
 
-// ---- A: it crumbles. The skin breaks into clods from its rim inward; each drops to the soil below (shrinking away from
+// ---- A: it bursts. The skin blows apart into clods from its centre outward; each is thrown out, drops to the soil below (shrinking away from
 // the lens, its shadow closing in), scatters a little, turns to a lit clod where it lands and sinks into the floor.
 const CRUMB = [{ r0: 0, r1: 0.22, n: 4 }, { r0: 0.22, r1: 0.45, n: 8 }, { r0: 0.45, r1: 0.7, n: 12 }, { r0: 0.7, r1: 1, n: 16 }]
-stage('break', 'macro:A', { world: 'macro', label: 'A · crumbles into soil clods that drop and settle', draw(k) {
+stage('break', 'macro:A', { world: 'macro', label: 'A · bursts from the centre into soil clods that drop and settle', draw(k) {
   const tx = k.snap(k.from, k.ph0), P = cutSkin('crumb', CRUMB, 3), U = k.R * 1.5, c = k.px(0), fl = k.floor
   k.boss.alpha = ease(win(k.u, 0.1, 0.65)); k.boss.scale = 0.9 + 0.1 * ease(win(k.u, 0.1, 0.7))
   P.forEach((pc, i) => {
-    // the rim goes first: it starts at t0, falls for 0.28 of the beat, lands at t1
-    const t0 = 0.02 + 0.32 * (1 - pc.d) + 0.08 * hash(i, 5), t1 = t0 + 0.28
+    // the centre goes first and the burst runs out to the rim: it starts at t0, flies for 0.28 of the beat, lands at t1
+    const t0 = 0.02 + 0.2 * pc.d + 0.04 * hash(i, 5), t1 = t0 + 0.28
     const f = win(k.u, t0, t1), ang = Math.atan2(pc.c[1], pc.c[0]) + 0.6 * (hash(i, 7) - 0.5)
-    const reach = U * (0.25 + 0.55 * pc.d + 0.25 * hash(i, 8)), ex = Math.cos(ang) * reach, ey = Math.sin(ang) * reach
+    const reach = U * (0.45 + 0.6 * pc.d + 0.3 * hash(i, 8)), ex = Math.cos(ang) * reach, ey = Math.sin(ang) * reach
     const px = k.x + pc.c[0] * U, py = k.y + pc.c[1] * U
     const rC = U * Math.min(0.15, 0.06 + 0.12 * Math.sqrt(pc.d / (CRUMB[pc.ring].n / 4))) * (0.7 + 0.5 * hash(i, 9))
     if (f < 1) {

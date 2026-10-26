@@ -3,7 +3,7 @@ import { OPHAN, OPHAN_RIG, hh, mk, TAU } from '../page.js'
 // Shape and motion come from OPHAN_RIG (cru/rig.js): this file only renders them. Drawn like the Geode's own cast
 // (src/holo.js): flat cel colour under a crisp near-black ink line (heavier on every silhouette), every blade a faceted
 // thin-film foil split by a white ridge with the geode's rainbow facets along it and a holographic sheen sliding across
-// each wing; a prismatic wheel for a halo, crystal shards for every effect.
+// each wing; crystal shards for every effect.
 // Contract: boss(c, x, y, R, t, ph) paints the boss centred at x,y, body radius ~R;
 // attack(c, x, y, R, t, ph, atk, u, px, py) the boss in its attack pose and the attack.
 OPHAN.holo = (() => {
@@ -121,52 +121,12 @@ OPHAN.holo = (() => {
     }
     return { cv, x: -1.6, y: -1.6, w: 3.2, h: 3.2 };
   }
-  // the throne: the Ophan's great wheel far out on the floor round the rig's halo, turning slowly (every phase)
-  function bakeEcho(K){
-    // two layers: the band and its ink rings (drawn translucent: light on the floor, not a solid), and twelve inked studs
-    const W = Math.ceil(3.3*K), cv = mk(W, W), st = mk(W, W), lw = Math.max(.02, 2.2/K);
-    let g = cv.getContext('2d'); g.setTransform(K, 0, 0, K, W/2, W/2); g.lineJoin = 'round';
-    {
-      for (let i = 0; i < 48; i++){ g.beginPath(); g.arc(0, 0, 1.42, i/48*TAU, (i + 1.1)/48*TAU); g.strokeStyle = film(.2 + .1*Math.sin(i/48*TAU*3), .3, .78); g.lineWidth = .09; g.stroke(); }
-      g.beginPath(); g.arc(0, 0, 1.47, 0, TAU); g.moveTo(1.37, 0); g.arc(0, 0, 1.37, 0, TAU); g.strokeStyle = INKC; g.lineWidth = lw*1.3; g.stroke();
-      g.beginPath(); g.arc(0, 0, 1.445, 0, TAU); g.strokeStyle = '#fff'; g.lineWidth = lw*.7; g.stroke();
-      g.beginPath(); g.arc(0, 0, 1.3, 0, TAU); g.strokeStyle = INKC; g.lineWidth = .035; g.stroke();
-      g.beginPath(); g.arc(0, 0, 1.3, 0, TAU); g.strokeStyle = film(.2, .2, .8); g.lineWidth = .014; g.stroke();
-      g = st.getContext('2d'); g.setTransform(K, 0, 0, K, W/2, W/2); g.lineJoin = 'round';
-      for (let i = 0; i < 12; i++){
-        const a = i/12*TAU + TAU/24, ca = Math.cos(a), sa = Math.sin(a), cx = ca*1.42, cy = sa*1.42, L = i % 3 ? .1 : .16, Ws = .05;
-        const o = [cx + ca*L, cy + sa*L], n = [cx - ca*L*.6, cy - sa*L*.6], l = [cx - sa*Ws, cy + ca*Ws], r = [cx + sa*Ws, cy - ca*Ws];
-        poly(g, [o, l, n]); g.fillStyle = film(.9 + (i % 3)*.05, .3, .8); g.fill();
-        poly(g, [o, r, n]); g.fillStyle = film(.95 + (i % 3)*.05, .3, .45); g.fill();
-        g.beginPath(); g.moveTo(...o); g.lineTo(...n); g.strokeStyle = 'rgba(255,255,255,.8)'; g.lineWidth = lw*.6; g.stroke();
-        inkP(g, [o, l, n, r], lw);
-      }
-    }
-    return { cv, st, x: -1.65, y: -1.65, w: W/K, h: W/K };
-  }
-  // the wheel (the rig's halo): a band of film colour between two ink rings and twelve crystal studs
-  function bakeWheel(K){
-    const r = RIG.HALO.r;
-    return bake(K, [-r - .2, -r - .2, r + .2, r + .2], (g, lw) => {
-      for (let i = 0; i < 36; i++){ g.beginPath(); g.arc(0, 0, r, i/36*TAU, (i + 1.1)/36*TAU); g.strokeStyle = film(.2 + .1*Math.sin(i/36*TAU*3), .22, .74); g.lineWidth = .06; g.stroke(); }
-      g.beginPath(); g.arc(0, 0, r + .035, 0, TAU); g.moveTo(r - .035, 0); g.arc(0, 0, r - .035, 0, TAU); g.strokeStyle = INKC; g.lineWidth = lw*1.3; g.stroke();
-      g.beginPath(); g.arc(0, 0, r + .02, 0, TAU); g.strokeStyle = 'rgba(255,255,255,.75)'; g.lineWidth = lw*.6; g.stroke();
-      for (let i = 0; i < 12; i++){
-        const a = i/12*TAU + TAU/24, ca = Math.cos(a), sa = Math.sin(a), cx = ca*r, cy = sa*r, L = i % 3 ? .08 : .13, W = .04;
-        const o = [cx + ca*L, cy + sa*L], n = [cx - ca*L*.5, cy - sa*L*.5], l = [cx - sa*W, cy + ca*W], rr = [cx + sa*W, cy - ca*W];
-        poly(g, [o, l, n]); g.fillStyle = film(.9 + (i % 3)*.05, .3, .8); g.fill();
-        poly(g, [o, rr, n]); g.fillStyle = film(.95 + (i % 3)*.05, .3, .45); g.fill();
-        g.beginPath(); g.moveTo(...o); g.lineTo(...n); g.strokeStyle = 'rgba(255,255,255,.8)'; g.lineWidth = lw*.6; g.stroke();
-        inkP(g, [o, l, n, rr], lw);
-      }
-    });
-  }
   function bakeRing(K){
     return bake(K, [-.17, -.17, .17, .17], (g) => { g.beginPath(); g.arc(0, 0, .135, 0, TAU); g.strokeStyle = GLOW; g.lineWidth = .032; g.stroke(); });
   }
   const cache = new Map();
   function sprites(K, c){
-    if (!cache.has(K)){ const wings = [0, 1, 2].map(i => bakeWing(K, i)); cache.set(K, { wings, glory: bakeGlory(K), echo: bakeEcho(K), core: bakeCore(K), socket: bakeSocket(K), wheel: bakeWheel(K), ring: bakeRing(K), sh: [], shr: [],
+    if (!cache.has(K)){ const wings = [0, 1, 2].map(i => bakeWing(K, i)); cache.set(K, { wings, glory: bakeGlory(K), core: bakeCore(K), socket: bakeSocket(K), ring: bakeRing(K), sh: [], shr: [],
       rag: [0, 1, 2].map(i => bakeWing(K, i, k => k % 2 === 0)), fe: RIG.WINGS.map((Wg, i) => Wg.feathers.map((q, n) => n % 2 ? bakeFeather(K, i, n) : null)) });
       for (const Wp of [...cache.get(K).wings, ...cache.get(K).rag]){ Wp.gr = tone(Wp.cv, true); Wp.bk = tone(Wp.cv, false); } }
     const S = cache.get(K);
@@ -234,12 +194,10 @@ OPHAN.holo = (() => {
     const S = sprites(K, c), lw = Math.max(1.1, R*.02)/R, Q = P.raw, B = P.body, open = P.beats.open, gp = P.eye.gape, fl = Q.fl;
     const [GX, GY] = P.gaze;
     c.save(); c.translate(x, y); c.scale(R, R);
-    // the floor layer: the glory, the wheel's far echo, the wheel itself (the halo)
-    c.save(); tf(c, B.ground || B.floor);   // ground: the floor frame without the top's yaw squash, so the wheel stays round
+    // the floor layer: the glory
+    c.save(); tf(c, B.ground || B.floor);   // ground: the floor frame without the top's yaw squash
     c.save(); c.globalCompositeOperation = 'lighter'; c.translate(RIG.EYE.x, RIG.EYE.y); c.rotate(t*.04);
     c.globalAlpha = .7*c01((.3 + .7*open)*(.8 + .2*Math.sin(t*.9))*(1 - .9*gp)*(.6 + .4*P.halo.scale)); c.scale(1 + .3*open, 1 + .3*open); put(c, S.glory); c.restore();
-    c.save(); c.translate(RIG.HALO.x, RIG.HALO.y); c.scale(P.halo.scale, P.halo.scale); c.rotate(-t*.05); const ea = 1 - .55*gp; c.globalAlpha = .36*ea; put(c, S.echo); c.globalAlpha = ea; c.drawImage(S.echo.st, S.echo.x, S.echo.y, S.echo.w, S.echo.h); c.restore();
-    c.save(); c.translate(RIG.HALO.x, RIG.HALO.y); c.scale(P.halo.scale, P.halo.scale); c.rotate(-t*.05); c.globalAlpha = 1 - .45*gp; put(c, S.wheel); c.restore();
     c.restore();
     // the wings, each through the rig's wing matrix, its sheen and its eyes
     const SH = [0, 1, 2].map(p => P.wings.some(w => w.i === p) ? sheen(S, p, t, P.wings.some(w => w.i === p && w.gap)) : null);
