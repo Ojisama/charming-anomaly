@@ -141,10 +141,12 @@ stage('break', 'liquid:B', { world: 'liquid', label: 'B · ripple: a wave peels 
     // a piece lets go when the crest reaches it, then rides it out
     const t0 = 0.02 + 0.12 * pc.d, f = win(u, t0, 0.8), fo = out(f, 2.2)
     const a = Math.atan2(pc.c[1], pc.c[0]) + (pc.d < 0.1 ? hash(i, 9) * TAU : 0)
-    const dist = (R * 0.6 + R * 1.9 * pc.d + R * 0.4 * hash(i, 4)) * fo, al = 1 - win(f, 0.45, 0.9)
+    const dist = (R * 0.6 + R * 1.9 * pc.d + R * 0.4 * hash(i, 4)) * fo, al = 1 - win(f, 0.6, 1)
     if (al <= 0.01) return
-    drawPiece(c, k, tx, pc, i, Math.cos(a) * dist, Math.sin(a) * dist, (hash(i, 5) - 0.5) * 0.7 * fo, 1 + 0.45 * fo, al)
-    if (heat > 0.02 && f > 0) { c.globalCompositeOperation = 'lighter'; drawPiece(c, k, tx, pc, i + 60, Math.cos(a) * dist, Math.sin(a) * dist, (hash(i, 5) - 0.5) * 0.7 * fo, 1 + 0.45 * fo, al * heat * 0.6, 0xffb060); c.globalCompositeOperation = 'source-over' }
+    // tossed up a little as it lets go, then gravity takes it down
+    const dx = Math.cos(a) * dist, dy = Math.sin(a) * dist + R * (4.5 * f * f - (0.8 + 0.5 * hash(i, 8)) * f)
+    drawPiece(c, k, tx, pc, i, dx, dy, (hash(i, 5) - 0.5) * 0.7 * fo, 1 + 0.45 * fo, al)
+    if (heat > 0.02 && f > 0) { c.globalCompositeOperation = 'lighter'; drawPiece(c, k, tx, pc, i + 60, dx, dy, (hash(i, 5) - 0.5) * 0.7 * fo, 1 + 0.45 * fo, al * heat * 0.6, 0xffb060); c.globalCompositeOperation = 'source-over' }
   })
   glow(g, x, y, R * (0.8 + 0.8 * w), 0.45 * (1 - win(u, 0, 0.3)) * Math.min(1, u / 0.03))
 } })
