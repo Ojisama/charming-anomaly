@@ -97,7 +97,8 @@ await ev(`localStorage.setItem('charming-anomaly-slot', '1'); localStorage.remov
   localStorage.setItem('charming-anomaly-save-v1', ${JSON.stringify(JSON.stringify(save))}); location.reload(); 1`)
 await sleep(1500)
 await until(`document.readyState === 'complete' && !!document.querySelector('[data-act="play"]:not([disabled])')`, 40000, 'the title never came back after the reload')
-await ev(`document.querySelector('[data-act="play"]').click(); 1`)
+// the Ophan renderer's warm-up logs every job it runs here ([tag, ms, need, inFight, at]): the load, job by job
+await ev(`window.__warmLog = []; document.querySelector('[data-act="play"]').click(); 1`)
 const briefAt = Date.now()
 
 // ---- the driver + recorder, one rAF loop in the page, armed during the brief ------------------------------------------
@@ -118,7 +119,8 @@ const DRIVER = `(async () => {
       rec.d.push(+(now - last).toFixed(2))
       if (document.visibilityState !== 'visible') rec.hidden++
       rec.tag.push(o ? [o.atk?.k ?? '-', o.wipe ? 'wipe' : '', o.tell > 0 ? 'tell' : o.after >= 0 ? 'swap' : '', 'w' + o.world, 's' + o.skin,
-        o.sketch ? 'sketch' : '', run.phase === 'playing' ? '' : run.phase].filter(Boolean).join(' ') : run?.phase ?? '?')
+        o.sketch ? 'sketch' : '', run.phase === 'playing' ? '' : run.phase, o.stage, 'b' + o.broken.reduce((a, v) => a + v, 0),
+        run.hitStop > 0 ? 'stop' : '', o.hole ? 'hole' : ''].filter(Boolean).join(' ') : run?.phase ?? '?')
     }
     last = now
     if (!run || run.phase === 'victory' || run.chapter !== 'ophan' || now - t0 > ${CAP_MS}) {
@@ -173,6 +175,15 @@ const worst = rec.d.map((d, i) => [d, i]).sort((a, b) => b[0] - a[0]).slice(0, 1
 for (const [d, i] of worst) console.log(`  ${d.toFixed(1).padStart(7)} ms  frame ${String(i).padStart(6)} @ ${(rec.d.slice(0, i).reduce((a, b) => a + b, 0) / 1000).toFixed(1).padStart(6)} s  ${rec.tag[i]}`)
 const checks = [[`mean >= ${PASS.fps} fps`, r.fps >= PASS.fps], [`p95 <= ${PASS.p95} ms`, r.p95 <= PASS.p95], [`no frame > ${PASS.worst} ms`, r.worst <= PASS.worst], ['reached victory', r.end === 'victory']]
 for (const [c, ok] of checks) console.log(`${ok ? 'PASS' : 'FAIL'}  ${c}`)
+// the warm-up by job kind (the tag after the world): what the brief waits on (need 0, before the fight) and the dearest one
+const warm = (await ev('window.__warmLog ?? []')) ?? []
+const byKind = {}
+for (const [tag, ms, need, inFight] of warm) {
+  const k = (tag.split(':')[1] ?? tag) + (inFight ? ' (in fight)' : need ? ' (need ' + need + ')' : '')
+  const b = (byKind[k] ??= { n: 0, ms: 0, max: 0 }); b.n++; b.ms += ms; b.max = Math.max(b.max, ms)
+}
+console.log(`warm-up: ${warm.length} jobs, ${(warm.filter((w) => !w[3]).reduce((a, w) => a + w[1], 0) / 1000).toFixed(1)} s before the fight`)
+for (const [k, b] of Object.entries(byKind).sort((a, b) => b[1].ms - a[1].ms).slice(0, 14)) console.log(`  ${k.padEnd(22)} x${String(b.n).padStart(3)}  ${b.ms.toFixed(0).padStart(6)} ms  max ${b.max.toFixed(0)} ms`)
 if (OUT) {
   mkdirSync(OUT, { recursive: true })
   const f = join(OUT, `ophan-phone-d${DIFF}-${Date.now()}.json`)
