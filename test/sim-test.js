@@ -21128,6 +21128,7 @@ run(testLeLargeWeapons)
   run(testOphanWaves)
   run(testOphanBank)
   run(testOphanArtHold)
+  run(testOphanStaging)
   run(testOphanRenderWiring)
   run(testOphanKitTells)
   run(testOphanCrowdLooks)
@@ -44186,6 +44187,75 @@ function testOphanBank() {
 
 // run OH: the boss enters a phase only once the renderer has baked that phase's art (input.ophanReady): until then the
 // wave runs on, held, and the entry comes on the first step the art is ready
+// THE STAGING's sim side (OPHAN_STAGE): each entry names its stage and plays harmless, the leave's hole sends the next
+// wave, a break holds the world, the sketch plays harmless, and the sketch's death opens no card screen
+function testOphanStaging() {
+  const dt = 1 / 60, still = { x: 0, y: 0 }
+  const r = ophanRun(1, 61), o = r.script.oph, p = r.player
+  r.weapons = []; p.hp = p.maxHP = 1e9
+  const firstThreat = (label) => {
+    let t = 0
+    ophSteps(r, Math.round(10 / dt), { before: () => { r.events.length = 0 }, after: () => { t += dt }, until: () => r.events.some((e) => e.type === 'ophanAttack' || e.type === 'ophanTell') })
+    assert.ok(t >= OPHAN_STAGE.arrive - dt, `st1: ${label}: an attack or a tell ${t.toFixed(3)} s after the entry, inside its ${OPHAN_STAGE.arrive} s`)
+  }
+  // st1 the arrival: its event names the stage (render plays the arrival on p1, a return after), then harmless
+  {
+    const q = createRun((() => { const m = makeMeta(); m.dev = true; return m })(), { chapter: 'ophan', difficulty: 1 })
+    stepSim(q, still, dt); q.script.oph.waveT = 1e-9; q.events.length = 0; stepSim(q, still, dt)
+    const e = q.events.find((x) => x.type === 'ophanEnter')
+    assert.ok(e && e.stage === 'p1', `st1: the arrival's event is ${JSON.stringify(e)}`)
+  }
+  firstThreat('the arrival')
+  // st2 two breaks send it off: a hitstop on each, every step of it frozen (the player does not move)
+  for (let i = 0; i < 2; i++) {
+    const b = ophBoss(r); o.world = o.skin; o.atk = null; b.hp = OPHAN_BREAK_FLOOR + 1; dealDamage(r, b, 5, false)
+    stepSim(r, still, dt)
+    assert.strictEqual(r.hitStop, OPHAN_STAGE.breakStop, `st2: break ${i + 1} left hitStop ${r.hitStop}`)
+    const x0 = p.x, y0 = p.y, t0 = o.t
+    let frozen = 0
+    while (r.hitStop > 0) { stepSim(r, { x: 1, y: 0 }, dt); frozen++ }
+    assert.ok(p.x === x0 && p.y === y0 && o.t === t0 && frozen >= Math.floor(OPHAN_STAGE.breakStop / dt), `st2: the freeze ran ${frozen} steps and moved the player ${(p.x - x0).toFixed(2)} px`)
+  }
+  assert.ok(o.stage === 'wave' && o.hole, `st2: two breaks left stage ${o.stage}, hole ${JSON.stringify(o.hole)}`)
+  // st3 the wave's first OPHAN_STAGE.hole.t seconds crawl out of the leave's hole, then the ordinary ring takes over
+  {
+    const h = { x: o.hole.x, y: o.hole.y }, seen = new Set(r.enemies.map((e) => e.id))   // only bodies born in the wave
+    let inHole = 0, outHole = 0, far = 0
+    ophSteps(r, Math.round((OPHAN_STAGE.hole.t + 4) / dt), { after: () => {
+      for (const e of r.enemies) if (!e._dead && e.rosterId !== 'ophan' && !seen.has(e.id)) {
+        seen.add(e.id)
+        const d = Math.hypot(e.x - h.x, e.y - h.y)
+        if (o.hole) { if (d <= OPHAN_STAGE.hole.r + 1e-6) inHole++; else outHole++ } else if (d > 2 * OPHAN_STAGE.hole.r) far++
+      }
+    }, until: () => o.stage !== 'wave' })
+    assert.ok(inHole >= 2 && outHole === 0 && far >= 1, `st3: ${inHole} spawns in the hole, ${outHole} outside it while it was open, ${far} on the ring after`)
+  }
+  // st4 the return: its event names the stage, then harmless
+  r.events.length = 0
+  ophEnterNow(r)
+  const back = r.events.find((x) => x.type === 'ophanEnter')
+  assert.ok(back && back.stage === 'p2', `st4: the return's event is ${JSON.stringify(back)}`)
+  firstThreat('the return')
+  // st5 the sketch plays harmless for its look; st6 its death is a pending win: no card screen on the kill step
+  ophBreakAll(r)
+  const cd0 = o.atkCd   // the breaking step ran one frame of it
+  assert.ok(o.sketch && !o.atk && cd0 >= OPHAN_STAGE.sketch - 2 * dt, `st5: the sketch starts with attack ${o.atk?.k}, cooldown ${o.atkCd}`)
+  {
+    let t = 0; r.events.length = 0
+    ophSteps(r, Math.round(10 / dt), { before: () => { r.events.length = 0 }, after: () => { t += dt }, until: () => r.events.some((e) => e.type === 'ophanAttack') })
+    assert.ok(t >= cd0 - dt, `st5: the sketch attacked ${t.toFixed(3)} s in`)
+  }
+  assert.ok(!ophanWinPending(r), 'st6: a live sketch reads as a pending win')
+  ophBoss(r)._dead = true
+  assert.ok(ophanWinPending(r), 'st6: a dead sketch is not read as a pending win')
+  const src = readFileSync(new URL('../src/sim.js', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1')
+  const fnAt = src.indexOf('function stepLevelUp(run)'), body = src.slice(fnAt, src.indexOf("run.phase = 'levelup'", fnAt))
+  assert.ok(/ophanWinPending\(run\)\) return/.test(body) && body.indexOf('p.level += 1') < body.indexOf('ophanWinPending'), 'st6: stepLevelUp opens a card screen on the Ophan kill step')
+  stepSim(r, still, dt)
+  assert.strictEqual(r.phase, 'victory', 'st6: the step after the kill is not the win')
+  console.log('PASS run OP.stage: entries name their stage and play harmless ' + OPHAN_STAGE.arrive + ' s, a break holds the world ' + OPHAN_STAGE.breakStop + ' s, the wave crawls out of the hole for ' + OPHAN_STAGE.hole.t + ' s, the sketch plays harmless ' + OPHAN_STAGE.sketch + ' s, its kill opens no card screen')
+}
+
 function testOphanArtHold() {
   const dt = 1 / 60
   Math.random = mulberry32(20261026)
