@@ -456,7 +456,7 @@ export function createOphanRenderer(host) {
       root.visible = false
     },
     stopWarm,
-    beats,   // the staging playground (scripts/ophan-stage/) scrubs a beat by setting its age
+    beats,   // the staging playground (ophan-stage.html) scrubs a beat by setting its age
     resize() { for (const s of Object.values(slots)) fit(s) },
     event(e) {
       switch (e.type) {
@@ -468,7 +468,7 @@ export function createOphanRenderer(host) {
         // the staging's other beats: the slot the boss was last drawn in is the skin that broke, or the one that dies
         case 'ophanBreak': beat('break', e, lastS0); return true
         case 'ophanResonance': beat('resonance', e); return true
-        // the crowd it sweeps off is gone from the run by now: where it stood last frame, for the look to scribble out
+        // the crowd it freezes (the sim removes each body on the look's own scribble clock): where it stands, to scribble out
         case 'ophanSketch': beat('sketch', { ...e, gone: e.gone ?? crowdXY.slice() }, lastS0); return true
         case 'bossDead': beat('death', e, lastS0); return true   // not the Blank's white-out, which render.js would draw
       }

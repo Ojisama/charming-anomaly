@@ -38,7 +38,7 @@ import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC
 } from './config.js'
 import { currentForce, tideForce, krakenArmInReach } from './sim.js'
 // The Kraken's ceremony (name card, phase beats, the kill). Its own import line so it merges clean.
-import { KRAKEN_BEATS, KRAKEN_CEREMONY, KRAKEN_OUTRO, OPHAN_BEATS, OPHAN_OUTRO, OPHAN_STAGE } from './config.js'
+import { KRAKEN_BEATS, KRAKEN_CEREMONY, KRAKEN_OUTRO, OPHAN_BEATS, BOSS_OUTRO, OPHAN_STAGE } from './config.js'
 import { TRAWL_WIGGLE_ARC, KRAKEN_GRIP_FLICKS } from './config.js'
 import { DRAW_CAPS } from './config.js'
 import { ELITE, gemTier } from './config.js'
@@ -29156,7 +29156,7 @@ void main() {
     if (!kDeath.on) krakenRemember()
 
     if (ophanOn && (run.bossOutroT ?? 0) > 0) {
-      const O = OPHAN_OUTRO, t = run.bossOutroT
+      const O = BOSS_OUTRO[run.chapter], t = run.bossOutroT
       cer.kind = null
       dim = O.dark * smooth01((t - O.fadeFrom) / (O.time - O.fadeFrom))
       if (t >= O.bannerAt) slainBanner(t - O.bannerAt, t, O, OPHAN_BEATS.slain.name, w, h, U)
