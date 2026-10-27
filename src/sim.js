@@ -276,7 +276,7 @@ import {
   OPHAN_BOSS, OPHAN_PLAYER_START, OPHAN_PHASE_EASE, OPHAN_ATK_CD, OPHAN_ATK_FIRST, OPHAN_HIT_CD, OPHAN_ATTACKS, OPHAN_HIT,
   OPHAN_SHOVE_DECAY, OPHAN_SKIN_HP, OPHAN_SKETCH_HP, OPHAN_BREAK_FLOOR, OPHAN_IMMUNE_CD, OPHAN_CROWD, OPHAN_WINDOW_MUL, OPHAN_RECOVERY_ON, OPHAN_HAND, OPHAN_STAGE, ophanScribbleAt,
   OPHAN_WIPE_SPEED, OPHAN_WIPE_END, OPHAN_STAGGER_T, OPHAN_ATK_SPEED, OPHAN_BOSS_SPEED, OPHAN_BOSS_HOLD, OPHAN_ENTER,
-  OPHAN_WAVE_OPEN, OPHAN_WAVE_GAP, OPHAN_WAVE,
+  OPHAN_WAVE_OPEN, OPHAN_WAVE_GAP, OPHAN_WAVE, OPHAN_SLAP_REACH, OPHAN_SLAP_CD,
 } from './config.js'
 import { crustShapeOf, poolPhaseOf, inCrustEdge, crustSdf, inPoolEdge, CRUST_EDGE_MAX, POOL_RIM_MAX } from './mantle-shape.js'
 import RIG from './ophan/rig.js'
@@ -1756,7 +1756,7 @@ function ophanEnter(run, o, stage) {
   // no attack and no tell while its entry plays (OPHAN_STAGE.arrive)
   // (both pushed back by the same amount: the first attack still comes before the first tell)
   const late = Math.max(0, OPHAN_STAGE.arrive - Math.min(OPHAN_ATK_FIRST, OPHAN_HAND.first))
-  o.atkCd = OPHAN_ATK_FIRST + late; o.swapIn = OPHAN_HAND.first + late
+  o.atkCd = OPHAN_ATK_FIRST + late; o.swapIn = OPHAN_HAND.first + late; o.slapCd = OPHAN_STAGE.arrive
   run.events.push({ type: 'ophanEnter', stage, x: e.x, y: e.y })
   return e
 }
@@ -1808,7 +1808,7 @@ function stepOphanScript(run, dt) {
     p.x = OPHAN_PLAYER_START.x; p.y = OPHAN_PLAYER_START.y
     o = run.script.oph = {
       t: 0, world: OPHAN_STAGE.open, skin: OPHAN_STAGE.open, next: -1, tell: 0, swapIn: OPHAN_HAND.first, after: -1, caught: false,
-      hp: Array(n).fill(OPHAN_SKIN_HP * run.mods.enemyHpMul), broken: Array(n).fill(0), ph: 1, atk: null, atkCd: OPHAN_ATK_FIRST, recov: false,
+      hp: Array(n).fill(OPHAN_SKIN_HP * run.mods.enemyHpMul), broken: Array(n).fill(0), ph: 1, atk: null, atkCd: OPHAN_ATK_FIRST, slapCd: 0, recov: false,
       stagger: 0, wipe: null, sketch: false, bossId: null, crowdT: OPHAN_WAVE[run.difficulty].every, immT: 0, swaps: 0,
       push: { x: 0, y: 0 }, stage: 'open', waveT: OPHAN_WAVE_OPEN, held: false, x: 0, y: 0, hole: null,
     }
@@ -1872,7 +1872,7 @@ function stepOphanScript(run, dt) {
         e.speed = 0; e.dmg = 0; e.xp = 0; e.affixes = [...(e.affixes ?? []), 'anchored']   // no knockback or pull moves it
         e._scribbleT = (ophanScribbleAt(Math.hypot(e.x - b.x, e.y - b.y)) + OPHAN_STAGE.scribble.dur) * OPHAN_STAGE.sketch
       }
-      o.atk = null; o.recov = false; o.atkCd = OPHAN_STAGE.sketch
+      o.atk = null; o.recov = false; o.atkCd = o.slapCd = OPHAN_STAGE.sketch
       run.events.push({ type: 'ophanSketch', x: b.x, y: b.y })
     } else {
       o.skin = left[Math.floor(Math.random() * left.length)]
@@ -1945,16 +1945,21 @@ function ophanFight(run, o, b, dt) {
   if (o.after >= 0 && (o.after += dt) >= OPHAN_HAND.after) o.after = -1
 
   // THE ATTACKS: one at a time, never in a tell or the hand's after-beat, the aim locked on the
-  // player where it started
-  const R = OPHAN_BOSS.R
-  if (!o.atk) {
-    o.recov = false
-    if (o.tell <= 0 && o.after < 0) o.atkCd -= dt
-    if (o.atkCd <= 0 && o.tell <= 0 && o.after < 0) {
+  // player where it started. THE WING SLAP is the basic one between them: on its own cooldown, at
+  // wing reach, whenever no big attack is due; the big attacks' clock runs on through it
+  const R = OPHAN_BOSS.R, slap = o.atk?.k === 'slap', free = o.tell <= 0 && o.after < 0
+  if (!slap) o.slapCd = Math.max(0, o.slapCd - dt)
+  if ((!o.atk || slap) && free) o.atkCd -= dt
+  if (!o.atk) o.recov = false
+  if (!o.atk && free) {
+    if (o.atkCd <= 0) {
       const pool = (o.sketch ? ch.sketchAttacks : ch.attacks[run.difficulty]).filter((k) => OPHAN_ATTACKS[k].minPh <= o.ph)
       const k = pool[Math.floor(Math.random() * pool.length)]
       o.atk = { k, u: 0, dur: OPHAN_ATTACKS[k].dur, ax: p.x, ay: p.y, hitCd: 0 }
       run.events.push({ type: 'ophanAttack', k })
+    } else if (o.slapCd <= 0 && Math.hypot(p.x - b.x, p.y - b.y) <= OPHAN_SLAP_REACH) {
+      o.atk = { k: 'slap', u: 0, dur: OPHAN_ATTACKS.slap.dur, ax: p.x, ay: p.y, hitCd: 0 }
+      run.events.push({ type: 'ophanAttack', k: 'slap' })
     }
   }
   if (o.atk) {
@@ -1963,7 +1968,8 @@ function ophanFight(run, o, b, dt) {
     a.hitCd -= dt
     if (a.u >= 1) {
       o.atk = null; o.recov = false
-      o.atkCd = OPHAN_ATK_CD[0] + Math.random() * (OPHAN_ATK_CD[1] - OPHAN_ATK_CD[0])
+      if (a.k === 'slap') o.slapCd = OPHAN_SLAP_CD
+      else o.atkCd = OPHAN_ATK_CD[0] + Math.random() * (OPHAN_ATK_CD[1] - OPHAN_ATK_CD[0])
     } else {
       const pose = RIG.pose(o.t, o.ph, a.k, a.u, (a.ax - b.x) / R, (a.ay - b.y) / R)
       o.recov = pose.beats.recovery > OPHAN_RECOVERY_ON
@@ -1972,6 +1978,8 @@ function ophanFight(run, o, b, dt) {
       // the shape moves whoever is inside it; only the damage waits on invuln and hitCd
       if (h.shove) { const f = cfg.shove * dt * OPHAN_SHOVE_DECAY; o.push.x += h.shove.x * f; o.push.y += h.shove.y * f }
       if (h.pull) { const f = cfg.pull * dt * OPHAN_SHOVE_DECAY; o.push.x += h.pull.x * f; o.push.y += h.pull.y * f }
+      // where the slap connected, for the painters' impact: it stays where the wing landed, and a dodge draws none
+      if (a.k === 'slap' && h.hit && a.hx == null) { a.hx = p.x; a.hy = p.y }
       if (h.hit && p.invuln <= 0 && a.hitCd <= 0) {
         a.hitCd = OPHAN_HIT_CD
         hurtPlayer(run, cfg[h.dmgKey] * run.mods.enemyDmgMul, false, h.src)
@@ -1981,7 +1989,7 @@ function ophanFight(run, o, b, dt) {
   }
 
   ophanShove(o, p, dt)
-  // THE CHASE: between attacks the boss closes to OPHAN_BOSS_HOLD and stands; it backs off a player
+  // THE CHASE: between attacks the boss closes to OPHAN_BOSS_HOLD (inside the slap's reach) and stands; it backs off a player
   // inside its body. From an attack's start to its end it is anchored where it stopped.
   let dx = p.x - b.x, dy = p.y - b.y, d = Math.hypot(dx, dy)
   const clear = OPHAN_BOSS.bodyR + PLAYER.radius

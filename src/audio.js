@@ -173,6 +173,12 @@ const SFX = {
     tone(72, { type: 'triangle', dur: 0.75, gain: 0.07, slide: 130 })
     noise({ dur: 0.30, gain: 0.035 })
   },
+  // THE OPHAN'S WING SLAP (owner 2026-10-26: "its own soft whoosh"): it fires about every 2s at close range, so it is
+  // quieter than clang and short, and it falls where orcaAim rises, keeping that rising note for the big attacks.
+  wingWhoosh() {
+    noise({ dur: 0.2, gain: 0.045 })
+    tone(260, { type: 'sine', dur: 0.16, gain: 0.025, slide: 130 })
+  },
   // THE SEALED HEAD REFUSING A HIT (2026-09-14). Short, hard, falling — and deliberately nothing
   // like hit(), because the entire job of this note is to NOT be mistaken for damage landing. At
   // KRAKEN_DEFLECT_CD it ticks about three times a second while a build pours into a shut boss,

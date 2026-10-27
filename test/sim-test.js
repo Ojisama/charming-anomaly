@@ -185,7 +185,7 @@ import {
   // The Kraken (run KR): the rung table and the ring's numbers
   krakenRung, krakenRungFor, KRAKEN_TURN_BAG, KRAKEN_SLAP_EVERY, KRAKEN_SLAP_COCK, KRAKEN_SLAP_SWING, KRAKEN_SLAP_FUSE, KRAKEN_SLAP_FOLLOW_T, KRAKEN_TRICKLE_T, KRAKEN_TRICKLE_EDGE, KRAKEN_TRICKLE_CLEAR, OPEN_GUARD_WINDOW_MUL, HAIR_TRIGGER_WINDOW_MUL, HAIR_TRIGGER_DMG_MUL, KRAKEN_RUNGS, KRAKEN_ARM_REACH, KRAKEN_WAVE_TIMEOUT, KRAKEN_STAGGER_BITE,
   KRAKEN_RISE_T, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, hiddenChapters, OPHAN_BOSS, OPHAN_HAND, OPHAN_HIT, OPHAN_ARENA, OPHAN_PLAYER_START, OPHAN_ATTACKS, OPHAN_CROWD, OPHAN_BREAK_FLOOR, OPHAN_SKIN_HP, OPHAN_SKETCH_HP, OPHAN_STAGGER_T, OPHAN_WINDOW_MUL, ophanView, OPHAN_GAUGE_COPY,
-  OPHAN_SWORD_REACH, OPHAN_ATK_SPEED, OPHAN_BOSS_HOLD, OPHAN_BOSS_SPEED, OPHAN_ATK_CD, OPHAN_ATK_FIRST, OPHAN_STAGE, ophanScribbleAt, OPHAN_WAVE_OPEN, OPHAN_WAVE_GAP, OPHAN_WAVE, KRAKEN_CAGE_R, KRAKEN_PARRY_CD,
+  OPHAN_SWORD_REACH, OPHAN_SLAP_REACH, OPHAN_SLAP_CD, OPHAN_ATK_SPEED, OPHAN_BOSS_HOLD, OPHAN_BOSS_SPEED, OPHAN_ATK_CD, OPHAN_ATK_FIRST, OPHAN_STAGE, ophanScribbleAt, OPHAN_WAVE_OPEN, OPHAN_WAVE_GAP, OPHAN_WAVE, KRAKEN_CAGE_R, KRAKEN_PARRY_CD,
   KRAKEN_OPEN_WAVES, KRAKEN_COIL_EVERY, KRAKEN_COIL_RAYS, KRAKEN_ENRAGE_AT, KRAKEN_RAGE_AT, KRAKEN_RAGE_HITS_MIN, KRAKEN_RAGE_HITS_MAX, KRAKEN_RAGE_VOLLEY, KRAKEN_RAGE_VOLLEY_SPREAD, KRAKEN_RAGE_FUSE, KRAKEN_RAGE_GAP, KRAKEN_RAGE_CALM, KRAKEN_RAGE_CHANCE, KRAKEN_NODE_BACK, KRAKEN_HEAD_HP, KRAKEN_HEAD_HP_AT, KRAKEN_HEAD_HP_PER_S, KRAKEN_ARRIVE_T, KRAKEN_RING_R, KRAKEN_LASH_R, KRAKEN_SLAM_T, KRAKEN_DEFLECT_CD,
   KRAKEN_LUNGE_T, KRAKEN_GRIP_DUR, KRAKEN_GRIP_DMG, KRAKEN_GRIP_FLICKS, KRAKEN_GRIP_STICK_MUL, TRAWL_WIGGLE_ARC,
   KRAKEN_LASH_W, KRAKEN_LASH_OVER, KRAKEN_LASH_DMG, KRAKEN_LESSON_MAX, KRAKEN_PARRY_SHOVE_R, KRAKEN_PARRY_EARLY_T, KRAKEN_LIMP_CLEAR, KRAKEN_ARRIVE_T2, KRAKEN_WAVE_GROWTH, KRAKEN_COIL_DMG, KRAKEN_COIL_SHADOW_SOFT, krakenCoilBandHalfW,
@@ -21128,6 +21128,7 @@ run(testLeLargeWeapons)
   run(testOphanAttackPool)
   run(testOphanSketch)
   run(testOphanOpenArena)
+  run(testOphanSlap)
   run(testOphanWaves)
   run(testOphanBank)
   run(testOphanArtHold)
@@ -43707,7 +43708,7 @@ function testOphanAttacks() {
 function ophPoolRec(r, secs, seen, until) {
   const o = r.script.oph
   return ophSteps(r, secs * 60, { until, before: () => { r.events.length = 0 }, after: () => {
-    for (const e of r.events) if (e.type === 'ophanAttack') seen.push([e.k, o.ph])
+    for (const e of r.events) if (e.type === 'ophanAttack' && e.k !== 'slap') seen.push([e.k, o.ph])   // the pool's: the slap is in none
   } }) / 60
 }
 function ophBreakN(r, m) {
@@ -43751,15 +43752,16 @@ function testOphanSketch() {
   const count = (r, t) => r.events.filter((e) => e.type === t).length
   const crowdOf = (r) => r.enemies.filter((e) => !e._dead && e.rosterId !== 'ophan')
   const swordN = Math.ceil(OPHAN_ATTACKS.sword.dur * 60) + 2
-  // s0 the sketch's pool is every attack, each one a real id (a typo would throw only once the sketch rolls it)
+  // s0 the sketch's pool is every big attack (all but the slap, which runs on its own clock), each one a real id (a
+  // typo would throw only once the sketch rolls it)
   const sa = CHAPTERS.ophan.sketchAttacks
   for (const k of sa) assert.ok(Object.hasOwn(OPHAN_ATTACKS, k), `s0: sketchAttacks names ${k}, which is no attack`)
-  assert.deepStrictEqual([...new Set(sa)].sort(), Object.keys(OPHAN_ATTACKS).sort(), 's0: sketchAttacks is not every attack')
+  assert.deepStrictEqual([...new Set(sa)].sort(), Object.keys(OPHAN_ATTACKS).filter((k) => k !== 'slap').sort(), 's0: sketchAttacks is not every big attack')
   // s1 the sketch, not a win: the crowd swept unpaid and never walking in again; its own bar, no pills
   let swept = 0
   {
     const r = ophanRun(1, 31), o = r.script.oph, p = r.player
-    p.hp = p.maxHP = 1e9; r.weapons = []
+    p.hp = p.maxHP = 1e9; r.weapons = []; o.slapCd = 1e9   // no slap: the crowd stands where the fixture expects
     ophSteps(r, 10 * 60)
     swept = crowdOf(r).length
     assert.ok(swept > 0, 's1: no crowd on the field to sweep')
@@ -43872,9 +43874,87 @@ function testOphanSketch() {
 // ---- run OP.open: rev 2's open arena (docs/superpowers/specs/2026-10-25-ophan-open-arena-design.md) -----------------
 // No wall; the boss chases to its hold distance, backs off a player in its body, stands through an attack and shrugs off
 // knockback; every attack plays OPHAN_ATK_SPEED x faster; the sword's slam lands 4x as far as v9's, its fire line with it.
+// ---- run OP.slap: the wing slap, the basic attack between the big ones, on its own clock ---------
+function testOphanSlap() {
+  const R = OPHAN_BOSS.R, hit1 = (r) => OPHAN_ATTACKS.slap.dmg * r.mods.enemyDmgMul
+  const fresh = (seed) => {
+    const r = ophanRun(3, seed), o = r.script.oph
+    o.crowdT = 1e9; o.swapIn = 1e9; o.atkCd = 50; o.slapCd = 0; r.weapons = []; r.player.hp = r.player.maxHP = 1e9
+    for (const e of r.enemies) if (e.rosterId !== 'ophan') e._dead = true
+    return { r, o, b: ophBoss(r) }
+  }
+  const put = (r, b, a, d) => { r.player.x = b.x + Math.cos(a) * d; r.player.y = b.y + Math.sin(a) * d }
+  const dist = (r, b) => Math.hypot(r.player.x - b.x, r.player.y - b.y)
+  // l0 the rig's reach is config's, and the hug stands inside it
+  assert.strictEqual(RIG.SLAP.reach * R, OPHAN_SLAP_REACH, 'l0: rig.js SLAP.reach and config OPHAN_SLAP_REACH disagree')
+  assert.ok(OPHAN_BOSS_HOLD + PLAYER.radius < OPHAN_SLAP_REACH && OPHAN_BOSS_HOLD > OPHAN_BOSS.bodyR + PLAYER.radius, `l0: hold ${OPHAN_BOSS_HOLD} is not between the body and the slap's reach`)
+  // l1 a still player in reach, five bearings: a slap starts at once, hurts once, shoves out, opens no window, and leaves
+  // the big attacks' clock running (not reset) and its own cooldown at OPHAN_SLAP_CD
+  let shoved = Infinity
+  for (const [i, a] of [0.3, 1.6, 2.9, 4.2, 5.5].entries()) {
+    const { r, o, b } = fresh(40 + i)
+    put(r, b, a, OPHAN_SLAP_REACH * 0.7)
+    stepSim(r, { x: 0, y: 0 }, 1 / 60)
+    assert.strictEqual(o.atk?.k, 'slap', `l1 ${a}: no slap started on a still player in reach`)
+    const d0 = dist(r, b), cd0 = o.atkCd
+    let n = 0, dMax = d0, recov = false, hx = null
+    n = ophSteps(r, 120, { after: () => { dMax = Math.max(dMax, dist(r, b)); recov ||= o.recov; if (o.atk?.hx != null) hx ??= { x: o.atk.hx, y: o.atk.hy } }, until: () => !o.atk })
+    // the impact's spot is where the wing landed, inside its reach, and stays there while the shove carries the player off
+    assert.ok(hx && Math.hypot(hx.x - b.x, hx.y - b.y) <= OPHAN_SLAP_REACH + PLAYER.radius && Math.hypot(r.player.x - hx.x, r.player.y - hx.y) >= 20,
+      `l1 ${a}: the slap's contact ${JSON.stringify(hx)} is not where it landed (player now ${r.player.x.toFixed(0)},${r.player.y.toFixed(0)})`)
+    const dmg = r.dmgBySrc.ophanSlap ?? 0
+    assert.ok(dmg > 0 && dmg <= Math.round(hit1(r)), `l1 ${a}: ophanSlap dealt ${dmg}, one hit is ${hit1(r)}`)
+    assert.ok(!recov, `l1 ${a}: the slap opened a damage window`)
+    assert.ok(Math.abs(cd0 - o.atkCd - n / 60) < 2 / 60, `l1 ${a}: the big attacks' clock went ${cd0} -> ${o.atkCd} over a ${n}-frame slap`)
+    assert.ok(o.slapCd > OPHAN_SLAP_CD - 2 / 60, `l1 ${a}: the slap's cooldown is ${o.slapCd} after it`)
+    shoved = Math.min(shoved, dMax - d0)
+  }
+  assert.ok(shoved >= 25, `l1: the slap shoved a still player out only ${shoved.toFixed(1)}px`)
+  // l2 the tell is fair: running straight out from the first tell frame, never hit; and the hit is on the player's side
+  for (const [i, a] of [0.3, 2.9, 4.2].entries()) {
+    const { r, o, b } = fresh(50 + i)
+    put(r, b, a, OPHAN_SLAP_REACH * 0.7)
+    stepSim(r, { x: 0, y: 0 }, 1 / 60)
+    assert.strictEqual(o.atk?.k, 'slap', `l2 ${a}: no slap started`)
+    let latched = false
+    ophSteps(r, 120, { input: { x: Math.cos(a), y: Math.sin(a) }, after: () => { latched ||= o.atk?.hx != null }, until: () => !o.atk })
+    assert.strictEqual(r.dmgBySrc.ophanSlap ?? 0, 0, `l2 ${a}: a player fleeing from the first tell frame was slapped`)
+    assert.ok(!latched, `l2 ${a}: a dodged slap latched a contact, so an impact is drawn on a player it never hit`)
+  }
+  let mirror = 0
+  for (let u = 0; u <= 1; u += 0.005) {
+    const g = RIG.attack('slap', u, 3, 0, 0, R, R * 1.2, R * 0.3)
+    if (ophanHits('slap', g, -R * 1.2, R * 0.3, PLAYER.radius, R, OPHAN_HIT).hit) mirror++
+  }
+  assert.strictEqual(mirror, 0, 'l2: a slap aimed right hits the mirror spot on the left')
+  // l3 out of reach: no slap; the hug closes in and the slap starts within reach
+  {
+    const { r, o, b } = fresh(60)
+    put(r, b, 1, 450)
+    let d = Infinity
+    const n = ophSteps(r, 600, { before: () => { d = dist(r, b) }, until: () => !!o.atk })
+    assert.ok(o.atk?.k === 'slap' && n > 30 && d <= OPHAN_SLAP_REACH, `l3: slap ${o.atk?.k} after ${n} frames from ${d.toFixed(0)}px (reach ${OPHAN_SLAP_REACH})`)
+  }
+  // l4 its own clock: back-to-back slaps on a still player are OPHAN_SLAP_CD apart, and none starts in the hand's
+  // after-beat (the hand's beats are the player's to read, as for every attack)
+  {
+    const { r, o, b } = fresh(70)
+    put(r, b, 2, OPHAN_SLAP_REACH * 0.7)
+    const starts = []
+    let beat = -1
+    ophSteps(r, 8 * 60, { before: (i) => { r.events.length = 0; if (beat < 0 && i >= 4 * 60 && !o.atk) { o.after = 0; beat = i / 60 } }, after: (i) => {
+      if (r.events.some((e) => e.type === 'ophanAttack' && e.k === 'slap')) starts.push(i / 60)
+    } })
+    const gaps = starts.slice(1).map((t, i) => t - starts[i])
+    assert.ok(starts.length >= 3 && gaps.every((g) => g >= OPHAN_SLAP_CD), `l4: slaps at ${starts.map((t) => t.toFixed(2)).join(' ')}`)
+    assert.ok(beat > 0 && starts.every((t) => t < beat || t >= beat + OPHAN_HAND.after - 1 / 60), `l4: a slap started in the after-beat ${beat}..${beat + OPHAN_HAND.after} (${starts.map((t) => t.toFixed(2)).join(' ')})`)
+  }
+  console.log(`PASS run OP.slap: reach ${OPHAN_SLAP_REACH.toFixed(1)}px (hold ${OPHAN_BOSS_HOLD.toFixed(1)}), still player hit once and shoved >= ${shoved.toFixed(0)}px on 5 bearings, a runner never hit, hug reaches 450px, own cooldown, none in an after-beat`)
+}
+
 function testOphanOpenArena() {
   const R = OPHAN_BOSS.R, A = { ...OPHAN_PLAYER_START }
-  const calm = (r) => { const o = r.script.oph; o.crowdT = 1e9; o.swapIn = 1e9; r.weapons = []; r.player.hp = r.player.maxHP = 1e9; return o }
+  const calm = (r) => { const o = r.script.oph; o.crowdT = 1e9; o.swapIn = 1e9; o.slapCd = 1e9; r.weapons = []; r.player.hp = r.player.maxHP = 1e9; return o }   // no slap: run OP.slap is its own
   const dist = (r, b) => Math.hypot(r.player.x - b.x, r.player.y - b.y)
   // o1 no wall: five seconds walking right ends far outside v9's box
   let walked
@@ -44271,13 +44351,15 @@ function testOphanStaging() {
     dealDamage(r, b, 5, false); stepSim(r, still, dt); ophThaw(r)
     if (o.bossId == null) ophEnterNow(r)
   }
-  o.atkCd = 0; o.atk = null
+  o.atkCd = 0; o.slapCd = 0; o.atk = null
   ophBreakAll(r)
   const cd0 = o.atkCd   // the breaking step ran one frame of it
   assert.ok(o.sketch && !o.atk && cd0 >= OPHAN_STAGE.sketch - 2 * dt, `st5: the sketch starts with attack ${o.atk?.k}, cooldown ${o.atkCd}`)
   {
+    // the player stands in the slap's reach, so the slap's hold is tested as well as the big attacks'
     let t = 0; r.events.length = 0
-    ophSteps(r, Math.round(10 / dt), { before: () => { r.events.length = 0 }, after: () => { t += dt }, until: () => r.events.some((e) => e.type === 'ophanAttack') })
+    const near = () => { const b = ophBoss(r); if (b) { r.player.x = b.x + OPHAN_BOSS_HOLD; r.player.y = b.y } }
+    ophSteps(r, Math.round(10 / dt), { before: () => { r.events.length = 0; near() }, after: () => { t += dt }, until: () => r.events.some((e) => e.type === 'ophanAttack') })
     assert.ok(t >= cd0 - dt, `st5: the sketch attacked ${t.toFixed(3)} s in`)
   }
   assert.ok(!ophanWinPending(r), 'st6: a live sketch reads as a pending win')

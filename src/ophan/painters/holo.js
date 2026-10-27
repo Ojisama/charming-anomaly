@@ -512,7 +512,8 @@ OPHAN.holo = (() => {
   }
   function attack(c, x, y, R, t, ph = 3, atk, u, px, py){
     const PX = (px - x)/R, PY = (py - y)/R, P = RIG.pose(t, ph, atk, u, PX, PY), A = RIG.attackUnit(atk, u, ph, PX, PY, t, P);
-    const lw = Math.max(1.1, R*.02)/R, tr = c.getTransform(), S = sprites(Math.max(24, Math.min(400, Math.round(R*Math.hypot(tr.a, tr.b)/8)*8)), c);
+    if (atk === 'slap') A.snap = RIG.slapSnap(A, u, x, y, R);
+    const lw =Math.max(1.1, R*.02)/R, tr = c.getTransform(), S = sprites(Math.max(24, Math.min(400, Math.round(R*Math.hypot(tr.a, tr.b)/8)*8)), c);
     const SW = atk === 'sword' ? peel(P, A, t, ph, u, lw) : null;
     // under the boss
     c.save(); c.translate(x, y); c.scale(R, R); c.lineCap = 'round'; c.lineJoin = 'round';
@@ -593,6 +594,17 @@ OPHAN.holo = (() => {
         c.strokeStyle = INKC; c.lineWidth = lw*5; c.stroke(); c.strokeStyle = film(.97, .3, .82); c.lineWidth = lw*2.6; c.stroke(); c.strokeStyle = '#fff'; c.lineWidth = lw*.8; c.stroke(); c.globalAlpha = 1;
         halo2(c, I.x, I.y, .7, .55, I.al, BEAM[0]); }
       SW.under.forEach(f => f(c, S));   // raised, the stacked feathers rise from behind: the body (drawn next) covers their base
+    } else if (atk === 'slap' && A.trail.length){
+      // THE WHIP: the striking wing leaves its projection behind, scanline ghosts of it along its arc (the hologram's refresh
+      // lagging the swing), and the tip's path as a foil streak round the wing's root
+      const G = RIG.slapGhosts(t, ph, A, PX, PY).map(g => [g.w, g.al]), cur = RIG.slapWing(P, A.side);
+      if (cur && G.length){ const W = RIG.whipArc(G[G.length - 1][0], cur);
+        c.globalAlpha = c01(A.speed); c.beginPath(); c.arc(W.x, W.y, W.r, W.a0, W.a0 + W.da, W.da < 0);
+        c.strokeStyle = INKC; c.lineWidth = lw*5; c.stroke(); c.strokeStyle = film(.5 + .3*u, .35, .8); c.lineWidth = lw*2.6; c.stroke(); c.strokeStyle = '#fff'; c.lineWidth = lw*.8; c.stroke(); }
+      c.save(); c.beginPath(); const sl = lw*2.2; for (let yy = -2.5; yy < 2.5; yy += sl*2) c.rect(-2.5, yy + (u*40 % 2)*sl, 5, sl); c.clip();   // only every other scan row holds the ghost
+      c.globalCompositeOperation = 'lighter';
+      G.forEach(([w, al], j) => { c.save(); tf(c, w.m); c.translate(.03*(j + 1), 0); c.globalAlpha = c01(.75*al); put(c, S.wings[1]); c.restore(); });
+      c.restore(); c.globalAlpha = 1;
     }
     c.restore();
     draw(c, x, y, R, t, ph, atk === 'wheel' ? { ...P, beats: { ...P.beats, spin: 0 } } : P);   // the wheel spins flat: not the tornado's upright wrap
@@ -679,6 +691,13 @@ OPHAN.holo = (() => {
           c.beginPath(); c.moveTo(X, Y); c.lineTo(X + lean, Y - Hk); c.strokeStyle = 'rgba(255,255,255,.85)'; c.lineWidth = lw*.7; c.stroke(); }
         if (f.h > .5) shards(c, [0, 1, 2].map(k => { const a = -Math.PI/2 + (k - 1)*.8; return [f.x + Math.cos(a)*H*.6, f.y - H*1.1 + Math.sin(a)*.05, a, .04*(f.h - .5)*2]; }), lw, f.al); }
       c.globalAlpha = 1;
+    } else if (atk === 'slap' && A.snap && A.snap.al > .02){
+      // the wing lands on the player: a crack of light and a spray of foil shards flicked on along the swing
+      const { x: X, y: Y, al, k, a } = A.snap;
+      halo2(c, X, Y, .35 + .25*k, .6, al, BEAM[0]);
+      c.globalAlpha = c01(al); c.beginPath(); for (let j = 0; j < 5; j++){ const b = a + (j - 2)*.45, L = (.18 + .22*k)*(.7 + .5*hh(j, 91)); c.moveTo(X, Y); c.lineTo(X + Math.cos(b)*L, Y + Math.sin(b)*L*.7); }
+      c.strokeStyle = INKC; c.lineWidth = lw*3; c.stroke(); c.strokeStyle = film(.97, .3, .82); c.lineWidth = lw*1.4; c.stroke(); c.globalAlpha = 1;
+      shards(c, Array.from({ length: 6 }, (_, j) => { const b = a + (hh(j, 92) - .5)*1.4, r = .12 + .5*k*(.6 + .6*hh(j, 93)); return [X + Math.cos(b)*r, Y + Math.sin(b)*r*.7 - .15*k*(1 - k)*4, b + j, .05*al]; }), lw, al);
     }
     c.restore();
   }

@@ -2291,6 +2291,7 @@ const CONFIG = {
   "The Ophan’s wheel": "La roue de l'Ophan",
   "The Ophan’s feathers": "Les plumes de l'Ophan",
   "The Ophan’s sword": "L'épée de l'Ophan",
+  "The Ophan’s wing slap": "La gifle de l'Ophan",
   "surface": "surface",
   "core": "noyau",
   "SOIL": "SOL",

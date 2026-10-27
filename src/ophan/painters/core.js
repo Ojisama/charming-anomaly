@@ -287,7 +287,7 @@ function make() { return (() => {
     // THE TOP (tornado): the body turns about the screen's vertical axis (body.yaw; body.sx = cos(yaw) already squeezes it).
     // Chrome motion blur: the wings smeared back along the spin in fading ghosts, each at an earlier yaw
     const spn = P.beats.spin, yaw = B.yaw || 0;
-    const wingXf = (w) => { const [rx, ry] = W[w.i].root; c.translate(w.side*rx, ry); c.scale(w.side, 1); c.rotate(w.rot); c.scale(w.scale, w.scale); c.translate(-rx, -ry); };
+    const wingXf = (w) => { const [rx, ry] = W[w.i].root; c.translate(w.side*rx, ry); c.scale(w.side, 1); c.rotate(w.rot); c.scale(w.scale, w.scale); if (w.k) c.transform(...w.k); c.translate(-rx, -ry); };   // k: the slap's whip bend
     if (spn > .02) for (let k=4;k>=1;k--){
       c.save(); c.setTransform(M0); c.translate(B.ox || 0, B.oy || 0); c.translate(0, py); c.scale(Math.cos(yaw - k*.15*spn), B.sy); c.rotate(B.rot); c.translate(0, -py); c.translate(B.dx, B.dy);
       for (const w of P.wings){ c.save(); wingXf(w); c.globalAlpha = w.vis*spn*(.42 - .08*k); put(c, G.wings[w.i], 0); c.restore(); }
@@ -431,6 +431,7 @@ function make() { return (() => {
   }
   function attack(c, x, y, R, t, ph = 3, atk, u, px, py){
     const PX = (px - x)/R, PY = (py - y)/R, P = RIG.pose(t, ph, atk, u, PX, PY), A = RIG.attackUnit(atk, u, ph, PX, PY, t, P);
+    if (atk === 'slap') A.snap = RIG.slapSnap(A, u, x, y, R);
     // under the boss
     c.save(); c.translate(x, y); c.scale(R, R); c.lineCap = 'round';
     if (atk === 'blast'){
@@ -457,6 +458,10 @@ function make() { return (() => {
           c.strokeStyle = 'rgba(190,16,20,' + (.5*fade).toFixed(3) + ')'; c.lineWidth = z*1.3; c.beginPath(); c.moveTo(X, Y); c.lineTo(X - Math.cos(aa)*tl, Y - Math.sin(aa)*tl); c.stroke();
           c.fillStyle = 'rgba(150,10,16,' + (fade).toFixed(3) + ')'; c.beginPath(); c.arc(X, Y, z, 0, TAU); c.fill();
           c.fillStyle = 'rgba(255,236,228,' + (fade).toFixed(3) + ')'; c.beginPath(); c.arc(X - z*.3, Y - z*.35, z*.38, 0, TAU); c.fill(); } }
+    } else if (atk === 'slap'){
+      // THE WHIP: the striking wing's metal drawn out behind its tip into one molten streak along the sweep (under the wing)
+      const G = RIG.slapGhosts(t, ph, A, PX, PY), cur = RIG.slapWing(P, A.side);
+      if (cur && G.length) whipStreak(c, RIG.whipArc(G[G.length - 1].w, cur), A.speed);
     } else if (atk === 'laser'){
       if (A.beams.length) laserFloor(c, A, t, u);
     } else if (atk === 'wheel') wheelFx(c, A, t, u, true);
@@ -492,7 +497,21 @@ function make() { return (() => {
     if (atk === 'wheel') wheelFx(c, A, t, u, false);
     if (atk === 'recall') recallFx(c, A, t, u, false);
     if (atk === 'sword') swordFx(c, A, t, u, false);
+    if (atk === 'slap' && A.snap) splash(c, A.snap.x, A.snap.y, A.snap.k, A.snap.al, 1.5, 7);   // it lands on the player: a splash of the metal
     c.restore();
+  }
+  // the whip's streak: a ribbon of chrome along the tip's arc W (RIG.whipArc), thinning back to a thread where the tip was, a
+  // red molten core down it and a white glint; k its strength
+  function whipStreak(c, W, k){
+    if (k < .02) return;
+    const N = 16, at = (v, o) => { const a = W.a0 + W.da*v, r = W.r + o; return [W.x + Math.cos(a)*r, W.y + Math.sin(a)*r]; };
+    for (const [col, w] of [['rgba(14,16,20,' + (.65*k).toFixed(3) + ')', .075], ['rgba(226,232,242,' + (.9*k).toFixed(3) + ')', .045], ['rgba(210,26,26,' + (.9*k).toFixed(3) + ')', .018], ['rgba(255,255,255,' + k.toFixed(3) + ')', .007]]){
+      c.fillStyle = col; c.beginPath();
+      for (let j = 0; j <= N; j++){ const v = j/N, [X, Y] = at(v, w*Math.pow(v, 1.4)); j ? c.lineTo(X, Y) : c.moveTo(X, Y); }
+      for (let j = N; j >= 0; j--){ const v = j/N, [X, Y] = at(v, -w*Math.pow(v, 1.4)); c.lineTo(X, Y); }
+      c.closePath(); c.fill(); }
+    const [bx, by] = at(0, 0);   // the bead the streak drags at its thin end
+    c.fillStyle = 'rgba(18,20,24,' + k.toFixed(3) + ')'; c.beginPath(); c.arc(bx, by, .02, 0, TAU); c.fill();
   }
   // ---- r33: THE WHEEL, FEATHER RECALL, SWORD SLAM ----
   // a blade feather of the liquid look: a chrome leaf from its quill (x,y) to its point, lit across its width, a red molten spine

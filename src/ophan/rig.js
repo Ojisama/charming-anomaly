@@ -95,6 +95,16 @@ export const hh = (i, j) => { const s = Math.sin(i*127.1 + j*311.7)*43758.5453; 
 //            stretches (wing.merge 0..1): draw those wings thinning and fading INTO the blade, so the blade reads as their
 //            continuation. No feathers fly in from the front. During the slam (under -> 0) it swings over the body to the front.
 //   wing.merge (sword only, up pair): 0..1, how far that wing has become the blade.
+//   slap:    { dir, side (the player's: only that side's wings swing), c:{x,y} (the boss centre), reach, a0 (screen angle the
+//              swept wedge starts at, SLAP.arc behind the aim), sweep (signed: the wedge is a0 .. a0 + sweep, growing as the front
+//              runs), front (a0 + sweep), k (0..1 through the sweep), on (the hit live), speed (0..1 the wing's swing speed),
+//              trail:[{u, al}] (after-images: pose the boss at that u and draw its striking wing faded to al, in your medium),
+//              and the impact where the sim saw it connect is RIG.slapSnap(A, u, bx, by, R): {x,y,al,k,a}|null, null on a dodge }
+//            THE WING SLAP, a WHIP: only the OUT wing on the player's side coils back away from the player, its feathers
+//            bunching (the tell, u 0 .. SLAP.on), then snaps through their bearing (SLAP.on .. SLAP.off) with the feathers
+//            trailing in a curl, overshoots and springs home. No recovery beat. The pose is per-side (raw.ss, raw.srot, raw.sk);
+//            the bend is in that wing's m, and is wing.k (the wing-local matrix after scale: rotate(rot) scale(scale)
+//            transform(k) translate(-root)) for a painter that builds the wing's transform from rot and scale; null otherwise.
 const RIG = (() => {
   const RAD = Math.PI/180;
   const LAS = { lanes: [-.09, -.27, .09, .27], past: 1.6 };   // heat-ray band, in out-eye order (left inner, left outer, right inner, right outer): each beam's sideways offset from the walking hit point; how far past the player it walks
@@ -175,7 +185,21 @@ const RIG = (() => {
       for (let n=0;n<8;n++){ const x = Math.cos(a)*r, y = Math.sin(a)*r; if (Math.abs(x) < 2.8 && y < 3.6 && y > -1.9) break; r *= .85; }
       out.push({ x: Math.cos(a)*r, y: Math.sin(a)*r }); }
     return out; };
-  const rec0 = () => ({ rot: [0, 0, 0], sc: [1, 1, 1], pin: 0, spin: 0, spinRate: 0, yaw: 0, ox: 0, px: 0, py: 0, merge: 0, dy: 0, dx: 0, sx: 1, sy: 1, bk: 1, gape: 0, eo: 1, fl: 0, tx: null, ty: null, hot: 0, lop: 1, glint: 0, ga: 0, lamp: true,
+  // THE WING SLAP: the cock (the tell) ends and the sweep runs u ON .. OFF; the wings swing COCK rad back, then SWEEP rad
+  // through; the danger front crosses ARC rad either side of the aim over the sweep, out to REACH (config OPHAN_SLAP_REACH
+  // in R, which this module cannot import: run OP.slap pins both). OUT: the out wing's rest heading, which side of it the
+  // player stands picks the sweep's way (dir +1: down, -1: up, in the mirrored frame)
+  const SLAP = { on: .5, off: .64, cock: .75, sweep: 1.25, arc: .9, reach: 1.6, out: -8*RAD };
+  const slapDir = (PX, PY) => Math.atan2(PY, Math.abs(PX)) > SLAP.out ? 1 : -1;
+  // THE WHIP: the out wing's swing (mirrored frame) at u: coiled back, snapped through, overshooting and springing home
+  const slapRot = (u, dir) => { const ck = sm(0, .3, u), sw = sm(SLAP.on, SLAP.off, u), e = u - SLAP.off;
+    return dir*(SLAP.sweep*sw*(1 + (e > 0 ? .3*Math.sin(e*TAU/.18)*Math.exp(-e/.07) : 0)) - SLAP.cock*ck*(1 - sw))*(1 - sm(.72, 1, u)); };
+  // its speed (rad per u) and the out wing's bend: [k1 (along the arm), k2 (across: < 1 the feathers bunch), lag (the tips
+  // trailing the swing, a shear across the arm per unit along it)]
+  const slapVel = (u, dir) => (slapRot(u, dir) - slapRot(Math.max(0, u - .02), dir))/.02;
+  const slapBend = (u, dir) => { const ck = sm(0, .3, u)*(1 - sm(SLAP.on, SLAP.on + .05, u)), st = Math.sin(Math.PI*cl((u - SLAP.on)/(SLAP.off - SLAP.on + .06)));
+    return [1 - .14*ck + .14*st, 1 - .42*ck + .1*st, Math.max(-.75, Math.min(.75, -.036*slapVel(u, dir)))]; };
+  const rec0 = () => ({ rot: [0, 0, 0], sc: [1, 1, 1], ss: 0, srot: [0, 0, 0], pin: 0, spin: 0, spinRate: 0, yaw: 0, ox: 0, px: 0, py: 0, merge: 0, dy: 0, dx: 0, sx: 1, sy: 1, bk: 1, gape: 0, eo: 1, fl: 0, tx: null, ty: null, hot: 0, lop: 1, glint: 0, ga: 0, lamp: true,
     windup: 0, squash: 0, strike: 0, recovery: 0, flash: 0, fire: 0 });
   function stage(atk, u, t, PX, PY, Q){
     Q.tx = PX; Q.ty = PY; Q.lamp = false;
@@ -245,6 +269,15 @@ const RIG = (() => {
       const ln = -.15*rs + .3*im; Q.px = PX/d0*ln; Q.py = PY/d0*ln; Q.sx = 1 + .2*im; Q.sy = 1 - .15*im + .06*rs; Q.dy = -.08*rs + .1*rec;
       Q.eo = 1 - .3*fm + .3*im; Q.gape = rec; Q.bk = 1 - .2*fm; Q.fl = im;
       Q.windup = fm*(1 - sm(.4, .47, u)); Q.squash = rs; Q.strike = im; Q.recovery = rec; Q.flash = im;
+    } else if (atk === 'slap'){
+      // COCK (u 0-ON, the tell): only the OUT wing on the player's side (ss) coils back away from the player's bearing, its
+      // feathers bunching, and trembles, the body drawing back. SNAP (ON-OFF): it whips through, the feathers trailing in a
+      // curl (sk), overshoots and springs home. No recovery
+      const d0 = Math.hypot(PX, PY) || 1, dir = slapDir(PX, PY), ck = sm(0, .3, u), sw = sm(SLAP.on, SLAP.off, u);
+      const r = slapRot(u, dir) + .04*Math.sin(t*31)*ck*(1 - sw);
+      Q.ss = PX < 0 ? -1 : 1; Q.srot = [0, r, 0]; Q.sk = slapBend(u, dir);
+      const ln = -.05*ck*(1 - sw) + .12*Math.sin(Math.PI*cl((u - SLAP.on)/.3)); Q.px = PX/d0*ln; Q.py = PY/d0*ln;
+      Q.windup = ck*(1 - sw); Q.strike = Math.sin(Math.PI*cl((u - SLAP.on)/(SLAP.off - SLAP.on + .1)));
     }
   }
   function pose(t, ph = 3, atk = null, u = 0, gx = 0, gy = 2.4){
@@ -252,7 +285,7 @@ const RIG = (() => {
     const Q = rec0();
     if (atk){ const Qa = rec0(), Qb = rec0();
       stage(atk, Math.max(0, u - .05), t, gx, gy, Qa); stage(atk, Math.max(0, u - .1), t, gx, gy, Qb); stage(atk, u, t, gx, gy, Q);
-      Q.rot = Qa.rot.map((v, i) => v + .8*(v - Qb.rot[i])); Q.sc = Qa.sc.map((v, i) => v + .5*(v - Qb.sc[i])); }
+      Q.rot = Qa.rot.map((v, i) => v + .8*(v - Qb.rot[i])); Q.srot = Qa.srot.map((v, i) => v + .8*(v - Qb.srot[i])); if (Qa.sk) Q.sk = Qa.sk.map((v, i) => v + .8*(v - Qb.sk[i])); Q.sc = Qa.sc.map((v, i) => v + .5*(v - Qb.sc[i])); }
     const unf = ease(cl(ph - 1)*Math.PI), open = ease(cl(ph - 2)*Math.PI), opAt = (from) => ease(cl(ph - from + 1)*Math.PI);
     const vis = (i) => i < 2 ? 1 : Math.min(1, unf*2.5);
     const lay = (sx) => mul(T(Q.ox + Q.px, Q.py), mul(mul(mul(T(0, -.1), S(sx, Q.sy)), Ro(Q.spin)), T(0, .1)));
@@ -262,11 +295,13 @@ const RIG = (() => {
     const face = Math.cos(Q.yaw), seen = cl(3*face);   // eyes shut by the time the body is edge-on (face 0) and stay hidden from behind
     for (let i=2;i>=0;i--){ if (vis(i) <= .01) continue; const Wg = WINGS[i], [rx, ry] = Wg.root, v = t*.7 + Wg.flex;
       for (const side of [-1, 1]){
-        const breathe = .055*Math.sin(v), rot = breathe - (i === 2 ? (1 - unf)*1.1 : 0) + Q.rot[i] + Q.pin*side;
+        const breathe = .055*Math.sin(v), rot = breathe - (i === 2 ? (1 - unf)*1.1 : 0) + Q.rot[i] + Q.pin*side + (side === Q.ss ? Q.srot[i] : 0);
         const scale = WS[i]*(1 + .025*Math.sin(v + .8))*(i === 2 ? .35 + .65*unf : 1)*Q.sc[i];
-        const M = mul(mul(mul(mul(mul(Mb, T(side*rx, ry)), S(side, 1)), Ro(rot)), S(scale, scale)), T(-rx, -ry));
+        // the slap's whip bend (sk) about the root, in the arm's frame: k = the wing-local matrix after scale (identity otherwise)
+        const sk = i === 1 && side === Q.ss && Q.sk, K = sk ? mul(Ro(Wg.th), mul([sk[0], sk[2], 0, sk[1], 0, 0], Ro(-Wg.th))) : null;
+        const M = mul(mul(mul(mul(mul(mul(Mb, T(side*rx, ry)), S(side, 1)), Ro(rot)), S(scale, scale)), K || T(0, 0)), T(-rx, -ry));
         const root = ap(M, rx, ry), tip = ap(M, Wg.arm[2], Wg.arm[3]), len = Math.hypot(tip[0] - root[0], tip[1] - root[1]);
-        const w = { pair: Wg.pair, i, side, vis: vis(i), rot, scale, flap: rot - breathe, curl: Wg.cv, root, tip, angle: Math.atan2(tip[1] - root[1], tip[0] - root[0]), len, width: Wg.w*Math.hypot(M[0], M[1]), m: M, eyes: [], depth: -side*Math.sin(Q.yaw), merge: i === 0 ? Q.merge : 0 };
+        const w = { pair: Wg.pair, i, side, vis: vis(i), rot, scale, flap: rot - breathe, curl: Wg.cv, root, tip, angle: Math.atan2(tip[1] - root[1], tip[0] - root[0]), len, width: Wg.w*Math.hypot(M[0], M[1]), m: M, eyes: [], depth: -side*Math.sin(Q.yaw), merge: i === 0 ? Q.merge : 0, k: K };
         for (const e of Wg.eyes){ n++; const las = i === 1, p = ap(M, e.x, e.y);
           const E = { i, side, x: p[0], y: p[1], lx: e.x, ly: e.y, rot: e.rot, r: .11*(1 + (las ? .4*Q.hot : 0)), open: opAt(e.from)*(las ? Q.lop : 1)*blink(t*.5 + n*1.37)*seen, heat: las ? Math.max(.6, Q.hot) : .6, las };
           w.eyes.push(E); eyes.push(E); if (las) out.push(p); }
@@ -364,6 +399,18 @@ const RIG = (() => {
           heading: Math.atan2(tip.y - base.y, tip.x - base.x), buried: sm(.46, .48, u)*(1 - sm(.84, .95, u)), dissolve: sm(.84, .95, u), under: 1 - sm(.42, .45, u) },
         impact: u > .465 && q < 1 ? { x: S0.x, y: S0.y, r: .3 + 1.3*q, al: 1 - q } : null,
         fire: { start: F0, end: { x: F0.x + dx*len, y: F0.y + dy*len }, dx, dy, nx, ny, len, front: len*f, w: .3, flames, on: sm(.47, .5, u)*(1 - sm(.8, .9, u)), scorch: sm(.47, .52, u)*(1 - sm(.9, 1, u)) } };
+    }
+    if (atk === 'slap'){
+      // the front, in the mirrored frame, from ARC behind the aim to ARC past it over the sweep; back to screen angles
+      const side = PX < 0 ? -1 : 1, dir = slapDir(PX, PY), aL = Math.atan2(PY, Math.abs(PX)), k = cl((u - SLAP.on)/(SLAP.off - SLAP.on));
+      const scr = (a) => side > 0 ? a : Math.PI - a, a0 = aL - dir*SLAP.arc, a1 = aL + dir*SLAP.arc*(2*k - 1);
+      // THE WHIP's look: speed (0..1, how fast the out wing swings: drive after-images from it), trail (the u's to draw the
+      // striking wing's after-images at, oldest last, with their alpha: RIG.pose(t, ph, 'slap', g.u, PX, PY)); the hit at
+      // the player is RIG.slapSnap (it needs where the slap connected, not this locked aim)
+      const speed = cl(Math.abs(slapVel(u, dir))/9), trail = [];
+      if (speed > .05 && u > SLAP.on - .01) for (let n=1;n<=3;n++) trail.push({ u: Math.max(0, u - .022*n), al: speed*(1 - n/4) });
+      return { dir: phi, side, c: { x: 0, y: 0 }, reach: SLAP.reach, a0: scr(a0), sweep: side*(a1 - a0), front: scr(a1), k,
+        on: sm(SLAP.on - .02, SLAP.on, u)*(1 - sm(SLAP.off, SLAP.off + .04, u)), speed, trail };
     }
     return {};
   }
@@ -465,6 +512,28 @@ const RIG = (() => {
     return { tip, grip, palm, ang, z, scale: sc, shadow, stroke: { pts, w: 1.15 }, paint, touch, u };
   }
   function attack(atk, u, ph, bx, by, R, px, py, t = 0, P = null){ return toWorld(attackUnit(atk, u, ph, (px - bx)/R, (py - by)/R, t, P), bx, by, R); }
-  return { WINGS, CORE, EYE, HALO, feather, pose, attackUnit, attack, hand, HAND_DUR, HAND_WIN, ROAM, SWORD_REACH, uRate, mul, apply: ap, ease, sm, cl };
+  // THE WHIP's helpers for the painters (boss units): the striking wing of pose P; its after-images [{ w, al }] from the
+  // slap geometry A (attackUnit's trail; PX, PY the player as given to pose); the arc its longest primary's tip swept from
+  // wing w0 to w1, round w1's root: { x, y, r, a0, da } (canvas arc(x, y, r, a0, a0 + da, da < 0))
+  const slapWing = (P, side) => P.wings.find((w) => w.i === 1 && w.side === side);
+  // the slap's impact where it connected (globalThis.OPH_SLAP_HIT: the sim's latched contact in painter coords, null on a
+  // dodge and outside the fight draw), in A's frame: A = attackUnit('slap') with (bx, by, R) the painter's boss centre and
+  // radius, or A = attack('slap') with (0, 0, 1). Placed in the swept wedge and held past the sweep so it decays;
+  // al fades from the front's crossing, k grows from it, a = the swing's heading there.
+  const slapSnap = (A, u, bx, by, R) => {
+    const L = globalThis.OPH_SLAP_HIT; if (!L || !(u > SLAP.on)) return null;
+    const x = (L.x - bx)/R, y = (L.y - by)/R, dx = x - A.c.x, dy = y - A.c.y, d = Math.hypot(dx, dy);
+    if (d > A.reach*1.18) return null;
+    const sg = Math.sign(A.sweep || 1), ang = Math.atan2(dy, dx); let da = ang - A.a0;
+    da = Math.atan2(Math.sin(da), Math.cos(da))*sg;
+    if (da < 0 || da > Math.abs(A.sweep)) return null;
+    const e = (Math.abs(A.sweep) - da)/(2*SLAP.arc)*(SLAP.off - SLAP.on) + Math.max(0, u - SLAP.off);
+    return { x, y, al: Math.exp(-e/.12), k: cl(e/.16), a: ang + sg*Math.PI/2 };
+  };
+  const slapGhosts = (t, ph, A, PX, PY) => A.trail.map((g) => ({ w: slapWing(pose(t, ph, 'slap', g.u, PX, PY), A.side), al: g.al })).filter((g) => g.w);
+  const WHIP_TIP = WINGS[1].feathers[5].sp[10];
+  const whipArc = (w0, w1) => { const [x, y] = w1.root, p = ap(w0.m, WHIP_TIP[0], WHIP_TIP[1]), q = ap(w1.m, WHIP_TIP[0], WHIP_TIP[1]), a0 = Math.atan2(p[1] - y, p[0] - x);
+    let da = Math.atan2(q[1] - y, q[0] - x) - a0; da -= TAU*Math.round(da/TAU); return { x, y, r: Math.hypot(q[0] - x, q[1] - y), a0, da }; };
+  return { WINGS, CORE, EYE, HALO, feather, pose, attackUnit, attack, hand, HAND_DUR, HAND_WIN, ROAM, SWORD_REACH, SLAP, slapWing, slapSnap, slapGhosts, whipArc, uRate, mul, apply: ap, ease, sm, cl };
 })();
 export default RIG

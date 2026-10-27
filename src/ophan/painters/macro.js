@@ -485,6 +485,7 @@ OPHAN.macro = (() => {
     attack(c, x, y, R, t, ph = 3, atk, u, px, py){
       const m = c.getTransform(), k = Math.hypot(m.a, m.b), S = Math.max(8, Math.round(R*k)), B = bakes(S), F = fx(S);
       const PX = (px - x)/R, PY = (py - y)/R, P = RIG.pose(t, ph, atk, u, PX, PY), A = RIG.attackUnit(atk, u, ph, PX, PY, t, P), bt = P.beats, rec = bt.recovery;
+      if (atk === 'slap') A.snap = RIG.slapSnap(A, u, x, y, R);
       const under = [], over = [];                                    // effect painters in R units round the boss, below and above the creature
       if (atk === 'blast'){
         const gi = bt.windup*(1 - bt.strike)*(A.sheet ? 0 : 1);
@@ -721,6 +722,26 @@ OPHAN.macro = (() => {
           const rx = fl.x + (hh(i, 564) - .5)*fl.sz*.6, ry = fl.y, rh = H*.5; c.beginPath(); c.moveTo(rx, ry); c.quadraticCurveTo(rx + .08, ry - rh*.6, rx - .04, ry - rh);
           c.lineWidth = .03; c.strokeStyle = 'rgba(30,14,6,1)'; c.stroke(); c.globalCompositeOperation = 'lighter'; c.lineWidth = .01; c.strokeStyle = 'rgba(255,150,50,1)'; c.stroke(); c.restore();
           c.save(); c.globalAlpha = .4*fl.al; c.translate(fl.x + LX*.2, fl.y - H*1.3); c.scale(fl.sz*.8, fl.sz*.8); put(c, F.puff); c.restore(); } });
+      } else if (atk === 'slap'){
+        // THE WHIP: the striking wing smeared along its arc (the shutter open on it: thin copies at the u's just past), the
+        // soil its tip skims kicked up in dust, and a puff of grit and a shaken feather where it lands on the player
+        const sw = (v) => RIG.slapWing(RIG.pose(t, ph, atk, v, PX, PY), A.side);
+        if (A.trail.length){ const N = 7, gs = [];
+          for (let n = 1; n <= N; n++){ const w = sw(Math.max(0, u - .07*n/N)); if (w) gs.push([w, A.speed*(1 - n/(N + 1))]); }
+          under.push(() => { for (const [w, al] of gs){ c.save(); c.globalAlpha = .3*al; wing(c, B, w, false, 0); c.restore(); } });
+          under.push(() => { for (const [w, al] of gs){ const [tx, ty] = w.tip, q = w.len*.55, dx = Math.cos(w.angle)*q, dy = Math.sin(w.angle)*q;   // the soil under the swept tips
+            c.save(); c.globalAlpha = .55*al*al; c.translate(tx + dx, ty + dy + .1); c.rotate(w.angle); c.scale(.28, .16); put(c, F.dust); c.restore(); } }); }
+        const S2 = A.snap;
+        if (S2 && S2.al > .02){ const hx = Math.cos(S2.a), hy = Math.sin(S2.a), k = S2.k;
+          over.push(() => { c.save();
+            c.globalAlpha = .9*S2.al; c.translate(S2.x, S2.y); c.scale(.3 + .3*k, .22 + .2*k); put(c, F.dust); c.restore();   // the grit it slaps off the soil
+            for (let j = 0; j < 7; j++){ const s = (.12 + .45*k)*(.6 + .6*hh(j, 621)), ox = (hh(j, 622) - .5)*.35, hgt = .25*Math.sin(Math.PI*Math.min(1, k*1.3 + .1*j/7)), pr = .03 + .03*hh(j, 623);
+              const gx = S2.x + hx*s - hy*ox, gy = S2.y + hy*s + hx*ox;   // pebbles flicked on along the swing
+              c.globalAlpha = S2.al; c.beginPath(); c.ellipse(gx - LX*hgt*.4, gy - LY*hgt*.4, pr*1.1, pr*.8, 0, 0, TAU); c.fillStyle = 'rgba(10,5,2,.5)'; c.fill();
+              c.beginPath(); c.ellipse(gx, gy - hgt, pr, pr*.8, j, 0, TAU); c.fillStyle = C([0x6a5a48, 0x8a6a4a, 0x4a3a2a, 0x9a8a72][j % 4]); c.fill();
+              c.beginPath(); c.arc(gx + LX*pr*.3, gy - hgt + LY*pr*.3, pr*.45, 0, TAU); c.fillStyle = 'rgba(255,236,196,.6)'; c.fill(); }
+            c.save(); c.globalAlpha = S2.al; c.translate(S2.x + hx*.3*k, S2.y + hy*.3*k - .2*k); c.rotate(S2.a + 2.5*k); c.scale(.8, .8); put(c, F.loose); c.restore();   // a feather knocked loose
+            c.restore(); }); }
       }
       c.save(); c.translate(x, y); c.scale(R, R); c.lineCap = 'round';
       scene(c, B, t, ph, P, .85*rec, under, over);

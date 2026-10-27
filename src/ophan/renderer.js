@@ -381,7 +381,7 @@ export function createOphanRenderer(host) {
     prewarm(step = null) {
       onStep = step; briefing = true
       const ch = CHAPTERS.ophan, z = ophanView(app.screen.width, app.screen.height).z, add = []
-      const first = (k) => +Object.keys(ch.attacks).find((p) => ch.attacks[p].includes(k))
+      const first = (k) => +(Object.keys(ch.attacks).find((p) => ch.attacks[p].includes(k)) ?? 1)   // the slap, in no pool, comes in phase 1
       // need n, jobs fs, tagged for the load probe (window.__warmLog)
       const q = (need, tag, ...fs) => { for (const f of fs) { f.need = need; f.tag = tag; add.push(f) } }
       for (const id of new Set([...ch.worlds.map((w) => w.look), 'pencil'])) {
@@ -409,7 +409,7 @@ export function createOphanRenderer(host) {
           if (FN) for (let j = 0; j < FN; j++) q(0, id + ':frame', at((s, R) => { wpx.grace = 0; window.OPH_PH = ph; boss(s, s.w / 2, s.h / 3, R, (j + 0.5) / 10, ph, null, 0, 0, 0, wpx); shot(warmC) }))
           else q(0, id + ':boss', at((s, R) => { window.OPH_PH = ph; boss(s, s.w / 2, s.h / 3, R, 0, ph, null, 0, 0, 0, wpx) }), () => shot(warmC))
         }
-        for (const k of sk ? ch.sketchAttacks : [...new Set(Object.values(ch.attacks).flat())]) {
+        for (const k of [...new Set([...(sk ? ch.sketchAttacks : Object.values(ch.attacks).flat()), 'slap'])]) {
           const ph = sk ? 4 : Math.max(1, OPHAN_ATTACKS[k].minPh), need = DEAR_ATK.has(id) ? 0 : sk ? 3 : first(k)
           // the Magma cuts an attack's frames as the fight first shows them, at the fight's own aim: one frame warms its draw
           if (FN) q(need, id + ':atk', at((s, R) => { wpx.grace = 0; window.OPH_PH = ph; boss(s, s.w / 2, s.h / 3, R, 0, ph, k, 0, s.w / 2, s.h / 3 + OPHAN_BOSS_HOLD * R / OPHAN_BOSS.R, wpx); shot(warmC) }))
@@ -647,7 +647,10 @@ export function createOphanRenderer(host) {
         lastPh = bph
         if (!ov.hide && al > 0) within(BS.g, () => {
           window.OPH_PH = bph
-          boss(BS, bx, by, R, t, bph, a && a.k, Math.min(1, a ? a.u : 0), a ? sx(BS, a.ax) : 0, a ? sy(BS, a.ay) : 0, bp)
+          // where the slap connected (the sim's a.hx, a.hy), in the painter's coords: (ppx, ppy) is the attack's LOCKED aim,
+          // this is the player where the wing landed; null on a dodge and in every other boss draw (prewarms, cards)
+          window.OPH_SLAP_HIT = a?.hx != null ? { x: sx(BS, a.hx), y: sy(BS, a.hy) } : null
+          try { boss(BS, bx, by, R, t, bph, a && a.k, Math.min(1, a ? a.u : 0), a ? sx(BS, a.ax) : 0, a ? sy(BS, a.ay) : 0, bp) } finally { window.OPH_SLAP_HIT = null }
         })
         // THE HAND: the next world's hand shadow slides in over the tell (src2.html handShadow, eased), tinted its colour
         if (b && oph?.tell > 0 && oph.next >= 0 && shades[oph.next]) {

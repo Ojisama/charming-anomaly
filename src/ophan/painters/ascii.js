@@ -553,6 +553,25 @@ OPHAN.ascii = (() => {
         put(c, sc, q % 2 ? "'" : '*', q % 2 ? WARN : WHITE, f.x + Math.cos(a)*sp*fq, f.y + Math.sin(a)*sp*fq + .7*R*fq*fq, cs*2.4, f.al*Math.sin(Math.PI*fq), q % 2 === 0); } }
     if (Fi.on > .01 && Fi.front < Fi.len){ const X = Fi.start.x + Fi.dx*Fi.front, Y = Fi.start.y + Fi.dy*Fi.front; put(c, sc, '*', DAMP, X, Y, cs*7, .6*Fi.on, true); }
   }
+  // slap: THE WHIP. The striking wing's glyphs left behind along its arc as fading copies (lit glyphs only, the cell backing
+  // drops out), its tip's path typed in speed strokes; where it lands on the player, a small burst of typed impact
+  function slap(c, x, y, R, t, ph, u, P, A, sc, cs){
+    const B = baked(R*sc), p = B.wings[1], G = RIG.slapGhosts(t, ph, A, P.gaze[0], P.gaze[1]), cur = RIG.slapWing(P, A.side);
+    c.save(); c.translate(x, y); c.scale(R, R); c.globalCompositeOperation = 'lighter';
+    G.forEach(({ w, al }) => { c.save(); c.transform(...w.m); c.globalAlpha = .7*al; lay(c, p); c.restore(); });
+    c.restore();
+    if (cur && G.length){ const W = RIG.whipArc(G[G.length - 1].w, cur), n = Math.max(2, Math.round(Math.abs(W.da)*W.r*R/(cs*1.5)));   // speed strokes along the tip's sweep, freshest brightest
+      for (const [o, col] of [[0, WHITE], [-cs*1.5/R, DUST]]) for (let q = 0; q <= n; q++){ const v = q/n, a = W.a0 + W.da*v, rr = W.r + o;
+        put(c, sc, edgeCh(a + Math.PI/2), col, x + (W.x + Math.cos(a)*rr)*R, y + (W.y + Math.sin(a)*rr)*R, cs*2.6, A.speed*(.3 + .7*v)*(o ? .6 : 1), false); } }
+    draw(c, x, y, R, t, ph, P);
+    const S = A.snap; if (!S || S.al < .02) return;
+    const k = S.k, hx = Math.cos(S.a), hy = Math.sin(S.a);
+    put(c, sc, '*', HOT, S.x, S.y, cs*(3 + 2*k), .7*S.al, true);
+    put(c, sc, 'X', WHITE, S.x, S.y, cs*(3.2 - k), S.al, false);
+    for (let j = -2; j <= 2; j++){ const a = S.a + j*.45, r0 = cs*1.6, r1 = r0 + (.25 + .35*k)*R;
+      ray(c, sc, edgeCh(a), j ? WARN : WHITE, S.x, S.y, a, r0 + k*.2*R, r1, cs*1.8, cs*2.2, S.al*(j ? .8 : 1), false); }
+    for (let j = 0; j < 4; j++) put(c, sc, "'.,`"[j], DUST, S.x + hx*(.2 + .45*k)*R + (hh(j, 31) - .5)*.4*R, S.y + hy*(.2 + .45*k)*R + (hh(j, 32) - .5)*.4*R, cs*2.4, S.al, false);
+  }
   return {
     boss(c, x, y, R, t, ph = 3){ draw(c, x, y, R, t, ph, RIG.pose(t, ph)); },
     // is (x, y), in boss radii, on a wing's feathers in pose P (RIG.pose)? The hand stamps letters only there
@@ -561,10 +580,11 @@ OPHAN.ascii = (() => {
     // attack(c, x, y, R, t, ph, atk, u, px, py): the boss in the rig's attack pose plus the effect on the rig's geometry
     attack(c, x, y, R, t, ph = 3, atk, u, px, py){
       const m = c.getTransform(), sc = Math.hypot(m.a, m.b) || 1, cs = R*CS, P = RIG.pose(t, ph, atk, u, (px - x)/R, (py - y)/R), A = RIG.attack(atk, u, ph, x, y, R, px, py, t, P);
+      if (atk === 'slap') A.snap = RIG.slapSnap(A, u, 0, 0, 1);
       if (atk === 'tornado' && P.beats.spin > .01) P.ghosts = [1, 2, 3].map(k => RIG.pose(t, ph, atk, Math.max(0, u - .0035*k), (px - x)/R, (py - y)/R));
-      ({ tornado, laser, wheel, recall, sword }[atk] || blast)(c, x, y, R, t, ph, u, P, A, sc, cs);
+      ({ tornado, laser, wheel, recall, sword, slap }[atk] || blast)(c, x, y, R, t, ph, u, P, A, sc, cs);
       // the impact: a burst of light strokes thrown out round the boss on the rig's strike beat
-      const imp = atk === 'wheel' || atk === 'sword' ? 0 : P.beats.strike;   // the moving attacks draw their own impacts
+      const imp = atk === 'wheel' || atk === 'sword' || atk === 'slap' ? 0 : P.beats.strike;   // the moving attacks and the slap draw their own impacts
       if (imp > .01) for (let k=0;k<24;k++){ const a = k/24*TAU, r0 = 1.45*R, r1 = r0 + (.5 + 1.1*imp)*R;
         ray(c, sc, edgeCh(a), k % 2 ? WARN : 'rgb(255,246,220)', x, y, a, r0, r1, cs*2.2, cs*2.6, .9*imp, false); }
       c.globalAlpha = 1;
