@@ -2712,7 +2712,7 @@ function generateWells(sig) {
   *       hp; dealDamage floors it at OPHAN_BREAK_FLOOR so a skin BREAKS (ophanBreak) and is never
   *       killed; a break holds the world still for OPHAN_STAGE.breakStop (run.hitStop). The last
   *       skin broken leaves the sketch (ophanSketch). The script moves it: between
-  *       attacks it closes on the player at OPHAN_BOSS_SPEED to OPHAN_BOSS_HOLD (backing off a player
+  *       attacks it closes on the player at OPHAN_BOSS_SPEED to OPHAN_BOSS_HOLD, inside wing reach (backing off a player
   *       inside its body); during an attack it stands. x, y — its last position (the win's spot).
   *     stage — 'open' | 'p1' | 'wave' | 'p2' | 'p3': the opening wave (OPHAN_WAVE_OPEN s), a boss
   *       phase, or a wave between phases (OPHAN_WAVE_GAP s). waveT — seconds left of the wave, 0 in a
@@ -2731,12 +2731,16 @@ function generateWells(sig) {
   *       is frozen (speed 0, dmg 0, xp 0, 'anchored', damageImmune) and each body carries _scribbleT,
   *       seconds until it is crossed out (ophanScribbleAt of its distance to the boss, the renderer's
   *       own clock), then removed unpaid.
-  *     atk — null | { k, u (0..1, advancing OPHAN_ATK_SPEED / dur a second), dur, ax, ay (the aim, locked on the player at the start), hitCd };
-  *       atkCd — seconds to the next one while none runs. recov — the rig's recovery pose is up.
+  *     atk — null | { k, u (0..1, advancing OPHAN_ATK_SPEED / dur a second), dur, ax, ay (the aim, locked on the player at the start), hitCd, and for a slap hx, hy once it connects (the player's spot then, for the impact) };
+  *       k slap is THE WING SLAP, the basic attack: in no pool (CHAPTERS.ophan.attacks / sketchAttacks), started when
+  *       none runs, no big one is due, slapCd is 0, no tell or after-beat runs and the player is within
+  *       OPHAN_SLAP_REACH; it leaves atkCd ticking and sets slapCd = OPHAN_SLAP_CD as it ends; no recovery pose.
+  *       atkCd — seconds to the next big one (it ticks through a slap). slapCd — seconds to the next slap (held
+  *       past every entry and the sketch's start like atkCd). recov — the rig's recovery pose is up.
   *       stagger — seconds of resonance stagger left. Either doubles damage (OPHAN_WINDOW_MUL).
   *     immT — ophanImmune's throttle. crowdT — seconds to the next crowd spawn (on the ordinary
   *       off-screen ring; stepStragglers recycles it ahead of a kiting player, the only scripted
-  *       chapter it does). push {x, y} — the player's shove/pull velocity from the blast and the tornado.
+  *       chapter it does). push {x, y} — the player's shove/pull velocity from the blast, the slap and the tornado.
   * bossBar: null whenever no scripted boss is alive; while one is, { hp, max, stage } mirrors the
   *   current phase entity so ui.js can render a boss HP bar without reaching into run.enemies
   *   (rampage pattern: the field always exists, stays inert for every non-scripted chapter).
@@ -2847,7 +2851,7 @@ function generateWells(sig) {
  *   follows), {type:'yank', x, y} (a P2 binding-node timeout dragging the player toward the boss).
  *   The Ophan pushes bossDead (its sketch killed), {type:'ophanSketch', x, y} (the last skin broke:
  *   the sketch rises) and: {type:'ophanAttack', k} (an attack starts;
- *   k = blast|tornado|laser|wheel|recall|sword), {type:'ophanImmune', x, y, ang} (a hit refused in
+ *   k = blast|tornado|laser|wheel|recall|sword|slap), {type:'ophanImmune', x, y, ang} (a hit refused in
  *   another world, on the body's edge toward the player, at most every OPHAN_IMMUNE_CD), and
  *   {type:'ophanBreak', skin, x, y} (a skin broke), {type:'ophanWorld', from, to, x, y} (the player
  *   switched world; x/y = the wipe's centre), {type:'ophanRefuse', k} (a press on a broken band, or any in the sketch),

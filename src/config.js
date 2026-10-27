@@ -10209,9 +10209,11 @@ export const OPHAN_ATK_SPEED = 1.5
 export const OPHAN_SWORD_REACH = 8.7
 // balance_decision : matches player base; kite arm stalled at 0.9x 2026-10-25
 export const OPHAN_BOSS_SPEED = PLAYER.baseSpeed
-// balance_decision : the boss stops closing 2 R from the player 2026-10-25
-//  - must stay < phone half-width 195
-export const OPHAN_BOSS_HOLD = 2 * OPHAN_BOSS.R
+// balance_decision : the boss hugs to wing reach, slaps between attacks 2026-10-26
+//  - HOLD must stay inside SLAP_REACH - PLAYER.radius and outside bodyR + PLAYER.radius
+export const OPHAN_BOSS_HOLD = 1.1 * OPHAN_BOSS.R
+export const OPHAN_SLAP_REACH = 1.6 * OPHAN_BOSS.R
+export const OPHAN_SLAP_CD = 1.6
 // it enters this fraction of the half view from the player: on screen, outside the screen's centre third
 export const OPHAN_ENTER = 0.6
 // balance_decision : opening wave 30 s, 15 s between phases 2026-10-25
@@ -10231,9 +10233,11 @@ export const OPHAN_ATTACKS = {
   wheel:   { dur: 4.2,  dmg: 352, minPh: 1 },
   recall:  { dur: 4.4,  dmg: 192, minPh: 1 },
   sword:   { dur: 3.4,  dmg: 208, fireDmg: 80, minPh: 1 },
+  // the wing slap: the basic attack between the others, never in CHAPTERS.ophan's pools (OPHAN_SLAP_REACH, OPHAN_SLAP_CD)
+  slap:    { dur: 1.2,  dmg: 46, shove: 2400, minPh: 1 },
 }
 // the animation-progress thresholds hit.js tests each attack's hit against
-export const OPHAN_HIT = { blastFade: 0.3, tornadoAlive: 0.5, tornadoPullR: 1.5, laserFire: 0.5, laserHitR: 0.14, wheelRoll: 0.5, impactAl: 0.7, fireOn: 0.5 }
+export const OPHAN_HIT = { blastFade: 0.3, tornadoAlive: 0.5, tornadoPullR: 1.5, laserFire: 0.5, laserHitR: 0.14, wheelRoll: 0.5, impactAl: 0.7, fireOn: 0.5, slapOn: 0.5 }
 export const OPHAN_SHOVE_DECAY = 6   // per second
 // balance_decision : skin hp sets the fight's length 2026-10-24
 export const OPHAN_SKIN_HP = 800
@@ -14404,6 +14408,7 @@ export const DMG_SRC_NAME = {
   // The Ophan's six attacks
   ophanBlast: 'The Ophan’s wing blast', ophanTornado: 'The Ophan’s tornado', ophanLaser: 'The Ophan’s eyes',
   ophanWheel: 'The Ophan’s wheel', ophanRecall: 'The Ophan’s feathers', ophanSword: 'The Ophan’s sword',
+  ophanSlap: 'The Ophan’s wing slap',
   // Book 2's hazards and resource costs
   // THE REEF ONLY, and this comment was briefly "every Book 2 chapter" until the audit checked:
   // stepDrown returns early unless the chapter's resource declares `drown`, and The Reef's Air is the
@@ -14503,7 +14508,7 @@ export function dmgSrcName(src) {
 // summary must never show a creature that did not do the thing (v6.7.1's 🐻 for the tardigrade is
 // the same mistake with a different mechanism).
 export const DMG_SRC_ART = { yank: 'bindnode', leak: 'invader',
-  ophanBlast: 'ophan', ophanTornado: 'ophan', ophanLaser: 'ophan', ophanWheel: 'ophan', ophanRecall: 'ophan', ophanSword: 'ophan' }
+  ophanBlast: 'ophan', ophanTornado: 'ophan', ophanLaser: 'ophan', ophanWheel: 'ophan', ophanRecall: 'ophan', ophanSword: 'ophan', ophanSlap: 'ophan' }
 
 /** Thumbnail id for a damage source: its alias if it has one, else the src itself. */
 export function dmgSrcArt(src) {

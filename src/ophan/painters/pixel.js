@@ -266,6 +266,7 @@ OPHAN.pixel = (() => {
   // stage; 1 outside the game tech) and stepped at 10 fps. Each attack sheet also carries the smear's two tinted silhouettes.
   // ponytail: an attack's aim is held to 16 directions and half-radius reach steps, and its pose clock to t = 0; finer = more sheets
   const SHEETS = new Map(), FN = 41, GHOST = ['#7a1004', '#d8340c'], AP = () => globalThis.PIXEL_ART_PX || 1;
+  const DITH = mk(2, 2); { const g = DITH.getContext('2d'); g.fillStyle = '#000'; g.fillRect(0, 0, 1, 1); g.fillRect(1, 1, 1, 1); }   // a checker: the smear's dither
   // the tornado core's dither as a strip, pixel i '#fff4c4' when odd: a run at x of row y is the crop from (x + y) & 1
   // ponytail: 4096 px is wider than any core run (a few hundred px); a wider screen would need a longer strip
   const CHK = mk(4096, 1); { const g = CHK.getContext('2d'); g.fillStyle = '#ffd858'; g.fillRect(0, 0, 4096, 1); g.fillStyle = '#fff4c4'; for (let i = 1; i < 4096; i += 2) g.fillRect(i, 0, 1, 1); }
@@ -281,7 +282,9 @@ OPHAN.pixel = (() => {
   let BK = 0;   // frames baked so far
   function frame(S, i, cols = []){ let F = S.F[i];   // frame i, rastered when first shown (a whole sheet at once was a 100-330 ms phone frame mid-attack); cols: its smear tints too
     if (!F){ const q = S.poseAt(i), s = raster(S.Rr, q.t, S.ph, q.P, look(q.P), false, q.o), cv = mk(N, N); cv.getContext('2d').drawImage(s, 0, 0); F = S.F[i] = { full: cv, P: q.P, o: q.o }; BK++; }
-    for (const col of cols) if (!F[col]){ const w = F.full.width, gc = (F[col] = mk(w, w)).getContext('2d'); gc.drawImage(F.full, 0, 0); gc.globalCompositeOperation = 'source-in'; gc.fillStyle = col; gc.fillRect(0, 0, w, w); BK++; }
+    for (const col of cols) if (!F[col]){ const w = F.full.width, gc = (F[col] = mk(w, w)).getContext('2d'); gc.drawImage(F.full, 0, 0); gc.globalCompositeOperation = 'source-in'; gc.fillStyle = col.replace('~', ''); gc.fillRect(0, 0, w, w);
+      if (col[0] === '~'){ gc.globalCompositeOperation = 'destination-out'; gc.fillStyle = gc.createPattern(DITH, 'repeat'); gc.fillRect(0, 0, w, w); }   // '~': the tint dithered, every other art pixel
+      BK++; }
     return F; }
   const loopI = (t) => { const f = Math.floor(t*10) % (2*(FN - 1)); return f < FN ? f : 2*(FN - 1) - f; };   // the idle loop runs forward then back: no seam
   function place(c, x, y, R, t, ph, S, i, ghosts = []){   // S, i: the sheet and this instant's frame; ghosts: [[frame, alpha, colour]], the smear where the body just was
@@ -606,14 +609,16 @@ OPHAN.pixel = (() => {
       place(c, x, y, R, t, ph, sheet(c, ['idle', Math.round(Rr), ph].join(), Rr, ph, (j) => ({ P: RIG.pose(j/10, ph), t: j/10, o: [0, 0] }), c.grace > 0), loopI(t)); },
     attack(c, x, y, R, t, ph = 3, atk, u, px, py){
       const gx = (px - x)/R, gy = (py - y)/R, P = RIG.pose(t, ph, atk, u, gx, gy), A = RIG.attackUnit(atk, u, ph, gx, gy, t, P), b = P.beats;
-      // the sword's and the tornado's bodies ignore the aim's distance (only the eyes' gaze read it), so their sheets are cut at the hold distance
+      if (atk === 'slap') A.snap = RIG.slapSnap(A, u, x, y, R);
+      // the sword's, the tornado's and the slap's bodies ignore the aim's distance (only the eyes' gaze read it), so their sheets are cut at the hold distance
       // (config OPHAN_BOSS_HOLD, 2 R): one per direction, not one per direction and step of the player's range
-      const an = Math.round(Math.atan2(gy, gx)/(TAU/16)), dq = atk === 'sword' || atk === 'tornado' ? 2 : Math.max(.5, Math.round(Math.hypot(gx, gy)*2)/2), qx = Math.cos(an*TAU/16)*dq, qy = Math.sin(an*TAU/16)*dq;   // the aim the sheet was cut at
+      const an = Math.round(Math.atan2(gy, gx)/(TAU/16)), dq = atk === 'sword' || atk === 'tornado' || atk === 'slap' ? 2 : Math.max(.5, Math.round(Math.hypot(gx, gy)*2)/2), qx = Math.cos(an*TAU/16)*dq, qy = Math.sin(an*TAU/16)*dq;   // the aim the sheet was cut at
       const Rr = R*c.getTransform().a/AP(), mv = atk === 'wheel' || atk === 'sword';
       const S = sheet(c, [atk, Math.round(Rr), ph, an, dq].join(), Rr, ph, (j) => { const uq = j/(FN - 1), Q = RIG.pose(0, ph, atk, uq, qx, qy);
         if (atk === 'sword') Q.swd = { A: RIG.attackUnit(atk, uq, ph, qx, qy, 0, Q), u: uq }; return { P: Q, t: 0, o: mv ? [Q.body.ox, Q.body.oy] : [0, 0] }; });   // never whole: its key holds the aim, which the fight almost never repeats; each frame is cut as first shown
       const fi = (v) => Math.round(Math.max(0, v)*(FN - 1)), sp = atk === 'tornado' ? b.spin : 0;
-      const gh = sp > .05 ? [[fi(u - .003), .3*sp, GHOST[0]], [fi(u - .0015), .45*sp, GHOST[1]]]   // the top's smear: where it just turned
+      const gh = atk === 'slap' ? A.trail.map((g, j) => [Math.max(0, fi(u) - 1 - j), Math.min(1, 1.2*g.al), '~' + ['#ffa22a', '#d8340c', '#7a1004'][j]]).reverse()   // the whip: its wing's last frames, dithered, hot to cooled
+        : sp > .05 ? [[fi(u - .003), .3*sp, GHOST[0]], [fi(u - .0015), .45*sp, GHOST[1]]]   // the top's smear: where it just turned
         : b.strike > .05 && atk !== 'tornado' ? [[fi(u - .07), .25*b.strike, GHOST[0]], [fi(u - .035), .4*b.strike, GHOST[1]]] : [];
       if (atk === 'sword') P.swd = { A, u };
       const T0 = c.getTransform(), cx = Math.round(T0.a*x + T0.e), cy = Math.round(T0.d*y + T0.f), Rb = R*T0.a, U = (o) => [cx + o.x*Rb, cy + o.y*Rb];   // the sprite's own centre (place() lands it here)
@@ -725,6 +730,14 @@ OPHAN.pixel = (() => {
             c.globalAlpha = A.fire*fa; dots(c, '#2a0e0e', [[X, Y]], 3, 2); dots(c, k % 3 ? '#ffa22a' : '#fff4c4', [[X, Y]], k % 4 ? 1 : 2, 2); }
           c.globalAlpha = 1; }
       }
+      if (atk === 'slap' && A.snap && A.snap.al > .02){   // the whip lands on the player: a chunky burst of hot pixels flung on along the swing
+        const S2 = A.snap, [X, Y] = U(S2), k = S2.k, r0 = (.14 + .1*k)*Rb;
+        c.globalAlpha = Math.min(1, 1.5*S2.al);
+        for (let i = 0; i < 7; i++){ const a = S2.a + (i/6 - .5)*2.4, r1 = r0 + (.18 + .1*hh(i, 51))*(1 - .4*k)*Rb, L = seg(X + Math.cos(a)*r0, Y + Math.sin(a)*r0, X + Math.cos(a)*r1, Y + Math.sin(a)*r1);
+          dots(c, '#2a0e0e', L, 3); dots(c, i % 2 ? '#ff6a14' : '#fff4c4', L, 1); }
+        dots(c, '#2a0e0e', [[X, Y]], Math.max(4, Math.round(.12*Rb*(1 - .5*k))) + 2); dots(c, '#fff4c4', [[X, Y]], Math.max(3, Math.round(.12*Rb*(1 - .5*k))));
+        for (let i = 0; i < 5; i++){ const a = S2.a + (hh(i, 52) - .5)*1.2, r = (.2 + .5*k*(.6 + .6*hh(i, 53)))*Rb; dots(c, i % 2 ? '#ffd858' : '#d8340c', [[X + Math.cos(a)*r, Y + Math.sin(a)*r - .2*Rb*k*(1 - k)*4]], 2); }
+        c.globalAlpha = 1; }
       if (TOP[atk]) TOP[atk](c, A, u, t, Rb, U);
       if (b.recovery > .01) dying(c, cx, cy, Rb, t, b.recovery);
       c.restore();

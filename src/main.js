@@ -1210,7 +1210,7 @@ app.ticker.add((ticker) => {
       if (e.type === 'krakenLesson' && meta.krakenParried !== true) { meta.krakenParried = true; saveMeta(meta) }
       if (e.dot) continue // DoT ticks are silent — they'd drone constantly
       if (bossOutro && e.type === 'victory') continue // the sting waits for the banner, see below
-      const s = SFX_FOR_EVENT[e.type]
+      const s = e.type === 'ophanAttack' && e.k === 'slap' ? 'wingWhoosh' : SFX_FOR_EVENT[e.type]
       if (s) playSfx(s)
     }
     if (bossOutro && BOSS_OUTRO[run.chapter].sfx) playSfx(BOSS_OUTRO[run.chapter].sfx)

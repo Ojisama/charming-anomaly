@@ -587,6 +587,7 @@ OPHAN.toon = (() => {
   // ---- THE ATTACKS: the rig's pose and the rig's danger shapes, inked ------------------------------------------
   function attack(c, x, y, R, t, ph = 3, atk = 'blast', u = 0, px = x, py = y + 4 * R) {
     const PX = (px - x) / R, PY = (py - y) / R, Z0 = RIG.pose(t, ph, atk, u, PX, PY), A = RIG.attack(atk, u, ph, x, y, R, px, py, t, Z0);
+    if (atk === 'slap') A.snap = RIG.slapSnap(A, u, 0, 0, 1);
     const SM = atk === 'sword' ? swordMorph(t, ph, u, Z0, A, x, y, R) : null, Z = SM ? { ...Z0, wings: SM.wings } : Z0;
     const olds = [0.04, 0.08, 0.12].map((d) => RIG.pose(t, ph, atk, Math.max(0, u - d), PX, PY)), sm = smear(Z, olds);
     const sp = atk === 'tornado' ? Z.beats.spin : atk === 'wheel' ? A.rate : 0;
@@ -599,6 +600,7 @@ OPHAN.toon = (() => {
     else if (atk === 'wheel') wheelUnder(c, x, y, R, t, u, A);
     else if (atk === 'recall') recallUnder(c, x, y, R, t, u, A);
     else if (atk === 'sword') swordUnder(c, x, y, R, t, u, A, SM);
+    else if (atk === 'slap') slapUnder(c, x, y, R, t, u, A, Z, PX, PY, ph);
     c.restore();
     draw(c, x, y, R, t, ph, Z, o);
     c.save(); c.lineCap = 'round'; c.lineJoin = 'round';
@@ -608,6 +610,7 @@ OPHAN.toon = (() => {
     else if (atk === 'wheel') wheelOver(c, x, y, R, t, u, A);
     else if (atk === 'recall') recallOver(c, x, y, R, t, u, A);
     else if (atk === 'sword') swordOver(c, x, y, R, t, u, A);
+    else if (atk === 'slap') slapOver(c, x, y, R, t, u, A);
     c.restore();
   }
   // ---- r33: the wheel, the feather recall and the sword slam ---------------------------------------------------------
@@ -874,6 +877,30 @@ OPHAN.toon = (() => {
     c.globalAlpha = 1;
   }
   function blastOver() {}
+  // THE WHIP. Under: the tip's sweep as a cream whoosh crescent with inked speed lines inside it, round the wing's root
+  // (the smear's ghosts and swipes trail the wing itself). Over: where it lands on the player, a star, impact lines, a puff
+  function slapUnder(c, x, y, R, t, u, A, Z, PX, PY, ph) {
+    const G = RIG.slapGhosts(t, ph, A, PX, PY), cur = RIG.slapWing(Z, A.side);
+    if (!cur || !G.length) return;
+    const W = RIG.whipArc(G[G.length - 1].w, cur), cx = x + W.x * R, cy = y + W.y * R, r = W.r * R, a0 = Math.min(W.a0, W.a0 + W.da), a1 = Math.max(W.a0, W.a0 + W.da), k = A.speed;
+    c.save(); c.globalAlpha = Math.min(1, 1.4 * k);
+    gust(c, cx, cy, r * 0.92, a0, a1, R * 0.16 * k, P.cream);
+    c.strokeStyle = P.ink; c.lineCap = 'round';
+    for (const [f, lw, s] of [[0.55, 0.035, 0.25], [0.72, 0.03, 0.1], [0.84, 0.025, 0.35]]) { const b0 = a0 + (a1 - a0) * s; c.lineWidth = R * lw * k; c.beginPath(); c.arc(cx, cy, r * f, b0, a1); c.stroke(); }
+    c.restore();
+  }
+  function slapOver(c, x, y, R, t, u, A) {
+    const S = A.snap; if (!S || S.al < 0.02) return;
+    const k = S.k, X = S.x, Y = S.y, hx = Math.cos(S.a), hy = Math.sin(S.a);
+    c.save(); c.globalAlpha = S.al;
+    c.fillStyle = P.ink; c.beginPath();
+    for (let i = 0; i < 9; i++) { const a = S.a + (i / 8 - 0.5) * 2.6, r1 = R * (0.22 + 0.12 * k), l = R * (0.3 + 0.12 * hh(i, 41)) * (1 - 0.5 * k);
+      streak(c, X + Math.cos(a) * r1, Y + Math.sin(a) * r1, X + Math.cos(a) * (r1 + l), Y + Math.sin(a) * (r1 + l), R * 0.045, 0.4); }
+    c.fill();
+    puff(c, X + hx * R * (0.25 + 0.3 * k), Y + hy * R * (0.25 + 0.3 * k) - R * 0.1 * k, R * 0.12 * (1 - 0.4 * k));
+    star(c, X + hx * R * 0.1, Y - R * (0.25 + 0.2 * k), R * 0.16 * (1 - 0.3 * k), t * 4);
+    c.restore();
+  }
   // TORNADO. Windup: the boss spins up. Strike: a sooty rubber-hose twister walks the road. Recovery: it collapses into a
   // lava pool and the boss reels, a ring of stars over its head
   function tornadoUnder(c, x, y, R, t, u, A) {

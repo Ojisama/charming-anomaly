@@ -54,5 +54,15 @@ export function ophanHits(atk, geo, x, y, r, R, T) {
     }
     return no
   }
+  if (atk === 'slap') {
+    // inside reach and inside the wedge the front has swept so far, while it sweeps; shoved straight out
+    if (!(geo.on > T.slapOn)) return no
+    const dx = x - geo.c.x, dy = y - geo.c.y, d = Math.hypot(dx, dy)
+    if (d > geo.reach + r) return no
+    let da = Math.atan2(dy, dx) - geo.a0
+    da = Math.atan2(Math.sin(da), Math.cos(da)) * Math.sign(geo.sweep || 1)
+    if (da < 0 || da > Math.abs(geo.sweep)) return no
+    return yes({ shove: { x: d ? dx / d : 0, y: d ? dy / d : 1 } })
+  }
   return no
 }

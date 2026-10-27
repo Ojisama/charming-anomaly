@@ -140,7 +140,7 @@ import { OPHAN, OPHAN_RIG, hh, mk, TAU } from '../page.js'
     const wing = (w, al) => { const [rx, ry] = RIG.WINGS[w.i].root, dp = w.depth || 0;
       c.save();
       if (w.K){ c.setTransform(m.translate(x, y).scale(R, R)); c.transform(...w.m); }   // the sword: its wing matrix, held open (sw.wings)
-      else { c.translate(w.side*rx, ry); c.scale(w.side, 1); c.rotate(w.rot); c.scale(w.scale, w.scale); c.translate(-rx, -ry); }
+      else { c.translate(w.side*rx, ry); c.scale(w.side, 1); c.rotate(w.rot); c.scale(w.scale, w.scale); if (w.k) c.transform(...w.k); c.translate(-rx, -ry); }   // k: the slap's whip bend
       const a = w.vis*al, put = (L) => { c.globalAlpha = a; lay(c, L);
         if (dp < -.05){ c.globalAlpha = a*.4*(-dp); lay(c, L.dk); }
         else if (dp > .05){ c.globalCompositeOperation = 'lighter'; c.globalAlpha = a*.05*dp; lay(c, L); c.globalCompositeOperation = 'source-over'; } };
@@ -538,6 +538,7 @@ import { OPHAN, OPHAN_RIG, hh, mk, TAU } from '../page.js'
 
   function attack(c, x, y, R, t, ph = 4, atk, u, px, py){
     const PX = (px - x)/R, PY = (py - y)/R, P = RIG.pose(t, ph, atk, u, PX, PY), A = RIG.attackUnit(atk, u, ph, PX, PY, t, P), u1 = 1/R;
+    if (atk === 'slap') A.snap = RIG.slapSnap(A, u, x, y, R);
     const fx = { wheel: wheelFx, recall: recallFx, sword: swordFx }[atk], SW = atk === 'sword' ? swordGeo(P, A, t, u, ph) : null;
     const Gk = SW && rig(Math.max(40, Math.min(320, Math.round(R*Math.hypot(c.getTransform().a, c.getTransform().b)/8)*8)));   // the same K draw() picks
     c.save(); c.translate(x, y); c.scale(R, R); c.lineCap = 'round'; c.lineJoin = 'round';
@@ -550,6 +551,7 @@ import { OPHAN, OPHAN_RIG, hh, mk, TAU } from '../page.js'
     const sp = atk === 'tornado' ? P.beats.spin : atk === 'wheel' ? A.rate : 0, du = atk === 'wheel' ? .0003 : .004;
     if (sp > .03) for (let k = 3; k >= 1; k--)   // the smear: the wings a few hairs of spin ago, fading
       draw(c, x, y, R, RIG.pose(t - k*.012, ph, atk, Math.max(0, u - k*du), PX, PY), { ghost: .24*sp*(1 - k/4) });
+    if (atk === 'slap') slapUnder(c, x, y, R, t, ph, P, A, PX, PY, u1);
     draw(c, x, y, R, P);
     c.save(); c.translate(x, y); c.scale(R, R); c.lineCap = 'round'; c.lineJoin = 'round';
     if (atk === 'tornado') spinFx(c, P, t, u, u1, 'front');
@@ -567,6 +569,26 @@ import { OPHAN, OPHAN_RIG, hh, mk, TAU } from '../page.js'
       if (dz > .01){ c.strokeStyle = G(.8*dz); c.lineWidth = 1*u1; c.beginPath();
         for (let k=0;k<5;k++){ const a = t*3 + k*TAU/5, X = Math.cos(a)*.38, Y = -1.12 + Math.sin(a)*.12, z = .04*(.8 + .2*Math.sin(a)); c.moveTo(X + z, Y); c.arc(X, Y, z, 0, TAU); } c.stroke(); } }
     if (atk === 'laser' && A.beams.length) laserRays(c, A, t, u, u1);
+    if (atk === 'slap' && A.snap && A.snap.al > .02){   // it lands on the player: quick graphite impact strokes and a scribbled puff
+      const { x: X, y: Y, al, k, a } = A.snap;
+      c.strokeStyle = G(.9*al); c.lineWidth = 1.4*u1; c.beginPath();
+      for (let j = 0; j < 7; j++){ const b = a + (j/6 - .5)*2.4, r0 = .2 + .1*k, r1 = r0 + (.2 + .12*hh(j, 181))*(1 - .4*k); c.moveTo(X + Math.cos(b)*r0, Y + Math.sin(b)*r0); c.lineTo(X + Math.cos(b)*r1, Y + Math.sin(b)*r1); }
+      c.stroke();
+      const cx = X + Math.cos(a)*(.2 + .3*k), cy = Y + Math.sin(a)*(.2 + .3*k), rr = .09*(1 - .3*k);
+      sketch(c, () => { c.beginPath(); for (let j = 0; j <= 14; j++){ const b = j/14*TAU*1.2 + k, r = rr*(.75 + .35*hh(j, 182)); j ? c.lineTo(cx + Math.cos(b)*r, cy + Math.sin(b)*r*.8) : c.moveTo(cx + Math.cos(b)*r, cy + Math.sin(b)*r*.8); } }, .8*al, 1.1*u1, 183, u1);
+    }
+    c.restore();
+  }
+  // THE WHIP, before the boss: the striking wing redrawn in faint quick graphite at the poses just past (the animator's
+  // repeated lines), and quick curved strokes along the sweep of its tip, freshest darkest
+  function slapUnder(c, x, y, R, t, ph, P, A, PX, PY, u1){
+    const Gs = RIG.slapGhosts(t, ph, A, PX, PY), cur = RIG.slapWing(P, A.side);
+    for (const g of Gs) draw(c, x, y, R, { ...P, wings: [g.w] }, { ghost: .35*g.al });
+    if (!cur || !Gs.length) return;
+    const W = RIG.whipArc(Gs[Gs.length - 1].w, cur);
+    c.save(); c.translate(x, y); c.scale(R, R); c.lineCap = 'round';
+    for (let j = 0; j < 5; j++){ const f = .6 + .12*j + (hh(j, 184) - .5)*.05, s = .15*hh(j, 185); c.strokeStyle = G((.35 + .4*(j%2))*A.speed); c.lineWidth = (1.6 - .2*j)*u1;
+      c.beginPath(); c.arc(W.x, W.y, W.r*f, W.a0 + W.da*s, W.a0 + W.da, W.da < 0); c.stroke(); }
     c.restore();
   }
 
