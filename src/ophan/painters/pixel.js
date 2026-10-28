@@ -281,7 +281,7 @@ OPHAN.pixel = (() => {
     return S; }
   let BK = 0;   // frames baked so far
   function frame(S, i, cols = []){ let F = S.F[i];   // frame i, rastered when first shown (a whole sheet at once was a 100-330 ms phone frame mid-attack); cols: its smear tints too
-    if (!F){ const q = S.poseAt(i), s = raster(S.Rr, q.t, S.ph, q.P, look(q.P), false, q.o), cv = mk(N, N); cv.getContext('2d').drawImage(s, 0, 0); F = S.F[i] = { full: cv, P: q.P, o: q.o }; BK++; }
+    if (!F){ const q = RIG.calm(() => S.poseAt(i)), s = raster(S.Rr, q.t, S.ph, q.P, look(q.P), false, q.o), cv = mk(N, N); cv.getContext('2d').drawImage(s, 0, 0); F = S.F[i] = { full: cv, P: q.P, o: q.o }; BK++; }
     for (const col of cols) if (!F[col]){ const w = F.full.width, gc = (F[col] = mk(w, w)).getContext('2d'); gc.drawImage(F.full, 0, 0); gc.globalCompositeOperation = 'source-in'; gc.fillStyle = col.replace('~', ''); gc.fillRect(0, 0, w, w);
       if (col[0] === '~'){ gc.globalCompositeOperation = 'destination-out'; gc.fillStyle = gc.createPattern(DITH, 'repeat'); gc.fillRect(0, 0, w, w); }   // '~': the tint dithered, every other art pixel
       BK++; }
@@ -295,7 +295,10 @@ OPHAN.pixel = (() => {
     { const sh = shade(Rb/k, ph), F = P.body.ground || P.body.floor, py = P.body.pivot[1]*Rb, hs = P.halo.scale, n2 = sh.width*k/2;   // its rest shape's shadow, on the floor: it stays when the body lifts, folds or flies
       c.save(); c.translate(Math.round(T.a*x + T.e), Math.round(T.d*y + T.f)); c.transform(F[0], F[1], F[2], F[3], F[4]*Rb, F[5]*Rb);
       c.translate(0, py); c.scale(hs, hs); c.translate(0, -py); c.globalAlpha = .4; c.drawImage(sh, -n2 + .03*Rb, -n2 + .06*Rb, 2*n2, 2*n2); c.restore(); }
-    const cell = (j, col) => { const F = fr(j, [col]), n = F[col].width, nk = n*k, og = F.o, gx = sn(T.a*x + T.e - nk/2 + og[0]*Rb), gy = sn(T.d*y + T.f - nk/2 + og[1]*Rb);   // each frame its own size (the strike reaches further), centred as it was in the sheet's cell
+    // shortcut: the sheets are baked on the plain hover (RIG.calm), so the flight's poses (cock, fold, flare, ground) and its bank
+    // never reach this world, only its live height over the shadow; bake them as sheets of their own if they must read here
+    const dL = RIG.fly.on && !RIG.fly.atk ? RIG.fly.lift + .1 : 0;
+    const cell = (j, col) => { const F = fr(j, [col]), n = F[col].width, nk = n*k, og = F.o, gx = sn(T.a*x + T.e - nk/2 + og[0]*Rb), gy = sn(T.d*y + T.f - nk/2 + (og[1] + dL)*Rb);   // each frame its own size (the strike reaches further), centred as it was in the sheet's cell
       c.drawImage(F[col], 0, 0, n, n, gx, gy, nk, nk); return [gx, gy]; };
     for (const [j, al, col] of ghosts){ c.globalAlpha = al; cell(j, col); c.globalAlpha = 1; }
     const ox = sn(T.a*x + T.e - Mk/2 + o[0]*Rb), oy = sn(T.d*y + T.f - Mk/2 + o[1]*Rb);

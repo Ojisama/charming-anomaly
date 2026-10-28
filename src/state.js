@@ -2711,9 +2711,10 @@ function generateWells(sig) {
   *       (bossId, rosterId 'ophan', speed 0, dmg 0, affixes ['anchored']) carries the worn skin's
   *       hp; dealDamage floors it at OPHAN_BREAK_FLOOR so a skin BREAKS (ophanBreak) and is never
   *       killed; a break holds the world still for OPHAN_STAGE.breakStop (run.hitStop). The last
-  *       skin broken leaves the sketch (ophanSketch). The script moves it: between
-  *       attacks it closes on the player at OPHAN_BOSS_SPEED to OPHAN_BOSS_HOLD, inside wing reach (backing off a player
-  *       inside its body); during an attack it stands. x, y — its last position (the win's spot).
+  *       skin broken leaves the sketch (ophanSketch). The script flies it: between
+  *       attacks it circles the player (OPHAN_FLY: a breathing ring, swooping to OPHAN_BOSS_HOLD when a strike is
+  *       ready), steered with inertia at up to OPHAN_BOSS_SPEED; vx, vy — its velocity (render banks and beats off
+  *       it; 0 in an attack); spin ±1 / flipT — which way round and when it turns. During an attack it stands. x, y — its last position (the win's spot).
   *     stage — 'open' | 'p1' | 'wave' | 'p2' | 'p3': the opening wave (OPHAN_WAVE_OPEN s), a boss
   *       phase, or a wave between phases (OPHAN_WAVE_GAP s). waveT — seconds left of the wave, 0 in a
   *       phase. In a wave bossId is null, run.bossBar null, no hand, no attack, and the crowd spawns at

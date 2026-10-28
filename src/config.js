@@ -10214,6 +10214,9 @@ export const OPHAN_BOSS_SPEED = PLAYER.baseSpeed
 export const OPHAN_BOSS_HOLD = 1.1 * OPHAN_BOSS.R
 export const OPHAN_SLAP_REACH = 1.6 * OPHAN_BOSS.R
 export const OPHAN_SLAP_CD = 1.6
+// balance_decision : hover, cock, dash, brake; hover shortens per phase 2026-10-28
+//  - dash is in OPHAN_BOSS_SPEED units: the one move faster than the player
+export const OPHAN_FLY = { hover: [1.5, 0.8, 0.4], cock: 0.35, dash: 2.4, dashMax: 0.9, brake: 0.3, brakeK: 9, ground: 0.6, drift: 0.35, ring: [1.5, 2.0], flank: [0.5, 1.1], edge: 1.4, leash: 2.0 }
 // it enters this fraction of the half view from the player: on screen, outside the screen's centre third
 export const OPHAN_ENTER = 0.6
 // balance_decision : opening wave 30 s, 15 s between phases 2026-10-25

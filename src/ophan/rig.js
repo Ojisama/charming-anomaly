@@ -280,12 +280,30 @@ const RIG = (() => {
       Q.windup = ck*(1 - sw); Q.strike = Math.sin(Math.PI*cl((u - SLAP.on)/(SLAP.off - SLAP.on + .1)));
     }
   }
+  // THE FLIGHT: a wingbeat (a slow lift, a held top, a snap down, a settle), the body's height over its floor layer (the
+  // halo, the shadows: smaller the higher it flies) and the held poses of the sim's flight (sim.js ophanFight): COCK (every
+  // wing up and held, the body crouched: the dash's tell), FOLD (the dash), FLARE (the brake), GROUND (a whiffed slap:
+  // wings splayed, down on its floor). Live only while the renderer has set fly.on around a fight draw, each pose already
+  // eased 0..1; anything else (cards, warm-ups, the pixel sheets' bakes: calm()) gets the plain hover beat on t's clock.
+  // An attack fades it out over u 0 .. .15 and an idle-pose call made inside an attack's draw (fly.atk) gets none, so the
+  // sim's attack poses (fly.on false) and their hit geometry never see it.
+  const FLAP_HZ = 1.6, fly = { on: false, atk: false, k: 0, bank: 0, ph: 0, lift: 0, cock: 0, fold: 0, flare: 0, ground: 0 };
+  const beat = (f) => f < .55 ? -1 + 2*sm(0, .55, f) : f < .66 ? 1 : f < .78 ? 1 - 2*((f - .66)/.12)**2 : -1 - .18*Math.sin(Math.PI*(f - .78)/.22);
+  const calm = (fn) => { const on = fly.on; fly.on = false; try { return fn(); } finally { fly.on = on; } };
   function pose(t, ph = 3, atk = null, u = 0, gx = 0, gy = 2.4){
     ph = Math.min(ph, 3);   // ph 4 (the pencil sketch) is the ph 3 body
     const Q = rec0();
     if (atk){ const Qa = rec0(), Qb = rec0();
       stage(atk, Math.max(0, u - .05), t, gx, gy, Qa); stage(atk, Math.max(0, u - .1), t, gx, gy, Qb); stage(atk, u, t, gx, gy, Q);
       Q.rot = Qa.rot.map((v, i) => v + .8*(v - Qb.rot[i])); Q.srot = Qa.srot.map((v, i) => v + .8*(v - Qb.srot[i])); if (Qa.sk) Q.sk = Qa.sk.map((v, i) => v + .8*(v - Qb.sk[i])); Q.sc = Qa.sc.map((v, i) => v + .5*(v - Qb.sc[i])); }
+    const live = fly.on, FW = atk ? (live ? 1 - sm(0, .15, u) : 0) : (live && fly.atk ? 0 : 1);
+    const fk = live ? fly.k : 0, cyc = live ? fly.ph : t*FLAP_HZ, fC = live ? fly.cock : 0, fD = live ? fly.fold : 0, fB = live ? fly.flare : 0, fG = live ? fly.ground : 0;
+    const quiet = 1 - Math.max(fC, fD, fG), lift = live ? fly.lift : -.1, fr = (v) => ((v % 1) + 1) % 1;
+    if (FW > 0){ const w0 = beat(fr(cyc));
+      Q.dy += FW*(lift + quiet*(.035 + .03*fk)*w0 + .05*fC);
+      Q.sy *= 1 + FW*(.04*quiet*w0 - .12*fC + .05*fD);
+      if (live) Q.spin += FW*fly.bank*.22;
+      Q.bk *= 1 + FW*lift*1.3; }
     const unf = ease(cl(ph - 1)*Math.PI), open = ease(cl(ph - 2)*Math.PI), opAt = (from) => ease(cl(ph - from + 1)*Math.PI);
     const vis = (i) => i < 2 ? 1 : Math.min(1, unf*2.5);
     const lay = (sx) => mul(T(Q.ox + Q.px, Q.py), mul(mul(mul(T(0, -.1), S(sx, Q.sy)), Ro(Q.spin)), T(0, .1)));
@@ -295,8 +313,8 @@ const RIG = (() => {
     const face = Math.cos(Q.yaw), seen = cl(3*face);   // eyes shut by the time the body is edge-on (face 0) and stay hidden from behind
     for (let i=2;i>=0;i--){ if (vis(i) <= .01) continue; const Wg = WINGS[i], [rx, ry] = Wg.root, v = t*.7 + Wg.flex;
       for (const side of [-1, 1]){
-        const breathe = .055*Math.sin(v), rot = breathe - (i === 2 ? (1 - unf)*1.1 : 0) + Q.rot[i] + Q.pin*side + (side === Q.ss ? Q.srot[i] : 0);
-        const scale = WS[i]*(1 + .025*Math.sin(v + .8))*(i === 2 ? .35 + .65*unf : 1)*Q.sc[i];
+        const fa = FW*quiet*(.2 + .1*fk)*[1, .9, .75][i]*beat(fr(cyc - i*.07)), held = FW*((.62 + .04*Math.sin(t*55 + i))*fC - .3*fD - .15*fB - .38*fG), breathe = .055*Math.sin(v) + fa + held, rot = breathe - (i === 2 ? (1 - unf)*1.1 : 0) + Q.rot[i] + Q.pin*side + (side === Q.ss ? Q.srot[i] : 0);
+        const scale = WS[i]*(1 + .025*Math.sin(v + .8) + .5*fa + FW*(.06*fC - .22*fD + .18*fB + .12*fG))*(i === 2 ? .35 + .65*unf : 1)*Q.sc[i];
         // the slap's whip bend (sk) about the root, in the arm's frame: k = the wing-local matrix after scale (identity otherwise)
         const sk = i === 1 && side === Q.ss && Q.sk, K = sk ? mul(Ro(Wg.th), mul([sk[0], sk[2], 0, sk[1], 0, 0], Ro(-Wg.th))) : null;
         const M = mul(mul(mul(mul(mul(mul(Mb, T(side*rx, ry)), S(side, 1)), Ro(rot)), S(scale, scale)), K || T(0, 0)), T(-rx, -ry));
@@ -534,6 +552,6 @@ const RIG = (() => {
   const WHIP_TIP = WINGS[1].feathers[5].sp[10];
   const whipArc = (w0, w1) => { const [x, y] = w1.root, p = ap(w0.m, WHIP_TIP[0], WHIP_TIP[1]), q = ap(w1.m, WHIP_TIP[0], WHIP_TIP[1]), a0 = Math.atan2(p[1] - y, p[0] - x);
     let da = Math.atan2(q[1] - y, q[0] - x) - a0; da -= TAU*Math.round(da/TAU); return { x, y, r: Math.hypot(q[0] - x, q[1] - y), a0, da }; };
-  return { WINGS, CORE, EYE, HALO, feather, pose, attackUnit, attack, hand, HAND_DUR, HAND_WIN, ROAM, SWORD_REACH, SLAP, slapWing, slapSnap, slapGhosts, whipArc, uRate, mul, apply: ap, ease, sm, cl };
+  return { WINGS, CORE, EYE, HALO, feather, pose, fly, calm, FLAP_HZ, attackUnit, attack, hand, HAND_DUR, HAND_WIN, ROAM, SWORD_REACH, SLAP, slapWing, slapSnap, slapGhosts, whipArc, uRate, mul, apply: ap, ease, sm, cl };
 })();
 export default RIG

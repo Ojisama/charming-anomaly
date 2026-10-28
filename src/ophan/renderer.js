@@ -29,7 +29,7 @@ import './hands/ascii.js'
 import './hands/pixel.js'
 import './hands/toon.js'
 import './hands/liquid.js'
-import { CHAPTERS, PLAYER, OPHAN_BOSS, OPHAN_ATTACKS, OPHAN_HAND, OPHAN_BOSS_HOLD, OPHAN_BG_BAKE_MS, ophanView } from '../config.js'
+import { CHAPTERS, PLAYER, OPHAN_BOSS, OPHAN_ATTACKS, OPHAN_HAND, OPHAN_BOSS_HOLD, OPHAN_BOSS_SPEED, OPHAN_BG_BAKE_MS, ophanView } from '../config.js'
 import { STAGE_DUR, lookOf, STAGING } from './staging.js'
 import './staging/looks.js'
 import { warmHole, HW, HH } from './staging/hole.js'
@@ -129,6 +129,8 @@ export function createOphanRenderer(host) {
   const beats = []
   let nsp = 0   // sprites of the layer used this frame
   let lastS0 = null, lastXY = { x: 0, y: 0 }
+  const fly = { k: 0, bank: 0, ph: 0, lift: -0.1, cock: 0, fold: 0, flare: 0, ground: 0 }   // the flight the painters pose (RIG.fly), eased off the sim's oph.fm, vx, vy
+  const FLY_LIFT = { hover: -0.12, cock: -0.07, dash: -0.03, brake: -0.1, ground: 0 }
   const crowdXY = []   // the crowd's x, y, radius, world px, flat, as of the last frame
   function beat(kind, e, from = null) {
     const look = lookOf(kind, from?.id ?? (lastS0?.id ?? worlds[0].look))
@@ -645,12 +647,19 @@ export function createOphanRenderer(host) {
           r.scale.set(sc / RES); r.position.set(r.x + bx * (1 - sc), r.y + by * (1 - sc))
         }
         lastPh = bph
+        const fv = b && oph ? oph : null, fm = fv?.fm ?? 'hover', fe = 1 - Math.exp(-6 * dt), fq = 1 - Math.exp(-14 * dt)
+        fly.k += (Math.min(1, fv ? Math.hypot(fv.vx || 0, fv.vy || 0) / OPHAN_BOSS_SPEED : 0) - fly.k) * fe
+        fly.bank += ((fv ? Math.max(-1, Math.min(1, (fv.vx || 0) / OPHAN_BOSS_SPEED)) : 0) - fly.bank) * fe
+        fly.lift += ((FLY_LIFT[fm] ?? -0.1) - fly.lift) * fe
+        for (const [key, m] of [['cock', 'cock'], ['fold', 'dash'], ['flare', 'brake'], ['ground', 'ground']]) fly[key] += ((fm === m ? 1 : 0) - fly[key]) * fq
+        fly.ph = (fly.ph + dt * RIG.FLAP_HZ * (1 + 0.5 * fly.k + 0.6 * fly.flare)) % 64
         if (!ov.hide && al > 0) within(BS.g, () => {
           window.OPH_PH = bph
+          Object.assign(RIG.fly, fly, { on: !!b, atk: !!a })
           // where the slap connected (the sim's a.hx, a.hy), in the painter's coords: (ppx, ppy) is the attack's LOCKED aim,
           // this is the player where the wing landed; null on a dodge and in every other boss draw (prewarms, cards)
           window.OPH_SLAP_HIT = a?.hx != null ? { x: sx(BS, a.hx), y: sy(BS, a.hy) } : null
-          try { boss(BS, bx, by, R, t, bph, a && a.k, Math.min(1, a ? a.u : 0), a ? sx(BS, a.ax) : 0, a ? sy(BS, a.ay) : 0, bp) } finally { window.OPH_SLAP_HIT = null }
+          try { boss(BS, bx, by, R, t, bph, a && a.k, Math.min(1, a ? a.u : 0), a ? sx(BS, a.ax) : 0, a ? sy(BS, a.ay) : 0, bp) } finally { window.OPH_SLAP_HIT = null; RIG.fly.on = false }
         })
         // THE HAND: the next world's hand shadow slides in over the tell (src2.html handShadow, eased), tinted its colour
         if (b && oph?.tell > 0 && oph.next >= 0 && shades[oph.next]) {

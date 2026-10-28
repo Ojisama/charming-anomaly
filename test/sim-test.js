@@ -185,7 +185,7 @@ import {
   // The Kraken (run KR): the rung table and the ring's numbers
   krakenRung, krakenRungFor, KRAKEN_TURN_BAG, KRAKEN_SLAP_EVERY, KRAKEN_SLAP_COCK, KRAKEN_SLAP_SWING, KRAKEN_SLAP_FUSE, KRAKEN_SLAP_FOLLOW_T, KRAKEN_TRICKLE_T, KRAKEN_TRICKLE_EDGE, KRAKEN_TRICKLE_CLEAR, OPEN_GUARD_WINDOW_MUL, HAIR_TRIGGER_WINDOW_MUL, HAIR_TRIGGER_DMG_MUL, KRAKEN_RUNGS, KRAKEN_ARM_REACH, KRAKEN_WAVE_TIMEOUT, KRAKEN_STAGGER_BITE,
   KRAKEN_RISE_T, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, hiddenChapters, OPHAN_BOSS, OPHAN_HAND, OPHAN_HIT, OPHAN_ARENA, OPHAN_PLAYER_START, OPHAN_ATTACKS, OPHAN_CROWD, OPHAN_BREAK_FLOOR, OPHAN_SKIN_HP, OPHAN_SKETCH_HP, OPHAN_STAGGER_T, OPHAN_WINDOW_MUL, ophanView, OPHAN_GAUGE_COPY,
-  OPHAN_SWORD_REACH, OPHAN_SLAP_REACH, OPHAN_SLAP_CD, OPHAN_ATK_SPEED, OPHAN_BOSS_HOLD, OPHAN_BOSS_SPEED, OPHAN_ATK_CD, OPHAN_ATK_FIRST, OPHAN_STAGE, ophanScribbleAt, OPHAN_WAVE_OPEN, OPHAN_WAVE_GAP, OPHAN_WAVE, KRAKEN_CAGE_R, KRAKEN_PARRY_CD,
+  OPHAN_SWORD_REACH, OPHAN_SLAP_REACH, OPHAN_SLAP_CD, OPHAN_ATK_SPEED, OPHAN_BOSS_HOLD, OPHAN_BOSS_SPEED, OPHAN_FLY, OPHAN_ATK_CD, OPHAN_ATK_FIRST, OPHAN_STAGE, ophanScribbleAt, OPHAN_WAVE_OPEN, OPHAN_WAVE_GAP, OPHAN_WAVE, KRAKEN_CAGE_R, KRAKEN_PARRY_CD,
   KRAKEN_OPEN_WAVES, KRAKEN_COIL_EVERY, KRAKEN_COIL_RAYS, KRAKEN_ENRAGE_AT, KRAKEN_RAGE_AT, KRAKEN_RAGE_HITS_MIN, KRAKEN_RAGE_HITS_MAX, KRAKEN_RAGE_VOLLEY, KRAKEN_RAGE_VOLLEY_SPREAD, KRAKEN_RAGE_FUSE, KRAKEN_RAGE_GAP, KRAKEN_RAGE_CALM, KRAKEN_RAGE_CHANCE, KRAKEN_NODE_BACK, KRAKEN_HEAD_HP, KRAKEN_HEAD_HP_AT, KRAKEN_HEAD_HP_PER_S, KRAKEN_ARRIVE_T, KRAKEN_RING_R, KRAKEN_LASH_R, KRAKEN_SLAM_T, KRAKEN_DEFLECT_CD,
   KRAKEN_LUNGE_T, KRAKEN_GRIP_DUR, KRAKEN_GRIP_DMG, KRAKEN_GRIP_FLICKS, KRAKEN_GRIP_STICK_MUL, TRAWL_WIGGLE_ARC,
   KRAKEN_LASH_W, KRAKEN_LASH_OVER, KRAKEN_LASH_DMG, KRAKEN_LESSON_MAX, KRAKEN_PARRY_SHOVE_R, KRAKEN_PARRY_EARLY_T, KRAKEN_LIMP_CLEAR, KRAKEN_ARRIVE_T2, KRAKEN_WAVE_GROWTH, KRAKEN_COIL_DMG, KRAKEN_COIL_SHADOW_SOFT, krakenCoilBandHalfW,
@@ -43224,7 +43224,7 @@ function ophStart(r, k, at) {
   CHAPTERS.ophan.attacks = { 1: [k], 2: [k], 3: [k] }; CHAPTERS.ophan.sketchAttacks = [k]
   try {
     const o = r.script.oph
-    o.atk = null; o.atkCd = 0; o.tell = 0; o.after = -1
+    o.atk = null; o.atkCd = 0; o.tell = 0; o.after = -1; o.fm = 'hover'; o.ft = 0
     r.player.x = at.x; r.player.y = at.y
     stepSim(r, { x: 0, y: 0 }, 1 / 60)
     assert.strictEqual(o.atk?.k, k, `the scheduler did not start a ${k}`)
@@ -43767,6 +43767,7 @@ function testOphanSketch() {
     assert.ok(swept > 0, 's1: no crowd on the field to sweep')
     const kills0 = r.kills, gems0 = r.gems.length, swaps0 = o.swaps
     r.events.length = 0
+    { const e = crowdOf(r)[0]; e.x = p.x - 1600; e.y = p.y }   // a body past the scribble's reach from wherever the sketch rises: its scribble outlasts the star below
     ophBreakAll(r)
     const b = ophBoss(r)
     assert.ok(o.sketch === true && count(r, 'victory') === 0 && r.phase === 'playing' && b, `s1: sketch ${o.sketch}, victory x${count(r, 'victory')}, phase ${r.phase}`)
@@ -43787,7 +43788,10 @@ function testOphanSketch() {
       const e0 = frozen[due.indexOf(Math.max(...due))], x0 = e0.x, y0 = e0.y, bullets0 = r.bullets.length
       e0.x = p.x + 40; e0.y = p.y
       r.weapons = [{ id: 'star', level: 1 }]; r.weaponTimers = {}
-      for (let g = 0; r.bullets.length === bullets0 && g < 120; g++) { e0.x = p.x + 40; e0.y = p.y; stepSim(r, { x: 0, y: 0 }, 1 / 60); onClock() }
+      // the rest of the frozen crowd parked out of the star's path for the shot (a body in it eats the star), put back after
+      const rest = frozen.filter((e) => e !== e0), keepXY = rest.map((e) => [e.x, e.y])
+      for (let g = 0; r.bullets.length === bullets0 && g < 120; g++) { e0.x = p.x + 40; e0.y = p.y; rest.forEach((e, j) => { e.x = p.x - 3000 - 50 * j; e.y = p.y }); stepSim(r, { x: 0, y: 0 }, 1 / 60); onClock() }
+      rest.forEach((e, j) => { e.x = keepXY[j][0]; e.y = keepXY[j][1] })
       r.weapons = []
       const s = r.bullets[bullets0]
       assert.ok(s, 's1: the fixture star never fired')
@@ -43879,7 +43883,7 @@ function testOphanSlap() {
   const R = OPHAN_BOSS.R, hit1 = (r) => OPHAN_ATTACKS.slap.dmg * r.mods.enemyDmgMul
   const fresh = (seed) => {
     const r = ophanRun(3, seed), o = r.script.oph
-    o.crowdT = 1e9; o.swapIn = 1e9; o.atkCd = 50; o.slapCd = 0; r.weapons = []; r.player.hp = r.player.maxHP = 1e9
+    o.crowdT = 1e9; o.swapIn = 1e9; o.atkCd = 50; o.slapCd = 0; o.fm = 'hover'; o.ft = 0; r.weapons = []; r.player.hp = r.player.maxHP = 1e9   // hovering: the flight's only mode it strikes from besides the brake
     for (const e of r.enemies) if (e.rosterId !== 'ophan') e._dead = true
     return { r, o, b: ophBoss(r) }
   }
@@ -43965,27 +43969,54 @@ function testOphanOpenArena() {
     walked = r.player.x
     assert.ok(walked > OPHAN_ARENA.w / 2 + 300, `o1: walking right 5 s stopped at x=${walked.toFixed(0)}; v9's wall stood at ${OPHAN_ARENA.w / 2}`)
   }
-  // o2 the chase: at OPHAN_BOSS_SPEED toward a far player, then standing at OPHAN_BOSS_HOLD, never closer
+  // o2 the flight: hover (slow), cock (stops), dash (OPHAN_FLY.dash x OPHAN_BOSS_SPEED, homing), brake, hover again; the
+  // hover lasts OPHAN_FLY.hover[phase]; it reaches a far player's side, and never comes inside its body
   let closed, stood
   {
     const r = ophanRun(1), o = calm(r), b = ophBoss(r)
     o.atkCd = 1e9
-    const at = { x: OPHAN_BOSS.x + 800, y: OPHAN_BOSS.y }
-    ophSteps(r, 60, { before: ophHold(r, at) })
-    closed = b.x - OPHAN_BOSS.x
-    assert.ok(Math.abs(closed - OPHAN_BOSS_SPEED) < 2 && Math.abs(b.y - OPHAN_BOSS.y) < 1e-6, `o2: in 1 s the boss moved ${closed.toFixed(1)}px at the player, want ${OPHAN_BOSS_SPEED}`)
-    let minD = Infinity
-    ophSteps(r, 600, { before: ophHold(r, at), after: () => { minD = Math.min(minD, dist(r, b)) } })
-    stood = dist(r, b)
-    assert.ok(Math.abs(stood - OPHAN_BOSS_HOLD) < 0.5 && minD > OPHAN_BOSS_HOLD - 0.5, `o2: the boss stood ${stood.toFixed(1)}px off (closest ${minD.toFixed(1)}), hold ${OPHAN_BOSS_HOLD.toFixed(1)}`)
+    const at = { x: OPHAN_BOSS.x + 800, y: OPHAN_BOSS.y }, top = {}, seen = [], when = []
+    let last = { x: b.x, y: b.y }, minD = Infinity, maxD = 0
+    ophSteps(r, 8 * 60, { before: ophHold(r, at), after: (i) => {
+      const v = Math.hypot(b.x - last.x, b.y - last.y) * 60; last = { x: b.x, y: b.y }
+      top[o.fm] = Math.max(top[o.fm] ?? 0, v)
+      if (seen[seen.length - 1] !== o.fm) { seen.push(o.fm); when.push(i / 60) }
+      if (i > 4 * 60) { const d = dist(r, b); minD = Math.min(minD, d); maxD = Math.max(maxD, d) }
+    } })
+    // a far player: the leash cuts the first hover; then the whole rhythm, a full hover between a brake and a cock
+    const hovers = seen.flatMap((m, j) => (j > 0 && m === 'hover' && seen[j - 1] === 'brake' && seen[j + 1] === 'cock' ? [when[j + 1] - when[j]] : []))
+    const k = seen.indexOf('hover', 1), longest = Math.max(...hovers)   // a leashed hover is cut short; none runs past its phase's
+    assert.ok(seen[0] === 'cock' && k > 0 && seen.slice(k, k + 5).join() === 'hover,cock,dash,brake,hover', `o2: the flight went ${seen.join(' > ')}`)
+    assert.ok(Math.abs(longest - OPHAN_FLY.hover[0]) < 3 / 60, `o2: the longest hover lasted ${longest.toFixed(3)} s, phase 1 wants ${OPHAN_FLY.hover[0]}`)
+    assert.ok(top.hover <= OPHAN_FLY.drift * OPHAN_BOSS_SPEED + 1e-6 && Math.abs(top.dash - OPHAN_FLY.dash * OPHAN_BOSS_SPEED) < 1, `o2: top speeds ${JSON.stringify(top)}`)
+    closed = maxD; stood = minD
+    assert.ok(maxD < 3 * OPHAN_BOSS.R && minD >= OPHAN_BOSS.bodyR + PLAYER.radius - 0.5, `o2: beside a far player it ranged ${minD.toFixed(1)}..${maxD.toFixed(1)}px`)
   }
-  // o3 a player inside its body: it backs off (the body wall alone would only move the player)
+  // o2b a slap that hits nothing grounds it for OPHAN_FLY.ground s: hits are worth OPHAN_WINDOW_MUL, and it does not move
+  {
+    const r = ophanRun(1), o = calm(r), b = ophBoss(r)
+    o.atkCd = 1e9
+    const at = { x: b.x, y: b.y + OPHAN_BOSS_HOLD }
+    ophHold(r, at)()
+    o.slapCd = 0; o.fm = 'hover'; o.ft = 0
+    ophSteps(r, 60, { before: ophHold(r, at), until: () => o.atk?.k === 'slap' })
+    assert.ok(o.atk?.k === 'slap', 'o2b: the fixture slap never started')
+    ophSteps(r, 600, { before: () => { r.player.x = b.x + 900; r.player.y = b.y }, until: () => !o.atk })   // out of its reach for the whole swing
+    const hit = () => { const h0 = b.hp; dealDamage(r, b, 10, false); const d = h0 - b.hp; b.hp = h0; return d }
+    const x0 = b.x, inWin = o.fm === 'ground' ? hit() : 0
+    ophSteps(r, Math.ceil(OPHAN_FLY.ground * 60) - 2, { before: () => { r.player.x = b.x + 900; r.player.y = b.y } })
+    const still = b.x === x0 && o.fm === 'ground'
+    ophSteps(r, 4)
+    const after = hit()
+    assert.ok(inWin > 0 && still && o.fm !== 'ground' && Math.abs(inWin / after - OPHAN_WINDOW_MUL) < 0.02, `o2b: grounded ${still}, a hit worth ${inWin} grounded and ${after} after (${o.fm})`)
+  }
+  // o3 a player held inside its body: it flies clear of them (the body wall alone would only move the player)
   {
     const r = ophanRun(1), o = calm(r), b = ophBoss(r)
     o.atkCd = 1e9
     const at = { x: b.x + 10, y: b.y }
     ophSteps(r, 60, { before: ophHold(r, at) })
-    assert.ok(OPHAN_BOSS.x - b.x > 40, `o3: a player inside its body moved the boss back ${(OPHAN_BOSS.x - b.x).toFixed(1)}px`)
+    assert.ok(Math.hypot(b.x - at.x, b.y - at.y) > OPHAN_BOSS.bodyR + PLAYER.radius, `o3: a player held inside its body left the boss ${Math.hypot(b.x - at.x, b.y - at.y).toFixed(1)}px off them`)
   }
   // o4 anchored for a whole attack: a far player does not drag it, and the shovel's knockback, landing, does not move it
   let shovelled
@@ -44090,7 +44121,7 @@ function testOphanOpenArena() {
     assert.ok(recycled > 0 && Math.hypot(e.x - r.player.x, e.y - r.player.y) < spawnD + 20, `o10: a body 5 spawn rings behind a runner sits ${recycled.toFixed(0)}px ahead of them, not on the ring ahead`)
     assert.ok(Math.abs(b.x - bx0) < OPHAN_BOSS_SPEED / 30, 'o10: the recycler moved the boss')
   }
-  console.log(`PASS run OP.open: walked to x=${walked.toFixed(0)}, boss closed ${closed.toFixed(0)}px in 1 s and stood ${stood.toFixed(1)}px off (hold ${OPHAN_BOSS_HOLD.toFixed(1)}), backed off, held still through a tornado with the shovel landing ${shovelled}, blast u ${u1.toFixed(3)} after 1 s, slam centred ${mid.toFixed(2)} R, fire ${fire[0]}..${fire[fire.length - 1]} R, blast reach ${blastR.toFixed(2)} R, straggler recycled ${recycled.toFixed(0)}px ahead`)
+  console.log(`PASS run OP.open: walked to x=${walked.toFixed(0)}, flew hover > cock > dash > brake and ranged ${stood.toFixed(0)}..${closed.toFixed(0)}px round a far player, a whiffed slap grounded it, backed off, held still through a tornado with the shovel landing ${shovelled}, blast u ${u1.toFixed(3)} after 1 s, slam centred ${mid.toFixed(2)} R, fire ${fire[0]}..${fire[fire.length - 1]} R, blast reach ${blastR.toFixed(2)} R, straggler recycled ${recycled.toFixed(0)}px ahead`)
 }
 
 // ---- run OP.waves: rev 2's timeline — open wave 30 s, p1, wave 15 s, p2, wave 15 s, p3, then the sketch at once ------
