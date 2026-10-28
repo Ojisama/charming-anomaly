@@ -275,7 +275,7 @@ import {
   SLING_LATCH_SHARE, IRON_BALL_R, IRON_BALL_LIFE, MOON_R, MOON_TUG_SWIRL, LODESTONE_FUSE, LODESTONE_SPREAD, LODESTONE_HOLD,
   OPHAN_BOSS, OPHAN_PLAYER_START, OPHAN_PHASE_EASE, OPHAN_ATK_CD, OPHAN_ATK_FIRST, OPHAN_HIT_CD, OPHAN_ATTACKS, OPHAN_HIT,
   OPHAN_SHOVE_DECAY, OPHAN_SKIN_HP, OPHAN_SKETCH_HP, OPHAN_BREAK_FLOOR, OPHAN_IMMUNE_CD, OPHAN_CROWD, OPHAN_WINDOW_MUL, OPHAN_RECOVERY_ON, OPHAN_HAND, OPHAN_STAGE, ophanScribbleAt,
-  OPHAN_WIPE_SPEED, OPHAN_WIPE_END, OPHAN_STAGGER_T, OPHAN_ATK_SPEED, OPHAN_BOSS_SPEED, OPHAN_BOSS_HOLD, OPHAN_ENTER,
+  OPHAN_WIPE_SPEED, OPHAN_WIPE_END, OPHAN_STAGGER_T, OPHAN_ATK_SPEED, OPHAN_BOSS_SPEED, OPHAN_BOSS_HOLD, OPHAN_FLY, OPHAN_ENTER,
   OPHAN_WAVE_OPEN, OPHAN_WAVE_GAP, OPHAN_WAVE, OPHAN_SLAP_REACH, OPHAN_SLAP_CD,
 } from './config.js'
 import { crustShapeOf, poolPhaseOf, inCrustEdge, crustSdf, inPoolEdge, CRUST_EDGE_MAX, POOL_RIM_MAX } from './mantle-shape.js'
@@ -1737,10 +1737,10 @@ function ophanSealed(run, e) {
 function bossSealed(run, e) {
   return krakenHeadSealed(run, e) || ophanSealed(run, e)
 }
-// the recovery pose and a resonance stagger are the damage windows
+// the recovery pose, a resonance stagger and a grounded whiff are the damage windows
 function ophanDmgMul(run) {
   const o = run.script.oph
-  return o.stagger > 0 || o.recov ? OPHAN_WINDOW_MUL : 1
+  return o.stagger > 0 || o.recov || o.fm === 'ground' ? OPHAN_WINDOW_MUL : 1
 }
 const ophanBoss = (run) => run.enemies.find((e) => e.id === run.script.oph.bossId && !e._dead)
 // THE BOSS ENTERS a phase on screen near the player, outside the screen's centre third, wearing its
@@ -1757,6 +1757,7 @@ function ophanEnter(run, o, stage) {
   // (both pushed back by the same amount: the first attack still comes before the first tell)
   const late = Math.max(0, OPHAN_STAGE.arrive - Math.min(OPHAN_ATK_FIRST, OPHAN_HAND.first))
   o.atkCd = OPHAN_ATK_FIRST + late; o.swapIn = OPHAN_HAND.first + late; o.slapCd = OPHAN_STAGE.arrive
+  o.vx = 0; o.vy = 0; o.fm = 'hover'; o.ft = 0
   run.events.push({ type: 'ophanEnter', stage, x: e.x, y: e.y })
   return e
 }
@@ -1951,7 +1952,7 @@ function ophanFight(run, o, b, dt) {
   if (!slap) o.slapCd = Math.max(0, o.slapCd - dt)
   if ((!o.atk || slap) && free) o.atkCd -= dt
   if (!o.atk) o.recov = false
-  if (!o.atk && free) {
+  if (!o.atk && free && (o.fm === 'hover' || o.fm === 'brake')) {
     if (o.atkCd <= 0) {
       const pool = (o.sketch ? ch.sketchAttacks : ch.attacks[run.difficulty]).filter((k) => OPHAN_ATTACKS[k].minPh <= o.ph)
       const k = pool[Math.floor(Math.random() * pool.length)]
@@ -1968,7 +1969,7 @@ function ophanFight(run, o, b, dt) {
     a.hitCd -= dt
     if (a.u >= 1) {
       o.atk = null; o.recov = false
-      if (a.k === 'slap') o.slapCd = OPHAN_SLAP_CD
+      if (a.k === 'slap') { o.slapCd = OPHAN_SLAP_CD; if (a.hx == null) { o.fm = 'ground'; o.ft = 0 } }
       else o.atkCd = OPHAN_ATK_CD[0] + Math.random() * (OPHAN_ATK_CD[1] - OPHAN_ATK_CD[0])
     } else {
       const pose = RIG.pose(o.t, o.ph, a.k, a.u, (a.ax - b.x) / R, (a.ay - b.y) / R)
@@ -1989,14 +1990,47 @@ function ophanFight(run, o, b, dt) {
   }
 
   ophanShove(o, p, dt)
-  // THE CHASE: between attacks the boss closes to OPHAN_BOSS_HOLD (inside the slap's reach) and stands; it backs off a player
-  // inside its body. From an attack's start to its end it is anchored where it stopped.
+  // THE FLIGHT, between attacks: HOVER (bobbing, drifting to its ring; the only time it starts an attack), COCK (wings
+  // held high: the dash's tell), DASH (homing on a spot beside the player, OPHAN_FLY.dash x OPHAN_BOSS_SPEED), BRAKE (a
+  // flare; it may slap out of it). A slap that hits nothing GROUNDS it (a damage window). Anchored through any attack.
   let dx = p.x - b.x, dy = p.y - b.y, d = Math.hypot(dx, dy)
-  const clear = OPHAN_BOSS.bodyR + PLAYER.radius
-  if (!o.atk && d > 0 && (d > OPHAN_BOSS_HOLD || d < clear)) {
-    const step = Math.min(OPHAN_BOSS_SPEED * dt, Math.abs(d - (d < clear ? clear : OPHAN_BOSS_HOLD))) * (d < clear ? -1 : 1)
-    b.x += dx / d * step; b.y += dy / d * step
+  const clear = OPHAN_BOSS.bodyR + PLAYER.radius, F = OPHAN_FLY
+  o.ft += dt
+  if (o.atk) { o.vx = 0; o.vy = 0 } else if (d > 0) {
+    const mx = Math.max(OPHAN_BOSS_HOLD, run.viewW - F.edge * R), my = Math.max(OPHAN_BOSS_HOLD, run.viewH - F.edge * R)
+    const spot = (r, th) => ({ x: p.x + Math.max(-mx, Math.min(mx, Math.cos(th) * r)), y: p.y + Math.max(-my, Math.min(my, Math.sin(th) * r)) })
+    const away = Math.atan2(-dy, -dx), ring = R * (F.ring[0] + F.ring[1]) / 2
+    if (o.fm === 'hover') {
+      // drift toward its ring at a fraction of its speed, the velocity eased in; in wing reach while a slap is ready
+      const q = spot(o.slapCd <= 0 ? OPHAN_BOSS_HOLD : ring, away), qx = q.x - b.x, qy = q.y - b.y, ql = Math.hypot(qx, qy), v = Math.min(F.drift * OPHAN_BOSS_SPEED, ql * 2)
+      const k = 1 - Math.exp(-6 * dt)
+      o.vx += ((ql > 0 ? qx / ql * v : 0) - o.vx) * k; o.vy += ((ql > 0 ? qy / ql * v : 0) - o.vy) * k
+      // a player running out of its ring cuts the hover short: it goes after them
+      if (o.ft >= F.hover[o.sketch ? 2 : Math.max(0, Math.min(2, Math.round(o.ph) - 1))] || d > F.leash * R) { o.fm = 'cock'; o.ft = 0 }
+    } else if (o.fm === 'cock') {
+      o.vx *= Math.exp(-10 * dt); o.vy *= Math.exp(-10 * dt)
+      if (o.ft >= F.cock) {
+        // where it lands, as an offset from the player: on a flank, alternating; in wing reach when it means to strike
+        const strike = o.slapCd <= F.cock + 0.2 || o.atkCd < 1
+        o.side = -(o.side || 1)
+        const q = spot(strike ? OPHAN_BOSS_HOLD : ring, away + o.side * (F.flank[0] + Math.random() * (F.flank[1] - F.flank[0])))
+        o.fox = q.x - p.x; o.foy = q.y - p.y; o.fm = 'dash'; o.ft = 0
+      }
+    } else if (o.fm === 'dash') {
+      const qx = p.x + o.fox - b.x, qy = p.y + o.foy - b.y, ql = Math.hypot(qx, qy), v = F.dash * OPHAN_BOSS_SPEED
+      o.vx = ql > 0 ? qx / ql * v : 0; o.vy = ql > 0 ? qy / ql * v : 0
+      if (ql <= v * dt || o.ft >= F.dashMax) { o.fm = 'brake'; o.ft = 0 }
+    } else if (o.fm === 'brake') {
+      o.vx *= Math.exp(-F.brakeK * dt); o.vy *= Math.exp(-F.brakeK * dt)
+      if (o.ft >= F.brake) { o.fm = 'hover'; o.ft = 0 }
+    } else {   // 'ground'
+      o.vx = 0; o.vy = 0
+      if (o.ft >= F.ground) { o.fm = 'hover'; o.ft = 0 }
+    }
+    b.x += o.vx * dt; b.y += o.vy * dt
     dx = p.x - b.x; dy = p.y - b.y; d = Math.hypot(dx, dy)
+    // never inside the player: a dash or a drift that would overlap backs it out instead
+    if (d < clear && d > 0) { b.x = p.x - dx / d * clear; b.y = p.y - dy / d * clear; dx = p.x - b.x; dy = p.y - b.y; d = clear }
   }
   // ...and its body is a wall
   if (d < clear) {
