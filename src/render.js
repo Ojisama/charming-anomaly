@@ -6565,6 +6565,14 @@ export function createRenderer(app) {
     g.circle(12, 0, 1.4).fill(0xffffff)
     return bake(g)
   }
+  // A circle as a closed n-gon for the crystal rings. Pixi's circle() emits 8 x ceil(2.3 sqrt(2r))
+  // points (368 at r 200) and every ring strokes 6-8 of them a frame; 64 sides sit 0.25px off round
+  // at r 200. A fresh array per call: the path keeps it until render() tessellates.
+  function ringPoly(g, x, y, r) {
+    const n = Math.max(16, Math.min(64, Math.ceil(r / 3))), pts = new Array(n * 2)
+    for (let i = 0; i < n; i++) { const a = (i / n) * Math.PI * 2; pts[2 * i] = x + Math.cos(a) * r; pts[2 * i + 1] = y + Math.sin(a) * r }
+    return g.poly(pts, true)
+  }
   function syncCore(run, gG, gF, dt) {
     playerPole = run.polarity?.pole ?? 0
     if (!run.polarity) { lanceBeams.length = 0; return }
@@ -6698,33 +6706,37 @@ export function createRenderer(app) {
     for (let i = stoneN; i < burrowStones.length; i++) burrowStones[i].visible = false
     drawShovel(run, dt)
     drawPicks(dt)
-    // echo rings and a crystal going off (run.novas by look; placeNova hides both)
-    for (const n of run.novas || []) {
-      if (n.look !== 'echo' && n.look !== 'chime') continue
+    // echo rings and a crystal going off (run.novas by look; placeNova hides both). DRAW_CAPS.crystalRings:
+    // only the newest of each look are drawn, the rest still hit (a crystal build peaks at ~200 alive).
+    const novas = run.novas || []
+    const echoFrom = newestNovaStart(novas, 'echo', DRAW_CAPS.crystalRings), chimeFrom = newestNovaStart(novas, 'chime', DRAW_CAPS.crystalRings)
+    for (let i = Math.min(echoFrom, chimeFrom); i < novas.length; i++) {
+      const n = novas[i]
+      if (n.look === 'echo' ? i < echoFrom : n.look !== 'chime' || i < chimeFrom) continue
       const k = 1 - Math.max(0, n.life) / (n.lifeMax || 0.5)
       const fade = 1 - k
       if (n.look === 'echo') {
         // a sound wave as an interference ring: an inked edge, then bands of thin-film colour running
         // red outside to violet inside, the spectrum sliding round as it spreads
         if (n.r > 4) {
-          gF.circle(n.x, n.y, n.r + 3).stroke({ width: 2.2, color: 0x0b0714, alpha: 0.7 * fade })
+          ringPoly(gF, n.x, n.y, n.r + 3).stroke({ width: 2.2, color: 0x0b0714, alpha: 0.7 * fade })
           for (let j = 0; j < 6; j++) {
             const rr = n.r - j * 2.4
             if (rr <= 2) break
-            gF.circle(n.x, n.y, rr).stroke({ width: 2.6, color: HOLO.film(j / 6 + k * 0.6), alpha: 0.85 * fade })
+            ringPoly(gF, n.x, n.y, rr).stroke({ width: 2.6, color: HOLO.film(j / 6 + k * 0.6), alpha: 0.85 * fade })
           }
-          gF.circle(n.x, n.y, n.r + 0.5).stroke({ width: 1.2, color: 0xffffff, alpha: 0.9 * fade })
+          ringPoly(gF, n.x, n.y, n.r + 0.5).stroke({ width: 1.2, color: 0xffffff, alpha: 0.9 * fade })
         }
       } else {
         // a crystal going off (Charged Facet, Cracked Glass): an inked ring of foil, spectrum bands, and its points of light
         const R = Math.max(1, n.r)
-        gF.circle(n.x, n.y, R + 2.5).stroke({ width: 2, color: 0x0b0714, alpha: 0.6 * fade })
-        for (let j = 0; j < 4; j++) gF.circle(n.x, n.y, Math.max(1, R - j * 2.6)).stroke({ width: 2.4, color: HOLO.film(0.3 + j / 4 - k * 0.5), alpha: 0.8 * fade })
+        ringPoly(gF, n.x, n.y, R + 2.5).stroke({ width: 2, color: 0x0b0714, alpha: 0.6 * fade })
+        for (let j = 0; j < 4; j++) ringPoly(gF, n.x, n.y, Math.max(1, R - j * 2.6)).stroke({ width: 2.4, color: HOLO.film(0.3 + j / 4 - k * 0.5), alpha: 0.8 * fade })
         for (let j = 0; j < 8; j++) {
           const a = j * 0.785 + k * 1.5, gx = n.x + Math.cos(a) * R, gy = n.y + Math.sin(a) * R, s = (j % 2 ? 4 : 7) * fade
-          gF.moveTo(gx - s, gy).lineTo(gx + s, gy).stroke({ width: 1.4, color: 0xffffff, alpha: fade })
-          gF.moveTo(gx, gy - s).lineTo(gx, gy + s).stroke({ width: 1.4, color: 0xffffff, alpha: fade })
+          gF.moveTo(gx - s, gy).lineTo(gx + s, gy).moveTo(gx, gy - s).lineTo(gx, gy + s)
         }
+        gF.stroke({ width: 1.4, color: 0xffffff, alpha: fade })   // the 8 points of light, one stroke
       }
     }
     // FAULT LINE: a crack of foil light between two rung crystals, jittering, fading over its life
@@ -19321,11 +19333,11 @@ const spurG = new Graphics()
   // a bubble reseeded every frame reads as static rather than as motion, a paused frame has to
   // hold still, and two puffs alive at once must not flicker against each other. Same rule, and
   // the same reason, as the crest's foam.
-  // Index of the oldest of the newest DRAW_CAPS.novas novas of one look, so the drawers keep cast
+  // Index of the oldest of the newest `cap` novas of one look, so the drawers keep cast
   // order (later crests over earlier ones) while skipping the overflow.
-  function newestNovaStart(novas, look) {
+  function newestNovaStart(novas, look, cap = DRAW_CAPS.novas) {
     let c = 0
-    for (let i = novas.length - 1; i >= 0; i--) if (novas[i].look === look && ++c === DRAW_CAPS.novas) return i
+    for (let i = novas.length - 1; i >= 0; i--) if (novas[i].look === look && ++c === cap) return i
     return 0
   }
   function drawBubblePuffs(run) {

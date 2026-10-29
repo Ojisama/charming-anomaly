@@ -5310,9 +5310,10 @@ export const HYDRANT_JET_PUSH = 300    // px/s^2 outward on enemies inside a liv
 //  - blooms counts only soft clouds: enemy ink and every bilge slick are never evicted or counted
 export const LIVE_CAPS = { blooms: 600, bullets: 3000, homingShots: 1000, lures: 200, holes: 150, quenchCrusts: 40, lavaPools: 60 }
 // RENDER-ONLY: render.js draws at most this many (the newest); the rest still hit, unseen.
-export const DRAW_CAPS = { blooms: 120, bullets: 500, homingShots: 150, lures: 40, holes: 30, novas: 50, shardTrails: 200, quenchCrusts: LIVE_CAPS.quenchCrusts, lavaPools: LIVE_CAPS.lavaPools }
+export const DRAW_CAPS = { blooms: 120, bullets: 500, homingShots: 150, lures: 40, holes: 30, novas: 50, crystalRings: 16, shardTrails: 200, quenchCrusts: LIVE_CAPS.quenchCrusts, lavaPools: LIVE_CAPS.lavaPools }
 //  - shardTrails is the prism shards given a light-trail (render.js drawShardTrails)
 //  - novas is PER LOOK (breaker, bubble): each is ~25-30 shapes redrawn every frame
+//  - crystalRings is PER LOOK (echo, chime): each is 8-21 big strokes re-tessellated every frame
 //  - quenchCrusts and lavaPools (src/toon/mantle-fx.js) draw every live one: they are GROUND, what is drawn is what is solid
 export const ZONE_MAX_LIVE = 12     // cap on simultaneous zones. A fast cast rate plus count can
                                       // otherwise carpet the street with live hydrants.
