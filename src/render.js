@@ -6565,12 +6565,21 @@ export function createRenderer(app) {
     g.circle(12, 0, 1.4).fill(0xffffff)
     return bake(g)
   }
+  // The crystal rings' own Graphics, RINGS_PER_G rings each, under burrowFxG (crystalRingC). One
+  // Graphics past 65535 vertices falls off Pixi's fast path (24 sides, 100 rings: 45ms in one, 8ms split),
+  // so the rings are spread over as many as they need rather than piled into gF.
+  const RINGS_PER_G = 40
+  function ringG(i) {
+    const gi = Math.floor(i / RINGS_PER_G)
+    while (crystalRingGs.length <= gi) crystalRingGs.push(crystalRingC.addChild(new Graphics()))
+    return crystalRingGs[gi]
+  }
   // A circle as a closed n-gon for the crystal rings. Pixi's circle() emits 8 x ceil(2.3 sqrt(2r))
-  // points (368 at r 200) and every ring strokes 6-8 of them a frame; 32 sides sit 1px off round at
-  // r 200. Past ~50 rings at 40 sides the frame falls off a cliff (46ms vs 6ms), so stay at 32.
+  // points (368 at r 200) and every ring strokes 6-8 of them a frame; 24 sides sit 1.7px off round at
+  // r 200. The frame falls off a cliff past a total vertex count: 100 rings at 24 sides 8ms, at 32 54ms.
   // A fresh array per call: the path keeps it until render() tessellates.
   function ringPoly(g, x, y, r) {
-    const n = Math.max(12, Math.min(32, Math.ceil(r / 4))), pts = new Array(n * 2)
+    const n = Math.max(12, Math.min(24, Math.ceil(r / 4))), pts = new Array(n * 2)
     for (let i = 0; i < n; i++) { const a = (i / n) * Math.PI * 2; pts[2 * i] = x + Math.cos(a) * r; pts[2 * i + 1] = y + Math.sin(a) * r }
     return g.poly(pts, true)
   }
@@ -6710,35 +6719,37 @@ export function createRenderer(app) {
     // echo rings and a crystal going off (run.novas by look; placeNova hides both). DRAW_CAPS.crystalRings:
     // only the newest of the two looks together are drawn, the rest still hit (a crystal build peaks at ~200 alive).
     const novas = run.novas || []
-    let from = 0
+    for (const g of crystalRingGs) g.clear()
+    let from = 0, drawn = 0
     for (let i = novas.length - 1, c = 0; i >= 0; i--) if ((novas[i].look === 'echo' || novas[i].look === 'chime') && ++c === DRAW_CAPS.crystalRings) { from = i; break }
     for (let i = from; i < novas.length; i++) {
       const n = novas[i]
       if (n.look !== 'echo' && n.look !== 'chime') continue
+      const gR = ringG(drawn++)
       const k = 1 - Math.max(0, n.life) / (n.lifeMax || 0.5)
       const fade = 1 - k
       if (n.look === 'echo') {
         // a sound wave as an interference ring: an inked edge, then bands of thin-film colour running
         // red outside to violet inside, the spectrum sliding round as it spreads
         if (n.r > 4) {
-          ringPoly(gF, n.x, n.y, n.r + 3).stroke({ width: 2.2, color: 0x0b0714, alpha: 0.7 * fade })
+          ringPoly(gR, n.x, n.y, n.r + 3).stroke({ width: 2.2, color: 0x0b0714, alpha: 0.7 * fade })
           for (let j = 0; j < 6; j++) {
             const rr = n.r - j * 2.4
             if (rr <= 2) break
-            ringPoly(gF, n.x, n.y, rr).stroke({ width: 2.6, color: HOLO.film(j / 6 + k * 0.6), alpha: 0.85 * fade })
+            ringPoly(gR, n.x, n.y, rr).stroke({ width: 2.6, color: HOLO.film(j / 6 + k * 0.6), alpha: 0.85 * fade })
           }
-          ringPoly(gF, n.x, n.y, n.r + 0.5).stroke({ width: 1.2, color: 0xffffff, alpha: 0.9 * fade })
+          ringPoly(gR, n.x, n.y, n.r + 0.5).stroke({ width: 1.2, color: 0xffffff, alpha: 0.9 * fade })
         }
       } else {
         // a crystal going off (Charged Facet, Cracked Glass): an inked ring of foil, spectrum bands, and its points of light
         const R = Math.max(1, n.r)
-        ringPoly(gF, n.x, n.y, R + 2.5).stroke({ width: 2, color: 0x0b0714, alpha: 0.6 * fade })
-        for (let j = 0; j < 4; j++) ringPoly(gF, n.x, n.y, Math.max(1, R - j * 2.6)).stroke({ width: 2.4, color: HOLO.film(0.3 + j / 4 - k * 0.5), alpha: 0.8 * fade })
+        ringPoly(gR, n.x, n.y, R + 2.5).stroke({ width: 2, color: 0x0b0714, alpha: 0.6 * fade })
+        for (let j = 0; j < 4; j++) ringPoly(gR, n.x, n.y, Math.max(1, R - j * 2.6)).stroke({ width: 2.4, color: HOLO.film(0.3 + j / 4 - k * 0.5), alpha: 0.8 * fade })
         for (let j = 0; j < 8; j++) {
           const a = j * 0.785 + k * 1.5, gx = n.x + Math.cos(a) * R, gy = n.y + Math.sin(a) * R, s = (j % 2 ? 4 : 7) * fade
-          gF.moveTo(gx - s, gy).lineTo(gx + s, gy).moveTo(gx, gy - s).lineTo(gx, gy + s)
+          gR.moveTo(gx - s, gy).lineTo(gx + s, gy).moveTo(gx, gy - s).lineTo(gx, gy + s)
         }
-        gF.stroke({ width: 1.4, color: 0xffffff, alpha: fade })   // the 8 points of light, one stroke
+        gR.stroke({ width: 1.4, color: 0xffffff, alpha: fade })   // the 8 points of light, one stroke
       }
     }
     // FAULT LINE: a crack of foil light between two rung crystals, jittering, fading over its life
@@ -14136,6 +14147,7 @@ export function createRenderer(app) {
   const pitLayer = new Container()   // the photographed pits (syncPits), one container per pass
   for (const k of ['trRim', 'trBed', 'tell', 'damp', 'spoil', 'wall', 'inner', 'floor']) pitLayer.addChild(pitPasses[k].c)
   const burrowFxG = new Graphics()
+  const crystalRingC = new Container(), crystalRingGs = []   // the echo/chime rings, under burrowFxG (ringG)
   const burrowStoneLayer = new Container()
   const snareRootLayer = new Container()   // the Root Snare's baked roots (syncSnareSprites)
   // the shovel (drawShovel): its shadows and the soil lying on the floor, the tool itself (under the
@@ -14288,7 +14300,7 @@ const spurG = new Graphics()
     rockLayer,
     orcaShadowSp, orcaG,
     macroShadowLayer, enemyShadowLayer, holoHaloLayer, macroRimLayer, elBackLayer, enemyLayer, holoSheenLayer, statusOvLayer, pitPasses.collar.c, krakenArmLayer, enemyCrownLayer, krakenCoilBandLayer, orcaSp, netG, longlineG, snareG,
-    bloomLayer, lureLayer, shieldG, affixLayer, crustG, deepG, lockLayer, shovelToolLayer, playerC, krakenGripFrontLayer, netHoldG, gateFrontG, breakerG, puffG, splashG, columnG, shorebreakG, burrowFxG, burrowStoneLayer, shovelAirLayer, pixelRig.air,
+    bloomLayer, lureLayer, shieldG, affixLayer, crustG, deepG, lockLayer, shovelToolLayer, playerC, krakenGripFrontLayer, netHoldG, gateFrontG, breakerG, puffG, splashG, columnG, shorebreakG, crystalRingC, burrowFxG, burrowStoneLayer, shovelAirLayer, pixelRig.air,
     bulletLayer, boomerangLayer, orbLayer, debrisLayer, homingLayer, shotLayer, beamLayer, whipLayer, arcG, realArcG, breathG,
     lobLayer, carLayer, smokeLayer, particleLayer,
     // v6.7.7: the refraction sits in FRONT of traffic, smoke and particles — everything except the
@@ -31313,7 +31325,7 @@ void main() {
   // ------------------------------------------------------------------- reset
   function clearWorld() {
     pixelRig.clear()   // The Magma (src/pixel.js): its own pools
-    burrowGroundG.clear(); burrowFxG.clear(); burrowSwings.length = 0; pickThrows.length = 0; lanceBeams.length = 0; coreSparks.length = 0; hideShovel()
+    burrowGroundG.clear(); burrowFxG.clear(); for (const g of crystalRingGs) g.clear(); burrowSwings.length = 0; pickThrows.length = 0; lanceBeams.length = 0; coreSparks.length = 0; hideShovel()
     hidePits()
     for (const st of burrowStones) st.visible = false
     for (const sp of snareSprites) sp.visible = false

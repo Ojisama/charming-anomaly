@@ -6,7 +6,10 @@
 // Frame i lays ns[i] echo rings and ns[i]/3 chime rings (the mix a maxed crystal build + Machine Gun
 // peaks at: ~150 echo + ~45 chime) mid-life at r ~200 around the player, clears the crowd, and
 // times 60 frames of sync + render. ⚠ draw ms is SwiftShader: read the growth across rows.
+// &cf=0 lays echo rings only, the worst case (an echo ring carries the most strokes). Read the
+// all-echo row before trusting a cap: the cost falls off a cliff past a total vertex count.
 const Ns = (new URLSearchParams(location.search).get('ns') || '0,40,150,300').split(',').map(Number)
+const CF = Number(new URLSearchParams(location.search).get('cf') ?? 1 / 3)   // chimes per echo; cf=0 is the worst case (echo rings carry the most strokes)
 const result = { chapter: run.chapter, rows: [] }
 window.__fxResult = result
 let i = 0
@@ -19,7 +22,7 @@ return async () => {
     r: 120 + Math.random() * 80, maxR: 200, dmg: 0, knockback: 0, fear: 0, hit: new Set(), arc: null, angle: 0,
     carry: 0, look, heat: null, habitatSplit: false, life: 1e9, lifeMax: 2e9 })
   for (let k = 0; k < N; k++) run.novas.push(mk('echo'))
-  for (let k = 0; k < Math.round(N / 3); k++) run.novas.push(mk('chime'))
+  for (let k = 0; k < Math.round(N * CF); k++) run.novas.push(mk('chime'))
   window.__renderer.sync(run, 0, [])
   app.renderer.render(app.stage)
   const t = { sync: [], draw: [] }
