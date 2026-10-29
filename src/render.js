@@ -6697,6 +6697,7 @@ export function createRenderer(app) {
     }
     for (let i = stoneN; i < burrowStones.length; i++) burrowStones[i].visible = false
     drawShovel(run, dt)
+    drawPicks(dt)
     // echo rings and a crystal going off (run.novas by look; placeNova hides both)
     for (const n of run.novas || []) {
       if (n.look !== 'echo' && n.look !== 'chime') continue
@@ -6857,6 +6858,40 @@ export function createRenderer(app) {
     }
   }
   function hideShovel() { const P = shovelSprites(); for (const k in P) { P[k].begin(); P[k].end() } }
+  // THE THROWN PICK outside the Mine (which draws its own in ASCII): the macro bake, one per heading, spinning flat as it
+  // flies from the thrower to the blow, raised toward the camera on the way with its shadow on the floor; the blow's
+  // burst fires where it lands (pickBlow)
+  const pickThrows = []   // the 'pickaxe' events in the air, renderer-local: {x0, y0, x, y, r, flight, t, spin}
+  const PICK_WORLD = 46   // the pick's length on the ground, world px
+  let pickLook = null, pickPools = null
+  function bakePick() {
+    pickLook ??= Array.from({ length: MACRO.PICK_HEADINGS }, (_, i) => {
+      const b = MACRO.paintPickaxe((i / MACRO.PICK_HEADINGS) * Math.PI * 2)
+      return { tex: macroCanvasTex(b.body, b.S), sh: macroCanvasTex(b.shadow, b.S), ax: b.ax, ay: b.ay }
+    })
+  }
+  function drawPicks(dt) {
+    pickPools ??= { shadow: shovelPool(shovelAirLayer), body: shovelPool(shovelAirLayer) }
+    pickPools.shadow.begin(); pickPools.body.begin()
+    let w = 0
+    for (const k of pickThrows) {
+      k.t += dt
+      if (k.t >= k.flight) { pickBlow(k); continue }
+      pickThrows[w++] = k
+      if (!pickLook) bakePick()
+      const f = k.t / k.flight, d = Math.hypot(k.x - k.x0, k.y - k.y0)
+      const x = k.x0 + (k.x - k.x0) * f, y = k.y0 + (k.y - k.y0) * f, h = Math.min(40, 0.2 * d) * Math.sin(Math.PI * f)
+      const a = k.angle + k.spin * f * Math.PI * 4   // two turns in the air
+      const n = pickLook.length, step = (Math.PI * 2) / n, i = ((Math.round(a / step) % n) + n) % n, turn = a - Math.round(a / step) * step
+      const L = pickLook[i], sc = PICK_WORLD / MACRO.PICK_LEN
+      const sh = pickPools.shadow.get(L, true)
+      sh.position.set(x + SHADOW_DX * h, y + SHADOW_DY * h); sh.rotation = turn; sh.scale.set(sc); sh.alpha = 0.5
+      const b = pickPools.body.get(L, false)
+      b.position.set(x, y); b.rotation = turn; b.scale.set(sc * (1 + h * 0.006))
+    }
+    pickThrows.length = w
+    pickPools.shadow.end(); pickPools.body.end()
+  }
   const unit = (v) => (v < 0 ? 0 : v > 1 ? 1 : v)
   const easeOut3 = (v) => 1 - (1 - v) * (1 - v) * (1 - v)
   function drawShovel(run, dt) {
@@ -6941,6 +6976,15 @@ export function createRenderer(app) {
         return pixelRig.event(e)
     }
     return false
+  }
+  // the pick's blow: clods and sparks kicked up across its area
+  function pickBlow(e) {
+    for (let i = 0; i < 10; i++) {
+      const a = Math.random() * Math.PI * 2, sp = 60 + Math.random() * 120
+      spawnParticle(i % 2 ? T.clayClod.tex : T.fx.spark_04, e.x + Math.cos(a) * e.r * 0.3, e.y + Math.sin(a) * e.r * 0.3,
+        Math.cos(a) * sp, Math.sin(a) * sp, 0.4, i % 2 ? 0.6 : 0.08, i % 2 ? 0x8a6440 : 0xffd27a, -0.4, 2)
+    }
+    spawnParticle(T.dot.tex, e.x, e.y, 0, 0, 0.3, 1.6 * (e.r / 52), 0xffe2a0, 2, 0)
   }
   function burrowEvent(e) {
     switch (e.type) {
@@ -7047,14 +7091,10 @@ export function createRenderer(app) {
         spawnParticle(T.holoGlint.tex, e.ax, e.ay, 0, 0, 0.22, 0.6, 0xffffff, -1, 0)
         spawnParticle(T.holoGlint.tex, e.bx, e.by, 0, 0, 0.22, 0.6, 0xffffff, -1, 0)
         return true
-      // the thrown pick's blow (src/ascii.js draws the throw in the Mine): clods and sparks kicked up across its area
+      // a thrown pick (src/ascii.js draws the throw in the Mine): flown by drawPicks, its blow bursts where it lands
       case 'pickaxe':
-        for (let i = 0; i < 10; i++) {
-          const a = Math.random() * Math.PI * 2, sp = 60 + Math.random() * 120
-          spawnParticle(i % 2 ? T.clayClod.tex : T.fx.spark_04, e.x + Math.cos(a) * e.r * 0.3, e.y + Math.sin(a) * e.r * 0.3,
-            Math.cos(a) * sp, Math.sin(a) * sp, 0.4, i % 2 ? 0.6 : 0.08, i % 2 ? 0x8a6440 : 0xffd27a, -0.4, 2)
-        }
-        spawnParticle(T.dot.tex, e.x, e.y, 0, 0, 0.3, 1.6 * (e.r / 52), 0xffe2a0, 2, 0)
+        if (!asciiOn) { pickThrows.push({ ...e, t: 0, spin: Math.random() < 0.5 ? -1 : 1 }); return true }
+        pickBlow(e)
         return true
       case 'rootSnare':
         for (let i = 0; i < 8; i++) {
@@ -13409,6 +13449,7 @@ export function createRenderer(app) {
     if (ch.worlds) q.push(() => macroPlayer(), holoPlayer, pencilPlayer)   // the player's Topsoil, Geode and sketch looks (ophanPlayer)
     if (kind === 'topsoil') q.push(bakeMacroPickups, elFx)
     if (ch.weapons?.includes('shovel')) q.push(bakeShovel)
+    if (ch.weapons?.includes('pickaxe') && !ch.render?.ascii) q.push(bakePick)
     if (ch.signature?.caveIns || ch.weapons?.includes('furrow')) q.push(bakePits)
     if (ch.weapons?.includes('furrow')) q.push(bakeFurrow)
     if (ch.weapons?.includes('rootSnare')) q.push(bakeSnares)
@@ -31254,7 +31295,7 @@ void main() {
   // ------------------------------------------------------------------- reset
   function clearWorld() {
     pixelRig.clear()   // The Magma (src/pixel.js): its own pools
-    burrowGroundG.clear(); burrowFxG.clear(); burrowSwings.length = 0; lanceBeams.length = 0; coreSparks.length = 0; hideShovel()
+    burrowGroundG.clear(); burrowFxG.clear(); burrowSwings.length = 0; pickThrows.length = 0; lanceBeams.length = 0; coreSparks.length = 0; hideShovel()
     hidePits()
     for (const st of burrowStones) st.visible = false
     for (const sp of snareSprites) sp.visible = false

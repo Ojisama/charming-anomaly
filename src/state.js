@@ -2222,7 +2222,7 @@ function generateWells(sig) {
  *     it laid its last trail pocket; the next one is GASBAG_TRAIL.spacing px from it).
  *   Hurt src: 'firedamp' (a blast with the player inside it; the normal hurt path, invuln after).
  *   Events: {type:'gasBlast', x, y, r, chain} a pocket went off (r = blast radius, chain as above);
- *     {type:'pickaxe', x, y, r, angle, flight} a pick thrown, its blow lands at (x, y) in flight s; {type:'dynamite', x, y, r} a stick blew up;
+ *     {type:'pickaxe', x, y, x0, y0, r, angle, flight} a pick thrown from (x0, y0), its blow lands at (x, y) in flight s; {type:'dynamite', x, y, r} a stick blew up;
  *     {type:'shoot', weapon:'dynamite'|'minecart', x, y[, angle]} a throw / a push.
  *     all three have a sound in SFX_FOR_EVENT (main.js): gasBlast crush, dynamite explode, pickaxe hit.
  * BOOK 3, THE MAGMA (sim.js's Magma section; every drawing is src/pixel.js's, reached through
