@@ -2398,6 +2398,55 @@ export function paintShovel(theta) {
     specular(ctx, ellipsePts(x1 - 8 - lv[0] * 3, -lv[1] * 6, 3, 1.1, 0, 14), 0.75, 0.6)
   }, { shadowBlur: 2.2 })
 }
+// THE PICKAXE, thrown (the Ophan's starter): seen from overhead, an ash haft along +x and the steel head across its end,
+// both arms swept back toward the grip and drawn to points. Centred on its balance point, the spin's centre; baked once
+// per heading like the shovel, so the light stays fixed in the world while it turns.
+export const PICK_LEN = 128          // grip end to head, in bake units
+export const PICK_HEADINGS = 16
+export function paintPickaxe(theta) {
+  const c = Math.cos(theta), s = Math.sin(theta)
+  const lv = [LX * c + LY * s, -LX * s + LY * c]
+  return bakeLocal(80, 1.6, (ctx) => {
+    ctx.rotate(theta)
+    const rnd = rng(523)
+    // the haft: worn ash, its grain, the grip end dark with hands
+    rod(ctx, [[-70, 0], [44, 0]], 6.4, 0x9c7244, lv, 0.3)
+    ctx.save(); ctx.lineCap = 'round'
+    for (let i = 0; i < 7; i++) {
+      const y = (rnd() - 0.5) * 4, x0 = -66 + rnd() * 60, L = 24 + rnd() * 60
+      ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(Math.min(40, x0 + L), y + (rnd() - 0.5))
+      ctx.strokeStyle = `rgba(60,34,14,${0.25 + rnd() * 0.3})`; ctx.lineWidth = 0.35 + rnd() * 0.3; ctx.stroke()
+    }
+    ctx.restore()
+    ctx.save(); ctx.globalAlpha = 0.5; rod(ctx, [[-70, 0], [-44, 0]], 6.3, 0x3a2614, lv, 0.6); ctx.restore()
+    // the head: a curved steel bar, thick at the eye, tapering to two points swept back
+    const H = 40, top = [], bot = []
+    for (let i = 0; i <= 32; i++) {
+      const y = -H + (2 * H * i) / 32, u = Math.abs(y) / H
+      const x = 50 - 13 * u * u, w = 5.2 * Math.pow(Math.max(0, 1 - Math.pow(u, 1.5)), 0.6) + 0.5
+      top.push(x + w, y); bot.unshift(x - w, y)
+    }
+    const hd = [...top, ...bot]
+    const g = ctx.createLinearGradient(50 + lv[0] * 10, lv[1] * 30, 50 - lv[0] * 10, -lv[1] * 30)
+    g.addColorStop(0, '#a8b0b6'); g.addColorStop(0.45, '#6c747a'); g.addColorStop(1, '#2a2e32')
+    trace(ctx, hd); ctx.fillStyle = g; ctx.fill()
+    ctx.save(); trace(ctx, hd); ctx.clip()
+    for (let i = 0; i < 26; i++) {   // scratches along the arms, the points scoured bright
+      const y = (rnd() - 0.5) * 2 * H, L = 2 + rnd() * 6
+      ctx.beginPath(); ctx.moveTo(50 - 13 * (y / H) ** 2 + (rnd() - 0.5) * 4, y); ctx.lineTo(50 - 13 * (y / H) ** 2 + (rnd() - 0.5) * 4, y + L * Math.sign(y || 1))
+      ctx.strokeStyle = rnd() < 0.7 ? `rgba(236,240,244,${0.2 + rnd() * 0.35})` : `rgba(20,22,26,${0.25 + rnd() * 0.3})`
+      ctx.lineWidth = 0.2 + rnd() * 0.25; ctx.stroke()
+    }
+    for (let i = 0; i < 5; i++) softDot(ctx, 50 + (rnd() - 0.5) * 6, (rnd() - 0.5) * 30, 1.2 + rnd() * 2.2, 1.2, `rgba(112,62,28,${0.25 + rnd() * 0.25})`)   // rust near the eye
+    ctx.restore()
+    grain(ctx, hd, 0.4)
+    ctx.save(); trace(ctx, hd); ctx.lineWidth = 1.2; ctx.strokeStyle = 'rgba(20,22,26,0.9)'; ctx.stroke(); ctx.restore()
+    // the eye: a collar of darker steel round the haft, two wedges driven in
+    rod(ctx, [[42, 0], [58, 0]], 12, 0x50565c, lv, 0.8)
+    softDot(ctx, 52 + lv[0] * 2, lv[1] * 3, 1.6, 0.6, 'rgba(255,255,255,0.7)')
+    for (const y of [-H + 3, H - 3]) specular(ctx, ellipsePts(50 - 13 * ((Math.abs(y) / H) ** 2) - lv[0] * 1.5, y * 0.92, 1.4, 3.2, 0, 10), 0.7, 0.5)   // the points' glint
+  }, { shadowBlur: 2.2 })
+}
 // The load of soil the blade carries, lit in the world frame: render lays it on the dish unturned.
 export function paintShovelLoad() {
   return bakeLocal(22, 2, (ctx) => {

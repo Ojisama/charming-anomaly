@@ -18020,7 +18020,7 @@ function stepPickaxeWeapon(run, w, stats, fireRateMul, dt) {
       const x = t.x - (dx / d) * off, y = t.y - (dy / d) * off
       const angle = Math.atan2(dy, dx)
       run.picks.push({ x, y, r: stats.r, dmg: stats.dmg, count: stats.count, angle, tid: t.id, t: PICKAXE_FLIGHT })
-      run.events.push({ type: 'pickaxe', x, y, r: stats.r, angle, flight: PICKAXE_FLIGHT })
+      run.events.push({ type: 'pickaxe', x, y, x0: p.x, y0: p.y, r: stats.r, angle, flight: PICKAXE_FLIGHT })
     }
   })
 }
