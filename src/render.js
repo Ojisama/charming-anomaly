@@ -6863,6 +6863,7 @@ export function createRenderer(app) {
   // burst fires where it lands (pickBlow)
   const pickThrows = []   // the 'pickaxe' events in the air, renderer-local: {x0, y0, x, y, r, flight, t, spin}
   const PICK_WORLD = 46   // the pick's length on the ground, world px
+  const PICK_STUCK = 0.4   // s the pick stays planted where it struck, fading over its last half
   let pickLook = null, pickPools = null
   function bakePick() {
     pickLook ??= Array.from({ length: MACRO.PICK_HEADINGS }, (_, i) => {
@@ -6876,18 +6877,21 @@ export function createRenderer(app) {
     let w = 0
     for (const k of pickThrows) {
       k.t += dt
-      if (k.t >= k.flight) { pickBlow(k); continue }
+      if (k.t >= k.flight && !k.hit) { k.hit = true; pickBlow(k) }
+      if (k.t >= k.flight + PICK_STUCK) continue
       pickThrows[w++] = k
       if (!pickLook) bakePick()
-      const f = k.t / k.flight, d = Math.hypot(k.x - k.x0, k.y - k.y0)
-      const x = k.x0 + (k.x - k.x0) * f, y = k.y0 + (k.y - k.y0) * f, h = Math.min(40, 0.2 * d) * Math.sin(Math.PI * f)
+      const f = Math.min(1, k.t / k.flight), d = Math.hypot(k.x - k.x0, k.y - k.y0)
+      const x = k.x0 + (k.x - k.x0) * f, y = k.y0 + (k.y - k.y0) * f, stuck = k.t - k.flight
+      const h = stuck >= 0 ? 10 : Math.min(40, 0.2 * d) * Math.sin(Math.PI * f)   // planted: the haft stands off the floor
+      const fade = stuck > PICK_STUCK / 2 ? 2 - (2 * stuck) / PICK_STUCK : 1
       const a = k.angle + k.spin * f * Math.PI * 4   // two turns in the air
       const n = pickLook.length, step = (Math.PI * 2) / n, i = ((Math.round(a / step) % n) + n) % n, turn = a - Math.round(a / step) * step
       const L = pickLook[i], sc = PICK_WORLD / MACRO.PICK_LEN
       const sh = pickPools.shadow.get(L, true)
-      sh.position.set(x + SHADOW_DX * h, y + SHADOW_DY * h); sh.rotation = turn; sh.scale.set(sc); sh.alpha = 0.5
+      sh.position.set(x + SHADOW_DX * h, y + SHADOW_DY * h); sh.rotation = turn; sh.scale.set(sc); sh.alpha = 0.5 * fade
       const b = pickPools.body.get(L, false)
-      b.position.set(x, y); b.rotation = turn; b.scale.set(sc * (1 + h * 0.006))
+      b.position.set(x, y); b.rotation = turn; b.scale.set(sc * (1 + h * 0.006)); b.alpha = fade
     }
     pickThrows.length = w
     pickPools.shadow.end(); pickPools.body.end()
