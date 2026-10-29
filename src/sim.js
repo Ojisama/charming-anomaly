@@ -49,7 +49,7 @@ import {
   BLOOD_PACT_PER_KILL, BLOOD_PACT_PER_ELITE, BLOOD_MONEY_HP, BLOOD_MONEY_ESCALATION,
   ELITE_SURGE_EVERY_MUL, SUBMISSION_DURATION, SUBMISSION_DMG_FRAC, SUBMISSION_HIT_EVERY,
   SUBMISSION_STRIP_FLAGS,
-  STILLNESS_RAMP, STILLNESS_MAX_MUL, MARTYR_DMG_MUL, MARTYR_RADIUS,
+  stillnessRamp, STILLNESS_MAX_MUL, MARTYR_DMG_MUL, MARTYR_RADIUS,
   CHAOS_PACT_SPAWN_MUL, CHAOS_PACT_DMG_PER_WAVE, chaosSurgeActive, chaosWavesSurvived,
   ALIGNMENT_POTENCY_MUL, DEADFALL_REARM_MUL, SOY_MILK_FIRE_MUL, SOY_MILK_DMG_MUL, SOY_MILK_CC_MUL,
   WILDFIRE_JUMPS, WILDFIRE_JUMP_R,
@@ -733,7 +733,7 @@ function anomalyDamageMul(run) {
   // velocity — pond's currents shove the player, so a velocity test would hard-counter the card in
   // exactly one chapter).
   if (a.stillness) {
-    const ramp = Math.min(1, (run._stillT ?? 0) / STILLNESS_RAMP)
+    const ramp = stillnessRamp(run._stillT)
     mul *= 1 + (STILLNESS_MAX_MUL - 1) * ramp
   }
   // CHAOS PACT: the ramp. Every wave SURVIVED is worth CHAOS_PACT_DMG_PER_WAVE, kept for the rest

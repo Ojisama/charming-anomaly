@@ -552,7 +552,7 @@ const CONFIG = {
   'Taking a hit doubles your damage for 5s. No cooldown, no threshold.': 'Être touché double tes dégâts pendant 5s. Sans recharge, sans seuil.',
   'something hit you, and you liked it': "quelque chose t'a frappé, et ça t'a plu",
   'Stillness': 'Immobilité',
-  'Stand still and your damage climbs to ×3 over 2s. Moving drops it instantly.': "Reste immobile et tes dégâts montent jusqu'à ×3 en 2s. Bouger les fait retomber aussitôt.",
+  'Stand still a moment and your damage climbs to ×{mul} over {secs}s. Moving drops it instantly.': "Reste immobile un instant et tes dégâts montent jusqu'à ×{mul} en {secs}s. Bouger les fait retomber aussitôt.",
   'the world learned to wait for you': "le monde a appris à t'attendre",
   'Martyr': 'Martyr',
   'Every point of HP you lose detonates around you, harder as the run goes on.': 'Chaque point de PV que tu perds détone autour de toi, de plus en plus fort au fil de la partie.',

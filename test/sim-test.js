@@ -42,7 +42,7 @@ import {
   // so a retune moves the test with the config instead of leaving a stale literal in here.
   TIME_DEBT_MUL, TIME_DEBT_XP_MUL, BRITTLE_MAX_HP, BRITTLE_DMG_MUL, BERSERK_DURATION,
   OVERLOAD_FIRE_MUL, OVERLOAD_DMG_MUL, OVERLOAD_HP_PER_SEC, BLOOD_PACT_PER_KILL,
-  BLOOD_PACT_PER_ELITE, BLOOD_MONEY_HP, STILLNESS_RAMP, CHAOS_PACT_PERIOD, CHAOS_PACT_SURGE,
+  BLOOD_PACT_PER_ELITE, BLOOD_MONEY_HP, STILLNESS_RAMP, STILLNESS_DELAY, stillnessRamp, CHAOS_PACT_PERIOD, CHAOS_PACT_SURGE,
   ALIGNMENT_POTENCY_MUL, DEADFALL_REARM_MUL, SOY_MILK_FIRE_MUL, SOY_MILK_DMG_MUL, SOY_MILK_CC_MUL,
   ANOMALY_REROLL_MUL, ANOMALY_REROLL_PITY_REFUND, LAST_BREATH_DROWN_TAKEN_MUL,
   LIVE_CAPS, MUTATORS, CRYSTAL_CARDS, CANARY_REACH_MUL, MINECART_STUN, MINE_GAS_FADE_IN, MINE_GAS_LIT_SHRINK, mutatorPool, ENDLESS_MILESTONE_S, ENDLESS_HANDOVER_CLEAR_R, ENDLESS_MILESTONE_ELITES, mergeMutatorMods, randomMutators, rerollMutator,
@@ -1522,8 +1522,13 @@ function testAnomalySlate() {
   // would read as working everywhere except pond and the beyond lane, where the world moves you.
   {
     const r = withCard('stillness')
-    for (let i = 0; i < 180; i++) stepSim(r, { x: 0, y: 0 }, dt)
-    assert.ok(r._stillT >= STILLNESS_RAMP, `standing still for 3s banked only ${r._stillT.toFixed(2)}s of ramp`)
+    const full = STILLNESS_DELAY + STILLNESS_RAMP
+    for (let i = 0; i < Math.ceil((full + 0.5) * 60); i++) stepSim(r, { x: 0, y: 0 }, dt)
+    assert.ok(r._stillT >= full, `standing still for ${full + 0.5}s banked only ${r._stillT.toFixed(2)}s of ramp`)
+    // the ramp waits STILLNESS_DELAY, then takes STILLNESS_RAMP to fill
+    assert.strictEqual(stillnessRamp(STILLNESS_DELAY), 0, 'STILLNESS ramp started before its delay')
+    assert.ok(Math.abs(stillnessRamp(STILLNESS_DELAY + STILLNESS_RAMP / 2) - 0.5) < 1e-9, 'STILLNESS ramp is not linear over STILLNESS_RAMP')
+    assert.strictEqual(stillnessRamp(full), 1, 'STILLNESS ramp not full at delay + ramp')
     stepSim(r, { x: 1, y: 0 }, dt)
     assert.strictEqual(r._stillT, 0, 'moving did not drop the STILLNESS ramp')
     // A sub-unit stick deflection is still moving — the test is `len > 0`, not `len >= 1`.

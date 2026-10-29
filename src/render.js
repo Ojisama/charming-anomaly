@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, BitmapText, BlurFilter, Buffer as PixiBuffer, BufferUsage, CanvasSource, Container, FillGradient, Filter, GlProgram, Graphics, Matrix, Mesh, MeshGeometry, MeshPlane, MeshRope, Point, Rectangle, RenderTexture, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, HAIR_TRIGGER_T, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, BEAM_ENVELOPE, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, CIRCUIT_CAM_LEAD, CIRCUIT_CAM_EASE, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, drawdownSecsFor, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPUR_VIS, LANE_HALF_W, UPWELLING_VIS, FOUL_SPRING_VIS, FOUL_SPRING_FOUL_T, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, BRING_SNAP_T, SHOREBREAK_RADIUS, BURST_WAKE, burstWakeAt, DUST, dustVel, laneScrollFor, BALLAST_THROW_R, BALLAST_RING, ORCA_LEN, ORCA_CIRCLE_DUR, ORCA_RING_BAND, ORCA_FEAR_TELL, ORCA_HERD_GAP, CHUM_VIS, BILGE_TRAIL_VIS, OIL_STAIN_MAX, SLICK_FIRE_SPREAD_T, caveAt, laneHalfWidth, laneDrawSpan, CIRCUIT_GATE_VIS, ringXY, ringFU, ringRot, ringHeading, gateAnchorF, caveSpecOf, ORCA_RISE_DUR, ORCA_SPLASH_R, ORCA_AIM_W, ORCA_AIM_TELL, ORCA_WAKE_R, ORCA_OVERSHOOT,
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, HAIR_TRIGGER_T, stillnessRamp, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, BEAM_ENVELOPE, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, CIRCUIT_CAM_LEAD, CIRCUIT_CAM_EASE, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, drawdownSecsFor, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPUR_VIS, LANE_HALF_W, UPWELLING_VIS, FOUL_SPRING_VIS, FOUL_SPRING_FOUL_T, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, BRING_SNAP_T, SHOREBREAK_RADIUS, BURST_WAKE, burstWakeAt, DUST, dustVel, laneScrollFor, BALLAST_THROW_R, BALLAST_RING, ORCA_LEN, ORCA_CIRCLE_DUR, ORCA_RING_BAND, ORCA_FEAR_TELL, ORCA_HERD_GAP, CHUM_VIS, BILGE_TRAIL_VIS, OIL_STAIN_MAX, SLICK_FIRE_SPREAD_T, caveAt, laneHalfWidth, laneDrawSpan, CIRCUIT_GATE_VIS, ringXY, ringFU, ringRot, ringHeading, gateAnchorF, caveSpecOf, ORCA_RISE_DUR, ORCA_SPLASH_R, ORCA_AIM_W, ORCA_AIM_TELL, ORCA_WAKE_R, ORCA_OVERSHOOT,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
@@ -6566,10 +6566,11 @@ export function createRenderer(app) {
     return bake(g)
   }
   // A circle as a closed n-gon for the crystal rings. Pixi's circle() emits 8 x ceil(2.3 sqrt(2r))
-  // points (368 at r 200) and every ring strokes 6-8 of them a frame; 64 sides sit 0.25px off round
-  // at r 200. A fresh array per call: the path keeps it until render() tessellates.
+  // points (368 at r 200) and every ring strokes 6-8 of them a frame; 32 sides sit 1px off round at
+  // r 200. Past ~50 rings at 40 sides the frame falls off a cliff (46ms vs 6ms), so stay at 32.
+  // A fresh array per call: the path keeps it until render() tessellates.
   function ringPoly(g, x, y, r) {
-    const n = Math.max(16, Math.min(64, Math.ceil(r / 3))), pts = new Array(n * 2)
+    const n = Math.max(12, Math.min(32, Math.ceil(r / 4))), pts = new Array(n * 2)
     for (let i = 0; i < n; i++) { const a = (i / n) * Math.PI * 2; pts[2 * i] = x + Math.cos(a) * r; pts[2 * i + 1] = y + Math.sin(a) * r }
     return g.poly(pts, true)
   }
@@ -6707,12 +6708,13 @@ export function createRenderer(app) {
     drawShovel(run, dt)
     drawPicks(dt)
     // echo rings and a crystal going off (run.novas by look; placeNova hides both). DRAW_CAPS.crystalRings:
-    // only the newest of each look are drawn, the rest still hit (a crystal build peaks at ~200 alive).
+    // only the newest of the two looks together are drawn, the rest still hit (a crystal build peaks at ~200 alive).
     const novas = run.novas || []
-    const echoFrom = newestNovaStart(novas, 'echo', DRAW_CAPS.crystalRings), chimeFrom = newestNovaStart(novas, 'chime', DRAW_CAPS.crystalRings)
-    for (let i = Math.min(echoFrom, chimeFrom); i < novas.length; i++) {
+    let from = 0
+    for (let i = novas.length - 1, c = 0; i >= 0; i--) if ((novas[i].look === 'echo' || novas[i].look === 'chime') && ++c === DRAW_CAPS.crystalRings) { from = i; break }
+    for (let i = from; i < novas.length; i++) {
       const n = novas[i]
-      if (n.look === 'echo' ? i < echoFrom : n.look !== 'chime' || i < chimeFrom) continue
+      if (n.look !== 'echo' && n.look !== 'chime') continue
       const k = 1 - Math.max(0, n.life) / (n.lifeMax || 0.5)
       const fade = 1 - k
       if (n.look === 'echo') {
@@ -19333,11 +19335,11 @@ const spurG = new Graphics()
   // a bubble reseeded every frame reads as static rather than as motion, a paused frame has to
   // hold still, and two puffs alive at once must not flicker against each other. Same rule, and
   // the same reason, as the crest's foam.
-  // Index of the oldest of the newest `cap` novas of one look, so the drawers keep cast
+  // Index of the oldest of the newest DRAW_CAPS.novas novas of one look, so the drawers keep cast
   // order (later crests over earlier ones) while skipping the overflow.
-  function newestNovaStart(novas, look, cap = DRAW_CAPS.novas) {
+  function newestNovaStart(novas, look) {
     let c = 0
-    for (let i = novas.length - 1; i >= 0; i--) if (novas[i].look === look && ++c === cap) return i
+    for (let i = novas.length - 1; i >= 0; i--) if (novas[i].look === look && ++c === DRAW_CAPS.novas) return i
     return 0
   }
   function drawBubblePuffs(run) {
@@ -31547,7 +31549,7 @@ void main() {
       a?.hairTrigger ? clamp01((run._hairTriggerT ?? 0) / HAIR_TRIGGER_T) : 0)
     return {
       berserk: heat,
-      still: a?.stillness ? clamp01((run._stillT ?? 0) / STILLNESS_RAMP) : 0,
+      still: a?.stillness ? stillnessRamp(run._stillT) : 0,
       foul,
     }
   }

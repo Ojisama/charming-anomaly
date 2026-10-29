@@ -532,8 +532,12 @@ export const BLOOD_MONEY_HP = 10
 export const BLOOD_MONEY_ESCALATION = 1.5
 // STILLNESS. Keyed off INPUT, never velocity: pond's currents shove the player (currentForceMul),
 // so a velocity test would hard-counter the card in exactly one chapter and nowhere else.
-export const STILLNESS_RAMP = 2      // s of no input to reach the cap
+// balance_decision : ramp 2s -> 4s, 0.5s still before it starts 2026-10-29
+export const STILLNESS_DELAY = 0.5   // s of no input before the ramp starts
+export const STILLNESS_RAMP = 4      // s the ramp takes from there to the cap
 export const STILLNESS_MAX_MUL = 3   // damage multiplier at the cap
+// 0..1 up the ramp after `stillT` s of no input. The damage (sim) and the body morph (render) both read it.
+export function stillnessRamp(stillT) { return Math.min(1, Math.max(0, ((stillT ?? 0) - STILLNESS_DELAY) / STILLNESS_RAMP)) }
 // The player-SKIN tells for these two (v7.14, owner: "very subtle, I like the Isaac way of
 // changing the skin of the player to show the active buffs"). Look numbers, not balance — they
 // move no damage — but they live here because config.js is the one place a number may be tuned
@@ -1055,7 +1059,8 @@ export const ANOMALIES = {
   stillness: {
     name: 'Stillness', icon: '🧘',
     from: 'the world learned to wait for you',
-    desc: `Stand still and your damage climbs to ×${STILLNESS_MAX_MUL} over ${STILLNESS_RAMP}s. Moving drops it instantly.`,
+    desc: 'Stand still a moment and your damage climbs to ×{mul} over {secs}s. Moving drops it instantly.',
+    args: { mul: STILLNESS_MAX_MUL, secs: STILLNESS_RAMP },
     // Inverts the one rule the genre teaches for 300 seconds. Unconditional (weight 1): there is
     // no build state that would make "you can stand still" a lesson the run has already taught.
     when: () => true,
@@ -5310,10 +5315,10 @@ export const HYDRANT_JET_PUSH = 300    // px/s^2 outward on enemies inside a liv
 //  - blooms counts only soft clouds: enemy ink and every bilge slick are never evicted or counted
 export const LIVE_CAPS = { blooms: 600, bullets: 3000, homingShots: 1000, lures: 200, holes: 150, quenchCrusts: 40, lavaPools: 60 }
 // RENDER-ONLY: render.js draws at most this many (the newest); the rest still hit, unseen.
-export const DRAW_CAPS = { blooms: 120, bullets: 500, homingShots: 150, lures: 40, holes: 30, novas: 50, crystalRings: 16, shardTrails: 200, quenchCrusts: LIVE_CAPS.quenchCrusts, lavaPools: LIVE_CAPS.lavaPools }
+export const DRAW_CAPS = { blooms: 120, bullets: 500, homingShots: 150, lures: 40, holes: 30, novas: 50, crystalRings: 50, shardTrails: 200, quenchCrusts: LIVE_CAPS.quenchCrusts, lavaPools: LIVE_CAPS.lavaPools }
 //  - shardTrails is the prism shards given a light-trail (render.js drawShardTrails)
 //  - novas is PER LOOK (breaker, bubble): each is ~25-30 shapes redrawn every frame
-//  - crystalRings is PER LOOK (echo, chime): each is 8-21 big strokes re-tessellated every frame
+//  - crystalRings is echo + chime TOGETHER: each is 6-8 big strokes re-tessellated every frame
 //  - quenchCrusts and lavaPools (src/toon/mantle-fx.js) draw every live one: they are GROUND, what is drawn is what is solid
 export const ZONE_MAX_LIVE = 12     // cap on simultaneous zones. A fast cast rate plus count can
                                       // otherwise carpet the street with live hydrants.
