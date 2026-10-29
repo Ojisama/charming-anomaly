@@ -521,8 +521,8 @@ OPHAN.pixel = (() => {
       const [X, Y] = U(fl), H = fl.h*fl.sz*Rb*4.5, W = fl.sz*Rb*.9;
       if (pass) pool(c, X, Y, W*.9*fl.h, W*.4*fl.h, fl.al*F.on, true);   // a lava fountain: a column of melt, white at the vent, a crown of drops
       c.globalAlpha = Math.min(1, fl.al*1.5)*F.on;
-      for (let k = -1; k <= 1; k++){ const h = H*(1 - .3*Math.abs(k))*(.8 + .2*Math.sin(t*13 + i + k)), xk = X + k*W*.5;
-        if (!pass){ dots(c, '#0a0608', seg(xk, Y, xk + Math.sin(t*6 + i)*W*.1, Y - h - 2), 4); continue; } for (let j = 0; j < 6; j++) dots(c, LV[j], seg(xk, Y - h*j/6, xk + Math.sin(t*6 + i)*W*.1*(j + 1)/6, Y - h*(j + 1)/6), j < 4 ? 2 : 1); }
+      for (let k = -1; k <= 1; k++){ const h = Math.max(1, Math.round(H*(1 - .3*Math.abs(k))*(.8 + .2*Math.sin(t*13 + i + k)))), cv = column(c, h)[pass];
+        c.save(); c.imageSmoothingEnabled = false; c.transform(1, 0, -Math.sin(t*6 + i)*W*.1/h, 1, Math.round(X + k*W*.5), Math.round(Y)); c.drawImage(cv, -2, -h - 4); c.restore(); }   // the sway: a lean, sheared
       if (pass) for (let k = 0; k < 5; k++){ const l = (t*2 + hh(k, 141 + i)) % 1, a = -Math.PI/2 + (hh(k, 151 + i) - .5)*1.6, d = H*(.5 + .7*l);   // drops thrown off the crown, falling back
         dots(c, k % 2 ? '#ffa22a' : '#ffd858', [[X + Math.cos(a)*d*.6, Y - H*.6 + Math.sin(a)*d*.5 + l*l*H*.9]], 2); }
       c.globalAlpha = 1; }
@@ -571,11 +571,32 @@ OPHAN.pixel = (() => {
     }
     c.globalAlpha = 1;
   }
+  // a pool is baked once per whole-pixel size and drawn as one image: painted dot by dot it was thousands of rects a frame
+  // (the sword's 48 fountains each stand in one), the magma world's whole lag
+  const POOLS = new Map(), POOL_MAX = 256;
+  // a fountain column of height h, baked once ([ink, melt]) with its foot 4 px above the bottom, 2 px in: drawn sheared, it sways
+  const COLS = new Map();
+  function column(c, h){ let C = COLS.get(h); if (C) return C;
+    C = [mk(4, h + 6), mk(4, h + 6)]; dots(C[0].getContext('2d'), '#0a0608', seg(2, h + 4, 2, 2), 4);
+    const g = C[1].getContext('2d'); for (let j = 0; j < 6; j++) dots(g, LV[j], seg(2, h + 4 - h*j/6, 2, h + 4 - h*(j + 1)/6), j < 4 ? 2 : 1);
+    if (COLS.size >= POOL_MAX){ const [k0, v0] = COLS.entries().next().value; COLS.delete(k0); for (const v of v0) c.forget?.(v); }
+    COLS.set(h, C); if (typeof c.grace === 'number') c.grace = Math.max(c.grace, 1); return C; }
+  // the blast's lead wave: one scratch image, grown to the largest wave and never shrunk, its pixels as 32-bit words
+  const WAVE_C = ['#2a0e0e', '#d8340c', '#ffa22a', '#fff4c4', '#ffd858', '#ff6a14'].map((h) => (255 << 24 | parseInt(h.slice(5, 7), 16) << 16 | parseInt(h.slice(3, 5), 16) << 8 | parseInt(h.slice(1, 3), 16)) >>> 0);   // little-endian RGBA
+  let WV = null;
+  function wave(w, h){ if (!WV || WV.w < w || WV.h < h){ const W2 = Math.max(w, WV?.w || 0), H2 = Math.max(h, WV?.h || 0), cv = mk(W2, H2), g = cv.getContext('2d'), img = g.createImageData(W2, H2);
+      WV = { w: W2, h: H2, cv, g, img, px: new Uint32Array(img.data.buffer) }; }
+    return WV; }
   function pool(c, x, y, rx, ry, al, hot = false){
-    if (rx < 1 || al < .01) return; c.globalAlpha = Math.min(1, al); const Bk = LV.map(() => []), Lp = [];
-    for (let yy = -Math.ceil(ry); yy <= Math.ceil(ry); yy++){ const w = rx*Math.sqrt(Math.max(0, 1 - (yy/ry)**2));
-      for (let xx = -Math.round(w); xx <= Math.round(w); xx++){ const f = Math.hypot(xx/rx, yy/ry); (f > .86 ? Lp : Bk[Math.min(5, Math.floor(f*(hot ? 3.4 : 5.2) + ((xx + yy) & 1)*.4))]).push([x + xx, y + yy]); } }
-    dots(c, '#2a0e0e', Lp); for (let i = 5; i >= 0; i--) dots(c, LV[i], Bk[i]); c.globalAlpha = 1;
+    if (rx < 1 || al < .01) return; rx = Math.round(rx); ry = Math.max(1, Math.round(ry));
+    const key = rx*4096 + ry*2 + (hot ? 1 : 0), hy = Math.ceil(ry); let cv = POOLS.get(key);
+    if (!cv){ cv = mk(2*rx + 1, 2*hy + 1); const g = cv.getContext('2d'), Bk = LV.map(() => []), Lp = [];
+      for (let yy = -hy; yy <= hy; yy++){ const w = rx*Math.sqrt(Math.max(0, 1 - (yy/ry)**2));
+        for (let xx = -Math.round(w); xx <= Math.round(w); xx++){ const f = Math.hypot(xx/rx, yy/ry); (f > .86 ? Lp : Bk[Math.min(5, Math.floor(f*(hot ? 3.4 : 5.2) + ((xx + yy) & 1)*.4))]).push([rx + xx, hy + yy]); } }
+      dots(g, '#2a0e0e', Lp); for (let i = 5; i >= 0; i--) dots(g, LV[i], Bk[i]);
+      if (POOLS.size >= POOL_MAX){ const [k0, v0] = POOLS.entries().next().value; POOLS.delete(k0); c.forget?.(v0); }
+      POOLS.set(key, cv); if (typeof c.grace === 'number') c.grace = Math.max(c.grace, 1); }   // a bake, not per-frame work (px2d)
+    c.globalAlpha = Math.min(1, al); c.drawImage(cv, Math.round(x) - rx, Math.round(y) - hy); c.globalAlpha = 1;
   }
   const ss = (a, b, v) => { v = Math.max(0, Math.min(1, (v - a)/(b - a))); return v*v*(3 - 2*v); };
   // effects are stamped in whole buffer pixels, one colour per run, like the sprite
@@ -654,18 +675,21 @@ OPHAN.pixel = (() => {
           c.globalAlpha = .7*fa; dots(c, '#d8340c', T1); dots(c, '#ffa22a', T2);
           for (const cr of S.crests.slice().sort((p, q) => q.j - p.j)){ const al = Math.min(1, cr.f*(cr.j ? 3 : 9)), rc = (cr.r + .04)*Rb;   // opaque until the rig's fade is nearly done
             if (cr.j){ c.globalAlpha = .8*al; dots(c, '#a8320e', arc(cx, cy, rc - 1, cr.a0, cr.a1), 2); dots(c, '#ff6a14', arc(cx, cy, rc - 1, cr.a0, cr.a1)); continue; }   // the older crests: thin cooling ridges
-            const th = Math.max(5, Math.round(S.band*Rb)), Wv = {};
+            const th = Math.max(5, Math.round(S.band*Rb));
             c.globalCompositeOperation = 'lighter'; c.globalAlpha = .3*al; c.strokeStyle = '#ff6a14'; c.lineWidth = th*2.4;   // the heat off the wave: a soft glow, under the threshold
             c.beginPath(); c.arc(cx, cy, Math.max(1, rc - th/2), cr.a0, cr.a1); c.stroke(); c.globalCompositeOperation = 'source-over';
             const rO = rc + 2, rI = Math.max(0, rc - th - 2), am = (cr.a0 + cr.a1)/2, ux = Math.cos(am), uy = Math.sin(am), ch = Math.cos((cr.a1 - cr.a0)/2);
             let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
             for (let m = 0; m <= 8; m++){ const a = cr.a0 + (cr.a1 - cr.a0)*m/8; for (const r of [rI, rO]){ const X = cx + Math.cos(a)*r, Y = cy + Math.sin(a)*r; x0 = Math.min(x0, X); x1 = Math.max(x1, X); y0 = Math.min(y0, Y); y1 = Math.max(y1, Y); } }
-            for (let y = Math.floor(y0 - 2); y <= Math.ceil(y1 + 2); y++) for (let x = Math.floor(x0 - 2); x <= Math.ceil(x1 + 2); x++){   // the lead wave: one fat molten band, dark crust outside, white-hot core, cooling inward
-              const dx = x + .5 - cx, dy = y + .5 - cy, rr = Math.hypot(dx, dy); if (rr > rO || rr < rI || (dx*ux + dy*uy) < ch*rr) continue;
+            // the lead wave: one fat molten band, dark crust outside, white-hot core, cooling inward; written into one image
+            // and drawn whole (as dots it was thousands of rects a frame, the blast's lag)
+            const X0 = Math.floor(x0 - 2), Y0 = Math.floor(y0 - 2), bw = Math.ceil(x1 + 2) - X0 + 1, bh = Math.ceil(y1 + 2) - Y0 + 1, W = wave(bw, bh), px = W.px;
+            px.fill(0, 0, W.w*W.h);
+            for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++){
+              const dx = X0 + x + .5 - cx, dy = Y0 + y + .5 - cy, rr = Math.hypot(dx, dy); if (rr > rO || rr < rI || (dx*ux + dy*uy) < ch*rr) continue;
               const a = Math.atan2(dy, dx), d = rc + Math.sin(a*11 + t*4)*1.3 - rr; if (d < 0 || d >= th) continue;
-              const f = d/(th - 1), col = d < 1 || d >= th - 1 ? '#2a0e0e' : f < .22 ? '#d8340c' : f < .4 ? '#ffa22a' : f < .62 ? '#fff4c4' : f < .8 ? '#ffd858' : '#ff6a14';
-              (Wv[col] || (Wv[col] = [])).push([x, y]); }
-            c.globalAlpha = al; for (const col in Wv) dots(c, col, Wv[col]); }
+              const f = d/(th - 1); px[y*W.w + x] = WAVE_C[d < 1 || d >= th - 1 ? 0 : f < .22 ? 1 : f < .4 ? 2 : f < .62 ? 3 : f < .8 ? 4 : 5]; }
+            W.g.putImageData(W.img, 0, 0); c.globalAlpha = al; c.drawImage(W.cv, X0, Y0); }
           c.globalAlpha = fa;
           for (const dp of S.drops){ const [X, Y] = U(dp), w = Math.max(3, Math.round(2.4*dp.z*Rb)); dots(c, '#d8340c', seg(X, Y, X - Math.cos(dp.a)*dp.tl*Rb*.5, Y - Math.sin(dp.a)*dp.tl*Rb*.5), 2); dots(c, '#2a0e0e', [[X, Y]], w + 1); dots(c, '#ff6a14', [[X, Y]], w); dots(c, '#fff4c4', [[X, Y]], Math.max(1, w - 2)); }   // spatter flung ahead of the lip
           c.globalAlpha = 1;

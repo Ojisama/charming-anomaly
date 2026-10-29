@@ -185,7 +185,7 @@ import {
   // The Kraken (run KR): the rung table and the ring's numbers
   krakenRung, krakenRungFor, KRAKEN_TURN_BAG, KRAKEN_SLAP_EVERY, KRAKEN_SLAP_COCK, KRAKEN_SLAP_SWING, KRAKEN_SLAP_FUSE, KRAKEN_SLAP_FOLLOW_T, KRAKEN_TRICKLE_T, KRAKEN_TRICKLE_EDGE, KRAKEN_TRICKLE_CLEAR, OPEN_GUARD_WINDOW_MUL, HAIR_TRIGGER_WINDOW_MUL, HAIR_TRIGGER_DMG_MUL, KRAKEN_RUNGS, KRAKEN_ARM_REACH, KRAKEN_WAVE_TIMEOUT, KRAKEN_STAGGER_BITE,
   KRAKEN_RISE_T, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, hiddenChapters, OPHAN_BOSS, OPHAN_HAND, OPHAN_HIT, OPHAN_ARENA, OPHAN_PLAYER_START, OPHAN_ATTACKS, OPHAN_CROWD, OPHAN_BREAK_FLOOR, OPHAN_SKIN_HP, OPHAN_SKETCH_HP, OPHAN_STAGGER_T, OPHAN_WINDOW_MUL, ophanView, OPHAN_GAUGE_COPY,
-  OPHAN_SWORD_REACH, OPHAN_SLAP_REACH, OPHAN_SLAP_CD, OPHAN_ATK_SPEED, OPHAN_BOSS_HOLD, OPHAN_BOSS_SPEED, OPHAN_FLY, OPHAN_ATK_CD, OPHAN_ATK_FIRST, OPHAN_STAGE, ophanScribbleAt, OPHAN_WAVE_OPEN, OPHAN_WAVE_GAP, OPHAN_WAVE, KRAKEN_CAGE_R, KRAKEN_PARRY_CD,
+  OPHAN_SWORD_REACH, OPHAN_SLAP_REACH, OPHAN_SLAP_CD, OPHAN_ATK_SPEED, OPHAN_BOSS_HOLD, OPHAN_BOSS_SPEED, OPHAN_FLY, OPHAN_CROWD_BITE, OPHAN_ATK_CD, OPHAN_ATK_FIRST, OPHAN_STAGE, ophanScribbleAt, OPHAN_WAVE_OPEN, OPHAN_WAVE_GAP, OPHAN_WAVE, KRAKEN_CAGE_R, KRAKEN_PARRY_CD,
   KRAKEN_OPEN_WAVES, KRAKEN_COIL_EVERY, KRAKEN_COIL_RAYS, KRAKEN_ENRAGE_AT, KRAKEN_RAGE_AT, KRAKEN_RAGE_HITS_MIN, KRAKEN_RAGE_HITS_MAX, KRAKEN_RAGE_VOLLEY, KRAKEN_RAGE_VOLLEY_SPREAD, KRAKEN_RAGE_FUSE, KRAKEN_RAGE_GAP, KRAKEN_RAGE_CALM, KRAKEN_RAGE_CHANCE, KRAKEN_NODE_BACK, KRAKEN_HEAD_HP, KRAKEN_HEAD_HP_AT, KRAKEN_HEAD_HP_PER_S, KRAKEN_ARRIVE_T, KRAKEN_RING_R, KRAKEN_LASH_R, KRAKEN_SLAM_T, KRAKEN_DEFLECT_CD,
   KRAKEN_LUNGE_T, KRAKEN_GRIP_DUR, KRAKEN_GRIP_DMG, KRAKEN_GRIP_FLICKS, KRAKEN_GRIP_STICK_MUL, TRAWL_WIGGLE_ARC,
   KRAKEN_LASH_W, KRAKEN_LASH_OVER, KRAKEN_LASH_DMG, KRAKEN_LESSON_MAX, KRAKEN_PARRY_SHOVE_R, KRAKEN_PARRY_EARLY_T, KRAKEN_LIMP_CLEAR, KRAKEN_ARRIVE_T2, KRAKEN_WAVE_GROWTH, KRAKEN_COIL_DMG, KRAKEN_COIL_SHADOW_SOFT, krakenCoilBandHalfW,
@@ -21130,6 +21130,7 @@ run(testLeLargeWeapons)
   run(testOphanOpenArena)
   run(testOphanSlap)
   run(testOphanWaves)
+  run(testOphanCrowdBite)
   run(testOphanBank)
   run(testOphanArtHold)
   run(testOphanStaging)
@@ -44127,6 +44128,34 @@ function testOphanOpenArena() {
 // ---- run OP.waves: rev 2's timeline — open wave 30 s, p1, wave 15 s, p2, wave 15 s, p3, then the sketch at once ------
 // In a wave: no boss, no bar, no hand, no attack, the crowd at OPHAN_WAVE rates, the world press live. Skin hp is banked
 // across a leave; a leave mid-attack takes the attack with it.
+// OP.bite: the crowd bites OPHAN_CROWD_BITE of its own chapter's (that chapter's enemyDmgMul), not by the Ophan's 0.075,
+// which is the boss's attacks' scale; and a touch costs that many hp, not the 1-hp floor
+function testOphanCrowdBite() {
+  const dt = 1 / 60
+  Math.random = mulberry32(20261029)
+  const m = makeMeta(); m.dev = true
+  const r = createRun(m, { chapter: 'ophan', difficulty: 3 })
+  r.weapons = []; r.player.hp = r.player.maxHP = 1e9
+  const crowd = () => r.enemies.filter((e) => !e._dead && e.rosterId !== 'ophan')
+  ophSteps(r, 60 * 20, { until: () => crowd().length >= 6 })
+  const C = CHAPTERS.ophan, seen = []
+  for (const e of crowd()) {
+    const row = C.roster.find((q) => q.id === e.rosterId), home = CHAPTERS[C.worlds[row.world].chapter]
+    const want = ENEMIES[ARCHETYPE_TYPE[row.archetype]].dmg * home.balance.enemyDmgMul * difficultyDmgMul(3) * (home.roster.find((q) => q.id === row.id).dmgMul || 1) * OPHAN_CROWD_BITE
+    assert.ok(Math.abs(e.dmg - want) < 1e-6, `OP.bite: ${e.rosterId} bites ${e.dmg.toFixed(3)}, its own chapter's would be ${want.toFixed(3)}`)
+    seen.push(e.rosterId + ' ' + e.dmg.toFixed(1))
+  }
+  const e = crowd().filter((q) => q.dmg > 0).sort((a, b) => b.dmg - a.dmg)[0]
+  assert.ok(e && e.dmg >= 2, `OP.bite: no crowd body bites 2 or more at d3 (${seen.join(', ')})`)
+  for (const q of crowd()) if (q !== e) { q.x = r.player.x + 3000; q.y = r.player.y + 3000 }
+  const p = r.player, hp0 = p.hp; p.invuln = 0
+  e.x = p.x; e.y = p.y
+  stepSim(r, { x: 0, y: 0 }, dt)
+  const lost = hp0 - p.hp
+  assert.ok(lost >= 2 && Math.abs(lost - e.dmg) <= 1, `OP.bite: a ${e.rosterId} touch (dmg ${e.dmg.toFixed(2)}) cost ${lost} hp`)
+  console.log(`PASS run OP.bite: ${seen.length} crowd bodies bite ${OPHAN_CROWD_BITE} of home (${seen.join(', ')}); a ${e.rosterId} touch cost ${lost} hp`)
+}
+
 function testOphanWaves() {
   const dt = 1 / 60
   const live = (r) => r.enemies.filter((e) => e.rosterId === 'ophan' && !e._dead)
@@ -44184,9 +44213,10 @@ function testOphanWaves() {
   assert.ok(before._dead && live(r).length === 0 && r.bossBar === null && o.stage === 'wave' && r.events.some((e) => e.type === 'ophanLeave'),
     `w1: the second break did not send the boss off (stage ${o.stage}, ${live(r).length} live, bar ${JSON.stringify(r.bossBar)})`)
   assert.ok(!r.events.some((e) => e.type === 'kill'), 'w1: the boss leaving was paid as a kill')
-  // the world press is live in a wave
-  stepSim(r, { x: 0, y: 0, world: broke.includes(3) ? 4 : 3 }, dt)
-  assert.ok(o.world === (broke.includes(3) ? 4 : 3), `w1: a press in the wave left world ${o.world}`)
+  // no boss, no gauge: a press in the wave changes nothing
+  const held = o.world
+  stepSim(r, { x: 0, y: 0, world: held === 3 || broke.includes(3) ? 4 : 3 }, dt)
+  assert.ok(o.world === held && !o.wipe, `w1: a press in the wave moved the world ${held} -> ${o.world}`)
   const t2 = wave(r, 'wave 2')
   assert.ok(Math.abs(t2 - OPHAN_WAVE_GAP) <= 2 * dt + dt, `w1: the second wave lasted ${t2.toFixed(3)} s`)
   const back = live(r)[0]
