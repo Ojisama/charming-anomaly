@@ -4892,5 +4892,14 @@ export function initUI(hooks) {
     const fill = root.querySelector('.brief-load .boot-fill')
     if (fill) fill.style.width = `${Math.round(k * 100)}%`
   }
-  return { showScreen, updateHUD, activeScreen: () => active, setPodiumResult, forgetBoard, syncChanged, briefLoad }
+  // DEV FRAME READOUT (main.js times the frame and hands a line here, or null to hide it). Its own
+  // element on <body>, not a screen: it has to sit over every screen and never take a tap.
+  let perfEl = null
+  function perfReadout(text) {
+    if (text == null) { if (perfEl) perfEl.hidden = true; return }
+    if (!perfEl) { perfEl = document.createElement('div'); perfEl.className = 'perf-readout'; document.body.appendChild(perfEl) }
+    perfEl.hidden = false
+    perfEl.textContent = text
+  }
+  return { showScreen, updateHUD, activeScreen: () => active, setPodiumResult, forgetBoard, syncChanged, briefLoad, perfReadout }
 }

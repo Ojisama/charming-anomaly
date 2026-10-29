@@ -1,5 +1,5 @@
 // Glue: boots Pixi, owns the tick loop and phase transitions. Keep logic in sim/ui/render.
-import { Application } from 'pixi.js'
+import { Application, UPDATE_PRIORITY } from 'pixi.js'
 import { loadMeta, saveMeta, resetSave, deleteSlot, createRun, ensureChapterMeta, ensureBookMeta, unlockBook, setActiveSlot, activeSlot, setSlotName, cleanName, exportSlot, importSlot, freezeSaves, setSaveHook, SAVE_SLOTS, parkRun, dropParkedRun, takeParkedRun } from './state.js'
 import * as CFG from './config.js'
 import { shopCost, refundValue, shopLines, shopLineUnlocked, lineMax, runBonusCoins, randomMutators, rerollMutator, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, difficultyCoinMul, CONSUMABLES, ANOMALY_REROLL_COST, sacrificeCost, BOOK_UNLOCKS, CHAPTERS, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, isWipChapter, HIDDEN_UNLOCKS, COIN_CAP_PER_RUN, BOOK_ORDER, bookOf, isBookFinale, nextBook, unlockCost, unlockLevel, DEATH_OUTRO, BOSS_OUTRO, hasBossOutro } from './config.js'
@@ -1168,7 +1168,29 @@ function deathSkipPressed() {
   return deathSkipArmed
 }
 
+// DEV FRAME READOUT, while meta.dev is on: fps and frame interval (avg / worst) over half a second,
+// then the JS split: sim (stepSim), game (sync + HUD + the rest of this callback) and draw (Pixi's
+// render, which runs after this callback at UPDATE_PRIORITY.LOW). draw is CPU SUBMIT only — the GPU
+// works after it, and shows up in the frame interval, not in draw.
+const perf = { n: 0, dt: 0, worst: 0, sim: 0, game: 0, draw: 0, mark: 0, last: 0 }
 app.ticker.add((ticker) => {
+  const a = performance.now()
+  gameFrame(ticker)
+  perf.mark = performance.now()
+  perf.game += perf.mark - a
+})
+app.ticker.add((ticker) => {
+  const now = performance.now()
+  if (!meta.dev) { perf.sim = perf.game = 0; if (perf.last) { ui.perfReadout(null); perf.last = 0 } return }
+  perf.draw += now - perf.mark
+  perf.n++; perf.dt += ticker.deltaMS; perf.worst = Math.max(perf.worst, ticker.deltaMS)
+  if (now - perf.last < 500) return
+  const n = perf.n, f = (x) => (x / n).toFixed(1)
+  ui.perfReadout(`${Math.round(1000 * n / perf.dt)}fps ${f(perf.dt)}ms max ${perf.worst.toFixed(0)} | sim ${f(perf.sim)} game ${f(perf.game - perf.sim)} draw ${f(perf.draw)}`)
+  Object.assign(perf, { n: 0, dt: 0, worst: 0, sim: 0, game: 0, draw: 0, last: now })
+}, null, UPDATE_PRIORITY.UTILITY)
+
+function gameFrame(ticker) {
   const dt = Math.min(ticker.deltaMS / 1000, 0.05)
   if (!run) { renderer.idle(dt); return }
 
@@ -1191,6 +1213,7 @@ app.ticker.add((ticker) => {
     run.viewH = app.screen.height / 2 / vz
     const input = getInput(renderer.playerScreen)
     input.ophanReady = renderer.ophanReady()   // The Ophan's boss enters a phase only once its art is baked
+    const simA = performance.now()
     stepSim(run, input, dt)
     let events = run.events
     run.events = []
@@ -1201,6 +1224,7 @@ app.ticker.add((ticker) => {
       events = events.concat(run.events)
       run.events = []
     }
+    perf.sim += performance.now() - simA
     // Set BEFORE sync: the kill frame is the first frame of the death render.js draws off this clock.
     const bossOutro = run.phase === 'victory' && beginBossOutro(dt)
     renderer.sync(run, dt, events)
@@ -1248,7 +1272,7 @@ app.ticker.add((ticker) => {
     renderer.sync(run, 0, [])   // frozen world behind modals
     getInput(renderer.playerScreen)   // ...and a skill or world press made behind them is dropped, not carried into play
   }
-})
+}
 
 if (import.meta.env.PROD && 'serviceWorker' in navigator) {
   navigator.serviceWorker.register('./sw.js').catch(() => {})

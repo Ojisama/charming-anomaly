@@ -135,6 +135,22 @@ body {
    wallet have taken theirs: at 0.62rem with 7px sides this came to 36px + an 8px gap and pushed the
    bar 5px wide. flex-shrink:0 so it never absorbs the squeeze itself — the wordmark, which already
    wraps to two lines, is the thing that should give. */
+/* The DEV frame readout (ui.js perfReadout): bottom centre, clear of the HUD row and both skill-button
+   sides, never takes a tap. Untranslated for the dev-pill's reason. */
+.perf-readout {
+  position: fixed;
+  left: 50%;
+  bottom: calc(4px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  z-index: 1000;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font: 600 10px/1.3 ui-monospace, Menlo, monospace;
+  white-space: nowrap;
+  pointer-events: none;
+}
 .dev-pill {
   flex-shrink: 0;
   padding: 2px 5px;
