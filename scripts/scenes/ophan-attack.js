@@ -22,6 +22,7 @@ if (SK !== null && SK !== o.skin) { o.hp[o.skin] = boss().hp; o.skin = SK; boss(
 const need = 2 * (window.__cfg.OPHAN_ATTACKS[K].minPh - 1)
 for (let k = 0, n = 0; k < 6 && n < need; k++) if (k !== o.world && k !== o.skin && !o.broken[k]) { o.broken[k] = true; n++ }
 H.until(() => { hold(); return o.t > 5 && o.ph >= window.__cfg.OPHAN_ATTACKS[K].minPh }, 1200)   // a crowd first
+H.until(() => { hold(); return o.fm === 'hover' || o.fm === 'brake' }, 600)   // an attack starts only from the hover or the brake
 C.attacks = { 1: [K], 2: [K], 3: [K] }
 o.atkCd = 0
 H.tick()

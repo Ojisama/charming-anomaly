@@ -1835,7 +1835,7 @@ function stepOphanScript(run, dt) {
   // THE WORLD PRESS (latched in stepSim): a broken band refuses it; a new world restarts the wipe
   const k = run._worldPress ?? -1
   run._worldPress = -1
-  if (k >= 0 && k < n) {
+  if (k >= 0 && k < n && o.bossId != null) {   // the gauge is the boss's: no boss, no world press
     if (o.broken[k] || o.sketch) run.events.push({ type: 'ophanRefuse', k })
     else if (k !== o.world) {
       const from = o.world

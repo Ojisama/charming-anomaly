@@ -10260,6 +10260,8 @@ export const ophanView = (screenW, screenH) => ({ z: Math.min(screenW / OPHAN_AR
 
 // The worlds the Ophan wears, one per Burrow chapter: its art style (`look`), its gauge colour and
 // the three crowd ids it borrows from that chapter's roster.
+const OPHAN_DMG_MUL = 0.075   // the chapter's enemyDmgMul: it scales the boss's attacks
+export const OPHAN_CROWD_BITE = 0.25   // x what a crowd body bites in its own chapter
 const OPHAN_WORLDS = [
   { chapter: 'topsoil', look: 'macro', col: '#c08552', crowd: { normal: 'earthworm', fast: 'moleCricket', tank: 'mole' } },
   { chapter: 'geode', look: 'holo', col: '#9b8cff', crowd: { normal: 'olm', fast: 'caveCricket', tank: 'crystalCrab' } },
@@ -10279,13 +10281,13 @@ CHAPTERS.ophan = {
   // stripped of their behaviour flags; `world` is the index of the world that sends it.
   roster: [
     ...OPHAN_WORLDS.flatMap((w, world) => Object.values(w.crowd).map((id) =>
-      ({ ...CHAPTERS[w.chapter].roster.find((r) => r.id === id), flags: [], weight: 1, world }))),
+      ((r) => ({ ...r, flags: [], weight: 1, world, dmgMul: (r.dmgMul || 1) * CHAPTERS[w.chapter].balance.enemyDmgMul / OPHAN_DMG_MUL * OPHAN_CROWD_BITE }))(CHAPTERS[w.chapter].roster.find((r) => r.id === id)))),
     // radiusMul = OPHAN_BOSS.bodyR / ENEMIES.tank.radius (run OP.shell pins it)
     { id: 'ophan', archetype: 'tank', name: 'The Ophan', hpMul: 1, speedMul: 0, radiusMul: 2.15, flags: [], formationOnly: true },
   ],
-  // balance_decision : a crowd touch costs 1 hp at every difficulty 2026-10-24
-  //  - it scales every OPHAN_ATTACKS hit too
-  balance: { spawnMul: 1, enemyHpMul: 1, enemyDmgMul: 0.075, maxAliveMul: 1 },
+  // balance_decision : the crowd bites a quarter of its own chapter's 2026-10-29
+  //  - enemyDmgMul is the boss attacks' scale: the crowd rows divide it out; a dmgMul 0 row (Core poles) bites at 1
+  balance: { spawnMul: 1, enemyHpMul: 1, enemyDmgMul: OPHAN_DMG_MUL, maxAliveMul: 1 },
   weapons: ['shovel', 'prismShard', 'pickaxe', 'slagLadle', 'hotCoals', 'sling'], starter: 'shovel',
   render: { ophan: {}, cast: [], bgColor: 0x000000, floorTint: 0xffffff, playerTint: 0xfff2e2, tail: false },
 }

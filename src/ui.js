@@ -2900,7 +2900,7 @@ export function initUI(hooks) {
     // session — Play again into a different chapter reuses this same hud object — hides it again
     // rather than leaving the last boss's bar stuck on screen.
     const oph = run.script?.oph
-    const gaugeShown = !!CHAPTERS[run.chapter].worlds && !!oph
+    const gaugeShown = !!CHAPTERS[run.chapter].worlds && !!oph && oph.bossId != null
     const gaugeSig = gaugeShown
       ? [oph.world, oph.bossId != null && oph.skin, oph.next, oph.tell > 0, oph.broken.join(''), oph.sketch, gaugeBands.map((_, k) => (hooks.worldReady?.(k) ? 1 : 0)).join(''), getLang()].join('|')
       : ''
