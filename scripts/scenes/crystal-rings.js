@@ -8,8 +8,10 @@
 // times 60 frames of sync + render. ⚠ draw ms is SwiftShader: read the growth across rows.
 // &cf=0 lays echo rings only, the worst case (an echo ring carries the most strokes). Read the
 // all-echo row before trusting a cap: the cost falls off a cliff past a total vertex count.
-// renderCpuMs is render() alone; the cliff was all CPU, and almost all of it gl.bufferSubData
-// (0.2ms at 75 rings, 132ms at 200, 24 sides) — a stall uploading the vertex data, not tessellation.
+// renderCpuMs is render() alone; the cliff was all CPU, and almost all of it billed to
+// gl.bufferSubData (0.2ms at 75 rings, 132ms at 200, 24 sides), not to tessellation. In SwiftShader
+// that call waits for draws still queued on the buffer, so it is where software raster gets PAID,
+// not proof the upload itself is slow — render-lag on Body bills 99 of 160ms there with no big Graphics.
 const Ns = (new URLSearchParams(location.search).get('ns') || '0,40,150,300').split(',').map(Number)
 const CF = Number(new URLSearchParams(location.search).get('cf') ?? 1 / 3)   // chimes per echo; cf=0 is the worst case (echo rings carry the most strokes)
 const result = { chapter: run.chapter, rows: [] }
