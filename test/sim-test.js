@@ -43155,7 +43155,7 @@ function testOphanRig() {
 function testOphanShell() {
   assert.deepStrictEqual([HIDDEN_UNLOCKS.ophan.from, HIDDEN_UNLOCKS.ophan.difficulty], ['core', 3])
   const c = CHAPTERS.ophan
-  assert.ok(c.scripted && c.maxDifficultyCap === 3 && c.starter === 'shovel' && c.boards.length === 2)
+  assert.ok(c.scripted && c.maxDifficultyCap === 3 && c.starter === 'pickaxe' && c.boards.length === 2)
   assert.deepStrictEqual(c.weapons, ['shovel', 'prismShard', 'pickaxe', 'slagLadle', 'hotCoals', 'sling'])
   assert.ok(isWipChapter('ophan') === isWipChapter('core') && bookOf('ophan') === 'burrow')
   for (const w of c.worlds) for (const id of Object.values(w.crowd)) {
@@ -43290,13 +43290,14 @@ function testOphanSlice() {
     const seen = new Set()
     // nine of the cadence's periods: eight births, the d1 cap
     const secs = 9 * OPHAN_CROWD[1].every
-    ophSteps(r, Math.ceil(secs * 60), { after: () => {
+    let p0 = { x: p.x, y: p.y }   // the player where the step began: a slap's shove can move it after the birth
+    ophSteps(r, Math.ceil(secs * 60), { before: () => { p0 = { x: p.x, y: p.y } }, after: () => {
       for (const e of r.enemies) if (!e._dead && e.rosterId !== 'ophan' && !seen.has(e.id)) {
         seen.add(e.id)
         assert.ok(ids.includes(e.rosterId), `a8: a ${e.rosterId} walked into the opening world`)
         // born this step at viewRadius + SPAWN_RING; one walk-step of slack
-        const d = Math.hypot(e.x - p.x, e.y - p.y)
-        assert.ok(Math.abs(d - (r.viewRadius + SPAWN_RING)) < 6, `a8: a ${e.rosterId} was born ${d.toFixed(1)}px from the player, not on the off-screen ring`)
+        const ring = r.viewRadius + SPAWN_RING, d = [Math.hypot(e.x - p.x, e.y - p.y), Math.hypot(e.x - p0.x, e.y - p0.y)].sort((a, b) => Math.abs(a - ring) - Math.abs(b - ring))[0]
+        assert.ok(Math.abs(d - ring) < 6, `a8: a ${e.rosterId} was born ${d.toFixed(1)}px from the player, not on the off-screen ring`)
         // the borrowed row keeps its own damage term (spawnBlankEnemy folds roster.dmgMul)
         const row = CHAPTERS.ophan.roster.find((x) => x.id === e.rosterId)
         const want = ENEMIES[ARCHETYPE_TYPE[row.archetype]].dmg * r.mods.enemyDmgMul * (row.dmgMul ?? 1)
@@ -43500,20 +43501,21 @@ function testOphanWorlds() {
   {
     const r = ophanRun(3, 5), o = r.script.oph, p = r.player
     p.hp = p.maxHP = 1e9
-    let free = 0, swaps = o.swaps, lastAtk = null, bad = null
-    ophSteps(r, 120 * 60, { after: () => {
+    let free = 0, swaps = o.swaps, lastAtk = null, bad = null, nb = o.broken.filter(Boolean).length, cut = false   // cut: a break in the gap (afterBreak restarts the clock)
+    ophSteps(r, 240 * 60, { after: () => {
       if (o.atk && (o.tell > 0 || o.after >= 0)) bad ??= `an attack live at t=${o.t.toFixed(2)} with tell ${o.tell.toFixed(2)}, after ${o.after.toFixed(2)}`
       if (o.atk && o.atk !== lastAtk) atkN++
       lastAtk = o.atk
       if (!o.atk) free += dt
+      if (o.broken.filter(Boolean).length !== nb) { nb = o.broken.filter(Boolean).length; cut = true }
       if (o.swaps !== swaps) {
         if (o.atk) bad ??= `a swap during a ${o.atk.k} at t=${o.t.toFixed(2)}`
-        if (swaps > 0) gaps.push(free)
-        free = 0; swaps = o.swaps
+        if (swaps > 0 && !cut) gaps.push(free)
+        free = 0; swaps = o.swaps; cut = false
       }
     } })
     assert.strictEqual(bad, null, `h6: ${bad}`)
-    assert.ok(gaps.length >= 6 && atkN >= 8, `h6: only ${gaps.length} swap gaps and ${atkN} attacks in 120s`)
+    assert.ok(gaps.length >= 6 && atkN >= 8, `h6: only ${gaps.length} swap gaps and ${atkN} attacks in 240s`)
     assert.ok(Math.min(...gaps) >= OPHAN_HAND.swapMin - 2 * dt, `h6: a swap came ${Math.min(...gaps).toFixed(2)}s of attack-free time after the last`)
   }
   // h7 phases: two skins broken per phase

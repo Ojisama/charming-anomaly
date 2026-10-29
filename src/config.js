@@ -10177,9 +10177,9 @@ export const OPHAN_PLAYER_START = { x: 0, y: 190 }
 // balance_decision : the world wipe crosses the arena in half a second 2026-10-24
 export const OPHAN_WIPE_SPEED = 1400
 export const OPHAN_WIPE_END = Math.hypot(OPHAN_ARENA.w, OPHAN_ARENA.h)
-// balance_decision : hand cycle timings, first guesses 2026-10-24
+// balance_decision : half as many swaps, the gap +8 s 2026-10-29
 //  - inT and after are derived from the hand animation's windows (HAND_WIN x HAND_DUR), not tuned
-export const OPHAN_HAND = { tell: 1.4, swapMin: 3.4, swapMax: 5.0, first: 3.2, afterBreak: 3, inT: 0.704, after: 2.208 }
+export const OPHAN_HAND = { tell: 1.4, swapMin: 3.4 + 8, swapMax: 5.0 + 8, first: 3.2, afterBreak: 3, inT: 0.704, after: 2.208 }
 // THE STAGING's sim side (src/ophan/staging/ plays the looks): the world the fight opens in, the harmless windows its
 // beats play in, the leave's hole the next wave crawls out of, a break's freeze, the sketch crowd's scribble clock
 export const OPHAN_STAGE = {
@@ -10288,7 +10288,7 @@ CHAPTERS.ophan = {
   // balance_decision : the crowd bites a quarter of its own chapter's 2026-10-29
   //  - enemyDmgMul is the boss attacks' scale: the crowd rows divide it out; a dmgMul 0 row (Core poles) bites at 1
   balance: { spawnMul: 1, enemyHpMul: 1, enemyDmgMul: OPHAN_DMG_MUL, maxAliveMul: 1 },
-  weapons: ['shovel', 'prismShard', 'pickaxe', 'slagLadle', 'hotCoals', 'sling'], starter: 'shovel',
+  weapons: ['shovel', 'prismShard', 'pickaxe', 'slagLadle', 'hotCoals', 'sling'], starter: 'pickaxe',
   render: { ophan: {}, cast: [], bgColor: 0x000000, floorTint: 0xffffff, playerTint: 0xfff2e2, tail: false },
 }
 

@@ -35,10 +35,10 @@ import { ophanBot } from './ophan-bot.js'
 const SRC = new URL('../src/', import.meta.url).href
 const { createRun } = await import(SRC + 'state.js')
 const { stepSim, applyChoice } = await import(SRC + 'sim.js')
-const { SHOP, OPHAN_BOSS_HOLD } = await import(SRC + 'config.js')
+const { SHOP, OPHAN_BOSS_HOLD, WEAPONS, bookOf, shopLines, PLAYER } = await import(SRC + 'config.js')
 
 const arg = (k, d) => { const i = process.argv.indexOf('--' + k); return i < 0 ? d : process.argv[i + 1] }
-const VALUED = ['--diff', '--seeds', '--seed0', '--cap'], BARE = ['--immortal', '--literal', '--kite']
+const VALUED = ['--diff', '--seeds', '--seed0', '--cap', '--shop', '--starter'], BARE = ['--immortal', '--literal', '--kite']
 for (let i = 2; i < process.argv.length; i++) {
   const a = process.argv[i]
   if (VALUED.includes(a)) i++
@@ -51,6 +51,8 @@ const KITE = process.argv.includes('--kite')
 if (![1, 2, 3].includes(DIFF)) { console.error('ABORT: --diff must be 1, 2 or 3, got ' + arg('diff')); process.exit(1) }
 if (!(Number.isInteger(NSEEDS) && NSEEDS > 0)) { console.error('ABORT: --seeds must be a positive integer, got ' + arg('seeds')); process.exit(1) }
 if (!Number.isInteger(SEED0)) { console.error('ABORT: --seed0 must be an integer, got ' + arg('seed0')); process.exit(1) }
+const SHOPL = Number(arg('shop', 0)), STARTER = arg('starter', null)
+if (!(Number.isInteger(SHOPL) && SHOPL >= 0)) { console.error('ABORT: --shop must be a level >= 0, got ' + arg('shop')); process.exit(1) }
 if (!(CAP > 0)) { console.error('ABORT: --cap must be > 0, got ' + arg('cap')); process.exit(1) }
 const DT = 1 / 60
 
@@ -60,13 +62,18 @@ const mulberry32 = (a) => () => {
   t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
   return ((t ^ (t >>> 14)) >>> 0) / 4294967296
 }
-const meta = () => ({ coins: 0, shop: Object.fromEntries(Object.keys(SHOP).map((id) => [id, 0])), best: { time: 0, kills: 0 }, runs: 0, dev: true })
+// --shop N: every upgrade of the Ophan's book's shop but the cosmetics at level N (5 is ~the 170 hp a player brings to the
+// boss). The book's purse is meta.books[book].shop: the top-level shop is book 1's, which this chapter never reads
+const BOOK = bookOf('ophan'), bookShop = () => Object.fromEntries(Object.entries(shopLines(BOOK)).map(([id, s]) => [id, s.cosmetic ? 0 : SHOPL]))
+const meta = () => ({ coins: 0, books: { [BOOK]: { shop: bookShop() } }, shop: Object.fromEntries(Object.keys(SHOP).map((id) => [id, 0])), best: { time: 0, kills: 0 }, runs: 0, dev: true })
 const isBoss = (src) => src.startsWith('ophan')
 
 function fight(seed) {
   Math.random = mulberry32(seed)
   const run = createRun(meta(), { chapter: 'ophan', difficulty: DIFF })
   if (run.chapter !== 'ophan') { console.error('ABORT: createRun fell back to ' + run.chapter); process.exit(1) }
+  if (run.player.maxHP !== PLAYER.baseHP + shopLines(BOOK).maxHP.perLevel * SHOPL) { console.error('ABORT: --shop ' + SHOPL + ' gave ' + run.player.maxHP + ' max hp'); process.exit(1) }
+  if (STARTER) { const w = run.weapons[0]; if (!WEAPONS[STARTER]) { console.error('ABORT: no weapon ' + STARTER); process.exit(1) } run.weapons = [{ ...w, id: STARTER }]; run.starterId = STARTER }   // --starter id: that weapon instead of the chapter's
   const breaks = [], attacks = [], swaps = [], hits = {}, hurt = {}
   let sketchAt = -1, res = 0, tells = 0, ph2At = -1, ph3At = -1, laser2 = -1, atkSecs = 0, skinSecs = 0, waveDmg = 0, waveSecs = 0, chaseSecs = 0, catches = 0, chasing = false
   let t = 0
@@ -130,7 +137,7 @@ function fight(seed) {
 
 const f0 = (v) => (v < 0 ? '-' : v.toFixed(0))
 const f1 = (v) => (v < 0 ? '-' : v.toFixed(1))
-console.log(`THE OPHAN  chapter=ophan diff=${DIFF} ${IMMORTAL ? 'IMMORTAL (a damage profile, not lethality)' : 'MORTAL'}${LITERAL ? ' LITERAL (the brief\'s bot)' : ''}${KITE ? ' KITE (runs from the boss past its hold)' : ''}  seeds=${NSEEDS} cap=${CAP}s`)
+console.log(`THE OPHAN  chapter=ophan diff=${DIFF} ${IMMORTAL ? 'IMMORTAL (a damage profile, not lethality)' : 'MORTAL'}${LITERAL ? ' LITERAL (the brief\'s bot)' : ''}${KITE ? ' KITE (runs from the boss past its hold)' : ''}  seeds=${NSEEDS} cap=${CAP}s  shop=${SHOPL} (hp ${PLAYER.baseHP + shopLines(BOOK).maxHP.perLevel * SHOPL}) starter=${STARTER || "chapter"}`)
 const rows = []
 for (let i = 0; i < NSEEDS; i++) {
   const x = fight(SEED0 + i * 7919); rows.push(x)
