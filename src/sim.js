@@ -276,7 +276,7 @@ import {
   OPHAN_BOSS, OPHAN_PLAYER_START, OPHAN_PHASE_EASE, OPHAN_ATK_CD, OPHAN_ATK_FIRST, OPHAN_HIT_CD, OPHAN_ATTACKS, OPHAN_HIT,
   OPHAN_SHOVE_DECAY, OPHAN_SKIN_HP, OPHAN_SKETCH_HP, OPHAN_BREAK_FLOOR, OPHAN_IMMUNE_CD, OPHAN_CROWD, OPHAN_WINDOW_MUL, OPHAN_RECOVERY_ON, OPHAN_HAND, OPHAN_STAGE, ophanScribbleAt,
   OPHAN_WIPE_SPEED, OPHAN_WIPE_END, OPHAN_STAGGER_T, OPHAN_ATK_SPEED, OPHAN_BOSS_SPEED, OPHAN_BOSS_HOLD, OPHAN_FLY, OPHAN_ENTER,
-  OPHAN_WAVE_OPEN, OPHAN_WAVE_GAP, OPHAN_WAVE, OPHAN_SLAP_REACH, OPHAN_SLAP_CD,
+  OPHAN_WAVE_OPEN, OPHAN_WAVE_GAP, OPHAN_WAVE, OPHAN_BREAK_LEVELS, OPHAN_SLAP_REACH, OPHAN_SLAP_CD,
 } from './config.js'
 import { crustShapeOf, poolPhaseOf, inCrustEdge, crustSdf, inPoolEdge, CRUST_EDGE_MAX, POOL_RIM_MAX } from './mantle-shape.js'
 import RIG from './ophan/rig.js'
@@ -1861,6 +1861,7 @@ function stepOphanScript(run, dt) {
   if (b && !o.sketch && b.hp <= OPHAN_BREAK_FLOOR) {
     o.broken[o.skin] = 1
     run.events.push({ type: 'ophanBreak', skin: o.skin, x: b.x, y: b.y })
+    run.player.xp += run.player.xpNext * OPHAN_BREAK_LEVELS
     run.hitStop = Math.max(run.hitStop, OPHAN_STAGE.breakStop)
     const left = o.broken.flatMap((v, k) => (v ? [] : [k]))
     if (!left.length) {

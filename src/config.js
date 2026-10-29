@@ -10219,8 +10219,8 @@ export const OPHAN_SLAP_CD = 1.6
 export const OPHAN_FLY = { hover: [1.5, 0.8, 0.4], cock: 0.35, dash: 2.4, dashMax: 0.9, brake: 0.3, brakeK: 9, ground: 0.6, drift: 0.35, ring: [1.5, 2.0], flank: [0.5, 1.1], edge: 1.4, leash: 2.0 }
 // it enters this fraction of the half view from the player: on screen, outside the screen's centre third
 export const OPHAN_ENTER = 0.6
-// balance_decision : opening wave 30 s, 15 s between phases 2026-10-25
-export const OPHAN_WAVE_OPEN = 30
+// balance_decision : opening wave 60 s, 15 s between phases 2026-10-29
+export const OPHAN_WAVE_OPEN = 60
 export const OPHAN_WAVE_GAP = 15
 // the boss's art bakes during the waves, this many ms of a frame on average (render-only; src/ophan/renderer.js); an entry
 // that finds it unbaked waits behind the floor shaking OPHAN_HELD_SHAKE of the screen's short side
@@ -10244,6 +10244,7 @@ export const OPHAN_HIT = { blastFade: 0.3, tornadoAlive: 0.5, tornadoPullR: 1.5,
 export const OPHAN_SHOVE_DECAY = 6   // per second
 // balance_decision : skin hp sets the fight's length 2026-10-24
 export const OPHAN_SKIN_HP = 800
+export const OPHAN_BREAK_LEVELS = 1   // levels the player gains for each skin broken
 // balance_decision : sketch health, break floor, immune ring, first guesses 2026-10-24
 export const OPHAN_SKETCH_HP = 900
 export const OPHAN_BREAK_FLOOR = 1

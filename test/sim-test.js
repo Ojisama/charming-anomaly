@@ -185,7 +185,7 @@ import {
   // The Kraken (run KR): the rung table and the ring's numbers
   krakenRung, krakenRungFor, KRAKEN_TURN_BAG, KRAKEN_SLAP_EVERY, KRAKEN_SLAP_COCK, KRAKEN_SLAP_SWING, KRAKEN_SLAP_FUSE, KRAKEN_SLAP_FOLLOW_T, KRAKEN_TRICKLE_T, KRAKEN_TRICKLE_EDGE, KRAKEN_TRICKLE_CLEAR, OPEN_GUARD_WINDOW_MUL, HAIR_TRIGGER_WINDOW_MUL, HAIR_TRIGGER_DMG_MUL, KRAKEN_RUNGS, KRAKEN_ARM_REACH, KRAKEN_WAVE_TIMEOUT, KRAKEN_STAGGER_BITE,
   KRAKEN_RISE_T, KRAKEN_COIL_TELE, KRAKEN_COIL_DUR, hiddenChapters, OPHAN_BOSS, OPHAN_HAND, OPHAN_HIT, OPHAN_ARENA, OPHAN_PLAYER_START, OPHAN_ATTACKS, OPHAN_CROWD, OPHAN_BREAK_FLOOR, OPHAN_SKIN_HP, OPHAN_SKETCH_HP, OPHAN_STAGGER_T, OPHAN_WINDOW_MUL, ophanView, OPHAN_GAUGE_COPY,
-  OPHAN_SWORD_REACH, OPHAN_SLAP_REACH, OPHAN_SLAP_CD, OPHAN_ATK_SPEED, OPHAN_BOSS_HOLD, OPHAN_BOSS_SPEED, OPHAN_FLY, OPHAN_CROWD_BITE, OPHAN_ATK_CD, OPHAN_ATK_FIRST, OPHAN_STAGE, ophanScribbleAt, OPHAN_WAVE_OPEN, OPHAN_WAVE_GAP, OPHAN_WAVE, KRAKEN_CAGE_R, KRAKEN_PARRY_CD,
+  OPHAN_SWORD_REACH, OPHAN_SLAP_REACH, OPHAN_SLAP_CD, OPHAN_ATK_SPEED, OPHAN_BOSS_HOLD, OPHAN_BOSS_SPEED, OPHAN_FLY, OPHAN_CROWD_BITE, OPHAN_ATK_CD, OPHAN_ATK_FIRST, OPHAN_STAGE, ophanScribbleAt, OPHAN_WAVE_OPEN, OPHAN_WAVE_GAP, OPHAN_WAVE, OPHAN_BREAK_LEVELS, KRAKEN_CAGE_R, KRAKEN_PARRY_CD,
   KRAKEN_OPEN_WAVES, KRAKEN_COIL_EVERY, KRAKEN_COIL_RAYS, KRAKEN_ENRAGE_AT, KRAKEN_RAGE_AT, KRAKEN_RAGE_HITS_MIN, KRAKEN_RAGE_HITS_MAX, KRAKEN_RAGE_VOLLEY, KRAKEN_RAGE_VOLLEY_SPREAD, KRAKEN_RAGE_FUSE, KRAKEN_RAGE_GAP, KRAKEN_RAGE_CALM, KRAKEN_RAGE_CHANCE, KRAKEN_NODE_BACK, KRAKEN_HEAD_HP, KRAKEN_HEAD_HP_AT, KRAKEN_HEAD_HP_PER_S, KRAKEN_ARRIVE_T, KRAKEN_RING_R, KRAKEN_LASH_R, KRAKEN_SLAM_T, KRAKEN_DEFLECT_CD,
   KRAKEN_LUNGE_T, KRAKEN_GRIP_DUR, KRAKEN_GRIP_DMG, KRAKEN_GRIP_FLICKS, KRAKEN_GRIP_STICK_MUL, TRAWL_WIGGLE_ARC,
   KRAKEN_LASH_W, KRAKEN_LASH_OVER, KRAKEN_LASH_DMG, KRAKEN_LESSON_MAX, KRAKEN_PARRY_SHOVE_R, KRAKEN_PARRY_EARLY_T, KRAKEN_LIMP_CLEAR, KRAKEN_ARRIVE_T2, KRAKEN_WAVE_GROWTH, KRAKEN_COIL_DMG, KRAKEN_COIL_SHADOW_SOFT, krakenCoilBandHalfW,
@@ -43203,8 +43203,14 @@ function ophBreakAll(r) {
     if (o.bossId == null) ophEnterNow(r)
   }
 }
+// take every level a break paid, the way main.js does (one screen per level)
+function ophLevels(r) {
+  for (let i = 0; i < 20 && (r.phase === 'levelup' || r.player.xp >= r.player.xpNext); i++) {
+    if (r.phase === 'levelup') { applyChoice(r, pickNonElementIndex(r)); r.phase = 'playing' } else stepSim(r, { x: 0, y: 0 }, 1 / 60)
+  }
+}
 // step through a break's hitstop (OPHAN_STAGE.breakStop): the frozen steps run nothing else
-function ophThaw(r, input = { x: 0, y: 0 }) { while (r.hitStop > 0) stepSim(r, input, 1 / 60) }
+function ophThaw(r, input = { x: 0, y: 0 }) { while (r.hitStop > 0) stepSim(r, input, 1 / 60); ophLevels(r) }
 // where the sword's slam lands, aimed straight down from the boss on its rest mark
 function ophSw() { return { x: OPHAN_BOSS.x, y: OPHAN_BOSS.y + (0.5 + OPHAN_SWORD_REACH) * OPHAN_BOSS.R } }
 // n frames, level-ups resolved the way main.js does; `before` runs ahead of each step, `after` behind
@@ -43264,7 +43270,9 @@ function testOphanSlice() {
   {
     const r = ophanRun(1), o = r.script.oph
     r.events.length = 0
+    const lv0 = r.player.level
     ophBreakAll(r)
+    assert.strictEqual(r.player.level - lv0, o.hp.length * OPHAN_BREAK_LEVELS, `a6: ${o.hp.length} skins broken paid ${r.player.level - lv0} levels`)
     assert.ok(o.broken.every((v) => v === 1), `a6: skins left unbroken ${JSON.stringify(o.broken)}`)
     assert.strictEqual(count(r, 'ophanBreak'), o.hp.length, 'a6: a break did not say so')
     assert.strictEqual(count(r, 'kill'), 0, 'a6: the boss died through the ordinary kill path')
@@ -43809,7 +43817,7 @@ function testOphanSketch() {
     p.invuln = 0; const php = p.hp
     for (const e of frozen) { e.x = p.x; e.y = p.y }
     stepSim(r, { x: 0, y: 0 }, 1 / 60); onClock()
-    assert.ok(p.hp === php, 's1: a frozen crowd body hurt the player')
+    assert.ok(p.hp >= php, 's1: a frozen crowd body hurt the player')   // >=: a level card can regen
     frozen.forEach((e, i) => { e.x = at0[i][0]; e.y = at0[i][1] })
     ophSteps(r, 30, { after: () => { onClock(); assert.ok(frozen.every((e, i) => e._dead || (e.x === at0[i][0] && e.y === at0[i][1])), 's1: a frozen crowd body moved') } })
     ophSteps(r, Math.ceil(last * 60) + 2, { after: onClock })
@@ -44379,6 +44387,7 @@ function testOphanStaging() {
   firstThreat('the arrival')
   // st2 two breaks send it off: a hitstop on each, every step of it frozen (the player does not move)
   for (let i = 0; i < 2; i++) {
+    ophLevels(r)   // the level the previous break paid
     const b = ophBoss(r); o.world = o.skin; o.atk = null; b.hp = OPHAN_BREAK_FLOOR + 1; dealDamage(r, b, 5, false)
     stepSim(r, still, dt)
     assert.strictEqual(r.hitStop, OPHAN_STAGE.breakStop, `st2: break ${i + 1} left hitStop ${r.hitStop}`)
