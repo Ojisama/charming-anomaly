@@ -8,6 +8,8 @@
 // times 60 frames of sync + render. ⚠ draw ms is SwiftShader: read the growth across rows.
 // &cf=0 lays echo rings only, the worst case (an echo ring carries the most strokes). Read the
 // all-echo row before trusting a cap: the cost falls off a cliff past a total vertex count.
+// renderCpuMs is render() alone; the cliff was all CPU, and almost all of it gl.bufferSubData
+// (0.2ms at 75 rings, 132ms at 200, 24 sides) — a stall uploading the vertex data, not tessellation.
 const Ns = (new URLSearchParams(location.search).get('ns') || '0,40,150,300').split(',').map(Number)
 const CF = Number(new URLSearchParams(location.search).get('cf') ?? 1 / 3)   // chimes per echo; cf=0 is the worst case (echo rings carry the most strokes)
 const result = { chapter: run.chapter, rows: [] }
@@ -25,16 +27,17 @@ return async () => {
   for (let k = 0; k < Math.round(N * CF); k++) run.novas.push(mk('chime'))
   window.__renderer.sync(run, 0, [])
   app.renderer.render(app.stage)
-  const t = { sync: [], draw: [] }
+  const t = { sync: [], draw: [], cpu: [] }
   for (let f = 0; f < 60; f++) {
     const b = performance.now()
     window.__renderer.sync(run, 1 / 30, [])
     const c = performance.now()
     app.renderer.render(app.stage)
+    const c2 = performance.now()
     app.renderer.gl?.finish?.()
     const d = performance.now()
-    t.sync.push(c - b); t.draw.push(d - c)
+    t.sync.push(c - b); t.draw.push(d - c); t.cpu.push(c2 - c)
   }
   const mean = (xs) => +(xs.reduce((p, x) => p + x, 0) / xs.length).toFixed(2)
-  result.rows.push({ N, novas: run.novas.length, syncMs: mean(t.sync), drawMs: mean(t.draw) })
+  result.rows.push({ N, novas: run.novas.length, syncMs: mean(t.sync), drawMs: mean(t.draw), renderCpuMs: mean(t.cpu) })
 }
