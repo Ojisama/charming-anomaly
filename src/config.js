@@ -4892,6 +4892,31 @@ export const STAT_KEYS = [
 // The ordered keys buildReadout walks. Derived, so adding a row can never again mean editing sim.
 export const STAT_ROW_KEYS = STAT_KEYS.filter((s) => s.row !== false).map((s) => s.key)
 
+// The pause sheet's own words, in a TABLE so run XX's French walk can see them. Keys of `you` are
+// buildReadout's `you` rows (sim.js), in display order; `always` rows show even when untouched.
+export const PAUSE_COPY = {
+  tabWeapons: 'Weapons',
+  tabYou: 'You',
+  tabAnomalies: '{n} anomalies',
+  tabAnomaly: '1 anomaly',
+  strip: { time: 'Time', kills: 'Kills', level: 'LV', coins: 'Coins' },
+  tagAnomaly: 'Anomaly',
+  quit: 'Quit run',
+  quitArmed: 'Confirm quit',
+  you: {
+    hp: { label: 'HP', always: true },
+    speed: { label: 'Speed', always: true },
+    magnet: { label: 'Magnet', always: true },
+    crit: { label: 'Crit', always: true },
+    critDmg: { label: 'Crit damage' },
+    damage: { label: 'Damage' },
+    fireRate: { label: 'Fire rate' },
+    xpGain: { label: 'XP gain' },
+    armor: { label: 'Armor' },
+    regen: { label: 'Regen' },
+  },
+}
+
 export const MOD_POOL_MAX = 6
 // Per-weapon fairness for the level-up mod pool (v4.4): a single weapon contributes at most this
 // many of its eligible mods (randomly chosen) to the candidate list per level-up. Star is the

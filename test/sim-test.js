@@ -165,6 +165,7 @@ import {
   // elements redesign (Run EL)
   EL_WINDOW, EL_BUCKETS, EL_VALUES, EL_BURN_TICK, EL_BURN_MIN, BARBED_DURATION, ELITE_AFFIXES, MUTATOR_EFFECT_LABELS, MUTATOR_MOD_KEYS, elementCardDesc, elementCodex, ELEMENT_CODEX_INTRO,
   STAT_KEYS,
+  PAUSE_COPY,
   // the cosmetic shop line and its mastery gate (Run BP.ag)
   MASTERY_UNLOCK, chaptersMastered, shopLineUnlocked, CHEEK_JIGGLE, BUTT_FEET,
   // The Wreck's prey rework (Run WK)
@@ -19417,6 +19418,9 @@ function testFrenchDictionary() {
   // into one table is what makes them visible here at all — the coverage came free with the
   // deduplication, which is the argument for doing that kind of merge rather than guarding a split.
   for (const s of STAT_KEYS ?? []) need(s?.label)
+  // The pause sheet's tabs, stat strip, You labels and buttons — walked NESTED, all of it.
+  const walkPause = (v) => typeof v === 'string' ? need(v) : v && typeof v === 'object' ? Object.values(v).forEach((x) => typeof x === 'object' && x && 'label' in x ? need(x.label) : walkPause(x)) : null
+  walkPause(PAUSE_COPY)
   // The elements redesign's copy lives in FUNCTIONS, not a table, so every walk above is blind to
   // it — the third time this exemption has bitten (two City enemies in v6.3, every weapon mod in
   // v6.6.26). It shipped to the live URL with the card and the whole Codex untranslated, and this
@@ -21012,6 +21016,7 @@ try {
   run(testMower)
   run(testSwitchMods)
   run(testBuildReadout)
+  run(testPauseYouReadout)
   run(testAnomalyReroll)
   run(testCommitVisibility)
   run(testMowClears)
@@ -21531,6 +21536,33 @@ function testSwitchMods() {
 // their own fire site, and the star's multishot is read at its own — so a readout built only from
 // effectiveWeaponStats would quietly under-report both. WEAPON_RATE_MODS / WEAPON_COUNT_MODS are
 // that missing half as data, and data can drift away from the code it mirrors: BR.f is the guard.
+// run PY: the pause sheet's You tab. buildReadout(run).you must report the numbers the step
+// actually applies (same formulas as stepPlayer / damageFor / globalFireRate / stepPickups), and its
+// row keys must agree with PAUSE_COPY.you both ways: a sim row with no label is a figure the sheet
+// silently drops, and a label with no sim row is a tab entry that can never appear.
+function testPauseYouReadout() {
+  const run = createRun(makeMeta(), { chapter: 'body', mutators: ['sticky'] })
+  const p = run.player
+  const youOf = () => Object.fromEntries(buildReadout(run).you.map((r) => [r.key, r]))
+  let you = youOf()
+  const keys = Object.keys(you)
+  assert.deepStrictEqual(keys.filter((k) => !PAUSE_COPY.you[k]), [], 'run PY.a: every You row has a PAUSE_COPY.you label')
+  assert.deepStrictEqual(Object.keys(PAUSE_COPY.you).filter((k) => !keys.includes(k)), [], 'run PY.a: every PAUSE_COPY.you label has a row (body, not a lane chapter)')
+  // Sticky Floor moves speed and magnet with no pick at all: the readout carries run.mods too.
+  assert.ok(Math.abs(you.speed.value - p.speed * run.mods.playerSpeedMul) < 1e-9 && run.mods.playerSpeedMul < 1, 'run PY.b: an anomaly that slows you shows on Speed')
+  run.passives.moveSpeed = 0.16; run.passives.fireRate = 0.08; run.passives.critChance = 0.06; run.passives.regen = 1
+  you = youOf()
+  assert.ok(Math.abs(you.speed.value - p.speed * 1.16 * run.mods.playerSpeedMul) < 1e-9, 'run PY.b: Speed folds the move-speed passive')
+  assert.ok(Math.abs(you.fireRate.value - p.fireRateMul * 1.08) < 1e-9, 'run PY.b: Fire rate is globalFireRate')
+  assert.ok(Math.abs(you.crit.value - (p.critChance + 0.06)) < 1e-9, 'run PY.b: Crit adds the passive the way damageFor rolls it')
+  assert.strictEqual(you.regen.value, 1, 'run PY.b: Regen is the passive itself')
+  assert.strictEqual(you.hp.max, p.maxHP, 'run PY.b: HP carries its max')
+  // A lane chapter's magnet is infinite (stepPickups), so the row is omitted rather than printing Infinity.
+  const lane = Object.keys(CHAPTERS).find((id) => CHAPTERS[id].lane || CHAPTERS[id].circuit)
+  if (lane) assert.ok(!buildReadout(createRun(makeMeta(), { chapter: lane })).you.some((r) => r.key === 'magnet'), `run PY.c: no Magnet row on ${lane}`)
+  console.log(`PASS run PY (pause You tab): ${keys.length} rows, all labelled; speed/fire rate/crit/regen match the step; no magnet on lane chapter ${lane}`)
+}
+
 function testBuildReadout() {
   const mk = (weapons) => {
     const run = createRun(makeMeta(), { chapter: 'garden' })

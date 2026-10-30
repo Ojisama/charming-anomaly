@@ -609,7 +609,11 @@ refreshBeta()
 // buildReadout is a read-only projection (see sim.js): main is the only place allowed to hand sim
 // data to ui, which never imports sim. Two callers — a plain pause, and the same sheet opened
 // over a level-up.
-const pauseData = () => ({ mutators: run.mutators, build: buildReadout(run), devSpeed: meta.dev ? devSpeed : 0 })
+const pauseData = () => ({
+  mutators: run.mutators, build: buildReadout(run), devSpeed: meta.dev ? devSpeed : 0,
+  chapter: run.chapter, difficulty: run.difficulty, endless: !!run.endless,
+  stats: { time: run.time, kills: run.kills, level: run.player.level, coins: Math.floor(run.coinsEarned) },
+})
 
 // Everything the level-up screen needs to render its cards + footer buttons.
 function levelupData() {

@@ -74,11 +74,9 @@ const UI = {
   // 'Ton anomalie' (owner call, v6.6.20), not 'Toi' and not 'Perso': every sibling heading in
   // this panel is a noun (weapon names, 'Éléments'), and a lone pronoun broke the column a
   // player scans down. It is also literally true — the player IS the anomaly — and keeps the
-  // tutoiement 'Toi' was chosen for. Fits: .bd-nm ellipsises and already carries longer
-  // weapon names in the same slot, with no LV badge on this row to compete for width.
+  // tutoiement 'Toi' was chosen for. Since the tabbed pause sheet it is a TAB label, one of three
+  // across the sheet — check it fits whenever that row changes.
   'You': 'Ton anomalie',
-  'Elements': 'Éléments',
-  '{n} picks': '{n} choix',
   // title + the volume's own doors. 'Back' is NOT here: the Codex block already carries it, and a
   // second copy is a dead entry the duplicate-key lint fails on.
   'Shop': 'Boutique',
@@ -324,11 +322,26 @@ const UI = {
   'Paused': 'Pause',
   'Resume': 'Reprendre',
   'Auto-paused.': 'Auto-pause activée.',
-  'Quit to menu': 'Retour au menu',
   'You escaped! 🎉': 'Tu t\'es échappé·e ! 🎉',
   'Squished… 💦': 'Écrabouillé·e… 💦',
   'Time': 'Temps',
   'Kills': 'Victimes',
+  // the pause sheet (PAUSE_COPY, config.js)
+  'Weapons': 'Armes',
+  '{n} anomalies': '{n} anomalies',
+  '1 anomaly': '1 anomalie',
+  'Coins': 'Pièces',
+  'Anomaly': 'Anomalie',
+  'Quit run': 'Abandonner',
+  'Confirm quit': 'Confirmer',
+  'HP': 'PV',
+  'Speed': 'Vitesse',
+  'Magnet': 'Aimant',
+  'Crit': 'Critique',
+  'Crit damage': 'Dégâts crit.',
+  'Fire rate': 'Cadence',
+  'Armor': 'Armure',
+  'Regen': 'Régén.',
   'Level reached': 'Niveau atteint',
   // The boss chapters' podium leaf, in place of the level board. Deliberately the same LENGTH as
   // 'Niveau atteint' it replaces: the eyebrow it sits in has 142px and a two-line label there

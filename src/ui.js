@@ -1,5 +1,5 @@
 // DOM overlay inside #ui: title, shop, HUD, level-up, pause, summary. No Pixi.
-import { shopCost, refundValue, REFUND_RATE, shopLines, shopLineUnlocked, chaptersMastered, lineMax, SHOP_FAMILY, RUN_DURATION, RARITIES, modPct, WEAPONS, ENV_WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, MUTATOR_EFFECT_LABELS, CONSUMABLES, MAX_DIFFICULTY, DIFFICULTY_COIN_PER_LEVEL, DIFFICULTY_COUNT_PER_LEVEL, DIFFICULTY_DMG_PER_LEVEL, sacrificeCost, SACRIFICE_COSTS, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES, chapterNumber, CHAPTERS, CHAPTER_ORDER, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, HIDDEN_UNLOCKS, titleBookshelf, spineName, chaosStatus, pulseCost, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS, bookOf, BOOK_ORDER, BOOKS, BOOK_UNLOCKS, unlockCost, unlockLevel, unlockMax, dmgSrcName, dmgSrcArt, passiveEffectText, CHAPTER_BOARDS_DEFAULT, KRAKEN_PARRY_CD, hasSkillButton, ENDLESS_COPY, ENDLESS_MILESTONE_S, endlessUnlocked, endlessAccess, POLE_NAMES, POLE_TINT, OPHAN_GAUGE_COPY } from './config.js'
+import { shopCost, refundValue, REFUND_RATE, shopLines, shopLineUnlocked, chaptersMastered, lineMax, SHOP_FAMILY, RUN_DURATION, RARITIES, modPct, WEAPONS, ENV_WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, MUTATOR_EFFECT_LABELS, CONSUMABLES, MAX_DIFFICULTY, DIFFICULTY_COIN_PER_LEVEL, DIFFICULTY_COUNT_PER_LEVEL, DIFFICULTY_DMG_PER_LEVEL, sacrificeCost, SACRIFICE_COSTS, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES, chapterNumber, CHAPTERS, CHAPTER_ORDER, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, HIDDEN_UNLOCKS, titleBookshelf, spineName, chaosStatus, pulseCost, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS, PAUSE_COPY, bookOf, BOOK_ORDER, BOOKS, BOOK_UNLOCKS, unlockCost, unlockLevel, unlockMax, dmgSrcName, dmgSrcArt, passiveEffectText, CHAPTER_BOARDS_DEFAULT, KRAKEN_PARRY_CD, hasSkillButton, ENDLESS_COPY, ENDLESS_MILESTONE_S, endlessUnlocked, endlessAccess, POLE_NAMES, POLE_TINT, OPHAN_GAUGE_COPY } from './config.js'
 import { playSfx } from './audio.js'
 import { t, tt, getLang, LANGS } from './i18n.js'
 import { SAVE_SLOTS, activeSlot, slotSummary, saveSummary, exportSlot, NAME_MAX, bookMeta, ensureBookMeta, bookProgress } from './state.js'
@@ -367,10 +367,13 @@ function formatShopBonus(bookId, id, levels) {
  *       rerollCurrency is 'coins' or (under the BLOOD MONEY anomaly, v7.2) 'hp', and it decides
  *       both the label's icon and which wallet the disabled check reads. Both come from sim.js's
  *       rerollPrice, never computed here — see that function for why.
- *     - 'pause' data: { mutators: string[], build: object, away?, loading? } (loading: the brief's loader bar in place of Resume, a resumed Ophan run warming up; ui.briefLoad moves it)
- *       mutators = run.mutators (omit/empty for classic runs); mode = the run mode chip;
- *       build = buildReadout(run) — the pause sheet's weapon/passive/element/Rupture sections,
- *       and `build.anomalies` is what the Rupture section reads. See main.js's pause hook.
+ *     - 'pause' data: { mutators: string[], build: object, chapter, difficulty, endless, stats,
+ *       devSpeed, away?, loading? } (loading: the brief's loader bar in place of Resume, a resumed
+ *       Ophan run warming up; ui.briefLoad moves it)
+ *       mutators = run.mutators (omit/empty for classic runs);
+ *       build = buildReadout(run) — the Weapons tab reads build.weapons, the You tab build.you +
+ *       passives + elements, the anomalies tab build.anomalies (Rupture) + mutators;
+ *       stats = { time, kills, level, coins } for the strip under the title. See main.js's pauseData.
  *       It also opens ON TOP of a level-up — the build you already have is what "is this worth
  *       rerolling?" is asking about. onPauseToggle fires with the run still in the 'levelup'
  *       phase and Resume goes back to the same undealt cards, which is why main.js needs
@@ -3559,12 +3562,13 @@ export function initUI(hooks) {
 
 
   // ---- pause modal -------------------------------------------------------
-  // ---- pause: the build readout -------------------------------------------------------------
-  // Design 2 (a weapon's real current numbers) inside design 3's collapsible rows, per the owner's
-  // pick. Collapsed, every section still states its headline figures, so the sheet answers "what am
-  // I running" without a single tap; opening one gives the full spec plus the picks behind it.
-  // Sections stay open across re-renders (openBuild), because toggling one re-renders the modal.
-  const openBuild = new Set()
+  // Three tabs over one sheet: Weapons (open by default — checking the build is what a pause is for),
+  // You, and this run's anomalies. The tab and Quit's armed state survive a re-render of the same
+  // pause and reset on a fresh open (showScreen).
+  let pauseTab = 'weapons'
+  let quitArmed = false
+  let quitArmTimer = 0
+  const PAUSE_QUIT_ARM_MS = 3000
   let lastPauseData = null
   // Weapon stat keys the readout may carry, in display order, with their labels. A weapon only
   // shows the ones it actually has, capped so the sheet cannot be pushed past the buttons.
@@ -3572,7 +3576,9 @@ export function initUI(hooks) {
   // stats become rows. The words used to live here and the order there, so a new stat needed both
   // and was silently absent from the sheet if it got one.
   const STAT_LABEL = Object.fromEntries(STAT_KEYS.map((s) => [s.key, s.label]))
-  const STAT_MAX_ROWS = 5
+  // How many stats a weapon row shows. The cadence (`every`) is always last in buildReadout's list,
+  // so a weapon with more rows than this drops its cadence first.
+  const STAT_MAX_ROWS = 4
   // French writes 1,00 s — comma decimal, NBSP before the unit. The dictionary cannot fix a number,
   // so the formatter has to know the language. (Raised by the FR review of this panel.) Declared
   // ABOVE its callers: this file has been bitten before by an initialiser reaching for a const
@@ -3645,152 +3651,130 @@ export function initUI(hooks) {
       prev && prev[k] !== v ? `<s class="lv-was">${prev[k]}</s>&nbsp;→&nbsp;${v}` : v]))
     return tt(s, shown)
   }
-  function modLine(weaponId, m) {
-    const cfg = WEAPON_MODS[weaponId]?.[m.id]
+  function disarmQuit() { quitArmed = false; clearTimeout(quitArmTimer) }
+  // A weapon's row: icon, name, level pips, then its first STAT_MAX_ROWS stats spread across the
+  // row with what the picks added, then the mods behind it by name. The Geode's crystals (env) have
+  // no level and no stats, so they are just their picks.
+  function pauseWeaponHtml(w) {
+    const mods = w.mods.map((m) => {
+      const c = WEAPON_MODS[w.id]?.[m.id]
+      return c ? `<span>${c.icon ?? '•'} ${esc(t(c.name))}${m.picks > 1 ? ` ×${m.picks}` : ''}</span>` : ''
+    }).filter(Boolean).join('')
+    const modsHtml = mods ? `<div class="pz-mods">${mods}</div>` : ''
+    if (w.env) {
+      const ecfg = ENV_WEAPONS[w.id]
+      if (!ecfg) return ''
+      return `<div class="pz-row"><div class="pz-row-hd"><span class="pz-ic">${ecfg.icon}</span><span class="pz-nm">${esc(t(ecfg.name))}</span></div>${modsHtml}</div>`
+    }
+    const cfg = WEAPONS[w.id]
     if (!cfg) return ''
-    // v6.7.6: a mod with `descFor` (Beam Prism) writes its own whole line, prefix included, because
-    // its wording CHANGES with the amount rather than just its number — so composing it here from
-    // cfg.desc would quietly drop half the sentence and break the "word for word" promise above.
-    // It already returns the "+N <phrase>" shape, so tCardDesc splits and translates it identically
-    // to the level-up card.
-    if (cfg.descFor) {
-      return `<div class="bd-eff"><span class="bd-eff-i">${cfg.icon ?? '•'}</span><span class="bd-eff-t">${esc(tCardDesc(cfg.descFor(m.bonus)))}</span></div>`
-    }
-    // Split the "+N " head off only when there IS one — a {n} desc has the amount inside the
-    // sentence, so there is nothing to bold and nothing to split.
-    const text = modEffectText(cfg, m.bonus)
-    const head = /^(\+[\d.]+%? )/.exec(text)
-    return head
-      ? `<div class="bd-eff"><span class="bd-eff-i">${cfg.icon ?? '•'}</span><span class="bd-eff-t"><b>${esc(head[1])}</b>${esc(text.slice(head[1].length))}</span></div>`
-      : `<div class="bd-eff"><span class="bd-eff-i">${cfg.icon ?? '•'}</span><span class="bd-eff-t">${esc(text)}</span></div>`
+    const pips = Array.from({ length: w.maxLevel }, (_, i) => `<i${i < w.level ? ' class="on"' : ''}></i>`).join('')
+    const nums = w.stats.slice(0, STAT_MAX_ROWS).map((st) => {
+      const d = statDelta(st.key, st.value, st.base)
+      return `<span class="pz-num"><b>${esc(fmtStat(st.key, st.value))}${d ? `<em>${esc(d)}</em>` : ''}</b><small>${esc(t(STAT_LABEL[st.key] ?? st.key))}</small></span>`
+    }).join('')
+    return `<div class="pz-row">
+      <div class="pz-row-hd"><span class="pz-ic">${cfg.icon ?? '⭐'}</span><span class="pz-nm">${esc(t(cfg.name))}</span>
+        <span class="pz-lv" role="img" aria-label="${esc(t('LV'))} ${w.level}">${pips}</span></div>
+      ${nums ? `<div class="pz-nums">${nums}</div>` : ''}${modsHtml}</div>`
   }
-  function sectionHtml(key, icon, name, headline, bodyHtml, badge = '') {
-    const open = openBuild.has(key)
-    return `
-      <div class="bd-sec${open ? ' bd-sec--open' : ''}">
-        <button class="bd-row" data-act="build-toggle" data-key="${esc(key)}" aria-expanded="${open}">
-          <span class="bd-ic">${icon}</span>
-          <span class="bd-nm">${esc(name)}</span>
-          ${badge ? `<span class="bd-lvl">${esc(badge)}</span>` : ''}
-          <span class="bd-head">${esc(headline)}</span>
-          <span class="bd-caret">${open ? '▾' : '▸'}</span>
-        </button>
-        ${open ? `<div class="bd-body">${bodyHtml}</div>` : ''}
-      </div>`
-  }
-  function buildBlockHtml(build) {
-    if (!build || !build.weapons) return ''
-    const secs = []
-    for (const w of build.weapons) {
-      if (w.env) {
-        // the chapter's environment weapon (The Geode's crystals): no level and no stats, just its cards
-        const ecfg = ENV_WEAPONS[w.id]
-        if (!ecfg) continue
-        const n = w.mods.reduce((a, m) => a + m.picks, 0)
-        secs.push(sectionHtml(`w:${w.id}`, ecfg.icon, t(ecfg.name), tt('{n} picks', { n }), w.mods.map((m) => modLine(w.id, m)).join('')))
-        continue
-      }
-      const cfg = WEAPONS[w.id]
-      if (!cfg) continue
-      const rows = w.stats.slice(0, STAT_MAX_ROWS)
-      const dmg = w.stats.find((s) => s.key === 'dmg')
-      const cnt = w.stats.find((s) => s.key === 'count' || s.key === 'orbs' || s.key === 'chunks')
-      // Not every weapon has damage or a projectile count (the Pheromone Lure has neither), and a
-      // blank headline reads as a broken row — fall back to whatever stat it does lead with.
-      let headline = [dmg ? `${fmtNum(dmg.value)} ${t('dmg')}` : '', cnt ? `×${fmtNum(cnt.value)}` : ''].filter(Boolean).join(' ')
-      if (!headline && rows.length) headline = `${t(STAT_LABEL[rows[0].key] ?? rows[0].key)} ${fmtStat(rows[0].key, rows[0].value)}`
-      const table = `<table class="bd-tbl">${rows.map((s) => {
-        const d = statDelta(s.key, s.value, s.base)
-        return `<tr><td class="bd-k">${esc(t(STAT_LABEL[s.key] ?? s.key))}</td><td class="bd-v">${esc(fmtStat(s.key, s.value))}</td><td class="bd-d">${esc(d)}</td></tr>`
-      }).join('')}</table>`
-      const lines = w.mods.map((m) => modLine(w.id, m)).join('')
-      secs.push(sectionHtml(`w:${w.id}`, cfg.icon ?? '⭐', t(cfg.name), headline, table + lines, `${t('LV')} ${w.level}`))
+  // One You figure, as text, plus what the run's picks and anomalies moved it by (empty when untouched).
+  function youFigure(r) {
+    const pct = (v) => `${v < 0 ? '−' : '+'}${Math.abs(Math.round(v * 100))}%`
+    switch (r.key) {
+      case 'hp': return [`${Math.max(0, Math.ceil(r.value))}/${Math.round(r.max)}`, '']
+      case 'crit': return [`${Math.round(r.value * 100)}%`, '']
+      case 'critDmg': return [`×${dec(r.value, 2)}`, '']
+      case 'regen': return [`${dec(r.value, 1)}/s`, '']
+      case 'armor': return [fmtNum(r.value), '']
+      default:
+        if (r.mul) return [pct(r.value - 1), '']
+        return [String(Math.round(r.value)), Math.abs(r.value - r.base) > 0.005 ? pct(r.value / r.base - 1) : '']
     }
-    if (build.passives.length) {
-      // passiveEffectText (config.js) is the ONE place a passive's magnitude becomes text — the
-      // level-up card (makePassiveCard, sim.js) calls the same function, so this sheet cannot drift
-      // out of sync with it again the way it did before this comment existed (the resist branch's
-      // {pct} template used to be composed here too, and rotted the moment Sleek/Oilskin shipped).
-      const body = build.passives.map((ps) => {
-        const cfg = PASSIVES[ps.id]
-        if (!cfg) return ''
-        if (cfg.kind === 'resist') {
-          const { s, p } = passiveEffectText(cfg, ps.bonus)
-          return `<div class="bd-eff"><span class="bd-eff-i">💪</span><span class="bd-eff-t">${esc(tt(s, p))}</span></div>`
-        }
-        // Same head/tail split modLine below uses for a weapon mod's "+N " head: bold the number,
-        // translate only the description that follows it.
-        // fmtNum, so a French player reads "+2,4" rather than "+2.4" — this sheet localised its
-        // numbers before the composer was extracted and must not lose it to the extraction.
+  }
+  function pauseYouHtml(build) {
+    const rows = (build.you ?? []).filter((r) => {
+      const cfg = PAUSE_COPY.you[r.key]
+      return cfg && (cfg.always || Math.abs(r.value - r.base) > 0.005)
+    })
+    const grid = rows.map((r) => {
+      const [v, d] = youFigure(r)
+      return `<span class="pz-num"><b>${esc(v)}${d ? `<em>${esc(d)}</em>` : ''}</b><small>${esc(t(PAUSE_COPY.you[r.key].label))}</small></span>`
+    }).join('')
+    // Each passive by name with what it gives. passiveEffectText (config.js) is the ONE place a
+    // passive's magnitude becomes text — the level-up card (makePassiveCard, sim.js) calls it too, so
+    // this line reads word for word like the card that sold it. fmtNum so French reads "+2,4".
+    const passives = build.passives.map((ps) => {
+      const cfg = PASSIVES[ps.id]
+      if (!cfg) return ''
+      let eff
+      if (cfg.kind === 'resist') { const { s: tpl, p: args } = passiveEffectText(cfg, ps.bonus); eff = tt(tpl, args) } else {
         const text = passiveEffectText(cfg, ps.bonus, fmtNum)
         const head = /^(\+[\d.,]+%? )/.exec(text)
-        return head
-          ? `<div class="bd-eff"><span class="bd-eff-i">💪</span><span class="bd-eff-t"><b>${esc(head[1])}</b>${esc(t(text.slice(head[1].length)))}</span></div>`
-          : `<div class="bd-eff"><span class="bd-eff-i">💪</span><span class="bd-eff-t">${esc(t(text))}</span></div>`
-      }).join('')
-      const n = build.passives.reduce((s, x) => s + x.picks, 0)
-      secs.push(sectionHtml('you', '🧍', t('You'), tt('{n} picks', { n }), body))
-    }
-    if (build.elements.length) {
-      const body = build.elements.map((el) => {
-        const cfg = ELEMENTS[el.id]
-        if (!cfg) return ''
-        return `<div class="bd-eff"><span class="bd-eff-i">${cfg.icon ?? '✨'}</span><span class="bd-eff-t"><b>${esc(fmtNum(el.potency))} </b>${esc(t(cfg.name))}</span></div>`
-      }).join('')
-      const head = build.elements.map((el) => `${ELEMENTS[el.id]?.icon ?? '✨'}${fmtNum(el.potency)}`).join(' ')
-      secs.push(sectionHtml('elements', '✨', t('Elements'), head, body))
-    }
-    // v6.7.7: the sixth tier, in the one place a player can check what they are running. An
-    // anomaly is a RULE — it moves no stat, so no other row in this sheet can hint at it, and its
-    // effects are deliberately indistinguishable from things the base game already does (Unstable
-    // Cores' bomb is the same corpse bomb the `volatile` elite affix rolls on its own). Without
-    // this section, taking the card and not taking it look identical from the pause screen.
-    // Heading = RARITIES.anomaly.name so the sheet and the card's chip say the same word.
-    if (build.anomalies?.length) {
-      // v7.5: SPECIALIST carries a `subject` weapon, and its desc says "Its upgrades…" — so the
-      // weapon has to be named here or the row is unreadable.
-      const aName = (a) => a.subject && WEAPONS[a.subject]
-        ? tt('{name}: {sub}', { name: t(a.name), sub: t(WEAPONS[a.subject].name) })
-        : t(a.name)
-      const body = build.anomalies.map((a) => `<div class="bd-eff"><span class="bd-eff-i">${a.icon ?? '💠'}</span><span class="bd-eff-t"><b>${esc(aName(a))} </b>${esc(a.args ? tt(a.desc, a.args) : t(a.desc))}</span></div>`).join('')
-      const head = build.anomalies.map((a) => aName(a)).join(', ')
-      secs.push(sectionHtml('anomalies', '💠', t(RARITIES.anomaly.name), head, body))
-    }
-    if (!secs.length) return ''
-    return `<div class="bd">${secs.join('')}</div>`
+        eff = head ? head[1] + t(text.slice(head[1].length)) : t(text)
+      }
+      return `<div class="pz-line"><span class="pz-ic">💪</span><span><b>${esc(t(cfg.name))}${ps.picks > 1 ? ` ×${ps.picks}` : ''}</b> ${esc(eff)}</span></div>`
+    }).join('')
+    const elements = build.elements.map((el) => ELEMENTS[el.id]
+      ? `<div class="pz-line"><span class="pz-ic">${ELEMENTS[el.id].icon ?? '✨'}</span><span><b>${esc(t(ELEMENTS[el.id].name))}</b> ${esc(fmtNum(el.potency))}</span></div>` : '').join('')
+    return `<div class="pz-grid">${grid}</div>${passives || elements ? `<div class="pz-lines">${passives}${elements}</div>` : ''}`
   }
-
+  // The run's rule changes: the Rupture cards taken (build.anomalies) and the chapter's anomalies
+  // (run.mutators), each with its full sentence — this is where players re-read the rules.
+  function pauseAnomalyRows(d) {
+    // SPECIALIST carries a `subject` weapon and its desc says "Its upgrades…", so name the weapon.
+    const aName = (a) => a.subject && WEAPONS[a.subject]
+      ? tt('{name}: {sub}', { name: t(a.name), sub: t(WEAPONS[a.subject].name) })
+      : t(a.name)
+    return [
+      ...(d.build?.anomalies ?? []).map((a) => ({ icon: a.icon ?? '💠', name: aName(a), desc: a.args ? tt(a.desc, a.args) : t(a.desc), tag: t(RARITIES.anomaly.name) })),
+      ...(d.mutators ?? []).map((id) => ({ icon: MUTATORS[id]?.icon ?? '❔', name: t(MUTATORS[id]?.name ?? id), desc: t(MUTATORS[id]?.desc ?? ''), tag: t(PAUSE_COPY.tagAnomaly) })),
+    ]
+  }
   function renderPause(d) {
     lastPauseData = d
-    const mutatorIds = d.mutators || []
-    const mutatorBlock = mutatorIds.length ? `
-      <div class="pause-mutators">
-        <div class="pause-mutators-head">🌀 ${t('Anomalies')}</div>
-        ${mutatorIds.map((id) => `
-          <div class="pause-mutator-line">
-            <span class="pause-mutator-icon">${MUTATORS[id]?.icon ?? '❔'}</span>
-            <span class="pause-mutator-body">
-              <span class="pause-mutator-name">${t(MUTATORS[id]?.name ?? id)}</span>
-              <span class="pause-mutator-desc">${t(MUTATORS[id]?.desc ?? '')}</span>
-            </span>
-          </div>`).join('')}
-      </div>` : ''
+    const build = d.build ?? { weapons: [], passives: [], elements: [], anomalies: [], you: [] }
+    const anomalies = pauseAnomalyRows(d)
+    if (pauseTab === 'anomalies' && !anomalies.length) pauseTab = 'weapons'
+    const tabs = [
+      ['weapons', t(PAUSE_COPY.tabWeapons)],
+      ['you', t(PAUSE_COPY.tabYou)],
+      anomalies.length ? ['anomalies', anomalies.length === 1 ? t(PAUSE_COPY.tabAnomaly) : tt(PAUSE_COPY.tabAnomalies, { n: anomalies.length })] : null,
+    ].filter(Boolean)
+    let body
+    if (pauseTab === 'you') body = pauseYouHtml(build)
+    else if (pauseTab === 'anomalies') {
+      body = anomalies.map((a) => `<div class="pz-an"><span class="pz-ic">${a.icon}</span><div><b>${esc(a.name)}</b><span class="pz-tag">${esc(a.tag)}</span><p>${esc(a.desc)}</p></div></div>`).join('')
+    } else body = build.weapons.map(pauseWeaponHtml).join('')
+    const ch = CHAPTERS[d.chapter]
+    const sub = ch ? `${esc(t(ch.name))} · ${esc(d.endless ? t(ENDLESS_COPY.pip.name) : tt('Level {n}', { n: d.difficulty ?? 1 }))}` : ''
+    const st = d.stats
+    const strip = st ? `<div class="pz-strip">${[
+      [fmtTime(st.time), PAUSE_COPY.strip.time], [st.kills, PAUSE_COPY.strip.kills],
+      [st.level, PAUSE_COPY.strip.level], [st.coins, PAUSE_COPY.strip.coins],
+    ].map(([v, l]) => `<span>${esc(String(v))}<small>${esc(t(l))}</small></span>`).join('')}</div>` : ''
     setHtml(screens.pause, `
-      <div class="modal modal--pause" data-pop="pause">
-        <h2 class="modal-title">${t('Paused')}</h2>
+      <div class="modal modal--pause" data-pop="pause" data-tab="${pauseTab}">
+        <div class="pz-top"><h2 class="modal-title">${t('Paused')}</h2><span class="pz-sub">${sub}</span></div>
         ${d.away ? `<p class="sync-notice">${esc(t('Auto-paused.'))}</p>` : ''}
-        ${mutatorBlock}
-        ${buildBlockHtml(d.build)}
-        <!-- Entry to the element Codex (see renderCodex), carrying this run's own potency so its
-             pages print "yours" alongside the rule. data-from tells the close button which screen
-             to land back on — see the 'codex-open'/'codex-close' cases. -->
-        <button class="btn btn--soft" data-act="codex-open" data-from="pause">📖 ${t('Codex')}</button>
-        ${d.loading
-          ? `<div class="brief-load"><div class="boot-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100"><i class="boot-fill"></i></div><p class="brief-note">${t('Getting the level ready…')}</p></div>`
-          : `<button class="btn btn--big" data-act="resume">▶&nbsp; ${t('Resume')}</button>`}
-        ${d.devSpeed ? `<button class="btn btn--soft" data-act="dev-speed">Playtest speed ${d.devSpeed}×</button>` : ''}
-        <button class="btn btn--soft" data-act="quit">${t('Quit to menu')}</button>
-        ${buildStampHtml()}
+        ${strip}
+        <div class="pz-tabs" role="tablist">${tabs.map(([k, label]) =>
+          `<button class="pz-tab${k === pauseTab ? ' pz-tab--on' : ''}" role="tab" aria-selected="${k === pauseTab}" data-act="pause-tab" data-tab="${k}">${esc(label)}</button>`).join('')}</div>
+        <div class="pz-body" role="tabpanel">${body}</div>
+        <div class="pz-acts">
+          <!-- Entry to the element Codex (see renderCodex), carrying this run's own potency so its
+               pages print "yours" alongside the rule. data-from tells the close button which screen
+               to land back on — see the 'codex-open'/'codex-close' cases. -->
+          <button class="pz-sm" data-act="codex-open" data-from="pause" aria-label="${esc(t('Codex'))}" title="${esc(t('Codex'))}">📖</button>
+          ${d.loading
+            ? `<div class="brief-load"><div class="boot-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100"><i class="boot-fill"></i></div><p class="brief-note">${t('Getting the level ready…')}</p></div>`
+            : `<button class="pz-go" data-act="resume">▶&nbsp; ${t('Resume')}</button>`}
+          <button class="pz-sm pz-quit${quitArmed ? ' pz-quit--armed' : ''}" data-act="pause-quit">${esc(t(quitArmed ? PAUSE_COPY.quitArmed : PAUSE_COPY.quit))}</button>
+        </div>
+        <div class="pz-foot">
+          ${d.devSpeed ? `<button class="pz-dev" data-act="dev-speed">⏩ Playtest speed ${d.devSpeed}×</button>` : ''}
+          ${buildStampHtml()}
+        </div>
       </div>
     `)
   }
@@ -4076,6 +4060,7 @@ export function initUI(hooks) {
     // sheet you closed and re-open must pop in again. Re-showing the screen you are already on (a
     // level-up reroll) is a re-render, and keeps the memory.
     if (name !== active) popShown.clear()
+    if (name === 'pause' && name !== active) { pauseTab = 'weapons'; disarmQuit() }
     // The damage recap re-folds whenever we NAVIGATE, so the next death opens closed — but not on a
     // re-render of the summary itself, which is how the fold toggles at all. Guarding on the name
     // rather than on `active` is what draws that line: a toggle re-render goes straight to
@@ -4720,18 +4705,27 @@ export function initUI(hooks) {
         }
         break
       }
-      case 'build-toggle': {
-        const key = el.dataset.key
-        if (openBuild.has(key)) openBuild.delete(key)
-        else openBuild.add(key)
-        playSfx('click')
-        if (lastPauseData) {
+      case 'pause-tab': {
+        const tab = el.dataset.tab
+        if (tab !== pauseTab && lastPauseData) {
+          pauseTab = tab
+          playSfx('click')
           renderPause(lastPauseData)
-          // The re-render replaces the modal's DOM, so the row that was just activated no longer
-          // exists and focus falls back to <body> — put it back on the row's replacement, or a
-          // keyboard user loses their place in the list on every toggle.
-          screens.pause.querySelector(`[data-act="build-toggle"][data-key="${CSS.escape(key)}"]`)?.focus()
+          // the re-render replaces the tab row, so put focus back on the tab just chosen
+          screens.pause.querySelector(`[data-act="pause-tab"][data-tab="${CSS.escape(tab)}"]`)?.focus()
         }
+        break
+      }
+      // The pause sheet's Quit ends the run, so it takes two taps: the first arms it for
+      // PAUSE_QUIT_ARM_MS and says so on the button. The summary's Menu button stays one tap.
+      case 'pause-quit': {
+        playSfx('click')
+        if (quitArmed) { disarmQuit(); hooks.onQuit(); break }
+        quitArmed = true
+        clearTimeout(quitArmTimer)
+        quitArmTimer = setTimeout(() => { if (quitArmed) { quitArmed = false; if (active === 'pause' && lastPauseData) renderPause(lastPauseData) } }, PAUSE_QUIT_ARM_MS)
+        if (lastPauseData) renderPause(lastPauseData)
+        screens.pause.querySelector('[data-act="pause-quit"]')?.focus()
         break
       }
       case 'quit': playSfx('click'); hooks.onQuit(); break

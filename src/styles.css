@@ -1011,25 +1011,6 @@ body {
 .modal .btn { min-width: 0; width: 100%; }
 .modal-title { margin: 0; font-size: 1.6rem; font-weight: 900; }
 
-/* pause screen: full mutator reminder (icon + name + effect) since players re-read rules here */
-.pause-mutators {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;      /* v6.6.21: must be able to shrink, or it starves the build readout below it */
-  overflow-y: auto;
-  gap: 8px;
-  padding: 10px 12px;
-  border-radius: 14px;
-  background: #efe6fb;
-  border: 2px solid #8a5fd0;
-  text-align: left;
-}
-.pause-mutators-head { font-size: 0.8rem; font-weight: 800; color: #5d3fa0; }
-.pause-mutator-line { display: flex; align-items: flex-start; gap: 8px; }
-.pause-mutator-icon { font-size: 1.3rem; line-height: 1.2; }
-.pause-mutator-body { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.pause-mutator-name { font-weight: 800; font-size: 0.88rem; }
-.pause-mutator-desc { font-weight: 600; font-size: 0.76rem; color: var(--ink-soft); }
 
 /* level-up: keep the battlefield readable — light veil, no blur, panel
    docked out of the way of the screen-centered player instead of a centered
@@ -2795,14 +2776,84 @@ body {
   to { transform: scale(1.14); box-shadow: 0 0 0 7px rgba(255, 255, 255, 0.95), 0 0 46px 18px rgba(255, 190, 60, 0.9); }
 }
 
-/* ---- pause: the build readout (v6.6.17) -------------------------------------------------- */
-/* Design 2's spec tables inside design 3's collapsible rows. The whole block is one flex column
-   that gives up height before the Resume/Quit buttons do — on a 320x568 phone the buttons must
-   never be pushed off, so this scrolls internally rather than growing the modal. */
-/* The pause modal is the only one that can carry an arbitrarily long list, so it is the only one
-   bounded to the screen. Without this it simply grows and pushes Resume/Quit off a 568px phone —
-   measured at 728px with two sections open. */
-.modal--pause { max-height: 100%; }
+/* ---- pause sheet: Weapons / You / anomalies tabs --------------------------------------------
+   The only modal that can carry an arbitrarily long list, so it is bounded to the screen and only
+   .pz-body scrolls: the title, tabs and Resume never leave a 320x568 phone. No boxes inside
+   boxes — rows are separated by rules, and each tab tints with its own accent (--acc). */
+.modal--pause {
+  --acc: var(--mint); --acc-d: var(--mint-dark);
+  /* a FIXED height, so switching tabs never moves the tab row under the finger that tapped it */
+  height: min(100%, 600px); max-height: 100%; width: min(94vw, 400px); gap: 0; padding: 0; overflow: hidden;
+  background: #fffaf2; border-radius: 28px; text-align: left;
+  box-shadow: 0 8px 0 var(--ink), 0 24px 40px rgba(0, 0, 0, 0.3);
+}
+.modal--pause[data-tab="you"] { --acc: #ffb3c6; --acc-d: #e0607e; }
+.modal--pause[data-tab="anomalies"] { --acc: #cdb6ff; --acc-d: #8f6ad8; }
+.pz-top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 16px 18px 8px; }
+.pz-sub { font-size: 0.8rem; font-weight: 800; color: var(--ink-soft); text-align: right; }
+.modal--pause .sync-notice { margin: 0 18px 6px; }
+.pz-strip { display: flex; justify-content: space-between; padding: 0 18px 12px; }
+.pz-strip span { text-align: center; font-weight: 900; font-size: 1rem; font-variant-numeric: tabular-nums; }
+.pz-strip small, .pz-num small {
+  display: block; font-size: 0.62rem; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; color: var(--ink-soft);
+}
+.pz-tabs { display: flex; gap: 4px; margin: 0 14px; padding: 4px; border-radius: 16px; background: #efe6d6; }
+.pz-tab {
+  flex: 1 1 0; min-width: 0; min-height: 40px; padding: 6px 2px; border: 0; border-radius: 12px; background: none;
+  font: inherit; font-size: 0.85rem; font-weight: 900; color: var(--ink-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer;
+}
+.pz-tab--on { background: var(--acc); color: var(--ink); box-shadow: 0 3px 0 var(--acc-d); }
+.pz-tab:focus-visible { outline: 3px solid var(--acc-d); outline-offset: 1px; }
+.pz-body { flex: 1 1 auto; min-height: 80px; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 4px 18px 8px; }
+.pz-row, .pz-an { padding: 12px 0; border-bottom: 2px solid #f0e7d8; }
+.pz-row:last-child, .pz-an:last-child { border-bottom: 0; }
+.pz-row-hd { display: flex; align-items: center; gap: 10px; }
+.pz-ic { flex: 0 0 36px; font-size: 1.6rem; line-height: 1; text-align: center; }
+.pz-nm { flex: 1; min-width: 0; font-size: 1.05rem; font-weight: 900; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pz-lv { display: flex; gap: 3px; flex: none; }
+.pz-lv i { width: 9px; height: 9px; border-radius: 50%; background: #e6dccb; }
+.pz-lv i.on { background: var(--acc-d); }
+/* space-between, owner's call: the figures span the row under the name rather than bunching left */
+.pz-nums { display: flex; justify-content: space-between; gap: 8px; margin: 6px 0 0 46px; }
+.pz-num { min-width: 0; }
+.pz-num b { font-size: 1.15rem; font-weight: 900; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pz-num em { margin-left: 3px; font-size: 0.7rem; font-style: normal; color: var(--acc-d); }
+.pz-num small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pz-mods { display: flex; flex-wrap: wrap; gap: 2px 12px; margin: 6px 0 0 46px; font-size: 0.78rem; font-weight: 800; color: var(--ink-soft); }
+.pz-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px 8px; padding: 14px 0; text-align: center; }
+.pz-lines { padding: 8px 0 4px; border-top: 2px solid #f0e7d8; }
+.pz-line { display: flex; align-items: center; gap: 10px; padding: 4px 0; font-size: 0.85rem; font-weight: 600; color: var(--ink-soft); }
+.pz-line .pz-ic { font-size: 1.15rem; }
+.pz-line b { font-weight: 900; color: var(--ink); }
+.pz-an { display: flex; gap: 10px; }
+.pz-an b { font-size: 1rem; font-weight: 900; }
+.pz-an p { margin: 2px 0 0; font-size: 0.82rem; font-weight: 600; line-height: 1.3; color: var(--ink-soft); }
+.pz-tag { margin-left: 6px; font-size: 0.6rem; font-weight: 900; letter-spacing: 0.06em; text-transform: uppercase; color: #8f6ad8; }
+.pz-acts { display: flex; align-items: stretch; gap: 8px; padding: 10px 14px 12px; }
+.pz-acts .brief-load { flex: 1; min-width: 0; justify-content: center; }
+.pz-acts .boot-bar { width: 100%; max-width: none; }
+.pz-acts .brief-note { margin: 0; font-size: 0.78rem; }
+.pz-go, .pz-sm { min-height: 58px; border-radius: 18px; font: inherit; font-weight: 900; color: var(--ink); cursor: pointer; }
+.pz-go { flex: 1; border: 3px solid var(--mint-dark); background: var(--mint); box-shadow: 0 5px 0 var(--mint-dark); font-size: 1.25rem; white-space: nowrap; min-width: 0; }
+.pz-sm { flex: 0 0 auto; min-width: 54px; padding: 0 10px; border: 3px solid #e6dccb; background: #fff; box-shadow: 0 5px 0 #e6dccb; font-size: 1.4rem; }
+.pz-go:active, .pz-sm:active { transform: translateY(3px); box-shadow: none; }
+.pz-quit { max-width: 116px; font-size: 0.8rem; line-height: 1.1; color: var(--danger); }
+.pz-quit--armed { background: var(--danger); border-color: var(--danger-edge); box-shadow: 0 5px 0 var(--danger-edge); color: #fff; }
+/* 320px French: "Reprendre" and "Ton anomalie" clip at the default sizes */
+@media (max-width: 360px) {
+  .pz-tab { font-size: 0.74rem; line-height: 1.05; white-space: normal; }
+  .pz-go { padding: 0 4px; font-size: 0.95rem; }
+  .pz-sm { min-width: 46px; padding: 0 6px; }
+  .pz-quit { max-width: 88px; font-size: 0.66rem; }
+  .pz-nums, .pz-mods { margin-left: 0; }
+  .pz-num b { font-size: 1rem; }
+  .pz-strip small, .pz-num small { letter-spacing: 0; }
+}
+.pz-foot { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 0 16px 12px; }
+.pz-foot .pz-dev { margin-right: auto; }
+.pz-foot .build-stamp { margin: 0; }
+/* DEV only (meta.dev): ghosted, dashed, so it never reads as part of the player's sheet */
+.pz-dev { padding: 4px 8px; border: 2px dashed #d9cdb8; border-radius: 10px; background: none; font: inherit; font-size: 0.72rem; font-weight: 800; color: var(--ink-soft); cursor: pointer; }
 
 /* ---- CHAOS PACT rail (v7.12) ---------------------------------------------------------------
    Replaces a gold full-width bar that sat directly above the gold full-width xp bar and read as a
@@ -2995,39 +3046,8 @@ body {
   color: var(--ink-soft);
   background: var(--cream);
 }
-/* v6.6.21: a flex item's default min-height is its CONTENT, so the anomalies box above refused to
-   yield a pixel — at difficulty 5 it held 230px and starved .bd to 15px for 109px of rows. The
-   build readout was in the DOM, correct, and invisible on any phone. Both regions shrink and
-   scroll now, and .bd keeps a floor of about two rows so it can never be squeezed back to nothing.
-   (Only reproduces with a full anomaly set: it is invisible to a difficulty-1 spot check.) */
-.bd { display: flex; flex-direction: column; gap: 5px; flex: 1 1 auto; min-height: 60px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
-.bd-sec { background: var(--cream-soft); border: 1.5px solid var(--cream-edge); border-radius: 9px; }
-.bd-sec--open { border-color: var(--mint-dark); }
-.bd-row { display: flex; align-items: center; gap: 6px; width: 100%; padding: 5px 7px; background: none;
-          border: 0; font: inherit; color: inherit; text-align: left; cursor: pointer; min-height: 30px; }
-.bd-ic { font-size: 14px; line-height: 1; display: flex; align-items: center; height: 1.5em; }
-.bd-nm { font-weight: 800; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.bd-lvl { font-size: 9.5px; font-weight: 800; color: #fff; background: var(--mint-dark);
-          border-radius: 5px; padding: 1px 5px; flex: 0 0 auto; }
-.bd-head { flex: 1; text-align: right; font-size: 11px; font-weight: 700; color: var(--mint-dark);
-           white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* the summary's damage-recap fold caret (the pause sheet's old build rows were its other user) */
 .bd-caret { font-size: 11px; opacity: .55; flex: 0 0 auto; }
-.bd-body { padding: 0 7px 6px; }
-/* table-layout: fixed is what makes the ellipsis below actually work — with auto layout a cell
-   ignores max-width and the column just grows, squeezing the value out instead. */
-.bd-tbl { width: 100%; border-collapse: collapse; font-size: 11.5px; table-layout: fixed; }
-.bd-tbl td { padding: 1.5px 0; }
-/* These two were the only text cells in this component without overflow protection, and French
-   labels run longer than English ones — an unprotected cell WRAPS and breaks the row alignment
-   rather than truncating cleanly. */
-.bd-k { opacity: .68; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 54%; }
-.bd-v { text-align: right; font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.bd-d { text-align: right; width: 52px; font-size: 10.5px; font-weight: 700; color: var(--mint-dark); white-space: nowrap; }
-.bd-eff { display: flex; align-items: center; gap: 5px; font-size: 11.5px; padding: 2px 0 1px;
-          border-top: 1px dashed var(--cream-edge); margin-top: 3px; }
-.bd-eff-i { width: 15px; text-align: center; flex: 0 0 auto; }
-.bd-eff-t { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.bd-eff-t b { color: var(--mint-dark); font-weight: 800; }
 
 /* ---- element codex ------------------------------------------------------------------
    A scrollable read: the intro rule, then one section per element. Bounded like .modal--pause and

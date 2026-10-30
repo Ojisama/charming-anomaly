@@ -11153,7 +11153,25 @@ export function buildReadout(run) {
       id, name: ANOMALIES[id].name, desc: ANOMALIES[id].desc, args: ANOMALIES[id].args, icon: ANOMALIES[id].icon,
       subject: typeof run.anomalies[id] === 'string' ? run.anomalies[id] : null,
     }))
-  return { weapons, passives, elements, anomalies }
+  // The pause sheet's You tab: the player's own numbers as the sim applies them, each with the value
+  // it started the run at so the sheet can say what the picks added. `mul` rows are multipliers
+  // (1 = untouched). The formulas are the ones the step uses (stepPlayer, damageFor, globalFireRate,
+  // stepPickups, the gem pickup), minus anything that is only a passing window (BERSERK) or a
+  // per-frame state (slows), so the readout is the build's standing value and does not flicker.
+  const lane = CHAPTERS[run.chapter]?.lane || CHAPTERS[run.chapter]?.circuit
+  const you = [
+    { key: 'hp', value: p.hp, max: p.maxHP },
+    { key: 'speed', value: p.speed * (1 + run.passives.moveSpeed) * run.mods.playerSpeedMul, base: p.speed },
+    lane ? null : { key: 'magnet', value: p.magnet * (1 + run.passives.magnet) * run.mods.magnetMul, base: p.magnet },
+    { key: 'crit', value: p.critChance + run.passives.critChance, base: p.critChance },
+    { key: 'critDmg', value: p.critDamage + run.passives.critDamage, base: p.critDamage },
+    { key: 'damage', value: p.damageMul * (1 + run.passives.damage) * run.mods.playerDmgMul, base: 1, mul: true },
+    { key: 'fireRate', value: globalFireRate(run), base: 1, mul: true },
+    { key: 'xpGain', value: (1 + run.passives.xpGain) * run.mods.xpMul, base: 1, mul: true },
+    { key: 'armor', value: run.passives.armor, base: 0 },
+    { key: 'regen', value: run.passives.regen, base: 0 },
+  ].filter(Boolean)
+  return { weapons, passives, elements, anomalies, you }
 }
 
 // Returns true when a firedamp blast killed the player (phase is 'dead').
