@@ -332,6 +332,8 @@ const UI = {
   '1 anomaly': '1 anomalie',
   'Coins': 'Pièces',
   'Anomaly': 'Anomalie',
+  '{n} mods': '{n} modules',
+  '1 mod': '1 module',
   'Quit run': 'Abandonner',
   'Confirm quit': 'Confirmer',
   'HP': 'PV',
