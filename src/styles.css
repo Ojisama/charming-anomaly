@@ -2814,12 +2814,24 @@ body {
 .pz-lv i { width: 9px; height: 9px; border-radius: 50%; background: #e6dccb; }
 .pz-lv i.on { background: var(--acc-d); }
 /* space-between, owner's call: the figures span the row under the name rather than bunching left */
-.pz-nums { display: flex; justify-content: space-between; gap: 8px; margin: 6px 0 0 46px; }
+/* starts under the icon, not the name: four French stats with a delta need the whole row */
+.pz-nums { display: flex; justify-content: space-between; gap: 8px; margin: 8px 0 0; }
 .pz-num { min-width: 0; }
 .pz-num b { font-size: 1.15rem; font-weight: 900; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .pz-num em { margin-left: 3px; font-size: 0.7rem; font-style: normal; color: var(--acc-d); }
 .pz-num small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.pz-mods { display: flex; flex-wrap: wrap; gap: 2px 12px; margin: 6px 0 0 46px; font-size: 0.78rem; font-weight: 800; color: var(--ink-soft); }
+.pz-fold {
+  display: inline-flex; align-items: center; gap: 4px; margin: 8px 0 0; padding: 4px 10px; min-height: 30px;
+  border: 0; border-radius: 999px; background: #efe6d6; font: inherit; font-size: 0.75rem; font-weight: 900; color: var(--ink-soft); cursor: pointer;
+}
+.pz-fold[aria-expanded="true"] { background: var(--acc); color: var(--ink); }
+.pz-fold[aria-expanded="true"] .pz-chev { transform: rotate(180deg); }
+.pz-chev { display: inline-block; transition: transform 0.15s; }
+.pz-fold:focus-visible { outline: 3px solid var(--acc-d); outline-offset: 1px; }
+.pz-modlist { margin: 6px 0 0; }
+.pz-mod { display: flex; gap: 8px; padding: 4px 0; font-size: 0.82rem; font-weight: 600; line-height: 1.3; color: var(--ink-soft); }
+.pz-mod .pz-ic { flex: 0 0 20px; font-size: 1rem; }
+.pz-mod b { font-weight: 900; color: var(--ink); }
 .pz-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px 8px; padding: 14px 0; text-align: center; }
 .pz-lines { padding: 8px 0 4px; border-top: 2px solid #f0e7d8; }
 .pz-line { display: flex; align-items: center; gap: 10px; padding: 4px 0; font-size: 0.85rem; font-weight: 600; color: var(--ink-soft); }
@@ -2845,8 +2857,8 @@ body {
   .pz-go { padding: 0 4px; font-size: 0.95rem; }
   .pz-sm { min-width: 46px; padding: 0 6px; }
   .pz-quit { max-width: 88px; font-size: 0.66rem; }
-  .pz-nums, .pz-mods { margin-left: 0; }
   .pz-num b { font-size: 1rem; }
+  .pz-nums:has(> :nth-child(4)) em { display: none; }
   .pz-strip small, .pz-num small { letter-spacing: 0; }
 }
 .pz-foot { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 0 16px 12px; }

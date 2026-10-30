@@ -4900,7 +4900,7 @@ export const PAUSE_COPY = {
   tabAnomalies: '{n} anomalies',
   tabAnomaly: '1 anomaly',
   strip: { time: 'Time', kills: 'Kills', level: 'LV', coins: 'Coins' },
-  tagAnomaly: 'Anomaly',
+  tagAnomaly: 'Anomaly', modsN: '{n} mods', mods1: '1 mod',
   quit: 'Quit run',
   quitArmed: 'Confirm quit',
   you: {

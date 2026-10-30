@@ -3570,6 +3570,8 @@ export function initUI(hooks) {
   let quitArmTimer = 0
   const PAUSE_QUIT_ARM_MS = 3000
   let lastPauseData = null
+  // Weapons whose mod list is unfolded. Kept across pauses, so a player who opened one keeps it open.
+  const openWeapons = new Set()
   // Weapon stat keys the readout may carry, in display order, with their labels. A weapon only
   // shows the ones it actually has, capped so the sheet cannot be pushed past the buttons.
   // Derived from config's STAT_KEYS, which is the single ordered table sim.js also reads for WHICH
@@ -3656,11 +3658,19 @@ export function initUI(hooks) {
   // row with what the picks added, then the mods behind it by name. The Geode's crystals (env) have
   // no level and no stats, so they are just their picks.
   function pauseWeaponHtml(w) {
+    // Each mod's effect goes through modEffectText (or its own descFor), so the unfolded list says
+    // word for word what the level-up card that sold it said.
     const mods = w.mods.map((m) => {
       const c = WEAPON_MODS[w.id]?.[m.id]
-      return c ? `<span>${c.icon ?? '•'} ${esc(t(c.name))}${m.picks > 1 ? ` ×${m.picks}` : ''}</span>` : ''
-    }).filter(Boolean).join('')
-    const modsHtml = mods ? `<div class="pz-mods">${mods}</div>` : ''
+      if (!c) return ''
+      const eff = c.descFor ? tCardDesc(c.descFor(m.bonus)) : modEffectText(c, m.bonus)
+      return `<div class="pz-mod"><span class="pz-ic">${c.icon ?? '•'}</span><span><b>${esc(t(c.name))}${m.picks > 1 ? ` ×${m.picks}` : ''}</b> ${esc(eff)}</span></div>`
+    }).filter(Boolean)
+    const open = openWeapons.has(w.id)
+    const count = mods.length === 1 ? t(PAUSE_COPY.mods1) : tt(PAUSE_COPY.modsN, { n: mods.length })
+    const modsHtml = mods.length
+      ? `<button class="pz-fold" data-act="pause-weapon" data-weapon="${esc(w.id)}" aria-expanded="${open}">${esc(count)}<span class="pz-chev" aria-hidden="true">▾</span></button>${open ? `<div class="pz-modlist">${mods.join('')}</div>` : ''}`
+      : ''
     if (w.env) {
       const ecfg = ENV_WEAPONS[w.id]
       if (!ecfg) return ''
@@ -4718,6 +4728,21 @@ export function initUI(hooks) {
       }
       // The pause sheet's Quit ends the run, so it takes two taps: the first arms it for
       // PAUSE_QUIT_ARM_MS and says so on the button. The summary's Menu button stays one tap.
+      case 'pause-weapon': {
+        const id = el.dataset.weapon
+        if (openWeapons.has(id)) openWeapons.delete(id)
+        else openWeapons.add(id)
+        playSfx('click')
+        if (lastPauseData) {
+          const body = screens.pause.querySelector('.pz-body')
+          const top = body?.scrollTop ?? 0
+          renderPause(lastPauseData)
+          const nb = screens.pause.querySelector('.pz-body')
+          if (nb) nb.scrollTop = top
+          screens.pause.querySelector(`[data-act="pause-weapon"][data-weapon="${CSS.escape(id)}"]`)?.focus({ preventScroll: true })
+        }
+        break
+      }
       case 'pause-quit': {
         playSfx('click')
         if (quitArmed) { disarmQuit(); hooks.onQuit(); break }
