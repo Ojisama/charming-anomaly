@@ -399,6 +399,62 @@ function paintGlassCracks(ctx, cara, r, stage) {
   ctx.restore()
 }
 
+// HOLLOW GEODE: a stone ball ROLLING along the floor, seen from straight above, nose at +x. Everything
+// on it sits on a sphere: `phase` turns the sphere about the sprite's y axis, so crystals come up over
+// the back, cross the top and go under at the front, and the ones near the edge stick out past the
+// outline. Shading is symmetric about the middle so the sprite can turn to face its roll (lean 90).
+// An indigo stone, crystal clusters breaking out of it all over.
+function paintHollowGeode(ctx, phase) {
+  const r = 30, rnd = rng(907)
+  const body = oval(0, 0, r, r, 0, 56)
+  // seeded points on the sphere (x right, y down, z toward the camera), turned by the roll
+  const pts = []
+  for (let i = 0; i < 40; i++) {
+    const zz = rnd() * 2 - 1, th = rnd() * TAU, q = Math.sqrt(1 - zz * zz)
+    pts.push({ p: [q * Math.cos(th), zz, q * Math.sin(th)], t: rnd(), k: rnd() })
+  }
+  const c = Math.cos(phase), sn = Math.sin(phase)
+  const turn = ([x, y, z]) => [x * c + z * sn, y, -x * sn + z * c]
+  // one crystal point growing straight out of the surface at n, seen from above
+  const spike = (n, len, wid, t0, lw) => {
+    const flat = Math.hypot(n[0], n[1])
+    const bx = n[0] * r * 0.92, by = n[1] * r * 0.92
+    if (flat > 0.3) holoSpike(ctx, bx, by, len * flat, wid, Math.atan2(n[1], n[0]), t0, lw)
+    else {   // pointing at the camera: its hexagonal end, facets and a white ridge
+      const hx = []; for (let j = 0; j < 6; j++) { const an = (j / 6) * TAU + t0 * 3; hx.push(bx + Math.cos(an) * wid * 1.3, by + Math.sin(an) * wid * 1.3) }
+      for (let j = 0; j < 6; j++) fillPts(ctx, [bx, by, hx[j * 2], hx[j * 2 + 1], hx[(j * 2 + 2) % 12], hx[(j * 2 + 3) % 12]], css(film(t0 + j / 6, 0.16, j % 2 ? 0.48 : 0.6)))
+      ink(ctx, hx, lw)
+    }
+  }
+  const P = pts.map((o) => ({ ...o, n: turn(o.p) }))
+  // clusters on the far side first: only their tips show, sticking out past the rim
+  const clusters = P.slice(0, 20)
+  const drawCluster = (o) => { for (let j = 0; j < 3; j++) { const m = turn([o.p[0] + (j - 1) * 0.12 * o.p[2], o.p[1] + (j - 1) * 0.1, o.p[2] - (j - 1) * 0.12 * o.p[0]]); const l = Math.hypot(...m); spike(m.map((u) => u / l), r * (j === 1 ? 0.72 : 0.5) * (0.8 + 0.4 * o.k), r * 0.12, o.t + j * 0.2, 0.8) } }
+  for (const o of clusters) if (o.n[2] <= 0 && o.n[2] > -0.45) drawCluster(o)
+  fillPts(ctx, body, css(0x2c2a70))
+  ctx.save(); trace(ctx, body); ctx.clip()
+  // speckles of glitter in the rind, foreshortened, rolling with it
+  for (const o of P.slice(20)) if (o.n[2] > 0) { ctx.beginPath(); ctx.arc(o.n[0] * r, o.n[1] * r, (1 + o.k * 1.6) * (0.4 + 0.6 * o.n[2]), 0, TAU); ctx.fillStyle = 'rgba(170,190,255,0.85)'; ctx.fill() }
+  const g = ctx.createRadialGradient(0, 0, r * 0.2, 0, 0, r)
+  g.addColorStop(0, 'rgba(140,150,255,0.35)'); g.addColorStop(0.7, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(8,4,24,0.6)')
+  ctx.fillStyle = g; ctx.fillRect(-r, -r, r * 2, r * 2)
+  ctx.restore()
+  rim(ctx, body, 1.2, 0.45); ink(ctx, body, 2.0)
+  // front-side clusters, back to front
+  for (const o of clusters.filter((o) => o.n[2] > 0).sort((p, q) => p.n[2] - q.n[2])) drawCluster(o)
+
+}
+// CRYSTAL MITE: what spills out of a Hollow Geode — a crystal point with six ink legs, nose at +x.
+function paintCrystalMite(ctx, phase) {
+  const r = 9, sw = Math.sin(phase)
+  for (const s of [-1, 1]) for (let i = 0; i < 3; i++) {
+    const k = (i % 2 ? 1 : -1) * sw * 0.25, bx = r * (0.3 - i * 0.35)
+    inkLimb(ctx, [[bx, s * r * 0.15], [bx + r * (0.1 - i * 0.15 + k), s * r * 0.7]], r * 0.12, r * 0.06, 0x4a3a8a, { ink: 0.8, hi: false })
+  }
+  holoSpike(ctx, -r * 0.8, 0, r * 1.9, r * 0.42, 0, 0.3, 1.0)
+  cardEye(ctx, r * 0.55, -r * 0.14, r * 0.1); cardEye(ctx, r * 0.55, r * 0.14, r * 0.1)
+}
+
 // BAT: spread-eagle from above, wings OPEN in every frame and straight out to the sides, the two
 // halves mirror images: a straight leading edge to the wrist and the wingtip, four finger bones
 // fanning back from the wrist, the membrane scalloped between them down to the ankle, and the tail
@@ -485,6 +541,10 @@ export const HOLO_CAST = {
   crystalCrabGlass1: { r: 26, E: 68, frames: 4, shadowBlur: 0.8, shadow: [26 * 1.25, 26 * 0.6], crown: [-26 * 0.95, 26], paint: (ctx, f) => paintCrystalCrab(ctx, f, true, 1) },
   crystalCrabGlass2: { r: 26, E: 68, frames: 4, shadowBlur: 0.8, shadow: [26 * 1.25, 26 * 0.6], crown: [-26 * 0.95, 26], paint: (ctx, f) => paintCrystalCrab(ctx, f, true, 2) },
   crystalCrabGlass3: { r: 26, E: 68, frames: 4, shadowBlur: 0.8, shadow: [26 * 1.25, 26 * 0.6], crown: [-26 * 0.95, 26], paint: (ctx, f) => paintCrystalCrab(ctx, f, true, 3) },
+  // the Hollow Geode, rolling, and the crystal mites it bursts into
+  hollowGeode: { r: 30, E: 58, frames: 8, shadowBlur: 0.8, shadow: [30 * 1.05, 30 * 0.7], crown: [-30, 30], paint: (ctx, f) => paintHollowGeode(ctx, f) },
+  // painted at the tank base radius (26): a split child is this picture shrunk once by its radius, like the zooid
+  crystalMite: { r: 26, E: 70, frames: 4, shadowBlur: 0.8, shadow: [26 * 1.2, 26 * 0.5], crown: [-26, 26], paint: (ctx, f) => { ctx.scale(26 / 9, 26 / 9); paintCrystalMite(ctx, f) } },
   bat: { r: 14, E: 48, frames: 4, shadowBlur: 0.6, shadow: [14 * 2.4, 14 * 0.3], crown: [-14 * 0.5, 14], paint: (ctx, f) => paintBat(ctx, f) },
 }
 

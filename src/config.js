@@ -9794,6 +9794,12 @@ CHAPTERS.geode = {
     // crystalEater: walks to a crystal near you, gnaws it away and wears its glass until you crack it (CRAB_EAT)
     { id: 'crystalCrab', archetype: 'tank',   name: 'Crystal Crab', hpMul: 1.6, speedMul: 0.8, flags: ['unshakeable', 'crystalEater'] },
     { id: 'bat',         archetype: 'fast',   name: 'Cave Bat',     hpMul: 2.6, speedMul: 1.0, radiusMul: 1.1, flags: ['weave', 'flying'], eliteOnly: true },
+    // a stone ball rolling at you that bursts into a swarm of crystal mites when it breaks (split)
+    // balance_decision : siphonophore's swarm split and xp 2026-10-31
+    { id: 'hollowGeode', archetype: 'tank',   name: 'Hollow Geode', hpMul: 1.4, speedMul: 0.7, xpMul: 0.7, flags: ['split', 'unshakeable'],
+      split: { count: 7, hpFrac: 0.14, radiusFrac: 0.3, speedMul: 3.5, dmgMul: 0.4, rosterId: 'crystalMite' } },
+    // what a Hollow Geode breaks into; a split child takes its numbers from the geode's split, not these
+    { id: 'crystalMite', archetype: 'tank',   name: 'Crystal Mite', hpMul: 0.2, speedMul: 2.45, radiusMul: 0.3, formationOnly: true, flags: [] },
   ],
   eliteFlags: [],
   signature: {
@@ -9819,7 +9825,7 @@ CHAPTERS.geode = {
   obstacles: { kind: 'crystal', count: 15, cell: 430, minR: 30, maxR: 56, minDist: 240 },
   balance: { spawnMul: 0.75, enemyDmgMul: 0.75, enemyHpMul: 0.9, xpMul: 1.25, maxAliveMul: 0.62 },
   render: {
-    cast: ['olm', 'caveCricket', 'crystalCrab', 'bat'],
+    cast: ['olm', 'caveCricket', 'crystalCrab', 'hollowGeode', 'bat'],
     bgColor: 0x07050c,     // under the foil floor tile
     floorTint: 0xffffff,   // the floor and its props carry their own foil
     playerTint: 0xffffff,
