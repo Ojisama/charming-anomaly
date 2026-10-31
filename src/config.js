@@ -4607,7 +4607,9 @@ export const WEAPON_MODS = {
   },
   stalactite: {
     heavyStone:  { name: 'Heavy Stone',  desc: 'drop damage', icon: '💥', base: 0.30, kind: 'pct' },
-    rockfall:    { name: 'Rockfall',     desc: 'extra stone(s) per cast', icon: '🔷', kind: 'tier' },
+    // balance_decision : owner, +1 stone, epic and up only 2026-10-31
+    rockfall:    { name: 'Rockfall',     desc: 'extra stone(s) per cast', icon: '🔷', kind: 'flat', maxPicks: 3,
+                   values: { epic: 1, legendary: 1, mythic: 1 } },
     wideCrash:   { name: 'Wide Crash',   desc: 'impact radius', icon: '⭕', base: 0.25, kind: 'pct' },
     dripRate:    { name: 'Quick Drip',   desc: 'cast rate', icon: '⏩', base: 0.25, kind: 'pct' },
     // balance_decision : +2 splinters per tier, owner untested 2026-10-31
