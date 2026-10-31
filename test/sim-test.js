@@ -42673,7 +42673,22 @@ function testGeodeCounters() {
     assert.ok(closed.every((c) => c > 40 * 2.5), `run GK.f: every mite closed in faster than the geode rolls (40px/s): ${closed.map((c) => c.toFixed(0))}px in 1s`)
   }
 
-  console.log(`PASS run GK (Geode counters): ring-back ${plain.toFixed(0)}px with or without Far Call; ${K.rings} cracks then a burst; the crab ate a crystal near you, its glass soaked then burst (walked ${gw.toFixed(0)}px dazed+frozen); bats quiet/loud/capped ${quiet}/${loud}/${capped}; committed leap ${cl.toFixed(0)}px vs ${pl.toFixed(0)}px; a hollow geode broke into ${mites.length} mites`)
+  // (g) owner 2026-10-31: THE CAVE BAT IS NEVER SPED UP — a frenzied, badly hurt bat flies no faster than a calm one
+  const batSpec = CHAPTERS.geode.roster.find((x) => x.id === 'bat')
+  const batFly = (affixes, flags) => {
+    const r = boot(52012)
+    const e = makeStatusEnemy(r, { x: r.player.x + 400, y: r.player.y, type: 'wisp', hp: 10, speed: 100 })
+    Object.assign(e, { maxHP: 100, flags, rosterId: 'bat', elite: true, affixes })
+    r.enemies.push(e)
+    const x0 = e.x, y0 = e.y
+    run_(r, 0.5)
+    return Math.hypot(e.x - x0, e.y - y0)
+  }
+  const calm = batFly([], [...batSpec.flags]), mad = batFly(['frenzied'], [...batSpec.flags])
+  const plainMad = batFly(['frenzied'], batSpec.flags.filter((x) => x !== 'steadyPace'))
+  assert.ok(Math.abs(mad - calm) < 1 && plainMad > calm * 1.3, `run GK.g: a frenzied bat flew ${mad.toFixed(0)}px vs calm ${calm.toFixed(0)}px; without steadyPace ${plainMad.toFixed(0)}px`)
+
+  console.log(`PASS run GK (Geode counters): ring-back ${plain.toFixed(0)}px with or without Far Call; ${K.rings} cracks then a burst; the crab ate a crystal near you, its glass soaked then burst (walked ${gw.toFixed(0)}px dazed+frozen); bats quiet/loud/capped ${quiet}/${loud}/${capped}; committed leap ${cl.toFixed(0)}px vs ${pl.toFixed(0)}px; a hollow geode broke into ${mites.length} mites; frenzied bat ${mad.toFixed(0)}px = calm ${calm.toFixed(0)}px`)
 }
 
 // ---- THE CORE (Book 3): the polarity signature, its weapons, magnetic loot and the self-sorting crowd.

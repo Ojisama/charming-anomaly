@@ -5245,11 +5245,13 @@ function stepEnemyMovement(run, dt) {
     const slowMul = e.glassShell ? 1 : (1 - elSlow(run, e)) * bloomMul * dragMul * oilMul * puffMul * scentSlow * rootMul  // 1.0 slow IS the freeze; no separate branch
 
     // Frenzied: speeds up once badly hurt. Cheerleader (pacer): speeds up anyone else nearby.
+    // steadyPace flag (The Geode's bat): neither one speeds it up.
     let affixSpeedMul = 1
-    if (e.affixes && e.affixes.includes('frenzied') && e.hp < e.maxHP * FRENZY_HP_FRAC) {
+    const steady = e.flags && e.flags.includes('steadyPace')
+    if (!steady && e.affixes && e.affixes.includes('frenzied') && e.hp < e.maxHP * FRENZY_HP_FRAC) {
       affixSpeedMul *= FRENZY_SPEED_MUL
     }
-    if (pacers.length > 0) {
+    if (!steady && pacers.length > 0) {
       for (const pc of pacers) {
         if (pc === e) continue
         const pdx = pc.x - e.x, pdy = pc.y - e.y
