@@ -7171,6 +7171,7 @@ export function createRenderer(app) {
     // scale syncEnemies lays over the baked gait. A missing key here is SILENT (generic blob).
     earthworm: { archetype: 'normal', draw: drawEarthworm, macro: true, lean: 90, phases: 6 },
     moleCricket: { archetype: 'fast', draw: drawMoleCricket, macro: true, lean: 90, phases: 4 },
+    slug: { archetype: 'normal', macro: true, lean: 90, phases: 6 },
     // Three POSES off the sim's published state: surfaced, underground (the travelling bump), and
     // the bump cracking open on the quake. Underground it faces where it is digging, not at you.
     mole: {
@@ -21762,6 +21763,32 @@ const spurG = new Graphics()
     prevCount.web = n
   }
 
+  // Topsoil's slug slime (run.slime, {x,y,r,t,a}): MACRO.paintSlimeDot in four bakes, one sprite per
+  // dot laid along its crawl heading, overlapping into one silver streak; dries off over its last 3s.
+  let slimeTex = null
+  const slimePool = []
+  function syncSlime(list) {
+    const n = list.length
+    if (n && !slimeTex) {
+      slimeTex = [0, 1, 2, 3].map((k) => {
+        const b = MACRO.bakeLocal(MACRO.SLIME_DOT_R * 1.6, 3, (ctx) => MACRO.paintSlimeDot(ctx, k), { bodyOnly: true })
+        return { tex: macroCanvasTex(b.body, b.S), ax: b.ax, ay: b.ay }
+      })
+    }
+    while (slimePool.length < n) { const s = new Sprite(slimeTex[0].tex); webLayer.addChild(s); slimePool.push(s) }
+    for (let i = 0; i < n; i++) {
+      const s = slimePool[i], d = list[i], v = slimeTex[Math.floor(hash(d.x * 0.13 + d.y * 0.29) * 4) & 3]
+      s.visible = true
+      if (s.texture !== v.tex) { s.texture = v.tex; s.anchor.set(v.ax, v.ay) }
+      s.position.set(d.x, d.y)
+      s.rotation = d.a ?? 0
+      s.scale.set(d.r / MACRO.SLIME_DOT_R)
+      s.alpha = 0.75 * Math.min(1, d.t / 3)
+    }
+    for (let i = n; i < (prevCount.slime ?? 0); i++) slimePool[i].visible = false
+    prevCount.slime = n
+  }
+
   // Sandbars (v7.x Book 2 / The Surf — run.sandbars, {x,y,r,_cell}): dry ground you can walk onto,
   // where you move at signature.bars.slowMul and Humidity falls at bars.drainMul. run.webs above is
   // the idiom this copies exactly — a ground patch that slows you, baked ONCE and scaled per patch,
@@ -31482,6 +31509,7 @@ void main() {
     for (const bv of bloomPool) bv.root.visible = false
     for (const s of trailPool) s.visible = false
     for (const wv of webPool) wv.root.visible = false
+    for (const s of slimePool) s.visible = false
     for (const lv of lurePool) lv.root.visible = false
     clearObstacles()
     clearWhips()
@@ -33613,6 +33641,7 @@ void main() {
     syncGates(run)    // ...and the circuit's checkpoints and start line (no-op unless `circuit`)
     syncTrails(run.trails || [])
     syncWebs(run.webs || [])
+    syncSlime(run.slime || [])
     syncBurrow(run, dt)   // Book 3: tunnels, pits, quakes, snares, stones, shovels, echoes (no-op elsewhere)
     if (pixelLook) pixelRig.sync(run, dt, { cx, cy, z: world.scale.x, w: viewW(), h: viewH(), animT, dirOf: pixelDirAt })   // The Magma (src/pixel.js)
     // v7.x surf: the dry patches. `|| []` like every field above — a save or a test run predating

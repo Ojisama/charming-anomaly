@@ -9738,6 +9738,9 @@ CHAPTERS.topsoil = {
   roster: [
     // noAffix: never rolls an endless crowd affix (sim spawnEnemy): a worm wearing one did not read
     { id: 'earthworm',   archetype: 'normal', name: 'Earthworm',    hpMul: 0.8, speedMul: 0.8, radiusMul: 0.9, weight: 3, flags: [], noAffix: true },
+    // slimeTrail: lays run.slime by distance crawled; on it you and every other walker slide (SLIME_*)
+    // balance_decision : owner, rare (~1 in 10 normals), half the earthworm's speed 2026-10-31
+    { id: 'slug',        archetype: 'normal', name: 'Slug',         hpMul: 1.2, speedMul: 0.8 * 0.5, weight: 0.35, flags: ['slimeTrail'] },
     { id: 'moleCricket', archetype: 'fast',   name: 'Mole Cricket', hpMul: 0.75, speedMul: 1.0, radiusMul: 1.2, flags: ['weave'], dmgMul: 0.6, alsoElite: true },
     // Spawned by stepTunnels on its own clock: archetypeSwap below turns every ring tank into a worm,
     // so the mole is not formationOnly only so that any other tank spawn path still lands on it.
@@ -9768,7 +9771,7 @@ CHAPTERS.topsoil = {
   // balance_decision : owner: crowd density -25% 2026-10-11
   balance: { spawnMul: 0.5625, enemyDmgMul: 0.5, enemyHpMul: 0.85, xpMul: 1.25, maxAliveMul: 0.4125 },
   render: {
-    cast: ['earthworm', 'moleCricket', 'mole', 'badger'],
+    cast: ['earthworm', 'slug', 'moleCricket', 'mole', 'badger'],
     bgColor: 0x1a110a,     // under the photographed floor tile; shows nowhere but a frame's edge
     floorTint: 0xffffff,   // the floor and its props are photographed in their own colour
     playerTint: 0xfff2e2,
@@ -15160,6 +15163,16 @@ export const WEB_INTERVAL = 1.6  // s between dropped web patches
 export const WEB_R = 72          // px, web patch radius
 export const WEB_DUR = 4         // s, web patch lifetime
 export const WEB_SLOW_MUL = 0.6  // player move-speed multiplier while standing in a web
+// THE SLUG'S SLIME (Topsoil's slimeTrail flag): run.slime dots laid every SLIME_STEP px a slug
+// crawls. On one, the player and every walking non-slug enemy SLIDE: the speed they want is
+// x SLIME_SPEED_MUL, and their real velocity eases toward it at SLIME_GRIP per second, so they turn
+// late and coast when they stop pushing (stepPlayerMovement, stepSlime).
+export const SLIME_STEP = 12        // px crawled between dots
+export const SLIME_R = 9            // px, a dot's radius: the trail's half-width
+export const SLIME_DUR = 30         // s a dot lasts
+export const SLIME_MAX = 900        // most dots alive at once; the oldest dries first
+export const SLIME_SPEED_MUL = 1.35 // speed on slime
+export const SLIME_GRIP = 2.5       // /s, how fast velocity turns toward the wanted one on slime
 
 // v6.6.14: the SPRAY_* block lived here (garden's pesticide-drone elites marking a rectangle on
 // the player). Deleted with the mechanic — see the MOWER_* block above for what replaced it, and

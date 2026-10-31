@@ -892,7 +892,8 @@ function generateWells(sig) {
  *               -> recover state machine on sim-internal `_diveState`/`_diveT`/`_diveDirX`/
  *               `_diveDirY`/`_diveElapsed`, replacing the normal seek — not a render contract),
  *               'webZone' (stepEnemyMovement: drops run.webs slow-zones via `_webAcc`, NOT
- *               elite-gated). v6.6.16: there is no mower FLAG any more — the lawnmower became an
+ *               elite-gated), 'slimeTrail' (stepEnemyMovement: lays run.slime dots by distance
+ *               crawled via `_slX`/`_slY`; a slimeTrail body never slides on slime). v6.6.16: there is no mower FLAG any more — the lawnmower became an
  *               ambient chapter hazard (CHAPTERS[id].mower), rolling itself into run.lanes every
  *               MOWER_GAP_MIN..MAX seconds once run.time passes MOWER_FIRST_T, one pass at a time.
  *               It was briefly an elite flag (v6.6.14) and before that 'sprayStrip', which marked a
@@ -1824,6 +1825,11 @@ function generateWells(sig) {
  *   (stepEnemyMovement, NOT elite-gated) and by the lure's stickyScent mod on burst. While the
  *   player stands in any web, stepPlayerMovement multiplies move speed by WEB_SLOW_MUL (stacking
  *   with the latch debuff via MIN, not multiply). t counts down; removed once t <= 0 (stepWebs).
+ * slime[i]: { x, y, r, t, a } — Topsoil's slug trail: a dot laid every SLIME_STEP px a 'slimeTrail'
+ *   body crawls, `a` its crawl heading (render lays the dot along it). Oldest first, so expiry and the
+ *   SLIME_MAX cap both drop from the front. On a dot the player (stepPlayerMovement) and every walking
+ *   non-slug enemy (stepSlime) SLIDE: wanted speed x SLIME_SPEED_MUL, velocity eased toward it at
+ *   SLIME_GRIP. t counts down (stepSlime).
  * strips[i]: { x, y, angle, len, w, fuse, t, dps, look:'erase', variant?, grow? } — telegraphed
  *   rectangular hazard strips. v6.6.14: the Blank is now the ONLY producer (P3's erasure bands, the
  *   eraser flag's wake, and immuneMemory death residue — the last two tagged variant:'residue'),
@@ -3393,6 +3399,7 @@ export function createRun(meta, opts = {}) {
     // run.lanes. All empty unless something pushes to them.
     trails: [],
     webs: [],
+    slime: [],
     strips: [],
     lures: [],
     // v5.4 chapter behavior (see doc block above). wells are permanent signature FURNITURE, seeded
