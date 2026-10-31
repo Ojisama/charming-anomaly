@@ -1133,6 +1133,91 @@ function paintEarthworm(ctx, phase) {
   softDot(ctx, hx - 0.5, hy, r * 0.06, 0.5, 'rgba(120,40,40,0.8)')
 }
 
+// THE SLUG (owner pick 2026-10-31: green): green skin netted into lozenge tubercles, a ringed shield
+// over the front third with its breathing hole on the right, a pale sole fringe, wet glints on the shield.
+const SLUG = { base: 0x76843c, sole: 0xa8b07c }
+function paintSlug(ctx, phase) {
+  const S = SLUG, r = 20, rnd = rng(53)
+  const stretch = 1 + 0.06 * Math.sin(phase), L = r * 2.75 * stretch
+  // a gentle S down the body, the head held steady
+  const spine = (t) => [r * 1.2 - t * L, Math.sin(t * Math.PI * 1.6 - phase * 0.5) * r * 0.25 * Math.min(1, t * 2.5)]
+  // widest at the shield, then a long slow taper to a narrow tail
+  const half = (t) => r * 0.42 / Math.sqrt(stretch) * (t < 0.25 ? 0.6 + 0.4 * Math.sin((t / 0.25) * Math.PI / 2) : 0.32 + 0.68 * Math.pow(Math.cos(((t - 0.25) / 0.75) * Math.PI / 2), 0.6))
+  // the sole's fringe: a pale translucent band along the flanks, not round the head or tail
+  const sole = spineOutline(spine, (t) => half(t) * 1.05 + 0.25, 40, 0.08, 0.85)
+  softFill(ctx, sole, 0.5, css(S.sole, 0.4))
+  innerShadow(ctx, sole, 0.4, css(shadeC(S.sole, -0.5), 0.5))
+  // the body: soft shading, no dark rim all round
+  const sil = volume(ctx, spineAt(spine, half, 48), S.base, { lit: 0.1, ao: 0.55, kMin: 0.06, rim: 0.3, rimBlur: 1.2, steps: 22 })
+  ctx.save(); trace(ctx, sil); ctx.clip()
+  // the skin: rows of lozenge tubercles running back, each its own tone, dark grooves between
+  ctx.lineWidth = 0.2; ctx.strokeStyle = 'rgba(14,18,6,0.7)'
+  let row = 0
+  for (let side = -0.8; side <= 0.81; side += 0.22, row++) {
+    for (let t = 0.36 + (row % 2) * 0.015; t < 0.99; t += 0.03) {
+      const tj = t + (rnd() - 0.5) * 0.008, sj = side + (rnd() - 0.5) * 0.06
+      const [x, y, nx, ny] = across(spine, tj, half(tj) * sj), [x2, y2] = spine(Math.min(1, tj + 0.01))
+      const k = Math.min(1, half(tj) / (r * 0.42) + 0.35)
+      const pts = ellipsePts(x + nx, y + ny, 1.8 * k, 0.7 * k, Math.atan2(y2 - y, x2 - x), 10)
+      const m = rnd(), tone = m < 0.35 ? 'rgba(140,128,80,0.3)' : m < 0.55 ? 'rgba(30,40,20,0.4)' : css(shadeC(S.base, 0.06), 0.35)
+      trace(ctx, pts); ctx.fillStyle = tone; ctx.fill(); ctx.stroke()
+    }
+  }
+  // the keel: a dark crease down the tail
+  withBlur(ctx, 0.5, 'rgba(20,24,8,0.3)', () => {
+    ctx.beginPath(); for (let t = 0.55; t <= 0.97; t += 0.02) { const [x, y] = spine(t); t === 0.55 ? ctx.moveTo(x, y) : ctx.lineTo(x, y) }
+    ctx.lineWidth = 0.5; ctx.stroke()
+  })
+  ctx.restore()
+  grain(ctx, sil, 0.2)
+  // the mantle: a smoother, slightly paler shield over the front third, following the body's bend
+  const tc = 0.21, dt = 0.17
+  const mantle = (k, back = 0) => { const p = []; for (let i = 0; i < 48; i++) { const th = i / 48 * TAU, t = tc + back * (1 - k) + dt * k * Math.cos(th), [x, y, nx, ny] = across(spine, t, half(t) * 0.98 * k * Math.sin(th)); p.push(x + nx, y + ny) } return p }
+  ctx.save(); trace(ctx, sil); ctx.clip()
+  softFill(ctx, mantle(1), 0.8, css(shadeC(S.base, -0.1), 0.9))
+  ctx.save(); trace(ctx, mantle(1)); ctx.clip()
+  ctx.lineWidth = 0.25; ctx.strokeStyle = 'rgba(10,14,4,0.35)'
+  for (let k = 0.2; k < 0.98; k += 0.05) { trace(ctx, mantle(k, dt * 0.35)); ctx.stroke() }
+  ctx.restore()
+  // its free back edge: a shadow cast on the body behind the U, then a lit lip on it
+  const backU = (dx) => { ctx.beginPath(); let first = true; for (let i = 0; i <= 24; i++) { const th = -Math.PI * 0.42 + i / 24 * Math.PI * 0.84, t = tc + dt * Math.cos(th), [x, y, nx, ny] = across(spine, t, half(t) * 0.98 * Math.sin(th)); first ? ctx.moveTo(x + nx + dx, y + ny) : ctx.lineTo(x + nx + dx, y + ny); first = false } }
+  withBlur(ctx, 1.5, 'rgba(0,0,0,0.65)', () => { backU(-1); ctx.lineWidth = 2.0; ctx.stroke() })
+  withBlur(ctx, 0.3, 'rgba(230,236,196,0.35)', () => { backU(0); ctx.lineWidth = 0.5; ctx.stroke() })
+  ctx.restore()
+  // the breathing hole on the right flank, a pale rim round a dark pit
+  { const [x, y, nx, ny] = across(spine, 0.3, half(0.3) * 0.72)
+    softDot(ctx, x + nx, y + ny, r * 0.07 + 0.3, 0.2, 'rgba(214,214,170,0.6)')
+    softDot(ctx, x + nx, y + ny, r * 0.07, 0.25, 'rgba(8,6,4,0.9)') }
+  // the wet: a faint streak down the crown, and glints clustered on the shield where the light hits
+  for (let t = 0.1; t < 0.9; t += 0.03) {
+    if (rnd() < 0.3) continue
+    const [x, y] = spine(t), [x2, y2] = spine(t + 0.03), w = half(t) * 0.3
+    withBlur(ctx, 1.3, 'rgba(244,250,226,0.22)', () => { ctx.beginPath(); ctx.moveTo(x, y - w * 0.4); ctx.lineTo(x2, y2 - w * 0.4); ctx.lineWidth = w; ctx.lineCap = 'round'; ctx.stroke() })
+  }
+  for (let k = 0; k < 30; k++) {
+    const hot = k < 20, t = hot ? 0.15 + rnd() * 0.25 : 0.05 + rnd() * 0.9, side = hot ? (rnd() - 0.5) : (rnd() - 0.5) * 1.4
+    const [x, y, nx, ny] = across(spine, t, half(t) * side), rr = hot ? 0.3 + rnd() * 0.2 : 0.3 + rnd() * 0.5
+    softFill(ctx, ellipsePts(x + nx, y + ny, rr, rr * 0.6, rnd() * TAU, 8), hot ? 0.05 : 0.15, 'rgba(255,255,250,' + (hot ? 0.6 + rnd() * 0.3 : 0.25 + rnd() * 0.3) + ')')
+  }
+  // the one big wet highlight, on the shield
+  { const [x, y, nx, ny] = across(spine, 0.2, -half(0.2) * 0.25), [x2, y2] = spine(0.21)
+    specular(ctx, ellipsePts(x + nx, y + ny, half(0.2) * 0.7, half(0.2) * 0.14, Math.atan2(y2 - y, x2 - x), 14), 0.38, 0.6) }
+  // the neck: a paler wrinkled hood poking out ahead of the shield
+  const [hx, hy] = spine(0.0), [nkx, nky] = spine(0.03)
+  softFill(ctx, ellipsePts(nkx + r * 0.12, nky, r * 0.35, r * 0.22, 0, 20), 0.6, css(shadeC(S.base, 0.15), 0.9))
+  // the eye tentacles in a V: slim, pale grey, eyes in dark bulbs at the tips
+  const sw = Math.sin(phase) * 0.08, tent = 0x8e9296
+  ctx.save(); ctx.globalAlpha = 0.7
+  for (const s2 of [-1, 1]) {
+    const ang = s2 * (0.65 + s2 * sw), bx = hx + r * 0.3, by = hy + s2 * r * 0.06
+    const tx = bx + Math.cos(ang) * r * 0.55, ty = by + Math.sin(ang) * r * 0.55
+    limb(ctx, [[bx, by], [(bx + tx) / 2, (by + ty) / 2], [tx, ty]], r * 0.06, r * 0.03, tent, { spec: 0.2 })
+    softDot(ctx, tx, ty, r * 0.06, 0.2, 'rgba(36,38,44,0.95)')
+    softDot(ctx, tx + r * 0.01, ty, r * 0.025, 0.1, 'rgba(0,0,0,1)')
+  }
+  ctx.restore()
+}
+
 function paintMoleCricket(ctx, phase) {
   const r = 15, rnd = rng(23)
   const s4 = Math.sin(phase), c4 = Math.cos(phase)
@@ -1649,8 +1734,29 @@ function photoFace(ctx, R, o = {}) {
   withBlur(ctx, 0.4, 'rgba(255,255,255,0.35)', () => { ctx.beginPath(); ctx.arc(0, R * 0.12, R * 0.21, Math.PI * 0.25, Math.PI * 0.75); ctx.lineWidth = 0.5; ctx.stroke() })
 }
 
+// THE SLUG'S SLIME: one dot of the trail, laid along +x (render.js syncSlime overlaps them into one
+// streak). A thin dried film, silver where it catches the light, a faint oil-film rainbow in its streaks.
+export const SLIME_DOT_R = 20
+export function paintSlimeDot(ctx, seed) {
+  // no edge of its own: a soft film that fades to nothing, so overlapping dots melt into one ribbon
+  const R = SLIME_DOT_R, rnd = rng(101 + seed * 7)
+  const g = ctx.createRadialGradient(0, 0, 0, 0, 0, R)
+  g.addColorStop(0, 'rgba(200,210,224,0.2)'); g.addColorStop(0.6, 'rgba(190,202,218,0.12)'); g.addColorStop(1, 'rgba(190,202,218,0)')
+  ctx.save(); ctx.scale(1.25, 0.8); ctx.beginPath(); ctx.arc(0, 0, R, 0, TAU); ctx.fillStyle = g; ctx.fill(); ctx.restore()
+  // the sheen: long faint streaks along the crawl, reaching past the dot so the next one continues them
+  const tints = ['rgba(236,242,250,0.32)', 'rgba(255,214,236,0.2)', 'rgba(196,238,255,0.22)', 'rgba(255,248,214,0.18)']
+  for (let k = 0; k < 6; k++) {
+    const y = (rnd() * 2 - 1) * R * 0.5, x0 = -R * 1.3, x1 = R * 1.3
+    const y1 = y + (rnd() - 0.5) * R * 0.15, w = 0.5 + rnd() * 1.0
+    withBlur(ctx, 1.1, tints[k % 4], () => { ctx.beginPath(); ctx.moveTo(x0, y); ctx.quadraticCurveTo(0, y1, x1, y); ctx.lineWidth = w; ctx.stroke() })
+  }
+  // now and then a wet glint
+  if (seed % 2 === 0) softDot(ctx, (rnd() - 0.5) * R, (rnd() - 0.5) * R * 0.6, 1.2, 0.8, 'rgba(255,255,255,0.45)')
+}
+
 export const MACRO_CAST = {
   earthworm: { r: 20, E: 66, frames: 6, shadow: [20 * 1.35, 20 * 0.32], crown: [-20 * 0.55, 20], paint: (ctx, f) => paintEarthworm(ctx, f) },
+  slug: { r: 20, E: 46, frames: 6, shadow: [20 * 1.3, 20 * 0.45], crown: [-20 * 0.5, 20], paint: (ctx, f) => paintSlug(ctx, f) },
   moleCricket: { r: 15, E: 46, frames: 4, shadow: [15 * 1.2, 15 * 0.45], crown: [-15 * 0.9, 15], paint: (ctx, f) => paintMoleCricket(ctx, f) },
   mole: { r: 26, E: 52, poses: 3, shadow: [26 * 1.1, 26 * 0.55], crown: [-26 * 0.7, 26], paint: (ctx, p) => (p === 0 ? paintMoleBody(ctx) : paintMoleMound(ctx, p === 2)) },
   badger: { r: 20, E: 40, frames: 4, shadow: [20 * 1.15, 20 * 0.6], crown: [-20 * 0.75, 20], paint: (ctx, f) => paintBadger(ctx, f) },

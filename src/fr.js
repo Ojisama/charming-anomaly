@@ -1938,6 +1938,7 @@ const CONFIG = {
   "You found the way through the crystal! 🎉": "Tu as traversé le cristal ! 🎉",
   "Lost in the glitter… 💎": "Perdu·e dans les reflets… 💎",
   "Earthworm": "Ver de terre",
+  "Slug": "Limace",
   "Mole Cricket": "Courtilière",
   "Mole": "Taupe",
   "Badger": "Blaireau",

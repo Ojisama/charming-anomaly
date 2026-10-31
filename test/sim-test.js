@@ -23,6 +23,7 @@ import { STAGE_PICK } from '../src/ophan/staging.js'
 import { magmaGroundAt, magmaRiverAt, magmaCooledAt, magmaHotAt } from '../src/sim.js'
 import { lavaFloodedAt, mantleHeightAt, lavaLineFor, mantleGroundAt } from '../src/sim.js'
 import { ECHO_DOUBLE_DELAY, ECHO_DOUBLE_DMG_FRAC, modPct, LODESTONE_HOLD } from '../src/config.js'
+import { SLIME_STEP, SLIME_R, SLIME_DUR, SLIME_MAX, SLIME_SPEED_MUL } from '../src/config.js'
 import { MANTLE_GROUND_STEP, MANTLE_START_DRY, MANTLE_COLD_VS_LAVA, MANTLE_FIRE_VS_ROCK, MANTLE_STRAND_DIE_T, MANTLE_STRAND_STUCK_T, MANTLE_STRAND_DMG_MUL, MANTLE_STRAND_SLOW, MANTLE_MELT_T, KETTLE_CRUST_GNAW, KETTLE_CRUST_GNAW_MAX, KETTLE_HULL_MAX, KETTLE_STEAM_MUL, DRAW_CAPS } from '../src/config.js'
 import { poolRimR, crustShapeOf, poolPhaseOf, crustSplash, splashSdf, SPLASH_FINGERS, SPLASH_DROPS } from '../src/mantle-shape.js'
 import {
@@ -927,6 +928,122 @@ function testNoAffixRoster() {
   assert.ok(!seen.earthworm, `run NA: an earthworm became an elite (${JSON.stringify(seen)})`)
   for (const id of ['badger', 'moleCricket', 'mole']) assert.ok(seen[id] > 0, `run NA: no ${id} elite in ${JSON.stringify(seen)}`)
   console.log(`PASS run NA (noAffix roster): 0/${worms.length} earthworms wear an affix, ${others_}/${others.length} of the rest do; elites ${JSON.stringify(seen)}`)
+}
+
+// run SL (Topsoil's slug): (a) a slimeTrail body lays one dot per SLIME_STEP crawled, and none standing
+// still; (b) a walker on slime gathers to x SLIME_SPEED_MUL and turns late, where off slime it turns at
+// once; (c) the slug never slides on its own slime; (d) the player slides the same way; (e) a dried dot
+// is gone and SLIME_MAX holds. Each subject is pinned by identity, alone in run.enemies.
+function testSlugSlime() {
+  Math.random = mulberry32(20261031)
+  const m = makeMeta(); m.dev = true
+  const fresh = () => {
+    const run = createRun(m, { chapter: 'topsoil', difficulty: 1 })
+    assert.strictEqual(run.chapter, 'topsoil', 'run SL: fixture must be a Topsoil run')
+    run.player.hp = run.player.maxHP = 1e12
+    let g = 0
+    while (run.enemies.length === 0 && g++ < 3000) { stepSim(run, { x: 0, y: 0 }, 1 / 60); run.events.length = 0 }
+    assert.ok(run.enemies.length > 0, 'run SL: nothing spawned to clone a subject from')
+    const proto = run.enemies.find((e) => e.rosterId === 'earthworm') ?? run.enemies[0]
+    run.weapons = []
+    run.enemies = []
+    run.slime.length = 0
+    const make = (rosterId, flags, x, y) => ({ ...proto, id: run._nextId++, rosterId, flags, x, y, hp: 1e9, maxHP: 1e9, elite: false, affixes: [], speed: 60, _slX: undefined, _slY: undefined, _slVx: undefined, _slVy: undefined })
+    return { run, make }
+  }
+  const step = (run, subj, input = { x: 0, y: 0 }) => {
+    run.enemies = subj.slice()
+    stepSim(run, input, 1 / 60)
+    run.events.length = 0
+    if (run.phase === 'levelup') run.phase = 'playing'
+    run.player.hp = run.player.maxHP
+  }
+  const strip = (run, x0, x1, y) => { for (let x = x0; x <= x1; x += 4) run.slime.push({ x, y, r: SLIME_R, t: 1e6, a: 0 }) }
+  // (a)
+  {
+    const { run, make } = fresh(), p = run.player
+    const slug = make('slug', ['slimeTrail'], p.x - 400, p.y), x0 = slug.x
+    for (let i = 0; i < 150; i++) step(run, [slug])
+    const crawled = slug.x - x0, want = Math.floor(crawled / SLIME_STEP)
+    assert.ok(crawled > 80, `run SL.a: the slug only crawled ${crawled.toFixed(0)}px`)
+    assert.ok(Math.abs(run.slime.length - want) <= 1, `run SL.a: ${run.slime.length} dots for ${crawled.toFixed(0)}px crawled (want ~${want})`)
+    assert.ok(run.slime.every((d) => d.r === SLIME_R && d.t > 0), 'run SL.a: a dot without SLIME_R or already dry')
+    const still = make('slug', ['slimeTrail'], p.x - 400, p.y + 200); still.speed = 0
+    run.slime.length = 0
+    for (let i = 0; i < 90; i++) step(run, [still])
+    assert.strictEqual(run.slime.length, 0, 'run SL.a: a slug standing still laid slime')
+  }
+  // (b) + (c): a body seeking the player along a strip of slime, then the player jumps behind it
+  const walk = (rosterId, flags, slimy) => {
+    const { run, make } = fresh(), p = run.player
+    const e = make(rosterId, flags, p.x - 500, p.y)
+    if (slimy) strip(run, p.x - 520, p.x - 60, p.y)
+    let last = e.x
+    for (let i = 0; i < 90; i++) { last = e.x; step(run, [e]) }
+    const v = (e.x - last) * 60
+    p.x = e.x - 300   // the target flips behind it
+    const before = e.x
+    step(run, [e])
+    return { v, turned: e.x - before }
+  }
+  const dry = walk('earthworm', [], false), wet = walk('earthworm', [], true)
+  const ratio = wet.v / dry.v
+  assert.ok(dry.v > 20, `run SL.b: the control worm barely moved (${dry.v.toFixed(1)}px/s)`)
+  assert.ok(Math.abs(ratio - SLIME_SPEED_MUL) < 0.08, `run SL.b: a worm on slime runs at x${ratio.toFixed(3)} its dry speed (want x${SLIME_SPEED_MUL})`)
+  assert.ok(dry.turned < 0, 'run SL.b: control - off slime a worm turns on the frame its target flips')
+  assert.ok(wet.turned > 0, 'run SL.b: a worm on slime turned at once (no slide)')
+  const slug = walk('slug', ['slimeTrail'], true), slugDry = walk('slug', ['slimeTrail'], false)
+  assert.ok(Math.abs(slug.v / slugDry.v - 1) < 0.02 && slug.turned < 0, `run SL.c: the slug slides on slime (x${(slug.v / slugDry.v).toFixed(3)}, turned ${slug.turned.toFixed(2)})`)
+  // (d) the player, pushing +x along a strip, then the stick flips
+  const drive = (slimy) => {
+    const { run } = fresh(), p = run.player
+    if (slimy) strip(run, p.x - 40, p.x + 900, p.y)
+    for (let i = 0; i < 90; i++) step(run, [], { x: 1, y: 0 })
+    const v = p.vx
+    step(run, [], { x: -1, y: 0 })
+    return { v, after: p.vx }
+  }
+  const pd = drive(false), pw = drive(true)
+  assert.ok(Math.abs(pw.v / pd.v - SLIME_SPEED_MUL) < 0.05, `run SL.d: the player on slime runs at x${(pw.v / pd.v).toFixed(3)} (want x${SLIME_SPEED_MUL})`)
+  assert.ok(pd.after < 0 && pw.after > 0, `run SL.d: the flip - dry vx ${pd.after.toFixed(0)} (want < 0), slimy vx ${pw.after.toFixed(0)} (want > 0, still sliding)`)
+  // (e)
+  {
+    const { run } = fresh(), p = run.player
+    for (let i = 0; i < SLIME_MAX + 60; i++) run.slime.push({ x: p.x + 5000 + i, y: p.y, r: SLIME_R, t: i < 20 ? 0.001 : SLIME_DUR, a: 0 })
+    step(run, [])
+    assert.strictEqual(run.slime.length, SLIME_MAX, `run SL.e: ${run.slime.length} dots alive past the SLIME_MAX cap of ${SLIME_MAX}`)
+    assert.ok(run.slime.every((d) => d.t > 0), 'run SL.e: a dry dot is still on the floor')
+  }
+  // (f) a flier never slides; (g) a stun stops a body on slime dead; (h) a slide velocity left over from
+  // slime that has since DRIED is not replayed on the next slime the body touches
+  const fly = walk('earthworm', ['flying'], true), flyDry = walk('earthworm', ['flying'], false)
+  assert.ok(Math.abs(fly.v / flyDry.v - 1) < 0.02 && fly.turned < 0, `run SL.f: a flier slides on slime (x${(fly.v / flyDry.v).toFixed(3)}, turned ${fly.turned.toFixed(2)})`)
+  {
+    const { run, make } = fresh(), p = run.player
+    const e = make('earthworm', [], p.x - 500, p.y)
+    strip(run, p.x - 520, p.x - 60, p.y)
+    for (let i = 0; i < 60; i++) step(run, [e])
+    e.stunT = 1
+    const x0 = e.x, y0 = e.y
+    for (let i = 0; i < 30; i++) step(run, [e])
+    const coast = Math.hypot(e.x - x0, e.y - y0)
+    assert.ok(coast < 1, `run SL.g: a stunned worm coasted ${coast.toFixed(1)}px on slime`)
+  }
+  {
+    const { run, make } = fresh(), p = run.player
+    const e = make('earthworm', [], p.x - 500, p.y)
+    strip(run, p.x - 520, p.x - 60, p.y)
+    for (let i = 0; i < 90; i++) step(run, [e])
+    run.slime.length = 0
+    for (let i = 0; i < 30; i++) step(run, [e])
+    p.x = e.x - 300; p.y = e.y
+    for (let i = 0; i < 6; i++) step(run, [e])   // it has turned and walks at the new target
+    strip(run, e.x - 60, e.x + 60, e.y)
+    const before = e.x
+    step(run, [e])
+    assert.ok(e.x - before < 0, `run SL.h: a worm stepping onto fresh slime moved ${((e.x - before) * 60).toFixed(0)}px/s AWAY from its target (a stale slide replayed)`)
+  }
+  console.log(`PASS run SL (slug slime): dots per crawl ok, worm x${ratio.toFixed(2)} on slime and turns late, slug x${(slug.v / slugDry.v).toFixed(2)}, player x${(pw.v / pd.v).toFixed(2)} and slides on, cap ${SLIME_MAX}`)
 }
 
 function testEndlessCrowdAffixes() {
@@ -20936,6 +21053,7 @@ try {
   run(testRainbowCaps)
   run(testEndlessCrowdAffixes)
   run(testNoAffixRoster)
+  run(testSlugSlime)
   run(testEndlessMilestones)
   run(testEndlessMeta)
   run(testEndlessAccess)

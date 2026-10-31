@@ -98,6 +98,7 @@ import {
   canCommitFrom, visibleStandoff,
   DIVE_HOVER_SPEED_MUL, DIVE_SPEED_START, DIVE_SPEED_END, DIVE_RECOVER_SPEED_MUL, DIVE_HOVER_DEADZONE,
   WEB_INTERVAL, WEB_R, WEB_DUR, WEB_SLOW_MUL,
+  SLIME_STEP, SLIME_R, SLIME_DUR, SLIME_MAX, SLIME_SPEED_MUL, SLIME_GRIP,
   // v5.4 undergrowth
   POUNCE_RANGE, POUNCE_HOLD_SPEED_MUL, POUNCE_AIM_T, POUNCE_AIM_TRACK_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_LAND_T,
   POUNCE_TRAP_HP_FRAC, AMBUSH_R,
@@ -368,6 +369,7 @@ export function stepSim(run, input, dt) {
   stepFormations(run, dt) // v5.18 beyond lane: ranks of marchers, alongside the seeking swarm above
   markHabitat(run)        // Book 3 The Mantle: where each habitat creature stands before anything moves
   stepEnemyMovement(run, dt)
+  stepSlime(run, dt)      // Topsoil: ages the slug slime and slides whoever walked onto it this frame
   stepSubmission(run, dt) // SUBMISSION: the loan's clock, and the ally's contact attack
   stepFlashlightCones(run, dt) // v5.4 undergrowth: elite cones that enrage the swarm (damages nothing)
   stepCurrents(run, dt)   // v5.0 signature mechanic: drift field (no-op unless the chapter has one)
@@ -1115,6 +1117,12 @@ function stepPlayerMovement(run, input, dt) {
       else { run._kickX = (kx / mag) * left; run._kickY = (ky / mag) * left }
     }
     if (run._burstT > 0) run._burstT = Math.max(0, run._burstT - dt)
+  } else if (run.slime && run.slime.length > 0 && onSlime(run.slime, p.x, p.y)) {
+    // ON THE SLUG'S SLIME (Topsoil): faster but loose. The stick sets the velocity you ease toward,
+    // not the one you have, so you turn late and coast when you let go (SLIME_* in config.js).
+    const k = 1 - Math.exp(-SLIME_GRIP * dt)
+    p.vx = (p.vx ?? 0) + (ix * speed * SLIME_SPEED_MUL - (p.vx ?? 0)) * k
+    p.vy = (p.vy ?? 0) + (iy * speed * SLIME_SPEED_MUL - (p.vy ?? 0)) * k
   } else {
     p.vx = ix * speed
     p.vy = iy * speed
@@ -5173,6 +5181,7 @@ function stepEnemyMovement(run, dt) {
     // flash still fades, or a mole struck as it dives stays white for the whole tunnel.
     if (e.burrowed) { if (e.hitFlash > 0) e.hitFlash = Math.max(0, e.hitFlash - dt); continue }
     const ox = e.x, oy = e.y
+    e._ox = ox; e._oy = oy; e._oT = run.time   // where this frame's move started: stepSlime reads it
     // Seek target: the player by default, or the nearest Pheromone Lure decoy (v5.3 garden) whose
     // aggro radius this enemy sits inside — lured foes path to the decoy instead of the player.
     let tx = p.x, ty = p.y
@@ -5588,6 +5597,17 @@ function stepEnemyMovement(run, dt) {
       }
     }
 
+    // slimeTrail flag (Topsoil's slug): a dot of slime every SLIME_STEP px crawled, so the trail is
+    // unbroken at any speed and a slug that stands still lays nothing
+    if (e.flags && e.flags.includes('slimeTrail') && !e._dead) {
+      if (e._slX == null) { e._slX = e.x; e._slY = e.y }
+      const sdx = e.x - e._slX, sdy = e.y - e._slY
+      if (sdx * sdx + sdy * sdy >= SLIME_STEP * SLIME_STEP) {
+        run.slime.push({ x: e.x, y: e.y, r: SLIME_R, t: SLIME_DUR, a: Math.atan2(sdy, sdx) })
+        e._slX = e.x; e._slY = e.y
+      }
+    }
+
     // wake flag (v5.24 blank's erasers): leaves erasing no-go residue along its path — a short
     // strip dropped every BLANK_WAKE_DT at its position, aligned to its heading, into the shared
     // run.strips array (look:'erase' is render-only; stepStrips damages the player as usual).
@@ -5674,6 +5694,53 @@ function stepEnemyMovement(run, dt) {
         }
       }
     }
+  }
+}
+
+function onSlime(list, x, y) {
+  for (const d of list) { const dx = x - d.x, dy = y - d.y; if (dx * dx + dy * dy <= d.r * d.r) return true }
+  return false
+}
+// THE SLUG'S SLIME (Topsoil). Ages run.slime, then slides every walker on it but the slugs: how far
+// its movement machine moved it this frame (from e._ox/_oy, stashed at the top of stepEnemyMovement's
+// loop) is the velocity it WANTS, x SLIME_SPEED_MUL, and its real velocity eases toward that at
+// SLIME_GRIP. One site after every machine, so each of them slides without knowing slime exists.
+function stepSlime(run, dt) {
+  const sl = run.slime
+  if (!sl || sl.length === 0) return
+  for (const d of sl) d.t -= dt
+  let cut = 0
+  while (cut < sl.length && sl[cut].t <= 0) cut++
+  cut = Math.max(cut, sl.length - SLIME_MAX)
+  if (cut > 0) sl.splice(0, cut)
+  if (sl.length === 0) return
+  // a grid of SLIME_R*2 cells, so a body tests the dots in its own 3x3 cells and not all of them
+  const C = SLIME_R * 2, grid = new Map(), key = (cx, cy) => (cx + 32768) * 65536 + (cy + 32768)
+  for (const d of sl) {
+    const k = key(Math.floor(d.x / C), Math.floor(d.y / C))
+    const cell = grid.get(k)
+    if (cell) cell.push(d); else grid.set(k, [d])
+  }
+  const onAt = (x, y) => {
+    const cx = Math.floor(x / C), cy = Math.floor(y / C)
+    for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
+      const cell = grid.get(key(cx + i, cy + j))
+      if (cell && onSlime(cell, x, y)) return true
+    }
+    return false
+  }
+  const k = 1 - Math.exp(-SLIME_GRIP * dt)
+  for (const e of run.enemies) {
+    if (e._dead || e._oT !== run.time || flies(e) || (e.flags && e.flags.includes('slimeTrail'))) continue
+    // a stun or a freeze stops a body dead, slime or not
+    if (!onAt(e.x, e.y) || (e.stunT || 0) > 0 || e.frozen) { e._slVx = undefined; continue }
+    const mvx = (e.x - e._ox) / dt, mvy = (e.y - e._oy) / dt
+    // stepping on: it carries the speed it came in with, then gathers toward the faster wanted one.
+    //  - a velocity not refreshed last step is stale (the slime dried, or the body was skipped): restart
+    if (e._slVx === undefined || !(run.time - e._slT <= dt * 1.5)) { e._slVx = mvx; e._slVy = mvy }
+    else { e._slVx += (mvx * SLIME_SPEED_MUL - e._slVx) * k; e._slVy += (mvy * SLIME_SPEED_MUL - e._slVy) * k }
+    e._slT = run.time
+    e.x = e._ox + e._slVx * dt; e.y = e._oy + e._slVy * dt
   }
 }
 
