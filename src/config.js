@@ -6909,9 +6909,9 @@ export const ECHO_LIFE = 0.5             // s for the ring to reach its radius
 export const ECHO_DOUBLE_DELAY = 0.3     // s between a click and its Double Click repeat
 export const ECHO_DOUBLE_DMG_FRAC = 0.6  // each repeat's damage (and its ring-backs'), of the click's
 // THE GEODE'S COUNTERS TO A CRYSTAL FORTRESS (owner, 2026-10-13).
-// balance_decision : crabs eat Echo-rung crystals and turn to glass 2026-10-13
-//  - memory: s since an ECHO ring-back (o._echoRungAt), never a Prism bounce; seek: px from the crab
-export const CRAB_EAT = { seek: 360, memory: 3, eatT: 2.5, regrow: 14 }
+// balance_decision : crabs eat any crystal near you, wear cracking glass 2026-10-31
+//  - near: px from the PLAYER; seek: px from the crab; shell: glass hp as a fraction of the crab's maxHP
+export const CRAB_EAT = { seek: 360, near: 450, eatT: 2.5, regrow: 14, shell: 1.0 }
 // balance_decision : crystal ring-backs make noise that calls bats 2026-10-13
 //  - noise rises by perRing per ring-back and decays over tau s; over threshold, a bat every `every` s
 export const NOISE_BATS = { perRing: 1, tau: 8, threshold: 4, every: 2.5, maxAlive: 6 }
@@ -9791,7 +9791,7 @@ CHAPTERS.geode = {
     { id: 'olm',         archetype: 'normal', name: 'Olm',          hpMul: 0.9, speedMul: 0.9, flags: ['weave'] },
     // committedLeap: once its leap leaves the ground, no slow, freeze or daze stops it (stepEnemyMovement)
     { id: 'caveCricket', archetype: 'fast',   name: 'Cave Cricket', hpMul: 0.7, speedMul: 1.0, flags: ['pounce', 'committedLeap'], dmgMul: 0.7 },
-    // crystalEater: walks to a crystal that just rang, gnaws it away and wears its glass (CRAB_EAT)
+    // crystalEater: walks to a crystal near you, gnaws it away and wears its glass until you crack it (CRAB_EAT)
     { id: 'crystalCrab', archetype: 'tank',   name: 'Crystal Crab', hpMul: 1.6, speedMul: 0.8, flags: ['unshakeable', 'crystalEater'] },
     { id: 'bat',         archetype: 'fast',   name: 'Cave Bat',     hpMul: 2.6, speedMul: 1.0, radiusMul: 1.1, flags: ['weave', 'flying'], eliteOnly: true },
   ],
