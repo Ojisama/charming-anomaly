@@ -9826,8 +9826,9 @@ CHAPTERS.geode = {
     //  - radiusMul reads Echo's LEVEL radius (WEAPONS.echoPulse.levels), never the modded one
     // balance_decision : ring-backs crack a crystal until it shatters 2026-10-13
     //  - crack: rings = direct Echo ring-backs a crystal takes before it bursts (o.stress = rings so far / rings)
+    // balance_decision : owner, Echo shatter shards x3 damage 2026-10-31
     resonance: { radiusMul: 0.6, dmgMul: 0.6,
-      crack: { rings: 10, regrow: 14, ringR: 110, ringDmg: 1.0, shards: 10, shardDmg: 0.4, shardSpeed: 520, shardLife: 0.7 } },
+      crack: { rings: 10, regrow: 14, ringR: 110, ringDmg: 1.0, shards: 10, shardDmg: 0.4 * 3, shardSpeed: 520, shardLife: 0.7 } },
   },
   // balance_decision : owner, 30% fewer crystals 2026-10-31
   obstacles: { kind: 'crystal', count: 15 * 0.7, cell: 430, minR: 30, maxR: 56, minDist: 240 },
