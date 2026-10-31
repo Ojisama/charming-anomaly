@@ -9810,7 +9810,8 @@ CHAPTERS.geode = {
     { id: 'hollowGeode', archetype: 'tank',   name: 'Hollow Geode', hpMul: 1.4 * 2 * 0.7, speedMul: 0.7 * 1.4, xpMul: 0.7, radiusMul: 0.7, weight: 0.7 / 1.3, dmgMul: 0.5, flags: ['split', 'unshakeable'],
       split: { count: 7, hpFrac: 0.14, radiusFrac: 0.3 / 0.7, speedMul: 3.5, dmgMul: 0.4 * 2, rosterId: 'crystalMite' } },
     // what a Hollow Geode breaks into; a split child takes its numbers from the geode's split, not these
-    { id: 'crystalMite', archetype: 'tank',   name: 'Crystal Mite', hpMul: 1.4 * 2 * 0.7 * 0.14, speedMul: 0.7 * 1.4 * 3.5, radiusMul: 0.3, formationOnly: true, flags: [] },
+    // noFace: left off the chapter card's cast (owner 2026-10-31); "Killed by" still shows it
+    { id: 'crystalMite', archetype: 'tank',   name: 'Crystal Mite', hpMul: 1.4 * 2 * 0.7 * 0.14, speedMul: 0.7 * 1.4 * 3.5, radiusMul: 0.3, formationOnly: true, noFace: true, flags: [] },
   ],
   eliteFlags: [],
   signature: {

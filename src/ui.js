@@ -1168,7 +1168,7 @@ export function initUI(hooks) {
     const faces = []
     if (heroUnlocked) {
       const seen = new Set()
-      for (const rid of [...(ch.render.cast ?? []), ...(ch.roster ?? []).map((r) => r.id)]) {
+      for (const rid of [...(ch.render.cast ?? []), ...(ch.roster ?? []).filter((r) => !r.noFace).map((r) => r.id)]) {
         const name = ch.roster?.find((r) => r.id === rid)?.name ?? rid
         if (!CAST_ART[rid] || seen.has(name)) continue
         seen.add(name)
