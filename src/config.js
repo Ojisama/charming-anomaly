@@ -9801,10 +9801,12 @@ CHAPTERS.geode = {
     // a stone ball rolling at you that bursts into a swarm of crystal mites when it breaks (split)
     // balance_decision : siphonophore's swarm split and xp 2026-10-31
     // balance_decision : owner x2 hp, +40% speed (mites inherit both) 2026-10-31
-    { id: 'hollowGeode', archetype: 'tank',   name: 'Hollow Geode', hpMul: 1.4 * 2, speedMul: 0.7 * 1.4, xpMul: 0.7, flags: ['split', 'unshakeable'],
-      split: { count: 7, hpFrac: 0.14, radiusFrac: 0.3, speedMul: 3.5, dmgMul: 0.4, rosterId: 'crystalMite' } },
+    // balance_decision : owner, 30% smaller, rarer, less hp 2026-10-31
+    //  - weight 0.7/1.3 is 35% of tanks (was 50% beside the crab); radiusFrac /0.7 keeps the mites' size
+    { id: 'hollowGeode', archetype: 'tank',   name: 'Hollow Geode', hpMul: 1.4 * 2 * 0.7, speedMul: 0.7 * 1.4, xpMul: 0.7, radiusMul: 0.7, weight: 0.7 / 1.3, flags: ['split', 'unshakeable'],
+      split: { count: 7, hpFrac: 0.14, radiusFrac: 0.3 / 0.7, speedMul: 3.5, dmgMul: 0.4, rosterId: 'crystalMite' } },
     // what a Hollow Geode breaks into; a split child takes its numbers from the geode's split, not these
-    { id: 'crystalMite', archetype: 'tank',   name: 'Crystal Mite', hpMul: 1.4 * 2 * 0.14, speedMul: 0.7 * 1.4 * 3.5, radiusMul: 0.3, formationOnly: true, flags: [] },
+    { id: 'crystalMite', archetype: 'tank',   name: 'Crystal Mite', hpMul: 1.4 * 2 * 0.7 * 0.14, speedMul: 0.7 * 1.4 * 3.5, radiusMul: 0.3, formationOnly: true, flags: [] },
   ],
   eliteFlags: [],
   signature: {
