@@ -259,7 +259,7 @@ import {
   SHOVEL_LIFE, PEBBLE_CONE, PEBBLE_SPEED_JITTER, pebbleSpreadStones, PEBBLE_LIFE, PEBBLE_R, ROOT_SNARE_TICK, ROOT_SNARE_SLOW, ROOT_SNARE_HOLD_T, ROOT_SNARE_RANGE,
   FURROW_STEP, FURROW_KEEP, FURROW_DELAY, FURROW_STAGGER, FURROW_PIT_OPEN, FURROW_PIT_LIFE, FURROW_PIT_FILL, FURROW_PIT_MAX, FURROW_JUMP, FURROW_LANE_GAP,
   SUNDOWN_SPEED_MUL, SUNDOWN_XP_MUL,
-  PRISM_FAN, PRISM_LIFE, PRISM_R, ECHO_LIFE, ECHO_DOUBLE_DELAY, ECHO_DOUBLE_DMG_FRAC, CRAB_EAT, NOISE_BATS, STALACTITE_FUSE, STALACTITE_RANGE, STALACTITE_CHIPS, CRYSTAL_CARDS, ENV_WEAPONS, fillModDesc,
+  PRISM_FAN, PRISM_LIFE, PRISM_R, ECHO_LIFE, ECHO_DOUBLE_DELAY, ECHO_DOUBLE_DMG_FRAC, CRAB_EAT, NOISE_BATS, STALACTITE_FUSE, STALACTITE_RANGE, STALACTITE_CHIPS, STALACTITE_TANK_MUL, STALACTITE_SPREAD, STALACTITE_CRACKS, CRYSTAL_CARDS, ENV_WEAPONS, fillModDesc,
   PICKAXE_RANGE, PICKAXE_KB, PICKAXE_FLIGHT, PICKAXE_CHIP_DMG, PICKAXE_CHIP_SPEED, PICKAXE_CHIP_LIFE, PICKAXE_CHIP_R,
   DYNAMITE_RANGE, DYNAMITE_FLIGHT, DYNAMITE_FUSE, DYNAMITE_KB, MINECART_SPEED, MINECART_FAN, MINECART_KB, MINECART_STUN, MINECART_LOOT_R, MINECART_HOME_R,
   CANARY_REACH_MUL, CANARY_LINK_DMG, LANTERN_PULSE, MINE_BOOM_KEEP, MINE_GAS_FADE_IN, MINE_GAS_LIT_SHRINK,
@@ -17797,16 +17797,40 @@ function breakGlassShell(run, e) {
 // -- Stalactite (The Geode) ---------------------------------------------------------------------
 function stepStalactiteWeapon(run, w, stats, fireRateMul, dt) {
   const quick = run.weaponMods.stalactite?.dripRate ?? 0
-  fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => {
+  const interval = stats.interval / (fireRateMul * (1 + quick))
+  fireOnTimer(run, w.id, interval, dt, () => {
+    // the cast's stones come loose one by one at random moments over the cooldown, not in a wave;
+    // each picks its foe when its shadow appears (stepDrips)
     const n = ipecacN(run, stats.count)
-    for (const sp of pickBloomSpots(run, n, STALACTITE_RANGE)) {
-      run.drips.push({ x: sp.x, y: sp.y, r: stats.r, dmg: stats.dmg, t: 0, fuse: STALACTITE_FUSE, seed: Math.floor(Math.random() * 1000) })
+    for (let i = 0; i < n; i++) {
+      run.drips.push({ x: null, y: null, wait: Math.random() * interval * STALACTITE_SPREAD, r: stats.r, dmg: stats.dmg, t: 0, fuse: STALACTITE_FUSE, seed: Math.floor(Math.random() * 1000) })
     }
   })
+}
+// the nearest foe in range with no shadow already on it; else the nearest; else a random spot
+function pickDripSpot(run, dr) {
+  const p = run.player
+  let best = null, bestD = Infinity, any = null, anyD = Infinity
+  for (const e of enemiesNear(run, p.x, p.y, STALACTITE_RANGE)) {
+    if (e._dead || isAlly(e) || e.burrowed) continue
+    const d = Math.hypot(e.x - p.x, e.y - p.y)
+    if (d > STALACTITE_RANGE) continue
+    if (d < anyD) { anyD = d; any = e }
+    if (d >= bestD) continue
+    let shadowed = false
+    for (const o of run.drips) if (o !== dr && o.x != null && !(o.wait > 0) && Math.hypot(e.x - o.x, e.y - o.y) < o.r) { shadowed = true; break }
+    if (!shadowed) { bestD = d; best = e }
+  }
+  const e = best ?? any
+  if (e) { dr.x = e.x; dr.y = e.y; return }
+  const a = Math.random() * Math.PI * 2, d = Math.random() * STALACTITE_RANGE
+  dr.x = p.x + Math.cos(a) * d; dr.y = p.y + Math.sin(a) * d
 }
 function stepDrips(run, dt) {
   if (run.drips.length === 0) return
   for (const dr of run.drips) {
+    if (dr.wait > 0) { dr.wait -= dt; if (dr.wait > 0) continue }
+    if (dr.x == null) pickDripSpot(run, dr)
     dr.t += dt
     if (dr.t < dr.fuse) continue
     dr._done = true
@@ -17814,10 +17838,20 @@ function stepDrips(run, dt) {
     for (const e of enemiesNear(run, dr.x, dr.y, dr.r, true)) {
       if (e._dead || isAlly(e)) continue
       if (Math.hypot(e.x - dr.x, e.y - dr.y) > dr.r + e.radius) continue
-      applyDamage(run, e, dr.dmg)
+      applyDamage(run, e, dr.dmg * (e.type === 'tank' ? STALACTITE_TANK_MUL : 1))
       struck.push(e.id)
     }
     run.events.push({ type: 'stalactite', x: dr.x, y: dr.y, r: dr.r })
+    // the stone cracks every crystal it lands on (the same cracks Echo's ring-backs make); the last one bursts it
+    const K = crystalSpec(run)?.resonance?.crack
+    if (K) {
+      const hit = run.obstacles.filter((o) => o.kind === 'crystal' && Math.hypot(o.x - dr.x, o.y - dr.y) <= dr.r + o.r)
+      for (const o of hit) {
+        o._echoRings = (o._echoRings ?? 0) + STALACTITE_CRACKS
+        o.stress = Math.min(1, o._echoRings / K.rings)
+        if (o._echoRings >= K.rings) shatterCrystal(run, o, dr.dmg, K)
+      }
+    }
     // the stone shatters on the floor: rock chips fly out and catch a foe that stepped away
     // they start at the stone's edge, so a wider crash (Wide Crash) pushes them out instead of swallowing them
     const C = STALACTITE_CHIPS, a0 = (dr.seed || 0) * 0.01
@@ -17827,7 +17861,7 @@ function stepDrips(run, dt) {
       run.bullets.push({
         x: dr.x + Math.cos(a) * dr.r, y: dr.y + Math.sin(a) * dr.r, vx: Math.cos(a) * C.speed, vy: Math.sin(a) * C.speed,
         dmg: dr.dmg * C.dmg, pierce: 1, life: C.life, r: C.r, speed: C.speed,
-        hitIds: new Set(struck), _shard: true, _splitDone: true, _chainsLeft: 0, _spent: true, weapon: 'stalChip',   // fly past what the stone struck
+        hitIds: new Set(struck), _shard: true, _splitDone: true, _chainsLeft: 0, weapon: 'stalChip',   // fly past what the stone struck
       })
     }
     if ((run.weaponMods.crystals?.seedCrystal ?? 0) > 0 && crystalSpec(run)) trySeedCrystal(run, dr.x, dr.y)

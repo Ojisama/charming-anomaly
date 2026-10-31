@@ -6701,6 +6701,7 @@ export function createRenderer(app) {
     let stoneN = 0
     // stalactites: the shadow grows on the floor, the stone drops out of the ceiling onto it
     for (const dr of run.drips || []) {
+      if (dr.wait > 0 || dr.x == null) continue   // still on the ceiling
       const k = Math.min(1, dr.t / dr.fuse)
       gG.ellipse(dr.x, dr.y, dr.r * (0.35 + 0.65 * k), dr.r * (0.3 + 0.55 * k)).fill({ color: 0x000000, alpha: 0.15 + 0.35 * k })
       gG.circle(dr.x, dr.y, dr.r).stroke({ width: 1.5, color: 0x000000, alpha: 0.18 * k })

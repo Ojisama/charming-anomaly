@@ -45,7 +45,7 @@ import {
   BLOOD_PACT_PER_ELITE, BLOOD_MONEY_HP, STILLNESS_RAMP, STILLNESS_DELAY, stillnessRamp, CHAOS_PACT_PERIOD, CHAOS_PACT_SURGE,
   ALIGNMENT_POTENCY_MUL, DEADFALL_REARM_MUL, SOY_MILK_FIRE_MUL, SOY_MILK_DMG_MUL, SOY_MILK_CC_MUL,
   ANOMALY_REROLL_MUL, ANOMALY_REROLL_PITY_REFUND, LAST_BREATH_DROWN_TAKEN_MUL,
-  LIVE_CAPS, MUTATORS, CRYSTAL_CARDS, STALACTITE_FUSE, STALACTITE_CHIPS, CANARY_REACH_MUL, MINECART_STUN, MINE_GAS_FADE_IN, MINE_GAS_LIT_SHRINK, mutatorPool, ENDLESS_MILESTONE_S, ENDLESS_HANDOVER_CLEAR_R, ENDLESS_MILESTONE_ELITES, mergeMutatorMods, randomMutators, rerollMutator,
+  LIVE_CAPS, MUTATORS, CRYSTAL_CARDS, STALACTITE_FUSE, STALACTITE_CHIPS, STALACTITE_CRACKS, CANARY_REACH_MUL, MINECART_STUN, MINE_GAS_FADE_IN, MINE_GAS_LIT_SHRINK, mutatorPool, ENDLESS_MILESTONE_S, ENDLESS_HANDOVER_CLEAR_R, ENDLESS_MILESTONE_ELITES, mergeMutatorMods, randomMutators, rerollMutator,
   sacrificeCost, MAX_CHOICE_SLOTS, resolveChapterId,
   SHIELD_HP_FRAC, SHIELD_DMG_MUL, SPLITTER_COUNT, VOLATILE_FUSE, VOLATILE_RADIUS, VOLATILE_DMG,
   MAX_PASSIVE_LEVEL, MAX_ELEMENT_PICKS, passiveTotal,
@@ -42544,6 +42544,97 @@ function testStalactiteShatter() {
       if (!dirs && q.bullets.length) dirs = new Set(q.bullets.filter((b) => b.weapon === 'stalChip').map((b) => Math.round(Math.atan2(b.y - qy, b.x - qx) * 100)))
     }
     return { hit: far.hp < far.maxHP, dirs: dirs ? dirs.size : 0 }
+  }
+  // (e) NEAREST: the weapon drops its stone on the closest foe, not a random one in range
+  // (f) TANKS: the same stone on a tank and on an ordinary foe side by side deals the tank double
+  const fresh = (seed) => {
+    Math.random = mulberry32(seed)
+    const q = createRun(m, { chapter: 'geode', difficulty: 1 })
+    q.weapons = []; q.mods.spawnMul = 0; q.player.hp = q.player.maxHP = 1e9; q.player.critChance = 0
+    stepSim(q, { x: 0, y: 0 }, 1 / 60)
+    q.enemies = []; q.bullets = []; q.obstacles = []; q.drips = []
+    return q
+  }
+  let nearestRuns = 0
+  for (let s = 0; s < 8; s++) {
+    const q = fresh(43100 + s)
+    const px = q.player.x, py = q.player.y
+    const near = makeStatusEnemy(q, { x: px + 100, y: py, hp: 1e6, speed: 0 })
+    const others = [1, 2, 3, 4].map((k) => makeStatusEnemy(q, { x: px - 200 - k * 30, y: py + k * 40, hp: 1e6, speed: 0 }))
+    q.enemies.push(near, ...others)   // nearest FIRST, so a picker that lets a later, farther foe win is caught
+    q.weapons = [{ id: 'stalactite', level: 1 }]
+    const placed = () => q.drips.find((d) => d.x != null)
+    for (let i = 0; i < 600 && !placed(); i++) {
+      if (q.phase === 'levelup') { q.phase = 'playing'; q.levelUpChoices = [] }
+      stepSim(q, { x: 0, y: 0 }, 1 / 60)
+    }
+    const d = placed()
+    assert.ok(d, 'run ST.e: the weapon must drop a stone within 600 steps')
+    if (Math.hypot(d.x - near.x, d.y - near.y) < 1) nearestRuns++
+  }
+  assert.strictEqual(nearestRuns, 8, `run ST.e: the stone must fall on the nearest foe every time (${nearestRuns}/8)`)
+  const q = fresh(43200)
+  const tx = q.player.x + 200, ty = q.player.y
+  const tank = makeStatusEnemy(q, { x: tx - 20, y: ty, type: 'tank', hp: 1e6, speed: 0 })
+  const plain = makeStatusEnemy(q, { x: tx + 20, y: ty, hp: 1e6, speed: 0 })
+  q.enemies.push(tank, plain)
+  q.drips.push({ x: tx, y: ty, r: 52, dmg: 100, t: 0, fuse: STALACTITE_FUSE, seed: 0 })
+  for (let i = 0; i < 24; i++) stepSim(q, { x: 0, y: 0 }, 1 / 60)
+  const tankLoss = tank.maxHP - tank.hp, plainLoss = plain.maxHP - plain.hp
+  assert.ok(plainLoss > 0 && Math.abs(tankLoss / plainLoss - 2) < 0.01, `run ST.f: the stone must deal a tank double (tank ${tankLoss}, plain ${plainLoss})`)
+  // (g) DRIP BY DRIP: one level-5 cast (3 stones) lands its stones at three different moments, not
+  // in one wave; and two stones whose shadows appear together pick two different foes
+  {
+    const g = fresh(43300)
+    const gx = g.player.x, gy = g.player.y
+    const foes = [0, 1, 2, 3, 4].map((k) => makeStatusEnemy(g, { x: gx + 120 + k * 60, y: gy + (k % 2 ? 60 : -60), hp: 1e6, speed: 0 }))
+    g.enemies.push(...foes)
+    g.weapons = [{ id: 'stalactite', level: 5 }]
+    const lands = []
+    for (let i = 0; i < 60 * 6 && lands.length < 3; i++) {
+      if (g.phase === 'levelup') { g.phase = 'playing'; g.levelUpChoices = [] }
+      g.weapons = [{ id: 'stalactite', level: 5 }]
+      stepSim(g, { x: 0, y: 0 }, 1 / 60)
+      for (const ev of g.events) if (ev.type === 'stalactite') lands.push({ i, x: Math.round(ev.x), y: Math.round(ev.y) })
+      g.events.length = 0
+    }
+    assert.strictEqual(lands.length, 3, `run ST.g: a level-5 cast must land 3 stones (saw ${lands.length})`)
+    assert.strictEqual(new Set(lands.map((l) => l.i)).size, 3, `run ST.g: the 3 stones must fall at 3 different moments (${JSON.stringify(lands)})`)
+    g.weapons = []; g.drips = []
+    g.drips.push({ x: null, y: null, wait: 0, r: 52, dmg: 1, t: 0, fuse: STALACTITE_FUSE, seed: 0 },
+      { x: null, y: null, wait: 0, r: 52, dmg: 1, t: 0, fuse: STALACTITE_FUSE, seed: 0 })
+    stepSim(g, { x: 0, y: 0 }, 1 / 60)
+    const [d1, d2] = g.drips
+    assert.ok(d1 && d2 && d1.x != null && (d1.x !== d2.x || d1.y !== d2.y), `run ST.g: two shadows at once must fall on two different foes (${d1?.x},${d1?.y} / ${d2?.x},${d2?.y})`)
+  }
+  // (h) CRYSTALS: a splinter bounces off a crystal like a Prism shard; a stone landing on a crystal
+  // cracks it, and enough stones burst it
+  {
+    const c = fresh(43400)
+    c._obCellI = Math.floor(c.player.x / CHAPTERS.geode.obstacles.cell); c._obCellJ = Math.floor(c.player.y / CHAPTERS.geode.obstacles.cell)
+    const cx = c.player.x + 200, cy = c.player.y
+    const crystal = { x: cx + 110, y: cy, r: 30, kind: 'crystal', rot: 0, _cell: 'st:a' }   // due east, past the stone's edge
+    c.obstacles.push(crystal)
+    c.drips.push({ x: cx, y: cy, r: 52, dmg: 10, t: 0, fuse: STALACTITE_FUSE, seed: 0 })
+    let bounced = 0
+    for (let i = 0; i < 40; i++) {
+      stepSim(c, { x: 0, y: 0 }, 1 / 60)
+      for (const ev of c.events) if (ev.type === 'crystalBounce') bounced++
+      c.events.length = 0
+    }
+    assert.ok(bounced > 0, 'run ST.h: a splinter must bounce off a crystal in its path')
+    const K = CHAPTERS.geode.signature.resonance.crack
+    const target = { x: cx, y: cy + 400, r: 30, kind: 'crystal', rot: 0, _cell: 'st:b' }
+    c.obstacles = [target]; c.bullets = []
+    const stresses = []
+    for (let s = 0; s < 10 && c.obstacles.includes(target); s++) {
+      c.drips.push({ x: target.x + 20, y: target.y, r: 52, dmg: 10, t: 0, fuse: STALACTITE_FUSE, seed: 0 })
+      for (let i = 0; i < 20; i++) stepSim(c, { x: 0, y: 0 }, 1 / 60)
+      stresses.push(+(target.stress ?? 0).toFixed(2))
+    }
+    assert.ok(stresses[0] > 0, `run ST.h: one stone must crack the crystal it lands on (stress ${stresses[0]})`)
+    assert.ok(!c.obstacles.includes(target) && stresses.length === Math.ceil(K.rings / STALACTITE_CRACKS),
+      `run ST.h: ${Math.ceil(K.rings / STALACTITE_CRACKS)} stones must burst a crystal (stresses ${stresses.join(',')}, still there: ${c.obstacles.includes(target)})`)
   }
   const wide = land(120, 0), burst = land(52, 2)
   assert.ok(wide.hit, 'run ST.c: a 120 px stone must still throw a splinter onto a foe 40 px past its edge')
