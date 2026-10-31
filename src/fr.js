@@ -2002,6 +2002,8 @@ const CONFIG = {
   "drop damage": "dégâts de la chute",
   "Rockfall": "Éboulement",
   "extra stone(s) per cast": "pierre(s) en plus par lancer",
+  "Splinter Burst": "Gerbe d'éclats",
+  "extra splinter(s) per stone": "éclat(s) en plus par pierre",
   "Wide Crash": "Grand fracas",
   "Quick Drip": "Goutte à goutte",
   // ---- The Geode: the crystal cards (names are the owner's picks, 2026-10-11) ----
