@@ -2144,9 +2144,11 @@ function generateWells(sig) {
  *     {type:'shoot', weapon:'furrow', x, y} one Furrow cast that queued at least one cave-in.
  *   snares[i]: { x, y, r, dmg, dur, t, tick } — Root Snare patches. A body inside gets e.rootUntil
  *     (slowed by ROOT_SNARE_SLOW while run.time < it) and a dot tick every ROOT_SNARE_TICK.
- *   drips[i]: { x, y, r, dmg, t, fuse, seed } — a Stalactite: the shadow grows for `fuse` s, then it
+ *   drips[i]: { x, y, wait, r, dmg, t, fuse, seed } — a Stalactite: it hangs for `wait` s (x/y null), then
+ *     picks the nearest unshadowed foe (pickDripSpot); the shadow grows for `fuse` s, then it
  *     lands ({type:'stalactite'}), hits everything in r and shatters into STALACTITE_CHIPS.n (+ Splinter Burst) bullets from its edge
- *     (weapon 'stalChip', hitIds = what the stone struck, _spent so a crystal stops them).
+ *     (weapon 'stalChip', hitIds = what the stone struck; they bounce off crystals like Prism shards).
+ *     The stone adds STALACTITE_CRACKS to every crystal it lands on (o._echoRings / o.stress, shared with Echo).
  *   echoes[i]: { x, y, at, r, dmg, kb, o, wave, direct } — a crystal's queued ring-back from an Echo Pulse
  *     (or a Sympathy link); it becomes a run.novas entry (look 'echo') at run.time >= at. `o` is
  *     the crystal (a ring for one that broke meanwhile is dropped), `wave` the Sympathy wave

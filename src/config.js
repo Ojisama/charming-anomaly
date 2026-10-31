@@ -3011,10 +3011,10 @@ export const WEAPONS = {
       { dmg: 33, interval: 1.6 / 1.1 ** 4, radius: 240 },
     ],
   },
-  // Stalactite: a shadow grows over a foe, then a spike of stone drops on it (run.drips).
+  // Stalactite: stones come loose one by one over the nearest foes, land, shatter into splinters and crack crystals (run.drips).
   stalactite: {
     name: 'Stalactite',
-    desc: 'A shadow grows over a foe, then stone falls and shatters into splinters.',
+    desc: 'Stone falls on the nearest foe and shatters into splinters. It cracks crystals and crushes the biggest foes.',
     icon: '🗡️', rarity: 'rare',
     // balance_decision : owner: a new copy only at levels 3 and 5 [2026-10-11]
     // balance_decision : owner, +10% fire rate per level on top 2026-10-31
@@ -6925,6 +6925,13 @@ export const NOISE_BATS = { perRing: 1, tau: 8, threshold: 4, every: 2.5, maxAli
 export const STALACTITE_FUSE = 0.3       // s the shadow grows before the stone lands
 export const STALACTITE_CHIPS = { n: 6, dmg: 0.35, speed: 380, life: 0.26, r: 6 }   // dmg = fraction of the stone's
 export const STALACTITE_RANGE = 400      // px from you a stone may be dropped
+// balance_decision : owner: the stone crushes tanks for double 2026-10-31
+//  - the stone's own hit only; its splinters stay x1
+// balance_decision : owner: stones fall one by one, not in waves 2026-10-31
+export const STALACTITE_SPREAD = 0.9      // a cast's stones fall at random over this fraction of the cooldown
+// balance_decision : owner: a stone cracks the crystals it lands on 2026-10-31
+export const STALACTITE_CRACKS = 2       // cracks per stone, against the crystal's resonance.crack.rings (10)
+export const STALACTITE_TANK_MUL = 2     // stone damage multiplier against e.type === 'tank'
 // ---- Book 3, The Mine: weapon geometry (balance lives in WEAPONS[].levels) --------------------------
 export const PICKAXE_RANGE = 420         // px from you the nearest foe must be for a blow to land
 export const PICKAXE_KB = 70             // knockback of the blow itself
