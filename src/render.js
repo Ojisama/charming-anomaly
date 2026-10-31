@@ -7185,6 +7185,11 @@ export function createRenderer(app) {
     // glassLook: the HOLO_CAST id baked as '<id>_glass' and worn while the sim's e.glassShell is set (a crab that ate a crystal)
     crystalCrab: { archetype: 'tank', draw: drawCrystalCrab, macro: true, lean: 90, phases: 4, glassLook: 'crystalCrabGlass' },
     bat: { archetype: 'fast', draw: drawBat, macro: true, lean: 90, phases: 4 },
+    // a ball ROLLING at you: its 8 frames turn the sphere toward +x, so lean 90 faces the roll.
+    // fps 2: one turn per ~4 s, its surface about matching its 38 px/s roll at radius 26
+    //  - shortcut: the roll is timed, not driven by distance, so it still turns when shoved or blocked
+    hollowGeode: { archetype: 'tank', macro: true, lean: 90, phases: 8, fps: 2 },
+    crystalMite: { archetype: 'tank', macro: true, lean: 90, phases: 4 },
     // ---- Book 3, The Mine: PRETTY COLOURED ASCII. `ascii: true` hands the whole drawing to
     // src/ascii.js (ASCII_CAST / bakeCreature), the way `macro: true` hands it to macro.js.
     mineRat: { archetype: 'normal', ascii: true },
@@ -7524,6 +7529,7 @@ export function createRenderer(app) {
       faceDir: entry.faceDir || null,
       turnRate: entry.turnRate || null,
       spin: entry.spin || 0,
+      fps: entry.fps,
       squash: entry.squash || 0,
       shadow: { rx: M.shadow[0] * 0.85, ry: Math.max(4, M.shadow[0] * 0.3), y: M.shadow[1] },
       crown: elite ? { top: M.crown[0], r: M.crown[1] } : null,

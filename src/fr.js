@@ -1944,6 +1944,8 @@ const CONFIG = {
   "Olm": "Protée",
   "Cave Cricket": "Grillon des grottes",
   "Crystal Crab": "Crabe de cristal",
+  "Hollow Geode": "Géode creuse",
+  "Crystal Mite": "Mite de cristal",
   "Cave Bat": "Chauve-souris",
   "Shovel": "Pelle",
   "Scoops a wide arc of dirt at the nearest foe, shoving it back.": "Pellette un large arc de terre sur l'ennemi le plus proche et le repousse.",

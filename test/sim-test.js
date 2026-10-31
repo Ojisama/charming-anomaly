@@ -42648,7 +42648,25 @@ function testGeodeCounters() {
   const cl = leap(true), pl = leap(false)
   assert.ok(cl > 40 && Math.abs(pl) < 1, `run GK.e: stunned + frozen mid-leap, the cricket flew ${cl.toFixed(0)}px, a plain pouncer ${pl.toFixed(0)}px`)
 
-  console.log(`PASS run GK (Geode counters): ring-back ${plain.toFixed(0)}px with or without Far Call; ${K.rings} cracks then a burst; the crab ate a crystal near you, its glass soaked then burst (walked ${gw.toFixed(0)}px dazed+frozen); bats quiet/loud/capped ${quiet}/${loud}/${capped}; committed leap ${cl.toFixed(0)}px vs ${pl.toFixed(0)}px`)
+  // (f) THE HOLLOW GEODE BREAKS INTO A SWARM OF CRYSTAL MITES that rush you far faster than it rolled
+  const geodeSpec = CHAPTERS.geode.roster.find((x) => x.id === 'hollowGeode')
+  let mites = []
+  {
+    const r = boot(52010)
+    const g = makeStatusEnemy(r, { x: r.player.x + 300, y: r.player.y, type: 'tank', hp: 100, speed: 40 })
+    Object.assign(g, { flags: [...geodeSpec.flags], rosterId: 'hollowGeode', split: geodeSpec.split, radius: 26, xp: 4 })
+    r.enemies.push(g)
+    dealDamage(r, g, 1000, false)
+    run_(r, 1 / 60)
+    mites = r.enemies.filter((e) => e.rosterId === 'crystalMite' && !e._dead)
+    const d0 = mites.map((m) => Math.hypot(m.x - r.player.x, m.y - r.player.y))
+    run_(r, 1)
+    const closed = mites.map((m, i) => d0[i] - Math.hypot(m.x - r.player.x, m.y - r.player.y))
+    assert.ok(g._dead && mites.length === geodeSpec.split.count, `run GK.f: the geode broke into ${mites.length} crystal mites (want ${geodeSpec.split.count})`)
+    assert.ok(closed.every((c) => c > 40 * 2.5), `run GK.f: every mite closed in faster than the geode rolls (40px/s): ${closed.map((c) => c.toFixed(0))}px in 1s`)
+  }
+
+  console.log(`PASS run GK (Geode counters): ring-back ${plain.toFixed(0)}px with or without Far Call; ${K.rings} cracks then a burst; the crab ate a crystal near you, its glass soaked then burst (walked ${gw.toFixed(0)}px dazed+frozen); bats quiet/loud/capped ${quiet}/${loud}/${capped}; committed leap ${cl.toFixed(0)}px vs ${pl.toFixed(0)}px; a hollow geode broke into ${mites.length} mites`)
 }
 
 // ---- THE CORE (Book 3): the polarity signature, its weapons, magnetic loot and the self-sorting crowd.
