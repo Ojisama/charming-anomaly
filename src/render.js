@@ -7185,10 +7185,9 @@ export function createRenderer(app) {
     // glassLook: the HOLO_CAST id baked as '<id>_glass' and worn while the sim's e.glassShell is set (a crab that ate a crystal)
     crystalCrab: { archetype: 'tank', draw: drawCrystalCrab, macro: true, lean: 90, phases: 4, glassLook: 'crystalCrabGlass' },
     bat: { archetype: 'fast', draw: drawBat, macro: true, lean: 90, phases: 4 },
-    // a ball ROLLING at you: its 8 frames turn the sphere toward +x, so lean 90 faces the roll.
-    // fps 2: one turn per ~4 s, its surface about matching its 38 px/s roll at radius 26
-    //  - shortcut: the roll is timed, not driven by distance, so it still turns when shoved or blocked
-    hollowGeode: { archetype: 'tank', macro: true, lean: 90, phases: 8, fps: 2 },
+    // a ball ROLLING at you: its frames turn the sphere toward +x (lean 90 faces you), and `roll`
+    // picks the frame from how far it actually moved toward you, so it stops turning when it stops
+    hollowGeode: { archetype: 'tank', macro: true, lean: 90, phases: 16, roll: true },
     crystalMite: { archetype: 'tank', macro: true, lean: 90, phases: 4 },
     // ---- Book 3, The Mine: PRETTY COLOURED ASCII. `ascii: true` hands the whole drawing to
     // src/ascii.js (ASCII_CAST / bakeCreature), the way `macro: true` hands it to macro.js.
@@ -7529,7 +7528,7 @@ export function createRenderer(app) {
       faceDir: entry.faceDir || null,
       turnRate: entry.turnRate || null,
       spin: entry.spin || 0,
-      fps: entry.fps,
+      roll: !!entry.roll,
       squash: entry.squash || 0,
       shadow: { rx: M.shadow[0] * 0.85, ry: Math.max(4, M.shadow[0] * 0.3), y: M.shadow[1] },
       crown: elite ? { top: M.crown[0], r: M.crown[1] } : null,
@@ -32983,6 +32982,14 @@ void main() {
           // state-selected (the cat's pounce poses): no timer, no freeze rule — the pose IS the
           // state, so a frozen cat correctly keeps whatever pose it was caught in.
           s._animFrame = Math.min(look.frames.length - 1, Math.max(0, look.poseOf(e) | 0))
+        } else if (look.roll) {
+          // look.roll: one full turn of the frames per 2*pi*radius of ground covered toward the player
+          if (s._rollId !== e.id) { s._rollId = e.id; s._rollX = e.x; s._rollY = e.y; s._rollD = e.id * 7 }
+          const ux = run.player.x - e.x, uy = run.player.y - e.y, ul = Math.hypot(ux, uy) || 1
+          s._rollD += ((e.x - s._rollX) * ux + (e.y - s._rollY) * uy) / ul
+          s._rollX = e.x; s._rollY = e.y
+          const n = look.frames.length
+          s._animFrame = ((Math.floor((s._rollD / (2 * Math.PI * e.radius)) * n) % n) + n) % n
         } else {
           const halted = (e.frozen || 0) > 0 || (e.stunT || 0) > 0
           if (!halted || s._animFrame === undefined || s._animFrame >= look.frames.length) {
