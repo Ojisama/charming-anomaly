@@ -6712,6 +6712,11 @@ export function createRenderer(app) {
       sp.scale.set(sc)
       sp.alpha = Math.min(1, 0.25 + k * 1.2)
       sp.rotation = (dr.seed || 0) * 0.01
+      // the warning: grit trickling off the ceiling onto the spot
+      if (dt > 0 && Math.random() < dt * 60) {
+        const a = Math.random() * Math.PI * 2, d = Math.random() * dr.r * 0.7
+        spawnParticle(T.dot.tex, dr.x + Math.cos(a) * d, dr.y + Math.sin(a) * d, 0, 0, 0.3, 0.5, 0xd8d0e8, -0.8, 0)
+      }
     }
     for (let i = stoneN; i < burrowStones.length; i++) burrowStones[i].visible = false
     drawShovel(run, dt)
@@ -33735,6 +33740,14 @@ void main() {
       s.tint = 0xffffff
       s.rotation = (b.x + b.y) * 0.05
       s.scale.set(0.7)   // one small stone of a handful
+      return
+    }
+    // The Geode: a splinter of a shattered stalactite (the crystal splinter, pale, along its flight).
+    if (b.weapon === 'stalChip') {
+      if (s.texture !== T.prismShot.tex) { s.texture = T.prismShot.tex; s.anchor.set(T.prismShot.ax, T.prismShot.ay) }
+      s.tint = 0xe4ddf0
+      s.rotation = Math.atan2(b.vy, b.vx)
+      s.scale.set(0.9)
       return
     }
     // The Core: the Iron Sling's ball (the pebble shot, greyed).

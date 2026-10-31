@@ -1958,7 +1958,7 @@ const CONFIG = {
   "Echo Pulse": "Écho",
   "A click rings out around you. Crystals it reaches ring back, and every ring cracks them until they shatter.": "Un claquement résonne autour de toi. Les cristaux qu'il atteint résonnent en retour, et chaque écho les fêle jusqu'à ce qu'ils volent en éclats.",
   "Stalactite": "Stalactite",
-  "A shadow grows over a foe, then stone falls from the ceiling.": "Une ombre grandit sous un ennemi, puis la pierre tombe du plafond.",
+  "A shadow grows over a foe, then stone falls and shatters into splinters.": "Une ombre grandit sous un ennemi, puis la pierre tombe et vole en éclats.",
   "Iron Edge": "Lame de fer",
   "scoop damage": "dégâts de la pelletée",
   "Long Handle": "Long manche",

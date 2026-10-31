@@ -45,7 +45,7 @@ import {
   BLOOD_PACT_PER_ELITE, BLOOD_MONEY_HP, STILLNESS_RAMP, STILLNESS_DELAY, stillnessRamp, CHAOS_PACT_PERIOD, CHAOS_PACT_SURGE,
   ALIGNMENT_POTENCY_MUL, DEADFALL_REARM_MUL, SOY_MILK_FIRE_MUL, SOY_MILK_DMG_MUL, SOY_MILK_CC_MUL,
   ANOMALY_REROLL_MUL, ANOMALY_REROLL_PITY_REFUND, LAST_BREATH_DROWN_TAKEN_MUL,
-  LIVE_CAPS, MUTATORS, CRYSTAL_CARDS, CANARY_REACH_MUL, MINECART_STUN, MINE_GAS_FADE_IN, MINE_GAS_LIT_SHRINK, mutatorPool, ENDLESS_MILESTONE_S, ENDLESS_HANDOVER_CLEAR_R, ENDLESS_MILESTONE_ELITES, mergeMutatorMods, randomMutators, rerollMutator,
+  LIVE_CAPS, MUTATORS, CRYSTAL_CARDS, STALACTITE_FUSE, CANARY_REACH_MUL, MINECART_STUN, MINE_GAS_FADE_IN, MINE_GAS_LIT_SHRINK, mutatorPool, ENDLESS_MILESTONE_S, ENDLESS_HANDOVER_CLEAR_R, ENDLESS_MILESTONE_ELITES, mergeMutatorMods, randomMutators, rerollMutator,
   sacrificeCost, MAX_CHOICE_SLOTS, resolveChapterId,
   SHIELD_HP_FRAC, SHIELD_DMG_MUL, SPLITTER_COUNT, VOLATILE_FUSE, VOLATILE_RADIUS, VOLATILE_DMG,
   MAX_PASSIVE_LEVEL, MAX_ELEMENT_PICKS, passiveTotal,
@@ -21110,6 +21110,7 @@ run(testLeLargeWeapons)
   run(testEchoDoubleClick)
   run(testPebbleHandful)
   run(testGeodeCounters)
+  run(testStalactiteShatter)
   run(testSrcParses)
   run(testGemTiers)
   run(testMagmaFloor)
@@ -42492,6 +42493,33 @@ function testMantleLavaCrew() {
   assert.ok(jellyGroups.length >= 5 && mean >= gMin - 0.6 && mean <= gMax, `run HB.g: the jelly comes in groups of ${gMin}-${gMax}: mean ${mean.toFixed(2)} over ${jellyGroups.length} arrivals (${jellyGroups.join(',')})`)
   assert.ok(mates >= 20 && matesAway <= 1, `run HB.g: a jelly's group is born in its lava: ${matesAway} of ${mates} group-mates born on rock`)
   console.log(`PASS run HB.g (the lava's crew): born ${lavaIds.map((id) => `${id} ${born[id]} (${home[id]} in lava)`).join(', ')}; jellies arrive ${mean.toFixed(2)} at a time over ${jellyGroups.length} arrivals, ${matesAway} of ${mates} group-mates on rock`)
+}
+
+// run ST: STALACTITE FALLS FAST AND SHATTERS (owner, 2026-10-31: "by the time it falls the enemy is
+// away"). (a) a foe standing under the shadow is struck within 0.4 s of the shadow appearing;
+// (b) a foe that has stepped out of the stone's reach is still caught by the rock chips it throws.
+function testStalactiteShatter() {
+  Math.random = mulberry32(43001)
+  const m = makeMeta(); m.dev = true
+  const r = createRun(m, { chapter: 'geode', difficulty: 1 })
+  assert.strictEqual(r.chapter, 'geode', 'run ST: the fixture must be in The Geode')
+  r.weapons = []; r.mods.spawnMul = 0; r.player.hp = r.player.maxHP = 1e9
+  stepSim(r, { x: 0, y: 0 }, 1 / 60)
+  r.enemies = []; r.bullets = []; r.obstacles = []
+  const p = r.player, x = p.x + 200, y = p.y
+  const under = makeStatusEnemy(r, { x, y, hp: 1e6, speed: 0 })
+  const away = makeStatusEnemy(r, { x: x + 85, y, hp: 1e6, speed: 0 })   // outside r 52 + radius 16
+  r.enemies.push(under, away)
+  r.drips.push({ x, y, r: 52, dmg: 100, t: 0, fuse: STALACTITE_FUSE, seed: 0 })   // seed 0: a chip flies due east
+  const steps = (n) => { for (let i = 0; i < n; i++) {
+    if (r.phase === 'levelup') { r.phase = 'playing'; r.levelUpChoices = [] }
+    stepSim(r, { x: 0, y: 0 }, 1 / 60)
+  } }
+  steps(24)   // 0.4 s
+  assert.ok(under.hp < under.maxHP, `run ST.a: the stone must land within 0.4 s (fuse ${STALACTITE_FUSE} s, hp ${under.hp})`)
+  steps(24)   // the chips' flight
+  assert.ok(away.hp < away.maxHP, `run ST.b: a rock chip must catch the foe 85 px off the stone (hp ${away.hp})`)
+  console.log('PASS run ST: the stalactite lands in', STALACTITE_FUSE, 's and its chips reach a foe 85 px away')
 }
 
 // run GK — THE GEODE'S COUNTERS TO A CRYSTAL FORTRESS (owner, 2026-10-13): Far Call no longer grows

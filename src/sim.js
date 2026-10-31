@@ -259,7 +259,7 @@ import {
   SHOVEL_LIFE, PEBBLE_CONE, PEBBLE_SPEED_JITTER, pebbleSpreadStones, PEBBLE_LIFE, PEBBLE_R, ROOT_SNARE_TICK, ROOT_SNARE_SLOW, ROOT_SNARE_HOLD_T, ROOT_SNARE_RANGE,
   FURROW_STEP, FURROW_KEEP, FURROW_DELAY, FURROW_STAGGER, FURROW_PIT_OPEN, FURROW_PIT_LIFE, FURROW_PIT_FILL, FURROW_PIT_MAX, FURROW_JUMP, FURROW_LANE_GAP,
   SUNDOWN_SPEED_MUL, SUNDOWN_XP_MUL,
-  PRISM_FAN, PRISM_LIFE, PRISM_R, ECHO_LIFE, ECHO_DOUBLE_DELAY, ECHO_DOUBLE_DMG_FRAC, CRAB_EAT, NOISE_BATS, STALACTITE_FUSE, STALACTITE_RANGE, CRYSTAL_CARDS, ENV_WEAPONS, fillModDesc,
+  PRISM_FAN, PRISM_LIFE, PRISM_R, ECHO_LIFE, ECHO_DOUBLE_DELAY, ECHO_DOUBLE_DMG_FRAC, CRAB_EAT, NOISE_BATS, STALACTITE_FUSE, STALACTITE_RANGE, STALACTITE_CHIPS, CRYSTAL_CARDS, ENV_WEAPONS, fillModDesc,
   PICKAXE_RANGE, PICKAXE_KB, PICKAXE_FLIGHT, PICKAXE_CHIP_DMG, PICKAXE_CHIP_SPEED, PICKAXE_CHIP_LIFE, PICKAXE_CHIP_R,
   DYNAMITE_RANGE, DYNAMITE_FLIGHT, DYNAMITE_FUSE, DYNAMITE_KB, MINECART_SPEED, MINECART_FAN, MINECART_KB, MINECART_STUN, MINECART_LOOT_R, MINECART_HOME_R,
   CANARY_REACH_MUL, CANARY_LINK_DMG, LANTERN_PULSE, MINE_BOOM_KEEP, MINE_GAS_FADE_IN, MINE_GAS_LIT_SHRINK,
@@ -17810,12 +17810,24 @@ function stepDrips(run, dt) {
     dr.t += dt
     if (dr.t < dr.fuse) continue
     dr._done = true
+    const struck = []
     for (const e of enemiesNear(run, dr.x, dr.y, dr.r, true)) {
       if (e._dead || isAlly(e)) continue
       if (Math.hypot(e.x - dr.x, e.y - dr.y) > dr.r + e.radius) continue
       applyDamage(run, e, dr.dmg)
+      struck.push(e.id)
     }
     run.events.push({ type: 'stalactite', x: dr.x, y: dr.y, r: dr.r })
+    // the stone shatters on the floor: rock chips fly out and catch a foe that stepped away
+    const C = STALACTITE_CHIPS, a0 = (dr.seed || 0) * 0.01
+    for (let i = 0; i < C.n; i++) {
+      const a = a0 + (i / C.n) * Math.PI * 2
+      run.bullets.push({
+        x: dr.x, y: dr.y, vx: Math.cos(a) * C.speed, vy: Math.sin(a) * C.speed,
+        dmg: dr.dmg * C.dmg, pierce: 1, life: C.life, r: C.r, speed: C.speed,
+        hitIds: new Set(struck), _shard: true, _splitDone: true, _chainsLeft: 0, _spent: true, weapon: 'stalChip',   // fly past what the stone struck
+      })
+    }
     if ((run.weaponMods.crystals?.seedCrystal ?? 0) > 0 && crystalSpec(run)) trySeedCrystal(run, dr.x, dr.y)
   }
   run.drips = run.drips.filter((dr) => !dr._done)

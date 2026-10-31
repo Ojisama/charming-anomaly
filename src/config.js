@@ -3014,7 +3014,7 @@ export const WEAPONS = {
   // Stalactite: a shadow grows over a foe, then a spike of stone drops on it (run.drips).
   stalactite: {
     name: 'Stalactite',
-    desc: 'A shadow grows over a foe, then stone falls from the ceiling.',
+    desc: 'A shadow grows over a foe, then stone falls and shatters into splinters.',
     icon: '🗡️', rarity: 'rare',
     // balance_decision : owner: a new copy only at levels 3 and 5 [2026-10-11]
     // balance_decision : owner, +10% fire rate per level on top 2026-10-31
@@ -6919,7 +6919,9 @@ export const CRAB_EAT = { seek: 360, near: 450, eatT: 2.5, regrow: 14, shell: 1.
 // balance_decision : crystal ring-backs make noise that calls bats 2026-10-13
 //  - noise rises by perRing per ring-back and decays over tau s; over threshold, a bat every `every` s
 export const NOISE_BATS = { perRing: 1, tau: 8, threshold: 4, every: 2.5, maxAlive: 6 }
-export const STALACTITE_FUSE = 0.8       // s the shadow grows before the stone lands
+// balance_decision : owner: falls fast, shatters into rock chips 2026-10-31
+export const STALACTITE_FUSE = 0.3       // s the shadow grows before the stone lands
+export const STALACTITE_CHIPS = { n: 6, dmg: 0.35, speed: 380, life: 0.26, r: 6 }   // dmg = fraction of the stone's
 export const STALACTITE_RANGE = 400      // px from you a stone may be dropped
 // ---- Book 3, The Mine: weapon geometry (balance lives in WEAPONS[].levels) --------------------------
 export const PICKAXE_RANGE = 420         // px from you the nearest foe must be for a blow to land
