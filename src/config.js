@@ -4610,6 +4610,8 @@ export const WEAPON_MODS = {
     rockfall:    { name: 'Rockfall',     desc: 'extra stone(s) per cast', icon: '🔷', kind: 'tier' },
     wideCrash:   { name: 'Wide Crash',   desc: 'impact radius', icon: '⭕', base: 0.25, kind: 'pct' },
     dripRate:    { name: 'Quick Drip',   desc: 'cast rate', icon: '⏩', base: 0.25, kind: 'pct' },
+    // balance_decision : +2 splinters per tier, owner untested 2026-10-31
+    splinterBurst: { name: 'Splinter Burst', desc: 'extra splinter(s) per stone', icon: '✴️', kind: 'tier', perTier: 2 },
   },
   // THE CRYSTALS: The Geode's fourth weapon is the field itself (ENV_WEAPONS.crystals), so its cards
   // are offered whatever you hold. `holds` keeps a card out of the pool until the run holds the weapon

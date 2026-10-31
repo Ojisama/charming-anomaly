@@ -2145,7 +2145,7 @@ function generateWells(sig) {
  *   snares[i]: { x, y, r, dmg, dur, t, tick } — Root Snare patches. A body inside gets e.rootUntil
  *     (slowed by ROOT_SNARE_SLOW while run.time < it) and a dot tick every ROOT_SNARE_TICK.
  *   drips[i]: { x, y, r, dmg, t, fuse, seed } — a Stalactite: the shadow grows for `fuse` s, then it
- *     lands ({type:'stalactite'}), hits everything in r and shatters into STALACTITE_CHIPS.n bullets
+ *     lands ({type:'stalactite'}), hits everything in r and shatters into STALACTITE_CHIPS.n (+ Splinter Burst) bullets from its edge
  *     (weapon 'stalChip', hitIds = what the stone struck, _spent so a crystal stops them).
  *   echoes[i]: { x, y, at, r, dmg, kb, o, wave, direct } — a crystal's queued ring-back from an Echo Pulse
  *     (or a Sympathy link); it becomes a run.novas entry (look 'echo') at run.time >= at. `o` is

@@ -3,6 +3,7 @@
 //   node scripts/fx-probe.mjs --scene scripts/scenes/stalactite-live.js --out /tmp/st/t --frames 40 --chapter geode --url 'http://127.0.0.1:5173/'
 run.player.xpNext = 1e9
 run.weapons = [{ id: 'stalactite', level: 5 }]
+run.weaponMods.stalactite = { ...(run.weaponMods.stalactite || {}), splinterBurst: Number(new URLSearchParams(location.search).get('burst') || 0) }   // ?burst=2 to see Splinter Burst
 H.until(() => run.time > 60 && run.enemies.length > 25, 8000)
 let n = 0
 return () => {

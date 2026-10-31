@@ -17819,11 +17819,13 @@ function stepDrips(run, dt) {
     }
     run.events.push({ type: 'stalactite', x: dr.x, y: dr.y, r: dr.r })
     // the stone shatters on the floor: rock chips fly out and catch a foe that stepped away
+    // they start at the stone's edge, so a wider crash (Wide Crash) pushes them out instead of swallowing them
     const C = STALACTITE_CHIPS, a0 = (dr.seed || 0) * 0.01
-    for (let i = 0; i < C.n; i++) {
-      const a = a0 + (i / C.n) * Math.PI * 2
+    const n = C.n + (run.weaponMods.stalactite?.splinterBurst ?? 0)
+    for (let i = 0; i < n; i++) {
+      const a = a0 + (i / n) * Math.PI * 2
       run.bullets.push({
-        x: dr.x, y: dr.y, vx: Math.cos(a) * C.speed, vy: Math.sin(a) * C.speed,
+        x: dr.x + Math.cos(a) * dr.r, y: dr.y + Math.sin(a) * dr.r, vx: Math.cos(a) * C.speed, vy: Math.sin(a) * C.speed,
         dmg: dr.dmg * C.dmg, pierce: 1, life: C.life, r: C.r, speed: C.speed,
         hitIds: new Set(struck), _shard: true, _splitDone: true, _chainsLeft: 0, _spent: true, weapon: 'stalChip',   // fly past what the stone struck
       })

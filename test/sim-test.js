@@ -45,7 +45,7 @@ import {
   BLOOD_PACT_PER_ELITE, BLOOD_MONEY_HP, STILLNESS_RAMP, STILLNESS_DELAY, stillnessRamp, CHAOS_PACT_PERIOD, CHAOS_PACT_SURGE,
   ALIGNMENT_POTENCY_MUL, DEADFALL_REARM_MUL, SOY_MILK_FIRE_MUL, SOY_MILK_DMG_MUL, SOY_MILK_CC_MUL,
   ANOMALY_REROLL_MUL, ANOMALY_REROLL_PITY_REFUND, LAST_BREATH_DROWN_TAKEN_MUL,
-  LIVE_CAPS, MUTATORS, CRYSTAL_CARDS, STALACTITE_FUSE, CANARY_REACH_MUL, MINECART_STUN, MINE_GAS_FADE_IN, MINE_GAS_LIT_SHRINK, mutatorPool, ENDLESS_MILESTONE_S, ENDLESS_HANDOVER_CLEAR_R, ENDLESS_MILESTONE_ELITES, mergeMutatorMods, randomMutators, rerollMutator,
+  LIVE_CAPS, MUTATORS, CRYSTAL_CARDS, STALACTITE_FUSE, STALACTITE_CHIPS, CANARY_REACH_MUL, MINECART_STUN, MINE_GAS_FADE_IN, MINE_GAS_LIT_SHRINK, mutatorPool, ENDLESS_MILESTONE_S, ENDLESS_HANDOVER_CLEAR_R, ENDLESS_MILESTONE_ELITES, mergeMutatorMods, randomMutators, rerollMutator,
   sacrificeCost, MAX_CHOICE_SLOTS, resolveChapterId,
   SHIELD_HP_FRAC, SHIELD_DMG_MUL, SPLITTER_COUNT, VOLATILE_FUSE, VOLATILE_RADIUS, VOLATILE_DMG,
   MAX_PASSIVE_LEVEL, MAX_ELEMENT_PICKS, passiveTotal,
@@ -42509,17 +42509,46 @@ function testStalactiteShatter() {
   const p = r.player, x = p.x + 200, y = p.y
   const under = makeStatusEnemy(r, { x, y, hp: 1e6, speed: 0 })
   const away = makeStatusEnemy(r, { x: x + 85, y, hp: 1e6, speed: 0 })   // outside r 52 + radius 16
-  r.enemies.push(under, away)
+  const edge = makeStatusEnemy(r, { x: x + 60, y, hp: 1e6, speed: 0 })   // struck by the stone, in the east splinter's path
+  r.enemies.push(under, away, edge)
+  let edgeHits = 0
   r.drips.push({ x, y, r: 52, dmg: 100, t: 0, fuse: STALACTITE_FUSE, seed: 0 })   // seed 0: a chip flies due east
   const steps = (n) => { for (let i = 0; i < n; i++) {
     if (r.phase === 'levelup') { r.phase = 'playing'; r.levelUpChoices = [] }
     stepSim(r, { x: 0, y: 0 }, 1 / 60)
+    for (const ev of r.events) if (ev.type === 'hit' && ev.id === edge.id) edgeHits++
+    r.events.length = 0
   } }
   steps(24)   // 0.4 s
   assert.ok(under.hp < under.maxHP, `run ST.a: the stone must land within 0.4 s (fuse ${STALACTITE_FUSE} s, hp ${under.hp})`)
   steps(24)   // the chips' flight
+  assert.strictEqual(edgeHits, 1, `run ST.b: a foe the stone struck must not be hit again by its splinters (hits ${edgeHits})`)
   assert.ok(away.hp < away.maxHP, `run ST.b: a rock chip must catch the foe 85 px off the stone (hp ${away.hp})`)
-  console.log('PASS run ST: the stalactite lands in', STALACTITE_FUSE, 's and its chips reach a foe 85 px away')
+  // (c) WIDE CRASH: a stone 120 px wide still throws its splinters past its own edge
+  // (d) SPLINTER BURST: its bonus adds splinters in NEW directions, not on top of the old ones
+  const land = (r0, burst) => {
+    Math.random = mulberry32(43002)
+    const q = createRun(m, { chapter: 'geode', difficulty: 1 })
+    q.weapons = []; q.mods.spawnMul = 0; q.player.hp = q.player.maxHP = 1e9
+    stepSim(q, { x: 0, y: 0 }, 1 / 60)
+    q.enemies = []; q.bullets = []; q.obstacles = []
+    if (burst) q.weaponMods.stalactite = { splinterBurst: burst }
+    const qx = q.player.x + 300, qy = q.player.y
+    const far = makeStatusEnemy(q, { x: qx + r0 + 40, y: qy, hp: 1e6, speed: 0 })
+    q.enemies.push(far)
+    q.drips.push({ x: qx, y: qy, r: r0, dmg: 100, t: 0, fuse: STALACTITE_FUSE, seed: 0 })
+    let dirs = null
+    for (let i = 0; i < 48; i++) {
+      if (q.phase === 'levelup') { q.phase = 'playing'; q.levelUpChoices = [] }
+      stepSim(q, { x: 0, y: 0 }, 1 / 60)
+      if (!dirs && q.bullets.length) dirs = new Set(q.bullets.filter((b) => b.weapon === 'stalChip').map((b) => Math.round(Math.atan2(b.y - qy, b.x - qx) * 100)))
+    }
+    return { hit: far.hp < far.maxHP, dirs: dirs ? dirs.size : 0 }
+  }
+  const wide = land(120, 0), burst = land(52, 2)
+  assert.ok(wide.hit, 'run ST.c: a 120 px stone must still throw a splinter onto a foe 40 px past its edge')
+  assert.strictEqual(burst.dirs, STALACTITE_CHIPS.n + 2, `run ST.d: Splinter Burst +2 must fly ${STALACTITE_CHIPS.n + 2} splinters in distinct directions (saw ${burst.dirs})`)
+  console.log('PASS run ST: the stalactite lands in', STALACTITE_FUSE, 's, its chips reach a foe 85 px away and 40 px past a 120 px stone, and Splinter Burst +2 flies', burst.dirs, 'distinct splinters')
 }
 
 // run GK — THE GEODE'S COUNTERS TO A CRYSTAL FORTRESS (owner, 2026-10-13): Far Call no longer grows
