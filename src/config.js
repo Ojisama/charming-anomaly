@@ -3002,12 +3002,13 @@ export const WEAPONS = {
     name: 'Echo Pulse',
     desc: 'A click rings out around you. Crystals it reaches ring back, and every ring cracks them until they shatter.',
     icon: '🦇', rarity: 'normal',
+    // balance_decision : owner, +10% fire rate per level on top 2026-10-31
     levels: [
       { dmg: 14, interval: 2.2, radius: 170 },
-      { dmg: 17, interval: 2.05, radius: 185 },
-      { dmg: 21, interval: 1.9, radius: 200 },
-      { dmg: 26, interval: 1.75, radius: 220 },
-      { dmg: 33, interval: 1.6, radius: 240 },
+      { dmg: 17, interval: 2.05 / 1.1, radius: 185 },
+      { dmg: 21, interval: 1.9 / 1.1 ** 2, radius: 200 },
+      { dmg: 26, interval: 1.75 / 1.1 ** 3, radius: 220 },
+      { dmg: 33, interval: 1.6 / 1.1 ** 4, radius: 240 },
     ],
   },
   // Stalactite: a shadow grows over a foe, then a spike of stone drops on it (run.drips).
@@ -3016,12 +3017,13 @@ export const WEAPONS = {
     desc: 'A shadow grows over a foe, then stone falls from the ceiling.',
     icon: '🗡️', rarity: 'rare',
     // balance_decision : owner: a new copy only at levels 3 and 5 [2026-10-11]
+    // balance_decision : owner, +10% fire rate per level on top 2026-10-31
     levels: [
       { dmg: 30, interval: 2.4, count: 1, r: 52 },
-      { dmg: 36, interval: 2.25, count: 1, r: 56 },
-      { dmg: 44, interval: 2.1, count: 2, r: 60 },
-      { dmg: 54, interval: 1.95, count: 2, r: 64 },
-      { dmg: 66, interval: 1.8, count: 3, r: 70 },
+      { dmg: 36, interval: 2.25 / 1.1, count: 1, r: 56 },
+      { dmg: 44, interval: 2.1 / 1.1 ** 2, count: 2, r: 60 },
+      { dmg: 54, interval: 1.95 / 1.1 ** 3, count: 2, r: 64 },
+      { dmg: 66, interval: 1.8 / 1.1 ** 4, count: 3, r: 70 },
     ],
   },
   // ---- Book 3, Burrow: The Mine's four. Every one of them lights the firedamp it touches. ----
