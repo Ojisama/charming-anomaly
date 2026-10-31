@@ -4586,7 +4586,9 @@ export const WEAPON_MODS = {
   //  - Cleave is x0.6, not x0.7: whole pierce, and x0.7 only took a legendary +4 to +3
   prismShard: {
     keenFacet:   { name: 'Keen Facet',   desc: 'shard damage', icon: '💥', base: 0.30 * 0.7, kind: 'pct' },
-    shardSpray:  { name: 'Shard Spray',  desc: 'extra shard(s) per throw', icon: '🔷', kind: 'tier', maxPicks: 3 },
+    // balance_decision : owner, +1 shard, epic and up only 2026-10-31
+    shardSpray:  { name: 'Shard Spray',  desc: 'extra shard(s) per throw', icon: '🔷', kind: 'flat', maxPicks: 3,
+                   values: { epic: 1, legendary: 1, mythic: 1 } },
     flickRate:   { name: 'Quick Flick',  desc: 'throw rate', icon: '⏩', base: 0.25 * 0.7, kind: 'pct' },
     cleave:      { name: 'Cleave',       desc: 'shard pierce', icon: '🎯', base: 1 * 0.6, kind: 'flat', maxPicks: PIERCE_MAX_PICKS },
   },
@@ -9796,10 +9798,11 @@ CHAPTERS.geode = {
     { id: 'bat',         archetype: 'fast',   name: 'Cave Bat',     hpMul: 2.6, speedMul: 1.0, radiusMul: 1.1, flags: ['weave', 'flying'], eliteOnly: true },
     // a stone ball rolling at you that bursts into a swarm of crystal mites when it breaks (split)
     // balance_decision : siphonophore's swarm split and xp 2026-10-31
-    { id: 'hollowGeode', archetype: 'tank',   name: 'Hollow Geode', hpMul: 1.4, speedMul: 0.7, xpMul: 0.7, flags: ['split', 'unshakeable'],
+    // balance_decision : owner x2 hp, +40% speed (mites inherit both) 2026-10-31
+    { id: 'hollowGeode', archetype: 'tank',   name: 'Hollow Geode', hpMul: 1.4 * 2, speedMul: 0.7 * 1.4, xpMul: 0.7, flags: ['split', 'unshakeable'],
       split: { count: 7, hpFrac: 0.14, radiusFrac: 0.3, speedMul: 3.5, dmgMul: 0.4, rosterId: 'crystalMite' } },
     // what a Hollow Geode breaks into; a split child takes its numbers from the geode's split, not these
-    { id: 'crystalMite', archetype: 'tank',   name: 'Crystal Mite', hpMul: 0.2, speedMul: 2.45, radiusMul: 0.3, formationOnly: true, flags: [] },
+    { id: 'crystalMite', archetype: 'tank',   name: 'Crystal Mite', hpMul: 1.4 * 2 * 0.14, speedMul: 0.7 * 1.4 * 3.5, radiusMul: 0.3, formationOnly: true, flags: [] },
   ],
   eliteFlags: [],
   signature: {
@@ -9822,7 +9825,8 @@ CHAPTERS.geode = {
     resonance: { radiusMul: 0.6, dmgMul: 0.6,
       crack: { rings: 10, regrow: 14, ringR: 110, ringDmg: 1.0, shards: 10, shardDmg: 0.4, shardSpeed: 520, shardLife: 0.7 } },
   },
-  obstacles: { kind: 'crystal', count: 15, cell: 430, minR: 30, maxR: 56, minDist: 240 },
+  // balance_decision : owner, 30% fewer crystals 2026-10-31
+  obstacles: { kind: 'crystal', count: 15 * 0.7, cell: 430, minR: 30, maxR: 56, minDist: 240 },
   balance: { spawnMul: 0.75, enemyDmgMul: 0.75, enemyHpMul: 0.9, xpMul: 1.25, maxAliveMul: 0.62 },
   render: {
     cast: ['olm', 'caveCricket', 'crystalCrab', 'hollowGeode', 'bat'],

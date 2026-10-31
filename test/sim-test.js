@@ -41050,6 +41050,13 @@ function testGeodeStarterMods() {
     assert.ok(rar === 'normal' ? now === 1 : now <= was * 0.7 + 1e-9, `run GM: Cleave ${rar} +${now} (was +${was})`)
   }
   assert.strictEqual(modPickCap('prismShard', 'shardSpray'), 3, 'run GM: Shard Spray caps at 3 picks (was 5)')
+  // owner 2026-10-31: Shard Spray is +1 shard, and only at epic and up
+  const spray = (rar) => devCards(r, rar).find((c) => c.weapon === 'prismShard' && c.id === 'shardSpray')
+  // devCards falls back to the lowest rarity a card allows, so a normal or rare ask must come back epic
+  for (const rar of ['normal', 'rare', 'epic', 'legendary', 'mythic']) {
+    const c = spray(rar), want = ['normal', 'rare'].includes(rar) ? 'epic' : rar
+    assert.ok(c && c.rarity === want && c.bonus === 1, `run GM: a ${rar} ask deals a ${want} Shard Spray of +1, got ${c?.rarity} +${c?.bonus}`)
+  }
   // fire rate -25%: every level's interval is the pre-change one / 0.75
   const was = [0.50, 0.48, 0.47, 0.42, 0.36]
   WEAPONS.prismShard.levels.forEach((L, i) => assert.ok(Math.abs(L.interval - was[i] / 0.75) < 1e-9, `run GM: Prism Shard L${i + 1} interval ${L.interval}`))

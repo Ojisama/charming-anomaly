@@ -542,7 +542,7 @@ export const HOLO_CAST = {
   crystalCrabGlass2: { r: 26, E: 68, frames: 4, shadowBlur: 0.8, shadow: [26 * 1.25, 26 * 0.6], crown: [-26 * 0.95, 26], paint: (ctx, f) => paintCrystalCrab(ctx, f, true, 2) },
   crystalCrabGlass3: { r: 26, E: 68, frames: 4, shadowBlur: 0.8, shadow: [26 * 1.25, 26 * 0.6], crown: [-26 * 0.95, 26], paint: (ctx, f) => paintCrystalCrab(ctx, f, true, 3) },
   // the Hollow Geode, rolling, and the crystal mites it bursts into
-  hollowGeode: { r: 30, E: 58, frames: 8, shadowBlur: 0.8, shadow: [30 * 1.05, 30 * 0.7], crown: [-30, 30], paint: (ctx, f) => paintHollowGeode(ctx, f) },
+  hollowGeode: { r: 30, E: 58, frames: 16, shadowBlur: 0.8, shadow: [30 * 1.05, 30 * 0.7], crown: [-30, 30], paint: (ctx, f) => paintHollowGeode(ctx, f) },
   // painted at the tank base radius (26): a split child is this picture shrunk once by its radius, like the zooid
   crystalMite: { r: 26, E: 70, frames: 4, shadowBlur: 0.8, shadow: [26 * 1.2, 26 * 0.5], crown: [-26, 26], paint: (ctx, f) => { ctx.scale(26 / 9, 26 / 9); paintCrystalMite(ctx, f) } },
   bat: { r: 14, E: 48, frames: 4, shadowBlur: 0.6, shadow: [14 * 2.4, 14 * 0.3], crown: [-14 * 0.5, 14], paint: (ctx, f) => paintBat(ctx, f) },
