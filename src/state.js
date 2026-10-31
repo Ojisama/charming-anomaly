@@ -2157,10 +2157,12 @@ function generateWells(sig) {
  *     elsewhere in its cell) and by a crab gnawing it (e._eatT / CRAB_EAT.eatT).
  *   - run.noise: +NOISE_BATS.perRing per ring-back, decaying over tau; over the threshold the cave
  *     sends an ordinary Cave Bat (e._noiseBat) every `every` s, up to maxAlive.
- *   - roster flag 'crystalEater' (Crystal Crab): walks to a crystal Echo rang back (o._echoRungAt) in the
- *     last CRAB_EAT.memory s, gnaws it away (e._eatO, e._eatT) and sets e.glassShell = true for good —
- *     no slow (any source), no freeze, no daze (stunT is zeroed each step). render.js swaps in the
- *     '<rosterId>_glass' look (ROSTER_LOOKS glassLook) off e.glassShell.
+ *   - roster flag 'crystalEater' (Crystal Crab): walks to the crystal nearest the player (CRAB_EAT.near),
+ *     gnaws it away (e._eatO, e._eatT) and sets e.glassShell = true, e.shellHp = e.shellMax (CRAB_EAT.shell
+ *     of maxHP), e._ate (one meal per crab). The glass soaks every hit first (dealDamage); while it holds:
+ *     no slow (any source), no freeze, no daze (stunT is zeroed each step). At 0 it bursts (a 'crystalBreak'
+ *     at the crab, r = its radius) and glassShell is false again. render.js swaps in the '<rosterId>_glass'
+ *     look (ROSTER_LOOKS glassLook) off e.glassShell, cracked by stage off e.shellHp / e.shellMax.
  *   - roster flag 'committedLeap' (Cave Cricket): a pounce already in 'leap' ignores stun, fear,
  *     chill and freeze until it lands.
  *   faults[i]: { ax, ay, bx, by, t, secs, tick, dmg } — a Fault Line beam between two crystals

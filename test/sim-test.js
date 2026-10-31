@@ -42557,7 +42557,7 @@ function testGeodeCounters() {
     assert.ok(r._crystalRegrow?.has(o._cell) || r._crystalRegrown?.has(o._cell), 'run GK.b: the shattered crystal is queued to grow back')
   }
 
-  // (c) THE CRAB EATS A CRYSTAL THAT RANG, THEN WEARS ITS GLASS
+  // (c) THE CRAB EATS A CRYSTAL NEAR YOU (no weapon has to ring it), THEN WEARS GLASS YOU MUST CRACK
   let gw = 0, nw = 0
   {
     const r = boot(52003)
@@ -42566,23 +42566,42 @@ function testGeodeCounters() {
     const crab = makeStatusEnemy(r, { x: p.x + 260, y: p.y + 200, type: 'tank', hp: 1e9, speed: 60 })
     crab.flags = ['unshakeable', 'crystalEater']; crab.rosterId = 'crystalCrab'; crab.radius = 26
     r.enemies.push(crab)
-    o._echoRungAt = r.time
     const d0 = Math.hypot(crab.x - o.x, crab.y - o.y)
     let peakStress = 0
-    run_(r, 2, () => { o._echoRungAt = r.time })   // keep Echo ringing it while the crab closes
+    run_(r, 2)
     const d1 = Math.hypot(crab.x - o.x, crab.y - o.y)
-    assert.ok(d1 < d0 - 60, `run GK.c: the crab walks to the crystal that rang (${d0.toFixed(0)} -> ${d1.toFixed(0)}px)`)
+    assert.ok(d1 < d0 - 60, `run GK.c: the crab walks to a crystal near you that nothing rang (${d0.toFixed(0)} -> ${d1.toFixed(0)}px)`)
     run_(r, CRAB_EAT.eatT + 4, () => { peakStress = Math.max(peakStress, o.stress ?? 0) })
     assert.ok(!r.obstacles.includes(o) && crab.glassShell === true, `run GK.c: the crystal was eaten (${!r.obstacles.includes(o)}) and the crab is glass (${crab.glassShell})`)
     assert.ok(peakStress > 0.5, `run GK.c: the crystal cracked while it was gnawed (peak stress ${peakStress.toFixed(2)})`)
-    // a crystal that did NOT ring is left alone
+    // a crystal past CRAB_EAT.near of the player is left alone, however close to the crab
     const r2 = boot(52004)
-    const o2 = crystal(r2, r2.player.x + 260, r2.player.y)
-    const crab2 = makeStatusEnemy(r2, { x: r2.player.x + 260, y: r2.player.y + 200, type: 'tank', hp: 1e9, speed: 60 })
+    const o2 = crystal(r2, r2.player.x + CRAB_EAT.near + 200, r2.player.y)
+    const crab2 = makeStatusEnemy(r2, { x: o2.x, y: o2.y + 150, type: 'tank', hp: 1e9, speed: 60 })
     crab2.flags = ['unshakeable', 'crystalEater']; crab2.rosterId = 'crystalCrab'; crab2.radius = 26
     r2.enemies.push(crab2)
-    run_(r2, CRAB_EAT.eatT + 6, () => { o2._rungAt = r2.time })   // a Prism bounce rings it, Echo never does
-    assert.ok(r2.obstacles.includes(o2) && !crab2.glassShell, 'run GK.c: a crab ignores a crystal only a Prism bounce rang')
+    run_(r2, CRAB_EAT.eatT + 6)
+    assert.ok(r2.obstacles.includes(o2) && !crab2.glassShell, 'run GK.c: a crab ignores a crystal far from you')
+    // THE GLASS SOAKS: hits drain the shell, not the crab; the hit that empties it bursts it and the rest goes through
+    const r4 = boot(52009)
+    const o4 = crystal(r4, r4.player.x + 200, r4.player.y)
+    const c4 = makeStatusEnemy(r4, { x: o4.x, y: o4.y + 100, type: 'tank', hp: 1000, speed: 60 })
+    c4.flags = ['unshakeable', 'crystalEater']; c4.rosterId = 'crystalCrab'; c4.radius = 26
+    r4.enemies.push(c4)
+    run_(r4, CRAB_EAT.eatT + 4)
+    const shell = Math.round(1000 * CRAB_EAT.shell)
+    assert.ok(c4.glassShell && c4.shellHp === shell && c4.shellMax === shell, `run GK.c: the glass holds ${CRAB_EAT.shell} of the crab's health (${c4.shellHp}/${c4.shellMax}, want ${shell})`)
+    const hp0 = c4.hp
+    dealDamage(r4, c4, shell - 1, false)
+    assert.ok(c4.hp === hp0 && c4.shellHp === 1 && c4.glassShell, `run GK.c: a hit into the glass leaves the crab whole (hp ${hp0} -> ${c4.hp}, shell ${c4.shellHp})`)
+    r4.events.length = 0
+    dealDamage(r4, c4, 51, false)
+    const burst = r4.events.find((ev) => ev.type === 'crystalBreak')
+    assert.ok(!c4.glassShell && c4.hp === hp0 - 50 && burst && Math.hypot(burst.x - c4.x, burst.y - c4.y) < 1, `run GK.c: the hit that empties the glass bursts it at the crab (${!!burst}) and the rest goes through (hp ${hp0} -> ${c4.hp}, want -50)`)
+    // one meal per crab: cracked, it walks past another crystal near you
+    const o5 = crystal(r4, c4.x + 80, c4.y)
+    run_(r4, CRAB_EAT.eatT + 3)
+    assert.ok(r4.obstacles.includes(o5) && !c4.glassShell, 'run GK.c: a cracked crab does not eat a second crystal')
     // GLASS: a dazed, chilled glass crab still walks at you; the same crab without glass does not
     const walked = (glass) => {
       const r3 = boot(52005)
@@ -42629,7 +42648,7 @@ function testGeodeCounters() {
   const cl = leap(true), pl = leap(false)
   assert.ok(cl > 40 && Math.abs(pl) < 1, `run GK.e: stunned + frozen mid-leap, the cricket flew ${cl.toFixed(0)}px, a plain pouncer ${pl.toFixed(0)}px`)
 
-  console.log(`PASS run GK (Geode counters): ring-back ${plain.toFixed(0)}px with or without Far Call; ${K.rings} cracks then a burst; the crab ate a rung crystal and turned to glass (walked ${gw.toFixed(0)}px dazed+frozen); bats quiet/loud/capped ${quiet}/${loud}/${capped}; committed leap ${cl.toFixed(0)}px vs ${pl.toFixed(0)}px`)
+  console.log(`PASS run GK (Geode counters): ring-back ${plain.toFixed(0)}px with or without Far Call; ${K.rings} cracks then a burst; the crab ate a crystal near you, its glass soaked then burst (walked ${gw.toFixed(0)}px dazed+frozen); bats quiet/loud/capped ${quiet}/${loud}/${capped}; committed leap ${cl.toFixed(0)}px vs ${pl.toFixed(0)}px`)
 }
 
 // ---- THE CORE (Book 3): the polarity signature, its weapons, magnetic loot and the self-sorting crowd.

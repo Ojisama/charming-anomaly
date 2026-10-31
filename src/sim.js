@@ -5297,8 +5297,8 @@ function stepEnemyMovement(run, dt) {
       // A COMMITTED LEAP (The Geode's cricket): once airborne nothing stops it — no stun, fear,
       // chill or freeze. The aim is the telegraph; the leap is the thing you sidestep.
       stepPounce(run, e, tx, ty, dt, 1, enrageMul)
-    } else if (!e.glassShell && e.flags && e.flags.includes('crystalEater') && !(e.stunT > 0) && stepCrystalEater(run, e, dt, slowMul * flagSpeedMul)) {
-      // a crab on its way to (or gnawing) a crystal that rang: stepCrystalEater moved it
+    } else if (!e.glassShell && !e._ate && e.flags && e.flags.includes('crystalEater') && !(e.stunT > 0) && stepCrystalEater(run, e, dt, slowMul * flagSpeedMul)) {
+      // a crab on its way to (or gnawing) a crystal near you: stepCrystalEater moved it
     } else if ((e.feedT || 0) > 0) {
       // HEAD DOWN, EATING (v7.x, Chum). A body that reached a bait took a serving and stopped for
       // it; for that long it does not steer and does not close, which is the whole reason to cast
@@ -10408,7 +10408,14 @@ export function dealDamage(run, enemy, dmg, crit, dot = false, hazard = false, c
   // regardless of what came off — so a shot into a raised claw still lights the fire that kills it.
   // Zeroing the window here instead would leave the advertised counter reachable only in theory.
   const blocked = guardBlocks(run, enemy, dot)
-  if (!blocked) enemy.hp -= dmg
+  // CRAB_EAT's glass soaks every source first; what is left over goes through to the crab
+  let take = blocked ? 0 : dmg
+  if (enemy.glassShell && take > 0) {
+    const soak = Math.min(take, enemy.shellHp ?? 0)
+    enemy.shellHp -= soak; take -= soak
+    if (enemy.shellHp <= 0) breakGlassShell(run, enemy)
+  }
+  enemy.hp -= take
   // THE KRAKEN'S LAST PHASE CANNOT BE SKIPPED: its head stops at KRAKEN_ENRAGE_AT until the enrage fires.
   if (enemy.rosterId === 'krakenHead' && run.script && !run.script.enraged) enemy.hp = Math.max(enemy.hp, enemy.maxHP * KRAKEN_ENRAGE_AT)
   // ...nor the rage: on d3 it stops at KRAKEN_RAGE_AT until the first one starts
@@ -17709,7 +17716,6 @@ function stepEchoes(run, dt) {
     if (ec.o) crystalRang(run, ec.o, ec.dmg, ec.r - ec.o.r, ec.kb, ec.wave ?? null)
     // STRESS CRACKS: a crystal the click itself rang back cracks a little more each time, then bursts
     const K = crystalSpec(run)?.resonance?.crack
-    if (ec.direct && ec.o) ec.o._echoRungAt = run.time   // what a Crystal Crab answers (CRAB_EAT)
     if (K && ec.direct && ec.o && run.obstacles.includes(ec.o)) {
       ec.o._echoRings = (ec.o._echoRings ?? 0) + 1
       ec.o.stress = Math.min(1, ec.o._echoRings / K.rings)
@@ -17741,22 +17747,22 @@ function stepNoiseBats(run, dt) {
   const bat = spawnEnemy(run, { type: ARCHETYPE_TYPE.fast, rosterId: 'bat', forceNormal: true })
   if (bat) bat._noiseBat = true
 }
-// CRAB_EAT: a crystalEater walks to the crystal nearest you that ECHO rang back in the last `memory` s (and
-// is within `seek` of it), gnaws at its face for eatT s — the crystal cracks as it does (o.stress)
-// — then the crystal is gone and the crab wears its glass for good (e.glassShell). Returns true
-// when it moved the crab this frame, false to let the ordinary seek run.
+// CRAB_EAT: a crystalEater walks to the crystal nearest you (within `near` of you and `seek` of it),
+// gnaws at its face for eatT s — the crystal cracks as it does (o.stress) — then the crystal is gone
+// and the crab wears its glass (e.glassShell, e.shellHp) until dealDamage cracks it off (breakGlassShell).
+// One meal per crab (e._ate). Returns true when it moved the crab this frame, false for the ordinary seek.
 function stepCrystalEater(run, e, dt, spdMul) {
   const C = CRAB_EAT, p = run.player
   let o = e._eatO
-  if (o && !run.obstacles.includes(o)) o = e._eatO = null
+  if (o && !run.obstacles.includes(o)) { o = e._eatO = null; e._eatT = 0 }
   if (!o && (e._eatScan = (e._eatScan ?? 0) - dt) <= 0) {
     e._eatScan = 0.5
     let best = Infinity
     for (const c of run.obstacles) {
-      if (c.kind !== 'crystal' || c._echoRungAt == null || run.time - c._echoRungAt > C.memory) continue
-      if (Math.hypot(c.x - e.x, c.y - e.y) - c.r > C.seek) continue
+      if (c.kind !== 'crystal') continue
       const d = Math.hypot(c.x - p.x, c.y - p.y)
-      if (d < best) { best = d; o = c }
+      if (d > C.near || d >= best || Math.hypot(c.x - e.x, c.y - e.y) - c.r > C.seek) continue
+      best = d; o = c
     }
     e._eatO = o ?? null
   }
@@ -17773,10 +17779,17 @@ function stepCrystalEater(run, e, dt, spdMul) {
   o.stress = Math.max(o.stress ?? 0, Math.min(1, e._eatT / C.eatT))
   if (e._eatT >= C.eatT) {
     removeCrystal(run, o, true, C.regrow)
-    e.glassShell = true
+    e.glassShell = true; e._ate = true
+    e.shellMax = e.shellHp = Math.max(1, Math.round(e.maxHP * C.shell))
     e._eatO = null; e._eatT = 0
   }
   return true
+}
+
+// the glass is cracked off: it bursts like a crystal and the crab is plain again, slows and all
+function breakGlassShell(run, e) {
+  e.glassShell = false; e.shellHp = 0
+  run.events.push({ type: 'crystalBreak', x: e.x, y: e.y, r: e.radius })
 }
 
 // -- Stalactite (The Geode) ---------------------------------------------------------------------

@@ -299,7 +299,8 @@ function holoSpike(ctx, x, y, len, wid, ang, t0, lw = 1.1) {
 // CRYSTAL CRAB: a deep-blue crab, two big claws, eight legs, a crown of foil crystals grown on its back.
 // `glass`: the crab that ate a crystal (sim e.glassShell) — its shield turned to cut glass and the eaten
 // crystal breaking out through it past the rim. Baked as its own look (ROSTER_LOOKS glassLook).
-function paintCrystalCrab(ctx, phase, glass = false) {
+// `crack` 1..3: the glass giving way as it is hit (sim e.shellHp / e.shellMax), each stage grows the last.
+function paintCrystalCrab(ctx, phase, glass = false, crack = 0) {
   const r = 26, rnd = rng(113)
   const sw = Math.sin(phase), shell = 0x262a64, legC = 0x343a88
   for (const s of [-1, 1]) {
@@ -334,6 +335,7 @@ function paintCrystalCrab(ctx, phase, glass = false) {
   if (glass) {
     // the crown of spikes goes UNDER the shield, so it reads as breaking out from beneath it
     for (let i = 0; i < 12; i++) {
+      if (crack && (i * 5) % 12 < crack * 3) continue   // spikes snap off as the glass cracks: 9, 6, 3 left
       const a = (i / 12) * TAU + 0.13
       holoSpike(ctx, Math.cos(a) * r * 0.45, Math.sin(a) * r * 0.55, r * (0.85 + 0.25 * (i % 2)), r * 0.16, a, i / 12, 1.2)
     }
@@ -346,6 +348,7 @@ function paintCrystalCrab(ctx, phase, glass = false) {
       ink(ctx, tri, 0.7)
     }
     foil(ctx, cara, 1.0, 0.8, 1.0); rim(ctx, cara, 2.2); ink(ctx, cara, 2.0)
+    if (crack > 0) paintGlassCracks(ctx, cara, r, crack)
   } else {
   fillPts(ctx, cara, css(shell))
   ctx.save(); trace(ctx, cara); ctx.clip()
@@ -371,6 +374,29 @@ function paintCrystalCrab(ctx, phase, glass = false) {
   for (const [x, y, l, w, a, t] of pts) holoSpike(ctx, x, y, l, w, a, t, 1.2)
   // a star of light where they meet
   glintStar(ctx, -r * 0.05, -r * 0.05, r * 0.32, 0.9)
+}
+
+// Plain ink fractures across the glass shield, the pillars' own idiom (paintHoloPillarCracks): each
+// starts at a strike point and runs out in a jagged line, forking. Same seed every stage, more lines drawn.
+function paintGlassCracks(ctx, cara, r, stage) {
+  const rnd = rng(4111), N = [3, 6, 10][stage - 1], lines = []
+  for (let i = 0; i < 10; i++) {
+    const a = rnd() * TAU, d0 = rnd() * r * 0.25
+    let x = Math.cos(a) * d0, y = Math.sin(a) * d0, h = a + (rnd() - 0.5) * 0.6
+    const pts = [[x, y]]
+    for (let k = 0; k < 4; k++) { h += (rnd() - 0.5) * 1.1; const l = r * (0.16 + rnd() * 0.14); x += Math.cos(h) * l; y += Math.sin(h) * l; pts.push([x, y]) }
+    const fk = 1 + Math.floor(rnd() * 2), fh = h + (rnd() < 0.5 ? -1 : 1) * (0.6 + rnd() * 0.5)
+    lines.push({ pts, fork: [pts[fk], [pts[fk][0] + Math.cos(fh) * r * 0.3, pts[fk][1] + Math.sin(fh) * r * 0.3]] })
+  }
+  ctx.save(); trace(ctx, cara); ctx.clip()
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round'
+  const stroke = (pts, w) => {
+    ctx.beginPath(); ctx.moveTo(...pts[0]); for (let k = 1; k < pts.length; k++) ctx.lineTo(...pts[k])
+    ctx.lineWidth = w * 2.2; ctx.strokeStyle = 'rgba(11,7,20,0.3)'; ctx.stroke()
+    ctx.lineWidth = w; ctx.strokeStyle = INK; ctx.stroke()
+  }
+  for (let i = 0; i < N; i++) { stroke(lines[i].pts, r * 0.05); if (stage >= 2) stroke(lines[i].fork, r * 0.035) }
+  ctx.restore()
 }
 
 // BAT: spread-eagle from above, wings OPEN in every frame and straight out to the sides, the two
@@ -455,6 +481,10 @@ export const HOLO_CAST = {
   crystalCrab: { r: 26, E: 54, frames: 4, shadowBlur: 0.8, shadow: [26 * 1.25, 26 * 0.6], crown: [-26 * 0.95, 26], paint: (ctx, f) => paintCrystalCrab(ctx, f) },
   // the crab after it ate a crystal; E is wider for the spikes past the rim
   crystalCrabGlass: { r: 26, E: 68, frames: 4, shadowBlur: 0.8, shadow: [26 * 1.25, 26 * 0.6], crown: [-26 * 0.95, 26], paint: (ctx, f) => paintCrystalCrab(ctx, f, true) },
+  // ...and its glass cracking as it is hit (render picks the stage off e.shellHp / e.shellMax)
+  crystalCrabGlass1: { r: 26, E: 68, frames: 4, shadowBlur: 0.8, shadow: [26 * 1.25, 26 * 0.6], crown: [-26 * 0.95, 26], paint: (ctx, f) => paintCrystalCrab(ctx, f, true, 1) },
+  crystalCrabGlass2: { r: 26, E: 68, frames: 4, shadowBlur: 0.8, shadow: [26 * 1.25, 26 * 0.6], crown: [-26 * 0.95, 26], paint: (ctx, f) => paintCrystalCrab(ctx, f, true, 2) },
+  crystalCrabGlass3: { r: 26, E: 68, frames: 4, shadowBlur: 0.8, shadow: [26 * 1.25, 26 * 0.6], crown: [-26 * 0.95, 26], paint: (ctx, f) => paintCrystalCrab(ctx, f, true, 3) },
   bat: { r: 14, E: 48, frames: 4, shadowBlur: 0.6, shadow: [14 * 2.4, 14 * 0.3], crown: [-14 * 0.5, 14], paint: (ctx, f) => paintBat(ctx, f) },
 }
 

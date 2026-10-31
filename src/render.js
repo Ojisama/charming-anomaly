@@ -7919,8 +7919,11 @@ export function createRenderer(app) {
       if (ROSTER_LOOKS[id].childDraw) rosterBakers[id + '_child'] = () => makeRosterLook(id, false, true)
       const gl = ROSTER_LOOKS[id].glassLook
       if (gl) {
-        rosterBakers[id + '_glass'] = () => makeMacroLook(gl, ROSTER_LOOKS[id], false)
-        rosterBakers[id + '_glass_elite'] = () => makeMacroLook(gl, ROSTER_LOOKS[id], true)
+        // '' whole, then crack stages 1..3 ('<id>_glass2_elite')
+        for (const st of ['', 1, 2, 3]) {
+          rosterBakers[id + '_glass' + st] = () => makeMacroLook(gl + st, ROSTER_LOOKS[id], false)
+          rosterBakers[id + '_glass' + st + '_elite'] = () => makeMacroLook(gl + st, ROSTER_LOOKS[id], true)
+        }
       }
     }
     buildBurrowTextures()   // Book 3: photographed props, crystal pillars, shots
@@ -13488,7 +13491,7 @@ export function createRenderer(app) {
     const ophanStep = onStep && ((k) => onStep(OPHAN_BAR + (1 - OPHAN_BAR) * k))
     if (ch.worlds) q.push(() => { ophanHost(); ophanWarm = ophanR.prewarm(ophanStep) })
     const ids = new Set([...(ch.roster ?? []).map((r) => r.id), ...(ch.render?.cast ?? [])])
-    for (const id of ids) for (const k of [id, id + '_elite', id + '_child', id + '_glass', id + '_glass_elite']) if (rosterBakers[k]) q.unshift(() => rosterLook(k))
+    for (const id of ids) for (const k of [id, id + '_elite', id + '_child', ...['', 1, 2, 3].flatMap((st) => [id + '_glass' + st, id + '_glass' + st + '_elite'])]) if (rosterBakers[k]) q.unshift(() => rosterLook(k))
     prewarmQ = q; prewarmTotal = q.length
     const done = new Promise((resolve) => prewarmWaiters.push({ resolve, onStep }))
     const share = ch.worlds ? OPHAN_BAR : 1
@@ -32955,8 +32958,10 @@ void main() {
       // A split child takes its own silhouette where the look declares one (ROSTER_LOOKS.childDraw
       // — The Deep's zooid). Children are never elite (spawnSplitChildren sets elite: false), so
       // the two suffixes cannot both apply and this needs no ordering rule.
-      // A body wearing a glass shell (e.glassShell, a crab that ate a crystal) takes its '_glass' look.
-      const glassKey = e.rosterId && e.glassShell && rosterBakers[e.rosterId + '_glass'] ? e.rosterId + '_glass' + (e.elite ? '_elite' : '') : null
+      // A body wearing a glass shell (e.glassShell, a crab that ate a crystal) takes its '_glass' look,
+      // cracked by stage as e.shellHp runs down.
+      const glassSt = e.glassShell ? Math.min(3, Math.floor(4 * (1 - (e.shellHp ?? 1) / (e.shellMax || 1)))) || '' : ''
+      const glassKey = e.rosterId && e.glassShell && rosterBakers[e.rosterId + '_glass' + glassSt] ? e.rosterId + '_glass' + glassSt + (e.elite ? '_elite' : '') : null
       const rkey = glassKey ?? (e.rosterId
         ? e.rosterId + (e._splitChild && rosterBakers[e.rosterId + '_child'] ? '_child' : (e.elite ? '_elite' : ''))
         : null)
