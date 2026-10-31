@@ -9798,8 +9798,8 @@ CHAPTERS.geode = {
     // crystalEater: walks to a crystal near you, gnaws it away and wears its glass until you crack it (CRAB_EAT)
     { id: 'crystalCrab', archetype: 'tank',   name: 'Crystal Crab', hpMul: 1.6, speedMul: 0.8, flags: ['unshakeable', 'crystalEater'] },
     // steadyPace: no Frenzied or Cheerleader speed-up, so its own speed is the most it ever flies
-    // balance_decision : owner, sped-up elite bat could not be outrun 2026-10-31
-    { id: 'bat',         archetype: 'fast',   name: 'Cave Bat',     hpMul: 2.6, speedMul: 1.0, radiusMul: 1.1, flags: ['weave', 'flying', 'steadyPace'], eliteOnly: true },
+    // balance_decision : owner, 0.7 speed, stuck to you at 75-88% 2026-10-31
+    { id: 'bat',         archetype: 'fast',   name: 'Cave Bat',     hpMul: 2.6, speedMul: 0.7, radiusMul: 1.1, flags: ['weave', 'flying', 'steadyPace'], eliteOnly: true },
     // a stone ball rolling at you that bursts into a swarm of crystal mites when it breaks (split)
     // balance_decision : siphonophore's swarm split and xp 2026-10-31
     // balance_decision : owner x2 hp, +40% speed (mites inherit both) 2026-10-31
