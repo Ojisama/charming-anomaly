@@ -861,6 +861,7 @@ export function createAsciiRenderer(host) {
 
   return {
     hide: ['floor', 'dust', 'gems', 'coins', 'bullets', 'novas', 'player', 'particles', 'shadows', 'crowns', 'enemies', 'text', 'telegraphs', 'affixes', 'obstacles', 'vignette'],
+    playerView: meC,   // the miner, in world coords: render.js copies it for the minimes
     enter() { clearAll() },
     // nothing to restore on the way out: render.js's reset() has already set the next chapter's
     // background before it calls setAscii, and the black below is re-asserted on every mine frame

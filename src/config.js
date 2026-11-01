@@ -754,8 +754,8 @@ export const MINIME_SPEED = 95        // px/s outward — slow enough to stay in
 export const MINIME_AGGRO = 230
 export const MINIME_BURST_R = 126
 export const MINIME_BURST_DMG = 42
-// A minime is drawn as a SMALL COPY OF THE PLAYER (render.js reuses T.playerBody, the player's own
-// bake) rather than as the Pheromone Lure's amber beacon it inherited by sharing run.lures. The
+// A minime is drawn as a SMALL COPY OF THE PLAYER (render.js snapMinime: a picture of the player taken each frame)
+// rather than as the Pheromone Lure's amber beacon it inherited by sharing run.lures. The
 // card's whole fiction is "copies of you"; a gold star does not read as one.
 export const MINIME_DRAW_SCALE = 0.55  // fraction of the player's own size
 // SPECIALIST (v7.5). "I commit to one weapon and the game commits back." The spec is emphatic that

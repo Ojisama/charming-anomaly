@@ -21882,10 +21882,9 @@ const spurG = new Graphics()
   // amber glow + a pulsing double-stacked gold star, floated over the crowd so it POPS. Fades in over
   // its first moments; the one-shot burst on expiry renders via the {type:'explode'} event elsewhere.
   // MINIMES share this pool because they share run.lures, but they must NOT share the look: the
-  // card is "copies of you", and it was shipping as the Pheromone Lure's amber beacon — a gold
-  // star, which reads as a pickup, not as a copy of the player. The body below is T.playerBody,
-  // the player's OWN bake, scaled down: the repo's rule is that UI depicting a game entity uses
-  // the game's art rather than a lookalike, and here the entity being depicted is the player.
+  // card is "copies of you". A minime is a PICTURE OF THE PLAYER (miniRT, snapMinime below), taken
+  // each frame from whatever draws the player, so every chapter look and every skin is copied by
+  // construction and no list of looks exists here to go stale.
   // CHUM (v7.x, The Wreck) — the bait's own art, baked once. Offal in the water, drawn from
   // directly overhead like everything else: a lobed murk of blood and gut with fat suspended
   // through it, and separate chunks of the rotted catch laid over it, ONE PER REMAINING SERVING.
@@ -21950,25 +21949,32 @@ const spurG = new Graphics()
       b.visible = false
       bits.push(b)
     }
-    // spriteOf, NOT `new Sprite(T.playerBody)`: bake() returns a LOOK ({tex, ax, ay}), not a
-    // Texture, and it carries its own anchor. Constructing the sprite by hand hands Pixi an object
-    // and draws nothing at all — no throw, no warning, an empty patch of floor where the copy
-    // should be. Caught only by looking at a capture.
-    const shadow = spriteOf(T.playerShadow); shadow.visible = false
-    const body = spriteOf(T.playerBody); body.visible = false
-    // The player's eyes are SEPARATE sprites over the body bake, and the body is TINTED per
-    // chapter (chapterRender.playerTint). A copy carrying neither is a different creature: the
-    // first capture of this showed a bright mint blob with plain eyes standing next to a dark
-    // green player in a visor. Both are reproduced below at the same proportions.
-    const eyeL = spriteOf(T.pupil); eyeL.visible = false
-    const eyeR = spriteOf(T.pupil); eyeR.visible = false
-    root.addChild(glow, ring, cloud, ...bits, star1, star2, shadow, body, eyeL, eyeR)
+    const body = new Sprite(miniRT); body.anchor.set(0.5); body.visible = false
+    root.addChild(glow, ring, cloud, ...bits, star1, star2, body)
     lureLayer.addChild(root)
-    return { root, glow, ring, cloud, bits, star1, star2, shadow, body, eyeL, eyeR }
+    return { root, glow, ring, cloud, bits, star1, star2, body }
   }
-  function syncLures(list) {
+  // THE MINIME PICTURE: the player's own drawing, rendered into miniRT centred on the player. The
+  // drawing is playerC, unless a chapter module hides render.js's player (hide: ['player']) and draws
+  // its own, in which case the module's playerView is the drawing (run MM asserts every such module
+  // has one).
+  const MINI_RT_PX = 240   // world px around the player that the picture holds
+  const miniRT = RenderTexture.create({ width: MINI_RT_PX, height: MINI_RT_PX, resolution: 2 })
+  const miniM = new Matrix()
+  function snapMinime(p) {
+    const mod = [asciiOn && asciiR, toonOn && toonR].find((m) => m && m.hide?.includes('player'))
+    const view = mod ? mod.playerView : playerC
+    view.updateLocalTransform()
+    miniM.copyFrom(view.localTransform)
+    miniM.tx += MINI_RT_PX / 2 - p.x; miniM.ty += MINI_RT_PX / 2 - p.y
+    const r = view.renderable; view.renderable = true
+    app.renderer.render({ container: view, target: miniRT, clear: true, transform: miniM })
+    view.renderable = r
+  }
+  function syncLures(list, p) {
     const n = list.length
     while (lurePool.length < n) lurePool.push(acquireLure())
+    if (list.some((lu) => lu.minime)) snapMinime(p)
     for (let i = 0; i < n; i++) {
       const lv = lurePool[i]
       const lu = list[i]
@@ -21985,45 +21991,13 @@ const spurG = new Graphics()
       // failure that never throws.
       lv.cloud.visible = false
       for (const b of lv.bits) b.visible = false
-      lv.body.visible = lv.shadow.visible = lv.eyeL.visible = lv.eyeR.visible = mini
-      // "A MINIME IS A SMALL YOU" is the whole contract, so it takes the skin as well - a decoy
-      // still wearing the face you paid to lose is the same one-fact-two-places drift this file is
-      // built around. The eyes are separate pooled sprites here, not baked into the body.
-      // The Geode's decoy is cut from the same stone as the player (holoPlayer), face baked in.
-      const holoMini = mini && holoLook ? (playerSkin ? holoPlayer().solid.body : holoPlayer().blob.body) : null
-      if (holoMini) {
-        if (lv.body.texture !== holoMini.tex) { lv.body.texture = holoMini.tex; lv.body.anchor.set(holoMini.ax, holoMini.ay) }
-        lv.eyeL.visible = lv.eyeR.visible = false
-      } else if (mini && playerSkin) {
-        if (lv.body.texture !== T.playerButtSolid.tex) {
-          lv.body.texture = T.playerButtSolid.tex
-          lv.body.anchor.set(T.playerButtSolid.ax, T.playerButtSolid.ay)
-        }
-        lv.eyeL.visible = lv.eyeR.visible = false
-      } else if (mini && lv.body.texture !== T.playerBody.tex) {
-        lv.body.texture = T.playerBody.tex; lv.body.anchor.set(T.playerBody.ax, T.playerBody.ay)
-      }
+      lv.body.visible = mini
       if (mini) {
-        // Keep a faint glow so it still reads as a DECOY the swarm wants, not as a second player —
-        // dimmer and cooler than the beacon's, and under the body rather than around it.
-        lv.glow.tint = 0xffd36b; lv.glow.alpha = 0.26 * inA * (0.7 + 0.3 * pulse)
-        lv.glow.scale.set(fxScale(T.fx.circle_05, 44 + pulse * 8))
-        lv.shadow.alpha = 0.5 * inA
-        lv.shadow.scale.set(MINIME_DRAW_SCALE)
-        lv.shadow.position.set(0, 2)
+        // the picture of you, small; no glow and no flip: a mirrored glyph or a light the player's
+        // own look does not have would make it a different creature
+        lv.glow.alpha = 0
         lv.body.alpha = inA
         lv.body.scale.set(MINIME_DRAW_SCALE)
-        lv.body.tint = playerSkin || holoMini ? 0xffffff : chapterRender.playerTint   // the same tint the live player wears
-        // Match the PLAYER's own rig, which flips rather than rotates outside the kaiju chapter —
-        // a rotating body here would be a different projection from the thing it is a copy of.
-        if (lu.vx) lv.body.scale.x = Math.sign(lu.vx) * MINIME_DRAW_SCALE
-        // Eyes, at the player's own proportions (syncPlayer's pr * 0.36 / -pr * 0.16), scaled down
-        // with the body. No look-around wiggle: a decoy staring straight ahead reads as a decoy.
-        const pr = PLAYER.radius * MINIME_DRAW_SCALE
-        lv.eyeL.scale.set(MINIME_DRAW_SCALE); lv.eyeR.scale.set(MINIME_DRAW_SCALE)
-        lv.eyeL.alpha = lv.eyeR.alpha = inA
-        lv.eyeL.position.set(-pr * 0.36, -pr * 0.16)
-        lv.eyeR.position.set(pr * 0.36, -pr * 0.16)
         continue
       }
       // CHUM (v7.x, The Wreck) — a bait, not a beacon. Same pooled decoy as the Pheromone Lure and
@@ -33667,7 +33641,7 @@ void main() {
     syncEnemies(run, cx, cy)
     syncPitCollars(run)   // after the crowd: the lip crumbling in over a body a Furrow pit dropped
     syncBlooms(run)
-    syncLures(newest(run.lures || [], 'lures'))
+    syncLures(newest(run.lures || [], 'lures'), run.player)
     redrawBombs(run)
     redrawStrips(run)
     redrawLanes(run)

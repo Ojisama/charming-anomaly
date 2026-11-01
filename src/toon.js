@@ -349,6 +349,7 @@ export function createToonRenderer(host) {
   const r = {
     // render.js layers this chapter draws itself (render.js's TOON_HIDEABLE names)
     hide: ['floor', 'dust', 'gems', 'coins', 'bullets', 'boomerangs', 'novas', 'player', 'obstacles', 'vignette', 'shadows'],
+    playerView: playerLayer,   // you, in world coords: render.js copies it for the minimes
     enter(run, lk) {
       look = lk
       filmU.uniforms.uGrain = lk.grain ?? 0.08
