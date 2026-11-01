@@ -35814,7 +35814,7 @@ function testVocabularies() {
     for (const r of ch.roster ?? []) for (const f of r.flags ?? []) declaredFlags.add(f)
     for (const f of ch.eliteFlags ?? []) declaredFlags.add(f)
   }
-  const readFlags = new Set([...sim.matchAll(/flags\.includes\('(\w+)'\)/g)].map((m) => m[1]))
+  const readFlags = new Set([...sim.matchAll(/flags\??\.includes\('(\w+)'\)/g)].map((m) => m[1]))
   const deadFlags = [...declaredFlags].filter((f) => !readFlags.has(f)).sort()
   assert.deepStrictEqual(deadFlags, [],
     `${deadFlags.length} behaviour flag(s) are declared on a roster but never tested for anywhere in sim.js: ` +

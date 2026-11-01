@@ -628,10 +628,17 @@ export function createPixelRig(env) {
     event(e) {
       if (!look) return false
       switch (e.type) {
-        case 'crackOpen':
-          burst(e.x, e.y, e.by === 'step' ? 4 : 12, EMBERS, 100, 0.55)
-          flash(e.x, e.y, (e.r || 34) * (e.by === 'step' ? 4 : 6), L_LAVA, 0.6, 0.35)
-          if (e.by !== 'step') env.addShake?.(2.5, 0.14)
+        case 'crackOpen': {
+          const small = e.by === 'step' || e.by === 'ant'
+          burst(e.x, e.y, small ? 4 : 12, EMBERS, 100, 0.55)
+          flash(e.x, e.y, (e.r || 34) * (small ? 4 : 6), L_LAVA, 0.6, 0.35)
+          if (!small) env.addShake?.(2.5, 0.14)
+          return true
+        }
+        case 'lavaAntEmerge':
+          // a lava ant climbs out of the lava: a splash of embers and a flare
+          burst(e.x, e.y, 8, EMBERS, 90, 0.5)
+          flash(e.x, e.y, 90, L_LAVA, 0.5, 0.3)
           return true
         case 'crustCrack':
           burst(e.x, e.y, 3, ASH, 50, 0.35)

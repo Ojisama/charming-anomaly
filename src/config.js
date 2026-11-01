@@ -9871,6 +9871,12 @@ CHAPTERS.geode = {
   },
 }
 
+// THE GAS TOAD (The Mine, flag gasDrinker, stepFiredamp): every idle pocket it touches it drinks,
+// growing by grow x its radius per full; past one pocket it pops when it dies, a lit pocket of radius
+// popR (by its fill: one pocket .. full) whose sting on you rises from sting[0] to sting[1].
+//   full   pockets that fill it; reach  how far past its body it drinks, x the pocket's r
+export const GAS_TOAD = { full: 3, grow: 0.5, reach: 0.6, popR: [50, 90], sting: [6, 14] }
+
 // THE MINE: the book's third chapter, an old miners' gallery — the dungeon of the first ASCII
 // roguelikes, which was a mine. Its idea is FIREDAMP (signature.firedamp, run by stepFiredamp in
 // sim.js): pockets of gas hang in the galleries in seams, and any blow, shot or blast of yours that
@@ -9887,6 +9893,8 @@ CHAPTERS.mine = {
     { id: 'mineRat',    archetype: 'normal', name: 'Pit Rat',     hpMul: 0.75, speedMul: 1.05, radiusMul: 0.85 * 0.6, flags: [] },
     { id: 'caveSpider', archetype: 'fast',   name: 'Cave Spider', hpMul: 0.75, speedMul: 1.0, flags: ['pounce'], dmgMul: 0.7 },
     { id: 'kobold',     archetype: 'tank',   name: 'Kobold',      hpMul: 1.4, speedMul: 0.85, flags: ['unshakeable'] },
+    // gasDrinker: drinks the firedamp it touches and pops like a big pocket when it dies (GAS_TOAD)
+    { id: 'gasToad',    archetype: 'normal', name: 'Gas Toad',    hpMul: 1.6, speedMul: 0.6, radiusMul: 0.8, xpMul: 1.6, weight: 0.25, minT: 40, flags: ['gasDrinker'] },
     // The elite. eliteOnly: every elite in this chapter is a golem, and no ordinary spawn is.
     { id: 'golem',      archetype: 'tank',   name: 'Golem',       hpMul: 2.2, speedMul: 0.9, radiusMul: 1.3, flags: ['unshakeable'], eliteOnly: true },
   ],
@@ -9927,7 +9935,7 @@ CHAPTERS.mine = {
   // balance_decision : small tough crowd, refilled fast, for the gas 2026-10-09
   balance: { spawnMul: 2.5, enemyDmgMul: 0.45, enemyHpMul: 1.8, xpMul: 1.25, maxAliveMul: 0.07 },
   render: {
-    cast: ['mineRat', 'caveSpider', 'kobold', 'golem'],
+    cast: ['mineRat', 'caveSpider', 'kobold', 'gasToad', 'golem'],
     bgColor: 0x0a0806,     // the gallery's own dark, under the glyph floor
     floorTint: 0xffffff,
     playerTint: 0xffffff,
@@ -9965,6 +9973,14 @@ export const MAGMA_FLOOR = {
   hot: { wave: 640, thresh: 0.6, openMul: 0.45, rMul: 1.45 },
 }
 
+// THE LAVA ANT (The Magma, flag lavaBorn): lava never burns it, it wades the rivers, and it is born
+// from the lava. An ordinary spawn of it comes up out of open lava instead of the ring: an open crack
+// or a lava river between near and far px of you (cracks of yours included), or the ring when there
+// is none. Every crackEvery px it walks it cracks the crust (by 'ant', radius crackR), at most
+// maxCracks of its cracks at once.
+//   riverTries  random points sampled for a river spot each spawn
+export const LAVA_ANT = { near: 160, far: 560, riverTries: 10, crackEvery: 70, crackR: 24, maxCracks: 40 }
+
 // THE MAGMA: the book's chamber of molten rock at the bottom of the crust (the core lies deeper).
 // The floor is a thin skin of cooled crust over lava (signature.crust, run by stepCrust in sim.js):
 // every few steps your weight CRACKS it (run.cracks), a moment later the crack OPENS into lava that
@@ -9978,6 +9994,8 @@ CHAPTERS.magma = {
     { id: 'cinderBeetle',     archetype: 'normal', name: 'Cinder Beetle',     hpMul: 0.8, speedMul: 0.9, radiusMul: 0.9, weight: 3, flags: [] },
     { id: 'salamander',       archetype: 'fast',   name: 'Salamander',        hpMul: 0.8, speedMul: 1.0, flags: ['dashBurst'] },
     { id: 'obsidianTortoise', archetype: 'tank',   name: 'Obsidian Tortoise', hpMul: 1.5, speedMul: 0.75, radiusMul: 1.1, flags: ['unshakeable'] },
+    // lavaBorn: comes up out of open lava in a small group, wades it, cracks the crust it walks (LAVA_ANT)
+    { id: 'lavaAnt',          archetype: 'normal', name: 'Lava Ant',          hpMul: 0.55, speedMul: 1.15, radiusMul: 0.75, xpMul: 0.55, weight: 0.6, group: [2, 3], minT: 20, flags: ['lavaBorn'] },
     // The elite. eliteOnly: every elite in this chapter is a drake, and no ordinary spawn is.
     { id: 'fireDrake',        archetype: 'fast',   name: 'Fire Drake',        hpMul: 2.4, speedMul: 1.0, radiusMul: 1.25, flags: ['weave', 'flying'], eliteOnly: true },
   ],
@@ -10002,7 +10020,7 @@ CHAPTERS.magma = {
   obstacles: null,
   balance: { spawnMul: 0.8, enemyDmgMul: 0.7, enemyHpMul: 1.25, xpMul: 1.25, maxAliveMul: 0.64 },
   render: {
-    cast: ['cinderBeetle', 'salamander', 'obsidianTortoise', 'fireDrake'],
+    cast: ['cinderBeetle', 'salamander', 'obsidianTortoise', 'lavaAnt', 'fireDrake'],
     bgColor: 0x140705,     // under the pixel floor tile
     floorTint: 0xffffff,   // the floor and its props carry their own palette
     playerTint: 0xffffff,

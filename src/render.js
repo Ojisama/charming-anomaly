@@ -7007,7 +7007,7 @@ export function createRenderer(app) {
   // The Magma's events, all handed to src/pixel.js (which owns every drawing in that chapter).
   function magmaEvent(e) {
     switch (e.type) {
-      case 'crackOpen': case 'crustCrack': case 'lavaFlare': case 'slagSplash': case 'bombLand':
+      case 'crackOpen': case 'crustCrack': case 'lavaFlare': case 'slagSplash': case 'bombLand': case 'lavaAntEmerge':
         return pixelRig.event(e)
     }
     return false

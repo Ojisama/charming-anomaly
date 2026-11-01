@@ -488,41 +488,40 @@ function composeCreature(out, id, X, Y, heading, sc, lx, ly, reach, flash, st, e
   }
 }
 // THE GAS TOAD: a squat toad from above, legs folded under, eyes on top of the head. st.swell 0..1 is
-// how much firedamp it has drunk (e.toadGas): the body grows with it, and the gas leaks off its back.
+// how much firedamp it has drunk (e.toadGas): the sim grows its radius with it, and the gas leaks off its back.
 function composeToad(out, look, X, Y, cos, sin, sc, lx, ly, reach, flash, st) {
   const sw = clamp01(st.swell ?? 0), t = st.t, ph = st.phase
-  const sB = sc * (1 + 0.55 * sw)
   const M = MAT.mud
   const legC = M.lit, legD = M.mid
   // hind legs: thigh out to a knee beside the hip, shin folded back, a webbed foot; front legs short
   for (const s of [-1, 1]) {
     const hop = Math.sin(ph + (s > 0 ? 0 : Math.PI)) * 2
     const [kx, ky] = [-2 + hop, 17 * s]
-    stroke(out, X, Y, cos, sin, sB, -6, 9 * s, kx, ky, 8, 7, legC, legD, 0.95, 0.9, 2.6)
-    stroke(out, X, Y, cos, sin, sB, kx, ky, -14 + hop, 15 * s, 7, 6, legD, legC, 0.9, 0.9, 2.6)
+    stroke(out, X, Y, cos, sin, sc, -6, 9 * s, kx, ky, 8, 7, legC, legD, 0.95, 0.9, 2.6)
+    stroke(out, X, Y, cos, sin, sc, kx, ky, -14 + hop, 15 * s, 7, 6, legD, legC, 0.9, 0.9, 2.6)
     for (const fy of [-2, 0, 2]) {
-      const [wx, wy] = at(X, Y, cos, sin, sB, -17 + hop, 15 * s + fy)
+      const [wx, wy] = at(X, Y, cos, sin, sc, -17 + hop, 15 * s + fy)
       out(',', wx, wy, M.lit, 0.75, 5 * sc, 0, false, 0, false)
     }
-    stroke(out, X, Y, cos, sin, sB, 9, 7 * s, 13 - hop * 0.5, 13 * s, 6.5, 5.5, legC, legD, 0.95, 0.9, 2.6)
-    const [fx, fy] = at(X, Y, cos, sin, sB, 15 - hop * 0.5, 14 * s)
+    stroke(out, X, Y, cos, sin, sc, 9, 7 * s, 13 - hop * 0.5, 13 * s, 6.5, 5.5, legC, legD, 0.95, 0.9, 2.6)
+    const [fx, fy] = at(X, Y, cos, sin, sc, 15 - hop * 0.5, 14 * s)
     out(',', fx, fy, M.lit, 0.75, 5 * sc, 0, false, 0, false)
   }
-  shadeParts(tinted(out, st.seed ?? 0.5, M.dark, M.lit), look, X, Y, cos, sin, sB, lx, ly, reach, flash, 1, ((st.seed ?? 0.5) - 0.5) * 0.3, true)
+  shadeParts(tinted(out, st.seed ?? 0.5, M.dark, M.lit), look, X, Y, cos, sin, sc, lx, ly, reach, flash, 1, ((st.seed ?? 0.5) - 0.5) * 0.3, true)
   if (sw > 0) {
     // gas leaking off its back as bubbles, more of them the fuller it is
     const n = Math.round(10 * sw)
     for (let i = 0; i < n; i++) {
       const k = ((t * 0.7 + i / Math.max(1, n)) % 1)
-      const [wx, wy] = at(X, Y, cos, sin, sB, -4 - k * 14 + (hash2(i, 5, 3) - 0.5) * 10, (hash2(i, 9, 4) - 0.5) * 16)
+      const [wx, wy] = at(X, Y, cos, sin, sc, -4 - k * 14 + (hash2(i, 5, 3) - 0.5) * 10, (hash2(i, 9, 4) - 0.5) * 16)
       out(i % 3 ? '°' : 'o', wx, wy, 0xa8ff7a, 0.85 * (1 - k), (6 + 4 * (1 - k)) * sc, 0, true, 0, i % 4 === 0)
     }
-    const [cx, cy] = at(X, Y, cos, sin, sB, -1, 0)
-    out('●', cx, cy, 0x6aff4a, 0.12 + 0.18 * sw, 30 * sB, 0, true, 0, true)
+    const [cx, cy] = at(X, Y, cos, sin, sc, -1, 0)
+    out('●', cx, cy, 0x6aff4a, 0.12 + 0.18 * sw, 30 * sc, 0, true, 0, true)
   }
   // eyes on top of the head: gold, a slit of pupil
   for (const s of [-1, 1]) {
-    const [wx, wy] = at(X, Y, cos, sin, sB, 12, 4.5 * s)
+    const [wx, wy] = at(X, Y, cos, sin, sc, 12, 4.5 * s)
     out('O', wx, wy, 0xffc838, 1, 7 * sc, 0, false, 2, false)
     out('•', wx, wy, 0xffa020, 0.5, 11 * sc, 0, true, 0, true)
     out('-', wx, wy, 0x1a1008, 1, 5 * sc, Math.atan2(sin, cos), false, 2, false)

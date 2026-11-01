@@ -81,7 +81,7 @@ import {
   EL_VALUES, EL_BURN_TICK, EL_BURN_MIN, elScale, elementCardDesc, elText,
   ELITE_AFFIXES, AFFIX_SECOND_AT, ANCHORED_CHANCE, SHIELD_HP_FRAC, SHIELD_DMG_MUL, SPLITTER_COUNT,
   VOLATILE_FUSE, VOLATILE_RADIUS, VOLATILE_DMG, CORE_BLAST_ENEMY_MUL, PACER_RADIUS, PACER_SPEED_MUL,
-  FRENZY_HP_FRAC, FRENZY_SPEED_MUL, GILDED_HP_MUL, GILDED_COIN_MUL, GASBAG_TRAIL,
+  FRENZY_HP_FRAC, FRENZY_SPEED_MUL, GILDED_HP_MUL, GILDED_COIN_MUL, GASBAG_TRAIL, GAS_TOAD, LAVA_ANT,
   newWeaponChance, NEW_WEAPON_MIN_RATE,
   REVIVE_HP_FRAC, REVIVE_INVULN, REVIVE_SHOVE_RADIUS, REVIVE_SHOVE_KB, HURT_CAP_FRAC,
   ARCHETYPE_TYPE, TYPE_ARCHETYPE, LATCH_SLOW_T, LATCH_SLOW_MUL, TANK_KB_REFRACTORY,
@@ -4584,6 +4584,8 @@ function freshEnemyFields() {
     //           every enemy rather than only on anglers so the shape of a body never changes shape
     //           mid-run, which is the same reason bloomSlowT sits here.
     scentT: 0, gape: 0, _biteCd: 0,
+    // toadGas 0..1: how full of firedamp a Gas Toad is (GAS_TOAD; PUBLISHED for ascii.js). 0 on every other body.
+    toadGas: 0,
     _shockCd: 0,
     // Two rolling windows of PLAYER damage as a share of this enemy's own maxHP: cold clears its
     // own on freeze, which is exactly why they are not shared. `_elFrozen` / `_elResist` are the
@@ -4795,6 +4797,13 @@ function spawnEnemy(run, opts = {}) {
     }
   }
 
+  // THE LAVA ANT (LAVA_ANT): an ordinary spawn of a lava-born body comes up out of open lava near you
+  let emerged = false
+  if (roster?.flags.includes('lavaBorn') && opts.x === undefined && !isElite) {
+    const at = lavaBirthSpot(run)
+    if (at) { x = at.x; y = at.y; emerged = true }
+  }
+
   // THE MANTLE: a habitat creature is seated on its own ground (lava or rock) on the ring, or swapped
   // for one of the other habitat when the ground offers none (mantleSeat). Before the stats, which
   // a swap re-derives from the new entry's archetype.
@@ -4918,7 +4927,29 @@ function spawnEnemy(run, opts = {}) {
   // "pest control has been reported" fiction beat. render.js draws the strobe, main.js plays the
   // siren, ui.js shows the HUD line.
   if (isElite && CHAPTERS[run.chapter].dispatch) run.events.push({ type: 'dispatch', x, y })
+  if (emerged) run.events.push({ type: 'lavaAntEmerge', x, y })
   return born
+}
+
+// Where a lava-born body comes up: a random open crack (state 'lava') or a random point of a lava
+// river, between LAVA_ANT.near and .far of you; null when there is none (it takes the ring then).
+function lavaBirthSpot(run) {
+  const C = crustSpec(run)
+  if (!C) return null
+  const p = run.player, A = LAVA_ANT
+  const ok = (x, y) => { const d2 = (x - p.x) ** 2 + (y - p.y) ** 2; return d2 >= A.near * A.near && d2 <= A.far * A.far }
+  const spots = []
+  for (const c of run.cracks) if (c.state === 'lava' && ok(c.x, c.y)) spots.push(c)
+  const F = C.floor
+  if (F?.river) {
+    const seed = floorSeed(run)
+    for (let i = 0; i < A.riverTries; i++) {
+      const a = Math.random() * Math.PI * 2, d = A.near + Math.random() * (A.far - A.near)
+      const x = p.x + Math.cos(a) * d, y = p.y + Math.sin(a) * d
+      if (riverDepthAt(F, x, y, seed) > 0) spots.push({ x, y })
+    }
+  }
+  return spots.length ? spots[Math.floor(Math.random() * spots.length)] : null
 }
 
 // Anti-kite straggler recycling (v6.0.1, KITE_* in config.js). Nothing in the game outruns the
@@ -5478,7 +5509,7 @@ function stepEnemyMovement(run, dt) {
       e.y += uy * step
     }
 
-    if (rivF && !isAlly(e) && !flies(e)) holdAtRiverBank(e, ox, oy, tx, ty, rivF, rivSeed, dt)
+    if (rivF && !isAlly(e) && !lavaProof(e)) holdAtRiverBank(e, ox, oy, tx, ty, rivF, rivSeed, dt)
     e.x += e.kb.x * dt
     e.y += e.kb.y * dt
     // where a body held at a bank stands after its own step and any knockback (holdBankAfterCrowd)
@@ -10651,6 +10682,8 @@ export function dealDamage(run, enemy, dmg, crit, dot = false, hazard = false, c
         spawnEnemy(run, { type: 'wisp', x: enemy.x + Math.cos(a) * d, y: enemy.y + Math.sin(a) * d, forceNormal: true, deferred: true })
       }
     }
+    // Gas Toad: the firedamp it drank goes off where it died (toadPop)
+    if (enemy.toadGas > 0 && firedampSpec(run)) toadPop(run, enemy)
     // Volatile (elite affix): a timed bomb goes off where the enemy died (see stepBombs).
     if (hasAffix(enemy, 'volatile')) {
       // v5.10.1: `src: 'volatile'` lets skies tell this corpse-bomb apart from its own gun/sky bombs
@@ -18010,6 +18043,33 @@ function layGasbagTrails(run) {
     })
   }
 }
+// GAS TOADS (flag gasDrinker, GAS_TOAD): every idle pocket a toad touches it drinks, and it grows
+// with its fill (toadGas 0..1; the radius it was born with is _toadR0).
+function toadsDrink(run) {
+  if (run.gas.length === 0) return
+  const G = GAS_TOAD
+  let drunk = false
+  for (const e of run.enemies) {
+    if (e._dead || !e.flags?.includes('gasDrinker') || (e.toadGas ?? 0) >= 1) continue
+    for (const g of run.gas) {
+      if (g._drunk || g.age < MINE_GAS_FADE_IN) continue
+      const rr = g.r * G.reach + e.radius
+      if ((g.x - e.x) ** 2 + (g.y - e.y) ** 2 > rr * rr) continue
+      g._drunk = true; drunk = true
+      e._toadR0 ??= e.radius
+      e.toadGas = Math.min(1, (e.toadGas ?? 0) + 1 / G.full)
+      e.radius = e._toadR0 * (1 + G.grow * e.toadGas)
+      if (e.toadGas >= 1) break
+    }
+  }
+  if (drunk) run.gas = run.gas.filter((g) => !g._drunk)
+}
+// A toad with gas in it pops where it dies: a lit pocket, sized and stinging by its fill.
+function toadPop(run, e) {
+  const G = GAS_TOAD, k = (e.toadGas * G.full - 1) / Math.max(1, G.full - 1)
+  const lerp01 = (a, b) => a + (b - a) * Math.max(0, Math.min(1, k))
+  run.gasLit.push({ x: e.x, y: e.y, r: lerp01(G.popR[0], G.popR[1]), at: run.time, chain: 0, seed: e.id % 1000, sting: lerp01(G.sting[0], G.sting[1]), src: 'gasToad' })
+}
 // Stepped inside stepWeaponsInner (the enemy grid is on there; the blasts query it).
 function firedampActive(run) {
   return !!(firedampSpec(run) || run.gas?.length || run.gasLit?.length || run.booms?.length)
@@ -18061,6 +18121,7 @@ function stepFiredamp(run, dt) {
     if (d1 < floor && d1 > 1e-6) { g.x = p.x + (ox / d1) * floor; g.y = p.y + (oy / d1) * floor }
   }
   if (trailGone) run.gas = run.gas.filter((g) => g.trail == null || g.life > 0)
+  toadsDrink(run)
   // 3. What the player's weapons touched this frame sets the touched pockets off.
   if (run.gas.length > 0) {
     for (const b of run.bullets) if (b.life > 0) gasLightAt(run, b.x, b.y, b.r ?? 6)
@@ -18099,7 +18160,7 @@ function stepFiredamp(run, dt) {
         // THE STING: standing in the pocket's own cloud costs a little, through the normal hurt path
         // (invuln after). Only the cloud as drawn: the blast's wider reach is for the crowd.
         if (!died && run.phase === 'playing' && p.invuln <= 0 && Math.hypot(p.x - L.x, p.y - L.y) <= L.r * MINE_GAS_LIT_SHRINK * F.stingCloud + PLAYER.radius) {
-          if (hurtPlayer(run, F.sting, false, 'firedamp')) died = true
+          if (hurtPlayer(run, L.sting ?? F.sting, false, L.src ?? 'firedamp')) died = true
         }
         // THE CHAIN: every idle pocket the blast reaches goes off one link later.
         const reach = R * F.reach * (canary ? CANARY_REACH_MUL : 1)
@@ -18453,6 +18514,25 @@ function addCrack(run, C, x, y, r, by, molten = false, lavaT = null) {
   if (run.cracks.length > C.max) run.cracks.splice(0, run.cracks.length - C.max)
   return c
 }
+// lava never touches it: a flier, or a lava-born body (the Lava Ant)
+function lavaProof(e) { return flies(e) || !!e.flags?.includes('lavaBorn') }
+// Every lava-born body cracks the crust every LAVA_ANT.crackEvery px it walks, while fewer than
+// maxCracks of the ants' cracks stand.
+function antsCrack(run, C) {
+  const A = LAVA_ANT
+  let n = -1
+  for (const e of run.enemies) {
+    if (e._dead || !e.flags?.includes('lavaBorn')) continue
+    if (e._antX === undefined) { e._antX = e.x; e._antY = e.y; e._antOdo = 0; continue }
+    e._antOdo += Math.hypot(e.x - e._antX, e.y - e._antY)
+    e._antX = e.x; e._antY = e.y
+    if (e._antOdo < A.crackEvery) continue
+    e._antOdo = 0
+    if (n < 0) { n = 0; for (const c of run.cracks) if (c.by === 'ant') n++ }
+    if (n >= A.maxCracks) continue
+    if (addCrack(run, C, e.x, e.y, A.crackR, 'ant')) n++
+  }
+}
 function stepCrust(run, dt) {
   const C = crustSpec(run)
   if (!C) return false
@@ -18468,6 +18548,7 @@ function stepCrust(run, dt) {
     run._crustOdo = 0; run._crustStill = 0
     addCrack(run, C, p.x, p.y, C.r, 'step')
   }
+  antsCrack(run, C)
   // 2. Thin Crust (the chapter's mutator): cracks open on their own all round you, for them and you.
   if (run.mutators.includes('thinCrust') && C.wild) {
     run._crustWildT = (run._crustWildT ?? C.wild.every) - dt
@@ -18494,7 +18575,7 @@ function stepCrust(run, dt) {
       if (c.tick > 0) continue
       c.tick += C.tick
       for (const e of enemiesNear(run, c.x, c.y, c.r, true)) {
-        if (e._dead || isAlly(e) || damageImmune(e) || flies(e)) continue
+        if (e._dead || isAlly(e) || damageImmune(e) || lavaProof(e)) continue
         const rr = c.r + e.radius * 0.5
         if ((e.x - c.x) ** 2 + (e.y - c.y) ** 2 > rr * rr) continue
         const dmg = (C.burnFlat + C.burnPct * e.maxHP) * C.tick * hot * (e.elite ? C.eliteMul : 1)
@@ -18513,7 +18594,7 @@ function stepCrust(run, dt) {
     if (run._riverT <= 0) {
       run._riverT += C.tick
       for (const e of run.enemies) {
-        if (e._dead || isAlly(e) || damageImmune(e) || flies(e)) continue
+        if (e._dead || isAlly(e) || damageImmune(e) || lavaProof(e)) continue
         if ((e.x - p.x) ** 2 + (e.y - p.y) ** 2 > F.river.reach ** 2) continue
         if (riverDepthAt(F, e.x, e.y, seed) <= 0) continue
         const dmg = (C.burnFlat + C.burnPct * e.maxHP) * C.tick * hot * F.river.burnMul * (e.elite ? C.eliteMul : 1)
