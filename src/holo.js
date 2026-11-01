@@ -1090,15 +1090,21 @@ export function paintHoloShard() {
   }, { shadowBlur: 0.3 }).body
 }
 // The falling stone, from above: a dark faceted cone, inked, foil on its lit facets.
-export function paintHoloStalactite() {
+// Each variant is its own rock: corner count, bumpiness, stretch and where the tip sits.
+export function paintHoloStalactite(variant = 0) {
   return bakeLocal(40, 2, (ctx) => {
-    const rnd = rng(17), R = 30, V = []
-    for (let i = 0; i < 9; i++) { const a = (i / 9) * TAU, q = R * (0.82 + rnd() * 0.3); V.push([Math.cos(a) * q, Math.sin(a) * q]) }
-    const ap = [-R * 0.1, -R * 0.12]
+    const rnd = rng(17 + variant * 31), R = 30, V = []
+    const n = 7 + Math.floor(rnd() * 5), bump = 0.2 + rnd() * 0.3, sx = 1 - rnd() * 0.3, tilt = rnd() * TAU
+    for (let i = 0; i < n; i++) {
+      const a = ((i + (rnd() - 0.5) * 0.6) / n) * TAU, q = R * (1.02 - bump + rnd() * bump)
+      const x = Math.cos(a) * q * sx, y = Math.sin(a) * q
+      V.push([x * Math.cos(tilt) - y * Math.sin(tilt), x * Math.sin(tilt) + y * Math.cos(tilt)])
+    }
+    const ap = [(rnd() - 0.6) * R * 0.4, (rnd() - 0.6) * R * 0.4]
     for (let i = 0; i < V.length; i++) {
       const p0 = V[i], p1 = V[(i + 1) % V.length]
       const L = 0.5 + 0.5 * Math.cos(Math.atan2(p0[1] + p1[1], p0[0] + p1[0]) + 2.2)
-      fillPts(ctx, [...ap, ...p0, ...p1], css(L > 0.6 ? film(i / 9, 0.35, 0.45 + L * 0.2) : mixc(0x120e1c, 0x3a3450, L)))
+      fillPts(ctx, [...ap, ...p0, ...p1], css(L > 0.6 ? film(i / n + variant * 0.13, 0.35, 0.45 + L * 0.2) : mixc(0x120e1c, 0x3a3450, L)))
     }
     ctx.save(); ctx.strokeStyle = 'rgba(255,255,255,0.6)'; ctx.lineWidth = 0.7
     for (const p of V) { ctx.beginPath(); ctx.moveTo(...ap); ctx.lineTo(...p); ctx.stroke() }

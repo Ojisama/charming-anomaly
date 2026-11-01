@@ -6231,7 +6231,8 @@ export function createRenderer(app) {
     T.crystalPillars = [0, 1, 2, 3, 4, 5].map((v) => { const b = HOLO.paintHoloPillar(v, true); return { tex: macroCanvasTex(b.body, b.S), ax: b.ax, ay: b.ay, R: 64 } })
     { const b = HOLO.paintHoloGlint(); T.crystalGlint = { tex: macroCanvasTex(b.body, b.S), ax: b.ax, ay: b.ay } }
     T.prismShot = { tex: macroCanvasTex(HOLO.paintHoloShard(), 3), ax: 0.5, ay: 0.5 }
-    { const b = HOLO.paintHoloStalactite(); T.stalactite = { tex: macroCanvasTex(b.body, b.S), ax: b.ax, ay: b.ay } }
+    T.stalactites = [0, 1, 2, 3, 4, 5].map((v) => { const b = HOLO.paintHoloStalactite(v); return { tex: macroCanvasTex(b.body, b.S), ax: b.ax, ay: b.ay } })
+    T.stalactite = T.stalactites[0]
     T.holoGlint = { tex: macroCanvasTex(HOLO.paintGlint()), ax: 0.5, ay: 0.5 }
     T.holoRing = { tex: macroCanvasTex(HOLO.paintFilmRing()), ax: 0.5, ay: 0.5 }
     { const P = HOLO.paintHoloPickups(), t = (b) => ({ tex: macroCanvasTex(b.body, b.S), ax: b.ax, ay: b.ay })
@@ -6712,6 +6713,8 @@ export function createRenderer(app) {
       sp.position.set(dr.x + off * 0.5, dr.y - off)
       sp.scale.set(sc)
       sp.alpha = Math.min(1, 0.25 + k * 1.2)
+      const look = T.stalactites[(dr.seed || 0) % T.stalactites.length]
+      sp.texture = look.tex; sp.anchor.set(look.ax, look.ay)
       sp.rotation = (dr.seed || 0) * 0.01
       // the warning: grit trickling off the ceiling onto the spot
       if (dt > 0 && Math.random() < dt * 60) {
