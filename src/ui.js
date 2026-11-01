@@ -1,5 +1,5 @@
 // DOM overlay inside #ui: title, shop, HUD, level-up, pause, summary. No Pixi.
-import { shopCost, refundValue, REFUND_RATE, shopLines, shopLineUnlocked, chaptersMastered, lineMax, SHOP_FAMILY, RUN_DURATION, RARITIES, modPct, WEAPONS, ENV_WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, MUTATOR_EFFECT_LABELS, CONSUMABLES, MAX_DIFFICULTY, DIFFICULTY_COIN_PER_LEVEL, DIFFICULTY_COUNT_PER_LEVEL, DIFFICULTY_DMG_PER_LEVEL, sacrificeCost, SACRIFICE_COSTS, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES, chapterNumber, CHAPTERS, CHAPTER_ORDER, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, HIDDEN_UNLOCKS, titleBookshelf, spineName, chaosStatus, pulseCost, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS, PAUSE_COPY, bookOf, BOOK_ORDER, BOOKS, BOOK_UNLOCKS, unlockCost, unlockLevel, unlockMax, dmgSrcName, dmgSrcArt, passiveEffectText, CHAPTER_BOARDS_DEFAULT, KRAKEN_PARRY_CD, hasSkillButton, ENDLESS_COPY, ENDLESS_MILESTONE_S, endlessUnlocked, endlessAccess, POLE_NAMES, POLE_TINT, OPHAN_GAUGE_COPY } from './config.js'
+import { shopCost, refundValue, REFUND_RATE, shopLines, shopLineUnlocked, chaptersMastered, lineMax, SHOP_FAMILY, RUN_DURATION, RARITIES, modPct, WEAPONS, ENV_WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, MUTATOR_EFFECT_LABELS, CONSUMABLES, MAX_DIFFICULTY, DIFFICULTY_COIN_PER_LEVEL, DIFFICULTY_COUNT_PER_LEVEL, DIFFICULTY_DMG_PER_LEVEL, sacrificeCost, SACRIFICE_COSTS, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES, chapterNumber, CHAPTERS, CHAPTER_ORDER, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, HIDDEN_UNLOCKS, titleBookshelf, spineName, chaosStatus, pulseCost, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS, PAUSE_COPY, bookOf, BOOK_ORDER, BOOKS, BOOK_UNLOCKS, unlockCost, unlockLevel, unlockMax, dmgSrcName, dmgSrcArt, passiveEffectText, CHAPTER_BOARDS_DEFAULT, KRAKEN_PARRY_CD, hasSkillButton, ENDLESS_COPY, ENDLESS_MILESTONE_S, endlessUnlocked, POLE_NAMES, POLE_TINT, OPHAN_GAUGE_COPY } from './config.js'
 import { playSfx } from './audio.js'
 import { t, tt, getLang, LANGS } from './i18n.js'
 import { SAVE_SLOTS, activeSlot, slotSummary, saveSummary, exportSlot, NAME_MAX, bookMeta, ensureBookMeta, bookProgress } from './state.js'
@@ -300,7 +300,7 @@ function formatShopBonus(bookId, id, levels) {
  *     - onRefund(ids, bookId): sells the named upgrade lines back at REFUND_RATE, whole lines
  *       only, and returns the coins paid back (0 if none were owned). One call takes the LIST so
  *       "refund everything" is one transaction — see the refund sheet below.
- *     - onEndless(on): the infinity pip (dev or beta). main.js no-ops unless endlessAccess, then sets
+ *     - onEndless(on): the infinity pip. main.js sets
  *       chapters[id].endlessPicked = !!on, saves, plays 'click'. onDifficulty clears it again.
  *     - onChapter(id): title screen's bookcase (v7.x — see bookcaseHtml/volHtml).
  *       Fires only for unlocked CHAPTER_ORDER ids as the scroll SETTLES a card under the viewport
@@ -903,11 +903,11 @@ export function initUI(hooks) {
   // Endless (difficulty 0) draws its own pair whatever the chapter says.
   const boardsFor = (chapterId, difficulty) => (difficulty === 0 ? ['survive', 'kills'] : CHAPTERS[chapterId]?.boards ?? CHAPTER_BOARDS_DEFAULT)
 
-  // THE ONE RULE for which board a chapter's title panel reads: 0 when endless is picked (dev-gated,
-  // like its pip), else the picked difficulty. Every fetchBoards/loadPodium caller routes through it.
+  // THE ONE RULE for which board a chapter's title panel reads: 0 when endless is picked, else the
+  // picked difficulty. Every fetchBoards/loadPodium caller routes through it.
   const boardDiffOf = (chapterId) => {
     const c = meta.chapters?.[chapterId]
-    return endlessAccess(meta) && endlessUnlocked(meta, chapterId) && c?.endlessPicked === true ? 0 : (c?.difficulty ?? 1)
+    return endlessUnlocked(meta, chapterId) && c?.endlessPicked === true ? 0 : (c?.difficulty ?? 1)
   }
 
   // Dropped when a run PLACES. Not after every run: a score that missed the top 3 moved no board,
@@ -1087,13 +1087,13 @@ export function initUI(hooks) {
     // used to be. The +HP/+damage percentages are gone on purpose: the pip number already says
     // "harder", and the anomaly COUNT is level - 1, which the lit pips also say. What no pip can
     // say is the payout, so that is the one thing kept.
-    // Endless reads as board 0 (its own leaderboard), dev-gated like its pip.
-    const endlessOn = endlessAccess(meta) && endlessUnlocked(meta, browseChapterId)
+    // Endless reads as board 0 (its own leaderboard).
+    const endlessOn = endlessUnlocked(meta, browseChapterId)
     const boardDiff = boardDiffOf(browseChapterId)
     const endlessSel = boardDiff === 0
     const coinPct = Math.round(((chMeta.difficulty - 1) * DIFFICULTY_COIN_PER_LEVEL) * 100)
     const rewardChip = chMeta.difficulty > 1 && !endlessSel ? `<b class="diff-reward-chip">+${coinPct}% 🪙</b>` : ''
-    // DEV ONLY (beta testers see the pip but not this): the bot plays the clock forward until Play now.
+    // DEV ONLY (players see the pip but not this): the bot plays the clock forward until Play now.
     const speedrunBtn = meta.dev === true && endlessOn && endlessSel ? `<button class="btn btn--soft dev-speedrun" data-act="speedrun" aria-label="Speedrun" title="Speedrun" ${heroUnlocked ? '' : 'disabled'}>⏩</button>` : ''
     const pips = `${Array.from({ length: cap }, (_, i) => {
           const d = i + 1
@@ -1201,7 +1201,7 @@ export function initUI(hooks) {
       // two losers and this switch once the owner picks.
       const Q = new URLSearchParams(location.search)
       const RP = +(Q.get('rp') || 0)
-      const endlessOn = endlessAccess(meta) && endlessUnlocked(meta, id)
+      const endlessOn = endlessUnlocked(meta, id)
       const endlessSel = boardDiff === 0
       const cur = chMeta.difficulty
       // ALWAYS THREE ROWS: a level's board is fetched on the tap that picks it, so drawing only the
