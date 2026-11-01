@@ -4663,11 +4663,15 @@ export const WEAPON_MODS = {
                    values: { epic: 0.4, legendary: 0.6, mythic: 0.8 } },
   },
   minecart: {
-    heavyLoad:   { name: 'Heavy Load',   desc: 'cart damage', icon: '💥', base: 0.30, kind: 'pct' },
+    // balance_decision : owner, potency -20% 2026-11-01
+    heavyLoad:   { name: 'Heavy Load',   desc: 'cart damage', icon: '💥', base: 0.30 * 0.8, kind: 'pct' },
     wideCart:    { name: 'Wide Cart',    desc: 'cart width', icon: '↔️', base: 0.25, kind: 'pct' },
-    secondCart:  { name: 'Second Cart',  desc: 'extra cart(s) per push', icon: '🔷', kind: 'tier' },
+    // balance_decision : owner, +1 cart, epic and up only 2026-11-01
+    secondCart:  { name: 'Second Cart',  desc: 'extra cart(s) per push', icon: '🔷', kind: 'flat',
+                   values: { epic: 1, legendary: 1, mythic: 1 } },
     greasedAxle: { name: 'Greased Axle', desc: 'push rate', icon: '⏩', base: 0.25, kind: 'pct' },
-    returnTrip:  { name: 'Return Trip',  icon: '🔁', kind: 'flat', maxPicks: 1, values: { rare: 1 },
+    // balance_decision : owner, epic and up only 2026-11-01
+    returnTrip:  { name: 'Return Trip',  icon: '🔁', kind: 'flat', maxPicks: 1, values: { epic: 1, legendary: 1, mythic: 1 },
                    desc: 'Carts roll back to you, hitting again and picking up the gems and coins they pass.',
                    descFor: () => 'Carts roll back to you, hitting again and picking up the gems and coins they pass.' },
   },
