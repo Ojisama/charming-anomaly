@@ -4647,11 +4647,13 @@ export const WEAPON_MODS = {
                    args: { every: CRYSTAL_CARDS.crystalBloom.every, secs: CRYSTAL_CARDS.crystalBloom.secs } },
   },
   // ---- The Mine ----
+  // balance_decision : owner, every pickaxe mod halved 2026-11-01
   pickaxe: {
-    sharpPick:   { name: 'Sharp Pick',   desc: 'strike damage', icon: '💥', base: 0.30, kind: 'pct' },
-    wideSwing:   { name: 'Wide Swing',   desc: 'strike radius', icon: '⭕', base: 0.22, kind: 'pct' },
-    rubble:      { name: 'Rubble',       desc: 'extra rock chip(s) per strike', icon: '🪨', kind: 'tier' },
-    quickSwing:  { name: 'Quick Swing',  desc: 'strike rate', icon: '⏩', base: 0.25, kind: 'pct' },
+    sharpPick:   { name: 'Sharp Pick',   desc: 'strike damage', icon: '💥', base: 0.30 * 0.5, kind: 'pct' },
+    wideSwing:   { name: 'Wide Swing',   desc: 'strike radius', icon: '⭕', base: 0.22 * 0.5, kind: 'pct' },
+    rubble:      { name: 'Rubble',       desc: 'extra rock chip(s) per strike', icon: '🪨', kind: 'flat',
+                   values: { rare: 1, epic: 1, legendary: 2, mythic: 3 } },
+    quickSwing:  { name: 'Quick Swing',  desc: 'strike rate', icon: '⏩', base: 0.25 * 0.5, kind: 'pct' },
   },
   dynamite: {
     blastingCap: { name: 'Blasting Cap', desc: 'dynamite damage', icon: '💥', base: 0.30, kind: 'pct' },
