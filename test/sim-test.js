@@ -716,6 +716,26 @@ function testEndlessMeta() {
   console.log('PASS run EN.h (endless meta + main wiring)')
 }
 
+function testBook3LadderCap() {
+  // Book 3 on: d1..d3, then endless — no d4/d5
+  const b3 = [...BOOKS.burrow.chapters, ...BOOKS.burrow.hidden]
+  for (const id of b3) assert.strictEqual(chapterMaxDifficulty(id), CHAPTER_UNLOCK_DIFFICULTY, `${id} must top out at d${CHAPTER_UNLOCK_DIFFICULTY}`)
+  assert.ok(b3.includes('topsoil'), 'topsoil is in the swept set')
+  assert.strictEqual(chapterMaxDifficulty('body'), MAX_DIFFICULTY, 'book 1 keeps d5')
+  assert.strictEqual(chapterMaxDifficulty('surf'), MAX_DIFFICULTY, 'book 2 keeps d5')
+  // a save that unlocked d5 on a Book 3 chapter clamps to d3 on load
+  const m = makeMeta()
+  m.dev = true
+  Object.assign(ensureChapterMeta(m, 'topsoil'), { maxDifficulty: 5, difficulty: 5, won: 3 })
+  const c = loadMetaFrom(JSON.parse(JSON.stringify(m))).chapters.topsoil
+  assert.strictEqual(c.difficulty, 3, 'picked d5 clamps to d3')
+  // and beating d3 is exactly what opens endless there
+  assert.ok(endlessUnlocked(m, 'topsoil'), 'won d3 opens endless on topsoil')
+  m.chapters.topsoil.won = 2
+  assert.ok(!endlessUnlocked(m, 'topsoil'), 'won d2 does not')
+  console.log(`PASS run B3L (Book 3 ladder): ${b3.length} Book 3 chapters cap at d3, books 1-2 keep d5, saves clamp, d3 win opens endless`)
+}
+
 function testEndlessAccess() {
   // released to everyone: the won gate is the only gate, and a WIP chapter still needs dev
   const m = makeMeta()
@@ -21047,6 +21067,7 @@ try {
   run(testEndlessMilestones)
   run(testEndlessMeta)
   run(testEndlessAccess)
+  run(testBook3LadderCap)
   run(testEndlessFastForward)
   run(testNewWeapons)
   run(testRaritySanity)

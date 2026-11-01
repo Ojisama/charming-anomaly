@@ -1928,7 +1928,7 @@ export function initUI(hooks) {
     const ch = CHAPTERS[s.chapterId]
     // The hero card's own ★ field and the same fallback, so the card and this prompt can never state
     // two different numbers. "beat 3" is vocabulary this game has never used.
-    const stars = Array.from({ length: MAX_DIFFICULTY }, (_, i) =>
+    const stars = Array.from({ length: chapterMaxDifficulty(s.chapterId) }, (_, i) =>
       `<i class="vol-star${i < s.beaten ? ' vol-star--on' : ''}">★</i>`).join('')
     return `
       <div class="sync-card">
