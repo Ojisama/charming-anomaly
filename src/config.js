@@ -6489,12 +6489,14 @@ export const HP_SCALE_LATE_RATE = 0.005
 // balance_decision : owner: Topsoil HP growth -25% (0.010 -> 0.0075) 2026-10-11
 // balance_decision : owner: Geode enemies +25% HP at 5:00, none before 2:30 2026-10-14
 //  - written as the old rate's factor x1.25, so it now sits above The Mine's 0.020
+// balance_decision : owner: magma/mantle/core copy Book 1's chapters 4-6 2026-11-01
+//  - enemyHpMul too (1 / 1.05 / 1.15 in their balance blocks); change both together
 export const CHAPTER_LATE_RATE = {
   body: 0.005, pond: 0.010, garden: 0.015, undergrowth: 0.020,
   city: 0.028, skies: 0.036, beyond: 0.0605,
   surf: 0.010, shelf: 0.015,
   topsoil: 0.0075, geode: ((1 + 0.015 * (300 - HP_SCALE_LATE_START)) * 1.25 - 1) / (300 - HP_SCALE_LATE_START),
-  mine: 0.020, magma: 0.020, mantle: 0.022, core: 0.022,
+  mine: 0.020, magma: 0.020, mantle: 0.028, core: 0.036,
 }
 // Unknown/absent chapter (the Blank, a test run with no chapter) keeps the shipped curve.
 export const lateRateFor = (chapterId) => CHAPTER_LATE_RATE[chapterId] ?? HP_SCALE_LATE_RATE
@@ -10056,7 +10058,7 @@ CHAPTERS.magma = {
     },
   },
   obstacles: null,
-  balance: { spawnMul: 0.8, enemyDmgMul: 0.7, enemyHpMul: 1.25, xpMul: 1.25, maxAliveMul: 0.64 },
+  balance: { spawnMul: 0.8, enemyDmgMul: 0.7, enemyHpMul: 1, xpMul: 1.25, maxAliveMul: 0.64 },
   render: {
     cast: ['cinderBeetle', 'salamander', 'obsidianTortoise', 'lavaAnt', 'fireDrake'],
     bgColor: 0x140705,     // under the pixel floor tile
@@ -10167,7 +10169,7 @@ CHAPTERS.mantle = {
     },
   },
   obstacles: null,
-  balance: { spawnMul: 0.8, enemyDmgMul: 0.7, enemyHpMul: 1.15, xpMul: 1.2, maxAliveMul: 0.66 },
+  balance: { spawnMul: 0.8, enemyDmgMul: 0.7, enemyHpMul: 1.05, xpMul: 1.2, maxAliveMul: 0.66 },
   render: {
     cast: ['emberImp', 'magmaToad', 'basaltGolem', 'obsidianBeetle', 'magmaEel', 'lavaRay', 'emberJelly', 'brimstoneDragon'],
     bgColor: 0x2b1a12,     // under the toon floor (never seen: the floor covers the view)
@@ -10267,7 +10269,7 @@ CHAPTERS.core = {
   },
   // balance_decision : one pillar per 667 px square, prototype density 2026-10-21
   obstacles: { kind: 'pillar', count: 6, cell: 560, minR: 21, maxR: 21, minDist: 240 },
-  balance: { spawnMul: 0.85, enemyDmgMul: 1, enemyHpMul: 1, xpMul: 1.2, maxAliveMul: 0.7 },
+  balance: { spawnMul: 0.85, enemyDmgMul: 1, enemyHpMul: 1.15, xpMul: 1.2, maxAliveMul: 0.7 },
   render: {
     cast: ['ferriteMite', 'needleUrchin', 'spinningTop', 'dipoleEel', 'ferroBlob', 'lodestoneGolem'],
     bgColor: 0x15151a,     // dark iron

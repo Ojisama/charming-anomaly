@@ -4717,7 +4717,10 @@ function spawnEnemy(run, opts = {}) {
   const capped = eligiblePool.filter((r) => {
     if (r.maxAlive == null) return true
     let n = 0
-    for (const e of run.enemies) if (!e._dead && e.rosterId === r.id && ++n >= r.maxAlive) return false
+    // the queue too: a spawner elite's burst is deferred, and each of its minions must see the last
+    for (const list of [run.enemies, run._spawnQueue ?? []]) {
+      for (const e of list) if (!e._dead && e.rosterId === r.id && ++n >= r.maxAlive) return false
+    }
     return true
   })
   // ...and when EVERY entry of a fast/tank archetype is at its cap (The Core's heavies), the
