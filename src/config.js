@@ -497,13 +497,13 @@ export const SUBMISSION_DMG_FRAC = 0.5     // the spec's "50% of your damage"; f
 // under you (pond soapTrail), abducting you (beyond pullBeam), disgorging HOSTILE minions (city
 // spawner) or enraging the swarm it is supposed to be fighting (undergrowth flashlightCone).
 // Derived from every chapter's `eliteFlags` plus the roster flags that can land on an elite
-// (garden's spider webZone, skies' helicopter missileVolley).
+// (garden's spider webZone, skies' helicopter missileVolley, topsoil's mole tunnel: it digs at YOU).
 //   `acidPool` is deliberately NOT here: it is an on-DEATH flag and it already fired when the
 // elite died, one statement before the turn.
 //   `artillery` is NOT here: it is retargeted instead — an ally shells the nearest hostile, and
 // its shells (bomb.ally) never hurt the player.
 export const SUBMISSION_STRIP_FLAGS = [
-  'soapTrail', 'oilTrail', 'webZone', 'wake', 'missileVolley', 'spawner', 'flashlightCone', 'pullBeam',
+  'soapTrail', 'oilTrail', 'webZone', 'wake', 'missileVolley', 'spawner', 'flashlightCone', 'pullBeam', 'tunnel',
 ]
 export const SUBMISSION_HIT_EVERY = 0.5    // seconds between an ally's contact hits on one target
 // BLOOD MONEY. Owner overruled a maxHP proposal: flat current HP, and the objection ("that is 23

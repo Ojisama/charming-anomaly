@@ -11420,6 +11420,7 @@ function turnDeadElites(run) {
     // children in the death branch that just ran — mutating in place would strip the children's
     // flags too. Reassigning the filter result gives the required copy for free.
     if (e.flags && e.flags.length) e.flags = e.flags.filter((f) => !SUBMISSION_STRIP_FLAGS.includes(f))
+    e.burrowed = false; e.quakeT = 0   // a mole stripped of `tunnel` walks the surface from here
     run.events.push({ type: 'submission', x: e.x, y: e.y, elite: true })
   }
 }
@@ -17115,7 +17116,7 @@ function stepTunnels(run, dt) {
   if (run._moleT <= 0) {
     const late = run.time >= M.lateAt
     let n = 0
-    for (const e of run.enemies) if (!e._dead && e.rosterId === 'mole') n++
+    for (const e of run.enemies) if (!e._dead && !isAlly(e) && e.rosterId === 'mole') n++
     if (n < (late ? M.maxAliveLate : M.maxAlive)) spawnEnemy(run, { type: ARCHETYPE_TYPE.tank, rosterId: 'mole', forceNormal: true })
     run._moleT = late ? M.everyLate : M.every
   }

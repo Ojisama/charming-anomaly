@@ -23429,6 +23429,37 @@ function testSubmission() {
   }
   const laid = r3.blooms.filter((b) => b.look === 'bilge')
   assert.strictEqual(laid.length, 0, `expected a converted oilTrail ally to lay 0 look:'bilge' blooms over 10s, got ${laid.length}`)
+  // (e) A TURNED MOLE DIGS AT THE SWARM, NOT AT YOU. 'tunnel' is a roster flag on an alsoElite tank,
+  // not an eliteFlag, so SB.a's walk never gives it to its ally. Mole 400px from the player, a foe on
+  // the far side: an ally closes on the foe; a mole still tunnelling closes on you at digSpeed.
+  // MUTATION: remove 'tunnel' from SUBMISSION_STRIP_FLAGS.
+  Math.random = mulberry32(20260810)
+  const r4 = createRun(makeMeta(), { chapter: 'topsoil', difficulty: 1 })
+  r4.anomalies.submission = true
+  r4.weapons = []
+  r4.mods.spawnMul = 0
+  r4._moleT = 1e9                       // no hostile moles from the chapter's own cadence
+  r4.player.hp = r4.player.maxHP = 5000
+  const m4 = makeStatusEnemy(r4, { x: r4.player.x - 400, y: r4.player.y, elite: true, hp: 1e6 })
+  m4.rosterId = 'mole'; m4.flags = ['tunnel', 'unshakeable']
+  m4._dead = true
+  const foe4 = makeStatusEnemy(r4, { x: r4.player.x - 800, y: r4.player.y, hp: 1e9, speed: 0 })
+  r4.enemies.push(m4, foe4)
+  stepSim(r4, { x: 0, y: 0 }, dt)
+  assert.ok(m4.allyT > 0, 'the dead mole did not turn — fixture broken, not the sim')
+  const d40 = Math.hypot(m4.x - r4.player.x, m4.y - r4.player.y)
+  let quakes = 0
+  for (let i = 0; i < Math.round(3 / dt); i++) {
+    if (r4.phase !== 'playing') break
+    m4.allyT = SUBMISSION_DURATION
+    stepSim(r4, { x: 0, y: 0 }, dt)
+    quakes += r4.events.filter((ev) => ev.type === 'moleQuake').length
+    r4.events.length = 0
+  }
+  const d4 = Math.hypot(m4.x - r4.player.x, m4.y - r4.player.y)
+  assert.ok(!m4.burrowed && quakes === 0 && d4 >= d40 - 5,
+    `a turned mole dug at the player: ${d40.toFixed(0)}px -> ${d4.toFixed(0)}px in 3s, burrowed ${m4.burrowed}, ${quakes} quake(s)`)
+  console.log(`PASS run SB.e (turned mole hunts the swarm): ${d40.toFixed(0)}px -> ${d4.toFixed(0)}px from the player in 3s, on the surface, 0 quakes`)
   console.log(`PASS run SB.d (converted ally lays no oil wall): 0 look:'bilge' blooms over 10s — SB.a's damage-only guard cannot see this affix class (dmgPerTick: 0)`)
 }
 
