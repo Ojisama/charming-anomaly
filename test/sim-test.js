@@ -39591,10 +39591,12 @@ function testBurrow() {
   assert.ok(on.bounced >= 1, 'run BU3.c: a shot into a crystal did not bounce')
   assert.ok(!on.parentLeft && on.bullets.length === 2 && on.bullets.every((b) => b.vx > 0), `run BU3.c: the bounce should replace the shot with two sub-shards heading back out: ${JSON.stringify(on)}`)
   assert.ok(off.bounced === 0 && off.bullets.length === 0, `run BU3.c: with bounce off the crystal must stop the shot: ${JSON.stringify(off)}`)
-  // (d) Burrow ships DEV-only: a player save neither shelves the book nor opens it.
+  // (d) Burrow is half shipped (wipFrom 2, 2026-11-01): Topsoil and The Geode are live, The Mine on is
+  // DEV-only, and a player save can open the book (a Deep win does it).
   const player = makeMeta()
-  assert.ok(!titleBookshelf(player).some((sh) => sh.book === 'burrow'), 'run BU3.d: a non-dev save shelves Burrow')
-  assert.ok(!unlockBook(player, 'burrow') && !player.chapters?.topsoil?.unlocked, 'run BU3.d: a non-dev save opened Burrow')
+  assert.ok(!isWipChapter('topsoil') && !isWipChapter('geode') && isWipChapter('mine'), 'run BU3.d: Burrow should be live through The Geode and gated from The Mine')
+  assert.ok(unlockBook(player, 'burrow') && player.chapters?.topsoil?.unlocked, 'run BU3.d: a non-dev save could not open Burrow')
+  assert.ok(!player.chapters?.mine?.unlocked, 'run BU3.d: opening Burrow handed a non-dev save The Mine')
   assert.ok(titleBookshelf(meta()).some((sh) => sh.book === 'burrow'), 'run BU3.d: a dev save does not shelve Burrow')
   assert.ok(!titleBookshelf(player).some((sh) => sh.volumes.some((v) => v.id === 'ophan')), 'run BU3.d: a non-dev save shelves The Ophan')
   assert.ok(chapterAvailable(meta(), 'ophan') && titleBookshelf(meta()).find((s) => s.book === 'burrow').volumes.some((v) => v.id === 'ophan'), 'run BU3.d: DEV does not open The Ophan')
