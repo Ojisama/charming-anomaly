@@ -819,6 +819,7 @@ function glFrame(c) {
   drawFull(PC);
   // pass 4: the player orb, above every latched mite (p.R: the orb's half-size, its rim at 0.84 of it)
   qn = 0; quad(p.x, p.y, p.R, 1, 0, 0, 0, 1, 1, 1, 0, p.tint ?? 0, 0);
+  for (const m of G.minis ?? []) quad(m.x, m.y, m.R, 1, 0, 0, 0, 1, 1, 1, 0, p.tint ?? 0, 0);   // the minimes: small copies of the orb
   gl.useProgram(PS.p); const W4 = PS.u;
   gl.uniform2f(W4.uRes, GW, GH); gl.uniform1f(W4.uT, rt); gl.uniform1f(W4.uHurt, p.hurt || 0);
   gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); drawQuads(PS);

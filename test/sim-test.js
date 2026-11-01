@@ -21292,6 +21292,7 @@ run(testLeLargeWeapons)
   run(testOphanKitTells)
   run(testOphanCrowdLooks)
   run(testOphanGauge)
+  run(testMinimeLook)
   // A hand-typed filter that matched nothing is the silent pass without a parent watching:
   // `node test/sim-test.js supernova` printed ALL TESTS PASSED having run no scenario at all.
   if (_ran === 0 && !EXACT_SET) {
@@ -45111,4 +45112,40 @@ function testOphanRenderWiring() {
   const sim = readFileSync(new URL('../src/sim.js', import.meta.url), 'utf8')
   assert.deepStrictEqual([...sim.matchAll(/from '\.\/ophan\/(\w+)\.js'/g)].map((m) => m[1]).sort(), ['hit', 'rig'], 'sim imports a render-side ophan module')
   console.log('PASS run OP.wire: hosted once, forwarded, prewarmed, pinned, resized; exit restores and unpatches; vignette kept; painters read the locked aim and sim clock')
+}
+
+// ---- Run MM: a minime is a PICTURE of the player, in every chapter look -------------------------
+// The minime used to pick its own bake from a list of looks (default, skin, the Geode), and every
+// chapter that drew the player some other way (the Mine's ASCII, the Mantle's cartoon, the fish, the
+// kaiju, Topsoil, the Core, the Magma) shipped a plain mint blob as "a copy of you". render.js now
+// renders whatever draws the player into miniRT (snapMinime). This pins the two ways that breaks:
+// a module that hides render.js's player without handing over its own drawing, and a per-look bake
+// creeping back into the minime path.
+function testMinimeLook() {
+  const read = (p) => readFileSync(new URL('../src/' + p, import.meta.url), 'utf8')
+  const render = read('render.js')
+  const snapAt = render.indexOf('function snapMinime'), luresAt = render.indexOf('function syncLures')
+  assert.ok(snapAt > 0 && luresAt > snapAt, 'render.js: snapMinime / syncLures not found')
+  const snap = render.slice(snapAt, luresAt)
+  const lures = render.slice(luresAt, render.indexOf('\n  function ', luresAt + 10))
+  const files = readdirSync(new URL('../src/', import.meta.url), { recursive: true }).map(String).filter((p) => p.endsWith('.js'))
+  const owners = []
+  for (const p of files) {
+    const s = read(p)
+    if (p === 'render.js' || !/hide:\s*\[[^\]]*'player'/.test(s)) continue
+    owners.push(p)
+    assert.ok(/playerView:/.test(s), `${p} hides render.js's player and draws its own, but has no playerView: its minimes would copy an empty picture`)
+    const ns = render.match(new RegExp(`import \\* as (\\w+) from '\\./${p.replace(/\.js$/, '')}(\\.js)?'`))?.[1]
+    assert.ok(ns, `render.js does not import ${p} as a namespace`)
+    const v = render.match(new RegExp(`(\\w+) = ${ns}\\.create\\w+\\(`))?.[1]
+    assert.ok(v && new RegExp(`\\b${v}\\b`).test(snap), `${p} draws the player, but snapMinime never asks it (${v}) for its playerView`)
+  }
+  assert.ok(owners.includes('ascii.js') && owners.includes('toon.js'), `expected ascii.js and toon.js among the player-drawing modules, found [${owners}]`)
+  // THE CORE draws your BODY outside Pixi (src/liquid/gl.js, a WebGL canvas under the stage), where no
+  // picture of playerC can reach it: render.js copies only the face, so the orb under each minime is the demo's.
+  assert.ok(/\.minime\b/.test(read('liquid.js')) && /G\.minis\b/.test(read('liquid/gl.js')),
+    "The Core's minimes lost their orb: liquid.js must hand gl.js the minimes (S.minis) and gl.js must draw them")
+  const bake = /T\.player|T\.pupil|holoPlayer|macroPlayer|liquidPlayer|pencilPlayer|playerSkin|playerTint/
+  assert.ok(!bake.test(snap) && !bake.test(lures), 'the minime path names a player bake again: it must copy the picture (miniRT), never choose a look')
+  console.log(`PASS run MM: minimes are a picture of the player; ${owners.length} of ${files.length} src modules draw their own player (${owners.join(', ')}) and each hands over a playerView`)
 }

@@ -12,7 +12,7 @@
 //     title-card thumb baked on the CPU from the demo's own field and chrome() maths.
 //   bakePlayer() -> the drop's face (gl.js draws its chrome body tinted toward your pole; render.js keeps the live pupils).
 import { Graphics } from 'pixi.js'
-import { CHAPTERS, ENEMIES, PLAYER } from './config.js'
+import { CHAPTERS, ENEMIES, PLAYER, MINIME_DRAW_SCALE } from './config.js'
 import { mkCanvas } from './toon/palette.js'
 import { createCoreGL } from './liquid/gl.js'
 
@@ -197,7 +197,7 @@ export function createLiquidRenderer(host) {
   over.addChild(marks)
   const sparks = []
   const blasts = []   // Decoy Lodestone bursts, aged here: the burst, then the spent puddle (gl.js drawWeapons)
-  const S = { cam: { x: 0, y: 0 }, VW: 1, VH: 1, rt: 0, rdt: 0, visc: 1, pole: 1, p: { x: 0, y: 0, r: 0.02, R: 0.03, hurt: 0, tint: 1, vx: 0, vy: 0 }, foes: [], pools: [], pillars: [], sparks,
+  const S = { cam: { x: 0, y: 0 }, VW: 1, VH: 1, rt: 0, rdt: 0, visc: 1, pole: 1, p: { x: 0, y: 0, r: 0.02, R: 0.03, hurt: 0, tint: 1, vx: 0, vy: 0 }, minis: [], foes: [], pools: [], pillars: [], sparks,
     moons: [], lodes: [], blasts }
   let look = null
   // ?debug: the frame state, for a probe scene to set the clock (scripts/scenes/core-match.js)
@@ -247,6 +247,9 @@ export function createLiquidRenderer(host) {
       // the chrome tucked under the player: inside the drop, it only shows where a mite fuses with it
       const pr = p._drawR ?? PLAYER.radius   // the Ophan's Core draws you at its arena's scale (stages/liquid.js)
       S.p.x = p.x / U; S.p.y = p.y / U; S.p.r = (pr / U) * 0.87; S.p.R = p.dead ? 0 : pr / U / 0.84; S.p.hurt = (p.invuln || 0) <= PLAYER.invulnTime ? Math.min(1, Math.max(0, ((p.invuln || 0) - PLAYER.invulnTime + 0.17) * 6)) : 0   // the demo hurt flash: the first 0.17 s of a hit
+      // the minimes' orbs: the body is this demo's, so a copy of you needs one too (render.js lays your face on it)
+      S.minis.length = 0
+      for (const l of run.lures ?? []) if (l.minime) S.minis.push({ x: l.x / U, y: l.y / U, R: S.p.R * MINIME_DRAW_SCALE })
       for (const s of sparks) s.age += rdt
       while (sparks.length && sparks[0].age > 0.5) sparks.shift()
       for (const b of blasts) b.age += rdt
