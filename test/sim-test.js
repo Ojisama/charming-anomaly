@@ -19465,7 +19465,7 @@ function testFrenchDictionary() {
   // no other table has — a walk that only reads name/desc/title covers two thirds of an anomaly
   // card. This is the same shape as the WEAPON_MODS hole below, three releases apart.
   for (const table of [WEAPONS, ELEMENTS, MUTATORS, CONSUMABLES, RARITIES, SHOP, PASSIVES, ANOMALIES]) {
-    for (const v of Object.values(table ?? {})) { need(v?.name); need(v?.desc); need(v?.title); need(v?.from); need(v?.descNoSpend) }
+    for (const v of Object.values(table ?? {})) { need(v?.name); need(v?.desc); need(v?.title); need(v?.from); need(v?.descNoSpend); need(v?.descOne) }
   }
   // v6.6.26: WEAPON_MODS is TWO levels deep (WEAPON_MODS[weaponId][modId]), so the flat walk above
   // silently checked nothing for it — Object.values() yielded the per-weapon dicts, whose own

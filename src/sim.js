@@ -16479,7 +16479,7 @@ function rollAnomalyCard(run) {
   // see refundPityOnReroll. Without the stash the credit is unrecoverable the instant it is spent.
   run._pityBeforeAnomaly = run._screensSinceAnomaly
   run._screensSinceAnomaly = 0
-  return { kind: 'anomaly', id, title: a.name, desc: anomalyDesc(a), descT: anomalyDescT(a), from: a.from, tag: '', rarity: 'anomaly', icon: a.icon, subjects, subjectPicks }
+  return { kind: 'anomaly', id, title: a.name, desc: subjects?.length === 1 && a.descOne ? a.descOne : anomalyDesc(a), descT: anomalyDescT(a), from: a.from, tag: '', rarity: 'anomaly', icon: a.icon, subjects, subjectPicks }
 }
 
 // ---- dev menu (v7.12) --------------------------------------------------------------------
@@ -16534,7 +16534,7 @@ export function devCards(run, rarity = 'rare') {
     // thing to specialise in, and the point of this menu is to test the card.
     const subj = a.subjects?.(run)
     const subjects = subj ? (subj.length ? subj : run.weapons.map((w) => w.id)) : null
-    out.push({ kind: 'anomaly', id, title: a.name, desc: anomalyDesc(a), descT: anomalyDescT(a), from: a.from, tag: '',
+    out.push({ kind: 'anomaly', id, title: a.name, desc: subjects?.length === 1 && a.descOne ? a.descOne : anomalyDesc(a), descT: anomalyDescT(a), from: a.from, tag: '',
       rarity: 'anomaly', icon: a.icon, subjects,
       subjectPicks: subjects ? Object.fromEntries(subjects.map((w) => [w, weaponModPickCount(run, w)])) : null })
   }
