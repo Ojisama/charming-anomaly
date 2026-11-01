@@ -1289,6 +1289,8 @@ export const ANOMALIES = {
     // frequency a player experiences: measured, it delivers 2.16x at four weapons, 1.54x at two and
     // exactly 1.00x at one. A card must not print a number it only sometimes pays.
     desc: `Upgrades for the weapon you name come up far more often, and you may take ${SPECIALIST_EXTRA_PICKS} more of each. Every other weapon offers less.`,
+    // only one weapon qualifies: nothing to name, the card's title already says which (ui.js cardFaceHtml)
+    descOne: `Its upgrades come up far more often, and you may take ${SPECIALIST_EXTRA_PICKS} more of each. Every other weapon offers less.`,
     // The gate IS the fiction: you cannot specialise in something you have not been building.
     when: (r) => specialistSubjects(r).length > 0,
     // `subjects` is what makes this a card PER WEAPON rather than one auto-assigned rule — the only

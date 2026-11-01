@@ -708,6 +708,8 @@ const CONFIG = {
   // clauses back, and 'proposent moins' alone can be read as offering less VALUE.
   'Upgrades for the weapon you name come up far more often, and you may take 2 more of each. Every other weapon offers less.':
     "Les améliorations de l'arme que tu désignes sortent bien plus souvent, et tu peux les prendre chacune 2 fois de plus. Toutes les autres armes proposent moins d'améliorations.",
+  'Its upgrades come up far more often, and you may take 2 more of each. Every other weapon offers less.':
+    "Les améliorations de cette arme sortent bien plus souvent, et tu peux les prendre chacune 2 fois de plus. Toutes les autres armes proposent moins d'améliorations.",
   // v6.2 Remaster — per-chapter endings
   'You slipped past the immune system! 🎉': 'Tu as déjoué le système immunitaire ! 🎉',
   'Neutralized… 🩸': 'Neutralisé·e… 🩸',

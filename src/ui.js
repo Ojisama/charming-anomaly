@@ -3231,7 +3231,9 @@ export function initUI(hooks) {
     return `${chip}
         <span class="lv-card-icon">${c.icon ?? CHOICE_ICONS[c.kind] ?? '✨'}</span>
         <span class="lv-card-body">
-          <span class="lv-card-title">${t(c.title)}
+          <span class="lv-card-title">${c.subjects?.length === 1 && WEAPONS[c.subjects[0]]
+            ? tt('{name}: {sub}', { name: t(c.title), sub: t(WEAPONS[c.subjects[0]].name) })  // one weapon qualifies: the tap names it, so the card says so
+            : t(c.title)}
             ${c.tag ? `<i class="tag ${c.tag === 'New!' ? 'tag--new' : 'tag--lv'}">${tCardTag(c.tag)}</i>` : ''}
           </span>
           <span class="lv-card-desc">${c.subject && WEAPONS[c.subject]
