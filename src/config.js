@@ -4655,8 +4655,12 @@ export const WEAPON_MODS = {
   },
   dynamite: {
     blastingCap: { name: 'Blasting Cap', desc: 'dynamite damage', icon: '💥', base: 0.30, kind: 'pct' },
-    bigBang:     { name: 'Big Bang',     desc: 'dynamite blast radius', icon: '⭕', base: 0.22, kind: 'pct' },
-    bundle:      { name: 'Bundle',       desc: 'extra stick(s) per throw', icon: '🔷', kind: 'tier' },
+    // balance_decision : owner, +10/15/20/30/40% 2026-11-01
+    bigBang:     { name: 'Big Bang',     desc: 'dynamite blast radius', icon: '⭕', kind: 'pct',
+                   values: { normal: 0.10, rare: 0.15, epic: 0.20, legendary: 0.30, mythic: 0.40 } },
+    // balance_decision : owner, +1 stick, epic and up only 2026-11-01
+    bundle:      { name: 'Bundle',       desc: 'extra stick(s) per throw', icon: '🔷', kind: 'flat',
+                   values: { epic: 1, legendary: 1, mythic: 1 } },
     shortFuse:   { name: 'Short Fuse',   desc: 'throw rate', icon: '⏩', base: 0.25, kind: 'pct' },
     // balance_decision : owner: epic+ only [2026-10-11]
     fastFuse:    { name: 'Fast Fuse',    desc: 'A stick blows up {n} sooner after it lands.', icon: '⏱️', kind: 'pct', maxPicks: 1,
