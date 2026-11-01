@@ -40483,6 +40483,29 @@ function testMine() {
   const body = [nextCost('body', 0), nextCost('body', end)]
   assert.ok(Math.abs(ramp[1] / ramp[0] - 1.25) < 0.01 && Math.abs(ramp[2] / ramp[0] - 1.5) < 0.01 && body[0] === body[1],
     `run MI.d7: the mine's level cost must ramp 1 -> 1.25 -> 1.5, the body's stay flat (mine ${ramp.map((x) => x.toFixed(1))}, body ${body})`)
+  // (d8) A MAXED WEAPON KEEPS ITS SHARE: pickaxe at level 1, lantern maxed — the lantern's level-up
+  // rolls deal lantern mods instead, so lantern mod cards come up far more often than with the
+  // book flag off, the pickaxe's level cards less, and its own mods no more
+  const shareWith = (on) => {
+    const keep = BOOKS.burrow.rules.maxedKeepsShare
+    BOOKS.burrow.rules.maxedKeepsShare = on
+    try {
+      Math.random = mulberry32(41010)
+      const run = createRun(meta(), { chapter: 'mine', difficulty: 1 })
+      let lantern = 0, pickLv = 0, pickMod = 0
+      for (let i = 0; i < 600; i++) {
+        run.phase = 'playing'; run.levelUpChoices = []; run.weapons = [{ id: 'pickaxe', level: 1 }, { id: 'lantern', level: MAX_WEAPON_LEVEL }]
+        run.enemies = []; run.mods.spawnMul = 0; run.time = 60; run.player.hp = run.player.maxHP; run.player.xp = run.player.xpNext
+        stepSim(run, { x: 0, y: 0 }, 1 / 60)
+        for (const c of run.levelUpChoices) { if (c.kind === 'mod' && c.weapon === 'lantern') lantern++; if (c.kind === 'weapon' && c.id === 'pickaxe') pickLv++; if (c.kind === 'mod' && c.weapon === 'pickaxe') pickMod++ }
+      }
+      return { lantern, pickLv, pickMod }
+    } finally { BOOKS.burrow.rules.maxedKeepsShare = keep }
+  }
+  const share = [shareWith(false), shareWith(true)]
+  assert.ok(!BOOKS.book1.rules?.maxedKeepsShare && !BOOKS.undertow.rules?.maxedKeepsShare && BOOKS.burrow.rules.maxedKeepsShare, 'run MI.d8: only Book 3 on keeps a maxed weapon share')
+  assert.ok(share[1].lantern > share[0].lantern * 1.3 && share[1].pickLv < share[0].pickLv * 0.8 && share[1].pickMod <= share[0].pickMod,
+    `run MI.d8: a maxed lantern must keep its level-up share as lantern mods (off/on: ${JSON.stringify(share)})`)
   const eye = WEAPON_MODS.lantern.minersEye.base
   const pocketsWith = (weaponMods) => {
     const run = stage(41008, 1)
@@ -40694,7 +40717,7 @@ function testMine() {
     'run MI.h: ascii.js must draw the lit cloud with MINE_GAS_LIT_SHRINK and fade pockets in over MINE_GAS_FADE_IN, the numbers the sting and the lighting read')
   assert.ok(!seamA[0].dead && seamA[1].dead && Math.abs(seamA[1].r / seamA[0].r - MUTATORS.methaneSeam.effects.gasBlastMul) < 1e-6,
     `run MI.f: Methane Seam's bigger blast must kill a body just past a normal one: ${JSON.stringify(seamA)}`)
-  console.log(`PASS run MI (the mine): a shot through a row of 3 pockets blew links ${chains.join(',')} and killed both bodies, nothing with the switch off; a blast beside you stung ${sting} hp; pickaxe/dynamite/minecart/lantern each set off an empty pocket by their own reach (${Object.values(lit).join('/')}); a blow on a body in a pocket set it off (${hookIn}, ${hookOut} away); the lantern's pocket blew after its fuse (${fuseN}), none past the glow, Open Flame blast r ${flameR.map((r) => r.toFixed(0)).join('->')}, Safety Lamp glow ${lampR.map((r) => r.toFixed(0)).join('->')}px, Miner's Eye pockets ${eyeN.join('->')}, Firebending jets burned ${bend[0].burned}->${bend[1].burned} foes, mine xp cost x${(ramp[2] / ramp[0]).toFixed(2)} at the end; Canary chained ${chainA.join('->')} pockets; Methane Seam's blast r ${seamA[0].r.toFixed(0)}->${seamA[1].r.toFixed(0)} killed the body just outside; wandering, seeping pockets came no nearer than ${seepD.toFixed(0)}px (sting reach ${stingMax.toFixed(0)}), no pocket laid nearer than ${layD.toFixed(0)}px (spawnMin ${F0.spawnMin}), a pocket fading in was not lit (${young}), a ring alone lit one (${ringA}); a cart shoved a body ${cart.shove.toFixed(0)}px and dazed it up to ${cart.stunMax.toFixed(2)}s; outside the cloud you took ${cloudOut.sting} while the body beside you was hurt, inside it ${cloudIn.sting}`)
+  console.log(`PASS run MI (the mine): a shot through a row of 3 pockets blew links ${chains.join(',')} and killed both bodies, nothing with the switch off; a blast beside you stung ${sting} hp; pickaxe/dynamite/minecart/lantern each set off an empty pocket by their own reach (${Object.values(lit).join('/')}); a blow on a body in a pocket set it off (${hookIn}, ${hookOut} away); the lantern's pocket blew after its fuse (${fuseN}), none past the glow, Open Flame blast r ${flameR.map((r) => r.toFixed(0)).join('->')}, Safety Lamp glow ${lampR.map((r) => r.toFixed(0)).join('->')}px, Miner's Eye pockets ${eyeN.join('->')}, Firebending jets burned ${bend[0].burned}->${bend[1].burned} foes, mine xp cost x${(ramp[2] / ramp[0]).toFixed(2)} at the end, maxed lantern mods ${share[0].lantern}->${share[1].lantern}; Canary chained ${chainA.join('->')} pockets; Methane Seam's blast r ${seamA[0].r.toFixed(0)}->${seamA[1].r.toFixed(0)} killed the body just outside; wandering, seeping pockets came no nearer than ${seepD.toFixed(0)}px (sting reach ${stingMax.toFixed(0)}), no pocket laid nearer than ${layD.toFixed(0)}px (spawnMin ${F0.spawnMin}), a pocket fading in was not lit (${young}), a ring alone lit one (${ringA}); a cart shoved a body ${cart.shove.toFixed(0)}px and dazed it up to ${cart.stunMax.toFixed(2)}s; outside the cloud you took ${cloudOut.sting} while the body beside you was hurt, inside it ${cloudIn.sting}`)
 }
 
 // ---- run MA: Book 3, The Magma — the crust, and the weapons that use it -----------------------

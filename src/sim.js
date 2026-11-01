@@ -29,7 +29,7 @@
 
 import {
   RUN_DURATION, PLAYER, WEAPONS, weaponDesc, CHAPTERS, MAX_WEAPON_LEVEL, MAX_WEAPONS,
-  PASSIVES, MAX_PASSIVE_LEVEL, passiveTotal, capTotal, WEAPON_MODS, WEAPON_MOD_TIER_BONUS, MOD_POOL_MAX,
+  bookRule, PASSIVES, MAX_PASSIVE_LEVEL, passiveTotal, capTotal, WEAPON_MODS, WEAPON_MOD_TIER_BONUS, MOD_POOL_MAX,
   MOD_CANDIDATES_PER_WEAPON, maxModsPerWeaponPerPool, DUO_PITY_SCREENS, WEAPON_RATE_MODS, WEAPON_COUNT_MODS, WEAPON_COUNT_KEYS, STAT_ROW_KEYS,
   ELEMENTS, MAX_ELEMENT_PICKS,
   // RARITY_ORDER came back in v7.5 for BLIND_FAITH_FLOOR, and the reason it left still stands:
@@ -16620,10 +16620,19 @@ function rollCard(run, weaponPool, passiveIds, modCandidates, elementIds, picked
   // exactly what the spec forbids. Focus may decide which weapon wins a mod card; never whether one
   // is dealt.
   const focus = specialistFocus(run)
-  const modOpts = modCandidates.filter((mc) =>
+  let modOpts = modCandidates.filter((mc) =>
     !pickedIds.has(mc.mod)
     && (modWeaponCounts.get(mc.weapon) ?? 0) < modCap)
   if (modOpts.length > 0) buckets.mod = BUCKET_WEIGHTS.mod
+  // A MAXED weapon keeps the level-up share it had (books with maxedKeepsShare): it stays in the weapon bucket at
+  // WEAPON_UP_WEIGHT and, when drawn, deals one of its own mods instead of a level
+  const maxedMods = {}
+  if (bookRule(run.chapter, 'maxedKeepsShare')) for (const w of run.weapons) {
+    if (w.level < MAX_WEAPON_LEVEL) continue
+    const own = modOpts.filter((mc) => mc.weapon === w.id)
+    if (own.length > 0) { maxedMods[w.id] = own; weaponW['max:' + w.id] = WEAPON_UP_WEIGHT }
+  }
+  if (Object.keys(maxedMods).length > 0) buckets.weapon = BUCKET_WEIGHTS.weapon
 
   const elementOpts = elementIds.filter((eid) => !pickedIds.has(eid))
   // MUTATORS.unstable's elementWeightMul keeps its reader here now that ELEMENT_CARD_WEIGHT is
@@ -16640,7 +16649,7 @@ function rollCard(run, weaponPool, passiveIds, modCandidates, elementIds, picked
 
   if (Object.keys(buckets).length === 0) return null
 
-  const bucket = pickWeighted(buckets)
+  let bucket = pickWeighted(buckets), wk = null
   // Rerolling THIS screen decays the `normal` weight and nothing else, so every other tier's share
   // rises proportionally without a second knob (config.js REROLL_RARITY_DECAY/CAP). Rerolling buys
   // BIGGER NUMBERS — never a different KIND of card. Three separate places enforce that half, and
@@ -16671,7 +16680,11 @@ function rollCard(run, weaponPool, passiveIds, modCandidates, elementIds, picked
     // applyChoice's weapon branch never reads rarity, so an adopted colour would mean nothing.
     // weaponCandidates already gave UPGRADE entries UPGRADE_RARITY (no tier at all): the chip is
     // the acquisition jackpot, and re-firing it for a weapon you own spends it for nothing.
-    const wc = weaponOpts[Number(pickWeighted(weaponW))]
+    wk = String(pickWeighted(weaponW))
+    if (wk.startsWith('max:')) { modOpts = maxedMods[wk.slice(4)]; bucket = 'mod' }
+  }
+  if (bucket === 'weapon') {
+    const wc = weaponOpts[Number(wk)]
     // BLIND FAITH (v7.5): a weapon card's rarity is not a rolled tier at all — a `New!` card carries
     // its WEAPON's inherent rarity (which can be below the floor) and an UPGRADE carries
     // UPGRADE_RARITY, which is not a RARITIES key and so prints no chip.

@@ -6874,7 +6874,7 @@ export const BOOKS = {
    undertow: { name: 'Undertow', cloth: '#1f5c7c', chapters: ['surf', 'shelf', 'reef', 'trawl', 'wreck', 'deep'], hidden: ['kraken'], startCoins: 100 },
   // Book 3: digging down into the earth. wipFrom 2 since 2026-11-01: Topsoil and The Geode are live,
   // The Mine onward still gated behind meta.dev.
-  burrow: { name: 'Burrow', cloth: '#2b1d15', chapters: ['topsoil', 'geode', 'mine', 'magma', 'mantle', 'core'], hidden: ['ophan'], startCoins: 100, wipFrom: 2, maxDifficultyCap: 3,
+  burrow: { name: 'Burrow', cloth: '#2b1d15', rules: { maxedKeepsShare: true }, chapters: ['topsoil', 'geode', 'mine', 'magma', 'mantle', 'core'], hidden: ['ophan'], startCoins: 100, wipFrom: 2, maxDifficultyCap: 3,
     // balance_decision : Book 3 d2 +25%, d3 +50% enemies and damage 2026-11-01
     difficultyPerLevel: 0.25 },
 }
@@ -11987,6 +11987,11 @@ export function hiddenChapters() {
 export const resolveChapterId = (id) => (Object.hasOwn(CHAPTERS, id) ? id : CHAPTER_ORDER[0])
 
 // Which book claims this chapter (ladder or hidden), or null for an id no book knows.
+// BOOK RULES: a book's own rule switches (BOOKS[id].rules), read through bookRule. A new rule is OFF
+// for every book that does not list it, so a book already played and scored keeps the rules it
+// was played under. Give each new book the rules of the one before it, then change what it needs.
+//   maxedKeepsShare  a maxed weapon's level-up rolls deal its own mods instead (rollCard)
+export const bookRule = (chapterId, key) => BOOKS[bookOf(chapterId)]?.rules?.[key] ?? false
 export const bookOf = (id) => Object.keys(BOOKS).find((b) => BOOKS[b].chapters.includes(id) || BOOKS[b].hidden.includes(id)) ?? null
 // Is this chapter behind the WIP gate — i.e. does it still need meta.dev to be reachable?
 //
