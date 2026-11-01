@@ -2386,7 +2386,8 @@ function testAnomalySlate() {
                 // (it was a band across the lane, addressed by index), so position alone would
                 // have read three DIFFERENT ridges as one thing and waved the card through — the
                 // exact failure this key exists to catch.
-                seen.add(`${key}:${Math.round(o.x)},${Math.round(o.y)},${(o.angle ?? 0).toFixed(2)},${Math.round(o.radius ?? o.r ?? 0)},i${o.i ?? ''},arm${k}`)
+                // seed: a stalactite still waiting to fall has no x/y yet, so without it every queued stone reads as one
+                seen.add(`${key}:${Math.round(o.x)},${Math.round(o.y)},${(o.angle ?? 0).toFixed(2)},${Math.round(o.radius ?? o.r ?? 0)},i${o.i ?? ''},s${o.seed ?? ''},arm${k}`)
               }
             }
           }

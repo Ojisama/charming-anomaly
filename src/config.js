@@ -3018,12 +3018,13 @@ export const WEAPONS = {
     icon: '🗡️', rarity: 'rare',
     // balance_decision : owner: a new copy only at levels 3 and 5 [2026-10-11]
     // balance_decision : owner, +10% fire rate per level on top 2026-10-31
+    // balance_decision : owner, impact radius -30% 2026-11-01
     levels: [
-      { dmg: 30, interval: 2.4, count: 1, r: 52 },
-      { dmg: 36, interval: 2.25 / 1.1, count: 1, r: 56 },
-      { dmg: 44, interval: 2.1 / 1.1 ** 2, count: 2, r: 60 },
-      { dmg: 54, interval: 1.95 / 1.1 ** 3, count: 2, r: 64 },
-      { dmg: 66, interval: 1.8 / 1.1 ** 4, count: 3, r: 70 },
+      { dmg: 30, interval: 2.4, count: 1, r: 52 * 0.7 },
+      { dmg: 36, interval: 2.25 / 1.1, count: 1, r: 56 * 0.7 },
+      { dmg: 44, interval: 2.1 / 1.1 ** 2, count: 2, r: 60 * 0.7 },
+      { dmg: 54, interval: 1.95 / 1.1 ** 3, count: 2, r: 64 * 0.7 },
+      { dmg: 66, interval: 1.8 / 1.1 ** 4, count: 3, r: 70 * 0.7 },
     ],
   },
   // ---- Book 3, Burrow: The Mine's four. Every one of them lights the firedamp it touches. ----
@@ -4610,7 +4611,8 @@ export const WEAPON_MODS = {
     // balance_decision : owner, +1 stone, epic and up only 2026-10-31
     rockfall:    { name: 'Rockfall',     desc: 'extra stone(s) per cast', icon: '🔷', kind: 'flat', maxPicks: 3,
                    values: { epic: 1, legendary: 1, mythic: 1 } },
-    wideCrash:   { name: 'Wide Crash',   desc: 'impact radius', icon: '⭕', base: 0.25, kind: 'pct' },
+    // balance_decision : owner, -30% 2026-11-01
+    wideCrash:   { name: 'Wide Crash',   desc: 'impact radius', icon: '⭕', base: 0.25 * 0.7, kind: 'pct' },
     dripRate:    { name: 'Quick Drip',   desc: 'cast rate', icon: '⏩', base: 0.25, kind: 'pct' },
     // balance_decision : +2 splinters per tier, owner untested 2026-10-31
     splinterBurst: { name: 'Splinter Burst', desc: 'extra splinter(s) per stone', icon: '✴️', kind: 'tier', perTier: 2 },
