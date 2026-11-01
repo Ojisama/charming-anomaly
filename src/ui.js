@@ -1175,7 +1175,7 @@ export function initUI(hooks) {
         faces.push(rid)
       }
     }
-    const CAST_ROWS = { 1: [1], 2: [1, 1, 's'], 3: [2, 1], 4: [2, 2, 's'], 5: [2, 1, 2], 6: [3, 3, 's'], 7: [2, 3, 2], 8: [3, 2, 3], 9: [3, 3, 3, 's'] }
+    const CAST_ROWS = { 1: [1], 2: [1, 1, 's'], 3: [2, 1], 4: [2, 2, 's'], 5: [3, 2], 6: [3, 3, 's'], 7: [2, 3, 2], 8: [3, 2, 3], 9: [3, 3, 3, 's'] }
     const plan = CAST_ROWS[Math.min(faces.length, 9)] ?? []
     const shift = plan.includes('s')
     const sizes = plan.filter((x) => x !== 's')
