@@ -263,7 +263,7 @@ import {
   PRISM_FAN, PRISM_LIFE, PRISM_R, ECHO_LIFE, ECHO_DOUBLE_DELAY, ECHO_DOUBLE_DMG_FRAC, CRAB_EAT, NOISE_BATS, STALACTITE_FUSE, STALACTITE_RANGE, STALACTITE_CHIPS, STALACTITE_TANK_MUL, STALACTITE_SPREAD, STALACTITE_CRACKS, CRYSTAL_CARDS, ENV_WEAPONS, fillModDesc,
   PICKAXE_RANGE, PICKAXE_KB, PICKAXE_FLIGHT, PICKAXE_CHIP_DMG, PICKAXE_CHIP_SPEED, PICKAXE_CHIP_LIFE, PICKAXE_CHIP_R,
   DYNAMITE_RANGE, DYNAMITE_FLIGHT, DYNAMITE_FUSE, DYNAMITE_KB, MINECART_SPEED, MINECART_FAN, MINECART_KB, MINECART_STUN, MINECART_LOOT_R, MINECART_HOME_R,
-  CANARY_REACH_MUL, CANARY_LINK_DMG, LANTERN_PULSE, LANTERN_FUSE, SAFETY_LAMP_SENSE, SAFETY_LAMP_MAX, SAFETY_LAMP_EASE, MINE_BOOM_KEEP, MINE_GAS_FADE_IN, MINE_GAS_LIT_SHRINK,
+  CANARY_REACH_MUL, CANARY_LINK_DMG, LANTERN_PULSE, LANTERN_FUSE, DRAUGHT_DRAW, DRAUGHT_HOLD, DRAUGHT_TRAIL, DRAUGHT_R, DRAUGHT_STAGGER, SAFETY_LAMP_SENSE, SAFETY_LAMP_MAX, SAFETY_LAMP_EASE, MINE_BOOM_KEEP, MINE_GAS_FADE_IN, MINE_GAS_LIT_SHRINK,
   SLAG_RANGE, SLAG_FLIGHT, SLAG_TICK, OBSIDIAN_FAN, OBSIDIAN_LIFE, OBSIDIAN_R, SPLINTER_DMG_MUL, SPLINTER_LIFE, SPLINTER_SPEED, SPLINTER_R,
   BELLOWS_LIFE, BELLOWS_FLARE_MUL, BELLOWS_FLARE_R, BELLOWS_FLARE_T, BOMB_RANGE, BOMB_FLIGHT, BOMB_LAVA_R, BOMB_LAVA_T, HOT_FEET_OPEN_MUL, HOT_FEET_BURN_MUL,
   FLOOD_TIDE_COVER_ADD, FLOOD_TIDE_SPEED_MUL, FLOOD_TIDE_BURN_MUL, COAL_FAN, COAL_LIFE, COAL_R, COAL_IGNITE,
@@ -18347,10 +18347,38 @@ function stepLanternWeapon(run, w, stats, fireRateMul, dt) {
   fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => {
     // each burn is a quick pulse of the glow (run.novas, look 'lantern'): every body inside takes the hit once
     for (const r of ipecacRadii(run, radius)) spawnNova(run, p.x, p.y, r, dmg, 0, 0, { look: 'lantern', life: LANTERN_PULSE, noGas: true })
+    if (M.draught) {
+      // Draught: firedamp the glow touches is drawn into the lamp (run.lanternHeld) instead of catching
+      const keep = []
+      for (const g of run.gas ?? []) {
+        if (g.age >= MINE_GAS_FADE_IN && (g.x - p.x) ** 2 + (g.y - p.y) ** 2 <= (g.r + radius) ** 2) run.lanternHeld.push({ x0: g.x, y0: g.y, x: g.x, y: g.y, r: g.r, seed: g.seed, t: 0, a: Math.atan2(g.y - p.y, g.x - p.x) })
+        else keep.push(g)
+      }
+      if (keep.length !== (run.gas?.length ?? 0)) run.gas = keep
+      return
+    }
     // firedamp the glow touches catches and burns LANTERN_FUSE s (drawn lit) before it blows; Open Flame makes it blow bigger
     const n = gasLightAt(run, p.x, p.y, radius, run.time + LANTERN_FUSE)
     if (M.openFlame) for (let i = run.gasLit.length - n; i < run.gasLit.length; i++) run.gasLit[i].blastMul = 1 + M.openFlame
   })
+  // Firebending: a drawn-in pocket flows into the ring where it touched over DRAUGHT_DRAW s, runs round
+  // the ring to your back for DRAUGHT_HOLD s (ascii.js draws the wave and the jet), then is puffed out
+  // behind you (away from where you last walked) as a short trail of lit pockets that blow nearest first
+  if (run.lanternHeld.length) {
+    const back = (p.facingAngle ?? (p.facing < 0 ? Math.PI : 0)) + Math.PI
+    for (const h of run.lanternHeld) {
+      h.t += dt
+      const k = Math.min(1, h.t / DRAUGHT_DRAW)
+      h.x = h.x0 + (p.x + Math.cos(h.a) * radius - h.x0) * k; h.y = h.y0 + (p.y + Math.sin(h.a) * radius - h.y0) * k
+      if (k < 1) continue
+      h.held = (h.held ?? 0) + dt
+      if (h.held < DRAUGHT_HOLD) continue
+      h._done = true
+      DRAUGHT_TRAIL.forEach((d, i) => run.gasLit.push({ x: p.x + Math.cos(back) * d, y: p.y + Math.sin(back) * d, r: h.r * DRAUGHT_R,
+        at: run.time + LANTERN_FUSE * 0.5 + i * DRAUGHT_STAGGER, chain: 0, seed: h.seed + i, blastMul: 1 + (M.openFlame ?? 0) }))
+    }
+    run.lanternHeld = run.lanternHeld.filter((h) => !h._done)
+  }
 }
 // ==== Book 3: The Magma ============================================================================
 // THE CRUST (The Magma's signature). The floor is a skin of cooled crust over lava, and the player's

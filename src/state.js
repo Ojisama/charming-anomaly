@@ -2221,6 +2221,10 @@ function generateWells(sig) {
  *     chain 0 = set off by a player weapon this frame, or a Gas Toad's death pop (which carries its
  *     own sting and src 'gasToad'); n = the nth link of a chain. It blasts once. The Lantern's glow
  *     lights a pocket LANTERN_FUSE s ahead (drawn lit meanwhile); blastMul = its Open Flame bonus.
+ *   lanternHeld[i]: { x0, y0, x, y, r, seed, t, a, held? } — Firebending: a pocket the glow drank.
+ *     It flows to the ring at angle a (from you) over DRAUGHT_DRAW s (x, y = where it is now), then
+ *     runs round the ring for DRAUGHT_HOLD s (held; ascii.js draws the wave and the jet), then
+ *     becomes DRAUGHT_TRAIL.length gasLit pockets behind you and leaves the list.
  *   sticks[i]: { x, y, fromX, fromY, t, flight, fuse, r, dmg, seed } — Dynamite: in the air for
  *     `flight` s from (fromX, fromY) to (x, y), then fizzing for `fuse` s, then {type:'dynamite'}.
  *   picks[i]: { x, y, r, dmg, count, angle, tid, t } — a thrown Pickaxe: its blow lands at (x, y) in t s.
@@ -3239,7 +3243,7 @@ export function createRun(meta, opts = {}) {
     // own entities. Empty in every other chapter.
     pits: [], caveIns: [], snares: [], drips: [], echoes: [], faults: [],
     // Book 3, The Mine (sim.js's Mine section): the firedamp field and the Mine's weapons' entities.
-    gas: [], gasLit: [], sticks: [], picks: [], carts: [], lanternR: 0, booms: [],
+    gas: [], gasLit: [], sticks: [], picks: [], carts: [], lanternR: 0, lanternHeld: [], booms: [],
     // Book 3 The Magma (sim.js's Magma section): the crust's cracks, and the weapons' own entities.
     cracks: [], slagPools: [], magmaLobs: [],
     // Book 3 The Mantle (sim.js's Mantle section): the lava tide's state, made on the first step.
