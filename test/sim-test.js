@@ -65,7 +65,7 @@ import {
   BOOKS, BOOK_ORDER, BOOK_SHOP, shopLines, BOOK_UNLOCKS, playableChapterId, isWipChapter, chapterAvailable, titleBookshelf, CHAPTER_SPINE, isBookFinale, nextBook, bookOf, chapterNumber,
   DMG_SRC_NAME, dmgSrcName, DMG_SRC_ART, dmgSrcArt, DMG_SRC_NO_ART, POLE_NAMES,
   DEATH_OUTRO, irisCoverMul, deathProgress, LANE_CAMERA_FRAC,
-  endlessLevel, ENDLESS_START_LEVEL, endlessHpMul, endlessXpNeedMul, endlessXpMul, ENDLESS_COIN_HALF_LIFE_S, endlessAffixChance, endlessEligible, endlessUnlocked, endlessAccess, ENDLESS_AFFIX_FROM, ENDLESS_AFFIX_MAX,
+  endlessLevel, ENDLESS_START_LEVEL, endlessHpMul, endlessXpNeedMul, endlessXpMul, ENDLESS_COIN_HALF_LIFE_S, endlessAffixChance, endlessEligible, endlessUnlocked, ENDLESS_AFFIX_FROM, ENDLESS_AFFIX_MAX,
   CHAPTERS, CHAPTER_ORDER, nextChapter, CHAPTER_UNLOCK_DIFFICULTY, SUBMISSION_DURATION, SUBMISSION_STRIP_FLAGS,
   RUNOFF_MAX_DMG_MUL, RUNOFF_SPEED_FLOOR,
   ELEMENTS, CONSUMABLES,
@@ -712,35 +712,26 @@ function testEndlessMeta() {
   const main = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
   assert.match(main, /createRun\(meta, \{[^}]*endless[^}]*\}\)/, 'startClassic must forward endless to createRun')
   assert.strictEqual((main.match(/if \(!run\.endless\)[^\n]*best\.time/g) ?? []).length, 2, 'meta.best.time AND chMeta.best.time must both be gated on !run.endless')
-  assert.match(main, /endlessPicked === true && CFG\.endlessAccess\(meta\) && CFG\.endlessUnlocked/, 'onPlay must gate endless on endlessAccess')
-  assert.match(main, /onEndless\(on\) \{\s*if \(!CFG\.endlessAccess\(meta\)\) return/, 'onEndless must no-op without endlessAccess')
+  assert.match(main, /endlessPicked === true && CFG\.endlessUnlocked/, 'onPlay must gate endless on endlessUnlocked')
   console.log('PASS run EN.h (endless meta + main wiring)')
 }
 
 function testEndlessAccess() {
-  // truth table: dev OR the server-allowlisted beta flag, both strict === true
-  assert.strictEqual(endlessAccess({ dev: true }), true)
-  assert.strictEqual(endlessAccess({ betaEndless: true }), true)
-  assert.strictEqual(endlessAccess({ dev: true, betaEndless: true }), true)
-  assert.strictEqual(endlessAccess({}), false)
-  assert.strictEqual(endlessAccess({ dev: false, betaEndless: false }), false)
-  assert.strictEqual(endlessAccess({ betaEndless: 'yes', dev: 1 }), false, 'only literal true counts')
-  assert.strictEqual(endlessAccess(null), false)
-  // beta unlocks nothing by itself: the won gate still applies, and a WIP chapter still needs dev
+  // released to everyone: the won gate is the only gate, and a WIP chapter still needs dev
   const m = makeMeta()
-  m.betaEndless = true
   const ids = Object.keys(CHAPTERS)
   const open = ids.find((id) => endlessEligible(id) && !isWipChapter(id))
   assert.ok(open, `need an open eligible chapter (of ${ids.length})`)
+  assert.ok(!endlessUnlocked(m, open), 'endless needs the chapter won first')
   ensureChapterMeta(m, open).won = 3
-  assert.ok(endlessUnlocked(m, open), 'beta tester gets endless on an open chapter')
+  assert.ok(endlessUnlocked(m, open), 'a plain player gets endless on a won open chapter')
   // no shipped eligible chapter is WIP today, so gate one for the duration of the check
   const book = BOOKS[bookOf(open)]
   const was = book.wipFrom
   book.wipFrom = 0
   try {
     assert.ok(isWipChapter(open), 'fixture: chapter must read as WIP')
-    assert.ok(!endlessUnlocked(m, open), 'beta must NOT unlock a WIP chapter')
+    assert.ok(!endlessUnlocked(m, open), 'a WIP chapter stays dev-only')
     m.dev = true
     assert.ok(endlessUnlocked(m, open), 'dev still unlocks a WIP chapter')
   } finally {
@@ -750,12 +741,11 @@ function testEndlessAccess() {
   // source-text contracts (main/ui are not importable)
   const main = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
   const ui = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
-  assert.match(main, /if \(nick && !meta\.dev && !run\._devUsed && !run\.endless &&/,'endRun must refuse to submit an endless run')
+  assert.match(main, /if \(nick && !meta\.dev && !run\._devUsed && !isWipChapter/, 'endRun submits endless runs like any other')
   assert.match(main, /if \(endless && meta\.dev && speedrun\) ffTarget/, 'speedrun must stay dev-only')
   assert.match(ui, /const speedrunBtn = meta\.dev === true && endlessOn/, 'Speedrun button must stay dev-only')
-  assert.match(ui, /endlessOn = endlessAccess\(meta\) && endlessUnlocked/, 'pip gated on endlessAccess')
-  assert.match(ui, /return endlessAccess\(meta\) && endlessUnlocked\(meta, chapterId\)/, 'boardDiffOf gated on endlessAccess')
-  console.log('PASS run EN.i (endless beta access): truth table, WIP stays dev, submit + speedrun gates')
+  assert.ok(!/endlessAccess/.test(main + ui), 'endless has no access gate beyond endlessUnlocked')
+  console.log('PASS run EN.i (endless released): won gate only, WIP stays dev, endless submits, speedrun stays dev')
 }
 
 function testEndlessCoins() {
@@ -39606,7 +39596,7 @@ function testBurrow() {
   assert.notStrictEqual(playableChapterId(leak), 'ophan', 'run BU3.d: a non-dev save starts The Ophan')
   assert.ok(!isWipChapter('kraken') && !isWipChapter('blank'), 'run BU3.d: the inheritance gated a shipped hidden chapter')
   const mainSrc = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
-  assert.ok(/!run\._devUsed && !run\.endless && !isWipChapter\(run\.chapter\)/.test(mainSrc), 'run BU3.d: a WIP chapter can submit a score')
+  assert.ok(/!run\._devUsed && !isWipChapter\(run\.chapter\)/.test(mainSrc), 'run BU3.d: a WIP chapter can submit a score')
   console.log(`PASS run BU3 (Burrow): moles under ${under} frames, 0 hp lost under, mole dmg ${run.dmgBySrc.mole}; unarmed pit kills ${kOn} vs ${kOff} off; a crystal bounced ${on.bounced}x into ${on.bullets.length} shots, stopped it with bounce off`)
 }
 
