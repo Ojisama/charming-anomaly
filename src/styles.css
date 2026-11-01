@@ -3654,9 +3654,9 @@ body {
    An odd count staggers by itself (k over k-1); an even one needs the half-face push. */
 .title-below .page--verso { container-type: inline-size; }
 /* --k is the widest row in faces (+0.5 for an even count's push), so the faces shrink before they reach the gutter */
-.title-below .page--verso .detail-cast { --face: min(clamp(36px, 6.4svh, 54px), calc((100cqi - 8px) / var(--k, 1) - 2px)); display: flex; flex-direction: column; align-items: center; gap: 0; }
+.title-below .page--verso .detail-cast { --face: min(clamp(42px, 7.6svh, 64px), calc((100cqi - 8px) / var(--k, 1) - 2px)); display: flex; flex-direction: column; align-items: center; gap: 0; }
 /* three rows cost two faces of height, so a tall cast trades some of the face's width for it */
-.title-below .page--verso .detail-cast--r3 { --face: min(clamp(30px, 5.2svh, 46px), calc((100cqi - 8px) / var(--k, 1) - 2px)); }
+.title-below .page--verso .detail-cast--r3 { --face: min(clamp(36px, 6.2svh, 54px), calc((100cqi - 8px) / var(--k, 1) - 2px)); }
 .cast-row { display: flex; gap: 2px; }
 /* DIAMONDS, after Path of Exile 2's Trial of Chaos afflictions: each row drops half a diamond, so
    its tips sit in the notches of the row above and the rows lock edge to edge. */
@@ -3677,7 +3677,7 @@ body {
 /* Absolutely placed, because a percentage HEIGHT on a grid or flex child resolves against a track
    the image itself sizes: a tall bake (the Geode's bat) grew past its face and the diamond cut it.
    70% keeps a body's bounding box mostly inside the diamond; only the box's corners are cut. */
-.title-below .page--verso .detail-face img { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 70%; height: 70%; max-width: none; object-fit: contain; }
+.title-below .page--verso .detail-face img { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 82%; height: 82%; max-width: none; object-fit: contain; }
 /* a medallion bake (ui.js tags it on load and fills the face with the disc's colour): drawn at
    112%, the disc's rim sits outside the diamond and the creature fills the face */
 .title-below .page--verso .detail-face img.face-medallion { width: 112%; height: 112%; }
