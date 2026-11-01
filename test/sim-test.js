@@ -733,7 +733,20 @@ function testBook3LadderCap() {
   assert.ok(endlessUnlocked(m, 'topsoil'), 'won d3 opens endless on topsoil')
   m.chapters.topsoil.won = 2
   assert.ok(!endlessUnlocked(m, 'topsoil'), 'won d2 does not')
-  console.log(`PASS run B3L (Book 3 ladder): ${b3.length} Book 3 chapters cap at d3, books 1-2 keep d5, saves clamp, d3 win opens endless`)
+  // Book 3 steps +25%/level (d2 +25%, d3 +50%) in enemies AND damage; books 1-2 keep +15%
+  const near = (a, b, msg) => assert.ok(Math.abs(a - b) < 1e-9, `${msg}: ${a} vs ${b}`)
+  for (const id of b3) {
+    near(difficultyCountMul(2, id), 1.25, `${id} d2 count`); near(difficultyCountMul(3, id), 1.5, `${id} d3 count`)
+    near(difficultyDmgMul(2, id), 1.25, `${id} d2 dmg`); near(difficultyDmgMul(3, id), 1.5, `${id} d3 dmg`)
+  }
+  near(difficultyDmgMul(3, 'body'), 1.3, 'book 1 d3 dmg'); near(difficultyCountMul(3, 'surf'), 1.3, 'book 2 d3 count')
+  // and it reaches a real run: topsoil d3 over d2 is 1.5/1.25
+  const r2 = createRun(makeMeta(), { chapter: 'topsoil', difficulty: 2 })
+  const r3 = createRun(makeMeta(), { chapter: 'topsoil', difficulty: 3 })
+  near(r3.mods.enemyDmgMul / r2.mods.enemyDmgMul, 1.2, 'topsoil run dmg d3/d2')
+  near(r3.mods.spawnMul / r2.mods.spawnMul, 1.2, 'topsoil run spawn d3/d2')
+  near(r3.mods.maxAliveMul / r2.mods.maxAliveMul, 1.2, 'topsoil run maxAlive d3/d2')
+  console.log(`PASS run B3L (Book 3 ladder): ${b3.length} Book 3 chapters cap at d3 and step +25%/level, books 1-2 keep d5 at +15%, saves clamp, d3 win opens endless`)
 }
 
 function testEndlessAccess() {
@@ -18473,7 +18486,7 @@ function testEarlyCalm() {
     Math.random = mulberry32(20260714)
     for (const chapter of EARLY_CALM_CHAPTERS) {
       const run = createRun(makeMeta(), { chapter, difficulty: 2 })
-      const expectedSpawn = balSpawnMul(chapter) * difficultyCountMul(2)
+      const expectedSpawn = balSpawnMul(chapter) * difficultyCountMul(2, chapter)
       const expectedXp = balXpMul(chapter)
       assert(Math.abs(run.mods.spawnMul - expectedSpawn) < EPS,
         `expected ${chapter} d2 mods.spawnMul ≈ ${expectedSpawn}, got ${run.mods.spawnMul}`)
@@ -44559,7 +44572,7 @@ function testOphanCrowdBite() {
   const C = CHAPTERS.ophan, seen = []
   for (const e of crowd()) {
     const row = C.roster.find((q) => q.id === e.rosterId), home = CHAPTERS[C.worlds[row.world].chapter]
-    const want = ENEMIES[ARCHETYPE_TYPE[row.archetype]].dmg * home.balance.enemyDmgMul * difficultyDmgMul(3) * (home.roster.find((q) => q.id === row.id).dmgMul || 1) * OPHAN_CROWD_BITE
+    const want = ENEMIES[ARCHETYPE_TYPE[row.archetype]].dmg * home.balance.enemyDmgMul * difficultyDmgMul(3, 'ophan') * (home.roster.find((q) => q.id === row.id).dmgMul || 1) * OPHAN_CROWD_BITE
     assert.ok(Math.abs(e.dmg - want) < 1e-6, `OP.bite: ${e.rosterId} bites ${e.dmg.toFixed(3)}, its own chapter's would be ${want.toFixed(3)}`)
     seen.push(e.rosterId + ' ' + e.dmg.toFixed(1))
   }
