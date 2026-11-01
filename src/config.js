@@ -3076,15 +3076,15 @@ export const WEAPONS = {
   // each interval, and lights every firedamp pocket within range of you.
   lantern: {
     name: 'Lantern',
-    desc: 'A warm glow around you burns whatever comes close, and sets off the firedamp near you.',
+    desc: 'A warm glow around you burns whatever comes close. Firedamp it touches catches, and blows a moment later.',
     icon: '🏮', rarity: 'normal',
     // balance_decision : owner: glow radius halved, Wide Glow grows it [2026-10-11]
     levels: [
-      { dmg: 15, interval: 0.4, radius: (150 + 6) * 0.5, range: 165 },
-      { dmg: 18, interval: 0.38, radius: (158 + 6) * 0.5, range: 175 },
-      { dmg: 22, interval: 0.36, radius: (166 + 6) * 0.5, range: 185 },
-      { dmg: 27, interval: 0.34, radius: (176 + 6) * 0.5, range: 200 },
-      { dmg: 33, interval: 0.32, radius: (188 + 6) * 0.5, range: 215 },
+      { dmg: 15, interval: 0.4, radius: (150 + 6) * 0.5 },
+      { dmg: 18, interval: 0.38, radius: (158 + 6) * 0.5 },
+      { dmg: 22, interval: 0.36, radius: (166 + 6) * 0.5 },
+      { dmg: 27, interval: 0.34, radius: (176 + 6) * 0.5 },
+      { dmg: 33, interval: 0.32, radius: (188 + 6) * 0.5 },
     ],
   },
 
@@ -4688,7 +4688,10 @@ export const WEAPON_MODS = {
     wideGlow:    { name: 'Wide Glow',    desc: 'glow radius', icon: '⭕', kind: 'pct',
                    values: { rare: 0.10, epic: 0.20, legendary: 0.35, mythic: 0.50 } },
     quickWick:   { name: 'Quick Wick',   desc: 'burn rate', icon: '⏩', base: 0.25, kind: 'pct' },
-    openFlame:   { name: 'Open Flame',   desc: 'how far the glow sets off firedamp', icon: '🔥', base: 0.30, kind: 'pct' },
+    openFlame:   { name: 'Open Flame',   desc: 'blast of the firedamp your glow lights', icon: '🔥', base: 0.30, kind: 'pct' },
+    // balance_decision : owner picks, first guesses, unplayed 2026-11-01
+    safetyLamp:  { name: 'Safety Lamp',  desc: 'glow size and damage per firedamp pocket near you', icon: '🪔', base: 0.06, kind: 'pct' },
+    minersEye:   { name: "Miner's Eye",  desc: 'firedamp pockets around you', icon: '👁️', base: 0.30, kind: 'pct' },
   },
 
   // ---- Book 3, The Magma ----
@@ -6972,6 +6975,10 @@ export const MINE_BOOM_KEEP = 0.6        // s a blast stays in run.booms for the
 export const MINE_GAS_FADE_IN = 0.6      // s a new firedamp pocket takes to condense out of the dark (ascii.js); it cannot be lit sooner
 export const MINE_GAS_LIT_SHRINK = 0.7   // a lit pocket draws in to this x r as it goes off (ascii.js); the sting reach shrinks with it
 export const LANTERN_PULSE = 0.18        // s a Lantern burn takes to sweep out to its radius (a run.novas pulse)
+export const LANTERN_FUSE = 1.0          // s a pocket the glow touches burns (run.gasLit, drawn lit) before it blows
+export const SAFETY_LAMP_SENSE = 320     // px from you an idle pocket feeds Safety Lamp
+export const SAFETY_LAMP_MAX = 6         // pockets Safety Lamp counts at most
+export const SAFETY_LAMP_EASE = 4        // 1/s the glow eases toward its Safety Lamp size (no jump when a pocket blows)
 // ---- Book 3, The Magma: weapon geometry (balance lives in WEAPONS[].levels) ----------------------
 export const SLAG_RANGE = 400            // px from you the ladle reaches for a foe
 export const SLAG_FLIGHT = 0.32          // s a ladle of slag is in the air

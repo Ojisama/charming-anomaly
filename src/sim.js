@@ -263,7 +263,7 @@ import {
   PRISM_FAN, PRISM_LIFE, PRISM_R, ECHO_LIFE, ECHO_DOUBLE_DELAY, ECHO_DOUBLE_DMG_FRAC, CRAB_EAT, NOISE_BATS, STALACTITE_FUSE, STALACTITE_RANGE, STALACTITE_CHIPS, STALACTITE_TANK_MUL, STALACTITE_SPREAD, STALACTITE_CRACKS, CRYSTAL_CARDS, ENV_WEAPONS, fillModDesc,
   PICKAXE_RANGE, PICKAXE_KB, PICKAXE_FLIGHT, PICKAXE_CHIP_DMG, PICKAXE_CHIP_SPEED, PICKAXE_CHIP_LIFE, PICKAXE_CHIP_R,
   DYNAMITE_RANGE, DYNAMITE_FLIGHT, DYNAMITE_FUSE, DYNAMITE_KB, MINECART_SPEED, MINECART_FAN, MINECART_KB, MINECART_STUN, MINECART_LOOT_R, MINECART_HOME_R,
-  CANARY_REACH_MUL, CANARY_LINK_DMG, LANTERN_PULSE, MINE_BOOM_KEEP, MINE_GAS_FADE_IN, MINE_GAS_LIT_SHRINK,
+  CANARY_REACH_MUL, CANARY_LINK_DMG, LANTERN_PULSE, LANTERN_FUSE, SAFETY_LAMP_SENSE, SAFETY_LAMP_MAX, SAFETY_LAMP_EASE, MINE_BOOM_KEEP, MINE_GAS_FADE_IN, MINE_GAS_LIT_SHRINK,
   SLAG_RANGE, SLAG_FLIGHT, SLAG_TICK, OBSIDIAN_FAN, OBSIDIAN_LIFE, OBSIDIAN_R, SPLINTER_DMG_MUL, SPLINTER_LIFE, SPLINTER_SPEED, SPLINTER_R,
   BELLOWS_LIFE, BELLOWS_FLARE_MUL, BELLOWS_FLARE_R, BELLOWS_FLARE_T, BOMB_RANGE, BOMB_FLIGHT, BOMB_LAVA_R, BOMB_LAVA_T, HOT_FEET_OPEN_MUL, HOT_FEET_BURN_MUL,
   FLOOD_TIDE_COVER_ADD, FLOOD_TIDE_SPEED_MUL, FLOOD_TIDE_BURN_MUL, COAL_FAN, COAL_LIFE, COAL_R, COAL_IGNITE,
@@ -11014,7 +11014,7 @@ const WEAPON_STAT_MODS = {
   pickaxe:     { sharpPick: ['dmg', 'pct'], wideSwing: ['r', 'pct'], rubble: ['count', 'flat'] },
   dynamite:    { blastingCap: ['dmg', 'pct'], bigBang: ['r', 'pct'], bundle: ['count', 'flat'] },
   minecart:    { heavyLoad: ['dmg', 'pct'], wideCart: ['width', 'pct'], secondCart: ['count', 'flat'] },
-  lantern:     { brightFlame: ['dmg', 'pct'], wideGlow: ['radius', 'pct'], openFlame: ['range', 'pct'] },
+  lantern:     { brightFlame: ['dmg', 'pct'], wideGlow: ['radius', 'pct'] },
   // The Magma. Rate mods divide at their fire sites; flareUp and deepFissure are read there too.
   slagLadle:      { hotSlag: ['dmg', 'pct'], deepLadle: ['r', 'pct'], slowCooling: ['duration', 'pct'], secondScoop: ['count', 'flat'] },
   obsidianShards: { keenGlass: ['dmg', 'pct'], glassVolley: ['count', 'flat'], shatter: ['splinters', 'flat'], razorEdge: ['pierce', 'flat'] },
@@ -11789,6 +11789,8 @@ function spawnNova(run, x, y, maxR, dmg, knockback, fear = 0, opts = null) {
     // The Mantle: `heat` ('fire' | 'cold') is the type rule (heatMul); `habitatSplit` (Lava Bellows'
     // wave) leaves a lava creature unhurt and shoves it LAVA_WAVE_SHOVE_MUL as hard instead.
     heat: opts?.heat ?? null, habitatSplit: !!opts?.habitatSplit,
+    // noGas: this ring never lights firedamp by touch (the Lantern lights its own, on a fuse)
+    noGas: !!opts?.noGas,
     // `lifeMax` beside `life` so a ring can expand over something other than NOVA_LIFE, and so
     // stepNovas can still work out how far along it is. The Skipping Shell's splash needs it: a
     // 46px ring on the default 0.45s life deals its damage nearly half a second after the shell
@@ -18092,7 +18094,7 @@ function stepFiredamp(run, dt) {
   if (run.gas.some((g) => (g.x - p.x) ** 2 + (g.y - p.y) ** 2 > farSq)) {
     run.gas = run.gas.filter((g) => (g.x - p.x) ** 2 + (g.y - p.y) ** 2 <= farSq)
   }
-  const want = Math.round(F.count * (run.mods.gasCountMul ?? 1))
+  const want = Math.round(F.count * (run.mods.gasCountMul ?? 1) * (1 + (run.weaponMods.lantern?.minersEye ?? 0)))
   run._gasLayT = (run._gasLayT ?? 0) - dt
   // the field's count is the seams' own: a Gasbag's trail is extra gas, never a seam withheld
   const seamCount = () => run.gas.reduce((n, g) => n + (g.trail == null ? 1 : 0), 0)
@@ -18125,7 +18127,7 @@ function stepFiredamp(run, dt) {
   // 3. What the player's weapons touched this frame sets the touched pockets off.
   if (run.gas.length > 0) {
     for (const b of run.bullets) if (b.life > 0) gasLightAt(run, b.x, b.y, b.r ?? 6)
-    for (const n of run.novas) if (n.life > 0 && n.r > 0) gasLightAt(run, n.x, n.y, n.r)
+    for (const n of run.novas) if (n.life > 0 && n.r > 0 && !n.noGas) gasLightAt(run, n.x, n.y, n.r)
     for (const key of ['orbs', 'boomerangs', 'homingShots']) {
       for (const o of run[key] ?? []) if (Number.isFinite(o.x)) gasLightAt(run, o.x, o.y, o.r ?? 10)
     }
@@ -18141,7 +18143,7 @@ function stepFiredamp(run, dt) {
       const scale = hpScale(curveT(run)) * (run.endless ? endlessHpMul(run.difficulty) : 1)
       for (const L of due) {
         L._done = true
-        const R = L.r * F.blastMul * (run.mods.gasBlastMul ?? 1)
+        const R = L.r * F.blastMul * (run.mods.gasBlastMul ?? 1) * (L.blastMul ?? 1)
         run.events.push({ type: 'gasBlast', x: L.x, y: L.y, r: R, chain: L.chain })
         run.booms.push({ x: L.x, y: L.y, r: R, chain: L.chain, kind: 'gas', at: run.time })
         const dmg = F.dmg * scale * (canary ? 1 + CANARY_LINK_DMG * L.chain : 1)
@@ -18333,13 +18335,21 @@ function stepCarts(run, dt) {
 // -- Lantern -------------------------------------------------------------------------------------
 function stepLanternWeapon(run, w, stats, fireRateMul, dt) {
   const p = run.player
-  run.lanternR = Math.max(run.lanternR ?? 0, stats.radius)
-  const quick = run.weaponMods.lantern?.quickWick ?? 0
+  const M = run.weaponMods.lantern ?? {}
+  // Safety Lamp: every idle pocket near you swells the glow and its burn, eased so a blast never snaps it
+  let near = 0
+  if (M.safetyLamp) for (const g of run.gas ?? []) if (g.age >= MINE_GAS_FADE_IN && g.trail == null && (g.x - p.x) ** 2 + (g.y - p.y) ** 2 <= SAFETY_LAMP_SENSE ** 2) near++
+  const want = 1 + (M.safetyLamp ?? 0) * Math.min(near, SAFETY_LAMP_MAX)
+  w._lamp = (w._lamp ?? 1) + (want - (w._lamp ?? 1)) * Math.min(1, SAFETY_LAMP_EASE * dt)
+  const radius = stats.radius * w._lamp, dmg = stats.dmg * w._lamp
+  run.lanternR = Math.max(run.lanternR ?? 0, radius)
+  const quick = M.quickWick ?? 0
   fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => {
-    // each burn is a quick pulse of the glow (run.novas, look 'lantern'): every body inside takes the
-    // hit once, and a body burning in firedamp sets the pocket off (applyDamage)
-    for (const r of ipecacRadii(run, stats.radius)) spawnNova(run, p.x, p.y, r, stats.dmg, 0, 0, { look: 'lantern', life: LANTERN_PULSE })
-    gasLightAt(run, p.x, p.y, stats.range)
+    // each burn is a quick pulse of the glow (run.novas, look 'lantern'): every body inside takes the hit once
+    for (const r of ipecacRadii(run, radius)) spawnNova(run, p.x, p.y, r, dmg, 0, 0, { look: 'lantern', life: LANTERN_PULSE, noGas: true })
+    // firedamp the glow touches catches and burns LANTERN_FUSE s (drawn lit) before it blows; Open Flame makes it blow bigger
+    const n = gasLightAt(run, p.x, p.y, radius, run.time + LANTERN_FUSE)
+    if (M.openFlame) for (let i = run.gasLit.length - n; i < run.gasLit.length; i++) run.gasLit[i].blastMul = 1 + M.openFlame
   })
 }
 // ==== Book 3: The Magma ============================================================================

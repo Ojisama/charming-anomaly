@@ -666,7 +666,7 @@ function cellStatics(i, j) {
   }
 }
 // li, gi: the light (and the gas's share of it) on the floor at the cell
-function floorCell(put, c, li, gi, clock) {
+function floorCell(put, c, li, gi, clock, wi = 0) {
   const l = Math.min(1, li)
   if (c.h > 0.9 + 0.1 * l) {
     // the dark: a rare dull ore fleck survives
@@ -685,24 +685,26 @@ function floorCell(put, c, li, gi, clock) {
   if (wall > 0.3 && c.h6 < wall * 0.35) ch = c.h7 < 0.5 ? '%' : '#'
   let col = ramp3(0x4e473e, 0x766c5e, 0x9a8e7c, v)
   if (gi > 0) col = mixHex(col, 0x4a6a4c, Math.min(0.5, gi / (li + 0.001) * 0.8))
-  put(ch, c.x, c.y, col, 0.5 + 0.25 * v, 12 + 4 * v + wall * 2, (c.h8 - 0.5) * 0.7, false, 1, false)
+  const wk = Math.min(1, wi * 7)
+  if (wk > 0) col = mixHex(col, mixHex(0xff7a18, 0xffd070, wk), wk)
+  put(ch, c.x, c.y, col, 0.5 + 0.25 * v + 0.45 * wk, 12 + 4 * v + wall * 2 + 4 * wk, (c.h8 - 0.5) * 0.7, false, 1, false)
 }
 // floorCell's output for one live cell, memoised on the cell (mch null = it draws nothing)
 let memoCell = null
 const memoPut = (ch, x, y, col, al, size, rot) => { const s = memoCell; s.mch = ch; s.mcol = col; s.mal = al; s.msz = size; s.mrot = rot }
 // sum of the floor light at (x, y) over a list of lights; the gas's share lands in lightGi
-let lightGi = 0
+let lightGi = 0, lightWi = 0
 function floorLight(list, x, y) {
-  let li = 0, gi = 0
+  let li = 0, gi = 0, wi = 0
   for (let n = 0; n < list.length; n++) {
     const L = list[n], R = L.fr
     const dx = x - L.x, dy = y - L.y, d2 = dx * dx + dy * dy
     if (d2 > R * R) continue
     const k = 1 - Math.sqrt(d2) / R
     const w = k * Math.sqrt(k) * L.i
-    li += w; if (L.g) gi += w
+    li += w; if (L.g) gi += w; if (L.w) wi += w
   }
-  lightGi = gi
+  lightGi = gi; lightWi = wi
   return li
 }
 
@@ -961,7 +963,7 @@ export function createAsciiRenderer(host) {
       // fr = how far the light reaches ON THE FLOOR: the lamp lights the creatures far out, but the
       // floor it shows is a small, quiet pool (the background must never compete with the crowd)
       const lights = [{ x: p.x, y: p.y, r: 300 + lantern * 0.6, fr: 210 + lantern * 0.4, i: 1.05, g: 0 }]
-      if (lantern > 0) lights.push({ x: p.x, y: p.y, r: lantern * 1.25, fr: lantern * 0.8, i: 0.55 + 0.05 * Math.sin(clock * 7), g: 0 })
+      if (lantern > 0) lights.push({ x: p.x, y: p.y, r: lantern * 1.25, fr: lantern * 1.05, i: 0.55 + 0.05 * Math.sin(clock * 7), g: 0, w: 1 })
       for (const g of run.gas ?? []) lights.push({ x: g.x, y: g.y, r: g.r * 1.5, i: 0.22 * clamp01((g.age ?? MINE_GAS_FADE_IN) / MINE_GAS_FADE_IN), g: 1 })
       for (const L of run.gasLit ?? []) lights.push({ x: L.x, y: L.y, r: L.r * 1.9, i: 0.7 + 0.3 * Math.sin(clock * 40 + L.seed), g: 0 })
       for (const b of run.booms ?? []) {
@@ -1039,8 +1041,8 @@ export function createAsciiRenderer(host) {
               s.stamp = frame
               // the cell's glyph is a function of its light alone: recompute only when that moved
               // by more than 1/256 (a lamp walking past changes a fraction of the pool per frame)
-              const qi = Math.round(floorLight(near, s.x, s.y) * 256), qg = Math.round(lightGi * 256)
-              if (s.qi !== qi || s.qg !== qg) { s.qi = qi; s.qg = qg; memoCell = s; s.mch = null; floorCell(memoPut, s, qi / 256, qg / 256, clock) }
+              const qi = Math.round(floorLight(near, s.x, s.y) * 256), qg = Math.round(lightGi * 256) + 4096 * Math.round(lightWi * 256)
+              if (s.qi !== qi || s.qg !== qg) { s.qi = qi; s.qg = qg; memoCell = s; s.mch = null; floorCell(memoPut, s, qi / 256, lightGi, clock, lightWi) }
               if (s.mch !== null) floor.put(s.mch, s.x, s.y, s.mcol, s.mal, s.msz, s.mrot, false, 1, false)
             }
           }
@@ -1165,7 +1167,8 @@ export function createAsciiRenderer(host) {
           if (e._pounceDirX != null) want = Math.atan2(e._pounceDirY, e._pounceDirX)
           if (pose === 'aim') aimK = clamp01(1 - (e._pounceT ?? 0) / POUNCE_AIM_T)
         }
-        const stat = statusLook(e, clock)
+        const stat = statusLook(e, clock) ?? (lantern > 0 && (e.x - p.x) ** 2 + (e.y - p.y) ** 2 <= (lantern + (e.radius ?? 12)) ** 2
+          ? { kind: 'ignite', tint: 0xff9440, k: 0.42 + 0.22 * Math.sin(clock * 23 + (e.id ?? 0)) } : null)
         const hold = !!stat?.hold
         let dA = ((want - m.heading + Math.PI) % TAU + TAU) % TAU - Math.PI
         const turn = pose === 'aim' ? 14 : id === 'golem' ? 3 : 7
@@ -1409,26 +1412,19 @@ export function createAsciiRenderer(host) {
         }
       }
       if (lantern > 0) {
-        // the lantern's reach: ONE unbroken warm circle of tangent strokes, slowly turning, breathing
-        // with the flame — a glow's edge, not loose sparks. Every 8th stroke is a brighter bead.
-        const m = Math.max(24, Math.round(TAU * lantern / 9))
-        const breath = 0.8 + 0.2 * Math.sin(clock * 7)
+        // the lantern's reach: a ring of flickering flame glyphs licking outward, shedding sparks;
+        // the floor inside it burns amber (its light carries w, floorCell's warm share)
+        const m = Math.max(28, Math.round(TAU * lantern / 7))
         for (let k = 0; k < m; k++) {
-          const a = (k / m) * TAU + clock * 0.2
-          const rr = lantern * (0.98 + 0.02 * Math.sin(clock * 2 + k * 0.7))
+          const a = (k / m) * TAU + clock * 0.25
+          const fl = 0.5 + 0.5 * Math.sin(clock * 19 + k * 2.3) * Math.sin(clock * 7 + k * 1.1)
+          const rr = lantern + fl * 7
           const x = p.x + Math.cos(a) * rr, y = p.y + Math.sin(a) * rr
-          const bead = k % 8 === 0
-          const [ch, r] = strokeGlyph(a + Math.PI / 2)
-          if (bead) obj.put('o', x, y, 0xffc060, 0.85 * breath, 8, 0, true, 0, false)
-          else obj.put(ch, x, y, 0xffa848, 0.5 * breath, 9, r, true, 2, false)
-          if (bead) obj.put('o', x, y, 0xff8a20, 0.35 * breath, 14, 0, true, 0, true)
+          obj.put(fl > 0.6 ? '^' : fl > 0.3 ? '\'' : '*', x, y, mixHex(0xff4a10, 0xffe070, fl), 0.75 + 0.25 * fl, 12 + 9 * fl, a + Math.PI / 2, true, 0, fl > 0.75)
         }
-        // a faint inner wash of warm dots, turning the other way, so the glow reads as filled
-        const m2 = Math.round(lantern / 9)
-        for (let k = 0; k < m2; k++) {
-          const a = (k / m2) * TAU - clock * 0.6
-          const rr = lantern * 0.6
-          obj.put('·', p.x + Math.cos(a) * rr, p.y + Math.sin(a) * rr, 0xffc078, 0.3, 8, 0, true, 0, false)
+        for (let q = 0; dt > 0 && q < 3; q++) if (Math.random() < dt * 40) {
+          const a = Math.random() * TAU
+          spawn({ ch: ['\'', '^', '`'][Math.floor(Math.random() * 3)], x: p.x + Math.cos(a) * lantern, y: p.y + Math.sin(a) * lantern, vx: Math.cos(a) * 25, vy: Math.sin(a) * 25 - 30, life: 0.6, c0: 0xfff0a0, c1: 0xff3a08, size: 13, add: true, a0: 1 })
         }
       }
       obj.end()
