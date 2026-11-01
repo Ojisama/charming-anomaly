@@ -6851,7 +6851,7 @@ export const BOOKS = {
    undertow: { name: 'Undertow', cloth: '#1f5c7c', chapters: ['surf', 'shelf', 'reef', 'trawl', 'wreck', 'deep'], hidden: ['kraken'], startCoins: 100 },
   // Book 3: digging down into the earth. wipFrom 2 since 2026-11-01: Topsoil and The Geode are live,
   // The Mine onward still gated behind meta.dev.
-  burrow: { name: 'Burrow', cloth: '#2b1d15', chapters: ['topsoil', 'geode', 'mine', 'magma', 'mantle', 'core'], hidden: ['ophan'], startCoins: 100, wipFrom: 2 },
+  burrow: { name: 'Burrow', cloth: '#2b1d15', chapters: ['topsoil', 'geode', 'mine', 'magma', 'mantle', 'core'], hidden: ['ophan'], startCoins: 100, wipFrom: 2, maxDifficultyCap: 3 },
 }
 // Explicit, for the same reason CHAPTER_ORDER is explicit: a sweep that means "every book, in
 // campaign order" must not depend on object key order surviving an edit. The FIRST entry is the
@@ -16254,11 +16254,10 @@ export const GRAVITY_WELL_R = 190       // px, influence radius
 export const GRAVITY_MIN_DIST = 260     // px, min distance from the run's origin
 export const GRAVITY_MIN_GAP = 120      // px, min gap between two wells' edges
 
-// Per-chapter difficulty ladder ceiling. Every chapter but the blank rides the shared
-// MAX_DIFFICULTY (5); CHAPTERS[id].maxDifficultyCap overrides it when set (blank caps at 3 — see
-// CHAPTERS.blank above). Used by state.js's ensureChapterMeta (clamp on load) and main.js's
+// Per-chapter difficulty ladder ceiling: CHAPTERS[id].maxDifficultyCap, else its book's
+// BOOKS[b].maxDifficultyCap (Book 3 on: d3 then endless), else the shared MAX_DIFFICULTY (5). Used by state.js's ensureChapterMeta (clamp on load) and main.js's
 // endRun/onDifficulty (clamp on unlock), and by ui.js for the chapter card's pip/star count.
-export const chapterMaxDifficulty = (id) => CHAPTERS[id]?.maxDifficultyCap ?? MAX_DIFFICULTY
+export const chapterMaxDifficulty = (id) => CHAPTERS[id]?.maxDifficultyCap ?? BOOKS[bookOf(id)]?.maxDifficultyCap ?? MAX_DIFFICULTY
 
 // ---- v6.2 Remaster: per-chapter fiction strings (ui.js reads these through t()) ----------------
 // Endings: the one global "You escaped!/Squished" pair undercut every chapter's fantasy (a kaiju
