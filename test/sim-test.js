@@ -21294,6 +21294,7 @@ run(testLeLargeWeapons)
   run(testOphanCrowdLooks)
   run(testOphanGauge)
   run(testMinimeLook)
+  run(testDevSpecialistChooser)
   // A hand-typed filter that matched nothing is the silent pass without a parent watching:
   // `node test/sim-test.js supernova` printed ALL TESTS PASSED having run no scenario at all.
   if (_ran === 0 && !EXACT_SET) {
@@ -45172,6 +45173,28 @@ function testOphanRenderWiring() {
   const sim = readFileSync(new URL('../src/sim.js', import.meta.url), 'utf8')
   assert.deepStrictEqual([...sim.matchAll(/from '\.\/ophan\/(\w+)\.js'/g)].map((m) => m[1]).sort(), ['hit', 'rig'], 'sim imports a render-side ophan module')
   console.log('PASS run OP.wire: hosted once, forwarded, prewarmed, pinned, resized; exit restores and unpatches; vignette kept; painters read the locked aim and sim clock')
+}
+
+// ---- Run DS: SPECIALIST from the dev menu asks which weapon ------------------------------------
+// The dev menu used to apply it straight away on weapon [0]: no chooser, nothing on screen. devTake's
+// `ask` stages the card instead and main.js hands it to the level-up screen, whose chooser names it.
+function testDevSpecialistChooser() {
+  Math.random = mulberry32(20261101)
+  const r = createRun(makeMeta())
+  r.weapons = [{ id: 'star', level: 1 }, { id: 'orbit', level: 1 }]
+  const card = devCards(r).find((c) => c.kind === 'anomaly' && c.id === 'specialist')
+  assert.deepStrictEqual(card?.subjects, ['star', 'orbit'], 'run DS: the dev Specialist card must offer both owned weapons')
+  devTake(r, card, null, true)
+  assert.ok(r._devUsed, 'run DS: a staged dev card still marks the run for the leaderboard gate')
+  assert.strictEqual(r.anomalies.specialist, undefined, 'run DS: ask=true must not apply the card before the chooser names a weapon')
+  assert.strictEqual(r.levelUpChoices?.[0], card, 'run DS: the staged card is the level-up screen\'s only choice')
+  applyChoice(r, 0, 'orbit')
+  assert.strictEqual(r.anomalies.specialist, 'orbit', 'run DS: the weapon named in the chooser is the one banked')
+  const main = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
+  const body = /onDevTake\(i\) \{[\s\S]*?\n {2}\},/.exec(main)?.[0] ?? ''
+  assert.ok(/subjects\?\.length > 1[\s\S]*devTake\(run, devList\[i\], null, true\)[\s\S]*showScreen\('levelup'/.test(body),
+    'run DS: main.js onDevTake must stage a multi-weapon card and open the level-up screen on it')
+  console.log('PASS run DS: dev Specialist staged unapplied, chooser names orbit, main.js routes it to the level-up screen')
 }
 
 // ---- Run MM: a minime is a PICTURE of the player, in every chapter look -------------------------

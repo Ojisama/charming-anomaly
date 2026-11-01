@@ -16532,8 +16532,6 @@ export function devCards(run, rarity = 'rare') {
     // `true`, specialistFocus reads that as "no focus", and the card silently does nothing while
     // the pause sheet still lists it. Fall back to the whole loadout — any owned weapon is a legal
     // thing to specialise in, and the point of this menu is to test the card.
-    // ponytail: no CHOOSER here, so this takes weapon [0]; add one if picking the subject from the
-    // dev menu turns out to matter.
     const subj = a.subjects?.(run)
     const subjects = subj ? (subj.length ? subj : run.weapons.map((w) => w.id)) : null
     out.push({ kind: 'anomaly', id, title: a.name, desc: anomalyDesc(a), descT: anomalyDescT(a), from: a.from, tag: '',
@@ -16547,14 +16545,16 @@ export function devCards(run, rarity = 'rare') {
 // of duplicating applyChoice's branches is the whole point of the dev menu: a card added here
 // takes exactly the code path a card taken from a level-up screen takes, so what you are testing
 // is the shipped behaviour and not a second implementation of it.
-export function devTake(run, card, subject = null) {
+// `ask` stages the card without applying it: main.js then opens the level-up screen on it, so a card
+// that names a weapon (SPECIALIST) gets the real chooser instead of a silent pick of weapon [0].
+export function devTake(run, card, subject = null, ask = false) {
   // The leaderboard's only integrity rule (owner: "dev runs don't count"). Set on TAKE rather than
   // on opening the menu, because opening it changes nothing about the run — and set here rather
   // than in main.js because this is the single path by which a dev card reaches a run, so a future
   // caller cannot bypass it. main.js reads it in endRun and submits nothing.
   run._devUsed = true
   run.levelUpChoices = [card]
-  applyChoice(run, 0, subject)
+  if (!ask) applyChoice(run, 0, subject)
 }
 
 // Roll ONE card: bucket first (BUCKET_WEIGHTS), then a rarity inside it. Never walks the rarity

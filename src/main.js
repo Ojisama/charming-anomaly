@@ -410,9 +410,14 @@ const ui = initUI({
   },
   onDevTake(i) {
     if (!run || run.phase !== 'paused') return
-    // subject stays null: applyChoice falls back to the first legal weapon on a SUBJECTED card
-    // (SPECIALIST), which is documented there and is the right default for a test menu — the
-    // chooser is a level-up-screen flow, not something to rebuild here.
+    // A card that names a weapon (SPECIALIST) goes through the level-up screen, whose chooser asks
+    // which; onChoose applies it. No reroll: a re-deal would swap the dev card for a real screen.
+    if (devList[i]?.subjects?.length > 1) {
+      devTake(run, devList[i], null, true)
+      run.phase = 'levelup'
+      ui.showScreen('levelup', { ...levelupData(), canReroll: false })
+      return
+    }
     devTake(run, devList[i])
     devList = devCards(run)
     ui.showScreen('dev', { cards: devList })
