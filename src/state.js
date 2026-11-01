@@ -2218,8 +2218,9 @@ function generateWells(sig) {
  *     A GASBAG TRAIL pocket (ELITE_AFFIXES.gasbag) also carries trail (the laying enemy's id) and
  *     life (s left; let go at 0). It never drifts or creeps, may sit anywhere (no spawnMin), and
  *     does not count toward the seams' count. Otherwise it is lit, chains and stings like any other.
- *   gasLit[i]: { x, y, r, at, chain, seed } — a pocket already SET OFF, waiting for run.time >= at.
- *     chain 0 = set off by a player weapon this frame; n = the nth link of a chain. It blasts once.
+ *   gasLit[i]: { x, y, r, at, chain, seed, sting?, src? } — a pocket already SET OFF, waiting for run.time >= at.
+ *     chain 0 = set off by a player weapon this frame, or a Gas Toad's death pop (which carries its
+ *     own sting and src 'gasToad'); n = the nth link of a chain. It blasts once.
  *   sticks[i]: { x, y, fromX, fromY, t, flight, fuse, r, dmg, seed } — Dynamite: in the air for
  *     `flight` s from (fromX, fromY) to (x, y), then fizzing for `fuse` s, then {type:'dynamite'}.
  *   picks[i]: { x, y, r, dmg, count, angle, tid, t } — a thrown Pickaxe: its blow lands at (x, y) in t s.
@@ -2231,7 +2232,8 @@ function generateWells(sig) {
  *   Bullets: weapon 'chip' (the Pickaxe's rock chips).
  *   Private: _gasLayT (s until the next seam may be laid). On a Gasbag enemy: _gasX/_gasY (where
  *     it laid its last trail pocket; the next one is GASBAG_TRAIL.spacing px from it).
- *   Hurt src: 'firedamp' (a blast with the player inside it; the normal hurt path, invuln after).
+ *   Hurt src: 'firedamp' (a blast with the player inside it; the normal hurt path, invuln after);
+ *     'gasToad' for a toad's death pop. A pocket a toad drank carries private _drunk.
  *   Events: {type:'gasBlast', x, y, r, chain} a pocket went off (r = blast radius, chain as above);
  *     {type:'pickaxe', x, y, x0, y0, r, angle, flight} a pick thrown from (x0, y0), its blow lands at (x, y) in flight s; {type:'dynamite', x, y, r} a stick blew up;
  *     {type:'shoot', weapon:'dynamite'|'minecart', x, y[, angle]} a throw / a push.

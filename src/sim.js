@@ -18499,7 +18499,7 @@ function addCrack(run, C, x, y, r, by, molten = false, lavaT = null) {
   let openMul = 1
   const g = C.floor ? magmaGroundAt(run, x, y) : null
   if (g === 'river' && !molten) return null
-  if (g === 'cooled' && (by === 'step' || by === 'thinCrust')) return null
+  if (g === 'cooled' && (by === 'step' || by === 'thinCrust' || by === 'ant')) return null
   if (g === 'hot') { r *= C.floor.hot.rMul; openMul = C.floor.hot.openMul }
   const c = {
     x, y, r, by, state: molten ? 'lava' : 'crack', t: 0, tick: 0,
@@ -18524,7 +18524,8 @@ function antsCrack(run, C) {
   for (const e of run.enemies) {
     if (e._dead || !e.flags?.includes('lavaBorn')) continue
     if (e._antX === undefined) { e._antX = e.x; e._antY = e.y; e._antOdo = 0; continue }
-    e._antOdo += Math.hypot(e.x - e._antX, e.y - e._antY)
+    const leg = Math.hypot(e.x - e._antX, e.y - e._antY)
+    if (leg < A.crackEvery) e._antOdo += leg // a bigger jump is a relocation, not a walk
     e._antX = e.x; e._antY = e.y
     if (e._antOdo < A.crackEvery) continue
     e._antOdo = 0
