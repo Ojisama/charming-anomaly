@@ -2909,9 +2909,9 @@ export function createRun(meta, opts = {}) {
   // +25%/level made every hit a smaller share of the thing it landed on, so the harder rungs read
   // as weaker weapons. Speed and numbers carry the ladder now, and the damage tax is unchanged.
   mods.enemySpeedMul *= difficultySpeedMul(difficulty)
-  mods.spawnMul *= difficultyCountMul(difficulty)
-  mods.maxAliveMul *= difficultyCountMul(difficulty)
-  mods.enemyDmgMul *= difficultyDmgMul(difficulty)
+  mods.spawnMul *= difficultyCountMul(difficulty, chapter)
+  mods.maxAliveMul *= difficultyCountMul(difficulty, chapter)
+  mods.enemyDmgMul *= difficultyDmgMul(difficulty, chapter)
   mods.coinMul *= difficultyCoinMul(difficulty)
   // A CIRCUIT CLIMBS ON TIME AND ROOM, because the three taxes above are all inert on one (see
   // CHAPTERS.reef.circuit.ladder for the measurement — an unarmed chapter with passiveCrowd cannot

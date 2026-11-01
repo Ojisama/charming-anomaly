@@ -6049,11 +6049,12 @@ export const difficultySpeedMul = (d) => 1 + DIFFICULTY_SPEED_PER_LEVEL * (Math.
 // balance_decision : difficulty buys crowd size, replacing the HP tax 2026-09-05
 //  - swept 1.4/1.6/1.8 at d5; 1.6 is where kills/min climbs without the field going to mush
 export const DIFFICULTY_COUNT_PER_LEVEL = 0.15
-export const difficultyCountMul = (d) => 1 + DIFFICULTY_COUNT_PER_LEVEL * (Math.max(1, d) - 1)
+// A book can override both per-level steps with BOOKS[b].difficultyPerLevel (Book 3 on).
+export const difficultyCountMul = (d, id) => 1 + (BOOKS[bookOf(id)]?.difficultyPerLevel ?? DIFFICULTY_COUNT_PER_LEVEL) * (Math.max(1, d) - 1)
 // The damage tax survives the rework unchanged: it is what makes flat armor decay on the ladder
 // (v6.3.4 anti-turtle), and it is the half of the old pair that was never the problem.
 export const DIFFICULTY_DMG_PER_LEVEL = 0.15
-export const difficultyDmgMul = (d) => 1 + DIFFICULTY_DMG_PER_LEVEL * (Math.max(1, d) - 1)
+export const difficultyDmgMul = (d, id) => 1 + (BOOKS[bookOf(id)]?.difficultyPerLevel ?? DIFFICULTY_DMG_PER_LEVEL) * (Math.max(1, d) - 1)
 // The payout matching the tax: +25% coins per level above 1 (multiplied into
 // run.mods.coinMul, and applied to the end-of-run kill bonus in main.js).
 export const DIFFICULTY_COIN_PER_LEVEL = 0.25
@@ -6851,7 +6852,9 @@ export const BOOKS = {
    undertow: { name: 'Undertow', cloth: '#1f5c7c', chapters: ['surf', 'shelf', 'reef', 'trawl', 'wreck', 'deep'], hidden: ['kraken'], startCoins: 100 },
   // Book 3: digging down into the earth. wipFrom 2 since 2026-11-01: Topsoil and The Geode are live,
   // The Mine onward still gated behind meta.dev.
-  burrow: { name: 'Burrow', cloth: '#2b1d15', chapters: ['topsoil', 'geode', 'mine', 'magma', 'mantle', 'core'], hidden: ['ophan'], startCoins: 100, wipFrom: 2, maxDifficultyCap: 3 },
+  burrow: { name: 'Burrow', cloth: '#2b1d15', chapters: ['topsoil', 'geode', 'mine', 'magma', 'mantle', 'core'], hidden: ['ophan'], startCoins: 100, wipFrom: 2, maxDifficultyCap: 3,
+    // balance_decision : Book 3 d2 +25%, d3 +50% enemies and damage 2026-11-01
+    difficultyPerLevel: 0.25 },
 }
 // Explicit, for the same reason CHAPTER_ORDER is explicit: a sweep that means "every book, in
 // campaign order" must not depend on object key order surviving an edit. The FIRST entry is the
