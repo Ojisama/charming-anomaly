@@ -28,7 +28,7 @@
 // ('-' '\' '|' '/') so a leg is drawn the way an ASCII artist would draw it. Light on the floor is
 // character density and warmth, never a fill. Darkness is black.
 import { CanvasSource, Container, Graphics, Particle, ParticleContainer, Rectangle, RenderTexture, Sprite, Texture } from 'pixi.js'
-import { FLASHLIGHT_SPEED_MUL, PICKAXE_FLIGHT as PICK_FLIGHT, MINE_GAS_FADE_IN, MINE_GAS_LIT_SHRINK, PACER_RADIUS, POUNCE_AIM_T, POUNCE_LEAP_DIST, SHIELD_HP_FRAC } from './config.js'
+import { DRAUGHT_DRAW, DRAUGHT_HOLD, DRAUGHT_WAVE, FLASHLIGHT_SPEED_MUL, PICKAXE_FLIGHT as PICK_FLIGHT, MINE_GAS_FADE_IN, MINE_GAS_LIT_SHRINK, PACER_RADIUS, POUNCE_AIM_T, POUNCE_LEAP_DIST, SHIELD_HP_FRAC } from './config.js'
 
 // ---- glyph atlas -------------------------------------------------------------------------------
 // One canvas, one texture source: every glyph sprite in the mine batches into the same draw call.
@@ -1061,6 +1061,8 @@ export function createAsciiRenderer(host) {
       const live = []
       for (const g of run.gas ?? []) live.push([g, false])
       for (const g of run.gasLit ?? []) live.push([g, true])
+      // Draught: a pocket flowing into the lamp, shrinking as it goes
+      for (const h of run.lanternHeld ?? []) live.push([{ x: h.x, y: h.y, r: h.r * (1 - 0.75 * Math.min(1, h.t / 0.35)), seed: h.seed }, false])
       for (const [g, lit] of live) {
         if (g.x < view.left - g.r * 1.5 || g.x > view.right + g.r * 1.5 || g.y < view.top - g.r * 1.5 || g.y > view.bottom + g.r * 1.5) continue
         const n = Math.round(24 + g.r * 1.3)
@@ -1426,6 +1428,39 @@ export function createAsciiRenderer(host) {
           const a = Math.random() * TAU
           spawn({ ch: ['\'', '^', '`'][Math.floor(Math.random() * 3)], x: p.x + Math.cos(a) * lantern, y: p.y + Math.sin(a) * lantern, vx: Math.cos(a) * 25, vy: Math.sin(a) * 25 - 30, life: 0.6, c0: 0xfff0a0, c1: 0xff3a08, size: 13, add: true, a0: 1 })
         }
+        // FIREBENDING: a pocket the ring drank runs round it both ways as a colour wave, green (the gas)
+        // where it entered turning blue as it nears your back; where the halves meet it jets out behind you
+        const back = (p.facingAngle ?? (p.facing < 0 ? Math.PI : 0)) + Math.PI
+        for (const h of run.lanternHeld ?? []) {
+          if (h.t < DRAUGHT_DRAW) continue
+          const u = (h.held ?? 0) / DRAUGHT_HOLD, w = Math.min(1, u / DRAUGHT_WAVE)
+          const ccw = ((back - h.a) % TAU + TAU) % TAU
+          for (const span of [ccw, ccw - TAU]) {
+            const steps = Math.max(6, Math.round(Math.abs(span) * lantern / 8))
+            for (let k = 0; k <= steps; k++) {
+              const f = k / steps
+              if (f > w) break
+              const band = clamp01(1 - (w - f) / 0.6)    // a travelling band: brightest at the head, gone 60% behind it
+              if (band <= 0) continue
+              const a = h.a + span * f
+              const col = mixHex(0x7ce07a, 0x3a8cff, f)
+              const head = w - f < 0.06
+              for (const rr of [lantern - 7, lantern + 7]) {
+                const x = p.x + Math.cos(a) * rr, y = p.y + Math.sin(a) * rr
+                obj.put(head ? '✦' : f < 0.5 ? '≈' : '*', x, y, head ? 0xe8f6ff : col, 0.6 + 0.4 * band, 18 + 12 * band, a + Math.PI / 2, false, 0, false)
+                obj.put('*', x, y, col, 0.7 * band, 34 + 16 * band, 0, true, 0, true)
+              }
+            }
+          }
+          if (u > DRAUGHT_WAVE && dt > 0) {
+            // the jet: a tight blue stream out of your back
+            const bx = p.x + Math.cos(back) * lantern, by = p.y + Math.sin(back) * lantern
+            for (let q = 0; q < 8; q++) {
+              const s = back + (Math.random() - 0.5) * 0.18, v = 380 + Math.random() * 160
+              spawn({ ch: q % 2 ? '=' : '*', x: bx, y: by, vx: Math.cos(s) * v, vy: Math.sin(s) * v, rot: s, life: 0.4, c0: 0xe8f6ff, c1: 0x2a5aff, size: 22, add: false, a0: 1, glow: true })
+            }
+          }
+        }
       }
       obj.end()
 
@@ -1462,10 +1497,12 @@ export function createAsciiRenderer(host) {
           // the lantern itself, hung at your side: '[' '*' ']' with its flame breathing
           const [hx, hy] = at(p.x, p.y, cos, sin, sc, -2, 20)
           const fl = 0.75 + 0.25 * Math.sin(clock * 11)
+          // a lamp holding firedamp burns blue (the safety lamp's own tell of gas)
+          const blue = (run.lanternHeld?.length ?? 0) > 0
           me.put('[', hx - 7, hy, 0xd09a52, 1, 15, 0, false, 2, false)
           me.put(']', hx + 7, hy, 0xd09a52, 1, 15, 0, false, 2, false)
-          me.put('*', hx, hy, 0xffc050, fl, 13, clock * 3, true, 0, false)
-          me.put('*', hx, hy, 0xff8a20, 0.6 * fl, 26, clock * 3, true, 0, true)
+          me.put('*', hx, hy, blue ? 0x9ad8ff : 0xffc050, fl, blue ? 24 : 13, clock * 3, true, 0, false)
+          me.put('*', hx, hy, blue ? 0x3a7aff : 0xff8a20, 0.8 * fl, blue ? 64 : 26, clock * 3, true, 0, true)
         }
         const [lx, ly] = at(p.x, p.y, cos, sin, sc, 13, 0)
         pout('✦', lx, ly, 0xffffff, 1, 10 * sc, 0, true, 0, false)

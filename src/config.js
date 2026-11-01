@@ -4692,6 +4692,10 @@ export const WEAPON_MODS = {
     // balance_decision : owner picks, first guesses, unplayed 2026-11-01
     safetyLamp:  { name: 'Safety Lamp',  desc: 'glow size and damage per firedamp pocket near you', icon: '🪔', base: 0.06, kind: 'pct' },
     minersEye:   { name: "Miner's Eye",  desc: 'firedamp pockets around you', icon: '👁️', base: 0.30, kind: 'pct' },
+    // balance_decision : owner pick, epic and up, unplayed 2026-11-01
+    draught:     { name: 'Firebending', icon: '🌬️', kind: 'flat', maxPicks: 1, values: { epic: 1, legendary: 1, mythic: 1 },
+                   desc: 'Firedamp your glow touches runs round it to your back and jets out behind you, where it blows.',
+                   descFor: () => 'Firedamp your glow touches runs round it to your back and jets out behind you, where it blows.' },
   },
 
   // ---- Book 3, The Magma ----
@@ -6978,6 +6982,12 @@ export const LANTERN_PULSE = 0.18        // s a Lantern burn takes to sweep out 
 export const LANTERN_FUSE = 1.0          // s a pocket the glow touches burns (run.gasLit, drawn lit) before it blows
 export const SAFETY_LAMP_SENSE = 320     // px from you an idle pocket feeds Safety Lamp
 export const SAFETY_LAMP_MAX = 6         // pockets Safety Lamp counts at most
+export const DRAUGHT_DRAW = 0.35         // s a pocket takes to flow into the glow's ring where it touched (Firebending)
+export const DRAUGHT_TRAIL = [70, 120, 170]  // px behind you each puffed-out pocket lands (one pocket becomes this many)
+export const DRAUGHT_HOLD = 0.8          // s the colour wave takes round the ring to your back, jet included, before the pocket is puffed out
+export const DRAUGHT_WAVE = 0.7          // fraction of DRAUGHT_HOLD the wave spends reaching your back; the rest is the jet (ascii.js)
+export const DRAUGHT_R = 0.8             // x the drawn-in pocket's r, for each puffed-out one
+export const DRAUGHT_STAGGER = 0.12      // s between the puffed-out pockets' blasts, nearest first
 export const SAFETY_LAMP_EASE = 4        // 1/s the glow eases toward its Safety Lamp size (no jump when a pocket blows)
 // ---- Book 3, The Magma: weapon geometry (balance lives in WEAPONS[].levels) ----------------------
 export const SLAG_RANGE = 400            // px from you the ladle reaches for a foe
