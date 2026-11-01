@@ -45145,6 +45145,8 @@ function testMinimeLook() {
   // picture of playerC can reach it: render.js copies only the face, so the orb under each minime is the demo's.
   assert.ok(/\.minime\b/.test(read('liquid.js')) && /G\.minis\b/.test(read('liquid/gl.js')),
     "The Core's minimes lost their orb: liquid.js must hand gl.js the minimes (S.minis) and gl.js must draw them")
+  // ...and the Ophan fight, which draws you per world where no picture reaches, never offers the card
+  assert.ok(!ANOMALIES.minimes.when({ chapter: 'ophan' }) && ANOMALIES.minimes.when({ chapter: 'mine' }), 'Minimes must be offered everywhere except the Ophan fight')
   const bake = /T\.player|T\.pupil|holoPlayer|macroPlayer|liquidPlayer|pencilPlayer|playerSkin|playerTint/
   assert.ok(!bake.test(snap) && !bake.test(lures), 'the minime path names a player bake again: it must copy the picture (miniRT), never choose a look')
   console.log(`PASS run MM: minimes are a picture of the player; ${owners.length} of ${files.length} src modules draw their own player (${owners.join(', ')}) and each hands over a playerView`)

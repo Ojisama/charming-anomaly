@@ -1111,7 +1111,8 @@ export const ANOMALIES = {
     // you the standing time), which is the good kind of synergy.
     // minLevel 12 over the table's 8: this is a no-cost pivot, and a swarm that is already being
     // split is not a swarm the player has learned to read yet.
-    when: () => true,
+    // not in the Ophan fight: its worlds draw you outside Pixi, so a minime there has no body (owner 2026-11-01)
+    when: (r) => r.chapter !== 'ophan',
     weight: 4, chapter: null, kind: 'pivot',
     minLevel: 12,
   },
