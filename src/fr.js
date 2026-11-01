@@ -2091,7 +2091,7 @@ const CONFIG = {
   "glow size and damage per firedamp pocket near you": "taille et dégâts de la lueur par poche de grisou près de toi",
   "Miner's Eye": "Œil du mineur",
   "Firebending": 'Firebending',
-  "Firedamp your glow touches runs round it to your back and jets out behind you, where it blows.": "Le grisou que ta lueur touche en fait le tour jusqu'à ton dos et jaillit derrière toi, où il saute.",
+  "Firedamp your glow touches runs round it and fires out as jets of flame at your foes. A bigger glow fires more jets.": "Le grisou que ta lueur touche en fait le tour et jaillit en jets de flamme sur tes ennemis. Plus ta lueur est grande, plus il y a de jets.",
   "firedamp pockets around you": "poches de grisou autour de toi",
   "Canary": 'Effet domino',
   "the bird in the cage stopped singing": "l'oiseau dans la cage s'est tu",

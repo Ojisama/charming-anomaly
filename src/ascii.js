@@ -28,7 +28,7 @@
 // ('-' '\' '|' '/') so a leg is drawn the way an ASCII artist would draw it. Light on the floor is
 // character density and warmth, never a fill. Darkness is black.
 import { CanvasSource, Container, Graphics, Particle, ParticleContainer, Rectangle, RenderTexture, Sprite, Texture } from 'pixi.js'
-import { DRAUGHT_DRAW, DRAUGHT_HOLD, DRAUGHT_WAVE, FLASHLIGHT_SPEED_MUL, PICKAXE_FLIGHT as PICK_FLIGHT, MINE_GAS_FADE_IN, MINE_GAS_LIT_SHRINK, PACER_RADIUS, POUNCE_AIM_T, POUNCE_LEAP_DIST, SHIELD_HP_FRAC } from './config.js'
+import { DRAUGHT_DRAW, DRAUGHT_HOLD, DRAUGHT_WAVE, FIREBEND_LIFE, FLASHLIGHT_SPEED_MUL, PICKAXE_FLIGHT as PICK_FLIGHT, MINE_GAS_FADE_IN, MINE_GAS_LIT_SHRINK, PACER_RADIUS, POUNCE_AIM_T, POUNCE_LEAP_DIST, SHIELD_HP_FRAC } from './config.js'
 
 // ---- glyph atlas -------------------------------------------------------------------------------
 // One canvas, one texture source: every glyph sprite in the mine batches into the same draw call.
@@ -1428,38 +1428,46 @@ export function createAsciiRenderer(host) {
           const a = Math.random() * TAU
           spawn({ ch: ['\'', '^', '`'][Math.floor(Math.random() * 3)], x: p.x + Math.cos(a) * lantern, y: p.y + Math.sin(a) * lantern, vx: Math.cos(a) * 25, vy: Math.sin(a) * 25 - 30, life: 0.6, c0: 0xfff0a0, c1: 0xff3a08, size: 13, add: true, a0: 1 })
         }
-        // FIREBENDING: a pocket the ring drank runs round it both ways as a colour wave, green (the gas)
-        // where it entered turning blue as it nears your back; where the halves meet it jets out behind you
-        const back = (p.facingAngle ?? (p.facing < 0 ? Math.PI : 0)) + Math.PI
+        // FIREBENDING: a pocket the ring drank runs round it as a colour wave, green (the gas) where it
+        // entered turning blue, to each jet's exit on the ring (the shorter way round)
         for (const h of run.lanternHeld ?? []) {
           if (h.t < DRAUGHT_DRAW) continue
-          const u = (h.held ?? 0) / DRAUGHT_HOLD, w = Math.min(1, u / DRAUGHT_WAVE)
-          const ccw = ((back - h.a) % TAU + TAU) % TAU
-          for (const span of [ccw, ccw - TAU]) {
-            const steps = Math.max(6, Math.round(Math.abs(span) * lantern / 8))
+          const w = Math.min(1, (h.held ?? 0) / (DRAUGHT_HOLD * DRAUGHT_WAVE))
+          for (const ex of h.ex ?? []) {
+            const span = Math.atan2(Math.sin(ex - h.a), Math.cos(ex - h.a))
+            const steps = Math.max(4, Math.round(Math.abs(span) * lantern / 8))
             for (let k = 0; k <= steps; k++) {
               const f = k / steps
               if (f > w) break
-              const band = clamp01(1 - (w - f) / 0.6)    // a travelling band: brightest at the head, gone 60% behind it
+              const band = clamp01(1 - (w - f) / 0.6)
               if (band <= 0) continue
-              const a = h.a + span * f
+              const an = h.a + span * f
               const col = mixHex(0x7ce07a, 0x3a8cff, f)
-              const head = w - f < 0.06
+              const head = w - f < 0.08
               for (const rr of [lantern - 7, lantern + 7]) {
-                const x = p.x + Math.cos(a) * rr, y = p.y + Math.sin(a) * rr
-                obj.put(head ? '✦' : f < 0.5 ? '≈' : '*', x, y, head ? 0xe8f6ff : col, 0.6 + 0.4 * band, 18 + 12 * band, a + Math.PI / 2, false, 0, false)
+                const x = p.x + Math.cos(an) * rr, y = p.y + Math.sin(an) * rr
+                obj.put(head ? '✦' : f < 0.5 ? '≈' : '*', x, y, head ? 0xe8f6ff : col, 0.6 + 0.4 * band, 18 + 12 * band, an + Math.PI / 2, false, 0, false)
                 obj.put('*', x, y, col, 0.7 * band, 34 + 16 * band, 0, true, 0, true)
               }
             }
           }
-          if (u > DRAUGHT_WAVE && dt > 0) {
-            // the jet: a tight blue stream out of your back
-            const bx = p.x + Math.cos(back) * lantern, by = p.y + Math.sin(back) * lantern
-            for (let q = 0; q < 8; q++) {
-              const s = back + (Math.random() - 0.5) * 0.18, v = 380 + Math.random() * 160
-              spawn({ ch: q % 2 ? '=' : '*', x: bx, y: by, vx: Math.cos(s) * v, vy: Math.sin(s) * v, rot: s, life: 0.4, c0: 0xe8f6ff, c1: 0x2a5aff, size: 22, add: false, a0: 1, glow: true })
-            }
+        }
+      }
+      // the jets: a blue flame stream from the ring outward, shooting out fast then thinning away
+      for (const j of run.lanternJets ?? []) {
+        const k = clamp01(j.t / FIREBEND_LIFE)
+        const reach = j.len * Math.min(1, k / 0.25), fade = 1 - Math.max(0, (k - 0.5) / 0.5)
+        const ux = Math.cos(j.ang), uy = Math.sin(j.ang), vx = -uy, vy = ux
+        const n = Math.max(4, Math.round(reach / 10))
+        for (let i = 0; i <= n; i++) {
+          const f = i / n, d = reach * f
+          const flick = 0.75 + 0.25 * Math.sin(clock * 40 + i * 1.7)
+          for (const s of [-0.35, 0, 0.35]) {
+            const x = j.x + ux * d + vx * j.w * s, y = j.y + uy * d + vy * j.w * s
+            const core = s === 0
+            obj.put(core ? '=' : '~', x, y, core ? mixHex(0xe8f6ff, 0x5aa0ff, f) : mixHex(0x5aa0ff, 0x1a3aa0, f), fade * flick * (core ? 1 : 0.8), (core ? 16 : 13) + j.w * 0.25, j.ang, false, 0, false)
           }
+          if (i % 2 === 0) obj.put('*', j.x + ux * d, j.y + uy * d, 0x3a8cff, 0.5 * fade, 22 + j.w * 0.6, 0, true, 0, true)
         }
       }
       obj.end()

@@ -4694,8 +4694,8 @@ export const WEAPON_MODS = {
     minersEye:   { name: "Miner's Eye",  desc: 'firedamp pockets around you', icon: '👁️', base: 0.30, kind: 'pct' },
     // balance_decision : owner pick, epic and up, unplayed 2026-11-01
     draught:     { name: 'Firebending', icon: '🌬️', kind: 'flat', maxPicks: 1, values: { epic: 1, legendary: 1, mythic: 1 },
-                   desc: 'Firedamp your glow touches runs round it to your back and jets out behind you, where it blows.',
-                   descFor: () => 'Firedamp your glow touches runs round it to your back and jets out behind you, where it blows.' },
+                   desc: 'Firedamp your glow touches runs round it and fires out as jets of flame at your foes. A bigger glow fires more jets.',
+                   descFor: () => 'Firedamp your glow touches runs round it and fires out as jets of flame at your foes. A bigger glow fires more jets.' },
   },
 
   // ---- Book 3, The Magma ----
@@ -6983,11 +6983,14 @@ export const LANTERN_FUSE = 1.0          // s a pocket the glow touches burns (r
 export const SAFETY_LAMP_SENSE = 320     // px from you an idle pocket feeds Safety Lamp
 export const SAFETY_LAMP_MAX = 6         // pockets Safety Lamp counts at most
 export const DRAUGHT_DRAW = 0.35         // s a pocket takes to flow into the glow's ring where it touched (Firebending)
-export const DRAUGHT_TRAIL = [70, 120, 170]  // px behind you each puffed-out pocket lands (one pocket becomes this many)
-export const DRAUGHT_HOLD = 0.8          // s the colour wave takes round the ring to your back, jet included, before the pocket is puffed out
-export const DRAUGHT_WAVE = 0.7          // fraction of DRAUGHT_HOLD the wave spends reaching your back; the rest is the jet (ascii.js)
-export const DRAUGHT_R = 0.8             // x the drawn-in pocket's r, for each puffed-out one
-export const DRAUGHT_STAGGER = 0.12      // s between the puffed-out pockets' blasts, nearest first
+export const DRAUGHT_HOLD = 0.6          // s the colour wave takes round the ring to the jets' exits before they fire
+export const DRAUGHT_WAVE = 1            // fraction of DRAUGHT_HOLD the wave spends reaching the exits (ascii.js)
+export const FIREBEND_R_PER_JET = 32     // px of glow radius per jet (Firebending): a bigger glow fires more jets, one per foe
+export const FIREBEND_LEN = 2.6          // a jet's length, x the glow radius, from the ring outward
+export const FIREBEND_W = 0.3            // a jet's width, x the glow radius
+export const FIREBEND_LIFE = 0.35        // s a jet burns; a body touching it in that time takes the hit once
+// balance_decision : owner spec, first guess, unplayed 2026-11-01
+export const FIREBEND_DMG_MUL = 6        // a jet's hit, x the glow's own burn
 export const SAFETY_LAMP_EASE = 4        // 1/s the glow eases toward its Safety Lamp size (no jump when a pocket blows)
 // ---- Book 3, The Magma: weapon geometry (balance lives in WEAPONS[].levels) ----------------------
 export const SLAG_RANGE = 400            // px from you the ladle reaches for a foe
@@ -9916,6 +9919,9 @@ export const GAS_TOAD = { full: 3, grow: 0.5, reach: 0.6, popR: [50, 90], sting:
 // The whole chapter is drawn in coloured text glyphs (render.ascii -> src/ascii.js).
 CHAPTERS.mine = {
   name: 'The Mine', tagline: 'mind the firedamp', icon: '⛏️',
+  // balance_decision : xp per level +0% at start to +50% at 5:00, owner 2026-11-01
+  //  - xpNeedRamp is read at level-up only (stepLevelUp); level 1's cost is the plain one
+  xpNeedRamp: 0.5,
   weapons: ['pickaxe', 'dynamite', 'minecart', 'lantern'], starter: 'pickaxe',
   roster: [
     // balance_decision : rats 40% smaller, owner playtest 2026-10-10
