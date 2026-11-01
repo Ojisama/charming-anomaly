@@ -15168,7 +15168,8 @@ export const WEB_SLOW_MUL = 0.6  // player move-speed multiplier while standing 
 // x SLIME_SPEED_MUL, and their real velocity eases toward it at SLIME_GRIP per second, so they turn
 // late and coast when they stop pushing (stepPlayerMovement, stepSlime).
 export const SLIME_STEP = 12        // px crawled between dots
-export const SLIME_R = 9            // px, a dot's radius: the trail's half-width
+// balance_decision : owner, slime trail twice as wide 2026-11-01
+export const SLIME_R = 9 * 2        // px, a dot's radius: the trail's half-width
 export const SLIME_DUR = 30         // s a dot lasts
 export const SLIME_MAX = 900        // most dots alive at once; the oldest dries first
 export const SLIME_SPEED_MUL = 1.35 // speed on slime
