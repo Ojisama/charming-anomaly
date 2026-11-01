@@ -7202,6 +7202,7 @@ export function createRenderer(app) {
     caveSpider: { archetype: 'fast', ascii: true },
     kobold: { archetype: 'tank', ascii: true },
     golem: { archetype: 'tank', ascii: true },
+    gasToad: { archetype: 'normal', ascii: true },
     // Book 3, The Magma: PIXEL ART (`pixel: true` — painted by src/pixel.js PIXEL_CAST, not here).
     // A pixel body TURNS to its heading by swapping pre-turned bakes (makePixelLook's dirs), never by
     // rotating the sprite: the CRT pass re-grids whatever it is given, and a sprite turned to an
@@ -7210,6 +7211,7 @@ export function createRenderer(app) {
     salamander: { archetype: 'fast', pixel: true, lean: 0 },
     obsidianTortoise: { archetype: 'tank', pixel: true, lean: 0 },
     fireDrake: { archetype: 'fast', pixel: true, lean: 0 },
+    lavaAnt: { archetype: 'normal', pixel: true, lean: 0 },
     // Book 3, The Mantle: A 1930s RUBBER-HOSE CARTOON. `toon: true` hands the whole drawing to
     // src/toon.js (TOON_CAST / bakeCreature), the way `ascii: true` hands it to ascii.js. Upright
     // bodies: mirrored to face their way, never turned.

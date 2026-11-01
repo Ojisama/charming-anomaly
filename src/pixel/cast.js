@@ -111,6 +111,47 @@ export const BEETLE = {
   },
 }
 
+// ---- Lava Ant -----------------------------------------------------------------------------------
+// An ant from above, three SEPARATE lumps with a gap of ink between each (a big gaster behind, a
+// narrow thorax carrying six legs in alternating tripods, a head with mandibles and elbowed antennae).
+// Its body is deep cooling-lava red with one hot core in the gaster: a hot area blooms on the CRT,
+// and a body that is all hot reads as a splat, not an ant. The legs are red, not ink, so the
+// silhouette shows on the dark floor. Its drips are drawn by src/pixel.js.
+export const ANT = {
+  w: 26, h: 19, ax: 13, ay: 9,
+  pal: { k: INK, b: '#8a1606', B: '#c02c0a', g: '#9a1a06', G: '#ff8a1a', H: '#ffd858', l: '#7a1004', m: '#a8301a', e: EYE, f: '#d8340c' },
+  paint(f) {
+    const W = 26, H = 19, M = 9.5, g = grid(W, H)
+    // legs off the thorax (x 11.5..14.5): front reach forward, back sweep back; tripods alternate
+    for (const [ax, dx, tp] of [[14.5, 4, 0], [13, 0, 1], [11.5, -5, 0]]) {
+      for (const side of [-1, 1]) {
+        const step = ((f + tp + (side > 0 ? 1 : 0)) % 2) ? 1.2 : -1.2
+        const kx = ax + dx * 0.4, ky = M + side * 5
+        thick(g, ax, M + side * 1.2, kx, ky, 'l')
+        thick(g, kx, ky, ax + dx + step, M + side * 8, 'l')
+        set(g, ax + dx + step, M + side * 8.3, 'f')
+      }
+    }
+    disc(g, 5.2, M, 5.2, 4.8, 'g')                     // gaster
+    disc(g, 10.6, M, 0.9, 0.9, 'b')                    // the waist knot
+    disc(g, 13.2, M, 2.4, 2.2, 'b')                    // thorax
+    disc(g, 18.8, M, 2.9, 2.9, 'b')                    // head
+    disc(g, 4.8, M, 2.8, 2.2, 'G', 'g'); disc(g, 4.6, M, 1.2, 0.9, 'H', 'G')   // the hot core
+    disc(g, 13, M - 0.8, 1, 0.5, 'B', 'b')             // a gloss on the thorax and head
+    disc(g, 18.2, M - 1.2, 1.2, 0.7, 'B', 'b')
+    // antennae: elbowed, swinging a little per frame; mandibles
+    for (const s of [-1, 1]) {
+      const sw = f ? 0.6 : -0.6
+      line(g, 20, M + s * 1.6, 22, M + s * (3.6 + sw), 'm', true)
+      line(g, 22, M + s * (3.6 + sw), 25, M + s * (2.6 + sw), 'm', true)
+      set(g, 21.5, M + s * 0.8 - 0.5, 'm')
+      set(g, 20, M + s * 1.4 - 0.5, 'e')
+    }
+    outline(g)
+    return g
+  },
+}
+
 // ---- Salamander ---------------------------------------------------------------------------------
 // A long low lizard: a round head with bulging hot eyes, a sausage body with a row of glowing yellow
 // spots down the back, four legs splayed sideways ending in a fat foot, and a long tail that swings.
@@ -286,6 +327,7 @@ export const PIXEL_CAST = {
   salamander: { art: SALAMANDER, frames: 2, light: [1.8, 0xffb848, 0.25] },
   obsidianTortoise: { art: TORTOISE, frames: 2, light: [1.6, 0xff7030, 0.2] },
   fireDrake: { art: DRAKE, frames: 2, light: [1.8, 0xff7a28, 0.2] },
+  lavaAnt: { art: ANT, frames: 2, light: [1.6, 0xff8a30, 0.2] },
 }
 // the elite crown, [top, r]: render.js places it at e.y + top * k * drawScale, so top is stated in
 // the bake's own units — just above the top of the art

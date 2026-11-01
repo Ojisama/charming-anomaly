@@ -190,6 +190,8 @@ const MAT = {
   stone: { chars: ['#', '8', '&', '%', 'X', 'x', '=', '-', '.'], dark: 0x2e3a4c, mid: 0x667a96, lit: 0xa2b2c8 },
   wool:  { chars: ['M', 'W', '#', '%', '*', '+', ':', '.'], dark: 0x2a2620, mid: 0x9a8c76, lit: 0xfff6e2 },
   rust:  { chars: ['#', '%', '&', '*', '+', '=', ':', '.'], dark: 0x4a2418, mid: 0xb06848, lit: 0xf0b088 },
+  // the Gas Toad's warty brown skin
+  mud:   { chars: ['&', '%', '8', 'o', '=', ':', ',', '.'], dark: 0x3a2814, mid: 0x8c6a3a, lit: 0xdcbc84 },
 }
 
 // ---- creature tables (body-relative px, facing +x, for a body of radius baseR) ------------------
@@ -233,6 +235,10 @@ const CAST = {
   golem: {
     baseR: 28,
     parts: [part(-2, 0, 24, 22, 'stone', 5, 10, 41), part(13, -25, 9, 8, 'stone', 4.2, 8.5, 42), part(13, 25, 9, 8, 'stone', 4.2, 8.5, 43)],
+  },
+  gasToad: {
+    baseR: 16,
+    parts: [part(-1, 0, 13, 12, 'mud', 3.4, 7.5, 71), part(11, 0, 6.5, 8, 'mud', 3.2, 7, 72)],
   },
   // the fallback for any body whose rosterId has no entry here (another chapter's add, a summon):
   // a plain rust-red glyph cloud, so nothing in the mine is ever invisible
@@ -459,6 +465,7 @@ function composeCreature(out, id, X, Y, heading, sc, lx, ly, reach, flash, st, e
       out('•', wx, wy, 0xff7a1a, 0.8, 14 * sc, 0, true, 0, true)
     }
   }
+  if (id === 'gasToad') composeToad(out, look, X, Y, cos, sin, sc, lx, ly, reach, flash, st)
   if (id === 'stray') shadeParts(out, look, X, Y, cos, sin, sc, lx, ly, reach, flash)
   if (elite) {
     // a gold sparkle crown floating over the body (screen-up, whatever the heading): elite at a glance
@@ -478,6 +485,47 @@ function composeCreature(out, id, X, Y, heading, sc, lx, ly, reach, flash, st, e
       const u = (i - 3) / 3
       out('·', X + u * half * 1.05, cy + 5 + Math.abs(u) * 3, 0xffd76a, 0.95, 9, 0, true, 0, false)
     }
+  }
+}
+// THE GAS TOAD: a squat toad from above, legs folded under, eyes on top of the head. st.swell 0..1 is
+// how much firedamp it has drunk (e.toadGas): the body grows with it, and the gas leaks off its back.
+function composeToad(out, look, X, Y, cos, sin, sc, lx, ly, reach, flash, st) {
+  const sw = clamp01(st.swell ?? 0), t = st.t, ph = st.phase
+  const sB = sc * (1 + 0.55 * sw)
+  const M = MAT.mud
+  const legC = M.lit, legD = M.mid
+  // hind legs: thigh out to a knee beside the hip, shin folded back, a webbed foot; front legs short
+  for (const s of [-1, 1]) {
+    const hop = Math.sin(ph + (s > 0 ? 0 : Math.PI)) * 2
+    const [kx, ky] = [-2 + hop, 17 * s]
+    stroke(out, X, Y, cos, sin, sB, -6, 9 * s, kx, ky, 8, 7, legC, legD, 0.95, 0.9, 2.6)
+    stroke(out, X, Y, cos, sin, sB, kx, ky, -14 + hop, 15 * s, 7, 6, legD, legC, 0.9, 0.9, 2.6)
+    for (const fy of [-2, 0, 2]) {
+      const [wx, wy] = at(X, Y, cos, sin, sB, -17 + hop, 15 * s + fy)
+      out(',', wx, wy, M.lit, 0.75, 5 * sc, 0, false, 0, false)
+    }
+    stroke(out, X, Y, cos, sin, sB, 9, 7 * s, 13 - hop * 0.5, 13 * s, 6.5, 5.5, legC, legD, 0.95, 0.9, 2.6)
+    const [fx, fy] = at(X, Y, cos, sin, sB, 15 - hop * 0.5, 14 * s)
+    out(',', fx, fy, M.lit, 0.75, 5 * sc, 0, false, 0, false)
+  }
+  shadeParts(tinted(out, st.seed ?? 0.5, M.dark, M.lit), look, X, Y, cos, sin, sB, lx, ly, reach, flash, 1, ((st.seed ?? 0.5) - 0.5) * 0.3, true)
+  if (sw > 0) {
+    // gas leaking off its back as bubbles, more of them the fuller it is
+    const n = Math.round(10 * sw)
+    for (let i = 0; i < n; i++) {
+      const k = ((t * 0.7 + i / Math.max(1, n)) % 1)
+      const [wx, wy] = at(X, Y, cos, sin, sB, -4 - k * 14 + (hash2(i, 5, 3) - 0.5) * 10, (hash2(i, 9, 4) - 0.5) * 16)
+      out(i % 3 ? '°' : 'o', wx, wy, 0xa8ff7a, 0.85 * (1 - k), (6 + 4 * (1 - k)) * sc, 0, true, 0, i % 4 === 0)
+    }
+    const [cx, cy] = at(X, Y, cos, sin, sB, -1, 0)
+    out('●', cx, cy, 0x6aff4a, 0.12 + 0.18 * sw, 30 * sB, 0, true, 0, true)
+  }
+  // eyes on top of the head: gold, a slit of pupil
+  for (const s of [-1, 1]) {
+    const [wx, wy] = at(X, Y, cos, sin, sB, 12, 4.5 * s)
+    out('O', wx, wy, 0xffc838, 1, 7 * sc, 0, false, 2, false)
+    out('•', wx, wy, 0xffa020, 0.5, 11 * sc, 0, true, 0, true)
+    out('-', wx, wy, 0x1a1008, 1, 5 * sc, Math.atan2(sin, cos), false, 2, false)
   }
 }
 const GOLEM_CRACKS = [
@@ -514,6 +562,7 @@ export const ASCII_CAST = {
   caveSpider: { baseR: 13, poseOf: (e) => ({ hold: 0, aim: 1, leap: 2, land: 0 })[e._pounceState] ?? 0 },
   kobold: { baseR: 22 },
   golem: { baseR: 28 },
+  gasToad: { baseR: 16 },
 }
 const RES = 3
 function paintGlyphs(list, white) {
@@ -1174,7 +1223,7 @@ export function createAsciiRenderer(host) {
         }
         // a status tints every glyph of the body toward its colour (a hit flash still wins: white)
         const sout = stat && !flash ? (ch, x, y, col, al, size, rot, add, font, glow) => out(ch, x, y, mixHex(col, stat.tint, stat.k), al, size, rot, add, font, glow) : out
-        composeCreature(sout, id, X, Y, m.heading, sc, lx, ly, reach, flash, { phase: m.phase, t: hold ? m.tHold : clock + (m.phase % 7), pose, aimK, seed: m.seed }, !!e.elite)
+        composeCreature(sout, id, X, Y, m.heading, sc, lx, ly, reach, flash, { phase: m.phase, t: hold ? m.tHold : clock + (m.phase % 7), pose, aimK, seed: m.seed, swell: e.toadGas ?? 0 }, !!e.elite)
         if (stat?.kind === 'stun') {
           // stunned: three little stars wheeling over its head
           for (let i = 0; i < 3; i++) {

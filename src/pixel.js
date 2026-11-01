@@ -264,6 +264,7 @@ export function createPixelRig(env) {
   const flashes = []   // transient light from events: {x, y, r, col, a, life, max}
   // pixel sparks: render-local, never in run
   const sparks = []
+  const dripT = new WeakMap()   // lava ant -> s to its next drip
   const sparkLayer = new Container()
   air.addChild(sparkLayer)
   function burst(x, y, n, colors, speed, life, size = 1, grav = 160) {
@@ -545,6 +546,15 @@ export function createPixelRig(env) {
         if (!M || !onScreen(e.x, e.y, 60)) continue
         const [mul, col, a] = M.light
         addLight(e.x, e.y, e.radius * mul * (e.elite ? 1.3 : 1), col, a * (e.elite ? 1.2 : 1))
+        // the lava ant drips as it walks: a drop off its rear every so often, cooling on the floor
+        if (e.rosterId === 'lavaAnt' && dt > 0) {
+          const dr = (dripT.get(e) ?? Math.random() * 0.3) - dt
+          if (dr <= 0) {
+            const h = ((cam.dirOf?.(e) ?? 0) * TAU) / 16
+            burst(e.x - Math.cos(h) * e.radius * 0.9, e.y - Math.sin(h) * e.radius * 0.9, 1, EMBERS, 4, 1.6, 2, 0)
+          }
+          dripT.set(e, dr <= 0 ? 0.22 + Math.random() * 0.12 : dr)
+        }
         const halted = (e.frozen || 0) > 0 || (e.stunT || 0) > 0
         let f = heldFrame.get(e)
         if (!halted || f === undefined) { f = Math.floor(t * 10 + e.id * 1.7) % M.frames; heldFrame.set(e, f) }
