@@ -23,6 +23,7 @@ import { STAGE_PICK } from '../src/ophan/staging.js'
 import { magmaGroundAt, magmaRiverAt, magmaCooledAt, magmaHotAt } from '../src/sim.js'
 import { lavaFloodedAt, mantleHeightAt, lavaLineFor, mantleGroundAt } from '../src/sim.js'
 import { ECHO_DOUBLE_DELAY, ECHO_DOUBLE_DMG_FRAC, modPct, LODESTONE_HOLD } from '../src/config.js'
+import { LANTERN_FUSE, SAFETY_LAMP_SENSE } from '../src/config.js'
 import { SLIME_STEP, SLIME_R, SLIME_DUR, SLIME_MAX, SLIME_SPEED_MUL } from '../src/config.js'
 import { MANTLE_GROUND_STEP, MANTLE_START_DRY, MANTLE_COLD_VS_LAVA, MANTLE_FIRE_VS_ROCK, MANTLE_STRAND_DIE_T, MANTLE_STRAND_STUCK_T, MANTLE_STRAND_DMG_MUL, MANTLE_STRAND_SLOW, MANTLE_MELT_T, KETTLE_CRUST_GNAW, KETTLE_CRUST_GNAW_MAX, KETTLE_HULL_MAX, KETTLE_STEAM_MUL, DRAW_CAPS } from '../src/config.js'
 import { poolRimR, crustShapeOf, poolPhaseOf, crustSplash, splashSdf, SPLASH_FINGERS, SPLASH_DROPS } from '../src/mantle-shape.js'
@@ -40269,8 +40270,8 @@ function testMineGasbag() {
 // it costs you a little hp under src 'firedamp' — once, the chain's later links land in your invuln;
 // gas kills are swept the frame they land (the firedamp steps before the dead sweep);
 // (c1) each of the Mine's four weapons sets off an empty pocket by its own reach, (c2) a blow on a
-// body standing in a pocket sets it off through applyDamage alone; (d) Open Flame carries the
-// lantern's lighting reach; (e) Canary carries a chain farther; (f) Methane Seam's blasts are bigger.
+// body standing in a pocket sets it off through applyDamage alone; (d) the lantern lights only what
+// touches its glow, on a fuse; Open Flame blows it bigger, Safety Lamp swells the glow, Miner's Eye lays more gas; (e) Canary carries a chain farther; (f) Methane Seam's blasts are bigger.
 function testMine() {
   const meta = () => { const m = makeMeta(); m.dev = true; return m }
   assert.ok(BOOKS.burrow.chapters.includes('mine') && CHAPTERS['mine'].signature.type === 'firedamp', 'run MI: the mine is not on the Burrow ladder with its firedamp')
@@ -40371,12 +40372,12 @@ function testMine() {
   // applyDamage hook cannot be what lit it), placed where only that weapon's own reach touches it.
   //   pickaxe: beside the blow, square to the swing, between the rock chips' rays (they fly at
   //            45 deg off the swing at L1's 4 chips); dynamite: beside the body, inside the blast;
-  //   minecart: on the rails halfway to the body; lantern: past the glow's ring, inside its range.
+  //   minecart: on the rails halfway to the body; lantern: just touching the glow's ring.
   const own = {
     pickaxe: (run, p, e) => { e.x = p.x + 140; e.y = p.y; const bx = e.x - e.radius * 0.5; return { x: bx, y: p.y + 52, r: 10 } },
     dynamite: (run, p, e) => { e.x = p.x + 140; e.y = p.y; return { x: e.x, y: e.y + 55, r: 10 } },
     minecart: (run, p, e) => { e.x = p.x + 300; e.y = p.y; return { x: p.x + 120, y: p.y, r: 10 } },
-    lantern: (run, p, e) => { e.x = p.x + 900; e.y = p.y; const L = WEAPONS.lantern.levels[0]; return { x: p.x, y: p.y + (L.radius + L.range) / 2 + 6, r: 6 } },
+    lantern: (run, p, e) => { e.x = p.x + 900; e.y = p.y; const L = WEAPONS.lantern.levels[0]; return { x: p.x, y: p.y + L.radius + 4, r: 6 } },
   }
   const lit = {}
   for (const w of CHAPTERS['mine'].weapons) lit[w] = blowsWith(41003, w, own[w])
@@ -40387,17 +40388,76 @@ function testMine() {
   const hookIn = blowsWith(41004, 'flagella', (run, p, e) => { e.x = p.x + 140; e.y = p.y; return { x: e.x, y: e.y, r: 30 } })
   const hookOut = blowsWith(41004, 'flagella', (run, p, e) => { e.x = p.x + 140; e.y = p.y; return { x: e.x + 240, y: e.y + 240, r: 30 } })
   assert.ok(hookIn >= 1 && hookOut === 0, `run MI.c2: a blow on a body standing in a pocket must set it off (${hookIn}), the same weapon away from it never (${hookOut})`)
-  // (d) OPEN FLAME: a pocket past the glow's reach (no body anywhere near it) blows only once the
-  // mod carries the lantern's range to it, and one past the modded range never does.
+  // (d) THE LANTERN AND THE GAS. (d1) a pocket the glow touches burns LANTERN_FUSE s before it blows:
+  // none by 70% of the fuse, one by 160%; (d2) one just past the glow never blows; (d3) Open Flame's
+  // blast is (1 + flame) x the plain one; (d4) Safety Lamp swells the glow's ring with idle pockets
+  // near you (pockets beyond the glow, so none is lit); (d5) Miner's Eye keeps more pockets around you.
   const L1 = WEAPONS.lantern.levels[0], flame = WEAPON_MODS.lantern.openFlame.base
-  const far = { 'within the modded range': L1.range * (1 + flame / 2), 'past the modded range': L1.range * (1 + flame) + 30 }
-  const flameOf = {}
-  for (const [k, d] of Object.entries(far)) {
-    const at = (run, p, e) => { e.x = p.x - 900; e.y = p.y; return { x: p.x, y: p.y + d, r: 6 } }
-    flameOf[k] = [blowsWith(41005, 'lantern', at), blowsWith(41005, 'lantern', at, { weaponMods: { lantern: { openFlame: flame } } })]
+  const inGlow = (run, p, e) => { e.x = p.x - 900; e.y = p.y; return { x: p.x, y: p.y + L1.radius - 10, r: 6 } }
+  let fuseN
+  sig.firedamp = quiet
+  try {
+    const run = stage(41005, 1, [{ id: 'lantern', level: 1 }])
+    const p = run.player, e = run.enemies[0]
+    run.gas.push({ age: MINE_GAS_FADE_IN, seed: 3, ...inGlow(run, p, e) })
+    fuseN = [play(run, LANTERN_FUSE * 0.7, true).length, play(run, LANTERN_FUSE * 0.9, true).length]
+  } finally { sig.firedamp = F0 }
+  // (d1b) a pocket that drifts into the glow WHILE a burn's ring is still sweeping out is not set off
+  // by the ring: it waits for the next burn's fuse like any other (none within 0.25 s)
+  let midRing = -1
+  sig.firedamp = quiet
+  try {
+    const run = stage(41005, 1, [{ id: 'lantern', level: 1 }])
+    const p = run.player
+    run.enemies[0].x = p.x - 900
+    for (let t = 0; t < 120 && !run.novas.some((n) => n.life > 0 && n.r < L1.radius * 0.5); t++) play(run, 1 / 60, true)
+    if (run.novas.some((n) => n.life > 0)) {
+      run.gas.push({ x: p.x, y: p.y + L1.radius * 0.6, r: 6, age: MINE_GAS_FADE_IN, seed: 4 })
+      midRing = play(run, 0.25, true).length
+    }
+  } finally { sig.firedamp = F0 }
+  assert.strictEqual(midRing, 0, `run MI.d1b: a pocket caught by a burn's ring must not blow at once (${midRing}; -1 = no ring was seen)`)
+  assert.deepStrictEqual(fuseN, [0, 1], `run MI.d1: a pocket in the glow must burn its ${LANTERN_FUSE}s fuse, then blow once (blasts before/after: ${fuseN})`)
+  const pastGlow = blowsWith(41005, 'lantern', (run, p, e) => { e.x = p.x - 900; e.y = p.y; return { x: p.x, y: p.y + L1.radius + 6 + 15, r: 6 } })
+  assert.strictEqual(pastGlow, 0, `run MI.d2: a pocket just past the glow must never blow (${pastGlow})`)
+  const blastR = (weaponMods) => {
+    sig.firedamp = quiet
+    try {
+      const run = stage(41005, 1, [{ id: 'lantern', level: 1 }])
+      if (weaponMods) run.weaponMods = { ...run.weaponMods, ...weaponMods }
+      const p = run.player, e = run.enemies[0]
+      run.gas.push({ age: MINE_GAS_FADE_IN, seed: 3, ...inGlow(run, p, e) })
+      return play(run, 2, true)[0]?.r ?? 0
+    } finally { sig.firedamp = F0 }
   }
-  assert.deepStrictEqual(flameOf['within the modded range'].map((n) => n > 0), [false, true], `run MI.d: Open Flame must carry the glow to a pocket ${Math.round(far['within the modded range'])}px off (blasts without/with: ${flameOf['within the modded range']})`)
-  assert.deepStrictEqual(flameOf['past the modded range'], [0, 0], `run MI.d: a pocket past even the modded range must never blow (${flameOf['past the modded range']})`)
+  const flameR = [blastR(null), blastR({ lantern: { openFlame: flame } })]
+  assert.ok(flameR[0] > 0 && Math.abs(flameR[1] / flameR[0] - (1 + flame)) < 1e-6, `run MI.d3: Open Flame's blast must be ${1 + flame}x the plain one (r ${flameR.map((r) => r.toFixed(1))})`)
+  const lamp = WEAPON_MODS.lantern.safetyLamp.base
+  const glowWith = (weaponMods) => {
+    sig.firedamp = quiet
+    try {
+      const run = stage(41007, 1, [{ id: 'lantern', level: 1 }])
+      if (weaponMods) run.weaponMods = { ...run.weaponMods, ...weaponMods }
+      const p = run.player
+      run.enemies[0].x = p.x - 900
+      for (let k = 0; k < 4; k++) run.gas.push({ x: p.x + Math.cos(k * 1.6) * (SAFETY_LAMP_SENSE - 40), y: p.y + Math.sin(k * 1.6) * (SAFETY_LAMP_SENSE - 40), r: 6, age: MINE_GAS_FADE_IN, seed: k })
+      play(run, 3, true)
+      return run.lanternR
+    } finally { sig.firedamp = F0 }
+  }
+  const lampR = [glowWith(null), glowWith({ lantern: { safetyLamp: lamp } })]
+  assert.ok(Math.abs(lampR[0] - L1.radius) < 1e-6 && lampR[1] > L1.radius * (1 + lamp * 4 * 0.9),
+    `run MI.d4: with 4 pockets near you Safety Lamp must swell the glow's ring to ~${(L1.radius * (1 + lamp * 4)).toFixed(0)}px (without/with: ${lampR.map((r) => r.toFixed(1))})`)
+  const eye = WEAPON_MODS.lantern.minersEye.base
+  const pocketsWith = (weaponMods) => {
+    const run = stage(41008, 1)
+    if (weaponMods) run.weaponMods = { ...run.weaponMods, ...weaponMods }
+    run.enemies[0].x = run.player.x - 2000
+    play(run, 8)
+    return run.gas.length + run.gasLit.length
+  }
+  const eyeN = [pocketsWith(null), pocketsWith({ lantern: { minersEye: eye } })]
+  assert.ok(eyeN[0] > 0 && eyeN[1] >= eyeN[0] * (1 + eye * 0.8), `run MI.d5: Miner's Eye must keep ~${1 + eye}x the pockets around you (without/with: ${eyeN})`)
   // (e) CANARY: two pockets one link apart, just past a blast's normal reach; the second goes off
   // only with the anomaly. (f) METHANE SEAM: a body just outside a normal blast dies only with the
   // mutator, whose blasts are gasBlastMul bigger.
@@ -40599,7 +40659,7 @@ function testMine() {
     'run MI.h: ascii.js must draw the lit cloud with MINE_GAS_LIT_SHRINK and fade pockets in over MINE_GAS_FADE_IN, the numbers the sting and the lighting read')
   assert.ok(!seamA[0].dead && seamA[1].dead && Math.abs(seamA[1].r / seamA[0].r - MUTATORS.methaneSeam.effects.gasBlastMul) < 1e-6,
     `run MI.f: Methane Seam's bigger blast must kill a body just past a normal one: ${JSON.stringify(seamA)}`)
-  console.log(`PASS run MI (the mine): a shot through a row of 3 pockets blew links ${chains.join(',')} and killed both bodies, nothing with the switch off; a blast beside you stung ${sting} hp; pickaxe/dynamite/minecart/lantern each set off an empty pocket by their own reach (${Object.values(lit).join('/')}); a blow on a body in a pocket set it off (${hookIn}, ${hookOut} away); Open Flame lit a pocket at ${Math.round(far['within the modded range'])}px (${flameOf['within the modded range']}); Canary chained ${chainA.join('->')} pockets; Methane Seam's blast r ${seamA[0].r.toFixed(0)}->${seamA[1].r.toFixed(0)} killed the body just outside; wandering, seeping pockets came no nearer than ${seepD.toFixed(0)}px (sting reach ${stingMax.toFixed(0)}), no pocket laid nearer than ${layD.toFixed(0)}px (spawnMin ${F0.spawnMin}), a pocket fading in was not lit (${young}), a ring alone lit one (${ringA}); a cart shoved a body ${cart.shove.toFixed(0)}px and dazed it up to ${cart.stunMax.toFixed(2)}s; outside the cloud you took ${cloudOut.sting} while the body beside you was hurt, inside it ${cloudIn.sting}`)
+  console.log(`PASS run MI (the mine): a shot through a row of 3 pockets blew links ${chains.join(',')} and killed both bodies, nothing with the switch off; a blast beside you stung ${sting} hp; pickaxe/dynamite/minecart/lantern each set off an empty pocket by their own reach (${Object.values(lit).join('/')}); a blow on a body in a pocket set it off (${hookIn}, ${hookOut} away); the lantern's pocket blew after its fuse (${fuseN}), none past the glow, Open Flame blast r ${flameR.map((r) => r.toFixed(0)).join('->')}, Safety Lamp glow ${lampR.map((r) => r.toFixed(0)).join('->')}px, Miner's Eye pockets ${eyeN.join('->')}; Canary chained ${chainA.join('->')} pockets; Methane Seam's blast r ${seamA[0].r.toFixed(0)}->${seamA[1].r.toFixed(0)} killed the body just outside; wandering, seeping pockets came no nearer than ${seepD.toFixed(0)}px (sting reach ${stingMax.toFixed(0)}), no pocket laid nearer than ${layD.toFixed(0)}px (spawnMin ${F0.spawnMin}), a pocket fading in was not lit (${young}), a ring alone lit one (${ringA}); a cart shoved a body ${cart.shove.toFixed(0)}px and dazed it up to ${cart.stunMax.toFixed(2)}s; outside the cloud you took ${cloudOut.sting} while the body beside you was hurt, inside it ${cloudIn.sting}`)
 }
 
 // ---- run MA: Book 3, The Magma — the crust, and the weapons that use it -----------------------

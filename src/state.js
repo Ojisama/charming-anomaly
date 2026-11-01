@@ -2217,9 +2217,10 @@ function generateWells(sig) {
  *     A GASBAG TRAIL pocket (ELITE_AFFIXES.gasbag) also carries trail (the laying enemy's id) and
  *     life (s left; let go at 0). It never drifts or creeps, may sit anywhere (no spawnMin), and
  *     does not count toward the seams' count. Otherwise it is lit, chains and stings like any other.
- *   gasLit[i]: { x, y, r, at, chain, seed, sting?, src? } — a pocket already SET OFF, waiting for run.time >= at.
+ *   gasLit[i]: { x, y, r, at, chain, seed, sting?, src?, blastMul? } — a pocket already SET OFF, waiting for run.time >= at.
  *     chain 0 = set off by a player weapon this frame, or a Gas Toad's death pop (which carries its
- *     own sting and src 'gasToad'); n = the nth link of a chain. It blasts once.
+ *     own sting and src 'gasToad'); n = the nth link of a chain. It blasts once. The Lantern's glow
+ *     lights a pocket LANTERN_FUSE s ahead (drawn lit meanwhile); blastMul = its Open Flame bonus.
  *   sticks[i]: { x, y, fromX, fromY, t, flight, fuse, r, dmg, seed } — Dynamite: in the air for
  *     `flight` s from (fromX, fromY) to (x, y), then fizzing for `fuse` s, then {type:'dynamite'}.
  *   picks[i]: { x, y, r, dmg, count, angle, tid, t } — a thrown Pickaxe: its blow lands at (x, y) in t s.
