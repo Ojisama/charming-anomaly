@@ -6852,8 +6852,9 @@ export const BOOKS = {
    // is the last live rung, The Deep the first gated one, and The Kraken (appended 2026-09-10) the
    // next, still gated: a dev-gated shell whose boss sim lands in a later increment. Saves key on chapter ID, never position.
    undertow: { name: 'Undertow', cloth: '#1f5c7c', chapters: ['surf', 'shelf', 'reef', 'trawl', 'wreck', 'deep'], hidden: ['kraken'], startCoins: 100 },
-  // Book 3: digging down into the earth. wipFrom 0 gates the whole book behind meta.dev.
-  burrow: { name: 'Burrow', cloth: '#2b1d15', chapters: ['topsoil', 'geode', 'mine', 'magma', 'mantle', 'core'], hidden: ['ophan'], startCoins: 100, wipFrom: 0 },
+  // Book 3: digging down into the earth. wipFrom 2 since 2026-11-01: Topsoil and The Geode are live,
+  // The Mine onward still gated behind meta.dev.
+  burrow: { name: 'Burrow', cloth: '#2b1d15', chapters: ['topsoil', 'geode', 'mine', 'magma', 'mantle', 'core'], hidden: ['ophan'], startCoins: 100, wipFrom: 2 },
 }
 // Explicit, for the same reason CHAPTER_ORDER is explicit: a sweep that means "every book, in
 // campaign order" must not depend on object key order surviving an edit. The FIRST entry is the
