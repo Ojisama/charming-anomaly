@@ -18659,6 +18659,12 @@ function stepCrust(run, dt) {
         if (e._dead || isAlly(e) || damageImmune(e) || lavaProof(e)) continue
         const rr = c.r + e.radius * 0.5
         if ((e.x - c.x) ** 2 + (e.y - c.y) ** 2 > rr * rr) continue
+        // a Fissure's cracks overlap along its line: a body on two of them burns once a tick, not twice
+        if (c.line) {
+          const seen = (c.line._burned ??= new WeakMap()), last = seen.get(e)
+          if (last !== undefined && run.time - last < C.tick * 0.5) continue
+          seen.set(e, run.time)
+        }
         const dmg = (C.burnFlat + C.burnPct * e.maxHP) * C.tick * hot * (e.elite ? C.eliteMul : 1)
         dealDamage(run, e, dmg, false, true, true)   // hazard: the lava did it
       }
@@ -18873,8 +18879,15 @@ function stepFissureWeapon(run, w, stats, fireRateMul, dt) {
   const p = run.player
   const quick = run.weaponMods.fissure?.quickTremor ?? 0
   const deep = run.weaponMods.fissure?.deepFissure ?? 0
-  fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => {
-    if (!nearestEnemy(run)) return   // nothing to tear at: no lava laid where you are about to walk
+  const interval = stats.interval / (fireRateMul * (1 + quick))
+  // nothing in reach: it stays loaded and tears the moment a foe walks into reach (and lays no lava
+  // where you are about to walk)
+  const near = nearestEnemy(run)
+  if (!near || Math.hypot(near.x - p.x, near.y - p.y) > stats.len + near.radius) {
+    run.weaponTimers[w.id] = Math.max(0, (run.weaponTimers[w.id] ?? interval) - dt)
+    return
+  }
+  fireOnTimer(run, w.id, interval, dt, () => {
     const C = crustSpec(run)
     const hit = new Set()   // one cast hits a body once, however many lines cross it
     fissureAngles(run, ipecacN(run, stats.count), stats.len).forEach((a, k) => {
