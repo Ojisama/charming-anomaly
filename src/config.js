@@ -1512,11 +1512,14 @@ export const weaponDesc = (id, chapterId) => (CHAPTERS[chapterId]?.resource?.noS
 
 // ---- Weapons ----------------------------------------------------------------
 // levels[i] applies at weapon level i+1 (cumulative object replaces stats).
-// balance_decision : owner rule, Magma onward: each level +5% dmg, rate, range 2026-11-02
-//  - every other stat (count, pierce, bounces, moons) stays at level 1: extra projectiles come from epic+ mods
-const plus5Levels = (l1, { rate = 'interval', range = [] } = {}) => [0, 1, 2, 3, 4].map((i) => {
-  const k = 1 + 0.05 * i, l = { ...l1, dmg: l1.dmg * k, [rate]: l1[rate] / k }
+// balance_decision : owner rule, Magma onward: +10% dmg/rate/range a level, +1 projectile at L3 and L5 2026-11-02
+//  - the projectile stat is the first of BOOK3_SHOT_KEYS the weapon has; pierce, bounces, splinters stay at level 1
+export const BOOK3_SHOT_KEYS = ['count', 'pools', 'moons', 'lodestones']
+const book3Levels = (l1, { rate = 'interval', range = [] } = {}) => [0, 1, 2, 3, 4].map((i) => {
+  const k = 1 + 0.1 * i, l = { ...l1, dmg: l1.dmg * k, [rate]: l1[rate] / k }
   for (const key of range) l[key] = l1[key] * k
+  const shot = BOOK3_SHOT_KEYS.find((key) => key in l1)
+  if (shot) l[shot] = l1[shot] + (i >= 2) + (i >= 4)
   return l
 })
 export const WEAPONS = {
@@ -3115,7 +3118,7 @@ export const WEAPONS = {
     desc: 'Tosses molten slag on the nearest foe. It leaves a burning puddle.',
     icon: '🥄', rarity: 'normal',
     // balance_decision : starter, splash plus puddle, unplayed 2026-10-10
-    levels: plus5Levels({ dmg: 20, interval: 0.95, count: 1, r: 50, duration: 2.4, burn: 7 }, { range: ['r'] }),
+    levels: book3Levels({ dmg: 20, interval: 0.95, count: 1, r: 50, duration: 2.4, burn: 7 }, { range: ['r'] }),
   },
   // Obsidian Shards: volcanic glass flicked at the nearest foe (run.bullets, weapon 'obsidian'). A shard
   // that KILLS bursts into splinters (weapon 'splinter') flying out of the body.
@@ -3123,7 +3126,7 @@ export const WEAPONS = {
     name: 'Obsidian Shards',
     desc: 'Flicks volcanic glass at the nearest foe. A kill bursts it into splinters.',
     icon: '🔪', rarity: 'normal',
-    levels: plus5Levels({ dmg: 15, interval: 0.6, count: 1, speed: 560, pierce: 1, splinters: 4 }),
+    levels: book3Levels({ dmg: 15, interval: 0.6, count: 1, speed: 560, pierce: 1, splinters: 4 }),
   },
   // Bellows: a blast of hot air at the nearest foe (run.novas, look 'bellows', a sector). Open
   // lava inside the blast FLARES: it burns longer and bursts at once (BELLOWS_FLARE_*).
@@ -3132,7 +3135,7 @@ export const WEAPONS = {
     desc: 'Blasts hot air at the nearest foe. Open lava and slag puddles in the blast flare up, and lava rivers splash.',
     icon: '🌬️', rarity: 'normal',
     // balance_decision : owner: nearest foe, cone and reach -20% 2026-11-02
-    levels: plus5Levels({ dmg: 16, interval: 1.1, radius: 200, arc: 0.72, knockback: 120 }, { range: ['radius'] }),
+    levels: book3Levels({ dmg: 16, interval: 1.1, radius: 200, arc: 0.72, knockback: 120 }, { range: ['radius'] }),
   },
   // Volcanic Bomb: a molten rock lobbed into the thickest of the crowd (run.magmaLobs, kind 'bomb'). It
   // blasts where it lands and CRACKS THE CRUST there: the spot opens straight into lava.
@@ -3140,7 +3143,7 @@ export const WEAPONS = {
     name: 'Volcanic Bomb',
     desc: 'Lobs a molten rock into the crowd. Where it lands, the crust breaks open into lava.',
     icon: '🌋', rarity: 'rare',
-    levels: plus5Levels({ dmg: 34, interval: 2.2, count: 1, r: 74 }, { range: ['r'] }),
+    levels: book3Levels({ dmg: 34, interval: 2.2, count: 1, r: 74 }, { range: ['r'] }),
   },
   // ---- Book 3, The Mantle's four. All auto-fire, none aimed: each one is a way to use the lava. ----
   // Quench Kettle: throws water at the nearest Crack Hammer pool (a steam blast, the pool spent), else
@@ -3151,7 +3154,7 @@ export const WEAPONS = {
     desc: "Waters the lava: it hardens into a crust to walk on. On the hammer's lava, a burst of steam; on your boat, it cools the hull.",
     icon: '🫖', rarity: 'normal',
     // balance_decision : starter AoE round you, unplayed 2026-10-12
-    levels: plus5Levels({ dmg: 16, interval: 1.7, radius: 105, crustDur: 4.0 }, { range: ['radius'] }),
+    levels: book3Levels({ dmg: 16, interval: 1.7, radius: 105, crustDur: 4.0 }, { range: ['radius'] }),
   },
   // Hot Coals: a red-hot coal tossed at the nearest foe (run.bullets, weapon 'coal'). It BOUNCES on
   // to the next foe near the last one it hit (the chain idiom: _chainsLeft = bounces).
@@ -3159,7 +3162,7 @@ export const WEAPONS = {
     name: 'Hot Coals',
     desc: 'Tosses a red-hot coal that bounces from foe to foe.',
     icon: '🪨', rarity: 'normal',
-    levels: plus5Levels({ dmg: 16, interval: 0.9, count: 1, speed: 460, bounces: 3 }),
+    levels: book3Levels({ dmg: 16, interval: 0.9, count: 1, speed: 460, bounces: 3 }),
   },
   // Crack Hammer: stamps the ground open under the thickest knot of ROCK creatures in reach
   // (run.lavaPools). Each pool is lava for duration s: it melts rock creatures (fire), lava ones swim
@@ -3169,7 +3172,7 @@ export const WEAPONS = {
     desc: 'Cracks the ground open under the nearest enemy. Its lava melts rock creatures, and burns you too.',
     icon: '🔨', rarity: 'normal',
     // balance_decision : pools under the crowd, unplayed 2026-10-12
-    levels: plus5Levels({ dmg: 22, interval: 2.4, pools: 1, r: 60, duration: 3.0 }, { range: ['r'] }),
+    levels: book3Levels({ dmg: 22, interval: 2.4, pools: 1, r: 60, duration: 3.0 }, { range: ['r'] }),
   },
   // Lava Bellows: a rolling LAVA WAVE pumped the way you walk (run.novas, a sector with look
   // 'lavaWave' and habitatSplit). It splashes rock creatures with fire and shoves lava ones back.
@@ -3178,7 +3181,7 @@ export const WEAPONS = {
     desc: 'Rolls a wave of lava the way you walk. It burns rock creatures and shoves lava ones back.',
     icon: '🌊', rarity: 'normal',
     // balance_decision : a wide wave so it lands while kiting, unplayed 2026-10-12
-    levels: plus5Levels({ dmg: 15, interval: 1.25, radius: 240, arc: 2.0, knockback: 160 }, { range: ['radius'] }),
+    levels: book3Levels({ dmg: 15, interval: 1.25, radius: 240, arc: 2.0, knockback: 160 }, { range: ['radius'] }),
   },
   // ---- Book 3, The Core's four. Every hit but the Lance's obeys the pole rule (dealDamage). ----
   // Iron Sling: one iron ball at the nearest foe within range (run.bullets, weapon 'ironBall'), or,
@@ -3188,7 +3191,7 @@ export const WEAPONS = {
     name: 'Iron Sling',
     desc: 'Slings an iron ball at the nearest foe, or at a mite clinging to you.',
     icon: '🔩', rarity: 'normal',
-    levels: plus5Levels({ dmg: 10, interval: 0.32, count: 1, speed: 633, range: 500 }, { range: ['range'] }),
+    levels: book3Levels({ dmg: 10, interval: 0.32, count: 1, speed: 633, range: 500 }, { range: ['range'] }),
   },
   // Mercury Moons: chrome drops orbiting you (run.moons, rewritten every frame) in YOUR pole, so they
   // recolour when a pool changes you. Contact hits obey the pole rule; each drop also tugs foes of the
@@ -3198,7 +3201,7 @@ export const WEAPONS = {
     name: 'Mercury Moons',
     desc: "Chrome drops orbit you in your pole's colour. They hit what they touch and tug foes of the other pole into their path.",
     icon: '🌘', rarity: 'normal',
-    levels: plus5Levels({ dmg: 8, moons: 2, radius: 70, rotSpeed: 3.0, tick: 0.5, tugR: 90, tug: 110 }, { rate: 'tick', range: ['radius', 'tugR'] }),
+    levels: book3Levels({ dmg: 8, moons: 2, radius: 70, rotSpeed: 3.0, tick: 0.5, tugR: 90, tug: 110 }, { rate: 'tick', range: ['radius', 'tugR'] }),
   },
   // Decoy Lodestone: every interval a lodestone (run.lodestones) drops at your feet, taking YOUR pole
   // then and keeping it. For its fuse it nudges foes of the other pole (to it) toward itself at `pull`
@@ -3211,7 +3214,7 @@ export const WEAPONS = {
     name: 'Decoy Lodestone',
     desc: 'Drops a lodestone of your pole at your feet. It draws foes of the other pole toward itself, then bursts and throws off the mites clinging to you.',
     icon: '🧲', rarity: 'normal',
-    levels: plus5Levels({ dmg: 40, interval: 4.0, lodestones: 1, pullR: 160, pull: 45, r: 110 }, { range: ['pullR', 'r'] }),
+    levels: book3Levels({ dmg: 40, interval: 4.0, lodestones: 1, pullR: 160, pull: 45, r: 110 }, { range: ['pullR', 'r'] }),
   },
   // Dipole Lance: a short beam at the nearest foe within its length; every body on it takes a FLAT
   // hit, the one damage in the chapter that ignores poles (applyDamage's `flat`).
@@ -3219,7 +3222,7 @@ export const WEAPONS = {
     name: 'Dipole Lance',
     desc: 'A short two-coloured beam. It ignores poles.',
     icon: '⚡', rarity: 'normal',
-    levels: plus5Levels({ dmg: 30, interval: 1, length: 133, width: 16 }, { range: ['length'] }),
+    levels: book3Levels({ dmg: 30, interval: 1, length: 133, width: 16 }, { range: ['length'] }),
   },
 }
 // The latched-mite share of the sling's targets (prototype value).

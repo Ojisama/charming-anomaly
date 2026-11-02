@@ -21094,7 +21094,7 @@ try {
   run(testAnomalyTier)
   run(testChapterLateRate)
   run(testAnomalySlate)
-  run(testPlus5Rule)
+  run(testBook3Levels)
   run(testAnomalyPity)
   run(testRerollRarity)
   run(testStarMods)
@@ -40732,34 +40732,40 @@ function testMine() {
 // a body standing on it with no weapon equipped; (c) a Volcanic Bomb landing opens lava where it
 // lands (none with the crust off); (d) an Obsidian shard that kills bursts into splinters; (e) the
 // Bellows flares open lava in front of you (it stays open longer).
-// run R5: the owner's weapon rule for Book 3 from The Magma on (2026-11-02). Every level is +5%
-// damage, fire rate and range over level 1 and nothing else; a percent mod is 15% (damage, rate,
-// range) or 25% (anything else) at normal; a mod that adds projectiles rolls epic and up only.
-function testPlus5Rule() {
+// run R5: the owner's weapon rule for Book 3 from The Magma on (2026-11-02). Every level is +10%
+// damage, fire rate and range over level 1; a weapon that throws things gets +1 projectile at levels
+// 3 and 5, and nothing else grows. A percent mod is 15% (damage, rate, range) or 25% (anything
+// else) at normal; a mod that adds projectiles rolls epic and up only.
+function testBook3Levels() {
   const ladder = BOOKS.burrow.chapters
   const ids = [...new Set(ladder.slice(ladder.indexOf('magma')).flatMap((c) => CHAPTERS[c].weapons))]
   assert.ok(ids.includes('bellows') && ids.includes('sling') && ids.length >= 12, 'R5: denominator ' + ids)
   const near = (a, b) => Math.abs(a - b) < 1e-9 * Math.max(1, Math.abs(b))
+  const SHOTS = ['count', 'pools', 'moons', 'lodestones'], FIXED = ['pierce', 'bounces', 'splinters']
+  const throwers = []
   for (const id of ids) {
     const L = WEAPONS[id].levels, l1 = L[0]
     assert.strictEqual(L.length, 5, id)
+    const shot = SHOTS.find((key) => key in l1)
+    if (shot) throwers.push(id)
     L.forEach((l, i) => {
-      const k = 1 + 0.05 * i
-      assert.ok(near(l.dmg, l1.dmg * k), `R5: ${id} L${i + 1} dmg is ${l.dmg}, not +${5 * i}%`)
+      const k = 1 + 0.1 * i
+      assert.ok(near(l.dmg, l1.dmg * k), `R5: ${id} L${i + 1} dmg is ${l.dmg}, not +${10 * i}%`)
       for (const key of Object.keys(l1)) {
-        if (key === 'dmg') continue
+        if (key === 'dmg' || key === shot) continue
         assert.ok(near(l[key], l1[key]) || near(l[key], l1[key] * k) || near(l[key], l1[key] / k),
-          `R5: ${id} L${i + 1} ${key} ${l[key]} is neither level 1 nor +5% per level`)
+          `R5: ${id} L${i + 1} ${key} ${l[key]} is neither level 1 nor +10% per level`)
       }
-      for (const key of ['count', 'pierce', 'bounces', 'moons', 'lodestones', 'pools', 'splinters'])
-        if (key in l1) assert.strictEqual(l[key], l1[key], `R5: ${id} L${i + 1} grows ${key}`)
+      if (shot) assert.strictEqual(l[shot], l1[shot] + (i >= 2) + (i >= 4), `R5: ${id} L${i + 1} ${shot} ${l[shot]}`)
+      for (const key of FIXED) if (key in l1) assert.strictEqual(l[key], l1[key], `R5: ${id} L${i + 1} grows ${key}`)
     })
     for (const [mid, m] of Object.entries(WEAPON_MODS[id] ?? {})) {
       if (m.kind === 'pct') assert.ok(m.base === 0.15 || m.base === 0.25, `R5: ${id}.${mid} base ${m.base}`)
       if (m.kind === 'tier') assert.ok(m.values && !('normal' in m.values) && !('rare' in m.values), `R5: ${id}.${mid} adds projectiles below epic`)
     }
   }
-  console.log(`PASS run R5: ${ids.length} weapons from The Magma on (${ids.join(', ')}) level +5% and roll their mods by the rule`)
+  assert.ok(throwers.includes('slagLadle') && throwers.length >= 8, 'R5: throwers ' + throwers)
+  console.log(`PASS run R5: ${ids.length} weapons from The Magma on level +10%; ${throwers.length} throwers (${throwers.join(', ')}) gain a projectile at L3 and L5`)
 }
 
 function testMagma() {
