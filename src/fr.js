@@ -2142,6 +2142,8 @@ const CONFIG = {
   "flick rate": "cadence des éclats",
   "Shatter": "Volée d'esquilles",
   "extra shard(s) when a foe bursts": "éclat(s) en plus quand un ennemi éclate",
+  "Long Shrapnel": "Mitraille",
+  "how far a burst throws its shards": "de portée des éclats quand un ennemi éclate",
   "Forge Heat": "Chaleur de forge",
   "gust damage": "dégâts du souffle",
   "Long Draft": "Long tirage",

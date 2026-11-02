@@ -4663,6 +4663,7 @@ export const WEAPON_MODS = {
     glassVolley: { name: 'Glass Volley', desc: 'extra shard(s) per flick', icon: '🔷', kind: 'tier', values: { epic: 1, legendary: 2, mythic: 3 } },
     quickKnap:   { name: 'Quick Knap',   desc: 'flick rate', icon: '⏩', base: 0.15, kind: 'pct' },
     shatter:     { name: 'Shatter',      desc: 'extra shard(s) when a foe bursts', icon: '✴️', kind: 'flat', values: { epic: 2, legendary: 3, mythic: 4 } },
+    longShrapnel: { name: 'Long Shrapnel', desc: 'how far a burst throws its shards', icon: '📏', base: 0.15, kind: 'pct' },
   },
   bellows: {
     forgeHeat:   { name: 'Forge Heat',   desc: 'gust damage', icon: '💥', base: 0.15, kind: 'pct' },

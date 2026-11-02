@@ -54,7 +54,7 @@ import {
   OBSTACLE_STREAM_RADIUS, OBSTACLE_DROP_RADIUS,
   FRENZY_HP_FRAC, PACER_RADIUS, ELITE, GILDED_COIN_MUL, GASBAG_TRAIL, NOVA_LIFE,
   SUNSPEAR_FALL, SUNSPEAR_SPREAD, FOXFIRE_GLOOM, FOXFIRE_WANDER_SPEED, FOXFIRE_SWARM, FOXFIRE_CATCH_FRAC, weaponDesc, FOXFIRE_GLOW, SUNLANCE_REACH_MIN, GLINT_LIGHT_COST, GLINT_GLOW,
-  WEAPONS, STUCK_IN_STONE, HOLE_SINGULARITY_FRAC, DOWNWASH_PLUNGE_N, DOWNWASH_PLUNGE_FRAC, DOWNWASH_PLUNGE_ARM,
+  WEAPONS, STUCK_IN_STONE, SPLINTER_LIFE, HOLE_SINGULARITY_FRAC, DOWNWASH_PLUNGE_N, DOWNWASH_PLUNGE_FRAC, DOWNWASH_PLUNGE_ARM,
   ORBIT_NOVA_RADIUS, WISP_NOVA_RADIUS, CRUNCH_DMG_MUL, UNDERTOW_VAC_RADIUS_PER_STACK,
   WEAPON_MODS, WEAPON_MOD_TIER_BONUS, PEBBLE_CONE, CRAB_EAT, NOISE_BATS, MAX_WEAPON_MOD_PICKS, maxModsPerWeaponPerPool, PIERCE_MAX_PICKS,
   MOD_CANDIDATES_PER_WEAPON, MOD_POOL_MAX, DUO_PITY_SCREENS,
@@ -40860,6 +40860,15 @@ function testMagma() {
     dealDamage(r2, other, 45, false)
     const thrown = (r2._splinterQ ?? []).length + r2.bullets.filter((b) => b.weapon === 'splinter').length
     assert.ok(other._dead && thrown === 5, `run MG.d: 60 stuck + a 45 hit on 100 hp should burst it into 5 shards (dead ${other._dead}, thrown ${thrown})`)
+    // ...and Long Shrapnel throws them further: +50% flight time
+    const r3 = boot(32006)
+    r3.weaponMods.obsidianShards = { longShrapnel: 0.5 }
+    const far = makeStatusEnemy(r3, { x: r3.player.x + 300, y: r3.player.y, hp: 10, speed: 0 })
+    far.glassN = 1; far._glassDmg = 0
+    r3.enemies = [far]
+    dealDamage(r3, far, 20, false)
+    const lives = [...(r3._splinterQ ?? []), ...r3.bullets].filter((b) => b.weapon === 'splinter').map((b) => b.life)
+    assert.ok(lives.length === 1 && Math.abs(lives[0] - SPLINTER_LIFE * 1.5) < 1e-9, `run MG.d: Long Shrapnel +50% should fly SPLINTER_LIFE x1.5, got ${lives}`)
     console.log(`PASS run MG.d: ${need - 1} shards stuck for 0 damage, the ${need}th burst it into ${out}; another weapon finishes a stuck foe`)
   }
   // (e) the bellows flares open lava in its blast
