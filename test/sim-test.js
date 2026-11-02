@@ -63,7 +63,7 @@ import {
   MAX_DIFFICULTY, PLAYER, BARNACLE_JUMP_R, SHELL_R,
   LONGLINE_SNAG, LONGLINE_HALF_W, LONGLINE_TWIN_GAP, LONGLINE_MAX_SETS, LONGLINE_MIN_OFFSET, CC_DR_FLOOR,
   MAW_GAPE_T, MAW_DEVOUR_FRAC, BORN_BLIND_MAX_DMG_MUL, BORN_BLIND_REFILL_MUL, MAW_VIS, MAW_REVEAL, LURE_GLOW, SCENT_R, SCENT_DMG_MUL, SCENT_SLOW, SCENT_MARK_T, spendSecs,
-  BOOKS, BOOK_ORDER, BOOK_SHOP, shopLines, BOOK_UNLOCKS, playableChapterId, isWipChapter, chapterAvailable, titleBookshelf, CHAPTER_SPINE, isBookFinale, nextBook, bookOf, chapterNumber,
+  BOOKS, BOOK_ORDER, BOOK_SHOP, shopLines, BOOK_UNLOCKS, playableChapterId, isWipChapter, chapterAvailable, titleBookshelf, bossOnShelf, CHAPTER_SPINE, isHiddenChapter, nextBook, bookOf, chapterNumber,
   DMG_SRC_NAME, dmgSrcName, DMG_SRC_ART, dmgSrcArt, DMG_SRC_NO_ART, POLE_NAMES,
   DEATH_OUTRO, irisCoverMul, deathProgress, LANE_CAMERA_FRAC,
   endlessLevel, ENDLESS_START_LEVEL, endlessHpMul, endlessXpNeedMul, endlessXpMul, ENDLESS_COIN_HALF_LIFE_S, endlessAffixChance, endlessEligible, endlessUnlocked, ENDLESS_AFFIX_FROM, ENDLESS_AFFIX_MAX,
@@ -5597,6 +5597,14 @@ function runBooks() {
   assert.ok(!b1.volumes.some((v) => v.id === 'blank'),
     'The Blank must NOT be shelved before it is unlocked — a covered volume counts a chapter nobody should know about yet')
   assert.strictEqual(b1.stars, 2, 'stars sum `won` (difficulties actually beaten), not maxDifficulty')
+  // NO SPOILER: a boss is unseen (unnamed, unshelved) until its book's last chapter is won once.
+  // (The Blank, not The Kraken: this scenario holds The Deep WIP, which keeps The Kraken unseen.)
+  const early = { dev: false, chapters: { body: { unlocked: true, won: 1 }, beyond: { unlocked: true } } }
+  const beyondWon = { dev: false, chapters: { body: { unlocked: true, won: 1 }, beyond: { unlocked: true, won: 1 } } }
+  assert.strictEqual(bossOnShelf(early, 'blank'), false, 'a save that never won The Beyond must not have seen The Blank')
+  assert.ok(!shelved(early).includes('blank'), 'and the shelf must not draw it')
+  assert.strictEqual(bossOnShelf(beyondWon, 'blank'), true, 'one Beyond win at any level reveals The Blank')
+  assert.ok(shelved(beyondWon).includes('blank'), 'and the shelf draws it, locked')
   const earned = { dev: false, chapters: { body: { unlocked: true, won: 5 }, blank: { unlocked: true, won: 1 } } }
   assert.ok(titleBookshelf(earned)[0].volumes.some((v) => v.id === 'blank' && v.unlocked),
     'once earned, The Blank joins its OWN Book\'s étage rather than vanishing outside every shelf')
@@ -5808,25 +5816,9 @@ function runBookProgression() {
     assert.strictEqual(createRun(rich, { chapter: 'surf' }).choiceSlots, 2, 'a book 2 run resets to 2 card slots')
   }
 
-  // (l) THE GATE IS THE LAST CHAPTER, stated as a fact — not "nextChapter returned null", which
-  // is also true of The Blank (hidden, and its ladder tops out at exactly CHAPTER_UNLOCK_DIFFICULTY).
-  assert.strictEqual(nextChapter('blank'), null, 'precondition: The Blank has no next chapter')
-  assert.strictEqual(chapterMaxDifficulty('blank'), CHAPTER_UNLOCK_DIFFICULTY,
-    'precondition: a Blank win at its cap sits exactly at the book-unlock difficulty — this is why a null check is not enough')
-  assert.strictEqual(isBookFinale('beyond'), true, "The Beyond is book 1's finale")
-  assert.strictEqual(isBookFinale('blank'), false, 'The Blank is HIDDEN — winning it must not unlock the next book')
-  assert.strictEqual(isBookFinale('pond'), false, 'a mid-ladder chapter is not a finale')
-  // Undertow's finale is asserted DERIVED, not hardcoded. This line used to read
-  // isBookFinale('reef') === true and went red the moment The Trawl shipped as a fourth Undertow
-  // chapter — the production code was right (it reads chapters.at(-1)) and only the test's guess
-  // was stale. Deriving it means a fifth chapter moves the finale without a false red; the
-  // assertion that still carries weight is the NEGATIVE one below it, which pins that a chapter
-  // demoted out of last place stops being a finale.
-  const utLast = BOOKS.undertow.chapters.at(-1)
-  assert.strictEqual(isBookFinale(utLast), true, `Undertow's finale is its last chapter (${utLast})`)
-  for (const id of BOOKS.undertow.chapters.slice(0, -1)) {
-    assert.strictEqual(isBookFinale(id), false, `'${id}' is not last in Undertow's ladder, so it must not gate the next book`)
-  }
+  // (l) THE GATE IS THE BOOK'S HIDDEN BOSS (main.js endRun), never a ladder chapter.
+  for (const id of ['blank', 'kraken', 'ophan']) assert.strictEqual(isHiddenChapter(id), true, `'${id}' is a book's boss`)
+  for (const id of ['beyond', BOOKS.undertow.chapters.at(-1), 'pond', 'nope']) assert.strictEqual(isHiddenChapter(id), false, `'${id}' is not a boss`)
 
   // (m) THE GRANT IS MONOTONE. Creating a purse pays nothing; granting twice pays once.
   const g = makeMeta(); g.chapters = {}
@@ -5866,13 +5858,17 @@ function runBookProgression() {
   const vetBlob = () => ({
     schema: 1, coins: 4200, shop: {}, choiceSlots: 4, runs: 137, chapter: 'beyond', lang: 'fr',
     best: { time: 300, kills: 4000 },
-    chapters: { beyond: { unlocked: true, maxDifficulty: 5, difficulty: 5, won: 5 } },
+    chapters: { beyond: { unlocked: true, maxDifficulty: 5, difficulty: 5, won: 5 }, blank: { unlocked: true, maxDifficulty: 2, difficulty: 1, won: 1 } },
   })
+
+  // (o.0) THE GATE IS THE BOSS: a Beyond win at 5 with The Blank never beaten opens nothing.
+  const noBoss = loadMetaFrom({ ...vetBlob(), chapters: { beyond: { unlocked: true, maxDifficulty: 5, difficulty: 5, won: 5 }, blank: { unlocked: true, maxDifficulty: 1, difficulty: 1 } } })
+  assert.ok(!noBoss.grants?.undertow && !noBoss.chapters.surf?.unlocked, 'a Beyond win without a Blank win must not open Undertow')
 
   // (o.1) THE VETERAN IS LET IN, with no dev flag: this is ship day for everyone who already
   // finished Book 1. Grant, purse and opener, off a save written before Undertow existed.
   const notDev = loadMetaFrom(vetBlob())
-  assert.strictEqual(notDev.grants?.undertow, true, 'a Beyond win at 3+ already in the save grants Undertow on load, with no dev flag')
+  assert.strictEqual(notDev.grants?.undertow, true, 'a Blank win already in the save grants Undertow on load, with no dev flag')
   assert.strictEqual(bookMeta(notDev, 'undertow').coins, 100, 'the veteran is paid the welcome purse exactly once')
   assert.strictEqual(notDev.chapters.surf?.unlocked, true, 'The Surf unlocks retroactively — a player who beat Book 1 must not open ship day to nothing')
   // …and the gate is still there, one rung lower. This is the half that keeps the release scoped.
@@ -5915,13 +5911,13 @@ function runBookProgression() {
   // (o.1b) A save that never finished Book 1 gets nothing, gate or no gate — the unlock is EARNED,
   // and without this the assertion above would also pass if unlockBook simply granted unconditionally.
   const unfinished = loadMetaFrom({ schema: 1, coins: 0, shop: {}, runs: 3, chapter: 'body', best: {}, chapters: { body: { unlocked: true, maxDifficulty: 2, won: 1 } } })
-  assert.ok(!unfinished.grants?.undertow, 'a save that never beat The Beyond at 3+ is granted nothing')
+  assert.ok(!unfinished.grants?.undertow, 'a save that never beat The Blank is granted nothing')
   assert.ok(!unfinished.chapters.surf?.unlocked, 'and The Surf stays locked for it')
 
   // (o.2) WITH DEV ON, the same chain fires, exactly once, and is idempotent across reloads.
   const vetDev = vetBlob(); vetDev.dev = true
   const loaded = loadMetaFrom(vetDev)
-  assert.strictEqual(loaded.grants?.undertow, true, 'a Beyond win at 3+ already in the save grants Undertow on load (dev)')
+  assert.strictEqual(loaded.grants?.undertow, true, 'a Blank win already in the save grants Undertow on load (dev)')
   assert.strictEqual(bookMeta(loaded, 'undertow').coins, 100, 'the retroactive grant pays exactly once')
   assert.strictEqual(loaded.chapters.surf?.unlocked, true, "Undertow's first chapter unlocks retroactively")
   // Idempotent across loads — the flag, not the purse, is what stops the second payout.
@@ -5981,10 +5977,8 @@ function runBookProgression() {
     assert.ok(end > start, 'could not find the end of endRun')
     const body = src.slice(start, end)
 
-    assert.ok(/\bisBookFinale\(run\.chapter\)/.test(body),
-      `endRun must gate the book-unlock branch on isBookFinale(run.chapter), not a bare "!next" check — that is ALSO true of The Blank (see isBookFinale in config.js). endRun currently reads:\n${body}`)
-    assert.ok(/\bunlockBook\(meta, nb\)/.test(body),
-      `endRun's book-finale branch must actually call unlockBook(meta, nb) — the isBookFinale gate is dead without it. endRun currently reads:\n${body}`)
+    assert.ok(/if \(victory && isHiddenChapter\(run\.chapter\)\) \{\s*const nb = nextBook\(bookOf\(run\.chapter\)\)\s*if \(nb && unlockBook\(meta, nb\)\)/.test(body),
+      `endRun must open the next book on a boss win at ANY level: if (victory && isHiddenChapter(run.chapter)) -> unlockBook(meta, nb). endRun currently reads:\n${body}`)
     assert.ok(/ensureBookMeta\(meta, bookOf\(run\.chapter\)\s*\?\?\s*BOOK_ORDER\[0\]\)\.coins\s*\+=\s*earned/.test(body),
       `endRun must bank the run's coins through ensureBookMeta(meta, bookOf(run.chapter) ?? BOOK_ORDER[0]).coins += earned, or a Book 2 run's earnings silently land in meta.coins (book 1's purse). endRun currently reads:\n${body}`)
     // The regression this whole block exists to catch: reverting the bank to the old
@@ -6312,7 +6306,7 @@ function runBookProgression() {
     schema: 1, runs: 137, chapter: 'beyond', lang: 'fr', name: 'Main',
     coins: 4200, shop: { damage: 10, fireRate: 10, maxHP: 10 }, choiceSlots: 4,
     best: { time: 300, kills: 4000 },
-    chapters: { beyond: { unlocked: true, maxDifficulty: 5, difficulty: 5, won: 5 } },
+    chapters: { beyond: { unlocked: true, maxDifficulty: 5, difficulty: 5, won: 5 }, blank: { unlocked: true, maxDifficulty: 2, difficulty: 1, won: 1 } },
     unlocks: {}, grants: { undertow: true },
     books: { undertow: { coins: 100, shop: { damage: 3, slowBurn: 2 }, choiceSlots: 2, unlocks: { lightThief: true } } },
   }
@@ -6670,7 +6664,7 @@ function runBookProgression() {
     schema: 1, coins: 4200, shop: {}, choiceSlots: 4, runs: 137, chapter: 'beyond', lang: 'fr',
     dev: true, lightThief: true,
     best: { time: 300, kills: 4000 },
-    chapters: { beyond: { unlocked: true, maxDifficulty: 5, difficulty: 5, won: 5 } },
+    chapters: { beyond: { unlocked: true, maxDifficulty: 5, difficulty: 5, won: 5 }, blank: { unlocked: true, maxDifficulty: 2, difficulty: 1, won: 1 } },
   })
   for (const bad of [{ books: 5 }, { grants: 'x' }, { books: 'x' }]) {
     const blob = { ...bkBadBase(), ...bad }
@@ -18855,7 +18849,14 @@ function testSaveSlots() {
   const s2 = slotSummary(2)
   assert(s2 && typeof s2.coins === 'number' && typeof s2.unlocked === 'number',
     `expected slotSummary(2) to be a non-null summary with numeric coins/unlocked, got ${JSON.stringify(s2)}`)
-  assert.strictEqual(s2.total, CHAPTER_ORDER.length, `expected slotSummary(2).total === CHAPTER_ORDER.length (${CHAPTER_ORDER.length}), got ${s2.total}`)
+  // EVERY book's live ladder, not CHAPTER_ORDER (Book 1 only).
+  const liveTotal = Object.values(BOOKS).flatMap((b) => b.chapters).filter((id) => !isWipChapter(id)).length
+  assert.ok(liveTotal > CHAPTER_ORDER.length, `precondition: more than Book 1 is live (${liveTotal})`)
+  assert.strictEqual(s2.total, liveTotal, `expected slotSummary(2).total === every book's live chapters (${liveTotal}), got ${s2.total}`)
+  // ...and saveSummary reads every book: furthest chapter, coins and upgrades across all purses.
+  const b2 = saveSummary({ coins: 5, shop: { a: 2 }, chapters: { beyond: { unlocked: true }, blank: { unlocked: true }, surf: { unlocked: true } },
+    books: { undertow: { coins: 40, shop: { b: 3 } } } })
+  assert.deepStrictEqual([b2.chapterId, b2.coins, b2.upgrades], ['surf', 45, 5], `saveSummary must read Book 2 too, got ${JSON.stringify(b2)}`)
   console.log(`PASS run SS.e (slotSummary): slot 3 null (empty), slot 2 = {coins:${s2.coins}, unlocked:${s2.unlocked}, total:${s2.total}}`)
 
   // (f) a garbage/out-of-range pointer clamps activeSlot() back into [1, SAVE_SLOTS] rather than

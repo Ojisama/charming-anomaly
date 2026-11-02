@@ -2,7 +2,7 @@
 import { Application, UPDATE_PRIORITY } from 'pixi.js'
 import { loadMeta, saveMeta, resetSave, deleteSlot, createRun, ensureChapterMeta, ensureBookMeta, unlockBook, setActiveSlot, activeSlot, setSlotName, cleanName, exportSlot, importSlot, freezeSaves, setSaveHook, SAVE_SLOTS, parkRun, dropParkedRun, takeParkedRun } from './state.js'
 import * as CFG from './config.js'
-import { shopCost, refundValue, shopLines, shopLineUnlocked, lineMax, runBonusCoins, randomMutators, rerollMutator, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, difficultyCoinMul, CONSUMABLES, ANOMALY_REROLL_COST, sacrificeCost, BOOK_UNLOCKS, CHAPTERS, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, isWipChapter, HIDDEN_UNLOCKS, COIN_CAP_PER_RUN, BOOK_ORDER, bookOf, isBookFinale, nextBook, unlockCost, unlockLevel, DEATH_OUTRO, BOSS_OUTRO, hasBossOutro } from './config.js'
+import { shopCost, refundValue, shopLines, shopLineUnlocked, lineMax, runBonusCoins, randomMutators, rerollMutator, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, difficultyCoinMul, CONSUMABLES, ANOMALY_REROLL_COST, sacrificeCost, BOOK_UNLOCKS, CHAPTERS, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, isWipChapter, HIDDEN_UNLOCKS, COIN_CAP_PER_RUN, BOOK_ORDER, bookOf, isHiddenChapter, nextBook, unlockCost, unlockLevel, DEATH_OUTRO, BOSS_OUTRO, hasBossOutro } from './config.js'
 import { stepSim, fastForwardEndless, endlessHandover, applyChoice, rerollLevelUpChoices, rerollPrice, buildReadout, devCards, devTake, mantleGroundAt } from './sim.js'
 import { createRenderer } from './render.js'
 import { initUI } from './ui.js'
@@ -928,9 +928,6 @@ function endRun(victory) {
     // the save stays clean, rather than writing an `unlocked` flag to disk that outlives the gate.
     // Today that is a d3 Shelf win reaching for The Reef; a d3 Surf win now genuinely opens The
     // Shelf, which is the whole of that chapter's release.
-    // NOT folded into nextChapter itself: isBookFinale below reads the ladder's true shape, and a
-    // wip-aware nextChapter would make the last live rung look like Undertow's finale and open
-    // Book 3.
     if (next && !isWipChapter(next)) {
       const nextMeta = ensureChapterMeta(meta, next)
       if (!nextMeta.unlocked) {
@@ -938,17 +935,14 @@ function endRun(victory) {
         unlockedChapter = CHAPTERS[next].name
         unlockedChapterId = next
       }
-    } else if (isBookFinale(run.chapter)) {
-      // No next chapter AND this is the book's finale: open the next book. Not a bare
-      // `!next` test — that is also true of The Blank (see isBookFinale in config.js).
-      // unlockBook returns true only when it actually CHANGED something (opened the first
-      // chapter, or paid the welcome purse), which is exactly the gate the badge wants: the
-      // monotone meta.grants flag in grantBook makes a replayed finale return false, so the
-      // announcement fires on the run that earned it and never again. Copy lives in
-      // BOOK_UNLOCK_LINES rather than here — run XX walks config tables, not this function.
-      const nb = nextBook(bookOf(run.chapter))
-      if (nb && unlockBook(meta, nb)) unlockedBook = nb
     }
+  }
+  // Beating a book's hidden BOSS at any level opens the next book. unlockBook returns true only
+  // when it actually CHANGED something, so the badge fires on the run that earned it and never
+  // again. Copy lives in BOOK_UNLOCK_LINES — run XX walks config tables, not this function.
+  if (victory && isHiddenChapter(run.chapter)) {
+    const nb = nextBook(bookOf(run.chapter))
+    if (nb && unlockBook(meta, nb)) unlockedBook = nb
   }
 
   // HIDDEN CHAPTER UNLOCKS, walked from HIDDEN_UNLOCKS rather than written per chapter. The Blank

@@ -12040,21 +12040,9 @@ export const chapterNumber = (id) => {
   return i < 0 ? null : `${BOOK_ORDER.indexOf(b) + 1}-${i + 1}`
 }
 
-// Is this chapter the LAST rung of its book's ladder? The book-unlock gate tests this rather than
-// `nextChapter(id) === null`, which is ALSO true of a hidden chapter and of an id no book claims.
-// The Blank is the live counter-example: nextChapter('blank') is null and its ladder caps at 3,
-// which is exactly CHAPTER_UNLOCK_DIFFICULTY, so a null check unlocks the next book off a Blank win.
-export const isBookFinale = (id) => {
-  const chapters = BOOKS[bookOf(id)]?.chapters ?? []
-  return chapters.length > 0 && chapters[chapters.length - 1] === id
-}
 // The book after this one on the shelf, or null past the end AND for any id no book claims.
 // NOT `BOOK_ORDER[BOOK_ORDER.indexOf(bookId) + 1] ?? null` — indexOf(-1) + 1 indexes element 0,
-// so an unclaimed id would silently resolve to BOOK_ORDER[0] ('book1'). Same latent defect
-// nextChapter was fixed for above; caught here by run BP's direct nextBook('nope') coverage
-// before it ever reached a live call site (endRun's book-finale branch is only entered when
-// isBookFinale is true, which is itself false for a bookOf-less id — so this was never triggered
-// in practice, but the function's own contract must hold regardless of who currently guards it).
+// so an unclaimed id would silently resolve to BOOK_ORDER[0] ('book1').
 export const nextBook = (bookId) => {
   const i = BOOK_ORDER.indexOf(bookId)
   return i < 0 ? null : (BOOK_ORDER[i + 1] ?? null)
@@ -12087,7 +12075,7 @@ export const playableChapterId = (meta) => {
 // has no ordinary unlock path. Like a WIP rung, the dev gate is its route in for testing: the shelf
 // and chapterAvailable both read `meta.dev`, so toggling dev reveals it without writing `unlocked`
 // to the save. (The Blank is also EARNED by winning the ladder — that route stays.)
-const isHiddenChapter = (id) => !!BOOKS[bookOf(id)]?.hidden?.includes(id)
+export const isHiddenChapter = (id) => !!BOOKS[bookOf(id)]?.hidden?.includes(id)
 
 export const chapterAvailable = (meta, id) =>
   (!isWipChapter(id) || meta?.dev === true) &&
@@ -12130,6 +12118,11 @@ export const spineName = (id) => CHAPTER_SPINE[id] ?? CHAPTERS[id]?.name ?? id
 // A `hidden` chapter (The Blank) joins its own Book's étage, and only once unlocked. Before that it
 // must not even occupy a covered slot, or the shelf silently counts a chapter whose existence the
 // carousel went to some trouble to withhold.
+// Has this save SEEN this hidden boss? The shelf draws it from then on, and only then may any copy
+// name it (ui.js's locked-book hint) — naming it earlier spoils the secret.
+export const bossOnShelf = (meta, id) => meta?.dev === true || !!meta?.chapters?.[id]?.unlocked ||
+  (!isWipChapter(id) && Number(meta?.chapters?.[HIDDEN_UNLOCKS[id]?.from]?.won) >= 1)
+
 export function titleBookshelf(meta) {
   const shelf = []
   for (const [book, def] of Object.entries(BOOKS)) {
@@ -12140,10 +12133,10 @@ export function titleBookshelf(meta) {
     // same meaning the old boolean had, reached from the other end.
     const ladder = def.chapters.filter((id) => meta?.dev === true || !isWipChapter(id))
     if (ladder.length === 0) continue
-    // A hidden chapter takes a slot once EARNED, or whenever the dev gate is up (The Kraken is
-    // reached that way to test, without writing `unlocked` to the save) — mirroring the WIP rung
-    // one line above, which the same gate reveals.
-    const ids = [...ladder, ...def.hidden.filter((id) => meta?.dev === true || meta?.chapters?.[id]?.unlocked)]
+    // A hidden chapter takes a slot, locked, once its gate chapter is won at ANY level; open once
+    // earned; and always when the dev gate is up (reached that way to test, without writing
+    // `unlocked` to the save).
+    const ids = [...ladder, ...def.hidden.filter((id) => bossOnShelf(meta, id))]
     const volumes = ids.map((id) => ({ id, unlocked: chapterAvailable(meta, id) }))
     shelf.push({
       book,

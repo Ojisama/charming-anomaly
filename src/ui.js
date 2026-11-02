@@ -1,5 +1,5 @@
 // DOM overlay inside #ui: title, shop, HUD, level-up, pause, summary. No Pixi.
-import { shopCost, refundValue, REFUND_RATE, shopLines, shopLineUnlocked, chaptersMastered, lineMax, SHOP_FAMILY, RUN_DURATION, RARITIES, modPct, WEAPONS, ENV_WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, MUTATOR_EFFECT_LABELS, CONSUMABLES, MAX_DIFFICULTY, DIFFICULTY_COIN_PER_LEVEL, difficultyCountMul, difficultyDmgMul, sacrificeCost, SACRIFICE_COSTS, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES, chapterNumber, CHAPTERS, CHAPTER_ORDER, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, HIDDEN_UNLOCKS, titleBookshelf, spineName, chaosStatus, pulseCost, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS, PAUSE_COPY, bookOf, BOOK_ORDER, BOOKS, BOOK_UNLOCKS, unlockCost, unlockLevel, unlockMax, dmgSrcName, dmgSrcArt, passiveEffectText, CHAPTER_BOARDS_DEFAULT, KRAKEN_PARRY_CD, hasSkillButton, ENDLESS_COPY, ENDLESS_MILESTONE_S, endlessUnlocked, POLE_NAMES, POLE_TINT, OPHAN_GAUGE_COPY } from './config.js'
+import { shopCost, refundValue, REFUND_RATE, shopLines, shopLineUnlocked, chaptersMastered, lineMax, SHOP_FAMILY, RUN_DURATION, RARITIES, modPct, WEAPONS, ENV_WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, MUTATOR_EFFECT_LABELS, CONSUMABLES, MAX_DIFFICULTY, DIFFICULTY_COIN_PER_LEVEL, difficultyCountMul, difficultyDmgMul, sacrificeCost, SACRIFICE_COSTS, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES, chapterNumber, CHAPTERS, CHAPTER_ORDER, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, HIDDEN_UNLOCKS, titleBookshelf, bossOnShelf, spineName, chaosStatus, pulseCost, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS, PAUSE_COPY, bookOf, BOOK_ORDER, BOOKS, BOOK_UNLOCKS, unlockCost, unlockLevel, unlockMax, dmgSrcName, dmgSrcArt, passiveEffectText, CHAPTER_BOARDS_DEFAULT, KRAKEN_PARRY_CD, hasSkillButton, ENDLESS_COPY, ENDLESS_MILESTONE_S, endlessUnlocked, POLE_NAMES, POLE_TINT, OPHAN_GAUGE_COPY } from './config.js'
 import { playSfx } from './audio.js'
 import { t, tt, getLang, LANGS } from './i18n.js'
 import { SAVE_SLOTS, activeSlot, slotSummary, saveSummary, exportSlot, NAME_MAX, bookMeta, ensureBookMeta, bookProgress } from './state.js'
@@ -202,15 +202,13 @@ function selectedChapterMeta(meta) {
 // a spine has no room for them, and that panel is the only consumer of CAST_ART left, so it is
 // what keeps the scripts/bake-cast.mjs thumbnails reachable.
 
-// The furthest-progressed chapter this save has unlocked (last CHAPTER_ORDER id whose
-// chapters[id].unlocked is true) — used to phrase the "win X at difficulty 3+" hint under the
-// chapter selector for the next (locked) chapter, if any.
-function furthestUnlockedChapterId(meta) {
-  let furthest = CHAPTER_ORDER[0]
-  for (const id of CHAPTER_ORDER) {
-    if (meta.chapters?.[id]?.unlocked) furthest = id
-  }
-  return furthest
+// The chapter whose win opens this locked one (main.js endRun): the rung below it on its own
+// ladder, or the previous book's hidden boss for a book's first chapter.
+function gateChapterId(id) {
+  const book = bookOf(id)
+  const ladder = BOOKS[book].chapters
+  const i = ladder.indexOf(id)
+  return i > 0 ? ladder[i - 1] : BOOKS[BOOK_ORDER[BOOK_ORDER.indexOf(book) - 1]]?.hidden[0] ?? ladder[0]
 }
 
 // The race clock's danger threshold, in seconds. HUD-only — it changes nothing the sim can see,
@@ -1288,9 +1286,12 @@ export function initUI(hooks) {
         <div class="pg-mid">${mid}</div>
         <div class="pg-foot${RP ? ` rp-foot rp-foot--${RP}` : ''}">${foot}</div>`
     } else {
-      const line = HIDDEN_UNLOCKS[id]
-        ? t(HIDDEN_UNLOCKS[id].hint)
-        : tt('win {name} at difficulty 3+', { name: t(CHAPTERS[furthestUnlockedChapterId(meta)].name) })
+      const gate = gateChapterId(id)
+      // A boss the player has not found yet is never named: the book is all they are told to finish.
+      const line = HIDDEN_UNLOCKS[id] ? t(HIDDEN_UNLOCKS[id].hint)
+        : !HIDDEN_UNLOCKS[gate] ? tt('win {name} at difficulty 3+', { name: t(CHAPTERS[gate].name) })
+          : bossOnShelf(meta, gate) ? tt('beat {name} at any difficulty', { name: t(CHAPTERS[gate].name) })
+            : tt('finish Book {n}', { n: BOOK_ORDER.indexOf(bookOf(gate)) + 1 })
       recto = `<div class="pg-top"></div><div class="pg-mid"><p class="pg-lock">${line}</p></div><div class="pg-foot"></div>`
     }
     return `
@@ -1317,11 +1318,10 @@ export function initUI(hooks) {
   // visible (a display:none element measures as zero-width) — hence it's also called from
   // showScreen right after the screen is shown, not only from renderTitle.
   function renderTitle() {
-    // resolveChapterId, not raw meta.chapter: this fires when the browsed chapter has no ledger
-    // entry — reachable for 'blank', which lives outside CHAPTER_ORDER so ensureChapterMeta never
-    // creates one — and falling back to an unvalidated pointer would put the alien id straight back
-    // (R1, config.js).
-    if (!meta.chapters?.[browseChapterId]) browseChapterId = playableChapterId(meta)
+    // Only an id no chapter claims falls back (playableChapterId, never the raw pointer: R1,
+    // config.js). NOT "has no ledger entry": a locked hidden boss on the shelf has none until it is
+    // earned, and must still be browsable to show its hint.
+    if (!CHAPTERS[browseChapterId]) browseChapterId = playableChapterId(meta)
     setHtml(screens.title, `
       <header class="title-bar">
         <button class="pill-btn" data-act="settings" aria-label="${t('Settings')}">⚙</button>
