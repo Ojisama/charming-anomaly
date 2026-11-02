@@ -1,5 +1,5 @@
 // DOM overlay inside #ui: title, shop, HUD, level-up, pause, summary. No Pixi.
-import { shopCost, refundValue, REFUND_RATE, shopLines, shopLineUnlocked, chaptersMastered, lineMax, SHOP_FAMILY, RUN_DURATION, RARITIES, modPct, WEAPONS, ENV_WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, MUTATOR_EFFECT_LABELS, CONSUMABLES, MAX_DIFFICULTY, DIFFICULTY_COIN_PER_LEVEL, difficultyCountMul, difficultyDmgMul, sacrificeCost, SACRIFICE_COSTS, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES, chapterNumber, CHAPTERS, CHAPTER_ORDER, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, HIDDEN_UNLOCKS, titleBookshelf, spineName, chaosStatus, pulseCost, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS, PAUSE_COPY, bookOf, BOOK_ORDER, BOOKS, BOOK_UNLOCKS, unlockCost, unlockLevel, unlockMax, dmgSrcName, dmgSrcArt, passiveEffectText, CHAPTER_BOARDS_DEFAULT, KRAKEN_PARRY_CD, hasSkillButton, ENDLESS_COPY, ENDLESS_MILESTONE_S, endlessUnlocked, POLE_NAMES, POLE_TINT, OPHAN_GAUGE_COPY } from './config.js'
+import { shopCost, refundValue, REFUND_RATE, shopLines, shopLineUnlocked, chaptersMastered, lineMax, SHOP_FAMILY, RUN_DURATION, RARITIES, modPct, WEAPONS, ENV_WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, MUTATOR_EFFECT_LABELS, CONSUMABLES, MAX_DIFFICULTY, DIFFICULTY_COIN_PER_LEVEL, difficultyCountMul, difficultyDmgMul, sacrificeCost, SACRIFICE_COSTS, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES, chapterNumber, CHAPTERS, CHAPTER_ORDER, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, HIDDEN_UNLOCKS, titleBookshelf, bossOnShelf, spineName, chaosStatus, pulseCost, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS, PAUSE_COPY, bookOf, BOOK_ORDER, BOOKS, BOOK_UNLOCKS, unlockCost, unlockLevel, unlockMax, dmgSrcName, dmgSrcArt, passiveEffectText, CHAPTER_BOARDS_DEFAULT, KRAKEN_PARRY_CD, hasSkillButton, ENDLESS_COPY, ENDLESS_MILESTONE_S, endlessUnlocked, POLE_NAMES, POLE_TINT, OPHAN_GAUGE_COPY } from './config.js'
 import { playSfx } from './audio.js'
 import { t, tt, getLang, LANGS } from './i18n.js'
 import { SAVE_SLOTS, activeSlot, slotSummary, saveSummary, exportSlot, NAME_MAX, bookMeta, ensureBookMeta, bookProgress } from './state.js'
@@ -1287,9 +1287,11 @@ export function initUI(hooks) {
         <div class="pg-foot${RP ? ` rp-foot rp-foot--${RP}` : ''}">${foot}</div>`
     } else {
       const gate = gateChapterId(id)
-      const line = HIDDEN_UNLOCKS[id]
-        ? t(HIDDEN_UNLOCKS[id].hint)
-        : tt(HIDDEN_UNLOCKS[gate] ? 'beat {name} at any difficulty' : 'win {name} at difficulty 3+', { name: t(CHAPTERS[gate].name) })
+      // A boss the player has not found yet is never named: the book is all they are told to finish.
+      const line = HIDDEN_UNLOCKS[id] ? t(HIDDEN_UNLOCKS[id].hint)
+        : !HIDDEN_UNLOCKS[gate] ? tt('win {name} at difficulty 3+', { name: t(CHAPTERS[gate].name) })
+          : bossOnShelf(meta, gate) ? tt('beat {name} at any difficulty', { name: t(CHAPTERS[gate].name) })
+            : tt('finish Book {n}', { n: BOOK_ORDER.indexOf(bookOf(gate)) + 1 })
       recto = `<div class="pg-top"></div><div class="pg-mid"><p class="pg-lock">${line}</p></div><div class="pg-foot"></div>`
     }
     return `
