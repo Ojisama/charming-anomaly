@@ -357,18 +357,13 @@ export function loadMeta() {
       // a save that round-trips through this build must come back out the shape it went in. Nothing
       // reads it for gameplay any more; see BOOK_UNLOCKS (config.js), which is now empty.
       m.lightThief = m.lightThief === true
-      // Retroactive BOOK unlock, exactly the same argument as the chapter chain above: a book
-      // that shipped AFTER the player already beat the previous book's finale at
-      // CHAPTER_UNLOCK_DIFFICULTY+ unlocks on load, because endRun could not unlock a book that
-      // did not exist yet. Without this, every veteran is locked out of Book 2 permanently —
-      // including everyone holding The Blank, which requires a Beyond win at 5. unlockBook still
-      // refuses a WIP book unless meta.dev is on (its own gate, read here already coerced above),
-      // so a real player sees and gets nothing until Book 2 actually ships.
+      // Retroactive BOOK unlock, same argument as the chapter chain above: a book that shipped
+      // AFTER the player already beat the previous book's hidden BOSS (any level, as in endRun)
+      // unlocks on load. unlockBook still refuses a WIP book unless meta.dev is on.
+      // maxDifficulty > 1 also proves a win, for a save older than the `won` field.
       for (let i = 1; i < BOOK_ORDER.length; i++) {
-        const prevFinale = BOOKS[BOOK_ORDER[i - 1]].chapters.at(-1)
-        const prev = m.chapters?.[prevFinale]
-        const beat = Math.max(Number(prev?.won) || 0, (Number(prev?.maxDifficulty) || 1) - 1)
-        if (beat >= CHAPTER_UNLOCK_DIFFICULTY) unlockBook(m, BOOK_ORDER[i])
+        const boss = m.chapters?.[BOOKS[BOOK_ORDER[i - 1]].hidden?.[0]]
+        if (Math.max(Number(boss?.won) || 0, (Number(boss?.maxDifficulty) || 1) - 1) >= 1) unlockBook(m, BOOK_ORDER[i])
       }
       // meta.lightThief (Book 1-shaped legacy) copies forward ONCE into bookMeta(m,'undertow')
       // .unlocks.lightThief. BOTH ARE DEAD DATA since Scavenger was removed — no reader is left —

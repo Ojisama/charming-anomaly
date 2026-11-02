@@ -202,13 +202,13 @@ function selectedChapterMeta(meta) {
 // a spine has no room for them, and that panel is the only consumer of CAST_ART left, so it is
 // what keeps the scripts/bake-cast.mjs thumbnails reachable.
 
-// The chapter whose win at difficulty 3+ opens this locked one: the rung below it on its own
-// ladder, or the previous book's finale for a book's first chapter (main.js endRun's two branches).
+// The chapter whose win opens this locked one (main.js endRun): the rung below it on its own
+// ladder, or the previous book's hidden boss for a book's first chapter.
 function gateChapterId(id) {
   const book = bookOf(id)
   const ladder = BOOKS[book].chapters
   const i = ladder.indexOf(id)
-  return i > 0 ? ladder[i - 1] : BOOKS[BOOK_ORDER[BOOK_ORDER.indexOf(book) - 1]]?.chapters.at(-1) ?? ladder[0]
+  return i > 0 ? ladder[i - 1] : BOOKS[BOOK_ORDER[BOOK_ORDER.indexOf(book) - 1]]?.hidden[0] ?? ladder[0]
 }
 
 // The race clock's danger threshold, in seconds. HUD-only — it changes nothing the sim can see,
@@ -1286,9 +1286,10 @@ export function initUI(hooks) {
         <div class="pg-mid">${mid}</div>
         <div class="pg-foot${RP ? ` rp-foot rp-foot--${RP}` : ''}">${foot}</div>`
     } else {
+      const gate = gateChapterId(id)
       const line = HIDDEN_UNLOCKS[id]
         ? t(HIDDEN_UNLOCKS[id].hint)
-        : tt('win {name} at difficulty 3+', { name: t(CHAPTERS[gateChapterId(id)].name) })
+        : tt(HIDDEN_UNLOCKS[gate] ? 'beat {name} at any difficulty' : 'win {name} at difficulty 3+', { name: t(CHAPTERS[gate].name) })
       recto = `<div class="pg-top"></div><div class="pg-mid"><p class="pg-lock">${line}</p></div><div class="pg-foot"></div>`
     }
     return `
