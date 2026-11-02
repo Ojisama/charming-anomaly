@@ -4685,11 +4685,11 @@ export const WEAPON_MODS = {
                    descFor: () => 'Carts roll back to you, hitting again and picking up the gems and coins they pass.' },
   },
   lantern: {
-    brightFlame: { name: 'Bright Flame', desc: 'glow damage', icon: '💥', base: 0.30, kind: 'pct' },
+    brightFlame: { name: 'Bright Flame', desc: 'glow damage', icon: '💥', base: 0.20, kind: 'pct' },
     // balance_decision : owner: rare+ only, +10/20/35/50% [2026-10-11]
     wideGlow:    { name: 'Wide Glow',    desc: 'glow radius', icon: '⭕', kind: 'pct',
                    values: { rare: 0.10, epic: 0.20, legendary: 0.35, mythic: 0.50 } },
-    quickWick:   { name: 'Quick Wick',   desc: 'burn rate', icon: '⏩', base: 0.25, kind: 'pct' },
+    quickWick:   { name: 'Quick Wick',   desc: 'burn rate', icon: '⏩', base: 0.20, kind: 'pct' },
     openFlame:   { name: 'Open Flame',   desc: 'blast of the firedamp your glow lights', icon: '🔥', base: 0.30, kind: 'pct' },
     // balance_decision : owner picks, first guesses, unplayed 2026-11-01
     safetyLamp:  { name: 'Safety Lamp',  desc: 'glow size and damage per firedamp pocket near you', icon: '🪔', base: 0.06, kind: 'pct' },
