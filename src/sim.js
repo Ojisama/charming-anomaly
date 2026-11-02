@@ -264,7 +264,7 @@ import {
   PICKAXE_RANGE, PICKAXE_KB, PICKAXE_FLIGHT, PICKAXE_CHIP_DMG, PICKAXE_CHIP_SPEED, PICKAXE_CHIP_LIFE, PICKAXE_CHIP_R,
   DYNAMITE_RANGE, DYNAMITE_FLIGHT, DYNAMITE_FUSE, DYNAMITE_KB, MINECART_SPEED, MINECART_FAN, MINECART_KB, MINECART_STUN, MINECART_LOOT_R, MINECART_HOME_R,
   CANARY_REACH_MUL, CANARY_LINK_DMG, LANTERN_PULSE, LANTERN_FUSE, DRAUGHT_DRAW, DRAUGHT_HOLD, FIREBEND_R_PER_JET, FIREBEND_LEN, FIREBEND_W, FIREBEND_LIFE, FIREBEND_DMG_MUL, SAFETY_LAMP_SENSE, SAFETY_LAMP_MAX, SAFETY_LAMP_EASE, MINE_BOOM_KEEP, MINE_GAS_FADE_IN, MINE_GAS_LIT_SHRINK,
-  SLAG_RANGE, SLAG_FLIGHT, SLAG_TICK, OBSIDIAN_FAN, OBSIDIAN_LIFE, OBSIDIAN_R, SPLINTER_DMG_MUL, SPLINTER_LIFE, SPLINTER_SPEED, SPLINTER_R,
+  SLAG_RANGE, SLAG_FLIGHT, SLAG_TICK, OBSIDIAN_FAN, OBSIDIAN_LIFE, OBSIDIAN_R, SPLINTER_LIFE, SPLINTER_SPEED, SPLINTER_R,
   BELLOWS_LIFE, BELLOWS_SPLASH, BELLOWS_FLARE_MUL, BELLOWS_FLARE_R, BELLOWS_FLARE_T, STUCK_IN_STONE, BOMB_RANGE, BOMB_FLIGHT, BOMB_LAVA_R, BOMB_LAVA_T, HOT_FEET_OPEN_MUL, HOT_FEET_BURN_MUL,
   FLOOD_TIDE_COVER_ADD, FLOOD_TIDE_SPEED_MUL, FLOOD_TIDE_BURN_MUL, COAL_FAN, COAL_LIFE, COAL_R, COAL_IGNITE,
   HAMMER_RANGE, KETTLE_RANGE, KETTLE_LAVA_STEP, HAMMER_POOL_DPS, HAMMER_POOL_TICK, HAMMER_POOL_PLAYER_DPS, HAMMER_POOL_MIRE, LAVA_WAVE_LIFE, LAVA_WAVE_SHOVE_MUL,
@@ -10562,9 +10562,11 @@ export function dealDamage(run, enemy, dmg, crit, dot = false, hazard = false, c
   else if (blocked) run.events.push({ type: 'guardblock', x: enemy.x, y: enemy.y, angle: enemy.guardAngle })
   else run.events.push({ type: 'hit', x: enemy.x, y: enemy.y, dmg, crit, dot, id: enemy.id, pm })
 
+  if (!blocked && enemy.glassN > 0 && enemy._glassDmg >= enemy.hp) enemy.hp = 0   // the stuck shards finish it
   if (enemy.hp <= 0 && !enemy._dead) {
     enemy._dead = true
     run.kills++
+    if (enemy.glassN > 0) burstGlass(run, enemy)
     // NO PER-KILL REFILL EXISTS ANYWHERE. Every bar in the game is fed by a field you stand in,
     // never by a kill — a free kill refill is a second source competing with the chapter's own
     // geometry, which is what abolished The Reef's bar back when the Scavenger unlock existed.
@@ -11020,7 +11022,7 @@ const WEAPON_STAT_MODS = {
   lantern:     { brightFlame: ['dmg', 'pct'], wideGlow: ['radius', 'pct'] },
   // The Magma. Rate mods divide at their fire sites; flareUp and deepFissure are read there too.
   slagLadle:      { hotSlag: ['dmg', 'pct'], deepLadle: ['r', 'pct'], slowCooling: ['duration', 'pct'], secondScoop: ['count', 'flat'] },
-  obsidianShards: { keenGlass: ['dmg', 'pct'], glassVolley: ['count', 'flat'], shatter: ['splinters', 'flat'], razorEdge: ['pierce', 'flat'] },
+  obsidianShards: { keenGlass: ['dmg', 'pct'], glassVolley: ['count', 'flat'] },   // shatter: read in burstGlass
   bellows:        { forgeHeat: ['dmg', 'pct'], longDraft: ['radius', 'pct'], widePipe: ['arc', 'pct'] },
   volcanicBomb:   { heavyRock: ['dmg', 'pct'], bigBlast: ['r', 'pct'], salvo: ['count', 'flat'] },
   // The Mantle. Rate mods divide at their fire sites; cinders is read there too.
@@ -11632,8 +11634,8 @@ function stepBullets(run, dt) {
       const dx = e.x - b.x, dy = e.y - b.y
       const rad = b.r + e.radius
       if (dx * dx + dy * dy <= rad * rad) {
-        applyDamage(run, e, b._heat ? b.dmg * heatMul(e, b._heat) : b.dmg)   // _heat: The Mantle's type rule
-        if (b._splinters > 0 && e._dead) burstObsidian(run, b, e)   // The Magma: a killing shard bursts
+        if (b._glass) embedGlass(run, e, b.dmg)   // The Magma: an obsidian shard sticks instead of hurting
+        else applyDamage(run, e, b._heat ? b.dmg * heatMul(e, b._heat) : b.dmg)   // _heat: The Mantle's type rule
         if (b._ignite > 0 && !e._dead) applyIgnite(run, e, b._ignite, b.dmg)   // The Mantle: a coal sets it alight
         // Necrotic Tips (stinger switch mod, snapshotted as b._necrotic at fire time): the needle
         // leaves flagella's bleed behind. Reuses applyBleed verbatim rather than growing a second
@@ -18738,28 +18740,39 @@ function stepObsidianWeapon(run, w, stats, fireRateMul, dt) {
       const a = base + (i - (count - 1) / 2) * OBSIDIAN_FAN
       run.bullets.push({
         x: p.x, y: p.y, vx: Math.cos(a) * stats.speed, vy: Math.sin(a) * stats.speed,
-        dmg: stats.dmg, pierce: stats.pierce, life: OBSIDIAN_LIFE, r: OBSIDIAN_R, speed: stats.speed,
-        hitIds: new Set(), _shard: true, _splitDone: true, _chainsLeft: 0, weapon: 'obsidian',
-        _splinters: Math.round(stats.splinters),
+        dmg: stats.dmg, pierce: 1, life: OBSIDIAN_LIFE, r: OBSIDIAN_R, speed: stats.speed,
+        hitIds: new Set(), _shard: true, _splitDone: true, _chainsLeft: 0, weapon: 'obsidian', _glass: true,
       })
     }
     run.events.push({ type: 'shoot', weapon: 'obsidianShards' })
   })
 }
-// A shard that KILLS bursts: its splinters fly out of the body, evenly spaced from a random start.
-// Queued, not pushed: stepBullets is mid-walk over run.bullets (flushed at its end).
-function burstObsidian(run, b, e) {
-  const n = b._splinters
+// A shard STICKS: it adds its damage to the foe's bank and hurts nothing (e.glassN is the contract
+// field the hedgehog is drawn from). Once the bank covers what the foe has left, the bank is dealt
+// and dealDamage finishes it (glassFinishes) and bursts it (burstGlass).
+function embedGlass(run, e, dmg) {
+  if (damageImmune(e)) return
+  e.glassN = (e.glassN ?? 0) + 1
+  e._glassDmg = (e._glassDmg ?? 0) + dmg
+  if (e._glassDmg >= e.hp) applyDamage(run, e, e._glassDmg)
+}
+// Whatever finishes a foe, the shards stuck in it fly back out: all of them plus Shatter's, evenly
+// spaced from a random start, each with a stuck shard's average damage, and each sticks again.
+// Queued, not pushed: stepBullets may be mid-walk over run.bullets (flushed at its end).
+function burstGlass(run, e) {
+  const n = e.glassN + (run.weaponMods.obsidianShards?.shatter ?? 0)
+  const dmg = e._glassDmg / e.glassN
   const a0 = Math.random() * Math.PI * 2
   const q = (run._splinterQ ??= [])
   for (let i = 0; i < n; i++) {
     const a = a0 + (i / n) * Math.PI * 2
     q.push({
       x: e.x, y: e.y, vx: Math.cos(a) * SPLINTER_SPEED, vy: Math.sin(a) * SPLINTER_SPEED,
-      dmg: b.dmg * SPLINTER_DMG_MUL, pierce: 1, life: SPLINTER_LIFE, r: SPLINTER_R, speed: SPLINTER_SPEED,
-      hitIds: new Set([e.id]), _shard: true, _splitDone: true, _chainsLeft: 0, weapon: 'splinter',
+      dmg, pierce: 1, life: SPLINTER_LIFE, r: SPLINTER_R, speed: SPLINTER_SPEED,
+      hitIds: new Set([e.id]), _shard: true, _splitDone: true, _chainsLeft: 0, weapon: 'splinter', _glass: true,
     })
   }
+  e.glassN = 0
 }
 function flushSplinters(run) {
   if (!run._splinterQ || run._splinterQ.length === 0) return

@@ -8,6 +8,8 @@
 //                sim stepped 6 frames between captures: the slag drops it splashes out of the river
 //   mode=frozen  8 bred bodies pinned in a ring round you, every other one held FROZEN (the contract
 //                field render reads) beside unfrozen ones: the frozen tell
+//   mode=glass   a level-5 Obsidian Shards firing for real into 8 pinned bodies (every other one
+//                tough), 120 sim steps between captures: the hedgehog of stuck shards, and bursts
 const mode = new URLSearchParams(location.search).get('mode') || 'floor'
 const result = { chapter: run.chapter, mode }
 window.__fxResult = result
@@ -24,6 +26,25 @@ return async () => {
     run.enemies.forEach((e, k) => { if (k % 2 === 0) e.frozen = 3 })
     result.cast = run.enemies.map((e) => e.rosterId + (e.frozen > 0 ? ':frozen' : '')).join(' ')
     H.render()
+    return
+  }
+  if (mode === 'glass') {
+    if (frame++ === 0) {
+      run.weapons = [{ id: 'obsidianShards', level: 5 }]
+      if (!H.breed(8)) throw new Error('never bred 8 bodies')
+      H.keep(8)
+      H.place((i, pl) => ({ x: pl.x + Math.cos(i * Math.PI / 4) * 170, y: pl.y + Math.sin(i * Math.PI / 4) * 170 }))
+      run.enemies.forEach((e, k) => { e.hp = e.maxHP = k % 2 ? 150 : 3000 })
+    }
+    for (let i = 0; i < 120; i++) {
+      if (run.phase === 'levelup') { run.phase = 'playing'; run.levelUpChoices = [] }
+      run.player.hp = run.player.maxHP; run.cracks.length = 0
+      H.tick(); H.pin()
+      for (const e of run.enemies) e.hitFlash = 0
+      if (i >= 116) H.render()
+    }
+    result.stuck = run.enemies.map((e) => e.glassN || 0).join(' ')
+    result.flying = run.bullets.filter((b) => b.weapon === 'splinter').length
     return
   }
   const sim = await import('/src/sim.js')

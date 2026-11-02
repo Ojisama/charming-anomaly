@@ -97,6 +97,7 @@ function lightDisc() {
 
 // light colours
 const L_LAVA = 0xffa040, L_HOT = 0xff6a20, L_CRACK = 0xc8300c, L_SLAG = 0xffa040, L_PLAYER = 0xa8c0ff, L_GEM = 0x40d8ff
+const GLASS_DRAW_MAX = 24   // stuck shards drawn per body; the sim keeps every one
 const L_COIN = 0xffc040, L_GLASS = 0xb0a0ff, L_RIVER = 0xffa040, L_ICE = 0x9fd8ff
 // the ground (src/pixel/ground.js): river light per point, hot ground's glow, plates on the river
 // how high a lob flies at the top of its arc, in world px (sin-shaped over the flight): the ladle's
@@ -259,7 +260,7 @@ export function createPixelRig(env) {
   const aLob = pool(air), aGust = pool(air)
   const lights = pool(lightRoot, 'add')
   const masks = pool(emitRoot)
-  const aIce = pool(air)
+  const aIce = pool(air), aGlass = pool(air)
   // lights gathered by the per-entity hooks (bullets, gems, coins) land in the NEXT frame's map
   const pending = []
   const flashes = []   // transient light from events: {x, y, r, col, a, life, max}
@@ -319,7 +320,7 @@ export function createPixelRig(env) {
       rig.clear()
     },
     clear() {
-      gCrust.hide(); gPuddle.hide(); gPlate.hide(); gShadow.hide(); aLob.hide(); aGust.hide(); lights.hide(); masks.hide(); aIce.hide()
+      gCrust.hide(); gPuddle.hide(); gPlate.hide(); gShadow.hide(); aLob.hide(); aGust.hide(); lights.hide(); masks.hide(); aIce.hide(); aGlass.hide()
       pending.length = 0
       burning = false
       for (const f of flashes) f.life = 0
@@ -541,7 +542,7 @@ export function createPixelRig(env) {
       // the creatures' own glow (their embers light the floor round them), and each body's MASK in
       // the emissive map, placed exactly as render.js draws the body: same frame, same heading
       // (cam.dirOf: the turn render.js last drew it at), same scale
-      masks.begin(); aIce.begin()
+      masks.begin(); aIce.begin(); aGlass.begin()
       for (const e of run.enemies || []) {
         const M = PIXEL_CAST[e.rosterId]
         if (!M || !onScreen(e.x, e.y, 60)) continue
@@ -564,13 +565,21 @@ export function createPixelRig(env) {
         if (!halted || f === undefined) { f = Math.floor(t * 10 + e.id * 1.7) % M.frames; heldFrame.set(e, f) }
         const mk = maskOf(e.rosterId, !!e.elite, f, cam.dirOf?.(e) ?? 0)
         const k = e.radius / (castArchR(e.rosterId) * castDrawScale(e.rosterId, !!e.elite))
+        // OBSIDIAN SHARDS stuck in it (e.glassN): a hedgehog of glass, point in, golden-angle spread
+        for (let i = 0, n = Math.min(e.glassN || 0, GLASS_DRAW_MAX); i < n; i++) {
+          const a = e.id * 1.7 + i * 2.39996
+          const g = aGlass.next(T.obsidianF[0])
+          g.anchor.set(0.3, 0.5)
+          g.position.set(e.x + Math.cos(a) * e.radius * 0.8, e.y + Math.sin(a) * e.radius * 0.8)
+          g.rotation = a
+        }
         if (!iced) { const s = masks.next(mk); s.position.set(e.x, e.y); s.scale.set(k, k); continue }
         // FROZEN: a coat of frost over the body's own silhouette (render.js's ice tint is a multiply,
         // and on this dark, blue-and-ember cast it changed nothing you could see)
         const s = aIce.next(mk); s.position.set(e.x, e.y); s.scale.set(k, k)
         s.tint = 0xd4eeff; s.alpha = 0.78
       }
-      masks.end(); aIce.end()
+      masks.end(); aIce.end(); aGlass.end()
       // the player's own small, cool light: enough to read the nearest foes, never a torch
       if (p) { addLight(p.x, p.y, 130, L_PLAYER, 0.2); addLight(p.x, p.y, 30, 0xffffff, 0.12) }
       // ON OPEN LAVA: the lava that is burning you must read even under your own sprite — it flares
