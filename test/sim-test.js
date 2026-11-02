@@ -18841,7 +18841,14 @@ function testSaveSlots() {
   const s2 = slotSummary(2)
   assert(s2 && typeof s2.coins === 'number' && typeof s2.unlocked === 'number',
     `expected slotSummary(2) to be a non-null summary with numeric coins/unlocked, got ${JSON.stringify(s2)}`)
-  assert.strictEqual(s2.total, CHAPTER_ORDER.length, `expected slotSummary(2).total === CHAPTER_ORDER.length (${CHAPTER_ORDER.length}), got ${s2.total}`)
+  // EVERY book's live ladder, not CHAPTER_ORDER (Book 1 only).
+  const liveTotal = Object.values(BOOKS).flatMap((b) => b.chapters).filter((id) => !isWipChapter(id)).length
+  assert.ok(liveTotal > CHAPTER_ORDER.length, `precondition: more than Book 1 is live (${liveTotal})`)
+  assert.strictEqual(s2.total, liveTotal, `expected slotSummary(2).total === every book's live chapters (${liveTotal}), got ${s2.total}`)
+  // ...and saveSummary reads every book: furthest chapter, coins and upgrades across all purses.
+  const b2 = saveSummary({ coins: 5, shop: { a: 2 }, chapters: { beyond: { unlocked: true }, blank: { unlocked: true }, surf: { unlocked: true } },
+    books: { undertow: { coins: 40, shop: { b: 3 } } } })
+  assert.deepStrictEqual([b2.chapterId, b2.coins, b2.upgrades], ['surf', 45, 5], `saveSummary must read Book 2 too, got ${JSON.stringify(b2)}`)
   console.log(`PASS run SS.e (slotSummary): slot 3 null (empty), slot 2 = {coins:${s2.coins}, unlocked:${s2.unlocked}, total:${s2.total}}`)
 
   // (f) a garbage/out-of-range pointer clamps activeSlot() back into [1, SAVE_SLOTS] rather than
