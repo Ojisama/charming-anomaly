@@ -95,7 +95,7 @@ export function cleanName(v) {
 export function saveSummary(meta) {
   const m = (meta && typeof meta === 'object' && !Array.isArray(meta)) ? meta : {}
   const chapters = (m.chapters && typeof m.chapters === 'object' && !Array.isArray(m.chapters)) ? m.chapters : {}
-  // The same walk as ui.js's furthestUnlockedChapterId, plus the one id it structurally cannot see:
+  // The furthest unlocked rung of CHAPTER_ORDER, plus the one id that walk structurally cannot see:
   // The Blank lives OUTSIDE CHAPTER_ORDER (config.js) so no loop over it can reach it, yet it is
   // unambiguously the furthest a save can get. It therefore wins outright when unlocked — which
   // also makes §4.2's "beaten is 5 for beyond when blank is unlocked" exception unreachable by

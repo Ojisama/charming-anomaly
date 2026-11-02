@@ -202,15 +202,13 @@ function selectedChapterMeta(meta) {
 // a spine has no room for them, and that panel is the only consumer of CAST_ART left, so it is
 // what keeps the scripts/bake-cast.mjs thumbnails reachable.
 
-// The furthest-progressed chapter this save has unlocked (last CHAPTER_ORDER id whose
-// chapters[id].unlocked is true) — used to phrase the "win X at difficulty 3+" hint under the
-// chapter selector for the next (locked) chapter, if any.
-function furthestUnlockedChapterId(meta) {
-  let furthest = CHAPTER_ORDER[0]
-  for (const id of CHAPTER_ORDER) {
-    if (meta.chapters?.[id]?.unlocked) furthest = id
-  }
-  return furthest
+// The chapter whose win at difficulty 3+ opens this locked one: the rung below it on its own
+// ladder, or the previous book's finale for a book's first chapter (main.js endRun's two branches).
+function gateChapterId(id) {
+  const book = bookOf(id)
+  const ladder = BOOKS[book].chapters
+  const i = ladder.indexOf(id)
+  return i > 0 ? ladder[i - 1] : BOOKS[BOOK_ORDER[BOOK_ORDER.indexOf(book) - 1]]?.chapters.at(-1) ?? ladder[0]
 }
 
 // The race clock's danger threshold, in seconds. HUD-only — it changes nothing the sim can see,
@@ -1290,7 +1288,7 @@ export function initUI(hooks) {
     } else {
       const line = HIDDEN_UNLOCKS[id]
         ? t(HIDDEN_UNLOCKS[id].hint)
-        : tt('win {name} at difficulty 3+', { name: t(CHAPTERS[furthestUnlockedChapterId(meta)].name) })
+        : tt('win {name} at difficulty 3+', { name: t(CHAPTERS[gateChapterId(id)].name) })
       recto = `<div class="pg-top"></div><div class="pg-mid"><p class="pg-lock">${line}</p></div><div class="pg-foot"></div>`
     }
     return `
