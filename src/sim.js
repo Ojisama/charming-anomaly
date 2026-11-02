@@ -18757,13 +18757,15 @@ function embedGlass(run, e, dmg) {
   if (e._glassDmg >= e.hp) applyDamage(run, e, e._glassDmg)
 }
 // Whatever finishes a foe, the shards stuck in it fly back out: all of them plus Shatter's, evenly
-// spaced from a random start, each with a stuck shard's average damage, and each sticks again.
+// spaced from a random start, each dealing what a shard you flick now deals (owner), and each sticks
+// again. With no Obsidian Shards held (a run that lost it), the stuck shards' average.
 // Long Shrapnel stretches their flight time, so they reach further.
 // Queued, not pushed: stepBullets may be mid-walk over run.bullets (flushed at its end).
 function burstGlass(run, e) {
   const mods = run.weaponMods.obsidianShards
   const n = e.glassN + (mods?.shatter ?? 0)
-  const dmg = e._glassDmg / e.glassN
+  const w = run.weapons.find((x) => x.id === 'obsidianShards')
+  const dmg = w ? effectiveWeaponStats(run, w).dmg : e._glassDmg / e.glassN
   const life = SPLINTER_LIFE * (1 + (mods?.longShrapnel ?? 0))
   const a0 = Math.random() * Math.PI * 2
   const q = (run._splinterQ ??= [])

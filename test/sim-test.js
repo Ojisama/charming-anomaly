@@ -40860,6 +40860,18 @@ function testMagma() {
     dealDamage(r2, other, 45, false)
     const thrown = (r2._splinterQ ?? []).length + r2.bullets.filter((b) => b.weapon === 'splinter').length
     assert.ok(other._dead && thrown === 5, `run MG.d: 60 stuck + a 45 hit on 100 hp should burst it into 5 shards (dead ${other._dead}, thrown ${thrown})`)
+    // ...and a thrown-back shard deals what a shard the player flicks deals, whatever the stuck ones held
+    const r4 = boot(32007)
+    r4.weapons = [{ id: 'obsidianShards', level: 3 }]
+    r4.enemies = [makeStatusEnemy(r4, { x: r4.player.x + 600, y: r4.player.y, hp: 1e6, speed: 0 })]
+    let flicked = 0
+    for (let i = 0; i < 120 && !flicked; i++) { stepSim(r4, { x: 0, y: 0 }, 1 / 60); r4.events.length = 0; flicked = r4.bullets.find((b) => b.weapon === 'obsidian')?.dmg ?? 0 }
+    const odd = makeStatusEnemy(r4, { x: r4.player.x - 300, y: r4.player.y, hp: 10, speed: 0 })
+    odd.glassN = 3; odd._glassDmg = 3
+    r4.enemies.push(odd)
+    dealDamage(r4, odd, 20, false)
+    const back = [...(r4._splinterQ ?? []), ...r4.bullets].filter((b) => b.weapon === 'splinter').map((b) => b.dmg)
+    assert.ok(flicked > 1 && back.length === 3 && back.every((d) => d === flicked), `run MG.d: thrown-back shards should deal a flicked shard's ${flicked}, dealt ${back}`)
     // ...and Long Shrapnel throws them further: +50% flight time
     const r3 = boot(32006)
     r3.weaponMods.obsidianShards = { longShrapnel: 0.5 }
