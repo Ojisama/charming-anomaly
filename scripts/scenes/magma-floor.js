@@ -6,11 +6,26 @@
 //   mode=floor   the floor alone (default)
 //   mode=splash  a level-5 Bellows blowing at the river (no foe: it blows the way you face), the
 //                sim stepped 6 frames between captures: the slag drops it splashes out of the river
+//   mode=frozen  8 bred bodies pinned in a ring round you, every other one held FROZEN (the contract
+//                field render reads) beside unfrozen ones: the frozen tell
 const mode = new URLSearchParams(location.search).get('mode') || 'floor'
 const result = { chapter: run.chapter, mode }
 window.__fxResult = result
 let frame = 0
 return async () => {
+  if (mode === 'frozen') {
+    if (frame++ === 0) {
+      run.weapons = []
+      if (!H.breed(8)) throw new Error('never bred 8 bodies')
+      H.keep(8)
+      H.place((i, pl) => ({ x: pl.x + Math.cos(i * Math.PI / 4) * 150, y: pl.y + Math.sin(i * Math.PI / 4) * 150 }))
+    }
+    for (let i = 0; i < 30; i++) { run.enemies.forEach((e, k) => { if (k % 2 === 0) e.frozen = 3 }); run.cracks.length = 0; H.tick(); H.pin() }
+    run.enemies.forEach((e, k) => { if (k % 2 === 0) e.frozen = 3 })
+    result.cast = run.enemies.map((e) => e.rosterId + (e.frozen > 0 ? ':frozen' : '')).join(' ')
+    H.render()
+    return
+  }
   const sim = await import('/src/sim.js')
   const p = run.player
   run.enemies.length = 0
