@@ -2122,7 +2122,7 @@ const CONFIG = {
   "Obsidian Shards": "Éclats d'obsidienne",
   "Flicks volcanic glass at the nearest foe. A kill bursts it into splinters.": "Projette du verre volcanique sur l'ennemi le plus proche. S'il tue, il éclate en esquilles.",
   "Bellows": "Soufflet",
-  "Blasts hot air at the nearest foe. Open lava in the blast flares up.": "Souffle de l'air brûlant sur l'ennemi le plus proche. La lave ouverte sur son passage s'embrase.",
+  "Blasts hot air at the nearest foe. Open lava and slag puddles in the blast flare up, and lava rivers splash.": "Souffle de l'air brûlant sur l'ennemi le plus proche. La lave ouverte et les flaques de scories sur son passage s'embrasent, et les rivières de lave éclaboussent.",
   "Volcanic Bomb": "Bombe volcanique",
   "Lobs a molten rock into the crowd. Where it lands, the crust breaks open into lava.": "Lance une roche en fusion dans la foule. Là où elle tombe, la croûte s'ouvre sur la lave.",
   "Hot Slag": "Scories brûlantes",

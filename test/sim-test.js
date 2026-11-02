@@ -40814,6 +40814,50 @@ function testMagma() {
     for (let i = 0; i < 90; i++) { r.enemies = [foe]; stepSim(r, { x: 0.001, y: 0 }, 1 / 60); for (const e of r.events) if (e.type === 'lavaFlare') flares++; r.events.length = 0 }
     assert.ok(flares >= 1 && c.lavaEnd > end0, `run MG.e: the bellows should flare the lava between you and the foe (flares ${flares}, lavaEnd +${(c.lavaEnd - end0).toFixed(2)}s)`)
   }
+  // (e1) ...and a Slag Ladle puddle in the blast flares too, and stays longer
+  {
+    const r = boot(32010)
+    r.weapons = [{ id: 'bellows', level: 1 }]
+    stepSim(r, { x: 1, y: 0 }, 1 / 60)
+    r.cracks.length = 0
+    const sp = { x: r.player.x + 80, y: r.player.y, r: 40, t: 0, dur: 3, burn: 1, tick: 0.5 }
+    r.slagPools.length = 0; r.slagPools.push(sp)
+    const foe = makeStatusEnemy(r, { x: r.player.x + 160, y: r.player.y, hp: 1e6, speed: 0 })
+    let flares = 0
+    for (let i = 0; i < 90; i++) { r.enemies = [foe]; foe.hp = foe.maxHP; r.cracks.length = 0; stepSim(r, { x: 0.001, y: 0 }, 1 / 60); for (const e of r.events) if (e.type === 'lavaFlare') flares++; r.events.length = 0 }
+    assert.ok(flares >= 1 && sp.dur > 3, `run MG.slag: the bellows should flare a slag puddle in its blast (flares ${flares}, dur ${sp.dur.toFixed(2)}s)`)
+  }
+  // (e1b) a lava river in the blast splashes: drops of slag land AHEAD of the river spot and burn there
+  {
+    const r = boot(32011)
+    r.weapons = [{ id: 'bellows', level: 1 }]
+    stepSim(r, { x: 0, y: 0 }, 1 / 60)
+    // stand on plain crust with a river 60..160px away along some heading
+    let spot = null
+    for (let d = 300; d < 60000 && !spot; d += 60) for (let i = 0; i < 32 && !spot; i++) {
+      const x = r.player.x + Math.cos(i * Math.PI / 16) * d, y = r.player.y + Math.sin(i * Math.PI / 16) * d
+      if (magmaGroundAt(r, x, y) !== null) continue
+      for (let j = 0; j < 16 && !spot; j++) { const h = j * Math.PI / 8; if (magmaRiverAt(r, x + Math.cos(h) * 110, y + Math.sin(h) * 110) > 0) spot = { x, y, h } }
+    }
+    assert.ok(spot, 'run MG.splash: no river found near the start')
+    r.player.x = spot.x; r.player.y = spot.y
+    const foe = makeStatusEnemy(r, { x: spot.x + Math.cos(spot.h) * 150, y: spot.y + Math.sin(spot.h) * 150, hp: 1e6, speed: 0 })
+    let landed = 0
+    for (let i = 0; i < 120; i++) {
+      r.enemies = [foe]; foe.hp = foe.maxHP; r.cracks.length = 0; r.player.x = spot.x; r.player.y = spot.y
+      stepSim(r, { x: 0, y: 0 }, 1 / 60)
+      for (const e of r.events) if (e.type === 'slagSplash' && Math.hypot(e.x - spot.x, e.y - spot.y) > 110) landed++
+      r.events.length = 0
+    }
+    const on = r.slagPools.length
+    assert.ok(landed >= 1 && on >= 1, `run MG.splash: blowing on a river should splash slag ahead (${landed} splashes past the river, ${on} puddles)`)
+    // and only a river splashes: the same blast on plain crust throws nothing
+    const r2 = boot(32011)
+    r2.weapons = [{ id: 'bellows', level: 1 }]
+    let plain = 0
+    for (let i = 0; i < 120; i++) { r2.enemies = [makeStatusEnemy(r2, { x: r2.player.x + 150, y: r2.player.y, hp: 1e6, speed: 0 })]; r2.cracks.length = 0; stepSim(r2, { x: 0, y: 0 }, 1 / 60); plain += r2.magmaLobs.length; r2.events.length = 0 }
+    assert.strictEqual(plain, 0, 'run MG.splash: no river in the blast, no splash')
+  }
   // (e2) the bellows aims at the nearest foe, not the way you walk: walk right, the foe is on your left
   {
     const r = boot(32008)

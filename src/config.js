@@ -3135,15 +3135,15 @@ export const WEAPONS = {
   // lava inside the blast FLARES: it burns longer and bursts at once (BELLOWS_FLARE_*).
   bellows: {
     name: 'Bellows',
-    desc: 'Blasts hot air at the nearest foe. Open lava in the blast flares up.',
+    desc: 'Blasts hot air at the nearest foe. Open lava and slag puddles in the blast flare up, and lava rivers splash.',
     icon: '🌬️', rarity: 'normal',
     levels: [
-      // balance_decision : owner: aims at nearest foe, starts narrow 2026-11-02
-      { dmg: 16, interval: 1.1, radius: 250, arc: 0.9, knockback: 120 },
-      { dmg: 19, interval: 1.05, radius: 260, arc: 0.95, knockback: 130 },
-      { dmg: 23, interval: 0.98, radius: 275, arc: 1.05, knockback: 140 },
-      { dmg: 28, interval: 0.9, radius: 290, arc: 1.15, knockback: 150 },
-      { dmg: 35, interval: 0.82, radius: 310, arc: 1.3, knockback: 165 },
+      // balance_decision : owner: nearest foe, cone and reach -20% 2026-11-02
+      { dmg: 16, interval: 1.1, radius: 200, arc: 0.72, knockback: 120 },
+      { dmg: 19, interval: 1.05, radius: 208, arc: 0.76, knockback: 130 },
+      { dmg: 23, interval: 0.98, radius: 220, arc: 0.84, knockback: 140 },
+      { dmg: 28, interval: 0.9, radius: 232, arc: 0.92, knockback: 150 },
+      { dmg: 35, interval: 0.82, radius: 248, arc: 1.04, knockback: 165 },
     ],
   },
   // Volcanic Bomb: a molten rock lobbed into the thickest of the crowd (run.magmaLobs, kind 'bomb'). It
@@ -7016,6 +7016,11 @@ export const SPLINTER_DMG_MUL = 0.55     // a splinter's damage, as a fraction o
 export const SPLINTER_LIFE = 0.34        // s of flight
 export const SPLINTER_SPEED = 520        // px/s
 export const SPLINTER_R = 6              // px hit radius
+// THE BELLOWS SPLASHES A RIVER: up to max spots of lava river in the blast each spit a drop of slag
+// (run.magmaLobs, kind 'slag') that lands throw px further along the blast: a splash of
+// dmgMul x the blast's damage over r px, then a puddle burning burn/tick for dur s.
+// balance_decision : river splashes, first guess, unplayed 2026-11-02
+export const BELLOWS_SPLASH = { max: 2, throw: [70, 130], r: 30, dmgMul: 0.6, dur: 1.6, burn: 4, flight: 0.3 }
 export const BELLOWS_LIFE = 0.26         // s for the blast to reach its reach
 export const BELLOWS_FLARE_MUL = 1.0     // a flared lava's burst, as a fraction of the blast's damage
 export const BELLOWS_FLARE_R = 1.7       // ...and its radius, as a multiple of the lava's own
