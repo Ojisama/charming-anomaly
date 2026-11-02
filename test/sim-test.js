@@ -1578,6 +1578,8 @@ function testAnomalySlate() {
   // BLOOD MONEY — the currency swap, the floor, and the price the BUTTON is told to print.
   {
     const r = withCard('bloodMoney', (x) => { x.player.maxHP = 100; x.player.hp = 100; x.coinsEarned = 0 })
+    // six coin rerolls before the card: its HP ladder still starts at BLOOD_MONEY_HP (owner, 2026-11-02)
+    r._rerolls = 6
     r.player.level = 12
     r._eliteKills = 1
     r.levelUpChoices = buildLevelUpChoices(r)
