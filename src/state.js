@@ -8,7 +8,7 @@ import {
   GRAVITY_WELL_R, GRAVITY_FORCE, GRAVITY_MIN_DIST, GRAVITY_MIN_GAP,
   pickWorldSeed, usesObstacleSeed, TRAWL_FIRST_PASS, ORCA_SHADOW_FIRST, ORCA_SHADOW_PASSES,
   BOOKS, BOOK_ORDER, shopLines, bookOf, isWipChapter, SLOW_BURN_FLOOR, CURRENT_RESIST_FLOOR, unlockLevel, unlockMax,
-  lineMax, SACRIFICE_COSTS, BOOK_UNLOCKS, unlockCost, SPUR_TICK, hiddenChapters, HIDDEN_UNLOCKS } from './config.js'
+  lineMax, SACRIFICE_COSTS, BOOK_UNLOCKS, unlockCost, SPUR_TICK, HIDDEN_UNLOCKS } from './config.js'
 
 const SAVE_KEY = 'charming-anomaly-save-v1'
 
@@ -44,13 +44,21 @@ export function setActiveSlot(n) {
 // through loadMeta (no migration, no ensureChapterMeta, no mutation). null when the slot is
 // empty or corrupted; otherwise a small summary. A save that predates meta.chapters (pre-v5.0)
 // reports unlocked:1 since chapter 1 ('body') is always unlocked.
+// Sum f over every book's purse in a RAW blob: Book 1's is the save itself, the rest sit under
+// `books` (ensureBookMeta). Guarded like saveSummary, since a synced blob never went through loadMeta.
+function sumPurses(m, f) {
+  const books = (m.books && typeof m.books === 'object' && !Array.isArray(m.books)) ? Object.values(m.books) : []
+  return [m, ...books].reduce((s, p) => s + (p && typeof p === 'object' ? f(p) : 0), 0)
+}
+
 export function slotSummary(n) {
   try {
     const raw = localStorage.getItem(slotKey(n))
     if (!raw) return null
     const m = JSON.parse(raw)
+    const live = ALL_CHAPTER_IDS.filter((id) => !isWipChapter(id))
     const unlocked = m.chapters
-      ? CHAPTER_ORDER.filter((id) => m.chapters?.[id]?.unlocked).length
+      ? live.filter((id) => m.chapters?.[id]?.unlocked).length
       : 1
     // Number() both normalizes odd shapes and defuses a tampered string coins ("<img onerror=…>")
     // that the slot modal would otherwise interpolate into innerHTML.
@@ -59,7 +67,7 @@ export function slotSummary(n) {
     // prompt is mandatory and meta is per-slot, so without it a second slot re-blocks the same
     // person and makes them retype a name they have already chosen. Raw, because ui.js runs it
     // through validNick before showing it — state.js must not learn the leaderboard's rules.
-    return { coins: Number(m.coins) || 0, unlocked, total: CHAPTER_ORDER.length, name: cleanName(m.name), nick: typeof m.nick === 'string' ? m.nick : '' }
+    return { coins: sumPurses(m, (p) => Number(p.coins) || 0), unlocked, total: live.length, name: cleanName(m.name), nick: typeof m.nick === 'string' ? m.nick : '' }
   } catch { return null }
 }
 
@@ -95,26 +103,24 @@ export function cleanName(v) {
 export function saveSummary(meta) {
   const m = (meta && typeof meta === 'object' && !Array.isArray(meta)) ? meta : {}
   const chapters = (m.chapters && typeof m.chapters === 'object' && !Array.isArray(m.chapters)) ? m.chapters : {}
-  // The furthest unlocked rung of CHAPTER_ORDER, plus the one id that walk structurally cannot see:
-  // The Blank lives OUTSIDE CHAPTER_ORDER (config.js) so no loop over it can reach it, yet it is
-  // unambiguously the furthest a save can get. It therefore wins outright when unlocked — which
-  // also makes §4.2's "beaten is 5 for beyond when blank is unlocked" exception unreachable by
-  // construction, since that override has already moved chapterId off 'beyond'. Left out rather
-  // than written as dead code: `beaten` stays each chapter's OWN ladder, exactly as the hero card's
-  // ★ row reads it, so the card and the prompt can never state two different numbers.
+  // The furthest unlocked chapter in reading order: each book's ladder, then its hidden boss, book
+  // by book — so The Blank outranks The Beyond and Book 2's Surf outranks The Blank (a WIP one only
+  // for dev). `beaten` stays each chapter's OWN ladder, exactly as the hero card's ★ row reads it.
   let chapterId = CHAPTER_ORDER[0]
-  for (const id of CHAPTER_ORDER) if (chapters[id]?.unlocked) chapterId = id
-  // ...and an unlocked HIDDEN chapter outranks the ladder, since it is the furthest thing earned (a WIP one only for dev).
-  for (const id of hiddenChapters()) if (chapters[id]?.unlocked && (!isWipChapter(id) || m.dev === true)) chapterId = id
+  for (const b of BOOK_ORDER) {
+    for (const id of [...BOOKS[b].chapters, ...BOOKS[b].hidden]) {
+      if (chapters[id]?.unlocked && (!isWipChapter(id) || m.dev === true)) chapterId = id
+    }
+  }
   const entry = (chapters[chapterId] && typeof chapters[chapterId] === 'object') ? chapters[chapterId] : {}
-  const shop = (m.shop && typeof m.shop === 'object' && !Array.isArray(m.shop)) ? m.shop : {}
+  // Every book's purse and shop, not Book 1's alone.
+  const shopLevels = (p) => (p.shop && typeof p.shop === 'object' && !Array.isArray(p.shop))
+    ? Object.values(p.shop).reduce((s, l) => s + (Number(l) || 0), 0) : 0
   return {
     name: cleanName(m.name),
-    coins: Number(m.coins) || 0,
-    // The idiom shopFootHtml's `owned` already uses (ui.js), so the shop's sacrifice meter and the
-    // prompt can never disagree about what "upgrades owned" means — with the coercion it is missing,
-    // since Object.values of a tampered shop otherwise concatenates into "0<b>X</b>00000000".
-    upgrades: Object.values(shop).reduce((s, l) => s + (Number(l) || 0), 0),
+    coins: sumPurses(m, (p) => Number(p.coins) || 0),
+    // Coerced per level: Object.values of a tampered shop otherwise concatenates into "0<b>X</b>00000000".
+    upgrades: sumPurses(m, shopLevels),
     // The best "which of these is my main save?" tiebreaker in the whole blob — better than coins,
     // which run BACKWARDS (§7.1: the more advanced save routinely shows fewer, because coins get spent).
     runs: Number(m.runs) || 0,

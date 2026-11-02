@@ -1316,11 +1316,10 @@ export function initUI(hooks) {
   // visible (a display:none element measures as zero-width) — hence it's also called from
   // showScreen right after the screen is shown, not only from renderTitle.
   function renderTitle() {
-    // resolveChapterId, not raw meta.chapter: this fires when the browsed chapter has no ledger
-    // entry — reachable for 'blank', which lives outside CHAPTER_ORDER so ensureChapterMeta never
-    // creates one — and falling back to an unvalidated pointer would put the alien id straight back
-    // (R1, config.js).
-    if (!meta.chapters?.[browseChapterId]) browseChapterId = playableChapterId(meta)
+    // Only an id no chapter claims falls back (playableChapterId, never the raw pointer: R1,
+    // config.js). NOT "has no ledger entry": a locked hidden boss on the shelf has none until it is
+    // earned, and must still be browsable to show its hint.
+    if (!CHAPTERS[browseChapterId]) browseChapterId = playableChapterId(meta)
     setHtml(screens.title, `
       <header class="title-bar">
         <button class="pill-btn" data-act="settings" aria-label="${t('Settings')}">⚙</button>
