@@ -88,6 +88,14 @@ the player has never seen — with a green suite either way.
 
 ## Copy — legibility first, then translatability
 
+- **A HINT OR LOCKED PAGE NEVER NAMES SOMETHING THE PLAYER HAS NOT SEEN YET.** v11.18.0 had locked
+  Book 3 say "beat The Kraken at any difficulty" to a player who had only played The Surf — a hidden
+  boss, spoiled by the unlock hint, found by the owner, not by any assert. A hint is read by players
+  at EVERY stage of progress, so before naming a chapter, boss or mechanic in one, ask what the
+  least-advanced player who can reach that screen has already seen. Gate the name on the same rule
+  that reveals the thing (`bossOnShelf`, config.js — the shelf and the hint read one function) and
+  fall back to a line that names only what they know ("finish Book {n}").
+
 - **A CARD THAT READS A GAME SYSTEM MUST NAME THAT SYSTEM IN THE WORDS THE PLAYER SEES — and must
   never coin a noun for something the game shows nowhere else.** Two failures of the same kind, both
   shipped in v7.163 and both found by the owner READING THE CARD, not by any assert:
