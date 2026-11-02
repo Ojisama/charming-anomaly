@@ -71,7 +71,12 @@ Settle these before leaving the phase, because each one is his and each one inva
 
 - **Geometry.** Reach, and what it is anchored to — the player, a point in the world, a target.
   Orbiting, aimed, persistent-until-triggered, or on a timer.
-- **Targeting.** Nearest enemy, facing, all directions, a placed zone.
+- **Targeting.** Nearest enemy, facing, all directions, a placed zone. **The default is the
+  nearest enemy** (`aimAngle(run)`: nearest foe, the walk direction only when there is none).
+  Owner, 2026-11-02: *"you should pretty much never design a weapon that doesn't aim at the
+  closest enemy."* The Bellows shipped aimed at your feet with a 160° fan to make up for it, and
+  was rebuilt as a narrow cone at the nearest foe. A facing-aimed weapon with an oversized arc is
+  the smell; pitch anything else only with a reason he can rule on.
 - **The tell.** Does the player read this weapon *before* it fires? If yes it needs distinct
   ARMED / SPENT silhouettes, and phase 2 has to shoot both — a telegraph judged only on its payoff
   frame is not judged.
