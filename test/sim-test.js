@@ -54,7 +54,7 @@ import {
   OBSTACLE_STREAM_RADIUS, OBSTACLE_DROP_RADIUS,
   FRENZY_HP_FRAC, PACER_RADIUS, ELITE, GILDED_COIN_MUL, GASBAG_TRAIL, NOVA_LIFE,
   SUNSPEAR_FALL, SUNSPEAR_SPREAD, FOXFIRE_GLOOM, FOXFIRE_WANDER_SPEED, FOXFIRE_SWARM, FOXFIRE_CATCH_FRAC, weaponDesc, FOXFIRE_GLOW, SUNLANCE_REACH_MIN, GLINT_LIGHT_COST, GLINT_GLOW,
-  WEAPONS, HOLE_SINGULARITY_FRAC, DOWNWASH_PLUNGE_N, DOWNWASH_PLUNGE_FRAC, DOWNWASH_PLUNGE_ARM,
+  WEAPONS, STUCK_IN_STONE, HOLE_SINGULARITY_FRAC, DOWNWASH_PLUNGE_N, DOWNWASH_PLUNGE_FRAC, DOWNWASH_PLUNGE_ARM,
   ORBIT_NOVA_RADIUS, WISP_NOVA_RADIUS, CRUNCH_DMG_MUL, UNDERTOW_VAC_RADIUS_PER_STACK,
   WEAPON_MODS, WEAPON_MOD_TIER_BONUS, PEBBLE_CONE, CRAB_EAT, NOISE_BATS, MAX_WEAPON_MOD_PICKS, maxModsPerWeaponPerPool, PIERCE_MAX_PICKS,
   MOD_CANDIDATES_PER_WEAPON, MOD_POOL_MAX, DUO_PITY_SCREENS,
@@ -1578,6 +1578,8 @@ function testAnomalySlate() {
   // BLOOD MONEY — the currency swap, the floor, and the price the BUTTON is told to print.
   {
     const r = withCard('bloodMoney', (x) => { x.player.maxHP = 100; x.player.hp = 100; x.coinsEarned = 0 })
+    // six coin rerolls before the card: its HP ladder still starts at BLOOD_MONEY_HP (owner, 2026-11-02)
+    r._rerolls = 6
     r.player.level = 12
     r._eliteKills = 1
     r.levelUpChoices = buildLevelUpChoices(r)
@@ -2362,6 +2364,9 @@ function testAnomalySlate() {
         }
         let best = 0
         for (let i = 0; i < 900; i++) {
+          // drained per step as main.js drains per frame, so an fx key counts ONE step's casts,
+          // not every heading the weapon wandered through over the whole loop
+          r.events.length = 0
           stepSim(r, stick, dt)
           // A moving player would otherwise leave the ring of targets behind within a second, and
           // every weapon that aims at an enemy would then measure an empty field. Pinning keeps the
@@ -21091,6 +21096,7 @@ try {
   run(testAnomalyTier)
   run(testChapterLateRate)
   run(testAnomalySlate)
+  run(testBook3Levels)
   run(testAnomalyPity)
   run(testRerollRarity)
   run(testStarMods)
@@ -40728,6 +40734,42 @@ function testMine() {
 // a body standing on it with no weapon equipped; (c) a Volcanic Bomb landing opens lava where it
 // lands (none with the crust off); (d) an Obsidian shard that kills bursts into splinters; (e) the
 // Bellows flares open lava in front of you (it stays open longer).
+// run R5: the owner's weapon rule for Book 3 from The Magma on (2026-11-02). Every level is +10%
+// damage, fire rate and range over level 1; a weapon that throws things gets +1 projectile at levels
+// 3 and 5, and nothing else grows. A percent mod is 15% (damage, rate, range) or 25% (anything
+// else) at normal; a mod that adds projectiles rolls epic and up only.
+function testBook3Levels() {
+  const ladder = BOOKS.burrow.chapters
+  const ids = [...new Set(ladder.slice(ladder.indexOf('magma')).flatMap((c) => CHAPTERS[c].weapons))]
+  assert.ok(ids.includes('bellows') && ids.includes('sling') && ids.length >= 12, 'R5: denominator ' + ids)
+  const near = (a, b) => Math.abs(a - b) < 1e-9 * Math.max(1, Math.abs(b))
+  const SHOTS = ['count', 'pools', 'moons', 'lodestones'], FIXED = ['pierce', 'bounces', 'splinters']
+  const throwers = []
+  for (const id of ids) {
+    const L = WEAPONS[id].levels, l1 = L[0]
+    assert.strictEqual(L.length, 5, id)
+    const shot = SHOTS.find((key) => key in l1)
+    if (shot) throwers.push(id)
+    L.forEach((l, i) => {
+      const k = 1 + 0.1 * i
+      assert.ok(near(l.dmg, l1.dmg * k), `R5: ${id} L${i + 1} dmg is ${l.dmg}, not +${10 * i}%`)
+      for (const key of Object.keys(l1)) {
+        if (key === 'dmg' || key === shot) continue
+        assert.ok(near(l[key], l1[key]) || near(l[key], l1[key] * k) || near(l[key], l1[key] / k),
+          `R5: ${id} L${i + 1} ${key} ${l[key]} is neither level 1 nor +10% per level`)
+      }
+      if (shot) assert.strictEqual(l[shot], l1[shot] + (i >= 2) + (i >= 4), `R5: ${id} L${i + 1} ${shot} ${l[shot]}`)
+      for (const key of FIXED) if (key in l1) assert.strictEqual(l[key], l1[key], `R5: ${id} L${i + 1} grows ${key}`)
+    })
+    for (const [mid, m] of Object.entries(WEAPON_MODS[id] ?? {})) {
+      if (m.kind === 'pct') assert.ok(m.base === 0.15 || m.base === 0.25, `R5: ${id}.${mid} base ${m.base}`)
+      if (m.kind === 'tier') assert.ok(m.values && !('normal' in m.values) && !('rare' in m.values), `R5: ${id}.${mid} adds projectiles below epic`)
+    }
+  }
+  assert.ok(throwers.includes('slagLadle') && throwers.length >= 8, 'R5: throwers ' + throwers)
+  console.log(`PASS run R5: ${ids.length} weapons from The Magma on level +10%; ${throwers.length} throwers (${throwers.join(', ')}) gain a projectile at L3 and L5`)
+}
+
 function testMagma() {
   const meta = () => { const m = makeMeta(); m.dev = true; return m }
   const sig = CHAPTERS.magma.signature
@@ -40786,19 +40828,39 @@ function testMagma() {
   const bOn = bombs(true), bOff = bombs(false)
   assert.ok(bOn.landed >= 3 && bOn.opened === bOn.landed, `run MG.c: every bomb landing should open lava: ${JSON.stringify(bOn)}`)
   assert.ok(bOff.landed >= 3 && bOff.opened === 0, `run MG.c: with the crust off a bomb still lands but opens nothing: ${JSON.stringify(bOff)}`)
-  // (d) a killing obsidian shard bursts into splinters
+  // (d) OBSIDIAN SHARDS STICK (owner, 2026-11-02): a shard deals nothing and stays in the foe until the
+  // stuck shards add up to its hp; the one that gets there kills it, and every stuck shard flies back out
   {
     const r = boot(32004)
     r.weapons = [{ id: 'obsidianShards', level: 1 }]
     stepSim(r, { x: 0, y: 0 }, 1 / 60)
-    r.enemies = []
-    r.enemies.push(makeStatusEnemy(r, { x: r.player.x + 120, y: r.player.y, hp: 1, speed: 0 }))
-    let splinters = 0
-    for (let i = 0; i < 90; i++) {
+    r.cracks.length = 0
+    const foe = makeStatusEnemy(r, { x: r.player.x + 120, y: r.player.y, hp: 100, speed: 0 })
+    r.enemies = [foe]
+    let stuckBefore = 0, hurtEarly = false, out = 0, shardDmg = 0
+    for (let i = 0; i < 600 && out === 0; i++) {
+      for (const b of r.bullets) if (b.weapon === 'obsidian') shardDmg = b.dmg
+      if (!foe._dead) stuckBefore = foe.glassN ?? 0
+      r.cracks.length = 0
       stepSim(r, { x: 0, y: 0 }, 1 / 60); r.events.length = 0
-      splinters = Math.max(splinters, r.bullets.filter((b) => b.weapon === 'splinter').length)
+      if (!foe._dead && foe.hp < foe.maxHP) hurtEarly = true
+      out = r.bullets.filter((b) => b.weapon === 'splinter').length
     }
-    assert.ok(splinters >= WEAPONS.obsidianShards.levels[0].splinters, `run MG.d: a killing shard should burst into ${WEAPONS.obsidianShards.levels[0].splinters} splinters, saw ${splinters}`)
+    const need = Math.ceil(100 / shardDmg)
+    assert.ok(!hurtEarly, `run MG.d: a stuck shard hurt the foe before the shards could kill it (hp ${foe.hp})`)
+    assert.ok(foe._dead, 'run MG.d: the foe never burst')
+    assert.strictEqual(stuckBefore, need - 1, `run MG.d: the foe should burst on shard ${need} (${shardDmg} dmg each), it held ${stuckBefore} before`)
+    assert.strictEqual(out, need, `run MG.d: a foe that burst on ${need} shards should throw ${need} back out, threw ${out}`)
+    // ...and another weapon's damage counts: 5 shards (60) stuck in a 100 hp foe, a 45 hit finishes it
+    const r2 = boot(32005)
+    r2.weapons = [{ id: 'obsidianShards', level: 1 }]
+    const other = makeStatusEnemy(r2, { x: r2.player.x + 300, y: r2.player.y, hp: 100, speed: 0 })
+    other.glassN = 5; other._glassDmg = 60
+    r2.enemies = [other]
+    dealDamage(r2, other, 45, false)
+    const thrown = (r2._splinterQ ?? []).length + r2.bullets.filter((b) => b.weapon === 'splinter').length
+    assert.ok(other._dead && thrown === 5, `run MG.d: 60 stuck + a 45 hit on 100 hp should burst it into 5 shards (dead ${other._dead}, thrown ${thrown})`)
+    console.log(`PASS run MG.d: ${need - 1} shards stuck for 0 damage, the ${need}th burst it into ${out}; another weapon finishes a stuck foe`)
   }
   // (e) the bellows flares open lava in its blast
   {
@@ -40809,8 +40871,113 @@ function testMagma() {
     r.cracks.push(c)
     const end0 = c.lavaEnd
     let flares = 0
-    for (let i = 0; i < 90; i++) { stepSim(r, { x: 0.001, y: 0 }, 1 / 60); for (const e of r.events) if (e.type === 'lavaFlare') flares++; r.events.length = 0 }
-    assert.ok(flares >= 1 && c.lavaEnd > end0, `run MG.e: the bellows should flare the lava ahead of you (flares ${flares}, lavaEnd +${(c.lavaEnd - end0).toFixed(2)}s)`)
+    // the nearest foe stands just past the lava, so the blast it aims goes through it
+    const foe = makeStatusEnemy(r, { x: r.player.x + 160, y: r.player.y, hp: 1e6, speed: 0 })
+    for (let i = 0; i < 90; i++) { r.enemies = [foe]; stepSim(r, { x: 0.001, y: 0 }, 1 / 60); for (const e of r.events) if (e.type === 'lavaFlare') flares++; r.events.length = 0 }
+    assert.ok(flares >= 1 && c.lavaEnd > end0, `run MG.e: the bellows should flare the lava between you and the foe (flares ${flares}, lavaEnd +${(c.lavaEnd - end0).toFixed(2)}s)`)
+  }
+  // (e1) ...and a Slag Ladle puddle in the blast flares too, and stays longer
+  {
+    const r = boot(32010)
+    r.weapons = [{ id: 'bellows', level: 1 }]
+    stepSim(r, { x: 1, y: 0 }, 1 / 60)
+    r.cracks.length = 0
+    const sp = { x: r.player.x + 80, y: r.player.y, r: 40, t: 0, dur: 3, burn: 1, tick: 0.5 }
+    r.slagPools.length = 0; r.slagPools.push(sp)
+    const foe = makeStatusEnemy(r, { x: r.player.x + 160, y: r.player.y, hp: 1e6, speed: 0 })
+    let flares = 0
+    for (let i = 0; i < 90; i++) { r.enemies = [foe]; foe.hp = foe.maxHP; r.cracks.length = 0; stepSim(r, { x: 0.001, y: 0 }, 1 / 60); for (const e of r.events) if (e.type === 'lavaFlare') flares++; r.events.length = 0 }
+    assert.ok(flares >= 1 && sp.dur > 3, `run MG.slag: the bellows should flare a slag puddle in its blast (flares ${flares}, dur ${sp.dur.toFixed(2)}s)`)
+  }
+  // (e1a) a Slag Ladle puddle is lava: it burns a beetle standing in it and never a Lava Ant
+  {
+    const r = boot(32012)
+    r.weapons = []
+    const at = { x: r.player.x + 200, y: r.player.y }
+    const sp = { x: at.x, y: at.y, r: 60, t: 0, dur: 5, burn: 20, tick: 0 }
+    r.slagPools.length = 0; r.slagPools.push(sp)
+    const ant = makeStatusEnemy(r, { x: at.x - 10, y: at.y, hp: 1e6, speed: 0 }); ant.flags = ['lavaBorn']
+    const beetle = makeStatusEnemy(r, { x: at.x + 10, y: at.y, hp: 1e6, speed: 0 })
+    for (let i = 0; i < 60; i++) { r.enemies = [ant, beetle]; r.cracks.length = 0; stepSim(r, { x: 0, y: 0 }, 1 / 60); r.events.length = 0 }
+    assert.ok(beetle.hp < beetle.maxHP, `run MG.ant: the puddle should burn a beetle in it (hp ${beetle.hp})`)
+    assert.strictEqual(ant.hp, ant.maxHP, `run MG.ant: a slag puddle burned a Lava Ant (hp ${ant.hp}/${ant.maxHP})`)
+  }
+  // (e1b) a lava river in the blast splashes: drops of slag land AHEAD of the river spot and burn there
+  {
+    const r = boot(32011)
+    r.weapons = [{ id: 'bellows', level: 1 }]
+    stepSim(r, { x: 0, y: 0 }, 1 / 60)
+    // stand on plain crust with a river 60..160px away along some heading
+    let spot = null
+    for (let d = 300; d < 60000 && !spot; d += 60) for (let i = 0; i < 32 && !spot; i++) {
+      const x = r.player.x + Math.cos(i * Math.PI / 16) * d, y = r.player.y + Math.sin(i * Math.PI / 16) * d
+      if (magmaGroundAt(r, x, y) !== null) continue
+      for (let j = 0; j < 16 && !spot; j++) { const h = j * Math.PI / 8; if (magmaRiverAt(r, x + Math.cos(h) * 110, y + Math.sin(h) * 110) > 0) spot = { x, y, h } }
+    }
+    assert.ok(spot, 'run MG.splash: no river found near the start')
+    r.player.x = spot.x; r.player.y = spot.y
+    const foe = makeStatusEnemy(r, { x: spot.x + Math.cos(spot.h) * 150, y: spot.y + Math.sin(spot.h) * 150, hp: 1e6, speed: 0 })
+    let landed = 0
+    for (let i = 0; i < 120; i++) {
+      r.enemies = [foe]; foe.hp = foe.maxHP; r.cracks.length = 0; r.player.x = spot.x; r.player.y = spot.y
+      stepSim(r, { x: 0, y: 0 }, 1 / 60)
+      for (const e of r.events) if (e.type === 'slagSplash' && Math.hypot(e.x - spot.x, e.y - spot.y) > 110) landed++
+      r.events.length = 0
+    }
+    const on = r.slagPools.length
+    assert.ok(landed >= 1 && on >= 1, `run MG.splash: blowing on a river should splash slag ahead (${landed} splashes past the river, ${on} puddles)`)
+    // and only a river splashes: the same blast on plain crust throws nothing
+    const r2 = boot(32011)
+    r2.weapons = [{ id: 'bellows', level: 1 }]
+    let plain = 0
+    for (let i = 0; i < 120; i++) { r2.enemies = [makeStatusEnemy(r2, { x: r2.player.x + 150, y: r2.player.y, hp: 1e6, speed: 0 })]; r2.cracks.length = 0; stepSim(r2, { x: 0, y: 0 }, 1 / 60); plain += r2.magmaLobs.length; r2.events.length = 0 }
+    assert.strictEqual(plain, 0, 'run MG.splash: no river in the blast, no splash')
+  }
+  // (e2) the bellows aims at the nearest foe, not the way you walk: walk right, the foe is on your left
+  {
+    const r = boot(32008)
+    r.weapons = [{ id: 'bellows', level: 1 }]
+    r.cracks.length = 0
+    const foe = makeStatusEnemy(r, { x: r.player.x - 150, y: r.player.y, hp: 1e6, speed: 0 })
+    r.enemies = [foe]
+    for (let i = 0; i < 90; i++) { stepSim(r, { x: 1, y: 0 }, 1 / 60); r.enemies = [foe]; foe.x = r.player.x - 150; foe.y = r.player.y; r.events.length = 0 }
+    assert.ok(foe.hp < 1e6, `run MG.aim: the bellows should blast the foe behind you (hp ${foe.hp})`)
+  }
+  // (e3) STUCK IN STONE: the blast cools the lava and holds what stands in it — and never holds the
+  // same body again inside the refractory, whatever the fire rate (owner: no idle stun-lock)
+  {
+    const r = boot(32009)
+    r.weapons = [{ id: 'bellows', level: 5 }]
+    r.anomalies = { ...(r.anomalies ?? {}), stuckInStone: true }
+    r.passives.fireRate = 19
+    const foe = makeStatusEnemy(r, { x: r.player.x + 100, y: r.player.y, hp: 1e9, speed: 0 })
+    const lava = () => ({ x: foe.x, y: foe.y, r: 34, by: 'step', state: 'lava', t: 0, tick: 0, openAt: r.time, lavaT: 30, coolT: 0.5, lavaEnd: r.time + 30, coolEnd: 0 })
+    const c0 = lava()
+    r.cracks.length = 0; r.cracks.push(c0)
+    let flares = 0, heldFrames = 0, frames = 0, blasts = 0, onsets = 0, wasHeld = false
+    for (let i = 0; i < 60 * 12; i++) {
+      if (r.phase === 'levelup') { r.phase = 'playing'; r.levelUpChoices = [] }
+      r.player.hp = r.player.maxHP
+      r.enemies = [foe]; foe.x = r.player.x + 100; foe.y = r.player.y; foe.hp = foe.maxHP   // the lava would burn it out
+      if (!r.cracks.some((c) => c.state === 'lava')) r.cracks.push(lava())   // lava under it, always
+      stepSim(r, { x: 0, y: 0 }, 1 / 60)
+      for (const e of r.events) { if (e.type === 'lavaFlare') flares++; if (e.type === 'shoot' && e.weapon === 'bellows') blasts++ }
+      r.events.length = 0
+      frames++
+      const held = (foe.stunT || 0) > 0
+      if (held) heldFrames++
+      if (held && !wasHeld) onsets++
+      wasHeld = held
+    }
+    assert.strictEqual(c0.state === 'cool' || c0._gone === true || !r.cracks.includes(c0), true, 'run MG.stone: the blast should cool the lava it hits')
+    assert.strictEqual(flares, 0, 'run MG.stone: under Stuck in Stone the bellows never flares')
+    assert.ok(blasts >= 100, `run MG.stone: the rig must blast often to test a lock (${blasts} blasts in 12s)`)
+    assert.ok(heldFrames > 0, 'run MG.stone: a body in the cooled lava should be stuck')
+    const cap = STUCK_IN_STONE.stun / (STUCK_IN_STONE.stun + STUCK_IN_STONE.refractory)
+    const maxOnsets = Math.floor(12 / (STUCK_IN_STONE.stun + STUCK_IN_STONE.refractory)) + 1
+    assert.ok(onsets <= maxOnsets, `run MG.stone: one hold per refractory: ${onsets} holds in 12s, at most ${maxOnsets}`)
+    assert.ok(heldFrames / frames <= cap + 0.05, `run MG.stone: no stun-lock: held ${(100 * heldFrames / frames).toFixed(0)}% of 12s under x20 fire rate, cap ${(100 * cap).toFixed(0)}%`)
+    console.log(`  MG.stone Stuck in Stone: held ${(100 * heldFrames / frames).toFixed(0)}% of 12s over ${blasts} blasts (cap ${(100 * cap).toFixed(0)}%)`)
   }
   // (f) the chapter's own anomaly and mutator, scoped to it alone and doing what their cards say
   assert.ok(BOOKS.burrow.chapters.indexOf('magma') >= 0 && BOOKS.burrow.chapters.indexOf('magma') < BOOKS.burrow.chapters.indexOf('mantle'), 'run MG.f: The Magma sits on Burrow\'s ladder, above The Mantle')
@@ -40856,8 +41023,8 @@ function testMagma() {
 // crust; (d) rivers are RARE (under 5% of a wide sample of floor), the start is plain crust, the floor
 // draws nothing from Math.random, and no other chapter has one.
 // ---- run MR: The Magma's lava rivers are a bank, not a road -----------------------------------
-// A body hunting you does not walk into a river unless you are just across it (river.avoid); then it
-// wades in. Rig: one plain seeker 250px off one bank, the player pinned across the river, far
+// A body the lava burns never walks into a river, even with you just across it (river.avoid); only a
+// flyer or a lava-born body crosses. Rig: one plain seeker 250px off one bank, the player pinned across the river, far
 // (400px past the far bank) or near (40px past it), no weapons, no crowd. Several spots on several
 // seeds, so the river's own bends are in the sample. Control arm: avoid switched off.
 function testMagmaRiverBank() {
@@ -40895,7 +41062,7 @@ function testMagmaRiverBank() {
     // a crowd: the rest pressed in behind the first, so the separation pass shoves the front row
     const pack = [e]
     for (let k = 1; k < crowd; k++) pack.push(makeStatusEnemy(r, { x: e.x - nx * (20 + (k % 3) * 22) + ny * ((k % 4) - 1.5) * 18, y: e.y - ny * (20 + (k % 3) * 22) - nx * ((k % 4) - 1.5) * 18, hp: 1e9, speed: 90 }))
-    if (rosterId) for (const b of pack) b.flags = ['flying']
+    if (rosterId) for (const b of pack) b.flags = [rosterId === 'lavaAnt' ? 'lavaBorn' : 'flying']
     r.enemies = pack.slice()
     let inRiver = 0, frames = 0, burn = 0
     for (let i = 0; i < 600; i++) {
@@ -40922,7 +41089,7 @@ function testMagmaRiverBank() {
       return out
     } finally { Rv.avoid = saved }
   }
-  const flyOn = arm(true, A, 0, 1, 'fireDrake'), farOn = arm(true, A), nearOn = arm(false, A), farOff = arm(true, null), slideOn = arm(true, A, 700), crowdOn = arm(true, A, 0, 12)
+  const antOn = arm(true, A, 0, 1, 'lavaAnt'), flyOn = arm(true, A, 0, 1, 'fireDrake'), farOn = arm(true, A), nearOn = arm(false, A), farOff = arm(true, null), slideOn = arm(true, A, 700), crowdOn = arm(true, A, 0, 12)
   assert.ok(farOn.length >= 6, `run MR: found only ${farOn.length} river crossings of ${spots.length} tried`)
   const sum = (a, k) => a.reduce((t, x) => t + x[k], 0)
   const farIn = sum(farOn, 'inRiver'), farFrames = sum(farOn, 'frames')
@@ -40941,10 +41108,11 @@ function testMagmaRiverBank() {
   for (const t of flyOn) assert.ok(t.across > 0 && t.inRiver > 0, `run MR.e: a fire drake should fly over the river (ended ${t.across.toFixed(0)}px past the middle)`)
   assert.ok(sum(flyOn, 'burn') === 0, `run MR.e: the river burned a flying drake for ${sum(flyOn, 'burn').toFixed(0)}`)
   // ...while a walker in the river does burn (the same probe can see it)
-  assert.ok(sum(nearOn, 'burn') > 0, 'run MR.e control: a walker wading across should burn')
+  assert.ok(sum(farOff, 'burn') > 0, 'run MR.e control: a walker wading across should burn')
+  for (const t of antOn) assert.ok(t.across > 0 && t.inRiver > 0, `run MR.f: a lava ant should wade across the river (ended ${t.across.toFixed(0)}px past the middle)`)
   // (b) the player just across: it wades in and reaches you
-  for (const t of nearOn) assert.ok(t.across > 0 && t.toPlayer < 60, `run MR.b: with you just across, the body should cross (ended ${t.across.toFixed(0)}px past the middle, ${t.toPlayer.toFixed(0)}px from you)`)
-  console.log(`PASS run MR (The Magma river bank): far across ${farIn}/${farFrames} frames in the river over ${farOn.length} spots (avoid off: ${offIn}/${sum(farOff, 'frames')}); followed the bank ${slideOn.map((t) => t.along.toFixed(0)).join('/')}px; a crowd of 12: ${crowdIn}/${crowdFrames} body-frames in it; just across ${nearOn.length}/${nearOn.length} bodies crossed (${sum(nearOn, 'inRiver')} frames in it); drakes flew over ${flyOn.length}/${flyOn.length}, burned 0 (walkers ${sum(nearOn, 'burn').toFixed(0)})`)
+  for (const t of nearOn) assert.ok(t.across < 0 && t.inRiver <= 6, `run MR.b: even with you just across, a walker should stay on its bank (ended ${t.across.toFixed(0)}px from the middle, ${t.inRiver} frames in the river)`)
+  console.log(`PASS run MR (The Magma river bank): far across ${farIn}/${farFrames} frames in the river over ${farOn.length} spots (avoid off: ${offIn}/${sum(farOff, 'frames')}); followed the bank ${slideOn.map((t) => t.along.toFixed(0)).join('/')}px; a crowd of 12: ${crowdIn}/${crowdFrames} body-frames in it; just across 0/${nearOn.length} walkers crossed (${sum(nearOn, 'inRiver')} frames in it); ants waded over ${antOn.length}/${antOn.length}; drakes flew over ${flyOn.length}/${flyOn.length}, burned 0 (walkers with avoid off ${sum(farOff, 'burn').toFixed(0)})`)
 }
 
 // run GP: THE GEODE'S TWO SHADERS THAT EVALUATE cavern() COMPILE AT highp ON A PHONE. The floor

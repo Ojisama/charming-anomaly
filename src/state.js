@@ -963,6 +963,9 @@ function generateWells(sig) {
  *                 resistsCC). The `unshakeable` roster flag on one tank per chapter is a RESISTANCE,
  *                 not an immunity: it is feared and shoved for UNSHAKEABLE_CC_MUL of the usual, and
  *                 never for none (see ccResist).
+ *               glassN (The Magma, Obsidian Shards): shards stuck in the enemy. They have dealt no
+ *                 damage yet; _glassDmg is their sum, and once it covers hp the enemy dies and throws
+ *                 them back out (sim.js burstGlass). pixel.js draws them as a hedgehog of glass.
  *               stunT (s of stun remaining): while > 0 the enemy neither seeks nor deals contact
  *                 damage (knockback still carries it). Applied by the Burst Hydrant's launch mod,
  *                 the Roar's stagger mod (HYDRANT_STUN, and STAGGER_STUN_PER_PICK — the stagger
@@ -2261,7 +2264,8 @@ function generateWells(sig) {
  *   slagPools[i]: { x, y, r, t, dur, burn, tick } — Slag Ladle puddles: burn every SLAG_TICK s.
  *   magmaLobs[i]: { kind: 'slag'|'bomb', fromX, fromY, x, y, t, flight, r, dmg, ... } — a ladle of
  *     slag or a volcanic bomb in the air; lands at t >= flight.
- *   Bullets: weapon 'obsidian' (Obsidian Shards), 'splinter' (what a killing shard bursts into).
+ *   Bullets: weapon 'obsidian' (Obsidian Shards), 'splinter' (a stuck shard a bursting foe throws back
+ *   out). Both carry _glass: they stick (e.glassN, e._glassDmg) instead of dealing damage.
  *   Novas: look 'bellows' (a sector: arc, angle).
  *   Run: _crustOdo / _crustStill (footstep clock), _crustWildT (Thin Crust's clock), _riverT (the
  *     lava rivers' burn clock).
@@ -2597,6 +2601,8 @@ function generateWells(sig) {
  *   Rerolling is just calling buildLevelUpChoices again — with one thing carried across the call:
  *   the purchase also steps _screenRerolls (above), which is the only state that makes the rebuilt
  *   screen differ in distribution from the one it replaced.
+ * _bloodRerolls: rerolls paid in HP under BLOOD MONEY. It prices the HP ladder (rerollPrice), so the
+ *   ladder starts at BLOOD_MONEY_HP when the card is taken, whatever _rerolls (which still steps) says.
  * choiceSlots (v4.8): how many cards buildLevelUpChoices rolls for every level-up this run —
  *   snapshotted from bm.choiceSlots (the run's own book — meta itself for book 1, meta.books[id]
  *   for book 2+, see bookMeta) at createRun and clamped THERE into [2, MAX_CHOICE_SLOTS]
@@ -3041,6 +3047,7 @@ export function createRun(meta, opts = {}) {
     consumables,
     revives: consumables.includes('revive') ? 1 : 0,
     _rerolls: 0,
+    _bloodRerolls: 0,
     // R3 clamp-on-use: bm.choiceSlots (this run's book — see bookMeta above) may legitimately
     // store a future build's higher ceiling (loadMeta/ensureBookMeta no longer cap it), but
     // sim.js's buildLevelUpChoices must never deal more cards than the level-up screen is laid out for.
