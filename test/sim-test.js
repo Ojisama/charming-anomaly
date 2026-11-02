@@ -40867,6 +40867,19 @@ function testMagma() {
     for (let i = 0; i < 90; i++) { r.enemies = [foe]; foe.hp = foe.maxHP; r.cracks.length = 0; stepSim(r, { x: 0.001, y: 0 }, 1 / 60); for (const e of r.events) if (e.type === 'lavaFlare') flares++; r.events.length = 0 }
     assert.ok(flares >= 1 && sp.dur > 3, `run MG.slag: the bellows should flare a slag puddle in its blast (flares ${flares}, dur ${sp.dur.toFixed(2)}s)`)
   }
+  // (e1a) a Slag Ladle puddle is lava: it burns a beetle standing in it and never a Lava Ant
+  {
+    const r = boot(32012)
+    r.weapons = []
+    const at = { x: r.player.x + 200, y: r.player.y }
+    const sp = { x: at.x, y: at.y, r: 60, t: 0, dur: 5, burn: 20, tick: 0 }
+    r.slagPools.length = 0; r.slagPools.push(sp)
+    const ant = makeStatusEnemy(r, { x: at.x - 10, y: at.y, hp: 1e6, speed: 0 }); ant.flags = ['lavaBorn']
+    const beetle = makeStatusEnemy(r, { x: at.x + 10, y: at.y, hp: 1e6, speed: 0 })
+    for (let i = 0; i < 60; i++) { r.enemies = [ant, beetle]; r.cracks.length = 0; stepSim(r, { x: 0, y: 0 }, 1 / 60); r.events.length = 0 }
+    assert.ok(beetle.hp < beetle.maxHP, `run MG.ant: the puddle should burn a beetle in it (hp ${beetle.hp})`)
+    assert.strictEqual(ant.hp, ant.maxHP, `run MG.ant: a slag puddle burned a Lava Ant (hp ${ant.hp}/${ant.maxHP})`)
+  }
   // (e1b) a lava river in the blast splashes: drops of slag land AHEAD of the river spot and burn there
   {
     const r = boot(32011)

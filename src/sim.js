@@ -18717,7 +18717,7 @@ function stepSlagPools(run, dt) {
     if (sp.tick > 0) continue
     sp.tick += SLAG_TICK
     for (const e of enemiesNear(run, sp.x, sp.y, sp.r, true)) {
-      if (e._dead || isAlly(e) || damageImmune(e) || flies(e)) continue
+      if (e._dead || isAlly(e) || damageImmune(e) || lavaProof(e)) continue
       if (Math.hypot(e.x - sp.x, e.y - sp.y) > sp.r + e.radius * 0.5) continue
       applyDotDamage(run, e, sp.burn)
     }
