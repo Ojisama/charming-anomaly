@@ -123,6 +123,11 @@ One sprite per entity goes through `syncPool`. An entity needing independently-t
 
 **Converting a flat pool to a rig has a second site that fails silently.** `reset()` walks a hardcoded list of flat pools doing `for (const s of pool) s.visible = false`. Leave a rig pool in that list and it sets a dead property on a plain object — no throw, no warning, and the previous run's entities stay on screen. Move it down to the `.root.visible = false` block with the other rigs.
 
+**A pooled sprite keeps every property its caller does not set.** `pixel.js`'s `pool().next()` resets
+alpha, tint, rotation and scale; anything else carries over from whatever used that slot last frame.
+A sprite that blinks to the wrong size or angle for ONE frame is this first (v12.15.1: a Fissure
+rift drew at a small lava crack's scale whenever slot order shifted).
+
 ### The event contract
 
 `sim.js` never calls render or audio directly. It **pushes event objects** (`{type:'hit'|'kill'|'shoot'|'explode'|'levelup'|…}`) onto `run.events`; `main.js` drains them once per frame and fans them out to the renderer (visual bursts) and `SFX_FOR_EVENT` (audio). Adding a new visible/audible effect = emit an event in sim, then handle it in render.js and the `SFX_FOR_EVENT` map. **The authoritative list of every event shape and every `run.*` field lives in the giant doc block directly above `createRun` in `state.js`** — read it before adding entities or events; keep it in sync when you change the `run` shape.
