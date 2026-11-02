@@ -98,6 +98,7 @@ const UI = {
   'coins': 'pièces',
   'win level {n} to unlock {m}': 'gagne le niveau {n} pour débloquer le {m}',
   'win {name} at difficulty 3+': 'gagne {name} en difficulté 3+',
+  'finish Book {n}': 'termine le livre {n}',
   'beat {name} at any difficulty': 'bats {name} en n\'importe quelle difficulté',
   // 'te compte', not 'compte': objectless `compter` reads as "matters", not "is counting" — the
   // pronoun forces the intended, creepier sense while keeping "counting what?" withheld.

@@ -12118,6 +12118,11 @@ export const spineName = (id) => CHAPTER_SPINE[id] ?? CHAPTERS[id]?.name ?? id
 // A `hidden` chapter (The Blank) joins its own Book's étage, and only once unlocked. Before that it
 // must not even occupy a covered slot, or the shelf silently counts a chapter whose existence the
 // carousel went to some trouble to withhold.
+// Has this save SEEN this hidden boss? The shelf draws it from then on, and only then may any copy
+// name it (ui.js's locked-book hint) — naming it earlier spoils the secret.
+export const bossOnShelf = (meta, id) => meta?.dev === true || !!meta?.chapters?.[id]?.unlocked ||
+  (!isWipChapter(id) && Number(meta?.chapters?.[HIDDEN_UNLOCKS[id]?.from]?.won) >= 1)
+
 export function titleBookshelf(meta) {
   const shelf = []
   for (const [book, def] of Object.entries(BOOKS)) {
@@ -12131,8 +12136,7 @@ export function titleBookshelf(meta) {
     // A hidden chapter takes a slot, locked, once its gate chapter is won at ANY level; open once
     // earned; and always when the dev gate is up (reached that way to test, without writing
     // `unlocked` to the save).
-    const shown = (id) => !isWipChapter(id) && Number(meta?.chapters?.[HIDDEN_UNLOCKS[id]?.from]?.won) >= 1
-    const ids = [...ladder, ...def.hidden.filter((id) => meta?.dev === true || meta?.chapters?.[id]?.unlocked || shown(id))]
+    const ids = [...ladder, ...def.hidden.filter((id) => bossOnShelf(meta, id))]
     const volumes = ids.map((id) => ({ id, unlocked: chapterAvailable(meta, id) }))
     shelf.push({
       book,

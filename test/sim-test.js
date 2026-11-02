@@ -63,7 +63,7 @@ import {
   MAX_DIFFICULTY, PLAYER, BARNACLE_JUMP_R, SHELL_R,
   LONGLINE_SNAG, LONGLINE_HALF_W, LONGLINE_TWIN_GAP, LONGLINE_MAX_SETS, LONGLINE_MIN_OFFSET, CC_DR_FLOOR,
   MAW_GAPE_T, MAW_DEVOUR_FRAC, BORN_BLIND_MAX_DMG_MUL, BORN_BLIND_REFILL_MUL, MAW_VIS, MAW_REVEAL, LURE_GLOW, SCENT_R, SCENT_DMG_MUL, SCENT_SLOW, SCENT_MARK_T, spendSecs,
-  BOOKS, BOOK_ORDER, BOOK_SHOP, shopLines, BOOK_UNLOCKS, playableChapterId, isWipChapter, chapterAvailable, titleBookshelf, CHAPTER_SPINE, isHiddenChapter, nextBook, bookOf, chapterNumber,
+  BOOKS, BOOK_ORDER, BOOK_SHOP, shopLines, BOOK_UNLOCKS, playableChapterId, isWipChapter, chapterAvailable, titleBookshelf, bossOnShelf, CHAPTER_SPINE, isHiddenChapter, nextBook, bookOf, chapterNumber,
   DMG_SRC_NAME, dmgSrcName, DMG_SRC_ART, dmgSrcArt, DMG_SRC_NO_ART, POLE_NAMES,
   DEATH_OUTRO, irisCoverMul, deathProgress, LANE_CAMERA_FRAC,
   endlessLevel, ENDLESS_START_LEVEL, endlessHpMul, endlessXpNeedMul, endlessXpMul, ENDLESS_COIN_HALF_LIFE_S, endlessAffixChance, endlessEligible, endlessUnlocked, ENDLESS_AFFIX_FROM, ENDLESS_AFFIX_MAX,
@@ -5597,6 +5597,14 @@ function runBooks() {
   assert.ok(!b1.volumes.some((v) => v.id === 'blank'),
     'The Blank must NOT be shelved before it is unlocked — a covered volume counts a chapter nobody should know about yet')
   assert.strictEqual(b1.stars, 2, 'stars sum `won` (difficulties actually beaten), not maxDifficulty')
+  // NO SPOILER: a boss is unseen (unnamed, unshelved) until its book's last chapter is won once.
+  // (The Blank, not The Kraken: this scenario holds The Deep WIP, which keeps The Kraken unseen.)
+  const early = { dev: false, chapters: { body: { unlocked: true, won: 1 }, beyond: { unlocked: true } } }
+  const beyondWon = { dev: false, chapters: { body: { unlocked: true, won: 1 }, beyond: { unlocked: true, won: 1 } } }
+  assert.strictEqual(bossOnShelf(early, 'blank'), false, 'a save that never won The Beyond must not have seen The Blank')
+  assert.ok(!shelved(early).includes('blank'), 'and the shelf must not draw it')
+  assert.strictEqual(bossOnShelf(beyondWon, 'blank'), true, 'one Beyond win at any level reveals The Blank')
+  assert.ok(shelved(beyondWon).includes('blank'), 'and the shelf draws it, locked')
   const earned = { dev: false, chapters: { body: { unlocked: true, won: 5 }, blank: { unlocked: true, won: 1 } } }
   assert.ok(titleBookshelf(earned)[0].volumes.some((v) => v.id === 'blank' && v.unlocked),
     'once earned, The Blank joins its OWN Book\'s étage rather than vanishing outside every shelf')
