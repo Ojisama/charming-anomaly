@@ -265,7 +265,7 @@ import {
   DYNAMITE_RANGE, DYNAMITE_FLIGHT, DYNAMITE_FUSE, DYNAMITE_KB, MINECART_SPEED, MINECART_FAN, MINECART_KB, MINECART_STUN, MINECART_LOOT_R, MINECART_HOME_R,
   CANARY_REACH_MUL, CANARY_LINK_DMG, LANTERN_PULSE, LANTERN_FUSE, DRAUGHT_DRAW, DRAUGHT_HOLD, FIREBEND_R_PER_JET, FIREBEND_LEN, FIREBEND_W, FIREBEND_LIFE, FIREBEND_DMG_MUL, SAFETY_LAMP_SENSE, SAFETY_LAMP_MAX, SAFETY_LAMP_EASE, MINE_BOOM_KEEP, MINE_GAS_FADE_IN, MINE_GAS_LIT_SHRINK,
   SLAG_RANGE, SLAG_FLIGHT, SLAG_TICK, OBSIDIAN_FAN, OBSIDIAN_LIFE, OBSIDIAN_R, SPLINTER_LIFE, SPLINTER_SPEED, SPLINTER_R,
-  BELLOWS_LIFE, BELLOWS_SPLASH, BELLOWS_FLARE_MUL, BELLOWS_FLARE_R, BELLOWS_FLARE_T, STUCK_IN_STONE, BOMB_RANGE, BOMB_FLIGHT, BOMB_LAVA_R, BOMB_LAVA_T, HOT_FEET_OPEN_MUL, HOT_FEET_BURN_MUL,
+  BELLOWS_LIFE, BELLOWS_SPLASH, BELLOWS_FLARE_MUL, BELLOWS_FLARE_R, BELLOWS_FLARE_T, STUCK_IN_STONE, FISSURE_GAP, FISSURE_STEP, FISSURE_LAVA_T, FISSURE_SPREAD, HOT_FEET_OPEN_MUL, HOT_FEET_BURN_MUL,
   FLOOD_TIDE_COVER_ADD, FLOOD_TIDE_SPEED_MUL, FLOOD_TIDE_BURN_MUL, COAL_FAN, COAL_LIFE, COAL_R, COAL_IGNITE,
   HAMMER_RANGE, KETTLE_RANGE, KETTLE_LAVA_STEP, HAMMER_POOL_DPS, HAMMER_POOL_TICK, HAMMER_POOL_PLAYER_DPS, HAMMER_POOL_MIRE, LAVA_WAVE_LIFE, LAVA_WAVE_SHOVE_MUL,
   MANTLE_COLD_VS_LAVA, MANTLE_FIRE_VS_ROCK,
@@ -11024,7 +11024,7 @@ const WEAPON_STAT_MODS = {
   slagLadle:      { hotSlag: ['dmg', 'pct'], deepLadle: ['r', 'pct'], slowCooling: ['duration', 'pct'], secondScoop: ['count', 'flat'] },
   obsidianShards: { keenGlass: ['dmg', 'pct'], glassVolley: ['count', 'flat'] },   // shatter: read in burstGlass
   bellows:        { forgeHeat: ['dmg', 'pct'], longDraft: ['radius', 'pct'], widePipe: ['arc', 'pct'] },
-  volcanicBomb:   { heavyRock: ['dmg', 'pct'], bigBlast: ['r', 'pct'], salvo: ['count', 'flat'] },
+  fissure:        { searingRift: ['dmg', 'pct'], greatRift: [['width', 'len'], 'pct'], branching: ['count', 'flat'] },
   // The Mantle. Rate mods divide at their fire sites; cinders is read there too.
   quenchKettle:   { bigKettle: ['radius', 'pct'], thickCrust: ['crustDur', 'pct'], iceWater: ['dmg', 'pct'] },
   hotCoals:       { whiteHot: ['dmg', 'pct'], coalScuttle: ['count', 'flat'], skipping: ['bounces', 'flat'] },
@@ -11364,7 +11364,7 @@ function stepWeaponsInner(run, dt) {
     else if (w.id === 'slagLadle') stepSlagLadleWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'obsidianShards') stepObsidianWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'bellows') stepBellowsWeapon(run, w, stats, fireRateMul, dt)
-    else if (w.id === 'volcanicBomb') stepVolcanicBombWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'fissure') stepFissureWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'quenchKettle') stepQuenchKettleWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'hotCoals') stepHotCoalsWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'crackHammer') stepCrackHammerWeapon(run, w, stats, fireRateMul, dt)
@@ -18853,47 +18853,50 @@ function setInStone(run, c) {
   }
 }
 
-// -- Volcanic Bomb ---------------------------------------------------------------------------------
-// Lands in the THICKEST of the crowd in reach: the body with the most others inside its blast.
-// `range` and `keep` (a filter) for the Crack Hammer, which cracks under walking non-lava bodies only.
-function bombSpots(run, n, r, range = BOMB_RANGE, keep = null) {
+// -- Fissure ---------------------------------------------------------------------------------------
+// The first line goes at the nearest foe; each extra one at the next nearest foe at least
+// FISSURE_SPREAD round from every line so far, then evenly round the circle when foes run out.
+function fissureAngles(run, n, len) {
   const p = run.player
-  const cand = []
-  for (const e of enemiesNear(run, p.x, p.y, range)) {
-    if (e._dead || isAlly(e) || damageImmune(e) || (keep && !keep(e))) continue
-    if ((e.x - p.x) ** 2 + (e.y - p.y) ** 2 > range * range) continue
-    cand.push(e)
-  }
-  if (cand.length === 0) return []
-  const sample = cand.length > 24 ? Array.from({ length: 24 }, () => cand[Math.floor(Math.random() * cand.length)]) : cand
-  const scored = sample.map((e) => {
-    let k = 0
-    for (const o of cand) if ((o.x - e.x) ** 2 + (o.y - e.y) ** 2 <= r * r) k++
-    return { e, k }
-  }).sort((a, b) => b.k - a.k)
-  const out = []
-  for (const s of scored) {
-    if (out.length >= n) break
-    if (out.some((o) => Math.hypot(o.x - s.e.x, o.y - s.e.y) < r)) continue
-    out.push({ x: s.e.x, y: s.e.y })
-  }
+  const out = [aimAngle(run)]
+  if (n <= 1) return out
+  const apart = (a) => out.every((b) => Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b))) >= FISSURE_SPREAD)
+  const near = enemiesNear(run, p.x, p.y, len, true).filter((e) => !e._dead && !isAlly(e))
+    .map((e) => ({ a: Math.atan2(e.y - p.y, e.x - p.x), d: (e.x - p.x) ** 2 + (e.y - p.y) ** 2 }))
+    .sort((u, v) => u.d - v.d)
+  for (const t of near) { if (out.length >= n) break; if (apart(t.a)) out.push(t.a) }
+  const fill = out.length
+  for (let k = 1; out.length < n; k++) out.push(out[0] + (k * 2 * Math.PI) / (n - fill + 1))
   return out
 }
-function stepVolcanicBombWeapon(run, w, stats, fireRateMul, dt) {
+function stepFissureWeapon(run, w, stats, fireRateMul, dt) {
   const p = run.player
-  const quick = run.weaponMods.volcanicBomb?.quickFuse ?? 0
-  const fissure = run.weaponMods.volcanicBomb?.deepFissure ?? 0
+  const quick = run.weaponMods.fissure?.quickTremor ?? 0
+  const deep = run.weaponMods.fissure?.deepFissure ?? 0
   fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => {
-    const spots = bombSpots(run, ipecacN(run, stats.count), stats.r)
-    for (const sp of spots) {
-      run.magmaLobs.push({ kind: 'bomb', fromX: p.x, fromY: p.y, x: sp.x, y: sp.y, t: 0, flight: BOMB_FLIGHT,
-        r: stats.r, dmg: stats.dmg, lavaT: BOMB_LAVA_T * (1 + fissure), spin: Math.random() * 6 })
-    }
-    if (spots.length) run.events.push({ type: 'shoot', weapon: 'volcanicBomb', x: p.x, y: p.y })
+    if (!nearestEnemy(run)) return   // nothing to tear at: no lava laid where you are about to walk
+    const C = crustSpec(run)
+    const hit = new Set()   // one cast hits a body once, however many lines cross it
+    fissureAngles(run, ipecacN(run, stats.count), stats.len).forEach((a, k) => {
+      for (const e of enemiesOnRay(run, p.x, p.y, a, stats.len, stats.width)) {
+        if (e._dead || isAlly(e) || hit.has(e) || alongRay(p.x, p.y, a, stats.len, stats.width, e) < 0) continue
+        hit.add(e)
+        applyDamage(run, e, stats.dmg)
+      }
+      run.events.push({ type: 'fissure', x: p.x, y: p.y, angle: a, len: stats.len, width: stats.width })
+      // THE LINE STAYS LAVA, from FISSURE_GAP out (none with the crust off). Every crack carries the
+      // line it lies on, so render draws one crack along it rather than a row of round pools.
+      const line = { x: p.x, y: p.y, angle: a, len: stats.len, width: stats.width, seed: (Math.floor(run.time * 997) + k * 131) | 0 }
+      if (C) for (let d = FISSURE_GAP; d <= stats.len; d += stats.width * FISSURE_STEP) {
+        const c = addCrack(run, C, p.x + Math.cos(a) * d, p.y + Math.sin(a) * d, stats.width / 2, 'fissure', true, FISSURE_LAVA_T * (1 + deep))
+        if (c) c.line = line
+      }
+    })
+    run.events.push({ type: 'shoot', weapon: 'fissure', x: p.x, y: p.y })
   })
 }
 
-// Both lobbed weapons land here: the splash, then the slag's puddle or the bomb's lava.
+// The Slag Ladle's lobs land here: the splash, then the puddle.
 function stepMagmaLobs(run, dt) {
   if (run.magmaLobs.length === 0) return
   const C = crustSpec(run)
@@ -18906,14 +18909,8 @@ function stepMagmaLobs(run, dt) {
       if (Math.hypot(e.x - l.x, e.y - l.y) > l.r + e.radius * 0.5) continue
       applyDamage(run, e, l.dmg)
     }
-    if (l.kind === 'slag') {
-      run.slagPools.push({ x: l.x, y: l.y, r: l.r * 0.85, t: 0, dur: l.dur, burn: l.burn, tick: SLAG_TICK * 0.5 })
-      run.events.push({ type: 'slagSplash', x: l.x, y: l.y, r: l.r })
-    } else {
-      run.events.push({ type: 'bombLand', x: l.x, y: l.y, r: l.r })
-      // THE BOMB CRACKS THE CRUST: the spot opens straight into lava (none with the crust off).
-      if (C) addCrack(run, C, l.x, l.y, l.r * BOMB_LAVA_R, 'volcanicBomb', true, l.lavaT)
-    }
+    run.slagPools.push({ x: l.x, y: l.y, r: l.r * 0.85, t: 0, dur: l.dur, burn: l.burn, tick: SLAG_TICK * 0.5 })
+    run.events.push({ type: 'slagSplash', x: l.x, y: l.y, r: l.r })
   }
   run.magmaLobs = run.magmaLobs.filter((l) => !l._done)
   if (run.slagPools.length > 60) run.slagPools.splice(0, run.slagPools.length - 60)

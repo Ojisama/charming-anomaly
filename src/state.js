@@ -2259,11 +2259,13 @@ function generateWells(sig) {
  *     every body on it, and the player: hurt src 'lava'), then 'cool' for coolT s (crusting over,
  *     harmless), then gone. by = 'step' (the player's footsteps, or standing still), 'ant' (a Lava Ant's
  *     walk, LAVA_ANT), 'thinCrust'
- *     (the mutator's own cracks) or a weapon id ('volcanicBomb' opens one already molten). _flareT
+ *     (the mutator's own cracks) or a weapon id ('fissure' opens a line of them already molten, each
+ *     carrying line = { x, y, angle, len, width, seed }, shared by the whole line: render draws one
+ *     crack along it instead of a pool per crack). _flareT
  *     is the run.time until which a Bellows flare is lighting it. Empty with signature.crust null.
  *   slagPools[i]: { x, y, r, t, dur, burn, tick } — Slag Ladle puddles: burn every SLAG_TICK s.
- *   magmaLobs[i]: { kind: 'slag'|'bomb', fromX, fromY, x, y, t, flight, r, dmg, ... } — a ladle of
- *     slag or a volcanic bomb in the air; lands at t >= flight.
+ *   magmaLobs[i]: { kind: 'slag', fromX, fromY, x, y, t, flight, r, dmg, dur, burn } — a ladle of
+ *     slag in the air (the Slag Ladle's, or a Bellows river splash); lands at t >= flight.
  *   Bullets: weapon 'obsidian' (Obsidian Shards), 'splinter' (a stuck shard a bursting foe throws back
  *   out). Both carry _glass: they stick (e.glassN, e._glassDmg) instead of dealing damage.
  *   Novas: look 'bellows' (a sector: arc, angle).
@@ -2276,10 +2278,11 @@ function generateWells(sig) {
  *     Thin Crust crack; on hot ground a crack opens sooner and wider. No new events.
  *   Events: {type:'crackOpen', x, y, r, by} a crack opened into lava (by as above);
  *     {type:'crustCrack', x, y, r, by} a new crack; {type:'lavaFlare', x, y, r} Bellows lit a lava;
- *     {type:'slagSplash', x, y, r}; {type:'bombLand', x, y, r}; {type:'lavaBurn', x, y} a body
+ *     {type:'slagSplash', x, y, r}; {type:'fissure', x, y, angle, len, width} the Fissure tore a
+ *     line from (x, y); {type:'lavaBurn', x, y} a body
  *     burned on lava (throttled); {type:'lavaAntEmerge', x, y} a Lava Ant came up out of the lava (a
  *     lavaBorn spawn, LAVA_ANT). Drawn by src/pixel.js (render.js's magmaEvent); none has a sound
- *     but bombLand.
+ *     but fissure.
  *   enemies[i].flags 'lavaBorn' (the Lava Ant): lava never burns it, the river bank does not hold it.
  *
  * BOOK 3, THE MANTLE (sim.js's Mantle section; every drawing is src/toon.js's, reached through

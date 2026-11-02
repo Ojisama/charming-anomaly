@@ -54,7 +54,7 @@ import {
   OBSTACLE_STREAM_RADIUS, OBSTACLE_DROP_RADIUS,
   FRENZY_HP_FRAC, PACER_RADIUS, ELITE, GILDED_COIN_MUL, GASBAG_TRAIL, NOVA_LIFE,
   SUNSPEAR_FALL, SUNSPEAR_SPREAD, FOXFIRE_GLOOM, FOXFIRE_WANDER_SPEED, FOXFIRE_SWARM, FOXFIRE_CATCH_FRAC, weaponDesc, FOXFIRE_GLOW, SUNLANCE_REACH_MIN, GLINT_LIGHT_COST, GLINT_GLOW,
-  WEAPONS, STUCK_IN_STONE, SPLINTER_LIFE, HOLE_SINGULARITY_FRAC, DOWNWASH_PLUNGE_N, DOWNWASH_PLUNGE_FRAC, DOWNWASH_PLUNGE_ARM,
+  WEAPONS, STUCK_IN_STONE, FISSURE_GAP, SPLINTER_LIFE, HOLE_SINGULARITY_FRAC, DOWNWASH_PLUNGE_N, DOWNWASH_PLUNGE_FRAC, DOWNWASH_PLUNGE_ARM,
   ORBIT_NOVA_RADIUS, WISP_NOVA_RADIUS, CRUNCH_DMG_MUL, UNDERTOW_VAC_RADIUS_PER_STACK,
   WEAPON_MODS, WEAPON_MOD_TIER_BONUS, PEBBLE_CONE, CRAB_EAT, NOISE_BATS, MAX_WEAPON_MOD_PICKS, maxModsPerWeaponPerPool, PIERCE_MAX_PICKS,
   MOD_CANDIDATES_PER_WEAPON, MOD_POOL_MAX, DUO_PITY_SCREENS,
@@ -2334,7 +2334,7 @@ function testAnomalySlate() {
       // landed this fixture reported "spawned nothing — untestable here" for a weapon that was
       // firing correctly. A melee weapon whose event type is missing from this array is invisible
       // to the assertion below.
-      const FX = ['whip', 'clawRake', 'roar', 'tail', 'gnash', 'lance']
+      const FX = ['whip', 'clawRake', 'roar', 'tail', 'gnash', 'lance', 'fissure']
       // ⚠ ...AND ONE WEAPON THE FIXTURE'S OWN PIN MAKES UNMEASURABLE. Three lines below, a moving
       // arm teleports the player back to the origin every frame so the ring of targets stays put —
       // right for every card that reads VELOCITY, and blind to one that reads DISPLACEMENT. The
@@ -40731,8 +40731,9 @@ function testMine() {
 // Effects, not state: (a) a player standing still in The Magma is burned (hurt src 'lava') by the
 // crack its own weight opens, a walking one leaves a trail of footstep cracks that open into lava,
 // and with signature.crust switched off there are no cracks and no burn at all; (b) open lava kills
-// a body standing on it with no weapon equipped; (c) a Volcanic Bomb landing opens lava where it
-// lands (none with the crust off); (d) an Obsidian shard that kills bursts into splinters; (e) the
+// a body standing on it with no weapon equipped; (c) a Fissure hits every body on its line through
+// the nearest foe and none beside it, lays lava along that line but not at your feet (none with the
+// crust off), and a three-line cast tears toward three different foes; (d) an Obsidian shard that kills bursts into splinters; (e) the
 // Bellows flares open lava in front of you (it stays open longer).
 // run R5: the owner's weapon rule for Book 3 from The Magma on (2026-11-02). Every level is +10%
 // damage, fire rate and range over level 1; a weapon that throws things gets +1 projectile at levels
@@ -40828,21 +40829,40 @@ function testMagma() {
     for (let i = 0; i < 120 && !e._dead; i++) { r.weapons = []; e.x = ex; e.y = ey; stepSim(r, { x: 0, y: 0 }, 1 / 60); r.events.length = 0 }
     assert.ok(e._dead && r.kills > k0, `run MG.b: a body standing on open lava for 2s should burn to death (hp ${e.hp})`)
   }
-  // (c) bomb landings open lava, and not with the crust off
-  const bombs = (on) => {
+  // (c) THE FISSURE: one cast, foes pinned round you (dx, dy from you), the weapon's timer due now
+  const tear = (on, level, spots) => {
     const saved = sig.crust
     if (!on) sig.crust = null
     try {
       const r = boot(32003)
-      r.weapons = [{ id: 'volcanicBomb', level: 1 }]
-      let opened = 0, landed = 0
-      advance(r, 60, circle, (evs) => { for (const e of evs) { if (e.type === 'crackOpen' && e.by === 'volcanicBomb') opened++; if (e.type === 'bombLand') landed++ } })
-      return { opened, landed }
+      r.weapons = []
+      stepSim(r, { x: 0, y: 0 }, 1 / 60)
+      r.enemies = []; r.cracks = []; r.events.length = 0
+      const p = r.player
+      const foes = spots.map(([dx, dy]) => makeStatusEnemy(r, { x: p.x + dx, y: p.y + dy, hp: 1e5, speed: 0 }))
+      r.enemies.push(...foes)
+      r.weapons = [{ id: 'fissure', level }]
+      r.weaponTimers.fissure = 1e-4
+      stepSim(r, { x: 0, y: 0 }, 1 / 60)
+      return { r, p, foes, hurt: foes.map((e) => e.hp < 1e5), lines: r.events.filter((e) => e.type === 'fissure'), cracks: r.cracks.filter((c) => c.by === 'fissure') }
     } finally { sig.crust = saved }
   }
-  const bOn = bombs(true), bOff = bombs(false)
-  assert.ok(bOn.landed >= 3 && bOn.opened === bOn.landed, `run MG.c: every bomb landing should open lava: ${JSON.stringify(bOn)}`)
-  assert.ok(bOff.landed >= 3 && bOff.opened === 0, `run MG.c: with the crust off a bomb still lands but opens nothing: ${JSON.stringify(bOff)}`)
+  {
+    const len = WEAPONS.fissure.levels[0].len
+    // nearest at +x 100; two more on that line, one past it; one as far off to the side
+    const t = tear(true, 1, [[100, 0], [200, 0], [len - 20, 0], [0, 200]])
+    assert.deepStrictEqual(t.hurt, [true, true, true, false], `run MG.c: a fissure hits every body on its line and none beside it: ${t.hurt}`)
+    assert.ok(t.cracks.length >= 4 && t.cracks.every((c) => c.state === 'lava' && Math.abs(c.y - t.p.y) < 1 && c.x - t.p.x >= FISSURE_GAP - 1 && c.x - t.p.x <= len + 1),
+      `run MG.c: its lava lies along the line from ${FISSURE_GAP}px out: ${JSON.stringify(t.cracks.map((c) => [Math.round(c.x - t.p.x), Math.round(c.y - t.p.y), c.state]))}`)
+    const off = tear(false, 1, [[100, 0], [200, 0]])
+    assert.ok(off.hurt.every(Boolean) && off.cracks.length === 0, `run MG.c: with the crust off it still hits, and lays no lava: ${off.hurt} ${off.cracks.length}`)
+    // level 5 tears three lines: at three different foes, each line ending past its own foe
+    const three = tear(true, 5, [[120, 0], [0, 150], [-170, 0]])
+    const ang = three.lines.map((l) => l.angle)
+    const hits = three.foes.map((e) => ang.some((a) => Math.abs(Math.atan2(Math.sin(Math.atan2(e.y - three.p.y, e.x - three.p.x) - a), Math.cos(Math.atan2(e.y - three.p.y, e.x - three.p.x) - a))) < 1e-6))
+    assert.ok(three.lines.length === 3 && hits.every(Boolean) && three.hurt.every(Boolean), `run MG.c: three lines go at three different foes: ${ang.map((a) => a.toFixed(2))} ${hits}`)
+    console.log(`PASS run MG.c: a fissure hits its line (${t.hurt}), lays ${t.cracks.length} lava cracks from ${FISSURE_GAP}px out, none with the crust off; L5 tears ${three.lines.length} lines at ${three.foes.length} foes`)
+  }
   // (d) OBSIDIAN SHARDS STICK (owner, 2026-11-02): a shard deals nothing and stays in the foe until the
   // stuck shards add up to its hp; the one that gets there kills it, and every stuck shard flies back out
   {
@@ -41048,7 +41068,7 @@ function testMagma() {
   }
   const thin = wild(['thinCrust']), plainWild = wild([])
   assert.ok(thin >= 10 && plainWild === 0, `run MG.f: Thin Crust should crack the floor away from you on its own: ${thin} vs ${plainWild}`)
-  console.log(`PASS run MA (The Magma): still burn ${stillOn.lava} vs 0 off; walking ${walk.steps} footstep lava openings, 0 off; lava killed a parked body; ${bOn.opened}/${bOn.landed} bomb landings opened lava (0/${bOff.landed} off); a killing shard burst; the bellows flared the lava; Hot Feet opens in ${hotOpen.toFixed(2)}s vs ${plainOpen.toFixed(2)}s; Thin Crust cracked ${thin} spots on its own`)
+  console.log(`PASS run MA (The Magma): still burn ${stillOn.lava} vs 0 off; walking ${walk.steps} footstep lava openings, 0 off; lava killed a parked body; the fissure tore its line; a killing shard burst; the bellows flared the lava; Hot Feet opens in ${hotOpen.toFixed(2)}s vs ${plainOpen.toFixed(2)}s; Thin Crust cracked ${thin} spots on its own`)
 }
 
 // ---- run MF: The Magma's floor — lava rivers, cooled flows, hot ground ---------------------------

@@ -3139,13 +3139,14 @@ export const WEAPONS = {
     // balance_decision : owner: nearest foe, cone and reach -20% 2026-11-02
     levels: book3Levels({ dmg: 16, interval: 1.1, radius: 200, arc: 0.72, knockback: 120 }, { range: ['radius'] }),
   },
-  // Volcanic Bomb: a molten rock lobbed into the thickest of the crowd (run.magmaLobs, kind 'bomb'). It
-  // blasts where it lands and CRACKS THE CRUST there: the spot opens straight into lava.
-  volcanicBomb: {
-    name: 'Volcanic Bomb',
-    desc: 'Lobs a molten rock into the crowd. Where it lands, the crust breaks open into lava.',
+  // Fissure: the ground tears open in a line from you through the nearest foe and on past it. Every
+  // body on the line is hit at once, and the line stays open lava for a moment (run.cracks, by 'fissure').
+  fissure: {
+    name: 'Fissure',
+    desc: 'Tears the ground open in a line through the nearest foe. The line stays lava for a moment.',
     icon: '🌋', rarity: 'rare',
-    levels: book3Levels({ dmg: 34, interval: 2.2, count: 1, r: 74 }, { range: ['r'] }),
+    // balance_decision : owner: 40px wide, L5 a bit over the Ladle 2026-11-02
+    levels: book3Levels({ dmg: 34, interval: 1.8, count: 1, len: 300, width: 40 }, { range: ['len'] }),
   },
   // ---- Book 3, The Mantle's four. All auto-fire, none aimed: each one is a way to use the lava. ----
   // Quench Kettle: throws water at the nearest Crack Hammer pool (a steam blast, the pool spent), else
@@ -4672,11 +4673,11 @@ export const WEAPON_MODS = {
     quickPump:   { name: 'Quick Pump',   desc: 'gust rate', icon: '⏩', base: 0.15, kind: 'pct' },
     flareUp:     { name: 'Flare Up',     desc: 'damage of the lava it flares', icon: '🔥', base: 0.25, kind: 'pct' },
   },
-  volcanicBomb: {
-    heavyRock:   { name: 'Heavy Rock',   desc: 'bomb damage', icon: '💥', base: 0.15, kind: 'pct' },
-    bigBlast:    { name: 'Big Blast',    desc: 'blast radius', icon: '⭕', base: 0.15, kind: 'pct' },
-    salvo:       { name: 'Salvo',        desc: 'extra bomb(s) per throw', icon: '🔷', kind: 'tier', values: { epic: 1, legendary: 2, mythic: 3 } },
-    quickFuse:   { name: 'Quick Fuse',   desc: 'throw rate', icon: '⏩', base: 0.15, kind: 'pct' },
+  fissure: {
+    searingRift: { name: 'Searing Rift', desc: 'fissure damage', icon: '💥', base: 0.15, kind: 'pct' },
+    greatRift:   { name: 'Great Rift',   desc: 'fissure width and length', icon: '📏', base: 0.15, kind: 'pct' },
+    branching:   { name: 'Branching',    desc: 'extra fissure(s), each at another foe', icon: '🔷', kind: 'tier', values: { epic: 1, legendary: 2, mythic: 3 } },
+    quickTremor: { name: 'Quick Tremor', desc: 'fissure rate', icon: '⏩', base: 0.15, kind: 'pct' },
     deepFissure: { name: 'Deep Fissure', desc: 'how long its lava stays open', icon: '⌛', base: 0.25, kind: 'pct' },
   },
   // ---- Book 3, The Mantle ----
@@ -4761,7 +4762,7 @@ export const WEAPON_RATE_MODS = {
   shovel: 'quickDig', pebbleSling: 'whirl', rootSnare: 'quickSprout', furrow: 'quickCollapse', prismShard: 'flickRate',
   echoPulse: 'rapidClick', stalactite: 'dripRate',
   pickaxe: 'quickSwing', dynamite: 'shortFuse', minecart: 'greasedAxle', lantern: 'quickWick',
-  slagLadle: 'quickLadle', obsidianShards: 'quickKnap', bellows: 'quickPump', volcanicBomb: 'quickFuse',
+  slagLadle: 'quickLadle', obsidianShards: 'quickKnap', bellows: 'quickPump', fissure: 'quickTremor',
   quenchKettle: 'quickBoil', hotCoals: 'quickStoke', crackHammer: 'quickStamp', lavaBellows: 'quickBellows',
   sling: 'quickSling', dipoleLance: 'quickArc', decoyLodestone: 'quickDrop',
   // chum and bilge are absent DELIBERATELY: neither carries a rate mod, and this table's own
@@ -6969,10 +6970,10 @@ export const BELLOWS_FLARE_T = 1.2       // s a flare adds to the lava's open ti
 // balance_decision : owner: no idle stun-lock, refractory caps it 2026-11-02
 //  - refractory > stun is what makes the lock impossible at any fire rate or reach
 export const STUCK_IN_STONE = { stun: 1.5, refractory: 4 }
-export const BOMB_RANGE = 460            // px from you a bomb may land
-export const BOMB_FLIGHT = 0.7           // s a bomb is in the air
-export const BOMB_LAVA_R = 0.7           // the lava it opens, as a fraction of the blast radius
-export const BOMB_LAVA_T = 3.2           // s that lava stays open
+export const FISSURE_GAP = 60            // px from you its lava starts: your own feet stay dry
+export const FISSURE_STEP = 0.8          // px between its lava cracks, as a fraction of its width
+export const FISSURE_LAVA_T = 2.0        // s its lava stays open
+export const FISSURE_SPREAD = 0.45       // rad: a second fissure goes at a foe at least this far round
 // ---- Book 3, The Mantle: weapon geometry (balance lives in WEAPONS[].levels) ----------------------
 export const COAL_FAN = 0.3              // rad between coals of one toss
 export const COAL_LIFE = 1.0             // s of flight (a bounce grants at least STAR_CHAIN_EXTRA_LIFE more)
@@ -9989,7 +9990,7 @@ CHAPTERS.magma = {
   name: 'The Magma', tagline: 'the floor is cracking', icon: '🌋',
   // balance_decision : xp per level +0% at start to +50% at 5:00, owner 2026-11-02
   xpNeedRamp: 0.5,
-  weapons: ['slagLadle', 'obsidianShards', 'bellows', 'volcanicBomb'], starter: 'slagLadle',
+  weapons: ['slagLadle', 'obsidianShards', 'bellows', 'fissure'], starter: 'slagLadle',
   roster: [
     { id: 'cinderBeetle',     archetype: 'normal', name: 'Cinder Beetle',     hpMul: 0.8, speedMul: 0.9, radiusMul: 0.9, weight: 3, flags: [] },
     { id: 'salamander',       archetype: 'fast',   name: 'Salamander',        hpMul: 0.8, speedMul: 1.0, flags: ['dashBurst'] },

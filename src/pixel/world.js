@@ -147,6 +147,53 @@ export function paintCrack(pc, v, stage) {
   pc.ellipse(c, c, hr, hr, core)
   pc.ellipse(c, c, Math.max(0.8, hr - 1.2), Math.max(0.8, hr - 1.2), hot)
 }
+// THE FISSURE'S CRACK, painted once per line on the art grid at its own angle (no turned sprite): a
+// dark hairline from the thrower's feet that splits open into molten lava at gap, widest in the middle,
+// closing to a point at the tip, with short side cracks off it. cooled: the same crack, gone dark.
+// (ox, oy) is the line's start inside pc; lengths in art px. Inner colours win over outer ones.
+export function paintRift(pc, ox, oy, angle, L, Wd, gap, seed, cooled) {
+  const rank = new Int8Array(pc.w * pc.h)
+  const put = (x, y, r, col) => {
+    x = Math.floor(x); y = Math.floor(y)
+    if (x < 0 || y < 0 || x >= pc.w || y >= pc.h || rank[y * pc.w + x] > r) return
+    rank[y * pc.w + x] = r; pc.set(x, y, col)
+  }
+  const cs = Math.cos(angle), sn = Math.sin(angle)
+  const at = (i, q) => [ox + cs * i - sn * q, oy + sn * i + cs * q]
+  const COL = cooled ? [P.ink, P.scab0, P.scab1, P.scab1, P.ash] : [P.ink, P.lava1, P.lava2, P.lava3, P.lava4]
+  let off = 0, drift = 0
+  const mids = []
+  for (let i = 3; i <= L; i += 0.5) {
+    drift = drift * 0.9 + (hash(Math.floor(i), seed, 3) - 0.5) * 0.5
+    off = off * 0.97 + drift * 0.5
+    const tip = Math.min(1, (L - i) / (L * 0.3))
+    const open = i < gap ? 0 : Math.min(1, (i - gap) / 5)
+    const hw = i < gap ? 0.5 : Math.max(0.7, (Wd / 2) * 0.7 * open * Math.sqrt(tip) * (0.75 + 0.5 * hash(Math.floor(i / 3), seed, 5)))
+    mids.push([i, off])
+    for (let q = -hw - 1; q <= hw + 1; q += 0.5) {
+      const [x, y] = at(i, off + q), aq = Math.abs(q)
+      if (aq > hw) put(x, y, 1, COL[0])                    // the broken lip
+      else if (i < gap) put(x, y, 2, cooled ? P.ink : P.lava0)   // the hairline from your feet
+      else if (aq > hw - 1) put(x, y, 2, COL[1])
+      else if (aq > hw * 0.45) put(x, y, 3, COL[2])
+      // flat molten orange with one brighter vein wandering down it (smooth, like the pools); cooled, a few ash flecks
+      else if (cooled) put(x, y, 4, hash(Math.floor(i / 3), Math.floor(q / 2), seed + 9) < 0.08 ? COL[4] : COL[3])
+      else put(x, y, 4, Math.abs(q - Math.sin(i * 0.13 + seed) * hw * 0.35) < Math.max(0.8, hw * 0.22) ? COL[4] : COL[3])
+    }
+  }
+  // side cracks: short, splitting off at a slant, thin
+  const nb = 3 + Math.floor(hash(seed, 1, 7) * 4)
+  for (let b = 0; b < nb; b++) {
+    const [i0, o0] = mids[Math.floor((0.25 + 0.6 * hash(seed, b, 11)) * (mids.length - 1))]
+    const side = hash(seed, b, 13) < 0.5 ? -1 : 1
+    const len = 3 + hash(seed, b, 17) * 7, slant = 0.5 + hash(seed, b, 19) * 0.6
+    for (let u = 0; u <= len; u += 0.5) {
+      const [x, y] = at(i0 + u * Math.cos(slant), o0 + side * u * Math.sin(slant))
+      put(x, y, 1, COL[0])
+      if (u < len * 0.6) put(x, y, 2, cooled ? P.scab0 : P.lava0)
+    }
+  }
+}
 // the pool's edge: a wobbly circle, shared by the lava and the scab it cools into
 function poolEdge(v, a, R, n) {
   return R - 1.6 * (0.5 + 0.5 * Math.sin(a * 3 + v * 1.7)) - 1.0 * (0.5 + 0.5 * Math.sin(a * 5 + v * 2.9)) - n
@@ -272,25 +319,6 @@ export const SHOT_PAINTERS = {
     pc.ellipse(4.5, 4.5, 3.4, 3.2, P.lava2)
     pc.ellipseOn(3.8, 3.8, 1.8, 1.6, P.lava4)
     pc.outline(P.lava0); pc.outline()
-  }],
-  // a volcanic bomb: a lumpy dark rock, its chilled skin split in jagged breadcrust cracks with the
-  // molten inside showing through them
-  bomb: [17, 17, (pc) => {
-    pc.ellipse(8.5, 8.5, 7, 6.4, P.rk1)
-    pc.ellipse(10.5, 6.5, 4.4, 3.6, P.rk1)
-    pc.ellipseOn(7, 6.4, 3.6, 2.4, P.rk2)
-    for (let k = 0; k < 3; k++) {
-      let a = (k / 3) * TAU + 0.4, x = 8.5, y = 8.5
-      for (let i = 0; i < 6; i++) {
-        a += (hash(k, i, 61) - 0.5) * 1.3
-        const nx = x + Math.cos(a), ny = y + Math.sin(a)
-        if (!pc.get(Math.floor(nx), Math.floor(ny))) break
-        pc.set(nx, ny, i < 2 ? P.lava4 : P.lava2)
-        x = nx; y = ny
-      }
-    }
-    pc.set(8, 8, P.lava4); pc.set(9, 8, P.lava3); pc.set(8, 9, P.lava3)
-    pc.outline()
   }],
   shadow: [14, 7, (pc) => { pc.ellipse(7, 3.5, 6.4, 3, 'rgba(0,0,0,0.5)') }],
   // the bellows' blast is AIR, which you cannot see: what you see is what it carries — ash and

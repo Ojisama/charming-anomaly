@@ -3,7 +3,7 @@
 // Everything the chapter shows is drawn here, and render.js only delegates (CHAPTERS.magma.render
 // .pixel is the switch). The look (owner: "simple design but very good lighting", after Noita's lava
 // cave): flat shapes in few colours, in a cave with no light of its own — open lava, cracks, shots,
-// bombs and the creatures' own embers are the only lamps. They light the floor, the props and the
+// fissures and the creatures' own embers are the only lamps. They light the floor, the props and the
 // bodies around them, warm gold falling off through orange to deep red into the dark, and every
 // outlined body is lit from the side that faces them (src/pixel/crt.js does the lighting).
 //   src/pixel/canvas.js   PX (the one art-pixel grid), PAL (albedo palette), PixelCanvas, hash
@@ -21,8 +21,9 @@ import { PX, UP, TAU, PAL, PixelCanvas, hash } from './pixel/canvas.js'
 import { PIXEL_CAST, paintPlayer, paintCreature, paintCreatureMask, paintCreatureFlash, castDrawScale, castArchR, castArtScale, PLAYER_ART, CAST_DIRS } from './pixel/cast.js'
 import {
   TILE_ART, paintFloorTile, PIXEL_PROPS, PROP_ART, BIOME, CRACK_ART, LAVA_ART, PUDDLE_ART,
-  paintCrack, paintLava, paintCool, paintPuddle, SHOT_PAINTERS, paintGem, GEM_ART, paintCoin, COIN_ART,
+  paintCrack, paintLava, paintCool, paintPuddle, SHOT_PAINTERS, paintGem, GEM_ART, paintCoin, COIN_ART, paintRift,
 } from './pixel/world.js'
+import { FISSURE_GAP } from './config.js'
 import { CRT_VERT, CRT_FRAG, CRT_LOOK } from './pixel/crt.js'
 import { bakeGroundChunk, bakeGroundSteps, CHUNK_ART, PLATE_ART, paintPlate } from './pixel/ground.js'
 import { magmaFloorOf, riverDepthAt } from './sim.js'
@@ -101,8 +102,7 @@ const GLASS_DRAW_MAX = 24   // stuck shards drawn per body; the sim keeps every 
 const L_COIN = 0xffc040, L_GLASS = 0xb0a0ff, L_RIVER = 0xffa040, L_ICE = 0x9fd8ff
 // the ground (src/pixel/ground.js): river light per point, hot ground's glow, plates on the river
 // how high a lob flies at the top of its arc, in world px (sin-shaped over the flight): the ladle's
-// slag is tossed low and flat, the bomb is lobbed high
-const LOB_ARC = { slag: 23, bomb: 110 }
+const SLAG_ARC = 23   // slag is tossed low and flat
 const GROUND = { riverR: 92, riverA: 0.42, hotR: 70, hotA: 0.11, pulse: 2.1, plateCycle: 64, plateSpeed: 9, bakesPerFrame: 2 }
 const UNDERGLOW = { cell: 420, chance: 0.55, r: 360, col: 0xc0401c, a: 0.2 }
 
@@ -256,6 +256,18 @@ export function createPixelRig(env) {
   // slag lies UNDER the crust (the lava that burns must always read), shadows over both
   const subLayer = () => { const c = new Container(); ground.addChild(c); return c }
   const gPuddle = pool(subLayer()), gCrust = pool(subLayer()), gShadow = pool(subLayer())
+  // a Fissure's crack, baked once per line (sim's crack.line): line -> { lava, cool }, dropped when the line is gone
+  const rifts = new Map()
+  const dropRift = (ln) => { const b = rifts.get(ln); b.lava.tex.destroy(true); b.cool.tex.destroy(true); rifts.delete(ln) }
+  const bakeRift = (ln) => {
+    const L = ln.len / PX, Wd = ln.width / PX, cs = Math.cos(ln.angle), sn = Math.sin(ln.angle), pad = Math.ceil(Wd / 2) + 12
+    const w = Math.ceil(Math.abs(cs) * L) + pad * 2, h = Math.ceil(Math.abs(sn) * L) + pad * 2
+    const ox = pad + (cs < 0 ? -cs * L : 0), oy = pad + (sn < 0 ? -sn * L : 0)
+    const one = (cooled) => { const pc = new PixelCanvas(w, h); paintRift(pc, ox, oy, ln.angle, L, Wd, FISSURE_GAP / PX, ln.seed, cooled); return bakeArt(pc, ox / w, oy / h) }
+    const b = { lava: one(false), cool: one(true) }
+    rifts.set(ln, b)
+    return b
+  }
   const gPlate = pool(plateLayer)
   const aLob = pool(air), aGust = pool(air)
   const lights = pool(lightRoot, 'add')
@@ -320,7 +332,7 @@ export function createPixelRig(env) {
       rig.clear()
     },
     clear() {
-      gCrust.hide(); gPuddle.hide(); gPlate.hide(); gShadow.hide(); aLob.hide(); aGust.hide(); lights.hide(); masks.hide(); aIce.hide(); aGlass.hide()
+      gCrust.hide(); gPuddle.hide(); gPlate.hide(); gShadow.hide(); for (const ln of [...rifts.keys()]) dropRift(ln); aLob.hide(); aGust.hide(); lights.hide(); masks.hide(); aIce.hide(); aGlass.hide()
       pending.length = 0
       burning = false
       for (const f of flashes) f.life = 0
@@ -438,7 +450,23 @@ export function createPixelRig(env) {
       const p = run.player
       let onLava = null
       gCrust.begin()
+      const lines = new Map()   // this frame's fissure lines: line -> { lava, flared, end, cool }
       for (const c of run.cracks || []) {
+        if (c.line) {
+          const st = lines.get(c.line) ?? { lava: false, flared: false, end: 0, cool: 0 }
+          lines.set(c.line, st)
+          if (c.state === 'lava') {
+            st.lava = true
+            st.flared ||= (c._flareT ?? 0) > run.time
+            st.end = Math.max(st.end, c.lavaEnd - run.time)
+            if (onScreen(c.x, c.y, c.r * 3)) {
+              const v = v4(c.x, c.y), fl = 0.9 + 0.1 * Math.sin(t * 7 + v * 1.7)
+              addLight(c.x, c.y, c.r * 3.4, L_LAVA, 0.7 * fl * (st.end < 0.5 ? Math.max(0.35, st.end / 0.5) : 1))
+            }
+            if (p && Math.hypot(p.x - c.x, p.y - c.y) < c.r + 6) onLava = c
+          } else if (c.state === 'cool') st.cool = Math.max(st.cool, Math.min(1, (c.coolEnd - run.time) / (c.coolT || 1)))
+          continue
+        }
         if (!onScreen(c.x, c.y, c.r * 3)) continue
         const v = v4(c.x, c.y)
         if (c.state === 'crack') {
@@ -477,6 +505,18 @@ export function createPixelRig(env) {
           s.alpha = a   // dead crust: it throws no light at all
         }
       }
+      for (const [ln, st] of lines) {
+        if (!onScreen(ln.x + Math.cos(ln.angle) * ln.len / 2, ln.y + Math.sin(ln.angle) * ln.len / 2, ln.len)) continue
+        const b = rifts.get(ln) ?? Object.assign(bakeRift(ln), { t0: run.time })
+        const s = gCrust.next(st.lava ? b.lava : b.cool)
+        s.position.set(ln.x, ln.y)
+        if (st.lava) {
+          // white-hot as it tears and when the bellows flares it, dull red its last half second
+          if (st.flared || run.time - b.t0 < 0.12) s.tint = 0xfff4d0
+          else if (st.end < 0.5) s.tint = 0xd88060
+        } else s.alpha = st.cool
+      }
+      for (const ln of [...rifts.keys()]) if (!lines.has(ln)) dropRift(ln)
       gCrust.end()
       // a lava river under you burns as open lava does, so it shows as open lava does
       if (!onLava && FL && p && riverDepthAt(FL.F, p.x, p.y, FL.seed) > 0) onLava = true
@@ -496,20 +536,18 @@ export function createPixelRig(env) {
         addLight(sp.x, sp.y, sp.r * (st === 0 ? 2 : 1.4), st === 0 ? L_HOT : L_CRACK, [0.3, 0.16, 0][st] * a * grow)
       }
       gPuddle.end()
-      // lobs: a shadow on the ground, the blob or rock arcing over it, its light falling round it
+      // lobs: a shadow on the ground, the blob arcing over it, its light falling round it
       gShadow.begin(); aLob.begin()
       for (const l of run.magmaLobs || []) {
         const k = Math.min(1, l.t / l.flight)
         const x = l.fromX + (l.x - l.fromX) * k, y = l.fromY + (l.y - l.fromY) * k
-        const bomb = l.kind === 'bomb'
-        const hgt = Math.sin(Math.PI * k) * (bomb ? LOB_ARC.bomb : LOB_ARC.slag)
+        const hgt = Math.sin(Math.PI * k) * SLAG_ARC
         const sh = gShadow.next(T.shadow)
         sh.position.set(x, y)
-        sh.scale.set((bomb ? 1.2 : 0.8) * (1 - 0.35 * Math.sin(Math.PI * k)))
-        const s = aLob.next(bomb ? T.bomb : T.slag)
+        sh.scale.set(0.8 * (1 - 0.35 * Math.sin(Math.PI * k)))
+        const s = aLob.next(T.slag)
         s.position.set(x, y - hgt)
-        if (bomb) s.rotation = Math.round(((l.spin ?? 0) + k * 6) * 2) * (Math.PI / 4)
-        addLight(x, y - hgt * 0.5, bomb ? 90 : 50, bomb ? L_HOT : L_SLAG, bomb ? 0.5 : 0.4)
+        addLight(x, y - hgt * 0.5, 50, L_SLAG, 0.4)
       }
       gShadow.end(); aLob.end()
       // the bellows' gust and the lava it flares
@@ -645,6 +683,8 @@ export function createPixelRig(env) {
       if (!look) return false
       switch (e.type) {
         case 'crackOpen': {
+          // a fissure's own cracks: the line's one crack is drawn with the crust, these only glow
+          if (e.by === 'fissure') { flash(e.x, e.y, (e.r || 34) * 3, L_LAVA, 0.35, 0.3); return true }
           const small = e.by === 'step' || e.by === 'ant'
           burst(e.x, e.y, small ? 4 : 12, EMBERS, 100, 0.55)
           flash(e.x, e.y, (e.r || 34) * (small ? 4 : 6), L_LAVA, 0.6, 0.35)
@@ -667,11 +707,16 @@ export function createPixelRig(env) {
           burst(e.x, e.y, 9, EMBERS, 120, 0.45)
           flash(e.x, e.y, 90, L_SLAG, 0.5, 0.25)
           return true
-        case 'bombLand':
-          burst(e.x, e.y, 26, [...EMBERS, ...ASH], 240, 0.75)
-          flash(e.x, e.y, 260, L_LAVA, 0.9, 0.5)
-          env.addShake?.(4, 0.2)
+        case 'fissure': {
+          // the rock splitting: lava and broken crust thrown up all along the line
+          const c = Math.cos(e.angle), s = Math.sin(e.angle)
+          for (let d = 50; d <= e.len; d += 50) {
+            burst(e.x + c * d, e.y + s * d, 7, [...EMBERS, ...ASH], 200, 0.55)
+            flash(e.x + c * d, e.y + s * d, 80, L_LAVA, 0.7, 0.3)
+          }
+          env.addShake?.(3.5, 0.18)
           return true
+        }
       }
       return false
     },
