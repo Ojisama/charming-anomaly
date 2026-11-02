@@ -40855,12 +40855,13 @@ function testMagma() {
     // nearest at +x 100; two more on that line, one past it; one as far off to the side
     const t = tear(true, 1, [[100, 0], [200, 0], [len - 20, 0], [0, 200]])
     assert.deepStrictEqual(t.hurt, [true, true, true, false], `run MG.c: a fissure hits every body on its line and none beside it: ${t.hurt}`)
-    // it runs out from your feet: the far body is not hit the instant it tears, only when the tip gets there
-    assert.ok(!t.first[2] && t.r.fissures.length === 0, `run MG.c: the crack should reach the far body only as it grows (first step hit ${t.first}, still growing ${t.r.fissures.length})`)
     assert.ok(t.cracks.length >= 4 && t.cracks.every((c) => c.state === 'lava' && Math.abs(c.y - t.p.y) < 1 && c.x - t.p.x >= FISSURE_GAP - 1 && c.x - t.p.x <= len + 1),
       `run MG.c: its lava lies along the line from ${FISSURE_GAP}px out: ${JSON.stringify(t.cracks.map((c) => [Math.round(c.x - t.p.x), Math.round(c.y - t.p.y), c.state]))}`)
-    const off = tear(false, 1, [[100, 0], [200, 0]])
+    // with the crust off (no lava to confound it) it still hits the whole line, the far end too
+    const off = tear(false, 1, [[100, 0], [200, 0], [len - 20, 0]])
     assert.ok(off.hurt.every(Boolean) && off.cracks.length === 0, `run MG.c: with the crust off it still hits, and lays no lava: ${off.hurt} ${off.cracks.length}`)
+    // it runs out from your feet: the far body is not hit the instant it tears, only when the tip gets there
+    assert.ok(!off.first[2] && off.r.fissures.length === 0, `run MG.c: the crack should reach the far body only as it grows (first step hit ${off.first}, still growing ${off.r.fissures.length})`)
     // level 5 tears three lines: at three different foes, each line ending past its own foe
     const three = tear(true, 5, [[120, 0], [0, 150], [-170, 0]])
     const ang = three.lines.map((l) => l.angle)
