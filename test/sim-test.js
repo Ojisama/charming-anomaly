@@ -54,7 +54,7 @@ import {
   OBSTACLE_STREAM_RADIUS, OBSTACLE_DROP_RADIUS,
   FRENZY_HP_FRAC, PACER_RADIUS, ELITE, GILDED_COIN_MUL, GASBAG_TRAIL, NOVA_LIFE,
   SUNSPEAR_FALL, SUNSPEAR_SPREAD, FOXFIRE_GLOOM, FOXFIRE_WANDER_SPEED, FOXFIRE_SWARM, FOXFIRE_CATCH_FRAC, weaponDesc, FOXFIRE_GLOW, SUNLANCE_REACH_MIN, GLINT_LIGHT_COST, GLINT_GLOW,
-  WEAPONS, HOLE_SINGULARITY_FRAC, DOWNWASH_PLUNGE_N, DOWNWASH_PLUNGE_FRAC, DOWNWASH_PLUNGE_ARM,
+  WEAPONS, STUCK_IN_STONE, HOLE_SINGULARITY_FRAC, DOWNWASH_PLUNGE_N, DOWNWASH_PLUNGE_FRAC, DOWNWASH_PLUNGE_ARM,
   ORBIT_NOVA_RADIUS, WISP_NOVA_RADIUS, CRUNCH_DMG_MUL, UNDERTOW_VAC_RADIUS_PER_STACK,
   WEAPON_MODS, WEAPON_MOD_TIER_BONUS, PEBBLE_CONE, CRAB_EAT, NOISE_BATS, MAX_WEAPON_MOD_PICKS, maxModsPerWeaponPerPool, PIERCE_MAX_PICKS,
   MOD_CANDIDATES_PER_WEAPON, MOD_POOL_MAX, DUO_PITY_SCREENS,
@@ -40809,8 +40809,56 @@ function testMagma() {
     r.cracks.push(c)
     const end0 = c.lavaEnd
     let flares = 0
-    for (let i = 0; i < 90; i++) { stepSim(r, { x: 0.001, y: 0 }, 1 / 60); for (const e of r.events) if (e.type === 'lavaFlare') flares++; r.events.length = 0 }
-    assert.ok(flares >= 1 && c.lavaEnd > end0, `run MG.e: the bellows should flare the lava ahead of you (flares ${flares}, lavaEnd +${(c.lavaEnd - end0).toFixed(2)}s)`)
+    // the nearest foe stands just past the lava, so the blast it aims goes through it
+    const foe = makeStatusEnemy(r, { x: r.player.x + 160, y: r.player.y, hp: 1e6, speed: 0 })
+    for (let i = 0; i < 90; i++) { r.enemies = [foe]; stepSim(r, { x: 0.001, y: 0 }, 1 / 60); for (const e of r.events) if (e.type === 'lavaFlare') flares++; r.events.length = 0 }
+    assert.ok(flares >= 1 && c.lavaEnd > end0, `run MG.e: the bellows should flare the lava between you and the foe (flares ${flares}, lavaEnd +${(c.lavaEnd - end0).toFixed(2)}s)`)
+  }
+  // (e2) the bellows aims at the nearest foe, not the way you walk: walk right, the foe is on your left
+  {
+    const r = boot(32008)
+    r.weapons = [{ id: 'bellows', level: 1 }]
+    r.cracks.length = 0
+    const foe = makeStatusEnemy(r, { x: r.player.x - 150, y: r.player.y, hp: 1e6, speed: 0 })
+    r.enemies = [foe]
+    for (let i = 0; i < 90; i++) { stepSim(r, { x: 1, y: 0 }, 1 / 60); r.enemies = [foe]; foe.x = r.player.x - 150; foe.y = r.player.y; r.events.length = 0 }
+    assert.ok(foe.hp < 1e6, `run MG.aim: the bellows should blast the foe behind you (hp ${foe.hp})`)
+  }
+  // (e3) STUCK IN STONE: the blast cools the lava and holds what stands in it — and never holds the
+  // same body again inside the refractory, whatever the fire rate (owner: no idle stun-lock)
+  {
+    const r = boot(32009)
+    r.weapons = [{ id: 'bellows', level: 5 }]
+    r.anomalies = { ...(r.anomalies ?? {}), stuckInStone: true }
+    r.passives.fireRate = 19
+    const foe = makeStatusEnemy(r, { x: r.player.x + 100, y: r.player.y, hp: 1e9, speed: 0 })
+    const lava = () => ({ x: foe.x, y: foe.y, r: 34, by: 'step', state: 'lava', t: 0, tick: 0, openAt: r.time, lavaT: 30, coolT: 0.5, lavaEnd: r.time + 30, coolEnd: 0 })
+    const c0 = lava()
+    r.cracks.length = 0; r.cracks.push(c0)
+    let flares = 0, heldFrames = 0, frames = 0, blasts = 0, onsets = 0, wasHeld = false
+    for (let i = 0; i < 60 * 12; i++) {
+      if (r.phase === 'levelup') { r.phase = 'playing'; r.levelUpChoices = [] }
+      r.player.hp = r.player.maxHP
+      r.enemies = [foe]; foe.x = r.player.x + 100; foe.y = r.player.y; foe.hp = foe.maxHP   // the lava would burn it out
+      if (!r.cracks.some((c) => c.state === 'lava')) r.cracks.push(lava())   // lava under it, always
+      stepSim(r, { x: 0, y: 0 }, 1 / 60)
+      for (const e of r.events) { if (e.type === 'lavaFlare') flares++; if (e.type === 'shoot' && e.weapon === 'bellows') blasts++ }
+      r.events.length = 0
+      frames++
+      const held = (foe.stunT || 0) > 0
+      if (held) heldFrames++
+      if (held && !wasHeld) onsets++
+      wasHeld = held
+    }
+    assert.strictEqual(c0.state === 'cool' || c0._gone === true || !r.cracks.includes(c0), true, 'run MG.stone: the blast should cool the lava it hits')
+    assert.strictEqual(flares, 0, 'run MG.stone: under Stuck in Stone the bellows never flares')
+    assert.ok(blasts >= 100, `run MG.stone: the rig must blast often to test a lock (${blasts} blasts in 12s)`)
+    assert.ok(heldFrames > 0, 'run MG.stone: a body in the cooled lava should be stuck')
+    const cap = STUCK_IN_STONE.stun / (STUCK_IN_STONE.stun + STUCK_IN_STONE.refractory)
+    const maxOnsets = Math.floor(12 / (STUCK_IN_STONE.stun + STUCK_IN_STONE.refractory)) + 1
+    assert.ok(onsets <= maxOnsets, `run MG.stone: one hold per refractory: ${onsets} holds in 12s, at most ${maxOnsets}`)
+    assert.ok(heldFrames / frames <= cap + 0.05, `run MG.stone: no stun-lock: held ${(100 * heldFrames / frames).toFixed(0)}% of 12s under x20 fire rate, cap ${(100 * cap).toFixed(0)}%`)
+    console.log(`  MG.stone Stuck in Stone: held ${(100 * heldFrames / frames).toFixed(0)}% of 12s over ${blasts} blasts (cap ${(100 * cap).toFixed(0)}%)`)
   }
   // (f) the chapter's own anomaly and mutator, scoped to it alone and doing what their cards say
   assert.ok(BOOKS.burrow.chapters.indexOf('magma') >= 0 && BOOKS.burrow.chapters.indexOf('magma') < BOOKS.burrow.chapters.indexOf('mantle'), 'run MG.f: The Magma sits on Burrow\'s ladder, above The Mantle')

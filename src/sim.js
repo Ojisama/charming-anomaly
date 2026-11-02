@@ -265,7 +265,7 @@ import {
   DYNAMITE_RANGE, DYNAMITE_FLIGHT, DYNAMITE_FUSE, DYNAMITE_KB, MINECART_SPEED, MINECART_FAN, MINECART_KB, MINECART_STUN, MINECART_LOOT_R, MINECART_HOME_R,
   CANARY_REACH_MUL, CANARY_LINK_DMG, LANTERN_PULSE, LANTERN_FUSE, DRAUGHT_DRAW, DRAUGHT_HOLD, FIREBEND_R_PER_JET, FIREBEND_LEN, FIREBEND_W, FIREBEND_LIFE, FIREBEND_DMG_MUL, SAFETY_LAMP_SENSE, SAFETY_LAMP_MAX, SAFETY_LAMP_EASE, MINE_BOOM_KEEP, MINE_GAS_FADE_IN, MINE_GAS_LIT_SHRINK,
   SLAG_RANGE, SLAG_FLIGHT, SLAG_TICK, OBSIDIAN_FAN, OBSIDIAN_LIFE, OBSIDIAN_R, SPLINTER_DMG_MUL, SPLINTER_LIFE, SPLINTER_SPEED, SPLINTER_R,
-  BELLOWS_LIFE, BELLOWS_FLARE_MUL, BELLOWS_FLARE_R, BELLOWS_FLARE_T, BOMB_RANGE, BOMB_FLIGHT, BOMB_LAVA_R, BOMB_LAVA_T, HOT_FEET_OPEN_MUL, HOT_FEET_BURN_MUL,
+  BELLOWS_LIFE, BELLOWS_FLARE_MUL, BELLOWS_FLARE_R, BELLOWS_FLARE_T, STUCK_IN_STONE, BOMB_RANGE, BOMB_FLIGHT, BOMB_LAVA_R, BOMB_LAVA_T, HOT_FEET_OPEN_MUL, HOT_FEET_BURN_MUL,
   FLOOD_TIDE_COVER_ADD, FLOOD_TIDE_SPEED_MUL, FLOOD_TIDE_BURN_MUL, COAL_FAN, COAL_LIFE, COAL_R, COAL_IGNITE,
   HAMMER_RANGE, KETTLE_RANGE, KETTLE_LAVA_STEP, HAMMER_POOL_DPS, HAMMER_POOL_TICK, HAMMER_POOL_PLAYER_DPS, HAMMER_POOL_MIRE, LAVA_WAVE_LIFE, LAVA_WAVE_SHOVE_MUL,
   MANTLE_COLD_VS_LAVA, MANTLE_FIRE_VS_ROCK,
@@ -18768,13 +18768,13 @@ function flushSplinters(run) {
 }
 
 // -- Bellows ---------------------------------------------------------------------------------------
-// The blast goes the way you WALK (p.facingAngle), never at a target: the auto-aim is your feet.
+// The blast goes at the nearest foe (the way you walk when there is none).
 function stepBellowsWeapon(run, w, stats, fireRateMul, dt) {
   const p = run.player
   const quick = run.weaponMods.bellows?.quickPump ?? 0
   const flareUp = run.weaponMods.bellows?.flareUp ?? 0
   fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => {
-    const aim = p.facingAngle ?? aimAngle(run)
+    const aim = aimAngle(run)
     for (const a of ipecacAngles(run, aim)) {
       spawnNova(run, p.x, p.y, stats.radius, stats.dmg, stats.knockback, 0,
         { look: 'bellows', arc: stats.arc, angle: a, life: BELLOWS_LIFE })
@@ -18786,6 +18786,7 @@ function stepBellowsWeapon(run, w, stats, fireRateMul, dt) {
         let da = Math.atan2(dy, dx) - a
         da = Math.atan2(Math.sin(da), Math.cos(da))
         if (d > c.r && Math.abs(da) > stats.arc / 2) continue
+        if (run.anomalies?.stuckInStone) { setInStone(run, c); continue }
         c.lavaEnd += BELLOWS_FLARE_T
         c._flareT = run.time + 0.5
         spawnNova(run, c.x, c.y, c.r * BELLOWS_FLARE_R, stats.dmg * BELLOWS_FLARE_MUL * (1 + flareUp), 30, 0, { look: 'flare', life: 0.22 })
@@ -18794,6 +18795,21 @@ function stepBellowsWeapon(run, w, stats, fireRateMul, dt) {
     }
     run.events.push({ type: 'shoot', weapon: 'bellows', x: p.x, y: p.y, angle: aim, maxR: stats.radius, arc: stats.arc })
   })
+}
+
+// STUCK IN STONE: the lava sets (it crusts over now) and every body on it is stunned, once per
+// refractory, so no fire rate or reach can keep one held. What flies or wades lava is not on it.
+function setInStone(run, c) {
+  c.state = 'cool'
+  c.coolEnd = run.time + Math.max(c.coolT, STUCK_IN_STONE.stun)
+  for (const e of enemiesNear(run, c.x, c.y, c.r, true)) {
+    if (e._dead || isAlly(e) || damageImmune(e) || lavaProof(e) || resistsCC(e) || run.time < (e._stoneUntil ?? 0)) continue
+    const rr = c.r + e.radius * 0.5
+    if ((e.x - c.x) ** 2 + (e.y - c.y) ** 2 > rr * rr) continue
+    e.stunT = Math.max(e.stunT || 0, STUCK_IN_STONE.stun * ccScale(run, e))
+    e._stoneUntil = run.time + STUCK_IN_STONE.stun + STUCK_IN_STONE.refractory
+    spendCC(run, e)
+  }
 }
 
 // -- Volcanic Bomb ---------------------------------------------------------------------------------

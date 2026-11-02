@@ -18,8 +18,9 @@ const STEP = 4
 const rgb = (h) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)]
 // the river, bank to core (the bank is cool enough not to glow, the core is white-gold)
 const RV = { lip: rgb(PAL.scab1), lipDot: rgb(PAL.scab0), bank: rgb(PAL.lava0), l1: rgb(PAL.lava1), l2: rgb(PAL.lava2), l3: rgb(PAL.lava3), l4: rgb(PAL.lava4) }
-// the cooled flow: black glass-smooth basalt, darker than the plates round it, ropes catching light
-const CO = { base: rgb('#1b171e'), mid: rgb('#231e29'), rope: rgb('#2f2a37'), gloss: rgb('#4c465c'), rim: rgb('#221c22') }
+// the cooled flow: black volcanic glass, its ropes catching a purple-blue sheen, bright gloss crests
+// (no orange anywhere on it: in this chapter orange means lava that burns)
+const CO = { base: rgb('#16131d'), mid: rgb('#2a2440'), rope: rgb('#463d66'), gloss: rgb('#9c8fd6'), rim: rgb('#221c2a') }
 // hot ground's fissures: dull red (lit by its own glow), and a brighter thread where it is thinnest
 const HO = { dull: rgb('#6a1c0c'), hot: rgb('#a8320e') }
 

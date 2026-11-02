@@ -1408,6 +1408,16 @@ export const ANOMALIES = {
     minLevel: 10,
   },
 
+  // The Magma's own, for the Bellows: its blast cools the lava instead of flaring it.
+  stuckInStone: {
+    name: 'Stuck in Stone', icon: '🪨',
+    from: 'your bellows blew cold',
+    desc: 'Your Bellows cools open lava instead of flaring it. Whatever stands in it is stuck in the stone for a moment.',
+    when: (r) => (r.weapons ?? []).some((w) => w.id === 'bellows'),
+    weight: 2, chapter: 'magma', kind: 'trade',
+    minLevel: 5,
+  },
+
   // The Mantle's own: the lava tide turned up. No numbers in the copy (they would need a tt()).
   floodTide: {
     name: 'Flood Tide', icon: '🌋',
@@ -3121,20 +3131,19 @@ export const WEAPONS = {
       { dmg: 30, interval: 0.42, count: 3, speed: 640, pierce: 3, splinters: 6 },
     ],
   },
-  // Bellows: a blast of hot air the way you are walking (run.novas, look 'bellows', a sector). Open
+  // Bellows: a blast of hot air at the nearest foe (run.novas, look 'bellows', a sector). Open
   // lava inside the blast FLARES: it burns longer and bursts at once (BELLOWS_FLARE_*).
   bellows: {
     name: 'Bellows',
-    desc: 'Blasts hot air the way you walk. Open lava in the blast flares up.',
+    desc: 'Blasts hot air at the nearest foe. Open lava in the blast flares up.',
     icon: '🌬️', rarity: 'normal',
     levels: [
-      // balance_decision : wide long fan so it kills alone while kiting 2026-10-10
-      //  - a narrow arc only hits what is AHEAD; a kiting player walks away from the pack
-      { dmg: 16, interval: 1.1, radius: 250, arc: 2.8, knockback: 120 },
-      { dmg: 19, interval: 1.05, radius: 260, arc: 2.9, knockback: 130 },
-      { dmg: 23, interval: 0.98, radius: 275, arc: 3.0, knockback: 140 },
-      { dmg: 28, interval: 0.9, radius: 290, arc: 3.15, knockback: 150 },
-      { dmg: 35, interval: 0.82, radius: 310, arc: 3.3, knockback: 165 },
+      // balance_decision : owner: aims at nearest foe, starts narrow 2026-11-02
+      { dmg: 16, interval: 1.1, radius: 250, arc: 0.9, knockback: 120 },
+      { dmg: 19, interval: 1.05, radius: 260, arc: 0.95, knockback: 130 },
+      { dmg: 23, interval: 0.98, radius: 275, arc: 1.05, knockback: 140 },
+      { dmg: 28, interval: 0.9, radius: 290, arc: 1.15, knockback: 150 },
+      { dmg: 35, interval: 0.82, radius: 310, arc: 1.3, knockback: 165 },
     ],
   },
   // Volcanic Bomb: a molten rock lobbed into the thickest of the crowd (run.magmaLobs, kind 'bomb'). It
@@ -7011,6 +7020,11 @@ export const BELLOWS_LIFE = 0.26         // s for the blast to reach its reach
 export const BELLOWS_FLARE_MUL = 1.0     // a flared lava's burst, as a fraction of the blast's damage
 export const BELLOWS_FLARE_R = 1.7       // ...and its radius, as a multiple of the lava's own
 export const BELLOWS_FLARE_T = 1.2       // s a flare adds to the lava's open time
+// STUCK IN STONE (anomaly stuckInStone): the Bellows cools open lava in its blast instead, and whatever
+// stands in it is stunned stunT s; that body then cannot be stuck again for refractory s.
+// balance_decision : owner: no idle stun-lock, refractory caps it 2026-11-02
+//  - refractory > stun is what makes the lock impossible at any fire rate or reach
+export const STUCK_IN_STONE = { stun: 1.5, refractory: 4 }
 export const BOMB_RANGE = 460            // px from you a bomb may land
 export const BOMB_FLIGHT = 0.7           // s a bomb is in the air
 export const BOMB_LAVA_R = 0.7           // the lava it opens, as a fraction of the blast radius
@@ -10003,7 +10017,7 @@ CHAPTERS.mine = {
 //  - spawnClear keeps the start on plain crust: run MA's still-player checks stand there
 export const MAGMA_FLOOR = {
   spawnClear: 520,
-  river: { spacing: 12000, warp: 900, warpWave: 2600, width: 96, widthWave: 1400, burnMul: 1, reach: 2400,
+  river: { spacing: 4000, warp: 900, warpWave: 2600, width: 96, widthWave: 1400, burnMul: 1, reach: 2400,
     // A body keeps to the bank unless what it hunts is within crossNear px: then it wades in. edge:
     // how far ahead of its centre (x its radius) it feels for the lava. faceT: s render keeps it
     // facing along the bank after its last held step.
