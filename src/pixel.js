@@ -244,7 +244,7 @@ export function createPixelRig(env) {
         const tex = t.tex ?? t
         if (s.texture !== tex) s.texture = tex
         s.anchor.set(t.ax ?? 0.5, t.ay ?? 0.5)
-        s.visible = true; s.alpha = 1; s.tint = 0xffffff; s.rotation = 0
+        s.visible = true; s.alpha = 1; s.tint = 0xffffff; s.rotation = 0; s.scale.set(1)
         return s
       },
       end() { for (let i = n; i < list.length; i++) list[i].visible = false },
