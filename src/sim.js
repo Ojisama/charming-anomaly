@@ -17036,10 +17036,10 @@ export function rerollPrice(run) {
   // silently refusing, because a dead control with no explanation reads as a bug.
   if (run.anomalies?.blindFaith && BLIND_FAITH_NO_REROLL) return { cost: 0, currency: 'coins', available: false }
   if (run.anomalies?.bloodMoney) {
-    // Escalates on the RUN counter, exactly like rerollCost does for coins — see
-    // BLOOD_MONEY_ESCALATION for the measurement that says a flat price deletes the ladder rather
-    // than discounting it. Rounded so the button prints a whole number of HP.
-    const n = run._rerolls ?? 0
+    // Escalates on its OWN counter, so taking the card starts the HP ladder at BLOOD_MONEY_HP however
+    // many coin rerolls came before (owner) — see BLOOD_MONEY_ESCALATION for why a flat price is wrong.
+    // Rounded so the button prints a whole number of HP.
+    const n = run._bloodRerolls ?? 0
     return { cost: Math.round(BLOOD_MONEY_HP * Math.pow(BLOOD_MONEY_ESCALATION, n)), currency: 'hp', available: true }
   }
   return { cost: rerollCost(run._rerolls ?? 0), currency: 'coins', available: true }
@@ -17089,6 +17089,7 @@ export function rerollLevelUpChoices(run) {
     // like OVERLOAD's drain. `src` keeps it out of the renderer's damped self-inflicted branch: a
     // reroll is one discrete deliberate purchase and SHOULD land with the full weight of a hit.
     hurtPlayer(run, cost, true, 'bloodMoney')
+    run._bloodRerolls = (run._bloodRerolls ?? 0) + 1
     run._rerolls = (run._rerolls ?? 0) + 1
     run._screenRerolls = (run._screenRerolls ?? 0) + 1
     refundPityOnReroll(run)

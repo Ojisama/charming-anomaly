@@ -2597,6 +2597,8 @@ function generateWells(sig) {
  *   Rerolling is just calling buildLevelUpChoices again — with one thing carried across the call:
  *   the purchase also steps _screenRerolls (above), which is the only state that makes the rebuilt
  *   screen differ in distribution from the one it replaced.
+ * _bloodRerolls: rerolls paid in HP under BLOOD MONEY. It prices the HP ladder (rerollPrice), so the
+ *   ladder starts at BLOOD_MONEY_HP when the card is taken, whatever _rerolls (which still steps) says.
  * choiceSlots (v4.8): how many cards buildLevelUpChoices rolls for every level-up this run —
  *   snapshotted from bm.choiceSlots (the run's own book — meta itself for book 1, meta.books[id]
  *   for book 2+, see bookMeta) at createRun and clamped THERE into [2, MAX_CHOICE_SLOTS]
@@ -3041,6 +3043,7 @@ export function createRun(meta, opts = {}) {
     consumables,
     revives: consumables.includes('revive') ? 1 : 0,
     _rerolls: 0,
+    _bloodRerolls: 0,
     // R3 clamp-on-use: bm.choiceSlots (this run's book — see bookMeta above) may legitimately
     // store a future build's higher ceiling (loadMeta/ensureBookMeta no longer cap it), but
     // sim.js's buildLevelUpChoices must never deal more cards than the level-up screen is laid out for.
