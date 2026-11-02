@@ -40861,7 +40861,28 @@ function testMagma() {
     const ang = three.lines.map((l) => l.angle)
     const hits = three.foes.map((e) => ang.some((a) => Math.abs(Math.atan2(Math.sin(Math.atan2(e.y - three.p.y, e.x - three.p.x) - a), Math.cos(Math.atan2(e.y - three.p.y, e.x - three.p.x) - a))) < 1e-6))
     assert.ok(three.lines.length === 3 && hits.every(Boolean) && three.hurt.every(Boolean), `run MG.c: three lines go at three different foes: ${ang.map((a) => a.toFixed(2))} ${hits}`)
-    console.log(`PASS run MG.c: a fissure hits its line (${t.hurt}), lays ${t.cracks.length} lava cracks from ${FISSURE_GAP}px out, none with the crust off; L5 tears ${three.lines.length} lines at ${three.foes.length} foes`)
+    // its lava burns a body once a tick wherever it stands on the line: where two of its cracks
+    // overlap is no hotter than the middle of one
+    const burn = (() => {
+      const g = tear(true, 1, [[100, 0]])
+      const xs = g.cracks.map((c) => c.x - g.p.x).sort((a, b) => a - b)
+      const mid = xs[2], seam = (xs[3] + xs[4]) / 2
+      g.r.weapons = []
+      const pair = [mid, seam].map((dx) => makeStatusEnemy(g.r, { x: g.p.x + dx, y: g.p.y, hp: 1e5, speed: 0 }))
+      g.r.enemies.push(...pair)
+      for (let i = 0; i < 30; i++) { pair.forEach((e, k) => { e.x = g.p.x + [mid, seam][k]; e.y = g.p.y }); stepSim(g.r, { x: 0, y: 0 }, 1 / 60); g.r.events.length = 0 }
+      return pair.map((e) => 1e5 - e.hp)
+    })()
+    assert.ok(burn[0] > 0 && burn[1] <= burn[0] * 1.01, `run MG.c: a body where two of its cracks overlap burns ${burn[1]} vs ${burn[0]} on one crack — it must not burn twice`)
+    // out of reach it holds its tear, and tears the moment the foe walks in
+    {
+      const far = tear(true, 1, [[len + 80, 0]])
+      for (let i = 0; i < 150; i++) { far.foes[0].x = far.p.x + len + 80; stepSim(far.r, { x: 0, y: 0 }, 1 / 60); assert.ok(!far.r.events.some((e) => e.type === 'fissure'), 'run MG.c: it tore at a foe out of reach'); far.r.events.length = 0 }
+      far.foes[0].x = far.p.x + 150
+      stepSim(far.r, { x: 0, y: 0 }, 1 / 60)
+      assert.ok(far.r.events.some((e) => e.type === 'fissure'), 'run MG.c: held out of reach for 2.5s, it should tear the moment a foe walks in')
+    }
+    console.log(`PASS run MG.c: a fissure hits its line (${t.hurt}), lays ${t.cracks.length} lava cracks from ${FISSURE_GAP}px out, none with the crust off; overlap burns ${burn[1].toFixed(0)} vs ${burn[0].toFixed(0)}; holds its tear out of reach; L5 tears ${three.lines.length} lines at ${three.foes.length} foes`)
   }
   // (d) OBSIDIAN SHARDS STICK (owner, 2026-11-02): a shard deals nothing and stays in the foe until the
   // stuck shards add up to its hp; the one that gets there kills it, and every stuck shard flies back out

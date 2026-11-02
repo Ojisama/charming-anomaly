@@ -6971,7 +6971,7 @@ export const BELLOWS_FLARE_T = 1.2       // s a flare adds to the lava's open ti
 //  - refractory > stun is what makes the lock impossible at any fire rate or reach
 export const STUCK_IN_STONE = { stun: 1.5, refractory: 4 }
 export const FISSURE_GAP = 60            // px from you its lava starts: your own feet stay dry
-export const FISSURE_STEP = 0.8          // px between its lava cracks, as a fraction of its width
+export const FISSURE_STEP = 1.0          // px between its lava cracks, as a fraction of its width
 export const FISSURE_LAVA_T = 2.0        // s its lava stays open
 export const FISSURE_SPREAD = 0.45       // rad: a second fissure goes at a foe at least this far round
 // ---- Book 3, The Mantle: weapon geometry (balance lives in WEAPONS[].levels) ----------------------
