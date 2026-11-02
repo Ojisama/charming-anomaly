@@ -10023,11 +10023,11 @@ CHAPTERS.mine = {
 export const MAGMA_FLOOR = {
   spawnClear: 520,
   river: { spacing: 4000, warp: 900, warpWave: 2600, width: 96, widthWave: 1400, burnMul: 1, reach: 2400,
-    // A body keeps to the bank unless what it hunts is within crossNear px: then it wades in. edge:
-    // how far ahead of its centre (x its radius) it feels for the lava. faceT: s render keeps it
+    // A walker never steps into a river (only a flyer or a lava-born body crosses one). edge: how
+    // far ahead of its centre (x its radius) it feels for the lava. faceT: s render keeps it
     // facing along the bank after its last held step.
-    // balance_decision : foes wait at the bank unless you are just across 2026-10-10
-    avoid: { crossNear: 260, edge: 1.5, faceT: 0.3 } },
+    // balance_decision : owner: walkers never wade in, only drake and ant 2026-11-02
+    avoid: { edge: 1.5, faceT: 0.3 } },
   cooled: { wave: 820, thresh: 0.6, stretch: 2.2 },
   hot: { wave: 640, thresh: 0.6, openMul: 0.45, rMul: 1.45 },
 }

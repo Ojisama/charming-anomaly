@@ -18501,8 +18501,8 @@ export function magmaGroundAt(run, x, y) {
 }
 // The seed and spec render needs to paint the same floor (src/pixel.js): null off The Magma.
 export function magmaFloorOf(run) { const F = floorSpec(run); return F ? { F, seed: floorSeed(run) } : null }
-// A LAVA RIVER IS A BANK, NOT A ROAD (river.avoid): a body does not walk into one unless what it
-// hunts is just across (crossNear px), and then it wades in and burns. Its step loses the part that
+// A LAVA RIVER IS A BANK, NOT A ROAD (river.avoid): a body that lava burns never walks into one
+// (lavaProof bodies, flyers and the lava-born, are not held at all). Its step loses the part that
 // points into the channel, so it follows the bank or waits on it; one already in (shoved, spawned)
 // makes for the nearer bank. Knockback lands after this, so a shove can still put a body in.
 // Cheap: a noise-free band test rules out every body far from a channel before any noise is read.
@@ -18524,7 +18524,6 @@ function holdAtRiverBank(e, ox, oy, tx, ty, F, seed, dt) {
   const A = F.river.avoid
   const mx = e.x - ox, my = e.y - oy, ml = Math.hypot(mx, my)
   if (ml < 1e-6 || !riverBandNear(F, e.x, e.y, seed, e.radius + ml)) return
-  if ((tx - e.x) ** 2 + (ty - e.y) ** 2 < A.crossNear * A.crossNear) return
   if (riverDepthAt(F, ox, oy, seed) > 0) {
     const n = riverToCentre(F, ox, oy, seed)
     e.x = ox - n[0] * ml; e.y = oy - n[1] * ml

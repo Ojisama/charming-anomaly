@@ -40948,8 +40948,8 @@ function testMagma() {
 // crust; (d) rivers are RARE (under 5% of a wide sample of floor), the start is plain crust, the floor
 // draws nothing from Math.random, and no other chapter has one.
 // ---- run MR: The Magma's lava rivers are a bank, not a road -----------------------------------
-// A body hunting you does not walk into a river unless you are just across it (river.avoid); then it
-// wades in. Rig: one plain seeker 250px off one bank, the player pinned across the river, far
+// A body the lava burns never walks into a river, even with you just across it (river.avoid); only a
+// flyer or a lava-born body crosses. Rig: one plain seeker 250px off one bank, the player pinned across the river, far
 // (400px past the far bank) or near (40px past it), no weapons, no crowd. Several spots on several
 // seeds, so the river's own bends are in the sample. Control arm: avoid switched off.
 function testMagmaRiverBank() {
@@ -40987,7 +40987,7 @@ function testMagmaRiverBank() {
     // a crowd: the rest pressed in behind the first, so the separation pass shoves the front row
     const pack = [e]
     for (let k = 1; k < crowd; k++) pack.push(makeStatusEnemy(r, { x: e.x - nx * (20 + (k % 3) * 22) + ny * ((k % 4) - 1.5) * 18, y: e.y - ny * (20 + (k % 3) * 22) - nx * ((k % 4) - 1.5) * 18, hp: 1e9, speed: 90 }))
-    if (rosterId) for (const b of pack) b.flags = ['flying']
+    if (rosterId) for (const b of pack) b.flags = [rosterId === 'lavaAnt' ? 'lavaBorn' : 'flying']
     r.enemies = pack.slice()
     let inRiver = 0, frames = 0, burn = 0
     for (let i = 0; i < 600; i++) {
@@ -41014,7 +41014,7 @@ function testMagmaRiverBank() {
       return out
     } finally { Rv.avoid = saved }
   }
-  const flyOn = arm(true, A, 0, 1, 'fireDrake'), farOn = arm(true, A), nearOn = arm(false, A), farOff = arm(true, null), slideOn = arm(true, A, 700), crowdOn = arm(true, A, 0, 12)
+  const antOn = arm(true, A, 0, 1, 'lavaAnt'), flyOn = arm(true, A, 0, 1, 'fireDrake'), farOn = arm(true, A), nearOn = arm(false, A), farOff = arm(true, null), slideOn = arm(true, A, 700), crowdOn = arm(true, A, 0, 12)
   assert.ok(farOn.length >= 6, `run MR: found only ${farOn.length} river crossings of ${spots.length} tried`)
   const sum = (a, k) => a.reduce((t, x) => t + x[k], 0)
   const farIn = sum(farOn, 'inRiver'), farFrames = sum(farOn, 'frames')
@@ -41033,10 +41033,11 @@ function testMagmaRiverBank() {
   for (const t of flyOn) assert.ok(t.across > 0 && t.inRiver > 0, `run MR.e: a fire drake should fly over the river (ended ${t.across.toFixed(0)}px past the middle)`)
   assert.ok(sum(flyOn, 'burn') === 0, `run MR.e: the river burned a flying drake for ${sum(flyOn, 'burn').toFixed(0)}`)
   // ...while a walker in the river does burn (the same probe can see it)
-  assert.ok(sum(nearOn, 'burn') > 0, 'run MR.e control: a walker wading across should burn')
+  assert.ok(sum(farOff, 'burn') > 0, 'run MR.e control: a walker wading across should burn')
+  for (const t of antOn) assert.ok(t.across > 0 && t.inRiver > 0, `run MR.f: a lava ant should wade across the river (ended ${t.across.toFixed(0)}px past the middle)`)
   // (b) the player just across: it wades in and reaches you
-  for (const t of nearOn) assert.ok(t.across > 0 && t.toPlayer < 60, `run MR.b: with you just across, the body should cross (ended ${t.across.toFixed(0)}px past the middle, ${t.toPlayer.toFixed(0)}px from you)`)
-  console.log(`PASS run MR (The Magma river bank): far across ${farIn}/${farFrames} frames in the river over ${farOn.length} spots (avoid off: ${offIn}/${sum(farOff, 'frames')}); followed the bank ${slideOn.map((t) => t.along.toFixed(0)).join('/')}px; a crowd of 12: ${crowdIn}/${crowdFrames} body-frames in it; just across ${nearOn.length}/${nearOn.length} bodies crossed (${sum(nearOn, 'inRiver')} frames in it); drakes flew over ${flyOn.length}/${flyOn.length}, burned 0 (walkers ${sum(nearOn, 'burn').toFixed(0)})`)
+  for (const t of nearOn) assert.ok(t.across < 0 && t.inRiver <= 6, `run MR.b: even with you just across, a walker should stay on its bank (ended ${t.across.toFixed(0)}px from the middle, ${t.inRiver} frames in the river)`)
+  console.log(`PASS run MR (The Magma river bank): far across ${farIn}/${farFrames} frames in the river over ${farOn.length} spots (avoid off: ${offIn}/${sum(farOff, 'frames')}); followed the bank ${slideOn.map((t) => t.along.toFixed(0)).join('/')}px; a crowd of 12: ${crowdIn}/${crowdFrames} body-frames in it; just across 0/${nearOn.length} walkers crossed (${sum(nearOn, 'inRiver')} frames in it); ants waded over ${antOn.length}/${antOn.length}; drakes flew over ${flyOn.length}/${flyOn.length}, burned 0 (walkers with avoid off ${sum(farOff, 'burn').toFixed(0)})`)
 }
 
 // run GP: THE GEODE'S TWO SHADERS THAT EVALUATE cavern() COMPILE AT highp ON A PHONE. The floor
