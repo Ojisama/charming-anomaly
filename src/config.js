@@ -1512,6 +1512,13 @@ export const weaponDesc = (id, chapterId) => (CHAPTERS[chapterId]?.resource?.noS
 
 // ---- Weapons ----------------------------------------------------------------
 // levels[i] applies at weapon level i+1 (cumulative object replaces stats).
+// balance_decision : owner rule, Magma onward: each level +5% dmg, rate, range 2026-11-02
+//  - every other stat (count, pierce, bounces, moons) stays at level 1: extra projectiles come from epic+ mods
+const plus5Levels = (l1, { rate = 'interval', range = [] } = {}) => [0, 1, 2, 3, 4].map((i) => {
+  const k = 1 + 0.05 * i, l = { ...l1, dmg: l1.dmg * k, [rate]: l1[rate] / k }
+  for (const key of range) l[key] = l1[key] * k
+  return l
+})
 export const WEAPONS = {
   star: {
     name: 'Spike Protein' /* v6.2 re-theme, id frozen */,
@@ -3108,13 +3115,7 @@ export const WEAPONS = {
     desc: 'Tosses molten slag on the nearest foe. It leaves a burning puddle.',
     icon: '🥄', rarity: 'normal',
     // balance_decision : starter, splash plus puddle, unplayed 2026-10-10
-    levels: [
-      { dmg: 20, interval: 0.95, count: 1, r: 50, duration: 2.4, burn: 7 },
-      { dmg: 24, interval: 0.9, count: 1, r: 54, duration: 2.6, burn: 8 },
-      { dmg: 28, interval: 0.85, count: 2, r: 56, duration: 2.8, burn: 10 },
-      { dmg: 34, interval: 0.78, count: 2, r: 60, duration: 3.0, burn: 12 },
-      { dmg: 42, interval: 0.7, count: 3, r: 64, duration: 3.2, burn: 14 },
-    ],
+    levels: plus5Levels({ dmg: 20, interval: 0.95, count: 1, r: 50, duration: 2.4, burn: 7 }, { range: ['r'] }),
   },
   // Obsidian Shards: volcanic glass flicked at the nearest foe (run.bullets, weapon 'obsidian'). A shard
   // that KILLS bursts into splinters (weapon 'splinter') flying out of the body.
@@ -3122,14 +3123,7 @@ export const WEAPONS = {
     name: 'Obsidian Shards',
     desc: 'Flicks volcanic glass at the nearest foe. A kill bursts it into splinters.',
     icon: '🔪', rarity: 'normal',
-    // balance_decision : owner: a new copy only at levels 3 and 5 [2026-10-11]
-    levels: [
-      { dmg: 15, interval: 0.6, count: 1, speed: 560, pierce: 1, splinters: 4 },
-      { dmg: 18, interval: 0.56, count: 1, speed: 570, pierce: 1, splinters: 4 },
-      { dmg: 21, interval: 0.52, count: 2, speed: 590, pierce: 2, splinters: 5 },
-      { dmg: 25, interval: 0.47, count: 2, speed: 610, pierce: 2, splinters: 5 },
-      { dmg: 30, interval: 0.42, count: 3, speed: 640, pierce: 3, splinters: 6 },
-    ],
+    levels: plus5Levels({ dmg: 15, interval: 0.6, count: 1, speed: 560, pierce: 1, splinters: 4 }),
   },
   // Bellows: a blast of hot air at the nearest foe (run.novas, look 'bellows', a sector). Open
   // lava inside the blast FLARES: it burns longer and bursts at once (BELLOWS_FLARE_*).
@@ -3137,14 +3131,8 @@ export const WEAPONS = {
     name: 'Bellows',
     desc: 'Blasts hot air at the nearest foe. Open lava and slag puddles in the blast flare up, and lava rivers splash.',
     icon: '🌬️', rarity: 'normal',
-    levels: [
-      // balance_decision : owner: nearest foe, cone and reach -20% 2026-11-02
-      { dmg: 16, interval: 1.1, radius: 200, arc: 0.72, knockback: 120 },
-      { dmg: 19, interval: 1.05, radius: 208, arc: 0.76, knockback: 130 },
-      { dmg: 23, interval: 0.98, radius: 220, arc: 0.84, knockback: 140 },
-      { dmg: 28, interval: 0.9, radius: 232, arc: 0.92, knockback: 150 },
-      { dmg: 35, interval: 0.82, radius: 248, arc: 1.04, knockback: 165 },
-    ],
+    // balance_decision : owner: nearest foe, cone and reach -20% 2026-11-02
+    levels: plus5Levels({ dmg: 16, interval: 1.1, radius: 200, arc: 0.72, knockback: 120 }, { range: ['radius'] }),
   },
   // Volcanic Bomb: a molten rock lobbed into the thickest of the crowd (run.magmaLobs, kind 'bomb'). It
   // blasts where it lands and CRACKS THE CRUST there: the spot opens straight into lava.
@@ -3152,13 +3140,7 @@ export const WEAPONS = {
     name: 'Volcanic Bomb',
     desc: 'Lobs a molten rock into the crowd. Where it lands, the crust breaks open into lava.',
     icon: '🌋', rarity: 'rare',
-    levels: [
-      { dmg: 34, interval: 2.2, count: 1, r: 74 },
-      { dmg: 40, interval: 2.05, count: 1, r: 78 },
-      { dmg: 48, interval: 1.9, count: 2, r: 82 },
-      { dmg: 58, interval: 1.75, count: 2, r: 88 },
-      { dmg: 70, interval: 1.6, count: 3, r: 96 },
-    ],
+    levels: plus5Levels({ dmg: 34, interval: 2.2, count: 1, r: 74 }, { range: ['r'] }),
   },
   // ---- Book 3, The Mantle's four. All auto-fire, none aimed: each one is a way to use the lava. ----
   // Quench Kettle: throws water at the nearest Crack Hammer pool (a steam blast, the pool spent), else
@@ -3169,13 +3151,7 @@ export const WEAPONS = {
     desc: "Waters the lava: it hardens into a crust to walk on. On the hammer's lava, a burst of steam; on your boat, it cools the hull.",
     icon: '🫖', rarity: 'normal',
     // balance_decision : starter AoE round you, unplayed 2026-10-12
-    levels: [
-      { dmg: 16, interval: 1.7, radius: 105, crustDur: 4.0 },
-      { dmg: 19, interval: 1.6, radius: 112, crustDur: 4.3 },
-      { dmg: 23, interval: 1.5, radius: 120, crustDur: 4.6 },
-      { dmg: 28, interval: 1.4, radius: 130, crustDur: 5.0 },
-      { dmg: 34, interval: 1.3, radius: 142, crustDur: 5.5 },
-    ],
+    levels: plus5Levels({ dmg: 16, interval: 1.7, radius: 105, crustDur: 4.0 }, { range: ['radius'] }),
   },
   // Hot Coals: a red-hot coal tossed at the nearest foe (run.bullets, weapon 'coal'). It BOUNCES on
   // to the next foe near the last one it hit (the chain idiom: _chainsLeft = bounces).
@@ -3183,13 +3159,7 @@ export const WEAPONS = {
     name: 'Hot Coals',
     desc: 'Tosses a red-hot coal that bounces from foe to foe.',
     icon: '🪨', rarity: 'normal',
-    levels: [
-      { dmg: 16, interval: 0.9, count: 1, speed: 460, bounces: 3 },
-      { dmg: 19, interval: 0.85, count: 1, speed: 470, bounces: 4 },
-      { dmg: 22, interval: 0.8, count: 2, speed: 480, bounces: 4 },
-      { dmg: 26, interval: 0.74, count: 2, speed: 500, bounces: 5 },
-      { dmg: 31, interval: 0.68, count: 3, speed: 520, bounces: 6 },
-    ],
+    levels: plus5Levels({ dmg: 16, interval: 0.9, count: 1, speed: 460, bounces: 3 }),
   },
   // Crack Hammer: stamps the ground open under the thickest knot of ROCK creatures in reach
   // (run.lavaPools). Each pool is lava for duration s: it melts rock creatures (fire), lava ones swim
@@ -3199,13 +3169,7 @@ export const WEAPONS = {
     desc: 'Cracks the ground open under the nearest enemy. Its lava melts rock creatures, and burns you too.',
     icon: '🔨', rarity: 'normal',
     // balance_decision : pools under the crowd, unplayed 2026-10-12
-    levels: [
-      { dmg: 22, interval: 2.4, pools: 1, r: 60, duration: 3.0 },
-      { dmg: 26, interval: 2.25, pools: 1, r: 64, duration: 3.3 },
-      { dmg: 31, interval: 2.1, pools: 2, r: 68, duration: 3.6 },
-      { dmg: 37, interval: 1.95, pools: 2, r: 74, duration: 4.0 },
-      { dmg: 45, interval: 1.8, pools: 3, r: 80, duration: 4.5 },
-    ],
+    levels: plus5Levels({ dmg: 22, interval: 2.4, pools: 1, r: 60, duration: 3.0 }, { range: ['r'] }),
   },
   // Lava Bellows: a rolling LAVA WAVE pumped the way you walk (run.novas, a sector with look
   // 'lavaWave' and habitatSplit). It splashes rock creatures with fire and shoves lava ones back.
@@ -3214,13 +3178,7 @@ export const WEAPONS = {
     desc: 'Rolls a wave of lava the way you walk. It burns rock creatures and shoves lava ones back.',
     icon: '🌊', rarity: 'normal',
     // balance_decision : a wide wave so it lands while kiting, unplayed 2026-10-12
-    levels: [
-      { dmg: 15, interval: 1.25, radius: 240, arc: 2.0, knockback: 160 },
-      { dmg: 18, interval: 1.18, radius: 252, arc: 2.1, knockback: 170 },
-      { dmg: 22, interval: 1.1, radius: 266, arc: 2.2, knockback: 185 },
-      { dmg: 27, interval: 1.0, radius: 282, arc: 2.3, knockback: 200 },
-      { dmg: 33, interval: 0.9, radius: 300, arc: 2.45, knockback: 220 },
-    ],
+    levels: plus5Levels({ dmg: 15, interval: 1.25, radius: 240, arc: 2.0, knockback: 160 }, { range: ['radius'] }),
   },
   // ---- Book 3, The Core's four. Every hit but the Lance's obeys the pole rule (dealDamage). ----
   // Iron Sling: one iron ball at the nearest foe within range (run.bullets, weapon 'ironBall'), or,
@@ -3230,13 +3188,7 @@ export const WEAPONS = {
     name: 'Iron Sling',
     desc: 'Slings an iron ball at the nearest foe, or at a mite clinging to you.',
     icon: '🔩', rarity: 'normal',
-    levels: [
-      { dmg: 10, interval: 0.32, count: 1, speed: 633, range: 500 },
-      { dmg: 12, interval: 0.31, count: 1, speed: 640, range: 510 },
-      { dmg: 14, interval: 0.3, count: 1, speed: 650, range: 520 },
-      { dmg: 17, interval: 0.29, count: 1, speed: 660, range: 535 },
-      { dmg: 21, interval: 0.27, count: 1, speed: 680, range: 550 },
-    ],
+    levels: plus5Levels({ dmg: 10, interval: 0.32, count: 1, speed: 633, range: 500 }, { range: ['range'] }),
   },
   // Mercury Moons: chrome drops orbiting you (run.moons, rewritten every frame) in YOUR pole, so they
   // recolour when a pool changes you. Contact hits obey the pole rule; each drop also tugs foes of the
@@ -3246,13 +3198,7 @@ export const WEAPONS = {
     name: 'Mercury Moons',
     desc: "Chrome drops orbit you in your pole's colour. They hit what they touch and tug foes of the other pole into their path.",
     icon: '🌘', rarity: 'normal',
-    levels: [
-      { dmg: 8, moons: 2, radius: 70, rotSpeed: 3.0, tick: 0.5, tugR: 90, tug: 110 },
-      { dmg: 10, moons: 2, radius: 74, rotSpeed: 3.2, tick: 0.5, tugR: 95, tug: 115 },
-      { dmg: 12, moons: 3, radius: 78, rotSpeed: 3.4, tick: 0.48, tugR: 100, tug: 120 },
-      { dmg: 15, moons: 3, radius: 82, rotSpeed: 3.6, tick: 0.46, tugR: 108, tug: 130 },
-      { dmg: 18, moons: 4, radius: 88, rotSpeed: 3.9, tick: 0.44, tugR: 116, tug: 140 },
-    ],
+    levels: plus5Levels({ dmg: 8, moons: 2, radius: 70, rotSpeed: 3.0, tick: 0.5, tugR: 90, tug: 110 }, { rate: 'tick', range: ['radius', 'tugR'] }),
   },
   // Decoy Lodestone: every interval a lodestone (run.lodestones) drops at your feet, taking YOUR pole
   // then and keeping it. For its fuse it nudges foes of the other pole (to it) toward itself at `pull`
@@ -3265,13 +3211,7 @@ export const WEAPONS = {
     name: 'Decoy Lodestone',
     desc: 'Drops a lodestone of your pole at your feet. It draws foes of the other pole toward itself, then bursts and throws off the mites clinging to you.',
     icon: '🧲', rarity: 'normal',
-    levels: [
-      { dmg: 40, interval: 4.0, lodestones: 1, pullR: 160, pull: 45, r: 110 },
-      { dmg: 48, interval: 3.8, lodestones: 1, pullR: 170, pull: 50, r: 115 },
-      { dmg: 58, interval: 3.6, lodestones: 1, pullR: 180, pull: 55, r: 120 },
-      { dmg: 70, interval: 3.4, lodestones: 1, pullR: 195, pull: 60, r: 130 },
-      { dmg: 85, interval: 3.2, lodestones: 2, pullR: 210, pull: 70, r: 140 },
-    ],
+    levels: plus5Levels({ dmg: 40, interval: 4.0, lodestones: 1, pullR: 160, pull: 45, r: 110 }, { range: ['pullR', 'r'] }),
   },
   // Dipole Lance: a short beam at the nearest foe within its length; every body on it takes a FLAT
   // hit, the one damage in the chapter that ignores poles (applyDamage's `flat`).
@@ -3279,13 +3219,7 @@ export const WEAPONS = {
     name: 'Dipole Lance',
     desc: 'A short two-coloured beam. It ignores poles.',
     icon: '⚡', rarity: 'normal',
-    levels: [
-      { dmg: 30, interval: 1, length: 133, width: 16 },
-      { dmg: 36, interval: 0.95, length: 140, width: 16 },
-      { dmg: 44, interval: 0.9, length: 148, width: 18 },
-      { dmg: 54, interval: 0.85, length: 156, width: 18 },
-      { dmg: 66, interval: 0.8, length: 166, width: 20 },
-    ],
+    levels: plus5Levels({ dmg: 30, interval: 1, length: 133, width: 16 }, { range: ['length'] }),
   },
 }
 // The latched-mite share of the sling's targets (prototype value).
@@ -4710,87 +4644,87 @@ export const WEAPON_MODS = {
   },
 
   // ---- Book 3, The Magma ----
+  // balance_decision : owner rule, Magma onward: dmg/rate/range 15%, rest 25% 2026-11-02
+  //  - a mod that adds projectiles rolls epic and up only
   slagLadle: {
-    hotSlag:     { name: 'Hot Slag',     desc: 'slag damage', icon: '💥', base: 0.30, kind: 'pct' },
-    deepLadle:   { name: 'Deep Ladle',   desc: 'splash and puddle radius', icon: '⭕', base: 0.22, kind: 'pct' },
+    hotSlag:     { name: 'Hot Slag',     desc: 'slag damage', icon: '💥', base: 0.15, kind: 'pct' },
+    deepLadle:   { name: 'Deep Ladle',   desc: 'splash and puddle radius', icon: '⭕', base: 0.15, kind: 'pct' },
     slowCooling: { name: 'Slow Cooling', desc: 'how long a puddle burns', icon: '⌛', base: 0.25, kind: 'pct' },
-    quickLadle:  { name: 'Quick Ladle',  desc: 'toss rate', icon: '⏩', base: 0.25, kind: 'pct' },
-    secondScoop: { name: 'Second Scoop', desc: 'extra ladle(s) per toss', icon: '🔷', kind: 'tier' },
+    quickLadle:  { name: 'Quick Ladle',  desc: 'toss rate', icon: '⏩', base: 0.15, kind: 'pct' },
+    secondScoop: { name: 'Second Scoop', desc: 'extra ladle(s) per toss', icon: '🔷', kind: 'tier', values: { epic: 1, legendary: 2, mythic: 3 } },
   },
   obsidianShards: {
-    keenGlass:   { name: 'Keen Glass',   desc: 'shard damage', icon: '💥', base: 0.30, kind: 'pct' },
-    glassVolley: { name: 'Glass Volley', desc: 'extra shard(s) per flick', icon: '🔷', kind: 'tier' },
-    quickKnap:   { name: 'Quick Knap',   desc: 'flick rate', icon: '⏩', base: 0.25, kind: 'pct' },
-    shatter:     { name: 'Shatter',      desc: 'splinters per kill', icon: '✴️', base: 2, kind: 'flat' },
+    keenGlass:   { name: 'Keen Glass',   desc: 'shard damage', icon: '💥', base: 0.15, kind: 'pct' },
+    glassVolley: { name: 'Glass Volley', desc: 'extra shard(s) per flick', icon: '🔷', kind: 'tier', values: { epic: 1, legendary: 2, mythic: 3 } },
+    quickKnap:   { name: 'Quick Knap',   desc: 'flick rate', icon: '⏩', base: 0.15, kind: 'pct' },
+    shatter:     { name: 'Shatter',      desc: 'splinters per kill', icon: '✴️', kind: 'flat', values: { epic: 2, legendary: 3, mythic: 4 } },
     razorEdge:   { name: 'Razor Edge',   desc: 'shard pierce', icon: '🎯', base: 1, kind: 'flat', maxPicks: PIERCE_MAX_PICKS },
   },
   bellows: {
-    forgeHeat:   { name: 'Forge Heat',   desc: 'gust damage', icon: '💥', base: 0.30, kind: 'pct' },
-    longDraft:   { name: 'Long Draft',   desc: 'gust reach', icon: '📏', base: 0.22, kind: 'pct' },
+    forgeHeat:   { name: 'Forge Heat',   desc: 'gust damage', icon: '💥', base: 0.15, kind: 'pct' },
+    longDraft:   { name: 'Long Draft',   desc: 'gust reach', icon: '📏', base: 0.15, kind: 'pct' },
     widePipe:    { name: 'Wide Pipe',    desc: 'gust width', icon: '🪭', base: 0.25, kind: 'pct' },
-    quickPump:   { name: 'Quick Pump',   desc: 'gust rate', icon: '⏩', base: 0.25, kind: 'pct' },
-    flareUp:     { name: 'Flare Up',     desc: 'damage of the lava it flares', icon: '🔥', base: 0.40, kind: 'pct' },
+    quickPump:   { name: 'Quick Pump',   desc: 'gust rate', icon: '⏩', base: 0.15, kind: 'pct' },
+    flareUp:     { name: 'Flare Up',     desc: 'damage of the lava it flares', icon: '🔥', base: 0.25, kind: 'pct' },
   },
   volcanicBomb: {
-    heavyRock:   { name: 'Heavy Rock',   desc: 'bomb damage', icon: '💥', base: 0.30, kind: 'pct' },
-    bigBlast:    { name: 'Big Blast',    desc: 'blast radius', icon: '⭕', base: 0.22, kind: 'pct' },
-    salvo:       { name: 'Salvo',        desc: 'extra bomb(s) per throw', icon: '🔷', kind: 'tier' },
-    quickFuse:   { name: 'Quick Fuse',   desc: 'throw rate', icon: '⏩', base: 0.25, kind: 'pct' },
-    deepFissure: { name: 'Deep Fissure', desc: 'how long its lava stays open', icon: '⌛', base: 0.30, kind: 'pct' },
+    heavyRock:   { name: 'Heavy Rock',   desc: 'bomb damage', icon: '💥', base: 0.15, kind: 'pct' },
+    bigBlast:    { name: 'Big Blast',    desc: 'blast radius', icon: '⭕', base: 0.15, kind: 'pct' },
+    salvo:       { name: 'Salvo',        desc: 'extra bomb(s) per throw', icon: '🔷', kind: 'tier', values: { epic: 1, legendary: 2, mythic: 3 } },
+    quickFuse:   { name: 'Quick Fuse',   desc: 'throw rate', icon: '⏩', base: 0.15, kind: 'pct' },
+    deepFissure: { name: 'Deep Fissure', desc: 'how long its lava stays open', icon: '⌛', base: 0.25, kind: 'pct' },
   },
   // ---- Book 3, The Mantle ----
   quenchKettle: {
-    bigKettle:  { name: 'Big Kettle',  desc: 'splash size', icon: '📏', base: 0.20, kind: 'pct' },
-    thickCrust: { name: 'Thick Crust', desc: 'how long its crust holds', icon: '⌛', base: 0.30, kind: 'pct' },
-    iceWater:   { name: 'Ice Water',   desc: 'splash damage', icon: '💥', base: 0.30, kind: 'pct' },
-    quickBoil:  { name: 'Quick Boil',  desc: 'pour rate', icon: '⏩', base: 0.25, kind: 'pct' },
+    bigKettle:  { name: 'Big Kettle',  desc: 'splash size', icon: '📏', base: 0.15, kind: 'pct' },
+    thickCrust: { name: 'Thick Crust', desc: 'how long its crust holds', icon: '⌛', base: 0.25, kind: 'pct' },
+    iceWater:   { name: 'Ice Water',   desc: 'splash damage', icon: '💥', base: 0.15, kind: 'pct' },
+    quickBoil:  { name: 'Quick Boil',  desc: 'pour rate', icon: '⏩', base: 0.15, kind: 'pct' },
   },
   hotCoals: {
-    whiteHot:    { name: 'White Hot',    desc: 'coal damage', icon: '💥', base: 0.30, kind: 'pct' },
-    coalScuttle: { name: 'Coal Scuttle', desc: 'extra coal(s) per toss', icon: '🔷', kind: 'tier' },
+    whiteHot:    { name: 'White Hot',    desc: 'coal damage', icon: '💥', base: 0.15, kind: 'pct' },
+    coalScuttle: { name: 'Coal Scuttle', desc: 'extra coal(s) per toss', icon: '🔷', kind: 'tier', values: { epic: 1, legendary: 2, mythic: 3 } },
     skipping:    { name: 'Skipping Coal', desc: 'bounces per coal', icon: '↪️', base: 1, kind: 'flat' },
-    quickStoke:  { name: 'Quick Stoke',  desc: 'coal rate', icon: '⏩', base: 0.25, kind: 'pct' },
-    cinders:     { name: 'Cinders',      desc: 'a coal sets what it hits alight', icon: '🔥', base: 0.5, kind: 'pct' },
+    quickStoke:  { name: 'Quick Stoke',  desc: 'coal rate', icon: '⏩', base: 0.15, kind: 'pct' },
+    cinders:     { name: 'Cinders',      desc: 'a coal sets what it hits alight', icon: '🔥', base: 0.25, kind: 'pct' },
   },
   crackHammer: {
-    heavyHead:  { name: 'Heavy Head',  desc: 'hammer damage', icon: '💥', base: 0.30, kind: 'pct' },
-    aftershock: { name: 'Aftershock',  desc: 'extra pool(s) per stamp', icon: '🔷', kind: 'tier' },
-    wideCrack:  { name: 'Wide Crack',  desc: 'lava pool size', icon: '📏', base: 0.20, kind: 'pct' },
-    deepCrack:  { name: 'Deep Crack',  desc: 'how long its lava pools stay open', icon: '⌛', base: 0.30, kind: 'pct' },
-    quickStamp: { name: 'Quick Stamp', desc: 'stamp rate', icon: '⏩', base: 0.25, kind: 'pct' },
+    heavyHead:  { name: 'Heavy Head',  desc: 'hammer damage', icon: '💥', base: 0.15, kind: 'pct' },
+    aftershock: { name: 'Aftershock',  desc: 'extra pool(s) per stamp', icon: '🔷', kind: 'tier', values: { epic: 1, legendary: 2, mythic: 3 } },
+    wideCrack:  { name: 'Wide Crack',  desc: 'lava pool size', icon: '📏', base: 0.15, kind: 'pct' },
+    deepCrack:  { name: 'Deep Crack',  desc: 'how long its lava pools stay open', icon: '⌛', base: 0.25, kind: 'pct' },
+    quickStamp: { name: 'Quick Stamp', desc: 'stamp rate', icon: '⏩', base: 0.15, kind: 'pct' },
   },
   lavaBellows: {
-    moltenCrest:  { name: 'Molten Crest',  desc: 'wave damage', icon: '💥', base: 0.30, kind: 'pct' },
-    longRoll:     { name: 'Long Roll',     desc: 'how far the wave rolls', icon: '📏', base: 0.20, kind: 'pct' },
+    moltenCrest:  { name: 'Molten Crest',  desc: 'wave damage', icon: '💥', base: 0.15, kind: 'pct' },
+    longRoll:     { name: 'Long Roll',     desc: 'how far the wave rolls', icon: '📏', base: 0.15, kind: 'pct' },
     broadWave:    { name: 'Broad Wave',    desc: 'wave width', icon: '🪭', base: 0.25, kind: 'pct' },
-    heavySurge:   { name: 'Heavy Surge',   desc: 'how hard it shoves lava creatures', icon: '💨', base: 0.30, kind: 'pct' },
-    quickBellows: { name: 'Quick Bellows', desc: 'wave rate', icon: '⏩', base: 0.25, kind: 'pct' },
+    heavySurge:   { name: 'Heavy Surge',   desc: 'how hard it shoves lava creatures', icon: '💨', base: 0.25, kind: 'pct' },
+    quickBellows: { name: 'Quick Bellows', desc: 'wave rate', icon: '⏩', base: 0.15, kind: 'pct' },
   },
   // ---- Book 3, The Core ----
-  // balance_decision : sling mods halved, too strong, owner 2026-10-22
-  //  - Twin Balls instead rolls epic and up only: +1 / +2 / +3 balls
   sling: {
     castIron:   { name: 'Cast Iron',   desc: 'ball damage', icon: '💥', base: 0.15, kind: 'pct' },
     twinBalls:  { name: 'Twin Balls',  desc: 'extra ball(s) per throw', icon: '🔷', kind: 'tier', values: { epic: 1, legendary: 2, mythic: 3 } },
-    quickSling: { name: 'Quick Sling', desc: 'throw rate', icon: '⏩', base: 0.125, kind: 'pct' },
+    quickSling: { name: 'Quick Sling', desc: 'throw rate', icon: '⏩', base: 0.15, kind: 'pct' },
     pickOff:    { name: 'Pick Off',    desc: 'aims at a mite clinging to you whenever one is', icon: '🪝', kind: 'switch' },
   },
   mercuryMoons: {
-    heavyMercury: { name: 'Heavy Mercury', desc: 'moon damage', icon: '💥', base: 0.30, kind: 'pct' },
-    extraMoon:    { name: 'Extra Moon',    desc: 'extra moon(s), evenly spaced', icon: '🔷', kind: 'tier' },
-    fastOrbit:    { name: 'Fast Orbit',    desc: 'spin rate', icon: '🌀', base: 0.25, kind: 'pct' },
-    strongTug:    { name: 'Strong Tug',    desc: 'tug reach', icon: '🧲', base: 0.25, kind: 'pct' },
+    heavyMercury: { name: 'Heavy Mercury', desc: 'moon damage', icon: '💥', base: 0.15, kind: 'pct' },
+    extraMoon:    { name: 'Extra Moon',    desc: 'extra moon(s), evenly spaced', icon: '🔷', kind: 'tier', values: { epic: 1, legendary: 2, mythic: 3 } },
+    fastOrbit:    { name: 'Fast Orbit',    desc: 'spin rate', icon: '🌀', base: 0.15, kind: 'pct' },
+    strongTug:    { name: 'Strong Tug',    desc: 'tug reach', icon: '🧲', base: 0.15, kind: 'pct' },
   },
   decoyLodestone: {
-    heavyCharge:    { name: 'Heavy Charge',    desc: 'blast damage', icon: '💥', base: 0.30, kind: 'pct' },
-    strongField:    { name: 'Strong Field',    desc: 'pull radius', icon: '📏', base: 0.20, kind: 'pct' },
-    quickDrop:      { name: 'Quick Drop',      desc: 'drop rate', icon: '⏩', base: 0.25, kind: 'pct' },
-    twinLodestones: { name: 'Twin Lodestones', desc: 'extra lodestone(s), dropped round you', icon: '🔷', kind: 'tier' },
+    heavyCharge:    { name: 'Heavy Charge',    desc: 'blast damage', icon: '💥', base: 0.15, kind: 'pct' },
+    strongField:    { name: 'Strong Field',    desc: 'pull radius', icon: '📏', base: 0.15, kind: 'pct' },
+    quickDrop:      { name: 'Quick Drop',      desc: 'drop rate', icon: '⏩', base: 0.15, kind: 'pct' },
+    twinLodestones: { name: 'Twin Lodestones', desc: 'extra lodestone(s), dropped round you', icon: '🔷', kind: 'tier', values: { epic: 1, legendary: 2, mythic: 3 } },
   },
   dipoleLance: {
-    hotArc:    { name: 'Hot Arc',    desc: 'beam damage', icon: '💥', base: 0.30, kind: 'pct' },
-    longLance: { name: 'Long Lance', desc: 'beam length', icon: '📏', base: 0.25, kind: 'pct' },
-    quickArc:  { name: 'Quick Arc',  desc: 'beam rate', icon: '⏩', base: 0.25, kind: 'pct' },
+    hotArc:    { name: 'Hot Arc',    desc: 'beam damage', icon: '💥', base: 0.15, kind: 'pct' },
+    longLance: { name: 'Long Lance', desc: 'beam length', icon: '📏', base: 0.15, kind: 'pct' },
+    quickArc:  { name: 'Quick Arc',  desc: 'beam rate', icon: '⏩', base: 0.15, kind: 'pct' },
     bothEnds:  { name: 'Both Ends',  desc: 'the beam strikes behind you too', icon: '↔️', kind: 'switch' },
   },
 }
