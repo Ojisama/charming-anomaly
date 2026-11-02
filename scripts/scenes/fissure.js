@@ -1,10 +1,10 @@
 // Scene: THE FISSURE (The Magma) tearing at a pinned crowd, fired for real by a level-3 Fissure
-// (two lines: the nearest foe and one other). Frame k is shot 2, 11, 39, 85 and 150 sim steps after
-// the tear (0.03s .. 2.5s): the tear, the open crack, and the crack cooled dark. Staged cast: it
+// (two lines: the nearest foe and one other). With --frames 10, frame k is shot STEPS[k] sim steps
+// after the tear (0.03s .. 2.5s): the crack running out, opening wide, open, and cooled dark. Staged cast: it
 // compares looks on one identical frame and is not evidence about a busy screen.
 //
 //   node scripts/fx-probe.mjs --scene scripts/scenes/fissure.js --chapter magma \
-//     --url 'http://127.0.0.1:PORT/' --out /tmp/fis --frames 5
+//     --url 'http://127.0.0.1:PORT/' --out /tmp/fis --frames 10
 const result = { chapter: run.chapter }
 window.__fxResult = result
 const onlyFissure = () => { run.cracks = run.cracks.filter((c) => c.by === 'fissure') }
@@ -19,8 +19,9 @@ H.weapon('fissure', 3)
 run.weaponTimers.fissure = 1e-4
 let steps = 0
 const fired = []
+const STEPS = [2, 4, 6, 9, 14, 20, 30, 45, 90, 150]
 return (age) => {
-  const want = 2 + Math.round(age * age * 148)
+  const want = STEPS[Math.round(age * (STEPS.length - 1))]
   while (steps < want) {
     steps++
     if (run.phase === 'levelup') { run.phase = 'playing'; run.levelUpChoices = [] }
