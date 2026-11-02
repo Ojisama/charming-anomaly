@@ -9987,6 +9987,8 @@ export const LAVA_ANT = { near: 160, far: 560, riverTries: 10, crackEvery: 70, c
 // The look is PIXEL ART through a CRT (render.pixel; src/pixel.js owns every drawing).
 CHAPTERS.magma = {
   name: 'The Magma', tagline: 'the floor is cracking', icon: '🌋',
+  // balance_decision : xp per level +0% at start to +50% at 5:00, owner 2026-11-02
+  xpNeedRamp: 0.5,
   weapons: ['slagLadle', 'obsidianShards', 'bellows', 'volcanicBomb'], starter: 'slagLadle',
   roster: [
     { id: 'cinderBeetle',     archetype: 'normal', name: 'Cinder Beetle',     hpMul: 0.8, speedMul: 0.9, radiusMul: 0.9, weight: 3, flags: [] },
@@ -10066,6 +10068,8 @@ export const MANTLE_SPAWN_TRIES = 24       // bearings tried per ring when seati
 
 CHAPTERS.mantle = {
   name: 'The Mantle', tagline: 'the lava breathes', icon: '🔥',
+  // balance_decision : xp per level +0% at start to +50% at 5:00, owner 2026-11-02
+  xpNeedRamp: 0.5,
   weapons: ['quenchKettle', 'hotCoals', 'crackHammer', 'lavaBellows'], starter: 'hotCoals',
   // habitat: 'rock' | 'lava' (THE TWO HABITATS above). A spawn the ground cannot seat (no lava on the
   // ring for a lava creature, no dry rock for a rock one) comes in as one of the other habitat; a brood at a fixed spot off its ground is dropped.
@@ -10156,6 +10160,8 @@ export const POLE_NAMES = { 1: { name: 'North' }, '-1': { name: 'South' } }
 export const POLE_TINT = { 1: 0xd2452f, '-1': 0x4f92dc }
 CHAPTERS.core = {
   name: 'The Core', tagline: 'opposites attract', icon: '🧲',
+  // balance_decision : xp per level +0% at start to +50% at 5:00, owner 2026-11-02
+  xpNeedRamp: 0.5,
   weapons: ['sling', 'dipoleLance', 'mercuryMoons', 'decoyLodestone'], starter: 'sling',
   // balance_decision : prototype hp x10, first guess, unplayed 2026-10-21
   // balance_decision : mix near the prototype's timers, heavies capped 2026-10-21

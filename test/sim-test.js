@@ -40767,7 +40767,22 @@ function testBook3Levels() {
     }
   }
   assert.ok(throwers.includes('slagLadle') && throwers.length >= 8, 'R5: throwers ' + throwers)
-  console.log(`PASS run R5: ${ids.length} weapons from The Magma on level +10%; ${throwers.length} throwers (${throwers.join(', ')}) gain a projectile at L3 and L5`)
+  // ...and from The Mine on, a level costs up to 50% more xp by 5:00 (owner: the Mine 2026-11-01, the rest 2026-11-02)
+  const ramped = ladder.slice(ladder.indexOf('mine'))
+  for (const c of ramped) assert.strictEqual(CHAPTERS[c].xpNeedRamp, 0.5, `R5: ${c} has no late xp ramp`)
+  const nextAt = (time) => {
+    Math.random = mulberry32(5)
+    const m = makeMeta(); m.dev = true
+    const r = createRun(m, { chapter: 'core', difficulty: 1 })
+    assert.strictEqual(r.chapter, 'core')
+    r.weapons = []; r.enemies = []; r.time = time
+    r.player.xp = r.player.xpNext
+    stepSim(r, { x: 0, y: 0 }, 1 / 60)
+    return r.player.xpNext
+  }
+  const late = nextAt(RUN_DURATION - 1) / nextAt(0)   // the run ends AT 5:00, before any level-up
+  assert.ok(Math.abs(late - (1 + 0.5 * (RUN_DURATION - 1) / RUN_DURATION)) < 0.005, `R5: a level at 4:59 in The Core costs x${late.toFixed(3)} of one at 0:00, not about x1.5`)
+  console.log(`PASS run R5: ${ids.length} weapons from The Magma on level +10%; ${throwers.length} throwers (${throwers.join(', ')}) gain a projectile at L3 and L5; xp ramp x${late.toFixed(2)} by 5:00 in ${ramped.join(', ')}`)
 }
 
 function testMagma() {
