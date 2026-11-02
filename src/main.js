@@ -1019,6 +1019,8 @@ function endRun(victory) {
     unlockedChapterId,
     unlockedHiddenChapter,
     unlockedBook,
+    // the pause build sheet, frozen at the run's end, behind the summary's "Your build" button
+    pause: { ...pauseData(), devSpeed: 0, ended: true },
   }
   ui.showScreen('summary', summaryData)
 

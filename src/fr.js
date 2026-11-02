@@ -338,6 +338,7 @@ const UI = {
   '1 mod': '1 module',
   'Quit run': 'Abandonner',
   'Confirm quit': 'Confirmer',
+  'Your build': 'Ton build',
   'HP': 'PV',
   'Speed': 'Vitesse',
   'Magnet': 'Aimant',

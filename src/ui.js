@@ -3767,13 +3767,13 @@ export function initUI(hooks) {
     ].map(([v, l]) => `<span>${esc(String(v))}<small>${esc(t(l))}</small></span>`).join('')}</div>` : ''
     setHtml(screens.pause, `
       <div class="modal modal--pause" data-pop="pause" data-tab="${pauseTab}">
-        <div class="pz-top"><h2 class="modal-title">${t('Paused')}</h2><span class="pz-sub">${sub}</span></div>
+        <div class="pz-top"><h2 class="modal-title">${d.ended ? esc(t(PAUSE_COPY.build)) : t('Paused')}</h2><span class="pz-sub">${sub}</span></div>
         ${d.away ? `<p class="sync-notice">${esc(t('Auto-paused.'))}</p>` : ''}
         ${strip}
         <div class="pz-tabs" role="tablist">${tabs.map(([k, label]) =>
           `<button class="pz-tab${k === pauseTab ? ' pz-tab--on' : ''}" role="tab" aria-selected="${k === pauseTab}" data-act="pause-tab" data-tab="${k}">${esc(label)}</button>`).join('')}</div>
         <div class="pz-body" role="tabpanel">${body}</div>
-        <div class="pz-acts">
+        ${d.ended ? `<div class="pz-acts"><button class="pz-go" data-act="summary-back">${t('Back')}</button></div>` : `<div class="pz-acts">
           <!-- Entry to the element Codex (see renderCodex), carrying this run's own potency so its
                pages print "yours" alongside the rule. data-from tells the close button which screen
                to land back on — see the 'codex-open'/'codex-close' cases. -->
@@ -3782,7 +3782,7 @@ export function initUI(hooks) {
             ? `<div class="brief-load"><div class="boot-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100"><i class="boot-fill"></i></div><p class="brief-note">${t('Getting the level ready…')}</p></div>`
             : `<button class="pz-go" data-act="resume">▶&nbsp; ${t('Resume')}</button>`}
           <button class="pz-sm pz-quit${quitArmed ? ' pz-quit--armed' : ''}" data-act="pause-quit">${esc(t(quitArmed ? PAUSE_COPY.quitArmed : PAUSE_COPY.quit))}</button>
-        </div>
+        </div>`}
         <div class="pz-foot">
           ${d.devSpeed ? `<button class="pz-dev" data-act="dev-speed">⏩ Playtest speed ${d.devSpeed}×</button>` : ''}
           ${buildStampHtml()}
@@ -4050,6 +4050,7 @@ export function initUI(hooks) {
           ${raceRows(d, chapterId)}
         </div>
         ${damageBlock(d)}
+        ${d.pause ? `<button class="btn btn--soft" data-act="summary-build">${esc(t(PAUSE_COPY.build))}</button>` : ''}
         ${mutatorBlock}
         ${typeof d.unlockedDifficulty === 'number' ? `<div class="summary-unlock">🔓 ${tt('Difficulty {d} unlocked!', { d: d.unlockedDifficulty })}</div>` : ''}
         ${d.unlockedChapter ? `<div class="summary-unlock summary-unlock--chapter">🔓 ${CHAPTER_UNLOCK_LINES[d.unlockedChapterId]
@@ -4091,7 +4092,7 @@ export function initUI(hooks) {
     else if (name === 'summary') renderSummary(data ?? {})
     else if (name === 'dev') renderDev(data ?? {})
     else if (name === 'codex') renderCodex(data ?? {})
-    const hudUnder = name === 'levelup' || name === 'pause'   // hud stays visible under these modals
+    const hudUnder = name === 'levelup' || (name === 'pause' && !data?.ended)   // hud stays visible under these modals
     // The level-up screen passes taps through to that HUD so its ⏸ works (styles.css). The
     // SKILL button is under there too and must stay dead — pressSkill latches (input.js), so a
     // stray tap beside the cards would fire the skill the instant the modal closes.
@@ -4331,6 +4332,8 @@ export function initUI(hooks) {
       // The summary's damage recap. One act for both directions (unlike the booster sheet's
       // open/close pair) because this is an inline fold with no backdrop to disambiguate a tap
       // against — the button is the only thing that can be hit.
+      case 'summary-build': playSfx('click'); if (lastSummaryData?.pause) showScreen('pause', lastSummaryData.pause); break
+      case 'summary-back': playSfx('click'); showScreen('summary', lastSummaryData ?? {}); break
       case 'dmg-toggle':
         dmgOpen = !dmgOpen
         playSfx('click')
@@ -4895,6 +4898,7 @@ export function initUI(hooks) {
   // sheet is reachable mid-choice; same in-flight guard as the ⏸ button above, same reason.
   window.addEventListener('game-pause', () => {
     if (active === 'levelup' && (lvRevealing || lvChoosing >= 0)) return
+    if (active === 'pause' && lastPauseData?.ended) { showScreen('summary', lastSummaryData ?? {}); return }
     if (active === 'hud' || active === 'pause' || active === 'levelup') hooks.onPauseToggle()
   })
 
