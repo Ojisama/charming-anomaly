@@ -4933,6 +4933,7 @@ export const PAUSE_COPY = {
   tagAnomaly: 'Anomaly', modsN: '{n} mods', mods1: '1 mod',
   quit: 'Quit run',
   quitArmed: 'Confirm quit',
+  build: 'Your build', // the end-of-run summary's door to this sheet, and the sheet's title there
   you: {
     hp: { label: 'HP', always: true },
     speed: { label: 'Speed', always: true },
