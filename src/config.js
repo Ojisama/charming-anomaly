@@ -3121,14 +3121,14 @@ export const WEAPONS = {
     levels: book3Levels({ dmg: 20, interval: 0.95, count: 1, r: 50, duration: 2.4, burn: 7 }, { range: ['r'] }),
   },
   // Obsidian Shards: volcanic glass flicked at the nearest foe (run.bullets, weapon 'obsidian'). A shard
-  // that KILLS bursts into splinters (weapon 'splinter') flying out of the body.
+  // STICKS in the foe and deals nothing (e.glassN, e._glassDmg); once the stuck shards add up to what
+  // it has left, it bursts and every stuck shard flies back out in a ring (weapon 'splinter').
   obsidianShards: {
     name: 'Obsidian Shards',
-    desc: 'Flicks volcanic glass at the nearest foe. A kill bursts it into splinters.',
+    desc: 'Flicks volcanic glass at the nearest foe. The shards stick in it and hurt nothing until there are enough to kill it, then it bursts and they all fly back out.',
     icon: '🔪', rarity: 'normal',
-    // balance_decision : owner: shards and splinters -20%, many small hits 2026-11-02
-    //  - splinters follow: SPLINTER_DMG_MUL is a share of this dmg
-    levels: book3Levels({ dmg: 12, interval: 0.6, count: 1, speed: 560, pierce: 1, splinters: 4 }),
+    // balance_decision : owner: shards -20%, many small hits 2026-11-02
+    levels: book3Levels({ dmg: 12, interval: 0.6, count: 1, speed: 560 }),
   },
   // Bellows: a blast of hot air at the nearest foe (run.novas, look 'bellows', a sector). Open
   // lava inside the blast FLARES: it burns longer and bursts at once (BELLOWS_FLARE_*).
@@ -4662,8 +4662,7 @@ export const WEAPON_MODS = {
     keenGlass:   { name: 'Keen Glass',   desc: 'shard damage', icon: '💥', base: 0.15, kind: 'pct' },
     glassVolley: { name: 'Glass Volley', desc: 'extra shard(s) per flick', icon: '🔷', kind: 'tier', values: { epic: 1, legendary: 2, mythic: 3 } },
     quickKnap:   { name: 'Quick Knap',   desc: 'flick rate', icon: '⏩', base: 0.15, kind: 'pct' },
-    shatter:     { name: 'Shatter',      desc: 'splinters per kill', icon: '✴️', kind: 'flat', values: { epic: 2, legendary: 3, mythic: 4 } },
-    razorEdge:   { name: 'Razor Edge',   desc: 'shard pierce', icon: '🎯', base: 1, kind: 'flat', maxPicks: PIERCE_MAX_PICKS },
+    shatter:     { name: 'Shatter',      desc: 'extra shard(s) when a foe bursts', icon: '✴️', kind: 'flat', values: { epic: 2, legendary: 3, mythic: 4 } },
   },
   bellows: {
     forgeHeat:   { name: 'Forge Heat',   desc: 'gust damage', icon: '💥', base: 0.15, kind: 'pct' },
@@ -6951,8 +6950,7 @@ export const SLAG_TICK = 0.3             // s between a puddle's burns
 export const OBSIDIAN_FAN = 0.14         // rad between shards of one flick
 export const OBSIDIAN_LIFE = 0.9         // s of flight
 export const OBSIDIAN_R = 8              // px hit radius
-export const SPLINTER_DMG_MUL = 0.55     // a splinter's damage, as a fraction of the shard that burst
-export const SPLINTER_LIFE = 0.34        // s of flight
+export const SPLINTER_LIFE = 0.34        // s of flight of a shard a burst foe throws back out
 export const SPLINTER_SPEED = 520        // px/s
 export const SPLINTER_R = 6              // px hit radius
 // THE BELLOWS SPLASHES A RIVER: up to max spots of lava river in the blast each spit a drop of slag

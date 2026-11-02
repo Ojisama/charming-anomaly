@@ -40828,19 +40828,39 @@ function testMagma() {
   const bOn = bombs(true), bOff = bombs(false)
   assert.ok(bOn.landed >= 3 && bOn.opened === bOn.landed, `run MG.c: every bomb landing should open lava: ${JSON.stringify(bOn)}`)
   assert.ok(bOff.landed >= 3 && bOff.opened === 0, `run MG.c: with the crust off a bomb still lands but opens nothing: ${JSON.stringify(bOff)}`)
-  // (d) a killing obsidian shard bursts into splinters
+  // (d) OBSIDIAN SHARDS STICK (owner, 2026-11-02): a shard deals nothing and stays in the foe until the
+  // stuck shards add up to its hp; the one that gets there kills it, and every stuck shard flies back out
   {
     const r = boot(32004)
     r.weapons = [{ id: 'obsidianShards', level: 1 }]
     stepSim(r, { x: 0, y: 0 }, 1 / 60)
-    r.enemies = []
-    r.enemies.push(makeStatusEnemy(r, { x: r.player.x + 120, y: r.player.y, hp: 1, speed: 0 }))
-    let splinters = 0
-    for (let i = 0; i < 90; i++) {
+    r.cracks.length = 0
+    const foe = makeStatusEnemy(r, { x: r.player.x + 120, y: r.player.y, hp: 100, speed: 0 })
+    r.enemies = [foe]
+    let stuckBefore = 0, hurtEarly = false, out = 0, shardDmg = 0
+    for (let i = 0; i < 600 && out === 0; i++) {
+      for (const b of r.bullets) if (b.weapon === 'obsidian') shardDmg = b.dmg
+      if (!foe._dead) stuckBefore = foe.glassN ?? 0
+      r.cracks.length = 0
       stepSim(r, { x: 0, y: 0 }, 1 / 60); r.events.length = 0
-      splinters = Math.max(splinters, r.bullets.filter((b) => b.weapon === 'splinter').length)
+      if (!foe._dead && foe.hp < foe.maxHP) hurtEarly = true
+      out = r.bullets.filter((b) => b.weapon === 'splinter').length
     }
-    assert.ok(splinters >= WEAPONS.obsidianShards.levels[0].splinters, `run MG.d: a killing shard should burst into ${WEAPONS.obsidianShards.levels[0].splinters} splinters, saw ${splinters}`)
+    const need = Math.ceil(100 / shardDmg)
+    assert.ok(!hurtEarly, `run MG.d: a stuck shard hurt the foe before the shards could kill it (hp ${foe.hp})`)
+    assert.ok(foe._dead, 'run MG.d: the foe never burst')
+    assert.strictEqual(stuckBefore, need - 1, `run MG.d: the foe should burst on shard ${need} (${shardDmg} dmg each), it held ${stuckBefore} before`)
+    assert.strictEqual(out, need, `run MG.d: a foe that burst on ${need} shards should throw ${need} back out, threw ${out}`)
+    // ...and another weapon's damage counts: 5 shards (60) stuck in a 100 hp foe, a 45 hit finishes it
+    const r2 = boot(32005)
+    r2.weapons = [{ id: 'obsidianShards', level: 1 }]
+    const other = makeStatusEnemy(r2, { x: r2.player.x + 300, y: r2.player.y, hp: 100, speed: 0 })
+    other.glassN = 5; other._glassDmg = 60
+    r2.enemies = [other]
+    dealDamage(r2, other, 45, false)
+    const thrown = (r2._splinterQ ?? []).length + r2.bullets.filter((b) => b.weapon === 'splinter').length
+    assert.ok(other._dead && thrown === 5, `run MG.d: 60 stuck + a 45 hit on 100 hp should burst it into 5 shards (dead ${other._dead}, thrown ${thrown})`)
+    console.log(`PASS run MG.d: ${need - 1} shards stuck for 0 damage, the ${need}th burst it into ${out}; another weapon finishes a stuck foe`)
   }
   // (e) the bellows flares open lava in its blast
   {
