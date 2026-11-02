@@ -4692,7 +4692,7 @@ export const WEAPON_MODS = {
     quickWick:   { name: 'Quick Wick',   desc: 'burn rate', icon: '⏩', base: 0.20, kind: 'pct' },
     openFlame:   { name: 'Open Flame',   desc: 'blast of the firedamp your glow lights', icon: '🔥', base: 0.30, kind: 'pct' },
     // balance_decision : owner picks, first guesses, unplayed 2026-11-01
-    safetyLamp:  { name: 'Safety Lamp',  desc: 'glow size and damage per firedamp pocket near you', icon: '🪔', base: 0.06, kind: 'pct' },
+    safetyLamp:  { name: 'Safety Lamp',  desc: 'glow size and damage per firedamp pocket near you', icon: '🪔', base: 0.05, kind: 'pct' },
     minersEye:   { name: "Miner's Eye",  desc: 'firedamp pockets around you', icon: '👁️', base: 0.30, kind: 'pct' },
     // balance_decision : owner pick, epic and up, unplayed 2026-11-01
     draught:     { name: 'Firebending', icon: '🌬️', kind: 'flat', maxPicks: 1, values: { epic: 1, legendary: 1, mythic: 1 },
