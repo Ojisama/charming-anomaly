@@ -6974,6 +6974,7 @@ export const FISSURE_GAP = 60            // px from you its lava starts: your ow
 export const FISSURE_STEP = 1.0          // px between its lava cracks, as a fraction of its width
 export const FISSURE_LAVA_T = 2.0        // s its lava stays open
 export const FISSURE_SPREAD = 0.45       // rad: a second fissure goes at a foe at least this far round
+export const FISSURE_GROW = 0.15         // s for the crack to run from you to its full length
 // ---- Book 3, The Mantle: weapon geometry (balance lives in WEAPONS[].levels) ----------------------
 export const COAL_FAN = 0.3              // rad between coals of one toss
 export const COAL_LIFE = 1.0             // s of flight (a bounce grants at least STAR_CHAIN_EXTRA_LIFE more)

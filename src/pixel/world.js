@@ -151,7 +151,7 @@ export function paintCrack(pc, v, stage) {
 // dark hairline from the thrower's feet that splits open into molten lava at gap, widest in the middle,
 // closing to a point at the tip, with short side cracks off it. cooled: the same crack, gone dark.
 // (ox, oy) is the line's start inside pc; lengths in art px. Inner colours win over outer ones.
-export function paintRift(pc, ox, oy, angle, L, Wd, gap, seed, cooled) {
+export function paintRift(pc, ox, oy, angle, L, Wd, gap, seed, cooled, reach = 1, open = 1) {
   const rank = new Int8Array(pc.w * pc.h)
   const put = (x, y, r, col) => {
     x = Math.floor(x); y = Math.floor(y)
@@ -163,12 +163,13 @@ export function paintRift(pc, ox, oy, angle, L, Wd, gap, seed, cooled) {
   const COL = cooled ? [P.ink, P.scab0, P.scab1, P.scab1, P.ash] : [P.ink, P.lava1, P.lava2, P.lava3, P.lava4]
   let off = 0, drift = 0
   const mids = []
-  for (let i = 3; i <= L; i += 0.5) {
+  const Lr = L * reach
+  for (let i = 3; i <= Lr; i += 0.5) {
     drift = drift * 0.9 + (hash(Math.floor(i), seed, 3) - 0.5) * 0.5
     off = off * 0.97 + drift * 0.5
-    const tip = Math.min(1, (L - i) / (L * 0.3))
-    const open = i < gap ? 0 : Math.min(1, (i - gap) / 5)
-    const hw = i < gap ? 0.5 : Math.max(0.7, (Wd / 2) * 0.7 * open * Math.sqrt(tip) * (0.75 + 0.5 * hash(Math.floor(i / 3), seed, 5)))
+    const tip = Math.min(1, (Lr - i) / (L * 0.3))
+    const lip = i < gap ? 0 : Math.min(1, (i - gap) / 5)
+    const hw = i < gap ? 0.5 : Math.max(0.7, (Wd / 2) * 0.7 * lip * open * Math.sqrt(tip) * (0.75 + 0.5 * hash(Math.floor(i / 3), seed, 5)))
     mids.push([i, off])
     for (let q = -hw - 1; q <= hw + 1; q += 0.5) {
       const [x, y] = at(i, off + q), aq = Math.abs(q)
@@ -182,11 +183,13 @@ export function paintRift(pc, ox, oy, angle, L, Wd, gap, seed, cooled) {
     }
   }
   // side cracks: short, splitting off at a slant, thin
-  const nb = 3 + Math.floor(hash(seed, 1, 7) * 4)
+  const nb = 3 + Math.floor(hash(seed, 1, 7) * 4), full = Math.floor((L - 3) * 2)
   for (let b = 0; b < nb; b++) {
-    const [i0, o0] = mids[Math.floor((0.25 + 0.6 * hash(seed, b, 11)) * (mids.length - 1))]
+    const k = Math.floor((0.25 + 0.6 * hash(seed, b, 11)) * full)
+    if (k >= mids.length) continue
+    const [i0, o0] = mids[k]
     const side = hash(seed, b, 13) < 0.5 ? -1 : 1
-    const len = 3 + hash(seed, b, 17) * 7, slant = 0.5 + hash(seed, b, 19) * 0.6
+    const len = (3 + hash(seed, b, 17) * 7) * open, slant = 0.5 + hash(seed, b, 19) * 0.6
     for (let u = 0; u <= len; u += 0.5) {
       const [x, y] = at(i0 + u * Math.cos(slant), o0 + side * u * Math.sin(slant))
       put(x, y, 1, COL[0])

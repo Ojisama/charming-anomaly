@@ -256,18 +256,23 @@ export function createPixelRig(env) {
   // slag lies UNDER the crust (the lava that burns must always read), shadows over both
   const subLayer = () => { const c = new Container(); ground.addChild(c); return c }
   const gPuddle = pool(subLayer()), gCrust = pool(subLayer()), gShadow = pool(subLayer())
-  // a Fissure's crack, baked once per line (sim's crack.line): line -> { lava, cool }, dropped when the line is gone
-  const rifts = new Map()
-  const dropRift = (ln) => { const b = rifts.get(ln); b.lava.tex.destroy(true); b.cool.tex.destroy(true); rifts.delete(ln) }
-  const bakeRift = (ln) => {
+  // A FISSURE LINE IS ONE BAKE, re-baked in steps as it tears out (RIFT_REACH steps) and opens wide
+  // (RIFT_OPEN steps over RIFT_OPEN_T s), then once more as cooled crust. Its origin sits on a whole
+  // art pixel and the sprite on the PX grid, or the CRT pass resamples its edges as the camera moves.
+  const RIFT_REACH = 6, RIFT_OPEN = 6, RIFT_OPEN_T = 0.5
+  const rifts = new Map()   // line -> { key, art }
+  const dropRift = (ln) => { rifts.get(ln).art.tex.destroy(true); rifts.delete(ln) }
+  const riftArt = (ln, reach, open, cooled) => {
+    const key = reach + '|' + open + '|' + cooled, had = rifts.get(ln)
+    if (had?.key === key) return had.art
     const L = ln.len / PX, Wd = ln.width / PX, cs = Math.cos(ln.angle), sn = Math.sin(ln.angle), pad = Math.ceil(Wd / 2) + 12
     const w = Math.ceil(Math.abs(cs) * L) + pad * 2, h = Math.ceil(Math.abs(sn) * L) + pad * 2
-    const ox = pad + (cs < 0 ? -cs * L : 0), oy = pad + (sn < 0 ? -sn * L : 0)
-    const one = (cooled) => { const pc = new PixelCanvas(w, h); paintRift(pc, ox, oy, ln.angle, L, Wd, FISSURE_GAP / PX, ln.seed, cooled); return bakeArt(pc, ox / w, oy / h) }
-    const b = { lava: one(false), cool: one(true) }
-    rifts.set(ln, b)
-    return b
-  }
+    const ox = pad + (cs < 0 ? Math.ceil(-cs * L) : 0), oy = pad + (sn < 0 ? Math.ceil(-sn * L) : 0)
+    const pc = new PixelCanvas(w, h)
+    paintRift(pc, ox, oy, ln.angle, L, Wd, FISSURE_GAP / PX, ln.seed, cooled, reach, open)
+    if (had) had.art.tex.destroy(true)
+    const art = bakeArt(pc, ox / w, oy / h)
+    rifts.set(ln, { key, art }); return art }
   const gPlate = pool(plateLayer)
   const aLob = pool(air), aGust = pool(air)
   const lights = pool(lightRoot, 'add')
@@ -451,6 +456,7 @@ export function createPixelRig(env) {
       let onLava = null
       gCrust.begin()
       const lines = new Map()   // this frame's fissure lines: line -> { lava, flared, end, cool }
+      for (const f of run.fissures || []) lines.set(f, { lava: true, flared: false, end: 9, cool: 0 })
       for (const c of run.cracks || []) {
         if (c.line) {
           const st = lines.get(c.line) ?? { lava: false, flared: false, end: 0, cool: 0 }
@@ -458,7 +464,7 @@ export function createPixelRig(env) {
           if (c.state === 'lava') {
             st.lava = true
             st.flared ||= (c._flareT ?? 0) > run.time
-            st.end = Math.max(st.end, c.lavaEnd - run.time)
+            st.end = Math.max(st.end === 9 ? 0 : st.end, c.lavaEnd - run.time)
             if (onScreen(c.x, c.y, c.r * 3)) {
               const v = v4(c.x, c.y), fl = 0.9 + 0.1 * Math.sin(t * 7 + v * 1.7)
               addLight(c.x, c.y, c.r * 3.4, L_LAVA, 0.7 * fl * (st.end < 0.5 ? Math.max(0.35, st.end / 0.5) : 1))
@@ -507,13 +513,20 @@ export function createPixelRig(env) {
       }
       for (const [ln, st] of lines) {
         if (!onScreen(ln.x + Math.cos(ln.angle) * ln.len / 2, ln.y + Math.sin(ln.angle) * ln.len / 2, ln.len)) continue
-        const b = rifts.get(ln) ?? Object.assign(bakeRift(ln), { t0: run.time })
-        const s = gCrust.next(st.lava ? b.lava : b.cool)
-        s.position.set(ln.x, ln.y)
+        const reach = Math.ceil((ln.front / ln.len) * RIFT_REACH - 1e-6) / RIFT_REACH
+        const age = (run.time - ln.t0) / RIFT_OPEN_T, open = age >= 1 ? 1 : Math.max(1, Math.ceil((1 - (1 - age) ** 2) * RIFT_OPEN)) / RIFT_OPEN
+        const s = gCrust.next(riftArt(ln, st.lava ? reach : 1, st.lava ? open : 1, !st.lava))
+        s.position.set(Math.round(ln.x / PX) * PX, Math.round(ln.y / PX) * PX)
         if (st.lava) {
-          // white-hot as it tears and when the bellows flares it, dull red its last half second
-          if (st.flared || run.time - b.t0 < 0.12) s.tint = 0xfff4d0
+          // white-hot while it tears and opens, and when the bellows flares it; dull red its last half second
+          if (st.flared || age < 1) s.tint = 0xfff4d0
           else if (st.end < 0.5) s.tint = 0xd88060
+          // the tip throws rock and lava as it runs
+          if (dt > 0 && ln.front < ln.len) {
+            const tx = ln.x + Math.cos(ln.angle) * ln.front, ty = ln.y + Math.sin(ln.angle) * ln.front
+            burst(tx, ty, 3, [...EMBERS, ...ASH], 180, 0.5)
+            addLight(tx, ty, 90, L_LAVA, 0.9)
+          }
         } else s.alpha = st.cool
       }
       for (const ln of [...rifts.keys()]) if (!lines.has(ln)) dropRift(ln)
@@ -707,16 +720,11 @@ export function createPixelRig(env) {
           burst(e.x, e.y, 9, EMBERS, 120, 0.45)
           flash(e.x, e.y, 90, L_SLAG, 0.5, 0.25)
           return true
-        case 'fissure': {
-          // the rock splitting: lava and broken crust thrown up all along the line
-          const c = Math.cos(e.angle), s = Math.sin(e.angle)
-          for (let d = 50; d <= e.len; d += 50) {
-            burst(e.x + c * d, e.y + s * d, 7, [...EMBERS, ...ASH], 200, 0.55)
-            flash(e.x + c * d, e.y + s * d, 80, L_LAVA, 0.7, 0.3)
-          }
+        case 'fissure':
+          // the rock splitting at your feet; the running tip throws the rest (see the rift draw)
+          burst(e.x, e.y, 6, [...EMBERS, ...ASH], 160, 0.45)
           env.addShake?.(3.5, 0.18)
           return true
-        }
       }
       return false
     },

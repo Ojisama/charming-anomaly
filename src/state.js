@@ -2260,10 +2260,13 @@ function generateWells(sig) {
  *     harmless), then gone. by = 'step' (the player's footsteps, or standing still), 'ant' (a Lava Ant's
  *     walk, LAVA_ANT), 'thinCrust'
  *     (the mutator's own cracks) or a weapon id ('fissure' opens a line of them already molten, each
- *     carrying line = { x, y, angle, len, width, seed }, shared by the whole line: render draws one
- *     crack along it instead of a pool per crack). _flareT
+ *     carrying line = its run.fissures entry, shared by the whole line: render draws one crack along
+ *     it instead of a pool per crack; a Bellows blast touching one flares them all). _flareT
  *     is the run.time until which a Bellows flare is lighting it. Empty with signature.crust null.
  *   slagPools[i]: { x, y, r, t, dur, burn, tick } — Slag Ladle puddles: burn every SLAG_TICK s.
+ *   fissures[i]: { x, y, angle, len, width, t0, front, seed, _hit, _dmg, _d, _lavaT } — a Fissure
+ *     crack running out from (x, y): front px grows to len in FISSURE_GROW s (hitting and opening lava
+ *     as it passes), then the entry leaves this list; its cracks keep it as crack.line.
  *   magmaLobs[i]: { kind: 'slag', fromX, fromY, x, y, t, flight, r, dmg, dur, burn } — a ladle of
  *     slag in the air (the Slag Ladle's, or a Bellows river splash); lands at t >= flight.
  *   Bullets: weapon 'obsidian' (Obsidian Shards), 'splinter' (a stuck shard a bursting foe throws back
@@ -3258,7 +3261,7 @@ export function createRun(meta, opts = {}) {
     // Book 3, The Mine (sim.js's Mine section): the firedamp field and the Mine's weapons' entities.
     gas: [], gasLit: [], sticks: [], picks: [], carts: [], lanternR: 0, lanternHeld: [], lanternJets: [], booms: [],
     // Book 3 The Magma (sim.js's Magma section): the crust's cracks, and the weapons' own entities.
-    cracks: [], slagPools: [], magmaLobs: [],
+    cracks: [], slagPools: [], magmaLobs: [], fissures: [],
     // Book 3 The Mantle (sim.js's Mantle section): the lava tide's state, made on the first step.
     lavaTide: null,
     polarity: null,   // The Core: your pole and its clock (stepPolarity builds it)

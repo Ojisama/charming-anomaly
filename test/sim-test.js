@@ -40844,7 +40844,10 @@ function testMagma() {
       r.weapons = [{ id: 'fissure', level }]
       r.weaponTimers.fissure = 1e-4
       stepSim(r, { x: 0, y: 0 }, 1 / 60)
-      return { r, p, foes, hurt: foes.map((e) => e.hp < 1e5), lines: r.events.filter((e) => e.type === 'fissure'), cracks: r.cracks.filter((c) => c.by === 'fissure') }
+      const first = foes.map((e) => e.hp < 1e5), lines = r.events.filter((e) => e.type === 'fissure')
+      r.events.length = 0
+      for (let i = 0; i < 30 && r.fissures.length; i++) { stepSim(r, { x: 0, y: 0 }, 1 / 60); r.events.length = 0 }
+      return { r, p, foes, first, hurt: foes.map((e) => e.hp < 1e5), lines, cracks: r.cracks.filter((c) => c.by === 'fissure') }
     } finally { sig.crust = saved }
   }
   {
@@ -40852,6 +40855,8 @@ function testMagma() {
     // nearest at +x 100; two more on that line, one past it; one as far off to the side
     const t = tear(true, 1, [[100, 0], [200, 0], [len - 20, 0], [0, 200]])
     assert.deepStrictEqual(t.hurt, [true, true, true, false], `run MG.c: a fissure hits every body on its line and none beside it: ${t.hurt}`)
+    // it runs out from your feet: the far body is not hit the instant it tears, only when the tip gets there
+    assert.ok(!t.first[2] && t.r.fissures.length === 0, `run MG.c: the crack should reach the far body only as it grows (first step hit ${t.first}, still growing ${t.r.fissures.length})`)
     assert.ok(t.cracks.length >= 4 && t.cracks.every((c) => c.state === 'lava' && Math.abs(c.y - t.p.y) < 1 && c.x - t.p.x >= FISSURE_GAP - 1 && c.x - t.p.x <= len + 1),
       `run MG.c: its lava lies along the line from ${FISSURE_GAP}px out: ${JSON.stringify(t.cracks.map((c) => [Math.round(c.x - t.p.x), Math.round(c.y - t.p.y), c.state]))}`)
     const off = tear(false, 1, [[100, 0], [200, 0]])
@@ -40874,6 +40879,18 @@ function testMagma() {
       return pair.map((e) => 1e5 - e.hp)
     })()
     assert.ok(burn[0] > 0 && burn[1] <= burn[0] * 1.01, `run MG.c: a body where two of its cracks overlap burns ${burn[1]} vs ${burn[0]} on one crack — it must not burn twice`)
+    // the Bellows blows down the crack: blasting its near end flares its far end, past the blast's reach
+    const blow = (() => {
+      const g = tear(true, 1, [[100, 0]])
+      const reachB = WEAPONS.bellows.levels[0].radius
+      g.r.weapons = [{ id: 'bellows', level: 1 }]
+      g.r.weaponTimers.bellows = 1e-4
+      g.foes[0].x = g.p.x + 100; g.foes[0].y = g.p.y
+      stepSim(g.r, { x: 0, y: 0 }, 1 / 60)
+      const far = g.r.events.filter((e) => e.type === 'lavaFlare' && Math.hypot(e.x - g.p.x, e.y - g.p.y) > reachB + 40)
+      return { far: far.length, reachB }
+    })()
+    assert.ok(blow.far > 0, `run MG.c: a Bellows blast at the near end of a fissure should flare it past its own ${blow.reachB}px reach`)
     // out of reach it holds its tear, and tears the moment the foe walks in
     {
       const far = tear(true, 1, [[len + 80, 0]])
@@ -40882,7 +40899,7 @@ function testMagma() {
       stepSim(far.r, { x: 0, y: 0 }, 1 / 60)
       assert.ok(far.r.events.some((e) => e.type === 'fissure'), 'run MG.c: held out of reach for 2.5s, it should tear the moment a foe walks in')
     }
-    console.log(`PASS run MG.c: a fissure hits its line (${t.hurt}), lays ${t.cracks.length} lava cracks from ${FISSURE_GAP}px out, none with the crust off; overlap burns ${burn[1].toFixed(0)} vs ${burn[0].toFixed(0)}; holds its tear out of reach; L5 tears ${three.lines.length} lines at ${three.foes.length} foes`)
+    console.log(`PASS run MG.c: a fissure hits its line (${t.hurt}), lays ${t.cracks.length} lava cracks from ${FISSURE_GAP}px out, none with the crust off; overlap burns ${burn[1].toFixed(0)} vs ${burn[0].toFixed(0)}; holds its tear out of reach; grows to its far foe; Bellows flares ${blow.far} cracks past ${blow.reachB}px; L5 tears ${three.lines.length} lines at ${three.foes.length} foes`)
   }
   // (d) OBSIDIAN SHARDS STICK (owner, 2026-11-02): a shard deals nothing and stays in the foe until the
   // stuck shards add up to its hp; the one that gets there kills it, and every stuck shard flies back out
