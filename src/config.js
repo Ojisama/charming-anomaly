@@ -3126,7 +3126,9 @@ export const WEAPONS = {
     name: 'Obsidian Shards',
     desc: 'Flicks volcanic glass at the nearest foe. A kill bursts it into splinters.',
     icon: '🔪', rarity: 'normal',
-    levels: book3Levels({ dmg: 15, interval: 0.6, count: 1, speed: 560, pierce: 1, splinters: 4 }),
+    // balance_decision : owner: shards and splinters -20%, many small hits 2026-11-02
+    //  - splinters follow: SPLINTER_DMG_MUL is a share of this dmg
+    levels: book3Levels({ dmg: 12, interval: 0.6, count: 1, speed: 560, pierce: 1, splinters: 4 }),
   },
   // Bellows: a blast of hot air at the nearest foe (run.novas, look 'bellows', a sector). Open
   // lava inside the blast FLARES: it burns longer and bursts at once (BELLOWS_FLARE_*).
