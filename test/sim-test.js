@@ -2362,6 +2362,9 @@ function testAnomalySlate() {
         }
         let best = 0
         for (let i = 0; i < 900; i++) {
+          // drained per step as main.js drains per frame, so an fx key counts ONE step's casts,
+          // not every heading the weapon wandered through over the whole loop
+          r.events.length = 0
           stepSim(r, stick, dt)
           // A moving player would otherwise leave the ring of targets behind within a second, and
           // every weapon that aims at an enemy would then measure an empty field. Pinning keeps the
@@ -21091,6 +21094,7 @@ try {
   run(testAnomalyTier)
   run(testChapterLateRate)
   run(testAnomalySlate)
+  run(testPlus5Rule)
   run(testAnomalyPity)
   run(testRerollRarity)
   run(testStarMods)
@@ -40728,6 +40732,36 @@ function testMine() {
 // a body standing on it with no weapon equipped; (c) a Volcanic Bomb landing opens lava where it
 // lands (none with the crust off); (d) an Obsidian shard that kills bursts into splinters; (e) the
 // Bellows flares open lava in front of you (it stays open longer).
+// run R5: the owner's weapon rule for Book 3 from The Magma on (2026-11-02). Every level is +5%
+// damage, fire rate and range over level 1 and nothing else; a percent mod is 15% (damage, rate,
+// range) or 25% (anything else) at normal; a mod that adds projectiles rolls epic and up only.
+function testPlus5Rule() {
+  const ladder = BOOKS.burrow.chapters
+  const ids = [...new Set(ladder.slice(ladder.indexOf('magma')).flatMap((c) => CHAPTERS[c].weapons))]
+  assert.ok(ids.includes('bellows') && ids.includes('sling') && ids.length >= 12, 'R5: denominator ' + ids)
+  const near = (a, b) => Math.abs(a - b) < 1e-9 * Math.max(1, Math.abs(b))
+  for (const id of ids) {
+    const L = WEAPONS[id].levels, l1 = L[0]
+    assert.strictEqual(L.length, 5, id)
+    L.forEach((l, i) => {
+      const k = 1 + 0.05 * i
+      assert.ok(near(l.dmg, l1.dmg * k), `R5: ${id} L${i + 1} dmg is ${l.dmg}, not +${5 * i}%`)
+      for (const key of Object.keys(l1)) {
+        if (key === 'dmg') continue
+        assert.ok(near(l[key], l1[key]) || near(l[key], l1[key] * k) || near(l[key], l1[key] / k),
+          `R5: ${id} L${i + 1} ${key} ${l[key]} is neither level 1 nor +5% per level`)
+      }
+      for (const key of ['count', 'pierce', 'bounces', 'moons', 'lodestones', 'pools', 'splinters'])
+        if (key in l1) assert.strictEqual(l[key], l1[key], `R5: ${id} L${i + 1} grows ${key}`)
+    })
+    for (const [mid, m] of Object.entries(WEAPON_MODS[id] ?? {})) {
+      if (m.kind === 'pct') assert.ok(m.base === 0.15 || m.base === 0.25, `R5: ${id}.${mid} base ${m.base}`)
+      if (m.kind === 'tier') assert.ok(m.values && !('normal' in m.values) && !('rare' in m.values), `R5: ${id}.${mid} adds projectiles below epic`)
+    }
+  }
+  console.log(`PASS run R5: ${ids.length} weapons from The Magma on (${ids.join(', ')}) level +5% and roll their mods by the rule`)
+}
+
 function testMagma() {
   const meta = () => { const m = makeMeta(); m.dev = true; return m }
   const sig = CHAPTERS.magma.signature
