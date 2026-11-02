@@ -206,6 +206,11 @@ src path as argv). That also keeps the mutation rule intact — the working tree
   right bytes. (This repo has no unload handler; `state.js` says so explicitly. If a seed looks
   ignored, suspect the reload or the save shape, not a clobber.) Open tabs share localStorage —
   use isolated browser contexts or close extras first.
+- **A seed script that CLICKS the title screen must wait ~2s after `.bookcase` first exists.** The
+  shelf is placed and redrawn just after it appears, so a click fired the moment it shows up lands
+  on a node that is about to be replaced, and the shot comes back as if the click never happened —
+  which reads exactly like "tapping this does nothing", a real bug class on this screen. Poll for
+  `.bookcase`, then `setTimeout(click, 2000)`, and shoot 20s+ in (first vite compile is slow).
 - **A seeded save MUST carry `shop: {}`.** `loadMeta` does `m.shop[id] = …` inside its own
   try/catch, so a save without it throws and falls back to a FRESH meta (with only a
   `console.warn` — read the console) — the
