@@ -469,7 +469,6 @@ export function createPixelRig(env) {
               const v = v4(c.x, c.y), fl = 0.9 + 0.1 * Math.sin(t * 7 + v * 1.7)
               addLight(c.x, c.y, c.r * 3.4, L_LAVA, 0.7 * fl * (st.end < 0.5 ? Math.max(0.35, st.end / 0.5) : 1))
             }
-            if (p && Math.hypot(p.x - c.x, p.y - c.y) < c.r + 6) onLava = c
           } else if (c.state === 'cool') st.cool = Math.max(st.cool, Math.min(1, (c.coolEnd - run.time) / (c.coolT || 1)))
           continue
         }

@@ -18652,7 +18652,8 @@ function stepCrust(run, dt) {
     }
     if (c.state === 'lava') {
       if (run.time >= c.lavaEnd) { c.state = 'cool'; c.coolEnd = run.time + c.coolT; continue }
-      if ((p.x - c.x) ** 2 + (p.y - c.y) ** 2 <= (c.r + PLAYER.radius * 0.3) ** 2) onLava = true
+      // a Fissure's lava is the player's own: it never burns them
+      if (c.by !== 'fissure' && (p.x - c.x) ** 2 + (p.y - c.y) ** 2 <= (c.r + PLAYER.radius * 0.3) ** 2) onLava = true
       c.tick -= dt
       if (c.tick > 0) continue
       c.tick += C.tick

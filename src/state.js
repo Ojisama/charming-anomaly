@@ -2261,7 +2261,7 @@ function generateWells(sig) {
  *     walk, LAVA_ANT), 'thinCrust'
  *     (the mutator's own cracks) or a weapon id ('fissure' opens a line of them already molten, each
  *     carrying line = its run.fissures entry, shared by the whole line: render draws one crack along
- *     it instead of a pool per crack; a Bellows blast touching one flares them all). _flareT
+ *     it instead of a pool per crack; a Bellows blast touching one flares them all; it never burns the player). _flareT
  *     is the run.time until which a Bellows flare is lighting it. Empty with signature.crust null.
  *   slagPools[i]: { x, y, r, t, dur, burn, tick } — Slag Ladle puddles: burn every SLAG_TICK s.
  *   fissures[i]: { x, y, angle, len, width, t0, front, seed, _hit, _dmg, _d, _lavaT } — a Fissure

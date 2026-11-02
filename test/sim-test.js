@@ -40892,6 +40892,17 @@ function testMagma() {
       return { far: far.length, reachB }
     })()
     assert.ok(blow.far > 0, `run MG.c: a Bellows blast at the near end of a fissure should flare it past its own ${blow.reachB}px reach`)
+    // its lava never burns the player; the same cracks from anything else do (the control)
+    const self = ['fissure', 'ctrl'].map((by) => {
+      const g = tear(true, 1, [[100, 0]])
+      g.r.weapons = []; g.r.enemies = []
+      for (const c of g.r.cracks) if (c.by === 'fissure') c.by = by
+      const spot = g.r.cracks.filter((c) => c.state === 'lava')[2]
+      const hp0 = g.r.player.hp
+      for (let i = 0; i < 60; i++) { g.r.player.x = spot.x; g.r.player.y = spot.y; g.r.player.invuln = 0; g.r.cracks = g.r.cracks.filter((c) => c.by !== 'step'); stepSim(g.r, { x: 0, y: 0 }, 1 / 60); g.r.events.length = 0 }
+      return hp0 - g.r.player.hp
+    })
+    assert.ok(self[0] === 0 && self[1] > 0, `run MG.c: a fissure's lava must not burn the player (lost ${self[0]}); other lava must (lost ${self[1]})`)
     // out of reach it holds its tear, and tears the moment the foe walks in
     {
       const far = tear(true, 1, [[len + 80, 0]])
@@ -40900,7 +40911,7 @@ function testMagma() {
       stepSim(far.r, { x: 0, y: 0 }, 1 / 60)
       assert.ok(far.r.events.some((e) => e.type === 'fissure'), 'run MG.c: held out of reach for 2.5s, it should tear the moment a foe walks in')
     }
-    console.log(`PASS run MG.c: a fissure hits its line (${t.hurt}), lays ${t.cracks.length} lava cracks from ${FISSURE_GAP}px out, none with the crust off; overlap burns ${burn[1].toFixed(0)} vs ${burn[0].toFixed(0)}; holds its tear out of reach; grows to its far foe; Bellows flares ${blow.far} cracks past ${blow.reachB}px; L5 tears ${three.lines.length} lines at ${three.foes.length} foes`)
+    console.log(`PASS run MG.c: a fissure hits its line (${t.hurt}), lays ${t.cracks.length} lava cracks from ${FISSURE_GAP}px out, none with the crust off; overlap burns ${burn[1].toFixed(0)} vs ${burn[0].toFixed(0)}; holds its tear out of reach; spares the player (${self[0]} vs ${self[1]} hp on other lava); grows to its far foe; Bellows flares ${blow.far} cracks past ${blow.reachB}px; L5 tears ${three.lines.length} lines at ${three.foes.length} foes`)
   }
   // (d) OBSIDIAN SHARDS STICK (owner, 2026-11-02): a shard deals nothing and stays in the foe until the
   // stuck shards add up to its hp; the one that gets there kills it, and every stuck shard flies back out
