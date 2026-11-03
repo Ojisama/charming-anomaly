@@ -2287,9 +2287,11 @@ function generateWells(sig) {
  *     {type:'slagSplash', x, y, r}; {type:'fissure', x, y, angle, len, width} the Fissure tore a
  *     line from (x, y); {type:'lavaBurn', x, y} a body
  *     burned on lava (throttled); {type:'lavaAntEmerge', x, y} a Lava Ant came up out of the lava (a
- *     lavaBorn spawn, LAVA_ANT). Drawn by src/pixel.js (render.js's magmaEvent); none has a sound
+ *     lavaBorn spawn and each of its group, LAVA_ANT). Drawn by src/pixel.js (render.js's magmaEvent); none has a sound
  *     but fissure.
  *   enemies[i].flags 'lavaBorn' (the Lava Ant): lava never burns it, the river bank does not hold it.
+ *   enemies[i].emergeT: seconds left crawling out of the lava (a Lava Ant that came up out of it,
+ *     LAVA_ANT.emerge); it does not move until 0. render.js draws the climb off it.
  *
  * BOOK 3, THE MANTLE (sim.js's Mantle section; every drawing is src/toon.js's, reached through
  * render.js's thin toon delegation — CHAPTERS.mantle.render.toon).

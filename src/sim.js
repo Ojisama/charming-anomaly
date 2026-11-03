@@ -4919,10 +4919,12 @@ function spawnEnemy(run, opts = {}) {
     const [gMin, gMax] = roster.group
     const n = gMin + Math.floor(Math.random() * (gMax - gMin + 1))
     for (let k = 1; k < n; k++) {
-      const a = Math.random() * Math.PI * 2, d = radius * (2.2 + Math.random() * 2)
+      // a group that came up out of the lava comes up out of the SAME lava, beside its leader
+      const a = Math.random() * Math.PI * 2, d = radius * (emerged ? 0.6 + Math.random() * 0.8 : 2.2 + Math.random() * 2)
       const gx = x + Math.cos(a) * d, gy = y + Math.sin(a) * d
       if (born.habitat && habitatOn(run) && !atHome(born, mantleGroundAt(run, gx, gy))) continue
-      spawnEnemy(run, { rosterId: roster.id, type, x: gx, y: gy, forceNormal: true, deferred: opts.deferred })
+      const kid = spawnEnemy(run, { rosterId: roster.id, type, x: gx, y: gy, forceNormal: true, deferred: opts.deferred })
+      if (emerged && kid) { kid.emergeT = LAVA_ANT.emerge; run.events.push({ type: 'lavaAntEmerge', x: kid.x, y: kid.y }) }
     }
   }
   // v6.3 dispatch beat (CHAPTERS[].dispatch, currently city only): a REAL elite birth here — never
@@ -4930,7 +4932,7 @@ function spawnEnemy(run, opts = {}) {
   // "pest control has been reported" fiction beat. render.js draws the strobe, main.js plays the
   // siren, ui.js shows the HUD line.
   if (isElite && CHAPTERS[run.chapter].dispatch) run.events.push({ type: 'dispatch', x, y })
-  if (emerged) run.events.push({ type: 'lavaAntEmerge', x, y })
+  if (emerged) { born.emergeT = LAVA_ANT.emerge; run.events.push({ type: 'lavaAntEmerge', x, y }) }
   return born
 }
 
@@ -5214,6 +5216,8 @@ function stepEnemyMovement(run, dt) {
     // Book 3: a mole underground is moved by stepTunnels, not by any machine below — but its hit
     // flash still fades, or a mole struck as it dives stays white for the whole tunnel.
     if (e.burrowed) { if (e.hitFlash > 0) e.hitFlash = Math.max(0, e.hitFlash - dt); continue }
+    // a Lava Ant crawling out of the lava (emergeT, LAVA_ANT.emerge) holds its spot until it is out
+    if (e.emergeT > 0) { e.emergeT = Math.max(0, e.emergeT - dt); if (e.hitFlash > 0) e.hitFlash = Math.max(0, e.hitFlash - dt); continue }
     const ox = e.x, oy = e.y
     e._ox = ox; e._oy = oy; e._oT = run.time   // where this frame's move started: stepSlime reads it
     // Seek target: the player by default, or the nearest Pheromone Lure decoy (v5.3 garden) whose

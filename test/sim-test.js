@@ -24,6 +24,7 @@ import { magmaGroundAt, magmaRiverAt, magmaCooledAt, magmaHotAt } from '../src/s
 import { lavaFloodedAt, mantleHeightAt, lavaLineFor, mantleGroundAt } from '../src/sim.js'
 import { ECHO_DOUBLE_DELAY, ECHO_DOUBLE_DMG_FRAC, modPct, LODESTONE_HOLD } from '../src/config.js'
 import { LANTERN_FUSE, SAFETY_LAMP_SENSE, FIREBEND_R_PER_JET } from '../src/config.js'
+import { LAVA_ANT } from '../src/config.js'
 import { SLIME_STEP, SLIME_R, SLIME_DUR, SLIME_MAX, SLIME_SPEED_MUL } from '../src/config.js'
 import { MANTLE_GROUND_STEP, MANTLE_START_DRY, MANTLE_COLD_VS_LAVA, MANTLE_FIRE_VS_ROCK, MANTLE_STRAND_DIE_T, MANTLE_STRAND_STUCK_T, MANTLE_STRAND_DMG_MUL, MANTLE_STRAND_SLOW, MANTLE_MELT_T, KETTLE_CRUST_GNAW, KETTLE_CRUST_GNAW_MAX, KETTLE_HULL_MAX, KETTLE_STEAM_MUL, DRAW_CAPS } from '../src/config.js'
 import { poolRimR, crustShapeOf, poolPhaseOf, crustSplash, splashSdf, SPLASH_FINGERS, SPLASH_DROPS } from '../src/mantle-shape.js'
@@ -41146,7 +41147,38 @@ function testMagma() {
   }
   const thin = wild(['thinCrust']), plainWild = wild([])
   assert.ok(thin >= 10 && plainWild === 0, `run MG.f: Thin Crust should crack the floor away from you on its own: ${thin} vs ${plainWild}`)
-  console.log(`PASS run MA (The Magma): still burn ${stillOn.lava} vs 0 off; walking ${walk.steps} footstep lava openings, 0 off; lava killed a parked body; the fissure tore its line; a killing shard burst; the bellows flared the lava; Hot Feet opens in ${hotOpen.toFixed(2)}s vs ${plainOpen.toFixed(2)}s; Thin Crust cracked ${thin} spots on its own`)
+  // (g) a Lava Ant crawling out of the lava holds its spot for LAVA_ANT.emerge, then walks
+  let antHold
+  {
+    const ant = CHAPTERS.magma.roster.find((x) => x.id === 'lavaAnt')
+    const saved = { weight: ant.weight, minT: ant.minT }
+    ant.weight = 60; ant.minT = 0
+    try {
+      const r = boot(32008)
+      r.time = 40
+      let born = []
+      for (let i = 0; i < 3000 && !born.length; i++) {
+        if (r.phase === 'levelup') { r.phase = 'playing'; r.levelUpChoices = [] }
+        r.weapons = []
+        r.player.hp = r.player.maxHP
+        stepSim(r, circle(r), 1 / 60)
+        if (r.events.some((e) => e.type === 'lavaAntEmerge')) born = r.enemies.filter((e) => e.emergeT > 0)
+        r.events.length = 0
+      }
+      assert.ok(born.length >= 2, `run MG.g: a Lava Ant group should come up out of the lava (${born.length} climbing)`)
+      const at = born.map((e) => [e.x, e.y]), spread = Math.max(...born.map((e) => Math.hypot(e.x - born[0].x, e.y - born[0].y)))
+      // the group shoves itself apart a few px as it surfaces (it came up in one spot); walking is tens of px
+      let drift = 0
+      advance(r, LAVA_ANT.emerge, circle, () => { for (const [k, e] of born.entries()) if (r.enemies.includes(e) && e.emergeT > 0) drift = Math.max(drift, Math.hypot(e.x - at[k][0], e.y - at[k][1])) })
+      assert.ok(drift < 8, `run MG.g: a climbing ant must not walk: it moved ${drift.toFixed(1)}px before it was out`)
+      advance(r, 1, circle)
+      const walked = born.filter((e, k) => r.enemies.includes(e) && Math.hypot(e.x - at[k][0], e.y - at[k][1]) > 10).length
+      assert.ok(walked >= 1, 'run MG.g: once out of the lava the ants should walk')
+      assert.ok(spread < 120, `run MG.g: the group should come up together, not ${spread.toFixed(0)}px apart`)
+      antHold = `${born.length} Lava Ants climbing drifted ${drift.toFixed(1)}px then ${walked} walked, ${spread.toFixed(0)}px apart`
+    } finally { Object.assign(ant, saved) }
+  }
+  console.log(`PASS run MA (The Magma): ${antHold}; still burn ${stillOn.lava} vs 0 off; walking ${walk.steps} footstep lava openings, 0 off; lava killed a parked body; the fissure tore its line; a killing shard burst; the bellows flared the lava; Hot Feet opens in ${hotOpen.toFixed(2)}s vs ${plainOpen.toFixed(2)}s; Thin Crust cracked ${thin} spots on its own`)
 }
 
 // ---- run MF: The Magma's floor — lava rivers, cooled flows, hot ground ---------------------------
