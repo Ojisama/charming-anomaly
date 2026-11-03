@@ -270,7 +270,7 @@ import {
   HAMMER_RANGE, KETTLE_RANGE, KETTLE_LAVA_STEP, HAMMER_POOL_DPS, HAMMER_POOL_TICK, HAMMER_POOL_PLAYER_DPS, HAMMER_POOL_MIRE, LAVA_WAVE_LIFE, LAVA_WAVE_SHOVE_MUL,
   MANTLE_COLD_VS_LAVA, MANTLE_FIRE_VS_ROCK,
   noiseAt,
-  MANTLE_GROUND_STEP, MANTLE_START_DRY, MANTLE_STRAND_STUCK_T, MANTLE_STRAND_SLOW, MANTLE_STRAND_DIE_T, MANTLE_STRAND_DMG_MUL,
+  MANTLE_GROUND_STEP, MANTLE_START_DRY, MANTLE_STRAND_SLOW, MANTLE_STRAND_FREE_T, strandStone, MANTLE_STRAND_DMG_MUL,
   MANTLE_MELT_T, MANTLE_SPAWN_TRIES,
   KETTLE_CRUST_GNAW, KETTLE_CRUST_GNAW_MAX, KETTLE_STEAM_MUL, KETTLE_STEAM_R, KETTLE_HULL_COOL, KETTLE_HULL_MAX,
   SLING_LATCH_SHARE, IRON_BALL_R, IRON_BALL_LIFE, MOON_R, MOON_TUG_SWIRL, LODESTONE_FUSE, LODESTONE_SPREAD, LODESTONE_HOLD,
@@ -10584,6 +10584,8 @@ export function dealDamage(run, enemy, dmg, crit, dot = false, hazard = false, c
     // bit-for-bit unchanged.
     if (enemy.elite && (run.weaponMods.gnash?.gorge ?? 0) > 0) healPlayer(run, GORGE_HEAL)
     run.events.push({ type: 'kill', x: enemy.x, y: enemy.y, elite: enemy.elite, etype: enemy.type })
+    // killed while stranded (stone or turning): it crumbles
+    if (enemy.habitat === 'lava' && enemy.strandT > 0) run.events.push({ type: 'crumble', x: enemy.x, y: enemy.y, r: enemy.radius, rosterId: enemy.rosterId })
 
     // JACKPOT (v7.x, The Trawl's sea turtle — CHAPTERS[].roster[].jackpot): a kill that pays a
     // whole level on the spot and scatters a pile of coins. The level is the Reef's lap idiom
@@ -19423,7 +19425,7 @@ function holdHabitat(run) {
       }
     }
     let k = 1
-    if (e.habitat === 'lava' && e.strandT > 0) k = MANTLE_STRAND_SLOW * Math.max(0, 1 - e.strandT / MANTLE_STRAND_STUCK_T)
+    if (e.habitat === 'lava' && e.strandT > 0) k = MANTLE_STRAND_SLOW * (1 - strandStone(e.strandT))
     else if (e.habitat === 'rock' && g === 1) k = HAMMER_POOL_MIRE
     if (k < 1) {
       e.x = e._hx + (e.x - e._hx) * k; e.y = e._hy + (e.y - e._hy) * k
@@ -19433,20 +19435,19 @@ function holdHabitat(run) {
   }
 }
 // The clocks (inside stepLavaTide, after the line moved): e.strandT (s a lava creature has been on
-// dry rock; 0 at home) crumbles it at MANTLE_STRAND_DIE_T; e.meltT (s a rock creature has been under
-// the TIDE; a pool burns it instead) melts it at MANTLE_MELT_T. Both deaths pay the body's xp.
+// dry rock; 0 at home) turns it to stone and back (strandStone), then frees it at MANTLE_STRAND_FREE_T,
+// and e._thawed keeps it free on rock until it is back in lava; a kill while stranded is a crumble
+// (killEnemy). e.meltT (s a rock creature has been under the TIDE; a pool burns it instead) melts it
+// at MANTLE_MELT_T, paying the body's xp.
 function stepHabitatClocks(run, dt) {
   for (const e of run.enemies) {
     if (!habitatBody(e)) continue
     const g = e.ground ?? mantleGroundAt(run, e.x, e.y)
     if (e.habitat === 'lava') {
-      if (g > 0) e.strandT = 0
-      else if (!leapingFree(e)) {
+      if (g > 0) { e.strandT = 0; e._thawed = false }
+      else if (!e._thawed && !leapingFree(e)) {
         e.strandT = (e.strandT ?? 0) + dt
-        if (e.strandT >= MANTLE_STRAND_DIE_T && !damageImmune(e)) {
-          run.events.push({ type: 'crumble', x: e.x, y: e.y, r: e.radius, rosterId: e.rosterId })
-          habitatKill(run, e)
-        }
+        if (e.strandT >= MANTLE_STRAND_FREE_T) { e.strandT = 0; e._thawed = true }
       }
     } else if (g === 2) {
       e.meltT = (e.meltT ?? 0) + dt

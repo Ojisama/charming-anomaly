@@ -2355,9 +2355,11 @@ function generateWells(sig) {
  *     the old rule, it burns in lava); ground 0 | 1 | 2 (mantleGroundAt where it stands, published
  *     after it moved); strandT s a lava creature has lain on dry rock (0 at home: it crawls at
  *     MANTLE_STRAND_SLOW falling to a stop at MANTLE_STRAND_STUCK_T, takes MANTLE_STRAND_DMG_MUL x
- *     damage, crumbles at MANTLE_STRAND_DIE_T); meltT s a rock creature has stood under the TIDE
+ *     damage, is stone per strandStone(strandT), crumbles if killed while > 0, back to 0 when it thaws
+ *     at MANTLE_STRAND_FREE_T); meltT s a rock creature has stood under the TIDE
  *     (melts at MANTLE_MELT_T; a pool burns it instead). Private: _hx, _hy, _hg, _hin (where it stood
- *     before this step's moves, and whether that was home).
+ *     before this step's moves, and whether that was home); _thawed (thawed on rock: no strandT until
+ *     it is back in lava).
  *   roster.group [min, max] (the Ember Jelly): an ordinary ring spawn of it brings min..max bodies,
  *     the rest seated round the first on the same ground (spawnEnemy; no new field on the enemy).
  *   Bullets: weapon 'coal' (Hot Coals, chains via _chainsLeft; may carry _ignite, a potency for

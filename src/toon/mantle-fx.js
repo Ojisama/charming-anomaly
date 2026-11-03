@@ -15,197 +15,28 @@
 //                      hull and a wake while it moves, beached and listing on rock; sinking (floatT) it
 //                      lists, the lava climbs its side and pours into the hold, over your boots below half,
 //                      steam and bubbles near the end; event boatSink: it goes under in a splash of planks
-//   enemies            strandT (a lava creature on dry rock: a crust creeps in over it), meltT (a rock
+//   enemies            strandT (a lava creature on dry rock: it acts it out in its own sprite, cast.js's
+//                      stranded poses; here its own lava setting into a crust round it, dust), meltT (a rock
 //                      creature under the tide: panic, slump, a puddle with its eyes in it)
 //   events             melt (a splat, a steam puff, drops) and crumble (chunks, dust); both return true
-//
-// THE BASALT SKIN (a stranded creature's shell): one quad and one shader over a baked atlas of
-// 3 shapes of slabs holding per texel the distance to the nearest seam (r), the relief (g), the depth
-// into the shape from its edge (b) and the slab's sinking order (a: edge slabs first).
-import { Container, Graphics, Mesh, MeshGeometry, Shader, UniformGroup, BufferImageSource, CanvasSource, Texture, Sprite } from 'pixi.js'
+
+import { Container, Graphics, CanvasSource, Texture, Sprite } from 'pixi.js'
 import { PAL, TAU, hexNum, mkCanvas, freeCanvas } from './palette.js'
 import { resetXf, ell, polar, tube, qb, line, cel, eye, drop, spline, setPaper } from './brush.js'
 import { mantleHeightAt } from '../sim.js'
-import { MANTLE_STRAND_STUCK_T, MANTLE_STRAND_DIE_T, MANTLE_MELT_T, DRAW_CAPS } from '../config.js'
+import { strandStone, MANTLE_MELT_T, DRAW_CAPS } from '../config.js'
+import { TOON_CAST, setCastClock, STRAND_CRUMBLE } from './cast.js'
 // the crust's and the pool's edges are the sim's own (what is drawn is what is solid)
-import { rh, crustEdgeR as edgeR, poolRimDepth, CRUST_SHAPES as SHAPES } from '../mantle-shape.js'
+import { rh, poolRimDepth } from '../mantle-shape.js'
 
 const C = {
-  ink: hexNum(PAL.ink), paper: hexNum(PAL.paper), basalt: hexNum(PAL.basalt),
+  ink: hexNum(PAL.ink), inkSoft: hexNum(PAL.inkSoft), white: hexNum(PAL.white), paper: hexNum(PAL.paper), basalt: hexNum(PAL.basalt),
   lavaDeep: hexNum(PAL.lavaDeep), lava: hexNum(PAL.lava), lavaHot: hexNum(PAL.lavaHot), lavaGlow: hexNum(PAL.lavaGlow),
   lavaWhite: hexNum(PAL.lavaWhite), trough: 0x5a1a12, scorch: 0x221520,
 }
-// the pattern of the basalt skin (the raft, a stranded creature's shell): slabs, seams cooled / opened at full heat
-const PATTERN = 'c'
-const SEAM0 = 0.012, SEAM_GROW = 0.034
-
-const ART_N = 256          // texels per shape side
-const ART_A = 1.2          // the art quad's half-size, in crust radii
-
-// ---------------------------------------------------------------- noise (bake time only)
-// value noise off a 256^2 lattice of hashes, made once (a hash per corner per sample was most of the bake)
-let LAT = null
-function vn(x, y, s) {
-  if (!LAT) { LAT = new Float32Array(65536); for (let i = 0; i < 65536; i++) LAT[i] = rh(i & 255, i >> 8, 77) }
-  const xi = Math.floor(x), yi = Math.floor(y), fx = x - xi, fy = y - yi
-  const ux = fx * fx * (3 - 2 * fx), uy = fy * fy * (3 - 2 * fy)
-  const X = (xi + s * 57) & 255, Y = ((yi + s * 131) & 255) << 8, X1 = (X + 1) & 255, Y1 = (Y + 256) & 65280
-  const a = LAT[X | Y], b = LAT[X1 | Y], c = LAT[X | Y1], d = LAT[X1 | Y1]
-  return (a + (b - a) * ux) * (1 - uy) + (c + (d - c) * ux) * uy
-}
-const fbm = (x, y, s) => (vn(x, y, s) * 0.5 + vn(x * 2.03, y * 2.03, s + 1) * 0.25 + vn(x * 4.1, y * 4.1, s + 2) * 0.125) / 0.875
 const hyp = (x, y) => Math.sqrt(x * x + y * y)
 const smooth = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t) }
 const clamp01 = (x) => Math.max(0, Math.min(1, x))
-
-// distance to the nearest Voronoi bisector of a jittered grid of spacing sp (by cells: cheap at any density)
-function worley(x, y, sp, s) {
-  const gx = Math.floor(x / sp), gy = Math.floor(y / sp)
-  let d1 = 9, d2 = 9
-  for (let j = gy - 1; j <= gy + 1; j++) for (let i = gx - 1; i <= gx + 1; i++) {
-    const dd = hyp(x - (i + 0.15 + 0.7 * rh(i, j, s)) * sp, y - (j + 0.15 + 0.7 * rh(i, j, s + 1)) * sp)
-    if (dd < d1) { d2 = d1; d1 = dd } else if (dd < d2) d2 = dd
-  }
-  return (d2 - d1) / 2
-}
-// seeds of a jittered grid of spacing sp, as flat [x, y, tilt, order] quads; order: when the plate sinks
-// (0 first), the plates whose seed is nearest the shape's edge going first
-function seedsOf(sp, s, k) {
-  const out = []
-  const n = Math.ceil(ART_A / sp) + 1
-  for (let j = -n; j <= n; j++) for (let i = -n; i <= n; i++) {
-    const x = (i + (j & 1) * 0.5 + (rh(i, j, s) - 0.5) * 0.7) * sp, y = (j + (rh(i, j, s + 9) - 0.5) * 0.7) * sp
-    const depth = 1 - hyp(x, y) / edgeR(Math.atan2(y, x), k)
-    out.push(x, y, rh(i, j, s + 17) - 0.5, clamp01(depth * 1.25 + (rh(i, j, s + 23) - 0.5) * 0.18))
-  }
-  out.n = n; out.sp = sp
-  return out
-}
-// the atlas: SHAPES rows of ART_N^2 texels (r seam distance x4, g relief, b depth into the shape, a order)
-function bakeAtlas(pattern) {
-  const N = ART_N, data = new Uint8Array(N * N * SHAPES * 4)
-  const H = new Float32Array(N * N), D = new Float32Array(N * N), S = new Float32Array(N * N), O = new Float32Array(N * N)
-  const step = (2 * ART_A) / N
-  for (let k = 0; k < SHAPES; k++) {
-    const sd = 101 + k * 31 + pattern.charCodeAt(0) * 7
-    const seeds = seedsOf(0.6, sd, k)
-    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
-      const x = -ART_A + (i + 0.5) * step, y = -ART_A + (j + 0.5) * step
-      const s = 1 - hyp(x, y) / edgeR(Math.atan2(y, x), k)
-      // the seams: a Voronoi of warped space, distance to the nearest bisector; only the seeds of the
-      // 5x5 grid cells round it can be nearest (the jitter is under a cell)
-      const qx = x + 0.13 * (fbm(x * 3 + 5, y * 3, sd) - 0.5), qy = y + 0.13 * (fbm(x * 3, y * 3 + 9, sd + 3) - 0.5)
-      let d1 = 9, d2 = 9, tl = 0, ord = 0
-      const sn = seeds.n, sw = 2 * sn + 1, j0 = Math.round(qy / seeds.sp)
-      for (let jj = Math.max(-sn, j0 - 2); jj <= Math.min(sn, j0 + 2); jj++) {
-        const i0 = Math.round(qx / seeds.sp - (jj & 1) * 0.5)
-        for (let ii = Math.max(-sn, i0 - 2); ii <= Math.min(sn, i0 + 2); ii++) {
-          const m = ((jj + sn) * sw + ii + sn) * 4
-          const dd = hyp(qx - seeds[m], qy - seeds[m + 1])
-          if (dd < d1) { d2 = d1; d1 = dd; tl = seeds[m + 2]; ord = seeds[m + 3] } else if (dd < d2) d2 = dd
-        }
-      }
-      const d = (d2 - d1) / 2
-      // slabs: flat tops tipped this way and that, steep broken edges
-      let h = smooth(0, 0.045, d) * 0.8 + tl * 0.5 * (x * 0.6 + y * 0.8) + fbm(x * 6, y * 6, sd + 7) * 0.18
-      // hairline cracks crazing the plates and slabs (relief only: they never glow)
-      h -= 0.3 * (1 - smooth(0, 0.01, worley(qx, qy, 0.2, sd + 40))) * smooth(0.01, 0.04, d)
-      const o = j * N + i
-      H[o] = h; D[o] = d; S[o] = s; O[o] = ord
-    }
-    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
-      const o = j * N + i
-      const a = H[Math.max(0, j - 1) * N + Math.max(0, i - 1)], b = H[Math.min(N - 1, j + 1) * N + Math.min(N - 1, i + 1)]
-      const rel = Math.max(-1, Math.min(1, (b - a) * -4.2))   // lit from the upper left
-      const w = ((k * N + j) * N + i) * 4
-      data[w] = Math.round(Math.min(1, D[o] * 4) * 255)
-      data[w + 1] = Math.round((rel * 0.5 + 0.5) * 255)
-      data[w + 2] = Math.round(clamp01((S[o] + 0.25) / 1.25) * 255)
-      data[w + 3] = Math.round(O[o] * 255)
-    }
-  }
-  return new BufferImageSource({ resource: data, width: N, height: N * SHAPES, format: 'rgba8unorm', scaleMode: 'linear', alphaMode: 'no-premultiply-alpha' })
-}
-
-const QUAD_VERT = `in vec2 aPosition;
-in vec2 aUV;
-out vec2 vUV;
-uniform mat3 uProjectionMatrix;
-uniform mat3 uWorldTransformMatrix;
-uniform mat3 uTransformMatrix;
-void main() {
-  mat3 mvp = uProjectionMatrix * uWorldTransformMatrix * uTransformMatrix;
-  gl_Position = vec4((mvp * vec3(aPosition, 1.0)).xy, 0.0, 1.0);
-  vUV = aUV;
-}`
-// shared GLSL: a value noise from a hash (the paper's grain, without a texture)
-const GLSL_NOISE = `
-float h21(vec2 p) { p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
-float vnz(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
-  return mix(mix(h21(i), h21(i + vec2(1.0, 0.0)), f.x), mix(h21(i + vec2(0.0, 1.0)), h21(i + vec2(1.0, 1.0)), f.x), f.y); }
-float bell(float x, float c, float w) { float q = (x - c) / w; return exp(-q * q); }`
-const CRUST_FRAG = `precision highp float;
-in vec2 vUV;
-out vec4 finalColor;
-uniform sampler2D uArt;
-uniform sampler2D uMask;
-uniform float uRow;     // which of the atlas's shapes
-uniform float uHeat;    // 0 cooled (a faint ember line) .. 1 the cracks pulsing bright
-uniform float uErode;   // 0 whole .. 1 the lava eaten in from the rim (the raft)
-uniform float uSink;    // 0 .. 1.1: its plates breaking off and sinking, edge plates first
-uniform float uBob;     // 0 .. 1: the plates bobbing and tipping in the lava
-uniform float uCover;   // how far the skin has crept in from its edge (>= 1.1: all of it)
-uniform float uQuench;  // 1 the moment it is poured (still molten) .. 0
-uniform float uSeam;    // the seams' half-width cooled
-uniform float uGrow;    // and how much more at full heat
-uniform float uInk;     // 1: an object (the raft): an ink line round its edge and a paper margin
-uniform float uTime;
-uniform float uAlpha;
-uniform float uMaskN;
-${GLSL_NOISE}
-void main() {
-  vec4 a = texture(uArt, vec2(vUV.x, (clamp(vUV.y, 0.002, 0.998) + uRow) / 3.0));
-  float d = a.r * 0.25, rel = a.g * 2.0 - 1.0, s = a.b * 1.25 - 0.25, ord = a.a;
-  float n = vnz(vUV * 46.0 + uRow * 17.0) * 0.6 + vnz(vUV * 13.0) * 0.4;
-  vec2 muv = vUV * (uMaskN - 1.0) / uMaskN + 0.5 / uMaskN;
-  float lavaUnder = texture(uMask, muv).r;
-  float se = s + (n - 0.5) * 0.04 - uErode * 0.75;
-  // this plate breaking off: it tips, glows round its edge, goes under
-  float sp = clamp((uSink - ord) / 0.22, 0.0, 1.0);
-  rel = clamp(rel + uBob * 0.55 * sin(uTime * 7.0 + ord * 53.0) + sp * 0.6 * sin(ord * 91.0), -1.0, 1.0);
-  float cov = 1.0 - smoothstep(uCover - 0.04, uCover + 0.02, s + (n - 0.5) * 0.12);
-  float w = uSeam + uGrow * uHeat + sp * 0.2;
-  float dn = d + (n - 0.5) * 0.008;
-  float seam = 1.0 - smoothstep(w, w + 0.004, dn);
-  // the skin: flat basalt in three tones, lit from the upper left, the paper's grain in it
-  vec3 col = rel > 0.25 ? vec3(0.36, 0.3, 0.35) : rel < -0.25 ? vec3(0.1, 0.075, 0.095) : vec3(0.2, 0.155, 0.19);
-  col *= 0.88 + 0.24 * n;
-  // the heat bleeding out of the seams into the skin round them
-  float warm = exp(-max(0.0, dn - w) / (0.01 + 0.04 * uHeat)) * (0.12 + 0.88 * uHeat);
-  col = mix(col, vec3(0.5, 0.15, 0.09), warm * 0.5);
-  // the hot rim where it meets the lava
-  float rim = (1.0 - smoothstep(0.0, 0.04 + 0.08 * uHeat, se)) * (1.0 - uInk);
-  col = mix(col, vec3(0.86, 0.38, 0.13), rim * 0.8);
-  // the cracks: an ink line either side, an ember line in them that brightens to a yellow core
-  vec3 lavaC = mix(vec3(0.38, 0.07, 0.05), vec3(0.97, 0.52, 0.15), clamp(uHeat * 1.15, 0.0, 1.0));
-  float core = 1.0 - smoothstep(0.0, w * 0.45 + 0.0015, dn);
-  lavaC = mix(lavaC, mix(vec3(0.85, 0.32, 0.1), vec3(1.0, 0.9, 0.45), uHeat), core);
-  float inkB = smoothstep(w - 0.001, w + 0.002, dn) * (1.0 - smoothstep(w + 0.009, w + 0.013, dn));
-  col = mix(col, vec3(0.11, 0.07, 0.05), inkB * 0.9);
-  col = mix(col, lavaC, seam);
-  // just poured: still molten, darkening fast
-  col = mix(col, mix(vec3(0.7, 0.18, 0.08), vec3(1.0, 0.62, 0.22), uQuench), uQuench * 0.9);
-  // a plate going under: it reddens and is swallowed
-  col = mix(col, vec3(0.55, 0.13, 0.07), sp * 0.6);
-  float plate = 1.0 - smoothstep(0.65, 0.95, sp);
-  // the raft: an ink line round its edge and the paper margin outside it
-  float edgeInk = uInk * (1.0 - smoothstep(0.03 + 0.025 * max(0.0, rel), 0.045 + 0.025 * max(0.0, rel), se));
-  col = mix(col, vec3(0.11, 0.07, 0.05), edgeInk * step(0.0, se));
-  float paper = uInk * (1.0 - step(0.0, se)) * smoothstep(-0.075, -0.06, se);
-  col = mix(col, vec3(0.95, 0.9, 0.78), paper);
-  float al = max(smoothstep(0.0, 0.02, se) * plate, paper) * cov * lavaUnder * uAlpha;
-  finalColor = vec4(col * al, al);
-}`
 
 // ---------------------------------------------------------------- THE CELS (bake once)
 // Drawn with the cast's own brush, flat (no dabs, no airbrushed shade), then given a paper margin.
@@ -488,6 +319,54 @@ function celPoly(g, pts, fill, o = {}) {
   }
 }
 
+// A STRANDED LAVA CREATURE'S BODY AND FOOT, in its bake's own units (TOON_CAST baseR, facing right):
+// body [cx, cy, rx, ry] (where its crumbs fall from), foot [cx, cy, half width] (where it lies on the
+// rock: its lava runs out from there)
+const STRAND_LOOK = {
+  emberJelly: { body: [0, -5.5, 10.6, 8.4], foot: [0, 9, 19] },
+  magmaToad: { body: [0, 1, 16, 9.8], foot: [0, 8, 21] },
+  lavaRay: { body: [0, 4, 30, 9], foot: [0, 10, 37] },
+  magmaEel: { body: [-6, 10, 22, 6], foot: [-8, 12, 28] },
+}
+// any other lava creature: a round body of radius 1
+const STRAND_ANY = { body: [0, 0, 1, 0.9], foot: [0, 0.7, 1.15] }
+const STRAND_CAP = 24
+// THE PUDDLE A STRANDED CREATURE LIES IN, baked once (a sprite scaled to it each frame): its own lava run
+// out on the rock round it, PR x PR * 0.46 units. crust: the set crust, a dark lobed cel with a lit
+// lip; cracked: the same broken up into plates; lava: the hot pool still in it, shrinking as it sets
+const PR = 28
+const puddleLobe = (v) => polar(0, 0, (a) => PR * (1 + 0.08 * Math.sin(a * 3 + v * 2.1) + 0.05 * Math.sin(a * 5 + v)), 48).map(([x, y]) => [x, y * 0.46])
+function paintPuddle(v, kind) {
+  return bake(PR * 2 + 12, PR + 12, 0.5, 0.5, (c) => {
+    const P = puddleLobe(v)
+    if (kind === 'lava') {
+      flat(c, P, PAL.lava, 0)
+      flat(c, ell(-PR * 0.3, -PR * 0.12, PR * 0.36, PR * 0.12, 0, 24), PAL.lavaHot, 0)
+      return
+    }
+    flat(c, P, PAL.inkSoft, 2.2)
+    // the lip of the crust catching the light, up-left
+    line(c, P.slice(26, 44).map(([x, y]) => [x * 0.9, y * 0.82]), 1.2, { color: PAL.rockLow, taper: 0.5 })
+    if (kind === 'cracked') for (let i = 0; i < 5; i++) {
+      const a = (i / 5) * TAU + 0.5 + v, ca = Math.cos(a), sa = Math.sin(a) * 0.46
+      const pts = [[ca * PR * 0.18, sa * PR * 0.18], [ca * PR * 0.5 - sa * 3, sa * PR * 0.5 + ca * 1.2], [ca * PR * 0.95, sa * PR * 0.95]]
+      line(c, pts, 2.0, { taper: 0.45, belly: true })
+    }
+  }, 0)
+}
+// A PIECE OF A CRUMBLING CREATURE: a wedge broken out of its body, the rounded outer edge its own
+// outline, the broken inner edges straight, in its own paint (base) with a lit facet, house ink
+function paintPiece(v, base, lit) {
+  const a0 = -0.6 + 0.35 * (v % 3), span = 2.0 + 0.35 * ((v * 2) % 3), r = 10 + 2 * (v % 2)
+  const arc = []; for (let i = 0; i <= 12; i++) { const a = a0 + (span * i) / 12; arc.push([Math.cos(a) * r, Math.sin(a) * r]) }
+  const am = a0 + span * 0.6, mid = a0 + span / 2, cx = Math.cos(mid) * r * 0.6, cy = Math.sin(mid) * r * 0.6
+  const Q = [[Math.cos(am) * r * 0.12, Math.sin(am) * r * 0.12], ...arc].map(([x, y]) => [x - cx, y - cy])
+  return bake(36, 36, 0.5, 0.5, (c) => {
+    cel(c, Q, base, { shade: null, dabs: 0, ink: 1.8 })
+    cel(c, Q.map(([x, y]) => [x * 0.5 - 1, y * 0.5 - 1.2]), lit, { shade: null, dabs: 0, ink: 0 })
+  }, 1.4)
+}
+
 export function createMantleFx({ ground, boat, top }) {
   const groundG = new Graphics()
   const groundFx = new Container()
@@ -496,10 +375,10 @@ export function createMantleFx({ ground, boat, top }) {
   // lava over your boots)
   const boatUnderG = new Graphics(), backL = new Container(), boatInG = new Graphics(), frontL = new Container(), boatBandG = new Graphics()
   const bootG = new Graphics(), frontTopL = new Container(), boatBandTop = new Graphics()
-  const strandLayer = new Container(), topG = new Graphics(), toolLayer = new Container(), topG2 = new Graphics()
+  const topG = new Graphics(), toolLayer = new Container(), topG2 = new Graphics()
   ground.addChild(groundG, groundFx)
   boat.addChild(boatUnderG, backL, boatInG, frontL, boatBandG)
-  top.addChild(bootG, frontTopL, boatBandTop, strandLayer, topG, toolLayer, topG2)
+  top.addChild(bootG, frontTopL, boatBandTop, topG, toolLayer, topG2)
   const boatFace = new WeakMap()   // boat -> the way it faces (1 bow right, -1 left), kept between frames
   const boatVis = new WeakMap()    // boat -> { ph / st: its smoke's and its boil's own clocks, bk: 0 afloat .. 1 beached, eased }
   const bursts = []   // { kind: 'melt' | 'crumble' | 'boatSink', x, y, r, t, seed }
@@ -508,14 +387,10 @@ export function createMantleFx({ ground, boat, top }) {
   const waves = new Map()   // nova -> its trail { x, y, angle, arc, maxR, life, k, endAt, seed }
   let clock = 0
 
-  // ---- the crust material and the cels, made on first use (a few hundred ms, once, at the first frame) ----
-  let atlas = null, quad = null, fullMask = null, A = null
+  // ---- the cels, made on first use (a few hundred ms, once, at the first frame) ----
+  let A = null
   function art() {
     if (A) return A
-    atlas = bakeAtlas(PATTERN)
-    const quadOf = (h) => new MeshGeometry({ positions: new Float32Array([-h, -h, h, -h, h, h, -h, h]), uvs: new Float32Array([0, 0, 1, 0, 1, 1, 0, 1]), indices: new Uint32Array([0, 1, 2, 0, 2, 3]) })
-    quad = quadOf(ART_A)
-    fullMask = new BufferImageSource({ resource: new Uint8Array(4 * 4 * 4).fill(255), width: 4, height: 4, format: 'rgba8unorm', scaleMode: 'linear', alphaMode: 'no-premultiply-alpha' })
     A = {
       kettle: paintKettle(), hammer: paintHammer(), star: paintStar(), crown: paintCrown(), bubble: paintBubble(),
       steam: [0, 1, 2, 3, 4, 5].map((v) => paintPuff(v, '#fbf4e4', '#b9a9cf')),
@@ -523,35 +398,16 @@ export function createMantleFx({ ground, boat, top }) {
       smoke: [0, 1, 2].map((v) => paintPuff(v + 12, '#4a3c46', '#2a2128', 2.2)),
       puffGrey: [0, 1, 2].map((v) => paintPuff(v + 16, '#f4efe7', '#8e8896', 2.8)),
       chunk: [0, 1, 2, 3, 4, 5].map((v) => paintChunk(v, '#5d4a5c', '#8d7889')),
-      basalt: [0, 1, 2, 3].map((v) => paintChunk(v + 6, '#3a3138', '#665a62')), eyes: paintEyes(),
+      eyes: paintEyes(),
+      piece: Object.fromEntries([...Object.keys(STRAND_CRUMBLE), '_'].map((id) => [id, [0, 1, 2].map((v) => paintPiece(v, ...(STRAND_CRUMBLE[id] ?? [PAL.lavaDeep, PAL.lava])))])),
       lavaDrop: paintDrop(PAL.lavaHot, PAL.lavaGlow), waterDrop: paintDrop('#cdeaf0', '#eef9f8'),
       splat: [0, 1].map(paintSplat), curl: [0, 1, 2].map(paintCurl),
       boatBack: paintBoatBack(), boatFront: paintBoatFront(), plank: [0, 1, 2].map(paintPlank),
+      crust: [0, 1, 2].map((v) => paintPuddle(v, 'crust')), cracked: [0, 1, 2].map((v) => paintPuddle(v, 'cracked')),
+      pool: [0, 1, 2].map((v) => paintPuddle(v, 'lava')),
     }
     return A
   }
-  function makeSkin(parent) {
-    art()
-    const U = new UniformGroup({
-      uRow: { value: 0, type: 'f32' }, uHeat: { value: 0, type: 'f32' }, uErode: { value: 0, type: 'f32' },
-      uSink: { value: 0, type: 'f32' }, uBob: { value: 0, type: 'f32' }, uCover: { value: 2, type: 'f32' },
-      uQuench: { value: 0, type: 'f32' }, uSeam: { value: SEAM0, type: 'f32' }, uGrow: { value: SEAM_GROW, type: 'f32' },
-      uInk: { value: 0, type: 'f32' }, uTime: { value: 0, type: 'f32' }, uAlpha: { value: 1, type: 'f32' },
-      uMaskN: { value: 4, type: 'f32' },
-    })
-    const mesh = new Mesh({ geometry: quad, shader: Shader.from({ gl: { vertex: QUAD_VERT, fragment: CRUST_FRAG, name: 'mantle-crust' }, resources: { crustU: U, uArt: atlas, uMask: fullMask } }) })
-    mesh.visible = false
-    parent.addChild(mesh)
-    return { mesh, U: U.uniforms }
-  }
-  const skinLook = (sk, x, y, r, sy, rotA, row, o) => {
-    sk.mesh.visible = true
-    sk.mesh.position.set(x, y); sk.mesh.scale.set(r, r * sy); sk.mesh.rotation = rotA
-    const U = sk.U
-    U.uRow = row; U.uHeat = o.heat ?? 0; U.uErode = o.erode ?? 0; U.uSink = o.sink ?? 0; U.uBob = o.bob ?? 0
-    U.uCover = o.cover ?? 2; U.uQuench = o.quench ?? 0; U.uInk = o.ink ?? 0; U.uAlpha = o.alpha ?? 1; U.uTime = clock
-  }
-  const strandSkins = []
   // growable pools of plain sprites
   const spritePool = (parent) => {
     const list = []
@@ -574,8 +430,36 @@ export function createMantleFx({ ground, boat, top }) {
   const boatBack = spritePool(backL), boatFront = spritePool(frontL), boatFrontTop = spritePool(frontTopL)
   const boatPools = [boatBack, boatFront, boatFrontTop]
   const GS = [groundG, boatUnderG, boatInG, boatBandG, bootG, boatBandTop, topG, topG2]
+  // A STRANDED LAVA CREATURE (the sim's clock, read through config's strandStone: stone in 1s, held,
+  // thawed back). The creature acts it out in its own sprite (cast.js's stranded poses: tugging, stuck
+  // fast and sweating, set to crust); here is only what lies on the ground round it: its own lava run
+  // out on the rock, setting from the rim in to a dark crust that cracks once it is stone, and the
+  // dust its tugging kicks up. All of it follows the stone amount, so the thaw plays it backwards.
+  function strand(e, t, P, p) {
+    const S = strandStone(e.strandT), R = e.radius, sd = e.id | 0
+    const L = STRAND_LOOK[e.rosterId] ?? STRAND_ANY
+    const ks = R / (STRAND_LOOK[e.rosterId] ? TOON_CAST[e.rosterId]?.baseR ?? R : 1)
+    const f = p && p.x < e.x ? -1 : 1
+    const X = (u) => e.x + f * u * ks, Y = (v) => e.y + v * ks
+    const tug = 1 - smooth(0.85, 1, S)
+    const set = smooth(0.4, 1, S)
+    const stone = smooth(0.7, 1, S)
+    const [fx, fy, fw] = L.foot, [, , brx, bry] = L.body
+    const rb = Math.min(brx, bry) * ks
+    // the puddle: spreading a little as it sets, the hot pool in it shrinking to nothing, cracked once stone
+    const px = X(fx), py = Y(fy), sc = (fw * ks * (1 + 0.12 * S)) / PR, v = sd % 3
+    const cr = low.next(P.crust[v]); cr.position.set(px, py); cr.scale.set(sc * f, sc)
+    if (stone > 0) { const ck = low.next(P.cracked[v]); ck.position.set(px, py); ck.scale.set(sc * f, sc); ck.alpha = stone }
+    const li = 0.86 * (1 - set)
+    if (li > 0.05) { const lv = low.next(P.pool[v]); lv.position.set(px, py); lv.scale.set(sc * li * f, sc * li) }
+    // JUST STUCK: dust kicked off the rock either side of it as it tugs
+    if (tug > 0) for (const s of [-1, 1]) {
+      const u = (t * 2.2 + sd * 0.17 + (s > 0 ? 0.5 : 0)) % 1, du = low.next(P.dust[(sd + (s > 0 ? 2 : 0)) & 3])
+      du.position.set(px + s * fw * ks * (0.85 + 0.25 * u), py - rb * 0.35 * u)
+      du.scale.set((rb / 14) * (0.16 + 0.18 * Math.sin(Math.PI * u)) * tug)
+    }
+  }
   function hideAll() {
-    for (const s of strandSkins) s.mesh.visible = false
     for (const bp of [low, tools, ...boatPools]) { bp.begin(); bp.end() }
   }
   return {
@@ -583,13 +467,16 @@ export function createMantleFx({ ground, boat, top }) {
     event(e) {
       if (e.type === 'shoot' && e.weapon === 'quenchKettle') { pour = { x: e.tx ?? e.x, y: e.ty ?? e.y, r: e.maxR || 100, t: 0 }; return false }
       if (e.type !== 'melt' && e.type !== 'crumble' && e.type !== 'boatSink' && e.type !== 'steamBlast' && e.type !== 'hullCool') return false
-      bursts.push({ kind: e.type, x: e.x, y: e.type === 'boatSink' || e.type === 'hullCool' ? e.y + BOAT_DY : e.y, r: e.r || (e.type === 'boatSink' ? 30 : 14), t: 0, seed: Math.floor(Math.abs(e.x * 7 + e.y * 13)) })
+      bursts.push({ kind: e.type, id: e.rosterId, x: e.x, y: e.type === 'boatSink' || e.type === 'hullCool' ? e.y + BOAT_DY : e.y, r: e.r || (e.type === 'boatSink' ? 30 : 14), t: 0, seed: Math.floor(Math.abs(e.x * 7 + e.y * 13)) })
       if (bursts.length > 80) bursts.shift()
       return true
     },
     // tide = { L, T } (lavaTideOf, or the dry fallback with line -1); onScreen(x, y, r); t = animT
     sync(run, dt, tide, onScreen, t) {
       clock += dt
+      // the cast's cycling looks pick their frame off animT; render.js draws them before this runs, so
+      // hand over the clock it will have next frame
+      setCastClock(t + dt)
       if (pour) pour.t += dt
       for (const g of GS) g.clear()
       const P = art()
@@ -803,7 +690,7 @@ export function createMantleFx({ ground, boat, top }) {
         }
       }
 
-      // ---- creatures: a stranded lava one encased by a creeping crust, a melting rock one slumping ----
+      // ---- creatures: a stranded lava one stuck in its own setting lava, a melting rock one slumping ----
       let ns = 0
       for (const e of run.enemies) {
         if (e._dead || !e.habitat || !onScreen(e.x, e.y, e.radius)) continue
@@ -859,17 +746,8 @@ export function createMantleFx({ ground, boat, top }) {
             d.position.set(e.x + (u * 2 - 1) * R * 0.6, top + R * 0.2 + dy * (e.y + R - top) * 0.8); d.rotation = Math.PI; d.scale.set(0.55 + 0.35 * k)
           }
         }
-                if (e.strandT > 0 && ns < 24) {
-          const k = Math.min(1, e.strandT / MANTLE_STRAND_STUCK_T)
-          const dying = smooth(MANTLE_STRAND_DIE_T - 1.5, MANTLE_STRAND_DIE_T, e.strandT)
-          const sk = strandSkins[ns] ?? (strandSkins.push(makeSkin(strandLayer, false)), strandSkins[ns])
-          ns++
-          skinLook(sk, e.x, e.y + R * 0.1, R * 1.55, 0.72, 0, e.id % SHAPES, {
-            cover: 0.12 + 0.55 * k + 0.5 * dying, heat: 0.06 + dying * (0.7 + 0.3 * Math.sin(clock * 16)), alpha: 0.95,
-          })
-        }
+        if (e.strandT > 0 && ns < STRAND_CAP) { ns++; strand(e, t, P, p) }
       }
-      for (let i = ns; i < strandSkins.length; i++) strandSkins[i].mesh.visible = false
 
       // ---- the bellows' wave, after the Fleischer wave (fx-08): ONE leading crest, lopsided. It rears up
       // at its peak and curls over, throwing forward, a foam lip of hot white scallops on it and dark
@@ -1060,15 +938,21 @@ export function createMantleFx({ ground, boat, top }) {
             bb.position.set(b.x + Math.cos(a) * 26, b.y + Math.sin(a) * 10 - q * 30); bb.alpha = 1 - smooth(0.7, 1, q)
           }
         } else {
-          for (let i = 0; i < 7; i++) {
-            const a = (i / 7) * TAU + b.seed, d = b.r * (0.4 + 2.0 * k)
-            const ch = tools.next(P.basalt[i % 4])
-            ch.position.set(b.x + Math.cos(a) * d, b.y + Math.sin(a) * d - 16 * Math.sin(Math.PI * k)); ch.rotation = a + k * 5; ch.scale.set(0.9 * (1 - 0.4 * k)); ch.alpha = 1 - smooth(0.7, 1, k)
-          }
+          // crumbled: it falls apart into four pieces of its own body flung out across the rock with a hop,
+          // its eyes popping up out of the middle and blinking out last, a puff of dust under it all
+          const pcs = P.piece[b.id] ?? P.piece._, sz = b.r / 14
           for (let i = 0; i < 4; i++) {
-            const a = (i / 4) * TAU + b.seed * 0.3, du = low.next(P.dust[i % 4])
-            du.position.set(b.x + Math.cos(a) * b.r * (0.4 + k), b.y + Math.sin(a) * b.r * (0.3 + 0.8 * k))
-            du.scale.set((b.r / 22) * (k < 0.2 ? 0.3 + 3 * k : 0.9 * (1 - smooth(0.5, 1, k)) + 0.05))
+            const a = (i / 4) * TAU + b.seed * 0.7, d = b.r * (0.45 + 1.7 * Math.sqrt(k)) * (0.8 + 0.4 * rh(i, b.seed, 8))
+            const ch = tools.next(pcs[(i + b.seed) % 3])
+            ch.position.set(b.x + Math.cos(a) * d, b.y + Math.sin(a) * d * 0.7 - b.r * 0.9 * Math.sin(Math.PI * Math.min(1, k * 1.4)))
+            ch.rotation = a + Math.PI + k * (i & 1 ? 3 : -3); ch.scale.set(sz * (0.8 - 0.25 * k)); ch.alpha = 1 - smooth(0.7, 1, k)
+          }
+          const ey = tools.next(P.eyes)
+          ey.position.set(b.x, b.y - b.r * (0.2 + 1.1 * Math.sin(Math.PI * 0.5 * Math.min(1, k * 2)))); ey.scale.set(sz * 0.6, sz * 0.6 * (k > 0.8 ? Math.max(0.1, 1 - (k - 0.8) * 5) : 1))
+          for (let i = 0; i < 3; i++) {
+            const a = (i / 3) * TAU + b.seed * 0.3, du = low.next(P.dust[(i + b.seed) & 3])
+            du.position.set(b.x + Math.cos(a) * b.r * (0.3 + 0.8 * k), b.y + Math.sin(a) * b.r * (0.2 + 0.5 * k))
+            du.scale.set((b.r / 22) * 0.55 * (k < 0.2 ? 0.3 + 3 * k : 0.9 * (1 - smooth(0.5, 1, k)) + 0.05))
           }
         }
       }
