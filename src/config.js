@@ -4688,7 +4688,7 @@ export const WEAPON_MODS = {
                    desc: 'Its open lava bubbles: every {secs}s each crack throws a small drop of lava beside it.',
                    args: { secs: FISSURE_BUBBLE.every } },
     fragileGround: { name: 'Fragile Ground', icon: '🪨', kind: 'flat', values: { epic: 1, legendary: 2, mythic: 3 },
-                   desc: '+{n} branch(es) forking off each fissure, up to {max}',
+                   desc: '{n} more branch(es) forking off each fissure, up to {max}',
                    args: { max: FISSURE_FORK.max } },
   },
   // ---- Book 3, The Mantle ----
