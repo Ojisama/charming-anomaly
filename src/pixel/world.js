@@ -168,13 +168,13 @@ export function paintRift(pc, ox, oy, angle, L, Wd, gap, seed, cooled, reach = 1
     drift = drift * 0.9 + (hash(Math.floor(i), seed, 3) - 0.5) * 0.5
     off = off * 0.97 + drift * 0.5
     const tip = Math.min(1, (Lr - i) / (L * 0.3))
-    const lip = i < gap ? 0 : Math.min(1, (i - gap) / 5)
-    const hw = i < gap ? 0.5 : Math.max(0.7, (Wd / 2) * 0.7 * lip * open * Math.sqrt(tip) * (0.75 + 0.5 * hash(Math.floor(i / 3), seed, 5)))
+    // it starts thin at your feet and widens to full over the first gap px
+    const lip = Math.min(1, i / gap)
+    const hw = Math.max(0.7, (Wd / 2) * 0.7 * lip * open * Math.sqrt(tip) * (0.75 + 0.5 * hash(Math.floor(i / 3), seed, 5)))
     mids.push([i, off])
     for (let q = -hw - 1; q <= hw + 1; q += 0.5) {
       const [x, y] = at(i, off + q), aq = Math.abs(q)
       if (aq > hw) put(x, y, 1, COL[0])                    // the broken lip
-      else if (i < gap) put(x, y, 2, cooled ? P.ink : P.lava0)   // the hairline from your feet
       else if (aq > hw - 1) put(x, y, 2, COL[1])
       else if (aq > hw * 0.45) put(x, y, 3, COL[2])
       // flat molten orange with one brighter vein wandering down it (smooth, like the pools); cooled, a few ash flecks
