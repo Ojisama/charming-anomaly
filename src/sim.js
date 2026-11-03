@@ -19546,13 +19546,21 @@ function stepMantleGround(run, dt) {
 }
 
 // -- Quench Kettle ------------------------------------------------------------------------------------
-// Throws water at the closest Crack Hammer pool in KETTLE_RANGE (a STEAM blast round it, the pool
-// spent), else the closest lava creature, else the nearest lava (under you first: afloat, that is your
-// own boat, whose hull it cools instead of crusting the lava under you): a crust of radius `radius`
-// there for crustDur s (lava under it is rock), and the splash hits everything in it (water: x MANTLE_COLD_VS_LAVA on a lava creature). No lava in range: it
-// splashes round you and lays no crust.
+// Throws water at the closest foe in KETTLE_RANGE (a crust there if it is a lava one or on lava), else the
+// closest Crack Hammer pool, else the nearest lava (under you first: afloat, that is your own boat,
+// whose hull it cools instead of crusting the lava under you): a crust of radius `radius` there for
+// crustDur s (lava under it is rock), and the splash hits everything in it (water: x
+// MANTLE_COLD_VS_LAVA on a lava creature). A hammer pool inside the splash STEAMS (the pool spent).
+// Nothing in range: it splashes round you and lays no crust.
 function kettleSpot(run) {
   const p = run.player
+  let best = null, bd = KETTLE_RANGE * KETTLE_RANGE
+  for (const e of enemiesNear(run, p.x, p.y, KETTLE_RANGE)) {
+    if (e._dead || isAlly(e)) continue
+    const d = (e.x - p.x) ** 2 + (e.y - p.y) ** 2
+    if (d <= bd) { bd = d; best = e }
+  }
+  if (best) return { x: best.x, y: best.y, crust: best.habitat === 'lava' || mantleGroundAt(run, best.x, best.y) > 0 }
   let pool = null, pd = KETTLE_RANGE * KETTLE_RANGE
   for (const q of run.lavaPools) {
     if (q.t >= q.dur) continue
@@ -19560,13 +19568,6 @@ function kettleSpot(run) {
     if (d <= pd) { pd = d; pool = q }
   }
   if (pool) return { x: pool.x, y: pool.y, crust: true }
-  let best = null, bd = KETTLE_RANGE * KETTLE_RANGE
-  for (const e of enemiesNear(run, p.x, p.y, KETTLE_RANGE)) {
-    if (e._dead || isAlly(e) || e.habitat !== 'lava') continue
-    const d = (e.x - p.x) ** 2 + (e.y - p.y) ** 2
-    if (d <= bd) { bd = d; best = e }
-  }
-  if (best) return { x: best.x, y: best.y, crust: true }
   for (let d = 0; d <= KETTLE_RANGE; d += KETTLE_LAVA_STEP) {
     const n = d === 0 ? 1 : 16
     for (let i = 0; i < n; i++) {

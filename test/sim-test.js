@@ -42175,18 +42175,23 @@ function testMantle() {
     const noCrit = (r) => { r.player.critChance = 0; r.passives.critChance = 0 }
     const taken = (bodies) => bodies.map((b) => 1e6 - b.hp)
     {
-      // MT.e1: Quench Kettle throws its water at the CLOSEST lava creature (not the closest body, not a
-      // farther lava one): a crust there, and the splash (water: x MANTLE_COLD_VS_LAVA on a lava
-      // creature) hits what stands round it
+      // MT.e1: Quench Kettle throws its water at the CLOSEST foe, rock or lava (not a farther lava one),
+      // and the splash (water: x MANTLE_COLD_VS_LAVA on a lava creature) hits what stands round it
       const { r, bodies } = arena('quenchKettle', () => [[150, 0], [150, 30], [150, -30], [-250, 0], [0, 70]])
       noCrit(r)
       bodies[0].habitat = 'lava'; bodies[1].habitat = 'rock'; bodies[3].habitat = 'lava'; bodies[4].habitat = 'rock'
       r.weaponTimers.quenchKettle = 0
       step(r, 1)
-      const [lava, rock, none, far, close] = taken(bodies)
-      assert.ok(rock > 0 && Math.abs(lava / rock - MANTLE_COLD_VS_LAVA) < 0.05 && none === rock && far === 0 && close === 0,
-        `run MT.e1: the kettle's splash should land on the closest lava creature, x${MANTLE_COLD_VS_LAVA} on it vs a rock one beside it, nothing on the far lava one or the nearer rock one: ${lava} / ${rock} / ${none} / ${far} / ${close}`)
-      const c = r.quenchCrusts[0]
+      const first = taken(bodies)
+      assert.ok(first[4] > 0 && first.slice(0, 4).every((v) => v === 0),
+        `run MT.e1: the kettle's first splash should land on the closest foe (a rock one 70px off), not the lava creatures farther: ${first}`)
+      bodies[4].x += 1e4
+      r.weaponTimers.quenchKettle = 0
+      step(r, 1)
+      const [lava, rock, none, far] = taken(bodies)
+      assert.ok(rock > 0 && Math.abs(lava / rock - MANTLE_COLD_VS_LAVA) < 0.05 && none === rock && far === 0,
+        `run MT.e1: with the rock one gone, the splash lands on the next closest, x${MANTLE_COLD_VS_LAVA} on the lava creature vs a rock one beside it, nothing on the far one: ${lava} / ${rock} / ${none} / ${far}`)
+      const c = r.quenchCrusts[r.quenchCrusts.length - 1]
       assert.ok(c && Math.hypot(c.x - bodies[0].x, c.y - bodies[0].y) < 1 && c.r > 0, 'run MT.e1: the kettle lays its crust on the closest lava creature')
     }
     {
@@ -42683,7 +42688,8 @@ function testMantleGround() {
     } finally { sig.lavaTide = saved }
   }
 
-  // (e2) THE KETTLE GOES FOR THE HAMMER'S POOL FIRST, over a lava creature nearer you
+  // (e2) THE KETTLE GOES FOR THE CLOSEST FOE, not the hammer's pool farther off; a foe standing in a
+  // pool steams it
   {
     const saved = sig.lavaTide
     sig.lavaTide = null
@@ -42699,9 +42705,13 @@ function testMantleGround() {
       const near = body(r, p.x - 90, p.y, 'lava')
       r.enemies.push(near)
       const ev = fire(r, 'quenchKettle'), sh = ev.find((v) => v.type === 'shoot' && v.weapon === 'quenchKettle')
-      assert.ok(pool && sh && Math.hypot(sh.tx - pool.x, sh.ty - pool.y) < 1 && ev.some((v) => v.type === 'steamBlast') && pool.t >= pool.dur,
-        `run MG.e2: the kettle throws at the pool 250px off, not the lava creature 90px off: aimed ${sh && [Math.round(sh.tx - p.x), Math.round(sh.ty - p.y)]}, pool spent ${pool && pool.t >= pool.dur}`)
-      console.log(`PASS run MG.e2 (the kettle goes for the pool): aimed at the pool 250px off over a lava creature 90px off, and steamed it`)
+      assert.ok(pool && sh && Math.hypot(sh.tx - near.x, sh.ty - near.y) < 1 && !ev.some((v) => v.type === 'steamBlast') && pool.t < pool.dur,
+        `run MG.e2: the kettle throws at the lava creature 90px off, not the pool 250px off: aimed ${sh && [Math.round(sh.tx - p.x), Math.round(sh.ty - p.y)]}, pool spent ${pool && pool.t >= pool.dur}`)
+      r.enemies = r.enemies.filter((e) => e !== near)
+      const ev2 = fire(r, 'quenchKettle'), sh2 = ev2.find((v) => v.type === 'shoot' && v.weapon === 'quenchKettle')
+      assert.ok(sh2 && Math.hypot(sh2.tx - rock.x, sh2.ty - rock.y) < 1 && ev2.some((v) => v.type === 'steamBlast') && pool.t >= pool.dur,
+        `run MG.e2: then the rock creature in the pool is the closest foe, and the splash steams its pool: aimed ${sh2 && [Math.round(sh2.tx - p.x), Math.round(sh2.ty - p.y)]}, pool spent ${pool.t >= pool.dur}`)
+      console.log(`PASS run MG.e2 (the kettle goes for the closest foe): aimed at a lava creature 90px off over a pool 250px off, then at the foe in the pool, and steamed it`)
     } finally { sig.lavaTide = saved }
   }
 
