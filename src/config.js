@@ -6835,9 +6835,9 @@ export const BOOKS = {
    // is the last live rung, The Deep the first gated one, and The Kraken (appended 2026-09-10) the
    // next, still gated: a dev-gated shell whose boss sim lands in a later increment. Saves key on chapter ID, never position.
    undertow: { name: 'Undertow', cloth: '#1f5c7c', chapters: ['surf', 'shelf', 'reef', 'trawl', 'wreck', 'deep'], hidden: ['kraken'], startCoins: 100 },
-  // Book 3: digging down into the earth. wipFrom 3 since 2026-11-02: Topsoil, The Geode and The Mine
-  // are live, The Magma onward still gated behind meta.dev.
-  burrow: { name: 'Burrow', cloth: '#2b1d15', rules: { maxedKeepsShare: true }, chapters: ['topsoil', 'geode', 'mine', 'magma', 'mantle', 'core'], hidden: ['ophan'], startCoins: 100, wipFrom: 3, maxDifficultyCap: 3,
+  // Book 3: digging down into the earth. wipFrom 4 since 2026-11-03: Topsoil, The Geode, The Mine and
+  // The Magma are live, The Mantle onward still gated behind meta.dev.
+  burrow: { name: 'Burrow', cloth: '#2b1d15', rules: { maxedKeepsShare: true }, chapters: ['topsoil', 'geode', 'mine', 'magma', 'mantle', 'core'], hidden: ['ophan'], startCoins: 100, wipFrom: 4, maxDifficultyCap: 3,
     // balance_decision : Book 3 d2 +25%, d3 +50% enemies and damage 2026-11-01
     difficultyPerLevel: 0.25 },
 }
