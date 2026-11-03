@@ -40854,12 +40854,12 @@ function testMagma() {
   {
     const len = WEAPONS.fissure.levels[0].len
     // nearest at +x 100; two more on that line, one past it; one as far off to the side
-    const t = tear(true, 1, [[100, 0], [200, 0], [len - 20, 0], [0, 200]])
+    const t = tear(true, 1, [[100, 0], [140, 0], [len - 20, 0], [0, 200]])
     assert.deepStrictEqual(t.hurt, [true, true, true, false], `run MG.c: a fissure hits every body on its line and none beside it: ${t.hurt}`)
     assert.ok(t.cracks.length >= 4 && t.cracks.every((c) => c.state === 'lava' && Math.abs(c.y - t.p.y) < 1 && c.x - t.p.x >= FISSURE_GAP - 1 && c.x - t.p.x <= len + 1),
       `run MG.c: its lava lies along the line from ${FISSURE_GAP}px out: ${JSON.stringify(t.cracks.map((c) => [Math.round(c.x - t.p.x), Math.round(c.y - t.p.y), c.state]))}`)
     // with the crust off (no lava to confound it) it still hits the whole line, the far end too
-    const off = tear(false, 1, [[100, 0], [200, 0], [len - 20, 0]])
+    const off = tear(false, 1, [[100, 0], [140, 0], [len - 20, 0]])
     assert.ok(off.hurt.every(Boolean) && off.cracks.length === 0, `run MG.c: with the crust off it still hits, and lays no lava: ${off.hurt} ${off.cracks.length}`)
     // it runs out from your feet: the far body is not hit the instant it tears, only when the tip gets there
     assert.ok(!off.first[2] && off.r.fissures.length === 0, `run MG.c: the crack should reach the far body only as it grows (first step hit ${off.first}, still growing ${off.r.fissures.length})`)
@@ -40873,7 +40873,7 @@ function testMagma() {
     const burn = (() => {
       const g = tear(true, 1, [[100, 0]])
       const xs = g.cracks.map((c) => c.x - g.p.x).sort((a, b) => a - b)
-      const mid = xs[2], seam = (xs[3] + xs[4]) / 2
+      const mid = xs[1], seam = (xs[2] + xs[3]) / 2
       g.r.weapons = []
       const pair = [mid, seam].map((dx) => makeStatusEnemy(g.r, { x: g.p.x + dx, y: g.p.y, hp: 1e5, speed: 0 }))
       g.r.enemies.push(...pair)
@@ -40883,7 +40883,7 @@ function testMagma() {
     assert.ok(burn[0] > 0 && burn[1] <= burn[0] * 1.01, `run MG.c: a body where two of its cracks overlap burns ${burn[1]} vs ${burn[0]} on one crack — it must not burn twice`)
     // the Bellows blows down the crack: blasting its near end flares its far end, past the blast's reach
     const blow = (() => {
-      const g = tear(true, 1, [[100, 0]])
+      const g = tear(true, 5, [[100, 0]])   // L5: longer than the blast reaches
       const reachB = WEAPONS.bellows.levels[0].radius
       g.r.weapons = [{ id: 'bellows', level: 1 }]
       g.r.weaponTimers.bellows = 1e-4
