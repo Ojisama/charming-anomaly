@@ -329,7 +329,8 @@ export function loadMeta() {
       for (const book of Object.values(BOOKS)) {
         for (let i = 1; i < book.chapters.length; i++) {
           const prev = m.chapters[book.chapters[i - 1]]
-          if (prev?.maxDifficulty > CHAPTER_UNLOCK_DIFFICULTY) m.chapters[book.chapters[i]].unlocked = true
+          // won too: a book capped at CHAPTER_UNLOCK_DIFFICULTY (Burrow) never lifts maxDifficulty past it
+          if (prev?.maxDifficulty > CHAPTER_UNLOCK_DIFFICULTY || prev?.won >= CHAPTER_UNLOCK_DIFFICULTY) m.chapters[book.chapters[i]].unlocked = true
         }
       }
       // ...and the same for a HIDDEN chapter: one that shipped after the player already won its

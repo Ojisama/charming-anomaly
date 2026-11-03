@@ -39633,6 +39633,21 @@ function testBurrow() {
   assert.ok(!isWipChapter('topsoil') && !isWipChapter('geode') && !isWipChapter('mine') && !isWipChapter('magma') && isWipChapter('mantle'), 'run BU3.d: Burrow should be live through The Magma and gated from The Mantle')
   assert.ok(unlockBook(player, 'burrow') && player.chapters?.topsoil?.unlocked, 'run BU3.d: a non-dev save could not open Burrow')
   assert.ok(!player.chapters?.magma?.unlocked && !player.chapters?.mantle?.unlocked, 'run BU3.d: opening Burrow handed a non-dev save a later chapter')
+  // a d3 win on a chapter whose next rung was still gated opens that rung on load once it ships.
+  // Burrow caps difficulty at 3, so maxDifficulty never passes 3 and only `won` proves the win.
+  {
+    const wonAt = (geode, mine) => loadMetaFrom({
+      coins: 0, shop: {}, best: { time: 0, kills: 0 }, runs: 9, chapter: 'geode', nick: 'p',
+      chapters: {
+        topsoil: { unlocked: true, maxDifficulty: 3, difficulty: 3, won: 3 },
+        geode: { unlocked: true, maxDifficulty: 3, difficulty: 3, won: geode },
+        mine: { unlocked: false, maxDifficulty: 3, difficulty: 3, won: mine },
+      },
+    }).chapters
+    const late = wonAt(3, 3), short = wonAt(2, 0)
+    assert.ok(late.mine.unlocked && late.magma.unlocked, `run BU3.d: a d3 Geode and Mine win made before those rungs shipped should open them on load: ${JSON.stringify({ mine: late.mine.unlocked, magma: late.magma.unlocked })}`)
+    assert.ok(!short.mine.unlocked && !short.magma.unlocked, 'run BU3.d: a Geode won only at d2 must leave The Mine locked')
+  }
   assert.ok(titleBookshelf(meta()).some((sh) => sh.book === 'burrow'), 'run BU3.d: a dev save does not shelve Burrow')
   assert.ok(!titleBookshelf(player).some((sh) => sh.volumes.some((v) => v.id === 'ophan')), 'run BU3.d: a non-dev save shelves The Ophan')
   assert.ok(chapterAvailable(meta(), 'ophan') && titleBookshelf(meta()).find((s) => s.book === 'burrow').volumes.some((v) => v.id === 'ophan'), 'run BU3.d: DEV does not open The Ophan')
