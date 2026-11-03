@@ -54,7 +54,7 @@ import {
   OBSTACLE_STREAM_RADIUS, OBSTACLE_DROP_RADIUS,
   FRENZY_HP_FRAC, PACER_RADIUS, ELITE, GILDED_COIN_MUL, GASBAG_TRAIL, NOVA_LIFE,
   SUNSPEAR_FALL, SUNSPEAR_SPREAD, FOXFIRE_GLOOM, FOXFIRE_WANDER_SPEED, FOXFIRE_SWARM, FOXFIRE_CATCH_FRAC, weaponDesc, FOXFIRE_GLOW, SUNLANCE_REACH_MIN, GLINT_LIGHT_COST, GLINT_GLOW,
-  WEAPONS, STUCK_IN_STONE, FISSURE_GAP, SPLINTER_LIFE, HOLE_SINGULARITY_FRAC, DOWNWASH_PLUNGE_N, DOWNWASH_PLUNGE_FRAC, DOWNWASH_PLUNGE_ARM,
+  WEAPONS, STUCK_IN_STONE, FISSURE_GAP, FISSURE_FORK, FISSURE_BUBBLE, SPLINTER_LIFE, HOLE_SINGULARITY_FRAC, DOWNWASH_PLUNGE_N, DOWNWASH_PLUNGE_FRAC, DOWNWASH_PLUNGE_ARM,
   ORBIT_NOVA_RADIUS, WISP_NOVA_RADIUS, CRUNCH_DMG_MUL, UNDERTOW_VAC_RADIUS_PER_STACK,
   WEAPON_MODS, WEAPON_MOD_TIER_BONUS, PEBBLE_CONE, CRAB_EAT, NOISE_BATS, MAX_WEAPON_MOD_PICKS, maxModsPerWeaponPerPool, PIERCE_MAX_PICKS,
   MOD_CANDIDATES_PER_WEAPON, MOD_POOL_MAX, DUO_PITY_SCREENS,
@@ -40830,7 +40830,7 @@ function testMagma() {
     assert.ok(e._dead && r.kills > k0, `run MG.b: a body standing on open lava for 2s should burn to death (hp ${e.hp})`)
   }
   // (c) THE FISSURE: one cast, foes pinned round you (dx, dy from you), the weapon's timer due now
-  const tear = (on, level, spots) => {
+  const tear = (on, level, spots, mods = {}) => {
     const saved = sig.crust
     if (!on) sig.crust = null
     try {
@@ -40842,6 +40842,7 @@ function testMagma() {
       const foes = spots.map(([dx, dy]) => makeStatusEnemy(r, { x: p.x + dx, y: p.y + dy, hp: 1e5, speed: 0 }))
       r.enemies.push(...foes)
       r.weapons = [{ id: 'fissure', level }]
+      r.weaponMods.fissure = { ...mods }
       r.weaponTimers.fissure = 1e-4
       stepSim(r, { x: 0, y: 0 }, 1 / 60)
       const first = foes.map((e) => e.hp < 1e5), lines = r.events.filter((e) => e.type === 'fissure')
@@ -40912,6 +40913,33 @@ function testMagma() {
       assert.ok(far.r.events.some((e) => e.type === 'fissure'), 'run MG.c: held out of reach for 2.5s, it should tear the moment a foe walks in')
     }
     console.log(`PASS run MG.c: a fissure hits its line (${t.hurt}), lays ${t.cracks.length} lava cracks from ${FISSURE_GAP}px out, none with the crust off; overlap burns ${burn[1].toFixed(0)} vs ${burn[0].toFixed(0)}; holds its tear out of reach; spares the player (${self[0]} vs ${self[1]} hp on other lava); grows to its far foe; Bellows flares ${blow.far} cracks past ${blow.reachB}px; L5 tears ${three.lines.length} lines at ${three.foes.length} foes`)
+  }
+  // (e) THE FISSURE'S TWO CARDS (owner, 2026-11-03)
+  {
+    const len = WEAPONS.fissure.levels[0].len
+    const nLines = (t) => new Set(t.cracks.map((c) => c.line)).size
+    // FRAGILE GROUND: each pick forks a branch off the line, up to FISSURE_FORK.max
+    const one = tear(true, 1, [[100, 0]], { fragileGround: 1 }), many = tear(true, 1, [[100, 0]], { fragileGround: 7 }), none = tear(true, 1, [[100, 0]])
+    const offAxis = (t) => t.cracks.filter((c) => Math.abs(c.y - t.p.y) > 25).length
+    assert.ok(nLines(none) === 1 && offAxis(none) === 0, `run MG.e: without Fragile Ground a fissure is one straight line (${nLines(none)} lines, ${offAxis(none)} cracks off it)`)
+    assert.ok(nLines(one) === 2 && offAxis(one) > 0, `run MG.e: one Fragile Ground should fork one branch off the line (${nLines(one)} lines, ${offAxis(one)} cracks off it)`)
+    assert.strictEqual(nLines(many), 1 + FISSURE_FORK.max, `run MG.e: 7 branches asked, the cap is ${FISSURE_FORK.max}`)
+    // ...and the branch hits: one of two foes either side of its fork is struck, none without the card
+    const d = len * (FISSURE_FORK.at[0] + FISSURE_FORK.at[1]) / 2, a = FISSURE_FORK.angle
+    const side = [[d + 70 * Math.cos(a), 70 * Math.sin(a)], [d + 70 * Math.cos(a), -70 * Math.sin(a)]]
+    const hitB = tear(false, 1, [[100, 0], ...side], { fragileGround: 1 }).hurt.slice(1), hitN = tear(false, 1, [[100, 0], ...side]).hurt.slice(1)
+    assert.ok(hitB.filter(Boolean).length === 1 && !hitN.some(Boolean), `run MG.e: a branch should strike the foe on its side (${hitB}), the line alone neither (${hitN})`)
+    // BUBBLING LAVA: its open lava throws slag drops that land beside it and leave burning puddles
+    const bub = (mods) => {
+      const g = tear(true, 1, [[100, 0]], mods)
+      g.r.weapons = []; g.r.enemies = []
+      for (let i = 0; i < 60; i++) { stepSim(g.r, { x: 0, y: 0 }, 1 / 60); g.r.events.length = 0 }
+      return g.r.slagPools.map((sp) => [sp.x - g.p.x, sp.y - g.p.y])
+    }
+    const pools = bub({ bubblingLava: 1 }), dry = bub({})
+    const near = pools.every(([x, y]) => x > FISSURE_GAP - FISSURE_BUBBLE.throw[1] - 1 && x < len + FISSURE_BUBBLE.throw[1] + 1 && Math.abs(y) < FISSURE_BUBBLE.throw[1] + 1)
+    assert.ok(pools.length >= 2 && near && dry.length === 0, `run MG.e: Bubbling Lava should drop puddles beside its line (${pools.length}, all near: ${near}), none without it (${dry.length})`)
+    console.log(`PASS run MG.e: Fragile Ground forks ${nLines(one) - 1} branch (cap ${nLines(many) - 1}), its branch strikes a foe off the line; Bubbling Lava dropped ${pools.length} puddles in 1s beside it, 0 without`)
   }
   // (d) OBSIDIAN SHARDS STICK (owner, 2026-11-02): a shard deals nothing and stays in the foe until the
   // stuck shards add up to its hp; the one that gets there kills it, and every stuck shard flies back out

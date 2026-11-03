@@ -3639,6 +3639,11 @@ const PRISM_DESC_DEEP = 'sub-beams where the beam lands, each splitting again'
 // WEAPON_MODS.roar.stagger; there is no stun CHANCE anywhere in the game, every stun is 100% on
 // what it catches (cf. REPULSE_STUN, MINE_STUN, HYDRANT_STUN).
 export const STAGGER_STUN_PER_PICK = 0.35 // s of stun per normal Stagger pick — the card states it
+// Bubbling Lava: every `every` s each open fissure line throws one small drop of slag (the Ladle's lob)
+export const FISSURE_BUBBLE = { every: 0.35, throw: [30, 90], r: 22, dmgMul: 0.4, dur: 1.2, burn: 3, flight: 0.35 }
+// Fragile Ground: branches fork off a line as its tip passes (spread over `at` of its length), each
+// `angle` rad off the line, len and width as fractions of the line's
+export const FISSURE_FORK = { max: 5, at: [0.3, 0.85], angle: 0.65, jitter: 0.15, len: 0.45, width: 0.6 }
 export const WEAPON_MODS = {
   star: {
     // blast ("Exploding Stars") removed in v4.6 — star AoE splash on every hit made it a
@@ -4679,6 +4684,12 @@ export const WEAPON_MODS = {
     branching:   { name: 'Branching',    desc: 'extra fissure(s), each at another foe', icon: '🔷', kind: 'tier', values: { epic: 1, legendary: 2, mythic: 3 } },
     quickTremor: { name: 'Quick Tremor', desc: 'fissure rate', icon: '⏩', base: 0.15, kind: 'pct' },
     deepFissure: { name: 'Deep Fissure', desc: 'how long its lava stays open', icon: '⌛', base: 0.25, kind: 'pct' },
+    bubblingLava: { name: 'Bubbling Lava', icon: '🫧', kind: 'flat', maxPicks: 1, values: { rare: 1 },
+                   desc: 'Its open lava bubbles: every {secs}s each crack throws a small drop of lava beside it.',
+                   args: { secs: FISSURE_BUBBLE.every } },
+    fragileGround: { name: 'Fragile Ground', icon: '🪨', kind: 'flat', values: { epic: 1, legendary: 2, mythic: 3 },
+                   desc: '+{n} branch(es) forking off each fissure, up to {max}',
+                   args: { max: FISSURE_FORK.max } },
   },
   // ---- Book 3, The Mantle ----
   quenchKettle: {

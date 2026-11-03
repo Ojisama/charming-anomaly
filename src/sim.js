@@ -265,7 +265,7 @@ import {
   DYNAMITE_RANGE, DYNAMITE_FLIGHT, DYNAMITE_FUSE, DYNAMITE_KB, MINECART_SPEED, MINECART_FAN, MINECART_KB, MINECART_STUN, MINECART_LOOT_R, MINECART_HOME_R,
   CANARY_REACH_MUL, CANARY_LINK_DMG, LANTERN_PULSE, LANTERN_FUSE, DRAUGHT_DRAW, DRAUGHT_HOLD, FIREBEND_R_PER_JET, FIREBEND_LEN, FIREBEND_W, FIREBEND_LIFE, FIREBEND_DMG_MUL, SAFETY_LAMP_SENSE, SAFETY_LAMP_MAX, SAFETY_LAMP_EASE, MINE_BOOM_KEEP, MINE_GAS_FADE_IN, MINE_GAS_LIT_SHRINK,
   SLAG_RANGE, SLAG_FLIGHT, SLAG_TICK, OBSIDIAN_FAN, OBSIDIAN_LIFE, OBSIDIAN_R, SPLINTER_LIFE, SPLINTER_SPEED, SPLINTER_R,
-  BELLOWS_LIFE, BELLOWS_SPLASH, BELLOWS_FLARE_MUL, BELLOWS_FLARE_R, BELLOWS_FLARE_T, STUCK_IN_STONE, FISSURE_GAP, FISSURE_STEP, FISSURE_LAVA_T, FISSURE_SPREAD, FISSURE_GROW, HOT_FEET_OPEN_MUL, HOT_FEET_BURN_MUL,
+  BELLOWS_LIFE, BELLOWS_SPLASH, BELLOWS_FLARE_MUL, BELLOWS_FLARE_R, BELLOWS_FLARE_T, STUCK_IN_STONE, FISSURE_GAP, FISSURE_STEP, FISSURE_LAVA_T, FISSURE_SPREAD, FISSURE_GROW, FISSURE_BUBBLE, FISSURE_FORK, HOT_FEET_OPEN_MUL, HOT_FEET_BURN_MUL,
   FLOOD_TIDE_COVER_ADD, FLOOD_TIDE_SPEED_MUL, FLOOD_TIDE_BURN_MUL, COAL_FAN, COAL_LIFE, COAL_R, COAL_IGNITE,
   HAMMER_RANGE, KETTLE_RANGE, KETTLE_LAVA_STEP, HAMMER_POOL_DPS, HAMMER_POOL_TICK, HAMMER_POOL_PLAYER_DPS, HAMMER_POOL_MIRE, LAVA_WAVE_LIFE, LAVA_WAVE_SHOVE_MUL,
   MANTLE_COLD_VS_LAVA, MANTLE_FIRE_VS_ROCK,
@@ -11397,6 +11397,7 @@ function stepWeaponsInner(run, dt) {
   stepCarts(run, dt)    // Book 3 The Mine: minecarts rolling
   stepMagmaLobs(run, dt)   // Book 3 The Magma: slag landing
   stepFissures(run, dt)    // ...and the Fissure's cracks running out
+  stepBubblingLava(run, dt)
   stepSlagPools(run, dt)   // ...and the slag's burning puddles
   stepLonglines(run, dt)
   stepHauls(run, dt)
@@ -18892,15 +18893,44 @@ function stepFissureWeapon(run, w, stats, fireRateMul, dt) {
     run.weaponTimers[w.id] = Math.max(0, (run.weaponTimers[w.id] ?? interval) - dt)
     return
   }
+  const nFork = Math.min(FISSURE_FORK.max, run.weaponMods.fissure?.fragileGround ?? 0)
   fireOnTimer(run, w.id, interval, dt, () => {
     const hit = new Set()   // one cast hits a body once, however many lines cross it
     fissureAngles(run, ipecacN(run, stats.count), stats.len).forEach((a, k) => {
       run.fissures.push({ x: p.x, y: p.y, angle: a, len: stats.len, width: stats.width, t0: run.time, front: 0,
-        seed: (Math.floor(run.time * 997) + k * 131) | 0, _hit: hit, _dmg: stats.dmg, _d: FISSURE_GAP, _lavaT: FISSURE_LAVA_T * (1 + deep) })
+        seed: (Math.floor(run.time * 997) + k * 131) | 0, _hit: hit, _dmg: stats.dmg, _d: FISSURE_GAP, _lavaT: FISSURE_LAVA_T * (1 + deep),
+        _forks: fissureForks(nFork, stats.len) })
       run.events.push({ type: 'fissure', x: p.x, y: p.y, angle: a, len: stats.len, width: stats.width })
     })
     run.events.push({ type: 'shoot', weapon: 'fissure', x: p.x, y: p.y })
   })
+}
+// FRAGILE GROUND: where along a line its n branches fork (evenly over FISSURE_FORK.at), alternating
+// sides from a random first side, each a little off its nominal angle
+function fissureForks(n, len) {
+  if (n <= 0) return undefined
+  const [a0, a1] = FISSURE_FORK.at, s0 = Math.random() < 0.5 ? -1 : 1
+  return Array.from({ length: n }, (_, k) => ({
+    d: len * (n === 1 ? (a0 + a1) / 2 : a0 + ((a1 - a0) * k) / (n - 1)),
+    da: (k % 2 ? -s0 : s0) * FISSURE_FORK.angle + (Math.random() * 2 - 1) * FISSURE_FORK.jitter,
+  }))
+}
+// BUBBLING LAVA: every FISSURE_BUBBLE.every s, each open fissure line throws one small slag drop
+// (the Ladle's lob: it lands, hits, and leaves a burning puddle) from a random one of its cracks
+function stepBubblingLava(run, dt) {
+  if (!(run.weaponMods.fissure?.bubblingLava > 0)) return
+  run._bubbleT = (run._bubbleT ?? 0) - dt
+  if (run._bubbleT > 0) return
+  run._bubbleT += FISSURE_BUBBLE.every
+  const byLine = new Map()
+  for (const c of run.cracks) if (c.line && c.state === 'lava') (byLine.get(c.line) ?? byLine.set(c.line, []).get(c.line)).push(c)
+  const B = FISSURE_BUBBLE
+  for (const [ln, cs] of byLine) {
+    const c = cs[Math.floor(Math.random() * cs.length)]
+    const a = Math.random() * Math.PI * 2, d = B.throw[0] + Math.random() * (B.throw[1] - B.throw[0])
+    run.magmaLobs.push({ kind: 'slag', fromX: c.x, fromY: c.y, x: c.x + Math.cos(a) * d, y: c.y + Math.sin(a) * d, t: 0,
+      flight: B.flight, r: B.r, dmg: ln._dmg * B.dmgMul, dur: B.dur, burn: B.burn })
+  }
 }
 // THE CRACK RUNS OUT from where you stood to its full length in FISSURE_GROW s: a body is hit as the
 // tip reaches it, and the lava opens behind the tip from FISSURE_GAP out (none with the crust off).
@@ -18910,6 +18940,13 @@ function stepFissures(run, dt) {
   const C = crustSpec(run)
   for (const f of run.fissures) {
     f.front = Math.min(f.len, f.front + (f.len / FISSURE_GROW) * dt)
+    // a branch forks off as the tip passes its spot, and runs out on its own (this loop reaches it)
+    while (f._forks?.length && f._forks[0].d <= f.front) {
+      const fk = f._forks.shift(), w = f.width * FISSURE_FORK.width
+      run.fissures.push({ x: f.x + Math.cos(f.angle) * fk.d, y: f.y + Math.sin(f.angle) * fk.d, angle: f.angle + fk.da,
+        len: f.len * FISSURE_FORK.len, width: w, t0: run.time, front: 0, seed: (f.seed * 31 + fk.d) | 0,
+        _hit: f._hit, _dmg: f._dmg, _d: w, _lavaT: f._lavaT })
+    }
     for (const e of enemiesOnRay(run, f.x, f.y, f.angle, f.front, f.width)) {
       if (e._dead || isAlly(e) || f._hit.has(e) || alongRay(f.x, f.y, f.angle, f.front, f.width, e) < 0) continue
       f._hit.add(e)
