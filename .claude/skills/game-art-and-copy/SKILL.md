@@ -86,6 +86,27 @@ the player has never seen — with a green suite either way.
 
 - **Say when something is a stand-in.** If you do ship a placeholder or an approximation, name it as one in the commit and the report. That 🐻 shipped under a code comment calling it "the cheapest honest answer", which read as a considered decision and cost a review round-trip to undo.
 
+## A bake made DURING PLAY is a lag bug until measured — owner, 2026-11-03
+
+*"You always have lag trouble with pixel art and redrawn images."* Every bake is CPU paint + a
+canvas + a GPU upload, and a phone is 5–8x slower than this machine. Bakes at boot are free; bakes
+in `sync()` are not. The Fissure (v12.16) re-baked each crack up to 13 times as it grew and opened,
+times 18 cracks once Fragile Ground forked them: ~1ms each, a dozen in one frame.
+
+- **Animate a finished bake, never re-bake per animation step.** Reveal growth by CROPPING the full
+  bake (a `new Texture({ source, frame })` on the same source costs nothing); fade with alpha/tint.
+  Re-bake only when the SHAPE truly changes, in as few steps as reads (the rift opens in 3).
+- **Cap bakes per frame** (`RIFT_BAKES` in pixel.js): past the budget a thing keeps its last bake,
+  or waits a frame for its first. A burst of N new things must cost N frames, not one.
+- **One texel per art pixel** for anything baked in play: `pixelTex(pc.toCanvas(1), 1 / PX)` draws
+  identically (nearest) and uploads 16x less than `bakeArt`'s PX*UP canvas.
+- **Multiply before you ship:** count bakes per second at the WORST build (max level, max count
+  mods, every branch/split card) — not at level 1 with no cards.
+- **Measure the A/B, frames while it animates:** `scripts/scenes/fissure-lag.js` (header has the
+  line) times sync+render on growing vs idle frames; run it against a `git archive HEAD` copy on a
+  second vite port for the before. Read medians and p90. The MAX is useless here: this headless
+  machine stalls 300–900ms now and then with NO weapon equipped.
+
 ## Copy — legibility first, then translatability
 
 - **A HINT OR LOCKED PAGE NEVER NAMES SOMETHING THE PLAYER HAS NOT SEEN YET.** v11.18.0 had locked
