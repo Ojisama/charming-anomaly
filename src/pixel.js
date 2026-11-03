@@ -255,16 +255,25 @@ export function createPixelRig(env) {
   // three sub-layers, so a pool that grows later can never slip its sprites above another's: the
   // slag lies UNDER the crust (the lava that burns must always read), shadows over both
   const subLayer = () => { const c = new Container(); ground.addChild(c); return c }
-  const gPuddle = pool(subLayer()), gCrust = pool(subLayer()), gShadow = pool(subLayer())
+  // a Fissure is three sprites, one per band: rim in gCrust, red band in gRiftBand, yellow core in
+  // gRiftCore. Each band sits above EVERY line's band below it, so where cracks cross or branch the
+  // colours join instead of one line's rim or red cutting across another's core
+  const gPuddle = pool(subLayer()), gCrust = pool(subLayer()), gRiftBand = pool(subLayer()), gRiftCore = pool(subLayer()), gShadow = pool(subLayer())
+  const RIFT_LAYERS = [gCrust, gRiftBand, gRiftCore]
   // A FISSURE LINE IS ONE BAKE per open step (RIFT_OPEN over RIFT_OPEN_T s), then one as cooled crust.
   // A bake is costly (a phone stalls on a dozen in one frame), so at most RIFT_BAKES happen per frame:
   // a line past the budget keeps its last stage, or waits a frame for its first. Its origin sits on a
   // whole art pixel and the sprite on the PX grid, or the CRT pass resamples its edges as the camera moves.
   const RIFT_OPEN = 3, RIFT_OPEN_T = 0.5, RIFT_BAKES = 3
   let riftBudget = 0
-  const rifts = new Map()   // line -> { key, art, geo, crop, cropKey }
-  const dropCrop = (r) => { if (r.crop) { r.crop.tex.destroy(false); r.crop = null; r.cropKey = -1 } }
-  const dropRift = (ln) => { const r = rifts.get(ln); dropCrop(r); r.art.tex.destroy(true); rifts.delete(ln) }
+  const rifts = new Map()   // line -> { key, sheet, arts: [rim, band, core], geo, crop, cropKey }
+  const dropCrop = (r) => { if (r.crop) { for (const a of r.crop) a.tex.destroy(false); r.crop = null; r.cropKey = -1 } }
+  const dropArt = (r) => { dropCrop(r); for (const a of r.arts) a.tex.destroy(false); r.sheet.destroy(true) }
+  // a window onto layer k of a rift's sheet: art px box (x0, y0)-(x1, y1), origin (ox, oy)
+  const riftWin = (sheet, k, w, x0, y0, x1, y1, ox, oy) => ({
+    tex: new Texture({ source: sheet.source, frame: new Rectangle((k * w + x0) * PX, y0 * PX, (x1 - x0) * PX, (y1 - y0) * PX) }),
+    ax: (ox - x0) / (x1 - x0), ay: (oy - y0) / (y1 - y0) })
+  const dropRift = (ln) => { dropArt(rifts.get(ln)); rifts.delete(ln) }
   const riftArt = (ln, open, cooled) => {
     const key = open + '|' + cooled, had = rifts.get(ln)
     if (had && (had.key === key || riftBudget <= 0)) return had
@@ -274,22 +283,31 @@ export function createPixelRig(env) {
     const w = Math.ceil(Math.abs(cs) * L) + pad * 2, h = Math.ceil(Math.abs(sn) * L) + pad * 2
     const ox = pad + (cs < 0 ? Math.ceil(-cs * L) : 0), oy = pad + (sn < 0 ? Math.ceil(-sn * L) : 0)
     const pc = new PixelCanvas(w, h)
-    paintRift(pc, ox, oy, ln.angle, L, Wd, FISSURE_GAP / PX, ln.seed, cooled, 1, open)
-    if (had) { dropCrop(had); had.art.tex.destroy(true) }
-    const r = { key, art: { tex: pixelTex(pc.toCanvas(1), 1 / PX), ax: ox / w, ay: oy / h }, geo: { L, Wd, cs, sn, w, h, ox, oy }, crop: null, cropKey: -1 }
+    const rank = paintRift(pc, ox, oy, ln.angle, L, Wd, FISSURE_GAP / PX, ln.seed, cooled, 1, open, !!ln.root)
+    // split by what was painted into ONE sheet, three layers side by side (one canvas, one upload):
+    // rim and edge (rank <= 2), red band (3), yellow core (4)
+    const all = new PixelCanvas(w * 3, h)
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const i = y * w + x, c = pc.d[i]
+      if (c) all.d[y * w * 3 + Math.max(0, rank[i] - 2) * w + x] = c
+    }
+    if (had) dropArt(had)
+    const sheet = pixelTex(all.toCanvas(1), 1 / PX)
+    const arts = [0, 1, 2].map((k) => riftWin(sheet, k, w, 0, 0, w, h, ox, oy))
+    const r = { key, sheet, arts, geo: { L, Wd, cs, sn, w, h, ox, oy }, crop: null, cropKey: -1 }
     rifts.set(ln, r); return r }
   // WHILE IT TEARS OUT it shows only the bake from your feet to its tip: a crop of the finished drawing
   // (no re-bake). The line runs corner to corner of its bake, so the box from origin to tip holds it.
+  // -> one art per RIFT_LAYERS entry
   const riftReach = (r, reach) => {
-    if (reach >= 1) return r.art
+    if (reach >= 1) return r.arts
     const k = Math.ceil(reach * 24) / 24
     if (r.cropKey !== k) {
       dropCrop(r)
       const { L, Wd, cs, sn, w, h, ox, oy } = r.geo, tx = ox + cs * L * k, ty = oy + sn * L * k, m = Math.ceil(Wd * 0.45) + 3
       const x0 = Math.max(0, Math.floor(Math.min(ox, tx) - m)), x1 = Math.min(w, Math.ceil(Math.max(ox, tx) + m))
       const y0 = Math.max(0, Math.floor(Math.min(oy, ty) - m)), y1 = Math.min(h, Math.ceil(Math.max(oy, ty) + m))
-      r.crop = { tex: new Texture({ source: r.art.tex.source, frame: new Rectangle(x0 * PX, y0 * PX, (x1 - x0) * PX, (y1 - y0) * PX) }),
-        ax: (ox - x0) / (x1 - x0), ay: (oy - y0) / (y1 - y0) }
+      r.crop = [0, 1, 2].map((q) => riftWin(r.sheet, q, w, x0, y0, x1, y1, ox, oy))
       r.cropKey = k
     }
     return r.crop }
@@ -357,7 +375,7 @@ export function createPixelRig(env) {
       rig.clear()
     },
     clear() {
-      gCrust.hide(); gPuddle.hide(); gPlate.hide(); gShadow.hide(); for (const ln of [...rifts.keys()]) dropRift(ln); aLob.hide(); aGust.hide(); lights.hide(); masks.hide(); aIce.hide(); aGlass.hide()
+      gCrust.hide(); gRiftBand.hide(); gRiftCore.hide(); gPuddle.hide(); gPlate.hide(); gShadow.hide(); for (const ln of [...rifts.keys()]) dropRift(ln); aLob.hide(); aGust.hide(); lights.hide(); masks.hide(); aIce.hide(); aGlass.hide()
       pending.length = 0
       burning = false
       for (const f of flashes) f.life = 0
@@ -474,7 +492,7 @@ export function createPixelRig(env) {
       // the crust
       const p = run.player
       let onLava = null
-      gCrust.begin()
+      gCrust.begin(); gRiftBand.begin(); gRiftCore.begin()
       const lines = new Map()   // this frame's fissure lines: line -> { lava, flared, end, cool }
       for (const f of run.fissures || []) lines.set(f, { lava: true, flared: false, end: 9, cool: 0 })
       for (const c of run.cracks || []) {
@@ -536,22 +554,24 @@ export function createPixelRig(env) {
         const age = (run.time - ln.t0) / RIFT_OPEN_T, open = age >= 1 ? 1 : Math.max(1, Math.ceil((1 - (1 - age) ** 2) * RIFT_OPEN)) / RIFT_OPEN
         const r = riftArt(ln, st.lava ? open : 1, !st.lava)
         if (!r) continue
-        const s = gCrust.next(st.lava ? riftReach(r, ln.front / ln.len) : r.art)
-        s.position.set(Math.round(ln.x / PX) * PX, Math.round(ln.y / PX) * PX)
+        const sp = riftReach(r, st.lava ? ln.front / ln.len : 1)
+        const sx = Math.round(ln.x / PX) * PX, sy = Math.round(ln.y / PX) * PX
+        const parts = sp.map((a, i) => RIFT_LAYERS[i].next(a))
+        for (const q of parts) q.position.set(sx, sy)
         if (st.lava) {
           // white-hot while it tears and opens, and when the bellows flares it; dull red its last half second
-          if (st.flared || age < 1) s.tint = 0xfff4d0
-          else if (st.end < 0.5) s.tint = 0xd88060
+          const tint = st.flared || age < 1 ? 0xfff4d0 : st.end < 0.5 ? 0xd88060 : 0xffffff
+          for (const q of parts) q.tint = tint
           // the tip throws rock and lava as it runs
           if (dt > 0 && ln.front < ln.len) {
             const tx = ln.x + Math.cos(ln.angle) * ln.front, ty = ln.y + Math.sin(ln.angle) * ln.front
             burst(tx, ty, 3, [...EMBERS, ...ASH], 180, 0.5)
             addLight(tx, ty, 90, L_LAVA, 0.9)
           }
-        } else s.alpha = st.cool
+        } else for (const q of parts) q.alpha = st.cool
       }
       for (const ln of [...rifts.keys()]) if (!lines.has(ln)) dropRift(ln)
-      gCrust.end()
+      gCrust.end(); gRiftBand.end(); gRiftCore.end()
       // a lava river under you burns as open lava does, so it shows as open lava does
       if (!onLava && FL && p && riverDepthAt(FL.F, p.x, p.y, FL.seed) > 0) onLava = true
       gPuddle.begin()

@@ -2267,7 +2267,8 @@ function generateWells(sig) {
  *   fissures[i]: { x, y, angle, len, width, t0, front, seed, _hit, _dmg, _d, _lavaT, _forks } — a Fissure
  *     crack running out from (x, y): front px grows to len in FISSURE_GROW s (hitting and opening lava
  *     as it passes), then the entry leaves this list; its cracks keep it as crack.line. _forks (Fragile
- *     Ground): [{ d, da }] — at d px a branch entry is pushed here, angled da off the line.
+ *     Ground): [{ d, da }] — at d px a branch entry is pushed here, angled da off the line, with
+ *     root: true (pixel.js draws it springing at full width from its parent, not starting thin).
  *     _bubbleT: Bubbling Lava's countdown to the next slag drop from each open line.
  *   magmaLobs[i]: { kind: 'slag', fromX, fromY, x, y, t, flight, r, dmg, dur, burn } — a ladle of
  *     slag in the air (the Slag Ladle's, or a Bellows river splash); lands at t >= flight.

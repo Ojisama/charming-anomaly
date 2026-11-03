@@ -18945,7 +18945,7 @@ function stepFissures(run, dt) {
       const fk = f._forks.shift(), w = f.width * FISSURE_FORK.width
       run.fissures.push({ x: f.x + Math.cos(f.angle) * fk.d, y: f.y + Math.sin(f.angle) * fk.d, angle: f.angle + fk.da,
         len: f.len * FISSURE_FORK.len, width: w, t0: run.time, front: 0, seed: (f.seed * 31 + fk.d) | 0,
-        _hit: f._hit, _dmg: f._dmg, _d: w, _lavaT: f._lavaT })
+        _hit: f._hit, _dmg: f._dmg, _d: w, _lavaT: f._lavaT, root: true })
     }
     for (const e of enemiesOnRay(run, f.x, f.y, f.angle, f.front, f.width)) {
       if (e._dead || isAlly(e) || f._hit.has(e) || alongRay(f.x, f.y, f.angle, f.front, f.width, e) < 0) continue
