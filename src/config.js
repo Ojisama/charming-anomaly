@@ -3145,8 +3145,8 @@ export const WEAPONS = {
     name: 'Fissure',
     desc: 'Tears the ground open in a line through the nearest foe. The line stays lava for a moment.',
     icon: '🌋', rarity: 'rare',
-    // balance_decision : owner: 40px wide, L5 a bit over the Ladle 2026-11-02
-    levels: book3Levels({ dmg: 34, interval: 1.8, count: 1, len: 300, width: 40 }, { range: ['len'] }),
+    // balance_decision : owner: 28 dmg, 200px long, 40px wide 2026-11-03
+    levels: book3Levels({ dmg: 28, interval: 1.8, count: 1, len: 200, width: 40 }, { range: ['len'] }),
   },
   // ---- Book 3, The Mantle's four. All auto-fire, none aimed: each one is a way to use the lava. ----
   // Quench Kettle: throws water at the nearest Crack Hammer pool (a steam blast, the pool spent), else

@@ -18665,7 +18665,7 @@ function stepCrust(run, dt) {
         // a Fissure's cracks overlap along its line: a body on two of them burns once a tick, not twice
         if (c.line) {
           const seen = (c.line._burned ??= new WeakMap()), last = seen.get(e)
-          if (last !== undefined && run.time - last < C.tick * 0.5) continue
+          if (last !== undefined && run.time - last < C.tick * 0.99) continue   // once a tick per line, whatever its cracks' phases
           seen.set(e, run.time)
         }
         const dmg = (C.burnFlat + C.burnPct * e.maxHP) * C.tick * hot * (e.elite ? C.eliteMul : 1)
