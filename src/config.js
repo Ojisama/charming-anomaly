@@ -3149,8 +3149,8 @@ export const WEAPONS = {
     levels: book3Levels({ dmg: 28, interval: 1.8, count: 1, len: 200, width: 40 }, { range: ['len'] }),
   },
   // ---- Book 3, The Mantle's four. All auto-fire, none aimed: each one is a way to use the lava. ----
-  // Quench Kettle: throws water at the nearest Crack Hammer pool (a steam blast, the pool spent), else
-  // the nearest lava creature, else the nearest lava (run.quenchCrusts). Lava inside the splash cools
+  // Quench Kettle: throws water at the nearest foe, else the nearest Crack Hammer pool, else the
+  // nearest lava (run.quenchCrusts). A hammer pool in the splash steams (the pool spent). Lava inside the splash cools
   // into a basalt CRUST for crustDur s; on the boat you ride it cools the hull instead (sim.js).
   quenchKettle: {
     name: 'Quench Kettle',
