@@ -10073,9 +10073,15 @@ export const MANTLE_GROUND_STEP = 8
 export const MANTLE_START_DRY = 0.9
 // balance_decision : first habitat and boat numbers, unplayed 2026-10-12
 //  - the strand clock waits while a toad is mid-leap out of the lava: it starts at the landing
-export const MANTLE_STRAND_STUCK_T = 1.5   // s stranded on rock until a lava creature cannot move at all
+// balance_decision : stone in 1s, holds 5s, thaws; no clock death 2026-11-03
+export const MANTLE_STRAND_STUCK_T = 1     // s stranded on rock until a lava creature is stone (cannot move)
 export const MANTLE_STRAND_SLOW = 0.35     // x its movement the moment it is stranded (falls to 0 by STUCK_T)
-export const MANTLE_STRAND_DIE_T = 5       // s stranded until it crumbles (it dies and pays its xp)
+export const MANTLE_STRAND_HOLD_T = 5      // s it stays stone; killed while stranded it crumbles
+export const MANTLE_STRAND_THAW_T = 1      // s it takes to thaw (the turning played backwards)
+export const MANTLE_STRAND_FREE_T = MANTLE_STRAND_STUCK_T + MANTLE_STRAND_HOLD_T + MANTLE_STRAND_THAW_T
+// how much stone a stranded lava creature is (0..1) at strandT T: in over STUCK_T, held, out over THAW_T
+export const strandStone = (T) => (T <= 0 ? 0 : T < MANTLE_STRAND_STUCK_T ? T / MANTLE_STRAND_STUCK_T
+  : Math.min(1, Math.max(0, (MANTLE_STRAND_FREE_T - T) / MANTLE_STRAND_THAW_T)))
 export const MANTLE_STRAND_DMG_MUL = 2     // x every damage a stranded lava creature takes
 export const MANTLE_MELT_T = 0.6           // s a rock creature lasts under the tide before it melts
 export const MANTLE_SPAWN_TRIES = 24       // bearings tried per ring when seating a creature in its habitat

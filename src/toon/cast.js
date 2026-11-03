@@ -30,6 +30,8 @@
 //   paint(ctx, frame, elite) draws in units (the caller has scaled the context). render.js scales the
 //   sprite by e.radius / baseR, so baseR sets how many world px one unit is drawn at.
 import { resetXf, push, pop, tr, rot, sc, ell, polar, drop, tube, qb, line, cel, eye, glove, shadow, glow, puff, flame, brush, mp, INK, setPaper, ground } from './brush.js'
+import { PAL } from './palette.js'
+import { strandStone } from '../config.js'
 
 const SH_RED = 'rgba(96,6,24,0.42)'
 const TAU_ = Math.PI * 2
@@ -69,6 +71,100 @@ function mouth(c, a, b, cTop, cBot, o = {}) {
 const brow = (c, a, m, b, w = 1.6) => line(c, qb(a, m, b), w, { belly: true, taper: 0.45 })
 // rosy cheeks, brushed thin
 function blush(c, pts, col = '#f59a78', a = 0.45) { c.save(); c.globalAlpha = a; for (const [x, y, rx, ry] of pts) cel(c, ell(x, y, rx, ry, 0, 16), col, { ink: 0, shade: null, dabs: 0 }); c.restore() }
+
+// ---- STRANDED: a lava creature on dry rock (sim.js strandT), acted in its own sprite. Three poses are
+// baked after its cycle, its whole body out on the rock (no waterline): 1 TUGGING (stretched up, eyes
+// squeezed shut, teeth gritted, strain lines), 2 STUCK FAST (sagged, worried brows, sweat, its glow
+// dimming), 3 ABOUT TO CRUMBLE (slumped, its glow gone to crust, lava-lit cracks, heavy lids, a shiver).
+// Its own lava setting round it, the dust and the crumbs are mantle-fx.js's, on the ground.
+// by how much stone it is (config strandStone), so thawing plays the poses backwards
+export const strandStage = (T) => { const s = strandStone(T); return s < 0.5 ? 1 : s < 1 ? 2 : 3 }
+// a lit part by stage: as bright as swimming, dimmed (dim), gone out to crust
+const glowAt = (st, lit, dim = PAL.lava) => (st < 2 ? lit : st < 3 ? dim : PAL.rockLow)
+// its face by stage. E: the two eye centres; rx, ry: an eye's size; cx, my, mw: the mouth's centre x, y and
+// half width; col: the lids' paint; bw: the brows' weight; white: the eyes' white (the cast's own by default)
+function strandFace(c, st, E, { rx, ry, cx, my, mw, col, bw = 1.7, white }) {
+  const mid = (E[0][0] + E[1][0]) / 2
+  // a lid of the body's own paint over the eye, its edge from the outer corner (y = yo) to the inner
+  // (y = yi) sagging to yc between, inked along that edge (top: false for a lower lid pushed up)
+  const lid = (x, y, k, yo, yc, yi, top = true) => {
+    const o = [x + k * rx * 1.15, yo], i = [x - k * rx * 1.15, yi], m = [x, yc]
+    const far = [x, y + (top ? -ry * 2.4 : ry * 2.4)]
+    cel(c, [...qb(o, far, i, 12), ...qb(i, m, o, 12).slice(1, -1)], col, { ink: 0, shade: null })
+    line(c, qb([o[0] + k * 0.2, o[1]], m, [i[0] - k * 0.2, i[1]]), bw * 0.75, { belly: true, taper: 0.35 })
+  }
+  for (const [x, y] of E) {
+    const k = Math.sign(x - mid) || 1
+    if (st === 1) {
+      // straining: eyes bulging, pupils rolled up to where it heaves, the lower lids pushed up into
+      // them, a hard V of brow
+      eye(c, x, y, rx * 1.04, ry * 1.04, 0, -0.75, { white, pr: 0.5, pry: 0.55 })
+      lid(x, y, k, y + ry * 0.2, y + ry * 0.35, y + ry * 0.5, false)
+      brow(c, [x + k * rx * 1.35, y - ry * 1.25], [x + k * rx * 0.2, y - ry * 1.05], [x - k * rx * 0.95, y - ry * 0.55], bw * 1.1)
+    } else if (st === 2) {
+      // wide with worry, small pupils rolled up at you, the brows' inner ends lifted
+      eye(c, x, y, rx * 1.06, ry * 1.1, k * 0.15, -0.55, { white, pr: 0.4, pry: 0.48 })
+      brow(c, [x + k * rx * 1.3, y - ry * 1.05], [x + k * rx * 0.25, y - ry * 1.6], [x - k * rx * 0.8, y - ry * 1.85], bw)
+    } else {
+      // done for: pupils sunk to the bottom, lids drooping down to the outer corners, the brows
+      // sliding off the face
+      eye(c, x, y, rx, ry, 0, 0.8, { white, pr: 0.46, pry: 0.5 })
+      lid(x, y, k, y + ry * 0.3, y - ry * 0.05, y - ry * 0.45)
+      brow(c, [x + k * rx * 1.3, y - ry * 0.75], [x + k * rx * 0.2, y - ry * 1.25], [x - k * rx * 0.8, y - ry * 1.5], bw * 0.85)
+    }
+  }
+  if (st === 1) mouth(c, [cx - mw, my], [cx + mw, my], [cx, my - 0.6], [cx, my + mw * 0.5], { teeth: mw * 0.32, n: 7, ink: bw * 0.7 })
+  else if (st === 2) line(c, [...qb([cx - mw * 0.75, my + mw * 0.2], [cx - mw * 0.4, my - mw * 0.25], [cx, my], 8), ...qb([cx, my], [cx + mw * 0.4, my - mw * 0.25], [cx + mw * 0.75, my + mw * 0.2], 8).slice(1)], bw * 0.8, { belly: true, taper: 0.4 })
+  else mouth(c, [cx - mw * 0.32, my + mw * 0.1], [cx + mw * 0.32, my + mw * 0.1], [cx, my - mw * 0.2], [cx, my + mw * 0.55], { ink: bw * 0.6 })
+}
+// sweat flying off a worried head, on its k side (-1 left, 1 right): a paper teardrop, tip back toward the head
+// (painted with the ground marks, so the cut's margin does not swallow it)
+function sweat(c, x, y, s, k) { ground(() => { push(); tr(x, y); rot(-k * 1.15); cel(c, drop(0, 0, s * 1.6, s * 3.6), PAL.white, { ink: 0.85, shade: null, piece: false }); pop() }) }
+// a crack into it: one short curved split of ink at the outline's own weight, starting ON the outline
+// at a and tapering in to nothing at b (bent through m), a thin deep-red glow in its root
+function crack(c, a, m, b, w = 1.7) {
+  const P = qb(a, m, b, 12), n = P.length - 1, L = [], R = []
+  for (let i = 0; i <= n; i++) {
+    const p = P[Math.max(0, i - 1)], q = P[Math.min(n, i + 1)], l = Math.hypot(q[0] - p[0], q[1] - p[1]) || 1
+    const h = (w / 2) * (1 - (i / n) ** 1.6), nx = -(q[1] - p[1]) / l * h, ny = (q[0] - p[0]) / l * h
+    L.push([P[i][0] + nx, P[i][1] + ny]); R.push([P[i][0] - nx, P[i][1] - ny])
+  }
+  cel(c, [...L, ...R.reverse()], PAL.ink, { ink: 0, shade: null, piece: false })
+  line(c, P.slice(1, 8), w * 0.38, { color: PAL.lavaDeep, taper: 0.8 })
+}
+// the ground marks round its base (cx, cy; half width hws, or [left, right]; height h): tugging, short ink
+// effort arcs hugging either side; about to crumble, a shiver, two smaller arcs either side
+function strandMarks(c, st, cx, cy, hws, h) {
+  ground(() => {
+    for (const k of [-1, 1]) {
+      const hw = Array.isArray(hws) ? hws[k < 0 ? 0 : 1] : hws
+      if (st === 1) {
+        for (let j = 0; j < 2; j++) { const x = cx + k * (hw + 0.8 + j * 2.4), y = cy - h * 0.5, r = h * (0.32 - 0.08 * j); line(c, qb([x, y - r], [x + k * r * 0.7, y], [x, y + r], 10), 2.2 - 0.4 * j, { belly: true, taper: 0.55 }) }
+      } else if (st === 3) {
+        for (let j = 0; j < 2; j++) { const x = cx + k * (hw + 0.8 + j * 2.2), y = cy - h * 0.45, r = h * (0.22 - 0.05 * j); line(c, qb([x, y - r], [x + k * r * 0.6, y], [x, y + r], 10), 1.6 - 0.3 * j, { belly: true, taper: 0.6 }) }
+      }
+    }
+  })
+}
+// the frame a cycling look shows: render.js plays a cycle on its own clock only when a look has no
+// poseOf, so these creatures replay it here, off the clock mantle-fx.js hands over each frame (the same
+// sum render.js makes, and the same hold while frozen or stunned)
+const EEL_SKIN = '#4b3447', EEL_MUZZLE = '#6d5068', RAY_BACK = '#3b2a40', RAY_BACK2 = '#54395a'
+let castClock = 0
+export function setCastClock(t) { castClock = t }
+const heldFrame = new WeakMap()
+function strandPose(n, fps, base) {
+  return (e) => {
+    if (e.strandT > 0) return n - 1 + strandStage(e.strandT)
+    if (base) return base(e)
+    const halted = (e.frozen || 0) > 0 || (e.stunT || 0) > 0
+    let f = heldFrame.get(e)
+    if (!halted || f === undefined) { f = Math.floor(castClock * fps + e.id * 1.7) % n; heldFrame.set(e, f) }
+    return f
+  }
+}
+// a cut with toon.js's CAST_CUT numbers, its edge holding for half the CYCLE (not counting the stranded poses)
+const cycleCut = (n) => ({ paper: 1.75, paperSide: 0.97, paperWob: 0.5, ink: 0.45, inkSide: 0.9, fWob: 0.1, fStep: n / 2 })
 
 // ---- EMBER IMP: a devil's head on legs. Gold horns, a flame tuft, V brows, a wide toothy grin ------
 function imp(c, o = {}) {
@@ -148,10 +244,14 @@ function paintImp(c, f, elite) {
 
 // ---- MAGMA TOAD: a wide flat pancake of a toad, eye domes on top, a smug lidded grin, tongue out ----
 function toad(c, o = {}) {
+  const st = o.st || 0
   const lk = o.look || [0, 0], sx = o.sx || 1, sy = o.sy || 1, lift = o.lift || 0
   shadow(c, 1.5, 6, 17 * (lift ? 0.8 : 1), 7, lift ? 0.26 : 0.38)
+  if (st) strandMarks(c, st, 0, 11, 21, 14)
   push(); tr(0, -lift); tr(0, 6); sc(sx, sy); tr(0, -6)
-  const skin = o.col || '#c4562c', dark = '#5a1e18', sh = 'rgba(60,6,16,0.5)', belly = '#f2c166'
+  const skin = st > 2 ? PAL.toad : o.col || '#c4562c', dark = '#5a1e18', sh = 'rgba(60,6,16,0.5)', belly = '#f2c166'
+  // stranded, its webbed feet set first into the crust
+  const foot = st > 1 ? PAL.rockLow : belly
   // hind legs: folded out flat to the sides for the squash, flung back and out for the leap
   for (const k of [-1, 1]) {
     // a fat haunch folded at its side, the shin tucked under it
@@ -161,8 +261,8 @@ function toad(c, o = {}) {
     const ft = o.leap ? [k * 22, 17] : [k * 15.5, 11]
     // a webbed three-toed foot fanned out to the side, a round pad on each toe
     push(); tr(ft[0], ft[1]); rot(k > 0 ? 0.35 : Math.PI - 0.35)
-    cel(c, [[-1, -1.6], ...qb([1.2, -3.6], [4.4, -1.8], [4.6, 0], 6), ...qb([4.6, 0], [4.8, 2.0], [1.2, 3.6], 6).slice(1), [-1, 1.6]], belly, { ink: 1.0, shade: 'rgba(130,60,20,0.4)' })
-    for (const ag of [-0.75, 0, 0.75]) cel(c, ell(Math.cos(ag) * 4.6, Math.sin(ag) * 3.6, 1.1, 1.0, 0, 12), belly, { ink: 0.7, shade: null, dabs: 0 })
+    cel(c, [[-1, -1.6], ...qb([1.2, -3.6], [4.4, -1.8], [4.6, 0], 6), ...qb([4.6, 0], [4.8, 2.0], [1.2, 3.6], 6).slice(1), [-1, 1.6]], foot, { ink: 1.0, shade: 'rgba(130,60,20,0.4)' })
+    for (const ag of [-0.75, 0, 0.75]) cel(c, ell(Math.cos(ag) * 4.6, Math.sin(ag) * 3.6, 1.1, 1.0, 0, 12), foot, { ink: 0.7, shade: null, dabs: 0 })
     pop()
   }
   // front hands: white gloves splayed forward (reaching ahead on the leap)
@@ -173,7 +273,20 @@ function toad(c, o = {}) {
   // magma warts (glowing pores) on its back
   for (const [wx, wy, wr] of [[-11.5, -2, 1.3], [11.8, -1.2, 1.4], [-13, 3, 1.0], [13.2, 3.6, 1.1]]) {
     cel(c, ell(wx, wy, wr, wr * 0.8, 0, 16), dark, { ink: 0, shade: null })
-    cel(c, ell(wx - 0.2, wy - 0.2, wr * 0.55, wr * 0.45, 0, 12), '#f7a83e', { ink: 0, shade: null })
+    cel(c, ell(wx - 0.2, wy - 0.2, wr * 0.55, wr * 0.45, 0, 12), st ? glowAt(st, PAL.lavaHot, PAL.lavaDeep) : '#f7a83e', { ink: 0, shade: null })
+  }
+  if (st) {
+    cel(c, ell(-6, -6.6, 5.9, 5.4, 0, 30), skin, { ink: 1.5, shade: sh })
+    cel(c, ell(6, -6.6, 5.9, 5.4, 0, 30), skin, { ink: 1.5, shade: sh })
+    blush(c, [[-9.6, 1.4, 2.2, 1.2], [9.6, 1.4, 2.2, 1.2]], PAL.blush, st > 2 ? 0.2 : 0.4)
+    if (st > 2) {
+      crack(c, [-15.8, 0.2], [-12.6, 0.6], [-10.8, 3.4], 2.3)
+      crack(c, [14.4, 5], [12, 4.4], [10.8, 2.2], 2.0)
+    }
+    strandFace(c, st, [[-6, -7], [6, -7]], { rx: 4.0, ry: 4.3, cx: 0, my: 2.4, mw: 8.5, col: skin, bw: 1.5 })
+    if (st === 2) { sweat(c, -15, -11, 1.7, -1); sweat(c, 14.6, -13, 1.5, 1) }
+    pop()
+    return
   }
   // eye domes on top of the head
   cel(c, ell(-6, -6.6, 5.9, 5.4, 0, 30), skin, { ink: 1.5, shade: sh })
@@ -217,7 +330,12 @@ const TOAD_POSE = [
   { sx: 0.92, sy: 1.12, lift: 3.2, leap: true, look: [0.35, -0.2] },
   { sx: 0.84, sy: 1.2, lift: 7.5, leap: true, look: [0.3, -0.4] },
 ]
-function paintToad(c, f, elite) { toad(c, { ...TOAD_POSE[f % TOAD_POSE.length], col: elite ? '#a23c28' : '#c4562c' }) }
+// STRANDED (o.st 1..3): stretched up off its stuck feet, then sagging flat
+const TOAD_STRAND = [null, { sx: 0.9, sy: 1.14 }, { sx: 1.1, sy: 0.9 }, { sx: 1.16, sy: 0.82 }]
+function paintToad(c, f, elite) {
+  const st = Math.max(0, f - TOAD_POSE.length + 1)
+  toad(c, { ...(st ? { ...TOAD_STRAND[st], st } : TOAD_POSE[f % TOAD_POSE.length]), col: elite ? '#a23c28' : '#c4562c' })
+}
 // the pose IS the pounce state (sim.js: aim counts down from POUNCE_AIM_T 0.6s, leap from
 // POUNCE_LEAP_T 0.3s, land from POUNCE_LAND_T 0.5s; hold counts down from 0); breathing loops 0 1 2 1
 function toadPose(e) {
@@ -473,11 +591,36 @@ function eelPose(f) {
 }
 // where it breaks the surface: [x, half width] of each part going under
 const eelBreaks = (E) => [[12.6, 4.6], [E.cx - E.hw, 4.2], [E.cx + E.hw, 4.2], [E.tx, 2.6]]
+// STRANDED (o.st 1..3): beached, its whole length lying in an S on the rock, the head rearing up to tug
+// free, then hanging lower and lower, the fin and the embers on its back going out
+const EEL_STRAND = [null, { rise: 5.2, tilt: -0.08, flare: 0.4 }, { rise: 1.4, tilt: 0.06, flare: 0 }, { rise: -1.6, tilt: 0.2, flare: -0.15 }]
+function eelBeached(c, st, skin, belly, fin, sh, fsh, big) {
+  const S = EEL_SURF
+  const P = [...qb([12.6, S + 3.5], [2, S + 10], [-9, S + 4.6], 12), ...qb([-9, S + 4.6], [-20, S - 0.8], [-31, S + 3.8], 12).slice(1)]
+  const n = P.length, hw = (i) => (7.2 - 3.8 * (i / (n - 1))) / 2
+  // the sail fin, flopped over to its top side, scalloped
+  const inner = [], outer = []
+  for (let i = 2; i < n - 2; i++) {
+    const a = P[i - 1], b = P[i + 1], l = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1, nx = (b[1] - a[1]) / l, ny = -(b[0] - a[0]) / l
+    const u = (i - 2) / (n - 5), ht = ((big ? 5.6 : 4.6) * Math.sin(Math.PI * u) + 1) * (i % 3 === 1 ? 1.14 : 0.86)
+    const sg = ny > 0 ? -1 : 1
+    inner.push([P[i][0] + sg * nx * hw(i) * 0.5, P[i][1] + sg * ny * hw(i) * 0.5]); outer.push([P[i][0] + sg * nx * (hw(i) + ht), P[i][1] + sg * ny * (hw(i) + ht)])
+  }
+  cel(c, [...inner, ...outer.reverse()], fin, { ink: 1.2, shade: fsh })
+  // the tail fin, flat on the rock
+  push(); tr(-31, S + 3.8); rot(Math.PI / 2 + 0.5); cel(c, drop(0, 0, 3.4, 8.4, 0.2), fin, { ink: 1.1, shade: fsh }); pop()
+  cel(c, tube(P, 7.2, 3.4), skin, { ink: 1.8, shade: sh })
+  for (const u of [0.25, 0.45, 0.65, 0.82]) { const q = P[Math.round(u * (n - 1))]; cel(c, ell(q[0], q[1] - 0.6, 1.3, 0.9, 0, 14), belly, { ink: 0, shade: null }) }
+  if (st > 2) crack(c, [-2, S + 9.6], [-0.8, S + 7.4], [-1.6, S + 5.4], 2.1)
+}
 function eel(c, o = {}) {
-  const E = eelPose(o.f || 0), ph = E.ph, lk = o.look || [0.4, 0.3 - E.gape * 0.3], S = EEL_SURF
-  const skin = o.col || '#4b3447', belly = '#f2a03c', fin = o.fin || '#e2502e', sh = 'rgba(20,6,24,0.45)', fsh = 'rgba(120,10,10,0.42)'
+  const st = o.st || 0
+  const E = st ? { ...eelPose(0), ...EEL_STRAND[st], gape: 0 } : eelPose(o.f || 0), ph = E.ph, lk = o.look || [0.4, 0.3 - E.gape * 0.3], S = EEL_SURF
+  if (st) { E.hy = -10 - E.rise; E.hx = 12 }
+  const skin = o.col || EEL_SKIN, belly = st ? glowAt(st, PAL.lavaHot) : '#f2a03c', fin = st ? glowAt(st, o.fin || PAL.lava, PAL.lavaDeep) : o.fin || '#e2502e', sh = 'rgba(20,6,24,0.45)', fsh = 'rgba(120,10,10,0.42)'
+  if (st) { strandMarks(c, st, 0, S + 8, [31, 19], 20); eelBeached(c, st, skin, belly, fin, sh, fsh, o.big) }
   // the ripples it leaves on the lava, spreading out of each place it breaks the surface
-  ground(() => {
+  if (!st) ground(() => {
     for (const [x, w] of eelBreaks(E)) for (let k = 0; k < 2; k++) {
       const g = ((ph / TAU_) + k * 0.5 + x * 0.013) % 1
       const rx = w * (1.5 + 1.3 * g)
@@ -485,6 +628,7 @@ function eel(c, o = {}) {
     }
   })
   // the tail: a fin flicking up out of the lava behind the coil
+  if (!st) {
   const tt = [E.tx - 3 - 2.4 * E.flick, S - 9 - 3 * E.flick]
   cel(c, tube(qb([E.tx, S + 3], [E.tx + 0.5, S - 4], tt, 10), 5.0, 1.8), skin, { ink: 1.3, shade: sh })
   push(); tr(tt[0], tt[1]); rot(-0.7 - 0.45 * E.flick); cel(c, [[0, 0.6], ...qb([-3.4, -5], [0.4, -8.4], [4, -6], 8), [1.2, -0.6]], fin, { ink: 1.1, shade: fsh }); pop()
@@ -510,6 +654,7 @@ function eel(c, o = {}) {
     const p = arch[Math.round(u * 28)]
     cel(c, ell(p[0], p[1] + 1.2, 1.4, 1.0, 0, 14), belly, { ink: 0, shade: null })
   }
+  }
   // the neck rising out of the lava, its ember-orange throat toward you, ringed
   cel(c, tube(qb([12.6, S + 3], [13.6, (S + E.hy) / 2], [E.hx, E.hy + 4], 12), 9.2, 8.2), skin, { ink: 1.7, shade: sh })
   cel(c, tube(qb([13.2, S + 3], [14.4, (S + E.hy) / 2 + 1], [E.hx + 0.6, E.hy + 6], 12), 4.0, 3.2), belly, { ink: 0.8, shade: null, piece: false })
@@ -523,8 +668,15 @@ function eel(c, o = {}) {
   for (const k of [-1, 1]) { push(); tr(k * 11.6, 3.2); rot(k * (2.05 - E.flare)); cel(c, drop(0, 0, 2.6, 6.0, -k * 0.5), fin, { ink: 1.0, shade: null }); pop() }
   cel(c, ell(0, -0.6, 12.2, 8.8, 0, 48, 0.02, 2), skin, { ink: 2.0, shade: sh })
   // a long grinning jaw: a wide pale muzzle, two nostrils
-  cel(c, ell(0.8, 3.8, 11.0, 4.4, 0, 36), '#6d5068', { ink: 1.3, shade: null, piece: false })
+  cel(c, ell(0.8, 3.8, 11.0, 4.4, 0, 36), EEL_MUZZLE, { ink: 1.3, shade: null, piece: false })
   for (const k of [-1, 1]) cel(c, ell(0.6 + k * 2.4, 1.2, 0.75, 0.55, 0, 10), INK, { ink: 0, shade: null })
+  if (st) {
+    if (st > 2) crack(c, [-11.6, -3.8], [-9.2, -3], [-8, -0.6], 2.3)
+    strandFace(c, st, [[-3.8, -4.8], [4.0, -4.8]], { rx: 3.7, ry: 4.6, cx: 0.4, my: 4.6, mw: 8, col: skin, bw: 1.8, white: PAL.lavaWhite })
+    if (st === 2) { sweat(c, -15, -9, 1.7, -1); sweat(c, 15.2, -11, 1.5, 1) }
+    pop()
+    return
+  }
   eye(c, -3.8, -4.8, 3.7, 4.6, lk[0], lk[1], { white: '#f8e88a', pr: 0.56, pry: 0.7 })
   eye(c, 4.0, -4.8, 3.7, 4.6, lk[0], lk[1], { white: '#f8e88a', pr: 0.56, pry: 0.7 })
   brow(c, [-8.6, -10.4], [-4.4, -11.4], [-0.6, -8.4], 2.0)
@@ -533,12 +685,14 @@ function eel(c, o = {}) {
   pop()
 }
 // what goes under: everything below the waterline (painted as the region to take away)
-function eelSink(c) {
+function eelSink(c, f) {
+  if (f >= EEL_FRAMES) return
   c.fillStyle = '#000'; c.fillRect(-60, EEL_SURF + 0.4, 120, 40)
 }
 // the lava closing round each place it breaks the surface: a hot collar hugging the waterline, its
 // near edge lit (drawn OVER the cut piece)
 function eelLips(c, f) {
+  if (f >= EEL_FRAMES) return
   const S = EEL_SURF, E = eelPose(f)
   for (const [x, w0] of eelBreaks(E)) {
     const w = w0 + 1.8
@@ -547,7 +701,7 @@ function eelLips(c, f) {
     line(c, qb([x - w * 0.85, S + 0.5], [x, S - 1.2], [x + w * 0.85, S + 0.5], 14), 0.8, { color: '#ffe38e', taper: 0.5 })
   }
 }
-function paintEel(c, f, elite) { eel(c, { f, col: elite ? '#3d2638' : '#4b3447', fin: elite ? '#f0682e' : '#e2502e', big: elite }) }
+function paintEel(c, f, elite) { eel(c, { f, st: Math.max(0, f - EEL_FRAMES + 1), col: elite ? '#3d2638' : '#4b3447', fin: elite ? '#f0682e' : '#e2502e', big: elite }) }
 function paintEelOver(c, f) { eelLips(c, f) }
 
 // ---- LAVA RAY: a big flat devil ray gliding just under the lava. Only the top of its head (heavy-
@@ -562,10 +716,26 @@ function rayPose(f) {
   return { ph, tip: 7 + 6.5 * s, spread: 34 + 2 * Math.cos(ph), bob: 1.4 - 1.4 * s, unroll: 0.5 + 0.5 * s }
 }
 const rayBreaks = (R) => [[0, 15], [-R.spread + 2, 4.2], [R.spread - 2, 4.2]]
+// STRANDED (o.st 1..3): beached flat, its whole diamond of wings out on the rock, the head heaving up and
+// the horns raised to tug, then the horns drooping and the wings' embers going out
+const RAY_STRAND = [null, { bob: 2.4, unroll: 1 }, { bob: 0, unroll: 0.3 }, { bob: -0.8, unroll: 0 }]
+function rayBeached(c, st, back, sh, spot) {
+  const S = RAY_SURF, sp = 35
+  const W = [[-11, S - 8], ...qb([-11, S - 8], [-sp * 0.7, S - 7], [-sp, S + 1], 10).slice(1), ...qb([-sp, S + 1], [-sp * 0.6, S + 10.5], [-4, S + 13], 10).slice(1),
+    ...qb([-4, S + 13], [0, S + 14.6], [4, S + 13], 6).slice(1), ...qb([4, S + 13], [sp * 0.6, S + 10.5], [sp, S + 1], 10).slice(1), ...qb([sp, S + 1], [sp * 0.7, S - 7], [11, S - 8], 10).slice(1)]
+  // the whip of a tail, then the wings
+  line(c, qb([0, S + 13], [3, S + 18.5], [-1.5, S + 23]), 1.6, { taper: 0.7 })
+  cel(c, W, back, { ink: 1.9, shade: sh })
+  for (const k of [-1, 1]) for (const [x, y] of [[0.42, S + 1.4], [0.6, S + 3.6], [0.78, S + 4.2]]) cel(c, ell(k * x * sp, y, 1.1, 0.8, 0, 12), spot, { ink: 0, shade: null })
+  if (st > 2) crack(c, [-sp * 0.62, S + 8.1], [-sp * 0.6, S + 6.3], [-sp * 0.46, S + 4.8], 2.2)
+}
 function ray(c, o = {}) {
-  const R = rayPose(o.f || 0), S = RAY_SURF, lk = o.look || [0.5, 0.45]
-  const back = o.col || '#3b2a40', back2 = '#54395a', horn = o.horn || '#e2502e', sh = 'rgba(20,6,24,0.45)', fsh = 'rgba(120,10,10,0.42)'
-  ground(() => {
+  const st = o.st || 0
+  const R = st ? { ...rayPose(0), ...RAY_STRAND[st] } : rayPose(o.f || 0), S = RAY_SURF, lk = o.look || [0.5, 0.45]
+  const back = o.col || RAY_BACK, back2 = RAY_BACK2, horn = st ? glowAt(st, o.horn || PAL.lava, PAL.lavaDeep) : o.horn || '#e2502e', sh = 'rgba(20,6,24,0.45)', fsh = 'rgba(120,10,10,0.42)'
+  const spot = st ? glowAt(st, PAL.lavaHot) : '#f2a03c'
+  if (st) { strandMarks(c, st, 0, S + 8, 36, 22); rayBeached(c, st, back, sh, spot) }
+  if (!st) ground(() => {
     for (const [x, w] of rayBreaks(R)) for (let k = 0; k < 2; k++) {
       const g = ((R.ph / TAU_) + k * 0.5 + x * 0.011 + 1) % 1
       const rx = w * (1.3 + 1.0 * g)
@@ -573,7 +743,7 @@ function ray(c, o = {}) {
     }
   })
   // the wing tips: two pointed fins curling up out of the lava, out at its sides
-  for (const k of [-1, 1]) {
+  if (!st) for (const k of [-1, 1]) {
     const x0 = k * (R.spread - 2), h = Math.max(1, R.tip)
     const tipP = [x0 + k * (2 + h * 0.35), S - h]
     cel(c, [[x0 - k * 3.8, S + 3], ...qb([x0 - k * 3.2, S - h * 0.4], [x0 - k * 0.6, S - h * 0.95], tipP, 10), ...qb(tipP, [x0 + k * 2.4, S - h * 0.3], [x0 + k * 3.6, S + 3], 10).slice(1)], back, { ink: 1.3, shade: sh })
@@ -591,7 +761,14 @@ function ray(c, o = {}) {
   // the head: a wide low dome of back breaking the surface, ember freckles along its ridge
   cel(c, ell(0, S - 1, 15.5, 10.5, 0, 48), back, { ink: 2.0, shade: sh })
   cel(c, ell(0, S - 6.5, 9, 3.4, 0, 30), back2, { ink: 0, shade: null })
-  for (const [x, y] of [[-11, S - 4.5], [11, S - 4.5], [-7, S - 9.2], [7, S - 9.2]]) cel(c, ell(x, y, 1.1, 0.8, 0, 12), '#f2a03c', { ink: 0, shade: null })
+  for (const [x, y] of [[-11, S - 4.5], [11, S - 4.5], [-7, S - 9.2], [7, S - 9.2]]) cel(c, ell(x, y, 1.1, 0.8, 0, 12), spot, { ink: 0, shade: null })
+  if (st) {
+    if (st > 2) crack(c, [14.4, S - 4.4], [11.8, S - 4], [10.6, S - 1.6], 2.3)
+    strandFace(c, st, [[-4.6, S - 7.6], [4.6, S - 7.6]], { rx: 3.6, ry: 4.2, cx: 0, my: S - 1.6, mw: 8.5, col: back, bw: 1.8, white: PAL.lavaWhite })
+    if (st === 2) { sweat(c, -18, S - 10, 1.8, -1); sweat(c, 17.8, S - 12, 1.6, 1) }
+    pop()
+    return
+  }
   // the face: big pie eyes on top under heavy smug lids, a cocked brow, a grin of upper teeth at the waterline
   for (const k of [-1, 1]) {
     eye(c, k * 4.6, S - 7.6, 3.6, 4.2, lk[0], lk[1], { white: '#f8e88a', pr: 0.58, pry: 0.72 })
@@ -604,10 +781,11 @@ function ray(c, o = {}) {
   mouth(c, [-10, S - 2.6], [10, S - 2.6], [0, S - 0.8], [0, S + 7], { teeth: 2.0, n: 9, fangs: [[-6.4, 2.4, 1.1], [6.4, 2.4, 1.1]] })
   pop()
 }
-function raySink(c) { c.fillStyle = '#000'; c.fillRect(-60, RAY_SURF + 0.4, 120, 40) }
+function raySink(c, f) { if (f >= RAY_FRAMES) return; c.fillStyle = '#000'; c.fillRect(-60, RAY_SURF + 0.4, 120, 40) }
 // the rest of it, under the lava: a dark diamond of wings in front of where it breaks out, and the
 // lava's collar round every place it does
 function rayOver(c, f) {
+  if (f >= RAY_FRAMES) return
   const R = rayPose(f), S = RAY_SURF, sp = R.spread, dip = (R.tip - 7) * 0.25
   const W = [[-sp, S + 1.2], ...qb([-sp, S + 1.2], [-sp * 0.62, S + 8.5 + dip], [-5, S + 9.5], 10).slice(1), ...qb([-5, S + 9.5], [0, S + 10.6], [5, S + 9.5], 6).slice(1), ...qb([5, S + 9.5], [sp * 0.62, S + 8.5 + dip], [sp, S + 1.2], 10).slice(1), ...qb([sp, S + 1.2], [0, S + 3.4], [-sp, S + 1.2], 14).slice(1, -1)]
   cel(c, W, 'rgba(60,12,30,0.3)', { ink: 0, shade: null })
@@ -620,7 +798,7 @@ function rayOver(c, f) {
     line(c, qb([x - w * 0.85, S + 0.5], [x, S - 1.2], [x + w * 0.85, S + 0.5], 14), 0.8, { color: '#ffe38e', taper: 0.5 })
   }
 }
-function paintRay(c, f, elite) { ray(c, { f, col: elite ? '#2f2034' : '#3b2a40', horn: elite ? '#f0682e' : '#e2502e' }) }
+function paintRay(c, f, elite) { ray(c, { f, st: Math.max(0, f - RAY_FRAMES + 1), col: elite ? '#2f2034' : '#3b2a40', horn: elite ? '#f0682e' : '#e2502e' }) }
 
 // ---- EMBER JELLY: a little fire jellyfish bobbing in the lava, in a gang. A glowing bell with a cross
 // face (V brows, a fanged pout) and a flame wisp on its crown, a frilled skirt at the waterline, two
@@ -634,10 +812,21 @@ function jellyPose(f) {
   return { ph, wx: 1 - 0.13 * s, hy: 1 + 0.16 * s, bob: 1.6 + 1.6 * s, whip: Math.sin(ph - 1.1) }
 }
 const JELLY_BREAKS = [[0, 10.4], [-9, 2], [9, 2]]
+// STRANDED (o.st 1..3): beached on the rock, its tentacles flopped out round it, the bell stretched up as
+// it tugs, then sagging wider and wider as its glow goes out
+const JELLY_STRAND = [null, { wx: 0.86, hy: 1.24, bob: 2.2 }, { wx: 1.1, hy: 0.88, bob: 0 }, { wx: 1.18, hy: 0.78, bob: -0.6 }]
 function jelly(c, o = {}) {
-  const J = jellyPose(o.f || 0), S = JELLY_SURF, lk = o.look || [0.4, 0.4]
-  const bell = o.col || '#f2662a', bell2 = '#ffb24a', core = '#ffe08a', sh = 'rgba(150,36,10,0.3)'
-  ground(() => {
+  const st = o.st || 0
+  const J = st ? { ...jellyPose(0), ...JELLY_STRAND[st], whip: 0 } : jellyPose(o.f || 0), S = JELLY_SURF, lk = o.look || [0.4, 0.4]
+  const bell = st > 2 ? PAL.lavaDeep : o.col || '#f2662a', bell2 = st ? glowAt(st, PAL.lavaHot) : '#ffb24a', core = st ? glowAt(st, PAL.lavaGlow, PAL.lavaHot) : '#ffe08a', sh = 'rgba(150,36,10,0.3)'
+  if (st) {
+    strandMarks(c, st, 0, S, 9.6, 16)
+    // its tentacles lying limp on the rock, splayed out under and round the bell
+    for (const [x0, x1, y1, w] of [[-7, -12.5, S + 3, 3.2], [7, 12.5, S + 3, 3.2], [-3.2, -5.8, S + 7.5, 3], [3.2, 5.4, S + 7.8, 3]]) {
+      cel(c, tube(qb([x0, S - 2], [(x0 + x1) / 2 + (x1 - x0) * 0.45, (S + y1) / 2 + 2.5], [x1, y1], 12), w, w * 0.5), bell2, { ink: 1.0, shade: sh })
+    }
+  }
+  if (!st) ground(() => {
     for (const [x, w] of JELLY_BREAKS) for (let k = 0; k < 2; k++) {
       const g = ((J.ph / TAU_) + k * 0.5 + x * 0.02 + 1) % 1
       const rx = w * (1.3 + 1.1 * g)
@@ -645,7 +834,7 @@ function jelly(c, o = {}) {
     }
   })
   // the two stinging tentacles, curled up out of the lava, a spark at each tip
-  for (const k of [-1, 1]) {
+  if (!st) for (const k of [-1, 1]) {
     const w = J.whip * k
     const tp = [k * (13 + 1.5 * J.whip), S - 7 - 2 * w]
     cel(c, tube(qb([k * 9, S + 2], [k * (14 + 2 * J.whip), S - 1], tp, 12), 2.2, 1.0), bell2, { ink: 1.0, shade: sh })
@@ -655,7 +844,7 @@ function jelly(c, o = {}) {
   // the bell: a round dome wider than it is tall, its rim just over the lava, a glowing core, a flame
   // wisp on its crown, a scalloped frill hanging off the rim into the lava
   const rx = 10.6 * J.wx, ry = 8.6 * J.hy, rim = S - 4.6, cy = rim - ry * 0.72
-  cel(c, flame(0.4, rim - ry * 1.42, 3.0, 6.5 + 2.5 * J.hy, 0.5 + 0.3 * J.whip), '#ffd95e', { ink: 1.0, shade: 'rgba(170,60,10,0.4)' })
+  if (st < 3) cel(c, flame(0.4, rim - ry * 1.42, st === 2 ? 2.2 : 3.0, (6.5 + 2.5 * J.hy) * (st === 2 ? 0.55 : 1), 0.5 + 0.3 * J.whip), st === 2 ? PAL.lavaHot : '#ffd95e', { ink: 1.0, shade: 'rgba(170,60,10,0.4)' })
   cel(c, [...qb([-rx, rim], [-rx * 1.08, rim - ry * 1.62], [0, rim - ry * 1.55], 18), ...qb([0, rim - ry * 1.55], [rx * 1.08, rim - ry * 1.62], [rx, rim], 18).slice(1), ...qb([rx, rim], [0, rim + 1.6], [-rx, rim], 12).slice(1, -1)], bell, { ink: 1.5, shade: sh })
   cel(c, ell(0, rim - ry * 1.05, rx * 0.5, ry * 0.3, 0, 24), core, { ink: 0, shade: null })
   for (const [x, y] of [[-rx * 0.7, rim - ry * 0.5], [rx * 0.7, rim - ry * 0.5], [-rx * 0.4, rim - ry * 1.25], [rx * 0.4, rim - ry * 1.25]]) cel(c, ell(x, y, 0.9, 0.7, 0, 10), core, { ink: 0, shade: null })
@@ -663,6 +852,17 @@ function jelly(c, o = {}) {
   const nS = 5
   for (let i = 0; i <= nS * 4; i++) { const t = i / (nS * 4), x = -rx * 0.98 + t * rx * 1.96; frill.push([x, rim + 1.2 + 2.4 * Math.sqrt(Math.abs(Math.sin(t * nS * Math.PI))) + 0.5 * J.whip * Math.sin(t * 9)]) }
   cel(c, [...qb([rx * 0.98, rim + 0.6], [0, rim - 0.6], [-rx * 0.98, rim + 0.6], 12), ...frill.slice(1, -1)], bell2, { ink: 0.8, shade: null })
+  if (st) {
+    blush(c, [[-6.8, cy + 2.0, 1.5, 0.85], [6.8, cy + 2.0, 1.5, 0.85]], PAL.blush, st > 2 ? 0.2 : 0.5)
+    if (st > 2) {
+      crack(c, [-rx * 0.91, rim - ry * 0.95], [-rx * 0.74, rim - ry * 0.92], [-rx * 0.6, rim - ry * 0.7], 1.9)
+      crack(c, [rx * 0.99, rim - ry * 0.4], [rx * 0.8, rim - ry * 0.48], [rx * 0.68, rim - ry * 0.25], 1.7)
+    }
+    strandFace(c, st, [[-3.3, cy - 1.2], [3.3, cy - 1.2]], { rx: 3.0, ry: 3.8, cx: 0, my: cy + 3.6, mw: 3.0, col: bell, bw: 1.6 })
+    if (st === 2) { sweat(c, -rx * 1.55, rim - ry * 1.35, 1.7, -1); sweat(c, rx * 1.5, rim - ry * 1.65, 1.5, 1) }
+    pop()
+    return
+  }
   // the face: big pie eyes, a hard V of brows, a fanged pout
   eye(c, -3.3, cy - 1.2, 3.0, 3.8, lk[0], lk[1], { pr: 0.6, pry: 0.74 })
   eye(c, 3.3, cy - 1.2, 3.0, 3.8, lk[0], lk[1], { pr: 0.6, pry: 0.74 })
@@ -672,9 +872,10 @@ function jelly(c, o = {}) {
   mouth(c, [-3.0, cy + 3.2], [3.0, cy + 3.2], [0, cy + 2.2 - J.whip * 0.4], [0, cy + 6.0 + J.whip * 0.8], { fangs: [[-1.5, 1.5, 0.75], [1.5, 1.5, 0.75]], tongue: [0.3, cy + 5.4, 1.3], ink: 0.9 })
   pop()
 }
-function jellySink(c) { c.fillStyle = '#000'; c.fillRect(-40, JELLY_SURF + 0.4, 80, 30) }
+function jellySink(c, f) { if (f >= JELLY_FRAMES) return; c.fillStyle = '#000'; c.fillRect(-40, JELLY_SURF + 0.4, 80, 30) }
 // the tentacles trailing under the lava, glowing through it, and the lava's collar round it
 function jellyOver(c, f) {
+  if (f >= JELLY_FRAMES) return
   const J = jellyPose(f), S = JELLY_SURF
   for (const x0 of [-5, -1.8, 1.8, 5]) {
     const P = []
@@ -688,20 +889,24 @@ function jellyOver(c, f) {
     line(c, qb([x - w * 0.85, S + 0.5], [x, S - 1.1], [x + w * 0.85, S + 0.5], 12), 0.7, { color: '#ffe38e', taper: 0.5 })
   }
 }
-function paintJelly(c, f, elite) { jelly(c, { f, col: elite ? '#d8452a' : '#f2662a' }) }
+function paintJelly(c, f, elite) { jelly(c, { f, st: Math.max(0, f - JELLY_FRAMES + 1), col: elite ? '#d8452a' : '#f2662a' }) }
 
+// the colours a stranded creature crumbles into (mantle-fx.js's crumble burst): [its body, a lit facet]
+export const STRAND_CRUMBLE = {
+  magmaToad: [PAL.toad, PAL.toadBelly], magmaEel: [EEL_SKIN, EEL_MUZZLE], lavaRay: [RAY_BACK, RAY_BACK2], emberJelly: [PAL.lavaDeep, PAL.lava],
+}
 // every cast body is painted in the brush's PAPER mode (flat paint with the sheet's tooth, separate
 // pieces); the player is not, it keeps the plain brush
 const wrap = (fn) => (ctx, f, elite) => { resetXf(); setPaper(true); try { fn(ctx, f, elite) } finally { setPaper(false); resetXf() } }
 export const TOON_CAST = {
   emberImp: { baseR: 10, frames: IMP_POSE.length, fps: 13, box: [-28, -48, 28, 22], paint: wrap(paintImp) },
-  magmaToad: { baseR: 11, frames: TOAD_POSE.length, box: [-32, -30, 32, 28], paint: wrap(paintToad), poseOf: toadPose },
+  magmaToad: { baseR: 11, frames: TOAD_POSE.length + 3, box: [-32, -30, 32, 28], paint: wrap(paintToad), poseOf: strandPose(TOAD_POSE.length, 10, toadPose), cut: cycleCut(TOAD_POSE.length) },
   basaltGolem: { baseR: 27, frames: GOLEM_POSE.length, fps: 16, box: [-45, -35, 45, 32], paint: wrap(paintGolem) },
   brimstoneDragon: { baseR: 26, frames: DRAGON_POSE.length, fps: 16, box: [-70, -62, 76, 70], paint: wrap(paintDragon), over: wrap(paintDragonOver) },
-  magmaEel: { baseR: 12, frames: EEL_FRAMES, fps: 16, box: [-40, -36, 34, 22], paint: wrap(paintEel), sink: wrap(eelSink), over: wrap(paintEelOver) },
-  lavaRay: { baseR: 24, frames: RAY_FRAMES, fps: 9, box: [-48, -34, 48, 32], paint: wrap(paintRay), sink: wrap(raySink), over: wrap(rayOver) },
+  magmaEel: { baseR: 12, frames: EEL_FRAMES + 3, fps: 16, poseOf: strandPose(EEL_FRAMES, 16), cut: cycleCut(EEL_FRAMES), box: [-40, -36, 34, 22], paint: wrap(paintEel), sink: wrap(eelSink), over: wrap(paintEelOver) },
+  lavaRay: { baseR: 24, frames: RAY_FRAMES + 3, fps: 9, poseOf: strandPose(RAY_FRAMES, 9), cut: cycleCut(RAY_FRAMES), box: [-48, -34, 48, 32], paint: wrap(paintRay), sink: wrap(raySink), over: wrap(rayOver) },
   obsidianBeetle: { baseR: 11, frames: BEETLE_POSE.length, fps: 14, box: [-30, -38, 30, 24], paint: wrap(paintBeetle) },
-  emberJelly: { baseR: 9, frames: JELLY_FRAMES, fps: 12, box: [-22, -34, 22, 22], paint: wrap(paintJelly), sink: wrap(jellySink), over: wrap(jellyOver) },
+  emberJelly: { baseR: 9, frames: JELLY_FRAMES + 3, fps: 12, poseOf: strandPose(JELLY_FRAMES, 12), cut: cycleCut(JELLY_FRAMES), box: [-22, -34, 22, 22], paint: wrap(paintJelly), sink: wrap(jellySink), over: wrap(jellyOver) },
 }
 
 // ---- THE PLAYER: the digger. A big head under a yellow hard hat with its lamp, red shirt, blue -----

@@ -26,7 +26,7 @@ import { ECHO_DOUBLE_DELAY, ECHO_DOUBLE_DMG_FRAC, modPct, LODESTONE_HOLD } from 
 import { LANTERN_FUSE, SAFETY_LAMP_SENSE, FIREBEND_R_PER_JET } from '../src/config.js'
 import { LAVA_ANT } from '../src/config.js'
 import { SLIME_STEP, SLIME_R, SLIME_DUR, SLIME_MAX, SLIME_SPEED_MUL } from '../src/config.js'
-import { MANTLE_GROUND_STEP, MANTLE_START_DRY, MANTLE_COLD_VS_LAVA, MANTLE_FIRE_VS_ROCK, MANTLE_STRAND_DIE_T, MANTLE_STRAND_STUCK_T, MANTLE_STRAND_DMG_MUL, MANTLE_STRAND_SLOW, MANTLE_MELT_T, KETTLE_CRUST_GNAW, KETTLE_CRUST_GNAW_MAX, KETTLE_HULL_MAX, KETTLE_STEAM_MUL, DRAW_CAPS } from '../src/config.js'
+import { MANTLE_GROUND_STEP, MANTLE_START_DRY, MANTLE_COLD_VS_LAVA, MANTLE_FIRE_VS_ROCK, MANTLE_STRAND_FREE_T, MANTLE_STRAND_STUCK_T, MANTLE_STRAND_DMG_MUL, MANTLE_STRAND_SLOW, MANTLE_MELT_T, KETTLE_CRUST_GNAW, KETTLE_CRUST_GNAW_MAX, KETTLE_HULL_MAX, KETTLE_STEAM_MUL, DRAW_CAPS } from '../src/config.js'
 import { poolRimR, crustShapeOf, poolPhaseOf, crustSplash, splashSdf, SPLASH_FINGERS, SPLASH_DROPS } from '../src/mantle-shape.js'
 import {
   SHOP, shopCost, refundValue, REFUND_RATE, MAX_SHOP_LEVEL, lineMax, CURRENT_RESIST_FLOOR, SHOP_FAMILY, SHOP_COST_CAP, SHOP_COST_CAP_DEFAULT,
@@ -42382,28 +42382,41 @@ function testMantleHabitat() {
     assert.ok(melts === 1 && gem && gem.xp === 3, `run HB.b: the melt is announced once and drops the body's own xp: ${melts} melt events, gem ${JSON.stringify(gem)}`)
     console.log(`PASS run HB.b (melt): covered at ${coveredAt.toFixed(2)}s, melted ${(diedAt - coveredAt).toFixed(2)}s later, a ${gem.xp} xp gem where it stood`)
   }
-  // (c) STRANDING: a lava creature on dry rock slows to a stop, takes MANTLE_STRAND_DMG_MUL x damage,
-  // and crumbles at MANTLE_STRAND_DIE_T paying its xp. The start of a Mantle run is always dry.
+  // (c) STRANDING: a lava creature on dry rock slows to stone by MANTLE_STRAND_STUCK_T, holds, thaws
+  // free at MANTLE_STRAND_FREE_T and stays free on rock; killed while stranded it crumbles and pays its
+  // xp; it takes MANTLE_STRAND_DMG_MUL x damage. The start of a Mantle run is always dry.
   {
     const r = boot(52003)
     tick(r)
     r.weapons = []; r.mods.spawnMul = 0; r.enemies = []
     const p = r.player
-    const e = body(r, p.x + 150, p.y, 'lava', { speed: 120 })
+    p.maxHp = p.hp = 1e9
+    const e = body(r, p.x + 200, p.y, 'lava', { speed: 120 })
     r.enemies.push(e)
-    const moved = []
-    let crumbled = 0, gem = null, last = { x: e.x, y: e.y }
-    for (let i = 0; i < 60 * (MANTLE_STRAND_DIE_T + 1) && !e._dead; i++) {
-      p.x = r.player.x; const g0 = r.gems.length
-      const ev = tick(r)
-      crumbled += ev.filter((v) => v.type === 'crumble').length
-      moved.push(Math.hypot(e.x - last.x, e.y - last.y)); last = { x: e.x, y: e.y }
-      if (e._dead) gem = r.gems.slice(g0)[0]
+    const moved = [], T = []
+    let crumbled = 0, last = { x: e.x, y: e.y }
+    const F = Math.ceil(60 * MANTLE_STRAND_FREE_T)
+    for (let i = 0; i < F + 30 && !e._dead; i++) {
+      p.hp = 1e9
+      crumbled += tick(r).filter((v) => v.type === 'crumble').length
+      moved.push(Math.hypot(e.x - last.x, e.y - last.y)); last = { x: e.x, y: e.y }; T.push(e.strandT ?? 0)
     }
-    const early = moved.slice(2, 20).reduce((s, v) => s + v, 0), late = moved.slice(Math.ceil(60 * MANTLE_STRAND_STUCK_T) + 2, Math.ceil(60 * MANTLE_STRAND_STUCK_T) + 60).reduce((s, v) => s + v, 0)
+    const sum = (a, b) => moved.slice(a, b).reduce((s, v) => s + v, 0)
+    const S = Math.ceil(60 * MANTLE_STRAND_STUCK_T)
+    const early = sum(2, 20), late = sum(S + 2, F - 60 - 2), after = sum(F + 5, F + 30)
     // free, it would cover 18 frames x 120/60 px = 36px; stranded it crawls at MANTLE_STRAND_SLOW at most
-    assert.ok(early > 0.5 && early <= 36 * MANTLE_STRAND_SLOW + 0.5 && late < 1e-6, `run HB.c: a stranded lava creature crawls (at most x${MANTLE_STRAND_SLOW}), then sticks after ${MANTLE_STRAND_STUCK_T}s: ${early.toFixed(2)}px early (36 free), ${late.toFixed(4)}px late`)
-    assert.ok(e._dead && crumbled === 1 && gem && gem.xp === 3, `run HB.c: it crumbles after ${MANTLE_STRAND_DIE_T}s and pays its xp: dead ${!!e._dead}, ${crumbled} crumble events, gem ${JSON.stringify(gem)}`)
+    assert.ok(early > 0.5 && early <= 36 * MANTLE_STRAND_SLOW + 0.5 && late < 1e-6, `run HB.c: a stranded lava creature crawls (at most x${MANTLE_STRAND_SLOW}), then is stone from ${MANTLE_STRAND_STUCK_T}s to the thaw: ${early.toFixed(2)}px early (36 free), ${late.toFixed(4)}px stone`)
+    // thawed: no death, the clock back to 0 and never restarted on the same rock, moving at full speed
+    assert.ok(!e._dead && crumbled === 0 && Math.max(...T) < MANTLE_STRAND_FREE_T && T.slice(F + 2).every((t) => t === 0) && after > 25 * 2 * 0.8, `run HB.c: it thaws free at ${MANTLE_STRAND_FREE_T}s and stays free on rock: dead ${!!e._dead}, ${crumbled} crumbles, max strandT ${Math.max(...T).toFixed(2)}, strandT after ${T.slice(F + 2).some((t) => t > 0) ? 'restarted' : '0'}, ${after.toFixed(1)}px in 25 frames (50 free)`)
+    // killed while stone: a crumble, and the xp
+    const k = body(r, p.x - 300, p.y, 'lava')
+    r.enemies.push(k)
+    for (let i = 0; i < 60 * 2; i++) { p.hp = 1e9; tick(r) }
+    const g0 = r.gems.length
+    dealDamage(r, k, 1e6, false)
+    const kev = tick(r)
+    const gem = r.gems.slice(g0)[0]
+    assert.ok(k._dead && kev.filter((v) => v.type === 'crumble').length === 1 && gem && gem.xp === 3, `run HB.c: killed while stone it crumbles and pays its xp: dead ${!!k._dead}, ${kev.filter((v) => v.type === 'crumble').length} crumbles, gem ${JSON.stringify(gem)}`)
     // the amp, as an effect: two bodies under one kettle splash, one stranded, the tide off so the
     // stranded clock is the fixture's own
     const saved = CHAPTERS.mantle.signature.lavaTide
@@ -42422,7 +42435,7 @@ function testMantleHabitat() {
       const ratio = (1e6 - b.hp) / (1e6 - a.hp)
       assert.ok(a.hp < 1e6 && Math.abs(ratio - MANTLE_STRAND_DMG_MUL) < 0.1, `run HB.c: a stranded body takes x${MANTLE_STRAND_DMG_MUL} damage: ratio ${ratio}`)
     } finally { CHAPTERS.mantle.signature.lavaTide = saved }
-    console.log(`PASS run HB.c (stranding): crawled ${early.toFixed(1)}px, stuck after ${MANTLE_STRAND_STUCK_T}s, crumbled at ${MANTLE_STRAND_DIE_T}s for its xp, x${MANTLE_STRAND_DMG_MUL} damage while stranded`)
+    console.log(`PASS run HB.c (stranding): crawled ${early.toFixed(1)}px, stone at ${MANTLE_STRAND_STUCK_T}s, thawed free at ${MANTLE_STRAND_FREE_T}s, ${after.toFixed(0)}px free after, killed as stone it crumbled for its xp, x${MANTLE_STRAND_DMG_MUL} damage while stranded`)
   }
   // (e) A QUENCH CRUST IS ROCK: with no boat, a crust under you stops the burn; a lava creature
   // under one strands; a rock creature on one over the tide does not melt
