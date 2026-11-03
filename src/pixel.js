@@ -16,7 +16,7 @@
 // Every texture is LOW-RES art painted one art pixel at a time, blown up by an integer factor with no
 // smoothing and sampled NEAREST. One art pixel is PX world px, and the screen pass snaps the whole
 // frame to the same block size, so anything else drawn in this chapter comes out on the same grid.
-import { CanvasSource, Container, Filter, GlProgram, RenderTexture, Sprite, Texture, TilingSprite, UniformGroup } from 'pixi.js'
+import { CanvasSource, Container, Filter, GlProgram, Rectangle, RenderTexture, Sprite, Texture, TilingSprite, UniformGroup } from 'pixi.js'
 import { PX, UP, TAU, PAL, PixelCanvas, hash } from './pixel/canvas.js'
 import { PIXEL_CAST, paintPlayer, paintCreature, paintCreatureMask, paintCreatureFlash, castDrawScale, castArchR, castArtScale, PLAYER_ART, CAST_DIRS } from './pixel/cast.js'
 import {
@@ -256,23 +256,43 @@ export function createPixelRig(env) {
   // slag lies UNDER the crust (the lava that burns must always read), shadows over both
   const subLayer = () => { const c = new Container(); ground.addChild(c); return c }
   const gPuddle = pool(subLayer()), gCrust = pool(subLayer()), gShadow = pool(subLayer())
-  // A FISSURE LINE IS ONE BAKE, re-baked in steps as it tears out (RIFT_REACH steps) and opens wide
-  // (RIFT_OPEN steps over RIFT_OPEN_T s), then once more as cooled crust. Its origin sits on a whole
-  // art pixel and the sprite on the PX grid, or the CRT pass resamples its edges as the camera moves.
-  const RIFT_REACH = 6, RIFT_OPEN = 6, RIFT_OPEN_T = 0.5
-  const rifts = new Map()   // line -> { key, art }
-  const dropRift = (ln) => { rifts.get(ln).art.tex.destroy(true); rifts.delete(ln) }
-  const riftArt = (ln, reach, open, cooled) => {
-    const key = reach + '|' + open + '|' + cooled, had = rifts.get(ln)
-    if (had?.key === key) return had.art
+  // A FISSURE LINE IS ONE BAKE per open step (RIFT_OPEN over RIFT_OPEN_T s), then one as cooled crust.
+  // A bake is costly (a phone stalls on a dozen in one frame), so at most RIFT_BAKES happen per frame:
+  // a line past the budget keeps its last stage, or waits a frame for its first. Its origin sits on a
+  // whole art pixel and the sprite on the PX grid, or the CRT pass resamples its edges as the camera moves.
+  const RIFT_OPEN = 3, RIFT_OPEN_T = 0.5, RIFT_BAKES = 3
+  let riftBudget = 0
+  const rifts = new Map()   // line -> { key, art, geo, crop, cropKey }
+  const dropCrop = (r) => { if (r.crop) { r.crop.tex.destroy(false); r.crop = null; r.cropKey = -1 } }
+  const dropRift = (ln) => { const r = rifts.get(ln); dropCrop(r); r.art.tex.destroy(true); rifts.delete(ln) }
+  const riftArt = (ln, open, cooled) => {
+    const key = open + '|' + cooled, had = rifts.get(ln)
+    if (had && (had.key === key || riftBudget <= 0)) return had
+    if (riftBudget <= 0) return null
+    riftBudget--
     const L = ln.len / PX, Wd = ln.width / PX, cs = Math.cos(ln.angle), sn = Math.sin(ln.angle), pad = Math.ceil(Wd / 2) + 12
     const w = Math.ceil(Math.abs(cs) * L) + pad * 2, h = Math.ceil(Math.abs(sn) * L) + pad * 2
     const ox = pad + (cs < 0 ? Math.ceil(-cs * L) : 0), oy = pad + (sn < 0 ? Math.ceil(-sn * L) : 0)
     const pc = new PixelCanvas(w, h)
-    paintRift(pc, ox, oy, ln.angle, L, Wd, FISSURE_GAP / PX, ln.seed, cooled, reach, open)
-    if (had) had.art.tex.destroy(true)
-    const art = bakeArt(pc, ox / w, oy / h)
-    rifts.set(ln, { key, art }); return art }
+    paintRift(pc, ox, oy, ln.angle, L, Wd, FISSURE_GAP / PX, ln.seed, cooled, 1, open)
+    if (had) { dropCrop(had); had.art.tex.destroy(true) }
+    const r = { key, art: { tex: pixelTex(pc.toCanvas(1), 1 / PX), ax: ox / w, ay: oy / h }, geo: { L, Wd, cs, sn, w, h, ox, oy }, crop: null, cropKey: -1 }
+    rifts.set(ln, r); return r }
+  // WHILE IT TEARS OUT it shows only the bake from your feet to its tip: a crop of the finished drawing
+  // (no re-bake). The line runs corner to corner of its bake, so the box from origin to tip holds it.
+  const riftReach = (r, reach) => {
+    if (reach >= 1) return r.art
+    const k = Math.ceil(reach * 24) / 24
+    if (r.cropKey !== k) {
+      dropCrop(r)
+      const { L, Wd, cs, sn, w, h, ox, oy } = r.geo, tx = ox + cs * L * k, ty = oy + sn * L * k, m = Math.ceil(Wd * 0.45) + 3
+      const x0 = Math.max(0, Math.floor(Math.min(ox, tx) - m)), x1 = Math.min(w, Math.ceil(Math.max(ox, tx) + m))
+      const y0 = Math.max(0, Math.floor(Math.min(oy, ty) - m)), y1 = Math.min(h, Math.ceil(Math.max(oy, ty) + m))
+      r.crop = { tex: new Texture({ source: r.art.tex.source, frame: new Rectangle(x0 * PX, y0 * PX, (x1 - x0) * PX, (y1 - y0) * PX) }),
+        ax: (ox - x0) / (x1 - x0), ay: (oy - y0) / (y1 - y0) }
+      r.cropKey = k
+    }
+    return r.crop }
   const gPlate = pool(plateLayer)
   const aLob = pool(air), aGust = pool(air)
   const lights = pool(lightRoot, 'add')
@@ -510,11 +530,13 @@ export function createPixelRig(env) {
           s.alpha = a   // dead crust: it throws no light at all
         }
       }
+      riftBudget = RIFT_BAKES
       for (const [ln, st] of lines) {
         if (!onScreen(ln.x + Math.cos(ln.angle) * ln.len / 2, ln.y + Math.sin(ln.angle) * ln.len / 2, ln.len)) continue
-        const reach = Math.ceil((ln.front / ln.len) * RIFT_REACH - 1e-6) / RIFT_REACH
         const age = (run.time - ln.t0) / RIFT_OPEN_T, open = age >= 1 ? 1 : Math.max(1, Math.ceil((1 - (1 - age) ** 2) * RIFT_OPEN)) / RIFT_OPEN
-        const s = gCrust.next(riftArt(ln, st.lava ? reach : 1, st.lava ? open : 1, !st.lava))
+        const r = riftArt(ln, st.lava ? open : 1, !st.lava)
+        if (!r) continue
+        const s = gCrust.next(st.lava ? riftReach(r, ln.front / ln.len) : r.art)
         s.position.set(Math.round(ln.x / PX) * PX, Math.round(ln.y / PX) * PX)
         if (st.lava) {
           // white-hot while it tears and opens, and when the bellows flares it; dull red its last half second

@@ -50,6 +50,22 @@ export const PAL = {
   heat0: '#e07a3a', heat1: '#f0a060',
 }
 
+// any CSS colour -> [r, g, b, a] bytes, parsed once by the browser itself and cached
+const WHITE = [255, 255, 255, 255]
+const RGBA = new Map()
+let rgbaCtx = null
+function rgbaOf(c) {
+  let v = RGBA.get(c)
+  if (v) return v
+  rgbaCtx ??= document.createElement('canvas').getContext('2d', { willReadFrequently: true })
+  rgbaCtx.clearRect(0, 0, 1, 1)
+  rgbaCtx.fillStyle = c
+  rgbaCtx.fillRect(0, 0, 1, 1)
+  v = [...rgbaCtx.getImageData(0, 0, 1, 1).data]
+  RGBA.set(c, v)
+  return v
+}
+
 export class PixelCanvas {
   constructor(w, h) { this.w = w; this.h = h; this.d = new Array(w * h).fill(null) }
   set(x, y, c) { x = Math.floor(x); y = Math.floor(y); if (x >= 0 && y >= 0 && x < this.w && y < this.h) this.d[y * this.w + x] = c }
@@ -124,16 +140,26 @@ export class PixelCanvas {
     }
   }
   // blow up to a canvas, k texels per art pixel; `white` paints every filled pixel white (hit flash)
+  // One art pixel -> a k x k block. Written as ONE ImageData at 1x, then scaled up in one nearest-
+  // neighbour drawImage: a fillRect per art pixel (with a fillStyle parse each) cost ~1ms per bake,
+  // which stalls a phone when several bake in one frame. Same pixels either way.
   toCanvas(k, white = false) {
-    const cv = document.createElement('canvas')
-    cv.width = this.w * k; cv.height = this.h * k
-    const ctx = cv.getContext('2d')
-    for (let y = 0; y < this.h; y++) for (let x = 0; x < this.w; x++) {
-      const c = this.d[y * this.w + x]
+    const { w, h, d } = this
+    const img = new ImageData(w, h), px = img.data
+    for (let i = 0; i < d.length; i++) {
+      const c = d[i]
       if (!c) continue
-      ctx.fillStyle = white ? '#ffffff' : c
-      ctx.fillRect(x * k, y * k, k, k)
+      const [r, g, b, a] = white ? WHITE : rgbaOf(c)
+      px[i * 4] = r; px[i * 4 + 1] = g; px[i * 4 + 2] = b; px[i * 4 + 3] = a
     }
+    const one = document.createElement('canvas')
+    one.width = w; one.height = h
+    one.getContext('2d').putImageData(img, 0, 0)
+    const cv = document.createElement('canvas')
+    cv.width = w * k; cv.height = h * k
+    const ctx = cv.getContext('2d')
+    ctx.imageSmoothingEnabled = false
+    ctx.drawImage(one, 0, 0, w * k, h * k)
     return cv
   }
 }
