@@ -287,25 +287,25 @@ export function createPixelRig(env) {
     const rank = paintRift(pc, ox, oy, ln.angle, L, Wd, FISSURE_GAP / PX, ln.seed, cooled, 1, open, !!ln.root)
     // its bake's top-left in world art px (the sprite sits on the PX grid, its origin on a whole art px)
     const gx = Math.round(ln.x / PX) - ox, gy = Math.round(ln.y / PX) - oy
-    // where it lies inside another open line's lava it melts to yellow (rank 5): the vein layer draws over
-    // every line's red and orange, so an overlap reads as one hot pool where the cracks meet
+    // where its edge or red band lies inside another open line's lava it melts into orange core: the core
+    // layer draws over every line's red, and every yellow vein over that, so an overlap reads as one pool
     // (walks its own lava pixels, not the bake box: a diagonal line's box is mostly empty)
     const near = cooled ? [] : [...rifts].filter(([o, q]) => o !== ln && q.hot &&
       q.gx < gx + w && q.gx + q.geo.w > gx && q.gy < gy + h && q.gy + q.geo.h > gy).map(([, q]) => q)
     if (near.length) for (let i = 0; i < rank.length; i++) {
-      if (rank[i] < 2) continue
+      if (rank[i] !== 2 && rank[i] !== 3) continue
       const x = gx + (i % w), y = gy + ((i / w) | 0)
       for (const q of near) {
         const qx = x - q.gx, qy = y - q.gy
-        if (qx >= 0 && qy >= 0 && qx < q.geo.w && qy < q.geo.h && q.rank[qy * q.geo.w + qx] >= 3) { rank[i] = 5; pc.d[i] = PAL.lava4; break }
+        if (qx >= 0 && qy >= 0 && qx < q.geo.w && qy < q.geo.h && q.rank[qy * q.geo.w + qx] >= 3) { rank[i] = 4; pc.d[i] = PAL.lava3; break }
       }
     }
     // split by what was painted into ONE sheet, the RIFT_LAYERS side by side (one canvas, one upload):
-    // rim and edge (rank <= 2), red band (3), orange core (4), yellow vein and melt
+    // rim and edge (rank <= 2), red band (3), orange core (4), yellow vein
     const all = new PixelCanvas(w * 4, h)
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
       const i = y * w + x, c = pc.d[i], k = rank[i]
-      if (c) all.d[y * w * 4 + (k <= 2 ? 0 : k === 3 ? 1 : k === 5 || c === PAL.lava4 ? 3 : 2) * w + x] = c
+      if (c) all.d[y * w * 4 + (k <= 2 ? 0 : k === 3 ? 1 : c === PAL.lava4 ? 3 : 2) * w + x] = c
     }
     if (had) dropArt(had)
     const sheet = pixelTex(all.toCanvas(1), 1 / PX)
