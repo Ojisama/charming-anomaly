@@ -9990,7 +9990,8 @@ export const MAGMA_FLOOR = {
 // is none. Every crackEvery px it walks it cracks the crust (by 'ant', radius crackR), at most
 // maxCracks of its cracks at once.
 //   riverTries  random points sampled for a river spot each spawn
-export const LAVA_ANT = { near: 160, far: 560, riverTries: 10, crackEvery: 70, crackR: 24, maxCracks: 40 }
+// emerge: seconds it spends crawling out of the lava, holding its spot, before it walks
+export const LAVA_ANT = { near: 160, far: 560, riverTries: 10, crackEvery: 70, crackR: 24, maxCracks: 40, emerge: 1.0 }
 
 // THE MAGMA: the book's chamber of molten rock at the bottom of the crust (the core lies deeper).
 // The floor is a thin skin of cooled crust over lava (signature.crust, run by stepCrust in sim.js):

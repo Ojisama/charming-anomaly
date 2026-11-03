@@ -40,6 +40,7 @@ import { currentForce, tideForce, krakenArmInReach } from './sim.js'
 // The Kraken's ceremony (name card, phase beats, the kill). Its own import line so it merges clean.
 import { KRAKEN_BEATS, KRAKEN_CEREMONY, KRAKEN_OUTRO, OPHAN_BEATS, BOSS_OUTRO, OPHAN_STAGE } from './config.js'
 import { TRAWL_WIGGLE_ARC, KRAKEN_GRIP_FLICKS } from './config.js'
+import { LAVA_ANT } from './config.js'
 import { DRAW_CAPS } from './config.js'
 import { ELITE, gemTier } from './config.js'
 import * as MACRO from './macro.js'
@@ -33022,7 +33023,9 @@ void main() {
       // a body dropping into a Furrow pit is not flashed white: the drop is the hit's tell
       const sink = pitSinks.size ? pitSinks.get(e.id) : undefined
       const sinkT = sink ? animT - sink.t0 : 9
-      const tex = e.hitFlash > 0 && e.rosterId !== 'krakenHead' && !(sinkT < 0.25) ? frame.white : frame.tex
+      // a Lava Ant crawling out of the lava (e.emergeT, sim-owned): riseT seconds into its climb
+      const riseT = e.emergeT > 0 ? LAVA_ANT.emerge - e.emergeT : 9
+      const tex = (e.hitFlash > 0 && e.rosterId !== 'krakenHead' && !(sinkT < 0.25)) ? frame.white : frame.tex
       if (s._look !== look) s._look = look
       if (!look.dirs && s.texture !== tex) {
         s.texture = tex
@@ -33213,6 +33216,17 @@ void main() {
         s.scale.x *= 1 - 0.32 * sinkK; s.scale.y *= 1 - 0.32 * sinkK
         s.position.x += (sink.x - e.x) * 0.45 * sinkK; s.position.y += (sink.y - e.y) * 0.45 * sinkK
       }
+      // CRAWLING OUT OF THE LAVA: it wriggles up from half size, dripping sparks, and cools to its own colour
+      const riseK = riseT < LAVA_ANT.emerge ? riseT / LAVA_ANT.emerge : 1
+      if (riseK < 1) {
+        const ek = riseK * riseK * (3 - 2 * riseK)
+        const g = 0.5 + 0.5 * ek
+        s.scale.x *= g; s.scale.y *= g
+        const w = Math.sin(riseT * 38 + e.id) * 3 * (1 - ek), a = Math.atan2(run.player.y - e.y, run.player.x - e.x) + Math.PI / 2
+        s.position.x += Math.cos(a) * w; s.position.y += Math.sin(a) * w
+        const hr = (n) => ((Math.sin(n) * 43758.5453) % 1 + 1) % 1   // not Math.random: the sim shares it
+        if (frameDt > 0 && hr(animT * 91 + e.id) < frameDt * 14) spawnParticle(T.fx.spark_04, e.x + (hr(animT * 37 + e.id) - 0.5) * e.radius, e.y + (hr(animT * 53 + e.id) - 0.5) * e.radius, 0, 0, 0.3, 0.06, 0xff8a30, 0, 1)
+      }
       // dominant tint, one status wins (frozen > chill > venom > ignite > none). The
       // hit-flash white silhouette overrides all of these so the hit pop still reads white —
       // except on the void, where white-on-white is invisible: the all-white twin takes any tint
@@ -33273,6 +33287,7 @@ void main() {
       const elTop = elTopsoil()
       if (elTop && e.hitFlash <= 0) topsoilStatusTint(s, frozen, chill, venomK, venom, ignite)
       if (sinkK > 0) s.tint = mix(s.tint, 0x2a1c10, 0.5 * sinkK)
+      if (riseK < 1 && e.hitFlash <= 0) s.tint = mix(0xff7030, s.tint, riseK)
       if (elTop) topsoilStatusFx(s, e, frame, frozen, chill, venomK, venom, ignite)
 
       // cheap status particles, dt-gated (no spawns while frozen behind a modal)
