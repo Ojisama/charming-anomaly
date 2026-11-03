@@ -151,7 +151,9 @@ export function paintCrack(pc, v, stage) {
 // dark hairline from the thrower's feet that splits open into molten lava at gap, widest in the middle,
 // closing to a point at the tip, with short side cracks off it. cooled: the same crack, gone dark.
 // (ox, oy) is the line's start inside pc; lengths in art px. Inner colours win over outer ones.
-export function paintRift(pc, ox, oy, angle, L, Wd, gap, seed, cooled, reach = 1, open = 1) {
+// -> the rank map (1 rim, 2 edge, 3-4 core), so a caller can split the core off onto its own layer.
+// root: a branch, springing at its full width out of its parent instead of starting thin
+export function paintRift(pc, ox, oy, angle, L, Wd, gap, seed, cooled, reach = 1, open = 1, root = false) {
   const rank = new Int8Array(pc.w * pc.h)
   const put = (x, y, r, col) => {
     x = Math.floor(x); y = Math.floor(y)
@@ -168,8 +170,8 @@ export function paintRift(pc, ox, oy, angle, L, Wd, gap, seed, cooled, reach = 1
     drift = drift * 0.9 + (hash(Math.floor(i), seed, 3) - 0.5) * 0.5
     off = off * 0.97 + drift * 0.5
     const tip = Math.min(1, (Lr - i) / (L * 0.3))
-    // it starts thin at your feet and widens to full over the first gap px
-    const lip = Math.min(1, i / gap)
+    // it starts thin at your feet and widens to full over the first gap px; a branch starts full
+    const lip = root ? 1 : Math.min(1, i / gap)
     const hw = Math.max(0.7, (Wd / 2) * 0.7 * lip * open * Math.sqrt(tip) * (0.75 + 0.5 * hash(Math.floor(i / 3), seed, 5)))
     mids.push([i, off])
     for (let q = -hw - 1; q <= hw + 1; q += 0.5) {
@@ -196,6 +198,7 @@ export function paintRift(pc, ox, oy, angle, L, Wd, gap, seed, cooled, reach = 1
       if (u < len * 0.6) put(x, y, 2, cooled ? P.scab0 : P.lava0)
     }
   }
+  return rank
 }
 // the pool's edge: a wobbly circle, shared by the lava and the scab it cools into
 function poolEdge(v, a, R, n) {
