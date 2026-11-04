@@ -19805,8 +19805,9 @@ function stepSpringGloveWeapon(run, w, stats, fireRateMul, dt) {
         e.kb.y += (dy / d) * stats.knock * k
         spendCC(run, e)
         if (bowl > 0) {
-          e._bowl = { t: GLOVE_BOWL_T, dmg: stats.dmg * bowl, hit: new Set([e.id]) }
-          ;(run._bowled ??= []).includes(e) || run._bowled.push(e)
+          // plain ids, not a Set or enemy refs: a parked run (state.js parkRun) is JSON
+          e._bowl = { t: GLOVE_BOWL_T, dmg: stats.dmg * bowl, hit: [e.id] }
+          ;(run._bowled ??= []).includes(e.id) || run._bowled.push(e.id)
         }
       }
       run.events.push({ type: 'punch', x: p.x, y: p.y, tx: fx, ty: fy, r: stats.radius, angle: Math.atan2(fy - p.y, fx - p.x) })
@@ -19814,16 +19815,16 @@ function stepSpringGloveWeapon(run, w, stats, fireRateMul, dt) {
   })
 }
 function stepGloveBowls(run, dt) {
-  const live = []
-  for (const b of run._bowled) {
-    const B = b._bowl
-    if (!B || b._dead || (B.t -= dt) <= 0) { b._bowl = null; continue }
-    live.push(b)
+  const live = [], byId = new Map(run.enemies.map((e) => [e.id, e]))
+  for (const id of run._bowled) {
+    const b = byId.get(id), B = b?._bowl
+    if (!B || b._dead || (B.t -= dt) <= 0) { if (b) b._bowl = null; continue }
+    live.push(id)
     if (b.kb.x * b.kb.x + b.kb.y * b.kb.y < GLOVE_BOWL_MIN_V * GLOVE_BOWL_MIN_V) continue
     for (const e of enemiesNear(run, b.x, b.y, b.radius * 2, true)) {
-      if (e === b || e._dead || isAlly(e) || B.hit.has(e.id)) continue
+      if (e === b || e._dead || isAlly(e) || B.hit.includes(e.id)) continue
       if ((e.x - b.x) ** 2 + (e.y - b.y) ** 2 > (b.radius + e.radius) ** 2) continue
-      B.hit.add(e.id)
+      B.hit.push(e.id)
       applyDamage(run, e, B.dmg)
     }
   }

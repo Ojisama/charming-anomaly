@@ -2371,7 +2371,8 @@ function generateWells(sig) {
  *   Novas: any nova may carry heat 'fire' | 'cold' (sim.js heatMul).
  *   Spring Glove: {type:'punch', x, y, tx, ty, r, angle} one glove's punch at tx, ty (r: the fist's
  *     radius), drawn by src/toon/mantle-fx.js, sounded as 'shoot'. With Bowling Punch a punched foe carries
- *     _bowl { t, dmg, hit } and sits in run._bowled while it flies (sim.js stepGloveBowls).
+ *     _bowl { t, dmg, hit: [ids] } and its id sits in run._bowled while it flies (sim.js
+ *     stepGloveBowls). Ids, not refs or Sets, so a parked run (JSON) restores it.
  *   Events: {type:'tideTurn', rising, level, x, y} the tide turned (rising = it starts to climb, else
  *     to drain). Drawn by src/toon.js; sounded in SFX_FOR_EVENT (twice a cycle).
  *     {type:'melt', x, y, r, rosterId} a rock creature melted under the tide; {type:'crumble', x, y,
