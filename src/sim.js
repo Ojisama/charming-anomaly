@@ -19211,11 +19211,10 @@ function stepLavaTide(run, dt) {
 // Little iron tubs lie moored at the lava's shores, at most one per mooring cell (L.boats.cell /
 // chance). A MOORING is a pure function of (cell, the ground seed), so it costs the random stream
 // nothing: a share of the tide c drawn across the band the tide sweeps, and its post (hx, hy) on THAT
-// tide's shore. The boat rides the tide on its rope (L.boats.rope px): while the lava stands under its
-// post it floats at the shore up the slope from it, nose to the rock, rising and falling with the
-// tide; once the tide has fallen past its post it lies beached there on the rock. So at any level
-// the boats moored lower float at a shore and the higher ones lie beached. Ridden once (moved), a
-// boat has slipped its rope: it stays wherever it was left. Salts 60-63 (the registry above
+// tide's shore. A moored boat follows the tide (owner, 2026-11-04: "they should not get stranded"):
+// it always floats at the lava's edge, nose to the rock, sliding up and down the slope as the tide
+// rises and falls. Ridden once (moved), it floats wherever it was left, until the tide pulls out from
+// under it: then it slides down after the lava to the new edge. Salts 60-63 (the registry above
 // obstacleCellHash).
 const BOAT_TRIES = 10
 // Newton steps along the slope from (x, y) onto the contour at height want: { x, y, gx, gy, err }
@@ -19281,34 +19280,18 @@ function boatPost(L, seed, i, j) {
   if (!rock || !lava) return null
   return { hx: m.x, hy: m.y, c }
 }
-// where an empty moored boat lies: its middle a little in from its shore point (sx, sy) down the
-// slope, so its bow is on the rock; the rope keeps the shore point within B.rope of the post
+// seat a boat at the tide's edge: its shore point (sx, sy) on the tide's contour along the slope from
+// where it lay (a moored one from its last shore point, a left one from itself), its middle a little in
+// down the slope so its bow is on the rock. On flat ground there is no edge to find: it stays put.
 function seatBoat(run, L, b) {
   const B = L.boats, T = run.lavaTide
-  const want = lavaLineFor(L, b.c)
-  let sx = b.hx, sy = b.hy, gx, gy
-  if (T.line > want) {
-    // the lava stands over the post: float at the tide's shore up the slope, from where it lay
-    const m = onContour(L, T.seed, b.sx ?? b.hx, b.sy ?? b.hy, T.line, 2)
-    if (m) {
-      sx = m.x; sy = m.y; gx = m.gx; gy = m.gy
-      const dx = sx - b.hx, dy = sy - b.hy, d = Math.hypot(dx, dy)
-      if (d > B.rope) { sx = b.hx + dx * B.rope / d; sy = b.hy + dy * B.rope / d }
-    }
-  }
-  if (gx === undefined) {
-    // the tide below its post: beached on the rock there (the slope's bearing, once)
-    if (b._bgx === undefined) {
-      const E = 6
-      b._bgx = mantleHeightAt(L, T.seed, b.hx + E, b.hy) - mantleHeightAt(L, T.seed, b.hx - E, b.hy)
-      b._bgy = mantleHeightAt(L, T.seed, b.hx, b.hy + E) - mantleHeightAt(L, T.seed, b.hx, b.hy - E)
-    }
-    gx = b._bgx; gy = b._bgy
-  }
-  const gl = Math.hypot(gx, gy) || 1
-  b.sx = sx; b.sy = sy
-  b.heading = Math.atan2(gy, gx)
-  b.x = sx - (gx / gl) * B.r * 0.6; b.y = sy - (gy / gl) * B.r * 0.6
+  const fresh = b.moved || b.sx === undefined
+  const m = onContour(L, T.seed, b.moved ? b.x : b.sx ?? b.hx, b.moved ? b.y : b.sy ?? b.hy, T.line, fresh ? 6 : 2)
+  if (!m) return
+  const gl = Math.hypot(m.gx, m.gy) || 1
+  b.sx = m.x; b.sy = m.y
+  b.heading = Math.atan2(m.gy, m.gx)
+  b.x = m.x - (m.gx / gl) * B.r * 0.6; b.y = m.y - (m.gy / gl) * B.r * 0.6
 }
 // streamObstacles' streaming idiom, keyed on the tide's ground seed (The Mantle has no obstacle seed):
 // re-scans on a cell crossing or every B.rescan s; drops a boat past OBSTACLE_DROP_RADIUS unless it was
@@ -19350,15 +19333,15 @@ function stepBoats(run, L, pg, dt) {
     // an empty boat floats slowly back up
     if (b.floatT < B.float) b.floatT = Math.min(B.float, b.floatT + dt * B.float / B.rise)
     if ((b.x - p.x) ** 2 + (b.y - p.y) ** 2 > 1800 * 1800) continue
-    if (!b.moved) {
-      // on its rope: it rides the tide at the shore, or lies beached at its post
+    if (!b.moved || !lavaFloodedAt(run, b.x, b.y)) {
+      // moored, it rides the tide's edge; left behind, it follows the lava down once the tide leaves it
       const x0 = b.x, y0 = b.y
       seatBoat(run, L, b)
       b.vx = (b.x - x0) / dt; b.vy = (b.y - y0) / dt
     }
     b.afloat = lavaFloodedAt(run, b.x, b.y)
-    // a lava creature swimming into an empty boat that has slipped its rope bumps it along, never onto
-    // the rock (a moored one is held by its rope)
+    // a lava creature swimming into an empty boat that was left on the lava bumps it along, never onto
+    // the rock (a moored one keeps to its edge)
     if (!b.afloat || !b.moved || !(B.bump > 0)) continue
     for (const e of enemiesNear(run, b.x, b.y, B.r + 40, true)) {
       if (e._dead || e.habitat !== 'lava' || isAlly(e) || flies(e)) continue

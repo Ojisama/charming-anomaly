@@ -2335,19 +2335,20 @@ function generateWells(sig) {
  *     THE MOORED BOATS (sim.js streamBoats / seatBoat / stepBoats, knobs signature.lavaTide.boats). A
  *     MOORING is a pure function of (cell, the tide's ground seed): a tide share c across the band the
  *     tide sweeps and its POST (hx, hy) on that tide's shore; no two posts within boats.gap (the later
- *     cell's is dropped). Moored (moved false), a boat rides the tide on its rope: while the lava stands
- *     over its post it floats at the current shore up the slope from it (sx, sy its shore point, at most
- *     boats.rope from the post; x, y a little in on the lava side; heading its nose, up the slope, to
- *     the rock); once the tide falls past its post it lies beached there (afloat false: render lists it
- *     on the rock). Two moored boats on one stretch of shore slide apart. afloat: the tide is under
+ *     cell's is dropped). Moored (moved false), a boat follows the tide: it always floats at the
+ *     current edge, found along the slope from its last shore point (sx, sy its shore point; x, y a
+ *     little in on the lava side; heading its nose, up the slope, to the rock). It never lies beached
+ *     (on flat ground with no edge to find it stays put). Two moored boats on one stretch of shore
+ *     slide apart. afloat: the tide is under
  *     (x, y). Streamed round the player (OBSTACLE_STREAM_RADIUS, dropped past OBSTACLE_DROP_RADIUS
  *     unless moved), at most one per cell. Walking onto a floating one (within boats.r, you on ground
  *     2) boards it: ridden and moved true (it has slipped its rope for good), it goes where you go while
  *     you are on the tide (vx/vy its velocity, heading its bearing), floatT drains from boats.float to 0
  *     and it sinks (removed, event boatSink, its cell empty for boats.respawn s: _boatSunk[cell] =
- *     run.time). Rock, a crust or a pool under you: you step off and it stays where you left it. A
- *     loose (moved) empty one only moves when a lava creature bumps it (never onto rock); rock
- *     creatures ignore boats. seed: per-boat look. Private: _bgx/_bgy (the slope at its post), and on
+ *     run.time). Rock, a crust or a pool under you: you step off and it stays where you left it while
+ *     it floats; once the tide leaves it, it slides down after the lava to the new edge (seatBoat from
+ *     itself). A loose (moved) floating one also moves when a lava creature bumps it (never onto rock);
+ *     rock creatures ignore boats. seed: per-boat look. Private: on
  *     run _boatCellI/_boatCellJ/_boatScan (the stream cursor), _boatSunk.
  *   player.afloat: aboard a floating boat this step (no lava burn). player.boatT / boatMax: the ridden
  *     boat's float left / boats.float (boatT 0 with no boat). Undefined until the tide's first step.

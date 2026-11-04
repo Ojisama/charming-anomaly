@@ -42977,8 +42977,8 @@ function testMantleBoats() {
   // (a) MOORED AT THE SHORE. Every mooring streamed round a walk has its post on the shore of its own
   // tide (lava and rock both within the boat's reach of it at that line), across the band the tide
   // sweeps. In a real run, kiting, whenever you stand at a shore past the ebb, a floating boat is at a
-  // shore within 900px of you (it rides the tide up from its post on its rope), and at the ebb every
-  // moored boat lies beached on the rock (bar the odd one whose bow dips into one of the ebb's own pools).
+  // shore within 900px of you, and at the ebb too every moored boat still floats at an edge: it followed
+  // the tide down (owner, 2026-11-04: "they should not get stranded").
   {
     const r = boot(54001)
     tick(r)
@@ -43009,7 +43009,7 @@ function testMantleBoats() {
     assert.ok(onShore === seen.size && inBand === seen.size, `run MO.a: every mooring's post is on the shore of its own tide (lava and rock within ${B.r}px): ${onShore} of ${seen.size} (in the tide's band: ${inBand})`)
     const r2 = boot(54002)
     r2.weapons = []
-    let samples = 0, hit = 0, ang = 0, ebbs = 0, ebbBeached = 0, ebbMoored = 0
+    let samples = 0, hit = 0, ang = 0, ebbs = 0, ebbAfloat = 0, ebbMoored = 0
     for (let i = 0; i < 60 * 150; i++) {
       ang += 0.003
       tick(r2, { x: Math.cos(ang), y: Math.sin(ang) })
@@ -43017,7 +43017,7 @@ function testMantleBoats() {
       const T = r2.lavaTide, p = r2.player, h = (x, y) => H(r2, x, y)
       if (T.cover < L.ebbCover + 0.05) {
         ebbs++
-        for (const b of r2.boats) if (!b.moved) { ebbMoored++; if (!b.afloat) ebbBeached++ }
+        for (const b of r2.boats) if (!b.moved) { ebbMoored++; if (b.afloat) ebbAfloat++ }
         continue
       }
       if (T.cover < L.ebbCover + 0.15) continue
@@ -43032,9 +43032,8 @@ function testMantleBoats() {
       })) hit++
     }
     assert.ok(samples >= 30 && hit / samples >= 0.85, `run MO.a: at a shore past the ebb, a boat floats at a shore within 900px of you: ${hit} of ${samples} samples`)
-    // the ebb is still most of the map under lava, so a beached boat's middle is in an ebb pool often
-    assert.ok(ebbs >= 5 && ebbMoored >= 20 && ebbBeached >= ebbMoored * 0.6, `run MO.a: at the ebb most moored boats lie beached (some in an ebb pool): ${ebbBeached} of ${ebbMoored} over ${ebbs} samples`)
-    console.log(`PASS run MO.a (moored at the shore): ${onShore}/${seen.size} posts on their own tide's shore; a boat at a shore near you at ${hit}/${samples} shore samples; ${ebbBeached}/${ebbMoored} beached at the ebb`)
+    assert.ok(ebbs >= 5 && ebbMoored >= 20 && ebbAfloat >= ebbMoored * 0.95, `run MO.a: at the ebb the moored boats followed the tide down and still float: ${ebbAfloat} of ${ebbMoored} over ${ebbs} samples`)
+    console.log(`PASS run MO.a (moored at the shore): ${onShore}/${seen.size} posts on their own tide's shore; a boat at a shore near you at ${hit}/${samples} shore samples; ${ebbAfloat}/${ebbMoored} afloat at the ebb`)
   }
 
   const chance0 = B.chance
@@ -43120,15 +43119,18 @@ function testMantleBoats() {
       console.log(`PASS run MO.d (it sinks): went under ${(sinkAt - boardAt).toFixed(2)}s after boarding, first burn ${(burnAt - sinkAt).toFixed(2)}s later`)
     }
 
-    // (e) A BEACHED BOAT CARRIES NO ONE, AND A LAVA CREATURE BUMPS AN EMPTY ONE (a rock one does not):
-    // a boat on dry rock is not afloat; a lava creature swimming into a floating one shoves it, on the lava
+    // (e) A BOAT LEFT ON ROCK SLIDES DOWN TO THE LAVA, AND A LAVA CREATURE BUMPS AN EMPTY ONE (a rock
+    // one does not): a left boat the tide pulled out from under follows it to the edge and floats there;
+    // a lava creature swimming into a floating one shoves it, on the lava
     {
       const r = boot(54005)
       tick(r); quiet(r)
       const dryB = boatAt(r.player.x, r.player.y)
       r.boats = [dryB]
-      tick(r)
-      assert.ok(!dryB.afloat && !dryB.ridden && !r.player.afloat, `run MO.e: a boat on dry rock lies beached: afloat ${dryB.afloat}, ridden ${dryB.ridden}`)
+      r.player.x += 900
+      for (let i = 0; i < 30; i++) tick(r)
+      assert.ok(dryB.afloat && !dryB.ridden && mantleGroundAt(r, dryB.x, dryB.y) === 2 && Math.hypot(dryB.x - dryB.sx, dryB.y - dryB.sy) < B.r,
+        `run MO.e: a boat left on dry rock slid down to the lava's edge and floats: afloat ${dryB.afloat}, ${Math.hypot(dryB.x - dryB.sx, dryB.y - dryB.sy).toFixed(0)}px from its shore point`)
       const spot = floodedBasin(r)
       quiet(r)
       const boat = boatAt(spot.x, spot.y), still = boatAt(spot.x, spot.y + 1)
@@ -43142,7 +43144,7 @@ function testMantleBoats() {
       tick(r)
       const nudged = Math.hypot(still.x - spot.x, still.y - spot.y - 1)
       assert.ok(shoved > 1 && mantleGroundAt(r, boat.x, boat.y) === 2 && nudged === 0, `run MO.e: a lava creature bumps an empty boat along the lava (${shoved.toFixed(1)}px), a rock one does not (${nudged})`)
-      console.log(`PASS run MO.e (beached, bumped): a boat on rock carried no one; a lava creature shoved one ${shoved.toFixed(1)}px, a rock one 0`)
+      console.log(`PASS run MO.e (never stranded, bumped): a boat left on rock slid to the lava's edge; a lava creature shoved one ${shoved.toFixed(1)}px, a rock one 0`)
     }
 
     // (i) THE KETTLE COOLS THE HULL YOU RIDE: with nothing else to throw at, its water lands on your boat,

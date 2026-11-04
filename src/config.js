@@ -10161,7 +10161,6 @@ CHAPTERS.mantle = {
         respawn: 45,     // s until a sunk boat's mooring holds a fresh one
         rescan: 4,       // s between re-scans of the moorings round you (so a respawn shows up)
         bump: 0.5,       // share of a lava creature's overlap that shoves an empty boat loose of its rope
-        rope: 600,       // px a moored boat may float up the slope from its post, riding the tide
         gap: 130,        // px, no two posts closer (the later cell's boat is not moored)
       },
     },
