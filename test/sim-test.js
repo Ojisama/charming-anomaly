@@ -2335,7 +2335,7 @@ function testAnomalySlate() {
       // landed this fixture reported "spawned nothing — untestable here" for a weapon that was
       // firing correctly. A melee weapon whose event type is missing from this array is invisible
       // to the assertion below.
-      const FX = ['whip', 'clawRake', 'roar', 'tail', 'gnash', 'lance', 'fissure']
+      const FX = ['whip', 'clawRake', 'roar', 'tail', 'gnash', 'lance', 'fissure', 'punch']
       // ⚠ ...AND ONE WEAPON THE FIXTURE'S OWN PIN MAKES UNMEASURABLE. Three lines below, a moving
       // arm teleports the player back to the origin every frame so the ring of targets stays put —
       // right for every card that reads VELOCITY, and blind to one that reads DISPLACEMENT. The
@@ -35720,6 +35720,7 @@ function testEventConsumers() {
     melt: 'drawn by src/toon/mantle-fx.js through the toon renderer\'s event hook (not a render.js case); NO sfx: a flood melts a whole hillside of rock creatures at once, and each dies through dealDamage, whose kill already sounds',
     crumble: 'drawn by src/toon/mantle-fx.js through the toon renderer\'s event hook; NO sfx: an ebb strands a crowd of lava creatures together, and each dies through dealDamage, whose kill already sounds',
     ophanImmune: 'drawn by src/ophan/renderer.js (the immune ring); several a second while mismatched, too often for a sound',
+    coalBounce: 'drawn by src/toon/mantle-fx.js through the toon renderer\'s event hook (a ping star, a Bumper\'s flash); NO sfx: a pinball coal bounces several times a second',
   }
 
   const orphans = types.filter((t) => !hasRender(t) && !hasSfx(t) && !SILENT_BY_DESIGN[t])
@@ -42164,6 +42165,7 @@ function testMantle() {
   try {
     const arena = (w, place) => {
       const r = boot(41005)
+      r._obstacleSeed = null; r.obstacles = [] // no stalagmites unless a case places one
       r.weapons = [{ id: w, level: 1 }]
       stepSim(r, { x: 0, y: 0 }, 1 / 60)
       r.enemies = []
@@ -42195,7 +42197,7 @@ function testMantle() {
       assert.ok(c && Math.hypot(c.x - bodies[0].x, c.y - bodies[0].y) < 1 && c.r > 0, 'run MT.e1: the kettle lays its crust on the closest lava creature')
     }
     {
-      const { r, bodies } = arena('hotCoals', () => [[150, 0], [230, 40], [300, -30]])
+      const { r, bodies } = arena('hotCoals', () => [[150, 0], [50, 100], [300, -30]])
       for (let i = 0; i < 90; i++) { step(r, 1); for (const b of bodies) { b.x = b._x ?? (b._x = b.x); b.y = b._y ?? (b._y = b.y) } }
       const hit = bodies.filter((b) => b.hp < 1e6).length
       assert.ok(hit >= 2, `run MT.e: a coal should bounce on to a second body: ${hit} hit`)
@@ -42221,21 +42223,52 @@ function testMantle() {
       assert.ok(taken(bodies)[0] > before, 'run MT.e2: the open pool keeps burning the rock creature standing in it')
     }
     {
-      // MT.e3: Lava Bellows rolls its wave the way you walk: fire on a rock creature (x
-      // MANTLE_FIRE_VS_ROCK), nothing on a lava one, which it shoves LAVA_WAVE_SHOVE_MUL as hard instead
-      const { r, bodies } = arena('lavaBellows', () => [[100, 0], [100, 40], [100, -40], [-100, 0]])
-      noCrit(r)
-      r.player.facingAngle = 0
-      bodies[0].habitat = 'rock'; bodies[2].habitat = 'lava'
+      // MT.e4: the pinball coal bounces off a stalagmite in its way and never reaches the foe behind it;
+      // with Bumper, that bounce sparks and burns the foe standing by the rock
+      const rockShot = (mods) => {
+        const { r, bodies } = arena('hotCoals', () => [[230, 0]])
+        r.obstacles = [{ x: r.player.x + 150, y: r.player.y, r: 30, kind: 'stalagmite' }]
+        r.weaponMods.hotCoals = mods
+        r.weaponTimers.hotCoals = 0
+        let atRock = null
+        for (let i = 0; i < 60 && atRock === null; i++) step(r, 1, undefined, (evs) => { if (evs.some((e) => e.type === 'coalBounce' && e.ox !== undefined)) atRock = taken(bodies)[0] })
+        return atRock
+      }
+      const plain = rockShot({}), bump = rockShot({ bumper: 1 })
+      assert.ok(plain === 0 && bump > 0, `run MT.e4: the coal bounces off the stalagmite (foe behind it untouched: ${plain}) and Bumper's spark burns that foe (${bump})`)
+    }
+    {
+      // MT.e3: Spring Glove punches the CLOSEST foe, its fist hurts the foe beside it too, not a farther
+      // one, and the punched foe flies straight away from you
+      const { r, bodies } = arena('springGlove', () => [[120, 0], [120, 25], [-220, 0]])
       const x0 = bodies.map((b) => b.x)
-      r.weaponTimers.lavaBellows = 0
+      r.weaponTimers.springGlove = 0
+      step(r, 1)
+      const [hit, beside, far] = taken(bodies)
+      assert.ok(hit > 0 && beside > 0 && far === 0, `run MT.e3: the glove hits the closest foe and the one by it, not the far one: ${hit} / ${beside} / ${far}`)
       step(r, 30)
-      const [rock, none, lava, behind] = taken(bodies)
-      assert.ok(none > 0 && Math.abs(rock / none - MANTLE_FIRE_VS_ROCK) < 0.05 && lava === 0 && behind === 0,
-        `run MT.e3: the wave hurts rock x${MANTLE_FIRE_VS_ROCK}, a lava creature not at all, and nothing behind you: ${rock} / ${none} / ${lava} / ${behind}`)
-      const shove = bodies.map((b, i) => b.x - x0[i])
-      assert.ok(shove[1] > 5 && shove[2] > shove[1] * 1.8,
-        `run MT.e3: the wave shoves a lava creature harder than anything else: ${shove.map((v) => v.toFixed(1)).join(' / ')}`)
+      assert.ok(bodies[0].x - x0[0] > 100 && Math.abs(bodies[2].x - x0[2]) < 1, `run MT.e3: the punched foe flies away from you: ${(bodies[0].x - x0[0]).toFixed(1)} px`)
+    }
+    {
+      // MT.e5: Second Spring throws a second glove at ANOTHER foe, never two at one
+      const { r, bodies } = arena('springGlove', () => [[120, 0], [-150, 0], [0, 250]])
+      r.weaponMods.springGlove = { secondSpring: 1 }
+      r.weaponTimers.springGlove = 0
+      step(r, 1)
+      const [a, b, c] = taken(bodies)
+      assert.ok(a > 0 && b > 0 && c === 0, `run MT.e5: two gloves land on the two closest foes, not the third: ${a} / ${b} / ${c}`)
+    }
+    {
+      // MT.e6: Bowling Punch: the punched foe hurts the foe it crashes into (out of the fist's reach)
+      const bowl = (mods) => {
+        const { r, bodies } = arena('springGlove', () => [[100, 0], [190, 0]])
+        r.weaponMods.springGlove = mods
+        r.weaponTimers.springGlove = 0
+        step(r, 40)
+        return taken(bodies)[1]
+      }
+      const plain = bowl({}), bowled = bowl({ bowlingPunch: 1 })
+      assert.ok(plain === 0 && bowled > 0, `run MT.e6: only Bowling Punch hurts the foe the punched one crashes into: ${plain} vs ${bowled}`)
     }
   } finally { sig.lavaTide = saved }
   // MT.g: THE LAVA THAT BURNS IS THE LAVA THAT IS DRAWN. The painter (src/toon/world.js) stores the
@@ -42409,7 +42442,7 @@ function testMantleHabitat() {
     // thawed: no death, the clock back to 0 and never restarted on the same rock, moving at full speed
     assert.ok(!e._dead && crumbled === 0 && Math.max(...T) < MANTLE_STRAND_FREE_T && T.slice(F + 2).every((t) => t === 0) && after > 25 * 2 * 0.8, `run HB.c: it thaws free at ${MANTLE_STRAND_FREE_T}s and stays free on rock: dead ${!!e._dead}, ${crumbled} crumbles, max strandT ${Math.max(...T).toFixed(2)}, strandT after ${T.slice(F + 2).some((t) => t > 0) ? 'restarted' : '0'}, ${after.toFixed(1)}px in 25 frames (50 free)`)
     // killed while stone: a crumble, and the xp
-    const k = body(r, p.x - 300, p.y, 'lava')
+    const k = body(r, p.x + 200, p.y, 'lava') // where the first body started: dry rock, proven above
     r.enemies.push(k)
     for (let i = 0; i < 60 * 2; i++) { p.hp = 1e9; tick(r) }
     const g0 = r.gems.length

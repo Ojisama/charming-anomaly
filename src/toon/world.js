@@ -28,13 +28,14 @@
 //             1.3-3 px INSIDE that edge.
 //             A HAMMER POOL (run.lavaPools) is fresh lava cracked open in the rock: jagged cracks run
 //             out from it, its skin breaks into plates that melt away, then bright lava with the tide's
-//             own shore (band, froth, bubbles); at the end it crusts over from the rim inward, and once
-//             the sim has closed it the rock it leaves stays cooled-dark for FX_GHOST_T s. Painted
-//             at least OVER its circle, so no pixel of the sim's lava ever shows as rock.
+//             own shore (band, froth, bubbles); at the end its shore draws in to nothing like the tide
+//             going out (mantle-shape.js poolLive, the sim's own edge), and the rock it leaves stays dark
+//             and wet like the tide's drain for FX_GHOST_T s. Painted at least OVER its circle, so no
+//             pixel of the sim's lava ever shows as rock.
 // Everything is graded in the shader as a faded 1930s print (desaturated, warm, lifted blacks, cream
 // whites); the film pass (FILM_FRAG) then adds grain, dust, a scratch, flicker and an uneven vignette.
 import { MANTLE_GROUND_STEP } from '../config.js'
-import { SPLASH_FINGERS, SPLASH_DROPS, SPLASH_DROP_V4, SPLASH_WOB, SPLASH_K, CRUST_EAT_T } from '../mantle-shape.js'
+import { SPLASH_FINGERS, SPLASH_DROPS, SPLASH_DROP_V4, SPLASH_WOB, SPLASH_K, CRUST_EAT_T, POOL_RECEDE_T } from '../mantle-shape.js'
 import { PAL, TAU, mkCanvas } from './palette.js'
 import { resetXf, push, pop, tr, rot, sc, ell, polar, drop, tube, qb, line, cel, glove, glow, puff, flame, brush } from './brush.js'
 import { peekBubble } from './cast.js'
@@ -199,7 +200,9 @@ ${SPLASH_DROP_LINES}
 float crustCut(float s) { return -s - 1000.0 * max(0.0, s - ${CRUST_LIP.toFixed(1)}); }
 // the cracked-open rock round a hole: x the red-hot core of its cracks, y their dark seam
 vec2 gCk;
-float poolR(vec4 q, float en) { return q.z + 1.5 + 24.0 * smoothstep(0.3, 0.8, en); }
+// a pool's painted rim, drawn in with poolLive (dur: its uPoE.x) over its last POOL_RECEDE_T s
+float poolLiveK(vec4 q, float dur) { return clamp((dur - q.w) / ${POOL_RECEDE_T.toFixed(3)}, 0.0, 1.0); }
+float poolR(vec4 q, float dur, float en) { return (q.z + 1.5 + 24.0 * smoothstep(0.3, 0.8, en)) * poolLiveK(q, dur); }
 // d (px from the lava, + on dry ground) with every pool cut into it and every crust laid over it.
 // Where a crust and a pool overlap the NEWEST wins (a stamp cracks a crust open, a kettle quenches a pool).
 // A crust holds only where it was lava when it was poured (sim.js mantleGroundAt): under the tide's line
@@ -208,7 +211,7 @@ float fxD(vec2 p, float d, float en, float hp) {
   float pa = 1.0e9, pOld = -1.0;
   for (int i = 0; i < ${FX_N}; i++) {
     if (float(i) >= uNP) break;
-    float s = length(p - uPo[i].xy) - poolR(uPo[i], en);
+    float s = length(p - uPo[i].xy) - poolR(uPo[i], uPoE[i].x, en);
     d = min(d, s); if (s < 0.0) { pa = min(pa, uPo[i].w); pOld = max(pOld, uPo[i].w); }
   }
   for (int i = 0; i < ${FX_N}; i++) { if (float(i) >= uNC) break; if (length(p - uCr[i].xy) < uCrE[i].z && uCr[i].w <= pa && (hp < uCrE[i].y || pOld > uCr[i].w)) d = max(d, crustCut(crustS(i, p, en))); }
@@ -323,11 +326,11 @@ void main() {
   // ---- THE WEAPONS' GROUND: which crust or pool this pixel is in, and how far along it is ----------
   gNear = false; gNearL = false; gCk = vec2(0.0);
   float crK = 0.0, crT = 0.0, crG = 0.0;                   // in a crust over lava; its age; its end glow
-  float poK = 0.0, poA = 99.0, poRem = 99.0, poR = 1.0, poRho = 0.0, poCk = 0.0, ghK = 0.0;
+  float poK = 0.0, poA = 99.0, poCk = 0.0, ghK = 0.0;
   // Far from every shape (the most of the screen) only a pool's distance is taken, for the glow its
   // lip casts on the rock; everything else is evaluated within a few px of a shape (gNear).
   if (uNC + uNP + uNG > 0.0) {
-    for (int i = 0; i < ${FX_N}; i++) { if (float(i) >= uNP) break; float rr = length(W - uPo[i].xy); if (rr < uPo[i].z + 50.0) gNear = true; else d = min(d, rr - poolR(uPo[i], 0.5)); }
+    for (int i = 0; i < ${FX_N}; i++) { if (float(i) >= uNP) break; float rr = length(W - uPo[i].xy); if (rr < uPo[i].z + 50.0) gNear = true; else d = min(d, rr - poolR(uPo[i], uPoE[i].x, 0.5)); }
     for (int i = 0; i < ${FX_N}; i++) { if (float(i) >= uNC) break; if (length(W - uCr[i].xy) < uCrE[i].z) gNear = true; }
     for (int i = 0; i < ${FX_GHOSTS}; i++) { if (float(i) >= uNG) break; if (length(W - uGh[i].xy) < uGh[i].z + 10.0) gNear = true; }
   }
@@ -341,9 +344,11 @@ void main() {
     for (int i = 0; i < ${FX_N}; i++) {
       if (float(i) >= uNP) break;
       vec4 q = uPo[i];
-      float rr = length(W - q.xy), re = poolR(q, en), s = rr - re;
+      float rr = length(W - q.xy), re = poolR(q, uPoE[i].x, en), s = rr - re;
+      // the rock the receding pool has let go of: wet, like the tide's drain
+      if (s >= 0.0) ghK = max(ghK, (1.0 - smoothstep(q.z - 8.0, q.z + 6.0 * F.g, rr)) * (1.0 - poolLiveK(q, uPoE[i].x)));
       d = min(d, s);
-      if (s < 0.0 && q.w < pAge) { poK = 1.0; poA = q.w; pAge = q.w; poRem = uPoE[i].x - q.w; poR = re; poRho = rr; }
+      if (s < 0.0 && q.w < pAge) { poK = 1.0; poA = q.w; pAge = q.w; }
       if (s < 0.0) pOld = max(pOld, q.w);
       // the cracks it split the rock with: red-hot as it opens, cooling to dark seams, gone at the end
       float cf = 1.0 - smoothstep(uPoE[i].x - 0.6, uPoE[i].x, q.w);
@@ -496,7 +501,13 @@ void main() {
   // FRESHLY COOLED ROCK (a Quench crust over the lava, and a hammer's hole just closed): the same
   // watercolour rock sunk darker and warmer, steam-dark while it is new, with hairline cracks that
   // glow a dull red and brighten as the lava comes back for it
-  float coolK = max(crK, ghK * step(0.0, d) * 0.85);
+  float coolK = crK;
+  // a hammer pool's ground as its lava draws back and after: damp, warm, drying (the tide's drain look)
+  float wetP = ghK * step(0.0, d);
+  if (wetP > 0.0) {
+    rc = mix(rc, vec3(0.17, 0.11, 0.17) + rc * 0.3, wetP * 0.5);
+    rc += vec3(0.1, 0.08, 0.12) * smoothstep(0.62, 0.8, C0.b) * wetP * 0.35;
+  }
   if (coolK > 0.0) {
     float fresh = crK * (1.0 - smoothstep(0.0, 1.4, crT));
     vec3 cooled = vec3(0.13, 0.085, 0.12) + rc * vec3(0.42, 0.36, 0.4);
@@ -512,7 +523,7 @@ void main() {
     // slab's rim like wet paint; some gaps have closed (the slabs run together into broader ones)
     vec2 sl = slabs(W, E, F, 36.0);
     float ce = sl.x;
-    float gk = max(crG * crK, ghK * 0.5);
+    float gk = crG * crK;
     float open = smoothstep(0.22, 0.5, E.a * 0.6 + F.a * 0.25 + P.b * 0.15 + 0.2 * gk);
     float rimS = smoothstep(0.0, 12.0, ce);
     rc *= mix(1.0, (0.72 + 0.28 * rimS) * (1.0 + 0.22 * sl.y), coolK * open);
@@ -585,26 +596,20 @@ void main() {
   lc = mix(lc, vec3(0.659, 0.157, 0.094), bell(Dd, 22.0 + 18.0 * sw, 16.0 + 6.0 * sw) * (0.18 + 0.12 * sw) * (0.6 + 0.8 * fb(nz(lw, 300.0).g)));
   lc *= 1.0 + (P.g - 0.5) * 0.06;
   // A HAMMER POOL: fresh lava, brighter and hotter than the tide's; its rock skin breaks into plates
-  // that melt away in its first moments; at the end the melt crusts over from the rim inward (still
-  // lava, the plates dark and the seams bright) until the sim closes it
+  // that melt away in its first moments (its end is its shore drawing in: poolR)
   if (poK > 0.0) {
     lc = mix(lc, vec3(1.0, 0.76, 0.3), 0.28 * (1.0 - smoothstep(-6.0, 0.0, -Dd)));
     float oa = clamp(poA / 0.3, 0.0, 1.0);
     float sk = 1.0 - oa;                                                  // the breaking skin
-    float cl = 1.0 - clamp(poRem / 0.9, 0.0, 1.0);                        // the crusting over
-    if (sk + cl > 0.0) {
+    if (sk > 0.0) {
     vec2 psl = slabs(W, E, F, 18.0);
     float pe = psl.x;
-    float front = poR * (1.0 - cl) - 4.0;
-    float ck2 = smoothstep(front - 4.0, front + 4.0, poRho) * step(0.001, cl);
     float sw2 = mix(1.0, 8.0, oa);
-    float skin = (sk * smoothstep(sw2, sw2 + 1.5, pe)) ;
-    float crust = ck2 * smoothstep(mix(1.1, 0.45, cl), mix(1.1, 0.45, cl) + 0.9, pe);
-    // the plates: the skin dark red and hot; the crust going over to the rock's own cooled violet-brown
-    vec3 pcol = sk > 0.0 ? vec3(0.42, 0.13, 0.08) : mix(vec3(0.34, 0.12, 0.11), vec3(0.2, 0.13, 0.2), cl);
-    pcol *= (0.84 + 0.18 * smoothstep(0.0, 6.0, pe)) * (1.0 + 0.2 * psl.y) * (0.92 + 0.16 * F.b);
-    lc = mix(lc, mix(vec3(1.0, 0.9, 0.55), vec3(1.0, 0.56, 0.2), ck2), (1.0 - smoothstep(0.0, 2.5, pe)) * max(sk, ck2) * 0.7);
-    lc = mix(lc, pcol, max(skin, crust) * 0.92);
+    float skin = sk * smoothstep(sw2, sw2 + 1.5, pe);
+    // the plates: the skin dark red and hot, its seams bright
+    vec3 pcol = vec3(0.42, 0.13, 0.08) * (0.84 + 0.18 * smoothstep(0.0, 6.0, pe)) * (1.0 + 0.2 * psl.y) * (0.92 + 0.16 * F.b);
+    lc = mix(lc, vec3(1.0, 0.9, 0.55), (1.0 - smoothstep(0.0, 2.5, pe)) * sk * 0.7);
+    lc = mix(lc, pcol, skin * 0.92);
     }
   }
   // bubbles: big pie-eyed faces crowding the shores when the tide is gathering, the odd pop out deep

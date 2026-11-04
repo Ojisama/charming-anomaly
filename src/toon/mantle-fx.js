@@ -8,8 +8,9 @@
 //                      ring of blobs, steam puffs boiling up off the fresh crust
 //   run.lavaPools      the Crack Hammer's stamp, off each pool's first 0.42s: wind-up, cocked, a smear, the
 //                      slam held squashed, a star, streaks, tumbling chunks, dust puffs
-//   run.novas          look 'lavaWave' (Lava Bellows): a wide inked wavefront breaking forward along its
-//                      whole lip, speed rakes, blobs that land as splats, a trough, scorch and smoke behind
+//   event punch        the Spring Glove's punch: a red boxing glove on a zig-zag spring
+//                      out of an iron cup by you, cocked, shot out past the foe, held on the hit with a star,
+//                      sprung back
 //   run.boats          the moored boats: each an iron-banded tub with a stack and a face (two paper pieces,
 //                      the front one over your legs when you ride it), bobbing afloat with the lava round its
 //                      hull and a wake while it moves, beached and listing on rock; sinking (floatT) it
@@ -22,7 +23,7 @@
 
 import { Container, Graphics, CanvasSource, Texture, Sprite } from 'pixi.js'
 import { PAL, TAU, hexNum, mkCanvas, freeCanvas } from './palette.js'
-import { resetXf, ell, polar, tube, qb, line, cel, eye, drop, spline, setPaper } from './brush.js'
+import { resetXf, ell, polar, tube, qb, line, cel, eye, drop, spline, setPaper, rng } from './brush.js'
 import { mantleHeightAt } from '../sim.js'
 import { strandStone, MANTLE_MELT_T, DRAW_CAPS } from '../config.js'
 import { TOON_CAST, setCastClock, STRAND_CRUMBLE } from './cast.js'
@@ -112,6 +113,47 @@ function paintHammer() {
     line(c, [[-90, 9], [-83, 6], [-76, 10]], 1.4, {})
     line(c, [[-92, -14], [-85, -12]], 1.1, {})
     line(c, [[-81, -12], [-74, -14]], 1.1, {})
+  })
+}
+// A STALAGMITE (run.obstacles kind 'stalagmite'): a cluster of basalt columns in the floor's own rock
+// violet, upright (props stand), its foot at the origin, about STAL_BAKE_R px in half-width at scale 1.
+// STAL_VARIANTS bakes, each its own cluster (2-5 columns, heights, widths, lean); stalVariant picks one
+// off the stalagmite's position, so neighbours differ and one stays the same every frame.
+const STAL_BAKE_R = 40, STAL_VARIANTS = 6
+const STONE = '#6e5872', STONE_LIT = '#9a83a0', STONE_TOP = '#bfadc2'
+const stalVariant = (o) => Math.floor(Math.abs(o.x * 0.37 + o.y * 0.61)) % STAL_VARIANTS
+function paintStalagmite(v) {
+  return bake(120, 150, 0.5, 0.82, (c) => {
+    const r = rng(v * 977 + 13), n = 2 + (v % 4), mid = (n - 1) / 2
+    const cols = []
+    for (let i = 0; i < n; i++) {
+      const w = 9 + r() * 6
+      const x = n > 1 ? -26 + 52 * (i / (n - 1)) + (r() - 0.5) * 8 : 0
+      const h = 30 + r() * 30 + 40 * (1 - Math.abs(i - mid) / (mid + 1))
+      cols.push({ x, h, w, lean: (r() - 0.5) * 0.22, dy: (r() - 0.5) * 10 })
+    }
+    cols.sort((p, q) => p.dy - q.dy)   // the back row first
+    for (const { x, h, w, lean, dy } of cols) {
+      const cap = w * 0.42, top = -h + dy, sx = lean * h   // the top shears over by sx
+      flat(c, [[x - w, dy], [x - w + sx, top], [x - w * 0.5 + sx, top - cap], [x + w * 0.5 + sx, top - cap], [x + w + sx, top], [x + w, dy], [x + w * 0.5, dy + cap], [x - w * 0.5, dy + cap]], STONE, 2.4)
+      flat(c, [[x - w, dy], [x - w + sx, top], [x - w * 0.15 + sx, top + cap * 0.6], [x - w * 0.15, dy + cap * 0.9], [x - w * 0.5, dy + cap]], STONE_LIT, 0)
+      flat(c, [[x - w + sx, top], [x - w * 0.5 + sx, top - cap], [x + w * 0.5 + sx, top - cap], [x + w + sx, top], [x + w * 0.5 + sx, top + cap], [x - w * 0.5 + sx, top + cap]], STONE_TOP, 1.8)
+      line(c, [[x - w * 0.15 + sx, top + cap * 0.7], [x - w * 0.15, dy + cap * 0.8]], 1.1, {})
+    }
+  })
+}
+const GLOVE_T = 0.5         // s one punch takes to play out, cocked to sprung back
+const GLOVE_BASE_R = 34     // WEAPONS.springGlove's fist radius at level 1; a bigger one draws a bigger glove
+// the Spring Glove: a red boxing glove from above, +x = the fist, the cuff at the origin
+function paintBoxGlove() {
+  return bake(110, 96, 0.36, 0.5, (c) => {
+    flat(c, [[-38, -17], [-16, -19], [-16, 19], [-38, 17]], PAL.paper, 2.2)
+    line(c, [[-30, -10], [-24, 0], [-30, 10]], 1.4, {})
+    flat(c, ell(-2, -25, 14, 10, -0.35, 28), '#b52a22', 2.2)
+    flat(c, ell(14, 2, 34, 29, 0, 40), '#c8322a', 2.8)
+    flat(c, ell(10, -10, 16, 8, -0.3, 24), '#e0563e', 0)
+    flat(c, ell(4, -13, 6, 2.6, -0.4, 16), PAL.white, 0)
+    line(c, [[36, -18], [44, 0], [36, 18]], 1.6, {})
   })
 }
 // an impact: a hard yellow star, white at its heart
@@ -382,9 +424,10 @@ export function createMantleFx({ ground, boat, top }) {
   const boatFace = new WeakMap()   // boat -> the way it faces (1 bow right, -1 left), kept between frames
   const boatVis = new WeakMap()    // boat -> { ph / st: its smoke's and its boil's own clocks, bk: 0 afloat .. 1 beached, eased }
   const bursts = []   // { kind: 'melt' | 'crumble' | 'boatSink', x, y, r, t, seed }
+  const pings = []    // a pinball coal's bounces (event coalBounce): { x, y, bumper, ox, oy, t }
   // the kettle's newest throw, off its shoot event: it is drawn on every throw, crust or no crust
   let pour = null      // { x, y, r, t }
-  const waves = new Map()   // nova -> its trail { x, y, angle, arc, maxR, life, k, endAt, seed }
+  const gloves = []   // the Spring Glove's punches, off its punch events: { tx, ty, r, t, seed }
   let clock = 0
 
   // ---- the cels, made on first use (a few hundred ms, once, at the first frame) ----
@@ -405,6 +448,8 @@ export function createMantleFx({ ground, boat, top }) {
       boatBack: paintBoatBack(), boatFront: paintBoatFront(), plank: [0, 1, 2].map(paintPlank),
       crust: [0, 1, 2].map((v) => paintPuddle(v, 'crust')), cracked: [0, 1, 2].map((v) => paintPuddle(v, 'cracked')),
       pool: [0, 1, 2].map((v) => paintPuddle(v, 'lava')),
+      boxGlove: paintBoxGlove(),
+      stal: Array.from({ length: STAL_VARIANTS }, (_, v) => paintStalagmite(v)),
     }
     return A
   }
@@ -459,13 +504,37 @@ export function createMantleFx({ ground, boat, top }) {
       du.scale.set((rb / 14) * (0.16 + 0.18 * Math.sin(Math.PI * u)) * tug)
     }
   }
+  // THE SPRING GLOVE, one punch: u = 0..1 over GLOVE_T. Out of an iron cup by the player (where you
+  // stand NOW), at the spot it hit: cocked, shot out with an overshoot, held squashed on the hit with a
+  // star, sprung back. Big Mitt (a bigger fist radius) draws a bigger glove.
+  function glove(g, p, P) {
+    const u = g.t / GLOVE_T, a = Math.atan2(g.ty - p.y, g.tx - p.x), ca = Math.cos(a), sa = Math.sin(a), nx = -sa, ny = ca
+    const D = hyp(g.tx - p.x, g.ty - p.y), sd = g.seed
+    const rake = (x, y, len, wd) => topG.poly([x + nx * wd, y + ny * wd, x - ca * len, y - sa * len, x - nx * wd, y - ny * wd]).fill({ color: C.ink })
+    const gs = 0.55 * Math.max(0.8, Math.min(2, g.r / GLOVE_BASE_R)), reach = Math.max(30, D - 40 * gs - 6)
+    const e = u < 0.12 ? -0.15 * smooth(0, 0.12, u) : u < 0.24 ? -0.15 + 1.23 * smooth(0.12, 0.24, u) : u < 0.3 ? 1.08 - 0.08 * smooth(0.24, 0.3, u) : u < 0.55 ? 1 : 1 - smooth(0.55, 1, u)
+    const bx = p.x + ca * 16, by = p.y + sa * 16, L = Math.max(4, 22 + e * reach)
+    const gx = bx + ca * L, gy = by + sa * L
+    const loops = 9, amp = 9 * (0.7 + 0.3 * clamp01(1 - e))
+    const pts = []
+    for (let i = 0; i <= loops * 2; i++) { const f = i / (loops * 2), side = i === 0 || i === loops * 2 ? 0 : (i % 2 ? 1 : -1); pts.push(bx + ca * L * f + nx * amp * side, by + sa * L * f + ny * amp * side) }
+    topG.poly(pts, false).stroke({ width: 5, color: C.ink, cap: 'round', join: 'round' })
+    topG.poly(pts, false).stroke({ width: 2, color: hexNum(PAL.ironHi), cap: 'round', join: 'round' })
+    topG.circle(bx, by, 7).fill({ color: hexNum(PAL.iron) }).stroke({ width: 2.2, color: C.ink })
+    if (u > 0.12 && u < 0.3) for (let i = -1; i <= 1; i += 2) for (let j = 0; j < 2; j++) rake(gx - ca * (10 + 22 * j) + nx * i * 22, gy - sa * (10 + 22 * j) + ny * i * 22, 34, 2.4)
+    const hit = smooth(0.22, 0.26, u) * (1 - smooth(0.3, 0.42, u))
+    const gl = tools.next(P.boxGlove); gl.position.set(gx, gy); gl.rotation = a; gl.scale.set(gs * (1 - 0.15 * hit), gs * (1 + 0.15 * hit))
+    if (hit > 0.05) { const st = tools.next(P.star); st.position.set(gx + ca * 46 * gs, gy + sa * 46 * gs); st.scale.set(0.55 * hit); st.rotation = sd }
+  }
   function hideAll() {
     for (const bp of [low, tools, ...boatPools]) { bp.begin(); bp.end() }
   }
   return {
-    reset() { pour = null; bursts.length = 0; waves.clear(); for (const g of GS) g.clear(); hideAll() },
+    reset() { pour = null; bursts.length = 0; pings.length = 0; gloves.length = 0; for (const g of GS) g.clear(); hideAll() },
     event(e) {
+      if (e.type === 'punch') { gloves.push({ tx: e.tx, ty: e.ty, r: e.r || GLOVE_BASE_R, t: 0, seed: Math.floor(Math.abs(e.tx * 3 + e.ty)) }); if (gloves.length > 12) gloves.shift(); return true }
       if (e.type === 'shoot' && e.weapon === 'quenchKettle') { pour = { x: e.tx ?? e.x, y: e.ty ?? e.y, r: e.maxR || 100, t: 0 }; return false }
+      if (e.type === 'coalBounce') { pings.push({ x: e.x, y: e.y, bumper: e.bumper || 0, ox: e.ox, oy: e.oy, t: 0 }); if (pings.length > 40) pings.shift(); return true }
       if (e.type !== 'melt' && e.type !== 'crumble' && e.type !== 'boatSink' && e.type !== 'steamBlast' && e.type !== 'hullCool') return false
       bursts.push({ kind: e.type, id: e.rosterId, x: e.x, y: e.type === 'boatSink' || e.type === 'hullCool' ? e.y + BOAT_DY : e.y, r: e.r || (e.type === 'boatSink' ? 30 : 14), t: 0, seed: Math.floor(Math.abs(e.x * 7 + e.y * 13)) })
       if (bursts.length > 80) bursts.shift()
@@ -485,6 +554,17 @@ export function createMantleFx({ ground, boat, top }) {
       const line = T.line
       const p = run.player
       const livePools = (run.lavaPools ?? []).filter((q) => q.t < q.dur)
+      // ---- the stalagmites (run.obstacles kind 'stalagmite'), under the crowd like every obstacle: a
+      // soft shadow at the foot on rock, a ring of hot lava round it standing in the tide ----
+      for (const o of run.obstacles ?? []) {
+        if (o.kind !== 'stalagmite' || !onScreen(o.x, o.y - o.r, o.r * 3)) continue
+        const k = o.r / STAL_BAKE_R
+        if (run.lavaTide && mantleHeightAt(L, T.seed, o.x, o.y) < line) {
+          groundG.ellipse(o.x, o.y + 2 * k, o.r * 1.15, o.r * 0.4).fill({ color: C.lavaHot, alpha: 0.85 })
+          groundG.ellipse(o.x, o.y + 2 * k, o.r * 1.4, o.r * 0.52).stroke({ width: 2.5, color: C.lavaWhite, alpha: 0.55 })
+        } else groundG.ellipse(o.x, o.y + 2 * k, o.r * 1.05, o.r * 0.36).fill({ color: C.ink, alpha: 0.28 })
+        const sp = low.next(P.stal[stalVariant(o)]); sp.position.set(o.x, o.y); sp.scale.set(k)
+      }
 
       // ---- the hammer's stamp, drawn off each pool's first moments (the floor paints the pool itself) ----
       for (const q of livePools) {
@@ -749,127 +829,34 @@ export function createMantleFx({ ground, boat, top }) {
         if (e.strandT > 0 && ns < STRAND_CAP) { ns++; strand(e, t, P, p) }
       }
 
-      // ---- the bellows' wave, after the Fleischer wave (fx-08): ONE leading crest, lopsided. It rears up
-      // at its peak and curls over, throwing forward, a foam lip of hot white scallops on it and dark
-      // streaks down its face; it thins along the arc and breaks into drips at its trailing end; speed
-      // rakes trail behind the peak. Squashed fat and short at launch, stretched thin as it travels. Blobs
-      // flung off it land as splats; a trough, scorch and smoke puffs are left on the rock behind ----
-      const seen = new Set()
-      for (const n of run.novas ?? []) {
-        if (n.look !== 'lavaWave') continue
-        seen.add(n)
-        let w = waves.get(n)
-        if (!w) { w = { x: n.x, y: n.y, angle: n.angle, arc: n.arc ?? 2, maxR: n.maxR, life: n.lifeMax || 0.5, k: 0, endAt: null, seed: Math.floor(Math.abs(n.x * 3 + n.y)) }; waves.set(n, w) }
-        w.k = 1 - Math.max(0, n.life / (n.lifeMax || 1)); w.R = Math.max(10, n.r || n.maxR * w.k); w.endAt = null
-      }
-      for (const [n, w] of waves) {
-        if (!seen.has(n) && w.endAt === null) w.endAt = clock
-        if (w.endAt !== null && clock - w.endAt > 1.2) waves.delete(n)
-      }
-      for (const w of waves.values()) {
-        if (!onScreen(w.x, w.y, w.maxR + 80)) continue
-        const alive = w.endAt === null, age = alive ? w.k * w.life : w.life + (clock - w.endAt)
-        const half0 = w.arc / 2, m = 34, sdw = w.seed
-        w.pk = 1
-        const kq = alive ? w.k : 1
-        const squash = 1 - smooth(0, 0.2, kq)
-        const half = half0 * (0.6 + 0.4 * (1 - squash))
-        const R = alive ? w.R : w.maxR
-        // v runs 0 .. 1 across the whole wavefront, side to side
-        const angOf = (v) => w.angle + w.pk * half * (1 - 2 * v)
-        const at = (v, r) => { const a = angOf(v), rr = Math.max(6, r); return [w.x + Math.cos(a) * rr, w.y + Math.sin(a) * rr] }
-        const W = 34 * (1 + 0.5 * squash) * (1 - 0.3 * kq)
-        const END = 1
-        // the crest's swell: uneven along the front, rearing here and there, never one head
-        const peak = (v) => 0.45 + 0.35 * Math.sin(v * 7.3 + sdw * 0.7) ** 2 + 0.2 * Math.sin(v * 17 + sdw)
-        const pin = (v) => Math.max(0, Math.min(1, v / 0.1) * Math.min(1, (1 - v) / 0.1))
-        const front = (v) => R + (9 * peak(v) + 3 * Math.sin(v * 13 + t * 4 + sdw)) * pin(v)
-        const back = (v) => R - W * (0.35 + 1.1 * peak(v)) * pin(v)
-        const band = (r0, r1, v1 = END) => { const S = []; for (let i = 0; i <= m; i++) S.push(...at(v1 * i / m, r1(v1 * i / m))); for (let i = m; i >= 0; i--) S.push(...at(v1 * i / m, r0(v1 * i / m))); return S }
-        // the trough, scorch and embers left behind it, and smoke puffs off it once it has ended
-        const fadeT = alive ? 1 : 1 - (clock - w.endAt) / 1.2
-        if (fadeT > 0) {
-          groundG.poly(band((v) => back(v) - 22 * pin(v), (v) => back(v) + 4, END)).fill({ color: C.trough, alpha: 0.7 * fadeT })
-          groundG.poly(band((v) => back(v) - 44 * pin(v), (v) => back(v) - 20 * pin(v), END)).fill({ color: C.scorch, alpha: 0.4 * fadeT })
-          for (let i = 0; i < 12; i++) {
-            const v = rh(i, sdw, 30) * END, [ex, ey] = at(v, back(v) - (6 + 30 * rh(i, sdw, 31)) * pin(v))
-            groundG.ellipse(ex, ey, 3 + 3 * rh(i, sdw, 32), 1.6).fill({ color: C.lavaHot, alpha: 0.8 * fadeT * (0.5 + 0.5 * Math.sin(clock * 6 + i)) })
-          }
-          if (!alive) {
-            const u = (clock - w.endAt) / 1.2
-            for (let i = 0; i < 4; i++) {
-              const v = 0.15 + 0.23 * i, [sx, sy] = at(v, back(v) - 14), sm = tools.next(P.smoke[i % 3])
-              sm.position.set(sx + 6 * u, sy - 44 * u - i * 3); sm.scale.set((0.3 + 0.55 * u) * (1 - smooth(0.6, 1, u)) * (1.1 - 0.15 * i))
-            }
-          }
+      // ---- the Spring Glove's punches, on top ----
+      for (const g of gloves) g.t += dt
+      while (gloves.length && gloves[0].t >= GLOVE_T) gloves.shift()
+      for (const g of gloves) if (onScreen(g.tx, g.ty, 120)) glove(g, p, P)
+
+      // ---- the pinball coal: an ink trail behind each coal, a ping star where it bounces, and a Bumper's
+      // flash (a hot glow round the stalagmite, ink rays out of it) ----
+      for (const b of run.bullets ?? []) {
+        if (b.weapon !== 'coal' || !onScreen(b.x, b.y, 60)) continue
+        const v = hyp(b.vx, b.vy) || 1, ux = b.vx / v, uy = b.vy / v, nx = -uy, ny = ux
+        for (let i = -1; i <= 1; i++) {
+          const x0 = b.x - ux * 12 + nx * i * 5, y0 = b.y - uy * 12 + ny * i * 5, L = i ? 22 : 34
+          topG.poly([x0 + nx * 2.2, y0 + ny * 2.2, x0 - ux * L, y0 - uy * L, x0 - nx * 2.2, y0 - ny * 2.2]).fill({ color: C.ink, alpha: 0.75 })
         }
-        if (alive) {
-          const fade = 1 - smooth(0.85, 1, kq)
-          // speed rakes: three sets of tapered ink strokes trailing behind the front
-          for (let i = 0; i < 11; i++) {
-            if (i % 4 === 3) continue
-            const v = 0.22 + Math.floor(i / 4) * 0.28 + (i % 4) * 0.035, r0 = back(v) - 5, len = (30 + 26 * rh(i, sdw, 80)) * (0.7 + 0.5 * (1 - squash)) * Math.min(1, Math.max(0, (R - 60) / 120))
-            const a = angOf(v), ca = Math.cos(a), sa = Math.sin(a), wq = 3.4, nx = -sa * wq, ny = ca * wq
-            topG.poly([w.x + ca * r0 + nx, w.y + sa * r0 + ny, w.x + ca * (r0 - len), w.y + sa * (r0 - len), w.x + ca * r0 - nx, w.y + sa * r0 - ny]).fill({ color: C.ink, alpha: fade })
+      }
+      for (const g of pings) g.t += dt
+      while (pings.length && pings[0].t > 0.35) pings.shift()
+      for (const g of pings) {
+        if (!onScreen(g.x, g.y, 40 + g.bumper)) continue
+        const k = g.t / 0.35
+        const st = tools.next(P.star); st.position.set(g.x, g.y); st.rotation = g.x; st.scale.set(0.34 * (1 - k * k))
+        if (g.bumper > 0) {
+          groundG.circle(g.ox, g.oy, g.bumper).fill({ color: C.lavaGlow, alpha: 0.4 * (1 - k) })
+          for (let i = 0; i < 8; i++) {
+            const a = (i / 8) * TAU + g.ox * 0.01, r0 = g.bumper * (0.55 + 0.3 * k), r1 = g.bumper * (0.85 + 0.3 * k)
+            topG.moveTo(g.ox + Math.cos(a) * r0, g.oy + Math.sin(a) * r0).lineTo(g.ox + Math.cos(a) * r1, g.oy + Math.sin(a) * r1)
           }
-          // the crest's face: deep lava at its back, the lava over it, inked along the top, a paper edge
-          celPoly(topG, band(back, (v) => front(v) - 2), C.lavaDeep, { ink: 2.2, alpha: fade })
-          celPoly(topG, band((v) => back(v) + (5 + 8 * peak(v)) * pin(v), front), C.lava, { ink: 2.6, paper: 2, alpha: fade })
-          // its lit shoulder, just under the foam
-          topG.poly(band((v) => front(v) - (7 + 10 * peak(v)) * pin(v), (v) => front(v) - 3 * pin(v))).fill({ color: C.lavaHot, alpha: fade })
-          // dark streaks running down its face from the lip, teardrops pointing back
-          for (let i = 0; i < 10; i++) {
-            const v = 0.03 + 0.72 * (i / 10) + 0.025 * rh(i, sdw, 81), r0 = front(v) - 7
-            const r1 = r0 - W * (0.25 + 0.75 * peak(v)) * pin(v) * (0.55 + 0.35 * rh(i, sdw, 82))
-            const a = angOf(v), ca = Math.cos(a), sa = Math.sin(a), wq = 2.8 * pin(v) + 0.4, nx = -sa * wq, ny = ca * wq
-            topG.poly([w.x + ca * r0 + nx, w.y + sa * r0 + ny, w.x + ca * r1, w.y + sa * r1, w.x + ca * r0 - nx, w.y + sa * r0 - ny]).fill({ color: 0x6a160c, alpha: fade })
-          }
-          // the foam lip: a row of white-hot scallops along the front, fat at the peak, inked
-          {
-            const S = [], n2 = 44, sc = (v) => (2.5 + 8 * peak(v)) * pin(v)
-            for (let i = 0; i <= n2; i++) { const v = (END - 0.01) * i / n2; S.push(...at(v, front(v) + Math.abs(Math.sin(v * 64 + sdw)) * sc(v) * 0.9)) }
-            for (let i = n2; i >= 0; i--) { const v = (END - 0.01) * i / n2; S.push(...at(v, front(v) - sc(v))) }
-            celPoly(topG, S, C.lavaWhite, { ink: 1.8, alpha: fade })
-          }
-          // the lip breaking forward along its whole length: curls of every size, irregularly spaced
-          let v = 0.06 + 0.04 * rh(0, sdw, 50)
-          for (let i = 0; v < 0.95 && i < 24; i++) {
-            const sz = (0.55 + 0.75 * rh(i, sdw, 51)) * (0.45 + 0.6 * pin(v)) * (0.9 + 0.3 * peak(v))
-            const [cx, cy] = at(v, front(v) - 4), cl = tools.next(P.curl[Math.floor(rh(i, sdw, 52) * 3)])
-            cl.position.set(cx, cy); cl.rotation = angOf(v) + (rh(i, sdw, 53) - 0.5) * 0.35
-            cl.scale.set(sz * (1.1 - 0.25 * kq), sz * (rh(i, sdw, 54) < 0.5 ? 1 : -1)); cl.alpha = fade
-            v += (0.035 + 0.05 * rh(i, sdw, 55)) * (0.7 + 0.5 * sz)
-          }
-          // both ends breaking into drips, thinning out
-          for (let e2 = 0; e2 < 2; e2++) for (let i = 0; i < 4; i++) {
-            const vv = e2 ? 1 - 0.01 - i * 0.025 : 0.01 + i * 0.025
-            const [dx, dy] = at(vv, R - 6 - 5 * i + 4 * Math.sin(t * 5 + i + e2)), dr = tools.next(P.lavaDrop)
-            dr.position.set(dx, dy); dr.rotation = angOf(vv) - Math.PI / 2; dr.scale.set((0.9 - 0.15 * i) * fade)
-          }
-        }
-        // blobs flung forward off the crest: they arc out, then land as splats with a scatter of drops
-        for (let i = 0; i < 5; i++) {
-          const k0 = 0.12 + 0.14 * i + 0.04 * rh(i, sdw, 60), t0 = k0 * w.life, fly = 0.26
-          const v = 0.1 + 0.8 * rh(i, sdw, 61), a = angOf(v)
-          const r0 = w.maxR * k0 + 12, r1 = r0 + 44 + 30 * rh(i, sdw, 62)
-          const f = (age - t0) / fly
-          if (f <= 0) continue
-          if (f < 1) {
-            const d = r0 + (r1 - r0) * f, b = tools.next(P.lavaDrop), bs = 1.3 + 0.5 * rh(i, sdw, 63)
-            b.position.set(w.x + Math.cos(a) * d, w.y + Math.sin(a) * d - Math.sin(Math.PI * f) * 26)
-            b.rotation = a + Math.PI / 2 - (f - 0.5) * 1.6; b.scale.set(bs * (1 - 0.15 * Math.sin(Math.PI * f)), bs * (1 + 0.35 * Math.sin(Math.PI * f)))
-          } else {
-            const g = (age - t0 - fly) / 0.8
-            if (g >= 1) continue
-            const lx = w.x + Math.cos(a) * r1, ly = w.y + Math.sin(a) * r1
-            const sp = low.next(P.splat[i & 1])
-            sp.position.set(lx, ly); sp.rotation = a
-            sp.scale.set((0.7 + 0.3 * rh(i, sdw, 64)) * (g < 0.1 ? 0.6 + 4 * g : 1) * (1 - 0.5 * smooth(0.6, 1, g))); sp.alpha = 1 - smooth(0.6, 1, g)
-            for (let j = 0; j < 4; j++) {
-              const aj = a + (j - 1.5) * 0.9, dj = 10 + 18 * Math.min(1, g * 3), dr = low.next(P.lavaDrop)
-              dr.position.set(lx + Math.cos(aj) * dj, ly + Math.sin(aj) * dj); dr.rotation = aj + Math.PI / 2; dr.scale.set(0.38); dr.alpha = 1 - smooth(0.5, 1, g)
-            }
-          }
+          topG.stroke({ width: 3, color: C.ink, alpha: 1 - k, cap: 'round' })
         }
       }
 

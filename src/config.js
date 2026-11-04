@@ -3159,13 +3159,14 @@ export const WEAPONS = {
     // balance_decision : starter AoE round you, unplayed 2026-10-12
     levels: book3Levels({ dmg: 16, interval: 1.7, radius: 105, crustDur: 4.0 }, { range: ['radius'] }),
   },
-  // Hot Coals: a red-hot coal tossed at the nearest foe (run.bullets, weapon 'coal'). It BOUNCES on
-  // to the next foe near the last one it hit (the chain idiom: _chainsLeft = bounces).
+  // Hot Coals: a PINBALL. A red-hot coal tossed at the nearest foe (run.bullets, weapon 'coal', b._pin)
+  // bounces off foes and obstacles (The Mantle's stalagmites) and hits harder after every bounce.
+  // balance_decision : pinball rework, less dmg, bounces grow by cards 2026-11-04
   hotCoals: {
     name: 'Hot Coals',
-    desc: 'Tosses a red-hot coal that bounces from foe to foe.',
+    desc: 'Tosses a red-hot coal that bounces off foes and stalagmites like a pinball, hitting harder after every bounce.',
     icon: '🪨', rarity: 'normal',
-    levels: book3Levels({ dmg: 16, interval: 0.9, count: 1, speed: 460, bounces: 3 }),
+    levels: book3Levels({ dmg: 12, interval: 0.9, count: 1, speed: 460, bounces: 3 }),
   },
   // Crack Hammer: stamps the ground open under the thickest knot of ROCK creatures in reach
   // (run.lavaPools). Each pool is lava for duration s: it melts rock creatures (fire), lava ones swim
@@ -3177,14 +3178,15 @@ export const WEAPONS = {
     // balance_decision : pools under the crowd, unplayed 2026-10-12
     levels: book3Levels({ dmg: 22, interval: 2.4, pools: 1, r: 60, duration: 3.0 }, { range: ['r'] }),
   },
-  // Lava Bellows: a rolling LAVA WAVE pumped the way you walk (run.novas, a sector with look
-  // 'lavaWave' and habitatSplit). It splashes rock creatures with fire and shoves lava ones back.
-  lavaBellows: {
-    name: 'Lava Bellows',
-    desc: 'Rolls a wave of lava the way you walk. It burns rock creatures and shoves lava ones back.',
-    icon: '🌊', rarity: 'normal',
-    // balance_decision : a wide wave so it lands while kiting, unplayed 2026-10-12
-    levels: book3Levels({ dmg: 15, interval: 1.25, radius: 240, arc: 2.0, knockback: 160 }, { range: ['radius'] }),
+  // Spring Glove: a boxing glove on a spring punches the nearest foe within range (one glove per count,
+  // each at another foe): it hurts every foe within radius of the fist and knocks them flying (knock,
+  // an e.kb speed). A lava creature punched onto rock is stranded by the tide's own rule.
+  springGlove: {
+    name: 'Spring Glove',
+    desc: 'Punches the nearest foe with a boxing glove on a spring, knocking it flying. A lava creature punched onto rock gets stuck.',
+    icon: '🥊', rarity: 'normal',
+    // balance_decision : first guess, replaces Lava Bellows, unplayed 2026-11-04
+    levels: book3Levels({ dmg: 24, interval: 1.3, count: 1, range: 260, radius: 34, knock: 1300 }, { range: ['range'] }),
   },
   // ---- Book 3, The Core's four. Every hit but the Lance's obeys the pole rule (dealDamage). ----
   // Iron Sling: one iron ball at the nearest foe within range (run.bullets, weapon 'ironBall'), or,
@@ -4700,6 +4702,11 @@ export const WEAPON_MODS = {
   },
   hotCoals: {
     whiteHot:    { name: 'White Hot',    desc: 'coal damage', icon: '💥', base: 0.15, kind: 'pct' },
+    buildingHeat: { name: 'Building Heat', desc: 'damage a coal gains each bounce', icon: '🌡️', base: 0.25, kind: 'pct' },
+    bumper:      { name: 'Bumper',       desc: 'spark off a stalagmite the coal bounces off, hitting the foes beside it', icon: '💫', base: 0.25, kind: 'pct' },
+    rubberCoal:  { name: 'Rubber Coal',  icon: '🏀', kind: 'flat', maxPicks: 1, values: { rare: 1, epic: 1, legendary: 1, mythic: 1 },
+                   desc: 'Bouncing off a stalagmite does not use up a bounce.',
+                   descFor: () => 'Bouncing off a stalagmite does not use up a bounce.' },
     coalScuttle: { name: 'Coal Scuttle', desc: 'extra coal(s) per toss', icon: '🔷', kind: 'tier', values: { epic: 1, legendary: 2, mythic: 3 } },
     skipping:    { name: 'Skipping Coal', desc: 'bounces per coal', icon: '↪️', base: 1, kind: 'flat' },
     quickStoke:  { name: 'Quick Stoke',  desc: 'coal rate', icon: '⏩', base: 0.15, kind: 'pct' },
@@ -4712,12 +4719,13 @@ export const WEAPON_MODS = {
     deepCrack:  { name: 'Deep Crack',  desc: 'how long its lava pools stay open', icon: '⌛', base: 0.25, kind: 'pct' },
     quickStamp: { name: 'Quick Stamp', desc: 'stamp rate', icon: '⏩', base: 0.15, kind: 'pct' },
   },
-  lavaBellows: {
-    moltenCrest:  { name: 'Molten Crest',  desc: 'wave damage', icon: '💥', base: 0.15, kind: 'pct' },
-    longRoll:     { name: 'Long Roll',     desc: 'how far the wave rolls', icon: '📏', base: 0.15, kind: 'pct' },
-    broadWave:    { name: 'Broad Wave',    desc: 'wave width', icon: '🪭', base: 0.25, kind: 'pct' },
-    heavySurge:   { name: 'Heavy Surge',   desc: 'how hard it shoves lava creatures', icon: '💨', base: 0.25, kind: 'pct' },
-    quickBellows: { name: 'Quick Bellows', desc: 'wave rate', icon: '⏩', base: 0.15, kind: 'pct' },
+  springGlove: {
+    heavyGlove:   { name: 'Heavy Glove',   desc: 'punch damage', icon: '💥', base: 0.15, kind: 'pct' },
+    longSpring:   { name: 'Long Spring',   desc: 'punch range', icon: '📏', base: 0.15, kind: 'pct' },
+    quickJab:     { name: 'Quick Jab',     desc: 'punch rate', icon: '⏩', base: 0.15, kind: 'pct' },
+    bigMitt:      { name: 'Big Mitt',      desc: 'fist size: it hits every foe round it', icon: '🥊', base: 0.25, kind: 'pct' },
+    bowlingPunch: { name: 'Bowling Punch', desc: 'damage a punched foe deals to the foes it crashes into', icon: '🎳', base: 0.25, kind: 'pct' },
+    secondSpring: { name: 'Second Spring', desc: 'extra glove(s) per punch, each at another foe', icon: '🔷', kind: 'tier', values: { epic: 1, legendary: 2, mythic: 3 } },
   },
   // ---- Book 3, The Core ----
   sling: {
@@ -4774,7 +4782,7 @@ export const WEAPON_RATE_MODS = {
   echoPulse: 'rapidClick', stalactite: 'dripRate',
   pickaxe: 'quickSwing', dynamite: 'shortFuse', minecart: 'greasedAxle', lantern: 'quickWick',
   slagLadle: 'quickLadle', obsidianShards: 'quickKnap', bellows: 'quickPump', fissure: 'quickTremor',
-  quenchKettle: 'quickBoil', hotCoals: 'quickStoke', crackHammer: 'quickStamp', lavaBellows: 'quickBellows',
+  quenchKettle: 'quickBoil', hotCoals: 'quickStoke', crackHammer: 'quickStamp', springGlove: 'quickJab',
   sling: 'quickSling', dipoleLance: 'quickArc', decoyLodestone: 'quickDrop',
   // chum and bilge are absent DELIBERATELY: neither carries a rate mod, and this table's own
   // header says a weapon with none simply does not appear here. Naming one that does not exist
@@ -6991,6 +6999,11 @@ export const COAL_FAN = 0.3              // rad between coals of one toss
 export const COAL_LIFE = 1.0             // s of flight (a bounce grants at least STAR_CHAIN_EXTRA_LIFE more)
 export const COAL_R = 9                  // px hit radius
 export const COAL_IGNITE = 1             // ignite potency of a coal at one full pick of Cinders
+// THE PINBALL COAL (sim.js coalBounce)
+export const COAL_BOUNCE_GROW = 0.2      // x its first hit's damage, added per bounce (Building Heat multiplies it)
+export const COAL_AIM = 1               // share of a foe bounce's new heading turned toward the nearest foe ahead (0 = pure reflection; under 1 mostly misses)
+export const COAL_AIM_R = 320            // px a foe bounce looks ahead for that foe
+export const COAL_BUMPER_R = 70          // px past a stalagmite's rim its Bumper spark reaches
 export const HAMMER_RANGE = 380          // px from you the hammer cracks the ground open
 export const KETTLE_RANGE = 300          // px from you the kettle throws its water (at a lava creature, else the nearest lava)
 export const KETTLE_LAVA_STEP = 30       // px between the rings the kettle searches for the nearest lava
@@ -7007,12 +7020,13 @@ export const KETTLE_STEAM_MUL = 2.5      // x the kettle's damage, a steam blast
 export const KETTLE_STEAM_R = 1.6        // the blast's reach, as a multiple of the pool's radius
 export const KETTLE_HULL_COOL = 1.2      // s of float a splash on your boat gives back
 export const KETTLE_HULL_MAX = 1         // ...at most this many full floats (boats.float) per ride
-export const LAVA_WAVE_LIFE = 0.5        // s for the bellows' wave to roll out to its reach
-export const LAVA_WAVE_SHOVE_MUL = 2.5   // x the wave's knockback on a lava creature (which it never hurts)
+// THE SPRING GLOVE (sim.js stepSpringGloveWeapon)
+export const GLOVE_BOWL_T = 0.45         // s a punched foe stays a bowling ball (Bowling Punch)
+export const GLOVE_BOWL_MIN_V = 260      // px/s it must still be flying at to bowl anyone over
 // THE TYPE RULE: water hurts lava creatures more, fire hurts rock creatures more (sim.js heatMul).
 // balance_decision : one multiplier each way, unplayed 2026-10-12
 export const MANTLE_COLD_VS_LAVA = 1.5   // x Quench Kettle's damage on a lava creature
-export const MANTLE_FIRE_VS_ROCK = 1.5   // x fire damage (Crack Hammer, Lava Bellows, Hot Coals) on a rock creature
+export const MANTLE_FIRE_VS_ROCK = 1.5   // x fire damage (Crack Hammer, Hot Coals) on a rock creature
 
 
 // EVERY REFILL FIELD IN BOOK 2 DRAWS DOWN, NOT JUST THE SHELF'S (owner, 2026-08-18: "in all zones of
@@ -10090,7 +10104,7 @@ CHAPTERS.mantle = {
   name: 'The Mantle', tagline: 'the lava breathes', icon: '🔥',
   // balance_decision : xp per level +0% at start to +50% at 5:00, owner 2026-11-02
   xpNeedRamp: 0.5,
-  weapons: ['quenchKettle', 'hotCoals', 'crackHammer', 'lavaBellows'], starter: 'hotCoals',
+  weapons: ['quenchKettle', 'hotCoals', 'crackHammer', 'springGlove'], starter: 'hotCoals',
   // habitat: 'rock' | 'lava' (THE TWO HABITATS above). A spawn the ground cannot seat (no lava on the
   // ring for a lava creature, no dry rock for a rock one) comes in as one of the other habitat; a brood at a fixed spot off its ground is dropped.
   // balance_decision : roster 20% tankier, dragon untouched 2026-10-12
@@ -10150,7 +10164,8 @@ CHAPTERS.mantle = {
       },
     },
   },
-  obstacles: null,
+  // balance_decision : stalagmites on rock and lava, first guess 2026-11-04
+  obstacles: { kind: 'stalagmite', count: 10, cell: 480, minR: 22, maxR: 34, minDist: 260 },
   balance: { spawnMul: 0.8, enemyDmgMul: 0.7, enemyHpMul: 1.05, xpMul: 1.2, maxAliveMul: 0.66 },
   render: {
     cast: ['emberImp', 'magmaToad', 'basaltGolem', 'obsidianBeetle', 'magmaEel', 'lavaRay', 'emberJelly', 'brimstoneDragon'],

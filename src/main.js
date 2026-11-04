@@ -758,6 +758,8 @@ const SFX_FOR_EVENT = {
   // a bespoke voice firing 3-5 times a throw is the audio machine-gunning the crush entry above
   // exists to avoid.
   skip: 'shoot',
+  // The Mantle's Spring Glove: one punch a second or so, the same short percussive voice
+  punch: 'shoot',
   // 'crust' gets NO entry, deliberately, for the same reason SUBMISSION's expiry has none: larvae
   // take hold several times a second in a crowd, and it is already carried by the hit sfx of the
   // ticks that follow it. The tell for a crust is visual (the chalky tint in render.js).

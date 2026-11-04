@@ -266,8 +266,8 @@ import {
   CANARY_REACH_MUL, CANARY_LINK_DMG, LANTERN_PULSE, LANTERN_FUSE, DRAUGHT_DRAW, DRAUGHT_HOLD, FIREBEND_R_PER_JET, FIREBEND_LEN, FIREBEND_W, FIREBEND_LIFE, FIREBEND_DMG_MUL, SAFETY_LAMP_SENSE, SAFETY_LAMP_MAX, SAFETY_LAMP_EASE, MINE_BOOM_KEEP, MINE_GAS_FADE_IN, MINE_GAS_LIT_SHRINK,
   SLAG_RANGE, SLAG_FLIGHT, SLAG_TICK, OBSIDIAN_FAN, OBSIDIAN_LIFE, OBSIDIAN_R, SPLINTER_LIFE, SPLINTER_SPEED, SPLINTER_R,
   BELLOWS_LIFE, BELLOWS_SPLASH, BELLOWS_FLARE_MUL, BELLOWS_FLARE_R, BELLOWS_FLARE_T, STUCK_IN_STONE, FISSURE_GAP, FISSURE_STEP, FISSURE_LAVA_T, FISSURE_SPREAD, FISSURE_GROW, FISSURE_BUBBLE, FISSURE_FORK, HOT_FEET_OPEN_MUL, HOT_FEET_BURN_MUL,
-  FLOOD_TIDE_COVER_ADD, FLOOD_TIDE_SPEED_MUL, FLOOD_TIDE_BURN_MUL, COAL_FAN, COAL_LIFE, COAL_R, COAL_IGNITE,
-  HAMMER_RANGE, KETTLE_RANGE, KETTLE_LAVA_STEP, HAMMER_POOL_DPS, HAMMER_POOL_TICK, HAMMER_POOL_PLAYER_DPS, HAMMER_POOL_MIRE, LAVA_WAVE_LIFE, LAVA_WAVE_SHOVE_MUL,
+  FLOOD_TIDE_COVER_ADD, FLOOD_TIDE_SPEED_MUL, FLOOD_TIDE_BURN_MUL, COAL_FAN, COAL_LIFE, COAL_R, COAL_IGNITE, COAL_BOUNCE_GROW, COAL_AIM, COAL_AIM_R, COAL_BUMPER_R,
+  HAMMER_RANGE, KETTLE_RANGE, KETTLE_LAVA_STEP, HAMMER_POOL_DPS, HAMMER_POOL_TICK, HAMMER_POOL_PLAYER_DPS, HAMMER_POOL_MIRE, GLOVE_BOWL_T, GLOVE_BOWL_MIN_V,
   MANTLE_COLD_VS_LAVA, MANTLE_FIRE_VS_ROCK,
   noiseAt,
   MANTLE_GROUND_STEP, MANTLE_START_DRY, MANTLE_STRAND_SLOW, MANTLE_STRAND_FREE_T, strandStone, MANTLE_STRAND_DMG_MUL,
@@ -11035,7 +11035,7 @@ const WEAPON_STAT_MODS = {
   quenchKettle:   { bigKettle: ['radius', 'pct'], thickCrust: ['crustDur', 'pct'], iceWater: ['dmg', 'pct'] },
   hotCoals:       { whiteHot: ['dmg', 'pct'], coalScuttle: ['count', 'flat'], skipping: ['bounces', 'flat'] },
   crackHammer:    { heavyHead: ['dmg', 'pct'], aftershock: ['pools', 'flat'], wideCrack: ['r', 'pct'], deepCrack: ['duration', 'pct'] },
-  lavaBellows:    { moltenCrest: ['dmg', 'pct'], longRoll: ['radius', 'pct'], broadWave: ['arc', 'pct'], heavySurge: ['knockback', 'pct'] },
+  springGlove:    { heavyGlove: ['dmg', 'pct'], longSpring: ['range', 'pct'], bigMitt: ['radius', 'pct'], secondSpring: ['count', 'flat'] },
   // The Core. Rate mods divide at their fire sites; pickOff and bothEnds are read there too.
   sling:          { castIron: ['dmg', 'pct'], twinBalls: ['count', 'flat'] },
   dipoleLance:    { hotArc: ['dmg', 'pct'], longLance: ['length', 'pct'] },
@@ -11374,7 +11374,7 @@ function stepWeaponsInner(run, dt) {
     else if (w.id === 'quenchKettle') stepQuenchKettleWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'hotCoals') stepHotCoalsWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'crackHammer') stepCrackHammerWeapon(run, w, stats, fireRateMul, dt)
-    else if (w.id === 'lavaBellows') stepLavaBellowsWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'springGlove') stepSpringGloveWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'sling') stepSlingWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'dipoleLance') stepLanceWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'mercuryMoons') stepMoonWeapon(run, stats, fireRateMul, dt)
@@ -11598,6 +11598,74 @@ function tryChainBullet(run, b, fromEnemy) {
   return true
 }
 
+// THE PINBALL COAL (Hot Coals, b._pin { left, base, n, heat, rubber, bumper }). coalBounce turns the coal
+// off a surface (n = its outward normal) and counts the bounce: every bounce adds COAL_BOUNCE_GROW x
+// (1 + Building Heat) of the first hit's damage; one that counts spends a bounce and refreshes its
+// flight. Out of bounces, the coal ends. A Rubber Coal bounce off an obstacle neither spends nor
+// refreshes, so it cannot rattle between two stalagmites for ever.
+function coalBounce(run, b, nx, ny, counts) {
+  const pn = b._pin
+  if (counts) {
+    if (pn.left <= 0) { b.life = 0; return false }
+    pn.left--
+    b.life = Math.max(b.life, COAL_LIFE)
+  }
+  const vn = b.vx * nx + b.vy * ny
+  if (vn < 0) { b.vx -= 2 * vn * nx; b.vy -= 2 * vn * ny }
+  pn.n++
+  b.dmg = pn.base * (1 + COAL_BOUNCE_GROW * (1 + pn.heat) * pn.n)
+  return true
+}
+// off a foe it has just hit: away from its middle, turned COAL_AIM of the way toward the nearest foe
+// ahead within COAL_AIM_R; it may strike that foe again after its next bounce
+function coalOffFoe(run, b, e) {
+  const dx = b.x - e.x, dy = b.y - e.y, d = Math.hypot(dx, dy) || 1
+  if (!coalBounce(run, b, dx / d, dy / d, true)) return
+  const sp = b.speed || Math.hypot(b.vx, b.vy) || 1
+  let ux = b.vx / (Math.hypot(b.vx, b.vy) || 1), uy = b.vy / (Math.hypot(b.vx, b.vy) || 1)
+  let best = null, bd = COAL_AIM_R * COAL_AIM_R
+  for (const t of enemiesNear(run, b.x, b.y, COAL_AIM_R, true)) {
+    if (t === e || t._dead || isAlly(t) || t.burrowed) continue
+    const tx = t.x - b.x, ty = t.y - b.y, d2 = tx * tx + ty * ty
+    if (d2 < bd && tx * ux + ty * uy > 0) { bd = d2; best = t }
+  }
+  if (best) {
+    const tl = Math.sqrt(bd) || 1
+    ux = ux * (1 - COAL_AIM) + ((best.x - b.x) / tl) * COAL_AIM
+    uy = uy * (1 - COAL_AIM) + ((best.y - b.y) / tl) * COAL_AIM
+    const ul = Math.hypot(ux, uy) || 1
+    ux /= ul; uy /= ul
+  }
+  b.vx = ux * sp; b.vy = uy * sp
+  b.hitIds.clear(); b.hitIds.add(e.id)
+  b.pierce = 1
+  run.events.push({ type: 'coalBounce', x: b.x, y: b.y, bumper: 0 })
+}
+// off an obstacle it has flown into: pushed back out to the rim and turned; Bumper sparks the foes
+// within COAL_BUMPER_R of the rim for that share of the coal's damage
+function coalOffObstacles(run, b) {
+  for (const o of run.obstacles ?? []) {
+    const dx = b.x - o.x, dy = b.y - o.y, rr = o.r + b.r
+    if (dx * dx + dy * dy >= rr * rr) continue
+    const d = Math.hypot(dx, dy) || 1, nx = dx / d, ny = dy / d
+    b.x = o.x + nx * (rr + 0.5); b.y = o.y + ny * (rr + 0.5)
+    const pn = b._pin
+    if (!coalBounce(run, b, nx, ny, !pn.rubber)) return
+    b.hitIds.clear()
+    let spark = 0
+    if (pn.bumper > 0) {
+      spark = o.r + COAL_BUMPER_R
+      for (const e of enemiesNear(run, o.x, o.y, spark, true)) {
+        if (e._dead || isAlly(e) || e.burrowed) continue
+        if ((e.x - o.x) ** 2 + (e.y - o.y) ** 2 > (spark + e.radius) ** 2) continue
+        applyDamage(run, e, b.dmg * pn.bumper * heatMul(e, 'fire'))
+      }
+    }
+    run.events.push({ type: 'coalBounce', x: b.x, y: b.y, bumper: spark, ox: o.x, oy: o.y })
+    return
+  }
+}
+
 function stepBullets(run, dt) {
   const bullets = run.bullets
   const splitCount = splitCountFor(run)
@@ -11617,6 +11685,7 @@ function stepBullets(run, dt) {
     // and then skip the contact scan below (see the `_carrier` guard).
     if (b.weapon === 'shell' && b.life > 0) stepShellSkip(run, b, dt)
     if (b.weapon === 'barnacle' && b.life > 0) stepBarnacleFlight(run, b)
+    if (b._pin && b.life > 0 && b.pierce > 0) coalOffObstacles(run, b)
     if (b.life <= 0) {
       // recursion: a shard that ran out of LIFE (not one whose pierce was spent) forks. Checked
       // here, on the frame the life expires, so it fires exactly once before the filter drops it.
@@ -11663,6 +11732,7 @@ function stepBullets(run, dt) {
     // A spent bullet re-targets if it has a chain jump left and something to jump to; otherwise
     // it dies at the end of the loop like any other.
     if (justHit && b.pierce <= 0 && b._chainsLeft > 0) tryChainBullet(run, b, justHit)
+    if (justHit && b._pin) coalOffFoe(run, b, justHit)
     // ... and a quill that ran out of PIERCE turns around, the same as one that ran out of flight.
     // It has to be caught HERE, after the hit scan and before the end-of-loop filter, because that
     // filter drops `pierce <= 0` just as surely as it drops `life <= 0` — checking at the top of the
@@ -11799,9 +11869,8 @@ function spawnNova(run, x, y, maxR, dmg, knockback, fear = 0, opts = null) {
     // Shell's splash from a Cytokine Burst without inferring it from the radius, which is the kind
     // of guess that silently starts being wrong the first time either weapon is retuned.
     look: opts?.look ?? null,
-    // The Mantle: `heat` ('fire' | 'cold') is the type rule (heatMul); `habitatSplit` (Lava Bellows'
-    // wave) leaves a lava creature unhurt and shoves it LAVA_WAVE_SHOVE_MUL as hard instead.
-    heat: opts?.heat ?? null, habitatSplit: !!opts?.habitatSplit,
+    // The Mantle: `heat` ('fire' | 'cold') is the type rule (heatMul).
+    heat: opts?.heat ?? null,
     // noGas: this ring never lights firedamp by touch (the Lantern lights its own, on a fuse)
     noGas: !!opts?.noGas,
     // `lifeMax` beside `life` so a ring can expand over something other than NOVA_LIFE, and so
@@ -11923,8 +11992,7 @@ function stepNovas(run, dt) {
         continue
       }
       if (dist <= n.r + e.radius) {
-        const shoveOnly = n.habitatSplit && e.habitat === 'lava'
-        if (!shoveOnly) applyDamage(run, e, n.heat ? n.dmg * heatMul(e, n.heat) : n.dmg)
+        applyDamage(run, e, n.heat ? n.dmg * heatMul(e, n.heat) : n.dmg)
         n.hit.add(e.id)
         // Chitter Shriek: the ring panics what it hits (see FEAR_SPEED_MUL / stepEnemyMovement).
         // FEAR IS NO LONGER REFRESHABLE (v7.16). It runs its full duration, then FEAR_REFRACTORY of
@@ -11943,9 +12011,8 @@ function stepNovas(run, dt) {
         if (!resistsCC(e) && claimKb(e)) {
           const kdx = dist > 1e-6 ? dx / dist : 1
           const kdy = dist > 1e-6 ? dy / dist : 0
-          const kbm = shoveOnly ? LAVA_WAVE_SHOVE_MUL : 1
-          e.kb.x += kdx * n.knockback * k * kbm
-          e.kb.y += kdy * n.knockback * k * kbm
+          e.kb.x += kdx * n.knockback * k
+          e.kb.y += kdy * n.knockback * k
           spendCC(run, e)
         }
       }
@@ -19635,11 +19702,12 @@ function stepQuenchKettleWeapon(run, w, stats, fireRateMul, dt) {
 }
 
 // -- Hot Coals ---------------------------------------------------------------------------------------
-// A red-hot coal at the nearest foe that bounces on to the next (the chain idiom, tryChainBullet).
-// Fire: x MANTLE_FIRE_VS_ROCK on a rock creature (b._heat, read in stepBullets).
+// A PINBALL: a red-hot coal at the nearest foe that bounces off foes and obstacles (coalBounce), its
+// damage growing with every bounce. Fire: x MANTLE_FIRE_VS_ROCK on a rock creature (b._heat).
 function stepHotCoalsWeapon(run, w, stats, fireRateMul, dt) {
-  const quick = run.weaponMods.hotCoals?.quickStoke ?? 0
-  const cinders = run.weaponMods.hotCoals?.cinders ?? 0
+  const mods = run.weaponMods.hotCoals ?? {}
+  const quick = mods.quickStoke ?? 0
+  const cinders = mods.cinders ?? 0
   fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => {
     const p = run.player
     const target = nearestEnemy(run)
@@ -19650,7 +19718,8 @@ function stepHotCoalsWeapon(run, w, stats, fireRateMul, dt) {
       run.bullets.push({
         x: p.x, y: p.y, vx: Math.cos(a) * stats.speed, vy: Math.sin(a) * stats.speed,
         dmg: stats.dmg, pierce: 1, life: COAL_LIFE, r: COAL_R, speed: stats.speed,
-        hitIds: new Set(), _shard: true, _splitDone: true, _chainsLeft: Math.round(stats.bounces), weapon: 'coal',
+        hitIds: new Set(), _shard: true, _splitDone: true, _chainsLeft: 0, weapon: 'coal',
+        _pin: { left: Math.round(stats.bounces), base: stats.dmg, n: 0, heat: mods.buildingHeat ?? 0, rubber: (mods.rubberCoal ?? 0) > 0, bumper: mods.bumper ?? 0 },
         _ignite: cinders > 0 ? COAL_IGNITE * cinders : 0, _heat: 'fire',
       })
     }
@@ -19701,20 +19770,61 @@ function stepCrackHammerWeapon(run, w, stats, fireRateMul, dt) {
   })
 }
 
-// -- Lava Bellows ------------------------------------------------------------------------------------
-// A rolling lava wave the way you walk: a sector nova (look 'lavaWave') whose habitatSplit makes a lava
-// creature take no damage and a LAVA_WAVE_SHOVE_MUL shove instead; everything else takes fire.
-function stepLavaBellowsWeapon(run, w, stats, fireRateMul, dt) {
-  const quick = run.weaponMods.lavaBellows?.quickBellows ?? 0
+// -- Spring Glove -----------------------------------------------------------------------------------
+// A boxing glove on a spring at the nearest foe within range, one glove per count, each at another foe
+// (nearest first). The punch hurts every foe within radius of the fist and knocks it straight away from
+// you (an e.kb speed, the shove rules: resistsCC / claimKb / ccScale). Bowling Punch: a punched foe is
+// a bowling ball for GLOVE_BOWL_T s, hurting each foe it crashes into once while still flying fast.
+function stepSpringGloveWeapon(run, w, stats, fireRateMul, dt) {
+  const mods = run.weaponMods.springGlove ?? {}
+  const quick = mods.quickJab ?? 0
+  const bowl = mods.bowlingPunch ?? 0
+  if (run._bowled?.length) stepGloveBowls(run, dt)
   fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => {
     const p = run.player
-    const aim = p.facingAngle ?? aimAngle(run)
-    for (const a of ipecacAngles(run, aim)) {
-      spawnNova(run, p.x, p.y, stats.radius, stats.dmg, stats.knockback, 0,
-        { look: 'lavaWave', arc: stats.arc, angle: a, life: LAVA_WAVE_LIFE, heat: 'fire', habitatSplit: true })
+    const n = ipecacN(run, Math.round(stats.count))
+    const near = []
+    for (const e of enemiesNear(run, p.x, p.y, stats.range, true)) {
+      if (e._dead || isAlly(e) || e.burrowed) continue
+      const d2 = (e.x - p.x) ** 2 + (e.y - p.y) ** 2
+      if (d2 <= (stats.range + e.radius) ** 2) near.push([d2, e])
     }
-    run.events.push({ type: 'shoot', weapon: 'lavaBellows', x: p.x, y: p.y, angle: aim, maxR: stats.radius, arc: stats.arc })
+    near.sort((a, b) => a[0] - b[0])
+    for (const [, t] of near.slice(0, n)) {
+      const fx = t.x, fy = t.y
+      for (const e of enemiesNear(run, fx, fy, stats.radius, true)) {
+        if (e._dead || isAlly(e) || e.burrowed) continue
+        if ((e.x - fx) ** 2 + (e.y - fy) ** 2 > (stats.radius + e.radius) ** 2 && e !== t) continue
+        applyDamage(run, e, stats.dmg)
+        if (e._dead || resistsCC(e) || !claimKb(e)) continue
+        const dx = e.x - p.x, dy = e.y - p.y, d = Math.hypot(dx, dy) || 1, k = ccScale(run, e)
+        e.kb.x += (dx / d) * stats.knock * k
+        e.kb.y += (dy / d) * stats.knock * k
+        spendCC(run, e)
+        if (bowl > 0) {
+          e._bowl = { t: GLOVE_BOWL_T, dmg: stats.dmg * bowl, hit: new Set([e.id]) }
+          ;(run._bowled ??= []).includes(e) || run._bowled.push(e)
+        }
+      }
+      run.events.push({ type: 'punch', x: p.x, y: p.y, tx: fx, ty: fy, r: stats.radius, angle: Math.atan2(fy - p.y, fx - p.x) })
+    }
   })
+}
+function stepGloveBowls(run, dt) {
+  const live = []
+  for (const b of run._bowled) {
+    const B = b._bowl
+    if (!B || b._dead || (B.t -= dt) <= 0) { b._bowl = null; continue }
+    live.push(b)
+    if (b.kb.x * b.kb.x + b.kb.y * b.kb.y < GLOVE_BOWL_MIN_V * GLOVE_BOWL_MIN_V) continue
+    for (const e of enemiesNear(run, b.x, b.y, b.radius * 2, true)) {
+      if (e === b || e._dead || isAlly(e) || B.hit.has(e.id)) continue
+      if ((e.x - b.x) ** 2 + (e.y - b.y) ** 2 > (b.radius + e.radius) ** 2) continue
+      B.hit.add(e.id)
+      applyDamage(run, e, B.dmg)
+    }
+  }
+  run._bowled = live
 }
 
 // ---- THE CORE: polarity (Book 3, CHAPTERS.core.signature.polarity) ------------------------------

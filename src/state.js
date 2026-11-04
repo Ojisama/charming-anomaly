@@ -2362,15 +2362,24 @@ function generateWells(sig) {
  *     it is back in lava).
  *   roster.group [min, max] (the Ember Jelly): an ordinary ring spawn of it brings min..max bodies,
  *     the rest seated round the first on the same ground (spawnEnemy; no new field on the enemy).
- *   Bullets: weapon 'coal' (Hot Coals, chains via _chainsLeft; may carry _ignite, a potency for
- *     applyIgnite, so the burn is the e.ignite contract field; _heat 'fire' is the type rule).
- *   Novas: look 'lavaWave' (Lava Bellows' sector; heat 'fire', habitatSplit: a lava creature is
- *     shoved, never hurt). Any nova may carry heat 'fire' | 'cold' (sim.js heatMul).
+ *   Bullets: weapon 'coal' (Hot Coals, a PINBALL: _pin { left bounces, base dmg, n bounces so far,
+ *     heat (Building Heat), rubber (Rubber Coal), bumper (Bumper) }; sim.js coalBounce turns it off a
+ *     foe it hits and off any run.obstacles it flies into, b.dmg growing per bounce. May carry _ignite,
+ *     a potency for applyIgnite, so the burn is the e.ignite contract field; _heat 'fire' is the type rule).
+ *   Obstacles: kind 'stalagmite' (CHAPTERS.mantle.obstacles), a cluster of basalt columns standing on
+ *     rock or in the tide; drawn by src/toon/mantle-fx.js, under the crowd like every obstacle.
+ *   Novas: any nova may carry heat 'fire' | 'cold' (sim.js heatMul).
+ *   Spring Glove: {type:'punch', x, y, tx, ty, r, angle} one glove's punch at tx, ty (r: the fist's
+ *     radius), drawn by src/toon/mantle-fx.js, sounded as 'shoot'. With Bowling Punch a punched foe carries
+ *     _bowl { t, dmg, hit } and sits in run._bowled while it flies (sim.js stepGloveBowls).
  *   Events: {type:'tideTurn', rising, level, x, y} the tide turned (rising = it starts to climb, else
  *     to drain). Drawn by src/toon.js; sounded in SFX_FOR_EVENT (twice a cycle).
  *     {type:'melt', x, y, r, rosterId} a rock creature melted under the tide; {type:'crumble', x, y,
  *     r, rosterId} a stranded lava creature crumbled. Both drawn by src/toon/mantle-fx.js; no sound of
  *     their own (each is a kill, and the kill sounds).
+ *     {type:'coalBounce', x, y, bumper, ox, oy} a pinball coal bounced (bumper: the reach of a Bumper
+ *     spark round the obstacle at ox, oy, else 0). Drawn by src/toon/mantle-fx.js; no sound (several
+ *     a second).
  *     {type:'boatSink', x, y, heading} the boat you rode went under the lava. Drawn by
  *     src/toon/mantle-fx.js, sounded in SFX_FOR_EVENT (once a ride).
  *     {type:'steamBlast', x, y, r} the Quench Kettle's water hit a Crack Hammer pool: the pool is

@@ -2,7 +2,7 @@
 // Pure and import-free, so sim.js (what is solid) and the renderers (what is drawn: src/toon/mantle-fx.js,
 // the floor shader) all read the SAME edge. Neither is a circle.
 //   crust c: a SPLASH of water: inside iff crustSdf(c, x, y) <= 0 (px, see crustSplash)
-//   pool q:  inside iff dist <= q.r * poolRimR(bearing, q.ph)
+//   pool q:  inside iff dist <= q.r * poolLive(q) * poolRimR(bearing, q.ph)
 // sim.js stamps shape (a seed) and rot (crustShapeOf) and ph (poolPhaseOf) on each one when it is laid; a
 // hand-built one without them gets the same values from its position.
 
@@ -16,6 +16,10 @@ export const SPLASH_WOB = [0.1, 0.07, 0.04]   // the blot's 2nd, 3rd and 5th har
 export const SPLASH_K = 0.18         // the fillet where a finger leaves the blot (a smooth union), crust radii
 export const CRUST_EAT_T = 1.5       // s: the lava eats a crust back from its rim over its last CRUST_EAT_T s
 export const POOL_RIM_MAX = 1.075    // the largest poolRimR can be (0.92 + 0.07 + 0.05 + 0.035)
+// A POOL CLOSES LIKE THE TIDE GOING OUT: over its last POOL_RECEDE_T s its rim draws in to nothing.
+// poolLive(q) is that share of its radius left (1 until then; 1 for a hand-built pool with no dur).
+export const POOL_RECEDE_T = 0.9
+export const poolLive = (q) => (q.dur == null || q.t == null ? 1 : Math.max(0, Math.min(1, (q.dur - q.t) / POOL_RECEDE_T)))
 
 // a hash in [0, 1) of three integers, well mixed even for small neighbouring inputs
 export function rh(a, b, c) {
@@ -130,12 +134,12 @@ export function inCrustEdge(c, x, y) {
   return crustSdf(c, x, y) <= 0
 }
 export function inPoolEdge(q, x, y) {
-  const dx = x - q.x, dy = y - q.y, d2 = dx * dx + dy * dy, R = q.r * POOL_RIM_MAX
+  const r = q.r * poolLive(q), dx = x - q.x, dy = y - q.y, d2 = dx * dx + dy * dy, R = r * POOL_RIM_MAX
   if (d2 > R * R) return false
-  return Math.sqrt(d2) <= q.r * poolRimR(Math.atan2(dy, dx), q.ph ?? poolPhaseOf(q.x, q.y))
+  return Math.sqrt(d2) <= r * poolRimR(Math.atan2(dy, dx), q.ph ?? poolPhaseOf(q.x, q.y))
 }
 // how far inside pool q's rim (x, y) is, px (negative outside): for a soft-edged mask
 export function poolRimDepth(q, x, y) {
   const dx = x - q.x, dy = y - q.y
-  return q.r * poolRimR(Math.atan2(dy, dx), q.ph ?? poolPhaseOf(q.x, q.y)) - Math.sqrt(dx * dx + dy * dy)
+  return q.r * poolLive(q) * poolRimR(Math.atan2(dy, dx), q.ph ?? poolPhaseOf(q.x, q.y)) - Math.sqrt(dx * dx + dy * dy)
 }

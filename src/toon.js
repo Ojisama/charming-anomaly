@@ -34,12 +34,14 @@
 // (level, phase, swell, line, ...), sim.js's lavaTideOf / mantleHeightAt / lavaFloodedAt (the ground's
 // height and the lava on it), run.bullets (weapon 'coal'), the elemental contract fields on enemies
 // (ignite), the habitat contract fields (habitat, ground, strandT, meltT), run.boats and player.afloat
-// (the moored boats), run.quenchCrusts, run.lavaPools, run.novas (look 'lavaWave'), and the events
+// (the moored boats), run.quenchCrusts, run.lavaPools, and the events punch,
 // tideTurn, melt, crumble and boatSink. The habitat, boat and weapon-ground tells live in src/toon/mantle-fx.js.
 import { AlphaFilter, BufferImageSource, CanvasSource, Container, Filter, GlProgram, Mesh, MeshGeometry, Shader, Sprite, Texture, UniformGroup } from 'pixi.js'
 import { PAL, TAU, mkCanvas, freeCanvas, hash, whiteTwin } from './toon/palette.js'
 import { setPass } from './toon/brush.js'
 import { TOON_CAST, paintPlayer, PLAYER_BOX } from './toon/cast.js'
+// the pinball coal drawn this much bigger than its bake, so its bounces can be followed
+const COAL_DRAW_SCALE = 1.9
 import {
   CHUNK, CHUNK_STEP, CHUNK_N, FX_N, FX_GHOSTS, FX_GHOST_T, CRUST_LIP, FLOOR_VERT, FLOOR_FRAG, FILM_VERT, FILM_FRAG, NOISE_N, bakeNoise, paintBubbleAtlas,
   paintCoal, paintPuff, paintGem, paintCoin, paintLick, paintDot, paintSweat, paintWade, paintDaze,
@@ -558,13 +560,13 @@ export function createToonRenderer(host) {
         if (!onScreen(b.x, b.y)) continue
         const s = shots.next(b.weapon === 'coal' ? T.coal[fi(t * 8, 2)] : T.dot)
         s.position.set(b.x, b.y)
-        if (b.weapon === 'coal') s.rotation = t * 9 + (b.x + b.y) * 0.01
+        if (b.weapon === 'coal') { s.rotation = t * 9 + (b.x + b.y) * 0.01; s.scale.set(COAL_DRAW_SCALE) }
       }
       shots.end()
       // novas: the lava wave is mantle-fx's; any other ring is a thin ring of puffs
       puffs.begin()
       for (const n of run.novas ?? []) {
-        if (n.look === 'lavaWave' || !onScreen(n.x, n.y, n.maxR)) continue
+        if (!onScreen(n.x, n.y, n.maxR)) continue
         const k = 1 - Math.max(0, n.life / (n.lifeMax || 1))
         const R = Math.max(6, n.r || n.maxR * k)
         const cnt = Math.max(8, Math.min(40, Math.round((R * TAU) / 40)))

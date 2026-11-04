@@ -24,7 +24,7 @@ return async () => {
   run.novas = []
   const mk = (look, life) => ({ x: px + (Math.random() * 2 - 1) * 300, y: py + (Math.random() * 2 - 1) * 500,
     r: 120 + Math.random() * 80, maxR: 200, dmg: 0, knockback: 0, fear: 0, hit: new Set(), arc: null, angle: 0,
-    carry: 0, look, heat: null, habitatSplit: false, life: 1e9, lifeMax: 2e9 })
+    carry: 0, look, heat: null, life: 1e9, lifeMax: 2e9 })
   for (let k = 0; k < N; k++) run.novas.push(mk('echo'))
   for (let k = 0; k < Math.round(N * CF); k++) run.novas.push(mk('chime'))
   window.__renderer.sync(run, 0, [])
