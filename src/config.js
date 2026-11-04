@@ -10089,6 +10089,8 @@ export const MANTLE_START_DRY = 0.9
 //  - the strand clock waits while a toad is mid-leap out of the lava: it starts at the landing
 // balance_decision : stone in 1s, holds 5s, thaws; no clock death 2026-11-03
 export const MANTLE_STRAND_STUCK_T = 1     // s stranded on rock until a lava creature is stone (cannot move)
+// balance_decision : habitat creatures keep off a player on the other ground 2026-11-04
+export const MANTLE_SHUN_R = 420           // px a lava creature backs off from a player on rock (a rock one from a player on lava)
 export const MANTLE_STRAND_SLOW = 0.35     // x its movement the moment it is stranded (falls to 0 by STUCK_T)
 export const MANTLE_STRAND_HOLD_T = 5      // s it stays stone; killed while stranded it crumbles
 export const MANTLE_STRAND_THAW_T = 1      // s it takes to thaw (the turning played backwards)

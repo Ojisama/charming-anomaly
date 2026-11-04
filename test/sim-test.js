@@ -42525,6 +42525,36 @@ function testMantleHabitat() {
     assert.ok(waded > 0.5 && waded <= 20 * 0.4 + 1, `run HB.f: a rock creature wades through a pool slowly: ${waded.toFixed(1)}px in 10 frames (20 free)`)
     console.log(`PASS run HB.f (a pool is lava): it kept its lava creature home, burned a rock one ${400 - burner.hp} and you ${poolBurn}`)
   }
+  // (g) KEEP AWAY: a creature comes for you only on its own ground. A lava one in a pool backs off
+  // a player on the rock beside it and closes on one standing in the pool; a rock one, the mirror.
+  {
+    const r = boot(52008)
+    tick(r)
+    r.weapons = []; r.mods.spawnMul = 0; r.enemies = []
+    const o = { x: r.player.x, y: r.player.y }
+    // a direction with dry rock from the start out past where the bodies stand
+    let ux = 0, uy = 0
+    for (let a = 0; a < 48 && !ux && !uy; a++) {
+      const cx = Math.cos(a * Math.PI / 24), cy = Math.sin(a * Math.PI / 24)
+      if ([0, 100, 250, 300, 350, 450, 560, 700].every((d) => mantleGroundAt(r, o.x + cx * d, o.y + cy * d) === 0)) { ux = cx; uy = cy }
+    }
+    assert.ok(ux || uy, 'run HB.g precondition: a dry ray from the start, at the ebb')
+    const gap = (habitat, bx, px) => {
+      r.lavaPools = [{ x: o.x, y: o.y, r: 400, t: 0, dur: 99, dps: 0, _tick: 0 }]
+      const e = body(r, o.x + ux * bx, o.y + uy * bx, habitat, { speed: 90 })
+      r.enemies = [e]
+      const d0 = Math.abs(bx - px)
+      for (let i = 0; i < 60 * 2; i++) { r.player.x = o.x + ux * px; r.player.y = o.y + uy * px; tick(r) }
+      return Math.hypot(e.x - r.player.x, e.y - r.player.y) - d0
+    }
+    const lavaShun = gap('lava', 250, 450), lavaCome = gap('lava', 100, 350)
+    const rockShun = gap('rock', 560, 300), rockCome = gap('rock', 700, 450)
+    assert.ok(lavaShun > 40, `run HB.g: a lava creature backs off a player on rock: gap +${lavaShun.toFixed(0)}px`)
+    assert.ok(lavaCome < -40, `run HB.g: a lava creature closes on a player in the lava: gap ${lavaCome.toFixed(0)}px`)
+    assert.ok(rockShun > 40, `run HB.g: a rock creature backs off a player in the lava: gap +${rockShun.toFixed(0)}px`)
+    assert.ok(rockCome < -40, `run HB.g: a rock creature closes on a player on rock: gap ${rockCome.toFixed(0)}px`)
+    console.log(`PASS run HB.g (keep away): in 2s lava creature +${lavaShun.toFixed(0)}px from you on rock, ${lavaCome.toFixed(0)}px to you in lava; rock creature +${rockShun.toFixed(0)}px / ${rockCome.toFixed(0)}px`)
+  }
   } finally { L.boats.chance = boats0 }
 }
 

@@ -270,7 +270,7 @@ import {
   HAMMER_RANGE, KETTLE_RANGE, KETTLE_LAVA_STEP, HAMMER_POOL_DPS, HAMMER_POOL_TICK, HAMMER_POOL_PLAYER_DPS, HAMMER_POOL_MIRE, GLOVE_BOWL_T, GLOVE_BOWL_MIN_V,
   MANTLE_COLD_VS_LAVA, MANTLE_FIRE_VS_ROCK,
   noiseAt,
-  MANTLE_GROUND_STEP, MANTLE_START_DRY, MANTLE_STRAND_SLOW, MANTLE_STRAND_FREE_T, strandStone, MANTLE_STRAND_DMG_MUL,
+  MANTLE_GROUND_STEP, MANTLE_START_DRY, MANTLE_SHUN_R, MANTLE_STRAND_SLOW, MANTLE_STRAND_FREE_T, strandStone, MANTLE_STRAND_DMG_MUL,
   MANTLE_MELT_T, MANTLE_SPAWN_TRIES,
   KETTLE_CRUST_GNAW, KETTLE_CRUST_GNAW_MAX, KETTLE_STEAM_MUL, KETTLE_STEAM_R, KETTLE_HULL_COOL, KETTLE_HULL_MAX,
   SLING_LATCH_SHARE, IRON_BALL_R, IRON_BALL_LIFE, MOON_R, MOON_TUG_SWIRL, LODESTONE_FUSE, LODESTONE_SPREAD, LODESTONE_HOLD,
@@ -398,7 +398,7 @@ export function stepSim(run, input, dt) {
   stepEnemySeparation(run, dt) // v6.5.1: push overlapping enemies apart (owner directive: no 100% stacks)
   holdBankAfterCrowd(run) // The Magma: the crowd behind does not shove a body waiting at a lava bank in
   stepObstacles(run)      // v5.0: push player/enemies out of this chapter's obstacle field (if any) — terrain snaps last and wins
-  holdHabitat(run)        // Book 3 The Mantle: a creature that stepped off its own ground (lava or rock) is held at the shore
+  holdHabitat(run, dt)    // Book 3 The Mantle: a creature that stepped off its own ground (lava or rock) is held at the shore
 
   stepRam(run)            // v7.x The Reef: the Burst ploughs the crowd, the bite's own slot
   stepCrush(run)          // v5.8 skies kaiju: destroy any structure overlapping the crush radius
@@ -19469,13 +19469,23 @@ function markHabitat(run) {
   }
 }
 // After every mover this step (its own machine, separation, knockback, the obstacle push): a creature
-// that started at home and stepped off it slides along the shore (one axis kept) or stays put; a
+// at home whose home is not the player's ground (a lava one while you stand on rock, a rock one while
+// you are in the lava, afloat or wading) does not come for you: inside MANTLE_SHUN_R it backs away
+// instead, past it it waits (a shove still carries it); then a creature that started at home and
+// stepped off it slides along the shore (one axis kept) or stays put; a
 // stranded lava creature crawls, then sticks; a rock one in a hammer pool wades through it slowly.
 // Publishes e.ground (0 rock, 1 pool, 2 tide) for the clocks and for render.
-function holdHabitat(run) {
+function holdHabitat(run, dt) {
   if (!habitatOn(run)) return
+  const p = run.player
+  const pLava = !!p.afloat || mantleGroundAt(run, p.x, p.y) > 0
   for (const e of run.enemies) {
     if (!habitatBody(e) || e._hx === undefined) continue
+    if (e._hin && pLava !== (e.habitat === 'lava') && !leapingFree(e) && !(Math.hypot(e.kb.x, e.kb.y) > e.speed)) {
+      const dx = e._hx - p.x, dy = e._hy - p.y, d = Math.hypot(dx, dy) || 1
+      const back = d < MANTLE_SHUN_R ? Math.min(e.speed * dt, MANTLE_SHUN_R - d) : 0
+      e.x = e._hx + (dx / d) * back; e.y = e._hy + (dy / d) * back
+    }
     let g = mantleGroundAt(run, e.x, e.y)
     if (e._hin && !atHome(e, g) && !leapingFree(e)) {
       const gx = mantleGroundAt(run, e.x, e._hy)
