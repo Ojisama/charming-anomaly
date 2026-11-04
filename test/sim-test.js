@@ -42399,7 +42399,7 @@ function testMantleHabitat() {
     // ...and a lava creature beside it, at home in the same lava: the tide never burns it
     const swim = body(r, spot.x + 40, spot.y, 'lava')
     r.enemies.push(e)
-    let coveredAt = null, diedAt = null, melts = 0, gem = null
+    let coveredAt = null, diedAt = null, melts = 0, gem = null, meltHit = 0
     for (let i = 0; i < 60 * 90 && (!e._dead || r.time < diedAt + 3); i++) {
       e.x = spot.x; e.y = spot.y; swim.x = spot.x + 40; swim.y = spot.y
       const g0 = r.gems.length
@@ -42407,11 +42407,13 @@ function testMantleHabitat() {
       if (coveredAt === null && lavaFloodedAt(r, spot.x, spot.y)) coveredAt = r.time
       if (coveredAt !== null && !r.enemies.includes(swim)) r.enemies.push(swim)
       melts += ev.filter((v) => v.type === 'melt').length
+      for (const v of ev) if (v.type === 'hit' && v.id === e.id) meltHit = Math.max(meltHit, v.dmg)
       if (e._dead && diedAt === null) { diedAt = r.time; gem = r.gems.slice(g0).find((g) => Math.hypot(g.x - spot.x, g.y - spot.y) < 1) }
     }
     assert.ok(!swim._dead && swim.hp === 400 && !(swim.strandT > 0), `run HB.b: a lava creature in the same lava is at home, never burned: hp ${swim.hp}, strandT ${swim.strandT}`)
     assert.ok(coveredAt !== null && diedAt !== null && diedAt - coveredAt <= MANTLE_MELT_T + 0.1 && diedAt - coveredAt >= MANTLE_MELT_T - 0.1,
       `run HB.b: a rock creature under the tide melts after ${MANTLE_MELT_T}s: covered at ${coveredAt}, dead at ${diedAt}`)
+    assert.ok(meltHit > 0 && meltHit <= e.maxHP, `run HB.b: the melt's damage number is the hp the body had, not the overkill that makes sure it dies: ${meltHit} (max hp ${e.maxHP})`)
     assert.ok(melts === 1 && gem && gem.xp === 3, `run HB.b: the melt is announced once and drops the body's own xp: ${melts} melt events, gem ${JSON.stringify(gem)}`)
     console.log(`PASS run HB.b (melt): covered at ${coveredAt.toFixed(2)}s, melted ${(diedAt - coveredAt).toFixed(2)}s later, a ${gem.xp} xp gem where it stood`)
   }

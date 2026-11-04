@@ -297,12 +297,14 @@ vec4 beads(float cs, float tgt, float rMin, float rMax, float dens, float gl, ve
     vec2 cc = (cell + 0.5) * cs + (vec2(h12(cell + 8.1), r1) - 0.5) * cs * 0.4;
     float hc = hh(vUV + (cc - vWorld) * uUVW);
     float dc = (uLine - hc) / gl;
+    // a hammer pool that swallowed this stretch of the tide's shore: no shore there, so no bead
+    float gone = gNear ? step(dc + 2.0, -fxD(cc, -dc, 0.5, hc)) : 0.0;
     float mv = clamp(dc - tgt, -cs, cs);
     cc += gdir * mv;
     float rad = mix(rMin, rMax, r1) * (0.85 + 0.15 * sin(uTime * 3.0 + r0 * 30.0));
     vec2 q = (vWorld - cc) / rad;
     float dq = length(q);
-    float on = step(r0, dens) * step(abs(dc - tgt), cs * 0.9) * (1.0 - smoothstep(0.85, 1.0, dq));
+    float on = step(r0, dens) * step(abs(dc - tgt), cs * 0.9) * (1.0 - smoothstep(0.85, 1.0, dq)) * (1.0 - gone);
     vec3 bc = mix(vec3(1.0, 0.77, 0.3), vec3(1.0, 0.96, 0.8), 1.0 - smoothstep(0.0, 0.55, length(q + vec2(0.32, 0.36))));
     float rimSide = smoothstep(-0.5, 0.6, q.x * 0.6 + q.y * 0.8);
     bc = mix(bc, vec3(0.55, 0.16, 0.06), smoothstep(0.66 - 0.12 * rimSide, 0.88, dq) * (0.45 + 0.5 * rimSide));

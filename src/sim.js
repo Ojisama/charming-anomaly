@@ -19527,7 +19527,10 @@ function stepHabitatClocks(run, dt) {
 }
 // the ground kills it: a hazard kill, so it counts and drops its gem like any other
 function habitatKill(run, e) {
+  const hp0 = Math.max(0, e.hp), n0 = run.events.length
   dealDamage(run, e, e.hp * 10 + 1e5, false, true, true)
+  // the overkill only makes sure it dies: its damage number (and any dps tally) shows the hp it had
+  for (let i = run.events.length - 1; i >= n0; i--) { const v = run.events[i]; if (v.type === 'hit' && v.id === e.id) { v.dmg = Math.round(hp0); break } }
 }
 // A spot on the ring round the player (dist, starting at bearing a0 and fanning out both ways, then
 // on two wider rings) whose ground is lava (wantLava) or rock. null when the ground offers none.
