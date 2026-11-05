@@ -42869,7 +42869,7 @@ function testMantleGround() {
       r.enemies = [sp]
       for (let i = 0; i < 180 && !sp._dead; i++) { sp.x = at.x; sp.y = at.y; tick(r) }
       assert.ok(sp._dead, 'run MG.g precondition: the coal kills the splitter')
-      r.weapons = []
+      r.weapons = []; r.bullets = []   // a coal still in flight would kill a hatchling
       for (let i = 0; i < 3; i++) tick(r)
       return r.enemies.filter((e) => e !== sp && !e._dead).map((e) => [e.habitat, mantleGroundAt(r, e.x, e.y)])
     }
