@@ -3149,6 +3149,7 @@ export const WEAPONS = {
     levels: book3Levels({ dmg: 28, interval: 1.8, count: 1, len: 200, width: 40 }, { range: ['len'] }),
   },
   // ---- Book 3, The Mantle's four. All auto-fire, none aimed: each one is a way to use the lava. ----
+  // balance_decision : owner: all four +5 dmg at level 1 2026-11-05
   // Quench Kettle: throws water at the nearest foe, else the nearest Crack Hammer pool, else the
   // nearest lava (run.quenchCrusts). A hammer pool in the splash steams (the pool spent). Lava inside the splash cools
   // into a basalt CRUST for crustDur s; on the boat you ride it cools the hull instead (sim.js).
@@ -3157,7 +3158,7 @@ export const WEAPONS = {
     desc: "Waters the lava: it hardens into a crust to walk on. On the hammer's lava, a burst of steam; on your boat, it cools the hull.",
     icon: '🫖', rarity: 'normal',
     // balance_decision : starter AoE round you, unplayed 2026-10-12
-    levels: book3Levels({ dmg: 16, interval: 1.7, radius: 105, crustDur: 4.0 }, { range: ['radius'] }),
+    levels: book3Levels({ dmg: 21, interval: 1.7, radius: 105, crustDur: 4.0 }, { range: ['radius'] }),
   },
   // Hot Coals: a PINBALL. A red-hot coal tossed at the nearest foe (run.bullets, weapon 'coal', b._pin)
   // bounces off foes and obstacles (The Mantle's stalagmites) and hits harder after every bounce.
@@ -3166,7 +3167,7 @@ export const WEAPONS = {
     name: 'Hot Coals',
     desc: 'Tosses a red-hot coal that bounces off foes and stalagmites like a pinball, hitting harder after every bounce.',
     icon: '🪨', rarity: 'normal',
-    levels: book3Levels({ dmg: 12, interval: 0.9, count: 1, speed: 460, bounces: 3 }),
+    levels: book3Levels({ dmg: 17, interval: 0.9, count: 1, speed: 460, bounces: 3 }),
   },
   // Crack Hammer: stamps the ground open under the thickest knot of ROCK creatures in reach
   // (run.lavaPools). Each pool is lava for duration s: it melts rock creatures (fire), lava ones swim
@@ -3176,7 +3177,7 @@ export const WEAPONS = {
     desc: 'Cracks the ground open under the nearest enemy. Its lava melts rock creatures, and burns you too.',
     icon: '🔨', rarity: 'normal',
     // balance_decision : pools under the crowd, unplayed 2026-10-12
-    levels: book3Levels({ dmg: 22, interval: 2.4, pools: 1, r: 60, duration: 3.0 }, { range: ['r'] }),
+    levels: book3Levels({ dmg: 27, interval: 2.4, pools: 1, r: 60, duration: 3.0 }, { range: ['r'] }),
   },
   // Spring Glove: a boxing glove on a spring punches the nearest foe within range (one glove per count,
   // each at another foe): it hurts every foe within radius of the fist and knocks them flying (knock,
@@ -3186,7 +3187,7 @@ export const WEAPONS = {
     desc: 'Punches the nearest foe with a boxing glove on a spring, knocking it flying. A lava creature punched onto rock gets stuck.',
     icon: '🥊', rarity: 'normal',
     // balance_decision : first guess, replaces Lava Bellows, unplayed 2026-11-04
-    levels: book3Levels({ dmg: 24, interval: 1.3, count: 1, range: 260, radius: 34, knock: 1300 }, { range: ['range'] }),
+    levels: book3Levels({ dmg: 29, interval: 1.3, count: 1, range: 260, radius: 34, knock: 1300 }, { range: ['range'] }),
   },
   // ---- Book 3, The Core's four. Every hit but the Lance's obeys the pole rule (dealDamage). ----
   // Iron Sling: one iron ball at the nearest foe within range (run.bullets, weapon 'ironBall'), or,
