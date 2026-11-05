@@ -17,7 +17,7 @@ how long you lasted. Ranked on a per-chapter leaderboard.
 | Crowd affixes | **Every affix ungated for ordinary enemies** |
 | Caps on speed or crowd size | **None for now; judge in playtest** |
 | Revive consumable | **Allowed** |
-| Coins | **No cap; a budget by the clock, about 2000 coins dropped by 15:00 and 5000 by 30:00, each at full value (owner, 2026-11-05)** |
+| Coins | **No cap; the drop chance is 1 / (2 x minutes), a coin keeps its full value (owner, 2026-11-05)** |
 | Leaderboard key | `difficulty: 0` as the endless partition |
 | Entry point | An ∞ pip after the D1–D5 pips |
 
@@ -81,7 +81,7 @@ endlessLevel(t) = 1 + ENDLESS_RAMP_A * m + ENDLESS_RAMP_B * m * m     // m = run
 ### Coins
 
 - `difficultyCoinMul` stays at 1 in endless. `coinMul` does not decay: every coin picked up visibly pays.
-- Drops follow a budget, `endlessCoinBudget(run.time)` = `100 m + 2.25 m²`: any kill drops a coin while the run is under it, whatever the chapter's kill rate. `coinChance` is not read in endless.
+- Every coin drop is rolled at `endlessCoinDropMul(run.time)` = `min(1, 1 / (2 m))`, on top of `coinChance`.
 - **`COIN_CAP_PER_RUN` does not apply in endless**, either in `stepPickups` or in `endRun`.
 - The kill bonus (main.js:749) uses `difficultyCoinMul(1)` in endless.
 - The kill bonus still grows like `sqrt(kills)`.
@@ -117,7 +117,7 @@ endlessLevel(t) = 1 + ENDLESS_RAMP_A * m + ENDLESS_RAMP_B * m * m     // m = run
 
 | Affix | Gate site | Normal-enemy behaviour | Payout on a normal |
 |---|---|---|---|
-| gilded | sim.js:4164 (HP), 9468 (coins) | `GILDED_HP_MUL` HP | Gilded coins, spent from the same budget |
+| gilded | sim.js:4164 (HP), 9468 (coins) | `GILDED_HP_MUL` HP | Gilded coins, thinned like every other drop |
 | shielded | sim.js:9314 | same shield | none |
 | splitter | sim.js:9488 | `SPLITTER_COUNT` wisps | none (wisps pay normally) |
 | volatile | sim.js:9496, 5680 | corpse bomb | none |
@@ -216,7 +216,7 @@ Load `probing-the-game` first.
    `Object.keys(CHAPTERS)` and print the denominator.
 8. **`endRun`:** `won`, `maxDifficulty` and `meta.best.time` are untouched, and `endlessBest` is
    updated.
-9. **Coins:** a horde drops exactly the budget and no more, each coin paying its full value. Endless can bank more than
+9. **Coins:** at t = 240 an eighth as many coins drop as at t = 0, each paying its full value. Endless can bank more than
    `COIN_CAP_PER_RUN`; a normal run cannot.
 10. **The 0 → 1 trap:** `endlessPicked` survives `ensureChapterMeta`, and the submitted payload
     carries `difficulty: 0`.
