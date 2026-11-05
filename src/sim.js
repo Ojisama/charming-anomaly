@@ -255,7 +255,7 @@ import {
   ENEMY_SEP_FRAC, ENEMY_SEP_RESOLVE, ENEMY_SEP_CELL, ENEMY_QUERY_CELL, ENEMY_QUERY_MAX_CELLS,
   // v6.7.11: the level-up reroll's price ladder — rerollLevelUpChoices owns the whole purchase
   rerollCost,
-  difficultySpeedMul, difficultyCountMul, difficultyDmgMul, endlessLevel, endlessHpMul, endlessXpMul, endlessXpNeedMul, ENDLESS_COIN_HALF_LIFE_S, ENDLESS_COUNT_MUL_MAX,
+  difficultySpeedMul, difficultyCountMul, difficultyDmgMul, endlessLevel, endlessHpMul, endlessXpMul, endlessXpNeedMul, endlessCoinBudget, ENDLESS_COUNT_MUL_MAX,
   ENDLESS_MILESTONE_S, ENDLESS_MILESTONE_ELITES, endlessAffixChance, ENDLESS_GILDED_COINS, ENDLESS_HANDOVER_CLEAR_R, mutatorPool, MUTATORS,
   SHOVEL_LIFE, PEBBLE_CONE, PEBBLE_SPEED_JITTER, pebbleSpreadStones, PEBBLE_LIFE, PEBBLE_R, ROOT_SNARE_TICK, ROOT_SNARE_SLOW, ROOT_SNARE_HOLD_T, ROOT_SNARE_RANGE,
   FURROW_STEP, FURROW_KEEP, FURROW_DELAY, FURROW_STAGGER, FURROW_PIT_OPEN, FURROW_PIT_LIFE, FURROW_PIT_FILL, FURROW_PIT_MAX, FURROW_JUMP, FURROW_LANE_GAP,
@@ -5057,6 +5057,15 @@ export function fastForwardEndless(run, seconds, budgetMs = Infinity) {
   return true
 }
 
+// Endless pays by the clock: a coin may drop only while the run is under its budget. Spends it. Always true elsewhere.
+function coinFromBudget(run, value = 1) {
+  if (!run.endless) return true
+  const worth = value * run.mods.coinMul   // "richer coins" mutators pile up over a run: they spend the budget faster
+  if (run._coinsDropped + worth > endlessCoinBudget(run.time)) return false
+  run._coinsDropped += worth
+  return true
+}
+
 // ENDLESS (spec 2026-10-01): the level climbs on run.time; every difficulty mul is recomputed from
 // the createRun base, never chained, so thousands of steps cannot drift.
 function stepEndless(run) {
@@ -5069,7 +5078,7 @@ function stepEndless(run) {
   run.mods.maxAliveMul = b.maxAliveMul * Math.min(difficultyCountMul(d), ENDLESS_COUNT_MUL_MAX)
   run.mods.enemyDmgMul = b.enemyDmgMul * difficultyDmgMul(d)
   run.mods.enemyHpMul = b.enemyHpMul * endlessHpMul(d)
-  run.mods.coinMul = b.coinMul * Math.pow(0.5, run.time / ENDLESS_COIN_HALF_LIFE_S)
+  run.mods.coinMul = b.coinMul
   stepEndlessMilestones(run)
 }
 
@@ -9649,7 +9658,7 @@ function stepRam(run) {
     // ONE coin of value BURST_RAM_COINS rather than ten of value 1: the pickup is a single event,
     // so the HUD ticks up once by ten instead of ten times by one, and render.js prints the number
     // on it (the coin case) rather than leaving a bigger sparkle to carry the whole difference.
-    run.coins.push({ x: e.x, y: e.y, value: BURST_RAM_COINS })
+    if (coinFromBudget(run, BURST_RAM_COINS)) run.coins.push({ x: e.x, y: e.y, value: BURST_RAM_COINS })
   }
 }
 
@@ -10621,6 +10630,7 @@ export function dealDamage(run, enemy, dmg, crit, dot = false, hazard = false, c
     if (jackpot && paid) {
       if (jackpot.levels > 0) run.player.xp += run.player.xpNext * jackpot.levels
       for (let i = 0; i < (jackpot.coins ?? 0); i++) {
+        if (!coinFromBudget(run)) continue
         const a = Math.random() * Math.PI * 2
         const d = Math.random() * 28
         run.coins.push({ x: enemy.x + Math.cos(a) * d, y: enemy.y + Math.sin(a) * d, value: 1 })
@@ -10678,17 +10688,17 @@ export function dealDamage(run, enemy, dmg, crit, dot = false, hazard = false, c
         const d = Math.random() * 20
         // `paid` (above): an off-screen jackpot body drops no coin of any kind. The draws still
         // happen, so the gate moves no random for a kill it does not touch.
-        if (paid) run.coins.push({ x: enemy.x + Math.cos(a) * d, y: enemy.y + Math.sin(a) * d, value: 1 })
+        if (paid && coinFromBudget(run)) run.coins.push({ x: enemy.x + Math.cos(a) * d, y: enemy.y + Math.sin(a) * d, value: 1 })
       }
-    } else if (Math.random() < ENEMIES[enemy.type].coinChance * coinDropMul) {
-      if (paid) run.coins.push({ x: enemy.x, y: enemy.y, value: 1 })
+    } else if (Math.random() < (run.endless ? 1 : ENEMIES[enemy.type].coinChance) * coinDropMul) {
+      if (paid && coinFromBudget(run)) run.coins.push({ x: enemy.x, y: enemy.y, value: 1 })
     }
     if (!enemy.elite && hasAffix(enemy, 'gilded')) {
       for (let i = 0; i < ENDLESS_GILDED_COINS; i++) {
         if (Math.random() >= coinDropMul) continue
         const a = Math.random() * Math.PI * 2
         const d = Math.random() * 20
-        if (paid) run.coins.push({ x: enemy.x + Math.cos(a) * d, y: enemy.y + Math.sin(a) * d, value: 1 })
+        if (paid && coinFromBudget(run)) run.coins.push({ x: enemy.x + Math.cos(a) * d, y: enemy.y + Math.sin(a) * d, value: 1 })
       }
     }
 

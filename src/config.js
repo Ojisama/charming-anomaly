@@ -6065,7 +6065,11 @@ export const ENDLESS_AFFIX_FROM = 3
 export const ENDLESS_AFFIX_PER_LEVEL = 0.07
 export const ENDLESS_AFFIX_MAX = 0.5
 export const endlessAffixChance = (d) => Math.min(ENDLESS_AFFIX_MAX, Math.max(0, (d - ENDLESS_AFFIX_FROM) * ENDLESS_AFFIX_PER_LEVEL))
-export const ENDLESS_COIN_HALF_LIFE_S = 60
+// balance_decision : endless drops ~2000 coins by 15:00, ~5000 by 30:00 2026-11-05
+//  - a budget by the clock, so it does not depend on the chapter's kill rate
+export const ENDLESS_COINS_PER_MIN = 100
+export const ENDLESS_COINS_PER_MIN_SQ = 2.25
+export const endlessCoinBudget = (t) => { const m = t / 60; return ENDLESS_COINS_PER_MIN * m + ENDLESS_COINS_PER_MIN_SQ * m * m }
 // balance_decision : endless HP grows faster, was 0.15 2026-10-02
 export const ENDLESS_HP_GROWTH = 0.3
 export const endlessHpMul = (d) => Math.pow(1 + ENDLESS_HP_GROWTH, Math.max(1, d) - 1)
