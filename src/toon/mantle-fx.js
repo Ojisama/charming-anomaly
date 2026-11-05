@@ -123,6 +123,8 @@ function paintHammer() {
 const STAL_BAKE_R = 40, STAL_VARIANTS = 6, STAL_SINK = 12
 const STONE = '#6e5872', STONE_LIT = '#9a83a0', STONE_TOP = '#bfadc2'
 const stalVariant = (o) => Math.floor(Math.abs(o.x * 0.37 + o.y * 0.61)) % STAL_VARIANTS
+// basalt is cut stone: straight edges, inked with a steady hand
+const hard = (c, pts, col, ink) => cel(c, pts, col, { ...FLAT, ink, steady: true })
 function paintStalagmite(v, sunk = false) {
   return bake(120, 150, 0.5, 0.82, (c) => {
     const r = rng(v * 977 + 13), n = 2 + (v % 4), mid = (n - 1) / 2
@@ -138,10 +140,10 @@ function paintStalagmite(v, sunk = false) {
       const cap = w * 0.42, top = -h + dy + (sunk ? STAL_SINK : 0), sx = lean * h   // the top shears over by sx
       // the foot: a rounded base on the rock, or a flat cut where the column goes into the lava
       const foot = sunk ? [[x + w, dy], [x - w, dy]] : [[x + w, dy], [x + w * 0.5, dy + cap], [x - w * 0.5, dy + cap]]
-      flat(c, [[x - w, dy], [x - w + sx, top], [x - w * 0.5 + sx, top - cap], [x + w * 0.5 + sx, top - cap], [x + w + sx, top], ...foot], STONE, 2.4)
-      flat(c, [[x - w, dy], [x - w + sx, top], [x - w * 0.15 + sx, top + cap * 0.6], ...(sunk ? [[x - w * 0.15, dy]] : [[x - w * 0.15, dy + cap * 0.9], [x - w * 0.5, dy + cap]])], STONE_LIT, 0)
-      flat(c, [[x - w + sx, top], [x - w * 0.5 + sx, top - cap], [x + w * 0.5 + sx, top - cap], [x + w + sx, top], [x + w * 0.5 + sx, top + cap], [x - w * 0.5 + sx, top + cap]], STONE_TOP, 1.8)
-      line(c, [[x - w * 0.15 + sx, top + cap * 0.7], [x - w * 0.15, dy + (sunk ? 0 : cap * 0.8)]], 1.1, {})
+      hard(c, [[x - w, dy], [x - w + sx, top], [x - w * 0.5 + sx, top - cap], [x + w * 0.5 + sx, top - cap], [x + w + sx, top], ...foot], STONE, 2.4)
+      hard(c, [[x - w, dy], [x - w + sx, top], [x - w * 0.15 + sx, top + cap * 0.6], ...(sunk ? [[x - w * 0.15, dy]] : [[x - w * 0.15, dy + cap * 0.9], [x - w * 0.5, dy + cap]])], STONE_LIT, 0)
+      hard(c, [[x - w + sx, top], [x - w * 0.5 + sx, top - cap], [x + w * 0.5 + sx, top - cap], [x + w + sx, top], [x + w * 0.5 + sx, top + cap], [x - w * 0.5 + sx, top + cap]], STONE_TOP, 1.8)
+      line(c, [[x - w * 0.15 + sx, top + cap * 0.7], [x - w * 0.15, dy + (sunk ? 0 : cap * 0.8)]], 1.1, { steady: true })
     }
   })
 }

@@ -8,6 +8,7 @@ import { mkCanvas, freeCanvas } from './palette.js'
 //                              wavering unevenly along the stroke (value noise on the arc length, never
 //                              a sine), the two ends tapering by different amounts, and a closed contour
 //                              starting at a random point and overlapping (or just missing) its start.
+//                              o.steady: no wavering (hard straight-edged things, e.g. basalt columns).
 //   cel(c, pts, fill, o)       PAINT, laid by a brush: the colour slightly off the line (it overshoots
 //                              the ink here, falls short of it there), gouache dabs dragged through it,
 //                              ONE shadow brushed in as a hard-edged wobbly shape on the lower right (a
@@ -225,11 +226,11 @@ export function brush(c, ptsLocal, closed, w, o = {}) {
     if (o.flat) p = 0.85
     // the hand's pressure wavers along the stroke (arc length = i * 0.4 world px)
     const ln = i * 0.4
-    p *= PAPER ? 1 + 0.12 * n1(ln / 3.2, si) : 1 + 0.2 * n1(ln / 2.2, si) + 0.12 * n1(ln / 0.8, si + 7)
+    if (!o.steady) p *= PAPER ? 1 + 0.12 * n1(ln / 3.2, si) : 1 + 0.2 * n1(ln / 2.2, si) + 0.12 * n1(ln / 0.8, si + 7)
     const e = Math.min(t / tA, (1 - t) / tB)
     const tp = e >= 1 ? 1 : Math.pow(Math.max(0, e), 0.65)
     const wi = Math.max(0.05, w * p * (closed ? mix(0.2, 1, tp) : tp) * (o.belly ? (0.6 + 0.6 * Math.sin(t * Math.PI)) : 1))
-    const wob = PAPER ? (w * 0.08 + 0.05) * n1(ln / 5, si + 11) : (w * 0.2 + 0.12) * n1(ln / 3.5, si + 11) + 0.06 * n1(ln / 1.1, si + 13)
+    const wob = o.steady ? 0 : PAPER ?(w * 0.08 + 0.05) * n1(ln / 5, si + 11) : (w * 0.2 + 0.12) * n1(ln / 3.5, si + 11) + 0.06 * n1(ln / 1.1, si + 13)
     const cx = seq[i][0] + nx * wob, cy = seq[i][1] + ny * wob
     Lp.push([cx + (nx * wi) / 2, cy + (ny * wi) / 2]); Rp.push([cx - (nx * wi) / 2, cy - (ny * wi) / 2])
   }
@@ -265,7 +266,7 @@ export function cel(c, ptsLocal, fill, o = {}) {
   const cs = (celSeed++) * 131 + 7
   const k = clamp(R / 5, 0.25, 1)                       // small parts get a steadier hand
   // the paint, laid slightly off the line: where it overshoots, the colour peeks past the ink
-  const Pp = o.ink === 0 ? P : waver(P, (PAPER ? 0.22 : 0.45) * k, cs)
+  const Pp = o.ink === 0 || o.steady ? P : waver(P, (PAPER ? 0.22 : 0.45) * k, cs)
   // PAPER: a big inked part is a separate piece. It throws a thin flat shadow down-right onto the
   // piece under it, and its cut edge shows as a sliver of bare paper just outside its ink.
   if (PAPER && o.ink !== 0 && o.piece !== false && R > 2.2) {
