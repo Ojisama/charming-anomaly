@@ -118,11 +118,12 @@ function paintHammer() {
 // A STALAGMITE (run.obstacles kind 'stalagmite'): a cluster of basalt columns in the floor's own rock
 // violet, upright (props stand), its foot at the origin, about STAL_BAKE_R px in half-width at scale 1.
 // STAL_VARIANTS bakes, each its own cluster (2-5 columns, heights, widths, lean); stalVariant picks one
-// off the stalagmite's position, so neighbours differ and one stays the same every frame.
-const STAL_BAKE_R = 40, STAL_VARIANTS = 6
+// off the stalagmite's position, so neighbours differ and one stays the same every frame. sunk: the same
+// cluster standing in the lava, each column dropped STAL_SINK px and cut flat at the surface (no foot).
+const STAL_BAKE_R = 40, STAL_VARIANTS = 6, STAL_SINK = 12
 const STONE = '#6e5872', STONE_LIT = '#9a83a0', STONE_TOP = '#bfadc2'
 const stalVariant = (o) => Math.floor(Math.abs(o.x * 0.37 + o.y * 0.61)) % STAL_VARIANTS
-function paintStalagmite(v) {
+function paintStalagmite(v, sunk = false) {
   return bake(120, 150, 0.5, 0.82, (c) => {
     const r = rng(v * 977 + 13), n = 2 + (v % 4), mid = (n - 1) / 2
     const cols = []
@@ -134,11 +135,13 @@ function paintStalagmite(v) {
     }
     cols.sort((p, q) => p.dy - q.dy)   // the back row first
     for (const { x, h, w, lean, dy } of cols) {
-      const cap = w * 0.42, top = -h + dy, sx = lean * h   // the top shears over by sx
-      flat(c, [[x - w, dy], [x - w + sx, top], [x - w * 0.5 + sx, top - cap], [x + w * 0.5 + sx, top - cap], [x + w + sx, top], [x + w, dy], [x + w * 0.5, dy + cap], [x - w * 0.5, dy + cap]], STONE, 2.4)
-      flat(c, [[x - w, dy], [x - w + sx, top], [x - w * 0.15 + sx, top + cap * 0.6], [x - w * 0.15, dy + cap * 0.9], [x - w * 0.5, dy + cap]], STONE_LIT, 0)
+      const cap = w * 0.42, top = -h + dy + (sunk ? STAL_SINK : 0), sx = lean * h   // the top shears over by sx
+      // the foot: a rounded base on the rock, or a flat cut where the column goes into the lava
+      const foot = sunk ? [[x + w, dy], [x - w, dy]] : [[x + w, dy], [x + w * 0.5, dy + cap], [x - w * 0.5, dy + cap]]
+      flat(c, [[x - w, dy], [x - w + sx, top], [x - w * 0.5 + sx, top - cap], [x + w * 0.5 + sx, top - cap], [x + w + sx, top], ...foot], STONE, 2.4)
+      flat(c, [[x - w, dy], [x - w + sx, top], [x - w * 0.15 + sx, top + cap * 0.6], ...(sunk ? [[x - w * 0.15, dy]] : [[x - w * 0.15, dy + cap * 0.9], [x - w * 0.5, dy + cap]])], STONE_LIT, 0)
       flat(c, [[x - w + sx, top], [x - w * 0.5 + sx, top - cap], [x + w * 0.5 + sx, top - cap], [x + w + sx, top], [x + w * 0.5 + sx, top + cap], [x - w * 0.5 + sx, top + cap]], STONE_TOP, 1.8)
-      line(c, [[x - w * 0.15 + sx, top + cap * 0.7], [x - w * 0.15, dy + cap * 0.8]], 1.1, {})
+      line(c, [[x - w * 0.15 + sx, top + cap * 0.7], [x - w * 0.15, dy + (sunk ? 0 : cap * 0.8)]], 1.1, {})
     }
   })
 }
@@ -450,6 +453,7 @@ export function createMantleFx({ ground, boat, top }) {
       pool: [0, 1, 2].map((v) => paintPuddle(v, 'lava')),
       boxGlove: paintBoxGlove(),
       stal: Array.from({ length: STAL_VARIANTS }, (_, v) => paintStalagmite(v)),
+      stalSunk: Array.from({ length: STAL_VARIANTS }, (_, v) => paintStalagmite(v, true)),
     }
     return A
   }
@@ -555,15 +559,13 @@ export function createMantleFx({ ground, boat, top }) {
       const p = run.player
       const livePools = (run.lavaPools ?? []).filter((q) => q.t < q.dur)
       // ---- the stalagmites (run.obstacles kind 'stalagmite'), under the crowd like every obstacle: a
-      // soft shadow at the foot on rock, a ring of hot lava round it standing in the tide ----
+      // soft shadow at the foot on rock; standing in the tide, the sunk bake (cut off at the surface) ----
       for (const o of run.obstacles ?? []) {
         if (o.kind !== 'stalagmite' || !onScreen(o.x, o.y - o.r, o.r * 3)) continue
         const k = o.r / STAL_BAKE_R
-        if (run.lavaTide && mantleHeightAt(L, T.seed, o.x, o.y) < line) {
-          groundG.ellipse(o.x, o.y + 2 * k, o.r * 1.15, o.r * 0.4).fill({ color: C.lavaHot, alpha: 0.85 })
-          groundG.ellipse(o.x, o.y + 2 * k, o.r * 1.4, o.r * 0.52).stroke({ width: 2.5, color: C.lavaWhite, alpha: 0.55 })
-        } else groundG.ellipse(o.x, o.y + 2 * k, o.r * 1.05, o.r * 0.36).fill({ color: C.ink, alpha: 0.28 })
-        const sp = low.next(P.stal[stalVariant(o)]); sp.position.set(o.x, o.y); sp.scale.set(k)
+        const sunk = !!run.lavaTide && mantleHeightAt(L, T.seed, o.x, o.y) < line
+        if (!sunk) groundG.ellipse(o.x, o.y + 2 * k, o.r * 1.05, o.r * 0.36).fill({ color: C.ink, alpha: 0.28 })
+        const sp = low.next((sunk ? P.stalSunk : P.stal)[stalVariant(o)]); sp.position.set(o.x, o.y); sp.scale.set(k)
       }
 
       // ---- the hammer's stamp, drawn off each pool's first moments (the floor paints the pool itself) ----
