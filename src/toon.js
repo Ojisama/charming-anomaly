@@ -6,7 +6,8 @@
 //   src/toon/palette.js   PAL (the palette), mkCanvas, hash, whiteTwin
 //   src/toon/brush.js     the brush: pressure ink, cel fills (and the cast's paper mode), pie-cut eyes,
 //                         gloves, rubber hose
-//   src/toon/cast.js      TOON_CAST (the creatures), paintPlayer, the shore's peeking bubbles
+//   src/toon/cast.js      TOON_CAST (the creatures), the shore's peeking bubbles
+//   src/toon/hero.js      paintHero: the player, the Anomaly, one look per skin (plain blob, cheeks)
 //   src/toon/world.js     the floor shader (a GPU watercolour of rock and gouache lava, driven by the
 //                         height field and the tide), its noise and bubble atlas, the film pass, the
 //                         shots and the pickups
@@ -39,7 +40,8 @@
 import { AlphaFilter, BufferImageSource, CanvasSource, Container, Filter, GlProgram, Mesh, MeshGeometry, Shader, Sprite, Texture, UniformGroup } from 'pixi.js'
 import { PAL, TAU, mkCanvas, freeCanvas, hash, whiteTwin } from './toon/palette.js'
 import { setPass } from './toon/brush.js'
-import { TOON_CAST, paintPlayer, PLAYER_BOX } from './toon/cast.js'
+import { TOON_CAST } from './toon/cast.js'
+import { paintHero, HERO_BOX, HERO_FRAMES, HERO_SKINS } from './toon/hero.js'
 // the pinball coal drawn this much bigger than its bake, so its bounces can be followed
 const COAL_DRAW_SCALE = 1.9
 import {
@@ -175,10 +177,10 @@ function cutout(bare, f, res, seed, o = {}) {
   return cv
 }
 // THE PLAYER'S KEYLINE: the cut of its bare silhouette (no ground shadow), with the player's numbers.
-function keyline(f) {
-  const [x0, y0, x1, y1] = PLAYER_BOX
+function keyline(f, skin) {
+  const [x0, y0, x1, y1] = HERO_BOX
   const bare = mkCanvas((x1 - x0) * RES, (y1 - y0) * RES), bx = bare.getContext('2d')
-  bx.scale(RES, RES); bx.translate(-x0, -y0); paintPlayer(bx, f, true)
+  bx.scale(RES, RES); bx.translate(-x0, -y0); paintHero(bx, f, true, skin)
   const cut = cutout(bare, f, RES, 0)
   freeCanvas(bare)
   return cut
@@ -198,12 +200,13 @@ export function createToonRenderer(host) {
     daze: art(paintDaze()),
     sweat: art(paintSweat()),
     wade: [0, 1].map((f) => art(paintWade(f))),
-    player: [0, 1, 2, 3].map((f) => {
-      const [x0, y0, x1, y1] = PLAYER_BOX
+    // the hero, one set of walk frames per skin (HERO_SKINS), keyed by run.skin ('plain' for none)
+    hero: Object.fromEntries(HERO_SKINS.map((skin) => [skin ?? 'plain', Array.from({ length: HERO_FRAMES }, (_, f) => {
+      const [x0, y0, x1, y1] = HERO_BOX
       const cv = mkCanvas((x1 - x0) * RES, (y1 - y0) * RES), ctx = cv.getContext('2d')
-      ctx.scale(RES, RES); ctx.translate(-x0, -y0); paintPlayer(ctx, f)
-      return { tex: canvasTex(cv), key: canvasTex(keyline(f)), ax: -x0 / (x1 - x0), ay: -y0 / (y1 - y0) }
-    }),
+      ctx.scale(RES, RES); ctx.translate(-x0, -y0); paintHero(ctx, f, false, skin)
+      return { tex: canvasTex(cv), key: canvasTex(keyline(f, skin)), ax: -x0 / (x1 - x0), ay: -y0 / (y1 - y0) }
+    })])),
   }
 
   // one growable pool of plain sprites per thing drawn
@@ -236,11 +239,13 @@ export function createToonRenderer(host) {
   const gems = pool(pickLayer), coins = pool(pickLayer)
   const dazes = pool(playerFx)
   const shots = pool(shotLayer), puffs = pool(shotLayer), wades = pool(fxLayer), pwade = pool(playerFx), licks = pool(fxLayer), sweats = pool(fxLayer)
-  const playerKey = new Sprite(T.player[0].key)
-  playerKey.anchor.set(T.player[0].ax, T.player[0].ay)
+  // the skin, latched at a run's start (enter) the way render.js latches its playerSkin
+  let heroSet = T.hero.plain
+  const playerKey = new Sprite(heroSet[0].key)
+  playerKey.anchor.set(heroSet[0].ax, heroSet[0].ay)
   playerKey.alpha = 1
-  const playerSprite = new Sprite(T.player[0].tex)
-  playerSprite.anchor.set(T.player[0].ax, T.player[0].ay)
+  const playerSprite = new Sprite(heroSet[0].tex)
+  playerSprite.anchor.set(heroSet[0].ax, heroSet[0].ay)
   playerLayer.addChild(playerKey, playerSprite)
 
   // THE FLOOR: chunk meshes, each with its own height texture, sharing one uniform group, the noise
@@ -354,6 +359,7 @@ export function createToonRenderer(host) {
     playerView: playerLayer,   // you, in world coords: render.js copies it for the minimes
     enter(run, lk) {
       look = lk
+      heroSet = T.hero[run?.skin ?? 'plain'] ?? T.hero.plain
       filmU.uniforms.uGrain = lk.grain ?? 0.08
       filmU.uniforms.uVignette = lk.vignette ?? 0.55
       filmU.uniforms.uFlicker = lk.flicker ?? 0.035
@@ -531,14 +537,14 @@ export function createToonRenderer(host) {
       const moving = prevX !== null && Math.hypot(p.x - prevX, p.y - prevY) > 0.2
       prevX = p.x; prevY = p.y
       const inv = p.invuln ?? 0
-      const pf = T.player[moving ? fi(t * 8, 4) : 0]
+      const pf = heroSet[moving ? fi(t * 8, HERO_FRAMES) : 0]
       // hurt: the old cartoon way, never a fade. For the first moment of the sim's invulnerability
-      // clock the digger's paper margin blinks dark (never a tint on the body), and for all of it a ring of little
-      // inked stars spins round its hat — solid and readable over the crowd, and plainly "hit"
+      // clock the hero's paper margin blinks dark (never a tint on the body), and for all of it a ring of little
+      // inked stars spins over its head — solid and readable over the crowd, and plainly "hit"
       const hurt = inv > 0.4 && Math.floor(inv * 14) % 2 === 0
       if (playerSprite.texture !== pf.tex) playerSprite.texture = pf.tex
       if (playerKey.texture !== pf.key) playerKey.texture = pf.key
-      // no tint (a red-tinted digger melts into the imps): the hit shows as the paper margin blinking
+      // no tint (a red-tinted hero melts into the imps): the hit shows as the paper margin blinking
       playerKey.tint = hurt ? 0x2a1c18 : 0xffffff
       dazes.begin()
       if (inv > 0) for (let k = 0; k < 3; k++) {

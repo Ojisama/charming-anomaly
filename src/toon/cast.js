@@ -1,4 +1,4 @@
-// The Mantle's cast and its player: 1930s rubber-hose cartoon characters (render-only).
+// The Mantle's cast: 1930s rubber-hose cartoon characters (render-only).
 //
 // The cast is PAPER CUT-OUTS, made the way the player is: painted with the brush in its paper mode
 // (brush.js: flat gouache with the sheet's tooth showing through it, one flat hard-edged shade, no
@@ -70,7 +70,7 @@ function mouth(c, a, b, cTop, cBot, o = {}) {
 // a fat tapered brow stroke (the attitude)
 const brow = (c, a, m, b, w = 1.6) => line(c, qb(a, m, b), w, { belly: true, taper: 0.45 })
 // rosy cheeks, brushed thin
-function blush(c, pts, col = '#f59a78', a = 0.45) { c.save(); c.globalAlpha = a; for (const [x, y, rx, ry] of pts) cel(c, ell(x, y, rx, ry, 0, 16), col, { ink: 0, shade: null, dabs: 0 }); c.restore() }
+export function blush(c, pts, col = '#f59a78', a = 0.45) { c.save(); c.globalAlpha = a; for (const [x, y, rx, ry] of pts) cel(c, ell(x, y, rx, ry, 0, 16), col, { ink: 0, shade: null, dabs: 0 }); c.restore() }
 
 // ---- STRANDED: a lava creature on dry rock (sim.js strandT), acted in its own sprite. Three poses are
 // baked after its cycle, its whole body out on the rock (no waterline): 1 TUGGING (stretched up, eyes
@@ -908,46 +908,6 @@ export const TOON_CAST = {
   obsidianBeetle: { baseR: 11, frames: BEETLE_POSE.length, fps: 14, box: [-30, -38, 30, 24], paint: wrap(paintBeetle) },
   emberJelly: { baseR: 9, frames: JELLY_FRAMES + 3, fps: 12, poseOf: strandPose(JELLY_FRAMES, 12), cut: cycleCut(JELLY_FRAMES), box: [-22, -34, 22, 22], paint: wrap(paintJelly), sink: wrap(jellySink), over: wrap(jellyOver) },
 }
-
-// ---- THE PLAYER: the digger. A big head under a yellow hard hat with its lamp, red shirt, blue -----
-// dungarees, white gloves, a pick over the shoulder. Units = world px / PLAYER_SCALE.
-export const PLAYER_SCALE = 1.35
-export const PLAYER_BOX = [-30, -32, 30, 30]   // world px round the player's centre
-function digger(c, f, bare) {
-  const ph = (f / 4) * Math.PI * 2, sw = Math.sin(ph), bob = Math.abs(Math.cos(ph)) * 0.9
-  const lk = [0.3, 0.2]
-  if (!bare) shadow(c, 1.5, 13.5, 13, 5, 0.42)
-  // boots, stepping
-  cel(c, ell(-4.5, 13 - Math.max(0, sw) * 1.4, 3.4, 2.4, 0.2, 22), '#6b4128', { ink: 1.1, shade: 'rgba(40,16,30,0.45)' })
-  cel(c, ell(4.8, 13.2 - Math.max(0, -sw) * 1.4, 3.4, 2.4, -0.2, 22), '#6b4128', { ink: 1.1, shade: 'rgba(40,16,30,0.45)' })
-  push(); tr(0, -bob)
-  const sh = 'rgba(30,16,60,0.42)'
-  // body: blue dungarees over a red shirt, two gold buttons
-  cel(c, ell(0, 7, 7.4, 6.4, 0, 36), '#3d68a3', { ink: 1.6, shade: sh })
-  cel(c, ell(0, 4.4, 5, 2.6, 0, 22), '#cf4536', { ink: 0.9, shade: null })
-  for (const k of [-1, 1]) cel(c, ell(k * 3.2, 6.2, 0.9, 0.9, 0, 10), '#f1d47a', { ink: 0.6, shade: null })
-  // left arm swings; the right holds the pick over its shoulder
-  cel(c, tube(qb([-6, 5], [-11, 8 + sw * 2], [-10.5, 12 + sw * 2]), 2.6, 2.3), '#cf4536', { ink: 1.0, shade: sh })
-  glove(c, -10.5, 12.5 + sw * 2, 2.9, 1.8)
-  cel(c, tube([[11, 1], [-2, -15]], 2.1), '#a8783c', { ink: 1.0, shade: 'rgba(60,30,20,0.45)' })
-  push(); tr(-2.5, -15.5); rot(-0.9); cel(c, [...qb([-9, 3], [0, -5], [9, 3], 10), [6, 3], ...qb([4.5, 1.2], [0, -1], [-4.5, 1.2], 6), [-6, 3]], '#b7b3c2', { ink: 1.2, shade: 'rgba(30,30,60,0.45)', spec: 0.25 }); pop()
-  cel(c, tube(qb([6, 4], [11, 5], [12, 1]), 2.6, 2.3), '#cf4536', { ink: 1.0, shade: sh })
-  glove(c, 12, 0.5, 2.9, -1.4)
-  // the big head, ears, the hard hat with its lamp
-  cel(c, ell(0, -2.6, 9.4, 8.6, 0, 44), '#f3c69c', { ink: 1.8, shade: 'rgba(150,56,46,0.36)' })
-  for (const k of [-1, 1]) cel(c, ell(k * 9.6, -1.6, 2, 2.6, 0, 18), '#f3c69c', { ink: 1.0, shade: 'rgba(150,56,46,0.36)' })
-  cel(c, [...qb([-11.4, -4], [-11, -17.6], [0, -17.6], 14), ...qb([0, -17.6], [11, -17.6], [11.4, -4], 14).slice(1), ...qb([11.4, -4], [0, -7.6], [-11.4, -4], 14).slice(1, -1)], '#f0bb2c', { ink: 1.9, shade: 'rgba(150,60,8,0.45)', spec: 0.2 })
-  line(c, qb([-1.4, -16.6], [-1.6, -11], [-0.8, -6.8]), 0.9)
-  cel(c, ell(0, -9.6, 3.2, 2.6, 0, 22), '#fbf3cc', { ink: 1.2, shade: 'rgba(200,140,40,0.35)', spec: 0.3 })
-  // the face: pie eyes, a red bulb nose, an open grin
-  eye(c, -3.1, -1.9, 2.75, 3.5, lk[0], lk[1], { pr: 0.58, pry: 0.72 })
-  eye(c, 3.1, -1.9, 2.75, 3.5, lk[0], lk[1], { pr: 0.58, pry: 0.72 })
-  mouth(c, [-4.0, 3.3], [4.0, 3.3], [0, 4.4], [0, 8.8], { tongue: [0.3, 7.6, 1.9], ink: 1.0 })
-  cel(c, ell(0, 1.8, 2.0, 1.6, 0, 18), '#dc5a46', { ink: 1.0, shade: 'rgba(100,10,10,0.4)', spec: 0.35 })
-  pop()
-}
-// bare: without its ground shadow (the silhouette its keyline is cut from)
-export function paintPlayer(ctx, f, bare = false) { resetXf(); sc(PLAYER_SCALE); digger(ctx, f, bare); resetXf() }
 
 // a bubble with a face, peeking out of the swelling lava at the shore (the tide's tell); painted into
 // the floor shader's atlas (world.js), so it rides the shore wherever the shader puts it
