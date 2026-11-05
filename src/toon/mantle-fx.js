@@ -119,33 +119,69 @@ function paintHammer() {
 // violet, upright (props stand), its foot at the origin, about STAL_BAKE_R px in half-width at scale 1.
 // STAL_VARIANTS bakes, each its own cluster (2-5 columns, heights, widths, lean); stalVariant picks one
 // off the stalagmite's position, so neighbours differ and one stays the same every frame. sunk: the same
-// cluster standing in the lava, each column dropped STAL_SINK px and cut flat at the surface (no foot).
+// cluster standing in the lava, each column dropped STAL_SINK px and cut flat at the surface (no foot),
+// with paintStalLap's lava lapping at it drawn on top.
 const STAL_BAKE_R = 40, STAL_VARIANTS = 6, STAL_SINK = 12
 const STONE = '#6e5872', STONE_LIT = '#9a83a0', STONE_TOP = '#bfadc2'
 const stalVariant = (o) => Math.floor(Math.abs(o.x * 0.37 + o.y * 0.61)) % STAL_VARIANTS
 // basalt is cut stone: straight edges, inked with a steady hand
 const hard = (c, pts, col, ink) => cel(c, pts, col, { ...FLAT, ink, steady: true })
+// variant v's columns, back row first (the same for every bake of v)
+function stalCols(v) {
+  const r = rng(v * 977 + 13), n = 2 + (v % 4), mid = (n - 1) / 2
+  const cols = []
+  for (let i = 0; i < n; i++) {
+    const w = 9 + r() * 6
+    const x = n > 1 ? -26 + 52 * (i / (n - 1)) + (r() - 0.5) * 8 : 0
+    const h = 30 + r() * 30 + 40 * (1 - Math.abs(i - mid) / (mid + 1))
+    cols.push({ x, h, w, lean: (r() - 0.5) * 0.22, dy: (r() - 0.5) * 10 })
+  }
+  return cols.sort((p, q) => p.dy - q.dy)
+}
+// a column's outline: a rounded base on the rock, or a flat cut where it goes into the lava
+function stalShape({ x, h, w, lean, dy }, sunk) {
+  const cap = w * 0.42, top = -h + dy + (sunk ? STAL_SINK : 0), sx = lean * h   // the top shears over by sx
+  const foot = sunk ? [[x + w, dy], [x - w, dy]] : [[x + w, dy], [x + w * 0.5, dy + cap], [x - w * 0.5, dy + cap]]
+  return { cap, top, sx, pts: [[x - w, dy], [x - w + sx, top], [x - w * 0.5 + sx, top - cap], [x + w * 0.5 + sx, top - cap], [x + w + sx, top], ...foot] }
+}
 function paintStalagmite(v, sunk = false) {
   return bake(120, 150, 0.5, 0.82, (c) => {
-    const r = rng(v * 977 + 13), n = 2 + (v % 4), mid = (n - 1) / 2
-    const cols = []
-    for (let i = 0; i < n; i++) {
-      const w = 9 + r() * 6
-      const x = n > 1 ? -26 + 52 * (i / (n - 1)) + (r() - 0.5) * 8 : 0
-      const h = 30 + r() * 30 + 40 * (1 - Math.abs(i - mid) / (mid + 1))
-      cols.push({ x, h, w, lean: (r() - 0.5) * 0.22, dy: (r() - 0.5) * 10 })
-    }
-    cols.sort((p, q) => p.dy - q.dy)   // the back row first
-    for (const { x, h, w, lean, dy } of cols) {
-      const cap = w * 0.42, top = -h + dy + (sunk ? STAL_SINK : 0), sx = lean * h   // the top shears over by sx
-      // the foot: a rounded base on the rock, or a flat cut where the column goes into the lava
-      const foot = sunk ? [[x + w, dy], [x - w, dy]] : [[x + w, dy], [x + w * 0.5, dy + cap], [x - w * 0.5, dy + cap]]
-      hard(c, [[x - w, dy], [x - w + sx, top], [x - w * 0.5 + sx, top - cap], [x + w * 0.5 + sx, top - cap], [x + w + sx, top], ...foot], STONE, 2.4)
+    for (const col of stalCols(v)) {
+      const { x, w, dy } = col, { cap, top, sx, pts } = stalShape(col, sunk)
+      hard(c, pts, STONE, 2.4)
       hard(c, [[x - w, dy], [x - w + sx, top], [x - w * 0.15 + sx, top + cap * 0.6], ...(sunk ? [[x - w * 0.15, dy]] : [[x - w * 0.15, dy + cap * 0.9], [x - w * 0.5, dy + cap]])], STONE_LIT, 0)
       hard(c, [[x - w + sx, top], [x - w * 0.5 + sx, top - cap], [x + w * 0.5 + sx, top - cap], [x + w + sx, top], [x + w * 0.5 + sx, top + cap], [x - w * 0.5 + sx, top + cap]], STONE_TOP, 1.8)
       line(c, [[x - w * 0.15 + sx, top + cap * 0.7], [x - w * 0.15, dy + (sunk ? 0 : cap * 0.8)]], 1.1, { steady: true })
     }
   })
+}
+// the lava lapping at a sunk cluster, frame f (two frames swap to make it move), drawn over the sunk
+// bake with no paper edge: two ripple rings round the whole foot, wider on frame 1; then per column,
+// back row first, its stone wipes what lies behind it and it gets a bright waterline and a spatter
+function paintStalLap(v, f) {
+  return bake(160, 150, 0.5, 0.82, (c) => {
+    const cols = stalCols(v), r = rng(v * 31 + f * 7 + 1)
+    const x0 = Math.min(...cols.map((q) => q.x - q.w)), x1 = Math.max(...cols.map((q) => q.x + q.w))
+    const y1 = Math.max(...cols.map((q) => q.dy)), cx = (x0 + x1) / 2, rx = (x1 - x0) / 2 + 4, k = f ? 1.12 : 1
+    const arc = (x, y, ax, ay, a, col, lw) => { c.strokeStyle = col; c.lineWidth = lw; c.beginPath(); c.ellipse(x, y, ax, ay, 0, a, Math.PI - a); c.stroke() }
+    c.lineCap = 'round'
+    arc(cx, y1 + 1, rx * 1.08 * k, rx * 0.26 * k, 0.2, 'rgba(252,206,112,0.9)', 1.5)
+    arc(cx, y1 + 2.5, rx * 1.3 * k, rx * 0.34 * k, 0.35, 'rgba(252,206,112,0.5)', 1.3)
+    for (const col of cols) {
+      const { x, w, dy } = col, P = stalShape(col, true).pts
+      c.save(); c.globalCompositeOperation = 'destination-out'
+      c.beginPath(); c.moveTo(P[0][0], P[0][1]); for (const [px, py] of P) c.lineTo(px, py); c.closePath(); c.fill()
+      c.restore()
+      // the lava rides up the stone: a hot lip over the cut (hiding its paper edge), its bright crest
+      c.save(); c.beginPath(); c.rect(x - w * 2, dy - 2.2, w * 4, w * 2); c.clip()
+      c.fillStyle = '#ee7e2e'; c.beginPath(); c.ellipse(x, dy + 0.4, w * 1.18, w * 0.4 + 2.6, 0, 0, TAU); c.fill()
+      c.restore()
+      arc(x, dy - 2, w * 1.12, w * 0.32 + 1, 0.06, 'rgba(253,226,150,0.95)', 1.6)
+      c.fillStyle = 'rgba(252,214,120,0.95)'
+      const s = r() < 0.5 ? -1 : 1
+      c.beginPath(); c.arc(x + s * w * (1 + r() * 0.3), dy - 2 - r() * 3 - (f ? 2 : 0), 0.8 + r() * 0.5, 0, TAU); c.fill()
+    }
+  }, 0)
 }
 const GLOVE_T = 0.5         // s one punch takes to play out, cocked to sprung back
 const GLOVE_BASE_R = 34     // WEAPONS.springGlove's fist radius at level 1; a bigger one draws a bigger glove
@@ -456,6 +492,7 @@ export function createMantleFx({ ground, boat, top }) {
       boxGlove: paintBoxGlove(),
       stal: Array.from({ length: STAL_VARIANTS }, (_, v) => paintStalagmite(v)),
       stalSunk: Array.from({ length: STAL_VARIANTS }, (_, v) => paintStalagmite(v, true)),
+      stalLap: [0, 1].map((f) => Array.from({ length: STAL_VARIANTS }, (_, v) => paintStalLap(v, f))),
     }
     return A
   }
@@ -568,6 +605,7 @@ export function createMantleFx({ ground, boat, top }) {
         const sunk = !!run.lavaTide && mantleHeightAt(L, T.seed, o.x, o.y) < line
         if (!sunk) groundG.ellipse(o.x, o.y + 2 * k, o.r * 1.05, o.r * 0.36).fill({ color: C.ink, alpha: 0.28 })
         const sp = low.next((sunk ? P.stalSunk : P.stal)[stalVariant(o)]); sp.position.set(o.x, o.y); sp.scale.set(k)
+        if (sunk) { const lp = low.next(P.stalLap[Math.floor(t * 3 + o.x * 0.01) & 1][stalVariant(o)]); lp.position.set(o.x, o.y); lp.scale.set(k) }
       }
 
       // ---- the hammer's stamp, drawn off each pool's first moments (the floor paints the pool itself) ----
