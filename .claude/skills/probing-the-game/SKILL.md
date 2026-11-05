@@ -153,6 +153,11 @@ src path as argv). That also keeps the mutation rule intact — the working tree
   (2) **RUN INVOCATIONS ONE AT A TIME.** Two fx-probes launched in the same message both fail with
   `scene never became ready`; run sequentially and both pass unchanged. Shooting N look variants is
   therefore N sequential calls, not one parallel batch — budget the wall clock for it.
+  (3) **DO NOT EDIT `src/` WHILE A PROBE IS SHOOTING.** vite hot-reloads the page on the save, and
+  the frames after it are the loading screen and the title, written as if nothing happened — the
+  probe still reports `wrote 40 frame(s)`. On 2026-11-05 a sim.js edit made mid-batch turned one
+  variant of three into loading screens; it read as "this variant shows no effect". If a sheet shows
+  a loading bar, reshoot that variant alone.
 
   The three traps it exists to
   bake out, which cost real rounds in v6.7.7 and will again if you hand-roll a probe:
