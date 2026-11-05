@@ -144,20 +144,53 @@ function stalShape({ x, h, w, lean, dy }, sunk) {
   const foot = sunk ? [[x + w, dy], [x - w, dy]] : [[x + w, dy], [x + w * 0.5, dy + cap], [x - w * 0.5, dy + cap]]
   return { cap, top, sx, pts: [[x - w, dy], [x - w + sx, top], [x - w * 0.5 + sx, top - cap], [x + w * 0.5 + sx, top - cap], [x + w + sx, top], ...foot] }
 }
-function paintStalagmite(v, sunk = false) {
-  return bake(120, 150, 0.5, 0.82, (c) => {
-    for (const col of stalCols(v)) {
-      const { x, w, dy } = col, { cap, top, sx, pts } = stalShape(col, sunk)
-      hard(c, pts, STONE, 2.4)
-      hard(c, [[x - w, dy], [x - w + sx, top], [x - w * 0.15 + sx, top + cap * 0.6], ...(sunk ? [[x - w * 0.15, dy]] : [[x - w * 0.15, dy + cap * 0.9], [x - w * 0.5, dy + cap]])], STONE_LIT, 0)
-      hard(c, [[x - w + sx, top], [x - w * 0.5 + sx, top - cap], [x + w * 0.5 + sx, top - cap], [x + w + sx, top], [x + w * 0.5 + sx, top + cap], [x - w * 0.5 + sx, top + cap]], STONE_TOP, 1.8)
-      line(c, [[x - w * 0.15 + sx, top + cap * 0.7], [x - w * 0.15, dy + (sunk ? 0 : cap * 0.8)]], 1.1, { steady: true })
+// one column of a cluster, inked (sunk: cut flat, no foot)
+function paintStalCol(c, col, sunk) {
+  const { x, w, dy } = col, { cap, top, sx, pts } = stalShape(col, sunk)
+  hard(c, pts, STONE, 2.4)
+  hard(c, [[x - w, dy], [x - w + sx, top], [x - w * 0.15 + sx, top + cap * 0.6], ...(sunk ? [[x - w * 0.15, dy]] : [[x - w * 0.15, dy + cap * 0.9], [x - w * 0.5, dy + cap]])], STONE_LIT, 0)
+  hard(c, [[x - w + sx, top], [x - w * 0.5 + sx, top - cap], [x + w * 0.5 + sx, top - cap], [x + w + sx, top], [x + w * 0.5 + sx, top + cap], [x - w * 0.5 + sx, top + cap]], STONE_TOP, 1.8)
+  line(c, [[x - w * 0.15 + sx, top + cap * 0.7], [x - w * 0.15, dy + (sunk ? 0 : cap * 0.8)]], 1.1, { steady: true })
+}
+function paintStalagmite(v) {
+  return bake(120, 150, 0.5, 0.82, (c) => { for (const col of stalCols(v)) paintStalCol(c, col, false) })
+}
+// the cluster standing in the lava: the same inked, paper-edged sheet as on rock (cut flat), then
+// per column a warm glow just above the surface and a fade to nothing below it, so it goes INTO the
+// lava with no edge round its foot. Each column's band is masked off where a column in front of it
+// (and that one's ink and paper margin) stands, so a back column's fade never eats a front one.
+function paintStalSunk(v) {
+  const W = 120, H = 150, ax = 0.5, ay = 0.82, cols = stalCols(v)
+  const cv = mkCanvas(W * BRES, H * BRES), ctx = cv.getContext('2d')
+  ctx.scale(BRES, BRES); ctx.translate(W * ax, H * ay)
+  resetXf(); for (const col of cols) paintStalCol(ctx, col, true); resetXf()
+  const ed = paperEdge(cv, 1.5 * BRES), ec = ed.getContext('2d')
+  const band = (col, y0, y1, c0, c1) => {
+    const m = mkCanvas(W * BRES, H * BRES), mc = m.getContext('2d')
+    mc.setTransform(BRES, 0, 0, BRES, W * ax * BRES, H * ay * BRES)
+    const g = mc.createLinearGradient(0, y0, 0, y1); g.addColorStop(0, c0); g.addColorStop(1, c1)
+    mc.fillStyle = g; mc.fillRect(col.x - col.w * 2 - 10, y0, col.w * 4 + 20, 40)
+    mc.globalCompositeOperation = 'destination-out'; mc.fillStyle = '#000'; mc.strokeStyle = '#000'; mc.lineWidth = 9; mc.lineJoin = 'round'
+    for (const q of cols) {
+      if (q === col || q.dy <= col.dy) continue
+      const P = stalShape(q, true).pts
+      mc.beginPath(); mc.moveTo(P[0][0], P[0][1]); for (const [px, py] of P) mc.lineTo(px, py); mc.closePath(); mc.fill(); mc.stroke()
     }
-  })
+    return m
+  }
+  for (const col of cols) {
+    const glow = band(col, col.dy - 16, col.dy, 'rgba(255,110,40,0)', 'rgba(255,110,40,0.6)')
+    ec.globalCompositeOperation = 'source-atop'; ec.drawImage(glow, 0, 0); freeCanvas(glow)
+    const cut = band(col, col.dy - 4.5, col.dy + 0.5, 'rgba(0,0,0,0)', 'rgba(0,0,0,1)')
+    ec.globalCompositeOperation = 'destination-out'; ec.drawImage(cut, 0, 0); freeCanvas(cut)
+  }
+  ec.globalCompositeOperation = 'source-over'
+  return { tex: new Texture({ source: new CanvasSource({ resource: ed, resolution: BRES }) }), ax, ay }
 }
 // the lava lapping at a sunk cluster, frame f (two frames swap to make it move), drawn over the sunk
 // bake with no paper edge: two ripple rings round the whole foot, wider on frame 1; then per column,
-// back row first, its stone wipes what lies behind it and it gets a bright waterline and a spatter
+// back row first, its stone wipes what lies behind it and it gets a thin bright line where the lava
+// meets it and a spatter
 function paintStalLap(v, f) {
   return bake(160, 150, 0.5, 0.82, (c) => {
     const cols = stalCols(v), r = rng(v * 31 + f * 7 + 1)
@@ -172,14 +205,10 @@ function paintStalLap(v, f) {
       c.save(); c.globalCompositeOperation = 'destination-out'
       c.beginPath(); c.moveTo(P[0][0], P[0][1]); for (const [px, py] of P) c.lineTo(px, py); c.closePath(); c.fill()
       c.restore()
-      // the lava rides up the stone: a hot lip over the cut (hiding its paper edge), its bright crest
-      c.save(); c.beginPath(); c.rect(x - w * 2, dy - 2.2, w * 4, w * 2); c.clip()
-      c.fillStyle = '#ee7e2e'; c.beginPath(); c.ellipse(x, dy + 0.4, w * 1.18, w * 0.4 + 2.6, 0, 0, TAU); c.fill()
-      c.restore()
-      arc(x, dy - 2, w * 1.12, w * 0.32 + 1, 0.06, 'rgba(253,226,150,0.95)', 1.6)
+      arc(x, dy - 4, w * 1.02, w * 0.16, 0.08, 'rgba(255,232,160,0.95)', 1.4)
       c.fillStyle = 'rgba(252,214,120,0.95)'
       const s = r() < 0.5 ? -1 : 1
-      c.beginPath(); c.arc(x + s * w * (1 + r() * 0.3), dy - 2 - r() * 3 - (f ? 2 : 0), 0.8 + r() * 0.5, 0, TAU); c.fill()
+      c.beginPath(); c.arc(x + s * w * (1 + r() * 0.3), dy - 3 - r() * 3 - (f ? 2 : 0), 0.8 + r() * 0.5, 0, TAU); c.fill()
     }
   }, 0)
 }
@@ -491,7 +520,7 @@ export function createMantleFx({ ground, boat, top }) {
       pool: [0, 1, 2].map((v) => paintPuddle(v, 'lava')),
       boxGlove: paintBoxGlove(),
       stal: Array.from({ length: STAL_VARIANTS }, (_, v) => paintStalagmite(v)),
-      stalSunk: Array.from({ length: STAL_VARIANTS }, (_, v) => paintStalagmite(v, true)),
+      stalSunk: Array.from({ length: STAL_VARIANTS }, (_, v) => paintStalSunk(v)),
       stalLap: [0, 1].map((f) => Array.from({ length: STAL_VARIANTS }, (_, v) => paintStalLap(v, f))),
     }
     return A
