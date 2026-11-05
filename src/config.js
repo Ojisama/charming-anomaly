@@ -10169,7 +10169,8 @@ CHAPTERS.mantle = {
   },
   // balance_decision : stalagmites on rock and lava, first guess 2026-11-04
   obstacles: { kind: 'stalagmite', count: 10, cell: 480, minR: 22, maxR: 34, minDist: 260 },
-  balance: { spawnMul: 0.8, enemyDmgMul: 0.7, enemyHpMul: 1.05, xpMul: 1.2, maxAliveMul: 0.66 },
+  // balance_decision : keeps The Mantle easier than The Core, spawns follow ground 2026-11-05
+  balance: { spawnMul: 0.7, enemyDmgMul: 0.6, enemyHpMul: 1.05, xpMul: 1.2, maxAliveMul: 0.66 },
   render: {
     cast: ['emberImp', 'magmaToad', 'basaltGolem', 'obsidianBeetle', 'magmaEel', 'lavaRay', 'emberJelly', 'brimstoneDragon'],
     bgColor: 0x2b1a12,     // under the toon floor (never seen: the floor covers the view)
