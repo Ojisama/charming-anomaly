@@ -3492,7 +3492,6 @@ export function createRun(meta, opts = {}) {
     // land on pickups that are almost always worth 1, so rounding each one on its own quantised
     // every bonus in the game to an integer — see stepPickups, which carries this instead.
     _coinCarry: 0,
-    _coinsDropped: 0, // endless: worth of the coins dropped so far (value x coinMul), spent against endlessCoinBudget(run.time) (config.js)
     levelUpChoices: null,
     viewRadius: 600,       // half screen diagonal, updated by main each frame; spawn enemies at viewRadius + SPAWN_RING from player
     // v6.6.24: the half-EXTENTS of the same viewport, updated by main alongside viewRadius. The

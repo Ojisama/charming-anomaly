@@ -68,7 +68,7 @@ import {
   BOOKS, BOOK_ORDER, BOOK_SHOP, shopLines, BOOK_UNLOCKS, playableChapterId, isWipChapter, chapterAvailable, titleBookshelf, bossOnShelf, CHAPTER_SPINE, isHiddenChapter, nextBook, bookOf, chapterNumber,
   DMG_SRC_NAME, dmgSrcName, DMG_SRC_ART, dmgSrcArt, DMG_SRC_NO_ART, POLE_NAMES,
   DEATH_OUTRO, irisCoverMul, deathProgress, LANE_CAMERA_FRAC,
-  endlessLevel, endlessCoinBudget, ENDLESS_START_LEVEL, endlessHpMul, endlessXpNeedMul, endlessXpMul, endlessAffixChance, endlessEligible, endlessUnlocked, ENDLESS_AFFIX_FROM, ENDLESS_AFFIX_MAX,
+  endlessLevel, endlessCoinDropMul, ENDLESS_START_LEVEL, endlessHpMul, endlessXpNeedMul, endlessXpMul, endlessAffixChance, endlessEligible, endlessUnlocked, ENDLESS_AFFIX_FROM, ENDLESS_AFFIX_MAX,
   CHAPTERS, CHAPTER_ORDER, nextChapter, CHAPTER_UNLOCK_DIFFICULTY, SUBMISSION_DURATION, SUBMISSION_STRIP_FLAGS,
   RUNOFF_MAX_DMG_MUL, RUNOFF_SPEED_FLOOR,
   ELEMENTS, CONSUMABLES,
@@ -791,27 +791,19 @@ function testEndlessCoins() {
   const c0 = run._endlessBase.coinMul
   advance(run, 120, 1 / 30, { x: 1, y: 0 })
   assert.ok(run.time > 100 && run.mods.coinMul === c0, `a coin's value must not decay: ${run.mods.coinMul} != ${c0} at t=${run.time}`)
-  // drops follow the clock's budget, not the kill count: every kill pays until the budget is spent
-  const drops = (t, kills, endless = true, elite = false) => {
+  // the DROPS thin: the same 4000 drone kills at 0:00 and 4:00 (1 / (2 x 4))
+  assert.ok(endlessCoinDropMul(10) === 1 && endlessCoinDropMul(30) === 1 && Math.abs(endlessCoinDropMul(300) - 0.1) < 1e-9, 'the drop chance must be 1 / (2 x minutes), capped at 1')
+  const drops = (t, endless = true) => {
     const r = createRun(makeMeta(), { chapter: 'body', endless })
     r.time = t
-    for (let i = 0; i < kills; i++) dealDamage(r, makeStatusEnemy(r, { x: r.player.x + 100, y: r.player.y, hp: 1, elite }), 1e6, false)
-    assert.equal(r.kills, kills, 'every fixture kill must land')
+    for (let i = 0; i < 4000; i++) dealDamage(r, makeStatusEnemy(r, { x: r.player.x + 100, y: r.player.y, hp: 1 }), 1e6, false)
+    assert.equal(r.kills, 4000, 'every fixture kill must land')
     return r.coins.length
   }
-  const budget1 = Math.floor(endlessCoinBudget(60)), budget15 = Math.floor(endlessCoinBudget(900)), budget30 = Math.floor(endlessCoinBudget(1800))
-  assert.ok(budget15 >= 1500 && budget15 <= 2100 && budget30 >= 4500 && budget30 <= 5500, `budget ${budget15} at 15:00, ${budget30} at 30:00`)
-  assert.equal(drops(60, 4000), budget1, 'a horde must stop at the 1:00 budget')
-  assert.equal(drops(900, 5), 5, 'under budget, every kill drops a coin')
-  assert.equal(drops(60, 400, true, true), budget1, 'an elite pile spends the same budget')
-  // richer coins do not raise the income: at coinMul 2 half as many fall
-  const rich = createRun(makeMeta(), { chapter: 'body', endless: true })
-  rich.time = 60
-  rich.mods.coinMul = 2
-  for (let i = 0; i < 400; i++) dealDamage(rich, makeStatusEnemy(rich, { x: rich.player.x + 100, y: rich.player.y, hp: 1 }), 1e6, false)
-  assert.equal(rich.coins.length, Math.floor(endlessCoinBudget(60) / 2), 'a coinMul mutator must spend the budget faster')
-  const normalDrops = drops(60, 4000, false)
-  assert.ok(normalDrops > 330 && normalDrops < 470, `control: a normal run keeps its coinChance, dropped ${normalDrops}`)
+  const early = drops(0), thinned = drops(240), normalDrops = drops(240, false)
+  assert.ok(early > 330 && early < 470, `drones at t=0 dropped ${early}, want ~400`)
+  assert.ok(thinned > 28 && thinned < 72, `drones at t=240 dropped ${thinned}, want ~50`)
+  assert.ok(normalDrops > 330 && normalDrops < 470, `control: a normal run does not thin, dropped ${normalDrops}`)
   // every coin picked up moves the counter, however late: 30 minutes in, one pickup at a time
   const late = createRun(makeMeta(), { chapter: 'body', endless: true })
   late.player.hp = late.player.maxHP = 1e12
@@ -836,7 +828,7 @@ function testEndlessCoins() {
   const normal = createRun(makeMeta(), { chapter: 'body' })
   normal.player.hp = normal.player.maxHP = 1e12
   assert.ok(over(normal) <= COIN_CAP_PER_RUN, 'control: a normal run must stay capped')
-  console.log(`PASS run EN.e (endless coins): budget ${budget1} at 1:00, ${budget15} at 15:00, ${budget30} at 30:00; earned -> ${after}`)
+  console.log(`PASS run EN.e (endless coins): 4000 kills drop ${early} coins at 0:00, ${thinned} at 4:00; earned -> ${after}`)
 }
 
 // run EN.g: the Mine's gas blast keeps pace with endless HP growth (owner, 2026-10-16). One lit pocket on
