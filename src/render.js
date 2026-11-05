@@ -33078,7 +33078,7 @@ void main() {
       // here too, on the same argument — a body that had lost you held the heading it took before,
       // and the lane scroll carried it past. Deleted with the weapon.)
       const facesOwnHeading = (e.allyT || 0) > 0 ||
-        (e.flags && e.flags.includes('cruise')) ||
+        (e.flags && (e.flags.includes('cruise') || e.flags.includes('swoop'))) ||
         CHAPTERS[run.chapter]?.passiveCrowd === true
       if (facesOwnHeading && (e._tgtX !== undefined)) {
         tdx = e._tgtX - e.x

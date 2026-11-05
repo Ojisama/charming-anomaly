@@ -10128,7 +10128,7 @@ CHAPTERS.mantle = {
     { id: 'obsidianBeetle',  archetype: 'fast',   name: 'Obsidian Beetle',  hpMul: 1.2 * 1.3, speedMul: 1.0, flags: ['split'], habitat: 'rock' },
     { id: 'basaltGolem',     archetype: 'tank',   name: 'Basalt Golem',     hpMul: 1.92 * 1.3, speedMul: 0.7, radiusMul: 1.15, flags: ['unshakeable'], habitat: 'rock' },
     // The elite. eliteOnly: every elite in this chapter is a dragon, and it flies over the lava.
-    { id: 'brimstoneDragon', archetype: 'fast',   name: 'Brimstone Dragon', hpMul: 2.5 * 1.3, speedMul: 1.0, radiusMul: 1.25, flags: ['weave', 'flying'], eliteOnly: true },
+    { id: 'brimstoneDragon', archetype: 'fast',   name: 'Brimstone Dragon', hpMul: 2.5 * 1.3, speedMul: 1.0, radiusMul: 1.25, flags: ['weave', 'flying', 'swoop'], eliteOnly: true },
   ],
   eliteFlags: [],
   signature: {
@@ -14738,6 +14738,9 @@ export const SPLIT_DMG_MUL = 1        // ...and its contact damage
 // and it needs no telegraph precisely because nothing about it is sudden.
 export const WEAVE_AMP = 0.55   // rad, peak deviation of the heading from straight-at-you
 export const WEAVE_FREQ = 3.1   // rad/s of the weave's own sine — about one full S every 2s
+// swoop: the body keeps a heading and turns toward you at most SWOOP_TURN rad/s, so a sidestep makes it overshoot
+// balance_decision : brimstone dragon swoops instead of tracking pixel-perfect 2026-11-05
+export const SWOOP_TURN = 2.2
 // dashBurst (e.g. pond's tadpole): alternates idle (slow) <-> dash (fast) toward the
 // player, both still along the normal seek direction — see stepEnemyMovement in sim.js.
 //

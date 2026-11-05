@@ -906,7 +906,7 @@ export function createMantleFx({ ground, boat, top }) {
       for (const g of gloves) if (onScreen(g.tx, g.ty, 120)) glove(g, p, P)
 
       // ---- the pinball coal: an ink trail behind each coal, a ping star where it bounces, and a Bumper's
-      // flash (a hot glow round the stalagmite, ink rays out of it) ----
+      // flash (an inked ring growing out of the stalagmite to its reach) ----
       for (const b of run.bullets ?? []) {
         if (b.weapon !== 'coal' || !onScreen(b.x, b.y, 60)) continue
         const v = hyp(b.vx, b.vy) || 1, ux = b.vx / v, uy = b.vy / v, nx = -uy, ny = ux
@@ -922,12 +922,10 @@ export function createMantleFx({ ground, boat, top }) {
         const k = g.t / 0.35
         const st = tools.next(P.star); st.position.set(g.x, g.y); st.rotation = g.x; st.scale.set(0.34 * (1 - k * k))
         if (g.bumper > 0) {
-          groundG.circle(g.ox, g.oy, g.bumper).fill({ color: C.lavaGlow, alpha: 0.4 * (1 - k) })
-          for (let i = 0; i < 8; i++) {
-            const a = (i / 8) * TAU + g.ox * 0.01, r0 = g.bumper * (0.55 + 0.3 * k), r1 = g.bumper * (0.85 + 0.3 * k)
-            topG.moveTo(g.ox + Math.cos(a) * r0, g.oy + Math.sin(a) * r0).lineTo(g.ox + Math.cos(a) * r1, g.oy + Math.sin(a) * r1)
-          }
-          topG.stroke({ width: 3, color: C.ink, alpha: 1 - k, cap: 'round' })
+          // one inked ring grows from the stalagmite out to the zap's reach
+          const r0 = g.bumper * 0.45, r = r0 + (g.bumper - r0) * Math.min(1, k * 1.6), a = 1 - k
+          topG.circle(g.ox, g.oy, r).stroke({ width: 5, color: C.ink, alpha: a })
+          topG.circle(g.ox, g.oy, r).stroke({ width: 2.4, color: C.lavaGlow, alpha: a })
         }
       }
 

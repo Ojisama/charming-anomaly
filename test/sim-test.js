@@ -24,6 +24,7 @@ import { magmaGroundAt, magmaRiverAt, magmaCooledAt, magmaHotAt } from '../src/s
 import { lavaFloodedAt, mantleHeightAt, lavaLineFor, mantleGroundAt } from '../src/sim.js'
 import { ECHO_DOUBLE_DELAY, ECHO_DOUBLE_DMG_FRAC, modPct, LODESTONE_HOLD } from '../src/config.js'
 import { LANTERN_FUSE, SAFETY_LAMP_SENSE, FIREBEND_R_PER_JET } from '../src/config.js'
+import { SWOOP_TURN } from '../src/config.js'
 import { LAVA_ANT } from '../src/config.js'
 import { SLIME_STEP, SLIME_R, SLIME_DUR, SLIME_MAX, SLIME_SPEED_MUL } from '../src/config.js'
 import { MANTLE_GROUND_STEP, MANTLE_START_DRY, MANTLE_COLD_VS_LAVA, MANTLE_FIRE_VS_ROCK, MANTLE_STRAND_FREE_T, MANTLE_STRAND_STUCK_T, MANTLE_STRAND_DMG_MUL, MANTLE_STRAND_SLOW, MANTLE_MELT_T, KETTLE_CRUST_GNAW, KETTLE_CRUST_GNAW_MAX, KETTLE_HULL_MAX, KETTLE_STEAM_MUL, DRAW_CAPS } from '../src/config.js'
@@ -21302,6 +21303,7 @@ run(testLeLargeWeapons)
   run(testOphanCrowdLooks)
   run(testOphanGauge)
   run(testMinimeLook)
+  run(testDragonSwoop)
   run(testDevSpecialistChooser)
   // A hand-typed filter that matched nothing is the silent pass without a parent watching:
   // `node test/sim-test.js supernova` printed ALL TESTS PASSED having run no scenario at all.
@@ -45730,4 +45732,25 @@ function testMinimeLook() {
   const bake = /T\.player|T\.pupil|holoPlayer|macroPlayer|liquidPlayer|pencilPlayer|playerSkin|playerTint/
   assert.ok(!bake.test(snap) && !bake.test(lures), 'the minime path names a player bake again: it must copy the picture (miniRT), never choose a look')
   console.log(`PASS run MM: minimes are a picture of the player; ${owners.length} of ${files.length} src modules draw their own player (${owners.join(', ')}) and each hands over a playerView`)
+}
+
+// run SW: the Mantle's dragon swoops (turn-limited) and is never recycled ahead of a runner
+function testDragonSwoop() {
+  const roster = CHAPTERS.mantle.roster.find((r) => r.id === 'brimstoneDragon')
+  assert.ok(roster.flags.includes('swoop'), 'the Brimstone Dragon lost its swoop flag')
+  const boot = () => { Math.random = mulberry32(20261105); const r = createRun(makeMeta(), { chapter: 'mantle', difficulty: 1 }); r.player.hp = r.player.maxHP = 1e6; return r }
+  const dragon = (r, x, y) => Object.assign(makeStatusEnemy(r, { x, y, hp: 1e6, speed: 185 }), { flags: [...roster.flags] })
+  const tick = (r, d, input) => { r.phase = 'playing'; r.enemies = [d]; stepSim(r, input, 1 / 60); r.events.length = 0 }
+  // (a) pointed AWAY from you, it must keep flying away while it comes round, not snap back
+  const r = boot(), p = r.player, d = dragon(r, p.x + 300, p.y)
+  d._swoopA = 0
+  for (let i = 0; i < 12; i++) tick(r, d, { x: 0, y: 0 })
+  const turned = Math.abs(Math.atan2(Math.sin(d._swoopA), Math.cos(d._swoopA)))
+  assert.ok(d.x > p.x + 300, `a swoop dragon pointed away moved toward you at once (x ${(d.x - p.x).toFixed(0)}), it is tracking pixel-perfect again`)
+  assert.ok(turned <= SWOOP_TURN * 12 / 60 + 1e-6 && turned > 0, `it turned ${turned.toFixed(3)} rad in 0.2s, limit is ${(SWOOP_TURN * 0.2).toFixed(3)}`)
+  // (b) left far behind a runner, it stays behind (the straggler recycle would put it ahead)
+  const r2 = boot(), d2 = dragon(r2, r2.player.x - 3000, r2.player.y)
+  for (let i = 0; i < 30; i++) tick(r2, d2, { x: 1, y: 0 })
+  assert.ok(d2.x < r2.player.x - 2000, `a swoop dragon 3000px behind a runner was moved to x ${(d2.x - r2.player.x).toFixed(0)} from the player: the straggler recycle teleported it`)
+  console.log(`PASS run SW: the dragon turns ${turned.toFixed(2)} rad in 0.2s (limit ${(SWOOP_TURN * 0.2).toFixed(2)}) and overshoots, and is never recycled ahead of a runner`)
 }

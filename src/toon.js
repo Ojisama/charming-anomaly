@@ -43,7 +43,7 @@ import { setPass } from './toon/brush.js'
 import { TOON_CAST } from './toon/cast.js'
 import { paintHero, HERO_BOX, HERO_FRAMES, HERO_SKINS } from './toon/hero.js'
 // the pinball coal drawn this much bigger than its bake, so its bounces can be followed
-const COAL_DRAW_SCALE = 1.9
+const COAL_DRAW_SCALE = 1.9 * 0.7   // owner: the coal 30% smaller 2026-11-05
 import {
   CHUNK, CHUNK_STEP, CHUNK_N, FX_N, FX_GHOSTS, FX_GHOST_T, CRUST_LIP, FLOOR_VERT, FLOOR_FRAG, FILM_VERT, FILM_FRAG, NOISE_N, bakeNoise, paintBubbleAtlas,
   paintCoal, paintPuff, paintGem, paintCoin, paintLick, paintDot, paintSweat, paintWade, paintDaze,
