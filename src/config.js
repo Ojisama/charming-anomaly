@@ -10091,6 +10091,8 @@ export const MANTLE_START_DRY = 0.9
 export const MANTLE_STRAND_STUCK_T = 1     // s stranded on rock until a lava creature is stone (cannot move)
 // balance_decision : habitat creatures keep off a player on the other ground 2026-11-04
 export const MANTLE_SHUN_R = 420           // px a lava creature backs off from a player on rock (a rock one from a player on lava)
+// balance_decision : spawns follow your ground, owner pick 2026-11-05
+export const MANTLE_SPAWN_HOME = 0.8       // chance a spawn of the other ground's habitat comes as one of yours instead
 export const MANTLE_STRAND_SLOW = 0.35     // x its movement the moment it is stranded (falls to 0 by STUCK_T)
 export const MANTLE_STRAND_HOLD_T = 5      // s it stays stone; killed while stranded it crumbles
 export const MANTLE_STRAND_THAW_T = 1      // s it takes to thaw (the turning played backwards)

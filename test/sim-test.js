@@ -42557,6 +42557,40 @@ function testMantleHabitat() {
     assert.ok(rockCome < -40, `run HB.k: a rock creature closes on a player on rock: gap ${rockCome.toFixed(0)}px`)
     console.log(`PASS run HB.k (keep away): in 2s lava creature +${lavaShun.toFixed(0)}px from you on rock, ${lavaCome.toFixed(0)}px to you in lava; rock creature +${rockShun.toFixed(0)}px / ${rockCome.toFixed(0)}px`)
   }
+  // (l) SPAWNS FOLLOW YOUR GROUND: most of what spawns can come for you, whichever ground you hold.
+  // The bodies are cleared every step so the cap never decides what is born.
+  {
+    const born = (seed, wantLava) => {
+      const r = boot(seed)
+      tick(r)
+      r.weapons = []
+      let at = { x: r.player.x, y: r.player.y }
+      if (wantLava) {
+        at = null
+        for (let d = 300; d < 6000 && !at; d += 40) for (let a = 0; a < 24 && !at; a++) {
+          const x = r.player.x + Math.cos(a * Math.PI / 12) * d, y = r.player.y + Math.sin(a * Math.PI / 12) * d
+          if ([0, 60, -60].every((o) => mantleGroundAt(r, x + o, y) === 2 && mantleGroundAt(r, x, y + o) === 2)) at = { x, y }
+        }
+        assert.ok(at, 'run HB.l precondition: open lava near the start')
+      }
+      const n = { rock: 0, lava: 0 }
+      for (let i = 0; i < 60 * 60; i++) {
+        r.player.x = at.x; r.player.y = at.y
+        tick(r)
+        for (const e of r.enemies) if (e.habitat) n[e.habitat]++
+        r.enemies = []
+        r._spawnQueue = []
+      }
+      assert.strictEqual(mantleGroundAt(r, at.x, at.y) > 0, wantLava, 'run HB.l precondition: the player stayed on the ground under test')
+      return n
+    }
+    const onRock = born(52010, false), inLava = born(52011, true)
+    const rockShare = (n) => n.rock / (n.rock + n.lava)
+    assert.ok(onRock.rock + onRock.lava >= 40 && inLava.rock + inLava.lava >= 40, `run HB.l: too few spawns to judge: ${JSON.stringify({ onRock, inLava })}`)
+    assert.ok(rockShare(onRock) > 0.55, `run HB.l: on rock most spawns are rock creatures: ${JSON.stringify(onRock)}`)
+    assert.ok(rockShare(inLava) < 0.3, `run HB.l: in lava most spawns are lava creatures: ${JSON.stringify(inLava)}`)
+    console.log(`PASS run HB.l (spawns follow your ground): on rock ${onRock.rock} rock / ${onRock.lava} lava; in lava ${inLava.rock} rock / ${inLava.lava} lava`)
+  }
   } finally { L.boats.chance = boats0 }
 }
 

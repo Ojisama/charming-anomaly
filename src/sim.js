@@ -270,7 +270,7 @@ import {
   HAMMER_RANGE, KETTLE_RANGE, KETTLE_LAVA_STEP, HAMMER_POOL_DPS, HAMMER_POOL_TICK, HAMMER_POOL_PLAYER_DPS, HAMMER_POOL_MIRE, GLOVE_BOWL_T, GLOVE_BOWL_MIN_V,
   MANTLE_COLD_VS_LAVA, MANTLE_FIRE_VS_ROCK,
   noiseAt,
-  MANTLE_GROUND_STEP, MANTLE_START_DRY, MANTLE_SHUN_R, MANTLE_STRAND_SLOW, MANTLE_STRAND_FREE_T, strandStone, MANTLE_STRAND_DMG_MUL,
+  MANTLE_GROUND_STEP, MANTLE_START_DRY, MANTLE_SHUN_R, MANTLE_SPAWN_HOME, MANTLE_STRAND_SLOW, MANTLE_STRAND_FREE_T, strandStone, MANTLE_STRAND_DMG_MUL,
   MANTLE_MELT_T, MANTLE_SPAWN_TRIES,
   KETTLE_CRUST_GNAW, KETTLE_CRUST_GNAW_MAX, KETTLE_STEAM_MUL, KETTLE_STEAM_R, KETTLE_HULL_COOL, KETTLE_HULL_MAX,
   SLING_LATCH_SHARE, IRON_BALL_R, IRON_BALL_LIFE, MOON_R, MOON_TUG_SWIRL, LODESTONE_FUSE, LODESTONE_SPREAD, LODESTONE_HOLD,
@@ -19443,6 +19443,7 @@ const groundSeq = (run) => (run.groundSeq = (run.groundSeq ?? 0) + 1)
 // Habitat rules run only with the tide on: with signature.lavaTide off there is no lava to live in.
 const habitatOn = (run) => !!(run.lavaTide && lavaTideSpec(run))
 const atHome = (e, g) => (g > 0) === (e.habitat === 'lava')
+const playerInLava = (run) => !!run.player.afloat || mantleGroundAt(run, run.player.x, run.player.y) > 0
 const habitatBody = (e) => !e._dead && !!e.habitat && !isAlly(e) && !flies(e)
 // A toad leaping out of the lava is in the air: no shore holds it and no strand clock runs, until it
 // lands. Once stranded, a leap is just a stranded body moving (it crawls like any other step).
@@ -19473,7 +19474,7 @@ function markHabitat(run) {
 function holdHabitat(run, dt) {
   if (!habitatOn(run)) return
   const p = run.player
-  const pLava = !!p.afloat || mantleGroundAt(run, p.x, p.y) > 0
+  const pLava = playerInLava(run)
   for (const e of run.enemies) {
     if (!habitatBody(e) || e._hx === undefined) continue
     if (e._hin && pLava !== (e.habitat === 'lava') && !leapingFree(e) && !(Math.hypot(e.kb.x, e.kb.y) > e.speed)) {
@@ -19550,12 +19551,19 @@ function findHabitatSpot(run, a0, dist, wantLava, rings = [1, 1.3, 1.7]) {
   }
   return null
 }
-// spawnEnemy's seat for a habitat creature: its own ground on the spawn ring; failing that, one of
-// the OTHER habitat, on its ground (the flood brings lava creatures, the ebb rock ones). null = leave it.
+// spawnEnemy's seat for a habitat creature: MANTLE_SPAWN_HOME of the spawns that would keep off you
+// come as a creature of your own ground instead, or the cap fills with bodies that never engage. Then
+// its own ground on the spawn ring; failing that, one of the OTHER habitat, on its ground (the flood
+// brings lava creatures, the ebb rock ones). null = leave it.
 function mantleSeat(run, roster, x, y) {
   const p = run.player
   const dist = Math.max(Math.hypot(x - p.x, y - p.y), run.viewRadius + SPAWN_RING)
   const a0 = Math.atan2(y - p.y, x - p.x)
+  if ((roster.habitat === 'lava') !== playerInLava(run) && Math.random() < MANTLE_SPAWN_HOME) {
+    const mine = otherHabitatEntry(run, roster)
+    const spot = mine && findHabitatSpot(run, a0, dist, mine.habitat === 'lava')
+    if (spot) return { roster: mine, swapped: true, ...spot }
+  }
   const at = findHabitatSpot(run, a0, dist, roster.habitat === 'lava')
   if (at) return { roster, swapped: false, ...at }
   const alt = otherHabitatEntry(run, roster)
