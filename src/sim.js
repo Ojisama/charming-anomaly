@@ -108,7 +108,7 @@ import {
   FLASHLIGHT_ENRAGE_T, FLASHLIGHT_SPEED_MUL, FLASHLIGHT_DMG_MUL,
   SNAP_TRAP_R, SNAP_TRAP_DMG, SNAP_TRAP_REARM,
   CLAW_BASE_CRIT, CLAW_DOUBLE_EVERY, CLAW_DOUBLE_DELAY, CLAW_DOUBLE_DMG_FRAC,
-  WEAVE_AMP, WEAVE_FREQ,
+  WEAVE_AMP, WEAVE_FREQ, SWOOP_TURN,
   QUILL_R, QUILL_RETALIATE_CD, QUILL_REBOUND_DMG_MUL, QUILL_REBOUND_SPEED_MUL,
   FEAR_SPEED_MUL, FEAR_REFRACTORY, SILT_DAZE_REFRACTORY, SILT_VEIL_ARC, UNSHAKEABLE_CC_MUL, CC_DR_STEP, CC_DR_RECOVER, CC_DR_FLOOR,
   SHRIEK_ECHO_DELAY, SHRIEK_ECHO_DMG_FRAC,
@@ -4985,7 +4985,7 @@ function stepStragglers(run) {
     // without this it is the one creature the recycler would keep teleporting back into your path,
     // which is the exact opposite of "it does not know you exist".
     if (e._dead || isAlly(e) || e._netted || (e.affixes && e.affixes.includes('anchored'))
-      || (e.flags && e.flags.includes('cruise'))) continue   // SUBMISSION: never yank an ally off its fight; _netted: the net has it
+      || (e.flags && (e.flags.includes('cruise') || e.flags.includes('swoop')))) continue   // SUBMISSION: never yank an ally off its fight; _netted: the net has it
     const dx = e.x - p.x, dy = e.y - p.y
     if (dx * dx + dy * dy < dropSq) continue
     const a = heading + (Math.random() - 0.5) * KITE_AHEAD_ARC
@@ -5512,8 +5512,20 @@ function stepEnemyMovement(run, dt) {
         uy = ux * s + uy * c
         ux = rx
       }
-      e.x += ux * step
-      e.y += uy * step
+      if (e.flags && e.flags.includes('swoop')) {
+        // a turn-limited heading, and no clamp to d: it flies THROUGH where you were, then comes round
+        const want = Math.atan2(uy, ux), cur = e._swoopA ?? want
+        const diff = Math.atan2(Math.sin(want - cur), Math.cos(want - cur)), mt = SWOOP_TURN * dt
+        e._swoopA = cur + Math.max(-mt, Math.min(mt, diff))
+        ux = Math.cos(e._swoopA); uy = Math.sin(e._swoopA)
+        e._tgtX = e.x + ux * 100; e._tgtY = e.y + uy * 100   // render faces it along its heading
+        const full = e.speed * affixSpeedMul * flagSpeedMul * slowMul * dt
+        e.x += ux * full
+        e.y += uy * full
+      } else {
+        e.x += ux * step
+        e.y += uy * step
+      }
     }
 
     if (rivF && !isAlly(e) && !lavaProof(e)) holdAtRiverBank(e, ox, oy, tx, ty, rivF, rivSeed, dt)
