@@ -44191,6 +44191,19 @@ function testOphanRig() {
   for (const k of ['blast', 'tornado', 'laser', 'wheel', 'recall', 'sword'])
     assert.ok(!ophanHits(k, RIG.attack(k, 0.05, 3, 0, -100, 76, 0, 190, 2), 0, 190, 12, 76, OPHAN_HIT).hit, `${k} hurts during its wind-up`)
   console.log('PASS run OP.rig: rig/hit pure, sword line hits on and misses beside, a spent line and every wind-up are harmless')
+  // run OP.oneSheet: the Magma cuts these attacks once per phase, so the aim must not move their bodies, wings or eyes
+  const pixelSrc = readFileSync(new URL('../src/ophan/painters/pixel.js', import.meta.url), 'utf8')
+  const one = pixelSrc.match(/ONE_SHEET = new Set\(\[(.*?)\]\)/)[1].match(/[a-z]+/g), kept = +pixelSrc.match(/KEPT = (\d+)/)[1]
+  assert.ok(one.includes('blast') && one.includes('laser'), 'the ONE_SHEET list was not read: ' + one)
+  const shape = (P) => JSON.stringify([P.body.m, P.wings.map((w) => w.m), P.eyes.map((e) => [e.x, e.y, e.r, e.open])])
+  let compared = 0
+  for (const atk of one) for (let u = 0; u <= 1; u += 0.05) {
+    const base = shape(RIG.pose(0, 3, atk, u, 0, 2))
+    for (const [gx, gy] of [[2, 0], [-1.4, -1.4], [0.5, -3], [-3, 1]]) { assert.strictEqual(shape(RIG.pose(0, 3, atk, u, gx, gy)), base, atk + ' at u ' + u + ' moves with the aim, so one sheet cannot show it'); compared++ }
+  }
+  const sheets = one.reduce((n, atk) => n + Object.values(CHAPTERS.ophan.attacks).filter((pool) => pool.includes(atk)).length, 0)
+  assert.strictEqual(sheets, kept, 'KEPT must be how many phases the ONE_SHEET attacks roll in: past it they crowd out the aimed sheets')
+  console.log('PASS run OP.oneSheet: ' + one.length + ' attacks, ' + compared + ' pose pairs identical at every aim, ' + sheets + ' sheets kept')
 }
 
 function testOphanShell() {
