@@ -6067,9 +6067,10 @@ export const ENDLESS_AFFIX_FROM = 3
 export const ENDLESS_AFFIX_PER_LEVEL = 0.07
 export const ENDLESS_AFFIX_MAX = 0.5
 export const endlessAffixChance = (d) => Math.min(ENDLESS_AFFIX_MAX, Math.max(0, (d - ENDLESS_AFFIX_FROM) * ENDLESS_AFFIX_PER_LEVEL))
-// balance_decision : endless drop chance is 1 / (2 x minutes), value untouched 2026-11-05
-export const ENDLESS_COIN_DROP_DIV = 2
-export const endlessCoinDropMul = (t) => Math.min(1, 60 / (ENDLESS_COIN_DROP_DIV * Math.max(1, t)))
+// balance_decision : endless drops full until 5:00, then 1 / (0.75 x minutes) 2026-11-06
+export const ENDLESS_COIN_DROP_FROM_S = 300
+export const ENDLESS_COIN_DROP_DIV = 0.75
+export const endlessCoinDropMul = (t) => t < ENDLESS_COIN_DROP_FROM_S ? 1 : 60 / (ENDLESS_COIN_DROP_DIV * t)
 // balance_decision : endless HP grows faster, was 0.15 2026-10-02
 export const ENDLESS_HP_GROWTH = 0.3
 export const endlessHpMul = (d) => Math.pow(1 + ENDLESS_HP_GROWTH, Math.max(1, d) - 1)

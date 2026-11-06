@@ -791,8 +791,8 @@ function testEndlessCoins() {
   const c0 = run._endlessBase.coinMul
   advance(run, 120, 1 / 30, { x: 1, y: 0 })
   assert.ok(run.time > 100 && run.mods.coinMul === c0, `a coin's value must not decay: ${run.mods.coinMul} != ${c0} at t=${run.time}`)
-  // the DROPS thin: the same 4000 drone kills at 0:00 and 4:00 (1 / (2 x 4))
-  assert.ok(endlessCoinDropMul(10) === 1 && endlessCoinDropMul(30) === 1 && Math.abs(endlessCoinDropMul(300) - 0.1) < 1e-9, 'the drop chance must be 1 / (2 x minutes), capped at 1')
+  // the DROPS thin after 5:00: the same 4000 drone kills at 4:00 and 10:00 (1 / (0.75 x 10))
+  assert.ok(endlessCoinDropMul(0) === 1 && endlessCoinDropMul(299) === 1 && Math.abs(endlessCoinDropMul(300) - 1 / 3.75) < 1e-9 && Math.abs(endlessCoinDropMul(600) - 1 / 7.5) < 1e-9, 'the drop chance must be 1 until 5:00, then 1 / (0.75 x minutes)')
   const drops = (t, endless = true) => {
     const r = createRun(makeMeta(), { chapter: 'body', endless })
     r.time = t
@@ -800,9 +800,9 @@ function testEndlessCoins() {
     assert.equal(r.kills, 4000, 'every fixture kill must land')
     return r.coins.length
   }
-  const early = drops(0), thinned = drops(240), normalDrops = drops(240, false)
-  assert.ok(early > 330 && early < 470, `drones at t=0 dropped ${early}, want ~400`)
-  assert.ok(thinned > 28 && thinned < 72, `drones at t=240 dropped ${thinned}, want ~50`)
+  const early = drops(240), thinned = drops(600), normalDrops = drops(600, false)
+  assert.ok(early > 330 && early < 470, `drones at t=240 dropped ${early}, want ~400`)
+  assert.ok(thinned > 30 && thinned < 76, `drones at t=600 dropped ${thinned}, want ~53`)
   assert.ok(normalDrops > 330 && normalDrops < 470, `control: a normal run does not thin, dropped ${normalDrops}`)
   // every coin picked up moves the counter, however late: 30 minutes in, one pickup at a time
   const late = createRun(makeMeta(), { chapter: 'body', endless: true })
@@ -828,7 +828,7 @@ function testEndlessCoins() {
   const normal = createRun(makeMeta(), { chapter: 'body' })
   normal.player.hp = normal.player.maxHP = 1e12
   assert.ok(over(normal) <= COIN_CAP_PER_RUN, 'control: a normal run must stay capped')
-  console.log(`PASS run EN.e (endless coins): 4000 kills drop ${early} coins at 0:00, ${thinned} at 4:00; earned -> ${after}`)
+  console.log(`PASS run EN.e (endless coins): 4000 kills drop ${early} coins at 4:00, ${thinned} at 10:00; earned -> ${after}`)
 }
 
 // run EN.g: the Mine's gas blast keeps pace with endless HP growth (owner, 2026-10-16). One lit pocket on
