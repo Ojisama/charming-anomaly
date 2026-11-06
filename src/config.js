@@ -3163,11 +3163,13 @@ export const WEAPONS = {
   // Hot Coals: a PINBALL. A red-hot coal tossed at the nearest foe (run.bullets, weapon 'coal', b._pin)
   // bounces off foes and obstacles (The Mantle's stalagmites) and hits harder after every bounce.
   // balance_decision : pinball rework, less dmg, bounces grow by cards 2026-11-04
+  // balance_decision : owner: starter -2 dmg at level 1 2026-11-06
+  //  - also lowers it in The Ophan's pool
   hotCoals: {
     name: 'Hot Coals',
     desc: 'Tosses a red-hot coal that bounces off foes and stalagmites like a pinball, hitting harder after every bounce.',
     icon: '🪨', rarity: 'normal',
-    levels: book3Levels({ dmg: 17, interval: 0.9, count: 1, speed: 460, bounces: 3 }),
+    levels: book3Levels({ dmg: 15, interval: 0.9, count: 1, speed: 460, bounces: 3 }),
   },
   // Crack Hammer: stamps the ground open under the closest walking foe in reach (run.lavaPools). Each
   // pool is lava for duration s: it melts rock creatures (fire), lava ones swim in it, and it burns you
@@ -4705,7 +4707,7 @@ export const WEAPON_MODS = {
     whiteHot:    { name: 'White Hot',    desc: 'coal damage', icon: '💥', base: 0.15, kind: 'pct' },
     buildingHeat: { name: 'Building Heat', desc: 'damage a coal gains each bounce', icon: '🌡️', base: 0.25, kind: 'pct' },
     bumper:      { name: 'Bumper',       desc: 'spark off a stalagmite the coal bounces off, hitting the foes beside it', icon: '💫', base: 0.25, kind: 'pct' },
-    rubberCoal:  { name: 'Rubber Coal',  icon: '🏀', kind: 'flat', maxPicks: 1, values: { rare: 1, epic: 1, legendary: 1, mythic: 1 },
+    rubberCoal:  { name: 'Rubber Coal',  icon: '🏀', kind: 'flat', maxPicks: 1, values: { rare: 1 },
                    desc: 'Bouncing off a stalagmite does not use up a bounce.',
                    descFor: () => 'Bouncing off a stalagmite does not use up a bounce.' },
     coalScuttle: { name: 'Coal Scuttle', desc: 'extra coal(s) per toss', icon: '🔷', kind: 'tier', values: { epic: 1, legendary: 2, mythic: 3 } },
@@ -10173,7 +10175,9 @@ CHAPTERS.mantle = {
   // balance_decision : stalagmites on rock and lava, first guess 2026-11-04
   obstacles: { kind: 'stalagmite', count: 10, cell: 480, minR: 22, maxR: 34, minDist: 260 },
   // balance_decision : keeps The Mantle easier than The Core, spawns follow ground 2026-11-05
-  balance: { spawnMul: 0.7, enemyDmgMul: 0.6, enemyHpMul: 1.05, xpMul: 1.2, maxAliveMul: 0.66 },
+  // balance_decision : owner: opening spawn rate +25%, ramp unchanged 2026-11-06
+  //  - spawnMul x spawnGrowthMul stays 0.7: moving one alone changes the ramp
+  balance: { spawnMul: 0.875, spawnGrowthMul: 0.8, enemyDmgMul: 0.6, enemyHpMul: 1.05, xpMul: 1.2, maxAliveMul: 0.66 },
   render: {
     cast: ['emberImp', 'magmaToad', 'basaltGolem', 'obsidianBeetle', 'magmaEel', 'lavaRay', 'emberJelly', 'brimstoneDragon'],
     bgColor: 0x2b1a12,     // under the toon floor (never seen: the floor covers the view)
