@@ -415,7 +415,10 @@ export function createOphanRenderer(host) {
           const ph = sk ? 4 : Math.max(1, OPHAN_ATTACKS[k].minPh), need = DEAR_ATK.has(id) ? 0 : sk ? 3 : first(k)
           // the Magma cuts an attack's frames as the fight first shows them, at the fight's own aim: one frame warms its draw
           if (FN) q(need, id + ':atk', at((s, R) => { wpx.grace = 0; window.OPH_PH = ph; boss(s, s.w / 2, s.h / 3, R, 0, ph, k, 0, s.w / 2, s.h / 3 + OPHAN_BOSS_HOLD * R / OPHAN_BOSS.R, wpx); shot(warmC) }))
-          else q(need, id + ':atk', at((s, R) => { window.OPH_PH = ph; boss(s, s.w / 2, s.h / 3, R, 0, ph, k, 0.5, s.w / 2, s.h * 0.72, wpx) }), () => shot(warmC))
+          // ...except the attacks with one sheet per phase, baked whole in the waves. Need 4: they never hold the boss's
+          // entry, a frame the waves did not reach is cut as first shown
+          if (FN && !sk && OPHAN[id].oneSheet.has(k)) for (let p = first(k); p <= 3; p++) for (let j = 0; j < FN; j++) q(4, id + ':atk', at((s, R) => { wpx.grace = 0; window.OPH_PH = p; boss(s, s.w / 2, s.h / 3, R, 0, p, k, j / (FN - 1), s.w / 2, s.h / 3 + OPHAN_BOSS_HOLD * R / OPHAN_BOSS.R, wpx); shot(warmC) }))
+          if (!FN) q(need, id + ':atk', at((s, R) => { window.OPH_PH = ph; boss(s, s.w / 2, s.h / 3, R, 0, ph, k, 0.5, s.w / 2, s.h * 0.72, wpx) }), () => shot(warmC))
         }
         if (sk) continue
         // the hole it comes up and goes down through: 30-90 ms a bake, dearer than a wave frame, so need 0 like every dear job

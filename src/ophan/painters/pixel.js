@@ -146,7 +146,7 @@ OPHAN.pixel = (() => {
   }
 
   const BUF = {}; const buf = (k, C, n) => { let b = BUF[k]; if (!b || b.length < n*n) b = BUF[k] = new C(n*n); return b.subarray(0, n*n); };   // scratch planes, grown to the largest size, never made again for a smaller one
-  function raster(R, t, ph, Pz, Lk, quick = false, o = [0, 0]){   // quick: the silhouette only (a ghost, tinted flat); o: where the body has moved to (boss units), the sprite is cut round it
+  function raster(R, t, ph, Pz, Lk, quick = false, o = [0, 0], crop = false){   // quick: the silhouette only (a ghost, tinted flat); o: where the body has moved to (boss units), the sprite is cut round it
     HMIN = 1.25/R; const P = build(t, ph, Pz, Lk); let ext = 1.9;
     if (o[0] || o[1]) for (const p of P){ p.pts = p.pts.map(([x, y]) => [x - o[0], y - o[1]]); if (p.sp) p.sp = p.sp.map(([x, y, ...r]) => [x - o[0], y - o[1], ...r]); if (p.ann) p.ann = [p.ann[0] - o[0], p.ann[1] - o[1], ...p.ann.slice(2)]; }   // the buffer grows to hold the rig's reach (the blast strike stretches the down pair past 3R)
     for (const p of P) for (const [x, y] of p.pts) ext = Math.max(ext, Math.abs(x) + .12, Math.abs(y) + .12);
@@ -254,6 +254,8 @@ OPHAN.pixel = (() => {
     const C2 = rgbOf(ofl > .3 ? '#ffd858' : spent ? '#7a1004' : '#d8340c'), C2h = rgbOf(ofl > .3 ? '#fff4c4' : spent ? '#d8340c' : '#ff6a14'), C3 = rgbOf(ofl > .3 ? '#ff6a14' : '#7a1004');
     for (let y = 0; y < n; y++) for (let k = y*n + Math.max(0, lo[y]); k <= y*n + hi[y]; k++){ const b = band[k]; if (b < 2) continue; const H = b === 3 ? C3 : heat[k] > .1 ? C2h : C2;
       d[k*4] = H[0]; d[k*4+1] = H[1]; d[k*4+2] = H[2]; d[k*4+3] = b === 2 ? (ofl > .3 ? 220 : 170) : (ofl > .3 ? 110 : 70); }
+    if (crop){ let x0 = n, x1 = -1, y0 = n, y1 = -1; for (let y = 0; y < n; y++) if (hi[y] >= lo[y]){ if (y < y0) y0 = y; y1 = y; if (lo[y] < x0) x0 = lo[y]; if (hi[y] > x1) x1 = hi[y]; }
+      const cv = mk(Math.max(1, x1 - x0 + 1), Math.max(1, y1 - y0 + 1)); cv.getContext('2d').putImageData(img, -x0, -y0, x0, y0, cv.width, cv.height); return { cv, n, x0, y0 }; }
     spr.getContext('2d').putImageData(img, 0, 0);
     return spr;
   }
@@ -273,23 +275,27 @@ OPHAN.pixel = (() => {
   // the least recently shown sheets past SHEET_MAX are dropped: an attack's key holds the aim, which moves with the player
   // through a cast, so a long fight would otherwise keep every aim it ever saw
   const SHEET_MAX = 24;
-  function sheet(c, key, Rr, ph, poseAt, all){ let S = SHEETS.get(key);
-    if (S) SHEETS.delete(key); else S = { Rr, ph, poseAt, F: [] };
+  // these attacks pose the same body at every aim (only the pupils read it): one sheet per phase, baked in the waves and
+  // never dropped. KEPT: how many such sheets the pools can hold (blast 3 phases, tornado 2, laser 2, recall 1)
+  // ponytail: the pupils hold their rest gaze through these attacks; a gaze per sheet would multiply the bakes
+  const ONE_SHEET = new Set(['blast', 'tornado', 'laser', 'recall']), KEPT = 8;
+  function sheet(c, key, Rr, ph, poseAt, all, keep = false){ let S = SHEETS.get(key);
+    if (S) SHEETS.delete(key); else S = { Rr, ph, poseAt, F: [], keep };
     SHEETS.set(key, S);
-    if (SHEETS.size > SHEET_MAX){ const [k0, S0] = SHEETS.entries().next().value; SHEETS.delete(k0); for (const F of S0.F) if (F) for (const v of Object.values(F)) if (v instanceof HTMLCanvasElement) c.forget?.(v); }
+    if (SHEETS.size > SHEET_MAX + KEPT){ const [k0, S0] = [...SHEETS].find(([, s]) => !s.keep); SHEETS.delete(k0); for (const F of S0.F) if (F) for (const v of Object.values(F)) if (v instanceof HTMLCanvasElement) c.forget?.(v); }
     if (all) for (let i = 0; i < FN; i++) frame(S, i);   // all: the idle loop in the warm-up (px2d's grace), the whole run at once and no smear (it draws none)
     return S; }
   let BK = 0;   // frames baked so far
   function frame(S, i, cols = []){ let F = S.F[i];   // frame i, rastered when first shown (a whole sheet at once was a 100-330 ms phone frame mid-attack); cols: its smear tints too
-    if (!F){ const q = RIG.calm(() => S.poseAt(i)), s = raster(S.Rr, q.t, S.ph, q.P, look(q.P), false, q.o), cv = mk(N, N); cv.getContext('2d').drawImage(s, 0, 0); F = S.F[i] = { full: cv, P: q.P, o: q.o }; BK++; }
-    for (const col of cols) if (!F[col]){ const w = F.full.width, gc = (F[col] = mk(w, w)).getContext('2d'); gc.drawImage(F.full, 0, 0); gc.globalCompositeOperation = 'source-in'; gc.fillStyle = col.replace('~', ''); gc.fillRect(0, 0, w, w);
-      if (col[0] === '~'){ gc.globalCompositeOperation = 'destination-out'; gc.fillStyle = gc.createPattern(DITH, 'repeat'); gc.fillRect(0, 0, w, w); }   // '~': the tint dithered, every other art pixel
+    if (!F){ const q = RIG.calm(() => S.poseAt(i)), s = raster(S.Rr, q.t, S.ph, q.P, look(q.P), false, q.o, true); F = S.F[i] = { full: s.cv, n: s.n, x0: s.x0, y0: s.y0, P: q.P, o: q.o }; BK++; }   // cut to what it paints: the sword's cell is a huge square round a thin blade
+    for (const col of cols) if (!F[col]){ const w = F.full.width, h = F.full.height, gc = (F[col] = mk(w, h)).getContext('2d'); gc.drawImage(F.full, 0, 0); gc.globalCompositeOperation = 'source-in'; gc.fillStyle = col.replace('~', ''); gc.fillRect(0, 0, w, h);
+      if (col[0] === '~'){ gc.globalCompositeOperation = 'destination-out'; gc.fillStyle = gc.createPattern(DITH, 'repeat'); gc.fillRect(0, 0, w, h); }   // '~': the tint dithered, every other art pixel
       BK++; }
     return F; }
   const loopI = (t) => { const f = Math.floor(t*10) % (2*(FN - 1)); return f < FN ? f : 2*(FN - 1) - f; };   // the idle loop runs forward then back: no seam
   function place(c, x, y, R, t, ph, S, i, ghosts = []){   // S, i: the sheet and this instant's frame; ghosts: [[frame, alpha, colour]], the smear where the body just was
     const b0 = BK, fr = (j, cols) => { const F = frame(S, j, cols); if (BK !== b0 && typeof c.grace === 'number') c.grace = Math.max(c.grace, 1); return F; };   // a frame's first showing is its bake, not per-frame work (px2d)
-    const { P, o, full } = fr(i), k = AP(), M = full.width;
+    const { P, o, n: M } = fr(i), k = AP();
     const T = c.getTransform(), Lk = look(P), Rb = R*T.a, Mk = M*k, sn = (v) => Math.round(v/k)*k;   // on the CRT's art grid
     c.save(); c.setTransform(1,0,0,1,0,0); c.imageSmoothingEnabled = false;
     { const sh = shade(Rb/k, ph), F = P.body.ground || P.body.floor, py = P.body.pivot[1]*Rb, hs = P.halo.scale, n2 = sh.width*k/2;   // its rest shape's shadow, on the floor: it stays when the body lifts, folds or flies
@@ -298,8 +304,8 @@ OPHAN.pixel = (() => {
     // shortcut: the sheets are baked on the plain hover (RIG.calm), so the flight's poses (cock, fold, flare, ground) and its bank
     // never reach this world, only its live height over the shadow; bake them as sheets of their own if they must read here
     const dL = RIG.fly.on && !RIG.fly.atk ? RIG.fly.lift + .1 : 0;
-    const cell = (j, col) => { const F = fr(j, [col]), n = F[col].width, nk = n*k, og = F.o, gx = sn(T.a*x + T.e - nk/2 + og[0]*Rb), gy = sn(T.d*y + T.f - nk/2 + (og[1] + dL)*Rb);   // each frame its own size (the strike reaches further), centred as it was in the sheet's cell
-      c.drawImage(F[col], 0, 0, n, n, gx, gy, nk, nk); return [gx, gy]; };
+    const cell = (j, col) => { const F = fr(j, [col]), w = F[col].width, h = F[col].height, nk = F.n*k, og = F.o, gx = sn(T.a*x + T.e - nk/2 + og[0]*Rb), gy = sn(T.d*y + T.f - nk/2 + (og[1] + dL)*Rb);   // each frame its own size (the strike reaches further), centred as it was in the sheet's cell
+      c.drawImage(F[col], 0, 0, w, h, gx + F.x0*k, gy + F.y0*k, w*k, h*k); return [gx, gy]; };
     for (const [j, al, col] of ghosts){ c.globalAlpha = al; cell(j, col); c.globalAlpha = 1; }
     const ox = sn(T.a*x + T.e - Mk/2 + o[0]*Rb), oy = sn(T.d*y + T.f - Mk/2 + o[1]*Rb);
     const cx = ox + Mk/2, cy = oy + Mk/2, gr = Rb*1.7, g = c.createRadialGradient(cx, cy, 0, cx, cy, gr);   // its heat lights the floor
@@ -629,6 +635,7 @@ OPHAN.pixel = (() => {
 
   return {
     frames: FN,   // a sheet's length: the warm-up bakes one frame per job
+    oneSheet: ONE_SHEET,
     boss(c, x, y, R, t, ph = 3){ const Rr = R*c.getTransform().a/AP();
       place(c, x, y, R, t, ph, sheet(c, ['idle', Math.round(Rr), ph].join(), Rr, ph, (j) => ({ P: RIG.pose(j/10, ph), t: j/10, o: [0, 0] }), c.grace > 0), loopI(t)); },
     attack(c, x, y, R, t, ph = 3, atk, u, px, py){
@@ -636,10 +643,10 @@ OPHAN.pixel = (() => {
       if (atk === 'slap') A.snap = RIG.slapSnap(A, u, x, y, R);
       // the sword's, the tornado's and the slap's bodies ignore the aim's distance (only the eyes' gaze read it), so their sheets are cut at the hold distance
       // (config OPHAN_BOSS_HOLD, 2 R): one per direction, not one per direction and step of the player's range
-      const an = Math.round(Math.atan2(gy, gx)/(TAU/16)), dq = atk === 'sword' || atk === 'tornado' || atk === 'slap' ? 2 : Math.max(.5, Math.round(Math.hypot(gx, gy)*2)/2), qx = Math.cos(an*TAU/16)*dq, qy = Math.sin(an*TAU/16)*dq;   // the aim the sheet was cut at
+      const one = ONE_SHEET.has(atk), an = one ? 4 : Math.round(Math.atan2(gy, gx)/(TAU/16)), dq = one || atk === 'sword' || atk === 'slap' ? 2 : Math.max(.5, Math.round(Math.hypot(gx, gy)*2)/2), qx = Math.cos(an*TAU/16)*dq, qy = Math.sin(an*TAU/16)*dq;   // the aim the sheet was cut at
       const Rr = R*c.getTransform().a/AP(), mv = atk === 'wheel' || atk === 'sword';
       const S = sheet(c, [atk, Math.round(Rr), ph, an, dq].join(), Rr, ph, (j) => { const uq = j/(FN - 1), Q = RIG.pose(0, ph, atk, uq, qx, qy);
-        if (atk === 'sword') Q.swd = { A: RIG.attackUnit(atk, uq, ph, qx, qy, 0, Q), u: uq }; return { P: Q, t: 0, o: mv ? [Q.body.ox, Q.body.oy] : [0, 0] }; });   // never whole: its key holds the aim, which the fight almost never repeats; each frame is cut as first shown
+        if (atk === 'sword') Q.swd = { A: RIG.attackUnit(atk, uq, ph, qx, qy, 0, Q), u: uq }; return { P: Q, t: 0, o: mv ? [Q.body.ox, Q.body.oy] : [0, 0] }; }, false, one);   // never whole in the fight: each frame is cut as first shown, unless the waves got to it first
       const fi = (v) => Math.round(Math.max(0, v)*(FN - 1)), sp = atk === 'tornado' ? b.spin : 0;
       const gh = atk === 'slap' ? A.trail.map((g, j) => [Math.max(0, fi(u) - 1 - j), Math.min(1, 1.2*g.al), '~' + ['#ffa22a', '#d8340c', '#7a1004'][j]]).reverse()   // the whip: its wing's last frames, dithered, hot to cooled
         : sp > .05 ? [[fi(u - .003), .3*sp, GHOST[0]], [fi(u - .0015), .45*sp, GHOST[1]]]   // the top's smear: where it just turned
