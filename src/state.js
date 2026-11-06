@@ -2370,6 +2370,8 @@ function generateWells(sig) {
  *   Obstacles: kind 'stalagmite' (CHAPTERS.mantle.obstacles), a cluster of basalt columns standing on
  *     rock or in the tide; drawn by src/toon/mantle-fx.js, under the crowd like every obstacle.
  *   Novas: any nova may carry heat 'fire' | 'cold' (sim.js heatMul).
+ *   Crack Hammer: {type:'hammerStamp', x, y, r} a stamp on a foe too close to you for a pool, drawn by
+ *     src/toon/mantle-fx.js with a pool's swing; the cast's 'shoot' carries the sound.
  *   Spring Glove: {type:'punch', x, y, tx, ty, r, angle} one glove's punch at tx, ty (r: the fist's
  *     radius), drawn by src/toon/mantle-fx.js, sounded as 'shoot'. With Bowling Punch a punched foe carries
  *     _bowl { t, dmg, hit: [ids] } and its id sits in run._bowled while it flies (sim.js

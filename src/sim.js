@@ -13007,7 +13007,7 @@ function pickBloomSpots(run, n, castRange, nearest = false) {
   const p = run.player
   const rangeSq = castRange * castRange
   const inRange = enemiesNear(run, p.x, p.y, castRange).filter((e) => {
-    if (e._dead || isAlly(e) || e.burrowed) return false   // SUBMISSION: never mark your own ally
+    if (e._dead || isAlly(e) || e.burrowed || e._scribbleT > 0) return false   // SUBMISSION: never mark your own ally
     const dx = e.x - p.x, dy = e.y - p.y
     return dx * dx + dy * dy <= rangeSq
   })
@@ -19747,23 +19747,22 @@ function stepHotCoalsWeapon(run, w, stats, fireRateMul, dt) {
 // -- Crack Hammer ------------------------------------------------------------------------------------
 // Stamps the ground open under the closest foes in HAMMER_RANGE, one pool per foe, nearest first and
 // a pool apart: the stamp hits what stands there (fire), and a lava pool opens for `duration` s.
-// Never under you: a foe whose pool's widest rim would reach your body is skipped.
+// Never under you: on a foe whose pool's widest rim would reach your body the stamp lands and no pool opens.
 function hammerSpots(run, n, r) {
   const p = run.player
   const near = []
   const clear = r * POOL_RIM_MAX + PLAYER.radius
   for (const e of enemiesNear(run, p.x, p.y, HAMMER_RANGE)) {
     if (e._dead || isAlly(e) || flies(e)) continue   // a flyer has no ground under it to crack
-    if ((e.x - p.x) ** 2 + (e.y - p.y) ** 2 < clear * clear) continue
     const d = (e.x - p.x) ** 2 + (e.y - p.y) ** 2
     if (d <= HAMMER_RANGE * HAMMER_RANGE) near.push([d, e])
   }
   near.sort((a, b) => a[0] - b[0])
   const spots = []
-  for (const [, e] of near) {
+  for (const [d, e] of near) {
     if (spots.length >= n) break
     if (spots.some((s) => (s.x - e.x) ** 2 + (s.y - e.y) ** 2 < r * r)) continue
-    spots.push({ x: e.x, y: e.y })
+    spots.push({ x: e.x, y: e.y, pool: d >= clear * clear })
   }
   return spots
 }
@@ -19773,7 +19772,8 @@ function stepCrackHammerWeapon(run, w, stats, fireRateMul, dt) {
     const p = run.player
     const spots = hammerSpots(run, ipecacN(run, Math.round(stats.pools)), stats.r)
     for (const sp of spots) {
-      run.lavaPools.push({ x: sp.x, y: sp.y, r: stats.r, t: 0, dur: stats.duration, dps: stats.dmg * HAMMER_POOL_DPS, _tick: HAMMER_POOL_TICK, seq: groundSeq(run), ph: poolPhaseOf(sp.x, sp.y) })
+      if (sp.pool) run.lavaPools.push({ x: sp.x, y: sp.y, r: stats.r, t: 0, dur: stats.duration, dps: stats.dmg * HAMMER_POOL_DPS, _tick: HAMMER_POOL_TICK, seq: groundSeq(run), ph: poolPhaseOf(sp.x, sp.y) })
+      else run.events.push({ type: 'hammerStamp', x: sp.x, y: sp.y, r: stats.r })
       for (const e of enemiesNear(run, sp.x, sp.y, stats.r, true)) {
         if (e._dead || isAlly(e) || flies(e)) continue
         if ((e.x - sp.x) ** 2 + (e.y - sp.y) ** 2 > (stats.r + e.radius * 0.5) ** 2) continue
@@ -20187,7 +20187,7 @@ function nearestFree(run, range) {
   const p = run.player
   let best = null, bd = range * range
   for (const e of enemiesNear(run, p.x, p.y, range)) {
-    if (e._dead || isAlly(e) || e.latched || e.burrowed) continue
+    if (e._dead || isAlly(e) || e.latched || e.burrowed || e._scribbleT > 0) continue
     const q = (e.x - p.x) ** 2 + (e.y - p.y) ** 2
     if (q < bd) { bd = q; best = e }
   }

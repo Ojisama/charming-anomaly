@@ -3169,9 +3169,9 @@ export const WEAPONS = {
     icon: '🪨', rarity: 'normal',
     levels: book3Levels({ dmg: 17, interval: 0.9, count: 1, speed: 460, bounces: 3 }),
   },
-  // Crack Hammer: stamps the ground open under the thickest knot of ROCK creatures in reach
-  // (run.lavaPools). Each pool is lava for duration s: it melts rock creatures (fire), lava ones swim
-  // in it, and it burns you too.
+  // Crack Hammer: stamps the ground open under the closest walking foe in reach (run.lavaPools). Each
+  // pool is lava for duration s: it melts rock creatures (fire), lava ones swim in it, and it burns you
+  // too. A foe on you takes the stamp alone: no pool opens where it would reach you.
   crackHammer: {
     name: 'Crack Hammer',
     desc: 'Cracks the ground open under the nearest enemy. Its lava melts rock creatures, and burns you too.',

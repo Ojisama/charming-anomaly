@@ -498,6 +498,7 @@ export function createMantleFx({ ground, boat, top }) {
   // the kettle's newest throw, off its shoot event: it is drawn on every throw, crust or no crust
   let pour = null      // { x, y, r, t }
   const gloves = []   // the Spring Glove's punches, off its punch events: { tx, ty, r, t, seed }
+  const stamps = []   // the Crack Hammer's poolless stamps, off its hammerStamp events: { x, y, r, t }
   let clock = 0
 
   // ---- the cels, made on first use (a few hundred ms, once, at the first frame) ----
@@ -602,9 +603,10 @@ export function createMantleFx({ ground, boat, top }) {
     for (const bp of [low, tools, ...boatPools]) { bp.begin(); bp.end() }
   }
   return {
-    reset() { pour = null; bursts.length = 0; pings.length = 0; gloves.length = 0; for (const g of GS) g.clear(); hideAll() },
+    reset() { pour = null; bursts.length = 0; pings.length = 0; gloves.length = 0; stamps.length = 0; for (const g of GS) g.clear(); hideAll() },
     event(e) {
       if (e.type === 'punch') { gloves.push({ tx: e.tx, ty: e.ty, r: e.r || GLOVE_BASE_R, t: 0, seed: Math.floor(Math.abs(e.tx * 3 + e.ty)) }); if (gloves.length > 12) gloves.shift(); return true }
+      if (e.type === 'hammerStamp') { stamps.push({ x: e.x, y: e.y, r: e.r, t: 0 }); if (stamps.length > 12) stamps.shift(); return true }
       if (e.type === 'shoot' && e.weapon === 'quenchKettle') { pour = { x: e.tx ?? e.x, y: e.ty ?? e.y, r: e.maxR || 100, t: 0 }; return false }
       if (e.type === 'coalBounce') { pings.push({ x: e.x, y: e.y, bumper: e.bumper || 0, ox: e.ox, oy: e.oy, t: 0 }); if (pings.length > 40) pings.shift(); return true }
       if (e.type !== 'melt' && e.type !== 'crumble' && e.type !== 'boatSink' && e.type !== 'steamBlast' && e.type !== 'hullCool') return false
@@ -638,7 +640,9 @@ export function createMantleFx({ ground, boat, top }) {
       }
 
       // ---- the hammer's stamp, drawn off each pool's first moments (the floor paints the pool itself) ----
-      for (const q of livePools) {
+      for (const s of stamps) s.t += dt
+      while (stamps.length && stamps[0].t >= 0.42) stamps.shift()
+      for (const q of [...livePools, ...stamps]) {
         if (q.t >= 0.42 || !onScreen(q.x, q.y, q.r * 2.2)) continue
         const sd = Math.floor(Math.abs(q.x * 3 + q.y * 5))
         if (q.t < 0.42) {

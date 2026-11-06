@@ -35744,6 +35744,7 @@ function testEventConsumers() {
     melt: 'drawn by src/toon/mantle-fx.js through the toon renderer\'s event hook (not a render.js case); NO sfx: a flood melts a whole hillside of rock creatures at once, and each dies through dealDamage, whose kill already sounds',
     crumble: 'drawn by src/toon/mantle-fx.js through the toon renderer\'s event hook; NO sfx: an ebb strands a crowd of lava creatures together, and each dies through dealDamage, whose kill already sounds',
     ophanImmune: 'drawn by src/ophan/renderer.js (the immune ring); several a second while mismatched, too often for a sound',
+    hammerStamp: 'drawn by src/toon/mantle-fx.js through the toon renderer\'s event hook; the cast\'s own shoot event carries the sound',
     coalBounce: 'drawn by src/toon/mantle-fx.js through the toon renderer\'s event hook (a ping star, a Bumper\'s flash); NO sfx: a pinball coal bounces several times a second',
   }
 
@@ -42863,11 +42864,12 @@ function testMantleGround() {
       const p = r.player
       const hug = body(r, p.x + 30, p.y, 'rock'), far = body(r, p.x - 250, p.y, 'rock')
       r.enemies.push(hug, far)
-      fire(r, 'crackHammer')
-      const q = r.lavaPools[0]
-      assert.ok(r.lavaPools.length === 1 && Math.hypot(q.x - far.x, q.y - far.y) < 1 && mantleGroundAt(r, p.x, p.y) === 0,
-        `run MG.f: the stamp skips the foe hugging you for the next closest, never under you: ${JSON.stringify(r.lavaPools.map((v) => [Math.round(v.x - p.x), Math.round(v.y - p.y)]))}, your ground ${mantleGroundAt(r, p.x, p.y)}`)
-      console.log(`PASS run MG.f (no pool under you): the stamp went to the foe 250px off, not the one 30px off`)
+      const hp0 = hug.hp, far0 = far.hp
+      const ev = fire(r, 'crackHammer')
+      assert.ok(hug.hp < hp0 && far.hp === far0 && r.lavaPools.length === 0 && mantleGroundAt(r, p.x, p.y) === 0,
+        `run MG.f: the stamp hits the foe hugging you and opens no pool: hug ${hp0} -> ${hug.hp}, far ${far0} -> ${far.hp}, ${r.lavaPools.length} pools, your ground ${mantleGroundAt(r, p.x, p.y)}`)
+      assert.ok(ev.some((v) => v.type === 'hammerStamp' && v.x === hug.x && v.y === hug.y), 'run MG.f: a poolless stamp must say where it landed, or nothing draws it')
+      console.log(`PASS run MG.f (no pool under you): the foe 30px off took ${hp0 - hug.hp} from the stamp, no pool opened`)
     } finally { sig.lavaTide = saved }
   }
 
@@ -44807,6 +44809,21 @@ function testOphanSketch() {
   const sa = CHAPTERS.ophan.sketchAttacks
   for (const k of sa) assert.ok(Object.hasOwn(OPHAN_ATTACKS, k), `s0: sketchAttacks names ${k}, which is no attack`)
   assert.deepStrictEqual([...new Set(sa)].sort(), Object.keys(OPHAN_ATTACKS).filter((k) => k !== 'slap').sort(), 's0: sketchAttacks is not every big attack')
+  // s0b no weapon of The Ophan's spends a shot on the frozen crowd: the sling and the ladle pick their own
+  // targets, so nearestEnemy's guard does not reach them. The frozen body stands closest, on +x
+  for (const id of ['sling', 'slagLadle', 'hotCoals']) {
+    const r = createRun(makeMeta(), { chapter: 'core' }), p = r.player
+    r.weapons = [{ id, level: 1 }]
+    r.enemies.length = 0
+    const frozen = makeStatusEnemy(r, { x: p.x + 150, y: p.y, hp: 1e9, speed: 0 }), real = makeStatusEnemy(r, { x: p.x, y: p.y + 300, hp: 1e9, speed: 0 })
+    frozen._scribbleT = 1e9
+    r.enemies.push(frozen, real)
+    r.weaponTimers[id] = 0
+    stepSim(r, { x: 0, y: 0 }, 1 / 60)   // one step: the chapter's own spawns must not join in
+    const b = r.bullets[0], l = r.magmaLobs[0]
+    const dir = b ? [b.vx, b.vy] : l ? [l.x - p.x, l.y - p.y] : null
+    assert.ok(dir && dir[1] > 0 && Math.abs(dir[0]) < dir[1] * 0.1, `s0b: ${id} aimed at ${dir}, not at the real foe on +y past the frozen one`)
+  }
   // s1 the sketch, not a win: the crowd swept unpaid and never walking in again; its own bar, no pills
   let swept = 0
   {
