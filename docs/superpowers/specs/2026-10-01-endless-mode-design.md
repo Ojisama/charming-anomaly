@@ -17,7 +17,7 @@ how long you lasted. Ranked on a per-chapter leaderboard.
 | Crowd affixes | **Every affix ungated for ordinary enemies** |
 | Caps on speed or crowd size | **None for now; judge in playtest** |
 | Revive consumable | **Allowed** |
-| Coins | **No cap; the drop chance is 1 / (2 x minutes), a coin keeps its full value (owner, 2026-11-05)** |
+| Coins | **No cap; drops are full until 5:00, then the drop chance is 1 / (0.75 x minutes), a coin keeps its full value (owner, 2026-11-06)** |
 | Leaderboard key | `difficulty: 0` as the endless partition |
 | Entry point | An ∞ pip after the D1–D5 pips |
 
@@ -81,7 +81,7 @@ endlessLevel(t) = 1 + ENDLESS_RAMP_A * m + ENDLESS_RAMP_B * m * m     // m = run
 ### Coins
 
 - `difficultyCoinMul` stays at 1 in endless. `coinMul` does not decay: every coin picked up visibly pays.
-- Every coin drop is rolled at `endlessCoinDropMul(run.time)` = `min(1, 1 / (2 m))`, on top of `coinChance`.
+- Every coin drop is rolled at `endlessCoinDropMul(run.time)`, on top of `coinChance`: 1 until 5:00, then `1 / (0.75 m)`.
 - **`COIN_CAP_PER_RUN` does not apply in endless**, either in `stepPickups` or in `endRun`.
 - The kill bonus (main.js:749) uses `difficultyCoinMul(1)` in endless.
 - The kill bonus still grows like `sqrt(kills)`.
@@ -216,7 +216,7 @@ Load `probing-the-game` first.
    `Object.keys(CHAPTERS)` and print the denominator.
 8. **`endRun`:** `won`, `maxDifficulty` and `meta.best.time` are untouched, and `endlessBest` is
    updated.
-9. **Coins:** at t = 240 an eighth as many coins drop as at t = 0, each paying its full value. Endless can bank more than
+9. **Coins:** t = 240 drops in full; t = 600 drops 1 / 7.5 as many, each paying its full value. Endless can bank more than
    `COIN_CAP_PER_RUN`; a normal run cannot.
 10. **The 0 → 1 trap:** `endlessPicked` survives `ensureChapterMeta`, and the submitted payload
     carries `difficulty: 0`.
