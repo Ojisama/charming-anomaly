@@ -42358,7 +42358,7 @@ function testMantleHabitat() {
   // moves, it sweeps the shore under a creature after the hold has run, which is the tide catching
   // it and not the creature walking. A toad's leap out of the lava is the one licensed exit.
   {
-    const r = boot(52001)
+    const r = boot(52002)   // rock sightings swing 19-113 by seed: this one sees 82, well clear of the floor below
     r.weapons = []
     let checked = 0, broke = 0, lavaSeen = 0, rockSeen = 0, seatedLava = 0, seatedRock = 0
     const seen = new Set()
